@@ -1,0 +1,615 @@
+@echo off
+SetLocal
+
+REM Initialize
+set CheckHost=
+set IntelApps= 
+set IntelNetworkApps=lync
+set IntelWigginNetworkApps=
+set NonIntelNetworkApps=
+set IntelHosts=
+set AdHosts=
+REM vmsdcud7013
+
+set ControlCenterProgram=%programs32\Intel\Intel Control Center\IntelControlCenter.exe
+set RapidStorageProgram=%programs32\Intel\Intel(R) Rapid Storage Technology\IAStorUI.exe
+set DesktopUtilitiesProgram=%programs32\Intel\Intel Desktop Utilities\intelmain.exe
+set SsdToolboxProgram=%programs32\Intel\Intel(R) Solid-State Drive Toolbox\Intel SSD Toolbox.exe
+set TuningProgram=%programs32\Intel\Intel Extreme Tuning\Client\PerfTune.exe
+set TuningProgram3=%programs32\Intel\Extreme Tuning Utility\Client\PerfTune.exe
+
+REM Connect - "AMR Folsom CA" (best speed Circuit/ease, Sharepoint in OR), " IntelNetwork" must have a leading space
+set ConnectTo=AMR Folsom CA
+
+REM Intel connection using Cisco VPN from Hawthorn suites required 2000ms (was 300ms)
+set delay=3000
+
+REM VPN
+set VpnUi=%programs32\Cisco\Cisco AnyConnect Secure Mobility Client\vpnui.exe
+set VpnCli=%programs32\Cisco\Cisco AnyConnect Secure Mobility Client\vpncli.exe
+
+REM Intel Software Supply - amr.corp.intel.com, was amr, fmsisslan02, rrsisslan02
+set iss=\\amr.corp.intel.com\iss\Olwnprod\WinOs\Apps
+set IssTest=\\rrsisslan02\isstest\WinOs\Apps
+
+REM Intel Secuirty Checker
+REM - archive: %programs32\Intel Security Checker\IntelSecurityChecker.exe
+set isc=%programs32\BigFix Enterprise\BES Client\TriggerClientUI.exe
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=cd
+iff %# gt 0 .and. IsLabel %1 then
+  set command=%1
+  shift
+endiff
+
+iff not IsLabel %command goto usage
+
+REM Run command
+gosub %command
+
+REM Pause for errors in transient shells
+if %_? != 0 .and. %_TRANSIENT == 1 pause
+
+quit %_?
+
+:usage
+text 1>&2
+intel [startup|close|IsIntelHost|PhoneSettings|AddPrinter](cd)
+  cleanup|CleanupDirectories|CleanupStartMenu|update
+  start|stop|auto|demand|enable
+  BigFix [start|stop|status|auto|enable|demand|disable](status)
+  HostOn [force]
+  isc [start](start) - Intel Security Checker
+  iss [<product>|web|start|stop|enable|auto|demand|disable]
+  terminus [start|stop|status|enable|auto|demand|disable](status)
+  vpn [on|off|connect|disconnect|close|status|ui|hosts|cleanup](ui)
+  ControlCenter|RapidStorage|DesktopUtilities|SsdToolbox|tuning
+endtext
+quit 1
+
+:startup
+:start
+
+call app startup %IntelApps
+
+echos Checking for Wiggin network...
+iff %@OnNetwork[Wiggin %delay] == 1 then 
+	echo present.
+	call app startup %IntelWigginNetworkApps
+else
+  echo not present.
+	call app close %IntelWigginNetworkApps
+endiff
+
+echos Checking for Intel network...
+iff %@OnNetwork[Intel %delay] == 1 then
+  echo present.
+	
+	call app close %NonIntelNetworkApps
+	call app startup %IntelNetworkApps
+	
+	gosub HostOn
+	
+else
+  echo not present.
+	call app close %IntelNetworkApps
+	call app startup %NonIntelNetworkApps 
+endiff
+
+REM Initialize for network changes
+call network initialize
+
+return
+
+:close
+call app close %IntelApps
+call app close %IntelNetworkApps
+call app close %NonIntelNetworkApps 
+call app close CiscoIpCommunicator
+return 0
+
+:vpn
+
+iff not exist "%VpnUi" then
+  echo VPN is not installed.
+  quit 1
+endiff
+
+set VpnCommand=VpnUi
+iff %# != 0 then
+  set VpnCommand=Vpn%1
+  shift
+endiff
+
+iff not IsLabel %VpnCommand goto usage
+
+gosub %VpnCommand
+
+return %_?
+
+:VpnCleanup
+
+REM Delete Cisco AnyConnect VPN Agent for Windows - "C:\Program Files (x86)\Cisco\Cisco AnyConnect VPN Client\vpnui.exe" -autolaunched
+REM Hold on cleanup - is this causing VPN reset issues after wake?
+REM call registry 32 delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\Cisco AnyConnect VPN Agent for Windows"
+return %?
+
+:VpnClose
+gosub VpnDisconnect
+REM call task CloseKill title "Cisco AnyConnect Secure Mobility Client" "%VpnUi"
+pskill %@FileName["%VpnUi"]
+return
+
+:VpnUi
+start /pgm "%VpnUi"
+gosub VpnCleanup
+return
+
+:VpnStatus
+"%VpnCli" status
+return
+
+:VpnHosts
+"%VpnCli" hosts
+return
+
+:VpnConnect
+
+REM Arguments
+set VpnPassword=
+iff %# == 1 Then
+  set VpnPassword=%1
+  shift
+endiff
+
+if %# != 0 goto usage
+
+REM Key the connection information and  connect
+KeyStack /W100 enter %@if[ "%VpnPassword" != "" ,"%VpnPassword" enter]
+"%VpnCli" connect "%ConnectTo"
+
+return
+
+:VpnDisconnect
+"%VpnCli" disconnect
+return %?
+
+:VpnOn
+
+REM Connect if not connected to the Intel network
+iff %@OnNetwork[Intel %delay] == 0 then
+
+	REM Close the GUI client
+	gosub VpnClose
+
+	gosub VpnConnect
+
+	REM Wait for connect
+	call network info Intel
+	call host available %ip 500 wait 60
+	if %? != 0 return 1
+
+endiff
+
+gosub startup
+
+return
+
+:VpnOff
+
+iff %@OnNetwork[Intel %delay] == 1 then
+	gosub VpnDisconnect
+endiff
+
+gosub startup
+
+return
+
+:iss
+
+set dir=%iss
+iff "%1" == "test" then
+	set dir=%IssTest
+	shift
+endiff
+
+iff %# == 0 then 
+	cde "%dir"
+	endlocal /d
+	return 0
+endiff
+
+set command=%1
+shift
+
+iff IsLabel Iss%command then
+	gosub Iss%command
+else
+	gosub IssProduct
+endiff
+
+return %_?
+
+:IssProduct
+
+set product=%command
+set dir=%dir\%product
+
+iff IsDir "%dir" then
+  cdd %dir
+else
+  echo ISS application %product does not exist.
+  return 1
+endiff
+
+EndLocal /d
+
+return 0
+
+:IssWeb
+gosub BigFixStart
+call InternetExplorer http://iss.intel.com
+return 0
+
+:IssStart
+:IssStatus
+:IssStop
+:IssAuto
+:IssDemand
+:IssDisable
+if %@ServiceExist[IssUser] == 0 return 1
+call service %command IssUser
+return
+
+:BigFix
+
+if %@ServiceExist[besclient] == 0 return 1
+
+set command=Status
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel BigFix%command goto usage
+
+gosub BigFix%command
+return %_?
+
+:BigFixStart
+:BigFixStatus
+:BigFixStop
+:BigFixAuto
+:BigFixDemand
+:BigFixDisable
+call service %command besclient
+return
+
+:terminus
+
+set command=Status
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Terminus%command goto usage
+
+gosub Terminus%command
+return %_?
+
+:TerminusStart
+:TerminusStatus
+:TerminusStop
+:TerminusAuto
+:TerminusDemand
+:TerminusDisable
+if %@ServiceExist[rasc] == 0 return 1
+call service %command rasc
+return
+
+REM Intel Security Checker
+:isc
+:update
+:checker
+:SecurityChecker
+
+set command=Start
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Isc%command goto usage
+
+gosub Isc%command
+return %_?
+
+:IscStart
+:update
+if %# != 0 goto usage
+start /pgm "%isc"
+return
+
+:cleanup
+gosub CleanupPrograms
+gosub CleanupDirectories
+gosub CleanupStartMenu
+gosub CleanupRegistry
+return
+
+:CleanupPrograms
+call ask `Cleanup programs?` n 2
+if %? == 0 return
+echo - Remove: Adobe Reader, WinZip
+call os programs
+pause
+return
+
+:CleanupDirectories
+
+echo Cleaning Intel directories...
+call os.btm init
+
+call MakeLink merge "%UserDocuments\data\PGP" hide "%UserDocuments\PGP"
+call MakeLink merge "%UserDocuments\data\bluetooth" hide "%UserDocuments\Bluetooth Exchange Folder"
+call MakeLink merge "%UserData\IntelProfileSnapshot" hide "%UserDocuments\ProfileSnapshot"
+call MakeLink merge "%UserData\Communicator" hide "%UserHome\Tracing"
+
+call DelFile "c:\build.ini"
+call DelFile "c:\HPCamDrv.log"
+call DelFile "c:\Regionalization.xml"
+call DelFile "c:\WinZip*.log"
+
+call DelDir "c:\Apps"
+call DelDir "c:\system.sav"
+call DelDir "c:\PerfLogs"
+call DelDir contents "c:\Drivers"
+call DelDir "%UserHome\Roaming"
+
+attrib /d +h c:\Drivers
+attrib /d +h c:\Intel
+
+return
+
+:CleanupStartMenu
+
+echo Cleaning Intel start menu items...
+call os init
+
+call install.btm OfficeIcons
+call install.btm SilverlightIcons
+
+set d=%pp\Operating System\Other\Intel
+call MakeDir "%d\Other"
+
+call MergeDir /e /rename "%pp\Intel" "%d"
+call MergeDir /q /rename "%up\Intel" "%d"
+
+call DelFile "%pd\AddaPrinter.lnk"
+call DelFile "%pd\Adobe Reader 9.lnk"
+call DelFile "%pd\AnyConnect User Guide.lnk"
+call DelFile "%pd\Connected BackupPC.lnk"
+call DelFile "%pd\Intel Security Checker.lnk"
+call DelFile "%pd\Intel SSD Encryption.lnk"
+call DelFile "%pd\Wellnomics WorkPace.lnk"
+call DelFile "%pd\Windows 7 Learning Page.lnk"
+
+call MergeDir /q "%pp\Autonomy" "%pp\Operating System\Other"
+call MergeDir /e "%pp\Cisco" "%pp\Operating System\Other"
+call MergeDir /e "%pp\Intel PROSet Wireless" "%pp\Operating System\Other"
+call MergeDir /e "%pp\McAfee" "%pp\Operating System\Other"
+call MoveFile "%pp\SRS Premium Sound.lnk" "%pp\Operating System"
+call MergeDir /e "%pp\Wellnomics WorkPace 4.1" "%pp\Applications\Other"
+
+call DelFile "%pp\Startup\Bluetooth.lnk"
+call DelFile "%pp\Startup\Wellnomics WorkPace.lnk"
+
+call DelFile "%psm\Cisco AnyConnect Secure Mobility Client.lnk"
+call MoveFile "%psm\Intel Security Checker.lnk" "%pp\Operating System"
+
+call MergeDir /e "%up\Cisco" "%pp\Operating System\Other"
+
+return 0
+
+
+:CleanupRegistry
+
+echo Cleaning Intel registry...
+
+set key=HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+set key32=HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Run
+
+REM Delete McAfeeUpdaterUI - "C:\Program Files\McAfee\Common Framework\UdaterUI.exe" /StartedFromRunKey
+call registry delete "%key\McAfeeUpdaterUI"
+
+REM Delete ErmTray - "C:\Program Files\Intel\Security\ERM\Win64\ErmTray.exe"
+call registry delete "%key\ErmTray"
+
+REM McAfee Host Intrusion Prevention Tray - C:\Program Files\McAfee\Host Intrusion Prevention\FireTray.exe
+call registry delete "%key\McAfee Host Intrusion Prevention Tray"
+
+REM PGPTray.exe - "C:\Program Files\Intel\Security\PGP\IntelPgpTray.exe"
+call registry delete "%key\PGPTray.exe"
+
+REM AgentUiRunKey - "C:\Program Files (x86)\Iron Mountain\Connected BackupPC\Agent.exe" -ni -sss -e http://localhost:16386/
+call registry 32 delete "%key32\AgentUiRunKey"
+
+REM BCSSync - "C:\Program Files (x86)\Microsoft Office\Office14\BCSSync.exe" /DelayServices
+call registry 32 delete "%key32\BCSSync"
+
+REM Cisco AnyConnect Secure Mobility Agent for Windows - "C:\Program Files (x86)\Cisco\Cisco AnyConnect Secure Mobility Client\vpnui.exe" -autolaunched
+call registry 32 delete "%key32\Cisco AnyConnect Secure Mobility Agent for Windows"
+
+REM Delete Communicator - "C:\Program Files (x86)\Microsoft Lync\communicator.exe" /fromrunkey
+call registry 32 delete "%key32\Communicator"
+
+REM - McAfeeUpdaterUI - "C:\Program Files (x86)\McAfee\Common Framework\udaterui.exe" /StartedFromRunKey
+call registry 32 delete "%key32\McAfeeUpdaterUI"
+
+REM QLBController - C:\Program Files (x86)\Hewlett-Packard\HP HotKey Support\QLBController.exe /start
+call registry 32 delete "%key32\QLBController"
+
+REM ShStatEXE - C:\Program Files (x86)\McAfee\VirusScan Enterprise\SHSTAT.EXE /STANDALONE
+call registry 32 delete "%key32\ShStatEXE"
+
+REM Delete SunJavaUpdateSched - "C:\Program Files (x86)\Common Files\Java\Java Update\jusched.exe"
+call registry 32 delete "%key32\SunJavaUpdateSched"
+
+return
+
+:IsIntelHost
+
+set host=%ComputerName
+iff %# gt 0 then
+	set host=%1
+	shift
+endiff
+
+if %# != 0 goto usage
+
+iff "%host" == "%ComputerName" then
+	echo %@if["%@HostInfo[%host,network]" == "Intel" .or. "%UserDomain" == "amr",1,0]
+else
+	echo %@if["%@HostInfo[%host,network]" == "Intel",1,0]
+endiff
+
+return
+
+:CopyFile
+if exist "%file" copy /q "%file" "%dest"
+return
+
+:DelFile
+if exist "%file" del /q /z "%file"
+return
+
+:MoveFile
+iff IsFile "%file" then
+	move /q /e "%file" "%dest"
+endiff
+return
+
+REM Only stop services if required to, ensure disconnected from all networks 
+:stop
+call VirusScan service stop
+call intel BigFix stop
+call intel iss stop
+call intel terminus stop
+return
+
+:start
+call VirusScan service start
+call intel BigFix start
+call intel iss start
+call intel terminus start
+return
+
+:auto
+:enable
+call VirusScan service auto
+call VirusScan hip on
+call intel BigFix auto
+call intel iss auto
+call intel terminus auto
+return
+
+:demand
+call VirusScan service demand
+call VirusScan hip off
+call intel BigFix demand
+call intel iss demand
+call intel terminus demand
+return
+
+:HostOn
+
+REM Arguments
+set force=
+iff "%1" == "force" then
+	set force=true
+	shift
+endiff
+
+REM Return if we are already connected to the first host
+iff not defined force then
+	net use | egrep -i  %@field[0,%IntelHosts %AdHosts] >& nul:
+	if %? == 0 return
+endiff
+
+for host in (%IntelHosts %AdHosts) (
+		
+	echo Connecting to %host...
+	
+	REM Determine how to connect to the host
+	set command=%@if[ %@IsInList[%host %AdHosts] == 1 ,IpcOnAd,IpcOn]
+
+	REM Remove connections from a different account
+	call IpcOff %host >& nul:
+	
+	REM Add a connection from the ad account
+	%command %host >& nul:
+	iff %? != 0 then
+		EchoErr Unable to make the connection to %host.
+		%command %host
+	endiff
+		
+)
+
+return
+
+:PhoneSettings
+if %@OnNetwork[Intel %delay] == 0 return
+echo - Line Settings, check Forward all calls to, This Number=915052173713, Save
+echo %@ClipW[915052173713] >& nul:
+ShellRun https://nmphonesettings.intel.com/ccmuser/deviceRedirect.do
+return
+
+:DesktopUtilities
+
+REM Start services - normally stopped to prevent audio stutter
+call service start "Intel(R) Desktop Boards FSC Application Service"
+call service start "IduService"
+
+start /pgm "%DesktopUtilitiesProgram"
+pause 
+
+REM Start services - normally stopped to prevent audio stutter
+call service stop "Intel(R) Desktop Boards FSC Application Service"
+call service stop "IduService"
+
+return
+
+:tuning
+
+call service start XTUService
+
+start /pgm "%TuningProgram"
+pause
+
+call service stop XTUService
+
+return
+
+:ControlCenter
+start /pgm "%ControlCenterProgram"
+return
+
+:SsdToolbox
+start /pgm "%SsdToolboxProgram"
+return
+
+:RapidStorage
+start /pgm "%RapidStorageProgram"
+return
+
+:AddPrinter
+text
+- Enter a Printer Address...
+- Printer Address=10.14.32.211 (rrp53b4pbbs.rr.intel.com)
+- Check Add this printer to my Printers and Faxes folder
+- Name=rr5, Job Storage PINT to print=0000
+endtext
+rundll32.exe printui.dll,PrintUIEntry /p /n"HP Universal Printing PCL 5"
+start /pgm "%programs32\Intel\AddaPrinter\AddaPrinter.exe"
+return

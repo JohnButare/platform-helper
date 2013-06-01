@@ -1,0 +1,4023 @@
+@echo off
+SetLocal
+
+gosub init
+
+REM Run the command
+gosub %command
+set result=%_?
+
+EndLocal /d SharedDocuments result TfsPassword
+
+quit %result
+	
+:usage
+text 1>&2
+usage: [5.3|5.4|5.5] [command](cd) [<host>](localhost) [<sites>|select|all](SabaSite)
+  <host>: Hostname or alias (01|02|build|dev|test|bm1-2|p1-4)
+
+  app|build|cd|code|dev|db|index|install|log|service|cleanup|run|search|check|backup|restore [/?]
+  config AlternateSource|build|content|db|DeepLink|ejb|jakarta|log|notification|service|site|sso|UserConfig|WebLog
+  name web|app|content - display the physical server name for the specified tier
+  site [create|config|list](list)
+  tfs [checkin|checkout|clean|update|init|scorch|status](update)
+  signal|stop|ftp|iftp
+endtext
+quit 1
+
+endtext
+quit 1
+
+REM
+REM Helper
+REM 
+
+:init
+
+REM Initialize
+on break cancel 1
+set host=
+set AlternateSource=
+set site=
+set sites=
+set SiteList=
+set InstallDir=
+set InstallPrefix=data\install\saba
+
+set hosts=vmSlearning02 vmSlearning03 vmSlearning04 vmSlearning05 vmSlearning06
+set ProdWebHosts=fm1smlnpd1 fm1smlnpd2 fm1smlnpd3 fm1smlnpd4
+set ProdAppHosts=fm1smlnpd1 fm1smlnpd2 fm1smlnpd3 fm1smlnpd4
+
+set JbossOnly=
+set RcOpts=/E /R:2 /W:2 /njh /njs /ndl /xf javadoc.zip
+set SabaVersions=5.3 5.4 5.5
+set JakartaKey=HKLM\SOFTWARE\Apache Software Foundation\Jakarta Isapi Redirector\1.0
+
+REM saba.jar is contianed in saba.ear, but is used from the %SabaWeb\lib folder directly
+set CodeCustomFiles=AlternateSource.zip customization.jar
+set CodeLibFiles=saba.ear saba.jar saba_content_server.ear sabasecurity.jar
+set CodeResourceFiles=sabares.jar JSQLConnect.jar
+set CodeOtherFiles=key_generator.jar SabaDbInstaller.jar SabaJdbc.jar SabaReportDataSource.jar SabaReportServer.ear ^
+	SabaSecurityProviders.jar SabaWebsphereRegistry.jar sspauth.dll VleConnector.jar
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set version=5.5
+iff %@IsInList[%1 %SabaVersions] == 1 then
+	set version=%1
+	shift
+endiff
+
+set command=cd
+iff %# gt 0 .and. IsLabel %1 then
+  set command=%1
+  shift
+endiff
+
+if not IsLabel %command goto usage
+
+REM Post argument initialization
+set VersionBare=%@replace[.,,%version]
+set CodePrefix=%@if[ "%ComputerName" == "jjbutare-desk1" .or. "%ComputerName" == "jjbutare-mobl3" ,o:\code,c:\code]
+set CodeDir=`%CodePrefix\saba%version`
+Set SrcDir=`%CodeDir\image\saba-%CodeVersion-src`
+set CustomPages=`%CodeDir\CustomPages`
+set BuildFile=`%CustomPages\customization.xml`
+set EclipseVersion=3.0.2
+
+set BlankDatabase=`%InstallDir\%version\image\database\saba-db-blank.bak.7z`
+set VanillaDatabase=`%InstallDir\%version\image\database\saba-db-%CodeVersion.bak.7z`
+set VanillaCode=`%InstallDir\%version\image\code\saba-%CodeVersion-wrapped.7z`
+set VanillaCodeUnwrapped=`%InstallDir\%version\image\code\saba.ear-%CodeVersion-unwrapped.zip`
+set PatchDir=`%InstallDir\%version\setup\patch`
+
+set SabaLib=`%SabaWeb\lib`
+set SabaResources=`%SabaWeb\resources`
+set SabaWebLog=`%DeployDir\jboss-web.deployer\server.xml`
+
+set JbossDir=`%SabaWeb\JBoss_Tomcat`
+set JbossBin=`%JbossDir\bin`
+set JbossLib=`%JbossDir\server\default\lib`
+set DeployDir=`%JbossDir\server\default\deploy`
+set RepositoryDir=`%JbossDir\bin\repository`
+set DefaultLogConfig=`%JbossDir\bin\log4sabaconfig.properties`
+set RunningLogConfig=`%JbossDir\bin\tempconfig.properties`
+set MonitoringConfig=`%SabaWeb\properties\monitoring.properties`
+set DeepLinkConfig=`%SabaWeb\properties\deepLinkConfig.xml`
+set out=`%JbossDir\server\default\log\SystemOut.log`
+
+set SetupDir=`%InstallDir\%version\setup\base`	
+
+REM Search
+set SearchDir=`%SabaWeb\FullTextIndexForSearch`
+set NsSearchDir=`%SabaWeb\FullTextSearch`
+set KcSearchDir=`%SearchDir\%site\local000000000000001\KnowledgeCenterIndex`
+set NsKcSearchDir=`%NsSearchDir\%site\local000000000000001\KnowledgeCenterIndex_N`
+
+REM Services
+set JbossServiceName=Saba%VersionBare
+set ConnectorServiceName=Saba Connector
+set NotificationServiceName=SabaNotification%VersionBare
+
+REM Version specific
+switch %version
+
+case 5.5
+	set CodeVersion=5.5.0.1
+	set ImageFiles="code\saba-5.5.0.1-src.7z" "code\jboss-4.2.2.GA-src.7z" "code\lucene-2.4.1-src.7z"
+	set DbInstallCommands=5500-install.sdx
+		
+case 5.4
+	set CodeVersion=5.4.3.1
+	set JbossServiceName=Saba-JBoss422
+	set NotificationServiceName=Saba Notification Server
+	set ImageFiles="code\saba-5.4.3.1-src.7z" "code\jboss-4.2.2.GA-src.zip" "code\lucene-2.3.1-src.zip"
+	set SetupDir=`%InstallDir\%version\setup\sp3.base`	
+	set DbInstallCommands=5410-install.sdx multiupgrade.sdx
+	
+case 5.3
+	set CodeVersion=sp1
+	set JbossServiceName=Saba-JBoss321
+	set NotificationServiceName=Saba Notification Server
+	set EclipseVersion=3.0
+	set ImageFiles="code\sp1.7z" "database\sp1.zip" "code\JBoss v3.2.4.7z"
+	set out=`%JbossDir\bin\out.txt`
+	set SetupDir=`%InstallDir\%version\setup\setup`
+	set DbInstallCommands=install.sdx
+	set SabaWebLog=`%DeployDir\jbossweb-tomcat.sar\META-INF\jboss-service.xml`
+
+endswitch 
+
+REM Leave the connector service off the full list of services since it is not used at this point in time
+set AllServiceAliases=JBoss notification
+set AllServiceNames="%JbossServiceName" "%NotificationServiceName"
+
+return
+
+:run
+
+REM Slower if call InitLocalAppHost
+set host=%ComputerName
+gosub GetAppHost false
+if %_? != 0 return %_?
+
+REM Arguments
+
+set command=run
+iff %# != 0 then
+	set command=%1
+	shift
+endiff
+
+REM Command aliases
+switch "%command"
+case "notify"
+	set command=StartManager
+endswitch
+
+REM Assume bat extension for the command if not specified
+iff "%@ext[%command]" == "" then
+	set command=%command.bat
+endiff
+
+REM Determine the location of the batch file to run
+iff IsFile "%SabaWeb\bin\%command" then
+	set dir=%SabaWeb\bin
+elseiff IsFile "%JbossDir\bin\%command" then
+	set dir=%JbossDir\bin
+elseiff IsFile "%SabaWeb\SabaNotify\%command" then
+	set dir=%SabaWeb\SabaNotify
+elseiff IsFile "%SabaWeb\JBoss_Tomcat\sabainfo\%command" then
+	set dir=%SabaWeb\JBoss_Tomcat\sabainfo
+else
+	echo The %command command does not exist.
+	return 1
+endiff
+
+REM If break the command quit the batch file
+on break quit
+
+REM Run the command - ensure comment out line 28 of userconfig.bat to avoid error or run command with cmd /c
+pushd "%dir"
+cmd /c call %command %$
+popd
+
+return
+
+:stop
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+REM Shutdown the specified server by accessing it's JNDI port, which for Saba defaults to 11099
+set args=--server=%host:11099
+
+gosub InitLocalAppHost
+if %_? != 0 return %_?
+
+call saba.btm %version run shutdown %args
+return
+
+REM GetInstallDir - set InstallDir to the Saba installation location
+:GetInstallDir
+
+REM Return if InstallDir has already been obtained
+if "%InstallDir" != "" return 0
+
+call FindPublicDoc "%InstallPrefix"
+if %? != 0 return 1
+
+set InstallDir=%file
+
+return 0
+
+:GetHostArg
+
+set host=%ComputerName
+iff %# != 0 then
+
+	REM Return if the argument is a local site
+	if "%1" == "all" .or. "%1" == "select" return 0
+	
+	REM Return if the argument is a local site
+	gosub GetSabaWeb %ComputerName true
+	if %_? == 0 .and. IsDir "%SabaWeb\web\%1" return 0
+	
+	set host=%1
+	shift
+	
+endiff
+
+return 0
+
+REM Get common host aliases
+:GetHostAlias
+
+REM Resolve host aliases
+switch %host
+
+	REM Local
+	case localhost .or. %ComputerName
+		set host=%ComputerName
+		
+	REM Physical sandbox
+	case 01
+		set host=vmstdcir001
+	case 02
+		set host=vmstacir002
+	case 03
+		set host=vmstwcir002
+	case 03
+		set host=vmstwcir003
+
+	REM Virtual sandbox
+	case v1
+		set host=vmslearning01
+	case v2
+		set host=vmslearning02
+	case v2
+		set host=vmslearning02
+	case v3
+		set host=vmslearning03
+	case v4
+		set host=vmslearning04
+	case v5
+		set host=vmslearning05
+	case v6
+		set host=vmslearning06
+
+endswitch
+
+return
+
+:GetAppHost [GetArg ValidateHostArg]
+
+REM Return if we need to get the host argument but already have a host 
+if "%GetArg" != "false" .and. defined host return 0
+
+REM Arguments
+if "%GetArg" != "false" gosub GetHostArg
+set ValidateHost=%@if[ "%ValidateHostArg" == "false" ,,true]
+
+REM Initialize
+set HostAlias=%host
+
+REM Resolve application host aliases
+switch %host
+	
+	REM Local
+	case localhost .or. %ComputerName
+		set host=%ComputerName
+
+	REM Development
+	case dev
+		set host=vmstagen009
+	
+	REM Test
+	case test .or. t1 .or t2
+		set host=vmstagen008
+	
+	REM Benchmark
+	case bm1
+		set host=fmsgenituxg
+	case bm2
+		set host=fmsgenituxh
+	
+	REM Production
+	case p1
+		set host=fm1smlnpd1
+	case p2
+		set host=fm1smlnpd2
+	case p3
+		set host=fm1smlnpd3
+	case p4
+		set host=fm1smlnpd4
+		
+	default
+		gosub GetHostAlias
+
+endswitch
+
+gosub GetHostFinal %ValidateHost
+if %_? != 0 return %_?
+
+gosub GetSabaWeb %host
+return %_?
+
+REM Get the SabaWeb directory for the specified host
+:GetSabaWeb [host quiet]
+
+iff "%host" != "%ComputerName" .and. ("%UserDomain" != "AMR" .or. "%@left[3,%UserName]" == "ad_") then
+	call host prepare %host
+	iff %? != 0 then
+		EchoErr Unable to prepare a connection to %host.
+		return 1
+	endiff
+endiff
+	
+iff "%host" == "%ComputerName" .or. "%host" == "localhost" then 
+	set dirs=c:\SabaWeb%version d:\SabaWeb%version c:\SabaWeb d:\SabaWeb "c:\Program Files\SabaWeb%version" "d:\Program Files\SabaWeb%version"
+else
+	set dirs=\\%host\SabaWeb%version \\%host\SabaWeb \\%host\c$\SabaWeb%version \\%host\c$\SabaWeb \\%host\d$\SabaWeb%version \\%host\d$\SabaWeb
+endiff
+
+REM Check dirs
+set SabaWeb=
+for dir in (%dirs) (
+	iff IsDir %@quote[%dir] then
+		set SabaWeb=%@UnQuote[%dir]
+		LeaveFor
+	endiff
+)
+
+iff "%SabaWeb" == "" then
+	if "%quiet" != "true" EchoErr Unable to locate %version SabaWeb on %host.
+	return 1
+endiff
+
+return 0
+
+REM GetAlternateSource - sets AlternateSource to the alternate source for the site
+REM Attempts to locate the alternate source directory using a well known location, does not read the actual alternate source configuration value.
+:GetAlternateSource
+
+REM Return if we already have an found the alternate source
+if defined AlternateSource return 0
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+set dirs=
+iff "%host" == "%ComputerName" .or. "%host" == "localhost" then 
+	set dirs=%dirs %CustomPages\web c:\code\MyLearning\CustomPages\web
+else
+	set dirs=%dirs \\%host\c$\code\saba%version\CustomPages\web \\%host\c$\code\MyLearning\CustomPages\web
+endiff
+
+REM Add default directory last so the alternate source files in the code directory are found first
+set dirs=%dirs %SabaWeb\custom\client\web
+
+REM Check dirs
+set AlternateSource=
+for dir in (%dirs) (
+	iff IsDir %@quote[%dir] then
+		set AlternateSource=%@UnQuote[%dir]
+		LeaveFor
+	endiff
+)
+
+return %@if[ defined AlternateSource ,0,1]
+
+
+:IsInstalled
+gosub GetSabaWeb %ComputerName true
+return %@if[ %_? == 0 ,1,0]
+
+REM GetHostFinal - final steps for finding a Saba host
+REM - ValidateHost : if true, 
+:GetHostFinal [ValidateHost]
+
+iff "%HostAlias" == "%host" then
+	set HostDesc=%host
+else
+	set HostDesc=%HostAlias (%host)
+endiff
+
+iff defined ValidateHost .and. "%host" != "%ComputerName" .and. "%host" != "LocalHost" then
+	iff %@IsHostAvailable[%host 1000] == 0 then
+		echo %host is not available.
+		set host=
+		return 1
+	endiff
+endiff
+
+return
+
+REM GetSite - Sets site to the site specified on the command line  or by prompting. 
+:GetSite
+
+REM Return if we already have a site
+if "%site" != "" return 0
+
+REM Initialize
+set site=SabaSite
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+REM Get the site from the command line.  If site is select then prompt for the site.  Otherwise, default to SabaSite prompt only if non-default sites are present.
+REM Default sites are SabaSite and DemoSite.
+iff %# != 0 .and. "%1" != "select" then
+	set site=%1
+	shift
+		
+REM If there are more than one sites  then prompt the user for the sites.  The default sites are SabaSite and DemoSite.
+else
+	set NumSites=%@NumDirs["%SabaWeb\web\*"]
+	
+	REM If only the default sites are present use SabaSite
+	iff %NumSites == 2 .and. IsDir "%SabaWeb\web\DemoSite" .and. IsDir "%SabaWeb\web\SabaSite" .and. "%1" != "select" then
+		set site=SabaSite
+	
+	REM If there is only one site use the only site use it
+	elseiff %NumSites == 1 .and. "%1" != "select" then
+		set site=%@FindFirst["%SabaWeb\web\*",+d]
+		
+	REM Choose the site
+	elseiff %NumSites gt 1 .or. "%1" != "select" then
+	
+		if "%1" == "select"	shift
+		
+		set site=
+		select /a:+d /h set site=("%SabaWeb\web\*")
+		set site=%@FileName[%site]
+		
+	endiff
+endiff
+
+set SiteDir=%SabaWeb\web\%site
+
+REM Validate the site
+
+iff "%site" == "" then
+	echo A site was not selected.
+	return 1
+endiff
+
+iff not IsDir "%SiteDir" then
+	echo Site %site does exist on %HostDesc.
+	return 1
+endiff
+
+return 0
+
+REM GetSites - Sets sites to the site or all sites specified on the command line  or by prompting.
+:GetSites
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+REM Get sites
+iff %# == 0 .or. "%1" == "all" then
+	shift
+	
+	gosub GetSiteList
+	if %_? != 0 return %_?
+
+	set sites=%SiteList
+
+REM Get a single site	
+else
+	gosub GetSite
+	if %_? != 0 return %_?
+	
+	set sites=%site
+
+endiff
+
+return 0
+
+REM GetSiteList - Sets SiteList to the list of installed sites on the host
+:GetSiteList
+
+REM Return if we have already have the site list
+if "%SiteList" != "" return 0
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+set SiteList=
+for /h /a:d site in ("%SabaWeb\web\*") set SiteList=%SiteList %@FileName[%site]
+
+set SiteList=%@trim[%SiteList]
+
+return 0
+
+:GetSiteUrl
+
+gosub GetSite
+if %_? != 0 return %_?
+
+REM Assume the site URL is the same as the site name except for SabaSite
+iff "%site" == "SabaSite" then
+	set SiteUrl=Main
+else
+	set SiteUrl=%site
+endiff
+
+return 0
+
+:GetWebHost [GetArg ValidateHostArg]
+
+REM Return if we need to get the host argument but already have a host 
+if "%GetArg" != "false" .and. defined host return 0
+
+REM Arguments
+if "%GetArg" != "false" gosub GetHostArg
+set ValidateHost=%@if[ "%ValidateHostArg" == "false" ,,true]
+
+REM Initialize
+set HostAlias=%host
+
+REM Resolve web host aliases
+switch %host
+
+	REM Development
+	case dev
+		set host=vmsdwesw005
+
+	REM Test
+	case t1
+		set host=fm2seswebts01
+	case t2
+		set host=fm2seswebts02
+
+	REM Benchmark
+	case bm1
+		set host=fm7seswebbm1
+	case bm2
+		set host=fm7seswebbm2
+
+	REM Production
+	case p1
+		set host=fm1seswebpd01
+	case p2
+		set host=fm1seswebpd02
+	case p3
+		set host=fm1seswebpd03
+	case p4
+		set host=fm1seswebpd04
+
+	default
+		gosub GetHostAlias
+
+endswitch
+
+gosub GetHostFinal %ValidateHost
+if %_? != 0 return %_?
+
+REM Set web variables
+iff %@index[%host,esw] != -1 then
+	set WebRoot=\\%host\webdocs
+	set SsoLog=\\%host\SABA_LOGS
+else
+	set WebRoot=\\%host\c$\inetpub\wwwroot
+	set SsoLog=\\%host\c$\SabaWeb\JBoss_Tomcat\bin
+endiff
+
+return 0
+
+:GetContentShare [GetArg ValidateHostArg]
+
+REM Return if we need to get the host argument but already have a host 
+if "%GetArg" != "false" .and. defined host return 0
+
+REM Arguments
+if "%GetArg" != "false" gosub GetHostArg
+set ValidateHost=%@if[ "%ValidateHostArg" == "false" ,,true]
+
+REM Initialize
+set HostAlias=%host
+set ContentShare=
+set ValidateContentShare=true
+
+REM Resolve content host aliases
+switch %host
+
+	REM Pre-Production
+	case d .or. dev .or. development .or. t .or. t1 .or. t2 .or. test .or. bm .or. .or. bm1 .or. bm2 .or. BenchMark
+		set ContentShare=\\fmsidetuafs\SabaContent
+		
+	REM Production
+	case p .or. prod .or. production .or. p1 .or. p2 .or. p3 .or. p4
+		set ContentShare=\\fmsidetprdfs\SabaContentProd
+
+	default
+	
+		REM Check the application server
+		gosub GetAppHost false %ValidateHostArg
+		if %_? != 0 return %_?
+		
+		set ContentShare=%SabaWeb\content
+		set ValidateContentShare=
+
+endswitch
+
+REM Validate the host
+iff defined ValidateContentShare then
+	set host=%@drive[%ContentShare]
+	gosub GetHostFinal %ValidateHost
+	if %_? != 0 return %_?
+endiff
+
+REM Validate the content share
+iff defined ValidateHost then
+	iff not IsDir "%ContentShare" then
+		echo The content share does not exist on %HostDesc.
+		return 1
+	endiff
+endiff
+
+return 0
+
+REM  Initialize the application host that must be on the local machine
+:InitLocalAppHost
+set host=%ComputerName
+gosub GetAppHost false
+return %_?
+
+REM Valdiate that the app host we have gotten is on the local machine
+:ValidateAppHostLocal
+
+iff "%host" != "%ComputerName" then
+	echo This command must be run locally.
+	quit 1
+endiff
+
+return
+
+:ValidateDir [dir]
+
+iff not IsDir %@quote[%dir] then
+	echo Could not locate %dir.
+	quit 1
+endiff
+
+return
+
+:ValidateFile [file]
+
+iff not IsFile %@quote[%file] then
+	echo Could not locate %file.
+	quit 1
+endiff
+
+return
+
+:cleanup
+
+gosub GetSiteList
+if %_? != 0 return %_?
+
+set cmd=call DelFile.btm /log
+
+REM Header
+echos Saba cleanup...
+
+REM General cleanup
+%cmd "%SabaWeb\*.log;*.txt"
+%cmd "%SabaWeb\log\*.log;*.txt"
+
+REM JBoss cleanup
+%cmd "%JbossDir\server\default\log\*log*"
+%cmd "%JbossDir\bin\*.log;*.txt"
+
+REM ZIP temporary files
+%cmd "%JbossLib\zia*"
+%cmd "%DeployDir\zia*"
+
+REM Site cleanup
+for site in (%SiteList) %cmd "%Sabaweb\web\%site\log\*.log;*.txt"
+
+REM Footer
+echo done.
+
+return
+
+:ServiceUsage
+text
+service [/?|<command>](JBoss|notification)
+  setup|config|install|uninstall
+  start|stop|restart|auto|demand|disable|status|StartAll|StopAll|StartOther|StopOther
+endtext
+quit 1
+
+:service
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto ServiceUsage
+
+set command=status
+set services=%AllServiceAliases
+
+REM Arguments
+
+:ServiceGetArgs
+
+iff %# gt 0 .and. IsLabel Service%1 then
+	set command=%1
+	shift & goto ServiceGetArgs
+endiff
+
+iff "%1" == "JBoss" then
+	set services=JBoss
+	shift
+	goto ServiceGetArgs
+endiff
+
+iff "%1" == "notification" .or. "%1" == "ns" then
+	set services=notification
+	shift
+	goto ServiceGetArgs
+endiff
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+if %# != 0 goto usage
+
+REM Run the service command
+gosub Service%command
+
+return
+
+:ServiceSetup
+for service in (%services) gosub ServiceSetup%service
+return
+
+:ServiceSetupJboss
+
+echo.
+echo Installing the Saba JBoss Service...
+
+call ask `Set options?` y
+iff %? == 1 then
+	text
+Update service configuration...
+- JAVA_OPTIONS
+  - Java heap memory: min (-Xms) and max (-Xmx) to 256 (dev) or 1400 (prod)
+  - Max permanent generation (code) size (-XX:MaxPermSize): 128m (dev) 256m (prod), default is 64m
+	endtext
+	call saba.btm %version config UserConfig %host
+	pause
+endiff
+
+call ask `Configure service?` y
+iff %? == 1 then
+	echo - Validate the service name is %JbossServiceName (2 places)
+	call TextEdit.btm "%JbossBin\JbossService.bat"
+	pause
+endiff
+
+echo Installing the %JbossServiceName service...
+gosub ServiceInstallJboss
+
+return
+
+:ServiceSetupNotification
+:ServiceSetupNs
+
+echo.
+echo Installing the Saba Notification Service...
+
+call ask `Set options?` y
+iff %? == 1 then
+	echo - Add custom JAVA_OPTIONS
+	call TextEdit.btm %JbossDir\sabainfo\runClient.bat
+	pause
+endiff
+
+call ask `Configure service?` y
+iff %? == 1 then
+	echo - Validate the service name is %NotificationServiceName (1 place)
+	call TextEdit.btm "%SabaWeb\SabaNotify\installSabaNSSvc.bat"
+	pause
+endiff
+
+echo Installing the %NotificationServiceName service...
+gosub ServiceInstallNotification
+
+return
+
+:ServiceInstall
+for service in (%services) gosub ServiceInstall%service
+return
+
+:ServiceInstallJboss
+
+gosub ValidateAppHostLocal
+
+REM Service installation must be run from the current directory for correct operation (variables are set correctly)
+pushd "%JbossBin"
+cmd /c JBossService.bat install
+popd
+
+REM Listen  on all network adapters (cannot use a space between between b and 0's when using JavaService)
+set key=HKLM\SYSTEM\CurrentControlSet\Services\%JbossServiceName\Parameters
+call registry.btm set "%key\Start Param Count" REG_DWORD 1 > nul:
+call registry.btm set "%key\Start Param Number 0" REG_SZ `-b0.0.0.0` > nul:
+
+return
+
+:ServiceInstallNotification
+:ServiceInstallNs
+
+gosub ValidateAppHostLocal
+
+REM Service installation must be run from the current directory for correct operation (variables are set correctly)
+pushd "%SabaWeb\SabaNotify"
+cmd /c installSabaNSSvc.bat
+popd
+
+return
+
+:ServiceUninstall
+for service in (%services)
+(
+	set ServiceName=%@EvalVar[%service%ServiceName]
+	call service stop %ServiceName
+	JavaService.exe -uninstall "%ServiceName"
+)
+return
+
+:ServiceConfig
+
+iff %@ListCount[%services] gt 1 then
+
+	for service in (%services) (
+		call ask `Configure %service service?` y
+		if %? == 1 gosub DoServiceConfig %service
+	)
+
+else
+	gosub DoServiceConfig %services
+endiff
+
+return
+
+:DoServiceConfig [service]
+set ServiceName=%@EvalVar[%service%ServiceName]
+call registry.btm edit "HKLM\SYSTEM\CurrentControlSet\Services\%ServiceName\Parameters"
+return
+
+:ServiceStart
+:ServiceStop
+:ServiceAuto
+:ServiceDemand
+:ServiceDisable
+:ServiceRestart
+gosub DoService %command
+return 0
+
+:DoService [command]
+
+for service in (%services) (
+	call service %command wait NoCheckHost "%@EvalVar[%service%ServiceName]" %host
+)
+
+return 0
+
+:ServiceStartOther
+call SqlServer.btm service start NoCheckHost %host
+call iis.btm service start NoCheckHost %host
+return
+
+:ServiceStopOther
+call SqlServer.btm service stop NoCheckHost %host
+call iis.btm service stop NoCheckHost %host
+return
+
+:ServiceStartAll
+
+echo Starting all Saba services on %HostDesc...
+gosub DoService start
+gosub ServiceStartOther
+return 0
+
+:ServiceStopAll
+
+echo Stopping all Saba services on %HostDesc...
+gosub DoService stop
+gosub ServiceStopOther
+return 0
+
+:ServiceStatus
+
+iff %@ListCount[%services] gt 1 then
+	echo Status of all Saba services on %HostDesc...
+	call SqlServer service BriefStatus NoCheckHost %host
+	call iis service BriefStatus NoCheckHost %host
+endiff
+
+for service in (%services) (
+	call service BriefStatus NoCheckHost "%@EvalVar[%service%ServiceName]" %host
+)
+
+return
+
+:BackupRestoreUsage
+text
+backup|restore [db|repository|search|workspace|unwrap](unwrap) [NoPrompt] [<file>|select|vanilla]
+  unwrap - create or deploy unwrapped code for faster service startup
+endtext
+quit 1
+
+:backup
+:restore
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto BackupRestoreUsage
+
+set SubCommand=unwrap
+iff %# gt 0 .and. IsLabel %command%%1 then
+	set SubCommand=%1
+	shift
+endiff
+if not IsLabel %command%%SubCommand% goto usage
+
+gosub %command%%SubCommand%
+return %_?
+
+:BackupDb
+:RestoreDb
+gosub Db%command
+return
+
+:BackupSearch
+:RestoreSearch
+gosub Search%command
+return
+
+:BackupWorkspace
+
+iff not IsDir "%CodeDir\.metadata" then
+	echo Could not find the Eclipse workspace.
+	return 1
+endiff
+
+call eclipse.btm init
+if %? != 0 return %?
+
+set file=Eclipse %EclipseVersion Workspace %@OsArchitecture[] %@DateStamp[].7z
+
+iff IsFile "%file" then
+	call ask.btm `Delete the existing workspace backup '%@FileName[%file]'?` n
+	if %? != 1 return 1
+	call DelFile.btm "%file"
+endiff
+
+7z.exe a "%file" "%CodeDir\.metadata
+
+return 0
+
+:RestoreWorkspace
+
+iff %# != 0 then
+	set file=%@UnQuote[%1]
+	shift
+else
+
+	gosub GetInstallDir
+	if %_? != 0 quit %_?
+
+	call select.btm file "%InstallDir\%version\image\development\Eclipse*Workspace*.7z"
+	if %? != 0 return %?	
+	
+endiff
+
+if %# != 0 goto BackupRestoreUsage
+
+iff not IsFile "%file" then
+	EchoErr Could not find the workspace backup file.
+	return 1
+endiff
+
+iff IsDir "%CodeDir\.metadata" then
+
+	call ask `Do you want to delete the existing workspace?` n
+	if %? == 0 return 1
+
+	call DelDir "%CodeDir\.metadata"
+	if %? != 0 return %?
+	
+endiff
+
+7z.exe x "%file" -o"%CodeDir"
+
+return 0
+
+:RestoreRepository
+
+gosub GetSite
+if %_? != 0 return %_?
+
+call ask "Do you want to restore %site default code?" y
+if %? == 0 return
+
+gosub GetInstallDir
+if %_? != 0 return %_?
+
+set file=%InstallDir\%version\image\repository\%site-repository-%CodeVersion.zip
+iff IsFile "%file" then
+	7z.exe x "%file" -o"%@parent[%RepositoryDir]"
+else
+	echo Code repository for site %site does not exist.
+	return 1
+endiff
+
+return %?
+
+REM Create an unwrapped archive of the specified file 
+:BackupUnwrap
+
+REM Initialize 
+
+REM Exclude archives that are not compatible with unwrapped deployment, i.e. /xf axis.war#slide.war
+set excludes=/xf axis.war#slide.war
+
+REM Arguments
+
+if %# != 1 goto BackupRestoreUsage
+set FileToUnwrap=%@UnQuote[%1]
+shift
+
+iff not IsFile "%FileToUnwrap" then
+	echo Unable to find the file to unwrap.
+	return 1
+endiff
+
+REM Cleanup
+call DelDir "%temp\%@FileName[%FileToUnwrap]"
+if %? != 0 return %?
+
+REM Unwrap the code
+call archive.btm ExtractRecursive "%FileToUnwrap"  "%temp" %excludes
+if %? != 0 return %?
+
+REM Create an archive of the extracted (unwrapped) files
+7z a "%@FileName[%FileToUnwrap].unwrapped.zip" "%temp\%@FileName[%FileToUnwrap]"
+if %? != 0 return %?
+
+REM Cleanup
+call DelDir "%temp\%@FileName[%FileToUnwrap]"
+if %? != 0 return %?
+
+return
+
+REM Unwrap the specified file in the deploy directory for faster service startup
+:RestoreUnwrap
+
+set NoPrompt=
+iff "%1" == "NoPrompt" then
+	set NoPrompt=true
+	shift
+endiff
+
+set file=
+iff IsFile %@quote[%1] then
+	set file=%@UnQuote[%1]
+	shift
+
+elseiff "%1" == "vanilla" then
+
+	gosub GetInstallDir
+	if %_? != 0 return %_?
+
+	set file=%VanillaCodeUnwrapped
+	shift
+	
+	iff not IsFile "%file" then
+		EchoErr Unable to locate vanilla unwrapped code file %@FileName[%VanillaCodeUnwrapped].
+		return 1
+	endiff
+	
+else
+
+	if "%1" == "select" shift
+	
+	gosub GetInstallDir
+	if %_? != 0 return %_?
+
+	call select.btm file "%InstallDir\%version\image\code\saba.ear-*-unwrapped.*"
+	if %? != 0 return %?
+	
+endiff
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+if %# != 0 goto BackupRestoreUsage
+
+REM Get the name of the unwrapped file, assume that the wrapped file name is in the format <name>-<version>-unwrapped.zip
+set UnwrappedName=%@word["-",0,%@name[%file]]
+
+iff IsDir "%DeployDir\%UnwrappedName" then
+
+	iff not defined NoPrompt then
+		call ask `Do you want to redeploy the unwrapped %UnwrappedName?` n
+		if %? == 0 return 1
+	endiff
+	
+	call DelDir "%DeployDir\%UnwrappedName"
+	
+endiff
+
+iff IsFile "%DeployDir\%UnwrappedName" then
+
+	iff not defined NoPrompt then
+		call ask `Do you want to convert %UnwrappedName to an unwrapped deployment?` n
+		if %? == 0 return 1
+	endiff
+	
+	call DelFile "%DeployDir\%UnwrappedName"
+	if %? != 0 return %?
+	
+endiff
+
+pause Press any key to unwrap %UnwrappedName...
+7z x "%file" -o"%DeployDir"
+if %? != 0 return %?
+
+return 0
+
+:dev
+call eclipse.btm "%CodeDir"
+return %?
+
+:CodeUsage
+text
+code [/?|packager]
+  backup|bak [all] - backup code from the current directory
+  deploy [<file>|select|vanilla]<cwd> - deploy code from the specified file or current directory
+  clean all|deploy|site|<file> - delete WDK page source (forces recompile)
+  create all|wrapped|unwrapped|source|repository|other - create code images
+  compile [sync] [<src>] - compile site default pages, optionally from the specified source directory or ear
+  merge [summary] <CustomDir> <SourceDir> <DestDir>
+  setup [all|image|doc|log|CustomLog|project|toolkit [<file>]](all)
+endtext
+quit 1
+
+:code
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto CodeUsage
+
+set command=cd
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Code%command% goto usage
+
+gosub Code%command
+return %_?
+
+:CodePackager
+call saba.btm run webPackager %$
+return
+
+:CodeCd
+call saba.btm %version cd code
+return %?
+
+:CodeCreate
+
+gosub InitLocalAppHost
+if %_? != 0 return %_?
+
+set command=all
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel CodeCreate%command% goto CodeUsage
+
+gosub CodeCreate%command%
+return %_?
+
+:CodeCreateAll
+
+echo Creating Saba %CodeVersion code images...
+
+call ask.btm `Create wrapped image?` y
+if %? == 1 gosub CodeCreateWrapped
+
+call ask.btm `Create unwrapped image?` y
+if %? == 1 gosub CodeCreateUnwrapped
+
+call ask.btm `Create source?` y
+if %? == 1 gosub CodeCreateSource
+
+call ask.btm `Create repository?` y
+if %? == 1 gosub CodeCreateRepository
+
+call ask.btm `Create other?` y
+if %? == 1 gosub CodeCreateOther
+
+return
+
+REM CodeCreateSource - create image of all Saba code with source in saba-%CodeVersion-src.7z
+:CodeCreateSource
+
+REM Initialize
+set file=saba-%CodeVersion-wrapped.7z
+set dir=saba-%CodeVersion-src
+
+REM Validate the unwrapped Saba code image
+iff not IsFile "%file" then
+	EchoErr The code file %file does not exist in the current directory.
+	return 1
+endiff
+
+REM Clean the existing image file
+iff IsFile "%file" then
+
+	call ask.btm `Delete the existing %@FileName[%file]? ` n
+	if %? == 0 return 1
+	
+	call DelFile.btm "%file" 
+	if %? != 0 return %?
+	
+endiff
+
+REM Extract the Saba code
+call archive.btm ExtractRecursive "%file"
+if %? != 0 return %?
+
+REM Rename the extracted directory
+mv "%@name[%file]" "%dir"
+if %? != 0 return %?
+
+REM Decompile dir the code
+echo To track decompilation progress, use "java.btm decompile progress" in "%dir"...
+call JavaUtil decompile align "%dir"
+if %? != 0 return %?
+
+REM Compress the code files into the wrapped image
+7z.exe a saba-%CodeVersion-src.7z "%dir"
+
+REM Cleanup
+call DelDir.btm "%dir"
+if %? != 0 return %?
+
+return
+
+REM CodeCreateRepository - create image of compiled code for a site in <site>-repository-%CodeVersion.zip
+:CodeCreateRepository
+
+REM Get the site to create the repository code for
+gosub GetSite
+if %_? != 0 return %_?
+
+REM Initialize
+set file=%_cwd\%site-repository-%CodeVersion.zip
+
+REM Clean the existing image file
+iff IsFile "%file" then
+
+	call ask.btm `Delete the existing %@FileName[%file]? ` n
+	if %? == 0 return 1
+	
+	call DelFile.btm "%file" 
+	if %? != 0 return %?
+	
+endiff
+
+REM Cleanup the old repository code for the site
+call saba.btm %version code clean site %site
+
+REM Create the repository code for the site
+call saba.btm %version code compile sync %site
+
+REM Create the repository image
+pushd "%RepositoryDir\.."
+7z a "%file" repository\%site
+7z a "%file" repository\classes\_%site
+popd
+
+return
+
+REM CodeCreateOther - create other code images
+:CodeCreateOther
+
+text
+JBoss: download boss-<version>-src.tar.gz from http://www.jboss.org/jbossas/downloads/ and change to zip format
+Lucene: download lucene-<version>-src.zip from http://archive.apache.org/dist/lucene/java/
+endtext
+pause
+
+return
+
+REM CodeCreateWrapped - create image of all wrapped saba code in saba-%CodeVersion-wrapped.7z
+:CodeCreateWrapped
+
+REM Initialize
+set file=saba-%CodeVersion-wrapped.7z
+set LibFiles=key_generator.jar sabadbinstaller.jar sabajdbc.jar sabareportdatasource.jar sabasecurity.jar SabaSecurityProviders.jar SabaWebsphereRegistry.jar saba_EJB.jar vleconnector.jar saba.ear sabareportserver.ear saba_content_server.ear sabaportlet.war sspauth.dll 
+set dir=%temp\%@name[%file]
+
+REM Clean the existing image file
+iff IsFile "%file" then
+
+	call ask.btm `Delete the existing %@FileName[%file]? ` n
+	if %? == 0 return 1
+	
+	call DelFile.btm "%file" 
+	if %? != 0 return %?
+	
+endiff
+
+REM Clean and create destination directory
+call DelDir.btm "%dir"
+call MakeDir.btm "%dir\resources"
+
+REM Copy the Saba code files
+for CopyFile in (%LibFiles) copy "%SabaWeb\lib\%CopyFile" "%dir"
+copy "%SabaWeb\resources\*" "%dir\resources"
+	
+REM Compress the code files into the wrapped image
+7z.exe a "%file" "%dir\*"
+
+REM Cleanup
+call DelDir.btm "%dir"
+
+return
+
+REM CodeCreateUnwrapped - create image of unwrapped saba.ear in saba.ear-%CodeVersion-unwrapped.zip
+:CodeCreateUnwrapped
+
+REM Initialize
+set file=saba.ear-%CodeVersion-unwrapped.zip
+
+REM Clean the existing image file
+iff IsFile "%file" then
+
+	call ask.btm `Delete the existing %@FileName[%file]? ` n
+	if %? == 0 return 1
+	
+	call DelFile.btm "%file" 
+	if %? != 0 return %?
+	
+endiff
+
+REM Unwrap saba.ear
+call saba.btm backup unwrap "%SabaWeb\lib\saba.ear"
+
+REM Cleanup
+call MoveFile.btm "saba.ear.unwrapped.zip" "%file"
+	
+return
+
+:CodeSetup
+
+call MakeDir "%CodeDir"
+
+set command=all
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel CodeSetup%command% goto CodeUsage
+
+gosub CodeSetup%command%
+return %_?
+
+:CodeSetupAll
+
+gosub InstallComponent "code images" "gosub CodeSetupImage"
+gosub InstallComponent "code documentation" "gosub CodeSetupDoc"
+gosub InstallComponent "code logging" "gosub CodeSetupLog"
+gosub InstallComponent "unwrapped code" "call saba %version restore unwrap vanilla"
+gosub InstallComponent "the Saba developer toolkit" "gosub CodeSetupToolkit"
+gosub InstallComponent "the Eclipse workspace" "call saba %version restore workspace"
+
+return
+
+REM  Extract  source code  files to the image directory
+:CodeSetupImage
+
+gosub GetInstallDir
+if %_? != 0 return %_?
+
+call MakeDir "%CodeDir\image"
+call CompactDir "%CodeDir\image"
+
+echo.
+echo Extracting image files...
+for file in (%ImageFiles) (
+	call ask.btm "Extract %@name[%file]?" y
+	iff %? == 1 then
+		7z.exe x "%InstallDir\%version\image\%@UnQuote[%file]" -o"%CodeDir\image"
+	endiff
+)
+	
+return
+
+REM Copy Saba documentation to the code directory
+:CodeSetupDoc
+
+gosub GetInstallDir
+if %_? != 0 return %_?
+
+call MakeDir "%CodeDir\doc"
+call CompactDir "%CodeDir\doc"
+	
+call CopyDir "%InstallDir\%version\doc" "%CodeDir\doc"
+
+return
+
+:CodeSetupLog
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+iff not IsFile "%DefaultLogConfig" then
+
+	gosub GetInstallDir
+	if %_? != 0 return %_?
+
+	set file=%InstallDir\bin\log4sabaconfig.properties
+	iff not IsFile "%file" then
+		echo Could not find default log4sabaconfig.properties.
+		return 1
+	endiff
+	
+	call CopyFile "%file" "%JbossDir\bin"
+	if %? != 0 return %?
+	
+endiff
+
+echo - Set -Dcom.saba.util.Debug.SabaDebug=true
+call saba.btm %version config UserConfig %host
+call saba.btm %version config service JBoss
+pause
+
+return
+
+:CodeSetupToolkit
+
+gosub GetInstallDir
+if %_? != 0 return %_?
+
+call ask `Setup the development image?` n
+if %? == 1 7z x -aoa "%InstallDir\%version\image\development\development.zip" -o"%CodeDir"
+
+REM Shortcuts
+set link=%CodeDir\development\doc\default.htm
+call MakeShortcut "%link" "%@PublicStartMenu[]\Programs\Development\Saba %version Development.lnk"
+
+REM Eclipse Plug-in
+call Eclipse 3.0 GetInfo
+iff %? == 0 .and. IsDir "%EclipseDir\plugins" .and. not IsDir "%EclipseDir\plugins\com.saba.wdk.xmleditor_2.0.0" then
+	7z x "%CodeDir\development\other\workbench\com.saba.wdk.xmleditor_30.zip" -o"%EclipseDir"
+endiff
+
+return
+
+:CodeSetupProject
+
+text
+- Restore an existing project or create a new project from the template
+  - Restore: 
+    - Unzip \code\saba\development\other\image\ProjectCustomPages.zip or ProjectExamples.zip to \code\saba
+    - Eclipse, File, Import..., Existing Project into Workspace
+  - Create: Restore \code\saba\development\other\image\project.zip to a new project
+    folder in \code\saba, edit the .project file and rename the project
+- Configure TFS to map the project folder (which contains src and web folders) to c:\code\saba%version\<project>\
+endtext
+pause
+
+echo - File, Import..., Existing Project	into Workspace
+echo - (command line projects) Saba Web Library, Configure…, Saba Client Library
+call eclipse
+pause
+
+call saba.btm %version config AlternateSource
+pause
+
+return
+
+REM CodeBackup [all] - Backup code typically to the current directory, or a bak folder.  Standard code location is  install\saba\staging.
+:CodeBackup
+:CodeBak
+
+REM Arguments
+
+set files=%CodeCustomFiles %CodeLibFiles
+iff "%1" == "all" then
+	set files=%files %CodeOtherFiles
+	shift
+endiff
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+REM Backup files
+
+echo.
+echo Backing up code files...
+
+iff "%command" == "backup" then
+	set copy=copy /g /u /j
+	
+	for file in (%files) (
+		if IsFile "%SabaLib\%file" %copy "%SabaLib\%file" .
+	)
+	
+	for file in (%CodeResourceFiles) (
+		if IsFile "%SabaResources\%file" %copy "%SabaResources\%file" .
+	)
+
+else
+	
+	pushd "%SabaLib"
+	for file in (%files) (
+		if IsFile "%file" call bak "%file"
+	)
+	popd
+
+	pushd "%SabaResources"
+	for file in (%CodeResourceFiles) (
+		if IsFile "%file" call bak "%file"
+	)
+	popd
+
+
+return
+
+REM CodeDeploy - deploy backed up code to the app server.  Assumes services are stopped.
+:CodeDeploy
+
+REM Initialize
+alias c `call CopyFile /different %1 %2 /g /j`
+
+REM Arguments
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto CodeUsage
+
+set ArchiveFile=
+iff %@IsArchive[%1] == 1 then
+	set ArchiveFile=%@UnQuote[%1]
+	shift
+
+elseiff "%1" == "vanilla" then
+
+	gosub GetInstallDir
+	if %_? != 0 return %_?
+
+	set ArchiveFile=%VanillaCode
+	shift
+	
+	iff not IsFile "%ArchiveFile" then
+		EchoErr Unable to locate vanilla code file %@FileName[%VanillaCode].
+		return 1
+	endiff
+	
+elseiff "%1" == "select" then
+	
+	gosub GetInstallDir
+	if %_? != 0 return %_?
+
+	call select.btm file "%InstallDir\%version\image\code\saba-*-wrapped.*"
+	if %? != 0 return %?
+
+	set ArchiveFile=%file
+	shift
+	
+endiff
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+if %# != 0 goto usage
+
+REM Decompress the wrapped code in the archive
+iff defined ArchiveFile then
+
+	set TempDeployDir=%temp\SabaDeploy
+
+	call DelDir.btm quiet "%TempDeployDir"
+
+	7z x "%ArchiveFile" -o"%TempDeployDir"
+	if %? != 0 return %?
+	
+	pushd "%TempDeployDir"
+
+endiff
+
+REM If we are not in the staging directory, copy the code in the current directory to the staging directory.
+iff "%_cwd" != "%SabaLib" then
+
+	REM Find the resource files
+	set resources=.
+	iff IsDir ..\resources then
+		set resources=..\resources
+	elseiff IsDir resources then
+		set resources=resources
+	endiff
+
+	REM Verify code files
+	echo.
+	echo Validating code files...
+
+	for %file in (%CodeCustomFiles) (
+		iff not IsFile "%file" then
+			echo Warning: Could not find the code file %file.
+		endiff
+	)
+	
+	for %file in (%CodeLibFiles) (
+		iff not IsFile "%file" .and. "%file" != "saba.jar" then
+			EchoErr Could not find the code file %file.
+			quit 1
+		endiff
+	)
+	
+	REM Deploy resources if in \SabaWeb\lib or in extracted wrapped image 
+	for %file in (%CodeResourceFiles) (
+		iff not IsFile "%resources\%file" then
+			EchoErr Could not find the code resource file %file.
+			quit 1
+		endiff
+	)
+	
+	REM Copy code files 
+	echo.
+	echo Copying code files...
+	
+	for file in (%CodeCustomFiles %CodeLibFiles) (
+		iff IsFile "%file" then
+			c "%file" "%SabaLib"
+		endiff
+	)
+	
+	for file in (%CodeResourceFiles) (
+		c "%resources\%file" "%SabaResources"
+	)
+ 
+endiff
+
+echo.
+echo Deploying code...
+
+for file in ("%SabaWeb\lib\customization.jar" "%SabaWeb\lib\saba.ear" "%SabaWeb\lib\saba_content_server.ear") (
+
+	iff IsDir "%DeployDir\%@FileName[%file]" then
+	
+		set UnwrappedFile=%file-*-unwrapped.zip
+		iff IsFile "%UnwrappedFile" then
+			call saba.btm restore unwrap "%UnwrappedFile"
+		else
+			echo Warning: %@FileName[%file] is unwrapped but no unwrapped source is present.
+		endiff
+
+	elseiff IsFile "%file" then
+		c %@quote[%file] "%DeployDir"
+	endiff
+)
+
+for file in ("%SabaLib\sabasecurity.jar" "%SabaLib\sabajdbc.jar" "%SabaResources\sabares.jar") (
+	c %@quote[%file] "%JbossLib"
+)
+
+iff defined ArchiveFile then
+	popd
+	call DelDir.btm quiet "%TempDeployDir"
+endiff
+
+return
+
+:build
+
+REM Initialize
+set args=-buildfile "%BuildFile" -DSabaVersion=%version
+
+gosub ValidateFile "%BuildFile"
+
+REM Help arguments
+iff %@IsHelpArg[%@UnQuote[%1]] == 1 then
+  echo `build [update] [<build number>] [<target>|</?>](deploy.unwrapped)`
+	echo `  update - update build source files from TFS`
+	echo `  build number - build number when deploying to staging `
+  call ant.btm %args -projecthelp | tail /n+4 /n1000 | egrep -v "Default target"
+	return 0
+endiff
+
+REM Update argument - run a TFS clean to ensure we get all files from source control
+iff "%1" == "update" .and. %@IsInstalled[TeamFoundationServer] == 1 then
+	call saba.btm %version tfs clean
+	shift
+endiff
+
+set StagingDir=
+iff %@numeric[%1] == 1 then
+
+	set StagingDir=\\MlFiles\staging\code\%@DateStamp[].build%1
+	set args=%args -Dstaging=%StagingDir
+	
+	echo Creating %StagingDir...
+	call MakeDir %StagingDir
+	if %? != 0 return %?
+	
+	shift
+endiff
+
+REM Run the build
+call ant.btm %args %$
+if %? != 0 return %?
+
+REM If we ran an ant clean, also clean the files under source control
+iff "%1" == "clean" .and. %@IsInstalled[TeamFoundationServer] == 1 then
+	call saba.btm %version tfs update
+	call saba.btm %version tfs clean
+endiff
+
+return
+
+:CodeClean
+
+REM Initialize
+set debug=
+
+REM Arguments
+
+if %# == 0 goto CodeUsage
+set file=%@UnQuote[%1]
+shift
+
+REM Get app host or site
+iff "%file" == "all" then
+	gosub GetAppHost
+	if %_? != 0 return %_?
+else
+	gosub GetSite
+	if %_? != 0 return %_?
+endiff
+
+REM Remotely execute remote clean since it may involve many files - do this before we get the sites argument so that it is expanded on the remote computer
+iff "%host" != "%ComputerName" then
+	echo Cleaning code on %host...
+	psexec \\%host tcc /c call saba.btm %version code clean "%file" localhost %site
+	return %?
+endiff
+
+REM Clean all sites and deployed code
+iff "%file" == "all" then
+
+	echos Cleaning code...
+	call DelDir %debug contents NoHeader "%RepositoryDir" "%JbossDir\server\default\tmp"			
+	echo done.  
+
+elseiff "%file" == "deploy" then
+
+	echos Cleaning deploy...
+	call DelDir %debug contents NoHeader "%JbossDir\server\default\tmp"
+	echo done.  
+
+REM Clean entire site
+elseiff "%file" == "site" then
+
+	echos Cleaning %site code...
+	call DelDir %debug NoHeader "%RepositoryDir\%site"
+	call DelDir %debug NoHeader "%RepositoryDir\classes\_%site"
+	echo done.
+
+REM Clean a specific file in a site
+else
+	
+	echo Cleaning %site %file...
+	del %@if[ defined debug,/n] /e /s "%RepositoryDir\%site\%file.*"
+	del %@if[ defined debug,/n] /e /s "%RepositoryDir\classes\_%site\_%file.*"
+	
+endiff
+
+return 0
+
+REM Compile all pages in all directories for the specified site.   Compiled code is specific to each site name.
+REM Defaults: -siteURL Main -d / -srcRoot c:\SabaWeb\lib\saba.ear -repository C:\SabaWeb\JBoss_Tomcat\bin\repository
+:CodeCompile 
+
+REM Arguments
+
+set sync=
+iff "%1" == "sync" then
+	set sync=true
+	shift
+endiff
+
+set src=
+set SrcArg=
+iff exist %@quote[%1] then
+	set src=%@UnQuote[%@full[%1]]
+	shift
+endiff
+
+gosub InitLocalAppHost
+if %_? != 0 return %_?
+
+gosub GetSiteUrl
+if %_? != 0 return %_?
+
+REM If src was not explicitly specified, and  we are not compiling code for SabaSite, extract the default SabaSite code to %RepositoryDir\src.  The default saba.ear only has a SabaSite,
+REM directory, so the SabaSite code must be extracted to a directory and the directory can then be used as the compiltion source for any site.
+iff "%src" == "" .and. "%site" != "SabaSite" then
+
+	set src=%RepositoryDir\src
+
+	REM Extract source if needed
+	iff not IsDir "%src" .or. %@NumFiles[%src] == 0 then
+
+		echo Extracting default source from SabaSite...
+	
+		call MakeDir "%src"
+		if %? != 0 return %?
+
+		iff not IsFile "%RepositoryDir\extractedSaba.war" then
+			echo The repository extractedSaba.war does not exist.  Compile the SabaSite to create it.
+			return 1
+		endiff
+		
+		call archive ExtractDir "%RepositoryDir\extractedSaba.war" SabaSite "%src"
+		if %? != 0 return %?
+	
+		call MoveEx "%src\SabaSite\*" "%src"
+		rd "%src\SabaSite"
+
+		echo.
+	
+	endiff
+
+endiff
+
+iff "%src" == "" then
+	set SrcArg=
+	set SrcDesc=default source
+else
+	set SrcArg=-srcRoot "%src"
+	set SrcDesc=%@name[%src]
+endiff
+
+REM Compile
+iff defined sync then
+	echo Starting compilation of %site from %SrcDesc...
+	call saba.btm run CompilePages -siteURL %SiteUrl %SrcArg
+else
+	echo Starting compilation of %site from %SrcDesc asynchronously...
+	call TakeCommand StartTransient "call saba.btm run CompilePages -siteURL %SiteUrl %SrcArg & pause"
+endiff
+
+return
+
+:CodeMerge
+
+REM Get the location of the custom code
+iff %# gt 0 then
+	set CodeDir=%@full[%@UnQuote[%1]]
+	shift
+else
+	gosub GetAlternateSource
+	if %_? != 0 return %_?
+	set CodeDir=%AlternateSource
+endiff
+gosub ValidateDir "%CodeDir"
+
+REM Get the merge source
+iff %# gt 0 then
+	set dir=%@full[%@UnQuote[%1]]
+	shift
+else
+	pause Press any key to select the merge source...
+	call select.btmdir /NoPrompt "%CodeDir\image"
+endiff
+set MergeSourceDir=%dir%%@if[ IsDir "%dir\saba.ear\saba.war\SabaSite",\saba.ear\saba.war\SabaSite]
+gosub ValidateDir "%MergeSourceDir"
+
+REM Get the merge destination
+iff %# gt 0 then
+	set dir=%@full[%@UnQuote[%1]]
+	shift
+else
+	pause Press any key to select the merge destination...
+	call select.btmdir /NoPrompt "%CodeDir\image"
+endiff
+set MergeDestDir=%dir%%@if[ IsDir "%dir\saba.ear\saba.war\SabaSite",\saba.ear\saba.war\SabaSite]
+gosub ValidateDir "%MergeDestDir"
+
+REM echo %CodeDir-%MergeSourceDir-%MergeDestDir
+REM quit 1
+
+REM Find all code files
+pushd "%CodeDir"
+for /r %CodeFile in (*) (
+
+	REM Init
+	set CodePath=%@path[%CodeFile]
+	set CodeFileName=%@FileName[%CodeFile]
+		
+	REM Find MergeSourceFile
+	set MergeSourceFile=%@ExecStr[ffind /a:-d /s /b /f "%MergeSourceDir\%CodeFileName"]
+		
+	REM Find MergeDestFile
+	set MergeDestFile=%@ExecStr[ffind /a:-d /s /b /f "%MergeDestDir\%CodeFileName"]
+
+	REM Merge files 
+	REM - Compare source to dest to identify vanilla changes
+	REM - Compare custom to source - custom file on the left, identify customizations
+	REM - Compare custom to dest - custom file on the left, merge or cut and paste the destination to the custom file and then add customizations.	
+	iff "%MergeSourceFile" != "" .and. "%MergeDestFile" != "" then
+	
+		iff %@compare["%MergeSourceFile","%MergeDestFile"] == 0 then
+	
+			call ask `Merge %CodeFileName?` y
+			iff %? != 0 then	
+				call WinMerge "%MergeSourceFile" "%MergeDestFile"
+				call WinMerge "%CodeFile" "%MergeSourceFile"
+				call WinMerge "%CodeFile" "%MergeDestFile"				
+			endiff
+			
+		endiff
+	endiff
+)
+popd
+
+return
+
+:name
+
+REM Arguments
+
+set tier=app
+iff "%1" == "app" .or. "%1" == "web" .or. "%1" == "content" then 
+	set tier=%1
+	shift
+endiff
+
+gosub GetHostArg
+if %_? != 0 return %_?
+
+if %# != 0 goto usage
+
+REM Get the physical name of the host for the specified tier
+iff "%tier" == "web" then
+	gosub GetWebHost false false
+	
+elseiff "%tier" == "app" then
+	gosub GetAppHost false false
+	
+elseiff "%tier" == "content" then
+	gosub GetContentShare false false
+	
+endiff
+if %_? != 0 return %_?
+
+echo %host
+return 0
+
+:CdUsage
+text
+cd [/?|<location>](SabaWeb) 
+  web: web|IisLog|HttpLog|SsoLog 
+  app: SabaWeb|SabaBin|(Saba)Lib|(Saba)Log|(Saba)Resources|AlternateSource|site
+       JBoss|(JBoss)Bin|JBossLib|(JBoss|Web)Log|deploy|repository|search|KcSearch
+       notification|NsLog|NLog|NsSearch|NsKcSearch
+  code: code|CustomPages|image|SiteImage
+  other: install|setup|doc|content|staging
+endtext
+quit 1
+
+:cd
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto CdUsage
+
+set location=SabaWeb
+iff %# != 0 then
+	set location=%1
+	shift
+endiff
+
+switch "%location"
+
+REM Other
+
+case "install"
+	gosub GetInstallDir
+	if %_? != 0 return %?
+	
+	iff IsDir "%InstallDir\%$" then
+		cde "%InstallDir\%$"
+	else
+		echo Install directory %$ does not exist.
+		return 1
+	endiff
+	
+case "setup"
+	gosub GetInstallDir
+	if %_? != 0 return %?
+	
+	cde "%InstallDir\%version\setup"
+
+case "staging"
+
+	iff "%1" == "MlFiles" then
+		set InstallDir=\\MlFiles\install\Saba
+	else
+		gosub GetInstallDir
+		if %_? != 0 return %?
+	endiff
+	
+	cde "%InstallDir\staging\code"
+
+case "doc"
+	if %# != 0 goto usage
+	
+	REM cd to the Saba source on local web server if present
+	iff IsDir "%CodeDir\%location" then
+		cde "%CodeDir\%location"
+	else
+		call FindPublicDoc "%InstallPrefix\%version\%location"
+		if %? == 0 cde "%file"
+	endiff
+
+case "content"
+	gosub GetContentShare
+	if %_? != 0 return %_?
+	
+	if %# != 0 goto usage
+	
+	cde "%ContentShare"
+
+REM Web serer 
+case "web"
+	gosub GetWebHost
+	if %_? != 0 return %_?
+	
+	if %# != 0 goto usage
+
+	cde %WebRoot\ease\MyLearning
+
+case "IisLog"
+	gosub GetWebHost
+	if %_? != 0 return %_?
+	
+	iff IsDir "\\%host\logs" then
+		cde "\\%host\logs"
+	elseiff IsDir "\\%host\logs$" then
+		cde "\\%host\logs$"
+	else
+		call iis log %host
+	endiff
+
+case "HttpLog"
+	gosub GetWebHost
+	if %_? != 0 return %_?
+
+	iff IsDir "\\%host\httperr$" then
+		cde "\\%host\httperr$"
+	else
+		call iis log %host
+		if %? == 0 .and. IsDir "httperr" cde httperr
+	endiff
+
+case "SsoLog"
+	gosub GetWebHost
+	if %_? != 0 return %_?
+	
+	cde "%SsoLog"
+
+REM Application tier
+
+case "AlternateSource"
+
+	gosub GetAlternateSource
+	if %_? != 0 return %?
+	
+	iff %@NumDirs["%AlternateSource"] == 1 then
+		cde %@quote[%@FindFirst["%AlternateSource\*"]]
+	else
+		cde "%AlternateSource"
+	endiff
+
+case "SabaWeb"
+
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	if %# != 0 goto usage
+	
+	cde "%SabaWeb"
+
+case "SabaBin" .or. "%SabaLib" .or. "SabaResources" .or. "SabaLog"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	cde "%SabaWeb\%@right[-4,%location]"
+
+case "lib" .or. "resources"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	cde "%SabaWeb\%location"
+	
+case "JBoss"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+
+	cde "%JbossDir"
+
+case "JBossBin" .or. "bin"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+
+	cde "%JbossDir\bin"
+	
+case "JBossLib"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	cde "%JbossLib"
+
+case "JbossLog" .or. "log" .or. "WebLog"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	cde "%JbossDir\server\default\log"
+
+case "repository" .or. "rep"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	cde "%RepositoryDir"
+
+case "search"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	cde "%SearchDir"
+
+case "KcSearch"
+	gosub GetSite
+	if %_? != 0 return %_?
+	
+	cde "%KcSearchDir"
+
+case "JBossDeply" .or. "deploy"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	cde "%DeployDir"
+
+case "site"
+
+	gosub GetSite
+	if %_? != 0 return %?
+
+	cde "%SiteDir"
+	
+case "SabaLog"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	cde "%SabaWeb\log"
+
+REM Notification Server
+case "notification"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+
+	cde "%SabaWeb\SabaNotify"
+	
+case "NotificationServerLog" .or. "NsLog"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+
+	cde "%SabaWeb\SabaNotify\log"
+	
+case "NotificationLog" .or. "NLog"
+	gosub GetSite
+	if %_? != 0 return %_?
+	
+	cde "%SabaWeb\web\%site\log"
+
+case "NotificationServerSearch" .or. "NsSearch"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	cde "%NsSearchDir"
+
+case "NsKcSearch"
+	gosub GetSite
+	if %_? != 0 return %_?
+	
+	cde "%NsKcSearchDir"
+
+REM Code
+
+case "code"
+	cde "%CodeDir\%$"
+
+case "image"
+	set dir=%CodeDir\image
+	cde "%dir"
+
+case "SiteImage"
+	set dir=%SrcDir\saba.ear\saba.war\SabaSite
+	cde "%dir"
+
+case "CodeImage"
+	set dir=%SrcDir\saba.ear\saba.jar\com\saba
+	cde "%dir"
+
+default
+	goto usage	
+
+endswitch
+
+return %?
+
+:LogUsage
+text
+log [<command>](debug)
+  config|debug|error|ErrorGet|gc|NotifyGet|out|queries
+  SsoGet|SsoCheck|WebGet[yyyy-mm-dd](today)
+endtext
+quit 1
+
+:log
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto LogUsage
+
+iff %# == 0 then
+	set log=debug
+else
+	set log=%1
+	shift
+endiff
+
+switch "%log"
+
+case "config"
+	gosub ConfigLog
+	
+case "debug"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	call TextEdit "%JbossDir\bin\SabaDebug.txt"
+
+case "error"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	call TextEdit "%JbossDir\bin\SabaError.log"
+
+case "ErrorGet"
+	gosub GetHostArg
+
+	for %host in (%ProdAppHosts) (
+	
+		gosub GetSabaWeb %host
+		iff %? == 0 then
+			copy /g "%out" %host%_out.txt
+			copy /g "%JbossDir\bin\sabaError.log" %host%_SabaError.log.txt
+			copy /g "%JbossDir\bin\customError.log" %host%_CustomError.log.txt
+		endiff
+	)
+
+case "gc"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	call TextEdit "%JbossDir\bin\SabaGc.log"
+
+case "NotifyGet"
+	gosub NotifyLogGet
+
+case "out"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	call TextEdit "%out"
+
+case "DbQueries" .or. "db" .or. "queries"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	set file=%JbossDir\bin\dbQueries.txt
+	if IsFile "%file" call TextEdit "%file"
+
+case "sso"
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	
+	call TextEdit "%JbossDir\bin\WebSso.txt"
+
+case "SsoGet"
+	gosub SsoLogGet
+
+case "SsoCheck"
+	gosub SsoLogCheck
+
+case "WebGet"
+	gosub WebLogGet
+	
+default
+	goto usage	
+	
+endswitch
+	
+return
+	
+:SsoLogCheck
+
+echo ***** Application Status *****
+egrep -i Application_ *.log
+
+echo.
+
+echo ***** Authorization Summary *****
+set successes=%@ExecStr[egrep -i "sso is authorized" *.log | wc -l]
+set failures=%@ExecStr[egrep -i "not authorized" *.log | wc -l]
+
+iff %successes != 0 .or. %failures != 0 then
+	echo %successes successes %failures failures
+endiff
+
+return
+
+:SsoLogGet
+
+REM Arguments
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+set LogDate=%_IsoDate
+set LogFile=WebSso.txt	
+iff %# != 0 then 
+	set LogDate=%1
+	set LogFile=WebSso_*_%LogDate_*.log
+	shift
+endiff
+
+for machine in (%ProdWebHosts) (
+	copy /g /u "\\%machine\SABA_LOGS\%LogFile" WebSso_%machine%_%LogDate.log
+)
+
+gosub SsoCheck
+	
+return
+
+:WebLogGet
+
+REM Arguments
+
+iff %# != 0 then 
+	set LogDate=%1
+	shift
+else
+	set LogDate=%_IsoDate
+endiff
+
+set hosts=%ProdAppHosts
+iff %# != 0 then
+	gosub GetAppHost
+	if %_? != 0 return %_?
+	set hosts=%host
+endiff
+
+if %# != 0 goto usaga
+
+REM Initialize
+set LogFile=localhost_access_log.%LogDate
+		
+REM Get log files from host
+for %host in (%hosts) (
+
+	gosub GetSabaWeb %host
+	iff %? == 0 then
+		set HostLogFile=%SabaWeb\JBoss_Tomcat\server\default\log\%LogFile.log
+		iff exist "%HostLogFile" then
+			iff not exist "%LogFile%_%host.txt" then
+				copy /g "%HostLogFile" "%LogFile%_%host.txt"
+			endiff
+		else
+			echo %HostLogFile does not exist.
+			quit 1
+		endiff
+	endiff
+)
+
+REM Initialize log file
+echo Server^TIP Address^tUser^tDate^tHour^tMethod^tUrl^tQuery String^tProtocol^tResponse^tBytes > "%LogFile%.txt"
+	
+REM Parse and combine log files
+echos Processing ` `
+for %host in (%hosts) (
+	echos %host...
+	gawk -v host=%host -f "%@BatchDir[]\ParseTomcatWebLog.awk" %LogFile%_%host.txt >> "%LogFile.txt"
+)
+echo done.
+
+REM Cleanup individual server log file
+del %LogFile%_*.txt
+	
+REM Prepare the log spreadsheet for import
+iff not exist "%LogFile.xlsx" then
+	copy "%@BatchDir[]\TomcatWebLog.xlsx" "%LogFile.xlsx"
+endiff
+	
+echo Data, Refresh All, Paste
+echo %@ClipW[%_CWD\%LogFile.txt] >& nul:
+ShellRun "%LogFile.xlsx"
+	
+return
+
+:NotifyLogGet
+REM Log file threads
+REM thread: NotifyServer - triggered notification
+REM thread: PeriodicEventProcessor - periodic notification
+REM thread: main
+REM thread: ExternalEventMonitor
+REM thread: PeriodicServer
+REM thread: Temp File Cleanup
+
+set sf=%PublicData\setup
+set LogFile=Saba Notification Summary
+
+echos Collecting triggered notifications...
+grep "thread: NotifyServer" *.txt | gawk -v type=triggered -f "%sf\Saba Notification Summary.awk" > "%LogFile.csv"
+
+echos periodic notifications...
+grep "thread: PeriodicEventProcessor" *.txt | gawk -v type=periodic -f "%sf\Saba Notification Summary.awk" >> "%LogFile.csv"
+
+echo done.
+
+REM Prepare the log spreadsheet for import
+iff not exist "%LogFile.xlsx" then
+	copy /q "%sf\%LogFile.xlsx"
+endiff
+	
+echo Data, Refresh All, Paste
+echo %@ClipW[%_CWD\%LogFile.csv] >& nul:
+ShellRun "%LogFile.xlsx"
+
+return
+
+:site
+
+set command=list
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if "%command" == "" .or. not IsLabel Site%command goto usage
+
+gosub Site%command
+return %_?
+
+:SiteConfig
+
+gosub GetSite
+if %_? != 0 return %?
+
+echo Editing %site configuration...
+
+for item in (db AlternateSource content DeepLink NotificationServer) (
+	echo.
+	call saba.btm %version config %item %site
+	pause
+)
+
+return
+
+:SiteCreate
+
+text
+- admin, System Administration, System Configuration, Sites
+  - New Site, Site Name=<site>
+  - New Site URL, Site URL=<site>
+endtext
+pause
+
+gosub GetSite
+if %_? != 0 return %?
+
+call saba.btm %version restore repository %host %site
+call saba.btm %version site config %host %site
+call saba.btm %version service restart JBoss %host
+
+text
+- System Administration, UI Configuration, Site URLs, Desktop=Intel Desktop
+endtext
+pause
+
+return
+
+:SiteList
+
+gosub GetSiteList
+echo %SiteList
+
+return 0
+
+:config
+
+set command=
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if "%command" == "" .or. not IsLabel Config%command goto usage
+
+gosub Config%command
+return %_?
+
+:ConfigAlternateSource
+:ConfigAs
+
+REM Corect for the fact that all sites use the kAlternativeSourceURL setting from SabaSite
+gosub GetSite
+if %_? != 0 return %?
+REM gosub GetAppHost
+REM set site=SabaSite
+REM set SiteDir=%SabaWeb\web\%site
+REM if %_? != 0 return %?
+
+echo %@clipw[file\://c\:\\code\\saba%version%\\CustomPages\\web\\SabaSite]
+text
+Editing %site alternate source configuration...
+- kAlternativeSource=file\://<path>
+- dev: <paste for file\://c\:\\code\\saba%version%\\CustomPages\\web\\SabaSite>
+- server: file\://d\:\\SabaWeb\\Custom\\client\\web\\SabaSite
+endtext
+call TextEdit "%SiteDir\properties\sabaweb.properties"
+
+return 0
+
+:ConfigBuild
+call TextEdit "%BuildFile"
+return
+
+:ConfigContent
+
+gosub GetSite
+if %_? != 0 return %_?
+
+echo Editing %site content configuration...
+text
+- kTempDirectory=<temp directory, i.e. c:\windows\temp or //server/share/temp>
+- server_url=http://<web DNS>:80
+- (required in 5.4?) saba_app_url_for_cif=http://<web DNS>:80/Saba
+- (required in 5.4?) saba_app_url_for_content_callback=http\://<physical server name, localhost if on same box>\:8180
+- Java command line: set java.io.tmpdir to a drive with sufficient space (uploaded files are stored here and not cleaned)
+endtext
+call TextEdit "%SabaWeb\web\%site\properties\Content.properties"
+
+return
+
+:ConfigDeepLink
+
+gosub GetSite
+if %_? != 0 return %_?
+
+echo Editing %site deep link configuration...
+text
+- sabaweb.properties, kDeeplinkSiteURLKey=<site>
+- sabadatabase.properties, kDeepLinkMachineURL=http\://<web DNS>/Saba/Web/
+endtext
+call TextEdit "%SabaWeb\properties\sabadatabase.properties"
+call TextEdit "%SabaWeb\web\%site\properties\sabaweb.properties"
+if IsFile "%DeepLinkConfig" call TextEdit "%DeepLinkConfig"
+return
+
+:ConfigDb
+:ConfigService
+:ConfigSite
+
+call saba.btm %version %command% config %$
+
+return %_?
+
+:ConfigEjb
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+set file=%DeployDir\saba.ear\saba_EJB.jar\META-INF\ejb-jar.xml
+gosub ValidateFile "%file"
+
+call TextEdit "%file"
+
+return
+
+:ConfigJakarta
+
+call registry.btm 64 edit %JakartaKey
+
+echo Editing %site Jakarta configuration...
+call TextEdit "%@RegGet64[%JakartaKey\worker_file]"
+call TextEdit "%@RegGet64[%JakartaKey\worker_mount_file]"
+
+return %_?
+
+:ConfigLog
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+text
+Editing logging configuration...
+- log4sabaconfig - default log4j configuration (requires Saba service restart)
+- tempconfig - dynamic log4j configuration (can change while Saba is running)
+endtext
+
+for %file in ("%MonitoringConfig" "%DefaultLogConfig" "%RunningLogConfig") (
+	if IsFile %file call TextEdit %file
+)
+
+return 0
+
+:ConfigNotification
+:ConfigNs
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+echo Editing %site notification server configuration...
+call TextEdit %SabaWeb\properties\sabans.properties
+
+return %_?
+
+:ConfigSSo
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+echo Editing single sign on configuration...
+call TextEdit "%SabaWeb\properties\singlesignon.properties"
+
+return %_?
+
+:ConfigUserConfig
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+call TextEdit "%JbossDir\bin\UserConfig.bat"
+
+return %_?
+
+:ConfigWebLog
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+echo Editing web server configuration (AccessLogValve section)...
+call TextEdit "%SabaWebLog"
+
+return %_?
+
+:SearchUsage
+text
+search [/?|clean|backup|restore|tools|nstools]
+endtext
+quit 1
+
+:search
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto SearchUsage
+
+set command=SearchTools
+iff %# gt 0 then
+	set command=Search%1
+	shift
+endiff
+if not IsLabel %command goto usage
+
+gosub %command
+return %_?
+
+:SearchTools
+:SearchNsTools
+
+gosub GetSite
+if %_? != 0 return %_?
+
+iff "%command" == "%SearchNsTools" then
+	set dir=%NsKcSearchDir
+else
+	set dir=%KcSearchDir
+endiff
+
+gosub ValidateDir "%dir"
+
+call luke.btm "%dir"
+
+return 0
+
+:SearchClean
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+call DelDir contents "%NsSearchDir"
+call DelDir contents "%SearchDir"
+
+return 0
+
+:SearchBackup
+
+gosub GetSite
+if %_? != 0 return %_?
+
+7z a "%site%Search.7z" "%NsKcSearchDir"
+if %? != 0 return %?
+
+return 0
+
+:SearchRestore
+
+set file=
+iff IsFile %@quote[%1] then
+	set file=%@UnQuote[%1]
+	shift
+endiff
+
+gosub GetSite
+if %_? != 0 return %_?
+
+iff "%file" == "" then
+
+	gosub GetInstallDir
+	if %_? != 0 return %_?
+
+	call select.btm file "%InstallDir\%version\image\search\*.7z"
+	if %? != 0 return %?
+	
+endiff
+
+set dir=%KcSearchDir
+set NsDir=%NsKcSearchDir
+
+iff IsDir "%dir" .or. IsDir "%NsDir" .or. IsDir "%NsDir%_N" then
+
+	call ask `Remove existing search index?` n
+	if %? == 0 return 1
+
+	REM Remove the primary and secondary index
+
+	call DelDir "%dir"
+	if %? != 0 return 1
+	
+	call DelDir "%NsDir"
+	if %? != 0 return 1
+	
+	call DelDir "%NsDir%_N"
+	if %? != 0 return 1
+	
+endiff
+
+7z x "%file" -o"%@parent[%NsDir]"
+if %? != 0 return %?
+
+return
+
+:DbUsage
+text
+db [/?|config|backup|restore install|CreateBlank|RestoreBlank|installer]
+  config [site] [host]
+  backup <database> [<BakFile>](database.bak) [<server>](localhost)
+  restore [<file>|blank|select|vanilla](vanilla) [<server>](localhost)
+  installer [<command>](prompt)
+endtext
+quit 1
+
+:db
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto DbUsage
+
+set command=DbConfig
+iff %# gt 0 then
+	set command=Db%1
+	shift
+endiff
+if not IsLabel %command goto usage
+
+gosub %command
+return %_?
+
+:DbConfig
+
+gosub GetSite
+if %_? != 0 return %?
+
+REM Copy the default site database connection configuration if required
+iff not IsFile "%DeployDir\%site-ds.xml" then
+
+	iff IsFile "%DeployDir\SabaSite-ds.xml" then
+		copy /q "%DeployDir\SabaSite-ds.xml" "%DeployDir\%site-ds.xml"
+	else
+		echo The default datasource configuration file (SabaSite-ds.xml) does not exist.
+		return 1
+	endiff
+	
+endiff
+
+echo Editing %site site database configuration...
+call TextEdit "%SiteDir\properties\sabadb.properties"
+call TextEdit "%DeployDir\%site-ds.xml"
+
+return 0
+
+:DbInstall
+
+REM Create or restore blank Saba database
+echo Saba requires a blank database in a specific format.
+input /l1 `(c)reate, (r)estore , or (s)kip blank database creation ? (skip)? ` %%choice
+if "%choice" == "c" call saba.btm %version db CreateBlank
+if "%choice" == "r" call saba.btm %version db RestoreBlank vanilla
+
+call saba.btm db installer %DbInstallCommands
+
+return
+
+:DbCreateBlank
+
+gosub GetInstallDir
+if %_? != 0 return %_?
+
+text
+Creating the Saba database...
+- Validate and execute the script on the target database server
+endtext
+call SqlServer.btm ExecuteSql "%InstallDir\bin\Create Database.sql"
+pause
+
+return
+
+:DbRestoreBlank
+call saba.btm %version db restore blank %$
+return %?
+
+:DbInstaller
+
+REM Intialize
+gosub InitLocalAppHost
+if %_? != 0 return %_?
+
+iff not IsFile "%SabaWeb\bin\runDBInstaller.bat" then
+	echo The database installer has not been installed.  Run saba install core to install it.
+	return 1
+endiff
+
+REM Arguments
+set commands=%$
+
+REM Prompt the user for the command to run
+iff "%commands" == "" then
+
+	REM Show typical commands - SDX files contain SQL used to upgrade the database and can be customized if needed
+	echo On the next screen select the database installer commands...
+	echo - 5.5: 5500-install.sdx, 5500-upgrade.sdx, 5_5_fp1.sdx
+	echo - 5.4 sp3: 5410-install.sdx, multiupgrade.sdx, 5_4_sp3_fp1.sdx
+	echo - 5.3: install.sdx, upgrade.sdx
+	pause
+	
+	REM Prompt for the command
+	select set commands=%commands (%SabaWeb\mesg\*.sdx)
+	
+	REM Return if a command was not selected
+	iff "%commands" == "" then
+		echo A database command was not selected.
+		return 1
+	endiff
+	
+endiff
+
+REM Display database installation instructions
+text
+
+Installing the database...
+- Enter the Database Information=jdbc:JSQLConnect://localhost:1433/database=<database>
+- Please select the module(s) you want to install: check all
+- (upgrade) Do you want to create default learning plan=Yes
+- Company Name=Intel
+- Please select a Time Zone=<time zone of server>
+- Please select your base currency=USD
+- When calculating help proficiency level for a competency, consider "All observations"
+- Do you want to enable full text indexing for catalog search=No
+- (5.4 and up) Enter the database alias name=<name of database>
+- (5.4 and below)Please choose the security model for the system=Security Role Model
+- (5.4 and up) Enter new encryption key=<do not change>
+- (5.4 and below)Would you like to load the pre-defined Notifications to your Saba Database at this time=Yes
+- Note: Database installation log is in c:\SabaWeb<version>\log, which logs every step of upgrade run from the SDX 
+
+endtext
+
+REM Run the installer
+for command in (%commands) (
+	iff IsFile %SabaWeb\mesg\%@name[%command].sdx then
+		echo Running %@name[%command] database installer...
+		call saba.btm run runDBInstaller -i %@name[%command].sdx
+	else
+		echo Unknown database command %command.
+		pause
+	endiff
+)
+
+return 0
+
+:DbBackup
+call SqlServer.btm db backup %$
+return
+
+:DbRestore
+
+REM Initialize
+
+gosub GetInstallDir
+if %_? != 0 return %_?
+
+REM Arguments
+
+set BakFile=%VanillaDatabase
+
+iff "%1" == "blank" .or. "%1" == "vanilla" then
+	set BakFile=%[%1%Database]
+	shift
+
+elseiff IsFile "%InstallDir\%version\image\database\%@UnQuote[%1].bak.7z" then
+	set BakFile=%InstallDir\%version\image\database\%@UnQuote[%1].bak.7z
+	shift
+	
+elseiff IsFile %@quote[%1] then
+	set BakFile=%@UnQuote[%1]
+	shift
+
+elseiff "%1" == "select" then
+	
+	gosub GetInstallDir
+	if %_? != 0 quit %_?
+
+	call select.btm file "%InstallDir\%version\image\database\saba-db-*.7z"
+	if %? != 0 return %?	
+	
+	set BakFile=%file
+	shift
+	
+endiff
+
+set server=%ComputerName
+iff %# != 0 then
+	set server=%1
+	shift
+endiff
+
+if %# != 0 goto usage
+
+REM Restore
+call SqlServer.btm db restore "%BakFile" %server "%InstallDir\bin\Restore Database.sql"
+
+return
+
+:signal
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+REM Take Command location
+set dir=
+if %host == fmsgenituxi set dir=d:\SabaWeb\bin\
+
+psexec -s \\%host %dir%tcc /c SendSignal `%@word[0,%@ExecStr[tasklist | find "JavaService"]]`
+
+return
+
+:ftp
+text
+- Directory create/delete: literal mkd/rmd <dir>
+endtext
+ftp -s:"%@BatchDir[]\SabaFtp.txt"
+return
+
+:iftp
+text
+- Use ftp: prefix to manipulate files on the FTP server, i.e. copy * ftp:temp.
+- TAB filename completion is function with ftp:
+endtext
+iftp ftp://intel@supportftp.saba.com:intelligent@proxy.fm.intel.com
+return
+
+:IndexUsage
+text
+index incremental|full|CopyToDb|CopyToApp
+endtext
+quit 1
+
+:index
+echo TODO: call arguments in custom jar SabaIndex.jar code
+return
+
+:AppUsage
+text
+app [/?|installer](installer)
+endtext
+quit 1
+
+:app
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto AppUsage
+
+set command=installer
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel App%command goto usage
+
+REM Run the service command
+gosub App%command
+
+return
+
+:AppInstaller
+
+gosub GetInstallDir
+if %_? != 0 return %_?
+
+REM Path to JDK cannot contain spaces - spaces cause Saba batch files to fail since the value is not quoted
+echo %@CLipW[%@sfn[%JAVA_HOME]] >& nul:
+
+text
+
+Starting the Saba installer...
+- If prompted for a suitable JVM, File name=<paste>\bin\java.exe
+- Initial startup is slow with no feedback
+endtext
+start /pgm "%SetupDir\installers\win32\SabaSuite.exe"
+
+return
+
+:InstallUsage
+text
+install [/?|all|web|app|db](cd)
+  web: WebConnector|WebFiles|WebSso
+  app: jdk|core|update|DeepLink
+	other: ContentServer|NotificationServer|menu|jdbc|patch <patch>
+endtext
+quit 1
+
+REM Installation manual - Saba\doc\install\SE53EnterpriseInstall_SQLServer.pdf
+REM Service packs - http://support.saba.com/service_packs/service_packs.htm
+:install
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto InstallUsage
+
+set command=cd
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Install%command goto InstallUsage
+
+REM Run the service command
+gosub Install%command
+
+return
+
+:InstallAll
+
+text
+************************
+* Saba
+************************
+- Throughout the process test Saba (saba start, wait for CPU to stabilize, saba test)
+endtext
+
+gosub InstallComponent "application server components" "gosub InstallApp"
+gosub InstallComponent "database server components" "gosub InstallDb"
+gosub InstallComponent "web server components" "gosub InstallWeb"
+
+REM Modules
+gosub InstallComponent "the content server" "call saba.btm %version InstallContentServer %$"
+gosub InstallComponent "the notification server" "call saba.btm %version InstallNotificationServer %$"
+
+return
+
+:InstallComponent [DescriptionArg CommandArg]
+
+set description=%@UnQuote[%DescriptionArg]
+set command=%@UnQuote[%CommandArg]
+
+call ask `Do you want to install %description? ` y
+iff %? == 1 %command
+
+return
+
+:InstallApp
+echo.
+echo Installing application server components...
+
+gosub InstallComponent "the JDK" "gosub InstallJdk"
+gosub InstallComponent "the application server core" "gosub InstallCore"
+gosub InstallComponent "application server updates" "gosub InstallUpdate"
+gosub InstallComponent "deep links" "gosub InstallDeepLink"
+
+return
+
+:InstallJdk
+
+text
+Install the Java Development kit (x86 or x64) and set JAVA_HOME...
+- Saba 5.5 fp1: 1.5.0_18
+- Saba 5.4 sp3: 1.5.0_15
+- Saba 5.3: 1.4.2_05, 12 in production, subsequent installer setups require 13.
+endtext
+call install jdk
+
+return
+
+REM Install Saba Web Core and/or database installer
+:InstallCore
+
+gosub GetInstallDir
+if %_? != 0 quit %_?
+
+call ask `Do you want to install Saba web core?` y
+iff %? == 1 then
+
+	REM JRE
+	echo Select the JDK to use for the Saba installation...
+	call JavaUtil FindJre
+	if %? != 0 return %?
+	echo %@CLipW[%@sfn[%jre]] >& nul:
+		
+	REM Installer
+	echo - File Name=`<paste>`\bin\java.exe
+	echo - Directory Name=%@sfn[%programs]\SabaWeb`<major.minor>` (i.e c:\PROGRA~1\SabaWeb5.5)
+	echo - Custom, check Saba Enterprise and Saba Database
+	echo - Specify a path to full JDK installtion=`<paste>` (i.e. %@sfn[%jre])
+	text
+- Please  select the datbase server to be used=Microsoft SQL Server
+- JDBC Connectivity for SQL Server: Database Server Name
+  - Database Name=<database, MyLearning, MyLearning54, MyLearning55, etc>
+  - Internal account username=tp2 (or install fails)
+  - Internal account password=tp2 (or install fails, can change after install)
+- Would you like to run the Database installer=No
+- LMS Server Information (change later in Content.properties)
+  - Please enter the Host Name of the LMS system: <fully qualified name of web server>
+- Would you like to deploy the Content Server=Yes
+	endtext
+
+	gosub AppInstaller
+	pause	
+
+endiff 
+
+REM Update variables for the newly installed Saba
+gosub InitLocalAppHost
+if %_? != 0 quit %_?
+
+REM Install pre-compiled WDK page code
+call ask `Do you want to deploy vanilla %CodeVersion code?` y
+if %? == 1 call saba.btm %version code deploy vanilla
+
+REM Install pre-compiled WDK page code
+call ask `Do you want to restore compiled code?` y
+if %? == 1 call saba.btm %version restore repository
+
+REM Update service files for x64
+set file=%@search[JavaService.exe]
+iff %@OsBits["%JAVA_HOME\bin\java.exe"] == 64 .and. IsFile "%file" then	
+
+	call ask `Do you want to update services to 64 bits?` y
+	iff %? == 1 then 
+		call CopyFile.btm "%file" "%JbossDir\bin\JavaService.exe"
+		call CopyFile.btm "%file" "%SabaWeb\SabaNotify\SabaNotificationService.exe"
+		call CopyFile.btm "%file" "%SabaWeb\iConnectServices\SabaConnectorSvc.exe"
+	endiff
+	
+endiff
+
+REM Install services
+call ask `Do you want to install services?` y
+iff %? == 1 then
+	call saba.btm %version service setup JBoss
+	call saba.btm %version service setup notification
+	
+	call ask.btm `Do you want to set the Saba services to manual startup?` y
+	if %? == 1 call saba.btm %version service demand
+	
+endiff
+
+REM Configure resources
+echo Configure resources...
+call CopyDir "%InstallDir\%version\image\resources" "%SabaWeb\resources"
+
+REM Create shares
+echo Creating shares...
+net share "SabaWeb%version"="%SabaWeb" /Remark:"Saba %version installation."
+
+REM Cleanup -ds.xml is used before the <site>-ds.xml file for database connections, so delete it
+echo Cleanup...
+call DelFile "%DeployDir\-ds.xml"
+
+return
+
+REM InstallAppInit - initialize application server installs
+:InstallAppInit
+
+gosub GetInstallDir
+if %_? != 0 quit %_?
+
+gosub InitLocalAppHost
+if %_? != 0 quit %_?
+
+gosub GetSite
+if %_? != 0 quit %?
+
+return
+
+:InstallUpdate
+echo.
+echo Installing application server updates...
+
+gosub InstallAppInit
+
+REM  Install version specific updates
+gosub InstallComponent "%version updates" "call saba.btm %version install Update%version %site"
+
+REM Deploy updated code
+pushd "%SabaWeb"
+call saba.btm %version code deploy
+popd
+
+return
+
+:InstallPatch [PatchArg]
+
+REM Arguments
+set patch=%@UnQuote[%PatchArg]
+iff "%patch" == "" .and. %# gt 0 then
+	set patch=%@UnQuote[%1]
+	shift
+endiff
+
+gosub InstallAppInit
+
+iff not IsDir "%PatchDir\%patch" then
+	echo Could not location patch %patch directory.
+	return 1
+endiff
+	
+call ask `Install patch %patch? ` y
+if %? == 0 return 1
+
+REM Patch database: Execute all sql files contained in the patch
+set files=%PatchDir\%patch\server\mssql\*.sql
+iff %@NumFiles["%files"] gt 0 then
+
+	echo.
+	echo - Execute the SQL in the Saba database as tp2.
+	for file in ("%files") (
+		call SqlServer ExecuteSql "%file"
+		pause
+	)
+	
+endiff
+
+REM Patch code: Execute all code patch files contained in the patch
+set files=%PatchDir\%patch\sabaweb\lib\*.zip
+iff %@NumFiles["%files"] gt 0 then
+
+	for file in ("%files") (
+	
+		set PatchName=%@name[%file]
+		set LogFile=%SabaWeb\log\%PatchName.log
+		
+		echo.
+		echo Applying patch %PatchName...
+		copy /g "%file" "%SabaWeb\lib"
+		call saba.btm run runPatch -p %SabaWeb\lib\%PatchName.zip -l %LogFile -s %site
+
+		echo Review the log for conflicting pages, resource bundles, and class files to merge...
+		call TextEdit "%LogFile"
+		pause
+		
+	)
+
+endiff
+
+return 0
+
+:InstallDeepLink
+gosub ConfigDeepLink
+pause
+
+return
+
+REM Install custom menu configuration
+REM cmd /c call runCustomMenuConfiguration.bat -i d:\SabaWeb\lib -v 5405 -d mssql -m Verbose -s MyLearning1 
+:InstallMenu
+
+gosub InitLocalAppHost
+if %_? != 0 quit %_?
+
+gosub GetSite
+if %_? != 0 quit %?
+
+text
+
+Upgrading menus...
+- Options (validate in fgt_uiconfig table): 5201-to-52012|5301-to-5305|5400|5410|5430
+- 5305: Saba 5.3 sp1 with patches
+endtext
+input Upgrade menus from application version? (5305)?` ` %%AppVersion
+if "%AppVersion" == "" set AppVersion=5305
+
+call ask.btm `Debug?` n
+set debug=%@if[ %? == 1,-m verbose]
+
+set log=%SabaWeb\log\menuConfigLog.txt
+call DelFile "%log"
+
+REM runCustomMenuConfiguration must use %* for arguments
+call saba.btm run runCustomMenuConfiguration -s %site -v %AppVersion -l %log -d mssql %debug -i %SabaWeb\lib
+
+iff IsFile "%log" then
+	echo Review menu upgrade log for...
+	call TextEdit "%log"
+	pause
+endiff
+
+return
+
+REM Update JDBC JSQLConnect to v5.85 to support SS 2008 and large KC indexes
+REM Assumes Saba services are stopped and a subsequent code deployment will be done.
+:InstallJdbc
+
+gosub GetInstallDir
+if %_? != 0 quit %_?
+
+gosub InitLocalAppHost
+if %_? != 0 quit %_?
+
+echo Updating JDBC JSQLConnect drivers...
+
+REM To update sabares.jar with a new JSQLConnect driver:  Copy all except META-INF\MANIFEST.MF to sabares.jar
+set file=%InstallDir\%version\image\resources\sabares_jsql_v5.85_licensed.jar
+
+iff not IsFile "%file" then
+	echo Unable to locate a newer JDBC driver.
+	return 1
+endiff
+
+call bak "%SabaWeb\resources\sabares.jar"
+copy /g "%file" "%SabaWeb\resources\sabares.jar"
+copy /g "%file" "%JbossLib\sabares.jar"
+
+return
+
+:InstallUpdate5.5
+
+gosub InstallAppInit
+echo.
+echo Installing Saba 5.5 fp1...
+
+set FpDir=%InstallDir\%version\setup\fp1
+gosub ValidateDir "%FpDir"
+
+REM Update files - run on each application server
+call ask `Update files? ` y
+iff %? == 1 then
+
+	echo.
+	echo Updating files...
+	copy /g "%FpDir\sabaweb\lib" "%SabaWeb\lib"
+	
+	echo.
+	echo Updating database installer files...
+	call MakeDir.btm "%SabaWeb\mesg"
+  copy /g "%FpDir\dbinstaller\mssql\*.sdx" "%SabaWeb\mesg"
+
+endiff
+
+REM Database installer
+call ask `Upgrade database? ` y
+if %? == 1 call saba.btm db installer 5_5_fp1.sdx
+
+REM Install patch
+call ask `Run patch installer? ` y
+iff %? == 1 then
+	set LogFile=%SabaWeb\log\fp1.log
+  call saba.btm run runPatch -p %SabaWeb\lib\5_5_fp1_install.zip -l %LogFile -s %site
+  call TextEdit "%LogFile"
+	echo Review log for conflicting pages, resource bundles, and class files to merge.
+  pause
+endiff
+
+REM Install patch
+call ask `Deploy clustering? ` y
+iff %? == 1 then
+	call saba.btm run sabaDeployCluster.bat
+endiff
+
+echo `- Note: fp1 updates /JBoss_Tomcat/resources/sabares.jar, /JBoss_Tomcat/lib/saba.ear&sabasecurity.jar&sabajdbc.jar`
+pause 
+
+return
+
+:InstallUpdate5.4
+
+gosub InstallPatch "MRG0340930 Recertification"
+gosub InstallComponent "fix pack 1" "gosub Install54sp3fp1"
+gosub InstallComponxent "menu upgrade" "call saba.btm %version install menu %site"
+gosub InstallPatch "DEF0370113 KC Weighting"
+gosub InstallPatch "DEF0359835 KC Index Size"
+
+REM Large Lucene index patch 
+text
+
+The 5.4 sp3 JSQLConnect driver does not allow changes to SQL Server Network Packet Size to support large indexes.
+For large indexes, update the JDBC drive, or install a patch which allows the index to be split into smaller files instread of one large file
+endtext
+gosub InstallPatch "KC Index Size"
+iff %? == 0 then
+	echo - JVMOptions add: -Dcom.saba.index.optimizeIndex=false
+	call saba.btm config notification
+	pause
+endiff
+
+return
+
+:Install54sp3fp1
+gosub InstallAppInit
+echo.
+echo Installing Saba 5.4 sp3 fp1...
+
+set FpDir=%InstallDir\%version\setup\sp3.fp1
+gosub ValidateDir "%FpDir"
+
+REM Update files - run on each application server
+call ask `Update files? ` y
+iff %? == 1 then
+
+	echo.
+	echo Updating files...
+	copy /g "%FpDir\sabaweb\lib" "%SabaWeb\lib"
+	copy /g "%FpDir\sabaweb\resources" "%SabaWeb\resources"
+	
+	echo.
+	echo Updating JMS configuration service...
+	iff IsFile "%DeployDir\jms\hsqldb-jdbc2-service.xml" then
+		call MakeDir "%SabaWeb\Backup\5_4_sp3_fp1"
+		move "%DeployDir\jms\hsqldb-jdbc2-service.xml" "%SabaWeb\Backup\5_4_sp3_fp1"
+		copy "%FpDir\sabaweb\jboss_tomcat\server\default\deploy\jms\mssql-jdbc2-service.xml" "%DeployDir\jms"
+	endiff
+	
+	echo.
+	echo Updating database installer files...
+	call MakeDir.btm "%SabaWeb\mesg"
+  copy /g "%FpDir\dbinstaller\mssql\*.sdx" "%SabaWeb\mesg"
+
+endiff
+
+REM Database installer
+call ask `Upgrade database? ` y
+if %? == 1 call saba.btm db installer 5_4_sp3_fp1.sdx
+
+REM Install patch
+call ask `Run patch installer? ` y
+iff %? == 1 then
+	set LogFile=%SabaWeb\log\sp3_fp1.log
+  call saba.btm run runPatch -p %SabaWeb\lib\5_4_sp3_fp1_install.zip -l %LogFile -s %site
+  call TextEdit "%LogFile"
+	echo Review log for conflicting pages, resource bundles, and class files to merge.
+  pause
+endiff
+
+echo - Note: fp1 updates \SabaWeb\lib\saba.ear and sabasecurity.jar
+pause 
+
+return
+
+REM Saba 5.3 sp1
+:InstallUpdate5.3
+
+REM Initialize
+set ServicePack=sp1
+set ServicePackDir=%InstallDir\%version\setup\%ServicePack
+gosub ValidateDir "%ServicePackDir"
+
+REM Update files - run on each application server
+echo.
+call ask `Update files? ` y
+iff %? == 1 then
+
+	echo.
+	echo Updating files...
+	copy /g "%ServicePackDir\sabaweb\bin" "%SabaWeb\bin"
+	copy /g "%ServicePackDir\sabaweb\lib" "%SabaWeb\lib"
+
+	echo.
+	echo Updating database installer files...
+	call MakeDir.btm "%SabaWeb\mesg"
+	copy /g "%ServicePackDir\dbinstaller\lib\sabadbinstaller.jar" "%SabaWeb\lib"
+  copy /g "%ServicePackDir\dbinstaller\mesg\mssql\*.sdx" "%SabaWeb\mesg"
+
+endiff
+
+REM Database installer
+call ask `Upgrade database? ` y
+if %? == 1 call saba.btm db installer 5_3_sp1.sdx
+
+REM Install patch
+call ask `Run patch installer? ` y
+iff %? == 1 then
+  call saba.btm run runPatch -p %SabaWeb\lib\5_3_sp1_install.zip -l %SabaWeb\log\%ServicePack.log -s %site
+  call TextEdit %SabaWeb\log\ServicePack.log
+  pause
+endiff
+
+return
+
+:InstallCustomCode
+echo.
+echo Installing custom code...
+
+REM Call code DeployAlternateSource
+
+	echo - Execute the SQL in the Saba database as tp2
+	call SqlServer.btm ExecuteSql "%install\Saba\Customization\%patch\database\mesg\DDL.sql"
+
+	echo - Execute the SQL in the Saba database as tp2
+	call SqlServer.btm ExecuteSql "%install\Saba\Customization\%patch\database\mesg\mesg.sql"
+
+	REM Apply the custom web pages
+call ask `Apply custom web pages? ` y
+iff %? == 1 then
+
+  echo - kAlternativeSourceURL=file\://c\:\\SabaWeb\\custom\\client\\web\\SabaSite
+	gosub ConfigAlternateSource
+  pause
+  
+  copy /g /j "%install\Saba\Customization\%patch\AlternateSourceURL.zip" "%SabaWeb\lib"
+  
+  call DelDir "%SabaWeb\custom"
+  7z x "%SabaWeb\lib\AlternateSourceURL.zip" -o"%SabaWeb\custom"  
+  pause
+  
+	pause Manually extract Intel_Release_11.0_08022007 fils and press any key to continue...
+
+endiff
+
+REM Final steps
+text
+- Perform customization configuration 
+endtext
+ShellRun "%install\Saba\Customization\%patch\Readme.html"
+pause
+
+return
+
+:InstallWeb
+echo.
+echo Installing web components...
+
+iff %@IsInstalled[iis] == 0 then
+	gosub InstallComponent iis "call install.btm iis"
+endiff
+
+gosub InstallComponent "the web connector" "gosub InstallWebConnector"
+gosub InstallComponent "web files" "gosub InstallWebFiles"
+gosub InstallComponent "sso" "gosub InstallWebSso"
+
+return
+
+REM Jakarta Filter - Configure IIS to proxy to the Saba TomCat application
+:InstallWebConnector
+
+if %@IsInstalled[iis] == 0 return 1
+
+gosub GetInstallDir
+if %_? != 0 return %_?
+
+set dir=%programs\Apache Software Foundation\Jakarta Isapi Redirector
+call MakeDir "%dir\logs"
+
+REM Copy Saba IIS files
+REM http://tomcat.apache.org/download-connectors.cgi
+REM http://tomcat.apache.org/connectors-doc/webserver_howto/iis.html
+call CopyFile "%InstallDir\other\connector\*.properties" "%dir" /u
+call CopyFile "%InstallDir\other\connector\isapi_redirect-1.2.28_%@OsArchitecture[].dll" "%dir\isapi_redirect.dll" /u
+
+echo.
+echo Update worker.properties...
+text
+- workers.tomcat_home=<App server SabaWeb path>\JBoss_Tomcat\tomcat-5.5.x
+- workers.java_home=<paste app server short JDK path>
+- worker.ajp13.port=<TomCat worker port, default 8009>
+- worker.ajp13.host=<fully qualified path to the application server>
+endtext
+
+echo %@ClipW[%JAVA_HOME] >& nul:
+call TextEdit "%dir\workers.properties"
+pause
+
+REM ISAPI Filter registry entries
+REM Reference - isapiRedirectRegistryEntry.reg
+set reg=%JakartaKey
+call registry.btm 64 set "%reg\extension_uri" REG_SZ /jakarta/isapi_redirect.dll >& nul:
+call registry.btm 64 set "%reg\log_file" REG_SZ %dir\logs\isapi.log >& nul:
+call registry.btm 64 set "%reg\log_level" REG_SZ info >& nul:
+call registry.btm 64 set "%reg\worker_file" REG_SZ %dir\workers.properties >& nul:
+call registry.btm 64 set "%reg\worker_mount_file" REG_SZ %dir\uriworkermap.properties >& nul:
+
+REM IIS Configuration
+echo %@ClipW[%dir\isapi_redirect.dll] >& nul:
+text
+- (IIS 7.5+) ISAPI Filters, Add / (IIS6) Web Sites, Default Web Site, Properties, ISAPI Filters, Add...
+  - Filter name=jakarta
+  - Executable=<patse>
+- (IIS 7+) Server, ISAPI and CGI Restrictions, Add...
+  - ISAPI or CGI path=<paste>
+  - Description=jakarta
+  - Check Allow extension path to execute
+- (IIS 6) Web Service Extensions, Add a new Web service extension... 
+  - Extension name=jakarta
+  - Add, Path to file=<paste>
+  - Check Set extension status to Allowed
+- Web Sites, Default Web Site,Add Virtual Directory...
+  - Alias=jakarta
+  - Path=<paste and remove file>
+  - (IIS 7+) Handler Mappings, Edit Feature Permissions..., check Execute
+  - (IIS6) Check Read, Run scripts (such as ASP), and Execute (such as ISAPI applications or CGI)
+- (if the root folder uses authenticated access)
+  - In the root folder create folders: Saba, axis, scorm_launch, aicc_bridge, and gatekeeper
+  - (for jakarta and the above folders) IIS Manager
+    - Properties, Directory Security, Authentiation and access control Edit...
+    - Check Enable anonymous access, uncheck all Authenticated access methos
+endtext
+call iis.btm manager
+pause
+
+REM Reset IIS so the Jakarta filter can be loaded
+call iis.btm service restart
+
+return
+
+REM Saba web server files 
+:InstallWebFiles
+
+if %@IsInstalled[iis] == 0 return 1
+
+text
+Configuring Saba web files...
+- (other) Extract saba.ear\saba.war\assets\common\img to c:\inetpub\wwwroot\SabaImages
+- (Intel) copy (install\Saba\Intel\image\web\ease.zip) or checkout ($/HCMS/MyLearning/web) to c:\inetpub\wwwroot
+endtext
+pause
+
+text
+- System Administration, UI configuration
+	- Themes, Copy, Edit
+		- Name=<theme name>
+		- Image Root URL=/SabaImages or /ease/images/SabaImages (was /Saba/assets/common/img)
+		- (5.3) Application Main Content Background=Desktop_background_white.gif
+		- (Intel) Header Company Logo=(5.3) intc_trans_blu_on_wht_160.gif or (5.4) intel_header_logo.png
+  - Desktops, New Desktop
+	- Site Urls, Desktop=<desktop>
+endtext
+ShellRun http://%ComputerName/Saba/Web/Main
+pause
+
+return
+
+REM Configure IIS for Saba single sign on using the Active Directory
+REM Reference - Foundation system admin manual, Enabling Signle Sign-On Authentication, page 99
+REM Requires SabaWebFiles
+:InstallWebSso
+
+if %@IsInstalled[iis] == 0 return
+
+gosub GetAppHost
+if %_? != 0 return %_?
+
+REM Saba Web Core  SSO configiration
+text
+- trustedServers=localhost\:80,<computer name>,<DNS name>
+  - Comma separated list of servers to accept SSO connections from.
+  - The Saba application server must be able to access http://<server name>/<authroizer page>.  
+  - The authenticator.asp thisMachine variable must be in this list
+- trustedDomains=<computer name>,ccr,gar,ger,amr
+  - A comma separated list of domains or computer names (for IIS servers not in the domain)
+- authenticatorPage=/ease/SABA-SSO/authenticator.asp
+- authorizerPage=/ease/SABA-SSO/authorizer.asp
+- ssoenabled=true
+endtext
+call saba.btm %version config sso
+pause
+
+REM IIS configuration
+text
+- (IIS 7+)
+  - Default Web Site\ease\SABA-SSO, Convert to Application
+    - Authentication, Anonymous Access=Disabled, Windows Authentication=Enabled
+    - Content View, authorizer.asp, Features View, Authentication, Anonymous Access=Enabled, Windows Authentication=Disabled
+- (IIS 5.1/6)
+  - Default Web Site, \ease\SABA-SSO, properties, directory, Create
+  - authenticator.asp, File Security, Authentication and access control Edit...
+    - Uncheck all except Integrated Windows authentication
+  - authorizer.asp, File Security, Authentication and access control Edit...
+    - Uncheck all except Enable anonymous access
+- (IIS 6) - Web Service Extensions, Active Server Pages, Allow
+endtext
+call iis manager
+pause
+
+REM SSO 
+REM thisMachine: Saba must be able to post back to the SAME web server using this name (cannot be a clustered name)
+text
+- config.asp, configure logging
+- authenticator.asp, thisMachine=<trusted server name specified above>
+  - Saba web core must be able to contact original IIS server using this name
+endtext
+set SsoPrefix=c:\Inetpub\wwwroot\ease\SABA-SSO
+call TextEdit "%SsoPrefix\config.asp"
+call TextEdit "%SsoPrefix\authenticator.asp"
+pause
+
+return
+
+:InstallDb
+echo.
+echo Installing database...
+
+iff %@IsInstalled[SqlServer] == 0 then
+	gosub InstallComponent "SQL Server" "call install.btm ss08"
+endiff
+
+input /l1 `Database (i)nstall, (r)restore version `%CodeVersion`, or (s)kip? (skip)? ` %%choice
+if "%choice" == "i" call saba.btm %version db install %$
+if "%choice" == "r" call saba.btm %version db restore %$
+
+return
+
+REM Configure the Saba content server
+:InstallContentServer
+
+echo.
+echo Installing content server...
+
+if %@IsInstalled[iis] == 0 return 1
+
+REM content.properties
+gosub ConfigContent
+pause
+
+REM IIS Configuration
+text
+
+Configuring iis...
+- Web Sites, Default Web Site, New Virtual Directory
+  - Alias=SabaContent
+  - Path=c:\SabaWeb<version>\content
+  - Check Read
+endtext
+call iis.btm manager
+pause
+
+REM Saba configuration
+text
+
+Configuring Saba...
+- Content Administration, Configuration, Server Setup
+  - Content Servers, Search, Default Saba Content Server
+    - URL=http[s]://<web DNS>/SabaContent/production_content_server
+    - Physical Directory=c:/SabaWeb/content/production_content_server
+    - Content Application Base URL=http://<web DNS>
+    - Test File Upload/Request, Test SCORM Runtime
+  - Asset Storage (Saba default values are NOT correct)
+    - URL= http://<web DNS>/SabaContent/private_content_server
+    - Physical Directory= c:/SabaWeb/content/private_content_server
+    - Test File Upload/Request
+  - Note: A delay when accessing the test screen, or a failed test, indicates a problem.
+- (admin) Saba, System Administration, System Configuration, System, LCMS Development Repository
+  - Add New Store, Store Name=Site Names=<site name>.
+  - Restart Saba JBoss service
+  - Test Store
+endtext
+ShellRun http://%ComputerName/Saba/Web/Main
+pause
+
+return
+
+:InstallNotificationServer
+echo.
+echo Installing notification server...
+
+gosub GetSite
+if %_? != 0 quit %?
+
+REM Virus scan software
+iff %@IsInstalled[VirusScan] == 1 then
+	echo.
+	echo Updating virus scanning software...
+	echo - Access Protection, (if checked) Prevent mass mailing worms from sending mail, 
+	echo   Edit, Excluded Processes=java.exe,...
+	call VirusScan.btm console
+	pause
+endiff
+
+REM sabans.properies
+echo.
+echo Updating sabans.properties...
+echo - AutoStart=true
+echo - nsCmdLineArgs=-l 3 –s SabaSite –s <site2> ...
+call saba.btm config notification %host
+pause
+
+echo Update the database connection string if using optimized single file Lucene index (requires JSQLConnect v5.85 or higher)....
+echo - sabadb.properties, dbConnStr, add packetSize\=6000
+echo - Note: 6000 allows 400mb KC indexes (tested), 8000 causes failures
+call saba.btm %version db config %site %host
+pause
+	
+endiff
+
+REM Start the notification service
+call saba.btm service start %host
+
+REM Configure
+text
+
+Configuring notification server...
+- (for each site) Copy or change admin password to welcome and delete \SabaWeb\web\<site>\properties\certificate 
+- (saba user with administrator rights) System Administration, Notifications, Parameters
+  - SMTP server=smtp.intel.com
+  - SMTP Port=25
+  - Save
+  - Add Parameter
+    - From Address=NoReply@intel.com
+    - Reply To Address=NoReply@intel.com
+- Status, Shutdown, Startup
+- Testing, Test Server
+- Change the admin password back
+- System Administration, General Configuration, Indexes, (for all indexes) Generate Indexes
+  - Verify index generation creates \SabaWeb\FullTextIndexForSearch
+endtext
+ShellRun http://%ComputerName/Saba/Web/Main
+pause
+
+return
+
+:tfs
+
+set command=update
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Tfs%command% goto usage
+
+REM TFS is not available on these computers
+if "%ComputerName" == "oversoul" return 0
+
+REM Prepare the CustomPages location on the build server - multiple users on the same machine must use different working folders
+iff "%ComputerName" == "VMSTDCIR001" then
+	set CustomPages=%CodeDir\CustomPages-%UserName
+	
+	iff not IsDir "%CustomPages" then
+	
+		call MakeDir "%CustomPages"
+		if %_? != 0 return %_?
+		
+		linkd "%CustomPages"  "%CodeDir\CustomPages"
+		if %_? != 0 return %_?
+				
+	endiff
+endiff
+
+REM Check the working folder
+call TeamFoundationServer.btm tf workfold %CustomPages >& nul:
+iff %? != 0 then
+	
+	gosub TfsInit
+	if %_? != 0 return %_?
+		
+	if "%command" == "init" return 0
+
+endiff
+	
+REM Run the command
+gosub Tfs%command
+return %_?
+
+:TfsInit
+echo Updating the working folder to %CustomPages...
+call TeamFoundationServer tf WorkFold /map "$/HCMS/MyLearning/CustomPages" "%CustomPages"
+return %?
+
+:TfsClean
+gosub TfsUpdate
+gosub TfsScorch
+return %_?
+
+REM TfsScorch - remove extra and writable files 
+:TfsScorch
+REM web directory includes a directory named build,  so run two separate scorches to exclude only CustomPages\build
+call TeamFoundationServer TfPt scorch /recursive `/exclude:archive,build,bin,web,src` /diff /deletes "%CustomPages"
+call TeamFoundationServer TfPt scorch /recursive /diff /deletes "%CustomPages\web" "%CustomPages\src"
+return %_?
+
+REM TfsUpdate - get the latest version of all files
+:TfsUpdate
+call TeamFoundationServer tf get /recursive "%CustomPages"
+return %_?
+
+:TfsCheckin
+call TeamFoundationServer tf checkin /recursive "%CustomPages"
+return %_?
+
+:TfsCheckout
+call TeamFoundationServer tf checkout %$
+return %_?
+
+:TfsStatus
+call TeamFoundationServer tf status %$
+return %_?
+
+:CheckUsage
+
+text
+check [log](log)
+endtext
+quit 1
+
+retrun
+
+:check
+
+REM Arguments
+iff %@IsHelpArg[%@UnQuote[%1]] == 1 goto CheckUsage
+
+set command=log
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Check%command goto usage
+
+REM Run the service command
+gosub Check%command
+
+return
+
+:CheckLog
+
+set hosts=%ProdAppHosts
+REM set hosts=%ComputerName
+
+for host in (%hosts) (
+
+	echo Checking %host for lucene index download failure messages...
+	grep CustomLuceneSearchAdapter().searchIndex \\%host\SabaWeb5.4\JBoss_Tomcat\server\default\log\server.log
+	grep CustomLuceneSearchAdapter().searchIndex \\%host\SabaWeb5.4\JBoss_Tomcat\server\default\log\SystemOut.log
+	
+	echo Checking %host for transaction failure messages...
+	grep JBossConnectionFactory.getConnection(): \\%host\SabaWeb5.4\JBoss_Tomcat\server\default\log\server.log
+	grep JBossConnectionFactory.getConnection(): \\%host\SabaWeb5.4\JBoss_Tomcat\server\default\log\SystemOut.log
+
+)
+
+return 0

@@ -1,0 +1,219 @@
+@echo off
+SetLocal
+
+REM Profile services for batch files. 
+REM Return 0 on success, 1 on usage error, 2 on other errors
+REM
+REM The calling batch file must set:  
+REM - ProfileApp: Name of the profile batch file to start and close the application
+REM - ProfileMethod: a directory, configuration program, or registry key.
+REM - ProfileFiles: For directory profiles, the pattern that specifies profile files to backup from the directory
+REM - ProfileSaveExtension: For program profiles, the profile file extension used by the program
+
+REM Initialize
+set DefaultProfileDir=%UserData\profile\default
+set ProfileSaveDir=%UserData\profile\%ProfileApp
+set ProfileAppStart=call %ProfileApp startup
+set ProfileAppClose=call %ProfileApp close
+
+REM Profile files - profile contains ZIP of specified files
+REM IN: ProfileFiles - optional files to save
+iff IsDir "%ProfileMethod" then
+	set method=file
+	set ProfileDir=%ProfileMethod
+	set ProfileSaveExtension=zip
+
+REM ProfileFiles program - program it will be used to import and export the profile  
+REM IN: ProfileDir, ProfileSaveExtension -  the profile file extension used by the program must be specified
+elseiff IsFile "%ProfileMethod" .and. "%@ext[%ProfileMethod]" == "exe" then
+	set method=program
+	set ProfileProgram=%ProfileMethod
+	
+	iff not defined ProfileSaveExtension then
+		echo The profile save extension was not specified.
+		quit 2
+	endiff
+	
+REM Registry profile - profile contains registry entries
+elseiff %@IsRegKey[%ProfileMethod] == 1 then
+	set method=registry
+  set ProfileKey=%@UnQuote[%ProfileMethod]
+	set ProfileSaveExtension=reg
+	
+else
+	echo Unknown profile method %ProfileMethod.
+	quit 2
+	
+endiff
+
+set ReplicateProfile=%DefaultProfileDir\%ProfileApp Profile.%ProfileSaveExtension
+
+REM Arguments
+set command=dir
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel %command quit 1
+
+gosub %command
+quit %_?
+
+:dir
+switch "%method"
+case "file"
+	cde "%ProfileDir"
+	EndLocal /d
+case "program"
+	start /pgm "%ProfileProgram"
+	EndLocal /d
+case "registry"
+	regjump "%ProfileKey"
+endswitch
+return
+
+:SaveDir
+iff IsDir "%ProfileSaveDir" then
+	cde "%ProfileSaveDir"
+	EndLocal /d
+
+elseiff IsDir "%UserData\profile" then
+	cde "%UserData\profile"
+	EndLocal /d
+	
+else
+	echo The profile save directory does not exist.
+endiff
+
+return
+
+:backup
+
+set file=%@HostName[] %ProfileApp Profile %@TimeStamp[].%ProfileSaveExtension
+iff %# != 0 then
+	set file=%1.%ProfileSaveExtension
+	shift
+endiff
+
+set src=%ProfileDir
+set dest=%ProfileSaveDir
+
+if not IsDir "%dest" md /s "%dest"
+
+iff IsDir "%dest" then
+
+	REM Backup specified files to a zip file
+	iff "%method" ==  "file" .and. IsDir "%src" then
+		echos Backing up %ProfileApp profile to "%file"...
+		pushd "%src"
+		zip.exe -Sr "%dest\%file" %ProfileFiles >& nul:
+		popd
+		echo done.
+
+	REM Backup using the specified import/export program		
+	elseiff "%method" == "program" then
+		echo %@ClipW[%dest\%file] > nul
+		echo Export the profile to the filename contained in the clipboard.
+		call ask `Start %@FileName[%ProfileProgram]?` y
+		if %? == 1 start /pgm "%ProfileProgram"
+		pause
+		
+	REM Backup the registry
+	elseiff "%method" == "registry" then
+		echos Backing up %ProfileApp profile to "%file"...
+		regedit /e "%dest\%file" "%ProfileKey"
+		echo done.
+		
+	endiff
+	
+endiff
+
+REM Copy the default profile to the replicate directory
+iff "%file" == "default.%ProfileSaveExtension" .and. exist "%dest\%file" .and. IsDir "%DefaultProfileDir" then
+	echos Copying the default profile...
+	copy /q "%dest\%file" "%ReplicateProfile"
+	echo done.
+endiff
+
+return 0
+
+:restore
+
+set profile=
+iff %# gt 0 then 
+	set profile=%1
+	shift
+endiff
+
+set exist=
+iff "%1" == "exist" then
+	set exist=true
+	shift
+endiff
+
+if %# != 0 return 1
+
+set profile=%@UnQuote[%profile]
+
+REM If the profile is not specified, find the latest backed up profile
+iff "%profile" == "" then
+	set profile=%@NewestFile[%ProfileSaveDir\*.%ProfileSaveExtension]
+endiff
+
+REM Find default profile if needed
+iff ("%profile" == "" .or. "%profile" == "default") .and. exist "%ReplicateProfile" then
+	set profile=%ReplicateProfile
+endiff
+
+REM Return if no profiles could be found
+iff "%profile" == "" then
+	echo Could not locate any %ProfileApp profiles.
+	return 2
+endiff
+
+REM Initialize the profile - add extension to and profile save driectory to the profile if it does not contain one
+iff "%profile" != "" then
+	if "%@ext[%profile]" == "" set profile=%profile.%ProfileSaveExtension
+	if "%@path[%profile]" == "" set profile=%ProfileSaveDir\%profile
+endiff
+
+iff defined exist then
+	return %@if[ exist "%profile" ,1,]
+endiff
+
+REM Ensure the profile exists
+iff not exist "%profile" then
+	echo The profile %@FileName[%profile] does not exist.
+	return 2
+endiff
+
+call ask `Do you want to restore %ProfileApp profile "%@FileName[%profile]"?` n
+if %? == 0 return 2
+
+iff "%@search[%ProfileApp.btm]" != "" then
+	%ProfileAppClose >& nul:
+endiff
+
+REM Restore profile from zip file
+iff "%method" == "file" then
+	unzip.exe -o "%profile" -d "%ProfileDir"
+	
+REM Restore using the specified import/export program
+elseiff "%method" == "program" then
+	echo %@ClipW[%profile] > nul
+	echo Import the profile using the filemame contained in the clipboard.
+	start /pgm "%ProfileProgram"
+	pause
+
+elseiff "%method" == "registry" then
+	regedit /s "%profile"
+
+endiff
+
+echo %ProfileApp profile "%@FileName[%profile]" has been restored.
+
+iff "%@search[%ProfileApp.btm]" != "" then
+	%ProfileAppStart >& nul:
+endiff
+
+return 0

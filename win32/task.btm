@@ -1,0 +1,483 @@
+@echo off
+SetLocal
+on break cancel 1
+
+REM Notes
+REM - To test task.btm, use startup.btm, firefox startup (firefox maximized) word close (with unsaved document), word File Open dialog.
+
+REM Amount of time to wait after the window title has been found to check the window state.  If windows are not hidden when the system is
+REM under stress (startup), increase this value to 1500 or 2000.
+set GetWindowStateDelay=1000
+
+REM Initialize arguments
+set command=manager
+set dup=
+set restore=
+set min=
+set max=
+set MaxMin=
+set fast=
+set close=
+set TaskIdle=
+set cpu=
+set wait=
+set delay=30
+set TaskTitle=
+set task=
+set TaskName=
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+iff IsLabel %1 then
+	set command=%1
+	shift & goto GetArgs
+endiff
+
+:GetArgs
+
+iff "%1" == "dup" then
+  set dup=true
+  shift & goto GetArgs
+endiff
+
+iff "%1" == "min" then
+  set min=/min
+  shift & goto GetArgs
+endiff
+
+iff "%1" == "restore" then
+  set restore=true
+  shift & goto GetArgs
+endiff
+
+iff "%1" == "max" then
+  set max=true
+  shift & goto GetArgs
+endiff
+
+iff "%1" == "MaxMin" then
+  set MaxMin=true
+  shift & goto GetArgs
+endiff
+
+iff "%1" == "fast" then
+  set fast=/inv
+  shift & goto GetArgs
+endiff
+
+iff "%1" == "close" then
+  set close=true
+  shift & goto GetArgs
+endiff
+
+iff "%1" == "idle" then
+  set TaskIdle=true
+  shift
+  
+  set cpu=10
+  iff %@numeric[%1] == 1 then
+    set cpu=%1
+    shift
+  endiff
+
+  goto GetArgs
+  
+endiff
+
+iff "%1" == "wait" then
+  set wait=true
+  shift
+  
+  iff %@numeric[%1] == 1 then
+    set delay=%1
+    shift
+  endiff
+  
+	goto GetArgs
+endiff
+
+iff "%1" == "title" then
+  shift
+  if %# lt 1 goto usage
+  
+  set TaskTitle=%@UnQuote[%1]
+  shift
+
+	goto GetArgs
+endiff
+
+REM Close requires that the title has been provided
+if defined close .and. not defined TaskTitle goto usage
+
+iff "%command" != "manager" then
+	if %# lt 1 goto usage
+
+	set task=%@UnQuote[%1]
+	set TaskName=%@name[%task]
+	shift
+
+	set arguments=%$
+	shift %#
+
+	REM Find the task executable in the path
+	iff not exist "%task" then
+
+		REM Search the path for the task
+		set task=%@search[%task]
+  
+		iff not exist "%task" then
+			echo %TaskName is not installed.
+			quit 1
+		endiff
+		
+	endiff
+	
+endiff
+
+if %# != 0 goto usage
+
+REM Run command
+gosub %command
+quit %_?
+
+:usage
+text 1>&2
+usage: task [command](manager) 
+  command: IsRunning|info|manager|start|close|kill|CloseKill|CloseRetry|restart|WaitForClose|WaitForStart
+  arguments: [dup] [min|max|MaxMin|fast|close] [idle [<cpu>](10)] [wait [<delay>](30)] 
+             [title <window title>] task [arguments]
+						 
+  IsRunning: Return 1 if the task is running and the window title exists, 0 otherwise  
+  info: Display task information
+  close: Ask the task to close.  
+  kill: Kill the task, objects may not be released
+  CloseKill: first try and close the task, and if it is still running kill it  
+  CloseRetry: close the window title every second until the task is not running
+  WaitForClose: Wait for the task to close
+  WaitForStart: Wait for the task to start start|restart [min|fast|close] [idle [<cpu>](10)] 
+  start|restart: Start the task if it is not running.  Restart first closes the task.
+  
+  dup: Allow a second instance of the task to be started
+  min: Start the task minimized the tasks main window.
+    The min option uses the title if specified to verify that the task started minimized.
+  close: After the task has started, close the window with the specified title.  
+  fast: Start the task hidden to accelerate subsequent load time.  
+  idle [<cpu>](10): Start the task when the utilization is less than the specified percentage
+  wait: If specified, wait delay seconds for the task to start or end before returning
+  title <title> - title of the window the task creates
+  task: The executable of the task, which must be in the path, or a full path to the executable must be specified
+  arguments: one or more arguments to start the task with 
+endtext
+quit 1
+
+REM Return 1 if the task is running and the (optially specified) window  exists
+:IsRunning
+
+REM echo IsTaskRunning[%task]=%@IsTaskRunning[%task]
+
+REM Return 0 if the task is not running
+iff %@IsTaskRunning[%task] == 0 then
+  return 0
+endiff
+
+REM Return if a title is not specified we cannot check for it
+if not defined TaskTitle return 1
+
+REM WindowExist does not detect x64 programs - 5/16/2010 - does detect Word 2010 x64, try commenting this check out
+REM if "%@ExeArchitecture[%task]" == "x64" return 1
+
+set WindowExist=%@WindowExist[%TaskTitle]
+REM echo WindowExist=%WindowExist _WinFgWindow=%_WinFgWindow
+return %WindowExist
+
+:info
+TaskList %TaskName
+return
+
+:CloseRetry
+
+do while %@WindowExist["%TaskTitle"] == 1
+  activate "%TaskTitle" close >& nul:
+  if %@WindowExist["%TaskTitle"] == 1 sleep 1
+  echos .
+enddo
+
+return
+
+:close
+set running=
+
+REM Return if the task is not running
+iff %@IsTaskRunning[%task] == 0 then
+
+	REM Close phantom Firefox window sometime leftt open (seen in Vista)
+	iff "%TaskName" == "firefox" then
+		activate "%title" close >& nul:
+	endiff
+	
+	return
+	
+endiff
+
+REM Denote that the task was running to external programs  
+set running=true
+
+REM Close using the window title if one has been specified, since not all tasks respond to TaskEnd (i.e. Firefox)
+iff defined TaskTitle then
+  
+  REM Identify the window being closed
+  echos Closing the %TaskTitle window...
+  
+  REM Activate and restore the window so the user sees any closure message the application displays (i.e. Word file save dialog)
+  activate "%TaskTitle" restore  >& nul:
+  sleep 1
+
+  REM Active the window and close it
+  activate "%TaskTitle" close >& nul:  
+   
+  echo done.
+else
+
+  REM Identify the tasks beind closed
+  echo Closing the following %@name[task] tasks...
+  TaskList %TaskName
+  
+  REM Close the task using TaskEnd
+  REM TaskEnd will display an error if not running as an administrator account, >&> hides theses errors
+  TaskEnd %TaskName >&> nul:
+    
+endiff
+  
+REM Wait for the task to close
+iff defined wait then
+  gosub WaitForClose
+  return %_?
+endiff
+  
+return 0
+
+:kill
+
+set running=
+
+REM Return if the task is not running
+if %@IsTaskRunning[%task] == 0 return
+
+REM Denote that the task was running to external programs  
+set running=true
+
+REM Identify the tasks beind closed
+echo Killing the following %TaskName tasks...
+TaskList %TaskName >&> nul:
+  
+REM Kill the task
+TaskEnd /f %TaskName >&> nul:
+  
+REM Wait for the task to close
+iff defined wait then
+  gosub WaitForClose
+  return %_?
+endiff
+
+return 0
+
+:CloseKill
+
+REM Close the task
+gosub close
+
+REM If close did not wait, then wait for the task to close now
+if not defined wait gosub WaitForClose
+
+REM If the task is stilling running, kill it
+if %@IsTaskRunning[%task] == 1 gosub kill
+
+return 0
+
+:start
+:restart
+
+REM Close the task if restarting
+iff "%command" == "restart" then
+  gosub close
+  if not defined wait gosub WaitForClose
+endiff
+
+REM Exit if the task is already running
+
+iff not defined dup then
+  gosub IsRunning & if %_? == 1 return 0
+endiff
+
+REM Wait for the CPU to become idle
+iff defined TaskIdle then
+  call PauseCpu %cpu 240 `Starting %TaskName when the cpu is idle`
+endiff
+
+REM Start the task
+start %min %fast /pgm "%task" %arguments
+
+REM Wait for the task to start
+iff defined wait .or. defined TaskTitle then
+
+	REM Short wait for program to get started
+	REM - with no delay Outlook, @WindowExist[%TaskTitle] is 1 right after start, then 0 after 250ms, then 1 again after full startup
+	delay 250 /m
+	
+  gosub WaitForStart
+
+REM If we are starting tasks and waiting for idle CPU, if we are not waiting for the task to start, give the task a second
+REM to begin starting, so the next CPU check is more realistic.
+elseiff defined TaskIdle then
+  sleep 1
+
+endiff
+
+REM Ensure the window is minimized
+iff defined min .and. defined TaskTitle then
+  
+  REM If the window is normal or maximized, minimize then minimize it
+	gosub DelayGetWindowState
+  gosub GetWindowState
+  if %_? == 1 .or. %_? == 3 activate "%TaskTitle" min
+
+REM Restore  the window
+elseiff defined restore .and. defined TaskTitle then
+	activate "%TaskTitle" restore
+
+REM Maximize the window
+elseiff defined max .and. defined TaskTitle then
+	activate "%TaskTitle" max >& nul:
+
+REM Maximize then minimize the window
+elseiff defined MaxMin .and. defined TaskTitle then
+	activate "%TaskTitle" max >& nul:
+	activate "%TaskTitle" min >& nul:
+	
+REM Close the window
+elseiff defined close .and. defined TaskTitle then
+  activate "%TaskTitle" close
+   
+REM Ensure the window is hidden
+elseiff defined fast .and. defined TaskTitle then
+
+	switch "%TaskName"
+		
+	REM Firefox will reappear when hidden if not minimized
+	case "firefox"
+		activate "%TaskTitle" minimize >& nul:
+		activate "%TaskTitle" hide >& nul:
+			
+	REM Word, if hidden minimized, will unhide when Word windows are opened, so restore and hide the window.
+	case "winword"	
+		activate "%TaskTitle" restore >& nul:
+		activate "%TaskTitle" hide >& nul:
+	
+	REM If the window state is not hidden, then  hide it
+	default
+		gosub DelayGetWindowState
+	  gosub GetWindowState
+		if %_? != 0 activate "%TaskTitle" hide >& nul:
+
+	endswitch
+
+	REM Don't let the hidden window stay active (so we don't type in it)
+	if %@wild[%_WinFgWindow,%FastStartTitle] == 1 activate "Program Manager"
+
+endiff
+
+
+return 0
+
+:DelayGetWindowState
+
+REM Wait for the window to be drawn. Even if we waited for the main window,  it may still not be fully drawn and the window state will be inaccurate. 
+delay /m %GetWindowStateDelay
+
+return
+
+:GetWindowState
+
+if not defined TaskTitle return -1
+
+return %@WinState[%TaskTitle]
+
+:WaitForClose
+gosub wait close
+return 0
+
+:WaitForStart
+gosub wait start
+return 0
+
+REM Wait for the task to go to the specified status, 0=running
+:wait [action]
+
+set pauseDelayDummy=TIMEOUT
+set action=%@if[%action == start,start,close]
+set ActionPast=%@if[%action == start,started,closed]
+
+REM Return if we are in the desired state
+gosub InDesiredState %action
+if %_? == 1 return 0
+
+echos Waiting %delay seconds for %TaskName to %action.
+
+do i = 1 to %delay
+  gosub InDesiredState %action
+
+  iff %_? == 1 then
+    echo %TaskName %ActionPast in %i seconds.
+    leave
+  endiff
+
+  inkey /x /w1 %%pauseDelayDummy
+
+  iff %pauseDelayDummy != TIMEOUT then
+    leave
+  endiff
+
+  echos .
+enddo
+
+iff %pauseDelayDummy != TIMEOUT then
+  echo cancelled after %i seconds.
+  return 1
+endiff
+
+REM Return an error if the task is not in the desired state
+gosub InDesiredState %action
+iff %_? == 0 then
+  echo %TaskName did not %action in %i seconds.
+  return 1
+endiff
+
+return 0
+
+REM Return 1 if the task is int he desired state, 0 otherwise
+REM Action=start requires the task is running and the window exists.
+REM Action=close requires the task is not running.  Some tasks may 
+REM closed their window but continue to run (Word in some cases).
+:InDesiredState [action]
+
+iff %action == start then  
+  gosub IsRunning
+  set ActualState=%_?
+  set DesiredState=1
+else
+  set ActualState=%@IsTaskRunning[%task]
+  set DesiredState=0
+endiff
+
+return %@if[%ActualState == %DesiredState, 1, 0]
+
+:manager
+
+iff %_WinVer lt 6.0 then
+  start /pgm explorer "\\%ComputerName"
+else
+  start /pgm mmc taskschd.msc
+endiff
+
+return

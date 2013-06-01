@@ -1,0 +1,138 @@
+@echo off
+
+REM cygwin ln does not have absolute argument
+set ln=%@full[%@if[ %@OsArchitecture[] == x64 ,win64:,win32:]\ln.exe]
+
+REM Arguments
+set type=
+set marge=
+set src=
+set link=
+set HideSrc=
+set HideLink=
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+:GetArgs
+
+iff "%1" == "symbolic" .or. "%1" == "junction" .or. "%1" == "hard" then
+	set type=%1
+	shift
+endiff
+
+iff "%1" == "merge" then
+	set merge=true
+	shift
+endiff
+
+iff "%1" == "hide" then
+	set HideSrc=true
+	shift
+endiff
+
+if %# lt 1 goto usage
+set src=%@full[%1]
+shift
+
+iff "%1" == "hide" then
+	set HideLink=true
+	shift
+endiff
+
+iff %# == 0 then
+	set link=%_cwd
+else
+	set link=%@full[%1]
+	shift
+endiff
+
+if %# != 0 goto usage
+
+REM Run the command
+gosub MakeLink
+quit %_?
+
+:usage
+text 1>&2
+Create file and directory links.
+MakeLink [symbolic|junction|hard](junction) [merge] [hide] <src> [hide] [<link>](CWD)
+  - symbolic, junction, hard - the type of link to create.  Default link for directories
+    is junction and files is symbolic
+  - merge - first merge the contents of the link to the source
+  - hide - if specified, hide the src or link after creating the link
+endtext
+quit 2
+
+:MakeLink
+
+set src=%@FixPath[%src]
+set link=%@FixPath[%link]
+
+REM Move the contents of the old directory to the new directory
+iff defined merge .and. IsDir "%link" .and. %@IsLink["%link"] == 0 then
+	call MergeDir.btm /quiet /rename "%link" "%src"
+	if %? != 0 return %?
+endiff
+
+REM Assume the target filename
+iff IsFile "%src" .and. IsDir "%link" then
+	set link=%link\%@FileName["%src"]
+endiff
+
+iff not exist "%src" then
+	call MakeDir "%src"
+	if %? != 0 return %?
+endiff
+
+REM Set the default - use junctions for directories 
+iff not defined type then
+	iff IsDir "%src" then
+		set type=junction
+	else
+		set type=symbolic
+	endiff
+endiff
+
+iff exist "%link" then
+	iff %@IsLink[%link] == 1 then
+		gosub HideLink
+		gosub HideSrc
+		return 0
+	endiff
+	call DelDir ask "%link"
+	if %? != 0 return %?
+endiff
+
+REM Create the link
+switch "%type"
+
+case "junction"
+	REM linkd "%link" "%src"
+	"%ln" --junction "%link" "%src\."
+	if %? != 0 return %?
+
+case "symbolic"
+	REM call sudo mklink /d "%link" "%src"
+	call sudo "%ln" --absolute --symbolic "%src" "%link"
+	if %? != 0 return %?
+	
+case "hard"
+	"%ln" --hard "%src" "%link"
+	if %? != 0 return %?
+	
+endswitch
+
+gosub HideSrc
+gosub HideLink
+
+return 0
+
+:HideLink
+iff not defined HideLink return 0
+attrib /q %@if[ IsDir "%link" ,/d] +h "%link"
+return %?
+
+:HideSrc
+if not defined HideSrc return 0
+attrib /q %@if[ IsDir "%src" ,/d] +h "%src"
+return %?

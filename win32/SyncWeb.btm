@@ -1,0 +1,447 @@
+@echo off
+REM ************************************************************
+REM Variables
+REM ************************************************************
+
+set IuisTestPassword="7iu&test"
+
+set WebSiteList=Cms Rendezvous IntelU ExitSurvey InstructorScheduler IntactForm IuApp IuRequest hr-dashboard IuWired InteluWebEvaluation HistoryLoadGateway AlternativeDeliveryForm mec
+set WebSitePrepList=IntelU IuWired IuApp
+set WebServerProductionList=AZSWEB005 Rrs3web003
+set OtherServerProductionList=rrs3iusql AZSEDEVSQL1
+set IntelUSubList=pmtraining:\empdev\pmt mtp:\mtp iuplc:\Internal\plc Training:\TrainingLSG iuis:\ProdSvcs\IUIS manage:\MgmtDev instructor:\instructorDev  NewEmployee:\EmpDev\NewEmployee immp:\InstructorDev\Instructor_Management_Programs ma-training:\MA_Training
+
+set SyncServer=true
+
+set WebServerStaging=azsedevstg1
+set WebServerStatic=rrs3web001
+
+set it=c:\PROGRA~1\Geckos
+set StagingIt="\\%WebServerStaging\c$\PROGRA~1\Geckos"
+set StagingGac=\\%WebServerStaging\c$\WinNt\Assembly\Gac
+set gu=%it\bin\GroupUtils.exe
+set gum=%gu CopyMerge
+set wu=%it\bin\WebUtils.exe NoConfirmChanges
+set wuc=%wu CopyPurge
+set wus=%wu CopySchemaPurge
+alias dnd %it\Bin\DotNetDependsCmd.exe
+
+set rc=robocopy
+set RcOptsNoPurge=/E /V /R:5 /W:1 /xd _borders _cusudi _fpclass _private _vti*
+set RcOpts=/PURGE %RcOptsNoPurge
+
+set ss=\\azsedevstg1\Files\Data\Archive\win32\SS.EXE
+set SsOpts=-yDistrib,iuisdistrib -R -I- -W- -GWR 
+
+if "%LocalData"="" set LocalData=\\azsedevstg1\Files\Data
+
+REM Test
+goto NoTest
+REM set WebSiteList=IuApp
+set WebSitePrepList=
+REM set WebSiteList=Cms Rendezvous ExitSurvey InstructorScheduler IntactForm IuApp IuRequest hr-dashboard IuWired   InteluWebEvaluation HistoryLoadGateway AlternativeDeliveryForm
+set WebServerProductionList=rrs3sql004t
+set OtherServerProductionList=rrs3app004t
+set IntelUSubList=
+REM set SyncServer=
+REM set wuc=echo WEB UPDATE: 
+:NoTest
+
+REM Samples
+
+REM Set AuthFlags to 6 (basic and integrated security) 
+REM %wu SetProp rrs3web002:IuWired.intel.com/ AuthFlags:6
+
+REM Set AuthFlags to 2 (basic security) 
+REM %wu SetProp rrs3web002:IuWired.intel.com/ AuthFlags:2
+
+REM ************************************************************
+REM Sync each WebSite to each WebServerProduction
+REM ************************************************************
+Iff defined SyncServer then
+	gosub PrepStaging
+	for %Server in (%OtherServerProductionList %WebServerProductionList) gosub SyncServer
+EndIff
+for %PrepSite in (%WebSitePrepList) gosub prep.%PrepSite
+for %WebServer in (%WebServerProductionList) gosub WebServer
+
+goto Done
+
+:PrepStaging
+echo ************************************************************
+echo PREPARE: %WebServerStaging
+echo ************************************************************
+
+REM Get latest unpinned release assemblies
+set proj=$/Distrib/Tools/Assembly/net-1.1/release & set dest=%StagingIt\Assembly\net-1.1\release & gosub Ss
+
+REM Register assemblies on staging before we get the new binaries in case the new DotNetDepends
+REM needs a new assembly
+dnd Register %StagingIt\Assembly\net-1.1\release\*.dll %WebServerStaging
+
+REM Get latest unpinned release binaries
+set proj=$/Distrib/Tools/Bin & set dest=%StagingIt\Bin & gosub Ss
+set proj=$/Distrib/Tools/Bin/net-1.1/release & set dest=%StagingIt\Bin\net-1.1\release  & gosub Ss
+
+REM Get latest unpinne COM DLLS
+set proj=$/Distrib/Tools/COM & set dest=%StagingIt\COM & gosub Ss
+set proj=$/Distrib/Tools/COM/WIRED & set dest=%StagingIt\COM\WIRED  & gosub Ss
+
+
+
+REM Get Common web files.  Common web files come from IntelU web site Common folder
+REM and IuisTools.  IUIS web sites should have a \Common virtual directory that point
+REM to the IuisTools\Web folder.  /Purge is not used in the RoboCopy in case the 
+REM get latest version from VSS fails.
+%rc \\%WebServerStaging\d$\InetPub\IntelU.intel.com\Common %StagingIt\Web /E /V /R:5 /W:1
+set proj=$/Distrib/Tools/Release/Web & set dest=%StagingIt\Web & gosub Ss
+
+return
+
+:SyncServer
+echo ************************************************************
+echo SYNC: %Server
+echo ************************************************************
+
+REM Set variables
+set ServerWinDir=\\%Server\c$\Winnt
+Iff Not IsDir %ServerWinDir Then
+	set ServerWinDir=\\%Server\c$\Windows
+EndIff
+set ServerIt="\\%Server\c$\PROGRA~1\Geckos"
+
+REM Copy staging assemblies to remote computers
+net stop RemotingHostService
+%rc %StagingGac\. %ServerWinDir\Assembly\Gac %RcOptsNoPurge
+net start RemotingHostService
+REM dnd Register %StagingIt\Assembly\*.dll %Server
+
+REM Copy IUIS Tools Directory, excluding the some directories
+%rc %StagingIt %ServerIt %RcOpts Log Groups
+
+return
+
+:WebServer
+for %WebSite in (%WebSiteList) gosub WebSite
+
+return
+
+:WebSite
+echo ************************************************************
+echo SYNC: %WebSite to %WebServer
+echo ************************************************************
+set WebSitePrefix=%WebSite
+set WebSite=%WebSite.intel.com
+gosub %WebSitePrefix
+return
+
+REM ************************************************************
+REM IntelU 
+REM ************************************************************
+
+:IntelU
+%wuc %WebServerStaging:%WebSite %WebServer
+
+REM Only copy specific folders
+REM %wuc %WebServerStaging:%WebSite\EmpDev\NewEmployee  %WebServer\EmpDev\NewEmployee
+
+for %SubWebSite in (%IntelUSubList) gosub sub.IntelU
+
+REM Group HrEb: Wired report permissions
+REM %gum %WebServerStaging:HREB* %WebServer
+
+REM Groups: OpsInternal - Read and OpsInternal - Write (admin group)
+REM Admin Page: http://intelu.intel.com/IUOperations/OpsSpecialists/Internal/Maintenance/OPSTool.asp
+%gum %WebServerStaging:OpsInternal* %WebServer
+set Dir=IntelU.intel.com\IUOperations\OpsSpecialists\Internal & set AccountList="OpsInternal - Read" "OpsInternal - Write" & gosub CopyPerms
+
+REM Groups: MPTAdmin MtpBgc
+REM Admin Page: http://intelu.intel.com/mtp/Registration/MTPAdminTools
+%gum %WebServerStaging:mtpbgc %WebServer
+%gum %WebServerStaging:MTPAdmin %WebServer
+set Dir=IntelU.intel.com\mtp\Registration\BGCAdmin & set AccountList=mtpbgc & gosub CopyPerms
+set Dir=IntelU.intel.com\mtp\Registration\MTPAdminTools & set AccountList=MTPAdmin & gosub CopyPerms
+
+REM Get latest version of IUIS Web Site AutoDeploy
+set proj=$/Sustaining/IUIS Home Page/AutoDeploy
+set dest=\\%WebServer\d$\inetpub\IntelU.intel.com\ProdSvcs\iuis\AutoDeploy
+gosub Ss
+
+REM Manually
+REM - Add share InteluWeb to d:\InetPub\Intelu.intel.com
+REM - TessIdRequest: input form and reports (http://intelu.intel.com/ProdSvcs/IUIS/Sustaining/tess/id%20account%20request/Request.asp 
+REM    - Share: d:\Projects\TessIdRequest as TessIdRequest
+REM    - Permissions: d:\Projects\TessIdRequest add Everyone with Modify
+REM    - ODBC: System DSN, 
+REM       - Microsoft Access Driver, Data Source Name=requests, Select=d:\Projects\TessIdRequest\requests.mdb
+REM	      - MESA_DS and COLOMA_DS, use Sybase drivers,Server Name Mesa or Coloma.
+REM - Form http://intelu-test.intel.com/internal/CPT/ICIA_RoleModelForm.htm (Owner: Rothberg, Atsuko)
+REM   uses a front page form bot to save form to CPT/_private/form_results.txt.  She currently has people
+REM   use this form on staging.  For this to work, give Everyone write permission to _private on staging,
+REM   and when going to a new staging server manually copy _private directory and contents to the new 
+REM   server (SyncWeb RoboCopy excludes _private directory from copying).  She will convert this form to email 
+REM   at some point.
+return
+
+:prep.IntelU
+
+echo ************************************************************
+echo * PREPARING: IntelU
+echo ************************************************************
+
+
+REM Update LMS files 
+REM net use \\olcinfo\ipc$ /user:AMR\iutest %IuisTestPassword
+REM %rc \\olcinfo\etraining\LMS2001-2002 \\rrs3web002\IntelUWeb\ProdSvcs\iuis\projects\lms\LMS2001-2002 %RcOpts
+REM net use \\olcinfo\ipc$ /delete
+
+REM Update GITbin files 
+rem net use \\fmea1pub003\ipc$ /user:AMR\iutest %IuisTestPassword
+rem %rc \\fmea1pub003\iuinfo\IUIS\Projects\GITT \\rrs3web002\inteluweb\ProdSvcs\iuis\projects\GITT\CopyShared %RcOpts
+rem net use \\fmea1pub003\ipc$ /delete
+
+REM Copy schema from inside IntelU on staging to sub site on staging
+set WebServer=%WebServerStaging & for %SubWebSite in (%IntelUSubList) gosub sub.IntelU
+
+REM Get latest version of PLC files
+set proj=$/Projects/IUIS PLC
+set dest=\\%WebServerStaging\d$\inetpub\IntelU.intel.com\internal\plc\SystemsPLC
+gosub Ss
+
+return
+
+:sub.IntelU
+
+REM Get the SubWebDns and SubWebPath from SubWebSite
+set SubWebDns=%@word[":",0,%SubWebSite].intel.com
+set SubWebPath=%@word[":",1,%SubWebSite]
+
+REM On staging, copy schema from inside IntelU up to sub web
+iff %WebServer = %WebServerStaging then
+	%wus %WebServerStaging:IntelU.intel.com%SubWebPath %WebServer:%SubWebDns/
+endiff
+
+REM Copy sub web's 
+%wus %WebServerStaging:%SubWebDns %WebServer
+
+return
+
+REM ************************************************************
+REM hr-dashboard
+REM ************************************************************
+:hr-dashboard
+set DirList=\\%WebServer\d$\Projects\Dashboard\Install \\%WebServer\d$\Projects\Dashboard\Report \\%WebServer\d$\Projects\Dashboard\Spreadsheet \\%WebServer\d$\Projects\Dashboard\Upload & gosub MakeDirs
+%wuc %WebServerStaging:%WebSite %WebServer
+%gum %WebServerStaging:Dashboard* %WebServer
+REM Manually: Create d:\Projects\Dashboard shares with permissions, see install document for rest.
+return
+
+
+REM ************************************************************
+REM inteluwebevaluation
+REM ************************************************************
+:inteluwebevaluation
+%wuc %WebServerStaging:%WebSite %WebServer
+return
+
+
+REM ************************************************************
+REM HistoryLoadGateway 
+REM ************************************************************
+
+:HistoryLoadGateway
+%wuc %WebServerStaging:%WebSite %WebServer
+REM Manually: 
+REM 	- Requires "HLGTESSPROD" DB Connector entry on rrs3web003
+REM 	- COM+ Services, HistoryLoadGateway package, TISHistoryLGW.UploadHistory
+REM   - Add HLGLogUtil.job to Scheduled Tasks
+REM   - Share D:\Inetpub\HistoryLoadGateway.intel.com as HLGShare
+return
+
+
+REM ************************************************************
+REM  AlternativeDeliveryForm
+REM ************************************************************
+:AlternativeDeliveryForm
+%wuc %WebServerStaging:%WebSite %WebServer
+return
+
+
+REM ************************************************************
+REM  MEC
+REM ************************************************************
+:MEC
+%wuc %WebServerStaging:%WebSite %WebServer
+return
+
+REM ************************************************************
+REM Rendezvous
+REM ************************************************************
+:Rendezvous
+%wuc %WebServerStaging:%WebSite %WebServer
+REM Manually: See Rendezvous installtion document
+return
+
+REM ************************************************************
+REM ExitSurvey
+REM ************************************************************
+:ExitSurvey
+%wuc %WebServerStaging:%WebSite %WebServer
+%gum %WebServerStaging:ExitSurvey* %WebServer
+
+
+REM NOTE: Copying permissions is not working, need to debug before re-enable.
+REM set Dir=ExitSurvey.intel.com\Reports & set AccountList=ExitSurveyReportUser & gosub CopyPerms
+
+REM Manually: 
+REM - DbConnector: TIS_PRODUCTION_SQL_SERVER
+REM - COM: ExitSurvey.dll, Wired.dll
+REM	- ODBC: System, MESA_DS and COLOMA_DS, use Sybase drivers,Server Name Mesa or Coloma.
+REM	- Disable RDS security for reports: on the server console run 
+REM   c:\Program Files\Common Files\System\Msadc\HANDUNSF.REG
+REM - GENI Upload Job
+REM    "IHRISR17.SQR - Terminated Employee Data EXTRACT for HR Employee Exit survey",
+REM     Runs weekly, ftp's ihrisr17.txt to ExitSurvey.intel.com (NOTE: Ask them to use server IuFtp.intel.com)
+REM     using account geni_upload to ExitSurvey folder.
+REM     password hris8*brown, created 04/19/2001 work request #12968 by the developer Ashish Bhatt
+REM - FTP Setup
+REM    - Create local user account: geni_upload, hris8*brown.  
+REM    - Create D:\Inetpub\ftproot\ExitSurvey with Administrators full control, geni_upload modify.
+REM    - Test FTP upload using geni_upload account
+REM    - Configure batch job to get files at \\IuFtp.intel.com\d$\InetPub\FtpRoot\ExitSurvey
+return
+
+REM ************************************************************
+REM IuWired
+REM ************************************************************
+
+:prep.IuWired
+rem %rc \\rrs3app001\d$\Impromptu_Reports\pdf \\rrs3web002\d$\InetPub\IuWired.intel.com\Indicators\FAB_Indicator %RcOpts
+return
+
+:IuWired
+
+REM Copy Wired web site.  
+%wuc %WebServerStaging:%WebSite %WebServer
+
+REM Copy Groups
+REM IM group has permission to modify the InstructorDetailWrite group 
+REM using http://IuWired.intel.com\Security\InstructorDetail\ImTool.asp
+%gum "%WebServerStaging:IM" %WebServer
+%gum "%WebServerStaging:InstructorDetailWrite" %WebServer
+%gum "%WebServerStaging:Training Debit" %WebServer
+%gum "%WebServerStaging:OrgData" %WebServer
+
+REM Manually: 
+REM - DbConnector: "WIReD_V2"
+REM	- Set the IuWired.intel.com Script timeout to 240 seconds
+REM - Integration reports FTP site on azsweb005
+REM    - Create d:\InetPut\FtpRoot\OrgData directory, remove Everyone, add OrgData local group with rw access
+REM    - Configure batch job to get files at \\IuFtp.intel.com\d$\InetPub\FtpRoot\OrgData
+REM
+REM - BPX Reports MasterList for Targeted population on RRS3IUSQL 
+REM 	- Create directory d:\projects\BPX and share it out as \\rrs3iusql\BPX
+REM 	- Give rw permissions to BPXData group
+REM	- Configure Batch Job to get file at \\rrs3iusql\BPX
+return
+
+REM ************************************************************
+REM InstructorScheduler
+REM ************************************************************
+:InstructorScheduler
+%wuc %WebServerStaging:%WebSite %WebServer
+REM Manually: 
+REM 	- DbConnector: "PRODUCTION_TESS_DB"
+return
+
+REM ************************************************************
+REM IuRequest
+REM ************************************************************
+:IuRequest
+%wuc %WebServerStaging:%WebSite %WebServer
+
+REM Manually:
+REM - Requires X:\Data\Install\Microsoft\SOAP ToolKit V2.0\SoapToolkit20.exe
+REM - COM+ Services, rwf, RWF_DataAccess.*
+return
+
+REM ************************************************************
+REM CMS
+REM ************************************************************
+:Cms
+%wuc %WebServerStaging:%WebSite %WebServer
+REM Manually:
+REM	- Share d:\Inetpub\cms.intel.com\Install as Install
+REM - COM+ Services, CMS To Tess package package, IUCMS2Tess.*
+return
+
+REM ************************************************************
+REM IntactForm
+REM ************************************************************
+
+:IntactForm
+%wuc %WebServerStaging:%WebSite %WebServer
+return
+
+REM Manually: 
+REM 	- SiteMenuTool uses \\rrs3web002\InetPub\IntactForm.intel.com\default.htm, so ensure
+REM     this share exists on staging and correct users have permission to this file 
+REM     on rrs3web002.
+
+REM ************************************************************
+REM IuApp
+REM ************************************************************
+
+:prep.IuApp
+rem %rc "\\rrs3web003\d$\Projects\Feedback Loop" "\\rrs3iusql2\d$\Backup\Feedback Loop" %RcOpts
+return
+
+:IuApp
+%wuc %WebServerStaging:%WebSite %WebServer
+
+REM FeedbackLoop
+%gum %WebServerStaging:FeedbackLoop* %WebServer
+
+REM MAI EB
+%gum %WebServerStaging:MAIEB* %WebServer
+
+REM FRED
+REM IUME group - Users for access to FRED admin forms
+%gum %WebServerStaging:IUME %WebServer
+REM Copy permissions for FredWeb folder
+REM set Dir=IuApp.intel.com\FredWeb & set AccountList="IUME" & gosub CopyPerms
+
+REM Manually:
+REM - MAI EB: DbConnector 2001_EB
+REM	- EmailDistribution: Share d:\Inetpub\IuApp.intel.com\EmailDistribution\Install as EmailDistributionInstall
+REM	- InstructorPipeline: Share d:\Inetpub\IuApp.intel.com\InstructorPipeline\Install as InstructorPipelineInstall
+REM - Survey: Owned by Suzanne Borup, she may need a share to this directory on 002 at some point,
+REM   or we may be able to retire it. She will let is know. 
+REM - Feedback Loop: Share d:\Projects\FeedbackLoop as FeedbackLoop, with write permission for FeedbackLoop and FeedbackLoopAdmin groups.
+REM - Core Setup: Share D:\Inetpub\iuapp.intel.com\CoreSetup as CoreSetup
+
+return
+
+REM ************************************************************
+REM Utility Functions
+REM ************************************************************
+
+:MakeDirs
+for %%dir in (%DirList) gosub MakeDir
+return
+
+:MakeDir
+if not isdir %dir md /s %dir
+return
+
+:Ss
+%ss% get "%proj" %SsOpts% -GL%dest%
+return
+
+:CopyPerms
+set SrcDir=\\%WebServerStaging\d$\InetPub\%Dir
+set DestDir=\\%WebServer\d$\InetPub\%Dir
+Call %LocalData\Bin\CopyPermissions.btm "%SrcDir" "%DestDir" %AccountList
+return
+
+:Done

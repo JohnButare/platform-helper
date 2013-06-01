@@ -1,0 +1,177 @@
+@echo off
+SetLocal
+
+set program=%programs32\MaxiVista MirrorPro Server\MaxiVistaA.exe
+set LocalDir=%UserDocuments\data\MaxiVista
+
+if %# == 0 goto usage
+set command=%1
+if not IsLabel %command goto usage
+shift
+gosub %command
+quit %_?
+
+:usage
+text
+USAGE: MaxiVista 
+  close: Close all MaxiVista tasks
+  CloseWait: Close all MaxiVista tasks and wait for them to end
+  viewer <letter>: Start viewer specified by letter (A, B, or C)
+  server <letter>: Start server specified by letter (A, B, or C)
+  ViewerMonitor <letter> <monitor number>: Set the specified viewer to the monitor number
+  
+  save: Save state of currently running MaxiVista programs to persistent storage
+  startup|restore: Restore state of MaxiVista programs that were running when Save was called
+  delete: Delete the saved state of currently running MaxiVista programs.
+  info: Show the saved state of running MaxiVista programs.
+  
+  list: List MaxiVista tasks
+  restart: close and restore MaxiVista programs
+EndText
+quit 1
+
+:save
+
+REM Return if no MaxiVista tasks are running, so a previously saved MaxiVista connnfiguration is not
+REM overwritten.  This is required since MaxiVista save is called in both off.btm and suspend.btm, and if the
+REM MaxiVista tasks are saved and closed in off.btm, suspend.btm should not delete the MaxiVista saved configuration.
+iff %@IsTaskRunning[MaxiVista*] == 0 then
+  return
+endiff
+
+iff not IsDir "%LocalDir" then
+  md /s "%LocalDir"
+endiff
+
+set file="%LocalDir\restore.btm"
+
+echo @echo off > %file
+for %task in (MaxiVistaA MaxiVistaB MaxiVistaC MaxiVistaViewerA MaxiVistaViewerB MaxiVistaViewerC) (
+
+  iff %@IsTaskRunning[%task] == 1 then
+  
+    echos call MaxiVista` ` >> %file
+    
+    iff %@index[%task,Viewer] != -1 then
+      echos viewer` ` >> %file
+    else
+      echos server` ` >> %file
+    endiff
+    
+    echo %@right[1,%task] >> %file
+  endiff
+  
+)
+
+return
+
+:info
+iff exist "%LocalDir\restore.btm" then
+  type "%LocalDir\restore.btm"
+endiff
+return
+
+:delete
+
+iff exist "%LocalDir\restore.btm" then
+  del /q "%LocalDir\restore.btm"
+endiff
+
+return
+
+:startup
+:restore
+
+iff exist "%LocalDir\restore.btm" then
+  call "%LocalDir\restore.btm"
+endiff
+
+return
+
+:list
+TaskList MaxiVista* >&> nul:
+return
+
+:restart
+gosub close
+call PauseDelay 5 `Waiting %1 seconds to restore MaxiVista programs...`
+gosub restore
+return
+
+:close
+call task close MaxiVista*
+return
+
+:CloseWait
+call task close wait MaxiVista*
+return
+
+:Viewer
+gosub GetLetter
+gosub StartViewer
+return
+
+:Server
+gosub GetLetter
+gosub StartServer
+return
+
+REM Start the viewer, assumes it is in the path
+:StartViewer
+call Task start MaxiVistaViewer%letter.exe
+return
+
+:StartServer
+call task start "%programs32\MaxiVista MirrorPro Server\MaxiVista%letter.exe"
+return
+
+:ViewerMonitor
+gosub GetLetter
+gosub GetNumber
+
+set KeySuffix=3
+
+iff %@RegQuery["HKCU\Software\MaxiVista\%letter%%KeySuffix\%UserName\mon"] != %number then
+
+  call task close wait MaxiVistaViewer%letter
+    
+  echos Setting viewer %letter to monitor %number.
+  call registry.btm 32 set "HKCU\Software\MaxiVista\%letter%%KeySuffix\%UserName\mon" REG_DWORD %number
+  iff %? != 0 then
+    echo ERROR: %result setting viewer %letter to monitor %number.
+    quit 1
+  endiff
+
+  iff %@RegGet32["HKCU\Software\MaxiVista\%letter%%KeySuffix\%UserName\mon%number"] != %number then
+    echo ERROR: Unable to set viewer %letter to monitor %number.
+    quit 1
+  endiff
+    
+  iff defined running then
+    gosub StartViewer   
+  endiff
+  
+endiff
+
+return
+
+REM Get viewer or server letter, A, B, or C.
+:GetLetter
+if %# == 0 goto Usage
+if %@len[%1] != 1 goto Usage
+if %@index[ABC,%1] == -1 goto Usage
+set letter=%1
+shift
+return
+
+REM Get monitor number
+:GetNumber
+if %# == 0 goto Usage
+if %@len[%1] != 1 goto Usage
+if %@IsDigit[%1] == 0 goto Usage
+set number=%1
+shift
+return
+
+:IsInstalled
+return %@if[IsFile "%program",1,0]

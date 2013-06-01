@@ -1,0 +1,629 @@
+@echo off
+SetLocal 
+
+REM Initialize
+gosub init
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=manager
+iff %# gt 0 then
+  set command=%1
+  shift
+endiff
+
+if not IsLabel %command goto usage
+
+REM Run command
+gosub %command
+set result=%_?
+
+quit %result
+
+:usage
+text 
+account [command](manager)
+  local|manager|ParentalControls - start account management program
+  AddToGroup group [user](current user): Add user to group.
+  create name [password]: Create a user. Name format is name-[full name](name)-[system|admin|power|user](user)-[hidden]-[domain]
+  CreateDefault: create default accounts for the domain or workgroup.
+  delete user: delete user account
+  FullName [<user>](current) [<host>](current): Return the full name of the user.
+  hide user: Hide the user from the welcome screen.
+  restore <user> [<source>](.): Restore user data folders from source directory. 
+  RestoreUsers: restores all users from backup media.
+  SetDefaults: Set default user settings.
+  SetPrivileges user [system|admin|power|user](user): Set default privileges for user.
+  ShareHome user [password]: Share users home directory.
+  MoveHome <user>: move user folders to data drive
+  setup: setup users folder
+endtext
+quit 1
+
+:GetUser
+
+set user=%UserName
+iff %# != 0 then
+	set user=%@UnQuote[%1]
+	shift
+endiff
+
+if "%user" == "" goto usage
+
+return
+
+:GetExistingUser
+
+if %# lt 1 goto usage
+set user=%@UnQuote[%1]
+shift
+
+if "%user" == "" goto usage
+
+iff not IsDir "%users\%user" then
+  echo The user "%user" does not exist.
+  return 1
+endiff
+
+return 0
+
+:
+
+
+set UsersDirectory=d:\Users
+iff %# gt 0 then
+  set UsersDirectory=%@full[%@UnQuote[%1]]
+  shift
+endiff
+
+return 0
+
+:GetPassword
+
+set password=
+iff %# != 0 then
+	set password=%1
+	shift
+endiff
+
+return
+
+:GetPasswordPrompt
+
+if defined password return	
+input /p Enter %user password: %%password
+
+return
+
+:create
+
+if %# == 0 goto usage
+set s=%@UnQuote[%1]
+shift
+
+gosub GetPassword
+
+if %# != 0 goto usage
+
+set user=%@word["-",0,%s]
+
+REM Get the Fullname, default is the user name
+set FullName=%@word["-",1,%s]
+if "%FullName" == "" set FullName=%user
+
+REM Get the type, default is usere
+set type=%@word["-",2,%s]
+if "%type" == "" set type=user
+
+REM Get the account hidden status (true or empty), default is hidden only for system accounts
+set hidden=%@word["-",3,%s]
+if "%hidden" == "false" set hidden=
+if "%type" == "system" set hidden=true
+
+REM Get the account domain status (true or empty), defaults to not in domain
+set domain=%@word["-",4,%s]
+if "%domain" == "false" set domain=
+
+REM Description to display for hidden accounts
+set HiddenDesc=
+if defined hidden set HiddenDesc=(hidden)
+
+echo Creating %user (%FullName) as %type %HiddenDesc
+
+iff not defined domain then 
+
+	REM Create the account
+	iff %@UserExist[%user] == 0 then
+		gosub GetPasswordPrompt
+	  net user "%user" "%password" /add
+	endiff
+
+	REM Update the full name for accounts that already exist
+	echo Updating %user full name to %FullName...
+	net user "%user" /FullName:"%FullName"
+
+	REM Set account options
+	REM Reference: http://www.windowsnetworking.com/kbase/WindowsTips/WindowsNT/AdminTips/Accounts/ManageNTaccountsusingNETUSERcommandlineutility.html
+	iff "%type" == "system" then
+	  set options=/expires:never /passwordchg:no
+	else
+
+		iff "%FullName" == "Guest" then
+		set options=/expires:never /passwordchg:no
+	  else
+		set options=/expires:never /passwordchg:yes
+	  endiff
+	  
+	endiff
+
+	echo Setting %FullName%'s account options...
+	net user "%user" %options > nul:
+
+endiff
+
+call ask `Do you want to set %user privileges to %type?` y
+iff %? == 1 then
+	call account SetPrivileges %user %type
+	if %? != 0 quit %?
+endiff
+
+call ask `Do you want to set %user defaults?` y
+iff %? == 1 then
+	call account SetDefaults %user
+	if %? != 0 quit %?
+endiff
+
+REM Hide system and hidden accounts, share visible accounts
+iff defined hidden then
+	call account hide %user
+	if %? != 0 quit %?
+else
+	call account MoveHome %user
+	if %? != 0 quit %?
+	
+	call account ShareHome %user %password
+	if %? != 0 quit %?
+endiff
+
+echo The account for %user has been created.  
+
+return
+
+:AddToGroup
+
+if %# == 0 goto usage
+set group=%@UnQuote[%1]
+shift
+
+gosub GetUser
+if %# != 0 goto usage
+
+REM Return if the group does not exist
+if %@GroupExist[%group] == 0 return
+
+REM Add the user to the group if they are not already in the group
+iff %@IsInGroup[%group, %user] == 0 then
+  echo Adding %user to the %group group...
+  net LocalGroup "%group" "%user" /add >& nul:
+endiff
+
+return
+
+:FullName
+
+gosub GetUser
+
+set host=%ComputerName
+iff %# != 0 then
+	set host=%1
+	shift
+endiff
+
+if %# != 0 goto usage
+
+set FullName=
+iff "%host" == "%ComputerName" then
+	set FullName=%@word[2,%@execstr[net user %user |& egrep -i "Full Name"]]
+elseiff %@IsHostAvailable[%host] == 1 then
+	set FullName=%@word[2,%@ExecStr[psexec \\%host net user %user |& egrep -i "Full Name" >&> nul:]]
+endiff
+
+REM Return the name if the full name could not be determined (if in a domain).
+iff "%FullName" == "" then
+  echo %user  
+else
+  echo %FullName
+endiff
+
+return
+
+:ShareHome
+
+gosub GetUser
+gosub GetPassword
+
+set FullName=%@FullName[%user]
+set UserHome=%users\%user
+
+REM Share the users home directory using their first name
+set ShareName=%@word[0,%FullName]
+
+REM Force the users home directory to be created so we can share it
+do while not IsDir "%UserHome"
+	pause Switch to the %user account to create the home directory then press any key to continue...
+enddo
+
+if %# != 0 goto usage
+
+iff not IsDir "%UserHome" then
+	echo Unable to create %FullName%'s home directory.
+	quit 1
+endiff
+
+REM Set share options
+iff %@IsNewOs[] == 1 then
+	set NetShareOptions=/grant:Everyone,full
+else
+	set NetShareOptions=
+endiff
+
+REM If the folder is already shared prompt to re-create it (to fix comment, permissions, etc)
+net share %ShareName >& nul:
+iff %? == 0 then
+	call ask `Do you want to reshare %FullName%'s home directory?` n
+	if %? == 0 return
+	echos Share for` ` 
+	net share %ShareName /delete
+endiff
+
+REM If the user has a directory on the data drive share from there
+iff IsDir "d:\users\%user" then
+	set UserHome=d:\users\%user
+endiff
+
+REM Share the users files
+echos Sharing %FullName%'s personal files...
+net share "%ShareName"="%UserHome" %NetShareOptions /Remark:"%FullName%'s personal files." 
+
+return
+	
+:hide
+
+if %# != 1 goto usage
+gosub GetUser
+
+set key=HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList\%user
+iff "%@RegGet64["%key"]" != "0x0" then
+  echos Hiding %user from the welcome screen...
+  call registry.btm 64 set "%key" REG_DWORD 0 >& nul:
+  echo done.
+endiff
+
+iff %@RegQuery["%key"] == -1 then
+	EchoErr unable to hide the %user account.
+	return 1
+endiff
+
+return 0
+
+:SetPrivileges
+
+gosub GetUser
+
+set type=user
+iff %# != 0 then
+	set type=%1
+	shift
+endiff
+
+if %# != 0 goto usage
+
+REM Add the account to the local administrators group
+iff "%type" == "admin" .or. "%type" == "system" then
+  call account AddToGroup Administrators %user
+	if %? != 0 quit %?
+endiff
+
+REM Assign batch permissions to system accounts
+iff "%type" == "system" then
+	ntrights -u %user +r SeBatchLogonRight
+endiff
+
+REM Add power users to the Power Users group
+iff "%type" == "power" then
+
+	REM Power user group does not exist on Vista home, so make the user an administrator
+	iff %@GroupExist[Power Users] == 1 then
+		call account AddToGroup "Power Users" %user
+		if %? != 0 quit %?
+	else
+		call account AddToGroup Administrators %user
+		if %? != 0 quit %?
+	endiff
+	
+endiff
+
+return
+
+:SetDefaults
+
+if %# != 1 goto usage
+gosub GetUser
+
+iff "%user" != "%UserName" then
+
+	REM Creating an account using runas causes the current users registry information to be placed inside the new users registry, so create them manually first
+	text
+- Switch to the account (Win-L)
+- Start Menu, Properties, Power button action=Sleep
+	endtext
+	pause
+	
+	REM Set defaults using runas.  Psexec does not set values used regedit consistently (regedit requires interaction with desktop)
+	echo Setting defaults for %user...
+	runas /user:%user "tcc /c call account SetDefaults %user"
+	if %? != 0 quit %?
+	
+REM Set defaults for the user
+else
+	echos Setting defaults for %user...
+	
+	REM Set SysInternals EULA keys so batch user is not prompted
+	call SysInternals eula
+		
+	echo done.
+	
+	iff "%@RegQuery[HKCU\Software\SysInternals\PsPasswd\EulaAccepted]" == "1" then
+		echo Defaults have been successfully applied for %user.
+	else
+		echo Unable to apply defaults for %user.
+	endiff
+	
+	pause
+endiff
+
+return
+
+:CreateDefault
+
+REM Create system accounts
+switch "%@WorkgroupOrDomain[]"
+
+case "wiggin"
+	gosub DoCreateDefault "wsystem-Wiggin System-system"
+		
+case "n2o"
+	gosub DoCreateDefault "nsystem-N2O System-system"
+
+case "amr"
+	gosub DoCreateDefault "isystem-Intel System-system"
+
+endswitch
+
+REM Create user accounts
+switch "%@WorkgroupOrDomain[]"
+
+case "amr" REM Intel
+  for %user in ("jjbutare-John Butare-admin-false-true") (
+    gosub DoCreateDefault %@quote[%user]
+  )
+
+case "wiggin"
+	for %user in ("jjbutare-John-admin" "lbutare-Lauren" "kelrick-Kaili" "wguest-Guest") (
+		gosub DoCreateDefault %@quote[%user]
+	)
+		
+case "n2o"
+  for %user in ("jjbutare-John Butare-admin" "cstegman-Craig Stegman-power" "lkitterman-Linda Kitterman-power") (
+    gosub DoCreateDefault %@quote[%user]
+  )
+	
+endswitch
+
+return
+
+:DoCreateDefault [user]
+
+call ask "Do you want to create %@unquote[%user]?" n
+iff %? ==  1 then
+	call sudo.btm account.btm create %@quote[%user]
+	pause
+	echo.
+endiff
+
+return
+
+:delete
+
+gosub GetUser
+if %# != 0 goto usage
+
+if "%user" == "%UserName" return 1
+
+set FullName=%@FullName[%user]
+set ShareName=%@word[0,%FullName]
+set UserHome=%users\%user
+
+if %@UserExist[%user] == 0 .and. %@ShareExist[%ShareName] == 0 .and. not IsDir "%UserHome" return 0
+
+call ask "Do you want to delete user %user (%FullName)?" n
+if %? ==  0 return 1
+
+call ask "Confirm deletion of user %user (%FullName)?" n
+if %? ==  0 return 1
+
+echos Deleting %user...
+
+iff %@UserExist[%user] == 1 then
+	echos account...
+	net user %user /delete >& nul:
+endiff
+
+iff %@ShareExist[%ShareName] == 1 then
+	echos share...
+	net share %ShareName /delete >& nul:
+endiff
+
+iff exist "%UserHome" then
+	echo folder...
+	rd /s "%UserHome"
+endiff
+
+echo done.
+
+return 0
+
+:init
+
+call os init
+
+set password=
+call InitSid
+
+REM Ensure correct xxcopy is used
+set XxCopyProgram=%@BatchDir[]\..\win%@OsBits[]\xxcopy.exe
+
+return 0
+
+:RestoreUsers
+
+REM Check each backup device
+for /d BackupDevice in ("c:\dev\backup*") (
+
+  REM Check each user on the backup device
+  for /d BackupDir in ("%BackupDevice\backup\%ComputerName\*") (
+  
+    REM Restore the user if they are a user on the local machine
+    set user=%@FileName[%BackupDir]
+    iff IsDir "%users\%user" then
+    
+      echo.
+      
+      REM Move the user folders if they are contained on a separate data drive
+      if IsDir "d:\users" call account MoveFolders "%user" "d:\users"
+      
+      REM Restore the user folders
+      call account restore "%user" "%BackupDir"
+      
+    endiff
+  
+  )  
+)
+
+return
+
+:restore
+
+REM Arguments
+
+gosub GetExistingUser
+if %_? != 0 return %_?
+
+set source=%_cwd
+iff %# gt 0 then
+  set source=%@UnQuote[%1]
+  shift
+endiff
+
+iff not IsDir "%source" then
+  echo The source folder "%source" does not exist.
+  return 1
+endiff
+
+set dest=%users\%user
+call ask `Do you want to restore %user from %source to %dest?` n
+if %? == 0 return
+
+for /d folder in ("%source\*") (
+  
+		echo.
+		call ask `Do you want to restore %user %@FileName[%folder] folder?` y
+		if %? == 1 RoboCopy /zb /ndl /e /w:3 /r:3 "%folder" "%dest\%@FileName[%folder]"
+
+)
+
+return
+
+:manager
+iff %@IsNewOs[] == 1 then
+	start /pgm control.exe /name Microsoft.UserAccounts
+else
+	call os ComputerManagement
+endiff
+return
+
+:local
+call os ComputerManagement
+return
+
+:ParentalControls
+start /pgm control.exe /name Microsoft.ParentalControls
+return
+
+:MoveHome
+
+gosub GetUser
+
+REM Return if there is no data drive or if the user folders have been moved
+if "%data" != "d:" .or. IsDir "d:\Users\%user" return 0
+
+echo Moving %user folders to the data drive...
+
+echo Creating %user directory on the data drive...
+call MakeDir "d:\Users\%user"
+if %? != 0 return %?
+
+echo Copying permissions...
+%XxCopyProgram /x* /sf1 "c:\Users\%user" "d:\Users\%user"
+ShowAcls "c:\Users\%user" & ShowAcls "d:\Users\%user"
+if "%user" == "Public" echo (optional) Add jjbutare (Full Control) and Everyone: Read and execute (network access)
+pause
+
+echo Moving %user folders to d:\Users...
+echo - (for each folder) Properties, Location, change c: to d:, OK, Yes to create and move
+
+switch %user
+case %UserName
+	explorer++ c:\Users\%user
+case Public
+	REM Moving Public folders requires elevation, use explorer++ to move them
+	sudo explorer++ c:\Users\Public
+default
+	echo Switch to %user account. 
+endswitch
+pause
+
+return 0
+
+:setup
+
+REM Return if there is no data drive or if the user folders have been setup
+if "%data" != "d:" .or. IsDir "d:\Users\%user" return 0
+
+echo Configuring accounts for the data drive...
+
+echo Note: For manual xxcopy setup import the xxcopy registry settings file.
+
+echo Creating directories on the data drive...
+
+call MakeDir d:\Users
+if %? != 0 return %?
+
+call MakeDir d:\temp
+if %? != 0 return %?
+
+echo Copying d:\ permissions...
+%XxCopyProgram /x* /sf1 c:\ d:\
+ShowAcls c:\ && ShowAcls d:\
+pause
+
+echo Copying d:\Users permissions...
+%XxCopyProgram /x* /sf1 c:\Users d:\Users
+ShowAcls c:\Users && ShowAcls d:\Users
+pause
+
+REM Move Public folders
+call account MoveHome Public
+
+return

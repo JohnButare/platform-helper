@@ -1,0 +1,521 @@
+@echo off
+SetLocal
+
+REM Initialize
+set debug=
+set DebugPort=5432
+set JrePattern=*re*;*dk*
+set JavaInstalledVersions=
+set JavaArchiveExtensions=xpi ear jar war
+
+set JavaArchiveFiles=
+for %extension in (%JavaArchiveExtensions) set JavaArchiveFiles=%JavaArchiveFiles *.%extension
+
+REM Jad Options
+REM -f fully qualified names, not needed normally when viewing in Eclipse
+REM -lnc orginal line numbers as comments
+REM -nonlb - no newline before brace , helps align code
+REM -pi1  - pack imports into one line using .*, helps align code
+REM -safe - generate additional casts, i.e. for LuceneAdapter class file made a cast that was not present in the decompiled file
+set JadOptions=-p -o -ff
+set JadDebugOptions=-f -lnc
+set JadAlignOptions=-lnc -nonlb -pi1
+
+set architecture=x64
+
+REM Arguments
+:GetArgs
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+iff "%1" == "x86" .or. "%1" == "x64" then
+	set architecture=%1
+	shift
+endiff
+
+set command=%@if[ %# == 0 ,info,run]
+iff %# gt 0 .and. IsLabel %1 then
+	set command=%1
+	shift
+endiff
+
+REM Post argument initialization
+set JavaDir=%@if[ "%architecture" == "x64" ,%programs64,%programs32]\Java
+
+set java=%JAVA_HOME\bin\java.exe
+if not IsFile "%java" set java=%JavaDir\jre7\bin\java.exe
+if not IsFile "%java" set java=%@search[java.exe]
+
+set javaw=%JAVA_HOME\bin\javaw.exe
+if not IsFile "%javaw" set javaw=%JavaDir\jre7\bin\javaw.exe
+if not IsFile "%javaw" set javaw=%@search[javaw.exe]
+
+REM Run command
+gosub %command
+quit %_?
+
+:usage
+text 1>&2
+usage: java [x86|x64] [config|cd|decompile|doc|info|test](info|run)
+  home|SetHome - change or set the JAVA_HOME directory
+  break <pid>|debug|dump - control a running Java application
+  FindJre - find an installed JRE or JDK of the specified architecture
+  test - test the Java runtime in various browsers
+  run [gui] [file] [-options] -jar jarfile [args...] - run the specified Java file
+endtext
+quit 1
+
+:UsageDecompile
+text
+progress - show decompilation progress
+[align|correct|NoInner|[no]debug|quiet]  <archive|class|dir>
+  Decompile a Java archive, class, or the Java archives and classess in the specified directory tree.
+endtext
+quit 1
+
+:decompile
+
+REM Arguments
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto UsageDecompile
+
+iff "%1" == "progress" then
+	gosub DecompileProgress
+	return %_?
+endiff
+
+set file=
+set align=
+set correct=
+
+:GetDecompileArgs
+
+iff "%1" == "align" then
+	set align=true
+	shift & goto GetDecompileArgs
+endiff
+
+iff "%1" == "correct" then
+	set correct=true
+	shift & goto GetDecompileArgs
+endiff
+
+iff "%1" == "debug" then
+	set debug=true
+	shift & goto GetDecompileArgs
+endiff
+
+REM Inner classes can interfere with line alignmnet, so we may want to turn it off
+iff "%1" == "NoInner" then
+	set JadOptions=%JadOptions -noinner 
+	shift & goto GetDecompileArgs
+endiff
+
+iff "%1" == "NoDebug" then
+	set debug=
+	shift & goto GetDecompileArgs
+endiff
+
+iff exist "%@UnQuote[%1]" then
+	set file=%@UnQuote[%1]
+	shift & goto GetDecompileArgs
+endiff
+
+if "%file" == "" .or. %# != 0 goto UsageDecompile
+
+set ext=%@ext[%file]
+
+iff IsDir "%file" then
+	gosub DecompileDir "%file"
+
+elseiff %@IsInList[%ext %JavaArchiveExtensions] == 1 then
+	gosub DecompileJavaArchive "%file"
+	
+elseiff "%ext" == "class" then
+	gosub DecompileFile "%file"
+	
+endiff
+
+return %_?
+
+:DecompileFile [file]
+
+set ClassFile=%@full[%file]
+set JadFile=%temp\%@name[%ClassFile].java
+
+call DelFile "%JadFile"
+gosub DoJad "%ClassFile" "%JadFile"
+if %_? != 0 return %_?
+
+REM Edit the decompiled class
+iff exist "%JadFile" then
+	call TextEdit "%JadFile"
+endiff
+
+return 0
+
+:DecompileJavaArchive [FileArg]
+
+set src=%@UnQuote[%FileArg]
+set dest=%src.src
+
+iff IsDir "%dest" then
+	call ask `%dest% already exists.  Do you want to delete it?` y
+	if %? == 0 quit 1
+	call DelDir "%dest%"
+endiff
+
+call archive ExtractRecursive "%src"
+if not IsDir "%src.extracted" return 1
+
+mv "%src.extracted" "%dest"
+if not IsDir "%dest" return 1
+
+gosub DecompileDir "%dest"
+
+return
+
+:DecompileDir [dir]
+
+set align=true
+
+REM Recursive for /r must start in the top directory for correct operation
+pushd %@quote[%dir]
+
+for /r %ClassFile in (*.class %JavaArchiveFiles) (
+
+	iff %@IsInList[%@ext[%ClassFile] %JavaArchiveExtensions] == 1 then
+		gosub DecompileJavaArchive "%ClassFile"
+	else
+		set JavaFile=%@name[%ClassFile].java
+		gosub DoJad "%ClassFile" "%JavaFile"
+	endiff
+	
+)
+
+popd
+
+return 0
+
+:DoJad [SrcArg DestArg]
+
+set src=%@UnQuote[%SrcArg]
+set dest=%@UnQuote[%DestArg]
+
+if IsFile "%dest" return 0
+
+set hold=%dest.temp.java
+
+echos Decompiling %@name[%src]...
+	
+REM Decompile the class
+set options=%JadOptions %@if[ defined debug,%JadDebugOptions,] %@if[ defined align,%JadAlignOptions,]
+jad %options "%src" > "%hold"
+if not IsFile "%hold" return 1
+
+iff defined correct then 
+	call TextEdit "%hold"
+	pause Correct line numbers then press any key to continue...
+endiff
+	
+iff defined align then
+	cat "%hold" | java.btm run "%@BatchDir[]\JadAlign.class" > "%dest"
+	del /q "%hold"
+else
+	move /q "%hold" "%dest"
+endiff
+
+iff not IsFile "%dest" then
+	echos failed.
+	return 1
+else
+	echo done.		
+endiff
+
+return 0
+
+:DecompileProgress
+set JavaFiles=%@execstr[ffind /s *.java | wc -l]
+set ClassFiles=%@execstr[ffind /s *.class | wc -l]
+set total=%ClassFiles
+echo %@eval[ %JavaFiles /  %total * 100 \ 1]%% (%@trim[%JavaFiles] of %@trim[%total])
+return 0
+
+:doc
+
+REM Check the local program files directory first
+set DocFile=%programs\Java\doc\default.html
+
+REM Check the install folder
+iff not IsFile "%DocFile" then
+
+	call FindPublicDoc data\install\Sun\Java\doc
+	iff %? != 0 then
+		echo Could not find the Java documentation.
+		return 1
+	endiff
+	
+	set DocFile=%file\default.html
+	
+endiff
+
+"%DocFile"
+return %?
+
+:info
+
+echo Installed Java runtime information (* denotes x64)...
+echo.
+
+iff IsDir "%JAVA_HOME" then
+	gosub GetJavaVersion %@quote[%JAVA_HOME]
+	echo       Version: %JavaType %JavaVersion %JavaArchitecture
+	echo     JAVA_HOME: %JAVA_HOME
+endiff
+
+gosub GetInstalledVersions true
+echo Installed JRE: %JreInstalledVersions
+echo           JDK: %JdkInstalledVersions
+
+return
+
+:home
+
+iff not IsDir "%JAVA_HOME" then
+	echo The JAVA_HOME directory was not found.
+	return 1
+endiff
+
+cde "%JAVA_HOME"
+EndLocal /d
+
+return 0
+
+:cd
+
+cde "%JavaDir"
+EndLocal /d 
+
+return
+
+REM FindJre - Select a Java runtime directory.  
+REM The user is asked to select x86 or x64 runtimes if applicable, and then is presented with a list of all Java runtimes in the JRE and JDK directories in \Program Files\Java. 
+REM If a JRE is selected 0 is returned and the environment variable jre is set to the selected runtime directory.
+:FindJre
+
+REM Initialize 
+set prog=%@if[ "%architecture" == "x64" ,%programs64,%programs32]
+
+REM If not specified and on x64, determine if we want to find an x86 or x64 runtime
+iff not defined architecture .and. "%@OsArchitecture[]" == "x64" then
+
+	REM If the system has multiple Java runtime architectures installed, ask for the architecture to select
+	iff (exist "%programs32\Java\%JrePattern" .and. exist "%programs64\Java\%JrePattern") then
+		
+		call ask `Find an x86 Java runtime?` y
+		set prog=%@if[ %? == 1 ,%programs32,%programs64]
+		
+	elseiff exist "%programs32\Java\%JrePattern" then
+		set prog=%programs32
+		
+	elseiff exist "%programs64\Java\%JrePattern" then
+		set prog=%programs64
+		
+	endiff
+	
+endiff
+
+call select.btm dir /NoPrompt "%prog\Java\%JrePattern"
+if %? != 0 quit %?
+
+set jre=%dir
+EndLocal jre
+
+return 0
+
+:SetHome
+
+call JavaUtil FindJre
+if %? != 0 return %?
+
+REM Update JAVA_HOME with the new home
+call SetVar.btm /system JAVA_HOME "%jre"
+call SetVar.btm /system JDK_HOME "%jre"
+	
+REM Ensure %JAVA_HOME%\bin is in the path
+call SetVar.btm /NoExpand /path /system path "%%JAVA_HOME%%\bin"
+	
+REM Update the path in this shell
+call os.btm path update
+	
+echo JAVA_HOME set to %JAVA_HOME
+	
+EndLocal JAVA_HOME JDK_HOME path
+
+return
+
+REM Send a control-c (break) to the Java applciation running under the specified process ID
+:break
+if %# != 1 goto usage
+SendSignal %1
+return %_?
+
+REM - Requires JAVA application must be running with -Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=5432
+REM - JVM startup options http://java.sun.com/javase/technologies/hotspot/vmoptions.jsp
+:debug
+"%JAVA_HOME%\bin\jdb" -connect com.sun.jdi.SocketAttach:hostname=localhost,port=%DebugPort
+return %_?
+
+REM Collect thread dumps from the application running on the localhost
+:dump
+
+set file=%@unique[%temp]
+echo suspend > "%file"
+echo where all >> "%file"
+echo resume >> "%file"
+echo quit >> "%file"
+
+set DumpFile=ThreadDump_%@TimeStamp[].txt
+echos Collecting thread dump to %DumpFile...
+
+"%JAVA_HOME%\bin\jdb" -connect com.sun.jdi.SocketAttach:hostname=localhost,port=%DebugPort < "%file" > "%DumpFile"
+
+echo complete.
+
+del /q "%file"
+
+return 0
+
+:run
+
+REM Arguments
+set args=
+set ClassName=
+set ClassPathArg=-classpath "%ClassPath"
+set JarName=
+
+iff "%1" == "gui" then
+	set start=start /pgm "%javaw"
+	shift
+	gosub ValidateJavaW
+else
+	set start="%java"
+	gosub ValidateJava
+endiff
+
+REM If the first argument is a file assume it has a main method
+set file=%@search[%@quote[%1]]
+iff IsFile "%file" then
+	set file=%@full[%file]
+	
+	switch "%@ext[%file]"
+	case "class"
+		shift
+		set ClassName=%@name[%file]
+		set ClassPathArg=%ClassPathArg;"%@FixPath[%@path[%file]]"
+		
+	case "jar"
+		shift
+		set JarName=-jar "%file"
+
+	endswitch
+	
+endiff
+
+set args=%args %$
+
+REM Quit the batch file if break (ctr-c) is used to end the java program
+on break quit
+
+REM Run the program
+%start %ClassPathArg %JarName %ClassName %args
+
+return %?
+
+:ValidateJava
+
+iff not IsFile "%java" then
+	echo Could not locate java.exe.
+	quit 1
+endiff
+
+return
+
+:ValidateJavaW
+
+iff not IsFile "%javaw" then
+	echo Could not locate javaw.exe.
+	quit 1
+endiff
+
+return
+
+:GetInstalledVersions [detail]
+
+if "%JreInstalledVersions" != "" .or. "%JdkInstalledVersions" != "" return
+
+for ProgDir in ("%programs32" %@if[ "%@OsArchitecture[]" == "x64" ,"%programs64"]) (
+	for /d dir in ("%@UnQuote[%ProgDir]\Java\%JrePattern") (
+		
+		gosub GetJavaVersion %@quote[%dir]
+		
+		set suffix=
+
+		REM Add ("<version>)" to suffix for the default jre6 runtime
+		iff "%detail" == "true" .and. %@IsInList["%@FileName[%dir]" "jre6" "jre7" "jre8"] == 1 then
+			set version=%@UnQuote[%@word[2,%@ExecStr["%dir\bin\java.exe" -version |& head /N1]]]
+			if "%version" != "" set suffix=%suffix(%version)
+		endiff
+		
+		REM Add * to suffix for x64 Java,
+		set suffix=%suffix%%@if[ "%JavaArchitecture" == "x64" ,*]
+
+		REM Update JreInstalledVersions or JdkInstalledVersions variable
+		set var=%JavaType%InstalledVersions
+		set %var=%@trim[%[%var] %JavaVersion%%suffix%]
+	)
+)
+
+return
+
+REM  Get information about the Java installed in the dir.  Sets JavaVersion, JavaArchtiecure to x86 or x64, JavaType to jre or jdk 
+:GetJavaVersion [dir]
+
+set s=%@FileName[%dir]
+
+REM Determine the architecture - on x64, x86 Java is installed to c:\Program Files (x86)
+set JavaArchitecture=x86
+if %@index[%dir,(x86)] == -1 .and. "%@OsArchitecture[]" == "x64" set JavaArchitecture=x64
+
+REM Java 1.4 jre
+iff "%@left[4,%s]" == "j2re" then
+	set JavaType=jre
+	set JavaVersion=%@right[-4,%s]
+	return
+endiff
+
+REM Java 1.4 jdk
+iff "%@left[5,%s]" == "j2sdk" then 
+	set JavaType=jdk
+	set JavaVersion=%@right[-5,%s]
+	return
+endiff
+
+REM Java 1.5+
+set JavaType=%@left[3,%s]
+set JavaVersion=%@right[-3,%s]
+
+return
+
+:test
+
+set test=http://www.java.com/en/download/installed.jsp
+call InternetExplorer 32 start %test
+call InternetExplorer 64 start %test
+call Firefox start %test
+call chrome start %test
+
+return
+
+:config
+start /pgm "%JavaDir\jre6\bin\javacpl.exe"
+return %?

@@ -1,0 +1,165 @@
+@echo off
+quit 0
+
+REM VPN
+set VpnTitle=*NetStructure*
+set VpnTask=c:\Program Files\Intel\Intel NetStructure VPN Client\icdesk.exe
+
+:vpn
+
+iff not exist "%VpnTask" then
+  echo VPN is not installed.
+  quit 1
+endiff
+
+set VpnCommand=VpnOpen
+iff %# != 0 then
+  set VpnCommand=Vpn%1
+  shift
+endiff
+
+iff not IsLabel %VpnCommand goto usage
+
+gosub %VpnCommand
+
+return %_?
+
+REM Open and activate the VPN program
+:VpnOpen
+
+REM Start the VPN program, or restore it if it is minimized to the system tray
+start "VPN" "%VpnTask"
+
+REM Wait for the VPN program to start
+call ActivateSync "Intel*NetStructure*" 90
+
+return %?
+
+:VpnDisconnectTunnel
+
+if %@WindowExist[%VpnTitle] == 0 return
+
+activate "%VpnTitle" restore
+delay /m 1000
+KeyStack Alt-T "D"
+delay /m 1000
+
+return
+
+:VpnHide
+
+if %@WindowExist[%VpnTitle] == 0 return
+activate "%VpnTitle" hide >& nul:
+
+return
+
+:VpnClose
+
+if %@WindowExist[%VpnTitle] == 0 return
+
+echo Closing vpn...
+activate "%VpnTitle" close
+delay /m 1000
+KeyStack enter
+
+return
+
+:VpnDisconnect
+
+REM Record if we are now on the Intel network
+set OnNetwork=%@OnNetwork[Intel]
+  
+gosub VpnClose
+
+REM Kill communicator so it does not prompt to login.  Communicator does not shutdown with a standard close request.
+call task kill communicator
+
+REM If we were on the Intel network then get network change actions 
+iff %OnNetwork == 0 return
+
+  REM Get information for the new IP address
+  call network StaticInfo
+
+  REM Update proxy settings
+  call SetBrowserProxy
+	
+endiff
+
+return
+
+:VpnConnect
+
+REM Arguments
+set pin=
+iff %# == 1 Then
+  set pin=%1
+  shift
+endiff
+
+if %# != 0 goto usage
+
+REM Return if already connected to the Intel network
+if %@OnNetwork[Intel] == 1 return 0
+
+REM Get pin if not already specified
+iff "%pin" == "" Then
+  input /p /d `PIN? ` %%pin
+endiff
+
+REM Open VPN
+gosub VpnOpen
+if %_? != 0 return %_?
+
+REM Connect to the last used tunnel
+KeyStack ! Alt-T "C"
+
+REM Enter SecureID Information
+call ActivateSync "SecurID*" 90
+if %? != 0 return %_?
+delay /m 500
+echo Entering pin...
+KeyStack ! "%pin" enter
+
+REM Wait for connect
+call network info Intel
+call host available %ip 500 wait 60
+if %? != 0 return 1
+
+REM Hide NetStructure  Window
+activate "%VpnTitle" hide >& nul:
+
+REM Update proxy settings
+call SetBrowserProxy
+
+REM Get information for the new IP address
+call network StaticInfo
+
+return
+
+:VpnStart
+sc start ICsrvr
+sc start ICtdi
+sc start ICService
+sc start ICvnic
+echo.
+echo VPN has been STARTED.
+return
+
+:VpnOn
+sc config ICService start= auto
+sc config ICsrvr start= system
+sc config ICtdi start= system
+sc config ICvnic start= demand
+echo.
+echo VPN has been ENABLED.  Reboot for changes to take effect.
+return
+
+:VpnOff
+sc config ICService start= disabled
+sc config ICsrvr start= disabled
+sc config ICtdi start= disabled
+sc config ICvnic start= disabled
+echo.
+echo VPN has been DISABLED.  Reboot for changes to take effect.
+return
+

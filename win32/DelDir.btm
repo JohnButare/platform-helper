@@ -1,0 +1,205 @@
+@echo off
+SetLocal
+
+REM Initialize
+
+REM rm.exe and variants do not work with a full path and wildcard
+REM del /q /f /e /s /y /x: does not work with long filenames, folder\* deletes folder
+REM cmd /c RmDir /s /q %@quote[%@full[a]]: works with long filenames, cannot delete contents
+set rm=rmUnixUtils.exe -fr
+
+REM Protect the following directories from deletion
+set exclusions="%WinDir" "%system32" "%system64" "%WinDir\system" "%programs32" "%programs64" "%users" "c:\users" "d:\users" "%UserProfile" "%UserDocuments"
+
+REM Initialize arguments
+set ask=
+set contents=
+set debug=
+set MinSize=
+set quiet=
+set NoHeader=
+set HeaderOutput=
+set empty=
+set HideDetail=
+
+REM Get arguments
+:GetArgs
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+iff "%1" == "ask" then
+	set ask=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "debug" then
+	set debug=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "HideDetail" then
+	set HideDetail=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "empty" then
+	set empty=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "contents" then
+  set contents= contents
+  shift & goto GetArgs
+endiff
+
+iff "%1" == "MinSize" then
+	set MinSize=%2
+	shift 2	& goto GetArgs
+endiff
+
+iff "%1" == "quiet" then
+  set quiet=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "NoHeader" then
+  set NoHeader=true
+	shift & goto GetArgs
+endiff
+
+set result=0 
+
+REM Call DelDir for each dir on the command line. Expand dir in case it contains wildcards
+do until %# == 0
+
+	set dir=%1
+	shift
+	
+	REM Check if the path is ready - FixPath calls full which displays a system error dialog if the path is a removable device that is not ready
+	iff "%@InStr[1,1,%dir]" == ":" then
+		if %@ready[%dir] == 0 iterate
+	endiff
+	
+	set dir=%@FixPath[%dir]
+	
+	gosub CheckExcluded "%dir"
+	iff %_? == 0 then
+		for dir in (%@expand["%dir", d]) gosub DelDir
+		set result=%_?
+	else
+		set result=1
+	endiff
+	
+enddo
+ 
+iff defined HeaderOutput .and. not defined quiet .and. not defined NoHeader then
+  echo done.
+endiff
+
+quit %result
+
+:usage
+text 
+Safely delete a directory
+DelDir [ask] [debug] [contents] [empty] [MinSize <size>] [quiet] [NoHeader] directory1 [directory2] ...
+- MinSize - only delete directories larger than size (in bytes)
+- empty - only delete empty directories
+endtext
+quit 1
+
+:DelDir
+
+set dir=%@UnQuote[%dir]
+
+gosub CheckDir
+if %_? != 1 return 1
+
+iff defined ask then
+	call ask `Are you sure you want to delete %dir?` n
+  if %? != 1 return 1
+endiff
+
+iff defined debug then
+	echo Deleting %dir%%contents.
+	pause
+endiff
+
+iff not defined HeaderOutput .and. not defined quiet .and. not defined NoHeader then
+  echos Deleting%contents...
+	if defined debug echo.
+	set HeaderOutput=true
+endiff
+
+if not defined quiet .and. not defined debug echos %@FileName[%dir].
+
+REM Delete the folder
+iff defined contents then
+
+	pushd %dir >& nul:
+	iff "%_cwd" == "%dir" then
+		%rm * >& nul:
+		REM %rm *
+	else
+		echos unable to delete %@name[%dir] contents...
+	endiff
+	popd >& nul:
+
+elseiff defined empty then
+	del /y /a:d /x /s /e %@if[ defined HideDetail ,/q] /ns "%dir"
+	
+else
+	cmd /c RmDir /s /q "%dir" >& nul:
+	
+endiff
+ 
+return %@if[IsDir "%dir" ,1,0]
+ 
+:CheckDir
+
+REM Return if the directory does not exist
+if not IsDir "%dir" return 0
+
+REM Do not allow deletion of a directory we are contained in.  This prevents deletion of the current and parent directories (., .., etc) 
+iff %@index["%_cwd\","%dir"] == 0 then
+	echos %@name[%dir] is in use...
+	return 0
+endiff
+
+REM Do not allow deletion of a drives root directory
+iff "%dir" == "%@drive["%dir"]:\" then
+	echos %@name[%dir] is a root folder...
+	return 0
+endiff
+
+gosub CheckExcluded "%dir"
+if %_? == 1 return 0
+
+REM Return if the directory is under the minimum size
+iff defined MinSize then
+	if %@DirSize[b,"%dir"] lt %MinSize return 0
+endiff
+
+return 1
+
+REM Check if the directory is excluded
+:CheckExcluded [dir]
+
+set CheckDir=%@UnQuote[%dir]
+
+REM Remove wildcards for the check so that deletion of the contents of excluded directories is also prevented
+iff "%@right[2,%CheckDir]" == "\*" then
+	set CheckDir=%@left[-2,%CheckDir]
+endiff
+
+REM Start with dummy so for is interpreted as a list of strings, not folders
+set result=0
+for exclusion in (dummy %exclusions) (
+
+  iff "%CheckDir" == "%@UnQuote[%exclusion]" then
+    echos %@name[%CheckDir] is protected...
+    set result=1
+    LeaveFor
+  endiff
+
+)
+
+return %result

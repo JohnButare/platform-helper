@@ -1,0 +1,517 @@
+@echo off
+SetLocal
+on break cancel 1
+
+REM
+REM Initialize
+REM
+
+set ConnectedDevices=Droid phone_int phone_ext Kindle
+
+set ExcludedUsers="Administrator" "Complymo" "default" "Default User" "LocalService" "LocalService.NT AUTHORITY" "NetworkService" "NetworkService.NT AUTHORITY" "SMSCCMBootAcct&" "SMSCliSvcAcct&" "sys_eam1" "system" "wsystem"
+
+set CloseList=word Outlook Quicken VMware 
+
+set PublicMedia=`"%_PublicData\install" "%_PublicHome\Music" "%_PublicHome\Videos" "%_PublicHome\Pictures"`
+
+REM Huge Exclude- exclude these files and directories unless backing up to large media
+set HugeFiles=
+set HugeDirs=
+
+REM Global Exclude- always exclude these files and directories
+REM
+REM *.tib - Acronis TrueImage backup files
+REM maintenance.txt - don't backup maintenance log file (where WigginBackup output is logged to), otherwise copy recurses copying log file as it grows
+REM _sync.txt - SyncLocalFile data
+REM Thumbs.db - explorer thumbnails that is recreated autmatically
+set GlobalExcludeFile=*.tib maintenance.txt *_sync.txt Thumbs.db .DS_Store
+
+REM iTunes exclude folders
+set iTunesExcludes="iPod Photo Cache" "Podcasts" "Album Artwork"
+
+REM GlobalExcludeDir - always exclude these directories
+set GlobalExcludeDir=%iTunesExcludes Steam
+
+REM /CopyAll - Copies all file information (S=Security=NTFS ACLs, O=Owner info, U=aUditing info  D=Data, A=Attributes, T=Timestamps).  /l to test
+REM /b - backup mode copies files that can't be copied in regular mode
+set RcStandard=RoboCopy /e /r:0 /w:0 /purge /ndl /njh /njs
+set rc=%RcStandard /b /copyall
+set RcNas=%RcStandard /b /copy:DATSO
+
+REM Arguments
+set arguments=%$
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=backup
+iff IsLabel %1 then
+	set command=%1
+	shift
+endiff
+if not IsLabel %command goto usage
+
+REM Run command
+gosub %command
+quit %_?
+
+:usage
+text 1>&2
+WigginBackup [backup|eject|validate|cd](backup)
+  backup [NoHuge] [TrueCrypt] [hosts](BackupHosts)
+  elevate validate backup
+endtext
+quit 1
+
+:find
+
+set drives=
+
+for drive in (%_ready) (
+	REM Look for drives with a portable or key labels, such as portable12, ButareKey1
+	iff %@IsInList[wild *backup?? %@label[%drive]] == 1 then
+		iff IsDir "%drive\backup" then
+			set drives=%drives %drive
+		endiff
+	endiff
+)
+
+set drives=%@trim[%drives]
+return %@if[ "%drives" == "" ,1,0]
+
+:eject
+gosub find
+if %? == 0 call drive eject %drives
+return
+
+:cd
+gosub find
+if %_? == 0 cde "%@field[0,%drives]\backup"
+EndLocal /d
+return
+
+REM Backup to backup drive
+:backup
+
+REM Arguments
+
+set TrueCrypt=
+iff "%1" == "TrueCrypt" then
+	set TrueCrypt=true
+	shift
+endiff
+
+set huge=true
+iff "%1" == "NoHuge" then
+	set huge=
+	shift
+endiff
+
+set hosts=%$
+iff "%hosts" == "" then
+	set hosts=%@FindHost[backup=yes]
+endiff
+
+REM Intel Connected Network Backup
+iff %@IsIntelHost[] == 1 then
+	iff %@OnNetwork[Intel %delay] == 0 return
+		call cnb backup
+	endiff
+endiff
+
+REM Elevate if we may backup all files
+gosub find
+if %_? != 0 return 1
+
+iff %@IsElevated[] == 0 .and. not defined TrueCrypt then
+	sudo.btm /pause WigginBackup.btm %arguments
+	return 1
+endiff
+	
+gosub BackupFiles
+
+echo.
+echo Backup has completed.
+
+return
+
+:BackupFiles
+
+REM Backup files to backup device
+for drive in (%drives) (
+ 	set DevicePrefix=%drive\backup	
+	gosub BackupToDevice
+)
+
+return 0
+
+:BackupToDevice
+
+REM Set exclusions for this device
+set DeviceExcludeFile=
+set DeviceExcludeDir=
+
+REM Determine what to backup based on backup device size
+set DiskSize=%@DiskTotal["%DevicePrefix",g]
+
+iff not defined huge then		
+	set DeviceExcludeFile=%HugeFiles
+	set DeviceExcludeDir=%HugeDirs
+endiff
+
+echo *************************************
+echo * Backing up files to %@label[%drive]
+echo *************************************
+
+iff defined TrueCrypt then
+	gosub BackupTrueCrypt
+	return
+endiff
+
+gosub BackupNas
+gosub BackupConnectedDrives
+gosub BackupHosts
+
+return
+
+:BackupNas
+
+set nas=\\nas
+set dest=%DevicePrefix\nas
+
+%RcNas "%nas\web" "%dest\web" /xd "%nas\web\books" "%nas\web\phpMyAdmin" "%nas\web\piwik"
+
+return
+
+REM BackupConnectedDrives
+REM Backup connected drives (phones, keys, etc)
+REM Android (DroidX) - USB Connection, USB Mass Storage
+:BackupConnectedDrives
+
+for drive in (%_ready) (
+	set label=%@label[%drive]
+	iff %@IsInList["%label" %ConnectedDevices] then
+		echo Backing up %label...
+		%rc "%drive\." "%DevicePrefix\%label" /xd %drive\Music
+	endiff
+)
+
+return
+
+:BackupHosts
+for %host in (%hosts) gosub host
+return 0
+
+:host
+
+set local=%@if[ "%host" == "%ComputerName" ,true,]
+
+iff defined local then
+
+	REM Close programs that may have open files
+	set StartList=
+	for app in (%CloseList) (
+		iff %@IsRunning[%app] == 1 then
+			set StartList=%StartList %app
+			call %app%.btm close
+		endiff
+	)
+
+else
+
+	echo.
+	echos Checking %host...
+	iff %@IsHostAvailable[%host] == 0 then
+		echo not available.
+		return
+	endiff
+	echo available.
+
+	call host prepare %host
+	if %? != 0 return %?
+
+endiff
+
+set TrueHostName=%@HostName[%host]
+echo Backing up %TrueHostName...
+
+REM Define host specific directories
+call os FindDirs %host
+if %? != 0 return %?
+
+REM set UserDir=d:\Users\Public & gosub user
+gosub users
+gosub sql
+gosub iis
+gosub code
+
+iff defined local then
+
+	gosub BackupApplicationData
+	
+	REM Start programs that were closed
+	for app in (%StartList) (
+		call sudo.btm /standard %app.btm startup
+	)
+
+endiff
+
+return
+
+:code
+
+set src=%_sys\code
+if not IsDir "%src" return
+
+echo Backing up code...
+
+set DestSuffix=%TrueHostName
+set ExcludeDir=%src\saba5.4\doc %src\saba5.4\image %src\saba5.5\doc %src\saba5.5\image
+set ExcludeFile=
+gosub bak
+
+return
+
+:iis
+
+set src=%_sys\InetPub
+if not IsDir "%src" return
+
+echo Backing up IIS data...
+
+REM Web sites
+set DestSuffix=%TrueHostName\iis
+set ExcludeDir=%src\temp %src\logs %src\iissamples %src\wwwroot\saba
+set ExcludeFile=
+gosub bak
+  
+REM IIS Configuration
+set src=%_system\inetsrv
+set DestSuffix=%TrueHostName\iis\inetsrv
+  
+echo Source: %src
+if not isdir "%DevicePrefix\%DestSuffix" md /s "%DevicePrefix\%DestSuffix"
+if exist "%src\*.xml" copy "%src\*.xml" "%DevicePrefix\%DestSuffix"
+    
+set src=%src\History
+if exist %src gosub bak 
+
+return
+
+:sql
+
+set src=%_programs\Microsoft SQL Server\MSSQL.1\MSSQL\Backup
+if not IsDir "%_src" return
+
+echo Backing up SQL Server data...
+
+REM Database backups
+set DestSuffix=%TrueHostName\sql
+set ExcludeDir=
+set ExcludeFile=
+gosub bak
+
+return
+
+:users
+for /a:+h+d /d /h %UserDir in ("%_users\*") gosub user
+return
+
+:user
+
+set _user=%@FileName[%UserDir]
+ 
+REM Return if the user is excluded
+if %@index[%ExcludedUsers,"%_user"] != -1 return
+
+echo.
+echo Backing up user %_user data...
+
+call os.btm FindDirs %host "%_user"
+if %? != 0 return %?
+
+set DestSuffix=%TrueHostName\%_user
+set ud=%_UserDocuments
+
+set ed=%ud\data\TrueCrypt
+set ef=
+
+REM Add excludes for new folder layouts ("My" folders are links).  
+iff "%_layout" == "new" then
+	set ed=%ed "My Documents" "My Music" "My Pictures" "My Videos"
+endiff
+
+REM Add user huge file exclusions
+iff not defined huge then
+	set ed=%ed "%ud\data\VMware" "%ud\backup" "%ud\data\backup"
+endiff
+
+REM Specific user excludes
+
+switch %_user
+
+REM Exclude linked directories
+case jjbutare
+
+	set ed=%ed "%ud\Outlook Files" "%ud\Amnesia" "%ud\audible" "%ud\My Weblog Posts" "%ud\My Shapes" "%ud\Fax" ^
+		"%ud\Scanned Documents" "%ud\SQL Server Management Studio" "%ud\Kindle DRM Removal" ^
+		"%ud\Vegas Movie Studio HD Platinum 11.0 Projects" ^
+		"%ud\Visual Studio 2010" "%ud\Visual Studio 2012" ^
+		"%ud\Workspace Archives" "%ud\Workspace Templates" "%ud\Work Item Templates" ^
+		"%_UserHome\Downloads"
+
+	REM Do not backup cloud directories except on the ROO (Oversoul)
+	iff "%host" != "oversoul" then 
+		set ed=%ed "%_UserHome\Dropbox" "%_UserHome\Google Drive"
+	endiff
+	
+endswitch
+REM pause user=%_user host=%host ed=%ed
+
+REM Public excludes
+iff "%_user" == "Public" then
+
+	set ed=%ed "%_PublicData\bak" "NirSoft Launcher" LiberKey
+	
+	REM Do not backup syncrhonized directories except on the ROO (Oversoul)
+	iff "%host" != "oversoul" then 
+		set ed=%ed "%_PublicBin" "%_PublicData\setup" 
+	endiff
+	
+	switch "%host"
+	
+	case "oversoul"
+	
+		REM Exclude older videos (.3TB),  they are backed up on Media1 and Media2 drives 
+		iff not defined huge then
+			set v=%_PublicHome\Videos\Camera\John
+			set ed=%ed "%v\1994" "%v\1995" "%v\1996" "%v\1997" "%v\1998" "%v\1999" "%v\2000" "%v\2001" ^
+				"%v\2002" "%v\2003" "%v\2004" "%v\2005" "%v\2006" "%v\2007" "%v\2008" "%v\2009" "%v\2010" "%v\2011"
+		endiff
+		
+	case "dune"
+	
+		REM Public media files are on Dune but ROO is Oversoul
+		set ed=%ed %PublicMedia
+		
+	endswitch
+
+endiff
+		
+REM Backup each user folder
+for %dir in (%_UserFolders) gosub UserFolder
+    
+return
+
+:UserFolder
+ 
+set dir=%@UnQuote[%dir]
+set src=%_UserHome\%dir
+set ExcludeDir=%ed
+set ExcludeFile=%ef
+
+REM Backup as long as the src is not excplicitly exclude
+iff IsDir "%src" .and. %@index[%ExcludeDir,"%src"] == -1 then
+  gosub bak
+endiff
+
+return
+
+:BackupApplicationData
+
+REM Exit if there are no applications to backup
+iff %@IsInstalled[PictureMotionBrowser] == 0 then
+	return
+endiff
+
+echo *************************************
+echo * Backing up application data
+echo *************************************
+
+call PictureMotionBrowser.btm gps bak
+
+return
+
+REM Backup TrueCrupt volumes
+:BackupTrueCrypt
+
+iff %@IsElevated[] == 1  then
+	EchoErr TrueCrypt files must be backed up without elevation
+	return 1
+endiff
+
+set dir=Documents\data\TrueCrypt
+if not IsDir "%UserHome\%dir" return
+
+REM Dismount all volumes to ensure files are not in use (so we can copy or mount them)
+set mount=%@if[ %@IsRunning[TrueCrypt] == 1 ,true,]
+call TrueCrypt dismount
+
+REM Wait to ensure file is no longer in use.
+if defined mount sleep 5
+
+for file in ("%UserHome\%dir\*.tc") (
+
+	REM Use TrueName to remove duplicate \ that prevent TrueCrypt from mounting the encrypted volume
+	set SrcTc=%@TrueName[%file]
+	set DestTc=%@TrueName[%DevicePrefix\%ComputerName\%UserName\%dir\%@FileName[%SrcTc]]
+	
+	echo Backing up %user %@FileName[%SrcTc] encrypted volume...
+	iff not IsFile "%DestTc" then
+		call MakeDir %@path[%DestTc]
+		copy /g "%SrcTc" "%DestTc"
+	else
+		
+		set SrcDrive=%@FindFreeDriveLetter[]:
+		call TrueCrypt command /volume "%SrcTc" /letter %SrcDrive
+		
+		set DestDrive=%@FindFreeDriveLetter[]:
+		call TrueCrypt command /volume "%DestTc" /letter %DestDrive
+		
+		iff IsDir "%SrcDrive" .and. IsDir "%DestDrive" then
+			%RcStandard "%SrcDrive%" "%DestDrive%" /xd $RECYCLE.BIN
+		else
+			EchoErr Unable to mount TrueCrypt drives for %@FileName[%file].
+		endiff
+		
+		call TrueCrypt command /dismount
+		
+	endiff
+)
+
+return
+	
+REM Backup src to each backup device
+:bak
+
+set dest=%DevicePrefix\%DestSuffix\%@filename[%@rtrim[\,%src]]
+
+if not isdir "%dest" md /s "%dest"
+
+echo Source: %src
+%rc "%src" "%dest" /xd %GlobalExcludeDir %DeviceExcludeDir %ExcludeDir /xf %GlobalExcludeFile %DeviceExcludeFile %ExcludeFile
+
+REM ensure we can see and edit the backup folder
+if IsDir "%dest" attrib /q /d -rh "%dest"
+
+return
+
+:usage
+text 
+Backup the users and media on the wiggin network to a portable hard drive.
+WigginBackup [<hosts>|media|TrueCrypt](all)
+endtext
+quit 1
+
+:validate
+
+gosub find
+if %_? != 0 return 1
+
+for drive in (%drives) (
+	set prefix=%drive\backup\%ComputerName
+
+	call BeyondCompare "%PublicHome" "%prefix\Public"
+	call BeyondCompare "%UserHome" "%prefix\%UserName"
+)
+
+return

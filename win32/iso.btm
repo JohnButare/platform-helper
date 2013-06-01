@@ -1,0 +1,351 @@
+@echo off
+
+REM Initialize
+
+set EditGui=%programs32\MagicISO\MagicISO.exe
+set EditCmd=%programs32\MagicISO\miso.exe
+
+REM SlySoft CloneDrive: http://www.slysoft.com/en/virtual-clonedrive.html, mounting, command line, shell extension
+set CloneDrive="%programs32\Elaborate Bytes\VirtualCloneDrive\VCDMount.exe"
+set CloneDriveGui="%programs32\Elaborate Bytes\VirtualCloneDrive\VCDPrefs.exe"
+
+REM MagicDisc: ISO burning/mounting/compressing, no command line option
+set MagicDisc=%programs32\MagicDisc\MagicDisc.exe
+
+REM miso: burner does not create bootable CD's properly
+set MisoCmd=miso.exe
+set MisoGui=%programs32\MagicISO\MagicISO.exe
+
+REM Alcohol 52%: http://www.alcohol-soft.com/, command line, autorun, mounting, virtual machine, shell extension
+set alcohol="%programs32\Alcohol Soft\Alcohol 52\AxCmd.exe"
+set AlcoholGui="%programs32\Alcohol Soft\Alcohol 52\Alcohol.exe"
+
+REM Daemon Tools: command line, autorun, no virtual machine (VMware virtual machine crashes on boot)
+set daemon3="%programs32\D-Tools\daemon.exe"
+set daemon4="%programs32\DAEMON Tools\daemon.exe"
+
+REM Microsoft VCd Control Tool: GUI interface, no command line, no autorun, no virtual machine
+set VCdControlTool=VCdControlTool.exe
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=mount
+iff %# gt 0 then
+  set command=%1
+  shift
+endiff
+
+iff %@numeric[%1] == 1 then
+  set num=%1
+  shift
+else
+  set num=1
+endiff
+
+iff exist "%CloneDrive" then
+  set run=CloneDrive
+elseiff exist "%alcohol" then
+  set run=Alcohol
+elseiff exist "%daemon4" then
+  set daemon=%daemon4
+  set run=Daemon
+elseiff exist "%daemon3" then
+  set daemon=%daemon3
+  set run=Daemon
+elseiff %@IsVirtualMachine[] == 1 then
+  set run=Vm
+elseiff %@IsNewOs[] == 0 then
+  set run=VCd
+else
+	echo There is no ISO mounting program installed.
+	quit 1s
+endiff
+
+iff IsLabel %command then
+  gosub %command 
+elseiff IsLabel %run%%command% then
+  gosub %run%%command%
+else
+  goto usage
+endiff
+
+quit %_?
+
+:usage
+text
+usage: iso [command](mount)
+  mount|unmount|unmountall [num](1) [file1] [file2]
+  gui|edit|verify
+  burn [<file>]
+  bak folder - backup the specified folder to an ISO image
+endtext
+
+quit 1
+
+REM Virtual Machine (VM) Mounting
+REM For virtual machines that do not have ISO software loaded, mount the ISO image on the host and use the host virtual drive that is
+REM exposed in the virtual machine.
+
+REM Unmount
+:VmUnmount
+pause CD-ROM %1, uncheck Connected, then press any key to continue...
+return 0
+
+:VmUnmountAll
+pause CD-ROM, uncheck Connected, then press any key to continue...
+return 0
+
+:VmGui
+return 1
+
+:VmMount
+
+if %# == 0 goto Usage
+for file in (%$) (
+  
+  REM Note: Holding down shift disables autorun on host
+  call AskClipW `%@full[%@UnQuote[%file]]` `CD-ROM %num, check Connected, Use ISO Image=paste, then press any key to continue (w to rewrite)...`
+
+  set num=%@eval[%num+1]
+)
+
+return 0
+
+:VCdUnmount
+echo Use Virtual CD Control to unmount ISO %num, and if required remove drives and stop and remove driver.
+%VCdControlTool
+return 0
+
+:VCdUnmountAll
+echo Use Virtual CD Control to unmount all ISO images, and if required remove drives and stop and remove driver.
+%VCdControlTool
+return 0
+
+:VCdGui
+%VCdControlTool
+return 0
+  
+:VCdMount
+
+if %# == 0 goto Usage
+for file in (%$) (
+
+  set file=%@unquote[%file]
+
+  iff not exist "%file" then
+    echo ERROR: %file does not exist.
+    goto Usage
+  endiff
+
+  echo If required, install and start driver and add drives.
+  echo Mount ISO %@eval[%num] from clipboard, double click drive in explorer to autorun.
+  echo %@clipw[%@full[%file]] >& nul:
+  %VCdControlTool
+  explorer /e
+  set num=%@eval[%num+1]  
+
+)
+
+return 0
+
+:DaemonUnmount
+%daemon -unmount %@eval[%num-1]
+return 0
+
+:DaemonUnmountAll
+%daemon -unmount 0
+%daemon -unmount 1
+return 0
+
+:DaemonGui
+%daemon
+return 0
+
+:DaemonMount
+
+if %# == 0 goto Usage
+for file in (%$) (
+  
+  set file=%@unquote[%file]
+
+  iff not exist "%file" then
+    echo ERROR: %file does not exist.
+    goto Usage
+  endiff
+
+  echo MOUNTING: %@name[%file] to c:\dev\iso%@eval[%num]
+  %daemon -mount %@eval[%num-1],"%file"
+  set num=%@eval[%num+1]  
+
+)
+
+return 0
+
+REM %alcohol 1: /m:slipstream.iso
+
+:AlcoholUnmount
+if %# != 0 goto usage
+%alcohol %num: /u
+return 0
+
+:AlcoholUnmountAll
+REM %alcohol /L should return the number of virtual drives, but it does not
+%alcohol 1: /u
+%alcohol 2: /u
+return  0
+
+:AlcoholGui
+start /pgm %AlcoholGui
+return 0
+
+:AlcoholMount
+
+if %# == 0 goto usage
+
+for file in (%$) (
+
+  set file=%@unquote[%file]
+
+  iff not exist "%file" then
+    echo ERROR: %file does not exist.
+    goto Usage
+  endiff
+
+  echo Mounting %@name[%file] to c:\dev\iso%@eval[%num]
+  %alcohol %num: /m:"%file"
+  set num=%@eval[%num+1]  
+
+)
+
+return 0
+
+:bak
+
+iff %# != 1 goto usage
+set dir=%@UnQuote[%1]
+if not IsDir "%dir" goto usage
+
+set name=%@name[%dir]
+set iso=%@UnQuote[%name.iso]
+
+miso "%iso" -py -aj -l3 -k2 -a %@quote[%dir\*] -l %@quote[%name]
+
+REM Reset the color since miso resets it
+color bright white on blue
+
+call iso verify "%dir"
+
+return
+
+:verify
+
+iff %# != 1 goto usage
+set dir=%@UnQuote[%1]
+if not IsDir "%dir" goto usage
+
+set name=%@name[%dir]
+set iso=%@UnQuote[%name.iso]
+
+call iso mount 1 "%iso"
+
+echos Verifying the ISO image...
+
+set SourceSize=%@DirSize[b,%dir]
+echos source %SourceSize% bytes...
+
+set IsoSize=%@DirSize[b,c:\dev\iso1]
+echos iso %IsoSize% bytes...
+
+iff %SourceSize !=  %IsoSize then
+	echo not ok
+	call iso edit "%iso"
+	start /pgm explorer /e,/root,"%@full[%dir]"
+else
+	echo ok
+endiff
+call iso unmount 1
+
+return
+
+:edit
+start /pgm "%EditGui" %$
+return
+
+REM Unmount
+:HostUnmount
+set command=iso unmount %num
+call AskClipW `%command` `Execute "%command" on host then press any key to continue (w to rewrite to clipboard)...`
+return 0
+
+:HostUnmountAll
+set command=iso UnmountAll
+call AskClipW `%command` `Execute "%command" on host then press any key to continue (w to rewrite to clipboard)...`
+return 0
+
+:HostGui
+return 1
+
+:HostMount
+
+if %# == 0 goto Usage
+for file in (%$) (
+  
+  REM Note: Holding down shift disables autorun on host
+	set command=iso mount %num "%@full[%@UnQuote[%file]]"
+	call AskClipW `%command` `Execute "%command" on host then press any key to continue (w to rewrite to clipboard)...`
+	pause Execute \\`<host>`\iso%num autorun and press any key to continue...
+
+  set num=%@eval[%num+1]
+)
+
+return 0
+
+:CloneDriveUnmount
+if %# != 0 goto usage
+%CloneDrive /d=%@eval[%num-1] /u
+return 0
+
+:CloneDriveUnmountAll
+REM %alcohol /L should return the number of virtual drives, but it does not
+%CloneDrive /d=0 /u
+%CloneDrive /d=1 /u
+return  0
+
+:CloneDriveGui
+start /pgm %CloneDriveGui
+return 0
+
+:CloneDriveMount
+
+if %# == 0 goto usage
+
+for file in (%$) (
+
+  set file=%@unquote[%file]
+
+  iff not exist "%file" then
+    echo ERROR: %file does not exist.
+    goto Usage
+  endiff
+
+  echo Mounting %@name[%file] to c:\dev\iso%@eval[%num]
+  %CloneDrive /d=%@eval[%num-1] "%file"
+  set num=%@eval[%num+1]  
+
+)
+
+return 0
+
+:burn
+
+REM Arguments
+
+iff not IsFile "%MisoGui" then
+	echo MagicISO is not installed.
+	return 1
+endiff
+	
+echo %@ClipW[%$] >& nul:
+start /pgm "%IsoBurnerGui" /cdburner
+return 0

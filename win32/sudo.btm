@@ -1,0 +1,118 @@
+@echo off
+SetLocal
+
+REM Initialize
+on break cancel 1
+set program=`%@if[ defined async ,start /pgm,] hstart %@if[ defined standard ,/NonElevated,/Elevated] %wait %hidden %shell`
+
+REM Arguments
+set async=
+set hide=
+set pause=
+set shell=
+set standard=
+set wait=
+set disconnect=
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+:GetArgs
+
+iff "%1" == "/a" .or. "%1" == "/async" then
+	set async=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "/h" .or. "%1" == "/hide" then
+	set hidden=/NoConsole
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "/p" .or. "%1" == "/pause" then
+	set pause=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "/s" .or. "%1" == "/shell" then
+	set shell=/shell
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "/w" .or. "%1" == "/wait" then
+	set wait=/wait
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "/standard" then
+	set standard=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "/disconnect" then
+	set disconnect=true
+	shift & goto GetArgs
+endiff
+
+REM Run the command
+gosub start
+quit %_?
+
+:usage
+text 1>&2
+Start a command with an administrator token.
+usage: sudo [/async] [/hide] [/pause] [/shell] [/wait] <command> <arguments>
+  /async - controls returns to caller before UAC prompt is displayed
+  /hide - hide the elevated command line program
+  /pause - pause before ending the elevated command line program
+  /shell - each command is a shell command
+  /standard - start the command with standard privileges (remove administrator token)
+  /wait - run each program syncronously  
+  /disconnect - disconnect the command from the current shell
+endtext
+quit 2
+
+:start
+
+set elevated=%@IsElevated[]
+
+REM Start normally if already elevated
+iff ((%elevated == 1 .and. not defined standard) .or. (%elevated == 0 .and. defined standard)) .and. ^
+	not defined hide .and. not defined shell .and. not defined pause then
+	iff defined disconnect then
+		start /pgm %$
+	else
+		%$
+	endiff
+	if defined wait pause
+	return %?
+endiff
+
+REM Start a shell if the commands are empty
+
+iff %# == 0 then
+	%program "%ComSpec"
+	return 0
+endiff
+
+REM Check if the first command is a valid program - format is ""<command>" <args>" ""<command>" <args>" ...
+set command=%@UnQuote[%1]
+
+which %@quote[%command] |& egrep -i "is an unknown" >& nul
+iff %? == 0 then
+	EchoErr %command is an unknown command.
+	return 1
+endiff
+
+REM Run an external (not Take Command) program elevated
+iff not defined wait then
+	which %@quote[%@search[%@quote[%command]]] |& egrep -i "is an external|is an executable extension" >& nul
+	iff %? == 0 then
+		%program %@quote[%$]
+		return 0
+	endiff
+endiff
+
+REM Run a Take Command program elevated
+%program ""%ComSpec" /c %$ %@if[ defined wait ,& pause]"
+
+return 0

@@ -1,0 +1,194 @@
+@echo off
+SetLocal
+
+REM Initialize
+
+set MusicDir=%PublicHome\music
+set PictureDir=%PublicHome\pictures
+
+set PortableImage=\\oversoul\John\Documents\programs\portable\image
+set RcOptsOrig=/E /R:2 /W:2 /njh /njs /ndl /mir /fft ^
+	/xf *_sync.txt ^
+	/xd UserBin bak
+set RcOpts=%RcOptsOrig
+
+REM Get arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=sync
+iff IsLabel %1 then
+	set command=%1
+	shift
+endiff
+if not IsLabel %command goto usage
+
+REM Run command
+gosub %command
+set result=%_?
+
+iff %command == find then
+	set portables=%drives
+	EndLocal portables
+endiff
+
+quit %result
+
+:usage
+text 1>&2
+usage: portable [setup <drive>|sync|merge|find|eject](sync)
+endtext
+quit 1
+
+:setup
+
+REM Arguments
+if %# != 1 goto usage
+
+set drive=%1
+shift
+
+REM Initialize
+iff %@ready[%drive] == 0 then
+	EchoErr Drive %drive is not ready.
+	return 1
+endiff
+
+iff not IsDir "%PortableImage" then
+	EchoErr Could not find portable image directory %PortableImage.
+	return 1
+endiff
+
+call ask `Do you want to setup %@label[%drive]?` n
+if %? == 0 return 1
+
+REM Bin
+echo Copying portable files...
+set RcOpts=
+call CopyDir "%PortableImage" "%drive\."
+set RcOpts=%RcOptsOrig
+
+REM Configure autorun.inf
+attrib +h "%drive\Autorun.inf"
+	
+return
+
+:find
+
+set drives=
+
+for drive in (%_ready) (
+	REM Look for drives with a portable or key labels, such as portable12, ButareKey1
+	iff %@IsInList[wild *portable?? %@label[%drive]] == 1 .or. ^
+		%@IsInList[wild *key?? %@label[%drive]] == 1 then
+		set drives=%drives %drive
+	endiff
+)
+
+set drives=%@trim[%drives]
+return %@if[ "%drives" == "" ,1,0]
+
+:sync
+:merge
+
+REM Arguments
+iff %# == 1 .and. %@ready[%1:] == 1 then 
+	set drives=%1:
+	shift
+elseiff %# != 0 then
+	goto usage
+else
+	gosub find
+endiff
+
+iff "%command" == "sync" then
+	set CopyDescription=Copying
+	set CopyCommand=call RoboCopy
+	set CopyOptions=%RcOpts
+else
+	set CopyDescription=Starting merge of
+	set CopyCommand=call BeyondCompare
+	set CopyOptions=
+endiff
+
+iff "%drives" == "" then
+	EchoErr No portable drives found.
+	return 1
+endiff
+
+iff "%command" == "sync" then
+	call ask `Are you sure you want to overwrite files on %drives?` n
+	if %? != 1 return 1
+endiff
+
+for drive in (%drives) gosub SyncPortable
+
+quit 0
+
+:SyncPortable
+
+echo ********************************
+echo * Synchronizing %@label[%drive]
+echo ********************************
+
+REM Create directories
+call MakeDir "%drive\documents"
+
+REM Bin
+echo %CopyDescription user bin folder...
+%CopyCommand "%UserDocuments\data\bin" %drive\data\bin\UserBin %CopyOptions
+
+echo %CopyDescription public bin folder...
+%CopyCommand "%PublicDocuments\data\bin" %drive\data\bin %CopyOptions
+
+REM Backup files
+iff IsDir "%drive\backup" .and. %@HostInfo[%ComputerName, mobile] == 1 then
+	echo Backing up mobl...
+  %CopyCommand "%UserDocuments\pictures" "%drive\backup\%ComputerName\pictures" %CopyOptions
+endiff
+
+gosub SyncInstall
+gosub SyncPictures
+gosub SyncMusic
+
+return
+
+:SyncMusic
+if not IsDir "%drive\music" return
+if not IsDir "%MusicDir" return
+
+echo %CopyDescription music folder...
+%CopyCommand "%MusicDir" "%drive\music" %CopyOptions
+
+return
+
+:SyncPictures
+if not IsDir "%drive\pictures" return
+if not IsDir "%PictureDir" return
+
+echo %CopyDescription picture folder...
+%CopyCommand "%PictureDir" "%drive\pictures" %CopyOptions
+
+return
+
+REM Sync install files if we can find a non-portable public install location and the portable drive has a data\install directory.
+:SyncInstall
+
+if not IsDir "%drive\data\install" return
+
+call FindPublicDoc data\install
+if %? != 0 return
+
+REM Return if the source is a portable, key, or removable drive as it may not contain all of the install files
+if %@IsInList[wild *portable? %@label[%SharedDocuments]] == 1 return
+if %@IsInList[wild *key? %@label["%SharedDocuments"]] == 1 return
+if %@removable[%SharedDocuments] == 1 return
+
+echo Copying install folder...
+%CopyCommand "%file" "%drive\data\install" %CopyOptions
+
+return %?
+
+:eject
+gosub find
+if %? == 0 call drive eject %drives
+return

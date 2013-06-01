@@ -1,0 +1,221 @@
+@echo off
+SetLocal
+
+REM Initialize
+set title=*- Microsoft Visual Studio*
+set VsVersion=
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+iff "%1" == "11" then
+	set VsVersion=11.0
+  shift
+elseiff "%1" == "10" then
+	set VsVersion=10.0
+  shift
+endiff
+
+gosub init
+if %_? != 0 quit %_?
+
+REM Final variable initialization
+set ProfileApp=VisualStudio%VsVersion
+set ProfileMethod=%VsIde
+set ProfileSaveExtension=vssettings
+
+set command=start
+iff %# gt 0 then
+  set command=%1
+  shift
+endiff
+
+iff not IsLabel %command goto usage
+
+REM Init command - export key variables
+iff "%command" == "init" then
+	EndLocal VsName VsVersion VsDir VsPath VsHelp VsIde VsRegistryKey VsVars VsData
+	quit 0
+endiff
+
+REM Run command
+gosub %command
+quit %_?
+
+:usage
+text 
+VisualStudio [10|11](latest) [cd|start|help|init|vars](start)
+  profile dir|SaveDir|backup|restore [profile](latest)
+  build: build with nant
+  index: index symbol PDB files for use with Source Server
+  test: unit test with nunit
+  vars [x86|x64|ia64|x86_amd64|x86_ia64](x86): set variables for the specified platform
+endtext
+quit 1
+
+:cd
+if %# != 0 goto usage
+if not IsDir "%VsDir" return 1
+cde "%VsDir"
+EndLocal /d
+return 0
+
+:start
+gosub IsInstalled & if %_? == 0 return 0
+
+REM Start VisualStudio - bring existing forward, or start new window if arguments are passed (file or project to open)
+iff %# == 0 then
+	activate "%title" max >& nul:
+	if %_? != 0 start /pgm "%VsIde" %$
+else
+	if "%1" == "new" shift
+	start /pgm "%VsIde" %$
+endiff
+
+return %_?
+
+:close
+gosub IsRunning & if %_? == 0 return 0
+process.exe -q %@FileName[%VsIde]
+return %?
+
+:vars
+
+EndLocal VsPath VsVars
+
+iff exist "%VsVars" then 
+	call "%VsVars" %$
+	set path=%path;%VsPath
+else
+	echo VisualStudio version %VsVersion variables are not installed.
+endiff
+
+return
+
+:help
+if %# != 0 goto usage
+start /pgm %VsHelp
+return
+
+:build
+pause TODO
+return
+
+REM Index symbol PDB files for use with the Source Server.  Reference
+REM - Source Server - http://msdn.microsoft.com/msdnmag/issues/06/08/usethesource/default.aspx
+REM - Symbol Server - http://msdn.microsoft.com/msdnmag/issues/02/06/Bugslayer/
+REM When the PDB files are index and stored on the symbol server, the debugger (Visual Studio or WinDbg)
+REM can locate correct version of the PDB and source files.  
+:index
+
+if %# != 0 goto usage
+
+REM Change the SourceSafe working directory to the root
+REM Rem is this required?  Test with different current folder
+ss cp $/
+if %? != 0 quit %?
+
+input Project (must exist in c:\code and $/)?` ` %%proj
+input Build label (i.e. Build 1.0.0.0)?` ` %%label
+
+REM Apply the build label to all source files in the project.  To verify the label run:
+REM ss history $/%proj
+ss label $/NetApp -L:"%label" -O -C-
+if %? != 0 quit %?
+
+REM Change to the project folder
+cd c:\code\%proj
+if %? != 0 quit %?
+
+REM Index the PDB files.  Since each PDB is in the obj and bin folder each will be indexed twice.  
+REM Alternative, you can copy all PDB files to a .\debug folder and use the /symbols=.\debug option.
+REM To verify that VSS information has been added to the PDB run (displays the srcsrv stream)
+REM pdbstr.exe -r -p:<pdb> -s:srcsrv
+call VssIndex /label="%label" /debug /project=%proj
+
+REM Add the PDB’s to symbol store.  Each PDB will be added twice to the same location, extra work but no
+REM duplication of files in the symbol server
+symstore add /r /f *.pdb /s \\symbols\symbols /t "%proj" /v "%label"
+
+return
+
+:profile
+
+iff "%1" == "backup" then
+	echo - Tools, Export settings..., check All Setings
+endiff
+
+iff "%1" == "restore" then
+	echo - Tools, Import settings..., No, just import new settings, overwriting my existing settings, Browse..., check All Settings
+endiff
+
+call profile.btm %$
+if %? == 1 goto usage
+return %?
+
+REM init sets:
+REM - VsName: public name of Visual Studio (2008, 2010, etc.)
+REM - VsVersion: internal version number (9.0, 10.0, etc.)
+REM - VsDir: home directory
+REM - VsPath: additional directories for the path
+REM - VsHelp: path to the help program
+REM - Other: VsIde VsRegistryKey VsVars
+:init
+
+set VsDir=
+
+REM If the VisualStudio verison was not specified find the latest installed version
+iff not defined VsVersion then
+	iff IsDir "%programs32\Microsoft Visual Studio 11.0" then
+		set VsVersion=11.0
+	elseiff IsDir "%programs32\Microsoft Visual Studio 10.0" then
+		set VsVersion=10.0
+	elseiff IsDir "%programs32\Microsoft Visual Studio 9.0" then
+		set VsVersion=9.0
+	elseiff IsDir "%programs32\Microsoft Visual Studio 8" then
+		set VsVersion=8.0
+	elseiff IsDir "%programs32\Microsoft Visual Studio 7" then
+		set VsVersion=7.0
+	endiff
+endiff
+ 
+REM Initial variables
+iff "%VsVersion" == "11.0" then
+	set VsName=2012
+	set VsDir=%programs32\Microsoft Visual Studio 11.0
+	set VsPath=%VsDir\Common7\IDE\;%VsDir\Team Tools\Performance Tools\
+	set VsHelp=
+
+elseiff "%VsVersion" == "10.0" then
+	set VsName=2010
+	set VsDir=%programs32\Microsoft Visual Studio 10.0
+	set VsPath=%VsDir\Common7\IDE\;%VsDir\Team Tools\Performance Tools\
+	set VsHelp=
+
+elseiff "%VsVersion" != "" then
+	echo VisualStudio version %Vsversion is not installed.
+	return 1
+
+else
+	return 1
+	
+endiff
+
+iff not IsDir "%VsDir" then
+	echo VisualStudio version %Vsversion is not installed.
+	return 1
+endiff
+
+set VsIde=%VsDir\Common7\IDE\devenv.exe
+set VsRegistryKey=HKCU\Software\Microsoft\VisualStudio\%VsVersion
+set VsVars=%VsDir\vc\VcVarsAll.bat
+set VsData=%UserData\Visual Studio %VsName
+
+return 0
+
+:IsInstalled
+return %@if[IsFile "%VsIde",1,0]
+
+:IsRunning
+gosub IsInstalled & if %_? == 0 return 0
+return %@IsTaskRunning[%VsIde]

@@ -1,0 +1,131 @@
+@echo off
+SetLocal
+
+gosub init
+
+set command=log
+iff IsLabel %1 then
+	set command=%1
+	shift
+endiff
+
+REM Run the command
+gosub %command
+set result=%_?
+
+EndLocal
+
+quit %result
+	
+:usage
+text 1>&2
+usage: 
+  cd|log [/?]
+endtext
+quit 1
+
+endtext
+quit 1
+
+:init
+set ProdWebHosts=fmsedmweb505.cps.intel.com fmsedmweb506.cps.intel.com fmsedmweb507.cps.intel.com
+return
+
+:LogUsage
+text
+log [<command>](WebGet)
+  WebGet[yymmdd](today)
+endtext
+quit 1
+
+:log
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto LogUsage
+
+iff %# == 0 then
+	set log=WebGet
+else
+	set log=%1
+	shift
+endiff
+
+switch "%log"
+
+case "WebGet"
+	gosub WebLogGet
+	
+default
+	goto usage	
+	
+endswitch
+	
+return
+
+:WebLogGet
+
+set hosts=%ProdWebHosts
+
+REM Arguments
+
+iff %# != 0 then 
+	set LogDate=%1
+	shift
+else
+	set LogDate=%@replace[-,,%@right[-2,%_IsoDate]]
+endiff
+
+if %# != 0 goto usaga
+
+REM Initialize
+set LogFile=ex%LogDate
+		
+REM Get log files from host
+iff not IsFile parsed.txt then
+	for %host in (%hosts) (
+
+		call host prepare %host
+		
+		iff %? == 0 then
+			set HostLogFile=\\%host\logs$\W3SVC1\%LogFile.log
+			set HostName=%@word[".",0,%host]
+			iff exist "%HostLogFile" then
+				iff not exist "%LogFile%_%HostName.txt" then
+					copy /g "%HostLogFile" "%LogFile%_%HostName.txt"
+				endiff
+			else
+				echo %HostLogFile does not exist.
+				quit 1
+			endiff
+		endiff
+	)
+endiff
+
+REM Initialize log file
+echo Server^TIP Address^tDomain^tUser^tDate^tHour^tMethod^tUrl^tQuery String^tResponse^tBytes^tTime > "%LogFile%.txt"
+	
+REM Parse and combine log files
+echos Processing ` `
+iff IsFile parsed.txt then
+	gawk -v host=parsed -f "%@BatchDir[]\ParseEmployeeContentWebLog.awk" parsed.txt >> "%LogFile.txt"
+else
+	for %host in (%hosts) (
+		echos %host...
+		gawk -v host=%host -f "%@BatchDir[]\ParseEmployeeContentWebLog.awk" %LogFile%_%host.txt >> "%LogFile.txt"
+		if %? != 0 quit %?
+	)
+endiff
+echo done.
+
+REM Cleanup individual server log file
+REM del %LogFile%_*.txt
+	
+REM Prepare the log spreadsheet for import
+iff not exist "%LogFile.xlsx" then
+	copy "%@BatchDir[]\IisWebLog.xlsx" "%LogFile.xlsx"
+endiff
+	
+echo Data, Refresh All, Paste
+echo %@ClipW[%_CWD\%LogFile.txt] >& nul:
+ShellRun "%LogFile.xlsx"
+	
+return

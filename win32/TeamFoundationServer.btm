@@ -1,0 +1,148 @@
+@echo off
+SetLocal
+
+REM Initialize VisualStudio common variables
+call VisualStudio.btm init
+if %? != 0 return %?
+
+REM Initialize Team Foundation Server variables
+set tf=%VsDir\Common7\IDE\TF.exe
+set tfpt=%programs32\Microsoft Team Foundation Server %VsName Power Tools\tfpt.exe
+set bpa=%programs32\Microsoft Team Foundation Server %VsName Power Tools\Best Practices Analyzer\TfsBpaCmd.exe
+
+REM Arguments
+:GetArgs
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=usage
+iff %# gt 0 .and. IsLabel %1 then
+	set command=%1
+	shift
+endiff
+if not IsLabel %command goto usage
+
+REM Run command
+gosub %command
+set result=%_?
+
+EndLocal result,TfsPassword
+
+quit %result
+
+:usage
+text 
+TeamFoundationServer tf|tfpt|bpa
+  server [edit|add <name> <url>|delete <name>]
+endtext
+quit 1
+
+:server
+
+set command=Edit
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+
+if not IsLabel Server%command goto usage
+
+set key=HKCU\Software\Microsoft\VisualStudio\%VsVersion\TeamFoundation
+if %VsName == 2008 echo %@RegCreate[%key\Servers] >& nul:
+
+gosub Server%command
+return %_?
+
+:ServerEdit
+regjump %key
+return
+
+:ServerAdd
+
+if %# != 2 goto usage
+set name=%1
+set url=%2
+
+iff %VsName != 2008 then
+	echo Team Explorer, Connect to Team Project, Servers..., Add..., 
+	echo Preview=%url
+	pause
+	return 0
+endiff
+
+call registry.btm 32 set "%key\Servers\%name" REG_SZ %url
+if %? != 0 return %?
+
+echo Added TFS server %name.
+return 0
+
+:ServerDelete
+
+if %# != 1 goto usage
+set name=%1
+
+iff %VsName != 2008 then
+	echo Team Explorer, Connect to Team Project, Servers..., select %name, Remove 
+	pause
+	return 0
+endiff
+
+call registry.btm 32 delete "%key\Servers\%name"
+if %? != 0 return %?
+
+echo Removed TFS server %name.
+return 0
+
+:tf
+
+iff not IsFile "%tf" then
+	EchoErr Could not find tf command.
+	return 1
+endiff
+
+gosub GetLogin
+"%tf" %$ %TfsLogin
+return %?
+
+:tfpt
+
+iff not IsFile "%tfpt" then
+	EchoErr Could not find tfpt command.
+	return 1
+endiff
+
+gosub GetLogin
+"%tfpt" %$ %TfsLogin
+return %?
+
+:GetLogin
+
+if !("%TfsLogin" == "" .or. "%TfsPassword" == "") return 0
+
+set TfsUserName=%UserName
+iff "%@left[3,%UserName]" == "ad_" then
+	set TfsUserName=amr\%@right[-3,%UserName]
+endiff
+
+REM Return if we can use Windows Integreated Authentication for the password
+if "%TfsUserName" == "%UserName" .and. "%ComputerName" != "virga" return 0
+
+iff "%TfsPassword" == "" then
+	input /p `TFS Password? ` %%TfsPassword
+endiff
+
+set TfsLogin=/login:%TfsUserName,%TfsPassword%
+
+return 0
+
+:IsInstalled
+return %@if[IsFile "%tf",1,0]
+
+:bpa
+
+iff not IsFile "%bpa" then
+	EchoErr Could not find Best Practices Analyzer command.
+	return 1
+endiff
+
+"%bpa" %$
+return %?
