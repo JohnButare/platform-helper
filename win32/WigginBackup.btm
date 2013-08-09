@@ -2,15 +2,11 @@
 SetLocal
 on break cancel 1
 
-REM
-REM Initialize
-REM
-
 set ConnectedDevices=Droid phone_int phone_ext Kindle
 
 set ExcludedUsers="Administrator" "Complymo" "default" "Default User" "LocalService" "LocalService.NT AUTHORITY" "NetworkService" "NetworkService.NT AUTHORITY" "SMSCCMBootAcct&" "SMSCliSvcAcct&" "sys_eam1" "system" "wsystem"
 
-set CloseList=word Outlook Quicken 
+set CloseList=word Outlook Quicken TrueCrypt
 
 set PublicMedia=`"%_PublicData\install" "%_PublicHome\Music" "%_PublicHome\Videos" "%_PublicHome\Pictures"`
 
@@ -32,11 +28,13 @@ set iTunesExcludes="iPod Photo Cache" "Podcasts" "Album Artwork"
 REM GlobalExcludeDir - always exclude these directories
 set GlobalExcludeDir=%iTunesExcludes Steam
 
-REM /CopyAll - Copies all file information (S=Security=NTFS ACLs, O=Owner info, U=aUditing info  D=Data, A=Attributes, T=Timestamps).  /l to test
+REM /copy:DADSOU or /CopyAll - copy D=Data, A=Attributes, T=Timestamps S=Security=NTFS ACLs, O=Owner info, U=aUditing info
+REM   - SO - causes unreadable directories when move drives between OS's, A - fails for NAS drives
+REM /fft - allow 2 second granularity when move drives between OS's
 REM /b - backup mode copies files that can't be copied in regular mode
+REM /l to test
 set RcStandard=RoboCopy /e /r:0 /w:0 /purge /ndl /njh /njs
-set rc=%RcStandard /b /copyall
-set RcNas=%RcStandard /b /copy:DATSO
+set rc=%RcStandard /b /copy:DAT /fft
 
 REM Arguments
 set arguments=%$
@@ -94,12 +92,6 @@ REM Backup to backup drive
 
 REM Arguments
 
-set TrueCrypt=
-iff "%1" == "TrueCrypt" then
-	set TrueCrypt=true
-	shift
-endiff
-
 set huge=true
 iff "%1" == "NoHuge" then
 	set huge=
@@ -122,7 +114,7 @@ REM Elevate if we may backup all files
 gosub find
 if %_? != 0 return 1
 
-iff %@IsElevated[] == 0 .and. not defined TrueCrypt then
+iff %@IsElevated[] == 0 then
 	sudo.btm /pause WigginBackup.btm %arguments
 	return 1
 endiff
@@ -162,11 +154,6 @@ echo *************************************
 echo * Backing up files to %@label[%drive]
 echo *************************************
 
-iff defined TrueCrypt then
-	gosub BackupTrueCrypt
-	return
-endiff
-
 gosub BackupNas
 gosub BackupConnectedDrives
 gosub BackupHosts
@@ -177,8 +164,12 @@ return
 
 set nas=\\nas
 set dest=%DevicePrefix\nas
+set nd=%nas\home\documents\data
 
-%RcNas "%nas\web" "%dest\web" /xd "%nas\web\books" "%nas\web\phpMyAdmin" "%nas\web\piwik"
+%rc "%nas\web" "%dest\web" /xd "%nas\web\books" "%nas\web\phpMyAdmin" "%nas\web\piwik"
+%rc "%nas\git" "%dest\git"
+%rc "%nas\drop" "%dest\drop"
+%rc "%nas\home" "%dest\%UserName" /xd "%nas\home\#recycle" "%nd\profile" "%nd\replicate" "%nd\bin" "%nd\certificate"
 
 return
 
@@ -332,7 +323,7 @@ if %? != 0 return %?
 set DestSuffix=%TrueHostName\%_user
 set ud=%_UserDocuments
 
-set ed=%ud\data\TrueCrypt
+set ed=
 set ef=
 
 REM Add excludes for new folder layouts ("My" folders are links).  
@@ -430,55 +421,6 @@ echo *************************************
 call PictureMotionBrowser.btm gps bak
 
 return
-
-REM Backup TrueCrupt volumes
-:BackupTrueCrypt
-
-iff %@IsElevated[] == 1  then
-	EchoErr TrueCrypt files must be backed up without elevation
-	return 1
-endiff
-
-set dir=Documents\data\TrueCrypt
-if not IsDir "%UserHome\%dir" return
-
-REM Dismount all volumes to ensure files are not in use (so we can copy or mount them)
-set mount=%@if[ %@IsRunning[TrueCrypt] == 1 ,true,]
-call TrueCrypt dismount
-
-REM Wait to ensure file is no longer in use.
-if defined mount sleep 5
-
-for file in ("%UserHome\%dir\*.tc") (
-
-	REM Use TrueName to remove duplicate \ that prevent TrueCrypt from mounting the encrypted volume
-	set SrcTc=%@TrueName[%file]
-	set DestTc=%@TrueName[%DevicePrefix\%ComputerName\%UserName\%dir\%@FileName[%SrcTc]]
-	
-	echo Backing up %user %@FileName[%SrcTc] encrypted volume...
-	iff not IsFile "%DestTc" then
-		call MakeDir %@path[%DestTc]
-		copy /g "%SrcTc" "%DestTc"
-	else
-		
-		set SrcDrive=%@FindFreeDriveLetter[]:
-		call TrueCrypt command /volume "%SrcTc" /letter %SrcDrive
-		
-		set DestDrive=%@FindFreeDriveLetter[]:
-		call TrueCrypt command /volume "%DestTc" /letter %DestDrive
-		
-		iff IsDir "%SrcDrive" .and. IsDir "%DestDrive" then
-			%RcStandard "%SrcDrive%" "%DestDrive%" /xd $RECYCLE.BIN
-		else
-			EchoErr Unable to mount TrueCrypt drives for %@FileName[%file].
-		endiff
-		
-		call TrueCrypt command /dismount
-		
-	endiff
-)
-
-return
 	
 REM Backup src to each backup device
 :bak
@@ -498,7 +440,7 @@ return
 :usage
 text 
 Backup the users and media on the wiggin network to a portable hard drive.
-WigginBackup [<hosts>|media|TrueCrypt](all)
+WigginBackup [<hosts>|media](all)
 endtext
 quit 1
 

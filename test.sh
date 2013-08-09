@@ -1,4 +1,6 @@
 #!/bin/bash
-type __git_ps1
+. function.sh
+eval $(bkm SetVars)
+printf "a=%s\nb=%s\n" "$a" "$b"
 pause
 exit $?

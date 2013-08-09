@@ -8,6 +8,9 @@ set MediaUnc=\\%MediaRoo\Public
 set nas=\\nas
 set VideoSources=`"%MediaUnc\Videos" "%MediaDriveDir"`
 
+REM GetDate - get videos only after the specified date, useful if remove pictures
+set GetDate=1/1/2000
+
 REM Music: exclude WPL (Windows Playlists) - Sonos shows WPL but doesn't support auto playlists, so save auto playlists as M3U before copying
 set MusicFilters=-*.wpl
 
@@ -48,7 +51,7 @@ media backup|clean|collect|get|music|sync [/q[uiet]]
     check - check for media on the media that requires manual conversion
   transfer - transfer pictures after a trip
   get [<src>|drive <drive>] [dest <destination>] [person <name>] [copy|move](move)
-      [test] [AskRemoveDups] [NoiCloud] [NoPostProcess] [NoRename] 
+      [test] [AskRemoveDups] [NoiCloud] [NoPostProcess] [NoRename] [KeepName]
     [<src>|drive <drive>] - source directory or drive that contains media
     dest <destination> - picture destination folder
     person <name> - person's name used in distrination folder
@@ -83,9 +86,6 @@ return 0
 
 :GetInit
 
-REM GetDate - get videos only after the specified date, useful for trips
-set GetDate=11/1/2004
-
 REM VideoFile extensions to place in the videos directory
 REM - Sony DSC-HX5v: moff and modd are metadata for Sony m2ts video files 
 set VideoExtensions=3gp mpg mp4 mts m2ts moff modd mov 3gp
@@ -109,7 +109,8 @@ set PictureCleanDirs=%p
 REM
 REM PictureDirs
 REM
-set p=
+
+set p=%UserData\download\pictures
 
 REM Applie iCloud Photo Stream
 iff "%ComputerName" == "%MediaRoo" then
@@ -129,7 +130,7 @@ REM Archive
 REM - Verizon VX10000: my_pix and my_flix, \my_pix:GMT \my_flix:GMT
 REM - Nikon: \DCIM\100NIKON \DCIM\101NIKON \DCIM\102NIKON \DCIM\103NIKON \DCIM\104NIKON \DCIM\105NIKON \DCIM\106NIKON \DCIM\107NIKON \DCIM\107NIKON \DCIM\108NIKON 
 
-set m=\DCIM\100OLYMP \mssony\moml0001
+set m=\DCIM\100OLYMP \mssony\moml0001 \dcim\100PHOTO
 
 REM Android
 set m=%m \DCIM\Camera \handcent\download
@@ -163,6 +164,7 @@ set AskRemoveDups=
 set NoiCloud=
 set NoPostProcess=
 set NoRename=
+set KeepName=
 
 :GetArguments
 
@@ -216,6 +218,12 @@ iff "%1" == "NoRename" then
 	goto GetArguments
 endiff
 
+iff "%1" == "KeepName" then
+	set KeepName=true
+	shift
+	goto GetArguments
+endiff
+
 iff "%1" == "NoPostProcess" then
 	set NoPostProcess=true
 	shift
@@ -233,7 +241,6 @@ if %# != 0 goto usage
 REM Initialize
 set GMT=
 set operation=%OperationArg
-
 
 REM Process specified drive
 iff "%drive" != "" then
@@ -262,10 +269,9 @@ return 0
 REM Process newly downloaded media
 :PostProcess
 
-text
-- Automatic rotate JPEG images from parent folder
-- Delete unwanted pictures
-endtext
+iff "%ProcessedDirs" != "" then
+	gosub NasMedia
+endiff
 
 for dir in (%ProcessedDirs) (
 
@@ -273,12 +279,6 @@ for dir in (%ProcessedDirs) (
 	call explorer.btm 32 "%dir"
 	
 )
-
-iff "%ProcessDirs" != "" then
-	call PictureMotionBrowser start
-	pause
-	call PictureMotionBrowser clean
-endiff
 
 return 0
 
@@ -360,7 +360,7 @@ if %@index[%VideoExtensions,%ext] != -1 set MediaType=video
 REM If not specified, detemrine the destination directory based on the computer name and media type
 set DestPrefix=%destination
 iff "%DestPrefix" = "" then
-
+	
 	iff "%ComputerName" == "%MediaRoo" .and. "%MediaType" == "picture" then
 		set DestPrefix=%@PublicPictures[]\Camera\%PersonName
 	elseiff "%ComputerName" == "%MediaRoo" .and. "%MediaType" == "video" then
@@ -393,10 +393,9 @@ endiff
 REM Don't download files before the specified get date to save time
 if "%GetDate" != "" .and. %@MakeAge[%FileDate,%FileTime] lt %@MakeAge[%GetDate] return 0
 
-REM Form the destination directory and file
 set DestDir=%DestPrefix\%@year[%FileDate]\%@year[%FileDate]%@word["-",1,%FileDate]
 set FileDateTime=%@replace[-,_,%FileDate] %@replace[:,_,%FileTime]
-set DestFile=%@if[ defined NoRename ,%@name[%FileName],%FileDateTime]
+set DestFile=%@if[ defined NoRename ,%@name[%FileName],%@if[ defined KeepName ,%FileDateTime - %@name[%FileName],%FileDateTime]]
 set DestSuffix=
 set DestFileName=`%DestFile%%DestSuffix%.%DestExt%`
 set dest=`%DestDir\%DestFileName%`
@@ -437,40 +436,45 @@ iff %@IsInList["%DestDir" %ProcessedDirs] == 0 then
 	set ProcessedDirs=%ProcessedDirs "%DestDir"
 endiff
 
-REM Process the file 
-echos Processing %FileName%%@if[ "%FileName" != "%DestFile" , (%DestFile)]...
+set BigFile=%@if[ %@FileSize["%file",m] gt 50,true]
 
+REM Process the file 
+echos %@if[ "%operation" == "move",Moving,Copying] %FileName%%@if[ "%FileName" != "%DestFile" , (%DestFile)]...
 gosub GetCopyFile
 
-iff not defined NoiCloud .and. "%MediaType" == "picture" .and. IsDir "%iCloudPhotoUpload" .and. "%dir" != "%iCloudPhotoStream" then
+iff not defined NoiCloud .and. ^
+	"%MediaType" == "picture" .and. IsDir "%iCloudPhotoUpload" .and. "%dir" != "%iCloudPhotoStream" then
 
-	echos Copying %FileName to iCloud...
+	echos iCloud...
 	set dest=%iCloudPhotoUpload\%DestFileName%
 	gosub GetCopyFile
 	
 endiff
 
-if "%operation" == "move" call DelFile.btm %test "%file"
+iff "%operation" == "move" then
+	call DelFile.btm %test "%file"
+endiff
+
+echo done.
 
 return 0
 
 :GetCopyFile
 
-iff %@FileSize["%file",m] gt 5 then
-	copy %@if[ defined test ,/n] /g "%file" "%dest"
-else
-	copy %@if[ defined test ,/n,/q] /e "%file" "%dest"
-	echo done.
-endiff
+copy %@if[ defined test ,/n] %@if[ defined BigFile ,/g] ^
+	%@if[ not defined test and not defined BigFile ,/q] "%file" "%dest"
 
 return
 
-REM Return 1  if the media is already present in the destination
+REM Return 1  if the file exists with the same size and name (original new nanme) 
 :ProcessDuplicates
 
 set FileSize=%@FileSize["%file"]
 
 set DupFile=%@FindFirst[ /[s%FileSize,%FileSize] "%DestDir\%DestFile%*.%DestExt"]
+if "%DupFile" != "" return 1
+
+set DupFile=%@FindFirst[ /[s%FileSize,%FileSize] "%DestDir\%FileName"]
 if "%DupFile" != "" return 1
 
 REM For mts/m2ts file the extension and date/time stamp may is different when importing through Picture Motion Browser as the 
@@ -953,11 +957,11 @@ return %_?
 call ask `Sync install?` n
 if %? == 1 gosub NasInstall
 
-call ask `Sync books?` n
-if %? == 1 gosub NasBooks
-
 call ask `Sync media?` n
 if %? == 1 gosub NasMedia
+
+call ask `Sync books?` n
+if %? == 1 gosub NasBooks
 
 return
 

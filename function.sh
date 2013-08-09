@@ -1,12 +1,12 @@
-pause() { read -n 1 -p "${*-Press any key when ready...}"; }
-
 IsInteractive() { [[ "$-" == *i* ]]; }
 IsFunction() { type $1 >& /dev/null; }
-
+pause() { read -n 1 -p "${*-Press any key when ready...}"; }
 ShowInteractive() { echo "interactive=$(IsInteractive && echo 'yes' || echo 'no')"; }
+clipw() { printf "$1" > /dev/clipboard; }
+clipr() { cat /dev/clipboard; }
 
 #
-# Display
+# display
 #
 
 [[ "$TABS" == "" ]] && TABS=2
@@ -36,7 +36,7 @@ clear()
 #
 
 wtu() { cygpath -u "$*"; }
-utw() { cygpath -w "$(realpath "$*")"; }
+utw() { cygpath -w "$(realpath "$*")"; } # realpath to get full Windows path
 FindInPath() { IFS=':'; find $PATH -maxdepth 1 -name "$1" -type f -print; unset IFS; }
 
 #
@@ -44,7 +44,7 @@ FindInPath() { IFS=':'; find $PATH -maxdepth 1 -name "$1" -type f -print; unset 
 #
 
 start() { cygstart "$(utw $1)" "${@:2}"; }
-starto() { cygstart $1 "$(utw $2)" "${@:3}"; } # StartOption, i.e. starto --showmaximized
+starto() { cygstart $1 "$(utw $2)" "${@:3}"; } # starto <option> <program>, i.e. startto --showmaximized notepad
 tc() { tcc.exe /c $*; }
 sr() { ShellRun.exe "$(utw $*)"; }
 IsElevated() { IsElevated.exe > /dev/null; }
@@ -56,8 +56,8 @@ ShowSsh() { IsSsh && echo "Logged in from $(RemoteServer)" || echo "Not using ss
 TextEdit()
 {
 	local files=""
-	local program="$p64/Sublime Text 2/sublime_text.exe"
-	#local program="$p32/Notepad++/notepad++.exe" # requires --show to not resize if using half screen with win-L or win-R
+	local program="$P64/Sublime Text 2/sublime_text.exe"
+	#local program="$P32/Notepad++/notepad++.exe" # requires --show to not resize if using half screen with win-L or win-R
 
 	for file in "$@"
 	do
@@ -76,25 +76,8 @@ TextEdit()
 }
 
 #
-# Find
+# file management
 #
-
-FindAll()
-{
-	[ $# == 0 ] && { echo No file specified; return; }
-	find . -iname $*
-}
-
-FindCd()
-{
-	local dir=$(FindAll $* | head -1)
-
-	if [ -z "$dir" ]; then
-		echo Could not find $*
-	else
-		cde "$dir"
-	fi;
-}
 
 CdEcho()
 {
