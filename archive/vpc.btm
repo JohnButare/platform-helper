@@ -1,0 +1,696 @@
+@echo off
+
+REM Initialize
+set vm=%MyVirtualMachines
+set vmp=c:\dev\Portable1\data\vpc
+set vpc="r\Microsoft Virtual PC\Virtual PC.exe"
+alias ShowFileSize `iff exist %@quote[%1] then & echo ` `(%@FileSize[%1,m]MB) & else & echo. & endiff`
+alias ShowFileSizeGb `iff exist %@quote[%1] then echo ` `(%@FileSize[%1,g]GB) & else & echo. & endiff`
+
+function UndoEnabled=`%@ExecStr[xml sel -t -v "/preferences/settings/undo_drives/enabled" %@quote[%$]]`
+
+set rc=RoboCopy /zb /e /r:2 /w:2 /purge /ndl /njh /njs
+
+set dir=
+set command=%1
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+iff %# == 0 then 
+  gosub cd
+elseiff IsLabel %command then
+  gosub %command
+elseiff %# == 1 then
+  gosub FindFolder "%1"
+  iff %_? == 0 then
+    cdd "%folder"
+  else
+    gosub find "%1"
+    gosub DoStart "%vmc"
+  endiff
+else
+  goto usage
+endiff
+goto done
+
+REM
+REM Usage
+REM
+:usage
+echo USAGE: %0 `[start|cd|info|copy|rename|delete|edit|undo|compact|sync|register](start)`
+text
+  start - start the virtual machine
+  cd [<folder|name>] - cd to the virtual machine folder, the specified folder, or the virtual machine folder
+
+  info [<folder|name>] - list all virtual machines in all folder, the virtual machines in the specified folder,
+    or information about the specified virtual machine.
+
+  copy <src> <dest> - copy a folder or virtual machine.  Only changed files are copied, if the src and dest folders
+    contain the same VHD it is not copied, ony changes in individual VMC's are copied via the VUD.
+
+  rename <src> <dest> - rename a virtual machine
+
+  delete <name> - delete a virtual machine
+  edit <name> - edit the virtuam machine configuration file
+  undo [enable|disable|delete|merge] <name> - manage undo data for a virtual machine
+  compact <name> - compact a virtual machine
+  sync <folder> - sync supporting file names for all virtual machines in folder 
+  register <name> - register a virtual machine
+  
+  name - The virtual machine naming convention is <folder><type><location>, i.e. DevTestP is a test development
+    virtual machine in the portable drive dev folder.  DevImage is the development image.  All names are assumed
+    to be unique to avoid conflicts int he VirtualMachine program.
+endtext
+quit 1
+
+REM 
+REM Info
+REM 
+:info
+
+if %# gt 2 goto usage
+
+REM Display all virtual machines if no folder or name is specified
+iff %# == 1 then
+  for /h /a:d %%dir in ("%vm\*" "%vmp\*") (gosub ListDir)
+  return
+endiff
+
+REM Display virtual machines in a folder if a folder is specified
+gosub FindFolder "%2"
+iff %_? == 0 then
+  set dir=%folder & gosub ListDir
+  return
+endiff
+
+gosub find "%2"
+echo vmc=%@FileName[%vmc]
+
+REM Hard drive (vhd)
+gosub GetVhd "%vmc"
+echos Hard drive=%@FileName[%vhd] & ShowFileSizeGb "%vhd"
+
+REM Undo (vud)
+echo Undo enabled=%@UndoEnabled[%vmc]
+iff "%@UndoEnabled[%vmc]" == "true" then
+  gosub GetVud "%vmc"
+  echos Undo disk=%@FileName[%vud]  & ShowFileSize "%vud"
+endiff
+
+REM Saved state (vsv)
+gosub GetVsv "%vmc"
+iff "%vsv" != "" then
+  echos Saved state=%@FileName[%vsv] & ShowFileSize "%vsv"
+endiff
+
+return
+
+:ListDir
+pushd "%dir"
+echos %@name[%dir]:` `
+ls.exe *.vmc
+popd
+return
+
+REM
+REM Register
+REM
+:register
+
+if %# != 2 goto usage
+
+REM Find the vmc
+gosub find "%2"
+
+%vpc -RegisterVm %@quote[%vmc]
+
+returng
+
+REM 
+REM Delete
+REM
+:delete
+
+if %# != 2 goto usage
+
+REM Find the vmc
+gosub find "%2"
+
+call ask `Are you sure you want to delete %@name[%vmc]?` n
+if %? == 0 return
+
+gosub CopyVmc "%vmc" "%vmc" delete
+
+return
+
+
+REM 
+REM Copy/Rename
+REM 
+:copy
+:rename
+
+if %# != 3 goto usage
+
+REM If the name is a virtual machine folder then the copy folder
+gosub FindFolder %2
+iff %_? == 0 then
+
+  set src=%folder
+  
+  set dest=%3
+  iff "%@right[1,%dest]" == "p" then
+    set dest=%vmp\%dest
+  else
+    set dest=%vm\%dest
+  endiff
+  
+  gosub CopyFolder "%src" "%dest" %command
+  
+  return
+endiff
+
+REM Find the src virtual machine
+gosub find "%2"
+set src=%vmc
+
+REM Set the dest virtual machine
+set dest=%@path[%src]%@name[%3].vmc
+
+REM Check for src and dest the same
+iff "%@name[%src]" == "%@name[%dest]" .and. %command == copy then
+  echo ERROR: Cannot copy a virtual machine onto itself.
+  quit 1
+endiff
+
+REM Confirm the copy if it will overwrite an existing VMC.
+iff exist "%dest" then
+  iff %@name[%src] != %@name[%dest] then
+    call ask `Are you sure you want to %command %@name[%src] over %@name[%dest]?` n
+    if %? == 0 return
+  endiff
+endiff
+
+gosub CopyVmc "%src" "%dest" %command
+
+return
+
+REM
+REM CopyFolder
+REM
+REM If the src or dest name end in P, the virtual machine folder is located on the portable drive, however the
+REM physical folder name does not end in P on the portable.
+:CopyFolder [src dest command]
+
+iff %command == rename then
+  echo ERROR: Rename not supported for folders.
+  quit 1
+endiff
+
+REM Init src folder
+set SrcName=%@name[%src]
+
+REM Init dest folder
+iff "%@right[1,%@name[%dest]]" == "p" then
+  set DestNamePrefix=%@ProperName[%@left[-1,%@name[%dest]]]
+  set DestNameSuffix=P
+else
+  set DestNamePrefix=%@ProperName[%@name[%dest]]
+  set DestNameSuffix=
+endiff
+set DestName=%@name[%dest]
+
+REM Check for src and dest the same
+iff %src == %dest then
+  echo ERROR: Cannot copy a virtual machine folder onto itself.
+  quit 1
+endiff
+
+REM Confirm the copy
+iff IsDir %dest then
+  call ask `Are you sure you want to copy %SrcName over %DestName?` n
+  if %? == 0 return
+endiff
+
+REM Do not copy ReadMe.txt when copying to a different type of virtual machine
+set ExcludeFiles=
+iff "%@name[%src]" != "%@name[%dest]" .and. exist "%@UnQuote[%dest]\ReadMe.txt" then
+  set ExcludeFiles=%ExcludeFiles ReadMe.txt
+endiff
+
+iff "%@name[%src]" != "%@name[%dest]" then
+  set ExcludeFiles=%ExcludeFiles source.txt
+endiff
+
+REM Copy virtual machine folder
+echo COPYING: %SrcName to %DestName
+%rc %src %dest /xf %ExcludeFiles
+
+REM Update source.txt
+iff "%@name[%src]" != "%@name[%dest]" then
+  echo Based on %@name[%src]. > "%@UnQuote[%dest]\source.txt"
+endiff
+
+REM Rename each virtual machine file to have %DestName prefix instead of %SrcName prefix, for example
+REM when copying xp to dev on the portable, XpImage would be renamed to DevImageP.
+set SrcVmcList=
+for %%SrcVmc in ("%@UnQuote[%dest]\*.vmc") (set SrcVmcList=%SrcVmcList "%SrcVmc")
+
+REM Use the saved list of source VM's, if we iterate and rename in a single step, we will iterate on renamed VM's
+for %%SrcVmc in (%SrcVmcList) (
+
+  gosub GetBaseVmcName %SrcName %@quote[%SrcVmc]
+  set DestVmc=%@UnQuote[%dest]\%DestNamePrefix%%VmcBase%%DestNameSuffix.vmc
+
+  gosub CopyVmc %@quote[%SrcVmc] "%DestVmc" rename
+)
+
+return
+
+REM
+REM GetBaseVmcName
+REM
+REM Return the base name of a virtual machine file, the folder and trailing P is removed if present, i.e. DevTestP becomes Test
+:GetBaseVmcName [folder vmc]
+
+REM Remove vmc quotes, path, and extension if present
+set VmcBase=%@name[%vmc]
+
+REM Remove trailing P from the VMC
+iff "%@right[1,%VmcBase]" == "P" then
+  set VmcBase=%@left[-1,%VmcBase]
+endiff
+
+REM Remove trailing P from the folder
+set FolderBase=%folder
+iff "%@right[1,%FolderBase]" == "P" then
+  set FolderBase=%@left[-1,%FolderBase]
+endiff
+
+REM Remove the folder prefix, if present
+iff %@index[%VmcBase,%FolderBase] == 0 then
+  set VmcBase=%@instr[%@len[%FolderBase],,%VmcBase]
+endiff
+
+return
+
+REM 
+REM CopyFile 
+REM 
+:CopyFile [src dest command]
+
+REM Move or copy the VMC
+switch %command
+
+case rename
+
+  REM Return if the source file does not exist.
+  if not exist %src return
+
+  REM Delete the destination file exists and we are not changing it's case
+  iff "%@TrueName[%src]" != "%@TrueName[%dest]" .and. exist %dest then
+    del /q %dest
+  endiff
+  
+  REM Rename the file.  Rename must be used if the src and dest file are the same (changing case).
+  rename /q %src %dest
+  
+case copy
+
+  REM Return if the source file does not exist.
+  if not exist %src return
+    
+  REM Return if the destination file exists and it is the same as the source file
+  iff exist %dest then
+    iff %@FileSize[%src] == %@FileSize[%dest] .and. %@FileAge[%src] == %@FileAge[%dest] then
+      return
+    endiff
+  endiff
+
+  REM Copy the file with progress if it is over 1MB
+  iff %@FileSize[%src,m] gt 1 then
+    copy /j /g %src %dest
+  else
+    copy /q %src %dest
+  endiff
+  
+case delete
+
+  REM Return if the source file to delete does not exist
+  if not exist %src return
+  
+  REM Delete the destination file
+  del /q %src
+  
+endswitch
+
+return
+
+REM
+REM CopyVmc
+REM
+REM Copy a VMC and it's associated files (VUD and VSV).
+:CopyVmc [src dest command]
+
+REM Rename or copy now since the desintation VMC must exist for CopyVmcFile
+iff %command == delete then
+  echo DELETE: %@name[%src]
+else
+  echo %@Upper[%command]: %@name[%src] to %@name[%dest]
+  gosub CopyFile %src %dest %command
+endiff
+
+gosub CopyVmcFile %dest "/preferences/hardware/pci_bus/ide_adapter/ide_controller[@id='0']/location[@id='0']/undo_pathname" %command
+gosub CopyVmcFile %dest "/preferences/settings/configuration/saved_state/path" %command
+
+REM Delete the VMC now
+if %command == delete gosub CopyFile %src %dest %command
+
+return
+
+REM
+REM CopyVmcFile
+REM
+REM Copy the file specified in xpath to a name that corresponds to the VMC name.
+:CopyVmcFile [vmc xpath command]
+
+set AbsolutePath=%@UnQuote[%xpath]/absolute
+set RelativePath=%@UnQuote[%xpath]/relative
+
+REM Get the FileName from the vmc and return if it does not exist.
+set FileName=%@ExecStr[xml sel -t -v "%RelativePath" %vmc]
+iff "%FileName" == "" then
+  return
+endiff
+
+set src=%@path[%vmc]%FileName
+set dest=%@path[%vmc]%@name[%vmc].%@ext[%src]
+gosub CopyFile "%src" "%dest" %command
+gosub VmcChange %vmc "%RelativePath" ".\%@FileName[%dest]" 
+gosub VmcChange %vmc "%AbsolutePath" %@quote[%dest]
+
+return
+
+REM
+REM Start
+REM
+:start
+gosub find "%2"
+gosub DoStart "%vmc"
+return
+
+:DoStart [vmc]
+
+REM Start the virtual machine
+start /pgm %vpc -pc %@name[%vmc] -launch
+
+REM Set the CPU core speed to max to prevent Virtual Machine sound/keyboard/mouse/application sluggishness
+iff %ComputerName == jjbutare-mobl then
+
+  call ask `Host CPU to max?` y 5
+  if %? == 1 call cpu max
+  
+endiff
+
+REM Stop UltraMon so UltraMon HotKeys go to the virtual machine.
+call ask `Enable UltraMon HotKeys in virtual machine?` n 5
+if %? == 1 call UltraMon off
+
+return
+
+:cd
+iff %# == 0 .or. %# == 1 then
+  cdd "%vm"
+elseiff %# == 2 then
+
+  gosub FindFolder "%2"
+  iff %_? == 0 then
+    cdd "%folder"
+  else
+    gosub find "%2"
+    cdd "%@path[%vmc]"
+  endiff
+  
+else
+  goto usage
+  
+endiff
+return
+
+REM 
+REM FindFolder
+REM
+REM in: name, out: vmc, returns: 1 if found, 0 otherwise
+:FindFolder [name]
+
+if "%name" == "" return 1
+
+iff IsDir "%vm\%@UnQuote[%name]" then
+  set folder=%vm
+elseiff IsDir "%vmp\%@UnQuote[%name]" then
+  set folder=%vmp
+else
+  return 1
+endiff
+set folder=%@FileCase[%folder\%@UnQuote[%name]]
+return 0
+  
+REM
+REM Find 
+REM
+REM Find the first virtual machine with name.
+REM in: name, out: folder, vmc, fatal error if not found
+:find [name]
+
+if %quote[%name] == "" goto usage
+
+for /h /a:d %%dir in ("%vm\*" "%vmp\*") (
+  set vmc=%dir\%@name[%name].vmc
+  if exist "%vmc" LeaveFor
+)
+
+iff not exist "%vmc"  then
+  echo ERROR: Unable to find the %@UnQuote[%name] virtual machine.
+  quit 1
+endiff
+
+set vmc=%@FileCase[%vmc]
+set folder=%@name[%@left[-1,%@path[%vmc]]]
+return
+
+REM
+REM GetVhd
+REM 
+:GetVhd [vmc]
+set vhd=
+set result=%@ExecStr[xml sel -t -v "/preferences/hardware/pci_bus/ide_adapter/ide_controller[@id='0']/location[@id='0']/pathname/relative" %vmc]
+if "%result" == "" return 1
+set vhd=%@TrueName[%@path[%vmc]%result]
+return
+
+REM
+REM GetVud
+REM 
+:GetVud [vmc]
+set vud=
+set result=%@ExecStr[xml sel -t -v "/preferences/hardware/pci_bus/ide_adapter/ide_controller[@id='0']/location[@id='0']/undo_pathname/relative" %vmc]
+if "%result" == "" return 1
+set vud=%@TrueName[%@path[%vmc]%result]
+return
+
+REM
+REM GetVsv
+REM 
+:GetVsv [vmc]
+set vsv=
+set result=%@ExecStr[xml sel -t -v "/preferences/settings/configuration/saved_state/path/relative" %vmc]
+if "%result" == "" return 1
+set vsv=%@TrueName[%@path[%vmc]%result]
+return
+
+REM
+REM Undo
+REM
+:undo
+if %# != 3 goto usage
+gosub find "%3"
+gosub DoUndo "%vmc" "%2"
+return
+
+:DoUndo [vmc UndoCommand]
+
+gosub GetVhd %vmc
+
+switch %UndoCommand
+case "enable"
+  
+  call ask `Are you sure you want to enable undo and delete saved state for all %folder virtual machines?` n
+  if %? == 0 return
+
+  REM Enable undo drives for all virtual machines
+  REM TODO: When use %v as variable, gosub arguments that start with v are garbled, report error and document.
+  for %h in ("%@path[%vmc]*.vmc) (gosub VmcChange "%h" "/preferences/settings/undo_drives/enabled" "true")
+  
+  gosub DelFile "%@path[%vmc]*.vsv"
+
+  attrib +r /q "%vhd"
+
+case "disable"
+
+  call ask `Are you sure you want to disable undo and delete changes and saved state for all %folder virtual machines?` n
+  if %? == 0 return
+
+  REM Disable undo drives for all virtual machines
+  REM TODO: When use %v as variable, gosub arguments that start with v are garbled, report error and document.
+  for %h in ("%@path[%vmc]*.vmc) (gosub VmcChange "%h" "/preferences/settings/undo_drives/enabled" "false")
+  
+  gosub DelFile "%@path[%vmc]*.vud"
+  gosub DelFile "%@path[%vmc]*.vsv"
+
+  attrib -r /q "%vhd"
+  
+case "delete"
+
+  call ask `Are you sure you want to delete changes and saved state for %@name[%vmc]?` n
+  if %? == 0 return
+
+  gosub GetVud %@quote[%vmc] & gosub DelFile "%vud"
+  gosub GetVsv %@quote[%vmc] & gosub DelFile "%vsv"
+     
+case "merge"
+
+  call ask `Are you sure you want to merge %@name[%vmc] change and delete other %folder virtual machine saved changes?` n
+  if %? == 0 return
+  
+  attrib -r /q "%vhd"
+
+  call ask `Do you want to start %@name[%vmc]?` y
+  if %? == 1 then gosub DoStart %@quote[%vmc]
+  
+  echo .
+  echo Shutdown the virtual machine and merge chages (TODO: Use VM COM object model for this).
+  pause
+
+  REM Disable undo drives for all virtual machines
+  echos Deleting changes...
+  for %h in ("%@path[%vmc]*.vmc") (
+    
+    iff "%@name[%h]" != "%@name[%vmc]" then
+      gosub GetVud "%h"
+      gosub GetVsv "%h"
+      iff "%vsv" != "" .or. "%vsv" != "" then
+        echos %@name[%h]
+        gosub DelFile "%vud"
+        gosub DelFile "%vsv"
+      endiff
+      echos .
+    endiff
+  )
+  echo done.
+    
+  attrib +r /q "%vhd"
+  
+default
+  goto usage
+
+endswitch
+
+return
+
+REM Compact - Compact the virtual machine hard drive.  
+REM In: 
+REM Side effect: Saved state and hard drive changes for all other virtual machines in the same category will be deleted.
+:compact
+return
+REM Merge changes 
+gosub merge
+
+REM Disable undo since we will be performing operations which will grow it (defrag)
+gosub disableUndo
+
+start VM
+text
+• Virtual Machine
+o (Clear page file) My Computer, Properties, Advanced, Performance Settings, Advanced, Change, No paging file, Set, delete c:\pagefile.sys
+o Consolidate free space
+Diskeeper c /b
+? Diskeeper, Set It and Forget It, Set a custom schedule, Select type of schedule=continuously, Set Schedule.  When free space is consolidated, Clear Schedule
+? (optional) Set a boot-time defragmentation
+o Zero out free space
+"\\Oversoul\Shared Documents\Virtual Machine\Precompactor\precompact.exe"
+o Start Menu, Turn off Computer
+endtext
+
+Compact VM using object model, replacing original file
+gosub enableUndo
+
+start vm
+echo Enable Page File: My Computer, Properties, Advanced, Performance Settings, Advanced, Change, System managed size, Set
+
+return
+
+:done
+quit 0
+
+REM
+REM Edit
+REM
+:edit
+gosub find "%2"
+gosub DoEdit "%vmc"
+return
+
+:DoEdit [vmc]
+
+REM Convert the VMC to utf-8 for editing.  Virtual PC saves it in a unicode format that cannot be edited and later read by Virtual PC.
+set file=%@unique["%temp"]
+xml fo -e utf-8 %vmc > "%file"
+copy /q "%file" %vmc
+rm -f "%file"
+call TextEdit %vmc
+
+return
+
+:VmcChange [vmc xpath value]
+
+REM Change the relative and absolute path.  File must be first converted to utf-8 before processing, as the VMC
+REM is initially in a unicode format that cannot be processed.
+set file=%@unique["%temp"]
+xml fo -e utf-8 %vmc > "%file"
+
+REM Make the change
+xml ed -u %xpath -v %value "%file" > %vmc
+
+REM Cleanup the temporary file
+rm -f "%file"
+
+REM Display the change
+REM xml sel -t -o "%@name[%xpath]=" -v %xpath %vmc
+
+return
+
+:DelFile [file]
+
+iff exist %@quote[%file] then
+  del /q %@quote[%file]
+endiff
+
+return
+
+REM
+REM Sync
+REM
+:sync
+
+if %# != 2 goto usage
+
+gosub FindFolder "%2"
+iff %_? != 0 then
+  echo ERROR: Unable to find the %2 folder.
+  quit 1
+endiff
+
+for %h in ("%folder\*.vmc") (gosub CopyVmc "%h" "%h" rename)
+
+return

@@ -1,0 +1,599 @@
+@echo off
+SetLocal
+on break cancel 1
+
+set host=%ComputerName
+set HostTemp=c:\windows\temp\SqlServerBtm_%@TimeStamp[]
+set HostTempUnc=`\\%host\%@replace[:,$,%HostTemp]`
+set NoCheckHost=
+set ProjectDirs="%UserData\sql"
+
+set SqlVersions=2012 2008r2 2008 2005
+set SqlTemp=%temp\temp.sql
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+iff IsDir "%programs\Microsoft SQL Server\110" .or. IsDir "d:\Program Files\Microsoft SQL Server\MSSQL11.MSSQLSERVER" then
+	set version=2012
+	set VersionNum=11
+	set DataVersionNum=11
+	
+elseiff IsDir "%programs\Microsoft SQL Server\100" then
+	set version=2008r2
+	set VersionNum=10
+	set DataVersionNum=10_50
+
+elseiff IsFile "%WinDir\system32\SQLServerManager10.msc" then
+	set version=2008
+	set VersionNum=10
+	set DataVersionNum=10
+	
+endiff
+
+iff %@IsInList[%1 %SqlVersions] == 1 then
+	set version=%1
+	shift
+endiff
+
+set command=studio
+iff %# gt 0 .and. "%1" != "AD" then
+  set command=%1
+  shift
+endiff
+
+if not IsLabel %command goto usage
+
+set SqlCmd=%programs64\Microsoft SQL Server\%VersionNum%0\Tools\Binn\SQLCMD.EXE
+set SqlStudio=%programs32\Microsoft SQL Server\%VersionNum%0\Tools\Binn\ManagementStudio\Ssms.exe
+set SqlProfiler=%programs32\Microsoft SQL Server\%VersionNum%0\Tools\Binn\Profiler.exe
+set ConfigManager=%WinDir\system32\SQLServerManager%VersionNum%.msc
+set RsConfig=%programs32\Microsoft SQL Server\%VersionNum%0\Tools\Binn\RSConfigTool.exe
+
+REM Post argument initialization
+switch %version
+
+REM v11
+REM Drivers - RsFx0200	
+case 2012 
+	set AllServices=SqlBrowser MsDtsServer%VersionNum%0 MSSQLServerADHelper100 SqlWriter ^
+		"SQL Server Distributed Replay Controller" "SQL Server Distributed Replay Client"
+	
+REM v10.5, v10
+case 2008r2 .or. 2008
+	set AllServices=SqlBrowser MsDtsServer%VersionNum%0 SqlWriter MsSqlServerADHelper100
+	set SqlStudio=%programs32\Microsoft SQL Server\%VersionNum%0\Tools\Binn\VSShell\Common7\IDE\Ssms.exe
+
+EndSwitch
+
+REM Run command
+gosub %command
+quit %_?
+
+:usage
+text 
+SqlServer [2012|2008R2|2008] [command](studio) [<host>](localhost)
+  studio [AD]
+  profiler|profile [AD] [express|local]
+  cd [data]|studio|cmd|log config|RsConfig
+  db backup|restore [/?]
+  ExecuteSql [-S server_name[\instance_name]] [-d database] [-U user] [-P password] [-E] [file_name[,file_name]] 
+  GetDataDir - return the data directory in DataDir and DataDirUnc
+  RsConfig - Reporting services configuration
+  service [command](status) [all] [NoCheckHost] [instance <instance>](express|default) [host]
+    command: start|stop|restart|auto|demand|disable|enable|status
+    instance: <name>|default|express
+  profile dir|SaveDir|backup|restore [<profile name>|default](latest)
+endtext
+quit 1
+
+:UsageDbBackup
+text
+usage: backup [/?] database [BakFile](<database>.bak.7z) [server](localhost)
+  BakFile - name of the file to backup up to, or directory to backup to
+  server - server to backup database from, requires 7z in path for compression
+endtext
+quit 1
+
+:UsageDbRestore
+text
+usage: restore [/?] BakFile [server](localhost) [RestoreSql](Database Restore.sql)
+
+  BakFile- database backup file to restore, uncompressed if required.
+	
+  server - server to restore database to, requires c$ access
+	
+  RestoreSql - SQL used to perform the restore.  In the SQL, data_dir and
+    bak_file are substituted with appropriate values.
+		
+endtext
+quit 1
+
+:service
+
+REM Arguments
+set host=
+set command=status
+set all=
+set NoCheckHost=
+set instance=
+set services=
+set InstanceServices=
+
+:ServiceGetArgs
+
+iff "%1" == "all" then
+	set all=true
+  set services=%service %AllServices
+  shift & goto ServiceGetArgs
+endiff
+
+iff %# gt 0 .and. IsLabel Service%1 then
+	set command=%1
+	shift & goto ServiceGetArgs
+endiff
+
+iff "%1" == "NoCheckHost" then
+  set NoCheckHost=NoCheckHost
+  shift & goto ServiceGetArgs
+endiff
+
+iff "%1" == "instance" .and. %# gt 1 then
+	set instance=%2
+	shift 2 & goto ServiceGetArgs	
+endiff
+
+gosub GetHost
+if %_? != 0 return %_?
+
+if %# != 0 goto usage
+
+iff "%instance" == "" then
+	set instance=%@if[ "%host" == "" .or. "%host" == "localhost" .or. "%host" == "%ComputerName" ,express,default]
+endiff
+
+gosub GetInstance %instance
+set services=%services %@if[ defined all ,%AllInstanceServices%,%InstanceServices%]
+
+REM Run the service command
+gosub Service%command
+
+return
+
+:ServiceStart
+:ServiceStop
+:ServiceRestart
+:ServiceAuto
+:ServiceDemand
+:ServiceDisable
+:ServiceEnable
+:ServiceStatus
+:ServiceBriefStatus
+
+echo SQL Service %command of %@if[ defined host ,%host%,.]%InstanceDisplayName%
+
+for service in (%services) (
+	
+	set ServiceStartType=%@ServiceStartType[NoCheckHost %service %host]
+	iff "%ServiceStartType" != "DISABLED" .and. "%ServiceStartType" != "" then
+		call service %command wait NoCheckService NoCheckHost %service %host
+	endiff
+	
+)
+
+
+return
+
+:ms
+:console
+:studio
+:profiler
+:start
+
+set RunAs=
+iff "%1" == "AD" then
+  set RunAs=true
+  shift
+endiff
+
+set program=%@if[ "%command" == "profiler" .or. "%command" == "profile",%SqlProfiler,%SqlStudio]
+if not IsFile "%program" return
+
+gosub IsInstalled & if %_? == 0 return
+gosub IsRunning & if %_? == 1 return
+
+set arguments=
+
+iff "%1" == "express" then
+	set arguments=/S.\sqlexpress
+	shift
+elseiff "%1" == "local" then
+	set arguments=/Slocalhost
+	shift
+endiff
+
+iff defined RunAs then
+  runas /user:amr\ad_%UserName "%program" $arguments %$
+else
+  start /pgm "%program" %arguments %$
+endiff
+
+return
+
+:IsRunning
+gosub IsInstalled & if %_? == 0 return 0
+return %@IsTaskRunning[%program]
+
+:config
+start /pgm "%ConfigManager"
+return
+
+:RsConfig
+
+iff IsFile "%RsConfig" then
+	start /pgm "%RsConfig"
+	return 0
+endiff
+
+return 1
+
+:log
+cde "%programs\Microsoft SQL Server\MSSQL.1\MSSQL\LOG"
+return
+
+:GetHost
+
+if %# == 0 return 0
+
+set host=%1
+shift
+
+REM Check if host is available
+
+iff "%host" != "%ComputerName" .and. not defined NoCheckHost then
+
+	iff %@IsHostAvailable[%host] == 0 then
+		echo %host is not available.
+		return 1
+	endiff
+
+endiff
+
+iff %@ServiceExist[NoCheckHost MsSqlServer %host] == 0 then
+	echo %host does not have SQL Server installed.
+	return 1
+endiff
+	
+return 0
+
+:GetInstance [name]
+
+set InstanceFriendlyName=%name
+
+iff "%name" == "default" then
+	set InstanceName=MSSQLSERVER
+	set InstanceDisplayName=\
+	set InstanceServices=MsSqlServer SQLSERVERAGENT
+	set AllInstanceServices=%InstanceServices MsSqlServerOLAPService ReportServer MSSQLFDLauncher
+elseiff "%name" == "express" then
+	set InstanceName=SQLEXPRESS
+	set InstanceDisplayName=\SQLEXPRESS
+	set InstanceServices=MSSQL$SQLEXPRESS
+	set AllInstanceServices=%InstanceServices SQLAgent$SQLEXPRESS
+else
+	set InstanceName=MSSQLSERVER%name
+	set InstanceDisplayName=\MSSQLSERVER%name
+	set InstanceServices=MSSQL$MSSQLSERVER%name SQLAgent$MSSQLSERVER%name
+	set AllInstanceServices=%InstanceServices MSOLAP$MS%name ReportServer$MSSQLSERVER%name MSSQLFDLauncher$MSSQLSERVER%name 
+endiff
+
+return
+
+:CheckInstance [name]
+return %@if[ IsDir "%data\Program Files\Microsoft SQL Server\MSSQL%DataVersionNum.%name\MSSQL\Data" ,0,1]
+
+:GetDataDir
+
+gosub GetHost
+if %_? != 0 return %_?
+
+set dirs=^
+	"%data\Program Files\Microsoft SQL Server\MSSQL11.MSSQLSERVER\MSSQL\Data" ^
+	"%data\Program Files\Microsoft SQL Server\MSSQL10_50.MSSQLSERVER\MSSQL\Data" ^
+	"%data\Program Files\Microsoft SQL Server\MSSQL10.MSSQLSERVER\MSSQL\Data" ^
+	"%data\Program Files\Microsoft SQL Server\MSSQL.1\MSSQL\Data" ^
+	"%data\Program Files\Microsoft SQL Server\MSSQL\Data"
+
+set result=1
+for dir in (%dirs) (
+	set DataDir=%@UnQuote[%dir]
+	set DataDirUnc=\\%host\%@replace[:,$,%DataDir]
+	
+	iff IsDir "%DataDir" then
+		EndLocal /d DataDir DataDirUnc
+		set result=0
+		LeaveFor
+	endiff
+)
+return %result
+
+:IsInstalled
+return %@ServiceExist[MsSqlServer]
+
+:ExecuteSql
+
+iff IsFile "%SqlStudio" then
+	start /pgm "%SqlStudio" %$
+else
+
+	if %# == 0 goto usage
+	set file=%1
+
+	echo Executing SQL statements contained in %@FileName[%file]...
+	
+	type %@quote[%file] > clip:
+	pause Use a SQL query tool to execute the contents of the clipboard then press any key when ready...
+	
+endiff
+
+return
+
+:db
+
+REM Arguments
+
+set command=
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Db%command goto usage
+
+gosub Db%command
+
+return
+
+:DbBackup
+
+REM Arguments
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto UsageDbBackup
+
+if %# == 0 goto usage
+set database=%1
+shift
+
+set BakFile=%database.bak
+iff %# gt 0 .and. %@IsHostAvailable[%1] == 0 then
+	set BakFile=%@UnQuote[%1]
+	shift
+endiff
+
+gosub GetHost
+if %_? != 0 return %_?
+
+if %# != 0 goto usage
+
+REM Validate
+
+REM If BakFile refers to a directory add the default filename
+iff IsDir "%BakFile" then
+	set BakFile=%BakFile\%database.bak
+endiff
+
+REM Add a bak extension if not present
+iff "%@ext["%BakFile"]" != "bak" then
+	set BakFile=%BakFile.bak
+endiff
+
+REM Check if the backup file already exists
+iff IsFile "%BakFile.7z" then
+	echo %BakFile.7z already exists.
+	return 1
+endiff
+
+gosub VerifySqlCmd
+if %_? != 0 return %_?
+
+REM Initialize
+set result=
+set BakFileName=%@FileName[%BakFile]
+set BakFileHost=%HostTemp\%BakFileName
+set BakFileHostUnc=%HostTempUnc\%BakFileName
+
+gosub HostPrepare
+if %_? != 0 return %_?
+
+REM Backup
+echo Backing up %database database...
+"%SqlCmd" -b -S %host -Q "backup database %database to disk = '%BakFileHost'"
+if %? != 0 return %?
+
+REM Compress
+echo.
+echo Compressing %database database backup...
+call RunRemote %host 7z a "%BakFileHost.7z" "%BakFileHost"
+if %? != 0 .or. not IsFile "%BakFileHostUnc.7z" (gosub HostCleanup & return 1)
+
+REM Move
+echo.
+echo Moving %database database backup...
+move /g "%BakFileHostUnc.7z" "%BakFile.7z"
+
+gosub HostCleanup
+
+return 0
+
+:HostPrepare
+
+REM Ensure backup files do not exist
+gosub HostCleanup
+
+call MakeDir "%HostTempUnc"
+return %?
+
+:HostCleanup
+call DelDir.btm "%HostTempUnc"
+return 
+
+:DbRestore
+
+REM Arguments
+
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto UsageDbRestore
+
+if %# == 0 goto usage
+set BakFile=%@UnQuote[%1]
+shift
+
+gosub GetHost
+if %_? != 0 return %_?
+
+set RestoreSql=%@BatchDir[]\Database Restore.sql
+iff %# != 0 then
+	set RestoreSql=%@UnQuote[%1]
+	shift
+endiff
+
+if %# != 0 goto usage
+
+REM Validate
+
+iff not IsFile "%BakFile" then
+	echo %@FileName[%BakFile] does not exist.
+	return 1
+endiff
+
+iff not IsFile "%RestoreSql" then
+	echo %@FileName[%RestoreSql] does not exist.
+	return 1
+endiff
+
+REM Get the location of data files in DataDir
+call SqlServer.btm GetDataDir %host
+iff %? != 0 then
+	echo Unable to locate the SQL Server data file directory on %host.
+	return 1
+endiff
+
+REM Initialize
+set BakFileName=%@FileName[%BakFile]
+
+gosub HostPrepare
+if %_? != 0 return %_?
+
+REM Copy the BakFile to the destination server
+echo Copying %BakFileName...
+copy /g "%BakFile" "%HostTempUnc"
+if %? != 0 return %?
+
+REM If the bak file is an archive uncompress it and get the first bak file in the archive
+iff %@IsArchive["%BakFileName"] == 1 then
+
+	call RunRemote %host 7z e "%HostTemp\%BakFileName" -o"%HostTemp"
+	if %? != 0 (gosub HostCleanup & return 1)
+
+	set BakFileName=%@FileName[%@FindFirst[%HostTempUnc\*.bak]] & echo %@FindClose[] >& nul:
+	iff not IsFile "%HostTempUnc\%BakFileName" then
+		EchoErr Unable to locate a database backup file in %@FileName[%BakFile]
+		gosub HostCleanup
+		return 1
+	endiff
+	
+endiff	
+
+REM Replace bak_file in the script with the specified file
+type "%RestoreSql" |^
+	sed -e 's/data_dir/%@replace[\,\\\,%DataDir]/' ^
+			-e 's/bak_file/%@replace[\,\\\,%HostTemp\%BakFileName]/' ^
+	> "%SqlTemp"
+
+echo Restoring the Saba database...
+call SqlServer.btm ExecuteSql "%SqlTemp" -S %host
+pause
+
+gosub HostCleanup
+
+return
+
+:VerifySqlCmd
+
+iff not IsFile "%SqlCmd" then
+	set SqlCmd=%@search[SqlCmd]
+endiff
+
+iff "%SqlCmd" == "" then
+	echo SqlCmd could not be found.
+	return 1
+endiff
+
+return 0
+
+:cmd
+
+gosub VerifySqlCmd
+if %_? != 0 return %_?
+
+"%SqlCmd" %$
+
+return
+
+:cd
+
+iff "%1" == "data" then
+	shift
+	gosub GetDataDir
+	if %_? == 0 cde "%DataDir"
+	return
+endiff
+
+for dir in (%ProjectDirs) (
+	iff IsDir %@quote[%dir] then
+		cde %@quote[%dir]
+		EndLocal /d
+		LeaveFor
+	endiff
+)
+
+return
+
+:ProfileExist
+call profile.btm restore %1 exist
+return %?
+
+:profile
+
+iff "%1" == "backup" .or. "%1" == "restore" then
+	text
+- Database Engine, Local Server Groups, Tasks, Import|Export..., file=<paste>
+Notes:
+- Export: Check Do not include user names and passwords in the export file
+- Import: Connect to each registred server and remember password
+- If import entries with username or password information SQL Server Management
+  Studio will exception on startup.  To correct, delete
+	endtext
+echo "%AppData\Roaming\Microsoft\Microsoft SQL Server\%VersionNum%0\Tools\Shell\RegSrvr.xml"
+endiff
+
+set ProfileApp=SqlServerConnections
+set ProfileMethod=`%SqlStudio`
+set ProfileSaveExtension=regsrvr
+
+call profile.btm %$
+if %? == 1 goto usage
+
+iff "%1" == "backup" .or. "%1" == "restore" then
+	text
+- Tools, Import and Export Settings..., Export|Import selected environment settings,
+  
+	endtext
+endiff
+
+set ProfileApp=SqlServer
+set ProfileMethod=`%SqlStudio`
+set ProfileSaveExtension=vssettings
+
+call profile.btm %$
+
+EndLocal /d
+return %?

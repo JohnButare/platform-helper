@@ -1,0 +1,377 @@
+@echo off
+SetLocal
+on break cancel 1
+
+REM Arguments
+set command=show
+set wait=
+set NoCheckService=
+set NoCheckHost=
+
+REM SC data area error - http://www.dostips.com/forum/viewtopic.php?f=3&t=3408
+set ScBufferSize=5000
+set sc=%@if[ "%@search[sc]" == "" ,ScOld,%@search[sc]]
+
+:GetArgs
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+iff "%1" != "" .and. IsLabel %1 then
+  set command=%1
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "wait" then
+  set wait=true
+  shift & goto GetArgs
+endiff
+
+iff "%1" == "NoCheckHost" then
+  set NoCheckHost=NoCheckHost
+  shift & goto GetArgs
+endiff
+
+iff "%1" == "NoCheckService" then
+  set NoCheckService=NoCheckService
+  shift & goto GetArgs
+endiff
+
+REM Get the name of the service
+iff "%command" != "show" .and. "%command" != "list" .and. "%command" != "ListFile" then
+	if %# == 0 goto usage
+  set service=%@UnQuote[%1]
+  shift
+endiff
+
+set host=
+set HostUnc=
+set HostDescription=
+
+iff %# != 0 then
+	set host=%1
+
+	iff not (defined NoCheckHost .or. "%host" == "" .or. "%host" == "localhost" .or. "%host" == "%ComputerName") then
+
+		iff %@IsHostAvailable[%host] == 0 then
+			echo %host is not available.
+			quit 1
+		endiff
+		
+	endiff
+	
+	set HostUnc=\\%host
+  set HostDescription= on %host
+	
+  shift
+endiff
+
+gosub %command
+quit %_?
+
+:Usage
+text
+usage: service [<command>](show) [NoCheckService] [NoCheckHost] [wait] <service> [<host>]
+  exist|ExistCheck|status|BriefStatus|state|StartType|list|ListFile|delete|
+  disable|demand|auto|start|stop|continue|pause|restart|manual
+endtext
+quit 1
+
+:state
+set state=%@word[3,%@execstr[%sc %HostUnc query "%service" | egrep STATE]]
+if "%state" != "" echo %state
+return
+
+:StartType
+set StartType=%@word[3,%@execstr[%sc %HostUnc qc "%service" %ScBufferSize | egrep START_TYPE]]
+if "%StartType" != "" echo %StartType
+return
+
+:BriefStatus
+
+set state=%@ServiceState[ NoCheckHost "%service" %host ]
+
+iff "%state" != "" then
+	echo %@UnQuote["%service"] is %state %@if[ defined host,on %host,]
+endiff
+
+return
+
+:ExistCheck
+%sc %HostUnc query "%service" |& egrep -i "SERVICE_NAME" >& nul:
+return %@if[%? == 0, 1, 0]
+
+:exist
+gosub ExistCheck
+iff %_? == 1 then
+  echo yes
+  quit 0
+else
+  echo no
+  quit 1
+endiff
+
+:status
+
+gosub check
+if %_? != 0 return %_?
+
+echo Status of %service service%HostDescription...
+%sc %HostUnc GetDisplayName "%service" %ScBufferSize
+%sc %HostUnc qdescription  "%service" %ScBufferSize
+%sc %HostUnc queryex "%service" %ScBufferSize
+%sc %HostUnc qc "%service" %ScBufferSize
+echo Failure:
+%sc %HostUnc qfailure "%service"
+return
+
+:List
+%sc %HostUnc queryex bufsize= %ScBufferSize type= all state= all
+return
+
+:ListFile
+set file=%@Unique[%temp]
+%sc %HostUnc queryex bufsize= %ScBufferSize type= all state= all | cat > %file
+call TextEdit "%file"
+return
+
+:delete
+
+gosub check
+if %_? != 0 return %_?
+
+iff %@IsElevated[] == 0 .and. ("%host" == "" .or. "%host" == "localhost" .or. "%host" == "%ComputerName") then
+	call sudo service delete "%service" %host
+	return %?
+endiff
+
+%sc delete %HostUnc "%service"
+return %?
+
+:disable
+
+gosub check
+if %_? != 0 return %_?
+
+if "%@ServiceStartType[%@quote[%service] %host]" == "DISABLED" return 0
+
+iff %@IsElevated[] == 0 .and. ("%host" == "" .or. "%host" == "localhost" .or. "%host" == "%ComputerName") then
+	call sudo service disable "%service" %host
+	return %?
+endiff
+
+%sc %HostUnc config "%service" start= disabled
+return %?
+
+:demand
+
+gosub check
+if %_? != 0 return %_?
+
+if "%@ServiceStartType[%@quote[%service] %host]" == "DEMAND_START" return 0
+
+iff %@IsElevated[] == 0 .and. ("%host" == "" .or. "%host" == "localhost" .or. "%host" == "%ComputerName") then
+	call sudo service demand "%service" %host
+	return %?
+endiff
+
+%sc %HostUnc config "%service" start= demand
+return %?
+
+:auto
+
+gosub check
+if %_? != 0 return %_?
+
+iff %@IsElevated[] == 0 .and. ("%host" == "" .or. "%host" == "localhost" .or. "%host" == "%ComputerName") then
+	call sudo service auto "%service" %host
+	return %?
+endiff
+
+%sc %HostUnc config "%service" start= auto
+return %?
+
+:restart
+
+set waitOld=%wait
+set wait=true
+gosub stop
+if %_? != 0 return %_?
+
+set wait=%waitOld
+gosub start
+return %_?
+
+:start
+
+gosub check
+if %_? != 0 return %_?
+
+if "%@ServiceState[%@quote[%service] %host]" != "STOPPED" return 0
+
+iff %@IsElevated[] == 0 .and. ("%host" == "" .or. "%host" == "localhost" .or. "%host" == "%ComputerName") then
+	call sudo service start "%service" %host
+	return %?
+endiff
+
+echo Starting %service service%HostDescription...
+%sc %HostUnc start "%service" | egrep FAILED > nul:
+
+iff %? == 0 then
+  %sc %HostUnc start "%service"
+  return 1
+endiff
+
+iff defined wait then
+  gosub WaitForState RUNNING start
+endiff
+
+return 0
+
+:stop
+
+gosub check
+if %_? != 0 return %_?
+
+if "%@ServiceState[%@quote[%service] %host]" != "RUNNING" return 0
+
+iff %@IsElevated[] == 0 .and. ("%host" == "" .or. "%host" == "localhost" .or. "%host" == "%ComputerName") then
+	call sudo service stop "%service" %host
+	return %?
+endiff
+
+echo Stopping %service service%HostDescription...
+%sc %HostUnc stop "%service" | egrep FAILED > nul:
+
+iff %? == 0 then
+  %sc %HostUnc stop "%service"
+  return 1
+endiff
+
+iff defined wait then
+  gosub WaitForState STOPPED stop
+endiff
+
+return 0
+
+:continue
+
+gosub check
+if %_? != 0 return %_?
+
+if "%@ServiceState[%@quote[%service] %host]" != "PAUSED" return 0
+
+iff %@IsElevated[] == 0 .and. ("%host" == "" .or. "%host" == "localhost" .or. "%host" == "%ComputerName") then
+	call sudo service continue "%service" %host
+	return %?
+endiff
+
+echo Continuing %service service%HostDescription...
+%sc %HostUnc continue "%service" | egrep FAILED > nul:
+
+iff %? == 0 then
+  %sc %HostUnc continue "%service"
+  return 1
+endiff
+
+iff defined wait then
+  gosub WaitForState RUNNING continue
+endiff
+
+return 0
+
+:pause
+
+gosub check
+if %_? != 0 return %_?
+
+if "%@ServiceState[%@quote[%service] %host]" != "RUNNING" return 0
+
+iff %@IsElevated[] == 0 .and. ("%host" == "" .or. "%host" == "localhost" .or. "%host" == "%ComputerName") then
+	call sudo service pause "%service" %host
+	return %?
+endiff
+
+echo Pausing %service service%HostDescription...
+%sc %HostUnc pause "%service" | egrep FAILED > nul:
+
+iff %? == 0 then
+  %sc %HostUnc pause "%service"
+  return 1
+endiff
+
+if defined wait then
+  gosub WaitForState PAUSED pause
+endiff
+
+return 0
+
+:WaitForState [state desc]
+
+set n=30
+set pauseDelayDummy=TIMEOUT
+echos Waiting %n seconds for service%HostDescription to %desc or press any key to cancel.
+do i = 1 to %n
+
+  set CurrentState=%@ServiceState["%service" %host]
+  iff "%CurrentState" == "%state" then
+    echo done.
+    leave
+  endiff
+
+  inkey /x /w1 %%pauseDelayDummy
+
+  iff %PauseDelayDummy != TIMEOUT then
+    echo cancelled after %i seconds.
+    quit 1
+  endiff
+
+  echos .
+enddo
+
+iff "%CurrentState" != "%state" then
+  echo Service %service did not enter the %state state in %n seconds.
+  quit 1
+endiff
+
+return
+
+:check
+
+if defined NoCheckService return 0
+
+set result=%@ExecStr[%sc %HostUnc query "%service"]
+set ResultCode=%@left[ -1 ,%@word[-0 ,%result]]
+
+switch %ResultCode
+
+case 1060
+  echo %service does not exist as an installed service%HostDescription.
+  
+case 5
+	echo Service control manager access denied%HostDescription.
+	
+default
+	return 0
+
+EndSwitch
+
+return 1
+
+:show
+start /pgm services.msc
+return
+
+:manual
+pause
+
+if %_? != 0 return %_?
+
+iff %@IsElevated[] == 0 .and. ("%host" == "" .or. "%host" == "localhost" .or. "%host" == "%ComputerName") then
+	call sudo service manual "%service" %host
+	return %?
+endiff
+
+echo Stopping %service service and setting it to demand start...
+gosub demand
+gosub stop
+
+return

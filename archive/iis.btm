@@ -1,0 +1,402 @@
+@echo off
+SetLocal
+
+REM Initialize
+set host=%ComputerName
+set IisReset=%WinDir\system32\iisreset.exe
+set NoCheckHost=
+
+set LastFileAge=
+set LastHitElapsed=
+set LastHitFile=
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=manager
+iff IsLabel %1 then
+  set command=%1
+  shift
+endiff
+
+iff not IsLabel %command goto usage
+
+REM Run command
+gosub %command
+set result=%_?
+
+EndLocal /d result, LastFileAge,LastHitFile
+
+quit %result
+
+:usage
+text 
+usage: iis [<command>](manager) <host>
+  AppConfig - edit the IIS application configuration
+  config - edit the IIS configuration files
+  manager|manager6 - start IIS manager
+  cd|bin|log - change to an IIS directory
+  service|FtpService stop|start|restart|demand|auto|status
+  LastHit [init|time|info|log|users]: Last Hit 
+    Sets LastFileAge, LastHitElapsed, and LastHitFile.
+endtext
+quit 1
+
+:cd
+
+if %# gt 1 goto usage
+
+gosub GetHost
+if %_? != 0 return %_?
+
+iff "%host%" == "localhost" .or. "%host%" == "%ComputerName%" then
+	set dir=c:\inetpub
+	if not IsDir "%dir" set dir=d:\inetpub
+else
+	set dir=\\%host\c$\inetpub
+	if not IsDir "%dir" set dir=\\%host\d$\inetpub
+endiff
+
+iff not isdir "%dir" then
+  echo IIS could not be located on %host.
+  return 1
+endiff
+
+cdd "%dir"
+return %_?
+
+:bin
+
+gosub GetHost
+if %_? != 0 return %_?
+
+if %# != 0 goto usage
+
+call os FindDirs \\%host\c$
+if %? != 0 return %?
+
+iff "%_system" == "" then
+	EchoError Unable to find the system directory on %host
+	return 1
+endiff
+
+cdd "%_system\inetsrv"
+return %_?
+
+:AppConfig
+
+gosub bin
+
+iff IsFile config\applicationHost.config then
+	call TextEdit config\applicationHost.config
+endiff
+
+return
+
+:config
+
+gosub bin
+
+REM IIS 6
+iff exist MetaBase.xml then
+  call TextEdit MetaBase.xml
+
+REM IIS 6  
+elseiff IsDir config then
+  explorer config
+
+else
+  echo IIS metabase could not be located.
+endiff
+
+return 0
+
+:log
+
+gosub GetHost
+if %_? != 0 return %_?
+
+if %# != 0 goto usage
+
+call os FindDirs \\%host\c$
+if %? != 0 return %?
+
+iff "%_system" == "" then
+	EchoError Unable to find the system directory on %host
+	return 1
+endiff
+
+set dirs="%_sys\inetpub\logs\LogFiles" "%_system\LogFiles"
+
+set found=
+for dir in (%dirs) (
+	iff IsDir %dir then
+		set found=%dir
+		LeaveFor
+	endiff
+)
+
+iff defined found then
+	echo Log times are in GMT, 6 hours ahead of Mountain Time (http://wwp.greenwichmeantime.com/)
+	cdd "%dir"
+	return %_?
+else
+	EchoErr IIS logs could not be located on %host.
+	return 1
+endiff
+
+return	
+
+:manager6
+
+gosub GetHost
+if %_? != 0 return %_?
+
+if %# != 0 goto usage
+
+REM inetsrv6 is an add-on for XP, specify /32 or /64 prevents a choice dialog  prompting for which version of mmc to run under x64
+iff exist "%WinDir\system32\inetsrv6\iis6.msc" then
+	start /pgm mmc /%@OsBits[] "%WinDir\system32\inetsrv6\iis6.msc"
+	
+REM Under Vista iis6.msc is under inetsrv
+elseiff exist "%WinDir\system32\inetsrv\iis6.msc" then
+	REM Alternative: %SystemRoot%\system32\inetsrv\InetMgr6.exe
+	start /pgm mmc /%@OsBits[] "%WinDir\system32\inetsrv\iis6.msc"
+else
+	echo IIS manager version 6 is not installed.
+endiff
+
+return 0
+
+:manager
+
+gosub GetHost
+if %_? != 0 return %_?
+
+if %# != 0 goto usage
+
+iff exist "%WinDir\system32\inetsrv\iis.msc" .and. (%@IsNewOs[] == 1 .or. not exist "%WinDir\system32\inetsrv6\iis6.msc") then
+	call sudo "%WinDir\system32\inetsrv\iis.msc"
+
+elseiff exist "%WinDir\system32\inetsrv6\iis6.msc" then
+	start /pgm "%WinDir\system32\inetsrv6\iis6.msc"
+
+	else
+	echo IIS manager is not installed.
+endiff
+return 0
+
+:FtpService
+
+REM Arguments
+set command=status
+set host=
+set NoCheckHost=
+
+:FtpServiceGetArgs
+
+iff %# gt 0 .and. IsLabel FtpService%1 then
+	set command=%1
+	shift & goto FtpServiceGetArgs
+endiff
+
+iff %# != 0 then
+	set host=%1
+	shift
+endiff
+
+if %# != 0 goto usage
+
+REM Run the service command
+gosub FtpService%command
+
+return
+
+:FtpServiceStart
+:FtpServiceStop
+:FtpServiceRestart
+:FtpServiceAuto
+:FtpServiceDemand
+:FtpServiceDisable
+:FtpServiceEnable
+:FtpServiceStatus
+:FtpServiceBriefStatus
+call service %command wait ftpsvc %host
+return
+
+:service
+
+REM Arguments
+set command=status
+set all=
+set NoCheckHost=
+
+:ServiceGetArgs
+
+iff %# gt 0 .and. IsLabel Service%1 then
+	set command=%1
+	shift & goto ServiceGetArgs
+endiff
+
+iff "%1" == "all" then
+  set all=all
+  shift & goto ServiceGetArgs
+endiff
+
+iff "%1" == "NoCheckHost" then
+  set NoCheckHost=NoCheckHost
+  shift & goto ServiceGetArgs
+endiff
+
+gosub GetHost
+if %_? != 0 return %_?
+
+if %# != 0 goto usage
+
+REM Run the service command
+gosub Service%command
+
+return
+
+:ServiceStart
+:ServiceResume
+:ServiceAuto
+:ServiceDemand
+:ServiceStatus
+:ServiceBriefStatus
+
+if %@ServiceExist[NoCheckHost iisadmin %host] == 1 call service %command wait NoCheckHost "iisadmin" %host
+if %@ServiceExist[NoCheckHost W3SVC %host] == 1 call service %command wait NoCheckHost "W3SVC" %host
+if %@ServiceExist[NoCheckHost AppHostSvc %host] == 1 call service %command wait NoCheckHost "AppHostSvc" %host
+
+return
+
+:ServiceStop
+:ServicePause
+
+call service %command wait NoCheckHost "W3SVC" %host
+if %@ServiceExist[NoCheckHost HTTPFilter %host] == 1 call service %command wait NoCheckHost "HTTPFilter" %host
+if %@ServiceExist[NoCheckHost iisadmin %host] == 1 call service %command wait NoCheckHost "iisadmin" %host
+if %@ServiceExist[NoCheckHost AppHostSvc %host] == 1 call service %command wait NoCheckHost "AppHostSvc" %host
+
+return
+
+REM All IIS services must be stopped before they are restarted
+:ServiceRestart
+call iis service stop NoCheckHost %host
+call iis service start NoCheckHost %host
+return
+
+:LastHit
+
+if %# == 0 goto usage
+
+set command=LastHit%1
+shift
+if not IsLabel %command goto usage
+
+gosub GetHost
+if %_? != 0 return %_?
+
+if %# != 0 goto usage
+
+gosub %command
+return %_?
+
+:LastHitInit
+
+REM Change to the log folder
+pushd
+gosub log
+if %_? != 0 return %_?
+
+REM Find the file age of the last modified log file
+set LastFileAge=0
+for /h /a:d %dir in (W3SVC*) gosub LastHitCheckDir
+if "%LastHitFile" == "" return 1
+
+REM Find the age now
+set AgeNow=%@MakeAge[%_date %_time]
+
+REM Return time last file was modified in minutes
+set LastHitElapsed=%@Eval[(%AgeNow - %LastFileAge) / 10000000 / 60]
+if "%LastHitElapsed" lt "0" set LastHitElapsed=0
+set LastHitElapsed=%@left[4,%LastHitElapsed]
+
+popd
+
+return 0
+
+:LastHitCheckDir
+
+REM Find the last modified file in dir
+set file=%@ExecStr[dir /b /ne /o:-d %dir\*.log]
+if "%file" == "" return
+
+REM Update LastFileAge if the last modified file in dir was modified more recently
+set FileAge=%@FileAge[%dir\%file]
+iff %LastFileAge lt %FileAge then
+	set LastFileAge=%FileAge
+	set LastHitFile=%@full[%dir\%file]
+endiff
+
+return
+
+:LastHitTime
+
+gosub LastHitInit
+if %_? != 0 return 1
+
+echo %LastHitElapsed
+return 0
+
+:LastHitInfo
+
+gosub LastHitInit
+if %_? != 0 return 1
+
+echo %host last hit %LastHitElapsed minutes ago.  
+echo Last hit log: %LastHitFile
+
+return
+
+:LastHitLog
+
+gosub LastHitInfo
+if %_? != 0 return 1
+
+call TextEdit "%LastHitFile"
+return
+
+:LastHitUsers
+
+gosub LastHitInit
+if %_? != 0 return 1
+
+echo %host last hit %LastHitElapsed minutes ago by:
+type "%LastHitFile" | cut -d " " -f 9 | sort | uniq | egrep -v -
+
+return
+
+:GetHost
+
+if %# == 0 return
+
+set host=%1
+shift
+
+REM Check if host is available
+
+iff not ("%host" == "%ComputerName" .or. defined NoCheckHost) then
+
+	iff %@IsHostAvailable[%host] == 0 then
+		echo %host is not available.
+		return  1
+	endiff
+
+endiff
+
+return
+
+:IsInstalled
+return %@if[IsFile "%IisReset",1,0]

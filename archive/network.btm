@@ -1,0 +1,589 @@
+@echo off
+SetLocal
+
+REM Initialization
+call SetupLog.btm network
+set CacheFile=%UserData\other\NetworkCache.btm
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=center
+iff IsLabel %1 then
+  set command=%1
+  shift
+endiff
+
+gosub %command
+quit %_?
+
+:usage
+text
+network [command](center)
+  AdapterInfo|off|mac|center|connections|AddNetworkPlace|SetDnsSuffixSearchOrder
+  config dynamic|Intel - Configure the LAN adapter for a specific network
+  initialize [force] - initialize network configuration if needed
+  ipc (on|off|prepare](prepare) - network IPC connections
+  renew - release and renew the IP address
+  repair - if the default gatway cannot be contacted, release and renew the IP address
+  resume [force] - repair network connectivity and update application network settings
+  check <network> [<delay>](300) - check for connectivity to the specified network
+  list - return a list of networks currently connected to
+  share [repair|optimize|info](repair)
+  site - return the closest site currently connected to
+  info network - get information about the specified network to environment variables
+  StaticInfo - get current network information
+  FlushDns - flush the DNS cache
+  ReadCache|ClearCache|SetCache - read, clear, or set cached network information
+    Sets CurrentNetworks, CurrentNetworkSite, WinsServerIp, and WinsServerNic
+endtext
+quit 1
+return
+
+:done
+quit 0
+
+:resume
+
+set force=
+iff "%1" == "force" then
+	set force=force
+	shift
+endiff
+
+if %# != 0 goto usage
+
+REM Return if not a mobile or virtual computer.  Fixed computers do not change networks, so the following steps are not needed.
+iff not (defined force .or. "%@HostInfo[%ComputerName,mobile]" == "yes" .or. %@IsVirtualMachine[%ComputerName] == 1) then
+  return
+endiff
+
+REM Reset the host cached information (to ensure network information if not cached)
+call host FlushCache
+
+REM Repair the IP address
+call network.btm repair
+if %? != 0 return %?
+
+REM Configure the system for the network we are on
+call network.btm initialize %force
+if %? != 0 return %_?
+
+return
+
+REM
+REM renew
+REM
+:renew
+
+gosub GetAdapter
+if %_? != 0 return %_?
+
+echo Releasing %adapter IP configuration...
+ipconfig /release %adapter
+
+echo Renewing %adapter IP configuration...
+ipconfig /renew %adapter >& nul:
+
+return
+
+REM
+REM repair
+REM
+:repair
+
+set DisplayStatus=
+
+echos Repairing...
+
+gosub GetAdapter
+if %_? != 0 return %_?
+
+set ip=%@ip[%adapter]
+set DefaultGateway=%@DefaultGateway[%adapter]
+
+REM Renew the IP address if we do not have a valid IP or gateway
+iff "%ip" == "0.0.0.0" .or. "%DefaultGateway" == "" then
+  
+  echos renewing IP...
+  ipconfig /renew %adapter
+  
+	set ip=%@ip[%adapter]
+	set DefaultGateway=%@DefaultGateway[%adapter]
+	
+REM Release and renew the IP if we cannot contact the current gateway
+elseiff %@IsHostAvailable[%DefaultGateway] == 0 then
+
+  echos releasing IP...
+  ipconfig /release %adapter > nul:
+  
+  echos renewing IP...
+  ipconfig /renew %adapter
+
+	set ip=%@ip[%adapter]
+	set DefaultGateway=%@DefaultGateway[%adapter]
+
+else
+	echo IP ok.
+	
+endiff
+
+return %@if[ %@IsHostAvailable[%DefaultGateway] == 1 ,0,1]
+
+REM
+REM check
+REM
+:check
+
+REM Arguments
+
+if %# lt 1 goto usage
+
+set network=%1
+shift
+
+set delay=1000
+iff %# gt 0 then
+  set delay=%1
+  shift
+endiff
+
+if %# != 0 goto usage
+
+call network info %network
+if %? != 0 return %?
+
+gosub on %ip %mac %delay
+return %_?
+
+REM
+REM list
+REM
+:list
+
+if %# != 0 goto usage
+
+iff "%_ip" == "127.0.0.1" then
+  echo Disconnected
+  return 1
+endiff
+
+set NetworkList=
+for %NetworkInfo in (@"%@BatchDir[]\NetworkInfo.txt") (
+
+  iff %@IsComment[%NetworkInfo] == 0 then
+    gosub SetInfo
+		
+    iff "%type" == "network" .or. "%type" == "both" then
+      gosub on %ip %mac 1000
+      if %_? == 0 set NetworkList=%NetworkList %network
+    endiff  
+
+  endiff  
+)
+set NetworkList=%@trim[%NetworkList]
+if defined NetworkList echo %NetworkList
+return 0
+
+REM
+REM site
+REM 
+:site
+
+REM Arguments
+
+if %# != 0 goto usage
+
+iff "%_ip" == "127.0.0.1" then
+  echo disconnected
+  quit 1
+endiff
+
+set found=
+for %NetworkInfo in (@"%@BatchDir[]\NetworkInfo.txt") (
+
+  iff %@IsComment[%NetworkInfo] == 0 then
+    gosub SetInfo
+    
+    iff "%type" == "site" .or. "%type" == "both" then
+      
+      gosub on %ip %mac 400 %router
+      iff %_? == 0 then
+        set found=true
+        echo %network
+        LeaveFor
+      endiff
+      
+    endiff
+    
+  endiff
+  
+)
+
+iff not defined found then
+  echo unknown
+endiff
+
+return 0
+
+REM
+REM on ip mac wait web
+REM 
+REM Return 0 if connected to the network that contains the specified IP and MAC addresses, 1 otherwise.
+REM If the mac test fails (VMWare NAT connections), the head of the web page at the ip is checked for the optional specified text.
+:on [ip mac wait]
+
+REM If we cannot ping the router, exit with a failure.  This returns quickly even if the IP is not on the network.
+REM If it takes longer than wait ms to ping the router, then it is not close, so exit with a failure
+if %@IsHostAvailable[%ip,%wait] == 0 return 1
+
+REM If the router is on the local network, then the above ping created an entry in the ARP table that includes the MAC address 
+REM of the router, so verify it.    Arp returns:
+REM   Internet Address      Physical Address      Type
+REM   10.14.60.1            00-d0-bc-f6-62-9c     dynamic
+iff %@IsIpLocal[%ip] == 1 then
+  set arp=%@word[1,%@replace[-,,%@ExecStr[arp -a %ip | egrep " "%ip" "]]]
+	return %@if[ "%arp" == "%mac" ,0,1]
+endiff
+
+REM We have passed all checks available, so assume that we are on the requested network.
+return 0
+
+:AdapterInfo
+
+iff %# == 0 then
+	set adapter=LAN
+elseif %# 0= 0 then
+	goto usage
+endiff
+
+set adapter=%1
+
+ipconfig /all | egrep --after-context=25 "adapter %adapter:" | ^
+	%@if[ %@ExecStr[ ipconfig /all | egrep --after-context=25 "adapter %adapter:" | ^
+	egrep adapter | wc -l ] == 1 ,cat,egrep --before-context=25 "adapter"]
+
+return %_?
+
+:info
+if %# != 1 goto usage
+gosub GetInfo %1
+return %_?
+
+:GetInfo [network]
+
+gosub InitInfo
+
+set GetInfoResult=1
+for %NetworkInfo in (@"%@BatchDir[]\NetworkInfo.txt") (
+
+  iff "%network" == "%@word[0,%NetworkInfo]" then  
+    gosub SetInfo
+    set GetInfoResult=0
+    LeaveFor
+  endiff
+  
+)
+
+EndLocal network type ip mac router SystemAccount NetworkIp
+return %GetInfoResult
+
+:InitInfo
+set NetworkInfo=
+gosub SetInfo
+return
+
+:SetInfo
+set network=%@word[0,%NetworkInfo]
+set type=%@word[1,%NetworkInfo]
+set ip=%@word[2,%NetworkInfo]
+set mac=%@word[3,%NetworkInfo]
+set router=%@word[4,%NetworkInfo]
+set SystemAccount=%@word[5,%NetworkInfo]
+set NetworkIp=%@word[6,%NetworkInfo]
+return
+
+:connections
+call ncpa.cpl
+return 0
+
+:StaticInfo
+
+echos Discovering network...
+
+gosub ClearCache 
+
+echos site
+set CurrentNetworkSite=%@NetworkSite[]
+echos  (%@if[ defined  CurrentNetworkSite,%CurrentNetworkSite,unknown])...
+
+echos wins
+
+REM Find the WINS server on the VPN NIC if active, otherwise the LAN NIC if active
+iff "%@IP[VPN]" != "" then
+  set nic=VPN
+elseiff "%@IP[LAN]" != "" then
+  set nic=LAN
+else
+  set nic=
+endiff
+
+REM Find the WINS server and see if it is available
+iff "%nic" != "" then
+  set ip=%@Wins[%nic]
+  iff %@IsHostAvailable[%ip,100] == 1 then
+    set WinsServerIp=%ip
+    set WinsServerNic=%nic
+  endiff
+endiff
+
+echos %@if[ defined WinsServerIp, (%WinsServerIp on %WinsServerNic)]...
+
+REM Discover connected networks
+echos networks
+set CurrentNetworks=%@Networks[]
+echos  (%@if[ defined  CurrentNetworks,%CurrentNetworks,unknown])...
+echo done
+
+gosub SetCache
+EndLocal CurrentNetworks CurrentNetworkSite WinsServerIp WinsServerNic
+
+return 0
+
+:ReadCache
+
+set CurrentNetworks=
+set CurrentNetworkSite=
+set WinsServerIp=
+set WinsServerNic=
+
+if IsFile "%CacheFile" call "%CacheFile"
+EndLocal CurrentNetworks CurrentNetworkSite WinsServerIp WinsServerNic
+return
+
+:ClearCache
+
+set CurrentNetworks=
+set CurrentNetworkSite=
+set WinsServerIp=
+set WinsServerNic=
+
+gosub SetCache
+
+return
+
+:SetCache
+
+iff not IsDir %@path["%CacheFile"] then
+	call MakeDir %@path["%CacheFile"]
+	if %? != 0 return %?
+endiff
+
+echo. > "%CacheFile"
+echo set CurrentNetworks=%CurrentNetworks >> "%CacheFile"
+echo set CurrentNetworkSite=%CurrentNetworkSite >> "%CacheFile"
+echo set WinsServerIp=%WinsServerIp >> "%CacheFile"
+echo set WinsServerNic=%WinsServerNic >> "%CacheFile"
+
+return
+
+:config
+
+set command=
+iff %# gt 0 then
+	set command=Config%1
+	shift
+endiff
+if not IsLabel %command goto usage
+
+gosub %command
+return %_?
+
+:ConfigDynamic
+netsh interface ipv4 set address LAN source=dhcp
+netsh interface ipv4 set dnsserver LAN source=dhcp
+ipconfig /renew
+return
+
+:ConfigIntel
+netsh interface ipv4 set address LAN gateway=192.168.1.4
+netsh interface ipv4 set dnsserver LAN static 192.168.1.4
+:return
+
+:AddNetworkPlace
+start /pgm RunDll32.exe %SystemRoot%\system32\shwebsvc.dll,AddNetPlaceRunDll
+return
+
+:center
+
+if %# != 0 goto usage
+
+iff %@IsNewOs[] == 1 then
+	start /pgm control.exe /name Microsoft.NetworkAndSharingCenter
+else
+	call network connections
+endiff
+
+return
+
+:share
+
+set command=ShareRepair
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Share%command goto usage
+
+gosub Share%command
+return %_?
+
+REM Optimize file sharing parameters
+REM Reference: http://www.msfn.org/board/Vista-64bit-event-id-2021-and-2017-t109462.html
+REM Corrects Vista event ID 2017 "The server was unable to allocate from the system nonpaged pool because the server reached the configured limit for nonpaged pool allocations." when copying files from XP to Vista
+:ShareOptimize
+set reg=HKLM\SYSTEM\CurrentControlSet\Services\Lanmanserver\Parameters
+call registry.btm set "%reg\MaxWorkItems" REG_DWORD 1024
+call registry.btm set "%reg\MaxMpxCt" REG_DWORD 255
+gosub ShareRepair
+return
+
+:ShareInfo
+net share
+return
+
+:ShareRepair
+if %@ServiceExist[HomeGroupListener] == 1 call service.btm stop HomeGroupListener
+call service.btm stop Browser
+call service.btm restart LanmanServer
+call service.btm start Browser
+if %@ServiceExist[HomeGroupListener] == 1 call service.btm start HomeGroupListener
+return
+
+:initialize
+
+set force=
+iff "%1" == "force" then
+	set force=force
+	shift
+endiff
+
+if %# != 0 goto usage
+
+call network ReadCache
+
+iff not defined force then
+	if "%CurrentNetworkSite" != "" return 0
+endiff
+
+REM Save the old network site for use after the flush
+set OldNetworks=%CurrentNetworks
+set OldNetworkSite=%CurrentNetworkSite
+
+REM Get information for the new IP address, returning if we are connected to the same network
+call network StaticInfo
+if not defined force .and. "%OldNetworkSite" == "%CurrentNetworkSite" return 0
+
+REM Set old and new network descriptions
+set old=%@if[ defined OldNetworkSite,%OldNetworkSite,unknown]^
+	%@if[ defined OldNetworks .and. "%OldNetworks" != "%OldNetworkSite", (%OldNetworks)]
+
+set new=%@if[ defined OldNetworkSite,%CurrentNetworkSite,unknown]^
+	%@if[ defined CurrentNetworks .and. "%CurrentNetworks" != "%CurrentNetworkSite", (%CurrentNetworks)]
+
+REM Log network status
+iff "%OldNetworkSite" != "%CurrentNetworkSite" .or. "%OldNetworks" != "%CurrentNetworks" then
+	log Network changed from %old to %new.
+else
+	log Network site is still %new.
+endiff
+
+REM Update the local hosts file with hosts specific to this network
+call host file update
+
+REM User specific network changes (only if we are logged in as a real user)
+REM VMware scripts runs as local system, however %UserName is blank since the profile is not loaded.   whoami would return LocalSystem in this case.
+iff "%UserName" != "" then
+  call internet proxy set
+  REM call printer.btm SetDefault %CurrentNetworkSite
+endiff
+
+return 0
+
+:FlushDns
+ipconfig /flushdns
+return
+
+:GetAdapter
+
+REM Check for a LAN adapter
+set adapters=LAN WLAN
+set found=
+
+for adapter in (%adapters) (
+
+	iff %@IpAdapterExist[%adapter] == 1 then
+		echos %adapter%
+		iff "%@IpAdapterState[%adapter]" == "disconnected" then
+			echos  disconnected
+		else
+			echos  connected...
+			set found=%adapter			
+			LeaveFor
+		endiff
+	endiff
+	
+	echos ...
+)
+
+iff not defined found then
+	echo.
+  echo Could not find a supported network adapter.
+  return 1
+endiff
+
+set adapter=%found
+return 0
+
+:off
+net use * /delete /yes
+return %?
+
+:ipc
+
+set command=prepare
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Ipc%command goto usage
+
+gosub Ipc%command
+return %_?
+
+:IpcOn
+call host prepare %1
+:return %?
+
+:IpcOnAd
+net use \\%1\ipc$ /user:amr\ad_jjbutare
+:return %?
+
+:IpcOff
+net use %@if[ %# == 0 .or. "%1" == "all",*,\\%1\ipc$] /delete
+return %?
+
+:mac
+
+echo IP V4 MAC Addresses:
+arp -a
+
+echo.
+echo IP V6 MAC Addresses:
+netsh int ipv6 show neigh
+
+return
+
+:SetDnsSuffixSearchOrder
+call registry.btm set "HKLM\SYSTEM\CurrentControlSet\services\Tcpip\Parameters\SearchList" REG_SZ hagerman.butare.net%@if[ %@IsIntelHost[] == 1,`,`amr.corp.intel.com]
+return %?

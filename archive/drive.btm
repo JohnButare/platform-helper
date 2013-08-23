@@ -1,0 +1,249 @@
+@echo off
+
+REM Initialize
+set args=%$
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=list
+iff %# gt 0 then
+  set command=%1
+  shift
+endiff
+
+iff not IsLabel %command goto usage
+
+REM Run command
+gosub %command
+quit %_?
+
+:InUse
+
+iff %@IsElevated[] == 0 then
+	echo You must be an administrator to view open files.
+	return 1
+endiff
+
+gosub GetMountedDrive
+handle %drive
+
+return 0
+
+:eject
+
+iff %# == 0 .or. "%1" == "all" then 
+
+	echo Ejecting all removable drives...
+	
+	for %drive in (%_ready) (
+
+		REM Get the drive label if possible  - the first 4 characters is the type to check
+		set dl=%@label[%drive]
+		set dt=%@DriveType[%drive]
+	
+		REM Check for fixed and removable drives that are not system or data drives (and thus may be removable)
+		iff (%dt == 3 .or. %dt == 2) .and. not ("%drive" == "%@drive[%WinDir]:" .or. "%dl" == "data") .and. %@ready[%drive] == 1 then	
+		
+			iff %@IsElevated[] == 0 then 
+				call sudo /p drive eject all
+				return %?
+			else
+				call drive eject "%drive"
+				echo.
+			endiff
+			
+		endiff
+		
+	)
+
+	return 0
+
+endiff
+
+iff %# gt 1 then
+	for drive in (%$) call drive eject %drive
+	return 0
+endiff
+
+REM Arguments
+gosub GetMountedDrive
+
+iff %@IsElevated[] == 0 then 
+	call sudo /p drive %args
+	return %?
+endiff
+
+
+REM If no open handles, or we could not get the open handles, try and remvoe the drive
+RemoveDrive %drive
+if %? == 0 return 0
+
+REM Show any remaining open handles 
+EchoErr Unable to eject drive %drive because of open files or folders on the drive:
+handle %@drive[%drive]:\ | tail /n+5
+
+return 1
+
+:GetDrive
+
+if %# == 0 goto usage
+set drive=%1
+shift
+
+if %# != 0 goto usage
+
+set drive=%@drive[%drive]:
+
+return
+
+:GetMountedDrive
+
+gosub GetDrive
+
+REM Check to see if the drive is mounted
+if %@ready["%drive"] == 1 return
+
+echo Drive %drive is not mounted.
+quit 1
+
+:usage
+text 1>&2
+usage: drive  [eject|mount|InUse|info|list|space|type|test](list)
+  mount drive dir
+  eject [<drive>|all](all): eject the specified drive or mount point
+  test [atto|bench|crystal|HdTune](atto)
+endtext
+quit 1
+
+:mount
+
+REM Arguments
+if %# != 2 goto usage
+set drive=%@drive[%1]
+set dir=%2
+
+if "%dir" == "" .or. not IsDir "%drive:\" goto usage
+
+set VolumeName=%@execstr[mountvol %drive:\ /l]
+iff %? == 1 then
+	echo Could not find mount point for %drive.
+	quit 1
+endiff
+
+echos Mounting drive %drive to %@UnQuote[%dir]...
+if not isdir "%dir" md /s "%dir"
+mountvol "%dir" %volumeName
+if %? == 0 echo done.
+
+return
+
+:list
+for %drive in (%_drives) gosub DoInfo %drive
+return
+
+:info
+gosub GetDrive
+gosub DoInfo
+return
+
+REM i: media1 (cd-rom 358/596)
+:DoInfo
+
+iff %@ready[%drive] == 1 then
+	echos %drive %@label[%drive] (
+	gosub DoType
+	echos ` `
+	gosub DoSpace
+	echo )
+elseiff 1==2 then
+	echos %drive` `
+	gosub DoType
+	echo.
+endiff
+
+return
+
+:space
+gosub GetMountedDrive
+gosub DoSpace
+return
+
+:DoSpace
+
+set threshold=10000
+iff %@DiskTotal[%drive,G] gt %threshold then
+	set units=T
+elseiff %@DiskTotal[%drive,M] gt %threshold then
+	set units=G
+elseiff %@DiskTotal[%drive,K] gt %threshold then
+	set units=M
+else
+	set units=K
+endiff
+
+echos %@DiskUsed[%drive,%units]%units/%@DiskFree[%drive,%units]%units/%@DiskTotal[%drive,%units]%units
+return
+
+:type
+gosub GetDrive
+gosub DoType
+return
+
+:DoType
+
+switch %@DriveTypeEx[%drive]
+case 0
+	echos unknown
+case 1
+	echos invalid
+case 2
+	echos removable
+case 3
+	echos fixed
+case 4
+	echos network
+case 5
+	echos cd
+case 6
+	echos ram
+case 7
+	echos dvd
+case 8
+	echos tape 
+default
+	echos unknown
+EndSwitch
+
+return
+
+:test
+
+set command=atto
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Test%command goto usage
+
+gosub Test%command
+return %_?
+
+:TestCrystal
+start /pgm "pub:\Documents\programs\DiskMark\DiskMark%@OsArchitecture[].exe
+return
+
+:TestAtto
+start /pgm bench32.exe
+return
+
+:TestBench
+
+echo Test with 65K block, 100mb test file
+
+REM BenchMark will fail if not elevated
+sudo BenchMark.exe
+
+:TestHdTune
+sudo HdTune.exe
+return

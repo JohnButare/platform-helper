@@ -1,0 +1,328 @@
+@echo off
+SetLocal
+
+REM Locate VirusScan
+set VirusScanDir=%programs32\Network Associates\VirusScan
+iff IsDir "%programs32\McAfee\VirusScan Enterprise" then
+	set VirusScanDir=%programs32\McAfee\VirusScan Enterprise
+endiff
+
+REM Initialize
+set TargetDays=3
+
+REM (Vista+) C:\ProgramData\McAfee\DesktopProtection
+REM (XP) C:\Documents and Settings\All Users\Application Data\McAfee\Host Intrusion Prevention
+set LogDir=%DefLogDir%
+
+set console=%VirusScanDir\mcconsol.exe
+set update=%VirusScanDir\mcupdate.exe
+set stats=%VirusScanDir\ShStat.exe
+set HipConsole=%programs32\McAfee\Host Intrusion Prevention\McAfeeFire.exe
+
+REM The size, in k, to stop the VirusScan services and delete the log files in the VirusScan database folder.
+set MaxVirusScanDbSizeK=1000
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=service
+iff %# gt 0 then
+  set command=%1
+  shift
+endiff
+
+iff not IsLabel %command goto usage
+
+REM Run command
+gosub %command
+quit %_?
+
+:RunUpdate
+if %@IsInstalled[VirusScan] == 0 return
+start /pgm "%update"
+return
+
+:usage
+text 1>&2
+usage: VirusScan cleanup|console|log|monitoring|RunUpdate|setup|statistics|update
+  service start|stop|restart|demand|auto|status|FixPermission [host](localhost): control VirusScan service
+  hip [console|start|on|off|status](console): control host intrusion prevention service
+endtext
+quit 1
+
+:setup
+if %@IsInstalled[VirusScan] == 0 return
+
+echo Configuring excludes...
+echo - On-Access Scanner, All Processes, Detection, Exclusions..., 
+echo   Add, By file type=`<individual entries for jar, ear, bsh, war>`
+call VirusScan.btm console
+pause
+
+return
+
+:monitoring
+
+if %@IsWindowsServer[] == 0 return
+
+REM Sets HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Security Center\Svc\AntiVirusOverride=1
+call SecurityCenter
+echo (to disable monitoring) Malware protection, Show me my available options, Don't monitor my antivirus software state
+
+return
+
+:update
+
+if %@IsInstalled[VirusScan] == 0 return
+
+REM Do not update if the VirusScan service are not running (typically when services are disabled)
+if %@IsServiceRunning[McSheild] == 0 return
+
+if %# != 0 goto usage
+
+REM Target age for the definition file is less than TargetDays days old
+set TargetAge=%@eval[%@MakeAge[%_date] - (864000000000 * %TargetDays)]
+set ScanFile="%programs32\Common Files\Network Associates\Engine\scan.dat"
+
+iff not exist "%ScanFile" then
+  echo VirusScan data file is present.
+  return 1
+endiff
+
+iff %@FileAge[%ScanFile] gt %TargetAge then
+  echo Virus definitions are up to date (%@FileDate[%ScanFile] %@FileTime[%ScanFile]).
+  return 0
+endiff
+
+call ask `Update VirusScan (last updated %@FileDate[%ScanFile] %@FileTime[%ScanFile])?` y
+if %? == 0 return 0
+
+:UpdateAgain
+
+REM Update the definitions
+start /wait /pgm "%update"
+
+pause
+
+iff %@FileAge[%ScanFile] gt %TargetAge then
+  echo Virus definitions are up to date (%@FileDate[%ScanFile] %@FileTime[%ScanFile]).
+  return 0
+endiff
+
+echo Virus definitions are still not up to date (%@FileDate[%ScanFile] %@FileTime[%ScanFile]).
+
+call ask `Do you want to set the broswer proxy and try the update again?`
+if %? == 0 return 1
+
+REM Update the proxy server for this network (the update may have failed due to proxy serve configuration)
+call internet proxy set
+
+REM Restart the McAfee Framework service so it picks up the new browser proxy
+call service restart McAfeeFramework
+  
+REM Try the update again
+goto UpdateAgain
+
+return 
+
+:service
+
+REM Arguments
+
+set command=status
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Service%command goto usage
+
+set host=
+iff %# != 0 then 
+	set host=%1
+	
+	iff %@IsHostAvailable[%host] == 0 then
+		echo %host is not available.
+		return 1
+	endiff
+	
+endiff
+
+REM Ensure VirusScan is installed
+if "%UserName" != "%ComputerName%$" .and. "%host" == "" .and. %@IsInstalled[VirusScan] == 0 return
+
+REM Run as system if needed
+iff not ("%command" == "status" .or. "%command" == "start") .and. "%host" == "" .and. %@IsIntelHost[] == 1 .and. "%UserName" != "%ComputerName%$" then	
+	echo Executing VirusScan service %command as system...
+	sudo psexec -s "%_CMDSPEC" /c call VirusScan.btm service %command
+	return %?
+endiff
+
+REM Ensure we can access the McAfee service 
+iff not ("%command" == "status" .or. "%command" == "start") .and. "%host" == "" then	
+	gosub ServiceFixPermission
+endiff
+
+REM Run the service command
+gosub Service%command
+
+return
+
+:ServiceFixPermission
+
+REM Set McShield service permission to match McAfeeFramework service permission
+iff %@IsIntelHost[] == 1 then
+	echo Fixing service permissions...
+	sc sdset McShield D:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;SY)(A;;CCLCSWRPLORC;;;AU)
+endiff
+
+return
+
+:ServiceRestart
+gosub ServiceStop
+gosub ServiceStart
+return
+
+:ServiceStart
+
+call service start wait McAfeeFramework %host
+sleep 1
+call service start wait McShield %host
+call service start McTaskManager %host
+return
+
+:ServiceStop
+call service stop wait McShield %host
+sleep 1
+call service stop wait McAfeeFramework %host
+call service stop McTaskManager %host
+pause
+return 0
+
+:ServiceDemand
+call service demand McShield %host
+call service demand McAfeeFramework %host
+call service demand McTaskManager %host
+gosub ServiceStop
+return
+
+:ServiceAuto
+call service auto McShield %host
+call service auto McAfeeFramework %host
+call service auto McTaskManager %host
+gosub ServiceStart
+return
+
+:ServiceStatus
+sc query McShield %host
+sc query McAfeeFramework %host
+sc query McTaskManager %host
+return
+
+return
+
+:console
+if %@IsInstalled[VirusScan] == 0 return
+start /pgm "%console"
+return 0
+
+REM Virus scanner statistics - process cannot be ended gracefully once started
+:statistics
+start /pgm "%stats"
+return
+
+:cleanup
+
+set files=
+set FilesSize=
+
+set d=%LogDir
+
+set files=%files "%d\UpdateLog.txt" "%d\OnDemandScanLog.txt" 
+
+REM In use by VirusScan or Outlook so delete based on size
+set FilesSize=%FileSize "%d\EmailOnDemandLog.txt" "%d\OnAccessScanLog.txt" "%d\EmailOnDeliveryLog.txt"
+  
+set d=%LogDir\Common Framework
+set files=%files "%d\McScript.bak" "%d\McScript.log"
+
+REM Cleanup VirusScan database log files if the database folder is larger than 500k
+REM Stopping VirusScan services may cause system instability, may need to increase delay between start and stop of each service
+set StartVirusScan=
+iff IsDir "%d\db" then
+	iff %@DirSize[k,%d\db] gt %MaxVirusScanDbSizeK then
+		set files=%files "%d\db\*.log"
+		call VirusScan stop
+		set StartVirusScan=StartVirusScan
+	endiff
+endiff
+
+echos Cleaning VirusScan files...
+call DelFile /log %files
+call DelFile /log /MinSize 200000 %FilesSize
+echo ...done
+
+iff defined StartVirusScan then
+	call VirusScan start
+endiff
+
+return
+
+:log
+call TextEdit "%LogDir\OnAccessScanLog.txt"
+return
+
+:IsInstalled
+return %@if[IsFile "%update",1,0]
+
+:hip
+
+REM Arguments
+
+set command=console
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Hip%command goto usage
+
+REM Ensure VirusScan is installed
+if "%host" == "" .and. %@IsInstalled[VirusScan] == 0 return
+
+REM Run as system if needed clients
+iff not ("%command" == "console" .or. "%command" == "start" .or. "%command" == "status") .and. "%host" == "" .and. %@IsIntelHost[] == 1 .and. %@IsWindowsClient[] == 1 .and. "%UserName" != "system" then
+	psexec -s "%_CMDSPEC" /c call VirusScan hip %command
+	return %?
+endiff
+
+REM Run the service command
+gosub Hip%command
+
+return
+
+:HipConsole
+start /pgm "%HipConsole"
+return 0
+
+REM Host Intrusion Protection
+:HipStart
+start /pgm "%HipConsole" /0
+return
+
+:HipStatus
+call service status enterceptAgent
+return
+
+REM Set Host Instrusion Protection to manual - it can cause programs to load very slowly, do not disable on Intel builds
+:HipOff
+
+if %@IsInstalled[VirusScan] == 0 return
+
+call service disable enterceptAgent
+echo Restart required...
+
+return
+
+:HipOn
+call service auto enterceptAgent
+echo Restart required...
+return

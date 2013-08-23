@@ -1,0 +1,124 @@
+@echo off
+SetLocal
+
+REM Initialize
+set program=%@search[pageant]
+set certificate=%UserData\certificate\private\%UserName SSH2.ppk
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=startup
+iff %# gt 0 then
+  set command=%1
+  shift
+endiff
+if not IsLabel %command goto usage
+
+REM Run command
+gosub %command
+quit %_?
+
+:usage
+text
+Run PuTTY SSH shell.
+usage: pu [startup|close](startup)
+  run [user@]host command|file - run the command on the specified host
+  shell [user@]host - run a shell on the specified host
+  startup  - start the PuTTY Authentication Agent for SSO to PU tools
+	
+  Tools: putty, plink, pscp, psftp, puttytel, pageant, PuttyGen
+endtext
+quit 2
+
+:start
+:startup
+if not IsFile "%program" return
+if not IsFile "%certificate" (EchoErr SSH2 Certificate is not installed && return 1)
+if %@IsTaskRunning[%@name[%program]] == 1 return 0
+
+REM call LastPass startup
+start /pgm "%program" "%certificate"
+
+return
+
+:close
+if %@IsTaskRunning[%@name[%program]] == 0 return 0
+process.exe -q %@FileName[%program]
+return
+
+:IsInstalled
+return %@if[IsFile "%program",1,0]
+
+:IsRunning
+
+gosub IsInstalled
+if %_? == 0 return 0
+
+return %@IsTaskRunning[%program]
+
+:shell
+
+REM Arguments
+gosub GetUserHost
+
+if %# != 0 goto usage
+
+gosub StartShell
+return %?
+
+:run
+
+REM Arguments
+gosub GetUserHost
+set command=%$
+
+REM If no command is passed start a shell
+
+iff not defined command then
+	gosub StartShell
+	return %?
+endiff
+
+REM If the command is a file use it, otherwise put the command into a temporary file so plink is not confused by quotes in the command
+set DelFile=
+iff IsFile %@quote[%1] then
+	set file=%@UnQuote[%1]
+else
+	set DelFile=true
+	set file=%@unique["%temp"]
+	echo %command > "%file"
+endiff
+
+REM Run the command on the host, assumes the host ~/.ssh/authorized_keys contains a public key that is in our keyring
+plink "%user"@%host -m "%file"
+set result=%?
+
+if defined DelFile call DelFile /quiet "%file"
+
+return %result
+
+:GetUserHost
+
+if %# lt 1 goto usage
+
+iff  %@words["@",%1] == 2 then
+	set user=%@word["@",0,%1]
+	set host=%@word["@",1,%1]
+else
+	set user=%UserName
+	set host=%1
+endiff
+
+shift
+
+return
+
+:StartShell
+
+REM Assumes host
+REM 1) ssh is installed and enabled 
+REM 2) host ~%user%/.ssh/authorized_keys contains a public key that is in our keyring
+start /pgm putty %user%@%host%
+
+return %?

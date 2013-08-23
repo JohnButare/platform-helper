@@ -1,0 +1,274 @@
+@echo off
+SetLocal
+
+REM Initialize
+set MinefieldProgram=%programs32\Minefield\firefox.exe
+set BetaDir=%@FindFirst["%programs32\Mozilla Firefox *"]
+set BetaSuffix= %@word[2-,%@FileName[%BetaDir]]
+
+iff IsFile "%MinefieldProgram" then
+	set program=%MinefieldProgram
+	set title=*Minefield
+	set FastStartTitle=FastStart - Minefield
+else
+	set program=%programs32\Mozilla Firefox%BetaSuffix\Firefox.exe
+	set title=*Mozilla Firefox%BetaSuffix
+	set FastStartTitle=FastStart - Mozilla Firefox%BetaSuffix
+endiff
+
+set CacheDir=%@FindFirst["%UserProfile\\Local Settings\Application Data\Mozilla\Firefox\Profiles\*"]\Cache
+set ProfileDir=%@FindFirst["%UserProfile\Application Data\Mozilla\Firefox\Profiles\*"]
+
+REM Initialize profile
+set ProfileApp=Firefox
+set ProfileMethod=%ProfileDir
+set ProfileFiles=prefs.js
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+REM If the command is not recognized assume it is an url and open it
+iff not IsLabel %1 then
+  if %@IsInstalled[firefox] == 1 start /pgm "%program" %$
+  quit 0
+endiff
+
+set command=start
+iff %# gt 0 then
+  set command=%1
+  shift
+endiff
+
+REM Run command
+gosub %command
+quit %_?
+
+:usage
+text 
+Usage: firefox [command|<url>](start)
+  addons|bookmarks|config|profile|RunChrome|CloseChrome|restore|FixIcon|SetupIe
+  start|startup|restart|close|kill|IsInstalled|TaskInfo|update
+  cache [cd|clear|size|SizeRaw](cd)
+  chrome [close|run](run)
+  extension [install|edit|cd](install)
+  profile dir|SaveDir|backup|restore [profile](latest)
+endtext
+quit 1
+
+:start
+:startup
+if not IsFile "%program" return 1
+call task start dup "%program" %$
+return
+
+:restart
+if not IsFile "%program" return 1
+gosub close
+sleep 1
+gosub startup
+return
+
+:close
+
+if %@IsTaskRunning[%@name[%program]] == 0 return 0
+
+echo Closing all Firefox windows...
+do 10
+	if %@WindowExist["%title"] == 0 leave
+	call task close title "%title" "%program"	
+enddo
+
+return
+
+:kill
+call task kill firefox
+return
+
+:TaskInfo
+call task info "%program"
+return
+
+:restore
+activate "%title" restore
+return
+
+:update
+
+if %@IsInstalled[firefox] == 0 return 1
+
+call firefox.btm start
+text
+- Help, Check for Updates...
+- Tools, Add-ons, Find Updates
+- Tools, Themes, Find Updates
+endtext
+pause 
+
+REM Don't restart if we are elevated, as it will run as admin
+if %@IsElevated[] == 0 call firefox.btm restart
+
+return 0
+
+:cache
+
+REM Arguments
+set command=cd
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Cache%command goto usage
+
+gosub Cache%command
+return %_?
+
+:CacheCd
+cdd "%CacheDir"
+EndLocal /d
+return
+
+:CacheClear
+
+if %@IsInstalled[firefox] == 0 return 1
+
+REM Don't bother to clear a small cache (<15k)
+iff %@DirSize[k,"%CacheDir"] lt 15 return
+
+echos Clearing Firefox cache (%@DirSize[h,"%CacheDir"])...
+
+start /pgm firefox.exe -chrome chrome://cachestatus/content/ClearCache.xul
+
+REM Give the cache time to clear
+sleep 1
+
+REM Close the controller window
+call task CloseRetry title "ClearCache Controller" firefox.exe
+
+echo done (%@DirSize[h,"%CacheDir"])
+
+
+return
+
+:CacheSize
+echo The Firefox cache is %@DirSize[h,"%CacheDir"].
+return
+
+:CacheSizeRaw
+echo %@DirSize[b,"%CacheDir"]
+return
+
+:bookmarks
+call TextEdit "%programs32\Microsoft Office\OFFICE11\FRONTPG.EXE" "%ProfileDir\bookmarks.html"
+return
+
+:extension
+
+REM Initialize
+set ExtensionDir=%CloudData\install\Mozilla\Firefox\extension
+set ExtensionFile=%ExtensionDir\extension.htm
+
+REM Arguments
+set command=ExtensionInstall
+iff %# gt 0 then
+	set command=Extension%1
+	shift
+endiff
+if not IsLabel %command goto usage
+
+gosub %command
+return %_?
+
+:ExtensionInstall
+if not IsFile "%ExtensionFile" return
+call firefox "%ExtensionFile"
+return
+
+:ExtensionEdit
+if not IsFile "%ExtensionFile" return
+call ShellEdit "%ExtensionFile"
+return
+
+:ExtensionCd
+iff not IsDir "%ExtensionDir\setup" return
+cde %ExtensionDir\setup
+EndLocal /d
+return 0
+
+:chrome
+
+REM Arguments
+set command=run
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel Chrome%command goto usage
+
+gosub Chrome%command
+return %_?
+
+:ChromeRun
+start /pgm firefox.exe -chrome %1
+return
+
+:ChromeClose
+call task CloseRetry title "Controller Example" firefox.exe
+return
+
+:restore
+activate "%title" restore
+return
+
+:IsInstalled
+return %@if[IsFile "%program",1,0]
+
+:SetupIe
+
+echos Configuring Internet Explorer for Firefox...
+
+REM IE Bookmark Link
+set bookmark=%@Full[%ProfileDir\bookmarks.html]
+set file="%UserProfile\Favorites\Links\B.url"
+echo [DEFAULT] > %file
+echo BASEURL=file://%bookmark >> %file
+echo [InternetShortcut] >> %file
+echo URL=file://%bookmark >> %file
+echo Modified=30D7750DA607C601FD >> %file
+echo IconIndex=0 >> %file
+echo IconFile=%programs32\Mozilla Firefox\firefox.exe >> %file
+
+echo done.
+
+return
+
+:profile
+call profile.btm %$
+if %? == 1 goto usage
+EndLocal /d
+return %?
+
+:IsInstalled
+return %@if[IsFile "%program",1,0]
+return
+
+:IsRunning
+call task IsRunning title "%title" "%program"
+return %?
+
+:FixIcon
+
+REM Change the icon used to display HTML files
+call registry.btm 32 set "HKCR\FirefoxHTML\DefaultIcon\" REG_SZ %programs32\Mozilla Firefox\firefox.exe,0
+
+REM Remove the default icon handler, which in Vista x64 causes the HTML icon to not be displayed
+call registry.btm delete "HKCR\FirefoxHTML\ShellEx\IconHandler\"
+
+return
+
+:addons
+call firefox start about:addons
+return %?
+
+:config
+call firefox start about:config
+return %?

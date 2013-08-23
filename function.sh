@@ -1,9 +1,18 @@
+# common functions for non-interactive scripts
+
+r() { [[ $# == 1 ]] && echo "$1" || eval $2="$1"; } # result <value> <var> - echo value or set var to value (faster)
 IsInteractive() { [[ "$-" == *i* ]]; }
-IsFunction() { type $1 >& /dev/null; }
+IsFunction() { declare -f "$1" >& /dev/null; }
+FindInPath() { type -p "${1}"; }
 pause() { read -n 1 -p "${*-Press any key when ready...}"; }
-ShowInteractive() { echo "interactive=$(IsInteractive && echo 'yes' || echo 'no')"; }
 clipw() { printf "$1" > /dev/clipboard; }
 clipr() { cat /dev/clipboard; }
+echoerr() { echo "${@}" > /dev/stderr; }
+
+#
+# strings
+#
+IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 
 #
 # display
@@ -11,7 +20,7 @@ clipr() { cat /dev/clipboard; }
 
 [[ "$TABS" == "" ]] && TABS=2
 
-echot() { echo -e "$*" | expand -t $TABS; } 	# EchoTab
+echot() { echo -e "$*" | expand -t $TABS; } 			# EchoTab
 catt() { cat $* | expand -t $TABS; } 							# CatTab
 lesst() { less -x $TABS $*; } 										# LessTab
 
@@ -36,22 +45,64 @@ clear()
 #
 
 wtu() { cygpath -u "$*"; }
-utw() { cygpath -w "$(realpath "$*")"; } # realpath to get full Windows path
-FindInPath() { IFS=':'; find $PATH -maxdepth 1 -name "$1" -type f -print; unset IFS; }
+utw() { cygpath -aw "$*"; } # realpath to get full Windows path
 
 #
-# Process
+# process
 #
 
-start() { cygstart "$(utw $1)" "${@:2}"; }
+# start <program> <arguments>, file arguments need quotes: "\"$(utw <path>)\""
+start() 
+{
+	local program="$1"
+	[[ ! -f "$program" ]] && program="$(FindInPath "$1")"
+	[[ ! -f "$program" ]] && { echoerr "Unable to start $1: file not found"; return 1; }
+	cygstart "$(utw "$program")" "${@:2}";
+} 
 starto() { cygstart $1 "$(utw $2)" "${@:3}"; } # starto <option> <program>, i.e. startto --showmaximized notepad
 tc() { tcc.exe /c $*; }
 sr() { ShellRun.exe "$(utw $*)"; }
 IsElevated() { IsElevated.exe > /dev/null; }
-ParentProcessName() {  cat /proc/$PPID/status | head -1 | cut -f2; }
-RemoteServer() { who am i | cut -f2  -d\( | cut -f1 -d\); }
-IsSsh() { [ -n "$SSH_TTY" ] || [ "$(RemoteServer)" != "" ]; }
-ShowSsh() { IsSsh && echo "Logged in from $(RemoteServer)" || echo "Not using ssh";}
+
+GetPath() { r "${1%/*}" $2; }
+GetFilename() { r "${1##*/}" $2; }
+GetName() { local f="$1"; GetFilename "$1" f; r "${f%.*}" $2; }
+GetExtension() { local f="$1"; GetFilename "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
+
+# SendKeys <class> <title|class> <keys>
+SendKeys() { AutoItScript SendKeys "${@}"; }
+
+IsTaskRunning()
+{
+		local task="${1/\.exe/}"
+		GetFilename "$task" task
+
+		# ps -sW | cut -c 27- - full path, no extension for Cygwin processes
+		# tasklist /nh /fo csv | cut -d, -f1 | grep -i "^\"$task\.exe\"$" > /dev/nul # no path, slower
+		AutoItScript ProcessExists "${task}.exe"
+}
+
+# Win [class] <title|class>, Au3Info.exe to get class
+WinSetState() { AutoItScript WinSetState "${@}"; }
+WinGetState() {	AutoItScript WinGetState "${@}"; }
+WinExists() { WinGetState "${@}"; (( $? & 1 )); }
+WinVisible() { WinGetState "${@}"; (( $? & 2 )); }
+WinEnabled() { WinGetState "${@}"; (( $? & 4 )); }
+WinActive() { WinGetState "${@}"; (( $? & 8 )); }
+WinMinimized() { WinGetState "${@}"; (( $? & 16 )); }
+WinMaximized() { WinGetState "${@}"; (( $? & 32)); }
+
+#
+# Applications
+#
+
+AutoItScript() 
+{
+	local script="${1/\.au3/}.au3"
+	[[ ! -f "$script" ]] && script="$(FindInPath "$script")"
+	[[ ! $script ]] && { echo "Could not find AutoIt script $1"; return 1; }
+	AutoIt.exe /ErrorStdOut "$(utw "$script")" "${@:2}"
+}
 
 TextEdit()
 {
@@ -73,17 +124,4 @@ TextEdit()
 		done
 	done
 	[[ "$files" != "" ]] && start "$program" $files
-}
-
-#
-# file management
-#
-
-CdEcho()
-{
-	local dir=~
-	[ -n "$*" ] && dir=$*
-	
-	echo Changing to $dir
-	cd $dir
 }

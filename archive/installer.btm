@@ -1,0 +1,130 @@
+@echo off
+
+REM Initialize
+set option=
+
+REM Arguments
+:GetArgs
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+set command=cd
+iff %# gt 0 then
+	set command=%1
+	shift
+endiff
+if not IsLabel %command goto usage
+
+REM Run command
+gosub %command
+quit %_?
+
+:usage
+text 1>&2
+Windows Installer.
+installer [cd|cache|verification](cd)
+  cache [<percent>]: Get or set percent of disk space used for caching older versions of files.  0 disables.
+  verification enable|disable: control digital signature verification of patches for administrators.
+	    Verification can fail under XP and Server 2003 which loads patches into contiguous memory.
+endtext
+quit 1
+
+:cd
+cdd "%WinDir\Installer"
+return
+
+:verification
+
+REM Verified keys not present for Vista x64
+iff %@IsNewOs[] == 1 then
+	echo Install patch verification cannot be configured for new operating systems.
+	quit 1
+endiff
+
+REM Initialize
+set key=HKEY_LOCAL_MACHINE\Software\Policies\Microsoft\Windows\Safer\CodeIdentifiers\PolicyScope
+
+REM Arguments
+iff "%1" == "enable" then 
+	set value=0
+	set description=enabled
+	shift
+elseiff "%1" == "disable" then
+	set value=1
+	set description=disabled
+	shift
+elseiff "%1" == "" then
+	set value=
+endiff
+
+if %# != 0 goto usage
+
+REM Get the verification status
+iff not defined value then
+
+	set value=%@RegQuery["%key"]
+	iff "%value" == "0" .or. "%value" == "" then
+		echo Patch verification is enabled for administrators.
+	else
+		echo Patch verification is disabled for administrators.
+	endiff
+	return 0
+
+endiff
+
+call registry.btm set "%key" REG_DWORD %value
+iff %? == 0 then
+	echo Patch verification has been %description for administrators.
+else
+	echo Unable to change installer patch verification for administrators.
+	return 1
+endiff
+
+
+REM Stop the installer service to pickup the change
+call service stop msiserver
+
+return 0
+
+:cache
+
+REM Verified keys not present for Vista x64
+iff %@IsNewOs[] == 1 then
+	echo Install cache cannot be configured for new operating systems.
+	quit 1
+endiff
+
+REM Initialize
+set key=HKEY_LOCAL_MACHINE\Software\Policies\Microsoft\Windows\Installer\MaxPatchCacheSize
+
+REM Arguments
+set value=
+iff %@numeric[%1] then
+	set value=%1
+	shift
+endiff
+
+if %# != 0 goto usage
+
+REM Get cache value
+iff not defined value then
+	set CacheSize=%@RegQuery["%key"] >& nul:
+	iff %? == -1 then
+		echo 10% (default)
+	else
+		echo %CacheSize%%
+	endiff
+	return 0
+endiff
+
+call registry.btm 32 set "%key" REG_DWORD %value
+iff %? == 0 then
+	echo The installer cache size has been set to %value%%.
+else
+	echo Unable to set the installer cache size to %value%%.
+	return 1
+endiff
+
+REM Stop the installer service to pickup the change
+call service stop msiserver
+
+return 0

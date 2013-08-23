@@ -1,0 +1,189 @@
+@echo off
+SetLocal
+
+REM Initialize
+
+REM Use RM for ExcludeFiles 
+set rm=del /y /q /f /e
+
+REM Arguments
+set test=
+set debug=
+set header=
+set log=
+set MinSize=
+set ExcludeFiles=
+
+:GetArgs
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+iff "%1" == "/test" .or. "%1" == "/t" then
+	set test=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "/debug" then
+	set debug=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "/header" .or. "%1" == "/h" then
+	set header=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "/log" .or. "%1" == "/l" then
+	set log=true
+	shift & goto GetArgs
+endiff
+
+iff "%1" == "/MinSize" .or. "%1" == "/ms" then
+	set MinSize=%2
+	shift 2 & goto GetArgs
+endiff
+
+iff "%1" == "/ExcludeFiles" .or. "%1" == "/xf" then
+  set ExcludeFiles=%@UnQuote[%2]
+  shift 2 & goto GetArgs
+endiff
+
+REM Quit if no files to process
+if %@FileExists[%$] == 0 quit 0
+
+REM Header
+if defined header echos Deleting...
+
+REM Process files to delete
+do until %# == 0
+
+  REM If MinSize is specified expand wildcards to check their individual sizes.
+  iff defined MinSize then
+    set files=%@expand[%1, -d]
+    gosub DelFiles    
+  else
+		set file="%1"
+    gosub DelFile
+  endiff
+   
+	shift
+
+enddo
+
+REM Footer
+if defined header echo done.
+
+quit 0
+
+:usage
+text 
+DelFile [/t] [/h] [/l] [/ms <size>] [/xf <files>] [/debug] file1 [file2 ...]
+- t,test: do not actual delete the files
+- h,header: display a cleanup header if there are files to delete
+- l,log: Log the file names as they are deleted
+- ms,MinSize: Only delete files larger than size (in bytes)
+- xf,ExcludeFiles "`<file>` ...": space separated list of files to exclude.
+  Exclude files	with spaces must be inclosed in single quotes (`).
+- file - files can contain wildcards.  Multiple wildcards in the same directory 
+  are separated with a semi-colon(;): c:\temp\*.log;*.txt
+endtext
+quit 1
+
+REM Deletes each file and expands wildcards in the list first
+:DelFiles
+
+for file in (%files) (
+
+	iff defined log .and. not defined debug then
+		echos .
+	endiff
+	gosub DelFile
+
+)
+return
+
+:DelFile
+
+set file=%@UnQuote[%file]
+if "%file" == "" return
+
+set file=%@full[%file]
+
+REM Return if the file does not exist
+if not IsFile "%file" return
+
+REM Return if the file is smaller than MinSize
+iff defined MinSize .and. %@FileSize["%file"] lt %MinSize then
+	return
+endiff
+
+REM Log debug message to control deletes
+iff defined debug then
+
+	REM If the file is not a wildcard determine if it is excluded.  
+	set excluded=
+	iff %@IsWild[%file] == 0 then
+		iff %@IsInList[%@FileName[%file] wild %ExcludeFiles] == 1 then
+			set excluded=true
+		endiff
+	endiff
+	
+	REM Log delete message if the file is not excluded.
+	iff not defined excluded then
+		echo Deleting %file.
+		pause
+	endiff
+		
+endiff
+
+REM Remove the file
+iff defined test then
+	echo Removing "%file"
+else
+	%rm /[!%ExcludeFiles] "%file" >& nul:
+endiff
+
+REM Log and return if the file was deleted
+iff not IsFile "%file" .or. defined test then
+	if defined log .and. not defined debug echos %@FileName[%file].
+	return
+endiff
+
+REM A handle is has a file open, delete each file individually if there is wildcard to retrieve open handle information
+iff %@IsWild[%file] == 1 then
+	set files=%@UnQuote[%@expand["%file", -d]]
+	gosub DelFiles
+	return 0
+endiff
+
+REM Return if the file is in the list of excluded files
+iff defined ExcludeFiles then
+	if %@IsInList[%@FileName[%file] wild %ExcludeFiles] == 1 return 0
+endiff
+
+call GetHandleInfo "%file" >& nul:
+iff %? != 0 then
+	echo Unable to delete %@FileName[%file] and no open handles found.
+	return 1
+endiff
+
+echo.
+echo %@FileName[%file] is opened by process %ProcessName:%ProcessPid (%ProcessUser).
+
+REM Space required before (T) to ensure variables are resolved in ask
+iff %@IsElevated[] == 1 then
+	call ask ` (T)ry again, (S)kip, or (C)lose the handle` ValidResponses=tsc t
+else
+	call ask ` (T)ry again or (S)kip` ValidResponses=ts t
+endiff
+
+switch %?
+case 0 REM Try Again
+	goto DelFile
+case 1 REM Skip
+	return
+case 2 REM Close the handle
+	handle -c %HandleId -p %ProcessPid
+	goto DelFile
+endswitch
+
+return 0
