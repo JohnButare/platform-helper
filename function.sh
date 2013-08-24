@@ -59,6 +59,8 @@ utw() { cygpath -aw "$*"; }
 # process
 #
 
+OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
+
 # start <program> <arguments>, file arguments need quotes: "\"$(utw <path>)\""
 start() 
 {
@@ -104,6 +106,8 @@ ProcessClose()
 	process.exe -q "$task"
 }
 
+ProcessKill() { local p="$1"; GetName "$p" p; pskill "$p"; }
+
 # Win [class] <title|class>, Au3Info.exe to get class
 WinSetState() { AutoItScript WinSetState "${@}"; }
 WinGetState() {	AutoItScript WinGetState "${@}"; }
@@ -130,20 +134,15 @@ TextEdit()
 {
 	local files=""
 	local program="$P64/Sublime Text 2/sublime_text.exe"
-	#local program="$P32/Notepad++/notepad++.exe" # requires --show to not resize if using half screen with win-L or win-R
 
 	for file in "$@"
 	do
-		for file in $(eval echo $file)
-		do
-			file=$(utw $file)
-			if [[ -f "$file" ]]
-			then
-				files="$files \"$file\""
-			else
-				echo $(basename "$file") does not exist
-			fi
-		done
+		file=$(utw $file)
+		if [[ -f "$file" ]]; then
+			files="$files \"$file\""
+		else
+			echo $(basename "$file") does not exist
+		fi
 	done
 	[[ "$files" != "" ]] && start "$program" $files
 }
