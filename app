@@ -13,11 +13,6 @@ init()
 	localApps="cpu7icon gridy SpeedFan ThinkPadFanControl ZoomIt ShairPort4W"
 }
 
-ProcessExplorer()
-{
-	echo "ProcessExplorer $command"
-}
-
 run()
 {
 	init
@@ -34,6 +29,25 @@ run()
 		fi
 	done
 	return "$?"
+}
+
+TaskStart()
+{
+	local program="$1"
+	local title="$2"
+
+	[[ ! -f "$program" ]] && program="$(FindInPath "$program")"
+	[[ ! -f "$program" ]] && return
+
+	if [[ "$command" == "startup" ]]; then
+		IsTaskRunning "$program" && return
+		ShowStatus
+		task start --title "$title" "$program" "${@}"
+	else
+		IsTaskRunning "$program" || return
+		ShowStatus
+		task close --title "$title" "$program"
+	fi
 }
 
 RunInternalApp()
@@ -143,17 +157,21 @@ args()
 	done
 }
 
-TaskStart()
-{
-	echo "starting $1"
-}
-
 anydvd() { IsTaskRunning "AnyDVDtray" || TaskStart "AnyDVD"; }
 aspnetversionswitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
 clonedvd() { [[ "$command" == "startup" ]] && TaskStart "$P32/Elaborate Bytes/CloneDVD2/CloneDVD2.exe"; }
 groove() { TaskStart "$P32/Microsoft Office/Office12/GROOVE.EXE" "" -background; }
 intelactivemonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 pinnaclegameprofiler() {	TaskStart "$P32/KALiNKOsoft/Pinnacle Game Profiler/pinnacle.exe"; }
+
+explorer()
+{
+	if [[ "$command" == "startup" ]]; then
+		IsTaskRunning explorer || start explorer
+	else
+		IsTaskRunning explorer && tc explorer.btm CloseSoft
+	fi;
+}
 
 inteldesktopcontrolcenter() 
 { 
