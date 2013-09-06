@@ -4,56 +4,100 @@
 usage()
 {
 	echot "\
-usage: SyncLocalFiles [sync|SrcOlder|DestOlder](sync)
+usage: SyncLocalFiles	[host](nas)
 	Sync local files to another system.  Assume the source system is older, or assume the 
 	destination system is older.
-	--host								host to synchronize to
-	-nb, --NoBak					do not backup files to the bak directory
-"
+	-ho, --HostOlder			assume host files are than the local files
+	-lo, --LocalOlder		assume local files are older than the host files
+	-nb, --NoBak					do not backup files to the bak directory"
 	exit $1
 }
 
 init() 
 {
-	unset options method NoBak
-
 	alwaysExclude=("*.bak" ".git" ".gitignore")
 	closeProcesses=(ProcExp ShrAlias)
-	intelExcludes=("pspv.exe" "regscanner*" "mailpv.exe" "awatch.exe" "netpass.exe" "SniffPass.exe" "MyLastSearch.exe" "BluetoothView.exe" "TcpTunnel.exe" "GdiView.exe" "DotNetResourcesExtract.exe")
 	publicBinExclude=("${alwaysExclude[@]}" "cports.cfg" "ftp.cfg" "JkDefrag*.log" "Defraggler.ini" "gridy.ini")
+	intelExclude=("pspv.exe" "regscanner*" "mailpv.exe" "awatch.exe" "netpass.exe" "SniffPass.exe" "MyLastSearch.exe" "BluetoothView.exe" "TcpTunnel.exe" "GdiView.exe" "DotNetResourcesExtract.exe")
 	srcId="${COMPUTERNAME,,}"	
-
-	host="nas"
-	syncMethod="sync"	
 }
 
 args()
 {
+	unset host method NoBak
 	while [ "$1" != "" ]; do
 		case "$1" in
-			--host) shift; host="${1,,}";;
+			-ho|--HostOlder) method=(--HostOlder);;
+			-lo|--LocalOlder) method=(--LocalOlder);;
 			-nb|--NoBak) NoBak="$1";;
 			-h|--help) usage 0;;
-			sync|SrcOlder|DestOlder) method="$1";;
 			*) 
-				[[ "$command" == @(arg|sub) ]] && break
+				[[ ! $host ]] && { host="$1"; shift; continue; }
 				echoerr "Unknown argument $1"; usage 1;
 		esac
 		shift
 	done
 	args=("$@")
-
-	[[ "$host" == "$COMPUTERNAME" ]] && { echoerr "Cannot sync to the local computer"; exit 1; }
-	{ intel IsIntelHost ||  
+	host="${host-"nas"}"
 }
 
 run() 
 {	
-	init
-	args "$@"
+	init; args "$@"
+
 	TimerOn
-	
+	CheckHost
+	ShowStatus || return
+	IdentifyDirectories || return
 	TimerOff
+}
+
+IdentifyDirectories()
+{
+	ScriptEval os FindDirs "$host" || return
+
+	srcUserHome="$_UserHome"
+	# HERE HERE - convert to use _ vars
+	srcPublicDocuments="$PUB/Documents"
+	srcUserDocuments="$srcUserHome/Documents"
+	srcApplicationData="$APPDATA"
+	srcEtc="$SYSTEMROOT/system/drivers/etc"
+	srcPrograms32="programs32"
+
+	ScriptEval os FindDirs "$host" || return
+
+	destUserHome="$_UserHome"
+	destPublicDocuments="$_PublicDocuments"
+	destUserDocuments="$_UserDocuments"
+	destApplicationData="$_ApplicationData"
+	destEtc="%@if[defined _system,$_system/drivers/etc]"
+	destPrograms32="$_programs32"
+}
+
+CheckHost()
+{
+	[[ "$host" == "$COMPUTERNAME" ]] && 
+		{ echoerr "Cannot sync to the local computer"; return 1; }
+
+	! host available "$host" &&	
+		{ echoerr "$host is not available"; return 1; }
+
+	destId="$(host name "$host")"
+
+	{ intel IsIntelHost ||  intel IsIntelHost "$host"; } && publicBinExclude+=("${intelExclude[@]}")
+
+}
+
+ShowStatus()
+{
+	case "${method[0]/--/}" in
+		HostOlder) printf "Replacing files on ";;
+		LocalOlder) printf "Copying local files to ";;
+		*) printf "Synchronizing local files with ";;
+	esac
+	printf "$host"
+	[[ "$host" != "$destId" ]] && printf " ($destId)"
+	echo
 }
 
 run "$@"

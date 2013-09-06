@@ -39,7 +39,7 @@ ElevationRequired()
 #
 
 # FindIndex|IsIn <string> <values> - return 0 based index of string in the remaining arguments, usage a=(one two three); IsIn one "${a[@]}"
-FindIndex() { local s="$1"; shift; for ((i=0; i<$#; ++i)); do [[ "${!i}" == "$s" ]] && return $i; done; return 255; } 
+FindIndex() { local s="$1"; shift; for ((i=1; i<=$#; ++i)); do [[ "${!i}" == "$s" ]] && return $(( $i-1 )); done; return 255; } 
 IsIn() { FindIndex "$@"; (($? != 255)); }
 
 FindIndexArray() { local a="$2[@]"; FindIndex "$1" "${!a}"; } 
@@ -67,8 +67,10 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "Elapsed %02d:%02d:%02d\n" 
 # network
 #
 
-# IpAddress <host>
-IpAddress() { ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; }
+# IpAddress|DnsLookup <host> - perform IP Address lookup using default system name providers (Windows NodeType) or Dns
+IpAddress() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ip="$(DnsLookup "$1")"; [[ $ip ]] && echo "$ip" || PingLookup "$1"; }
+PingLookup() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; }
+DnsLookup() { IsIpAddress "$1" && echo "$1"; nslookup -srchlist=amr.corp.intel.com/hagerman.butare.net -timeout=1 "$1" |& grep "Address:" | tail -n +2 | cut -d" " -f 3; }
 
 # IsIpAddress <string>
 IsIpAddress()
@@ -77,6 +79,13 @@ IsIpAddress()
   [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && return 1
 	IFS='.' read -a ip <<< "$ip"
   (( ${ip[0]}<255 && ${ip[1]}<255 && ${ip[2]}<255 && ${ip[3]}<255 ))
+}
+
+# PingResponse <host> [<timeout>](200) - ping response time in milliseconds
+PingResponse() 
+{ 
+	local host="$1" timeout="${2-200}"
+	ping -n 1 -w "$timeout" "$host" | grep "^Reply from " | cut -d" " -f 5 | tr -d 'time=<ms';
 }
 
 # ConnectToPort <host> <port> [<timeout>](200)
@@ -135,7 +144,7 @@ IsElevated() { IsElevated.exe > /dev/null; }
 OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
 SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys <class> <title|class> <keys>
 sr() { ShellRun.exe "$(utw $*)"; }
-tc() { tcc.exe /c $*; }
+tc() { "$P/JPSoft/TCMD13x64/tcc.exe" /c $*; }
 
 start() # start [OPTION] <program> <arguments>, file arguments need quotes: \"$(utw <path>)\"
 {

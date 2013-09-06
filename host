@@ -7,6 +7,7 @@ usage()
 usage: template [one|two|cd](one)
 	-t, --timeout								milliseconds to wait for the host
 	-w, --wait [seconds](120)		wait for the host to become available 
+	-q, --quiet									minimize messages
 	available	<host>						check if host is available
 	start <host> <program>			start a program on host using ssh or psexe
 	info <host> [<var>]		 			get host information, variables are
@@ -16,7 +17,7 @@ usage: template [one|two|cd](one)
 
 init() 
 {
-	unset command host wait
+	unset command host quiet wait
 	fields=(host network sleep backup mobile install virtual platform ping wake address)
 	fieldDefaults=(- - no no no no no - yes no -)
 	timeout=(--timeout 200)
@@ -28,10 +29,11 @@ args()
 		case "$1" in
 			-h|--help) usage 0;;
 			-t|--timeout) shift; timeout=(--timeout $1);;
-			-w|--wait) IsNumeric $2 && { wait=(--wait $2); shift; } || wait=(--wait 120);;
+			-q|--quiet) quiet=(--quiet);;
+			-w|--wait) IsInteger $2 && { wait=(--wait $2); shift; } || wait=(--wait 120);;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ ! $host && "$command" == *(available|info|start) ]] && { GetHostArg "$@"; shift; continue; }
+				[[ ! $host && "$command" == *(available|info|name|start) ]] && { GetHostArg "$@"; shift; continue; }
 				[[ "$command" == @(info|start) ]] && break
 				echoerr "Unknown argument $1"; usage 1;
 		esac
@@ -55,19 +57,71 @@ availableCommand()
 		butare.net) return 0
 	esac
 
-	ping -n 1 -w ${timeout[1]} "$host" >& /dev/null
+	checkHost $host ${timeout[1]} && return 0
+	[[ ! $wait ]] && return 1
 
+	printf "Waiting ${wait[1]} seconds for $host..."
+
+	for (( i=1; i<=${wait[1]}; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
+		checkHost $host ${timeout[1]} && { echo "found in $i seconds"; return 0; }
+		printf "."
+	done
+
+	echo "not found"
 	return 1
+}
+
+# checkHost <host> <timeout> - minimize the time taken if the hostname is not found, or if the hostname is found and the host is not available
+checkHost()
+{
+	local host="$1" ip="$1" timeout="$2" timeoutIncrease=0
+
+	local ip=$(IpAddress $host)
+	#[[ ! $ip ]] && return 1
+
+	case "$host" in
+		ExampleHostNeedingExtraPingTime) timeoutIncrease=200;;
+	esac
+	(( timeout += $timeoutIncrease ))
+
+	ScriptEval host info $host
+	port="$ping"
+
+	# Mac's respond to ping when asleep if any sharing services are enabled
+	{ ! IsInteger "$port" && [[ "$platform" == "mac" ]] ; } && port=88
+	
+	if IsInteger "$port"; then
+		ConnectToPort $ip $port $timeout
+	else
+		ping -n 1 -w $timeout $ip >& /dev/null
+	fi
+
 }
 
 nameCommand()
 {
-	:
+	case "$host" in
+		$COMPUTERNAME) echo "${host,,}"; return 0;;
+		butare.net|nas) echo "nas"; return 0;; 
+	esac
+
+	quiet=(--quiet)
+	name="$(startCommand hostname)"
+	[[ ! $name ]] && name="$host"
+	echo "${name,,}"
 }
 
 startCommand()
 {
-	: #host available, ssh, host info platform == win, psexec
+	availableCommand || { [[ ! $quiet ]] && echo "$host is not available"; return 1; }
+
+	if ConnectToPort $host 22 $(( ${timeout[1]}*3 )) ; then
+		ssh $host "$@"
+	else
+		platform="$(infoCommand platform)"
+		[[ "$platform" == "win" ]] && psexec '\\'$host "$@" 2> /dev/null
+	fi
 }
 
 infoCommand()
@@ -78,20 +132,20 @@ infoCommand()
 
 	[[ $# != 0 ]] && usage 1
 
-	# Get specific field
-	if [[ $field ]];	then
- 		value=$(grep -i "^$host[	 ]" "$(ScriptDir)/HostInfo.txt" | awk '{print $'$fieldIndex'}')
- 		[[ ! $value ]] && return 1;
- 		[[ "$value" == "-" ]] && echo "${fieldDefaults[$fieldIndex]}" || echo "${value}"
+	line=( $(grep -i "^$host[	 ]" "$(ScriptDir)/win32/HostInfo.txt") )
+	[[ ! $line ]] && return 1
+
+	# Specific field
+	if [[ $field ]];	then	 	
+	 	value="${line[$fieldIndex]}"
+	 	[[ "$value" == "-" ]] && echo "${fieldDefaults[$fieldIndex]}" || echo "${value}"
  		return 0
- 	fi
+ 	fi 	
 
- 	# Get all fields
- 	line=( $(grep -i "^$host[	 ]" "$(ScriptDir)/win32/HostInfo.txt") )
- 	[[ ! $line ]] && return 1
-
- 	for ((i=0; i<${#fields[@]}; ++i)); do
- 		[[ "$value" == "-" ]] && value="${fieldDefaults[$i]}}" || value=${line[$i]}
+	# All fields
+ 	for (( i=0; i<${#fields[@]}; ++i )); do
+		value="${line[$i]}"
+ 		[[ "$value" == "-" ]] && value="${fieldDefaults[$i]}"
  		printf "${fields[$i]}=%q " "$value"
  	done
 }

@@ -1,0 +1,1455 @@
+@echo off
+
+REM Initialize - pre-SetLocal so available for functions that call EndLocal
+set HostFileDir=%windir\system32\drivers\etc
+set fields=host network sleep backup mobile install virtual platform ping wake address
+set FieldDefaults=- - no no no no no - yes no -
+
+SetLocal
+
+set domains=AMR
+
+REM Ports to check in addition to ping: 135=DCOM, 3389=RDP (Remote Display Protocol), 80=http.  Additional ports increase response time.
+set ports=135 3389 80
+
+REM Other hosts
+set OtherHosts=
+set IntelOtherHosts=
+set N2oOtherHosts=
+set WigginOtherHosts=ws08bare jjbutare-mobl2
+
+REM Arguments
+if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
+
+iff IsLabel %1 then
+  set command=%1
+  shift
+else
+  goto usage
+endiff
+
+gosub %command
+quit %_?
+
+:usage
+text 1>&2
+usage: host available|boot|connect|file|find|info|FlushCache|prepare|
+    rename|clean|update|TestCases|OtherHosts
+  boot [/wait [<seconds>](120)] <host>|(<ip> <mac>): boot the host
+  NameQuery <host>: Return the actual hostname of host.
+  hosts: return all hosts on active networks
+  mount: mount hosts to the network directory
+  
+  available <host> [<timeout>](300) [wait [<seconds>](120)]: 
+	Return 0 if the host is available.
+	timeout - ping timeout in milliseconds.  A shorter value increases responsiveness but may miss an available host.
+	wait - number of seconds to wait for the host to become available.
+
+  file cd|view|edit|update - manipulate the local host name files
+	cd - change to the hosts folder
+	edit - Edit the hosts files
+	update [force] - Update the hosts file based on the specified or discovered network
+	view - view the hosts files
+
+  find [any|active|closest](any) [all|first](first) 
+	[<timeout>](200) [var=<value>] [force]
+	Find a host.  Return the found hosts in the hosts variable.
+	force: force a check, do not use cached values
+	var=<value>: find an active host with the specified criteria
+
+  info <host> [<var>] - get information about the host.  
+	If var is not specified, environment variables are set.  Variable are:
+endtext
+echo     %fields
+text 1>&2
+  FlushCache: clear all cached host information
+  prepare host [timeout](200): prepare to connect to the host using NetBIOS.
+	An IPC share is created if needed
+  rename [sid] [<host>] - Change the host name.     
+	sid: change the SID to prevent duplication of account SID's
+	StrictNameChecking [enable|disable|status|StatusSilent](status): 
+		If disabled, allows DNS aliases to be used in a UNC.
+  update - update the host with the latest changes
+  sync [<host>|*](*) <password> - sync password and files
+
+endtext
+quit 1
+
+:FlushCache
+EndLocal
+UnFunction cache*
+return
+
+:file
+
+REM Arguments
+if %# lt 1 .or. not IsLabel File%1 goto usage
+
+set command=%1
+shift
+
+gosub File%command
+return %_?
+
+:FileCd
+EndLocal
+cdd %HostFileDir
+return
+
+:FileView
+e %HostFileDir\hosts
+return
+
+:FileEdit
+call TextEdit "%HostFileDir\hosts" "%HostFileDir\lmhosts" "%HostFileDir\*hosts.txt"
+return
+
+REM Assume user has permission to hosts file and HostNetworks file.
+:FileUpdate
+
+set force=
+if "%1" == "force" set force=force
+
+REM Do not update Intel server host file 
+if @InIntelDomain[] == 1 .and. %@IsWindowsServer[] == 1 return 1
+
+set NewNetworks=%@Networks[]
+set OldNetworks=
+
+REM Get the list of networks the current hosts file contains
+iff IsFile "%HostFileDir\HostNetworks" then 
+	set OldNetworks=%@line[%HostFileDir\HostNetworks,0]
+endiff
+
+REM Return if there are no changes to the hosts file
+if "%NewNetworks" == "%OldNetworks" .and. not defined force return 0
+	
+echos Updating host entries...
+
+type "%HostFileDir\hosts.txt" > "%HostFileDir\hosts"
+
+for %network in (%NewNetworks) (
+  set file=%HostFileDir\%network%Hosts.txt
+	
+  iff exist "%file" then
+	type "%file" >> "%HostFileDir\hosts"
+		echo. >> "%HostFileDir\hosts"
+		echos %network
+  endiff
+	echos .
+)
+
+REM Record the networks that the hosts file is connected to, the . ensures the file is empty if NewNetworks is empty
+echo.%NewNetworks > "%HostFileDir\HostNetworks"
+
+echo done.
+
+return
+
+REM 
+REM find [any|active|closest](any) [all|first](first) [var=<value>] [timeout](200)
+REM
+:find
+
+REM Initialize
+set hosts=
+set ClosestHost=
+set ClosestHostTime=100000
+set CloseEnough=10
+
+REM Arguments
+
+set command=any
+iff "%1" == "any" .or. "%1" == "active" .or. "%1" == "closest" then
+  set command=%1
+  shift
+endiff
+
+REM what default depends onthe command, 
+iff "%command" == "active" then
+  set what=first
+else
+  set what=all
+endiff
+
+iff "%1" == "all" .or. "%1" == "first" then
+  set what=%1
+  shift
+endiff
+
+REM Closest command must try and find all active hosts
+if "%command" == "closest" set what=all
+
+set timeout=200
+iff %@numeric[%1] == 1 then
+  set timeout=%1
+  shift
+endiff
+
+gosub GetInfoCriteria
+
+REM Set the name of the function to use for cachine
+REM Function name length is limited.  When too long, the function can be defined but not read. 
+set cache=cache%what%%command%%var%%VarValue%
+iff "%1" == "force" then
+  unfunction %cache >& nul:
+  shift
+endiff
+
+if %# != 0 goto usage
+
+REM Show status for all commands except any
+set ShowStatus=
+if "%command" != "any" set ShowStatus=true
+
+REM Return the cached value for the command.  Functions are used for the cache as they are visible 
+REM across command shells and local environments created with SetLocal.  The function used to cache
+REM the value is created using the passed arguments, so that each combination of arguments has a
+REM unique cache
+iff %@IsFunction[%cache] == 1 then
+
+  REM Get the value from the cache
+  set FunctionValue=`%@`%cache[]
+  set hosts=%FunctionValue
+  
+  set ok=true
+
+  REM If there is a single host in the cache, ensure it is still available
+  iff %@words[%hosts] == 1 then
+	if %@IsHostAvailable[%hosts, %timeout] == 0 set ok=
+		
+  elseiff "%command" == "active" .and. "%what" == "first" then
+  
+	REM Active host must contain only one cached value
+	set ok=
+	
+  endiff
+
+  REM If the cached values are ok, use them and return
+  iff defined ok then
+	
+		iff defined ShowStatus then
+			echo Cached %command %@if["%what" == "all",hosts are,host is] %hosts.
+		endiff
+
+		EndLocal hosts
+	return 0
+  endiff
+  
+endiff
+
+REM Could not find a cached value, so make sure the hosts variable is reset
+set hosts=
+
+REM Status
+iff defined ShowStatus then
+	echos Finding %command %@if["%what" == "all",hosts,host]...
+endiff
+
+REM Get hosts - get all hosts  if we are checking active/closests hosts and a host filter variable  was not specified
+iff "%command" != "any" .and. not defined var then
+	set HostsToCheck=%@ExecStr[call host.btm hosts]
+else
+
+	for %HostInfo in (@"%@BatchDir[]\..\HostInfo.txt") (
+	
+	  iff %@IsComment[%HostInfo] == 0 then
+			gosub CheckInfo
+	
+			REM Parse HostInfo
+			set host=%@word[0,%HostInfo]
+
+			REM Check criteria
+			iff defined var then  
+				gosub GetInfoValue %VarIndex
+
+				iff "%VarValue" == "%value" then
+					set HostsToCheck=%HostsToCheck %host
+				endiff
+
+			else
+				set HostsToCheck=%HostsToCheck %host
+			endiff
+			
+		endiff
+
+	)
+	
+endiff
+
+REM Find hosts that match command
+for host in (%HostsToCheck) (  
+  gosub Find%command
+ 
+  REM Add to the list of hosts we are compiling
+  iff defined ok then
+	set hosts=%hosts %host
+	if "%what" == "first" LeaveFor
+  endiff
+  
+)
+
+set hosts=%@trim[%hosts]
+
+REM Return the closest host
+iff "%command" == "closest" .and. "%hosts" != "" then
+  set hosts=%ClosestHost
+  
+	iff defined ShowStatus then
+		iff %ClosestHostTime lt %CloseEnough then
+			echo close enough.
+		else
+			echo closest is %ClosestHost.
+		endiff
+	endiff
+		
+elseiff defined ShowStatus then
+	echo done.
+	
+endiff
+
+REM Cache the hosts for use across other shells
+EndLocal cache hosts
+iff defined cache then
+	function %cache=%hosts
+endiff
+
+return 0
+
+:FindAny
+set ok=true
+return
+
+:FindActive [SuppressFinalStatus]
+set ok=
+
+REM Do not find ourself 
+if "%host" == "%ComputerName" return
+
+REM Check to see if the host is available
+REM EchoErr %host
+if defined ShowStatus echos .
+iff %@IsHostAvailable[%host, %timeout] == 1 then 
+  set ok=true
+	
+	iff defined ShowStatus then
+		echos %host
+		set TrueName=%@HostName[%host]
+		if "%TrueName" != "%host" echos  (%TrueName)
+		if "%SuppressFinalStatus" != "true" echos ...
+	endiff
+	
+endiff
+
+return
+
+:FindClosest
+
+REM First, see if the host is active
+gosub FindActive true
+if not defined ok return
+
+REM Get the ping time
+gosub ping %host 1 true
+set PingTime=%_?
+
+iff %PingTime ge 0 then
+
+  if defined ShowStatus echos  (%PingTime%ms)...
+  
+  iff %PingTime lt %ClosestHostTime then
+	set ClosestHost=%host
+	set ClosestHostTime=%PingTime
+  endiff
+  
+  REM 10ms away is close enough, don't try the others to save time.
+  if %ClosestHostTime lt %CloseEnough set what=first
+
+endiff
+
+return
+
+REM
+REM info <host> [<var>] - return information about the host.  
+REM
+:info
+
+REM Arguments
+
+REM If only the host is specified, then allow the caller to see the variables GetInfo sets.  This must be 
+REM done before we set other variables, as EndLocal will clear them.
+iff %# == 1 then
+  EndLocal
+endiff
+
+if %# == 0 goto usage
+set host=%1
+shift
+
+set VarIndex=
+iff %# gt 0 then
+  gosub GetInfoField %1
+  set VarIndex=%_?
+  shift
+endiff
+
+if %# != 0 goto usage
+
+REM Get the host information
+set found=
+for %HostInfo in (@"%@BatchDir[]\HostInfo.txt") (
+ 
+  iff "%host" == "%@word[0,%HostInfo]" then  
+	set found=true
+	gosub CheckInfo
+	
+	iff defined VarIndex then
+
+	  REM Show the value for the specified variable
+	  gosub GetInfoValue %VarIndex
+	  if "%value" != "" echo %value
+	
+	else
+	  
+	  REM Set each variable to the value in HostInfo
+	  set i=0
+	  for field in (%fields) (
+		gosub GetInfoValue %i 
+		set %field=%value  
+		set i=%@inc[%i]
+	  )
+	  
+	endiff
+	
+	LeaveFor
+
+  endiff
+)
+
+iff not defined found .and. not defined VarIndex then
+  echo %host does not exist in the HostInfo file
+  return 1
+
+REM Return the default value for unknown hosts
+elseiff not defined found .and. defined VarIndex then
+	gosub GetInfoValue %VarIndex
+	if "%value" != "" .or. "%value" == "-" echo %value	
+endiff
+
+return 0  
+
+REM Check HostInfo for an empty last column
+:CheckInfo
+
+iff "%@word[%@eval[%@words[%HostInfo] - 1], %fields]" == "" then
+  echo Incomplete host entry for %host
+  quit 1
+endiff
+
+return
+
+REM Get the HostInfo index of a field name
+:GetInfoField [field]
+
+set i=0
+set result=
+for GetInfoField in (%fields) (
+
+  iff "%GetInfoField" == "%field" then
+	set result=%i
+	LeaveFor
+  endiff
+  set i=%@inc[%i]
+)
+
+iff not defined result then
+  echo %field is not a valid variable.  Valid variables are %fields
+  quit 1
+endiff
+
+return %result
+
+:IsInfoField [field]
+
+set i=0
+set result=
+for GetInfoField in (%fields) (
+
+  iff "%GetInfoField" == "%field" then
+	set result=%i
+	LeaveFor
+  endiff
+  set i=%@inc[%i]
+)
+
+iff not defined result then
+	return 0
+else
+	return 1
+endiff
+
+REM Return a HostInfo value from a field index or field name
+:GetInfoValue [s]
+
+iff %@numeric[%s] == 1 then
+  set index=%s
+  set field=%@word[%index,%fields]    
+else
+  set field=%s
+  gosub GetInfoField %field
+  set index=%_?
+endiff
+
+set value=%@word[%index,%HostInfo]
+
+iff "%value" == "" .or. "%value" == "-" then
+	set value=%@word[%index,%FieldDefaults]
+endiff
+
+return
+
+REM Get the criteria from the next argument
+:GetInfoCriteria
+
+set var=
+set VarValue=
+set VarIndex=
+
+REM Parse criteria where <var> = <value> are separate arguments (= is an argument separator)
+iff %# gt 1 then
+
+	gosub IsInfoField %1
+	if %_? == 0 return
+
+	set var=%1
+	set VarValue=%2
+	shift 2
+
+REM Parse criteria where <var>=<value> are in the next argument in that format
+elseiff %@words["=",%1] == 2 then
+
+	REM Get the variable and value
+	set var=%@word["=",0,%1]
+	set VarValue=%@word["=",1,%1]
+	shift
+
+else
+	return
+
+endiff
+
+REM Check for a valid variable and get it's index
+gosub GetInfoField %var
+set VarIndex=%_?
+
+return
+
+:clean
+call startup.btm stop
+call os index stop
+pause
+call os index start
+call startup.btm start
+return 0
+
+:update
+
+REM Elevate - many update operaitons require elevation
+iff %@IsElevated[] == 0 then
+	call sudo.btm host update
+	return %?
+endiff 
+
+REM Sync local files
+call ask `Sync local files?` y
+iff %? == 1 then
+	set options=full
+	call SyncLocalFiles %options
+endiff
+
+REM Intel seciruty checker
+iff IsFile "%programs32\Intel Security Checker\IntelSecurityChecker.exe" then
+	call ask `Run the Intel Security Checker?` n
+	if %? == 1 call intel isc start
+endiff
+
+call ask `Update applications?` y
+iff %? == 1 then
+
+	echo.
+	call ask `Update Microsoft applications?` y
+	if %? == 1 call os update
+		
+	iff %@IsInstalled[nVidia] == 1 then
+		echo.
+		call ask `Update nVidia video card drivers?` y
+		if %? == 1 call nVidia update
+	endiff
+
+	iff %@IsInstalled[creative] == 1 then
+		echo.
+		call ask `Update Creative Sound Card drivers?` y
+		if %? == 1 call creative update
+	endiff
+	
+	iff %@IsInstalled[firefox] == 1 then
+		echo.
+		call ask `Update Firefox?` y
+		if %? == 1 call firefox update
+	endiff
+	
+	iff %@IsInstalled[chrome] == 1 then
+		echo.
+		call ask `Update chrome?` y
+		if %? == 1 call chrome update
+	endiff
+	
+	call VirusScan update
+
+	iff %@IsInstalled[psi] == 1 then
+		call ask `Update other applications with Personal Software Inspector (PSI)?` y
+		if %? == 1 call psi start
+	endiff
+	
+	REM Update other applications using HIPPO
+	echo.
+	do forever
+		call ask `Check for other application updates?` y
+		if %? == 0 leave
+		start /pgm UpdateChecker.exe
+	EndDo
+
+endiff
+
+call ask `Check programs?` y
+iff %? == 1 then
+
+	echo.
+	echo - Check Last Day for programs which are causing issues
+	call event
+	pause
+	
+	echo.
+	echo - Check for programs which cause reliability issues.
+	call os reliability
+	pause
+
+	echo.
+	echo - Check for unused programs.
+	call os programs
+	pause
+	
+endiff
+
+
+REM Update security software
+call ask `Application and security check?` y
+iff %? == 1 then
+
+	echo.
+	echo - Check for extra path path.
+	call os path editor
+	pause
+	
+	echo.
+	echo - Check for extra startup programs
+	start /pgm autoruns
+	msconfig
+	pause
+	
+	echo.
+	echo - Check at risk processes for EMET.
+	call SecurityEssentials EMET
+	pause
+	
+	echo.
+	echo - Check processes for DEP and ASLR
+	echo - Check for high memory processes (peak private) and committed memory exceeds physical memory
+	call app ProcessExplorer
+	pause
+
+	REM ProcMon crashes tcc when run from sudo
+	echo - Check for unusual disk activity (manually start ProcMon)
+	pause
+	
+	echo.
+	call SecurityEssentials start
+	pause
+	
+endiff
+
+REM Media
+iff "%ComputerName" != "oversoul" .and. ^
+	("%@HostInfo[%ComputerName,install]" == "yes" .or. "%@HostInfo[%ComputerName,music]" == "yes" .or. ^
+	 "%@HostInfo[%ComputerName,picture]" == "yes"  .or. "%@HostInfo[%ComputerName,video]" == "yes") then
+	 
+	call ask `Update media?` y
+	if %? == 1 call UpdateMedia.btm
+
+endiff
+
+REM Cleanup
+call ask.btm `Cleanup files?`
+iff %? == 1 then
+	call sudo.btm CleanupFiles.btm
+endiff
+
+REM Analyze drive for unnecessary large files
+call ask `Analyze drive files?`
+if %? == 1 call DiskSpaceUsage start
+
+REM Defragment - except for virtual machines (it will increase snapshot size), and machines with SSD drives (which are not impacted by fragmentation)
+iff %@IsVirtualMachine[] == 0 .and. "%ComputerName" != "dune" .and. "%ComputerName" != "jjbutare-mobl2" then
+	call ask `Defragment?` y
+	if %? == 1 call defragment.btm full
+else
+	call vss enabled
+	iff %? == 1 then
+		call ask.btm `Cleanup Volume Snapshot Service?`
+		if %? == 1 call sudo.btm vss.btm cleanup
+	endiff
+endiff
+
+REM Virtual machine updates
+iff %@IsVirtualMachine[] == 1 then
+	call ask `Virtual machine (s)napshot, (c)ompact, or (n)one` ValidResponses=scn n
+	if %? == 0 call VMware.btm guest snap
+	if %? == 1 call VMware.btm guest compact
+endiff
+
+REM Oversoul backup
+iff "%ComputerName" == "oversoul" then
+	echos Locating backup drive...
+	call WigginBackup.btm FindDrive
+	iff %? == 1 then
+		call WigginBackup.btm backup
+	else
+		echo none found.
+	endiff
+endiff
+
+return 0
+
+REM
+REM rename [sid] [domain] [<host>] - Change the host name or sid 
+REM 
+REM A SID uniquely identifies a computer on the network and if machine has been created from an image, 
+REM the SID must be changed
+REM
+:rename
+
+REM Initialize
+set WelcomeReg="HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\Welcome"
+
+REM Arguments
+
+set sid=
+iff "%1" == "sid" then
+  set sid=true
+  shift
+endiff
+
+set NewHostName=
+iff %# == 1 then
+  set NewHostName=%1
+  shift
+endiff
+
+REM If not specified, and we are not changing the sid, ask for the hostname
+iff not defined NewHostName then
+  input What is the new hostname?` ` %%NewHostName
+endiff
+
+if %# != 0 goto usage
+
+REM Ensure they really want to rename
+call ask `Do you want to rename the computer to %NewHostName? ` n
+if %? == 0 return 1
+
+REM Check if we should change the SID as well
+iff not defined sid then
+  call ask `Do you want to change the computer SID? ` n
+  if %? == 1 set sid=true
+endiff
+
+REM Rename in the domain
+iff "%@domain[]" != "" then
+	echo - When renaming a computer that is in a domain you may need to disconnect the computer 
+  echo   from the network, remove from the domain and rename, reboot, and run host rename again
+  netdom renamecomputer %ComputerName /newname:%NewHostName  /force
+	pause
+endiff
+
+REM Rename - NewSid also changes the computer name
+iff defined sid then
+
+  REM IIS must be stopped to rename the computer
+  net stop iisadmin /y >& nul:
+
+	REM NewSid will scan mounted drives in c:\dev, so remove removable media
+	echo Remove all media mounted in c:\dev...
+	call iso UnmountAll
+	pause
+	
+	echo.
+  echos Changing computer SID and renaming computer to %NewHostName...
+  NewSid /a /n %NewHostName
+	echo done.
+	
+else
+
+  set HostNameReg="HKLM\System\CurrentControlSet\Services\Tcpip\Parameters\Hostname"
+  set NvHostNameReg="HKLM\System\CurrentControlSet\Services\Tcpip\Parameters\NV Hostname"
+  set CompNameReg="HKLM\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName\ComputerName"
+  set ActiveCompNameReg="HKLM\SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName\ComputerName"
+	
+  call registry.btm delete %HostNameReg
+  call registry.btm delete %NvHostNameReg
+  
+  call registry.btm set %CompNameReg REG_SZ %NewHostName
+	call registry.btm set %ActiveCompNameReg REG_SZ %NewHostName
+  call registry.btm set %HostNameReg REG_SZ %NewHostName
+  call registry.btm set %NvHostNameReg REG_SZ %NewHostName
+  
+  echo The computer has been renamed to %NewHostName.  Please reboot for the changes to take effect.
+
+endiff
+
+REM NewSid and renaming from computer properties does does not chancge the Windows Server welcome registry key
+iff %@IsWindowsServer[] == 1 then
+  call registry.btm set %WelcomeReg REG_SZ %host
+endiff
+
+return 0
+
+REM
+REM boot [wait [seconds](1120)] <host>|(<ip> <mac>) - boot the specified host
+REM
+:boot
+
+REM Initialize
+set SubNet=255.255.255.0
+
+REM Arguments
+
+set wait=
+iff "%1" == "/w" .or. "%1" == "/wait" then
+  set wait=true
+  shift
+
+  set WaitSeconds=120
+  iff %@numeric[%1] == 1 then
+	set WaitSeconds=%1
+	shift
+  endiff
+
+endiff
+
+if %# == 0 goto usage
+iff %@IsIpAddress[%1] == 1 then
+
+  set HostIp=%1
+  shift
+  
+  if %# == 0 goto usage
+  set HostMac=%1
+  shift
+  
+else
+  set host=%1
+  shift
+endiff
+
+if %# != 0 goto usage
+
+REM See if the host is already awake
+call host available %host
+iff %? == 0 then
+  echo Host %host is already awake.
+	return 0
+endiff
+
+REM Boot virtual machines
+iff %@VmExist[%host] == 1 then
+
+	call VmWare run %host start
+	if %? != 0 return %?
+	
+	gosub bootWait
+	return %?
+	
+endiff
+
+REM Check to see if we are connected to a network
+iff %@IsHostConnected[] == 0 then
+  EchoErr Not on a network.
+  return 1
+endiff
+
+REM Get host information (ip, mac address)
+iff defined host then
+
+  call host info %host >& nul:
+  iff %? == 0 then
+
+		REM Get the host primary IP and MAC  addres  
+		set HostIp=%@word["-",0,%address]
+		set HostMac=%@word["-",1,%address]
+		
+	endiff
+	
+else
+  set host=%HostIp
+endiff
+
+REM Get the IP address of the network for the network that the host is in
+set NetworkIp=%@NetworkInfo[%@HostInfo[%host, network], NetworkIp]
+
+iff not defined HostMac then
+	EchoErr Could not discover the MAC address for %host.
+	return 1
+endiff
+
+REM LAN Boot - boot hosts on the local network by sending a Wake On Lan packet
+iff %@IsIpLocal[%HostIp] == 1 then
+
+  echo Sending wakeup packet to %host...
+  PowerOff wol -ip %HostIp -subnet %SubNet -mac %HostMac
+  if %? != 0 return 1
+
+	gosub bootWait
+	return %?
+endiff
+
+REM Internet Boot - boot hosts through by sending a Wake On Lan packet to the hosts router 
+iff "%InternetIp" != "" then
+
+  REM Do not wait for internet hosts to boot (typically cannot ping over Internet)
+  set wait=
+  
+  REM Internet Boot
+  set f=%@Unique[%Temp].html
+  echo `<FORM ENCTYPE="multipart/form-data" ACTION="http://www.dslreports.com/wakeup/wakeup" METHOD="POST">` > %f
+  echo `IP address: <input name=ip size=15 maxlength=15 value="`%InternetIp`"> (<font color=red><b>UDP port 9</b></font>)<br>` >> %f
+  echo `MAC address: <input name=mac size=15 maxlength=15 value="`%HostMac`"><br>` >> %f
+  echo `<INPUT TYPE="submit" VALUE="Wake Up!" name="start"></FORM>` >> %f
+  
+  start /pgm iexplore "%f"
+	return 0
+	
+endiff
+
+REM Boot was not possible
+EchoErr Unable to boot %host fromt the current network.
+return 1  
+
+:bootWait
+
+REM Wait for the host to boot.
+iff defined wait then
+  call host available %host wait %WaitSeconds
+  return %?
+endiff
+
+return 0
+
+REM
+REM prepare host [timeout](200)
+REM
+REM Prepare a host for a NetBIOS connection by creating an IPC share if needed.
+REM Only need to pass the account when the target host is in a different domain.
+REM As long as the account name and password is the same, login is automatic from 
+REM workgroup to workgroup, domain to workgroup, and within the same domain.
+REM Try to connect to the IPC shar of the host using key domains.  This assumes that
+REM a user with the same account and password exists on the host.
+:prepare
+
+REM Arguments
+
+if %# == 0 goto usage
+
+set host=%1
+shift
+
+set timeout=200
+iff %@numeric[%1] == 1 then
+  set timeout=%1
+  shift
+endiff
+
+if %# != 0 goto usage
+
+if "%host" == "%ComputerName" .or. "%host" == "butare.net" return 0
+
+REM Check to make sure the host is available
+iff %@IsHostAvailable[%host, %timeout] == 0 then
+  echo %host is not available
+  return 1
+endiff
+
+REM Return if we already have a NetBIOS connection to the host 
+if %@IsHostPrepared[%host] == 1 return 0
+
+REM If we are logged in using an administrator account try a non-admin account
+iff "%@left[3,%UserName]" == "ad_" then
+	gosub ConnectIpc %host %UserDomain %@right[-3,%UserName]
+	if %@IsHostPrepared[%host] == 1 return 0
+endiff
+	
+REM Try to connect using no domain
+gosub ConnectIpc %host
+if %@IsHostPrepared[%host] == 1 return 0
+
+REM Try to connect using each domain in the domains list
+set success=
+for domain in (%domains) (
+
+  gosub ConnectIpc %host %domain
+
+  iff %@IsHostPrepared[%host] == 1 then
+	set success=true
+	LeaveFor
+  endiff
+	
+)
+if defined success return 0
+
+EchoErr Unable to prepare a connection to %host
+return 1
+
+REM Connect to the IPC share of the specified host to facilitate NetBIOS sharing.  
+REM net use exit codes and messages:
+REM 0: Success
+REM 2: System error 67 has occurred.  The network name cannot be found.
+REM 2: System error 1219 has occurred. Multiple connections to a server or shared resource by the same user, 
+REM    using more than one user name, are not allowed. Disconnect all previous connections to the server or 
+REM    shared resource and try again..
+REM 2: System error 1223 has occurred.  The operation was canceled by the user.
+REM 2: System error 1326 has occurred.  Logon failure: unknown user name or bad password.
+:ConnectIpc [host domain user]
+
+REM "defined user" does not function correctly in this case
+set UserArg=
+iff "%domain" != "" .or. "%user" != "" then
+  set UserArg=/user:%@if[ "%domain" != "" ,%domain\,]%@if[ "%user" != "" ,%user,%UserName]
+endiff
+
+REM NA is pipped to net use so the command does not wait on a password prompt
+echo NA | net use \\%host\ipc$ %UserArg >& nul:
+
+return %?
+
+REM available host [timeout](300) [wait [<seconds>](120)] - returns 0 if the specified host is available
+:available
+
+REM Arguments
+
+if %# == 0 goto usage
+set host=%1
+shift
+
+set timeout=200
+iff %@numeric[%1] == 1 then
+  set timeout=%1
+  shift
+endiff
+
+set wait=
+iff "%1" == "wait" then
+  set wait=true
+  shift
+  
+  set WaitSeconds=120
+  iff %@numeric[%1] == 1 then
+	set WaitSeconds=%1
+	shift
+  endiff
+
+endiff
+
+if %# != 0 goto usage
+
+if "%host" == "butare.net" return 0
+
+gosub ping %host %timeout
+if %_? ge 0 return 0
+
+REM Return a failure code if we are not waiting
+if not defined wait return 1
+
+REM Wait WaitSeconds for host to become available
+echos Waiting %WaitSeconds seconds for %host to become available or press any key to continue...
+
+set pauseDelayDummy=TIMEOUT
+set result=
+do i = 1 to %WaitSeconds
+
+  gosub ping %host %timeout
+  iff %_? ge 0 then
+	echo found
+	set result=0
+	leave
+  endiff
+	
+  inkey /x /w1 %%pauseDelayDummy
+  
+  iff %pauseDelayDummy != TIMEOUT then
+	echos cancelled after %i seconds
+	set result=1
+	leave
+  endiff
+  
+  echos .
+enddo
+
+if defined result return %result
+
+echo not found in %WaitSeconds seconds.
+return 1
+
+REM Returns the response time for the host, or -1 if the host is not available, waiting timeout milliseconds for a response.  
+REM If ReturnPingTime is passed, ensure that the ping time (in milliseconds) is returned.
+REM Goal is to minimize the time taken if the hostname is not found, or if the hostname is found and the host is not available.
+:ping [HostArg TimeoutArg ReturnPingTime]
+
+REM Correct invalid WINS host names
+set host=%HostArg
+
+REM Lookup the ip address as we might need to do multiple lookups and avoid multiple penalties for slow DNS lookups, and correct for hosts with invalid WINS or DNS entries as needed.
+switch "%host"
+case "fmsgenituxg"
+	set ip=10.19.192.66
+default
+	set ip=%@IpAddress[%host]
+endswitch
+
+if %@IsIpAddress[%ip] == 0 return -1
+
+REM Adjust timeout for slow hosts
+set TimeoutIncrease=0
+switch "%host"
+case "ExampleHostNeedingExtraPingTime"
+	set TimeoutIncrease=200
+case "jjbutare-mobl4"
+	set TimeoutIncrease=200
+endswitch
+
+set ActualTimeout=%@eval[ %timeout + %TimeoutIncrease ]
+
+REM Some systems respond to ping when asleep, so try and connect to a port which only responds when the system is awake.
+set ping=%@HostInfo[%host,ping]
+
+REM Mac's respond to ping when asleep if any sharing services are enabled
+iff "%ping" == "yes" then
+	iff "%@HostInfo[%host,platform]" == "mac" then
+		set ping=88
+	endiff
+endiff
+
+iff %@numeric[%ping] == 1 then
+	return %@connect[%host,%ping,%ActualTimeout]
+endiff
+
+REM Use ping command to check for initial presence of host since @ping timeout is in seconds
+ping -n 1 -l 32 %ip -w %ActualTimeout |& egrep -i "bytes=32" --quiet
+iff %? == 0 then
+	iff "%ReturnPingTime" == "true" then
+		return %@ping[%ip]
+	else
+		return 0
+	endiff
+endiff
+
+REM Ping fails in some cases (ICMP block, VMware guest virtual machines using NAT)  so try to connect to some additional ports on the host.
+REM Connect succeeds for wifi networks that require connect, so only try this check for virtuals.
+set response=-1
+iff %@IsVirtualMachine[] == 1 then
+	for port in (%ports) (
+		set response=%@connect[%ip,%port,30]
+		if %response ge 0 LeaveFor
+	)
+endiff
+
+return %response
+
+:TestCases
+
+text
+Test Cases:
+
+- %@HostInfo[jjbutare-mobl,sleep] -> outputs yes
+- host info jjbutare-mobl -> sets sleep to yes
+
+- %@FindHost[] -> outputs all hosts
+- %@FindHost[domain=foo] -> outputs nothing
+- %@FindHost[domain=wiggin] -> outputs Wiggin oversoul speaker shadow sun
+- timer & echo hosts=%@FindHost[all force] & timer -> returns in ~35ms each time
+- timer & echo hosts=%@FindHost[all] & timer -> returns in 6ms
+ 
+- call host available sun 20 wait 20 & echo %? -> unplug sun network cable
+ 
+- %@FindHost[active force] -> Outputs first active host
+- %@FindHost[active all domain=wiggin force] -> Only checks Wigginhosts, and outputs active ones
+- timer & echo %@FindHost[active all force] & timer -> Outputs all active hosts
+- timer & echo %@FindHost[active all 10 force] & timer -> Outputs all active hosts that are close (test when VPN to Intel so see fewer hosts than above)
+ 
+- file cd|view|edit|update
+- %@Boot[oversoul 15] -> return 1 within 15 seconds, press any key to cancel wait
+endtext
+
+return 0
+
+:NameQuery
+
+set host=%ComputerName
+iff %# gt 0 then
+	set host=%1
+	shift
+endiff
+
+if %# != 0 goto usage
+
+switch "%host"
+case "%ComputerName"
+	echo %@lower[%host]
+	return
+case "butare.net" .or. "nas"
+	echo nas
+	return
+endswitch
+
+set name=%host
+
+iff %@HostInfo[nas,platform] == "win" then
+	set name=%@ExecStr[psexec \\%host hostname >&> nul:]
+	if "%name" == "" .or. "%name" == "ECHO is OFF" set name=%host
+endiff
+
+echo %@lower[%name]
+
+return
+
+REM Use of host aliases (host names that are not the computer name), in LAN Manager (UNC's), such as mobl, 
+REM requires that strict name checking be disabled on the client (call os DisableStrictNameChecking on the server with the alias)
+REM Alternatively, define the alias in in lmhosts .  Otherwise get duplicate name exists on the network.
+
+REM Fow Windows servers and XP, disable strict name checking to allow alternate names to be used in a UNC (i.e. \\alias\c$)
+REM Reference http://support.microsoft.com/?id=281308 - does not mention XP, but this change does work on XP
+:StrictNameChecking
+
+set key=HKLM\SYSTEM\CurrentControlSet\Services\lanmanserver\parameters\DisableStrictNameChecking
+
+set command=%1
+switch "%command"
+
+case "enable" .or. "disable"
+	set NewStatus=%@if[ "%command"	== "enable" ,0,1]
+	
+	REM Return if strict name checking is in the desred state already.
+	if "%NewStatus" == "%@RegGet[%key]" return 0
+	
+	REM Check the state
+	call registry.btm set "%key" REG_DWORD %NewStatus
+	echo Strict name checking has been %command%d.
+
+	echo Restarting the server service for the change to take effect...
+	net stop server
+	net start server
+
+case "status" .or. "" 
+	REM Enabled: -1 (key does not exist) , 1, or any other value except 0
+	echo Strict name checking is %@if["%@RegGet[%key]" == "0",disabled,enabled].
+
+case "StatusSilent"
+	return %@if["%@RegGet[%key]" == "0",1,0]
+
+default
+	goto usage
+
+	endfswitch
+
+return 0
+
+:sync
+
+set hosts=
+iff %# ge 1 then
+	if "%1" != "*" set hosts=%@UnQuote[%1]
+	shift
+endiff
+
+REM Set hosts defaults only if not set
+iff not defined hosts then
+	gosub active
+endiff
+
+set password=
+iff %# == 1 then 
+	set password=%1
+	shift
+endiff
+
+if %# != 0 goto usage
+
+for host in (%hosts) gosub SyncHost
+
+return
+
+:SyncHost
+
+if %@IsHostAvailable[%host] == 0 return
+
+set HostName=%@HostName[%host]
+
+call ask `Sync %host (%HostName)?` y
+if %? == 0 return
+
+REM Change the guest password
+iff defined password then
+	call password %host %UserName %password	
+endiff
+
+set options=
+call ask `Are all files on %HostName older?` n
+if %? == 1 set options=DestOlder NoBak
+call SyncLocalFiles %options %host
+
+return
+
+:hosts
+
+call network ReadCache
+set hosts=%OtherHosts
+set networks=%@if[defined CurrentNetworks,%CurrentNetworks,Wiggin Intel N2O]
+
+iff "%networks" != "disconnected" then
+
+	for network in (%networks) (
+		set hosts=%hosts %@FindHost[network=%network] %@EvalVar[%network%OtherHosts]
+	)
+	echo %hosts
+	
+endiff
+
+return
+
+:mount
+
+REM Must be elevated to make symbolic links
+iff %@IsElevated[] == 0 then
+	call sudo host mount %$
+	return %?
+endiff
+
+REM Iniatize
+set dir=%SystemDrive\network
+call MakeDir "%dir"
+
+REM Arguments
+
+set host=all
+iff %# == 1 then
+	set host=%1
+	shift
+endiff
+
+if %# != 0 goto usage
+
+iff "%host" == "all" then
+	for host in (%@FindHost[]) (
+		iff not exist "%dir\%host" then
+			call ask `Do you want to add a network share for %host?` y
+			if %? == 1 gosub MountHost
+		endiff
+	)
+else
+	gosub MountHost
+endiff
+
+return %?
+
+:MountHost
+
+set sleep=
+set result=1
+set LinkDir=%dir\%host
+set share=\\%host\%@if[ "%@HostInfo[%host,platform]" == "win" ,c$,%UserName]
+iff exist "%dir\%host" return 0
+
+REM try to wake the host if it is not available
+iff %@IsHostAvailable[%host] != 1 then
+	set sleep=true
+	call host boot /wait %host
+	if %? != 0 return %?
+endiff
+
+REM prepare a connection to the host
+call host prepare %host
+if %? != 0 set result=%?
+
+REM mount the host share to the network directory
+iff %result == 1 .and. %@IsHostAvailable[%host] == 1 then
+
+	mklink /d "%LinkDir" "%share"
+	if %? != 0 set result=%?
+	
+	REM ensure a directory was created 
+	iff IsFile "%LinkDir" then
+		call DelFile "%LinkDir"
+		set result=0
+	endiff
+	
+endiff
+
+REM sleep the host if it was awake
+if defined sleep call power sleep %host
+
+return %result
+
+:connect
+
+if %# != 1 goto usage
+set host=%1
+
+REM Wake the host if it is not already awake
+iff "%@HostInfo[%host wake]" == "no" then
+	iff %@IsHostAvailable[%host] == 0 then
+		call host boot /wait 30 %host
+		if %? != 0 return %?
+		call PauseDelay 10
+	endiff
+endiff
+
+switch "%host"
+case "nas"
+	ShellRun http://nas.butare.net
+	return %?
+endswitch
+
+iff "%@HostInfo[%host,platform]" == "win" then
+	gosub ConnectWindows
+else
+	gosub ConnectOther
+endiff
+return %?
+
+:ConnectOther
+call VisionApp.btm %host
+return
+
+:ConnectWindows
+
+set suffix=Remote Desktop\%host.rdp
+iff IsFile "%UserData\%suffix" then
+	set rdp=%UserData\%suffix
+elseiff IsFile "%CloudData\%suffix" then
+	set rdp=%CloudData\%suffix
+endiff
+
+iff IsFile "%rdp" then
+	start /pgm "%rdp"
+else
+	start /pgm mstsc /f /v:%host
+endiff
+
+return 0
