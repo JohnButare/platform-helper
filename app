@@ -1,28 +1,50 @@
 #!/bin/bash
 . app.sh
 
+init()
+{
+	unset quiet
+	localApps="cpu7icon gridy hp SideBar SpeedFan ThinkPadFanControl ZoomIt ShairPort4W"
+}
+
 usage()
 {
 	echot "\
-usage: app [startup|close|restart](startup) <apps>"
+usage: app [startup|close|restart](startup) <apps>
+	-q, --quiet 				minimal status messages"
 	exit $1
 }
 
-init()
+args()
 {
-	localApps="cpu7icon gridy SpeedFan ThinkPadFanControl ZoomIt ShairPort4W"
+	command='startup'
+
+	while [ "$1" != "" ]; do
+		case $1 in
+			-h|--help) usage 0;;
+			-q|--quiet) quiet="-q";;
+			startup|close) command=$1;;
+			*)
+				args=( "${@:1}" )
+				break;;
+		esac
+		shift
+	done
+	[[ "$command" == "startup" ]] && status="Starting" || status="Closing"
 }
 
 run()
 {
 	init
 	args "$@"
+
 	for app in "${args[@]}"
 	do
 		MapApp
+		[[ $quiet ]] && printf "."
 		if IsFunction "${app,,}"; then
 			${app,,}
-		elif IsInList "$localApps" "$app"; then
+		elif IsInList "$app" "$localApps"; then
 			RunInternalApp
 		else
 			RunExternalApp
@@ -52,15 +74,21 @@ TaskStart()
 
 RunInternalApp()
 {
-	local close="process -q"
-	local program="${app}.exe"
+	local program="${app}.exe" close="ProcessClose" args=""
 
 	case "$app" in
-		"cpu7icon") close="pskill";;
-		"SpeedFan") program="$P32/SpeedFan/speedfan.exe";;
-		"ThinkPadFanControl")
-			program="$P/TPFanControl/TPFanControl.exe"
-			set close=pskill;;
+		hp) program="$P32/Hewlett-Packard/HP HotKey Support/QLBController.exe";;
+		SideBar) program="$P/Windows Sidebar/sidebar.exe";;
+		SpeedFan) program="$P32/SpeedFan/speedfan.exe";;
+		ThinkPadFanControl) program="$P/TPFanControl/TPFanControl.exe"
+	esac
+
+	case "$app" in
+		hp) args=/start;;
+	esac
+
+	case "$app" in
+		cpu7icon|hp|ThinkPadFanControl) close="pskill";;
 	esac
 
 	[[ ! -f "$program" ]] && program="$(FindInPath "$program")"
@@ -69,7 +97,7 @@ RunInternalApp()
 	if [[ "$command" == "startup" ]]; then
 		IsTaskRunning "$program" && return
 		ShowStatus
-		start "$program"
+		start "$program" $args
 	else
 		IsTaskRunning "$program" || return
 		ShowStatus
@@ -94,11 +122,7 @@ RunExternalApp()
 
 ShowStatus()
 {
-	if [[ "$command" == "startup" ]]; then
-		echo "Starting $app..."
-	else
-		echo "Closing $app..."
-	fi;
+	[[ $quiet ]] && printf "$app..." || echo "$status $app..."
 }
 
 GetAppFile()
@@ -139,22 +163,6 @@ MapApp()
 		wmp) app="WindowsMediaPlayer";;
 		X|XWindows) app="Xming";;
 	esac
-}
-
-args()
-{
-	command='startup'
-
-	while [ "$1" != "" ]; do
-		case $1 in
-			-h|--help) usage 0;;
-			startup|close) command=$1;;
-			*)
-				args=( "${@:1}" )
-				break;;
-		esac
-		shift
-	done
 }
 
 anydvd() { IsTaskRunning "AnyDVDtray" || TaskStart "AnyDVD"; }

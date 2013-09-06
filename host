@@ -1,0 +1,113 @@
+#!/bin/bash
+. function.sh
+
+usage()
+{
+	echot "\
+usage: template [one|two|cd](one)
+	-t, --timeout								milliseconds to wait for the host
+	-w, --wait [seconds](120)		wait for the host to become available 
+	available	<host>						check if host is available
+	start <host> <program>			start a program on host using ssh or psexe
+	info <host> [<var>]		 			get host information, variables are
+		${fields[*]}"
+	exit $1
+}
+
+init() 
+{
+	unset command host wait
+	fields=(host network sleep backup mobile install virtual platform ping wake address)
+	fieldDefaults=(- - no no no no no - yes no -)
+	timeout=(--timeout 200)
+}
+
+args()
+{
+	while [ "$1" != "" ]; do
+		case "$1" in
+			-h|--help) usage 0;;
+			-t|--timeout) shift; timeout=(--timeout $1);;
+			-w|--wait) IsNumeric $2 && { wait=(--wait $2); shift; } || wait=(--wait 120);;
+			*) 
+				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				[[ ! $host && "$command" == *(available|info|start) ]] && { GetHostArg "$@"; shift; continue; }
+				[[ "$command" == @(info|start) ]] && break
+				echoerr "Unknown argument $1"; usage 1;
+		esac
+		shift
+	done
+	[[ ! $command ]] && usage 1
+	args=("$@")
+}
+
+GetHostArg()
+{
+	[[ $# == 0 ]] && MissingOperand "host"
+	host="$1"
+}
+
+run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+
+availableCommand()
+{
+	case "$host" in
+		butare.net) return 0
+	esac
+
+	ping -n 1 -w ${timeout[1]} "$host" >& /dev/null
+
+	return 1
+}
+
+nameCommand()
+{
+	:
+}
+
+startCommand()
+{
+	: #host available, ssh, host info platform == win, psexec
+}
+
+infoCommand()
+{
+	local field
+
+	(( $# > 0 )) && { field="$1"; shift; GetInfoFieldIndex "$field"; fieldIndex="$?"; }
+
+	[[ $# != 0 ]] && usage 1
+
+	# Get specific field
+	if [[ $field ]];	then
+ 		value=$(grep -i "^$host[	 ]" "$(ScriptDir)/HostInfo.txt" | awk '{print $'$fieldIndex'}')
+ 		[[ ! $value ]] && return 1;
+ 		[[ "$value" == "-" ]] && echo "${fieldDefaults[$fieldIndex]}" || echo "${value}"
+ 		return 0
+ 	fi
+
+ 	# Get all fields
+ 	line=( $(grep -i "^$host[	 ]" "$(ScriptDir)/win32/HostInfo.txt") )
+ 	[[ ! $line ]] && return 1
+
+ 	for ((i=0; i<${#fields[@]}; ++i)); do
+ 		[[ "$value" == "-" ]] && value="${fieldDefaults[$i]}}" || value=${line[$i]}
+ 		printf "${fields[$i]}=%q " "$value"
+ 	done
+}
+
+GetInfoValue()
+{
+	index="$1"
+	field="${fields[$index]}"
+}
+
+GetInfoFieldIndex()
+{
+	FindIndexArray "$1" fields; local fieldIndex=$?
+	(( fieldIndex == 255 )) && 
+		{ echoerr "$field is not a valid variable.  Valid variables are ${fields[@]}"; exit 1; }
+	return $fieldIndex
+}
+
+run "$@"

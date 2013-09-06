@@ -1,6 +1,6 @@
 OfficeVersion="15"
-OfficeTitle="* - "
-WordFastStartTitle="Word Fast Start* - Word"
+OfficeTitle=".* - "
+WordFastStartTitle="Word Fast Start.* - Word"
 OfficeArchitecture="x86"
 OfficeBits="32"
 Office365=""
@@ -24,25 +24,25 @@ elif [[ -f "$P/Microsoft Office/Office14/WinWord.exe" ]]; then
 	OfficeDir="$P/Microsoft Office/Office14"
 	OfficeVersion="14"
 	OfficeTitle="* - Microsoft"
-	WordFastStartTitle="Word Fast Start* - Microsoft Word"
+	WordFastStartTitle="Word Fast Start.* - Microsoft Word"
 	
 elif [[ -f "$P32/Microsoft Office/Office14/WinWord.exe" ]]; then
 	OfficeDir="$P32/Microsoft Office/Office14"
 	OfficeVersion="14"
 	OfficeTitle="* - Microsoft"
-	WordFastStartTitle="Word Fast Start* - Microsoft Word"
+	WordFastStartTitle="Word Fast Start.* - Microsoft Word"
 	
 elif [[ -f "$P32/Microsoft Office/Office12/WinWord.exe" ]]; then
 	OfficeDir="$P32/Microsoft Office/Office12"
 	OfficeVersion="11"
 	OfficeTitle="* - Microsoft"
-	WordFastStartTitle="Word Fast Start* - Microsoft Word"
+	WordFastStartTitle="Word Fast Start.* - Microsoft Word"
 	
 elif [[ -f "$P32/Microsoft Office/Office11/WinWord.exe" ]]; then
 	OfficeDir="$P32/Microsoft Office/Office11"
 	OfficeVersion="11"
 	OfficeTitle="* - Microsoft"
-	WordFastStartTitle="Word Fast Start* - Microsoft Word"
+	WordFastStartTitle="Word Fast Start.* - Microsoft Word"
 
 else
 	OfficeDir=""

@@ -1,6 +1,14 @@
 #!/bin/bash
 . function.sh
-eval $(bkm SetVars)
-printf "a=%s\nb=%s\n" "$a" "$b"
-pause
-exit $?
+
+
+a()
+{
+	local field
+	field=2
+	echo "field=\"$field\""
+}
+
+field=12
+a
+echo $field

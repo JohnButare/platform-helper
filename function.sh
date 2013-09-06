@@ -2,18 +2,90 @@
 
 shopt -s nocasematch
 
-r() { [[ $# == 1 ]] && echo "$1" || eval $2="$1"; } # result <value> <var> - echo value or set var to value (faster)
+EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of the variable in variable, or set it to var
 IsInteractive() { [[ "$-" == *i* ]]; }
-IsFunction() { declare -f "$1" >& /dev/null; }
 pause() { read -n 1 -p "${*-Press any key when ready...}"; }
 clipw() { printf "$1" > /dev/clipboard; }
 clipr() { cat /dev/clipboard; }
 echoerr() { echo "${@}" > /dev/stderr; }
+r() { [[ $# == 1 ]] && echo "$1" || eval $2="\"$1\""; } # result <value> <var> - echo value or set var to value (faster)
+
+#
+# scripts
+#
+IsShellScript() { file "$1" | egrep "shell script" >& /dev/null; }
+IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction <function> - function is defined
+ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
+ScriptName() { GetFilename $0; }
+ScriptDir() { GetPath $0; }
+ScriptCd() { [[ $# == 1 ]] && eval "$("$1" cd)" || eval "$("$@")"; } # ScriptCd <script> [arguments](cd) - run a script and change to the directory it outputs 
+ScriptEval() { eval "$("$@")"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b"
+
+MissingOperand()
+{
+	echoerr "$(ScriptName): missing $1 operand"
+	exit 1
+}
+
+ElevationRequired()
+{
+	IsElevated && return 0;
+	echoerr "$(ScriptName): requires elevation";
+	exit 1
+}
+
+#
+# arrays
+#
+
+# FindIndex|IsIn <string> <values> - return 0 based index of string in the remaining arguments, usage a=(one two three); IsIn one "${a[@]}"
+FindIndex() { local s="$1"; shift; for ((i=0; i<$#; ++i)); do [[ "${!i}" == "$s" ]] && return $i; done; return 255; } 
+IsIn() { FindIndex "$@"; (($? != 255)); }
+
+FindIndexArray() { local a="$2[@]"; FindIndex "$1" "${!a}"; } 
+IsInArray() { FindIndexArray "$@"; (($? != 255)); }
 
 #
 # strings
 #
-IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
+IsInList() { [[ "$2" =~ (^| )$1($| ) ]]; } # IsInList <string> <space list>, for variables use  [[ s = @(${s/ /|}) ]]
+
+#
+# numbers
+#
+IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
+
+#
+# dates
+#
+
+TimerOn() { startTime="$(date -u '+%F %T.%N %Z')"; }
+TimestampDiff () { printf '%s' $(( $(date -u +%s) - $(date -u -d"$1" +%s))); }
+TimerOff() { s=$(TimestampDiff "$startTime"); printf "Elapsed %02d:%02d:%02d\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
+
+#
+# network
+#
+
+# IpAddress <host>
+IpAddress() { ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; }
+
+# IsIpAddress <string>
+IsIpAddress()
+{
+  local ip="$1"
+  [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && return 1
+	IFS='.' read -a ip <<< "$ip"
+  (( ${ip[0]}<255 && ${ip[1]}<255 && ${ip[2]}<255 && ${ip[3]}<255 ))
+}
+
+# ConnectToPort <host> <port> [<timeout>](200)
+ConnectToPort()
+{
+	local ip="$1" port="$2" timeout="${3-200}"
+	! IsIpAddress "$ip" && ip="$(IpAddress $ip)"
+	chkport-ip.exe "$ip" "$port" "$timeout" >& /dev/null
+}
 
 #
 # display
@@ -51,6 +123,7 @@ GetPath() { r "${1%/*}" $2; }
 GetFilename() { r "${1##*/}" $2; }
 GetName() { local f="$1"; GetFilename "$1" f; r "${f%.*}" $2; }
 GetExtension() { local f="$1"; GetFilename "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
+GetFullPath() { cygpath -a "$@"; }
 
 wtu() { cygpath -u "$*"; }
 utw() { cygpath -aw "$*"; }
@@ -58,37 +131,45 @@ utw() { cygpath -aw "$*"; }
 #
 # process
 #
-
+IsElevated() { IsElevated.exe > /dev/null; }
 OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
+SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys <class> <title|class> <keys>
+sr() { ShellRun.exe "$(utw $*)"; }
+tc() { tcc.exe /c $*; }
 
-# start <program> <arguments>, file arguments need quotes: "\"$(utw <path>)\""
-start() 
+start() # start [OPTION] <program> <arguments>, file arguments need quotes: \"$(utw <path>)\"
 {
-	local program="$1"
+	local option; [[ "$1" == --* ]] && { option=$1; shift; } 
+	local program="$1" ext
+	
 	[[ ! -f "$program" ]] && program="$(FindInPath "$1")"
 	[[ ! -f "$program" ]] && { echoerr "Unable to start $1: file not found"; return 1; }
-	cygstart "$(utw "$program")" "${@:2}";
+	GetExtension "$program" ext
+	
+	case "$ext" in
+		js|vbs) cscript /NoLogo "$(utw "$program")" "${@:2}";;
+		*) cygstart $option "$(utw "$program")" "${@:2}";;
+	esac
 } 
-starto() { cygstart $1 "$(utw $2)" "${@:3}"; } # starto <option> <program>, i.e. startto --showmaximized notepad
 
-sudo() 
+sudo() # sudo [command](mintty) - start a program as super user
 {
-	local program="mintty"
+	local program="mintty" hide ext prefix
+
+	[[ "$1" == +(-h|--hide) ]] && { hide="/noconsole"; shift; }
+
 	[[ $# > 0 ]] && { program="$1"; shift; }
 	[[ ! -f "$program" ]] && program="$(FindInPath "$program")"
 	[[ ! -f "$program" ]] && { echoerr "Unable to start $1: file not found"; return 1; }
+
+	GetExtension "$program" ext
+	[[ ! $ext ]] && IsShellScript "$program" && prefix="\"\"bash.exe\"\" --login "
+
 	IsElevated && cygstart "$(utw "$program")" "${@}" ||
-		cygstart hstart /elevated "\"\"$(utw "$program")\"\" ${@}";
+		cygstart hstart $hide /elevated "$prefix\"\"$(utw "$program")\"\" ${@}";
 }
 
-tc() { tcc.exe /c $*; }
-sr() { ShellRun.exe "$(utw $*)"; }
-IsElevated() { IsElevated.exe > /dev/null; }
-
-# SendKeys <class> <title|class> <keys>
-SendKeys() { AutoItScript SendKeys "${@}"; }
-
-IsTaskRunning()
+IsTaskRunning() # IsTaskRunng <task>
 {
 		local task="${1/\.exe/}"
 		GetFilename "$task" task
@@ -98,19 +179,19 @@ IsTaskRunning()
 		AutoItScript ProcessExists "${task}.exe"
 }
 
-ProcessClose() 
-{
-	local task="$1"; 
-	[[ ! -f "$task" ]] && { echo "Could not find executable $task"; return 1; }
-	GetFilename "$task" task
-	process.exe -q "$task"
-}
-
+# Process Commands
+ProcessList() { ps -W | cut -c33-36,61- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND"; }
+ProcessClose() { local p="${1/.exe/}.exe"; GetFilename "$p" p; process.exe -q "$p" $2 | egrep -v "Command Line Process Viewer|Copyright\(C\) 2002-2003|^$"; }
 ProcessKill() { local p="$1"; GetName "$p" p; pskill "$p"; }
 
-# Win [class] <title|class>, Au3Info.exe to get class
-WinSetState() { AutoItScript WinSetState "${@}"; }
+# Window Commands - Win [class] <title|class>, Au3Info.exe to get class
+WinActivate() { AutoItScript WinActivate "${@}"; }
+WinClose() { AutoItScript WinClose "${@}"; }
+WinList() { join -a 2 -e EMPTY -j 1 -t',' -o '2.1,1.2,2.2,2.3' <(ProcessList | sort -t, -k1) <(AutoItScript WinList | sort -t, -k1); }
 WinGetState() {	AutoItScript WinGetState "${@}"; }
+WinGetTitle() {	AutoItScript WinGetTitle "${@}"; }
+WinSetState() { AutoItScript WinSetState "${@}"; }
+
 WinExists() { WinGetState "${@}"; (( $? & 1 )); }
 WinVisible() { WinGetState "${@}"; (( $? & 2 )); }
 WinEnabled() { WinGetState "${@}"; (( $? & 4 )); }
@@ -132,17 +213,10 @@ AutoItScript()
 
 TextEdit()
 {
-	local files=""
-	local program="$P64/Sublime Text 2/sublime_text.exe"
-
+	local files=() program="$P64/Sublime Text 2/sublime_text.exe"
 	for file in "$@"
 	do
-		file=$(utw $file)
-		if [[ -f "$file" ]]; then
-			files="$files \"$file\""
-		else
-			echo $(basename "$file") does not exist
-		fi
+		[[ -f "$file" ]] && files+=("$(utw "$file")") || echo $(GetFilename "$file") does not exist
 	done
-	[[ "$files" != "" ]] && start "$program" $files
+	[[ $# == 0 || "${#files[@]}" > 0 ]] && start "$program" "${files[@]}"
 }

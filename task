@@ -1,0 +1,153 @@
+#!/bin/bash
+. function.sh
+
+init() 
+{
+	unset task title duplicate fast maxmin option wait
+	TaskCommands="start|restart|close|kill|CloseKill|IsRunning|info"
+	command='start'
+	delay=30
+}
+
+usage()
+{
+	echot "\
+usage: task [manager|scheduler](start)
+	$TaskCommands <task> [<arguments>]
+	-d, --duplicate				allow a duplicate instance of the task
+	-f, --fast						start the task hidden for fast subsequent loading
+	-t, --title <title>		the window title of the task
+	-w, --wait						wait for the task to open or close
+	--hide, --maximize, --minimize, --restore, --show, --showmaximized, --showminimized
+	--showna, --shownoactive, --shownormal, --maxmin"
+	exit $1
+}
+
+args()
+{
+	while [ "$1" != "" ]; do
+		case "$1" in
+			IsRunning) command=IsRunning;; CloseKill) command=CloseKill;;
+			-d|--duplicate) duplicate="true";;
+			-h|--help) usage 0;;
+			-f|--fast) fast="true"; option=--hide;;
+			--maxmin) maxmin="true"; option=--maximize;;
+			-t|--title) shift; title="$1";;
+			-w|--wait) wait="true";;
+			--hide|--maximize|--minimize|--restore|--show|--showmaximized|--showminimized|--showna|--shownoactive|--shownormal) option="$1";;
+			*) 
+				if IsFunction "${1,,}Command"; then command="${1,,}"
+				elif IsTaskCommand "$command"; then { task="$1"; shift; break; }
+				else { echoerr "Unknown argument $1"; usage 1; }
+				fi;;
+		esac
+		shift
+	done
+
+	args=( "$@" )
+	{ IsTaskCommand && [[ ! $task ]]; } && MissingOperand "task"
+	GetName "$task" TaskName
+}
+
+run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+IsTaskCommand() { [[ "$1" == @($TaskCommands) ]]; }
+
+startCommand()
+{
+	[[ ! $duplicate ]] && IsTaskRunning "$task" && return 0
+	start $option "$task" "$@"
+
+	[[ ! $wait && ! $maxmin ]] && return
+	WaitFor start || return
+
+	[[ $maxmin && $title ]] && WinSetState "$title" minimize
+
+	if [[ $fast && $title ]]; then
+		case "$TaskName" in
+			"winword") # if hidden minimized, will unhide when Word windows are opened
+				WinSetState "$title" restore || return
+				WinSetState "$title" hide || return;;
+			"firefox") # Firefox will reappear when hidden if not minimized
+				WinSetState "$title" minimize || return
+				WinSetState "$title" hide || return;;
+			*) WinVisible "$title" && { WinSetState "$title" hide || return; };;
+		esac
+	fi
+
+	# Don't let the hidden window stay active (so we don't type in it)
+  [[ $fast && "$(WinGetTitle)" == *${title}* ]] && WinActivate "Program Manager"
+}
+
+closeCommand()
+{
+	! IsTaskRunning "$task" && return;
+	if [[ $title ]]; then
+		WinActivate "$title" && WinClose "$title"
+	else
+		ProcessClose "$task"
+	fi;
+	[[ $wait ]] && WaitFor close
+}
+
+killCommand()
+{
+	! IsTaskRunning "$task" && return;
+	! ProcessKill "$task" && return
+	[[ $wait ]] && WaitFor close	
+}
+
+CloseKillCommand()
+{
+	closeCommand
+	[[ $wait ]] && WaitFor close
+	killCommand
+}
+
+restartCommand()
+{
+	closeCommand || return
+	[[ $wait ]] && { WaitFor close || return; }
+	startCommand
+}
+
+WaitFor() # [start|close](start)
+{
+	action="${1-start}"
+	[[ "$action" == "start" ]] && ActionPast="started" || ActionPast="closed"
+
+	# Outlook - WinExists $title returns true right after start, then false after about 250ms, then true again after full startup
+	[[ "$TaskName" == "outlook" && $title && "action" == "start" ]] && sleep .250
+
+	CheckTask "$action" && return
+	printf "Waiting $delay seconds for $TaskName to $action."
+	for ((i=0; i<$delay; ++i))
+	do
+		read -n 1 -t 1 && { echo "cancelled after $i seconds"; return 1; }
+		printf "."
+		CheckTask "$action" && { echo "$TaskName $ActionPast in $i seconds" && return 0; }
+	done
+	echo "$TaskName did not $action in $delay seconds"
+	return 1	
+}
+
+CheckTask() 
+{ 
+	if [[ "${1-start}" == "start" ]]; then
+		IsTaskRunning "$task" [[ $title ]] && WinExists "$title"
+	else 
+		! IsTaskRunning "$task";
+	fi; 
+} 
+
+IsRunningCommand()
+{
+	IsTaskRunning "$task" && return 0
+	[[ ! $title ]] && return 1
+	WinExists "$title"
+}
+
+schedulerCommand() { start mmc taskschd.msc; }
+managerCommand() { start taskmgr; }
+infoCommand() { tasklist /v | grep -i "${TaskName}.exe"; }
+
+run "$@"

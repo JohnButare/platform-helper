@@ -1,0 +1,522 @@
+#!/bin/bash
+. function.sh
+
+usage()
+{
+	echot "\
+usage: intel [startup|close](cd)
+  AddPrinter|cleanup|CleanupDirectories|CleanupStartMenu|update
+  ControlCenter|RapidStorage|DesktopUtilities|SsdToolbox|tuning
+  BigFix [start|stop|status|auto|enable|demand|disable](status)
+  HostOn [force]										Connect to Intel hosts
+  IsIntelHost [host]							  Determine if host is an Intel 
+  isc 															Intel Security Checker
+  iss [<product>|web]								Intel Software Supply
+  service start|stop|auto|demand		Intel Services
+  vpn [on|off|connect|disconnect|close|status|gui|hosts|cleanup](gui)
+  -q, --quiet 											minimal status messages"
+	exit $1
+}
+
+init() 
+{
+	unset quiet
+	command='cd'
+	title='Cisco AnyConnect Secure Mobility Client'
+
+	IntelApps=""
+	IntelDomains="AMR"
+	IntelNetworkApps="CruiseControlTray lync"
+	IntelWigginNetworkApps=""
+	NonIntelNetworkApps=""
+	IntelHosts=""
+	AdHosts=""
+
+	ControlCenterProgram="$P32/Intel/Intel Control Center/IntelControlCenter.exe"
+	RapidStorageProgram="$P32/Intel/Intel(R) Rapid Storage Technology/IAStorUI.exe"
+	DesktopUtilitiesProgram="$P32/Intel/Intel Desktop Utilities/intelmain.exe"
+	SsdToolboxProgram="$P32/Intel/Intel(R) Solid-State Drive Toolbox/Intel SSD Toolbox.exe"
+	TuningProgram="$P32/Intel/Intel Ext#e Tuning/Client/PerfTune.exe"
+	TuningProgram3="$P32/Intel/Ext#e Tuning Utility/Client/PerfTune.exe"
+
+	# Connect - "AMR Folsom CA" (best speed Circuit/ease, Sharepoint in OR), " IntelNetwork" must have a leading space
+	ConnectTo="AMR Folsom CA"
+
+	# Intel connection using Cisco VPN from Hawthorn suites required 2000ms (was 300ms)
+	NetworkCheckDelay=3000
+
+	VpnGui="$P32/Cisco/Cisco AnyConnect Secure Mobility Client/vpnui.exe"
+	VpnCli="$P32/Cisco/Cisco AnyConnect Secure Mobility Client/vpncli.exe"
+
+	IntelSecuirtyChecker="$P32/BigFix Enterprise/BES Client/TriggerClientUI.exe"
+
+	# Intel Software Supply - amr.corp.intel.com, was amr, fmsisslan02, rrsisslan02
+	iss="//amr.corp.intel.com/iss/Olwnprod/WinOs/Apps"
+	IssTest="//rrsisslan02/isstest/WinOs/Apps"
+}
+
+args()
+{
+	while [ "$1" != "" ]; do
+		case "$1" in
+			-h|--help) usage 0;;
+			-q|--quiet) quiet="-q";;
+			AddPrinter) command="AddPrinter";; ControlCenter) command="ControlCenter";; HostOn) command="HostOn";; IsIntelHost) command="IsIntelHost";; # case insensitive commands
+			*) 
+				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				[[ "$command" == @(vpn|service|IsIntelHost) ]] && break
+				echoerr "Unknown argument $1"; usage 1;
+		esac
+		shift
+	done
+	args=( "$@" )
+}
+
+run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+
+startupCommand()
+{
+	app $quiet startup $IntelApps || return
+
+	printf "Checking for Wiggin network..."
+	if network check Wiggin $NetworkCheckDelay; then
+		echo "present"
+		app $quiet startup $IntelWigginNetworkApps
+	else
+	  echo "not present"
+		app $quiet close $IntelWigginNetworkApps
+	fi
+
+	printf "Checking for Intel network..."
+	if network check Intel $NetworkCheckDelay; then
+	  echo "present"
+		app $quiet close $NonIntelNetworkApps
+		app $quiet startup $IntelNetworkApps		
+		HostOnCommand
+	else
+	  echo "not present"
+		app $quiet close $IntelNetworkApps
+		app $quiet startup $NonIntelNetworkApps 
+	fi
+
+	network initialize
+}
+
+closeCommand()
+{
+	app $quiet close $IntelApps
+	app $quiet close $IntelNetworkApps
+	app $quiet close $NonIntelNetworkApps 
+}
+
+HostOnCommand()
+{
+	:
+	# Arguments
+	# force=
+	# if "$1" == "force"; then
+	# 	force=true
+	# 	shift
+	# fi
+
+	# # Return if we are already connected to the first host
+	# if not defined force; then
+	# 	net use | egrep -i  $@field[0,$IntelHosts $AdHosts] >& nul:
+	# 	if $? == 0 return
+	# fi
+
+	# for host in ($IntelHosts $AdHosts) (
+			
+	# 	echo Connecting to $host...
+		
+	# 	# Determine how to connect to the host
+	# 	command=$@if[ $@IsInList[$host $AdHosts] == 1 ,IpcOnAd,IpcOn]
+
+	# 	# #ove connections from a diferent account
+	# 	IpcOff $host >& nul:
+		
+	# 	# Add a connection from the ad account
+	# 	$command $host >& nul:
+	# 	if $? != 0; then
+	# 		EchoErr Unable to make the connection to $host.
+	# 		$command $host
+	# 	fi
+			
+	# )
+}
+
+IsIntelHostCommand()
+{
+	[[ $# > 1 ]] && usage 1
+	local domain host="${1-$COMPUTERNAME}"
+
+	# Check USERDOMAIN variable
+	[[ "$host" == "$COMPUTERNAME" ]] && { [[ "$USERDOMAIN" == @($IntelDomains) ]]; return $?; }
+
+	# Check host info file
+	[[ "$(host info "$host" network)" == "Intel" ]]; return $?
+
+	# USERDOMAIN is not set properly when connecting over ssh, so use net config
+	#domain=$(ssh "$host" 'net config workstation | grep "^Workstation domain" | cut -c38-')
+}
+
+iscCommand() { start "$IntelSecuirtyChecker"; }
+
+AddPrinterCommand()
+{
+
+echo "/
+- Enter a Printer Address...
+- Printer Address=10.14.32.211 (rrp53b4pbbs.rr.intel.com)
+- Check Add this printer to my Printers and Faxes folder
+- Name=rr5, Job Storage PINT to print=0000"
+
+	rundll32.exe printui.dll,PrintUIEntry /p /n"HP Universal Printing PCL 5"
+	start "$P32/Intel/AddaPrinter/AddaPrinter.exe"
+}
+
+BigFixCommand()
+{
+	pause "BigFix: not implemented"
+	return 1
+
+	# BigFix()
+	# {
+
+	# if $@ServiceExist[besclient] == 0 return 1
+
+	# command=Status
+	# if $# gt 0; then
+	# 	command=$1
+	# 	shift
+	# fi
+	# if not IsLabel BigFix$command goto usage
+
+	# gosub BigFix$command
+	# return $_?
+
+	# :BigFixStart
+	# :BigFixStatus
+	# :BigFixStop
+	# :BigFixAuto
+	# :BigFixDemand
+	# :BigFixDisable
+	# service $command besclient
+	# return
+}
+
+#
+# Services
+#
+
+serviceCommand()
+{ 
+	echo "service: not implenented"
+	return 1
+
+	# # Only stop services if required to, ensure disconnected from all networks 
+	# stop()
+	# {
+	# 	VirusScan service stop
+	# 	intel BigFix stop
+	# 	intel iss stop
+	# } 
+
+	# start()
+	# {
+	# VirusScan service start
+	# intel BigFix start
+	# intel iss start
+	# return
+
+	# auto()
+	# {
+	# VirusScan service auto
+	# VirusScan hip on
+	# intel BigFix auto
+	# intel iss auto
+	# return
+
+	# :demand
+	# VirusScan service demand
+	# VirusScan hip off
+	# intel BigFix demand
+	# intel iss demand
+	# return	
+}
+
+#
+# ISS (Interl Software Supply)
+#
+
+issCommand()
+{
+	pause "iss: not implemented"
+	return 1
+
+	# 	iss()
+	# {
+
+	# dir=$iss
+	# if "$1" == "test"; then
+	# 	dir=$IssTest
+	# 	shift
+	# fi
+
+	# if $# == 0; then 
+	# 	cde "$dir"
+	# 	endlocal /d
+	# 	return 0
+	# fi
+
+	# command=$1
+	# shift
+
+	# if IsLabel Iss$command; then
+	# 	gosub Iss$command
+	# else
+	# 	gosub IssProduct
+	# fi
+
+	# return $_?
+
+	# IssProduct()
+	# {
+
+	# product=$command
+	# dir=$dir/$product
+
+	# if IsDir "$dir"; then
+	#   cdd $dir
+	# else
+	#   echo ISS application $product does not exist.
+	#   return 1
+	# fi
+
+	# EndLocal /d
+
+	# return 0
+
+	# IssWeb()
+	# {
+	# gosub BigFixStart
+	# InternetExplorer http://iss.intel.com
+	# return 0
+}
+
+#
+# Cleanup
+#
+
+cleanupCommand() { CleanupPrograms; CleanupDirectories; CleanupStartMenu; CleanupRegistry; }
+
+CleanupPrograms()
+{ 
+ 	! ask 'Cleanup Intel programs?' -default n -delay 2 && return
+ 	product uninstall "GetAdobeReaderProductId"
+ 	product uninstall "GetWinZipProductId"
+}
+
+CleanupDirectories()
+{
+	echo "Cleaning Intel directories..."
+	pause "NOT IMPLEMENTED"
+	# os.btm init
+
+	# MakeLink merge "$UserDocuments/data/PGP" hide "$UserDocuments/PGP"
+	# MakeLink merge "$UserDocuments/data/bluetooth" hide "$UserDocuments/Bluetooth Exchange Folder"
+	# MakeLink merge "$UserData/IntelProfileSnapshot" hide "$UserDocuments/ProfileSnapshot"
+	# MakeLink merge "$UserData/Communicator" hide "$UserHome/Tracing"
+
+	# DelFile "c:/build.ini"
+	# DelFile "c:/HPCamDrv.log"
+	# DelFile "c:/Regionalization.xml"
+	# DelFile "c:/WinZip*.log"
+
+	# DelDir "c:/Apps"
+	# DelDir "c:/system.sav"
+	# DelDir "c:/PerfLogs"
+	# DelDir contents "c:/Drivers"
+	# DelDir "$UserHome/Roaming"
+
+	# attrib /d +h c:/Drivers
+	# attrib /d +h c:/Intel
+}
+
+CleanupStartMenu()
+{
+	echo "Cleaning Intel Start Menu..."
+	pause "NOT IMPLEMENTED"
+
+	# 	os init
+
+	# install.btm OfficeIcons
+	# install.btm SilverlightIcons
+
+	# d=$pp/Operating System/Other/Intel
+	# MakeDir "$d/Other"
+
+	# MergeDir /e /rename "$pp/Intel" "$d"
+	# MergeDir /q /rename "$up/Intel" "$d"
+
+	# DelFile "$pd/AddaPrinter.lnk"
+	# DelFile "$pd/Adobe Reader 9.lnk"
+	# DelFile "$pd/AnyConnect User Guide.lnk"
+	# DelFile "$pd/Connected BackupPC.lnk"
+	# DelFile "$pd/Intel Security Checker.lnk"
+	# DelFile "$pd/Intel SSD Encryption.lnk"
+	# DelFile "$pd/Wellnomics WorkPace.lnk"
+	# DelFile "$pd/Windows 7 Learning Page.lnk"
+
+	# MergeDir /q "$pp/Autonomy" "$pp/Operating System/Other"
+	# MergeDir /e "$pp/Cisco" "$pp/Operating System/Other"
+	# MergeDir /e "$pp/Intel PROWireless" "$pp/Operating System/Other"
+	# MergeDir /e "$pp/McAfee" "$pp/Operating System/Other"
+	# MoveFile "$pp/SRS P#ium Sound.lnk" "$pp/Operating System"
+	# MergeDir /e "$pp/Wellnomics WorkPace 4.1" "$pp/Applications/Other"
+
+	# DelFile "$pp/Startup/Bluetooth.lnk"
+	# DelFile "$pp/Startup/Wellnomics WorkPace.lnk"
+
+	# DelFile "$psm/Cisco AnyConnect Secure Mobility Client.lnk"
+	# MoveFile "$psm/Intel Security Checker.lnk" "$pp/Operating System"
+
+	# MergeDir /e "$up/Cisco" "$pp/Operating System/Other"
+}
+
+CleanupRegistry()
+{
+	echo "Cleaning Intel registry..."
+	pause "NOT IMPLEMENTED"
+
+	# 	key=HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run
+	# key32=HKLM/SOFTWARE/Wow6432Node/Microsoft/Windows/CurrentVersion/Run
+
+	# # Delete McAfeeUpdaterUI - "C:/Program Files/McAfee/Common Framework/UdaterUI.exe" /StartedFromRunKey
+	# registry delete "$key/McAfeeUpdaterUI"
+
+	# # Delete ErmTray - "C:/Program Files/Intel/Security/ERM/Win64/ErmTray.exe"
+	# registry delete "$key/ErmTray"
+
+	# # McAfee Host Intrusion Prevention Tray - C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe
+	# registry delete "$key/McAfee Host Intrusion Prevention Tray"
+
+	# # PGPTray.exe - "C:/Program Files/Intel/Security/PGP/IntelPgpTray.exe"
+	# registry delete "$key/PGPTray.exe"
+
+	# # AgentUiRunKey - "C:/Program Files (x86)/Iron Mountain/Connected BackupPC/Agent.exe" -ni -sss -e http://localhost:16386/
+	# registry 32 delete "$key32/AgentUiRunKey"
+
+	# # BCSSync - "C:/Program Files (x86)/Microsoft Office/Office14/BCSSync.exe" /DelayServices
+	# registry 32 delete "$key32/BCSSync"
+
+	# # Cisco AnyConnect Secure Mobility Agent for Windows - "C:/Program Files (x86)/Cisco/Cisco AnyConnect Secure Mobility Client/vpnui.exe" -autolaunched
+	# registry 32 delete "$key32/Cisco AnyConnect Secure Mobility Agent for Windows"
+
+	# # Delete Communicator - "C:/Program Files (x86)/Microsoft Lync/communicator.exe" /fromrunkey
+	# registry 32 delete "$key32/Communicator"
+
+	# # - McAfeeUpdaterUI - "C:/Program Files (x86)/McAfee/Common Framework/udaterui.exe" /StartedFromRunKey
+	# registry 32 delete "$key32/McAfeeUpdaterUI"
+
+	# # QLBController - C:/Program Files (x86)/Hewlett-Packard/HP HotKey Support/QLBController.exe /start
+	# registry 32 delete "$key32/QLBController"
+
+	# # ShStatEXE - C:/Program Files (x86)/McAfee/VirusScan Enterprise/SHSTAT.EXE /STANDALONE
+	# registry 32 delete "$key32/ShStatEXE"
+
+	# # Delete SunJavaUpdateSched - "C:/Program Files (x86)/Common Files/Java/Java Update/jusched.exe"
+	# registry 32 delete "$key32/SunJavaUpdateSched"
+
+}
+
+#
+# VPN
+#
+
+vpnCommand()
+{
+	command="Ui"
+	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Vpn${s}Command && { command="$s"; shift; }
+	[[ $# != 0 ]] && usage
+	Vpn${command}Command "$@"
+}
+
+VpnCloseCommand() { VpnDisconnectCommand; ProcessKill "$VpnUi"; }
+VpnDisconnectCommand() { "$VpnCli" disconnect; }
+VpnHostsCommand() { "$VpnCli" hosts; }
+VpnStatusCommand() { "$VpnCli" status; }
+VpnGuiCommand() { start "$VpnGui"; VpnCleanupCommand; }
+
+VpnConnectCommand()
+{
+	local vpnPassword
+
+	[[ $# == 1 ]] && { vpnPassword="${1}{ENTER}"; shift; }
+	[[ $# != 0 ]] && usage 1
+
+	# Key the connection information and  connect
+	"$VpnCli" connect "$ConnectTo"
+	SendKeys "$title" "{ENTER}$vpnPassword"
+}
+
+VpnCleanupCommand()
+{
+	# Delete Cisco AnyConnect VPN Agent for Windows - "C:/Program Files (x86)/Cisco/Cisco AnyConnect VPN Client/vpnui.exe" -autolaunched
+	# Hold on cleanup - is this causing VPN reissues after wake?
+	# registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Cisco AnyConnect VPN Agent for Windows"
+	return 0
+}
+
+VpnOnCommand()
+{
+	if ! network check Intel $NetworkCheckDelay; then
+		VpnCloseCommand
+		VpnConnectCommand
+
+		# Wait for connect
+		#network info Intel -> returns ip
+		#host available $ip 500 wait 60
+	fi
+	startupCommand
+}
+
+VpnOffCommand()
+{
+	network check Intel $NetworkCheckDelay &&	VpnDisconnectCommand
+	startupCommand
+}
+
+#
+# Intel Applications
+#
+
+ControlCenterCommand() { start "$ControlCenterProgram"; }
+RapidStorageCommand() { start "$RapidStorageProgram"; }
+SsdToolboxCommand() { start "$SsdToolboxProgram"; }
+
+DesktopUtilitiesCommand()
+{
+	# Start services - normally stopped to prevent audio stutter
+	service start "Intel(R) Desktop Boards FSC Application Service"
+	service start "IduService"
+
+	start "$DesktopUtilitiesProgram"
+	pause 
+
+	# Start services - normally stopped to prevent audio stutter
+	service stop "Intel(R) Desktop Boards FSC Application Service"
+	service stop "IduService"
+}
+
+tuningCommand()
+{
+	service start XTUService
+
+	start "$TuningProgram"
+	pause
+
+	service stop XTUService
+}
+
+run "$@"

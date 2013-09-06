@@ -8,11 +8,11 @@ ElseIf $CmdLine[0] == 2 Then
 	$keys = $CmdLine[2]
 Else
 	ConsoleWriteError("usage: SendKeys [class] <title|class> <keys>" & @CRLF)
-	Exit 1
+	exit 1
 EndIf
 
 If $result == 0 Then
-	Exit 1
+	exit 1
 EndIf
 
 Send($keys)

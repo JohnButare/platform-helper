@@ -1,0 +1,103 @@
+#!/bin/bash
+. app.sh
+
+init()
+{ 
+	command="start"
+	program="$(FindInPath "pageant")"
+	certificate="$DOC/data/certificate/private/$USER SSH2.ppk"
+}
+
+usage() 
+{	
+	echot "usage: pu [start|startup|close|restart](start)
+  PuTTY tools: putty, plink, pscp, psftp, puttytel, pageant, PuttyGen
+
+  run [user@]host command|file - run the command on the specified host
+  shell [user@]host - run a shell on the specified host
+  startup  - start the PuTTY Authentication Agent for SSO to PU tools";
+  exit $1; 
+}
+
+args()
+{
+	command='start'
+
+	while [[ "$1" != "" ]]; do
+		case "$1" in
+			-h|--help) usage 0;;
+			IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";;
+			*)
+				if [[ "$1" == @(start|startup|run|shell) ]]; then { command="${1,,}"; shift; break; }
+				elif IsFunction "${1,,}Command"; then command="${1,,}"
+				else { echoerr "Unknown argument $1"; usage 1; }
+				fi;;
+		esac
+		shift
+	done
+	args=( "$@" )
+}
+
+startupCommand()
+{
+	! IsInstalledCommand && return 1; 
+	[[ ! -f "$certificate" ]] && { echoerr "Could not find the SSH2 Certificate"; return 1; }
+	IsRunningCommand && return 0
+	start "$program" \"$(utw $certificate)\" "$@"
+}
+
+run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+startCommand() { startupCommand; }
+IsInstalledCommand() { [[ -f "$program" ]]; }
+IsRunningCommand() { IsTaskRunning "$program"; } # task IsRunning --title "$title" "$program"; WinExists "$title";
+closeCommand() { ! IsRunningCommand && return 0; ProcessClose "$program"; } # task CloseKill --title "$title" "$program"; ProcessKill "$program"; SendKeys "!FX"; 
+restartCommand() { closeCommand && startCommand; }
+
+# StartShell() - start a shell on $host, host assumptions:
+# 1) ssh is installed and enabled 
+# 2) host ~$user/.ssh/authorized_keys contains a public key that is in our keyring
+StartShell() { start putty $user@$host; }
+
+shellCommand()
+{
+	GetUserHostArgument "$@"; shift;
+	[[ $# != 0 ]] && usage 1
+	StartShell
+}
+
+runCommand()
+{
+	local file cleanup result
+
+	GetUserHostArgument "$@"; shift;
+	[[ $# == 0 ]] && { StartShell; return; }
+	[[ -f "$1" && $# != 1 ]] && usage 1
+
+	# Put commands into a temporary file so plink is not confused by quotes in the command
+	if [[ -f "$1" ]]; then
+		file="$1"
+		shift
+	else
+		cleanup="true"
+		file=$(mktemp)
+		echo "$@" > "$file"
+	fi
+
+	plink $user@$host -m "$(utw $file)"
+	result=$?
+
+	[[ $cleanup ]] && rm "$file"
+	return $result
+}
+
+GetUserHostArgument()
+{
+	IFS="@"; set -- $1
+	case $# in
+		1) user="$USER"; host="$1";;
+		2) user="${1:-$USER}"; host="$2";;
+		*) usage 1;;
+	esac
+}
+
+run "$@"

@@ -2,6 +2,15 @@
 . app.sh
 . office.sh || exit 1
 
+init()
+{
+	command='start'
+	title="${OfficeTitle}Word";
+	program="$OfficeDir/WinWord.exe";
+	FastStart="$PUB/documents/data/setup/Word Fast Start.docx"
+	SignatureDir="$APPDATA/Microsoft/Signatures"
+}
+
 usage() 
 {	
 	echot "\
@@ -12,53 +21,136 @@ usage: word [start|startup|close|restart](start)
 	exit $1; 
 }
 
-init()
-{
-	command='start'
-	title="$OfficeTitle Word";
-	program="$OfficeDir/WinWord.exe";
-	FastStart="$PUB/documents/data/setup/Word Fast Start.docx"
-	SignatureDir="$APPDATA/Microsoft/Signatures"
-}
-
-run() {	init; args "$@"; ${command}Command; return "$?"; }
+run() {	init; args "$@"; ${command}Command "${args[@]}"; }
 
 args()
 {
 	while [[ "$1" != "" ]]; do
-		case ${1,,} in
+		case "${1,,}" in
 			-h|--help) usage 0;;
+			IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";;
+			SaveNormal) command="SaveNormal";; RestoreNormal) command="RestoreNormal";;
 			*) 
-				if IsFunction ${1,,}Command; then command=${1,,}
-				elif [[ "$command" == *(signature) ]]; then break
-				else
-					echoerr "Unknown argument $1"
-					usage 1
+				if [[ "$1" == @(start|signature|profile) ]]; then { command="${1,,}"; shift; break; }
+				elif IsFunction "${1,,}Command"; then command="${1,,}"
+				else { echoerr "Unknown argument $1"; usage 1; }
 				fi;;
 		esac
 		shift
 	done
-
 	args=( "$@" )
 }
 
 startCommand()
 {
-	{ ! IsInstalledCommand || IsRunningCommand; } && return 1
-	start "$program"
-	
+	! IsInstalledCommand && return 1; IsRunningCommand && return 0
+	task start --duplicate --title "$title" "$program" "$@"
 }
 
 startupCommand()
 {
-	{ ! IsInstalledCommand || IsRunningCommand; } && return 1
-	starto --minimize "$program"
+	! IsInstalledCommand && return 1; IsRunningCommand && return 0
+
+	# - Specify a window title to ensure that the hidden Word window is not reused by the next opened word document.
+	# - Command line option reference - http://support.microsoft.com/kb/q210565/
+	# - Important note: If Word is minimized when hidden, subsequent opens using the Open File Dialog and other actions will restore
+	#   the hidden window so that it is visible.
+	task start --fast --wait --title "$WordFastStartTitle" "$program" /w /q "\"$(utw "$FastStart")\""
 }
 
 IsInstalledCommand() { [[ -f "$program" ]]; }
 IsRunningCommand() { IsTaskRunning "$program"; }
-closeCommand() { IsRunningCommand && ProcessClose "$program"; }
+closeCommand() { ! IsRunningCommand && return 0; ProcessClose "$program"; } 
 restartCommand() { closeCommand && startCommand; }
-profile() {	tc profile.btm "$@" || usage; }
+profileCommand() {	tc profile.btm "$@" || usage; }
+cdCommand() { echo "$DOC/data/templates"; }
+
+restoreCommand() { WinSetState "$WordFastStartTitle" restore; }
+hideCommand() { WinSetState "$WordFastStartTitle" hide; }
+
+SaveNormalCommand()
+{
+	dir="$DOC\data"
+	templates="$dir/templates"
+	replicate="$dir/replicate"
+
+	cp "$templates/Normal.dotm" "$replicate/Normal Original.dotm" || return $?
+	cp "$templates/NormalEmail.dotm" "$replicate/NormalEmail Original.dotm" || return $?
+	return 0
+}
+
+RestoreNormalCommand()
+{
+	! IsInstalledCommand && return 1
+
+	local IsRunning=0
+
+	if [[ -f "$DOC/data/templates/toc.docx" ]] && 
+		! diff "$DOC/data/templates/toc.docx" "$USERPROFILE/templates/toc.docx" >& /dev/null; then
+		printf "Update table of contents..."
+		cp "$DOC/data/templates/toc.docx" "$USERPROFILE/templates" || return
+		echo "done"
+	fi
+
+	for ext in dot dotm; do RestoreNormalExtension "Normal" "$ext" || return; done
+	for ext in dot dotm; do RestoreNormalExtension "NormalEmail" "$ext" || return; done
+
+	[[ $IsRunning == 1 ]] && startupCommand
+
+	return 0
+}
+
+RestoreNormalExtension()
+{
+	local template="$1"
+	local ext="$2"
+	local dir="$DOC/data"
+	local normal="$dir/templates/$template.$ext"
+	local original="$dir/replicate/$template Original.$ext"
+
+	[[ ! -f "$original" ]] && return 0
+
+	[[ ! -f "$normal" ]] && { cp "$original" "$normal"; return; }
+	  
+	diff "$normal" "$original" >& /dev/nul && return
+
+  printf "Restoring the $template template..."
+   
+	# Close word	 
+	if word IsRunning; then
+		IsRunning=1
+		word close
+		sleep 2
+	fi
+	
+  while true; do
+    
+    printf "copying..."
+    cp "$original" "$normal" && echo "done"
+    
+    diff "$original" "$normal" && break
+
+    handle "$template"
+    echo ""
+    pause "Manually close the above tasks then press any key to continue..."
+  
+  done
+}
+
+signatureCommand()
+{
+	command="Cd"
+	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Signature${s}Command && { command="$s"; shift; }
+	[[ $# != 0 ]] && usage
+	Signature${command}Command "$@"
+}
+
+SignatureCdCommand() { [[ -d "$SignatureDir" ]] && echo "$SignatureDir"; }
+
+SignatureCopyCommand() 
+{
+	ask 'Copy the current directory into the Word signature directory?' y &&
+		CopyDir . "$SignatureDir"
+}
 
 run "$@"

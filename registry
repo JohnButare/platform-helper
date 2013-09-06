@@ -1,0 +1,145 @@
+#!/bin/bash
+. function.sh
+
+usage()
+{
+	echot "\
+usage: registry [32|64] [close](edit)
+  edit [<key>] - edit the specified registry key
+  delete|exist|get <key> - delete or query the specified registry key
+  set <key> [<type>](REG_SZ) <data>
+ 		type=REG_SZ|REG_MULTI_SZ|REG_EXPAND_SZ|REG_DWORD|REG_QWORD|REG_BINARY|REG_NONE
+  reg ... - run 32 or 64 bit version of reg.exe
+  import <file> - import registry entries from a file"
+	exit $1
+}
+
+init() 
+{
+	unset key value data dataType
+	bits="64"
+	command='edit'
+	title="Registry Editor"
+
+	program32="$WINDIR/syswow64/RegEdit.exe"
+	program64="$WINDIR/RegEdit.exe"
+
+	reg32="$WINDIR/syswow64/reg.exe"
+	reg64="$WINDIR/system32/reg.exe"
+}
+
+args()
+{
+	while [ "$1" != "" ]; do
+		case "${1,,}" in
+			32|64) bits="$1";;
+			-h|--help) usage 0;;
+			*)
+				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				[[ ! $key && "$command" == @(delete|exist|get|set) ]] && { GetKeyValueArg "$@"; shift; continue; }
+				[[ ! $key && "$command" == @(edit) ]] && { GetKeyArg "$@"; shift; continue; }
+				[[ "$command" == "set" ]] && { GetDataType "$@" || GetData "$@"; } && { shift; continue; }
+				[[ "$command" == @(import|reg) ]] && break
+				echoerr "Unknown argument $1"; usage 1;
+		esac
+		shift
+	done
+
+	args=( "$@" )
+	EvalVar program$bits program
+	EvalVar reg$bits reg
+}
+
+run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+editCommand() {  echo "command=$command"; }
+
+editCommand()
+{
+	[[ ! $key ]] && { start "$program"; return; }
+	
+	! IsElevated && { sudo --hide registry $bits edit "$key"; return; }
+	
+	# Start the registry program so the correct key is opened (x64 key or x86 virtual key)
+	task start --wait --title "$title" "$program"
+
+	RegJump.exe "$key"
+}
+
+importCommand()
+{
+	local file="$1"
+	[[ $# != 1 ]]	&& usage 1
+	[[ ! -f "$file" ]] && { echoerr "registry: cannot access \"$file\": No such file or directory"; return 1; }
+	start "$program" /s "$(utw $file)"
+}
+
+closeCommand()
+{
+	! IsTaskRunning $program && return 0
+	WinClose "$title"
+}
+
+deleteCommand()
+{
+	[[ "$value" != "" ]] && value="/v \"$value\""
+	eval "$reg" delete '$key' $value /f # >& nul:
+}
+
+getCommand()
+{
+	result="$( "$reg" query "$key" "${value[@]}" 2>&1 )" || return
+	echo "$result" | sed -n '3p' | cut -d" " -f 13-
+}
+
+existCommand()
+{
+	"$reg" query "$key" "${value[@]}" >& /dev/null
+}
+
+setCommand()
+{
+	"$reg" add "$key" "${value[@]}" "${dataType[@]}" /f "${data[@]}" #2>&1 
+}
+
+regCommand()
+{
+	"$reg" "$@"
+}
+
+MapKeyAlias()
+{
+	case "$1" in
+		run) key="HKLM\Software\Microsoft\Windows\CurrentVersion\Run";;
+		urun) key="HKCU\Software\Microsoft\Windows\CurrentVersion\Run";;
+		*) key="$1"
+	esac
+	key="${key}\\"
+}
+
+GetKeyArg()
+{
+	[[ $# == 0 ]] && MissingOperand "key"
+	MapKeyAlias "$1"
+}
+
+GetKeyValueArg()
+{
+	[[ $# == 0 ]] && MissingOperand "key"
+	MapKeyAlias "${1%*\\*}"
+	value="${1##*\\}"
+	[[ $value ]] && value=(/v "$value") || value=()
+}
+
+GetDataType()
+{
+	[[ $dataType || "$1" != +(REG_SZ|REG_MULTI_SZ|REG_EXPAND_SZ|REG_DWORD|REG_QWORD|REG_BINARY|REG_NONE) ]] && return 1
+	dataType=( /t "$1" )
+}
+
+GetData()
+{
+	[[ $data ]] && return 1
+	data=(/d "$1") || data=()
+}
+
+run "$@"
