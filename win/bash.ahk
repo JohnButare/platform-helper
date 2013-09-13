@@ -49,3 +49,4 @@ ActivateBash()
 	global BashClass
 	WinActivate ahk_class %BashClass%
 }
+

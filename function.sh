@@ -172,7 +172,7 @@ printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf
 FindInPath() { type -p "${1}"; }
 
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
-GetPath() { r "${1%/*}" $2; }
+GetPath() { local path="${1%/*}"; [[ "$path" == "$1" ]] && path="$PWD"; [[ "$path" == "" ]] && path="/"; r "$path" $2; }
 GetFilename() { r "${1##*/}" $2; }
 GetName() { local f="$1"; GetFilename "$1" f; r "${f%.*}" $2; }
 GetExtension() { local f="$1"; GetFilename "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
@@ -189,18 +189,38 @@ OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo
 SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys <class> <title|class> <keys>
 sr() { ShellRun "$(utw $*)"; }
 
-start() # start [OPTION] <program> <arguments>, file arguments need quotes: \"$(utw <path>)\"
+# start [-d|--direct] [OPTION...] <program> <arguments> - start a Windows program
+start() 
 {
-	local option; [[ "$1" == --* ]] && { option=$1; shift; } 
-	local program="$1" ext
-	
+	local direct; [[ "$1" == @(-d|--direct) ]] && { direct="true"; shift; }
+	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
+	local program="$1" args=( "${@:2}" ) qargs; for arg in "${args[@]}"; do [[ -f "$arg" ]] && qargs+=( "\"$(utw "$arg")\"" ) || qargs+=( "\"$arg\"" ); done
+	#printf "wait=$wait\noptions="; ShowArray options; printf "program=$program\nqargs="; ShowArray qargs; return
+
 	[[ ! -f "$program" ]] && program="$(FindInPath "$1")"
 	[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
 	GetExtension "$program" ext
 	
 	case "$ext" in
 		js|vbs) cscript /NoLogo "$(utw "$program")" "${@:2}";;
-		*) cygstart $option "$(utw "$program")" "${@:2}";;
+		*) if [[ $direct ]]; then "$program" "${args[@]}"; 
+			 else cygstart "${options[@]}" "$program" "${qargs[@]}"; fi;;
+	esac
+} 
+
+startw() # startw [OPTION...] <program> <arguments>, file arguments need quotes: \"$(utw <path>)\"
+{
+	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
+	local program="$1" args="${@:2}"
+	#echo "program=$program"; printf "options="; ShowArray options; printf "args="; ShowArray args; return
+
+	[[ ! -f "$program" ]] && program="$(FindInPath "$1")"
+	[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
+	GetExtension "$program" ext
+	
+	case "$ext" in
+		js|vbs) cscript /NoLogo "$(utw "$program")" "${@:2}";;
+		*) cygstart "${options[@]}" "$program" "${args}";;
 	esac
 } 
 
@@ -265,10 +285,10 @@ AutoItScript()
 
 TextEdit()
 {
-	local files=() program="$P64/Sublime Text 2/sublime_text.exe"
-	for file in "$@"
-	do
-		[[ -f "$file" ]] && files+=("\"$(utw "$file")\"") || echo $(GetFilename "$file") does not exist
+	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
+	local file files=() program="$P64/Sublime Text 2/sublime_text.exe"
+	for file in "$@"; do
+		[[ -f "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFilename "$file") does not exist"
 	done
-	[[ $# == 0 || "${#files[@]}" > 0 ]] && start "$program" "${files[@]}"
+	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then start "${options[@]}" "$program" "${files[@]}"; else return 1; fi
 }

@@ -5,7 +5,7 @@ usage()
 {
 	echot "\
 usage: os <command>
-	update|
+	update|MobilityCenter
 	FindDirs [host](local)		find OS directories
 	path [show|edit|editor|update|set [AllUsers]](editor)"
 	exit $1
@@ -20,7 +20,7 @@ args()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
-			FindDirs) command="FindDirs";; # case-insensitive aliases
+			FindDirs) command="FindDirs";; MobilityCenter) command="MobilityCenter";; # case-insensitive aliases
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ "$command" == @(FindDirs|path) ]] && break
@@ -33,6 +33,7 @@ args()
 }
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+MobilityCenterCommand() { start mblctr.exe; }
 
 updateCommand()
 {
