@@ -4,11 +4,13 @@
 usage()
 {
 	echot "\
-usage: template [one|two|cd](one)
+usage: host available|boot|connect|info|start
 	-t, --timeout								milliseconds to wait for the host
 	-w, --wait [seconds](120)		wait for the host to become available 
 	-q, --quiet									minimize messages
 	available	<host>						check if host is available
+	boot <host>|(<ip> <mac>)		boot the host
+	connect <host>|(<ip> <mac>)	boot and remote control the host
 	start <host> <program>			start a program on host using ssh or psexe
 	info <host> [<var>]		 			get host information, variables are
 		${fields[*]}"
@@ -17,7 +19,7 @@ usage: template [one|two|cd](one)
 
 init() 
 {
-	unset command host quiet wait
+	unset command host macAddress quiet wait
 	fields=(host network sleep backup mobile install virtual platform ping wake address)
 	fieldDefaults=(- - no no no no no - yes no -)
 	timeout=(--timeout 200)
@@ -28,14 +30,14 @@ args()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) usage 0;;
-			-t|--timeout) shift; timeout=(--timeout $1);;
+			-t|--timeout) timeout=(--timeout $2); shift;;
 			-q|--quiet) quiet=(--quiet);;
 			-w|--wait) IsInteger $2 && { wait=(--wait $2); shift; } || wait=(--wait 120);;
 			*) 
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ ! $host && "$command" == *(available|info|name|start) ]] && { GetHostArg "$@"; shift; continue; }
+				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				! IsOption "$1" && [[ ! $host && "$command" == *(available|boot|connect|info|name|start) ]] && { GetHostArg "$@"; shift; continue; }			
 				[[ "$command" == @(info|start) ]] && break
-				echoerr "Unknown argument $1"; usage 1;
+				UnknownOption "$1"
 		esac
 		shift
 	done
@@ -47,6 +49,12 @@ GetHostArg()
 {
 	[[ $# == 0 ]] && MissingOperand "host"
 	host="$1"
+}
+
+GetMacAddressArg()
+{
+	[[ $# == 0 ]] && MissingOperand "mac address"
+	macAddress="$1"
 }
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
@@ -78,7 +86,7 @@ checkHost()
 	local host="$1" ip="$1" timeout="$2" timeoutIncrease=0
 
 	local ip=$(IpAddress $host)
-	#[[ ! $ip ]] && return 1
+	[[ ! $ip ]] && return 1
 
 	case "$host" in
 		ExampleHostNeedingExtraPingTime) timeoutIncrease=200;;
@@ -106,6 +114,8 @@ nameCommand()
 		butare.net|nas) echo "nas"; return 0;; 
 	esac
 
+	infoCommand > /dev/null && { echo "${host,,}"; return 0; }
+
 	quiet=(--quiet)
 	name="$(startCommand hostname)"
 	[[ ! $name ]] && name="$host"
@@ -132,7 +142,7 @@ infoCommand()
 
 	[[ $# != 0 ]] && usage 1
 
-	line=( $(grep -i "^$host[	 ]" "$(ScriptDir)/win32/HostInfo.txt") )
+	line=( $(grep -i "^$host[	 ]" "$(ScriptDir)/HostInfo.txt") )
 	[[ ! $line ]] && return 1
 
 	# Specific field
@@ -158,10 +168,20 @@ GetInfoValue()
 
 GetInfoFieldIndex()
 {
-	FindIndexArray "$1" fields; local fieldIndex=$?
-	(( fieldIndex == 255 )) && 
-		{ echoerr "$field is not a valid variable.  Valid variables are ${fields[@]}"; exit 1; }
-	return $fieldIndex
+	IsInArray "$1" fields && return $isInIndex
+	EchoErr "$field is not a valid variable.  Valid variables are ${fields[@]}"; exit 1;
+}
+
+connectCommand()
+{
+	IsIpAddress "$host" && { GetMacAddressArg "$1"; shift; }
+	[[ $# != 0 ]] && UnknownOption "$1"
+}
+
+bootCommand()
+{
+	IsIpAddress "$host" && { GetMacAddressArg "$1"; shift; }
+	[[ $# != 0 ]] && UnknownOption "$1"
 }
 
 run "$@"

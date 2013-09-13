@@ -4,7 +4,7 @@
 init()
 {
 	unset quiet
-	localApps="cpu7icon gridy hp SideBar SpeedFan ThinkPadFanControl ZoomIt ShairPort4W"
+	localApps=(cpu7icon gridy hp SideBar SpeedFan ThinkPadFanControl ZoomIt ShairPort4W)
 }
 
 usage()
@@ -44,7 +44,7 @@ run()
 		[[ $quiet ]] && printf "."
 		if IsFunction "${app,,}"; then
 			${app,,}
-		elif IsInList "$app" "$localApps"; then
+		elif IsInArray "$app" localApps; then
 			RunInternalApp
 		else
 			RunExternalApp
@@ -108,12 +108,12 @@ RunInternalApp()
 RunExternalApp()
 {
 	! GetAppFile && return
-	! IsInstalled && return
+	! IsAppInstalled && return
 
 	if [[ "$command" == "startup" ]]; then
-		IsRunning && return
+		IsAppRunning && return
 	else
-		! IsRunning && return
+		! IsAppRunning && return
 	fi;
 
 	ShowStatus
@@ -132,7 +132,7 @@ GetAppFile()
 	[[ $appFile ]]
 }
 
-IsInstalled()
+IsAppInstalled()
 {
 	if ! CommandExists "$appFile" IsInstalled; then
 		echo "App $app does not have an IsInstalled command"
@@ -142,7 +142,7 @@ IsInstalled()
 	"$appFile" IsInstalled
 }
 
-IsRunning()
+IsAppRunning()
 {
 	if ! CommandExists "$appFile" IsRunning; then
 		echo "App $app does not have an IsRunning command"

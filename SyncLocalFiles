@@ -7,18 +7,17 @@ usage()
 usage: SyncLocalFiles	[host](nas)
 	Sync local files to another system.  Assume the source system is older, or assume the 
 	destination system is older.
-	-ho, --HostOlder			assume host files are than the local files
-	-lo, --LocalOlder		assume local files are older than the host files
-	-nb, --NoBak					do not backup files to the bak directory"
+	-do, --dest-older			assume destination host files are than the local source files
+	-so, --src-older				assume local files are older than the host files
+	-nb, --no-bak					do not backup files to the bak directory"
 	exit $1
 }
 
 init() 
 {
-	alwaysExclude=("*.bak" ".git" ".gitignore")
-	closeProcesses=(ProcExp ShrAlias)
-	publicBinExclude=("${alwaysExclude[@]}" "cports.cfg" "ftp.cfg" "JkDefrag*.log" "Defraggler.ini" "gridy.ini")
-	intelExclude=("pspv.exe" "regscanner*" "mailpv.exe" "awatch.exe" "netpass.exe" "SniffPass.exe" "MyLastSearch.exe" "BluetoothView.exe" "TcpTunnel.exe" "GdiView.exe" "DotNetResourcesExtract.exe")
+	exclude=( "*.bak" ".git" ".gitignore" "thumbs.db" )
+	publicBinExclude=( "${exclude[@]}" "cports.cfg" "ftp.cfg" "JkDefrag*.log" "Defraggler.ini" "gridy.ini" )
+	intelExclude=( "pspv.exe" "regscanner*" "mailpv.exe" "awatch.exe" "netpass.exe" "SniffPass.exe" "MyLastSearch.exe" "BluetoothView.exe" "TcpTunnel.exe" "GdiView.exe" "DotNetResourcesExtract.exe" )
 	srcId="${COMPUTERNAME,,}"	
 }
 
@@ -27,18 +26,19 @@ args()
 	unset host method NoBak
 	while [ "$1" != "" ]; do
 		case "$1" in
-			-ho|--HostOlder) method=(--HostOlder);;
-			-lo|--LocalOlder) method=(--LocalOlder);;
-			-nb|--NoBak) NoBak="$1";;
+			-do|--dest-older) method=(--dest-older);;
+			-so|--src-older) method=(--src-older);;
+			-nb|--no-bak) NoBak="--no-bak";;
 			-h|--help) usage 0;;
 			*) 
-				[[ ! $host ]] && { host="$1"; shift; continue; }
-				echoerr "Unknown argument $1"; usage 1;
+				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
+				UnknownOption "$1"
 		esac
 		shift
 	done
 	args=("$@")
 	host="${host-"nas"}"
+	syncDirArgs=( $method $NoBak --SrcId "$srcId" )
 }
 
 run() 
@@ -49,20 +49,83 @@ run()
 	CheckHost
 	ShowStatus || return
 	IdentifyDirectories || return
+	SyncShared || return
+	SyncUser || return
 	TimerOff
+	. ~/.bashrc
+}
+
+SyncShared()
+{
+	echo "Syncing Shared folders..."
+	SyncPublic || return
+	SyncEtc || return
+}
+
+SyncEtc()
+{
+	[[ ! $destEtc ]] && return 0
+	! IsElevated && { echo "Elevation is required to sync the etc directory"; return 0; }
+	SyncDir "$srcEtc" "$destEtc" -x "${exclude[@]}" hosts HostNetworks hosts.ics gm.dls gmreadme.txt "*.tmp"
+}
+
+SyncPublic()
+{
+	local args=( "${syncDirArgs[@]}" "$srcPublicDocuments" "$destPublicDocuments" )
+	local argsx=( "${args[@]}" -x "${exclude[@]}" )
+
+	SyncDir "${args[@]}" -d "data/bin" -x "${publicBinExclude[@]}" -r || return
+	SyncDir "${argsx[@]}" -d "data/doc" || return
+	SyncDir "${argsx[@]}" -d "data/lib" || return
+	SyncDir "${argsx[@]}" -d "data/man" -r || return
+	SyncDir "${argsx[@]}" -d "data/setup" || return
+	SyncDir "${argsx[@]}" -d "data/templates" || return
+	SyncDir "${argsx[@]}" -d "icons"  || return # do not recurse, common icons in root
+}
+	
+SyncUser()
+{
+	[[ "$user" == @(wsystem) ]] && return 0
+	echo "Syncing $USER folders..."
+
+	local args=( "${syncDirArgs[@]}" "$srcUserDocuments" "$destUserDocuments" )
+	local argsx=( "${args[@]}" -x "${exclude[@]}" )
+
+	SyncDir "${argsx[@]}" -d "data/bin" -r || return
+	SyncDir "${argsx[@]}" -d "data/certificate/public" -r || return
+	SyncDir "${argsx[@]}" -d "data/data/certificate/private" --exist || return
+	SyncDir "${argsx[@]}" -d "data/profile/default"  || return
+	SyncDir "${argsx[@]}" -d "data/replicate"  || return
+	SyncDir "${args[@]}" -d "data/templates" -x "${exclude[@]}" normal.dot normal.dotm "Document?Themes" LiveContent "SmartArt?Graphics" || return
+	SyncDir "${syncDirArgs[@]}" "$srcUserHome" "$destUserHome" -d ".ssh" -x "${exclude[@]}" environment known_hosts || return
+
+	if [[ "$host" == "nas" ]]; then
+		printf "Updating nas ssh permissions..."
+		ssh root@nas "chmod 700 /volume1/homes/$USER/.ssh; chmod 644 /volume1/homes/$USER/.ssh/authorized_keys"  || return
+		echo "done"
+	fi
+
+	cp "$srcUserDocuments/data/templates/toc.docx" "$srcUserSysHome/templates"
+
+	if [[ "$method" != "--DestOlder" ]] && ! IsElevated; then
+		printf "Updating AutoHotKey configuration..."
+		AutoHotKey restart
+		printf "done\n"
+	fi
 }
 
 IdentifyDirectories()
 {
-	ScriptEval os FindDirs "$host" || return
+	local srcEtc destEtc
+	ScriptEval os FindDirs || return
 
 	srcUserHome="$_UserHome"
-	# HERE HERE - convert to use _ vars
-	srcPublicDocuments="$PUB/Documents"
-	srcUserDocuments="$srcUserHome/Documents"
-	srcApplicationData="$APPDATA"
-	srcEtc="$SYSTEMROOT/system/drivers/etc"
-	srcPrograms32="programs32"
+	srcUserSysHome="$_UserSysHome"
+	srcPublicDocuments="$_PublicDocuments"
+	srcUserDocuments="$_UserDocuments"
+	srcApplicationData="$_ApplicationData"
+	srcEtc="${_system:+$_system/drivers/etc}"
+	srcPrograms32="%_programs32"
 
 	ScriptEval os FindDirs "$host" || return
 
@@ -70,29 +133,29 @@ IdentifyDirectories()
 	destPublicDocuments="$_PublicDocuments"
 	destUserDocuments="$_UserDocuments"
 	destApplicationData="$_ApplicationData"
-	destEtc="%@if[defined _system,$_system/drivers/etc]"
+	destEtc="${_system:+$_system/drivers/etc}"
 	destPrograms32="$_programs32"
 }
 
 CheckHost()
 {
 	[[ "$host" == "$COMPUTERNAME" ]] && 
-		{ echoerr "Cannot sync to the local computer"; return 1; }
+		{ EchoErr "Cannot sync to the local computer"; return 1; }
 
 	! host available "$host" &&	
-		{ echoerr "$host is not available"; return 1; }
+		{ EchoErr "$host is not available"; return 1; }
 
 	destId="$(host name "$host")"
+	syncDirArgs+=( --DestId "$destId" )
 
-	{ intel IsIntelHost ||  intel IsIntelHost "$host"; } && publicBinExclude+=("${intelExclude[@]}")
-
+	{ intel IsIntelHost ||  intel IsIntelHost "$host"; } && publicBinExclude+=( "${intelExclude[@]}" )
 }
 
 ShowStatus()
 {
 	case "${method[0]/--/}" in
-		HostOlder) printf "Replacing files on ";;
-		LocalOlder) printf "Copying local files to ";;
+		DestOlder) printf "Replacing files on ";;
+		SrcOlder) printf "Copying local files to ";;
 		*) printf "Synchronizing local files with ";;
 	esac
 	printf "$host"

@@ -10,9 +10,7 @@ usage: template [one|two|cd](one)
 	two										perform the second command
 	sub one|two						perform a sub command
 	-f, --file <file>			the file for the command
-	-i, --interactive			prompt for changes
-	-s, --server <server>	the server to use
-	-t, --test						run in test mode
+	-s, --show						show results
 	-v, --verbose					display detailed output"
 	exit $1
 }
@@ -21,45 +19,50 @@ init() { :; }
 
 args()
 {
-	unset file interactive server verbose test arg1 arg2
-	command='one'
+	unset dest exclude file show arg1 arg2
 	while [ "$1" != "" ]; do
 		case "$1" in
-			-f|--file) shift; file="$1";;
-			-s|--server) shift; server="$1";;
-			-i|--interactive) interactive="-i";;
-			-t|--test) test="-t";;
-			-v|--verbose) verbose="-v";;
+			-f|--file) file="$2"; shift;; # single argument
+			-s|--show) show="--show";; # no arguments
+			-x|--exclude) while [[ $2 ]] && ! IsOption "$2"; do exclude+=("$2"); shift; done;; # multiple arguments
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
-			one|OneAlias) command="one";; IsInstalled) command="IsInstalled";; # case-insensitive aliases
-			*) 
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ ! $key && "$command" == @(delete|exist|get|set) ]] && { GetKeyValueArg "$@"; shift; continue; }
-				[[ "$command" == @(arg|sub) ]] && break # remaining arguments processed locally 
-				echoerr "Unknown argument $1"; usage 1;
+			one|OneAlias) command="one";; IsInstalled) command="IsInstalled";; # command case-insensitive aliases
+			*)
+				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }	# command
+				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; } 	# unnamed argument
+				[[ "$command" == @(arg|sub) ]] && break																# defer
+				UnknownOption "$1"
 		esac
 		shift
 	done
-	[[ ! $command ]] && usage 1
+	[[ ! $command ]] && command='one'
 	[[ ! $file ]] && MissingOperand "file"
 	args=("$@")
 }
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
-oneCommand() {  echo "command=$command";}
+
+# oneCommand - return results and set in parent using ScriptEval
+oneCommand() 
+{  
+	vars=(a b c files); local a=1 b=2 c=3 files=("file 1.txt" "file 2.txt")
+	ScriptReturn $show "${vars[@]}"
+}
+
 twoCommand() {  ElevationRequired; echo "command=$command"; }
+
 threeCommand() { ! IsElevated && { sudo --hide template three; return; }; echo "command=$command"; }
 
 subCommand()
 {
 	command="One"
 	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Sub${s}Command && { command="$s"; shift; }
-	[[ $# != 0 ]] && usage
+	[[ $# != 0 ]] && UnknownOption "$1"
 	Sub${command}Command "$@"
 }
 
 SubOneCommand() { echo "command=Sub$command args=${#args[@]} file=\"$file\" server=\"$server\" interactive=$interactive verbose=$verbose test=$test"; }
-SubTwoCommand() {  echo "command=Sub$command"; }
+SubTwoCommand() { echo "command=Sub$command"; }
 
 argCommand()
 {

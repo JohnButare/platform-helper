@@ -5,7 +5,9 @@ usage()
 {
 	echot "\
 usage: os <command>
-	FindDirs [host](local)		find OS directories"
+	update|
+	FindDirs [host](local)		find OS directories
+	path [show|edit|editor|update|set [AllUsers]](editor)"
 	exit $1
 }
 
@@ -21,8 +23,8 @@ args()
 			FindDirs) command="FindDirs";; # case-insensitive aliases
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(FindDirs) ]] && break # remaining arguments processed locally 
-				echoerr "Unknown argument $1"; usage 1;
+				[[ "$command" == @(FindDirs|path) ]] && break
+				UnknownOption "$1"
 		esac
 		shift
 	done
@@ -31,6 +33,25 @@ args()
 }
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+
+updateCommand()
+{
+	echo "Starting Windows Update..."
+	start "wuapp.exe"
+
+	echo "Starting Update Checker..."
+	start "UpdateChecker.exe"
+}
+
+pathCommand()
+{
+	command="show"
+	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Path${s}Command && { command="$s"; shift; }
+	[[ $# != 0 ]] && UnknownOption "$1"
+	Path${command}Command "$@"
+}
+
+PathEditorCommand() { sudo PathEditor.exe; }
 
 FindDirsUsage()
 {
@@ -57,7 +78,7 @@ FindDirsCommand()
 	if [[ ! $host ]]; then
 		FindDirsWorker
 		
-	elif [[ "$host" == "butare.net" ]]; then
+	elif [[ "$host" == "butare.net" ]]; then # nas external
 		_sys=""
 		_data=""
 		_PublicHome="//%host@ssl@5006/public"
@@ -68,34 +89,44 @@ FindDirsCommand()
 		_UserDocuments="$_UserHome/documents"
 		SetUserDirs
 	
-	elif [[ -d "//$host/c$" ]]; then
+	elif [[ -d "//$host/c$" ]]; then # Windows hosts
 		_sys="//$host/c$"
 		_data="//$host/c$"
 		[[ -d "//$host/d$/Users" ]] && _data="//$host/d$"
 		FindDirsWorker
 
+	elif [[ -d "//$host/public" ]]; then # nas internal
+		_sys=""
+		_data=""
+		_PublicHome="//$host/public"
+		SetPublicDirs
+		
+		if [[ -d "//$host/home" ]]; then
+			_UserFound="$_user"
+			_UserHome="//$host/home"
+			_UserSysHome="$_UserHome"
+			_UserDocuments="$_UserHome/Documents"
+			SetUserDirs
+		fi
+
 	else
-		echoerr "Unable to find os directories on $host"
-		return 1
+		EchoErr "Unable to find os directories on $host"
+		FindDirsExit
 
 	fi
 
-	if [[ $show ]]; then
-		for var in "${vars[@]}"; do echo "$var=\"${!var}\""; done
-		echo "_UserFolders=(${_UserFolders[@]})"
-	else
-	 	for var in "${vars[@]}"; do printf "${var}=%q " "${!var}"; done
-	 	printf "_UserFolders=("; printf "%q " "${_UserFolders[@]}"; printf ") "
- 	fi
+	ScriptReturn $show "${vars[@]}"
 }
+
+FindDirsExit() { [[ ! $show ]] && echo "false"; exit 1; }
 
 FindDirsWorker()
 {
   _windows="$_sys/Windows"
 
   if [[ ! -d "$_windows" ]]; then
-  	echoerr "Unable to locate the windows folder on %_sys"
-  	exit 1
+  	EchoErr "Unable to locate the windows folder on %_sys"
+  	FindDirsExit
   fi;
 
 	_programs32="$_sys/Program Files (x86)"
@@ -116,8 +147,8 @@ FindDirsWorker()
 	_ApplicationData="$_UserSysHome/AppData/Roaming"
 
 	if [[ ! -d "$_UserHome" ]]; then
-		echoerr "Unable to locate user $_user$'s home folder on $_data"
-	  exit 1
+		EchoErr "Unable to locate user $_user$'s home folder on $_data"
+	  FindDirsExit
 	fi
 	
 	if [[ "$_user" == "Public" ]]; then
@@ -152,14 +183,14 @@ FindDirsArgs()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) FindDirsUsage 0;;
-			-s|--show) show="true";;
+			-s|--show) show="--show";;
 			-u|--user) shift; _user="${1-$USER}";;
 			*) 
 				if [[ ! $host ]]; then
 					[[ -d "$1" ]] && { host="$1"; _sys="$1"; _data="$1"; shift; continue; }
 					host available "$1" && { host="$1"; shift; continue; }
 				fi
-				echoerr "Unknown argument $1"; usage 1;
+				EchoErr "Unknown argument $1"; usage 1;
 		esac
 		shift
 	done
@@ -169,7 +200,7 @@ FindDirsArgs()
 
 FindDirsInit()
 {
-	vars=(_layout _sys _data _windows _users _system _system32 _system64 _programs _programs32 _programs64 _PublicHome _PublicDocuments _PublicData _PublicBin _user _UserHome _UserSysHome _UserDocuments _UserData _UserBin _CloudDocuments _CloudData _ProgramData _ApplicationData _LocalCode)
+	vars=(_layout _sys _data _windows _users _system _system32 _system64 _programs _programs32 _programs64 _PublicHome _PublicDocuments _PublicData _PublicBin _user _UserHome _UserSysHome _UserDocuments _UserData _UserBin _CloudDocuments _CloudData _ProgramData _ApplicationData _LocalCode _UserFolders)
 	for var in "${vars[@]}"; do unset $var; done
 
 	_sys="$(wtu "$SYSTEMDRIVE")"

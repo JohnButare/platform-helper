@@ -1,0 +1,92 @@
+#!/bin/bash
+. function.sh
+
+usage()
+{
+	echot "\
+usage: bak [/dest <destination dir>] <file> [<file>]...
+	Backup files specified by pattern to the bak directory
+	-d, --dest <dir>				backup directory location
+	-l, --local							backup locally to the public data backup directory 
+	-m, --move							move the file instead of copying it
+	-q, --quiet							hide status messages"
+	exit $1
+}
+
+init() { stamp="$(GetDatestamp)"; }
+
+args()
+{
+	unset bakDir destination local move quiet files
+	while [ "$1" != "" ]; do
+		case "$1" in
+			-d|--dest) dest="$2"; shift;;
+			-l|--local) local="--local";;
+			-m|--move) move="--move";;
+			-q|--quiet) quiet="--quiet";;
+			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			*)
+				! IsOption "$1" && { files+=( "$1" ); shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+	[[ ! $files ]] && MissingOperand "file"
+	args=("$@")
+}
+
+run() 
+{	
+	init; args "$@"; 
+	for file in "${files[@]}"; do BakFile "$file" || return; done
+}
+
+BakFile()
+{
+	local full="$1" file
+	GetFilename "$full" file
+
+	if [[ $bakDir ]]; then
+		[[ ! -f "$full" ]] && { EchoErr "$file does not exist"; return 1; }
+	else
+		CreateBakDir "$full" || return
+	fi
+
+	if [[ $move ]]; then
+		[[ ! $quiet ]] && printf "Removing $file to $bakDir..."
+		mv "$full" "$bakDir" || return
+		[[ ! $quiet ]] && printf "done\n"
+		return 0
+	fi
+
+	[[ ! $quiet ]] && printf "Backing up $file to $bakDir..."
+	cp -r "$full" "$bakDir" || return
+	[[ ! $quiet ]] && printf "done\n"
+	return 0
+}
+
+CreateBakDir()
+{
+	local full dir file
+	
+	full=$(GetFullPath "$1") || return
+	GetFilename "$full" file
+	GetPath "$full" dir
+
+	[[ ! -f "$1" ]] && { EchoErr "$1 does not exist"; return 1; }
+
+	bakDir="$dir/bak"
+	if [[ $local ]]; then 
+		bakDir="$PUB/Documents/data/bak"
+	elif [[ $dest ]]; then 
+		bakDir="$dest/bak"
+	fi
+
+	[[ ! -d "$bakDir" ]] && { mkdir "$bakDir" || return; }
+
+	local i=1
+	while [[ -d "$bakDir/$stamp.$i" ]]; do (( ++i )); done
+	bakDir="$bakDir/$stamp.$i"
+	mkdir "$bakDir" || return
+}
+run "$@"

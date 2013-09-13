@@ -1,0 +1,418 @@
+#!/bin/bash
+. function.sh
+
+usage()
+{
+	echot "\
+usage: SyncDir <src> <dest>
+	Synchronize the source and destination directories.  The last synchronization time is used
+	to perform conflict resolution
+
+	-di, --dest-id  			destination unique identifier
+	-do, --dest-older			assume the destination files are older
+	-d, --dir 						directory suffix, added to src and dest
+	-e, --exist						source and destination directories must exist, otherwise exit silently
+	-nb, --no-bak					do not back up replaced files
+	-r, --recursive				synchronize subdirectories
+	-si, --src-id  				source unique identifier
+	-so, --src-older			assume the source files are older
+	-x, --exclude	<file> [<file>]... 	one or more files to skip"
+	exit $1
+}
+
+init() 
+{
+	lastSyncSuffix="sync.txt";
+}
+
+args()
+{
+	unset dest destId dir exclude exist method noBak recursive src srcId x
+	while [ "$1" != "" ]; do
+		case "$1" in
+			-d|--dir) dir="$2"; shift;;
+			-di|--destid) destId="$2_"; shift;;
+			-do|--dest-older) method="--dest-older";;
+			-e|--exist) exist="--exist";;
+			-nb|--no-bak) noBak="--no-bak";;
+			-r|--recursive) recursive="--recursive";;
+			-si|--srcid) srcId="$2_"; shift;;
+			-so|--src-older) method="--src-older";;
+			-x|--exclude) while [[ $2 ]] && ! IsOption "$2"; do exclude+=("$2"); shift; done;;
+			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			*)
+				! IsOption "$1" && [[ ! $src ]] && { src="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+
+	[[ ! $src ]] && MissingOperand "src"
+	[[ ! $dest ]] && MissingOperand "dest"
+
+	args=("$@")
+	src="$src/$dir"; RemoveTrailingSlash "$src" src
+	dest="$dest/$dir"; RemoveTrailingSlash "$dest" dest
+	x=( ".*$lastSyncSuffix" "${exclude[@]}" )
+}
+
+SyncDirCommand()
+{
+	local src="$1" dest="$2"
+	local lastSyncSrcFile="$src/.$destId$lastSyncSuffix"
+	local lastSyncDestFile="$dest/.$srcId$lastSyncSuffix"
+
+	# src or dest is excluded
+	{ IsInArray -aw "${src##*/}" x || IsInArray -aw "${dest##*/}" x; } && return
+
+	# src and dest do not exist
+	[[ $exist && (! -d "$src" && ! -d "$dest") ]] && return 0
+
+	if [[ ! -d "$src" && ! -d "$dest" ]]; then
+		EchoErr "Source ($src) and destination ($dest) directories do not exist"
+		return 1
+	fi;
+
+	GetLastSync
+
+	if [[ ! -d "$src" ]]; then
+		CopyMissingDir "$dest" "$src" || return
+	elif [[ ! -d "$dest" ]]; then
+		CopyMissingDir "$src" "$dest" || return
+	else
+		sync "$src" "$dest" || return
+	fi
+
+	SetLastSync
+}
+
+sync()
+{
+	local src="$1" dest="$2" srcFiles destFiles srcIndex=0 destIndex=0 lastSrcIndex lastDestIndex
+	local srcLine destLine srcFile destFile srcOnlyFiles destOnlyFiles
+
+	printf "Syncing %s" "$(GetFilename "$src")"
+	GetFileList srcFiles "$src"; printf "."; lastSrcIndex="${#srcFiles[@]}"
+	GetFileList destFiles "$dest"; printf "."; lastDestIndex="${#destFiles[@]}"
+	printf ".\n"
+	# declare -p srcFiles destFiles
+
+	while (( srcIndex<lastSrcIndex || destIndex<lastDestIndex )); do
+
+		srcLine="${srcFiles[$srcIndex]}"; destLine="${destFiles[destIndex]}"
+
+		# quick check
+		if [[ "$srcLine" == "$destLine" ]]; then
+			(( ++srcIndex, ++destIndex ))
+			continue;
+		fi
+
+		srcFile="${srcLine%	*	*}"; destFile="${destLine%	*	*}"
+
+		# printf 'srcFile="%s"%s destFile="%s"%s\n' \
+		# 	"$srcFile" "$(IsInArray --array-wild "$srcFile" x && echo " (excluded)")"\
+		# 	"$destFile" "$(IsInArray --array-wild "$destFile" x && echo " (excluded)")"
+		# pause
+
+		if [[ "$srcFile" == "$destFile" ]]; then
+			! IsInArray --array-wild "$srcFile" x && { SyncFile || return; }
+			(( ++srcIndex, ++destIndex ))
+
+		elif [[ $srcFile && ( "$destFile" == "" || "$srcFile" < "$destFile" ) ]]; then
+			! IsInArray --array-wild "$srcFile" x && srcOnlyFiles+=("$srcFile")
+			(( ++srcIndex ))
+
+		elif [[ "$srcFile" == "" || "$destFile" < "$srcFile" ]]; then
+			! IsInArray --array-wild "$destFile" x && destOnlyFiles+=("$destFile")
+			(( ++destIndex ))
+		
+		fi
+	done
+
+	#declare -p srcOnlyFiles destOnlyFiles
+
+	case "$method" in
+		--dest-older)
+			DeleteFiles "$dest" "${destOnlyFiles[@]}" || return
+			CopyFiles "$src" "$dest" "${srcOnlyFiles[@]}" || return;;
+		--src-older)
+			DeleteFiles "$src" "${srcOnlyFiles[@]}" || return
+			CopyFiles "$dest" "$src" "${destOnlyFiles[@]}" || return;;
+		*) 
+			SyncMissingFiles "$src" "$dest" "${srcOnlyFiles[@]}" || return
+			SyncMissingFiles "$dest" "$src" "${destOnlyFiles[@]}" || return
+	esac
+
+	[[ ! $recursive ]] && return
+
+	local srcDirs destDirs dir
+
+	GetDirList srcDirs "$src"
+	for dir in "${srcDirs[@]}"; do
+		[[ "$dir" == @(bak) ]] && continue
+		SyncDirCommand "$src/$dir" "$dest/$dir" || return
+	done
+
+	GetDirList destDirs "$dest"
+	for dir in "${destDirs[@]}"; do
+		[[ "$dir" == @(bak) ]] && continue
+		IsInArray "$dir" srcDirs && continue
+		SyncDirCommand "$dest/$dir" "$src/$dir" || return
+	done
+
+}
+
+CopyMissingDir()
+{
+	local src="$1" dest="$2"
+
+	echo "Directory $dest does not exist"
+	ask "Do you want to (D)elete or (C)opy directory \"$src?\"" -vr DC -dr C
+	if [[ $? == 0 ]]; then
+		DelDir --ask "$src"
+		return
+	fi
+
+	echo "Copying directory $src to $dest"
+	mkdir "$dest" || return
+	
+	if [[ $recursive ]]; then
+		robocopy "$src" "$dest" /e /r:2 /w:2 /Purge /xf "${x[@]}"
+	else
+		robocopy "$src" "$dest" /r:2 /w:2 /Purge /xf "${x[@]}"
+	fi
+}
+
+GetLastSync()
+{
+	lastSync=0
+
+	if [[ -f "$lastSyncSrcFile" ]]; then
+		# Call GetSeconds to ensure we have a valid timestamp
+		lastSync="$(GetSeconds "$(<"$lastSyncSrcFile")" 2> /dev/null)"
+		[[ ! $lastSync ]] && lastSync=0
+	fi
+
+	# printf 'lastSync="%s" (%s)\n' "$(ShowTime "@$lastSync")" "$lastSync"
+}
+
+SetLastSync() 
+{
+	local newSync=$(GetSeconds) hideFile
+
+	[[ ! -f "$lastSyncSrcFile" ]] && hideFile="true"
+
+	echo "@$newSync" > "$lastSyncSrcFile" || return; return
+	cp --preserve=timestamps "$lastSyncSrcFile" "$lastSyncDestFile" || return
+
+	[[ $hideFile ]] && { attrib +h "$lastSyncSrcFile" || return; attrib +h "$lastSyncDestFile" || return; }
+
+	return 0
+}
+
+GetFileList() 
+{
+ 	IFS=$'\n' read -d '' -r -a $1 < <(find "$2" -maxdepth 1 -type f -printf "%f\t%s\t%T@\n" | sort); 
+}
+
+GetDirList() 
+{ 
+	IFS=$'\n' read -d '' -r -a $1 < <(find "$2" -maxdepth 1 -type d -printf "%f\n" | tail -n +2 | sort); 
+}
+
+SyncMissingFiles()
+{
+	local src="$1" dest="$2"; shift 2; local files=("$@")
+	[[ ! $files ]] && return 0
+
+	while (( ${#files[@]} != 0 )); do
+		echo
+		echo "Sync files only in $src directory"
+		printf '  '; ShowArray files
+
+		ask '  (1) Copy All (2) Delete All (3) Copy Some (4) Delete Some' -vr 1234 -dr 1
+
+		case $(( $? + 1 )) in
+			1) CopyFiles "$src" "$dest" "${files[@]}" || return; unset files;;
+		 	2) DeleteFiles "$src" "${files[@]}" || return; unset files;;
+			3) PromptForFiles "copy" "CopyFiles" "$src" "$dest" || return;;
+			4) PromptForFiles "delete" "DeleteFiles" "$src" || return;;
+		esac
+
+	done
+}
+
+PromptForFiles()
+{
+	local operation="$1" result items status="on"; shift
+
+	[[ "$operation" == "delete" ]] && status="off"
+
+	for file in "${files[@]}"; do
+		items+=( "$file" "" "$status" )
+	done
+
+	result=$(dialog --stdout --title "Synchronizing Files" \
+		--backtitle "Synchronizing files from $src to $dest" \
+  	--checklist "Choose files to $operation:" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
+	clear
+
+	eval results=( $result )
+	(( ${#results[@]} == 0 )) && return
+
+	"$@" "${results[@]}" || return
+
+	for file in "${results[@]}"; do
+		IsInArray "$file" files && unset files[$isInIndex]
+	done
+}
+
+DeleteFiles()
+{
+	local dir="$1"; shift; local files=("$@")
+	
+	for file in "${files[@]}"; do
+		if [[ $noBak ]]; then
+			printf "Removing $dir/$file..."
+			rm -f "$dir/$file" || return
+			printf "done\n"
+		else
+			bak --move --local "$dir/$file" || return
+		fi
+	done
+}
+
+CopyFiles()
+{
+	local src="$1"; dest="$2"; shift 2; local files=("$@")
+
+	for file in "${files[@]}"; do
+		CopyFile "$src/$file" "$dest/$file" || return
+	done
+}
+
+CopyFile()
+{
+	local src="$1" dest="$2"
+
+	printf "Copying $src..."
+	cp --preserve=timestamps "$src" "$dest" || return
+	printf "done\n"
+}
+
+ReplaceFile()
+{
+	local src="$1" dest="$2"
+
+	[[ ! $noBak ]] && { bak --local "$dest" || return; }
+
+	printf "Replacing $dest..."
+	cp --preserve=timestamps "$src" "$dest" || return	
+	printf "done\n"
+}
+
+SyncFile()
+{
+	local srcPath="$src/$srcFile" destPath="$dest/$destFile"
+	local srcInfo srcFileSize srcFileAge destInfo destFileSize destFileAge ext
+	read srcFileSize srcFileAge <<< "${srcLine#$srcFile	}"
+	read destFileSize destFileAge <<< "${destLine#$destFile	}"
+	GetExtension "$srcFile" ext
+
+	# printf "SyncFile $srcPath to $destPath\n"
+	# printf 'src="%s" srcFileSize=%s srcFileAge=%s\n' "$src" "$srcFileSize" "$srcFileAge"
+	# printf 'dest="%s" destFileSize=%s destFileAge=%s\n' "$dest" "$destFileSize" "$destFileAge"
+	# pause
+
+	if (( srcFileSize==destFileSize )) && diff "$srcPath" "$destPath" > /dev/null; then
+		printf "Syncing $srcFile file times..."
+		SyncFileTimes "$srcPath" "$srcFileAge" "$destPath" "$destFileAge" || return
+		printf "done\n"
+		return
+	fi
+
+	case "$method" in
+	--dest-older)
+		ReplaceFile "$srcPath" "$destPath"; return;;
+	--src-older)
+		ReplaceFile "$destPath" "$srcPath"; return;;
+	esac
+
+	echo "Syncing $srcFile file"
+
+	if CompareTime $destFileAge '<' $srcFileAge; then
+		local older="$dest" olderAge="$destFileAge" destDesc="Older" newer="$src" srcDesc="Newer"
+		local olderDesc="destination" newerDesc="source"
+	else
+		local older="$src" olderAge="$srcFileAge" srcDesc="Older" newer="$dest" destDesc="Newer"
+		local olderDesc="source" newerDesc="destination"
+	fi
+	local olderPath="$older/$srcFile" newerPath="$newer/$srcFile"
+
+	if [[ $lastSync ]] && CompareTime $olderAge '<=' $lastSync; then
+		ReplaceFile "$newerPath" "$olderPath" "$olderDesc"; return
+	fi
+
+	echo "Diferences:"
+	diff "$srcPath" "$destPath"
+	echo
+
+	printf "%s: %s %s (%s bytes)\n" "$srcDesc" "$srcPath" "$(ShowSimpleTime @$srcFileAge)" "$srcFileSize"
+	printf "%s: %s %s (%s bytes)\n" "$destDesc" "$destPath" "$(ShowSimpleTime @$destFileAge)" "$destFileSize"
+
+	local defaultChoice=3
+	case $ext in
+		dll|exe|com) defaultChoice=3;; # ReplaceOlder
+		*) defaultChoice=1;; # EditBoth
+	esac
+
+	while true; do
+		ask ' (1) Edit (2) Delete (3) Replace older (4) Replace newer' -vr 1234 -dr $defaultChoice
+
+		case $(( $?+1 )) in
+		  1)  # edit
+		    merge "$olderPath" "$newerPath" || return; pause
+		    if ! diff "$srcPath" "$destPath" > /dev/null; then
+		    	echo "$srcFile is still diferent"
+	    		continue
+	  		fi
+	  		SetFileTimes "$srcPath" "$destPath" || return
+	  		;;
+		  2) # delete
+
+				if [[ $noBak ]]; then
+					rm -f "$srcPath" "$destPath" || return
+				else
+					bak --local "$srcPath" "$destPath" || return
+				fi;;
+			3) ReplaceFile "$newerPath" "$olderPath"; return;;
+	  	4) ReplaceFile "$olderPath" "$newerPath"; return;;
+		esac
+		return
+	done
+}
+
+SyncFileTimes()
+{
+	local f1="$1" f1Age="$2" f2="$3" f2Age="$4"
+
+	if CompareTime "$f1Age" '>' "$f2Age"; then
+		touch "$f2" -d "@$f1Age"
+	else
+		touch "$f1" -d "@$f2Age"
+	fi
+}
+
+SetFileTimes()
+{
+	local now="$(GetSeconds)"
+	for file in "$@"; do
+		touch "$file" -d "@$now"
+		#stat "$file"
+	done
+}
+
+run() {	init; args "$@"; SyncDirCommand "$src" "$dest"; }
+
+run "$@"

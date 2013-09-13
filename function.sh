@@ -1,36 +1,66 @@
 # common functions for non-interactive scripts
 
-shopt -s nocasematch
+shopt -s nocasematch extglob
+
+#
+# other
+#
 
 EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of the variable in variable, or set it to var
 IsInteractive() { [[ "$-" == *i* ]]; }
 pause() { read -n 1 -p "${*-Press any key when ready...}"; }
 clipw() { printf "$1" > /dev/clipboard; }
 clipr() { cat /dev/clipboard; }
-echoerr() { echo "${@}" > /dev/stderr; }
+EchoErr() { echo "${@}" > /dev/stderr; }
 r() { [[ $# == 1 ]] && echo "$1" || eval $2="\"$1\""; } # result <value> <var> - echo value or set var to value (faster)
 
 #
 # scripts
 #
+IsInstalled() { type "$1" >& /dev/null && "$1" IsInstalled; }
 IsShellScript() { file "$1" | egrep "shell script" >& /dev/null; }
 IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction <function> - function is defined
-ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
+IsOption() { [[ "$1" =~ ^-.* ]]; }
 ScriptName() { GetFilename $0; }
 ScriptDir() { GetPath $0; }
 ScriptCd() { [[ $# == 1 ]] && eval "$("$1" cd)" || eval "$("$@")"; } # ScriptCd <script> [arguments](cd) - run a script and change to the directory it outputs 
 ScriptEval() { eval "$("$@")"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b"
 
+ScriptReturn() # ScriptReturns [-s|--show] <var>...
+{
+	local var avar fmt="%q" arrays="$(declare -p "$@" |& grep "^declare -a" 2> /dev/null)"
+	[[ "$1" == @(-s|--show) ]] && { fmt="\"%s\""; shift; }
+	
+	for var in "$@"; do
+		check=".*declare -a ${var}=.*"
+		if [[ "$arrays" =~ $check ]]; then
+			avar="$var[@]"
+			printf "$var=("
+			for value in "${!avar}"; do printf "$fmt " "$value"; done; 
+			echo ") "
+		else
+			printf "$var=$fmt\n" "${!var}"
+		fi
+	done;		
+}
+
+UnknownOption()
+{
+	EchoErr "$(ScriptName): unknown option $1"
+	EchoErr "Try \`$(ScriptName) --help\` for more information."
+	exit 1;
+}
+
 MissingOperand()
 {
-	echoerr "$(ScriptName): missing $1 operand"
+	EchoErr "$(ScriptName): missing $1 operand"
 	exit 1
 }
 
 ElevationRequired()
 {
 	IsElevated && return 0;
-	echoerr "$(ScriptName): requires elevation";
+	EchoErr "$(ScriptName): requires elevation";
 	exit 1
 }
 
@@ -38,17 +68,33 @@ ElevationRequired()
 # arrays
 #
 
-# FindIndex|IsIn <string> <values> - return 0 based index of string in the remaining arguments, usage a=(one two three); IsIn one "${a[@]}"
-FindIndex() { local s="$1"; shift; for ((i=1; i<=$#; ++i)); do [[ "${!i}" == "$s" ]] && return $(( $i-1 )); done; return 255; } 
-IsIn() { FindIndex "$@"; (($? != 255)); }
+ShowArray() { local var array="$1[@]"; printf -v var ' "%s"' "${!array}"; echo "${var:1}"; }
+ShowArrayDetail() { declare -p "$1"; }
+IsArray() {  [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
 
-FindIndexArray() { local a="$2[@]"; FindIndex "$1" "${!a}"; } 
-IsInArray() { FindIndexArray "$@"; (($? != 255)); }
+# IsInArray [-w|--wild] <string> <array variable> - return 0 if string is in the
+# array and set isInIndex , handles sparse arrays
+IsInArray() 
+{ 
+	local wild; [[ "$1" == @(-w|--wild) ]] && { wild="true"; shift; }
+	local awild; [[ "$1" == @(-aw|--array-wild) ]] && { awild="true"; shift; }
+	local s="$1" getIndexes="!$2[@]"; eval local indexes="( \${$getIndexes} )"
+
+	for isInIndex in "${indexes[@]}"; do
+		local getValue="$2[$isInIndex]"; local value="${!getValue}"
+		if [[ $wild ]]; then [[ "$value" == $s ]] && return 0;
+		elif [[ $awild ]]; then [[ "$s" == $value ]] && return 0;
+		else [[ "$s" == "$value" ]] && return 0; fi
+	done;
+
+	return 1
+}
 
 #
 # strings
 #
-IsInList() { [[ "$2" =~ (^| )$1($| ) ]]; } # IsInList <string> <space list>, for variables use  [[ s = @(${s/ /|}) ]]
+IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
+ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
 
 #
 # numbers
@@ -58,6 +104,17 @@ IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
 #
 # dates
 #
+GetDatestamp() { date '+%Y%m%d'; }
+GetTimestamp() {  date '+%F %T.%N %Z'; }
+ShowTime() { date '+%F %T.%N %Z' -d "$1"; }
+ShowSimpleTime() { date '+%D %T' -d "$1"; }
+CompareTime() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
+
+GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 to specified time
+{
+	[[ $1 ]] && { date +%s.%N -d "$1"; return; }
+	[[ $# == 0 ]] && date +%s.%N; # only return default date if no argument is specified
+}
 
 TimerOn() { startTime="$(date -u '+%F %T.%N %Z')"; }
 TimestampDiff () { printf '%s' $(( $(date -u +%s) - $(date -u -d"$1" +%s))); }
@@ -102,25 +159,11 @@ ConnectToPort()
 
 [[ "$TABS" == "" ]] && TABS=2
 
-echot() { echo -e "$*" | expand -t $TABS; } 			# EchoTab
+clear() { echo -en $'\e[H\e[2J'; }
 catt() { cat $* | expand -t $TABS; } 							# CatTab
+echot() { echo -e "$*" | expand -t $TABS; } 			# EchoTab
 lesst() { less -x $TABS $*; } 										# LessTab
-
-clear()
-{
-	local clear=''
-
-	type -p clear >/dev/null && \
-		clear=$(exec clear)
-	[[ -z $clear ]] && type -p tput >/dev/null && \
-		clear=$(exec tput clear)
-	[[ -z $clear ]] && \
-		clear=$'\e[H\e[2J'
-
-	echo -en "$clear"
-
-	eval "function clear { echo -en '$clear'; }"
-}
+printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf pipe: cat file | printf -v var
 
 #
 # path: realpath, cygpath
@@ -128,6 +171,7 @@ clear()
 
 FindInPath() { type -p "${1}"; }
 
+RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 GetPath() { r "${1%/*}" $2; }
 GetFilename() { r "${1##*/}" $2; }
 GetName() { local f="$1"; GetFilename "$1" f; r "${f%.*}" $2; }
@@ -143,8 +187,7 @@ utw() { cygpath -aw "$*"; }
 IsElevated() { IsElevated.exe > /dev/null; }
 OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
 SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys <class> <title|class> <keys>
-sr() { ShellRun.exe "$(utw $*)"; }
-tc() { "$P/JPSoft/TCMD13x64/tcc.exe" /c $*; }
+sr() { ShellRun "$(utw $*)"; }
 
 start() # start [OPTION] <program> <arguments>, file arguments need quotes: \"$(utw <path>)\"
 {
@@ -152,7 +195,7 @@ start() # start [OPTION] <program> <arguments>, file arguments need quotes: \"$(
 	local program="$1" ext
 	
 	[[ ! -f "$program" ]] && program="$(FindInPath "$1")"
-	[[ ! -f "$program" ]] && { echoerr "Unable to start $1: file not found"; return 1; }
+	[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
 	GetExtension "$program" ext
 	
 	case "$ext" in
@@ -169,7 +212,7 @@ sudo() # sudo [command](mintty) - start a program as super user
 
 	[[ $# > 0 ]] && { program="$1"; shift; }
 	[[ ! -f "$program" ]] && program="$(FindInPath "$program")"
-	[[ ! -f "$program" ]] && { echoerr "Unable to start $1: file not found"; return 1; }
+	[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
 
 	GetExtension "$program" ext
 	[[ ! $ext ]] && IsShellScript "$program" && prefix="\"\"bash.exe\"\" --login "
@@ -190,7 +233,7 @@ IsTaskRunning() # IsTaskRunng <task>
 
 # Process Commands
 ProcessList() { ps -W | cut -c33-36,61- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND"; }
-ProcessClose() { local p="${1/.exe/}.exe"; GetFilename "$p" p; process.exe -q "$p" $2 | egrep -v "Command Line Process Viewer|Copyright\(C\) 2002-2003|^$"; }
+ProcessClose() { local p="${1/.exe/}.exe"; GetFilename "$p" p; process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null; } #egrep -v "Command Line Process Viewer|Copyright\(C\) 2002-2003|^$"; }
 ProcessKill() { local p="$1"; GetName "$p" p; pskill "$p"; }
 
 # Window Commands - Win [class] <title|class>, Au3Info.exe to get class
@@ -225,7 +268,7 @@ TextEdit()
 	local files=() program="$P64/Sublime Text 2/sublime_text.exe"
 	for file in "$@"
 	do
-		[[ -f "$file" ]] && files+=("$(utw "$file")") || echo $(GetFilename "$file") does not exist
+		[[ -f "$file" ]] && files+=("\"$(utw "$file")\"") || echo $(GetFilename "$file") does not exist
 	done
 	[[ $# == 0 || "${#files[@]}" > 0 ]] && start "$program" "${files[@]}"
 }
