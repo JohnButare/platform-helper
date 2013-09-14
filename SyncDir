@@ -54,6 +54,7 @@ args()
 	args=("$@")
 	src="$src/$dir"; RemoveTrailingSlash "$src" src
 	dest="$dest/$dir"; RemoveTrailingSlash "$dest" dest
+	x+=( ".*$lastSyncSuffix" )
 }
 
 SyncDirCommand()
@@ -62,7 +63,7 @@ SyncDirCommand()
 	local lastSyncSrcFile="$src/.$destId$lastSyncSuffix"
 	local lastSyncDestFile="$dest/.$srcId$lastSyncSuffix"
 
-	# src or dest is excluded
+	# src or dest directory is excluded
 	{ IsInArray -aw "${src##*/}" x || IsInArray -aw "${dest##*/}" x; } && return
 
 	# src and dest do not exist
@@ -76,9 +77,17 @@ SyncDirCommand()
 	GetLastSync
 
 	if [[ ! -d "$src" ]]; then
-		CopyMissingDir "$dest" "$src" || return
+			case "${method##--}" in
+				dest-older) DeleteMissingDir "$dest";;
+				src-older) CopyMissingDir "$dest" "$src";;
+				*) SyncMissingDir "$dest" "$src";;
+			esac || return		
 	elif [[ ! -d "$dest" ]]; then
-		CopyMissingDir "$src" "$dest" || return
+			case "${method##--}" in
+				dest-older) CopyMissingDir "$src" "$dest";;
+				src-older) DeleteMissingDir "$src";;
+				*) SyncMissingDir "$src" "$dest";;
+			esac || return		
 	else
 		sync "$src" "$dest" || return
 	fi
@@ -136,11 +145,11 @@ sync()
 
 	#declare -p srcOnlyFiles destOnlyFiles
 
-	case "$method" in
-		--dest-older)
+	case "${method##--}" in
+		dest-older)
 			DeleteFiles "$dest" "${destOnlyFiles[@]}" || return
 			CopyFiles "$src" "$dest" "${srcOnlyFiles[@]}" || return;;
-		--src-older)
+		src-older)
 			DeleteFiles "$src" "${srcOnlyFiles[@]}" || return
 			CopyFiles "$dest" "$src" "${destOnlyFiles[@]}" || return;;
 		*) 
@@ -188,10 +197,8 @@ SyncFile()
 	fi
 
 	case "$method" in
-	--dest-older)
-		ReplaceFile "$srcPath" "$destPath"; return;;
-	--src-older)
-		ReplaceFile "$destPath" "$srcPath"; return;;
+	--dest-older) ReplaceFile "$srcPath" "$destPath"; return;;
+	--src-older) ReplaceFile "$destPath" "$srcPath"; return;;
 	esac
 
 	echo "Syncing $srcFile file"
@@ -270,26 +277,36 @@ SyncMissingFiles()
 	done
 }
 
-CopyMissingDir()
+SyncMissingDir()
 {
 	local src="$1" dest="$2"
 
 	echo "Directory $dest does not exist"
 	ask "Do you want to (D)elete or (C)opy directory \"$src?\"" -vr DC -dr C
 	if [[ $? == 0 ]]; then
-		DelDir --ask "$src"
-		return
-	fi
+		DeleteMissingDir "$src"
+	else
+		CopyMissingDir "$src" "$dest"
+	fi	
+}
+
+CopyMissingDir()
+{
+	local src="$1" dest="$2"
 
 	echo "Copying directory $src to $dest"
-	mkdir "$dest" || return
+
+	mkdir -p "$dest" || return
 	
 	if [[ $recursive ]]; then
-		robocopy "$src" "$dest" /e /r:2 /w:2 /Purge /xf "${x[@]}"
+		robocopy "$(utw "$src")" "$(utw "$dest")" /e /r:2 /w:2 /Purge /xf "${x[@]}" /xd "${x[@]}"
 	else
-		robocopy "$src" "$dest" /r:2 /w:2 /Purge /xf "${x[@]}"
+		robocopy "$(utw "$src")" "$(utw "$dest")" /r:2 /w:2 /Purge /xf "${x[@]}" /xd "${x[@]}"
 	fi
+	(( $? <= 8 )) # http://support.microsoft.com/kb/954404
 }
+
+DeleteMissingDir() { DelDir --ask "$1"; }
 
 GetLastSync()
 {
@@ -306,6 +323,8 @@ GetLastSync()
 
 SetLastSync() 
 {
+	[[ ! -d "$src" || ! -d "$dest" ]] && return 0
+	
 	local newSync=$(GetSeconds) hideFile
 
 	[[ ! -f "$lastSyncSrcFile" ]] && hide="true"

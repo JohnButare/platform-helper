@@ -185,7 +185,7 @@ inteldesktopcontrolcenter()
 { 
 	program="$P32/Intel/Intel(R) Desktop Control Center/idcc.exe"
 	{ [[ "$command" == "startup" && -f "$program" ]] && IsTaskRunning idcc; } && 
-		cygstart --directory "$(GetPath "$dir")" "$(utw "$program")"
+		start --directory="$(GetPath "$program")" "$program"
 }
 
 processexplorer()

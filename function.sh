@@ -194,7 +194,7 @@ start()
 {
 	local direct; [[ "$1" == @(-d|--direct) ]] && { direct="true"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
-	local program="$1" args=( "${@:2}" ) qargs; for arg in "${args[@]}"; do [[ -f "$arg" ]] && qargs+=( "\"$(utw "$arg")\"" ) || qargs+=( "\"$arg\"" ); done
+	local program="$1" args=( "${@:2}" ) qargs; for arg in "${args[@]}"; do [[ -e "$arg" ]] && qargs+=( "\"$(utw "$arg")\"" ) || qargs+=( "\"$arg\"" ); done
 	#printf "wait=$wait\noptions="; ShowArray options; printf "program=$program\nqargs="; ShowArray qargs; return
 
 	[[ ! -f "$program" ]] && program="$(FindInPath "$1")"

@@ -1,4 +1,3 @@
 #!/bin/bash
 . function.sh
-
-echo $#
+echo $USER
