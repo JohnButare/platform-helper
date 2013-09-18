@@ -1385,7 +1385,7 @@ VsInit
 run "$vs/setup/vs/en_visual_studio_ultimate_2012_x86_dvd_920947.iso"
 run "$vs/update/VS2012.3.exe"
 run "$vs/setup/other/en_visual_studio_2012_sdk_x86_920808.exe"
-run "$vs/setup/other/SSDTSetup.exe"
+run "$vs/setup/ssdt/SSDTSetup.exe"
 run "$vs/setup/other/Microsoft.TeamFoundation.Git.Provider.msi"
 
 # Extensions
@@ -11522,8 +11522,7 @@ return
 :pGina
 # http://pgina.org/download.html
 
-# IsIntelHost -> add to os FindInfo
-if $@IsIntelHost[] == 0 then return
+# if in a domain return
 
 echot "\
 ************************
