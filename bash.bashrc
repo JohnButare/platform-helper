@@ -34,7 +34,7 @@ fi
 
 if [[ "$PROGRAMDATA" == "" ]]; then
 	export programdata="$ProgramData"
-	export PROGRAMDATA=$(cygpath -u "$appdata" 2> /dev/null)
+	export PROGRAMDATA=$(cygpath -u "$ProgramData" 2> /dev/null)
 fi
 
 if [[ "$WINDIR" == *\\* ]]; then

@@ -37,8 +37,9 @@ ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # Scr
 
 ScriptReturn() # ScriptReturns [-s|--show] <var>...
 {
-	local var avar fmt="%q" arrays
+	local var avar fmt="%q" arrays export
 	[[ "$1" == @(-s|--show) ]] && { fmt="\"%s\""; shift; }
+	[[ "$1" == @(-e|--export) ]] && { export="export "; shift; }
 
 	# cache array lookup for performance
 	arrays="$(declare -p "$@" |& grep "^declare -a" 2> /dev/null)"
@@ -51,7 +52,7 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 			for value in "${!avar}"; do printf "$fmt " "$value"; done; 
 			echo ") "
 		else
-			printf "$var=$fmt\n" "${!var}"
+			printf "$export$var=$fmt\n" "${!var}"
 		fi
 	done;		
 }
