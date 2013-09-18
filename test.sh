@@ -1,3 +1,5 @@
 #!/bin/bash
 . function.sh
-echo $USER
+
+shopt -s dotglob nullglob
+shopt dotglob nullglob

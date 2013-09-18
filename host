@@ -19,8 +19,8 @@ usage: host available|boot|connect|info|start
 
 init() 
 {
-	unset command host macAddress quiet wait
-	fields=(host network sleep backup mobile install virtual platform ping wake address)
+	unset command host quiet wait
+	fields=(host network sleep backup mobile install virtual platform port wake ips macs)
 	fieldDefaults=(- - no no no no no - yes no -)
 	timeout=(--timeout 200)
 }
@@ -41,7 +41,8 @@ args()
 		esac
 		shift
 	done
-	[[ ! $command ]] && usage 1
+	[[ ! $command ]] && MissingOperand "command"
+	[[ ! $host && "$command" == *(available|boot|connect|info|name|start) ]] && MissingOperand "host"
 	args=("$@")
 }
 
@@ -54,7 +55,7 @@ GetHostArg()
 GetMacAddressArg()
 {
 	[[ $# == 0 ]] && MissingOperand "mac address"
-	macAddress="$1"
+	mac="$1"
 }
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
@@ -83,26 +84,31 @@ availableCommand()
 # checkHost <host> <timeout> - minimize the time taken if the hostname is not found, or if the hostname is found and the host is not available
 checkHost()
 {
-	local host="$1" ip="$1" timeout="$2" timeoutIncrease=0
+	local host="$1" timeout="$2" timeoutIncrease=0 ip port platform 
 
-	local ip=$(IpAddress $host)
-	[[ ! $ip ]] && return 1
+	if IsIpAddress "$host"; then
+		ip="$host"
+	elif ScriptEval host info $host; then
+		ip="${ips[0]}"
+	fi
 
 	case "$host" in
 		ExampleHostNeedingExtraPingTime) timeoutIncrease=200;;
-		jjbutare-mobl) timeoutIncrease=800;;
+		oversoul|jjbutare-mobl) timeoutIncrease=800;;
 	esac
 	(( timeout += $timeoutIncrease ))
 
-	ScriptEval host info $host
-	port="$ping"
 
 	# Mac's respond to ping when asleep if any sharing services are enabled
 	{ ! IsInteger "$port" && [[ "$platform" == "mac" ]] ; } && port=88
+
 	if IsInteger "$port"; then
+		[[ ! $ip ]] && { ip=$(IpAddress $host) || return; }
 		ConnectToPort $ip $port $timeout
 	else
-		ping -n 1 -w $timeout $ip >& /dev/null
+		local pingHost="$host"
+		[[ $ip ]] && pingHost="$ip"
+		ping -n 1 -w $timeout $pingHost >& /dev/null
 	fi
 
 }
@@ -146,24 +152,23 @@ infoCommand()
 	[[ ! $line ]] && return 1
 
 	# Specific field
-	if [[ $field ]];	then	 	
-	 	value="${line[$fieldIndex]}"
-	 	[[ "$value" == "-" ]] && echo "${fieldDefaults[$fieldIndex]}" || echo "${value}"
- 		return 0
- 	fi 	
+	[[ $field ]] && { GetInfoValue $fieldIndex; echo "${!field}"; return; }
 
 	# All fields
- 	for (( i=0; i<${#fields[@]}; ++i )); do
-		value="${line[$i]}"
- 		[[ "$value" == "-" ]] && value="${fieldDefaults[$i]}"
- 		printf "${fields[$i]}=%q " "$value"
- 	done
+ 	for (( i=0; i<${#fields[@]}; ++i )); do GetInfoValue $i; done
+ 	ScriptReturn "${fields[@]}"
 }
 
-GetInfoValue()
+GetInfoValue() # GetInfoValue index - uses fields, fieldDefaults, line[], sets the field name
 {
-	index="$1"
-	field="${fields[$index]}"
+	local index="$1" 
+	local field="${fields[$index]}"
+	eval ${field}="${line[$index]}"
+
+	case "$field" in
+		ips|macs) IFS='-' read -r -a $field <<< "${!field}";;
+		*) [[ "$value" == "-" ]] && $field="${fieldDefaults[$index]}";;
+	esac
 }
 
 GetInfoFieldIndex()
@@ -174,14 +179,51 @@ GetInfoFieldIndex()
 
 connectCommand()
 {
-	IsIpAddress "$host" && { GetMacAddressArg "$1"; shift; }
-	[[ $# != 0 ]] && UnknownOption "$1"
+	! host available "$host" && { host boot "$host" --wait 30 || return; }
+	[[ "$(host info "$host" platform)" == "win" ]] && ConnectWindows || ConnectOther
+}
+
+ConnectOther() { VisionApp "$host"; }
+
+ConnectWindows()
+{
+	local suffix="Remote Desktop/$host.rdp" rdp
+
+	ScriptEval os FindDirs || return
+
+	if [[ -f "$_UserData/$suffix" ]]; then
+		rdp="$_UserData/$suffix"
+	elif [[ -f "$_CloudData/$suffix" ]]; then
+		rdp="$_CloudData/$suffix"
+	fi
+
+	if [[ $rdp ]]; then
+		start "$rdp"
+	else
+		start mstsc /f /v:$host
+	fi
 }
 
 bootCommand()
 {
+	local ip="$host" macAddress subNet=255.255.255.0
+
 	IsIpAddress "$host" && { GetMacAddressArg "$1"; shift; }
 	[[ $# != 0 ]] && UnknownOption "$1"
+
+ 	host available "$host" && { echo "Host $host is already awake"; return; }
+
+	if [[ ! $macAddress ]]; then
+		ScriptEval host info "$host" || return
+		ip="${ips[0]}"
+		mac="${macs[0]}"
+	fi
+
+	[[ ! $mac ]] && { MissingOperand "mac address"; }
+
+ 	echo "Sending wakeup packet to $host..."
+	PowerOff wol -ip "$ip" -subnet "$subNet" -mac "$mac" || return
+	availableCommand
 }
 
 run "$@"

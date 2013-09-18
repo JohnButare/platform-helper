@@ -4,13 +4,14 @@
 usage()
 {
 	echot "\
-usage: registry [32|64] [close](edit)
-  edit [<key>] - edit the specified registry key
-  delete|exist|get <key> - delete or query the specified registry key
+usage: registry [32|64] [exist|get|set|delete|close](edit)
+  exist|get|delete <key> - delete or query the specified registry key
   set <key> [<type>](REG_SZ) <data>
  		type=REG_SZ|REG_MULTI_SZ|REG_EXPAND_SZ|REG_DWORD|REG_QWORD|REG_BINARY|REG_NONE
-  reg ... - run 32 or 64 bit version of reg.exe
-  import <file> - import registry entries from a file"
+  edit [<key>] 		edit the specified registry key in regedit
+  reg ... 				run 32 or 64 bit version of reg.exe
+  import <file>		import registry entries from a file
+  IsKey <key>			check if key is a registry key"
 	exit $1
 }
 
@@ -34,9 +35,10 @@ args()
 		case "${1,,}" in
 			32|64) bits="$1";;
 			-h|--help) usage 0;;
+			IsKey) command="IsKey";;
 			*)
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				! IsOption "$1" && [[ ! $key && "$command" == @(delete|exist|get|set) ]] && { GetKeyValueArg "$@"; shift; continue; }
+				! IsOption "$1" && [[ ! $key && "$command" == @(delete|exist|get|set|IsKey) ]] && { GetKeyValueArg "$@"; shift; continue; }
 				! IsOption "$1" && [[ ! $key && "$command" == @(edit) ]] && { GetKeyArg "$@"; shift; continue; }
 				! IsOption "$1" && [[ "$command" == "set" ]] && { GetDataType "$@" || GetData "$@"; } && { shift; continue; }
 				[[ "$command" == @(import|reg) ]] && break
@@ -51,7 +53,6 @@ args()
 }
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
-editCommand() {  echo "command=$command"; }
 
 editCommand()
 {
@@ -70,7 +71,7 @@ importCommand()
 	local file="$1"
 	[[ $# != 1 ]]	&& usage 1
 	[[ ! -f "$file" ]] && { EchoErr "registry: cannot access \"$file\": No such file or directory"; return 1; }
-	start "$program" /s "$(utw $file)"
+	start "$program" /s "$file"
 }
 
 closeCommand()
@@ -81,10 +82,10 @@ closeCommand()
 
 deleteCommand()
 {
-	[[ "$value" != "" ]] && value="/v \"$value\""
-	eval "$reg" delete '$key' $value /f # >& nul:
+	"$reg" delete "$key" "${value[@]}" /f >& /dev/null
 }
 
+# TODO: use /proc/registry for speed?
 getCommand()
 {
 	result="$( "$reg" query "$key" "${value[@]}" 2>&1 )" || return
@@ -140,6 +141,13 @@ GetData()
 {
 	[[ $data ]] && return 1
 	data=(/d "$1") || data=()
+}
+
+IsKeyCommand()
+{
+	local validPrefixes=( HKCR HKCU HKLM HKU HKCC HKEY_CLASSES_ROOT HKEY_CURRENT_USER HKEY_LOCAL_MACHINE HKEY_USERS HKEY_CURRENT_CONFIG )
+	prefix="${key%%\\*}"
+	IsInArray "$prefix" validPrefixes
 }
 
 run "$@"

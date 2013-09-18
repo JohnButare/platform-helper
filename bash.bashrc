@@ -32,6 +32,11 @@ if [[ "$APPDATA" == *\\* ]]; then
 	export APPDATA=$(cygpath -u "$appdata" 2> /dev/null)
 fi
 
+if [[ "$PROGRAMDATA" == "" ]]; then
+	export programdata="$ProgramData"
+	export PROGRAMDATA=$(cygpath -u "$appdata" 2> /dev/null)
+fi
+
 if [[ "$WINDIR" == *\\* ]]; then
 	export windir="$WINDIR"
 	export WINDIR=$(cygpath -u "$windir" 2> /dev/null)

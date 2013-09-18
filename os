@@ -5,9 +5,9 @@ usage()
 {
 	echot "\
 usage: os <command>
-	update|MobilityCenter
-	FindDirs [host](local)		find OS directories
+	FindInfo|FindDirs [HOST|DIR](local)		find OS information or directories
 	path [show|edit|editor|update|set [AllUsers]](editor)"
+	other: MobilityCenter|SystemProperties|update
 	exit $1
 }
 
@@ -15,12 +15,11 @@ init() { :; }
 
 args()
 {
-	unset var
 	command='one'
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
-			FindDirs) command="FindDirs";; MobilityCenter) command="MobilityCenter";; # case-insensitive aliases
+			FindInfo) command="FindInfo";; FindDirs) command="FindDirs";; MobilityCenter) command="MobilityCenter";; # case-insensitive aliases
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ "$command" == @(FindDirs|path) ]] && break
@@ -48,17 +47,18 @@ pathCommand()
 {
 	command="show"
 	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Path${s}Command && { command="$s"; shift; }
-	[[ $# != 0 ]] && UnknownOption "$1"
+	[[ $command != @(editor) && $# != 0 ]] && UnknownOption "$1"
 	Path${command}Command "$@"
 }
 
-PathEditorCommand() { sudo PathEditor.exe; }
+PathEditCommand() { SystemPropertiesCommand 3; }
+PathEditorCommand() { sudo "$@" PathEditor.exe; }
 
 FindDirsUsage()
 {
 	FindDirsInit	
 	echot "\
-usage: os FindDirs [<host>](local)
+usage: os FindDirs [HOST|DIR](local)
 	Find OS directories for a local or remote host and user.  The variables below are set
 	and can be read using \"ScriptEval os FindDirs\"
 
@@ -66,60 +66,62 @@ usage: os FindDirs [<host>](local)
 	-s,--show											show the directories found
 	-u,--user [<user>](current)		the user to find directories for
 
-${vars[@]}"
+${dirVars[@]}"
 	echo $1
 }
 
-# leverage cygpath -F? http://www.installmate.com/support/im9/using/symbols/functions/csidls.htm
 FindDirsCommand()
 {
-	FindDirsInit
-	FindDirsArgs "$@"
+	FindDirsArgs "$@" || return
+	GetDirs || return
+	ScriptReturn $show "${dirVars[@]}"
+}
+
+# TODO: leverage cygpath -F? http://www.installmate.com/support/im9/using/symbols/functions/csidls.htm
+GetDirs()
+{	
+	FindDirsInit || return
 
 	if [[ ! $host ]]; then
-		FindDirsWorker
+		FindDirsWorker || return
 		
 	elif [[ "$host" == "butare.net" ]]; then # nas external
 		_sys=""
 		_data=""
 		_PublicHome="//%host@ssl@5006/public"
-		SetPublicDirs
+		SetCommonPublicDirs
 		
 		_UserHome="//$host@ssl@5006/home"
 		_UserSysHome="$_UserHome"
 		_UserDocuments="$_UserHome/documents"
-		SetUserDirs
+		SetCommonUserDirs
 	
 	elif [[ -d "//$host/c$" ]]; then # Windows hosts
 		_sys="//$host/c$"
 		_data="//$host/c$"
 		[[ -d "//$host/d$/Users" ]] && _data="//$host/d$"
-		FindDirsWorker
+		FindDirsWorker || return
 
 	elif [[ -d "//$host/public" ]]; then # nas internal
 		_sys=""
 		_data=""
 		_PublicHome="//$host/public"
-		SetPublicDirs
+		SetCommonPublicDirs
 		
 		if [[ -d "//$host/home" ]]; then
 			_UserFound="$_user"
 			_UserHome="//$host/home"
 			_UserSysHome="$_UserHome"
 			_UserDocuments="$_UserHome/Documents"
-			SetUserDirs
+			SetCommonUserDirs
 		fi
 
 	else
 		EchoErr "Unable to find os directories on $host"
-		FindDirsExit
+		return 1
 
 	fi
-
-	ScriptReturn $show "${vars[@]}"
 }
-
-FindDirsExit() { [[ ! $show ]] && echo "false"; exit 1; }
 
 FindDirsWorker()
 {
@@ -127,7 +129,7 @@ FindDirsWorker()
 
   if [[ ! -d "$_windows" ]]; then
   	EchoErr "Unable to locate the windows folder on %_sys"
-  	FindDirsExit
+  	return 1
   fi;
 
 	_programs32="$_sys/Program Files (x86)"
@@ -149,7 +151,7 @@ FindDirsWorker()
 
 	if [[ ! -d "$_UserHome" ]]; then
 		EchoErr "Unable to locate user $_user$'s home folder on $_data"
-	  FindDirsExit
+	  return 1
 	fi
 	
 	if [[ "$_user" == "Public" ]]; then
@@ -159,18 +161,25 @@ FindDirsWorker()
 			Dropbox "Google Drive")
 	fi
 
-	SetPublicDirs
-	SetUserDirs
+	SetCommonPublicDirs
+	_PublicStartMenu="$_ProgramData/Microsoft/Windows/Start Menu"
+	_PublicPrograms="$_PublicStartMenu/Programs"
+	_PublicDesktop="$_PublicHome/Desktop"
+	
+	SetCommonUserDirs
+	_UserDesktop="$_UserHome/Desktop"
+	_UserStartMenu="$_ApplicationData/Microsoft/Windows/Start Menu"
+	_UserPrograms="$_UserStartMenu/Programs"
 }
 
-SetPublicDirs()
+SetCommonPublicDirs()
 {
 	_PublicDocuments="$_PublicHome/documents"
 	_PublicData="$_PublicDocuments/data"
 	_PublicBin="$_PublicData/bin"
 }
 
-SetUserDirs()
+SetCommonUserDirs()
 {
 	_CloudDocuments="$_UserHome/Dropbox"
 	_CloudData="$_CloudDocuments/data"
@@ -188,10 +197,14 @@ FindDirsArgs()
 			-u|--user) shift; _user="${1-$USER}";;
 			*) 
 				if [[ ! $host ]]; then
-					[[ -d "$1" ]] && { host="$1"; _sys="$1"; _data="$1"; shift; continue; }
-					host available "$1" && { host="$1"; shift; continue; }
+					if [[ "$1" =~ / ]]; then
+						[[ ! -d "$1" ]] && { EchoErr "Directory $1 does not exist"; return 1; }
+						host="$1"; _sys="$1"; _data="$1"; shift; continue;
+					fi
+					! host available "$1" && { EchoErr "Host $1 is not available"; return 1; }
+					host="$1"; shift; continue;
 				fi
-				EchoErr "Unknown argument $1"; usage 1;
+				EchoErr "Unknown argument $1"; FindDirsUsage 1;
 		esac
 		shift
 	done
@@ -201,12 +214,56 @@ FindDirsArgs()
 
 FindDirsInit()
 {
-	vars=(_layout _sys _data _windows _users _system _system32 _system64 _programs _programs32 _programs64 _PublicHome _PublicDocuments _PublicData _PublicBin _user _UserHome _UserSysHome _UserDocuments _UserData _UserBin _CloudDocuments _CloudData _ProgramData _ApplicationData _LocalCode _UserFolders)
-	for var in "${vars[@]}"; do unset $var; done
+	dirVars=(_sys _data _windows _users _system _system32 _system64 _programs \_programs32 _programs64 \
+	 _PublicHome _PublicDocuments _PublicData _PublicBin _PublicDesktop _PublicStartMenu _PuplicPrograms\
+	 _user _UserFolders _UserHome _UserSysHome _UserDocuments _UserData _UserBin _UserDesktop _UserStartMenu _UserPrograms
+	 _CloudDocuments _CloudData 
+	 _ProgramData _ApplicationData _LocalCode )
+
+	for var in "${dirVars[@]}"; do unset $var; done
 
 	_sys="$(wtu "$SYSTEMDRIVE")"
-	[[ -d /cygdrive/d ]] && _data="d:" || _data="$_sys"
+	[[ -d /cygdrive/d/users ]] && _data="/cygdrive/d" || _data="$_sys"
 	_user="$USERNAME"
+}
+
+FindInfoCommand()
+{
+	GetInfo || return
+	ScriptReturn $show "${dirVars[@]}" "${infoVars[@]}"
+}
+
+GetInfo()
+{
+	infoVars=( psm pp pd ao usm up ud architecture product version client server mobile vm)
+
+	GetDirs || return
+
+	psm="$_PublicStartMenu"
+	pp="$_PublicPrograms"
+	pd="$_PublicDesktop"
+	ao="$_PublicPrograms/Applications/Other"
+
+	usm="$_UserStartMenu"
+	up="$_UserPrograms"
+	ud="$_UserDesktop"
+
+	local r="/proc/registry/HKEY_LOCAL_MACHINE/Software/Microsoft/Windows NT/CurrentVersion"
+	architecture=$(OsArchitecture)
+	product=$(<"$r/ProductName")
+	version=$(<"$r/CurrentVersion")
+	client=; [[ $(<"$r/InstallationType") == "client" ]] && client="true"
+	server=; [[ ! $client ]] && server="true"
+	mobile=; [[ "$(host info "$COMPUTERNAME" mobile)" == "yes" ]] && mobile="true"
+	vm=; ! vmchk > /dev/null && vm="true"
+
+	return 0
+}
+
+SystemPropertiesCommand()
+{
+	local tab=; [[ $1 ]] && tab=",,$1"; 
+	start rundll32.exe /d shell32.dll,Control_RunDLL SYSDM.CPL$tab
 }
 
 run "$@"
