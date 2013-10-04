@@ -246,7 +246,7 @@ FindInfoCommand()
 
 GetInfo()
 {
-	infoVars=( code ao pd pdata pdoc pp pp psm ud udata udoc uhome usm up architecture product version client server )
+	infoVars=( code ao pd pdata pdoc pp pp psm ud udata udoc uhome usm up architecture bits product version client server )
 
 	GetDirs || return
 
@@ -268,6 +268,7 @@ GetInfo()
 
 	local r="/proc/registry/HKEY_LOCAL_MACHINE/Software/Microsoft/Windows NT/CurrentVersion"
 	architecture=$(OsArchitecture)
+	bits=64; [[ "$architecture" == "x86" ]] && bits=32;
 	product=$(<"$r/ProductName")
 	version=$(<"$r/CurrentVersion")
 	client=; [[ $(<"$r/InstallationType") == "client" ]] && client="true"
