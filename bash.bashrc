@@ -5,6 +5,7 @@ LANG=en_US
 [[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
 PUB="$USERS/Public" BIN="$PUB/Documents/data/bin" DOC="$HOME/Documents"
 P32="/cygdrive/c/Program Files (x86)" P64="/cygdrive/c/Program Files" P="$P64"
+CODE="/cygdrive/c/Projects"
 set +a
 
 #

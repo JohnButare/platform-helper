@@ -1,3 +1,5 @@
+#!/bin/bash
+
 init
 quit $_?
 
@@ -16,12 +18,12 @@ echot "\
 run ""
 
 echo Moving data folder...
-MakeLink merge "$UserData/Adobe Digital Editions" hide "$UserDocuments/My Digital Editions"
-MergeDir /q /rename "$UserDocuments/Embarcadero" "$UserData/Embarcadero"
+$makeLink --merge --hide "$udata/Adobe Digital Editions" hide "$udoc/My Digital Editions"
+$mergeDir --rename "$udoc/Embarcadero" "$udata/Embarcadero"
 DropBox MoveConfig "$_ApplicationData/FileZilla" "$CloudDocuments/data/FileZilla"
 
 echo Creating directories...
-MakeDir c:/dir1/dir2
+$makeDir c:/dir1/dir2
 
 echo Updating registry...
 
@@ -49,7 +51,7 @@ service manual (service name)
 echo Updating tasks...
 SchTasks /Change /Tn "(task name)" /Disable
 SchTasks /Create /TN test /TR ls.exe /SC ONEVENT /EC System /MO "*[System[Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1]]"
-SchTasks /Create /RU $@SystemAccount[] /RP * /SC OnIdle /I $SleepTaskIdleTime /TN "sleep" /TR "$@sfn[$PublicDocuments/data/bin/]/tcc.exe /c SleepTaskSleep.btm"
+SchTasks /Create /RU $@SystemAccount[] /RP * /SC OnIdle /I $SleepTaskIdleTime /TN "sleep" /TR "$@sfn[$pdoc/data/bin/]/tcc.exe /c SleepTaskSleep.btm"
 
 echo Updating firewall...
 
@@ -78,12 +80,12 @@ echo Updating path...
 SetVar /system /path path "$P32/Cygwin/bin"
 
 echo Updating icons...
-	$moveFile "$pd/(prog).lnk" "$pp/Applications"
-	$moveFile "$pp/Applications/Office/Microsoft Word.lnk" "$ao/Word.lnk"
-DelFile "$up/(user link to delete).lnk"
-DelFile "$pd/(desktop file to delete).lnk"
-MergeDir /q "$pp/(directory name)" "$ao"
-MergeDir /q /rename "$pp/(directory name)" "$ao/(new directory name)"
+	$mv "$pd/(prog).lnk" "$pp/Applications"
+	$mv "$pp/Applications/Office/Microsoft Word.lnk" "$ao/Word.lnk"
+$delFile "$up/(user link to delete).lnk"
+$delFile "$pd/(desktop file to delete).lnk"
+$mergeDir "$pp/(directory name)" "$ao"
+$mergeDir --rename "$pp/(directory name)" "$ao/(new directory name)"
 MakeShortcut "c:/dir1" "$pp/Applications/App.lnk"
 
 echot "\
@@ -121,7 +123,7 @@ FindPublicDoc "data/install/$exe"
 if $_? != 0 then
 	pause
 	return 1
-endif
+fi
 
 install=$SharedDocuments/data/install
 exe=$install/$exe
@@ -135,7 +137,7 @@ if $@IsWild[$exe] then
 	
 	exe=$file
 	
-endif
+fi
 
 if "$exe" == "" pause
 
@@ -146,7 +148,7 @@ return $@if[ "$exe" == "" ,1,0]
 prog=$@quote[$@search[$program]]
 if IsFile $prog then
 	start /pgm $prog
-endif
+fi
 
 return
 
@@ -160,7 +162,7 @@ case "OfficePlugin32"
 		EchoErr This install is not supported by Office x64.
 		ask "Do you want to continue anyway" n
 		return $@if[ $? == 1 ,0,1]
-	endif
+	fi
 
 endswitch
 
@@ -174,14 +176,14 @@ if $@words[$options] gt 0 then
 		if $_? != 0 LeaveFor
 	)
 	if $_? != 2 return 1
-endif
+fi
 
 # Arguments
 exe=$@UnQuote[$ExeArg]
 if "$exe" == "" then 
 	EchoErr Executable was not specified.
 	return 1
-endif
+fi
 
 # Find the executable
 FindExe "$exe"
@@ -207,7 +209,7 @@ if "$prefix" == "http" then
 	ExeDesc=$exe		
 else
 	ExeDesc=$@word["/",-0,$@path[$exe]]/$@fileName[$exe]
-endif
+fi
 
 ExeExt=$@ext["$exe"]
 		
@@ -215,7 +217,7 @@ ask "Do you want to run $ExeDesc?"
 if $? == 0 then
 	RunExeCleanup
   return 0
-endif
+fi
 
 ran=true
 
@@ -241,13 +243,13 @@ else if "$ExeExt" == "iso" then
 else if "$ExeExt" == "iso" then
   registry 64 import "$@filename[$exe$]"
     
-endif
+fi
   
 if "$prefix" != "http" popd
 
 if "$postRun" != "" then
 	start /pgm  $@quote[$postRun] "$@"
-endif
+fi
 
 RunExeCleanup
 
@@ -259,9 +261,9 @@ if not defined noCleanup then
 
 	if $ExeExt == iso then
 		iso unmountall
-	endif
+	fi
 
-endif
+fi
 
 RunInit
 
@@ -283,131 +285,42 @@ if $? == 1 os environment set
 return
 
 :core
-echot "\
-**************************
-* Core Setup
-**************************
-- Get initial registration informatiom from lastpass.com web site
-"
 
 # Common
-install.btm ssh SysInternals BeyondCompare UnixCore CloneDrive 7zip pGina ^
-	UpdateChecker OsUpdate ^
-	InternetExplorer Chrome BrowserHomePage FoxitReader jre .NET
+inst ssh SysInternals 7zip UpdateChecker OsUpdate InternetExplorer Chrome BrowserHomePage FoxitReader jre .NET
 
 # Computer specific
 switch $ComputerName
 
 case oversoul
-	install.btm IntelDP67BG nVidia DropBox PowerMixer PowerPanel ^
-		office365 SnagIt EverNote LastPass Quicken TrueCrypt ^
+	inst IntelDP67BG nVidia PowerMixer PowerPanel ^
+		SnagIt LastPass Quicken TrueCrypt ^
 		EpsonV100 EyeFi calibre calibre2opds Sonos MediaCore
 
 case jjbutare-mobl
-	install.btm Hp8560wLaptop DropBox PowerMixer OpenVPN IntelDevCore ^
-		office13 SnagIt DesktopGadgets EverNote LastPass WindowsAdminTools IntelAppCore
+	inst Hp8560wLaptop PowerMixer OpenVPN IntelDevCore ^
+		SnagIt DesktopGadgets EverNote LastPass WindowsAdminTools IntelCore
 
 case dune
-	install.btm GigabyteGaP35Dq6 nVidia PowerMixer DropBox LogMeIn
+	inst GigabyteGaP35Dq6 nVidia PowerMixer DropBox LogMeIn
 
 case shadow
-	install.btm GigabyteGaP35Dq6 nVidia LogMeIn
+	inst GigabyteGaP35Dq6 nVidia LogMeIn
 
 case ws08
-	install.btm iis ss08 TeamFoundationServer
+	inst iis ss08 TeamFoundationServer
 	
 endswitch
 
 return
 
-:IntelAppCore
-# - http://wrcs.intel.com/InfoSec/Security_Tools/Encryption/Whole+Disk+Encryption+FAQ.htm
-echot "\
-************************
-* Intel App Core
-************************
-"
-
-install.btm VisionApp IntelSpeedDialer IntelBridgePlugIn
-intel.btm cleanup
-
-MakeLink merge "$UserData/Add-in Express" hide "$UserDocuments/Add-in Express"
-
-return
-
-:DevCore
-echot "\
-************************
-* Development Core
-************************
-"
-
-# Directories
-echo Creating directories...
-MakeDir "$UserDocuments/code/test"
-MakeDir "$LocalCode/test"
-
-# Icons
-echo Updating icons...
-MakeShortcut "$LocalCode" "$pp/Development/Code.lnk"
-
-# Data folders
-echo Moving data folders...
-MakeLink merge "$UserDocuments/code/web/sites" hide "$UserDocuments/My Web Sites"
-MakeLink merge "$UserData/LINQPad" hide "$UserDocuments/LINQPad Queries"
-
-# Core
-install.btm git iis BlueGrifon
-
-# Database
-install.btm ss SqlPrompt
-
-# Platforms
-
-ask "Do you want to install the .NET development platform core?" n
-if $? == 1 .NetDevCore
-
-ask "Do you want to install the JAVA development platform core?" n
-if $? == 1 JavaDevCore
-
-return
-
-:git
+:GitCore
 echot "\
 *******************************
 * git Source Control
 *******************************
 "
-install.btm CygwinGit GitExtensions TortoiseGit GitHub
-return
-
-:IntelDevCore
-echot "\
-*******************************
-* Intel Development Core
-*******************************
-"
-
-ask "Install Antidote?" y
-if $? == 1 then
-	echo Installing Antidote...
-	cmd /c //azscsisweb998/f$/Software/AntidoteSetup/AntidoteSetup.cmd
-	attrib /d +h c:/winnt
-endif
-
-# ProfileBroker: C:/Program Files/ITBAS/ProfileManager, C:/Program Files/ITBAS/Profiles
-# c:/windows/system32/ProfileManager.xml, c:/winnt/system32/ProfileManager.xml
-
-ask "Update machine.config?" y
-if $? == 1 then
-	echo Updating machine.config...
-	echo `<configuration><appSettings><add key="Environment" value="Development"/>...`
-	.net.btm MachineConfig
-	pause
-endif
-
-install.btm DevCore TortoiseSVN CruiseControlTray SilverlightSdk Telerik
-
+inst CygwinGit GitExtensions TortoiseGit GitHub
 return
 
 :MediaCore
@@ -447,7 +360,7 @@ echot "\
 ************************
 "
 
-install.btm iis ss12
+inst iis ss12
 
 return
 
@@ -461,7 +374,7 @@ echot "\
 instal.btm DeviceCenter
 
 echo Opening Pocket PC setup instructions...
-ShellRun "$UserDocuments/Technical/Pocket PC.doc"
+ShellRun "$udoc/Technical/Pocket PC.doc"
 
 return
 
@@ -501,7 +414,7 @@ return
 :.Net30
 .netInit
 run "$p/V3.0/dotnetfx3_${architecture}.exe"
-endif
+fi
 
 :.Net20
 .netInit
@@ -525,7 +438,7 @@ echot "\
 run "$p/V1.0/SDK version 1.0a/setup.exe"
 
 echo Updating icons...
-MergeDir /q "$up/Microsoft .NET Framework SDK" "$pp/Development/Other"
+$mergeDir "$up/Microsoft .NET Framework SDK" "$pp/Development/Other"
 
 return
 
@@ -544,13 +457,13 @@ if $_? != 0 return $_?
 SetupDir=c:/setup
 CopyDir "$ExeDir" "$SetupDir"
 RunExe "$SetupDir/Setup.exe"
-DelDir "$SetupDir"
+$delDir "$SetupDir"
 
 mv c:/HEARTS "$P32/HEARTS"
 
 echo Updating icons...
-DelFile "$pd/Hearts.lnk"
-DelDir "$pp/MVP"
+$delFile "$pd/Hearts.lnk"
+$delDir "$pp/MVP"
 MakeShortcut "$P32/HEARTS/mvpheart.exe" "$pp/Games/MVP Hearts.lnk"
 
 echot "\
@@ -566,14 +479,14 @@ return
 # Cleanup legacy JP software (4NT and TCI) and install Take Command
 :JpClean
 
-install.btm TakeCommandUpgrade SrcOlder dif
+inst TakeCommandUpgrade SrcOlder dif
 
 # Cleanup legacy 4NT and TCI 
-DelDir "$P32/tci"
-registry.btm delete "HKEY_CLASSES_ROOT/Directory/shell/4NT" >& nul:
-registry.btm delete "HKEY_CLASSES_ROOT/Drive/shell/4NT" > nul:
+$delDir "$P32/tci"
+registry delete "HKEY_CLASSES_ROOT/Directory/shell/4NT" >& nul:
+registry delete "HKEY_CLASSES_ROOT/Drive/shell/4NT" > nul:
 
-install.btm TakeCommand
+inst TakeCommand
 
 return
 
@@ -607,14 +520,14 @@ if $? == 1 then
 	echo $@ClipW[$TcProgramDir;] >& nul:
 	os.btm path edit
 	pause
-endif
+fi
 
 # Install default plugins
 ask "Do you want to install the default plugins?" y
 if $? == 1 CopyDir /fast "$install/$p/plugins/default/$TcArchitecture" "$TcProgramDir/plugins"
 
 echo Copying files...
-CopyFile "$PublicDocuments/Icons/Command Prompt.ico" "$TcProgramDir"
+CopyFile "$pdoc/Icons/Command Prompt.ico" "$TcProgramDir"
 CopyFile "$install/$p/setup/other/TcStart.btm" "$TcProgramDir"
 
 # TCSTART and TCEXIT - must not be the system user, option dialog does not work properly
@@ -623,7 +536,7 @@ if "$@option[TCStartPath]" != "$TcStartDir" .and. "$UserName" != "SYSTEM" then
 	echo `- Startup, TCSTART / TCEXIT Path=<paste>`
 	echo $@ClipW[$@ScriptDir[]] >& nul:
 	option
-endif
+fi
 
 # Common setup
 TakeCommand.btm setup
@@ -635,19 +548,19 @@ if $? == 1 registry import "$install/$p/setup/other/$registry"
 # Profile
 if "$profile" == "default" .or. IsFile $@quote[$profile] then
 	TakeCommand.btm profile restore $@quote[$profile]
-endif
+fi
 
 # Icons
 echo Updating icons...
 dir=$pp/Operating System/Other/Take Command
 
 icon=Take Command$@if[ "${architecture}" == "x64" , x64] $TcMajorVersion.$@if[ $TcMajorVersion gt 12,0,$TcMinorVersion].lnk
-DelFile "$psm/$icon"
-DelFile "$pd/$icon"
-DelFile "$dir/$icon"
+$delFile "$psm/$icon"
+$delFile "$pd/$icon"
+$delFile "$dir/$icon"
 
-MergeDir /q /rename "$pp/TCMD$TcMajorVersion" "$dir"
-MergeDir /q /rename "$pp/TCMD$TcMajorVersion$x64" "$dir"
+$mergeDir --rename "$pp/TCMD$TcMajorVersion" "$dir"
+$mergeDir --rename "$pp/TCMD$TcMajorVersion$x64" "$dir"
 
 MakeShortcut /quiet "$TcProgramDir/tcc.exe" "$dir/Take Command Console.lnk"
 MakeShortcut /quiet "$TcProgramDir/tcmd.exe" "$dir/Take Command.lnk"
@@ -677,9 +590,9 @@ return
 if not exist "tcmd.exe" then
   echo The current directory does not contain tcmd.exe.
   return 1
-endif
+fi
 
-MakeDir "other"
+$makeDir "other"
 
 move /q /e batch.bcp French?.dll German?.dll Spanish?.dll license.txt readme.txt updater.* *.btm other
 if exist Guide.pdf move Guide.pdf "Take Command Guide.pdf"
@@ -698,16 +611,16 @@ echot "\
 
 if "$data" != "c:" then
 
-	MakeDir "$data/Program Files"
-	MakeDir "$data/Program Files (x86)"
+	$makeDir "$data/Program Files"
+	$makeDir "$data/Program Files (x86)"
 	
 	echo Moving Windows Installer folder...
-	MakeLink merge "$data/Windows/Installer" "$WinDir/Installer"
+	$makeLink --merge "$data/Windows/Installer" "$WinDir/Installer"
 	
 	echo "- permissions for $data/Windows/Installer, $data/Program Files*: Everyone Read & execute, SYSTEM and Administrators Full control"
 	pause
 	
-endif
+fi
 
 os ServicePack
 
@@ -748,8 +661,8 @@ echot "\
 run "Shareware/Motherboard Monitor/mbm5370.exe"
 
 echo Updating icons...
-MergeDir /q "$up/MBM 5" "$pp/Operating System/Other"
-MergeDir /q "$pp/MBM 5" "$pp/Operating System/Other"
+$mergeDir "$up/MBM 5" "$pp/Operating System/Other"
+$mergeDir "$pp/MBM 5" "$pp/Operating System/Other"
 
 return
 
@@ -781,15 +694,15 @@ if $@IsNewOs[] == 1 then
 		echo   - (optional) Check other features
 		pause
 		
-	endif
+	fi
 	
 else
 	# Will reinstall if shortcuts are moved and setup will not function if the name of the msi is changed
 	run "Microsoft/Server 2003/tools/WindowsServer2003-KB340178-SP2-${architecture}-ENU.msi"
-endif
+fi
 
 echo Updating icons...
-MergeDir /q "$pp/Administrative Tools" "$pp/Operating System/Other/Administrative Tools" 
+$mergeDir "$pp/Administrative Tools" "$pp/Operating System/Other/Administrative Tools" 
 
 return
 
@@ -806,8 +719,8 @@ if defined NewOs return
 run "Microsoft/XP/other/Tweak UI/TweakUiPowertoySetup.exe"
 
 CopyFile "$pp/Powertoys for Windows XP/Tweak UI.lnk" "$pp/Administrative Tools/TweakUI.lnk"
-DelDir "$pp/Powertoys for Windows XP"
-DelDir "$up/Powertoys for Windows XP"
+$delDir "$pp/Powertoys for Windows XP"
+$delDir "$up/Powertoys for Windows XP"
 
 echo - Templates, uncheck all except Word, Excel, PowerPoint, Visio, Text Document, WinZip
 RunProg "$WinDir/system32/TweakUI.exe"
@@ -829,21 +742,21 @@ run "CyberLink/PowerDVD/setup/PowerDVD10_UltraUpgrade_fromUltra_1830_DVD100611-0
 echo Updating registry...
 
 # Delete BDRegion - "C:/Program Files (x86)/Cyberlink/Shared Files/brs.exe" - #ove the Blu-ray region
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/BDRegion"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/BDRegion"
 
 # Delete PDVD9LanguageShortcut - "C:/Program Files (x86)/CyberLink/PowerDVD9/Language/Language.exe"
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/PDVD9LanguageShortcut"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/PDVD9LanguageShortcut"
 
 # Delete #oteControl10 - "C:/Program Files (x86)/CyberLink/PowerDVD10/PDVD10Serv.exe"
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/#oteControl10"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/#oteControl10"
 
 echo Updating services...
 service manual RichVideo
 
 echo Updating icons...
 MoveFile "$pd/CyberLink PowerDVD 10.lnk" "$pp/Media/PowerDVD.lnk"
-MergeDir /q /rename "$up/CyberLink PowerDVD 10" "$pp/Media/Other/PowerDVD"
-MergeDir /q /rename "$pp/CyberLink PowerDVD 10" "$pp/Media/Other/PowerDVD"
+$mergeDir --rename "$up/CyberLink PowerDVD 10" "$pp/Media/Other/PowerDVD"
+$mergeDir --rename "$pp/CyberLink PowerDVD 10" "$pp/Media/Other/PowerDVD"
 
 PowerDVD start
 pause
@@ -868,7 +781,7 @@ installDir=$P32/CyberLink/HD Codec Pack
 if IsDir "$installDir" then
 	ask "Uninstall the HD Codec Pack?" n
 	uninstall=$@if[ $? == 1 ,true]
-endif
+fi
 
 if not defined uninstall run "CyberLink/HD Codec Pack/HD Codec Pack.zip" "$installDir"
 
@@ -883,12 +796,12 @@ if IsDir "$installDir" then
 	popd
 	echo done.
 
-endif
+fi
 
 if defined uninstall then 
-	DelDir ask "$installDir"
+	$delDir ask "$installDir"
 	echo Reboot required to #ove the installation directory.
-endif
+fi
 
 return
 
@@ -903,10 +816,10 @@ echot "\
 run "Intuit/Quicken/Quicken_Home_Business_2013.exe"
 
 # Icons
-MergeDir /q /rename "$pp/Quicken 2013" "$ao/Quicken"
+$mergeDir --rename "$pp/Quicken 2013" "$ao/Quicken"
 MoveFile "$ao/Quicken/Quicken 2013.lnk" "$ao/Quicken/Quicken.lnk"
-DelFile "$pd/Free Credit Report and  Score.url"
-DelFile "$pd/Quicken Home ? Business 2013.lnk"
+$delFile "$pd/Free Credit Report and  Score.url"
+$delFile "$pd/Quicken Home ? Business 2013.lnk"
 
 echot "\
 - Run Quicken, select I am already a Quicken user, Next, Next, Documents/Finances/Current/Finances
@@ -955,17 +868,17 @@ run "Adobe/Acrobat V6.0/Update to 6.0.2/Acro-Reader_6.0.2_Update.exe"
 echo Updating icons...
 
 # V5.0
-DelFile "$pp/Adobe Acrobat 5.0.lnk"
-DelFile "$pp/Acrobat Distiller 5.0.lnk"
-DelFile "$pp/Startup/Acrobat Assistant.lnk"
-DelFile "$pd/Adobe Acrobat 5.0.lnk"
+$delFile "$pp/Adobe Acrobat 5.0.lnk"
+$delFile "$pp/Acrobat Distiller 5.0.lnk"
+$delFile "$pp/Startup/Acrobat Assistant.lnk"
+$delFile "$pd/Adobe Acrobat 5.0.lnk"
 
-DelFile "$P32/Microsoft Office/Office10/Startup/PDFMaker.dot"
-DelFile "$P32/Microsoft Office/Office10/XLStart/PDFMaker.xla"
+$delFile "$P32/Microsoft Office/Office10/Startup/PDFMaker.dot"
+$delFile "$P32/Microsoft Office/Office10/XLStart/PDFMaker.xla"
 
 # V6.0 Upgrade
-DelFile "$pd/Adobe Acrobat 6.0 Professional.lnk"
-DelDir "$pp/PrintMe Internet Printing"
+$delFile "$pd/Adobe Acrobat 6.0 Professional.lnk"
+$delDir "$pp/PrintMe Internet Printing"
 MoveFile "$pp/Adobe Acrobat 6.0 Professional.lnk & dest=$pp/Applications/Acrobat.lnk"
 
 echot "\
@@ -998,11 +911,11 @@ echo Stopping the WinZip QuickPick application...
 taskend /f wzqkpick >& nul:
 
 echo Updating icons...
-MergeDir /q "$pp/WinZip" "$ao"
+$mergeDir "$pp/WinZip" "$ao"
 MoveFile "$pd/WinZip.lnk" "$pp/Applications"
-DelFile "$pd/WinZip 8.0.lnk"
-DelFile "$psm/WinZip.lnk"
-DelFile "$pp/Startup/WinZip Quick Pick.lnk"
+$delFile "$pd/WinZip 8.0.lnk"
+$delFile "$psm/WinZip.lnk"
+$delFile "$pp/Startup/WinZip Quick Pick.lnk"
 
 WinZip
 echot "\
@@ -1047,7 +960,7 @@ architecture=x86
 if "${architecture}" == "x64" then
 	ask "Do you want to install Office x64?"
 	if $? == 1; do architecture=x64; fi
-endif
+fi
 
 # Applications
 p=Microsoft/Office/setup
@@ -1084,7 +997,7 @@ architecture=x86
 if "${architecture}" == "x64" then
 	ask "Do you want to install Office x64?" n
 	if $? == 1; then architecture=x64; fi
-endif
+fi
 
 # Applications
 p=Microsoft/Office/setup
@@ -1100,8 +1013,8 @@ run "$u/officesuite2010sp1-kb2460049-x64-fullfile-en-us.exe"
 
 # Fixes integration issues between Communicator R2 and Outlook x64.
 if $@IsInstalled[communicator] == 1 .and. "$architecture" == "x64" then
-	registry.btm import "$ExeDir/OCFixForOffice2010.reg"
-endif
+	registry import "$ExeDir/OCFixForOffice2010.reg"
+fi
 
 # Final setup
 OfficeFinal
@@ -1110,178 +1023,72 @@ return
 
 :OfficeFinal
 
-office.btm init
-if $? != 0 then
-	EchoErr Office is not installed
-	return 1
-endif
+echo "Moving data folder..."
+$makeLink --merge --hide "$udata/mail" hide "$udoc/Outlook Files" || return
+$makeLink --merge --hide "$udata/Custom Office Templates" hide "$udoc/Custom Office Templates" || return
 
-echo Moving data folder...
-MakeLink merge "$UserData/mail" hide "$UserDocuments/Outlook Files"
-MakeLink merge "$UserData/Custom Office Templates" hide "$UserDocuments/Custom Office Templates"
+$makeDir "$udoc/Outlook Files" || return
+attrib /d +h "$(utw "$udoc/Outlook Files")" || return
 
-echo Updating directories...
-MakeDir "$UserDocuments/data/Templates"
-MakeDir "$PublicDocuments/data/Templates"
+$delFile "$udata/templates/Welcome to Word.dotx" || return
 
-MakeDir "$UserDocuments/Outlook Files"
-attrib /d +h "$UserDocuments/Outlook Files"
 
-DelFile "$UserData/templates/Welcome to Word.dotx"
+if ask "Update registry?"; then
 
-# Templates
-ask "Restore normal templates?` y
-if $? == 1 then
-	word RestoreNormal
-	word close
-endif
+	# echo "Creating OneNote directories and registy keys..."
+	# echo "- Close OneNote"
+	# OneNote start || return
+	# pause
 
-# Registry
-ask "Update registry?` y
-if $? == 1 then
-
-	registry import "$setupFiles/ShellNew.reg"
-
-	echo Creating OneNote directories and registy keys...
-	echo - Close OneNote
-	OneNote.btm start
-	pause
-
-	echo Updating registry keys...
+	# echo "Updating registry keys..."
 	
-	registry.btm delete "HKCR/Directory/shell/OneNote.Open" >& nul:
-	registry.btm $OfficeBits$ "HKCU/Software/Microsoft/Office/$OfficeVersion$.0/OneNote/Options/Paths/UnfiledNotesSection" REG_SZ notes/unfiled.one
-	registry.btm $OfficeBits$ "HKCU/Software/Microsoft/Office/$OfficeVersion$.0/OneNote/Options/Save/Notebook Root" REG_SZ notes
-	registry.btm $OfficeBits$ "HKCU/Software/Microsoft/Office/$OfficeVersion$.0/Common/Security/DisableHyperlinkWarning" REG_DWORD 1
+	# registry delete "HKCR/Directory/shell/OneNote.Open" >& nul:
+	# registry $OfficeBits$ "HKCU/Software/Microsoft/Office/$OfficeVersion$.0/OneNote/Options/Paths/UnfiledNotesSection" REG_SZ notes/unfiled.one
+	# registry $OfficeBits$ "HKCU/Software/Microsoft/Office/$OfficeVersion$.0/OneNote/Options/Save/Notebook Root" REG_SZ notes
+	# registry $OfficeBits$ "HKCU/Software/Microsoft/Office/$OfficeVersion$.0/Common/Security/DisableHyperlinkWarning" REG_DWORD 1
 
 	# Delete GrooveMonitor - "C:/Program Files/Microsoft Office/Office12/GrooveMonitor.exe"
-	registry.btm delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/GrooveMonitor"
+	# registry delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/GrooveMonitor"
 
 	# Delete BCSSync - "C:/Program Files/Microsoft Office/Office14/BCSSync.exe" /DelayServices
-	registry.btm delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/BCSSync"
+	# registry delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/BCSSync"
 	
 	# Delete OfficeSyncProcess - "C:/Program Files/Microsoft Office/Office14/MSOSYNC.EXE"
-	registry.btm delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/OfficeSyncProcess"
+	# registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/OfficeSyncProcess"
 	
-endif
+fi
 
 # Directories
-echo Moving OneNote directories...
-if IsDir "$UserDocuments/OneNote Notebooks" then
-	if IsDir "$UserData/OneNote" then
-		DelDir ask "$UserDocuments/OneNote Notebooks"
+echo "Moving OneNote directories..."
+if [[ -d "$udoc/OneNote Notebooks" ]]; then
+	if [[ -d "$udata/OneNote" ]]; then
+		$delDir --ask "$udoc/OneNote Notebooks"
 	else
-		MakeDir.btm "$UserData/OneNote/sample"
-		MoveAll.btm "$UserDocuments/OneNote Notebooks" "$UserData/OneNote/sample"
-		MoveFile.btm "$UserData/OneNote/Unfiled Notes.one" "$UserData/OneNote/unfiles.one"
-	endif
-endif
-
-# Icons
-ask "Update icons?" y
-if $? == 1 OfficeIcons
-
-# SharePoint Workspace
-if $@IsInstalled[SharePointWorkspace] == 1 then
-	ask "Configure SharePoint Workspace?" y
-	if $? == 1 then
-
-		echo - Restore an existing account, Documents/data/replicate/SharePoint Workspace Account.grv
-		SharePointWorkspace.btm start
-		pause
-
-		echo - (optional) Internet Explorer, Tools, Manage Add-ons, Toolbars and Extensions, Disable Groove GFS Browser Helper
-		InternetExplorer.btm 32
-		pause
-		
-	endif
-endif
+		$makeDir.btm "$udata/OneNote/sample"
+		MoveAll.btm "$udoc/OneNote Notebooks" "$udata/OneNote/sample"
+		MoveFile.btm "$udata/OneNote/Unfiled Notes.one" "$udata/OneNote/unfiles.one"
+	fi
+fi
 
 # Updates
 if not defined Office365 then
-	ask "Update office?` y
+	ask "Update office?"
 	if $? == 1 then
 		os.btm update 
 		pause
-	endif
-endif
+	fi
+fi
 
 # Search providers - must be done after Outlook, OneNote, and SharePoint Workspace have been run
-ask "Update search provider names?` y
+ask "Update search provider names?"
 if $? == 1 search.btm setup
 
 # Link directories
-MakeLink merge "$UserData/Visio/shapes" hide "$UserDocuments/My Shapes"
-MakeLink merge "$UserData/Workspace/archives" hide "$UserDocuments/Workspace Archives"
-MakeLink merge "$UserData/Workspace/templates" hide "$UserDocuments/Workspace Templates"
+$makeLink --merge --hide "$udata/Visio/shapes" hide "$udoc/My Shapes"
+$makeLink --merge --hide "$udata/Workspace/archives" hide "$udoc/Workspace Archives"
+$makeLink --merge --hide "$udata/Workspace/templates" hide "$udoc/Workspace Templates"
 
-# Options
-ask "options?` y
-if $? == 1 then
-
-	# ShellRun fails with a file not found if not called from the setupFiles folder. 
-	pushd "$setupFiles"
-	ShellRun "Options.docm"
-	pause
-
-	ShellRun "Options.xls"
-	pause
-
-	popd
-
-endif
-
-return
-
-:OfficeIcons
-
-p=$ao/Office
-
-MergeDir /q /rename "$pp/Microsoft Office" "$p"
-MergeDir /q /rename "$pp/Microsoft Office 2013" "$p"
-MergeDir /q /rename "$p/Microsoft Office Tools" "$p/tools"
-MergeDir /q /rename "$p/Office 2013 Tools" "$p/tools"
-MergeDir /q /rename "$pp/Microsoft Office Live Add-in" "$p/Live Add-In"
-MergeDir /q /r "$pp/Microsoft Lync" "$ao/Office/Lync"
-MergeDir /q /r "$pp/Microsoft Office Live Meeting 2007" "$ao/Office/Live Meeting"
-MergeDir /q /rename "$p/Microsoft Office 2010 Tools" "$p/tools"
-MergeDir /q /rename "$pp/Microsoft Visual Studio 2005" "$pp/Development/.NET/Other/Visual Studio 2005"
-MergeDir /q /rename "$pp/Microsoft Office 2003 Developer Resources" "$pp/Development/Other/Office Developer Resources"
-
-DelFile "$pp/Startup/Microsoft Office OneNote 2003 Quick Launch.lnk"
-DelFile "$up/startup/OneNote 2010 Screen Clipper and Launcher.lnk"
-
-MoveFile "$pp/SharePoint/Microsoft SharePoint Workspace 2010.lnk" "$p"
-MoveFile "$pp/../Open Microsoft Office Document.lnk" "$p/Open Office Document.lnk"
-MoveFile "$pp/../New Microsoft Office Document.lnk" "$p/New Office Document.lnk"
-MoveFile "$up/Startup/OneNote * Screen Clipper and Launcher.lnk" "$p/OneNote Screen Clipper and Launcher.lnk"
-MoveFile "$up/Startup/Microsoft SharePoint Workspace.lnk" "$p/SharePoint Workspace.lnk"
-MoveFile "$up/Startup/Microsoft Office Groove.lnk" "$p"
-MoveFile "Microsoft SharePoint Workspace.lnk" "$p"
-MoveFile "$pp/Windows Live ID.lnk" "$pp/Applications/Accessories"
-
-MoveFile "$p/Lync/Microsoft Lync ????.lnk" "$p/Lync/Lync.lnk"
-MoveFile "$p/Lync/Microsoft Lync Recording Manager.lnk" "$p/Lync/Recording Manager.lnk"
-
-# Prevents installer from running when Lync started
-MakeDir "$pp/Microsoft Lync" 
-attrib /d +h "$pp/Microsoft Lync" 
-
-DelDir "$pp/SharePoint"
-
-pushd "$p"
-for file in ("Microsoft Office*.lnk") MoveFile "$file" "$@right[-17,$file]
-for file in ("*2007.lnk") MoveFile "$file" "$@left[-9,$file].lnk
-for file in ("Microsoft*.lnk") MoveFile "$file" "$@right[-10,$file]
-for file in ("*2010.lnk") MoveFile "$file" "$@left[-9,$file].lnk
-for file in ("*2013.lnk") MoveFile "$file" "$@left[-9,$file].lnk
-popd
-
-pushd "$p/tools"
-for file in ("Microsoft Office 2010*.lnk") MoveFile "$file" "$@right[-22,$file]
-for file in ("Microsoft Office*.lnk") MoveFile "$file" "$@right[-17,$file]
-for file in ("Microsoft*.lnk") MoveFile "$file" "$@right[-10,$file]
-popd
+# 
 
 return
 
@@ -1302,9 +1109,9 @@ ask "Install Outlook Linked In connector?" y
 if $? == 1 run "Microsoft/Office/connectors/LinkedInOutlookConnector.exe"
 
 echo Updating icons...
-DelFile "$pd/(prog).lnk"
+$delFile "$pd/(prog).lnk"
 MoveFile "$pd/(prog).lnk" "$pp/Applications"
-MergeDir /q "$pp/(dir)" "$ao"
+$mergeDir "$pp/(dir)" "$ao"
 
 return
 
@@ -1320,8 +1127,8 @@ run "High Criteria/Total Recorder Standard Edition V4.4/tr44se.exe"
 
 # Icons
 CopyFile "$pp/Total Recorder/Total Recorder.lnk" "$pp/Applications"
-DelFile "$pd/Total Recorder.lnk"
-MergeDir /q "$pp/Total Recorder" "$ao"
+$delFile "$pd/Total Recorder.lnk"
+$mergeDir "$pp/Total Recorder" "$ao"
 
 echot "\
 - Help, Registration 
@@ -1351,8 +1158,8 @@ run "Microsoft/WebMatrix/setup/webmatrix.exe"
 IISExpress
 
 echo Updating icons...
-MergeDir /q /rename "$pp/Microsoft WebMatrix" "$pp/Development/other/WebMatrix"
-MergeDir /q "$pp/IIS 7.0 Extensions" "$pp/Development/other"
+$mergeDir --rename "$pp/Microsoft WebMatrix" "$pp/Development/other/WebMatrix"
+$mergeDir "$pp/IIS 7.0 Extensions" "$pp/Development/other"
 MoveFile "$pp/Microsoft Web Platform Installer.lnk" "$pp/Development/.NET/Web Platform Installer.lnk"
 MoveFile "$pp/Development/other/WebMatrix/Microsoft WebMatrix.lnk" "$pp/Development/other/WebMatrix/WebMatrix.lnk"
 MoveFile "$pp/Development/other/WebMatrix/Microsoft Web Platform Installer.lnk" "$pp/Development/other/WebMatrix/Web Platform Installer.lnk"
@@ -1361,286 +1168,6 @@ echot "\
 - Tools, Options, Site, Default site location Documents/code/web
 "
 pause
-
-return
-
-:VisualStudio
-:vs
-:vs12
-# Path: $P32/Microsoft Pex/bin/;$TFSPowerToolDir$;$BPADir$
-# Power Tools: http://visualstudiogallery.msdn.microsoft.com/3a96a4dc-ba9c-4589-92c5-640e07332afd
-# SQL Server Express: http://www.microsoft.com/en-us/download/details.aspx?id=29062
-echot "\
-************************
-* Visual Studio 2012
-************************
-- (optional) Uncheck Microsoft Foundation Classes for C++ (1.4 GB)
-- Choose your default environment settings=Visual C# Development Settings
-"
-
-# Initialize
-VsInit
-
-# Setup
-run "$vs/setup/vs/en_visual_studio_ultimate_2012_x86_dvd_920947.iso"
-run "$vs/update/VS2012.3.exe"
-run "$vs/setup/other/en_visual_studio_2012_sdk_x86_920808.exe"
-run "$vs/setup/ssdt/SSDTSetup.exe"
-run "$vs/setup/other/Microsoft.TeamFoundation.Git.Provider.msi"
-
-# Extensions
-run "$vs/extension/ProPowerTools_2012.vsix"
-run "$vs/extension/NuGet.Tools.vsix"
-run "$vs/extension/WebEssentials2012.vsix"
-
-VsFinal
-
-return
-
-:vs10
-# Path: $P32/Microsoft Pex/bin/;$TFSPowerToolDir$;$BPADir$
-echot "\
-************************
-* Visual Studio 2010
-************************
-- (Visual Studio, 4.7GB) Install Microsoft Visual Studio 2010, Custom
-  - (optional) Uncheck Microsoft Visual Studio 2010, Visual C++ (1.4 GB)
-  - Uncheck Microsoft Visual Studio 2010, Visual C++, Itanium Compilers and Tools
-  - Uncheck Microsoft SQL Server 2008 Express Service Pack 1 (1.6 GB)
-- (Optional, Pex) Complete
-"
-
-# Initialize
-VsInit
-
-# Prerequisites
-ask "Install .NET Framework v4.0?` y
-if $? == 1 .net40
-
-# Setup
-run "$vs/setup/vs/en_visual_studio_2010_ultimate_x86_dvd_509116.iso"
-run "$vs/setup/other/en_visual_studio_2010_sdk_x86_508948.exe"
-run "$vs/setup/other/en_visual_studio_2010_pex_0.94.51006.1_power_tools_${architecture}_exe_593303.exe"
-run "$vs/setup/other/en_visual_studio_2010_visualization_modeling_sdk_x86_511193.exe"
-run "$vs/setup/other/en_visual_studio_2010_visualization_modeling_feature_pack_x86_x64_535571.vsix"
-run "$vs/setup/other/SSDTSetup.exe"
-run "Microsoft/.NET/Silverlight/development/Silverlight5_Tools.exe"
-
-# Updates
-
-postRun=c:/dev/iso1/setup.exe
-run "$vs/update/mu_visual_studio_2010_sp1_x86_dvd_651704.iso"
-
-run "$vs/setup/other/en_visual_studio_2010_fp2_x86_604352.msi"
-
-# Extensions
-run "$vs/extension/SolutionExplorerTools.vsix"
-run "$vs/extension/ProPowerTools_2010.vsix"
-run "$vs/extension/NuGet.Tools.vsix"
-
-VsFinal
-
-return
-
-:vs10clients
-VsInit
-run "$vs/setup/other/en_visual_studio_team_explorer_2010_x86_dvd_509698.iso
-run "$vs/setup/other/en_visual_studio_agents_2010_x86_dvd_509679.iso"
-run "$vs/setup/other/en_visual_studio_2010_#ote_debugger_${architecture}_509319.exe
-return
-
-:vs08
-# Adds the following entry to the path: C:/Program Files (x86)/Microsoft Visual Studio 8/Common7/IDE/PrivateAssemblies/
-echot "\
-************************
-* Visual Studio 2008
-************************
-- (2.5GB, 15-21m) Install Visual Studio 2008, Custom
-  - (optional 700MB) Language Tools, Visual C++, check only
-    - Visual C++ Class & Template Libraries
-    - Visual C++ Tools
-    - (optional 400MB) X64 Compilers and Tools
-    - Visual C++ Run-Time Libraries
-  - Uncheck SQL Server 2005 Express Edition
-  - Uncheck Crystal Reports Basic for Visual Studio 2008
-"
-
-VsInit
-iso=c:/dev/iso1
-
-# Visual Studio - Allow other executables to be run from the ISO image
-noCleanup=true
-run "$vs/setup/en_visual_studio_team_system_2008_team_suite_x86_x64wow_dvd_X14-26461.iso"
-
-# MSDN Setup - fails if run from c:/dev/iso1/msdn/setup/setup.exe
-echo - (2.1GB, 15-18m) DVD, AutoPlay, Install Product Documentation
-os MyComputer
-pause
-
-# Team Foundation Client setup - 10-20m
-run "$iso/tfc/setup.exe"
-
-# SQL pretty printer add-in
-run "Gudu Software/SQL Pretty Printer/Visual Studio Add-In v2.9.0.msi"
-
-# updates
-run "$vs/update/VS2008SP1ENUX1512962.iso"
-run "$vs/update/VS90SP1-KB971092-x86.exe"
-run "$vs/update/VS90SP1-KB973675-x86.exe"
-
-# Database Utilities
-# - http://www.microsoft.com/downloads/details.aspx?FamilyID=bb3ad767-5f69-4db9-b1c9-8f55759846ed&DisplayLang=en
-run "$vs/GDR/setup.exe"
-
-echo Cleanup...
-iso unmount 1
-del /e /q "$P32/Microsoft Visual Studio 9.0/Microsoft Visual Studio Team System 2008 Team Suite - ENU/Logs/*.txt"
-
-VsFinal
-
-return
-
-:VsInit
-vs=Microsoft/Visual Studio
-return
-
-:VsFinal
-
-IISExpress
-
-VsInit
-
-VisualStudio init
-if $? != 0 return $?
-
-echo Creating directories...
-MakeDir "$LocalCode/test/vs$VsName$"
-MakeDir "$LocalCode/template"
-
-# Open VisualStudio - pick default environment and create default directories 
-ask "default environment?` y
-if $? == 1 then
-	echo - Choose your default environment settings=Visual C# Development Settings
-	echo - Close Visual Studio
-	VisualStudio.btm start
-	pause
-endif
-
-echo Moving data folders...
-MakeLink merge "$VsData" hide "$UserDocuments/Visual Studio $VsName"
-MakeLink merge "$UserData/Visual Studio 2012" hide "$UserDocuments/Visual Studio 2012"
-MakeLink merge "$UserData/Visual Studio 2010" hide "$UserDocuments/Visual Studio 2010"
-MakeLink merge "$UserData/Work Item Templates" hide "$UserDocuments/Work Item Templates"
-MakeLink merge "$UserData/WCF Test Client Projects" hide "$UserDocuments/Test Client Projects"
-MakeLink merge "$UserData/Web Essentials" hide "$UserHome/Web Essentials"
-
-# Registry
-ask "Update registry?` y
-if $? == 1 VsRegistry
-
-ask "Update icons?` y
-if $? == 1 VsIcons
-
-ask "Restore profile?` y
-if $? == 1 VisualStudio profile restore default
-
-ask "Configure TFS servers?` y
-if $? == 1 TfsClientSetup
-
-echot "\
-Tools, Options...
-- Environment, Documents
-  - check Auto-load changes, if saved
-  - uncheck Check for consistent line endings on load
-- Environment, Keyboard 
-  - ctrl-shift-c = View.SynchronizeClassView
-  - ctrl-alt-; = Project.SyncItem
-- Text Editor, C#
-  - General: check Line numbers
-  - Tabs: Tab size=3, Indent size=3, Keep tabs
-- Productivity Power Tools
-  - All Extensions, enable only 
-    Color Printing, Middle-click srolling, Power Commands, Quick Launch Tasks
-Menu bar, Customize...
-- Commands, Context menu, Editor Context Menus | Code Window, Add Command..., View.SynchronizeClassView
-"
-VisualStudio.btm start
-pause
-
-return
-
-:VsRegistry
-
-VisualStudio.btm init
-if $? != 0 return $?
-
-r=$VsRegistryKey
-code=$LocalCode
-
-#  Default folders
-registry.btm 32 "$r/DefaultBrowseComponentLocation" REG_EXPAND_SZ $code
-registry.btm 32 "$r/DefaultFileOpenLocation" REG_EXPAND_SZ $code
-registry.btm 32 "$r/DefaultNewProjectLocation" REG_EXPAND_SZ $code
-registry.btm 32 "$r/DefaultNewProjItemLocation" REG_EXPAND_SZ $code
-registry.btm 32 "$r/DefaultOpenProjectLocation" REG_EXPAND_SZ $code
-registry.btm 32 "$r/DefaultOpenProjItemLocation" REG_EXPAND_SZ $code
-registry.btm 32 "$r/DefaultOpenSolutionLocation" REG_EXPAND_SZ $code
-registry.btm 32 "$r/VisualStudioProjectsLocation" REG_EXPAND_SZ $code
-
-registry.btm 32 "$r/ProjectTemplates" REG_EXPAND_SZ $VsDir/Common7/IDE/ProjectTemplates
-registry.btm 32 "$r/ItemTemplates" REG_EXPAND_SZ $VsDir/Common7/IDE/ItemTemplates
-
-registry.btm 32 "$r/UserProjectTemplatesLocation" REG_EXPAND_SZ $VsData/Templates/ProjectTemplates
-registry.btm 32 "$r/UserItemTemplatesLocation" REG_EXPAND_SZ $VsData/Templates/ItemTemplates
-
-registry.btm 32 "$r/VisualStudioLocation" REG_EXPAND_SZ $VsData
-
-return
-
-:VsIcons
-
-VisualStudio.btm init
-if $? != 0 return $?
-
-base=$pp/Development/.NET
-other=$base/Other
-vs=$other/Visual Studio $VsName
-MakeDir "$other"
-
-# Common
-MakeShortcut.btm "$WinDir/assembly" "$base/GAC.lnk"
-MergeDir.btm /q /rename "$pp/Microsoft Visual Studio $VsName" "$other/Visual Studio $VsName"
-MergeDir.btm /q /rename "$vs/Microsoft Windows SDK Tools" "$vs/Windows SDK Tools"
-for f in ("$vs/Microsoft*.lnk") MoveFile.btm "$f" "$@path[$f]$@right[-10,$@name[$f].lnk]"
-CopyFile.btm /quiet "$vs/Visual Studio $VsName.lnk" "$base"
-MergeDir /q /rename "$pp/Microsoft Team Foundation Server $VsName Power Tools" "$vs/Team Foundation Server Power Tools"
-MergeDir /q /rename "$pp/Microsoft Visual Studio $VsName SDK" "$vs/sdk"
-
-# VisualStudio 2012
-MergeDir /q "$pp/Windows Kits" "$vs"
-MoveFile "$pp/Microsoft Web Platform Installer.lnk" "$pp/Development/.NET/"
-MoveFile "$pp/SQL Server Data Tools 2012.lnk" "$base/SQL Server Data Tools.lnk"
-
-# VisualStudio 2010
-MergeDir /q /rename "$pp/Microsoft Sync Framework" "$vs/Sync Framework"
-MergeDir /q /rename "$pp/Microsoft Moles" "$vs/Moles"
-MergeDir /q /rename "$pp/Microsoft Pex" "$vs/Pex"
-MergeDir /q "$pp/WCF RIA Services V1.0 SP1" "$vs"
-MoveFile "$pp/Microsoft SQL Server Data Tools.lnk" "$base/SQL Server Data Tools.lnk"
-MergeDir.btm /q /rename "$pp/Microsoft Visual Studio 2010" "$other/Visual Studio 2010"
-
-# VisualStudio 2008
-MergeDir.btm /q /rename "$pp/Microsoft Windows SDK v6.0A/Tools" "$vs/Windows SDK Tools"
-DelDir "$pp/Microsoft Windows SDK v6.0A"	
-MoveFile "$pp/Microsoft Developer Network/MSDN Library for Visual Studio 2008 - ENU.lnk" "$vs/MSDN Library for Visual Studio 2008.lnk"
-DelDir "$pp/Microsoft Developer Network"
-
-# VisualStudio 2005
-MergeDir /q /rename "$pp/Microsoft .NET Framework SDK v2.0" "$vs/Framework SDK v2.0"
-MergeDir /q /rename "$pp/Innovasys HelpStudio Lite" "$vs/HelpStudio"
-
-SilverlightIcons
-ExpressionIcons
 
 return
 
@@ -1654,7 +1181,7 @@ echot "\
 run "Microsoft/SharePoint/setup/en_sharepoint_server_2010_with_service_pack_1_x64_759775.exe"
 
 echo Updating icons...
-MergeDir /q /rename "$pp/Microsoft SharePoint 2010 Products" "$pp/Server/other/SharePoint"
+$mergeDir --rename "$pp/Microsoft SharePoint 2010 Products" "$pp/Server/other/SharePoint"
 
 return
 
@@ -1678,7 +1205,7 @@ echo    http://$c/ReportServer http://$c/Reports
 echo    http://$c/sites http://$c:17012 
 
 # Prerequisites
-ask "Install prerequisites (IIS, SS08, .net40)?` y
+ask "Install prerequisites (IIS, SS08, .net40)?"
 if $? == 1 iis ss08 .net40
 
 # Services
@@ -1701,7 +1228,7 @@ run "$tfs/other/Team Foundation Server Build Extensions 2010.msi"
 run "$tfs/update/mu_team_foundation_server_2010_sp1_x86_x64_651711.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Microsoft Team Foundation Server 2010" "$serverPrograms/Other"
+$mergeDir "$pp/Microsoft Team Foundation Server 2010" "$serverPrograms/Other"
 
 echo Configuring Kanban...
 echot "\
@@ -1740,7 +1267,7 @@ if $? == 1 then
 	SqlServer RsConfig
 	pause
     
-endif
+fi
 
 # FrontPage 2002 Uninstall
 ask "Do you want to uninstall FrontPage2002?" y
@@ -1750,7 +1277,7 @@ if $? == 1 then
   os WindowsComponents
   pause
   
-endif
+fi
 
 # Accounts
 ask "Do you want to create prerequisite user accounts?" y
@@ -1764,7 +1291,7 @@ if $? == 1 then
 	os ComputerManagement
 	pause
 	
-endif
+fi
 
 # SharePoint Services 2.0 with SP2
 run "Microsoft/Sharepoint/stsv2.exe" /C:"setupsts.exe /#oteSql=yes /provision=no /qn+"
@@ -1795,7 +1322,7 @@ if $? == 1 then
 	pause
   popd
   
-endif
+fi
 
 echo Validate SharePoint...
 echo - Validate SharePoint Central, Browse, Create a top-level Web site, Version for Default Web Site is 6.0.2.6568.  
@@ -1812,12 +1339,12 @@ if $? == 1 then
 	echo `- Service Account, Account name=<paste, TfsService>`
 	RunProg "$prefix/build/setup.exe"
 	pause
-endif
+fi
 
 ask "Do you want to install eScrum (TFS project management)?" y
 if $? == 1 then
 	run "$tfs/en_eScrum_1.0.msi"
-endif
+fi
 
 echo Cleanup...
 iso unmount 1
@@ -1840,8 +1367,8 @@ SqlServer ExecuteSql "$ExeDir/tfs.sql"
 run "$tfs/Team System Web Access V1.0.msi"
 
 echo Updating icons...
-MakeDir "$pp/Development/Other/Visual Studio 2005"
-MergeDir /q /rename "$pp/Microsoft .NET Framework SDK v2.0" "$pp/Development/Other/Visual Studio 2005/Framework SDK v2.0"
+$makeDir "$pp/Development/Other/Visual Studio 2005"
+$mergeDir --rename "$pp/Microsoft .NET Framework SDK v2.0" "$pp/Development/Other/Visual Studio 2005/Framework SDK v2.0"
 
 return
 
@@ -1875,7 +1402,7 @@ echo Update internal references to $TfsDomain...
 "$P32/Microsoft Visual Studio 2005 Team Foundation Server/Tools/TfsAdminUtil.exe" ActivateAt $TfsDomain
 
 echo Update reporting services web parts to the public URL if the Default Web Site...
-registry.btm 32 "HKLM/Software/Microsoft/VisualStudio/8.0/TeamFoundation/ReportServer/key" REG_SZ $TfsUrl
+registry 32 "HKLM/Software/Microsoft/VisualStudio/8.0/TeamFoundation/ReportServer/key" REG_SZ $TfsUrl
 
 echo Update web.config...
 XmlEdit Web.Config "/configuration/appSettings/add[@key='TFSNameUrl']/@value" http://$TfsDomain:$TfsHttpPort
@@ -1932,7 +1459,7 @@ if $? == 1 then
   echo - Update the SubnetList to identify local addresses that can use Windows Integrated authentication
   TextEdit "$file"
   pause
-endif
+fi
 
 echo Updating event viewer configuration...
 reg.exe add "HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Services/Eventlog/Application/TFS ISAPI Filter" /v EventMessageFile /t REG_SZ /d $windir$/Microsoft.NET/Framework/v2.0.50727/EventLogMessages.dll /f 
@@ -1967,7 +1494,7 @@ echo Addings default TFS servers...
 TeamFoundationServer.btm server add Intel http://source2010.intel.com:8090
 if $@OnNetwork[Wiggin] == 1 then
 	TeamFoundationServer server add test http://ws08:8080/tfs
-endif
+fi
 VisualStudio start
 pause
 
@@ -1991,537 +1518,6 @@ pause
 
 return
 
-:ss12
-:ss
-# Updates: http://support.microsoft.com/kb/2755533
-# Installs:
-# - Path:
-#   c:/Program Files (x86)/Microsoft SQL Server/110/Tools/Binn/
-#   c:/Program Files/Microsoft SQL Server/110/Tools/Binn
-#   c:/Program Files/Microsoft SQL Server/110/DTS/Binn
-#   c:/Program Files (x86)/Microsoft SQL Server/110/Tools/Binn/VSShell/Common7/IDE
-#   c:/Program Files (x86)/Microsoft Visual Studio 9.0/Common7/IDE/PrivateAssemblies
-#   c:/Program Files (x86)/Microsoft SQL Server/110/DTS/Binn/
-echot "\
-****************************
-* SQL Server 2012
-****************************
-"
-
-base=Microsoft/SQL Server
-
-echo.
-echo Checking for IIS (required for reporting services)...
-IisCheck
-
-echot "\
-
-Note: Logs are in "$P/Microsoft SQL Server/110/Setup Bootstrap/Log"
-- Installation, New SQL installation or add features to an existing installation
-- Setup Roles, All Features with Defaults
-- Feature Selection
-  - (full development, 8gb) No changes
-  - (light development+SQL Server Express, 6gb) Uncheck all Instance Features
-  - (server, 2gb) Uncheck all Shared Features
- - Instance Configuration
-  - (optional) Named instance=MSSQLSERVER<version>
-	- (optional) Instance root directory=d:/Program Files/Microsoft SQL Server/
-- Database Engine Configuration
-  - Authentication Mode=Mixed Mode, Enter password=XXX, Confirm password=XXX
-  - Add..., Add Current User, (optional) Add..., Administrators
-- Analysis Services Configuration
-  - Add..., Add Current User, (optional) Add..., Administrators
-- Distributed Replay Controller
-  - Add..., Add Current User
-"
-
-# Install
-if $@IsWindowsClient[] == 1 then
-  run "$base/setup/en_sql_server_2012_developer_edition_x86_x64_dvd_813280.iso"
-	run "$base/express/SQLEXPR_x64_ENU.exe"
-else
-	run "$base/setup/en_sql_server_2012_enterprise_edition_x86_x64_dvd_813294.iso"
-endif
-
-# Updates
-run "$base/update/SQLServer2012SP1-KB2674319-${architecture}-ENU.exe"
-
-# Determine which components were installed
-
-ClientTools=$@if[exist "$P32/Microsoft SQL Server/110/Tools/Binn/ManagementStudio/Ssms.exe" ,true]
-
-
-server=$@if[exist "$P/Microsoft SQL Server/MSSQL11.MSSQLSERVER/MSSQL/Binn/sqlservr.exe" .or. exist "d:/Program Files/Microsoft SQL Server/MSSQL11.MSSQLSERVER/MSSQL/Binn/sqlservr.exe" ,true]
-
-if defined ClientTools then
-	# http://www.ssmsboost.com/
-	run "$base/plugins/SSMSBoostInstaller2012_2.10.4957.30631.msi"
-endif
-
-SsLogCleanup
-SsUpdateServices
-
-if defined server then 
-	SqlServer service start
-	SsFirewall
-	SsServerConfig
-	SsMailConfig
-	SsReportServerConfig
-endif
-
-if defined ClientTools then
-	SsManagementStudioConfig
-endif
-
-SsFinal
-
-return
-
-:ss08r2
-# Installs:
-# - Path:
-#   c:/Program Files (x86)/Microsoft SQL Server/100/Tools/Binn/
-#   c:/Program Files/Microsoft SQL Server/100/Tools/Binn
-#   c:/Program Files/Microsoft SQL Server/100/DTS/Binn
-#   c:/Program Files (x86)/Microsoft SQL Server/100/Tools/Binn/VSShell/Common7/IDE
-#   c:/Program Files (x86)/Microsoft Visual Studio 9.0/Common7/IDE/PrivateAssemblies
-#   c:/Program Files (x86)/Microsoft SQL Server/100/DTS/Binn/
-echot "\
-****************************
-* SQL Server 2008 Release 2
-****************************
-"
-
-base=Microsoft/SQL Server
-
-echo.
-echo Checking for IIS (required for reporting services)...
-IisCheck
-
-echot "\
-
-Note: Logs are in "$P/Microsoft SQL Server/100/Setup Bootstrap/Log"
-- Installation, New SQL installation or add features to an existing installation
-- Setup Roles, All Features with Defaults
-- Feature Selection
-  - (development, 6gb) No changes
-  - (server, 2gb) Uncheck all Shared Features
-  - (client tools only, 4gb) Uncheck all Instance Features
-- Server Configuration
-  - Use the same account for all SQL Server instances, Account Name=wsystem, Password=XXX
-    - Note: To execute maintenance plans using a domain account, SQL Server Agent service account must have access to the AD
-- Database Engine Configuration
-  - Authentication Mode=Mixed Mode, Enter password=XXX, Confirm password=XXX
-  - Add..., Add Current User and (optional) Add..., Administrators
-- Analysis Services Configuration
-	- Add..., Add Current User and (optional) Add..., Administrators
-"
-
-# Install
-if $@IsWindowsClient[] == 1 then
-  run "$base/setup/en_sql_server_2008_r2_developer_x86_x64_ia64_dvd_522665.iso"	 
-else
-	run "$base/setup/en_sql_server_2008_r2_enterprise_x86_x64_ia64_dvd_520517.iso"
-endif
-run "Microsoft/SQL Server/update/SQLServer2008R2SP1-KB2528583-${architecture}-ENU.exe"
-
-# Determine which components were installed
-
-ClientTools=
-if exist "$P32/Common Files/Microsoft Shared/Help 9/dexplore.exe" then
-	ClientTools=true
-endif
-
-server=
-if exist "$P/Microsoft SQL Server/MSSQL10_50.MSSQLSERVER/MSSQL/Binn/sqlservr.exe" then
-	server=true
-endif
-
-SsLogCleanup
-SsUpdateServices
-
-if defined server then 
-	SqlServer service start
-	SsFirewall
-	SsServerConfig
-	SsMailConfig
-	SsReportServerConfig
-endif
-
-if defined ClientTools then
-
-  # http://www.tsqltidy.com/tsqltidySSMSAddin.aspx
-	run "$base/plugins/T-SQL Tidy for SQL Server 2008 R2 Setup.msi"
-	
-	# http://www.ssmstoolspack.com/
-	run "$base/plugins/SSMSToolsPack.msi"
-
-  echo Initializing help...
-  start /wait /pgm "$P32/Common Files/Microsoft Shared/Help 8/dexplore.exe" /helpcol ms-help://MS.SQLCC.v10 /usehelpsettings SQLServerBooksOnline.10.0 /LaunchNamedUrlTopic SQLServerBooksOnline
-
-	SsManagementStudioConfig
-endif
-
-SsFinal
-
-return
-
-:ss08
-# Notes
-# - Adds the following entries to the path:
-#   c:/Program Files/Microsoft SQL Server/100: Tools/Binn,DTS/Binn, Tools/Binn/VSShell/Common7/IDE
-#   c:/Program Files/Microsoft Visual Studio 9.0/Common7/IDE/PrivateAssemblies
-#   c:/WINDOWS/system32/WindowsPowerShell/v1.0
-echot "\
-************************
-* SQL Server 2008
-************************
-"
-
-echo.
-echo - Check IIS (required for reporting services)
-IisCheck
-
-echo - If present, #ove pending file operations from PendingFileRenameOperations and reboot
-key=HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Session Manager/PendingFileRenameOperations
-registry.btm 64 $key
-pause
-
-echot "\
-- Note: Logs in $P/Microsoft SQL Server/100/Setup Bootstrap/Log
-- Installation, New SQL Server stand-alone installation or add features to an existing installation
-- Feature Selection, Select All
-  - (development, 2.7gb) 
-  - (server, 900mb) Uncheck Shared Features
-  - (client tools only, 1.8gb) Uncheck Instance Features
-- Server Configuration
-  - Use the same account for all SQL Server instances, Account Name=wsystem, Password=XXX
-    - To execute maintenance plans using a domain account, SQL Server Agent service account must have access to the AD
-  - SQL Full-text Filter Daemon Launcher, Account Name=wsystem, Password=XXX
-- Database Engine Configuration
-  - Authentication Mode=Mixed Mode, Enter password=XXX, Confirm password=XXX
-  - Add..., Add Current User
-- Analysis Services Configuration
-  - Add..., Add..., Administrators
-"
-
-# Install
-if $@IsWindowsClient[] == 1 then
-  run "Microsoft/SQL Server/setup/en_sql_server_2008_developer_x86_x64_ia64_dvd_x14-88839.iso"
-else
-	run "Microsoft/SQL Server/setup/en_sql_server_2008_enterprise_x86_x64_ia64_dvd_x14-89207.iso"
-endif
-run "Microsoft/SQL Server/update/SQLServer2008SP2-KB2285068-${architecture}-ENU.exe"
-
-# Determine which components were installed
-
-ClientTools=
-if exist "$P32/Common Files/Microsoft Shared/Help 9/dexplore.exe" then
-	ClientTools=true
-endif
-
-server=
-if exist "$P/Microsoft SQL Server/MSSQL10.MSSQLSERVER/MSSQL/Binn/sqlservr.exe" then
-	server=true
-endif
-
-SsLogCleanup
-SsUpdateServices
-
-if defined server then 
-	SqlServer service start
-	SsFirewall
-	SsServerConfig
-	SsMailConfig
-	SsReportServerConfig
-endif
-
-if defined ClientTools then
-
-	echo Updating help...
-	run "Microsoft/SQL Server/update/SQLServer2008_BOL_August2008_ENU.msi"
-
-  echo Initializing help...
-  start /wait /pgm "$P32/Common Files/Microsoft Shared/Help 8/dexplore.exe" /helpcol ms-help://MS.SQLCC.v10 /usehelpsettings SQLServerBooksOnline.10.0 /LaunchNamedUrlTopic SQLServerBooksOnline
-
-	SsManagementStudioConfig
-endif
-
-SsFinal
-
-return
-
-:ss05
-# Notes
-# - Setup logs: C:/Program Files/Microsoft SQL Server/90/Setup Bootstrap/LOG/Files/
-# - WMI configuration error: rebuild WMI catalog by running FixWmi (http://forums.microsoft.com/MSDN/ShowPost.aspx?PostID=193534&SiteID=1)
-# - COM+ System Configuration Check Failure in SQL Server Setup: reinstall COM+ (http://msdn2.microsoft.com/en-us/library/ms143690.aspx)
-# - Installing on x64: http://technet.microsoft.com/en-us/library/ms143293.aspx
-# - Adds the following entries to the path:
-#   - C:/Program Files (x86)/Microsoft SQL Server/80/Tools/Binn/
-#   - C:/Program Files/Microsoft SQL Server/90/DTS/Binn/
-#   - C:/Program Files/Microsoft SQL Server/90/Tools/binn/
-#   - C:/Program Files (x86)/Microsoft SQL Server/90/Tools/binn/
-#   - C:/Program Files (x86)/Microsoft SQL Server/90/DTS/Binn/
-#   - C:/Program Files (x86)/Microsoft SQL Server/90/Tools/Binn/VSShell/Common7/IDE/
-echot "\
-************************
-* SQL Server 2005
-************************
-"
-
-echo.
-echo - IIS is required for reporting services
-IisCheck
-
-echot "\
-- Notes
-  - Install logs to $P/Microsoft SQL Server/90/Setup Bootstrap/LOG/Files
-  - If any components fail, reboot and re-run.
-  - (xp) Uninstall Microsoft Office Web Components
-  - (xp) #ove IIS certificates from the Default Web Site
-- Install Server components, tools, Books Online, and samples
-- Components to Install, check all, Advanced 
-  - (development, 2.1gb) (optional, 400mb) uncheck Documentation/Sample Databases
-  - (server, max 700mb) Uncheck Client Components, Documentation, and server components not required.
-  - (client tools only, 2.2gb) Select only
-    - Client Components (1.3GB)
-    - (optional) Sample Code and Applications (237MB)
-- Use a domain user account=wsystem, Password=XXX, Domain=(blank)
-  - To execute maintenance plans using a domain account, SQL Server Agent service account must have access to the AD
-- Authentication Mode=Mixed Mode
-- SQL collations, Dictionary order, case-insensitive, for use with the 1252 Character Set.
-- (optional) Report Server Installation Options, check Install the default configuration
-"
-
-# Install - dev setup fails unless both discs combined together
-if $@IsWindowsClient[] == 1 then
-  run "Microsoft/SQL Server/setup/en_sql_2005_dev_${architecture}.iso"
-else
-  run "Microsoft/SQL Server/setup/en_sql_2005_ent_${architecture}_dvd.iso"
-endif
-
-# Determine which components were installed
-
-ClientTools=
-if exist "$P32/Common Files/Microsoft Shared/Help 8/dexplore.exe" then
-	ClientTools=true
-endif
-
-server=
-if exist "$P/Microsoft SQL Server/mssql.1/mssql/binn/sqlservr.exe" then
-	server=true
-endif
-
-# Install updates
-
-echot "\
-
-Install service Pack...
-- Wait until the .NET optimization process (mscorsvw.exe) is finished before running service pack
-- Note: Log files in $WinDir/Hotfix
-"
-
-# Stop services so files are not open for update
-SqlServer service stop all
-
-run "Microsoft/SQL Server/update/SQLServer2005SP2-KB921896-${architecture}-ENU.exe"
-run "Microsoft/SQL Server/update/SQLServer2005-KB934458-${architecture}-ENU.exe"
-
-# Update SQL books online
-if defined ClientTools then
-	run "Microsoft/SQL Server/update/SqlServer2K5_BOL_Sep2007.msi"
-endif
-
-# Cleanup
-echos #oving log files...
-DelFile "$P/Microsoft SQL Server/90/Setup Bootstrap/LOG/Files/*.log"
-echo done.
-
-# $WinDir/hotfix contains log files for SQL Server 2005 SP1 hotfix, ~70mb
-DelDir "$WinDir/hotfix"
-
-echo Updating icons...
-MergeDir /q /rename "$pp/Microsoft SQL Server 2005" "$pp/Development/Other/SQL Server 2005"
-MergeDir /q /rename "$pp/Microsoft Visual Studio 2005" "$pp/Development/Other/Visual Studio 2005"
-link=$pp/Development/Other/SQL Server 2005/SQL Server Management Studio.lnk
-CopyFile "$link" "$pp/Development"
-
-# Client Tools
-if defined ClientTools then
-
-  # SQL Pretty Printer add-in 
-	run "Gudu Software/SQL Pretty Printer/SQL Server Management Studio Add-In V2.9.0.msi"
-
-  echo Initializing help...
-  start /wait /pgm "$P32/Common Files/Microsoft Shared/Help 8/dexplore.exe" /helpcol ms-help://MS.SQLCC.v9 /usehelpsettings SQLServerBooksOnline.9.0 /LaunchFKeywordTopic sql9.portal.f1
-endif
-
-# Compress service pack files
-BackupDir=$P/Microsoft SQL Server/MSSQL.1/MSSQL/Backup
-if exist "$BackupDir" then
-	if $@DirSize["$BackupDir"] gt 0 then
-		ask "Compress backup files?" n 5
-		if $? == 1 then
-			CompactDir "$P/Microsoft SQL Server/MSSQL.1/MSSQL/Backup"
-		endif
- endif
-endif
-
-# Surface area configuration
-if defined server then
-
-  echo Updating firewall...
-	firewall rule add "SQL Server" `dir=in action=allow protocol=TCP localport=1433 profile=private program="$P/Microsoft SQL Server/MSSQL.1/MSSQL/Binn/sqlservr.exe"`
-
-	# Start SQL Server for access by surface area configuration and client tools
-	SqlServer service start
-
-	text
-Surface area configuration...
-- Surface Area Configuration for Services and Connections
-  - MSSQLSERVER, Database Engine, #ote Connections, select Local and #ote connectios 
-    using TCP/IP only (or Using both TCP/IP and named pipes)
-	"
-	SqlServer SurfaceArea
-	pause
-	
-endif
-
-# Configure mail
-if defined server then
-
-  ask "Do you want to configure SQL mail?" n
-  if $? == 1 then
-
-    echo - Surface Area Configuration for Features
-    echo   - MSSQLSERVER, Database Engine, Database Mail, check Enable Database Mail stored procedures
-	  SqlServer studio
-		pause
-		
-		SqlServer ExecuteSql "$ExeDir/..../other/Database Mail Setup.sql"
-		
-		echo Execute the mail setup script ...
-		echo $@ClipW[$MailSetupScript] >& nul:
-	  TextEdit "$MailSetupScript"
-
-		text
-- Object Explorer, Server, SQL Server Agent (SQL Server Agent service must be running), 
-  - Properties
-    - Advanced, check Define idle CPU condition
-    - Alert System
-      - Check Enable mail profile
-      - Mail system=Database mail
-      - Mail profile=Public Mail Profile
-  - New, Operator..., New Operator..., Name=NNN, E-mail name=NNN
-		"
-		
-		SqlServer studio
-		pause
-		
-	endif
-endif
-
-# Configure server
-if defined server then
-	text
-- Object Explorer, Server, Properties, Memory, Maximum server memory=256
-	"
-	SqlServer studio
-	pause
-endif
-
-# Configure client tools
-if defined ClientTools then
-	echo $@ClipW[$UserDocuments/data/replicate/databases.regsrvr] >& nul:
-	SqlServer studio
-	pause
-	
-endif
-
-# Configure reporting services
-if IsFile "$P/Microsoft SQL Server/90/Tools/Binn/RSConfigTool.exe" then
-	text
-
-SQL server reporting services configuration...
-- Report Server Virtual Directory, Uncheck Require Secure Socket Layer (SSL) connections 
-- (if default report server configuration was not selected) Reporting Services Configuration 
-  - Server Status, Start
-  - Report Server Virtual Directory, New, Ok
-  - Report Manager Virtual Directory, New, Ok
-  - Windows Service Identity, Apply
-  - Web Service Identity, Apply
-  - Database Setup
-    - Server Name=<hostname>, Connect
-    - Database Name, New, Ok
-    - Apply, Ok
-	"
-	SqlServer RsConfig
-	pause
-endif
-
-# services to manual - services must be started for service pack installation
-# MSSQLServerADHelper and SQLBrowser services are disabled by defaults
-if $@IsWindowsClient[] == 1 then
-
-  echo Updating services...
-  service manual MsDtsServer 
-  service manual MsFteSql
-  service manual MsSqlServerOlapService
-  service manual ReportServer
-  service manual SqlServerAgent
-  service manual SQLWriter 
-  service manual MsSqlServer 
-endif
-
-echot "\
-- (xp) Add back IIS certificates
-- (optional, 350MB from SP2) Cleanup $WinDir/Installer
-- (option) #ove the SQL entries from the system path
-"
-
-return
-
-:SsLogCleanup
-echos #oving log files...
-DelDir ask quiet "$P/Microsoft SQL Server/110/Setup Bootstrap/Log"
-echo done.
-return
-
-:SsUpdateServices
-
-# services to manual - services must be started for service pack installation
-if $@IsWindowsClient[] == 1 then
- 	echo Updating services...
-	SqlServer service demand all instance default
-	SqlServer service demand all instance express
-endif
-
-return
-
-:SsManagementStudioConfig
-
-ask 'Restore profile?' y
-if $? == 1 SqlServer profile restore default
-
-echot "\
-- View: Registered Servers at top left, Solution Explorer at bottom right
-- Tools, Options
-  - Environment
-    - 20 items shown
-    - Startup, At startup Open empty environment
-  - Text Editor
-    - All Languages, check Line numbers
-    - (if using SQL Prompt) Transact-SQL, uncheck Auto list members
-    - Editor Tab and Status Bar, Tab Text, all but Include File Name to False
-  - (optional) Source Control, Current source control plug-in=Team Foundation Server MSCCI Provider
-- Help, Yes	
-"
-SqlServer studio
-pause
-
-return
-
 :SsFirewall
 
 echo Updating firewall...
@@ -2534,12 +1530,6 @@ echo  - TCP/IP, IP Addresses, (IP for primary NIC) IPn, Enabled=Yes
 SqlServer config
 pause
 
-return
-
-:SsServerConfig
-echo - Object Explorer, Server, Properties, Memory, Maximum server memory=128 or 256
-SqlServer studio
-pause
 return
 
 :SsReportServerConfig
@@ -2601,71 +1591,6 @@ pause
 
 return
 	
-:SsFinal
-
-echo Creating sql directory...
-SqlDir=$UserData/sql
-MakeDir "$SqlDir"
-MakeShortcut.btm "$CloudData/sql" "$SqlDir/cloud.lnk"
-
-echo Moving data folders...
-
-dest=$UserData/SQL Server
-MakeDir "$dest"
-MergeDir /q "$UserDocuments/Integration Services Script Component" "$dest"
-MergeDir /q "$UserDocuments/Integration Services Script Task" "$dest"
-
-dir=$UserData/SQL Server Management Studio
-MakeLink merge "$UserData/SQL Server Management Studio" hide "$UserDocuments/SQL Server Management Studio"
-MakeShortcut.btm "$UserData/sql" "$dir/Projects/sql.lnk"
-
-SsRegistry
-SsIcons
-
-if $@index[$path,SQL Server] != -1 then
-	echo Updating path...
-	echo - #ove the SQL entries from the system path
-	os path editor
-	pause
-endif
-
-return
-
-:SsIcons
-
-echo Updating icons...
-MergeDir /q /rename "$pp/Microsoft SQL Server 2012" "$serverPrograms/Other/SQL Server 2012"
-MergeDir /q /rename "$pp/Microsoft Visual Studio 2010" "$pp/Development/.NET/Other/Visual Studio 2010"
-
-MergeDir /q /rename "$pp/Microsoft SQL Server 2008 R2" "$serverPrograms/Other/SQL Server 2008 R2"
-MergeDir /q /rename "$pp/Microsoft SQL Server 2008" "$serverPrograms/Other/SQL Server 2008"
-MergeDir /q /rename "$pp/Microsoft Visual Studio 2008" "$pp/Development/.NET/Other/Visual Studio 2008"
-
-MergeDir /q /rename "$pp/Windows PowerShell 1.0" "$pp/Operating System/Other/PowerShell"
-
-link=$serverPrograms/Other/SQL Server 2012/SQL Server Management Studio.lnk
-CopyFile "$link" "$serverPrograms"
-
-return
-
-:SsRegistry
-
-ask "Update registry?` y
-if $? != 1 return
-
-echo Updating registry...
-
-r=HKCU/Software/Microsoft/Microsoft SQL Server/110/Tools/Shell
-registry "$r/DefaultBrowseComponentLocation" REG_SZ $SqlDir >& nul:
-registry "$r/DefaultFileOpenLocation" REG_SZ $SqlDir >& nul:
-registry "$r/DefaultNewProjectLocation" REG_SZ $SqlDir >& nul:
-registry "$r/DefaultNewProjItemLocation" REG_SZ $SqlDir >& nul:
-registry "$r/DefaultOpenProjectLocation" REG_SZ $SqlDir >& nul:
-registry "$r/DefaultOpenProjItemLocation" REG_SZ $SqlDir >& nul:
-registry "$r/DefaultOpenSolutionLocation" REG_SZ $SqlDir >& nul:
-
-return
-
 :SsSamples
 echot "\
 ************************
@@ -2677,141 +1602,12 @@ run "Microsoft/SQL Server/samples/SQL2008.AdventureWorks_All_Databases.${archite
 run "Microsoft/SQL Server/samples/SQL2008.All_Product_Samples_Without_DBs.${architecture}.msi"
 
 echo Updating icons...
-MergeDir /q /r "$pp/Microsoft SQL Server 2008 Community `&` Samples" "$serverPrograms/Other/SQL Server 2008/samples"
-DelFile "$pd/Microsoft SQL Server 2008 Community ? Samples Code.lnk"
-DelFile "$pd/Microsoft SQL Server 2008 Community ? Samples License.lnk"
-DelFile "$pd/Microsoft SQL Server 2008 Community ? Samples Portal.lnk"
+$mergeDir /r "$pp/Microsoft SQL Server 2008 Community `&` Samples" "$serverPrograms/Other/SQL Server 2008/samples"
+$delFile "$pd/Microsoft SQL Server 2008 Community ? Samples Code.lnk"
+$delFile "$pd/Microsoft SQL Server 2008 Community ? Samples License.lnk"
+$delFile "$pd/Microsoft SQL Server 2008 Community ? Samples Portal.lnk"
 
 pause
-
-return
-
-:iis
-# - Add/#ove Windows Components requires inf files
-# - #ote Desktop Web Connection reference http://www.microsoft.com/windowsxp/using/networking/expert/northrup_03may16.mspx
-echot "\
-************************
-* IIS
-************************
-"
-
-switch $_WinVer
-
-# Windows XP / IIS 5.1
-case 5.1
-  
-  echo - Install Optional Windows Components
-  echo - Check Internet Information Services (IIS)
-  echo - When prompted for a Windows XP installation or SP2 location, specify c:/dev/iso1/i386 (in clipboard)
-  echo.
-  echo $@CLipW[c:/dev/iso1/i386] >& nul:
-    
-  # Mount Windows XP installation CD
-  run "Microsoft/XP/setup/en_windows_xp_professional_n_with_service_pack_3_x86_cd_vl_x14-78118.iso"
-	  
-  # Get IIS updates
-  os update
-    
-  # IIS 6 Manager  
-  run "Microsoft/Internet Information Services/IIS V6.0 Manager for Windows XP.exe"
- 
-  firewall console
-  pause
-
-# Windows Server 2003 / IIS 6.0
-case 5.2
-  echo - Add or #ove a role, Next, Application server, check Enable ASP.NET, uncheck FrontPage Server Extensions
-  start /pgm "$WinDir/system32/mshta.exe" res://$WinDir/system32/mys.dll/mys.hta
-  pause
-
-# Vista / IIS 7.0
-case 6.0 .or. 6.1
-
-  text
-- Internet Information Services, check all
-- (optional) Internet Information Services Hostable Web Core
-	"
-  os optional
-	pause
-	
-endswitch
-
-# HTTP firewall configuration
-if $@IsWindowsClient[] == 1 then
-      
-  echo Updating firewall...
-  firewall rule enable "World Wide Web Services HTTP Traffic In"
-  
-endif
-
-echo Updating services...
-service manual SMTPSVC
-service manual FTPSVC
-
-ask "Do you want IIS to start automatically ?" y
-if $? == 0 then
-  service manual IISADMIN
-  service manual w3svc
-  service manual AppHostSvc
-endif
-
-echo Updating icons...
-
-file=$WinDir/system32/inetsrv/iis.msc
-if IsFile "$file" then
-	MakeDir "$pd/Development/Other/IIS"
-	MakeShortcut "$file" "$pp/Development/Other/IIS/IIS Client Manager.lnk"
-endif
-
-MergeDir /q "$pp/IIS" "$pp/Development/Other/IIS"
-
-file=$WinDir/system32/inetsrv6/iis6.msc
-if IsFile "$file" then
-	MakeShortcut "$file" "$pp/Development/Internet Information Services 6.lnk"
-endif
-
-ask "Do you want to configure WebDAV?"
-if $? == 1 IisWebDAV
-
-ask "Do you want to configure the FTP service?"
-if $? == 1 IisFtp
-
-ask "Do you want to configure IIS debugging?"
-if $? == 1 IisDebugging
-
-ask "Do you want to enable IIS compression?"
-if $? == 1 IisCompression
-
-ask "Do you want to enable SSL?" y
-if $? == 1 IisSsl
-
-if $_WinVer == 5.2 then
-	echo - (IIS6) Computer, Properties, check Enable Direct Metabase Edit
-	iis manager
-	pause
-endif
-
-# Install IIS #ote Manager on Windows clients.  Not required on server as it is included with server IIS install.
-if $@IsWindowsClient[] == 1 install.btm Iis#oteManager
-
-# Computer specfic IIS configuration
-if IsLabel Iis$ComputerName then
-  echo $ComputerName specific IIS configuration...
-  Iis$ComputerName
-endif
-
-echo Restarting IIS...
-iisreset
-
-return
-
-:IisCheck
-
-if $@IsInstalled[iis] == 0 then
-	echo.
-	ask "Do you want to install IIS?"
-	if $? == 1 iis
-endif
 
 return
 
@@ -2860,7 +1656,6 @@ RunProg dcomcnfg
 
 return
 
-
 :IisCompression
 
 echo IIS Manage updates...
@@ -2901,7 +1696,7 @@ pause
 if $@IsWindowsClient[] == 1 then
   echo Updating firewall...
   firewall rule enable "World Wide Web Services HTTPS Traffic In"
-endif
+fi
 
 # Configure wildcard certificate
 echot "\
@@ -2920,7 +1715,7 @@ if $_WinVer lt 6.0 then
 else
   echo - Server Certificates, Import
 	echo - Default Web Site, Edit Bindings, Add, type=https, SSL certificate=$ComputerName.podzone.net
-endif
+fi
 iis manager
 pause	
 
@@ -2933,7 +1728,7 @@ echot "\
 
 return
 
-:Iis#oteManager
+:IisRemoteManager
 # download - http://www.iis.net/download/iismanager
 echot "\
 ************************
@@ -2948,16 +1743,7 @@ MoveFile "$pp/Internet Information Services (IIS) 7 Manager.lnk" "$serverProgram
 
 return
 
-:IISExpress
-
-echo Moving data folders...
-MakeLink merge "$UserData/IISExpress" hide "$UserDocuments/IISExpress"
-MergeDir /quiet /rename "$UserDocuments/My Web Sites" "$UserDocuments/code/web"
-
-return
-
-
-:Intel#oteAccess
+:IntelRemoteAccess
 # - AnyConnect (iss 8102) - AnyConnect replaced SoftID and NetStructure
 #  - installs: Cicso AnyConnect client, Intel #ote access certificate, and Intel ProxyManager
 #  - note: install requires domain access for certificate provisioning
@@ -2975,16 +1761,16 @@ echot "\
 run "Intel/#ote Access/setup/AnyConnect.EXE"
 
 echo Updating icons...
-MergeDir /q "$pp/Cisco" "$pp/Operating System/Other"
-MergeDir /q "$pp/ProxyManager" "$pp/Operating System/Other"
-DelFile "$pd/AnyConnect Pocket Guide.lnk"
-DelFile "$pd/Cisco AnyConnect VPN Client.lnk"
+$mergeDir "$pp/Cisco" "$pp/Operating System/Other"
+$mergeDir "$pp/ProxyManager" "$pp/Operating System/Other"
+$delFile "$pd/AnyConnect Pocket Guide.lnk"
+$delFile "$pd/Cisco AnyConnect VPN Client.lnk"
 MoveFile "$psm/Cisco AnyConnect VPN Client.lnk" "$pp/Operating System"
 
 echo Updating registry...
 
 # Delete LoadProxyMan - C:/PROGRA~2/PROXYM~1/ProxyMan.exe
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/LoadProxyMan"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/LoadProxyMan"
 
 echot "\
 - Wireless Configuration
@@ -3010,12 +1796,12 @@ run "TechSmith/SnagIt/setup/SnagIt V11.2.1.172.exe"
 # run "TechSmith/SnagIt/setup/SnagItUp.exe"
 
 echo Updating icons...
-MergeDir /q /rename "$pp/TechSmith" "$ao/TechSmith"
+$mergeDir --rename "$pp/TechSmith" "$ao/TechSmith"
 MoveFile "$ao/TechSmith/Snagit ?? Editor.lnk" "$ao/TechSmith/Snagit Editor.lnk"
 MoveFile "$ao/TechSmith/Snagit ??.lnk" "$ao/TechSmith/Snagit.lnk"
-DelFile "$pd/SnagIt ??.lnk"
-DelFile "$pd/SnagIt ?? Editor.lnk"
-DelFile "$pp/Startup/SnagIt ??.lnk"
+$delFile "$pd/SnagIt ??.lnk"
+$delFile "$pd/SnagIt ?? Editor.lnk"
+$delFile "$pp/Startup/SnagIt ??.lnk"
 
 # Start SnagIt now so that the registry entries below are created
 SnagIt start
@@ -3023,16 +1809,16 @@ pause Close SnagIt then press any key to continue...
 
 echo Updating registry...
 r=HKCU/Software/TechSmith/SnagIt/11
-folder=$UserDocuments/data/SnagIt
-registry.btm 32 "$r/CatalogFolder" REG_SZ $folder/
-registry.btm 32 "$r/ExternalOutputDir" REG_SZ $folder/Program/
-registry.btm 32 "$r/StampCustomFolder" REG_SZ $folder/Stamps/
-registry.btm 32 "$r/IMOutputDir" REG_SZ $folder/Instant Messenger/
+folder=$udoc/data/SnagIt
+registry 32 "$r/CatalogFolder" REG_SZ $folder/
+registry 32 "$r/ExternalOutputDir" REG_SZ $folder/Program/
+registry 32 "$r/StampCustomFolder" REG_SZ $folder/Stamps/
+registry 32 "$r/IMOutputDir" REG_SZ $folder/Instant Messenger/
 
 echo Updating directories...
-MergeDir /q /rename "$UserDocuments/SnagIt" "$UserData/SnagIt"
-MakeDir "$UserData/SnagIt/Stamps"
-DelDir.btm "$UserDocuments/SnagIt Stamps"
+$mergeDir --rename "$udoc/SnagIt" "$udata/SnagIt"
+$makeDir "$udata/SnagIt/Stamps"
+$delDir.btm "$udoc/SnagIt Stamps"
 
 echo Installing outputs...
 p=$install/TechSmith/SnagIt/outputs
@@ -3069,7 +1855,7 @@ echot "\
 
 if not defined NewOs then
   run "Microsoft/Media/Player V11/wmp11-windowsxp-${architecture}-enu.exe"
-endif
+fi
 
 echot "\
 - Click Turn shuffle on and Turn repeat on
@@ -3118,7 +1904,7 @@ if $@IsInstalled[WindowsMediaCenter] == 1 then
 	"
 	WindowsMediaCenter.btm start
 	pause
-endif
+fi
 
 return
 
@@ -3135,10 +1921,10 @@ run "Microsoft/Media/Encoder V9/WMEncoder ${architecture}.exe"
 if $@ServiceExist[WmdmPmSN] == 1 then
 	echo Updating services...
 	service manual WmdmPmSN
-endif
+fi
 
 echo Updating icons...
-MergeDir /q "$pp/Windows Media" "$pp/Media/Other"
+$mergeDir "$pp/Windows Media" "$pp/Media/Other"
 
 return
 
@@ -3156,7 +1942,7 @@ else
   echo Installation of DirectX will run silently.
 
   run "Microsoft/DirectX V9.0c Redistributable/DXSETUP.exe" /silent
-endif
+fi
 
 return
 
@@ -3171,7 +1957,7 @@ run "netiq/qcheck 2.1.939/qcinst21.exe"
 
 echo Updating icons...
 MoveFile "$pd/QCheck.lnk" "$pp/Operating System"
-MergeDir /q "$pp/NetIQ Qcheck" "$pp/Operating System/Other"
+$mergeDir "$pp/NetIQ Qcheck" "$pp/Operating System/Other"
 
 return
 
@@ -3201,20 +1987,20 @@ run "Adobe/reader/AdbeRdr1001_en_US.exe"
 echo Updating registry...
 
 # Delete  Adobe ARM - "C:/Program Files/Common Files/Adobe/ARM/1.0/AdobeARM.exe"
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Adobe ARM"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Adobe ARM"
 
 # Delete Adobe Reader Speed Launcher - "C:/Program Files (x86)/Adobe/Reader 9.0/Reader/Reader_sl.exe"
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Adobe Reader Speed Launcher"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Adobe Reader Speed Launcher"
 
 echo Updating icons...
 MoveFile "$pp/Adobe Reader 9.lnk" "$pp/Applications/Adobe Reader.lnk"
 MoveFile "$pp/Adobe Reader X.lnk" "$pp/Applications/Adobe Reader.lnk"
 MoveFile "$pp/Acrobat.com.lnk" "$pp/Applications"
-DelFile "$pd/Adobe Reader 9.lnk"
-DelFile "$pd/Adobe Reader X.lnk"
+$delFile "$pd/Adobe Reader 9.lnk"
+$delFile "$pd/Adobe Reader X.lnk"
 MoveFile "$pd/Acrobat.com.lnk" "$pp/Applications"
-DelFile "$pp/Startup/Adobe Reader Speed Launch.lnk"
-DelFile "$pp/Startup/Adobe Reader Synchronizer.lnk"
+$delFile "$pp/Startup/Adobe Reader Speed Launch.lnk"
+$delFile "$pp/Startup/Adobe Reader Synchronizer.lnk"
 
 echot "\
 - Tools, Customize Toolbars...
@@ -3255,7 +2041,7 @@ if $_WinVer le 6.2 run "$p/Flash for IE v$version.exe"
 echo Updating registry...
 
 # Delete FlashPlayerUpdate - C:/WINDOWS/system32/Macromed/Flash/NPSWF32_FlashUtil.exe -p
-registry.btm 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/RunOnce/FlashPlayerUpdate"
+registry 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/RunOnce/FlashPlayerUpdate"
 
 ask "Do you want to test Flash?"
 if $? == 1 then
@@ -3264,41 +2050,7 @@ if $? == 1 then
 	firefox $test$
 	InternetExplorer 32 $test$
 	InternetExplorer 64 $test$
-endif
-
-return
-
-:Chrome
-# download - http://www.google.com/chrome/eula.html?system=true&standalone=1
-echot "\
-************************
-* Google Chrome Browser
-************************
-"
-
-run "Google/Chrome/setup/ChromeStandaloneSetup.exe"	n
-
-echo Updating icons...
-DelFile "$ud/Google Chrome.lnk"
-DelFile "$pd/Google Chrome.lnk"
-DelFile "$ud/Google Chrome Canary Build.lnk"
-MergeDir /q /rename "$pp/Google Chrome" "$ao/Chrome"
-MergeDir /q /rename "$up/Google Chrome" "$ao/Chrome"
-MergeDir /q /rename "$up/Google Chrome Canary Build" "$ao/Chrome Beta"
-
-echo Updating registry...
-
-# Delete Google Update - c:/users/jjbutare/appdata/local/google/update/googleupdate.exe	
-registry.btm 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Google Update"
-
-echot "\
-- (for Browser Texting) Gmail Offline, select Allow offline mail
-- Defer, Options, Default Service=Instapaper
-- Browser Texting, scan QR code from phone
-- (optional) chrome://flags, enable features
-"
-chrome start
-pause
+fi
 
 return
 
@@ -3318,10 +2070,10 @@ echot "\
 run "Google/Picasa/Picasa Setup v3.9.136.200.exe"
 
 echo Updating icons...
-MergeDir /q /rename "$pp/Picasa 3" "$ao/Picasa"
+$mergeDir --rename "$pp/Picasa 3" "$ao/Picasa"
 MoveFile "$ao/Picasa/Picasa 3.lnk" "$ao/Picasa/Picasa.lnk"
-DelFile "$ao/Picasa/Uninstall.lnk"
-DelFile "$pd/Picasa 3.lnk"
+$delFile "$ao/Picasa/Uninstall.lnk"
+$delFile "$pd/Picasa 3.lnk"
 
 return
 
@@ -3422,26 +2174,26 @@ run "$pre/Content Pack/setup.exe"
 echo Updating registry...
 
 # Delete UVS12 Preload - C:/Program Files/Corel/Corel VideoStudio 12/uvPL.exe
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/UVS12 Preload"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/UVS12 Preload"
 
 # SmartSound
 echo Configuring SmartSound...
-MergeDir /r "c:/SmartSound Software" "$UserData/SmartSound"
+MergeDir /r "c:/SmartSound Software" "$udata/SmartSound"
 echot "\
 - Audio, Audio, Auto Music, SmartSound QuickTracks, Folders
   - Add Folder, Documents/data/SmartSound/Quicktracks/Library, Copy Destination
 "
 VideoStudio start
 pause
-DelDir "c:/SmartSound Software"
+$delDir "c:/SmartSound Software"
 
 # Icons
 echo Updating icons...
-MergeDir /q /r "$pp/Corel VideoStudio 12" "$pp/Media/Other/VideoStudio"
-MergeDir /q "$up/InterVideo WinDVD" "$pp/Media/Other"
+$mergeDir /r "$pp/Corel VideoStudio 12" "$pp/Media/Other/VideoStudio"
+$mergeDir "$up/InterVideo WinDVD" "$pp/Media/Other"
 MoveFile "$pd/Corel VideoStudio 12.lnk" "$pp/Media/VideoStudio.lnk"
 
-MakeDir "$UserDocuments/media/work/proxy"
+$makeDir "$udoc/media/work/proxy"
 
 # Instructions
 echot "\
@@ -3465,7 +2217,7 @@ return
 :AppleCore
 
 echo Updating Apple icons...
-MakeDir "$ao/Apple"
+$makeDir "$ao/Apple"
 MoveFile "$pp/Apple Software Update.lnk" "$ao/Apple"
 
 return
@@ -3496,7 +2248,7 @@ echot "\
 "
 
 echo Updating icons...
-MergeDir /q "$pp/iCloud" "$pp/Operating System/Other"
+$mergeDir "$pp/iCloud" "$pp/Operating System/Other"
 
 AppleCore
 
@@ -3514,7 +2266,7 @@ run "Apple/Bonjour/BonjourSetup.exe"
 
 echo Updating icons...
 MoveFile "$pd/Bonjour Printer Wizard.lnk" "$pp/Operating System"
-MergeDir /q "$pp/Bonjour" "$pp/Operating System/Other"
+$mergeDir "$pp/Bonjour" "$pp/Operating System/Other"
 
 return
 
@@ -3560,16 +2312,16 @@ echot "\
 run "Apple/iTunes/setup/iTunes v11.0.5.5 ${architecture}.exe"
 
 echo Updating icons...
-DelFile "$pd/iTunes.lnk"
-MergeDir /q "$pp/iTunes" "$ao"
+$delFile "$pd/iTunes.lnk"
+$mergeDir "$pp/iTunes" "$ao"
 
 echo Updating registry...
 
 # Delete iTunesHelper - "C:/Program Files/iTunes/iTunesHelper.exe"
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/iTunesHelper"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/iTunesHelper"
 
 # Delete APSDaemon - "C:/Program Files (x86)/Common Files/Apple/Apple Application Support/APSDaemon.exe"
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/APSDaemon"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/APSDaemon"
 
 echo Updating services...
 service auto "iPod Service"
@@ -3634,17 +2386,17 @@ return
 :QuickTimePost
 
 # QuickTime Task - "C:/Program Files/QuickTime/qttask.exe" -atboottime
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/QuickTime Task"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/QuickTime Task"
 
 echo Updating icons...
-DelFile "$pd/QuickTime Player.lnk"
+$delFile "$pd/QuickTime Player.lnk"
 MoveFile "$pp/Apple Software Update.lnk" "$ao/Apple"
 
 # Installer will run if the QuickTime folder is not present
 if IsDir "$pp/QuickTime" then
 	CopyDir "$pp/QuickTime" "$ao/Apple/QuickTime"
 	attrib /d +h "$pp/QuickTime"
-endif
+fi
 
 return
 
@@ -3655,20 +2407,20 @@ echot "\
 ************************
 "
 
-MakeDir "$pp/Development/Java/Other"
+$makeDir "$pp/Development/Java/Other"
 
 echo Adding Java development registry entries...
 registry import "$setupFiles/JavaDev.reg"
 registry "HKLM/SOFTWARE/Classes/classfile/shell/open/command/" REG_SZ ^
 	"$@search[tcc.exe]" /c JavaUtil.btm decompile "^$1" ^$*
 registry "HKLM/SOFTWARE/Classes/classfile/DefaultIcon/" REG_SZ ^
-	"$PublicDocuments/icons/Java-coffe.ico"
+	"$pdoc/icons/Java-coffe.ico"
 
 # Add lib folder to CLASSPATH
-MakeDir "$PublicData/Lib"
+$makeDir "$PublicData/Lib"
 SetVar /path ClassPath "$PublicData/Lib"
 
-install.btm jdk JavaDoc JavaSource Ant Eclipse
+inst jdk JavaDoc JavaSource Ant Eclipse
 
 return
 
@@ -3716,8 +2468,8 @@ ask "Do you want to update the JDK Home?" y
 if $? == 1 JavaUtil SetHome
 
 echo Updating icons...
-DelFile "$pd/Java Web Start.lnk"
-MergeDir /q "$pp/Java Web Start" "$pp/Operating System/Other"
+$delFile "$pd/Java Web Start.lnk"
+$mergeDir "$pp/Java Web Start" "$pp/Operating System/Other"
 
 if $@IsInstalled[eclipse] == 1 then
 
@@ -3729,9 +2481,9 @@ if $@IsInstalled[eclipse] == 1 then
 		eclipse select start
 		echo - Window, Preference, Java, Installed JREs, Search..., $P/Java
 		pause
-	endif
+	fi
 
-endif
+fi
 
 JavaFinal
 
@@ -3742,8 +2494,8 @@ return
 echo Updating registry...
 
 # Delete SunJavaUpdateSched - C:/Program Files/Java/jre1.5.0_05/bin/jusched.exe
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/SunJavaUpdateSched"
-registry.btm 64 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/SunJavaUpdateSched"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/SunJavaUpdateSched"
+registry 64 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/SunJavaUpdateSched"
 
 ask "Do you want to test the Java browser plugin?" y
 if $? == 1 JavaUtil test
@@ -3797,7 +2549,7 @@ FindExe Sun/Java/src/*-src*.zip
 if $_? != 0 return $_?
 
 installDir=$P/Java/src
-MakeDir "$installDir"
+$makeDir "$installDir"
 
 # Copy source unextracted to source directory
 echo Copying Java source...
@@ -3812,9 +2564,9 @@ if $@IsInstalled[eclipse] == 1 then
 		echo $@ClipW[$installDir/$@FileName[$exe]] >& nul:
 		echo - Window, Preference, Java, Installed JREs, select the JDK, Edit..., rt.jar, Source Attachment..., paste
 		echo - Note: Some source is availble in the jdk directory in src.zip
-	endif
+	fi
 
-endif
+fi
 
 return
 
@@ -3834,7 +2586,7 @@ run "Java/Ant/$version-bin.zip"
 # ensure zip file does not conain extra level when unziupped
 if IsDir "$installDir/$version" then
 	MoveAll "$installDir/$version" "$installDir"
-endif
+fi
 
 # Deploy custom ant.bat
 CopyFile "$ExeDir/ant.bat" "$P/ant/bin"
@@ -3843,7 +2595,7 @@ CopyFile "$ExeDir/ant.bat" "$P/ant/bin"
 SetVar /system /path path "$installDir/bin"
 
 echo Updating icons...
-MakeDir "$pp/Development/Java/Other/Ant"
+$makeDir "$pp/Development/Java/Other/Ant"
 MakeShortcut "$installDir/docs/index.html" "$pp/Development/Java/Ant Doc.lnk"
 MakeShortcut "$installDir/docs/index.html" "$pp/Development/Java/Other/Ant/Ant Doc.lnk"
 
@@ -3859,7 +2611,7 @@ echot "\
 run "Quest Software/JProbe/setup/JProbeforWindowsEXEFormat_700.exe"
 
 echo Updating icons...
-MergeDir /q "$up/JProbe 7.0" "$pp/Development/Other"
+$mergeDir "$up/JProbe 7.0" "$pp/Development/Other"
 CopyFile "$pp/Development/Other/JProbe 7.0/JProbe Console.lnk" "$pp/Development"
 
 return
@@ -3880,7 +2632,7 @@ run "Java/DJ Java/SetupDJ.exe"
 
 echo Updating icons...
 MoveFile "$pd/DJ Java Decompiler 3.9.lnk" "$pp/Development"
-DelFile "$pp/DJ Java Decompiler 3.9.lnk"
+$delFile "$pp/DJ Java Decompiler 3.9.lnk"
 
 echo Copying license files...
 CopyFile "$install/Shareware/DJ Java/dj.exe" "$P32/decomp"
@@ -3890,7 +2642,7 @@ ask "Do you want to update the configuration files?" n
 if $? == 1 then
   echo Copying configuration files...
   CopyDir "$install/Shareware/DJ Java/DJ Java Configuration" "$P32/decomp"
-endif
+fi
 
 RunProg "$P32/decomp/DJ.exe"
 
@@ -3934,25 +2686,25 @@ elif defined NewOs then
 	return 1
 else
   run "McAfee/VirusScan V8.0i/MVSE80iHomePC.EXE"
-endif
+fi
 
-MakeDir "$AllUsersProfile/documents/data/quarantine"
+$makeDir "$AllUsersProfile/documents/data/quarantine"
 
 echo Updating icons...
-MergeDir /q "$pp/Network Associates" "$pp/Operating System/Other"
-MergeDir /q "$pp/McAfee" "$pp/Operating System/Other"
+$mergeDir "$pp/Network Associates" "$pp/Operating System/Other"
+$mergeDir "$pp/McAfee" "$pp/Operating System/Other"
 
 # Delete ShStatEXE - C://Program Files//Network Associates//VirusScan//SHSTAT.EXE/" /STANDALONE
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/ShStatEXE"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/ShStatEXE"
 
 # Delete McAfeeUpdaterUI - "C:/Program Files/Network Associates/Common Framework/UpdaterUI.exe" /StartedFromRunKey
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/McAfeeUpdaterUI"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/McAfeeUpdaterUI"
 
 # Delete Network Associates Error Reporting Service - C://Program Files//Common Files//Network Associates//TalkBack//tbmon.exe/"
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Network Associates Error Reporting Service"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Network Associates Error Reporting Service"
 
 # Delete McAfeeUpdaterUI - /"C://Program Files//Network Associates//Common Framework//UpdaterUI.exe/" /StartedFromRunKey
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/McAfeeUpdaterUI"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/McAfeeUpdaterUI"
 
 VirusScan setup
 
@@ -3962,7 +2714,7 @@ echot "\
   - On-Access Scanner
     - General Settings, General
       - Check Enable on-access scanning at system startup
-      - Quarantine Folder=$UserDocuments/data/quarantine
+      - Quarantine Folder=$udoc/data/quarantine
     - All Processes, Detection, Exclusions..., Add jphelp.chm
   - Buffer Overflow Protection, Disable
   - On-Delivery E-mail Scanner, Disable
@@ -3980,7 +2732,7 @@ run "MediaChance/DCE Auto Enhance Pro V2.0/dcefull.exe"
 
 echo Updating icons...
 MoveFile "$ud/DCE AutoEnhance.lnk" "$pp/Applications"
-MergeDir /q "$pp/DCE AutoEnhance" "$ao"
+$mergeDir "$pp/DCE AutoEnhance" "$ao"
 
 return
 
@@ -3996,10 +2748,10 @@ run "Component One/Studio Enterprise Q32003/C1StudioNet_Q303.msi"
 run "Component One/Studio Enterprise Q32003/C1StudioAsp_Q303.msi"
 
 echo Updating icons...
-MergeDir /q "$pp/ComponentOne Studio.NET" "$pp/Development/Other"
-MergeDir /q "$up/ComponentOne Studio.NET" "$pp/Development/Other"
-MergeDir /q "$pp/ComponentOne Studio ASP.NET" "$pp/Development/Other"
-MergeDir /q "$up/ComponentOne Studio ASP.NET" "$pp/Development/Other"
+$mergeDir "$pp/ComponentOne Studio.NET" "$pp/Development/Other"
+$mergeDir "$up/ComponentOne Studio.NET" "$pp/Development/Other"
+$mergeDir "$pp/ComponentOne Studio ASP.NET" "$pp/Development/Other"
+$mergeDir "$up/ComponentOne Studio ASP.NET" "$pp/Development/Other"
 
 return
 
@@ -4016,8 +2768,8 @@ run "Dundas/Dundas Chart.NET Pro Edition V3.0/DCWCP30.exe"
 run "Dundas/Dundas Chart for Windows Forms V3.0/DCWFP30.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Dundas Software" "$pp/Development/Other"
-MergeDir /q "$up/Dundas Software" "$pp/Development/Other"
+$mergeDir "$pp/Dundas Software" "$pp/Development/Other"
+$mergeDir "$up/Dundas Software" "$pp/Development/Other"
 
 return
 
@@ -4033,7 +2785,7 @@ echot "\
 run "NetIQ/WebTrends Reporting Center eBusiness V4.0c/setup.exe"
 
 echo Updating icons...
-MergeDir /q "src=$pp/(directory name)" "$ao"
+$mergeDir "src=$pp/(directory name)" "$ao"
 
 echot "\
 - Local Security Policy, grant IUIS System "Act as part of the operating system"
@@ -4104,7 +2856,7 @@ run "Symantec/Norton AntiVirus V10.0 Corporate Edition/SAV/Setup.exe"
 
 echo Updating icons...
 CopyFile "$pp/Symantec Client Security/Symantec AntiVirus Client.lnk" "$pp/Operating System/AntiVirus.lnk"
-MergeDir /q "$pp/Symantec Client Security" "$pp/Operating System/Other"
+$mergeDir "$pp/Symantec Client Security" "$pp/Operating System/Other"
 
 RunProg autoruns
 
@@ -4123,8 +2875,8 @@ echot "\
 endtrxt
 pause
 
-DelDir "c:/CAPLOG"
-DelDir "c:/CAPTMP"
+$delDir "c:/CAPLOG"
+$delDir "c:/CAPTMP"
 
 return
 
@@ -4139,11 +2891,11 @@ emdtext
 run "UNM/Mirada V5.0/Setup.exe"
 
 echo Updating icons...
-DelFile "$pd/Mulberry CBT.lnk"
-DelFile "$pd/Using Mulberry at UNM.lnk"
-DelFile "$pd/Mirada Shortcut.lnk"
-MergeDir /q "$pp/Mirada" "$ao"
-MakeDir "$users/lluna/Desktop/Mirada"
+$delFile "$pd/Mulberry CBT.lnk"
+$delFile "$pd/Using Mulberry at UNM.lnk"
+$delFile "$pd/Mirada Shortcut.lnk"
+$mergeDir "$pp/Mirada" "$ao"
+$makeDir "$users/lluna/Desktop/Mirada"
 CopyDir "$ao/Mirada" "$dir"
 
 return
@@ -4160,7 +2912,7 @@ echot "\
 run "PassMark Software/Performance Test V6.0/petst.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/PerformanceTest" "$pp/Operating System/Other"
+$mergeDir "$pp/PerformanceTest" "$pp/Operating System/Other"
 
 return
 
@@ -4183,7 +2935,7 @@ run "Microsoft/Host Integration Server/client V2002 SP1/HIS2000-KB815012-All-ENU
 # run "Microsoft/Host Integration Server/client V2002 SP2/HIClient.msi"
 
 echo Updating icons...
-MergeDir /q "$pp/Host Integration Server End-User Client" "$pp/Operating System/Other"
+$mergeDir "$pp/Host Integration Server End-User Client" "$pp/Operating System/Other"
 
 return
 
@@ -4202,7 +2954,7 @@ echot "\
 run "r-tools/r-undelete V1.0/ruu_en_10.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/R-UNDELETE" "$pp/Operating System/Other"
+$mergeDir "$pp/R-UNDELETE" "$pp/Operating System/Other"
 
 return
 
@@ -4219,10 +2971,10 @@ run "Shareware/BitPim/bitpim-1.0.6-setup.exe"
 # Copy the standard C runtime library if it is not installed
 if "$@search[msvcp71.dll]" == "" then
 	CopyFile "$install/Shareware/BitPim/msvcp71.dll" "$P32/BitPim"
-endif
+fi
 
 echo Updating icons...
-MergeDir /q "$pp/BitPim" "$ao"
+$mergeDir "$pp/BitPim" "$ao"
 
 ask "Configure default phone?" y
 if $? == 1 then
@@ -4232,12 +2984,12 @@ if $? == 1 then
 	pause
 
 	echo Moving default phone directory...
-	MakeDir "$UserData/BitPim"
-	MoveAll "$UserDocuments/bitpim" "$UserData/BitPim/$@FullName[]"
+	$makeDir "$udata/BitPim"
+	MoveAll "$udoc/bitpim" "$udata/BitPim/$@FullName[]"
 	
-	MakeShortcut "$UserData/BitPim/$@FullName[]/.bitpim" "$pp/Applications/BitPim $@FullName[].lnk"
+	MakeShortcut "$udata/BitPim/$@FullName[]/.bitpim" "$pp/Applications/BitPim $@FullName[].lnk"
 	
-endif
+fi
 
 
 echot "\
@@ -4259,7 +3011,7 @@ run "Microsoft/.NET/FxCop/FxCopInstall1.35.MSI"
 CopyFile "$ExeDir/FxCop.chm" "$P32/Microsoft FxCop 1.35"
 
 echo Updating icons...
-MergeDir /q "$pp/Microsoft FxCop 1.35" "$pp/Development/Other"
+$mergeDir "$pp/Microsoft FxCop 1.35" "$pp/Development/Other"
 CopyFile "$pp/Development/Other/Microsoft FxCop 1.35/FxCop.lnk" "$pp/Development"
 
 # Update Geckos FxCop files
@@ -4307,8 +3059,8 @@ NDocGui=$P32/NDoc 1.3/bin/net/1.1/NDocGui.exe
 
 echo Updating icons...
 
-MergeDir /q "$up/NDoc 1.3" "$pp/Development/Other"
-MergeDir /q "$pp/Helpware" "$pp/Development/Other"
+$mergeDir "$up/NDoc 1.3" "$pp/Development/Other"
+$mergeDir "$pp/Helpware" "$pp/Development/Other"
 
 CopyFile "$pp/Development/Other/NDoc 1.3/Microsoft .NET 1.1/NDoc.lnk" "$pp/Development"
 
@@ -4343,7 +3095,7 @@ run "Shareware/.NET/NAnt/nant-0.85-20040812.zip"
 SetVar /s /p path "$installDir/bin"
 
 echo Updating icons...
-MakeDir "$pp/Development/.NET/Other/NAnt"
+$makeDir "$pp/Development/.NET/Other/NAnt"
 MakeShortcut "$installDir/doc/index.html" "$pp/Development/.NET/Other/NAnt Documentation.lnk"
 MakeShortcut "$installDir/doc/index.html" "$pp/Development/.NET/NAnt Documentation.lnk"
 
@@ -4392,7 +3144,7 @@ echot "\
 run "Microsoft/.NET/Regulator/RegulatorSetup.msi"
 
 echo Updating icons...
-DelFile "$ud/The Regulator.lnk"
+$delFile "$ud/The Regulator.lnk"
 MoveFile "$up/The Regulator.lnk" "$pp/Development/Regulator.lnk"
 
 return
@@ -4423,7 +3175,7 @@ if defined NewOs then
 	run "Microsoft/Mobile/Device Center/Mobile Device Center V6.1 ${architecture}.exe"
 else
 	run "Microsoft/Mobile/Device Center/ActiveSync V4.2.exe"
-endif
+fi
 
 echo Updating icons...
 MoveFile "$ud/Windows Mobile Device Center.lnk" "$pp/Applications"
@@ -4431,8 +3183,8 @@ MoveFile "$pp/Windows Mobile Device Center.lnk" "$pp/Applications"
 MoveFile "$pp/Microsoft ActiveSync.lnk" "$pp/Applications/ActiveSync.lnk"
 
 # Delete H/PC Connection Agent - "C:/Program Files/Microsoft ActiveSync/WCESCOMM.EXE"
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/H/PC Connection Agent"
-registry.btm 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/H/PC Connection Agent"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/H/PC Connection Agent"
+registry 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/H/PC Connection Agent"
 
 
 echot "\
@@ -4466,12 +3218,12 @@ run "Ilium Software/eWallet/ewalletautopass.xpi"
 run "Ilium Software/eWallet/FlexWalletIconPack-WinMobile-PE-Setup.exe"
 
 echo Updating icons...
-DelFile "$ud/eWallet.lnk"
-MergeDir /q "$pp/Ilium Software" "$ao"
-MergeDir /q "$up/Ilium Software" "$ao"
+$delFile "$ud/eWallet.lnk"
+$mergeDir "$pp/Ilium Software" "$ao"
+$mergeDir "$up/Ilium Software" "$ao"
 
 echo Moving data folder...
-MakeLink merge "$UserData/eWallet" hide "$UserDocuments/eWallet"
+$makeLink --merge --hide "$udata/eWallet" "$udoc/eWallet"
 
 echot "\
 - File/Open..., Documents/data/eWallet/wallet.wlt
@@ -4535,8 +3287,8 @@ echot "\
 run "LandWare/PocketQuicken V2.03/PocketQuickenPPC203_Install.exe"
 
 echo Updating icons...
-MergeDir /q "$up/Pocket Quicken 2.0 for Pocket PC" "$ao"
-MergeDir /q "$up/Quicken" "$ao"
+$mergeDir "$up/Pocket Quicken 2.0 for Pocket PC" "$ao"
+$mergeDir "$up/Quicken" "$ao"
 PpcMoveLink "Pocket Quicken" "Applications/Quicken.lnk"
 
 
@@ -4592,13 +3344,13 @@ version=$@if[ 0 == 1 ,NA,18.0.1]
 run "Mozilla/Firefox/setup/Firefox Setup v$version$.exe"	
 
 echo Updating icons...
-DelFile "$pd/Mozilla Firefox*.lnk"
-DelFile "$pp/Mozilla Firefox*.lnk"
-MergeDir /q /rename "$pp/Mozilla Firefox" "$ao/Firefox"
+$delFile "$pd/Mozilla Firefox*.lnk"
+$delFile "$pp/Mozilla Firefox*.lnk"
+$mergeDir --rename "$pp/Mozilla Firefox" "$ao/Firefox"
 
 # Pre-release icons
-MergeDir /q "$pp/Minefield" "$ao"
-DelFile "$pd/Minefield.lnk"
+$mergeDir "$pp/Minefield" "$ao"
+$delFile "$pd/Minefield.lnk"
 
 echo Restoring the default profile...
 firefox profile restore default
@@ -4623,11 +3375,11 @@ echot "\
 firefox.btm start
 pause
 
-ask "Do you want to install extensions?` y
+ask "Do you want to install extensions?"
 if $? == 1 then
 	firefox.btm extension
 	pause
-endif
+fi
 
 echo Saving profile changes...
 firefox.btm profile backup
@@ -4672,11 +3424,11 @@ CopyFile "VMware/workstation/setup/Visual Studio Integrated Debugger.reg" "$P32/
 vmware debugger disable
 
 echo Creating VMware directory...
-MakeDir "$UserDocuments/data/VMware"
+$makeDir "$udoc/data/VMware"
 
 echo Updating icons...
-MergeDir /q "$pp/VMware" "$pp/Operating System/Other"
-DelFile "$pd/VMware Workstation.lnk"
+$mergeDir "$pp/VMware" "$pp/Operating System/Other"
+$delFile "$pd/VMware Workstation.lnk"
 
 # echo VMware network configuration...
 echo VMnet1 (host-only), VMnet8 (NAT)
@@ -4688,7 +3440,7 @@ pause
 if  "$@ServiceState[SysMain]" != "STOPPED" then
 	ask "Disable SuperFetch (causes excessive disk utilization with virtual machines)?" y
 	if $? == 1 os DisableSuperFetch
-endif
+fi
 
 echot "\
 - Edit, Preferences...
@@ -4723,8 +3475,8 @@ echot "\
 run "VMware/player/VMware-player-2.0.4-93057.exe"
 
 echo Updating icons...
-DelFile "$pd/(desktop file to delete).lnk"
-MergeDir /q "$pp/(directory name)" "$ao"
+$delFile "$pd/(desktop file to delete).lnk"
+$mergeDir "$pp/(directory name)" "$ao"
 
 
 echot "\
@@ -4750,14 +3502,14 @@ MoveFile "$pd/VMware Server Home Page.lnk" "$pp/Operating System"
 MoveFile "$pd/VMware Server Console.lnk" "$pp/Operating System"
 MoveFile "$pd/VMware Virtual Machine Importer 2.lnk" "$pp/Operating System"
 
-MergeDir /q "$pp/VMware" "$pp/Operating System/Other"
-MergeDir /q "$up/VMware" "$pp/Operating System/Other"
+$mergeDir "$pp/VMware" "$pp/Operating System/Other"
+$mergeDir "$up/VMware" "$pp/Operating System/Other"
 
 if $@IsWindowsClient[] == 1 then
   echo Updating firewall...
   firewall rule add "VMware Server Console" `dir=in action=allow protocol=TCP localport=902 profile=private,domain program="$P32$/VMware/VMware Server/vmware-authd.exe"`
   service restart VMAuthdService
-endif
+fi
 
 
 echot "\
@@ -4781,8 +3533,8 @@ run "VMware/server/setup/VMware-console-1.0.2-39867.exe"
 run "VMware/server/setup/VMware-VmCOMAPI-1.0.2-39867.exe"
 
 MoveFile "$pd/VMware Server Console.lnk" "$pp/Operating System/Other"
-MergeDir /q "$up/VMware" "$pp/Operating System/Other"
-MergeDir /q "$pp/VMware" "$pp/Operating System/Other"
+$mergeDir "$up/VMware" "$pp/Operating System/Other"
+$mergeDir "$pp/VMware" "$pp/Operating System/Other"
 
 return
 
@@ -4800,18 +3552,18 @@ echot "\
 if "$@search[SymStore]" == "" then
 	echo Debugging tools for windows is not installed.
 	return 1
-endif
+fi
 
 # Initialize
 SymbolDir=$AllUsersProfile/Documents/data/symbols
 echo $@ClipW[$SymbolDir] >& nul:
 
 # Create and compress symbol directory
-MakeDir "$SymbolDir"
+$makeDir "$SymbolDir"
 if $@wattrib["$SymbolDir",c] == 0 then
   echo Compressing symbols...
   CompactDir "$SymbolDir"
-endif
+fi
 
 echo Sharing symbol folder as symbols...
 net share "symbols"="$SymbolDir" $netShareOptions /#ark:"Symbol Server" >& nul:
@@ -4853,8 +3605,8 @@ if $? ==  0 return 1
 
 # Ensure empty dest dir exists
 dest=$temp/symbols
-DelDir "$dest"
-MakeDir "$dest"
+$delDir "$dest"
+$makeDir "$dest"
 
 echo.
 echo Installing symbols for $description...
@@ -4862,7 +3614,7 @@ echo Installing symbols for $description...
 "$prog" $args
 SymStore add /r /f "$dest" /s "$SymbolDir" /t $@quote[$product] /v $@quote[$version]
 
-DelDir "$dest"
+$delDir "$dest"
 
 return
 
@@ -4887,14 +3639,14 @@ VsDir=$P32/Microsoft Visual Studio 8/Common7/IDE
 if exist "$P32/Debugging Tools for Windows/sdk/srcsrv" then
   CopyDir "$DebuggingToolsDir/sdk/srcsrv" "$SourceServerinstallDir"
   CopyFile "$DebuggingToolsDir/srcsrv.dll" "$SourceServerinstallDir"
-endif
+fi
 
 # Do not up the source server if VS is not installed
 if not exist "$P32/Microsoft Visual Studio 8/Common7/IDE" return 0
 
 # Update the VSS integration component
-CopyFile "$SourceServerinstallDir/srcsrv.dll" "$VsDir"
-CopyFile "$SourceServerinstallDir/SrcSrvTemplate.ini" "$VsDir/SrcSrv.ini"
+CopyFile "$SourceServerinstallDir/srcsrv.dll" "$vsDir"
+CopyFile "$SourceServerinstallDir/SrcSrvTemplate.ini" "$vsDir/SrcSrv.ini"
 
 CopyDir "$SourceServerinstallDir" "$SourceServerDir"
 CopyFile "$SourceServerinstallDir/SrcSrvTemplate.ini" "$SourceServerDir/SrcSrv.ini"
@@ -4919,7 +3671,7 @@ echo Updating the path...
 SetVar /s /p path "$P/Debugging Tools for Windows (${architecture})"
 
 echo Updating icons...
-MergeDir /q "$pp/Debugging Tools for Windows (${architecture})" "$pp/Operating System/Other"
+$mergeDir "$pp/Debugging Tools for Windows (${architecture})" "$pp/Operating System/Other"
 
 echo Initializing debuging symbol information...
 debugging symbols init
@@ -4939,11 +3691,11 @@ run "Microsoft/IntelliPoint/IPx64_1033_7.10.344.0.exe"
 
 echo Updating icons...
 
-DelFile "$pd/Microsoft Keyboard.lnk"
-MergeDir /q "$pp/Microsoft Keyboard" "$ao"
+$delFile "$pd/Microsoft Keyboard.lnk"
+$mergeDir "$pp/Microsoft Keyboard" "$ao"
 
-DelFile "$pd/Microsoft Mouse.lnk"
-MergeDir /q "$pp/Microsoft Mouse" "$pp/Operating System/Other"
+$delFile "$pd/Microsoft Mouse.lnk"
+$mergeDir "$pp/Microsoft Mouse" "$pp/Operating System/Other"
 
 return
 
@@ -4963,11 +3715,11 @@ if $? == 1 then
 	run "RealVNC/setup/vnc-E4_5_4-x86_x64_win32.exe"
 else
 	run "RealVNC/setup/VNC-5.0.3-Windows.exe"
-endif
+fi
 
 echo Updating icons...
 CopyFile "$pp/RealVNC/VNC Viewer/Run VNC Viewer.lnk" "$pp/Operating System/VNC.lnk"
-MergeDir /q "$pp/RealVNC" "$pp/Operating System/Other"
+$mergeDir "$pp/RealVNC" "$pp/Operating System/Other"
 
 echot "\
 - Server, Options
@@ -5009,7 +3761,7 @@ run "Vonage/setup/vonage-outlook-plugin-7.0.7.exe"
 run "Shareware/VDialer/vdialer_103.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Vonage Contact Center" "$ao"
+$mergeDir "$pp/Vonage Contact Center" "$ao"
 
 echot "\
 - File, Options, Add-Ins, VDialer, Add-in Options...
@@ -5065,10 +3817,10 @@ ask "Do you want to install Infragistics toolbox items?" y
 if $? == 1 then
   echo Installing VisualStudio Toolbox...
   start /wait /pgm "$P32/Infragistics/NetAdvantage 2006 Volume 2 CLR 2.0/Toolbox Utility/Infragistics.ToolboxUtility.exe" 6.2
-endif
+fi
 
 echo Updating icons...
-MergeDir /q "$pp/Infragistics NetAdvantage 2006 Volume 2 CLR 2.0" "$pp/Development/Other"
+$mergeDir "$pp/Infragistics NetAdvantage 2006 Volume 2 CLR 2.0" "$pp/Development/Other"
 
 return
 
@@ -5084,13 +3836,13 @@ else
 else
 
 # Delete LogonStudio - "C:/Program Files/WinCustomize/LogonStudio/logonstudio.exe" /RANDOM
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/LogonStudio"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/LogonStudio"
 
-SkinDir=$UserData/Stardock/Boot Skins
+SkinDir=$udata/Stardock/Boot Skins
 if IsDir "$SkinDir" then
 	explorer "$SkinDir"
 	pause
-endif
+fi
 
 return
 
@@ -5105,8 +3857,8 @@ echot "\
 run "Shareware/StrokeIt/setup/StrokeIt_0.9.7-Home-English.exe"
 
 echo Updating icons...
-DelFile "$ud/StrokeIt.lnk"
-MergeDir /q "$up/StrokeIt" "$pp/Operating System/Other"
+$delFile "$ud/StrokeIt.lnk"
+$mergeDir "$up/StrokeIt" "$pp/Operating System/Other"
 
 echo Updating registry...
 
@@ -5145,19 +3897,19 @@ CopyFile "$s/NeroRecode_Eng.chm" "$d/Nero Recode"
 echo Updating icons...
 MoveFile "$pd/Nero StartSmart.lnk" "$pp/Applications"
 MoveFile "$pd/Nero Home.lnk" "$pp/Applications"
-MergeDir /q /rename "$pp/Nero 7 Ultra Edition" "$ao/Nero"
+$mergeDir --rename "$pp/Nero 7 Ultra Edition" "$ao/Nero"
 
 echo Updating registry...
 registry import "$Install/Ahead/Nero V7/Setup/Nero.reg"
 
 # Delete NeroFilterCheck - C://Program Files//Common Files//Ahead//Lib//NeroCheck.exe
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/NeroFilterCheck"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/NeroFilterCheck"
 
 # Nero BackItUp Scheduler Application - "C:/Program Files/Ahead/Nero BackItUp/NBJ.exe"
-registry.btm 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/NBJ"
+registry 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/NBJ"
 
 # BgMonitor_{79662E04-7C6C-4d9f-84C7-88D8A56B10AA} - "C:/Program Files/Common Files/Ahead/lib/NMBgMonitor.exe"
-registry.btm 32 delete "HKCU/Software/Microsoft/Windows/CurrentVersion/Run/BgMonitor_{79662E04-7C6C-4d9f-84C7-88D8A56B10AA}"
+registry 32 delete "HKCU/Software/Microsoft/Windows/CurrentVersion/Run/BgMonitor_{79662E04-7C6C-4d9f-84C7-88D8A56B10AA}"
 
 echo Updating services...
 service manual NmIndexingService
@@ -5224,8 +3976,8 @@ service manual ConnectedLauncher
 service manual CBRegCap
 
 echo Updating icons...
-DelFile "$up/Startup/Connected TaskBar Icon.LNK"
-DelFile "$up/Connected TLM.LNK"
+$delFile "$up/Startup/Connected TaskBar Icon.LNK"
+$delFile "$up/Connected TLM.LNK"
 MakeShortcut cnb.btm "$pp/Operating System/Intel Backup.lnk"
 
 echot "\
@@ -5247,8 +3999,8 @@ echot "\
 run "Shareware/Daemon Tools/setup/daemon403-${architecture}.exe"
 
 echo Updating icons...
-DelFile "$pd/DAEMON Tools.lnk"
-MergeDir /q "$pp/DAEMON Tools" "$pp/Operating System/Other"
+$delFile "$pd/DAEMON Tools.lnk"
+$mergeDir "$pp/DAEMON Tools" "$pp/Operating System/Other"
 
 echot "\
 - Virtual CD/DVD-ROM, number of devices..., 2 drives
@@ -5281,25 +4033,25 @@ echot "\
 run "MaxiVista/MaxiVista v4 Beta/Maxivista_Setup_PrimaryPC_${architecture}.exe"
 
 echo Updating icons...
-DelFile "$up/Startup/MaxiVista MirrorPro Server All.lnk"
-DelFile "$ud/MaxiVista MirrorPro Server.lnk"
-MergeDir /q "$pp/MaxiVista MirrorPro Server" "$pp/Operating System/Other"
-MergeDir /q "$up/MaxiVista MirrorPro Server" "$pp/Operating System/Other"
+$delFile "$up/Startup/MaxiVista MirrorPro Server All.lnk"
+$delFile "$ud/MaxiVista MirrorPro Server.lnk"
+$mergeDir "$pp/MaxiVista MirrorPro Server" "$pp/Operating System/Other"
+$mergeDir "$up/MaxiVista MirrorPro Server" "$pp/Operating System/Other"
 
-MergeDir /q "$up/MaxiVista Demo Server" "$pp/Operating System/Other"
-DelFile "$ud/MaxiVista Demo Server All.lnk"
+$mergeDir "$up/MaxiVista Demo Server" "$pp/Operating System/Other"
+$delFile "$ud/MaxiVista Demo Server All.lnk"
 
-DelFile "$ud/MaxiVista MirrorPro Server All.lnk"
-dest=$PublicDocuments/Data/Bin
+$delFile "$ud/MaxiVista MirrorPro Server All.lnk"
+dest=$pdoc/Data/Bin
 MoveFile "$ud/MaxiVistaViewerA.exe" "$dest"
 MoveFile "$ud/MaxiVistaViewerB.exe" "$dest"
 MoveFile "$ud/MaxiVistaViewerC.exe" "$dest"
 
 echo Updating registry...
 p=HKCU/Software/MaxiVista
-if $@RegExist[$p/A3] == 1 registry.btm 32 "$p/A3/$UserName/lock_method" REG_DWORD 1
-if $@RegExist[$p/B3] == 1 registry.btm 32 "$p/B3/$UserName/lock_method" REG_DWORD 1
-if $@RegExist[$p/C3] == 1 registry.btm 32 "$p/C3/$UserName/lock_method" REG_DWORD 1
+if $@RegExist[$p/A3] == 1 registry 32 "$p/A3/$UserName/lock_method" REG_DWORD 1
+if $@RegExist[$p/B3] == 1 registry 32 "$p/B3/$UserName/lock_method" REG_DWORD 1
+if $@RegExist[$p/C3] == 1 registry 32 "$p/C3/$UserName/lock_method" REG_DWORD 1
 
 echot "\
 - (for each viewer) Select appropriate display for viewer
@@ -5342,37 +4094,37 @@ UltraMon.btm stop
 
 echo Updating icons...
 MoveFile "$pp/UltraMon.lnk" "$pp/Operating System"
-DelFile "$pp/Startup/UltraMon.lnk"
+$delFile "$pp/Startup/UltraMon.lnk"
 
 echo Registry settings...
 
 # Delete UltraMon - "C:/Program Files/UltraMon/UltraMon.exe" /auto
-registry.btm delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/UltraMon"
+registry delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/UltraMon"
 
-registry.btm import "$install/UltraMon/setup/UltraMon.reg"
+registry import "$install/UltraMon/setup/UltraMon.reg"
 
 r=HKCU/Software/Realtime Soft/UltraMon/$version
-registry.btm 32 "$r/Wallpaper/Image Directory" REG_SZ $@PublicPictures[]
+registry 32 "$r/Wallpaper/Image Directory" REG_SZ $@PublicPictures[]
 
 # UltraMon.scr conflicts with UltraMon name, so rename the screen saver
 if exist "$WinDir/UltraMon.scr" then
 	move /q "$WinDir/UltraMon.scr" "$WinDir/UltraMonSs.scr"
-endif
+fi
 
 # Create the destination profile directory
-MakeDir "$UserData/UltraMon/profiles"
+$makeDir "$udata/UltraMon/profiles"
 
 # #ove the  existing profile directory  if it is not a link
 if $@IsLink["$_ApplicationData/Realtime Soft/UltraMon/$version/Profiles"] == 0 then
-	DelDir.btm "$_ApplicationData/Realtime Soft/UltraMon/$version/Profiles"
+	$delDir.btm "$_ApplicationData/Realtime Soft/UltraMon/$version/Profiles"
 	if $? != 0 then
 		EchoErr Unable to delete the existing profile directory.
 		return 1
-	endif
-endif
+	fi
+fi
 
 # Link the UltraMon Profile directory
-linkd "$_ApplicationData/Realtime Soft/UltraMon/$version/Profiles" "$UserData/UltraMon/profiles" 
+linkd "$_ApplicationData/Realtime Soft/UltraMon/$version/Profiles" "$udata/UltraMon/profiles" 
 
 return
 
@@ -5431,8 +4183,8 @@ echot "\
 run "Cisco/IP Communicator/Cisco IP Communicator v7.0.6.0.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Cisco IP Communicator" "$ao"
-DelFile.btm "$pd/Cisco IP Communicator.lnk"
+$mergeDir "$pp/Cisco IP Communicator" "$ao"
+$delFile.btm "$pd/Cisco IP Communicator.lnk"
 
 echot "\
 - Ensure connected to the Intel network
@@ -5464,7 +4216,7 @@ return
 run "Microsoft/Lync/client/LyncSetup$@OsBits[].exe"
 
 echo Updating icons...
-MergeDir /q /r "$pp/Microsoft Lync" "$ao/Office/Lync"
+$mergeDir /r "$pp/Microsoft Lync" "$ao/Office/Lync"
 
 echo Updating registry...
 
@@ -5494,15 +4246,15 @@ TaskEnd /f AnyDvd >& nul:
 registry 32 import "$install/SlySoft/AnyDVD/Key.AnyDVDHD.reg"
 
 # Delete AnyDVD - C:/Program Files/SlySoft/AnyDVD/AnyDVD.exe
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/AnyDVD"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/AnyDVD"
 
 echo Updating icons...
-MergeDir /q "$pp/SlySoft" "$ao"
-DelFile "$pd/AnyDVD.lnk"
-DelDir "$ud/AnyDVDHD"
-DelFile "$ao/SlySoft/AnyDVD/AnyDVD History.lnk"
-DelFile "$ao/SlySoft/AnyDVD/Register AnyDVD.lnk"
-DelFile "$ao/SlySoft/AnyDVD/Uninstall.lnk"
+$mergeDir "$pp/SlySoft" "$ao"
+$delFile "$pd/AnyDVD.lnk"
+$delDir "$ud/AnyDVDHD"
+$delFile "$ao/SlySoft/AnyDVD/AnyDVD History.lnk"
+$delFile "$ao/SlySoft/AnyDVD/Register AnyDVD.lnk"
+$delFile "$ao/SlySoft/AnyDVD/Uninstall.lnk"
 
 echot "\
 - Drives, Selection, uncheck virtual drives
@@ -5529,14 +4281,14 @@ registry 32 import "$install/SlySoft/CloneDVD/Key.CloneDVD.reg"
 registry 32 import "$install/SlySoft/CloneDVD Mobile/Key.CloneDVDmobile.reg"
 
 echo Updating icons...
-MergeDir /q /rename "$pp/Elaborate Bytes" "$ao/SlySoft"
-MergeDir /q "$pp/SlySoft" "$ao"
-DelFile "$ao/SlySoft/CloneDVD2/CloneDVD2 Revision History.lnk"
-DelFile "$ao/SlySoft/CloneDVD2/Register CloneDVD2.lnk"
-DelFile "$ao/SlySoft/CloneDVD2/Uninstall.lnk"
-DelFile "$pp/CloneDVDmobile.lnk"
-DelFile "$pd/CloneDVD2.lnk"
-DelFile "$pd/CloneDVDmobile.lnk"
+$mergeDir --rename "$pp/Elaborate Bytes" "$ao/SlySoft"
+$mergeDir "$pp/SlySoft" "$ao"
+$delFile "$ao/SlySoft/CloneDVD2/CloneDVD2 Revision History.lnk"
+$delFile "$ao/SlySoft/CloneDVD2/Register CloneDVD2.lnk"
+$delFile "$ao/SlySoft/CloneDVD2/Uninstall.lnk"
+$delFile "$pp/CloneDVDmobile.lnk"
+$delFile "$pd/CloneDVD2.lnk"
+$delFile "$pd/CloneDVDmobile.lnk"
 
 
 return
@@ -5551,7 +4303,7 @@ echot "\
 run "Google/Earth/GoogleEarthWin.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Google Earth" "$ao"
+$mergeDir "$pp/Google Earth" "$ao"
 MoveFile "$pd/Google Earth.lnk" "$pp/Applications"
 
 echo - Note: Save files are in $CloudData/Google Earth
@@ -5571,11 +4323,11 @@ run "Google/Desktop/GoogleDesktopSetup.exe"
 run "Google/Desktop/TweakGDS_Setup.exe"
 
 # Google Desktop Search - "C:/Program Files/Google/Google Desktop Search/GoogleDesktop.exe" /startup
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Google Desktop Search"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Google Desktop Search"
 
 echo Updating icons...
 MoveFile "$pd/Google Desktop.lnk" "$pp/Applications"
-MergeDir /q "$pp/Google Desktop" "$ao"
+$mergeDir "$pp/Google Desktop" "$ao"
 
 echot "\
 Adding additional index locations
@@ -5615,7 +4367,7 @@ echot "\
 run "Intel/FeedDemon/FeedDemonIntel.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/FeedDemon" "$ao"
+$mergeDir "$pp/FeedDemon" "$ao"
 
 echot "\
 - Options, System Tray
@@ -5640,7 +4392,7 @@ echo Restoring the default profile...
 ZoneTick.btm profile restore default
 
 echo Updating icons...
-MergeDir /q "$pp/ZoneTick" "$ao"
+$mergeDir "$pp/ZoneTick" "$ao"
 
 return
 
@@ -5656,8 +4408,8 @@ run "Shareware/Audacity/audacity-win-unicode-1.3.12.exe"
 run "Shareware/Audacity/LADSPA_plugins-win-0.4.15.exe"
 
 echo Updating icons...
-MakeDir "$pp/Media/Other"
-DelFile "$ud/Audacity 1.3 Beta (Unicode).lnk"
+$makeDir "$pp/Media/Other"
+$delFile "$ud/Audacity 1.3 Beta (Unicode).lnk"
 MoveFile "$pp/Audacity 1.3 Beta (Unicode).lnk" "$pp/Media"
 
 
@@ -5680,8 +4432,8 @@ echot "\
 run "Microsoft/File Transfer Manager/FTMSetup.msi"
 
 echo Updating icons...
-DelFile "$pp/File Transfer Manager.lnk"
-DelFile "$ud/File Transfer Manager.lnk" 
+$delFile "$pp/File Transfer Manager.lnk"
+$delFile "$ud/File Transfer Manager.lnk" 
 
 MakeShortcut "$P32/Microsoft File Transfer Manager/TransferMgr.exe" ^
 	"$pp/Operating System/File Transfer Manager.lnk"
@@ -5711,24 +4463,24 @@ echo Update registry...
 
 # Number of simultaneous requests allowed to a single HTTP server for HTTP 1.0 and 1.1 protocols.  Defaults are 2 and 4.
 # Reference: http://support.microsoft.com/kb/282402
-registry.btm 32 "HKCU/Software/Microsoft/Windows/CurrentVersion/Internet Settings/MaxConnectionsPer1_0Server" REG_DWORD 10
-registry.btm 32 "HKCU/Software/Microsoft/Windows/CurrentVersion/Internet Settings/MaxConnectionsPerServer" REG_DWORD 10
+registry 32 "HKCU/Software/Microsoft/Windows/CurrentVersion/Internet Settings/MaxConnectionsPer1_0Server" REG_DWORD 10
+registry 32 "HKCU/Software/Microsoft/Windows/CurrentVersion/Internet Settings/MaxConnectionsPerServer" REG_DWORD 10
 
 echo Updating favorites...
-DelFile "$UserProfile/Favorites/Links/Customize Links.url"
-DelFile "$UserProfile/Favorites/Links/Free Hotmail.url"
-DelFile "$UserProfile/Favorites/Links/Windows Media.url"
-DelFile "$UserProfile/Favorites/Links/Windows.url"
+$delFile "$UserProfile/Favorites/Links/Customize Links.url"
+$delFile "$UserProfile/Favorites/Links/Free Hotmail.url"
+$delFile "$UserProfile/Favorites/Links/Windows Media.url"
+$delFile "$UserProfile/Favorites/Links/Windows.url"
 
 echo Installing extensions...
 # XMarks
 # CoolIris
 
 echo Updating icons...
-if not defined server DelFile "$up/Internet Explorer.lnk"
+if not defined server $delFile "$up/Internet Explorer.lnk"
 MoveFile "$up/Internet Explorer.lnk" "$ao"
 MoveFile "$up/Internet Explorer (64-bit).lnk" "$ao"
-MergeDir /q "$up/Accessories" "$pp/Applications"
+$mergeDir "$up/Accessories" "$pp/Applications"
 
 echot "\
 - Search (Hourglass), Search Providers, Google, Wikipedia Visual Search
@@ -5755,8 +4507,8 @@ return
 run "Microsoft/Internet Explorer/extension/cooliris-win-iefull-release-1.11.6.31225.en-US.msi"
 
 echo Updating icons...
-MergeDir /q "$up/Cooliris" "$ao"
-DelFile "$ud/Launch Cooliris.lnk"
+$mergeDir "$up/Cooliris" "$ao"
+$delFile "$ud/Launch Cooliris.lnk"
 
 return
 
@@ -5765,18 +4517,18 @@ return
 run "LastPass/setup/xmarks-installer-for-ie-1.3.4.msi"
 
 echo Updating icons...
-MergeDir /q "$up/Xmarks" "$ao"
+$mergeDir "$up/Xmarks" "$ao"
 
 echo Updating registry...
 
 # Delete Xmarks - C:/Program Files (x86)/Foxmarks/IE Extension/foxmarkssync.exe -q
-registry.btm delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Xmarks"
+registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Xmarks"
 
 return
 
 :BrowserHomePage
 
-HomePageFile=$UserData/replicate/default.htm
+HomePageFile=$udata/replicate/default.htm
 HomePageUrl=file:///$HomePageFile
 if not IsFile "$HomePageFile" return 1
 
@@ -5791,7 +4543,7 @@ if $@IsInstalled[firefox] == 1 then
 	echo - Tools, Options, Main, Use Current Page
 	firefox.btm "$HomePageUrl"
 	pause
-endif
+fi
 
 chrome "$HomePageUrl"
 
@@ -5831,11 +4583,11 @@ pause
 
 echo Updating icons...
 
-MakeDir "$pp/Development/Other/Oracle"
-MergeDir /q "$pp/Oracle - OraHome92" "$pp/Development/Other/Oracle"
-MergeDir /q "$pp/Oracle Installation Products" "$pp/Development/Other/Oracle"
+$makeDir "$pp/Development/Other/Oracle"
+$mergeDir "$pp/Oracle - OraHome92" "$pp/Development/Other/Oracle"
+$mergeDir "$pp/Oracle Installation Products" "$pp/Development/Other/Oracle"
 
-MergeDir /q "$up/PLSQL Developer" "$pp/Development/Other"
+$mergeDir "$up/PLSQL Developer" "$pp/Development/Other"
 MoveFile "$ud/PLSQL Developer.lnk" "$pp/Development"
 
 RunProg odbcad32.exe
@@ -5865,87 +4617,27 @@ if $? == 1 then
 else
 	run "$p/setup/en_expression_studio_3_x86_dvd_401336.iso"
 	run "$p/update/en_expression_web_3_sp2.exe"
-endif
+fi
 
 echo Moving Web Sites directory...
-MergeDir /rename "$UserDocuments/Web Sites" "$UserDocuments/code/web/sites"
-MakeDir "$UserDocuments/code/web/sites"
-attrib /q /d -s -h "$UserDocuments/code/web/sites"
+MergeDir /rename "$udoc/Web Sites" "$udoc/code/web/sites"
+$makeDir "$udoc/code/web/sites"
+attrib /q /d -s -h "$udoc/code/web/sites"
 
 echo Updating icons...
 ExpressionIcons
+SilverlightIcons
 
 echo Cleanup...
-DelDir ask "$UserDocuments/Expression"
+$delDir ask "$udoc/Expression"
 
 echo Configure Expression Encoder...
 echot "\
-<PrimitiveObject Name="LastDirectory_Import">$UserDocuments/media/convert</PrimitiveObject>
-<PrimitiveObject Name="LastDirectory_Job">$UserDocuments/media/convert/jobs</PrimitiveObject>
+<PrimitiveObject Name="LastDirectory_Import">$udoc/media/convert</PrimitiveObject>
+<PrimitiveObject Name="LastDirectory_Job">$udoc/media/convert/jobs</PrimitiveObject>
 "
 expression encoder config
 pause
-
-return
-
-:ExpressionIcons
-
-p=$pp/Development/Other/Expression
-MergeDir /q /rename "$pp/Microsoft Expression" "$p"
-MergeDir /q /rename "$ud/Expression" "$ud/code/web"
-MergeDir /q /rename "$p/Microsoft Expression Blend SDK" "$p/Expression Blend SDK"
-MoveFile "$ud/Expression/Expression Design/Samples 2.lnk" "$p/Design Samples.lnk"
-MoveFile "$p/Microsoft Expression Encoder 4 Screen Capture.lnk" "$p/Expression Encoder Screen Capture.lnk"
-MoveFile "$p/Microsoft Expression Encoder 4 SDK.lnk" "$p/Expression Encoder SDK.lnk"
-MoveFile "$p/Microsoft Expression Web 4 SuperPreview.lnk" "$p/Expression Web SuperPreview.lnk"
-
-pushd "$p"
-for file in ("Microsoft Expression*4.lnk") MoveFile "$file" "$@left[-6,$@right[-10,$file]].lnk"
-popd
-
-MergeDir /q /rename "$pp/Microsoft Office" "$ao/Office"
-SilverlightIcons
-
-return
-
-:Alcohol52
-# Installs
-# - SPTD (SCIS Pass Through) Device service if AnyDVD is not installed.  The SPTD driver requires manual uninstall.
-# - StarWind iSCSI Service (StarWindService)  provides network drive sharing (optional)
-# Note
-# - Requires a reboot to install the SPTD driver, then run the install again
-echot "\
-************************
-* Alcohol 52$
-************************
-"
-
-run "Alcohol Software/Alchohol 52/Alcohol52_retail_1.9.6.5429.exe"
-
-echo Updating icons...
-DelFile "$pd/Alcohol 52?.lnk"
-MergeDir /e "$pp/Alcohol 52`$$`" "$pp/Operating System/Other"
-
-echo Updating services...
-service manual StarWindService
-service manual StarWindServiceAE
-
-
-echot "\
-- View, Options
-	- Virtual Drive
-		- Number of Virtual Drivers=2
-		- Uncheck #ount images upon system reboot
-		- Drive Letter
-      - Device 0=F:
-      - Device 1=G:
-    - Shell Extension, Select iso or Select all
-  - Emulation
-    - Uncheck Ignore Media Type (for DVD+-RW to write/erase properly in Nero)
-"
-pause
-
-LabelIso
 
 return
 
@@ -5968,12 +4660,12 @@ if $? == 1 then
   s:/install.exe
   pause
 
-endif
+fi
 
 run "Borland/Delphi V5.0 Enterprise Update Pack 1 Build 6.18/D5EntUpdate.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/(directory name)" "$ao"
+$mergeDir "$pp/(directory name)" "$ao"
 
 return
 
@@ -5989,12 +4681,12 @@ if $_WinVer == 5.1 then
 	run "Microsoft/scripting/Power Shell/setup/PowerShell 1.0 for Windows $_WinVer ${architecture}.exe"
 else
 	run "Microsoft/scripting/Power Shell/setup/PowerShell 1.0 for Windows $_WinVer ${architecture}.msu"
-endif
+fi
 run "Microsoft/Scripting/Power Shell/setup/PowerGUI.1.9.0.902.msi"
 
 echo Updating icons...
-MergeDir /q /rename "$pp/Windows PowerShell 1.0" "$pp/Operating System/Other/PowerShell"
-MergeDir /q /rename "$pp/PowerGUI" "$pp/Operating System/Other"
+$mergeDir --rename "$pp/Windows PowerShell 1.0" "$pp/Operating System/Other/PowerShell"
+$mergeDir --rename "$pp/PowerGUI" "$pp/Operating System/Other"
 
 return
 
@@ -6003,7 +4695,7 @@ return
 # Dynamic DNS  - if the host has a configuration file
 if exist "$install/Shareware/DNSer/config/$HostName.ini" then
   DynamicDns
-endif
+fi
 
 return $_?
 
@@ -6030,7 +4722,7 @@ else
   copy "$ConfigDir/template.ini" "$WinDir/DNSerSvc.ini"
   echo $@IniWrite[$WinDir/DNSerSvc.ini,Source,Adapter,$@IpAdapterDescription[LAN]]
   echo $@IniWrite[$WinDir/DNSerSvc.ini,Srv1,URL,http://members.dyndns.org/nic/update?hostname=$ComputerName.podzone.net&myip=$s&system=dyndns&wildcard=NOCHG]
-endif
+fi
 
 # Copy the service
 copy "$install/Shareware/DNSer/setup/DNSerSvc.exe" "$WinDir"
@@ -6064,22 +4756,22 @@ if defined NewOs then
 	run "nVidia/driver/320.18-desktop-win8-win7-winvista-$@OsBits[]bit-english-whql/setup.exe"
 else
 	run "nVidia/driver/178.24_geforce_win$_WinVer$_$@OsBits[]bit_english_whql/setup.exe"
-endif
+fi
 
 echo Updating services...
 service manual "Stereo Service"
 service manual "nvUpdatusService"
 
 echo Updating icons...
-MergeDir /q "$pp/NVIDIA Corporation" "$pp/Operating System/Other"
+$mergeDir "$pp/NVIDIA Corporation" "$pp/Operating System/Other"
 MoveFile "$ud/nTune.lnk" "$pp/Operating System/NVIDIA Corporation"
 MoveFile "$ud/NVIDIA Monitor.lnk" "$pp/Operating System//NVIDIA Corporation"
 
-DelFile "$pd/NVIDIA System Monitor.lnk"
-DelFile "$pd/Performance.lnk"
-DelFile "$pd/Play Portal Now.lnk"
-DelFile "$pd/System Update.lnk"
-DelFile "$pd/3D Vision Photo Viewer.lnk"
+$delFile "$pd/NVIDIA System Monitor.lnk"
+$delFile "$pd/Performance.lnk"
+$delFile "$pd/Play Portal Now.lnk"
+$delFile "$pd/System Update.lnk"
+$delFile "$pd/3D Vision Photo Viewer.lnk"
 
 echot "\
 - Tools, Calabration Screen, click monitor adjust button (right button on Dell monitor)
@@ -6102,7 +4794,7 @@ echot "\
 run "SilverRun/SR-RDM2844-IntelCorporation.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/(directory name)" "$ao"
+$mergeDir "$pp/(directory name)" "$ao"
 
 echot "\Edit "C:/Program Files/SILVERRUN-RDM 2.8.2/LSHOST"
 
@@ -6125,9 +4817,9 @@ echot "\
 run "Logitech/Harmony #ote/LogitechHarmony#ote7.7.0-WIN-x86.exe"
 
 echo Updating icons...
-DelFile "$pp/Startup/Logitech Harmony #ote V7.lnk"
-DelFile "$pd/Logitech Harmony #ote Software 7.lnk"
-MergeDir /q "$pp/Logitech" "$ao"
+$delFile "$pp/Startup/Logitech Harmony #ote V7.lnk"
+$delFile "$pd/Logitech Harmony #ote Software 7.lnk"
+$mergeDir "$pp/Logitech" "$ao"
 
 return
 
@@ -6150,7 +4842,7 @@ echo $@ClipW[$programs64/Python27] >& nul:
 run "Shareware/Python/python-2.7-x64.msi"
 
 echo Updating icons...
-MergeDir /q "$pp/Python 2.7" "$pp/Development/Other"
+$mergeDir "$pp/Python 2.7" "$pp/Development/Other"
 
 return
 
@@ -6165,7 +4857,7 @@ echot "\
 run "Shareware/perl/ActivePerl-5.8.8.817-MSWin32-${architecture}-257965.msi"
 
 echo Updating icons...
-MergeDir /q "$pp/ActivePerl 5.8.8 Build 817" "$pp/Development/Other"
+$mergeDir "$pp/ActivePerl 5.8.8 Build 817" "$pp/Development/Other"
 
 return
 
@@ -6179,7 +4871,7 @@ echot "\
 run "Microsoft/Reader/MSReaderSetupUSA.exe"
 
 echo Updating icons...
-DelFile "$pd/Microsoft Reader.lnk"
+$delFile "$pd/Microsoft Reader.lnk"
 MoveFile "$pp/Microsoft Reader.lnk" "$pp/Applications"
 
 return
@@ -6198,9 +4890,9 @@ run "MagicDisc/Setup_MagicISO v5.5.281.exe"
 registry import "$install/MagicDisc/MagicISO Intel License.reg"
 
 echo Updating icons...
-DelFile "$ud/MagicISO.lnk"
-MergeDir /q "$up/MagicISO" "$pp/Operating System/Other"
-MergeDir /q "$pp/MagicISO" "$pp/Operating System/Other"
+$delFile "$ud/MagicISO.lnk"
+$mergeDir "$up/MagicISO" "$pp/Operating System/Other"
+$mergeDir "$pp/MagicISO" "$pp/Operating System/Other"
 CopyFile "$pp/Operating System/Other/MagicISO/MagicISO.lnk" "$pp/Operating System"
 
 return
@@ -6216,9 +4908,9 @@ echot "\
 run "Shareware/MagicDisc/setup_magicdisc74.exe"
 
 echo Updating icons...
-DelFile "$ud/MagicDisc.lnk"
-DelFile "$up/Startup/MagicDisc.lnk"
-MergeDir /q "$up/MagicDisc" "$pp/Operating System/Other"
+$delFile "$ud/MagicDisc.lnk"
+$delFile "$up/Startup/MagicDisc.lnk"
+$mergeDir "$up/MagicDisc" "$pp/Operating System/Other"
 CopyFile "$pp/Operating System/Other/MagicDisc/MagicDisc.lnk" "$pp/Operating System"
 
 return
@@ -6237,8 +4929,8 @@ run "Shareware/SpeedFan/installspeedfan447.exe"
 
 echo Updating icons...
 MoveFile "$ud/SpeedFan.lnk" "$pp/Operating System"
-MergeDir /q "$up/SpeedFan" "$pp/Operating System/Other"
-MergeDir /q "$pp/SpeedFan" "$pp/Operating System/Other"
+$mergeDir "$up/SpeedFan" "$pp/Operating System/Other"
+$mergeDir "$pp/SpeedFan" "$pp/Operating System/Other"
 
 echot "\
 - Readings, Configure, Options, check start minimized
@@ -6259,7 +4951,7 @@ echot "\
 run "Shareware/ISAPI Rewrite/isapi_rwl_${architecture}_0065.msi"
 
 echo Updating icons...
-MergeDir /q "$up/Helicon" "$pp/Development/Other"
+$mergeDir "$up/Helicon" "$pp/Development/Other"
 
 return
 
@@ -6329,8 +5021,8 @@ echot "\
 run "Shareware/RegCleaner/RegCleaner.exe"
 
 echo Updating icons...
-DelFile "$pd/TweakNow RegCleaner Std.lnk"
-MergeDir /q "$pp/TweakNow RegCleaner Std" "$pp/Operating System/Other"
+$delFile "$pd/TweakNow RegCleaner Std.lnk"
+$mergeDir "$pp/TweakNow RegCleaner Std" "$pp/Operating System/Other"
 
 return
 
@@ -6357,12 +5049,12 @@ d=$install/Shareware/Notepad++
 ask "Do you want to delete current plugins and install the default plugins?" y
 if $? == 1 then
 	echo Installing plugins...
-	DelDir contents "$P32/Notepad++/plugins"
+	$delDir contents "$P32/Notepad++/plugins"
 	CopyDir "$d/plugins/default" "$P32/Notepad++/plugins"
 	CopyFile "$d/plugins/XML Tools External Libraries/*" "$P32/Notepad++"
 	CopyFile "$d/plugins/updater/*" "$P32/Notepad++/updater"
 	echo.
-endif
+fi
 
 echo Installing auto-completion API's...
 CopyDir "$d/api" "$P32/Notepad++/plugins/APIs"
@@ -6375,10 +5067,10 @@ echo Restoring the default profile...
 notepadpp.btm profile restore default
 
 echo Updating icons...
-DelFile "$ud/Notepad++.lnk"
-DelFile "$pd/Notepad++.lnk"
-MergeDir /q "$up/Notepad++" "$ao"
-MergeDir /q "$pp/Notepad++" "$ao"
+$delFile "$ud/Notepad++.lnk"
+$delFile "$pd/Notepad++.lnk"
+$mergeDir "$up/Notepad++" "$ao"
+$mergeDir "$pp/Notepad++" "$ao"
 
 # Restart the AutoHotKey script so NotepadPP is recognized
 AutoHotKey.btm restart
@@ -6432,25 +5124,25 @@ else
 	pause Press any key to select the installed version of Eclipse to configure...
 	eclipse.btm select init
 	if $? != 0 return $?
-endif
+fi
 
 ask "Do you want to the default JRE for Eclipse $EclipseVersion ?" y
 if $? == 1 eclipse.btm $EclipseVersion$ SetJre
 
-CodeDir=$LocalCode/test/eclipse$EclipseVersion$
+CodeDir=$code/test/eclipse$EclipseVersion$
 
 echo Creating directories...
-MakeDir "$CodeDir$"
+$makeDir "$codeDir$"
 
 echo Moving data folder...
-MakeLink merge "$UserData/.eclipse" hide "$UserHome/.eclipse"
+$makeLink --merge --hide "$udata/.eclipse" "$UserHome/.eclipse"
 
 echot "\
 - Workspace=<paste>
 - (Workspace setup) see Eclipse Notes/Workspace/Setup
 - (Project setup) see Eclipse Notes/Project/Setup
 "
-echo $@ClipW[$CodeDir] >& nul:
+echo $@ClipW[$codeDir] >& nul:
 eclipse.btm $EclipseVersion$
 pause
 
@@ -6458,7 +5150,7 @@ ask "Do you want to install default plugins?" y
 if $? == 1 EclipsePlugIns
 
 echo - Configure workspace or restore existing workspace configuration from data/profile/Eclipse to 
-echo   $CodeDir
+echo   $codeDir
 echot "\
 - Window, Preferences, Java, Installed JREs, Search..., c:/Program Files/Java and c:/Program Files (x86)/Java.
 - Check the default JRE.
@@ -6473,18 +5165,18 @@ return
 if "$EclipseDir" == "" .or. "$EclipseVersion" == "" then
 	eclipse.btm select init
 	if $? != 0 return $?
-endif
+fi
 
 return 0
 
 :EclipsePlugIns
 
 for plugin in (OpenHomePage JBossTools TfsEclipsePlugIn) (
-	ask "Install the $plugin plugin?` y
+	ask "Install the $plugin plugin?"
 	if $? == 1 then
 		$plugin
 		if $_? != 0 return $_?
-	endif
+	fi
 )
 
 return
@@ -6499,22 +5191,22 @@ PlugIn=$@UnQuote[$PlugInArg]
 if "$PlugIn" == "" .and. $# != 0 then
 	PlugIn=$@UnQuote[$1]
 	shift
-endif
+fi
 
 if "$PlugIn" == "" then
 	echo An Eclipse plugin was not specified.
 	return 1
-endif
+fi
 
 # Use the default plugin folder if we can't find the plugin (when not specied from the command line), and a path was not already specified for it 
 if not IsFile "$PlugIn" .and. "$@path[$PlugIn]" == "" then
 	PlugIn=Java/Eclipse/plugins/$PlugIn
-endif
+fi
 
 if not IsFile "$PlugIn" then
 	FindExe "$PlugIn"	
 	if $_? != 0 return 1
-endif
+fi
 
 echos Installing the $@FileName[$PlugIn] plugin...
 copy /q $@quote[$exe] "$EclipseDir$/plugins"
@@ -6532,11 +5224,11 @@ echot "\
 EclipsePlugin OpenHomePage_1.0.0.jar
 if $_? != 0 return $_?
 
-if not IsFile $LocalCode/home.htm .and. IsFile "$UserData/replicate/default.htm" then
-	ln --symbolic "$UserData/replicate/default.htm" $LocalCode/home.htm
-	ln --symbolic "$UserData/replicate/base.css" $LocalCode/base.css 
-	attrib +h $LocalCode/home.htm $LocalCode/base.css
-endif
+if not IsFile $code/home.htm .and. IsFile "$udata/replicate/default.htm" then
+	ln --symbolic "$udata/replicate/default.htm" $code/home.htm
+	ln --symbolic "$udata/replicate/base.css" $code/base.css 
+	attrib +h $code/home.htm $code/base.css
+fi
 
 return
 
@@ -6623,7 +5315,7 @@ endswitch
 if "$ToolsVersion" == "" then
 	EchoErr JBoss Tools setup for Eclipse $EclipseVersion is not present.
 	return 1
-endif
+fi
 
 installDir=$P/JBoss Tools/$ToolsVersion
 run "$ToolsSetup"
@@ -6651,9 +5343,9 @@ echot "\
 run "Shareware/EvilLyrics/evillyrics.exe"
 
 echo Updating icons...
-DelFile "$ud/EvilLyrics.lnk"
-MergeDir /q "$up/EvilLyrics" "$ao"
-MergeDir /q "$pp/EvilLyrics" "$ao"
+$delFile "$ud/EvilLyrics.lnk"
+$mergeDir "$up/EvilLyrics" "$ao"
+$mergeDir "$pp/EvilLyrics" "$ao"
 
 return
 
@@ -6664,9 +5356,9 @@ echot "\
 ************************
 "
 
-MakeDir "$pp/Development/Android/Other"
+$makeDir "$pp/Development/Android/Other"
 
-install.btm android
+inst android
 
 return
 
@@ -6677,8 +5369,8 @@ installDir=$LocalAppData/Google/android-sdk-windows
 run "Google/Android/sdk/android-sdk_r12-windows.zip"
 
 echo Moving data folder...
-MakeLink merge "$UserData/.android" hide "$UserHome/.android"
-MakeLink merge "$UserData/.android" hide "$UserSysHome/.android"
+$makeLink --merge --hide "$udata/.android" hide "$UserHome/.android"
+$makeLink --merge --hide "$udata/.android" hide "$UserSysHome/.android"
 
 # Update the Android SDK
 echot "\
@@ -6717,19 +5409,6 @@ sudo /standard AutoHotKey.btm restart
 
 return
 
-:.NetDevCore
-echot "\
-************************
-* .NET Development
-************************
-"
-
-MakeDir "$pp/Development/.NET/Other"
-
-install.btm VisualStudio NUnit ReSharper WebPlatformInstaller
-
-return
-
 :WebPlatformInstaller
 # download - http://www.microsoft.com/web/downloads/platform.aspx
 echot "\
@@ -6742,60 +5421,7 @@ run "Microsoft/development/other/wpilauncher.exe"
 
 echo Updating icons...
 MoveFile "$pp/Microsoft Web Platform Installer.lnk" "$pp/Development/.NET/Web Platform Installer.lnk"
-MergeDir /q "$pp/IIS 7.0 Extensions" "$serverPrograms/Other"
-
-return
-
-:SilverlightSdk
-# downloads  http://www.silverlight.net/downloads
-# 	Developer Runtime (debugging) http://go.microsoft.com/fwlink/?LinkID=229323
-#   SDK  http://www.microsoft.com/en-us/download/details.aspx?id=28359
-#   toolkit (additonal controls) http://silverlight.codeplex.com/ http://silverlight.codeplex.com/releases/view/78435
-#   tools (developer runtime, SDK, Visual Studio 2010 support) http://www.microsoft.com/en-us/download/details.aspx?id=28358
-# version http://www.microsoft.com/getsilverlight/Get-Started/Install/Default.aspx
-echot "\
-************************
-* Silverlight SDK
-************************
-"
-
-run "Microsoft/.NET/Silverlight/development/silverlight_sdk.exe"
-run "Microsoft/.NET/Silverlight/development/Silverlight_Developer_${architecture}.exe"
-run "Microsoft/.NET/Silverlight/development/Silverlight_5_Toolkit_December_2011.msi"
-
-VsIcons
-
-return
-
-:NUnit
-# download - http://www.nunit.org/?p=download
-echot "\
-************************
-* NUnit
-************************
-"
-
-version=2.6.2
-run "Shareware/.NET/NUnit/setup/NUnit-$version$.msi"
-
-echo Updating icons...
-MergeDir /q "$up/NUnit $version$" "$pp/Development/.NET/Other"
-
-ask "Add NUnit as a Visual Studio tools (not needed if using ReSharper)?" y
-if $? == 1 then
-	echo $@ClipW["$P32/NUnit $version$/bin/net-2.0/nunit.exe"] >& nul:
-	text
-- Tools, External Tools..., Add
-  - Title=NUnit or NUnit Console
-  - Command=<paste> or nunit-consol[-x86].exe
-  - Arguments=$(ProjectDir)bin/Debug/$(TargetName)$(TargetExt) or $(ProjectDir)$(ProjectFileName)
-  - (console) Check Use Output Window
-- Note: Add a reference to nunit.framework to test projects
-	"
-	sudo /standard VisualStudio start
-	pause
-	
-endif
+$mergeDir "$pp/IIS 7.0 Extensions" "$serverPrograms/Other"
 
 return
 
@@ -6824,8 +5450,8 @@ echot "\
 run "NeoSmart Technologies/EasyBCD 2.0.1.exe"
 
 echo Updating icons...
-DelFile "$pd/EasyBCD*"
-MergeDir /q "$pp/NeoSmart Technologies" "$pp/Operating System/Other"
+$delFile "$pd/EasyBCD*"
+$mergeDir "$pp/NeoSmart Technologies" "$pp/Operating System/Other"
 
 return
 
@@ -6840,8 +5466,8 @@ echot "\
 net LocalGroup n2o /add /comment:"n2o Users"
 net LocalGroup n2o jjbutare cstegman lkitterman /add
 
-net share "n2o"="$PublicDocuments/group/n2o" $netShareOptions /#ark:"n2o group files."
-explorer.btm "$PublicDocuments/group"
+net share "n2o"="$pdoc/group/n2o" $netShareOptions /#ark:"n2o group files."
+explorer.btm "$pdoc/group"
 echo - n2o group full control
 pause
 
@@ -6861,9 +5487,9 @@ echot "\
 run "Shareware/Synergy/SynergyInstaller-1.3.1.exe"
 
 echo Updating icons...
-DelFile "$ud/Synergy.lnk"
-MergeDir /q "$pp/Synergy" "$pp/Operating System/Other"
-MergeDir /q "$up/Synergy" "$pp/Operating System/Other"
+$delFile "$ud/Synergy.lnk"
+$mergeDir "$pp/Synergy" "$pp/Operating System/Other"
+$mergeDir "$up/Synergy" "$pp/Operating System/Other"
 
 
 echot "\
@@ -6890,13 +5516,13 @@ pause
 # Move the ObjectDock folder in the user documents directory
 echos Moving ObjectDock user directory...
 
-dest=$UserData/StarDock/ObjectDock/library
+dest=$udata/StarDock/ObjectDock/library
 
 r=HKCU/Software/Stardock/ObjectDock
-registry.btm 32 $r/ImageLibraryLocation REG_SZ $dest
+registry 32 $r/ImageLibraryLocation REG_SZ $dest
 
-MergeDir /q /rename "$UserDocuments/Stardock/ObjectDock Library" "$dest"
-DelDir "$UserDocuments/Stardock"
+$mergeDir --rename "$udoc/Stardock/ObjectDock Library" "$dest"
+$delDir "$udoc/Stardock"
 
 echo done.
 
@@ -6904,10 +5530,10 @@ echo Restoring the default profile...
 ObjectDock profile restore default
 
 echo Updating icons...
-DelFile "$ud/ObjectDock.lnk"
-DelFile "$up/Startup/Stardock ObjectDock.lnk"
-MergeDir /q "$up/StarDock" "$pp/Operating System/Other"
-MergeDir /q "$pp/StarDock" "$pp/Operating System/Other"
+$delFile "$ud/ObjectDock.lnk"
+$delFile "$up/Startup/Stardock ObjectDock.lnk"
+$mergeDir "$up/StarDock" "$pp/Operating System/Other"
+$mergeDir "$pp/StarDock" "$pp/Operating System/Other"
 
 
 echot "\
@@ -6930,17 +5556,17 @@ run "Epson/Perfection V100 Scanner/Guide/setup.exe"
 echo Updating icons...
 
 base=$ao/Perfection V100
-MakeDir "$base"
+$makeDir "$base"
 
 MoveFile "$pd/EPSON Scan.lnk" "$base"
 MoveFile "$pd/Epson PhotoCenter.url" "$base"
 MoveFile "$pd/Perfection V100P User's Guide.lnk" "$base"
 
-MergeDir /q /rename "$pp/EPSON Creativity Suite" "$base/Creativity Suite"
-MergeDir /q /rename "$pp/EPSON Scan" "$base/Scan"
-MergeDir /q /rename "$pp/Epson/Perfection V100P User's Guide" "$base/doc"
+$mergeDir --rename "$pp/EPSON Creativity Suite" "$base/Creativity Suite"
+$mergeDir --rename "$pp/EPSON Scan" "$base/Scan"
+$mergeDir --rename "$pp/Epson/Perfection V100P User's Guide" "$base/doc"
 
-DelDir "$pp/Epson"
+$delDir "$pp/Epson"
  
 # Scanner properties
 echot "\
@@ -6961,7 +5587,7 @@ echot "\
 run "Via/Envy24/Setup V5.20A/Setup.exe"
 
 echo Updating icons...
-DelFile "$pp/Envy24HF ADeck Control Panel.lnk"
+$delFile "$pp/Envy24HF ADeck Control Panel.lnk"
 
 
 echot "\
@@ -6984,12 +5610,12 @@ echo Restoring the default profile...
 SysInternals profile restore default
 
 echo Registering ShellRunAs...
-start /pgm ShellRunAs /reg
+start ShellRunAs /reg
 
 if $_WinVer ge 6.0 then
 	echo Updating firewall...
 	firewall rule add "PsExec" `dir=in action=allow protocol=TCP localport=RPC #oteIP=LocalSubnet profile=domain,private program="$WinDir/system32/services.exe" service=any`
-endif
+fi
 
 return
 
@@ -7004,8 +5630,8 @@ echot "\
 run "Shareware/Album Cover Art Downloader/albumart-1.6.6-setup.exe"
 
 echo Updating icons...
-MakeDir "$pp/Media/Other"
-MergeDir /q "$up/Album Cover Art Downloader" "$pp/Media/Other"
+$makeDir "$pp/Media/Other"
+$mergeDir "$up/Album Cover Art Downloader" "$pp/Media/Other"
 
 
 echot "\
@@ -7070,8 +5696,8 @@ run "Shareware/Areca/areca-5.2.1-win32-setup.exe"
 echo Updating icons...
 MoveFile "$pd/Areca.lnk" "$pp/Operating System"
 MoveFile "$ud/Areca.lnk" "$pp/Operating System"
-MergeDir /q "$pp/Areca" "$pp/Operating System/Other"
-MergeDir /q "$up/Areca" "$pp/Operating System/Other"
+$mergeDir "$pp/Areca" "$pp/Operating System/Other"
+$mergeDir "$up/Areca" "$pp/Operating System/Other"
 
 
 echot "\
@@ -7106,24 +5732,6 @@ SilverlightIcons
 
 return
 
-:SilverlightIcons
-
-MoveFile "$pp/Microsoft Silverlight/Microsoft Silverlight.lnk" "$pp/Applications/Accessories/Silverlight.lnk"
-DelDir quiet "$pp/Microsoft Silverlight"
-
-base=$pp/Development/Other
-MakeDir "$base/Silverlight"
-MoveFile "$pp/Microsoft Silverlight 3 SDK/Welcome.lnk" "$base/Silverlight/Silverlight 3 SDK Welcome.lnk"
-MoveFile "$pp/Microsoft Silverlight 4 SDK/Welcome.lnk" "$base/Silverlight/Silverlight 4 SDK Welcome.lnk"
-MoveFile "$pp/Microsoft Silverlight 4 SDK/Welcome.lnk" "$base/Silverlight/Silverlight 4 SDK Welcome.lnk"
-
-MergeDir /q /rename "$pp/Microsoft Silverlight 5 SDK" "$base/Silverlight/Silverlight 5 SDK"
-MergeDir /q /rename "$pp/Microsoft Silverlight 5 Toolkit December 2011" "$base/Silverlight/Silverlight 5 Toolkit"
-MergeDir /q /rename "$pp/WCF RIA Services V1.0 SP2" "$base/Silverlight/WCF RIA Services V1.0 SP2"
-
-DelDir quiet "$pp/Microsoft Silverlight*"
-		
-return
 
 :IntelRapidStorage
 :IntelMatrix
@@ -7145,7 +5753,7 @@ echot "\
 run "Intel/Rapid Storage/setup/RST v12.5.0.1066.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Intel" "$pp/Operating System/Other"
+$mergeDir "$pp/Intel" "$pp/Operating System/Other"
 
 echot "\
 - Intel Matrix Storage Console, right click on volume, Enable Volume Write-Back Cache
@@ -7195,10 +5803,10 @@ echot "\
 run "Intel/ssd/toolbox/setup/Intel SSD Toolbox - v3.1.2.exe"
 
 echo Updating icons...
-DelFile "$pd/Intel SSD Toolbox.lnk"
-DelFile "$ud/Intel SSD Toolbox.lnk"
-MergeDir /q "$pp/Intel" "$pp/Operating System/Other"
-MergeDir /q "$up/Intel" "$pp/Operating System/Other"
+$delFile "$pd/Intel SSD Toolbox.lnk"
+$delFile "$ud/Intel SSD Toolbox.lnk"
+$mergeDir "$pp/Intel" "$pp/Operating System/Other"
+$mergeDir "$up/Intel" "$pp/Operating System/Other"
 
 echot "\
 - Intel SSD Optimizer, Schedule, Add
@@ -7248,7 +5856,7 @@ run "Intel/Motherboard/utility/Desktop Utilities/setup v3.2.3.052/Setup.exe"
 echo Updating icons...
 MergeDir /e "$pp/Intel" "$pp/Operating System/Other"
 MergeDir /e "$up/Intel" "$pp/Operating System/Other"
-DelFile "$pd/Intel(R) Desktop Utilities.lnk"
+$delFile "$pd/Intel(R) Desktop Utilities.lnk"
 
 echo Updating registry...
 
@@ -7293,8 +5901,8 @@ echo Updating services...
 service manual XTUSERVICE
 
 echo Updating icons...
-DelFile "$pd/Intel*Ext#e Tuning Utility.lnk"
-MergeDir /q /rename "$pp/Intel Ext#e Tuning Utility" "$pp/Operating System/Other/Intel/Ext#e Tuning Utility"
+$delFile "$pd/Intel*Ext#e Tuning Utility.lnk"
+$mergeDir --rename "$pp/Intel Ext#e Tuning Utility" "$pp/Operating System/Other/Intel/Ext#e Tuning Utility"
 
 return
 
@@ -7327,10 +5935,10 @@ driver=Intel/Motherboard/DP67BG/driver
 run "$driver/ESATA_allOS_1.2.0.7700_PV/drvSetup.exe"
 
 echo Updating icons...	
-MergeDir /q "$pp/Renesas Electronics" "$pp/Operating System/Other/Intel"
-MergeDir /q "$up/Marvell" "$pp/Operating System/Other/Intel"
+$mergeDir "$pp/Renesas Electronics" "$pp/Operating System/Other/Intel"
+$mergeDir "$up/Marvell" "$pp/Operating System/Other/Intel"
 
-install.btm IntelRapidStorage
+inst IntelRapidStorage
 
 echo Checking for updated drivers...
 if $? == 1 ShellRun http://www.intel.com/p/en_US/support/detect?redirector_count=1&
@@ -7359,17 +5967,17 @@ driver=Intel/865PerlX/driver
 echo Intel 865 Chipdrivers...
 run "$driver/chipset/INF_AllOS_8.4.0.1016_PV_Intel.exe"
 
-install.btm IntelProNetworkAdapter IntelMotherboardUtilities
+inst IntelProNetworkAdapter IntelMotherboardUtilities
 
 if not defined NewOs then
 	run "$driver/AUD_ALL32_5.12.1.5240_PV2.EXE"
 
 	# SoundMAX "C:/Program Files/Analog Devices/SoundMAX/Smax4.exe" /tray
 	echo Delete SoundMAX tray icon:
-	registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/SoundMAX"
+	registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/SoundMAX"
 
 	MergeDir /e "$pp/SoundMAX" "$pp/Operating System/Other"
-endif
+fi
 	
 return
 
@@ -7438,7 +6046,7 @@ echot "\
 ************************************************
 "
 
-install.btm RealTekNic RealTekAudio
+inst RealTekNic RealTekAudio
 
 # Intel Matrix RAID Controller
 # - 6 SATA ports on Intel southbridge ICH9R SATA controller, IDE/ACHI/RAID modes.
@@ -7446,7 +6054,7 @@ install.btm RealTekNic RealTekAudio
 IntelRapidStorage
 
 # EasyTune - fan control, tune motherboard, not needed in Windows 7
-install.btm EasyTune
+inst EasyTune
 
 # GSATA - Gigabyte SATA controler 
 # - 2 SATA ports.  IDE/AHCI/RAID modes.  AHCI/RAID supports eSata and  requires boot disk for OS install.  Installs drivers JGOGO, JRAID
@@ -7458,9 +6066,9 @@ install.btm EasyTune
 run "Gigabyte/motherboard/GA-P35-DQ6/utility/atBIOS/Setup.exe"
 
 echo Updating icons...
-MergeDir /q /rename "$pp/GIGABYTE" "$pp/Operating System/Other/Gigabyte"
+$mergeDir --rename "$pp/GIGABYTE" "$pp/Operating System/Other/Gigabyte"
 MoveFile "$pp/Gigabyte Technology Corp/Gigabyte Raid Configurer.lnk" "$pp/Operating System/Other/Gigabyte"
-DelDir "$pp/Gigabyte Technology Corp"
+$delDir "$pp/Gigabyte Technology Corp"
 
 return
 
@@ -7477,18 +6085,18 @@ if defined NewOs then
 	run "Actual Solution/Power_Mixer_3.6.exe"
 else
 	run "Actual Solution/Power_Mixer_2.7.exe"
-endif
+fi
 
 echo Updating icons...
-MergeDir /q "$up/Power Mixer" "$ao"
-DelFile "$ao/Power Mixer/Home Page.lnk"
-DelFile "$ao/Power Mixer/Online Registration.lnk"
-DelFile "$ao/Power Mixer/Uninstall Power Mixer.lnk"
+$mergeDir "$up/Power Mixer" "$ao"
+$delFile "$ao/Power Mixer/Home Page.lnk"
+$delFile "$ao/Power Mixer/Online Registration.lnk"
+$delFile "$ao/Power Mixer/Uninstall Power Mixer.lnk"
 
 echo Updating registry...
 
 # Delete Power Mixer - "C:/Program Files (x86)/Power Mixer/pwmixer.exe" /m
-registry.btm 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Power Mixer"
+registry 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Power Mixer"
 
 echo Restoring the default profile...
 PowerMixer profile restore default
@@ -7496,7 +6104,7 @@ PowerMixer profile restore default
 # LogMeIn tries to create wheel.dll if it is not present when Power Mixer is running
 if IsDir "$P32/LogMeIn" .and. not exist "$P32/LogMeIn" then
 	copy /q "$P32/Power Mixer/wheel.dll" "$P32/LogMeIn"
-endif
+fi
 
 echot "\
 Options
@@ -7536,123 +6144,6 @@ Options
 
 return
 
-:CloneDrive
-# download - http://www.slysoft.com/en/download.html
-# installs:
-# - ElbyDelay drive LowerFilter
-# - VirtualCloneDrive vcddaemon in Startup
-# - VirtualCloneDrive CloseTray shell extension (elbyvcdshell.dll)
-# - Drivers: ElbyCDIO, ElbyDelay, VClone
-echot "\
-************************
-* CloneDrive
-************************
-- check Associate .iso/.udf files
-"
-
-run "SlySoft/CloneDrive/SetupVirtualCloneDrive5450.exe"
-
-echo Updating icons...
-DelFile "$pd/Virtual CloneDrive.lnk"
-MergeDir /q "$pp/Elaborate Bytes" "$pp/Operating System/Other"
-
-echot "\
-- Settings
-  - Number of Drives=2
-  - Check Virtual Sheep
-  - Uncheck Show Tray Icon
-"
-RunProg "$P32/Elaborate Bytes/VirtualCloneDrive/VCDPrefs.exe"
-pause 
-
-LabelIso
-
-return
-
-:LabelIso
-echo `- Rename new drives iso<n>`
-MountVolToDev
-
-return
-
-:Yugma
-echot "\
-# Installs dfmirage service, Mirage Driver, DemoForge, LLC, c:/windows/system32/drivers/dfmirage.sys	
-***************************
-* Yugma - web conferencing
-***************************
-"
-
-run "http://yugma.com"
-
-echo Updating icons...
-MoveFile "$ud/Yugma.lnk" "$pp/Applications"
-MergeDir /q "$up/Yugma" "$ao"
-
-return
-
-:TortoiseSVN
-:VisualSVN
-# download http://tortoisesvn.net/downloads.html http://www.visualsvn.com/visualsvn/download/
-# Installs: # - Path: C:/Program Files/TortoiseSVN/bin
-echot "\
-*****************************
-* TortoiseSVN Source Control
-*****************************
-- Select all features
-"
-
-run "Shareware/TortoiseSVN/TortoiseSVN-1.8.1.24570-${architecture}-svn-1.8.1.msi"
-run "VisualSVN/VisualSVN-3.5.2.msi"
-
-echo Updating icons...
-MergeDir /q "$pp/TortoiseSVN" "$pp/Development/Other"
-MergeDir /q "$pp/VisualSVN" "$pp/Development/Other"
-MergeDir /q "$up/VisualSVN" "$pp/Development/Other"
-
-if $@IsIntelHost[] == 1 then
-
-	echo Software Solutions setup...
-	echo - Place all certificates in the following store=Trusted Root Certificate Authorities
-	certificate install "$UserData/certificate/public/azscsistfs001.amr.corp.intel.com.crt"
-	pause
-	
-	SoftwareSolutionsUpdate
-	
-else
-	text
-Creating projects...
-- Create folder, right click, SVN Checkout...
-- DIS: c:/dis, URL=svn://dev.technologist-4-hire.com/dis,
-	"
-	explorer "$LocalCode"
-	pause
-
-endif
-
-echot "\
-- Settings, External Programs, Dif Viewer and Merge Tool, External
-  c:/Program Files (x86)/Beyond Compare 3/BComp.exe
-"
-pause
-
-return
-
-:FingerprintReader
-# http://www.microsoft.com/hardware/mouseandkeyboard/DownloadResult.aspx?prod=pf_fr&os=WVista_32&lang=en&driverVersion=DigitalPersona$20Password$20Manager$202.0
-echot "\
-************************************************
-* Fingerprint Reader - Digital Persona Manager
-************************************************
-"
-
-run "Microsoft/Fingerprint Reader/DPPM_201_ENG.exe"
-
-echo Updating icons...
-MergeDir /q "$pp/DigitalPersona Password Manager" "$pp/Operating System/Other"
-
-echo Restoring the default profile...
-FingerprintReader profile restore default
 
 return
 
@@ -7671,7 +6162,7 @@ start /pgm "$P32/Microsoft Xbox 360 Accessories/Checker.exe" -forcecheck
 pause
 
 echo Updating icons...
-MergeDir /q /rename "$pp/Microsoft Xbox 360 Accessories" "$pp/Games/Other/Xbox Accessories"
+$mergeDir --rename "$pp/Microsoft Xbox 360 Accessories" "$pp/Games/Other/Xbox Accessories"
 
 return
 
@@ -7680,54 +6171,21 @@ return
 # https://www.amazon.com/gp/dmusic/order/amd-get-interstitial.html/ref=dp_amp_get_amd_for_dl_click
 echot "\
 ************************
-* Amazon MP3
+* Amazon Cloud Player
 ************************
 "
 
 run "Amazon/other/AmazonCloudPlayerInstaller337.exe"
 
 echo Updating icons...
-MakeDir "$ao/Amazon"
-MergeDir /q /rename "$up/Amazon Cloud Player" "$ao/Amazon/Cloud Player"
-DelFile "$ud/Amazon Cloud Player.lnk"
+$makeDir "$ao/Amazon"
+$mergeDir --rename "$up/Amazon Cloud Player" "$ao/Amazon/Cloud Player"
+$delFile "$ud/Amazon Cloud Player.lnk"
 
 echot "\
 - Configuratioin, General
   - All downloads are sgtored here=Libraries/Music (roo) Public Music or Music
 "
-
-return
-
-:Audible
-# Sonos setup (streams from PC) - http://audible.custhelp.com/app/answers/detail/a_id/3192/kw/sonos/r_id/166
-echot "\
-************************
-* Audible
-************************
-"
-
-run "Amazon/other/Audible Active Setup.exe"
-
-echo Moving data folder...
-MakeLink merge "$UserData/Audible" hide "$UserDocuments/audible"
-
-echo Updating icons...
-MergeDir /q "$pp/AudibleManager" "$ao"
-DelFile.btm "$ud/Audible Manager.lnk"
-
-echo - General Settings, My Documents/data/audible/downloads
-start /pgm "$P32/Audible/Bin/AudibleDownloadHelper.exe"
-pause
-
-echot "\
-- Music, Up Services..., Add, Audible
-- Notes: 
-  - Sonos supports only Type 4 audible audio (.aa extension)
-  - media.btm router will copy books to the router
-  - Music will be displayed under Genres, Audibooks
-"
-sonos start
-pause
 
 return
 
@@ -7742,12 +6200,12 @@ echot "\
 run "Adobe/DigitalEditions/ADE_2.0_Installer.exe"
 
 # Move data folder
-MakeLink merge "$UserData/Adobe Digital Editions" hide "$UserDocuments/My Digital Editions"
+$makeLink --merge --hide "$udata/Adobe Digital Editions" hide "$udoc/My Digital Editions"
 
 echo Updating icons...
 MergeDir.btm /quiet "$pp/Adobe" "$ao"
-DelFile.btm "$pp/Adobe Digital Editions 2.0.lnk"
-DelFile.btm "$pd/Adobe Digital Editions 2.0.lnk"
+$delFile.btm "$pp/Adobe Digital Editions 2.0.lnk"
+$delFile.btm "$pd/Adobe Digital Editions 2.0.lnk"
 
 return
 
@@ -7765,20 +6223,20 @@ run "Amazon/Kindle/setup/Kindle for PC v1.10.6.40500.exe"
 run "Amazon/Kindle/converter/Kindle DRM #oval v5.0.0.0.exe"
 
 echo Creating data folders...
-MakeDir "$UserData/Kindle"
-MakeDir "$UserData/Kindle DRM #oval"
-MakeDir "$UserDocuments/Kindle DRM #oval"
-attrib +h "$UserDocuments/Kindle DRM #oval"
+$makeDir "$udata/Kindle"
+$makeDir "$udata/Kindle DRM #oval"
+$makeDir "$udoc/Kindle DRM #oval"
+attrib +h "$udoc/Kindle DRM #oval"
 
 echo Updating icons...
-MergeDir /q "$pp/Amazon" "$ao"
-MergeDir /q "$up/Amazon" "$ao"
-MergeDir /q /rename "$ao/Amazon/Amazon Kindle" "$ao/Amazon/Kindle"
-MergeDir /q "$up/Kindle DRM #oval" "$ao"
-DelFile "$pd/Kindle.lnk"
-DelFile "$ud/Kindle.lnk"
-DelFile "$ud/Kindle DRM #oval.lnk"
-DelFile "$ao/Amazon/Kindle/Uninstall Kindle.lnk"
+$mergeDir "$pp/Amazon" "$ao"
+$mergeDir "$up/Amazon" "$ao"
+$mergeDir --rename "$ao/Amazon/Amazon Kindle" "$ao/Amazon/Kindle"
+$mergeDir "$up/Kindle DRM #oval" "$ao"
+$delFile "$pd/Kindle.lnk"
+$delFile "$ud/Kindle.lnk"
+$delFile "$ud/Kindle DRM #oval.lnk"
+$delFile "$ao/Amazon/Kindle/Uninstall Kindle.lnk"
 
 echot "\
 Kindle for PC
@@ -7809,7 +6267,7 @@ echot "\
 run "shareware/BitTorrent/BitTorrent-6.0.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/BitTorrent" "$ao"
+$mergeDir "$pp/BitTorrent" "$ao"
 
 return
 
@@ -7823,7 +6281,7 @@ echot "\
 run "Acronis/setup/Drive Monitor v1.0.0.187.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Acronis" "$pp/Operating System/Other"
+$mergeDir "$pp/Acronis" "$pp/Operating System/Other"
 MoveFile "$pd/Acronis Drive Monitor.lnk" "$pp/Operating System"
 
 return 
@@ -7840,10 +6298,10 @@ if defined server return
 run "Acronis/setup/DiskDirector v11.0.0.2343.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Acronis" "$pp/Operating System/Other"
+$mergeDir "$pp/Acronis" "$pp/Operating System/Other"
 
 # Acronis shortcuts include special characters in place of spaces that interfere with normal processing
-DelFile "$ud/Acronis OS Selector.lnk" "$pd/Acronis*.lnk"
+$delFile "$ud/Acronis OS Selector.lnk" "$pd/Acronis*.lnk"
 
 return
 
@@ -7881,12 +6339,12 @@ run "Acronis/setup/True Image Plus Pack v15.0.0.6154.exe"
 
 echo Updating icons...
 
-MergeDir /q "$pp/Acronis" "$pp/Operating System/Other"
-DelFile "$pd/Acronis Online Backup.lnk"
-DelFile "$pd/Acronis True Image Home 2012.lnk"
+$mergeDir "$pp/Acronis" "$pp/Operating System/Other"
+$delFile "$pd/Acronis Online Backup.lnk"
+$delFile "$pd/Acronis True Image Home 2012.lnk"
 
 # Delete Acronis Scheduler2 Service  - "C:/Program Files (x86)/Common Files/Acronis/Schedule2/schedhlp.exe"
-registry.btm delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Acronis Scheduler2 Service"
+registry delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Acronis Scheduler2 Service"
 
 echot "\
 - Tools, Options
@@ -7953,10 +6411,10 @@ echot "\
 
 if $@IsWindows7[] == 1 then
 	run "RealTek/PCIe NIC/Win7 Driver V7.009.11202009/setup/setup.exe"
-endif
+fi
 
 echo Updating icons...
-MergeDir /q "$pp/Realtek" "$pp/Operating System/Other"
+$mergeDir "$pp/Realtek" "$pp/Operating System/Other"
 
 echo - Verify Realtek driver is installed and if required run setup again 
 os DeviceManager
@@ -8011,9 +6469,9 @@ run "Gigabyte/GPU/Easy Boost/vga_utility_easy_boost_v1.0.4.1.EXE"
 # run "Gigabyte/GPU/VGA@BIOS/vga_utility_atbios_ver4.3.exe"
 
 echo Updating icons...
-DelFile "$pd/EasyBoost.lnk"
-MergeDir /q "$pp/GIGABYTE" "$pp/Operating System/Other"
-MergeDir /q "$up/GIGABYTE" "$pp/Operating System/Other"
+$delFile "$pd/EasyBoost.lnk"
+$mergeDir "$pp/GIGABYTE" "$pp/Operating System/Other"
+$mergeDir "$up/GIGABYTE" "$pp/Operating System/Other"
 
 return
 
@@ -8032,11 +6490,11 @@ run "Gigabyte/motherboard/utility/Easytune/VB7.1221.1/Setup.exe"
 echo Updating registry...
 
 # Delete EasyTuneV - C:/Program Files (x86)/Gigabyte/ET5Pro/ETcall.exe
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/EasyTuneVPro"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/EasyTuneVPro"
 
 echo Updating icons...
 MoveFile "$pd/EasyTune5 Pro.lnk" "$pp/Operating System"
-MergeDir /q "$pp/Gigabyte" "$pp/Operating System/Other"
+$mergeDir "$pp/Gigabyte" "$pp/Operating System/Other"
 
 echot "\
 - Smart Fan, 28$-100$ from 35c to 66c
@@ -8058,7 +6516,7 @@ run "Microsoft/other/XmlNotepad.msi"
 
 echo Updating icons...
 MoveFile "$ud/XML Notepad 2007.lnk" "$pp/Development/XML Notepad.lnk"
-MergeDir /q /rename "$up/XML Notepad 2007" "$pp/Development/Other/XML Notepad"
+$mergeDir --rename "$up/XML Notepad 2007" "$pp/Development/Other/XML Notepad"
 
 
 echot "\
@@ -8079,14 +6537,14 @@ echot "\
 run "PowerUp Software/Pinnacle Game Profiler/setup/Pinnacle Game Profiler v5.5.0.2.exe"
 
 # Delete Pinnacle Game Profiler - "C:/Program Files (x86)/PowerUp Software/Pinnacle Game Profiler/pinnacle.exe" -atboottime
-registry.btm 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Pinnacle Game Profiler"
+registry 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Pinnacle Game Profiler"
 
 echo Updating services...
 service manual PinnacleUpdateSvc
 
 echo Updating icons...
-DelFile "$pd/Pinnacle Game Profiler.lnk"
-MergeDir /q "$pp/Pinnacle Game Profiler" "$pp/Games/Other"
+$delFile "$pd/Pinnacle Game Profiler.lnk"
+$mergeDir "$pp/Pinnacle Game Profiler" "$pp/Games/Other"
 
 return
 
@@ -8104,11 +6562,11 @@ echo Updating registry...
 registry import "$install/SlySoft/Game Jackal/Key.GameJackal.reg"
 
 # Delete Maplom - C:/Program Files/SlySoft/Game Jackal/GameJackal.exe /silent
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Maplom"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Maplom"
 
 echo Updating icons...
-DelFile "$ud/Game Jackal.lnk"
-MergeDir /q "$pp/SlySoft" "$pp/Games/Other"
+$delFile "$ud/Game Jackal.lnk"
+$mergeDir "$pp/SlySoft" "$pp/Games/Other"
 CopyFile "$pp/Games/Other/SlySoft/Game Jackal/Game Jackal.lnk" "$pp/Games"
 
 return
@@ -8123,8 +6581,8 @@ echot "\
 run "GameTap/gametap_setup.exe"
 
 echo Updating icons...
-DelFile "$pd/GameTap.lnk"
-MergeDir /q "$pp/GameTap" "$pp/Games/Other"
+$delFile "$pd/GameTap.lnk"
+$mergeDir "$pp/GameTap" "$pp/Games/Other"
 CopyFile "$pp/Games/Other/TameTap/GameTap.lnk" "$pp/Games"
 
 return
@@ -8181,7 +6639,7 @@ if $@IsNewOs[] == 1 then
 	run "shareware/ISO Recorder/ISORecorder v3 ${architecture}.msi"
 else
 	run "shareware/ISO Recorder/ISORecorder v2.msi"
-endif
+fi
 
 return
 
@@ -8199,9 +6657,9 @@ if not IsDir "$P32/Java" jre
 run "Shareware/LimeWire/LimeWireWin V5.4.6.exe"
 
 echo Updating icons...
-MakeDir "$pp/Media/Other"
+$makeDir "$pp/Media/Other"
 MoveFile "$ud/LimeWire*.lnk" "$pp/Media/LimeWire.lnk"
-MergeDir /q "$up/LimeWire" "$pp/Media/Other"
+$mergeDir "$up/LimeWire" "$pp/Media/Other"
 
 echot "\
 - Notes
@@ -8229,7 +6687,7 @@ if "${architecture}" == "x64" then
 	echo $@ClipW[$P/7-Zip/] >& nul:
 	echo `- (ensure correct install location) *** Location, Browse, <paste> ***`
 	run "$exe64"
-endif
+fi
 
 # Update bin files
 copy /q /u "$P/7-zip/7-zip.chm" "$PublicData/bin/win32" >& nul:
@@ -8237,7 +6695,7 @@ copy /q /u "$P32/7-zip/7z.exe" "$P32/7-zip/7z.dll" "$PublicData/bin/win32" >& nu
 copy /q /u "$programs64/7-zip/7z.exe" "$programs64/7-zip/7z.dll" "$PublicData/bin/win64" >& nul:
 
 echo Updating icons...
-MergeDir /q "$pp/7-Zip" "$ao"
+$mergeDir "$pp/7-Zip" "$ao"
 
 echot "\
 - Tools, Options
@@ -8273,10 +6731,10 @@ echo Updating registry...
 registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/EvtMgr6"
 
 echo Updating icons...
-MergeDir /quiet "$pp/Logitech" "$pp/Operating System/Other"
-DelFile.btm "$up/Startup/Logitech . Product Registration.lnk"
-DelFile.btm "$pd/Logitech Mouse and Keyboard Settings.lnk"
-DelFile.btm "$pp/Logitech SetPoint.lnk"
+$mergeDiruiet "$pp/Logitech" "$pp/Operating System/Other"
+$delFile.btm "$up/Startup/Logitech . Product Registration.lnk"
+$delFile.btm "$pd/Logitech Mouse and Keyboard Settings.lnk"
+$delFile.btm "$pp/Logitech SetPoint.lnk"
 
 echot "\
 - Pointer and Scrolling Settings, Pointer Speed=2, Pointer Acceleration=Medium, 
@@ -8326,27 +6784,27 @@ echot "\
 run "Logitech/Webcam/lws280_full.exe"
 
 echo Moving data folder...
-MakeLink merge "$UserData/Logitech" hide "$UserHome/Logitech"
+$makeLink --merge --hide "$udata/Logitech" hide "$UserHome/Logitech"
 
 echo Updating registry...
 
-registry.btm delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Logitech Download Assistant"
+registry delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Logitech Download Assistant"
 
 # Delete LogitechQuickCamRibbon - "C:/Program Files/Logitech/QuickCam/Quickcam.exe" /hide
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/LogitechQuickCamRibbon"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/LogitechQuickCamRibbon"
 
 # Delete Logitech Vid- "C:/Program Files (x86)/Logitech/Logitech Vid/vid.exe" -bootmode
-registry.btm 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Logitech Vid"
+registry 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Logitech Vid"
 
 # Delete LWS - C:/Program Files (x86)/Logitech/LWS/Webcam Software/LWS.exe -hide
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/LWS"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/LWS"
 
 echo Updating icons...
 dest=$ao/Logitech/Logitech Webcam Software
-MergeDir /q /rename "$pp/Logitech" "$dest"
+$mergeDir --rename "$pp/Logitech" "$dest"
 MoveFile "$pd/Logitech Webcam Software*.lnk" "$dest"
 MoveFile "$pd/Logitech Vid HD.lnk"  "$dest"
-DelFile "$up/Startup/Logitech . Product Registration.lnk"
+$delFile "$up/Startup/Logitech . Product Registration.lnk"
 
 return
 
@@ -8377,7 +6835,7 @@ elif $@IsWindows7[] == 1 then
 	printer.btm add
 	pause
 	return 0
-endif
+fi
 
 echo Installing Brother HL-4070cdw...
 ask "Do you want to install the print monitor?" n
@@ -8386,7 +6844,7 @@ if $? == 1 then
 else
 	run "Brother/HL-4070cdw/driver/deploy/Wiggin Printer ${architecture}.exe"		
 	BrotherHl4070Final
-endif
+fi
 
 return
 
@@ -8414,7 +6872,7 @@ registry import "$install/Brother/HL-4070cdw/driver/deploy/monitor.reg"
 
 echo Updating icons...
 dest=$pp/Operating System/Other 
-MergeDir /q "$pp/Brother HL-4070CDW" "src=$pp/Brother Personal Utilities"
+$mergeDir "$pp/Brother HL-4070CDW" "src=$pp/Brother Personal Utilities"
 
 BrotherHl4070Final
 
@@ -8448,7 +6906,7 @@ regsvr32 /s "$PublicBin/x86/PropPage.dll"
 registry import "$exe"
 
 echo Updating icons...
-MakeDir "$pp/Media/Other"
+$makeDir "$pp/Media/Other"
 MakeShortcut "$PublicBin/win32/GraphEdit.exe" "$pp/Media/Graph Edit 32.lnk"
 
 echo Configuring x64 filter support...
@@ -8456,7 +6914,7 @@ if "${architecture}" == "x64" then
 	regsvr32 /s "$PublicBin/x64/PropPage.dll"
 	registry import "$ExeDir/GraphEdit Setup x64.reg"
 	MakeShortcut "$PublicBin/win64/GraphEdit.exe" "$pp/Media/Graph Edit 64.lnk"
-endif
+fi
 
 return
 
@@ -8472,7 +6930,7 @@ echot "\
 run "CoreCodec/CoreAVC/CoreAVC Professional v3.0.1.0.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/CoreCodec" "$pp/Media/Other"
+$mergeDir "$pp/CoreCodec" "$pp/Media/Other"
 
 return
 
@@ -8489,7 +6947,7 @@ if IsDir "$P32/K-Lite Codec Pack" .or. IsDir "$programs64/KLCP64" .or. IsDir "$P
 	echo - Uninstall K-Lite and QuickTime Alternative
 	os programs
 	pause
-endif
+fi
 
 echo.
 echo Installing K-Lite x86 codecs...
@@ -8506,7 +6964,7 @@ if "${architecture}" == "x64" then
 	run "Shareware/K-Lite/K-Lite Codec Pack x64 V1.6.2.exe"
 	if $_? != 0 return $_?
 	
-endif
+fi
 
 # QuickTime Lite - install if QuickTime is not installed
 if not IsDir "$P32/QuickTime" then
@@ -8514,13 +6972,13 @@ if not IsDir "$P32/QuickTime" then
 	echo Installing QuickTime Lite (required for QuickTime VR)...
 	run "Shareware/K-Lite/quicktimealt270.exe" /norestart /LoadInf="./quicktimealt.ini"
 	if $_? != 0 return $_?
-endif
+fi
 
 echo Updating icons...
-MakeDir "$pp/Media/Other"
-MergeDir /q "$pp/K-Lite Codec Pack" "$pp/Media/Other"
-MergeDir /q "$pp/K-Lite Codec Pack x64" "$pp/Media/Other"
-MergeDir /q "$pp/QuickTime Alternative" "$pp/Media/Other"
+$makeDir "$pp/Media/Other"
+$mergeDir "$pp/K-Lite Codec Pack" "$pp/Media/Other"
+$mergeDir "$pp/K-Lite Codec Pack x64" "$pp/Media/Other"
+$mergeDir "$pp/QuickTime Alternative" "$pp/Media/Other"
 
 # Configure FFDShow Video
 echot "\
@@ -8569,8 +7027,8 @@ run "Shareware/WireShark/setup/wireshark-win$@OsBits[]-1.8.3.exe"
  
 echo Updating icons...
 MoveFile "$pp/Wireshark.lnk" "$pp/Operating System"
-MergeDir /q "$pp/Wireshark" "$pp/Operating System/Other"
-MergeDir /q "$pp/WinPcap" "$pp/Operating System/Other"
+$mergeDir "$pp/Wireshark" "$pp/Operating System/Other"
+$mergeDir "$pp/WinPcap" "$pp/Operating System/Other"
 
 echo Updating services...
 service manual NPF
@@ -8592,7 +7050,7 @@ echot "\
 run "Shareware/NMap/nmap-4.68-setup.exe"
 
 echo Updating icons...
-MergeDir /q "$up/Nmap" "$pp/Operating System/Other"
+$mergeDir "$up/Nmap" "$pp/Operating System/Other"
 MoveFile "$ud/Nmap - Zenmap GUI.lnk" "$pp/Operating System"
 
 return
@@ -8607,8 +7065,8 @@ echot "\
 run "Shareware/MediaInfo/setup/MediaInfo_0.7.7.1_GUI_Win32.exe"
 
 echo Updating icons...
-MakeDir "$pp/Media/Other"
-MergeDir /q "$up/MediaInfo" "$pp/Media/Other"
+$makeDir "$pp/Media/Other"
+$mergeDir "$up/MediaInfo" "$pp/Media/Other"
 
 
 echot "\
@@ -8637,11 +7095,11 @@ skype close
 echo Updating registry...
 
 # Delete Skype - "C:/PROGRAM FILES (X86)/SKYPE/PHONE/SKYPE.EXE" /nosplash /minimized
-registry.btm 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Skype"
+registry 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/Skype"
 
 echo Updating icons...
 MoveFile "$pd/Skype.lnk" "$pp/Applications"
-MergeDir /q "$pp/Skype" "$ao"
+$mergeDir "$pp/Skype" "$ao"
 
 echot "\
 - Tools, Options
@@ -8664,7 +7122,7 @@ echot "\
 run "Nitro PDF/InternationalPrimoPDF.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/PrimoPDF" "$ao"
+$mergeDir "$pp/PrimoPDF" "$ao"
 MoveFile "$pd/PrimoPDF - Drop Files Here to Convert!.lnk" "$ao/PrimoPDF"
 
 return
@@ -8680,7 +7138,7 @@ echot "\
 run "Shareware/FileZilla/setup/FileZilla_3.7.0.2_win32-setup.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/FileZilla FTP Client" "$pp/Operating System/Other"
+$mergeDir "$pp/FileZilla FTP Client" "$pp/Operating System/Other"
 
 echo Moving configuration data to the cloud...
 DropBox MoveConfig "$_ApplicationData/FileZilla" "$CloudData/FileZilla"
@@ -8707,8 +7165,8 @@ echot "\
 run "Shareware/HD Tune/hdtune_255.exe"
 
 echo Updating icons...
-DelFile "$ud/HD Tune.url"
-MergeDir /q "$pp/HD Tune" "$pp/Operating System/Other"
+$delFile "$ud/HD Tune.url"
+$mergeDir "$pp/HD Tune" "$pp/Operating System/Other"
 
 return
 
@@ -8723,7 +7181,7 @@ run "Gudu Software/SQL Pretty Printer/setup v2.9.0.msi"
 
 echo Updating icons...
 MoveFile "$ud/SQL Pretty Printer.lnk" "$pp/Development"
-MergeDir /q "$up/SQL Pretty Printer" "$pp/Development/Other"
+$mergeDir "$up/SQL Pretty Printer" "$pp/Development/Other"
 
 
 echot "\
@@ -8745,14 +7203,14 @@ echot "\
 
 run "Shareware/TrueCrypt/TrueCrypt Setup 7.1a.exe"
 
-MakeDir "$UserHome/Documents/data/TrueCrypt"
+$makeDir "$UserHome/Documents/data/TrueCrypt"
 
 echo Updating icons...
-MergeDir /q "$pp/TrueCrypt" "$ao"
-MergeDir /q "$up/TrueCrypt" "$ao"
-DelFile "$ao/TrueCrypt/TrueCrypt Website.url"
-DelFile "$ao/TrueCrypt/Uninstall TrueCrypt.lnk"
-DelFile "$pd/TrueCrypt.lnk"
+$mergeDir "$pp/TrueCrypt" "$ao"
+$mergeDir "$up/TrueCrypt" "$ao"
+$delFile "$ao/TrueCrypt/TrueCrypt Website.url"
+$delFile "$ao/TrueCrypt/Uninstall TrueCrypt.lnk"
+$delFile "$pd/TrueCrypt.lnk"
 
 echot "\
 - Settings, Hot Keys...
@@ -8785,8 +7243,8 @@ echo Installing OpenPGP interoperability...
 CopyFile "$install/Information Security Corporation/SecretAgent/OpenPGP Interoperability/gpgisc.dll" "$P32/SecretAgent 5"
 
 echo Updating icons...
-DelFile "$pd/SecretAgent 5.lnk"
-MergeDir /q "$pp/SecretAgent 5" "$ao"
+$delFile "$pd/SecretAgent 5.lnk"
+$mergeDir "$pp/SecretAgent 5" "$ao"
 
 
 echot "\
@@ -8806,7 +7264,7 @@ echot "\
 run "Shareware/Paint.NET/Paint.NET.3.36.exe"
 
 echo Updating icons...
-DelFile "$pd/Paint.NET.lnk"
+$delFile "$pd/Paint.NET.lnk"
 MoveFile "$pp/Paint.NET.lnk" "$pp/Media"
 
 return
@@ -8830,7 +7288,7 @@ echo - Custom, uncheck all except Microsoft_SQL_Server_Wire_Protocol_Driver and 
 run "sap/Crystal Reports/Data Drivers v5.1/setup.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Business Objects" "$pp/Development/Other"
+$mergeDir "$pp/Business Objects" "$pp/Development/Other"
 
 
 echot "\
@@ -8923,49 +7381,35 @@ echo - close Steam
 pause
 
 echo Moving data folders...
-MakeLink merge "$UserData/Steam" "$P32/Steam/steamapps"
-MakeLink merge "$UserDocuments/game/Amnesia" hide "$UserDocuments/Amnesia"
+$makeLink --merge "$udata/Steam" "$P32/Steam/steamapps"
+$makeLink --merge --hide "$udoc/game/Amnesia" hide "$udoc/Amnesia"
 
 echo Updating registry...
 
 # Delete Steam - "C:/Program Files (x86)/Steam/Steam.exe"
-registry.btm 32 delete "HKCU/Software/Microsoft/Windows/CurrentVersion/Run/Steam"
+registry 32 delete "HKCU/Software/Microsoft/Windows/CurrentVersion/Run/Steam"
 
 echo Updating icons...
 MoveFile "$pd/Steam.lnk" "$pp/Games"
-MergeDir /q "$pp/Steam" "$pp/Games/Other"
-MergeDir /q "$up/Steam" "$pp/Games/Other"
+$mergeDir "$pp/Steam" "$pp/Games/Other"
+$mergeDir "$up/Steam" "$pp/Games/Other"
 
 return
 
-:BeyondCompare
-:bc
-# download - http://www.scootersoftware.com/download.php
-# plugins - http://www.scootersoftware.com/download.php?zz=kb_moreformats&cartid=482293831
-# license setup - http://www.scootersoftware.com/support.php?zz=kb_netsetup
-echot "\
-************************
-* Beyond Compare
-************************
-- Uncheck Launch Beyond Compare 3
-"
-
-run "Scooter Software/Beyond Compare/setup/BCompare-3.3.8.16340.exe"
-run "Scooter Software/Beyond Compare/plugins/AllPlugins.exe"
 
 echo Updating icons...
-MergeDir /q /rename "$pp/Beyond Compare 3" "$ao/Beyond Compare"
+$mergeDir --rename "$pp/Beyond Compare 3" "$ao/Beyond Compare"
 MoveFile "$ao/Beyond Compare/Beyond Compare 3 Help.lnk" "$ao/Beyond Compare/Beyond Compare Help.lnk"
 MoveFile "$ao/Beyond Compare/Beyond Compare 3.lnk" "$ao/Beyond Compare/Beyond Compare.lnk"
-DelFile "$ao/Beyond Compare/Uninstall Beyond Compare 3.lnk"
-DelFile "$pd/Beyond Compare 3.lnk"
+$delFile "$ao/Beyond Compare/Uninstall Beyond Compare 3.lnk"
+$delFile "$pd/Beyond Compare 3.lnk"
 
 
 echo Restoring the default profile...
 BeyondCompare profile restore default
 
 echo Moving data folder...
-MakeLink merge "$UserData/.jalopy.15" hide "$UserHome/.jalopy.15"
+$makeLink --merge --hide "$udata/.jalopy.15" hide "$UserHome/.jalopy.15"
 
 echot "\
 - Help, Enter Key..., check Register for all users, paste key
@@ -8991,10 +7435,10 @@ run "Shareware/WinMerge/WinMerge-2.12.4-Setup.exe"
 prefix=$install/Shareware/WinMerge
 
 echo Creating directories...
-MakeDir "$UserDocuments/data/WinMerge/Filters"
+$makeDir "$udoc/data/WinMerge/Filters"
 
 echo Updating icons...
-MergeDir /q "$pp/WinMerge" "$ao"
+$mergeDir "$pp/WinMerge" "$ao"
 
 echo Installing plugins...
 
@@ -9018,7 +7462,7 @@ echot "\
     - Open-dialog Auto-Completion=From file system
   - System
     - External editor=$P32/Notepad++/notepad++.exe
-    - Filter folder=$UserData/WinMerge/Filters
+    - Filter folder=$udata/WinMerge/Filters
   - Backup Files, uncheck File compare
   - Shell Integration, check Enable advanced menu 
 - Plugins, List..., check Enable plugins
@@ -9045,7 +7489,7 @@ run "SiSoftware/Sandra/san1560.exe"
 
 echo Updating icons...
 MoveFile "$pd/SiSoftware Sandra Lite 2009.SP1.lnk" "$pp/Operating System"
-MergeDir /q "$pp/SiSoftware" "$pp/Operating System/Other"
+$mergeDir "$pp/SiSoftware" "$pp/Operating System/Other"
 
 
 echot "\
@@ -9063,8 +7507,8 @@ echot "\
 run "Piriform/Defraggler/dfsetup116.exe"
 
 echo Updating icons...
-DelFile "$ud/Defraggler.lnk"
-MergeDir /q "$up/Defraggler" "$pp/Operating System/Other"
+$delFile "$ud/Defraggler.lnk"
+$mergeDir "$up/Defraggler" "$pp/Operating System/Other"
 
 return
 
@@ -9088,8 +7532,8 @@ service manual PDAgent
 echo Updating icons...
 MoveFile "$pp/PerfectDisk 10.lnk" "$pp/Operating System"
 MoveFile "$pp/PerfectDisk 11.lnk" "$pp/Operating System"
-DelFile "$pd/PerfectDisk 10.lnk"
-DelFile "$pd/PerfectDisk 11.lnk"
+$delFile "$pd/PerfectDisk 10.lnk"
+$delFile "$pd/PerfectDisk 11.lnk"
 
 echot "\
 - Select schedule type, none
@@ -9115,7 +7559,7 @@ run "Shareware/Mp3Tag/mp3tagv252setup.exe"
 
 echo Updating icons...
 MoveFile "$pd/Mp3tag.lnk" "$pp/Media"
-MergeDir /q "$pp/Mp3tag" "$pp/Media/Other"
+$mergeDir "$pp/Mp3tag" "$pp/Media/Other"
 
 
 echot "\
@@ -9135,8 +7579,8 @@ echot "\
 run "Shareware/FreeClip/freeclip.exe"
 
 echo Updating icons...
-DelFile "$ud/Spartan.lnk"
-MergeDir /q "$up/M8 Free Multi Clipboard" "$ao"
+$delFile "$ud/Spartan.lnk"
+$mergeDir "$up/M8 Free Multi Clipboard" "$ao"
 
 echot "\
 - Tools, Options
@@ -9163,14 +7607,14 @@ echot "\
 run "SiliconDust/HDHomeRun/setup/hdhomerun_windows_20100609beta1.exe"
 
 echo Updating icons...
-DelFile "$pp/Startup/HDHomeRun Manager.lnk"
-MergeDir /q "$pp/HDHomeRun" "$pp/Media/Other"
-MergeDir /q "$pp/GuideTool" "$pp/Media/Other"
-MergeDir /q "$up/GuideTool" "$pp/Media/Other"
+$delFile "$pp/Startup/HDHomeRun Manager.lnk"
+$mergeDir "$pp/HDHomeRun" "$pp/Media/Other"
+$mergeDir "$pp/GuideTool" "$pp/Media/Other"
+$mergeDir "$up/GuideTool" "$pp/Media/Other"
 
 echo Updating tasks...
 SchTasks /Change /Tn "updater.exe" /Disable >& nul:
-SchTasks /Create /RU $@SystemAccount[] /RP * /SC OnIdle /I $SleepTaskIdleTime /TN "sleep" /TR "$@sfn[$PublicDocuments/data/bin/]/tcc.exe /c SleepTaskSleep.btm"
+SchTasks /Create /RU $@SystemAccount[] /RP * /SC OnIdle /I $SleepTaskIdleTime /TN "sleep" /TR "$@sfn[$pdoc/data/bin/]/tcc.exe /c SleepTaskSleep.btm"
 
 echot "\
 - Location, Country=United States, Zip/Postal Code=87109
@@ -9251,7 +7695,7 @@ run "Shareware/MCE Standby Tool/setup/mst09098.exe"
 echo Updating registry...
 
 # Delete MCE Standby Tool - "C:/Program Files (x86)/MCE Standby Tool/mst.exe" engine
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/MCE Standby Tool"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/MCE Standby Tool"
 
 echot "\
 - Reboot, check Do not force reboots
@@ -9270,7 +7714,7 @@ echot "\
 run "Hewlett Packard/Quality Center/QCExplorerAddIn.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Quality Center" "$ao"
+$mergeDir "$pp/Quality Center" "$ao"
 CopyFile "$ao/Quality Center/QCExplorer.lnk" "$pp/Applications/QualityCenter.lnk"
 
 echo Address=http://qualitycenterrr.intel.com:8080/qcbin/start_a.htm
@@ -9287,7 +7731,7 @@ echot "\
 run "Quest Software/Foglight/setup/setup.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Quest Software" "$pp/Operating System/Other"
+$mergeDir "$pp/Quest Software" "$pp/Operating System/Other"
 MoveFile "$pd/4.2 Foglight Operations Console.lnk" "$pp/Operating System/Foglight.lnk"
 
 return
@@ -9308,7 +7752,7 @@ echo Restoring the default profile...
 Easy2Sync.btm profile restore default
 
 echo Updating icons...
-MergeDir /q "$pp/Easy2Sync for Outlook" "$ao"
+$mergeDir "$pp/Easy2Sync for Outlook" "$ao"
 
 echot "\
 - Tools, Options, Confirm when, check When syncronizing a task for the first time, enable ALL confirmations
@@ -9349,10 +7793,10 @@ echot "\
 run "Microsoft/Live/wlsetup-web.exe"
 
 echo Moving data folder...
-MakeLink merge "$UserData/Live Writer" hide "$UserDocuments/My Weblog Posts"
+$makeLink --merge --hide "$udata/Live Writer" hide "$udoc/My Weblog Posts"
 
 echo Updating icons...
-MergeDir /q "$pp/Windows Live" "$ao"
+$mergeDir "$pp/Windows Live" "$ao"
 MoveFile "$pp/Windows Live ID.lnk" "$pp/Applications"
 MoveFile "$pd/Windows Live Messenger.lnk" "$ao/Windows Live"
 MoveFile "$pp/Windows Live Movie Maker.lnk" "$ao/Windows Live"
@@ -9373,8 +7817,8 @@ echo Restoring the default profile...
 radioSHARK.btm profile restore default
 
 echo Updating icons...
-MergeDir /q "$pp/Grifin Technology" "$ao"
-DelFile "$up/Startup/radio SHARK Scheduler.lnk"
+$mergeDir "$pp/Grifin Technology" "$ao"
+$delFile "$up/Startup/radio SHARK Scheduler.lnk"
 
 echo - Recording, Show Disabled Devices, radioSHARK, Enable
 os.btm sound
@@ -9403,18 +7847,18 @@ return 0
 run "Rogue Amoeba/Airfoil/Airfoil v2.7.5.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Grifin Technology" "$ao"
+$mergeDir "$pp/Grifin Technology" "$ao"
 
 if "$@domain[]" != "" then
 	echo - Inbound Rules, Airofoil and Airfoil speakers, Advanced, check Domain (4 rules
 	firewall console
 	pause
-endif
+fi
 
 echo Updating icons...
-DelFile "$pd/Airfoil.lnk"
-DelFile "$pd/Airfoil Speakers.lnk"
-MergeDir /q "$pp/Airfoil" "$pp/Media/Other"
+$delFile "$pd/Airfoil.lnk"
+$delFile "$pd/Airfoil Speakers.lnk"
+$mergeDir "$pp/Airfoil" "$pp/Media/Other"
 
 echot "\
 - Interface, check Show Airfoil icon in system tray and Minimize Airfoil to system tray
@@ -9435,7 +7879,7 @@ echot "\
 run "UPEK/Protector Suite for Windows 7 Build 5668 x86/setup.msi"
 
 echo Updating icons...
-MergeDir /q "$pp/Protector Suite" "$pp/Operating System/Other"
+$mergeDir "$pp/Protector Suite" "$pp/Operating System/Other"
 
 return
 
@@ -9479,7 +7923,7 @@ echot "\
 run SoundSpectrum/Aeon/Aeon_101_Platinum.exe
 
 echo Updating icons...
-MergeDir /q "$pp/Aeon" "$pp/Media/Other"
+$mergeDir "$pp/Aeon" "$pp/Media/Other"
 
 SoundSpectrumNotes
 
@@ -9497,8 +7941,8 @@ echot "\
 run SoundSpectrum/WhiteCap/WhiteCap_571_Platinum.exe
 
 echo Updating icons...
-MergeDir /q "$pp/WhiteCap" "$pp/Media/Other"
-DelFile "$pp/Media/Other/WhiteCap/SoundSpectrum Website.url"
+$mergeDir "$pp/WhiteCap" "$pp/Media/Other"
+$delFile "$pp/Media/Other/WhiteCap/SoundSpectrum Website.url"
 
 SoundSpectrumNotes
 
@@ -9515,8 +7959,8 @@ run "Microsoft/Log Parser/setup/LogParser.msi"
 run "Microsoft/Log Parser/setup/logparserlizardsetup.msi"
 
 echo Updating icons...
-MergeDir /q "$pp/Log Parser 2.2" "$pp/Development/Other"
-MergeDir /q "$up/Log Parser Lizard" "$pp/Development/Other"
+$mergeDir "$pp/Log Parser 2.2" "$pp/Development/Other"
+$mergeDir "$up/Log Parser Lizard" "$pp/Development/Other"
 
 return
 
@@ -9542,7 +7986,7 @@ d=Microsoft/Windows/gadgets/setup
 
 if $@IsIntelHost[] == 1 then
 	for file in ($SharedDocuments/data/install/Intel/gadgets/*.gadget) run "$file"
-endif
+fi
 
 pause
 
@@ -9565,7 +8009,7 @@ echot "\
 run "Simtec/httpwatch.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/HttpWatch Basic Edition" "$pp/Development/Other"
+$mergeDir "$pp/HttpWatch Basic Edition" "$pp/Development/Other"
 
 return
 
@@ -9582,10 +8026,10 @@ run "Shareware/Fiddler/Fiddler4BetaSetup.exe"
 run "Shareware/Fiddler/FiddlerSyntaxSetup.exe"
 
 echo Moving data folder...
-MakeLink merge "$UserData/Fiddler2" hide "$UserDocuments/Fiddler2"
+$makeLink --merge --hide "$udata/Fiddler2" hide "$udoc/Fiddler2"
 
 echo Updating icons...
-MakeDir "$pp/Development/Fiddler/Other"
+$makeDir "$pp/Development/Fiddler/Other"
 MoveFile "$pp/Fiddler2.lnk" "$pp/Development/Other/Fiddler"
 MoveFile "$up/Fiddler2 ScriptEditor.lnk" "$pp/Development/Other/Fiddler"
 
@@ -9599,10 +8043,10 @@ echot "\
 ************************
 "
 
-installDir=$PublicDocuments/programs/NirSoft Launcher
+installDir=$pdoc/programs/NirSoft Launcher
 run "Shareware/NirSoft/NirSoft Launcher v1.00 beta.7z"
 
-MakeShortcut "$PublicDocuments/programs/NirSoft Launcher/NirLauncher.exe" "$pp/Operating System/NirSoft Launcher.lnk"
+MakeShortcut "$pdoc/programs/NirSoft Launcher/NirLauncher.exe" "$pp/Operating System/NirSoft Launcher.lnk"
 
 return
 
@@ -9614,10 +8058,10 @@ echot "\
 ************************
 "
 
-installDir=$PublicDocuments/programs/LiberKey
+installDir=$pdoc/programs/LiberKey
 run "Shareware/LiberKey/LiberKey v4.5.zip"
 
-MakeShortcut "$PublicDocuments/programs/LiberKey/LiberKey.exe" "$pp/Applications/LiberKey.lnk"
+MakeShortcut "$pdoc/programs/LiberKey/LiberKey.exe" "$pp/Applications/LiberKey.lnk"
 
 return
 
@@ -9631,7 +8075,7 @@ echot "\
 run "Shareware/Defraggler/dfsetup115.exe"
 
 echo Updating icons...
-MergeDir /q "$up/Defraggler" "$pp/Operating System/Other"
+$mergeDir "$up/Defraggler" "$pp/Operating System/Other"
 MoveFile "$pd/Defraggler.lnk" "$pp/Operating System"
 
 return
@@ -9651,7 +8095,7 @@ version=4.2.7
 run "Shareware/MyDefrag/setup/MyDefrag-v$version.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/MyDefrag v$version" "$pp/Operating System/Other"
+$mergeDir "$pp/MyDefrag v$version" "$pp/Operating System/Other"
 MoveFile "$pd/MyDefrag.lnk" "$pp/Operating System"
 return
 
@@ -9670,13 +8114,13 @@ echot "\
 * Windows Driver Kit
 ************************
 - Check Full Development Environment
-- Install Path=$LocalCode/WinDDK/7600.16385.0/
+- Install Path=$code/WinDDK/7600.16385.0/
 "
 
 run "Microsoft/Windows/Driver Kit/en_windows_driver_kit_for_windows_7_and_windows_server_2008_r2_x86_x64_ia64_dvd_400380.iso"
 
 echo Updating icons...
-MergeDir /q "$pp/Windows Driver Kits" "$pp/Development/Other"
+$mergeDir "$pp/Windows Driver Kits" "$pp/Development/Other"
 
 return
 
@@ -9690,15 +8134,15 @@ echot "\
 run "Smilebox/SmileboxInstaller.exe"
 
 echo Moving data folder...
-MakeLink merge "$UserData/Smilebox" hide "$UserDocuments/My Smilebox Creations"
+$makeLink --merge --hide "$udata/Smilebox" hide "$udoc/My Smilebox Creations"
 
 echo Updating registry...
 
 # Delete SmileboxTray - "C:/Users/jjbutare/AppData/Roaming/Smilebox/SmileboxTray.exe"
-registry.btm delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/SmileboxTray"
+registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/SmileboxTray"
 
 echo Updating icons...
-DelFile "$ud/Smilebox.lnk"
+$delFile "$ud/Smilebox.lnk"
 MoveFile "$up/Smilebox.lnk" "$pp/Applications"
 
 return
@@ -9716,8 +8160,8 @@ echot "\
 run "shareware/ImageMagick/setup/ImageMagick-6.7.3-7-Q16-windows-${architecture}-static.exe"
 
 echo Updating icons...
-DelFile "$ud/ImageMagick Display.lnk"
-MergeDir /q /rename "$pp/ImageMagick 6.7.3 Q16" "$pp/Media/Other/ImageMagick"
+$delFile "$ud/ImageMagick Display.lnk"
+$mergeDir --rename "$pp/ImageMagick 6.7.3 Q16" "$pp/Media/Other/ImageMagick"
 
 return
 
@@ -9748,7 +8192,7 @@ if $? == 1 then
 	run "$p/tools/bash-current.exe"
 else
 	SubsystemForUnixFull
-endif
+fi
 
 echo Installing tools....
 run "$p/tools/tkman-current.exe"
@@ -9768,7 +8212,7 @@ if "$UserSysHome" != "$UserHome" then
 	echo $@ClipW[export HOME=/dev/fs/D/Users/$(whoami)] >& nul:
 	TextEdit "$WinDir/SUA/etc/homedir.conf" "$WinDir/SUA/etc/profile"
 	pause
-endif
+fi
 
 return
 
@@ -9822,7 +8266,7 @@ SshHome=$UserHome/.ssh
 SshCloudHome=$CloudDocuments/data/.ssh
 
 echo Creating data directory...
-MakeDir "$SshHome"
+$makeDir "$SshHome"
 attrib /q /d +h "$SshHome"
 
 echo Updating firewall...
@@ -9854,7 +8298,7 @@ run "Pandora/pandora_2_0_5.air"
 run "Microsoft/Windows/gadgets/setup/PandoraOther.gadget"
 
 echo Updating icons...
-DelFile "$pd/Pandora.lnk"
+$delFile "$pd/Pandora.lnk"
 MoveFile "$pp/Pandora.lnk" "$pp/Media"
 
 return
@@ -9878,8 +8322,8 @@ echo Updating registry...
 registry 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/gSyncIt"
 
 echo Updating icons...
-MergeDir /q "$pp/gSyncit" "$ao"
-MergeDir /q "$up/gSyncit" "$ao"
+$mergeDir "$pp/gSyncit" "$ao"
+$mergeDir "$up/gSyncit" "$ao"
 
 echot "\
 - Calendar Sync, New
@@ -9909,9 +8353,9 @@ run "Sun/VirtualBox/setup/VirtualBox-3.1.2-56127-Win.exe"
 
 echo Updating icons...
 MergeDir.btm /q "$pp/Sun VirtualBox" "$pp/Operating System/Other"
-DelFile.btm "$pd/Sun VirtualBox.lnk"
+$delFile.btm "$pd/Sun VirtualBox.lnk"
 
-MakeDir.btm "$UserData/VirtualBox"
+$makeDir.btm "$udata/VirtualBox"
 
 echot "\
 - File, Preferences...
@@ -9940,12 +8384,12 @@ echot "\
 run "Sony/Play Memories/setup/PMH_Upgrade1209a.exe"
 
 echo Moving data folders...
-MakeLink merge "$UserData/Sony PMB" hide "$UserDocuments/Sony PMB"
+$makeLink --merge --hide "$udata/Sony PMB" hide "$udoc/Sony PMB"
 
 echo Updating registry...
 
 # Delete PMBVolumeWatcher - C:/Program Files (x86)/Sony/PMB/PMBVolumeWatcher.exe
-registry.btm 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/PMBVolumeWatcher"
+registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/PMBVolumeWatcher"
 
 echo Updating services...
 
@@ -9954,9 +8398,9 @@ service manual pmbdeviceinfoprovider
 
 echo Updating icons...
 MergeDir.btm /q "$pp/PlayMemories Home" "$pp/Media/Other"
-DelFile.btm "$pd/PlayMemories Home.lnk"
-DelFile.btm "$pd/PlayMemories Home Help.lnk"
-DelFile.btm "$pp/PlayMemories Home.lnk"
+$delFile.btm "$pd/PlayMemories Home.lnk"
+$delFile.btm "$pd/PlayMemories Home Help.lnk"
+$delFile.btm "$pp/PlayMemories Home.lnk"
 
 echot "\
 - Connect Sony devices to get dialog to add addition features
@@ -9987,8 +8431,8 @@ echo $@ClipW[$P32/PDFZilla] >& nul:
 run "Shareware/PDFZilla/setup v1.2.9.exe"
 
 echo Updating icons...
-DelFile "$pd/PDFZilla.lnk"
-MergeDir /q "$pp/PDFZilla" "$ao"
+$delFile "$pd/PDFZilla.lnk"
+$mergeDir "$pp/PDFZilla" "$ao"
 
 echot "\
 - Please Enter the Registration Code=8061822TWDV6YUK
@@ -10015,11 +8459,11 @@ run "Foxit/reader/setup/FoxitReader606.0722_enu_Setup.exe"
 run "Foxit/reader/setup/FoxitPdfPreviewHandlerSetup_1_1.msi"
 
 echo Updating icons...
-DelFile "$pp/eBay.lnk"
-DelFile "$pd/eBay.url"
-DelFile "$pp/eBay.url"
-DelFile "$pd/Foxit Reader.lnk"
-MergeDir /quiet /rename "$pp/Foxit Reader" "$ao/Foxit Reader"
+$delFile "$pp/eBay.lnk"
+$delFile "$pd/eBay.url"
+$delFile "$pp/eBay.url"
+$delFile "$pd/Foxit Reader.lnk"
+$mergeDiruiet /rename "$pp/Foxit Reader" "$ao/Foxit Reader"
 
 prog=$P32/Foxit Software/Foxit Reader/Foxit Reader.exe
 
@@ -10029,7 +8473,7 @@ if $? == 1 then
 	echo $@ClipW["$temp/lex_1.0.2007.2023.fzip"] >& nul:
 	echo - Help, Install Updates..., <paste>
 	starg /pgm "$prog"
-endif
+fi
 
 echot "\
 - Edit, Preferences
@@ -10057,7 +8501,7 @@ run "Shareware/Calibre/setup/calibre-0.9.38.msi"
 
 echo Updating icons...
 MoveFile "$pd/calibre - E-book management.lnk" "$pp/Applications"
-MergeDir /quiet "$pp/calibre - E-book Management" "$ao"
+$mergeDiruiet "$pp/calibre - E-book Management" "$ao"
 
 echot "\
 - choose a location for your books=Documents/data/books or cloud:/data/books
@@ -10104,9 +8548,9 @@ run "Microsoft/security/essentials/mse v4.2.223.1 ${architecture}.exe"
 run "Microsoft/security/EMET/EMET Setup.msi"
 
 echo Updating icons...
-DelFile "$pd/Microsoft Security Essentials.lnk"
+$delFile "$pd/Microsoft Security Essentials.lnk"
 MoveFile "$pp/Microsoft Security Essentials.lnk" "$pp/Operating System/Security Essentials.lnk"
-MergeDir /q "$up/Enhanced Mitigation Experience Toolkit" "$pp/Operating System/Other"
+$mergeDir "$up/Enhanced Mitigation Experience Toolkit" "$pp/Operating System/Other"
 
 # Real time monitoring increases  bin/*.exe file copy time 50x (1s->50s) 
 echot "\
@@ -10136,9 +8580,9 @@ echot "\
 run "Omron/HEM-790IT/setup/setup.exe"
 
 echo Updating icons...
-DelFile "$ud/Omron Health Management Software Users Manual.pdf.lnk"
-DelFile "$ud/Omron Health Management Software.lnk"
-MergeDir /q "$up/Omron Health Management Software" "$ao"
+$delFile "$ud/Omron Health Management Software Users Manual.pdf.lnk"
+$delFile "$ud/Omron Health Management Software.lnk"
+$mergeDir "$up/Omron Health Management Software" "$ao"
 
 return
 
@@ -10167,9 +8611,9 @@ echot "\
 run "Shareware/HandBrake/setup/HandBrake-0.9.4-Win_GUI.exe"
 
 echo Updating icons...
-DelFile "$ud/Handbrake.lnk"
-MergeDir /q "$pp/Handbrake" "$pp/Media/other"
-DelDir /q "$up/Handbrake"
+$delFile "$ud/Handbrake.lnk"
+$mergeDir "$pp/Handbrake" "$pp/Media/other"
+$delDir /q "$up/Handbrake"
 
 echo Restoring the default profile...
 HandBrake profile restore default
@@ -10191,8 +8635,8 @@ echot "\
 run "Microsoft/Windows/touch/touch-pack-web.exe"
 
 echo Updating icons...
-DelFile "$pp/Bing Maps 3D.lnk"
-MergeDir /q /rename "$pp/Microsoft Touch Pack for Windows 7" "$ao/Touch Pack"
+$delFile "$pp/Bing Maps 3D.lnk"
+$mergeDir --rename "$pp/Microsoft Touch Pack for Windows 7" "$ao/Touch Pack"
 MoveFile "$pd/Bing Maps 3D.lnk" "$ao/Touch Pack"
 return
 
@@ -10215,8 +8659,8 @@ ask "Install additional codecs (AVI support)?` n
 if $? == 1 unzip.exe -o -j -e "$ExeDir/../codecs/windows-essential-20071007.zip" -d "$P/MediaCoder/codecs"
 
 echo Updating icons...
-DelFile "$ud/MediaCoder x64.lnk"
-MergeDir /q "$up/MediaCoder x64" "$pp/Media/other"
+$delFile "$ud/MediaCoder x64.lnk"
+$mergeDir "$up/MediaCoder x64" "$pp/Media/other"
 
 echot "\
 - Config Wizard
@@ -10240,37 +8684,6 @@ echot "\
 
 return
 
-:Sonos
-# http://sonos.com/support/
-echot "\
-************************
-* Sonos Music System
-************************
-"
-
-run "Sonos/setup/SonosDesktopController41.exe"
-
-echo Updating icons...
-DelFile "$pd/Sonos.lnk"
-MergeDir /q  "$pp/Sonos" "$pp/Media/Other"
-
-# Register the Sonos COM scripts, which must always be available.  Registration fails if not done from the current working directory.
-echo Registering COM scripts....
-pushd $PublibBin
-regsvr32 /s "ZonePlayerController.wsc"
-regsvr32 /s "ZonePlayerFinder.wsc"
-popd
-
-echot "\
-- Manage, Music Library Settings...,
-  - Music Library
-    - Folders, Add, On a networked device, //nas/music and //nas/books, Username=sonos, password=NNNN
-    - Advanced, check Update content every day at 2:00am
-  - Services..., Add, Amazon Cloud Player/Audible/AUPEO!/iheartradio/Last.fm/Pandora Radio/Rhapsody/SiriusXM/Stitcher SmartRadio
-"
-
-return
-
 :AviDemux
 # http://avidemux.berlios.de/download.html
 echot "\
@@ -10284,7 +8697,7 @@ run "Shareware/Avidemux/avidemux_2.5.4_win32.exe"
 
 echo Updating icons...
 MoveFile "$pd/Avidemux 2.5.lnk" "$pp/Media"
-MergeDir /q "$pp/Avidemux" "$pp/Media/Other"
+$mergeDir "$pp/Avidemux" "$pp/Media/Other"
 
 return
 
@@ -10304,18 +8717,18 @@ run "Sony/Vegas/setup/dvdarchitectstudio5.0.157.exe"
 echo Updating icons...
 as=$pp/Media/Other/Sony/DVD Architect Studio
 vms=$pp/Media/Other/Sony/Vegas Movie Studio
-MergeDir /q "$pp/Sony" "$pp/Media/Other"
-MergeDir /q /rename "$pp/Media/Other/Sony/Vegas Movie Studio HD Platinum 11.0" "$vms"
-MergeDir /q /rename "$pp/Media/Other/Sony/DVD Architect Studio 5.0" "$as"
+$mergeDir "$pp/Sony" "$pp/Media/Other"
+$mergeDir --rename "$pp/Media/Other/Sony/Vegas Movie Studio HD Platinum 11.0" "$vms"
+$mergeDir --rename "$pp/Media/Other/Sony/DVD Architect Studio 5.0" "$as"
 MoveFile "$vms/Vegas Movie Studio HD Platinum 11.0.lnk" "$vms/Vegas Movie Studio.lnk"
 MoveFile "$as/DVD Architect Studio 5.0.lnk" "$as/DVD Architect Studio.lnk"
-DelFile "$vms/Vegas Movie Studio HD Platinum 11.0 Readme.lnk"
-DelFile "$vms/Video Capture 6.0 Readme.lnk"
-DelFile "$as/DVD Architect Studio 5.0 Readme.lnk"
+$delFile "$vms/Vegas Movie Studio HD Platinum 11.0 Readme.lnk"
+$delFile "$vms/Video Capture 6.0 Readme.lnk"
+$delFile "$as/DVD Architect Studio 5.0 Readme.lnk"
 
 echo Moving data folders...
-MakeDir "$UserData/DVD Architect Studio"
-MakeLink merge "$UserData/Vegas" hide "$UserDocuments/Vegas Movie Studio HD Platinum 11.0 Projects"
+$makeDir "$udata/DVD Architect Studio"
+$makeLink --merge --hide "$udata/Vegas" hide "$udoc/Vegas Movie Studio HD Platinum 11.0 Projects"
 
 echot "\
 - Vegas Movie Studio, Options, shift click Preferences..., 
@@ -10331,7 +8744,7 @@ echot "\
     - General, uncheck Show logo splash screen on startup
 		- Preview, Aspect ratio=16:9
 		- Burning
-			- Default  prepare folder=$UserData/DVD Architect Studio
+			- Default  prepare folder=$udata/DVD Architect Studio
 			- Temporary files folder=d:/temp
 "
 pause
@@ -10349,9 +8762,9 @@ echot "\
 run "Shareware/Eraser/Eraser 6.0.8.2273.exe"
 
 echo Updating icons...
-DelFile "$pd/(prog).lnk"
+$delFile "$pd/(prog).lnk"
 MoveFile "$pd/(prog).lnk" "$pp/Applications"
-MergeDir /q "$pp/(dir)" "$ao"
+$mergeDir "$pp/(dir)" "$ao"
 
 return
 
@@ -10366,9 +8779,9 @@ echot "\
 run "WestByte/Internet Download Accelerator/IDA v5.10.1.1269.exe"
 
 echo Updating icons...
-DelFile "$ud/Internet Download Accelerator.lnk"
-DelFile "$ud/Play!.lnk                        "
-MergeDir /q "$pp/Internet Download Accelerator" "$pp/Operating System/Other"
+$delFile "$ud/Internet Download Accelerator.lnk"
+$delFile "$ud/Play!.lnk                        "
+$mergeDir "$pp/Internet Download Accelerator" "$pp/Operating System/Other"
 
 echo Updating registry...
 
@@ -10379,7 +8792,7 @@ echo Uninstall Firefox IDA plugins...
 firefox start
 pause
 
-echo $@ClipW[$UserData/download] >& nul:
+echo $@ClipW[$udata/download] >& nul:
 echot "\
 - Tools, Options
   - General, uncheck Minimize to tray when closing
@@ -10399,46 +8812,6 @@ pause
 
 return
 
-:EverNote
-# http://www.evernote.com/about/download/windows.php?file=Win&btn=grey
-echot "\
-************************
-* EverNote
-************************
-"
-
-run "EverNote/setup/Evernote_5.0.0.1137.exe"
-
-echot "\
-- View, check Thumbnail View, uncheck Show Left Panel
-- Notes by=Title, uncheck Reverse Sort Order
-- Hover over bottom of thumbnail view, zoom left
-- Left channel 3 notes
-- Right of Search, click down arrow
-- Note, click down arrow to hide all levels
-- Tools, Options
-  - General 
-    - Uncheck Autoamticheck for updates
-    - Uncheck Show advertisements
-    - Uncheck Show Evernote P#ium in the left sidebar
-  - Sync
-    - Uncheck Enable sync notifications
-    - Check Synronize automatically Every 15 minutes
-  - Note, Note editor font=Arial 10
-"
-EverNote close
-sudo /standard EverNote startup
-pause
-
-echo Updating icons...
-DelFile "$pd/Evernote.lnk"
-DelFile "$ud/Evernote.lnk"
-DelFile "$pp/Startup/EvernoteClipper.lnk"
-DelFile "$up/Startup/EvernoteClipper.lnk"
-MergeDir /q "$pp/Evernote" "$ao"
-
-return
-
 :UltraVNC
 # Installs: uvnc_service, mv2.sys driver
 echot "\
@@ -10455,9 +8828,9 @@ echot "\
 run "UltraVNC/setup/UltraVNC_1.0.9.5_${architecture}_Setup.exe"
 
 echo Updating icons...
-DelFile "$ud/UltraVNC Server.lnk"
-DelFile "$ud/UltraVNC Viewer.lnk"
-MergeDir /q "$pp/UltraVNC" "$pp/Operating System/Other"
+$delFile "$ud/UltraVNC Server.lnk"
+$delFile "$ud/UltraVNC Viewer.lnk"
+$mergeDir "$pp/UltraVNC" "$pp/Operating System/Other"
 
 echot "\
 - Security, VNC Password=NNN
@@ -10482,67 +8855,6 @@ pause
 
 return
 
-:DropBox
-# https://www.dropbox.com/install
-echot "\
-************************
-* DropBox
-************************
-- (new install) Ensure $CloudDocuments directory is empty
-- Advanced, I want to choose where to put my Dropbox=$data/Users/jjbutare
-"
-
-run --standard "Dropbox/setup/Dropbox 2.2.8.exe"
-
-# Icons are specific to each user, move them to user programs or else may run incorrect version that another user has installed
-echo Updating icons...
-MakeDir "$up/Operating System/Other"
-MergeDir /q "$up/Dropbox" "$up/Operating System/Other"
-DelFile "$up/Startup/Dropbox.lnk"
-DelFile "$ud/Dropbox.lnk"
-if "$data" != "c:"  MakeShortcut.btm "$UserHome/Dropbox" "$UserSysHome/Dropbox.lnk"
-
-ask "Do you want to update index locations?" y
-if $? == 1 then
-
-	DropBox close
-
-	dir=$CloudDocuments/.dropbox.cache
-	MakeDir  "$dir"
-	attrib /d -sh "$dir"
-
-	# Configure the index
-	echo - Modify, $CloudDocuments, check Dropbox, uncheck .dropbox.cache
-	os index options
-	pause
-
-	# Hide the Dropbox cache
-	attrib /d +sh "$dir"
-
-	sudo /standard DropBox startup
-endif
-
-echot "\
-- Preferences...
-  - General
-    - Uncheck Show desktop notifications
-    - Uncheck Start Dropbox on system startup
-  - (Intel) Proxies
-    - Select Manual
-    - Server=proxy.fm.intel.com
-    - Port=911
-- Explorer
-  - Libraries, Documents, locations, 
-    - Add..., <paste>
-    - (not Intel) Move Up (to top)
-    - (not Intel) as default save location
-  - View, List
-"
-echo $@ClipW[$CloudDocuments] > nul:
-pause
-
-return
-
 :LinkShellExtension
 echot "\
 ************************
@@ -10553,8 +8865,8 @@ echot "\
 run "Shareware/Link/setup/HardLinkShellExt_${architecture}.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Link Shell Extension" "$pp/Operating System/Other"
-MergeDir /q "$up/Link Shell Extension" "$pp/Operating System/Other"
+$mergeDir "$pp/Link Shell Extension" "$pp/Operating System/Other"
+$mergeDir "$up/Link Shell Extension" "$pp/Operating System/Other"
 
 echo Enabling icon overlays...
 echo - Icon, HardLink, Priority for overlay icon=1
@@ -10576,8 +8888,8 @@ echot "\
 run "Shareware/Miro/Miro_Installer.exe"
 
 echo Updating icons...
-DelFile "$pd/Miro.lnk"
-MergeDir /q "$pp/Miro" "$pp/Media/Other"
+$delFile "$pd/Miro.lnk"
+$mergeDir "$pp/Miro" "$pp/Media/Other"
 
 return
 
@@ -10615,13 +8927,13 @@ echot "\
 run "Linksys/Bluetooth USB Adapter USBBT100/Driver V1.05/setup.exe"
 
 # Hide desktop icon
-registry.btm 32 "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/HideDesktopIcons/NewStartPanel/{6AF09EC9-B429-11D4-A1FB-0090960218CB}" REG_DWORD 1
+registry 32 "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/HideDesktopIcons/NewStartPanel/{6AF09EC9-B429-11D4-A1FB-0090960218CB}" REG_DWORD 1
 
 echo Updating icons...
-DelFile "$pp/My Bluetooth Places.lnk"
-DelFile "$pp/../My Bluetooth Places.lnk"
-DelFile "$pp/Startup/BTTray.lnk"
-MergeDir /q "$pp/Accessories" "$pp/Applications/Accessories"
+$delFile "$pp/My Bluetooth Places.lnk"
+$delFile "$pp/../My Bluetooth Places.lnk"
+$delFile "$pp/Startup/BTTray.lnk"
+$mergeDir "$pp/Accessories" "$pp/Applications/Accessories"
 
 echo Update driver...
 RunProg devmgmt.msc
@@ -10644,12 +8956,12 @@ echot "\
 if "$update" != "false" run "Broadcom/Widcomm/Setup Download v6.5.1.2300.exe"
 
 echo Updating icons...
-DelFile "$pp/Startup/Bluetooth.lnk"
+$delFile "$pp/Startup/Bluetooth.lnk"
 MoveFile "$pd/Bluetooth Problem Report.lnk" "$pp/Operating System"
 MoveFile "$pp/Bluetooth Problem Report.lnk" "$pp/Operating System"
-MergeDir /q "$pp/Accessories" "$pp/Applications"
-MergeDir /q "$up/Bluetooth Devices" "$pp/Operating System"
-DelDir /q "$UserDocuments/Bluetooth Exchange Folder"
+$mergeDir "$pp/Accessories" "$pp/Applications"
+$mergeDir "$up/Bluetooth Devices" "$pp/Operating System"
+$delDir /q "$udoc/Bluetooth Exchange Folder"
 
 echot "\
 - Options
@@ -10675,57 +8987,6 @@ echot "\
 # Instal the base  Bluetooth driver from IOGear to get the correct license then update the driver from Broadcom
 run "IOGear/BlueTooth Adapter GBU2210-321/setup/setup v6.2.1.500.exe"
 BroadcomBluetooth
-
-return
-
-:VisionApp
-# http://www.visionapp.com/germany/software/visionapp-#ote-desktop
-# Intel corporate license: //vmsdaklx001/software$/Visionapp_#otedesktop
-echot "\
-***************************
-* VisionApp #ote Desktop
-***************************
-"
-
-run "VisionApp/#ote Desktop/setup/vRD2011inclPatch2.exe"
-
-echo Updating icons...
-DelFile "$pd/visionapp #ote Desktop 2011.lnk"
-MergeDir /q "$pp/visionapp #ote Desktop 2011" "$pp/Operating System/Other"
-
-echo Preparing connections...
-
-CloudDir=$CloudData/VisionApp
-LocalDir=$UserData/VisionApp
-
-MakeDir "$CloudDir" "$LocalDir"
-
-echo - Add..., File..., Name=Personal, path=$CloudDir/settings.xml
-echo - Add..., File..., Name=Intel, path=$LocalDir/settings.xml
-echot "\
-- (CSIS) File, Environment Wizard, Add…, Database…, Connect to an Existing Database
-  - Database server=azscsissql950,3180
-  - Database name=VisionApp
-  - User name=vRDDbUser
-  - Password=VisionUser!1
-"
-
-VisionApp start start
-pause
-
-echo Importing license...
-echo `- ?, Info..., Import new license file, <paste>`
-echo $@ClipW[$install/VisionApp/#ote Desktop/license/Intel Corporation_Global.xml] >& nul:
-VisionApp start
-pause
-
-echot "\
-- View, Icon Size, 24x24
-- Navigation, Connectons, for each folder uncheck Sort Alphabetically
-- Tools, Options, Application, check Pass-through authentication
-"
-VisionApp start
-pause
 
 return
 
@@ -10780,9 +9041,9 @@ echo Updating registry...
 registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/LastApp"
 
 echo Updating icons...
-MergeDir /q "$up/LastPass" "$pp/Operating System/Other"
-MergeDir /q "$pp/LastPass" "$pp/Operating System/Other"
-DelFile "$pd/My LastPass Vault.lnk"
+$mergeDir "$up/LastPass" "$pp/Operating System/Other"
+$mergeDir "$pp/LastPass" "$pp/Operating System/Other"
+$delFile "$pd/My LastPass Vault.lnk"
 
 return
 
@@ -10814,10 +9075,10 @@ echot "\
 run "Tableau/TableauReader.msi"
 
 echo Moving data folder...
-MakeLink merge "$UserData/Tableau Repository" hide "$UserDocuments/My Tableau Repository"
+$makeLink --merge --hide "$udata/Tableau Repository" hide "$udoc/My Tableau Repository"
 
 echo Updating icons...
-DelFile "$pd/Tableau Reader 7.0.lnk"
+$delFile "$pd/Tableau Reader 7.0.lnk"
 MoveFile "$pp/Tableau Reader 7.0.lnk" "$pp/Applications/Tableau Reader.lnk"
 
 return
@@ -10842,7 +9103,7 @@ echo Updating registry...
 registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/CTAutoUpdate"
 
 echo Updating icons...
-MergeDir /q "$pp/Creative" "$pp/Operating System/Other"
+$mergeDir "$pp/Creative" "$pp/Operating System/Other"
 
 SoundListen
 
@@ -10875,8 +9136,8 @@ echot "\
 run "Seagate/SeaTools/SeaToolsforWindowsSetup-1208.exe"
 
 echo Updating icons...
-DelFile "$pd/SeaTools for Windows.lnk"
-MergeDir /q "$pp/Seagate" "$pp/Operating System/Other"
+$delFile "$pd/SeaTools for Windows.lnk"
+$mergeDir "$pp/Seagate" "$pp/Operating System/Other"
 
 return
 
@@ -10890,7 +9151,7 @@ echot "\
 run "PassMark/PerformanceTest/petst_x64.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/PerformanceTest (64-bit)" "$pp/Operating System/Other"
+$mergeDir "$pp/PerformanceTest (64-bit)" "$pp/Operating System/Other"
 
 return
 
@@ -10977,7 +9238,7 @@ echot "\
 run "Motorola/Droid/MotorolaDeviceManager_2.3.9.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Motorola" "$pp/Operating System/Other"
+$mergeDir "$pp/Motorola" "$pp/Operating System/Other"
 
 echot "\
 - Connect the DroidX in USB Mass Storage mode
@@ -11004,8 +9265,8 @@ echo Updating registry...
 registry 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/ooVoo.exe"
 
 echo Updating icons...
-DelFile "$pd/ooVoo.lnk"
-MergeDir /q "$pp/ooVoo" "$ao"
+$delFile "$pd/ooVoo.lnk"
+$mergeDir "$pp/ooVoo" "$ao"
 
 return
 
@@ -11024,8 +9285,8 @@ echo Updating registry...
 registry 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/VistaSwitcher"
 
 echo Updating icons...
-DelFile "$pd/VistaSwitcher.lnk"
-MergeDir /q "$pp/VistaSwitcher" "$pp/Operating System/Other"
+$delFile "$pd/VistaSwitcher.lnk"
+$mergeDir "$pp/VistaSwitcher" "$pp/Operating System/Other"
 
 echo Restoring the default profile...
 VistaSwitcher profile restore default
@@ -11045,43 +9306,11 @@ echot "\
 run "Microsoft/other/newt v2.5.1 ${architecture}.msi"
 
 echo Updating icons...
-MergeDir /q "$pp/Network Emulator for Windows Toolkit" "$pp/Operating System/Other"
+$mergeDir "$pp/Network Emulator for Windows Toolkit" "$pp/Operating System/Other"
 
 return
 
-:ReSharper
-# download: http://www.jetbrains.com/resharper/download/index.html http://www.jetbrains.com/resharper/download/index.html, http://confluence.jetbrains.net/display/ReSharper/ReSharper+8.0+Nightly+Builds
-# what's new: http://www.jetbrains.com/resharper/whatsnew/
-# cleanup: $LocalAppData$/JetBrains/ReSharper/v7.1/SolutionCaches
-echot "\
-************************
-* ReSharper
-************************
-"
 
-run "JetBrains/ReSharper/setup/ReSharperSetup.8.0.14.856.msi"
-
-Resharper profile restore default
-
-echot "\
-- ReSharper, Options
-  - Keyboards & Menus, ReSharper keyboard scheme=ReSharper 2.x or IntelliJ IDEA, Apply Scheme
-  - Environment, Editor, Editor Behavior, uncheck Use CamelHumps
-  - Environment, IntelliSense
-    - Autopopup, C#, Where value is expected, Do not display
-    - Completion Appearance, check Show Member Signatures and Show Summary
-  - Code Editing, Code Cleanup, Add, default
-    - Check all except C#, Reorder type members
-    - C#, Use 'var' in declaration, Can Change/Always use/Always use
-  - Tools, Unit Testing
-    - Uncheck Save and restore Unit Test Sessions
-    - Uncheck Wrap long lines in Unit Test Session output
-    - Run up to 4 assemblies in parallel
-"
-sudo /standard VisualStudio start
-pause
-
-return
 
 :.NetMemoryProfiler
 :MemProfiler
@@ -11095,7 +9324,7 @@ echot "\
 run "SciTech/.NET Memory Profiler/MemProfilerInstaller4_5_184.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/.NET Memory Profiler 4.0" "$pp/Development/.NET/Other"
+$mergeDir "$pp/.NET Memory Profiler 4.0" "$pp/Development/.NET/Other"
 
 return
 
@@ -11111,42 +9340,8 @@ run "JetBrains/dotTrace/dotTracePerformanceSetup.5.2.1100.108.msi"
 run "JetBrains/dotTrace/dotTraceMemorySetup.${architecture}.3.5.360.114.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/JetBrains dotTrace Performance 5.0" "$pp/Development/Other/"
-MergeDir /q "$pp/JetBrains dotTrace Memory 3.5" "$pp/Development/Other/"
-
-return
-
-:CruiseControlTray
-:cctray
-# download from http://vmspwbld001/ccnetpreprod/ViewFarmReport.aspx or CruiseControl.NET home page, http://www.cruisecontrolnet.org/projects/cctray, http://cruisecontrol.sourceforge.net/, http://ccnet.sourceforge.net/CCNET/CCTray.html
-echot "\
-************************
-* CruiseControl Tray
-************************
-"
-
-version=1.8.3.0
-# ask "Install old version (old build server)?" y
-# if $? == 1 version=1.4.4-SP1
-
-run "Shareware/CruiseControl/tray/CruiseControl.NET-CCTray-$version-Setup.exe"
-
-echo Restoring the default profile...
-CruiseControlTray profile restore default
-
-echo Updating icons...
-DelFile "$ud/CCTray.lnk"
-DelFile "$up/Startup/CCTray.lnk"
-
-MergeDir /q "$up/CCTray" "$pp/Development/Other"
-
-echot "\
-- File, Settings..., Build Projects, Add..., 
-	- Add Server, vmspwbld001, vmspwbld001:21235, vmspwbld001:21236 
-	- Projects (shift-click for multiple)
-    - Antidote*, IntelNuGet*, Magellan*, Nuget*, RPIAD*, SCADA Portal*
-"
-pause
+$mergeDir "$pp/JetBrains dotTrace Performance 5.0" "$pp/Development/Other/"
+$mergeDir "$pp/JetBrains dotTrace Memory 3.5" "$pp/Development/Other/"
 
 return
 
@@ -11164,12 +9359,12 @@ echot "\
 run "Embarcadero/DBartisan/setup/dbart911_12210.exe"
 
 echo Moving data folder...
-MergeDir /q /rename "$UserDocuments/Embarcadero" "$UserData/Embarcadero"
+$mergeDir --rename "$udoc/Embarcadero" "$udata/Embarcadero"
 
 echo Updating registry...
 r=HKEY_CURRENT_USER/Software/Embarcadero/DBArtisan/9.1.1
-dir=$UserData/Embarcadero/DBArtisan
-registry "$r/UserSQLScripts" REG_SZ "$@RegQuote[$UserData/sql]" >& nul:
+dir=$udata/Embarcadero/DBArtisan
+registry "$r/UserSQLScripts" REG_SZ "$@RegQuote[$udata/sql]" >& nul:
 registry "$r/Directories/ETSQLXJobCfg" REG_SZ "$@RegQuote[$dir/Directories/ETSQLXJobCfg]" >& nul:
 registry "$r/Directories/IncludeFiles" REG_SZ "$@RegQuote[$dir/Directories/IncludeFiles]" >& nul:
 
@@ -11180,11 +9375,11 @@ registry "$r/Schema/Extraction Directory" REG_SZ "$@RegQuote[$dir/Extract]" >& n
 echo Restoring the default profile...
 
 # Create the profile directory if it does not exist so it can be restored (profile method detection requires the directory exist)
-MakeDir "$_ApplicationData/Embarcadero/Data Sources"
+$makeDir "$_ApplicationData/Embarcadero/Data Sources"
 DBartisan profile restore default
 
 echo Updating icons...
-MergeDir /q /r "$pp/Embarcadero DBArtisan 9.1.1" "$pp/Development/Other/DBArtisan"
+$mergeDir /r "$pp/Embarcadero DBArtisan 9.1.1" "$pp/Development/Other/DBArtisan"
 
 echot "\
 File, Options...
@@ -11208,9 +9403,9 @@ run "Telerik/setup/Telerik.Web.UI_2012_1_215_Dev.msi"
 run "Telerik/setup/RadControls_for_Silverlight5_2012_1_0326_Dev.msi"
 
 echo Updating icons...
-DelFile "$pd/RadControls for ASP.NET AJAX*Live Examples.lnk"
-DelFile "$pd/RadControls for Silverlight*Demos.lnk"
-MergeDir /q "$pp/Telerik" "$pp/Development/.NET/Other"
+$delFile "$pd/RadControls for ASP.NET AJAX*Live Examples.lnk"
+$delFile "$pd/RadControls for Silverlight*Demos.lnk"
+$mergeDir "$pp/Telerik" "$pp/Development/.NET/Other"
 
 return
 
@@ -11231,10 +9426,10 @@ echo $@clipw[$exe] >& nul:
 run "Embarcadero/ErStudio/setup/erda_901.exe"
 
 echo Moving data folder...
-MakeLink merge "$UserData/Embarcadero/ERStudio" hide "$UserDocuments/ERStudio Data Architect XE"
+$makeLink --merge --hide "$udata/Embarcadero/ERStudio" hide "$udoc/ERStudio Data Architect XE"
 
 echo Updating icons...
-MergeDir /q /rename "$pp/Embarcadero ERStudio Data Architect XE" "$pp/Development/Other/ERStudio"
+$mergeDir --rename "$pp/Embarcadero ERStudio Data Architect XE" "$pp/Development/Other/ERStudio"
 
 return
 
@@ -11252,7 +9447,7 @@ run "CyberPower/PowerPanel/setup/pppe134-setup.exe"
 registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/PowerPanel Personal Edition User Interaction"
 
 echo Updating icons...
-MergeDir /q "$pp/CyberPower PowerPanel Personal Edition" "$pp/Operating System/Other"
+$mergeDir "$pp/CyberPower PowerPanel Personal Edition" "$pp/Operating System/Other"
 
 return
 
@@ -11267,8 +9462,8 @@ echot "\
 run "Shareware/ThinkPadFanController/tpfc_v062.exe"
 
 echo Updating icons...
-DelFile "$pd/TPFanControl.lnk"
-MergeDir /q "$pp/TPFanControl" "$pp/Operating System/Other"
+$delFile "$pd/TPFanControl.lnk"
+$mergeDir "$pp/TPFanControl" "$pp/Operating System/Other"
 
 return
 
@@ -11283,8 +9478,8 @@ echot "\
 run "Shareware/Better Explorer/setup/setup v2.0.0.631.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Better Explorer" "$pp/Operating System/Other"
-MergeDir /q "$up/Better Explorer" "$pp/Operating System/Other"
+$mergeDir "$pp/Better Explorer" "$pp/Operating System/Other"
+$mergeDir "$up/Better Explorer" "$pp/Operating System/Other"
 
 return
 
@@ -11300,13 +9495,13 @@ run "Quest/Toad/setup/msxml.msi"
 run "Quest/Toad/setup/Toad Development Suite for SQL Server 5.8 Commercial.exe"
 
 echo Moving data folder...
-MakeLink merge "$UserData/Benchmark Factory" hide "$UserDocuments/My Benchmark Factory"
+$makeLink --merge --hide "$udata/Benchmark Factory" hide "$udoc/My Benchmark Factory"
 
 echo Updating icons...
-DelFile "$pd/Benchmark Factory for Databases*.lnk"
-DelFile "$pd/Toad for SQL Server 5.8*.lnk"
+$delFile "$pd/Benchmark Factory for Databases*.lnk"
+$delFile "$pd/Toad for SQL Server 5.8*.lnk"
 MoveFile "$pd/(prog).lnk" "$pp/Applications"
-MergeDir /q "$pp/Quest Software" "$pp/Development/Other"
+$mergeDir "$pp/Quest Software" "$pp/Development/Other"
 
 return
 
@@ -11321,8 +9516,8 @@ echot "\
 run "Shareware/JPEG Lossless Rotator/jpegr v8.0.0.0.exe"
 
 echo Updating icons...
-DelFile "$pd/JPEG Lossless Rotator.lnk"
-MergeDir /q "$pp/JPEG Lossless Rotator" "$pp/Media/Other"
+$delFile "$pd/JPEG Lossless Rotator.lnk"
+$mergeDir "$pp/JPEG Lossless Rotator" "$pp/Media/Other"
 
 return
 
@@ -11354,8 +9549,8 @@ echo Updating registry...
 registry 32 delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/GoogleDriveSync"
 
 echo Updating icons...
-DelFile "$ud/Google Drive.lnk"
-MergeDir /q "$pp/Google Drive" "$pp/Operating System/Other"
+$delFile "$ud/Google Drive.lnk"
+$mergeDir "$pp/Google Drive" "$pp/Operating System/Other"
 if "$date" != "c:" MakeShortcut.btm "$UserHome/Google Drive" "$UserSysHome/Google Drive.lnk"
 
 return
@@ -11374,8 +9569,8 @@ run "CloudFoundry/setup/IronFoundry.CloudFoundryExplorer.${architecture}.msi"
 run "CloudFoundry/setup/IronFoundry.Vmc.x64.msi"
 
 echo Updating icons...
-DelFile "$pd/JPEG Lossless Rotator.lnk"
-MergeDir /q "$pp/Iron Foundry" "$pp/Development/Other"
+$delFile "$pd/JPEG Lossless Rotator.lnk"
+$mergeDir "$pp/Iron Foundry" "$pp/Development/Other"
 
 echot "\
 - Manage Clouds, Login name:  your intel.com email address. Password:  your WWID
@@ -11393,7 +9588,7 @@ echot "\
 run "Microsoft/Windows/sdk/GRMSDK$@if[ ${architecture} == x64 ,X]_EN_DVD.iso"
 
 echo Updating icons...
-MergeDir /q /rename "$pp/Microsoft Windows SDK v7.1" "$pp/Development/Other/Windows SDK"
+$mergeDir --rename "$pp/Microsoft Windows SDK v7.1" "$pp/Development/Other/Windows SDK"
 
 return
 
@@ -11408,7 +9603,7 @@ echot "\
 run "Shareware/.NET/NuGet/Package Explorer/NuGetPackageExplorer.application"
 
 MoveFile "$ud/NuGet Package Explorer.appref-ms" "$pp/Development/.NET"
-DelDir "$up/NuGet Package Explorer"
+$delDir "$up/NuGet Package Explorer"
 
 return
 
@@ -11422,28 +9617,7 @@ echot "\
 run "Shareware/Doxygen/setup/doxygen-1.8.2-setup.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/doxygen" "$pp/Development/Other"
-
-return
-
-:SqlPrompt
-# http://www.red-gate.com/products/sql-development/sql-prompt
-echot "\
-************************
-* SQL Prompt 5
-************************
-"
-
-run "RedGate/SQLPromptDownload.exe"
-
-echo Updating icons...
-MergeDir /q "$pp/Red Gate" "$pp/Development/Other"
-
-echot "\
-- SQL Prompt 5, Options...
-  - Format, Tabs & wraping, Characters per line=120
-  - Experimental Features, check Enable Tabs Instead of Spaces
-"
+$mergeDir "$pp/doxygen" "$pp/Development/Other"
 
 return
 
@@ -11460,13 +9634,13 @@ installDir="$P32/LEGO Software/LEGO MINDSTORMS Edu NXT/manual"
 run "National Instruments/NXT/manual"
 
 echo Updating icons...
-MergeDir /q "$pp/LEGO MINDSTORMS Edu NXT 2.1" "$ao"
-DelFile "$pd/NXT 2.1 *.lnk"
+$mergeDir "$pp/LEGO MINDSTORMS Edu NXT 2.1" "$ao"
+$delFile "$pd/NXT 2.1 *.lnk"
 MakeShortcut "$P32/LEGO Software/LEGO MINDSTORMS Edu NXT/manual/assets/languages/english/index.html" ^
 	"$ao/LEGO MINDSTORMS Edu NXT 2.1/NXT Manual.lnk"
 
 echo Moving data folder...
-MakeLink merge "$UserData/LEGO Creations" hide "$UserDocuments/LEGO Creations"
+$makeLink --merge --hide "$udata/LEGO Creations" hide "$udoc/LEGO Creations"
 
 return
 
@@ -11481,7 +9655,7 @@ echot "\
 run "Plex/setup/Plex-Media-Center-v3213059-en-US.exe"
 
 echo Updating icons...
-MergeDir /q "$up/Plex Media Center" "$pp/Media/Other"
+$mergeDir "$up/Plex Media Center" "$pp/Media/Other"
 
 return
 
@@ -11495,8 +9669,8 @@ echot "\
 run "Synology/DSM/setup/DSAssistant_2647/SynologyAssistantSetup-4.1-2647.exe"
 
 echo Updating icons...
-MergeDir /q "$pp/Synology" "$pp/Operating System/Other"
-DelFile "$pd/Synology Assistant.lnk"
+$mergeDir "$pp/Synology" "$pp/Operating System/Other"
+$delFile "$pd/Synology Assistant.lnk"
 
 return
 
@@ -11513,30 +9687,9 @@ echo Restoring the default profile...
 OpenVPN profile restore default
 
 echo Updating icons...
-MergeDir /q "$pp/TAP-Windows" "$pp/Operating System/Other"
-MergeDir /q "$pp/OpenVPN" "$pp/Operating System/Other"
-DelFile "$pd/OpenVPN GUI.lnk"
-
-return
-
-:pGina
-# http://pgina.org/download.html
-
-# if in a domain return
-
-echot "\
-************************
-* pGina
-************************
-"
-
-run "Shareware/pGina/setup/pGinaSetup-3.1.7.1.exe" /silent
-
-echo Updating icons...
-MergeDir /q "$pp/pGina" "$pp/Operating System/other"
-
-echo Restoring the default profile...
-pGina profile restore default
+$mergeDir "$pp/TAP-Windows" "$pp/Operating System/Other"
+$mergeDir "$pp/OpenVPN" "$pp/Operating System/Other"
+$delFile "$pd/OpenVPN GUI.lnk"
 
 return
 
@@ -11550,7 +9703,7 @@ echot "\
 run "Apache/Directory Studio/setup/ApacheDirectoryStudio-win32-x86_64-2.0.0.v20130308.exe"
 
 echo Updating icons...
-MergeDir /q "$up/Apache Directory Studio" "$pp/Operating System/other"
+$mergeDir "$up/Apache Directory Studio" "$pp/Operating System/other"
 
 return
 
@@ -11564,7 +9717,7 @@ echot "\
 run "Shareware/MySql/mysql-workbench-gpl-5.2.47-win32.msi"
 
 echo Updating icons...
-MergeDir /q "$pp/MySQL" "$pp/Development/Other"
+$mergeDir "$pp/MySQL" "$pp/Development/Other"
 
 return
 
@@ -11626,11 +9779,11 @@ git config --system http.sslcainfo "$P32/git/bin/curl-ca-bundle.crt"
 git config core.filemode false
 
 echo Updating icons...
-MergeDir /q "$pp/Git" "$pp/Development/Other"
-MergeDir /q "$pp/KDif3" "$pp/Operating System/Other"
+$mergeDir "$pp/Git" "$pp/Development/Other"
+$mergeDir "$pp/KDif3" "$pp/Operating System/Other"
 MoveFile "$pp/Git Extensions.lnk" "$pp/Development/Other/Git"
-DelFile "$pd/Git Bash.lnk"
-DelFile "$pd/Git Extensions.lnk"
+$delFile "$pd/Git Bash.lnk"
+$delFile "$pd/Git Extensions.lnk"
 
 echot "\
 - Git Extensions, check Check for uncommitted changes in checkout branch dialog
@@ -11654,7 +9807,7 @@ echot "\
 run "Shareware/TortoiseGit/setup/TortoiseGit-1.8.4.0-64bit.msi"
 
 echo Updating icons...
-MergeDir /q "$pp/TortoiseGit" "$pp/Development/Other"
+$mergeDir "$pp/TortoiseGit" "$pp/Development/Other"
 
 echot "\
 - Settings, Dif Viewer and Merge Tool, External
@@ -11688,6 +9841,6 @@ echot "\
 run "Eye-Fi/setup.exe"
 
 echo Updating icons...
-MergeDir /q "$up/Eye-Fi" "$pp/Media/Other"
+$mergeDir "$up/Eye-Fi" "$pp/Media/Other"
 
 return

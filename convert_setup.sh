@@ -1,45 +1,15 @@
-@echo off
-SetLocal
-
 # TODO: 
 # - cleanup PATH - remove wbem, powershell
 # - enable remote desktop Automatically
-# - 
 
-REM Ensure common functions and aliases are loaded  for new systems 
-TcStart.btm force
+  if ask "Cleanup path?"; then
+    os path editor || return
+    echo "- Remove extraneou ntries from the system path ("system32, windows, Cygwin\bin, data\bin, data\bin\win)
+    pause
+  fi
 
-REM Initialize
-on break cancel 1
-set DefaultSyncHost=oversoul.local
-os init
 
-REM Turn off system32 virtualization for x64 so system32 and syswow64 can be accessed
-option //Wow64FsRedirection=No
-
-set NetShareOptions=
-iff defined NewOs then
-  set NetShareOptions=/grant:Everyone,full
-endiff
-
-REM Arguments
-if $# gt 0 goto Usage
-
-set BinDir=$@path[$_batchname]
-
-set path=$path;$BinDir
-set SetupFiles=$BinDir$.../setup
-
-set UserProfileReg=$@Replace[/,//,$UserProfile]
-
-REM Setup must run as administrator with an elevated token.
-iff $@IsElevated[] == 0 then
-	sudo "$_BatchName"
-	quit 1
-endiff
-
-REM Optionally jump to a specific setup step.
-if IsLabel here goto here
+set NetShareOptions=/grant:Everyone,full
 
 echo *********************************
 echo * Users folder location
@@ -48,54 +18,14 @@ echo *********************************
 REM Setup users folder
 account setup
 
-REM Update common functions and aliases are loaded  in case the location of users folder changed
-TcStart force
-
 REM Create a link to the replicate folder for the browser home page  (Chrome, etc.)
 MakeLink "$UserData/replicate" "$AppData/replicate"
-
-echo *********************************
-echo * Local files
-echo *********************************
-
-iff not IsDir "$PublicBin" then
-
-  input What host do you want to synchronize with? ($DefaultSyncHost)?` ` $$SyncHost
-  if "$SyncHost" == "" set SyncHost=$DefaultSyncHost
-
-  REM Copy local files - full ensures templates are copied
-  SyncLocalFiles.btm full $SyncHost
-		
-  REM Update the hosts
-  host.btm file update
-		
-endiff
 
 echo *********************************
 echo * Setting console defaults
 echo *********************************
 
 SetConsoleDefaults.btm
-
-echo *********************************
-echo * Setting environment variables
-echo *********************************
-
-os environment set
-pause
-
-MakeLink merge "$UserData/download" "$UserHome/Downloads"
-attrib +r "$UserHome/Downloads"
-
-echo *********************************
-echo * Updating icons
-echo *********************************
-
-echo Organizing start menu icons...
-os StartMenuIcons
-pause
-
-:here
 
 REM Change workgroup before create default accounts so the correct accounts for the workgroup are created
 echo *********************************
@@ -425,12 +355,8 @@ echo *********************************
 
 text
 - Performance, Settings, Visual Effects
-  - (fast client) Let Windows choose what's best for my computer
+  - (fast client) Let Windows choose whats best for my computer
   - (server) Adjust for best performance
-  - (pre-Windows 7 vm) Check only
-    - Show window contents while dragging
-    - Smooth edges of screen fonts
-    - Use visual styles on windows and buttons
   - (slow client) Check only
       - Smooth edges of screen fonts
       - Smooth-scroll list boxes
@@ -623,12 +549,6 @@ iff defined vm then
 endiff
 
 echo *********************************
-echo * Legacy client setup
-echo *********************************
-
-if not defined NewClient SetupLegacy
-
-echo *********************************
 echo * $ComputerName$ specific setup...
 echo *********************************
 
@@ -655,19 +575,3 @@ start /pgm explorer
 pause
 
 endswitch
-
-echo *********************************
-echo * Install core programs
-echo *********************************
-
-REM endlocal so install host is preserved for installs outside setup.btm
-EndLocal DefaultSyncHost
-
-install host $DefaultSyncHost core
-
-echo Setup has finished.
-quit 0
-
-:usage
-echo usage: setup
-quit 1

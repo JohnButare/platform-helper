@@ -5,13 +5,14 @@ usage()
 {
 	echot "\
 usage: registry [32|64] [exist|get|set|delete|close](edit)
-  exist|get|delete <key> - delete or query the specified registry key
-  set <key> [<type>](REG_SZ) <data>
+  KEY 					ALIAS|KEY/|KEY/VALUE|KEY/(Default)
+  exist|get|delete KEY - delete or query the specified registry key
+  set KEY [TYPE](REG_SZ) DATA
  		type=REG_SZ|REG_MULTI_SZ|REG_EXPAND_SZ|REG_DWORD|REG_QWORD|REG_BINARY|REG_NONE
-  edit [<key>] 		edit the specified registry key in regedit
-  reg ... 				run 32 or 64 bit version of reg.exe
-  import <file>		import registry entries from a file
-  IsKey <key>			check if key is a registry key"
+  edit KEY 			edit the specified registry key in regedit
+  reg ... 			run 32 or 64 bit version of reg.exe
+  import FILE		import registry entries from a file
+  IsKey KEY			check if key is a registry key"
 	exit $1
 }
 
@@ -19,7 +20,6 @@ init()
 {
 	unset key value data dataType
 	bits="64"
-	command='edit'
 	title="Registry Editor"
 
 	program32="$WINDIR/syswow64/RegEdit.exe"
@@ -38,9 +38,9 @@ args()
 			IsKey) command="IsKey";;
 			*)
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				! IsOption "$1" && [[ ! $key && "$command" == @(delete|exist|get|set|IsKey) ]] && { GetKeyValueArg "$@"; shift; continue; }
-				! IsOption "$1" && [[ ! $key && "$command" == @(edit) ]] && { GetKeyArg "$@"; shift; continue; }
-				! IsOption "$1" && [[ "$command" == "set" ]] && { GetDataType "$@" || GetData "$@"; } && { shift; continue; }
+				{ ! IsOption "$1" && [[ ! $key && "$command" == @(delete|exist|get|set|IsKey) ]]; } && { GetKeyValueArg "$@"; shift; continue; }
+				{ ! IsOption "$1" && [[ ! $key && "$command" == @(edit) ]]; } && { GetKeyArg "$@"; shift; continue; }
+				{ ! IsOption "$1" && [[ "$command" == "set" ]]; } && { { GetDataType "$@" || GetData "$@"; } && { shift; continue; }; }
 				[[ "$command" == @(import|reg) ]] && break
 				UnknownOption "$1"
 		esac
@@ -63,7 +63,7 @@ editCommand()
 	# Start the registry program so the correct key is opened (x64 key or x86 virtual key)
 	task start --wait --title "$title" "$program"
 
-	RegJump.exe "$key"
+	RegJump.exe "$wkey"
 }
 
 importCommand()
@@ -82,24 +82,28 @@ closeCommand()
 
 deleteCommand()
 {
-	"$reg" delete "$key" "${value[@]}" /f >& /dev/null
+	"$reg" delete "$wkey" "${value[@]}" /f >& /dev/null
 }
 
 # TODO: use /proc/registry for speed?
 getCommand()
 {
-	result="$( "$reg" query "$key" "${value[@]}" 2>&1 )" || return
-	echo "$result" | sed -n '3p' | cut -d" " -f 13-
+	if [[ $value ]]; then
+		result="$( "$reg" query "$wkey" "${value[@]}" 2>&1 )" || return
+		echo "$result" | sed -n '3p' | cut -d" " -f 13-
+	else
+		"$reg" query "$wkey"
+	fi
 }
 
 existCommand()
 {
-	"$reg" query "$key" "${value[@]}" >& /dev/null
+	"$reg" query "$wkey" "${value[@]}" >& /dev/null
 }
 
 setCommand()
 {
-	"$reg" add "$key" "${value[@]}" "${dataType[@]}" /f "${data[@]}" #2>&1 
+	"$reg" add "$wkey" "${value[@]}" "${dataType[@]}" /f "${data[@]}" #2>&1 
 }
 
 regCommand()
@@ -110,25 +114,36 @@ regCommand()
 MapKeyAlias()
 {
 	case "$1" in
-		run) key="HKLM\Software\Microsoft\Windows\CurrentVersion\Run";;
-		urun) key="HKCU\Software\Microsoft\Windows\CurrentVersion\Run";;
+		run) key="HKLM/Software/Microsoft/Windows/CurrentVersion/Run";;
+		urun) key="HKCU/Software/Microsoft/Windows/CurrentVersion/Run";;
 		*) key="$1"
 	esac
-	key="${key}\\"
+	key="${key}/" # key in POSIX format (/)
+	wkey="${key////\\}" # key in Windows format (\)
 }
 
 GetKeyArg()
 {
 	[[ $# == 0 ]] && MissingOperand "key"
-	MapKeyAlias "$1"
+	key=$(wtu "$1") # make sure arguments are in POSIX format
+	MapKeyAlias "$key"
 }
 
 GetKeyValueArg()
 {
 	[[ $# == 0 ]] && MissingOperand "key"
-	MapKeyAlias "${1%*\\*}"
-	value="${1##*\\}"
-	[[ $value ]] && value=(/v "$value") || value=()
+	local keyValue=$(wtu "$1") # make sure arguments are in POSIX format
+
+	MapKeyAlias "${keyValue%*/*}"
+
+	# get the value after the last /
+	value="${keyValue##*/}"
+	[[ "$value" == "$keyValue" ]] && value=""
+	if [[ "$value" == "(Default)" ]]; then
+		value=( /v "" )
+	elif [[ $value ]]; then
+		value=( /v "$value" )
+	fi
 }
 
 GetDataType()

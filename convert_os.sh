@@ -2,11 +2,11 @@
 SetLocal
 
 REM Initialze OS variables before functions are defined
-iff "%1" == "FindDirsInit" then
+if "%1" == "FindDirsInit" then
   shift
   gosub FindDirsInit
   quit 0
-endiff
+endif
 
 REM Initialize
 set DwmService=uxsms
@@ -28,12 +28,12 @@ REM Arguments
 if %@IsHelpArg[%@UnQuote[%1]] == 1 goto usage
 
 set command=start
-iff %# gt 0 then
+if %# gt 0 then
   set command=%1
   shift
-endiff
+endif
 
-iff not IsLabel %command goto usage
+if not IsLabel %command goto usage
 
 REM Run command
 gosub %command
@@ -46,9 +46,9 @@ usage: os <command>
   activation status|extend: Windows Activation
   beep [enable|disable|status](status): PC speaker beep
   bluetooth [devices|properties](devices)
-  environment [edit|editor|set|SetPath|SetStartup](editor): system environment variables
+  environment [edit|editor|set](editor): system environment variables
   gadget [cd|show](show): Microsoft Gadgets
-  path [show|edit|editor|update|set [AllUsers]](show)
+  path [show|edit|editor|update [AllUsers]](show)
   FindDirs [-help] [show|<SystemDrive>](%SystemDrive) [<UserName>](%_WinUser)
   hibernate enable|disable
   RemoteBin <HostName>: Change to the bin folder on the remote host
@@ -61,7 +61,7 @@ usage: os <command>
 	features: DisabeAlternativeUserInput|DisableIndexingService|DisableMsnMessenger|DisableStrictNameChecking
   folder: QuickLaunch|UserStartMenu|PublicStartMenu|SendTo
   hardware: DeviceManager|FindNewHardware|scanner|DeviceLog
-  index: index options|start|stop|demand
+  index: index start|stop|demand
   performance counters: PerfCount PerfFix PerfMon
   policies: GroupPolicyEditor|LocalSecurityPolicy
   programs: programs|WindowsComponents|CleanupPrograms
@@ -86,10 +86,10 @@ return
 
 :CheckElevated
 
-iff %@IsElevated[] == 0 then
+if %@IsElevated[] == 0 then
 	echo This operation requires elevation.
 	quit 1
-endiff
+endif
 
 return 0
 
@@ -111,30 +111,30 @@ return
 :cleanup
 
 REM Run CCleaner if elevated - cleans most of what CleanupManager does and is much faster
-iff %@IsElevated[] == 1 then
+if %@IsElevated[] == 1 then
 	CCleaner.exe /auto
-endiff
+endif
 
 echo Cleaning Windows Error Reporting...
 set dir=%LocalAppData\Microsoft\Windows\WER
 
-iff %@DirSize[m, "%dir"] gt 20 then
+if %@DirSize[m, "%dir"] gt 20 then
 	echo Clean Windows Errror Reporting files by checking for solutions...
 	echo - Check for new solutions
 	echo - See problems to check, Select all, Check for solutions
 	call os reports
 	pause
-endiff
+endif
 
 REM Windows Photo Gallery Orginal Images
 echo Cleaning Windows Photo Gallery original images...
 set dir=%LocalAppData\Microsoft\Windows Photo Gallery\Original Images
 
-iff %@DirSize[m, "%dir"] gt 50 then
+if %@DirSize[m, "%dir"] gt 50 then
 	echo - Delete or preserve original images (this folder contains the images prior to editing)
 	start /pgm explorer "%dir"
 	pause
-endiff
+endif
 
 return
 
@@ -154,25 +154,25 @@ if %@IsIntelHost[] == 1 return
 echo Starting Microsoft Update...
 
 REM Windows Update - Vista
-iff exist %WinDir\system32\wuapp.exe then
+if exist %WinDir\system32\wuapp.exe then
   start /pgm %WinDir\system32\wuapp.exe
 
 REM Microsoft Update - x64
-elseiff exist "%WinDir\SysWOW64\muweb.dll" then
+elseif exist "%WinDir\SysWOW64\muweb.dll" then
   start /pgm rundll32 %WinDir\SysWOW64\muweb.dll,LaunchMUSite
 
 REM Microsoft Update - x86
-elseiff exist "%WinDir\system32\muweb.dll" then
+elseif exist "%WinDir\system32\muweb.dll" then
   start /pgm rundll32 %WinDir\system32\muweb.dll,LaunchMUSite
 
 REM Windows Update - installs Microsoft Update
-elseiff exist "%WinDir\system32\wupdmgr.exe" then
+elseif exist "%WinDir\system32\wupdmgr.exe" then
   start /pgm "%WinDir\system32\wupdmgr.exe"
 
 else
 
 	call InternetExplorer http://www.update.microsoft.com/microsoftupdate
-endiff
+endif
 
 REM Update other programs
 if %@OnNetwork[Intel] == 0 UpdateChecker.exe
@@ -213,9 +213,9 @@ case 5.1
 endswitch
 
 REM Install the Service Pack  if it is not already installed.  
-iff "%SpExe" != "" then
+if "%SpExe" != "" then
 
-	iff "%@RegGet64["%SpKey"]" != "%SpText" then
+	if "%@RegGet64["%SpKey"]" != "%SpText" then
 
 		REM Find the executable
 		call FindPublicDoc "data\install\%SpExe"
@@ -224,20 +224,20 @@ iff "%SpExe" != "" then
 		start /pgm "%file"
 		pause
 	
-	endiff
-endiff
+	endif
+endif
 
 REM Compress service pack files (Vista?)
-iff exist "%WinDir\ServicePackFiles" then
-	iff defined vm then
+if exist "%WinDir\ServicePackFiles" then
+	if defined vm then
 		call DelDir "%WinDir\ServicePackFiles"
   else
 		call ask `Compress service pack files?` n 5
-		iff %? == 1 then
+		if %? == 1 then
 			call CompactDir "%WinDir\ServicePackFiles"
-		endiff
-	endiff
-endiff
+		endif
+	endif
+endif
 
 return
 
@@ -305,7 +305,7 @@ EndLocal %ExportVars
 
 return
 
-REM FindDirs [-help] [SystemDrive](%SystemDrive) [UserName](%_WinUser) - find OS dirs on a different host
+REM FindDirs [-help] [SystemDrive](%SystemDrive) [UserName](%_WinUser) - find OS dirs on a diferent host
 :FindDirs
 
 REM Initialize
@@ -317,36 +317,36 @@ REM Arguments
 if %@IsHelpArg[%@UnQuote[%1]] == 1 goto FindDirsUsage
 
 REM SystgemDrive argument - drive letter, UNC path, or hostname
-iff %# != 0 then
+if %# != 0 then
 	
 	REM Drive letter or UNC path
-	iff IsDir "%1" then
+	if IsDir "%1" then
     set _sys=%1
 		set _data=%1
 		shift
 		
 	REM Hostname
-	elseiff %@IsHostAvailable[%1] == 1 then
+	elseif %@IsHostAvailable[%1] == 1 then
 		set host=%1
 		shift
-  endiff
+  endif
 	
-endiff
+endif
 
 REM UserName argument
-iff %# != 0 .and. "%1" != "show" then
+if %# != 0 .and. "%1" != "show" then
   set _user=%@UnQuote[%1]
   shift
-endiff
+endif
 
-iff "%1" == "show" then
+if "%1" == "show" then
 	set show=true
 	shift
-endiff
+endif
 
 if %# != 0 goto FindDirsUsage
 
-iff "%host" == "butare.net" then
+if "%host" == "butare.net" then
 	set _sys=
 	set _data=
 	set _PublicHome=\\%host@ssl@5006\public
@@ -358,40 +358,40 @@ iff "%host" == "butare.net" then
 	set _UserDocuments=%_UserHome\documents
 	gosub SetUserDirs
 
-elseiff IsDir \\%host\c$ then
+elseif IsDir \\%host\c$ then
 	set _sys=\\%host\c$
 	set _data=\\%host\c$
 	if IsDir \\%host\d$\Users set _data=\\%host\d$
 
 	gosub FindDirsWorker
 	
-elseiff IsDir \\%host\public then
+elseif IsDir \\%host\public then
 	set _sys=
 	set _data=
 	set _PublicHome=\\%host\public
 	gosub SetPublicDirs
 	
-	iff IsDir \\%host\home then
+	if IsDir \\%host\home then
 		set _UserFound=%_user
 		set _UserHome=\\%host\home
 		set _UserSysHome=%_UserHome
 		set _UserDocuments=%_UserHome\Documents
 		gosub SetUserDirs
-	endiff
+	endif
 	
 else
 	EchoErr Unable to find %host directories
 	return 1
 	
-endiff
+endif
 
-iff defined show then
+if defined show then
 	for var in (%vars) (
-		iff "%[%var]" != "" then
+		if "%[%var]" != "" then
 			echo %var=%[%var]
-		endiff
+		endif
 	)
-endiff
+endif
 
 EndLocal %vars
 
@@ -401,16 +401,16 @@ REM FindDirsWorker - find OS directories for the current or a remote host, input
 :FindDirsWorker
 
 REM Windows directory
-iff "%_sys" == "%SystemDrive" then
+if "%_sys" == "%SystemDrive" then
 	set _windows=%WinDir
-elseiff IsDir "%_sys\Windows" then
+elseif IsDir "%_sys\Windows" then
   set _windows=%_sys\Windows
-elseiff IsDir "%_sys\WinNt" then
+elseif IsDir "%_sys\WinNt" then
   set _windows=%_sys\WinNt
 else
   EchoErr Unable to locate the windows folder on %_sys.
   quit 1
-endiff
+endif
 
 REM User functions are not available yet, so use environment variables to determin architecture
 set OsArchitecture=%@if[ %_x64 == 1 .or. %_wow64 == 1 ,x64,x86]
@@ -425,7 +425,7 @@ set _system64=%_windows\system32
 set _system=%_system64
 
 REM User directories for new (\Users) or legacy (\Documents and Settings, pre-Vista) clients
-iff IsDir "%_sys\Users" then
+if IsDir "%_sys\Users" then
 	set _layout=new
 	set _users=%_data\Users	
 	
@@ -433,18 +433,18 @@ iff IsDir "%_sys\Users" then
 
 	set _PublicHome=%_users\Public
 	
-	iff "%_user" == "Public" then
+	if "%_user" == "Public" then
 		set _UserFolders=Documents Downloads Music Pictures "Recorded TV" Videos
 	else
 		set _UserFolders=Contacts Desktop Documents Downloads Favorites Links Music Pictures "Saved Games" Searches Videos 
 		set _UserFolders=%_UserFolders Dropbox "Google Drive" 
-	endiff
+	endif
 	
 	set _UserDocuments=%_UserHome\Documents
 	set _ProgramData=%_sys\ProgramData
 	set _ApplicationData=%_UserSysHome\AppData\Roaming
 
-elseiff IsDir "%_sys\Documents and Settings" then
+elseif IsDir "%_sys\Documents and Settings" then
   set _layout=legacy
 	set _users=%_data\Documents and Settings
 	
@@ -461,12 +461,12 @@ elseiff IsDir "%_sys\Documents and Settings" then
 else
   EchoErr Unable to locate user folders on %_sys.
 	quit 1
-endiff
+endif
 
 REM Use the user bin folder from the batch directory UserBin folder if one is present (portable media)
-iff  IsDir "%TcStartDir\UserBin" then
+if  IsDir "%TcStartDir\UserBin" then
   set _UserBin=%TcStartDir\UserBin
-endiff
+endif
 
 gosub SetPublicDirs
 gosub SetUserDirs
@@ -491,10 +491,10 @@ return
 
 set u=%_user
 
-iff not IsDir "%_users\%u" then
+if not IsDir "%_users\%u" then
   EchoErr Unable to locate user %u%'s home folder on %_data.
   quit 1
-endiff
+endif
 
 set _UserFound=%u
 set _UserHome=%_data\%@FileName[%_users]\%u
@@ -507,20 +507,16 @@ call task manager
 return
 
 :WindowsComponents
-iff IsFile "%system\sysocmgr.exe" then
+if IsFile "%system\sysocmgr.exe" then
 	start /pgm "%system\sysocmgr.exe" /y /i:%system\sysoc.inf
 else
 	echo - Turn Windows features on or off
 	call os programs
-endiff
+endif
 return
 
 :programs
 start /pgm "%WinDir\system32\rundll32.exe" %WinDir\system32\shell32.dll,Control_RunDLL "%WinDir\system32\appwiz.cpl",Add or Remove Programs
-return
-
-:optional
-start /pgm OptionalFeatures
 return
 
 :CleanupPrograms
@@ -565,12 +561,12 @@ set ServiceName=WSearch
 if %@ServiceExist[%ServiceName] == 0 return 1
 
 set command=options
-iff %# == 1 then
+if %# == 1 then
 	set command=%1
 	shift
-endiff
+endif
 
-iff %# != 0 .or. not IsLabel Index%command goto usage
+if %# != 0 .or. not IsLabel Index%command goto usage
 
 gosub Index%command
 
@@ -591,13 +587,6 @@ return
 start /pgm explorer ::{20D04FE0-3AEA-1069-A2D8-08002B30309D}
 return
 
-REM XP requires search
-REM - management console msc files are run using mmc program and /32 or /64,.  On x64, 32 bit command shells do not have visibily to 
-REM   the msc file in the 64 bit system32 directory and cannot start.  /64 is specified to stop mmc from prompting the mmc architecture to load 
-:ComputerManagement
-start /pgm mmc /%@OsBits[] %@search[CompMgmt.msc]
-return
-
 :DeviceManager
 REM In XP, DevMgmt.msc not found by msc in path, so search for it here.
 start /pgm mmc %@quote[%@search[DevMgmt.msc]]
@@ -612,30 +601,30 @@ devcon rescan
 return
 
 :LocalSecurityPolicy
-iff %_WinVer gt 5.1  then
+if %_WinVer gt 5.1  then
 	start /pgm mmc secpol.msc /s
-endiff
+endif
 return
 
 :GroupPolicyEditor
-iff %_WinVer gt 5.1  then
+if %_WinVer gt 5.1  then
 	start /pgm mmc gpedit.msc
-endiff
+endif
 return
 
 :SecurityCenter 
-iff "%@search[wscui.cpl]" != "" then
+if "%@search[wscui.cpl]" != "" then
   start /pgm wscui.cpl
-endiff
+endif
 return
 
 :volume
 
-iff "%@search[SndVol.exe]" != "" then
+if "%@search[SndVol.exe]" != "" then
 	start /pgm SndVol.exe
-elseiff "%@search[SndVol32.exe]" != "" then
+elseif "%@search[SndVol32.exe]" != "" then
 	start /pgm SndVol32.exe
-endiff
+endif
 
 return
 
@@ -664,11 +653,11 @@ option //Wow64FsRedirection=No
 
 set tab=%1
 
-iff "%tab" == "" then
+if "%tab" == "" then
 	start /pgm "%WinDir\system32\rundll32.exe" /d %WinDir\system32\shell32.dll,Control_RunDLL SYSDM.CPL
 else
 	start /pgm "%WinDir\system32\rundll32.exe" /d %WinDir\system32\shell32.dll,Control_RunDLL SYSDM.CPL,,%tab
-endiff
+endif
 
 REM Under Vista+ the window comes up in the background, so restore it
 sleep 1
@@ -678,11 +667,11 @@ return
 
 :AutomaticUpdates
 
-iff %@IsNewOs[] == 1 then
+if %@IsNewOs[] == 1 then
 	start /pgm %WinDir\system32\wuapp.exe
 else
 	call os SystemProperties 5
-endiff
+endif
 
 return
 
@@ -710,14 +699,14 @@ set service=%@EvalVar[%command%Service]
 REM DWM is on windows 6 and up
 if "%command" == "%dwm" .and. %_WinVer lt 6.0 return
 
-iff "%1" == "" then
+if "%1" == "" then
   set command=start
 else
   set command=%1
   shift
-endiff
+endif
 
-iff not IsLabel Service%command goto usage
+if not IsLabel Service%command goto usage
 
 gosub Service%command
 
@@ -772,21 +761,21 @@ case "config"
 case "enable"
 	gosub CheckElevated
 	call registry.btm set "%key\EnableLUA" REG_DWORD 1
-	iff "%@RegGet[%key\EnableLUA]" == "0x1" then
+	if "%@RegGet[%key\EnableLUA]" == "0x1" then
 		echo UAC has been enabled.
 	else
 		echo Unable to enable UAC.
-	endiff
+	endif
 
 case "disable"
 	gosub CheckElevated
 	call registry.btm set "%key\EnableLUA" REG_DWORD 0
-	iff "%@RegGet[%key\EnableLUA]" == "0x0" then
+	if "%@RegGet[%key\EnableLUA]" == "0x0" then
 		echo UAC has been disabled.
 	else
 		echo Unable to disable UAC.
 		return 1
-	endiff
+	endif
 
 case "status" .or. ""
 
@@ -830,21 +819,21 @@ case "SecureDesktop"
 	case "enable"
 		gosub CheckElevated
 		call registry.btm set "%key\PromptOnSecureDesktop" REG_DWORD 1
-		iff "%@RegGet[%key\PromptOnSecureDesktop]" == "0x1" then
+		if "%@RegGet[%key\PromptOnSecureDesktop]" == "0x1" then
 			echo The secure desktop has been enabled.
 		else
 			echo Unable to enable the secure desktop.
 			return 1
-		endiff
+		endif
 
 	case "disable"
 		gosub CheckElevated
 		call registry.btm set "%key\PromptOnSecureDesktop" REG_DWORD 0
-		iff "%@RegGet[%key\PromptOnSecureDesktop]" == "0x1" then
+		if "%@RegGet[%key\PromptOnSecureDesktop]" == "0x1" then
 			echo The secure desktop has been disabled.
 		else
 			echo Unable to disable the secure desktop.
-		endiff
+		endif
 	
 	default
 		goto usage
@@ -858,20 +847,20 @@ case "AdminShare"
 	case "enable"
 		gosub CheckElevated
 		call registry.btm set "%key\LocalAccountTokenFilterPolicy " REG_DWORD 1
-		iff "%@RegGet[%key\LocalAccountTokenFilterPolicy]" == "0x1" then
+		if "%@RegGet[%key\LocalAccountTokenFilterPolicy]" == "0x1" then
 			echo Administrative shares have been enabled
 		else
 			echo Could not enable administrative shares
-		endiff
+		endif
 
 	case "disable"
 		gosub CheckElevated
 		call registry.btm set "%key\LocalAccountTokenFilterPolicy " REG_DWORD 0
-		iff "%@RegGet[%key\LocalAccountTokenFilterPolicy]" == "0x0" then
+		if "%@RegGet[%key\LocalAccountTokenFilterPolicy]" == "0x0" then
 			echo Administrative shares have been disabled
 		else
 			echo Could not disable administrative shares
-		endiff
+		endif
 	
 	default
 		goto usage
@@ -886,10 +875,10 @@ endswitch
 return 0
 
 :Reports
-iff %@IsNewOs[] == 1 then
+if %@IsNewOs[] == 1 then
 	echo System and Security\Action Center
 	call os ControlPanel
-endiff
+endif
 return
 
 :ReportArchive
@@ -930,10 +919,10 @@ return
 
 REM Arguments
 set command=devices
-iff %# gt 0 then
+if %# gt 0 then
 	set command=%1
 	shift
-endiff
+endif
 if not IsLabel Bluetooth%command goto usage
 
 gosub Bluetooth%command
@@ -952,129 +941,6 @@ return
 :ControlPanel
 :control
 start /pgm control.exe
-return
-
-:StartMenuIcons
-:smi
-:icons
-
-REM Default directories
-set pp=%@PublicStartMenu[]\Programs
-
-REM Hide files and folders
-if exist "c:\config.sys" attrib +h "c:\config.sys"
-if exist "c:\autoexec.bat" attrib +h "c:\autoexec.bat"
-
-REM Data folders
-
-set dir=%UserDocuments\My Data Sources
-iff IsDir "%dir" then
-	attrib /d -s "%dir"
-	call MakeLink merge "%UserData\Data Sources" hide "%dir"
-endiff
-
-iff IsDir "%UserDocuments\Scanned Documents" then
-	call MakeLink merge "%UserData\Scans" hide "%UserDocuments\Scanned Documents"
-endiff
-
-iff IsDir "%UserDocuments\Fax" then
-	call MakeLink merge "%UserData\Fax" hide "%UserDocuments\Fax"
-endiff
-
-REM Start Menu
-call MoveFile "%up\Internet Explorer.lnk" "%pp\Applications"
-call MoveFile "%up\Internet Explorer (32-bit).lnk" "%pp\Applications"
-call MoveFile "%up\Internet Explorer (64-bit).lnk" "%pp\Applications"
-
-call DelFile "%up\Outlook Express.lnk"
-call DelFile "%up\Windows Media Player.lnk"
-call MoveFile "%up\Remote Assistance.lnk" "%pp\Operating System"
-
-call MergeDir /e "%pp\Accessories" "%pp\Applications"
-call MergeDir /e "%up\Accessories" "%pp\Applications"
-call MergeDir /e /rename "%pp\Windows Accessories" "%pp\Applications\Accessories"
-call MergeDir /e /rename "%up\Windows Accessories" "%pp\Applications\Accessories"
-
-call MergeDir /e /rename "%pp\Applications\Accessories\Windows PowerShell" "%pp\Applications\Accessories\PowerShell"
-
-call MergeDir /q "%pp\Accessibility" "%pp\Applications\Accessories"
-call MergeDir /q "%up\Accessibility" "%pp\Applications\Accessories"
-
-call MergeDir /e "%pp\System Tools" "%pp\Operating System"
-call MergeDir /e "%up\System Tools" "%pp\Operating System"
-call MergeDir /e "%pp\Applications\Accessories\System Tools" "%pp\Operating System"
-
-call MergeDir /e "%pp\Application Verifier" "%pp\Operating System\Other"
-
-call MoveFile "%psm\Windows Catalog.lnk" "%pp\Applications\Accessories"
-call CopyFile "%pp\Applications\Accessories\Communications\Remote Desktop Connection.lnk" "%pp\Operating System"
-call MoveFile "%pp\Windows Movie Maker.lnk" "%pp\Applications\Accessories\Entertainment"
-call MoveFile "%pp\Windows Messenger.lnk" "%pp\Applications\Accessories"
-call MoveFile "%psm\Windows Catalog.lnk" "%pp\Applications\Accessories"
-call DelFile "%psm\Set Program Access and Defaults.lnk"
-call MoveFile "%pp\Windows Media Connect.lnk" "%pp\Applications\Accessories\Entertainment"
-call DelFile "%pp\Desktop.lnk"
-
-call MoveFile "%psm\Microsoft Update.lnk" "%pp\Operating System"
-call MoveFile "%psm\Windows Update.lnk" "%pp\Operating System"
-
-call MergeDir /e "%pp\Extras and Upgrades" "%pp\Applications\Accessories"
-call MergeDir /e "%pp\Maintenance" "%pp\Operating System"
-call MergeDir /e "%up\Maintenance" "%pp\Operating System"
-call MoveFile "%pp\Media Center.lnk" "%pp\Applications\Accessories"
-call MoveFile "%psm\Default Programs.lnk" "%pp\Operating System"
-
-iff IsFile "%pp\Immersive Control Panel.lnk" then
-	REM attrib -sh "%pp\Immersive Control Panel.lnk"
-	REM call MoveFile "%pp\Immersive Control Panel.lnk" "%pp\Applications\Accessories"
-endiff
-
-iff IsFile "%pp\Windows*.lnk" then
-	REM attrib -sh "%pp\Windows*.lnk"
-	REM move /q "%pp\Windows*.lnk" "%pp\Applications\Accessories"
-endiff
-
-if IsFile "%up\Windows*.lnk" move /q "%up\Windows*.lnk" "%pp\Applications\Accessories"
-
-call MoveFile "%pp\XPS Viewer.lnk" "%pp\Applications\Accessories"
-call MoveFile "%pp\Sidebar.lnk" "%pp\Applications\Accessories"
-
-call DelFile "%pd\Microsoft Download Manager.lnk"
-call MergeDir /q "%pp\Microsoft Download Manager" "%pp\Development\Other\Download Manager"
-
-REM Administrative tools 
-call MergeDir /q "%pp\Administrative Tools" "%pp\Operating System\Other\Administrative Tools" 
-
-REM Games
-iff IsDir "%pp\Games" then
-
-	set dest=%pp\Games\Other\Microsoft
-	call MakeDir "%dest"
-
-	call MoveFile "%pp\Games\Chess.lnk "%dest"
-	call MoveFile "%pp\Games\FreeCell.lnk" "%dest"
-	call MoveFile "%pp\Games\Hearts.lnk" "%dest"
-	call MoveFile "%pp\Games\InkBall.lnk" "%dest"
-	call MoveFile "%pp\Games\Minesweeper.lnk" "%dest"
-	call MoveFile "%pp\Games\PurblePlace.lnk" "%dest"
-	call MoveFile "%pp\Games\Spider Solitaire.lnk" "%dest"
-	call MoveFile "%pp\Games\Hold 'Em.lnk" "%dest"
-	call MoveFile "%pp\Games\Mahjong.lnk" "%dest"
-	call MoveFile "%pp\Games\Solitaire.lnk" "%dest"
-	
-	REM XP Games
-	call MoveFile "%pp\Games\Internet Backgammon.lnk" "%dest"
-	call MoveFile "%pp\Games\Internet Checkers.lnk" "%dest"
-	call MoveFile "%pp\Games\Internet Hearts.lnk" "%dest"
-	call MoveFile "%pp\Games\Internet Reversi.lnk" "%dest"
-	call MoveFile "%pp\Games\Internet Spades.lnk" "%dest"
-	call MoveFile "%pp\Games\Pinball.lnk "%dest"
-
-endiff
-
-REM Windows 8
-call MergeDir /q "%pp\IIS" "%pp\Development\Other\IIS"
-
 return
 
 :OfficeRecent
@@ -1104,21 +970,21 @@ return
 :AutoRun
 
 REM AutoRuns cannot find winmm.dll on x64 unless started from syswow64
-iff "%@OsArchitecture[]" == "x64" then
+if "%@OsArchitecture[]" == "x64" then
 	start /d%WinDir\SysWow64 /pgm autoruns
 else
 	start /pgm autoruns
-endiff
+endif
 
 :environment
 
 set command=editor
-iff %# == 1 then
+if %# == 1 then
 	set command=%1
 	shift
-endiff
+endif
 
-iff %# != 0 .or. not IsLabel Environment%command goto usage
+if %# != 0 .or. not IsLabel Environment%command goto usage
 
 gosub Environment%command
 
@@ -1132,26 +998,13 @@ return %?
 call sudo.btm rapidee.exe
 return %?
 
-:EnvironmentSet
-gosub EnvironmentSetPath
-gosub EnvironmentSetStartup
-return
-
-:EnvironmentSetPath
-call os.btm path set
-return
-
-:EnvironmentSetStartup
-call MakeShortcut "%PublicBin\run.sh" "%psm%\Programs\Startup\startup.lnk" /arguments "startup" /desc "Start applications"
-return
-
 :activation
 
 set command=ActivationStatus
-iff %# gt 0 then
+if %# gt 0 then
 	set command=Activation%1
 	shift
-endiff
+endif
 if not IsLabel %command goto usage
 
 gosub %command
@@ -1175,10 +1028,10 @@ REM Suspend activation count (otherwise limit of 3 extensions)
 set key=HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SL\SkipRearm
 call registry.btm 64 delete "%key" REG_DWORD 1 >& nul:
 
-iff "%@RegGet64["%key"]" != "0x1" then
+if "%@RegGet64["%key"]" != "0x1" then
 	echo Unable to set the SkipRearm registry key.  Activation was not extended.
 	quit 1
-endiff
+endif
 
 REM Extend the activation window
 call slmgr -rearm
@@ -1199,35 +1052,14 @@ set UserPathValue=%@RegQuery["%UserPathKey"]
 
 REM Arguments
 set command=show
-iff %# gt 0 then
+if %# gt 0 then
 	set command=%1
 	shift
-endiff
+endif
 if not IsLabel Path%command goto usage
 
 gosub Path%command
 return %_?
-
-:PathSet
-
-REM Make sure UserDocuments and PublicDocuments are set
-iff "%UserDocuments" == "" then
-	call %@left[-1,%@path[%_batchname]]\os.btm FindDirsInit
-endiff
-
-REM Set user bin
-call SetVar /path path "%UserDocuments\data\bin"
-
-REM Set public bin
-call ask `Configure path for all users?` y
-set system=%@if[ %? == 1 ,/system,]
-
-REM bin (common binaries), win64 / win32 / sfu (windows 32 bit / 64 bit / POSIX  binaries), linux64 / mac64 (other platform binaries)
-if "%@OsArchitecture[]" == "x64" call SetVar %system /path path "%PublicDocuments\data\bin\win64"
-call SetVar %system /path path "%PublicDocuments\data\bin\win32"
-call SetVar %system /path path "%PublicDocuments\data\bin"
-
-return
 
 :PathEdit
 call os.btm SystemProperties 3
@@ -1261,11 +1093,11 @@ REM Disable ReadyBoost - uses flash memory to speed disk access
 REM - Issues disabling: http://forum.notebookreview.com/showthread.php?t=337548
 :DisableReadyBoost
 
-iff %@ServiceExist[rdyboost] == 1 then
+if %@ServiceExist[rdyboost] == 1 then
 	echo Disabling ReadyBoost...
   call service disable rdyboost
   call service stop rdyboost
-endiff
+endif
 
 return
 
@@ -1274,16 +1106,16 @@ REM   may cause periodic excessive CPU spikes (seen on dune)
 :DisableSuperFetch
 
 REM Elevate
-iff %@IsElevated[] == 0 then
+if %@IsElevated[] == 0 then
 	call sudo.btm os.btm DisableSuperfetch %$
 	quit %?
-endiff
+endif
 
-iff %@ServiceExist[SysMain] == 1 then
+if %@ServiceExist[SysMain] == 1 then
 	echo Disabling SuperFetch...
   call service disable SysMain
   call service stop SysMain
-endiff
+endif
 
 return
 
@@ -1297,11 +1129,11 @@ return
 
 :scanner
 
-iff IsFile "%programs\Windows Photo Viewer\ImagingDevices.exe" then
+if IsFile "%programs\Windows Photo Viewer\ImagingDevices.exe" then
 	start /pgm "%programs\Windows Photo Viewer\ImagingDevices.exe"
 else
 	echo A scanner configuration program is not installed.
-endiff
+endif
 
 return
 
@@ -1326,10 +1158,10 @@ return
 
 REM Arguments
 set command=show
-iff %# gt 0 then
+if %# gt 0 then
 	set command=%1
 	shift
-endiff
+endif
 if not IsLabel Gadget%command goto usage
 
 gosub Gadget%command
@@ -1371,15 +1203,15 @@ REM Vista does not enable alternative user input
 if %@IsNewOs[] == 1 quit 0
 
 REM Kill the eprocess and wait for handles to be cleaned
-iff %@IsTaskRunning[ctfmon] == 1 then
+if %@IsTaskRunning[ctfmon] == 1 then
   pskill ctfmon.exe
   sleep 2
-endiff
+endif
 
 REM Unregister the COM object
-iff "%@search[msctf.dll]" != "" then
+if "%@search[msctf.dll]" != "" then
   regsvr32 /u "%@search[msctf.dll]"
-endiff
+endif
 
 REM Remove ctfmon from startup
 call registry.btm 32 delete "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\ctfmon.exe"
@@ -1389,7 +1221,7 @@ return 0
 :DisableIndexingService
 
 REM Disable the Microsoft Indexing service and cleanup associated files
-REM Indexing in Vista is architected differnetly and performs well.
+REM Indexing in Vista is architected difernetly and performs well.
 
 if %@ServiceExist[CiSvc] == 0 quit 0
 
@@ -1436,7 +1268,7 @@ retur
 
 :name
 
-iff %@IsWindowsClient[] == 1 then
+if %@IsWindowsClient[] == 1 then
 	switch %_WinVer
 	case 6.1
 		echo 7
@@ -1458,7 +1290,7 @@ else
 	default
 		echo unknown
 	endswitch
-endiff
+endif
 
 return 0
 

@@ -1,0 +1,216 @@
+#!/bin/bash
+. app.sh || exit
+
+usage() {	echot "usage: SqlServer [2012|2008R2|2008] [COMMAND](studio)
+  backup|restore|service|studio|profiler
+  cd [data]|studio|cmd|log config|RsConfig
+  db backup|restore [/?]
+  ExecuteSql [-S server_name[\instance_name]] [-d database] [-U user] [-P password] [-E] [file_name[,file_name]] 
+  GetDataDir - return the data directory in DataDir and DataDirUnc
+  profile dir|SaveDir|backup|restore [<profile name>|default](latest)
+  RsConfig - Reporting services configuration
+
+  -a, --ad 					use an administrator (ad_) account
+  -n, --NoHostCheck	do not check if host is available
+  -h, --host 				host to connect to"; exit $1; }
+
+serviceUsage() { echot "\
+usage: SqlServer service COMMAND [NoCheckHost] [instance <instance>](express|default) 
+	start|stop|restart|auto|demand|disable|enable|status|detail
+	instance: <name>|default|express
+
+	-a, --all						all services
+	-i, --instance NAME	use the named instance"; exit $1; }
+
+backupUsage() {	echot "\
+usage: SqlServer backup [/?] database [BakFile](<database>.bak.7z) [server](localhost)
+  BakFile - name of the file to backup up to, or directory to backup to
+  server - server to backup database from, requires 7z in path for compression"; exit $1; }
+
+restoreUsage() { echot "\
+usage: restore [/?] BakFile [server](localhost) [RestoreSql](Database Restore.sql)
+  BakFile- database backup file to restore, uncompressed if required.
+  server - server to restore database to, requires c$ access
+  RestoreSql - SQL used to perform the restore.  In the SQL, data_dir and
+    bak_file are substituted with appropriate values."; exit $1; }
+
+args()
+{
+	unset ad command help host hostArg noHostCheck version
+	host="${COMPUTERNAME,,}"
+	sqlVersions=( 2012 2008r2 2008 )
+	while (( $# != 0 )); do
+		case "$1" in
+			--ad|-a) ad="--ad";;
+			--host|-h) host="$2"; hostArg="--host $host"; shift;;
+			--NoHostCheck|-n) noHostCheck="--NoHostCheck";;
+			--help) help="--help";;
+			ExecuteSql) command="ExecuteSql";; GetDataDir) command="GetDataDir";; RsConfig) command="RsConfig";;
+			*)
+				! IsOption "$1" && IsInArray "$1" sqlVersions && { version="$1"; shift; continue; }
+				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
+				break
+		esac
+		shift
+	done
+	[[ ! $command ]] && { command="studio"; }
+	[[ $help ]] && IsFunction "${command}Usage" && { ${command}Usage || usage 0; }
+	args=( "$@" )
+}
+
+init()
+{ 	
+	if [[ ! $version ]]; then
+		if [[ -d "$P/Microsoft SQL Server/110" || -d "d:/Program Files/Microsoft SQL Server/MSSQL11.MSSQLSERVER" ]]; then
+			version=2012
+		elif [[ -d "$P/Microsoft SQL Server/100" ]]; then
+			version=2008r2
+		elif [[ -f "$WINDIR/system32/SQLServerManager10.msc" ]]; then
+			version=2008
+		fi
+	fi
+
+	case "$version" in
+		2012) versionNum=11; dataVersionNum=11;;
+		2008r2) versionNum=10; dataVersionNum=10_50;;
+		2008) versionNum=10; dataVersionNum=10;;
+	esac
+
+	allServices=( SqlBrowser MsDtsServer${versionNum}0 SqlWriter 	
+		"SQL Server Distributed Replay Controller" "SQL Server Distributed Replay Client" )
+	configManager="$WINDIR/system32/SQLServerManager${versionNum}.msc"
+	projectDirs=( "$USERS/$USERNAME/Documents/data/sql" )
+	rsConfig="$P32/Microsoft SQL Server/${versionNum}0/Tools/Binn/rsConfigTool.exe"
+	sqlCmd="$P/Microsoft SQL Server/${versionNum}0/Tools/Binn/sqlCmd.EXE"
+	sqlStudio="$P32/Microsoft SQL Server/${versionNum}0/Tools/Binn/ManagementStudio/Ssms.exe"
+	sqlProfiler="$P32/Microsoft SQL Server/${versionNum}0/Tools/Binn/Profiler.exe"
+	sqlTemp="$TEMP/temp.sql"
+	program="$sqlStudio"
+
+	if [[ "$version" == @(2008r2|2008) ]]; then
+		allServices=( SqlBrowser MsDtsServer${versionNum}0 SqlWriter MsSqlServerADHelper100 )
+		sqlStudio="$P32/Microsoft SQL Server/${versionNum}0/Tools/Binn/VSShell/Common7/IDE/Ssms.exe"
+	fi
+}
+
+run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
+
+serviceCommand()
+{
+	unset command all instance services
+	while (( $# != 0 )); do
+		case "$1" in
+			--all|-a) all="--all";;
+			--instance|-i) instance="$2"; shift;;
+			*) 
+					[[ ! $command ]] && { CheckSubCommand service "$1"; shift; continue; }
+					serviceUsage 1;;
+		esac
+		shift
+	done
+
+	CheckHost || return
+	GetInstance "$instance" || return
+	[[ $all ]] && services=( "${allInstanceServices[@]}" "${allServices[@]}" ) ||
+	 services=( "${instanceServices[@]}" )
+	Service${command}Command "$@"
+}
+
+ServiceAutoCommand() { DoServiceCommand; } 
+ServiceDemandCommand() { DoServiceCommand; } 
+ServiceDetailCommand() { DoServiceCommand; } 
+ServiceDisableCommand() { DoServiceCommand; } 
+ServiceEnableCommand() { DoServiceCommand; } 
+ServiceRestartCommand() { DoServiceCommand; } 
+ServiceStartCommand() { DoServiceCommand; } 
+ServiceStatusCommand() { DoServiceCommand; } 
+ServiceStopCommand() { DoServiceCommand; } 
+
+DoServiceCommand()
+{
+	local startType
+
+	echo "SQL Server Service $command on ${host}${instanceDisplayName}:"
+
+	for service in "${services[@]}"; do
+		startType="$(service StartType "$service" $hostArg --NoHostCheck)" || continue
+		[[ "$command" == @(start|stop|restart) && "$startType" == "DISABLED" ]] && continue
+		service "$command" "$service" $hostArg --wait --NoServiceCheck --NoHostCheck || return
+	done
+}
+
+CheckHost()
+{
+	if [[ ! $noHostCheck && $host && "$host" != @(|localhost|$COMPUTERNAME) ]]; then
+		! host available "%host" && { EchoErr "SqlServer: $host is not available"; return 1; }
+	fi
+	
+	if ! service exist MsSqlServer $hostArg --NoHostCheck; then
+		EchoErr "SqlServer: SQL Server is not installed on $host"
+		return 1
+	fi
+}
+
+GetInstance()
+{
+	local name="$1"
+	instanceFriendlyName="$name"
+
+	case "$name" in
+		"")
+			instanceDisplayName='\'
+			instanceServices=( 'MSSQL$SQLEXPRESS' "MsSqlServer" )
+			allInstanceServices=( "${instanceServices[@]}" 'SQLAgent$SQLEXPRESS' "SQLSERVERAGENT" "MsSqlServerOLAPService" "ReportServer" "MSSQLFDLauncher" );;
+		default)
+			instanceDisplayName='\'
+			instanceServices=( "MsSqlServer" "SQLSERVERAGENT" )
+			allInstanceServices=( "${instanceServices[@]}" "MsSqlServerOLAPService" "ReportServer" "MSSQLFDLauncher" );;
+		express)
+			instanceDisplayName='\SQLEXPRESS'
+			instanceServices=( 'MSSQL$SQLEXPRESS' )
+			allInstanceServices=( "${instanceServices[@]}" 'SQLAgent$SQLEXPRESS' );;
+		*)
+			instanceDisplayName='\MSSQLSERVER'"$name"
+			instanceServices=( 'MSSQL$MSSQLSERVER'"$name" )
+			allInstanceServices=( "${instanceServices[@]}" 'SQLAgent$MSSQLSERVER'"$name" 'MSOLAP$MS'"$name" 'ReportServer$MSSQLSERVER'"$name" 'MSSQLFDLauncher$MSSQLSERVER'"$name" );;
+	esac
+}
+
+startCommand() { studioCommand; }
+studioCommand() { startProgram "$sqlStudio" "$@"; }
+profilerCommand() { startProgram "$sqlProfiler" /Slocalhost "$@"; }
+closeCommand() { ! IsRunningCommand && return 0; ProcessClose "$program"; } # task close|CloseKill [--wait] [--title "$title"] "$program"; ProcessKill "$program"; SendKeys "$title" "!FX"; 
+IsInstalledCommand() { [[ -f "$program" ]]; }
+IsRunningCommand() { IsTaskRunning "$program"; }
+restartCommand() { closeCommand && startCommand; }
+
+startProgram()
+{
+	local program="$1"; shift
+	! IsInstalledCommand && return 1; IsRunningCommand && return 0
+	start "$program" "$@"
+}
+
+profileCommand() 
+{	
+
+	[[ "$1" == "backup" ]] && echot "\
+- Database Engine, Local Server Groups, Tasks, Export..., file=<paste>
+	- check Do not include user names and passwords in the export file"
+
+	[[ "$1" == "restore" ]] && echot "\
+- Database Engine, Local Server Groups, Tasks, Import..., file=<paste>
+	- Connect to each registred server and remember password
+- Note: If entries with username or password are imported SQL Server Management  Studio will exception on startup.  
+	To correct, delete $APPDATA/Roaming/Microsoft/Microsoft SQL Server/${versionNum}0/Tools/Shell/RegSrvr.xml"
+
+	profile --app "SqlServerConnections" --method "$sqlStudio" --save-extension "regsrvr" "$@" || return;
+
+	[[ "$1" == @(backup|restore) ]] && echot "\
+- Tools, Import and Export Settings..., Export|Import selected environment settings"
+
+	profile --app "SqlServer" --method "$sqlStudio" --save-extension "vssettings" "$@" || return;
+
+}
+
+run "$@"

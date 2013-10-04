@@ -5,15 +5,16 @@ usage()
 {
 	echot "\
 usage: host available|boot|connect|info|start
-	-t, --timeout								milliseconds to wait for the host
-	-w, --wait [seconds](120)		wait for the host to become available 
-	-q, --quiet									minimize messages
 	available	<host>						check if host is available
 	boot <host>|(<ip> <mac>)		boot the host
 	connect <host>|(<ip> <mac>)	boot and remote control the host
-	start <host> <program>			start a program on host using ssh or psexe
+	file cd|view|edit|update		manipulate the local host name files
 	info <host> [<var>]		 			get host information, variables are
-		${fields[*]}"
+		${fields[*]}
+	start <host> <program>			start a program on host using ssh or psexe
+	-t, --timeout								milliseconds to wait for the host
+	-w, --wait [seconds](120)		wait for the host to become available 
+	-q, --quiet									minimize messages"
 	exit $1
 }
 
@@ -36,7 +37,7 @@ args()
 			*) 
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				! IsOption "$1" && [[ ! $host && "$command" == *(available|boot|connect|info|name|start) ]] && { GetHostArg "$@"; shift; continue; }			
-				[[ "$command" == @(info|start) ]] && break
+				[[ "$command" == @(file|info|start) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -88,13 +89,14 @@ checkHost()
 
 	if IsIpAddress "$host"; then
 		ip="$host"
-	elif ScriptEval host info $host; then
+	elif ScriptEval host info $host && [[ "$network" == "Wiggin" ]]; then
 		ip="${ips[0]}"
 	fi
 
 	case "$host" in
 		ExampleHostNeedingExtraPingTime) timeoutIncrease=200;;
 		oversoul|jjbutare-mobl) timeoutIncrease=800;;
+		oversoul|jjbutare-mobl7) timeoutIncrease=800;;
 	esac
 	(( timeout += $timeoutIncrease ))
 
@@ -183,7 +185,7 @@ connectCommand()
 	[[ "$(host info "$host" platform)" == "win" ]] && ConnectWindows || ConnectOther
 }
 
-ConnectOther() { VisionApp "$host"; }
+ConnectOther() { echo VisionApp "$host"; }
 
 ConnectWindows()
 {
@@ -206,17 +208,15 @@ ConnectWindows()
 
 bootCommand()
 {
-	local ip="$host" macAddress subNet=255.255.255.0
+	local ip="$host" mac subNet=255.255.255.0
 
 	IsIpAddress "$host" && { GetMacAddressArg "$1"; shift; }
 	[[ $# != 0 ]] && UnknownOption "$1"
 
  	host available "$host" && { echo "Host $host is already awake"; return; }
 
-	if [[ ! $macAddress ]]; then
-		ScriptEval host info "$host" || return
-		ip="${ips[0]}"
-		mac="${macs[0]}"
+	if [[ ! $mac ]]; then
+		ScriptEval host info "$host" && { ip="${ips[0]}"; mac="${macs[0]}"; }
 	fi
 
 	[[ ! $mac ]] && { MissingOperand "mac address"; }
@@ -225,5 +225,16 @@ bootCommand()
 	PowerOff wol -ip "$ip" -subnet "$subNet" -mac "$mac" || return
 	availableCommand
 }
+
+fileCommand()
+{
+	local hostFileDir="$WINDIR/system32/drivers/etc"
+	local command="file"; [[ $# > 0 ]] && ProperCase "$1" command; IsFunction File${command}Command && shift;
+	[[ $# != 0 ]] && UnknownOption "$1"
+	File${command}Command "$@"
+}
+
+FileCdCommand() { echo "$hostFileDir"; }
+FileEditCommand() { sudo notepad "$hostFileDir/hosts"; }
 
 run "$@"

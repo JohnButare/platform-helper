@@ -6,8 +6,9 @@ usage()
 	echot "\
 usage: os <command>
 	FindInfo|FindDirs [HOST|DIR](local)		find OS information or directories
-	path [show|edit|editor|update|set [AllUsers]](editor)"
-	other: MobilityCenter|SystemProperties|update
+	index: index [options|start|stop|demand](options)
+	path [show|edit|editor|update|set [AllUsers]](editor)
+	other: ComputerManagement|MobilityCenter|SystemProperties|update"
 	exit $1
 }
 
@@ -19,10 +20,10 @@ args()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
-			FindInfo) command="FindInfo";; FindDirs) command="FindDirs";; MobilityCenter) command="MobilityCenter";; # case-insensitive aliases
+			ComputerManagement) command="ComputerManagement";; FindInfo) command="FindInfo";; FindDirs) command="FindDirs";; MobilityCenter) command="MobilityCenter";; SystemProperties) command="SystemProperties";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(FindDirs|path) ]] && break
+				[[ "$command" == @(FindDirs|index|path) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -42,6 +43,16 @@ updateCommand()
 	echo "Starting Update Checker..."
 	start "UpdateChecker.exe"
 }
+
+indexCommand()
+{
+	command="options"
+	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Index${s}Command && { command="$s"; shift; }
+	[[ $command != @(editor) && $# != 0 ]] && UnknownOption "$1"
+	Index${command}Command "$@"
+}
+
+IndexOptionsCommand() { start rundll32.exe shell32.dll,Control_RunDLL srchadmin.dll,Indexing Options; }
 
 pathCommand()
 {
@@ -88,7 +99,7 @@ GetDirs()
 	elif [[ "$host" == "butare.net" ]]; then # nas external
 		_sys=""
 		_data=""
-		_PublicHome="//%host@ssl@5006/public"
+		_PublicHome="//$host@ssl@5006/public"
 		SetCommonPublicDirs
 		
 		_UserHome="//$host@ssl@5006/home"
@@ -140,7 +151,7 @@ FindDirsWorker()
 	_system="$_system64"
 	_ProgramData="$_sys/ProgramData"
 
-	_LocalCode="$_sys/Projects"
+	_Code="$_sys/Projects"
 
 	_users="$_data/Users"
 	_PublicHome="$_users/Public"
@@ -218,7 +229,7 @@ FindDirsInit()
 	 _PublicHome _PublicDocuments _PublicData _PublicBin _PublicDesktop _PublicStartMenu _PuplicPrograms\
 	 _user _UserFolders _UserHome _UserSysHome _UserDocuments _UserData _UserBin _UserDesktop _UserStartMenu _UserPrograms
 	 _CloudDocuments _CloudData 
-	 _ProgramData _ApplicationData _LocalCode )
+	 _ProgramData _ApplicationData _Code )
 
 	for var in "${dirVars[@]}"; do unset $var; done
 
@@ -235,18 +246,25 @@ FindInfoCommand()
 
 GetInfo()
 {
-	infoVars=( psm pp pd ao usm up ud architecture product version client server mobile vm)
+	infoVars=( code ao pd pdata pdoc pp pp psm ud udata udoc uhome usm up architecture product version client server )
 
 	GetDirs || return
 
-	psm="$_PublicStartMenu"
-	pp="$_PublicPrograms"
-	pd="$_PublicDesktop"
-	ao="$_PublicPrograms/Applications/Other"
+	code="$_Code"
 
+	ao="$_PublicPrograms/Applications/Other"
+	pd="$_PublicDesktop"
+	pdata="$_PublicData"
+	pdoc="$_PublicDocuments"
+	pp="$_PublicPrograms"
+	psm="$_PublicStartMenu"
+
+	ud="$_UserDesktop"
+	udata="$_UserData"
+	udoc="$_UserDocuments"
+	uhome="$_UserHome"
 	usm="$_UserStartMenu"
 	up="$_UserPrograms"
-	ud="$_UserDesktop"
 
 	local r="/proc/registry/HKEY_LOCAL_MACHINE/Software/Microsoft/Windows NT/CurrentVersion"
 	architecture=$(OsArchitecture)
@@ -254,8 +272,6 @@ GetInfo()
 	version=$(<"$r/CurrentVersion")
 	client=; [[ $(<"$r/InstallationType") == "client" ]] && client="true"
 	server=; [[ ! $client ]] && server="true"
-	mobile=; [[ "$(host info "$COMPUTERNAME" mobile)" == "yes" ]] && mobile="true"
-	vm=; ! vmchk > /dev/null && vm="true"
 
 	return 0
 }
@@ -265,5 +281,7 @@ SystemPropertiesCommand()
 	local tab=; [[ $1 ]] && tab=",,$1"; 
 	start rundll32.exe /d shell32.dll,Control_RunDLL SYSDM.CPL$tab
 }
+
+ComputerManagementCommand() { start CompMgmt.msc; }
 
 run "$@"

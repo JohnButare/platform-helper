@@ -1,66 +1,231 @@
 #!/bin/bash
-. function.sh
+. function.sh || exit
 
 usage()
 {
 	echot "\
-usage: template [one|two|cd](one)
-	one										perform the first command
-	two										perform the second command
-	sub one|two						perform a sub command
-	-f, --file <file>			the file for the command
-	-i, --interactive			prompt for changes
-	-s, --server <server>	the server to use
-	-t, --test						run in test mode
-	-v, --verbose					display detailed output"
+usage:service [COMMAND](start) SERVICE HOST
+	Control Windows services
+	detail|exist|list|ListFile|StartType|show|state|status
+	continue|pause|restart|start|stop				control service
+	auto|delete|demand|disable|manual		 		configure service
+	-h,--noHostCheck 					do not check for host availability
+	-s,--noServiceCheck 			do not check for service existence
+	-w,--wait									wait for the service to change state"
 	exit $1
-}
-
-init() 
-{
-	unset file interactive server verbose test
-	command='one'
 }
 
 args()
 {
-	while [ "$1" != "" ]; do
-		case "${1,,}" in
-			-f|--file) shift; file="$1";;
-			-s|--server) shift; server="$1";;
-			-i|--interactive) interactive="-i";;
-			-t|--test) test="-t";;
-			-v|--verbose) verbose="-v";;
-			-h|--help) usage 0;;
-			*) 
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(sub) ]] && break
+	unset command service host noHostCheck noServiceCheck wait 
+	[[ $# == 0 ]] && { command="show"; return; }
+	while (( $# != 0 )); do
+		case "$1" in
+			-h|--NoHostCheck) noHostCheck="--NoHostCheck";;
+			-s|--NoServiceCheck) noServiceCheck="--NoServiceCheck";;
+			-w|--wait) wait="--wait";;
+			ListFile) command="ListFile";; StartType) command="StartType";;
+			*)
+				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
+				! IsOption "$1" && [[ ! $service ]] && { service="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
 				UnknownOption "$1"
 		esac
 		shift
 	done
-
-	args=( "$@" )
-	[[ ! $command ]] && MissingOperand "command"
-	[[ ! $file ]] && MissingOperand "file"
+	[[ "$command" != @(list|ListFile|show) && ! $service ]] && MissingOperand "service"
+	args=("$@")
 }
 
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
-oneCommand() {  echo "command=$command"; }
-twoCommand() {  echo "command=$command"; }
+init()
+{ 
+	unset hostUnc hostDescription
 
-subCommand()
+	# SC data area error - http://www.dostips.com/forum/viewtopic.php?f=3&t=3408
+	scBufferSize=5000
+	sc=sc
+
+	# check host availability
+	if [[ ! $noHostCheck && $host && "$host" != @(localhost|$COMPUTERNAME) ]]; then
+		! host available "%host" && { EchoErr "service: $host is not available"; return 1; }
+		hostUnc='\\'"$host"
+		hostDescription=" on $host"
+	fi
+
+}
+
+run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
+showCommand() { start services.msc; }
+listCommand() { $sc $hostUnc queryex bufsize= $scBufferSize type= all state= all; }
+stateCommand() { GetWord "$($sc $hostUnc query "$service" |& grep STATE)" 3; }
+StartTypeCommand() { GetWord "$($sc $hostUnc qc "$service" $ScBufferSize |& grep START_TYPE)" 3; }
+existCommand() { $sc $hostUnc qc "$service" $ScBufferSize |& grep START_TYPE >& /dev/null; }
+deleteCommand() { check || return; checkElevated; $elevate $sc delete $hostUnc "$service"; }
+
+disableCommand() 
+{ 
+	check || return;
+	[[ "$(StartTypeCommand)" == "DISABLED" ]] && return 
+	checkElevated; $elevate $sc config $hostUnc "$service" start= disabled; 
+}
+
+demandCommand() 
+{ 
+	check || return;
+	[[ "$(StartTypeCommand)" == "DEMAND_START" ]] && return 
+	checkElevated; $elevate $sc config $hostUnc "$service" start= demand; 
+}
+
+autoCommand() 
+{ 
+	check || return;
+	[[ "$(StartTypeCommand)" == "AUTO_START" ]] && return 
+	checkElevated; $elevate $sc config $hostUnc "$service" start= auto; 
+}
+
+restartCommand() 
+{ 
+	check || return;
+	checkElevated && { sudo service restart $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
+	local oldWait="$wait"
+	wait="--wait"; noServiceCheck="--NoServiceCheck"
+	stopCommand || return
+	wait="$oldWait"
+	startCommand || return
+	return 0
+
+}
+
+startCommand()
 {
-	command="One"
-	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Sub${s}Command && { command="$s"; shift; }
-	[[ $# != 0 ]] && usage
-	Sub${command}Command "$@"
+	check || return;
+	[[ "$(stateCommand)" != "STOPPED" ]] && return 
+	checkElevated && { sudo service start $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
+	checkWaiting; printf "Starting $service service$hostDescription...$waiting"
+	result="$($sc $hostUnc start "$service")" || { EchoErr "$result"; return 1; }
+
+	[[ $wait ]] && WaitForState RUNNING start started
 }
 
-SubOneCommand() { echo "command=Sub$command args=${#args[@]} file=\"$file\" server=\"$server\" interactive=$interactive verbose=$verbose test=$test"; }
-SubTwoCommand() {  echo "command=Sub$command"; }
+stopCommand()
+{
+	check || return;
+	[[ "$(stateCommand)" != "RUNNING" ]] && return 
+	checkElevated && { sudo service stop $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 
-#run "$@"
-# tc service "$@"
+	checkWaiting; printf "Stopping $service service$hostDescription..."$waiting
+	result="$($sc $hostUnc stop "$service")" || { EchoErr "$result"; return 1; }
 
-echo "TODO: implement service"
+	[[ $wait ]] && WaitForState STOPPED stop stopped
+	return 0
+}
+
+continueCommand()
+{
+	check || return;
+	[[ "$(stateCommand)" != "PAUSED" ]] && return 
+	checkElevated && { sudo service continue $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
+
+	checkWaiting; printf "Continuing $service service$hostDescription..."$waiting
+	result="$($sc $hostUnc continue "$service")" || { EchoErr "$result"; return 1; }
+
+	[[ $wait ]] && WaitForState RUNNING continue continued
+}
+
+pauseCommand()
+{
+	check || return;
+	[[ "$(stateCommand)" != "RUNNING" ]] && return 
+	checkElevated && { sudo service pause $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
+
+	checkWaiting; printf "Pausing $service service$hostDescription..."$waiting
+	result="$($sc $hostUnc pause "$service")" || { EchoErr "$result"; return 1; }
+
+	[[ $wait ]] && WaitForState PAUSED pause paused
+}
+
+manualCommand()
+{
+	check || return;
+	checkElevated && { sudo service manual $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
+
+	echo "Stopping $service service and setting it to demand start$hostDescription..."
+	demandCommand || return
+	stopCommand || return
+	return 0
+}
+
+statusCommand()
+{
+	state="$(stateCommand)" || return
+	startType="$(StartTypeCommand)" || return
+	echo "$service is ${state}${hostDescription} ($startType)"
+}
+
+ListFileCommand() 
+{ 
+	local file="$TMP/services.txt";
+	$sc $hostUnc queryex bufsize= $scBufferSize type= all state= all > $file
+	TextEdit "$file"
+}
+
+
+detailCommand()
+{
+	check || return
+
+	echo "Status of $service service$hostDescription..."
+	$sc $hostUnc GetDisplayName "$service"
+	$sc $hostUnc qdescription  "$service" $scBufferSize
+	$sc $hostUnc queryex "$service" $scBufferSize
+	$sc $hostUnc qc "$service" $SscBufferSize
+	$sc $hostUnc qfailure "$service"
+}
+
+WaitForState()
+{
+	local seconds=30 state="$1"
+
+	for (( i=1; i<=seconds; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
+ 		[[ "$(stateCommand)" == "$state" ]] && { echo "$3 in $i seconds"; return 0; }
+		printf "."
+	done
+
+	echo "did not $2 in $seconds seconds"; return 1
+}
+
+checkWaiting()
+{
+	unset waiting
+	[[ ! $wait ]] && waiting="\n"
+}
+
+checkElevated()
+{
+	if IsElevated && [[ "$host" == @(|localhost|$COMPUTERNAME) ]]; then
+		elevate="";
+		return 1
+	else
+		elevate="sudo"
+		return 0 
+	fi
+}
+
+check()
+{
+	[[ $noServiceCheck ]] && return 0
+
+	local result="$(sc $hostUnc query "$service" |& grep FAILED)"
+	resultCode="${result#*FAILED }"; resultCode="${resultCode%:}"
+
+	case $resultCode in
+		1060) echo "$service does not exist as an installed service$hostDescription";;
+  	5) echo "Service control manager access denied$hostDescription";;
+		*) return 0
+	esac
+
+	return 1
+}
+
+run "$@"

@@ -1,5 +1,5 @@
 #!/bin/bash
-. function.sh || exit
+. app.sh || exit
 
 usage()
 {
@@ -49,7 +49,7 @@ init()
 
 	# ProfileFiles program - program it will be used to import and export the profile  
 	# IN: profileDir, profileSaveExtension -  the profile file extension used by the program must be specified
-	elif [[ -f "$profileMethod" && "$(GetExtension "$method")" == "exe" ]]; then
+	elif [[ -f "$method" && "$(GetExtension "$method")" == "exe" ]]; then
 		methodType="program"
 		profileProgram="$method"
 		
@@ -74,7 +74,7 @@ init()
 	replicateProfile="$defaultProfileDir/$app Profile.$saveExtension"
 }
 
-run() {	args "$@"; init; ${command}Command "${args[@]}"; }
+run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
 
 dirCommand()
 {
@@ -153,24 +153,27 @@ restoreCommand()
 
 	! ask "Do you want to restore $app profile \"$filename\"?" -dr n && return 0
 
-	FindInPath $app > /dev/null && { "$app" close || return; } 
-
 	if [[ "$method" == "file" ]]; then
+		AppClose "$app" || return
 		unzip.exe -o "$(utw "$profile")" -d "$(utw "$profileDir")" || return
-		
+		AppStart "$app" || return
+
 	elif [[ "$method" == "program" ]]; then
-		clipw "$profile"
+		clipw "$(utw "$profile")"
 		echo "Import the profile using the filemame contained in the clipboard"
 		start "$profileProgram"
 		pause
 
 	elif [[ "$method" == "registry" ]]; then
-		regedit /s "$profile"
+		AppClose "$app" || return
+		registry import "$profile" || return
+		AppStart "$app" || return
+
 	fi
 
 	echo "$app profile \"$filename\" has been restored"
 
-	FindInPath "$app" > /dev/null && { "$app" start || return; }
+	return 0
 }
 
 run "$@"

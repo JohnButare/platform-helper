@@ -1,6 +1,6 @@
 # common functions for non-interactive scripts
 
-shopt -s nocasematch extglob
+shopt -s nocasematch extglob 
 
 #
 # other
@@ -8,8 +8,8 @@ shopt -s nocasematch extglob
 
 EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of the variable in variable, or set it to var
 IsInteractive() { [[ "$-" == *i* ]]; }
-pause() { read -n 1 -p "${*-Press any key when ready...}"; }
-clipw() { printf "$1" > /dev/clipboard; }
+pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
+clipw() { echo "$1" > /dev/clipboard; }
 clipr() { cat /dev/clipboard; }
 EchoErr() { echo "${@}" > /dev/stderr; }
 r() { [[ $# == 1 ]] && echo "$1" || eval $2="\"$1\""; } # result <value> <var> - echo value or set var to value (faster)
@@ -21,14 +21,19 @@ r() { [[ $# == 1 ]] && echo "$1" || eval $2="\"$1\""; } # result <value> <var> -
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
 IsShellScript() { file "$1" | egrep "shell script" >& /dev/null; }
 IsOption() { [[ "$1" =~ ^-.* ]]; }
-
-IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction <function> - function is defined
-IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared <variable> - variable is defined
-GetFunction() {  declare -f | egrep -i "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction FUNC - get the name of function with the actual case
-
-UnknownOption() {	EchoErr "$(ScriptName): unknown option $1"; EchoErr "Try \`$(ScriptName) --help\` for more information.";	exit 1; }
+UnknownOption() {	EchoErr "$(ScriptName): unknown option $1"; EchoErr "Try \`$(ScriptName) --help\` for more information";	exit 1; }
+CheckCommand() {	IsFunction "${1,,}Command" && { command="${1,,}"; return 0; } ; EchoErr "$(ScriptName): unknown command $1"; EchoErr "Try \`$(ScriptName) --help\` for valid commands";	exit 1; } 
+CheckSubCommand() {	local sub="$1"; command="$2"; ProperCase "$sub" sub; ProperCase "$command" command; IsFunction "${sub}${command}Command" && { command="$command"; return 0; } ; EchoErr "$(ScriptName): unknown $1 command $2"; EchoErr "Try \`$(ScriptName) $1 --help\` for valid commands";	exit 1; } 
 MissingOperand() { EchoErr "$(ScriptName): missing $1 operand"; exit 1; }
 ElevationRequired() { IsElevated && return 0;	EchoErr "$(ScriptName): requires elevation"; exit 1; }
+
+IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
+
+IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
+GetFunction() { declare -f | egrep -i "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
+
+IsAlias() { type "-t $1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias
+GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}"; }
 
 ScriptName() { GetFilename $0; }
 ScriptDir() { echo "$(GetPath "$(FindInPath "$(wtu "$0")")")"; } # handle scripts started with partial paths or from Windows
@@ -60,18 +65,38 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 #
 # files and directories
 #
+
+# path: realpath, cygpath
+FindInPath() { type -P "${1}"; }
+GetPath() { local p="${1%/*}"; [[ "$p" == "$1" ]] && p=""; r "$p" $2; }
+GetFilename() { r "${1##*/}" $2; }
+GetName() { local f="$1"; GetFilename "$1" f; r "${f%.*}" $2; }
+GetExtension() { local f="$1"; GetFilename "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
+GetFullPath() { cygpath -a "$@"; }
+RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
+wtu() { cygpath -u "$*"; }
+utw() { cygpath -aw "$*"; }
+
 DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
 
-# FileCommand mv|cp SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
+# MakeShortcut FILE LINK
+MakeShortcut() { [[ ! -e "$1" ]] && return; mkshortcut "$1" -n="$2" "${@:3}"; }
+
+# FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
 FileCommand() 
-{
+{ 
 	local args command="$1" dir="${@: -1}" files=0
 	for arg in "${@:2:(($#-2))}"; do
 		IsOption "$arg" && args+=( "$arg" )
 		[[ -e "$arg" ]] && { args+=( "$arg" ); (( ++files )); }
 	done
 	(( files == 0 )) && return 0
-	"$command" -t "$dir" "${args[@]}"
+	if [[ "$command" == "ren" ]]; then
+		mv "${args[@]}" "$dir"
+	else
+		[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing \`$dir\`: No such directory"; return 1; }
+		"$command" -t "$dir" "${args[@]}"
+	fi
 }
 
 # MoveAll SRC DEST - move all of the contents of SRC to DEST including hidden files and folders
@@ -112,6 +137,14 @@ IsInArray()
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
 
+GetWord() 
+{ 
+	(( $# < 2 || $# > 3 )) && { EchoErr "usage: GetWord STRING WORD [DELIMITER]"; return 1; }
+	local word=$(( $2 + 1 )); IFS=${3:- }; set -- $1; 
+	(( $# >= word )) && echo "${!word}" || return 1; 
+}
+
+
 #
 # numbers
 #
@@ -142,10 +175,13 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "Elapsed %02d:%02d:%02d\n" 
 # network
 #
 
-# IpAddress|DnsLookup <host> - perform IP Address lookup using default system name providers (Windows NodeType) or Dns
-IpAddress() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ip="$(DnsLookup "$1")"; [[ $ip ]] && echo "$ip" || PingLookup "$1"; }
+# IpAddress|DnsLookup <host> - perform IP Address lookup using default system name providers (Windows NodeType) or Dns. 
+# In a domain with automatic DNS registration DNS can be out of sync
+# IpAddress() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ip="$(DnsLookup "$1")"; [[ $ip ]] && echo "$ip" || PingLookup "$1"; }
+IpAddress() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; PingLookup "$1"; }
 PingLookup() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
 DnsLookup() { IsIpAddress "$1" && echo "$1"; nslookup -srchlist=amr.corp.intel.com/hagerman.butare.net -timeout=1 "$1" |& grep "Address:" | tail -n +2 | cut -d" " -f 3; return ${PIPESTATUS[1]}; }
+IsInDomain() { [[ "$USERDOMAIN" != "$COMPUTERNAME" ]]; }
 
 # IsIpAddress <string>
 IsIpAddress()
@@ -185,31 +221,22 @@ lesst() { less -x $TABS $*; } 										# LessTab
 printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf pipe: cat file | printf -v var
 
 #
-# path: realpath, cygpath
+# platform
 #
 
-FindInPath() { type -P "${1}"; }
-
-RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
-GetPath() { local p="${1%/*}"; [[ "$p" == "$1" ]] && p=""; r "$p" $2; }
-GetFilename() { r "${1##*/}" $2; }
-GetName() { local f="$1"; GetFilename "$1" f; r "${f%.*}" $2; }
-GetExtension() { local f="$1"; GetFilename "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
-GetFullPath() { cygpath -a "$@"; }
-
-wtu() { cygpath -u "$*"; }
-utw() { cygpath -aw "$*"; }
+IsMobile() { [[ "$(host info "$COMPUTERNAME" mobile)" == "yes" ]]; }
+IsVm() { [[ ! vmchk > /dev/null ]]; }
+OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
 
 #
 # process
 #
 
 IsElevated() { IsElevated.exe > /dev/null; }
-OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
 SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys <class> <title|class> <keys>
-sr() { ShellRun "$(utw $*)"; }
 
 # start [-d|--direct] [OPTION...] <program> <arguments> - start a Windows program
+# --direct		start the program directly without using cygstart (which is for ShellRun API), usually for console programs
 start() 
 {
 	local direct; [[ "$1" == @(-d|--direct) ]] && { direct="true"; shift; }
@@ -217,13 +244,8 @@ start()
 	local program="$1" args=( "${@:2}" ) qargs; 
 
 	for arg in "${args[@]}"; do 
-		if [[ -e "$arg" ]]; then
-			qargs+=( "\"$(utw "$arg")\"" )
-		elif [[ "$arg" =~ ( ) ]]; then
-			qargs+=( "\"$arg\"" )
-		else
-			qargs+=( "$arg" );
-		fi
+		[[ -e "$arg" ]] && arg="$(utw "$arg")" # convert POSIX path to Windows format
+		[[ ! $direct && "$arg" =~ ( ) ]] && qargs+=( "\"$arg\"" ) || qargs+=( "$arg" ); # cygstart requires arguments with spaces be quoted
 	done
 
 	#printf "wait=$wait\noptions="; ShowArray options; printf "program=$program\nqargs="; ShowArray qargs; return
@@ -234,39 +256,46 @@ start()
 	
 	case "$ext" in
 		js|vbs) cscript /NoLogo "$(utw "$program")" "${@:2}";;
-		*) if [[ $direct ]]; then "$program" "${args[@]}"; 
+		*) if [[ $direct ]]; then "$program" "${qargs[@]}"; 
 			 else cygstart "${options[@]}" "$program" "${qargs[@]}"; fi;;
 	esac
 } 
 
 sudo() # sudo [command](mintty) - start a program as super user
 {
-	local program="mintty" hOptions cOptions ext standard
+	local program="mintty" hOptions cOptions ext standard direct
 
 	while IsOption "$1"; do
-		[[ "$1" == +(-s|--standard) ]] && { standard="true"; hOptions+=( /nonelevated ); }
-		[[ "$1" == +(-h|--hide) ]] && hOptions+=( /noconsole )
-		[[ "$1" == +(-w|--wait) ]] && { hOptions+=( /wait ); cOptions+=( --wait ); }
+		if [[ "$1" == +(-s|--standard) ]]; then standard="true"; hOptions+=( /nonelevated );
+		elif [[ "$1" == +(-h|--hide) ]]; then hOptions+=( /noconsole );
+		elif [[ "$1" == +(-w|--wait) ]]; then hOptions+=( /wait ); cOptions+=( --wait );
+		elif [[ "$1" == +(-d|--direct) ]]; then direct="--direct";
+		else cOptions+=( "$1" ); fi
 		shift
 	done
 	[[ ! $standard ]] && hOptions+=( /elevated )
 
 	[[ $# > 0 ]] && { program="$1"; shift; }
-	program="$(FindInPath "$program")" 
-	[[ $program ]] && program="$(GetFullPath "$program")" # make sure program is fully qualified, i.e. ./test2 in $PWD
-	[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
-	
-	if { ! IsElevated && [[ ! $standard ]]; } || { IsElevated && [[ $standard ]]; }; then
-		GetExtension "$program" ext
-		if [[ ! $ext ]] && IsShellScript "$program"; then
-			cygstart "${cOptions[@]}" hstart "${hOptions[@]}" "\"\"mintty.exe\"\" -h error bash.exe --login \"\"$program\"\" $@";
+	! type -P "$program" >& /dev/null && { EchoErr "start: $program: command not found"; return 1; }
+
+	program="$(FindInPath "$program")" # IsShellScript requires full path
+
+	# determine if hstart is not needed to change contexts
+	local elevated; IsElevated && elevated="true"
+	if [[ (! $elevated && $standard) || ($elevated && ! $standard) ]]; then
+		if IsShellScript "$program"; then
+			"$program" "$@"
 		else
-			cygstart "${cOptions[@]}" hstart "${hOptions[@]}" "$prefix\"\"$(utw "$program")\"\" $@";
+			start $direct "${cOptions[@]}" "$program" "$@"
 		fi
-	elif IsShellScript "$program"; then
-		"$program" "$@"
+		return
+	fi
+	
+	if IsShellScript "$program"; then
+		cygstart "${cOptions[@]}" hstart "${hOptions[@]}" "\"\"mintty.exe\"\" -h error bash.exe -l \"\"$program\"\" $@";
 	else
-		start "${cOptions[@]}" "$program" "$@"
+		program="$(utw "$program")"
+		cygstart "${cOptions[@]}" hstart "${hOptions[@]}" "\"\"$program\"\" $@";
 	fi
 }
 

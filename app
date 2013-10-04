@@ -134,7 +134,7 @@ GetAppFile()
 
 IsAppInstalled()
 {
-	if ! CommandExists "$appFile" IsInstalled; then
+	if ! CommandExists IsInstalled "$appFile"; then
 		echo "App $app does not have an IsInstalled command"
 		return 1
 	fi
@@ -144,7 +144,7 @@ IsAppInstalled()
 
 IsAppRunning()
 {
-	if ! CommandExists "$appFile" IsRunning; then
+	if ! CommandExists IsRunning "$appFile"; then
 		echo "App $app does not have an IsRunning command"
 		return 1
 	fi

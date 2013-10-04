@@ -1,8 +1,102 @@
 #!/bin/bash
-. function.sh
+. function.sh || exit
 
-src="$1"
-link="$2"
+usage()
+{
+	echot "\
+MakeLink SRC LINK
+	Create links to files and directories
+	-a,--absolute				symbolic link is created as an absolute path
+  -i,--hide						hide the LINK after creating it
+  -h,--hard						create a hard link to a file
+  -j,--junction				create a junction, the default if SRC is a directory, implies --windows
+  -m,--merge					merge contents of LINK to SRC before creating the link
+  -s,--symbolic				create a symbolic link, the default if SRC is a file
+	-u,--suppress				suppress error message if SRC does not exist
+  -w,--windows				create a link that is visiable in Windows"
+	exit $1
+}
 
-[[ -f "$link" ]] && { DelFile --ask "$link" || return; }
-ln -s "$src" "$link" || return
+args()
+{
+	unset src link absolute hide type merge windows symbolic suppress
+	while (( $# != 0 )); do
+		case "$1" in
+			-a|--absolute) absolute="--absolute";;
+			-i|--hide) hide="true";;
+			-h|--hard) type="hard";;
+			-j|--junction) type="junction";;
+			-m|--merge) merge="true";;
+			-s|--symbolic) type="symbolic"; symbolic="--symbolic";;
+			-u|--suppress) suppress="true";;
+			-w|--windows) windows="true";;
+			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			*)
+				! IsOption "$1" && [[ ! $src ]] && { src="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $link ]] && { link="$1"; shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+	[[ ! $src ]] && MissingOperand "SRC"
+	[[ ! $link ]] && MissingOperand "LINK"
+	args=("$@")
+}
+
+init() { alias wln='start --direct "$BIN/win/ln.exe"'; }
+
+run() 
+{	
+	args "$@"; init; 
+	
+	# set absolute link path (needed for POSIX link)
+	[[ ! $windows && $absolute ]] && link="$(GetFullpath "$link")"
+
+	# set default link filename (needed for Windows link)
+	[[ $windows && -f "$src" && -d "$link" ]] && link="$link/$(GetFilename "$src")"
+
+	# merge link directory
+	[[ $merge && -d "$link" && ! -h "$link" ]] && { MergeDir --rename "$link" "$src" || return; }
+	
+	# SRC does not exist
+	if [[ ! -e "$src" ]]; then
+		[[ $suppress ]] && return 0
+		EchoErr "MakeLink: cannot access \`$src\`: No such file or directory"
+		return 1
+	fi
+
+	# LINK exists
+	[[ -h "$link" ]] && { HideLink; return; }
+	[[ -d "$link" ]] && { echo "MakeLink: \"$link\" already exists"; DelDir --ask "$link" || return; }
+	[[ -f "$link" ]] && { echo "MakeLink: \"$link\" already exists"; DelFile --ask "$link" || return; }
+
+	# set default type
+	[[ ! $type ]] && { [[ -f "$src" ]] && type="symbolic" || type="junction"; }
+
+	# create the link
+	if [[ $windows || "$type" == "junction" ]]; then
+		local start="start"; [[ "$type" == "symbolic" ]] && start="sudo"
+		local ln=( $start --direct "$BIN/win/ln.exe" $absolute )
+		case "$type" in
+			junction) "${ln[@]}" --junction "$(utw "$link")" "$src";;
+			hard|symbolic) "${ln[@]}" $symbolic "$src" "$(utw "$link")";;
+		esac
+	else
+		ln $symbolic "$src" "$link" || return
+	fi
+
+	HideLink || return
+}
+
+HideLink()
+{
+	[[ ! $hide ]] && return 0
+
+	# the windows path of POSIX links resolve to the target file, so only convert the path of the link
+	local path; GetPath "$link" path; [[ $path ]] && { path="$(utw "$path")\\" || return; }
+
+	# POSIX links must have the system attribute
+	attrib /L +s +h +r "$path$(GetFilename "$link")" || return
+}
+
+run "$@"
