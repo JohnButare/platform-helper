@@ -3,86 +3,69 @@
 
 usage()
 {
-	echot "\
-usage: template [one|two|cd](one)
-	Perform template commands
-	one										perform the first command
-	two										perform the second command
-	sub one|two						perform a sub command
-	-f, --file <file>			the file for the command
-	-s, --show						show results
-	-v, --verbose					display detailed output"
-	exit $1
+	echot "usage: firewall [console|disable|enable|enabled|log|panel|rule|status](console)
+  rule "; exit $1
 }
+
+ruleUsage() { echot "\
+usage: firewall rule add|delete|enable|disable|exist|status NAME
+	add NAME RULES"; exit $1; }
 
 args()
 {
-	unset dest exclude file show arg1 arg2
+	unset command help dest exclude file show arg1 arg2
 	while (( $# != 0 )); do
 		case "$1" in
-			-f|--file) file="$2"; shift;; # single argument
-			-s|--show) show="--show";; # no arguments
-			-x|--exclude) while [[ $2 ]] && ! IsOption "$2"; do exclude+=("$2"); shift; done;; # multiple arguments
-			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
-			one|OneAlias) command="one";; IsInstalled) command="IsInstalled";; # command case-insensitive aliases
+			--host|-h) host="$2"; shift;; # single argument
+			--help) help="--help";;
 			*)
-				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; } # command
-				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; } # unnamed argument
-				[[ "${command:-one}" == @(arg|sub) ]] && break # defer
+				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
+				[[ "$command" == @(rule) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
 	done
-	command="${command:-one}" #default
-	[[ "$command" != "cd" && ! $file ]] && MissingOperand "file"
-	[[ ! -f "$file" ]] && { EchoErr "template: cannot access \`$file\`: No such file"; return 1; }
-	[[ "$command" != "cd" ]] && ! IsDeclared file ]] && MissingOperand "file" # allow empty string
+	[[ ! $command ]] && { command="console"; }
+	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage || usage 0; }
 	args=("$@")
 }
 
 init() { :; }
-run() {	pause "TODO: convert firewall"; return; args "$@"; init || return; ${command}Command "${args[@]}"; }
+run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
+panelCommand() { start firewall.cpl; }
+consoleCommand() { start wf.msc; }
+enableCommand() { netsh advfirewall set currentprofile state on; }
+disableCommand() { netsh advfirewall set currentprofile state off; }
+statusCommand() { netsh advfirewall show currentprofile; }
+enabledCommand() { netsh firewall show state | grep -i "Operational Mode" | grep Enable > /dev/null; }
 
-cdCommand() { echo "/tmp"; }
-
-# oneCommand - return results and set in parent using ScriptEval
-oneCommand() 
-{  
-	vars=(a b c files); local a=1 b=2 c=3 files=("file 1.txt" "file 2.txt")
-	ScriptReturn $show "${vars[@]}"
-}
-
-twoCommand() {  ElevationRequired; echo "command=$command"; }
-threeCommand() { ! IsElevated && { sudo --hide template three; return; }; echo "command=$command"; }
-
-subCommand()
+logCommand()
 {
-	local command="One"; [[ $# > 0 ]] && ProperCase "$1" command; IsFunction Sub${command}Command && shift;
-	[[ $# != 0 ]] && UnknownOption "$1"
-	Sub${command}Command "$@"
+	local p; [[ $host ]] && p="//$host/admin\$" || p="$WINDIR"
+	local file="$p/system32/LogFiles/Firewall/pfirewall.log"
+	[[ ! -f "$p" ]] && { EchoErr "firewall: cannot access \`$file\`: No such file"; return 1; }
+	TextEdit "$file"
 }
 
-SubOneCommand() { echo "command=Sub$command args=${#args[@]} file=\"$file\" server=\"$server\" interactive=$interactive verbose=$verbose test=$test"; }
-SubTwoCommand() { echo "command=Sub$command"; }
-
-argCommand()
+ruleCommand()
 {
-	GetArg "$@"; shift $?
-	echo "\$#=$# arg1=$arg1 arg2=$arg2"
-	args=("$@")
+	local command; CheckSubCommand rule "$1"; shift
+	local name="$1"; shift; [[ ! $name ]] && MissingOperand "name"; 
+	[[ "$command" != "add" && $# != 0 ]] && UnknownOption "$1"
+	Rule${command}Command "$@"
 }
 
-GetArg()
-{
-	[[ $# == 0 ]] && MissingOperand "arg1"; arg1="$1"; shift
-	[[ "$arg1" == "more" ]] && { [[ $# == 0 ]] && MissingOperand "arg2"; arg2="$1"; shift; }
-	return $(( ${#args[@]} - $# ))
+RuleAddCommand()  
+{ 
+	local command="add" new; RuleExistCommand && { command="set"; new="new"; }
+	printf "firewall: adding rule $name..."
+	netsh advfirewall firewall $command rule name="$name" $new "$@"
 }
 
-returnVarsCommand()
-{
-	vars=( vsName vsVersion vsDir vsPath vsHelp vsIde vsRegistryKey vsVars vsData ) 
-	ScriptReturn $show "${vars[@]}" # -s|--show
-}
+RuleDeleteCommand() { ! RuleExistCommand && return; netsh advfirewall firewall delete rule name="$name"; }
+RuleEnableCommand() { ! RuleExistCommand && return; netsh advfirewall firewall set rule name="$name" new enable=yes; }
+RuleDisableCommand() { ! RuleExistCommand && return; netsh advfirewall firewall set rule name="$name" new enable=no; }
+RuleExistCommand() { RuleStatusCommand > /dev/null;}
+RuleStatusCommand() { netsh advfirewall firewall show rule name="$name"; }
 
 run "$@"

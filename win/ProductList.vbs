@@ -61,79 +61,85 @@ wsh.echo  CSI_EnumerateProducts(vbNullString, "S-1-1-0", 7, "VersionString")
 
 
 Function CSI_EnumerateProducts (ProductGUID, UserSID, InstallContextsToEnumerate, ProductProperty)
-Set Products = oMSI.ProductsEx (ProductGUID, UserSID, InstallContextsToEnumerate)
+
+  ' Explanation of the properties at http://msdn.microsoft.com/en-us/library/aa369457(v=vs.85).aspx
+
+  Set Products = oMSI.ProductsEx (ProductGUID, UserSID, InstallContextsToEnumerate)
   If NOT Products.count > 0 Then 
     CSI_EnumerateProducts = "No Products Installed."
     Exit Function
   End If 
 
-For Each product In products
+  For Each product In products
 
-  If ProductProperty <> "" AND ProductProperty <> "ALL" Then
-    
-    If NOT PropertyValidated Then
-      On Error Resume Next
-      CSI_EnumerateProducts = product.InstallProperty(ProductProperty)
-      If NOT Err = 0 Then
-        CSI_EnumerateProducts = "No such property."
-        On Error Goto 0
-        Exit Function
+    If ProductProperty <> "" AND ProductProperty <> "ALL" Then
+      
+      If NOT PropertyValidated Then
+        On Error Resume Next
+        CSI_EnumerateProducts = product.InstallProperty(ProductProperty)
+        If NOT Err = 0 Then
+          CSI_EnumerateProducts = "No such property."
+          On Error Goto 0
+          Exit Function
+        End If
+        PropertyValidated = True
+        On Error Goto 0 
       End If
-      PropertyValidated = True
-      On Error Goto 0 
-    End If
-    
-    If Products.count = 1 Then 
-      Exit Function 'Just return value of one property for one product
+      
+      If Products.count = 1 Then 
+        Exit Function 'Just return value of one property for one product
+      End If 
+      
+      On Error Resume Next
+      msg = msg & vbCRLF & vbCRLF & "---Product: " & product.InstallProperty("ProductName")
+      msg = msg &  vbCRLF &"ProductCode: " & product.ProductCode
+      msg = msg &  vbCRLF &"User SID: " & product.UserSid
+      msg = msg &  vbCRLF &"Installed Context: " & MapContext(product.Context)
+      msg = msg &  vbCRLF &vbCRLF &Indent2 & ProductProperty & ": " & product.InstallProperty(ProductProperty)
+      on error goto 0
+
+    Else 
+      
+      on error resume next
+      msg = msg & vbCRLF & vbCRLF & "---Product: " & product.InstallProperty("ProductName")
+      msg = msg &  vbCRLF &"User SID: " & product.UserSid
+      msg = msg &  vbCRLF &"Installed Context: " & MapContext(product.Context)
+      
+      msg = msg &  vbCRLF &vbCRLF & Indent1 & "   Product Properties:"
+      msg = msg &  vbCRLF &Indent2 & "ProductName: " & product.InstallProperty("ProductName") 'Or "InstalledProductName"
+      msg = msg &  vbCRLF &Indent2 & "ProductCode: " & product.ProductCode
+      msg = msg &  vbCRLF &Indent2 & "PackageCode: " & product.InstallProperty("PackageCode")
+      msg = msg &  vbCRLF &Indent2 & "VersionString: " & product.InstallProperty("VersionString")
+      msg = msg &  vbCRLF &Indent2 & "VersionMajor: " & product.InstallProperty("VersionMajor")
+      msg = msg &  vbCRLF &Indent2 & "VersionMinor: " & product.InstallProperty("VersionMinor")
+       
+      msg = msg &  vbCRLF &vbCRLF & Indent1 & "Installation Details:"
+      msg = msg &  vbCRLF &Indent2 & "InstallDate: "   & product.InstallProperty("InstallDate")
+      msg = msg &  vbCRLF &Indent2 & "Transforms: "   & product.InstallProperty("Transforms")
+      msg = msg &  vbCRLF &Indent2 & "InstallLocation: "   & product.InstallProperty("InstallLocation")
+      msg = msg &  vbCRLF &Indent2 & "InstallSource: "   & product.InstallProperty("InstallSource")
+      msg = msg &  vbCRLF &Indent2 & "LocalPackage: "   & product.InstallProperty("LocalPackage")
+      msg = msg &  vbCRLF &Indent2 & "AssignmentType: " & product.InstallProperty("AssignmentType")
+      msg = msg &  vbCRLF &Indent2 & "InstanceType: "   & product.InstallProperty("InstanceType")
+      msg = msg &  vbCRLF &Indent2 & "Authorized LUA App: "   & product.InstallProperty("AuthorizedLUAApp")
+
+      msg = msg &  vbCRLF &vbCRLF & Indent1 & "Publisher and Registration Information"
+      msg = msg &  vbCRLF &Indent2 & "Publisher: "   & product.InstallProperty("Publisher")
+      msg = msg &  vbCRLF &Indent2 & "URLInfoAbout: "   & product.InstallProperty("URLInfoAbout")
+      msg = msg &  vbCRLF &Indent2 & "URLUpdateInfo: "   & product.InstallProperty("URLUpdateInfo")
+      msg = msg &  vbCRLF &Indent2 & "HelpLink: " & product.InstallProperty("HelpLink")
+      msg = msg &  vbCRLF &Indent2 & "HelpTelephone: "  & product.InstallProperty("HelpTelephone")
+      msg = msg &  vbCRLF &Indent2 & "ProductIcon: "   & product.InstallProperty("ProductIcon")
+      msg = msg &  vbCRLF &Indent2 & "Language: "   & product.InstallProperty("Language")
+      msg = msg &  vbCRLF &Indent2 & "RegCompany: "   & product.InstallProperty("RegCompany")
+      msg = msg &  vbCRLF &Indent2 & "RegOwner: "   & product.InstallProperty("RegOwner")
+      
+      on error goto 0
+
     End If 
-    
-     msg = msg & vbCRLF & vbCRLF & "---Product: " & product.InstallProperty("ProductName")
-     msg = msg &  vbCRLF &"ProductCode: " & product.ProductCode
-     msg = msg &  vbCRLF &"User SID: " & product.UserSid
-     msg = msg &  vbCRLF &"Installed Context: " & MapContext(product.Context)
+  Next
 
-     msg = msg &  vbCRLF &vbCRLF &Indent2 & ProductProperty & ": " & product.InstallProperty(ProductProperty)
-   
-  Else 
-  'Explanation of the properties at http://msdn.microsoft.com/en-us/library/aa369457(v=vs.85).aspx
-  
-   msg = msg & vbCRLF & vbCRLF & "---Product: " & product.InstallProperty("ProductName")
-   msg = msg &  vbCRLF &"User SID: " & product.UserSid
-   msg = msg &  vbCRLF &"Installed Context: " & MapContext(product.Context)
-   
-   msg = msg &  vbCRLF &vbCRLF & Indent1 & "   Product Properties:"
-   msg = msg &  vbCRLF &Indent2 & "ProductName: " & product.InstallProperty("ProductName") 'Or "InstalledProductName"
-   msg = msg &  vbCRLF &Indent2 & "ProductCode: " & product.ProductCode
-   msg = msg &  vbCRLF &Indent2 & "PackageCode: " & product.InstallProperty("PackageCode")
-   msg = msg &  vbCRLF &Indent2 & "VersionString: " & product.InstallProperty("VersionString")
-   msg = msg &  vbCRLF &Indent2 & "VersionMajor: " & product.InstallProperty("VersionMajor")
-   msg = msg &  vbCRLF &Indent2 & "VersionMinor: " & product.InstallProperty("VersionMinor")
-   
-   msg = msg &  vbCRLF &vbCRLF & Indent1 & "Installation Details:"
-   msg = msg &  vbCRLF &Indent2 & "InstallDate: "   & product.InstallProperty("InstallDate")
-   msg = msg &  vbCRLF &Indent2 & "Transforms: "   & product.InstallProperty("Transforms")
-   msg = msg &  vbCRLF &Indent2 & "InstallLocation: "   & product.InstallProperty("InstallLocation")
-   msg = msg &  vbCRLF &Indent2 & "InstallSource: "   & product.InstallProperty("InstallSource")
-   msg = msg &  vbCRLF &Indent2 & "LocalPackage: "   & product.InstallProperty("LocalPackage")
-   msg = msg &  vbCRLF &Indent2 & "AssignmentType: " & product.InstallProperty("AssignmentType")
-   msg = msg &  vbCRLF &Indent2 & "InstanceType: "   & product.InstallProperty("InstanceType")
-   msg = msg &  vbCRLF &Indent2 & "Authorized LUA App: "   & product.InstallProperty("AuthorizedLUAApp")
-
-   msg = msg &  vbCRLF &vbCRLF & Indent1 & "Publisher and Registration Information"
-   msg = msg &  vbCRLF &Indent2 & "Publisher: "   & product.InstallProperty("Publisher")
-   msg = msg &  vbCRLF &Indent2 & "URLInfoAbout: "   & product.InstallProperty("URLInfoAbout")
-   msg = msg &  vbCRLF &Indent2 & "URLUpdateInfo: "   & product.InstallProperty("URLUpdateInfo")
-   msg = msg &  vbCRLF &Indent2 & "HelpLink: " & product.InstallProperty("HelpLink")
-   msg = msg &  vbCRLF &Indent2 & "HelpTelephone: "  & product.InstallProperty("HelpTelephone")
-   msg = msg &  vbCRLF &Indent2 & "ProductIcon: "   & product.InstallProperty("ProductIcon")
-   msg = msg &  vbCRLF &Indent2 & "Language: "   & product.InstallProperty("Language")
-   msg = msg &  vbCRLF &Indent2 & "RegCompany: "   & product.InstallProperty("RegCompany")
-   msg = msg &  vbCRLF &Indent2 & "RegOwner: "   & product.InstallProperty("RegOwner")
-    
-  End If 
-Next
-
-CSI_EnumerateProducts = msg
+  CSI_EnumerateProducts = msg
 End Function
 
 Function CSI_GetProductProperty (ProductGUID, ProductProperty)

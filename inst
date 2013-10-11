@@ -11,7 +11,7 @@ templateInstall()
 	$mergeDir "$pp/(dir)" "$ao" || return
 	$mergeDir "$pp/(dir)" "$pp/Development/Other" || return
 	$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
-	$delFile "$pd/(prog).lnk" || return
+	$rm "$pd/(prog).lnk" || return
 }
 
 TemplateFullInstall()
@@ -29,7 +29,7 @@ TemplateFullInstall()
 	echo "Updating icons..."
 	$mergeDir "$pp/(dir)" "$pp/Development/Other" || return
 	$mergeDir "$pp/(dir)" "$ao" || return
-	$delFile "$pd/(prog).lnk" || return
+	$rm "$pd/(prog).lnk" || return
 	$mergeDir --rename "$pp/(dir)" "$ao/(new name)" || return
 	$makeDir "$pp/Operating System/bash" || return
 	$makeShortcut "$installDir/bin/mintty.exe" "$pp/Operating System/bash" -a="-" || return
@@ -38,10 +38,9 @@ TemplateFullInstall()
 	$makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
 
 	echo "Updating registry..."	
-	local r='HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\Google Update'
 	$registry import "$install/AutoHotKey/setup/other/AutoHotkey-${architecture}.reg" || return
-	$registry 32 set "$r\\DefaultFileOpenLocation" REG_EXPAND_SZ "$c" || return
-	$registry 32 delete "$r\\DefaultFileOpenLocation" || return
+	$registry set "HKCU/SOFTWARE/Foo/File" REG_EXPAND_SZ "$(utw "$file")" || return
+	$registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe
 
 	echo "Updating services..."
 	service manual "Stereo Service"
@@ -100,7 +99,7 @@ cdCommand()
 
 installCommand()
 {
-	! IsElevated && sudo mintty -h always "$0" "${originalArgs[@]}"
+	! IsElevated && { sudo mintty -h always "$0" "${originalArgs[@]}"; return; }
 	InstallInit || return
 	InstallApps "${apps[@]}" || return
 }
@@ -113,6 +112,7 @@ InstallApps()
 		$installFunction || return
 		(( $# != 0 )) && pause
 	done
+	return 0
 }
 
 GetInstallFunction()
@@ -128,16 +128,17 @@ InstallInit()
 
 	local test #="echo "
 	cp="${test}FileCommand cp"
-	delFile="${test}rm -f"
-	delDir="${test}rm -fr"
+	hide="${test}FileCommand hide"
 	makeDir="${test}mkdir --parents"
 	makeLink="${test}MakeLink --suppress"
 	makeShortcut="${test}MakeShortcut"
 	mergeDir="${test}MergeDir --suppress --parents"
 	mv="${test}FileCommand mv"
-	ren="${test}FileCommand ren"
 	registry="${test}registry"
-
+	ren="${test}FileCommand ren"
+	rm="${test}rm -f"
+	rmd="${test}rm -fr"
+	
 	rc="robocopy"
 	rcOptsRegular=( /E /V /R:100 /W:2 )
 	rcOptsMir=( "${rcOptsRegular[@]}" /mir)
@@ -218,7 +219,7 @@ PrepareInstallDir()
 
 	if [[ -d "$installDir" ]]; then
 		ask "Do you want to delete the existing installation in \"$(GetName "$installDir")\"?" -dr n || return
-		$delDir "$installDir" || return
+		$rmd "$installDir" || return
 	fi
 
 	$makeDir "$installDir" || return
@@ -235,8 +236,7 @@ bootstrap()
 	ScriptEval SetVar SEE_MASK_NOZONECHECKS 1 || return
 
 	echo "Installing..."
-	inst dirs cygwin bash AutoHotKey WinSplit sublime BeyondCompare pGina || return
-	inst core || return
+	inst dirs cygwin bash AutoHotKey WinSplit sublime BeyondCompare pGina SysInternals ssh || return
 }
 
 core()
@@ -247,7 +247,7 @@ core()
 	echo "Installing common applications..."
 	inst WindowsSetup WindowsIcons VirtualCloneDrive || return
 
-	local common="DropBox EverNote Sonos Chrome"
+	local common="DropBox EverNote Sonos Chrome BrowserHomePage"
 	case "$COMPUTERNAME" in
 		oversoul) inst $common office365 nVidia || return;;
 		minime) inst $common office365 || return;;
@@ -255,36 +255,180 @@ core()
 	esac
 }
 
+CygwinInstall()
+{
+	printf "**************************************************\n* Cygwin - POSIX environment for Windows\n**************************************************\n"
+	local installDir="$P/Cygwin"
+
+	# cleanup
+	cygwin cleanup || return
+
+	# icons and registry
+	if file=$(FindPublicDoc "data/install/Cygwin/setup"); then
+
+		echo "Copying files..."
+		cp "$file/Command Prompt.ico" "$installDir/etc" || return
+
+		echo "Updating registry..."
+		$registry import "$file/setup $architecture.reg" || return
+
+	fi
+
+	# Variables
+	if ask "Do you want to update variables?"; then
+		ScriptEval SetVar --system --path PATH "$installDir/bin" || return
+		ScriptEval SetVar --system --path PATH "$_PublicBin" || return
+		ScriptEval SetVar --system --path PATH "$_PublicBin/win" || return
+		ScriptEval SetVar --path PATH "$_UserBin" || return
+		ScriptEval SetVar --system CYGWIN "" || return # nodosfilewarning
+	fi
+
+	echo "Updating icons..."
+	$makeShortcut "$installDir/bin/mintty.exe" "$pp/Operating System/bash" -a="-" || return
+	$makeShortcut "$_PublicBin/run.sh" "$psm/Programs/Startup/startup" -a "startup" -d "Start applications" || return
+
+	# Configuration files
+	if ask "Edit configuration files?"; then
+
+		echo "- paste text before interactive login"
+		! IsInstalled sublime && { VimHelp; pause; }
+		clipw $'\n# Wiggin
+[[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
+[[ -f "$USERS/Public/Documents/data/bin/bash.bashrc" ]] && . "$USERS/Public/Documents/data/bin/bash.bashrc"\n\n'
+		TextEdit --wait "/etc/bash.bashrc" 
+
+	fi
+
+	# set home directory in /etc/passwd
+	if grep ":/home" /etc/passwd > /dev/null; then
+		echo "Updateing home directory locations..."
+		local escapedUsers="${_data//\//\/}\/users"
+		cp /etc/passwd /etc/passwd.bak
+		sed 's/:\/home/:'"$escapedUsers"'/g' < /etc/passwd.bak > /etc/passwd
+		HOME="$_data/users/$USERNAME"
+	fi
+
+	# Add group - domain user's group not in /etc/group by default
+	echo "Adding user's group to /etc/group..."
+	local group="$(mkgroup -c)"
+	! grep "$group" /etc/group > /dev/null && echo "$group" >> /etc/group
+
+	# ssh
+	$hide ~/.ssh || return
+	chmod 700 ~/.ssh/id_dsa || return
+
+	# cleanup
+	$rmd "/home"
+}
+
+BashInstall()
+{
+	printf "**************************************************\n* Bash - Bourne Again Shell\n**************************************************\n"
+
+	printf "Configuring bash..."
+
+	# home directory links
+	local files=( .bashrc .bash_profile .bash_logout .dialogrc .gitconfig .lessfilter .inputrc .minttyrc )
+	for file in "${files[@]}"; do
+		$makeLink --symbolic --hide "$_UserBin/$file" "$_UserHome/$file" || return
+	done
+
+	# windows sytem home directory links (for Windows program that require Windows links, not a POSIX .lnk link)
+	files=( .gitconfig )
+	for file in "${files[@]}"; do
+		$makeLink --symbolic --hide --windows --absolute "$_UserBin/$file" "$_UserSysHome/$file" || return
+	done
+	
+	files=( .bash_history .lesshst )
+	for file in "${files[@]}"; do
+		touch "$_UserHome/$file" || return
+		attrib +h "$(utw "$_UserHome/$file")" || return
+	done
+
+	echo done
+}
+
+SshInstall()
+{
+	printf "**************************************************\n* SSH - Secure Shell\n**************************************************\n"
+	
+	sshHome="$uhome/.ssh"
+	sshCloudHome="$_CloudDocuments/data/.ssh"
+
+	echo Creating data directory...
+	$makeDir "$sshHome" && $hide +h "$sshHome" || return
+
+	echo "Updating firewall..."
+	firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/Cygwin/usr/sbin/sshd.exe")" || return
+
+	echot "\
+Configuring SSH...
+- privilege separation=yes, new local account=yes, install sshd as a service=yes, 
+  value of CYGWIN for the daemon=ntsec, use a diferent account name=no, 
+  create privileged account=yes, password=<administrator>
+- issues: service delete sshd; chmod -R 777 /var"
+	ssh-host-config && service start sshd || return
+	pause
+}
+
 IntelCore()
 {
 	printf "**************************************************\n* Intel Core\n**************************************************\n"
  
 	echo "Installing Applications..."	
-	inst IntelIcons IntelCleanup VisionApp || return
+	inst IntelCleanup VisionApp || return
 }
 
 IntelCleanup()
 {
-	echo "IntelCleanup: TODO"
+	ask 'Cleanup icons?' && { IntelIcons || return; }
+
+	if ask 'Cleanup programs (close Outlook if hangs)?'; then
+		printf "Uninstalling..."
+	 	printf "WinZip 15.5..."; product uninstall {CD95F661-A5C4-44F5-A6AA-ECDD91C240C3} > /dev/null
+	 	printf "WinZip 17.5..."; product uninstall {CD95F661-A5C4-44F5-A6AA-ECDD91C240DB} > /dev/null
+	 	printf "Adobe Reader 9.5.4..."; product uninstall {AC76BA86-7AD7-1033-7B44-A95000000001} > /dev/null
+	 	echo done
+	fi
+
+	if ask 'Cleanup file system?'; then
+		$rmd "$_sys/APPS" "$_sys/Drivers" "$_sys/Intel/Logs" "$_sys/Intel/Logs" \
+			"$_sys/PreDelivery_Automation" "$uhome/Roaming" "$udoc/Add-in Express" || return
+		$rm "/cygdrive/c/build.ini" "/cygdrive/c/Regionalization.xml"
+		$hide "/cygdrive/c/Quarantine" "/cygdrive/c/Intel" "/cygdrive/c/OpalStatus.efi"				
+	fi
+
+	if ask 'Cleanup startup programs?'; then
+		$registry 32 delete "run/AgentUiRunKey" # "C:\Program Files (x86)\Autonomy\Connected BackupPC\Agent.exe" -ni -sss -e http://localhost:16386/
+		$registry 32 delete "run/McAfeeUpdaterUI"
+		$registry 32 delete "run/ShStatEXE"
+		$registry 32 delete "run/SunJavaUpdateSched"
+		$registry 32 delete "run/Cisco AnyConnect Secure Mobility Agent for Windows" # "C:\Program Files (x86)\Cisco\Cisco AnyConnect Secure Mobility Client\vpnui.exe" -autolaunched
+		$registry delete "run/ErmTray" # "C:/Program Files/Intel/Security/ERM/Win64/ErmTray.exe"
+		$registry delete "run/McAfee Host Intrusion Prevention Tray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe
+		$registry delete "urun/test"
+		$rm "$up/Startup/Send to OneNote.lnk" || return
+	fi
 }
 
 IntelIcons()
 {
+	printf "Updating Intel icons..."
 	! intel IsIntelHost && return 0
 
 	local d="$pp/Operating System/Other/Intel"; $makeDir "$d/Other" || return
 	$mergeDir --rename "$pp/Intel" "$d" || return
 	$mergeDir --rename "$up/Intel" "$d" || return
 
-	$delFile "$pd/AddaPrinter.lnk" || return
-	$delFile "$pp/Adobe Reader 9.lnk" || return
-	$delFile "$pd/Adobe Reader 9.lnk" || return
-	$delFile "$pd/AnyConnect"*.lnk || return
-	$delFile "$pd/Connected BackupPC.lnk" || return
-	$delFile "$pd/Intel Security Checker.lnk" || return
-	$delFile "$pd/Intel Software Market.lnk" || return
-	$delFile "$pp/Intel Software Market.lnk" || return
-	$delFile "$ud/WiFi Health Advisor.lnk" || return
+	$rm "$pd/AddaPrinter.lnk" || return
+	$rm "$pp/Adobe Reader 9.lnk" || return
+	$rm "$pd/Adobe Reader 9.lnk" || return
+	$rm "$pd/AnyConnect"*.lnk || return
+	$rm "$pd/Connected BackupPC.lnk" || return
+	$rm "$pd/Intel Security Checker.lnk" || return
+	$rm "$pd/Intel Software Market.lnk" || return
+	$rm "$pp/Intel Software Market.lnk" || return
+	$rm "$ud/WiFi Health Advisor.lnk" || return
 
 	$mergeDir "$pp/Autonomy" "$pp/Operating System/Other" || return
 	$mergeDir "$up/Cisco" "$pp/Operating System/Other" || return
@@ -301,6 +445,9 @@ IntelIcons()
 	$mv "$pd/Windows 8 Training.lnk" "$pp/Operating System/Other/Intel" || return
 
 	$mv "$psm/Intel Security Checker.lnk" "$pp/Operating System/Other/Intel" || return
+
+	echo "done"
+	return
 }
 
 DevCore()
@@ -386,98 +533,6 @@ dirs()
 	$makeDir "$_PublicDocuments/drop"
 }
 
-BashInstall()
-{
-	printf "**************************************************\n* Bash - Bourne Again Shell\n**************************************************\n"
-
-	printf "Configuring bash..."
-
-	# home directory links
-	local files=( .bashrc .bash_profile .bash_logout .dialogrc .gitconfig .lessfilter .inputrc .minttyrc )
-	for file in "${files[@]}"; do
-		$makeLink --symbolic --hide "$_UserBin/$file" "$_UserHome/$file" || return
-	done
-
-	# windows sytem home directory links (for Windows program that require Windows links, not a POSIX .lnk link)
-	files=( .gitconfig )
-	for file in "${files[@]}"; do
-		$makeLink --symbolic --hide --windows --absolute "$_UserBin/$file" "$_UserSysHome/$file" || return
-	done
-	
-	files=( .bash_history .lesshst )
-	for file in "${files[@]}"; do
-		touch "$_UserHome/$file" || return
-		attrib +h "$(utw "$_UserHome/$file")" || return
-	done
-
-	echo done
-}
-
-CygwinInstall()
-{
-	printf "**************************************************\n* Cygwin - POSIX environment for Windows\n**************************************************\n"
-	local installDir="$P/Cygwin"
-
-	# cleanup
-	cygwin cleanup || return
-
-	# icons and registry
-	if file=$(FindPublicDoc "data/install/Cygwin/setup"); then
-
-		echo "Copying files..."
-		cp "$file/Command Prompt.ico" "$installDir/etc" || return
-
-		echo "Updating registry..."
-		$registry import "$file/setup $architecture.reg" || return
-
-	fi
-
-	# Variables
-	if ask "Do you want to update variables?"; then
-		ScriptEval SetVar --system --path PATH "$installDir/bin" || return
-		ScriptEval SetVar --system --path PATH "$_PublicBin" || return
-		ScriptEval SetVar --system --path PATH "$_PublicBin/win" || return
-		ScriptEval SetVar --path PATH "$_UserBin" || return
-		ScriptEval SetVar --system CYGWIN "" || return # nodosfilewarning
-	fi
-
-	echo "Updating icons..."
-	$makeShortcut "$installDir/bin/mintty.exe" "$pp/Operating System/bash" -a="-" || return
-	$makeShortcut "$_PublicBin/run.sh" "$psm/Programs/Startup/startup" -a "startup" -d "Start applications" || return
-
-	# Configuration files
-	if ask "Edit configuration files?"; then
-
-		echo "- paste text before interactive login"
-		! IsInstalled sublime && { VimHelp; pause; }
-		clipw $'\n# Wiggin
-[[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
-[[ -f "$USERS/Public/Documents/data/bin/bash.bashrc" ]] && . "$USERS/Public/Documents/data/bin/bash.bashrc"\n\n'
-		TextEdit --wait "/etc/bash.bashrc" 
-
-	fi
-
-	# set home directory in /etc/passwd
-	if grep ":/home" /etc/passwd > /dev/null; then
-		echo "Updateing home directory locations..."
-		local escapedUsers="${_data//\//\/}\/users"
-		cp /etc/passwd /etc/passwd.bak
-		sed 's/:\/home/:'"$escapedUsers"'/g' < /etc/passwd.bak > /etc/passwd
-		HOME="$_data/users/$USERNAME"
-	fi
-
-	# Add group - domain user's group not in /etc/group by default
-	echo "Adding user's group to /etc/group..."
-	local group="$(mkgroup -c)"
-	! grep "$group" /etc/group > /dev/null && echo "$group" >> /etc/group
-
-	# ssh
-	chmod 700 ~/.ssh/id_dsa
-
-	# cleanup
-	$delDir "/home"
-}
-
 WinampInstall()
 {
 	printf "**************************************************\n* Winamp\n**************************************************\n"
@@ -486,7 +541,7 @@ WinampInstall()
 	echo "Updating icons..."
 	$mergeDir "$pp/Winamp" "$ao" || return
 	$mergeDir --rename "$up/Winamp Detector Plug-in" "$ao/Winamp" || return
-	$delFile "$pd/Winamp.lnk" || return
+	$rm "$pd/Winamp.lnk" || return
 }
 
 ahk() { AutoHotKeyInstall; }
@@ -512,7 +567,7 @@ AutoHotKeyInstall()
 	sudo --standard AutoHotKey startup
 }
 
-WinSplit()
+WinSplitInstall()
 {
 	printf "**************************************************\n* WinSplit\n**************************************************\n"
 	run "Shareware/WinSplit Revolution/image.zip" "$P32/WinSplit Revolution" || return
@@ -581,11 +636,11 @@ WindowsIcons()
 	printf "**************************************************\n* Windows Icons\n**************************************************\n"
 
 	echo "Cleaning up unneeded icons..."
-	#$delFile "$up/TBD.lnk" || return
+	#$rm "$up/TBD.lnk" || return
 	
 	echo "Updating user documents..."
-	[[ -d"$udoc/Scanned Documents" ]] && m$akeLink --merge --hide "$udata/scans" "$udoc/Scanned Documents"
-	[[ -d"$udoc/Fax" ]] && MakeLink --merge --hide "$udata/fax" "$udoc/Fax"
+	[[ -d"$udoc/Scanned Documents" ]] && $makeLink --merge --hide "$udata/scans" "$udoc/Scanned Documents"
+	[[ -d"$udoc/Fax" ]] && $makeLink --merge --hide "$udata/fax" "$udoc/Fax"
 
 	echo "Updating application icons..."
 	$mv "$pp/Desktop.lnk" "$pp/Applications" || return
@@ -595,7 +650,9 @@ WindowsIcons()
 	$mergeDir "$up/Accessibility" "$pp/Applications/Accessories" || return
 	$mergeDir "$pp/Accessibility" "$pp/Applications/Accessories" || return
 	$mv "$pp/Immersive Control Panel.lnk" "$pp/Applications/Accessories" || return
+	$mv "$pp/Bing Desktop/Bing Desktop.lnk" "$pp/Applications/Accessories" || return
 	$mv "$pp/Windows Store.lnk" "$pp/Applications/Accessories" || return
+	$rmd "$pp/Bind Desktop"
 
 	echo "Updating operating system icons..."
 	$mergeDir --rename "$pp/Microsoft Mouse and Keyboard Center" "$pp/Operating System/Mouse and Keyboard Center"|| return
@@ -700,8 +757,8 @@ DropBoxInstall()
 	# Keep icons in user programs or else may run incorrect version that another user has installed
 	$makeDir "$up/Operating System/Other" || return
 	$mergeDir "$up/Dropbox" "$up/Operating System/Other" || return
-	$delFile "$up/Startup/Dropbox.lnk" || return
-	$delFile "$ud/Dropbox.lnk" || return
+	$rm "$up/Startup/Dropbox.lnk" || return
+	$rm "$ud/Dropbox.lnk" || return
 
 	if [[ "$_data" != "/cygdrive/c" ]]; then
 		$makeShortcut "$_UserHome/Dropbox" "$_UserSysHome/Dropbox.lnk" || return
@@ -886,7 +943,7 @@ VirtualCloneDriveInstall()
 
 	echo "Updating icons..."
 	$mergeDir "$pp/Elaborate Bytes" "$pp/Operating System/Other" || return
-	$delFile "$pd/Virtual CloneDrive.lnk" || return
+	$rm "$pd/Virtual CloneDrive.lnk" || return
 
 	echot "\
 - Settings
@@ -911,14 +968,15 @@ BeyondCompareInstall()
 
 	echo "Updating icons..."
 	$ren "$pp/Beyond Compare 3/Beyond Compare 3.lnk" "$pp/Applications/Beyond Compare.lnk" || return
-	$delFile "$pd/Beyond Compare 3.lnk" || return
-	$delDir "$pp/Beyond Compare 3" || return
+	$rm "$pd/Beyond Compare 3.lnk" || return
+	$rmd "$pp/Beyond Compare 3" || return
+
+	echo "- Enter Key..., check Register for all users"
+	BeyondCompare start
+	pause
 
 	echo "Restoring the default profile..."
 	BeyondCompare profile restore default || return
-
-	echo "- Help, Enter Key..., check Register for all users, paste key"
-	sudo --standard BeyondCompare start
 	pause
 }
 
@@ -947,10 +1005,10 @@ EverNoteInstall()
 
 	echo "Updating icons..."
 	$mergeDir "$pp/Evernote" "$ao" || return
-	$delFile "$pd/Evernote.lnk" || return
-	$delFile "$ud/Evernote.lnk" || return
-	$delFile "$pp/Startup/EvernoteClipper.lnk" || return
-	$delFile "$up/Startup/EvernoteClipper.lnk" || return
+	$rm "$pd/Evernote.lnk" || return
+	$rm "$ud/Evernote.lnk" || return
+	$rm "$pp/Startup/EvernoteClipper.lnk" || return
+	$rm "$up/Startup/EvernoteClipper.lnk" || return
 }
 
 SonosInstall()
@@ -961,7 +1019,7 @@ SonosInstall()
 	run "Sonos/setup/SonosDesktopController41.exe" || return
 
 	echo "Updating icons..."
-	$delFile "$pd/Sonos.lnk" || return
+	$rm "$pd/Sonos.lnk" || return
 	$mergeDir "$pp/Sonos" "$pp/Media/Other" || return
 }
 
@@ -1001,9 +1059,9 @@ SilverlightIcons()
 	$ren "$pp/Microsoft Silverlight 4 SDK/Welcome.lnk" "$base/Silverlight 4 SDK Welcome.lnk"
 	$ren "$pp/Microsoft Silverlight 5 SDK/Welcome.lnk" "$base/Silverlight 5 SDK Welcome.lnk"
 	$mergeDir --rename "$pp/Microsoft Silverlight 5 Toolkit December 2011" "$base/Silverlight 5 Toolkit"
-	$delDir "$pp/Microsoft Silverlight 4 SDK"
-	$delDir "$pp/Microsoft Silverlight 5 SDK"
-	$delDir "$pp/Microsoft Silverlight"
+	$rmd "$pp/Microsoft Silverlight 4 SDK"
+	$rmd "$pp/Microsoft Silverlight 5 SDK"
+	$rmd "$pp/Microsoft Silverlight"
 }
 
 cctray() { CruiseControlTrayInstall; }
@@ -1017,8 +1075,8 @@ CruiseControlTrayInstall()
 
 	echo "Updating icons..."
 	$mergeDir "$up/CCTray" "$pp/Development/Other" || return
-	$delFile "$ud/CCTray.lnk" || return
-	$delFile "$up/Startup/CCTray.lnk" || return
+	$rm "$ud/CCTray.lnk" || return
+	$rm "$up/Startup/CCTray.lnk" || return
 
 	echo "Restoring the default profile..."
 	CruiseControlTray profile restore default || return
@@ -1035,10 +1093,10 @@ ChromeInstall()
 	run "Google/Chrome/setup/ChromeStandaloneSetup.exe" || return
 
 	echo "Updating icons..."
-	$delFile "$ud/Google Chrome.lnk"
-	$delFile "$pd/Google Chrome.lnk"
-	$delFile "$ud/Chrome App Launcher.lnk"
-	$delFile "$ud/Google Chrome Canary Build.lnk"
+	$rm "$ud/Google Chrome.lnk"
+	$rm "$pd/Google Chrome.lnk"
+	$rm "$ud/Chrome App Launcher.lnk"
+	$rm "$ud/Google Chrome Canary Build.lnk"
 	$mergeDir --rename "$pp/Google Chrome" "$ao/Chrome"
 	$mergeDir --rename "$up/Google Chrome" "$ao/Chrome"
 	$mergeDir --rename "$up/Google Chrome Canary Build" "$ao/Chrome Beta"
@@ -1177,7 +1235,7 @@ Note: Logs are in \"$P/Microsoft SQL Server/110/Setup Bootstrap/Log\"
 SsLogCleanup()
 {
 	echo "Removing log files..."
-	DelDir --ask "$P/Microsoft SQL Server/110/Setup Bootstrap/Log" || return
+	rmd --ask "$P/Microsoft SQL Server/110/Setup Bootstrap/Log" || return
 }
 
 SsServerConfig()
@@ -1295,8 +1353,10 @@ VisionAppInstall()
 	run "VisionApp/Remote Desktop/setup/vRD2011inclPatch2.exe" || return
 
 	echo "Updating icons..."
-	$delFile "$pd/visionapp remote Desktop 2011.lnk"
-	$mergeDir "$pp/visionapp remote Desktop 2011" "$pp/Operating System/Other"
+	$rm "$pd/visionapp remote Desktop 2011.lnk" || return
+	$mergeDir "$pp/visionapp remote Desktop 2011" "$pp/Operating System/Other" || return
+	$mergeDir "$pp/ASG-Remote Desktop 2012" "$pp/Operating System/Other" || return
+	$rm "ASG-Remote Desktop 2012.lnk" || return
 
 	echo "Configure..."
 
@@ -1322,6 +1382,14 @@ VisionAppInstall()
 	pause
 }
 
+Office365Install()
+{
+	printf "**************************************************\n* Office 365\n**************************************************\n"
+	echo "- How would you like your office to look=Clouds"
+	run "Microsoft/Office/setup/office/en_office_365_${architecture}.exe"
+	OfficeFinal || return
+}
+
 OfficeFinal()
 {
 	. office.sh || { EchoErr "inst: Office is not installed"; return 1; }
@@ -1344,7 +1412,7 @@ OfficeIcons()
 
 	$mergeDir --rename "$pp/Microsoft Office 2013" "$p" || return
 	$mergeDir --rename "$p/Office 2013 Tools" "$p/tools" || return
-	$delFile "$up/Startup/Send to OneNote.lnk" || return
+	$rm "$up/Startup/Send to OneNote.lnk" || return
 	for f in "$p/"*2013.lnk; do $ren "$f" "${f/ 2013/}" || return; done
 	for f in "$p/tools/"*2013*.lnk; do $ren "$f" "${f/ 2013/}" || return; done
 }
@@ -1373,8 +1441,8 @@ nVidiaInstall()
 
 	echo "Updating icons..."
 	$mergeDir --rename "$pp/NVIDIA Corporation" "$pp/Operating System/Other/NVIDIA" || return
-	$delFile "$pd/GeForce Experience.lnk" || return
-	$delFile "$pd/3D Vision Photo Viewer.lnk" || return
+	$rm "$pd/GeForce Experience.lnk" || return
+	$rm "$pd/3D Vision Photo Viewer.lnk" || return
 }
 
 TortoiseGitInstall()
@@ -1393,5 +1461,109 @@ TortoiseGitInstall()
 - Settings, Git, Credential, Credential helper=wincred - all Windows uses
   - do a clone with HTTPS and ensure second time no credential prompt"
 }
+
+BrowserHomePage()
+{
+	local file="$udata/replicate/default.htm"
+	local url="file:///$(utw "$file")"
+
+	[[ ! -f "$file" ]] && { EchoErr "inst: cannot access browser home page file \`$file\`: No such file"; return 1; }
+
+ 	# Chrome
+	$makeLink "$udata/replicate" "$APPDATA/replicate" || return
+
+	# Internet Explorer
+	echo "- Tools, Internet Options, Use Current"
+	InternetExplorer start "$url"
+	pause
+
+	# Firefox
+	if IsInstalled firefox; then
+		echo "Setting Firefox home page..."
+		echo "- Close other tabs"
+		echo "- Tools, Options, Main, Use Current Page"
+		firefox "$url"
+		pause
+	fi
+}
+
+sysInternalsInstall()
+{
+	printf "**************************************************\n* SysInternals Tools\n**************************************************\n"
+	registry import "$pdata/setup/SysInternalsEula.reg"
+}
+
+iTunesInstall()
+{
+	printf "**************************************************\n* iTunes\n**************************************************\n"
+	echo "- Uncheck Use iTunes as the default player for audio files"
+	echo "- Uncheck Automatically update iTunes and other Apple software"
+	
+	# Download: http://itunes.com
+	# Setup: VBScript is not installed error: http://coderjournal.com/2007/03/apple-wants-vista-to-run-un-secured-to-install-itunes/
+	# AirPrint: http://discussions.apple.com/thread.jspa?threadID=2659544 or http://ipadhelp.com/ipad-help/how-to-enable-airprint-for-windows-and-use-any-printer/
+	# Installs:
+	#   - iTunesHelper - optional, for quick launch
+	#   - Shell Extension: iTunes
+	#   - Task Scheduler: AppleSoftwareUpdateApple
+	# -   Services: Apple Mobile Device (required), iPod Service (recognize iPods), Bonjour Service (sharing), AirPrint
+	run "Apple/iTunes/setup/iTunes v11.1.1.0 ${architecture}.exe" || return
+
+	echo "Updating icons..."
+	$rm "$pd/iTunes.lnk" || return
+	$mergeDir "$pp/iTunes" "$ao" || return
+
+	echo "Updating registry..."	
+	$registry 32 delete "run/iTunesHelper" || return 	# "C:/Program Files/iTunes/iTunesHelper.exe"
+	$registry 32 delete "run/APSDaemon" || return 		# "C:/Program Files (x86)/Common Files/Apple/Apple Application Support/APSDaemon.exe"
+
+	echo "Updating services..."
+	service auto "iPod Service"
+
+	echo "Restoring the default profile..."
+	iTunes profile restore default || return
+
+	QuickTimePost || return
+	AppleCore || return
+
+	echot "\
+	Use alt to open menu items
+	- iTunes Store, Sign In
+	- Store, Authorize Computer...
+	- Edit, Preferences
+		- General
+	    - Library Name=<first name>'s Library
+	    - Sources, check all
+	    - Import Settings
+	      - Import Using=MP3 Encoder
+	      - Setting=Higer Quality
+		- Store, uncheck Automatic Downloads, Music, Apps, Books
+		- Advanced
+	    - iTunes Music folder location=Music/My Music or (Music ROO) Music/Public Music
+	    - uncheck Keep iTunes Music folder organized
+	    - uncheck Copy files to iTunes Music folder when adding to library
+	    - check Enable full keyboard navigation
+	- File, Add folder to library..., Music/My Music or (Music ROO) Music/Public Music
+	- Connect iOS device
+	  - (optional) Music, check Selected playlists, artists, and genres, check Best or 5 Star
+	  - (optional) Info
+	    - Check Sync Contacts with Outlook
+	    - (one time) check Sync Mail Accounts from Outlook
+	    - Check Sync notes with Outlook
+	- Notes: Ctrl-t visualizer, ctrl-f full screen"
+	sudo --standard iTunes start || return
+	pause
+}
+
+QuickTimePost()
+{
+	registry 32 delete "run/QuickTime Task" || return # "C:/Program Files/QuickTime/qttask.exe" -atboottime
+
+	echo "Updating icons..."
+	$rm "$pd/QuickTime Player.lnk"
+	$mv "$pp/Apple Software Update.lnk" "$ao/Apple
+
+}
+
 
 args "$@"; ${command}Command "${args[@]}";

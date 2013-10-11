@@ -1,0 +1,69 @@
+#!/bin/bash
+. app.sh || exit
+
+usage() {	echot "\
+usage: InternetExplorer [32|64] [start|startup|close|restart](start)
+	connections|clear|ClearHistory|links|properties|RestoreConnectionsTab"; exit $1; }
+
+args()
+{
+	unset bits command help
+	while (( $# != 0 )); do
+		case "$1" in
+			32|64) bits="$1";;
+			--help|-h) help="--help";;
+			IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";; RestoreConnectionsTab) command="RestoreConnectionsTab";; ClearHistory) command="ClearHistory";;
+			*)
+				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
+				[[ "${command}" == @(start|startup|profile|service) ]] && break
+				UnknownOption "$1"
+		esac
+		shift
+	done
+	[[ ! $command ]] && { command="start"; }
+	[[ $help ]] && IsFunction "${command}Usage" && { ${command}Usage || usage 0; }
+	args=( "$@" )
+}
+
+init()
+{ 
+	program32="$P32/Internet Explorer/IExplore.exe"
+	program64="$P/Internet Explorer/IExplore.exe"
+	program="$program64"; (( bits == 32 )) && program="$program32"
+	return 0
+}
+
+run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
+cdCommand() { echo "$cd"; }
+closeCommand() { ! IsRunningCommand && return 0; ProcessClose "$program"; } # task close|CloseKill [--wait] [--title "$title"] "$program"; ProcessKill "$program"; SendKeys "$title" "!FX"; 
+IsInstalledCommand() { [[ -f "$program" ]]; }
+IsRunningCommand() { IsTaskRunning "$program"; } # task IsRunning --title "$title" "$program"; WinExists "$title";
+profileCommand() {	profile --app "BeyondCompare" --method "<dir|exe|registry key|$program>" --files "*.ini *.xml" --save-extension "bcpkg" "$@" || return; }
+restartCommand() { closeCommand && startCommand; }
+
+clearCommand() { start RunDll32 InetCpl.cpl,ClearMyTracksByProcess 8; }
+ClearHistoryCommand() { start RunDll32 InetCpl.cpl,ClearMyTracksByProcess 1; }
+connectionsCommand() { start RunDll32 shell32.dll,Control_RunDLL inetcpl.cpl,,4; }
+propertiesCommand() { start inetcpl.cpl; }
+
+startCommand()
+{
+	! IsInstalledCommand && return 1; IsRunningCommand && return 0
+	task start --duplicate "$program" "$@"
+}
+
+RestoreConnectionsTabCommand()
+{
+	# Restore Tools, Options, Connections tab.  If this does not work, try removing the key under HCKU and look at the group policy settings
+	# reference: http://www.howtogeek.com/forum/topic/connections-tab-missing-in-internet-options
+	ask "Delete the ConnectionsTab key?" && 
+		registry delete "HKEY_LOCAL_MACHINE\Software\Policies\Microsoft\Internet Explorer\Control Panel\ConnectionsTab"
+}
+
+linksCommand()
+{
+	ScriptEval os FindDirs || return
+	echo "$_UserSysHome/Favorites/Links"
+}
+
+run "$@"

@@ -6,7 +6,6 @@ usage() {	echot "usage: SqlServer [2012|2008R2|2008] [COMMAND](studio)
   cd [data]|studio|cmd|log config|RsConfig
   db backup|restore [/?]
   ExecuteSql [-S server_name[\instance_name]] [-d database] [-U user] [-P password] [-E] [file_name[,file_name]] 
-  GetDataDir - return the data directory in DataDir and DataDirUnc
   profile dir|SaveDir|backup|restore [<profile name>|default](latest)
   RsConfig - Reporting services configuration
 
@@ -37,7 +36,6 @@ usage: restore [/?] BakFile [server](localhost) [RestoreSql](Database Restore.sq
 args()
 {
 	unset ad command help host hostArg noHostCheck version
-	host="${COMPUTERNAME,,}"
 	sqlVersions=( 2012 2008r2 2008 )
 	while (( $# != 0 )); do
 		case "$1" in
@@ -45,16 +43,18 @@ args()
 			--host|-h) host="$2"; hostArg="--host $host"; shift;;
 			--NoHostCheck|-n) noHostCheck="--NoHostCheck";;
 			--help) help="--help";;
-			ExecuteSql) command="ExecuteSql";; GetDataDir) command="GetDataDir";; RsConfig) command="RsConfig";;
+			ExecuteSql) command="ExecuteSql";; RsConfig) command="RsConfig";;
 			*)
 				! IsOption "$1" && IsInArray "$1" sqlVersions && { version="$1"; shift; continue; }
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
+				[[ "$command" == @(cd) ]] && break
 				break
 		esac
 		shift
 	done
+
 	[[ ! $command ]] && { command="studio"; }
-	[[ $help ]] && IsFunction "${command}Usage" && { ${command}Usage || usage 0; }
+	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage || usage 0; }
 	args=( "$@" )
 }
 
@@ -79,7 +79,7 @@ init()
 	allServices=( SqlBrowser MsDtsServer${versionNum}0 SqlWriter 	
 		"SQL Server Distributed Replay Controller" "SQL Server Distributed Replay Client" )
 	configManager="$WINDIR/system32/SQLServerManager${versionNum}.msc"
-	projectDirs=( "$USERS/$USERNAME/Documents/data/sql" )
+	projectDir="$USERS/$USERNAME/Documents/data/sql"
 	rsConfig="$P32/Microsoft SQL Server/${versionNum}0/Tools/Binn/rsConfigTool.exe"
 	sqlCmd="$P/Microsoft SQL Server/${versionNum}0/Tools/Binn/sqlCmd.EXE"
 	sqlStudio="$P32/Microsoft SQL Server/${versionNum}0/Tools/Binn/ManagementStudio/Ssms.exe"
@@ -95,9 +95,21 @@ init()
 
 run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
 
+cdCommand()
+{
+	[[ $# > 0 && ( $# != 1 || "$1" != "data" ) ]] && usage 1
+
+	if [[ "$1" == "data" ]]; then
+		GetDataDir || { EchoErr "SqlServer: unable to locate the data directory${host:+ on $host}"; return 1; }
+		echo "$dataDir"
+	else
+		echo "$projectDir"	
+	fi
+}
+
 serviceCommand()
 {
-	unset command all instance services
+	local command all instance services
 	while (( $# != 0 )); do
 		case "$1" in
 			--all|-a) all="--all";;
@@ -108,11 +120,11 @@ serviceCommand()
 		esac
 		shift
 	done
-
+	[[ ! $command ]] && { MissingOperand "service command"; }
 	CheckHost || return
 	GetInstance "$instance" || return
 	[[ $all ]] && services=( "${allInstanceServices[@]}" "${allServices[@]}" ) ||
-	 services=( "${instanceServices[@]}" )
+		services=( "${instanceServices[@]}" )
 	Service${command}Command "$@"
 }
 
@@ -130,7 +142,8 @@ DoServiceCommand()
 {
 	local startType
 
-	echo "SQL Server Service $command on ${host}${instanceDisplayName}:"
+	local description="${host}${instanceDisplayName}"
+	echo "SQL Server Service $command${description:+on $description}:"
 
 	for service in "${services[@]}"; do
 		startType="$(service StartType "$service" $hostArg --NoHostCheck)" || continue
@@ -142,10 +155,10 @@ DoServiceCommand()
 CheckHost()
 {
 	if [[ ! $noHostCheck && $host && "$host" != @(|localhost|$COMPUTERNAME) ]]; then
-		! host available "%host" && { EchoErr "SqlServer: $host is not available"; return 1; }
+		! host available "$host" && { EchoErr "SqlServer: $host is not available"; return 1; }
 	fi
 	
-	if ! service exist MsSqlServer $hostArg --NoHostCheck; then
+	if ! service exist MsSqlServer $host --NoHostCheck; then
 		EchoErr "SqlServer: SQL Server is not installed on $host"
 		return 1
 	fi
@@ -158,11 +171,11 @@ GetInstance()
 
 	case "$name" in
 		"")
-			instanceDisplayName='\'
+			instanceDisplayName=''
 			instanceServices=( 'MSSQL$SQLEXPRESS' "MsSqlServer" )
 			allInstanceServices=( "${instanceServices[@]}" 'SQLAgent$SQLEXPRESS' "SQLSERVERAGENT" "MsSqlServerOLAPService" "ReportServer" "MSSQLFDLauncher" );;
 		default)
-			instanceDisplayName='\'
+			instanceDisplayName=''
 			instanceServices=( "MsSqlServer" "SQLSERVERAGENT" )
 			allInstanceServices=( "${instanceServices[@]}" "MsSqlServerOLAPService" "ReportServer" "MSSQLFDLauncher" );;
 		express)
@@ -174,6 +187,26 @@ GetInstance()
 			instanceServices=( 'MSSQL$MSSQLSERVER'"$name" )
 			allInstanceServices=( "${instanceServices[@]}" 'SQLAgent$MSSQLSERVER'"$name" 'MSOLAP$MS'"$name" 'ReportServer$MSSQLSERVER'"$name" 'MSSQLFDLauncher$MSSQLSERVER'"$name" );;
 	esac
+}
+
+GetDataDir()
+{
+	CheckHost || return
+	ScriptEval os FindDirs $host || return
+
+	dirs=(
+		"$_data/Program Files/Microsoft SQL Server/MSSQL11.MSSQLSERVER/MSSQL/Data"
+		"$_data/Program Files/Microsoft SQL Server/MSSQL10_50.MSSQLSERVER/MSSQL/Data"
+		"$_data/Program Files/Microsoft SQL Server/MSSQL10.MSSQLSERVER/MSSQL/Data"
+		"$_data/Program Files/Microsoft SQL Server/MSSQL.1/MSSQL/Data"
+		"$_data/Program Files/Microsoft SQL Server/MSSQL/Data"
+		)
+
+	for dataDir in "${dirs[@]}"; do
+		[[ -d "$dataDir" ]] && return 0
+	done
+
+	return 1
 }
 
 startCommand() { studioCommand; }

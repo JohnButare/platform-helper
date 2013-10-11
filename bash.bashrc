@@ -1,4 +1,5 @@
-# System-wide configuration for all users and public scripts, executed by /etc/bash.bashrc
+# $bin/bash.bashrc, system-wide login initialization for all users and public scripts, 
+# executed by /etc/bash.bashrc
 
 set -a
 LANG=en_US

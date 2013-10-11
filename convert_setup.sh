@@ -1,4 +1,5 @@
 # TODO: 
+# - migration to inst
 # - cleanup PATH - remove wbem, powershell
 # - enable remote desktop Automatically
 
@@ -17,9 +18,6 @@ echo *********************************
 
 REM Setup users folder
 account setup
-
-REM Create a link to the replicate folder for the browser home page  (Chrome, etc.)
-MakeLink "$UserData/replicate" "$AppData/replicate"
 
 echo *********************************
 echo * Setting console defaults

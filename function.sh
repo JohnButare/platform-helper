@@ -21,24 +21,41 @@ r() { [[ $# == 1 ]] && echo "$1" || eval $2="\"$1\""; } # result <value> <var> -
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
 IsShellScript() { file "$1" | egrep "shell script" >& /dev/null; }
 IsOption() { [[ "$1" =~ ^-.* ]]; }
-UnknownOption() {	EchoErr "$(ScriptName): unknown option $1"; EchoErr "Try \`$(ScriptName) --help\` for more information";	exit 1; }
-CheckCommand() {	IsFunction "${1,,}Command" && { command="${1,,}"; return 0; } ; EchoErr "$(ScriptName): unknown command $1"; EchoErr "Try \`$(ScriptName) --help\` for valid commands";	exit 1; } 
-CheckSubCommand() {	local sub="$1"; command="$2"; ProperCase "$sub" sub; ProperCase "$command" command; IsFunction "${sub}${command}Command" && { command="$command"; return 0; } ; EchoErr "$(ScriptName): unknown $1 command $2"; EchoErr "Try \`$(ScriptName) $1 --help\` for valid commands";	exit 1; } 
+UnknownOption() {	EchoErr "$(ScriptName): unknown option \`$1\`"; EchoErr "Try \`$(ScriptName) --help\` for more information";	exit 1; }
 MissingOperand() { EchoErr "$(ScriptName): missing $1 operand"; exit 1; }
 ElevationRequired() { IsElevated && return 0;	EchoErr "$(ScriptName): requires elevation"; exit 1; }
 
 IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
-
 IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
 GetFunction() { declare -f | egrep -i "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
 
 IsAlias() { type "-t $1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias
 GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}"; }
 
+CheckCommand() 
+{	
+	[[ ! $1 ]]  && MissingOperand "command"
+	IsFunction "${1,,}Command" && { command="${1,,}"; return 0; } ; 
+	EchoErr "$(ScriptName): unknown command \`$1\`"
+	EchoErr "Try \`$(ScriptName) --help\` for valid commands"
+	exit 1
+} 
+
+CheckSubCommand() 
+{	
+	local sub="$1"; command="$2"; 
+	[[ ! $command ]]  && MissingOperand "$sub command"
+	ProperCase "$sub" sub; ProperCase "$command" command; 
+	IsFunction "${sub}${command}Command" && { command="$command"; return 0; }
+	EchoErr "$(ScriptName): unknown $1 command \`$2\`"
+	EchoErr "Try \`$(ScriptName) $1 --help\` for valid commands"
+	exit 1
+} 
+
 ScriptName() { GetFilename $0; }
 ScriptDir() { echo "$(GetPath "$(FindInPath "$(wtu "$0")")")"; } # handle scripts started with partial paths or from Windows
-ScriptCd() { local dir="$("$@")" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned 
-ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b"
+ScriptCd() { local dir="$("$@")" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
+ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b", does not work with aliases
 
 ScriptReturn() # ScriptReturns [-s|--show] <var>...
 {
@@ -82,21 +99,25 @@ DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
 # MakeShortcut FILE LINK
 MakeShortcut() { [[ ! -e "$1" ]] && return; mkshortcut "$1" -n="$2" "${@:3}"; }
 
-# FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
+# FileCommand mv|cp|ren|hide SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
 FileCommand() 
 { 
-	local args command="$1" dir="${@: -1}" files=0
-	for arg in "${@:2:(($#-2))}"; do
+	local args command="$1" dir="${@: -1}" files=0 n
+	[[ "$command" == "hide" ]] && n=$(($#-1)) || n=$(($#-2))
+
+	for arg in "${@:2:$n}"; do
 		IsOption "$arg" && args+=( "$arg" )
 		[[ -e "$arg" ]] && { args+=( "$arg" ); (( ++files )); }
 	done
 	(( files == 0 )) && return 0
-	if [[ "$command" == "ren" ]]; then
-		mv "${args[@]}" "$dir"
-	else
-		[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing \`$dir\`: No such directory"; return 1; }
-		"$command" -t "$dir" "${args[@]}"
-	fi
+
+	case "$command" in
+		hide) for file in "${args[@]}"; do attrib +h "$(utw "$file")" || return; done;;
+		ren) mv "${args[@]}" "$dir";;
+		*)
+			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing \`$dir\`: No such directory"; return 1; }
+			"$command" -t "$dir" "${args[@]}";;
+	esac
 }
 
 # MoveAll SRC DEST - move all of the contents of SRC to DEST including hidden files and folders

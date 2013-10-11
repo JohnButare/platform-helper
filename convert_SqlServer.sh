@@ -46,31 +46,6 @@ return
 :CheckInstance [name]
 return $@if[ IsDir "$data/Program Files/Microsoft SQL Server/MSSQL$dataVersionNum.$name/MSSQL/Data" ,0,1]
 
-:GetDataDir
-
-gosub CheckHost
-if $_? != 0 return $_?
-
-dirs=^
-	"$data/Program Files/Microsoft SQL Server/MSSQL11.MSSQLSERVER/MSSQL/Data" ^
-	"$data/Program Files/Microsoft SQL Server/MSSQL10_50.MSSQLSERVER/MSSQL/Data" ^
-	"$data/Program Files/Microsoft SQL Server/MSSQL10.MSSQLSERVER/MSSQL/Data" ^
-	"$data/Program Files/Microsoft SQL Server/MSSQL.1/MSSQL/Data" ^
-	"$data/Program Files/Microsoft SQL Server/MSSQL/Data"
-
-result=1
-for dir in ($dirs) (
-	DataDir=$@UnQuote[$dir]
-	DataDirUnc=//$host/$@replace[:,$,$DataDir]
-	
-	if [[ -d "$DataDir"; then
-		EndLocal /d DataDir DataDirUnc
-		result=0
-		LeaveFor
-	fi
-)
-return $result
-
 :ExecuteSql
 
 if IsFile "$sqlStudio"; then
@@ -275,25 +250,6 @@ gosub VerifysqlCmd
 if $_? != 0 return $_?
 
 "$sqlCmd" $$
-
-return
-
-:cd
-
-if "$1" == "data"; then
-	shift
-	gosub GetDataDir
-	if $_? == 0 cde "$DataDir"
-	return
-fi
-
-for dir in ($projectDirs) (
-	if [[ -d $@quote[$dir]; then
-		cde $@quote[$dir]
-		EndLocal /d
-		LeaveFor
-	fi
-)
 
 return
 
