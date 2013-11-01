@@ -88,9 +88,10 @@ FindDirsCommand()
 	ScriptReturn $show "${dirVars[@]}"
 }
 
-# TODO: leverage cygpath -F? http://www.installmate.com/support/im9/using/symbols/functions/csidls.htm
 GetDirs()
 {	
+	# Alternatively use leverage cygpath -F, see http://www.installmate.com/support/im9/using/symbols/functions/csidls.htm
+
 	FindDirsInit || return
 
 	if [[ ! $host ]]; then
@@ -99,27 +100,27 @@ GetDirs()
 	elif [[ "$host" == "butare.net" ]]; then # nas external
 		_sys=""
 		_data=""
-		_PublicHome="//$host@ssl@5006/public"
+		_PublicHome="//$host@ssl@5006/DavWWWRoot/public"
 		SetCommonPublicDirs
 		
-		_UserHome="//$host@ssl@5006/home"
+		_UserHome="//$host@ssl@5006/DavWWWRoot/home"
 		_UserSysHome="$_UserHome"
 		_UserDocuments="$_UserHome/documents"
 		SetCommonUserDirs
 	
-	elif [[ -d "//$host/c$" ]]; then # Windows hosts
+	elif [[ "$host" != @(nas) && -d "//$host/c$" ]]; then # Windows hosts
 		_sys="//$host/c$"
 		_data="//$host/c$"
 		[[ -d "//$host/d$/Users" ]] && _data="//$host/d$"
 		FindDirsWorker || return
 
-	elif [[ -d "//$host/public" ]]; then # nas internal
+	elif [[ "$host" == @(nas) || -d "//$host/public" ]]; then # nas internal
 		_sys=""
 		_data=""
 		_PublicHome="//$host/public"
 		SetCommonPublicDirs
 		
-		if [[ -d "//$host/home" ]]; then
+		if [[ "$host" == @(nas) || -d "//$host/home" ]]; then
 			_UserFound="$_user"
 			_UserHome="//$host/home"
 			_UserSysHome="$_UserHome"

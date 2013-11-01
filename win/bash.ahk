@@ -7,6 +7,7 @@ BashInit()
 	global
 
 	EnvGet SHELL,SHELL
+	EnvGet TMP,TMP
 
 	bash = mintty.exe
 	; if AutoHotkey was not started from a bash process, start it as a login shel

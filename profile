@@ -100,7 +100,7 @@ backupCommand()
 {
 	local src="$profileDir" dest="$profileSaveDir" file
 
-	if [[ $profileName ]]; then
+	if [[ $profile ]]; then
 		file="$profile.$saveExtension"
 	else
 		file="${COMPUTERNAME,,} $app Profile $(GetTimeStamp).$saveExtension"
@@ -119,15 +119,13 @@ backupCommand()
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$dest/$file")"
 		echo "Export the profile to the filename contained in the clipboard"
-		if ask "Start $(GetFilename "$profileProgram")"; then
-			start "$profileProgram" || return
-			pause
-		fi
+		ask "Start $(GetFilename "$profileProgram")" && { start "$profileProgram" || return; }
+		pause
 		
 	# Backup the registry
 	elif [[ "$method" == "registry" ]]; then
 		printf 'Backing up %s profile to "%s"...' "$file" "$app"
-		regedit /e "$(utw "$dest/$file")" "$profileKey" || return
+		registry export "$profileKey" "$(utw "$dest/$file")" || return
 		echo "done"
 		
 	fi
@@ -138,7 +136,6 @@ backupCommand()
 		cp "$dest/$file" "$replicateProfile" || return
 		echo "done"
 	fi
-
 }
 
 restoreCommand()
@@ -161,7 +158,7 @@ restoreCommand()
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$profile")"
 		echo "Import the profile using the filemame contained in the clipboard"
-		start "$profileProgram"
+		ask "Start $(GetFilename "$profileProgram")" && { start "$profileProgram" || return; }
 		pause
 
 	elif [[ "$method" == "registry" ]]; then

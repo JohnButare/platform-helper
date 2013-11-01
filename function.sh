@@ -9,7 +9,7 @@ shopt -s nocasematch extglob
 EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of the variable in variable, or set it to var
 IsInteractive() { [[ "$-" == *i* ]]; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
-clipw() { echo "$1" > /dev/clipboard; }
+clipw() { echo -n "$1" > /dev/clipboard; }
 clipr() { cat /dev/clipboard; }
 EchoErr() { echo "${@}" > /dev/stderr; }
 r() { [[ $# == 1 ]] && echo "$1" || eval $2="\"$1\""; } # result <value> <var> - echo value or set var to value (faster)
@@ -276,6 +276,7 @@ start()
 	GetExtension "$program" ext
 	
 	case "$ext" in
+		cmd) cmd /c $(utw "$program") "${@:2}";;
 		js|vbs) cscript /NoLogo "$(utw "$program")" "${@:2}";;
 		*) if [[ $direct ]]; then "$program" "${qargs[@]}"; 
 			 else cygstart "${options[@]}" "$program" "${qargs[@]}"; fi;;
@@ -284,17 +285,17 @@ start()
 
 sudo() # sudo [command](mintty) - start a program as super user
 {
-	local program="mintty" hOptions cOptions ext standard direct
+	local program="mintty" hstartOptions cygstartOptions ext standard direct
 
 	while IsOption "$1"; do
-		if [[ "$1" == +(-s|--standard) ]]; then standard="true"; hOptions+=( /nonelevated );
-		elif [[ "$1" == +(-h|--hide) ]]; then hOptions+=( /noconsole );
-		elif [[ "$1" == +(-w|--wait) ]]; then hOptions+=( /wait ); cOptions+=( --wait );
+		if [[ "$1" == +(-s|--standard) ]]; then standard="true"; hstartOptions+=( /nonelevated );
+		elif [[ "$1" == +(-h|--hide) ]]; then hstartOptions+=( /noconsole );
+		elif [[ "$1" == +(-w|--wait) ]]; then hstartOptions+=( /wait ); cygstartOptions+=( --wait );
 		elif [[ "$1" == +(-d|--direct) ]]; then direct="--direct";
-		else cOptions+=( "$1" ); fi
+		else cygstartOptions+=( "$1" ); fi
 		shift
 	done
-	[[ ! $standard ]] && hOptions+=( /elevated )
+	[[ ! $standard ]] && hstartOptions+=( /elevated )
 
 	[[ $# > 0 ]] && { program="$1"; shift; }
 	! type -P "$program" >& /dev/null && { EchoErr "start: $program: command not found"; return 1; }
@@ -307,16 +308,16 @@ sudo() # sudo [command](mintty) - start a program as super user
 		if IsShellScript "$program"; then
 			"$program" "$@"
 		else
-			start $direct "${cOptions[@]}" "$program" "$@"
+			start $direct "${cygstartOptions[@]}" "$program" "$@"
 		fi
 		return
 	fi
 	
 	if IsShellScript "$program"; then
-		cygstart "${cOptions[@]}" hstart "${hOptions[@]}" "\"\"mintty.exe\"\" -h error bash.exe -l \"\"$program\"\" $@";
+		cygstart "${cygstartOptions[@]}" hstart "${hstartOptions[@]}" "\"\"mintty.exe\"\" -h error bash.exe -l \"\"$program\"\" $@";
 	else
 		program="$(utw "$program")"
-		cygstart "${cOptions[@]}" hstart "${hOptions[@]}" "\"\"$program\"\" $@";
+		cygstart "${cygstartOptions[@]}" hstart "${hstartOptions[@]}" "\"\"$program\"\" $@";
 	fi
 }
 

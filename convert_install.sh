@@ -346,7 +346,7 @@
 	return
 
 	:.net
-	# reference - http://msdn.microsoft.com/winfx/ http://www.microsoft.com/net/Download.aspx
+	# reference - http://msdn.microsoft.com/winfx/ 
 	echot "\
 	************************
 	* .NET Framework
@@ -4529,7 +4529,7 @@
 
 	return
 
-	:NotepadPP
+	Z:NotepadPP
 	:npp
 	# Home - http://notepad-plus.sourceforge.net/uk/site.htm
 	# Download - http://notepad-plus-plus.org/download/v6.1.2.html

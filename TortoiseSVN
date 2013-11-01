@@ -3,9 +3,9 @@
 . app.sh || exit
 
 usage() {	echot "usage: TortoiseSVN svn|gui|code
-  code checkout|commit|status|update PROJECT
+  code checkout|commit|status|update PROJECTS
   	log FILE				display the SVN log for the specified file
-  	switch PROJECT [VERSION](trunk) "
+  	switch PROJECTS [-v|--version VERSION](trunk) "
 	exit $1; }
 
 args()
@@ -58,20 +58,39 @@ guiCommand()
 code() { codeCommand "$@"; }
 codeCommand()
 {
+	[[ ! $1 ]] && MissingOperand "COMMAND"
 	local command="$1"; ProperCase "$command" command; ! IsFunction Code${command}Command && usage 1; shift
-	(( $# > 1 )) && UnknownOption "$2"
+	
+	if [[ "$command" == @(log) ]]; then
+		[[ ! $1 ]] && MissingOperand "FILE"; file="$1"; shift
+		[[ ! -f "$file" ]] && { EchoErr "TortoiseSVN: cannot access `$file`: No such file"; return 1; }
+		Code${command}Command "$@"
+	else
+		CodeProjectCommand "$@"
+	fi
+}
 
-	case "$command" in
-		log) 
-			local file="$1"; [[ ! $file ]] && MissingOperand "FILE"
-			[[ ! -f "$file" ]] && { EchoErr "TortoiseSVN: cannot access `$file`: No such file"; return 1; };;
-		*)
-			local project="$1"; [[ ! $project ]] && MissingOperand "PROJECT"; shift
-			projectDir="$CODE/$project"
-			[[ ! -d "$projectDir" ]] && { EchoErr "TortoiseSVN: cannot access \`$project\`: Project does not exist"; return 1; };;
-	esac
-
-	Code${command}Command "$@"
+CodeProjectCommand()
+{
+	local projects version
+	
+	while (( $# != 0 )); do
+		case "$1" in
+			-h|--help) usage 0;;
+			-v|--version) version="$2"; shift;;
+			*)
+				local project="$1" projectDir="$CODE/$1"; projects+=( "$project" )					
+				[[ "$command" == @(checkout|update)  && ! -d "$projectDir" ]] && { mkdir --parents "$projectDir" || return; }
+				[[ ! -d "$projectDir" ]] && { EchoErr "TortoiseSVN: cannot access \`$project\`: Project does not exist"; return 1; };;
+		esac
+		shift
+	done
+	
+	[[ ! $project ]] && MissingOperand "PROJECT"; shift
+	for project in "${projects[@]}"; do
+		projectDir="$CODE/$project"
+		Code${command}Command "$@" || return
+	done
 }
 
 CodeLogCommand() { gui /command:log /path:"$file"; }
@@ -93,16 +112,12 @@ CodeCheckoutCommand()
 CodeUpdateCommand() 
 { 
 	echo "Updating $project..."
-	[[ ! -d "$projectDir" ]] && { $makeDir "$_Code/$project" || return; }
 	svn co "https://$repository/svn/$project/trunk/" "$projectDir"
 	local result=$?; echo; return $result
 }
 
 CodeSwitchCommand()
-{
-	local version="$1"
-	(( $# > 1 )) && UnknownOption "$2"
-	
+{	
 	if [[ ! $version || "$version" == "trunk" ]]; then
 		echo "Switching $project to trunk..."
 		svn switch "^/trunk" "$projectDir"
