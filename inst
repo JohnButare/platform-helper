@@ -41,7 +41,7 @@ TemplateFullInstall()
 	echo "Updating registry..."	
 	$registry import "$install/AutoHotKey/setup/other/AutoHotkey-${architecture}.reg" || return
 	$registry set "HKCU/SOFTWARE/Foo/File" REG_EXPAND_SZ "$(utw "$file")" || return
-	$registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe
+	$registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe 
 
 	echo "Updating services..."
 	service manual "Stereo Service"
@@ -159,12 +159,37 @@ run() # run EXE [OPTIONS...]
 
 FindFile()
 {
-	if ! ScriptEval FindInstallFile --suppress --eval --hint "$hint" "$1"; then
+	local pattern
+	file="$1"
+
+	if IsWild "$file"; then
+		GetFilename "$file" pattern || return
+		GetPath "$file" file || return
+	fi
+
+	if ! ScriptEval FindInstallFile --suppress --eval --hint "$hint" "$file"; then
 		EchoErr "inst: could not locate ${1:-the installation directory}"
 		return 1
 	fi
 
 	hint="$InstallDir"
+
+	if [[ $pattern ]]; then
+		pushd "$file" > /dev/null || return
+
+		local result items
+		for f in $pattern; do items+=( "$f" "" "off" ); done
+ 
+		result=$(dialog --stdout \
+			--backtitle "Select Installation Files" \
+	  	--radiolist "Choose file to install:" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
+		clear
+
+		[[ ! $result ]] && { EchoErr "inst: a file was not selected"; return 1; }
+
+		file="$file/$result"
+		popd > /dev/null
+	fi
 }
 
 RunExe()
@@ -1846,6 +1871,31 @@ NotepadPpInstall()
 	"
 	notepadpp
 	pause
+}
+
+jreInstall()
+{
+	printf "**************************************************\n* Java Runtime Environment \n**************************************************\n"
+	
+	# Download 7: http://www.oracle.com/technetwork/java/javase/downloads/index-jsp-138363.html#javasejdk
+	# Download: http://www.java.com/en/download/manual.jsp
+	# Download: http://www.oracle.com/technetwork/java/javase/downloads/index.html
+	# Eary access: http://www.oracle.com/technetwork/java/javase/downloads/ea-jsp-142245.html
+	# Test: http://www.java.com/en/download/installed.jsp http://java.com/en/download/help/testvm.xml
+	# Services: JavaQuickStarterService
+	run "Sun/Java/jre/*-x86.exe" || return
+	[[ "$architecture" == "x64" ]] && { run "Sun/Java/jre/*-x64.exe" || return; }
+
+	JavaFinal
+}
+
+JavaFinal()
+{
+	echo "Updating registry..."
+	$registry 32 delete "run/SunJavaUpdateSched"
+	$registry 64 delete "run/SunJavaUpdateSched"
+
+	ask "Test the Java browser plugin?" && JavaUtil test
 }
 
 args "$@"; ${command}Command "${args[@]}";

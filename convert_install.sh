@@ -2113,26 +2113,6 @@
 
 	return
 
-	:jre
-	# Download 7: http://www.oracle.com/technetwork/java/javase/downloads/index-jsp-138363.html#javasejdk
-	# Download: http://www.java.com/en/download/manual.jsp
-	# Download: http://www.oracle.com/technetwork/java/javase/downloads/index.html
-	# Eary access: http://www.oracle.com/technetwork/java/javase/downloads/ea-jsp-142245.html
-	# Test: http://www.java.com/en/download/installed.jsp http://java.com/en/download/help/testvm.xml
-	# Services: JavaQuickStarterService
-	echot "\
-	**************************
-	* Java Runtime Environment
-	**************************
-	"
-
-	run "Sun/Java/jre/*-x86.exe"
-	if ${architecture} == x64 run "Sun/Java/jre/*-x64.exe"
-
-	JavaFinal
-
-	return
-
 	:jdk
 	# http://java.sun.com/javase/downloads/index.jsp
 	# http://java.sun.com/products/archive/
@@ -2175,19 +2155,6 @@
 	fi
 
 	JavaFinal
-
-	return
-
-	:JavaFinal
-
-	echo Updating registry...
-
-	# Delete SunJavaUpdateSched - C:/Program Files/Java/jre1.5.0_05/bin/jusched.exe
-	registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/SunJavaUpdateSched"
-	registry 64 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/SunJavaUpdateSched"
-
-	ask "Do you want to test the Java browser plugin?" y
-	if $? == 1 JavaUtil test
 
 	return
 

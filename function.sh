@@ -157,6 +157,7 @@ IsInArray()
 # strings
 #
 
+IsWild() { [[ "$1" =~ .*\*|\?.* ]]; }
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
 
