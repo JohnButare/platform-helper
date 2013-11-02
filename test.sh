@@ -1,5 +1,6 @@
 #!/bin/bash
 . function.sh
 
-fooCommand() { :; }
-CheckCommand $1
+echo $#
+echo $1
+echo $2

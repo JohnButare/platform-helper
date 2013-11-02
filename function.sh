@@ -11,7 +11,8 @@ IsInteractive() { [[ "$-" == *i* ]]; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 clipw() { echo -n "$1" > /dev/clipboard; }
 clipr() { cat /dev/clipboard; }
-EchoErr() { echo "${@}" > /dev/stderr; }
+EchoErr() { echo "$@" > /dev/stderr; }
+PrintErr() { printf "$@" > /dev/stderr; }
 r() { [[ $# == 1 ]] && echo "$1" || eval $2="\"$1\""; } # result <value> <var> - echo value or set var to value (faster)
 
 #
@@ -54,7 +55,7 @@ CheckSubCommand()
 
 ScriptName() { GetFilename $0; }
 ScriptDir() { echo "$(GetPath "$(FindInPath "$(wtu "$0")")")"; } # handle scripts started with partial paths or from Windows
-ScriptCd() { local dir="$("$@")" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
+ScriptCd() { local dir; dir="$("$@")" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
 ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b", does not work with aliases
 
 ScriptReturn() # ScriptReturns [-s|--show] <var>...
@@ -90,6 +91,7 @@ GetFilename() { r "${1##*/}" $2; }
 GetName() { local f="$1"; GetFilename "$1" f; r "${f%.*}" $2; }
 GetExtension() { local f="$1"; GetFilename "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
 GetFullPath() { cygpath -a "$@"; }
+HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 wtu() { cygpath -u "$*"; }
 utw() { cygpath -aw "$*"; }
@@ -365,16 +367,16 @@ AutoItScript()
 
 TextEdit()
 {
-	local file files=() program="$P64/Sublime Text 2/sublime_text.exe"
+	local file files=() p="$P64/Sublime Text 2/sublime_text.exe"
 	local wait; [[ "$1" == +(-w|--wait) ]] && { wait="pause"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
 	
-	[[ ! -f "$program" ]] && { vim "$@"; return; }
+	[[ ! -f "$p" ]] && { p="$P32/Notepad++/notepad++.exe"; [[ ! -f "$p" ]] && p="notepad"; }
 
 	for file in "$@"; do
 		[[ -f "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFilename "$file") does not exist"
 	done
-	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then { start "${options[@]}" "$program" "${files[@]}"; $wait; } else return 1; fi
+	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then { start "${options[@]}" "$p" "${files[@]}"; $wait; } else return 1; fi
 }
 
 VimHelp() { echot "VIM: http://www.lagmonster.org/docs/vi.html

@@ -4529,70 +4529,6 @@
 
 	return
 
-	Z:NotepadPP
-	:npp
-	# Home - http://notepad-plus.sourceforge.net/uk/site.htm
-	# Download - http://notepad-plus-plus.org/download/v6.1.2.html
-	# Plugins 
-	#   - http://superb-east.dl.sourceforge.net/sourceforge/npp-plugins/
-	#   - http://sourceforge.net/apps/mediawiki/notepad-plus/index.php?title=Plugin_Central
-	# XML Tools - http://sourceforge.net/project/showfiles.php?group_id=189927&package_id=264094
-	echot "\
-	************************
-	* Notepad++
-	************************
-	- Uncheck Run Notepad++
-	"
-
-	run "Shareware/Notepad++/setup/npp.6.4.5.Installer.exe"
-
-	d=$install/Shareware/Notepad++
-
-	# Delete existing plugs and install default
-	ask "Do you want to delete current plugins and install the default plugins?" y
-	if $? == 1 then
-		echo Installing plugins...
-		$rmd contents "$P32/Notepad++/plugins"
-		CopyDir "$d/plugins/default" "$P32/Notepad++/plugins"
-		CopyFile "$d/plugins/XML Tools External Libraries/*" "$P32/Notepad++"
-		CopyFile "$d/plugins/updater/*" "$P32/Notepad++/updater"
-		echo.
-	fi
-
-	echo Installing auto-completion API's...
-	CopyDir "$d/api" "$P32/Notepad++/plugins/APIs"
-	echo.
-
-	echo Updating registry...
-	registry import "$d/setup/NotepadPP.reg"
-
-	echo Restoring the default profile...
-	notepadpp.btm profile restore default
-
-	echo Updating icons...
-	$rm "$ud/Notepad++.lnk"
-	$rm "$pd/Notepad++.lnk"
-	$mergeDir "$up/Notepad++" "$ao"
-	$mergeDir "$pp/Notepad++" "$ao"
-
-	# Restart the AutoHotKey script so NotepadPP is recognized
-	AutoHotKey.btm restart
-
-	echot "\
-	- Settings, Preferences, MISC, uncheck Minimize to system tray
-	- Settings, Shortcut Mapper...,  Reload from Disk=Ctrl+R
-	- Explorer, Search=*.txt, Open with, Choose Default program...
-	  - Notepad++, check Always use the selected program to open this kind of file
-	- keyboard shortcuts 
-	  ctrl-n/w=new/close,  ctrl+/-=zoom
-	  [shift]ctrl-tab=switch, ctrl-shift-o=file switcher
-	  [alt]click drag=[block] select, ctrl-space=auto complete
-	"
-	notepadpp.btm
-	pause
-
-	return
-
 	:ManageEngine
 	# Reference: http://manageengine.adventnet.com/products/applications_manager/
 	echot "\
@@ -9115,66 +9051,6 @@
 	"
 
 	run "GitHub/setup/GitHubSetup.exe"
-	return
-
-	
-	:GitExtensions
-	# https://code.google.com/p/gitextensions/ http://msysgit.github.com/
-	echot "\
-	************************
-	* Git Extensions
-	************************
-	"
-
-	echot "\
-	- check Msysgit
-	- install Extra application icons
-	- Checkout as-is, commit as-is
-	"
-	run "Shareware/GitExtensions/setup/GitExtensions246SetupComplete.msi"
-
-	echo Configuring git...
-	git config --system http.sslcainfo "$P32/git/bin/curl-ca-bundle.crt"
-	git config core.filemode false
-
-	echo Updating icons...
-	$mergeDir "$pp/Git" "$pp/Development/Other"
-	$mergeDir "$pp/KDif3" "$pp/Operating System/Other"
-	$mv "$pp/Git Extensions.lnk" "$pp/Development/Other/Git"
-	$rm "$pd/Git Bash.lnk"
-	$rm "$pd/Git Extensions.lnk"
-
-	echot "\
-	- Git Extensions, check Check for uncommitted changes in checkout branch dialog
-	- Global settings
-		- User name=jjbutare, User email=john.butare@intel.com, Editor="C:/Program Files/Sublime Text 2/sublime_text.exe",
-		Mergetool=BeyondCompare3, Diftool=beyondcompare3
-	- SSH, Configure PuTTY, Path to=C:/Users/Public/Documents/data/bin/win32
-	- Checklist, review
-	"
-
-	return
-
-	:TortoiseGit
-	# https://code.google.com/p/tortoisegit/ https://code.google.com/p/tortoisegit/wiki/Download?tm=2
-	echot "\
-	************************
-	* TortoiseGit 
-	************************
-	"
-
-	run "Shareware/TortoiseGit/setup/TortoiseGit-1.8.4.0-64bit.msi"
-
-	echo Updating icons...
-	$mergeDir "$pp/TortoiseGit" "$pp/Development/Other"
-
-	echot "\
-	- Settings, Dif Viewer and Merge Tool, External
-	  c:/Program Files (x86)/Beyond Compare 3/BComp.exe
-	- Settings, Git, Credential, Credential helper=wincred - all Windows uses
-	  - do a clone with HTTPS and ensure second time no credential prompt
-	"
-
 	return
 
 	:SoapUI

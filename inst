@@ -24,7 +24,7 @@ TemplateFullInstall()
 	# installs:
 	run "" || return
 
-	local file; file="$(FindPublicDoc "data/install/Intel/Profile Manager/ProfileManager.xml")" || return
+	FindFile "Intel/Profile Manager/ProfileManager.xml" || return
 	$cp	"$file" "$WINDIR/system32" || return
 
 	echo "Updating icons..."
@@ -50,7 +50,6 @@ TemplateFullInstall()
 	echo "Creating directories..."
 	$makeDir "$_userDocuments/code/test"
 
-	echo "Restoring the default profile..."
 	sublime profile restore default || return
 
 	echot "\
@@ -65,8 +64,7 @@ usage()
 	echot "\
 usage: install cd|install APP*
 	Install programs
-	-s,--select					select the host with the installation files
-	-h|--host	HOST 			specify the host with the installation files"
+	  -h,--hint DIR		first directory to search for installation files"
 	exit $1
 }
 
@@ -76,9 +74,8 @@ args()
 	originalArgs=( "$@" ) 
 	while [ "$1" != "" ]; do
 		case "$1" in
-			-h|--host) host="$2"; shift;;
-			-s|--select) select="--select";;
-			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			--hint) hint="$2"; shift;;
+			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; } # command
 				! IsOption "$1" && { apps+=( "$1" ); shift; continue; }
@@ -94,8 +91,8 @@ args()
 
 cdCommand()
 {
-	local dir; dir="$(FindPublicDoc "data/install")" || return
-	echo "$dir"
+	FindFile || return
+	echo "$file"
 }
 
 installCommand()
@@ -107,11 +104,13 @@ installCommand()
 
 InstallApps()
 {
+	local prompt; (( $# > 1 )) && prompt="true"
 	while (($# != 0 )); do
 		app="$1"; shift
-		installFunction="$(GetInstallFunction)" || { EchoErr "inst: $app installation does not exist"; return 1; }
-		$installFunction || return
-		(( $# != 0 )) && pause
+		if [[ ! $prompt ]] || ask "Install $app"; then
+			installFunction="$(GetInstallFunction)" || { EchoErr "inst: $app installation does not exist"; return 1; }
+			$installFunction || return
+		fi
 	done
 	return 0
 }
@@ -154,16 +153,18 @@ run() # run EXE [OPTIONS...]
 	local exe="$1"
 
 	[[ ! $exe ]] && { EchoErr "inst: executable was not specified"; return 1; }
-	FindExe "$exe" || { ask "Continue the installation?"; return; }
-	RunExe "$exe" "${@:2}" || return
+	FindFile "$exe" || { ask "Continue the installation"; return; }
+	RunExe "$file" "${@:2}" || return
 }
 
-FindExe()
+FindFile()
 {
-	if ! exe="$(FindPublicDoc "/data/install/$1" 2> /dev/null)"; then
-		EchoErr "inst: could not locate $1"
+	if ! ScriptEval FindInstallFile --suppress --eval --hint "$hint" "$1"; then
+		EchoErr "inst: could not locate ${1:-the installation directory}"
 		return 1
 	fi
+
+	hint="$InstallDir"
 }
 
 RunExe()
@@ -219,26 +220,37 @@ PrepareInstallDir()
 	[[ ! $installDir ]] && { EchoErr "inst: installation directory was not specified"; return 1; }
 
 	if [[ -d "$installDir" ]]; then
-		ask "Do you want to delete the existing installation in \"$(GetName "$installDir")\"?" -dr n || return
+		ask "Do you want to delete the existing installation in \"$(GetName "$installDir")\"" -dr n || return
 		$rmd "$installDir" || return
 	fi
 
 	$makeDir "$installDir" || return
 }
 
+#
+# Installations
+#
+
+testInstall()
+{
+	FindFile "Shareware" || return
+	echo "Found Shareware in $file"
+}
+
 bootstrap()
 {
 	printf "**************************************************\n* Bootstrap\n**************************************************\n"
-	echot "- Bootstrap Operating System critical setup and applications"
-	echot "- Registration informatiom from lastpass.com web site"
 
-	echo "Configuring..."
+	ScriptEval SetVar SEE_MASK_NOZONECHECKS 1 || return # disable Open File Secirity Warning
 
-	# disable Open File Secirity Warning
-	ScriptEval SetVar SEE_MASK_NOZONECHECKS 1 || return
+	inst dirs cygwin bash console SysInternals || return
 
-	echo "Installing..."
-	inst dirs cygwin bash console AutoHotKey WinSplit sublime BeyondCompare SysInternals ssh pGina || return
+	case "$USERNAME" in
+		jjbutare|ad_jjbutare) inst AutoHotKey BeyondCompare sublime WinSplit || return;;
+		*) inst notepadpp || return;;
+	esac
+
+	inst BashFinal
 }
 
 core()
@@ -249,9 +261,9 @@ core()
 
 	local common="DropBox EverNote Sonos Chrome BrowserHomePage"
 	case "$COMPUTERNAME" in
-		oversoul) inst $common office365 nVidia DevCore TeamViewer || return;;
-		minime) inst $common MiniMeIcons TrueImage office365 TeamViewer || return;;
-		jjbutare-mobl|jjbutare-mobl7|jjbutare-mobl9) inst $common OfficeFinal IntelCore IntelDevCore || return;;
+		oversoul) inst $common pGina ssh office365 nVidia DevCore TeamViewer || return;;
+		minime) inst $common pGina ssh MiniMe TrueImage office365 TeamViewer || return;;
+		jjbutare-mobl|jjbutare-mobl7|jjbutare-mobl9) inst $common OfficeFinal IntelCore CsisDeveloperCore || return;;
 	esac
 }
 
@@ -264,7 +276,7 @@ CygwinInstall()
 	cygwin cleanup || return
 
 	# icons and registry
-	if file=$(FindPublicDoc "data/install/Cygwin/setup"); then
+	if FindFile "Cygwin/setup"; then
 
 		echo "Copying files..."
 		cp "$file/Command Prompt.ico" "$installDir/etc" || return
@@ -275,7 +287,7 @@ CygwinInstall()
 	fi
 
 	# Variables
-	if ask "Do you want to update variables?"; then
+	if ask "Do you want to update variables"; then
 		ScriptEval SetVar --system --path PATH "$installDir/bin" || return
 		ScriptEval SetVar --system --path PATH "$_PublicBin" || return
 		ScriptEval SetVar --system --path PATH "$_PublicBin/win" || return
@@ -286,18 +298,6 @@ CygwinInstall()
 	echo "Updating icons..."
 	$makeShortcut "$installDir/bin/mintty.exe" "$pp/Operating System/bash" -a="-" || return
 	$makeShortcut "$_PublicBin/run.sh" "$psm/Programs/Startup/startup" -a "startup" -d "Start applications" || return
-
-	# Configuration files
-	if ask "Edit configuration files?"; then
-
-		echo "- paste text before interactive login"
-		! IsInstalled sublime && { VimHelp; pause; }
-		clipw $'\n# Wiggin
-[[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
-[[ -f "$USERS/Public/Documents/data/bin/bash.bashrc" ]] && . "$USERS/Public/Documents/data/bin/bash.bashrc"\n\n'
-		TextEdit --wait "/etc/bash.bashrc" 
-
-	fi
 
 	# set home directory in /etc/passwd
 	if grep ":/home" /etc/passwd > /dev/null; then
@@ -314,9 +314,12 @@ CygwinInstall()
 	! grep "$group" /etc/group > /dev/null && echo "$group" >> /etc/group
 
 	# ssh
-	echo "possible issue: chgrp root ~/.ssh/*"
-	$hide ~/.ssh || return
-	chmod 700 ~/.ssh/id_dsa || return
+	if [[ -d ~/.ssh ]]; then	
+		echo "Configuring ssh..."
+		echo "- possible issue: chgrp root ~/.ssh/*"
+		$hide ~/.ssh || return
+		[[ -f ~/.ssh/id_dsa ]] && { chmod 700 ~/.ssh/id_dsa || return; }
+	fi
 
 	# cleanup
 	$rmd "/home"
@@ -343,10 +346,23 @@ BashInstall()
 	files=( .bash_history .lesshst )
 	for file in "${files[@]}"; do
 		touch "$_UserHome/$file" || return
-		attrib +h "$(utw "$_UserHome/$file")" || return
+		HideFile "$_UserHome/$file" || return
 	done
 
 	echo done
+}
+
+BashFinal()
+{
+	printf "**************************************************\n* Bash - Final Configuration\n**************************************************\n"
+
+	if ask "Edit /etc/bash.bashrc"; then
+		echo "- paste text before interactive login"
+		clipw $'\n# Wiggin
+[[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
+[[ -f "$USERS/Public/Documents/data/bin/bash.bashrc" ]] && . "$USERS/Public/Documents/data/bin/bash.bashrc"\n\n'
+		TextEdit --wait "/etc/bash.bashrc" 
+	fi
 }
 
 SshInstall()
@@ -382,34 +398,34 @@ IntelCore()
 
 IntelApps()
 {
-	if ask 'Install VPN (AnyConnect)?'; then
+	if ask 'Install VPN (AnyConnect)'; then
 		start "$P32/Intel/Orion/AnyConnect.exe" /enroll || return
 		pause
 	fi
 
-	if ask 'Install Backup (CNB)?'; then
+	if ask 'Install Backup (CNB)'; then
 		cmd /c 'C:\APPS\CNB\InstallCNB.bat' || return
 		echo '- Andvanced Options, check New CNB Account Installation'
 		pause
 	fi
 
-	if ask 'Install Conference Room Scheduler (CRS)?'; then
+	if ask 'Install Conference Room Scheduler (CRS)'; then
 		cmd /c 'C:\Apps\CRS\Install_CRS.bat' || return
 		echo '- Andvanced Options, check New CNB Account Installation'
 		pause
 	fi
 
-	if ask 'Install Intel Software Market?'; then
+	if ask 'Install Intel Software Market'; then
 		ShellRun 'http://iss.intel.com/ProductInfo/TabProductInfo.asp?Product=12747&CanInstall=0'
 		pause
 	fi
 
-	if ask 'Install Windows 8 Tips?'; then
+	if ask 'Install Windows 8 Tips'; then
 		ShellRun 'http://iss.intel.com/issasp/passthru/tabpassthrustart.asp?ProductNumber=12797 '
 		pause
 	fi
 
-	if ask 'Install Virtual IT Service Center?'; then
+	if ask 'Install Virtual IT Service Center'; then
 		echot '- Win, Virtual IT Service Center, Pin to Start'
 		pause
 	fi
@@ -417,9 +433,9 @@ IntelApps()
 
 IntelCleanup()
 {
-	ask 'Cleanup icons?' && { IntelIcons || return; }
+	ask 'Cleanup icons' && { IntelIcons || return; }
 
-	if ask 'Cleanup programs (close Outlook if hangs)?'; then
+	if ask 'Cleanup programs (close Outlook if hangs)'; then
 		printf "Uninstalling..."
 	 	printf "WinZip 15.5..."; product uninstall {CD95F661-A5C4-44F5-A6AA-ECDD91C240C3} > /dev/null
 	 	printf "WinZip 17.5..."; product uninstall {CD95F661-A5C4-44F5-A6AA-ECDD91C240DB} > /dev/null
@@ -427,14 +443,14 @@ IntelCleanup()
 	 	echo done
 	fi
 
-	if ask 'Cleanup file system?'; then
+	if ask 'Cleanup file system'; then
 		$rmd "$_sys/Drivers" "$_sys/Flash11" \
 			"$_sys/PreDelivery_Automation" "$uhome/Roaming" "$udoc/Add-in Express" || return
 		$rm "$_sys/build.ini" "$_sys/Regionalization.xml"
 		$hide "$_sys/APPS" "$_sys/Quarantine" "$_sys/Intel" "$_sys/OpalStatus.efi"				
 	fi
 
-	if ask 'Cleanup startup programs?'; then
+	if ask 'Cleanup startup programs'; then
 		$registry 32 delete "run/AgentUiRunKey" # "C:\Program Files (x86)\Autonomy\Connected BackupPC\Agent.exe" -ni -sss -e http://localhost:16386/
 		$registry 32 delete "run/McAfeeUpdaterUI"
 		$registry 32 delete "run/ShStatEXE"
@@ -506,10 +522,10 @@ DevCore()
 	$makeLink --merge --hide "$udata/LINQPad" "$udoc/LINQPad Queries" || return
 
 	echo "Installing Applications..."	
-	inst TortoiseGit || return # BlueGriffon CygwinGit GitExtensions
+	inst GitExtensions TortoiseGit || return # BlueGriffon
 	inst iis SqlServer SqlPrompt || return 
-	ask "Install .NET Development core?" && { DotNetDevCore || return; }
-	ask "Install JAVA Development core?" && { JavaDevCore || return; }
+	ask "Install .NET Development core" && { DotNetDevCore || return; }
+	ask "Install JAVA Development core" && { JavaDevCore || return; }
 }
 
 DotNetDevCore() 
@@ -523,52 +539,54 @@ DotNetDevCore()
 	inst VisualStudio NUnit ReSharper || return
 }
 
-IntelDevCore()
+CsisDeveloperInstall()
 {
 	printf "**************************************************\n* Intel Development Core\n**************************************************\n"
 
-	ask "Install Development Core?" && { inst DevCore || return; }
+	ask "Install Development Core" && { inst DevCore || return; }
 
-	if ask "Install Intel Profile Manager?"; then
+	if ask "Install Intel Profile Manager"; then
 		run "Intel/Profile Manager/ITBAS.zip" "$P/ITBAS" || return
 
-		local file; file="$(FindPublicDoc "data/install/Intel/Profile Manager/ProfileManager.xml")" || return
+		FindFile "Intel/Profile Manager/ProfileManager.xml" || return
 		$cp	"$file" "$WINDIR/system32" || return
 		chmod 744 "$WINDIR/system32/ProfileManager.xml" || return
 		$makeDir "$_sys/winnt/system32" || return 
-		attrib +h "$(utw "/cygdrive/c/winnt")" || return
+		HideFile "/cygdrive/c/winnt" || return
 		$cp "$file" "$_sys/winnt/system32" || return
 		chmod 744 "$_sys/winnt/system32/ProfileManager.xml" || return
 	fi
 
-	if ask "Update machine.config?"; then
+	if ask "Update machine.config"; then
 		clipw '<appSettings><add key="Environment" value="Development" /></appSettings>'
 		echo "- After </configSections> paste"
 		DotNet 4 MachineConfig || return
 		pause
 	fi
 
-	if ask "Install applications?"; then
+	if ask "Install applications"; then
 		inst TortoiseSvn CruiseControlTray SilverlightSdk || return
 	fi
 
-	if ask 'Install source server certificate?'; then
+	if ask 'Install SVN source server certificate'; then
 		echot "\
-Software Solutions setup...
 - Install Certificate..., Store Location=Local Machine, Place all certificates in the following store=
 Trusted Root Certificate Authorities"
-		start "$udata/certificate/public/azscsistfs001.amr.corp.intel.com.cer"
+		FindFile "Intel/csis/azscsistfs001.amr.corp.intel.com.cer" || return
+		start "$file"
 		pause
 	fi
 
-	ask "Pull first project interactively (to store credentials)?" && 
-		{ TortoiseSVN code checkout Antidote || return; }
+	ask "Enter SVN credentails)" && 
+		{ code --svn --gui clone dummy || return; rm -fr "$CODE/dummy"; }
 	
-	ask "Pull shared code projects?" &&
-		{ TortoiseSVN code update Antidote Errgo IntelNuGet Magellan || return; }
+	if ask "Pull shared code projects"; then
+		code clone IntelNuGet || return
+		code --svn clone Antidote Errgo Magellan || return
+	fi;
 
-	ask "Pull application projects?" &&
-		{ TortoiseSVN code update RPIAD ScadaPortal || return; }
+	ask "Pull application projects" &&
+		{ code --svn clone RPIAD ScadaPortal || return; }
 }
 
 JavaDevCore()
@@ -597,7 +615,7 @@ WinampInstall()
 {
 	printf "**************************************************\n* Winamp\n**************************************************\n"
 	
-	run "WinAmp/setup/winamp565_pro_all.exe" || return
+	run "Nullsoft/WinAmp/setup/winamp565_pro_all.exe" || return
 
 	echo "Updating icons..."
 	$mergeDir "$pp/Winamp" "$ao" || return
@@ -623,8 +641,8 @@ AutoHotKeyInstall()
 	$mergeDir "$pp/AutoHotKey" "$pp/Operating System/Other" || return
 	
 	echo "Updating registry..."
-	local install="$(FindPublicDoc "data/install/AutoHotKey")" || return
-	$registry import "$install/setup/other/AutoHotkey-$architecture.reg" || return
+	FindFile "AutoHotKey" || return
+	$registry import "$file/setup/other/AutoHotkey-$architecture.reg" || return
 	
 	[[ ! -f "$_UserData/bin/keys.ahk" ]] && { $cp "$_PublicData/setup/keys.ahk" "$_UserData/bin" || return; }
 
@@ -643,18 +661,17 @@ SublimeInstall()
 	printf "**************************************************\n* Sublime Text Editor\n**************************************************\n"
 	echo "- Check add to explorer context menu"
 
-	if ask 'Install current version?'; then
+	if ask 'Install current version'; then
 		run "Sublime/setup/Sublime Text 2.0.2 $architecture Setup.exe" || return
 	else
 		run "Sublime/setup/Sublime Text Build 3047 $architecture Setup.exe" || return
 	fi
 
-	echo "Restoring the default profile..."
-	$makeDir "$_ApplicationData/Sublime Text 2" || return
-	sublime profile restore default || return
-
 	echo "Updating icons..."
 	$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
+
+	$makeDir "$_ApplicationData/Sublime Text 2" || return
+	sublime profile restore default || return
 }
 
 ReSharperInstall()
@@ -664,7 +681,7 @@ ReSharperInstall()
 	# download: http://www.jetbrains.com/resharper/download/index.html http://www.jetbrains.com/resharper/download/index.html, http://confluence.jetbrains.net/display/ReSharper/ReSharper+8.0+Nightly+Builds
 	# what's new: http://www.jetbrains.com/resharper/whatsnew/
 	# cleanup: $LocalAppData$/JetBrains/ReSharper/v7.1/SolutionCaches
-	run "JetBrains/ReSharper/setup/ReSharperSetup.8.0.1000.2286.msi" || return
+	run "JetBrains/ReSharper/setup/ReSharperSetup.8.0.2000.2660.msi" || return
 
 	ReSharper profile restore default || return
 
@@ -722,15 +739,15 @@ WindowsSetup()
 {
 	printf "**************************************************\n* Windows Setup\n**************************************************\n"
 
-	ask 'Cleanup icons?' && { WindowsIcons || return; }
+	ask 'Cleanup icons' && { WindowsIcons || return; }
 
-	if ask 'Cleanup file system?'; then
+	if ask 'Cleanup file system'; then
 		$rmd "$_sys/PerfLogs" || return
 	fi
 
-	if ask 'Setup download directory?'; then
+	if ask 'Setup download directory'; then
 		$makeLink --merge "$udata/download" "$uhome/Downloads" || return
-		attrib +r "$(utw "$uhome/Downloads")"
+		HideFile "$uhome/Downloads" || return
 	fi
 }
 
@@ -791,9 +808,9 @@ WindowsIcons()
 	$hide "$pp/Applications/Accessories/Tablet PC/Desktop.ini" || return
 }
 
-MiniMeSetup()
+MiniMe()
 {
-	if ask 'Cleanup programs?'; then
+	if ask 'Cleanup programs'; then
 		printf "Uninstalling..."
 		printf "Absolute Reminder..."; product uninstall {40F4FF7A-B214-4453-B973-080B09CED019} > /dev/null
 		printf "Dolby Home Theater..."; product uninstall {B26438B4-BF51-49C3-9567-7F14A5E40CB9} > /dev/null
@@ -802,11 +819,11 @@ MiniMeSetup()
 	 	echo done
 	fi
 
-	if ask 'Cleanup file system?'; then
+	if ask 'Cleanup file system'; then
 		$rmd "$_sys/Intel" "$_sys/UserGuidePDF" "$_sys/Windows.old" "$_sys/\$Windows.~BT" "$P32/Nuance" || return
 	fi
 
-	if ask 'Cleanup icons?'; then
+	if ask 'Cleanup icons'; then
 		$mergeDir "$pp/Intel" "$pp/Operating System/Other" || return
 		$ren "$pp/Intel AppUp(SM) center/Intel AppUp(SM) center.lnk" "$pp/Operating System/Other/Intel/AppUp Center.lnk" || return
 		$rmd "$pp/Intel AppUp(SM) center"
@@ -815,7 +832,7 @@ MiniMeSetup()
 		$rm "$pd/OneKey Recovery.lnk" || return
 	fi
 
-	if ask 'Cleanup registry?'; then
+	if ask 'Cleanup registry'; then
 		$registry 32 delete "run/Intel AppUp(SM) center" # ""C:\Program Files (x86)\Intel\IntelAppStore\bin\ismagent.exe" --domain-id F0399437-FD0C-4A48-B101-F0314A6172E4"
 		$registry 32 delete "run/mcui_exe" # "C:\Program Files\McAfee.com\Agent\mcagent.exe" /runkey
 		$registry 32 delete "run/YouCam Tray" # "C:\Program Files (x86)\Lenovo\YouCam\YouCamTray.exe" /s
@@ -857,7 +874,6 @@ pGinaInstall()
 	echo "Updating icons..."
 	$mergeDir "$pp/pGina" "$pp/Operating System/Other" || return
 
-	echo "Restoring the default profile..."
 	pGina profile restore default || return
 }
 
@@ -882,7 +898,7 @@ DropBoxInstall()
 		$makeShortcut "$_UserHome/Dropbox" "$_UserSysHome/Dropbox.lnk" || return
 	fi;
 
-	if ask "Do you want to update index locations?"; then
+	if ask "Do you want to update index locations"; then
 		DropBox close
 
 		dir="$_CloudDocuments/.dropbox.cache"
@@ -918,8 +934,7 @@ DropBoxInstall()
 
 }
 
-VisualStudioInstall() { vs13; }; vsInstall() { vs13; };
-
+vs() { vs13; }; VisualStudioInstall() { vs13; }; 
 vs13() 
 { 
 	printf "**************************************************\n* Visual Studio 2012\n**************************************************\n"
@@ -928,12 +943,17 @@ vs13()
 
 	vs="Microsoft/Visual Studio"
 
-	# Path: $P32/Microsoft Pex/bin/;$TFSPowerToolDir$;$BPADir$
-	run "$vs/setup/vs/en_visual_studio_ultimate_2013_x86_dvd_3009107.iso" || return
+	if [[ "$USERNAME" == @(jjbutare|ad_jjbutare) ]] || ask -dr n 'Install Ultimate (requires MSDN license)'; then
+		run "$vs/setup/vs/en_visual_studio_ultimate_2013_x86_dvd_3009107.iso" || return
+	else
+		run "$vs/setup/vs/en_visual_studio_professional_2013_x86_dvd_3009197.iso" || return
+	fi
+	
 	run "$vs/setup/other/en_visual_studio_2013_sdk_x86_3009047.exe" || return
 
+	# extensions
 	run "$vs/extension/NuGet.Tools.2013.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/4ec1526c-4a8c-4a84-b702-b21a8f5293ca
-	run "$vs/extension/NUnitVisualStudioTestAdapter-1.0.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/6ab922d0-21c0-4f06-ab5f-4ecd1fe7175d?SRC=VSIDE
+	run "$vs/extension/NUnitVisualStudioTestAdapter-1.0.vsix" || return # requires ReSharper disabled, https://launchpad.net/nunit-vs-adapter/+download, http://visualstudiogallery.msdn.microsoft.com/6ab922d0-21c0-4f06-ab5f-4ecd1fe7175d?SRC=VSIDE
 	run "$vs/extension/WebEssentials.2013.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/56633663-6799-41d7-9df7-0f2a504ca361 http://nunit.org/index.php?p=vsTestAdapter&r=2.6.2
 
 	VsFinal || return
@@ -967,7 +987,7 @@ VsFinal()
 	echo "Creating directories..."
 	$makeDir "$_Code/test/vs$vsName"
 
-	if ask "Initialize Visual Studio?"; then
+	if ask "Initialize Visual Studio"; then
 		echo "- Choose your default environment settings=Visual C# Development Settings"
 		echo "- Sign In, john.butare@gmail.command"
 		echo "- Development Settings=Visual C#"
@@ -980,9 +1000,9 @@ VsFinal()
 	$makeLink --merge --hide "$vsData" "$udoc/Visual Studio $vsName" || return
 	$makeLink --merge --hide "$udata/Web Essentials" "$uhome/Web Essentials" || return
 
-	ask "Update registry?" && { VsRegistry || return; }
-	ask "Update icons?" && { VsIcons || return; }
-	ask "Restore profile?" && { VisualStudio profile restore default; return; }
+	ask "Update registry" && { VsRegistry || return; }
+	ask "Update icons" && { VsIcons || return; }
+	ask "Restore profile" && { VisualStudio profile restore default; return; }
 
 	echot "\
 Tools, Options...
@@ -993,7 +1013,6 @@ Tools, Options...
 	  - Tabs and Windows
 	  	- check Insert new tabs to the right of existing tabs
 	  	- check Show pinned tabs in a separate row
-	  	- check Maintain pin status if document is removed from well
 - Environment, Keyboard 
   - ctrl-shift-c = View.SynchronizeClassView
 - Text Editor, C#
@@ -1034,6 +1053,7 @@ VsIcons()
 	$mergeDir --rename "$pp/Visual Studio $vsName" "$other/Visual Studio $vsName" || return
 
 	# 2012
+	$mergeDir --rename "$pp/Microsoft Visual Studio 2012" "$other/Visual Studio 2012" || return
 	$mergeDir --rename "$pp/Microsoft Visual Studio $vsName" "$other/Visual Studio $vsName" || return
 	$mergeDir --rename "$pp/Microsoft Windows SDK Tools" "$vs/Windows SDK Tools" || return
 	$mergeDir --rename "$pp/Microsoft Visual Studio $vsName SDK" "$vs/sdk" || return
@@ -1116,9 +1136,7 @@ BeyondCompareInstall()
 	BeyondCompare start
 	pause
 
-	echo "Restoring the default profile..."
 	BeyondCompare profile restore default || return
-	pause
 }
 
 EverNoteInstall()
@@ -1222,7 +1240,6 @@ CruiseControlTrayInstall()
 	$rm "$ud/CCTray.lnk" || return
 	$rm "$up/Startup/CCTray.lnk" || return
 
-	echo "Restoring the default profile..."
 	CruiseControlTray profile restore default || return
 }
 
@@ -1273,7 +1290,7 @@ iisInstall()
 	echo "Updating services..."
 	service manual FTPSVC || return
 
-	if [[ $client ]] && ask "Set IIS services to run manually?"; then
+	if [[ $client ]] && ask "Set IIS services to run manually"; then
 	  service manual IISADMIN || return
 	  service manual w3svc || return
 	  service manual AppHostSvc || return
@@ -1285,12 +1302,12 @@ iisInstall()
 	$makeShortcut "$WINDIR/system32/inetsrv/iis.msc" "$pp/Development/Other/IIS/IIS Client Manager" || return
 	$makeShortcut "$WINDIR/system32/inetsrv6/iis6.msc" "$pp/Development/Internet Information Services 6" || return
 
-	[[ $client ]] && ask "Install remote manager?" && { IisRemoteManager || return; }
-	ask "Configure WebDAV?" --default n && { IisWebDav || return; }
-	ask "Configure FTP?" --default n && { IisFtp || return; }
-	ask "Configure debugging?" --default n && { IisDebugging || return; }
-	ask "Configure compression?" --default n && { IisCompression || return; }
-	ask "Configure SSL?" --default n && { IisSsl || return; }
+	[[ $client ]] && ask "Install remote manager" && { IisRemoteManager || return; }
+	ask "Configure WebDAV" --default n && { IisWebDav || return; }
+	ask "Configure FTP" --default n && { IisFtp || return; }
+	ask "Configure debugging" --default n && { IisDebugging || return; }
+	ask "Configure compression" --default n && { IisCompression || return; }
+	ask "Configure SSL" --default n && { IisSsl || return; }
 
 	echo "Restarting IIS..."
 	iisreset
@@ -1298,7 +1315,7 @@ iisInstall()
 
 IisCheck()
 { 
-	if ! IsInstalled iis && ask "Do you want to install IIS?"; then
+	if ! IsInstalled iis && ask "Do you want to install IIS"; then
 		iisInstall; return
 	fi
 	return 0
@@ -1362,18 +1379,18 @@ Note: Logs are in \"$P/Microsoft SQL Server/110/Setup Bootstrap/Log\"
 		run "$base/plugins/SSMSBoostInstaller2012_2.10.4957.30631.msi" || return # http://www.ssmsboost.com
 	fi
 
-	ask "Cleanup log?" && { SsLogCleanup || return; }
-	ask "Update services?" && { SsUpdateServices || return; }
+	ask "Cleanup log" && { SsLogCleanup || return; }
+	ask "Update services" && { SsUpdateServices || return; }
 
 	if [[ $database ]]; then 
-		ask "Update server configuration?" && { SsServerConfig || return; }
-		ask "Update firewall?" && { SsFirewall || return; }
-		ask "Update mail configuration?" && { SsMailConfig || return; }
-		ask "Update reporting server configuration?" && { SsReportServerConfig || return; }
+		ask "Update server configuration" && { SsServerConfig || return; }
+		ask "Update firewall" && { SsFirewall || return; }
+		ask "Update mail configuration" && { SsMailConfig || return; }
+		ask "Update reporting server configuration" && { SsReportServerConfig || return; }
 	fi
 
 	if [[ $clientTools ]]; then
-		ask "Configure SQL Server Management Studio?" && { SsManagementStudioConfig || return; }
+		ask "Configure SQL Server Management Studio" && { SsManagementStudioConfig || return; }
 	fi
 
 	SsFinal || return
@@ -1400,7 +1417,7 @@ SsUpdateServices()
 	SqlServer service demand --all || return
 	SqlServer service stop --all || return
 
-	if ask 'Automatically start SQL Server?'; then
+	if ask 'Automatically start SQL Server'; then
 		SqlServer service auto || return
 		SqlServer service start || return
 	fi
@@ -1408,7 +1425,7 @@ SsUpdateServices()
 
 SsManagementStudioConfig()
 {
-	ask 'Restore profile?' && { SqlServer profile restore default || return; }
+	ask 'Restore profile' && { SqlServer profile restore default || return; }
 
 	echot "\
 	- View: Registered Servers at top left, Solution Explorer at bottom right
@@ -1439,10 +1456,10 @@ SsFinal()
 	$makeDir "$dir/Projects" || return
 	$makeShortcut "$udata/sql" "$dir/Projects/sql.lnk" || return
 
-	ask "Update registry?" && { SsRegistry || return; }
+	ask "Update registry" && { SsRegistry || return; }
 	SsIcons || return;
 
-	if ask "Cleanup path?"; then
+	if ask "Cleanup path"; then
 		os path editor || return
 		echo "- Remove SQL entries from the system path"
 		pause
@@ -1510,8 +1527,8 @@ VisionAppInstall()
 	local cloudDir="$_CloudData/VisionApp" localDir="$udata/VisionApp"
 	$makeDir "$cloudDir" "$localDir"
 
-	local licenseFile; licenseFile="$(FindPublicDoc "data/install/VisionApp/Remote Desktop/license/Intel Corporation_Global.xml")" || return
-	utw "$licenseFile" > /dev/clipboard
+	FindFile "VisionApp/Remote Desktop/license/Intel Corporation_Global.xml" || return
+	utw "$file" > /dev/clipboard
 
 	echot "\
 - ?, Info..., Import new license file, paste
@@ -1547,10 +1564,10 @@ OfficeFinal()
 	echo "Moving data folders..."
 	$makeLink --merge --hide "$udata/OneNote" "$udoc/OneNote Notebooks" || return
 
-	ask "Restore normal templates?" && { word RestoreNormal || return; }
-	ask "Update registry?" && { registry import "$setupFiles/ShellNew.reg" || return; }
-	ask "Update icons?" && { OfficeIcons || return; }
-	ask "Configure?" && { for o in "$setupFiles/Set Options".*; do start "$o" || return; pause; done; }
+	ask "Restore normal templates" && { word RestoreNormal || return; }
+	ask "Update registry" && { registry import "$setupFiles/ShellNew.reg" || return; }
+	ask "Update icons" && { OfficeIcons || return; }
+	ask "Configure" && { for o in "$setupFiles/Set Options".*; do start "$o" || return; pause; done; }
 }
 
 OfficeIcons()
@@ -1592,12 +1609,53 @@ nVidiaInstall()
 	$rm "$pd/3D Vision Photo Viewer.lnk" || return
 }
 
+GitExtensionsInstall()
+{
+	printf "**************************************************\n* Git Extensions\n**************************************************\n"
+	
+	echot "\
+- check Msysgit, optional KDiff
+- Custom Setup
+	- check Extra application icons
+	- uncheck Visual Studio NNNN integration
+	- (optional) uncheck Assign with...
+- Git Setup, uncheck Associate .sh files to be run with Bash
+- Checkout as-is, commit as-is
+	"
+	run "Shareware/GitExtensions/setup/GitExtensions246SetupComplete.msi" || return # https://code.google.com/p/gitextensions/ http://msysgit.github.com/
+
+	echo "Configuring git..."
+	git config --system http.sslcainfo "$P32/git/bin/curl-ca-bundle.crt"
+	git config --system core.filemode false
+
+	echo "Updating icons..."
+	$mergeDir "$pp/Git" "$pp/Development/Other"
+	$mergeDir "$pp/KDiff3" "$pp/Operating System/Other"
+	$mv "$pp/Git Extensions.lnk" "$pp/Development/Other/Git"
+	$rm "$pd/Git Bash.lnk"
+	$rm "$pd/Git Extensions.lnk"
+
+	echot "\
+- Git Extensions, 
+	- Git Extensions, check Check for uncommitted changes in checkout branch dialog
+	- Global settings
+		- User name=NNN, User email=NNN
+		- Editor=C:\Program Files\Sublime Text 2\sublime_text.exe,
+		- Mergetool=BeyondCompare3
+		- Diftool=beyondcompare3
+- (optional) SSH, Configure PuTTY, Path to=C:/Users/Public/Documents/data/bin/win32
+- Checklist, review"
+	GitHelper gui || return
+	pause
+}
+
 TortoiseGitInstall()
 {
 	printf "**************************************************\n* TortoiseGit\n**************************************************\n"
 	
 	# https://code.google.com/p/tortoisegit/ https://code.google.com/p/tortoisegit/wiki/Download?tm=2
-	run "Shareware/TortoiseGit/setup/TortoiseGit-1.8.5.0-${bits}bit.msi" || return
+	echot "- (optional) Check Registrer link handlers"
+	run "Shareware/TortoiseGit/setup/TortoiseGit-1.8.6.0-${bits}bit.msi" || return
 
 	echo "Updating icons..."
 	$mergeDir "$pp/TortoiseGit" "$pp/Development/Other"
@@ -1667,9 +1725,7 @@ iTunesInstall()
 	echo "Updating services..."
 	service auto "iPod Service"
 
-	echo "Restoring the default profile..."
 	iTunes profile restore default || return
-
 	QuickTimePost || return
 	AppleCore || return
 
@@ -1745,5 +1801,51 @@ TrueImageInstall()
 	$registry 32 delete "run/TrueImageMonitor.exe" # "C:\Program Files (x86)\Acronis\TrueImageHome\TrueImageMonitor.exe"
 }
 
+npp() { NotepadPpInstall; }
+NotepadPpInstall()
+{
+	printf "**************************************************\n* Notepad++\n**************************************************\n"
+	echo "- Uncheck Run Notepad++"
+
+	run "Shareware/Notepad++/setup/npp.6.5.Installer.exe" || return # http://notepad-plus-plus.org/download/
+
+	FindFile "Shareware/Notepad++" || return
+
+	if ask "Delete current plugins and install the default plugins"; then
+		echo "Installing plugins..."
+		$rmd "$P32/Notepad++/plugins/*"
+		CopyDir "$file/plugins/default" "$P32/Notepad++/plugins"
+		CopyFile "$file/plugins/XML Tools External Libraries/*" "$P32/Notepad++"
+		CopyFile "$file/plugins/updater/*" "$P32/Notepad++/updater"
+		echo.
+	fi
+
+	echo "Installing auto-completion API's..."
+	cp "$file/api/"* "$P32/Notepad++/plugins/APIs" || return
+
+	echo "Updating registry..."
+	registry import "$file/setup/NotepadPP.reg" || return
+
+	echo "Updating icons..."
+	$rm "$ud/Notepad++.lnk" || return
+	$rm "$pd/Notepad++.lnk" || return
+	$mergeDir "$up/Notepad++" "$ao" || return
+	$mergeDir "$pp/Notepad++" "$ao" || return
+
+	notepadpp profile restore default || return
+
+	echot "\
+- Settings, Preferences, MISC, uncheck Minimize to system tray
+- Settings, Shortcut Mapper...,  Reload from Disk=Ctrl+R
+- Explorer, Search=*.txt, Open with, Choose Default program...
+  - Notepad++, check Always use the selected program to open this kind of file
+- keyboard shortcuts 
+  ctrl-n/w=new/close,  ctrl+/-=zoom
+  [shift]ctrl-tab=switch, ctrl-shift-o=file switcher
+  [alt]click drag=[block] select, ctrl-space=auto complete
+	"
+	notepadpp
+	pause
+}
 
 args "$@"; ${command}Command "${args[@]}";
