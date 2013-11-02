@@ -1,0 +1,152 @@
+#!/bin/bash
+. app.sh || exit
+
+usage() 
+{	
+	echot "
+usage: code changes|checkout|clone|commit|log|status|update PROJECTS
+	changes         exit status is 0 if there are changes
+  log FILE				display the SVN log for the specified file
+  switch PROJECTS [-v|--version VERSION](master)
+  -g, --gui		use the GUI command
+	-s, --svn		use SVN instead of GIT"
+	exit $1
+}
+
+args()
+{
+	unset -v command gui projects svn 
+	version="master"
+
+	while (( $# != 0 )); do
+		case "$1" in
+			-g|--gui) gui="true";;
+			-s|--svn) svn="true";;
+			-v|--version) version="$2"; shift;;
+			-h|--help) usage 0;;
+			IsInstalled) command="IsInstalled";;
+			*)
+				[[ ! $command ]] && { ! IsFunction "${1,,}Command" && usage 1; command="${1,,}"; shift; continue; }
+
+				if [[ "$command" == @(log) ]]; then
+					file="$1"; shift
+					[[ ! -f "$file" ]] && { EchoErr "code: cannot access `$file`: No such file"; return 1; }
+				else
+					local project="$1" projectDir="$CODE/$1"; projects+=( "$project" )					
+					[[ "$command" == @(clone)  && ! -d "$projectDir" ]] && { mkdir --parents "$projectDir" || return; }
+					[[ ! -d "$projectDir" ]] && { EchoErr "code: cannot access \`$project\`: Project does not exist"; return 1; }
+				fi;;
+		esac
+		shift
+	done
+	[[ ! $command ]] && MissingOperand "COMMAND"
+	[[ $command == @(log) && ! $file ]] && MissingOperand "FILE"
+
+	args=( "$@" )
+}
+
+init()
+{ 
+	gitRepository="github.intel.com/csis"
+	svnRepository="azscsistfs001.amr.corp.intel.com:8443"
+}
+
+run() 
+{	
+	args "$@" || return; init || return; 
+	
+	if [[ "$command" == @(log) ]]; then
+		${command}Command "${args[@]}"; return
+	fi
+
+	[[ ! $projects ]] && MissingOperand "PROJECTS"; shift
+	for project in "${projects[@]}"; do
+		projectDir="$CODE/$project"
+		[[ ! -d "$projectDir/.git" ]] && svn="true"
+		${command}Command "${args[@]}" || return
+	done
+}
+
+svn() { builtin cd "$projectDir" || return; TortoiseSVN svn "$@"; }
+svng() { builtin cd "$projectDir" || return; TortoiseSVN gui /path:"$projectDir" "$@"; }
+git() { builtin cd "$projectDir" || return; command git "$@"; }
+gitg() { builtin cd "$projectDir" || return; command GitHelper gui "$@"; }
+gittg() { builtin cd "$projectDir" || return; command GitHelper tgui "$@"; }
+
+logCommand() 
+{ 
+	[[ $svn ]] && { TortoiseSVN gui /command:log /path:"$file"; return; }
+}
+
+statusCommand() 
+{ 
+	[[ $svn ]] && { svn status; return; }
+	git status
+}
+
+revertCommand()
+{ 
+	[[ $svn ]] && { svng /command:revert; return; }
+	[[ $gui ]] && { gitg commit; return; } 
+	git reset --hard;
+}
+
+changesCommand() 
+{ 
+	if [[ $svn ]]; then
+		status="$(svn status)"
+		[[ $status ]]
+	else
+		! { git status | grep "nothing to commit (working directory clean)" > /dev/null; }
+	fi
+}
+
+commitCommand() 
+{ 
+	printf "Committing $project..."
+	! code changes "$project" && { echo "no changes"; return 0; }
+	echo "changes present..."
+	[[ $svn ]] && { svng /command:commit; return; }
+	gitg commit
+}
+
+cloneCommand()
+{ 
+	echo "Cloning $project..."
+
+	if [[ $svn && $gui ]]; then
+		TortoiseSVN gui /command:checkout /url:"https://$svnRepository/svn/$project/trunk/" /path:"$projectDir"
+	elif [[ $svn ]]; then
+		svn co "https://$svnRepository/svn/$project/trunk/" "$projectDir"
+	else
+		git clone "https://$gitRepository/$project" "$projectDir" || return
+		HideFile "$projectDir/.git" || return
+		HideFile "$projectDir/.gitignore" || return
+	fi
+}
+
+updateCommand()
+{ 
+	printf "Updating $project..."
+	[[ $svn ]] && { svn update | grep -v "Updating '.':" ; return; }
+	git pull
+}
+
+checkoutCommand()
+{	
+	[[ $svn ]] && { svnCheckoutCommand; return; }
+	git checkout "$version"
+}
+
+svnCheckoutCommand()
+{
+	if [[ "$version" == @(trunk|master) ]]; then
+		echo "Switching $project to trunk..."
+		TortoiseSVN svn switch "^/trunk" "$projectDir"
+	else
+		echo "Switching $project to branch $version..."
+		TortoiseSVN svn switch "^/branches/$version" "$projectDir"
+	fi
+}
+
+run "$@"
