@@ -47,6 +47,9 @@ TemplateFullInstall()
 	service manual "Stereo Service"
 	service manual "nvUpdatusService"
 
+	echo "Updating firewall..."
+	firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/Cygwin/usr/sbin/sshd.exe")" || return
+
 	echo "Creating directories..."
 	$makeDir "$_userDocuments/code/test"
 
@@ -74,7 +77,7 @@ args()
 	originalArgs=( "$@" ) 
 	while [ "$1" != "" ]; do
 		case "$1" in
-			--hint) hint="$2"; shift;;
+			--hint) hint=( --hint "$2" ); shift;;
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; } # command
@@ -102,6 +105,7 @@ installCommand()
 	InstallApps "${apps[@]}" || return
 }
 
+i() {	InstallApps "$@"; }
 InstallApps()
 {
 	local prompt; (( $# > 1 )) && prompt="true"
@@ -167,7 +171,7 @@ FindFile()
 		GetPath "$file" file || return
 	fi
 
-	if ! ScriptEval FindInstallFile --suppress --eval --hint "$hint" "$file"; then
+	if ! ScriptEval FindInstallFile --suppress --eval "${hint[@]}" "$file"; then
 		EchoErr "inst: could not locate ${1:-the installation directory}"
 		return 1
 	fi
@@ -268,27 +272,26 @@ bootstrap()
 
 	ScriptEval SetVar SEE_MASK_NOZONECHECKS 1 || return # disable Open File Secirity Warning
 
-	inst dirs cygwin bash console SysInternals || return
+	i dirs cygwin bash console VirtualCloneDrive || return
 
 	case "$USERNAME" in
-		jjbutare|ad_jjbutare) inst AutoHotKey BeyondCompare sublime WinSplit || return;;
-		*) inst notepadpp || return;;
+		jjbutare|ad_jjbutare) i AutoHotKey BeyondCompare sublime WinSplit || return;;
+		*) i notepadpp || return;;
 	esac
 
-	inst BashFinal
+	i BashFinal
 }
 
 core()
 {
 	printf "**************************************************\n* Core\n**************************************************\n"
-	echot "- Registration informatiom from lastpass.com web site"
-	inst WindowsSetup VirtualCloneDrive || return
+	i SysInternals WindowsSetup || return
 
 	local common="DropBox EverNote Sonos Chrome BrowserHomePage"
 	case "$COMPUTERNAME" in
-		oversoul) inst $common pGina ssh office365 nVidia DevCore TeamViewer || return;;
-		minime) inst $common pGina ssh MiniMe TrueImage office365 TeamViewer || return;;
-		jjbutare-mobl|jjbutare-mobl7|jjbutare-mobl9) inst $common OfficeFinal IntelCore CsisDeveloperCore || return;;
+		oversoul) i $common pGina ssh office365 nVidia LastPass DevCore || return;;
+		minime) i $common pGina ssh MiniMe TrueImage office365 LastPass || return;;
+		jjbutare-mobl|jjbutare-mobl7|jjbutare-mobl9) i $common OfficeFinal IntelCore CsisDeveloperCore || return;;
 	esac
 }
 
@@ -296,6 +299,13 @@ CygwinInstall()
 {
 	printf "**************************************************\n* Cygwin - POSIX environment for Windows\n**************************************************\n"
 	local installDir="$P/Cygwin"
+
+	echo "Update environment variables..."
+	ScriptEval SetVar --system --path PATH "$installDir/bin" || return
+	ScriptEval SetVar --system --path PATH "$_PublicBin" || return
+	ScriptEval SetVar --system --path PATH "$_PublicBin/win" || return
+	ScriptEval SetVar --path PATH "$_UserBin" || return
+	ScriptEval SetVar --system CYGWIN "" || return # nodosfilewarning
 
 	# cleanup
 	cygwin cleanup || return
@@ -309,15 +319,6 @@ CygwinInstall()
 		echo "Updating registry..."
 		$registry import "$file/setup $architecture.reg" || return
 
-	fi
-
-	# Variables
-	if ask "Do you want to update variables"; then
-		ScriptEval SetVar --system --path PATH "$installDir/bin" || return
-		ScriptEval SetVar --system --path PATH "$_PublicBin" || return
-		ScriptEval SetVar --system --path PATH "$_PublicBin/win" || return
-		ScriptEval SetVar --path PATH "$_UserBin" || return
-		ScriptEval SetVar --system CYGWIN "" || return # nodosfilewarning
 	fi
 
 	echo "Updating icons..."
@@ -338,15 +339,20 @@ CygwinInstall()
 	local group="$(mkgroup -c)"
 	! grep "$group" /etc/group > /dev/null && echo "$group" >> /etc/group
 
-	# ssh
+	# Completion
+	echo "Optimizing bash completion load time..."
+	$makeDir /etc/bash_completion.d/hold || return
+	$mv /etc/bash_completion.d/!(hold) /etc/bash_completion.d/hold || return
+	$mv /etc/bash_completion.d/hold/@(bash-builtins|coreutils|git|rsync|ssh) /etc/bash_completion.d || return
+
 	if [[ -d ~/.ssh ]]; then	
 		echo "Configuring ssh..."
-		echo "- possible issue: chgrp root ~/.ssh/*"
+		# if issues: chgrp root ~/.ssh/*
 		$hide ~/.ssh || return
 		[[ -f ~/.ssh/id_dsa ]] && { chmod 700 ~/.ssh/id_dsa || return; }
 	fi
 
-	# cleanup
+	echo "Cleaning up..."
 	$rmd "/home"
 }
 
@@ -418,7 +424,7 @@ IntelCore()
 	printf "**************************************************\n* Intel Core\n**************************************************\n"
  
 	echo "Installing Applications..."	
-	inst IntelApps IntelCleanup VisionApp || return
+	i IntelApps IntelCleanup VisionApp || return
 }
 
 IntelApps()
@@ -546,9 +552,8 @@ DevCore()
 	$makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
 	$makeLink --merge --hide "$udata/LINQPad" "$udoc/LINQPad Queries" || return
 
-	echo "Installing Applications..."	
-	inst GitExtensions TortoiseGit || return # BlueGriffon
-	inst iis SqlServer SqlPrompt || return 
+	ask "Install GIT core" && { i GitExtensions TortoiseGit || return; }
+	ask "Install SQL Development core" && { i iis SqlServer SqlPrompt || return; }
 	ask "Install .NET Development core" && { DotNetDevCore || return; }
 	ask "Install JAVA Development core" && { JavaDevCore || return; }
 }
@@ -561,14 +566,14 @@ DotNetDevCore()
 	$makeDir "$pp/Development/.NET/Other"
 
 	echo "Installing Applications..."	
-	inst VisualStudio NUnit ReSharper || return
+	i VisualStudio NUnit ReSharper || return
 }
 
 CsisDeveloperInstall()
 {
 	printf "**************************************************\n* Intel Development Core\n**************************************************\n"
 
-	ask "Install Development Core" && { inst DevCore || return; }
+	ask "Install Development Core" && { i DevCore || return; }
 
 	if ask "Install Intel Profile Manager"; then
 		run "Intel/Profile Manager/ITBAS.zip" "$P/ITBAS" || return
@@ -590,7 +595,7 @@ CsisDeveloperInstall()
 	fi
 
 	if ask "Install applications"; then
-		inst TortoiseSvn CruiseControlTray SilverlightSdk || return
+		i TortoiseSvn CruiseControlTray SilverlightSdk || return
 	fi
 
 	if ask 'Install SVN source server certificate'; then
@@ -1899,6 +1904,77 @@ JavaFinal()
 	$registry 64 delete "run/SunJavaUpdateSched"
 
 	ask "Test the Java browser plugin?" && JavaUtil test
+}
+
+VmwareWorkstationInstall()
+{
+	printf "**************************************************\n* VMware Workstation\n**************************************************\n"
+	echot "\
+- Custom
+  - Uncheck development environment plug-ins 
+  - Workstation Server Component COnfiguration
+    - Store shared VMs to=Public/Documents/data/VMware
+    - HTTPS Port=444
+- Uncheck Check for product updates on startup"
+	
+	# download - http://vmware.com/download/ws/
+	# services - VMAuthdService: run virtual machines as non-admin or in the background
+	run "VMware/workstation/setup/VMware-workstation-full-10.0.1-1379776.exe" || return 
+
+	echo "Updating firewall..."
+	# When the guest uses NAT echo replies (ICMP type and code 0) must be allowed for ping to function on the guest
+	firewall rule add "VMware NAT Echo Reply" dir=in action=allow enable=yes profile=private,domain localip=any remoteip=any protocol=icmpv4:0,0 interfacetype=any edge=yes || return
+
+	echo "Creating VMware directory..."
+	$makeDir "$udoc/data/VMware"
+
+	echo "Updating icons..."
+	$mergeDir "$pp/VMware" "$pp/Operating System/Other" || return
+	$rm "$pd/VMware Workstation.lnk" || return
+
+	echo "Virtual Network Editor..."
+	echo "(optional) - VMnet1 (host-only), VMnet8 (NAT): uncheck Connect a host virtual adapter to this network, Apply"
+	#VMware network
+	pause
+
+	if [[ "$(service StartType SysMain)" != "DISABLED" ]] && ask "Disable SuperFetch (causes excessive disk utilization with virtual machines)"; then
+		 service disable SysMain || return
+	fi
+
+	echot "\
+- Edit, Preferences...
+  - Workspace
+    - Default location for virtual machines=Documents/data/VMware or <drive>:\data\VMware\win81
+    - Check Keep VMs running after workstation closes
+  - Hotkeys, select Ctrl and Win only
+  - Display
+    - Uncheck Autofit Window
+    - Check Autofit guest
+    - Uncheck Show toolbar edge when unpinned in full screen
+  - Memory, How much host RAM=12000 (Oversoul)
+  - Priority
+    - Input grabbed=High
+    - Input ungrabbed=Low
+    - (optional) Uncheck Take and restore snapshots in the background when possible
+  - (optional) Devices, Uncheck Disable Autorun on the host when a VM is running"
+	# Start manually default location folder is not yet configured
+	start --wait "$P32/VMware/VMware Workstation/vmware.exe"
+}
+
+LastPassInstall()
+{
+	printf "**************************************************\n* LastPass\n**************************************************\n"
+
+	# https://lastpass.com/misc_download2.php	
+	#run "LastPass/setup/LastPass Setup ${architecture} v3.0.0.exe" || return
+	run "LastPass/setup/LastPass for Applications Setup ${architecture} v2.5.0.exe" || return
+
+	echo "Updating icons..."
+	$mergeDir "$up/LastPass" "$pp/Operating System/Other" || return
+	$rm "$pp/Operating System/Other/LastPass/Uninstall LastPass For Applications.lnk" || return
+
+	echo "Updating registry..."	
+	$registry 32 delete "run/LastApp" # C:\Program Files (x86)\LastPass\lastapp.exe
 }
 
 args "$@"; ${command}Command "${args[@]}";

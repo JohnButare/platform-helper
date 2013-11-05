@@ -103,6 +103,12 @@ OpenTextEditor()
 	}
 }
 
+NewTextEditor()
+{
+	global TextEdit
+	run "%TextEdit%" -n
+}
+
 OpenEverNote()
 {
 	global PROGRAMS32

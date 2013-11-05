@@ -10,21 +10,23 @@ BashInit()
 	EnvGet TMP,TMP
 
 	bash = mintty.exe
-	; if AutoHotkey was not started from a bash process, start it as a login shel
+
+	; if AutoHotkey was not started from a bash process, start it as a login shell
 	;MsgBox SHELL=%SHELL%
 	if (SHELL == "/bin/bash")
 		BashArgs=
 	else
 		BashArgs=-
+
 	BashClass=mintty
 }
 
 NewBash()
 {
-	global bash, BashArgs, BashClass
-	run "%bash%" %BashArgs%, Normal
-	WinWait ahk_class %BashClass%
-	ActivateBash()
+	global bash, BashArgs
+	run "%bash%" %BashArgs%, , Normal, pid
+	WinWait, ahk_pid %pid%
+	WinActivate, ahk_pid %pid%
 }
 
 NewElevatedBash()

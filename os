@@ -94,40 +94,27 @@ GetDirs()
 
 	FindDirsInit || return
 
-	if [[ ! $host ]]; then
+	if [[ ! $host ]]; then # local
 		FindDirsWorker || return
 		
-	elif [[ "$host" == "butare.net" ]]; then # nas external
-		_sys=""
-		_data=""
-		_PublicHome="//$host@ssl@5006/DavWWWRoot/public"
-		SetCommonPublicDirs
+	elif [[ "$host" == @(nas|butare.net) ]]; then # nas
+		_sys=""; _data=""; 
+		[[ "$host" == "nas" ]] && _PublicHome="//$host/public" || _PublicHome="//$host@ssl@5006/DavWWWRoot/public"
+		SetCommonPublicDirs || return
 		
-		_UserHome="//$host@ssl@5006/DavWWWRoot/home"
-		_UserSysHome="$_UserHome"
-		_UserDocuments="$_UserHome/documents"
-		SetCommonUserDirs
+		[[ "$host" == "nas" ]] && _UserHome="//$host/home" || _UserHome="//$host@ssl@5006/DavWWWRoot/home"
+		_UserFound="$_user"; _UserSysHome="$_UserHome"; _UserDocuments="$_UserHome/documents"
+		SetCommonUserDirs || return
 	
-	elif [[ "$host" != @(nas) && -d "//$host/c$" ]]; then # Windows hosts
-		_sys="//$host/c$"
-		_data="//$host/c$"
+	elif [[ -d "//$host/c$" ]]; then # host with Administrator access
+		_sys="//$host/c$"; _data="//$host/c$"
 		[[ -d "//$host/d$/Users" ]] && _data="//$host/d$"
 		FindDirsWorker || return
 
-	elif [[ "$host" == @(nas) || -d "//$host/public" ]]; then # nas internal
-		_sys=""
-		_data=""
-		_PublicHome="//$host/public"
-		SetCommonPublicDirs
+	elif [[ -d "//$host/public" ]]; then  # hosts with public share
+		_sys=""; _data=""; _PublicHome="//$host/public"
+		SetCommonPublicDirs || return
 		
-		if [[ "$host" == @(nas) || -d "//$host/home" ]]; then
-			_UserFound="$_user"
-			_UserHome="//$host/home"
-			_UserSysHome="$_UserHome"
-			_UserDocuments="$_UserHome/Documents"
-			SetCommonUserDirs
-		fi
-
 	else
 		EchoErr "Unable to find os directories on $host"
 		return 1

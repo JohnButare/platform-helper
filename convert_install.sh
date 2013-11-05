@@ -3052,75 +3052,6 @@
 
 	return
 
-	:VMwareWorkstation
-	# http://vmware.com/download/ws/
-	# Services:
-	# - VMAuthdService: run virtual machines as non-admin or in the background
-	echot "\
-	************************
-	* VMware Workstation
-	************************
-	- Custom
-	  - Uncheck development environment plug-ins 
-	  - Workstation Server Component COnfiguration
-	    - Store shared VMs to=Public/Documents/data/VMware
-	    - HTTPS Port=444
-	- Uncheck Check for product updates on startup
-	"
-
-	run "VMware/workstation/setup/VMware-workstation-full-9.0.2-1031769.exe"
-
-	echo "Updating firewall..."
-
-	# When the guest uses NAT echo replies (ICMP type and code 0) must be allowed for ping to function on the guest
-	firewall rule add "VMware NAT Echo Reply" `dir=in action=allow enable=yes profile=private,domain localip=any #oteip=any protocol=icmpv4:0,0 interfacetype=any edge=yes`
-
-	# Disable the Visual Studio debugger as it can slow load time
-	CopyFile "VMware/workstation/setup/Visual Studio Integrated Debugger.reg" "$P32/VMware/VMware Workstation"
-	vmware debugger disable
-
-	echo Creating VMware directory...
-	$makeDir "$udoc/data/VMware"
-
-	echo Updating icons...
-	$mergeDir "$pp/VMware" "$pp/Operating System/Other"
-	$rm "$pd/VMware Workstation.lnk"
-
-	# echo VMware network configuration...
-	echo VMnet1 (host-only), VMnet8 (NAT)
-	echo   uncheck Connect a host virtual adapter to this network, Apply
-	VMware network
-	pause
-
-	# Services
-	if  "$@ServiceState[SysMain]" != "STOPPED" then
-		ask "Disable SuperFetch (causes excessive disk utilization with virtual machines)?" y
-		if $? == 1 os DisableSuperFetch
-	fi
-
-	echot "\
-	- Edit, Preferences...
-	  - Workspace
-	    - Default location for virtual machines and teams=Documents/data/VMware
-	    - Check keep VMs running after workstation closes
-	  - Hotkeys, select Ctrl and Win only
-	  - Display
-	    - Uncheck Autofit Window
-	    - Check Autofit guest
-	    - Uncheck Show toolbar edge when unpinned in full screen
-	  - Memory, How much host RAM=12000 (Oversoul)
-	  - Priority
-	    - Input grabbed=High
-	    - Input ungrabbed=Low
-	    - (optional) Uncheck Take and restore snapshots in the background when possible
-	  - Devices, Uncheck Disable Autorun on the host when a VM is running
-	"
-	# Start manually default location folder is not yet configured
-	start /pgm "$P32/VMware/VMware Workstation/vmware.exe"
-	pause
-
-	return
-
 	:VMwarePlayer
 	echot "\
 	************************
@@ -8293,31 +8224,7 @@
 
 	return
 
-	:LastPass
-	:lp
-	# https://lastpass.com/misc_download.php
-	# Release notes - https://lastpass.com/upgrade.php?fromwebsite=1&releasenotes=1
-	# LastPass for applications includes IE Anywhere to fill in forms in IE without the IE plugin.
-	echot "\
-	************************
-	* LastPass
-	************************
-	- select No, do not import any of my insecure items
-	"
-
-	run "LastPass/setup/LastPass Setup ${architecture} v2.5.0.exe"
-	run "LastPass/setup/LastPass for Applications Setup ${architecture} v2.0.20.exe"
-
-	echo Updating registry...
-
-	# Delete LastPass - C:/Program Files (x86)/LastPass/lastapp.exe
-	registry 32 delete "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/LastApp"
-
-	echo Updating icons...
-	$mergeDir "$up/LastPass" "$pp/Operating System/Other"
-	$mergeDir "$pp/LastPass" "$pp/Operating System/Other"
-	$rm "$pd/My LastPass Vault.lnk"
-
+	
 	return
 
 	:UpdateChecker
