@@ -42,8 +42,8 @@ run()
 	do
 		MapApp
 		[[ $quiet ]] && printf "."
-		if IsFunction "${app,,}"; then
-			${app,,}
+		if f="$(GetFunction "$app")"; then
+			"$f"
 		elif IsInArray "$app" localApps; then
 			RunInternalApp
 		else
@@ -51,25 +51,6 @@ run()
 		fi
 	done
 	return "$?"
-}
-
-TaskStart()
-{
-	local program="$1"
-	local title="$2"
-
-	[[ ! -f "$program" ]] && program="$(FindInPath "$program")"
-	[[ ! -f "$program" ]] && return
-
-	if [[ "$command" == "startup" ]]; then
-		IsTaskRunning "$program" && return
-		ShowStatus
-		task start --title "$title" "$program" "${@}"
-	else
-		IsTaskRunning "$program" || return
-		ShowStatus
-		task close --title "$title" "$program"
-	fi
 }
 
 RunInternalApp()
@@ -107,8 +88,8 @@ RunInternalApp()
 
 RunExternalApp()
 {
-	! GetAppFile && return
-	! IsAppInstalled && return
+	GetAppFile || return
+	IsAppInstalled || return
 
 	if [[ "$command" == "startup" ]]; then
 		IsAppRunning && return
@@ -120,6 +101,25 @@ RunExternalApp()
 	"$app" "${command}"
 }
 
+TaskStart()
+{
+	local program="$1"
+	local title="$2"
+
+	[[ ! -f "$program" ]] && program="$(FindInPath "$program")"
+	[[ ! -f "$program" ]] && return
+
+	if [[ "$command" == "startup" ]]; then
+		IsTaskRunning "$program" && return
+		ShowStatus || return
+		task start --title "$title" "$program" "${@}"
+	else
+		IsTaskRunning "$program" || return
+		ShowStatus || return
+		task close --title "$title" "$program" || return
+	fi
+}
+
 ShowStatus()
 {
 	[[ $quiet ]] && printf "$app..." || echo "$status $app..."
@@ -128,14 +128,14 @@ ShowStatus()
 GetAppFile()
 {
 	appFile="$(FindInPath "$app")"
-	[[ -z "$appFile" ]] && echo "App $app was not found"
-	[[ $appFile ]]
+	[[ ! $appFile ]] && { echo "app: $app was not found"; return 1; }
+	[[ -f "$appFile" ]]
 }
 
 IsAppInstalled()
 {
 	if ! CommandExists IsInstalled "$appFile"; then
-		echo "App $app does not have an IsInstalled command"
+		echo "app: $app does not have an IsInstalled command"
 		return 1
 	fi
 
@@ -155,6 +155,7 @@ IsAppRunning()
 MapApp()
 {
 	case "$app" in
+		cctray) app="CruiseControlTray";;
 		ProcExp|pe) app="ProcessExplorer";;
 		tc) app="TrueCrypt";;
 		keys) app="AutoHotKey";;
@@ -165,14 +166,14 @@ MapApp()
 	esac
 }
 
-anydvd() { IsTaskRunning "AnyDVDtray" || TaskStart "AnyDVD"; }
-aspnetversionswitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
-clonedvd() { [[ "$command" == "startup" ]] && TaskStart "$P32/Elaborate Bytes/CloneDVD2/CloneDVD2.exe"; }
-groove() { TaskStart "$P32/Microsoft Office/Office12/GROOVE.EXE" "" -background; }
-intelactivemonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
-pinnaclegameprofiler() {	TaskStart "$P32/KALiNKOsoft/Pinnacle Game Profiler/pinnacle.exe"; }
+AnyDvd() { IsTaskRunning "AnyDVDtray" || TaskStart "AnyDVD"; }
+AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
+CloneDvd() { [[ "$command" == "startup" ]] && TaskStart "$P32/Elaborate Bytes/CloneDVD2/CloneDVD2.exe"; }
+Groove() { TaskStart "$P32/Microsoft Office/Office12/GROOVE.EXE" "" -background; }
+IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
+PinnacleGameProfiler() {	TaskStart "$P32/KALiNKOsoft/Pinnacle Game Profiler/pinnacle.exe"; }
 
-explorer()
+Explorer()
 {
 	if [[ "$command" == "startup" ]]; then
 		IsTaskRunning explorer || start explorer
@@ -181,14 +182,14 @@ explorer()
 	fi;
 }
 
-inteldesktopcontrolcenter() 
+IntelDesktopControlCenter() 
 { 
 	program="$P32/Intel/Intel(R) Desktop Control Center/idcc.exe"
 	{ [[ "$command" == "startup" && -f "$program" ]] && IsTaskRunning idcc; } && 
 		start --directory="$(GetPath "$program")" "$program"
 }
 
-processexplorer()
+ProcessExplorer()
 {
 	if [[ "$command" == "startup" ]]; then
 		start "%PUB/documents/data/bin/win64/ProcExp.exe" "Process Explorer*" "/t /p:l"

@@ -58,3 +58,9 @@ PathAdd "/usr/bin" "front"
 PathAdd "/usr/local/bin" "front"
 
 ManPathAdd "$PUB/documents/data/man"
+
+# interactive initialization - remainder not needed in child processes or scripts
+[[ "$-" != *i* ]] && return
+
+# common functions
+[[ ! $FUNCTIONS && -f "$BIN/function.sh" ]] && . "$BIN/function.sh"

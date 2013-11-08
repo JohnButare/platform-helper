@@ -1293,21 +1293,7 @@
 	pause
 
 	return
-
-	:SsFirewall
-
-	echo "Updating firewall..."
-	firewall rule add "SQL Server" ^
-		`dir=in action=allow protocol=TCP localport=1433 profile=private program="$P/Microsoft SQL Server/MSSQL10.MSSQLSERVER/MSSQL/Binn/sqlservr.exe"`
-
-	echo - SQL Server Network Configuration, Protocols for MSSQLSERVER
-	echo  - Named Pipes and TCP/IP=Enabled
-	echo  - TCP/IP, IP Addresses, (IP for primary NIC) IPn, Enabled=Yes
-	SqlServer config
-	pause
-
-	return
-
+	
 	:SsReportServerConfig
 
 	if $@ServiceExist[ReportServer] == 0 return

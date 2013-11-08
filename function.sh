@@ -1,5 +1,17 @@
 # common functions for non-interactive scripts
 
+FUNCTIONS="true"
+
+# sytem-wide configuration - if we were not run from a login shell
+if [[ ! $BIN ]]; then
+	[[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
+	[[ -f "$USERS/Public/Documents/data/bin/bash.bashrc" ]] && . "$USERS/Public/Documents/data/bin/bash.bashrc"
+fi
+
+#
+# configuration
+# 
+
 shopt -s nocasematch extglob 
 
 #
@@ -99,12 +111,31 @@ utw() { cygpath -aw "$*"; }
 DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
 
 # MakeShortcut FILE LINK
-MakeShortcut() { [[ ! -e "$1" ]] && return; mkshortcut "$1" -n="$2" "${@:3}"; }
+MakeShortcut() 
+{ 
+	(( $# < 2 )) && { EchoErr "usage: MakeShortcut TARGET NAME ..."; return 0; }
+	local t="$1"; [[ ! -e "$t" ]] && t="$(FindInPath "$1")"
+	[[ ! -e "$t" ]] && { EchoErr "MakeShortcut: could not find target $1"; return 1; }
+	mkshortcut "$p" -n="$2" "${@:3}";
+}
+
+# CopyDir --mirror SRC DEST
+CopyDir()
+{
+	# xcopy /e /v /k /r /h /x /o /c, robocopy /z /ndl
+	local o=( /E /V /R:3 /W:2 ) rcOptsMir=( "${rcOptsRegular[@]}" /mir ) rcOpts=( "${rcOptsRegular[@]}" )
+	[[ $1 == @(-m|--mirror) ]] && { shift; o+=( /mir ); }
+	[[ $# != 2 ]]	&& { EchoErr "usage: CopyDir SRC DEST
+  -m, --mirror     remove extra files in DEST"; return 1; }
+  local src="$(utw "$1")" dest="$(utw "$2")"
+ 	robocopy "${o[@]}" "$src" "$dest"
+	(( $? > 7 )) && return 1 || return 0
+}
 
 # FileCommand mv|cp|ren|hide SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
 FileCommand() 
 { 
-	local args command="$1" dir="${@: -1}" files=0 n
+	local args command="$1" dir="${@: -1}" file files=0 n
 	[[ "$command" == "hide" ]] && n=$(($#-1)) || n=$(($#-2))
 
 	for arg in "${@:2:$n}"; do
@@ -115,6 +146,7 @@ FileCommand()
 
 	case "$command" in
 		hide) for file in "${args[@]}"; do attrib +h "$(utw "$file")" || return; done;;
+		HideAndSystem) for file in "${args[@]}"; do attrib +h +s "$(utw "$file")" || return; done;;
 		ren) mv "${args[@]}" "$dir";;
 		*)
 			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing \`$dir\`: No such directory"; return 1; }
@@ -268,7 +300,7 @@ start()
 	local program="$1" args=( "${@:2}" ) qargs; 
 
 	for arg in "${args[@]}"; do 
-		[[ -e "$arg" ]] && arg="$(utw "$arg")" # convert POSIX path to Windows format
+		[[ ! "$arg" =~ .*\\.* && -e "$arg" ]] && { arg="$(utw "$arg")"; } # convert POSIX path to Windows format
 		[[ ! $direct && "$arg" =~ ( ) ]] && qargs+=( "\"$arg\"" ) || qargs+=( "$arg" ); # cygstart requires arguments with spaces be quoted
 	done
 
@@ -330,7 +362,7 @@ IsTaskRunning() # IsTaskRunng <task>
 		GetFilename "$task" task
 
 		# ps -sW | cut -c 27- - full path, no extension for Cygwin processes
-		# tasklist /nh /fo csv | cut -d, -f1 | grep -i "^\"$task\.exe\"$" > /dev/nul # no path, slower
+		# tasklist /nh /fo csv | cut -d, -f1 | grep -i "^\"$task\.exe\"$" > /dev/null # no path, slower
 		AutoItScript ProcessExists "${task}.exe"
 }
 

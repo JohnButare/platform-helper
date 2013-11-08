@@ -26,6 +26,7 @@ TemplateFullInstall()
 
 	FindFile "Intel/Profile Manager/ProfileManager.xml" || return
 	$cp	"$file" "$WINDIR/system32" || return
+	$rc --mirror "$src" "$dest" || return
 
 	echo "Updating icons..."
 	$mergeDir "$pp/(dir)" "$pp/Development/Other" || return
@@ -48,7 +49,7 @@ TemplateFullInstall()
 	service manual "nvUpdatusService"
 
 	echo "Updating firewall..."
-	firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/Cygwin/usr/sbin/sshd.exe")" || return
+	$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/Cygwin/usr/sbin/sshd.exe")" || return
 
 	echo "Creating directories..."
 	$makeDir "$_userDocuments/code/test"
@@ -67,17 +68,19 @@ usage()
 	echot "\
 usage: install cd|install APP*
 	Install programs
-	  -h,--hint DIR		first directory to search for installation files"
+	  -h,--hint DIR			first directory to search for installation files
+	  -nrp,--NoRunPrompt	do not ask to run the executable"
 	exit $1
 }
 
 args()
 {
-	unset command apps host select
+	unset command apps host noRunPrompt
 	originalArgs=( "$@" ) 
 	while [ "$1" != "" ]; do
 		case "$1" in
-			--hint) hint=( --hint "$2" ); shift;;
+			-nrp|--NoRunPrompt) noRunPrompt="true";;
+			-h|--hint) hint=( --hint "$2" ); shift;;
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; } # command
@@ -108,10 +111,10 @@ installCommand()
 i() {	InstallApps "$@"; }
 InstallApps()
 {
-	local prompt; (( $# > 1 )) && prompt="true"
+	local prompt; { (( $# > 1 )) || [[ $noRunPrompt ]]; } && prompt="true"
 	while (($# != 0 )); do
 		app="$1"; shift
-		if [[ ! $prompt ]] || ask "Install $app"; then
+		if [[ ! $prompt ]] || ask "\nInstall $app"; then
 			installFunction="$(GetInstallFunction)" || { EchoErr "inst: $app installation does not exist"; return 1; }
 			$installFunction || return
 		fi
@@ -132,22 +135,20 @@ InstallInit()
 
 	local test #="echo "
 	cp="${test}FileCommand cp"
+	firewall="${test}firewall --suppress"
 	hide="${test}FileCommand hide"
+	hideAndSystem="${test}FileCommand HideAndSystem"
 	makeDir="${test}mkdir --parents"
 	makeLink="${test}MakeLink --suppress"
 	makeShortcut="${test}MakeShortcut"
 	mergeDir="${test}MergeDir --suppress --parents"
 	mv="${test}FileCommand mv"
+	rc="${test}CopyDir"
 	registry="${test}registry"
 	ren="${test}FileCommand ren"
 	rm="${test}rm -f"
 	rmd="${test}rm -fr"
 	
-	rc="robocopy"
-	rcOptsRegular=( /E /V /R:100 /W:2 )
-	rcOptsMir=( "${rcOptsRegular[@]}" /mir)
-	rcOpts=( "${rcOptsRegular[@]}" )
-
 	netShareOptions=/grant:Everyone,full
 	setupFiles="$(ScriptDir)/../setup"
 }
@@ -159,6 +160,28 @@ run() # run EXE [OPTIONS...]
 	[[ ! $exe ]] && { EchoErr "inst: executable was not specified"; return 1; }
 	FindFile "$exe" || { ask "Continue the installation"; return; }
 	RunExe "$file" "${@:2}" || return
+}
+
+FindEditorProgram()
+{
+	if [[ -f "$P/Sublime Text 2/sublime_text.exe" ]]; then
+		program="$P/Sublime Text 2/sublime_text.exe"
+	elif [[ -f "$P32/Notepad++/notepad++.exe" ]]; then
+		program="$P32/Notepad++/notepad++.exe"
+	else
+		program="$(FindInPath "notepad")"
+	fi
+}
+
+FindCompareProgram()
+{
+	if [[ -f "$P32/Beyond Compare 3/BComp.exe" ]]; then
+		program="$P32/Beyond Compare 3/BComp.exe"
+	elif [[ -f "$P32/KDiff3/kdiff3.exe" ]]; then
+		program="$P32/KDiff3/kdiff3.exe"
+	else
+		program=""
+	fi
 }
 
 FindFile()
@@ -176,7 +199,7 @@ FindFile()
 		return 1
 	fi
 
-	hint="$InstallDir"
+	hint=( --hint "$InstallDir" )
 
 	if [[ $pattern ]]; then
 		pushd "$file" > /dev/null || return
@@ -204,7 +227,8 @@ RunExe()
 	local standard; [[ "$1" == @(-s|--standard) ]] && { standard="--standard"; shift; }
 	local pause; [[ "$1" == @(-p|--pause) ]] && { pause="--pause"; shift; }
 
-	ask "Do you want to run $exeDesc" || return 0
+	[[ $noRunPrompt ]] && echo "Runing $exeDesc..." ||
+		{ ask "Do you want to run $exeDesc" || return 0; }	
 
 	local exeExt; GetExtension "$exe" exeExt
 
@@ -213,7 +237,7 @@ RunExe()
 	case "$exeExt" in
 		bat|cmd) cmd /c "$exe" "$@";;
 		msi) start --wait msiexec /i "$exe" "$@";;
-		iso) iso mount 1 "$exe";;
+		iso) iso mount 1 "$exe"; echo "If needed run the setup program manually...";;
 		zip|7z|gz|tar|xpi|ear|jar|war) RunZip "$exe" "$@" || return;;
 		*) [[ $standard ]] && sudo --standard "$exe" "$@" || start --wait "$exe" "$@";;
 	esac
@@ -271,15 +295,30 @@ bootstrap()
 	printf "**************************************************\n* Bootstrap\n**************************************************\n"
 
 	ScriptEval SetVar SEE_MASK_NOZONECHECKS 1 || return # disable Open File Secirity Warning
+	coreDirectories || return
 
-	i dirs cygwin bash console VirtualCloneDrive || return
+	i cygwin bash console VirtualCloneDrive || return
 
-	case "$USERNAME" in
-		jjbutare|ad_jjbutare) i AutoHotKey BeyondCompare sublime WinSplit || return;;
+	case "${USERNAME#ad_}" in
+		jjbutare) i sublime AutoHotKey BeyondCompare WinSplit || return;;
 		*) i notepadpp || return;;
 	esac
 
 	i BashFinal
+}
+
+coreDirectories()
+{
+	$makeDir "$pp/Applications/Other" || return
+	$makeDir "$pp/Development/Other" || return
+	$makeDir "$pp/Media/Other" || return
+	$makeDir "$pp/Operating System/Other" || return
+	[[ $client ]] && { $makeDir "$pp/Games/Other" || return; }
+
+	$makeDir "$_sys/temp" || return
+	$makeDir "$_PublicDocuments/data/doc" || return
+	$makeDir "$_PublicDocuments/data/log" || return
+	$makeDir "$_PublicDocuments/drop" || return
 }
 
 core()
@@ -325,12 +364,16 @@ CygwinInstall()
 	$makeShortcut "$installDir/bin/mintty.exe" "$pp/Operating System/bash" -a="-" || return
 	$makeShortcut "$_PublicBin/run.sh" "$psm/Programs/Startup/startup" -a "startup" -d "Start applications" || return
 
+	echo "Adding user..." # first user added when Cygwin installed, other users are not
+	local user="$(mkpasswd -c)"
+	! grep "^$(id -un)" /etc/passwd > /dev/null && { echo "$user" >> /etc/passwd || return; }
+	
 	# set home directory in /etc/passwd
 	if grep ":/home" /etc/passwd > /dev/null; then
 		echo "Updateing home directory locations..."
 		local escapedUsers="${_data//\//\/}\/users"
-		cp /etc/passwd /etc/passwd.bak
-		sed 's/:\/home/:'"$escapedUsers"'/g' < /etc/passwd.bak > /etc/passwd
+		cp /etc/passwd /etc/passwd.bak || return
+		sed 's/:\/home/:'"$escapedUsers"'/g' < /etc/passwd.bak > /etc/passwd || return
 		HOME="$_data/users/$USERNAME"
 	fi
 
@@ -350,6 +393,7 @@ CygwinInstall()
 		# if issues: chgrp root ~/.ssh/*
 		$hide ~/.ssh || return
 		[[ -f ~/.ssh/id_dsa ]] && { chmod 700 ~/.ssh/id_dsa || return; }
+		SshAgent startup || return
 	fi
 
 	echo "Cleaning up..."
@@ -377,7 +421,7 @@ BashInstall()
 	files=( .bash_history .lesshst )
 	for file in "${files[@]}"; do
 		touch "$_UserHome/$file" || return
-		HideFile "$_UserHome/$file" || return
+		$hide "$_UserHome/$file" || return
 	done
 
 	echo done
@@ -388,8 +432,8 @@ BashFinal()
 	printf "**************************************************\n* Bash - Final Configuration\n**************************************************\n"
 
 	if ask "Edit /etc/bash.bashrc"; then
-		echo "- paste text before interactive login"
-		clipw $'\n# Wiggin
+		echo '- paste the text in the clipboard before "# If not running interactively, don'\''t do anything"'
+		clipw $'# Wiggin
 [[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
 [[ -f "$USERS/Public/Documents/data/bin/bash.bashrc" ]] && . "$USERS/Public/Documents/data/bin/bash.bashrc"\n\n'
 		TextEdit --wait "/etc/bash.bashrc" 
@@ -407,7 +451,7 @@ SshInstall()
 	$makeDir "$sshHome" && $hide +h "$sshHome" || return
 
 	echo "Updating firewall..."
-	firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/Cygwin/usr/sbin/sshd.exe")" || return
+	$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/Cygwin/usr/sbin/sshd.exe")" || return
 
 	echot "\
 Configuring SSH...
@@ -542,9 +586,9 @@ DevCore()
 	printf "**************************************************\n* Development Core\n**************************************************\n"
 	
 	echo "Creating directories..."
-	$makeDir "$_userDocuments/code/test"
-	$makeDir "$_Code/test"
-
+	$makeDir "$_userDocuments/code/test" || return
+	$makeDir "$_Code/test" || return
+	
 	echo "Updating icons..."
 	$makeShortcut "$_Code" "$pp/Development/Code" || return
 
@@ -552,10 +596,11 @@ DevCore()
 	$makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
 	$makeLink --merge --hide "$udata/LINQPad" "$udoc/LINQPad Queries" || return
 
-	ask "Install GIT core" && { i GitExtensions TortoiseGit || return; }
-	ask "Install SQL Development core" && { i iis SqlServer SqlPrompt || return; }
-	ask "Install .NET Development core" && { DotNetDevCore || return; }
-	ask "Install JAVA Development core" && { JavaDevCore || return; }
+	ask "\nInstall GIT core" && { i GitExtensions TortoiseGit || return; }
+	ask "\nInstall SQL Development core" && { i iis SqlServer SqlPrompt || return; }
+	ask "\nInstall .NET Development core" && { DotNetDevCore || return; }
+	ask "\nInstall JAVA Development core" && { JavaDevCore || return; }
+	return 0
 }
 
 DotNetDevCore() 
@@ -573,7 +618,9 @@ CsisDeveloperInstall()
 {
 	printf "**************************************************\n* Intel Development Core\n**************************************************\n"
 
-	ask "Install Development Core" && { i DevCore || return; }
+	i DevCore || return
+
+	$makeDir "$pp/Development/CSIS" || return
 
 	if ask "Install Intel Profile Manager"; then
 		run "Intel/Profile Manager/ITBAS.zip" "$P/ITBAS" || return
@@ -582,63 +629,72 @@ CsisDeveloperInstall()
 		$cp	"$file" "$WINDIR/system32" || return
 		chmod 744 "$WINDIR/system32/ProfileManager.xml" || return
 		$makeDir "$_sys/winnt/system32" || return 
-		HideFile "/cygdrive/c/winnt" || return
+		$hide "/cygdrive/c/winnt" || return
 		$cp "$file" "$_sys/winnt/system32" || return
 		chmod 744 "$_sys/winnt/system32/ProfileManager.xml" || return
+		MakeShortcut "/cygdrive/c/Program Files/ITBAS/ProfileManager/ProfileManager.exe" \
+			"$pp/Development/CSIS/Profile Manager" || return
+	fi
+
+	if ask "Install Antidote"; then
+		run "Intel/Antidote/setup/Antidote.zip" "$P/Antidote" || return
+		MakeShortcut "mintty" "$pp/Development/CSIS/Antidote" \
+			-a="/c \"$(utw "$P/Antidote/antidote.exe")\" & pause" || return
 	fi
 
 	if ask "Update machine.config"; then
 		clipw '<appSettings><add key="Environment" value="Development" /></appSettings>'
-		echo "- After </configSections> paste"
+		echo "- After </configSections> paste the text in the clipboard"
 		DotNet 4 MachineConfig || return
 		pause
 	fi
 
-	if ask "Install applications"; then
-		i TortoiseSvn CruiseControlTray SilverlightSdk || return
-	fi
+	i TortoiseSvn CruiseControlTray SilverlightSdk || return
 
-	if ask 'Install SVN source server certificate'; then
-		echot "\
-- Install Certificate..., Store Location=Local Machine, Place all certificates in the following store=
-Trusted Root Certificate Authorities"
-		FindFile "Intel/csis/azscsistfs001.amr.corp.intel.com.cer" || return
-		start "$file"
-		pause
+	if ask "Configure SVN source server certificate and credentails"; then
+		echo "- Accept the certificate permanently"
+		echo "- Authentication, Username=USERNAME, Password=PASSWORD, check Save authentication"
+		code --svn --gui clone CSIS || return
 	fi
-
-	ask "Enter SVN credentails)" && 
-		{ code --svn --gui clone dummy || return; rm -fr "$CODE/dummy"; }
 	
-	if ask "Pull shared code projects"; then
+	if ask "Setup shared projects"; then
 		code clone IntelNuGet || return
 		code --svn clone Antidote Errgo Magellan || return
-	fi;
 
-	ask "Pull application projects" &&
-		{ code --svn clone RPIAD ScadaPortal || return; }
+		echo "Configuring Antidote..."
+		MakeShortcut "mintty" "$pp/Development/CSIS/Antidote Local Build" \
+			-a="--hold=error antidote verbose App=Antidote BuildType=LocalBuild" || return
+ 		chgrp root "$CODE/Antidote/unversioned/SqlData" || return; chmod 777 "$CODE/Antidote/unversioned/SqlData"
+		antidote verbose App=Antidote BuildType=LocalBuild || return
+
+		echo "Configuring Magellan..."
+		MakeShortcut "mintty" "$pp/Development/CSIS/Magellan Local Build" 
+			-a="--hold=error run.sh sudo antidote verbose App=Magellan BuildType=LocalBuild CacheBrokerAddress=@DatabaseServer@" || return
+		chgrp root "$CODE/Magellan/unversioned/SqlData" || return; chmod 777 "$CODE/Magellan/unversioned/SqlData"
+		antidote verbose App=Magellan BuildType=LocalBuild CacheBrokerAddress=@DatabaseServer@ || return
+
+	fi
+
+	if ask "Setup applications"; then
+		applications=( RPIAD ScadaPortal )
+		for app in "${applications[@]}"; do 
+			if ask "Setup $app"; then
+				case $app in
+					RPIAD) chmod 777 "$CODE/RPIAD/SQLData" || return;;
+				esac
+				code --svn clone "$app" || return
+				MakeShortcut "mintty" "$pp/Development/CSIS/$app Local Build" \
+					-a="--hold=error run.sh sudo antidote verbose App=$app BuildType=LocalBuild" || return
+				antidote verbose App=$app BuildType=LocalBuild || return
+			fi
+		done
+	fi
+
 }
 
 JavaDevCore()
 {
 	printf "**************************************************\n* JAVA Development Core\n**************************************************\n"
-}
-
-dirs()
-{
-	printf "**************************************************\n* Directories\n**************************************************\n"
-
-	$makeDir "$pp/Applications/Other" || return
-	$makeDir "$pp/Development/Other" || return
-	$makeDir "$pp/Media/Other" || return
-	$makeDir "$pp/Operating System/Other" || return
-	[[ $client ]] && $makeDir "$pp/Games/Other" || return
-
-	$makeDir "$_sys/temp"
-
-	$makeDir "$_PublicDocuments/data/log"
-	$makeDir "$_PublicDocuments/data/doc"
-	$makeDir "$_PublicDocuments/drop"
 }
 
 WinampInstall()
@@ -673,8 +729,6 @@ AutoHotKeyInstall()
 	echo "Updating registry..."
 	FindFile "AutoHotKey" || return
 	$registry import "$file/setup/other/AutoHotkey-$architecture.reg" || return
-	
-	[[ ! -f "$_UserData/bin/keys.ahk" ]] && { $cp "$_PublicData/setup/keys.ahk" "$_UserData/bin" || return; }
 
 	sudo --standard AutoHotKey startup
 }
@@ -691,11 +745,7 @@ SublimeInstall()
 	printf "**************************************************\n* Sublime Text Editor\n**************************************************\n"
 	echo "- Check add to explorer context menu"
 
-	if ask 'Install current version'; then
-		run "Sublime/setup/Sublime Text 2.0.2 $architecture Setup.exe" || return
-	else
-		run "Sublime/setup/Sublime Text Build 3047 $architecture Setup.exe" || return
-	fi
+	run "Sublime/setup/Sublime Text 2.0.2 $architecture Setup.exe" || return
 
 	echo "Updating icons..."
 	$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
@@ -716,6 +766,7 @@ ReSharperInstall()
 	ReSharper profile restore default || return
 
 	echot "\
+	- Select ReSharper Shortcuts Scheme, ReSharper 2.x and IntelliJ IDEA
 	- ReSharper, Options
 		- Keyboards & Menus, ReSharper keyboard scheme=ReSharper 2.x or IntelliJ IDEA, Apply Scheme
 		- Environment, Editor, Editor Behavior, uncheck Use CamelHumps
@@ -769,27 +820,22 @@ WindowsSetup()
 {
 	printf "**************************************************\n* Windows Setup\n**************************************************\n"
 
-	ask 'Cleanup icons' && { WindowsIcons || return; }
+	WindowsIcons || return
 
-	if ask 'Cleanup file system'; then
-		$rmd "$_sys/PerfLogs" || return
-	fi
+	echo "Cleaning file system..."
+	$rmd "$_sys/PerfLogs" || return
 
-	if ask 'Setup download directory'; then
-		$makeLink --merge "$udata/download" "$uhome/Downloads" || return
-		HideFile "$uhome/Downloads" || return
-	fi
+	echo "Moving data folders..."
+	$makeLink --merge "$udata/download" "$uhome/Downloads" || return
+	[[ -d "$udoc/Fax" ]] && $makeLink --merge --hide "$udata/fax" "$udoc/Fax"
+	[[ -d "$udoc/My Data Sources" ]] && $makeLink --merge --hide "$udata/Data Sources" "$udoc/My Data Sources"
+	[[ -d "$udoc/Scanned Documents" ]] && $makeLink --merge --hide "$udata/scans" "$udoc/Scanned Documents"
 }
 
 WindowsIcons()
 {
-	printf "**************************************************\n* Windows Icons\n**************************************************\n"
+	echo "Updating icons..."
 
-	echo "Updating user documents..."
-	[[ -d"$udoc/Scanned Documents" ]] && $makeLink --merge --hide "$udata/scans" "$udoc/Scanned Documents"
-	[[ -d"$udoc/Fax" ]] && $makeLink --merge --hide "$udata/fax" "$udoc/Fax"
-
-	echo "Updating application icons..."
 	$mv "$pp/Desktop.lnk" "$pp/Applications" || return
 	$mv "$up/Internet Explorer.lnk" "$pp/Applications" || return
 	$mergeDir "$up/Accessories" "$pp/Applications" || return
@@ -806,7 +852,6 @@ WindowsIcons()
 	$mv "$pp/Windows Store.lnk" "$pp/Applications/Accessories" || return
 	$mv "$pp/Windows Media Player.lnk" "$pp/Applications/Accessories" || return
 	
-	echo "Updating operating system icons..."
 	$mergeDir --rename "$pp/Microsoft Mouse and Keyboard Center" "$pp/Operating System/Mouse and Keyboard Center"|| return
 	$mergeDir "$up/Maintenance" "$pp/Operating System"|| return
 	$mergeDir "$pp/Maintenance" "$pp/Operating System"|| return
@@ -816,10 +861,8 @@ WindowsIcons()
 	$mergeDir "$pp/Applications/Accessories/System Tools" "$pp/Operating System" || return
 	$mergeDir "$pp/Administrative Tools" "$pp/Operating System" || return
 
-	echo "Updating development icons..."
 	$mergeDir "$pp/IIS" "$pp/Development/Other/IIS" || return
 
-	echo "Updating game icons..."
 	local dest="$pp/Games/Other/Microsoft"; $makeDir "$dest" || return
 	$mv "$pp/Games/Chess.lnk" "$dest" || return
 	$mv "$pp/Games/FreeCell.lnk" "$dest" || return
@@ -832,10 +875,9 @@ WindowsIcons()
 	$mv "$pp/Games/Mahjong.lnk" "$dest" || return
 	$mv "$pp/Games/Solitaire.lnk" "$dest" || return
 
-	echo "Hiding icons..."
-	$hide "$pp/Applications/Accessories/Desktop.ini" || return
-	$hide "$pp/Applications/Accessories/Accessibility/Desktop.ini" || return
-	$hide "$pp/Applications/Accessories/Tablet PC/Desktop.ini" || return
+	$hideAndSystem "$pp/Applications/Accessories/Desktop.ini" || return
+	$hideAndSystem "$pp/Applications/Accessories/Accessibility/Desktop.ini" || return
+	$hideAndSystem "$pp/Applications/Accessories/Tablet PC/Desktop.ini" || return
 }
 
 MiniMe()
@@ -868,27 +910,6 @@ MiniMe()
 		$registry 32 delete "run/YouCam Tray" # "C:\Program Files (x86)\Lenovo\YouCam\YouCamTray.exe" /s
 	fi
 }
-
-VisualSvnInstall() { TortoiseSvnInstall; }
-TortoiseSvnInstall()
-{
-	printf "**************************************************\n* TortoiseSVN Source Control\n**************************************************\n"
-	echo "- Select all features"
-	
-	run "Shareware/TortoiseSVN/TortoiseSVN-1.8.2.24708-${architecture}-svn-1.8.3.msi" || return # http://tortoisesvn.net/downloads.html, path C:/Program Files/TortoiseSVN/bin
-	run "VisualSVN/VisualSVN-4.0.0.msi" || return # http://www.visualsvn.com/visualsvn/download/
-
-	echo "Updating icons..."
-	$mergeDir "$pp/TortoiseSVN" "$pp/Development/Other" || return
-	$mergeDir "$up/VisualSVN" "$pp/Development/Other" || return
-	$mergeDir "$pp/VisualSVN" "$pp/Development/Other" || return
-
-	echot "- Settings, Diff Viewer (2 places) and Merge Tool (1 place), External, paste"
-  utw "$P32\Beyond Compare 3\BComp.exe" > /dev/clipboard
-  start explorer "$_Code"
-	pause
-
-}	
 
 pGinaInstall()
 {
@@ -944,6 +965,7 @@ DropBoxInstall()
 		sudo --standard DropBox startup
 	fi
 
+	utw "$_CloudDocuments" > /dev/clipboard
 	echot "\
 - Preferences...
   - General
@@ -955,10 +977,9 @@ DropBoxInstall()
     - Port=911
 - Explorer
   - Libraries, Documents, locations, 
-    - Add..., paste
+    - Add..., <paste>
     - (not Intel) Move Up (to top), Set as default save location
   - View, List"
-	utw "$_CloudDocuments" > /dev/clipboard
 	start explorer "$udoc"
 	pause
 
@@ -984,7 +1005,7 @@ vs13()
 	# extensions
 	run "$vs/extension/NuGet.Tools.2013.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/4ec1526c-4a8c-4a84-b702-b21a8f5293ca
 	run "$vs/extension/NUnitVisualStudioTestAdapter-1.0.vsix" || return # requires ReSharper disabled, https://launchpad.net/nunit-vs-adapter/+download, http://visualstudiogallery.msdn.microsoft.com/6ab922d0-21c0-4f06-ab5f-4ecd1fe7175d?SRC=VSIDE
-	run "$vs/extension/WebEssentials.2013.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/56633663-6799-41d7-9df7-0f2a504ca361 http://nunit.org/index.php?p=vsTestAdapter&r=2.6.2
+	run "$vs/extension/WebEssentials2013.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/56633663-6799-41d7-9df7-0f2a504ca361
 
 	VsFinal || return
 }
@@ -1016,10 +1037,10 @@ VsFinal()
 
 	echo "Creating directories..."
 	$makeDir "$_Code/test/vs$vsName"
-
+	
 	if ask "Initialize Visual Studio"; then
 		echo "- Choose your default environment settings=Visual C# Development Settings"
-		echo "- Sign In, john.butare@gmail.command"
+		echo "- Sign In, <Microsoft Live account>"
 		echo "- Development Settings=Visual C#"
 		echo "- Choose your color theme=Blue or Light"
 		echo "- Close Visual Studio"
@@ -1122,7 +1143,6 @@ IisExpressFinal()
 VirtualCloneDriveInstall()
 {
 	printf "**************************************************\n* Virtual Clone Drive\n**************************************************\n"
-	echo "- check Associate .iso/.udf files"
 
 	# download: http://www.slysoft.com/en/download.html
 	# installs:
@@ -1219,7 +1239,8 @@ nUnitInstall()
 {
 	local version="2.6.2"
 	printf "**************************************************\n* NUnit\n**************************************************\n"
-	
+	echo "Choose Setup Type=Complete"
+
 	# download: http://www.nunit.org/?p=download
 	run "Shareware/.NET/NUnit/setup/NUnit-$version.msi" || return
 
@@ -1232,9 +1253,9 @@ SilverlightSdk()
 	printf "**************************************************\n* Silverlight SDK\n**************************************************\n"
 
 	# downloads  http://www.silverlight.net/downloads
-	#   SDK: http://www.microsoft.com/en-us/download/details.aspx?id=28359
 	# 	Developer Runtime (debugging): http://go.microsoft.com/fwlink/?LinkID=229323
 	#   toolkit (additonal controls): http://silverlight.codeplex.com/ http://silverlight.codeplex.com/releases/view/78435
+	#   SDK: http://www.microsoft.com/en-us/download/details.aspx?id=28359
 	#   tools (developer runtime, SDK, Visual Studio 2010 support): http://www.microsoft.com/en-us/download/details.aspx?id=28358
 	# version: http://www.microsoft.com/getsilverlight/Get-Started/Install/Default.aspx
 	#run "Microsoft/.NET/Silverlight/development/silverlight_sdk.exe"
@@ -1261,16 +1282,19 @@ CruiseControlTrayInstall()
 {
 	local version="1.8.3.0"
 	printf "**************************************************\n* CruiseControl Tray\n**************************************************\n"
-	
+	echo '- Uncheck Run CruiseControl.NET CCTray 1.8.3.0'	
+
 	# download: http://vmspwbld001/ccnetpreprod/ViewFarmReport.aspx http://www.cruisecontrolnet.org/projects/cctray http://cruisecontrol.sourceforge.net http://ccnet.sourceforge.net/CCNET/CCTray.html
 	run "Shareware/CruiseControl/tray/CruiseControl.NET-CCTray-$version-Setup.exe" || return
 
 	echo "Updating icons..."
+	$mergeDir "$pp/CCTray" "$pp/Development/Other" || return
 	$mergeDir "$up/CCTray" "$pp/Development/Other" || return
 	$rm "$ud/CCTray.lnk" || return
 	$rm "$up/Startup/CCTray.lnk" || return
 
 	CruiseControlTray profile restore default || return
+	CruiseControlTray startup || return
 }
 
 ChromeInstall()
@@ -1295,7 +1319,9 @@ ChromeInstall()
 	echot "\
 - (for texting) Apps, Gmail Offline, select Allow offline mail
 - Defer, Options, Default Service=Instapaper, Usrname=NNN, Password=NNN
-- LastPass, (private computer) check Remember Password
+- LastPass
+	- (private computer) General, Security, uncheck Automatically Logoff
+	- Notifications, uncheck Show Matching Sites Count in toolbar
 - MightyText
 - (optional) chrome://flags, enable features"
 	ShellRun chrome || return
@@ -1314,7 +1340,7 @@ iisInstall()
 
 	if [[ $client ]] && ! intel IsIntelHost; then
 	  echo "Updating firewall..."
-	  firewall rule enable "World Wide Web Services HTTP Traffic In"
+	  $firewall rule enable "World Wide Web Services HTTP Traffic In"
 	fi
 
 	echo "Updating services..."
@@ -1332,12 +1358,12 @@ iisInstall()
 	$makeShortcut "$WINDIR/system32/inetsrv/iis.msc" "$pp/Development/Other/IIS/IIS Client Manager" || return
 	$makeShortcut "$WINDIR/system32/inetsrv6/iis6.msc" "$pp/Development/Internet Information Services 6" || return
 
-	[[ $client ]] && ask "Install remote manager" && { IisRemoteManager || return; }
-	ask "Configure WebDAV" --default n && { IisWebDav || return; }
-	ask "Configure FTP" --default n && { IisFtp || return; }
-	ask "Configure debugging" --default n && { IisDebugging || return; }
-	ask "Configure compression" --default n && { IisCompression || return; }
-	ask "Configure SSL" --default n && { IisSsl || return; }
+	# [[ $client ]] && ask "Install remote manager" && { IisRemoteManager || return; }
+	# ask "Configure WebDAV" --default n && { IisWebDav || return; }
+	# ask "Configure FTP" --default n && { IisFtp || return; }
+	# ask "Configure debugging" --default n && { IisDebugging || return; }
+	# ask "Configure compression" --default n && { IisCompression || return; }
+	# ask "Configure SSL" --default n && { IisSsl || return; }
 
 	echo "Restarting IIS..."
 	iisreset
@@ -1365,14 +1391,14 @@ Note: Logs are in \"$P/Microsoft SQL Server/110/Setup Bootstrap/Log\"
 - (optional) Uncheck SQL Server product updates (installed below)
 - Setup Roles, All Features with Defaults
 - Feature Selection
-  - (full development, 8gb) No changes
   - (light development+SQL Server Express, 6gb) Uncheck all Instance Features
-  - (minimal) Check only Database Engine Services, Client Tools Connectivity, and 
-    Management Tools - Complete
+  - (minimal development) Check only Database Engine Services, Client Tools Connectivity,
+    Documentation Components, and Management Tools - Complete
+  - (full development, 8gb) No changes
   - (server, 2gb) Uncheck all Shared Features
  - Instance Configuration
   - (optional) Named instance=MSSQLSERVER<version>
-	- (optional) Instance root directory=d:/Program Files/Microsoft SQL Server/
+	- (optional) Instance root directory=d:\Program Files\Microsoft SQL Server\
 - Database Engine Configuration
   - Authentication Mode=Mixed Mode, Enter password=XXX, Confirm password=XXX
   - Add..., Add Current User, (optional) Add..., Administrators
@@ -1415,8 +1441,8 @@ Note: Logs are in \"$P/Microsoft SQL Server/110/Setup Bootstrap/Log\"
 	if [[ $database ]]; then 
 		ask "Update server configuration" && { SsServerConfig || return; }
 		ask "Update firewall" && { SsFirewall || return; }
-		ask "Update mail configuration" && { SsMailConfig || return; }
-		ask "Update reporting server configuration" && { SsReportServerConfig || return; }
+		#ask "Update mail configuration" && { SsMailConfig || return; }
+		#ask "Update reporting server configuration" && { SsReportServerConfig || return; }
 	fi
 
 	if [[ $clientTools ]]; then
@@ -1436,6 +1462,20 @@ SsServerConfig()
 {
 	echo "- Object Explorer, Server, Properties, Memory, Maximum server memory=256"
 	SqlServer studio || return
+	pause
+}
+
+SsFirewall()
+{
+	echo "Updating firewall..."
+	$firewall rule add "SQL Server" dir=in action=allow protocol=TCP localport=1433 profile=private \
+		program="$(utw "$P/Microsoft SQL Server/MSSQL10.MSSQLSERVER/MSSQL/Binn/sqlservr.exe")" || return
+
+	echot "\
+- SQL Server Network Configuration, Protocols for MSSQLSERVER
+- Named Pipes and TCP/IP=Enabled (click drop down, down arrow, enter)
+- TCP/IP, IP Addresses, (IP for primary NIC) IPn, Enabled=Yes, (optional) TCP Port=3180"
+	SqlServer config
 	pause
 }
 
@@ -1558,10 +1598,9 @@ VisionAppInstall()
 	$makeDir "$cloudDir" "$localDir"
 
 	FindFile "VisionApp/Remote Desktop/license/Intel Corporation_Global.xml" || return
-	utw "$file" > /dev/clipboard
-
+	clipw "$file" || return
 	echot "\
-- ?, Info..., Import new license file, paste
+- ?, Info..., Import new license file, <paste>
 - (Wiggin) Add..., File..., Name=Wiggin, path=$(utw $cloudDir/settings.xml), Yes
 - (Intel) File, Environment Wizard, Add…, Database…, Connect to an Existing Database
 	- Name of the environment=Intel
@@ -1650,8 +1689,7 @@ GitExtensionsInstall()
 	- uncheck Visual Studio NNNN integration
 	- (optional) uncheck Assign with...
 - Git Setup, uncheck Associate .sh files to be run with Bash
-- Checkout as-is, commit as-is
-	"
+- Checkout as-is, commit as-is"
 	run "Shareware/GitExtensions/setup/GitExtensions246SetupComplete.msi" || return # https://code.google.com/p/gitextensions/ http://msysgit.github.com/
 
 	echo "Configuring git..."
@@ -1666,16 +1704,14 @@ GitExtensionsInstall()
 	$rm "$pd/Git Bash.lnk"
 	$rm "$pd/Git Extensions.lnk"
 
+	FindEditorProgram || return; clipw "\"$(utw "$program")\"" || return
 	echot "\
 - Git Extensions, 
 	- Git Extensions, check Check for uncommitted changes in checkout branch dialog
 	- Global settings
 		- User name=NNN, User email=NNN
-		- Editor=C:\Program Files\Sublime Text 2\sublime_text.exe
-		- Mergetool=BeyondCompare3
-		- Diftool=beyondcompare3
-- (optional) SSH, Configure PuTTY, Path to=C:/Users/Public/Documents/data/bin/win32
-- Checklist, review"
+		- Editor=<paste>
+		- (optional) Mergetool=BeyondCompare3, Diftool=beyondcompare3"
 	GitHelper gui || return
 	pause
 }
@@ -1691,14 +1727,32 @@ TortoiseGitInstall()
 	echo "Updating icons..."
 	$mergeDir "$pp/TortoiseGit" "$pp/Development/Other"
 
+	FindCompareProgram || return; clipw "$(utw "$program")" || return
 	echot "\
 - Git, Credential, Credential helper=wincred - all Windows users
 	- note: when clone with HTTPS cancel first credential prompt
-- Diff Viewer and Merge Tool, External=c:\Program Files (x86)\Beyond Compare 3\BComp.exe"
+- (optional) Diff Viewer (1 place) and Merge Tool (1 place), External=<paste>"
 	GitHelper tgui /command:settings || return
-	pause
-
 }
+
+VisualSvnInstall() { TortoiseSvnInstall; }
+TortoiseSvnInstall()
+{
+	printf "**************************************************\n* TortoiseSVN Source Control\n**************************************************\n"
+	echo "- Select all features"
+	
+	run "Shareware/TortoiseSVN/TortoiseSVN-1.8.3.24901-${architecture}-svn-1.8.4.msi" || return # http://tortoisesvn.net/downloads.html, path C:/Program Files/TortoiseSVN/bin
+	run "VisualSVN/VisualSVN-4.0.0.msi" || return # http://www.visualsvn.com/visualsvn/download/
+
+	echo "Updating icons..."
+	$mergeDir "$pp/TortoiseSVN" "$pp/Development/Other" || return
+	$mergeDir "$up/VisualSVN" "$pp/Development/Other" || return
+	$mergeDir "$pp/VisualSVN" "$pp/Development/Other" || return
+
+	FindCompareProgram || return; clipw "$(utw "$program")" || return
+	echot "- (optional) Diff Viewer (2 places) and Merge Tool (1 place), External=<paste>"
+  TortoiseSVN gui /command:settings || return
+}	
 
 BrowserHomePage()
 {
@@ -1844,17 +1898,9 @@ NotepadPpInstall()
 
 	FindFile "Shareware/Notepad++" || return
 
-	if ask "Delete current plugins and install the default plugins"; then
-		echo "Installing plugins..."
-		$rmd "$P32/Notepad++/plugins/*"
-		CopyDir "$file/plugins/default" "$P32/Notepad++/plugins"
-		CopyFile "$file/plugins/XML Tools External Libraries/*" "$P32/Notepad++"
-		CopyFile "$file/plugins/updater/*" "$P32/Notepad++/updater"
-		echo.
+	if ask "Deleting existing plugins and install the defaults"; then
+		$rc --mirror "$file/plugins/default" "$P32/Notepad++/plugins" || return
 	fi
-
-	echo "Installing auto-completion API's..."
-	cp "$file/api/"* "$P32/Notepad++/plugins/APIs" || return
 
 	echo "Updating registry..."
 	registry import "$file/setup/NotepadPP.reg" || return
@@ -1923,7 +1969,7 @@ VmwareWorkstationInstall()
 
 	echo "Updating firewall..."
 	# When the guest uses NAT echo replies (ICMP type and code 0) must be allowed for ping to function on the guest
-	firewall rule add "VMware NAT Echo Reply" dir=in action=allow enable=yes profile=private,domain localip=any remoteip=any protocol=icmpv4:0,0 interfacetype=any edge=yes || return
+	$firewall rule add "VMware NAT Echo Reply" dir=in action=allow enable=yes profile=private,domain localip=any remoteip=any protocol=icmpv4:0,0 interfacetype=any edge=yes || return
 
 	echo "Creating VMware directory..."
 	$makeDir "$udoc/data/VMware"

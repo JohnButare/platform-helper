@@ -22,7 +22,7 @@ args()
 		case "$1" in
 			-a|--app) app="$2"; shift;;
 			-f|--files) files="$2"; shift;;
-			-g|--global) global="--global"; shift;;
+			-g|--global) global="--global";;
 			-m|--method) method="$2"; shift;;
 			-se|--save-extension) saveExtension="$2"; shift;;
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
@@ -33,7 +33,7 @@ args()
 				UnknownOption "$1"
 		esac
 		shift
-	done	
+	done
 	[[ ! $command ]] && command='dir'
 	[[ ! $app ]] && MissingOperand "app"
 	args=("$@")
@@ -108,8 +108,8 @@ SaveDirCommand()
 		echo "$globalProfileSaveDir"
 	elif [[ -d "$appProfileSaveDir" ]]; then
 		echo "$appProfileSaveDir"
-	elif [[ -d "$profileDir" ]]; then
-		echo "$profileDir"		
+	elif [[ -d "$profileSaveDir" ]]; then
+		echo "$profileSaveDir"		
 	else
 		echo "The profile save directory ~/Documents/data/profile does not exist"
 	fi
@@ -168,21 +168,23 @@ copyDefaultProfile()
 	GetPath "$dest" destDir || return
 	[[ ! -d "$destDir" ]] && { MakeDir --parents "$destDir" || return; }
 
-	printf "Copying the default profile to $destDir..."
+	printf "Copying profile to $destDir..."
 	cp "$src" "$dest" || return
 	echo "done"
 }
 
 restoreCommand()
 {
+	local globalDescription=" "
 	if [[ ! $profile || "$profile" == "default" ]]; then
 		if [[ $global || ! -f "$userProfile" ]]; then
 			findGlobalProfile || return
 			profile="$globalProfile"
+			globalDescription=" global"
 		else
 			profile="$userProfile"
 		fi
-		[[ ! -f "$profile" ]] && return 0
+		[[ ! -f "$profile" ]] && { echo "profile: no default $app profile found"; return 0; }
 	fi
 
 	[[ "$(GetExtension "$profile")" == "" ]] && profile+=".$saveExtension"
@@ -191,12 +193,13 @@ restoreCommand()
 	
 	[[ ! -f "$profile" ]] && { EchoErr "profile: cannot access profile \`$filename\`: No such file"; return 1; }
 
-	! ask "Do you want to restore $app profile \"$filename\"?" -dr n && return 0
+	! ask "Restore $app$globalDescription profile \"$filename\"?" -dr n && return 0
 
 	if [[ "$method" == "file" ]]; then
-		AppClose "$app" || return
+		local isRunning;
+		AppIsRunning "$app" && { isRunning="true"; AppClose "$app" || return; }
 		unzip.exe -o "$(utw "$profile")" -d "$(utw "$profileDir")" || return
-		AppStart "$app" || return
+		[[ $isRunning ]] && { AppStart "$app" || return; }
 
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$profile")"

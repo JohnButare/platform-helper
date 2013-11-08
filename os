@@ -108,7 +108,8 @@ GetDirs()
 	
 	elif [[ -d "//$host/c$" ]]; then # host with Administrator access
 		_sys="//$host/c$"; _data="//$host/c$"
-		[[ -d "//$host/d$/Users" ]] && _data="//$host/d$"
+		[[ -d "//$host/d$/Users" ]] && _data="//$host/d$" || 
+			{ [[ -d "$_data/Users" ]] || { EchoErr "os: unable to locate the Users folder on $host"; return 1; }; }
 		FindDirsWorker || return
 
 	elif [[ -d "//$host/public" ]]; then  # hosts with public share
@@ -125,12 +126,7 @@ GetDirs()
 FindDirsWorker()
 {
   _windows="$_sys/Windows"
-
-  if [[ ! -d "$_windows" ]]; then
-  	EchoErr "Unable to locate the windows folder on %_sys"
-  	return 1
-  fi;
-
+ 
 	_programs32="$_sys/Program Files (x86)"
 	_programs64="$_sys/Program Files"
 	_programs="$_programs64"
@@ -142,17 +138,20 @@ FindDirsWorker()
 	_Code="$_sys/Projects"
 
 	_users="$_data/Users"
+
+	# public
 	_PublicHome="$_users/Public"
+	SetCommonPublicDirs
+	_PublicStartMenu="$_ProgramData/Microsoft/Windows/Start Menu"
+	_PublicPrograms="$_PublicStartMenu/Programs"
+	_PublicDesktop="$_PublicHome/Desktop"
+
+	# user	
 	_UserHome="$_data/$(GetFilename "$_users")/$_user"
 	_UserSysHome="$_sys/$(GetFilename "$_users")/$_user"
 	_UserDocuments="$_UserHome/Documents"
 	_ApplicationData="$_UserSysHome/AppData/Roaming"
 
-	if [[ ! -d "$_UserHome" ]]; then
-		EchoErr "Unable to locate user $_user$'s home folder on $_data"
-	  return 1
-	fi
-	
 	if [[ "$_user" == "Public" ]]; then
 		_UserFolders=(Documents Downloads Music Pictures "Recorded TV" Videos)
 	else
@@ -160,11 +159,6 @@ FindDirsWorker()
 			Dropbox "Google Drive")
 	fi
 
-	SetCommonPublicDirs
-	_PublicStartMenu="$_ProgramData/Microsoft/Windows/Start Menu"
-	_PublicPrograms="$_PublicStartMenu/Programs"
-	_PublicDesktop="$_PublicHome/Desktop"
-	
 	SetCommonUserDirs
 	_UserDesktop="$_UserHome/Desktop"
 	_UserStartMenu="$_ApplicationData/Microsoft/Windows/Start Menu"
@@ -259,7 +253,7 @@ GetInfo()
 	bits=64; [[ "$architecture" == "x86" ]] && bits=32;
 	product=$(<"$r/ProductName")
 	version=$(<"$r/CurrentVersion")
-	client=; [[ $(<"$r/InstallationType") == "client" ]] && client="true"
+	client=; [[ -f "$r/InstallationType" && $(<"$r/InstallationType") == "client" ]] && client="true"
 	server=; [[ ! $client ]] && server="true"
 
 	return 0

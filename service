@@ -4,15 +4,15 @@
 usage()
 {
 	echot "\
-usage:service [COMMAND](start) SERVICE [HOST]
+usage: service [COMMAND](start) SERVICE [HOST]
 	Control Windows services
 	detail|exist|list|ListFile|StartType|show|state|status
 	continue|pause|restart|start|stop				control service
 	auto|delete|demand|disable|manual		 		configure service
-	-h,--host 								host to check
-	   --noHostCheck 					do not check for host availability
-	   --noServiceCheck 			do not check for service existence
-	-w,--wait									wait for the service to change state"
+	-h, --host 								host to check
+	    --noHostCheck 					do not check for host availability
+	    --noServiceCheck 			do not check for service existence
+	-w, --wait									wait for the service to change state"
 	exit $1
 }
 
@@ -36,8 +36,14 @@ args()
 		esac
 		shift
 	done
+
 	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage || usage 0; }
-	[[ "$command" != @(list|ListFile|show) && ! $service ]] && MissingOperand "service"
+	
+	if [[ "$command" != @(list|ListFile|show) ]]; then
+		[[ $service ]] || MissingOperand "service"
+		check || return
+	fi
+
 	args=("$@")
 }
 
@@ -64,32 +70,28 @@ listCommand() { $sc $hostUnc queryex bufsize= $scBufferSize type= all state= all
 stateCommand() { GetWord "$($sc $hostUnc query "$service" |& grep STATE)" 3; }
 StartTypeCommand() { GetWord "$($sc $hostUnc qc "$service" $ScBufferSize |& grep START_TYPE)" 3; }
 existCommand() { $sc $hostUnc qc "$service" $ScBufferSize |& grep START_TYPE >& /dev/null; }
-deleteCommand() { check || return; checkElevated; $elevate $sc delete $hostUnc "$service"; }
+deleteCommand() { checkElevated; $elevate $sc delete $hostUnc "$service"; }
 
 disableCommand() 
 { 
-	check || return;
 	[[ "$(StartTypeCommand)" == "DISABLED" ]] && return 
 	checkElevated; $elevate $sc config $hostUnc "$service" start= disabled; 
 }
 
 demandCommand() 
 { 
-	check || return;
 	[[ "$(StartTypeCommand)" == "DEMAND_START" ]] && return 
 	checkElevated; $elevate $sc config $hostUnc "$service" start= demand; 
 }
 
 autoCommand() 
 { 
-	check || return;
 	[[ "$(StartTypeCommand)" == "AUTO_START" ]] && return 
 	checkElevated; $elevate $sc config $hostUnc "$service" start= auto; 
 }
 
 restartCommand() 
 { 
-	check || return;
 	checkElevated && { sudo service restart $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 	local oldWait="$wait"
 	wait="--wait"; noServiceCheck="--NoServiceCheck"
@@ -97,12 +99,10 @@ restartCommand()
 	wait="$oldWait"
 	startCommand || return
 	return 0
-
 }
 
 startCommand()
 {
-	check || return;
 	[[ "$(stateCommand)" != "STOPPED" ]] && return 
 	checkElevated && { sudo service start $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 	checkWaiting; printf "Starting $service service$hostDescription...$waiting"
@@ -113,7 +113,6 @@ startCommand()
 
 stopCommand()
 {
-	check || return;
 	[[ "$(stateCommand)" != "RUNNING" ]] && return 
 	checkElevated && { sudo service stop $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 
@@ -126,7 +125,6 @@ stopCommand()
 
 continueCommand()
 {
-	check || return;
 	[[ "$(stateCommand)" != "PAUSED" ]] && return 
 	checkElevated && { sudo service continue $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 
@@ -138,7 +136,6 @@ continueCommand()
 
 pauseCommand()
 {
-	check || return;
 	[[ "$(stateCommand)" != "RUNNING" ]] && return 
 	checkElevated && { sudo service pause $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 
@@ -150,7 +147,6 @@ pauseCommand()
 
 manualCommand()
 {
-	check || return;
 	checkElevated && { sudo service manual $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 
 	echo "Stopping $service service and setting it to demand start$hostDescription..."
@@ -173,11 +169,8 @@ ListFileCommand()
 	TextEdit "$file"
 }
 
-
 detailCommand()
 {
-	check || return
-
 	echo "Status of $service service$hostDescription..."
 	$sc $hostUnc GetDisplayName "$service"
 	$sc $hostUnc qdescription  "$service" $scBufferSize
@@ -224,8 +217,8 @@ check()
 	resultCode="${result#*FAILED }"; resultCode="${resultCode%:}"
 
 	case $resultCode in
-		1060) echo "$service does not exist as an installed service$hostDescription";;
-  	5) echo "Service control manager access denied$hostDescription";;
+		1060) echo "service: $service does not exist as an installed service$hostDescription";;
+  	5) echo "service: access to the service control manager denied$hostDescription";;
 		*) return 0
 	esac
 
