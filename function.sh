@@ -113,8 +113,10 @@ DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
 # MakeShortcut FILE LINK
 MakeShortcut() 
 { 
+	local suppress; [[ "$1" == @(-s|--suppress) ]] && { suppress="true"; shift; }
 	(( $# < 2 )) && { EchoErr "usage: MakeShortcut TARGET NAME ..."; return 0; }
 	local t="$1"; [[ ! -e "$t" ]] && t="$(FindInPath "$1")"
+	[[ ! -e "$t" && $suppress ]] && { return 0; }
 	[[ ! -e "$t" ]] && { EchoErr "MakeShortcut: could not find target $1"; return 1; }
 	mkshortcut "$p" -n="$2" "${@:3}";
 }
