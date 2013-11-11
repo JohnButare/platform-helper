@@ -7630,52 +7630,7 @@
 	"
 
 	return
-
-	:FoxitReader
-	# http://www.foxitsoftware.com/downloads/index.php
-	# http://timheuer.com/blog/archive/2008/05/09/foxit-pdf-preview-handler.aspx
-	echot "\
-	***************************
-	* Foxit Reader - PDF Reader
-	***************************
-	- Uncheck Shell Extensions, Install Foxit Reader Creator, Add-on for ...
-	- Uncheck Enable Safe Reading Mode
-	- Foxit PDF Creator Toolbor
-	  - Uncheck Install Foxit PDF Creator Toolbar
-	  - Uncheck Ask.com as my homepage
-	"
-
-	run "Foxit/reader/setup/FoxitReader606.0722_enu_Setup.exe"
-	run "Foxit/reader/setup/FoxitPdfPreviewHandlerSetup_1_1.msi"
-
-	echo Updating icons...
-	$rm "$pp/eBay.lnk"
-	$rm "$pd/eBay.url"
-	$rm "$pp/eBay.url"
-	$rm "$pd/Foxit Reader.lnk"
-	$mergeDiruiet /rename "$pp/Foxit Reader" "$ao/Foxit Reader"
-
-	prog=$P32/Foxit Software/Foxit Reader/Foxit Reader.exe
-
-	ask "Install plugins?" y
-	if $? == 1 then
-		copy /g "$install/Foxit/reader/plugins/lex_1.0.2007.2023.fzip" "$temp"
-		echo $@ClipW["$temp/lex_1.0.2007.2023.fzip"] >& nul:
-		echo - Help, Install Updates..., <paste>
-		starg /pgm "$prog"
-	fi
-
-	echot "\
-	- Edit, Preferences
-	  - General, uncheck Show Start Page
-	  - History, Maximum number of documents in recently used list=10
-	  - Updater, Do not download
-	"
-	start /pgm "$prog"
-	pause
-
-	return
-
+	
 	:calibre
 	# Download - http://calibre-ebook.com/download
 	#   Windows - http://calibre-ebook.com/download_windows
