@@ -230,6 +230,13 @@ TimestampDiff () { printf '%s' $(( $(date -u +%s) - $(date -u -d"$1" +%s))); }
 TimerOff() { s=$(TimestampDiff "$startTime"); printf "Elapsed %02d:%02d:%02d\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
 
 #
+# account
+#
+FullName() { local s="$(net user "$USERNAME" |& grep -i "Full Name")"; s="${s:29}"; echo ${s:-$USERNAME}; }
+UserPictures() { cygpath -F 39; }
+UserVideos() { cygpath -F 14; }
+
+#
 # network
 #
 

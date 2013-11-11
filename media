@@ -5,95 +5,120 @@
 usage()
 {
 	echot "\
-usage: template [2013|2012] [one|two|cd](one)
-	Perform template commands
-	one										perform the first command
-	two										perform the second command
-	sub one|two						perform a sub command
-	-f, --file FILE				the file for the command
-	-s, --show						show results
-	-v, --verbose					display detailed output,
-	    --help display this help and exit"
+usage: media backup|clean|collect|get|music|sync]
+  backup - backup local pictures to the portable drive
+  collect [<num pictures>](50) - Collect specified number of picutres from a picture host
+  frame -  fill a picture frame device with pictures until full
+  nas all|media|install|books
+  router [all|music|pictures|videos|convert|clean|check](all) - update media on router drive
+    all - copy, convert, and clean all media on the router
+    music|pictures|videos|audible - copy media to the router
+    convert - convert files to a DLNA device common format
+    clean - clean router by deleting media on the router but not on a media source
+    check - check for media on the media that requires manual conversion
+  transfer - transfer pictures after a trip"
 	exit $1
 }
 
 args()
 {
-	unset -v command help dest exclude file show arg1 arg2
-	versions=( 2013 2012 )
+	unset -v command help
 	while (( $# != 0 )); do
 		case "$1" in
-			--exclude|-x) while [[ $2 ]] && ! IsOption "$2"; do exclude+=("$2"); shift; done;; 	# multiple arguments
-			--file|-f) file="$2"; shift;; 																											# single argument
-			--show|-s) show="--show";; 																													# no arguments
 			--help) help="--help";;
-			one|OneAlias) command="one";; IsInstalled) command="IsInstalled";; 									# case-insensitive arguments
 			*)
 				! IsOption "$1" && IsInArray "$1" versions && { version="$1"; shift; continue; }
-				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }												# command argument
-				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }							 	# unnamed argument
-				[[ "$command" == @(arg|sub) ]] && break																						# defer argument processing
+				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
+				[[ "$command" == @(get) ]] && break																						# defer argument processing
 				UnknownOption "$1"
 		esac
 		shift
 	done
 	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage 0 || usage 0; }
-	[[ ! $command ]] && { command="one"; } 																		# default command
-	[[ ! $command ]] && { MissingOperand "command"; } 												# missing command
-	[[ "$command" != "cd" && ! $file ]] && MissingOperand "file"							# missing argument
-	[[ "$command" != "cd" ]] && ! IsDeclared file ]] && MissingOperand "file" # missign argument allowing empty string
-	[[ ! -f "$file" ]] && { EchoErr "template: cannot access \`$file\`: No such file"; return 1; } # validate argument
+	[[ ! $command ]] && { MissingOperand "command"; }
 	args=("$@")
 }
 
-init() { :; }
+init() 
+{
+	mediaRoo=oversoul
+	mediaUnc=//$mediaRoo/Public
+	nas=//nas
+	videoSources=`"$mediaUnc/Videos" "$mediaDriveDir"`
+
+	# getDate - get videos only after the specified date, useful if #ove pictures
+	getDate=1/1/2000
+
+	# Music: exclude WPL (Windows Playlists) - Sonos shows WPL but doesn't support auto playlists, so save auto playlists as M3U before copying
+	musicFilters=-*.wpl
+}
+
 run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 
-cdCommand() { echo "/tmp"; }
-
-# Notes:
-# - GetFunction - get a function case-insensitive
-
-# oneCommand - return results and set in parent using ScriptEval
-oneCommand() 
-{  
-	vars=(a b c files); local a=1 b=2 c=3 files=("file 1.txt" "file 2.txt")
-	ScriptReturn $show "${vars[@]}"
+getCommand()
+{
+	GetInit || return
+	GetArgs "$@" || return
+	GMT
 }
 
-twoCommand() {  ElevationRequired; echo "command=$command"; }
-threeCommand() { ! IsElevated && { sudo --hide template three; return; }; echo "command=$command"; }
+# [<src>|drive <drive>] [dest <destination>] [person <name>] [copy|move](move)
+#   [test] [AskRemoveDups] [NoPostProcess] [NoRename] [KeepName]
+# [<src>|drive <drive>] - source directory or drive that contains media
+# dest <destination> - picture destination folder
+# person <name> - person's name used in distrination folder
+# NoRename - do not rename using the creation date
+getUsage() { echot "\
+usage: media get 
+	-c, --copy				copy media 
+	-d, --drive DRIVE process the specified DRIVE
+	-m, --move				move media
+	    --NoiCloud 		do not get pictures from iCloud
+	-p, --person NAME person's name used in the destination folder
+	-t, --test 				test the operation without making any changes
+"; exit $1; }
 
-subCommand()
+GetArgs()
 {
-	# detailed sub command: see SqlServer
-	local command; CheckSubCommand rule "$1"; shift
-	local name="$1"; shift; [[ ! $name ]] && MissingOperand "name"; 
-	[[ $# != 0 ]] && UnknownOption "$1"
-	Sub${command}Command "$@"
+	unset destination drive noiCloud test
+	operation="local" personName="$fullName"
+	while (( $# != 0 )); do
+		case "$1" in
+			--copy|-c) operation="copy";;
+			--destination) destination="$2"; shift;;
+			--drive|-d) drive="$2"; shift;;
+			--move|-m) operation="move";;
+			--NoiCloud) noiCloud="true";;
+			--person|-p) personName="$2"; shift;;
+			--test|-t) test="true";;
+			*) getUsage 1;;
+		esac
+		shift
+	done
+	[[ "$drive" && ! -d "/cygdrive/$drive" ]] && { EchoErr "media get: drive  \`$drive\`: No such drive"; return 1; }
 }
 
-SubOneCommand() { echo "command=Sub$command args=${#args[@]} file=\"$file\" server=\"$server\" interactive=$interactive verbose=$verbose test=$test"; }
-SubTwoCommand() { echo "command=Sub$command"; }
-
-argCommand()
+GetInit()
 {
-	GetArg "$@"; shift $?
-	echo "\$#=$# arg1=$arg1 arg2=$arg2"
-	args=("$@")
-}
+	videoExtensions=3gp mpg mp4 mts m2ts moff modd mov 3gp
 
-GetArg()
-{
-	[[ $# == 0 ]] && MissingOperand "arg1"; arg1="$1"; shift
-	[[ "$arg1" == "more" ]] && { [[ $# == 0 ]] && MissingOperand "arg2"; arg2="$1"; shift; }
-	return $(( ${#args[@]} - $# ))
-}
+	fullName="$(FullName)"
+	userPictures="$(UserPictures)"
+	userVideos="$(UserVideos)"
 
-returnVarsCommand()
-{
-	vars=( vsName vsVersion vsDir vsPath vsHelp vsIde vsRegistryKey vsVars vsData ) 
-	ScriptReturn $show "${vars[@]}" # -s|--show
+	iCloudPhotoStream="$userPictures/Photo Stream/My Photo Stream"
+	iCloudPhotoUpload="$userPictures/Photo Stream/Uploads"
+
+	pictureDirs=( "$DOC/data/download/pictures" "$iCloudPhotoStream" "$HOME/Dropbox/Camera Uploads" )
+	
+	
+	# Media Directories
+	# - GMT: Media is stored in GMT for this media
+	# - move or copy: move is  default
+	MediaDirs=( /DCIM/100OLYMP /mssony/moml0001 /dcim/100PHOTO )
+	MediaDirs+=( /DCIM/Camera /handcent/download ) # Android
+	MediaDirs+=( /private/avchd/bdmv/stream:move ) # Sony DSC-HX5v /private/avchd/bdmv/stream (video) /dcim/101msdcf (pictures)
+	MediaDirs+=( /dcim/100msdcf /dcim/101msdcf /mp_root/101pnv01:copy /avchd/bdmv/stream:copy ) # Sony HDR-SR12 (HandyCam) and DSC-U60 (underwater camera) /dcim/100msdcf /dcim/101msdcf /mp_root/101pnv01 /avchd/dbmv/stream, copy videos to preserve integrity of media catalog
 }
 
 run "$@"
