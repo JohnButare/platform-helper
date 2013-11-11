@@ -1,0 +1,99 @@
+#!/bin/bash
+#-x (debug) -v (verbose)
+. function.sh || exit
+
+usage()
+{
+	echot "\
+usage: template [2013|2012] [one|two|cd](one)
+	Perform template commands
+	one										perform the first command
+	two										perform the second command
+	sub one|two						perform a sub command
+	-f, --file FILE				the file for the command
+	-s, --show						show results
+	-v, --verbose					display detailed output,
+	    --help display this help and exit"
+	exit $1
+}
+
+args()
+{
+	unset -v command help dest exclude file show arg1 arg2
+	versions=( 2013 2012 )
+	while (( $# != 0 )); do
+		case "$1" in
+			--exclude|-x) while [[ $2 ]] && ! IsOption "$2"; do exclude+=("$2"); shift; done;; 	# multiple arguments
+			--file|-f) file="$2"; shift;; 																											# single argument
+			--show|-s) show="--show";; 																													# no arguments
+			--help) help="--help";;
+			one|OneAlias) command="one";; IsInstalled) command="IsInstalled";; 									# case-insensitive arguments
+			*)
+				! IsOption "$1" && IsInArray "$1" versions && { version="$1"; shift; continue; }
+				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }												# command argument
+				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }							 	# unnamed argument
+				[[ "$command" == @(arg|sub) ]] && break																						# defer argument processing
+				UnknownOption "$1"
+		esac
+		shift
+	done
+	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage 0 || usage 0; }
+	[[ ! $command ]] && { command="one"; } 																		# default command
+	[[ ! $command ]] && { MissingOperand "command"; } 												# missing command
+	[[ "$command" != "cd" && ! $file ]] && MissingOperand "file"							# missing argument
+	[[ "$command" != "cd" ]] && ! IsDeclared file ]] && MissingOperand "file" # missign argument allowing empty string
+	[[ ! -f "$file" ]] && { EchoErr "template: cannot access \`$file\`: No such file"; return 1; } # validate argument
+	args=("$@")
+}
+
+init() { :; }
+run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
+
+cdCommand() { echo "/tmp"; }
+
+# Notes:
+# - GetFunction - get a function case-insensitive
+
+# oneCommand - return results and set in parent using ScriptEval
+oneCommand() 
+{  
+	vars=(a b c files); local a=1 b=2 c=3 files=("file 1.txt" "file 2.txt")
+	ScriptReturn $show "${vars[@]}"
+}
+
+twoCommand() {  ElevationRequired; echo "command=$command"; }
+threeCommand() { ! IsElevated && { sudo --hide template three; return; }; echo "command=$command"; }
+
+subCommand()
+{
+	# detailed sub command: see SqlServer
+	local command; CheckSubCommand rule "$1"; shift
+	local name="$1"; shift; [[ ! $name ]] && MissingOperand "name"; 
+	[[ $# != 0 ]] && UnknownOption "$1"
+	Sub${command}Command "$@"
+}
+
+SubOneCommand() { echo "command=Sub$command args=${#args[@]} file=\"$file\" server=\"$server\" interactive=$interactive verbose=$verbose test=$test"; }
+SubTwoCommand() { echo "command=Sub$command"; }
+
+argCommand()
+{
+	GetArg "$@"; shift $?
+	echo "\$#=$# arg1=$arg1 arg2=$arg2"
+	args=("$@")
+}
+
+GetArg()
+{
+	[[ $# == 0 ]] && MissingOperand "arg1"; arg1="$1"; shift
+	[[ "$arg1" == "more" ]] && { [[ $# == 0 ]] && MissingOperand "arg2"; arg2="$1"; shift; }
+	return $(( ${#args[@]} - $# ))
+}
+
+returnVarsCommand()
+{
+	vars=( vsName vsVersion vsDir vsPath vsHelp vsIde vsRegistryKey vsVars vsData ) 
+	ScriptReturn $show "${vars[@]}" # -s|--show
+}
+
+run "$@"
