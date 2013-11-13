@@ -68,20 +68,22 @@ usage()
 	echot "\
 usage: install cd|install APP*
 	Install programs
-	  -h,--hint DIR			first directory to search for installation files
-	  -nrp,--NoRunPrompt	do not ask to run the executable"
+	-h, --hint DIR			first directory to search for installation files
+      --no-run-prompt	do not ask to run the executable
+  -s, --select				select the install location"
 	exit $1
 }
 
 args()
 {
-	unset command apps host noRunPrompt
+	unset command apps host noRunPrompt select
 	originalArgs=( "$@" ) 
 	while [ "$1" != "" ]; do
 		case "$1" in
-			-nrp|--NoRunPrompt) noRunPrompt="true";;
-			-h|--hint) hint=( --hint "$2" ); shift;;
+			--no-run-prompt) noRunPrompt="true";;
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			--hint|-h) hint=( --hint "$2" ); shift;;
+			--select|-s) select="--select";;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; } # command
 				! IsOption "$1" && { apps+=( "$1" ); shift; continue; }
@@ -186,37 +188,39 @@ FindCompareProgram()
 
 FindFile()
 {
-	local pattern
-	file="$1"
+	local pattern; file="$1"
 
 	if IsWild "$file"; then
 		GetFileName "$file" pattern || return
 		GetFilePath "$file" file || return
 	fi
 
-	if ! ScriptEval FindInstallFile --suppress --eval "${hint[@]}" "$file"; then
+	if ! ScriptEval FindInstallFile $select --suppress --eval "${hint[@]}" "$file"; then
 		EchoErr "inst: could not locate ${1:-the installation directory}"
 		return 1
 	fi
 
 	hint=( --hint "$InstallDir" )
+	[[ $pattern ]] && { SelectFile "$file" "$pattern" || return; }
+	return 0
+}
 
-	if [[ $pattern ]]; then
-		pushd "$file" > /dev/null || return
+SelectFile() # DIR PATTERN
+{
+	local dir="$1" pattern="$2" result items
 
-		local result items
-		for f in $pattern; do items+=( "$f" "" "off" ); done
- 
-		result=$(dialog --stdout \
-			--backtitle "Select Installation Files" \
-	  	--radiolist "Choose file to install:" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
-		clear
+	pushd "$dir" > /dev/null || return
+	
+	for f in $pattern; do items+=( "$f" "" ); done
 
-		[[ ! $result ]] && { EchoErr "inst: a file was not selected"; return 1; }
+	result=$(dialog --stdout --backtitle "Select File" \
+  	--menu "Choose file to install:" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
+	clear
 
-		file="$file/$result"
-		popd > /dev/null
-	fi
+	[[ ! $result ]] && { EchoErr "inst: a file was not selected"; return 1; }
+
+	file="$dir/$result"
+	popd > /dev/null
 }
 
 RunExe()

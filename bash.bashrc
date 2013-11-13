@@ -64,3 +64,36 @@ ManPathAdd "$PUB/documents/data/man"
 
 # common functions
 [[ ! $FUNCTIONS && -f "$BIN/function.sh" ]] && . "$BIN/function.sh"
+
+#
+# install
+#
+
+i() # --find --cd
+{ 
+	local find force select
+	if [[ "$1" == "--help" ]]; then echot "\
+usage: i [APP*](--cd)
+	Install applications
+	-c, --cd			change to the installation directory
+			--find		find the installation location
+	-f, --force		check for a new installation location
+  -s, --select	select the install location"
+	return 0
+	fi
+
+	[[ "$1" == @(--force|-f) ]] && { force="true"; shift; }
+	[[ "$1" == @(--find) ]] && { find="true"; shift; }
+	[[ "$1" == @(--select|-s) ]] && { select="--select"; shift; }
+
+	[[ $find || $force || $select || ! $InstallDir ]] && 
+		{ ScriptEval FindInstallFile --eval $select || return; }
+
+	if [[ $find ]]; then
+		:
+	elif [[ $# == 0 || "$1" == @(--cd) ]]; then
+		cd "$InstallDir"
+	elif [[ ! $find ]]; then
+		inst --hint "$InstallDir" "$@"
+	fi
+}
