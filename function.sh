@@ -247,7 +247,7 @@ UserVideos() { cygpath -F 14; }
 GetIpAddress() { [[ ! $1 ]] && GetPrimaryIpAddress; IsIpAddress "$1" && { echo "$1"; return; }; GetIpAddressByPing "$1"; }
 GetIpAddressByPing() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
 GetIpAddressByDns() { IsIpAddress "$1" && echo "$1"; nslookup -srchlist=amr.corp.intel.com/hagerman.butare.net -timeout=1 "$1" |& grep "Address:" | tail -n +2 | cut -d" " -f 3; return ${PIPESTATUS[1]}; }
-GetPrimaryIpAddress() { local ip="$(ipconfig | grep "   IPv4 Address" | head -n 1 | cut -d: -f2)"; echo "${ip// /}"; }
+GetPrimaryIpAddress() { local ip="$(ipconfig | grep "   IPv4 Address" | head -n 1 | cut -d: -f2)"; echo "${ip// /}"; } # alternatively use route print
 IsInDomain() { [[ "$USERDOMAIN" != "$COMPUTERNAME" ]]; }
 
 # IsIpAddress <string>
