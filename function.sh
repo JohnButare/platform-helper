@@ -65,8 +65,8 @@ CheckSubCommand()
 	exit 1
 } 
 
-ScriptName() { GetFilename $0; }
-ScriptDir() { echo "$(GetPath "$(FindInPath "$(wtu "$0")")")"; } # handle scripts started with partial paths or from Windows
+ScriptName() { GetFileName $0; }
+ScriptDir() { echo "$(GetFilePath "$(FindInPath "$(wtu "$0")")")"; } # handle scripts started with partial paths or from Windows
 ScriptCd() { local dir; dir="$("$@")" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
 ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b", does not work with aliases
 
@@ -98,11 +98,12 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 
 # path: realpath, cygpath
 FindInPath() { type -P "${1}"; }
-GetPath() { local p="${1%/*}"; [[ "$p" == "$1" ]] && p=""; r "$p" $2; }
-GetFilename() { r "${1##*/}" $2; }
-GetName() { local f="$1"; GetFilename "$1" f; r "${f%.*}" $2; }
-GetExtension() { local f="$1"; GetFilename "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
+GetFilePath() { local p="${1%/*}"; [[ "$p" == "$1" ]] && p=""; r "$p" $2; }
+GetFileName() { r "${1##*/}" $2; }
+GetFileNameWithoutExtension() { local f="$1"; GetFileName "$1" f; r "${f%.*}" $2; }
+GetFileExtension() { local f="$1"; GetFileName "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
 GetFullPath() { cygpath -a "$@"; }
+GetUncServer() { local f="${1#*( )//}"; r "${f%%/*}" $2; } # get server from a UNC file
 HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 wtu() { cygpath -u "$*"; }
@@ -167,6 +168,7 @@ DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${!get}")} # DelimitArray <de
 IsArray() {  [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
 ShowArray() { local var array="$1[@]"; printf -v var ' "%s"' "${!array}"; echo "${var:1}"; }
 ShowArrayDetail() { declare -p "$1"; }
+ShowArrayKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ShowArray keys; }
 StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray <string> <delimiter> <array>
 
 # IsInArray [-w|--wild] [-aw|--awild] <string> <array> - return 0 if string is in the
@@ -240,12 +242,12 @@ UserVideos() { cygpath -F 14; }
 # network
 #
 
-# IpAddress|DnsLookup <host> - perform IP Address lookup using default system name providers (Windows NodeType) or Dns. 
-# In a domain with automatic DNS registration DNS can be out of sync
-# IpAddress() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ip="$(DnsLookup "$1")"; [[ $ip ]] && echo "$ip" || PingLookup "$1"; }
-IpAddress() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; PingLookup "$1"; }
-PingLookup() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
-DnsLookup() { IsIpAddress "$1" && echo "$1"; nslookup -srchlist=amr.corp.intel.com/hagerman.butare.net -timeout=1 "$1" |& grep "Address:" | tail -n +2 | cut -d" " -f 3; return ${PIPESTATUS[1]}; }
+# IpAddress <host> - perform IP Address lookup using ping (Windows NodeType resolution) or Dns (dynamic registration can be out of sync)
+# GetIpAddress() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ip="$(GetIpAddressByDns "$1")"; [[ $ip ]] && echo "$ip" || GetIpAddressByPing "$1"; }
+GetIpAddress() { [[ ! $1 ]] && GetPrimaryIpAddress; IsIpAddress "$1" && { echo "$1"; return; }; GetIpAddressByPing "$1"; }
+GetIpAddressByPing() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
+GetIpAddressByDns() { IsIpAddress "$1" && echo "$1"; nslookup -srchlist=amr.corp.intel.com/hagerman.butare.net -timeout=1 "$1" |& grep "Address:" | tail -n +2 | cut -d" " -f 3; return ${PIPESTATUS[1]}; }
+GetPrimaryIpAddress() { local ip="$(ipconfig | grep "   IPv4 Address" | head -n 1 | cut -d: -f2)"; echo "${ip// /}"; }
 IsInDomain() { [[ "$USERDOMAIN" != "$COMPUTERNAME" ]]; }
 
 # IsIpAddress <string>
@@ -269,7 +271,7 @@ PingResponse()
 ConnectToPort()
 {
 	local ip="$1" port="$2" timeout="${3-200}"
-	! IsIpAddress "$ip" && ip="$(IpAddress $ip)"
+	! IsIpAddress "$ip" && ip="$(GetIpAddress $ip)"
 	chkport-ip.exe "$ip" "$port" "$timeout" >& /dev/null
 }
 
@@ -317,7 +319,7 @@ start()
 
 	[[ ! -f "$program" ]] && program="$(FindInPath "$1")"
 	[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
-	GetExtension "$program" ext
+	GetFileExtension "$program" ext
 	
 	case "$ext" in
 		cmd) cmd /c $(utw "$program") "${@:2}";;
@@ -368,7 +370,7 @@ sudo() # sudo [command](mintty) - start a program as super user
 IsTaskRunning() # IsTaskRunng <task>
 {
 		local task="${1/\.exe/}"
-		GetFilename "$task" task
+		GetFileName "$task" task
 
 		# ps -sW | cut -c 27- - full path, no extension for Cygwin processes
 		# tasklist /nh /fo csv | cut -d, -f1 | grep -i "^\"$task\.exe\"$" > /dev/null # no path, slower
@@ -377,8 +379,8 @@ IsTaskRunning() # IsTaskRunng <task>
 
 # Process Commands
 ProcessList() { ps -W | cut -c33-36,61- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND"; }
-ProcessClose() { local p="${1/.exe/}.exe"; GetFilename "$p" p; process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null; } #egrep -v "Command Line Process Viewer|Copyright\(C\) 2002-2003|^$"; }
-ProcessKill() { local p="$1"; GetName "$p" p; pskill "$p"; }
+ProcessClose() { local p="${1/.exe/}.exe"; GetFileName "$p" p; process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null; } #egrep -v "Command Line Process Viewer|Copyright\(C\) 2002-2003|^$"; }
+ProcessKill() { local p="$1"; GetFileNameWithoutExtension "$p" p; pskill "$p"; }
 
 # Window Commands - Win [class] <title|class>, Au3Info.exe to get class
 WinActivate() { AutoItScript WinActivate "${@}"; }
@@ -416,7 +418,7 @@ TextEdit()
 	[[ ! -f "$p" ]] && { p="$P32/Notepad++/notepad++.exe"; [[ ! -f "$p" ]] && p="notepad"; }
 
 	for file in "$@"; do
-		[[ -f "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFilename "$file") does not exist"
+		[[ -f "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"
 	done
 	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then { start "${options[@]}" "$p" "${files[@]}"; $wait; } else return 1; fi
 }

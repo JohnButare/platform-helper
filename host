@@ -5,14 +5,16 @@ usage()
 {
 	echot "\
 usage: host available|boot|connect|info|start
-	available	<host>						check if host is available
+	available	<host>						check if host is available, use fully qualified DNS 
+															host name to avoid name resolution lookup time
 	boot <host>|(<ip> <mac>)		boot the host
 	connect <host>|(<ip> <mac>)	boot and remote control the host
 	file cd|view|edit|update		manipulate the local host name files
 	info <host> [<var>]		 			get host information, variables are
 		${fields[*]}
 	start <host> <program>			start a program on host using ssh or psexe
-	-t, --timeout								milliseconds to wait for the host
+	-e, --eval									return variables to evaluate
+	-t, --timeout								milliseconds to wait for the host, default 500
 	-w, --wait [seconds](120)		wait for the host to become available 
 	-q, --quiet									minimize messages"
 	exit $1
@@ -23,17 +25,18 @@ init()
 	unset command host quiet wait
 	fields=(host network sleep backup mobile install virtual platform port wake ips macs)
 	fieldDefaults=(- - no no no no no - yes no -)
-	timeout=(--timeout 200)
+	timeout=(--timeout 500)
 }
 
 args()
 {
 	while [ "$1" != "" ]; do
 		case "$1" in
-			-h|--help) usage 0;;
-			-t|--timeout) timeout=(--timeout $2); shift;;
-			-q|--quiet) quiet=(--quiet);;
-			-w|--wait) IsInteger $2 && { wait=(--wait $2); shift; } || wait=(--wait 120);;
+			--eval|-e) eval="true";;
+			--help) usage 0;;
+			--timeout|-t) timeout=(--timeout $2); shift;;
+			--quiet|-q) quiet=(--quiet);;
+			--wait|-w) IsInteger $2 && { wait=(--wait $2); shift; } || wait=(--wait 120);;
 			*) 
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				! IsOption "$1" && [[ ! $host && "$command" == *(available|boot|connect|info|name|start) ]] && { GetHostArg "$@"; shift; continue; }			
@@ -67,25 +70,29 @@ availableCommand()
 		butare.net) return 0
 	esac
 
-	checkHost $host ${timeout[1]} && return 0
+	AvailableCheck && { AvailableReturn; return 0; }
 	[[ ! $wait ]] && return 1
 
-	printf "Waiting ${wait[1]} seconds for $host..."
+	PrintErr "Waiting ${wait[1]} seconds for $host..."
 
 	for (( i=1; i<=${wait[1]}; ++i )); do
- 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
-		checkHost $host ${timeout[1]} && { echo "found in $i seconds"; return 0; }
-		printf "."
+ 		read -n 1 -t 1 -s && { EchoErr "cancelled after $i seconds"; return 1; }
+		AvailableCheck && { EchoErr "found in $i seconds"; AvailableReturn; return 0; }
+		PrintErr "."
 	done
 
-	echo "not found"
+	PrintErr "not found"
 	return 1
 }
+
+AvailableCheck() { checkHost $host ${timeout[1]}; }
+AvailableReturn() { [[ $eval ]] && ScriptReturn pingTime; }
 
 # checkHost <host> <timeout> - minimize the time taken if the hostname is not found, or if the hostname is found and the host is not available
 checkHost()
 {
-	local host="$1" timeout="$2" timeoutIncrease=0 ip port platform 
+	local host="$1" timeout="$2" timeoutIncrease=0 ip port platform
+	unset pingTime 
 
 	if IsIpAddress "$host"; then
 		ip="$host"
@@ -95,24 +102,30 @@ checkHost()
 
 	case "$host" in
 		ExampleHostNeedingExtraPingTime) timeoutIncrease=200;;
-		oversoul|jjbutare-mobl) timeoutIncrease=800;;
-		oversoul|jjbutare-mobl7) timeoutIncrease=800;;
 	esac
 	(( timeout += $timeoutIncrease ))
-
 
 	# Mac's respond to ping when asleep if any sharing services are enabled
 	{ ! IsInteger "$port" && [[ "$platform" == "mac" ]] ; } && port=88
 
 	if IsInteger "$port"; then
-		[[ ! $ip ]] && { ip=$(IpAddress $host) || return; }
-		ConnectToPort $ip $port $timeout
+		[[ ! $ip ]] && { ip=$(GetIpAddress $host) || return; }
+		ConnectToPort $ip $port $(( timeout * 2 )) || return 1
+		[[ $eval ]] && DoPing "$ip"
 	else
-		local pingHost="$host"
-		[[ $ip ]] && pingHost="$ip"
-		ping -n 1 -w $timeout $pingHost >& /dev/null
+		# two checks increase reliability over a shorter timeout
+		local pingHost="$host" result; [[ $ip ]] && pingHost="$ip"	
+		DoPing "$pingHost"; [[ "$pingResult" == "Request timed out." ]] && DoPing "$pingHost" 
+		[[ "$pingResult" == @(|Request timed out.) ]] && return 1
 	fi
+	return 0
+}
 
+function DoPing() # DoPing HOST
+{
+	local timeoutCheck="^Request timed out.$" successCheck="^Reply from .*time(=|<).*$" 
+	pingResult="$(ping -n 1 -w $timeout $1 |& egrep "$timeoutCheck|$successCheck")"
+	pingTime="${pingResult#*time@(=|<)}"; pingTime="${pingTime%ms *}"
 }
 
 nameCommand()

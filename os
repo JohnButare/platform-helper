@@ -65,27 +65,71 @@ pathCommand()
 PathEditCommand() { SystemPropertiesCommand 3; }
 PathEditorCommand() { sudo "$@" PathEditor.exe; }
 
-FindDirsUsage()
-{
-	FindDirsInit	
-	echot "\
-usage: os FindDirs [HOST|DIR](local)
-	Find OS directories for a local or remote host and user.  The variables below are set
-	and can be read using \"ScriptEval os FindDirs\"
-
-	<host>												host to use to find directories
-	-s,--show											show the directories found
-	-u,--user [<user>](current)		the user to find directories for
-
-${dirVars[@]}"
-	echo $1
-}
-
 FindDirsCommand()
 {
 	FindDirsArgs "$@" || return
 	GetDirs || return
 	ScriptReturn $show "${dirVars[@]}"
+}
+
+FindDirsInit()
+{
+	dirVars=(_sys _data _windows _users _system _system32 _system64 _programs \_programs32 _programs64 \
+	 _PublicHome _PublicDocuments _PublicData _PublicBin _PublicDesktop _PublicStartMenu _PuplicPrograms\
+	 _user _UserFolders _UserHome _UserSysHome _UserDocuments _UserData _UserBin _UserDesktop _UserStartMenu _UserPrograms
+	 _CloudDocuments _CloudData 
+	 _ProgramData _ApplicationData _Code )
+
+	for var in "${dirVars[@]}"; do unset $var; done
+
+	_sys="$(wtu "$SYSTEMDRIVE")"
+	[[ -d /cygdrive/d/users ]] && _data="/cygdrive/d" || _data="$_sys"
+	_user="$USERNAME"
+}
+
+FindDirsUsage()
+{
+	FindDirsInit	
+	echot "\
+usage: os FindDirs [HOST|DIR]
+	Find OS directories for a local or remote host and user.  The variables below are set
+	and can be read using \"ScriptEval os FindDirs\"
+
+	HOST|DIR							host or directory to find directories on
+
+	    --no-host-check 	do not check if the host is available				
+	-u, --user USER				the user to find directories for
+	-s, --show						show the directories found
+
+${dirVars[@]}"
+	exit $1
+}
+
+FindDirsArgs()
+{
+	unset host noHostCheck show
+	while [ "$1" != "" ]; do
+		case "$1" in
+			-h|--help) FindDirsUsage 0;;
+			   --no-host-check) noHostCheck="true";;
+			-s|--show) show="--show";;
+			-u|--user) shift; _user="${1-$USER}";;
+			*) 
+				if [[ ! $host ]]; then
+					if [[ "$1" =~ / ]]; then
+						[[ ! -d "$1" ]] && { EchoErr "Directory $1 does not exist"; return 1; }
+						host="$1"; _sys="$1"; _data="$1"; shift; continue;
+					fi
+					host="$1"; shift; continue;
+				fi
+				UnknownOption "$1"
+		esac
+		shift
+	done
+	if [[ $host && ! "$host" =~ / && ! $noHostCheck ]]; then	
+		! host available "$host" && { EchoErr "Host $host is not available"; return 1; }
+	fi
+	args=("$@")
 }
 
 GetDirs()
@@ -105,7 +149,11 @@ GetDirs()
 		[[ "$host" == "nas" ]] && _UserHome="//$host/home" || _UserHome="//$host@ssl@5006/DavWWWRoot/home"
 		_UserFound="$_user"; _UserSysHome="$_UserHome"; _UserDocuments="$_UserHome/documents"
 		SetCommonUserDirs || return
-	
+
+	elif [[ "$host" == @(dfs) ]]; then # dfs
+		_sys=""; _data=""; 	_PublicHome="//amr.corp.intel.com/corpsvcs/CS-PROD/installdev/public"
+		SetCommonPublicDirs || return	
+
 	elif [[ -d "//$host/c$" ]]; then # host with Administrator access
 		_sys="//$host/c$"; _data="//$host/c$"
 		[[ -d "//$host/d$/Users" ]] && _data="//$host/d$" || 
@@ -147,8 +195,8 @@ FindDirsWorker()
 	_PublicDesktop="$_PublicHome/Desktop"
 
 	# user	
-	_UserHome="$_data/$(GetFilename "$_users")/$_user"
-	_UserSysHome="$_sys/$(GetFilename "$_users")/$_user"
+	_UserHome="$_data/$(GetFileName "$_users")/$_user"
+	_UserSysHome="$_sys/$(GetFileName "$_users")/$_user"
 	_UserDocuments="$_UserHome/Documents"
 	_ApplicationData="$_UserSysHome/AppData/Roaming"
 
@@ -178,46 +226,6 @@ SetCommonUserDirs()
 	_CloudData="$_CloudDocuments/data"
 	_UserData="$_UserDocuments/data"
 	_UserBin="$_UserData/bin"
-}
-
-FindDirsArgs()
-{
-	unset host show
-	while [ "$1" != "" ]; do
-		case "$1" in
-			-h|--help) FindDirsUsage 0;;
-			-s|--show) show="--show";;
-			-u|--user) shift; _user="${1-$USER}";;
-			*) 
-				if [[ ! $host ]]; then
-					if [[ "$1" =~ / ]]; then
-						[[ ! -d "$1" ]] && { EchoErr "Directory $1 does not exist"; return 1; }
-						host="$1"; _sys="$1"; _data="$1"; shift; continue;
-					fi
-					! host available "$1" && { EchoErr "Host $1 is not available"; return 1; }
-					host="$1"; shift; continue;
-				fi
-				EchoErr "Unknown argument $1"; FindDirsUsage 1;
-		esac
-		shift
-	done
-	[[ ! $command ]] && FindDirsUsage 1
-	args=("$@")
-}
-
-FindDirsInit()
-{
-	dirVars=(_sys _data _windows _users _system _system32 _system64 _programs \_programs32 _programs64 \
-	 _PublicHome _PublicDocuments _PublicData _PublicBin _PublicDesktop _PublicStartMenu _PuplicPrograms\
-	 _user _UserFolders _UserHome _UserSysHome _UserDocuments _UserData _UserBin _UserDesktop _UserStartMenu _UserPrograms
-	 _CloudDocuments _CloudData 
-	 _ProgramData _ApplicationData _Code )
-
-	for var in "${dirVars[@]}"; do unset $var; done
-
-	_sys="$(wtu "$SYSTEMDRIVE")"
-	[[ -d /cygdrive/d/users ]] && _data="/cygdrive/d" || _data="$_sys"
-	_user="$USERNAME"
 }
 
 FindInfoCommand()

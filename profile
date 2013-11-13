@@ -51,7 +51,7 @@ init()
 
 	# ProfileFiles program - program it will be used to import and export the profile  
 	# IN: profileDir, profileSaveExtension -  the profile file extension used by the program must be specified
-	elif [[ -f "$method" && "$(GetExtension "$method")" == "exe" ]]; then
+	elif [[ -f "$method" && "$(GetFileExtension "$method")" == "exe" ]]; then
 		methodType="program"
 		profileProgram="$method"
 		
@@ -138,7 +138,7 @@ saveCommand()
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$dest/$file")"
 		echo "Export the profile to the filename contained in the clipboard"
-		ask "Start $(GetFilename "$profileProgram")" && { start "$profileProgram" || return; }
+		ask "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
 		pause
 		
 	# save the registry
@@ -165,7 +165,7 @@ copyDefaultProfile()
 {
 	local src="$1" dest="$2" destDir
 
-	GetPath "$dest" destDir || return
+	GetFilePath "$dest" destDir || return
 	[[ ! -d "$destDir" ]] && { MakeDir --parents "$destDir" || return; }
 
 	printf "Copying profile to $destDir..."
@@ -187,9 +187,9 @@ restoreCommand()
 		[[ ! -f "$profile" ]] && { echo "profile: no default $app profile found"; return 0; }
 	fi
 
-	[[ "$(GetExtension "$profile")" == "" ]] && profile+=".$saveExtension"
-	[[ "$(GetPath "$profile")" == "" ]] && profile="$appProfileSaveDir/$profile"
-	local filename; GetFilename "$profile" filename
+	[[ "$(GetFileExtension "$profile")" == "" ]] && profile+=".$saveExtension"
+	[[ "$(GetFilePath "$profile")" == "" ]] && profile="$appProfileSaveDir/$profile"
+	local filename; GetFileName "$profile" filename
 	
 	[[ ! -f "$profile" ]] && { EchoErr "profile: cannot access profile \`$filename\`: No such file"; return 1; }
 
@@ -204,7 +204,7 @@ restoreCommand()
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$profile")"
 		echo "Import the profile using the filemame contained in the clipboard"
-		ask "Start $(GetFilename "$profileProgram")" && { start "$profileProgram" || return; }
+		ask "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
 		pause
 
 	elif [[ "$method" == "registry" ]]; then

@@ -9,8 +9,9 @@ usage: FindInstallFile FILE
 	-e, --eval				return variables to evaluate
   -h, --hint DIR 		first directory to search
   -q, --quiet				do not display status messages
-  -s, --suppress		suppress the error messages
-  	  --help 				display this help and exit"
+  -s, --select			select the install location manually
+  	 	--suppress		suppress the error messages
+    	  --help 				display this help and exit"
 	exit $1
 }
 
@@ -21,12 +22,13 @@ init()
 
 args()
 {
-	unset eval file hint quiet suppress
+	unset eval file hint quiet select suppress
 	while [ "$1" != "" ]; do
 		case "$1" in
-			-e|--eval) eval="true";;
-			--hint) hint="$2"; shift;;
-			--quiet) quiet="true";;
+			--eval|-e) eval="true";;
+			--hint|-h) hint="$2"; shift;;
+			--quiet|-q) quiet="true";;
+			--select|-s) select="true";;
 			--suppress) suppress="true";;
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			*)
@@ -40,16 +42,17 @@ args()
 
 run() 
 {	
-	init; args "$@"; find || return
+	args "$@"; init; find || return
 	
 	[[ ! $eval ]] && 
 		echo "$file" ||
 		ScriptReturn InstallDir file
-
 }
 
 find()
 {
+	local items
+
 	[[ $hint ]] && checkDir --quiet "$hint" && return
 
 	checkDir --quiet "$hint" ${localDirs[@]} && return
@@ -65,20 +68,23 @@ find()
 
 	checkHost jjbutare-mobl.amr.corp.intel.com "//jjbutare-mobl/install" && return
 	checkHost CsisBuild.intel.com "//CsisBuild.intel.com/install" && return
-	
+	# \\amr.corp.intel.com\corpsvcs\CS-PROD\installdev\install
+
+	#[[ $select ]] && { selectHost; return; }
 	[[ ! $quiet ]] && EchoErr "not found"
 	[[ ! $suppress ]] && EchoErr "FindInstallFile: Could not locate ${file:-the installation directory}"
 	return 1
 }
 
-checkHost()
+checkHost() # checkHost HOST DIR
 {
 	local host="$1" dir="$2"
+	#[[ $select ]] && { items+=( "$host" "" "off" ); return 1; }
 	[[ ! $quiet ]] && PrintErr "${host%%\.*}..." 
 	host available "$host" && checkDir "$dir"
 }
 
-checkDir()
+checkDir() # checkDir DIR
 {
 	local localQuiet; [[ "$1" == "--quiet" ]] && { localQuiet="true"; shift; }
 
@@ -91,6 +97,18 @@ checkDir()
 		fi
 	done
 	return 1
+}
+
+selectHost()
+{
+	result=$(dialog --stdout \
+		--backtitle "Select Installation Host" \
+  	--radiolist "Choose installation host:" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
+	clear
+
+	[[ ! $result ]] && { EchoErr "FindInstallFile: a host was not selected"; return 1; }
+
+	file="$file/$result"
 }
 
 run "$@"

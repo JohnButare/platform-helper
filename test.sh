@@ -1,3 +1,14 @@
 #!/bin/bash
 . function.sh
-exit $1
+
+foo()
+{
+	local foo=$foo
+	echo $foo
+	foo=bar
+	echo $foo
+}
+
+foo=12
+foo
+echo $foo

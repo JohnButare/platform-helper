@@ -42,9 +42,9 @@ args()
 init() 
 {
 	mediaRoo=oversoul
-	mediaUnc=//$mediaRoo/Public
-	nas=//nas
-	videoSources=`"$mediaUnc/Videos" "$mediaDriveDir"`
+	mediaUnc="//$mediaRoo/Public"
+	nas="//nas"
+	#videoSources=`"$mediaUnc/Videos" "$mediaDriveDir"`
 
 	# getDate - get videos only after the specified date, useful if #ove pictures
 	getDate=1/1/2000
@@ -58,49 +58,83 @@ run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 getCommand()
 {
 	GetInit || return
-	GetArgs "$@" || return
-	GMT
+	GetArgs "${args[@]}" || return
+	
+	if [[ "$source" ]]; then
+		processDir || return
+	else
+		for dir in "${pictureDirs[@]}"; do ProcessDir "$dir" || return; done
+		for drive in "/cygdrive/"*; do ProcessDrive "$drive" || return; done
+	fi
+
 }
 
-# [<src>|drive <drive>] [dest <destination>] [person <name>] [copy|move](move)
-#   [test] [AskRemoveDups] [NoPostProcess] [NoRename] [KeepName]
-# [<src>|drive <drive>] - source directory or drive that contains media
-# dest <destination> - picture destination folder
-# person <name> - person's name used in distrination folder
-# NoRename - do not rename using the creation date
+ProcessDrive()
+{
+	local drive="$1" dir gmt operation="$operation" options
+
+	for dir in "${mediaDirs[@]}"; do
+		IFS=":" read -a options <<<"$dir"; dir="${options[0]}"
+		IsInArray GMT options && gmt=true
+		if [[ "$operation" == "default" ]]; then
+			if IsInArray copy options; then operation="copy"
+			elif IsInArray move options; then operation="move"
+			else operation="move"; fi
+		fi
+		ProcessDir "${drive}${dir}" || return
+	done
+}
+
+ProcessDir()
+{ 
+	local dir="$1"
+	[[ ! -d "$dir" ]] && return
+	shopt -s  nullglob
+	for file in "$dir/"*; do ProcessFile "$file" || return; done
+}
+
+ProcessFile()
+{
+	local file="$1"
+	echo $file
+}
+
+# [test] [AskRemoveDups] [NoRename] [KeepName]
 getUsage() { echot "\
 usage: media get 
 	-c, --copy				copy media 
-	-d, --drive DRIVE process the specified DRIVE
+	-d, --dest DEST 	destination directory
 	-m, --move				move media
-	    --NoiCloud 		do not get pictures from iCloud
+	    --no-iCloud 		do not get pictures from iCloud
 	-p, --person NAME person's name used in the destination folder
+	-s, --source DIR	media source directory
 	-t, --test 				test the operation without making any changes
 "; exit $1; }
 
 GetArgs()
 {
-	unset destination drive noiCloud test
-	operation="local" personName="$fullName"
+	unset noiCloud test
+	dest="$PUB"; operation="default"; personName="$fullName";
 	while (( $# != 0 )); do
 		case "$1" in
 			--copy|-c) operation="copy";;
-			--destination) destination="$2"; shift;;
-			--drive|-d) drive="$2"; shift;;
+			--dest) dest="$2"; shift;;
 			--move|-m) operation="move";;
-			--NoiCloud) noiCloud="true";;
+			--no-icloud) noiCloud="true";;
 			--person|-p) personName="$2"; shift;;
 			--test|-t) test="true";;
+			--source|-s) source="$2"; shift;;
 			*) getUsage 1;;
 		esac
 		shift
 	done
-	[[ "$drive" && ! -d "/cygdrive/$drive" ]] && { EchoErr "media get: drive  \`$drive\`: No such drive"; return 1; }
+	[[ "$dest" && ! -d "$dest" ]] && { EchoErr "media get: directory  \`$dest\` does not exit"; return 1; }
+	return 0
 }
 
 GetInit()
 {
-	videoExtensions=3gp mpg mp4 mts m2ts moff modd mov 3gp
+	videoExtensions=( 3gp mpg mp4 mts m2ts moff modd mov 3gp )
 
 	fullName="$(FullName)"
 	userPictures="$(UserPictures)"
@@ -110,15 +144,12 @@ GetInit()
 	iCloudPhotoUpload="$userPictures/Photo Stream/Uploads"
 
 	pictureDirs=( "$DOC/data/download/pictures" "$iCloudPhotoStream" "$HOME/Dropbox/Camera Uploads" )
-	
-	
-	# Media Directories
-	# - GMT: Media is stored in GMT for this media
-	# - move or copy: move is  default
-	MediaDirs=( /DCIM/100OLYMP /mssony/moml0001 /dcim/100PHOTO )
-	MediaDirs+=( /DCIM/Camera /handcent/download ) # Android
-	MediaDirs+=( /private/avchd/bdmv/stream:move ) # Sony DSC-HX5v /private/avchd/bdmv/stream (video) /dcim/101msdcf (pictures)
-	MediaDirs+=( /dcim/100msdcf /dcim/101msdcf /mp_root/101pnv01:copy /avchd/bdmv/stream:copy ) # Sony HDR-SR12 (HandyCam) and DSC-U60 (underwater camera) /dcim/100msdcf /dcim/101msdcf /mp_root/101pnv01 /avchd/dbmv/stream, copy videos to preserve integrity of media catalog
+		
+	# Media Directories: GMT, copy, move
+	mediaDirs=( /DCIM/100OLYMP /mssony/moml0001 /dcim/100PHOTO )
+	mediaDirs+=( /DCIM/Camera /handcent/download ) # Android
+	mediaDirs+=( /private/avchd/bdmv/stream:move ) # Sony DSC-HX5v /private/avchd/bdmv/stream (video) /dcim/101msdcf (pictures)
+	mediaDirs+=( /dcim/100msdcf /dcim/101msdcf /mp_root/101pnv01:copy /avchd/bdmv/stream:copy ) # Sony HDR-SR12 (HandyCam) and DSC-U60 (underwater camera) /dcim/100msdcf /dcim/101msdcf /mp_root/101pnv01 /avchd/dbmv/stream, copy videos to preserve integrity of media catalog
 }
 
 run "$@"

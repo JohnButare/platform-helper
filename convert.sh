@@ -1,129 +1,5 @@
 #!/bin/bash
 
-:sync
-media nas all
-# WindowsMediaPlayer SyncPlaylist
-# AmazonMp3 sync
-# WindowsMediaPlayer sync
-# media router sync
-return $?
-
-
-:backup
-
-for portable in (1 2) (
-	dir=c:/dev/portable$portable/backup
-	
-	iff IsDir "$dir" then
-		rc /purge "$userPictures" "$dir/Pictures" /xf thumbs.db
-		rc /purge "$userVideos" "$dir/Videos" /xf thumbs.db
-	endiff
-	
-)
-
-return 0
-
-:get
-
-# Initialize
-GMT=
-operation=$OperationArg
-
-# Process specified drive
-iff "$drive" != "" then
-	gosub ProcessDrive
-	
-# Find a drive to process
-elseiff "$source" != "" then	
-	gosub ProcessDir "$source" clean
-	
-# Default directories and all drives
-else
-	for dir in ($pictureDirs) gosub ProcessDir $dir
-	for drive in ($_ready) gosub ProcessDrive
-
-endiff
-
-# Process the media
-iff defined ProcessedDirs then
-	echo.
-	if not defined NoPostProcess gosub PostProcess
-endiff
-
-return 0
-
-# Process newly downloaded media
-:PostProcess
-
-iff "$ProcessedDirs" != "" then
-	gosub NasMedia
-endiff
-
-for dir in ($ProcessedDirs) (
-
-	# Use the 32 bit explorer to improve video thumbnail generation
-	explorer.btm 32 "$dir"
-	
-)
-
-return 0
-
-:ProcessDrive
-
-if "$drive" == "" return
-
-# Ensure we have the drive letter only by removing :, /, /, and "
-drive=$@strip[://^",$drive]
-
-# Return if the drive is not ready and removable
-if $@ready[$drive:] !=  1 .or. $@removable[$drive:] != 1 return
-
-# Look for various picture directories
-for MediaDir in ($MediaDirs) (
-
-	# Determine the options to use from the media directory, change : separate options into space separated list
-	options=$@replace[:, ,$@field[":",1-100,$MediaDir]]
-
-	GMT=
-	operation=$OperationArg
-	
-	iff "$options" != "" then
-	
-		if $@IsInList[GMT $options] == 1 GMT=true
-		
-		# Use copy operation if it is the default option and an operation has not been specified on the command line
-		iff $@IsInList[copy $options] == 1 .and. "$operation" == "default" then
-			operation=copy
-		endiff
-		
-  endiff
-		
-	# Process the media on the drive
-	gosub ProcessDir "$drive:$@field[":",0,$MediaDir]"
-  
-)
-
-return
-
-:ProcessDir [DirArg clean]
-
-dir=$@UnQuote[$DirArg]
-
-# Return if the directory does not exist
-if not IsDir "$dir" return 0	
-
-# Return if the directory is empty
-if $@DirSize[b,$dir] == 0 return 0
-		
-# Process each file in the directory
-echo Processing $dir...
-for $file in ("$dir/*") gosub ProcessFile
-
-# Remove the folder if we are cleaning and the directory is empty (can't use defined clean with gosub arguments)
-if "$clean" == "clean" if $@DirSize[b,$dir] == 0 RmDir /q "$dir"
-		
-return
-
 :ProcessFile
 
 file=$@UnQuote[$file]
@@ -144,6 +20,7 @@ MediaType=picture
 if $@index[$videoExtensions,$ext] != -1 MediaType=video
 
 # If not specified, detemrine the destination directory based on the computer name and media type
+# copy to nas if available?
 DestPrefix=$destination
 iff "$DestPrefix" = "" then
 	
@@ -313,6 +190,29 @@ iff $@numeric[$p] == 1 .and. $@len[$p] == 14 then
 endiff
 
 return
+
+:sync
+media nas all
+# WindowsMediaPlayer SyncPlaylist
+# AmazonMp3 sync
+# WindowsMediaPlayer sync
+# media router sync
+return $?
+
+
+:backup
+
+for portable in (1 2) (
+	dir=c:/dev/portable$portable/backup
+	
+	iff IsDir "$dir" then
+		rc /purge "$userPictures" "$dir/Pictures" /xf thumbs.db
+		rc /purge "$userVideos" "$dir/Videos" /xf thumbs.db
+	endiff
+	
+)
+
+return 0
 
 :frame
 
