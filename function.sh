@@ -34,6 +34,7 @@ r() { [[ $# == 1 ]] && echo "$1" || eval $2="\"$1\""; } # result <value> <var> -
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
 IsShellScript() { file "$1" | egrep "shell script" >& /dev/null; }
 IsOption() { [[ "$1" =~ ^-.* ]]; }
+IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 UnknownOption() {	EchoErr "$(ScriptName): unknown option \`$1\`"; EchoErr "Try \`$(ScriptName) --help\` for more information";	exit 1; }
 MissingOperand() { EchoErr "$(ScriptName): missing $1 operand"; exit 1; }
 ElevationRequired() { IsElevated && return 0;	EchoErr "$(ScriptName): requires elevation"; exit 1; }
@@ -122,16 +123,32 @@ MakeShortcut()
 	mkshortcut "$p" -n="$2" "${@:3}";
 }
 
-# CopyDir --mirror SRC DEST
 CopyDir()
 {
-	# xcopy /e /v /k /r /h /x /o /c, robocopy /z /ndl
-	local o=( /E /V /R:3 /W:2 ) rcOptsMir=( "${rcOptsRegular[@]}" /mir ) rcOpts=( "${rcOptsRegular[@]}" )
-	[[ $1 == @(-m|--mirror) ]] && { shift; o+=( /mir ); }
-	[[ $# != 2 ]]	&& { EchoErr "usage: CopyDir SRC DEST
-  -m, --mirror     remove extra files in DEST"; return 1; }
-  local src="$(utw "$1")" dest="$(utw "$2")"
- 	robocopy "${o[@]}" "$src" "$dest"
+	[[ $1 == @(--help) ]]	&& { EchoErr "usage: CopyDir SRC DEST [FILES] [OPTIONS]
+  -m, --mirror			remove extra files in DEST
+  -q, --quiet				minimize logging
+  -r, --recursively	copy directories recursively
+      --retry 			retry copy on failure
+  -v, --verbose			maximize logging
+  -xd DIRS					exclude files matching the name/path/wildcard
+  -xf FILES					exclude files matching the name/path/wildcard"; return 1; }
+
+	local o=( /DCOPY:DAT /COPY:DAT /ETA ) mirror quiet src dest
+
+	for arg in "$@"; do
+		[[ $1 == @(-m|--mirror) ]] && { mirror="true"; o+=( /mir ); shift; continue; }
+		[[ $1 == @(-q|--quiet) ]] && { quiet="true"; o+=( /njh /njs /ndl ); shift; continue; }
+		[[ $1 == @(-r|--recursive) ]] && { o+=( /E ); shift; continue; }
+		[[ $1 == @(--retry) ]] && { o+=( /R:3 /W:2 ); shift; continue; }
+		[[ $1 == @(-v|--verbose) ]] && { o+=( /V ); shift; continue; }
+		IsOption "$1" && { o+=( "/${1:1}" ); shift; continue; }
+		! IsOption "$1" && [[ ! $src ]] && { src="$(utw "$1")"; shift; continue; }
+		! IsOption "$1" && [[ ! $dest ]] && { dest="$(utw "$1")"; shift; continue; }
+		o+=( "$1" ); shift
+	done
+	[[ $quiet && ! $mirror ]] && o+=( /xx )
+	robocopy "$src" "$dest" "${o[@]}"
 	(( $? > 7 )) && return 1 || return 0
 }
 
