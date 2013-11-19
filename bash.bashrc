@@ -73,26 +73,27 @@ i() # --find --cd
 { 
 	local find force select
 	if [[ "$1" == "--help" ]]; then echot "\
-usage: i [APP*](--cd)
+usage: i [APP*|cd|force|info|select]
 	Install applications
-	-c, --cd			change to the installation directory
-			--find		find the installation location
 	-f, --force		check for a new installation location
   -s, --select	select the install location"
 	return 0
 	fi
 
 	[[ "$1" == @(--force|-f) ]] && { force="true"; shift; }
-	[[ "$1" == @(--find) ]] && { find="true"; shift; }
 	[[ "$1" == @(--select|-s) ]] && { select="--select"; shift; }
+	[[ "$1" == @(select) ]] && { select="--select"; }
+	[[ "$1" == @(force) ]] && { force="true"; }
 
-	[[ $find || $force || $select || ! $InstallDir ]] && 
+	[[ $force || $select || ! $InstallDir ]] && 
 		{ ScriptEval FindInstallFile --eval $select || return; }
 
-	if [[ $find ]]; then
-		:
-	elif [[ $# == 0 || "$1" == @(--cd) ]]; then
+	[[ "$1" == @(force|select) ]] && return 0
+	
+	if [[ $# == 0 || "$1" == @(cd) ]]; then
 		cd "$InstallDir"
+	elif [[ "$1" == @(info) ]]; then
+		echo "The installation directory is $InstallDir"
 	elif [[ ! $find ]]; then
 		inst --hint "$InstallDir" "$@"
 	fi

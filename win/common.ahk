@@ -23,7 +23,12 @@ CommonInit()
 		PROGRAMS32=c:\Program Files
 
 	; Text editor
-	IfExist %PROGRAMS64%\Sublime Text 2\sublime_text.exe
+	IfExist %PROGRAMS64%\Sublime Text 3\sublime_text.exe
+	{
+		TextEdit = %PROGRAMS64%\Sublime Text 3\sublime_text.exe
+		TextEditTitle = .* - Sublime Text
+	}
+	Else IfExist %PROGRAMS64%\Sublime Text 2\sublime_text.exe
 	{
 		TextEdit = %PROGRAMS64%\Sublime Text 2\sublime_text.exe
 		TextEditTitle = .* - Sublime Text 2

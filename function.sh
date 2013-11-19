@@ -99,16 +99,18 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 
 # path: realpath, cygpath
 FindInPath() { type -P "${1}"; }
+GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { local p="${1%/*}"; [[ "$p" == "$1" ]] && p=""; r "$p" $2; }
 GetFileName() { r "${1##*/}" $2; }
 GetFileNameWithoutExtension() { local f="$1"; GetFileName "$1" f; r "${f%.*}" $2; }
 GetFileExtension() { local f="$1"; GetFileName "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
-GetFullPath() { cygpath -a "$@"; }
+GetFullPath() { local p="$(cygpath -a "$1")" || return; r "$p" $2; }
 GetUncServer() { local f="${1#*( )//}"; r "${f%%/*}" $2; } # get server from a UNC file
 HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
-wtu() { cygpath -u "$*"; }
-utw() { cygpath -aw "$*"; }
+wtu() { cygpath -u "$*"; } # WinToUnix
+utw() { cygpath -aw "$*"; } # UnixToWin
+ptw() { echo "${1////\\}"; } # PathToWin
 
 DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
 
@@ -134,7 +136,7 @@ CopyDir()
   -xd DIRS					exclude files matching the name/path/wildcard
   -xf FILES					exclude files matching the name/path/wildcard"; return 1; }
 
-	local o=( /DCOPY:DAT /COPY:DAT /ETA ) mirror quiet src dest
+	local o=( /COPY:DAT /ETA ) mirror quiet src dest # /DCOPY:DAT requires newer robocopy
 
 	for arg in "$@"; do
 		[[ $1 == @(-m|--mirror) ]] && { mirror="true"; o+=( /mir ); shift; continue; }
@@ -174,8 +176,32 @@ FileCommand()
 	esac
 }
 
-# MoveAll SRC DEST - move all of the contents of SRC to DEST including hidden files and folders
+# MoveAll SRC DEST - move contents of SRC to DEST including hidden files and folders
 MoveAll() { [[ ! $1 || ! $2 ]] && { EchoErr "usage: MoveAll SRC DEST"; return 1; }; shopt -s dotglob nullglob; mv "$1/"* "$2" && rmdir "$1"; }
+
+CpProgress()
+{
+	local src dest size=100 fileName
+	[[ $# == 0 || $1 == @(--help) ]]	&& { EchoErr "usage: CpProgress FILE DIR
+  -s, --size SIZE		show progress for files larger than SIZE MB"; return 1; }
+
+	while (( $# != 0 )); do
+		[[ "$1" == @(-s|--size) ]] && { size="$2"; shift; shift; continue; }
+		! IsOption "$1" && [[ ! $src ]] && { src="$1"; shift; continue; }
+		! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
+		EchoErr "CopyFile: unknown option `$1`"; return 1;
+	done
+
+	[[ ! -f "$src" ]] && { EchoErr "CopyFile: cannot access \`$src\`: No such file"; return 1; }
+	[[ ! -d "$dest" ]] && { EchoErr "CopyFile: cannot access \`$dest\`: No such directory"; return 1; }		
+	GetFileName "$src" fileName || return
+	GetFilePath "$(GetFullPath "$src")" src || return
+
+	local fileSize="$(GetFileSize "$src/$fileName" MB)" || return
+	(( fileSize < size )) && 
+		cp "$src/$fileName" "$dest" ||
+		CopyDir "$src" "$dest" "$fileName" --quiet
+} 
 
 #
 # arrays
@@ -251,7 +277,9 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "Elapsed %02d:%02d:%02d\n" 
 #
 # account
 #
-FullName() { local s="$(net user "$USERNAME" |& grep -i "Full Name")"; s="${s:29}"; echo ${s:-$USERNAME}; }
+FullName() { case "$USERNAME" in jjbutare|ad_jjbutare) echo John; return;; esac; local s="$(net user "$USERNAME" |& grep -i "Full Name")"; s="${s:29}"; echo ${s:-$USERNAME}; }
+PublicPictures() { cygpath -F 54; }
+PublicVideos() { cygpath -F 55; }
 UserPictures() { cygpath -F 39; }
 UserVideos() { cygpath -F 14; }
 
@@ -428,11 +456,13 @@ AutoItScript()
 
 TextEdit()
 {
-	local file files=() p="$P64/Sublime Text 2/sublime_text.exe"
+	local file files=() p="$P64/Sublime Text 3/sublime_text.exe"
 	local wait; [[ "$1" == +(-w|--wait) ]] && { wait="pause"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
 	
-	[[ ! -f "$p" ]] && { p="$P32/Notepad++/notepad++.exe"; [[ ! -f "$p" ]] && p="notepad"; }
+	[[ ! -f "$p" ]] && p="$P64/Sublime Text 2/sublime_text.exe"
+	[[ ! -f "$p" ]] && p="$P32/Notepad++/notepad++.exe"
+	[[ ! -f "$p" ]] && p="notepad"
 
 	for file in "$@"; do
 		[[ -f "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"

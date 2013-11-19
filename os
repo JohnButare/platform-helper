@@ -141,12 +141,12 @@ GetDirs()
 	if [[ ! $host ]]; then # local
 		FindDirsWorker || return
 		
-	elif [[ "$host" == @(nas|butare.net) ]]; then # nas
+	elif [[ "$host" == @(nas|nas.hagerman.butare.net|butare.net) ]]; then # nas
 		_sys=""; _data=""; 
-		[[ "$host" == "nas" ]] && _PublicHome="//$host/public" || _PublicHome="//$host@ssl@5006/DavWWWRoot/public"
+		[[ "$host" == @(nas|nas.hagerman.butare.net) ]] && _PublicHome="//$host/public" || _PublicHome="//$host@ssl@5006/DavWWWRoot/public"
 		SetCommonPublicDirs || return
 		
-		[[ "$host" == "nas" ]] && _UserHome="//$host/home" || _UserHome="//$host@ssl@5006/DavWWWRoot/home"
+		[[ "$host" == @(nas|nas.hagerman.butare.net) ]] && _UserHome="//$host/home" || _UserHome="//$host@ssl@5006/DavWWWRoot/home"
 		_UserFound="$_user"; _UserSysHome="$_UserHome"; _UserDocuments="$_UserHome/documents"
 		SetCommonUserDirs || return
 
