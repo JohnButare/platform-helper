@@ -150,8 +150,12 @@ GetDirs()
 		_UserFound="$_user"; _UserSysHome="$_UserHome"; _UserDocuments="$_UserHome/documents"
 		SetCommonUserDirs || return
 
-	elif [[ "$host" == @(dfs) ]]; then # dfs
+	elif [[ "$host" == @(dfs) ]]; then
 		_sys=""; _data=""; 	_PublicHome="//amr.corp.intel.com/corpsvcs/CS-PROD/installdev/public"
+		SetCommonPublicDirs || return	
+
+	elif [[ "$host" == @(cr) ]]; then 
+		_sys=""; _data=""; 	_PublicHome="//VMSPFSFSCR02.cr.intel.com/CsisInstall/public"
 		SetCommonPublicDirs || return	
 
 	elif [[ -d "//$host/c$" ]]; then # host with Administrator access
