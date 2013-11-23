@@ -1976,46 +1976,6 @@
 
 	return
 
-	:AppleCore
-
-	echo Updating Apple icons...
-	$makeDir "$ao/Apple"
-	$mv "$pp/Apple Software Update.lnk" "$ao/Apple"
-
-	return
-
-	:iCloud
-	# http://support.apple.com/kb/DL1455
-	echot "\
-	************************
-	* iCloud
-	************************
-	"
-
-	run "Apple/iCloud/iCloudSetup v2.1.2.exe"
-
-	# Delete iCloudServices - C:/Program Files (x86)/Common Files/Apple/Internet Services/iCloudServices.exe
-	# registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/iCloudServices"
-
-	# Delete MobileDocuments - C:/Program Files (x86)/Common Files/Apple/Internet Services/ApplePhotoStreams.exe
-	# registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/MobileDocuments"
-
-	# Delete ApplePhotoStreams - C:/Program Files (x86)/Common Files/Apple/Internet Services/ubd.exe
-	# registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Run/ApplePhotoStreams"
-
-	echot "\
-	- uncheck Mail, Contacts, Calendars, & Tasks
-	- uncheck Bookmarks
-	- check Photo Stream, Options..., Photo Stream Location: Change..., Pictures/Photo Stream
-	"
-
-	echo Updating icons...
-	$mergeDir "$pp/iCloud" "$pp/Operating System/Other"
-
-	AppleCore
-
-	return
-
 	:Bonjour
 	# Installs Bonjour Service
 	echot "\
