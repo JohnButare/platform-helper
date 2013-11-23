@@ -26,7 +26,7 @@ TemplateFullInstall()
 
 	FindFile "Intel/Profile Manager/ProfileManager.xml" || return
 	$cp	"$file" "$WINDIR/system32" || return
-	$rc --mirror "$src" "$dest" || return
+	$rc --mirror --quiet "$src" "$dest" || return
 
 	echo "Updating icons..."
 	$mergeDir "$pp/(dir)" "$pp/Development/Other" || return
@@ -68,20 +68,22 @@ usage()
 	echot "\
 usage: install cd|install APP*
 	Install programs
-	  -h,--hint DIR			first directory to search for installation files
-	  -nrp,--NoRunPrompt	do not ask to run the executable"
+	-h, --hint DIR			first directory to search for installation files
+      --no-run-prompt	do not ask to run the executable
+  -s, --select				select the install location"
 	exit $1
 }
 
 args()
 {
-	unset command apps host noRunPrompt
+	unset command apps host noRunPrompt select
 	originalArgs=( "$@" ) 
 	while [ "$1" != "" ]; do
 		case "$1" in
-			-nrp|--NoRunPrompt) noRunPrompt="true";;
-			-h|--hint) hint=( --hint "$2" ); shift;;
+			--no-run-prompt) noRunPrompt="true";;
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			--hint|-h) hint=( --hint "$2" ); shift;;
+			--select|-s) select="--select";;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; } # command
 				! IsOption "$1" && { apps+=( "$1" ); shift; continue; }
@@ -186,37 +188,39 @@ FindCompareProgram()
 
 FindFile()
 {
-	local pattern
-	file="$1"
+	local pattern; file="$1"
 
 	if IsWild "$file"; then
-		GetFilename "$file" pattern || return
-		GetPath "$file" file || return
+		GetFileName "$file" pattern || return
+		GetFilePath "$file" file || return
 	fi
 
-	if ! ScriptEval FindInstallFile --suppress --eval "${hint[@]}" "$file"; then
+	if ! ScriptEval FindInstallFile $select --suppress --eval "${hint[@]}" "$file"; then
 		EchoErr "inst: could not locate ${1:-the installation directory}"
 		return 1
 	fi
 
 	hint=( --hint "$InstallDir" )
+	[[ $pattern ]] && { SelectFile "$file" "$pattern" || return; }
+	return 0
+}
 
-	if [[ $pattern ]]; then
-		pushd "$file" > /dev/null || return
+SelectFile() # DIR PATTERN
+{
+	local dir="$1" pattern="$2" result items
 
-		local result items
-		for f in $pattern; do items+=( "$f" "" "off" ); done
- 
-		result=$(dialog --stdout \
-			--backtitle "Select Installation Files" \
-	  	--radiolist "Choose file to install:" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
-		clear
+	pushd "$dir" > /dev/null || return
+	
+	for f in $pattern; do items+=( "$f" "" ); done
 
-		[[ ! $result ]] && { EchoErr "inst: a file was not selected"; return 1; }
+	result=$(dialog --stdout --backtitle "Select File" \
+  	--menu "Choose file to install:" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
+	clear
 
-		file="$file/$result"
-		popd > /dev/null
-	fi
+	[[ ! $result ]] && { EchoErr "inst: a file was not selected"; return 1; }
+
+	file="$dir/$result"
+	popd > /dev/null
 }
 
 RunExe()
@@ -230,7 +234,7 @@ RunExe()
 	[[ $noRunPrompt ]] && echo "Runing $exeDesc..." ||
 		{ ask "Do you want to run $exeDesc" || return 0; }	
 
-	local exeExt; GetExtension "$exe" exeExt
+	local exeExt; GetFileExtension "$exe" exeExt
 
  	[[ "$exeExt" == @(air|iso|msu|vsix|xpi) ]] && pause="--pause"
 
@@ -273,7 +277,7 @@ PrepareInstallDir()
 	[[ ! $installDir ]] && { EchoErr "inst: installation directory was not specified"; return 1; }
 
 	if [[ -d "$installDir" ]]; then
-		ask "Do you want to delete the existing installation in \"$(GetName "$installDir")\"" -dr n || return
+		ask "Do you want to delete the existing installation in \"$(GetFileNameWithoutExtension "$installDir")\"" -dr n || return
 		$rmd "$installDir" || return
 	fi
 
@@ -316,9 +320,9 @@ coreDirectories()
 	[[ $client ]] && { $makeDir "$pp/Games/Other" || return; }
 
 	$makeDir "$_sys/temp" || return
-	$makeDir "$_PublicDocuments/data/doc" || return
-	$makeDir "$_PublicDocuments/data/log" || return
-	$makeDir "$_PublicDocuments/drop" || return
+	$makeDir "$pdata/doc" || return
+	$makeDir "$pdata/log" || return
+	$makeDir "$pdoc/drop" || return
 }
 
 core()
@@ -328,9 +332,11 @@ core()
 
 	local common="DropBox EverNote Sonos Chrome BrowserHomePage"
 	case "$COMPUTERNAME" in
-		oversoul) i $common pGina ssh office365 nVidia LastPass DevCore || return;;
-		minime) i $common pGina ssh MiniMe TrueImage office365 LastPass || return;;
-		jjbutare-mobl|jjbutare-mobl7|jjbutare-mobl9) i $common OfficeFinal IntelCore CsisDeveloperCore || return;;
+		oversoul) i $common pGina ssh office365 nVidia LastPass DevCore iCloud || return;;
+		minime) i $common pGina ssh MiniMe TrueImage office365 LastPass iCloud || return;;
+		jjbutare-mobl|jjbutare-mobl7|jjbutare-mobl9) 
+			i $common OfficeFinal IntelCore CsisDeveloperCore || return
+			[[ "$COMPUTERNAME" == @(jjbutare-mobl7) ]] && i iCloud || return;;
 	esac
 }
 
@@ -383,10 +389,7 @@ CygwinInstall()
 	! grep "$group" /etc/group > /dev/null && echo "$group" >> /etc/group
 
 	# Completion
-	echo "Optimizing bash completion load time..."
-	$makeDir /etc/bash_completion.d/hold || return
-	$mv /etc/bash_completion.d/!(hold) /etc/bash_completion.d/hold || return
-	$mv /etc/bash_completion.d/hold/@(bash-builtins|coreutils|git|rsync|ssh) /etc/bash_completion.d || return
+	cygwin FixCompletion || return
 
 	if [[ -d ~/.ssh ]]; then	
 		echo "Configuring ssh..."
@@ -407,13 +410,13 @@ BashInstall()
 	printf "Configuring bash..."
 
 	# home directory links
-	local files=( .bashrc .bash_profile .bash_logout .dialogrc .gitconfig .lessfilter .inputrc .minttyrc )
+	local files=( .bashrc .bash_profile .bash_logout .dialogrc .gitconfig .kdiff3rc .lessfilter .inputrc .minttyrc )
 	for file in "${files[@]}"; do
 		$makeLink --symbolic --hide "$_UserBin/$file" "$_UserHome/$file" || return
 	done
 
 	# windows sytem home directory links (for Windows program that require Windows links, not a POSIX .lnk link)
-	files=( .gitconfig )
+	files=( .ExifTool_config  .gitconfig )
 	for file in "${files[@]}"; do
 		$makeLink --symbolic --hide --windows --absolute "$_UserBin/$file" "$_UserSysHome/$file" || return
 	done
@@ -433,7 +436,7 @@ BashFinal()
 
 	if ask "Edit /etc/bash.bashrc"; then
 		echo '- paste the text in the clipboard before "# If not running interactively, don'\''t do anything"'
-		clipw $'# Wiggin
+		clipw $'# Global
 [[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
 [[ -f "$USERS/Public/Documents/data/bin/bash.bashrc" ]] && . "$USERS/Public/Documents/data/bin/bash.bashrc"\n\n'
 		TextEdit --wait "/etc/bash.bashrc" 
@@ -560,6 +563,7 @@ IntelIcons()
 	$mergeDir "$pp/Autonomy" "$pp/Operating System/Other" || return
 	$mergeDir "$up/Cisco" "$pp/Operating System/Other" || return
 	$mergeDir "$pp/Cisco" "$pp/Operating System/Other" || return
+	$mergeDir "$pp/Dolby" "$pp/Operating System/Other" || return
 	$mergeDir "$pp/Intel PROSet Wireless" "$pp/Operating System/Other" || return
 	$mergeDir "$pp/Intel Software Market" "$pp/Operating System/Other" || return
 	$mergeDir "$pp/McAfee" "$pp/Operating System/Other" || return
@@ -745,12 +749,17 @@ SublimeInstall()
 	printf "**************************************************\n* Sublime Text Editor\n**************************************************\n"
 	echo "- Check add to explorer context menu"
 
-	run "Sublime/setup/Sublime Text 2.0.2 $architecture Setup.exe" || return
-
+	run "Sublime/setup/Sublime Text Build 3047 x64 Setup.exe" || return # http://www.sublimetext.com/3dev
+	#run "Sublime/setup/Sublime Text 2.0.2 $architecture Setup.exe" || return
+	# PackageControl - https://sublime.wbond.net/installation
+	
 	echo "Updating icons..."
 	$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
+	$mv "$pp/Sublime Text 3.lnk" "$pp/Applications" || return
 
-	$makeDir "$_ApplicationData/Sublime Text 2" || return
+	$makeDir "$udata/Sublime Text" || return
+	#$makeDir "$_ApplicationData/Sublime Text 2" || return
+	$makeDir "$_ApplicationData/Sublime Text 3" || return
 	sublime profile restore default || return
 }
 
@@ -844,6 +853,7 @@ WindowsIcons()
 	$mergeDir "$pp/Accessibility" "$pp/Applications/Accessories" || return
 	$mv "$pp/Camera.lnk" "$pp/Applications/Accessories" || return
 	$mv "$pp/Immersive Control Panel.lnk" "$pp/Applications/Accessories" || return
+	$mv "$up/Immersive Control Panel.lnk" "$pp/Applications/Accessories" || return
 	$mv "$pp/Bing Desktop/Bing Desktop.lnk" "$pp/Applications/Accessories" || return
 	$mv "$pp/PhotosApp.lnk" "$pp/Applications/Accessories" || return
 	$mv "$pp/Search.lnk" "$pp/Applications/Accessories" || return
@@ -990,7 +1000,7 @@ vs13()
 { 
 	printf "**************************************************\n* Visual Studio 2012\n**************************************************\n"
 	echo "- (optional) Uncheck Microsoft Foundation Classes for C++ (1.4 GB)"
-	echo "- (optional) check Tools for Maintaining Store apps for Windows 8 and Windows Phone 8.0 SDK"
+	echo "- uncheck Tools for Maintaining Store apps for Windows 8 and Windows Phone 8.0 SDK"
 
 	vs="Microsoft/Visual Studio"
 
@@ -1003,7 +1013,7 @@ vs13()
 	run "$vs/setup/other/en_visual_studio_2013_sdk_x86_3009047.exe" || return
 
 	# extensions
-	run "$vs/extension/NuGet.Tools.2013.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/4ec1526c-4a8c-4a84-b702-b21a8f5293ca
+	#run "$vs/extension/NuGet.Tools.2013.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/4ec1526c-4a8c-4a84-b702-b21a8f5293ca
 	run "$vs/extension/NUnitVisualStudioTestAdapter-1.0.vsix" || return # requires ReSharper disabled, https://launchpad.net/nunit-vs-adapter/+download, http://visualstudiogallery.msdn.microsoft.com/6ab922d0-21c0-4f06-ab5f-4ecd1fe7175d?SRC=VSIDE
 	run "$vs/extension/WebEssentials2013.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/56633663-6799-41d7-9df7-0f2a504ca361
 
@@ -1039,10 +1049,9 @@ VsFinal()
 	$makeDir "$_Code/test/vs$vsName"
 	
 	if ask "Initialize Visual Studio"; then
+		echo "- (optional) Sign In, <Microsoft Live account>"
 		echo "- Choose your default environment settings=Visual C# Development Settings"
-		echo "- Sign In, <Microsoft Live account>"
 		echo "- Development Settings=Visual C#"
-		echo "- Choose your color theme=Blue or Light"
 		echo "- Close Visual Studio"
 		VisualStudio start; pause
 	fi
@@ -1102,7 +1111,10 @@ VsIcons()
 
 	# 2013
 	$mergeDir --rename "$pp/Visual Studio $vsName" "$other/Visual Studio $vsName" || return
-
+	$mergeDir "$pp/Hyper-V Management Tools" "$pp/Development/other" || return
+	$mergeDir "$pp/Windows Phone SDK 8.0" "$vs" || return
+	$mergeDir "$pp/Windows Kits" "$pp/Development/other" || return
+	 
 	# 2012
 	$mergeDir --rename "$pp/Microsoft Visual Studio 2012" "$other/Visual Studio 2012" || return
 	$mergeDir --rename "$pp/Microsoft Visual Studio $vsName" "$other/Visual Studio $vsName" || return
@@ -1178,9 +1190,10 @@ BeyondCompareInstall()
 	run "Scooter Software/Beyond Compare/plugins/AllPlugins.exe" || return
 
 	echo "Updating icons..."
-	$ren "$pp/Beyond Compare 3/Beyond Compare 3.lnk" "$pp/Applications/Beyond Compare.lnk" || return
+	$mergeDir "$up/Beyond Compare" "$pp/Applications/Other" || return
+	$mergeDir "$pp/Beyond Compare" "$pp/Applications/Other" || return
+	$rm "$ud/Beyond Compare 3.lnk" || return
 	$rm "$pd/Beyond Compare 3.lnk" || return
-	$rmd "$pp/Beyond Compare 3" || return
 
 	echo "- Enter Key..., check Register for all users"
 	BeyondCompare start
@@ -1344,19 +1357,18 @@ iisInstall()
 	fi
 
 	echo "Updating services..."
-	service manual FTPSVC || return
+	service exist FTPSVC && { service manual FTPSVC || return; }
 
 	if [[ $client ]] && ask "Set IIS services to run manually"; then
-	  service manual IISADMIN || return
-	  service manual w3svc || return
-	  service manual AppHostSvc || return
+	  service exist IISADMIN && { service manual IISADMIN || return; }
+	  service exist w3svc && { service manual w3svc || return; }
+	  service exist AppHostSvc && { service manual AppHostSvc || return; }
 	fi
 
 	echo "Updating icons..."
 	$makeDir "$pp/Development/Other/IIS" || return
 	$mergeDir "$pp/IIS" "$pp/Development/Other" || return
 	$makeShortcut "$WINDIR/system32/inetsrv/iis.msc" "$pp/Development/Other/IIS/IIS Client Manager" || return
-	$makeShortcut "$WINDIR/system32/inetsrv6/iis6.msc" "$pp/Development/Internet Information Services 6" || return
 
 	# [[ $client ]] && ask "Install remote manager" && { IisRemoteManager || return; }
 	# ask "Configure WebDAV" --default n && { IisWebDav || return; }
@@ -1383,12 +1395,11 @@ SqlServerInstall()
 	local base="Microsoft/SQL Server"
 	printf "**************************************************\n* SQL Server 2012\n**************************************************\n"
 	
-	echo; echo "Checking IIS (required for reporting services)..."; IisCheck || return
+	echo; echo "Checking for IIS (required for reporting services)..."; IisCheck || return
 
 	echot "\
 Note: Logs are in \"$P/Microsoft SQL Server/110/Setup Bootstrap/Log\"
 - Installation, New SQL installation or add features to an existing installation
-- (optional) Uncheck SQL Server product updates (installed below)
 - Setup Roles, All Features with Defaults
 - Feature Selection
   - (light development+SQL Server Express, 6gb) Uncheck all Instance Features
@@ -1440,7 +1451,6 @@ Note: Logs are in \"$P/Microsoft SQL Server/110/Setup Bootstrap/Log\"
 
 	if [[ $database ]]; then 
 		ask "Update server configuration" && { SsServerConfig || return; }
-		ask "Update firewall" && { SsFirewall || return; }
 		#ask "Update mail configuration" && { SsMailConfig || return; }
 		#ask "Update reporting server configuration" && { SsReportServerConfig || return; }
 	fi
@@ -1463,10 +1473,7 @@ SsServerConfig()
 	echo "- Object Explorer, Server, Properties, Memory, Maximum server memory=256"
 	SqlServer studio || return
 	pause
-}
 
-SsFirewall()
-{
 	echo "Updating firewall..."
 	$firewall rule add "SQL Server" dir=in action=allow protocol=TCP localport=1433 profile=private \
 		program="$(utw "$P/Microsoft SQL Server/MSSQL10.MSSQLSERVER/MSSQL/Binn/sqlservr.exe")" || return
@@ -1501,13 +1508,12 @@ SsManagementStudioConfig()
 	- View: Registered Servers at top left, Solution Explorer at bottom right
 	- Tools, Options
 	  - Environment
-	    - 20 items shown
+	    - General, 20 items shown
 	    - Startup, At startup Open empty environment
 	  - Text Editor
 	    - All Languages, check Line numbers
 	    - (if using SQL Prompt) Transact-SQL, uncheck Auto list members
 	    - Editor Tab and Status Bar, Tab Text, all but Include File Name to False
-	  - (optional) Source Control, Current source control plug-in=Team Foundation Server MSCCI Provider
 	- Help, Yes"
 	SqlServer studio || return; pause
 }
@@ -1516,7 +1522,7 @@ SsFinal()
 {
 	echo "Creating sql directory..."
 	local dir="$udata/sql"; $makeDir "$dir"
-	$makeShortcut "$_CloudData/sql" "$dir/cloud.lnk" || return
+	[[ -d "$_CloudData/sql" ]] && { $makeShortcut "$_CloudData/sql" "$dir/cloud.lnk" || return; }
 
 	echo "Moving data folders..."
 	local dir="$udata/SQL Server Management Studio"
@@ -1628,7 +1634,7 @@ OfficeFinal()
 	. office.sh || { EchoErr "inst: Office is not installed"; return 1; }
 
 	echo "Updating directories..."
-	$makeDir "$udoc/data/Templates" "$pdoc/data/Templates" || return
+	$makeDir "$udata/Templates" "$pdata/Templates" || return
 
 	echo "Moving data folders..."
 	$makeLink --merge --hide "$udata/OneNote" "$udoc/OneNote Notebooks" || return
@@ -1690,7 +1696,9 @@ GitExtensionsInstall()
 	- (optional) uncheck Assign with...
 - Git Setup, uncheck Associate .sh files to be run with Bash
 - Checkout as-is, commit as-is"
-	run "Shareware/GitExtensions/setup/GitExtensions246SetupComplete.msi" || return # https://code.google.com/p/gitextensions/ http://msysgit.github.com/
+
+	# http://msysgit.github.com/, http://superuser.com/questions/393218/adding-git-bash-here-right-click-option-with-silent-install
+	run "Shareware/GitExtensions/setup/GitExtensions24703SetupComplete.msi" || return # https://code.google.com/p/gitextensions/ 
 
 	echo "Configuring git..."
 	git config --system http.sslcainfo "$P32/git/bin/curl-ca-bundle.crt"
@@ -1711,7 +1719,8 @@ GitExtensionsInstall()
 	- Global settings
 		- User name=NNN, User email=NNN
 		- Editor=<paste>
-		- (optional) Mergetool=BeyondCompare3, Diftool=beyondcompare3"
+		- (optional) Mergetool=BeyondCompare3, Diftool=beyondcompare3
+	- SSH, select PuTTY"
 	GitHelper gui || return
 	pause
 }
@@ -1799,7 +1808,7 @@ iTunesInstall()
 	#   - Shell Extension: iTunes
 	#   - Task Scheduler: AppleSoftwareUpdateApple
 	# -   Services: Apple Mobile Device (required), iPod Service (recognize iPods), Bonjour Service (sharing), AirPrint
-	run "Apple/iTunes/setup/iTunes v11.1.2.0 ${architecture}.exe" || return
+	run "Apple/iTunes/setup/iTunes v11.1.3.0 ${architecture}.exe" || return
 
 	echo "Updating icons..."
 	$rm "$pd/iTunes.lnk" || return
@@ -1894,12 +1903,12 @@ NotepadPpInstall()
 	printf "**************************************************\n* Notepad++\n**************************************************\n"
 	echo "- Uncheck Run Notepad++"
 
-	run "Shareware/Notepad++/setup/npp.6.5.Installer.exe" || return # http://notepad-plus-plus.org/download/
+	run "Shareware/Notepad++/setup/npp.6.5.1.Installer.exe" || return # http://notepad-plus-plus.org/download/
 
 	FindFile "Shareware/Notepad++" || return
 
 	if ask "Deleting existing plugins and install the defaults"; then
-		$rc --mirror "$file/plugins/default" "$P32/Notepad++/plugins" || return
+		$rc --mirror --quiet "$file/plugins/default" "$P32/Notepad++/plugins" || return
 	fi
 
 	echo "Updating registry..."
@@ -1949,6 +1958,9 @@ JavaFinal()
 	$registry 32 delete "run/SunJavaUpdateSched"
 	$registry 64 delete "run/SunJavaUpdateSched"
 
+	echo "Updating icons..."
+	$mergeDir "$pp/Java" "$pp/Operating System/Other" || return
+
 	ask "Test the Java browser plugin?" && JavaUtil test
 }
 
@@ -1972,7 +1984,7 @@ VmwareWorkstationInstall()
 	$firewall rule add "VMware NAT Echo Reply" dir=in action=allow enable=yes profile=private,domain localip=any remoteip=any protocol=icmpv4:0,0 interfacetype=any edge=yes || return
 
 	echo "Creating VMware directory..."
-	$makeDir "$udoc/data/VMware"
+	$makeDir "$udata/VMware"
 
 	echo "Updating icons..."
 	$mergeDir "$pp/VMware" "$pp/Operating System/Other" || return
@@ -2021,6 +2033,60 @@ LastPassInstall()
 
 	echo "Updating registry..."	
 	$registry 32 delete "run/LastApp" # C:\Program Files (x86)\LastPass\lastapp.exe
+}
+
+FoxitReaderInstall()
+{
+	echot "**************************************************\n* Foxit Reader - PDF Reader\n**************************************************\n
+- Uncheck Shell Extensions, Install Foxit Reader Creator, Add-on for ...
+- Uncheck Enable Safe Reading Mode"
+	
+	run "Foxit/reader/setup/FoxitReader611.1031_enu_Setup.exe" || return # http://www.foxitsoftware.com/downloads/index.php
+	run "Foxit/reader/setup/FoxitPdfPreviewHandlerSetup_1_1.msi" || return # http://timheuer.com/blog/archive/2008/05/09/foxit-pdf-preview-handler.aspx
+
+	echo "Updating icons..."
+	$mergeDir "$pp/Foxit Reader" "$ao" || return
+	$rm "$pd/Foxit Reader.lnk" || return
+	$rm "$ud/Foxit Reader.lnk" || return
+
+	echot "\
+- Edit, Preferences
+  - General, uncheck Show Start Page
+  - History, Maximum number of documents in recently used list=10
+  - Updater, Do not download"
+	start "$P32/Foxit Software/Foxit Reader/Foxit Reader.exe" || return
+	pause
+}
+
+iCloudInstall()
+{
+	printf "**************************************************\n* iCloud\n**************************************************\n"
+	
+	run "Apple/iCloud/iCloudSetup v3.0.2.exe" || return # http://support.apple.com/kb/DL1455
+
+	# iCloudServices - C:\Program Files (x86)\Common Files\Apple\Internet Services\iCloudServices.exe
+	# registry delete "urun/iCloudServices" || return
+
+	# ApplePhotoStreams - C:\Program Files (x86)\Common Files\Apple\Internet Services\ApplePhotoStreams.exe
+	# registry delete "urun/ApplePhotoStreams" || return
+
+	echo "Updating icons..."
+	$mergeDir "$pp/iCloud" "$pp/Operating System/Other" || return
+
+	AppleCore || return
+
+	echot "\
+iCloud Control Panel
+- uncheck Mail, Contacts, Calendars, & Tasks and Bookmarks
+- check Photo Stream"
+	pause
+}
+
+AppleCore()
+{
+	echo "Updating Apple icons..."
+	$makeDir "$ao/Apple" || return
+	$mv "$pp/Apple Software Update.lnk" "$ao/Apple" || return
 }
 
 args "$@"; ${command}Command "${args[@]}";

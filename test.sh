@@ -1,3 +1,3 @@
 #!/bin/bash
 . function.sh
-exit $1
+echo $PUBLIC

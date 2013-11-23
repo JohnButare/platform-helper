@@ -13,32 +13,41 @@
 
 usage() {	
 echot "\
-usage: cygwin [command] (install)
-	cleanup - cleanup directories
-  close - close Cygwin programs
-  setup|(re)download|install|help [-P|--packages <package,...>] [-C|--categories <categories,...>] 
-  	download (to local store), install (from local store), or start setup
+usage: cygwin COMMAND
+	cleanup				cleanup directories
+  close|open		prepare Cygwin for updating
+  (re)download 	download Cygwin installation files to package local 
+  FixCompletion	optimize bash completion load time
+  install 			install Cygwin from local pacakge store
+  setup					start the Cygwin setup program
+	-P|--packages <package,...>
+	-C|--categories <categories,...>
 	-q|--quiet  		run in quiet mode without prompting"
 	exit $1
 }
+
+downloadUsage() { helpCommnad; }
+installUsage() { helpCommand; }
+setupUsage() { helpCommand; }
 
 init()
 { 
 	installDir="$P/Cygwin"
 	bin="$InstallDir/bin"
 	downloadSite="http://mirrors.kernel.org/sourceware/cygwin/"
-	defaultPackages="dialog,git,git-gui,gitk,git-completion,openssh,util-linux,vim"
+	defaultPackages="dialog,git,git-gui,gitk,git-completion,openssh,util-linux,vim,wget,subversion"
 	setupArgs=( --no-shortcuts --site "$downloadSite" --root "$installDir" )
 }
 
 args()
 {
-	unset setup packageDir 
+	unset help setup packageDir 
 	quiet="--package-manager"
 	while [[ "$1" != "" ]]; do
 		case "$1" in
 			-q|--quiet) quiet="--quiet-mode";;
-			-h|--help) usage 0;;
+			-h|--help) help="true";;
+			FixCompletion) command="FixCompletion";;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ "$command" == @(download|install|setup) ]] && break
@@ -46,22 +55,38 @@ args()
 		esac
 		shift
 	done
-	[[ ! $command ]] && command='install'
+	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage 0 || usage 0; }
+	[[ ! $command ]] && { MissingOperand "command"; }
 	args=( "$@" )
 }
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
 RunSetup() {	FindSetup || return; start -d="$tmp" "$setup" "${setupArgs[@]}" "$@"; }
 setupCommand() { RunSetup "$@"; }
-helpCommand() { FindSetup || return; "$setup" --help; }
 installCommand() { RunSetup $quiet --local-install "$@"; }
 downloadCommand() { RunSetup $quiet --download "$@"; }
+helpCommand() { FindSetup || return; "$setup" --help; exit $?; }
+
+FixCompletionCommand()
+{
+	printf "Optimizing bash completion load time..."
+	mkdir /etc/bash_completion.d/hold || return
+	mv /etc/bash_completion.d/!(hold) /etc/bash_completion.d/hold || return
+	mv /etc/bash_completion.d/hold/@(bash-builtins|coreutils|git|rsync|ssh) /etc/bash_completion.d || return
+	echo "done"
+}
+
 
 redownloadCommand()
 {
 	FindSetup || return
 	DelDir --content --ask "$packageDir"
 	RunSetup -q --download --root /cygdrive/c/Temp -P "$defaultPackages"
+}
+
+openCommand()
+{
+	service start sshd
 }
 
 closeCommand()

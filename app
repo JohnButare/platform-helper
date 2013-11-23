@@ -82,7 +82,7 @@ RunInternalApp()
 	else
 		IsTaskRunning "$program" || return
 		ShowStatus
-		$close "$(GetFilename "$program")"
+		$close "$(GetFileName "$program")"
 	fi
 }
 
@@ -186,7 +186,7 @@ IntelDesktopControlCenter()
 { 
 	program="$P32/Intel/Intel(R) Desktop Control Center/idcc.exe"
 	{ [[ "$command" == "startup" && -f "$program" ]] && IsTaskRunning idcc; } && 
-		start --directory="$(GetPath "$program")" "$program"
+		start --directory="$(GetFilePath "$program")" "$program"
 }
 
 ProcessExplorer()

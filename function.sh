@@ -34,6 +34,7 @@ r() { [[ $# == 1 ]] && echo "$1" || eval $2="\"$1\""; } # result <value> <var> -
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
 IsShellScript() { file "$1" | egrep "shell script" >& /dev/null; }
 IsOption() { [[ "$1" =~ ^-.* ]]; }
+IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 UnknownOption() {	EchoErr "$(ScriptName): unknown option \`$1\`"; EchoErr "Try \`$(ScriptName) --help\` for more information";	exit 1; }
 MissingOperand() { EchoErr "$(ScriptName): missing $1 operand"; exit 1; }
 ElevationRequired() { IsElevated && return 0;	EchoErr "$(ScriptName): requires elevation"; exit 1; }
@@ -65,8 +66,8 @@ CheckSubCommand()
 	exit 1
 } 
 
-ScriptName() { GetFilename $0; }
-ScriptDir() { echo "$(GetPath "$(FindInPath "$(wtu "$0")")")"; } # handle scripts started with partial paths or from Windows
+ScriptName() { GetFileName $0; }
+ScriptDir() { echo "$(GetFilePath "$(FindInPath "$(wtu "$0")")")"; } # handle scripts started with partial paths or from Windows
 ScriptCd() { local dir; dir="$("$@")" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
 ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b", does not work with aliases
 
@@ -98,37 +99,58 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 
 # path: realpath, cygpath
 FindInPath() { type -P "${1}"; }
-GetPath() { local p="${1%/*}"; [[ "$p" == "$1" ]] && p=""; r "$p" $2; }
-GetFilename() { r "${1##*/}" $2; }
-GetName() { local f="$1"; GetFilename "$1" f; r "${f%.*}" $2; }
-GetExtension() { local f="$1"; GetFilename "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
-GetFullPath() { cygpath -a "$@"; }
+GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
+GetFilePath() { local p="${1%/*}"; [[ "$p" == "$1" ]] && p=""; r "$p" $2; }
+GetFileName() { r "${1##*/}" $2; }
+GetFileNameWithoutExtension() { local f="$1"; GetFileName "$1" f; r "${f%.*}" $2; }
+GetFileExtension() { local f="$1"; GetFileName "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
+GetFullPath() { local p="$(cygpath -a "$1")" || return; r "$p" $2; }
+GetUncServer() { local f="${1#*( )//}"; r "${f%%/*}" $2; } # get server from a UNC file
 HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
-wtu() { cygpath -u "$*"; }
-utw() { cygpath -aw "$*"; }
+wtu() { cygpath -u "$*"; } # WinToUnix
+utw() { cygpath -aw "$*"; } # UnixToWin
+ptw() { echo "${1////\\}"; } # PathToWin
 
 DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
 
 # MakeShortcut FILE LINK
 MakeShortcut() 
 { 
+	local suppress; [[ "$1" == @(-s|--suppress) ]] && { suppress="true"; shift; }
 	(( $# < 2 )) && { EchoErr "usage: MakeShortcut TARGET NAME ..."; return 0; }
 	local t="$1"; [[ ! -e "$t" ]] && t="$(FindInPath "$1")"
+	[[ ! -e "$t" && $suppress ]] && { return 0; }
 	[[ ! -e "$t" ]] && { EchoErr "MakeShortcut: could not find target $1"; return 1; }
 	mkshortcut "$p" -n="$2" "${@:3}";
 }
 
-# CopyDir --mirror SRC DEST
 CopyDir()
 {
-	# xcopy /e /v /k /r /h /x /o /c, robocopy /z /ndl
-	local o=( /E /V /R:3 /W:2 ) rcOptsMir=( "${rcOptsRegular[@]}" /mir ) rcOpts=( "${rcOptsRegular[@]}" )
-	[[ $1 == @(-m|--mirror) ]] && { shift; o+=( /mir ); }
-	[[ $# != 2 ]]	&& { EchoErr "usage: CopyDir SRC DEST
-  -m, --mirror     remove extra files in DEST"; return 1; }
-  local src="$(utw "$1")" dest="$(utw "$2")"
- 	robocopy "${o[@]}" "$src" "$dest"
+	[[ $1 == @(--help) ]]	&& { EchoErr "usage: CopyDir SRC DEST [FILES] [OPTIONS]
+  -m, --mirror			remove extra files in DEST
+  -q, --quiet				minimize logging
+  -r, --recursively	copy directories recursively
+      --retry 			retry copy on failure
+  -v, --verbose			maximize logging
+  -xd DIRS					exclude files matching the name/path/wildcard
+  -xf FILES					exclude files matching the name/path/wildcard"; return 1; }
+
+	local o=( /COPY:DAT /ETA ) mirror quiet src dest # /DCOPY:DAT requires newer robocopy
+
+	for arg in "$@"; do
+		[[ $1 == @(-m|--mirror) ]] && { mirror="true"; o+=( /mir ); shift; continue; }
+		[[ $1 == @(-q|--quiet) ]] && { quiet="true"; o+=( /njh /njs /ndl ); shift; continue; }
+		[[ $1 == @(-r|--recursive) ]] && { o+=( /E ); shift; continue; }
+		[[ $1 == @(--retry) ]] && { o+=( /R:3 /W:2 ); shift; continue; }
+		[[ $1 == @(-v|--verbose) ]] && { o+=( /V ); shift; continue; }
+		IsOption "$1" && { o+=( "/${1:1}" ); shift; continue; }
+		! IsOption "$1" && [[ ! $src ]] && { src="$(utw "$1")"; shift; continue; }
+		! IsOption "$1" && [[ ! $dest ]] && { dest="$(utw "$1")"; shift; continue; }
+		o+=( "$1" ); shift
+	done
+	[[ $quiet && ! $mirror ]] && o+=( /xx )
+	robocopy "$src" "$dest" "${o[@]}"
 	(( $? > 7 )) && return 1 || return 0
 }
 
@@ -154,8 +176,32 @@ FileCommand()
 	esac
 }
 
-# MoveAll SRC DEST - move all of the contents of SRC to DEST including hidden files and folders
+# MoveAll SRC DEST - move contents of SRC to DEST including hidden files and folders
 MoveAll() { [[ ! $1 || ! $2 ]] && { EchoErr "usage: MoveAll SRC DEST"; return 1; }; shopt -s dotglob nullglob; mv "$1/"* "$2" && rmdir "$1"; }
+
+CpProgress()
+{
+	local src dest size=100 fileName
+	[[ $# == 0 || $1 == @(--help) ]]	&& { EchoErr "usage: CpProgress FILE DIR
+  -s, --size SIZE		show progress for files larger than SIZE MB"; return 1; }
+
+	while (( $# != 0 )); do
+		[[ "$1" == @(-s|--size) ]] && { size="$2"; shift; shift; continue; }
+		! IsOption "$1" && [[ ! $src ]] && { src="$1"; shift; continue; }
+		! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
+		EchoErr "CopyFile: unknown option `$1`"; return 1;
+	done
+
+	[[ ! -f "$src" ]] && { EchoErr "CopyFile: cannot access \`$src\`: No such file"; return 1; }
+	[[ ! -d "$dest" ]] && { EchoErr "CopyFile: cannot access \`$dest\`: No such directory"; return 1; }		
+	GetFileName "$src" fileName || return
+	GetFilePath "$(GetFullPath "$src")" src || return
+
+	local fileSize="$(GetFileSize "$src/$fileName" MB)" || return
+	(( fileSize < size )) && 
+		cp "$src/$fileName" "$dest" ||
+		CopyDir "$src" "$dest" "$fileName" --quiet
+} 
 
 #
 # arrays
@@ -165,6 +211,7 @@ DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${!get}")} # DelimitArray <de
 IsArray() {  [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
 ShowArray() { local var array="$1[@]"; printf -v var ' "%s"' "${!array}"; echo "${var:1}"; }
 ShowArrayDetail() { declare -p "$1"; }
+ShowArrayKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ShowArray keys; }
 StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray <string> <delimiter> <array>
 
 # IsInArray [-w|--wild] [-aw|--awild] <string> <array> - return 0 if string is in the
@@ -228,15 +275,24 @@ TimestampDiff () { printf '%s' $(( $(date -u +%s) - $(date -u -d"$1" +%s))); }
 TimerOff() { s=$(TimestampDiff "$startTime"); printf "Elapsed %02d:%02d:%02d\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
 
 #
+# account
+#
+FullName() { case "$USERNAME" in jjbutare|ad_jjbutare) echo John; return;; esac; local s="$(net user "$USERNAME" |& grep -i "Full Name")"; s="${s:29}"; echo ${s:-$USERNAME}; }
+PublicPictures() { cygpath -F 54; }
+PublicVideos() { cygpath -F 55; }
+UserPictures() { cygpath -F 39; }
+UserVideos() { cygpath -F 14; }
+
+#
 # network
 #
 
-# IpAddress|DnsLookup <host> - perform IP Address lookup using default system name providers (Windows NodeType) or Dns. 
-# In a domain with automatic DNS registration DNS can be out of sync
-# IpAddress() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ip="$(DnsLookup "$1")"; [[ $ip ]] && echo "$ip" || PingLookup "$1"; }
-IpAddress() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; PingLookup "$1"; }
-PingLookup() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
-DnsLookup() { IsIpAddress "$1" && echo "$1"; nslookup -srchlist=amr.corp.intel.com/hagerman.butare.net -timeout=1 "$1" |& grep "Address:" | tail -n +2 | cut -d" " -f 3; return ${PIPESTATUS[1]}; }
+# IpAddress <host> - perform IP Address lookup using ping (Windows NodeType resolution) or Dns (dynamic registration can be out of sync)
+# GetIpAddress() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ip="$(GetIpAddressByDns "$1")"; [[ $ip ]] && echo "$ip" || GetIpAddressByPing "$1"; }
+GetIpAddress() { [[ ! $1 ]] && GetPrimaryIpAddress; IsIpAddress "$1" && { echo "$1"; return; }; GetIpAddressByPing "$1"; }
+GetIpAddressByPing() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
+GetIpAddressByDns() { IsIpAddress "$1" && echo "$1"; nslookup -srchlist=amr.corp.intel.com/hagerman.butare.net -timeout=1 "$1" |& grep "Address:" | tail -n +2 | cut -d" " -f 3; return ${PIPESTATUS[1]}; }
+GetPrimaryIpAddress() { local ip="$(ipconfig | grep "   IPv4 Address" | head -n 1 | cut -d: -f2)"; echo "${ip// /}"; } # alternatively use route print
 IsInDomain() { [[ "$USERDOMAIN" != "$COMPUTERNAME" ]]; }
 
 # IsIpAddress <string>
@@ -260,7 +316,7 @@ PingResponse()
 ConnectToPort()
 {
 	local ip="$1" port="$2" timeout="${3-200}"
-	! IsIpAddress "$ip" && ip="$(IpAddress $ip)"
+	! IsIpAddress "$ip" && ip="$(GetIpAddress $ip)"
 	chkport-ip.exe "$ip" "$port" "$timeout" >& /dev/null
 }
 
@@ -308,7 +364,7 @@ start()
 
 	[[ ! -f "$program" ]] && program="$(FindInPath "$1")"
 	[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
-	GetExtension "$program" ext
+	GetFileExtension "$program" ext
 	
 	case "$ext" in
 		cmd) cmd /c $(utw "$program") "${@:2}";;
@@ -359,7 +415,7 @@ sudo() # sudo [command](mintty) - start a program as super user
 IsTaskRunning() # IsTaskRunng <task>
 {
 		local task="${1/\.exe/}"
-		GetFilename "$task" task
+		GetFileName "$task" task
 
 		# ps -sW | cut -c 27- - full path, no extension for Cygwin processes
 		# tasklist /nh /fo csv | cut -d, -f1 | grep -i "^\"$task\.exe\"$" > /dev/null # no path, slower
@@ -368,8 +424,8 @@ IsTaskRunning() # IsTaskRunng <task>
 
 # Process Commands
 ProcessList() { ps -W | cut -c33-36,61- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND"; }
-ProcessClose() { local p="${1/.exe/}.exe"; GetFilename "$p" p; process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null; } #egrep -v "Command Line Process Viewer|Copyright\(C\) 2002-2003|^$"; }
-ProcessKill() { local p="$1"; GetName "$p" p; pskill "$p"; }
+ProcessClose() { local p="${1/.exe/}.exe"; GetFileName "$p" p; process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null; } #egrep -v "Command Line Process Viewer|Copyright\(C\) 2002-2003|^$"; }
+ProcessKill() { local p="$1"; GetFileNameWithoutExtension "$p" p; pskill "$p"; }
 
 # Window Commands - Win [class] <title|class>, Au3Info.exe to get class
 WinActivate() { AutoItScript WinActivate "${@}"; }
@@ -400,14 +456,16 @@ AutoItScript()
 
 TextEdit()
 {
-	local file files=() p="$P64/Sublime Text 2/sublime_text.exe"
+	local file files=() p="$P64/Sublime Text 3/sublime_text.exe"
 	local wait; [[ "$1" == +(-w|--wait) ]] && { wait="pause"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
 	
-	[[ ! -f "$p" ]] && { p="$P32/Notepad++/notepad++.exe"; [[ ! -f "$p" ]] && p="notepad"; }
+	[[ ! -f "$p" ]] && p="$P64/Sublime Text 2/sublime_text.exe"
+	[[ ! -f "$p" ]] && p="$P32/Notepad++/notepad++.exe"
+	[[ ! -f "$p" ]] && p="notepad"
 
 	for file in "$@"; do
-		[[ -f "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFilename "$file") does not exist"
+		[[ -f "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"
 	done
 	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then { start "${options[@]}" "$p" "${files[@]}"; $wait; } else return 1; fi
 }

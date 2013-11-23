@@ -1,0 +1,338 @@
+#!/bin/bash
+#-x (debug) -v (verbose)
+. function.sh || exit
+
+usage()
+{
+	echot "\
+usage: media collect|get|sync
+  local [NUM](100)		copy NUM random picutres to the local computer
+  frame  							copy media to a picture frame 
+  nas									synchronize media with nas"
+	exit $1
+}
+
+getUsage() { echot "\
+usage: media get 
+	-c, --copy				copy media 
+	-d, --dest DEST 	destination directory
+	-m, --move				move media
+	    --no-iCloud 	do not get pictures from iCloud
+	    --no-metadata do not add import metadata
+	-p, --person NAME person's name used in the destination folder
+	-s, --source DIR	media source directory
+	-t, --test 				test the operation without making any changes
+	-v, --verbose			verbose output"; exit $1; }
+
+args()
+{
+	unset -v command help
+	while (( $# != 0 )); do
+		case "$1" in
+			--help) help="--help";;
+			*)
+				! IsOption "$1" && IsInArray "$1" versions && { version="$1"; shift; continue; }
+				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
+				[[ "$command" == @(get) ]] && break																						# defer argument processing
+				UnknownOption "$1"
+		esac
+		shift
+	done
+	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage 0 || usage 0; }
+	[[ ! $command ]] && { MissingOperand "command"; }
+	args=("$@")
+}
+
+GetArgs()
+{
+	unset noiCloud noMetadata person test verbose
+	dest="$PUB" operationArg="default" ;
+	while (( $# != 0 )); do
+		case "$1" in
+			--copy|-c) operation="copy";;
+			--dest) dest="$2"; shift;;
+			--move|-m) operation="move";;
+			--no-icloud) noiCloud="true";;
+			--no-metadata) noMetadata="true";;
+			--person|-p) person="$2"; shift;;
+			--source|-s) source="$2"; shift;;
+			--test|-t) test="--test";;
+			--verbose|-v) verbose="--verbose";;
+			*) getUsage 1;;
+		esac
+		shift
+	done
+	[[ "$dest" && ! -d "$dest" ]] && { EchoErr "media get: directory  \`$dest\` does not exit"; return 1; }
+	[[ ! $person ]] && person="$(FullName)"
+	return 0
+}
+
+init() 
+{
+	mediaRoo=oversoul
+	mediaUnc="//$mediaRoo/Public"
+	nas="//nas"
+	#videoSources=`"$mediaUnc/Videos" "$mediaDriveDir"`
+
+	# Music: exclude WPL (Windows Playlists) - Sonos shows WPL but doesn't support auto playlists, so save auto playlists as M3U before copying
+	musicFilters=-*.wpl
+}
+
+run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
+
+getCommand()
+{
+	local importLocation processedDirs srcDirs metadataProcessed
+
+	GetArgs "${args[@]}" || return
+	GetInit || return
+	
+	if [[ "$source" ]]; then
+		ProcessDir || return
+	else
+		for dir in "${localDirs[@]}"; do ProcessDir "$dir" || return; done
+		for drive in "/cygdrive/"*; do ProcessDrive "$drive" || return; done
+	fi
+
+	if [[ $processedDirs ]]; then
+
+		for dir in "${processedDirs[@]}"; do start explorer "$dir"; done
+		pause "Review media then press any key to continue..."
+
+		if [[ $metadataProcessed ]] && ask "Remove original images"; then
+			printf "Removing original images..."
+			for dir in "${srcDirs[@]}"; do 
+				if ls "$dir/"*_original &> /dev/null; then
+					[[ $verbose ]] && printf "\n(removing \`$dir/*_original\`)"
+					[[ ! $test ]] && { rm "$dir/"*_original || return; }
+					[[ ! $verbose ]] && printf "."
+				fi
+			done
+			[[ ! $verbose ]] && echo "done"
+		fi
+
+	fi
+}
+
+ProcessDrive()
+{
+	local drive="$1" dir operation options importLocation
+	
+	[[ "$drive" == "c" ]] && return 0
+
+	for dir in "${externalDirs[@]}"; do
+		operation="$operationArg"
+		IFS=":" read -a options <<<"$dir"; importLocation="${options[0]}"
+		if [[ "$operation" == "default" ]]; then
+			if IsInArray copy options; then operation="copy"
+			elif IsInArray move options; then operation="move"
+			else operation="move"; fi
+		fi
+		ProcessDir "${drive}${importLocation}" || return
+	done
+}
+
+ProcessDir()
+{ 
+	local dir="$1" lastGetSeconds
+
+	[[ ! -d "$dir" ]] && return
+
+	case "$dir" in
+		"$dropbox") importLocation="Dropbox";;
+		"$iCloud") importLocation="iCloud";;
+		*) [[ ! $importLocation ]] && importLocation="${dir///cygdrive/}";;
+	esac
+	printf "**************************************************\n* $importLocation\n**************************************************\n"	
+
+	[[ -f "$dir/$lastGetDateFile" ]] && lastGetSeconds="$(cat "$dir/$lastGetDateFile")"
+
+	shopt -s  nullglob
+	for file in "$dir/"*; do ProcessFile "$file" || return; done
+}
+
+ProcessFile()
+{
+	local file="$1" fileName ext fileDesc mediaType destPrefix
+	GetFileName "$file" fileName || return
+	GetFileExtension "$file" ext || return
+	GetFileNameWithoutExtension "$file" fileDesc || return
+
+	[[ "$operation" == "default" ]] && operation="move"
+
+	if IsInArray "$ext" pictureExtensions; then
+		mediaType="picture"; destPrefix="$destPicturePrefix"
+	elif IsInArray "$ext" videoExtensions; then
+	 mediaType="video"; destPrefix="$destVideoPrefix"
+	else
+		return 0
+	fi 
+
+	if [[ ! -d "$destPrefix" ]]; then
+		ask "Create the destination directory $destPrefix" || return 1
+		mkdir --parents "$destPrefix" || return
+	fi
+
+	printf "$fileName..."
+
+	[[ "$dir" == "$iCloud" && "$fileName" =~ $fileFormat ]] && { RemoveProcessedFile; return; }
+
+	ProcessDate "$file" || return
+
+	[[ $lastGetSeconds ]] && CompareTime $lastGetSeconds ">=" $seconds && { RemoveProcessedFile; return; }
+
+	local destDir="$destPrefix/$year/$yearMonth" 
+	[[ ! -d "$destDir" ]] && { mkdir --parents "$destDir" || return; }
+
+	# increment suffix if file exists with a different size (rapid picture taking) 
+	local destFileDesc="$fileNameDateTime" suffix=0
+	while [[ -f "$destDir/$destFileDesc.$ext" ]]; do
+		(( ++suffix )); destFileDesc="$fileNameDateTime-$suffix"
+	done
+	
+	IsInArray "$destDir" processedDirs || processedDirs+=( "$destDir" )	
+	IsInArray "$dir" srcDirs || srcDirs+=( "$dir" )	
+
+	local operationDesc="moving"; [[ "$operation" == "copy" ]] && operationDesc="copying"
+	printf "$destFileDesc..."
+
+	if [[ ! $noMetadata && "$ext" != @(mts) ]]; then
+		metadataProcessed="true"
+		printf "metadata..."
+		[[ $verbose ]] && printf "\n(exiftool \"$file\")"
+		[[ ! $test ]] && { exiftool "$(utw "$file")" \
+			-ImportedDate="$(date '+%Y:%m:%d %H:%M:%S')" \
+			-ImportedFileModificationTime="$(date '+%Y:%m:%d %H:%M:%S' -d @$(stat -c%Y "$file"))" \
+			-ImportedFileSize="$fileSize" \
+			-ImportedOnHost="$COMPUTERNAME" \
+			-ImportedByUser="$USERNAME" \
+			-ImportedFromFolder="$importLocation" \
+			-ImportedFileName="$fileName" \
+			-ImportedToFolder="${destDir///cygdrive/}" > /dev/null || return; }
+	fi
+
+	local bigFile dest destFileName="$destFileDesc.$ext"; dest="$destDir/$destFileName"
+	(( fileSize >= $bigFileSizeBytes )) && bigFile="true"
+	GetCopyFile "$file" "$dest" || return
+
+	[[ ! $test ]] && { echo "$seconds" > "$dir/$lastGetDateFile" || return; }
+
+	[[ "$mediaType" == "picture" && ! $noiCloud && -d "$iCloudPhotoUpload" && "$dir" != "$iCloud" ]] &&
+		{ UploadToiCloud || return; }
+
+	if [[ "$operation" == "move" ]]; then
+		[[ $verbose ]] && printf "\n(rm \`$file\`)"
+		[[ ! $test ]] && { rm "$file" || return; }
+	fi
+
+	[[ ! $bigFile || $test ]] && echo "done"
+	[[ $verbose ]] && pause
+	return 0
+}
+
+UploadToiCloud()
+{
+	printf "iCloud..."
+	destDir="$iCloudPhotoUpload"
+	[[ $verbose ]] && { printf "\n(cp \"$file\" \"$iCloudPhotoUpload/$destFileName\")"; }
+	[[ ! $test ]]  && { cp "$file" "$iCloudPhotoUpload/$destFileName" || return; }
+}
+RemoveProcessedFile()
+{
+	[[ "$operation" == "copy" ]] && { echo "skipping"; return 0; }
+	printf "removing..."
+	[[ $verbose ]] && printf "(removing \`$file\`)"
+	[[ ! $test ]] && { rm "$file" || return; }
+	echo "done"
+	return 0
+}
+
+GetCopyFile() # SRC DEST
+{
+	local src="$1" dest="$2" srcDir destDir srcFileName destFileName
+	GetFilePath "$src" srcDir || return
+	GetFilePath "$dest" destDir || return
+	GetFileName "$src" srcFileName || return
+	GetFileName "$dest" destFileName || return
+
+	printf "$operationDesc..."
+	[[ $verbose ]] && { printf "\n(cp \"$src\" \"$dest\")"; }
+	[[ $test ]] && return 0
+	[[ ! $bigFile ]] && { cp "$src" "$dest"; return; }
+
+	[[ "$srcFileName" != "$destFileName" ]] && { mv "$src" "$srcDir/$destFileName" || return; }
+	CopyDir --quiet "$srcDir" "$destDir" "$destFileName" || return
+	[[ "$srcFileName" != "$destFileName" ]] && { mv "$srcDir/$destFileName" "$src" || return; }
+}
+
+ProcessDate()
+{
+	if IsInArray "$importLocation" dateTimeOriginalDirs; then
+		ProcessExifDate "$file" "-DateTimeOriginal" || return
+	else
+		ProcessFileDate "$file" y || return
+	fi
+
+	fileDate="${fileDateTime% *}"
+	fileTime="${fileDateTime#* }"
+	year="${fileDateTime%%-*}"
+	yearMonth="${fileDate%-*}"; yearMonth="${yearMonth/-/}"
+	seconds="$(GetSeconds "$fileDateTime")"
+	fileNameDateTime="${fileDate//-/_} ${fileTime//:/_}" # YYYY_MM_DD HH_MM_SS
+	#pause "$fileName-$fileDate-$fileTime"
+}
+
+# ProcessExifDate FILE OPTIONS: return the first available date/time pair in the passed options
+# - exiftool OPTIONS: -CreateDate -ModifyDate -FileCreateDate -FileModifyDate ...
+ProcessExifDate() 
+{
+	fileDateTime=( $(exiftool -s3 -d "%Y-%m-%d %H:%M:%S" "$(utw "$1")" $2 | sed 's/\r\n//') )
+	fileDateTime="${fileDateTime[@]:0:2}"
+	[[ ! $fileDateTime ]] && { EchoErr "media get: unable to find a date for \`$file\`"; return 1; }
+	return 0
+}
+
+# ProcessFileDate FILE OPTIONS: return the file property specified by options
+# - stat OPTIONS y (modification) w (creation)
+ProcessFileDate() 
+{
+	fileDateTime="$(stat -c%$2 "$1")" || return
+	fileDateTime="${fileDateTime%%.*}"
+}
+
+GetInit()
+{
+	bigFileSizeBytes=5000000 # 5 MiB
+	pictureExtensions=( jpg )
+	videoExtensions=( 3gp mpg mp4 mts m2ts moff modd mov 3gp )
+
+	dropbox="$HOME/Dropbox/Camera Uploads"
+	iCloud="$userPictures/iCloud Photos/My Photo Stream"
+	iCloudPhotoUpload="$userPictures/iCloud Photos/Uploads"
+	localDirs=( "$DOC/data/download/pictures" "$iCloud" "$dropbox" )
+
+	# options: GMT, copy, move
+	unset externalDirs
+	#externalDirs=( /DCIM/100OLYMP /mssony/moml0001 /dcim/100PHOTO )
+	#externalDirs+=( /private/avchd/bdmv/stream:move )
+	externalDirs+=( /dcim/100msdcf /dcim/101msdcf /mp_root/101pnv01:copy /avchd/bdmv/stream:copy )
+
+	# determine media recording date: see Media Notes, Information, Media Recorded Date
+	dateTimeOriginalDirs=( /dcim/100msdcf /dcim/101msdcf /mp_root/101pnv01 /avchd/bdmv/stream )
+
+	lastGetDateFile=".media_last_get_date"
+	fileFormat="^[0-9][0-9][0-9][0-9]_[0-9][0-9]_[0-9][0-9] [0-9][0-9]_[0-9][0-9]_[0-9][0-9]" # YYYY_MM_DD HH_MM_SS
+
+	local nas="nas.hagerman.butare.net" suffix="Camera/$person"
+	if network cache "$nas"; then
+		destPicturePrefix="//$nas/photo/$suffix"
+		destVideoPrefix="//$nas/video/$suffix"
+	else
+		destPicturePrefix="$(PublicPictures)/$suffix"
+		destVideoPrefix="$(PublicVideos)/$suffix"
+	fi
+
+	processedDirs=()
+}
+
+run "$@"
