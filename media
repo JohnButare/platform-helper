@@ -29,6 +29,7 @@ args()
 	while (( $# != 0 )); do
 		case "$1" in
 			--help) help="--help";;
+			TestMetadata) command="TestMetadata";;
 			*)
 				! IsOption "$1" && IsInArray "$1" versions && { version="$1"; shift; continue; }
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
@@ -174,34 +175,35 @@ ProcessFile()
 
 	printf "$fileName..."
 
-	ProcessDate "$file" || return
+	local dateTaken; GetDateTaken "$file" || return
+	local dateTakenSeconds=$(GetSeconds "$dateTaken")
+	local prefix="$(date "+%Y_%m_%d %H_%M_%S" -d "$dateTaken")"
 
-	echo $lastGetSeconds ">=" $seconds
-	[[ $lastGetSeconds ]] && CompareTime $lastGetSeconds ">=" $seconds && { RemoveProcessedFile; return; }
+	[[ $lastGetSeconds ]] && CompareTime $lastGetSeconds ">=" $dateTakenSeconds && 
+		{ RemoveProcessedFile "$file" "$prefix"; return; }
 
-	local destDir="$destPrefix/$year/$yearMonth" 
+	local destDir="$destPrefix/$(date +%Y -d "$dateTaken")/$(date +%Ym -d "$dateTaken")" 
 	[[ ! -d "$destDir" ]] && { mkdir --parents "$destDir" || return; }
 
-	local destFileDesc="$fileNameDateTime" suffix=0
-	while [[ -f "$destDir/$destFileDesc.$ext" ]]; do
-		[[ "$mediaType" == "video" || "$fileSize" == "$(exiftool -s3 -ImportedFileSizeBytes "$destDir/$destFileDesc.$ext")" ]] &&
-			{ RemoveProcessedFile; return; } 
-		(( ++suffix )); destFileDesc="$fileNameDateTime-$suffix" # for rapid picture taking (same name, different size) use a suffix
+	local suffix dest="$destDir/$prefix.$ext"
+	while [[ -f "$dest" ]]; do
+		[[ "$mediaType" == "video" || "$fileSize" == "$(exiftool -s3 -ImportedFileSizeBytes "$dest")" ]] &&
+			{ RemoveProcessedFile "$file" "$prefix-$suffix"; return; } 
+		(( ++suffix )); dest="destDir/$prefix-$suffix.$ext" # use a suffix for rapid picture taking (same name, different size)
 	done
 	
 	IsInArray "$destDir" processedDirs || processedDirs+=( "$destDir" )	
 	IsInArray "$dir" srcDirs || srcDirs+=( "$dir" )	
 
 	local operationDesc="moving"; [[ "$operation" == "copy" ]] && operationDesc="copying"
-	printf "$destFileDesc..."
+	printf "$prefix-$suffix..."
 
 	[[ ! $noMetadata && "$ext" != @(mts) ]] && { AddMetadata || return; }
 
-	local bigFile dest destFileName="$destFileDesc.$ext"; dest="$destDir/$destFileName"
-	(( fileSize >= $bigFileSizeBytes )) && bigFile="true"
+	local bigFile;	(( fileSize >= $bigFileSizeBytes )) && bigFile="true"
 	GetCopyFile "$file" "$dest" || return
 
-	[[ ! $test ]] && { echo "$seconds" > "$dir/$lastGetDateFile" || return; }
+	[[ ! $test ]] && { echo "$dateTakenSeconds" > "$dir/$lastGetDateFile" || return; }
 
 	if [[ "$operation" == "move" ]]; then
 		[[ $verbose ]] && printf "\n(rm \`$file\`)"
@@ -229,10 +231,12 @@ AddMetadata()
 		-ImportedFileName="$fileName" \
 		-ImportedToFolder="${destDir///cygdrive/}" > /dev/null
 }
+
 RemoveProcessedFile()
 {
-	[[ "$operation" == "copy" ]] && { echo "$fileNameDateTime already processed...skipping"; return 0; }
-	printf "$fileNameDateTime already processed...removing..."
+	local file="$1" desc="$2"
+	[[ "$operation" == "copy" ]] && { echo "$desc already processed...skipping"; return 0; }
+	printf "$desc already processed...removing..."
 	[[ $verbose ]] && printf "(removing \`$file\`)"
 	[[ ! $test ]] && { rm "$file" || return; }
 	echo "done"
@@ -257,39 +261,35 @@ GetCopyFile() # SRC DEST
 	[[ "$srcFileName" != "$destFileName" ]] && { mv "$srcDir/$destFileName" "$src" || return; }
 }
 
-ProcessDate()
+GetDateTaken() # dateTaken format: YYYY-MM-DD HH:MM:SS
 {
+	# -fast2, -s2 -d "%Y:%m:%d %H:%M:%S"
 	if IsInArray "$importLocation" dateTimeOriginalDirs; then
-		ProcessExifDate "$file" "-DateTimeOriginal" || return
+		dateTaken=( $(exiftool -s3 -d "%Y-%m-%d %H:%M:%S" "$(utw "$file")" -DateTimeOriginal | sed 's/\r\n//') )
+		dateTaken="${dateTaken[@]:0:2}"
+		[[ ! $dateTaken ]] && { EchoErr "media get: unable to find a date for \`$file\`"; return 1; }
 	else
-		ProcessFileDate "$file" y || return
+		dateTaken="$(stat -c%y "$file")" || return # y (modification) w (creation)
+		dateTaken="${dateTaken%%.*}"
 	fi
-
-	fileDate="${fileDateTime% *}"
-	fileTime="${fileDateTime#* }"
-	year="${fileDateTime%%-*}"
-	yearMonth="${fileDate%-*}"; yearMonth="${yearMonth/-/}"
-	seconds="$(GetSeconds "$fileDateTime")"
-	fileNameDateTime="${fileDate//-/_} ${fileTime//:/_}" # YYYY_MM_DD HH_MM_SS
-	#pause "$fileName-$fileDate-$fileTime"
 }
 
-# ProcessExifDate FILE OPTIONS: return the first available date/time pair in the passed options
-# - exiftool OPTIONS: -CreateDate -ModifyDate -FileCreateDate -FileModifyDate ...
-ProcessExifDate() 
+TestMetadataCommand()
 {
-	fileDateTime=( $(exiftool -s3 -d "%Y-%m-%d %H:%M:%S" "$(utw "$1")" $2 | sed 's/\r\n//') )
-	fileDateTime="${fileDateTime[@]:0:2}"
-	[[ ! $fileDateTime ]] && { EchoErr "media get: unable to find a date for \`$file\`"; return 1; }
-	return 0
+	declare -A srcMetadata
+	GetMetadata "/cygdrive/d/users/jjbutare/Desktop/DSC01581.JPG" srcMetadata -Make -Model -FileModifyDate 
+	echo ${srcMetadata[Make]}
+
+	for var in "${!srcMetadata[@]}"; do
+		echo "$var=${srcMetadata[$var]}"
+	done
+	echo "${srcMetadata[FileModifyDate]}=$(date -d "${srcMetadata[FileModifyDate]}")"
 }
 
-# ProcessFileDate FILE OPTIONS: return the file property specified by options
-# - stat OPTIONS y (modification) w (creation)
-ProcessFileDate() 
+GetMetadata() # 
 {
-	fileDateTime="$(stat -c%$2 "$1")" || return
-	fileDateTime="${fileDateTime%%.*}"
+	local file="$1" array="$2"
+	eval "$array=( $(exiftool -s2 "$(utw "$file")" "${@:3}" | sed -e 's/: /]="/' -e 's/^/[/' -e 's/$/"/'  -e 's/:/-/' -e 's/:/-/' ) )"
 }
 
 GetInit()
