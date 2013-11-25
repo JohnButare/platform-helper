@@ -2,13 +2,17 @@
 
 a()
 {
-	result=$(date "+%Y_%m_%d %H_%M_%S" -d @1385329140.000000000)
+	foo=( [a]=1 [b]=2 )
 }
 
 b()
 {
-	date "+%Y_%m_%d %H_%M_%S" -d @1385329140.000000000
+	bar=12
+	local -A foo
+	a
+	echo A${foo[a]}
 }
 
-time a
-time result="$(b)"
+b
+echo ${foo[a]}
+echo $bar
