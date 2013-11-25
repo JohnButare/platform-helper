@@ -6,6 +6,8 @@ usage()
 {
 	echot "\
 usage: media collect|get|sync
+	info FILE 					display FILE metadata
+	name FILE						rename FILE using the date taken  
   local [NUM](100)		copy NUM random picutres to the local computer
   frame  							copy media to a picture frame 
   nas									synchronize media with nas"
@@ -25,21 +27,25 @@ usage: media get
 
 args()
 {
-	unset -v command help
+	unset -v command file help
 	while (( $# != 0 )); do
 		case "$1" in
 			--help) help="--help";;
 			TestMetadata) command="TestMetadata";;
 			*)
-				! IsOption "$1" && IsInArray "$1" versions && { version="$1"; shift; continue; }
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "$command" == @(get) ]] && break																						# defer argument processing
+				[[ "$command" == @(info|name) ]] && { file="$1"; shift; continue; }
+				[[ "$command" == @(get) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
 	done
 	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage 0 || usage 0; }
 	[[ ! $command ]] && { MissingOperand "command"; }
+	if [[ "$command" == @(info|name) ]]; then 
+		[[ ! $file ]] && MissingOperand "file"
+		[[ ! -f "$file" ]] && { EchoErr "media name: cannot access \`$file\`: No such file"; return 1; }
+	fi;
 	args=("$@")
 }
 
@@ -71,10 +77,8 @@ init()
 	mediaRoo=oversoul
 	mediaUnc="//$mediaRoo/Public"
 	nas="//nas"
-	#videoSources=`"$mediaUnc/Videos" "$mediaDriveDir"`
-
-	# Music: exclude WPL (Windows Playlists) - Sonos shows WPL but doesn't support auto playlists, so save auto playlists as M3U before copying
-	musicFilters=-*.wpl
+	metadata=( -Make -Model -DateTimeOriginal -ImportedFileSizeBytes )
+	musicFilters=-*.wpl # exclude WPL (Windows Playlists) - Sonos shows WPL but doesn't support auto playlists, so save auto playlists as M3U before copying
 }
 
 run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
@@ -264,15 +268,35 @@ GetCopyFile() # SRC DEST
 
 GetDateTaken() # dateTaken format: YYYY-MM-DD HH:MM:SS
 {
-	# -fast2, -s2 -d "%Y:%m:%d %H:%M:%S"
-	if IsInArray "$importLocation" dateTimeOriginalDirs; then
-		dateTaken=( $(exiftool -s3 -d "%Y-%m-%d %H:%M:%S" "$(utw "$file")" -DateTimeOriginal | sed 's/\r\n//') )
-		dateTaken="${dateTaken[@]:0:2}"
-		[[ ! $dateTaken ]] && { EchoErr "media get: unable to find a date for \`$file\`"; return 1; }
-	else
-		dateTaken="$(stat -c%y "$file")" || return # y (modification) w (creation)
-		dateTaken="${dateTaken%%.*}"
-	fi
+	file="$1"
+	case "${fileMetadata[Make]}" in
+		sony|apple) dateTaken="${fileMetadata[DateTimeOriginal]}";;
+		motorola) dateTaken="$(stat -c%y "$file")" || return;;
+		*) EchoErr "media get: unknown make ${fileMetadata[Make]} for ``$file\`"; return 1;; 
+	esac
+
+	[[ ! $dateTaken ]] && { EchoErr "media get: unable to find a date for \`$file\`"; return 1; }
+	dateTaken="$(date "+%Y-%m-%d %H:%M:%S" -d "$dateTaken")"
+}
+
+nameCommand()
+{
+	declare -A fileMetadata
+	GetMetadata "$file" fileMetadata "${metadata[@]}" || return
+	GetDateTaken "$file" || return
+	echo "$dateTaken"
+}
+
+infoCommand()
+{
+	declare -A fileMetadata
+	GetMetadata "$file" fileMetadata "${metadata[@]}" || return
+
+	printf "%s: " "$(GetFileName "$file")"
+	for var in "${!fileMetadata[@]}"; do
+		printf "$var=${fileMetadata[$var]} "
+	done
+	echo ""
 }
 
 testCommand() { TestMetadataCommand; }
@@ -281,7 +305,6 @@ TestMetadataCommand()
 {
 	declare -A srcMetadata
 	GetMetadata "/cygdrive/d/users/jjbutare/Desktop/DSC01581.JPG" srcMetadata -Make -Model -FileModifyDate 
-	echo ${srcMetadata[Make]}
 
 	for var in "${!srcMetadata[@]}"; do
 		echo "$var=${srcMetadata[$var]}"
@@ -289,9 +312,10 @@ TestMetadataCommand()
 	echo "${srcMetadata[FileModifyDate]}=$(date -d "${srcMetadata[FileModifyDate]}")"
 }
 
-GetMetadata() # 
+GetMetadata() 
 {
 	local file="$1" array="$2"
+	# -fast2
 	eval "$array=( $(exiftool -s2 "$(utw "$file")" "${@:3}" | sed -e 's/: /]="/' -e 's/^/[/' -e 's/$/"/'  -e 's/:/-/' -e 's/:/-/' ) )"
 }
 
@@ -300,7 +324,6 @@ GetInit()
 	bigFileSizeBytes=5000000 # 5 MiB
 	pictureExtensions=( jpg )
 	videoExtensions=( 3gp mpg mp4 mts m2ts moff modd mov 3gp )
-	metadata=( -Make -Model -DateTimeOriginal -ImportedFileSizeBytes )
 
 	dropbox="$HOME/Dropbox/Camera Uploads"
 	iCloud="$userPictures/iCloud Photos/My Photo Stream"
@@ -311,9 +334,6 @@ GetInit()
 	#externalDirs=( /DCIM/100OLYMP /mssony/moml0001 /dcim/100PHOTO )
 	#externalDirs+=( /private/avchd/bdmv/stream:move )
 	externalDirs+=( /dcim/100msdcf /dcim/101msdcf /mp_root/101pnv01:copy /avchd/bdmv/stream:copy )
-
-	# determine media recording date: see Media Notes, Information, Media Recorded Date
-	dateTimeOriginalDirs=( /dcim/100msdcf /dcim/101msdcf /mp_root/101pnv01 /avchd/bdmv/stream )
 
 	lastGetDateFile=".media_last_get_date"
 	fileFormat="^[0-9][0-9][0-9][0-9]_[0-9][0-9]_[0-9][0-9] [0-9][0-9]_[0-9][0-9]_[0-9][0-9]" # YYYY_MM_DD HH_MM_SS
