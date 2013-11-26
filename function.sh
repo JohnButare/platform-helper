@@ -105,6 +105,7 @@ GetFileName() { r "${1##*/}" $2; }
 GetFileNameWithoutExtension() { local f="$1"; GetFileName "$1" f; r "${f%.*}" $2; }
 GetFileExtension() { local f="$1"; GetFileName "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
 GetFullPath() { local p="$(cygpath -a "$1")" || return; r "$p" $2; }
+GetDriveLabel() { local s="$(cmd /c vol "$1": |& head -1)"; r "${s##* }" $2; }
 GetUncServer() { local f="${1#*( )//}"; r "${f%%/*}" $2; } # get server from a UNC file
 HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }

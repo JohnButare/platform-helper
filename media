@@ -7,10 +7,13 @@ usage()
 	echot "\
 usage: media collect|get|sync
 	info FILE 					display FILE metadata
-	name FILE						rename FILE using the date taken  
+	rename FILE						rename FILE using the date taken  
   local [NUM](100)		copy NUM random picutres to the local computer
   frame  							copy media to a picture frame 
-  nas									synchronize media with nas"
+  nas									synchronize media with nas
+
+  -t, --test 				test the operation without making any changes
+	-v, --verbose			verbose output"
 	exit $1
 }
 
@@ -27,14 +30,16 @@ usage: media get
 
 args()
 {
-	unset -v command file help
+	unset -v command file help test berbose
 	while (( $# != 0 )); do
 		case "$1" in
 			--help) help="--help";;
+			--test|-t) test="--test";;
+			--verbose|-v) verbose="--verbose";;
 			TestMetadata) command="TestMetadata";;
 			*)
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "$command" == @(info|name) ]] && { file="$1"; shift; continue; }
+				[[ "$command" == @(info|rename) ]] && { file="$1"; shift; continue; }
 				[[ "$command" == @(get) ]] && break
 				UnknownOption "$1"
 		esac
@@ -51,7 +56,7 @@ args()
 
 GetArgs()
 {
-	unset noMetadata person test verbose
+	unset noMetadata person
 	dest="$PUB" operationArg="default" ;
 	while (( $# != 0 )); do
 		case "$1" in
@@ -61,8 +66,6 @@ GetArgs()
 			--no-metadata) noMetadata="true";;
 			--person|-p) person="$2"; shift;;
 			--source|-s) source="$2"; shift;;
-			--test|-t) test="--test";;
-			--verbose|-v) verbose="--verbose";;
 			*) getUsage 1;;
 		esac
 		shift
@@ -77,15 +80,18 @@ init()
 	mediaRoo=oversoul
 	mediaUnc="//$mediaRoo/Public"
 	nas="//nas"
-	metadata=( -Make -Model -DateTimeOriginal -ImportedFileSizeBytes )
-	musicFilters=-*.wpl # exclude WPL (Windows Playlists) - Sonos shows WPL but doesn't support auto playlists, so save auto playlists as M3U before copying
+
+	metadata=( -Make -Model -DateTimeOriginal -ImportedFileSizeBytes -CreateDate -MediaCreateDate -ModifyDate -CompressorName )
+
+	pictureExtensions=( jpg )
+	videoExtensions=( 3gp mpg mp4 mts m2ts moff modd mov 3gp )
 }
 
 run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 
 getCommand()
 {
-	local importLocation processedDirs srcDirs metadataProcessed
+	local driveLabel importLocation processedDirs srcDirs metadataProcessed
 
 	GetArgs "${args[@]}" || return
 	GetInit || return
@@ -119,13 +125,19 @@ getCommand()
 
 ProcessDrive()
 {
-	local drive="$1" dir operation options importLocation
+	local drive="$1" dir operation options driveLabel importLocation driveLabel dirs="${externalDirs[@]}"
 	
 	[[ "$drive" == "c" ]] && return 0
 
-	for dir in "${externalDirs[@]}"; do
+	GetDriveLabel "$drive" driveLabel
+	if [[ "$driveLabel" =~ .*(iPad|iPhone).* ]]; then
+		dirs=( . )
+		[[ "$operation" == "default" ]] && operation="copy"
+	fi
+
+	for dir in "${dirs[@]}" ; do
 		operation="$operationArg"
-		IFS=":" read -a options <<<"$dir"; importLocation="${options[0]}"
+		IFS=":" read -a options <<<"$dir"; importLocation="${options[0]}"; 
 		if [[ "$operation" == "default" ]]; then
 			if IsInArray copy options; then operation="copy"
 			elif IsInArray move options; then operation="move"
@@ -156,7 +168,7 @@ ProcessDir()
 
 ProcessFile()
 {
-	local file="$1" fileName ext fileDesc mediaType destPrefix
+	local file="$1" fileName ext fileDesc mediaType destPrefix additionalMetadata
 	local fileSize="$(GetFileSize "$file" B)"
 	GetFileName "$file" fileName || return
 	GetFileExtension "$file" ext || return
@@ -164,13 +176,7 @@ ProcessFile()
 
 	[[ "$operation" == "default" ]] && operation="move"
 
-	if IsInArray "$ext" pictureExtensions; then
-		mediaType="picture"; destPrefix="$destPicturePrefix"
-	elif IsInArray "$ext" videoExtensions; then
-	 mediaType="video"; destPrefix="$destVideoPrefix"
-	else
-		return 0
-	fi 
+	GetMediaType "$ext" || return
 
 	if [[ ! -d "$destPrefix" ]]; then
 		ask "Create the destination directory $destPrefix" || return 1
@@ -180,10 +186,10 @@ ProcessFile()
 	printf "$fileName..."
 
 	local -A fileMetadata destMetadata; GetMetadate file fileMetadata "${metadata[@]}" || return
-	local dateTaken; GetDateTaken "$file" || return
+	local dateTaken; GetDateTaken "$file" dateTaken || return
 	local dateTakenSeconds=$(GetSeconds "$dateTaken")
-	local prefix="$(date "+%Y_%m_%d %H_%M_%S" -d "$dateTaken")"
-
+	local prefix; GetNewName "$dateTaken" prefix || return
+	
 	[[ $lastGetSeconds ]] && CompareTime $lastGetSeconds ">=" $dateTakenSeconds && 
 		{ RemoveProcessedFile "$file" "$prefix"; return; }
 
@@ -192,8 +198,7 @@ ProcessFile()
 
 	local suffix dest="$destDir/$prefix.$ext"
 	while [[ -f "$dest" ]]; do
-		[[ "$mediaType" == "video" || "$fileSize" == "$(exiftool -s3 -ImportedFileSizeBytes "$dest")" ]] &&
-			{ RemoveProcessedFile "$file" "$prefix-$suffix"; return; } 
+		IsDuplicateFile && { RemoveProcessedFile "$file" "$prefix-$suffix"; return; } 
 		(( ++suffix )); dest="destDir/$prefix-$suffix.$ext" # use a suffix for rapid picture taking (same name, different size)
 	done
 	
@@ -203,7 +208,7 @@ ProcessFile()
 	local operationDesc="moving"; [[ "$operation" == "copy" ]] && operationDesc="copying"
 	printf "$prefix-$suffix..."
 
-	[[ ! $noMetadata && "$ext" != @(mts) ]] && { AddMetadata || return; }
+	[[ ! $noMetadata && "$ext" != @(mts|m2ts) ]] && { AddMetadata || return; }
 
 	local bigFile;	(( fileSize >= $bigFileSizeBytes )) && bigFile="true"
 	GetCopyFile "$file" "$dest" || return
@@ -220,6 +225,20 @@ ProcessFile()
 	return 0
 }
 
+IsDuplicateFile()
+{
+	# videos are duplicate if names match
+	[[ "$mediaType" == "video" ]] && return 0 
+
+	# current size is the same
+	[[ "$fileSize" == "$(GetFileSize "$file" B)" ]] && return 0
+
+	# original size is the same
+	[[ "$fileSize" == "$(exiftool -fast2 -s3 -ImportedFileSizeBytes "$dest" 2> /dev/null)" ]] && return 0
+
+	return 1
+}
+
 AddMetadata()
 {
 	metadataProcessed="true"
@@ -234,7 +253,8 @@ AddMetadata()
 		-ImportedByUser="$USERNAME" \
 		-ImportedFromFolder="$importLocation" \
 		-ImportedFileName="$fileName" \
-		-ImportedToFolder="${destDir///cygdrive/}" > /dev/null
+		-ImportedToFolder="${destDir///cygdrive/}"
+		"${additionalMetadata[@]}" >& /dev/null
 }
 
 RemoveProcessedFile()
@@ -266,38 +286,102 @@ GetCopyFile() # SRC DEST
 	[[ "$srcFileName" != "$destFileName" ]] && { mv "$srcDir/$destFileName" "$src" || return; }
 }
 
-GetDateTaken() # dateTaken format: YYYY-MM-DD HH:MM:SS
+GetMediaType()
 {
-	file="$1"
-	case "${fileMetadata[Make]}" in
-		sony|apple) dateTaken="${fileMetadata[DateTimeOriginal]}";;
-		motorola) dateTaken="$(stat -c%y "$file")" || return;;
-		*) EchoErr "media get: unknown make ${fileMetadata[Make]} for ``$file\`"; return 1;; 
-	esac
+	local ext="$1"
 
-	[[ ! $dateTaken ]] && { EchoErr "media get: unable to find a date for \`$file\`"; return 1; }
-	dateTaken="$(date "+%Y-%m-%d %H:%M:%S" -d "$dateTaken")"
+	if IsInArray "$ext" pictureExtensions; then
+		mediaType="picture"; destPrefix="$destPicturePrefix"
+	elif IsInArray "$ext" videoExtensions; then
+	 mediaType="video"; destPrefix="$destVideoPrefix"
+	else
+		return 0
+	fi 
 }
 
-nameCommand()
+GetNewName() { r "$(date "+%Y_%m_%d %H_%M_%S" -d "$1")" $2; }
+NormalizeDate() {	r "$(date "+%Y-%m-%d %H:%M:%S" -d "$1")" $2; }
+
+GetDateTaken() # format: YYYY-MM-DD HH:MM:SS
 {
-	declare -A fileMetadata
+	# Determine DateTaken using: 
+	# - fileMetadata: Make Model DateTimeOriginal ImportedFileSizeBytes CreateDate CompressorName
+	# - mediaType=picture|video
+
+	#PrintMetadata; pause
+
+	local s file="$1" mm="${fileMetadata[Make]}-${fileMetadata[Model]}"
+
+	# Apple
+	if [[ "$mm" ==  @(Apple-iPad|Apple-iPhone*) ]]; then
+		[[ "$mediaType" == "picture" ]] && s="${fileMetadata[DateTimeOriginal]}" ||
+			s="${fileMetadata[MediaCreateDate]}"
+
+	# Sony HDR-SR12 (video), DSC-HX5V (still)
+	elif [[ "$mm" == @(sony-HDR-SR12|sony-DSC-HX5V) || ( "$mediaType" == "video" && "$mm" == @(sony-) )]]; then # no model for HDR-SR12 videos
+		s="${fileMetadata[DateTimeOriginal]}"
+
+	# Motorola DROID RAZR
+	elif [[ "$mm" ==  @(motorola-DROID RAZR) || ( "$mediaType" == "video" && "${fileMetadata[CompressorName]}" == "MOTO" ) ]]; then
+		s="${fileMetadata[DateTimeOriginal]}"
+		if [[ ! $s ]]; then
+			[[ "$mediaType" == "picture" ]] && s="${fileMetadata[ModifyDate]}" ||
+				s="$(date -d "${fileMetadata[CreateDate]} UTC")";
+			additionalMetadata+=( "-DateTimeOriginal=\"$(NormalizeDate "$s")\"" )
+		fi
+
+	# Media with no metadata - use file modification date
+	# elif (( ${#fileMetadata[@]} == 0 )); then
+	# 	s="$(stat -c%y "$file")" || return;
+
+	else
+		EchoErr "media get: DateTaken media information has not been defined for ``$file\`"
+		return 1
+
+	fi
+
+	[[ ! $s ]] && { EchoErr "media get: unable to find a date for \`$file\`"; return 1; }
+	NormalizeDate "$s" $2
+}
+
+renameCommand()
+{
+	local ext name path; declare -A fileMetadata
+
+	GetFilePath "$file" path || return
+	GetFileName "$file" name || return
+	GetFileExtension "$file" ext || return
+
 	GetMetadata "$file" fileMetadata "${metadata[@]}" || return
-	GetDateTaken "$file" || return
-	echo "$dateTaken"
+	GetMediaType "$ext" || return
+	local dateTaken; GetDateTaken "$file" dateTaken || return
+	local newName; GetNewName "$dateTaken" newName || return
+	local expected="$newName.$ext"
+
+	[[ "$name" == "$expected" ]] && return 0;
+
+	printf "Renaming $name to $expected..."
+	[[ $verbose ]] && { echo "(mv \"$file\" \"${path:+$path/}$expected\")" || return; }
+	[[ ! $test ]] && { mv "$file" "${path:+$path/}$expected" || return; }
+	echo "done"
 }
 
 infoCommand()
 {
 	declare -A fileMetadata
 	GetMetadata "$file" fileMetadata "${metadata[@]}" || return
+	PrintMetadata
+}
 
+PrintMetadata()
+{
 	printf "%s: " "$(GetFileName "$file")"
 	for var in "${!fileMetadata[@]}"; do
 		printf "$var=${fileMetadata[$var]} "
 	done
 	echo ""
 }
+
 
 testCommand() { TestMetadataCommand; }
 
@@ -316,14 +400,12 @@ GetMetadata()
 {
 	local file="$1" array="$2"
 	# -fast2
-	eval "$array=( $(exiftool -s2 "$(utw "$file")" "${@:3}" | sed -e 's/: /]="/' -e 's/^/[/' -e 's/$/"/'  -e 's/:/-/' -e 's/:/-/' ) )"
+	eval "$array=( $(exiftool -s2 "$(utw "$file")" "${@:3}" 2> /dev/null | sed -e 's/: /]="/' -e 's/^/[/' -e 's/$/"/'  -e 's/:/-/' -e 's/:/-/' ) )"
 }
 
 GetInit()
 {
 	bigFileSizeBytes=5000000 # 5 MiB
-	pictureExtensions=( jpg )
-	videoExtensions=( 3gp mpg mp4 mts m2ts moff modd mov 3gp )
 
 	dropbox="$HOME/Dropbox/Camera Uploads"
 	iCloud="$userPictures/iCloud Photos/My Photo Stream"
