@@ -65,11 +65,13 @@ GetArgs()
 			--copy|-c) operation="copy";;
 			--dest) dest="$2"; shift;;
 			--move|-m) operation="move";;
-			--no-cleanuo|-nc) unset cleanup;;
+			--no-cleanup|-nc) unset cleanup;;
 			--no-metadata|-nm) noMetadata="true";;
 			--no-review|-nr) unset review;;
 			--person|-p) person="$2"; shift;;
 			--source|-s) source="$2"; shift;;
+			--test|-t) test="--test";;
+			--verbose|-v) verbose="--verbose";;
 			*) getUsage 1;;
 		esac
 		shift
@@ -178,9 +180,11 @@ AddMetadata()
 {
 	local file="$1" metadata=( "${@:2}" )
 	printf "metadata..."
-	[[ $verbose ]] && { printf "\n(exiftool \"$file\" ${metadata[@]})"; }
+	[[ $verbose ]] && { echo -e -n "\n(exiftool \"$file\" ${metadata[@]})"; }
 	[[ $test ]] && return
-	exiftool "$(utw "$file")" "${metadata[@]}" >& /dev/null
+	if ! exiftool "$(utw "$file")" "${metadata[@]}" >& /dev/null; then
+		EchoErr -e "\nmedia get: unable to add metadata to \`$file\`"; return 1
+	fi
 }
 
 GetMetadata() 
@@ -205,7 +209,7 @@ GetInit()
 	# options: GMT, copy, move
 	unset externalDirs
 	#externalDirs=( /DCIM/100OLYMP /mssony/moml0001 /dcim/100PHOTO )
-	#externalDirs+=( /private/avchd/bdmv/stream:move )
+	externalDirs+=( /dcim/100msdcf /private/avchd/bdmv/stream:move ) # Sony-DSC-HX5V
 	externalDirs+=( /dcim/100CASIO ) # Casio Exilim 8.1 MP ( CASIO COMPUTER CO.,LTD.-EX-Z150 )
 	externalDirs+=( /dcim/100msdcf /dcim/101msdcf /mp_root/101pnv01:copy /avchd/bdmv/stream:copy )
 
@@ -260,35 +264,33 @@ getCommand()
 ProcessDrive()
 {
 	local drivePath="$1" operation="$2" dirs=( "${externalDirs[@]}" )
-	local dir drive operation options driveLabel importLocation driveLabel 
+	local dir drive options driveLabel importLocation driveLabel 
 
 	GetFileName "$drivePath" drive || return
 
 	[[ "$drive" == "c" ]] && return 0
 
 	GetDriveLabel "$drive" driveLabel
-
 	if [[ "$driveLabel" =~ .*(iPad|iPhone).* ]]; then
-		dirs=( . )
 		[[ "$operation" == "default" ]] && operation="copy"
 		importLocation = "$driveLabel"
+		ProcessDir "${drivePath}${dir}" "$op"
+		return
 	fi
 
 	for dir in "${dirs[@]}"; do
-		operation="$operationArg"
 		IFS=":" read -a options <<<"$dir"; 
 
-		dir="${options[0]}"
+		dir="${options[0]}"; [[ ! -d "$drivePath$dir" ]] && continue
+		importLocation="$dir";
 
-		[[ ! $importLocation ]] && importLocation="${options[0]}"; 
-
-		if [[ "$operation" == "default" ]]; then
-			if IsInArray copy options; then operation="copy"
-			elif IsInArray move options; then operation="move"
-			else operation="move"; fi
+		local op="$operation"
+		if [[ "$op" == "default" ]]; then
+			IsInArray copy options && op="copy" ||
+			IsInArray move options && op="move"
 		fi
 
-		ProcessDir "${drivePath}${dir}" || return
+		ProcessDir "$drivePath$dir" "$op" || return
 	done
 }
 
@@ -308,12 +310,12 @@ ProcessDir()
 	[[ -f "$dir/$lastGetDateFile" ]] && lastGetSeconds="$(cat "$dir/$lastGetDateFile")"
 
 	shopt -s  nullglob
-	for file in "$dir/"*; do ProcessFile "$file" || return; done
+	for file in "$dir/"*; do ProcessFile "$file" "$operation" || return; done
 }
 
 ProcessFile()
 {
-	local file="$1" fileName ext fileDesc mediaType additionalMetadata
+	local file="$1" operation="$2" fileName ext fileDesc mediaType additionalMetadata
 	local fileSize="$(GetFileSize "$file" B)"
 	GetFileName "$file" fileName || return
 	GetFileExtension "$file" ext || return
@@ -355,7 +357,7 @@ ProcessFile()
 	local operationDesc="moving"; [[ "$operation" == "copy" ]] && operationDesc="copying"
 	printf "$prefix${suffix:+-$suffix}..."
 
-	[[ ! $noMetadata && "$ext" != @(mts|m2ts) ]] && { AddImportedMetadata || return; }
+	[[ ! $noMetadata && "$ext" != @(avi|mts|m2ts) ]] && { AddImportedMetadata || return; }
 
 	local bigFile;	(( fileSize >= $bigFileSizeBytes )) && bigFile="true"
 
