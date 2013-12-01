@@ -1,18 +1,3 @@
 #!/bin/bash
 
-a()
-{
-	foo=( [a]=1 [b]=2 )
-}
-
-b()
-{
-	bar=12
-	local -A foo
-	a
-	echo A${foo[a]}
-}
-
-b
-echo ${foo[a]}
-echo $bar
+robocopy 'E:\100APPLE' 'C:\Program Files\Cygwin\tmp\media' IMG_0001.MOV /COPY:DAT /ETA /njh /njs /ndl /xx
