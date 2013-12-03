@@ -25,7 +25,7 @@ clipw() { echo -n "$1" > /dev/clipboard; }
 clipr() { cat /dev/clipboard; }
 EchoErr() { echo "$@" > /dev/stderr; }
 PrintErr() { printf "$@" > /dev/stderr; }
-r() { [[ $# == 1 ]] && echo "$1" || eval $2="\"$1\""; } # result <value> <var> - echo value or set var to value (faster)
+r() { [[ $# == 1 ]] && echo "$1" || eval "$2="\'"$1"\'; } # result <value> <var> - echo value or set var to value (faster)
 
 #
 # scripts
@@ -103,7 +103,7 @@ GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" ==
 GetFilePath() { local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { r "${1##*/}" $2; }
 GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${gfnwe%.*}" $2; }
-GetFileExtension() { local gfe="$1"; GetFileName "$f" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
+GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
 GetFullPath() { local gfp="$(cygpath -a "$1")" || return; r "$gfp" $2; }
 GetDriveLabel() { local gdl="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; r "${gdl## Volume in drive ? is }" $2; }
 GetUncServer() { local gus="${1#*( )//}"; r "${gus%%/*}" $2; } # get server from a UNC file
@@ -208,7 +208,8 @@ CpProgress()
 # arrays
 #
 
-CopyArray() { local ca="$1"; GetArrayDefinition "$1" ca; eval "$2=$ca"; }
+#CopyArray() { eval "$2=$(GetArrayDefinition "$1")"; }
+CopyArray() { local ca; GetArrayDefinition "$1" ca; eval "$2=$ca"; }
 DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${!get}")} # DelimitArray <delimiter> <array>
 GetArrayDefinition() { local gad="$(declare -p $1)"; gad="${gad#*=\'}"; r "${gad%\'}" $2; }
 IsArray() {  [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
