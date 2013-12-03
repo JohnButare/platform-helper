@@ -100,13 +100,13 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 # path: realpath, cygpath
 FindInPath() { type -P "${1}"; }
 GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
-GetFilePath() { local p="${1%/*}"; [[ "$p" == "$1" ]] && p=""; r "$p" $2; }
+GetFilePath() { local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { r "${1##*/}" $2; }
-GetFileNameWithoutExtension() { local f="$1"; GetFileName "$1" f; r "${f%.*}" $2; }
-GetFileExtension() { local f="$1"; GetFileName "$f" f; [[ "$f" == *"."* ]] && r "${f##*.}" $2 || r "" $2; }
-GetFullPath() { local p="$(cygpath -a "$1")" || return; r "$p" $2; }
-GetDriveLabel() { local s="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; r "${s## Volume in drive ? is }" $2; }
-GetUncServer() { local f="${1#*( )//}"; r "${f%%/*}" $2; } # get server from a UNC file
+GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${gfnwe%.*}" $2; }
+GetFileExtension() { local gfe="$1"; GetFileName "$f" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
+GetFullPath() { local gfp="$(cygpath -a "$1")" || return; r "$gfp" $2; }
+GetDriveLabel() { local gdl="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; r "${gdl## Volume in drive ? is }" $2; }
+GetUncServer() { local gus="${1#*( )//}"; r "${gus%%/*}" $2; } # get server from a UNC file
 HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 wtu() { cygpath -u "$*"; } # WinToUnix
@@ -208,7 +208,9 @@ CpProgress()
 # arrays
 #
 
+CopyArray() { local ca="$1"; GetArrayDefinition "$1" ca; eval "$2=$ca"; }
 DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${!get}")} # DelimitArray <delimiter> <array>
+GetArrayDefinition() { local gad="$(declare -p $1)"; gad="${gad#*=\'}"; r "${gad%\'}" $2; }
 IsArray() {  [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
 ShowArray() { local var array="$1[@]"; printf -v var ' "%s"' "${!array}"; echo "${var:1}"; }
 ShowArrayDetail() { declare -p "$1"; }
