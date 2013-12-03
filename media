@@ -44,7 +44,7 @@ args()
 			AddDate) command="AddDate";;
 			*)
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "$command" == @(date|info|rename) ]] && { files+=( "$1" ); shift; continue; }
+				[[ "$command" == @(AddDate|info|rename) ]] && { files+=( "$1" ); shift; continue; }
 				[[ "$command" == @(get) ]] && break
 				UnknownOption "$1"
 		esac
@@ -52,9 +52,9 @@ args()
 	done
 	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage 0 || usage 0; }
 	[[ ! $command ]] && { MissingOperand "command"; }
-	if [[ "$command" == @(date|info|rename) ]]; then 
+	if [[ "$command" == @(AddDate|info|rename) ]]; then 
 		[[ ! $files ]] && MissingOperand "file"
-		for file in "${files[@]}"; do [[ ! -f "$file" ]] && { EchoErr "media name: cannot access \`$file\`: No such file"; return 1; }; done
+		for file in "${files[@]}"; do [[ ! -f "$file" ]] && { EchoErr "media $command: cannot access \`$file\`: No such file"; return 1; }; done
 	fi;
 	args=("$@")
 }
@@ -81,6 +81,7 @@ GetArgs()
 	done
 	[[ "$dest" && ! -d "$dest" ]] && { EchoErr "media get: directory  \`$dest\` does not exit"; return 1; }
 	[[ ! $person ]] && person="$(FullName)"
+	[[ $source && ! -d "$source" ]] && { EchoErr "media get: cannot access \`$source\`: No such directory"; return 1; }
 	return 0
 }
 
@@ -91,10 +92,10 @@ init()
 	nas="//nas"
 
 	dateTakenMetadata=( -Make -Model -HandlerVendorId -Keywords 
-		-CompressorName -Software -CreatorTool -DateTimeOriginal
+		-CompressorName -Software -CreatorTool -DateTimeOriginal -CreationTime
 		-ImportedFileSizeBytes 	-CreateDate -MediaCreateDate -ModifyDate)
 
-	pictureExtensions=( jpg )
+	pictureExtensions=( jpg png )
 	videoExtensions=( 3gp avi mpg mp4 mts m2ts moff modd mov 3gp )
 }
 
@@ -121,6 +122,7 @@ GetMediaType()
 
 GetNewName() { r "$(date "+%Y_%m_%d %H_%M_%S" -d "$1")" $2; }
 NormalizeDate() {	r "$(date "+%Y-%m-%d %H:%M:%S" -d "$1")" $2; }
+ExifDate() {	r "$(date "+%Y:%m:%d %H:%M:%S" -d "$1")" $2; }
 
 GetDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 {
@@ -151,7 +153,7 @@ GetDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 					s="${md[ModifyDate]}"
 				fi
 			fi
-			additionalMetadata+=( "-DateTimeOriginal=\"$(NormalizeDate "$s")\"" )
+			additionalMetadata+=( "-DateTimeOriginal=$(ExifDate "$s")" )
 		fi
 
 	# File modification date: Photo Booth, no metadata (( ${#v[@]} == 0 ))
@@ -159,10 +161,18 @@ GetDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 		s="$dto"
 		if [[ ! $s ]]; then
 			s="$(stat -c%y "$file")" || return;
-			additionalMetadata+=( "-DateTimeOriginal=\"$s\"" )
+			additionalMetadata+=( "-DateTimeOriginal=$(ExifDate "$s")" )
 		fi
 
-	# DateTimeOriginal
+	# PNG - Windows shows CreationTime as the Date taken
+	elif [[ "$ext" == @(PNG) ]]; then
+		s="$dto"
+		[[ ! $s ]] && s="${md[CreationTime]}"
+		[[ ! $s ]] && s="$(stat -c%y "$file")" || return;
+		[[ $s && ! $dto ]] && additionalMetadata+=( "-DateTimeOriginal=$(ExifDate "$s")" )
+		[[ $s && ! ${md[CreationTime]} ]] && additionalMetadata+=( "-CreationTime=$(ExifDate "$s")" )
+
+	# Use DateTimeOriginal if present - Windows shows this as Date taken
 	elif [[ $dto ]]; then
 		s="$dto"
 
@@ -171,7 +181,7 @@ GetDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 
 	fi
 
-	[[ ! $s ]] && { EchoErr "media get: unable to find a date for \`$file\`"; return 1; }
+	[[ ! $s ]] && return 1
 	NormalizeDate "$s" $returnVar
 }
 
@@ -200,6 +210,8 @@ GetMetadata()
 {
 	local file="$1" array="$2" metadata=( "${@:3}" )
 	[[ ! $metadata ]] && metadata=( "${dateTakenMetadata[@]}" )
+	# exiftool -fast2 -s2 "$(utw "$file")" "${metadata[@]}" 2> /dev/null | sed -e 's/: /]="/' -e 's/^/[/' -e 's/$/"/'  -e 's/:/-/' -e 's/:/-/'
+	# echo $array
 	eval "$array=( $(exiftool -fast2 -s2 "$(utw "$file")" "${metadata[@]}" 2> /dev/null | sed -e 's/: /]="/' -e 's/^/[/' -e 's/$/"/'  -e 's/:/-/' -e 's/:/-/' ) )"
 }
 
@@ -244,8 +256,8 @@ getCommand()
 	GetArgs "${args[@]}" || return
 	GetInit || return
 	
-	if [[ "$source" ]]; then
-		ProcessDir "$operation" || return
+	if [[ $source ]]; then
+		ProcessDir "$(GetFullPath "$source")" "$operation" || return
 	else
 		for dir in "${localDirs[@]}"; do ProcessDir "$dir" "$operation" || return; done
 		for drive in "/cygdrive/"*; do ProcessDrive "$drive" "$operation" || return; done
@@ -253,11 +265,10 @@ getCommand()
 
 	if [[ $review && $processedDirs ]]; then
 		for dir in "${processedDirs[@]}"; do start explorer "$dir"; done
-		pause "Review media then press any key to continue..."
 	fi
 
-	if [[ $cleanup && -d "$tmpDir" ]]; then
-		printf "Cleanup..."
+	if [[ $cleanup && -d "$tmpDir" ]] && ask 'cleanup' --default-response n; then
+		printf "cleanup..."
 		[[ $verbose ]] && echo "(removing \`$tmpDir\`)"
 		[[ ! $test ]] && { rm -fr "$tmpDir" || return; }
 		[[ ! $verbose ]] && echo "done"
@@ -268,19 +279,14 @@ getCommand()
 ProcessDrive()
 {
 	local drivePath="$1" operation="$2" dirs=( "${externalDirs[@]}" )
-	local dir drive options driveLabel driveLabel importLocation 
+	local drive; GetFileName "$drivePath" drive || return; [[ "$drive" == "c" ]] && return 0
+	local driveLabel; GetDriveLabel "$drive" driveLabel
+	local importLocation; [[ "$driveLabel" =~ .*(iPad|iPhone).* ]] && importLocation="${driveLabel%% - DCIM}"
 
-	GetFileName "$drivePath" drive || return
-
-	[[ "$drive" == "c" ]] && return 0
-
-	GetDriveLabel "$drive" driveLabel
-	[[ "$driveLabel" =~ .*(iPad|iPhone).* ]] && importLocation="${driveLabel%% - DCIM}"
-
+	local dir options
 	for dir in "${dirs[@]}"; do
 		IFS=":" read -a options <<<"$dir"; 
 		dir="${options[0]}"; [[ ! -d "$drivePath$dir" ]] && continue
-		[[ ! $importLocation ]] && importLocation="${dir///cygdrive/}"
 
 		local op="$operation"
 		if [[ "$op" == "default" ]]; then
@@ -295,12 +301,12 @@ ProcessDrive()
 ProcessDir()
 { 
 	local dir="$1" operation="$2" importLocation="$3"
-
 	[[ ! -d "$dir" ]] && return
 
 	[[ ! $importLocation ]] && case "$dir" in
 		"$dropbox") importLocation="Dropbox";;
 		"$iCloud") importLocation="iCloud";;
+		*) importLocation="${dir///cygdrive/}"
 	esac
 
 	printf "**************************************************\n* $importLocation\n**************************************************\n"	
@@ -440,13 +446,14 @@ AddDateCommand() { for file in "${files[@]}"; do AddDate "$file" || return; done
 AddDate()
 {
 	local file="$1"
+	local fileName; GetFileName "$file" fileName || return; printf "$fileName..."
 	local ext; GetFileExtension "$file" ext || return
-	local mediaType; GetMediaType "$ext" mediaType || { EchoErr "media AddDate: \`$file\` is not a known media type"; return 1; }
+	local mediaType; GetMediaType "$ext" mediaType || { echo "unknown media type"; return 0; }
 	local -A fileMetadata; GetMetadata "$file" fileMetadata || return
-	local dateTaken; GetDateTaken "$file" fileMetadata dateTaken && { echo "media AddDate: \`$file\` already has a date"; return 0; }
+	local dateTaken; GetDateTaken "$file" fileMetadata dateTaken && { echo "date already present"; return 0; }
 	local modificationDate="$(stat -c%y "$file")" || return;
-	local additionalMetadata+=( "-DateTimeOriginal=\"$modificationDate\"" )
-	AddMetadata "$newFile" "${additionalMetadata[@]}"
+	local additionalMetadata=( "-DateTimeOriginal=$(ExifDate "$modificationDate")" )
+	printf "adding date..."; AddMetadata "$file" "${additionalMetadata[@]}"; echo "done"
 }
 
 renameCommand() { for file in "${files[@]}"; do Rename "$file" || return; done; }
@@ -454,18 +461,17 @@ Rename()
 {
 	local file="$1"
 	local path; GetFilePath "$file" path || return
+	local fileName; GetFileName "$file" fileName || return; printf "$fileName..."
 	local name; GetFileNameWithoutExtension "$file" name || return
 	local ext; GetFileExtension "$file" ext || return
 	local suffix; [[ "$name" =~ .*-[0-9]+ ]] && suffix="-${name##*-}"
 	local -A fileMetadata; GetMetadata "$file" fileMetadata || return
-	local dateTaken; GetDateTaken "$file" fileMetadata dateTaken || { EchoErr "media rename: no DateTaken for \`$file\`"; return 1; }
+	local dateTaken; GetDateTaken "$file" fileMetadata dateTaken || { echo "no DateTaken"; return 0; }
 	local newName; GetNewName "$dateTaken" newName || return
 	local expected="$newName$suffix" 
 	local newFile="${path:+$path/}$expected.$ext"
-	
-	[[ "$name" == "$expected" && ! $additionalMetadata ]] && return 0;
 
-	printf "renaming $name..."
+	[[ "$name" == "$expected" && ! $additionalMetadata ]] && { echo "name is correct"; return 0; }
 
 	if [[ "$name" != "$expected" ]]; then
 		printf "$expected..."
