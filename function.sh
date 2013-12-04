@@ -123,7 +123,7 @@ MakeShortcut()
 	local t="$1"; [[ ! -e "$t" ]] && t="$(FindInPath "$1")"
 	[[ ! -e "$t" && $suppress ]] && { return 0; }
 	[[ ! -e "$t" ]] && { EchoErr "MakeShortcut: could not find target $1"; return 1; }
-	mkshortcut "$p" -n="$2" "${@:3}";
+	mkshortcut "$t" -n="$2" "${@:3}";
 }
 
 CopyDir()
@@ -365,7 +365,7 @@ start()
 	done
 
 	#printf "wait=$wait\noptions="; ShowArray options; printf "program=$program\nqargs="; ShowArray qargs; return
-
+	[[ -d "$program" ]] && { cygstart "$program"; return; }
 	[[ ! -f "$program" ]] && program="$(FindInPath "$1")"
 	[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
 	GetFileExtension "$program" ext
