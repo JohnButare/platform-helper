@@ -8776,16 +8776,6 @@
 
 	return
 
-	:GitHub
-	echot "\
-	************************
-	* GitHub for Windows
-	************************
-	"
-
-	run "GitHub/setup/GitHubSetup.exe"
-	return
-
 	:SoapUI
 	# http://sourceforge.net/projects/soapui/files/soapui/
 	echot "\

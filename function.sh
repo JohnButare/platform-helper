@@ -429,7 +429,7 @@ IsTaskRunning() # IsTaskRunng <task>
 # Process Commands
 ProcessList() { ps -W | cut -c33-36,61- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND"; }
 ProcessClose() { local p="${1/.exe/}.exe"; GetFileName "$p" p; process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null; } #egrep -v "Command Line Process Viewer|Copyright\(C\) 2002-2003|^$"; }
-ProcessKill() { local p="$1"; GetFileNameWithoutExtension "$p" p; pskill "$p"; }
+ProcessKill() { local p="$1"; GetFileNameWithoutExtension "$p" p; pskill "$p" >& /dev/null ; }
 
 # Window Commands - Win [class] <title|class>, Au3Info.exe to get class
 WinActivate() { AutoItScript WinActivate "${@}"; }
