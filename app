@@ -3,7 +3,7 @@
 
 init()
 {
-	unset quiet
+	unset brief
 	localApps=(cpu7icon gridy hp SideBar SpeedFan ThinkPadFanControl ZoomIt ShairPort4W)
 }
 
@@ -11,18 +11,19 @@ usage()
 {
 	echot "\
 usage: app [startup|close|restart](startup) <apps>
-	-q, --quiet 				minimal status messages"
+	-b, --brief 				brief status messages"
 	exit $1
 }
 
 args()
 {
+	unset -v brief
 	command='startup'
 
 	while [ "$1" != "" ]; do
 		case $1 in
 			-h|--help) usage 0;;
-			-q|--quiet) quiet="-q";;
+			-b|--brief) brief="--brief";;
 			startup|close) command=$1;;
 			*)
 				args=( "${@:1}" )
@@ -40,8 +41,8 @@ run()
 
 	for app in "${args[@]}"
 	do
-		MapApp
-		[[ $quiet ]] && printf "."
+		MapApp || return
+		[[ $brief ]] && printf "."
 		if f="$(GetFunction "$app")"; then
 			"$f"
 		elif IsInArray "$app" localApps; then
@@ -69,7 +70,7 @@ RunInternalApp()
 	esac
 
 	case "$app" in
-		cpu7icon|hp|ThinkPadFanControl) close="pskill";;
+		cpu7icon|hp|ThinkPadFanControl) close="ProcessKill";;
 	esac
 
 	[[ ! -f "$program" ]] && program="$(FindInPath "$program")"
@@ -98,7 +99,8 @@ RunExternalApp()
 	fi;
 
 	ShowStatus
-	"$app" "${command}"
+	"$app" --brief "${command}"
+	[[ ! $brief ]] && echo done
 }
 
 TaskStart()
@@ -112,17 +114,19 @@ TaskStart()
 	if [[ "$command" == "startup" ]]; then
 		IsTaskRunning "$program" && return
 		ShowStatus || return
-		task start --title "$title" "$program" "${@}"
+		task start --brief --title "$title" "$program" "${@}"
+		[[ ! $brief ]] && echo done
 	else
 		IsTaskRunning "$program" || return
 		ShowStatus || return
-		task close --title "$title" "$program" || return
+		task close --brief --title "$title" "$program" || return
+		[[ ! $brief ]] && echo done
 	fi
 }
 
 ShowStatus()
 {
-	[[ $quiet ]] && printf "$app..." || echo "$status $app..."
+	[[ $brief ]] && printf "$app..." || printf "$status $app..."
 }
 
 GetAppFile()
