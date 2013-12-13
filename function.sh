@@ -380,12 +380,12 @@ start()
 
 sudo() # sudo [command](mintty) - start a program as super user
 {
-	local program="mintty" hstartOptions cygstartOptions ext standard direct
+	local program="mintty" hstartOptions cygstartOptions ext standard direct hold="error"
 
 	while IsOption "$1"; do
 		if [[ "$1" == +(-s|--standard) ]]; then standard="true"; hstartOptions+=( /nonelevated );
 		elif [[ "$1" == +(-h|--hide) ]]; then hstartOptions+=( /noconsole );
-		elif [[ "$1" == +(-w|--wait) ]]; then hstartOptions+=( /wait ); cygstartOptions+=( --wait );
+		elif [[ "$1" == +(-w|--wait) ]]; then hstartOptions+=( /wait ); cygstartOptions+=( --wait ); hold="always";
 		elif [[ "$1" == +(-d|--direct) ]]; then direct="--direct";
 		else cygstartOptions+=( "$1" ); fi
 		shift
@@ -409,7 +409,7 @@ sudo() # sudo [command](mintty) - start a program as super user
 	fi
 	
 	if IsShellScript "$program"; then
-		cygstart "${cygstartOptions[@]}" hstart "${hstartOptions[@]}" "\"\"mintty.exe\"\" -h error bash.exe -l \"\"$program\"\" $@";
+		cygstart "${cygstartOptions[@]}" hstart "${hstartOptions[@]}" "\"\"mintty.exe\"\" --hold $hold bash.exe -l \"\"$program\"\" $@";
 	else
 		program="$(utw "$program")"
 		cygstart "${cygstartOptions[@]}" hstart "${hstartOptions[@]}" "\"\"$program\"\" $@";
