@@ -281,6 +281,7 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "Elapsed %02d:%02d:%02d\n" 
 #
 # account
 #
+
 FullName() { case "$USERNAME" in jjbutare|ad_jjbutare) echo John; return;; esac; local s="$(net user "$USERNAME" |& grep -i "Full Name")"; s="${s:29}"; echo ${s:-$USERNAME}; }
 PublicPictures() { cygpath -F 54; }
 PublicVideos() { cygpath -F 55; }
@@ -360,10 +361,10 @@ start()
 	local program="$1" args=( "${@:2}" ) qargs; 
 
 	for arg in "${args[@]}"; do 
-		[[ ! "$arg" =~ .*\\.* && -e "$arg" ]] && { arg="$(utw "$arg")"; } # convert POSIX path to Windows format
+		[[ ! "$arg" =~ .*\\.* && "$arg" =~ .*/.* && -e "$arg" ]] && { arg="$(utw "$arg")"; } # convert POSIX path to Windows format
 		[[ ! $direct && "$arg" =~ ( ) ]] && qargs+=( "\"$arg\"" ) || qargs+=( "$arg" ); # cygstart requires arguments with spaces be quoted
 	done
-
+	
 	#printf "wait=$wait\noptions="; ShowArray options; printf "program=$program\nqargs="; ShowArray qargs; return
 	[[ -d "$program" ]] && { cygstart "$program"; return; }
 	[[ ! -f "$program" ]] && program="$(FindInPath "$1")"
