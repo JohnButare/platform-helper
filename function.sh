@@ -350,7 +350,7 @@ OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo
 #
 
 IsElevated() { IsElevated.exe > /dev/null; }
-SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys <class> <title|class> <keys>
+SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 
 # start [-d|--direct] [OPTION...] <program> <arguments> - start a Windows program
 # --direct		start the program directly without using cygstart (which is for ShellRun API), usually for console programs
