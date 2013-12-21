@@ -1,9 +1,8 @@
 # $bin/bash.bashrc, system-wide login initialization for all users and public scripts, 
 # executed by /etc/bash.bashrc
 
-case "$(uname)" in CYGWIN*) platform=win;; Darwin) platform=mac;; Linux) platform=linux;; esac
-
 set -a
+case "$(uname)" in CYGWIN*) PLATFORM=win;; Darwin) PLATFORM=mac;; Linux) PLATFORM=linux;; esac
 LANG=en_US
 [[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
 PUB="$USERS/Public" BIN="$PUB/Documents/data/bin" DOC="$HOME/Documents"
