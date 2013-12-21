@@ -1,6 +1,8 @@
 # $bin/bash.bashrc, system-wide login initialization for all users and public scripts, 
 # executed by /etc/bash.bashrc
 
+case "$(uname)" in CYGWIN*) platform=win;; Darwin) platform=mac;; Linux) platform=linux;; esac
+
 set -a
 LANG=en_US
 [[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
@@ -17,7 +19,7 @@ export LINES COLUMNS 	# make available for dialogs in executable scripts
 kill -SIGWINCH $$			# ensure LINES and COLUMNS is set for a new Cygwin termnal before it is resized
 
 #
-# Windows Directory Setup 
+# Directories
 #
 
 # Ensure correct format for Unix (TMP/TEMP) and Windows (tmp/temp) programs
