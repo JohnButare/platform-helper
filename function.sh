@@ -416,7 +416,7 @@ sudo() # sudo [command](mintty) - start a program as super user
 		cygstart "${cygstartOptions[@]}" hstart "${hstartOptions[@]}" "\"\"$program\"\" $@";
 	fi
 }
-[[ "$platfortm" != "win" ]] && unset -f sudo
+[[ "$PLATFORM" != "win" ]] && unset -f sudo
 
 IsTaskRunning() # IsTaskRunng <task>
 {
