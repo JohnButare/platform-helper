@@ -196,7 +196,7 @@ IntelDesktopControlCenter()
 ProcessExplorer()
 {
 	if [[ "$command" == "startup" ]]; then
-		start "%PUB/documents/data/bin/win64/ProcExp.exe" "Process Explorer*" "/t /p:l"
+		start "$DATA/platform/win/ProcExp.exe" "Process Explorer*" "/t /p:l"
 	elif IsTaskRunning "procexp"; then
 		SendKeys "Process Explorer.*" "!Fx"
 	fi;
