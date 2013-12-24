@@ -349,7 +349,7 @@ OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo
 # process
 #
 
-IsElevated() { IsElevated.exe > /dev/null; }
+IsElevated() { [[ "$PLATFORM" == "win" ]] && IsElevated.exe > /dev/null || whoami | grep root; }
 SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 
 # start [-d|--direct] [OPTION...] <program> <arguments> - start a Windows program
