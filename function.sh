@@ -356,6 +356,8 @@ SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 # --direct		start the program directly without using cygstart (which is for ShellRun API), usually for console programs
 start() 
 {
+	[[ "$PLATFORM" == "mac" ]] && { open "$@"; return; }
+
 	local direct; [[ "$1" == @(-d|--direct) ]] && { direct="true"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
 	local program="$1" args=( "${@:2}" ) qargs; 
@@ -462,13 +464,18 @@ AutoItScript()
 
 TextEdit()
 {
-	local file files=() p="$P64/Sublime Text 3/sublime_text.exe"
+	local file files=() p=""
 	local wait; [[ "$1" == +(-w|--wait) ]] && { wait="pause"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
 	
-	[[ ! -f "$p" ]] && p="$P64/Sublime Text 2/sublime_text.exe"
-	[[ ! -f "$p" ]] && p="$P32/Notepad++/notepad++.exe"
-	[[ ! -f "$p" ]] && p="notepad"
+	case "$PLATFORM" in
+		mac) p="$P/Sublime Text.app/Contents/SharedSupport/bin/subl"
+			[[ ! -f "$p" ]] && p="open -a TextEdit";;
+		win) p="$P64/Sublime Text 3/sublime_text.exe"
+			[[ ! -f "$p" ]] && p="$P64/Sublime Text 2/sublime_text.exe"
+			[[ ! -f "$p" ]] && p="$P32/Notepad++/notepad++.exe"
+			[[ ! -f "$p" ]] && p="notepad";;
+	esac
 
 	for file in "$@"; do
 		[[ -f "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"

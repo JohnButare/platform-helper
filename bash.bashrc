@@ -58,12 +58,14 @@ fi
 PathAdd() {	if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $PATH =~ (^|:)$1(:|$) ]]; then PATH+=:$1; fi; }
 ManPathAdd() { if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
 
-# ensure Cygwin utilities are used before Microsoft utilities
-# /etc/profile adds them first, but profile does not when called by "ssh <host> <script>.sh
-PathAdd "/usr/bin" "front"
-PathAdd "/usr/local/bin" "front"
+# use CygWin utilities before Microsoft utilities (/etc/profile adds them first, but profile does not when called by "ssh <host> <script>.sh
+if [[ "$PLATFORM" == "win" ]]; then
+	PathAdd "/usr/bin" front
+	PathAdd "/usr/local/bin" front
+fi
 
-ManPathAdd "$PUB/documents/data/man"
+[[ -e "$UDATA/bin" ]] && PathAdd "$UDATA/bin"
+[[ -e "$DATA/man" ]] && ManPathAdd "$DATA/man"
 
 # interactive initialization - remainder not needed in child processes or scripts
 [[ "$-" != *i* ]] && return
