@@ -2,12 +2,16 @@
 # executed by /etc/bash.bashrc
 
 set -a
-case "$(uname)" in CYGWIN*) PLATFORM=win;; Darwin) PLATFORM=mac;; Linux) PLATFORM=linux;; esac
-LANG=en_US
-[[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
-PUB="$USERS/Public" DATA="$PUB/Documents/data" BIN="$DATA/bin" 
-P32="/cygdrive/c/Program Files (x86)" P64="/cygdrive/c/Program Files" P="$P64"
-CODE="/cygdrive/c/Projects"
+LANG="en_US" USERS="/Users" ROOT="/"
+case "$(uname)" in 
+	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" 
+		[[ -d "/cygdrive/d/users" ]] && USERS="/cygdrive/d/users" || USERS="$ROOT/users";
+		P32="$ROOT/Program Files (x86)" P64="$ROOT/Program Files" P="$P64";;
+	Darwin)	PLATFORM="mac" P="/Applications"; P32="$P" P64="$P";;
+	Linux) PLATFORM="linux";; 
+esac
+PUB="$USERS/Public" DATA="/usr/local/data" BIN="$DATA/bin" 
+CODE="$ROOT/Projects"
 DOC="$HOME/Documents" UDATA="$DOC/data" UBIN="$UDATA/bin"
 set +a
 
