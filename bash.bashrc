@@ -2,12 +2,12 @@
 # executed by /etc/bash.bashrc
 
 set -a
-LANG="en_US" USERS="/Users" ROOT="/"
+LANG="en_US" USERS="/Users" ROOT="/" G="" # GNU Core Utils
 case "$(uname)" in 
-	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" 
+	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c"
 		[[ -d "/cygdrive/d/users" ]] && USERS="/cygdrive/d/users" || USERS="$ROOT/users";
 		P32="$ROOT/Program Files (x86)" P64="$ROOT/Program Files" P="$P64";;
-	Darwin)	PLATFORM="mac" P="/Applications"; P32="$P" P64="$P";;
+	Darwin)	PLATFORM="mac" P="/Applications"; P32="$P" P64="$P" G="g";;
 	Linux) PLATFORM="linux";; 
 esac
 PUB="$USERS/Public" DATA="/usr/local/data" BIN="$DATA/bin" 
