@@ -356,7 +356,10 @@ SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 # --direct		start the program directly without using cygstart (which is for ShellRun API), usually for console programs
 start() 
 {
-	[[ "$PLATFORM" == "mac" ]] && { open "$@"; return; }
+	if [[ "$PLATFORM" == "mac" ]]; then
+		type -a "$1" >& /dev/null && "$@" || open "$@"
+		return
+	fi
 
 	local direct; [[ "$1" == @(-d|--direct) ]] && { direct="true"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
