@@ -82,9 +82,11 @@ FindDirsInit()
 
 	for var in "${dirVars[@]}"; do unset $var; done
 
-	_sys="$(wtu "$SYSTEMDRIVE")"
-	[[ -d /cygdrive/d/users ]] && _data="/cygdrive/d" || _data="$_sys"
-	_user="$USERNAME"
+	_sys="/" _data="/" _user="$USER"
+	if [[ "$PLATFORM" == "win" ]]; then
+		_sys="$(wtu "$SYSTEMDRIVE")"	
+		[[ -d /cygdrive/d/users ]] && _data="/cygdrive/d" || _data="$_sys"
+	fi
 }
 
 FindDirsUsage()

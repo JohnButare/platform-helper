@@ -3,10 +3,7 @@
 FUNCTIONS="true"
 
 # sytem-wide configuration - if we were not run from a login shell
-if [[ ! $BIN ]]; then
-	[[ -d "/cygdrive/d/users" ]] && export USERS="/cygdrive/d/users" || export USERS="/cygdrive/c/users"
-	[[ -f "$USERS/Public/Documents/data/bin/bash.bashrc" ]] && . "$USERS/Public/Documents/data/bin/bash.bashrc"
-fi
+[[ ! $BIN ]] && [[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"
 
 #
 # configuration
@@ -282,7 +279,7 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "Elapsed %02d:%02d:%02d\n" 
 # account
 #
 
-FullName() { case "$USERNAME" in jjbutare|ad_jjbutare) echo John; return;; esac; local s="$(net user "$USERNAME" |& grep -i "Full Name")"; s="${s:29}"; echo ${s:-$USERNAME}; }
+FullName() { case "$USER" in jjbutare|ad_jjbutare) echo John; return;; esac; local s="$(net user "$USER" |& grep -i "Full Name")"; s="${s:29}"; echo ${s:-$USER}; }
 PublicPictures() { cygpath -F 54; }
 PublicVideos() { cygpath -F 55; }
 UserPictures() { cygpath -F 39; }

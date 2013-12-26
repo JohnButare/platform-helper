@@ -70,7 +70,7 @@ init()
 	fi
 
 	method="$methodType"
-	profileSaveDir="$HOME/Documents/data/profile"
+	profileSaveDir="$UDATA/profile"
 	appProfileSaveDir="$profileSaveDir/$app"
 	userProfileSaveDir="$profileSaveDir/default"
 	userProfile="$userProfileSaveDir/$app Profile.$saveExtension"
@@ -111,7 +111,7 @@ SaveDirCommand()
 	elif [[ -d "$profileSaveDir" ]]; then
 		echo "$profileSaveDir"		
 	else
-		echo "The profile save directory ~/Documents/data/profile does not exist"
+		echo "The profile save directory $UDATA/profile does not exist"
 	fi
 }
 

@@ -4,7 +4,7 @@
 set -a
 LANG="en_US" USERS="/Users" ROOT="/" G="" # GNU Core Utils
 case "$(uname)" in 
-	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c"
+	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USER="$USERNAME"
 		[[ -d "/cygdrive/d/users" ]] && USERS="/cygdrive/d/users" || USERS="$ROOT/users";
 		P32="$ROOT/Program Files (x86)" P64="$ROOT/Program Files" P="$P64";;
 	Darwin)	PLATFORM="mac" P="/Applications"; P32="$P" P64="$P" G="g";;
@@ -65,7 +65,7 @@ PathAdd() {	if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $P
 ManPathAdd() { if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
 
 # use CygWin utilities before Microsoft utilities (/etc/profile adds them first, but profile does not when called by "ssh <host> <script>.sh
-fif [[ "$PLATFORM" == "win" ]]; then
+if [[ "$PLATFORM" == "win" ]]; then
 	PathAdd "/usr/bin" front
 	PathAdd "/usr/local/bin" front
 fi
