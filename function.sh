@@ -32,7 +32,7 @@ r() { [[ $# == 1 ]] && echo "$1" || eval "$2="\'"$1"\'; } # result <value> <var>
 #
 
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
-IsShellScript() { file "$1" | egrep "shell script" >& /dev/null; }
+IsShellScript() { file "$1" | egrep "bash script|shell script" >& /dev/null; }
 IsOption() { [[ "$1" =~ ^-.* ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 UnknownOption() {	EchoErr "$(ScriptName): unknown option \`$1\`"; EchoErr "Try \`$(ScriptName) --help\` for more information";	exit 1; }
@@ -405,6 +405,7 @@ sudo() # sudo [command](mintty) - start a program as super user
 
 	# determine if hstart is not needed to change contexts
 	local elevated; IsElevated && elevated="true"
+
 	if [[ (! $elevated && $standard) || ($elevated && ! $standard) ]]; then
 		if IsShellScript "$program"; then
 			"$program" "$@"
