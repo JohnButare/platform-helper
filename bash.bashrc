@@ -16,6 +16,12 @@ DOC="$HOME/Documents" UDATA="$DOC/data" UBIN="$UDATA/bin"
 set +a
 
 #
+# configuration
+# 
+
+shopt -s nocasematch
+
+#
 # terminal
 #
 
