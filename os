@@ -74,7 +74,7 @@ FindDirsCommand()
 
 FindDirsInit()
 {
-	dirVars=(_sys _data _windows _users _system _system32 _system64 _programs \_programs32 _programs64 \
+	dirVars=(_sys _data _windows _users _system _system32 _system64 _programs _programs32 _programs64 \
 	 _PublicHome _PublicDocuments _PublicData _PublicBin _PublicDesktop _PublicStartMenu _PuplicPrograms\
 	 _user _UserFolders _UserHome _UserSysHome _UserDocuments _UserData _UserBin _UserDesktop _UserStartMenu _UserPrograms
 	 _CloudDocuments _CloudData 

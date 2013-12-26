@@ -65,7 +65,7 @@ PathAdd() {	if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $P
 ManPathAdd() { if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
 
 # use CygWin utilities before Microsoft utilities (/etc/profile adds them first, but profile does not when called by "ssh <host> <script>.sh
-if [[ "$PLATFORM" == "win" ]]; then
+fif [[ "$PLATFORM" == "win" ]]; then
 	PathAdd "/usr/bin" front
 	PathAdd "/usr/local/bin" front
 fi
