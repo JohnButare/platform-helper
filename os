@@ -74,17 +74,16 @@ FindDirsCommand()
 
 FindDirsInit()
 {
-	dirVars=(_sys _data _windows _users _etc _programs _programs32 _programs64 \
-	 _pub _PublicStartMenu _PuplicPrograms\
-	 _user _UserFolders _home _UserSysHome _UserData _UserDesktop _UserStartMenu _UserPrograms
-	 _CloudDocuments _CloudData _ProgramData _ApplicationData _Code )
+	dirVars=(_platform _data _windows _users _etc \
+	 _pub _PublicStartMenu _ApplicationData _code \
+	 _user _UserFolders _home _UserSysHome _udata _UserStartMenu _cloud )
 
 	for var in "${dirVars[@]}"; do unset $var; done
 
-	_sys="/" _data="/" _user="$USER"
-	if [[ "$PLATFORM" == "win" ]]; then
-		_sys="$(wtu "$SYSTEMDRIVE")"	
-		[[ -d /cygdrive/d/users ]] && _data="/cygdrive/d" || _data="$_sys"
+	_platform="$PLATFORM" _root="" _data="" _user="$USER"
+	if [[ "$_platform" == "win" ]]; then
+		_root="$(wtu "$SYSTEMDRIVE")"	
+		[[ -d /cygdrive/d/users ]] && _data="/cygdrive/d" || _data="$_root"
 	fi
 }
 
@@ -119,7 +118,7 @@ FindDirsArgs()
 				if [[ ! $host ]]; then
 					if [[ "$1" =~ / ]]; then
 						[[ ! -d "$1" ]] && { EchoErr "Directory $1 does not exist"; return 1; }
-						host="$1"; _sys="$1"; _data="$1"; shift; continue;
+						host="$1"; _root="$1"; _data="$1"; shift; continue;
 					fi
 					host="$1"; shift; continue;
 				fi
@@ -142,32 +141,28 @@ GetDirs()
 	if [[ ! $host ]]; then # local
 		FindDirsWorker || return
 		
-	elif [[ "$host" == @(nas|nas.hagerman.butare.net|butare.net) ]]; then # nas
-		_sys=""; _data=""; 
-		[[ "$host" == @(nas|nas.hagerman.butare.net) ]] && _pub="//$host/public" || _pub="//$host@ssl@5006/DavWWWRoot/public"
-		SetCommonPublicDirs || return
-		
-		[[ "$host" == @(nas|nas.hagerman.butare.net) ]] && _home="//$host/home" || _home="//$host@ssl@5006/DavWWWRoot/home"
-		_UserFound="$_user" _UserSysHome="$_home"
-		SetCommonUserDirs || return
+	elif [[ "$host" == @(nas|nas.hagerman.butare.net) ]]; then # nas
+		_root="" _data="" _pub="//$host/public" _home="//$host/home" 
+		_UserSysHome="$_home"; SetCommonUserDirs || return
+
+	elif [[ "$host" == @(butare.net) ]]; then # nas
+		_root="" _data="" _pub="//$host@ssl@5006/DavWWWRoot/public" _home="//$host@ssl@5006/DavWWWRoot/home"
+		_UserSysHome="$_home"; SetCommonUserDirs || return
 
 	elif [[ "$host" == @(dfs) ]]; then
-		_sys=""; _data=""; 	_pub="//amr.corp.intel.com/corpsvcs/CS-PROD/installdev/public"
-		SetCommonPublicDirs || return	
+		_root""; _data=""; _pub="//amr.corp.intel.com/corpsvcs/CS-PROD/installdev/public"
 
 	elif [[ "$host" == @(cr) ]]; then 
-		_sys=""; _data=""; 	_pub"//VMSPFSFSCR02.cr.intel.com/CsisInstall/public"
-		SetCommonPublicDirs || return	
+		_root""; _data=""; _pub"//VMSPFSFSCR02.cr.intel.com/CsisInstall/public"
 
 	elif [[ -d "//$host/c$" ]]; then # host with Administrator access
-		_sys="//$host/c$"; _data="//$host/c$"
+		_root="//$host/c$"; _data="//$host/c$"
 		[[ -d "//$host/d$/Users" ]] && _data="//$host/d$" || 
 			{ [[ -d "$_data/Users" ]] || { EchoErr "os: unable to locate the Users folder on $host"; return 1; }; }
 		FindDirsWorker || return
 
 	elif [[ -d "//$host/public" ]]; then  # hosts with public share
-		_sys=""; _data=""; _pub="//$host/public"
-		SetCommonPublicDirs || return
+		_root=""; _data=""; _pub="//$host/public"
 		
 	else
 		EchoErr "Unable to find os directories on $host"
@@ -178,51 +173,35 @@ GetDirs()
 
 FindDirsWorker()
 {
-  _windows="$_sys/Windows"
- 
-	_programs32="$_sys/Program Files (x86)"
-	_programs64="$_sys/Program Files"
-	_programs="$_programs64"
-	_etc="$ROOT/Windows/system32/drivers/etc"
-	_ProgramData="$_sys/ProgramData"
-
-	_Code="$_sys/Projects"
-
+	_code="$_root/Projects"
 	_users="$_data/Users"
+	_pub="$_users/Shared"
+	_etc="$_root/etc"
+	_home="$_data/Users/$_user"
+	_UserSysHome="$_root/Users/$_user"
 
-	# public
-	_pub="$_users/Public"
-	SetCommonPublicDirs
-	_PublicStartMenu="$_ProgramData/Microsoft/Windows/Start Menu"
-
-	# user	
-	_home="$_data/$(GetFileName "$_users")/$_user"
-	_UserSysHome="$_sys/$(GetFileName "$_users")/$_user"
-	_ApplicationData="$_UserSysHome/AppData/Roaming"
-
-	if [[ "$_user" == "Public" ]]; then
-		_UserFolders=(Documents Downloads Music Pictures "Recorded TV" Videos)
-	else
-		_UserFolders=(Contacts Desktop Documents Downloads Favorites Links Music Pictures "Saved Games" Searches Videos
-			Dropbox "Google Drive")
-	fi
+	case "$_platform" in
+		mac)
+			_ApplicationData="$_home/Library/Application Support"
+			_UserFolders=( Desktop Documents Downloads Dropbox Movies Music Pictures Public sync );;
+		win)
+			_ApplicationData="$_UserSysHome/AppData/Roaming"
+			_etc="$_root/Windows/system32/drivers/etc"
+			_pub="$_users/Public"
+			_PublicStartMenu="$_root/ProgramData/Microsoft/Windows/Start Menu"
+			_UserFolders=( Desktop Documents Downloads Music Pictures Videos )
+			[[ "$_user" != "Public" ]] && _UserFolders+=( Contacts Dropbox Favorites "Google Drive" Links "Saved Games" Searches )
+		 	_windows="$_root/Windows";;
+	esac
 
 	SetCommonUserDirs
-	_UserDesktop="$_home/Desktop"
 	_UserStartMenu="$_ApplicationData/Microsoft/Windows/Start Menu"
-	_UserPrograms="$_UserStartMenu/Programs"
-}
-
-SetCommonPublicDirs()
-{
-	:
 }
 
 SetCommonUserDirs()
 {
-	_CloudDocuments="$_home/Dropbox"
-	_CloudData="$_CloudDocuments/data"
-	_UserData="$_home/Documents/data"
+	_cloud="$_home/Dropbox"
+	_udata="$_home/Documents/data"
 }
 
 FindInfoCommand()
@@ -233,23 +212,24 @@ FindInfoCommand()
 
 GetInfo()
 {
-	infoVars=( code ao pd pp pp psm ud udata udoc uhome usm up architecture bits product version client server )
+	infoVars=( code data pd psm pp ao ud udata udoc uhome usm up architecture bits product version client server )
 
 	GetDirs || return
 
-	code="$_Code"
+	code="$_code"
+	data="$_data"
 
 	pd="$_pub/Desktop"
+	psm="$_PublicStartMenu"
 	pp="$_PublicStartMenu/Programs"
 	ao="$pp/Applications/Other"
-	psm="$_PublicStartMenu"
 
-	ud="$_UserDesktop"
-	udata="$_UserData"
+	ud="$_home/Desktop"
+	udata="$_udata"
 	udoc="$_home/Documents"
 	uhome="$_home"
 	usm="$_UserStartMenu"
-	up="$_UserPrograms"
+	up="$_UserStartMenu/Programs"
 
 	local r="/proc/registry/HKEY_LOCAL_MACHINE/Software/Microsoft/Windows NT/CurrentVersion"
 	architecture=$(OsArchitecture)

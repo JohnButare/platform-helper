@@ -3,7 +3,7 @@
 
 set -a # PLATFORM DATA BIN UDATA UBIN ROOT P PUB USERS USER HOME DOC
 LANG="en_US" G="" # GNU Core Utils
-ROOT="/" CODE="$ROOT/Projects"
+ROOT="" CODE="$ROOT/Projects"
 USERS="/Users" 
 case "$(uname)" in 
 	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USER="$USERNAME" P32="$ROOT/Program Files (x86)" P64="$ROOT/Program Files" P="$P64"
