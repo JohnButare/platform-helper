@@ -1,17 +1,17 @@
 # $bin/bash.bashrc, system-wide login initialization for all users and public scripts, 
 # executed by /etc/bash.bashrc
 
-set -a
-LANG="en_US" USERS="/Users" ROOT="/" G="" # GNU Core Utils
+set -a # PLATFORM DATA BIN UDATA UBIN ROOT P PUB USERS USER HOME DOC
+LANG="en_US" G="" # GNU Core Utils
+ROOT="/" CODE="$ROOT/Projects"
+USERS="/Users" 
 case "$(uname)" in 
-	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USER="$USERNAME"
-		[[ -d "/cygdrive/d/users" ]] && USERS="/cygdrive/d/users" || USERS="$ROOT/users";
-		P32="$ROOT/Program Files (x86)" P64="$ROOT/Program Files" P="$P64";;
+	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USER="$USERNAME" P32="$ROOT/Program Files (x86)" P64="$ROOT/Program Files" P="$P64"
+		[[ -d "/cygdrive/d/users" ]] && USERS="/cygdrive/d/users" || USERS="$ROOT/users";;
 	Darwin)	PLATFORM="mac" P="/Applications"; P32="$P" P64="$P" G="g";;
-	Linux) PLATFORM="linux";; 
+	Linux) PLATFORM="linux" P="/opt"; P32="$P" P64="$P";; 
 esac
 PUB="$USERS/Public" DATA="/usr/local/data" BIN="$DATA/bin" 
-CODE="$ROOT/Projects"
 DOC="$HOME/Documents" UDATA="$DOC/data" UBIN="$UDATA/bin"
 set +a
 

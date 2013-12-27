@@ -74,11 +74,10 @@ FindDirsCommand()
 
 FindDirsInit()
 {
-	dirVars=(_sys _data _windows _users _system _system32 _system64 _programs _programs32 _programs64 \
-	 _PublicHome _PublicDocuments _PublicData _PublicBin _PublicDesktop _PublicStartMenu _PuplicPrograms\
-	 _user _UserFolders _UserHome _UserSysHome _UserDocuments _UserData _UserBin _UserDesktop _UserStartMenu _UserPrograms
-	 _CloudDocuments _CloudData 
-	 _ProgramData _ApplicationData _Code )
+	dirVars=(_sys _data _windows _users _etc _programs _programs32 _programs64 \
+	 _pub _PublicStartMenu _PuplicPrograms\
+	 _user _UserFolders _home _UserSysHome _UserData _UserDesktop _UserStartMenu _UserPrograms
+	 _CloudDocuments _CloudData _ProgramData _ApplicationData _Code )
 
 	for var in "${dirVars[@]}"; do unset $var; done
 
@@ -145,19 +144,19 @@ GetDirs()
 		
 	elif [[ "$host" == @(nas|nas.hagerman.butare.net|butare.net) ]]; then # nas
 		_sys=""; _data=""; 
-		[[ "$host" == @(nas|nas.hagerman.butare.net) ]] && _PublicHome="//$host/public" || _PublicHome="//$host@ssl@5006/DavWWWRoot/public"
+		[[ "$host" == @(nas|nas.hagerman.butare.net) ]] && _pub="//$host/public" || _pub="//$host@ssl@5006/DavWWWRoot/public"
 		SetCommonPublicDirs || return
 		
-		[[ "$host" == @(nas|nas.hagerman.butare.net) ]] && _UserHome="//$host/home" || _UserHome="//$host@ssl@5006/DavWWWRoot/home"
-		_UserFound="$_user"; _UserSysHome="$_UserHome"; _UserDocuments="$_UserHome/documents"
+		[[ "$host" == @(nas|nas.hagerman.butare.net) ]] && _home="//$host/home" || _home="//$host@ssl@5006/DavWWWRoot/home"
+		_UserFound="$_user" _UserSysHome="$_home"
 		SetCommonUserDirs || return
 
 	elif [[ "$host" == @(dfs) ]]; then
-		_sys=""; _data=""; 	_PublicHome="//amr.corp.intel.com/corpsvcs/CS-PROD/installdev/public"
+		_sys=""; _data=""; 	_pub="//amr.corp.intel.com/corpsvcs/CS-PROD/installdev/public"
 		SetCommonPublicDirs || return	
 
 	elif [[ "$host" == @(cr) ]]; then 
-		_sys=""; _data=""; 	_PublicHome="//VMSPFSFSCR02.cr.intel.com/CsisInstall/public"
+		_sys=""; _data=""; 	_pub"//VMSPFSFSCR02.cr.intel.com/CsisInstall/public"
 		SetCommonPublicDirs || return	
 
 	elif [[ -d "//$host/c$" ]]; then # host with Administrator access
@@ -167,7 +166,7 @@ GetDirs()
 		FindDirsWorker || return
 
 	elif [[ -d "//$host/public" ]]; then  # hosts with public share
-		_sys=""; _data=""; _PublicHome="//$host/public"
+		_sys=""; _data=""; _pub="//$host/public"
 		SetCommonPublicDirs || return
 		
 	else
@@ -184,9 +183,7 @@ FindDirsWorker()
 	_programs32="$_sys/Program Files (x86)"
 	_programs64="$_sys/Program Files"
 	_programs="$_programs64"
- 	_system32="$_windows/SysWow64"
-	_system64="$_windows/system32"
-	_system="$_system64"
+	_etc="$ROOT/Windows/system32/drivers/etc"
 	_ProgramData="$_sys/ProgramData"
 
 	_Code="$_sys/Projects"
@@ -194,16 +191,13 @@ FindDirsWorker()
 	_users="$_data/Users"
 
 	# public
-	_PublicHome="$_users/Public"
+	_pub="$_users/Public"
 	SetCommonPublicDirs
 	_PublicStartMenu="$_ProgramData/Microsoft/Windows/Start Menu"
-	_PublicPrograms="$_PublicStartMenu/Programs"
-	_PublicDesktop="$_PublicHome/Desktop"
 
 	# user	
-	_UserHome="$_data/$(GetFileName "$_users")/$_user"
+	_home="$_data/$(GetFileName "$_users")/$_user"
 	_UserSysHome="$_sys/$(GetFileName "$_users")/$_user"
-	_UserDocuments="$_UserHome/Documents"
 	_ApplicationData="$_UserSysHome/AppData/Roaming"
 
 	if [[ "$_user" == "Public" ]]; then
@@ -214,24 +208,21 @@ FindDirsWorker()
 	fi
 
 	SetCommonUserDirs
-	_UserDesktop="$_UserHome/Desktop"
+	_UserDesktop="$_home/Desktop"
 	_UserStartMenu="$_ApplicationData/Microsoft/Windows/Start Menu"
 	_UserPrograms="$_UserStartMenu/Programs"
 }
 
 SetCommonPublicDirs()
 {
-	_PublicDocuments="$_PublicHome/documents"
-	_PublicData="$_PublicDocuments/data"
-	_PublicBin="$_PublicData/bin"
+	:
 }
 
 SetCommonUserDirs()
 {
-	_CloudDocuments="$_UserHome/Dropbox"
+	_CloudDocuments="$_home/Dropbox"
 	_CloudData="$_CloudDocuments/data"
-	_UserData="$_UserDocuments/data"
-	_UserBin="$_UserData/bin"
+	_UserData="$_home/Documents/data"
 }
 
 FindInfoCommand()
@@ -242,23 +233,21 @@ FindInfoCommand()
 
 GetInfo()
 {
-	infoVars=( code ao pd pdata pdoc pp pp psm ud udata udoc uhome usm up architecture bits product version client server )
+	infoVars=( code ao pd pp pp psm ud udata udoc uhome usm up architecture bits product version client server )
 
 	GetDirs || return
 
 	code="$_Code"
 
-	ao="$_PublicPrograms/Applications/Other"
-	pd="$_PublicDesktop"
-	pdata="$_PublicData"
-	pdoc="$_PublicDocuments"
-	pp="$_PublicPrograms"
+	pd="$_pub/Desktop"
+	pp="$_PublicStartMenu/Programs"
+	ao="$pp/Applications/Other"
 	psm="$_PublicStartMenu"
 
 	ud="$_UserDesktop"
 	udata="$_UserData"
-	udoc="$_UserDocuments"
-	uhome="$_UserHome"
+	udoc="$_home/Documents"
+	uhome="$_home"
 	usm="$_UserStartMenu"
 	up="$_UserPrograms"
 
