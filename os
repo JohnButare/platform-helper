@@ -74,17 +74,11 @@ FindDirsCommand()
 
 FindDirsInit()
 {
-	dirVars=(_platform _data _windows _users _etc \
+	dirVars=(_platform _root _DataDrive _data _windows _users _etc \
 	 _pub _PublicStartMenu _ApplicationData _code \
 	 _user _UserFolders _home _UserSysHome _udata _UserStartMenu _cloud )
 
 	for var in "${dirVars[@]}"; do unset $var; done
-
-	_platform="$PLATFORM" _root="" _data="" _user="$USER"
-	if [[ "$_platform" == "win" ]]; then
-		_root="$(wtu "$SYSTEMDRIVE")"	
-		[[ -d /cygdrive/d/users ]] && _data="/cygdrive/d" || _data="$_root"
-	fi
 }
 
 FindDirsUsage()
@@ -118,7 +112,7 @@ FindDirsArgs()
 				if [[ ! $host ]]; then
 					if [[ "$1" =~ / ]]; then
 						[[ ! -d "$1" ]] && { EchoErr "Directory $1 does not exist"; return 1; }
-						host="$1"; _root="$1"; _data="$1"; shift; continue;
+						host="$1"; _root="$1"; _DataDrive="$1"; shift; continue;
 					fi
 					host="$1"; shift; continue;
 				fi
@@ -134,35 +128,39 @@ FindDirsArgs()
 
 GetDirs()
 {	
-	# Alternatively use leverage cygpath -F, see http://www.installmate.com/support/im9/using/symbols/functions/csidls.htm
-
 	FindDirsInit || return
 
 	if [[ ! $host ]]; then # local
+		_platform="$PLATFORM" _data="$DATA" _user="$USER"
+		if [[ "$_platform" == "win" ]]; then
+			_root="$(wtu "$SYSTEMDRIVE")"	
+			[[ -d /cygdrive/d/users ]] && _DataDrive="/cygdrive/d" || _DataDrive="$_root"
+		fi
 		FindDirsWorker || return
 		
 	elif [[ "$host" == @(nas|nas.hagerman.butare.net) ]]; then # nas
-		_root="" _data="" _pub="//$host/public" _home="//$host/home" 
-		_UserSysHome="$_home"; SetCommonUserDirs || return
+		_pub="//$host/public" _home="//$host/home" _UserSysHome="$_home"; SetCommonUserDirs
 
 	elif [[ "$host" == @(butare.net) ]]; then # nas
-		_root="" _data="" _pub="//$host@ssl@5006/DavWWWRoot/public" _home="//$host@ssl@5006/DavWWWRoot/home"
-		_UserSysHome="$_home"; SetCommonUserDirs || return
+		_pub="//$host@ssl@5006/DavWWWRoot/public" _home="//$host@ssl@5006/DavWWWRoot/home"
+		_UserSysHome="$_home"; SetCommonUserDirs
 
 	elif [[ "$host" == @(dfs) ]]; then
-		_root""; _data=""; _pub="//amr.corp.intel.com/corpsvcs/CS-PROD/installdev/public"
+		_pub="//amr.corp.intel.com/corpsvcs/CS-PROD/installdev/public"
 
 	elif [[ "$host" == @(cr) ]]; then 
-		_root""; _data=""; _pub"//VMSPFSFSCR02.cr.intel.com/CsisInstall/public"
+		_pub"//VMSPFSFSCR02.cr.intel.com/CsisInstall/public"
 
 	elif [[ -d "//$host/c$" ]]; then # host with Administrator access
-		_root="//$host/c$"; _data="//$host/c$"
-		[[ -d "//$host/d$/Users" ]] && _data="//$host/d$" || 
-			{ [[ -d "$_data/Users" ]] || { EchoErr "os: unable to locate the Users folder on $host"; return 1; }; }
+		_root="//$host/c$"; _DataDrive="//$host/c$"
+		[[ -d "//$host/d$/Users" ]] && _DataDrive="//$host/d$" || 
+			{ [[ -d "$_DataDrive/Users" ]] || { EchoErr "os: unable to locate the Users folder on $host"; return 1; }; }
 		FindDirsWorker || return
+		_data="$_pub/Documents/data"
 
 	elif [[ -d "//$host/public" ]]; then  # hosts with public share
-		_root=""; _data=""; _pub="//$host/public"
+		_pub="//$host/public"
+		_data="$_pub/Documents/data"
 		
 	else
 		EchoErr "Unable to find os directories on $host"
@@ -174,10 +172,10 @@ GetDirs()
 FindDirsWorker()
 {
 	_code="$_root/Projects"
-	_users="$_data/Users"
+	_users="$_DataDrive/Users"
 	_pub="$_users/Shared"
 	_etc="$_root/etc"
-	_home="$_data/Users/$_user"
+	_home="$_DataDrive/Users/$_user"
 	_UserSysHome="$_root/Users/$_user"
 
 	case "$_platform" in
@@ -231,14 +229,19 @@ GetInfo()
 	usm="$_UserStartMenu"
 	up="$_UserStartMenu/Programs"
 
-	local r="/proc/registry/HKEY_LOCAL_MACHINE/Software/Microsoft/Windows NT/CurrentVersion"
-	architecture=$(OsArchitecture)
-	bits=64; [[ "$architecture" == "x86" ]] && bits=32;
-	product=$(<"$r/ProductName")
-	version=$(<"$r/CurrentVersion")
-	client=; [[ -f "$r/InstallationType" && $(<"$r/InstallationType") == "client" ]] && client="true"
-	server=; [[ ! $client ]] && server="true"
+	architecture="x64" bits=64 
+	client="true"
 
+	if [[ "$_platform" == "win" ]]; then
+		local r="/proc/registry/HKEY_LOCAL_MACHINE/Software/Microsoft/Windows NT/CurrentVersion"
+		architecture=$(OsArchitecture)
+		[[ "$architecture" == "x86" ]] && bits=32;
+		product=$(<"$r/ProductName")
+		version=$(<"$r/CurrentVersion")
+		client=; [[ -f "$r/InstallationType" && $(<"$r/InstallationType") == "client" ]] && client="true"
+	fi
+
+	server=; [[ ! $client ]] && server="true"
 	return 0
 }
 
