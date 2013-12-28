@@ -289,8 +289,9 @@ UserVideos() { cygpath -F 14; }
 # network
 #
 
-GetIpAddress() { [[ ! $1 ]] && GetPrimaryIpAddress; IsIpAddress "$1" && { echo "$1"; return; }; GetIpAddressByPing "$1"; }
-GetIpAddressWin() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
+GetIpAddress() { [[ ! $1 ]] && GetPrimaryIpAddress; IsIpAddress "$1" && { echo "$1"; return; }; GetIpAddressWin "$1"; }
+GetIpAddressWin() { ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
+GetIpAddressOther() { ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
 
 # Doc to Network Notes
 # mac host (DNS only), ping -c 1 -t 1 (1 second timeout)
