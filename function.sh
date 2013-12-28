@@ -338,7 +338,7 @@ printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf
 # platform
 #
 
-IsMobile() { [[ "$(host info "$COMPUTERNAME" mobile)" == "yes" ]]; }
+IsMobile() { [[ "$(HostInfo info "$COMPUTERNAME" mobile)" == "yes" ]]; }
 IsVm() { [[ ! vmchk > /dev/null ]]; }
 OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
 

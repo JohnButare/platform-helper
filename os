@@ -121,7 +121,7 @@ FindDirsArgs()
 		shift
 	done
 	if [[ $host && ! "$host" =~ / && ! $noHostCheck ]]; then	
-		! host available "$host" && { EchoErr "Host $host is not available"; return 1; }
+		! HostUtil available "$host" && { EchoErr "Host $host is not available"; return 1; }
 	fi
 	args=("$@")
 }
