@@ -29,7 +29,8 @@ r() { [[ $# == 1 ]] && echo "$1" || eval "$2="\'"$1"\'; } # result <value> <var>
 #
 
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
-IsShellScript() { file "$1" | egrep "bash script|shell script" >& /dev/null; }
+alias FilterShellScript='egrep "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"'
+IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
 IsOption() { [[ "$1" =~ ^-.* ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 UnknownOption() {	EchoErr "$(ScriptName): unknown option \`$1\`"; EchoErr "Try \`$(ScriptName) --help\` for more information";	exit 1; }
@@ -64,7 +65,6 @@ CheckSubCommand()
 } 
 
 ScriptName() { GetFileName $0; }
-ScriptDir() { echo "$(GetFilePath "$(FindInPath "$(wtu "$0")")")"; } # handle scripts started with partial paths or from Windows
 ScriptCd() { local dir; dir="$("$@")" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
 ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b", does not work with aliases
 
@@ -289,11 +289,15 @@ UserVideos() { cygpath -F 14; }
 # network
 #
 
-# IpAddress <host> - perform IP Address lookup using ping (Windows NodeType resolution) or Dns (dynamic registration can be out of sync)
-# GetIpAddress() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ip="$(GetIpAddressByDns "$1")"; [[ $ip ]] && echo "$ip" || GetIpAddressByPing "$1"; }
 GetIpAddress() { [[ ! $1 ]] && GetPrimaryIpAddress; IsIpAddress "$1" && { echo "$1"; return; }; GetIpAddressByPing "$1"; }
-GetIpAddressByPing() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
-GetIpAddressByDns() { IsIpAddress "$1" && echo "$1"; nslookup -srchlist=amr.corp.intel.com/hagerman.butare.net -timeout=1 "$1" |& grep "Address:" | tail -n +2 | cut -d" " -f 3; return ${PIPESTATUS[1]}; }
+GetIpAddressWin() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
+
+# Doc to Network Notes
+# mac host (DNS only), ping -c 1 -t 1 (1 second timeout)
+# ping (Windows NodeType) DNS (dynamic DNS registrations can be out of sync)
+# GetIpAddressWinDns() { IsIpAddress "$1" && echo "$1"; nslookup -srchlist=amr.corp.intel.com/hagerman.butare.net -timeout=1 "$1" |& grep "Address:" | tail -n +2 | cut -d" " -f 3; return ${PIPESTATUS[1]}; }
+# GetIpAddressByWinPing() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
+
 GetPrimaryIpAddress() { local ip="$(ipconfig | grep "   IPv4 Address" | head -n 1 | cut -d: -f2)"; echo "${ip// /}"; } # alternatively use route print
 IsInDomain() { [[ "$USERDOMAIN" != "$COMPUTERNAME" ]]; }
 
