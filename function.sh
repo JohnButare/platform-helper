@@ -289,16 +289,8 @@ UserVideos() { cygpath -F 14; }
 # network
 #
 
-GetIpAddress() { [[ ! $1 ]] && GetPrimaryIpAddress; IsIpAddress "$1" && { echo "$1"; return; }; GetIpAddressWin "$1"; }
+GetIpAddress() { [[ ! $1 ]] && { GetPrimaryIpAddress; return; }; IsIpAddress "$1" && { echo "$1"; return; }; GetIpAddressWin "$1"; } # GetIpAddress [HOST]
 GetIpAddressWin() { ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
-GetIpAddressOther() { ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
-
-# Doc to Network Notes
-# mac host (DNS only), ping -c 1 -t 1 (1 second timeout)
-# ping (Windows NodeType) DNS (dynamic DNS registrations can be out of sync)
-# GetIpAddressWinDns() { IsIpAddress "$1" && echo "$1"; nslookup -srchlist=amr.corp.intel.com/hagerman.butare.net -timeout=1 "$1" |& grep "Address:" | tail -n +2 | cut -d" " -f 3; return ${PIPESTATUS[1]}; }
-# GetIpAddressByWinPing() { [[ ! $1 ]] && return 1; IsIpAddress "$1" && { echo "$1"; return; }; ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
-
 GetPrimaryIpAddress() { local ip="$(ipconfig | grep "   IPv4 Address" | head -n 1 | cut -d: -f2)"; echo "${ip// /}"; } # alternatively use route print
 IsInDomain() { [[ "$USERDOMAIN" != "$COMPUTERNAME" ]]; }
 
