@@ -18,11 +18,11 @@ shopt -s nocasematch extglob
 EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of the variable in variable, or set it to var
 IsInteractive() { [[ "$-" == *i* ]]; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
-clipw() { echo -n "$1" > /dev/clipboard; }
-clipr() { cat /dev/clipboard; }
+clipw() { case "$PLATFORM" in "mac") echo -n "$1" | pbcopy;; "win") echo -n "$1" > /dev/clipboard;; esac; }
+clipr() { case "$PLATFORM" in "mac") pbpaste;; "win") cat /dev/clipboard;; esac; }
 EchoErr() { echo "$@" > /dev/stderr; }
 PrintErr() { printf "$@" > /dev/stderr; }
-r() { [[ $# == 1 ]] && echo "$1" || eval "$2="\'"$1"\'; } # result <value> <var> - echo value or set var to value (faster)
+r() { [[ $# == 1 ]] && echo "$1" || eval "$2="\'"$1"\'; } # result VALUE VAR - echo value or set var to value (faster)
 
 #
 # scripts
@@ -96,6 +96,8 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 
 # path: realpath, cygpath
 FindInPath() { type -P "${1}"; }
+fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
+pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; fpc "$(utw "$arg")"; } # full path to clipboard in platform specific format
 GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { r "${1##*/}" $2; }
@@ -289,13 +291,20 @@ UserVideos() { cygpath -F 14; }
 # network
 #
 
-GetIpAddress() { [[ ! $1 ]] && { GetPrimaryIpAddress; return; }; IsIpAddress "$1" && { echo "$1"; return; }; GetIpAddressWin "$1"; } # GetIpAddress [HOST]
-GetIpAddressWin() { ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}; }
 GetPrimaryIpAddress() { local ip="$(ipconfig | grep "   IPv4 Address" | head -n 1 | cut -d: -f2)"; echo "${ip// /}"; } # alternatively use route print
 IsInDomain() { [[ "$USERDOMAIN" != "$COMPUTERNAME" ]]; }
 
-# IsIpAddress <string>
-IsIpAddress()
+GetIpAddress() # [HOST]
+{
+	[[ ! $1 ]] && { GetPrimaryIpAddress; return; }
+	IsIpAddress "$1" && { echo "$1"; return; }
+	case "$PLATFORM" in
+		mac) host "$1" | grep "has address" | cut -d" " -f 4; return ${PIPESTATUS[0]};;
+		win) ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]};;
+	esac
+}
+
+IsIpAddress() # IP
 {
   local ip="$1"
   [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && return 1
@@ -303,20 +312,23 @@ IsIpAddress()
   (( ${ip[0]}<255 && ${ip[1]}<255 && ${ip[2]}<255 && ${ip[3]}<255 ))
 }
 
-# PingResponse <host> [<timeout>](200) - ping response time in milliseconds
-PingResponse() 
+PingResponse() # HOST [TIMEOUT](200) - ping response time in milliseconds
 { 
 	local host="$1" timeout="${2-200}"
-	ping -n 1 -w "$timeout" "$host" | grep "^Reply from " | cut -d" " -f 5 | tr -d 'time=<ms';
-	return ${PIPESTATUS[1]}
+	case "$PLATFORM" in
+		mac) fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('; return ${PIPESTATUS[0]};;
+		win) ping -n 1 -w "$timeout" "$host" | grep "^Reply from " | cut -d" " -f 5 | tr -d 'time=<ms'; return ${PIPESTATUS[1]};;
+	esac
 }
 
-# ConnectToPort <host> <port> [<timeout>](200)
-ConnectToPort()
+ConnectToPort() # ConnectToPort HOST PORT [TIMEOUT](200)
 {
 	local ip="$1" port="$2" timeout="${3-200}"
-	! IsIpAddress "$ip" && ip="$(GetIpAddress $ip)"
-	chkport-ip.exe "$ip" "$port" "$timeout" >& /dev/null
+	! IsIpAddress "$ip" && { ip="$(GetIpAddress $ip)" || return; }
+	case "$PLATFORM" in
+		mac) echo | ncat -C "$ip" "$port" >& /dev/null;;
+		win) chkport-ip.exe "$ip" "$port" "$timeout" >& /dev/null;;
+	esac
 }
 
 #
