@@ -291,8 +291,15 @@ UserVideos() { cygpath -F 14; }
 # network
 #
 
-GetPrimaryIpAddress() { local ip="$(ipconfig | grep "   IPv4 Address" | head -n 1 | cut -d: -f2)"; echo "${ip// /}"; } # alternatively use route print
 IsInDomain() { [[ "$USERDOMAIN" != "$COMPUTERNAME" ]]; }
+
+GetPrimaryIpAddress() # INTERFACE
+{
+	case "$PLATFORM" in
+		mac) ifconfig $1 | grep inet | egrep -v 'inet6|127.0.0.1' | head -n 1 | cut -d" " -f 2;; 
+		win) ipconfig | grep "   IPv4 Address" | head -n 1 | cut -d: -f2 | tr -d " ";; 
+	esac
+}
 
 GetIpAddress() # [HOST]
 {
@@ -323,11 +330,12 @@ PingResponse() # HOST [TIMEOUT](200) - ping response time in milliseconds
 
 ConnectToPort() # ConnectToPort HOST PORT [TIMEOUT](200)
 {
-	local ip="$1" port="$2" timeout="${3-200}"
-	! IsIpAddress "$ip" && { ip="$(GetIpAddress $ip)" || return; }
+	local host="$1" port="$2" timeout="${3-200}"
 	case "$PLATFORM" in
-		mac) echo | ncat -C "$ip" "$port" >& /dev/null;;
-		win) chkport-ip.exe "$ip" "$port" "$timeout" >& /dev/null;;
+		mac) echo | ncat -C "$host" "$port" >& /dev/null;;
+		win) 
+			! IsIpAddress "$host" && { host="$(GetIpAddress $host)" || return; }
+			chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null;;
 	esac
 }
 

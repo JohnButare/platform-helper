@@ -85,46 +85,59 @@ availableCommand()
 	return 1
 }
 
-AvailableCheck() { checkHost $host ${timeout[1]}; }
+AvailableCheck() { CheckHost $host ${timeout[1]}; }
 AvailableReturn() { [[ $eval ]] && ScriptReturn pingTime; }
 
-# checkHost <host> <timeout> - minimize the time taken if the hostname is not found, or if the hostname is found and the host is not available
-checkHost()
+# CheckHost HOST TIMEOUT, sets pingTime - check if HOST is available minimizing the time taken
+#	if the hostname is not found, or if the hostname is found and the host is not available
+CheckHost()
 {
 	local host="$1" timeout="$2" timeoutIncrease=0 ip port platform
 	unset pingTime 
-
-	if IsIpAddress "$host"; then
-		ip="$host"
-	elif ScriptEval HostUtil info $host && [[ "$network" == "Wiggin" ]]; then
-		ip="${ips[0]}"
-	fi
 
 	case "$host" in
 		ExampleHostNeedingExtraPingTime) timeoutIncrease=200;;
 	esac
 	(( timeout += $timeoutIncrease ))
 
+	if ! IsIpAddress "$host" && ScriptEval HostUtil info $host && [[ "$network" == "Wiggin" ]]; then
+		host="${ips[0]}"
+	fi
+
 	# Mac's respond to ping when asleep if any sharing services are enabled
 	{ ! IsInteger "$port" && [[ "$platform" == "mac" ]] ; } && port=88
+	CheckHost${PLATFORM^}  # uses host ip timeout, sets pingTime
+}
+
+CheckHostMac()
+{
+	if IsInteger "$port"; then
+		! ConnectToPort $host $port $timeout && return 1
+		[[ ! $eval ]] && return 0
+	fi
+	pingTime="$(PingResponse $host $timeout)"
+}
+
+CheckHostWin()
+{
+	local pingResult
 
 	if IsInteger "$port"; then
-		[[ ! $ip ]] && { ip=$(GetIpAddress $host) || return; }
-		ConnectToPort $ip $port $(( timeout * 2 )) || return 1
-		[[ $eval ]] && DoPing "$ip"
+		ConnectToPort $host $port $(( timeout * 2 )) || return 1
+		[[ $eval ]] && PingWin "$host"
 	else
 		# two checks increase reliability over a shorter timeout
 		local pingHost="$host" result; [[ $ip ]] && pingHost="$ip"	
-		DoPing "$pingHost"; [[ "$pingResult" == "Request timed out." ]] && DoPing "$pingHost" 
+		PingWin "$pingHost"; [[ "$pingResult" == "Request timed out." ]] && PingWin "$pingHost" 
 		[[ "$pingResult" == @(|Request timed out.) ]] && return 1
 	fi
 	return 0
 }
 
-function DoPing() # DoPing HOST
+PingWin()
 {
 	local timeoutCheck="^Request timed out.$" successCheck="^Reply from .*time(=|<).*$" 
-	pingResult="$(ping -n 1 -w $timeout $1 |& egrep "$timeoutCheck|$successCheck")"
+	pingResult="$(ping -n 1 -w $timeout $host |& egrep "$timeoutCheck|$successCheck")"
 	pingTime="${pingResult#*time@(=|<)}"; pingTime="${pingTime%ms *}"
 }
 
