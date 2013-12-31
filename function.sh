@@ -105,7 +105,9 @@ GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${g
 GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
 GetFullPath() { local gfp="$(cygpath -a "$1")" || return; r "$gfp" $2; }
 GetDriveLabel() { local gdl="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; r "${gdl## Volume in drive ? is }" $2; }
-GetUncServer() { local gus="${1#*( )//}"; r "${gus%%/*}" $2; } # get server from a UNC file
+GetUncServer() { local gus="${1#*( )//}"; r "${gus%%/*}" $2; } # //SERVER/SHARE/DIRS
+GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
+GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 wtu() { cygpath -u "$*"; } # WinToUnix
@@ -337,6 +339,33 @@ ConnectToPort() # ConnectToPort HOST PORT [TIMEOUT](200)
 			! IsIpAddress "$host" && { host="$(GetIpAddress $host)" || return; }
 			chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null;;
 	esac
+}
+
+IsUncMounted() # IsUncMounted UNC -> DIR 
+{
+	local unc="$1"; [[ "$PLATFORM" == "win" ]] && return "$unc"
+	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
+	local node="$(mount | egrep "^//$USER@${server%%.*}.*/$share" | cut -d" " -f 3)"
+	[[ ! $node ]] && return 1; [[ $dirs ]] && echo "$node/$dirs" || echo "$node"
+}
+
+MountUnc()
+{
+	local noHostCheck; [[ "$1" == "--no-host-check" ]] && { noHostCheck="true"; shift; }
+	local unc="$1"; [[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
+	local dir; dir="$(IsUncMounted "$unc")" && { echo "$dir"; return 0; }
+	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
+	{ [[ ! $noHostCheck ]] && ! HostUtil available "$server"; } && return 1
+	osascript -e "try" -e "mount volume \"smb://$server/$share\"" -e "end try" >& /dev/null || return
+	IsUncMounted "$unc"	
+}
+
+UnMountUnc()
+{
+	local unc="$1"; [[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
+	local server share; GetUncServer "$unc" server; GetUncShare "$unc" share
+	local dir; dir="$(IsUncMounted "//$server/$share")" || return 0
+	GetFileName "$dir" dir; osascript -e "tell application \"Finder\"" -e "eject \"$dir\"" -e "end tell"
 }
 
 #
