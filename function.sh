@@ -106,6 +106,7 @@ GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* 
 GetFullPath() { local gfp="$(cygpath -a "$1")" || return; r "$gfp" $2; }
 GetDriveLabel() { local gdl="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; r "${gdl## Volume in drive ? is }" $2; }
 HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
+IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 
 wtu() { cygpath -u "$*"; } # WinToUnix
@@ -409,8 +410,10 @@ OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo
 IsElevated() { [[ "$PLATFORM" == "win" ]] && IsElevated.exe > /dev/null || whoami | grep root; }
 SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 
-# start [-d|--direct] [OPTION...] <program> <arguments> - start a Windows program
+# start [--direct|--files] [OPTION...] <program> <arguments> - start a Windows program
 # --direct		start the program directly without using cygstart (which is for ShellRun API), usually for console programs
+# --files 		assume arguments which match files the current directory are files, not arguments
+# OPTION  		start arguments
 start() 
 {
 	if [[ "$PLATFORM" == "mac" ]]; then
@@ -418,12 +421,13 @@ start()
 		return
 	fi
 
-	local direct; [[ "$1" == @(-d|--direct) ]] && { direct="true"; shift; }
+	local direct; [[ "$1" == @(--direct) ]] && { direct="true"; shift; }
+	local files; [[ "$1" == @(--files) ]] && { files="true"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
 	local program="$1" args=( "${@:2}" ) qargs; 
 
 	for arg in "${args[@]}"; do 
-		[[ ! "$arg" =~ .*\\.* && "$arg" =~ .*/.* && -e "$arg" ]] && { arg="$(utw "$arg")"; } # convert POSIX path to Windows format
+		[[ ( ! "$arg" =~ .*\\.* && "$arg" =~ .*/.* && -e "$arg" ) || ( $files && -e "$arg" ) ]] && { arg="$(utw "$arg")"; } # convert POSIX path to Windows format
 		[[ ! $direct && "$arg" =~ ( ) ]] && qargs+=( "\"$arg\"" ) || qargs+=( "$arg" ); # cygstart requires arguments with spaces be quoted
 	done
 	
@@ -541,7 +545,7 @@ TextEdit()
 	for file in "$@"; do
 		[[ -f "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"
 	done
-	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then { start "${options[@]}" "$p" "${files[@]}"; $wait; } else return 1; fi
+	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then { start --files "${options[@]}" "$p" "${files[@]}"; $wait; } else return 1; fi
 }
 
 VimHelp() { echot "VIM: http://www.lagmonster.org/docs/vi.html

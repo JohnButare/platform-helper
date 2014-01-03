@@ -76,7 +76,7 @@ FindDirsInit()
 {
 	dirVars=(_platform _root _DataDrive _data _windows _users _etc \
 	 _pub _PublicStartMenu _ApplicationData _code \
-	 _user _UserFolders _home _UserSysHome _udata _UserStartMenu _cloud )
+	 _user _UserFolders _home _SysHome _udata _ubin _UserStartMenu _cloud )
 
 	for var in "${dirVars[@]}"; do unset $var; done
 }
@@ -129,9 +129,11 @@ FindDirsArgs()
 GetDirs()
 {	
 	FindDirsInit || return
+	
+	_user="$USER" _platform="win"
 
 	if [[ ! $host ]]; then # local
-		_platform="$PLATFORM" _data="$DATA" _user="$USER"
+		_platform="$PLATFORM" _data="$DATA"
 		if [[ "$_platform" == "win" ]]; then
 			_root="$(wtu "$SYSTEMDRIVE")"	
 			[[ -d /cygdrive/d/users ]] && _DataDrive="/cygdrive/d" || _DataDrive="$_root"
@@ -139,11 +141,11 @@ GetDirs()
 		FindDirsWorker || return
 		
 	elif [[ "$host" == @(nas|nas.hagerman.butare.net) ]]; then # nas
-		_pub="//$host/public" _home="//$host/home" _UserSysHome="$_home"; SetCommonUserDirs
+		_pub="//$host/public" _home="//$host/home" _SysHome="$_home"; SetCommonUserDirs
 
 	elif [[ "$host" == @(butare.net) ]]; then # nas
 		_pub="//$host@ssl@5006/DavWWWRoot/public" _home="//$host@ssl@5006/DavWWWRoot/home"
-		_UserSysHome="$_home"; SetCommonUserDirs
+		_SysHome="$_home"; SetCommonUserDirs
 
 	elif [[ "$host" == @(dfs) ]]; then
 		_pub="//amr.corp.intel.com/corpsvcs/CS-PROD/installdev/public"
@@ -176,14 +178,14 @@ FindDirsWorker()
 	_pub="$_users/Shared"
 	_etc="$_root/etc"
 	_home="$_DataDrive/Users/$_user"
-	_UserSysHome="$_root/Users/$_user"
+	_SysHome="$_root/Users/$_user"
 
 	case "$_platform" in
 		mac)
 			_ApplicationData="$_home/Library/Application Support"
 			_UserFolders=( Desktop Documents Downloads Dropbox Movies Music Pictures Public sync );;
 		win)
-			_ApplicationData="$_UserSysHome/AppData/Roaming"
+			_ApplicationData="$_SysHome/AppData/Roaming"
 			_etc="$_root/Windows/system32/drivers/etc"
 			_pub="$_users/Public"
 			_PublicStartMenu="$_root/ProgramData/Microsoft/Windows/Start Menu"
@@ -200,6 +202,7 @@ SetCommonUserDirs()
 {
 	_cloud="$_home/Dropbox"
 	_udata="$_home/Documents/data"
+	_ubin="$_udata/bin"
 }
 
 FindInfoCommand()
@@ -210,12 +213,9 @@ FindInfoCommand()
 
 GetInfo()
 {
-	infoVars=( code data pd psm pp ao ud udata udoc uhome usm up architecture bits product version client server )
+	infoVars=( pd psm pp ao ud udata udoc uhome usm up architecture bits product version client server )
 
 	GetDirs || return
-
-	code="$_code"
-	data="$_data"
 
 	pd="$_pub/Desktop"
 	psm="$_PublicStartMenu"
@@ -223,7 +223,6 @@ GetInfo()
 	ao="$pp/Applications/Other"
 
 	ud="$_home/Desktop"
-	udata="$_udata"
 	udoc="$_home/Documents"
 	uhome="$_home"
 	usm="$_UserStartMenu"
