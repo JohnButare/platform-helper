@@ -416,13 +416,14 @@ SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 # OPTION  		start arguments
 start() 
 {
+	local direct; [[ "$1" == @(--direct) ]] && { direct="true"; shift; }
+	local files; [[ "$1" == @(--files) ]] && { files="true"; shift; }
+
 	if [[ "$PLATFORM" == "mac" ]]; then
 		type -a "$1" >& /dev/null && "$@" || open "$@"
 		return
 	fi
 
-	local direct; [[ "$1" == @(--direct) ]] && { direct="true"; shift; }
-	local files; [[ "$1" == @(--files) ]] && { files="true"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
 	local program="$1" args=( "${@:2}" ) qargs; 
 
