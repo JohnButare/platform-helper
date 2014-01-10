@@ -97,7 +97,7 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 # path: realpath, cygpath
 FindInPath() { type -P "${1}"; }
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
-pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; fpc "$(utw "$arg")"; } # full path to clipboard in platform specific format
+pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { r "${1##*/}" $2; }

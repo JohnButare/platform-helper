@@ -151,7 +151,7 @@ GetDirs()
 		_pub="//amr.corp.intel.com/corpsvcs/CS-PROD/installdev/public"
 
 	elif [[ "$host" == @(cr) ]]; then 
-		_pub"//VMSPFSFSCR02.cr.intel.com/CsisInstall/public"
+		_pub="//VMSPFSFSCR02.cr.intel.com/CsisInstall/public"
 
 	elif [[ -d "//$host/c$" ]]; then # host with Administrator access
 		_root="//$host/c$"; _DataDrive="//$host/c$"
