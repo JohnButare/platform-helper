@@ -141,7 +141,7 @@ InstallInit()
 	firewall="${test}firewall --suppress"
 	hide="${test}FileCommand hide"
 	hideAndSystem="${test}FileCommand HideAndSystem"
-	makeDir="${test}mkdir --parents"
+	makeDir="${test}${G}mkdir --parents"
 	makeLink="${test}MakeLink --suppress"
 	makeShortcut="${test}MakeShortcut"
 	mergeDir="${test}MergeDir --suppress --parents"
@@ -149,8 +149,8 @@ InstallInit()
 	rc="${test}CopyDir"
 	registry="${test}registry"
 	ren="${test}FileCommand ren"
-	rm="${test}rm -f"
-	rmd="${test}rm -fr"
+	rm="${test}${G}rm -f"
+	rmd="${test}${G}rm -fr"
 	
 	netShareOptions=/grant:Everyone,full
 	setupFiles="$_data/setup"
@@ -249,8 +249,9 @@ RunExe()
 
 	case "$exeExt" in
 		bat|cmd) cmd /c "$exe" "$@";;
+		dmg) RunDmg "$exe" "$@" || return;;
 		msi) start --wait msiexec /i "$exe" "$@";;
-		iso) iso mount 1 "$exe"; echo "If needed run the setup program manually...";;
+		iso) iso mount 1 "$exe"; echo "If needed run the setup program manually..."; pause="--pause";;
 		zip|7z|gz|tar|xpi|ear|jar|war) RunZip "$exe" "$@" || return;;
 		*) [[ $standard ]] && sudo --standard "$exe" "$@" || start --wait "$exe" "$@";;
 	esac
@@ -262,9 +263,32 @@ RunExe()
 	esac	
 }
 
+RunDmg() { local result; DoRunDmg; result=$?; DmgCleanup; return $result; }
+DoRunDmg()
+{
+	local exe="$1"; shift
+	hdiutil mount "$exe" -mountpoint /Volumes/install -quiet || return
+	shopt -s  nullglob; local app=(/Volumes/install/*.app);  
+	[[ ! "$app" ]] && { EchoErr "inst: \"$exe\" does not contain an application"; return 1; }
+	local dir; GetFileName "$app" dir || return
+	[[ -d "/Applications/$dir" ]] && return 0
+	sudo gcp -R "app" /Applications
+}
+
+DmgCleanup() { hdiutil detach /Volumes/install -quiet || return; }
+
 RunZip()
 {
 	local exe="$1"; shift
+
+	if [[ "$PLATFORM" == "mac" ]]; then
+		local dir="$(zipinfo -1 "$exe" | head -1)"
+		if [[ "$dir" =~ ^.*app/$ ]]; then
+			[[ -d "/Applications/$dir" ]] && return 0
+			unzip "$exe" -d "/Applications"; return
+		fi
+	fi
+
 	local installDir; PrepareInstallDir "$@" || return	
 
 	7z.exe x -o"$(utw "$installDir")" "$(utw "$exe")" || return
@@ -2418,17 +2442,17 @@ TrueCryptInstall()
 	pause
 }
 
-
 f.luxInstall()
 {
 	printf "**************************************************\n* f.lux\n**************************************************\n"
-	run "Shareware/f.lux" -p "flux-setup.exe" "Flux.zip" "" || return # http://justgetflux.com/
-	
-	echo "Updating icons..."
-	$mergeDir "$pp/(dir)" "$ao" || return
-	$mergeDir "$pp/(dir)" "$pp/Development/Other" || return
-	$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
-	$rm "$pd/(prog).lnk" || return
+	run "Shareware/f.lux" -p "flux-setup.exe" "Flux.zip" "" || return # http://justgetflux.com/	
+
+	echot "\
+- Location: Search
+- Transition: Slow
+- check Start F.lux at Login"
+	[[ "$PLATFORM" == "mac" ]] && { start "/Applications/Flux.app" || return; }
+	pause
 }
 
 args "$@"; ${command}Command "${args[@]}";

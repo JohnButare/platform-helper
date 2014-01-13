@@ -109,8 +109,8 @@ HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 
-wtu() { cygpath -u "$*"; } # WinToUnix
-utw() { cygpath -aw "$*"; } # UnixToWin
+wtu() { [[ "$PLATFORM" == "win" ]] && cygpath -u "$*" || echo "$@"; } # WinToUnix
+utw() { [[ "$PLATFORM" == "win" ]] && cygpath -aw "$*" || echo "$@"; } # UnixToWin
 ptw() { echo "${1////\\}"; } # PathToWin
 
 IsUncPath() { [[ "$1" =~ //.* ]]; }
