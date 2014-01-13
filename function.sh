@@ -470,7 +470,7 @@ sudo() # sudo [command](mintty) - start a program as super user
 
 	if [[ (! $elevated && $standard) || ($elevated && ! $standard) ]]; then
 		if IsShellScript "$program"; then
-			echo "$program" "$@"
+			"$program" "$@"
 		else
 			start $direct "${cygstartOptions[@]}" "$program" "$@"
 		fi
