@@ -141,7 +141,7 @@ InstallInit()
 	firewall="${test}firewall --suppress"
 	hide="${test}FileCommand hide"
 	hideAndSystem="${test}FileCommand HideAndSystem"
-	makeDir="${test}mkdir --parents"
+	makeDir="${test}${G}mkdir --parents"
 	makeLink="${test}MakeLink --suppress"
 	makeShortcut="${test}MakeShortcut"
 	mergeDir="${test}MergeDir --suppress --parents"
@@ -149,8 +149,8 @@ InstallInit()
 	rc="${test}CopyDir"
 	registry="${test}registry"
 	ren="${test}FileCommand ren"
-	rm="${test}rm -f"
-	rmd="${test}rm -fr"
+	rm="${test}${G}rm -f"
+	rmd="${test}${G}rm -fr"
 	
 	netShareOptions=/grant:Everyone,full
 	setupFiles="$_data/setup"
@@ -249,8 +249,9 @@ RunExe()
 
 	case "$exeExt" in
 		bat|cmd) cmd /c "$exe" "$@";;
+		dmg) RunDmg "$exe" "$@" || return;;
 		msi) start --wait msiexec /i "$exe" "$@";;
-		iso) iso mount 1 "$exe"; echo "If needed run the setup program manually...";;
+		iso) iso mount 1 "$exe"; echo "If needed run the setup program manually..."; pause="--pause";;
 		zip|7z|gz|tar|xpi|ear|jar|war) RunZip "$exe" "$@" || return;;
 		*) [[ $standard ]] && sudo --standard "$exe" "$@" || start --wait "$exe" "$@";;
 	esac
@@ -262,9 +263,32 @@ RunExe()
 	esac	
 }
 
+RunDmg() { local result; DoRunDmg; result=$?; DmgCleanup; return $result; }
+DoRunDmg()
+{
+	local exe="$1"; shift
+	hdiutil mount "$exe" -mountpoint /Volumes/install -quiet || return
+	shopt -s  nullglob; local app=(/Volumes/install/*.app);  
+	[[ ! "$app" ]] && { EchoErr "inst: \"$exe\" does not contain an application"; return 1; }
+	local dir; GetFileName "$app" dir || return
+	[[ -d "/Applications/$dir" ]] && return 0
+	sudo gcp -R "app" /Applications
+}
+
+DmgCleanup() { hdiutil detach /Volumes/install -quiet || return; }
+
 RunZip()
 {
 	local exe="$1"; shift
+
+	if [[ "$PLATFORM" == "mac" ]]; then
+		local dir="$(zipinfo -1 "$exe" | head -1)"
+		if [[ "$dir" =~ ^.*app/$ ]]; then
+			[[ -d "/Applications/$dir" ]] && return 0
+			unzip "$exe" -d "/Applications"; return
+		fi
+	fi
+
 	local installDir; PrepareInstallDir "$@" || return	
 
 	7z.exe x -o"$(utw "$installDir")" "$(utw "$exe")" || return
@@ -356,11 +380,12 @@ core()
 	i SysInternals WindowsSetup || return
 
 	local common="DropBox EverNote Sonos Chrome BrowserHomePage"
+	local other="LastPass f.lux TrueCrypt"
 	case "$COMPUTERNAME" in
-		oversoul) i $common pGina ssh office365 nVidia LastPass iExplorer Mediacore DevCore || return;;
-		minime) i $common pGina ssh MiniMe TrueImage office365 LastPass || return;;
-		jjbutare-mobl|jjbutare-mobl7|jjbutare-mobl9) 
-			i $common OfficeFinal IntelCore CsisDeveloperCore || return
+		oversoul) i pGina $common $other ssh office365 nVidia iExplorer Mediacore DevCore || return;;
+		bean) i pGina $common $other office || return;;
+		minime) i pGina $common $other ssh MiniMe TrueImage office365 || return;;
+		jjbutare-mobl|jjbutare-mobl7|jjbutare-mobl9) i $common OfficeFinal IntelCore CsisDeveloperCore || return
 	esac
 }
 
@@ -770,19 +795,20 @@ WinSplitInstall()
 
 SublimeInstall()
 {
-	# packages: PackageControl (https://sublime.wbond.net/installation)
 	printf "**************************************************\n* Sublime Text Editor\n**************************************************\n"
 	echo "- Check add to explorer context menu"
 
-	local v=3061 # http://www.sublimetext.com/3dev
+	local v=3061 # http://www.sublimetext.com/3dev, PackageControl (https://sublime.wbond.net/installation)
 	run "Sublime/setup" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime-text_build-$v_amd64.deb" || return 
-	
-	echo "Updating registry..."	
-	registry delete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # Fix Windows Open With
 
-	echo "Updating icons..."
-	$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
-	$mv "$pp/Sublime Text 3.lnk" "$pp/Applications" || return
+	if [[ "$PLATFORM" == "win" ]]; then	
+		echo "Updating registry..."	
+		registry delete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # Fix Windows Open With
+
+		echo "Updating icons..."
+		$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
+		$mv "$pp/Sublime Text 3.lnk" "$pp/Applications" || return
+	fi
 
 	$makeDir "$_udata/Sublime Text" || return
 	$makeDir "$_ApplicationData/Sublime Text 3" || return
@@ -1220,16 +1246,18 @@ BeyondCompareInstall()
 	local v=4.0.0.17451 # http://www.scootersoftware.com/beta.php
 	run "Scooter Software/Beyond Compare/setup" -p "BCompare-$v.exe" "BCompareOSX-$v.zip" "bcompare-$v_i386.deb" || return
 
-	echo "Updating icons..."
+	if [[ "$PLATFORM" == "win" ]]; then	
+		echo "Updating icons..."
 
-	$mergeDir --rename "$pp/Beyond Compare 4" "$pp/Applications/Other/Beyond Compare" || return
-	$rm "$ud/Beyond Compare 4.lnk" || return
-	$rm "$pd/Beyond Compare 4.lnk" || return
+		$mergeDir --rename "$pp/Beyond Compare 4" "$pp/Applications/Other/Beyond Compare" || return
+		$rm "$ud/Beyond Compare 4.lnk" || return
+		$rm "$pd/Beyond Compare 4.lnk" || return
 
-	$mergeDir "$up/Beyond Compare" "$pp/Applications/Other" || return
-	$mergeDir "$pp/Beyond Compare" "$pp/Applications/Other" || return
-	$rm "$ud/Beyond Compare 3.lnk" || return
-	$rm "$pd/Beyond Compare 3.lnk" || return
+		$mergeDir "$up/Beyond Compare" "$pp/Applications/Other" || return
+		$mergeDir "$pp/Beyond Compare" "$pp/Applications/Other" || return
+		$rm "$ud/Beyond Compare 3.lnk" || return
+		$rm "$pd/Beyond Compare 3.lnk" || return
+	fi
 
 	echo "- Enter Key..., check Register for all users"
 	BeyondCompare start
@@ -2122,10 +2150,10 @@ LastPassInstall()
 FoxitReaderInstall()
 {
 	echot "**************************************************\n* Foxit Reader - PDF Reader\n**************************************************\n
-- Uncheck Shell Extensions, Install Foxit Reader Creator, Add-on for ...
+- Uncheck Shell Extensions, Foxit Reader Creator, Add-on for ...
 - Uncheck Enable Safe Reading Mode"
 	
-	run "Foxit/reader/setup/FoxitReader611.1031_enu_Setup.exe" || return # http://www.foxitsoftware.com/downloads/index.php
+	run "Foxit/reader/setup/FoxitReader612.1224_enu_Setup.exe" || return # http://www.foxitsoftware.com/downloads/index.php
 	run "Foxit/reader/setup/FoxitPdfPreviewHandlerSetup_1_1.msi" || return # http://timheuer.com/blog/archive/2008/05/09/foxit-pdf-preview-handler.aspx
 
 	echo "Updating icons..."
@@ -2213,7 +2241,7 @@ PicasaInstall()
 - Only search My Documents, My Pictures, and Desktop
 - Select Don't use Picasa Photo Viewer"
 
-	run "Google/Picasa/setup/Picasa Setup v3.9.137.74.exe" || return
+	run "Google/Picasa/setup/Picasa Setup v3.9.137.81.exe" || return
 	run "Google/Picasa/starter/image v2.0.zip" "$P32/PicasaStarter" || return
 
 	echo "Updating icons..."
@@ -2222,7 +2250,7 @@ PicasaInstall()
 	$rm "$pp/Media/Other/Picasa/Uninstall.lnk" || return
 	$rm "$pd/Picasa 3.lnk" || return
 	$makeShortcut "$P32/PicasaStarter/PicasaStarter.exe" "$pp/Media/Other/Picasa/Picasa Starter" -d "Start Picasa with custom database" || return
-	$makeShortcut "$P32/PicasaStarter/PicasaStarter.exe" "$pp/Media/Other/Picasa/Picasa butare.net" -a "/autorun photo.butare.net" -d "Start Picassa for butare.net " || return
+	$makeShortcut "$P32/PicasaStarter/PicasaStarter.exe" "$pp/Media/Other/Picasa/Picasa butare.net" -a "/autorun photo.butare.net" -d "Start Picasa for butare.net " || return
 
 	echot "Tools, Options
 - General
@@ -2383,17 +2411,20 @@ HarmonyRemoteInstall()
 
 TrueCryptInstall()
 {
-	printf "**************************************************\n* name\n**************************************************\n"
-	run "Shareware/TrueCrypt/TrueCrypt Setup 7.1a.exe" || return # http://www.truecrypt.org/downloads
+	printf "**************************************************\n* TrueCrypt\n**************************************************\n"
+	local v="7.1a" # http://www.truecrypt.org/downloads
+	run "Shareware/TrueCrypt" -p "TrueCrypt Setup $v.exe" "TrueCrypt $v Mac OS X.dmg" "truecrypt-$v-setup-x64" || return 
 
 	$makeDir "$UserHome/Documents/data/TrueCrypt" || return
 
-	echo "Updating icons..."
-	$mergeDir "$pp/TrueCrypt" "$ao" || return
-	$mergeDir "$up/TrueCrypt" "$ao" || return
-	$rm "$ao/TrueCrypt/TrueCrypt Website.url" || return
-	$rm "$ao/TrueCrypt/Uninstall TrueCrypt.lnk" || return
-	$rm "$pd/TrueCrypt.lnk" || return
+	if [[ "$PLATFORM" == "win" ]]; then
+		echo "Updating icons..."
+		$mergeDir "$pp/TrueCrypt" "$ao" || return
+		$mergeDir "$up/TrueCrypt" "$ao" || return
+		$rm "$ao/TrueCrypt/TrueCrypt Website.url" || return
+		$rm "$ao/TrueCrypt/Uninstall TrueCrypt.lnk" || return
+		$rm "$pd/TrueCrypt.lnk" || return
+	fi
 
 	echot "\
 - Settings, Hot Keys...
@@ -2408,6 +2439,19 @@ TrueCryptInstall()
 - Favorites, Add Mounted Volumes to Favorites...
 	- Label of selected favorite volume=Personal"
 	#start --standard TrueCrypt start
+	pause
+}
+
+f.luxInstall()
+{
+	printf "**************************************************\n* f.lux\n**************************************************\n"
+	run "Shareware/f.lux" -p "flux-setup.exe" "Flux.zip" "" || return # http://justgetflux.com/	
+
+	echot "\
+- Location: Search
+- Transition: Slow
+- check Start F.lux at Login"
+	[[ "$PLATFORM" == "mac" ]] && { start "/Applications/Flux.app" || return; }
 	pause
 }
 
