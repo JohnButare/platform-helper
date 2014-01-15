@@ -487,14 +487,14 @@ sudo() # sudo [command](mintty) - start a program as super user
 }
 [[ "$PLATFORM" != "win" ]] && unset -f sudo
 
-IsTaskRunning() # IsTaskRunng <task>
+IsTaskRunning() # IsTaskRunng EXE
 {
-		local task="${1/\.exe/}"
-		GetFileName "$task" task
-
-		# ps -sW | cut -c 27- - full path, no extension for Cygwin processes
-		# tasklist /nh /fo csv | cut -d, -f1 | grep -i "^\"$task\.exe\"$" > /dev/null # no path, slower
-		AutoItScript ProcessExists "${task}.exe"
+	local task="${1/\.exe/}"
+		
+	case "$PLATFORM" in
+		mac) ps -A | grep "$task" | grep -v "grep $task" >& /dev/null;;
+		win) GetFileName "$task" task; AutoItScript ProcessExists "${task}.exe";;
+	esac
 }
 
 # Process Commands
