@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 . function.sh
-GetBatchDir
+exit 0
