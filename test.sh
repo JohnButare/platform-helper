@@ -1,3 +1,9 @@
 #!/usr/bin/env bash
 . function.sh
-GetBatchDir
+a()
+{
+	local a=
+	echo ${#a[@]}
+}
+
+a

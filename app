@@ -177,14 +177,7 @@ Groove() { TaskStart "$P32/Microsoft Office/Office12/GROOVE.EXE" "" -background;
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 PinnacleGameProfiler() {	TaskStart "$P32/KALiNKOsoft/Pinnacle Game Profiler/pinnacle.exe"; }
 
-Explorer()
-{
-	if [[ "$command" == "startup" ]]; then
-		IsTaskRunning explorer || start explorer
-	else
-		IsTaskRunning explorer && tc explorer.btm CloseSoft
-	fi;
-}
+Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer && start explorer; }
 
 IntelDesktopControlCenter() 
 { 

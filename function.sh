@@ -29,7 +29,7 @@ r() { [[ $# == 1 ]] && echo "$1" || eval "$2="\'"$1"\'; } # result VALUE VAR - e
 #
 
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
-alias FilterShellScript='egrep "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"'
+FilterShellScript() { egrep "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"; }
 IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
 IsOption() { [[ "$1" =~ ^-.* ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
@@ -401,7 +401,7 @@ printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf
 #
 
 IsMobile() { [[ "$(HostInfo info "$COMPUTERNAME" mobile)" == "yes" ]]; }
-IsVm() { [[ ! vmchk > /dev/null ]]; }
+IsVm() { ! vmchk > /dev/null; }
 OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
 
 #
@@ -477,7 +477,7 @@ sudo() # sudo [command](mintty) - start a program as super user
 		fi
 		return
 	fi
-	
+
 	if IsShellScript "$program"; then
 		cygstart "${cygstartOptions[@]}" hstart "${hstartOptions[@]}" "\"\"mintty.exe\"\" --hold $hold bash.exe -l \"\"$program\"\" $@";
 	else
