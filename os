@@ -213,7 +213,7 @@ FindInfoCommand()
 
 GetInfo()
 {
-	infoVars=( pd psm pp ao ud udata udoc uhome usm up architecture bits product version client server )
+	infoVars=( pd psm pp ao ud udoc uhome usm up architecture bits product version client server )
 
 	GetDirs || return
 
