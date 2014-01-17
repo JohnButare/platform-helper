@@ -1,3 +1,9 @@
 #!/usr/bin/env bash
 . function.sh
-exit 0
+a()
+{
+	local a=
+	echo ${#a[@]}
+}
+
+a
