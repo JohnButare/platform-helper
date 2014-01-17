@@ -421,8 +421,7 @@ start()
 	local files; [[ "$1" == @(--files) ]] && { files="true"; shift; }
 
 	if [[ "$PLATFORM" == "mac" ]]; then
-		type -a "$1" >& /dev/null && "$@" || open "$@"
-		return
+		type -a "$1" >& /dev/null && { "$@"; return; } || { open "$@"; return; }
 	fi
 
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
