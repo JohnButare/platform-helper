@@ -13,6 +13,7 @@ case "$(uname)" in
 esac
 PUB="$USERS/Public" DATA="/usr/local/data" BIN="$DATA/bin" CODE="$ROOT/Projects" 
 DOC="$HOME/Documents" UDATA="$DOC/data" UBIN="$UDATA/bin"
+[[ ! $COMPUTERNAME ]] && COMPUTERNAME="$(hostname -s)"
 set +a
 
 #
