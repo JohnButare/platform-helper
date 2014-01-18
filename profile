@@ -131,7 +131,7 @@ saveCommand()
 	if [[ "$method" ==  "file" && -d "$src" ]]; then
 		printf 'Backing up %s profile to "%s"...\n' "$app" "$file"
 		pushd "$src" > /dev/null || return
-		zip.exe -Sr "$(utw "$dest/$file")" $files || return
+		zip.exe -Sr "$(utw "$dest/$file")" $files -x "*.*_sync.txt*" || return
 		popd > /dev/null || return
 
 	# save using the specified import/export program		

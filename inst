@@ -19,21 +19,26 @@ TemplateFullInstall()
 	printf "**************************************************\n* name\n**************************************************\n"
 	echot "- application infromation"
 
-	# download: 
 	# installs:
-	run "" || return
+	local v="SnagIt V11.4.0.176." # http://www.techsmith.com/download/licenses/snagitupgrade.asp
+	run "TechSmith/SnagIt/setup/$v" -p "exe" "dmg" "" || return
+
+	local v="4.0.0.17451" # http://www.scootersoftware.com/beta.php
+	run "Scooter Software/Beyond Compare/setup/" -p "BCompare-$v.exe" "BCompareOSX-$v.zip" "bcompare-$v_i386.deb" || return
 
 	FindFile "Intel/Profile Manager/ProfileManager.xml" || return
 	$cp	"$file" "$WINDIR/system32" || return
 	$rc --mirror --quiet "$src" "$dest" || return
 
-	echo "Updating icons..."
-	$mergeDir "$pp/(dir)" "$pp/Development/Other" || return
-	$mergeDir "$pp/(dir)" "$ao" || return
-	$rm "$pd/(prog).lnk" || return
-	$mergeDir --rename "$pp/(dir)" "$ao/(new name)" || return
-	$makeDir "$pp/Operating System/bash" || return
-	$makeShortcut "$installDir/bin/mintty.exe" "$pp/Operating System/bash" -a="-" || return
+	if [[ "$PLATFORM" == "win" ]]; then	
+		echo "Updating icons..."
+		$mergeDir "$pp/(dir)" "$pp/Development/Other" || return
+		$mergeDir "$pp/(dir)" "$ao" || return
+		$rm "$pd/(prog).lnk" || return
+		$mergeDir --rename "$pp/(dir)" "$ao/(new name)" || return
+		$makeDir "$pp/Operating System/bash" || return
+		$makeShortcut "$installDir/bin/mintty.exe" "$pp/Operating System/bash" -a="-" || return
+	fi
 
 	echo "Moving data folders..."
 	$makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
@@ -56,10 +61,8 @@ TemplateFullInstall()
 	sublime profile restore default || return
 
 	echot "\
-	- configure
-	"
+- configure"
 	app start
-	pause
 }
 
 usage()
@@ -141,7 +144,7 @@ InstallInit()
 	firewall="${test}firewall --suppress"
 	hide="${test}FileCommand hide"
 	hideAndSystem="${test}FileCommand HideAndSystem"
-	makeDir="${test}mkdir --parents"
+	makeDir="${test}${G}mkdir --parents"
 	makeLink="${test}MakeLink --suppress"
 	makeShortcut="${test}MakeShortcut"
 	mergeDir="${test}MergeDir --suppress --parents"
@@ -149,8 +152,8 @@ InstallInit()
 	rc="${test}CopyDir"
 	registry="${test}registry"
 	ren="${test}FileCommand ren"
-	rm="${test}rm -f"
-	rmd="${test}rm -fr"
+	rm="${test}${G}rm -f"
+	rmd="${test}${G}rm -fr"
 	
 	netShareOptions=/grant:Everyone,full
 	setupFiles="$_data/setup"
@@ -158,11 +161,20 @@ InstallInit()
 
 run() # run EXE [OPTIONS...]
 {
-	local exe="$1"
+	local exe="$1" i; shift
 
 	[[ ! $exe ]] && { EchoErr "inst: executable was not specified"; return 1; }
+
+	if [[ "$1" == @(-p|--platform) ]]; then
+		shift
+		case "$PLATFORM" in win) i=1;; mac) i=2;; linux) i=3;; esac
+		[[ ! ${!i} ]] && { EchoErr "inst: $exe not available on $PLATFORM"; return 1; }
+		exe="$exe${!i}"
+		shift 3
+	fi
+
 	FindFile "$exe" || { ask "Continue the installation"; return; }
-	RunExe "$file" "${@:2}" || return
+	RunExe "$file" "$@" || return
 }
 
 FindEditorProgram()
@@ -241,8 +253,9 @@ RunExe()
 
 	case "$exeExt" in
 		bat|cmd) cmd /c "$exe" "$@";;
+		dmg) RunDmg "$exe" "$@" || return;;
 		msi) start --wait msiexec /i "$exe" "$@";;
-		iso) iso mount 1 "$exe"; echo "If needed run the setup program manually...";;
+		iso) iso mount 1 "$exe"; echo "If needed run the setup program manually..."; pause="--pause";;
 		zip|7z|gz|tar|xpi|ear|jar|war) RunZip "$exe" "$@" || return;;
 		*) [[ $standard ]] && sudo --standard "$exe" "$@" || start --wait "$exe" "$@";;
 	esac
@@ -254,9 +267,33 @@ RunExe()
 	esac	
 }
 
+RunDmg() { local result; DoRunDmg "$@"; result=$?; DmgCleanup; return $result; }
+DoRunDmg()
+{
+	local exe="$1"; shift
+	hdiutil mount "$exe" -mountpoint /Volumes/install -quiet || { EchoErr "inst: unable to mount \"$exe\""; return 1; }
+	shopt -s  nullglob; local app=(/Volumes/install/*.app);  
+	[[ ! "$app" ]] && { EchoErr "inst: \"$exe\" does not contain an application"; return 1; }
+	local dir; GetFileName "$app" dir || return
+	[[ -d "/Applications/$dir" ]] && return 0
+	sudo bash -c "{ printf copying...; gcp -R \"$app\" /Applications; echo done; }"
+	mdimport "/Applications/$dir" || return # add the applicationto Spotlight
+}
+
+DmgCleanup() { hdiutil detach /Volumes/install -quiet || return; }
+
 RunZip()
 {
 	local exe="$1"; shift
+
+	if [[ "$PLATFORM" == "mac" ]]; then
+		local dir="$(zipinfo -1 "$exe" | head -1)"
+		if [[ "$dir" =~ ^.*app/$ ]]; then
+			[[ -d "/Applications/$dir" ]] && return 0
+			unzip "$exe" -d "/Applications"; return
+		fi
+	fi
+
 	local installDir; PrepareInstallDir "$@" || return	
 
 	7z.exe x -o"$(utw "$installDir")" "$(utw "$exe")" || return
@@ -298,11 +335,10 @@ testInstall()
 bootstrap()
 {
 	printf "**************************************************\n* Bootstrap\n**************************************************\n"
-
-	ScriptEval SetVar SEE_MASK_NOZONECHECKS 1 || return # disable Open File Secirity Warning
+	
 	coreDirectories || return
-
-	i cygwin bash console VirtualCloneDrive || return
+	bootstrap${PLATFORM^} || return
+	i bash console VirtualCloneDrive || return
 
 	case "${USERNAME#ad_}" in
 		jjbutare) i sublime AutoHotKey BeyondCompare WinSplit || return;;
@@ -310,6 +346,24 @@ bootstrap()
 	esac
 
 	i BashFinal
+}
+
+bootstrapWin()
+{
+	ScriptEval SetVar SEE_MASK_NOZONECHECKS 1 || return # disable Open File Secirity Warning
+	i SysInternals cygwin || return
+}
+
+bootstrapMac()
+{
+	ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go/install)" || return
+	brew doctor || return
+	brew update || return
+	brew install bash coreutils git fping nmap dialog  || return
+
+	sudo bash -c 'echo "/usr/local/data/bin/
+/usr/local/data/platform/mac
+/usr/local/sbin" > /etc/paths.d/wiggin' || return
 }
 
 coreDirectories()
@@ -321,36 +375,35 @@ coreDirectories()
 	[[ $client ]] && { $makeDir "$pp/Games/Other" || return; }
 
 	$makeDir "$_root/temp" || return
-	$makeDir "$data/doc" || return
-	$makeDir "$data/log" || return
+	$makeDir "$_data/doc" || return
+	$makeDir "$_data/log" || return
 	$makeDir "$pdoc/drop" || return
 }
 
 core()
 {
 	printf "**************************************************\n* Core\n**************************************************\n"
-	i SysInternals WindowsSetup || return
+	i WindowsSetup || return
 
 	local common="DropBox EverNote Sonos Chrome BrowserHomePage"
+	local other="LastPass f.lux TrueCrypt"
 	case "$COMPUTERNAME" in
-		oversoul) i $common pGina ssh office365 nVidia LastPass iExplorer Mediacore DevCore || return;;
-		minime) i $common pGina ssh MiniMe TrueImage office365 LastPass || return;;
-		jjbutare-mobl|jjbutare-mobl7|jjbutare-mobl9) 
-			i $common OfficeFinal IntelCore CsisDeveloperCore || return
+		oversoul) i pGina $common $other ssh office365 nVidia iExplorer Mediacore DevCore || return;;
+		bean) i pGina $common $other office || return;;
+		minime) i pGina $common $other ssh MiniMe TrueImage office365 || return;;
+		jjbutare-mobl|jjbutare-mobl7|jjbutare-mobl9) i $common OfficeFinal IntelCore CsisDeveloperCore || return
 	esac
 }
 
 CygwinInstall()
 {
 	printf "**************************************************\n* Cygwin - POSIX environment for Windows\n**************************************************\n"
-	local installDir="$P/Cygwin"
 
 	echo "Update environment variables..."
-	ScriptEval SetVar --system --path PATH "$installDir/bin" || return
-	ScriptEval SetVar --system --path PATH "$_PublicData/bin" || return
-	ScriptEval SetVar --system --path PATH "$_PublicData/platform/$PLATFORM" || return
-	ScriptEval SetVar --path PATH "$_UserBin" || return
-	ScriptEval SetVar --system CYGWIN "" || return # nodosfilewarning
+	ScriptEval SetVar --system --path PATH "$P/Cygwin/bin" || return
+	ScriptEval SetVar --system --path PATH "$PUB/Documents/data/bin" || return
+	ScriptEval SetVar --system --path PATH "$PUB/Documents/data/platform/$PLATFORM" || return
+	ScriptEval SetVar --path PATH "$_ubin" || return
 
 	# cleanup
 	cygwin cleanup || return
@@ -359,7 +412,7 @@ CygwinInstall()
 	if FindFile "Cygwin/setup"; then
 
 		echo "Copying files..."
-		cp "$file/Command Prompt.ico" "$installDir/etc" || return
+		cp "$file/Command Prompt.ico" "$P/Cygwin/etc" || return
 
 		echo "Updating registry..."
 		$registry import "$file/setup $architecture.reg" || return
@@ -367,8 +420,8 @@ CygwinInstall()
 	fi
 
 	echo "Updating icons..."
-	$makeShortcut "$installDir/bin/mintty.exe" "$pp/Operating System/bash" -a="-" || return
-	$makeShortcut "$_PublicBin/run.sh" "$psm/Programs/Startup/startup" -a "startup" -d "Start applications" || return
+	$makeShortcut "$P/Cygwin/bin/mintty.exe" "$pp/Operating System/bash" -a="-" || return
+	$makeShortcut "$BIN/run.sh" "$psm/Programs/Startup/startup" -a "startup" -d "Start applications" || return
 
 	echo "Adding user..." # first user added when Cygwin installed, other users are not
 	local user="$(mkpasswd -c)"
@@ -377,10 +430,10 @@ CygwinInstall()
 	# set home directory in /etc/passwd
 	if grep ":/home" /etc/passwd > /dev/null; then
 		echo "Updateing home directory locations..."
-		local escapedUsers="${_data//\//\/}\/users"
+		local escapedUsers="${_users//\//\/}"
 		cp /etc/passwd /etc/passwd.bak || return
 		sed 's/:\/home/:'"$escapedUsers"'/g' < /etc/passwd.bak > /etc/passwd || return
-		HOME="$_data/users/$USERNAME"
+		HOME="$_users/$USERNAME"; . bash.bashrc || return
 	fi
 
 	# Add group - domain user's group not in /etc/group by default
@@ -390,14 +443,6 @@ CygwinInstall()
 
 	# Completion
 	cygwin FixCompletion || return
-
-	if [[ -d ~/.ssh ]]; then	
-		echo "Configuring ssh..."
-		# if issues: chgrp root ~/.ssh/*
-		$hide ~/.ssh || return
-		[[ -f ~/.ssh/id_dsa ]] && { chmod 700 ~/.ssh/id_dsa || return; }
-		SshAgent startup || return
-	fi
 
 	echo "Cleaning up..."
 	$rmd "/home"
@@ -409,26 +454,30 @@ BashInstall()
 
 	printf "Configuring bash..."
 
- 	$makeLink "$USERS/Public/Documents/data" /usr/local/data
-
-	# home directory links
-	local files=( .bashrc .bash_profile .bash_logout .dialogrc .kdiff3rc .lessfilter .inputrc .minttyrc )
+	local files=( .bashrc .bash_profile .bash_logout .dialogrc .kdiff3rc .lessfilter .magic .inputrc .minttyrc )
 	for file in "${files[@]}"; do
-		$makeLink --symbolic --hide "$_UserBin/$file" "$_UserHome/$file" || return
+		$makeLink --symbolic --hide "$_ubin/$file" "$_home/$file" || return
 	done
 
-	# windows sytem home directory links (for Windows program that require Windows links, not a POSIX .lnk link)
+	# for Windows program that require Windows links, not a POSIX .lnk link
 	files=( .ExifTool_config  .gitconfig )
 	for file in "${files[@]}"; do
-		$makeLink --symbolic --hide --windows --absolute "$_UserBin/$file" "$_UserSysHome/$file" || return
-		$makeLink --symbolic --hide --windows --absolute "$_UserBin/$file" "$_UserHome/$file" || return
+		$makeLink --symbolic --hide --windows --absolute "$_ubin/$file" "$_SysHome/$file" || return
+		$makeLink --symbolic --hide --windows --absolute "$_ubin/$file" "$_home/$file" || return
 	done
 	
 	files=( .bash_history .lesshst )
 	for file in "${files[@]}"; do
-		touch "$_UserHome/$file" || return
-		$hide "$_UserHome/$file" || return
+		touch "$_home/$file" || return
+		$hide "$_home/$file" || return
 	done
+
+	if [[ -d ~/.ssh ]]; then # if issues: chgrp root ~/.ssh/*
+		printf "ssh..."
+		$hide ~/.ssh || return
+		[[ -f ~/.ssh/id_dsa ]] && { chmod 700 ~/.ssh/id_dsa || return; }
+		SshAgent startup || return
+	fi
 
 	echo done
 }
@@ -437,10 +486,11 @@ BashFinal()
 {
 	printf "**************************************************\n* Bash - Final Configuration\n**************************************************\n"
 
-	if ask "Edit /etc/bash.bashrc"; then
+	local file="/etc/bash.bashrc"; [[ "$PLATFORM" == "mac" ]] && file="/etc/bashrc"
+	if ask "Edit $file"; then
 		echo '- paste the text in the clipboard before "# If not running interactively, don'\''t do anything"'
 		clipw $'[[ -f /usr/local/data/bin/bash.bashrc ]] && . "/usr/local/data/bin/bash.bashrc"\n\n'
-		TextEdit --wait "/etc/bash.bashrc" 
+		TextEdit --wait "$file" || return
 	fi
 }
 
@@ -464,7 +514,6 @@ Configuring SSH...
   create privileged account=yes, password=<administrator>
 - possible issue: service delete sshd; chmod -R 777 /var"
 	ssh-host-config && service start sshd || return
-	pause
 }
 
 IntelCore()
@@ -599,7 +648,7 @@ DevCore()
 
 	echo "Moving data folders..."
 	$makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
-	$makeLink --merge --hide "$udata/LINQPad" "$udoc/LINQPad Queries" || return
+	$makeLink --merge --hide "$_udata/LINQPad" "$udoc/LINQPad Queries" || return
 
 	ask "\nInstall GIT core" && { i GitCore || return; }
 	ask "\nInstall SQL Development core" && { i iis SqlServer SqlPrompt || return; }
@@ -669,13 +718,13 @@ CsisDeveloperInstall()
 		echo "Configuring Antidote..."
 		MakeShortcut "mintty" "$pp/Development/CSIS/Antidote Local Build" \
 			-a="--hold=error antidote verbose App=Antidote BuildType=LocalBuild" || return
- 		chgrp root "$CODE/Antidote/unversioned/SqlData" || return; chmod 777 "$CODE/Antidote/unversioned/SqlData"
+ 		chgrp root "$_code/Antidote/unversioned/SqlData" || return; chmod 777 "$_code/Antidote/unversioned/SqlData"
 		antidote verbose App=Antidote BuildType=LocalBuild || return
 
 		echo "Configuring Magellan..."
 		MakeShortcut "mintty" "$pp/Development/CSIS/Magellan Local Build" 
 			-a="--hold=error run.sh sudo antidote verbose App=Magellan BuildType=LocalBuild CacheBrokerAddress=@DatabaseServer@" || return
-		chgrp root "$CODE/Magellan/unversioned/SqlData" || return; chmod 777 "$CODE/Magellan/unversioned/SqlData"
+		chgrp root "$_code/Magellan/unversioned/SqlData" || return; chmod 777 "$_code/Magellan/unversioned/SqlData"
 		antidote verbose App=Magellan BuildType=LocalBuild CacheBrokerAddress=@DatabaseServer@ || return
 
 	fi
@@ -685,7 +734,7 @@ CsisDeveloperInstall()
 		for app in "${applications[@]}"; do 
 			if ask "Setup $app"; then
 				case $app in
-					RPIAD) chmod 777 "$CODE/RPIAD/SQLData" || return;;
+					RPIAD) chmod 777 "$_code/RPIAD/SQLData" || return;;
 				esac
 				code --svn clone "$app" || return
 				MakeShortcut "mintty" "$pp/Development/CSIS/$app Local Build" \
@@ -694,7 +743,6 @@ CsisDeveloperInstall()
 			fi
 		done
 	fi
-
 }
 
 JavaDevCore()
@@ -747,22 +795,27 @@ WinSplitInstall()
 
 SublimeInstall()
 {
-	# packages: PackageControl (https://sublime.wbond.net/installation)
 	printf "**************************************************\n* Sublime Text Editor\n**************************************************\n"
 	echo "- Check add to explorer context menu"
 
-	run "Sublime/setup/Sublime Text Build 3061 x64 Setup.exe" || return # http://www.sublimetext.com/3dev
-	
-	echo "Updating registry..."	
-	registry delete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # Fix Windows Open With
+	local v=3061 # http://www.sublimetext.com/3dev, PackageControl (https://sublime.wbond.net/installation)
+	run "Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime-text_build-$v_amd64.deb" || return 
 
-	echo "Updating icons..."
-	$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
-	$mv "$pp/Sublime Text 3.lnk" "$pp/Applications" || return
+	if [[ "$PLATFORM" == "win" ]]; then	
+		echo "Updating registry..."	
+		registry delete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # Fix Windows Open With
 
-	$makeDir "$udata/Sublime Text" || return
+		echo "Updating icons..."
+		$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
+		$mv "$pp/Sublime Text 3.lnk" "$pp/Applications" || return
+	fi
+
+	$makeDir "$_udata/Sublime Text" || return
 	$makeDir "$_ApplicationData/Sublime Text 3" || return
 	sublime profile restore default || return
+
+	echo '- Enter license'
+	sublime start || return
 }
 
 ReSharperInstall()
@@ -792,7 +845,6 @@ ReSharperInstall()
 			- Uncheck Wrap long lines in Unit Test Session output
 			- Run up to 4 assemblies in parallel"
 	sudo --standard VisualStudio start
-	pause
 }
 
 ConsoleInstall()
@@ -837,10 +889,10 @@ WindowsSetup()
 	$rmd "$_root/PerfLogs" || return
 
 	echo "Moving data folders..."
-	$makeLink --merge "$udata/download" "$uhome/Downloads" || return
-	[[ -d "$udoc/Fax" ]] && $makeLink --merge --hide "$udata/fax" "$udoc/Fax"
-	[[ -d "$udoc/My Data Sources" ]] && $makeLink --merge --hide "$udata/Data Sources" "$udoc/My Data Sources"
-	[[ -d "$udoc/Scanned Documents" ]] && $makeLink --merge --hide "$udata/scans" "$udoc/Scanned Documents"
+	[[ -d "$udoc/Fax" ]] && $makeLink --merge --hide "$_udata/fax" "$udoc/Fax"
+	[[ -d "$udoc/My Data Sources" ]] && $makeLink --merge --hide "$_udata/Data Sources" "$udoc/My Data Sources"
+	[[ -d "$udoc/Scanned Documents" ]] && $makeLink --merge --hide "$_udata/scans" "$udoc/Scanned Documents"
+	return 0
 }
 
 WindowsIcons()
@@ -946,7 +998,7 @@ DropBoxInstall()
 	printf "**************************************************\n* DropBox\n**************************************************\n"
 	echo "- (new install) Ensure $(utw "$_cloud") directory is empty"
 	echo "- I already have a Dropbox account"
-	echo "- Advanced, I want to choose where to put my Dropbox=$(utw "$_UserHome")"
+	echo "- Advanced, I want to choose where to put my Dropbox=$(utw "$_home")"
 	
 	run "Dropbox/setup/Dropbox 2.4.6.exe" --standard || return
 
@@ -958,7 +1010,7 @@ DropBoxInstall()
 	$rm "$ud/Dropbox.lnk" || return
 
 	if [[ "$_data" != "/cygdrive/c" ]]; then
-		$makeShortcut "$_UserHome/Dropbox" "$_UserSysHome/Dropbox.lnk" || return
+		$makeShortcut "$_home/Dropbox" "$_SysHome/Dropbox.lnk" || return
 	fi;
 
 	if ask "Do you want to update index locations"; then
@@ -992,9 +1044,7 @@ DropBoxInstall()
     - Add..., <paste>
     - (not Intel) Move Up (to top), Set as default save location
   - View, List"
-	start explorer "$udoc"
-	pause
-
+	start explorer "$udoc" || return
 }
 
 vs() { vs13; }; VisualStudioInstall() { vs13; }; 
@@ -1018,6 +1068,9 @@ vs13()
 	#run "$vs/extension/NuGet.Tools.2013.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/4ec1526c-4a8c-4a84-b702-b21a8f5293ca
 	run "$vs/extension/NUnitVisualStudioTestAdapter-1.0.vsix" || return # requires ReSharper disabled, https://launchpad.net/nunit-vs-adapter/+download, http://visualstudiogallery.msdn.microsoft.com/6ab922d0-21c0-4f06-ab5f-4ecd1fe7175d?SRC=VSIDE
 	run "$vs/extension/WebEssentials2013.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/56633663-6799-41d7-9df7-0f2a504ca361
+	run "$vs/extension/AccentOccurences.vsix" # http://visualstudiogallery.msdn.microsoft.com/2f4627df-98ca-4ce1-9187-8eec7a67ba8c
+	run "$vs/extension/VSColorOutput.vsix" # http://visualstudiogallery.msdn.microsoft.com/f4d9c2b5-d6d7-4543-a7a5-2d7ebabc2496
+
 	if ask 'Install Entrian Attach and Source (require license)'; then
 		run "$vs/extensions/Entrian-Attach-1.2.2-Setup.exe" || return # http://entrian.com/attach/download.html
 		run "$vs/extension/Entrian-Source-Search-1.4.16-Setup.exe" || return # http://entrian.com/source-search/download.html
@@ -1064,7 +1117,7 @@ VsFinal()
 
 	echo "Moving data folders..."
 	$makeLink --merge --hide "$vsData" "$udoc/Visual Studio $vsName" || return
-	$makeLink --merge --hide "$udata/Web Essentials" "$uhome/Web Essentials" || return
+	$makeLink --merge --hide "$_udata/Web Essentials" "$uhome/Web Essentials" || return
 
 	ask "Update registry" && { VsRegistry || return; }
 	ask "Update icons" && { VsIcons || return; }
@@ -1085,15 +1138,14 @@ Tools, Options...
   - General: check Line numbers
   - Tabs: Tab size=3, Indent size=3, Keep tabs
   - Debugging, General, uncheck Break all processes when one process breaks" 
-	VisualStudio start; pause
-
+	VisualStudio start
 }
 
 VsRegistry()
 {
 	echo "Updating Visual Studio registry..."
 	ScriptEval VisualStudio init || return
-	local r="$vsRegistryKey" c="$(utw "$code")"
+	local r="$vsRegistryKey" c="$(utw "$_code")"
 	
 	$registry 32 set "$r/DefaultFileOpenLocation" REG_EXPAND_SZ "$c" || return
 	$registry 32 set "$r/DefaultNewProjectLocation" REG_EXPAND_SZ "$c" || return
@@ -1155,7 +1207,7 @@ ExpressionIcons()
 IisExpressFinal()
 {
 	echo "Moving IIS Express data folders..."
-	$makeLink --merge --hide "$udata/IISExpress" "$udoc/IISExpress"
+	$makeLink --merge --hide "$_udata/IISExpress" "$udoc/IISExpress"
 	$mergeDir "$udoc/My Web Sites" "$udoc/code/web"
 }
 
@@ -1181,26 +1233,33 @@ VirtualCloneDriveInstall()
   - Check Virtual Sheep
   - Uncheck Show Tray Icon"
 	iso gui || return
-	pause 
 }
 
 BcInstall() { BeyondCompareInstall; }
 BeyondCompareInstall()
 {
 	printf "**************************************************\n* BeyondCompare\n**************************************************\n"
-	echo "- Uncheck Launch Beyond Compare 3"
+	echo "- Uncheck Launch Beyond Compare"
 
-	run "Scooter Software/Beyond Compare/setup/BCompare-3.3.8.16340.exe" || return # http://www.scootersoftware.com/download.php
-	run "Scooter Software/Beyond Compare/plugins/AllPlugins.exe" || return # http://www.scootersoftware.com/download.php?zz=kb_moreformats&cartid=482293831
+	local v=4.0.0.17451 # http://www.scootersoftware.com/beta.php
+	run "Scooter Software/Beyond Compare/setup/" -p "BCompare-$v.exe" "BCompareOSX-$v.zip" "bcompare-$v_i386.deb" || return
 
-	echo "Updating icons..."
-	$mergeDir "$up/Beyond Compare" "$pp/Applications/Other" || return
-	$mergeDir "$pp/Beyond Compare" "$pp/Applications/Other" || return
-	$rm "$ud/Beyond Compare 3.lnk" || return
-	$rm "$pd/Beyond Compare 3.lnk" || return
+	if [[ "$PLATFORM" == "win" ]]; then	
+		echo "Updating icons..."
 
-	echo "- Enter Key..., check Register for all users"
-	BeyondCompare start
+		$mergeDir --rename "$pp/Beyond Compare 4" "$pp/Applications/Other/Beyond Compare" || return
+		$rm "$ud/Beyond Compare 4.lnk" || return
+		$rm "$pd/Beyond Compare 4.lnk" || return
+
+		$mergeDir "$up/Beyond Compare" "$pp/Applications/Other" || return
+		$mergeDir "$pp/Beyond Compare" "$pp/Applications/Other" || return
+		$rm "$ud/Beyond Compare 3.lnk" || return
+		$rm "$pd/Beyond Compare 3.lnk" || return
+	fi
+
+	echo "- Help, Enter Key..., check Register for all users"
+	[[ "$PLATFORM" == "mac" ]] && echo "- Beyond Compare, Install Command Line Tools…"
+	BeyondCompare start || return
 	pause
 
 	BeyondCompare profile restore default || return
@@ -1345,7 +1404,6 @@ ChromeInstall()
 - MightyText
 - (optional) chrome://flags, enable features"
 	ShellRun chrome || return
-	pause
 }
 
 iisInstall()
@@ -1528,16 +1586,16 @@ SsManagementStudioConfig()
 SsFinal()
 {
 	echo "Creating sql directory..."
-	local dir="$udata/sql"; $makeDir "$dir"
+	local dir="$_udata/sql"; $makeDir "$dir"
 	[[ -d "$_cloud/data/sql" ]] && { $makeShortcut "$_cloud/data/sql" "$dir/cloud.lnk" || return; }
 
 	echo "Moving data folders..."
-	local dir="$udata/SQL Server Management Studio"
-	$makeLink --merge --hide "$udata/SQL Server Management Studio" "$udoc/SQL Server Management Studio" || return
-	$makeLink --merge --hide "$udata/Visual Studio 2010" "$udoc/Visual Studio 2010" || return
+	local dir="$_udata/SQL Server Management Studio"
+	$makeLink --merge --hide "$_udata/SQL Server Management Studio" "$udoc/SQL Server Management Studio" || return
+	$makeLink --merge --hide "$_udata/Visual Studio 2010" "$udoc/Visual Studio 2010" || return
 
 	$makeDir "$dir/Projects" || return
-	$makeShortcut "$udata/sql" "$dir/Projects/sql.lnk" || return
+	$makeShortcut "$_udata/sql" "$dir/Projects/sql.lnk" || return
 
 	ask "Update registry" && { SsRegistry || return; }
 	SsIcons || return;
@@ -1551,7 +1609,7 @@ SsFinal()
 
 SsRegistry()
 {
-	local dir="$(utw "$udata/sql")" r="HKCU/Software/Microsoft/SQL Server Management Studio/11.0"
+	local dir="$(utw "$_udata/sql")" r="HKCU/Software/Microsoft/SQL Server Management Studio/11.0"
 
 	echo "Updating SQL Server registry..."
 	$registry set "$r/DefaultBrowseComponentLocation" REG_EXPAND_SZ "$dir" || return
@@ -1604,7 +1662,7 @@ VisionAppInstall()
 
 	echo "Configure..."
 
-	local cloudDir="$_cloud/data/VisionApp" localDir="$udata/VisionApp"
+	local cloudDir="$_cloud/data/VisionApp" localDir="$_udata/VisionApp"
 	$makeDir "$cloudDir" "$localDir"
 
 	FindFile "VisionApp/Remote Desktop/license/Intel Corporation_Global.xml" || return
@@ -1622,7 +1680,6 @@ VisionAppInstall()
 - Tools, Options, Application, check Pass-through authentication
 - Pin this program to the taskbar"
 	VisionApp start || return
-	pause
 }
 
 Office365Install()
@@ -1638,10 +1695,10 @@ OfficeFinal()
 	. office.sh || { EchoErr "inst: Office is not installed"; return 1; }
 
 	echo "Updating directories..."
-	$makeDir "$udata/Templates" "$data/Templates" || return
+	$makeDir "$_udata/Templates" "$_data/Templates" || return
 
 	echo "Moving data folders..."
-	$makeLink --merge --hide "$udata/OneNote" "$udoc/OneNote Notebooks" || return
+	$makeLink --merge --hide "$_udata/OneNote" "$udoc/OneNote Notebooks" || return
 
 	ask "Restore normal templates" && { word RestoreNormal || return; }
 	ask "Update registry" && { registry import "$setupFiles/ShellNew.reg" || return; }
@@ -1745,7 +1802,6 @@ GitExtensionsInstall()
 	- Scripts, Fetch changes, check Enabled, uncheck Ask for confirmation
 	- Shell Extensions, check Clone, Commit, Create new repository"
 	GitHelper gui || return
-	pause
 }
 
 GitHubInstall()
@@ -1757,7 +1813,8 @@ GitHubInstall()
 
 	echo "Updating icons..."
 	$mergeDir --rename "$up/GitHub, Inc" "$up/Development/Other/GitHub" || return
-	$rm "$ud/GitHub.appref-ms"
+	$rm "$ud/GitHub.appref-ms" || return
+	$rm "$ud/Git Shell.lnk" || return
 
 	echot "\
 - GITHUB ENTERPRISE, GitHub Username or Email=IDSID
@@ -1768,7 +1825,6 @@ GitHubInstall()
 	- default storage directory=c:\Projects
 	- SCAN FOR REPOSITORIES
 	- (optional) default shell=Custom, c:\Program Files\Cygwin\bin\mintty.exe"
-	pause
 }
 
 TortoiseGitInstall()
@@ -1777,7 +1833,7 @@ TortoiseGitInstall()
 	
 	# https://code.google.com/p/tortoisegit/ https://code.google.com/p/tortoisegit/wiki/Download?tm=2
 	echot "- (optional) Check Registrer link handlers"
-	run "Shareware/TortoiseGit/setup/TortoiseGit-1.8.6.0-${bits}bit.msi" || return
+	run "Shareware/TortoiseGit/setup/TortoiseGit-1.8.7.0-${bits}bit.msi" || return
 
 	echo "Updating icons..."
 	$mergeDir "$pp/TortoiseGit" "$pp/Development/Other"
@@ -1790,8 +1846,7 @@ TortoiseGitInstall()
 - (optional) Diff Viewer (1 place) and Merge Tool (1 place), External=<paste>
 - Icon Overlays
 	- check Unversioned files mark parent folder as modified
-	- Icon Set, Icon Set=Straight
-"
+	- Icon Set, Icon Set=Straight"
 	GitHelper tgui /command:settings || return
 }
 
@@ -1816,13 +1871,13 @@ TortoiseSvnInstall()
 
 BrowserHomePage()
 {
-	local file="$udata/replicate/default.htm"
+	local file="$_udata/replicate/default.htm"
 	local url="file:///$(utw "$file")"
 
 	[[ ! -f "$file" ]] && { EchoErr "inst: cannot access browser home page file \`$file\`: No such file"; return 1; }
 
  	# Chrome
-	$makeLink "$udata/replicate" "$_ApplicationData/replicate" || return
+	$makeLink "$_udata/replicate" "$_ApplicationData/replicate" || return
 
 	# Internet Explorer
 	echo "- Tools, Internet Options, Use Current"
@@ -1834,15 +1889,14 @@ BrowserHomePage()
 		echo "Setting Firefox home page..."
 		echo "- Close other tabs"
 		echo "- Tools, Options, Main, Use Current Page"
-		firefox "$url"
-		pause
+		firefox "$url" || return
 	fi
 }
 
 sysInternalsInstall()
 {
 	printf "**************************************************\n* SysInternals Tools\n**************************************************\n"
-	registry import "$pdata/setup/SysInternalsEula.reg"
+	registry import "$_data/setup/SysInternalsEula.reg"
 }
 
 iTunesInstall()
@@ -1902,7 +1956,6 @@ Use alt to open menu items
     - Check Sync notes with Outlook
 - Notes: Ctrl-t visualizer, ctrl-f full screen"
 	sudo --standard iTunes start || return
-	pause
 }
 
 QuickTimePost()
@@ -1929,9 +1982,7 @@ TeamViewerInstall()
 
 	echot "\
 - Computers & Contacts, Sign In, ...
-- Add this computer, Comptuer name=<camel case>, Password/Confirm Password=<secure numeric>
-	"
-	pause
+- Add this computer, Comptuer name=<camel case>, Password/Confirm Password=<secure numeric>"
 }
 
 TrueImageInstall()
@@ -1956,7 +2007,7 @@ NotepadPpInstall()
 	printf "**************************************************\n* Notepad++\n**************************************************\n"
 	echo "- Uncheck Run Notepad++"
 
-	run "Shareware/Notepad++/setup/npp.6.5.2.Installer.exe" || return # http://notepad-plus-plus.org/download/
+	run "Shareware/Notepad++/setup/npp.6.5.3.Installer.exe" || return # http://notepad-plus-plus.org/download/
 
 	FindFile "Shareware/Notepad++" || return
 
@@ -1983,10 +2034,8 @@ NotepadPpInstall()
 - keyboard shortcuts 
   ctrl-n/w=new/close,  ctrl+/-=zoom
   [shift]ctrl-tab=switch, ctrl-shift-o=file switcher
-  [alt]click drag=[block] select, ctrl-space=auto complete
-	"
-	notepadpp
-	pause
+  [alt]click drag=[block] select, ctrl-space=auto complete"
+	notepadpp || return
 }
 
 jreInstall()
@@ -2037,7 +2086,7 @@ VmwareWorkstationInstall()
 	$firewall rule add "VMware NAT Echo Reply" dir=in action=allow enable=yes profile=private,domain localip=any remoteip=any protocol=icmpv4:0,0 interfacetype=any edge=yes || return
 
 	echo "Creating VMware directory..."
-	$makeDir "$udata/VMware"
+	$makeDir "$_udata/VMware"
 
 	echo "Updating icons..."
 	$mergeDir "$pp/VMware" "$pp/Operating System/Other" || return
@@ -2090,10 +2139,10 @@ LastPassInstall()
 FoxitReaderInstall()
 {
 	echot "**************************************************\n* Foxit Reader - PDF Reader\n**************************************************\n
-- Uncheck Shell Extensions, Install Foxit Reader Creator, Add-on for ...
+- Uncheck Shell Extensions, Foxit Reader Creator, Add-on for ...
 - Uncheck Enable Safe Reading Mode"
 	
-	run "Foxit/reader/setup/FoxitReader611.1031_enu_Setup.exe" || return # http://www.foxitsoftware.com/downloads/index.php
+	run "Foxit/reader/setup/FoxitReader612.1224_enu_Setup.exe" || return # http://www.foxitsoftware.com/downloads/index.php
 	run "Foxit/reader/setup/FoxitPdfPreviewHandlerSetup_1_1.msi" || return # http://timheuer.com/blog/archive/2008/05/09/foxit-pdf-preview-handler.aspx
 
 	echo "Updating icons..."
@@ -2107,7 +2156,6 @@ FoxitReaderInstall()
   - History, Maximum number of documents in recently used list=10
   - Updater, Do not download"
 	start "$P32/Foxit Software/Foxit Reader/Foxit Reader.exe" || return
-	pause
 }
 
 iCloudInstall()
@@ -2131,7 +2179,6 @@ iCloudInstall()
 iCloud Control Panel
 - uncheck Mail, Contacts, Calendars, & Tasks and Bookmarks
 - check Photo Stream"
-	pause
 }
 
 AppleCore()
@@ -2181,7 +2228,7 @@ PicasaInstall()
 - Only search My Documents, My Pictures, and Desktop
 - Select Don't use Picasa Photo Viewer"
 
-	run "Google/Picasa/setup/Picasa Setup v3.9.137.74.exe" || return
+	run "Google/Picasa/setup/Picasa Setup v3.9.137.81.exe" || return
 	run "Google/Picasa/starter/image v2.0.zip" "$P32/PicasaStarter" || return
 
 	echo "Updating icons..."
@@ -2190,7 +2237,7 @@ PicasaInstall()
 	$rm "$pp/Media/Other/Picasa/Uninstall.lnk" || return
 	$rm "$pd/Picasa 3.lnk" || return
 	$makeShortcut "$P32/PicasaStarter/PicasaStarter.exe" "$pp/Media/Other/Picasa/Picasa Starter" -d "Start Picasa with custom database" || return
-	$makeShortcut "$P32/PicasaStarter/PicasaStarter.exe" "$pp/Media/Other/Picasa/Picasa butare.net" -a "/autorun photo.butare.net" -d "Start Picassa for butare.net " || return
+	$makeShortcut "$P32/PicasaStarter/PicasaStarter.exe" "$pp/Media/Other/Picasa/Picasa butare.net" -a "/autorun photo.butare.net" -d "Start Picasa for butare.net " || return
 
 	echot "Tools, Options
 - General
@@ -2225,7 +2272,6 @@ FastStoneImageViewerInstall()
 	- Associations, Select All
 	- Favorites, Add, P:(\\NAS\Photo), Display Name=NAS"
 	fsview start || return
-	pause
 }
 
 irfanInstall() { IrfanViewInstall; }
@@ -2261,7 +2307,6 @@ CalibreInstall()
 	  - Search uses regular expressions: not mobi and not pdf and not azw
 	  - Import content from the download directory using the Add books button (content
 	    is copied to the ebook location)"
-	pause
 }
 
 Calibre2opdsInstall()
@@ -2282,8 +2327,8 @@ kindleInstall()
 	run "Amazon/Kindle/converter/Kindle DRM Removal v5.2.908.264.exe" || return # http://www.ebook-converter.com/kindle-drm-removal.htm
 
 	echo Creating data folders...
-	$makeDir "$udata/Kindle" || return
-	$makeDir "$udata/Kindle DRM Removal" || return
+	$makeDir "$_udata/Kindle" || return
+	$makeDir "$_udata/Kindle DRM Removal" || return
 	$makeDir "$udoc/Kindle DRM Removal" || return
 	$hide +h "$udoc/Kindle DRM Removal" || return
 
@@ -2313,8 +2358,6 @@ Kindle for PC
 	cygstart "https://www.amazon.com/gp/digital/fiona/manage?ie=UTF8&ref_=sv_kinc_7&signInRedirect=1&#manageDevices"
 	kindle start || return
 	kindle decrypt || return
-	pause
-
 }
 
 QuickenInstall()
@@ -2336,7 +2379,157 @@ QuickenInstall()
   - Reports and Graphs, select Customizing modifies current report or graph
 - Click One Step Update, Register 
   - Check Don't show this summary again unless there is an error"
-  pause
+}
+
+HarmonyRemoteInstall()
+{
+	printf "**************************************************\n* Harmony Remote\n**************************************************\n"
+	run "Logitech/Harmony Remote/LogitechHarmonyRemote7.7.0-WIN-x86.exe" || return # http://www.logitech.com/en-us/440/6441?section=downloads&bit=&osid=14
+
+	echo "Updating icons..."
+	$mergeDir "$pp/Logitech" "$ao" || return
+	$rm "$pd/Logitech Harmony Remote Software 7.lnk" || return
+}
+
+TrueCryptInstall()
+{
+	printf "**************************************************\n* TrueCrypt\n**************************************************\n"
+	local v="7.1a" # http://www.truecrypt.org/downloads
+	run "Shareware/TrueCrypt/" -p "TrueCrypt Setup $v.exe" "TrueCrypt $v Mac OS X.dmg" "truecrypt-$v-setup-x64" || return 
+
+	$makeDir "$UserHome/Documents/data/TrueCrypt" || return
+
+	if [[ "$PLATFORM" == "win" ]]; then
+		echo "Updating icons..."
+		$mergeDir "$pp/TrueCrypt" "$ao" || return
+		$mergeDir "$up/TrueCrypt" "$ao" || return
+		$rm "$ao/TrueCrypt/TrueCrypt Website.url" || return
+		$rm "$ao/TrueCrypt/Uninstall TrueCrypt.lnk" || return
+		$rm "$pd/TrueCrypt.lnk" || return
+	fi
+
+	echot "\
+- Settings, Hot Keys...
+	- Mount Favorite Volumes - Control+Shift+Alt+F2
+	- Dismount All - Control+Shift+Alt+F3
+	- Force Dismount All, Wipe Cache & Exit - Control+Shift+Alt+F4
+- Settings, Preferences
+- Uncheck Preserve modification timestamp of file containers
+	- Check Cache passwords in driver memory
+	- Uncheck Wipe cached passwords on auto-dismount and exit
+- T:, Select File..., data/TrueCrypt, personal.tc, Mount
+- Favorites, Add Mounted Volumes to Favorites...
+	- Label of selected favorite volume=Personal"
+	#start --standard TrueCrypt start
+}
+
+f.luxInstall()
+{
+	printf "**************************************************\n* f.lux\n**************************************************\n"
+	run "Shareware/f.lux/" -p "flux-setup.exe" "Flux.zip" "" || return # http://justgetflux.com/	
+
+	echo "Updating icons..."
+	$mergeDir "$up/Flux" "$up/Operating System/Other" || return
+
+	echo "Updating registry..."	
+	$registry delete "urun/f.lux" # "C:\Users\jjbutare\AppData\Local\FluxSoftware\Flux\flux.exe" /noshow
+
+	echot "\
+- Location: Search
+- Transition: Slow
+- check Start F.lux at Login"
+	[[ "$PLATFORM" == "mac" ]] && { start "/Applications/Flux.app" || return; }
+}
+
+SnagItInstall()
+{
+	printf "**************************************************\n* snagIt\n**************************************************\n"
+	echo "- Custom, uncheck Windows Explorer Menu Extension"
+
+	local v="SnagIt V11.4.0.176." # http://www.techsmith.com/download/licenses/snagitupgrade.asp
+	run "TechSmith/SnagIt/setup/$v" -p "exe" "dmg" "" || return
+
+	echo "Updating icons..."
+	local v="11"
+	$mergeDir --rename "$pp/TechSmith" "$ao/TechSmith" || return
+	$ren "$ao/TechSmith/Snagit $v Editor.lnk" "$ao/TechSmith/Snagit Editor.lnk" || return
+	$ren "$ao/TechSmith/Snagit $v.lnk" "$ao/TechSmith/Snagit.lnk" || return
+	$rm "$pp/Startup/Snagit $v.lnk" || return
+ 
+	echo "Creating registry entries..."
+	SnagIt start || return; SnagIt close || return
+
+	echo "Updating registry..."
+	local r="HKCU/Software/TechSmith/SnagIt/$v" folder="$udoc/data/SnagIt"
+	registry 32 set "$r/CatalogFolder" REG_SZ "$folder/" || return
+	registry 32 set "$r/ExternalOutputDir" REG_SZ "$folder/Program/" || return
+
+	echo "Updating directories..."
+	$mergeDir --rename "$udoc/SnagIt" "$udata/SnagIt"
+
+	echot "\
+- View, uncheck Snagit OneClick
+- Tools, Program Preferences...,
+  - Program Options, check Minimize to tray
+  - Notifications, uncheck Show all tips and Show all balloon tips
+  - Updater Options, uncheck Enable automated update checking
+- Profile Settings
+  - Share=Clipboard, uncheck Preview in Editor, + (Save as New Profile), Name=Clipboard
+  - Share=Word, uncheck Preview in Editor, + (Save as New Profile), Name=Word
+- Notification Area
+  - Customize, Snagit, Show icon and notifications"
+	SnagIt start || return; sleep 1; "$P32/TechSmith/SnagIt 11/SnagIt32.exe"
+}
+
+SnagItInstall()
+{
+	printf "**************************************************\n* snagIt\n**************************************************\n"
+	echo "- Custom, uncheck Windows Explorer Menu Extension"
+
+	local v="SnagIt V11.4.0.176." # http://www.techsmith.com/download/licenses/snagitupgrade.asp
+	run "TechSmith/SnagIt/setup/$v" -p "exe" "dmg" "" || return
+
+	echo "Updating icons..."
+	local v="11"
+	$mergeDir --rename "$pp/TechSmith" "$ao/TechSmith" || return
+	$ren "$ao/TechSmith/Snagit $v Editor.lnk" "$ao/TechSmith/Snagit Editor.lnk" || return
+	$ren "$ao/TechSmith/Snagit $v.lnk" "$ao/TechSmith/Snagit.lnk" || return
+	$rm "$pp/Startup/Snagit $v.lnk" || return
+ 
+ 	if [[ "$PLATFORM" == "win" ]]; then
+		echo "Creating registry entries..."
+		SnagIt start || return; sleep 1 
+		"$P32/TechSmith/SnagIt 11/SnagIt32.exe"; sleep 1
+		SnagIt close || return
+
+		echo "Updating registry..."
+		local r="HKCU/Software/TechSmith/SnagIt/$v" folder="$udoc/data/SnagIt"
+		registry 32 set "$r/CatalogFolder" REG_SZ "$folder/" || return
+		registry 32 set "$r/ExternalOutputDir" REG_SZ "$folder/Program/" || return
+
+		echo "Updating directories..."
+		$mergeDir "$udoc/Snagit" "$_udata" || return
+	fi
+
+	case "$PLATFORM" in
+		mac) echot "\
+Snagit, Preferences...
+- General, select Menu Bar Icon
+- Capture, check Always copy capture to clipboard
+- Advanced, Autosave Location=~/data";;
+		win) echot "\
+- View, uncheck Snagit OneClick
+- Tools, Program Preferences...
+  - Program Options, check Minimize to tray
+  - Notifications, uncheck Show all tips and Show all balloon tips
+  - Updater Options, uncheck Enable automated update checking
+- Profile Settings
+  - Share=Clipboard, uncheck Preview in Editor, + (Save as New Profile), Name=Clipboard
+  - Share=Word, uncheck Preview in Editor, + (Save as New Profile), Name=Word
+- Notification Area
+  - Customize, Snagit, Show icon and notifications";;
+	esac
+	SnagIt start || return; sleep 1; "$P32/TechSmith/SnagIt 11/SnagIt32.exe"
 }
 
 args "$@"; ${command}Command "${args[@]}";

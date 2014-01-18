@@ -29,7 +29,7 @@ r() { [[ $# == 1 ]] && echo "$1" || eval "$2="\'"$1"\'; } # result VALUE VAR - e
 #
 
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
-alias FilterShellScript='egrep "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"'
+FilterShellScript() { egrep "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"; }
 IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
 IsOption() { [[ "$1" =~ ^-.* ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
@@ -97,7 +97,8 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 # path: realpath, cygpath
 FindInPath() { type -P "${1}"; }
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
-pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; fpc "$(utw "$arg")"; } # full path to clipboard in platform specific format
+pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
+GetBatchDir() { GetFilePath "$0"; }
 GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { r "${1##*/}" $2; }
@@ -105,16 +106,31 @@ GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${g
 GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
 GetFullPath() { local gfp="$(cygpath -a "$1")" || return; r "$gfp" $2; }
 GetDriveLabel() { local gdl="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; r "${gdl## Volume in drive ? is }" $2; }
+HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
+IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
+RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
+
+wtu() { [[ "$PLATFORM" == "win" ]] && cygpath -u "$*" || echo "$@"; } # WinToUnix
+utw() { [[ "$PLATFORM" == "win" ]] && cygpath -aw "$*" || echo "$@"; } # UnixToWin
+ptw() { echo "${1////\\}"; } # PathToWin
+
+IsUncPath() { [[ "$1" =~ //.* ]]; }
 GetUncServer() { local gus="${1#*( )//}"; r "${gus%%/*}" $2; } # //SERVER/SHARE/DIRS
 GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
-HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
-RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
-wtu() { cygpath -u "$*"; } # WinToUnix
-utw() { cygpath -aw "$*"; } # UnixToWin
-ptw() { echo "${1////\\}"; } # PathToWin
 
 DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
+
+GetDisks() # GetDisks ARRAY
+{
+	local getDisks;
+
+	case "$PLATFORM" in
+		mac) IFS=$'\n' getDisks=( $(df | egrep "/dev/" | cut -c 103- | egrep -v '^/$') );;
+		win) for disk in /cygdrive/*; do getDisks+=( "$disk" ); done;;
+	esac
+	CopyArray getDisks "$1"
+}
 
 # MakeShortcut FILE LINK
 MakeShortcut() 
@@ -211,15 +227,15 @@ CpProgress()
 
 #CopyArray() { eval "$2=$(GetArrayDefinition "$1")"; }
 CopyArray() { local ca; GetArrayDefinition "$1" ca; eval "$2=$ca"; }
-DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${!get}")} # DelimitArray <delimiter> <array>
+DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${!get}")} # DelimitArray DELIMITER ARRAY_VAR
 GetArrayDefinition() { local gad="$(declare -p $1)"; gad="${gad#*=\'}"; r "${gad%\'}" $2; }
 IsArray() {  [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
 ShowArray() { local var array="$1[@]"; printf -v var ' "%s"' "${!array}"; echo "${var:1}"; }
 ShowArrayDetail() { declare -p "$1"; }
 ShowArrayKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ShowArray keys; }
-StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray <string> <delimiter> <array>
+StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
 
-# IsInArray [-w|--wild] [-aw|--awild] <string> <array> - return 0 if string is in the
+# IsInArray [-w|--wild] [-aw|--awild] STRING ARRAY_VAR - return 0 if string is in the
 # array and set isInIndex , handles sparse arrays, the contents or the array can contain wild cards
 IsInArray() 
 { 
@@ -385,7 +401,7 @@ printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf
 #
 
 IsMobile() { [[ "$(HostInfo info "$COMPUTERNAME" mobile)" == "yes" ]]; }
-IsVm() { [[ ! vmchk > /dev/null ]]; }
+IsVm() { ! vmchk > /dev/null; }
 OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
 
 #
@@ -395,21 +411,24 @@ OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo
 IsElevated() { [[ "$PLATFORM" == "win" ]] && IsElevated.exe > /dev/null || whoami | grep root; }
 SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 
-# start [-d|--direct] [OPTION...] <program> <arguments> - start a Windows program
+# start [--direct|--files] [OPTION...] <program> <arguments> - start a Windows program
 # --direct		start the program directly without using cygstart (which is for ShellRun API), usually for console programs
+# --files 		assume arguments which match files the current directory are files, not arguments
+# OPTION  		start arguments
 start() 
 {
+	local direct; [[ "$1" == @(--direct) ]] && { direct="true"; shift; }
+	local files; [[ "$1" == @(--files) ]] && { files="true"; shift; }
+
 	if [[ "$PLATFORM" == "mac" ]]; then
-		type -a "$1" >& /dev/null && "$@" || open "$@"
-		return
+		type -a "$1" >& /dev/null && { "$@"; return; } || { open "$@"; return; }
 	fi
 
-	local direct; [[ "$1" == @(-d|--direct) ]] && { direct="true"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
 	local program="$1" args=( "${@:2}" ) qargs; 
 
 	for arg in "${args[@]}"; do 
-		[[ ! "$arg" =~ .*\\.* && "$arg" =~ .*/.* && -e "$arg" ]] && { arg="$(utw "$arg")"; } # convert POSIX path to Windows format
+		[[ ( ! "$arg" =~ .*\\.* && "$arg" =~ .*/.* && -e "$arg" ) || ( $files && -e "$arg" ) ]] && { arg="$(utw "$arg")"; } # convert POSIX path to Windows format
 		[[ ! $direct && "$arg" =~ ( ) ]] && qargs+=( "\"$arg\"" ) || qargs+=( "$arg" ); # cygstart requires arguments with spaces be quoted
 	done
 	
@@ -457,7 +476,7 @@ sudo() # sudo [command](mintty) - start a program as super user
 		fi
 		return
 	fi
-	
+
 	if IsShellScript "$program"; then
 		cygstart "${cygstartOptions[@]}" hstart "${hstartOptions[@]}" "\"\"mintty.exe\"\" --hold $hold bash.exe -l \"\"$program\"\" $@";
 	else
@@ -467,14 +486,14 @@ sudo() # sudo [command](mintty) - start a program as super user
 }
 [[ "$PLATFORM" != "win" ]] && unset -f sudo
 
-IsTaskRunning() # IsTaskRunng <task>
+IsTaskRunning() # IsTaskRunng EXE
 {
-		local task="${1/\.exe/}"
-		GetFileName "$task" task
-
-		# ps -sW | cut -c 27- - full path, no extension for Cygwin processes
-		# tasklist /nh /fo csv | cut -d, -f1 | grep -i "^\"$task\.exe\"$" > /dev/null # no path, slower
-		AutoItScript ProcessExists "${task}.exe"
+	local task="${1/\.exe/}"
+		
+	case "$PLATFORM" in
+		mac) ps -A | grep "$task" | grep -v "grep $task" >& /dev/null;;
+		win) GetFileName "$task" task; AutoItScript ProcessExists "${task}.exe";;
+	esac
 }
 
 # Process Commands
@@ -527,7 +546,7 @@ TextEdit()
 	for file in "$@"; do
 		[[ -f "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"
 	done
-	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then { start "${options[@]}" "$p" "${files[@]}"; $wait; } else return 1; fi
+	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then { start --files "${options[@]}" "$p" "${files[@]}"; $wait; } else return 1; fi
 }
 
 VimHelp() { echot "VIM: http://www.lagmonster.org/docs/vi.html
