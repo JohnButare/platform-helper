@@ -47,6 +47,11 @@ if [[ "$APPDATA" == *\\* ]]; then
 	export APPDATA=$(cygpath -u "$appdata" 2> /dev/null)
 fi
 
+if [[ "$LOCALAPPDATA" == *\\* ]]; then
+	export localappdata="$LOCALAPPDATA"
+	export LOCALAPPDATA=$(cygpath -u "$localappdata" 2> /dev/null)
+fi
+
 if [[ "$PROGRAMDATA" == "" || "$PROGRAMDATA" == *\\* ]]; then
 	export programdata="c:\\ProgramData"
 	export PROGRAMDATA="/cygdrive/c/ProgramData"
