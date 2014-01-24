@@ -407,6 +407,7 @@ OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo
 #
 # process
 #
+# NOTE: piping ps output can be slow in Windows
 
 IsElevated() { [[ "$PLATFORM" == "win" ]] && IsElevated.exe > /dev/null || whoami | grep root; }
 SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
@@ -438,12 +439,16 @@ start()
 	[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
 	GetFileExtension "$program" ext
 	
+	export -n PLATFORM # suppress variables for external programs such as msbuild 
 	case "$ext" in
 		cmd) cmd /c $(utw "$program") "${@:2}";;
 		js|vbs) cscript /NoLogo "$(utw "$program")" "${@:2}";;
 		*) if [[ $direct ]]; then "$program" "${qargs[@]}"; 
 			 else cygstart "${options[@]}" "$program" "${qargs[@]}"; fi;;
 	esac
+	local result=$?
+	export PLATFORM
+	return $result
 } 
 
 sudo() # sudo [command](mintty) - start a program as super user
@@ -497,7 +502,14 @@ IsTaskRunning() # IsTaskRunng EXE
 }
 
 # Process Commands
-ProcessList() { ps -W | cut -c33-36,61- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND"; }
+ProcessList() 
+{ 
+	case $PLATFORM in
+		win) tasklist | awk '{ print $2 "," $1 }';;
+		*) ps -W | cut -c33-36,61- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
+	esac
+}
+
 ProcessClose() { local p="${1/.exe/}.exe"; GetFileName "$p" p; process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null; } #egrep -v "Command Line Process Viewer|Copyright\(C\) 2002-2003|^$"; }
 ProcessKill() { local p="$1"; GetFileNameWithoutExtension "$p" p; pskill "$p" >& /dev/null ; }
 
