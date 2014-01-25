@@ -8,7 +8,7 @@ usage: os <command>
 	FindInfo|FindDirs [HOST|DIR](local)		find OS information or directories
 	index: index [options|start|stop|demand](options)
 	path [show|edit|editor|update|set [AllUsers]](editor)
-	other: ComputerManagement|MobilityCenter|SystemProperties|update"
+	other: ComputerManagement|DeviceManager|MobilityCenter|SystemProperties|update"
 	exit $1
 }
 
@@ -20,7 +20,7 @@ args()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
-			ComputerManagement) command="ComputerManagement";; FindInfo) command="FindInfo";; FindDirs) command="FindDirs";; MobilityCenter) command="MobilityCenter";; SystemProperties) command="SystemProperties";;
+			ComputerManagement) command="ComputerManagement";; DeviceManager) command="DeviceManager";; FindInfo) command="FindInfo";; FindDirs) command="FindDirs";; MobilityCenter) command="MobilityCenter";; SystemProperties) command="SystemProperties";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ "$command" == @(FindDirs|index|path) ]] && break
@@ -251,5 +251,6 @@ SystemPropertiesCommand()
 }
 
 ComputerManagementCommand() { start CompMgmt.msc; }
+DeviceManagerCommand() { start DevMgmt.msc; }
 
 run "$@"
