@@ -400,6 +400,9 @@ printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf
 # platform
 #
 
+# console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternative run outside of mintty in a regular console (Start, Run, bash --login)
+console() { start --direct proxywinconsole.exe "$@"; } 
+
 IsMobile() { [[ "$(HostInfo info "$COMPUTERNAME" mobile)" == "yes" ]]; }
 IsVm() { [[ "$PLATFORM" != "win" ]] && return 0; ! vmchk > /dev/null; }
 OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
