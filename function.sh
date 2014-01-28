@@ -552,8 +552,8 @@ TextEdit()
 	case "$PLATFORM" in
 		mac) p="$P/Sublime Text.app/Contents/SharedSupport/bin/subl"
 			[[ ! -f "$p" ]] && p="open -a TextEdit";;
-		win) p="$P64/Sublime Text 3/sublime_text.exe"
-			[[ ! -f "$p" ]] && p="$P64/Sublime Text 2/sublime_text.exe"
+		win) p="$P/Sublime Text 3/sublime_text.exe"
+			[[ ! -f "$p" ]] && p="$P/Sublime Text 2/sublime_text.exe"
 			[[ ! -f "$p" ]] && p="$P32/Notepad++/notepad++.exe"
 			[[ ! -f "$p" ]] && p="notepad";;
 	esac
