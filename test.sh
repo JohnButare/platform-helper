@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 . function.sh
 
-case $COMPUTERNAME in
-	jjbutare) echo hi;;
-esac
+unset APPDATA LOCALAPPDATA TMP TEMP PROGRAMDATA ProgramData WINDIR
+clist.bat autohotkey
