@@ -114,12 +114,16 @@ wtu() { [[ "$PLATFORM" == "win" ]] && cygpath -u "$*" || echo "$@"; } # WinToUni
 utw() { [[ "$PLATFORM" == "win" ]] && cygpath -aw "$*" || echo "$@"; } # UnixToWin
 ptw() { echo "${1////\\}"; } # PathToWin
 
-IsUncPath() { [[ "$1" =~ //.* ]]; }
-GetUncServer() { local gus="${1#*( )//}"; r "${gus%%/*}" $2; } # //SERVER/SHARE/DIRS
-GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
-GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
-
 DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
+
+explore() # explorer DIR - explorer DIR in GUI program
+{
+	local dir="$1"; [[ ! $dir ]] && dir="$PWD"
+	case "$PLATFORM" in
+		mac) open "$dir" ;;
+		win) start explorer "$dir";;
+	esac
+}
 
 GetDisks() # GetDisks ARRAY
 {
@@ -357,7 +361,16 @@ ConnectToPort() # ConnectToPort HOST PORT [TIMEOUT](200)
 	esac
 }
 
-IsUncMounted() # IsUncMounted UNC -> DIR 
+#
+# UNC Shares - \\SERVER\SHARE\DIRS
+#
+
+IsUncPath() { [[ "$1" =~ //.* ]]; }
+GetUncServer() { local gus="${1#*( )//}"; r "${gus%%/*}" $2; } # //SERVER/SHARE/DIRS
+GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
+GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
+
+IsUncMounted() # IsUncMounted UNC - if UNC is mounted returns DIR mounted to 
 {
 	local unc="$1"; [[ "$PLATFORM" == "win" ]] && return "$unc"
 	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
@@ -365,7 +378,7 @@ IsUncMounted() # IsUncMounted UNC -> DIR
 	[[ ! $node ]] && return 1; [[ $dirs ]] && echo "$node/$dirs" || echo "$node"
 }
 
-MountUnc()
+MountUnc() # MountUnc UNC - mounts a UNC and returns DIR mounted to
 {
 	local noHostCheck; [[ "$1" == "--no-host-check" ]] && { noHostCheck="true"; shift; }
 	local unc="$1"; [[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
@@ -376,7 +389,7 @@ MountUnc()
 	IsUncMounted "$unc"	
 }
 
-UnMountUnc()
+UnMountUnc() # UnMountUnc UNC
 {
 	local unc="$1"; [[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
 	local server share; GetUncServer "$unc" server; GetUncShare "$unc" share
