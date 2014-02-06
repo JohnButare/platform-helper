@@ -8,7 +8,8 @@ usage: os <command>
 	FindInfo|FindDirs [HOST|DIR](local)		find OS information or directories
 	index: index [options|start|stop|demand](options)
 	path [show|edit|editor|update|set [AllUsers]](editor)
-	other: ComputerManagement|DeviceManager|MobilityCenter|SystemProperties|update"
+	other: ComputerManagement|DeviceManager|MobilityCenter|SystemProperties|update|store
+		lock"
 	exit $1
 }
 
@@ -250,7 +251,15 @@ SystemPropertiesCommand()
 	start rundll32.exe /d shell32.dll,Control_RunDLL SYSDM.CPL$tab
 }
 
+lockCommand()
+{
+	case "$PLATFORM" in
+		mac) "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession" -suspend
+	esac
+}
+
 ComputerManagementCommand() { start CompMgmt.msc; }
 DeviceManagerCommand() { start DevMgmt.msc; }
+StoreCommand() { start "" "ms-windows-store:"; }
 
 run "$@"
