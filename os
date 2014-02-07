@@ -39,7 +39,7 @@ MobilityCenterCommand() { start mblctr.exe; }
 updateCommand()
 {
 	echo "Starting Windows Update..."
-	intel IsIntelHost && intel update || start "wuapp.exe"
+	if intel IsIntelHost; then intel update; else start "wuapp.exe"; fi
 
 	echo "Starting Update Checker..."
 	start "UpdateChecker.exe"
