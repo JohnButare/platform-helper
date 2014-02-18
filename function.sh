@@ -16,6 +16,7 @@ shopt -s nocasematch extglob
 #
 
 EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of the variable in variable, or set it to var
+IsUrl() { [[ "$1" =~ http[s]?://.* ]]; }
 IsInteractive() { [[ "$-" == *i* ]]; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 clipw() { case "$PLATFORM" in "mac") echo -n "$1" | pbcopy;; "win") echo -n "$1" > /dev/clipboard;; esac; }
@@ -450,8 +451,12 @@ start()
 	done
 	
 	#printf "wait=$wait\noptions="; ShowArray options; printf "program=$program\nqargs="; ShowArray qargs; return
+
 	[[ -d "$program" ]] && { cygstart "$program"; return; }
+	IsUrl "$program" && { cygstart "$program"; return; }
+
 	[[ ! -f "$program" ]] && program="$(FindInPath "$1")"
+
 	[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
 	GetFileExtension "$program" ext
 	
