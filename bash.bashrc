@@ -4,14 +4,15 @@
 set -a # PLATFORM DATA BIN UDATA UBIN ROOT P P32 PUB USERS USER HOME DOC
 LANG="en_US" G="" # GNU Core Utils
 ROOT=""
-USERS="/Users" 
+USERS="/Users"
+VOLUMES="/Volumes"
 case "$(uname)" in 
-	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USER="$USERNAME" P="$ROOT/Program Files" P32="$ROOT/Program Files (x86)"
+	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USER="$USERNAME" P="$ROOT/Program Files" P32="$ROOT/Program Files (x86)" PUB="$USERS/Public" VOLUMES="/cygdrive"
 		[[ -d "/cygdrive/d/users" ]] && USERS="/cygdrive/d/users" || USERS="$ROOT/users";;
-	Darwin)	PLATFORM="mac" P="/Applications"; G="g";;
+	Darwin)	PLATFORM="mac" P="/Applications" G="g" PUB="$USERS/Shared";;
 	Linux) PLATFORM="linux" P="/opt";; 
 esac
-PUB="$USERS/Public" DATA="/usr/local/data" BIN="$DATA/bin" CODE="$ROOT/Projects" 
+DATA="/usr/local/data" BIN="$DATA/bin" CODE="$ROOT/Projects" 
 DOC="$HOME/Documents" UDATA="$DOC/data" UBIN="$UDATA/bin"
 [[ ! $COMPUTERNAME ]] && COMPUTERNAME="$(hostname -s)"
 set +a

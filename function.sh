@@ -304,11 +304,21 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "Elapsed %02d:%02d:%02d\n" 
 # account
 #
 
-FullName() { case "$USER" in jjbutare|ad_jjbutare) echo John; return;; esac; local s="$(net user "$USER" |& grep -i "Full Name")"; s="${s:29}"; echo ${s:-$USER}; }
-PublicPictures() { cygpath -F 54; }
-PublicVideos() { cygpath -F 55; }
-UserPictures() { cygpath -F 39; }
-UserVideos() { cygpath -F 14; }
+FullName() 
+{ 
+	case "$USER" in jjbutare|ad_jjbutare) echo John; return;; esac; 
+	local s
+	case "$PLATFORM" in
+		win) s="$(net user "$USER" |& grep -i "Full Name")"; s="${s:29}";;
+		mac)  s="$(dscl . -read /Users/$USER RealName | tail -n 1)"; s="${s:1}";;
+	esac
+	echo ${s:-$USER}; 
+}
+
+PublicPictures() { [[ "$PLATFORM" == "win" ]] && cygpath -F 54 || echo "$PUB/Pictures"; }
+PublicVideos() { [[ "$PLATFORM" == "win" ]] && cygpath -F 55 || echo "$PUB/Videos"; }
+UserPictures() { [[ "$PLATFORM" == "win" ]] && cygpath -F 39 || echo "$HOME/Pictures"; }
+UserVideos() { [[ "$PLATFORM" == "win" ]] && cygpath -F 14 || echo "$HOME/Videos"; }
 
 #
 # network
@@ -367,7 +377,7 @@ ConnectToPort() # ConnectToPort HOST PORT [TIMEOUT](200)
 #
 
 IsUncPath() { [[ "$1" =~ //.* ]]; }
-GetUncServer() { local gus="${1#*( )//}"; r "${gus%%/*}" $2; } # //SERVER/SHARE/DIRS
+GetUncServer() { local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
 GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 
@@ -375,7 +385,7 @@ IsUncMounted() # IsUncMounted UNC - if UNC is mounted returns DIR mounted to
 {
 	local unc="$1"; [[ "$PLATFORM" == "win" ]] && return "$unc"
 	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
-	local node="$(mount | egrep "^//$USER@${server%%.*}.*/$share" | cut -d" " -f 3)"
+	local node="$(mount | egrep "^//$USER@${server%%.*}.*/$share" | head -n 1 | cut -d" " -f 3)"
 	[[ ! $node ]] && return 1; [[ $dirs ]] && echo "$node/$dirs" || echo "$node"
 }
 
