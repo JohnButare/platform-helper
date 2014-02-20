@@ -377,7 +377,7 @@ ConnectToPort() # ConnectToPort HOST PORT [TIMEOUT](200)
 #
 
 IsUncPath() { [[ "$1" =~ //.* ]]; }
-GetUncServer() { local gus="${1#*( )//}"; r "${gus%%/*}" $2; } # //SERVER/SHARE/DIRS
+GetUncServer() { local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
 GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 
@@ -385,7 +385,7 @@ IsUncMounted() # IsUncMounted UNC - if UNC is mounted returns DIR mounted to
 {
 	local unc="$1"; [[ "$PLATFORM" == "win" ]] && return "$unc"
 	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
-	local node="$(mount | egrep "^//$USER@${server%%.*}.*/$share" | cut -d" " -f 3)"
+	local node="$(mount | egrep "^//$USER@${server%%.*}.*/$share" | head -n 1 | cut -d" " -f 3)"
 	[[ ! $node ]] && return 1; [[ $dirs ]] && echo "$node/$dirs" || echo "$node"
 }
 
