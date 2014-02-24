@@ -7,8 +7,8 @@ ROOT=""
 USERS="/Users"
 VOLUMES="/Volumes"
 case "$(uname)" in 
-	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USER="$USERNAME" P="$ROOT/Program Files" P32="$ROOT/Program Files (x86)" PUB="$USERS/Public" VOLUMES="/cygdrive"
-		[[ -d "/cygdrive/d/users" ]] && USERS="/cygdrive/d/users" || USERS="$ROOT/users";;
+	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USER="$USERNAME" P="$ROOT/Program Files" P32="$ROOT/Program Files (x86)" VOLUMES="/cygdrive"
+		[[ -d "/cygdrive/d/users" ]] && USERS="/cygdrive/d/users" || USERS="$ROOT/users"; PUB="$USERS/Public";;
 	Darwin)	PLATFORM="mac" P="/Applications" G="g" PUB="$USERS/Shared";;
 	Linux) PLATFORM="linux" P="/opt";; 
 esac
