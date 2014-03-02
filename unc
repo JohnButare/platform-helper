@@ -5,8 +5,10 @@
 usage()
 {
 	echot "\
-usage: unc [explorer|mount|unmount](explore) UNC
+usage: unc [explorer|mount|un ount|IsMounted](explore) UNC
 	Manipulate UNC shares
+	explorer 	mount UNC and open in file explorer
+	IsMounted	if UNC is mounted returns DIR mounted to
 	mount 		mount UNC and return DIR mounted"
 	exit $1
 }
@@ -17,10 +19,10 @@ args()
 	while (( $# != 0 )); do
 		case "$1" in
 			--help) help="--help";;
-			UnMountUnc) command="UnMountUnc";;
+			UnMount) command="UnMount";; IsMounted) command="IsMounted";;
 				*)
 				IsUncPath "$1" && [[ ! $unc ]] && { unc="$1"; shift; continue; }
-				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }												# command argument
+				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
 				UnknownOption "$1"
 		esac
 		shift
@@ -34,12 +36,36 @@ args()
 init() { :; }
 run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 
-mountCommand() { MountUnc "$unc"; }
-UnMountCommand() { UnMountUnc "$unc"; }
+mountCommand()
+{ 
+	local noHostCheck; [[ "$1" == "--no-host-check" ]] && { noHostCheck="true"; shift; }
+	[[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
+	local dir; dir="$(IsMountedCommand)" && { echo "$dir"; return 0; }
+	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
+	{ [[ ! $noHostCheck ]] && ! HostUtil available "$server"; } && return 1
+	osascript -e "try" -e "mount volume \"smb://$server/$share\"" -e "end try" >& /dev/null || return
+	IsMountedCommand
+}
+
+UnMountCommand()
+{ 
+	[[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
+	local server share; GetUncServer "$unc" server; GetUncShare "$unc" share
+	local dir; dir="$(unc IsMounted "//$server/$share")" || return 0
+	GetFileName "$dir" dir; osascript -e "tell application \"Finder\"" -e "eject \"$dir\"" -e "end tell"
+}
+
+IsMountedCommand()
+{
+	[[ "$PLATFORM" == "win" ]] && return "$unc"
+	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
+	local node="$(mount | egrep "^//$USER@${server%%.*}.*/$share" | head -n 1 | cut -d" " -f 3)"
+	[[ ! $node ]] && return 1; [[ $dirs ]] && echo "$node/$dirs" || echo "$node"
+}
 
 exploreCommand()
 {
-	local dir=$(MountUnc "$unc") || return
+	local dir=$(mountCommand) || return
 	explore "$dir" || return
 }
 

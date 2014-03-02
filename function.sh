@@ -381,33 +381,6 @@ GetUncServer() { local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } 
 GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 
-IsUncMounted() # IsUncMounted UNC - if UNC is mounted returns DIR mounted to 
-{
-	local unc="$1"; [[ "$PLATFORM" == "win" ]] && return "$unc"
-	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
-	local node="$(mount | egrep "^//$USER@${server%%.*}.*/$share" | head -n 1 | cut -d" " -f 3)"
-	[[ ! $node ]] && return 1; [[ $dirs ]] && echo "$node/$dirs" || echo "$node"
-}
-
-MountUnc() # MountUnc UNC - mounts a UNC and returns DIR mounted to
-{
-	local noHostCheck; [[ "$1" == "--no-host-check" ]] && { noHostCheck="true"; shift; }
-	local unc="$1"; [[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
-	local dir; dir="$(IsUncMounted "$unc")" && { echo "$dir"; return 0; }
-	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
-	{ [[ ! $noHostCheck ]] && ! HostUtil available "$server"; } && return 1
-	osascript -e "try" -e "mount volume \"smb://$server/$share\"" -e "end try" >& /dev/null || return
-	IsUncMounted "$unc"	
-}
-
-UnMountUnc() # UnMountUnc UNC
-{
-	local unc="$1"; [[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
-	local server share; GetUncServer "$unc" server; GetUncShare "$unc" share
-	local dir; dir="$(IsUncMounted "//$server/$share")" || return 0
-	GetFileName "$dir" dir; osascript -e "tell application \"Finder\"" -e "eject \"$dir\"" -e "end tell"
-}
-
 #
 # display
 #
