@@ -284,16 +284,16 @@ IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
 # dates
 #
 
-GetDateStamp() { date '+%Y%m%d'; }
-GetTimeStamp() { date '+%Y%m%d_%H%M%S'; }
-ShowTime() { date '+%F %T.%N %Z' -d "$1"; }
-ShowSimpleTime() { date '+%D %T' -d "$1"; }
+GetDateStamp() { ${G}date '+%Y%m%d'; }
+GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
+ShowTime() { ${G}date '+%F %T.%N %Z' -d "$1"; }
+ShowSimpleTime() { ${G}date '+%D %T' -d "$1"; }
 CompareTime() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
 
 GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 to specified time
 {
-	[[ $1 ]] && { date +%s.%N -d "$1"; return; }
-	[[ $# == 0 ]] && date +%s.%N; # only return default date if no argument is specified
+	[[ $1 ]] && { ${G}date +%s.%N -d "$1"; return; }
+	[[ $# == 0 ]] && ${G}date +%s.%N; # only return default date if no argument is specified
 }
 
 TimerOn() { startTime="$(date -u '+%F %T.%N %Z')"; }
