@@ -100,7 +100,7 @@ FindInPath() { type -P "${1}"; }
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 GetBatchDir() { GetFilePath "$0"; }
-GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
+GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { r "${1##*/}" $2; }
 GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${gfnwe%.*}" $2; }
@@ -150,6 +150,21 @@ MakeShortcut()
 
 CopyDir()
 {
+	[[ "$PLATFORM" == "win" ]] && { CopyDirWin "$@"; return; }
+	local cp o=( --progress ); cp="$(FindInPath acp)" || { cp="${G}cp"; o=( --verbose ); } 
+
+	for arg in "$@"; do
+		[[ $1 == @(-m|--mirror) ]] && { shift; continue; }
+		[[ $1 == @(-q|--quiet) ]] && { shift; continue; }
+		[[ $1 == @(--retry) ]] && { shift; continue; }
+		o+=( "$1" ); shift
+	done
+
+	"$cp" --recursive "${o[@]}"
+}
+
+CopyDirWin()
+{
 	[[ $1 == @(--help) ]]	&& { EchoErr "usage: CopyDir SRC DEST [FILES] [OPTIONS]
   -m, --mirror			remove extra files in DEST
   -q, --quiet				minimize logging
@@ -173,6 +188,7 @@ CopyDir()
 		o+=( "$1" ); shift
 	done
 	[[ $quiet && ! $mirror ]] && o+=( /xx )
+
 	robocopy "$src" "$dest" "${o[@]}"
 	(( $? > 7 )) && return 1 || return 0
 }

@@ -38,11 +38,19 @@ MobilityCenterCommand() { start mblctr.exe; }
 
 updateCommand()
 {
-	echo "Starting Windows Update..."
-	if intel IsIntelHost; then intel update; else start "wuapp.exe"; fi
+	case "$PLATFORM" in
+		win)
+			echo "Starting Windows Update..."
+			if intel IsIntelHost; then intel update; else start "wuapp.exe"; fi
 
-	echo "Starting Update Checker..."
-	start "UpdateChecker.exe"
+			echo "Starting Update Checker..."
+			start "UpdateChecker.exe"
+			;;
+		mac)
+			brew update || return
+			brew upgrade || return
+			;;
+		esac
 }
 
 indexCommand()
