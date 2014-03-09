@@ -120,9 +120,9 @@ GetMediaType()
 	r "$result" $2
 }
 
-GetNewName() { r "$(date "+%Y_%m_%d %H_%M_%S" -d "$1")" $2; }
-NormalizeDate() {	r "$(date "+%Y-%m-%d %H:%M:%S" -d "$1")" $2; }
-ExifDate() {	r "$(date "+%Y:%m:%d %H:%M:%S" -d "$1")" $2; }
+GetNewName() { r "$(${G}date "+%Y_%m_%d %H_%M_%S" -d "$1")" $2; }
+NormalizeDate() {	r "$(${G}date "+%Y-%m-%d %H:%M:%S" -d "$1")" $2; }
+ExifDate() {	r "$(${G}date "+%Y:%m:%d %H:%M:%S" -d "$1")" $2; }
 
 GetDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 {
@@ -145,7 +145,7 @@ GetDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 		s="$dto"
 		if [[ ! $s ]]; then
 			if [[ "$mediaType" == "video" ]]; then
-				s="$(date -d "${md[CreateDate]} UTC")";
+				s="$(${G}date -d "${md[CreateDate]} UTC")";
 			else # picture
 				if [[ ${md[CreatorTool]} ]]; then # photo editos change the ModifyDate
 					unset s
@@ -160,7 +160,7 @@ GetDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 	elif [[ "${md[Keywords]}" =~ .*Photo\ Booth.* ]]; then
 		s="$dto"
 		if [[ ! $s ]]; then
-			s="$(stat -c%y "$file")" || return;
+			s="$(${G}stat -c%y "$file")" || return;
 			additionalMetadata+=( "-DateTimeOriginal=$(ExifDate "$s")" )
 		fi
 
@@ -168,7 +168,7 @@ GetDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 	elif [[ "$ext" == @(PNG) ]]; then
 		s="$dto"
 		[[ ! $s ]] && s="${md[CreationTime]}"
-		[[ ! $s ]] && s="$(stat -c%y "$file")" || return;
+		[[ ! $s ]] && s="$(${G}stat -c%y "$file")" || return;
 		[[ $s && ! $dto ]] && additionalMetadata+=( "-DateTimeOriginal=$(ExifDate "$s")" )
 		[[ $s && ! ${md[CreationTime]} ]] && additionalMetadata+=( "-CreationTime=$(ExifDate "$s")" )
 
@@ -206,7 +206,7 @@ AddMetadata()
 	fi
 }
 
-GetMetadata() 
+GetMetadata() # GetMetadata FILE ARRAY [METADATA...](dateTakenMetadata)
 {
 	local file="$1" array="$2" metadata=( "${@:3}" )
 	[[ ! $metadata ]] && metadata=( "${dateTakenMetadata[@]}" )
@@ -239,11 +239,11 @@ GetInit()
 
 	local dir nas="nas.hagerman.butare.net" suffix="Camera/$person"
 	if [[ $dest ]]; then
-		destPicturePrefix="//$dest/photo/$suffix"
-		destVideoPrefix="//$dest/video/$suffix"		
-	elif dir=$(unc mount "$nas"); then
-		destPicturePrefix="//$nas/photo/$suffix"
-		destVideoPrefix="//$nas/video/$suffix"
+		destPicturePrefix="$(unc mount "//$dest/photo/$suffix")" || return
+		destVideoPrefix="$(unc mount "//$dest/video/$suffix")" || return
+	elif HostUtil available "$nas"; then
+		destPicturePrefix="$(unc mount "//$nas/photo/$suffix")" || return
+		destVideoPrefix="$(unc mount "//$nas/video/$suffix")" || return
 	else
 		destPicturePrefix="$(PublicPictures)/$suffix"
 		destVideoPrefix="$(PublicVideos)/$suffix"
@@ -335,17 +335,20 @@ ProcessFile()
 		ask "Create the destination directory $destPrefix" || return 1
 		mkdir --parents "$destPrefix" || return
 	fi
-echo "$file"; return 0 # here
+
 	printf "$fileName..."
 
 	local -A fileMetadata; GetMetadata "$file" fileMetadata || return
 	local dateTaken; GetDateTaken "$file" fileMetadata dateTaken || { EchoErr "media get: no DateTaken for \`$file\`"; return 0; }
 	local dateTakenSeconds=$(GetSeconds "$dateTaken")
 	local prefix; GetNewName "$dateTaken" prefix || return
-	local destDir="$destPrefix/$(date +%Y -d "$dateTaken")/$(date +%Y%m -d "$dateTaken")" 
+	local destDir="$destPrefix/$(${G}date +%Y -d "$dateTaken")/$(${G}date +%Y%m -d "$dateTaken")" 
 	local suffix dest="$destDir/$prefix.$ext"
+	#pause "$dateTaken-$dateTakenSeconds-$prefix-$destDir-$dest"
 
-	[[ ! -d "$destDir" ]] && { mkdir --parents "$destDir" || return; }
+	[[ $verbose ]] && PrintMetadata "(metadata)" fileMetadata
+
+	[[ ! -d "$destDir" ]] && { ${G}mkdir --parents "$destDir" || return; }
 
 	while [[ -f "$dest" ]]; do
 		IsDuplicateFile && { RemoveProcessedFile "$file" "$prefix${suffix:+-$suffix}"; return; } 
@@ -361,12 +364,11 @@ echo "$file"; return 0 # here
 	local operationDesc="moving"; [[ "$operation" == "copy" ]] && operationDesc="copying"
 	printf "$prefix${suffix:+-$suffix}..."
 
-	# TODO: why doe robocopy copy incorrect file for iPad?
-	local bigFile;	(( fileSize >= $bigFileSizeBytes )) && bigFile="true"
+	local bigFile; (( fileSize >= bigFileSizeBytes )) && bigFile="true"
 
 	if [[ ! $noMetadata && "$ext" != @(avi|mts|m2ts) ]]; then
-		local tmpFile="$tmpDir/$fileName" importedFileModificationTime="$(stat -c%Y "$file")"
-		[[ ! -d "$tmpDir" ]] && { mkdir "$tmpDir" || return; }
+		local tmpFile="$tmpDir/$fileName"
+		[[ ! -d "$tmpDir" ]] && { ${G}mkdir "$tmpDir" || return; }
 		GetCopyFile "$file" "$tmpFile" "" "caching" || return
 		AddImportedMetadata "$tmpFile" || return
 		GetCopyFile "$tmpFile" "$dest" "$bigFile" "$operationDesc" || return
@@ -400,11 +402,10 @@ IsDuplicateFile()
 
 AddImportedMetadata()
 {
-	local file="$1"
-
-	AddMetadata "$file" "${additionalMetadata[@]}" \
-		-ImportedDate="$(date '+%Y:%m:%d %H:%M:%S')" \
-		-ImportedFileModificationTime="$(date '+%Y:%m:%d %H:%M:%S' -d @"$importedFileModificationTime")" \
+	local toFile="$1"
+	AddMetadata "$toFile" "${additionalMetadata[@]}" \
+		-ImportedDate="$(${G}date '+%Y:%m:%d %H:%M:%S')" \
+		-ImportedFileModificationTime="$(ExifDate "$(${G}stat -c%y "$file")")" \
 		-ImportedFileSizeBytes="$fileSize" \
 		-ImportedOnHost="$COMPUTERNAME" \
 		-ImportedByUser="$USER" \
@@ -428,16 +429,20 @@ RemoveProcessedFile()
 GetCopyFile() # SRC DEST
 {
 	local src="$1" dest="$2" bigFile="$3" desc="$4"
-	local srcDir destDir srcFileName destFileName
-	GetFilePath "$src" srcDir || return
-	GetFilePath "$dest" destDir || return
-	GetFileName "$src" srcFileName || return
-	GetFileName "$dest" destFileName || return
 
 	printf "$desc..."
 	[[ $verbose ]] && { echo "(cp \"$src\" \"$dest\")"; }
 	[[ $test ]] && return 0
 	[[ ! $bigFile ]] && { cp "$src" "$dest"; return; }
+	[[ "$PLATFORM" != "win" ]] && { CopyDir "$src" "$dest"; return; }
+
+	# CopyDir on Windows (robocopy) requires SRC_DIR DEST_DIR FILE 
+
+	local srcDir destDir srcFileName destFileName
+	GetFilePath "$src" srcDir || return
+	GetFilePath "$dest" destDir || return
+	GetFileName "$src" srcFileName || return
+	GetFileName "$dest" destFileName || return
 
 	[[ "$srcFileName" != "$destFileName" ]] && { mv "$src" "$srcDir/$destFileName" || return; }
 	CopyDir --quiet "$srcDir" "$destDir" "$destFileName" || return
@@ -459,7 +464,7 @@ AddDate()
 	local mediaType; GetMediaType "$ext" mediaType || { echo "unknown media type"; return 0; }
 	local -A fileMetadata; GetMetadata "$file" fileMetadata || return
 	local dateTaken; GetDateTaken "$file" fileMetadata dateTaken && { echo "date already present"; return 0; }
-	local modificationDate="$(stat -c%y "$file")" || return;
+	local modificationDate="$(${G}stat -c%y "$file")" || return;
 	local additionalMetadata=( "-DateTimeOriginal=$(ExifDate "$modificationDate")" )
 	printf "adding date..."; AddMetadata "$file" "${additionalMetadata[@]}"; echo "done"
 }
