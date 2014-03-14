@@ -270,5 +270,5 @@ lockCommand()
 ComputerManagementCommand() { start CompMgmt.msc; }
 DeviceManagerCommand() { start DevMgmt.msc; }
 StoreCommand() { start "" "ms-windows-store:"; }
-pause
+
 run "$@"
