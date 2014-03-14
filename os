@@ -49,6 +49,7 @@ updateCommand()
 		mac)
 			brew update || return
 			brew upgrade || return
+			sudo softwareupdate --install --all || return
 			;;
 		esac
 }
