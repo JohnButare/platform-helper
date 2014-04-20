@@ -459,16 +459,12 @@ start()
 	[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
 	GetFileExtension "$program" ext
 	
-	export -n PLATFORM # suppress variables for external programs such as msbuild 
 	case "$ext" in
 		cmd) cmd /c $(utw "$program") "${@:2}";;
 		js|vbs) cscript /NoLogo "$(utw "$program")" "${@:2}";;
 		*) if [[ $direct ]]; then "$program" "${qargs[@]}"; 
 			 else cygstart "${options[@]}" "$program" "${qargs[@]}"; fi;;
 	esac
-	local result=$?
-	export PLATFORM
-	return $result
 } 
 
 sudo() # sudo [command](mintty) - start a program as super user
