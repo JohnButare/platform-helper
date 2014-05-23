@@ -45,6 +45,11 @@ updateCommand()
 
 			echo "Starting Update Checker..."
 			start "UpdateChecker.exe"
+
+			echo "Starting Cygwin update..."
+			cygwin download || return; pause
+			cygwin install || return; pause
+
 			;;
 		mac)
 			brew update || return
