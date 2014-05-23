@@ -48,7 +48,7 @@ updateCommand()
 
 			echo "Starting Cygwin update..."
 			cygwin download || return; pause
-			cygwin install || return; pause
+			cygwin install || return
 
 			;;
 		mac)
