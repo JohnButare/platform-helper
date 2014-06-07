@@ -17,7 +17,7 @@ init() { :; }
 
 args()
 {
-	command='one'
+	command='one'updateCommand
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
@@ -46,9 +46,9 @@ updateCommand()
 			echo "Starting Update Checker..."
 			start "UpdateChecker.exe"
 
-			echo "Starting Cygwin update..."
-			cygwin download || return; pause
-			cygwin install || return
+			#echo "Starting Cygwin update..."
+			#cygwin download || return; pause
+			#cygwin install || return
 
 			;;
 		mac)
