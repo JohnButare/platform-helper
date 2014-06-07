@@ -17,7 +17,7 @@ init() { :; }
 
 args()
 {
-	command='one'updateCommand
+	command='one'
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
