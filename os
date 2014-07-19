@@ -40,21 +40,15 @@ updateCommand()
 {
 	case "$PLATFORM" in
 		win)
-			echo "Starting Windows Update..."
-			if intel IsIntelHost; then intel update; else start "wuapp.exe"; fi
-
-			echo "Starting Update Checker..."
-			start "UpdateChecker.exe"
-
-			#echo "Starting Cygwin update..."
-			#cygwin download || return; pause
-			#cygwin install || return
-
+			intel IsIntelHost || { ask "Windows update" && start "wuapp.exe"; }
+			ask "Update Checker" && start "UpdateChecker.exe"
+			ask "Cygwin download" && cygwin download
+			ask "Cygwin install" && cygwin install
 			;;
 		mac)
-			brew update || return
-			brew upgrade || return
-			sudo softwareupdate --install --all || return
+			ask "Brew update?" && brew update
+			ask "Brew upgrad?" && brew upgrade
+			ask "App Store update?" && sudo softwareupdate --install --all
 			;;
 		esac
 }
