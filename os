@@ -47,7 +47,7 @@ updateCommand()
 			;;
 		mac)
 			ask "Brew update?" && brew update
-			ask "Brew upgrad?" && brew upgrade
+			ask "Brew upgrade?" && brew upgrade
 			ask "App Store update?" && sudo softwareupdate --install --all
 			;;
 		esac
