@@ -46,11 +46,14 @@ updateCommand()
 			ask "Cygwin install" && cygwin install
 			;;
 		mac)
-			ask "Brew update?" && brew update
-			ask "Brew upgrade?" && brew upgrade
-			ask "App Store update?" && sudo softwareupdate --install --all
+			ask "Brew update" && brew update
+			ask "Brew upgrade" && brew upgrade
+			ask "App Store update" && sudo softwareupdate --install --all
 			;;
-		esac
+	esac
+
+	CreativeCloud IsInstalled && ask "Adobe CreativeCloud update" && 
+		{ CreativeCloud start || return; pause; }
 }
 
 indexCommand()
@@ -222,24 +225,32 @@ FindInfoCommand()
 
 GetInfo()
 {
-	infoVars=( pd psm pp ao ud udoc uhome usm up architecture bits product version client server )
-
 	GetDirs || return
 
+	infoVars=( pd ud udoc uhome )
 	pd="$_pub/Desktop"
-	psm="$_PublicStartMenu"
-	pp="$_PublicStartMenu/Programs"
-	ao="$pp/Applications/Other"
-
 	ud="$_home/Desktop"
 	udoc="$_home/Documents"
 	uhome="$_home"
-	usm="$_UserStartMenu"
-	up="$_UserStartMenu/Programs"
 
-	architecture="x64" bits=64 
-	client="true"
+	if [[ "$_platform" == "win" ]]; then
+		infoVars+=( psm pp ao usm up )
+		psm="$_PublicStartMenu"
+		pp="$_PublicStartMenu/Programs"
+		ao="$pp/Applications/Other"
+		usm="$_UserStartMenu"
+		up="$_UserStartMenu/Programs"
+	fi
 
+	if [[ "$_platform" == "mac" ]]; then
+		infoVars+=( si la ula )
+		si="/Library/StartupItems"
+		la="/Library/LaunchAgents"
+		ula="$HOME/Library/LaunchAgents"
+	fi
+
+	infoVars+=( architecture bits product version client server )
+	architecture="x64" bits=64 client="true"
 	if [[ "$_platform" == "win" ]]; then
 		local r="/proc/registry/HKEY_LOCAL_MACHINE/Software/Microsoft/Windows NT/CurrentVersion"
 		architecture=$(OsArchitecture)
