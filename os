@@ -40,7 +40,7 @@ updateCommand()
 {
 	case "$PLATFORM" in
 		win)
-			intel IsIntelHost || { ask "Windows update" && start "wuapp.exe"; }
+			intel IsIntelHost && intel update || { ask "Windows update" && start "wuapp.exe"; }
 			ask "Update Checker" && start "UpdateChecker.exe"
 			ask "Cygwin download" && cygwin download
 			ask "Cygwin install" && cygwin install
