@@ -52,7 +52,7 @@ updateCommand()
 			;;
 	esac
 
-	which gem >& /dev/null && ask "Ruby gem update" && gem update --system
+	which gem >& /dev/null && ask "Ruby gem update" && { gem update --system; gem update; }
 	which pip >& /dev/null && ask "Python pip update" && pip-review --interactive
 
 	CreativeCloud IsInstalled && ask "Adobe CreativeCloud update" && 
