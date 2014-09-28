@@ -5,10 +5,10 @@
 usage()
 {
 	echot "\
-usage: unc [explore|mount|unount|IsMounted](explore) UNC
-	Manipulate UNC shares
+usage: unc [explore|mount|unmount|IsMounted](explore) UNC
 	explorer 	mount UNC and open in file explorer
 	IsMounted	if UNC is mounted returns DIR mounted to
+	list			list UNC disks on the host
 	mount 		mount UNC and return DIR mounted"
 	exit $1
 }
@@ -29,17 +29,33 @@ args()
 	done
 	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage 0 || usage 0; }
 	[[ ! $command ]] && { command="explore"; }
-	[[ ! $unc ]] && MissingOperand "unc"
+	[[ "$comamnd" == @(UnMount|mount) && ! $unc ]] && MissingOperand "unc"
 	args=("$@")
 }
 
 init() { :; }
 run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 
+listCommand()
+{
+	local server="$(GetUncServer "$unc")"
+
+	# win
+	[[ "$PLATFORM" == "win" ]] && { ls "$server"; return; }
+
+	# mac
+	smbutil view "//$server" | grep "Disk"
+}
+
 mountCommand()
 { 
-	local noHostCheck; [[ "$1" == "--no-host-check" ]] && { noHostCheck="true"; shift; }
+	[[ ! "$(GetUncShare "$unc")" ]] && { EchoErr "unc mount: no share specified"; return 1; }
+
+	# win
 	[[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
+
+	# mac
+	local noHostCheck; [[ "$1" == "--no-host-check" ]] && { noHostCheck="true"; shift; }
 	local dir; dir="$(IsMountedCommand)" && { echo "$dir"; return 0; }
 	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
 	{ [[ ! $noHostCheck ]] && ! HostUtil available "$server"; } && return 1
@@ -49,7 +65,10 @@ mountCommand()
 
 UnMountCommand()
 { 
+	# win
 	[[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
+
+	# mac
 	local server share; GetUncServer "$unc" server; GetUncShare "$unc" share
 	local dir; dir="$(unc IsMounted "//$server/$share")" || return 0
 	GetFileName "$dir" dir; osascript -e "tell application \"Finder\"" -e "eject \"$dir\"" -e "end tell"
