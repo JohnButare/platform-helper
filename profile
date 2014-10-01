@@ -74,6 +74,8 @@ init()
 	appProfileSaveDir="$profileSaveDir/$app"
 	userProfileSaveDir="$profileSaveDir/default"
 	userProfile="$userProfileSaveDir/$app Profile.$saveExtension"
+
+	return 0
 }
 
 run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
