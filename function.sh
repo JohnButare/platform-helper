@@ -24,7 +24,8 @@ clipr() { case "$PLATFORM" in "mac") pbpaste;; "win") cat /dev/clipboard;; esac;
 EchoErr() { echo "$@" > /dev/stderr; }
 PrintErr() { printf "$@" > /dev/stderr; }
 ShowErr() { eval "$@" 2> >(sed 's/^/stderr: /') 1> >(sed 's/^/stdout: /'); }
-r() { [[ $# == 1 ]] && echo "$1" || eval "$2="\'"$1"\'; } # result VALUE VAR - echo value or set var to value (faster)
+r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster)
+# r "- '''\"\"\"-" a; echo $a
 
 #
 # scripts
