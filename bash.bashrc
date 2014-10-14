@@ -37,8 +37,6 @@ kill -SIGWINCH $$			# ensure LINES and COLUMNS is set for a new Cygwin termnal b
 # Ensure correct format for Unix (TMP/TEMP) and Windows (tmp/temp) programs
 
 if [[ "$TMP" != "/tmp"  ]]; then
-	export tmp=$(cygpath -w "$TMP" 2> /dev/null)
-	export temp=$(cygpath -w "$TEMP" 2> /dev/null)
 	export TMP="/tmp"
 	export TEMP="/tmp"
 fi;
@@ -61,6 +59,11 @@ fi
 if [[ "$WINDIR" == *\\* ]]; then
 	export windir="$WINDIR"
 	export WINDIR=$(cygpath -u "$windir" 2> /dev/null)
+fi
+
+if [[ "$PLATFORM" == "WIN" && ! "$tmp" ]]; then
+	export tmp="$localappdata\Temp"
+	export temp="$localappdata\Temp"
 fi
 
 #
