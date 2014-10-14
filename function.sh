@@ -68,7 +68,7 @@ CheckSubCommand()
 } 
 
 ScriptName() { GetFileName $0; }
-ScriptCd() { local dir; dir="$("$@")" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
+ScriptCd() { local dir; dir="$("$@" | head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
 ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b", does not work with aliases
 
 ScriptReturn() # ScriptReturns [-s|--show] <var>...
