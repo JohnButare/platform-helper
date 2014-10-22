@@ -173,11 +173,11 @@ MapApp()
 AnyDvd() { IsTaskRunning "AnyDVDtray" || TaskStart "AnyDVD"; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
 CloneDvd() { [[ "$command" == "startup" ]] && TaskStart "$P32/Elaborate Bytes/CloneDVD2/CloneDVD2.exe"; }
+Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer && start explorer; }
 Groove() { TaskStart "$P32/Microsoft Office/Office12/GROOVE.EXE" "" -background; }
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 PinnacleGameProfiler() {	TaskStart "$P32/KALiNKOsoft/Pinnacle Game Profiler/pinnacle.exe"; }
-
-Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer && start explorer; }
+SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
 
 IntelDesktopControlCenter() 
 { 
