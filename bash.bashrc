@@ -80,8 +80,9 @@ if [[ "$PLATFORM" == "win" ]]; then
 	PathAdd "/usr/local/bin" front
 fi
 
-[[ -e "$UDATA/bin" ]] && PathAdd "$UDATA/bin"
-[[ -e "$DATA/man" ]] && ManPathAdd "$DATA/man"
+[[ -d ~/bin ]] && PathAdd "~/bin" # Ruby gems
+[[ -d "$UDATA/bin" ]] && PathAdd "$UDATA/bin"
+[[ -d "$DATA/man" ]] && ManPathAdd "$DATA/man"
 
 # interactive initialization - remainder not needed in child processes or scripts
 [[ "$-" != *i* ]] && return
