@@ -42,8 +42,7 @@ updateCommand()
 		win)
 			intel IsIntelHost && intel update || { ask "Windows update" && start "wuapp.exe"; }
 			ask "Update Checker" && start "UpdateChecker.exe"
-			ask "Cygwin download" && cygwin download
-			ask "Cygwin install" && cygwin install
+			ask "Cygwin install" && cygwin new
 			;;
 		mac)
 			ask "Brew update" && brew update
