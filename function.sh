@@ -552,7 +552,7 @@ WinMaximized() { WinGetState "${@}"; (( $? & 32)); }
 
 WinShell() { export WIN_VARS=true; start bash -l; }
 NpmShell() { intel IsIntelHost && ScriptEval intel SetProxy; WinShell; }
-#npm() { APPDATA="$(utw $APPDATA)" "$P/nodejs/npm" "$@"; }
+npm() { APPDATA="$(utw $APPDATA)" "$P/nodejs/npm" "$@"; }
 alias ns="NpmShell"
 
 AutoItScript() 

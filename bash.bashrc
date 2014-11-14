@@ -80,8 +80,8 @@ SetWinVars()
 #
 
 # (Man)PathAdd <path> [front], front adds to front and drops duplicates in middle
-PathAdd() {	if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $PATH =~ (^|:)$1(:|$) ]]; then PATH+=:$1; fi; }
-ManPathAdd() { if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
+PathAdd() {	[[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $PATH =~ (^|:)$1(:|$) ]]; then PATH+=:$1; fi; }
+ManPathAdd() { [[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
 
 # use CygWin utilities before Microsoft utilities (/etc/profile adds them first, but profile does not when called by "ssh <host> <script>.sh
 if [[ "$PLATFORM" == "win" ]]; then
@@ -89,9 +89,10 @@ if [[ "$PLATFORM" == "win" ]]; then
 	PathAdd "/usr/local/bin" front
 fi
 
-[[ -d ~/bin ]] && PathAdd "~/bin" # Ruby gems
-[[ -d "$UDATA/bin" ]] && PathAdd "$UDATA/bin"
-[[ -d "$DATA/man" ]] && ManPathAdd "$DATA/man"
+PathAdd "$UDATA/bin"
+ManPathAdd "$DATA/man"
+PathAdd "~/bin" # Ruby gems
+PathAdd "$P/nodejs"; PathAdd "$APPDATA/npm" # Node.js
 
 # interactive initialization - remainder not needed in child processes or scripts
 [[ "$-" != *i* ]] && return
