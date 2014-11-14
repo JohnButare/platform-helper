@@ -34,7 +34,7 @@ kill -SIGWINCH $$			# ensure LINES and COLUMNS is set for a new Cygwin termnal b
 # Directories
 #
 
-# Ensure correct format for Unix (TMP/TEMP) and Windows (tmp/temp) programs
+# Ensure programs receive the correct paths.  Generally Unix programs uses upper case variables and Windows receives lower case variables
 
 if [[ "$TMP" != "/tmp"  ]]; then
 	export TMP="/tmp"
@@ -61,10 +61,19 @@ if [[ "$WINDIR" == *\\* ]]; then
 	export WINDIR=$(cygpath -u "$windir" 2> /dev/null)
 fi
 
-if [[ "$PLATFORM" == "WIN" && ! "$tmp" ]]; then
+if [[ "$PLATFORM" == "WIN" && ! $tmp ]]; then
 	export tmp="$localappdata\Temp"
 	export temp="$localappdata\Temp"
 fi
+
+SetWinVars()
+{
+	export APPDATA="$appdata" LOCALAPPDATA="$localappdata" PROGRAMDATA="$programdata"
+	export WINDIR="$windir" TMP="$tmp" TEMP="$temp"
+	unset appdata localappdata programdata windir tmp temp
+}
+
+[[ $WIN_VARS ]] && SetWinVars
 
 #
 # paths
