@@ -97,7 +97,6 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 # files and directories
 #
 
-# path: realpath, cygpath
 FindInPath() { type -P "${1}"; }
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
@@ -113,6 +112,11 @@ HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 
+# (Man)PathAdd <path> [front], front adds to front and drops duplicates in middle
+PathAdd() {	[[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $PATH =~ (^|:)$1(:|$) ]]; then PATH+=:$1; fi; } 
+ManPathAdd() { [[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
+
+# Path conversion
 wtu() { [[ "$PLATFORM" == "win" ]] && cygpath -u "$*" || echo "$@"; } # WinToUnix
 utw() { [[ "$PLATFORM" == "win" ]] && cygpath -aw "$*" || echo "$@"; } # UnixToWin
 ptw() { echo "${1////\\}"; } # PathToWin
