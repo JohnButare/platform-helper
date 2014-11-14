@@ -550,6 +550,8 @@ WinMaximized() { WinGetState "${@}"; (( $? & 32)); }
 # Applications
 #
 
+npm() { APPDATA=$appdata "$P/nodejs/npm" "$@"; }
+
 AutoItScript() 
 {
 	local script="${1/\.au3/}.au3"
