@@ -91,7 +91,7 @@ fi
 
 PathAdd "$UDATA/bin"
 ManPathAdd "$DATA/man"
-PathAdd "~/bin" # Ruby gems
+PathAdd ~/bin # Ruby gems
 PathAdd "$P/nodejs"; PathAdd "$APPDATA/npm" # Node.js
 
 # interactive initialization - remainder not needed in child processes or scripts
