@@ -554,7 +554,7 @@ WinMaximized() { WinGetState "${@}"; (( $? & 32)); }
 # Applications
 #
 
-WinShell() { export WIN_VARS=true; start bash -l; }
+WinShell() { WIN_VARS=true SET_PWD="$PWD" start bash -l; }
 NpmShell() { intel IsIntelHost && ScriptEval intel SetProxy; WinShell; }
 npm() { APPDATA="$(utw $APPDATA)" "$P/nodejs/npm" "$@"; }
 alias ns="NpmShell"
