@@ -84,15 +84,14 @@ PathAdd() {	[[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then PATH=$1:${
 ManPathAdd() { [[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
 
 # use CygWin utilities before Microsoft utilities (/etc/profile adds them first, but profile does not when called by "ssh <host> <script>.sh
-if [[ "$PLATFORM" == "win" ]]; then
-	PathAdd "/usr/bin" front
-	PathAdd "/usr/local/bin" front
-fi
+[[ "$PLATFORM" == "win" ]] && PathAdd "/usr/bin" front
 
+PathAdd "/usr/local/bin" front # Add to front so on OS X Brew utilities are used before system utilities
 PathAdd "$UDATA/bin"
-ManPathAdd "$DATA/man"
 PathAdd ~/bin # Ruby gems
 PathAdd "$P/nodejs"; PathAdd "$APPDATA/npm" # Node.js
+
+ManPathAdd "$DATA/man"
 
 # interactive initialization - remainder not needed in child processes or scripts
 [[ "$-" != *i* ]] && return
