@@ -219,7 +219,9 @@ GetMetadata() # GetMetadata FILE ARRAY [METADATA...](dateTakenMetadata)
 
 GetInit()
 {
-	bigFileSizeBytes=10000000 # 100 MiB
+	processAfterFileName="" #"IMG_0100.JPG" # process media after this date
+	processAfterDateSeconds="$(GetSeconds "11/26/2012")" # process media after this date
+	bigFileSizeBytes=10000000 # 100 MiB, for progress file copy
 
 	dropbox="$HOME/Dropbox/Camera Uploads"
 	iCloud="$HOME/Pictures/iCloud Photos/My Photo Stream"
@@ -227,9 +229,8 @@ GetInit()
 
 	# options: GMT, copy, move
 	unset externalDirs
-	# TODO: externalDirs support wildcards, i.e. 1??APPLE, research wildcard expansions in variables
 	#externalDirs=( /dcim/100OLYMP /mssony/moml0001 /dcim/100photo )
-	externalDirs+=( "/DCIM:copy" ) # OS X iOS, mount Photos\DCIM using iExplorer
+	externalDirs+=( "/DCIM:copy" ) # OS X iOS, mount Photos using iExplorer
 	externalDirs+=( "/100APPLE:copy" ) # Windows iOS, mount Media\DCIM using iExplorer
 	externalDirs+=( "/dcim/100CANON:copy" ) # JC
 	externalDirs+=( "/dcim/100msdcf" "/private/avchd/bdmv/stream:move" ) # Sony-DSC-HX5V
@@ -292,7 +293,9 @@ ProcessDrive()
 
 	for dir in "${dirs[@]}"; do
 		IFS=":" read -a options <<<"$dir"; 
-		dir="${options[0]}"; [[ ! -d "$drivePath$dir" ]] && continue
+		dir="${options[0]}"
+
+		[[ ! -d "$drivePath$dir" ]] && continue
 
 		local op="$operation"
 		if [[ "$op" == "default" ]]; then
@@ -324,8 +327,13 @@ ProcessDir()
 ProcessFile()
 {
 	local file="$1" operation="$2" additionalMetadata
-	local fileSize="$(GetFileSize "$file" B)"
 	local fileName; GetFileName "$file" fileName || return
+
+	printf "$fileName..."
+
+	[[ $processAfterFileName && "$processAfterFileName" > "$fileName" ]] && { echo "skipping"; return 0; }
+
+	local fileSize="$(GetFileSize "$file" B)"
 	local ext; GetFileExtension "$file" ext || return
 	local fileDesc; GetFileNameWithoutExtension "$file" fileDesc || return
 	local mediaType; GetMediaType "$ext" mediaType || return 0
@@ -338,16 +346,16 @@ ProcessFile()
 		${G}mkdir --parents "$destPrefix" || return
 	fi
 
-	printf "$fileName..."
-
 	local -A fileMetadata; GetMetadata "$file" fileMetadata || return
-	local dateTaken; GetDateTaken "$file" fileMetadata dateTaken || { EchoErr "media get: no DateTaken for \`$file\`"; return 0; }
+	local dateTaken; GetDateTaken "$file" fileMetadata dateTaken || { echo "no DateTaken"; return 0; }
 	local dateTakenSeconds=$(GetSeconds "$dateTaken")
 	local prefix; GetNewName "$dateTaken" prefix || return
 	local destDir="$destPrefix/$(${G}date +%Y -d "$dateTaken")/$(${G}date +%Y%m -d "$dateTaken")" 
 	local suffix dest="$destDir/$prefix.$ext"
-	#pause "$dateTaken-$dateTakenSeconds-$prefix-$destDir-$dest"
 
+	CompareSeconds "$dateTakenSeconds" "<" "$processAfterDateSeconds" && { echo "skipping"; return 0; }
+
+	#pause "$dateTaken-$dateTakenSeconds-$prefix-$destDir-$dest"
 	[[ $verbose ]] && PrintMetadata "(metadata)" fileMetadata
 
 	[[ ! -d "$destDir" ]] && { ${G}mkdir --parents "$destDir" || return; }
