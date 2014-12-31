@@ -554,10 +554,12 @@ WinMaximized() { WinGetState "${@}"; (( $? & 32)); }
 # Applications
 #
 
-WinShell() { WIN_VARS=true SET_PWD="$PWD" start bash -l; }
-NpmShell() { intel IsIntelHost && ScriptEval intel SetProxy; WinShell; }
-npm() { APPDATA="$(utw $APPDATA)" "$P/nodejs/npm" "$@"; }
-alias ns="NpmShell"
+if [[ "$PLATFORM" == "win" ]]; then
+	WinShell() { WIN_VARS=true SET_PWD="$PWD" start bash -l; }
+	NpmShell() { intel IsIntelHost && ScriptEval intel SetProxy; WinShell; }
+	npm() { APPDATA="$(utw $APPDATA)" "$P/nodejs/npm" "$@"; }
+	alias ns="NpmShell"
+fi
 
 AutoItScript() 
 {
