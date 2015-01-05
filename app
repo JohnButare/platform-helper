@@ -107,7 +107,8 @@ TaskStart()
 {
 	local program="$1"
 	local title="$2"
-
+	shift 2
+	
 	[[ ! -f "$program" ]] && program="$(FindInPath "$program")"
 	[[ ! -f "$program" ]] && return
 
@@ -189,7 +190,7 @@ IntelDesktopControlCenter()
 ProcessExplorer()
 {
 	if [[ "$command" == "startup" ]]; then
-		start "$DATA/platform/win/ProcExp.exe" "Process Explorer*" "/t /p:l"
+		TaskStart "$DATA/platform/win/ProcExp.exe" "Process Explorer*" /t /p:l
 	elif IsTaskRunning "procexp"; then
 		SendKeys "Process Explorer.*" "!Fx"
 	fi;
