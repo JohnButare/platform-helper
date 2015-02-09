@@ -160,12 +160,15 @@ CopyDir()
 	local cp o=( --progress ); cp="$(FindInPath acp)" || { cp="${G}cp"; o=( --verbose ); } 
 
 	for arg in "$@"; do
+		#[[ $1 == @(-r|--recursive) ]] && { o+=( --recursive ); shift; continue; }
 		[[ $1 == @(-m|--mirror) ]] && { shift; continue; }
 		[[ $1 == @(-q|--quiet) ]] && { shift; continue; }
 		[[ $1 == @(--retry) ]] && { shift; continue; }
+		[[ $1 == @(--xd|--xf) ]] && { shift; while (( $# != 0 )) && ! IsOption "$1"; do shift; done; continue; }
 		o+=( "$1" ); shift
 	done
 
+	# cp dir1 dir2 will not copy the top level directory, need a way to copy only top level directory
 	"$cp" --recursive "${o[@]}"
 }
 
@@ -196,7 +199,7 @@ CopyDirWin()
 	[[ $quiet && ! $mirror ]] && o+=( /xx )
 
 	robocopy "$src" "$dest" "${o[@]}"
-	(( $? > 7 )) && return 1 || return 0
+	(( $? < 8 )) # http://support.microsoft.com/kb/954404
 }
 
 # FileCommand mv|cp|ren|hide SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
@@ -318,8 +321,8 @@ GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 
 }
 CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
 
-TimerOn() { startTime="$(date -u '+%F %T.%N %Z')"; }
-TimestampDiff () { printf '%s' $(( $(date -u +%s) - $(date -u -d"$1" +%s))); }
+TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')"; }
+TimestampDiff () { ${G}printf '%s' $(( $(${G}date -u +%s) - $(${G}date -u -d"$1" +%s))); }
 TimerOff() { s=$(TimestampDiff "$startTime"); printf "Elapsed %02d:%02d:%02d\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
 
 #
