@@ -156,6 +156,7 @@ GetDirs()
 		
 	elif [[ "$host" == @(nas|nas.hagerman.butare.net) ]]; then # nas
 		_pub="//$host/public" _home="//$host/home" _SysHome="$_home"; SetCommonUserDirs
+		_data="$_pub/Documents/data"
 
 	elif [[ "$host" == @(butare.net) ]]; then # nas
 		_pub="//$host@ssl@5006/DavWWWRoot/public" _home="//$host@ssl@5006/DavWWWRoot/home"

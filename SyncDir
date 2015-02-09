@@ -63,20 +63,23 @@ args()
 
 SyncDirCommand()
 {
-	local src="$1" dest="$2"
-	local lastSyncSrcFile="$src/.$destId$lastSyncSuffix"
-	local lastSyncDestFile="$dest/.$srcId$lastSyncSuffix"
+	local src="$1" dest="$2"	
 
 	# src or dest directory is excluded
 	{ IsInArray -aw "${src##*/}" x || IsInArray -aw "${dest##*/}" x; } && return
 
-	# src and dest do not exist
+	IsUncPath "$src" && { src="$(unc mount "$src")" || return; }
+	IsUncPath "$dest" && { dest="$(unc mount "$dest")" || return; }
+
 	[[ $exist && (! -d "$src" && ! -d "$dest") ]] && return 0
 
 	if [[ ! -d "$src" && ! -d "$dest" ]]; then
 		EchoErr "Source ($src) and destination ($dest) directories do not exist"
 		return 1
-	fi;
+	fi
+
+	local lastSyncSrcFile="$src/.$destId$lastSyncSuffix"
+	local lastSyncDestFile="$dest/.$srcId$lastSyncSuffix"
 
 	GetLastSync
 
@@ -105,8 +108,7 @@ sync()
 	local ignoreMs convertTime srcLine destLine srcFile destFile srcOnlyFiles destOnlyFiles
 
 	printf "Syncing %s" "$(GetFileName "$src")"
-	#GetFileList srcFiles "$src"; printf "."; GetFileList destFiles "$dest"; printf "."; 
-	GetFileListWin srcFiles "$src"; printf "."; GetFileListWin destFiles "$dest"; printf "."; 
+	GetFileList srcFiles "$src"; printf "."; GetFileList destFiles "$dest"; printf "."; 
 	lastSrcIndex="${#srcFiles[@]}"; lastDestIndex="${#destFiles[@]}"
 	printf ".\n"
 
@@ -114,7 +116,7 @@ sync()
 
 		srcLine="${srcFiles[$srcIndex]}"
 		destLine="${destFiles[destIndex]}"
-
+	
 		# quick check
 		if [[ "$srcLine" == "$destLine" ]]; then
 			(( ++srcIndex, ++destIndex ))
@@ -122,7 +124,7 @@ sync()
 		fi
 		
 		srcFile="${srcLine%	*	*}"; destFile="${destLine%	*	*}"
-		# printf 'SyncFile: difference in file "%s"' "$srcFile"; IsInArray --array-wild "$srcFile" x && echo " (excluded)" || echo; pause
+		#printf 'SyncFile: difference in file "%s"' "$srcFile"; IsInArray --array-wild "$srcFile" x && echo " (excluded)" || echo; pause
 
 		if [[ "$srcFile" == "$destFile" ]]; then
 			! IsInArray --array-wild "$srcFile" x && { SyncFile || return; }
@@ -326,9 +328,9 @@ SetLastSync()
 {
 	[[ ! -d "$src" || ! -d "$dest" ]] && return 0
 	
-	local newSync=$(GetSeconds) hideFile
+	local hide newSync=$(GetSeconds) hideFile
 
-	[[ ! -f "$lastSyncSrcFile" ]] && hide="true"
+	[[ "$PLATFORM" == "win" && ! -f "$lastSyncSrcFile" ]] && hide="true"
 
 	echo "@$newSync" > "$lastSyncSrcFile" || return
 	echo "@$newSync" > "$lastSyncDestFile" || return
@@ -341,13 +343,18 @@ SetLastSync()
 	return 0
 }
 
-# GetFileList() - get files using POSIX commands, each file attributes requested individually, very slow over WebDAV, timestamp in milliseconds
 GetFileList() 
+{
+	[[ "$PLATFORM" == "win" ]] && GetFileListWin "$@" || GetFileListPosix "$@"
+}
+
+# GetFileListPosix() - get files using POSIX commands, each file attributes requested individually, very slow over WebDAV, timestamp in milliseconds
+GetFileListPosix() 
 {
 	local result="$1" dir="$2" lines
 
  	IFS=$'\n' read -d '' -r -a lines < <(\
- 		find "$dir" -maxdepth 1 -type f -not -iname ".*$lastSyncSuffix" -printf "%f\t%s\t%T@\n" | sort); 
+ 		${G}find "$dir" -maxdepth 1 -type f -not -iname ".*$lastSyncSuffix" -printf "%f\t%s\t%T@\n" | sort); 
 
 	# check if we should ignore millisconds (not present for //nas/home)
 	if [[ ! $ignoreMs ]]; then
@@ -357,18 +364,18 @@ GetFileList()
 
 	for (( i = 0; i < ${#lines[@]}; i++ )); do
 		[[ $ignoreMs ]] && line="${lines[$i]%.*}" || line="${lines[$i]}"
-		printf -v $result[$i] "$line"
+		printf -v $result[$i] -- "$line"
 	done
 }
 
-# GetFileListWin() - use Windows cmd dir, fiels retrieved in a single batch, much faster over slow networks, timestamp in seconds
+# GetFileListWin() - use Windows cmd dir, files retrieved in a single batch, much faster over slow networks, timestamp in seconds
 GetFileListWin()
 {
 	local result="$1" dir="$2" lines name size time resultIndex=0
 	convertTime="true"
 
  	IFS=$'\n' read -d '' -r -a lines < <(\
- 		cmd /c dir /TW /A:-D /-C /ON "$(utw "$dir")" 2> /dev/null | egrep -v "<SYMLINK>|.*$lastSyncSuffix" | head --lines=-2)
+ 		cmd /c dir /TW /A:-D /-C /ON "$(utw "$dir")" 2> /dev/null | egrep -v "<SYMLINK>|.*$lastSyncSuffix" | ${G}head --lines=-2)
 	
 	for (( i = 0; i < ${#lines[@]}; i++ )); do
 		(( i < 10 )) && [[ "${lines[$i]:0:10}" == @(* *|) ]] && continue # first 10 characters must contain a date (dir has variable number of headers)
@@ -383,7 +390,7 @@ GetFileListWin()
 GetDirList() 
 { 
 	IFS=$'\n' read -d '' -r -a $1 < <(\
-		find "$2" -maxdepth 1 -type d -printf "%f\n" | tail -n +2 | sort); 
+		${G}find "$2" -maxdepth 1 -type d -printf "%f\n" | tail -n +2 | sort); 
 }
 
 PromptForFiles()
@@ -398,7 +405,7 @@ PromptForFiles()
 
 	result=$(dialog --stdout --title "Synchronizing Files" \
 		--backtitle "Synchronizing files from $src to $dest" \
-  	--checklist "Choose files to $operation:" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
+  	--checklist "Choose files to $operation:" $(($LINES-5)) 50 $(($LINES)) -- "${items[@]}")
 	clear
 
 	eval results=( $result )
@@ -451,7 +458,7 @@ ReplaceFile()
 	[[ ! $noBak ]] && { bak --local "$dest" || return; }
 
 	printf "Replacing $dest..."
-	cp --preserve=timestamps "$src" "$dest" || return	
+	${G}cp --preserve=timestamps "$src" "$dest" || return	
 	printf "done\n"
 }
 
@@ -463,11 +470,11 @@ SyncFileTimes()
 	#stat $f1; stat $f2
 	if CompareSeconds "$f1Age" '>' "$f2Age"; then
 		#touch "$f2" -d "@$f1Age"
-		touch "$f2" --reference "$f1"
+		${G}touch "$f2" --reference "$f1"
 		#stat "$f2"; pause
 	else
 		#touch "$f1" -d "@$f2Age"
-		touch "$f2" --reference "$f1"
+		${G}touch "$f2" --reference "$f1"
 		#stat "$f1"; pause
 	fi
 }
