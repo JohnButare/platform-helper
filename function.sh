@@ -19,7 +19,7 @@ EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of 
 IsUrl() { [[ "$1" =~ http[s]?://.* ]]; }
 IsInteractive() { [[ "$-" == *i* ]]; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
-clipw() { case "$PLATFORM" in "mac") echo -n "$1" | pbcopy;; "win") echo -n "$1" > /dev/clipboard;; esac; }
+clipw() { case "$PLATFORM" in "mac") echo -n "$@" | pbcopy;; "win") echo -n "$@" > /dev/clipboard;; esac; }
 clipr() { case "$PLATFORM" in "mac") pbpaste;; "win") cat /dev/clipboard;; esac; }
 EchoErr() { echo "$@" > /dev/stderr; }
 PrintErr() { printf "$@" > /dev/stderr; }

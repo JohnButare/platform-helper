@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 . function.sh
-sleep 2
+echo "$1-$2-$3"
