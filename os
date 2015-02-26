@@ -38,6 +38,9 @@ MobilityCenterCommand() { start mblctr.exe; }
 
 updateCommand()
 {
+	ask "Update Scripts" && ScriptUpdate
+	ask "Synchronize iles" && SyncLocalFiles
+
 	case "$PLATFORM" in
 		win)
 			intel IsIntelHost && intel update || { ask "Windows update" && start "wuapp.exe"; }
@@ -56,6 +59,17 @@ updateCommand()
 
 	CreativeCloud IsInstalled && ask "Adobe CreativeCloud update" && 
 		{ CreativeCloud start || return; pause; }
+}
+
+ScriptUpdate()
+{
+	echo "Saving local script changes..."
+	GitHelper changes "$BIN" && { GitHelper commitg "$BIN" && pause; }
+	GitHelper changes "$UBIN" && { GitHelper commitg "$UBIN" && pause; }
+pause	
+	echo "Getting remote script changes..."
+	cd "$BIN" && git up
+	cd "$UBIN" && git up
 }
 
 indexCommand()
