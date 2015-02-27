@@ -38,8 +38,8 @@ MobilityCenterCommand() { start mblctr.exe; }
 
 updateCommand()
 {
-	ask "Update Scripts" && ScriptUpdate
-	ask "Synchronize iles" && SyncLocalFiles
+	ask "Update scripts" && ScriptUpdate
+	ask "Synchronize files" && SyncLocalFiles
 
 	case "$PLATFORM" in
 		win)
@@ -66,7 +66,7 @@ ScriptUpdate()
 	echo "Saving local script changes..."
 	GitHelper changes "$BIN" && { GitHelper commitg "$BIN" && pause; }
 	GitHelper changes "$UBIN" && { GitHelper commitg "$UBIN" && pause; }
-pause	
+	
 	echo "Getting remote script changes..."
 	cd "$BIN" && git up
 	cd "$UBIN" && git up
