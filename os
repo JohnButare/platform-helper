@@ -54,11 +54,37 @@ updateCommand()
 			;;
 	esac
 
-	which gem >& /dev/null && ask "Ruby gem update" && { gem update --system; gem update; }
-	#which pip >& /dev/null && ask "Python pip update" && pip-review --interactive
+	RubyUpdate
+	PythonUpdate
+	CreativeCloudUpdate
+}
 
-	CreativeCloud IsInstalled && ask "Adobe CreativeCloud update" && 
-		{ CreativeCloud start || return; pause; }
+CreativeCloudUpdate()
+{
+	{ CreativeCloud IsInstalled && ask "Adobe CreativeCloud update"; } || return 
+	CreativeCloud start || return
+	pause
+}
+
+RubyUpdate()
+{	
+	{ which gem >& /dev/null && ask "Ruby gem update"; } || return
+	
+	local sudo
+	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
+
+	$sudo gem update --system
+	$sudo gem update
+}
+
+PythonUpdate()
+{
+	{ which pip >& /dev/null && ask "Python pip update"; } || return
+
+	local sudo
+	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
+
+	$sudo pip-review --interactive
 }
 
 ScriptUpdate()
