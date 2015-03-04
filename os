@@ -38,6 +38,7 @@ MobilityCenterCommand() { start mblctr.exe; }
 
 updateCommand()
 {
+	ask "Save scripts" && ScriptSave
 	ask "Update scripts" && ScriptUpdate
 	ask "Synchronize files" && SyncLocalFiles
 
@@ -87,13 +88,14 @@ PythonUpdate()
 	$sudo pip-review --interactive
 }
 
-ScriptUpdate()
+ScriptSave()
 {
-	echo "Saving local script changes..."
 	GitHelper changes "$BIN" && { GitHelper commitg "$BIN" && pause; }
 	GitHelper changes "$UBIN" && { GitHelper commitg "$UBIN" && pause; }
-	
-	echo "Getting remote script changes..."
+}
+
+ScriptUpdate()
+{
 	cd "$BIN" && git up
 	cd "$UBIN" && git up
 }
