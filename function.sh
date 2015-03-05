@@ -191,6 +191,7 @@ CopyDirWin()
 		[[ $1 == @(-r|--recursive) ]] && { o+=( /E ); shift; continue; }
 		[[ $1 == @(--retry) ]] && { o+=( /R:3 /W:2 ); shift; continue; }
 		[[ $1 == @(-v|--verbose) ]] && { o+=( /V ); shift; continue; }
+		[[ $1 == @(-g|--progress|--progress-bar) ]] && { oshift; continue; } # for compatibility with amv and acp
 		IsOption "$1" && { o+=( "/${1:1}" ); shift; continue; }
 		! IsOption "$1" && [[ ! $src ]] && { src="$(utw "$1")"; shift; continue; }
 		! IsOption "$1" && [[ ! $dest ]] && { dest="$(utw "$1")"; shift; continue; }
