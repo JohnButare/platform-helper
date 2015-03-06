@@ -373,7 +373,6 @@ bootstrap()
 {
 	printf "**************************************************\n* Bootstrap\n**************************************************\n"
 
-	cygwin package core || return
 	coreDirectories || return
 	i bash || return
 	ask "Install ${PLATFORM^} bootstrap" && { bootstrap${PLATFORM^} || return; }
@@ -382,7 +381,7 @@ bootstrap()
 
 bootstrapWin()
 {
-	i console WindowsSetup SysInternals cygwin VirtualCloneDrive || return
+	i cygwin console SysInternals WindowsSetup VirtualCloneDrive || return
 }
 
 bootstrapMac()
@@ -445,8 +444,25 @@ CygwinInstall()
 	ScriptEval SetVar --system --path PATH "$PUB/Documents/data/platform/$PLATFORM" || return
 	ScriptEval SetVar --path PATH "$_ubin" || return
 
-	# cleanup
-	cygwin cleanup || return
+	echo "Adding user..." # first user added when Cygwin installed, other users are not
+	touch /etc/passwd || return
+	local user="$(mkpasswd -c)"
+	! grep "^$(id -un)" /etc/passwd > /dev/null && { echo "$user" >> /etc/passwd || return; }
+	
+	# set home directory in /etc/passwd
+	if grep ":/home" /etc/passwd > /dev/null; then
+		echo "Updating home directory locations..."
+		local escapedUsers="${_users//\//\\/}"
+		cp /etc/passwd /etc/passwd.bak || return
+		sed 's/:\/home/:'"$escapedUsers"'/g' < /etc/passwd.bak > /etc/passwd || return
+		HOME="$_users/$USERNAME"; . bash.bashrc || return
+	fi
+
+	# Add group - domain user's group not in /etc/group by default
+	echo "Adding user's group to /etc/group..."
+	touch /etc/group
+	local group="$(mkgroup -c)"
+	! grep "$group" /etc/group > /dev/null && echo "$group" >> /etc/group
 
 	# icons and registry
 	if FindFile "Cygwin/setup"; then
@@ -463,29 +479,13 @@ CygwinInstall()
 	$makeShortcut "$P/Cygwin/bin/mintty.exe" "$pp/Operating System/bash" -a="-" || return
 	$makeShortcut "$BIN/run.sh" "$psm/Programs/Startup/startup" -a "startup" -d "Start applications" || return
 
-	echo "Adding user..." # first user added when Cygwin installed, other users are not
-	local user="$(mkpasswd -c)"
-	! grep "^$(id -un)" /etc/passwd > /dev/null && { echo "$user" >> /etc/passwd || return; }
-	
-	# set home directory in /etc/passwd
-	if grep ":/home" /etc/passwd > /dev/null; then
-		echo "Updateing home directory locations..."
-		local escapedUsers="${_users//\//\/}"
-		cp /etc/passwd /etc/passwd.bak || return
-		sed 's/:\/home/:'"$escapedUsers"'/g' < /etc/passwd.bak > /etc/passwd || return
-		HOME="$_users/$USERNAME"; . bash.bashrc || return
-	fi
-
-	# Add group - domain user's group not in /etc/group by default
-	echo "Adding user's group to /etc/group..."
-	local group="$(mkgroup -c)"
-	! grep "$group" /etc/group > /dev/null && echo "$group" >> /etc/group
-
-	# Completion
 	cygwin FixCompletion || return
 
+	ask "Install other packages" && { cygwin package other || return; }
+
 	echo "Cleaning up..."
-	$rmd "/home"
+	cygwin cleanup || return
+	$rmd "/home"	
 }
 
 BashInstall()
@@ -523,7 +523,6 @@ BashInstall()
 		printf "ssh..."
 		$hide ~/.ssh || return
 		[[ -f ~/.ssh/id_dsa ]] && { chmod 700 ~/.ssh/id_dsa || return; }
-		SshAgent startup || return
 	fi
 
 	echo done
@@ -547,11 +546,14 @@ SshInstall()
 	echo Creating data directory...
 	$makeDir "$sshHome" && $hide +h "$sshHome" || return
 
+	echo "Starting ssh agent..."
+	SshAgent startup || return
+
 	echo "Updating firewall..."
 	$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/Cygwin/usr/sbin/sshd.exe")" || return
 
 	echot "\
-Configuring SSH...
+Configuring SSH daemon...
 - privilege separation=yes, new local account=yes, install sshd as a service=yes, 
   value of CYGWIN for the daemon=ntsec, use a diferent account name=no, 
   create privileged account=yes, password=<administrator>
@@ -843,6 +845,7 @@ WinampInstall()
 ahk() { AutoHotKeyInstall; }
 AutoHotKeyInstall()
 {
+	[[ "$PLATFORM" != "win" ]] && return 0;
 	printf "**************************************************\n* AutoHotKey\n**************************************************\n"
 	echo "- Express installation"
 	AutoHotKey close || return
@@ -1908,6 +1911,7 @@ GitCore()
 	case $PLATFORM in
 		win) 
 			cygwin package git || return
+			cygwin FixCompletion || return
 			i GitExtensions GitHub || return
 			pip install git-up || return
 			(cd /tmp && git clone --depth 1 https://github.com/tj/git-extras.git && cd git-extras && make install) || return
@@ -2197,6 +2201,7 @@ TrueImageInstall()
 npp() { NotepadPpInstall; }
 NotepadPpInstall()
 {
+	[[ "$PLATFORM" != "win" ]] && return 0;
 	printf "**************************************************\n* Notepad++\n**************************************************\n"
 	echo "- Uncheck Run Notepad++"
 

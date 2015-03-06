@@ -164,7 +164,7 @@ CopyDir()
 		[[ $1 == @(-m|--mirror) ]] && { shift; continue; }
 		[[ $1 == @(-q|--quiet) ]] && { shift; continue; }
 		[[ $1 == @(--retry) ]] && { shift; continue; }
-		[[ $1 == @(--xd|--xf) ]] && { shift; while (( $# != 0 )) && ! IsOption "$1"; do shift; done; continue; }
+		[[ $1 == @(-xd|-xf) ]] && { shift; while (( $# != 0 )) && ! IsOption "$1"; do shift; done; continue; }
 		o+=( "$1" ); shift
 	done
 
@@ -191,7 +191,7 @@ CopyDirWin()
 		[[ $1 == @(-r|--recursive) ]] && { o+=( /E ); shift; continue; }
 		[[ $1 == @(--retry) ]] && { o+=( /R:3 /W:2 ); shift; continue; }
 		[[ $1 == @(-v|--verbose) ]] && { o+=( /V ); shift; continue; }
-		[[ $1 == @(-g|--progress|--progress-bar) ]] && { oshift; continue; } # for compatibility with amv and acp
+		[[ $1 == @(-g|--progress|--progress-bar) ]] && { shift; continue; } # for compatibility with amv and acp
 		IsOption "$1" && { o+=( "/${1:1}" ); shift; continue; }
 		! IsOption "$1" && [[ ! $src ]] && { src="$(utw "$1")"; shift; continue; }
 		! IsOption "$1" && [[ ! $dest ]] && { dest="$(utw "$1")"; shift; continue; }
