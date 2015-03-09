@@ -244,7 +244,8 @@ FindDirsWorker()
 	case "$_platform" in
 		mac)
 			_ApplicationData="$_home/Library/Application Support"
-			_UserFolders=( Desktop Documents Downloads Dropbox Movies Music Pictures Public sync );;
+			_UserFolders=( Desktop Documents Downloads Dropbox Movies Music Pictures Public sync )
+			;;
 		win)
 			_ApplicationData="$_SysHome/AppData/Roaming"
 			_etc="$_root/Windows/system32/drivers/etc"
@@ -252,7 +253,8 @@ FindDirsWorker()
 			_PublicStartMenu="$_root/ProgramData/Microsoft/Windows/Start Menu"
 			_UserFolders=( Desktop Documents Downloads Music Pictures Videos )
 			[[ "$_user" != "Public" ]] && _UserFolders+=( Contacts Dropbox Favorites "Google Drive" Links "Saved Games" Searches )
-		 	_windows="$_root/Windows";;
+		 	_windows="$_root/Windows"
+		 	;;
 	esac
 
 	SetCommonUserDirs
