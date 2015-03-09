@@ -74,6 +74,8 @@ RubyUpdate()
 	local sudo
 	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
 
+	intel IsIntelHost && ScriptEval intel SetProxy
+
 	$sudo gem update --system
 	$sudo gem update
 }
@@ -85,6 +87,8 @@ PythonUpdate()
 	local sudo
 	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
 
+	intel IsIntelHost && ScriptEval intel SetProxy
+	
 	$sudo pip-review --interactive
 }
 
