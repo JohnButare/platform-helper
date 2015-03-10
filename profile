@@ -62,7 +62,7 @@ init()
 		methodType="registry"
 	  profileKey="$method"
 		saveExtension=reg
-		
+
 	else
 		echo "Unknown profile method $method"
 		return 1
@@ -131,7 +131,7 @@ saveCommand()
 
 	# save specified files to a zip file
 	if [[ "$method" ==  "file" && -d "$src" ]]; then
-		printf 'Backing up %s profile to "%s"...\n' "$app" "$file"
+		printf 'Backing up to "%s"...\n' "$file"
 		pushd "$src" > /dev/null || return
 		zip.exe -Sr "$(utw "$dest/$file")" $files -x "*.*_sync.txt*" || return
 		popd > /dev/null || return
@@ -145,8 +145,8 @@ saveCommand()
 		
 	# save the registry
 	elif [[ "$method" == "registry" ]]; then
-		printf 'Backing up %s profile to "%s"...' "$file" "$app"
-		registry export "$profileKey" "$(utw "$dest/$file")" || return
+		printf 'Backing up to "%s"...' "$file"
+		registry export "$profileKey" "$dest/$file" || return
 		echo "done"
 		
 	fi
