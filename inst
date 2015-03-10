@@ -603,8 +603,8 @@ IntelCleanup()
 	fi
 
 	if ask 'Cleanup file system'; then
-		$rmd "$_root/Drivers" "$_root/Flash11" \
-			"$_root/PreDelivery_Automation" "$uhome/Roaming" "$udoc/Add-in Express" || return
+		$rmd "$_root/Drivers" "$_root/Flash11" "$_root/PreDelivery_Automation" \
+			"$uhome/Roaming" "$udoc/Add-in Express" "$udoc/ProfileSnapshot" || return
 		$rm "$_root/build.ini" "$_root/Regionalization.xml"
 		$hide "$_root/APPS" "$_root/Quarantine" "$_root/Intel" "$_root/OpalStatus.efi"				
 	fi
@@ -982,6 +982,10 @@ WindowsSetup()
 
 	echo "Cleaning file system..."
 	$rmd "$_root/PerfLogs" || return
+
+	echo "Creating directories..."
+	$makeDir ~/.config || return
+	$hide ~/.config || return
 
 	echo "Moving data folders..."
 	[[ -d "$udoc/Fax" ]] && $makeLink --merge --hide "$_udata/fax" "$udoc/Fax"
@@ -1662,8 +1666,6 @@ Note: Logs are in \"$P/Microsoft SQL Server/120/Setup Bootstrap/Log\"
 
 	if [[ $database ]]; then 
 		ask "Update server configuration" && { SsServerConfig || return; }
-		#ask "Update mail configuration" && { SsMailConfig || return; }
-		#ask "Update reporting server configuration" && { SsReportServerConfig || return; }
 	fi
 
 	if [[ $clientTools ]]; then
@@ -1675,26 +1677,31 @@ Note: Logs are in \"$P/Microsoft SQL Server/120/Setup Bootstrap/Log\"
 
 SsLogCleanup()
 {
+	ScriptEval SqlServer init || return
+
 	echo "Removing log files..."
-	$rmd "$P/Microsoft SQL Server/120/Setup Bootstrap/Log" || return
+	$rmd "$P/Microsoft SQL Server/${versionNun}0/Setup Bootstrap/Log" || return
 }
 
 SsServerConfig()
 {
+	ScriptEval SqlServer init || return
+
 	echo "- Object Explorer, Server, Properties, Memory, Maximum server memory=256"
 	SqlServer studio || return
 	pause
 
 	echo "Updating firewall..."
-	$firewall rule add "SQL Server" dir=in action=allow protocol=TCP localport=1433 profile=private \
-		program="$(utw "$P/Microsoft SQL Server/MSSQL12.MSSQLSERVER/MSSQL/Binn/sqlservr.exe")" || return
+	local port=1433; intel IsIntelHost && port=3180
+	$firewall rule add "SQL Server" dir=in action=allow protocol=TCP localport=$port profile=private \
+		program="$(utw "$P/Microsoft SQL Server/MSSQL${versionNum}.MSSQLSERVER/MSSQL/Binn/sqlservr.exe")" || return
 
 	echot "\
 - SQL Server Network Configuration, Protocols for MSSQLSERVER
 - Named Pipes and TCP/IP=Enabled (click drop down, down arrow, enter)
 - TCP/IP, IP Addresses
 	- (IP for primary NIC) IPn, Enabled=Yes
-	-IPAll, TCP Port=3180"
+	-IPAll, TCP Port=$port"
 	SqlServer config
 	pause
 }
@@ -1715,10 +1722,12 @@ SsUpdateServices()
 
 SsManagementStudioConfig()
 {
+	ScriptEval SqlServer init || return
+
 	ask 'Restore profile' && { SqlServer profile restore default || return; }
 
 	echot "\
-	- View: Registered Servers at top left, Solution Explorer at bottom right
+	- View: Registered Servers at top left
 	- Tools, Options
 	  - Environment
 	    - General, 20 items shown
@@ -1727,25 +1736,28 @@ SsManagementStudioConfig()
 	    - All Languages, check Line numbers
 	    - Editor Tab and Status Bar, Tab Text, all but Include File Name to False
 	   - Query Execution, SQL Server, ANSI, uncheck SET QUOTED IDENTIFIER"
-	SqlServer studio || return; pause
+	SqlServer studio || return
+	pause
 }
 
 SsFinal()
 {
-	echo "Creating sql directory..."
-	local dir="$_udata/sql"; $makeDir "$dir"
-	[[ -d "$_cloud/data/sql" ]] && { $makeShortcut "$_cloud/data/sql" "$dir/cloud.lnk" || return; }
+	ScriptEval SqlServer init || return
 
 	echo "Moving data folders..."
-	local dir="$_udata/SQL Server Management Studio"
+	local dir="$_udata/SQL Server Management Studio"; $makeDir "$dir" || return
 	$makeLink --merge --hide "$_udata/SQL Server Management Studio" "$udoc/SQL Server Management Studio" || return
 	$makeLink --merge --hide "$_udata/Visual Studio 2010" "$udoc/Visual Studio 2010" || return
 
-	$makeDir "$dir/Projects" || return
-	$makeShortcut "$_udata/sql" "$dir/Projects/sql.lnk" || return
+	echo "Linking script directory..."
+	[[ -d "$_cloud/data/sql" ]] &&
+		{ $makeShortcut "$_cloud/data/sql" "$dir/Personal.lnk" || return; }
 
 	ask "Update registry" && { SsRegistry || return; }
+
 	SsIcons || return;
+
+	intel IsIntelHost && ask "Intel setup" && { SsIntel || return; }
 
 	if ask "Cleanup path"; then
 		os path editor || return
@@ -1754,9 +1766,57 @@ SsFinal()
 	fi
 }
 
+SsIntel()
+{
+	ScriptEval SqlServer init || return
+
+	local p="$(utw "$P32/Microsoft SQL Server/${versionNum}0/Tools/Binn/ManagementStudio/Ssms.exe")"
+	local adPrefix="$USERS/ad_$USERNAME"
+	local toolSuffix="Microsoft/Microsoft SQL Server/${versionNum}0/Tools"
+	local adToolDir="$adPrefix/AppData/Roaming/$toolSuffix"
+
+	if [[ ! -d "$adToolDir" ]]; then
+		echo "Creating AD_$USERNAME directories..."
+		runas "/user:amr\ad_$USERNAME" /savecred "$p"
+		pause
+	fi
+
+	echo "Linking AD directory..."
+	if [[ ! -L "$adToolDir/Shell" ]]; then
+		mv "$adToolDir/Shell" "$adToolDir/Shell.backup" || return
+		MakeLink "$APPDATA/$toolSuffix/Shell" "$adToolDir/Shell" || return
+	fi	
+
+	echo "Creating AD shortcut..."
+	local link="$serverPrograms/Other/SQL Server $version/SQL Server Management Studio - AD.lnk"
+	if [[ ! -f "$link" ]]; then
+		$makeShortcut "runas.exe" "$link" \
+			-a "/user:amr\ad_$USERNAME /savecred \"$p\"" \
+			-d "SQL Server Management Studio - AD" --show=min || return
+		clipw "$p" || return
+		explore "$serverPrograms/Other/SQL Server $version" || return
+		echot "- properties, Pin to Taskbar,Change Icon..., paste"
+		pause
+	fi
+
+	echo "Linking SQL script directory..."
+	local syncDir="$HOME/Syncplicity/data/sql"
+	local dir="$_udata/SQL Server Management Studio"; $makeDir "$dir" || return
+	if [[ -d "$syncDir" ]]; then
+		$makeShortcut "$syncDir" "$dir/Intel.lnk" || return
+		$makeShortcut "$syncDir" "$adPrefix/Documents/SQL Server Management Studio/Intel.lnk" || return
+	fi
+
+	[[ -d "$_cloud/data/sql" ]] &&
+		{ $makeShortcut "$_cloud/data/sql" "$adPrefix/Documents/SQL Server Management Studio/Personal.lnk" || return; }
+
+	return 0
+}
 SsRegistry()
 {
-	local dir="$(utw "$_udata/sql")" r="HKCU/Software/Microsoft/SQL Server Management Studio/12.0"
+	ScriptEval SqlServer init || return	
+
+	local dir="$(utw "$_udata/sql")" r="HKCU/Software/Microsoft/SQL Server Management Studio/${versionNum}.0"
 
 	echo "Updating SQL Server registry..."
 	$registry set "$r/DefaultBrowseComponentLocation" REG_EXPAND_SZ "$dir" || return
@@ -1770,7 +1830,7 @@ SsRegistry()
 
 SsIcons()
 {
-	echo "Updating icons..."
+	echo "Updating icons..."	
 	$mergeDir --rename "$pp/Microsoft SQL Server 2014" "$serverPrograms/Other/SQL Server 2014"
 	$mergeDir --rename "$pp/Microsoft SQL Server 2012" "$serverPrograms/Other/SQL Server 2012"
 	$mergeDir --rename "$pp/Microsoft Visual Studio 2010" "$pp/Development/DotNet/Other/Visual Studio 2010"
@@ -2581,7 +2641,7 @@ KindleInstall()
 	$makeDir "$_udata/Kindle" || return
 	$makeDir "$_udata/Kindle DRM Removal" || return
 	$makeDir "$udoc/Kindle DRM Removal" || return
-	$hide +h "$udoc/Kindle DRM Removal" || return
+	$hide "$udoc/Kindle DRM Removal" || return
 
 	echo "Updating icons..."
 
@@ -2901,8 +2961,13 @@ RubyInstall()
 	case $PLATFORM in
 		win) 
 			! which ruby >& /dev/null && { cygwin package ruby || return; }
-			$makedir ~bin || return
-			ScriptEval SetVar --path PATH "$HOME/Bin" || return
+
+			$makeDir ~/bin || return
+			$hide ~/bin || return
+			ScriptEval SetVar --path PATH ~/bin || return
+
+			$makeDir ~/.gem || return
+			$hide ~/.gem || return
 			;;
 	esac
 }
