@@ -177,7 +177,7 @@ copyDefaultProfile()
 
 restoreCommand()
 {
-	local globalDescription=" "
+	local globalDescription
 	if [[ ! $profile || "$profile" == "default" ]]; then
 		if [[ $global || ! -f "$userProfile" ]]; then
 			findGlobalProfile || return
@@ -198,11 +198,10 @@ restoreCommand()
 	! ask "Restore $app$globalDescription profile \"$filename\"?" -dr n && return 0
 
 	if [[ "$method" == "file" ]]; then
-		local isRunning;
-		AppIsRunning "$app" && { isRunning="true"; AppClose "$app" || return; }
+		AppCloseSave "$app" || return
 		unzip.exe -o "$(utw "$profile")" -d "$(utw "$profileDir")" || return
-		[[ $isRunning ]] && { AppStart "$app" || return; }
-
+		AppStartRestore "$app" || return
+		
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$profile")"
 		echo "Import the profile using the filemame contained in the clipboard"
@@ -210,9 +209,9 @@ restoreCommand()
 		pause
 
 	elif [[ "$method" == "registry" ]]; then
-		AppClose "$app" || return
+		AppCloseSave "$app" || return
 		registry import "$profile" || return
-		AppStart "$app" || return
+		AppStartRestore "$app" || return
 
 	fi
 
