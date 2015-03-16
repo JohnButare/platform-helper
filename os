@@ -21,7 +21,9 @@ args()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
-			ComputerManagement) command="ComputerManagement";; DeviceManager) command="DeviceManager";; FindInfo) command="FindInfo";; FindDirs) command="FindDirs";; MobilityCenter) command="MobilityCenter";; SystemProperties) command="SystemProperties";;
+			ComputerManagement) command="ComputerManagement";; DeviceManager) command="DeviceManager";;
+			FindInfo) command="FindInfo";; FindDirs) command="FindDirs";; MobilityCenter) command="MobilityCenter";;
+	 		SystemProperties) command="SystemProperties";; CredentialManagement) command="CredentialManagement";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ "$command" == @(FindDirs|index|path) ]] && break
@@ -328,8 +330,9 @@ lockCommand()
 	esac
 }
 
-ComputerManagementCommand() { start CompMgmt.msc; }
-DeviceManagerCommand() { start DevMgmt.msc; }
+cmCommand() { ComputerManagementCommand; }; ComputerManagementCommand() { start CompMgmt.msc; }
+dmCommand() { DeviceManagerCommand; };  DeviceManagerCommand() { start DevMgmt.msc; }
+credmCommand() { CredentialManagementCommand; }; CredentialManagementCommand() { start control /name Microsoft.CredentialManager; } # rundll32.exe keymgr.dll, KRShowKeyMgr
 StoreCommand() { start "" "ms-windows-store:"; }
 
 run "$@"
