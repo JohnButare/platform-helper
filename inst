@@ -282,12 +282,14 @@ RunExe()
  	[[ "$PLATFORM" == "win" ]] && export SEE_MASK_NOZONECHECKS=1 # disable Open File Secirity Warning
 
 	case "$exeExt" in
-		bat|cmd) cmd /c "$exe" "$@";;
+		bat|cmd) cmd /c "$exe" "$@" || return;;
 		dmg) RunDmg "$exe" "$@" || return;;
 		msi) start --wait msiexec /i "$exe" "$@";;
 		iso) iso mount 1 "$exe"; echo "If needed run the setup program manually..."; pause="--pause";;
 		zip|7z|gz|tar|xpi|ear|jar|war) RunZip "$exe" "$@" || return;;
-		*) [[ $standard ]] && sudo --standard "$exe" "$@" || start --wait "$exe" "$@";;
+		*) [[ $standard ]] && 
+				{ sudo --standard "$exe" "$@" || return; } ||
+				{ start --wait "$exe" "$@" || return; };;
 	esac
 
 	[[ $pause || $standard ]] && pause "When the installation has finished press any key..."
@@ -458,20 +460,6 @@ CygwinInstall()
 		HOME="$_users/$USERNAME"; . bash.bashrc || return
 	fi
 
-	if intel IsIntelHost; then
-		echo "Fixing slow mintty load times..."
-		$touch /etc/nsswitch.conf || return
-		grep "^passwd" /etc/nsswitch.conf > /dev/null || echo "
-passwd:   files
-group:    files" >> /etc/nsswitch.conf
-	fi
-
-	# Add group - domain user's group not in /etc/group by default
-	echo "Adding user's group to /etc/group..."
-	touch /etc/group
-	local group="$(mkgroup -c)"
-	! grep "$group" /etc/group > /dev/null && echo "$group" >> /etc/group
-
 	# icons and registry
 	if FindFile "Cygwin/setup"; then
 
@@ -531,6 +519,7 @@ BashInstall()
 		printf "ssh..."
 		$hide ~/.ssh || return
 		[[ -f ~/.ssh/id_dsa ]] && { chmod 700 ~/.ssh/id_dsa || return; }
+		[[ -f ~/.ssh/config ]] && { chmod 700 ~/.ssh/config || return; }
 	fi
 
 	echo done
@@ -579,16 +568,7 @@ IntelCore()
 
 IntelApps()
 {
-	if ask 'Install VPN (AnyConnect)'; then
-		start "$P32/Intel/Orion/AnyConnect.exe" /enroll || return
-		pause
-	fi
-
-	ask 'Install Windows 8 Tips' &&
-		ShellRun 'http://iss.intel.com/issasp/passthru/tabpassthrustart.asp?ProductNumber=12797 '
-
-	ask "Install Password reset application" &&
-		ShellRun 'http://iss.intel.com/PassThru/TabPassThruStart.asp?Skip=1&Productnumber=13006&WWID='
+	return 0
 }
 
 IntelCleanup()
@@ -642,9 +622,9 @@ IntelIcons()
 	$rm "$pd/Intel Security Checker.lnk" || return
 	$rm "$pd/Intel Software Market.lnk" || return
 	$rm "$pp/Intel Software Market.lnk" || return
+	$rm "$pd/IT Wireless Utilities.lnk" || return
 	$rm "$pd/WiFi Health Advisor.lnk" || return
 	$rm "$ud/WiFi Health Advisor.lnk" || return
-	$rm  "IT Wireless Utilities.lnk" || return
 
 	$mergeDir "$pp/Autonomy" "$pp/Operating System/Other" || return
 	$mergeDir "$up/Cisco" "$pp/Operating System/Other" || return
@@ -872,7 +852,7 @@ SublimeInstall()
 	printf "**************************************************\n* Sublime Text Editor\n**************************************************\n"
 	echo "- Check add to explorer context menu"
 
-	local v=3074 # http://www.sublimetext.com/3dev, PackageControl (https://sublime.wbond.net/installation)
+	local v=3075 # http://www.sublimetext.com/3dev, PackageControl (https://sublime.wbond.net/installation)
 	run "Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime-text_build-$v_amd64.deb" || return 
 
 	if [[ "$PLATFORM" == "win" ]]; then	
@@ -1000,11 +980,11 @@ WindowsSetup()
 	echo "Setting configuration..."
 	registry import "$setupFiles/Windows Setup $version.reg" || return
 
-	echo "Disabling magnifier to free up win+ shortcut..."
+	echo "Disabling magnifier to remove win-+ shortcut..."
 	[[ -f "$WINDIR/System32/Magnify.exe" ]] &&
 		{ $ren "$WINDIR/System32/Magnify.exe" "$WINDIR/System32/Magnify.disable.exe" || return; }
 
-	ask "Update credentials" && { password WindowsCredentialStore || return; }
+	ask "Update credentials" && { password ChangeCredentialStore || return; }
 
 	powershell Set-ExecutionPolicy RemoteSigned || return
 	ask 'Flip mouse wheel' && { powershell FlipFlopWheel.ps1 || return; }
@@ -1019,9 +999,9 @@ WindowsSetup()
 - Start, Control Panel
 	- Allow remote access to your computer, Allow remote connections to this computer, 
 	  uncheck Allow connections only from computers running Remote Desktop with Network Level Authentication
-- Start, Desktop Icon Settings, uncheck Recycle Bin
-- Taskbar and Navigation properties
-	- Taskbar, Show taskbar buttons on=Taskbar where window is open"
+- Start, Show or hide common icons on the desktop, uncheck Recycle Bin
+- Taskbar Properties
+	- (multiple monitors) Taskbar, Show taskbar buttons on=Taskbar where window is open"
 	pause
 
 	return
@@ -1161,11 +1141,10 @@ DropBoxInstall()
 
 	pfpc "$_cloud"
 	echot "\
-- Preferences...
-  - General
-    - Uncheck Show desktop notifications
-    - Uncheck Start Dropbox on system startup
-- Explorer
+- Preferences..., General
+  - Uncheck Show desktop notifications
+  - Uncheck Start Dropbox on system startup
+- Explorer, Show libraries
   - Libraries, Documents, Manage, Manage Library, locations, 
     - Add..., <paste>
     - (not Intel) Move Up (to top), Set as default save location
@@ -1355,9 +1334,9 @@ BcInstall() { BeyondCompareInstall; }
 BeyondCompareInstall()
 {
 	printf "**************************************************\n* BeyondCompare\n**************************************************\n"
-	echo "- Uncheck Launch Beyond Compare"
-
+	
 	local v=4.0.7.19761 # http://www.scootersoftware.com/download.php http://www.scootersoftware.com/beta.php
+	echo "- uncheck Launch Beyond Compare"
 	run "Scooter Software/Beyond Compare/setup/" -p "BCompare-$v.exe" "BCompareOSX-$v.zip" "bcompare-$v_i386.deb" || return
 
 	if [[ "$PLATFORM" == "win" ]]; then	
@@ -1384,22 +1363,7 @@ BeyondCompareInstall()
 EverNoteInstall()
 {
 	printf "**************************************************\n* EverNote\n**************************************************\n"
-	run "EverNote/setup/Evernote_5.8.4.6870.exe" || return # http://www.evernote.com/about/download/windows.php?file=Win&btn=grey
-
-	echot "\
-- View, Left Panel, uncheck Left Panel
-- Tools, Options
-  - General 
-    - Uncheck Autoamtically check for updates
-    - Uncheck Show advertisements
-  - Sync
-    - Uncheck Enable sync notifications
-    - Check Synronize automatically Every 15 minutes
-  - Note, Note editor font=Arial 10"
-  pause
-
-	EverNote close || return
-	sudo --standard EverNote startup || return
+	run "EverNote/setup/Evernote_5.8.4.6870.exe" || return # http://www.evernote.com/about/download
 
 	echo "Updating icons..."
 	$mergeDir "$pp/Evernote" "$ao" || return
@@ -1407,6 +1371,13 @@ EverNoteInstall()
 	$rm "$ud/Evernote.lnk" || return
 	$rm "$pp/Startup/EvernoteClipper.lnk" || return
 	$rm "$up/Startup/EvernoteClipper.lnk" || return
+
+	echot "\
+- View, Left Panel, uncheck all except Notes Notebooks Tags Atlas
+- Tools, Options
+  - General, uncheck Autoamtically check for updates
+  - Sync, uncheck Enable sync notifications"
+	sudo --standard EverNote startup || return
 }
 
 SonosInstall()
@@ -1496,7 +1467,6 @@ CruiseControlTrayInstall()
 FirefoxInstall()
 {
 	printf "**************************************************\n* Firefox\n**************************************************\n"
-	echot "- Close FireFox"
 
 	local v="36.0.1" # https://www.mozilla.org/en-US/firefox/all/
 	run "Mozilla/Firefox/setup/Firefox Setup $v." -p "exe" "dmg" "" || return
@@ -1508,22 +1478,27 @@ FirefoxInstall()
 	fi
 
 	echot "\
-- Sync
-- Options
-  - General, When Firefox starts Show my home page
-  - Tabs
-    - uncheck Warn me when closing multiple tabs
-    - check Show tab previews in the Windows taskbar
-  - Advanced
-    - General
-      - Check Search for text when I start typing
-      - Check Use smooth scrolling
-- about:config
+- Don't import anything
+- Use Firefox as my default browser
+- about:config, uncheck Show this warning next time
   - network.automatic-ntlm-auth.trusted-uris=localhost,intel.com,goto
   - network.negotiate-auth.trusted-uris=intel.com
-  - browser.sessionstore.resume_from_crash=true"
+  - browser.sessionstore.resume_from_crash=true
+- Open menu
+	- Options, Advanced, Network, Settings..., Auto-detect proxy settings for this network
+	- Sign in to Sync, Already have an account? Sign in.
+	- right of tabs, select Bookmarks Toolbar, select each bookmark to get icon
+	- Options
+	  - General, When Firefox starts Show my home page
+	  - Tabs
+	    - uncheck Warn me when closing multiple tabs
+	    - check Show tab previews in the Windows taskbar
+	  - Advanced
+	    - General
+	      - check Search for text when I start typing
+	      - check Use smooth scrolling"
 intel IsIntelHost && echot "\
-- Options, Advanced, Certificates, View Certificates, Authorities, Import..., 
+			- Certificates, View Certificates, Authorities, Import..., 
   data\certificate\public: Intel Root CA.cer, check Trust this CA to identify web sites"
 }
 
@@ -1873,7 +1848,7 @@ VisionAppInstall()
 
 	echo "Updating icons..."
 	$rmd "$pp/ASG-Remote Desktop 2012" || return
-	$mv "$pd/ASG-Remote Desktop 2012.lnk" "$pp/Operating System/ASG Remote Desktop.lnk" || return
+	$ren "$pd/ASG-Remote Desktop 2012.lnk" "$pp/Operating System/ASG Remote Desktop.lnk" || return
 
 	echo "Configure..."
 
@@ -1886,25 +1861,23 @@ VisionAppInstall()
 	VisionApp profile restore default || return
 
 	echot "\
-- ?, Info..., Import new license file, <paste>
-- File, Environment Wizard, Add…, Database…, Connect to an Existing Database
+- Add…, Database…, Connect to an Existing Database
 	- Name of the environment=Intel
   - Database server=azssql940-vsql.amr.corp.intel.com,3180
   - Database name=VisionApp
+- ?, Info..., Import new license file, <paste>
 - View, Icon Size, 16x16
 - Tools, Options
 	- Application, check only Save tree view settings, Save last selected notepad, Pass-through authentication
 	- Connections, check only Automatically disconnect active sessions, Deactivate 'docking' of connections
 	- Layout
 		- check only Hide status bar
-		- Color Stule=Office 2010 Black
+		- Color Style=Office 2010 Black
 		- Position of additional toolbar for=None
 	- Logs , Delete=30 days (120 days for connection), Maximum nuumber of entries=100
-- Toolbar, Default Conneciton Parameters, Name=, RDP, Programs, Program path and filename=mstsc /f /v:
-- icons
-	- 
-	- Find, Connection Historory, Status Messages, and Logbook - dock floating on bottom
-- taskbar icon, Pin this program to the taskbar"
+- Administration
+	- Default Conneciton Parameters, Name=, RDP, Programs, Program path and filename=mstsc /f /v:
+	- Navigation, Auto Hide on left"
 	VisionApp start || return
 }
 
@@ -2421,7 +2394,11 @@ VmwareWorkstationInstall()
 LastPassInstall()
 {
 	printf "**************************************************\n* LastPass\n**************************************************\n"
+
+	echo "- Log In to Existing Account"
 	run "LastPass/setup/LastPass Setup ${architecture} v3.1.92.exe" || return # https://lastpass.com/misc_download2.php
+
+	echo "- uncheck Run LastPass for Applications"
 	run "LastPass/setup/LastPass for Applications Setup ${architecture} v3.1.40.exe" || return 
 
 	echo "Updating icons..."
@@ -2432,6 +2409,10 @@ LastPassInstall()
 
 	echo "Updating registry..."	
 	$registry 32 delete "run/LastApp" # C:\Program Files (x86)\LastPass\lastapp.exe
+
+	echo "- Open menu, Add-ons, Enable LastPass, Restart now, check Remember Password"
+	echo "- Preferences, Icons, select grey no border"
+	"$P32/Mozilla Firefox/firefox.exe" || return
 }
 
 FoxitReaderInstall()
@@ -2764,10 +2745,10 @@ FLuxInstall()
 SnagItInstall()
 {
 	printf "**************************************************\n* snagIt\n**************************************************\n"
-	echo "- Custom, uncheck Windows Explorer Menu Extension"
+	echo "- Options, uncheck Windows Explorer Menu Extension"
 
 	local major="12"
-	local v="SnagIt V$major.3.0.2789." # http://www.techsmith.com/download/licenses/snagitupgrade.asp
+	local v="SnagIt V$major.3.1.2879." # http://www.techsmith.com/download/licenses/snagitupgrade.asp
 	run "TechSmith/SnagIt/setup/$v" -p "exe" "dmg" "" || return
 
 	echo "Updating icons..."
@@ -2796,7 +2777,9 @@ Snagit, Preferences...
 - General, select Menu Bar Icon
 - Capture, check Always copy capture to clipboard
 - Advanced, Autosave Location=~/data";;
-		win) echot "\- View, uncheck Snagit OneClick
+		win) echot "\
+- Unlock with your Software Key
+- No Thanks
 - Preferences...
 	- General, select Enable Notification Area Icon
   - Advanced, uncheck uncheck Enable automated update checking
@@ -2846,7 +2829,6 @@ ChocolateyInstall()
 SyncplicityInstall()
 {
 	printf "**************************************************\n* Cyncplicity\n**************************************************\n"
-	run "http://it.intel.com/products/syncplicity/index.htm" || return
 
 	echo "Updating icons..."
 	$mergeDir "$pp/Syncplicity" "$ao" || return
@@ -2865,7 +2847,7 @@ SyncplicityInstall()
 WindowsAdministrationToolsInstall()
 {
 	printf "**************************************************\n* Windows Administration Tools\n**************************************************\n"
-	run "Microsoft/Server/tools/Windows$version-$architecture.msu" || return # http://www.microsoft.com/en-us/download/details.aspx?id=28972
+	run "Microsoft/Server/tools/Windows$version-$architecture.msu" || return # http://www.microsoft.com/en-us/search/result.aspx?q=Remote%20Server%20Administration%20Tools&form=DLC
 
 	if ask "Enable features?"; then
 	
@@ -2891,6 +2873,8 @@ WindowsAdministrationToolsInstall()
 MosaicoInstall()
 {
 	printf "**************************************************\n* Mosaico\n**************************************************\n"
+	echo "- uncheck Launch Mosaico"
+
 	run "Mosaico/setup/Mosaico Setup v1.8.0.1.exe" || return # http://www.soulidstudio.com/download/
 
 	echo "Updating icons..."
@@ -2900,16 +2884,19 @@ MosaicoInstall()
 	$registry delete "urun/Mosaico" # C:\Program Files (x86)\Mosaico\mosaico.exe
 
 	echot "\
-Settings
-- uncheck Always on top of other windows
-- uncheck Run automatically when Windows starts
-- check Send to system tray when close button is pressed
-- uncheck Display info message when reduced to system tray
-- check Start minimized to system tray
-- uncheck Start with manual arrangement engaged
-- check Show button labels
-- uncheck Tabify when not active
-- uncheck Show quick guide at startup"
+- Try Mosaico for Free!
+- unselect Arrange
+- Settings
+	- uncheck Always on top of other windows
+	- uncheck Run automatically when Windows starts
+	- check Send to system tray when close button is pressed
+	- uncheck Display info message when reduced to system tray
+	- check Start minimized to system tray
+	- uncheck Start with manual arrangement engaged
+	- check Show button labels
+	- uncheck Tabify when not active
+	- uncheck Show quick guide at startup"
+	sudo --standard mosaico start
 }
 
 ccInstall() { CreativeCloudInstall; }
@@ -3014,7 +3001,7 @@ PythonInstall()
 	echot "\
 - Tools, Options
   - System, select all Types, above All Users click + twice
-  - View=Editor=C:\Program Files\Sublime Text 2\sublime_text.exe
+  - View=Editor=C:\Program Files\Sublime Text 4\sublime_text.exe
   - Diff=C:\Program Files (x86)\Beyond Compare 4\BComp.exe
   - Settings, check Show system menu"
   "$P/7-Zip/7zFM.exe" || return
