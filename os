@@ -8,7 +8,7 @@ usage: os <command>
 	FindInfo|FindDirs [HOST|DIR](local)		find OS information or directories
 	index: index [options|start|stop|demand](options)
 	path [show|edit|editor|update|set [AllUsers]](editor)
-	other: ComputerManagement|DeviceManager|MobilityCenter|SystemProperties|update|store
+	other: ComputerManagement|DeviceManager|EventViewer|MobilityCenter|SystemProperties|update|store
 		lock"
 	exit $1
 }
@@ -24,6 +24,7 @@ args()
 			ComputerManagement) command="ComputerManagement";; DeviceManager) command="DeviceManager";;
 			FindInfo) command="FindInfo";; FindDirs) command="FindDirs";; MobilityCenter) command="MobilityCenter";;
 	 		SystemProperties) command="SystemProperties";; CredentialManagement) command="CredentialManagement";;
+			EventViewer) command="EventViewer";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ "$command" == @(FindDirs|index|path) ]] && break
@@ -37,6 +38,7 @@ args()
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
 MobilityCenterCommand() { start mblctr.exe; }
+EventViewerCommand() { start eventvwr.msc; }
 
 updateCommand()
 {
