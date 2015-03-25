@@ -44,7 +44,7 @@ updateCommand()
 {
 	ask "Commit scripts" && { ScriptCommit || return; }
 	ask "Update scripts" && { ScriptUpdate || return; }
-	ask "Synchronize files" && { SyncLocalFiles || return; }
+	ask "Synchronize files" && { LocalFilesUpdate || return; }
 
 	case "$PLATFORM" in
 		win)
@@ -73,6 +73,7 @@ LocalFilesUpdate()
 	ask 'Synchronize CsisBuild-dr.intel.com' && { SyncLocalFiles CsisBuild-dr.intel.com || return; }
 	return 0
 }
+
 CreativeCloudUpdate()
 {
 	{ CreativeCloud IsInstalled && ask "Adobe CreativeCloud update"; } || return 
@@ -82,7 +83,7 @@ CreativeCloudUpdate()
 
 RubyUpdate()
 {	
-	{ which gem >& /dev/null && ask "Ruby gem update"; } || return
+	{ which gem >& /dev/null && ask "Ruby update"; } || return 0
 	
 	local sudo
 	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
@@ -91,11 +92,12 @@ RubyUpdate()
 
 	$sudo gem update --system
 	$sudo gem update
+	return 0
 }
 
 PythonUpdate()
 {
-	{ which pip >& /dev/null && ask "Python pip update"; } || return
+	{ which pip >& /dev/null && ask "Python pip update"; } || return 0
 
 	local sudo
 	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
@@ -103,6 +105,7 @@ PythonUpdate()
 	intel IsIntelHost && ScriptEval intel SetProxy
 	
 	$sudo pip-review --interactive
+	return 0
 }
 
 ScriptCommit()
