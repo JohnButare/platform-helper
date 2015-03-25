@@ -42,28 +42,37 @@ EventViewerCommand() { start eventvwr.msc; }
 
 updateCommand()
 {
-	ask "Save scripts" && ScriptSave
-	ask "Update scripts" && ScriptUpdate
-	ask "Synchronize files" && SyncLocalFiles
+	ask "Commit scripts" && { ScriptCommit || return; }
+	ask "Update scripts" && { ScriptUpdate || return; }
+	ask "Synchronize files" && { SyncLocalFiles || return; }
 
 	case "$PLATFORM" in
 		win)
 			intel IsIntelHost && intel update || { ask "Windows update" && start "wuapp.exe"; }
-			ask "Update Checker" && start "UpdateChecker.exe"
-			ask "Cygwin install" && cygwin new
+			ask "Update Checker" && { start "UpdateChecker.exe" || return; }
+			ask "Cygwin install" && { cygwin new || return; }
 			;;
 		mac)
-			ask "Brew update" && brew update
-			ask "Brew upgrade" && brew upgrade
+			ask "Brew update" && { brew update || return; }
+			ask "Brew upgrade" && { brew upgrade || return; }
 			ask "App Store update" && sudo softwareupdate --install --all
 			;;
 	esac
 
-	RubyUpdate
-	PythonUpdate
-	CreativeCloudUpdate
+	RubyUpdate || return
+	PythonUpdate || return
+	CreativeCloudUpdate || return
 }
 
+LocalFilesUpdate()
+{
+	intel IsIntelHost || { SyncLocalFiles; return; }
+
+	ask 'Synchronize rrsprsps' && { SyncLocalFiles rrsprsps || return; }
+	ask 'Synchronize CsisBuild.intel.com' && { SyncLocalFiles CsisBuild.intel.com || return; }
+	ask 'Synchronize CsisBuild-dr.intel.com' && { SyncLocalFiles CsisBuild-dr.intel.com || return; }
+	return 0
+}
 CreativeCloudUpdate()
 {
 	{ CreativeCloud IsInstalled && ask "Adobe CreativeCloud update"; } || return 
@@ -96,7 +105,7 @@ PythonUpdate()
 	$sudo pip-review --interactive
 }
 
-ScriptSave()
+ScriptCommit()
 {
 	GitHelper changes "$BIN" && { GitHelper commitg "$BIN" && pause; }
 	GitHelper changes "$UBIN" && { GitHelper commitg "$UBIN" && pause; }
