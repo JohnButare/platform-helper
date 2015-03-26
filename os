@@ -112,6 +112,7 @@ ScriptCommit()
 {
 	GitHelper changes "$BIN" && { GitHelper commitg "$BIN" && pause; }
 	GitHelper changes "$UBIN" && { GitHelper commitg "$UBIN" && pause; }
+	return 0
 }
 
 ScriptUpdate()
