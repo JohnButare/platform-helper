@@ -69,7 +69,7 @@ run()
 
 svn() { builtin cd "$projectDir" || return; TortoiseSVN svn "$@"; }
 svng() { builtin cd "$projectDir" || return; TortoiseSVN gui /path:"$projectDir" "$@"; }
-git() { builtin cd "$projectDir" || return; command git "$@"; }
+gitc() { builtin cd "$projectDir" || return; git "$@"; }
 gitg() { builtin cd "$projectDir" || return; command GitHelper gui "$@"; }
 gittg() { builtin cd "$projectDir" || return; command GitHelper tgui "$@"; }
 
@@ -82,7 +82,7 @@ statusCommand()
 { 
 	echo "************ $project Status ************"
 	[[ $svn ]] && { svn status; return; }
-	git status
+	gitc status
 }
 
 revertCommand()
@@ -90,7 +90,7 @@ revertCommand()
 	echo "************ Reverting $project ************"
 	[[ $svn ]] && { svng /command:revert; return; }
 	[[ $gui ]] && { gitg commit; return; } 
-	git reset --hard;
+	gitc reset --hard;
 }
 
 changesCommand() 
@@ -98,7 +98,7 @@ changesCommand()
 	if [[ $svn ]]; then
 		[[ "$(svn status)" != "" ]]
 	else
-		[[ "$(git status --porcelain)" != "" ]]
+		[[ "$(gitc status --porcelain)" != "" ]]
 	fi
 }
 
@@ -120,7 +120,7 @@ cloneCommand()
 	elif [[ $svn ]]; then
 		svn co "https://$svnRepository/svn/$project/trunk/" "$projectDir"
 	else
-		[[ ! -d "$projectDir/.git" ]] && { git clone "https://$gitRepository/$project" "$projectDir" || return; }
+		[[ ! -d "$projectDir/.git" ]] && { gitc clone "https://$gitRepository/$project" "$projectDir" || return; }
 		GitHelper hide "$projectDir" || return
 	fi
 	return 0
@@ -131,30 +131,43 @@ updateCommand()
 	echo "************ Updating $project ************"
 	[[ $svn ]] && { svn update | grep -v "Updating '.':" ; return; }
 	integrationResetAll || return
-	git up || return
+
+	gitc up || return
 }
 
-branchExist() { git rev-parse --verify $1 >& /dev/null; }
+branchExist() { gitc rev-parse --verify $1 >& /dev/null; }
 
 integrationResetAll()
 {
-	for b in Continuous Test Pre-Production; do
-		branchExist $b && { integrationReset $b || return; }
+	local branch
+	for branch in Continuous Test Pre-Production; do
+		integrationReset $branch || return;
 	done
 	return 0
 }
+
 integrationReset() 
 { 
-	local cb="$(git symbolic-ref -q HEAD | cut -d"/" -f 3)"
-	git checkout $1 || return
-	git reset --hard origin/$1 || return
-	git checkout $cb || return
+	local branch=$1
+
+	branchExist $branch || return 0
+
+	local localSha="$(gitc show-ref --verify refs/heads/$branch | cut -f1 -d" ")"
+	local remoteSha="$(gitc show-ref --verify refs/remotes/origin/$branch | cut -f1 -d" ")"
+	[[ "$localSha" == "$remoteSha" ]] && return 0
+
+	local currentBranch="$(gitc symbolic-ref -q HEAD | cut -d"/" -f 3)"
+
+	echo "Reseting $branch..."
+	[[ "$currentBranch" != "$branch" ]] && { gitc checkout $branch || return; }
+	gitc reset --hard origin/$branch || return
+	[[ "$currentBranch" != "$branch" ]] && { gitc checkout $currentBranch || return; }
 }
 
 checkoutCommand()
 {
 	[[ $svn ]] && { svnCheckoutCommand; return; }
-	git checkout "$version"
+	gitc checkout "$version"
 }
 
 svnCheckoutCommand()
