@@ -97,128 +97,23 @@ __git_ps1_show_upstream ()
 	local svn_remote svn_url_pattern count n
 	local upstream=git legacy="" verbose="" name=""
 
-	svn_remote=()
-	# get some config options from git-config
-	local output="$(git config -z --get-regexp '^(svn-remote\..*\.url|bash\.showupstream)$' 2>/dev/null | tr '\0\n' '\n ')"
-	while read -r key value; do
-		case "$key" in
-		bash.showupstream)
-			GIT_PS1_SHOWUPSTREAM="$value"
-			if [[ -z "${GIT_PS1_SHOWUPSTREAM}" ]]; then
-				p=""
-				return
-			fi
-			;;
-		svn-remote.*.url)
-			svn_remote[$((${#svn_remote[@]} + 1))]="$value"
-			svn_url_pattern="$svn_url_pattern\\|$value"
-			upstream=svn+git # default upstream is SVN if available, else git
-			;;
-		esac
-	done <<< "$output"
-
-	# parse configuration values
-	for option in ${GIT_PS1_SHOWUPSTREAM}; do
-		case "$option" in
-		git|svn) upstream="$option" ;;
-		verbose) verbose=1 ;;
-		legacy)  legacy=1  ;;
-		name)    name=1 ;;
-		esac
-	done
-
-	# Find our upstream
-	case "$upstream" in
-	git)    upstream="@{upstream}" ;;
-	svn*)
-		# get the upstream from the "git-svn-id: ..." in a commit message
-		# (git-svn uses essentially the same procedure internally)
-		local -a svn_upstream
-		svn_upstream=($(git log --first-parent -1 \
-					--grep="^git-svn-id: \(${svn_url_pattern#??}\)" 2>/dev/null))
-		if [[ 0 -ne ${#svn_upstream[@]} ]]; then
-			svn_upstream=${svn_upstream[${#svn_upstream[@]} - 2]}
-			svn_upstream=${svn_upstream%@*}
-			local n_stop="${#svn_remote[@]}"
-			for ((n=1; n <= n_stop; n++)); do
-				svn_upstream=${svn_upstream#${svn_remote[$n]}}
-			done
-
-			if [[ -z "$svn_upstream" ]]; then
-				# default branch name for checkouts with no layout:
-				upstream=${GIT_SVN_ID:-git-svn}
-			else
-				upstream=${svn_upstream#/}
-			fi
-		elif [[ "svn+git" = "$upstream" ]]; then
-			upstream="@{upstream}"
-		fi
-		;;
-	esac
+	upstream="@{upstream}"
 
 	# Find how many commits we are ahead/behind our upstream
-	if [[ -z "$legacy" ]]; then
-		count="$(git rev-list --count --left-right \
-				"$upstream"...HEAD 2>/dev/null)"
-	else
-		# produce equivalent output to --count for older versions of git
-		local commits
-		if commits="$(git rev-list --left-right "$upstream"...HEAD 2>/dev/null)"
-		then
-			local commit behind=0 ahead=0
-			for commit in $commits
-			do
-				case "$commit" in
-				"<"*) ((behind++)) ;;
-				*)    ((ahead++))  ;;
-				esac
-			done
-			count="$behind	$ahead"
-		else
-			count=""
-		fi
-	fi
+	count="$(git rev-list --count --left-right "$upstream"...HEAD 2>/dev/null)"
 
-	# calculate the result
-	if [[ -z "$verbose" ]]; then
-		case "$count" in
-		"") # no upstream
-			p="" ;;
-		"0	0") # equal to upstream
-			p="=" ;;
-		"0	"*) # ahead of upstream
-			p=">" ;;
-		*"	0") # behind upstream
-			p="<" ;;
-		*)	    # diverged from upstream
-			p="<>" ;;
-		esac
-	else
-		case "$count" in
-		"") # no upstream
-			p="" ;;
-		"0	0") # equal to upstream
-			p=" u=" ;;
-		"0	"*) # ahead of upstream
-			p=" u+${count#0	}" ;;
-		*"	0") # behind upstream
-			p=" u-${count%	0}" ;;
-		*)	    # diverged from upstream
-			p=" u+${count#*	}-${count%	*}" ;;
-		esac
-		if [[ -n "$count" && -n "$name" ]]; then
-			__git_ps1_upstream_name=$(git rev-parse \
-				--abbrev-ref "$upstream" 2>/dev/null)
-			if [ $pcmode = yes ] && [ $ps1_expanded = yes ]; then
-				p="$p \${__git_ps1_upstream_name}"
-			else
-				p="$p ${__git_ps1_upstream_name}"
-				# not needed anymore; keep user's
-				# environment clean
-				unset __git_ps1_upstream_name
-			fi
-		fi
-	fi
+	case "$count" in
+	"") # no upstream
+		p="" ;;
+	"0	0") # equal to upstream
+		p=" u=" ;;
+	"0	"*) # ahead of upstream
+		p=" u+${count#0	}" ;;
+	*"	0") # behind upstream
+		p=" u-${count%	0}" ;;
+	*)	    # diverged from upstream
+		p=" u+${count#*	}-${count%	*}" ;;
+	esac
 
 }
 
@@ -288,6 +183,8 @@ __git_eread ()
 # In this mode you can request colored hints using GIT_PS1_SHOWCOLORHINTS=true
 __git_ps1 ()
 {
+	#git() { "$P/Git/cmd/git.exe" "$@"; }
+
 	local pcmode=no
 	local detached=no
 	local ps1pc_start='\u@\h:\w '

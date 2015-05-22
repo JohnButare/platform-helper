@@ -605,7 +605,5 @@ unset -f git
 unset GIT_PYTHON_GIT_EXECUTABLE
 if [[ -f "$P/Git/cmd/git.exe" ]]; then
 	export GIT_PYTHON_GIT_EXECUTABLE="$P/Git/cmd/git.exe"
-	git() { "$P/Git/cmd/git.exe" "$@"; }
-	#export GIT_PYTHON_GIT_EXECUTABLE="$P32/Git/bin/git.exe"
-	#git() { "$P32/Git/bin/git.exe" "$@"; }
+	#git() { "$P/Git/cmd/git.exe" "$@"; }
 fi
