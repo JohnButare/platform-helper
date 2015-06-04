@@ -27,7 +27,7 @@ args()
 			EventViewer) command="EventViewer";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(FindDirs|index|path) ]] && break
+				[[ "$command" == @(FindDirs|index|path|update) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -42,29 +42,39 @@ EventViewerCommand() { start eventvwr.msc; }
 
 updateCommand()
 {
-	ask "Commit scripts" && { ScriptCommit || return; }
+	if [[ $# == 1 ]]; then
+		cmd="$(GetFunction ${1}Update)"
+		[[ ! $cmd ]] && usage
+		$cmd; return
+	fi
+
+	[[ $# != 0 ]] && usage;
+
 	ask "Update scripts" && { ScriptUpdate || return; }
-	ask "Synchronize files" && { LocalFilesUpdate || return; }
+	ask "Synchronize files" && { FilesUpdate || return; }
 
 	case "$PLATFORM" in
 		win)
-			intel IsIntelHost && intel update || { ask "Windows update" && start "wuapp.exe"; }
-			ask "Update Checker" && { start "UpdateChecker.exe" || return; }
-			ask "Cygwin install" && { cygwin new || return; }
+			intel IsIntelHost && { intel update || return; }
+			! intel IsIntelHost && ask "Windows update" && { WindowsUpdate || return; }
+			ask "Update Checker" && { CheckerUpdate || return; }
+			ask "Cygwin update" && { CygwinUpdate || return; }
 			;;
 		mac)
-			ask "Brew update" && { brew update || return; }
-			ask "Brew upgrade" && { brew upgrade --all || return; }
+			ask "Brew update" && { BrewUpdate || return; }
 			ask "App Store update" && sudo softwareupdate --install --all
 			;;
 	esac
 
-	RubyUpdate || return
-	PythonUpdate || return
-	CreativeCloudUpdate || return
+	which gem >& /dev/null && ask "Ruby update" && { RubyUpdate || return; }
+	which pip >& /dev/null && ask "Python pip update" && { PythonUpdate || return; }
 }
 
-LocalFilesUpdate()
+CygwinUpdate() { cygwin new; }
+CheckerUpdate() { start "UpdateChecker.exe"; }
+WindowsUpdate() { start "wuapp.exe"; }
+
+FilesUpdate()
 {
 	intel IsIntelHost || { SyncLocalFiles; return; }
 
@@ -74,17 +84,14 @@ LocalFilesUpdate()
 	return 0
 }
 
-CreativeCloudUpdate()
+BrewUpdate()
 {
-	{ CreativeCloud IsInstalled && ask "Adobe CreativeCloud update"; } || return 
-	CreativeCloud start || return
-	pause
+	brew update || return
+	brew upgrade --all || return
 }
 
 RubyUpdate()
 {	
-	{ which gem >& /dev/null && ask "Ruby update"; } || return 0
-	
 	local sudo
 	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
 
@@ -97,8 +104,6 @@ RubyUpdate()
 
 PythonUpdate()
 {
-	{ which pip >& /dev/null && ask "Python pip update"; } || return 0
-
 	local sudo
 	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
 
@@ -108,17 +113,13 @@ PythonUpdate()
 	return 0
 }
 
-ScriptCommit()
-{
-	GitHelper changes "$BIN" && { GitHelper commitg "$BIN" && pause; }
-	GitHelper changes "$UBIN" && { GitHelper commitg "$UBIN" && pause; }
-	return 0
-}
-
 ScriptUpdate()
 {
 	cd "$BIN" && git up
 	cd "$UBIN" && git up
+	GitHelper changes "$BIN" && { GitHelper commitg "$BIN" && pause; }
+	GitHelper changes "$UBIN" && { GitHelper commitg "$UBIN" && pause; }
+	return 0
 }
 
 indexCommand()
