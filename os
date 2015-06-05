@@ -105,7 +105,7 @@ RubyUpdate()
 PythonUpdate()
 {
 	local sudo
-	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
+	[[ "$PLATFORM" == "mac" ]] && sudo="sudo -H"
 
 	intel IsIntelHost && ScriptEval intel SetProxy
 	
