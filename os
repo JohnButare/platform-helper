@@ -71,7 +71,7 @@ updateCommand()
 }
 
 CygwinUpdate() { cygwin new; }
-CheckerUpdate() { start "UpdateChecker.exe"; }
+CheckerUpdate() { start "FileHippo.AppManager.exe"; }
 WindowsUpdate() { start "wuapp.exe"; }
 
 FilesUpdate()
