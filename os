@@ -76,11 +76,14 @@ WindowsUpdate() { start "wuapp.exe"; }
 
 FilesUpdate()
 {
-	intel IsIntelHost || { SyncLocalFiles; return; }
+	 HostUtil available nas && { SyncLocalFiles nas || return; }
 
-	ask 'Synchronize rrsprsps' && { SyncLocalFiles rrsprsps || return; }
-	ask 'Synchronize CsisBuild.intel.com' && { SyncLocalFiles CsisBuild.intel.com || return; }
-	ask 'Synchronize CsisBuild-dr.intel.com' && { SyncLocalFiles CsisBuild-dr.intel.com || return; }
+	if intel OnIntelNetwork; then
+		ask 'Synchronize rrsprsps' && { SyncLocalFiles rrsprsps || return; }
+		ask 'Synchronize CsisBuild.intel.com' && { SyncLocalFiles CsisBuild.intel.com || return; }
+		ask 'Synchronize CsisBuild-dr.intel.com' && { SyncLocalFiles CsisBuild-dr.intel.com || return; }
+	fi
+
 	return 0
 }
 
