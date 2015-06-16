@@ -50,7 +50,7 @@ updateCommand()
 
 	[[ $# != 0 ]] && usage;
 
-	ask "Update scripts" && { ScriptUpdate || return; }
+	ask "Update bin" && { BinUpdate || return; }
 	ask "Synchronize files" && { FilesUpdate || return; }
 
 	case "$PLATFORM" in
@@ -116,7 +116,7 @@ PythonUpdate()
 	return 0
 }
 
-ScriptUpdate()
+BinUpdate()
 {
 	cd "$BIN" && git up
 	cd "$UBIN" && git up
