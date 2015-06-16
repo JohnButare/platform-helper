@@ -76,8 +76,8 @@ WindowsUpdate() { start "wuapp.exe"; }
 
 FilesUpdate()
 {
-	 HostUtil available nas && { SyncLocalFiles nas || return; }
-
+	HostUtil available nas && { SyncLocalFiles nas || return; }
+	
 	if intel OnIntelNetwork; then
 		ask 'Synchronize rrsprsps' && { SyncLocalFiles rrsprsps || return; }
 		ask 'Synchronize CsisBuild.intel.com' && { SyncLocalFiles CsisBuild.intel.com || return; }
