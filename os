@@ -76,12 +76,12 @@ WindowsUpdate() { start "wuapp.exe"; }
 
 FilesUpdate()
 {
-	HostUtil available nas && { SyncLocalFiles nas || return; }
+	HostUtil available nas && ask 'Synchronize nas files' && { SyncLocalFiles nas || return; }
 	
 	if intel OnIntelNetwork; then
-		ask 'Synchronize rrsprsps' && { SyncLocalFiles rrsprsps || return; }
-		ask 'Synchronize CsisBuild.intel.com' && { SyncLocalFiles CsisBuild.intel.com || return; }
-		ask 'Synchronize CsisBuild-dr.intel.com' && { SyncLocalFiles CsisBuild-dr.intel.com || return; }
+		ask 'Synchronize rrsprsps files' && { SyncLocalFiles rrsprsps || return; }
+		ask 'Synchronize CsisBuild files' && { SyncLocalFiles CsisBuild.intel.com || return; }
+		ask 'Synchronize CsisBuild-dr files' && { SyncLocalFiles CsisBuild-dr.intel.com || return; }
 	fi
 
 	return 0
@@ -118,10 +118,10 @@ PythonUpdate()
 
 BinUpdate()
 {
-	cd "$BIN" && git up
-	cd "$UBIN" && git up
 	GitHelper changes "$BIN" && { GitHelper commitg "$BIN" && pause; }
+	cd "$BIN" && git up
 	GitHelper changes "$UBIN" && { GitHelper commitg "$UBIN" && pause; }
+	cd "$UBIN" && git up
 	return 0
 }
 
