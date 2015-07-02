@@ -120,8 +120,10 @@ usage: i [APP*|cd|force|info|select]
 	[[ "$1" == @(select) ]] && { select="--select"; }
 	[[ "$1" == @(force) ]] && { force="true"; }
 
-	[[ $force || $select || ! $InstallDir ]] && 
-		{ ScriptEval FindInstallFile --eval $select || return; }
+	if [[ $force || $select || ! $InstallDir ]]; then
+		ScriptEval FindInstallFile --eval $select || return
+		export INSTALL_DIR="$InstallDir"
+	fi
 
 	[[ "$1" == @(force|select) ]] && return 0
 	

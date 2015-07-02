@@ -8,7 +8,7 @@ usage: os <command>
 	FindInfo|FindDirs [HOST|DIR](local)		find OS information or directories
 	index: index [options|start|stop|demand](options)
 	path [show|edit|editor|update|set [AllUsers]](editor)
-	other: ComputerManagement|DeviceManager|EventViewer|MobilityCenter|SystemProperties|update|store
+	other: ComputerManagement|DeviceManager|environment|EventViewer|MobilityCenter|SystemProperties|update|store
 		lock"
 	exit $1
 }
@@ -143,6 +143,7 @@ pathCommand()
 	Path${command}Command "$@"
 }
 
+environmentCommand() { SystemPropertiesCommand 3; }
 PathEditCommand() { SystemPropertiesCommand 3; }
 PathEditorCommand() { sudo "$@" PathEditor.exe; }
 
