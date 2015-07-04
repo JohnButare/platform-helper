@@ -238,8 +238,6 @@ GetDirs()
 
 	elif [[ -d "//$host/c$" ]]; then # host with Administrator access
 		_root="//$host/c$"; _DataDrive="//$host/c$"
-		[[ -d "//$host/d$/Users" ]] && _DataDrive="//$host/d$" || 
-			{ [[ -d "$_DataDrive/Users" ]] || { EchoErr "os: unable to locate the Users folder on $host"; return 1; }; }
 		FindDirsWorker || return
 		_data="$_pub/Documents/data"
 
@@ -257,7 +255,7 @@ GetDirs()
 FindDirsWorker()
 {
 	_code="$_root/Projects"
-	_users="$_DataDrive/Users"
+	_users="$_root/Users"
 	_pub="$_users/Shared"
 	_etc="$_root/etc"
 	_home="$_DataDrive/Users/$_user"
