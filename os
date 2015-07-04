@@ -218,7 +218,7 @@ GetDirs()
 		_platform="$PLATFORM" _data="$DATA"
 		if [[ "$_platform" == "win" ]]; then
 			_root="$(wtu "$SYSTEMDRIVE")"	
-			[[ -d /cygdrive/d/users ]] && _DataDrive="/cygdrive/d" || _DataDrive="$_root"
+			[[ -d "/cygdrive/d/Program Files" ]] && _DataDrive="/cygdrive/d" || _DataDrive="$_root"
 		fi
 		FindDirsWorker || return
 		
@@ -258,7 +258,7 @@ FindDirsWorker()
 	_users="$_root/Users"
 	_pub="$_users/Shared"
 	_etc="$_root/etc"
-	_home="$_DataDrive/Users/$_user"
+	_home="$_root/Users/$_user"
 	_SysHome="$_root/Users/$_user"
 
 	case "$_platform" in
