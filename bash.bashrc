@@ -8,8 +8,7 @@ USERS="/Users"
 VOLUMES="/Volumes"
 COMPLETION="/etc/bash_completion.d"
 case "$(uname)" in 
-	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USER="$USERNAME" P="$ROOT/Program Files" P32="$ROOT/Program Files (x86)" VOLUMES="/cygdrive"
-		[[ -d "/cygdrive/d/users" ]] && USERS="/cygdrive/d/users" || USERS="$ROOT/users"; PUB="$USERS/Public";;
+	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USER="$USERNAME" P="$ROOT/Program Files" P32="$ROOT/Program Files (x86)" VOLUMES="/cygdrive" USERS="$ROOT/users"; PUB="$USERS/Public";;
 	Darwin)	PLATFORM="mac" P="/Applications" G="g" PUB="$USERS/Shared" COMPLETION="/usr/local/etc/bash_completion.d";;
 	Linux) PLATFORM="linux" P="/opt";; 
 esac
