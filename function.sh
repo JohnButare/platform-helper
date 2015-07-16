@@ -134,7 +134,7 @@ explore() # explorer DIR - explorer DIR in GUI program
 
 GetDisks() # GetDisks ARRAY
 {
-	local getDisks;
+	local getDisks disk;
 
 	case "$PLATFORM" in
 		mac) IFS=$'\n' getDisks=( $(df | egrep "/dev/" | cut -c 103- | egrep -v '^/$') );;
