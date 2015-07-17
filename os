@@ -57,7 +57,7 @@ updateCommand()
 		win)
 			intel IsIntelHost && { intel update || return; }
 			! intel IsIntelHost && ask "Windows update" && { WindowsUpdate || return; }
-			ask "Software update" && { CheckerUpdate || return; }
+			! intel OnIntelNetwork && ask "Software update" && { CheckerUpdate || return; }
 			ask "Cygwin update" && { CygwinUpdate || return; }
 			;;
 		mac)
@@ -70,8 +70,8 @@ updateCommand()
 	which pip >& /dev/null && ask "Python update" && { PythonUpdate || return; }
 }
 
-CygwinUpdate() { cygwin new; }
 CheckerUpdate() { start "FileHippo.AppManager.exe"; }
+CygwinUpdate() { cygwin new; }
 WindowsUpdate() { start "wuapp.exe"; }
 
 FilesUpdate()
