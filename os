@@ -50,14 +50,14 @@ updateCommand()
 
 	[[ $# != 0 ]] && usage;
 
-	ask "Update bin" && { BinUpdate || return; }
-	ask "Synchronize files" && { FilesUpdate || return; }
+	ask "Bin directories update" && { BinUpdate || return; }
+	ask "Syncronize local files" && { FilesUpdate || return; }
 
 	case "$PLATFORM" in
 		win)
 			intel IsIntelHost && { intel update || return; }
 			! intel IsIntelHost && ask "Windows update" && { WindowsUpdate || return; }
-			ask "Update Checker" && { CheckerUpdate || return; }
+			ask "Software update" && { CheckerUpdate || return; }
 			ask "Cygwin update" && { CygwinUpdate || return; }
 			;;
 		mac)
@@ -67,7 +67,7 @@ updateCommand()
 	esac
 
 	which gem >& /dev/null && ask "Ruby update" && { RubyUpdate || return; }
-	which pip >& /dev/null && ask "Python pip update" && { PythonUpdate || return; }
+	which pip >& /dev/null && ask "Python update" && { PythonUpdate || return; }
 }
 
 CygwinUpdate() { cygwin new; }
@@ -76,12 +76,12 @@ WindowsUpdate() { start "wuapp.exe"; }
 
 FilesUpdate()
 {
-	HostUtil available nas && ask 'Synchronize nas files' && { SyncLocalFiles nas || return; }
+	HostUtil available nas && ask 'Synchronize nas local files' && { SyncLocalFiles nas || return; }
 	
 	if intel OnIntelNetwork; then
-		ask 'Synchronize rrsprsps files' && { SyncLocalFiles rrsprsps || return; }
-		ask 'Synchronize CsisBuild files' && { SyncLocalFiles CsisBuild.intel.com || return; }
-		ask 'Synchronize CsisBuild-dr files' && { SyncLocalFiles CsisBuild-dr.intel.com || return; }
+		ask 'Synchronize rrsprsps local files' && { SyncLocalFiles rrsprsps || return; }
+		ask 'Synchronize CsisBuild local files' && { SyncLocalFiles CsisBuild.intel.com || return; }
+		ask 'Synchronize CsisBuild-dr local files' && { SyncLocalFiles CsisBuild-dr.intel.com || return; }
 	fi
 
 	return 0
