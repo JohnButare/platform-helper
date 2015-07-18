@@ -9,6 +9,10 @@ Office365=""
 if [[ -d "$P/Microsoft Word.app" ]]; then
 	WordProgram="$P/Microsoft Word.app"
 
+elif [[ -f "$P/Microsoft Office/root/Office16/winword.exe" ]]; then
+	OfficeDir="$P/Microsoft Office/root/Office16"
+	Office365="true"
+
 elif [[ -f "$P/Microsoft Office 15/root/office15/WinWord.exe" ]]; then
 	OfficeDir="$P/Microsoft Office 15/root/office15"
 	Office365="true"
