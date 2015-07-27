@@ -427,7 +427,8 @@ printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf
 console() { start --direct proxywinconsole.exe "$@"; } 
 
 IsMobile() { [[ "$(HostInfo info "$COMPUTERNAME" mobile)" == "yes" ]]; }
-IsVm() { [[ "$PLATFORM" != "win" ]] && return 0; ! vmchk > /dev/null; }
+IsVm() { IsVMwareVm; }
+IsVMwareVm() { [[ "$PLATFORM" != "win" ]] && return 0; ! vmchk > /dev/null; }
 OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
 
 #
