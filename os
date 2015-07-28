@@ -72,7 +72,10 @@ updateCommand()
 
 CheckerUpdate() { start "FileHippo.AppManager.exe"; }
 CygwinUpdate() { cygwin new; }
-WindowsUpdate() { start "wuapp.exe"; }
+WindowsUpdate() 
+{
+	FindInPath "wuapp.exe" > /dev/null && start "wuapp.exe" || cmd /c start ms-settings:windowsupdate
+}
 
 FilesUpdate()
 {
@@ -327,7 +330,7 @@ GetInfo()
 		architecture=$(OsArchitecture)
 		[[ "$architecture" == "x86" ]] && bits=32;
 		product=$(<"$r/ProductName")
-		version=$(<"$r/CurrentVersion")
+		version="10.0"; [[ "$product" != Windows\ 10* ]] && version=$(<"$r/CurrentVersion"); 
 		client=; [[ -f "$r/InstallationType" && $(<"$r/InstallationType") == "client" ]] && client="true"
 	fi
 
