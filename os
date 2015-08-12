@@ -115,7 +115,11 @@ PythonUpdate()
 
 	intel IsIntelHost && ScriptEval intel SetProxy
 	
-	$sudo pip-review --interactive
+	pip list --outdated
+	for pkg in $( pip list --outdated | cut -d' ' -f 1 );	do
+    ask "update $pkg" && { $sudo pip install -U $pkg || return; }
+	done
+	
 	return 0
 }
 
