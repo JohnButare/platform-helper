@@ -106,11 +106,16 @@ GetFilePath() { local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2
 GetFileName() { r "${1##*/}" $2; }
 GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${gfnwe%.*}" $2; }
 GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
-GetFullPath() { local gfp="$(cygpath -a "$1")" || return; r "$gfp" $2; }
 GetDriveLabel() { local gdl="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; r "${gdl## Volume in drive ? is }" $2; }
 HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
+
+GetFullPath() 
+{ 
+	local cmd; [[ "$platform" == "win" ]] && cmd="cygpath -a" || cmd="${G}readlink -f"
+	local gfp="$($cmd "$1")" || return; r "$gfp" $2; 
+}
 
 # (Man)PathAdd <path> [front], front adds to front and drops duplicates in middle
 PathAdd() {	[[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $PATH =~ (^|:)$1(:|$) ]]; then PATH+=:$1; fi; } 
@@ -209,6 +214,8 @@ FileCommand()
 	local args command="$1" dir="${@: -1}" file files=0 n
 	[[ "$command" == "hide" ]] && n=$(($#-1)) || n=$(($#-2))
 
+	[[ "$PLATFORM" != "win" && "$command" == @(hide|HiseAndSysrem) ]] && return 0
+	
 	for arg in "${@:2:$n}"; do
 		IsOption "$arg" && args+=( "$arg" )
 		[[ -e "$arg" ]] && { args+=( "$arg" ); (( ++files )); }
