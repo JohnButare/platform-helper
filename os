@@ -110,16 +110,22 @@ RubyUpdate()
 
 PythonUpdate()
 {
-	local sudo
+	local sudo fix
 	[[ "$PLATFORM" == "mac" ]] && sudo="sudo -H"
 
 	intel IsIntelHost && ScriptEval intel SetProxy
 	
 	pip list --outdated
 	for pkg in $( pip list --outdated | cut -d' ' -f 1 );	do
-    ask "update $pkg" && { $sudo pip install -U $pkg || return; }
+    ask "update $pkg" && { fix=1; $sudo pip install -U $pkg || return; }
 	done
 	
+	if [[ $fix ]]; then	
+		echo "Restoring dependancies..."
+		pip uninstall git-up
+		pip install git-up
+	fi
+
 	return 0
 }
 
