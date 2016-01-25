@@ -120,7 +120,7 @@ PythonUpdate()
     ask "update $pkg" && { fix=1; $sudo pip install -U $pkg || return; }
 	done
 	
-	if [[ $fix ]]; then	
+	if [[ $fix && "$PLATFORM" == "win" ]]; then	
 		echo "Restoring dependancies..."
 		pip uninstall git-up
 		pip install git-up
