@@ -119,12 +119,6 @@ PythonUpdate()
 	for pkg in $( pip list --outdated | cut -d' ' -f 1 );	do
     ask "update $pkg" && { fix=1; $sudo pip install -U $pkg || return; }
 	done
-	
-	if [[ $fix && "$PLATFORM" == "win" ]]; then	
-		echo "Restoring dependancies..."
-		pip uninstall git-up
-		pip install git-up
-	fi
 
 	return 0
 }
