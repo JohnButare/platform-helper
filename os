@@ -99,8 +99,8 @@ BrewUpdate()
 RubyUpdate()
 {	
 	local sudo
-	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
 
+	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
 	intel IsIntelHost && ScriptEval intel SetProxy
 
 	$sudo gem update --system
@@ -111,13 +111,14 @@ RubyUpdate()
 PythonUpdate()
 {
 	local sudo fix
-	[[ "$PLATFORM" == "mac" ]] && sudo="sudo -H"
+
+	[[ "$PLATFORM" == "mac" ]] && return # OS X causes issues with pip
 
 	intel IsIntelHost && ScriptEval intel SetProxy
 	
 	pip list --outdated
 	for pkg in $( pip list --outdated | cut -d' ' -f 1 );	do
-    ask "update $pkg" && { fix=1; $sudo pip install -U $pkg || return; }
+    ask "update $pkg" && { fix=1; $sudo pip install $ignoreInstalled -U $pkg || return; }
 	done
 
 	return 0
