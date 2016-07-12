@@ -67,7 +67,9 @@ updateCommand()
 	esac
 
 	which gem >& /dev/null && ask "Ruby update" && { RubyUpdate || return; }
-	which pip >& /dev/null && ask "Python update" && { PythonUpdate || return; }
+	
+	[[ "$PLATFORM" != "mac" ]] &&  # OS X causes issues with pip
+		which pip >& /dev/null && ask "Python update" && { PythonUpdate || return; }
 }
 
 CheckerUpdate() { start "FileHippo.AppManager.exe"; }
@@ -111,8 +113,6 @@ RubyUpdate()
 PythonUpdate()
 {
 	local sudo fix
-
-	[[ "$PLATFORM" == "mac" ]] && return # OS X causes issues with pip
 
 	intel IsIntelHost && ScriptEval intel SetProxy
 	
