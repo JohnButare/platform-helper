@@ -105,21 +105,23 @@ ManPathAdd "$DATA/man"
 
 i() # --find --cd
 { 
-	local find force select
+	local find force noRun select
 	if [[ "$1" == "--help" ]]; then echot "\
 usage: i [APP*|cd|force|info|select]
-	Install applications
-	-f, --force		check for a new installation location
+  Install applications
+  -nr, --no-run do not find or run the installation program
+  -f, --force		check for a new installation location
   -s, --select	select the install location"
 	return 0
 	fi
 
+  [[ "$1" == @(--no-run|-nr) ]] && { noRun="$1"; shift; }
 	[[ "$1" == @(--force|-f) ]] && { force="true"; shift; }
 	[[ "$1" == @(--select|-s) ]] && { select="--select"; shift; }
 	[[ "$1" == @(select) ]] && { select="--select"; }
 	[[ "$1" == @(force) ]] && { force="true"; }
 
-	if [[ $force || $select || ! $InstallDir ]]; then
+	if [[ ! $noRun && ($force || $select || ! $InstallDir) ]]; then
 		ScriptEval FindInstallFile --eval $select || return
 		export INSTALL_DIR="$InstallDir"
 	fi
@@ -131,6 +133,6 @@ usage: i [APP*|cd|force|info|select]
 	elif [[ "$1" == @(info) ]]; then
 		echo "The installation directory is $InstallDir"
 	elif [[ ! $find ]]; then
-		inst --hint "$InstallDir" "$@"
+		inst --hint "$InstallDir" $noRun "$@"
 	fi
 }

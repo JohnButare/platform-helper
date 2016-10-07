@@ -79,20 +79,23 @@ usage()
 	echot "\
 usage: install cd|install APP*
 	Install programs
-	-h, --hint DIR			first directory to search for installation files
-	-ie,--ignore-errors ignore errors for multiple installs
-      --no-run-prompt	do not ask to run the executable
-  -s, --select				select the install location"
+	-h,  --hint DIR				first directory to search for installation files
+	-ie, --ignore-errors 	ignore errors for multiple installs
+  -nf, --no-run					do not find or run the installation program
+  -nrp,--no-run-prompt	do not ask to run the executable
+  -s,  --select				  select the install location"
 	exit $1
 }
 
 args()
 {
-	unset command apps host ignoreErrors noRunPrompt select
+	unset command apps host ignoreErrors noElevate noRun noRunPrompt select
 	originalArgs=( "$@" ) 
 	while [ "$1" != "" ]; do
 		case "$1" in
-			--no-run-prompt) noRunPrompt="true";;
+			--no-elevate|-ne) noElevate="true";;
+			--no-run|-nr) noRun="true";;
+			--no-run-prompt|-nrp) noRunPrompt="true";;
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			--hint|-h) hint=( --hint "$2" ); export INSTALL_DIR="$2"; shift;;
 			--ignore-errors|-ie) ignoreErrors="true";;
@@ -118,7 +121,7 @@ cdCommand()
 
 installCommand()
 {
-	[[ "$PLATFORM" == "win" ]] && ! IsElevated && { sudo mintty -h error bash -l inst "${originalArgs[@]}"; return; }
+	[[ ! $noElevate && "$PLATFORM" == "win" ]] && ! IsElevated && { sudo mintty -h error bash -l inst "${originalArgs[@]}"; return; }
 	InstallInit || return
 	InstallApps "${apps[@]}" || return
 }
@@ -183,6 +186,7 @@ run() # run EXE [OPTIONS...]
 		shift; shift; shift;
 	fi
 	
+	[[ $noRun ]] && return;
 	FindFile "$exe" || { ask "Continue the installation"; return; }
 	RunExe "$file" "$@" || return
 }
@@ -2089,8 +2093,19 @@ GitCore()
 GitConfigure()
 {
 	local args name program
-	FindEditorProgram || return
-	$sudo git config --system core.editor "\"$program\" $args" || return
+
+	if [[ "$PLATFORM" != "win" ]]; then
+		FindEditorProgram || return
+		$sudo git config --system core.editor "\"$program\" $args" || return
+
+		FindCompareProgram || return
+
+		$sudo git config --system difftool.$name.trustExitCode "true" || return
+		$sudo git config --system difftool.$name.cmd "\"$program\" $args "'"$LOCAL" "$REMOTE"' || return
+		
+		$sudo git config --system mergetool.$name.trustExitCode "true" || return
+		$sudo git config --system mergetool.$name.cmd "\"$program\" $args "'"$LOCAL" "$REMOTE" "$BASE" "$MERGED"' || return
+	fi
 
 	FindCompareProgram || return
 	git config --global merge.tool "$name" || return
@@ -2114,54 +2129,41 @@ GitWinCore()
 	cp "$setupFiles/hub.bash_completion.sh" "$COMPLETION/hub" || return
 }
 
-CygwinGit()
-{
-	cygwin package git || return
-	cygwin FixCompletion || return
-
-	echo "Configuring git..."
-
-	/usr/bin/git config --system core.autocrlf false || return
-	/usr/bin/git config --system core.filemode false || return
-	/usr/bin/git config --system credential.helper wincred || return
-
-	FindEditorProgram || return
-	/usr/bin/git config --system core.editor "sublime start --wait" || return
-
-	/usr/bin/git config --system difftool.$name.trustExitCode "true" || return
-	/usr/bin/git config --system difftool.$name.cmd "BeyondCompare --wait "'"$LOCAL" "$REMOTE"' || return
-	/usr/bin/git config --system mergetool.$name.trustExitCode "true" || return
-	/usr/bin/git config --system mergetool.$name.cmd "BeyondCompare --wait "'"$LOCAL" "$REMOTE" "$BASE" "$MERGED"' || return
-}
-
 GitMacCore()
 {
 	i GitX || return
 	ask 'Install git-up' && { pip install --ignore-installed git-up || return; }
-
 	ask 'Install git-extras and hub' && { brew install git-extras hub || return; }
-
-	FindCompareProgram || return
-	
-	git config --global diff.tool "$name" || return
-	$sudo git config --system difftool.$name.trustExitCode "true" || return
-	$sudo git config --system difftool.$name.cmd "\"$program\" $args "'"$LOCAL" "$REMOTE"' || return
-	
-	git config --global merge.tool "$name" || return
-	$sudo git config --system mergetool.$name.trustExitCode "true" || return
-	$sudo git config --system mergetool.$name.cmd "\"$program\" $args "'"$LOCAL" "$REMOTE" "$BASE" "$MERGED"' || return
 }
 
-GitXInstall()
+CygwinGit()
 {
-	printf "**************************************************\n* GitX\n**************************************************\n"
-	run "Shareware/GitX/GitX-dev.dmg" || return # http://rowanj.github.io/gitx/
+	local gw="$P/Git/cmd/git" gc="/usr/bin/git"
+
+	if [[ ! $noRun ]]; then
+		cygwin package git || return
+		cygwin FixCompletion || return
+	fi
+
+	echo "Configuring git..."
+
+	"$gc" config --system core.autocrlf false || return
+	"$gc" config --system core.filemode false || return
+	"$gc" config --system credential.helper wincred || return
+
+	FindEditorProgram || return
+	"$gc" config --system core.editor "sublime start --wait" || return
+
+	"$gc" config --system difftool.$name.trustExitCode "true" || return
+	"$gc" config --system difftool.$name.cmd "BeyondCompare --wait "'"$LOCAL" "$REMOTE"' || return
+	"$gc" config --system mergetool.$name.trustExitCode "true" || return
+	"$gc" config --system mergetool.$name.cmd "BeyondCompare --wait "'"$LOCAL" "$REMOTE" "$BASE" "$MERGED"' || return
 }
 
 gfwInstall() { GitForWindowsInstall; }
 GitForWindowsInstall()
 {
-	local g="$P/Git/cmd/git" gc="/usr/bin/git"
+	local gw="$P/Git/cmd/git" gc="/usr/bin/git"
 	printf "**************************************************\n* Git for Windows\n**************************************************\n"
 	
 	echot "\
@@ -2184,63 +2186,28 @@ GitForWindowsInstall()
 	
 	echo "Configuring http.sslcainfo..."
 	"$gc" config --system http.sslcainfo "$P/Git/usr/ssl/certs/ca-bundle.crt" || return
-	"$g" config --system http.sslcainfo "$(utw "$P/Git/usr/ssl/certs/ca-bundle.crt")" || return
+	"$gw" config --system http.sslcainfo "$(utw "$P/Git/usr/ssl/certs/ca-bundle.crt")" || return
 
 	echo "Configuring git..."
-	"$g" config --system core.fscache true || return
-	"$g" config --system core.filemode false || return
-	"$g" config --system core.autocrlf false || return
-	"$g" config --system credential.helper wincred || return
+	"$gw" config --system core.fscache true || return
+	"$gw" config --system core.filemode false || return
+	"$gw" config --system core.autocrlf false || return
+	"$gw" config --system credential.helper wincred || return
 
 	FindEditorProgram || return
-	"$g" config --system core.editor "\"$(utw $program)\" $args" || return
+	"$gw" config --system core.editor "\"$(utw $program)\" $args" || return
 
 	FindCompareProgram || return
-	"$g" config --system difftool.$name.trustExitCode "true" || return
-	"$g" config --system difftool.$name.cmd "\"$(utw $program)\" $args "'"$LOCAL" "$REMOTE"' || return
-	"$g" config --system mergetool.$name.trustExitCode "true" || return
-	"$g" config --system mergetool.$name.cmd "\"$(utw $program)\" $args "'"$LOCAL" "$REMOTE" "$BASE" "$MERGED"' || return
+	"$gw" config --system difftool.$name.trustExitCode "true" || return
+	"$gw" config --system difftool.$name.cmd "\"$(utw $program)\" $args "'"$LOCAL" "$REMOTE"' || return
+	"$gw" config --system mergetool.$name.trustExitCode "true" || return
+	"$gw" config --system mergetool.$name.cmd "\"$(utw $program)\" $args "'"$LOCAL" "$REMOTE" "$BASE" "$MERGED"' || return
 }
 
-MsysgitInstall()
+GitXInstall()
 {
-	printf "**************************************************\n* msysgit \n**************************************************\n"
-
-	echot "\
-- Select Components
-	- uncheck Windows Explorer Integration
-	- (Cygwin) uncheck Associate .sh files to be run with Bash
-- Checkout as-is, commit as-is
-- uncheck View ReleaseNotes.rtf"
-	run "Shareware/msysGit/setup/Git-1.9.5-preview20150319.exe" || return # http://msysgit.github.io/ http://git-scm.com/download/win https://github.com/msysgit/msysgit/releases https://github.com/msysgit/msysgit
-
-	if [[ -f "$P32/Git/bin/ssh.exe" ]]; then
-		echo "Enabling Cygwin ssh..."
-		mv "$P32/Git/bin/ssh.exe" "$P32/Git/bin/ssh_hold.exe" || return
-	fi
-
-	echo "Updating icons..."
-	$mergeDir "$pp/Git" "$pp/Development/Other"
-	$rm "$pd/Git Bash.lnk"
-	$rm "$pd/Git Extensions.lnk"
-
-	echo "Configuring Cygwin git..."
-	/usr/bin/git config --system http.sslcainfo "$P32/git/bin/curl-ca-bundle.crt" || return
-
-	echo "Configuring git..."
-	"$P32/Git/bin/git" config --system core.filemode false || return
-	"$P32/Git/bin/git" config --system core.autocrlf false || return
-	"$P32/Git/bin/git" config --system credential.helper wincred || return
-
-	FindEditorProgram || return
-	"$P32/Git/bin/git" config --system core.editor "\"$(utw $program)\" $args" || return
-
-	FindCompareProgram || return
-	"$P32/Git/bin/git" config --system difftool.$name.trustExitCode "true" || return
-	"$P32/Git/bin/git" config --system difftool.$name.cmd "\"$(utw $program)\" $args "'"$LOCAL" "$REMOTE"' || return
-	"$P32/Git/bin/git" config --system mergetool.$name.trustExitCode "true" || return
-	"$P32/Git/bin/git" config --system mergetool.$name.cmd "\"$(utw $program)\" $args "'"$LOCAL" "$REMOTE" "$BASE" "$MERGED"' || return
-
+	printf "**************************************************\n* GitX\n**************************************************\n"
+	run "Shareware/GitX/GitX-dev.dmg" || return # http://rowanj.github.io/gitx/
 }
 
 GitKrakenInstall()
