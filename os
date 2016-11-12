@@ -95,7 +95,7 @@ FilesUpdate()
 BrewUpdate()
 {
 	brew update || return
-	brew upgrade --all || return
+	brew upgrade || return
 }
 
 RubyUpdate()
