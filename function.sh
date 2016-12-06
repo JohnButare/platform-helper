@@ -142,9 +142,10 @@ GetDisks() # GetDisks ARRAY
 	local getDisks disk;
 
 	case "$PLATFORM" in
-		mac) IFS=$'\n' getDisks=( $(df | egrep "/dev/" | cut -c 103- | egrep -v '^/$') );;
+		mac) IFS=$'\n' getDisks=( $(df | egrep "^/dev/" | awk '{print $9}' | egrep -v '^/$|^/$') );;
 		win) for disk in /cygdrive/*; do getDisks+=( "$disk" ); done;;
 	esac
+
 	CopyArray getDisks "$1"
 }
 
@@ -263,10 +264,9 @@ CpProgress()
 # arrays
 #
 
-#CopyArray() { eval "$2=$(GetArrayDefinition "$1")"; }
 CopyArray() { local ca; GetArrayDefinition "$1" ca; eval "$2=$ca"; }
 DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${!get}")} # DelimitArray DELIMITER ARRAY_VAR
-GetArrayDefinition() { local gad="$(declare -p $1)"; gad="${gad#*=\'}"; r "${gad%\'}" $2; }
+GetArrayDefinition() { local gad="$(declare -p $1)"; gad="(${gad#*\(}"; r "${gad%\'}" $2; }
 IsArray() {  [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
 ShowArray() { local var array="$1[@]"; printf -v var ' "%s"' "${!array}"; echo "${var:1}"; }
 ShowArrayDetail() { declare -p "$1"; }

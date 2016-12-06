@@ -230,8 +230,12 @@ GetDirs()
 		fi
 		FindDirsWorker || return
 		
-	elif [[ "$host" == @(nas|nas.hagerman.butare.net) ]]; then # nas
+	elif [[ "$host" == @(nas) ]]; then # nas
 		_pub="//$host/public" _home="//$host/home" _SysHome="$_home"; SetCommonUserDirs
+		_data="$_pub/Documents/data"
+
+	elif [[ "$host" == @(nasc) ]]; then # nas
+		_pub="//$host/usbshare2/public" _home="//$host/usbshare2/home" _SysHome="$_home"; SetCommonUserDirs
 		_data="$_pub/Documents/data"
 
 	elif [[ "$host" == @(butare.net) ]]; then # nas
