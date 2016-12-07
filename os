@@ -81,7 +81,7 @@ WindowsUpdate()
 
 FilesUpdate()
 {
-	HostUtil available nas && ask 'Synchronize nas local files' && { SyncLocalFiles nas || return; }
+	HostUtil available nasc && ask 'Synchronize nasc local files' && { SyncLocalFiles nasc || return; }
 	
 	if intel OnIntelNetwork; then
 		ask 'Synchronize rrsprsps local files' && { SyncLocalFiles rrsprsps || return; }
