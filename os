@@ -235,7 +235,7 @@ GetDirs()
 		_data="$_pub/Documents/data"
 
 	elif [[ "$host" == @(nasc) ]]; then # nas
-		_pub="//$host/usbshare2/public" _home="//$host/usbshare2/home" _SysHome="$_home"; SetCommonUserDirs
+		_pub="//$host/usbshare1/public" _home="//$host/usbshare1/home" _SysHome="$_home"; SetCommonUserDirs
 		_data="$_pub/Documents/data"
 
 	elif [[ "$host" == @(butare.net) ]]; then # nas
