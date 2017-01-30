@@ -153,9 +153,9 @@ GetDisks() # GetDisks ARRAY
 MakeShortcut() 
 { 
 	local suppress; [[ "$1" == @(-s|--suppress) ]] && { suppress="true"; shift; }
-	(( $# < 2 )) && { EchoErr "usage: MakeShortcut TARGET NAME ..."; return 0; }
+	(( $# < 2 )) && { EchoErr "usage: MakeShortcut TARGET NAME ..."; return 1; }
 	local t="$1"; [[ ! -e "$t" ]] && t="$(FindInPath "$1")"
-	[[ ! -e "$t" && $suppress ]] && { return 0; }
+	[[ ! -e "$t" && $suppress ]] && { return 1; }
 	[[ ! -e "$t" ]] && { EchoErr "MakeShortcut: could not find target $1"; return 1; }
 	mkshortcut "$t" -n="$2" "${@:3}";
 }
@@ -435,7 +435,7 @@ console() { start --direct proxywinconsole.exe "$@"; }
 
 IsMobile() { [[ "$(HostInfo info "$COMPUTERNAME" mobile)" == "yes" ]]; }
 IsVm() { IsVMwareVm; }
-IsVMwareVm() { [[ "$PLATFORM" != "win" ]] && return 0; ! vmchk > /dev/null; }
+IsVMwareVm() { [[ "$PLATFORM" != "win" ]] && return 1; ! vmchk > /dev/null; }
 OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
 
 #
