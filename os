@@ -338,9 +338,9 @@ GetInfo()
 		local r="/proc/registry/HKEY_LOCAL_MACHINE/Software/Microsoft/Windows NT/CurrentVersion"
 		architecture=$(OsArchitecture)
 		[[ "$architecture" == "x86" ]] && bits=32;
-		product=$(<"$r/ProductName")
-		version="10.0"; [[ "$product" != Windows\ 10* ]] && version=$(<"$r/CurrentVersion"); 
-		client=; [[ -f "$r/InstallationType" && $(<"$r/InstallationType") == "client" ]] && client="true"
+		product=$(<"$r/ProductName" > /dev/null)
+		version="10.0"; [[ "$product" != Windows\ 10* ]] && version=$(<"$r/CurrentVersion"  > /dev/null); 
+		client=; [[ -f "$r/InstallationType" && $(<"$r/InstallationType"  > /dev/null) == "client" ]] && client="true"
 	fi
 
 	server=; [[ ! $client ]] && server="true"
