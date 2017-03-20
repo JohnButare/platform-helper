@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#. app.sh || exit
+
+pause() { echo "${*-Press enter when ready...}"; read -n 1 -s -p ""; }
+
+[[ $# != 2 ]] && { echo "usage: git freeze N VERSION"; exit 1; }
+
+releaseBranch=$(git branch --list -r | egrep "^[ ]*origin/Release-v$2$" | cut -d/ -f2 | sed 's/ //g')
+[[ ! $releaseBranch ]] && { echo "Release branch Release-v$2 does not exist on origin"; exit 1; }
+
+currentBranch="$(git symbolic-ref -q HEAD | cut -d"/" -f 3)"
+[[ ! $currentBranch ]] && { echo "Not on a branch"; exit 1; }
+
+if [[ "$(git status --porcelain)" ]]; then
+	echo "Current branch $currentBranch has changes that must be committed before release"
+	exit 1
+fi
+
+echo "Cleaning up $currentBranch onto $releaseBranch..."
+git rebase --interactive HEAD~$1 --onto $releaseBranch || return
+pause
+git push --force || return
+
+echo "Merging $currentBranch into $releaseBranch..."
+git checkout $releaseBranch || return
+git merge $currentBranch || return
+git push || return
+
+if [[ "$currentBranch" != "develop" ]]; then
+	echo "Freezing $currentBranch..."
+	git branch -m $currentBranch Frozen-$currentBranch || return
+	git push origin :$currentBranch || return
+	git push -u origin Frozen-$currentBranch || return
+fi
