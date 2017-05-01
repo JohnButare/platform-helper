@@ -235,7 +235,7 @@ GetDirs()
 		_data="$_pub/Documents/data"
 
 	elif [[ "$host" == @(nasc) ]]; then # nas
-		_pub="//$host/usbshare1/public" _home="//$host/usbshare1/home" _SysHome="$_home"; SetCommonUserDirs
+		_pub="//$host/public" _home="//$host/usbshare1/home" _SysHome="$_home"; SetCommonUserDirs
 		_data="$_pub/Documents/data"
 
 	elif [[ "$host" == @(butare.net) ]]; then # nas
@@ -338,9 +338,9 @@ GetInfo()
 		local r="/proc/registry/HKEY_LOCAL_MACHINE/Software/Microsoft/Windows NT/CurrentVersion"
 		architecture=$(OsArchitecture)
 		[[ "$architecture" == "x86" ]] && bits=32;
-		product=$(<"$r/ProductName" > /dev/null)
-		version="10.0"; [[ "$product" != Windows\ 10* ]] && version=$(<"$r/CurrentVersion"  > /dev/null); 
-		client=; [[ -f "$r/InstallationType" && $(<"$r/InstallationType"  > /dev/null) == "client" ]] && client="true"
+		product=$(tr -d '\000' < "$r/ProductName")
+		version="10.0"; [[ "$product" != Windows\ 10* ]] && version=$(tr -d '\000' < "$r/CurrentVersion"); 
+		client=; [[ -f "$r/InstallationType" && $(tr -d '\000' < "$r/InstallationType") == "client" ]] && client="true"
 	fi
 
 	server=; [[ ! $client ]] && server="true"

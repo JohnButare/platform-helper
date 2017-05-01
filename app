@@ -179,6 +179,7 @@ Groove() { TaskStart "$P32/Microsoft Office/Office12/GROOVE.EXE" "" -background;
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 PinnacleGameProfiler() {	TaskStart "$P32/KALiNKOsoft/Pinnacle Game Profiler/pinnacle.exe"; }
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
+Duet() { TaskStart "C:\Program Files\Kairos\Duet Display\duet.exe"; }
 
 IntelDesktopControlCenter() 
 { 
