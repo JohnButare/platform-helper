@@ -1,36 +1,65 @@
 #!/usr/bin/env bash
-#. app.sh || exit
 
-pause() { echo "${*-Press enter when ready...}"; read -n 1 -s -p ""; }
+run()
+{
+	[[ $# > 1 ]] && { echo "usage: git freeze [NUM_COMMITS](1)"; exit 1; }
 
-[[ $# != 2 ]] && { echo "usage: git freeze N VERSION"; exit 1; }
+	local numCommits=${1-1}
 
-releaseBranch=$(git branch --list -r | egrep "^[ ]*origin/Release-v$2$" | cut -d/ -f2 | sed 's/ //g')
-[[ ! $releaseBranch ]] && { echo "Release branch Release-v$2 does not exist on origin"; exit 1; }
+	local releaseBranch="Release-v$(git show-ref | grep 'refs/remotes/origin' | cut -f 2 -d' ' | cut -f 3-5 -d'/' | egrep '^[ ]*origin/Release-v' | sed 's/origin\/Release-v//g' | sort -n | tail -1)"
+	[[ ! $releaseBranch ]] && { echo "No release branch found"; exit 1; }
 
-currentBranch="$(git symbolic-ref -q HEAD | cut -d"/" -f 3)"
-[[ ! $currentBranch ]] && { echo "Not on a branch"; exit 1; }
+	local currentBranch="$(git symbolic-ref -q HEAD | cut -d"/" -f 3)"
+	[[ ! $currentBranch ]] && { echo "Not on a branch"; exit 1; }
 
-if [[ "$(git status --porcelain)" ]]; then
-	echo "Current branch $currentBranch has changes that must be committed before release"
-	exit 1
-fi
+	local b="$currentBranch"
+	if [[ "$b" == "Production" || "$b" == "Pre-Production" || "$b" == "Test" || "$b" =~ Release.* || "$b" =~ origin\/.* || "$b" =~ Frozen-.* ]]; then
+		echo "Cannot freeze $currentBranch"
+		exit 1
+	fi
 
-echo "Cleaning up $currentBranch onto $releaseBranch..."
-git rebase --interactive HEAD~$1 --onto $releaseBranch || exit 1
+	if [[ "$(git status --porcelain)" ]]; then
+		echo "Current branch $currentBranch has changes that must be committed before release"
+		exit 1
+	fi
 
-call ask 'Continue' || exit 1
+	if ask "Rebase $numCommits commits from $currentBranch onto $releaseBranch"; then
+		echo git rebase --interactive HEAD~$numCommits --onto $releaseBranch || exit 1
+		echo git push --force || exit 1
+	fi
 
-git push --force || exit 1
+	if ask "Merge $currentBranch into $releaseBranch"; then
+		echo git checkout $releaseBranch || exit 1
+		echo git merge $currentBranch || exit 1
+		echo git push || exit 1
+	fi
 
-echo "Merging $currentBranch into $releaseBranch..."
-git checkout $releaseBranch || exit 1
-git merge $currentBranch || exit 1
-git push || exit 1
+	if [[ "$currentBranch" != "develop" ]] && ask "Freeze $currentBranch"; then
+		echo git branch -m $currentBranch Frozen-$currentBranch || exit 1
+		echo git push origin :$currentBranch || exit 1
+		echo git push -u origin Frozen-$currentBranch || exit 1
+	fi
+}
 
-if [[ "$currentBranch" != "develop" ]]; then
-	echo "Freezing $currentBranch..."
-	git branch -m $currentBranch Frozen-$currentBranch || exit 1
-	git push origin :$currentBranch || exit 1
-	git push -u origin Frozen-$currentBranch || exit 1
-fi
+ask()
+{
+	local message="$1"
+	local valid='yn'
+	local default='y'
+
+	printf "$message ($default)? "
+
+	while true; do
+		read -n 1 -s response
+		[[ ! $response ]] && response="$default"
+		[[ $response && "$valid" == *$response* ]] && break
+	done
+	echo "$response"	
+
+	(( index=$(${G}expr index "${valid,,}" "${response,,}") - 1 ))
+	return $index
+}
+
+pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
+
+run "$@"
