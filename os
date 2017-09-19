@@ -81,7 +81,7 @@ WindowsUpdate()
 
 FilesUpdate()
 {
-	HostUtil available nasc && ask 'Synchronize nasc local files' && { SyncLocalFiles nasc || return; }
+	HostUtil available nas1 && { SyncLocalFiles nas1 || return; }
 	
 	if intel OnIntelNetwork; then
 		ask 'Synchronize rrsprsps local files' && { SyncLocalFiles rrsprsps || return; }
@@ -234,8 +234,8 @@ GetDirs()
 		_pub="//$host/public" _home="//$host/home" _SysHome="$_home"; SetCommonUserDirs
 		_data="$_pub/Documents/data"
 
-	elif [[ "$host" == @(nasc) ]]; then # nas
-		_pub="//$host/public" _home="//$host/usbshare1/home" _SysHome="$_home"; SetCommonUserDirs
+	elif [[ "$host" == @(nas1) ]]; then # nas
+		_pub="//$host/public" _home="//$host/home" _SysHome="$_home"; SetCommonUserDirs
 		_data="$_pub/Documents/data"
 
 	elif [[ "$host" == @(butare.net) ]]; then # nas
