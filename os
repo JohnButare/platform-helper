@@ -234,7 +234,7 @@ GetDirs()
 		_pub="//$host/public" _home="//$host/home" _SysHome="$_home"; SetCommonUserDirs
 		_data="$_pub/Documents/data"
 
-	elif [[ "$host" == @(nas1) ]]; then # nas
+	elif [[ "$host" == @(nas1|nas2) ]]; then # nas
 		_pub="//$host/public" _home="//$host/home" _SysHome="$_home"; SetCommonUserDirs
 		_data="$_pub/Documents/data"
 
