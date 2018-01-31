@@ -127,9 +127,9 @@ PythonUpdate()
 BinUpdate()
 {
 	GitHelper changes "$BIN" && { GitHelper commitg "$BIN" && pause; }
-	cd "$BIN" && git up
+	cd "$BIN" && git pull
 	GitHelper changes "$UBIN" && { GitHelper commitg "$UBIN" && pause; }
-	cd "$UBIN" && git up
+	cd "$UBIN" && git pull
 	return 0
 }
 
