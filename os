@@ -50,14 +50,15 @@ updateCommand()
 
 	[[ $# != 0 ]] && usage;
 
-	ask "Bin directories update" && { BinUpdate || return; }
+	HostUtil available nas1 && ask "Bin directories update" && { BinUpdate || return; }
 	ask "Syncronize local files" && { FilesUpdate || return; }
 
 	case "$PLATFORM" in
 		win)
 			intel IsIntelHost && { intel update || return; }
 			! intel IsIntelHost && ask "Windows update" && { WindowsUpdate || return; }
-			! intel OnIntelNetwork && ask "Software update" && { CheckerUpdate || return; }
+			
+			[[ -f "$P32/Secunia/PSI/psi.exe" ]] && ask "Software update" && { CheckerUpdate || return; }
 			ask "Cygwin update" && { CygwinUpdate || return; }
 			;;
 		mac)
@@ -72,7 +73,7 @@ updateCommand()
 		which pip >& /dev/null && ask "Python update" && { PythonUpdate || return; }
 }
 
-CheckerUpdate() { start "FileHippo.AppManager.exe"; }
+CheckerUpdate() { start "$P32/Secunia/PSI/psi.exe"; }
 CygwinUpdate() { cygwin new; }
 WindowsUpdate() 
 {
@@ -84,7 +85,6 @@ FilesUpdate()
 	HostUtil available nas1 && { SyncLocalFiles nas1 || return; }
 	
 	if intel OnIntelNetwork; then
-		ask 'Synchronize rrsprsps local files' && { SyncLocalFiles rrsprsps || return; }
 		ask 'Synchronize CsisBuild local files' && { SyncLocalFiles CsisBuild.intel.com || return; }
 		ask 'Synchronize CsisBuild-dr local files' && { SyncLocalFiles CsisBuild-dr.intel.com || return; }
 	fi
@@ -116,8 +116,8 @@ PythonUpdate()
 
 	intel IsIntelHost && ScriptEval intel SetProxy
 	
-	pip list --outdated --format=columns
-	for pkg in $( pip list --outdated --format=legacy | cut -d' ' -f 1 );	do
+	pip list --outdated
+	for pkg in $( pip list --outdated | cut -d' ' -f 1 );	do
     ask "update $pkg" && { fix=1; $sudo pip install $ignoreInstalled -U $pkg || return; }
 	done
 

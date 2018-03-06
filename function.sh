@@ -592,6 +592,7 @@ TextEdit()
 			[[ ! -f "$p" ]] && p="open -a TextEdit";;
 		win) p="$P/Sublime Text 3/sublime_text.exe"
 			[[ ! -f "$p" ]] && p="$P/Sublime Text 2/sublime_text.exe"
+			[[ ! -f "$p" ]] && p="$P/Notepad++/notepad++.exe"
 			[[ ! -f "$p" ]] && p="$P32/Notepad++/notepad++.exe"
 			[[ ! -f "$p" ]] && p="notepad";;
 	esac
