@@ -116,8 +116,8 @@ PythonUpdate()
 
 	intel IsIntelHost && ScriptEval intel SetProxy
 	
-	pip list --outdated
-	for pkg in $( pip list --outdated | cut -d' ' -f 1 );	do
+	pip list --outdated --format=columns
+	for pkg in $( pip list --outdated --format=legacy | cut -d' ' -f 1 );	do
     ask "update $pkg" && { fix=1; $sudo pip install $ignoreInstalled -U $pkg || return; }
 	done
 

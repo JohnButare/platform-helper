@@ -516,6 +516,16 @@ sudo() # sudo [command](mintty) - start a program as super user
 		return
 	fi
 
+	if ! which hstart >& /dev/null; then
+		if IsShellScript "$program"; then
+			cygstart "${cygstartOptions[@]}" elevate "\"\"mintty.exe\"\" --hold $hold bash.exe -l \"\"$program\"\" $@";
+		else
+			program="$(utw "$program")"
+			cygstart "${cygstartOptions[@]}" elevate "\"\"$program\"\" $@";
+		fi
+		return
+	fi
+
 	if IsShellScript "$program"; then
 		cygstart "${cygstartOptions[@]}" hstart "${hstartOptions[@]}" "\"\"mintty.exe\"\" --hold $hold bash.exe -l \"\"$program\"\" $@";
 	else
