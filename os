@@ -24,7 +24,7 @@ args()
 			ComputerManagement) command="ComputerManagement";; DeviceManager) command="DeviceManager";;
 			FindInfo) command="FindInfo";; FindDirs) command="FindDirs";; MobilityCenter) command="MobilityCenter";;
 	 		SystemProperties) command="SystemProperties";; CredentialManagement) command="CredentialManagement";;
-			EventViewer) command="EventViewer";;
+			EventViewer) command="EventViewer";; RenameComputer) command="RenameComputer";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ "$command" == @(FindDirs|index|path|update) ]] && break
@@ -142,6 +142,14 @@ indexCommand()
 }
 
 IndexOptionsCommand() { start rundll32.exe shell32.dll,Control_RunDLL srchadmin.dll,Indexing Options; }
+
+RenameComputerCommand()
+{
+	local newName
+	read -p "Enter computer name: " newName; echo
+	[[ $newName ]] && "$WINDIR/system32/wbem/wmic" computersystem where caption=\'$COMPUTERNAME\' rename $newName
+	return 0
+}
 
 pathCommand()
 {
