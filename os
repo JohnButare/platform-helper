@@ -147,7 +147,7 @@ RenameComputerCommand()
 {
 	local newName
 	read -p "Enter computer name: " newName; echo
-	[[ $newName ]] && "$WINDIR/system32/wbem/wmic" computersystem where caption=\'$COMPUTERNAME\' rename $newName
+	[[ $newName ]] && "$WINDIR/system32/wbem/wmic" computersystem where caption=\"$COMPUTERNAME\" rename \"$newName\"
 	return 0
 }
 
