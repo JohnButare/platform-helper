@@ -54,17 +54,22 @@ updateCommand()
 	ask "Syncronize local files" && { FilesUpdate || return; }
 
 	case "$PLATFORM" in
+		
 		win)
 			intel IsIntelHost && { intel update || return; }
 			! intel IsIntelHost && ask "Windows update" && { WindowsUpdate || return; }
 			
 			[[ -f "$P32/Secunia/PSI/psi.exe" ]] && ask "Software update" && { CheckerUpdate || return; }
 			ask "Cygwin update" && { CygwinUpdate || return; }
+
+			ask "Cleanup windows" && { install --no-run CleanupWin || return; }
 			;;
+
 		mac)
 			ask "Brew update" && { BrewUpdate || return; }
 			ask "App Store update" && sudo softwareupdate --install --all
 			;;
+
 	esac
 
 	which gem >& /dev/null && ask "Ruby update" && { RubyUpdate || return; }
