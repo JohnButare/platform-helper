@@ -62,7 +62,7 @@ updateCommand()
 			[[ -f "$P32/Secunia/PSI/psi.exe" ]] && ask "Software update" && { CheckerUpdate || return; }
 			ask "Cygwin update" && { CygwinUpdate || return; }
 
-			ask "Cleanup windows" && { install --no-run CleanupWin || return; }
+			ask "Cleanup windows" && { inst --no-run CleanupWin || return; }
 			;;
 
 		mac)
