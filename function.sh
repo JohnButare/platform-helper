@@ -142,7 +142,7 @@ GetDisks() # GetDisks ARRAY
 	local getDisks disk;
 
 	case "$PLATFORM" in
-		mac) IFS=$'\n' getDisks=( $(df | egrep "^/dev/" | awk '{print $9}' | egrep -v '^/$|^/$') );;
+		mac) IFS=$'\n' getDisks=( $(df | egrep "^/dev/" | gawk '{print $9}' | egrep -v '^/$|^/$') );;
 		win) for disk in /cygdrive/*; do getDisks+=( "$disk" ); done;;
 	esac
 
@@ -549,7 +549,7 @@ IsTaskRunning() # IsTaskRunng EXE
 ProcessList() 
 { 
 	case $PLATFORM in
-		win) tasklist | awk '{ print $2 "," $1 }';;
+		win) tasklist | gawk '{ print $2 "," $1 }';;
 		*) ps -W | cut -c33-36,61- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
 	esac
 }
