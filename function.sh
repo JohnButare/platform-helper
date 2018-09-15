@@ -497,7 +497,7 @@ sudo() # sudo [command](mintty) - start a program as super user
 		else cygstartOptions+=( "$1" ); fi
 		shift
 	done
-	[[ ! $standard ]] && hstartOptions+=( /elevated )
+	[[ ! $standard ]] && hstartOptions+=( /nouac ) # /elevated
 
 	[[ $# > 0 ]] && { program="$1"; shift; }
 	! type -P "$program" >& /dev/null && { EchoErr "start: $program: command not found"; return 1; }
