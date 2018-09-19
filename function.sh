@@ -485,24 +485,58 @@ start()
 	esac
 } 
 
-sudo() # sudo [command](mintty) - start a program as super user
+# sudo [command](mintty) - start a program as super user
+#
+# sudo /cygdrive/c/Program\ Files/Sublime\ Text\ 3/sublime_text.exe
+# sudo cmd "/c ls & pause"
+# sudo "/cygdrive/c/Program Files/Sublime Text 3/sublime_text.exe" "a.txt"  b.txt
+# sudo service listfile
+
+sudo() 
 {
-	local program="mintty" hstartOptions cygstartOptions ext standard direct hold="error"
+	local program="mintty" ext standard direct hold="error" arguments wait
+	local cygstartOptions hstartOptions="/D="$(utw $PWD)"" powerShellOptions
 
 	while IsOption "$1"; do
-		if [[ "$1" == +(-s|--standard) ]]; then standard="true"; hstartOptions+=( /nonelevated );
-		elif [[ "$1" == +(-h|--hide) ]]; then hstartOptions+=( /noconsole );
-		elif [[ "$1" == +(-w|--wait) ]]; then hstartOptions+=( /wait ); cygstartOptions+=( --wait ); hold="always";
-		elif [[ "$1" == +(-d|--direct) ]]; then direct="--direct";
-		else cygstartOptions+=( "$1" ); fi
+
+		if [[ "$1" == +(-s|--standard) ]]; then 
+			standard="true"
+			hstartOptions+=( /noelevate )
+
+		elif [[ "$1" == +(-h|--hide) ]]; then
+			hstartOptions+=( /noconsole )
+
+		elif [[ "$1" == +(-t|--test) ]]; then
+			hstartOptions+=( /test )
+
+		elif [[ "$1" == +(-w|--wait) ]]; then 
+			wait="true"
+			cygstartOptions+=( --wait )
+			hstartOptions+=( /wait )
+			powerShellOptions+=( -Wait )
+			hold="always"
+
+		elif [[ "$1" == +(-d|--direct) ]]; then
+			direct="--direct"
+
+		else
+			echot "\
+usage: sudo [-s|--standard] [command](mintty) [arguments]... - start a command as a super user
+	[-s|--standard]  start the program non-elevated (hstart only)
+	[-w|--wait]      wait for the command to finish"
+			return 1
+		fi
+
 		shift
 	done
-	[[ ! $standard ]] && hstartOptions+=( /nouac ) # /elevated
+
+	[[ ! $standard ]] && hstartOptions+=( /nouac )
 
 	[[ $# > 0 ]] && { program="$1"; shift; }
 	! type -P "$program" >& /dev/null && { EchoErr "start: $program: command not found"; return 1; }
 
 	program="$(FindInPath "$program")" # IsShellScript requires full path
+	arguments="$@"
 
 	# determine if hstart is not needed to change contexts
 	local elevated; IsElevated && elevated="true"
@@ -516,22 +550,26 @@ sudo() # sudo [command](mintty) - start a program as super user
 		return
 	fi
 
-	if ! which hstart >& /dev/null; then
+	# elevate with hstart if available and not waiting (hstart /wait flag only works for elevated starts)
+	if which hstart >& /dev/null && [[ ! $wait ]]; then
 		if IsShellScript "$program"; then
-			cygstart "${cygstartOptions[@]}" elevate "\"\"mintty.exe\"\" --hold $hold bash.exe -l \"\"$program\"\" $@";
+			hstart "${hstartOptions[@]}" """mintty.exe"" --hold $hold bash.exe -l ""$program"" $arguments";
 		else
 			program="$(utw "$program")"
-			cygstart "${cygstartOptions[@]}" elevate "\"\"$program\"\" $@";
+			hstart "${hstartOptions[@]}" """$program"" $arguments";
 		fi
-		return
+
+	# elevate with PowerShell
+	else
+		if IsShellScript "$program"; then
+			powershell -Command "Start-Process $powerShellOptions -Verb RunAs -FilePath mintty.exe \"--hold $hold bash.exe -l \"\"$program\"\" $arguments\"";
+		else
+			program="$(utw "$program")"
+			[[ $arguments ]] && arguments="-ArgumentList \"$@\""
+			powershell -Command "Start-Process $powerShellOptions -Verb RunAs -FilePath \"$program\" $arguments";
+		fi
 	fi
 
-	if IsShellScript "$program"; then
-		cygstart "${cygstartOptions[@]}" hstart "${hstartOptions[@]}" "\"\"mintty.exe\"\" --hold $hold bash.exe -l \"\"$program\"\" $@";
-	else
-		program="$(utw "$program")"
-		cygstart "${cygstartOptions[@]}" hstart "${hstartOptions[@]}" "\"\"$program\"\" $@";
-	fi
 }
 [[ "$PLATFORM" != "win" ]] && unset -f sudo
 
