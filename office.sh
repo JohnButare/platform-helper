@@ -13,35 +13,12 @@ elif [[ -f "$P/Microsoft Office/root/Office16/winword.exe" ]]; then
 	OfficeDir="$P/Microsoft Office/root/Office16"
 	Office365="true"
 
-elif [[ -f "$P/Microsoft Office 15/root/office15/WinWord.exe" ]]; then
-	OfficeDir="$P/Microsoft Office 15/root/office15"
-	Office365="true"
-
-elif [[ -f "$P32/Microsoft Office 15/root/office15/WinWord.exe" ]]; then
-	OfficeDir="$P32/Microsoft Office 15/root/office15"
-	Office365="true"
-
-elif [[ -f "$P/Microsoft Office/Office15/WinWord.exe" ]]; then
-	OfficeDir="$P/Microsoft Office/Office15"
-
-elif [[ -f "$P32/Microsoft Office/Office15/WinWord.exe" ]]; then
-	OfficeDir="$P32/Microsoft Office/Office15"
-	OfficeVersion="15"
-
-elif [[ -f "$P/Microsoft Office/Office14/WinWord.exe" ]]; then
-	OfficeDir="$P/Microsoft Office/Office14"
-	OfficeVersion="14"
-	OfficeTitle="* - Microsoft"
-	WordFastStartTitle="Word Fast Start.* - Microsoft Word"
-	
-elif [[ -f "$P32/Microsoft Office/Office14/WinWord.exe" ]]; then
-	OfficeDir="$P32/Microsoft Office/Office14"
-	OfficeVersion="14"
-	OfficeTitle="* - Microsoft"
-	WordFastStartTitle="Word Fast Start.* - Microsoft Word"
+elif [[ -f "$P32/Microsoft Office/root/Office16/WinWord.exe" ]]; then
+	OfficeDir="$P32/Microsoft Office/root/Office16"
 	
 else
 	OfficeDir=""
+	EchoErr "Unable to find Microsoft Office on this computer"
 	return 1
 fi
 
