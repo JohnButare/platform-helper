@@ -646,7 +646,7 @@ TextEdit()
 	esac
 
 	for file in "$@"; do
-		[[ -f "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"
+		[[ -e "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"
 	done
 	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then { start --files "${options[@]}" "$p" "${files[@]}"; $wait; } else return 1; fi
 }
