@@ -62,7 +62,6 @@ updateCommand()
 			[[ -f "$P32/Secunia/PSI/psi.exe" ]] && ask "Software update" && { CheckerUpdate || return; }
 			ask "Cygwin update" && { CygwinUpdate || return; }
 
-			ask "Cleanup windows" && { inst --no-run CleanupWin || return; }
 			;;
 
 		mac)
@@ -76,6 +75,8 @@ updateCommand()
 	
 	[[ "$PLATFORM" != "mac" ]] &&  # OS X causes issues with pip
 		which pip >& /dev/null && ask "Python update" && { PythonUpdate || return; }
+
+	[[ "$PLATFORM" != "mac" ]] && ask "Cleanup windows" && { inst --no-run CleanupWin || return; }
 }
 
 CheckerUpdate() { start "$P32/Secunia/PSI/psi.exe"; }
