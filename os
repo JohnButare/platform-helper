@@ -105,13 +105,17 @@ BrewUpdate()
 
 RubyUpdate()
 {	
-	local sudo
+	local sudo nodoc
 
 	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
-	intel IsIntelHost && ScriptEval intel SetProxy
 
-	$sudo gem update --system
-	$sudo gem update
+	# for Windows do not generate documentation, faster and --system fails with documentation update on Cygwin
+	[[ "$PLATFORM" == "win" ]] && nodoc=--no-document
+
+	intel IsIntelHost && ScriptEval intel SetProxy
+	
+	$sudo gem update --system $nodoc
+	$sudo gem update $nodoc
 	return 0
 }
 
