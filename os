@@ -108,7 +108,7 @@ RubyUpdate()
 {	
 	local sudo nodoc
 
-	[[ "$PLATFORM" == "mac" ]] && sudo=sudo
+	[[ "$PLATFORM" == "mac" ]] && { sudo=sudo; export PATH="/usr/local/opt/ruby/bin:$PATH"; }
 
 	# for Windows do not generate documentation, faster and --system fails with documentation update on Cygwin
 	[[ "$PLATFORM" == "win" ]] && nodoc=--no-document
