@@ -9,17 +9,17 @@
 usage()
 {
 	echot "/
-usage: ScadaPortalBootstrap [ENVIRONMENT]
-	Bootstrap a SCADA Portal environment.   Must be run as a member of ICS Dev AD
-	TODO: this script should run itself as AD_$USERNAME if needed"
+usage: ScadaPortalBootstrap [ENVIRONMENT] [-s|--script]
+	Bootstrap a SCADA Portal environment.   Must be run as a member of ICS Dev AD"
 	exit $1
 }
 
 args()
 {
-	unset files
+	unset script
 	while (( $# != 0 )); do
 		case "$1" in
+			-s|--script) script=true;;
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
@@ -36,7 +36,7 @@ init()
 	return 0
 }
 
-run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
+run() {	args "$@"; init || return; ${command}Command "${args[@]}" || return; }
 
 updateAdministratorsGroup()
 {
@@ -44,18 +44,20 @@ updateAdministratorsGroup()
 
 	[[ "$prod" ]] && account="sys_csProd" # use sys_csProd as the production build account
 
-	addToAdministratorsGroup "$server" "$account" || return # build
-	addToAdministratorsGroup "$server" "Global SCADA Admins" || return; # production service access
-	
-	if [[ ! "$prod" ]]; then
-		addToAdministratorsGroup "$server" "ICS Dev" || return; # developer access
-		addToAdministratorsGroup "$server" "ICS Dev AD" || return; # developer administrator access
-	fi
+	addToAdministratorsGroup "$server" "$account" || return 												# CI system
+	addToAdministratorsGroup "$server" "Global SCADA Admins" || return; 						# production service access
+	[[ "$prod" ]] || { addToAdministratorsGroup "$server" "ICS Dev AD" || return; } # developer administrator access
 }
 
 addToAdministratorsGroup()
 {
 	local server="$1" group="$2"
+
+	if [[ $script ]]; then
+		echo psexec -h '\\'$server net LocalGroup Administrators \"$group\"
+		return 0
+	fi
+
 
 	echo -n "$group..."
 	psexec -h '\\'$server net LocalGroup Administrators "$group" /add >& /dev/null
@@ -89,22 +91,32 @@ pingServer()
 	return 0
 }
 
-
 checkServer()
 {
 	local server="$1"
 
-	echo -n "$server: "
-	pingServer "$server" || return
-	checkAccess "$server" || return
+	if [[ ! "$script" ]]; then
+		echo -n "$server: "
+		pingServer "$server" || return
+		checkAccess "$server" || return
+	fi
+
 	updateAdministratorsGroup "$server" || return
-	echo "done"
+
+	[[ "$script" ]] || echo "done"
 }
 
-checkServers() { for server in $1; do checkServer $server ; done; }
+checkServers() 
+{ 
+	[[ "$script" ]] && echo "Run the following command on the BK1 SQL Server:"
+	for server in $1; do checkServer $server ; done;
+	[[ "$script" ]] && echo '\\CsisBuild.intel.com\install\Microsoft\SQL Server\image\2017\setup.exe /action=install /q /IACCEPTSQLSERVERLICENSETERMS /FEATURES=SQLEngine,Replication /InstanceName=MSSQLSERVER /SQLUSERDBDIR=C:\MSSQL\Data /SQLUSERDBLOGDIR=C:\MSSQL\Log /SQLBACKUPDIR=C:\MSSQL\Backup /INSTALLSHAREDDIR="C:\Program Files\Microsoft SQL Server" /SQLSYSADMINACCOUNTS="AMR\AD_JJBUTARE" "AMR\JJBUTARE" "AMR\ICS Dev" "AMR\ICS Dev AD" "BUILTIN\ADMINISTRATORS"'
+}
 
+prodCommand() { productionCommand; }; productionCommand() { checkServers "RasDev1Web1"; }
 pfCommand() { pathFindingCommand; }; pathFindingCommand() { checkServers "RasPF1FmsPrCimf RasPF1FmsBkCimf RasPF1FmsEmus RasPF1Web1 RasPF1PrSqls RasPF1BkSqls"; }
 devCommand() { developmentCommand; }; developmentCommand() { checkServers "RasDevFmsPrCimf RasDevFmsBkCimf RasDevFmsEmus RasDev1Web1 RasDev1PrSqls RasDev1BkSqls"; }
+dqaCommand() { developmentQualityAssuranceCommand; }; developmentQualityAssuranceCommand() { checkServers "rasdqaweb1"; }
 prodCommand() { productionCommand; }; productionCommand() { checkServers "RasDev1Web1"; }
 
 run "$@"
