@@ -122,13 +122,11 @@ RubyUpdate()
 
 PythonUpdate()
 {
-	local sudo fix
-
 	intel IsIntelHost && ScriptEval intel SetProxy
 	
 	pip list --outdated --format=columns
 	for pkg in $( pip list --outdated --format=columns | cut -d' ' -f 1 | tail --lines=+3 );	do
-    ask "update $pkg" && { fix=1; $sudo pip install $ignoreInstalled -U $pkg || return; }
+    pip install $ignoreInstalled -U $pkg || return
 	done
 
 	return 0
