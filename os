@@ -8,8 +8,8 @@ usage: os <command>
 	FindInfo|FindDirs [HOST|DIR](local)		find OS information or directories
 	index: index [options|start|stop|demand](options)
 	path [show|edit|editor|update|set [AllUsers]](editor)
-	other: ComputerManagement|DeviceManager|environment|EventViewer|MobilityCenter|SystemProperties|update|store
-		lock"
+	other: cleanup|ComputerManagement|DeviceManager|environment|EventViewer|MobilityCenter|SystemProperties|
+	  update|store|lock"
 	exit $1
 }
 
@@ -84,6 +84,25 @@ CygwinUpdate() { cygwin new; }
 WindowsUpdate() 
 {
 	FindInPath "wuapp.exe" > /dev/null && start "wuapp.exe" || cmd /c start ms-settings:windowsupdate
+}
+
+cleanupCommand()
+{
+	echot "\
+- remove path entries  are not used or interfere with system"
+	os path editor || return
+	pause
+ 
+	echot "\
+- Options, uncheck Hide Windows Entries
+- disable login programs that are not used or interfere with system"
+	autoruns || return
+ 
+	echot "\
+- disable login programs that are not used or interfere with system: NVidia, DropBox, etc.
+	- NVidia: https://www.ghacks.net/2016/11/07/nvidia-telemetry-tracking/"
+	task scheduler || return
+	pause
 }
 
 FilesUpdate()
