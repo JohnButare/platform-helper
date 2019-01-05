@@ -59,8 +59,12 @@ updateCommand()
 			intel IsIntelHost && { intel update || return; }
 			! intel IsIntelHost && ask "Windows update" && { WindowsUpdate || return; }
 			
-			[[ -f "$P32/Secunia/PSI/psi.exe" ]] && ask "Software update" && { CheckerUpdate || return; }
 			ask "Cygwin update" && { CygwinUpdate || return; }
+
+			local adobe="$P32\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe"
+			[[ -f "$adobe" ]] && ask "Adobe update" && { "$adobe" || return; "$P32\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe" || return; }
+
+			IsVm || { ask "Intel update" && { start "https://www.intel.com/content/www/us/en/support/intel-driver-support-assistant.html" || return; } }
 
 			;;
 
