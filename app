@@ -171,15 +171,20 @@ MapApp()
 	esac
 }
 
+AltTabTerminator() { IsTaskRunning "AltTabTer64" || TaskStart "$P/Alt-Tab Terminator/AltTabTer64.exe" "" /startup; }
 AnyDvd() { IsTaskRunning "AnyDVDtray" || TaskStart "AnyDVD"; }
+AquaSnap() { IsTaskRunning "AquaSnap.Daemon" || TaskStart "$P32/AquaSnap/AquaSnap.Daemon.exe"; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
 CloneDvd() { [[ "$command" == "startup" ]] && TaskStart "$P32/Elaborate Bytes/CloneDVD2/CloneDVD2.exe"; }
+cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
+Duet() { TaskStart "C:\Program Files\Kairos\Duet Display\duet.exe"; }
 Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer && start explorer; }
-Groove() { TaskStart "$P32/Microsoft Office/Office12/GROOVE.EXE" "" -background; }
+GlassWire() { IsTaskRunning "GlassWire" || TaskStart "$P32/GlassWire/glasswire.exe" "" -hide; }
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
+IntelRapidStorage() { IsTaskRunning "IAStorIcon" || TaskStart "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIconLaunch.exe" "" "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" 60; }
 PinnacleGameProfiler() {	TaskStart "$P32/KALiNKOsoft/Pinnacle Game Profiler/pinnacle.exe"; }
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
-Duet() { TaskStart "C:\Program Files\Kairos\Duet Display\duet.exe"; }
+TidyTabs() { IsTaskRunning "TidyTabs.Daemon" || TaskStart "$P32/TidyTabs/TidyTabs.Daemon.exe"; }
 
 IntelDesktopControlCenter() 
 { 
