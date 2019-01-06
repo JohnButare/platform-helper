@@ -62,7 +62,7 @@ updateCommand()
 			ask "Cygwin update" && { CygwinUpdate || return; }
 
 			local adobe="$P32\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe"
-			[[ -f "$adobe" ]] && ask "Adobe update" && { "$adobe" || return; "$P32\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe" || return; }
+			[[ -f "$adobe" ]] && ask "Adobe update" && { "$adobe" || return; start "$P32\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe" || return; }
 
 			IsVm || { ask "Intel update" && { start "https://www.intel.com/content/www/us/en/support/intel-driver-support-assistant.html" || return; } }
 
@@ -80,7 +80,7 @@ updateCommand()
 	[[ "$PLATFORM" != "mac" ]] &&  # OS X causes issues with pip
 		which pip >& /dev/null && ask "Python update" && { PythonUpdate || return; }
 
-	[[ "$PLATFORM" != "mac" ]] && ask "Cleanup windows" && { inst --no-run CleanupWin || return; }
+	[[ "$PLATFORM" != "mac" ]] && ask "Cleanup windows" && { cleanupCommand || return; }
 }
 
 CheckerUpdate() { start "$P32/Secunia/PSI/psi.exe"; }
