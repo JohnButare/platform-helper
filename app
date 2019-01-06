@@ -133,7 +133,7 @@ ShowStatus()
 GetAppFile()
 {
 	appFile="$(FindInPath "$app")"
-	[[ ! $appFile ]] && { echo "app: $app was not found"; return 1; }
+	#[[ ! $appFile ]] && { echo "app: $app was not found"; return 1; }
 	[[ -f "$appFile" ]]
 }
 
@@ -171,7 +171,7 @@ MapApp()
 	esac
 }
 
-AltTabTerminator() { IsTaskRunning "AltTabTer64" || TaskStart "$P/Alt-Tab Terminator/AltTabTer64.exe" "" /startup; }
+AltTabTerminator() { IsTaskRunning "AltTabTer64" || TaskStart "$P/SAlt-Tab Terminator/AltTabTer64.exe" "" /startup; }
 AnyDvd() { IsTaskRunning "AnyDVDtray" || TaskStart "AnyDVD"; }
 AquaSnap() { IsTaskRunning "AquaSnap.Daemon" || TaskStart "$P32/AquaSnap/AquaSnap.Daemon.exe"; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
@@ -180,6 +180,7 @@ cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE" |
 Duet() { TaskStart "C:\Program Files\Kairos\Duet Display\duet.exe"; }
 Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer && start explorer; }
 GlassWire() { IsTaskRunning "GlassWire" || TaskStart "$P32/GlassWire/glasswire.exe" "" -hide; }
+Greenshot() { IsTaskRunning "Greenshot" || TaskStart "$P//Greenshot/Greenshot.exe" "" ; }
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 IntelRapidStorage() { IsTaskRunning "IAStorIcon" || TaskStart "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIconLaunch.exe" "" "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" 60; }
 PinnacleGameProfiler() {	TaskStart "$P32/KALiNKOsoft/Pinnacle Game Profiler/pinnacle.exe"; }

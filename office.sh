@@ -18,7 +18,6 @@ elif [[ -f "$P32/Microsoft Office/root/Office16/WinWord.exe" ]]; then
 	
 else
 	OfficeDir=""
-	EchoErr "Unable to find Microsoft Office on this computer"
 	return 1
 fi
 
