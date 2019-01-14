@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+. function.sh || exit
+
+# this script will check the ping
+# check we (ICS Dev AD) have access
+# and grant sys_cs access
+# we can give the output to jeff if there are issues
+
+usage()
+{
+	echot "/
+usage: ScadaPortalInstall
+	Install SCADA Portal servers for the specified environment.   Must be run as a member of ICS Dev AD.
+
+  -e|--environment ENVIRONMENT  pf, dev, or DevQa
+  -nd|--no-deploy								do not deploy SCADA Portal to the servers
+  -nl|--no-local								skip local servers
+  -nf|--no-firewall							skip firewall servers
+  -np|--no-prep									do not prepare the SCADA Portal servers.   Preparation consists of:
+                                   1) check that server is up and running under the fully qualified DNS name
+                                   2) check that we have administrator access to the server to we can add the appropriate groups to the Administrators group
+	                                 3) add the appropriate groups to the Administors group on the server (developers, supports, build server)
+  -s, --script  								generate a runnable CMD shell script instead of running the commands directly
+"
+
+	exit $1
+}
+
+args()
+{
+	unset environment noBuild noLocal noFirewall noPrep script
+
+	while (( $# != 0 )); do
+		case "$1" in
+			-e|--environment) environment="$2"; shift;;
+			-nd|--no-deploy) noDeploy="true";;
+			-nl|--no-local) noLocal="true";;
+			-nf|--no-firewall) noFirewall="true";;
+			-np|--no-prep) noPrep="true";;
+			-s|--script) script=true;;
+			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			*) [[ ! $environment ]] && environment="$1";;
+		esac
+		shift
+	done
+	environment="${environment:-dev}"
+	args=("$@")
+	prod=""; [[ "$command" == "production" || "$command" == "prod" ]] && prod="true"
+}
+
+init()
+{
+	unset servers relayServer firewallServers
+	# "Continuous"  "Gold"  "Pathfinding"  "Production"  "Qualification"  "QualityAssurance" 
+	# environment: this is normalized from the environment specified by the user to an environment we can pass to deploy
+	#    and the sub directory on the build server that contains this code
+	case "$environment" in
+		pf|PathFinding) environment="Pathfinding" servers="RasPF1FmsPrCimf RasPF1FmsBkCimf RasPF1FmsEmus RasPF1Web1 RasPF1PrSqls RasPF1BkSqls";;
+		dev|development) environment="Development" servers="RasDevFmsPrCimf RasDevFmsBkCimf RasDevFmsEmus RasDev1Web1 RasDev1PrSqls RasDev1BkSqls";;
+		dqa|DevQa|DevelopmentQualityAssurance) environment="DevQa" servers="rasdqahc rasdqaWeb1 rasdqaWeb2"; relayServer="rasdqabksqls" firewallServers="rasdqaprsqls rasdqabksqls RasDqaFmsPrCimf RasDqaFmsBkCimf" ;;
+		*) EchoError "$1 is not a valid environment"; return 1;;
+	esac
+
+	domain=".amr.corp.intel.com"
+}
+
+updateAdministratorsGroup()
+{
+	local server="$1" account="sys_cs"
+
+	[[ "$prod" ]] && account="sys_csProd" # use sys_csProd as the production build account
+
+	addToAdministratorsGroup "$server" "$account" || return 												# CI system	
+	addToAdministratorsGroup "$server" "Global SCADA Admins" || return; 						# production service access
+	[[ "$prod" ]] || { addToAdministratorsGroup "$server" "ICS Dev AD" || return; } # developer administrator access
+}
+
+addToAdministratorsGroup()
+{
+	local server="$1" group="$2" result
+
+	if [[ $script ]]; then
+		echo psexec -accepteula -h '\\'$server net LocalGroup Administrators \"$group\" /add
+		return 0
+	fi
+
+	echo -n "$group..."	
+	psexec -h '\\'$server net LocalGroup Administrators "$group" /add >& /dev/null
+	result=$?
+
+	if ! [[ $result = 0 || $result = 2 ]]; then # new returns 0 if added to the group, 2 if already in the group
+		printf "\n\nUnable to add $group to the Administrators group on $server"
+		psexec -h '\\'$server net LocalGroup Administrators "$group" /add
+		return 1
+	fi
+
+	return 0
+}
+
+checkAccess()
+{
+	local server="$1"
+
+	echo -n "unc..."
+	if ! net use '\\'$server'\c$' >& /dev/null; then # if we can access c$ share we are an administrator
+		echo "ERROR: $server UNC is not accessible as $(whoami), add \"ICS Dev AD\" to the Administrators group"
+		#net use '\\'$server'\c$'
+		return 1
+	fi
+
+	return 0
+}
+
+pingServer()
+{
+	local server="$1"
+
+	echo -n "ping..."
+	if ! ping -n 1 $server >& /dev/null; then
+		echo "ERROR: $server is not available"
+		return 1
+	fi
+
+	return 0
+}
+
+prepServer()
+{
+	local server="$1"
+
+	if [[ ! "$script" ]]; then
+		echo -n "$server: "
+		pingServer "$server" || return    # check that server is up and running under the fully qualified DNS name
+		checkAccess "$server" || return		# check that we have administrator access to the server to we can add the appropriate groups to the Administrators group
+	fi
+
+	updateAdministratorsGroup "$server" || return # add the appropriate groups to the Administors group on the server (developers, supports, build server)
+
+	[[ "$script" ]] || echo "done"
+}
+
+prepServers() 
+{ 
+	local servers="$1" firewall oldScript="$script"
+
+	[[ "$servers" ]] || return 0
+
+	[[ "$2" == "firewall" ]]	&& { firewall="true"; script="true"; }
+
+	echo
+
+	if [[ "$firewall" ]]; then
+		printf 'Run the following command on the BK1 SQL Server:\n\n'
+		echo 'copy /y \\CsisBuild.intel.com\c$\Windows\System32\psexec.exe c:\Windows\System32'
+	fi
+
+	for server in $1; do prepServer "$server$domain" || exit 1 ; done;
+	
+	if [[ "$firewall" ]]; then
+		echo '"\\CsisBuild.intel.com\install\Microsoft\SQL Server\image\2017\setup.exe" /action=install /q /IACCEPTSQLSERVERLICENSETERMS /FEATURES=SQLEngine,Replication /InstanceName=MSSQLSERVER /SQLUSERDBDIR=C:\MSSQL\Data /SQLUSERDBLOGDIR=C:\MSSQL\Log /SQLBACKUPDIR=C:\MSSQL\Backup /INSTALLSHAREDDIR="C:\Program Files\Microsoft SQL Server" /SQLSYSADMINACCOUNTS="AMR\AD_JJBUTARE" "AMR\JJBUTARE" "AMR\ICS Dev" "AMR\ICS Dev AD" "BUILTIN\ADMINISTRATORS"
+c:\windows\system32\reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL14.MSSQLSERVER\MSSQLServer\" /f /v LoginMode /d 2
+c:\windows\system32\reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL14.MSSQLSERVER\MSSQLServer\SuperSocketNetLib\Tcp\IpAll" /f /v TcpPort /d 3180
+net stop MSSQLSERVER
+net start  MSSQLSERVER
+'
+		pause
+	fi
+
+	script="$oldScript"
+}
+
+deploy() 
+{ 
+	local code="/cygdrive/c/Projects/ScadaPortal/$environment/Source"
+
+	[[ ! -d "$code" ]] && code="/cygdrive/c/Projects/ScadaPortal/Source"
+
+	pushd "$code/Deploy/Deploy/bin/Debug" > /dev/null;
+	start --direct ./deploy.exe "$@"
+	popd > /dev/null
+}
+
+deployAll()
+{
+	local args="environment=$environment verbose=true"
+	# New environment must deploy the relay agent first
+	#deploy HistorianCentralDb $args RestoreDatabase=false DeployScripts=true DeployClr=true DeployService=true || return
+	deploy HistorianDb $args include=$relayServer";"BK DeployScripts=true DeployClr=true DeployHistorianSharedClr=true ControlServiceModules=false RebuildReplication=false || return
+	#deploy RelayAgent $args || return
+	#deploy HistorianDb $args || return
+
+	# TODO: Do we leave the rest of the pushes up to Antidote and run Antidote push here
+
+	# testing
+	# deploy Web || return
+}
+
+install() 
+{ 
+	if [[ ! "$noPrep" ]]; then
+		echo "Preparing the SCADA Portal servers..."
+		[[ ! $noLocal ]] && prepServers "$servers"; 
+		[[ ! $noFirewall ]] && prepServers "$firewallServers" firewall; 
+	fi
+
+	if [[ ! "$noBuild" ]]; then
+		printf "\nDeploying SCADA Portal...\n"
+		deployAll || return
+	fi
+}
+
+run() {	args "$@"; init || return; install "${args[@]}" || return; }
+
+run "$@"
