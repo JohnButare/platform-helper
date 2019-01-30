@@ -63,7 +63,10 @@ args()
 
 SyncDirCommand()
 {
-	local src="$1" dest="$2"	
+	local src="$1" dest="$2" srcDesc="$3" descDesc="$4"
+
+	[[ "$srcDesc" ]] || srcDesc="$src"
+	[[ "$destDesc" ]] || destDesc="$dest"
 
 	# src or dest directory is excluded
 	{ IsInArray -aw "${src##*/}" x || IsInArray -aw "${dest##*/}" x; } && return
@@ -74,7 +77,7 @@ SyncDirCommand()
 	[[ $exist && (! -d "$src" && ! -d "$dest") ]] && return 0
 
 	if [[ ! -d "$src" && ! -d "$dest" ]]; then
-		EchoErr "Source ($src) and destination ($dest) directories do not exist"
+		EchoErr "Source ($srcDesc) and destination ($destDesc) directories do not exist"
 		return 1
 	fi
 
@@ -85,18 +88,18 @@ SyncDirCommand()
 
 	if [[ ! -d "$src" ]]; then
 			case "${method##--}" in
-				dest-older) DeleteMissingDir --quiet "$dest";;
-				src-older) CopyMissingDir "$dest" "$src";;
-				*) SyncMissingDir "$dest" "$src";;
+				dest-older) DeleteMissingDir --quiet "$dest" "$destDesc";;
+				src-older) CopyMissingDir "$dest" "$src" "$destDesc" "$srcDesc";;
+				*) SyncMissingDir "$dest" "$src" "$destDesc" "$srcDesc";;
 			esac || return		
 	elif [[ ! -d "$dest" ]]; then
 			case "${method##--}" in
-				dest-older) CopyMissingDir "$src" "$dest";;
-				src-older) DeleteMissingDir --quiet "$src";;
-				*) SyncMissingDir "$src" "$dest";;
+				dest-older) CopyMissingDir "$src" "$dest"  "$srcDesc" "$destDesc";;
+				src-older) DeleteMissingDir --quiet "$src" "$srcDesc";;
+				*) SyncMissingDir "$src" "$dest"  "$srcDesc" "$destDesc";;
 			esac || return		
 	else
-		sync "$src" "$dest" || return
+		sync "$src" "$dest"  "$srcDesc" "$destDesc" || return
 	fi
 
 	SetLastSync
@@ -104,11 +107,12 @@ SyncDirCommand()
 
 sync()
 {
-	local src="$1" dest="$2" srcFiles destFiles srcIndex=0 destIndex=0 lastSrcIndex lastDestIndex
+	local src="$1" dest="$2" srcDesc="$3" destDesc="$4" 
+	local srcFiles destFiles srcIndex=0 destIndex=0 lastSrcIndex lastDestIndex
 	local ignoreMs convertTime srcLine destLine srcFile destFile srcOnlyFiles destOnlyFiles
 
-	#printf "\nSyncing %s\n" "$(GetFileName "$src")"
-	GetFileList srcFiles "$src"; printf "."; GetFileList destFiles "$dest"; printf "."; 
+	#printf "\nSyncing %s\n" "$(GetFileName "$srcDesc")"
+	GetFileList srcFiles "$src" "$srcDesc"; printf "."; GetFileList destFiles "$dest" "$destDesc"; printf "."; 
 	lastSrcIndex="${#srcFiles[@]}"; lastDestIndex="${#destFiles[@]}"; printf "."
 
 	while (( srcIndex<lastSrcIndex || destIndex<lastDestIndex )); do
@@ -126,7 +130,7 @@ sync()
 		#printf 'SyncFile: difference in file "%s"' "$srcFile"; IsInArray --array-wild "$srcFile" x && echo " (excluded)" || echo; pause
 
 		if [[ "$srcFile" == "$destFile" ]]; then
-			! IsInArray --array-wild "$srcFile" x && { SyncFile || return; }
+			! IsInArray --array-wild "$srcFile" x && { SyncFile "$src" "$dest" "$srcDesc" "$destDesc" || return; }
 			(( ++srcIndex, ++destIndex ))
 
 		elif [[ $srcFile && ( "$destFile" == "" || "$srcFile" < "$destFile" ) ]]; then
@@ -142,14 +146,14 @@ sync()
 
 	case "${method##--}" in
 		dest-older)
-			DeleteFiles "$dest" "${destOnlyFiles[@]}" || return
-			CopyFiles "$src" "$dest" "${srcOnlyFiles[@]}" || return;;
+			DeleteFiles "$dest" "$destDesc" "${destOnlyFiles[@]}" || return
+			CopyFiles "$src" "$dest" "$srcDesc" "$destDesc" "${srcOnlyFiles[@]}" || return;;
 		src-older)
-			DeleteFiles "$src" "${srcOnlyFiles[@]}" || return
-			CopyFiles "$dest" "$src" "${destOnlyFiles[@]}" || return;;
+			DeleteFiles "$src" "$srcDesc" "${srcOnlyFiles[@]}" || return
+			CopyFiles "$dest" "$src" "$destDesc" "$srcDesc" "${destOnlyFiles[@]}" || return;;
 		*) 
-			SyncMissingFiles "$src" "$dest" "${srcOnlyFiles[@]}" || return
-			SyncMissingFiles "$dest" "$src" "${destOnlyFiles[@]}" || return
+			SyncMissingFiles "$src" "$dest" "$srcDesc" "$destDesc" "${srcOnlyFiles[@]}" || return
+			SyncMissingFiles "$dest" "$src" "$destDesc" "$srcDesc" "${destOnlyFiles[@]}" || return
 	esac
 
 	[[ ! $recursive ]] && return
@@ -159,21 +163,22 @@ sync()
 	GetDirList srcDirs "$src"
 	for dir in "${srcDirs[@]}"; do
 		[[ "$dir" == @(bak) ]] && continue
-		SyncDirCommand "$src/$dir" "$dest/$dir" || return
+		SyncDirCommand "$src/$dir" "$dest/$dir" "$srcDesc/$dir" "$destDesc/$dir" || return
 	done
 
 	GetDirList destDirs "$dest"
 	for dir in "${destDirs[@]}"; do
 		[[ "$dir" == @(bak) ]] && continue
 		IsInArray "$dir" srcDirs && continue
-		SyncDirCommand "$src/$dir" "$dest/$dir" || return
+		SyncDirCommand "$src/$dir" "$dest/$dir" "$srcDesc/$dir" "$destDesc/$dir" || return
 	done
 
 }
 
 SyncFile()
 {
-	local srcPath="$src/$srcFile" destPath="$dest/$destFile"
+	local src="$1" dest="$2" srcDesc="$3" destDesc="$4"
+	local srcPath="$src/$srcFile" destPath="$dest/$destFile" srcPathDesc="$srcDesc/$srcFile" destPathDesc="$destDesc/$destFile"
 	local srcInfo srcFileSize srcFileAge destInfo destFileSize destFileAge ext
 
 	IFS="	" read srcFileSize srcFileAge <<< "${srcLine#$srcFile	}"
@@ -198,8 +203,8 @@ SyncFile()
 	fi
 
 	case "$method" in
-	--dest-older) ReplaceFile "$srcPath" "$destPath"; return;;
-	--src-older) ReplaceFile "$destPath" "$srcPath"; return;;
+	--dest-older) ReplaceFile "$srcPath" "$destPath" "$destDesc"; return;;
+	--src-older) ReplaceFile "$destPath" "$srcPath" "$srcDesc"; return;;
 	esac
 
 	printf "\nSyncing \"$srcFile\" file\n"
@@ -221,8 +226,8 @@ SyncFile()
 	diff "$srcPath" "$destPath"
 	echo
 
-	printf "%s: %s %s (%s bytes)\n" "$srcDesc" "$srcPath" "$(ShowSimpleTime @$srcFileAge)" "$srcFileSize"
-	printf "%s: %s %s (%s bytes)\n" "$destDesc" "$destPath" "$(ShowSimpleTime @$destFileAge)" "$destFileSize"
+	printf "%s: %s %s (%s bytes)\n" "$srcDesc" "$srcPathDesc" "$(ShowSimpleTime @$srcFileAge)" "$srcFileSize"
+	printf "%s: %s %s (%s bytes)\n" "$destDesc" "$destPathDesc" "$(ShowSimpleTime @$destFileAge)" "$destFileSize"
 
 	local defaultChoice=3
 	case $ext in
@@ -249,8 +254,8 @@ SyncFile()
 				else
 					bak --local "$srcPath" "$destPath" || return
 				fi;;
-			3) ReplaceFile "$newerPath" "$olderPath"; return;;
-	  	4) ReplaceFile "$olderPath" "$newerPath"; return;;
+			3) ReplaceFile "$newerPath" "$olderPath" "$olderDesc"; return;;
+	  	4) ReplaceFile "$olderPath" "$newerPath" "$newerDesc"; return;;
 		esac
 		return
 	done
@@ -258,20 +263,22 @@ SyncFile()
 
 SyncMissingFiles()
 {
-	local src="$1" dest="$2"; shift 2; local files=("$@")
+	local src="$1" dest="$2" srcDesc="$3" destDesc="$4"; shift 4
+	local files=("$@")
+
 	[[ ! $files ]] && return 0
 
 	while (( ${#files[@]} != 0 )); do
-		printf "\n\nSync files only in $src directory"
-		printf '  '; ShowArray files
+		printf "\n\nSync files only in $srcDesc directory: "
+		ShowArray files
 
 		ask '  (1) Copy All (2) Delete All (3) Copy Some (4) Delete Some' -vr 1234 -dr 1
 
 		case $(( $? + 1 )) in
-			1) CopyFiles "$src" "$dest" "${files[@]}" || return; unset files;;
-		 	2) DeleteFiles "$src" "${files[@]}" || return; unset files;;
-			3) PromptForFiles "copy" "CopyFiles" "$src" "$dest" || return;;
-			4) PromptForFiles "delete" "DeleteFiles" "$src" || return;;
+			1) CopyFiles "$src" "$dest" "$srcDesc" "$destDesc" "${files[@]}" || return; unset files;;
+		 	2) DeleteFiles "$src" "$srcDesc" "${files[@]}" || return; unset files;;
+			3) PromptForFiles "copy" "Synchronizing files from $srcDesc to $destDesc" "CopyFiles" "$src" "$dest" "$srcDesc" "$destDesc" || return;;
+			4) PromptForFiles "delete" "Deleting files from $srcDesc" "DeleteFiles" "$src" "$srcDesc" || return;;
 		esac
 
 	done
@@ -279,22 +286,22 @@ SyncMissingFiles()
 
 SyncMissingDir()
 {
-	local src="$1" dest="$2"
+	local src="$1" dest="$2" srcDesc="$3" destDesc="$4"
 
-	echo "Directory $dest does not exist"
-	ask "Do you want to (D)elete or (C)opy directory \"$src?\"" -vr DC -dr C
+	echo "Directory $destDesc does not exist"
+	ask "Do you want to (D)elete or (C)opy directory \"$srcDesc?\"" -vr DC -dr C
 	if [[ $? == 0 ]]; then
-		DeleteMissingDir "$src"
+		DeleteMissingDir "$src" "$srcDesc"
 	else
-		CopyMissingDir "$src" "$dest"
+		CopyMissingDir "$src" "$dest" "$srcDesc" "$destDesc"
 	fi	
 }
 
 CopyMissingDir()
 {
-	local src="$1" dest="$2"
+	local src="$1" dest="$2" srcDesc="$3" destDesc="$4"
 
-	echo "Copying directory $src to $dest"
+	echo "Copying directory $srcDesc to $destDesc"
 
 	mkdir -p "$dest" || return
 	CopyDir "$src" "$dest" $recursive --progress --retry -xf "${x[@]}" -xd "${x[@]}"
@@ -302,9 +309,11 @@ CopyMissingDir()
 
 DeleteMissingDir() 
 { 
+	local dir="$1" dirDesc="$2"
 	local ask="--ask"
+	
 	[[ "$1" == "--quiet" ]] && { unset ask; shift; } 
-	DelDir $ask --verbose "$1"
+	DelDir $ask --verbose "$dir"
 }
 
 GetLastSync()
@@ -347,7 +356,7 @@ GetFileList()
 # GetFileListPosix() - get files using POSIX commands, each file attributes requested individually, very slow over WebDAV, timestamp in milliseconds
 GetFileListPosix() 
 {
-	local result="$1" dir="$2" lines
+	local result="$1" dir="$2" dirDesc="$3" lines
 
  	IFS=$'\n' read -d '' -r -a lines < <(\
  		${G}find "$dir" -maxdepth 1 -type f -not -iname ".*$lastSyncSuffix" -printf "%f\t%s\t%T@\n" | sort); 
@@ -370,7 +379,7 @@ GetFileListPosix()
 # GetFileListWin() - use Windows cmd dir, files retrieved in a single batch, much faster over slow networks, timestamp in seconds
 GetFileListWin()
 {
-	local result="$1" dir="$2" lines line name size time resultIndex=0
+	local result="$1" dir="$2" dirDesc="$3" lines line name size time resultIndex=0
 	convertTime="true"
 
 	# 1) get the file list
@@ -399,7 +408,8 @@ GetDirList()
 
 PromptForFiles()
 {
-	local operation="$1" result items status="on"; shift
+	local operation="$1" desc="$2"; shift 2
+	local result items status="on"
 
 	[[ "$operation" == "delete" ]] && status="off"
 
@@ -408,7 +418,7 @@ PromptForFiles()
 	done
 
 	result=$(dialog --stdout --title "Synchronizing Files" \
-		--backtitle "Synchronizing files from $src to $dest" \
+		--backtitle "$desc" \
   	--checklist "Choose files to $operation:" $(($LINES-5)) 50 $(($LINES)) -- "${items[@]}")
 	clear
 
@@ -424,11 +434,12 @@ PromptForFiles()
 
 DeleteFiles()
 {
-	local dir="$1"; shift; local files=("$@")
+	local dir="$1" dirDesc="$2"; shift 2
+	local files=("$@")
 	
 	for file in "${files[@]}"; do
 		if [[ $noBak ]]; then
-			printf "\nRemoving $dir/$file..."
+			printf "\nRemoving $dirDesc/$file..."
 			rm -f "$dir/$file" || return
 			printf "done\n"
 		else
@@ -439,25 +450,27 @@ DeleteFiles()
 
 CopyFiles()
 {
-	local src="$1"; dest="$2"; shift 2; local files=("$@")
+	local src="$1" dest="$2" srcDesc="$3" destDesc="$4"; shift 4
+	local files=("$@")
 
 	for file in "${files[@]}"; do
-		CopyFile "$src/$file" "$dest/$file" || return
+		CopyFile "$src/$file" "$dest/$file" "$srcDesc/$file" || return
 	done
 }
 
 CopyFile()
 {
-	local src="$1" dest="$2"
+	local src="$1" dest="$2" desc="$3"
 
-	printf "\nCopying $src..."
+	printf "\nCopying $desc..."
 	${G}cp --preserve=timestamps "$src" "$dest" || return
 	printf "done\n"
 }
 
 ReplaceFile()
 {
-	local src="$1" dest="$2"
+	local src="$1" dest="$2" desc="$3"
+
 
 	if [[ $noBak ]]; then
 		printf "\n"
@@ -465,7 +478,7 @@ ReplaceFile()
 		bak --local "$dest" || return
 	fi
 
-	printf "Replacing $dest..."
+	printf "Replacing $desc..."
 	${G}cp --preserve=timestamps "$src" "$dest" || return	
 	printf "done\n"
 }
