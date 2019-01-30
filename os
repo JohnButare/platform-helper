@@ -203,9 +203,9 @@ FindDirsCommand()
 
 FindDirsInit()
 {
-	dirVars=(_platform _root _DataDrive _data _windows _users _etc \
+	dirVars=(_platform _root _DataDrive _data _windows _users \
 	 _pub _PublicStartMenu _ApplicationData _code \
-	 _user _UserFolders _home _SysHome _udata _ubin _UserStartMenu _cloud )
+	 _user _UserFolders _home _udata _ubin _UserStartMenu _cloud )
 
 	for var in "${dirVars[@]}"; do unset $var; done
 }
@@ -234,9 +234,9 @@ FindDirsArgs()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) FindDirsUsage 0;;
-			   --no-host-check) noHostCheck="true";;
+			-nhc|--no-host-check) noHostCheck="true";;
 			-s|--show) show="--show";;
-			-u|--user) shift; _user="${1-$USER}";;
+			-u|--user) shift; _user="$1";;
 			*) 
 				if [[ ! $host ]]; then
 					if [[ "$1" =~ / ]]; then
@@ -259,27 +259,29 @@ GetDirs()
 {	
 	FindDirsInit || return
 	
-	_user="$USER" _platform="win"
+	_user="${_user-$(ActualUser)}"
+	_platform="win"
 
 	if [[ ! $host ]]; then # local
-		_platform="$PLATFORM" _data="$DATA"
+		_platform="$PLATFORM" _data="$DATA" _users="$USERS" _pub="$PUB"
 		if [[ "$_platform" == "win" ]]; then
 			_root="$(wtu "$SYSTEMDRIVE")"	
 			[[ -d "/cygdrive/d/Program Files" ]] && _DataDrive="/cygdrive/d" || _DataDrive="$_root"
-		fi
+		fi		
+
 		FindDirsWorker || return
 		
 	elif [[ "$host" == @(nas) ]]; then # nas
-		_pub="//$host/public" _home="//$host/home" _SysHome="$_home"; SetCommonUserDirs
+		_pub="//$host/public" _home="//$host/home"; SetCommonUserDirs
 		_data="$_pub/Documents/data"
 
 	elif [[ "$host" == @(nas1|nas2) ]]; then # nas
-		_pub="//$host/public" _home="//$host/home" _SysHome="$_home"; SetCommonUserDirs
+		_pub="//$host/public" _home="//$host/home"; SetCommonUserDirs
 		_data="$_pub/Documents/data"
 
 	elif [[ "$host" == @(butare.net) ]]; then # nas
 		_pub="//$host@ssl@5006/DavWWWRoot/public" _home="//$host@ssl@5006/DavWWWRoot/home"
-		_SysHome="$_home"; SetCommonUserDirs
+		SetCommonUserDirs
 
 	elif [[ "$host" == @(dfs) ]]; then
 		_pub="//amr.corp.intel.com/corpsvcs/CS-PROD/installdev/public"
@@ -305,12 +307,10 @@ GetDirs()
 
 FindDirsWorker()
 {
-	_code="$_root/Projects"
-	_users="$_root/Users"
-	_pub="$_users/Shared"
-	_etc="$_root/etc"
-	_home="$_root/Users/$_user"
-	_SysHome="$_root/Users/$_user"
+	_code="${_code:-$_root/Projects}"
+	_users="${_users:-$_root/Users}"
+	_pub="${_pub:-$_users/Shared}"
+	_home="${_home:-$_users/$_user}"
 
 	case "$_platform" in
 		mac)
@@ -318,8 +318,7 @@ FindDirsWorker()
 			_UserFolders=( Desktop Documents Downloads Dropbox Movies Music Pictures Public sync )
 			;;
 		win)
-			_ApplicationData="$_SysHome/AppData/Roaming"
-			_etc="$_root/Windows/system32/drivers/etc"
+			_ApplicationData="$_home/AppData/Roaming"
 			_pub="$_users/Public"
 			_PublicStartMenu="$_root/ProgramData/Microsoft/Windows/Start Menu"
 			_UserFolders=( Desktop Documents Downloads Music Pictures Videos )

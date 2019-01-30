@@ -1,9 +1,16 @@
 # common functions for non-interactive scripts
 
-FUNCTIONS="true"
+InitializeBash()
+{
+	local file="${BASH_SOURCE[0]%/*}/bash.bashrc" 
+	echo "WARNING: $file was not sourced in /etc/bash.bashrc"
+	[[ -f "$file" ]] && . "$file"
+}
 
 # sytem-wide configuration - if we were not run from a login shell
-[[ ! $BIN ]] && [[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"
+[[ ! $BIN ]] && InitializeBash
+
+FUNCTIONS="true"
 
 #
 # configuration
@@ -132,6 +139,7 @@ explore() # explorer DIR - explorer DIR in GUI program
 {
 	local dir="$1"; [[ ! $dir ]] && dir="$PWD"
 	case "$PLATFORM" in
+		linux) (nohup nautilus "$dir" >& /dev/null &);;
 		mac) open "$dir" ;;
 		win) start explorer "$dir";;
 	esac
@@ -163,7 +171,9 @@ MakeShortcut()
 CopyDir()
 {
 	[[ "$PLATFORM" == "win" ]] && { CopyDirWin "$@"; return; }
-	local cp o=( --progress ); cp="$(FindInPath acp)" || { cp="${G}cp"; o=( --verbose ); } 
+
+	local cp="gcp" o=( --force --preserve timestamps,mode );
+	[[ "$PLATFORM" == "mac" ]] && { cp="acp"; o=( --progress ); }
 
 	for arg in "$@"; do
 		#[[ $1 == @(-r|--recursive) ]] && { o+=( --recursive ); shift; continue; }
@@ -197,7 +207,6 @@ CopyDirWin()
 		[[ $1 == @(-r|--recursive) ]] && { o+=( /E ); shift; continue; }
 		[[ $1 == @(--retry) ]] && { o+=( /R:3 /W:2 ); shift; continue; }
 		[[ $1 == @(-v|--verbose) ]] && { o+=( /V ); shift; continue; }
-		[[ $1 == @(-g|--progress|--progress-bar) ]] && { shift; continue; } # for compatibility with amv and acp
 		IsOption "$1" && { o+=( "/${1:1}" ); shift; continue; }
 		! IsOption "$1" && [[ ! $src ]] && { src="$(utw "$1")"; shift; continue; }
 		! IsOption "$1" && [[ ! $dest ]] && { dest="$(utw "$1")"; shift; continue; }
@@ -331,11 +340,13 @@ CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $
 
 TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')"; }
 TimestampDiff () { ${G}printf '%s' $(( $(${G}date -u +%s) - $(${G}date -u -d"$1" +%s))); }
-TimerOff() { s=$(TimestampDiff "$startTime"); printf "Elapsed %02d:%02d:%02d\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
+TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
 
 #
 # account
 #
+
+ActualUser() { echo "${SUDO_USER-$USER}"; }
 
 FullName() 
 { 
@@ -389,8 +400,8 @@ PingResponse() # HOST [TIMEOUT](200) - ping response time in milliseconds
 { 
 	local host="$1" timeout="${2-200}"
 	case "$PLATFORM" in
-		mac) fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('; return ${PIPESTATUS[0]};;
 		win) ping -n 1 -w "$timeout" "$host" | grep "^Reply from " | cut -d" " -f 5 | tr -d 'time=<ms'; return ${PIPESTATUS[1]};;
+		*) fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('; return ${PIPESTATUS[0]};;
 	esac
 }
 
@@ -457,6 +468,8 @@ start()
 
 	if [[ "$PLATFORM" == "mac" ]]; then
 		type -a "$1" >& /dev/null && { "$@"; return; } || { open "$@"; return; }
+	elif [[ "$PLATFORM" == "linux" ]]; then
+		type -a "$1" >& /dev/null && { "$@"; return; } || { xdg-open "$@"; return; }
 	fi
 
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
@@ -636,6 +649,8 @@ TextEdit()
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
 	
 	case "$PLATFORM" in
+		linux) p="/opt/sublime_text/sublime_text"
+			[[ ! -f "$p" ]] && p="gedit";;
 		mac) p="$P/Sublime Text.app/Contents/SharedSupport/bin/subl"
 			[[ ! -f "$p" ]] && p="open -a TextEdit";;
 		win) p="$P/Sublime Text 3/sublime_text.exe"
@@ -648,7 +663,13 @@ TextEdit()
 	for file in "$@"; do
 		[[ -e "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"
 	done
-	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then { start --files "${options[@]}" "$p" "${files[@]}"; $wait; } else return 1; fi
+	
+	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then 
+		start --files "${options[@]}" "$p" "${files[@]}"
+		$wait
+	else 
+		return 1
+	fi
 }
 
 VimHelp() { echot "VIM: http://www.lagmonster.org/docs/vi.html

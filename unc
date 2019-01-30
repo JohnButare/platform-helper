@@ -51,36 +51,64 @@ mountCommand()
 { 
 	[[ ! "$(GetUncShare "$unc")" ]] && { EchoErr "unc mount: no share specified"; return 1; }
 
-	# win
+	# Windows can use UNC paths natively
 	[[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
 
-	# mac
+	# Mount the share
 	local noHostCheck; [[ "$1" == "--no-host-check" ]] && { noHostCheck="true"; shift; }
 	local dir; dir="$(IsMountedCommand)" && { echo "$dir"; return 0; }
 	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
+	local mountDir=~/"Volumes/${server}_${share}" result
+
 	{ [[ ! $noHostCheck ]] && ! HostUtil available "$server"; } && return 1
 
-	local g="/Volumes/$share" l=~/"Volumes/$share" # global and local volumes
-	umount "$g" >& /dev/null; sudo rmdir "$g" >& /dev/null
-	umount "$l" >& /dev/null; rmdir "$l" >& /dev/null
+	# remove an existing share in the mountDir
+	if [[ -d "$mountDir" ]]; then
+		umount "$mountDir" >& /dev/null
+		rmdir "$mountDir" >& /dev/null
+	fi
 
-	mkdir "$l" || return
-	mount_smbfs "smb://$USER:$(security find-generic-password  -gwa $USER)@$server/$share" "$l"
-	#mount_smbfs "smb://$USER:$(security find-generic-password  -gwa $USER)@$server/$share" "$g"
-	#osascript -e "try" -e "mount volume \"smb://$server/$share\"" -e "end try" >& /dev/null
+	if ! mkdir "$mountDir"; then
+		EchoErr "Could not create the mount directory $mountDir"
+		return 1
+	fi
 
-	IsMountedCommand
+	if [[ "$PLATFORM" == "mac" ]]; then
+		mount_smbfs "smb://$USER:$(security find-generic-password  -gwa $USER)@$server/$share" "$mountDir"
+
+	elif [[ "$PLATFORM" == "linux" ]]; then # Ubuntu
+
+		# add an entry to /etc/fstab so sudo is not required to write
+		local line="//$server/$share \"$mountDir\" cifs username=$USER,noauto,rw,users 0 0"
+		if ! grep "$line"	//etc/fstab >& /dev/null; then
+			sudo sudo bash -c "echo \"$line\" >> /etc/fstab" || return
+		fi
+
+		mount.cifs "//$server/$share" "$mountDir" -o user="$USER"
+	fi
+
+	if ! IsMountedCommand; then
+		rmdir "$mountDir" > /dev/null;
+		return 1
+	fi
+	return 0
 }
 
 UnMountCommand()
 { 
-	# win
 	[[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
 
-	# mac
 	local server share; GetUncServer "$unc" server; GetUncShare "$unc" share
 	local dir; dir="$(unc IsMounted "//$server/$share")" || return 0
-	GetFileName "$dir" dir; osascript -e "tell application \"Finder\"" -e "eject \"$dir\"" -e "end tell"
+
+	if [[ "$PLATFORM" == "mac" ]]; then
+		GetFileName "$dir" dir; osascript -e "tell application \"Finder\"" -e "eject \"$dir\"" -e "end tell"
+
+	elif [[ "$PLATFORM" == "linux" ]]; then
+		umount "$dir"
+		rmdir "$dir" || return
+
+	fi	
 }
 
 IsMountedCommand()
@@ -88,8 +116,11 @@ IsMountedCommand()
 	[[ "$PLATFORM" == "win" ]] && return "$unc"
 
 	local server share dirs; GetUncServer "$unc" server; GetUncShare "$unc" share; GetUncDirs "$unc" dirs
-	local node="$(mount | egrep "^//$USER@${server%%.*}.*/$share" | head -n 1 | cut -d" " -f 3)"
-	[[ ! $node ]] && return 1; [[ $dirs ]] && echo "$node/$dirs" || echo "$node"
+	local prefix=""; [[ "$PLATFORM" == "mac" ]] && prefix="$USER@"
+	local node="$(mount | egrep "^//$prefix${server%%.*}.*/$share " | head -n 1 | cut -d" " -f 3)"
+
+	[[ ! $node ]] && return 1
+	[[ $dirs ]] && echo "$node/$dirs" || echo "$node"
 }
 
 exploreCommand()
