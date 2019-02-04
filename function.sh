@@ -26,13 +26,28 @@ EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of 
 IsUrl() { [[ "$1" =~ http[s]?://.* ]]; }
 IsInteractive() { [[ "$-" == *i* ]]; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
-clipw() { case "$PLATFORM" in "mac") echo -n "$@" | pbcopy;; "win") echo -n "$@" > /dev/clipboard;; esac; }
-clipr() { case "$PLATFORM" in "mac") pbpaste;; "win") cat /dev/clipboard;; esac; }
 EchoErr() { echo "$@" > /dev/stderr; }
 PrintErr() { printf "$@" > /dev/stderr; }
 ShowErr() { eval "$@" 2> >(sed 's/^/stderr: /') 1> >(sed 's/^/stdout: /'); }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster)
 # r "- '''\"\"\"-" a; echo $a
+
+clipw() 
+{ 
+	case "$PLATFORM" in 
+		"linux") echo -n "$@" | xclip -sel clip;;
+		"mac") echo -n "$@" | pbcopy;; 
+		"win") echo -n "$@" > /dev/clipboard;;
+	esac; 
+}
+
+clipr() 
+{ 
+	case "$PLATFORM" in
+		"linux") xclip -o -sel clip;;
+		"mac") pbpaste;;
+		"win") cat /dev/clipboard;;
+	esac; }
 
 #
 # scripts
