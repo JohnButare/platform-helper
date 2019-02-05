@@ -612,16 +612,36 @@ IsTaskRunning() # IsTaskRunng EXE
 }
 
 # Process Commands
-ProcessList() 
+
+ProcessList() # PID,NAME
 { 
 	case $PLATFORM in
+		linux) ps -ef | cut -c11-15,51- --output-delimiter="," | sed -e 's/^[ \t]*//';;
 		win) tasklist | gawk '{ print $2 "," $1 }';;
-		*) ps -W | cut -c33-36,61- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
+		mac) ps -W | cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
 	esac
 }
 
-ProcessClose() { local p="${1/.exe/}.exe"; GetFileName "$p" p; process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null; } #egrep -v "Command Line Process Viewer|Copyright\(C\) 2002-2003|^$"; }
-ProcessKill() { local p="$1"; GetFileNameWithoutExtension "$p" p; pskill "$p" >& /dev/null ; }
+ProcessClose() 
+{ 
+	local p="${1/.exe/}.exe"; GetFileName "$p" p
+
+	if [[ "$PLATFORM" == "win" ]]; then
+		process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null
+	else
+		pkill "$p" > /dev/null
+	fi
+}
+ProcessKill()
+{
+	local p="$1"; GetFileNameWithoutExtension "$p" p
+
+	if [[ "$PLATFORM" == "win" ]]; then
+		pskill > /dev/null
+	else
+		pkill "$p" > /dev/null
+	fi
+}
 
 # Window Commands - Win [class] <title|class>, Au3Info.exe to get class
 WinActivate() { AutoItScript WinActivate "${@}"; }
