@@ -5,7 +5,7 @@ set -a # PLATFORM DATA BIN UDATA UBIN ROOT P P32 PUB USERS USER SUDO_USER HOME D
 LANG="en_US" 
 PLATFORM="unknown"
 ROOT=""
-P="/usr/lib"
+P="/opt"
 USERS="/home"
 VOLUMES="/mnt"
 G="" # GNU Core Utils
