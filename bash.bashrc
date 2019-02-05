@@ -8,7 +8,6 @@ ROOT=""
 P="/usr/lib"
 USERS="/home"
 VOLUMES="/mnt"
-COMPLETION="/etc/bash_completion.d"
 G="" # GNU Core Utils
 
 case "$(uname)" in 
@@ -26,7 +25,6 @@ case "$(uname)" in
 		PLATFORM="mac" 
 		P="/Applications" 
 		USERS="/Users" 
-		COMPLETION="/usr/local/etc/bash_completion.d"
 		VOLUMES="/Volumes"
 		G="g" 
 		;;
