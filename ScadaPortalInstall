@@ -1,36 +1,95 @@
 #!/usr/bin/env bash
 . function.sh || exit
 
-# this script will check the ping
-# check we (ICS Dev AD) have access
-# and grant sys_cs access
-# we can give the output to jeff if there are issues
+globalArgs="verbose=true" # these properties will be passed to all deployments
+buildAccount="amr\sys_cs" sqlAccount="$buildAccount" groups=("$buildAccount" "Global SCADA Admins")
+
+initializeEnvironment()
+{
+	case "$environment" in
+		c|Continuous) environment="Continuous" branch="I-continuous";;
+		pf|PathFinding) environment="Pathfinding" branch="I-pf" servers="RasPF1FmsPrCimf RasPF1FmsBkCimf RasPF1FmsEmus RasPF1Web1 RasPF1PrSqls RasPF1BkSqls";;
+		dev|development) environment="Development" branch="I-dev" servers="RasDevFmsPrCimf RasDevFmsBkCimf RasDevFmsEmus RasDev1Web1 RasDev1PrSqls RasDev1BkSqls";;
+		dqa|DevQa|DevelopmentQualityAssurance) environment="DevQa" branch="I-dqa" servers="rasdqaWeb1 rasdqaWeb2"; relayServer="rasdqabksqls" firewallServers="RasDqaFmsPrCimf RasDqaFmsBkCimf rasdqaprsqls rasdqabksqls";;
+		eqa|EngQa|EngineeringQualityAssurance) environment="EngQa" branch="I-eqa" servers="raseqaWeb1 raseqaWeb2"; relayServer="raseqabksqls" firewallServers="aseqaFmsPrCimf raseqaFmsBkCimf raseqaprsqls raseqabksqls";;
+		g|gs|gold|GoldStandard) environment="GoldStandard" branch="I-gold" servers="rasgs1Web1"; relayServer="rasgs1bksqls" firewallServers="rasgs1FmsPrCimf rasgs1FmsBkCimf rasgs1prsqls rasgs1bksqls";;
+		prod|production) environment="production" branch="I-prod" servers="rasdqaWeb2"; relayServer="" firewallServers="" ;;
+		*) echo "$environment is not a valid environment"; return 1;;
+	esac
+}
+
+deployDefault()
+{
+	deploy HistorianCentralDb,RelayAgent,Alarms $args enabled=false || return
+	deploy HistorianDb,Web,HistorianRelayDb,HistorianService,ProjectService,DataLogger,AlarmShelvingService $args || return
+	deploy configuration $args ConfigureLogger=true AddPoints=true PopPoints=false || return		
+	deploy alarms $args enabled=true || return
+}
+
+deployDevelopment()
+{
+	echo DONE
+}
+
+deployDevQa()
+{
+	echo DONE
+}
+
+deployContinuous()
+{
+	deploy UnitTests $args || return
+	deploy HistorianDb $args || return
+	deploy HistorianDb $args delete=TB0 || return
+	deploy HistorianDb $args delete=rassi1prsqls,rassi1bksqls || return
+}
+
+deployNew()
+{
+	deploy GetCode || return
+	deploy HistorianCentralDb $args || return
+	deploy HistorianDb $args include="$relayServer;BK" || return # deploy project database to the BK first so we can install the relay agent
+	deploy Web $args || return
+	deploy RelayAgent $args force=true || return
+	deploy SqlServer $args || return # install SQL Server everyere else (for example the Historian PR)
+	deploy HistorianDb $args DeployScripts=true DeployClr=true DeployHistorianSharedClr=true RebuildReplication=false || return # this may hang on replication, if it does runthe next line
+	deploy HistorianDb $args DeployScripts=true DeployClr=true DeployHistorianSharedClr=true RebuildReplication=true || return
+	deploy HistorianRelayDb $args DeployScripts=true DeployClr=true || return
+	deploy HistorianService $args  || return
+	deploy ProjectService $args  || return
+	deploy DataLogger $args  || return
+	deploy AlarmShelvingService $args || return
+	deploy configuration $args ConfigureLogger=true AddPoints=true PopPoints=false || return		
+	deploy alarms $args enabled=true || return
+}
 
 usage()
 {
 	echot "/
-usage: ScadaPortalInstall
-	Install SCADA Portal servers for the specified environment.   Must be run as a member of ICS Dev AD.
+usage: ScadaPortalInstall [PROPERTIES]
+	Install SCADA Portal servers for the specified environment.  
 
-  -e|--environment ENVIRONMENT  pf, dev, or DevQa
+  -e|--environment ENVIRONMENT  environment to deploy to (c, pf, dev, dqa, eqa, gs, or prod)
+
+  Preparation
+  -p|--prep											check (prepare) the SCADA Portal servers, which consists of:
+                                   1) check that server is up and running under the fully qualified DNS name
+                                   2) check for administrator access to the server
+	                                 3) add the appropriate additional groups to the Administors group
+	                                 4) reboot each machine to ensure patches are fully applied
+  -na|--no-admins               do not update the administrators group
   -nf|--no-firewall							skip firewall servers
   -nl|--no-local								skip local servers
-  -s, --script  								generate a runnable CMD shell script instead of running the commands directly
+  -nr|--no-reboot               do not reboot the servers
   -sa, --sql-account ACCOUNT  	the account to run SQL Server under
   -sp, --sql-password ACCOUNT		the password of the account to run SQL server under
 
-  -nd|--no-deploy               do not perform a limited SCADA Portal deployment to the servers
-  -fd|--full-deployment         perform a full SCADA Portal deployment
-
-  -np|--no-prep									do not prepare the SCADA Portal servers.   Preparation consists of:
-                                   1) check that server is up and running under the fully qualified DNS name
-                                   2) check that we have administrator access to the server to we can add the appropriate
-                                      groups to the Administrators group
-	                                 3) add the appropriate groups to the Administors group on the server (developers, 
-	                                    support, build server)
-	                                 4) reboot each machine to ensure patches are fully applied
-  -nr|--no-reboot               do not reboot the servers
-  -na|--no-admins               do not update the administrators group
+  Deployment
+	-c|--code 										perform a GetCode operation, must have access to the GitLab ScadaPortal repository
+  -d|--deployment METHOD			  the deployment method to use, defaults to deployEnvironment (i.e. deployDevQa).
+  															If an environment specific deployment method does not exists deployDefault is used.
+  															Otherwise, the specified method is used, i.e. -d Partial would use deployPartial
+  -n|--new											perform a ground up deployment to new servers (deployNew is used)
 "
 
 	exit $1
@@ -38,52 +97,99 @@ usage: ScadaPortalInstall
 
 args()
 {
-	unset environment noBuild noLocal noFirewall noPrep script fullDeployment noReboot noAdmins
-
-	sqlAccount='amr\sys_cs'
+	unset args environment 
+	unset prep noAdmins noFirewall noLocal noReboot sqlPassword # preparation
+	unset deploymentMethod getCode # deployment
 
 	while (( $# != 0 )); do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			-e|--environment) environment="$2"; shift;;
-			-nl|--no-local) noLocal="true";;
+
+			-p|--prep) prep="true";;
+			-na|--no-admins) noAdmins="true";;
 			-nf|--no-firewall) noFirewall="true";;
-			-s|--script) script=true;;
+			-nl|--no-local) noLocal="true";;
+			-nr|--no-reboot) noReboot="true";;
 			-sa|--sql-account) sqlAccount="$2"; shift;;
 			-sp|--sql-password) sqlPassword="$2"; shift;;
 
-			-nd|--no-deploy) noDeploy="true";;
-			-fd|--full-deployment) fullDeployment="true";;
+			-c|--code) getCode="true";;
+			-n|--new) deployMethod="deployNew";;
+			-d|--deployment) deployMethod="deploy$2"; shift;;
 
-			-np|--no-prep) noPrep="true";;
-			-nr|--no-reboot) noReboot="true";;
-			-na|--no-admins) noAdmins="true";;
-			*) [[ ! $environment ]] && environment="$1";;
+			*) args="$1 $args";;
 		esac
 		shift
 	done
-	environment="${environment:-eqa}"
-	args=("$@")
+
+	if [[ ! "$environment" ]]; then
+			EchoErr "The environment must be specified"
+			return 1
+	fi
+
+	if [[ "$deployMethod" ]] && ! IsFunction $deployMethod; then
+		EchoErr "The $deployMethod does not exist"
+		return 1;
+	fi
 }
 
 init()
 {
-	unset buildAccount servers relayServer firewallServers
-
-	# "Continuous"  "Gold"  "Pathfinding"  "Production"  "Qualification"  "QualityAssurance" 
-	# environment: this is normalized from the environment specified by the user to an environment we can pass to deploy
-	#    and the sub directory on the build server that contains this code
-	case "$environment" in
-		pf|PathFinding) environment="Pathfinding" servers="RasPF1FmsPrCimf RasPF1FmsBkCimf RasPF1FmsEmus RasPF1Web1 RasPF1PrSqls RasPF1BkSqls";;
-		dev|development) environment="Development" servers="RasDevFmsPrCimf RasDevFmsBkCimf RasDevFmsEmus RasDev1Web1 RasDev1PrSqls RasDev1BkSqls";;
-		dqa|DevQa|DevelopmentQualityAssurance) environment="DevQa" servers="rasdqaWeb1 rasdqaWeb2"; relayServer="rasdqabksqls" firewallServers="rasdqaprsqls rasdqabksqls RasDqaFmsPrCimf RasDqaFmsBkCimf" ;;
-		eqa|EngQa|EngineeringQualityAssurance) environment="EngQa" servers=" raseqaWeb2"; relayServer="raseqabksqls" firewallServers="raseqaprsqls raseqabksqls raseqaFmsPrCimf raseqaFmsBkCimf" ;;
-		prod|production) environment="production" servers="rasdqaWeb2"; relayServer="" firewallServers="" ;;
-		*) echo "$1 is not a valid environment"; return 1;;
-	esac
-
+	initializeEnvironment || return
 	domain=".amr.corp.intel.com"
-	buildAccount="amr\sys_cs"; [[ "$environment" == "production" ]] && buildAccount="sys_csProd"
+	[[ "$environment" == "production" ]] && buildAccount="sys_csProd"
+	[[ "$environment" != "production" ]] && groups+=("ICS Dev AD")
+	return 0
+}
+
+deploy() 
+{ 
+	local code="/cygdrive/c/Projects/ScadaPortal/$environment/Source"
+
+	[[ ! -d "$code" ]] && code="/cygdrive/c/Projects/ScadaPortal/Source"
+
+	pushd "$code/Deploy/Deploy/bin/Debug" > /dev/null;
+	start --direct ./deploy.exe "$@"
+	popd > /dev/null
+}
+
+codeUpdate()
+{
+	[[ "$getCode" ]] || return
+
+	local result program="$ROOT/Projects/Antidote/Source/Tools/CodeUpdate/bin/Debug/CodeUpdate.exe"
+
+	pushd "$ROOT/Projects/ScadaPortal/$environment" || return
+	GitHelper ToHttp || return # SSH pulls do not work unless a key is setup
+	"$program" "ScadaPortal" "$environment" "$branch" "origin"; result="$?"
+	GitHelper ToSsh || return
+	popd || return
+	return $result
+}
+
+pingServer()
+{
+	local server="$1"
+
+	echo -n "ping..."
+	if ! ping -n 1 $server >& /dev/null; then
+		echo "ERROR: $server is not available"
+		return 1
+	fi
+
+	return 0
+}
+
+checkAccess()
+{
+	local server="$1"
+
+	echo -n "unc..."
+	if ! net use '\\'$server'\c$' >& /dev/null; then # if we can access c$ share we are an administrator
+		echo "ERROR: $server UNC is not accessible as $(whoami), add \"ICS Dev AD\" to the Administrators group"
+		return 1
+	fi
 
 	return 0
 }
@@ -91,9 +197,7 @@ init()
 updateAdministratorsGroup()
 {
 	[[ $noAdmins ]] && return 0
-	addToAdministratorsGroup "$server" "$buildAccount" || return 						  			# CI system	
-	addToAdministratorsGroup "$server" "Global SCADA Admins" || return; 						# production service access
-	[[ "$environment" == "production" ]] || { addToAdministratorsGroup "$server" "ICS Dev AD" || return; } # developer administrator access
+	for group in "${groups[@]}"; do addToAdministratorsGroup "$server" "$group"; done
 }
 
 addToAdministratorsGroup()
@@ -118,37 +222,12 @@ addToAdministratorsGroup()
 	return 0
 }
 
-waitForReboot()
-{
-	local server servers="$1"
-
-	[[ $script || $noReboot ]] && return 0
-
-	printf "checking..."
-
-	# wait for all servers to become available
-	for server in $servers; do 
-			printf "$server."
-			while ! ping -n 1 -w 1000 $server > /dev/null; do
-				printf ".";
-			done
-			printf "up."
-	done;
-
-	printf "done\n"
-}
-
 rebootServer()
 {
 	local server="$1"
 	local cmd='shutdown /m \\'$server' /r /f /t 0 /c "patch install before SCADA Portal installation"'
 
 	[[ $noReboot || ! "$server" ]] && return 0
-
-	if [[ $script ]]; then
-		echo "$cmd"
-		return 0
-	fi
 
 	echo -n "reboot..."	
 	if ! shutdown /m '\\'$server  /r /f /t 0 /c "patch install before SCADA Portal installation" >& /dev/null ; then 
@@ -167,141 +246,113 @@ rebootServer()
 	return 0
 }
 
-checkAccess()
+waitForReboot()
 {
-	local server="$1"
+	local server servers="$1"
 
-	echo -n "unc..."
-	if ! net use '\\'$server'\c$' >& /dev/null; then # if we can access c$ share we are an administrator
-		echo "ERROR: $server UNC is not accessible as $(whoami), add \"ICS Dev AD\" to the Administrators group"
-		return 1
-	fi
+	[[ $noReboot ]] && return 0
 
-	return 0
-}
+	printf "checking..."
 
-pingServer()
-{
-	local server="$1"
+	# wait for all servers to become available
+	for server in $servers; do 
+			printf "$server."
+			while ! ping -n 1 -w 1000 $server > /dev/null; do
+				printf ".";
+			done
+			printf "up."
+	done;
 
-	echo -n "ping..."
-	if ! ping -n 1 $server >& /dev/null; then
-		echo "ERROR: $server is not available"
-		return 1
-	fi
-
-	return 0
+	printf "done\n"
 }
 
 prepServer()
 {
 	local server="$1"
 
-	if [[ ! "$script" ]]; then
-		echo -n "$server: "
-		pingServer "$server" || return    # check that server is up and running under the fully qualified DNS name
-		checkAccess "$server" || return		# check that we have administrator access to the server to we can add the appropriate groups to the Administrators group
-	fi
-
+	echo -n "$server: "
+	pingServer "$server" || return    # check that server is up and running under the fully qualified DNS name
+	checkAccess "$server" || return		# check that we have administrator access to the server to we can add the appropriate groups to the Administrators group
 	updateAdministratorsGroup "$server" || return # add the appropriate groups to the Administors group on the server (developers, supports, build server)
 	rebootServer "$server" || return 							# reboot the server to ensuire any pending patches are applied
-
-	[[ "$script" ]] || echo "done"
+	echo "done"
 }
 
-prepServers() 
-{ 
-	local servers="$1" firewall oldScript="$script"
+scriptServers()
+{
+	local servers="$1"
 
-	[[ "$servers" ]] || return 0
-
-	[[ "$2" == "firewall" ]]	&& { firewall="true"; script="true"; }
-
-	echo
-
-	if [[ "$firewall" ]]; then
-		printf 'Run the following command on the BK1 SQL Server:\n\n'
-		echo 'copy /y \\CsisBuild.intel.com\c$\Windows\System32\psexec.exe c:\Windows\System32'
+	if [[ ! "$sqlPassword" ]]; then
+	 	EchoErr "The SQL Server service password must be specified using --sql-password"
+	 	exit 1
 	fi
 
-	for server in $1; do prepServer "$server$domain" || exit 1 ; done;
+	echo '@echo off'
+	echo 'copy /y \\CsisBuild.intel.com\c$\Windows\System32\psexec.exe c:\Windows\System32'
+	echo 'copy /y \\CsisBuild.intel.com\c$\Windows\System32\psinfo.exe c:\Windows\System32'
 
-	if [[ "$firewall" ]]; then
+	for server in $servers; do echo 'ping -n 1 -w 100 '$server$domain' >nul || echo DOWN: '$server''; done
 
-		if [[ ! "$sqlPassword" ]]; then
-		 	echo "The SQL Server service password must be specified using --sql-password"
-		 	exit 1
-		fi
+	if [[ ! "$noAdmins" ]]; then
+		echo; echo 'echo. & echo Press any key to update the Administrators groups... & pause >nul'
+		for server in $servers; do
+			echo "echo $server:"
+			for group in "${groups[@]}"; do
+				echo 'psexec -accepteula -h \\'$server$domain' net LocalGroup Administrators "'$group'" /add'
+			done
+		done
+	fi
 
-		echo '"\\CsisBuild.intel.com\install\Microsoft\SQL Server\image\2017\setup.exe" /action=install /q /IACCEPTSQLSERVERLICENSETERMS /FEATURES=SQLEngine,Replication /InstanceName=MSSQLSERVER /SQLUSERDBDIR=C:\MSSQL\Data /SQLUSERDBLOGDIR=C:\MSSQL\Log /SQLBACKUPDIR=C:\MSSQL\Backup /INSTALLSHAREDDIR="C:\Program Files\Microsoft SQL Server" /NPENABLED=1 /SQLSVCACCOUNT="'$sqlAccount'" /SQLSVCPASSWORD="'$sqlPassword'" /AGTSVCACCOUNT="'$sqlAccount'" /AGTSVCPASSWORD="'$sqlPassword'" /SQLSYSADMINACCOUNTS="AMR\AD_JJBUTARE" "AMR\JJBUTARE" "AMR\ICS Dev" "AMR\ICS Dev AD" "BUILTIN\ADMINISTRATORS"
+	if [[ ! "$noAdmins" ]]; then
+		echo; echo 'echo. & echo Press any key to check server uptime (ensure recent reboot)... & pause >nul'
+		for server in $servers; do
+			echo 'echo '$server:' & psinfo \\'$server$domain' | find "Uptime"'
+		done
+	fi
+
+	if [[ ! "$noReboot" ]]; then
+		echo; echo 'echo. & echo Press any key to reboot servers (patch install)... & pause >nul'
+		for server in $1; do
+			echo 'echo '$server:' & shutdown /m \\'$server$domain' /r /f /t 0 /c "patch install before SCADA Portal installation"'
+		done
+	fi
+
+	echo; echo 'echo. & echo Press any key to install SQL server... & pause >nul'
+	echo '"\\CsisBuild.intel.com\install\Microsoft\SQL Server\image\2017\setup.exe" /action=install /q /IACCEPTSQLSERVERLICENSETERMS /FEATURES=SQLEngine,Replication /InstanceName=MSSQLSERVER /SQLUSERDBDIR=C:\MSSQL\Data /SQLUSERDBLOGDIR=C:\MSSQL\Log /SQLBACKUPDIR=C:\MSSQL\Backup /INSTALLSHAREDDIR="C:\Program Files\Microsoft SQL Server" /NPENABLED=1 /SQLSVCACCOUNT="'$sqlAccount'" /SQLSVCPASSWORD="'$sqlPassword'" /AGTSVCACCOUNT="'$sqlAccount'" /AGTSVCPASSWORD="'$sqlPassword'" /SQLSYSADMINACCOUNTS="AMR\AD_JJBUTARE" "AMR\JJBUTARE" "AMR\ICS Dev" "AMR\ICS Dev AD" "BUILTIN\ADMINISTRATORS"
 c:\windows\system32\reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL14.MSSQLSERVER\MSSQLServer" /f /t REG_DWORD /v LoginMode /d 2
 c:\windows\system32\reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL14.MSSQLSERVER\MSSQLServer\SuperSocketNetLib\Tcp\IpAll" /f /v TcpPort /d 3180
 net stop MSSQLSERVER
 net start  MSSQLSERVER
 '
-		[[ ! "$noDeploy" ]] && pause
+}
+
+prepare()
+{
+	if [[ ! "$noLocal" && "$servers" ]]; then 
+		for server in $servers; do prepServer "$server$domain" || exit 1 ; done;
+		waitForReboot "$servers" || return
 	fi
 
-	script="$oldScript"
-}
-
-deploy() 
-{ 
-	local code="/cygdrive/c/Projects/ScadaPortal/$environment/Source"
-
-	[[ ! -d "$code" ]] && code="/cygdrive/c/Projects/ScadaPortal/Source"
-
-	pushd "$code/Deploy/Deploy/bin/Debug" > /dev/null;
-	start --direct ./deploy.exe "$@"
-	popd > /dev/null
-}
-
-deployAll()
-{
-	local args="environment=$environment verbose=true"
-
-	#deploy AlarmShelvingService $args force=true || return
-	#return
-
-	deploy HistorianCentralDb $args RestoreDatabase=false DeployScripts=true DeployClr=true DeployService=true || return
-	deploy HistorianDb $args include="$relayServer;BK" || return # deploy project database to the BK first so we can install the relay agent
-return
-	deploy RelayAgent $args force=true || return
-	deploy SqlServer $args || return # install SQL Server everyere else (for example the Historian PR)
-
-	# the remaining deployment steps could be run from Antidote at this points
-	[[ ! "$fullDeployment" ]] && return 0; 
-	deploy HistorianDb $args DeployScripts=true DeployClr=true DeployHistorianSharedClr=true RebuildReplication=false || return # this may hang on replication, if it does runthe next line
-	#deploy HistorianDb $args DeployScripts=true DeployClr=true DeployHistorianSharedClr=true RebuildReplication=true || return
-	deploy Web $args || return
-	deploy HistorianRelayDb $args DeployScripts=true DeployClr=true || return
-	deploy HistorianService $args  || return
-	deploy ProjectService $args  || return
-	deploy DataLogger $args  || return
-	deploy AlarmShelvingService $args  || return
-	deploy configuration $args ConfigureLogger=true AddPoints=true PopPoints=true || return		
-	deploy alarms $args enabled=true || return
+	[[ ! $noFirewall ]] && scriptServers "$firewallServers"
 }
 
 install() 
 { 
-	if [[ ! "$noPrep" ]]; then
-		echo "Preparing the SCADA Portal servers..."
+	[[ "$prep" ]] && { prepare; return; }
 
-		if [[ ! $noLocal ]]; then 
-			prepServers "$servers" || return
-			waitForReboot "$servers" || return
-		fi
+	codeUpdate || return
 
-		[[ ! $noFirewall ]] && prepServers "$firewallServers" firewall
+	if [[ ! "$deployMethod" ]]; then	
+		deployMethod="deploy$environment"
+		IsFunction $deployMethod || deployMethod="deployDefault"
 	fi
 
-	if [[ ! "$noDeploy" ]]; then
-		printf "\nDeploying SCADA Portal to $environment...\n"
-		deployAll || return
-	fi
+	args="environment=$environment $globalArgs $args"
+
+	printf "\nDeploying SCADA Portal to $environment ($deployMethod $args)...\n"
+	$deployMethod || return
 }
 
-run() {	args "$@"; init || return; install "${args[@]}" || return; }
+run() {	args "$@" || return; init || return; install "${args[@]}" || return; }
 
 run "$@"
