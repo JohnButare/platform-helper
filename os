@@ -75,10 +75,9 @@ updateCommand()
 
 	esac
 
+	which npm >& /dev/null && ask "Node.js update" && { NodeUpdate || return; }
 	which gem >& /dev/null && ask "Ruby update" && { RubyUpdate || return; }
-	
-	[[ "$PLATFORM" != "mac" ]] &&  # OS X causes issues with pip
-		which pip >& /dev/null && ask "Python update" && { PythonUpdate || return; }
+	which pip >& /dev/null && ask "Python update" && { PythonUpdate || return; }
 
 	[[ "$PLATFORM" != "mac" ]] && ask "Cleanup windows" && { cleanupCommand || return; }
 }
@@ -127,6 +126,11 @@ BrewUpdate()
 	brew upgrade || return
 }
 
+NodeUpdate()
+{
+	ask 'npm update' -dr n && { npm install -g npm@latest || return; }
+	npm update -g || return
+}
 RubyUpdate()
 {	
 	local sudo nodoc
