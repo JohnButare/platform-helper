@@ -617,10 +617,12 @@ ProcessList() # PID,NAME
 { 
 	case $PLATFORM in
 		linux) ps -ef | cut -c11-15,51- --output-delimiter="," | sed -e 's/^[ \t]*//';;
-		win) tasklist | gawk '{ print $2 "," $1 }';;
+		win)  ps -e | cut -c6-9,65- --output-delimiter="," | sed "s/\/.*\///" | sed -e 's/^[ \t]*//';;
 		mac) ps -W | cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
 	esac
 }
+
+ProcessListWin() { tasklist | gawk '{ print $2 "," $1 }'; }
 
 ProcessClose() 
 { 
@@ -637,7 +639,7 @@ ProcessKill()
 	local p="$1"; GetFileNameWithoutExtension "$p" p
 
 	if [[ "$PLATFORM" == "win" ]]; then
-		pskill > /dev/null
+		pskill "$p" > /dev/null
 	else
 		pkill "$p" > /dev/null
 	fi
@@ -646,7 +648,7 @@ ProcessKill()
 # Window Commands - Win [class] <title|class>, Au3Info.exe to get class
 WinActivate() { AutoItScript WinActivate "${@}"; }
 WinClose() { AutoItScript WinClose "${@}"; }
-WinList() { join -a 2 -e EMPTY -j 1 -t',' -o '2.1,1.2,2.2,2.3' <(ProcessList | sort -t, -k1) <(AutoItScript WinList | sort -t, -k1); }
+WinList() { join -a 2 -e EMPTY -j 1 -t',' -o '2.1,1.2,2.2,2.3' <(ProcessListWin | sort -t, -k1) <(AutoItScript WinList | sort -t, -k1); }
 WinGetState() {	AutoItScript WinGetState "${@}"; }
 WinGetTitle() {	AutoItScript WinGetTitle "${@}"; }
 WinSetState() { AutoItScript WinSetState "${@}"; }
