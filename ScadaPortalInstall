@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 . function.sh || exit
 
-globalArgs="verbose=true" # these properties will be passed to all deployments
+globalArgs="verbose=false force=false" # these properties will be passed to all deployments
 buildAccount="amr\sys_cs" sqlAccount="$buildAccount" groups=("$buildAccount" "Global SCADA Admins")
 
 initializeEnvironment()
@@ -12,10 +12,34 @@ initializeEnvironment()
 		dev|development) environment="Development" branch="I-dev" servers="RasDevFmsPrCimf RasDevFmsBkCimf RasDevFmsEmus RasDev1Web1 RasDev1PrSqls RasDev1BkSqls";;
 		dqa|DevQa|DevelopmentQualityAssurance) environment="DevQa" branch="I-dqa" servers="rasdqaWeb1 rasdqaWeb2"; relayServer="rasdqabksqls" firewallServers="RasDqaFmsPrCimf RasDqaFmsBkCimf rasdqaprsqls rasdqabksqls";;
 		eqa|EngQa|EngineeringQualityAssurance) environment="EngQa" branch="I-eqa" servers="raseqaWeb1 raseqaWeb2"; relayServer="raseqabksqls" firewallServers="aseqaFmsPrCimf raseqaFmsBkCimf raseqaprsqls raseqabksqls";;
-		g|gs|gold|GoldStandard) environment="GoldStandard" branch="I-gold" servers="rasgs1Web1"; relayServer="rasgs1bksqls" firewallServers="rasgs1FmsPrCimf rasgs1FmsBkCimf rasgs1prsqls rasgs1bksqls";;
+		g|gs|gold|GoldStandard) environment="Gold" branch="I-gold" servers="rasgs1Web1"; relayServer="rasgs1bksqls" firewallServers="rasgs1FmsPrCimf rasgs1FmsBkCimf rasgs1prsqls rasgs1bksqls";;
 		prod|production) environment="production" branch="I-prod" servers="rasdqaWeb2"; relayServer="" firewallServers="" ;;
 		*) echo "$environment is not a valid environment"; return 1;;
 	esac
+}
+
+deployRebuildReplication()
+{
+	deploy HistorianDb $args DeployScripts=true DeployClr=false DeployHistorianSharedClr=false RebuildReplication=true || return
+}
+
+deployNew()
+{
+	# deploy HistorianCentralDb $args InstallSql=true || return
+	# deploy HistorianDb $args include="$relayServer;BK" || return # deploy project database to the BK first so we can install the relay agent
+	# deploy Web $args || return
+	# deploy RelayAgent $args || return
+	deploy SqlServer $args ForceConfiguration=true || return # install SQL Server everywhere else (for example the Historian PR) and ensure the configuration is correct (the BK is missing the lock pages privilege)
+	# deploy HistorianDb $args DeployScripts=true DeployClr=true DeployHistorianSharedClr=true RebuildReplication=false || return # this may hang on replication, if it does runthe next line
+	# TODO: test without this step, Leo may have fixed replication
+	# deploy HistorianDb $args DeployScripts=true DeployClr=true DeployHistorianSharedClr=true RebuildReplication=true || return
+	# deploy HistorianRelayDb $args DeployScripts=true DeployClr=true || return
+	# deploy HistorianService $args  || return
+	# deploy ProjectService $args  || return
+	# deploy DataLogger $args  || return
+	# deploy AlarmShelvingService $args || return
+	# deploy configuration $args ConfigureLogger=true AddPoints=true PopPoints=false || return		
+	# deploy alarms $args enabled=true || return
 }
 
 deployDefault()
@@ -26,41 +50,12 @@ deployDefault()
 	deploy alarms $args enabled=true || return
 }
 
-deployDevelopment()
-{
-	echo DONE
-}
-
-deployDevQa()
-{
-	echo DONE
-}
-
 deployContinuous()
 {
 	deploy UnitTests $args || return
 	deploy HistorianDb $args || return
 	deploy HistorianDb $args delete=TB0 || return
 	deploy HistorianDb $args delete=rassi1prsqls,rassi1bksqls || return
-}
-
-deployNew()
-{
-	deploy GetCode || return
-	deploy HistorianCentralDb $args || return
-	deploy HistorianDb $args include="$relayServer;BK" || return # deploy project database to the BK first so we can install the relay agent
-	deploy Web $args || return
-	deploy RelayAgent $args force=true || return
-	deploy SqlServer $args || return # install SQL Server everyere else (for example the Historian PR)
-	deploy HistorianDb $args DeployScripts=true DeployClr=true DeployHistorianSharedClr=true RebuildReplication=false || return # this may hang on replication, if it does runthe next line
-	deploy HistorianDb $args DeployScripts=true DeployClr=true DeployHistorianSharedClr=true RebuildReplication=true || return
-	deploy HistorianRelayDb $args DeployScripts=true DeployClr=true || return
-	deploy HistorianService $args  || return
-	deploy ProjectService $args  || return
-	deploy DataLogger $args  || return
-	deploy AlarmShelvingService $args || return
-	deploy configuration $args ConfigureLogger=true AddPoints=true PopPoints=false || return		
-	deploy alarms $args enabled=true || return
 }
 
 usage()
@@ -72,26 +67,26 @@ usage: ScadaPortalInstall [PROPERTIES]
   -e|--environment ENVIRONMENT  environment to deploy to (c, pf, dev, dqa, eqa, gs, or prod)
 
   Preparation
-  -p|--prep											check (prepare) the SCADA Portal servers, which consists of:
-                                   1) check that server is up and running under the fully qualified DNS name
-                                   2) check for administrator access to the server
-	                                 3) add the appropriate additional groups to the Administors group
-	                                 4) reboot each machine to ensure patches are fully applied
-  -na|--no-admins               do not update the administrators group
-  -nf|--no-firewall							skip firewall servers
-  -nl|--no-local								skip local servers
-  -nr|--no-reboot               do not reboot the servers
-  -sa, --sql-account ACCOUNT  	the account to run SQL Server under
-  -sp, --sql-password ACCOUNT		the password of the account to run SQL server under
+  -p|--prep												check (prepare) the SCADA Portal servers, which consists of:
+                                  	1) check that server is up and running under the fully qualified DNS name
+                                  	2) check for administrator access to the server
+	                                	3) add the appropriate additional groups to the Administors group
+	                                	4) reboot each machine to ensure patches are fully applied
+  -na|--no-admins               	do not update the administrators group
+  -nf|--no-firewall								skip firewall servers
+  -nl|--no-local									skip local servers
+  -nr|--no-reboot               	do not reboot the servers
+  -sa, --sql-account ACCOUNT  		the account to run SQL Server under
+  -sp, --sql-password ACCOUNT			the password of the account to run SQL server under
 
   Deployment
-	-c|--code 										perform a GetCode operation, must have access to the GitLab ScadaPortal repository
-  -d|--deployment METHOD			  the deployment method to use, defaults to deployEnvironment (i.e. deployDevQa).
-  															If an environment specific deployment method does not exists deployDefault is used.
-  															Otherwise, the specified method is used, i.e. -d Partial would use deployPartial
-  -n|--new											perform a ground up deployment to new servers (deployNew is used)
+  -b|--branch BRANCH							override the default branche
+	-c|--code 											perform a GetCode operation, must have access to the GitLab ScadaPortal repository
+  -dm|--deployment-method METHOD	the deployment method to use, defaults to deployEnvironment (i.e. deployDevQa).
+  																If an environment specific deployment method does not exists deployDefault is used.
+  																Otherwise, the specified method is used, i.e. -d Partial would use deployPartial
+  -n|--new												perform a ground up deployment to new servers (deployNew is used)
 "
-
 	exit $1
 }
 
@@ -99,7 +94,7 @@ args()
 {
 	unset args environment 
 	unset prep noAdmins noFirewall noLocal noReboot sqlPassword # preparation
-	unset deploymentMethod getCode # deployment
+	unset deployBranch deploymentMethod getCode # deployment
 
 	while (( $# != 0 )); do
 		case "$1" in
@@ -114,9 +109,10 @@ args()
 			-sa|--sql-account) sqlAccount="$2"; shift;;
 			-sp|--sql-password) sqlPassword="$2"; shift;;
 
+			-b|--branch) deployBranch="$2"; shift;;
 			-c|--code) getCode="true";;
 			-n|--new) deployMethod="deployNew";;
-			-d|--deployment) deployMethod="deploy$2"; shift;;
+			-dm|--deployment-method) deployMethod="deploy$2"; shift;;
 
 			*) args="$1 $args";;
 		esac
@@ -145,24 +141,25 @@ init()
 
 deploy() 
 { 
-	local code="/cygdrive/c/Projects/ScadaPortal/$environment/Source"
+	local code="/cygdrive/c/Projects/ScadaPortal/$environment/Source" result
 
 	[[ ! -d "$code" ]] && code="/cygdrive/c/Projects/ScadaPortal/Source"
 
 	pushd "$code/Deploy/Deploy/bin/Debug" > /dev/null;
-	start --direct ./deploy.exe "$@"
+	start --direct ./deploy.exe "$@"; result=$?
 	popd > /dev/null
+	return $result
 }
 
 codeUpdate()
 {
-	[[ "$getCode" ]] || return
+	[[ "$getCode" ]] || return 0
 
 	local result program="$ROOT/Projects/Antidote/Source/Tools/CodeUpdate/bin/Debug/CodeUpdate.exe"
 
 	pushd "$ROOT/Projects/ScadaPortal/$environment" || return
 	GitHelper ToHttp || return # SSH pulls do not work unless a key is setup
-	"$program" "ScadaPortal" "$environment" "$branch" "origin"; result="$?"
+	"$program" "ScadaPortal" "$environment" "${deployBranch-$branch}" "origin"; result="$?"
 	GitHelper ToSsh || return
 	popd || return
 	return $result
