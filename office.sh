@@ -1,7 +1,7 @@
 OfficeVersion="15"
 OfficeTitle=".* - "
 WordProgram=""
-WordFastStartTitle="Word Fast Start.* - Word"
+WordFastStartTitle="wfs.* - Word"
 OfficeArchitecture="x86"
 OfficeBits="32"
 Office365=""

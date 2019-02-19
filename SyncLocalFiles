@@ -4,10 +4,10 @@
 usage()
 {
 	echot "\
-usage: SyncLocalFiles	[host](nas1)
+usage: SyncLocalFiles [target](host|nas1)
 	Sync local files with another system.
-	-do, --dest-older			assume destination host files are than the local source files
-	-so, --src-older			assume local files are older than the host files
+	-do, --dest-older			assume target files are than the local source files
+	-so, --src-older			assume local files are older than the target files
 	-nb, --no-bak					do not backup files to the bak directory"
 	exit $1
 }
@@ -16,15 +16,13 @@ init()
 {
 	exclude=("Document Themes" "*.bak" "desktop.ini" ".git" ".gitignore" ".DS_Store" "thumbs.db" "~\$*.docx" "~\$*.dot?" "*.TMP" )
 	platformExclude=( "cports.cfg" "ftp.cfg" "JkDefrag*.log" "Defraggler.ini" "gridy.ini" )
-	[[ "$PLATFORM" == "win" ]] && platformExclude+=( "mac" )
-	[[ "$PLATFORM" == "mac" ]] && platformExclude+=( "win" )
 	intelPlatformExclude=( "hstart.exe" "pspv.exe" "regscanner*" "mailpv.exe" "awatch.exe" "netpass.exe" "SniffPass.exe" "MyLastSearch.exe" "BluetoothView.exe" "TcpTunnel.exe" "GdiView.exe" "DotNetResourcesExtract.exe" )
-	srcId="${COMPUTERNAME,,}"	
+	srcId="${HOSTNAME,,}"	
 }
 
 args()
 {
-	unset host method NoBak
+	unset target targetIsDir method NoBak
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-do|--dest-older) method=(--dest-older);;
@@ -32,23 +30,22 @@ args()
 			-nb|--no-bak) NoBak="--no-bak";;
 			-h|--help) usage 0;;
 			*) 
-				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $target ]] && { target="$1"; shift; continue; }
 				UnknownOption "$1"
 		esac
 		shift
 	done
 	args=("$@")
-	host="${host-"nas1"}"
 	syncDirArgs=( $method $NoBak --SrcId "$srcId" )
 }
 
 run() 
 {	
 	init; args "$@"
-
 	TimerOn
 	
-	CheckHost || return
+	CheckTarget || return
+	GetLastSync || return
 	ShowStatus || return
 	IdentifyDirectories || return
 	SyncShared || return
@@ -59,16 +56,10 @@ run()
 
 SyncShared()
 {
-	printf "shared..."
-	SyncData || return
-}
-
-SyncData()
-{
 	local args=( "${syncDirArgs[@]}" "$srcData" "$destData" -x "${exclude[@]}" )
 
 	SyncDir "${args[@]}" -d "bin" || return
-	SyncDir "${args[@]}" -d "platform" -r -x "${platformExclude[@]}" || return
+	SyncDir "${args[@]}" -d "platform/$PLATFORM" -r -x "${platformExclude[@]}" || return
 	SyncDir "${args[@]}" -d "doc" || return
 	SyncDir "${args[@]}" -d "icons"  || return
 	SyncDir "${args[@]}" -d "lib" || return
@@ -80,7 +71,6 @@ SyncData()
 SyncUser()
 {	
 	[[ "$user" == @(wsystem) ]] && return 0
-	printf "$user..."
 	
 	local args=( "${syncDirArgs[@]}" "$srcUserDocuments" "$destUserDocuments" -x "${exclude[@]}" )
 	SyncDir "${args[@]}" -d "data/bin" || return
@@ -98,46 +88,56 @@ SyncUser()
 
 	local args=( "${syncDirArgs[@]}" "$srcHome" "$destHome" -x "${exclude[@]}" )
 	SyncDir "${args[@]}" -d ".ssh" -x environment || return
-	#SyncDir "${args[@]}" -d "Downloads"  || return
 	
-	cp "$srcUserDocuments/data/templates/toc.docx" "$srcHome/templates" || return
-
 	if IsInstalled AutoHotKey && [[ "$method" != "--DestOlder" ]] && ! IsElevated; then
-		printf "configuration..."; AutoHotKey restart
+		AutoHotKey restart
 	fi
+
+	return 0
 }
 
 IdentifyDirectories()
 {
-	ScriptEval os FindDirs || return
-
+	ScriptEval HostFindInfo || return
 	user="$_user"
 	srcHome="$_home"
 	srcData="$_data"
 	srcPublicDocuments="$_pub/Documents"
 	srcUserDocuments="$_home/Documents"
-	srcApplicationData="$_ApplicationData"
+	srcApplicationData="$_adata"
 
-	ScriptEval os FindDirs --no-host-check "$host" || return
+	ScriptEval HostFindInfo --no-target-check "$target" || return
 	destHome="$_home"
 	destData="$_data"
 	destPublicDocuments="$_pub/Documents"
 	destUserDocuments="$_home/Documents"
-	destApplicationData="$_ApplicationData"
+	destApplicationData="$_adata"
+
+	# pause "$srcPublicDocuments->$destPublicDocuments"
 }
 
-CheckHost()
+CheckTarget()
 {
-	[[ "${name%%\.*}" == "$COMPUTERNAME" ]] && 
-		{ EchoErr "Cannot sync to the local computer"; return 1; }
+	if [[ ! "$target" || "$target" == "host" ]]; then
+		ScriptEval HostFindInfo host && target="$_root"
+	fi
 
-	{ [[ "$host" != @(cr|dfs) ]] && ! HostUtil available "$host"; } &&	
-		{ EchoErr "$host is not available"; return 1; }
+	target="${target-"nas1"}"
 
-	destId="$(HostUtil name "$host")"
-	syncDirArgs+=( --DestId "$destId" )
+	[[ "$target" =~ / ]] && targetIsDir="true"
 
-	{ intel IsIntelHost ||  intel IsIntelHost "$host"; } && platformExclude+=( "${intelPlatformExclude[@]}" )
+	if [[ $targetIsDir ]]; then
+		targetId="$(GetFileName "$target")"
+	else
+		[[ "${name%%\.*}" == "$HOSTNAME" ]] && { EchoErr "Cannot sync to the local computer"; return 1; }
+		HostUtil available "$target" || { EchoErr "$target is not available"; return 1; }
+		targetId="$(HostUtil name "$target")" # get the real (DNS) name of the target
+	fi
+
+	syncDirArgs+=( --DestId "$targetId" )
+
+	{ intel IsIntelHost || intel IsIntelHost "$targetId"; } && platformExclude+=( "${intelPlatformExclude[@]}" )
+
 	return 0
 }
 
@@ -148,17 +148,19 @@ ShowStatus()
 		src-older) printf "Replacing files from ";;
 		*) printf "Synchronizing files with ";;
 	esac
-	printf "$host"
 
-	[[ "$host" != "$destId" ]] && printf " ($destId)"
-	printf "...last $(GetLastSync)..."
+	printf "$target"
+	[[ ! "$targetIsDir" && "$target" != "$targetId" ]] && printf " ($targetId)"
+	printf "..."
+
+	return 0
 }
 
 GetLastSync()
 {
-	local lastSyncFile="$DATA/bin/.${destId}_sync.txt" lastSync="unknown"
+	local lastSyncFile="$DATA/bin/.${targetId}_sync.txt" lastSync="unknown"
 	[[ -f "$lastSyncFile" ]] && lastSync="$(${G}date "+%F %T" -d $(<"$lastSyncFile") 2> /dev/null)"
-	echo $lastSync
+	return 0
 }
 
 run "$@"

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+host="nas1"
+user="jjbutare"
+
+# copy past this file to /tmp/bs, scp $BIN/bootstrap-debian 
+
+eval $(cat /etc/os-release) # ID=ubuntu|raspbian
+
+# install packages libgnome2 (gnome-open)
+if [[ ! -f /usr/bin/secret-tool ]]; then
+	sudo apt-get install -y cifs-utils nmap openssh-server fping gcp dialog net-tools libgnome2-bin xclip resolvconf expect
+	sudo apt-get install -y gnome-keyring libsecret-tools # credential management (keyrin and secret-tool)
+fi
+
+# create the user
+if [[ "$USER" != "$user" ]]; then
+	sudo adduser "$user"
+	sudo usermod -aG sudo $user
+fi
+
+# network configuration
+dns="192.168.1.2 192.168.1.1"
+interface="$(ifconfig | head -1 | cut -d: -f1)" # ens33 for Ubuntu
+
+if [[ "$ID" == "raspbian" ]] && ! grep "$dns" /etc/dhcpcd.conf > /dev/null; then
+	echo "interface $interface" | sudo tee -a /etc/dhcpcd.conf
+	echo "static domain_name_servers=$dns" | sudo tee -a /etc/dhcpcd.conf
+else # ubuntu
+	sudo systemd-resolve --set-dns=$dns  --interface="$interface"
+fi
+
+echo domain hagerman.butare.net | sudo tee -a /etc/resolvconf/resolv.conf.d/tail
+
+# mount //$host/public
+if [[ $host && ! -d "$HOME/Volumes/public/documents/data/bin" ]]; then
+	mkdir -p "$HOME/Volumes/public"
+	sudo bash -c 'echo "//'$host'/public /home/$SUDO_USER/Volumes/public cifs username=$SUDO_USER,noauto,rw,users 0 0" >> //etc/fstab' # make share read/write without using sudo
+	mount.cifs "//$host/public" "$HOME/Volumes/public"
+fi
+
+export PATH=$HOME/Volumes/public/documents/data/bin:$PATH
+
+# run the bootstrap process
+echo "Bootstrapping from $host..."
+bootstrap $host

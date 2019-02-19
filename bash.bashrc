@@ -1,60 +1,25 @@
 # $bin/bash.bashrc, system-wide login initialization for all users and public scripts, executed by /etc/bash.bashrc
 
-set -a # PLATFORM DATA BIN UDATA UBIN ROOT P P32 PUB USERS USER SUDO_USER HOME DOC
+# Variables
+# PLATFORM: ROOT P P32 G VOLUMES USERS PUB DATA BIN CODE
+# USER: USER SUDO_USER HOME DOC UDATA UBIN ADATA
+set -a
 
-LANG="en_US" 
-ROOT=""
-P="/opt"
-USERS="/home"
-VOLUMES="/mnt"
-G="" # GNU Core Utils
+# LANG="en_US" - on Raspberry Pi settings this causes perl to start with errors, on Ubuntu this is set automatically
 
-PLATFORM="" 				# linux|win|mac
-PLATFORM_ID_LIKE="" # debian|openwrt|synology
-PLATFORM_ID=""      # dsm|srm|raspian|ubiquiti|ubuntu
+HOSTNAME="${HOSTNAME:-$(hostname -s)}" 
+
+ROOT="" P="/opt" G="" VOLUMES="/mnt" USERS="/home" ADATA="$HOME/Library/Application Support"
 
 case "$(uname)" in 
-	CYGWIN*) 
-		PLATFORM="win" 
-		ROOT="/cygdrive/c" 
-		P="$ROOT/Program Files" P32="$ROOT/Program Files (x86)" 
-		USERS="$ROOT/users"
-		VOLUMES="/cygdrive" 
-		PUB="$USERS/Public"
-		USER="$USERNAME" 
-		;;
-
-	Darwin)	
-		PLATFORM="mac" 
-		P="/Applications" 
-		USERS="/Users" 
-		VOLUMES="/Volumes"
-		G="g" 
-		;;
-
-	Linux) 
-
-		PLATFORM="linux" 
-
-		if [[ -f /etc/os-release ]]; then
-			PLATFORM_ID_LIKE="$(eval $(cat /etc/os-release); echo $ID_LIKE)"	# debian
-			PLATFORM_ID="$(eval $(cat /etc/os-release); echo $ID)"						# raspbian|ubuntu
-			echo "$PLATFORM_ID_LIKE" | grep openwrt >& /dev/null && PLATFORM_ID_LIKE="openwrt"
-			[[ -f /var/sysinfo/model ]] && PLATFORM_ID="ubiquiti"
-
-		elif [[ -f /proc/syno_platform ]]; then
-			PLATFORM_ID_LIKE="synology"
-			PLATFORM_ID="dsm" # assume Synology Disk Station Manager	
-
-		fi
-		;;
-
+	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USERS="$ROOT/Users" PUB="$USERS/Public" P="$ROOT/Program Files" P32="$P (x86)" VOLUMES="/cygdrive" USER="$USERNAME" ADATA="$HOME/AppData/Roaming";;
+	Darwin)	PLATFORM="mac" USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes";;
+	Linux) PLATFORM="linux";;
 esac
 
-[[ ! "$PUB" ]] && PUB="$USERS/Shared" 
+PUB="${PUB:-$USERS/Shared}"
 DATA="/usr/local/data" BIN="$DATA/bin" CODE="$ROOT/Projects" 
-DOC="$HOME/Documents" UDATA="$DOC/data" UBIN="$UDATA/bin"
-[[ ! $COMPUTERNAME ]] && COMPUTERNAME="$(hostname -s)"
+DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" UDATA="$DOC/data" UBIN="$UDATA/bin"
 
 set +a
 
@@ -73,14 +38,14 @@ shopt -s nocasematch
 # terminal
 #
 
-export LINES COLUMNS 	# make available for dialogs in executable scripts
-kill -SIGWINCH $$			# ensure LINES and COLUMNS is set for a new Cygwin termnal before it is resized
+export LINES COLUMNS 							# make available for dialogs in executable scripts
+kill -SIGWINCH $$	>& /dev/null		# ensure LINES and COLUMNS is set for a new Cygwin termnal before it is resized
 
 #
 # Windows 
 #
 
-# ensure programs receive the correct paths.  Generally Unix programs uses upper case variables and Windows receives lower case variables
+# ensure programs receive the correct paths.  Unix programs uses upper case variables and Windows receives lower case variables
 
 if [[ "$PLATFORM" == "WIN" ]]; then
 	if [[ "$APPDATA" == *\\* ]]; then

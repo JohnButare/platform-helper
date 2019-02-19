@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+. function.sh
+
+usage()
+{
+	echot "\
+usage: HostFindInfo [HOST|DIR](local)
+	-d, --detail			include more detailed information
+	-u, --user USER($USER)	the user to find directories for
+    -ntc,--no-target-check 	do not check if the target is available"
+	exit $1
+}
+
+args()
+{
+	unset detail target targetIsDir noTargetCheck
+
+	while [ "$1" != "" ]; do
+		case "$1" in
+			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;		
+			-d|--detail) detail="true";;
+			-ntc|--no-target-check) noTargetCheck="true";;
+			-u|--user) shift; user="$1";;
+			*) 
+				! IsOption "$1" && [[ ! $target ]] && { target="$1"; shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+}
+
+run() {	args "$@"; [[ $detail ]] && FindDetail || FindDirs; }
+
+FindDirs()
+{
+	CheckTarget || return
+	GetDirs || return
+	ScriptReturn $show "${dirVars[@]}"
+}
+
+CheckTarget()
+{
+	if [[ "$target" == "host" ]]; then
+		local disks; GetDisks disks
+
+		for disk in "${disks[@]}"; do
+			if [[ -d "$disk/usr/local" || -d "$disk/Applications" || -d "$disk/Users/Public" ]]; then
+				target="$disk"
+				break
+			fi
+		done
+	fi
+
+	[[ "$target" =~ / ]] && targetIsDir="true"
+
+	[[ ! "$target" || "$noTargetCheck" ]] && return
+
+	if [[ "$targetIsDir" && ! -d "$target" ]]; then
+		EchoErr "Directory \"$target\" does not exist"
+		return 1
+	fi
+
+	if [[ ! "$targetIsDir" ]] && ! HostUtil available "$target"; then	
+		EchoErr "Host $target is not available"
+		return 1
+	fi
+}
+
+GetDirs()
+{	
+	dirVars=(_platform _platformLike _platformId _root _data _users _pub _users _user _home _adata)
+	for var in "${dirVars[@]}"; do unset $var; done
+	_user="$user"
+
+	# local
+	if [[ ! "$target" ]]; then
+		_platform="$PLATFORM"
+		_platformLike="$PLATFORM_LIKE"
+		_platformId="$PLATFORM_ID"
+		_root="$ROOT"	
+		_users="$USERS" 
+		_pub="$PUB"
+		_data="$DATA"
+
+	# Mounted directory	
+	elif [[ $targetIsDir ]]; then
+		if [[ -d "$target/usr/local" ]]; then
+			_platform="linux"
+		elif [[ -d "$target/Applications" ]]; then
+			_platform="mac"; 
+		elif [[ -d "$target/Users/Public" ]]; then
+			_platform="win"
+		else
+			EchoErr "Unable to determine the platform of $targetDir"
+			return 1
+		fi
+		_root="$target"
+
+	# Synology nas or router
+	elif [[ $target =~ nas || "$target" = "router" ]]; then
+		_platform="linux"
+		_platformLike="synology"
+		_platformId="dsm"
+		_root="//$target"
+		_users="$_root/homes"
+		_pub="$_root/public"
+		_data="$_pub/documents/data"
+		_home="$_root/home"
+	
+	# UNC with platform using SSH
+	elif GetPlatform "$target" >& /dev/null; then
+		_platform="$platform"
+		_platformLike="$platformLike"
+		_platformId="$platformId"
+		_root="//$target/root"; IsPlat win _root="//target/c$"
+
+	# UNC with Windows default share
+	elif unc mount "//$target/c$" >& /dev/null; then 
+		_platform="win"
+		_root="//$target/c$"
+
+	else
+		EchoErr "Unable to find os directories on $target"
+		return 1
+
+	fi
+
+	FindDirsWorker || return
+}
+
+FindDirsWorker()
+{
+	[[ $_users ]] || { _users="$_root/Users"; IsPlat linux && _users="$_root/home"; };
+	[[ $_pub ]] || { _pub="$_users/Shared"; IsPlat win && _pub="$_users/Public"; };
+	[[ $_data ]] || { _data="$_root/usr/local/data"; IsPlat win && _data="$_pub/Documents/data"; }
+	_user="${_user:-$(ActualUser)}"
+	_home="${_home:-$_users/$_user}"
+	IsPlat mac && _adata="$_home/Library/Application Support"; IsPlat win && _adata="$_home/AppData/Roaming"
+	return 0
+}
+
+IsPlat() { IsPlatform $1 $_platform $_platformId $_platformLike; }
+
+FindDetail()
+{
+	GetDirs || return
+
+	infoVars=( pd ud udoc uhome udata adata)
+	pd="$_pub/Desktop"
+	ud="$_home/Desktop"
+	udoc="$_home/Documents"
+	uhome="$_home"
+	udata="$udoc/data"
+	adata="$_adata"
+
+	case "$_platform" in
+		win)
+			infoVars+=( psm pp ao adata usm up )
+			psm="$_root/ProgramData/Microsoft/Windows/Start Menu"
+			pp="$psm/Programs"
+			ao="$pp/Applications/Other"
+			usm="$adata/Microsoft/Windows/Start Menu"	
+			up="$usm/Programs"
+			;;
+		mac)
+			infoVars+=( si la ula )
+			si="/Library/StartupItems"
+			la="/Library/LaunchAgents"
+			ula="$HOME/Library/LaunchAgents"
+	esac
+
+	infoVars+=( product version client server )
+
+	client="true"
+
+	if IsPlat win; then
+		local r="/proc/registry/HKEY_LOCAL_MACHINE/Software/Microsoft/Windows NT/CurrentVersion"
+		product=$(tr -d '\000' < "$r/ProductName")
+		version="10.0"; [[ "$product" != Windows\ 10* ]] && version=$(tr -d '\000' < "$r/CurrentVersion"); 
+		client=; [[ -f "$r/InstallationType" && $(tr -d '\000' < "$r/InstallationType") == "client" ]] && client="true"
+	fi
+
+	server=; [[ ! $client ]] && server="true"
+
+	ScriptReturn "${dirVars[@]}" "${infoVars[@]}"
+}
+
+run "$@"

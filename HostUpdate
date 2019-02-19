@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+. function.sh
+
+usage()
+{
+	echot "\
+usage: HostCleanup
+	Update applications on the host"
+	exit $1
+}
+
+args()
+{
+	unset command
+
+	while [ "$1" != "" ]; do
+		case "$1" in
+			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;		
+			*) 
+				IsFunction "${1,,}Update" && { command="${1,,}"; shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+
+	command="${command:-update}"
+	return 0
+}
+
+init() { sudo="sudo"; IsPlatform win && sudo=""; return 0; }
+run() {	args "$@" || return; init || return; $command; }
+
+
+update()
+{
+	HostUtil available nas1 && ask "Bin directories update" && { binUpdate || return; }
+	ask "Syncronize local files" && { filesUpdate || return; }
+
+	IsFunction "${PLATFORM}Update" && { ${PLATFORM}Update || return; }
+	IsFunction "${PLATFORM_LIKE}Update" && { ${PLATFORM_LIKE}Update || return; }
+	IsFunction "${PLATFORM_ID}Update" && { ${PLATFORM_ID}Update || return; }
+
+	adobeInstalled && ask "Adobe Create Cloud update" && { adobeUpdate || return; }
+	nodeInstalled && ask "Node.js update" && { nodeUpdate || return; }
+	rubyInstalled && ask "Ruby update" && { rubyUpdate || return; }
+	pythonInstalled && ask "Python update" && { pythonUpdate || return; }
+
+	ask "Cleanup" && { HostCleanup || return; }
+}
+
+debianUpdate() { $sudo apt-get update || return; }
+
+macUpdate()
+{
+	ask "Brew update" && { BrewUpdate || return; }
+	ask "App Store update" && $sudo softwareupdate --install --all
+	return 0;
+}
+
+winUpdate()
+{
+	intel IsIntelHost && { intel update || return; }
+	! intel IsIntelHost && ask "Windows update" && { windowsUpdate || return; }
+	ask "Cygwin update" && { cygwinUpdate || return; }
+	! IsVm && { ask "Intel update" && { start "https://www.intel.com/content/www/us/en/support/intel-driver-support-assistant.html" || return; } }
+	return 0
+}
+
+adobeInstalled() { [[ -f "$P32\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe" ]]; }
+adobeUpdate() { start "$P32\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe"; }
+cygwinUpdate() { cygwin new; }
+
+binUpdate()
+{
+	GitHelper changes "$BIN" && { GitHelper commitg "$BIN" && pause; }
+	cd "$BIN" && git pull
+	GitHelper changes "$UBIN" && { GitHelper commitg "$UBIN" && pause; }
+	cd "$UBIN" && git pull
+	return 0
+}
+
+brewUpdate()
+{
+	brew update || return
+	brew upgrade || return
+}
+
+filesUpdate()
+{
+	HostUtil available nas1 && { SyncLocalFiles nas1 || return; }
+	
+	if intel OnIntelNetwork; then
+		ask 'Synchronize CsisBuild local files' && { SyncLocalFiles CsisBuild.intel.com || return; }
+		ask 'Synchronize CsisBuild-dr local files' && { SyncLocalFiles CsisBuild-dr.intel.com || return; }
+	fi
+
+	return 0
+}
+
+nodeInstalled() { which node >& /dev/null; }
+nodeUpdate()
+{
+	ask 'npm update' -dr n && { $sudo npm install -g npm@latest || return; }
+	$sudo npm update -g || return
+}
+
+pythonInstalled() { which pip >& /dev/null; }
+pythonUpdate()
+{
+	intel IsIntelHost && ScriptEval intel SetProxy
+	
+	pip list --outdated --format=columns
+	for pkg in $( pip list --outdated --format=columns | cut -d' ' -f 1 | tail --lines=+3 );	do
+    pip install $ignoreInstalled -U $pkg || return
+	done
+
+	return 0
+}
+
+rubyInstalled() { which gem >& /dev/null; }
+rubyUpdate()
+{	
+	local sudo nodoc
+
+	[[ "$PLATFORM" == "mac" ]] && { export PATH="/usr/local/opt/ruby/bin:$PATH"; }
+
+	# for Windows do not generate documentation, faster and --system fails with documentation update on Cygwin
+	[[ "$PLATFORM" == "win" ]] && nodoc=--no-document
+
+	intel IsIntelHost && ScriptEval intel SetProxy
+	
+	$sudo gem update --system $nodoc
+	$sudo gem update $nodoc
+	return 0
+}
+
+windowsUpdate() { FindInPath "wuapp.exe" > /dev/null && start "wuapp.exe" || cmd /c start ms-settings:windowsupdate; }
+
+run "$@"
+

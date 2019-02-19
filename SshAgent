@@ -5,12 +5,13 @@ SshEnv="$HOME/.ssh/environment"
 
 function startCommand
 {
-	local result
+	local result password="$(credential -q get ssh default)"
+
 	ssh-agent | sed 's/^echo/#echo/' > "${SshEnv}"
 	chmod 600 "$SshEnv"
 	. "$SshEnv" > /dev/null
 
-	if [[ "$PLATFORM" == "win" ]] && which wincred.exe > /dev/null && password="$(wincred.exe get ssh:$USERNAME 2> /dev/null)"; then
+	if [[ "$password" ]]; then
 		ssh-add-helper $password >& /dev/null
 		result="$?"
 	else	
@@ -19,17 +20,17 @@ function startCommand
 	fi
 
 	if [[ $result == 0 ]]; then
-		echo "Identity for $USERNAME has been added to the SSH agent"
+		echo "Identity for $USER has been added to the SSH agent"
 	else
-		EchoErr "Unable to add identity for $USERNAME to the SSH agent"
+		EchoErr "Unable to add identity for $USER to the SSH agent"
 	fi
 
 	return "$result"
 }
 
-Usage()
+usage()
 {
-	echot "usage: SshAgent cleanup fix start startup"
+	echot "usage: SshAgent check cleanup fix initialize start startup"
 	exit 1
 }
 
@@ -38,15 +39,18 @@ function initializeCommand()
 	[[ -f "${SshEnv}" ]] && cat "${SshEnv}"
 }
 
+function checkCommand()
+{
+	[[ -f "${SshEnv}" ]] || return
+	. "${SshEnv}" > /dev/null
+	ProcessList | grep "^$SSH_AGENT_PID,.*ssh-agent" > /dev/null 
+}
+
 function startupCommand()
 {
-	if [ -f "${SshEnv}" ]; then
-		. "${SshEnv}" > /dev/null
-		ProcessList | grep ^$SSH_AGENT_PID,ssh-agent > /dev/null || { cleanupCommand; startCommand; }
-	else
-		cleanupCommand
-		startCommand
-	fi
+	checkCommand  && return
+	cleanupCommand
+	startCommand
 }
 
 fixCommand()
@@ -66,6 +70,6 @@ cleanupCommand()
 }
 
 [[ -d "$HOME/.ssh" ]] || exit 0
-{ [[ $# == 0 ]] || ! IsFunction ${1}Command; } && Usage
+{ [[ $# == 0 ]] || ! IsFunction ${1}Command; } && usage
 ${1}Command ${@:2}
 exit $?

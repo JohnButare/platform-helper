@@ -12,7 +12,7 @@ usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
 	-g|--global 					use the global profile in install/bootstrap/profile
 	-m|--method	<dir>|<program>|<key>
 	-se|--save-extension  for program profiles, the profile extension used by the program"
-	exit $1
+	exit $1 
 }
 
 args()
@@ -42,7 +42,7 @@ args()
 init()
 {
 	local methodType
-
+	
 	# Profile files - profile contains ZIP of specified files
 	if [[ -d "$method" ]]; then
 		methodType="file"
@@ -51,7 +51,7 @@ init()
 
 	# ProfileFiles program - program it will be used to import and export the profile  
 	# IN: profileDir, profileSaveExtension -  the profile file extension used by the program must be specified
-	elif [[ -f "$method" && "$(GetFileExtension "$method")" == "exe" ]]; then
+	elif which "$method" > /dev/null ; then
 		methodType="program"
 		profileProgram="$method"
 		
@@ -60,7 +60,7 @@ init()
 	# Registry profile - profile contains registry entries
 	elif registry IsKey "$method";  then
 		methodType="registry"
-	  profileKey="$method"
+		profileKey="$method"
 		saveExtension=reg
 
 	else
@@ -78,7 +78,7 @@ init()
 	return 0
 }
 
-run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
+run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 
 CopyGlobalCommand()
 {
@@ -90,7 +90,7 @@ CopyGlobalCommand()
 
 findGlobalProfile()
 {
-	 globalProfileSaveDir="$(FindInstallFile "bootstrap/profile")" || return
+	 globalProfileSaveDir="$(FindInstallFile "profile")" || return
 	 globalProfile="$globalProfileSaveDir/$app Profile.$saveExtension"
 }
 
@@ -124,7 +124,7 @@ saveCommand()
 	if [[ $profile ]]; then
 		file="$profile.$saveExtension"
 	else
-		file="${COMPUTERNAME,,} $app Profile $(GetTimeStamp).$saveExtension"
+		file="${HOSTNAME,,} $app Profile $(GetTimeStamp).$saveExtension"
 	fi
 
 	mkdir --parents "$dest" || return
@@ -205,8 +205,7 @@ restoreCommand()
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$profile")"
 		echo "Import the profile using the filemame contained in the clipboard"
-		ask "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
-		pause
+		ask "Start $(GetFileName "$profileProgram")" && { start --wait "$profileProgram" || return; }
 
 	elif [[ "$method" == "registry" ]]; then
 		AppCloseSave "$app" || return
