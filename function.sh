@@ -18,6 +18,23 @@ FUNCTIONS="true"
 
 shopt -s nocasematch extglob 
 
+function IsPlatform()
+{
+	case "$1" in 
+		win|mac|linux) [[ "$1" == "$PLATFORM" ]];;
+		debian|openwrt|synology) [[ "$1" == "$PLATFORM_ID_LIKE" ]];;
+		dsm|srm|raspbian|ubiquiti|ubuntu) [[ "$1" == "$PLATFORM_ID" ]];;
+		busybox) which busybox > /dev/null;;
+
+		# package management
+		apt) which apt >& /dev/null;;
+		ipkg) which ipkg >& /dev/null;;
+		opkg) which opkg >& /dev/null;;
+
+		*) return 1;;
+	esac
+}
+
 #
 # other
 #

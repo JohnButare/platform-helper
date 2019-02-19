@@ -3,12 +3,15 @@
 set -a # PLATFORM DATA BIN UDATA UBIN ROOT P P32 PUB USERS USER SUDO_USER HOME DOC
 
 LANG="en_US" 
-PLATFORM="unknown"
 ROOT=""
 P="/opt"
 USERS="/home"
 VOLUMES="/mnt"
 G="" # GNU Core Utils
+
+PLATFORM="" 				# linux|win|mac
+PLATFORM_ID_LIKE="" # debian|openwrt|synology
+PLATFORM_ID=""      # dsm|srm|raspian|ubiquiti|ubuntu
 
 case "$(uname)" in 
 	CYGWIN*) 
@@ -29,7 +32,23 @@ case "$(uname)" in
 		G="g" 
 		;;
 
-	Linux) PLATFORM="linux" ;; 
+	Linux) 
+
+		PLATFORM="linux" 
+
+		if [[ -f /etc/os-release ]]; then
+			PLATFORM_ID_LIKE="$(eval $(cat /etc/os-release); echo $ID_LIKE)"	# debian
+			PLATFORM_ID="$(eval $(cat /etc/os-release); echo $ID)"						# raspbian|ubuntu
+			echo "$PLATFORM_ID_LIKE" | grep openwrt >& /dev/null && PLATFORM_ID_LIKE="openwrt"
+			[[ -f /var/sysinfo/model ]] && PLATFORM_ID="ubiquiti"
+
+		elif [[ -f /proc/syno_platform ]]; then
+			PLATFORM_ID_LIKE="synology"
+			PLATFORM_ID="dsm" # assume Synology Disk Station Manager	
+
+		fi
+		;;
+
 esac
 
 [[ ! "$PUB" ]] && PUB="$USERS/Shared" 
