@@ -114,7 +114,7 @@ r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VA
 clipw() 
 { 
 	case "$PLATFORM" in 
-		linux) which xclip > /dev/null && { echo -n "$@" | xclip -sel clip; };;
+		linux) { [[ "$DISPLAY" ]] && which xclip > /dev/null; } && { echo -n "$@" | xclip -sel clip; };;
 		mac) echo -n "$@" | pbcopy;; 
 		win) echo -n "$@" > /dev/clipboard;;
 	esac; 
