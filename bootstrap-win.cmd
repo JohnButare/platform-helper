@@ -3,14 +3,14 @@
 set r=wiggin
 set /p r="environment? (%r%)? "
 if "%r%" == "wiggin" (
-	set computer=nas1
-	set data=\\%computer%\public\documents\data
+	set host=nas1
+	set data=\\%host%\public\documents\data
 	set install=%data%\install
 	set proxy=
 ) else if "%r%" == "intel" (
 	set computer=CsisBuild.intel.com
-	set data=\\%computer%\c$\users\public\documents\data
-	set install=\\%computer%\install
+	set data=\\%host%\c$\users\public\documents\data
+	set install=\\%host%\install
 	set proxy=proxy-chain.intel.com:911
 ) else (
   echo "%r% is not a valid environment (intel|wiggin)"
@@ -48,6 +48,6 @@ if "%r%" == "yes" (
 )
 
 REM run the bootstrap process
-echo Bootstrapping from %computer%...
-bash bootstrap %computer% %install%
+echo Bootstrapping from %host%...
+bash bootstrap %host% %install%
 pause
