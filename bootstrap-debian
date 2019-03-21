@@ -1,60 +1,85 @@
 #!/usr/bin/env bash
 
-user="${1:-jjbutare}"
-host="${2:-nas1}"
+# bootstrap a debian system (allows us to run the generic bootstrp)
 
-# copy past this file to /tmp/bs, scp $BIN/bootstrap-debian 
+run()
+{
+	init || return
+	installCorePrograms || return
+	createUser || return
+	configureNetwork || return
 
-eval $(cat /etc/os-release) # ID=ubuntu|raspbian
+	[[ "$reboot" ]] && { echo "Rebooting to enable network configuration..."; sudo reboot; }
+	[[ "$USER" != "$user" ]] && logoff
 
-# install packages libgnome2 (gnome-open)
-if [[ ! -f /usr/bin/secret-tool ]]; then
-	sudo apt-get install -y cifs-utils nmap openssh-server fping gcp dialog net-tools libgnome2-bin xclip resolvconf expect
-	sudo apt-get install -y gnome-keyring libsecret-tools # credential management (keyrin and secret-tool)
-fi
+	mountPublic || return
 
-# create the user
-if [[ "$USER" != "$user" ]] && ! grep $user /etc/passwd >& /dev/null; then
-	sudo adduser "$user"
-	sudo usermod -aG sudo $user
-fi
+	echo "Bootstrapping from $host..."
+	export PATH=$HOME/Volumes/public/documents/data/bin:$PATH
+	bootstrap $host
+}
 
-# network configuration
-dns="192.168.1.2 192.168.1.1"
-interface="$(ifconfig | head -1 | cut -d: -f1)" # ens33 for Ubuntu
-f="/etc/dhcpcd.conf"
-reboot=""
+configureNetwork()
+{
+	local f="/etc/dhcpcd.conf"
+	local interface="$(ifconfig | head -1 | cut -d: -f1)" # ens33 for Ubuntu
 
-if [[ "$ID" == "raspbian" ]]; then
-	if ! grep "static domain_name_servers=$dns" "$f" >& /dev/null; then
-		echo "interface $interface" | sudo tee -a "$f"
-		echo "static domain_name_servers=$dns" | sudo tee -a "$f"
-		reboot="true"
+	ping -c 1 $host >& /dev/null && return
+	reboot="true"
+
+	if [[ "$ID" == "raspbian" ]]; then
+		if ! grep "static domain_name_servers=$dnsServers" "$f" >& /dev/null; then
+			echo "interface $interface" | sudo tee -a "$f"
+			echo "static domain_name_servers=$dnsServers" | sudo tee -a "$f"
+			echo "interface wlan0" | sudo tee -a "$f"
+			echo "static domain_name_servers=$dnsServers" | sudo tee -a "$f"
+		fi
+	else # ubuntu
+		sudo systemd-resolve --set-dns=$dnsServers --interface="$interface"
 	fi
-else # ubuntu
-	sudo systemd-resolve --set-dns=$dns  --interface="$interface"
-	reboot="true"
-fi
 
-f="/etc/resolvconf/resolv.conf.d/tail"
-if [[ ! -f "$f" ]] || ! grep "domain hagerman.butare.net" "$f" >& /dev/null; then
-	echo domain hagerman.butare.net | sudo tee -a /etc/resolvconf/resolv.conf.d/tail
-	reboot="true"
-fi
+	f="/etc/resolvconf/resolv.conf.d/tail"
+	if [[ ! -f "$f" ]] || ! grep "domain hagerman.butare.net" "$f" >& /dev/null; then
+		echo domain $dnsDomain | sudo tee -a /etc/resolvconf/resolv.conf.d/tail
+	fi
+}
 
-[[ "$reboot" ]] && sudo reboot
-[[ "$USER" != "$user" ]] && logoff
+createUser()
+{
+	grep "$user" /etc/passwd >& /dev/null && return
+	sudo adduser "$user" || return
+	sudo usermod -aG sudo $user || return
+	sudo chmod ugo+rwx /tmp/bootstrap-debian || return
+}
 
-# mount //$host/public
-if [[ $host && ! -d "$HOME/Volumes/public/documents/data/bin" ]]; then
-	mkdir -p "$HOME/Volumes/public"
+installCorePrograms()
+{
+	which xclip >& /dev/null && return
+	sudo apt-get update --fix-missing
+	sudo apt-get install -y cifs-utils fping net-tools nmap openssh-server resolvconf || return	# network
+	sudo apt-get install -y gnome-keyring libsecret-tools || return 														# credential management
+	sudo apt-get install -y dialog expect gcp libgnome2-bin xclip || return											# other, libgnome2 (gnome-open)
+}
+
+mountPublic() # mount //$host/public
+{
+	[[ ! $host || -d "$HOME/Volumes/public/documents/data/bin" ]] && return
+	mkdir -p "$HOME/Volumes/public" || return
 	line="//$host/public /home/$user/Volumes/public cifs username=$user,noauto,rw,users 0 0"
-	! grep "$line" /etc/fstab >& /dev/null && echo "$line" | sudo tee -a //etc/fstab
-	mount.cifs "//$host/public" "$HOME/Volumes/public" -o user=$user sec=ntlmsspi
-fi
+	! grep "$line" /etc/fstab >& /dev/null && { echo "$line" | sudo tee -a //etc/fstab || return; }
+	mount.cifs "//$host/public" "$HOME/Volumes/public" -o user=$user sec=ntlmsspi || return
+}
 
-export PATH=$HOME/Volumes/public/documents/data/bin:$PATH
+init()
+{
+	reboot=""
+	user="${1:-jjbutare}"
+	host="${2:-nas1}"
 
-# run the bootstrap process
-echo "Bootstrapping from $host..."
-bootstrap $host
+	eval $(cat /etc/os-release) # ID=ubuntu|raspbian
+
+	dnsServers="192.168.1.2 192.168.1.1"
+	dnsSuffix="hagerman.butare.net"
+}
+
+run "$@"
