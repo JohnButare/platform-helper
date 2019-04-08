@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+. app.sh
+
+init()
+{ 
+	command="start"
+	program="$P32/VMware/VMware Workstation/vmware.exe"
+	vmrun="$P32/VMware/VMware Workstation/vmrun.exe"
+}
+
+usage()
+{	
+		echot "\
+usage: vmware 
+	-n, --name NAME			name of the Virtual Machine
+	dhcp edit|restart		configure the VMware DHCP Server
+	run COMMAND 				run a vmrun command"
+}
+
+args()
+{
+	unset name
+
+	command=
+
+	while [[ "$1" != "" ]]; do
+		[[ "$command" == @(dhcp|run) ]] && break
+		case "$1" in
+			--name|-n) name="$2"; shift;;
+			--help) usage 0;;
+			SuspendAll) command="suspendAll";; IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";;
+			*)
+				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+	args=( "$@" )
+}
+
+findVm()
+{
+	local disks suffix="$name/$name.vmx"; GetDisks disks
+	
+	[[ -f "$UDATA/VMware/$suffix" ]] && { vm="$UDATA/VMware/$suffix"; return; }
+
+	for disk in "${disks[@]}"; do
+		[[ -f "$disk/VMware/$suffix" ]] && { vm="$disk/VMware/$suffix"; return; }
+		[[ -f "$disk/data/VMware/$suffix" ]] && { vm="$disk/data/VMware/$suffix"; return; }
+	done
+
+	EchoErr "Unable to find a virtual machine named $name"
+	return 1
+}
+
+getRunning() { running=( $("$vmrun" list | tail -n +2 | sed 's/\r//') ); }
+
+suspendAllCommand()
+{
+	getRunning || return
+	[[ ${#running[@]} == 0 ]] && return
+
+	printf "Suspending "
+	for vm in "${running[@]}"; do
+		printf "$(GetFileNameWithoutExtension "$(wtu "$vm")")..."
+		"$vmrun" suspend "$vm"
+	done	
+	echo "done"
+}
+
+runCommand()
+{	
+	local vm
+
+	[[ $name ]] && { findVm || return; vm="$(utw "$vm")"; }
+	"$vmrun" "$1" "$vm" "${@:2}"
+}
+
+findVmConfig()
+{
+	echo "Not Implemented"
+}
+
+dhcpCommand()
+{
+	local command; CheckSubCommand dhcp "$1"; shift
+	[[ $# != 0 ]] && UnknownOption "$1"
+	Dhcp${command}Command "$@"
+}
+
+DhcpRestartCommand() { service restart VMnetDHCP; }
+
+DhcpEditCommand()
+{
+	TextEdit "$ALLUSERSPROFILE\Application Data\VMware\vmnetdhcp.conf"
+	pause "Press any key to restart the VMware DHCP service..."
+	DhcpRestartCommand
+}
+
+startCommand()
+{
+	! IsInstalledCommand && return 1; IsRunningCommand && return 0
+	start "$program" "$@"
+}
+
+startupCommand()
+{
+	! IsInstalledCommand && return 1; IsRunningCommand && return 0
+	start --minimize "$program" "$@"
+}
+
+run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+IsInstalledCommand() { [[ -f "$program" ]]; }
+IsRunningCommand() { IsTaskRunning "$program"; }
+
+closeCommand() 
+{ 
+	suspendAllCommand || return
+	! IsRunningCommand && return 0; ProcessClose "$program" 2; 
+}
+
+restartCommand() { closeCommand && startCommand; }
+
+run "$@"
