@@ -9,8 +9,8 @@ TemplateInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/(dir)" "$ao" || return
-		$mergeDir "$pp/(dir)" "$pp/Development/Other" || return
+		mergeDir "$pp/(dir)" "$ao" || return
+		mergeDir "$pp/(dir)" "$pp/Development/Other" || return
 		$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
 		$rm "$pd/(prog).lnk" || return
 	fi
@@ -36,12 +36,12 @@ TemplateFullInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/(dir)" "$pp/Development/Other" || return
-		$mergeDir "$pp/(dir)" "$ao" || return
+		mergeDir "$pp/(dir)" "$pp/Development/Other" || return
+		mergeDir "$pp/(dir)" "$ao" || return
 		$rm "$pd/(prog).lnk" || return
-		$mergeDir --rename "$pp/(dir)" "$ao/(new name)" || return
-		$makeDir "$pp/Operating System/bash" || return
-		$makeShortcut "$installDir/bin/mintty.exe" "$pp/Operating System/bash" -a="-" || return
+		mergeDir --rename "$pp/(dir)" "$ao/(new name)" || return
+		makeDir "$pp/Operating System/bash" || return
+		$makeShortcut "$installDir/bin/bash.exe" "$pp/Operating System/bash" -a="-" || return
 	
 	elif [[ "$PLATFORM" == "mac" ]]; then	
 		$rm "$la\com.adobe.AAM.Updater-1.0.plist" || return
@@ -51,7 +51,7 @@ TemplateFullInstall()
 	fi
 
 	echo "Moving data folders..."
-	$makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
+	makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
 
 	echo "Updating registry..."	
 	$registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe 
@@ -66,7 +66,7 @@ TemplateFullInstall()
 	$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/Cygwin/usr/sbin/sshd.exe")" || return
 
 	echo "Creating directories..."
-	$makeDir "$_userDocuments/code/test"
+	makeDir "$_userDocuments/code/test"
 
 	sublime profile restore default || return
 
@@ -122,7 +122,6 @@ cdCommand()
 
 installCommand()
 {
-	[[ ! $noElevate && "$PLATFORM" == "win" ]] && ! IsElevated && { sudo mintty -h error bash -l inst "${originalArgs[@]}"; return; }
 	InstallInit || return
 	InstallApps "${apps[@]}" || return
 }
@@ -150,6 +149,8 @@ GetInstallFunction()
 InstallInit() 
 {
 	ScriptEval HostFindInfo -d || return
+	ScriptEval intel SetProxy || return
+
 	serverPrograms="$pp/Development"; [[ $server ]] && serverPrograms="$pp/Server";
 	oo="$pp/Operating System/Other"
 
@@ -158,17 +159,18 @@ InstallInit()
 	firewall="${test}firewall --suppress"
 	hide="${test}FileCommand hide"
 	hideAndSystem="${test}FileCommand HideAndSystem"
-	makeDir="${test}${G}mkdir --parents"
-	makeLink="${test}MakeLink --suppress"
+	makeDir() { ${test}${G}mkdir --parents "$@"; }
+	makeDirOwner() { sudo mkdir --parents "$@" || return; sudo chown $USER "$@" || return; }
+	makeLink() { ${test}MakeLink --suppress "$@"; }
 	makeShortcut="${test}MakeShortcut"
-	mergeDir="${test}MergeDir --suppress --parents"
+	mergeDir() { ${test}MergeDir --parents --suppress "$@"; }
 	mv="${test}FileCommand mv"
 	rc="${test}CopyDir"
 	registry="${test}registry"
 	ren="${test}FileCommand ren"
 	rm="${test}${G}rm -f"
 	rmd="${test}${G}rm -fr"
-	sudo="sudo"; [[ "$PLATFORM" == "win" ]] && sudo=""
+	sudo="sudo"; IsPlatform cygwin && sudo=""
 	
 	[[ "$PLATFORM" == "win" ]] && alias apt-get="apt-cyg"
 	[[ "$PLATFORM" == "mac" ]] && alias apt-get="brew"
@@ -223,12 +225,12 @@ RunProgram()
 		dmg) RunDmg "$p" "$@" || return;;
 	  ism) start --minimize cmd /c start "$p";;
 		iso|img) iso mount "$p"; echo "If needed run the setup program manually..."; pause="--pause";;
-		msi) start --wait msiexec /i "$p" "$@";;
+		msi) start --elevate --wait msiexec /i "$p" "$@";;
 		pkg) sudo installer -pkg "$p" -target /;;
 		zip|7z|gz|tar|xpi|ear|jar|war) RunZip "$p" "$@" || return;;
 		*) [[ $standard ]] && 
 				{ sudo --standard "$p" "$@" || return; } ||
-				{ start --wait "$p" "$@" || return; };;
+				{ start --elevate --wait "$p" "$@" || return; };;
 	esac
 	
 	[[ $pause || $standard ]] && pause "When the installation has finished press any key..."
@@ -314,33 +316,22 @@ PrepareInstallDir()
 		$rmd "$installDir" || return
 	fi
 
-	$makeDir "$installDir" || return
+	makeDir "$installDir" || return
 }
 
 FindEditorProgram()
 {
 	args="" program=""
-	
-	if sublime IsInstalled; then
-		program="$(sublime program)" args="-w -n"
-		return 0
-	fi
-
+	sublime IsInstalled && { program="sublime" args="-w -n"; return; }
 	program="$(GetTextEditor)"
 }
 
 FindCompareProgram()
 {
-	args="" name="" program=""
-		
-	if BeyondCompare IsInstalled; then
-		name="bc" program="$(BeyondCompare program)"; return 0
-	elif which kompare > /dev/null; then
-		name="kompare" program="kompare"; return 0;
-	elif [[ -f "$P32/KDiff3/kdiff3.exe" ]]; then
-		name="kdiff3" program="$P32/KDiff3/kdiff3.exe"; return 0;
-	fi
-	
+	args="" name="" program=""	
+	BeyondCompare IsInstalled && { name="bc" program="BeyondCompare"; return; }
+	InPath kompare && { name="kompare" program="kompare"; return; }
+	[[ -f "$P32/KDiff3/kdiff3.exe" ]] && { name="kdiff3" program="$P32/KDiff3/kdiff3.exe"; return; }
 	return 1
 }
 
@@ -396,21 +387,35 @@ bootstrap()
 	appCore || return
 }
 
+bootstrapUbuntu()
+{
+	[[ -f gsettings ]] && { gsettings set org.gnome.desktop.session idle-delay 0 || return; } # do not blank screen
+	return 0
+}
+
 bootstrapDebian() 
 {
 	local server="nas1"
 
-	# programs
-	if ! which geany > /dev/null; then
+	echo "Installing programs..."
+	if ! InPath lolcat > /dev/null; then
 		sudo apt-get -y install unzip zip || return						# compression
-		sudo apt-get -y install dnsutils etherwake || return	# network
-		sudo apt-get -y install synaptics gdebi-core synaptic || return					# package management	
-		sudo apt-get -y install gedit geany || return					# text editors
-		sudo apt-get -y install cowsay lolcat || return
+		sudo apt-get -y install fonts-inconsolata 						# fonts
+		sudo apt-get -y install dnsutils etherwake || return	# network	
+		sudo apt-get -y install terminator || return					# terminal
+		sudo apt-get -y install x11-apps xterm || return			# x11
+		sudo apt-get -y install cowsay lolcat || return 			# other
 	fi
 
-	# file sharing
-	if ask 'Setup file sharing'; then
+	if ! InPath synaptic && ask 'Install package management systems (synaptic is large)'; then
+		sudo apt-get -y install gdebi-core synaptic || return
+	fi
+
+	if ! InPath geany && ask 'Install text editors (gedit, geany)'; then
+		sudo apt-get -y install gedit geany || return
+	fi
+
+	if ! IsPlatform win && ask 'Setup file sharing'; then
 		sudo apt-get -y upgrade samba || return
 		sudo smbpasswd -a $USER || return
 		
@@ -422,13 +427,13 @@ read only = no" | sudo tee -a /etc/samba/smb.conf || return
 		sudo service smbd restart || return
 	fi
 
-	# other	
-	sudo mkdir "$PUB" || return; sudo chown $USER "$PUB" || return
-}
+	echo "Configuring..."
+	DbusSetup || return
 
-bootstrapUbuntu()
-{
-	gsettings set org.gnome.desktop.session idle-delay 0 || return # do not blank screen
+	echo "Creating directories..."
+	makeDirOwner "$PUB" || return
+	
+	return 0
 }
 
 bootstrapDsm()
@@ -459,9 +464,29 @@ bootstrapMac()
 	fi	
 }
 
+bootstrapCygwin() { i cygwin || return; }
+
+bootstrapWsl()
+{
+	sudo chmod u+s /usr/bin/touch || return # network touch requires sudo permission in wsl
+	return 0
+}
+
 bootstrapWin()
 {
-	i cygwin WindowsSetup console HiddenStart SysInternals || return
+	echo "Home directory..."
+	makeLink --symbolic "$WIN_HOME/Desktop" "$HOME/Desktop" || return
+	makeLink --symbolic "$WIN_HOME/Downloads" "$HOME/Downloads" || return
+
+	echo "Core Windows programs..."
+	i HiddenStart || return
+
+	echo "Start menu..."
+	ElevatePause GrantFullPermission "$psm" || return
+	$makeShortcut "wsl.exe" "$psm/Programs/Startup/startup" -a "$BIN/run.sh startup" -d "Start applications" --show=min -i "$(utw "$PUB/Documents/data/icons/Command Prompt.ico")" || return
+
+	echo "Other Windows programs..."
+	i WindowsSetup SysInternals || return
 }
 
 appCore()
@@ -482,11 +507,11 @@ appCore()
 	case "${USER#ad_}" in
 		jjbutare) 
 			IsPlatform ubuntu,win && { i BeyondCompare StandardNotes sublime || return; }
-			IsPlatform win && { i AutoHotKey AquaSnap notepadpp || return; };;
+			IsPlatform win && { i AltTabTerminator AutoHotKey AquaSnap console notepadpp  || return; };;
 	esac
 
 	echo 'Installing core applications...'
-	$sudo apt-get lynx tmux
+	IsPlatform debian $sudo apt-get install lynx tmux
 	IsPlatform debian,dsm,mac,win && { i gitCore || return; }
 	IsPlatform ubuntu,mac,win && { i python ruby DropBox firefox BrowserHomePage || return; }
 	IsPlatform win && { i 7Zip BrowserHomePage GreenShot || return; }
@@ -507,7 +532,7 @@ appCore()
 
 appRaspbian() 
 { 
-	if ! which gpio > /dev/null; then
+	if ! InPath gpio; then
 		sudo apt-get -y install wiringpi || return	# gpio
 	fi
 
@@ -523,15 +548,14 @@ DevCore()
 	printf "**************************************************\n* Development Core\n**************************************************\n"
 	
 	echo "Creating directories..."
-	$makeDir "$_userDocuments/code/test" || return
-	$makeDir "$CODE" || return
-	$sudo chown $USER "$CODE" || return
-	$makeDir "$CODE/test" || return
+	makeDir "$_userDocuments/code/test" || return
+	makeDirOwner "$CODE" || return
+	makeDir "$CODE/test" || return
 	
 	if IsPlatform win; then
-		$makeDir "$pp/Development/Other" || return
+		makeDir "$pp/Development/Other" || return
 		$makeShortcut "$CODE" "$pp/Development/Code" || return
-		$makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
+		makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
 
 		ask "\nInstall SQL Development core" && { i iis SqlServerManagementStudio SqlPrompt SqlServer || return; }
 		ask "\nInstall .NET Development core" && { DotNetDevCore || return; }
@@ -547,7 +571,7 @@ GameCore()
 	printf "**************************************************\n* Game Core\n**************************************************\n"
 
 	echo "Creating directories..."
-	$makeDir "$pp/Game/Other" || return
+	makeDir "$pp/Game/Other" || return
 
 	i CorsairUtilityEngine EpicGames oculus Steam Uplay GameIcons
 }
@@ -564,7 +588,7 @@ MediaCore()
 	printf "**************************************************\n* Media Core\n**************************************************\n"
 
 	echo "Creating directories..."
-	$makeDir "$pp/Media/Other" || return
+	makeDir "$pp/Media/Other" || return
 	
 	echo "Updating icons..."
 	$makeShortcut "$DATA/platform/win/gspot.exe" "$pp/Media/GSpot" || return
@@ -602,7 +626,7 @@ UtilityLinux() { :; }
 SurveillanceCore()
 {
 	echo "Creating directories..."
-	$makeDir "$pp/Surveillance/Other" || return
+	makeDir "$pp/Surveillance/Other" || return
 
 	i AmcrestCamera SurveillanceStation || return	
 
@@ -679,18 +703,23 @@ BashInstall()
 	printf "Configuring bash..."
 
 	printf "links..."
-	local files=(.bashrc .bash_logout .dialogrc .gitignore .kdiff3rc .lessfilter .magic .inputrc .minttyrc .Xresources)
-	IsPlatform win && files+=(.bash_profile) || files+=(.gitconfig)
 
+	local files=(.bashrc .bash_logout .bash_profile .dialogrc .gitconfig .gitignore .kdiff3rc .lessfilter .magic .inputrc .minttyrc .Xresources)
 	for file in "${files[@]}"; do
-		$makeLink --symbolic --hide "$UBIN/$file" "$HOME/$file" || return
+		makeLink --symbolic --hide "$UBIN/$file" "$HOME/$file" || return
+	done
+
+	makeDir ~/.config || return
+	for dir in $(ls $UBIN/.config); do
+		[[ -d "$UBIN/.config/$dir" ]] && 
+			{ makeLink --symbolic "$UBIN/.config/$dir" "$HOME/.config/$dir" || return; }
 	done
 
 	# Windows program that require Windows links, not a POSIX .lnk link
 	if IsPlatform win; then
 		files=( .ExifTool_config  .gitconfig )
 		for file in "${files[@]}"; do
-			$makeLink --symbolic --hide --windows --absolute "$UBIN/$file" "$HOME/$file" || return
+			makeLink --symbolic --hide --windows --absolute "$WIN_HOME/Documents/data/bin/$file" "$WIN_HOME/$file" || return
 		done
 
 		$hide "$HOME/.gitconfig.tmp" || return
@@ -706,7 +735,6 @@ BashInstall()
 	if [[ -d ~/.ssh ]]; then # if issues: chgrp root ~/.ssh/*
 		printf "ssh..."
 		$hide ~/.ssh || return
-		[[ -f ~/.ssh/id_dsa ]] && { chmod 700 ~/.ssh/id_dsa || return; }
 		[[ -f ~/.ssh/id_rsa ]] && { chmod 700 ~/.ssh/id_rsa || return; }
 		[[ -f ~/.ssh/config ]] && { chmod 700 ~/.ssh/config || return; }
 	fi
@@ -743,7 +771,6 @@ WinScp()
 	[[ "$PLATFORM" != "win" ]] && return 0
 
 	printf "**************************************************\n* WiNSCP \n**************************************************\n"
-
 	run "Shareware/WinSCP/WinSCP-5.13.7-Setup.exe" || return # https://winscp.net/eng/index.php
 
 	echo "Updating icons..."
@@ -757,7 +784,7 @@ SshServer()
 	sshCloudHome="$CLOUD/data/.ssh"
 
 	echo Creating data directory...
-	$makeDir "$sshHome" && $hide +h "$sshHome" || return
+	makeDir "$sshHome" && $hide +h "$sshHome" || return
 
 	echo "Starting ssh agent..."
 	SshAgent startup || return
@@ -796,8 +823,8 @@ IntelCleanup()
 		$hide "$_root/Quarantine"
 		$hide "$uhome/.cisco"
 		
-		$makeDir "$udata/McAfee/Quarantine" || return
-		$makeLink --merge --hide "$udata/McAfee/Quarantine" "$uhome/mcafee dlp quarantined files" || return
+		makeDir "$udata/McAfee/Quarantine" || return
+		makeLink --merge --hide "$udata/McAfee/Quarantine" "$uhome/mcafee dlp quarantined files" || return
 	fi
 
 	if ask 'Cleanup startup programs'; then
@@ -838,13 +865,13 @@ IntelIcons()
 	JavaIcons || return
 
 	local d="$oo/Intel"
-	$makeDir "$d" || return
-	$mergeDir --rename "$pp/Intel" "$d" || return
-	$mergeDir --rename "$up/Intel" "$d" || return
+	makeDir "$d" || return
+	mergeDir --rename "$pp/Intel" "$d" || return
+	mergeDir --rename "$up/Intel" "$d" || return
 
 	# AnyConnect
-	$mergeDir "$up/Cisco" "$oo" || return
-	$mergeDir "$pp/Cisco" "$oo" || return
+	mergeDir "$up/Cisco" "$oo" || return
+	mergeDir "$pp/Cisco" "$oo" || return
 	$mv "$pd/AnyConnect User Guide 3_1.lnk" "$oo/Cisco/Cisco AnyConnect Secure Mobility Client" || return
 	$mv "$pd/AnyConnect_Health_Check_Tool.lnk" "$oo/Cisco/Cisco AnyConnect Secure Mobility Client" || return
 	$rm "$pd/AnyConnect"*.lnk || return
@@ -865,40 +892,40 @@ IntelIcons()
 	$rm "$pd/Intel Software Market.lnk" || return
 
 	# Intel WiFi
-	$mergeDir "$pp/Intel PROSet Wireless" "$oo/Intel" || return
+	mergeDir "$pp/Intel PROSet Wireless" "$oo/Intel" || return
 	$rm "$pd/IT Wireless Utilities.lnk" || return
 	$rm "$pd/WiFi Health Advisor.lnk" || return
 	$rm "$ud/WiFi Health Advisor.lnk" || return
 
 	# Intel other
-	$mergeDir "$pp/Thunderbolt(TM) Software" "$oo/Intel" || return
+	mergeDir "$pp/Thunderbolt(TM) Software" "$oo/Intel" || return
 	$mv "$pd/Intel Unite"*".lnk" "$pp/Operating SystemOther" || return
 	$mv "$pd/Intel AddaPrinter.lnk" "$oo/Intel" || return
 	$mv "$psm/Intel Security Checker.lnk" "$oo/Intel" || return
 	$rm "$pd/Intel Security Checker.lnk" || return
 
 	# McAfee
-	$mergeDir "$pp/McAfee" "$oo" || return
-	$mergeDir "$up/Pledge" "$oo/McAfee" || return
+	mergeDir "$pp/McAfee" "$oo" || return
+	mergeDir "$up/Pledge" "$oo/McAfee" || return
 	$mv "$up/McAfee Management of Native Encryption.lnk" "$oo/McAfee" || return
 	$mv "$up/McAfee VirusScan Scan Messages.lnk" "$oo/McAfee" || return
 
 	# Virtual Assistance Center
-	$mergeDir "$pp/Virtual Assistance Center" "$oo/Intel" || return
-	$mergeDir "$up/Virtual Assistance Center" "$oo/Intel" || return
+	mergeDir "$pp/Virtual Assistance Center" "$oo/Intel" || return
+	mergeDir "$up/Virtual Assistance Center" "$oo/Intel" || return
 	$rm "$ud/IT Virtual Assistance Center.lnk" || return
 
 	# Wellnomics WorkPace
-	$mergeDir "$pp/Wellnomics WorkPace" "$pp/Applications/Other/Intel" || return
+	mergeDir "$pp/Wellnomics WorkPace" "$pp/Applications/Other/Intel" || return
 	$rm "$pd/Wellnomics WorkPace 5.0.4.lnk" || return	
 
 	# other
-	$mergeDir "$pp/Fixlet Debugger" "$oo" || return
-	$mergeDir "$pp/Microsoft System Center" "$oo" || return
-	$mergeDir "$pp/Syncplicity" "$oo" || return
+	mergeDir "$pp/Fixlet Debugger" "$oo" || return
+	mergeDir "$pp/Microsoft System Center" "$oo" || return
+	mergeDir "$pp/Syncplicity" "$oo" || return
 
 	# device
-	$mergeDir "$pp/Music, Photos and Videos" "$pp/Applications/Other/Intel" || return
+	mergeDir "$pp/Music, Photos and Videos" "$pp/Applications/Other/Intel" || return
 	
 	echo "done"
 	return
@@ -912,18 +939,18 @@ NodeJsInstall()
 		run "Shareware/Node.js/setup/" -p "node-v11.8.0-x64.msi" || return # https://nodejs.org/en/
 
 		echo "Updating icons..."
-		$mergeDir "$pp/Node.js" "$pp/Development/Other" || return
-		$mergeDir "$up/Node.js" "$pp/Development/Other" || return
+		mergeDir "$pp/Node.js" "$pp/Development/Other" || return
+		mergeDir "$up/Node.js" "$pp/Development/Other" || return
 
 		echo "Updating path..."
 		ScriptEval SetVar --path PATH "$P/nodejs" || return
 		ScriptEval SetVar --path PATH "$APPDATA/npm" || return
 
-	elif [[ "$PLATFORM_ID" == "raspbian" ]] && ! which node > /dev/null ; then
+	elif [[ "$PLATFORM_ID" == "raspbian" ]] && ! InPath node ; then
 		curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash || return # get node version 10.x
 		sudo apt-get install -y nodejs || return
 	
-	elif [[ "$PLATFORM" == "linux" ]] && ! which node > /dev/null ; then
+	elif [[ "$PLATFORM" == "linux" ]] && ! InPath node; then
 		sudo apt install -y node || return
 		sudo apt install -y npm || return
 	fi
@@ -934,7 +961,7 @@ NodeJsInstall()
 		intel IsIntelHost && echo "https https_proxy=http://proxy-chain.intel.com:911" >> ~/.npmrc
 	fi
 
-	which nodemon > /dev/null || { $sudo npm install -g nodemon || return; }
+	InPath nodemon || { $sudo npm install -g nodemon || return; }
 	$sudo npm install -g npm@latest || return
 	$sudo npm update -g || return
 }
@@ -944,7 +971,7 @@ DotNetDevCore()
 	printf "**************************************************\n* .NET Development Core\n**************************************************\n"
 
 	echo "Creating directories..."
-	$makeDir "$pp/Development/DotNet/Other"
+	makeDir "$pp/Development/DotNet/Other"
 
 	echo "Installing Applications..."	
 	i VisualStudio ReSharper || return
@@ -967,7 +994,7 @@ IcsDeveloperInstall()
 	fi
 
 
-	$makeDir "$pp/Development/Ics" || return
+	makeDir "$pp/Development/Ics" || return
 
 	if ask "Install Intel Profile Manager"; then
 		run "Intel/Profile Manager/ITBAS.zip" "$P/ITBAS" || return
@@ -975,7 +1002,7 @@ IcsDeveloperInstall()
 		FindFile "Intel/Profile Manager/ProfileManager.xml" || return
 		$cp	"$file" "$WINDIR/system32" || return
 		chmod 744 "$WINDIR/system32/ProfileManager.xml" || return
-		$makeDir "$WINDIR/SysWOW64" || return 
+		makeDir "$WINDIR/SysWOW64" || return 
 		$cp "$file" "$WINDIR/SysWOW64" || return
 		chmod 744 "$WINDIR/SysWOW64/ProfileManager.xml" || return
 		MakeShortcut "/cygdrive/c/Program Files/ITBAS/ProfileManager/ProfileManager.exe" \
@@ -984,8 +1011,6 @@ IcsDeveloperInstall()
 
 	if ask "Install Antidote"; then
 		run "Intel/Antidote/setup/Antidote.zip" "$P/Antidote" || return
-		MakeShortcut "mintty" "$pp/Development/Ics/Antidote" \
-			-a="/c \"$(utw "$P/Antidote/antidote.exe")\" & pause" || return
 	fi
 
 	if ask "Update machine.config"; then
@@ -1008,10 +1033,9 @@ IcsDeveloperInstall()
 		antidote verbose App=Antidote BuildType=LocalBuild || return
 
 		cp "$a/deployment/profiles/"*.profile "$P/ITBAS/Profiles" || return
-		$makeDir "$a/Intel.Antidote.Models.Fixtures/Output" || return
+		makeDir "$a/Intel.Antidote.Models.Fixtures/Output" || return
 
 		MakeShortcut "$a/source/Gui/Wpf/AntidoteGui/bin/Debug/AntidoteGui.exe" "$pp/Development/Ics/Antidote" || return
-		MakeShortcut "mintty" "$pp/Development/Ics/Antidote Local Build" -a="--hold=error antidote verbose App=Antidote BuildType=LocalBuild" || return
 		chmod +x "$a/deployment/tools/other/"* || return
 	fi
 
@@ -1021,7 +1045,6 @@ IcsDeveloperInstall()
 
 		cp "$CODE/Magellan/Profiles/"*.profile "$P/ITBAS/Profiles" || return
 
-		MakeShortcut "mintty" "$pp/Development/Ics/Magellan Local Build" -a="--hold=error run.sh sudo antidote verbose App=Magellan BuildType=LocalBuild CacheBrokerAddress=@DatabaseServer@" || return
 		chgrp Administrators "$CODE/Magellan/unversioned/SqlData" || return; chmod 777 "$CODE/Magellan/unversioned/SqlData"
 	fi
 
@@ -1036,13 +1059,12 @@ IcsDeveloperInstall()
 				cp -rp "$CODE/$app" "$CODE/${app}Test" || return
 			fi
 
-			MakeShortcut "mintty" "$pp/Development/Ics/$app Local Build" -a="--hold=error run.sh sudo antidote verbose App=$app BuildType=LocalBuild" || return
 			antidote verbose App=$app BuildType=LocalBuild || return
 		fi
 	done
 
 	# SCADA Portal
-	$makeDir "$P/Scada/Web/Log"
+	makeDir "$P/Scada/Web/Log"
 }
 
 JavaDevCore()
@@ -1050,7 +1072,7 @@ JavaDevCore()
 	printf "**************************************************\n* JAVA Development Core\n**************************************************\n"
 
 	local java="$pp/Development/Java/Other"
-	$makeDir "$java" || return
+	makeDir "$java" || return
 }
 
 WinampInstall()
@@ -1060,8 +1082,8 @@ WinampInstall()
 	run "Nullsoft/WinAmp/setup/winamp565_pro_all.exe" || return
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Winamp" "$ao" || return
-	$mergeDir --rename "$up/Winamp Detector Plug-in" "$ao/Winamp" || return
+	mergeDir "$pp/Winamp" "$ao" || return
+	mergeDir --rename "$up/Winamp Detector Plug-in" "$ao/Winamp" || return
 	$rm "$pd/Winamp.lnk" || return
 
 	echot "Note
@@ -1115,8 +1137,8 @@ SublimeInstall()
 		$mv "$pp/Sublime Merge.lnk" "$pp/Applications" || return
 	fi
 
-	$makeDir "$udata/Sublime Text" || return
-	IsPlatform win && { $makeDir "$adata/Sublime Text 3" || return; }
+	makeDir "$udata/Sublime Text" || return
+	IsPlatform win && { makeDir "$adata/Sublime Text 3" || return; }
 	sublime profile restore default || return
 
 	if ask 'Add license'; then
@@ -1139,8 +1161,8 @@ ReSharperInstall()
 	run "JetBrains/ReSharper/setup/JetBrains.ReSharperUltimate.2018.2.3.exe" || return # http://www.jetbrains.com/resharper/download/index.html
 	
 	echo "Updating icons..."
-	$mergeDir "$pp/JetBrains" "$pp/Development/DotNet/Other" || return
-	$mergeDir "$up/JetBrains" "$pp/Development/DotNet/Other" || return
+	mergeDir "$pp/JetBrains" "$pp/Development/DotNet/Other" || return
+	mergeDir "$up/JetBrains" "$pp/Development/DotNet/Other" || return
 
 	if ask "Restore profile"; then
 		ReSharper profile restore default || return
@@ -1177,7 +1199,7 @@ dotPeekInstall()
 	run "JetBrains/dotPeek/JetBrains.dotPeek.2017.3.3.web.exe" || return # https://www.jetbrains.com/decompiler/download/
 
 	echo "Updating icons..."
-	$mergeDir "$up/JetBrains" "$pp/Development/DotNet/Other" || return
+	mergeDir "$up/JetBrains" "$pp/Development/DotNet/Other" || return
 }
 
 ConsoleInstall()
@@ -1215,49 +1237,47 @@ ConsoleInstall()
 WindowsSetup()
 {
 	printf "**************************************************\n* Windows Setup\n**************************************************\n"
+	! IsElevated && { ElevatePause inst WindowsSetup; pause; return; }
 
 	WindowsDirs || return
 	WindowsIcons || return
-	OneDrive || return
+	OneDrive || returnexit
 
 	echo "Cleaning file system..."
 	$hide hide "$_root/PerfLogs" || return
+	$rm "$WIN_HOME\Documents\My Music" || return
+	$rm "$WIN_HOME\Documents\My Pictures" || return
+	$rm "$WIN_HOME\Documents\My Videos" || return
+	$rm "$WIN_HOME\My Music" || return
+	$rm "$WIN_HOME\My Pictures" || return
+	$rm "$WIN_HOME\My Videos" || return
 
 	echo "Cleaning startup programs..."
 	$registry 32 delete "run/NetFxUpdate_v1.1.4322" # "C:\Windows\Microsoft.NET\Framework\v1.1.4322\netfxupdate.exe" 1 v1.1.4322 GAC + NI NID, https://superuser.com/questions/137508/ngen-exe-is-constantly-using-cpu
 
-	echo "Creating directories..."
-	$makeDir ~/.config || return
-	$hide ~/.config || return
-	
 	echo "Moving data folders..."
-	[[ -d "$udoc/Fax" ]] && $makeLink --merge --hide "$udata/fax" "$udoc/Fax"
-	[[ -d "$udoc/My Data Sources" ]] && $makeLink --windows --merge --hide "$udata/Data Sources" "$udoc/My Data Sources"
-	[[ -d "$udoc/Scanned Documents" ]] && $makeLink --merge --hide "$udata/scans" "$udoc/Scanned Documents"
+	[[ -d "$udoc/Fax" ]] && makeLink --merge --hide "$udata/fax" "$udoc/Fax"
+	[[ -d "$udoc/My Data Sources" ]] && makeLink --windows --merge --hide "$udata/Data Sources" "$udoc/My Data Sources"
+	[[ -d "$udoc/Scanned Documents" ]] && makeLink --merge --hide "$udata/scans" "$udoc/Scanned Documents"
 
 	echo "Configuring..."
-	powershell Set-ExecutionPolicy RemoteSigned || return
-	powershell FlipFlopWheel.ps1
+	powershell.exe Set-ExecutionPolicy RemoteSigned || return
+	powershell.exe FlipFlopWheel.ps1 || return
 	registry import "$setupFiles/Windows Setup.reg" || return
-	registry import "$setupFiles/Windows Setup $version.reg" || return
 	numlock boot on || return
-	powercfg -hibernate off
-	netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes || return
+	powercfg.exe -hibernate off
+	netsh.exe advfirewall firewall set rule group="Network Discovery" new enable=Yes || return
 
-	echo "Disabling magnifier to remove win-+ shortcut..."
-	[[ -f "$WINDIR/System32/Magnify.exe" ]] &&
-		{ $ren "$WINDIR/System32/Magnify.exe" "$WINDIR/System32/Magnify.disable.exe" || return; }
+	# does not work, must owner and permission first
+	# echo "Disabling programs narrator and magnifier (win-+)..."
+	# [[ -f "$WINDIR/System32/Magnify.exe" ]] && { sudo mv "$WINDIR/System32/Magnify.exe" "$WINDIR/System32/Magnify.disable.exe" || return; }
+	# [[ -f "$WINDIR/system32/Narrator.exe" ]]&& { sudo mv "$WINDIR/system32/Narrator.exe" "$WINDIR/system32/NarratorDisable.exe" || return; }
 
-	if [[ -f "$WINDIR/system32/Narrator.exe" ]]; then
-		echo "Disabling narrator shortcut key..."
-		$ren "$WINDIR/system32/Narrator.exe" "$WINDIR/system32/NarratorDisable.exe" || return
-	fi
-
-	if ! net user wsystem >& /dev/null && ask "Create wsystem account"; then
+	if ! net.exe user wsystem >& /dev/null && ask "Create wsystem account"; then
 		local password
 		read -s -p "Enter wsystem password: " password; echo
-		net user wsystem "$password" /ADD || return
-		net LocalGroup Administrators wsystem /ADD || return
+		net.exe user wsystem "$password" /ADD || return
+		net.exe LocalGroup Administrators wsystem /ADD || return
 	fi
 
 	echo "Enabling remote desktop connections..." 
@@ -1269,51 +1289,46 @@ WindowsSetup()
 	echo "Showing taskbar on main display only..."
  	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/MMTaskbarEnabled" REG_DWORD 0 || return
 
-	echo "Disable snap assistr..."
+	echo "Disable snap assist..."
  	registry set "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Advanced/SnapAssist" REG_DWORD 0 || return
-
-
-	intel IsIntelHost && return
 
 	ask "Rename computer" && { os RenameComputer || return; }
 
 	if ask "Change $USER full name"; then
 		local fullName
 		read -p "Enter $USER fullName: " fullName; echo
-		net user $USER /fullname:"$fullName"  
+		net.exe user $USER /fullname:"$fullName"  
 	fi
 
-	return
+	return 0
 }
 
 WindowsDirs()
 {
-	$makeDir "$_root/temp" || return
-	$makeDir "$pp/Applications/Other" || return
-	$makeDir "$oo" || return
-	$makeDir "$up/Applications" || return
+	makeDir "$WIN_HOME/temp" || return
+	makeDir "$pp/Applications/Other" || return
+	makeDir "$oo" || return
+	makeDir "$up/Applications" || return
 }
 
 WindowsIcons()
 {
-	echo "Setting permissions..."
-	icacls "$(utw $psm)" /grant "$USER:(OI)(CI)F" /T
-
 	echo "Updating icons..."
 
-	$mergeDir "$up/Accessibility" "$pp/Applications/Accessories" || return
-	$mergeDir "$pp/Accessibility" "$pp/Applications/Accessories" || return
-	$mergeDir "$up/Accessories" "$pp/Applications" || return
-	$mergeDir "$pp/Accessories" "$pp/Applications" || return
-	$mergeDir "$pp/Administrative Tools" "$pp/Operating System" || return
-	$mergeDir "$up/Administrative Tools" "$pp/Operating System" || return
-	$mergeDir "$pp/IIS" "$pp/Development/Other/IIS" || return
-	$mergeDir "$up/System Tools" "$pp/Operating System" || return
-	$mergeDir "$pp/System Tools" "$pp/Operating System" || return
+	mergeDir "$up/Accessibility" "$pp/Applications/Accessories" || return
+	mergeDir "$pp/Accessibility" "$pp/Applications/Accessories" || return
+	mergeDir "$up/Accessories" "$pp/Applications" || return
+	mergeDir "$pp/Accessories" "$pp/Applications" || return
+	mergeDir "$pp/Administrative Tools" "$pp/Operating System" || return
+	mergeDir "$up/Administrative Tools" "$pp/Operating System" || return
+	mergeDir "$pp/IIS" "$pp/Development/Other/IIS" || return
+	mergeDir "$up/System Tools" "$pp/Operating System" || return
+	mergeDir "$pp/System Tools" "$pp/Operating System" || return
+	mergeDir "$up/Windows PowerShell" "$pp/Operating System" || return
 
-	$mergeDir "$pp/Applications/Accessories/System Tools" "$pp/Operating System" || return
-	$mergeDir --rename "$pp/Microsoft Silverlight" "$oo/Silverlight" || return
-	$mergeDir --rename "$up/Windows PowerShell" "$oo/PowerShell" || return
+	mergeDir "$pp/Applications/Accessories/System Tools" "$pp/Operating System" || return
+	mergeDir --rename "$pp/Microsoft Silverlight" "$oo/Silverlight" || return
+	mergeDir --rename "$up/Windows PowerShell" "$oo/PowerShell" || return
 
 	$mv "$pp/Immersive Control Panel.lnk" "$pp/Applications/Accessories" || return
 	$mv "$up/Immersive Control Panel.lnk" "$pp/Applications/Accessories" || return
@@ -1322,6 +1337,7 @@ WindowsIcons()
 	$mv "$ud/Microsoft Edge.lnk" "$ao" || return
 
 	$rmd "$pp/Bluetooth Devices" || return
+	$rmd "$up/Maintenance" || return
 
 	$hideAndSystem "$pp/Applications/Accessories/Desktop.ini" || return
 	$hideAndSystem "$pp/Applications/Accessories/Accessibility/Desktop.ini" || return
@@ -1339,7 +1355,7 @@ pGinaInstall()
 	run "Shareware/pGina/setup/pGinaSetup-3.1.8.0.exe" /silent || return # 
 
 	echo "Updating icons..."
-	$mergeDir "$pp/pGina" "$oo" || return
+	mergeDir "$pp/pGina" "$oo" || return
 
 	pGina profile restore default || return
 }
@@ -1352,7 +1368,7 @@ DropBoxInstall()
 	local v=57.4.89 # https://www.dropbox.com/download?full=1&plat=win https://www.dropbox.com/download?full=1&plat=mac https://www.dropbox.com/install-linux
 	run "Dropbox/setup/" -p "Dropbox $v Offline Installer.exe" "Dropbox $v.dmg" "dropbox_2015.10.28_amd64.deb" || return
 
-	DropBoxIcons || return
+	DropBoxFinal || return
 
 	if ask "Do you want to configure DropBox"; then
 		echot "\
@@ -1371,7 +1387,7 @@ DropBoxInstall()
 		DropBox close
 
 		dir="$CLOUD/.dropbox.cache"
-		$makeDir  "$dir" || return
+		makeDir  "$dir" || return
 		attrib -h -s "$(utw "$dir")" || return
 
 		echo "- Modify, $(utw "$CLOUD"), check Dropbox, uncheck .dropbox.cache"
@@ -1379,7 +1395,6 @@ DropBoxInstall()
 		pause
 
 		$hideAndSystem "$dir" || return
-
 		sudo --standard DropBox startup
 	fi
 
@@ -1394,16 +1409,18 @@ DropBoxInstall()
   fi
 }
 
-DropBoxIcons()
+DropBoxFinal()
 {
 	echo "Updating icons..."
-	$mergeDir "$pp/Dropbox" "$oo" || return
+	mergeDir "$pp/Dropbox" "$oo" || return
 	$rm "$up/Startup/Dropbox.lnk" || return
 	$rm "$ud/Dropbox.lnk" || return
 
 	echo "Updating registry..."	
 	$registry set "HKCU/SOFTWARE/Classes/CLSID/{E31EA727-12ED-4702-820C-4B6445F28E1A}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return
 	$registry 32 delete "run/Dropbox" # "C:\Program Files (x86)\Dropbox\Client\Dropbox.exe" /systemstartup
+
+	makeLink "$WIN_HOME/Dropbox" ~/Dropbox || return
 }
 
 vs() { intel IsIntelHost && vs15 || vs17; }; VisualStudioInstall() { vs; }; 
@@ -1460,7 +1477,7 @@ VsFinal()
 	ScriptEval VisualStudio init || return
 
 	echo "Creating directories..."
-	$makeDir "$CODE/test/vs"
+	makeDir "$CODE/test/vs"
 
 	ask "Install IIS Express Final" && { IisExpressFinal || return; }
 	
@@ -1471,8 +1488,8 @@ VsFinal()
 	fi
 
 	if ask "Update data folders"; then
-		$makeLink --merge --hide "$vsData" "$udoc/Visual Studio $vsName" || return
-		$makeLink --merge --hide "$udata/Web Essentials" "$uhome/Web Essentials" || return
+		makeLink --merge --hide "$vsData" "$udoc/Visual Studio $vsName" || return
+		makeLink --merge --hide "$udata/Web Essentials" "$uhome/Web Essentials" || return
 		$hide ~/.dnx ~/.nuget || return
 	fi
 
@@ -1536,12 +1553,12 @@ VsIcons()
 	local other="$base/Other"
 	local vs="$other/Visual Studio $vsName"
 	
-	$makeDir "$other" || return
+	makeDir "$other" || return
 
 	$makeShortcut "$_root/Windows/assembly" "$base/GAC.lnk" || return
 
-	$mergeDir --rename "$pp/Visual Studio $vsName" "$other/Visual Studio $vsName" || return
-	$mergeDir "$pp/Windows Kits" "$pp/Development/Other" || return
+	mergeDir --rename "$pp/Visual Studio $vsName" "$other/Visual Studio $vsName" || return
+	mergeDir "$pp/Windows Kits" "$pp/Development/Other" || return
 	$ren "$pp/Visual Studio $vsName.lnk" "$base/Visual Studio.lnk" || return
 	$mv "$pp/Visual Studio Installer.lnk" "$vs" || return
 	$ren "$pp/Microsoft Test Manager $vsVersion.lnk" "$vs/Test Manager.lnk" || return
@@ -1556,8 +1573,8 @@ VsIcons()
 IisExpressFinal()
 {
 	echo "Moving data folders..."
-	$makeLink --merge --hide "$udata/IISExpress" "$udoc/IISExpress"
-	$mergeDir "$udoc/My Web Sites" "$udoc/code/web"
+	makeLink --merge --hide "$udata/IISExpress" "$udoc/IISExpress"
+	mergeDir "$udoc/My Web Sites" "$udoc/code/web"
 
 	echo "Setting permissions..."
 	icacls "$(utw "$P32/IIS Express")" /grant "$USER:(OI)(CI)F" /T
@@ -1595,7 +1612,7 @@ sonos()
 
 	echo "Updating icons..."
 	$rm "$pd/Sonos.lnk" || return
-	$mergeDir "$pp/Sonos" "$pp/Media/Other" || return
+	mergeDir "$pp/Sonos" "$pp/Media/Other" || return
 
 	if intel IsIntelHost; then
 		echo "- McAfee Host Intrusion Prevention, Add, Name=Sonos, Application=C:\Program Files (x86)\Sonos\Sonos.exe"
@@ -1612,7 +1629,7 @@ nUnitConsoleInstall()
 	run "Shareware/DOT.NET/NUnit/setup/NUnit.Console-$version.msi" || return 
 
 	echo "Updating icons..."
-	#$mergeDir "$up/NUnit $version" "$pp/Development/DotNet/Other"
+	#mergeDir "$up/NUnit $version" "$pp/Development/DotNet/Other"
 }
 
 SilverlightSdk()
@@ -1635,12 +1652,12 @@ SilverlightSdk()
 SilverlightIcons()
 {
 	local base="$pp/Development/DotNet/Other/Silverlight"
-	$makeDir "$base" || return
+	makeDir "$base" || return
 
 	$ren "$pp/Microsoft Silverlight/Microsoft Silverlight.lnk" "$pp/Applications/Accessories/Silverlight.lnk"  || return
 	$ren "$pp/Microsoft Silverlight 5 SDK/Welcome.lnk" "$base/Silverlight 5 SDK Welcome.lnk" || return
 
-	$mergeDir --rename "$pp/Microsoft Silverlight 5 Toolkit December 2011" "$base/Silverlight 5 Toolkit" || return
+	mergeDir --rename "$pp/Microsoft Silverlight 5 Toolkit December 2011" "$base/Silverlight 5 Toolkit" || return
 
 	$rmd "$pp/Microsoft Silverlight 5 SDK" || return
 	$rmd "$pp/Microsoft Silverlight" || return
@@ -1661,8 +1678,8 @@ CruiseControlTrayInstall()
 	$cp	"$file"/* "$P32/CCTray" || return
 
 	echo "Updating icons..."
-	$mergeDir "$pp/CCTray" "$pp/Development/Other" || return
-	$mergeDir "$up/CCTray" "$pp/Development/Other" || return
+	mergeDir "$pp/CCTray" "$pp/Development/Other" || return
+	mergeDir "$up/CCTray" "$pp/Development/Other" || return
 	$rm "$ud/CCTray.lnk" || return
 	$rm "$up/Startup/CCTray.lnk" || return
 
@@ -1745,10 +1762,10 @@ ChromeIcons()
 		$rm "$pd/Google Chrome.lnk" || return
 		$rm "$ud/Chrome App Launcher.lnk" || return
 		$rm "$ud/Google Chrome Canary Build.lnk" || return
-		$mergeDir --rename "$pp/Google Chrome" "$ao/Chrome" || return
-		$mergeDir --rename "$up/Google Chrome" "$ao/Chrome" || return
-		$mergeDir "$up/Chrome Apps" "$up/Applications" || return
-		$mergeDir --rename "$up/Google Chrome Canary Build" "$ao/Chrome Beta" || return
+		mergeDir --rename "$pp/Google Chrome" "$ao/Chrome" || return
+		mergeDir --rename "$up/Google Chrome" "$ao/Chrome" || return
+		mergeDir "$up/Chrome Apps" "$up/Applications" || return
+		mergeDir --rename "$up/Google Chrome Canary Build" "$ao/Chrome Beta" || return
 }
 
 iisInstall()
@@ -1776,8 +1793,8 @@ iisInstall()
 	fi
 
 	echo "Updating icons..."
-	$makeDir "$pp/Development/Other/IIS" || return
-	$mergeDir "$pp/IIS" "$pp/Development/Other" || return
+	makeDir "$pp/Development/Other/IIS" || return
+	mergeDir "$pp/IIS" "$pp/Development/Other" || return
 	$makeShortcut "$WINDIR/system32/inetsrv/iis.msc" "$pp/Development/Other/IIS/IIS Client Manager" || return
 
 	# [[ $client ]] && ask "Install remote manager" && { IisRemoteManager || return; }
@@ -1808,8 +1825,8 @@ SqlServerManagementStudioInstall()
 	run "$base/studio/plugins/SSMSBoostInstaller_3.4.6796.msi" || return # http://www.ssmsboost.com
 
 	echo "Moving data folders..."
-	local dir="$udata/SQL Server Management Studio"; $makeDir "$dir" || return
-	$makeLink --merge --hide "$udata/SQL Server Management Studio" "$udoc/SQL Server Management Studio" || return
+	local dir="$udata/SQL Server Management Studio"; makeDir "$dir" || return
+	makeLink --merge --hide "$udata/SQL Server Management Studio" "$udoc/SQL Server Management Studio" || return
 
 	echo "Linking script directory..."
 	[[ -d "$CLOUD/data/sql" ]] && { $makeShortcut "$CLOUD/data/sql" "$dir/Personal.lnk" || return; }
@@ -1965,7 +1982,7 @@ SsIntel()
 	echo "Linking SQL script directory..."	
 	local pDir="$CLOUD/data/sql"
 	local spDir="$HOME/Syncplicity/data/sql"
-	local dir="$udata/SQL Server Management Studio"; $makeDir "$dir" || return
+	local dir="$udata/SQL Server Management Studio"; makeDir "$dir" || return
 	local adPersonal="$adPrefix/Documents/SQL Server Management Studio/Personal.lnk"
 	local adIntel="$adPrefix/Documents/SQL Server Management Studio/Intel.lnk"
 
@@ -2001,13 +2018,13 @@ SsRegistry()
 SsIcons()
 {
 	echo "Updating icons..."	
-	$mergeDir --rename "$pp/Microsoft SQL Server Tools 17" "$serverPrograms/Other/SQL Server Tools 2017"
-	$mergeDir --rename "$pp/Microsoft SQL Server vNext CTP2.0" "$serverPrograms/Other/SQL Server 2017"		
-	$mergeDir --rename "$pp/Microsoft SQL Server 2017" "$serverPrograms/Other/SQL Server 2017"
-	$mergeDir --rename "$pp/Microsoft SQL Server 2016" "$serverPrograms/Other/SQL Server 2016"
-	$mergeDir --rename "$pp/Microsoft SQL Server 2014" "$serverPrograms/Other/SQL Server 2014"
-	$mergeDir --rename "$pp/Microsoft SQL Server 2012" "$serverPrograms/Other/SQL Server 2012"
-	$mergeDir --rename "$pp/Microsoft SQL Server 2008" "$serverPrograms/Other/SQL Server 2008"
+	mergeDir --rename "$pp/Microsoft SQL Server Tools 17" "$serverPrograms/Other/SQL Server Tools 2017"
+	mergeDir --rename "$pp/Microsoft SQL Server vNext CTP2.0" "$serverPrograms/Other/SQL Server 2017"		
+	mergeDir --rename "$pp/Microsoft SQL Server 2017" "$serverPrograms/Other/SQL Server 2017"
+	mergeDir --rename "$pp/Microsoft SQL Server 2016" "$serverPrograms/Other/SQL Server 2016"
+	mergeDir --rename "$pp/Microsoft SQL Server 2014" "$serverPrograms/Other/SQL Server 2014"
+	mergeDir --rename "$pp/Microsoft SQL Server 2012" "$serverPrograms/Other/SQL Server 2012"
+	mergeDir --rename "$pp/Microsoft SQL Server 2008" "$serverPrograms/Other/SQL Server 2008"
 }
 
 SqlPromptInstall()
@@ -2016,7 +2033,7 @@ SqlPromptInstall()
 	run "RedGate/SQLPromptDownload.exe" || return # downloads to $tmp/Red Gate http://www.red-gate.com/products/sql-development/sql-prompt
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Red Gate" "$pp/Development/Other"
+	mergeDir "$pp/Red Gate" "$pp/Development/Other"
 
 	echot "\
 - SQL Prompt
@@ -2041,7 +2058,7 @@ VisionAppInstall()
 	echo "Configure..."
 
 	local cloudDir="$CLOUD/data/VisionApp" localDir="$udata/VisionApp"
-	$makeDir "$cloudDir" "$localDir" "$APPDATA/visionapp/vRD 2012" || return
+	makeDir "$cloudDir" "$localDir" "$APPDATA/visionapp/vRD 2012" || return
 
 	FindFile "VisionApp/Remote Desktop/license/Intel Corporation_Global.xml" || return
 	clipw "$(utw "$file")" || return
@@ -2082,11 +2099,11 @@ OfficeFinal()
 	. office.sh || { EchoErr "inst: Office is not installed"; return 1; }
 
 	echo "Updating directories..."
-	$makeDir "$udata/Templates" "$_data/Templates" || return
+	makeDir "$udata/Templates" "$_data/Templates" || return
 
 	echo "Moving data folders..."
-	$makeLink --merge --hide "$udata/OneNote" "$udoc/OneNote Notebooks" || return
-	$makeLink --merge --hide "$udata/Custom Office Templates" "$udoc/Custom Office Templates" || return
+	makeLink --merge --hide "$udata/OneNote" "$udoc/OneNote Notebooks" || return
+	makeLink --merge --hide "$udata/Custom Office Templates" "$udoc/Custom Office Templates" || return
 	
 	ask "Restore normal templates" && { word RestoreNormal || return; }
 	ask "Update registry" && { registry import "$setupFiles/ShellNew.reg" || return; }
@@ -2099,9 +2116,9 @@ OfficeIcons()
 	echo "Updating icons..."
 
 	p="$ao/Office"
-	$makeDir "$p" || return
+	makeDir "$p" || return
 
-	$mergeDir --rename "$pp/Microsoft Office Tools" "$p/tools" || return
+	mergeDir --rename "$pp/Microsoft Office Tools" "$p/tools" || return
 	$mv "$pp/"Access.lnk "$p" || return
 	$mv "$pp/"Excel.lnk "$p" || return
 	$mv "$pp/"OneDrive*.lnk "$p" || return
@@ -2113,13 +2130,13 @@ OfficeIcons()
 	$rm "$up/Startup/Send to OneNote.lnk" || return
 
 	# Office 2013 icons
-	$mergeDir --rename "$pp/Microsoft Office 2013" "$p" || return
-	$mergeDir --rename "$p/Office 2013 Tools" "$p/tools" || return
+	mergeDir --rename "$pp/Microsoft Office 2013" "$p" || return
+	mergeDir --rename "$p/Office 2013 Tools" "$p/tools" || return
 	for f in "$p/"*2013.lnk; do $ren "$f" "${f/ 2013/}" || return; done
 	for f in "$p/tools/"*2013*.lnk; do $ren "$f" "${f/ 2013/}" || return; done
 	
 	# Office 2016 icons
-	$mergeDir --rename "$pp/Microsoft Office 2016 Tools" "$p/tools" || return
+	mergeDir --rename "$pp/Microsoft Office 2016 Tools" "$p/tools" || return
 	$mv "$pp/"*2016.lnk "$p" || return
 	for f in "$p/"*2016.lnk; do $ren "$f" "${f/ 2016/}" || return; done
 	for f in "$p/tools/"*2016*.lnk; do $ren "$f" "${f/ 2016/}" || return; done
@@ -2141,7 +2158,7 @@ nVidiaInstall()
 
 nVidiaIcons()
 {
-	$mergeDir --rename "$pp/NVIDIA Corporation" "$oo/NVIDIA" || return
+	mergeDir --rename "$pp/NVIDIA Corporation" "$oo/NVIDIA" || return
 	$rm "$pd/GeForce Experience.lnk" || return
 	$rm "$pd/3D Vision Photo Viewer.lnk" || return
 }
@@ -2149,39 +2166,11 @@ nVidiaIcons()
 gitCore()
 {		
 	RunPlatform git
-	ask 'Configure git' && { gitConfigure || return; }
+	IsPlatform win && { git config --system core.filemode false || return; } # posix permissions do not work well on windows file systems
 	ask 'Clone bin' && { GitHelper bin || return; }
 	return 0
 }
 
-gitConfigure()
-{
-	local args name program
-
-	FindEditorProgram || return
-	$sudo git config --system core.editor "\"$program\" $args" || return
-
-	FindCompareProgram || return
-
-	$sudo git config --system difftool.$name.trustExitCode "true" || return
-	$sudo git config --system difftool.$name.cmd "\"$program\" $args "'"$LOCAL" "$REMOTE"' || return
-	
-	$sudo git config --system mergetool.$name.trustExitCode "true" || return
-	$sudo git config --system mergetool.$name.cmd "\"$program\" $args "'"$LOCAL" "$REMOTE" "$BASE" "$MERGED"' || return
-
-	if [[ "$PLATFORM" != "win" ]]; then
-		$sudo git config --global difftool.$name.trustExitCode "true" || return
-		$sudo git config --global difftool.$name.cmd "\"$program\" $args "'"$LOCAL" "$REMOTE"' || return
-		
-		$sudo git config --global mergetool.$name.trustExitCode "true" || return
-		$sudo git config --global mergetool.$name.cmd "\"$program\" $args "'"$LOCAL" "$REMOTE" "$BASE" "$MERGED"' || return
-	fi
-
-	FindCompareProgram || return
-	git config --global merge.tool "$name" || return
-	git config --global diff.tool "$name" || return	
-	git config --global diff.guitool "$name" || return	
-}
 
 gitDebian()
 {
@@ -2203,7 +2192,6 @@ gitRaspbian()
 
 gitWin()
 {
-	ask 'Install Cygwin git' && { i cygwinGit || return; }
 	ask 'Install Git for Windows' && { i gitForWindows || return; }
 	ask 'Install Git Extensions' && { i gitExtensions || return; }
 
@@ -2222,18 +2210,8 @@ cygwinGit()
 	fi
 
 	echo "Configuring git..."
-
 	"$gc" config --system core.autocrlf false || return
-	"$gc" config --system core.filemode false || return
 	"$gc" config --system credential.helper wincred || return
-
-	FindEditorProgram || return
-	"$gc" config --system core.editor "sublime start --wait" || return
-
-	"$gc" config --system difftool.$name.trustExitCode "true" || return
-	"$gc" config --system difftool.$name.cmd "BeyondCompare --wait "'"$LOCAL" "$REMOTE"' || return
-	"$gc" config --system mergetool.$name.trustExitCode "true" || return
-	"$gc" config --system mergetool.$name.cmd "BeyondCompare --wait "'"$LOCAL" "$REMOTE" "$BASE" "$MERGED"' || return
 }
 
 gfwInstall() { gitForWindows; }
@@ -2245,39 +2223,28 @@ gitForWindows()
 	echot "\
 - Select Components
 	- uncheck Windows Explorer Integration
-	- (Cygwin) uncheck Associate .sh files to be run with Bash
+	- uncheck Associate .sh files to be run with Bash
 - Use Git from Git Bash only
 - Checkout as-is, commit as-is
 - uncheck View ReleaseNotes.rtf"
 	run "Shareware/Git for Windows/setup/Git-2.20.1-64-bit.exe" || return # https://github.com/git-for-windows/git/releases/
 
 	if [[ -f "$P/Git/usr/bin/ssh.exe" ]]; then
-		echo "Enabling Cygwin ssh..."
+		echo "Disable ssh..."
 		mv "$P/Git/usr/bin/ssh.exe" "$P/Git/usr/bin/ssh_hold.exe" || return
 	fi
 	
 	echo "Updating icons..."
-	$mergeDir "$pp/Git" "$pp/Development/Other"
-	$mergeDir "$up/Git" "$pp/Development/Other"
+	mergeDir "$pp/Git" "$pp/Development/Other"
+	mergeDir "$up/Git" "$pp/Development/Other"
 	
-	echo "Configuring http.sslcainfo..."
+	echo "Configuring git..."
 	"$gc" config --system http.sslcainfo "$P/Git/usr/ssl/certs/ca-bundle.crt" || return
 	"$gw" config --system http.sslcainfo "$(utw "$P/Git/usr/ssl/certs/ca-bundle.crt")" || return
-
-	echo "Configuring git..."
 	"$gw" config --system core.fscache true || return
 	"$gw" config --system core.filemode false || return
 	"$gw" config --system core.autocrlf false || return
 	"$gw" config --system credential.helper wincred || return
-
-	FindEditorProgram || return
-	"$gw" config --system core.editor "\"$(utw $program)\" $args" || return
-
-	FindCompareProgram || return
-	"$gw" config --system difftool.$name.trustExitCode "true" || return
-	"$gw" config --system difftool.$name.cmd "\"$(utw $program)\" $args "'"$LOCAL" "$REMOTE"' || return
-	"$gw" config --system mergetool.$name.trustExitCode "true" || return
-	"$gw" config --system mergetool.$name.cmd "\"$(utw $program)\" $args "'"$LOCAL" "$REMOTE" "$BASE" "$MERGED"' || return
 }
 
 ge() { gitExtensions; }
@@ -2301,7 +2268,7 @@ gitExtensions()
 	fi
 
 	echo "Updating icons..."
-	$makeDir "$pp/Development/Other/Git" || return
+	makeDir "$pp/Development/Other/Git" || return
 	$mv "$pp/Git Extensions.lnk" "$pp/Development/Other/Git" || return
 	$rm "$pd/Git Extensions.lnk" || return
 
@@ -2336,7 +2303,7 @@ gitHub()
 	pause
 	
 	echo "Updating icons..."
-	$mergeDir --rename "$up/GitHub, Inc" "$up/Development/Other/GitHub" || return
+	mergeDir --rename "$up/GitHub, Inc" "$up/Development/Other/GitHub" || return
 	$rm "$ud/GitHub.appref-ms" || return
 	$rm "$ud/Git Shell.lnk" || return
 
@@ -2348,7 +2315,6 @@ gitHub()
 - tools, options...
 	- default storage directory=c:\Projects
 	- SCAN FOR REPOSITORIES
-	- (optional) default shell=Custom, c:\Program Files\Cygwin\bin\mintty.exe
 - note: 
 	- GitHib is useful for quickly cloning a repository from GitHub
 	- clone a repository - click an account on the left channel, right click on the repository, and select Clone To..."
@@ -2362,7 +2328,7 @@ tortoiseGit()
 	run "Shareware/TortoiseGit/setup/TortoiseGit-1.8.7.0-64bit.msi" || return # https://code.google.com/p/tortoisegit/wiki/Download?tm=2
 
 	echo "Updating icons..."
-	$mergeDir "$pp/TortoiseGit" "$pp/Development/Other"
+	mergeDir "$pp/TortoiseGit" "$pp/Development/Other"
 
 	FindCompareProgram || return; clipw "$(utw "$program")" || return
 	echot "\
@@ -2384,7 +2350,7 @@ BrowserHomePage()
 	[[ ! -f "$file" ]] && { EchoErr "inst: cannot access browser home page file \`$file\`: No such file"; return 1; }
 
  	# Chrome
-	$makeLink "$udata/replicate" "$adata/replicate" || return
+	makeLink "$udata/replicate" "$adata/replicate" || return
 
 	# Internet Explorer
 	echo "- Tools, Internet Options, Use Current"
@@ -2401,7 +2367,7 @@ sysInternalsInstall()
 appleCore()
 {
 	echo "Updating Apple icons..."
-	$makeDir "$ao/Apple" || return
+	makeDir "$ao/Apple" || return
 	$mv "$pp/Apple Software Update.lnk" "$ao/Apple" || return
 
 }
@@ -2419,8 +2385,8 @@ iCloudInstall()
 	# registry delete "urun/ApplePhotoStreams" || return
 
 	echo "Updating icons..."
-	$mergeDir "$pp/iCloud" "$oo" || return
-	$mergeDir "$up/iCloud" "$oo" || return
+	mergeDir "$pp/iCloud" "$oo" || return
+	mergeDir "$up/iCloud" "$oo" || return
 
 	appleCore || return
 
@@ -2438,7 +2404,7 @@ iTunesInstall()
 
 	echo "Updating icons..."
 	$rm "$pd/iTunes.lnk" || return
-	$mergeDir "$pp/iTunes" "$ao" || return
+	mergeDir "$pp/iTunes" "$ao" || return
 
 	QuickTimePost || return
 	appleCore || return
@@ -2454,8 +2420,8 @@ QuickTimePost()
 	$registry 32 delete "run/QuickTime Task" # "C:/Program Files/QuickTime/qttask.exe" -atboottime
 
 	echo "Updating icons..."
-	$makeDir "$ao/Apple" || return
-	$mergeDir "$pp/QuickTime" "$ao" || return
+	makeDir "$ao/Apple" || return
+	mergeDir "$pp/QuickTime" "$ao" || return
 	$rm "$pd/QuickTime Player.lnk" || return
 	$mv "$pp/Apple Software Update.lnk" "$ao/Apple" || return
 }
@@ -2542,7 +2508,7 @@ JavaFinal()
 
 JavaIcons()
 {
-		$mergeDir "$pp/Java" "$oo" || return
+		mergeDir "$pp/Java" "$oo" || return
 }
 
 vmw() { VmwareWorkstationInstall; };
@@ -2556,11 +2522,11 @@ VmwareWorkstationInstall()
 	$firewall rule add "VMware NAT Echo Reply" dir=in action=allow enable=yes profile=private,domain localip=any remoteip=any protocol=icmpv4:0,0 interfacetype=any edge=yes || return
 
 	echo "Creating VMware directory..."
-	$makeDir "$udata/VMware"
-	$makeDir "$udata/data/VMware"
+	makeDir "$udata/VMware"
+	makeDir "$udata/data/VMware"
 
 	echo "Updating icons..."
-	$mergeDir "$pp/VMware" "$oo" || return
+	mergeDir "$pp/VMware" "$oo" || return
 	$rm "$pd/VMware Workstation"*".lnk" || return
 
 # $PROGRAMDATA/VMware/VMware Workstation/config.ini
@@ -2587,7 +2553,7 @@ DashLane()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$up/DashLane" "$oo" || return
+		mergeDir "$up/DashLane" "$oo" || return
 		$rm "$ud/Dashlane.lnk" || return
 	fi
 }
@@ -2598,7 +2564,7 @@ LastPass()
 	run "LastPass/setup/lastappinstall_x64.exe" || return # https://lastpass.com/misc_download2.php
 
 	echo "Updating icons..."
-	$mergeDir "$up/LastPass" "$oo" || return
+	mergeDir "$up/LastPass" "$oo" || return
 
 	echo "Updating registry..."	
 	#$registry 32 delete "run/LastApp" # C:\Program Files (x86)\LastPass\lastapp.exe
@@ -2632,7 +2598,7 @@ FoxitReaderInstall()
 
 FoxitReaderIcons()
 {
-	$mergeDir "$pp/Foxit Reader" "$ao" || return
+	mergeDir "$pp/Foxit Reader" "$ao" || return
 	$rm "$pd/Foxit Reader.lnk" || return
 	$rm "$ud/Foxit Reader.lnk" || return
 }
@@ -2648,7 +2614,7 @@ iExplorerInstall()
 		$registry delete "urun/iExplorer" # "C:\Program Files (x86)\iExplorer\iExplorer.exe" /background
 
 		echo "Updating icons..."
-		$mergeDir "$pp/iExplorer" "$oo" || return
+		mergeDir "$pp/iExplorer" "$oo" || return
 		$rm "$oo/iExplorer/Uninstall iExplorer.lnk" || return
 			$rm "$oo/iExplorer/iExplorer on the Web.url" || return
 		QuickTimePost || return
@@ -2672,8 +2638,8 @@ PicasaInstall()
 	run "Google/Picasa/starter/image v2.0.zip" "$P32/PicasaStarter" || return
 
 	echo "Updating icons..."
-	$mergeDir --rename "$pp/Picasa 3" "$pp/Media/Other/Picasa" || return
-	$mergeDir "$up/Google+ Auto Backup" "$up/Operating System/Other" || return
+	mergeDir --rename "$pp/Picasa 3" "$pp/Media/Other/Picasa" || return
+	mergeDir "$up/Google+ Auto Backup" "$up/Operating System/Other" || return
 	$rm "$pp/Media/Other/Picasa/Uninstall.lnk" || return
 	$rm "$pd/Picasa 3.lnk" || return
 	$makeShortcut "$P32/PicasaStarter/PicasaStarter.exe" "$pp/Media/Other/Picasa/Picasa Starter" -d "Start Picasa with custom database" || return
@@ -2723,7 +2689,7 @@ IrfanViewInstall()
 	run "Shareware/IrfanView/setup/irfanview_plugins_436_setup.exe" || return
 	
 	echo "Updating icons..."
-	$mergeDir "$up/IrfanView" "$pp/Media/Other" || return
+	mergeDir "$up/IrfanView" "$pp/Media/Other" || return
 	$rm "$ud/IrfanView 64.lnk" || return
 	$rm "$ud/IrfanView 64 Thumbnails.lnk" || return
 }
@@ -2738,7 +2704,7 @@ CalibreInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir --rename "$pp/calibre 64bit - E-book Management" "$ao/calibre" || return
+		mergeDir --rename "$pp/calibre 64bit - E-book Management" "$ao/calibre" || return
 		$rm "$pd/calibre 64bit - E-book management.lnk" || return
 	fi
 
@@ -2771,20 +2737,20 @@ KindleInstall()
 	run "Amazon/Kindle/converter/Kindle DRM Removal v4.16.525.exe" || return # http://www.ebook-converter.com/kindle-drm-removal.htm
 
 	echo Creating data folders...
-	$makeDir "$udata/Kindle" || return
-	$makeDir "$udata/eBook Converter" || return
-	$makeDir "$udoc/eBook Converter" || return
+	makeDir "$udata/Kindle" || return
+	makeDir "$udata/eBook Converter" || return
+	makeDir "$udoc/eBook Converter" || return
 	$hide "$udoc/eBook Converter" || return
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Amazon" "$ao" || return
-	$mergeDir "$up/Amazon" "$ao" || return
-	$mergeDir --rename "$ao/Amazon/Amazon Kindle" "$ao/Amazon/Kindle" || return
+	mergeDir "$pp/Amazon" "$ao" || return
+	mergeDir "$up/Amazon" "$ao" || return
+	mergeDir --rename "$ao/Amazon/Amazon Kindle" "$ao/Amazon/Kindle" || return
 	$rm "$pd/Kindle.lnk" || return
 	$rm "$ud/Kindle.lnk" || return
 	$rm "$ao/Amazon/Kindle/Uninstall Kindle.lnk" || return
 	
-	$mergeDir "$pp/eBook Converter" "$ao" || return
+	mergeDir "$pp/eBook Converter" "$ao" || return
 
 	echot "\
 Kindle for PC
@@ -2806,7 +2772,7 @@ QuickenInstall()
 	run "Quicken/Quicken/Quicken2018.exe" || return # http://quicken.intuit.com/support/help/quicken-2014-for-windows-release-notes--updates--and-mondo-patch-/GEN85883.html
 
 	echo "Updating icons..."
-	$mergeDir --rename "$pp/Quicken" "$ao/Quicken"
+	mergeDir --rename "$pp/Quicken" "$ao/Quicken"
 	$rm "$pd/Quicken.lnk"
 
 	echot "\
@@ -2826,7 +2792,7 @@ HarmonyRemoteInstall()
 	run "Logitech/Harmony Remote/LogitechHarmonyRemote7.7.0-WIN-x86.exe" || return # http://www.logitech.com/en-us/440/6441?section=downloads&bit=&osid=14
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Logitech" "$ao" || return
+	mergeDir "$pp/Logitech" "$ao" || return
 	$rm "$pd/Logitech Harmony Remote Software 7.lnk" || return
 }
 
@@ -2837,11 +2803,11 @@ VeraCryptInstall()
 
 	run "Shareware/VeraCrypt/setup/" -p "VeraCrypt Setup $v.exe" "VeraCrypt_${v}.dmg" "veracrypt-$v-setup" || return 
 
-	$makeDir "$UserHome/Documents/data/VeraCrypt" || return
+	makeDir "$UserHome/Documents/data/VeraCrypt" || return
 
 	if [[ "$PLATFORM" == "win" ]]; then
 		echo "Updating icons..."
-		$mergeDir "$pp/VeraCrypt" "$ao" || return
+		mergeDir "$pp/VeraCrypt" "$ao" || return
 		$rm "$pd/VeraCrypt.lnk" || return
 	fi
 
@@ -2866,7 +2832,7 @@ FLuxInstall()
 	run "Shareware/f.lux/" -p "flux-setup.exe" "Flux.zip" "" || return # http://justgetflux.com/	
 
 	echo "Updating icons..."
-	$mergeDir "$up/Flux" "$up/Operating System/Other" || return
+	mergeDir "$up/Flux" "$up/Operating System/Other" || return
 
 	echo "Updating registry..."	
 	$registry delete "urun/f.lux" # "C:\Users\jjbutare\AppData\Local\FluxSoftware\Flux\flux.exe" /noshow
@@ -2888,7 +2854,7 @@ SnagItInstall()
 	run "TechSmith/SnagIt/setup/$v" -p "exe" "dmg" "" || return
 
 	echo "Updating icons..."
-	$mergeDir --rename "$pp/TechSmith" "$ao/TechSmith" || return
+	mergeDir --rename "$pp/TechSmith" "$ao/TechSmith" || return
 	$ren "$ao/TechSmith/Snagit $major Editor.lnk" "$ao/TechSmith/Snagit Editor.lnk" || return
 	$ren "$ao/TechSmith/Snagit $major.lnk" "$ao/TechSmith/Snagit.lnk" || return
 	$rm "$pp/Startup/Snagit $major.lnk" || return
@@ -2904,7 +2870,7 @@ SnagItInstall()
 		registry 32 set "$r/ExternalOutputDir" REG_SZ "$folder/Program/" || return
 
 		echo "Updating directories..."
-		$mergeDir "$udoc/Snagit" "$udata" || return
+		mergeDir "$udoc/Snagit" "$udata" || return
 	fi
 
 	case "$PLATFORM" in
@@ -2969,7 +2935,7 @@ SyncplicityInstall()
 		{ run ism:appid=24064 "Syncplicity" || return; }
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Syncplicity" "$ao" || return
+	mergeDir "$pp/Syncplicity" "$ao" || return
 
 	echo "Updating registry..."	
 	$registry delete "run/Syncplicity" # C:\Program Files\Syncplicity\Syncplicity.exe
@@ -2993,7 +2959,7 @@ WindowsAdministrationToolsInstall()
 	run "Microsoft/Server/tools/WindowsTH-RSAT_WS_1803-x64.msu" || return # http://www.microsoft.com/en-us/search/result.aspx?q=Remote%20Server%20Administration%20Tools&form=DLC
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Administrative Tools" "$oo" || return
+	mergeDir "$pp/Administrative Tools" "$oo" || return
 	$rm "$pp/Server Manager.lnk" || return
 	$rm "$pp/Administrative Tools.lnk" || return
 }
@@ -3006,7 +2972,7 @@ MosaicoInstall()
 	run "Soulid Studio/Mosaico/setup/Mosaico Setup v1.9.0.0.exe" || return # http://www.soulidstudio.com/download/
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Mosaico" "$oo" || return
+	mergeDir "$pp/Mosaico" "$oo" || return
 
 	echo "Updating registry..."	
 	$registry delete "urun/Mosaico" # C:\Program Files (x86)\Mosaico\mosaico.exe
@@ -3032,7 +2998,7 @@ CreativeCloudInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$makeDir "$pp/Media/Other/Adobe" || return
+		makeDir "$pp/Media/Other/Adobe" || return
 		$mv "$pp/Adobe"*".lnk" "$pp/Media/Other/Adobe" || return
 		$mv "$pd/Adobe"*".lnk" "$pp/Media/Other/Adobe" || return
 
@@ -3045,8 +3011,8 @@ CreativeCloudInstall()
 		$registry delete "run/AdobeAAMUpdater-1.0" # "C:\Program Files (x86)\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe"
 
 		echo "Moving data folders..."
-		$makeLink --merge --hide "$udata/Creative Cloud Files" "$HOME/Creative Cloud Files" || return
-		$makeLink --merge --hide "$udata/Adobe" "$udoc/Adobe" || return
+		makeLink --merge --hide "$udata/Creative Cloud Files" "$HOME/Creative Cloud Files" || return
+		makeLink --merge --hide "$udata/Adobe" "$udoc/Adobe" || return
 	fi
 }
 
@@ -3069,7 +3035,7 @@ IntuosProInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/Wacom Tablet" "$pp/Media/Other" || return
+		mergeDir "$pp/Wacom Tablet" "$pp/Media/Other" || return
 	fi
 }
 
@@ -3081,42 +3047,37 @@ DiskInventortyXInstall()
 
 RubyInstall()
 {
-	case $PLATFORM in
-		win) 
-			! which ruby >& /dev/null && { cygwin package ruby || return; }
+	if ! InPath ruby; then
+		if IsPlatform cygwin; then { cygwin package ruby || return; }
+		elif IsPlatform debian; then { sudo apt-get -y ruby || return; }; fi
+	fi
 
-			$makeDir ~/bin || return
-			$hide ~/bin || return
-			ScriptEval SetVar --path PATH ~/bin || return
+	makeDir ~/.gem && $hide ~/.gem || return
+	makeDir ~/bin && $hide ~/bin || return
 
-			$makeDir ~/.gem || return
-			$hide ~/.gem || return
-			;;
-		mac)
-			echo "gem: -n/usr/local/bin" >> ~/.gemrc
-			;;
-	esac
+	if IsPlatform win; then { ScriptEval SetVar --path PATH ~/bin || return; }
+	elif IsPlatform mac; then { echo "gem: -n/usr/local/bin" >> ~/.gemrc; }; fi
 }
 
 PythonInstall()
 {	
 	printf "**************************************************\n* Python\n**************************************************\n"
 
-	ScriptEval intel SetProxy || return
-	
-	if [[ "$PLATFORM" == "win" ]]; then
-		! which python >& /dev/null && { cygwin package python || return; }
-		$makeDir ~/.cache ~/.pip || return
-		$hide ~/.cache ~/.pip || return
-		! which pip >& /dev/null && { get-pip.py || return; }
-	else
-		! which pip >& /dev/null && { sudo easy_install pip	|| return; }
+	if ! InPath python3; then
+		if IsPlatform cygwin; then cygwin package python || return
+		elif IsPlatform debian; then sudo apt-get -y python3 || return; fi
 	fi
 
 	# pip: https://packaging.python.org/tutorials/installing-packages/ https://pip.pypa.io/en/stable/installing/
-	! which pip >& /dev/null && { python -m ensurepip --default-pip || return; }
-	! which pip >& /dev/null && { get-pip.py || return; }
-	! which pip-review >& /dev/null && { pip install pip-tools || return; }
+	if ! InPath pip; then
+		IsPlatform mac && { easy_install pip	|| return; }
+		! InPath pip && { python -m ensurepip --default-pip || return; }
+		! InPath pip && { get-pip.py || return; }
+	fi
+
+	IsPlatform win && { makeDir ~/.cache ~/.pip && $hide ~/.cache ~/.pip || return; }
+	
+	! InPath pip-review && { pip install pip-tools || return; }
 }
 
 7ZipInstall()
@@ -3130,7 +3091,7 @@ PythonInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/7-Zip" "$ao" || return
+		mergeDir "$pp/7-Zip" "$ao" || return
 	fi
 
 	clipw "$(utw "$P\Sublime Text 4\sublime_text.exe")" || return
@@ -3172,8 +3133,8 @@ LinqPadInstall()
 	run "Shareware/DOT.NET/LinqPad/LINQPad5Setup.exe" || return # https://www.linqpad.net/Download.aspx
 
 	echo "Moving data folders..."
-	$makeDir "$udata/LINQPad" || return
-	$makeLink --merge --hide "$udata/LINQPad" "$udoc/LINQPad Queries" || return
+	makeDir "$udata/LINQPad" || return
+	makeLink --merge --hide "$udata/LINQPad" "$udoc/LINQPad Queries" || return
 
 	echo "Updating icons..."
 	$mv "$ud/LINQPad 5.lnk" "$pp/Development/DotNet" || return
@@ -3188,7 +3149,7 @@ MusicBeeInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$up/MusicBee" "$pp/Media/Other" || return
+		mergeDir "$up/MusicBee" "$pp/Media/Other" || return
 		$rm "$ud/MusicBee.lnk" || return
 	fi
 
@@ -3203,11 +3164,11 @@ DymoLabelInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/DYMO" "$ao" || return
+		mergeDir "$pp/DYMO" "$ao" || return
 		$rm "$pd/DYMO Label v.8.lnk" || return
 
 		echo "Moving data folders..."
-		$makeLink --merge --hide "$udata/DYMO Label" "$udoc/DYMO Label" || return
+		makeLink --merge --hide "$udata/DYMO Label" "$udoc/DYMO Label" || return
 	fi
 }
 
@@ -3218,7 +3179,7 @@ DuetInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/Duet Display" "$oo" || return
+		mergeDir "$pp/Duet Display" "$oo" || return
 		$rm "$pd/duet.lnk" || return
 	fi
 
@@ -3233,7 +3194,7 @@ TidalInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$up/TIDAL" "$up/Media/Other" || return
+		mergeDir "$up/TIDAL" "$up/Media/Other" || return
 		$rm "$ud/TIDAL.lnk" || return
 	fi
 }
@@ -3254,7 +3215,7 @@ MatrikonOpcSimulatorInstall()
 	run "Matrikon/setup/MatrikonOPCSimulation.EXE" || return
 
 	echo "Updating icons..."
-	$mergeDir "$pp/MatrikonOPC" "$up/Development/Other" || return
+	mergeDir "$pp/MatrikonOPC" "$up/Development/Other" || return
 }
 	
 GrayboxOpcInstall()
@@ -3263,7 +3224,7 @@ GrayboxOpcInstall()
 	run "Graybox/setup/gbopcsim18.msi" || return # http://gray-box.net/opc_simulator.php
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Graybox" "$up/Development/Other" || return
+	mergeDir "$pp/Graybox" "$up/Development/Other" || return
 }
 
 IntelUtilities()
@@ -3300,7 +3261,7 @@ IntelUtilities()
 GameIcons()
 {
 	echo "Moving data folders..."
-	$makeLink --merge --hide "$udata/Shadow of the Tomb Raider" "$udoc/Shadow of the Tomb Raider" || return
+	makeLink --merge --hide "$udata/Shadow of the Tomb Raider" "$udoc/Shadow of the Tomb Raider" || return
 
 	echo "Updating icons..."
 	$mv "$ud/The Elder Scrolls V Skyrim VR.url" "$pp/Game" || return
@@ -3319,8 +3280,8 @@ SteamInstall()
 	run "game/Steam/" -p "SteamSetup.exe" "steam.dmg" "steam_latest.deb" || return # http://store.steampowered.com/about/
 	
 	echo "Updating icons..."
-	$mergeDir "$up/Steam" "$pp/Game/Other" || return
-	$mergeDir "$pp/Steam" "$pp/Game/Other" || return
+	mergeDir "$up/Steam" "$pp/Game/Other" || return
+	mergeDir "$pp/Steam" "$pp/Game/Other" || return
 	$rm "$pd/Steam.lnk" || return
 	GameIcons || return
 
@@ -3345,11 +3306,11 @@ UplayGames()
 	run "game/Ubisoft/UplayInstaller.exe" || return #
 
 	echo "Updating icons..."
-	$mergeDir "$up/Ubisoft" "$pp/Game/Other" || return
+	mergeDir "$up/Ubisoft" "$pp/Game/Other" || return
 	$rm "$ud/Uplay.lnk" || return
 
 	echo "Moving data folders..."
-	$makeLink --merge --hide "$udoc/data/Uplay" "$udoc/My Games" || return
+	makeLink --merge --hide "$udoc/data/Uplay" "$udoc/My Games" || return
 }
 
 GreenShot()
@@ -3359,7 +3320,7 @@ GreenShot()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/GreenShot" "$oo" || return
+		mergeDir "$pp/GreenShot" "$oo" || return
 	fi
 }
 
@@ -3370,7 +3331,7 @@ PartitionAssistant()
 	run "AOMEI/Partition Assistant/setup/PAssist_ProDemo.exe" || return # http://www.aomeisoftware.com/download/pa/full/DM_Pro.zip
 
 	echo "Updating icons..."
-	$mergeDir --rename "$pp/AOMEI Partition Assistant" "$oo/Partition Assistant" || return
+	mergeDir --rename "$pp/AOMEI Partition Assistant" "$oo/Partition Assistant" || return
 	$ren "$oo/Partition Assistant/AOMEI Partition Assistant Demo Edition $v.lnk" "$oo/Partition Assistant/Partition Assistant.lnk" || return
 	$rm "$pd/AOMEI Partition Assistant Professional Edition $v.lnk"
 
@@ -3414,7 +3375,7 @@ GlassWire()
 	run "GlassWire/GlassWireSetup.exe" || return # https://www.glasswire.com/download/
 
 	echo "Updating icons..."
-	$mergeDir "$pp/GlassWire" "$oo" || return
+	mergeDir "$pp/GlassWire" "$oo" || return
 	$rm "$pd/GlassWire.lnk"
 
 	echo "Updating registry..."	
@@ -3458,18 +3419,18 @@ Do not update APP Center
 	echo "Moving data folders..."
 
 	if [[ ! -d $udata/SIV ]]; then
-		$makeDir "$udoc/SIV" || return
-		$makeLink --merge --hide "$udata/SIV" "$udoc/SIV" || return
+		makeDir "$udoc/SIV" || return
+		makeLink --merge --hide "$udata/SIV" "$udoc/SIV" || return
 	fi
 
 	if [[ ! -d $udata/EasyTune ]]; then
-		$makeDir "$udoc/EasyTune" || return
-		$makeLink --merge --hide "$udata/EasyTune" "$udoc/EasyTune" || return
+		makeDir "$udoc/EasyTune" || return
+		makeLink --merge --hide "$udata/EasyTune" "$udoc/EasyTune" || return
 	fi
 
 	echo "Updating icons..."
 	local installDir="$P32/GIGABYTE" dest="$oo/GIGABYTE"
-	$mergeDir "$pp/GIGABYTE" "$oo" || return
+	mergeDir "$pp/GIGABYTE" "$oo" || return
 
 	$ren "$oo/GIGABYTE/APP Center/Launch APP Center.lnk" "$oo/GIGABYTE/APP Center/GIGABYTE APP Center.lnk" || return
 	$mv "$pd/RGBFusion.lnk" "$dest" || return
@@ -3488,7 +3449,7 @@ EpsonScan()
 	run "hardware/Epson/Perfection V100 Photo/epson13833.exe" || return # https://epson.com/Support/Scanners/Perfection-Series/Epson-Perfection-V100-Photo/s/SPT_B11B184051
 
 	echo "Updating icons..."
-	$mergeDir "$pp/EPSON Scan" "$oo" || return
+	mergeDir "$pp/EPSON Scan" "$oo" || return
 	$rm "$pd/EPSON Scan.lnk"
 }
 
@@ -3508,7 +3469,7 @@ PdfElement()
 	run "Wondershare/PDFelement/" -p "pdfelement6-pro_setup_full2990.exe" "mac-pdfelement6-pro_full2992.dmg" "" || return # ​https://pdf.wondershare.com/
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Wondershare/" "$pp/Applications/Other" || return
+	mergeDir "$pp/Wondershare/" "$pp/Applications/Other" || return
 	$rm "$pd/PDFelement 6 Pro.lnk"
 }
 
@@ -3519,7 +3480,7 @@ TigerVnc()
 	run "Shareware/TigerVNC/" -p "tigervnc64-1.8.0.exe" "" "" || return # ​https://github.com/TigerVNC/tigervnc/releases
 
 	echo "Updating icons..."
-	$mergeDir --rename "$pp/TigerVNC 64-bit" "$oo/TigerVNC" || return
+	mergeDir --rename "$pp/TigerVNC 64-bit" "$oo/TigerVNC" || return
 	$rm "$pd/PDFelement 6 Pro.lnk"
 }
 
@@ -3531,15 +3492,15 @@ AquaSnap()
 	run "NURGO/TidyTabs.msi" || return # https://www.nurgo-software.com/pricing/tidytabs
 
 	echo "Updating icons..."
-	$mergeDir "$pp/AquaSnap" "$oo" || return
-	$mergeDir "$pp/TidyTabs" "$oo" || return
+	mergeDir "$pp/AquaSnap" "$oo" || return
+	mergeDir "$pp/TidyTabs" "$oo" || return
 
 	echo "Updating registry..."	
 	$registry delete "urun/AquaSnap" # C:\Program Files (x86)\AquaSnap\AquaSnap.Daemon.exe
 	$registry delete "urun/TidyTabs" # C:\Program Files (x86)\TidyTabs\TidyTabs.Daemon.exe
 
 	echot "\
-- TidyTabs, Settings..., Grouping, add mintty.exe notepad.exe winword.exe"
+- TidyTabs, Settings..., Grouping, add mintty.exe notepad.exe ubuntu1804.exe winword.exe"
 }
 
 Garmin()
@@ -3550,12 +3511,12 @@ Garmin()
 	run "hardware/Garmin/setup/" -p "inReach Sync en-US 166572.exe" "" "" || return # satellite - https://inreach.garmin.com/Sync
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Garmin" "$pp/Travel/Other" || return
+	mergeDir "$pp/Garmin" "$pp/Travel/Other" || return
 	$rm "$pd/Garmin Express.lnk"	
 	$rm "$pd/inReach Sync.lnk"	
 
 	echo "Moving data folders..."
-	$makeLink --merge --hide "$udata/Garmin" "$udoc/My Garmin" || return
+	makeLink --merge --hide "$udata/Garmin" "$udoc/My Garmin" || return
 
 	echo "Updating registry..."	
 	$registry delete "urun/GarminExpressTrayApp" # "C:\Program Files (x86)\Garmin\Express Tray\ExpressTray.exe"
@@ -3567,7 +3528,7 @@ Sena()
 	run "hardware/Sena/setup/" -p "SenaBluetoothDeviceManagerForWindows-v3.8.2-setup_x64.exe" "SENABluetoothDeviceManagerForMAC-v3.7.pkg" "" || return # ​https://www.sena.com/software/#device-manager
 
 	echo "Updating icons..."
-	$mergeDir "$up/Sena Technologies" "$pp/Travel/Other" || return
+	mergeDir "$up/Sena Technologies" "$pp/Travel/Other" || return
 	$rm "$ud/SenaBluetoothDeviceManager.lnk"	
 }
 
@@ -3578,9 +3539,9 @@ GoPro()
 	run "hardware/GoPro/setup/" -p "FusionStudio_x64_111_2018-02-07.exe" "FusionStudio_Mac_Sierra_111_2018-02-07.dmg" "" || return # https://shop.gopro.com/softwareandapp/gopro-fusion-studio-app/fusion-studio.html
 
 	echo "Updating icons..."
-	$mergeDir "$pp/GoPro" "$pp/Travel/Other" || return
-	$mergeDir "$up/GoPro Fusion Studio 1.1" "$pp/Travel/Other/GoPro" || return
-	$mergeDir "$up/GoPro VR Player 3.0" "$pp/Travel/Other/GoPro" || return
+	mergeDir "$pp/GoPro" "$pp/Travel/Other" || return
+	mergeDir "$up/GoPro Fusion Studio 1.1" "$pp/Travel/Other/GoPro" || return
+	mergeDir "$up/GoPro VR Player 3.0" "$pp/Travel/Other/GoPro" || return
 	$rm "$pd/GoPro Quik.lnk"	 || return
 	$rm "$ud/GoPro Fusion Studio 1.1.lnk"	 || return
 	$rm "$ud/GoPro VR Player 3.0.lnk"	 || return
@@ -3602,8 +3563,8 @@ dji()
 	run "hardware/dji/Assitant/setup/" -p "DJI Assistant 2 1.2.3.exe" "DJI+Assistant+2+1.2.3.pkg" "" || return # https://www.dji.com/mavic/info#downloads
 
 	echo "Updating icons..."
-	$mergeDir --rename "$up/DJI Product" "$pp/Travel/Other/DJI" || return
-	$mergeDir --rename "$pp/DJI Product" "$pp/Travel/Other/DJI" || return
+	mergeDir --rename "$up/DJI Product" "$pp/Travel/Other/DJI" || return
+	mergeDir --rename "$pp/DJI Product" "$pp/Travel/Other/DJI" || return
 	$rm "$pd/DJI Assistant 2.lnk" || return
 }
 
@@ -3625,10 +3586,10 @@ tribler()
 
 
 	echo "Updating icons..."
-	$mergeDir "$pp/VideoLAN" "$pp/Media/Other" || return
+	mergeDir "$pp/VideoLAN" "$pp/Media/Other" || return
 	$rm "$pd/VLC media player.lnk" || return
 
-	$mergeDir "$up/Tribler" "$oo" || return
+	mergeDir "$up/Tribler" "$oo" || return
 	$rm "$ud/Tribler.lnk" || return
 
 		echot "\
@@ -3643,7 +3604,7 @@ TrueImage()
 	run "acronis/True Image/setup/AcronisTrueImage2019." -p "exe" "dmg" "" || return # https://www.acronis.com/en-us/support/updates/index.html
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Acronis" "$oo" || return
+	mergeDir "$pp/Acronis" "$oo" || return
 	$rm "$pp/Acronis True Image.lnk" || return
 	$rm "$pd/Acronis True Image.lnk" || return
 
@@ -3663,7 +3624,7 @@ ToDoBackup()
 	run "EaseUS/ToDo Backup Home/tb_free.exe" || return # https://www.easeus.com/backup-software/tb-free.html1 
 	
 	echo "Updating icons..."
-	$mergeDir --rename "$pp/EaseUS Todo Backup 11.0" "$oo/ToDo Backup" || return
+	mergeDir --rename "$pp/EaseUS Todo Backup 11.0" "$oo/ToDo Backup" || return
 	$rm "$pd/EaseUS Todo Backup Home 11.0.lnk" || return
 }
 
@@ -3679,7 +3640,7 @@ ParagonExtFs()
 	run "Paragon/ExtFS/Paragon-608-PEU_WinInstallSN-4.3.852.msi" || return # http://www.paragon-drivers.com/extfs-windows/
 	
 	echo "Updating icons..."
-	$mergeDir --rename "$pp/Paragon ExtFS for Windows" "$oo/Paragon ExtFS" || return
+	mergeDir --rename "$pp/Paragon ExtFS for Windows" "$oo/Paragon ExtFS" || return
 	$rm "$pd/Paragon ExtFS for Windows.lnk" || return
 
 	echo "Updating services..."
@@ -3695,7 +3656,7 @@ BrotherPrinter()
 	
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/Brother" "$ao" || return
+		mergeDir "$pp/Brother" "$ao" || return
 		$mv "$pd/Brother Creative Center.lnk" "$ao/Brother" || return
 		$rm "$pd/Brother Utilities.lnk" || return
 
@@ -3712,7 +3673,7 @@ PowerPanel()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/CyberPower PowerPanel Personal" "$oo" || return
+		mergeDir "$pp/CyberPower PowerPanel Personal" "$oo" || return
 	fi
 }
 
@@ -3724,7 +3685,7 @@ LgMonitor()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/OnScreen Control" "$oo" || return
+		mergeDir "$pp/OnScreen Control" "$oo" || return
 		$rm "$pd/OnScreen Control.lnk" || return
 	fi
 }
@@ -3736,7 +3697,7 @@ DasKeyboard()
 	run "hardware/Das Keyboard/setup/" -p "Das-Keyboard-Q_3.2.3.exe" "q-Desktop.img" "linux" || return # https://www.daskeyboard.io/get-started/
 
 	if [[ "$PLATFORM" == "win" ]]; then	
-		$mergeDir "$pp/Das-Keyboard-Q" "$oo" || return
+		mergeDir "$pp/Das-Keyboard-Q" "$oo" || return
 		$rm "$ud/das-keyboard-q.lnk" || return
 		$rmd "$up/GitHub, Inc" || return
 		$registry 32 delete "run/Das Keyboard Q" || return # C:\Users\jjbutare\AppData\Local\das-keyboard-q\das-keyboard-q.exe
@@ -3752,7 +3713,7 @@ UniFi()
 	
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$up/Ubiquiti UniFi" "$oo" || return
+		mergeDir "$up/Ubiquiti UniFi" "$oo" || return
 		$rm "$ud/UniFi.lnk" || return		
 	fi
 }
@@ -3777,28 +3738,32 @@ CleanMyPc()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/CleanMyPC" "$oo" || return
+		mergeDir "$pp/CleanMyPC" "$oo" || return
 		$rm "$pd/CleanMyPC.lnk" || return
 	fi
 }
 
-AltTabTerminator() { HiddenStart; };
-HiddenStart()
+AltTabTerminator()
 {
-	( intel IsIntelHost || [[ "$PLATFORM" != "win" ]] ) && return 0;
-
-	printf "**************************************************\n* Hidden Start\n**************************************************\n"
-	run "NTwind/AltTabTer_3.7-setup.exe" || return
-	run "NTwind/Hstart_4.6-setup.exe" || return # https://www.ntwind.com/software/hstart.html
+	printf "**************************************************\n* Alt-Tab Terminator\n**************************************************\n"
+	run "NTwind/AltTabTer_3.8-setup.exe" || return # https://www.ntwind.com/software/alttabter.html
 
 	echo "Updating icons..."
-	$mergeDir "$pp/Alt-Tab Terminator" "$oo" || return
-	$mergeDir "$pp/Hidden Start" "$oo" || return
+	mergeDir "$pp/Alt-Tab Terminator" "$oo" || return
 	$rm "$pd/Alt-Tab Terminator.lnk" || return
-	$rm "$pd/Hidden Start.lnk" || return
 
 	echo "Updating registry..."	
 	$registry delete "urun/Alt-Tab Terminator" # "C:\Program Files\Alt-Tab Terminator\AltTabTer64.exe" /startup
+}
+
+HiddenStart()
+{
+	printf "**************************************************\n* Hidden Start\n**************************************************\n"
+	run "NTwind/Hstart_4.6-setup.exe" || return # https://www.ntwind.com/software/hstart.html
+
+	echo "Updating icons..."
+	mergeDir "$pp/Hidden Start" "$oo" || return
+	$rm "$pd/Hidden Start.lnk" || return
 }
 
 QuickBooks()
@@ -3819,12 +3784,12 @@ AxCrypt()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/AxCrypt" "$oo" || return
+		mergeDir "$pp/AxCrypt" "$oo" || return
 
 		echo "Moving data folders..."
-		$makeLink --merge --hide "$udata/AxCrypt" "$udoc/My AxCrypt" || return
-		$makeLink --merge --hide "$uhome/DropBox/data/AxCrypt" "$uhome/DropBox/My AxCrypt" || return
-		$makeLink --merge --hide "$uhome/OneDrive/documents/data/AxCrypt" "$uhome/OneDrive/My AxCrypt" || return
+		makeLink --merge --hide "$udata/AxCrypt" "$udoc/My AxCrypt" || return
+		makeLink --merge --hide "$uhome/DropBox/data/AxCrypt" "$uhome/DropBox/My AxCrypt" || return
+		makeLink --merge --hide "$uhome/OneDrive/documents/data/AxCrypt" "$uhome/OneDrive/My AxCrypt" || return
 	fi
 }
 
@@ -3842,7 +3807,7 @@ vlc()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/VideoLAN" "$pp/Media/Other" || return
+		mergeDir "$pp/VideoLAN" "$pp/Media/Other" || return
 		$rm "$pd/VLC media player.lnk" || return
 	fi
 }
@@ -3887,7 +3852,7 @@ SurveillanceStation()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/Synology" "$pp/Surveillance/Other" || return
+		mergeDir "$pp/Synology" "$pp/Surveillance/Other" || return
 		$rm "$pd/Live View.lnk" || return
 		$rm "$pd/Surveillance Station Client.lnk" || return
 		$rm "$pd/Timeline.lnk" || return
@@ -3902,8 +3867,8 @@ plex()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$pp/Plex Media Player" "$pp/Media/Other" || return
-		$mergeDir "$pp/Plex Media Server" "$pp/Media/Other" || return
+		mergeDir "$pp/Plex Media Player" "$pp/Media/Other" || return
+		mergeDir "$pp/Plex Media Server" "$pp/Media/Other" || return
 		$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
 		$rm "$pd/(prog).lnk" || return
 	fi
@@ -3927,7 +3892,7 @@ LinkShellExtension()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mergeDir "$up/Link Shell Extension" "$oo" || return
+		mergeDir "$up/Link Shell Extension" "$oo" || return
 	fi
 }
 
@@ -3937,7 +3902,7 @@ RightClickEnhancer()
 	run "RBSoft/Right Click Enhancer/Right.Click.Enhancer.Professional.Setup.exe" || return # https://rbsoft.org/downloads/right-click-enhancer/
 
 	echo "Updating icons..."
-	$mergeDir "$up/Right Click Enhancer Professional" "$oo" || return
+	mergeDir "$up/Right Click Enhancer Professional" "$oo" || return
 	$rm "$ud/Right Click Enhancer Professional.lnk" || return	
 }
 
@@ -3966,11 +3931,16 @@ xServer()
 {
 	printf "**************************************************\n* X Server\n**************************************************\n"
 
-	if IsPlatform win; then
+	if IsPlatform cygwin; then
 		cygwin package x || return
-		$mergeDir "$pp/Cygwin-X" "$oo" || return
+		mergeDir "$pp/Cygwin-X" "$oo" || return
+	elif IsPlatform win; then # https://sourceforge.net/projects/vcxsrv/
+		run "LINUX/VcXsrv/vcxsrv-64.1.20.1.4.installer.exe" --pause || return
+		mergeDir "$pp/VcXsrv" "$pp/Operating System/Other" || return
+		$rm "$pd/XLaunch.lnk"
+		$makeShortcut "wscript.exe" "$pp/Operating System/terminator" -a="c:\Users\Public\Documents\data\platform\win\terminator.vbs" -i "$(utw "$PUB/Documents/data/icons/Command Prompt.ico")" || return
 	elif IsPlatform mac; then # https://www.xquartz.org/
-		run "$/UNIX/XQuartz/XQuartz-2.7.11.dmg" || return
+		run "UNIX/XQuartz/XQuartz-2.7.11.dmg" || return
 	elif IsPlatform raspbian; then
 			sudo bash -c '[[ ! -f $HOME/.Xauthority ]] && ln -s '$HOME'/.Xauthority $HOME/.Xauthority'
 	else
@@ -3983,7 +3953,7 @@ homebridge()
 	printf "**************************************************\n* Homebridge\n**************************************************\n"
 	! nodeInstalled && { i nodejs || return; }
 	
-	if ! which homebridge >& /dev/null; then
+	if ! InPath homebridge; then
 		echo "Installing homebridge..."
 		sudo npm install -g --unsafe-perm homebridge homebridge-config-ui-x || return
 		sudo npm install -g homebridge-node-alarm-dot-com homebridge-dyson-link homebridge-neato homebridge-platform-ring-video-doorbell homebridge-webos-tv homebridge-wol homebridge-zp || return
@@ -4004,7 +3974,7 @@ homebridge()
 	fi
 
 	if ask "Configuring Wake On Lan plugin"; then
-		which setcap >& /dev/null && { sudo setcap cap_net_raw=pe /usr/bin/node || return; }
+		InPath setcap && { sudo setcap cap_net_raw=pe /usr/bin/node || return; }
 		[[ -f /sbin/shutdown ]] && { sudo chmod +s /sbin/shutdown || return; }
 	fi
 	
@@ -4012,14 +3982,14 @@ homebridge()
 }
 
 
-nodeInstalled() { which node >& /dev/null; }
+nodeInstalled() { InPath node; }
 
 NodeRed()
 {
 	printf "**************************************************\n* node-red\n**************************************************\n"
 	! nodeInstalled && { i nodejs || return; }
 	
-	if ! which node-red >& /dev/null; then
+	if ! InPath node-red; then
 		echo "Installing node-red..."
 		bash <(curl -sL https://raw.githubusercontent.com/node-red/raspbian-deb-package/master/resources/update-nodejs-and-nodered) || return
 	fi

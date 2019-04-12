@@ -29,14 +29,14 @@ shopt -s nocasematch extglob
 #
 
 # PLATFORM=linux|win|mac
-# PLATFORM_LIKE=debian|openwrt|synology
+# PLATFORM_LIKE=cygwin|debian|openwrt|synology
 # PLATFORM_ID=dsm|srm|raspian|ubiquiti|ubuntu
 
 # GetPlatform [host](local) - get platform, platformLike, and platformId for the host
 # test:  sf; time GetPlatform nas1 && echo "success: $platform-$platformLike-$platformId"
 function GetPlatform() 
 {
-	local results host="$1" cmd='echo platform=$(uname); [[ -f /etc/os-release ]] && cat /etc/os-release; [[ -f /var/sysinfo/model ]] && echo ubiquiti=true; [[ -f /proc/syno_platform ]] && echo synology=true && [[ -f /bin/busybox ]] && echo busybox=true'
+	local results host="$1" cmd='echo platform=$(uname); echo kernel=\"$(uname -r)\"; [[ -f /etc/os-release ]] && cat /etc/os-release; [[ -f /var/sysinfo/model ]] && echo ubiquiti=true; [[ -f /proc/syno_platform ]] && echo synology=true && [[ -f /bin/busybox ]] && echo busybox=true'
 
 	if [[ $host ]]; then
 		#HostUtil available $host || { EchoErr "$host is not available"; return 1; } # adds .5s
@@ -48,10 +48,12 @@ function GetPlatform()
 	results="$(
 		eval $results
 		case "$platform" in 
-			CYGWIN*) platform="win";;
+			Cygwin*) platform="win"; ID_LIKE=cygwin;;
 			Darwin)	platform="mac";;
 			Linux) platform="linux";;
+			MinGw*) platform="win"; ID_LIKE=mingw;;
 		esac
+		[[ $kernel =~ .*-Microsoft ]] && platform="win" # Windows Subsytem for Linux
 		[[ $ID_LIKE =~ openwrt ]] && ID_LIKE="openwrt"
 		[[ $ubiquiti ]] && ID="ubiquiti"
 		[[ $synology ]] && { ID_LIKE="synology"; ID="dsm"; [[ $busybox ]] && ID="srm"; }
@@ -68,20 +70,21 @@ function GetPlatform()
 # IsPlatform platform[,platform,...] [platform platformLike PlatformId](PLATFORM PLATFORM_LIKE PLATFORM_ID)
 function IsPlatform()
 {
-	local checkPlatforms="$1" platforms
+	local checkPlatforms="$1" platforms p
 	local platform="${2:-$PLATFORM}" platformLike="${3:-$PLATFORM_LIKE}" platformId="${4:-$PLATFORM_ID}"
 
 	for p in ${checkPlatforms//,/ }; do
 		case "$p" in 
 			win|mac|linux) [[ "$p" == "$platform" ]] && return 0;;
-			debian|openwrt|synology) [[ "$p" == "$platformLike" ]] && return 0;;
+			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return 0;; # Windows Subsystem for Linux
+			cygwin|debian|mingw|openwrt|synology) [[ "$p" == "$platformLike" ]] && return 0;;
 			dsm|srm|raspbian|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return 0;;
-			busybox) which busybox > /dev/null && return 0;;
+			busybox) InPath busybox && return 0;;
 
 			# package management
-			apt) which apt >& /dev/null && return 0;;
-			ipkg) which ipkg >& /dev/null && return 0;;
-			opkg) which opkg >& /dev/null && return 0;;
+			apt) InPath apt && return 0;;
+			ipkg) InPath ipkg && return 0;;
+			opkg) InPath opkg && return 0;;
 		esac
 	done
 
@@ -95,6 +98,7 @@ function RunPlatform()
 	RunFunction $function $PLATFORM_ID || return
 	RunFunction $function $PLATFORM_LIKE || return
 	RunFunction $function $PLATFORM || return
+	RunFunction $function wsl || return;
 }
 
 #
@@ -108,24 +112,24 @@ pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; ec
 EchoErr() { echo "$@" > /dev/stderr; }
 PrintErr() { printf "$@" > /dev/stderr; }
 #ShowErr() { eval "$@" 2> >(sed 's/^/stderr: /') 1> >(sed 's/^/stdout: /'); } # error under Synology DSM
-r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster)
-# r "- '''\"\"\"-" a; echo $a
+r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
+RemoveBackslash() { echo "${@//\\/}"; }
 
 clipw() 
 { 
 	case "$PLATFORM" in 
-		linux) { [[ "$DISPLAY" ]] && which xclip > /dev/null; } && { echo -n "$@" | xclip -sel clip; };;
+		linux) { [[ "$DISPLAY" ]] && InPath xclip; } && { echo -n "$@" | xclip -sel clip; };;
 		mac) echo -n "$@" | pbcopy;; 
-		win) echo -n "$@" > /dev/clipboard;;
+		win) IsPlatform cygwin && echo -n "$@" > /dev/clipboard || echo -n "$@" | clip.exe;;
 	esac; 
 }
 
 clipr() 
 { 
 	case "$PLATFORM" in
-		linux) which xclip /dev/null && xclip -o -sel clip;;
+		linux) InPath xclip && xclip -o -sel clip;;
 		mac) pbpaste;;
-		win) cat /dev/clipboard;;
+		win) IsPlatform cygwin && cat /dev/clipboard;;
 	esac; }
 
 #
@@ -139,8 +143,6 @@ IsOption() { [[ "$1" =~ ^-.* ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 UnknownOption() {	EchoErr "$(ScriptName): unknown option \`$1\`"; EchoErr "Try \`$(ScriptName) --help\` for more information";	exit 1; }
 MissingOperand() { EchoErr "$(ScriptName): missing $1 operand"; exit 1; }
-ElevationRequired() { IsElevated && return 0;	EchoErr "$(ScriptName): requires elevation"; exit 1; }
-
 IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
 IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
 GetFunction() { declare -f | egrep -i "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
@@ -206,9 +208,8 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 # files and directories
 #
 
-FindInPath() { type -P "${1}"; }
-fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
-pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
+fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
+pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 GetBatchDir() { GetFilePath "$0"; }
 GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
@@ -219,33 +220,62 @@ GetDriveLabel() { local gdl="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; 
 HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
+InPath() { which "$1" >& /dev/null; }
+
+FindInPath()
+{
+	type -P "${1}" && return
+	IsPlatform win && IsPlatform debian && { type -P "${1}.exe" && return; }
+	return 1
+}
 
 GetFullPath() 
 { 
-	local cmd; [[ "$platform" == "win" ]] && cmd="cygpath -a" || cmd="${G}readlink -f"
-	local gfp="$($cmd "$1")" || return; r "$gfp" $2; 
+	local gfp="$(realpath -m "${@/#\~/$HOME}")"; r "$gfp" $2; # replace ~ with $HOME so we don't lost spaces in expanstion
+}
+
+HideAll()
+{
+	! IsPlatform win && return
+
+	for f in $('ls' -A | egrep '^\.'); do
+		attrib.exe +h "$f"
+	done
 }
 
 # (Man)PathAdd <path> [front], front adds to front and drops duplicates in middle
 PathAdd() {	[[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $PATH =~ (^|:)$1(:|$) ]]; then PATH+=:$1; fi; } 
 ManPathAdd() { [[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
 
-# Path conversion
-wtu() { [[ "$PLATFORM" == "win" ]] && cygpath -u "$*" || echo "$@"; } # WinToUnix
-utw() { [[ "$PLATFORM" == "win" ]] && cygpath -aw "$*" || echo "$@"; } # UnixToWin
+# Path conversion - ensure symbolic links are dereferenced for use in Windows
+[[ "$PLATFORM_LIKE" == "cygwin" ]] && wslpath() { cygpath "$@"; }
+
+wtu() # WinToUnix
+{
+	[[ ! "$@" || "$PLATFORM" != "win" ]] && { echo "$@"; return 1; }
+  wslpath -u "$*"
+}
+
+utw() # UnixToWin
+{ 
+	[[ ! "$@" || "$PLATFORM" != "win" ]] && { echo "$@"; return 1; }
+	wslpath -w "$(realpath -m "$@")"
+} 
+
 ptw() { echo "${1////\\}"; } # PathToWin
 
 DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
 
 explore() # explorer DIR - explorer DIR in GUI program
 {
-	local dir="$1"; [[ ! $dir ]] && dir="$PWD"
+	local dir="$1"; [[ ! $dir ]] && dir="."
+	
 	if [[ "$PLATFORM" == "mac" ]]; then
 		open "$dir"
-	elif [[ "$PLATFORM_ID" == "ubuntu" ]]; then
-		start --background nautilus "$dir"
 	elif [[ "$PLATFORM" == "win" ]]; then
-		start explorer "$dir"
+		explorer.exe "$(utw "$dir")"
+	elif [[ "$PLATFORM_ID" == "ubuntu" ]]; then
+		start nautilus "$dir"
 	else
 		EchoErr "The $PLATFORM_ID platform does not have a file explorer"
 		return 1
@@ -276,62 +306,73 @@ MakeShortcut()
 	local t="$1"; [[ ! -e "$t" ]] && t="$(FindInPath "$1")"
 	[[ ! -e "$t" && $suppress ]] && { return 1; }
 	[[ ! -e "$t" ]] && { EchoErr "MakeShortcut: could not find target $1"; return 1; }
-	mkshortcut "$t" -n="$2" "${@:3}";
+	mkshortcut.exe "$t" -n="$2" "${@:3}";
 }
 
 CopyDir()
 {
-	local prefix="" cp="gcp" o=(--force --preserve timestamps,mode);
-
-	[[ "$PLATFORM" == "win" ]] && { CopyDirWin "$@"; return; }
-	[[ "$PLATFORM" == "mac" ]] && { cp="acp"; o=(--progress); }
-	[[ "$PLATFORM_ID" == "raspbian" && ! "$DISPLAY" ]] && { prefix="dbus-launch"; }
+	local prefix="" cp="gcp" recursive="" o=(--force --preserve=timestamps) f=( );
+		
+	IsPlatform mac && { cp="acp"; o=(--progress); }
+	
+	# gcp requires an X display on some platforms, as a work around run with dbus-launch
+	[[ ! "$DISPLAY" ]] && IsPlatform wsl,raspbian && { DbusSetup; prefix="dbus-launch"; }
 
 	for arg in "$@"; do
 		[[ ! $1 ]] && { shift; continue; } 										# ignore empty options
-		[[ $1 == @(-r|--recursive) ]] && { shift; continue; } # ignore --recursive, always used
+		[[ $1 == @(-r|--recursive) ]] && { o+=(--recursive); recursive="true"; shift; continue; }
 		[[ $1 == @(-m|--mirror) ]] && { shift; continue; } 		# ignore --mirror (win only)
 		[[ $1 == @(-q|--quiet) ]] && { shift; continue; }			# ignore --quiet (win only)
 		[[ $1 == @(--retry) ]] && { shift; continue; }				# ignore --retry (win only)
 		[[ $1 == @(-xd|-xf) ]] && { shift; while (( $# != 0 )) && ! IsOption "$1"; do shift; done; continue; } # ignore -xd and -xf (win only)
-		o+=($1); shift
+		f+=($1); shift
 	done
 
 	#o+=("--verbose")
 	# cp dir1 dir2 will not copy the top level directory, need a way to copy only top level directory
 	#dbus-launch gcp --recursive --force --preserve timestamps,mode --verbose /home/jjbutare/Volumes/public/documents/data/platform/linux/ /usr/local/data/platform/linux/ --recursive
-	$prefix $cp --recursive "${o[@]}"
+
+	if [[ $recursive ]]; then
+		$prefix $cp "${o[@]}" "${f[@]}" || return
+	else
+		# for non-recursive copies the source must be files and the destination directory must exist
+		local src="${f[0]}"
+		local dest="${f[1]}" made=""; [[ ! -d "$dest" ]] && { made="true"; mkdir --parents "$dest" || return; }
+		$prefix $cp "${o[@]}" "$src"/* "$dest" || { [[ $made ]] && rm - fr "$dest"; return 1; }
+	fi
 }
 
-CopyDirWin()
-{
-	[[ $1 == @(--help) ]]	&& { EchoErr "usage: CopyDir SRC DEST [FILES] [OPTIONS]
-  -m, --mirror			remove extra files in DEST
-  -q, --quiet				minimize logging
-  -r, --recursively	copy directories recursively
-      --retry 			retry copy on failure
-  -v, --verbose			maximize logging
-  -xd DIRS					exclude files matching the name/path/wildcard
-  -xf FILES					exclude files matching the name/path/wildcard"; return 1; }
+if IsPlatform cygwin; then
+	CopyDir()
+	{
+		[[ $1 == @(--help) ]]	&& { EchoErr "usage: CopyDir SRC DEST [FILES] [OPTIONS]
+	  -m, --mirror			remove extra files in DEST
+	  -q, --quiet				minimize logging
+	  -r, --recursively	copy directories recursively
+	      --retry 			retry copy on failure
+	  -v, --verbose			maximize logging
+	  -xd DIRS					exclude files matching the name/path/wildcard
+	  -xf FILES					exclude files matching the name/path/wildcard"; return 1; }
 
-	local o=( /COPY:DAT /ETA ) mirror quiet src dest # /DCOPY:DAT requires newer robocopy
+		local o=( /COPY:DAT /ETA ) mirror quiet src dest # /DCOPY:DAT requires newer robocopy
 
-	for arg in "$@"; do
-		[[ $1 == @(-m|--mirror) ]] && { mirror="true"; o+=( /mir ); shift; continue; }
-		[[ $1 == @(-q|--quiet) ]] && { quiet="true"; o+=( /njh /njs /ndl ); shift; continue; }
-		[[ $1 == @(-r|--recursive) ]] && { o+=( /E ); shift; continue; }
-		[[ $1 == @(--retry) ]] && { o+=( /R:3 /W:2 ); shift; continue; }
-		[[ $1 == @(-v|--verbose) ]] && { o+=( /V ); shift; continue; }
-		IsOption "$1" && { o+=( "/${1:1}" ); shift; continue; }
-		! IsOption "$1" && [[ ! $src ]] && { src="$(utw "$1")"; shift; continue; }
-		! IsOption "$1" && [[ ! $dest ]] && { dest="$(utw "$1")"; shift; continue; }
-		o+=( "$1" ); shift
-	done
-	[[ $quiet && ! $mirror ]] && o+=( /xx )
+		for arg in "$@"; do
+			[[ $1 == @(-m|--mirror) ]] && { mirror="true"; o+=( /mir ); shift; continue; }
+			[[ $1 == @(-q|--quiet) ]] && { quiet="true"; o+=( /njh /njs /ndl ); shift; continue; }
+			[[ $1 == @(-r|--recursive) ]] && { o+=( /E ); shift; continue; }
+			[[ $1 == @(--retry) ]] && { o+=( /R:3 /W:2 ); shift; continue; }
+			[[ $1 == @(-v|--verbose) ]] && { o+=( /V ); shift; continue; }
+			IsOption "$1" && { o+=( "/${1:1}" ); shift; continue; }
+			! IsOption "$1" && [[ ! $src ]] && { src="$(utw "$1")"; shift; continue; }
+			! IsOption "$1" && [[ ! $dest ]] && { dest="$(utw "$1")"; shift; continue; }
+			o+=( "$1" ); shift
+		done
+		[[ $quiet && ! $mirror ]] && o+=( /xx )
 
-	robocopy "$src" "$dest" "${o[@]}"
-	(( $? < 8 )) # http://support.microsoft.com/kb/954404
-}
+		robocopy "$src" "$dest" "${o[@]}"
+		(( $? < 8 )) # http://support.microsoft.com/kb/954404
+	}
+fi
 
 # FileCommand mv|cp|ren|hide SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
 FileCommand() 
@@ -348,9 +389,9 @@ FileCommand()
 	(( files == 0 )) && return 0
 
 	case "$command" in
-		hide) for file in "${args[@]}"; do attrib +h "$(utw "$file")" || return; done;;
+		hide) for file in "${args[@]}"; do attrib.exe +h "$(utw "$file")" || return; done;;
 		HideAndSystem) for file in "${args[@]}"; do attrib +h +s "$(utw "$file")" || return; done;;
-		ren) mv "${args[@]}" "$dir";;
+		ren) 'mv' "${args[@]}" "$dir";;
 		*)
 			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing \`$dir\`: No such directory"; return 1; }
 			"$command" -t "$dir" "${args[@]}";;
@@ -463,12 +504,11 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d" $(( $s/60/
 
 IsSsh() { [[ "$SSH_TTY" ]]; }
 RemoteServer() { echo "${SSH_CONNECTION%% *}"; }
-PuttyAgent() { start pageant "$HOME/.ssh/id_rsa.ppk"; }
+PuttyAgent() { RunInDir pageant "$(utw "$HOME/.ssh/id_rsa.ppk")"; }
 
 #
 # account
 #
-
 ActualUser() { echo "${SUDO_USER-$USER}"; }
 
 FullName() 
@@ -482,36 +522,31 @@ FullName()
 	echo ${s:-$USER}; 
 }
 
-PublicPictures() { [[ "$PLATFORM" == "win" ]] && cygpath -F 54 || echo "$PUB/Pictures"; }
-PublicVideos() { [[ "$PLATFORM" == "win" ]] && cygpath -F 55 || echo "$PUB/Videos"; }
-UserPictures() { [[ "$PLATFORM" == "win" ]] && cygpath -F 39 || echo "$HOME/Pictures"; }
-UserVideos() { [[ "$PLATFORM" == "win" ]] && cygpath -F 14 || echo "$HOME/Videos"; }
-
 #
 # network
 #
-
 IsInDomain() { [[ "$USERDOMAIN" != "$HOSTNAME" ]]; }
-
 GetInterface() { ifconfig | head -1 | cut -d: -f1; }
 
 GetPrimaryIpAddress() # GetPrimaryIpAddres [INTERFACE] - get default network adapter
 {
-	case "$PLATFORM" in
-		mac) ifconfig $1 | grep inet | egrep -v 'inet6|127.0.0.1' | head -n 1 | cut -d" " -f 2;; 
-		win) # default route (0.0.0.0 destination) with lowest metric
-			route -4 print | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | tr -s " " | cut -d " " -f 5;; 
-	esac
+	if IsPlatform cygwin; then 
+		# default route (0.0.0.0 destination) with lowest metric
+		route -4 print | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | tr -s " " | cut -d " " -f 5
+	else
+		ifconfig $1 | grep inet | egrep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }'
+	fi
 }
 
 GetIpAddress() # [HOST]
 {
 	[[ ! $1 ]] && { GetPrimaryIpAddress; return; }
 	IsIpAddress "$1" && { echo "$1"; return; }
-	case "$PLATFORM" in
-		mac) host "$1" | grep "has address" | cut -d" " -f 4; return ${PIPESTATUS[0]};;
-		win) ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]};;
-	esac
+	if IsPlatform cygwin; then 
+		ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}
+	else
+		host "$1" | grep "has address" | cut -d" " -f 4; return ${PIPESTATUS[0]}
+	fi
 }
 
 IsIpAddress() # IP
@@ -526,12 +561,12 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 { 
 	local host="$1" timeout="${2-200}"
 
-	if IsPlatform win; then
+	if IsPlatform cygwin; then
 		ping -n 1 -w "$timeout" "$host" | grep "^Reply from " | cut -d" " -f 5 | tr -d 'time=<ms'
 		return ${PIPESTATUS[1]}
 	fi
 
-	if which fping >& /dev/null; then
+	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
 		return ${PIPESTATUS[0]}
 	fi
@@ -543,12 +578,13 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 ConnectToPort() # ConnectToPort HOST PORT [TIMEOUT](200)
 {
 	local host="$1" port="$2" timeout="${3-200}"
-	case "$PLATFORM" in
-		mac) echo | ncat -C "$host" "$port" >& /dev/null;;
-		win) 
-			! IsIpAddress "$host" && { host="$(GetIpAddress $host)" || return; }
-			chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null;;
-	esac
+
+	if IsPlatform cygwin; then	
+		! IsIpAddress "$host" && { host="$(GetIpAddress $host)" || return; }
+		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
+	else
+		echo | ncat -C "$host" "$port" >& /dev/null
+	fi
 }
 
 #
@@ -581,165 +617,246 @@ console() { start --direct proxywinconsole.exe "$@"; }
 
 IsMobile() { [[ "$(HostInfo info "$HOSTNAME" mobile)" == "yes" ]]; }
 IsVm() { IsVMwareVm; }
-IsVMwareVm() { [[ "$PLATFORM" != "win" ]] && return 1; ! vmchk > /dev/null; }
+IsVMwareVm() { [[ "$PLATFORM" != "win" ]] && return 1; ! vmchk.exe > /dev/null; }
 OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
+sudop() { sudo --preserve-env=PATH env "$@"; } # run sudo with the existing path, less secure
 
 #
 # process
 #
-# NOTE: piping ps output can be slow in Windows
 
-IsElevated() { [[ "$PLATFORM" == "win" ]] && IsElevated.exe > /dev/null || whoami | grep root; }
+IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $SUDO_USER ]]; }
 SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 
-# start [--direct|--files|--background] [OPTION...] <program> <arguments> - start a program
-# --direct		start the program directly (without cygstart or xdg-open), usually for console programs
-# -w|--wait		wait for the program to finish execution
-# --files 		assume arguments which match files the current directory are files, not arguments
-# -b,--background	start the program in the background, useful for programs that use a window and we want to ignore console output
+# IsElevated() - true if there you have elevated to get the Windows Administrator token
+IsElevated() { whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; }
+elevate() { IsElevated && "$@" || RunInDir hstart64.exe /NOUAC /WAIT "wsl.exe $*"; } # asyncronous even with /WAIT and return result is not correct
+ElevateNoConsole() { IsElevated && "$@" || RunInDir hstart64.exe /NOCONSOLE /NOUAC /WAIT "wsl.exe $*"; }
+ElevatePause() { elevate RunPause "$*"; } # elevate the passed program and pause if there is an error
+
+# RunInDir FILE - run a windows program that must be started 
+# Useful for programs that cannot be directly started from wsl even if they are in the path
+RunInDir()
+{
+	local cmd; [[ "$1" == "--cmd" ]] && { cmd="cmd.exe /c"; shift; }
+	local background; [[ "$1" == "--background" ]] && { background="true"; shift; }
+	local file="$1" path result
+
+	[[ ! $file ]] && { EchoErr "usage: RunInDir FILE"; return 1; }
+	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
+	[[ ! -f "$file" ]] && { EchoErr "Unable to find $file"; return 1; }
+
+	path="$(GetFilePath "$(GetFullPath "$file")")"
+	file="$(GetFileName "$file")"
+	[[ ! $cmd ]] && file="./$file"
+
+	pushd "$path" >& /dev/null
+	if [[ $background ]]; then
+		(nohup $cmd "$file" "${@:2}" >& /dev/null &)
+	else
+		$cmd "$file" "${@:2}"
+	fi
+	result=$?
+	popd >& /dev/null; 
+
+	return $result
+}
+
+IsExecutable()
+{
+	local p="$@"; [[ ! $p ]] && { EchoErr "usage: IsExecutable PROGRAM"; return 1; }
+
+	# executable file - realpath resolves symbolic links, use -m so directory existence is not checked (which can error out for mounted network volumes)
+	[[ -f "$p" ]] && { file "$(realpath -m "$p")" | egrep "executable|ELF" > /dev/null; return; }
+
+	# alias, builtin, or function
+	type -a "$p" >& /dev/null
+}
+
+# ProcessType console|gui|windows windows: true if the executable requires windows paths (c:\...) instead of POSIX paths (/...)
+ProcessType() 
+{
+	local command="$1" file="$2"; 
+
+	[[ "$#" != 2 ]] && { EchoErr "ProcessType console|gui|windows FILE"; return 1; }
+	[[ ! -f  "$file" ]] && { EchoErr "$file does not exist"; return 1; }
+
+	case "$command" in
+
+		console|gui) 
+			IsPlatform win && { file "$file" | egrep -i $command > /dev/null; return; } || return 0;;
+			
+		windows) 
+			if IsPlatform cygwin; then 
+				utw "$file" | egrep -iv cygwin > /dev/null; return;
+			elif IsPlatform win; then 
+				file "$file" | grep PE32 > /dev/null; return;
+			else
+				return 1
+			fi
+			;;
+	esac
+}
+
+# start [-e|--elevate] [-w|--wait] FILE ARGUMENTS - start a program converting file arguments for the platform as needed
 start() 
 {
-	local direct; [[ "$1" == @(--direct) ]] && { direct="true"; shift; }
-	local background; [[ "$1" == @(-b|--background) ]] && { background="true"; shift; }
-	local wait; [[ "$1" == @(-w|--wait) ]] && { wait="true"; shift; }
-	local files; [[ "$1" == @(--files) ]] && { files="true"; shift; }
-	local open="xdg-open"; [[ "$PLATFORM" == "mac" ]] && open="open"
+	# file - executable (GUI|console)
+	local runInDir; [[ "$1" == @(-rid|--run-in-dir) ]] && { runInDir="RunInDir"; shift; }
+	local elevate; [[ "$1" == @(-e|--elevate) ]] && { ! IsElevated && elevate="true"; shift; }
+	local wait; [[ "$1" == @(-w|--wait) ]] && { wait="--wait"; shift; }
+	local file="$1" args=( "${@:2}" ) open win
 
+	# default to bash if elevating
+	[[ $elevate && ! $file ]] && file="bash"
 
-	if [[ "$PLATFORM" == "win" ]]; then
-		local options; while IsOption "$1"; do options+=( "$1" ); shift; done
-		local program="$1" args=( "${@:2}" ) qargs; 
+	# find open program
+	if IsPlatform mac; then open="open"
+	elif IsPlatform cygwin; then open="cygstart"
+	elif IsPlatform win; then open="cmd.exe /c start"
+	elif InPath xdg-open; then open="xdg-open"; fi
 
-		[[ $wait ]] && options+=( "--wait" )
+	# start directories and URL's
+	( [[ -d "$file" ]] || IsUrl "$program" ) && { start $open "$file" win; return; }
 
-		for arg in "${args[@]}"; do 
-			[[ ( ! "$arg" =~ .*\\.* && "$arg" =~ .*/.* && -e "$arg" ) || ( $files && -e "$arg" ) ]] && { arg="$(utw "$arg")"; } # convert POSIX path to Windows format
-			[[ ! $direct && "$arg" =~ ( ) ]] && qargs+=( "\"$arg\"" ) || qargs+=( "$arg" ); # cygstart requires arguments with spaces be quoted
-		done
-		
-		#printf "wait=$wait\noptions="; ShowArray options; printf "program=$program\nqargs="; ShowArray qargs; return
+	# verify file
+	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
+	[[ ! -f "$file" ]] && { EchoErr "Unable to find $file"; return 1; }
 
-		[[ -d "$program" ]] && { cygstart "$program"; return; }
-		IsUrl "$program" && { cygstart "$program"; return; }
+	# extension specific execution
+	case "$(GetFileExtension "$file")" in
+		cmd) start $open "$file" "${args[@]}"; return;;
+		js|vbs) start cscript.exe /NoLogo "$file" "${args[@]}"; return;;
+	esac
 
-		[[ ! -f "$program" ]] && program="$(FindInPath "$1")"
+	# open the file if we cannot execute it directly
+	! IsExecutable "$file" && { start $open "$file" "${args[@]}"; return; }
 
-		[[ ! -f "$program" ]] && { EchoErr "Unable to start $1: file not found"; return 1; }
-		GetFileExtension "$program" ext
-		
-		case "$ext" in
-			cmd) cmd /c $(utw "$program") "${@:2}";;
-			js|vbs) cscript /NoLogo "$(utw "$program")" "${@:2}";;
-			*) [[ $direct ]] && "$program" "${qargs[@]}" || cygstart "${options[@]}" "$program" "${qargs[@]}";;
-		esac
-		return
-	fi
+	# massage arguments
+	ProcessType windows "$file" && win="true"
+	for (( i=0 ; i < ${#args[@]} ; ++i )); do 
+		local a="${args[$i]}"	
 
-	if type -a "$1" >& /dev/null; then
-		if [[ $background ]]; then
-			(nohup "$@" >& /dev/null &)
-		elif [[ $wait ]]; then
-			"$@"
+		# convert POSIX paths to Windows format for windows exectuable
+		if [[ $win && ( -e "$a" || ( ! "$a" =~ .*\\.* && "$a" =~ .*/.* && -e "$a" )) ]]; then
+			args[$i]="$(utw "$a")"
+		fi
+
+		# cygstart requires arguments with spaces be quoted
+		[[ "$a" =~ ( ) ]] && args[i]="\"$a\""; 
+
+	done	
+	#printf "wait=$wait\nprogram=$program\nargs="; ShowArray args; return
+
+	# run elevated
+	if [[ "$PLATFORM" == "win" && $elevate ]]; then
+		[[ $wait ]] && wait="/WAIT"
+
+		if [[ $win ]]; then
+			RunInDir hstart64.exe /NOUAC $wait "$(utw "$file") ${args[*]}"
 		else
-			"$@" &
+			RunInDir hstart64.exe /NOUAC $wait "wsl.exe $*"
 		fi
 		return
-
-	elif which $open > /dev/null; then
-		$open "$@"; return
-
+	fi
+	
+	# start the command
+	if [[ $wait ]]; then
+		(
+			nohup $runInDir "$file" "${args[@]}" >& /dev/null &
+			wait $!
+		)
 	else
-		EchoErr "cannot start $@?"; return 1
+		(nohup $runInDir "$file" "${args[@]}" >& /dev/null &)
 	fi
 } 
 
-# sudo [command](mintty) - start a program as super user
-#
+# sudo [command](mintty) - start a program as super user under cygwin
 # sudo /cygdrive/c/Program\ Files/Sublime\ Text\ 3/sublime_text.exe
 # sudo cmd "/c ls & pause"
 # sudo "/cygdrive/c/Program Files/Sublime Text 3/sublime_text.exe" "a.txt"  b.txt
 # sudo service listfile
+if [[ "$PLATFORM_LIKE" == "cygwin" ]]; then
+	sudo() 
+	{
+		local program="mintty" ext standard direct hold="error" arguments wait
+		local cygstartOptions hstartOptions="/D="$(utw $PWD)"" powerShellOptions
 
-sudo() 
-{
-	local program="mintty" ext standard direct hold="error" arguments wait
-	local cygstartOptions hstartOptions="/D="$(utw $PWD)"" powerShellOptions
+		while IsOption "$1"; do
 
-	while IsOption "$1"; do
+			if [[ "$1" == +(-s|--standard) ]]; then 
+				standard="true"
+				hstartOptions+=( /noelevate )
 
-		if [[ "$1" == +(-s|--standard) ]]; then 
-			standard="true"
-			hstartOptions+=( /noelevate )
+			elif [[ "$1" == +(-h|--hide) ]]; then
+				hstartOptions+=( /noconsole )
 
-		elif [[ "$1" == +(-h|--hide) ]]; then
-			hstartOptions+=( /noconsole )
+			elif [[ "$1" == +(-t|--test) ]]; then
+				hstartOptions+=( /test )
 
-		elif [[ "$1" == +(-t|--test) ]]; then
-			hstartOptions+=( /test )
+			elif [[ "$1" == +(-w|--wait) ]]; then 
+				wait="true"
+				cygstartOptions+=( --wait )
+				hstartOptions+=( /wait )
+				powerShellOptions+=( -Wait )
+				hold="always"
 
-		elif [[ "$1" == +(-w|--wait) ]]; then 
-			wait="true"
-			cygstartOptions+=( --wait )
-			hstartOptions+=( /wait )
-			powerShellOptions+=( -Wait )
-			hold="always"
+			elif [[ "$1" == +(-d|--direct) ]]; then
+				direct="--direct"
 
-		elif [[ "$1" == +(-d|--direct) ]]; then
-			direct="--direct"
+			else
+				echot "\
+	usage: sudo [-s|--standard] [command](mintty) [arguments]... - start a command as a super user
+		[-s|--standard]  start the program non-elevated (hstart only)
+		[-w|--wait]      wait for the command to finish"
+				return 1
+			fi
 
-		else
-			echot "\
-usage: sudo [-s|--standard] [command](mintty) [arguments]... - start a command as a super user
-	[-s|--standard]  start the program non-elevated (hstart only)
-	[-w|--wait]      wait for the command to finish"
-			return 1
+			shift
+		done
+
+		[[ ! $standard ]] && hstartOptions+=( /nouac )
+
+		[[ $# > 0 ]] && { program="$1"; shift; }
+		! type -P "$program" >& /dev/null && { EchoErr "start: $program: command not found"; return 1; }
+
+		program="$(FindInPath "$program")" # IsShellScript requires full path
+		arguments="$@"
+
+		# determine if hstart is not needed to change contexts
+		local elevated; IsElevated && elevated="true"
+		
+		if [[ (! $elevated && $standard) || ($elevated && ! $standard) ]]; then
+			if IsShellScript "$program"; then
+				"$program" "$@"
+			else
+				start $direct "${cygstartOptions[@]}" "$program" "$@"
+			fi
+			return
 		fi
 
-		shift
-	done
+		# elevate with hstart if available and not waiting (hstart /wait flag only works for elevated starts)
+		if InPath hstart && [[ ! $wait ]]; then
+			if IsShellScript "$program"; then
+				hstart.exe "${hstartOptions[@]}" """mintty.exe"" --hold $hold bash.exe -l ""$program"" $arguments";
+			else
+				program="$(utw "$program")"
+				hstart.exe "${hstartOptions[@]}" """$program"" $arguments";
+			fi
 
-	[[ ! $standard ]] && hstartOptions+=( /nouac )
-
-	[[ $# > 0 ]] && { program="$1"; shift; }
-	! type -P "$program" >& /dev/null && { EchoErr "start: $program: command not found"; return 1; }
-
-	program="$(FindInPath "$program")" # IsShellScript requires full path
-	arguments="$@"
-
-	# determine if hstart is not needed to change contexts
-	local elevated; IsElevated && elevated="true"
-
-	if [[ (! $elevated && $standard) || ($elevated && ! $standard) ]]; then
-		if IsShellScript "$program"; then
-			"$program" "$@"
+		# elevate with PowerShell
 		else
-			start $direct "${cygstartOptions[@]}" "$program" "$@"
-		fi
-		return
-	fi
-
-	# elevate with hstart if available and not waiting (hstart /wait flag only works for elevated starts)
-	if which hstart >& /dev/null && [[ ! $wait ]]; then
-		if IsShellScript "$program"; then
-			hstart "${hstartOptions[@]}" """mintty.exe"" --hold $hold bash.exe -l ""$program"" $arguments";
-		else
-			program="$(utw "$program")"
-			hstart "${hstartOptions[@]}" """$program"" $arguments";
+			if IsShellScript "$program"; then
+				powershell -Command "Start-Process $powerShellOptions -Verb RunAs -FilePath mintty.exe \"--hold $hold bash.exe -l \"\"$program\"\" $arguments\"";
+			else
+				program="$(utw "$program")"
+				[[ $arguments ]] && arguments="-ArgumentList \"$@\""
+				powershell -Command "Start-Process $powerShellOptions -Verb RunAs -FilePath \"$program\" $arguments";
+			fi
 		fi
 
-	# elevate with PowerShell
-	else
-		if IsShellScript "$program"; then
-			powershell -Command "Start-Process $powerShellOptions -Verb RunAs -FilePath mintty.exe \"--hold $hold bash.exe -l \"\"$program\"\" $arguments\"";
-		else
-			program="$(utw "$program")"
-			[[ $arguments ]] && arguments="-ArgumentList \"$@\""
-			powershell -Command "Start-Process $powerShellOptions -Verb RunAs -FilePath \"$program\" $arguments";
-		fi
-	fi
-
-}
-[[ "$PLATFORM" != "win" ]] && unset -f sudo
+	}
+fi
 
 IsTaskRunning() # IsTaskRunng EXE
 {
@@ -755,21 +872,25 @@ IsTaskRunning() # IsTaskRunng EXE
 
 ProcessList() # PID,NAME
 { 
+	#IsPlatform cygwin && { ps -W -e | awk '{ print $1 "," substr($0,index($0,$8)) }' && return; }
+
 	case $PLATFORM in
-		linux) ps -ef | awk '{ print $2 "," substr($0,index($0,$8)) }';;
+		linux|win) ps -ef | awk '{ print $2 "," substr($0,index($0,$8)) }';;
 		mac) ps -ef | ${G}cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
-		win) ps -W -e | awk '{ print $1 "," substr($0,index($0,$8)) }';;
 	esac
 }
 
-ProcessListWin() { tasklist | awk '{ print $2 "," $1 }'; }
+ProcessListWin() { tasklist.exe | awk '{ print $2 "," $1 }'; }
 
 ProcessClose() 
 { 
 	local p="${1/.exe/}.exe"; GetFileName "$p" p
 
 	if [[ "$PLATFORM" == "win" ]]; then
-		process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null
+		# Process.exe only runs from the current directory in wsl
+		pushd "$PBIN" >& /dev/null || return
+		./Process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null
+		popd >& /dev/null || return
 	else
 		pkill "$p" > /dev/null
 	fi
@@ -802,51 +923,34 @@ AutoItScript()
 	local script="${1/\.au3/}.au3"
 	[[ ! -f "$script" ]] && script="$(FindInPath "$script")"
 	[[ ! "$script" ]] && { echo "Could not find AutoIt script $1"; return 1; }
-	AutoIt.exe /ErrorStdOut "$(utw "$script")" "${@:2}"
+	RunInDir AutoIt.exe /ErrorStdOut "$(utw "$script")" "${@:2}"
 }
 
 GetTextEditor()
 {
-	case "$PLATFORM" in
-		linux) 
-			p="/opt/sublime_text/sublime_text"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-			which geany >& /dev/null && { echo "geany"; return 0; }
-			which gedit >& /dev/null && { echo "gedit"; return 0; }
-			which nano >& /dev/null && { echo "nano"; return 0; }
-			which vi >& /dev/null && { echo "vi"; return 0; }
-			;;
-		mac) 
-			p="$P/Sublime Text.app/Contents/SharedSupport/bin/subl"; [[ -f "$p" ]] && { echo "$p"; return; }
-			p="open -a TextEdit"; return 0;
-			;;
-		win) p="$P/Sublime Text 3/sublime_text.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-			p="$P/Sublime Text 2/sublime_text.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-			p="$P/Notepad++/notepad++.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-			p="notepad"; return 0;
-			;;
-	esac
-
-	EchoErr "Platform $PLATFORM_ID does not have a text editor"; return 1;
+	p="$P/sublime_text/sublime_text"; [[ -f "$p" ]] && { echo "$p"; return 0; }
+	p="$P/Sublime Text.app/Contents/SharedSupport/bin/subl"; [[ -f "$p" ]] && { echo "$p"; return 0; }
+	p="$P/Sublime Text 3/sublime_text.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
+	p="$P/Notepad++/notepad++.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
+	InPath geany && { echo "geany"; return 0; }
+	InPath gedit && { echo "gedit"; return 0; }
+	InPath nano && { echo "nano"; return 0; }
+	InPath vi && { echo "vi"; return 0; }
+	EchoErr "No text editor found"; return 1;
 }
-
 
 TextEdit()
 {
 	local file files=() p=""
-	local wait; [[ "$1" == +(-w|--wait) ]] && { wait="pause"; shift; }
+	local wait; [[ "$1" == +(-w|--wait) ]] && { wait="--wait"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
-	local p="$(GetTextEditor)"
+	local p="$(GetTextEditor)"; [[ ! $p ]] && { EchoErr "No text editor found"; return 1; }
 
 	for file in "$@"; do
 		[[ -e "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"
 	done
 	
-	if [[ $# == 0 || "${#files[@]}" > 0 ]]; then 
-		start --background --files "${options[@]}" "$p" "${files[@]}"
-		$wait
-	else 
-		return 1
-	fi
+	[[ $# == 0 || "${#files[@]}" > 0 ]] && start $wait "${options[@]}" "$p" "${files[@]}"
 }
 
 VimHelp() { echot "VIM: http://www.lagmonster.org/docs/vi.html

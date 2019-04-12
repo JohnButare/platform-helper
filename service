@@ -48,7 +48,7 @@ init()
 
 	# SC data area error - http://www.dostips.com/forum/viewtopic.php?f=3&t=3408
 	scBufferSize=5000
-	sc=sc
+	sc="sc.exe"
 
 	if [[ ! $noHostCheck && $host && "$host" != @(localhost|$HOSTNAME) ]]; then
 		! HostUtil available "$host" && { EchoErr "service: $host is not available"; return 1; }
@@ -71,29 +71,35 @@ stateCommand() { GetWord "$($sc $hostUnc query "$service" |& grep STATE)" 3; }
 runningCommand() { [[ "$(stateCommand)" == "RUNNING" ]]; }
 StartTypeCommand() { GetWord "$($sc $hostUnc qc "$service" $ScBufferSize |& grep START_TYPE)" 3; }
 existCommand() { $sc $hostUnc qc "$service" $ScBufferSize |& grep START_TYPE >& /dev/null; }
-deleteCommand() { checkElevated; $elevate $sc delete $hostUnc "$service"; }
+
+deleteCommand()
+{
+	checkElevated && { ElevatePause service delete $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
+	$sc delete $hostUnc "$service"
+}
 
 disableCommand() 
 { 
 	[[ "$(StartTypeCommand)" == "DISABLED" ]] && return 
-	checkElevated; $elevate $sc config $hostUnc "$service" start= disabled; 
+	$sc config $hostUnc "$service" start= disabled; 
 }
 
 demandCommand() 
 { 
 	[[ "$(StartTypeCommand)" == "DEMAND_START" ]] && return 
-	checkElevated; $elevate $sc config $hostUnc "$service" start= demand; 
+	checkElevated && { ElevatePause service demand $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
+	$sc config $hostUnc "$service" start= demand; 
 }
 
 autoCommand() 
 { 
 	[[ "$(StartTypeCommand)" == "AUTO_START" ]] && return 
-	checkElevated; $elevate $sc config $hostUnc "$service" start= auto; 
+	checkElevated && { ElevatePause service auto $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }	
+	$sc config $hostUnc "$service" start= auto; 
 }
 
 restartCommand() 
 { 
-	checkElevated && { sudo service restart $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 	local oldWait="$wait"
 	wait="--wait"; noServiceCheck="--no-service-check"
 	stopCommand || return
@@ -105,7 +111,6 @@ restartCommand()
 startCommand()
 {
 	[[ "$(stateCommand)" != "STOPPED" ]] && return 
-	checkElevated && { sudo service start $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 	checkWaiting; printf "Starting $service service$hostDescription...$waiting"
 	result="$($sc $hostUnc start "$service")" || { EchoErr "$result"; return 1; }
 
@@ -115,7 +120,7 @@ startCommand()
 stopCommand()
 {
 	[[ "$(stateCommand)" != "RUNNING" ]] && return 
-	checkElevated && { sudo service stop $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
+	checkElevated && { ElevatePause service stop $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 
 	checkWaiting; printf "Stopping $service service$hostDescription..."$waiting
 	result="$($sc $hostUnc stop "$service")" || { EchoErr "$result"; return 1; }
@@ -127,8 +132,7 @@ stopCommand()
 continueCommand()
 {
 	[[ "$(stateCommand)" != "PAUSED" ]] && return 
-	checkElevated && { sudo service continue $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
-
+	
 	checkWaiting; printf "Continuing $service service$hostDescription..."$waiting
 	result="$($sc $hostUnc continue "$service")" || { EchoErr "$result"; return 1; }
 
@@ -138,7 +142,7 @@ continueCommand()
 pauseCommand()
 {
 	[[ "$(stateCommand)" != "RUNNING" ]] && return 
-	checkElevated && { sudo service pause $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
+	checkElevated && { ElevatePause service pause $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 
 	checkWaiting; printf "Pausing $service service$hostDescription..."$waiting
 	result="$($sc $hostUnc pause "$service")" || { EchoErr "$result"; return 1; }
@@ -148,8 +152,6 @@ pauseCommand()
 
 manualCommand()
 {
-	checkElevated && { sudo service manual $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
-
 	echo "Stopping $service service and setting it to demand start$hostDescription..."
 	demandCommand || return
 	stopCommand || return
@@ -199,17 +201,6 @@ checkWaiting()
 	[[ ! $wait ]] && waiting="\n"
 }
 
-checkElevated()
-{
-	if ! IsElevated && [[ "$host" == @(|localhost|$HOSTNAME) ]]; then
-		elevate="sudo";
-		return 0
-	else
-		elevate=""
-		return 1
-	fi
-}
-
 check()
 {
 	[[ $noServiceCheck ]] && return 0
@@ -224,6 +215,17 @@ check()
 	esac
 
 	return 1
+}
+
+checkElevated()
+{
+	if ! IsElevated && [[ "$host" == @(|localhost|$HOSTNAME) ]]; then
+		elevate="true";
+		return 0
+	else
+		elevate=""
+		return 1
+	fi
 }
 
 run "$@"

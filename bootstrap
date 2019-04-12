@@ -1,38 +1,50 @@
 #!/usr/bin/env bash
 . function.sh
 
-# bootstrap a system by copying files locally, generic to all platforms
+# bootstrap a generic system once the platform specific installation is done.
+# The script flow is bootstrap-remote -> bootstrap-PLATFORM -> boostrap -> inst bootstrap.
+# This scripts have access to all public functions and scripts
+
+init()
+{
+	sudo="sudo"; [[ "$PLATFORM_LIKE" == "cygwin" ]] && sudo=""
+	hostFiles="${1:-nas1}" 
+	install="$2"
+}
 
 run()
 {
 	init "$@" || return
 	RunPlatform bootstrap || return
+	MakeDir "/usr/local/data" || return
 	ask 'Sync local files' && { SyncLocalFiles --src-older "$hostFiles" || return; }
 	inst --ignore-errors --no-run-prompt --hint "$install" bootstrap || return
 }
 
+bootstrapWsl() { sudo chmod u+s /usr/bin/touch || return; }
+
 bootstrapWin()
 {
 	install="$(wtu "$install")"
-	! IsElevated && { EchoErr "bootstrap must be run as administrator"; return 1; }
-	LinkDir "$PUB/Documents/data" /usr/local/data || return
-}
-
-bootstrapDebian()
-{
-	[[ ! -d /usr/local/data ]] && { sudo mkdir "/usr/local/data" || return; }
-	sudo chown $USER "/usr/local/data" || return
-}
-
-init()
-{
-	hostFiles="${1:-nas1}" install="$2"
+	[[ "$PLATFORM_LIKE" == "cygwin" ]] && { LinkDir "/cygdrive" "/mnt" || return; }
+	LinkDir "$WIN_USERS/Public" "$PUB" || return
+	LinkDir "$WIN_USERS/Public/Documents/data" "$DATA" || return
+	LinkDir "$WIN_HOME/Documents" ~/Documents || return
+	return 0
 }
 
 LinkDir() # SRC LINK
 {
-	mkdir --parents "$1" || return
-	MakeLink "$1" "$2" || return
+	local src="$1" link="$2"
+	[[ -L "$link" ]] && return
+	$sudo mkdir --parents "$src" || return
+	$sudo ln -s "$src" "$link" || return
+}
+
+MakeDir()
+{
+	[[ ! -d "$1" ]] && { sudo mkdir --parents "$1" || return; }
+	sudo chown $USER "$1" || return
 }
 
 run "$@"

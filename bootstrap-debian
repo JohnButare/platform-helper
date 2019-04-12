@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 
-# bootstrap a debian system (allows us to run the generic bootstrp)
+# bootstrap a Debian system (Ubuntu, Raspberry Pi).
+# This script uses only what is available on a newly installed system.
+
+init()
+{
+	reboot=""
+	user="${1:-jjbutare}"
+	host="${2:-nas1}"
+	dnsServers="192.168.1.2 192.168.1.1"
+	dnsSuffix="hagerman.butare.net"
+	eval $(cat /etc/os-release) # ID=ubuntu|raspbian
+}
 
 run()
 {
 	init || return
 	installCorePrograms || return
 	createUser || return
-	configureNetwork || return
 
 	[[ "$reboot" ]] && { echo "Rebooting to enable network configuration..."; sudo reboot; }
 	[[ "$USER" != "$user" ]] && logoff
@@ -17,31 +27,6 @@ run()
 	echo "Bootstrapping from $host..."
 	export PATH=$HOME/Volumes/public/documents/data/bin:$PATH
 	bootstrap $host
-}
-
-configureNetwork()
-{
-	local f="/etc/dhcpcd.conf"
-	local interface="$(ifconfig | head -1 | cut -d: -f1)" # ens33 for Ubuntu
-
-	ping -c 1 $host >& /dev/null && return
-	reboot="true"
-
-	if [[ "$ID" == "raspbian" ]]; then
-		if ! grep "static domain_name_servers=$dnsServers" "$f" >& /dev/null; then
-			echo "interface $interface" | sudo tee -a "$f"
-			echo "static domain_name_servers=$dnsServers" | sudo tee -a "$f"
-			echo "interface wlan0" | sudo tee -a "$f"
-			echo "static domain_name_servers=$dnsServers" | sudo tee -a "$f"
-		fi
-	else # ubuntu
-		sudo systemd-resolve --set-dns=$dnsServers --interface="$interface"
-	fi
-
-	f="/etc/resolvconf/resolv.conf.d/tail"
-	if [[ ! -f "$f" ]] || ! grep "domain hagerman.butare.net" "$f" >& /dev/null; then
-		echo domain $dnsDomain | sudo tee -a /etc/resolvconf/resolv.conf.d/tail
-	fi
 }
 
 createUser()
@@ -68,18 +53,6 @@ mountPublic() # mount //$host/public
 	line="//$host/public /home/$user/Volumes/public cifs username=$user,noauto,rw,users 0 0"
 	! grep "$line" /etc/fstab >& /dev/null && { echo "$line" | sudo tee -a //etc/fstab || return; }
 	mount.cifs "//$host/public" "$HOME/Volumes/public" -o user=$user sec=ntlmsspi || return
-}
-
-init()
-{
-	reboot=""
-	user="${1:-jjbutare}"
-	host="${2:-nas1}"
-
-	eval $(cat /etc/os-release) # ID=ubuntu|raspbian
-
-	dnsServers="192.168.1.2 192.168.1.1"
-	dnsSuffix="hagerman.butare.net"
 }
 
 run "$@"

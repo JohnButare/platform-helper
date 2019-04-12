@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-#-x (debug) -v (verbose)
-. function.sh || exit
+. function.sh
 
 usage()
 {
 	echot "\
-usage: unc [explore|mount|unmount|IsMounted](explore) UNC
+usage: unc [explore|mount|unmount|IsMounted|ListMounted|UnMountAll](explore) UNC
 	explorer 	mount UNC and open in file explorer
 	IsMounted	if UNC is mounted returns DIR mounted to
-	list			list UNC disks on the host
+	list		list UNC disks on the host
 	mount 		mount UNC and return DIR mounted
 
 	-q, --quiet							hide status messages"
@@ -24,8 +23,8 @@ args()
 			-h|--help) help="--help";;
 			-q|--quiet) quiet="--quiet";;
 
-			UnMount) command="UnMount";; IsMounted) command="IsMounted";;
-				*)
+			UnMount) command="UnMount";; IsMounted) command="IsMounted";; ListMounted) command="ListMounted";; UnMountAll) command="UnMountAll";;
+			*)
 				IsUncPath "$1" && [[ ! $unc ]] && { unc="$1"; shift; continue; }
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
 				UnknownOption "$1"
@@ -38,26 +37,16 @@ args()
 	args=("$@")
 }
 
-init() { :; }
-run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
-
 listCommand()
 {
 	local server="$(GetUncServer "$unc")"
-
-	# win
-	[[ "$PLATFORM" == "win" ]] && { ls "$server"; return; }
-
-	# mac
-	smbutil view "//$server" | grep "Disk"
+	[[ $native ]] && { ls "$server"; return; } || smbutil view "//$server" | grep "Disk"
 }
 
 mountCommand()
 { 
 	[[ ! "$(GetUncShare "$unc")" ]] && { EchoErr "unc mount: no share specified"; return 1; }
-
-	# Windows can use UNC paths natively
-	[[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
+	[[ $native ]] && { echo "$unc"; return 0; }
 
 	# Mount the share
 	local noHostCheck; [[ "$1" == "--no-host-check" ]] && { noHostCheck="true"; shift; }
@@ -81,10 +70,7 @@ mountCommand()
 		return 1
 	fi
 
-	if [[ "$PLATFORM" == "mac" ]]; then
-		mount_smbfs "smb://$user:$(security find-generic-password  -gwa $user)@$server/$share" "$mountDir"
-
-	elif [[ "$PLATFORM" == "linux" ]]; then # Ubuntu
+	if IsPlatform linux; then
 
 		# add an entry to /etc/fstab so sudo is not required to write to the share		
 		if ! egrep -i "//$server/$shareId\\\$* $mountDir cifs username=$user,noauto,rw,users 0 0" /etc/fstab >& /dev/null; then
@@ -97,6 +83,14 @@ mountCommand()
 		[[ $password ]] && export PASSWD="$password"
 		mount.cifs "//$server/$share" "$mountDir" -o user=$user sec=ntlmsspi
 		[[ $password ]] && unset PASSWD
+
+	elif IsPlatform mac; then
+		mount_smbfs "smb://$user:$(security find-generic-password  -gwa $user)@$server/$share" "$mountDir"
+
+	elif IsPlatform wsl; then
+		mkdir -p "$mountDir" || return
+		sudo mount -t drvfs "//$server/$share" "$mountDir" 
+
 	fi
 
 	if ! IsMountedCommand; then
@@ -108,7 +102,7 @@ mountCommand()
 
 UnMountCommand()
 { 
-	[[ "$PLATFORM" == "win" ]] && { echo "$unc"; return 0; }
+	[[ "$PLATFORM" == "cygwin" ]] && { echo "$unc"; return 0; }
 
 	local dir; dir="$(IsMountedCommand)" || return 0
 
@@ -129,9 +123,30 @@ GetUncInfo()
 	user=$USER
 }
 
+ListMountedCommand()
+{
+	ls ~/Volumes | sed 's/_/\//g' | awk '{ print "//"$1 }'
+}
+
+UnMountAllCommand()
+{
+	local shares="$(unc ListMounted)"
+	
+	[[ ! $shares ]] && return
+	
+	printf "unmounting..."
+	for share in $shares; do
+		printf "$share..."
+		unc UnMount $share || return
+	done
+	echo "done"
+	
+	return 0
+}
+
 IsMountedCommand()
 {
-	[[ "$PLATFORM" == "win" ]] && return "$unc"
+	[[ $native ]] && { echo "$unc"; return; }
 
 	local server share shareId dirs; GetUncInfo "$unc"
 	local prefix=""; [[ "$PLATFORM" == "mac" ]] && prefix="$user@"
@@ -145,6 +160,14 @@ exploreCommand()
 {
 	local dir=$(mountCommand) || return
 	explore "$dir" || return
+}
+
+run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
+
+init()
+{
+	native=""; IsPlatform cygwin && native="true"
+	return 0
 }
 
 run "$@"

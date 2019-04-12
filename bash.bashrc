@@ -1,77 +1,50 @@
 # $bin/bash.bashrc, system-wide login initialization for all users and public scripts, executed by /etc/bash.bashrc
 
 # Variables
-# PLATFORM: ROOT P P32 G VOLUMES USERS PUB DATA BIN CODE
+# PLATFORM: P G VOLUMES USERS PUB DATA BIN PBIN CODE
 # USER: USER SUDO_USER HOME DOC UDATA UBIN ADATA
+# WINDOWS: WIN_ROOT WIN_USERS WIN_HOME
 set -a
 
 # LANG="en_US" - on Raspberry Pi settings this causes perl to start with errors, on Ubuntu this is set automatically
 
 HOSTNAME="${HOSTNAME:-$(hostname -s)}" 
 
-ROOT="" P="/opt" G="" VOLUMES="/mnt" USERS="/home" ADATA="$HOME/Library/Application Support"
+P="/opt" G="" VOLUMES="/mnt" USERS="/home" PUB="" DATA="" BIN="" CODE="/Projects" 
+USER="${USERNAME:-$USER}" DOC="" UDATA="" UBIN=""
 
 case "$(uname)" in 
-	CYGWIN*) PLATFORM="win" ROOT="/cygdrive/c" USERS="$ROOT/Users" PUB="$USERS/Public" P="$ROOT/Program Files" P32="$P (x86)" VOLUMES="/cygdrive" USER="$USERNAME" ADATA="$HOME/AppData/Roaming";;
-	Darwin)	PLATFORM="mac" USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes";;
+	CYGWIN*) PLATFORM="win" PLATFORM_LIKE="cygwin";;
+	Darwin)	PLATFORM="mac" USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support";;
 	Linux) PLATFORM="linux";;
+	MINGW*) platform="win"; PLATFORM_LIKE=mingw;;
 esac
-
+[[ $(uname -r) =~ .*-Microsoft ]] && PLATFORM="win" # Windows Subsytem for Linux
+[[ "$PLATFORM" == "win" ]] && { WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)" ADATA="$WIN_HOME/AppData/Roaming" CODE="$WIN_ROOT/Projects"; }
 PUB="${PUB:-$USERS/Shared}"
-DATA="/usr/local/data" BIN="$DATA/bin" CODE="$ROOT/Projects" 
+DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" UDATA="$DOC/data" UBIN="$UDATA/bin"
+
 
 set +a
 
-if [[ "$TMP" != "/tmp"  ]]; then
-	export TMP="/tmp"
-	export TEMP="/tmp"
-fi;
+[[ "$TMP" != "/tmp"  ]] && { export TMP="/tmp"; export TEMP="/tmp"; }
 
-#
-# configuration
-# 
+if [[ "$PLATFORM" == "win" ]]; then
+	export APPDATA="$WIN_HOME/AppData/Roaming"
+	export LOCALAPPDATA="$WIN_HOME/AppData/Local"
+	export PROGRAMDATA="$WIN_ROOT/ProgramData"
+	export WINDIR="$WIN_ROOT/Windows"
 
-shopt -s nocasematch
-
-#
-# terminal
-#
-
-export LINES COLUMNS 							# make available for dialogs in executable scripts
-kill -SIGWINCH $$	>& /dev/null		# ensure LINES and COLUMNS is set for a new Cygwin termnal before it is resized
-
-#
-# Windows 
-#
-
-# ensure programs receive the correct paths.  Unix programs uses upper case variables and Windows receives lower case variables
-
-if [[ "$PLATFORM" == "WIN" ]]; then
-	if [[ "$APPDATA" == *\\* ]]; then
-		export appdata="$APPDATA"
-		export APPDATA=$(cygpath -u "$appdata" 2> /dev/null)
-	fi
-
-	if [[ "$LOCALAPPDATA" == *\\* ]]; then
-		export localappdata="$LOCALAPPDATA"
-		export LOCALAPPDATA=$(cygpath -u "$localappdata" 2> /dev/null)
-	fi
-
-	if [[ "$PROGRAMDATA" == "" || "$PROGRAMDATA" == *\\* ]]; then
-		export programdata="c:\\ProgramData"
-		export PROGRAMDATA="/cygdrive/c/ProgramData"
-	fi
-
-	if [[ "$WINDIR" == *\\* ]]; then
-		export windir="$WINDIR"
-		export WINDIR=$(cygpath -u "$windir" 2> /dev/null)
-	fi
-
-	if [[ "$PLATFORM" == "WIN" && ! $tmp ]]; then
-		export tmp="$localappdata\Temp"
-		export temp="$localappdata\Temp"
-	fi
+	# Unix programs uses upper case variables and Windows receives lower case variables (at least in Cygwin)
+	[[ "$PLATFORM_LIKE" == "cygwin" ]] && wslpath() { cygpath "$@"; }
+	utw() { [[ ! "$@" ]] && return; [[ "$PLATFORM" == "win" ]] && { wslpath -aw "$*"; return; } || echo "$@"; } # UnixToWin
+	export appdata="$(utw "$APPDATA")";
+	export localappdata="$(utw "$LOCALAPPDATA")";
+	export programdata="$(utw "$PROGRAMDATA")"
+	export windir="$(utw "$WINDIR")"
+	export tmp="$localappdata\Temp"
+	export temp="$localappdata\Temp"
 
 	SetWinVars()
 	{
@@ -82,6 +55,14 @@ if [[ "$PLATFORM" == "WIN" ]]; then
 
 	[[ $WIN_VARS ]] && SetWinVars
 fi
+
+#
+# configuration
+# 
+
+shopt -s nocasematch
+export LINES COLUMNS 						# make available for dialogs in executable scripts
+kill -SIGWINCH $$	>& /dev/null 	# ensure LINES and COLUMNS is set for a new termnal before it is resized
 
 #
 # paths
@@ -96,7 +77,7 @@ case "$PLATFORM" in
 	"win") PathAdd "/usr/bin" front # use CygWin utilities before system utilities (/etc/profile adds them first, but profile does not when called by "ssh <host> <script>.sh"
 esac
 
-PathAdd "$DATA/platform/$PLATFORM" front
+PathAdd "$PBIN" front
 PathAdd "$BIN" front
 PathAdd "$UDATA/bin"
 
