@@ -48,7 +48,7 @@ function GetPlatform()
 	results="$(
 		eval $results
 		case "$platform" in 
-			Cygwin*) platform="win"; ID_LIKE=cygwin;;
+			CYGWIN*) platform="win"; ID_LIKE=cygwin;;
 			Darwin)	platform="mac";;
 			Linux) platform="linux";;
 			MinGw*) platform="win"; ID_LIKE=mingw;;
