@@ -80,14 +80,12 @@ esac
 PathAdd "$PBIN" front
 PathAdd "$BIN" front
 PathAdd "$UDATA/bin"
-
 ManPathAdd "$DATA/man"
 
 # interactive initialization - remainder not needed in child processes or scripts
 [[ "$-" != *i* ]] && return
-
-# common functions
 [[ ! $FUNCTIONS && -f "$BIN/function.sh" ]] && . "$BIN/function.sh"
+IsPlatform wsl && PathAdd "$WIN_ROOT/Windows/system32"
 
 #
 # install
