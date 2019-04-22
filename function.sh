@@ -629,7 +629,7 @@ IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $S
 SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 
 # IsElevated() - true if there you have elevated to get the Windows Administrator token
-IsElevated() { whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; }
+IsElevated() { $WIN_ROOT/Windows/system32/whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; }
 elevate() { IsElevated && "$@" || RunInDir hstart64.exe /NOUAC /WAIT "wsl.exe $*"; } # asyncronous even with /WAIT and return result is not correct
 ElevateNoConsole() { IsElevated && "$@" || RunInDir hstart64.exe /NOCONSOLE /NOUAC /WAIT "wsl.exe $*"; }
 ElevatePause() { elevate RunPause "$*"; } # elevate the passed program and pause if there is an error
