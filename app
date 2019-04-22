@@ -173,7 +173,7 @@ MapApp()
 }
 
 AltTabTerminator() { IsTaskRunning "AltTabTer64" || TaskStart "$P/SAlt-Tab Terminator/AltTabTer64.exe" "" /startup; }
-AquaSnap() { IsTaskRunning "AquaSnap.Daemon" || RunInDir --cmd --background "$P32/AquaSnap/AquaSnap.Daemon.exe"; }
+AquaSnap() { IsTaskRunning "AquaSnap.Daemon" && return; printf "AquaSnap..."; RunInDir --cmd --background "$P32/AquaSnap/AquaSnap.Daemon.exe"; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
 cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
 Duet() { TaskStart "C:\Program Files\Kairos\Duet Display\duet.exe"; }
@@ -183,7 +183,7 @@ Greenshot() { IsTaskRunning "Greenshot" || TaskStart "$P/Greenshot/Greenshot.exe
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 IntelRapidStorage() { IsTaskRunning "IAStorIcon" || RunInDir --background "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
-TidyTabs() { IsTaskRunning "TidyTabs.Daemon" || TaskStart "$P32/TidyTabs/TidyTabs.Daemon.exe"; }
+TidyTabs() { IsTaskRunning "TidyTabs.Daemon" && return; printf "TidyTabs..."; RunInDir --cmd --background "$P32/TidyTabs/TidyTabs.Daemon.exe"; }
 
 IntelDesktopControlCenter() 
 { 
