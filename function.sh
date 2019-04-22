@@ -3,7 +3,7 @@
 InitializeBash()
 {
 	local file="${BASH_SOURCE[0]%/*}/bash.bashrc" 
-	[[ $SUDO_USER ]] || echo "WARNING: $file was not sourced in /etc/bash.bashrc"
+	[[ ! $SUDO_USER && $PS1 ]] && echo "WARNING: $file was not sourced in /etc/bash.bashrc"
 	[[ -f "$file" ]] && . "$file"
 }
 
@@ -870,16 +870,7 @@ IsTaskRunning() # IsTaskRunng EXE
 
 # Process Commands
 
-ProcessList() # PID,NAME
-{ 
-	#IsPlatform cygwin && { ps -W -e | awk '{ print $1 "," substr($0,index($0,$8)) }' && return; }
-
-	case $PLATFORM in
-		linux|win) ps -ef | awk '{ print $2 "," substr($0,index($0,$8)) }';;
-		mac) ps -ef | ${G}cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
-	esac
-}
-
+ProcessIdExists() { kill -0 $1 >& /dev/null; }
 ProcessListWin() { tasklist.exe | awk '{ print $2 "," $1 }'; }
 
 ProcessClose() 
@@ -905,6 +896,16 @@ ProcessKill()
 	else
 		pkill "$p" > /dev/null
 	fi
+}
+
+ProcessList() # PID,NAME
+{ 
+	#IsPlatform cygwin && { ps -W -e | awk '{ print $1 "," substr($0,index($0,$8)) }' && return; }
+
+	case $PLATFORM in
+		linux|win) ps -ef | awk '{ print $2 "," substr($0,index($0,$8)) }';;
+		mac) ps -ef | ${G}cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
+	esac
 }
 
 #

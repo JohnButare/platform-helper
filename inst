@@ -469,6 +469,7 @@ bootstrapCygwin() { i cygwin || return; }
 bootstrapWsl()
 {
 	sudo chmod u+s /usr/bin/touch || return # network touch requires sudo permission in wsl
+	$makeShortcut "wsl.exe" "$psm/Programs/Startup/startup" -a "$BIN/startup" -d "Start applications" -i "$(utw "$PUB/Documents/data/icons/Command Prompt.ico")" || return
 	return 0
 }
 
@@ -483,7 +484,6 @@ bootstrapWin()
 
 	echo "Start menu..."
 	ElevatePause GrantFullPermission "$psm" || return
-	$makeShortcut "wsl.exe" "$psm/Programs/Startup/startup" -a "$BIN/run.sh startup" -d "Start applications" --show=min -i "$(utw "$PUB/Documents/data/icons/Command Prompt.ico")" || return
 
 	echo "Other Windows programs..."
 	i WindowsSetup SysInternals || return
@@ -732,14 +732,10 @@ BashInstall()
 		$hide "$HOME/$file" || return
 	done
 
-	if [[ -d ~/.ssh ]]; then # if issues: chgrp root ~/.ssh/*
-		printf "ssh..."
-		$hide ~/.ssh || return
-		[[ -f ~/.ssh/id_rsa ]] && { chmod 700 ~/.ssh/id_rsa || return; }
-		[[ -f ~/.ssh/config ]] && { chmod 700 ~/.ssh/config || return; }
-	fi
+	printf "ssh..."
+	SshPermission || return;
 
-	echo "...done"
+	echo "done"
 
 	local file="/etc/bash.bashrc"
 	local line='[[ -f /usr/local/data/bin/bash.bashrc ]] && . "/usr/local/data/bin/bash.bashrc"'
@@ -766,6 +762,19 @@ SshCore()
 	i WinScp SshServer || return;	
 }
 
+SshPermission()
+{
+	[[ ! -d ~/.ssh ]] && return
+
+	# if issues: chgrp root ~/.ssh/*
+	$hide ~/.ssh || return
+	[[ -f ~/.ssh/id_rsa ]] && { chmod 700 ~/.ssh/authorized_keys || return; }
+	[[ -f ~/.ssh/id_rsa ]] && { chmod 700 ~/.ssh/id_rsa || return; }
+	[[ -f ~/.ssh/config ]] && { chmod 700 ~/.ssh/config || return; }
+
+	return 0
+}
+
 WinScp()
 {
 	[[ "$PLATFORM" != "win" ]] && return 0
@@ -780,27 +789,38 @@ WinScp()
 
 SshServer()
 {
-	sshHome="$HOME/.ssh"
-	sshCloudHome="$CLOUD/data/.ssh"
+	local sshd
 
-	echo Creating data directory...
-	makeDir "$sshHome" && $hide +h "$sshHome" || return
+	printf "**************************************************\n* SSH Server\n**************************************************\n"
+	makeDir ~/.ssh && $hide +h ~/.ssh || return
 
-	echo "Starting ssh agent..."
-	SshAgent startup || return
+	echo "Configuring..."
+	if IsPlatform cygwin; then
+		sshd="$P/Cygwin/usr/sbin/sshd.exe"
 
-	echo "Updating firewall..."
-	$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/Cygwin/usr/sbin/sshd.exe")" || return
+		if ! IsPath sshd && ask 'Install SSH daemon'; then
+			echo "- StrictModes=no, local account=yes, service=yes, value of CYGWIN for the daemon=ntsec, use a diferent account name=no, create privileged account=yes, password=<administrator>"
+			ssh-host-config || return
+		fi
 
-	if ask 'Install SSH daemon'; then
-		# StrictModes must be off if the home directory is relocated to c:\Users as sshd does not allow the permissions Windows uses
-		echot "\
-- StrictModes=no, local account=yes, service=yes, value of CYGWIN for the daemon=ntsec,
-  use a diferent account name=no, create privileged account=yes, password=<administrator>"
-		ssh-host-config && service start sshd || return
+	elif IsPlatform win; then
+		sshd="$LOCALAPPDATA/packages/canonicalgrouplimited.ubuntu18.04onwindows_79rhkp1fndgsc/localstate/rootfs/usr/sbin/sshd"
+		service exist sshd && { service stop sshd || return; service demand sshd || return; } # stop Cygwin sshd service
 	fi
 
-	return 0;
+	if IsElevated; then
+		echo "Updating firewall..."
+		$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$sshd")" || return
+	fi
+
+	echo "Starting the service..."
+	if IsPlatform cygwin; then
+		service start sshd || return;
+	elif IsPlatform win; then
+		/usr/sbin/service ssh status | grep "not running" >& /dev/null && { sudo service ssh start || return; }
+	fi
+
+	return 0
 }
 
 
