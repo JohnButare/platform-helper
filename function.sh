@@ -616,8 +616,8 @@ printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf
 console() { start --direct proxywinconsole.exe "$@"; } 
 
 IsMobile() { [[ "$(HostInfo info "$HOSTNAME" mobile)" == "yes" ]]; }
-IsVm() { IsVMwareVm; }
-IsVMwareVm() { [[ "$PLATFORM" != "win" ]] && return 1; ! vmchk.exe > /dev/null; }
+IsVm() { IsVmwareVm; }
+IsVmwareVm() { [[ -d "$P/VMware/VMware Tools" ]]; }
 OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
 sudop() { sudo --preserve-env=PATH env "$@"; } # run sudo with the existing path, less secure
 
