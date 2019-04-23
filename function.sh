@@ -717,7 +717,7 @@ start()
 	elif InPath xdg-open; then open="xdg-open"; fi
 
 	# start directories and URL's
-	( [[ -d "$file" ]] || IsUrl "$program" ) && { start $open "$file" win; return; }
+	( [[ -d "$file" ]] || IsUrl "$file" ) && { start $open "$file"; return; }
 
 	# verify file
 	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
