@@ -98,7 +98,8 @@ function RunPlatform()
 	RunFunction $function $PLATFORM_ID || return
 	RunFunction $function $PLATFORM_LIKE || return
 	RunFunction $function $PLATFORM || return
-	RunFunction $function wsl || return;
+	IsPlatform wsl && { RunFunction $function wsl || return; }
+	IsPlatform cygwin && { RunFunction $function cygwin || return; }
 }
 
 #
@@ -673,31 +674,6 @@ IsExecutable()
 	type -a "$p" >& /dev/null
 }
 
-# ProcessType console|gui|windows windows: true if the executable requires windows paths (c:\...) instead of POSIX paths (/...)
-ProcessType() 
-{
-	local command="$1" file="$2"; 
-
-	[[ "$#" != 2 ]] && { EchoErr "ProcessType console|gui|windows FILE"; return 1; }
-	[[ ! -f  "$file" ]] && { EchoErr "$file does not exist"; return 1; }
-
-	case "$command" in
-
-		console|gui) 
-			IsPlatform win && { file "$file" | egrep -i $command > /dev/null; return; } || return 0;;
-			
-		windows) 
-			if IsPlatform cygwin; then 
-				utw "$file" | egrep -iv cygwin > /dev/null; return;
-			elif IsPlatform win; then 
-				file "$file" | grep PE32 > /dev/null; return;
-			else
-				return 1
-			fi
-			;;
-	esac
-}
-
 # start [-e|--elevate] [-w|--wait] FILE ARGUMENTS - start a program converting file arguments for the platform as needed
 start() 
 {
@@ -870,7 +846,7 @@ IsTaskRunning() # IsTaskRunng EXE
 
 # Process Commands
 
-ProcessIdExists() { kill -0 $1 >& /dev/null; }
+ProcessIdExists() { kill -0 $1 >& /dev/null; } # fast
 ProcessListWin() { tasklist.exe | awk '{ print $2 "," $1 }'; }
 
 ProcessClose() 
@@ -892,7 +868,7 @@ ProcessKill()
 	local p="$1"; GetFileNameWithoutExtension "$p" p
 
 	if [[ "$PLATFORM" == "win" ]]; then
-		pskill "$p" > /dev/null
+		RunInDir pskill.exe "$p" > /dev/null
 	else
 		pkill "$p" > /dev/null
 	fi
@@ -905,6 +881,31 @@ ProcessList() # PID,NAME
 	case $PLATFORM in
 		linux|win) ps -ef | awk '{ print $2 "," substr($0,index($0,$8)) }';;
 		mac) ps -ef | ${G}cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
+	esac
+}
+
+# ProcessType console|gui|windows windows: true if the executable requires windows paths (c:\...) instead of POSIX paths (/...)
+ProcessType() 
+{
+	local command="$1" file="$2"; 
+
+	[[ "$#" != 2 ]] && { EchoErr "ProcessType console|gui|windows FILE"; return 1; }
+	[[ ! -f  "$file" ]] && { EchoErr "$file does not exist"; return 1; }
+
+	case "$command" in
+
+		console|gui) 
+			IsPlatform win && { file "$file" | egrep -i $command > /dev/null; return; } || return 0;;
+			
+		windows) 
+			if IsPlatform cygwin; then 
+				utw "$file" | egrep -iv cygwin > /dev/null; return;
+			elif IsPlatform win; then 
+				file "$file" | grep PE32 > /dev/null; return;
+			else
+				return 1
+			fi
+			;;
 	esac
 }
 

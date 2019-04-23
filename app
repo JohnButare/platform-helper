@@ -185,6 +185,26 @@ IntelRapidStorage() { IsTaskRunning "IAStorIcon" || RunInDir --background "$P/In
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
 TidyTabs() { IsTaskRunning "TidyTabs.Daemon" && return; printf "TidyTabs..."; RunInDir --cmd --background "$P32/TidyTabs/TidyTabs.Daemon.exe"; }
 
+sshd()
+{ 
+	! IsPlatform wsl && return
+
+	if [[ "$command" != "startup" ]]; then
+		printf "sshd"
+		service stop ssh >& /dev/null
+		return
+	fi
+
+	if ! service running ssh; then
+		# start explicity so we are not prompted for a password
+		printf "sshd"
+		sudo /usr/sbin/sshd -D &
+		return
+	fi
+
+	return 0
+}
+
 IntelDesktopControlCenter() 
 { 
 	program="$P32/Intel/Intel(R) Desktop Control Center/idcc.exe"

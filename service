@@ -66,11 +66,22 @@ init()
 
 run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
 showCommand() { start services.msc; }
-listCommand() { $sc $hostUnc queryex bufsize= $scBufferSize type= all state= all; }
-stateCommand() { GetWord "$($sc $hostUnc query "$service" |& grep STATE)" 3; }
+listCommand() { $sc $hostUnc queryex bufsize= $scBufferSize type= all state= all; /usr/sbin/service --status-all; }
 runningCommand() { [[ "$(stateCommand)" == "RUNNING" ]]; }
 StartTypeCommand() { GetWord "$($sc $hostUnc qc "$service" $ScBufferSize |& grep START_TYPE)" 3; }
 existCommand() { $sc $hostUnc qc "$service" $ScBufferSize |& grep START_TYPE >& /dev/null; }
+
+isLinuxService() { [[ -f /etc/init.d/$1 ]]; }
+
+stateCommand() 
+{ 
+	if isLinuxService "$service"; then
+		/usr/sbin/service "$service" status | grep "not running" > /dev/null && echo "STOPPED" || echo "RUNNING"
+	else
+		GetWord "$($sc $hostUnc query "$service" |& grep STATE)" 3; 
+	fi
+}
+
 
 deleteCommand()
 {
@@ -114,7 +125,12 @@ startCommand()
 	[[ "$(stateCommand)" != "STOPPED" ]] && return 
 	
 	checkWaiting; printf "Starting $service service$hostDescription...$waiting"
-	result="$($sc $hostUnc start "$service")" || { EchoErr "$result"; return 1; }
+
+	if isLinuxService "$service"; then
+		sudo /usr/sbin/service "$service" start || return
+	else
+		result="$($sc $hostUnc start "$service")" || { EchoErr "$result"; return 1; }
+	fi
 
 	[[ $wait ]] && WaitForState RUNNING start started
 }
@@ -122,10 +138,15 @@ startCommand()
 stopCommand()
 {
 	[[ "$(stateCommand)" != "RUNNING" ]] && return 
-	checkElevated && { ElevatePause service stop $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
+	! isLinuxService "$service" && checkElevated && { ElevatePause service stop $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 
 	checkWaiting; printf "Stopping $service service$hostDescription..."$waiting
-	result="$($sc $hostUnc stop "$service")" || { EchoErr "$result"; return 1; }
+
+	if isLinuxService "$service"; then
+		sudo /usr/sbin/service "$service" stop || return
+	else
+		result="$($sc $hostUnc stop "$service")" || { EchoErr "$result"; return 1; }
+	fi
 
 	[[ $wait ]] && WaitForState STOPPED stop stopped
 	return 0

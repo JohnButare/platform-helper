@@ -179,6 +179,8 @@ InstallInit()
 	setupFiles="$_data/setup"
 }
 
+package() { $sudo apt-get install -y "$@" || return; }
+
 run() # run EXE [OPTIONS...]
 {
 	local p="$1" i; shift
@@ -399,21 +401,22 @@ bootstrapDebian()
 
 	echo "Installing programs..."
 	if ! InPath lolcat > /dev/null; then
-		sudo apt-get -y install unzip zip || return				# compression
-		sudo apt-get -y install nautilus || return				# file explor
-		sudo apt-get -y install fonts-inconsolata 				# fonts
-		sudo apt-get -y install dnsutils etherwake || return	# network	
-		sudo apt-get -y install terminator || return			# terminal
-		sudo apt-get -y install x11-apps xterm || return		# x11
-		sudo apt-get -y install cowsay lolcat || return 		# other
+		package unzip zip || return					# compression
+		package nautilus || return					# file explor
+		package fonts-inconsolata						# fonts
+		package gnome-system-monitor || return	# monitoring
+		package dnsutils etherwake || return	# network	
+		package terminator || return				# terminal
+		package x11-apps xterm || return		# x11
+		package cowsay lolcat || return 		# other
 	fi
 
 	if ! InPath synaptic && ask 'Install package management systems (synaptic is large)'; then
-		sudo apt-get -y install gdebi-core synaptic || return
+		package gdebi-core synaptic || return
 	fi
 
 	if ! InPath geany && ask 'Install text editors (gedit, geany)'; then
-		sudo apt-get -y install gedit geany || return
+		package gedit geany || return
 	fi
 
 	if ! IsPlatform win && ask 'Setup file sharing'; then
@@ -512,7 +515,7 @@ appCore()
 	esac
 
 	echo 'Installing core applications...'
-	IsPlatform debian $sudo apt-get install lynx tmux
+	IsPlatform debian package lynx tmux
 	IsPlatform debian,dsm,mac,win && { i gitCore || return; }
 	IsPlatform ubuntu,mac,win && { i python ruby DropBox firefox BrowserHomePage || return; }
 	IsPlatform win && { i 7Zip BrowserHomePage GreenShot || return; }
@@ -534,7 +537,7 @@ appCore()
 appRaspbian() 
 { 
 	if ! InPath gpio; then
-		sudo apt-get -y install wiringpi || return	# gpio
+		package wiringpi || return	# gpio
 	fi
 
 	sudo adduser $USER gpio || return
@@ -799,34 +802,43 @@ SshServer()
 	SshPermission || return
 
 	echo "Configuring..."
-	if IsPlatform cygwin; then
-		sshd="$P/Cygwin/usr/sbin/sshd.exe"
+	RunPlatform sshServer || return
 
-		if ! IsPath sshd && ask 'Install SSH daemon'; then
-			echo "- StrictModes=no, local account=yes, service=yes, value of CYGWIN for the daemon=ntsec, use a diferent account name=no, create privileged account=yes, password=<administrator>"
-			ssh-host-config || return
-		fi
-
-	elif IsPlatform win; then
-		sshd="$LOCALAPPDATA/packages/canonicalgrouplimited.ubuntu18.04onwindows_79rhkp1fndgsc/localstate/rootfs/usr/sbin/sshd"
-		service exist sshd && { service stop sshd || return; service demand sshd || return; } # stop Cygwin sshd service
-	fi
-
-	if IsElevated; then
+	if IsPlatform win && IsElevated; then
 		echo "Updating firewall..."
 		$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$sshd")" || return
-	fi
 
-	echo "Starting the service..."
-	if IsPlatform cygwin; then
-		service start sshd || return;
-	elif IsPlatform win; then
-		/usr/sbin/service ssh status | grep "not running" >& /dev/null && { sudo service ssh start || return; }
+		echo "Starting the sshd service..."
+		if IsPlatform cygwin; then
+			service start sshd || return;
+		elif IsPlatform win; then
+			/usr/sbin/service ssh status | grep "not running" >& /dev/null && { sudo service ssh start || return; }
+		fi
 	fi
-
-	return 0
 }
 
+sshServerCygwin()
+{
+	sshd="$P/Cygwin/usr/sbin/sshd.exe"
+
+	if ! IsPath sshd && ask 'Install SSH daemon'; then
+		echo "- StrictModes=no, local account=yes, service=yes, value of CYGWIN for the daemon=ntsec, use a diferent account name=no, create privileged account=yes, password=<administrator>"
+		ssh-host-config || return
+	fi
+}
+
+sshServerWsl()
+{
+	sshd="$LOCALAPPDATA/packages/canonicalgrouplimited.ubuntu18.04onwindows_79rhkp1fndgsc/localstate/rootfs/usr/sbin/sshd"
+
+	if ask "Update sudoers"; then
+		echo "$USER ALL = (root) NOPASSWD: /usr/sbin/sshd -D"
+		sudo visudo || return
+	fi
+
+	# stop Cygwin sshd service
+	service exist sshd && service running sshd && { service stop sshd || return; service demand sshd || return; } 
+}
 
 IntelCore()
 {
@@ -972,7 +984,7 @@ NodeJsInstall()
 
 	elif [[ "$PLATFORM_ID" == "raspbian" ]] && ! InPath node ; then
 		curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash || return # get node version 10.x
-		sudo apt-get install -y nodejs || return
+		package nodejs || return
 	
 	elif [[ "$PLATFORM" == "linux" ]] && ! InPath node; then
 		sudo apt install -y node || return
@@ -1593,7 +1605,7 @@ VsIcons()
 	
 	makeDir "$other" || return
 
-	$makeShortcut "$_root/Windows/assembly" "$base/GAC.lnk" || return
+	$makeShortcut "$WIN_ROOT/Windows/assembly" "$base/GAC.lnk" || return
 
 	mergeDir --rename "$pp/Visual Studio $vsName" "$other/Visual Studio $vsName" || return
 	mergeDir "$pp/Windows Kits" "$pp/Development/Other" || return
@@ -1751,7 +1763,7 @@ firefox()
 
 	local v="62.0" # https://www.mozilla.org/en-US/firefox/all/
 	if IsPlatform raspbian; then
-		sudo apt-get install firefox-esr || return
+		package firefox-esr || return
 	else
 		run "Mozilla/Firefox/setup/" -p "Firefox Setup $v.exe" "Firefox $v.dmg" "firefox-$v.tar.tar" || return
 	fi
@@ -2211,7 +2223,7 @@ gitCore()
 
 gitDebian()
 {
-	ask "Install git" && { sudo apt-get install -y git tig || return; }
+	ask "Install git" && { package git tig || return; }
 	return 0
 }
 
@@ -2223,7 +2235,7 @@ gitMac()
 
 gitRaspbian()
 {
-	ask "Install kompare" && { sudo apt-get install -y kompare || return; }
+	ask "Install kompare" && { package kompare || return; }
 	return 0
 }
 
@@ -3086,7 +3098,7 @@ RubyInstall()
 {
 	if ! InPath ruby; then
 		if IsPlatform cygwin; then { cygwin package ruby || return; }
-		elif IsPlatform debian; then { sudo apt-get -y ruby || return; }; fi
+		elif IsPlatform debian; then { package ruby || return; }; fi
 	fi
 
 	makeDir ~/.gem && $hide ~/.gem || return
@@ -3102,7 +3114,7 @@ PythonInstall()
 
 	if ! InPath python3; then
 		if IsPlatform cygwin; then cygwin package python || return
-		elif IsPlatform debian; then sudo apt-get -y python3 || return; fi
+		elif IsPlatform debian; then package python3 || return; fi
 	fi
 
 	# pip: https://packaging.python.org/tutorials/installing-packages/ https://pip.pypa.io/en/stable/installing/
@@ -3967,22 +3979,33 @@ DockerInstall()
 xServer()
 {
 	printf "**************************************************\n* X Server\n**************************************************\n"
+	RunPlatform xServer || return
+}
 
-	if IsPlatform cygwin; then
-		cygwin package x || return
-		mergeDir "$pp/Cygwin-X" "$oo" || return
-	elif IsPlatform win; then # https://sourceforge.net/projects/vcxsrv/
-		run "LINUX/VcXsrv/vcxsrv-64.1.20.1.4.installer.exe" --pause || return
-		mergeDir "$pp/VcXsrv" "$pp/Operating System/Other" || return
-		$rm "$pd/XLaunch.lnk"
-		$makeShortcut "wscript.exe" "$pp/Operating System/terminator" -a="c:\Users\Public\Documents\data\platform\win\terminator.vbs" -i "$(utw "$PUB/Documents/data/icons/Command Prompt.ico")" || return
-	elif IsPlatform mac; then # https://www.xquartz.org/
-		run "UNIX/XQuartz/XQuartz-2.7.11.dmg" || return
-	elif IsPlatform raspbian; then
-			sudo bash -c '[[ ! -f $HOME/.Xauthority ]] && ln -s '$HOME'/.Xauthority $HOME/.Xauthority'
-	else
-		return 0
+xServerMac() { run "UNIX/XQuartz/XQuartz-2.7.11.dmg" || return; } # https://www.xquartz.org/
+xServerRaspbian() { sudo bash -c '[[ ! -f $HOME/.Xauthority ]] && ln -s '$HOME'/.Xauthority $HOME/.Xauthority'; }		
+
+xServerCygwin()
+{
+	cygwin package x || return
+	mergeDir "$pp/Cygwin-X" "$oo" || return
+}
+
+xServerWin()
+{
+	if ask "Install Xming"; then # http://www.straightrunning.com/candidate/
+		run "LINUX/Xming/rel_x64_Xming-7-7-0-42-setup.exe" || return
+		run "LINUX/Xming/Xming-fonts-7-7-0-10-setup.exe" || return
 	fi
+
+	if ask "Install VcXsrv"; then # https://sourceforge.net/projects/vcxsrv/
+			run "LINUX/VcXsrv/vcxsrv-64.1.20.1.4.installer.exe" --pause || return
+	fi
+
+	mergeDir "$pp/VcXsrv" "$pp/Operating System/Other" || return
+	mergeDir "$pp/Xming" "$pp/Operating System/Other" || return
+	$rm "$pd/XLaunch.lnk"
+	$makeShortcut "wscript.exe" "$pp/Operating System/terminator" -a="c:\Users\Public\Documents\data\platform\win\terminator.vbs" -i "$(utw "$PUB/Documents/data/icons/Command Prompt.ico")" || return
 }
 
 homebridge()
