@@ -274,7 +274,7 @@ explore() # explorer DIR - explorer DIR in GUI program
 		open "$dir"
 	elif [[ "$PLATFORM" == "win" ]]; then
 		explorer.exe "$(utw "$dir")"
-	elif [[ "$PLATFORM_ID" == "ubuntu" ]]; then
+	elif [[ "$PLATFORM_LIKE" == "debian" ]] && InPath nautilus; then
 		start nautilus "$dir"
 	else
 		EchoErr "The $PLATFORM_ID platform does not have a file explorer"
