@@ -226,7 +226,7 @@ InPath() { which "$1" >& /dev/null; }
 FindInPath()
 {
 	type -P "${1}" && return
-	IsPlatform win && IsPlatform debian && { type -P "${1}.exe" && return; }
+	IsPlatform wsl && { type -P "${1}.exe" && return; }
 	return 1
 }
 
