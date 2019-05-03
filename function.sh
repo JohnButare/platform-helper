@@ -865,11 +865,12 @@ ProcessClose()
 
 ProcessKill()
 {
-	local p="$1"; GetFileNameWithoutExtension "$p" p
+	local p="$1"
 
 	if [[ "$PLATFORM" == "win" ]]; then
 		RunInDir pskill.exe "$p" > /dev/null
 	else
+		GetFileNameWithoutExtension "$p" p
 		pkill "$p" > /dev/null
 	fi
 }
