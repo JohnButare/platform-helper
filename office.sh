@@ -24,7 +24,7 @@ fi
 [[ ! $WordProgram ]] && WordProgram="$OfficeDir/WinWord.exe"
 
 # x64 Office if we are running under x64 OS and Office is installs to $P
-if [[ "$(OsArchitecture)" == "x64" && "$OfficeDir" =~ ^$P/ ]]; then
+if [[ "$OfficeDir" =~ ^$P/ ]]; then
 	OfficeArchitecture=x64
 	OfficeBits=64
 fi

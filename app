@@ -196,9 +196,8 @@ sshd()
 	fi
 
 	if ! service running ssh; then
-		# start explicity so we are not prompted for a password
 		printf "sshd"
-		sudo /usr/sbin/sshd -D &
+		service ssh start >& /dev/null
 		return
 	fi
 

@@ -1,4 +1,8 @@
-# common functions for non-interactive scripts
+# function.sh: common functions for non-interactive scripts
+
+#
+# Configuration
+#
 
 InitializeBash()
 {
@@ -7,33 +11,22 @@ InitializeBash()
 	[[ -f "$file" ]] && . "$file"
 }
 
-# sytem-wide configuration - if we were not run from a login shell
 [[ ! $BIN ]] && InitializeBash
 
 FUNCTIONS="true"
-
-#
-# configuration
-# 
-
 shopt -s nocasematch extglob 
 
 #
-# platform functions
+# Platform
 # 
-
-[[ "$PLATFORM" == "win" ]] && . function.win.sh
-
-#
-# platform - least specific to most specific
-#
-
 # PLATFORM=linux|win|mac
 # PLATFORM_LIKE=cygwin|debian|openwrt|synology
 # PLATFORM_ID=dsm|srm|raspian|ubiquiti|ubuntu
 
+[[ "$PLATFORM" == "win" ]] && . function.win.sh
+
 # GetPlatform [host](local) - get platform, platformLike, and platformId for the host
-# test:  sf; time GetPlatform nas1 && echo "success: $platform-$platformLike-$platformId"
+# testing:  sf; time GetPlatform nas1 && echo "success: $platform-$platformLike-$platformId"
 function GetPlatform() 
 {
 	local results host="$1" cmd='echo platform=$(uname); echo kernel=\"$(uname -r)\"; [[ -f /etc/os-release ]] && cat /etc/os-release; [[ -f /var/sysinfo/model ]] && echo ubiquiti=true; [[ -f /proc/syno_platform ]] && echo synology=true && [[ -f /bin/busybox ]] && echo busybox=true'
@@ -103,18 +96,13 @@ function RunPlatform()
 }
 
 #
-# other
+# Other
 #
 
 EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of the variable in variable, or set it to var
 IsUrl() { [[ "$1" =~ http[s]?://.* ]]; }
 IsInteractive() { [[ "$-" == *i* ]]; }
-pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
-EchoErr() { echo "$@" > /dev/stderr; }
-PrintErr() { printf "$@" > /dev/stderr; }
-#ShowErr() { eval "$@" 2> >(sed 's/^/stderr: /') 1> >(sed 's/^/stdout: /'); } # error under Synology DSM
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
-RemoveBackslash() { echo "${@//\\/}"; }
 
 clipw() 
 { 
@@ -122,7 +110,7 @@ clipw()
 		linux) { [[ "$DISPLAY" ]] && InPath xclip; } && { echo -n "$@" | xclip -sel clip; };;
 		mac) echo -n "$@" | pbcopy;; 
 		win) IsPlatform cygwin && echo -n "$@" > /dev/clipboard || echo -n "$@" | clip.exe;;
-	esac; 
+	esac
 }
 
 clipr() 
@@ -131,7 +119,8 @@ clipr()
 		linux) InPath xclip && xclip -o -sel clip;;
 		mac) pbpaste;;
 		win) IsPlatform cygwin && cat /dev/clipboard;;
-	esac; }
+	esac
+}
 
 #
 # scripts
@@ -206,7 +195,7 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 }
 
 #
-# files and directories
+# File System
 #
 
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
@@ -346,14 +335,14 @@ CopyDir()
 if IsPlatform cygwin; then
 	CopyDir()
 	{
-		[[ $1 == @(--help) ]]	&& { EchoErr "usage: CopyDir SRC DEST [FILES] [OPTIONS]
-	  -m, --mirror			remove extra files in DEST
-	  -q, --quiet				minimize logging
-	  -r, --recursively	copy directories recursively
-	      --retry 			retry copy on failure
-	  -v, --verbose			maximize logging
-	  -xd DIRS					exclude files matching the name/path/wildcard
-	  -xf FILES					exclude files matching the name/path/wildcard"; return 1; }
+		[[ $1 == @(-h|--help) ]]	&& { echot "usage: CopyDir SRC DEST [FILES] [OPTIONS]
+	-m, --mirror			remove extra files in DEST
+	-q, --quiet				minimize logging
+	-r, --recursively	copy directories recursively
+	--retry 			retry copy on failure
+	-v, --verbose			maximize logging
+	-xd DIRS					exclude files matching the name/path/wildcard
+	-xf FILES					exclude files matching the name/path/wildcard"; return 1; }
 
 		local o=( /COPY:DAT /ETA ) mirror quiet src dest # /DCOPY:DAT requires newer robocopy
 
@@ -427,9 +416,10 @@ CpProgress()
 } 
 
 #
-# arrays
+# Data Types
 #
 
+# array
 CopyArray() { local ca; GetArrayDefinition "$1" ca; eval "$2=$ca"; }
 DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${!get}")} # DelimitArray DELIMITER ARRAY_VAR
 GetArrayDefinition() { local gad="$(declare -p $1)"; gad="(${gad#*\(}"; r "${gad%\'}" $2; }
@@ -457,13 +447,25 @@ IsInArray()
 	return 1
 }
 
-#
-# strings
-#
+# date
+CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
+GetDateStamp() { ${G}date '+%Y%m%d'; }
+GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
 
-IsWild() { [[ "$1" =~ .*\*|\?.* ]]; }
+GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 to specified time
+{
+	[[ $1 ]] && { ${G}date +%s.%N -d "$1"; return; }
+	[[ $# == 0 ]] && ${G}date +%s.%N; # only return default date if no argument is specified
+}
+
+# integer
+IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
+
+# string
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
+IsWild() { [[ "$1" =~ .*\*|\?.* ]]; }
 ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
+RemoveBackslash() { echo "${@//\\/}"; }
 
 GetWord() 
 { 
@@ -472,29 +474,9 @@ GetWord()
 	(( $# >= word )) && echo "${!word}" || return 1; 
 }
 
-
-#
-# numbers
-#
-
-IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
-
-#
-# dates
-#
-
-GetDateStamp() { ${G}date '+%Y%m%d'; }
-GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
+# time
 ShowTime() { ${G}date '+%F %T.%N %Z' -d "$1"; }
 ShowSimpleTime() { ${G}date '+%D %T' -d "$1"; }
-
-GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 to specified time
-{
-	[[ $1 ]] && { ${G}date +%s.%N -d "$1"; return; }
-	[[ $# == 0 ]] && ${G}date +%s.%N; # only return default date if no argument is specified
-}
-CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
-
 TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')"; }
 TimestampDiff () { ${G}printf '%s' $(( $(${G}date -u +%s) - $(${G}date -u -d"$1" +%s))); }
 TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
@@ -510,6 +492,7 @@ PuttyAgent() { RunInDir pageant "$(utw "$HOME/.ssh/id_rsa.ppk")"; }
 #
 # account
 #
+
 ActualUser() { echo "${SUDO_USER-$USER}"; }
 
 FullName() 
@@ -598,42 +581,42 @@ GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 
 #
-# display
+# Console
 #
 
 [[ "$TABS" == "" ]] && TABS=2
 
 clear() { echo -en $'\e[H\e[2J'; }
+EchoErr() { echo "$@" > /dev/stderr; }
+pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
+PrintErr() { printf "$@" > /dev/stderr; }
+#ShowErr() { eval "$@" 2> >(sed 's/^/stderr: /') 1> >(sed 's/^/stdout: /'); } # error under Synology DSM
+
+# display tabs
 catt() { cat $* | expand -t $TABS; } 							# CatTab
 echot() { echo -e "$*" | expand -t $TABS; } 			# EchoTab
 lesst() { less -x $TABS $*; } 										# LessTab
 printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf pipe: cat file | printf -v var
 
 #
-# platform
+# Windows
 #
 
-# console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternative run outside of mintty in a regular console (Start, Run, bash --login)
-console() { start --direct proxywinconsole.exe "$@"; } 
+WindowInfo() { IsPlatform win && start --run-in-dir Au3Info.exe; }
+SendKeys() { IsPlatform win && AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 
-IsMobile() { [[ "$(HostInfo info "$HOSTNAME" mobile)" == "yes" ]]; }
-IsVm() { IsVmwareVm; }
-IsVmwareVm() { [[ -d "$P/VMware/VMware Tools" ]]; }
-OsArchitecture() { [[ -d "/cygdrive/c/Windows/SysWOW64" ]] && echo "x64" || echo "x86"; } # uname -m
+#
+# Process
+#
+
+console() { start --direct proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternative run outside of mintty in a regular console (Start, Run, bash --login)
+IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $SUDO_USER ]]; }
 sudop() { sudo --preserve-env=PATH env "$@"; } # run sudo with the existing path, less secure
 
-#
-# process
-#
-
-IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $SUDO_USER ]]; }
-SendKeys() { AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
-
-# IsElevated() - true if there you have elevated to get the Windows Administrator token
-IsElevated() { $WIN_ROOT/Windows/system32/whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; }
 elevate() { IsElevated && "$@" || RunInDir hstart64.exe /NOUAC /WAIT "wsl.exe $*"; } # asyncronous even with /WAIT and return result is not correct
 ElevateNoConsole() { IsElevated && "$@" || RunInDir hstart64.exe /NOCONSOLE /NOUAC /WAIT "wsl.exe $*"; }
 ElevatePause() { elevate RunPause "$*"; } # elevate the passed program and pause if there is an error
+IsElevated() { $WIN_ROOT/Windows/system32/whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; } # have the Windows Administrator token
 
 # RunInDir FILE - run a windows program that must be started 
 # Useful for programs that cannot be directly started from wsl even if they are in the path
@@ -674,9 +657,12 @@ IsExecutable()
 	type -a "$p" >& /dev/null
 }
 
-# start [-e|--elevate] [-w|--wait] FILE ARGUMENTS - start a program converting file arguments for the platform as needed
+# start [-e|--elevate] [-w|--wait] [-rid|--run-in-dir] FILE ARGUMENTS - start a program converting file arguments for the platform as needed
 start() 
 {
+	[[ $1 == @(-h|--help) ]]	&& { echot "usage: start [-e|--elevate] [-w|--wait] [-rid|--run-in-dir] FILE ARGUMENTS
+	Start a program converting file arguments for the platform as needed"; return 1; }
+
 	# file - executable (GUI|console)
 	local runInDir; [[ "$1" == @(-rid|--run-in-dir) ]] && { runInDir="RunInDir"; shift; }
 	local elevate; [[ "$1" == @(-e|--elevate) ]] && { ! IsElevated && elevate="true"; shift; }
@@ -735,13 +721,14 @@ start()
 		fi
 		return
 	fi
-	
-	# start the command
+
 	if [[ $wait ]]; then
 		(
 			nohup $runInDir "$file" "${args[@]}" >& /dev/null &
 			wait $!
 		)
+	elif [[ $runInDir ]]; then
+		($runInDir "$file" "${args[@]}" >& /dev/null &)
 	else
 		(nohup $runInDir "$file" "${args[@]}" >& /dev/null &)
 	fi
@@ -844,8 +831,6 @@ IsTaskRunning() # IsTaskRunng EXE
 	esac
 }
 
-# Process Commands
-
 ProcessIdExists() { kill -0 $1 >& /dev/null; } # fast
 ProcessListWin() { tasklist.exe | awk '{ print $2 "," $1 }'; }
 
@@ -915,19 +900,22 @@ ProcessType()
 #
 
 if [[ "$PLATFORM" == "win" ]]; then
-	WinShell() { WIN_VARS=true SET_PWD="$PWD" start bash -l; }
-	NpmShell() { intel IsIntelHost && ScriptEval intel SetProxy; WinShell; }
-	npm() { APPDATA="$(utw $APPDATA)" "$P/nodejs/npm" "$@"; }
-	alias ns="NpmShell"
-fi
 
-AutoItScript() 
-{
-	local script="${1/\.au3/}.au3"
-	[[ ! -f "$script" ]] && script="$(FindInPath "$script")"
-	[[ ! "$script" ]] && { echo "Could not find AutoIt script $1"; return 1; }
-	RunInDir AutoIt.exe /ErrorStdOut "$(utw "$script")" "${@:2}"
-}
+	alias ns="NpmShell"
+
+	npm() { APPDATA="$(utw $APPDATA)" "$P/nodejs/npm" "$@"; }
+	NpmShell() { intel IsIntelHost && ScriptEval intel SetProxy; WinShell; }
+	WinShell() { WIN_VARS=true SET_PWD="$PWD" start bash -l; }
+
+	AutoItScript() 
+	{
+		local script="${1/\.au3/}.au3"
+		[[ ! -f "$script" ]] && script="$(FindInPath "$script")"
+		[[ ! "$script" ]] && { echo "Could not find AutoIt script $1"; return 1; }
+		RunInDir AutoIt.exe /ErrorStdOut "$(utw "$script")" "${@:2}"
+	}
+
+fi
 
 GetTextEditor()
 {
@@ -969,3 +957,6 @@ if [[ -f "$P/Git/cmd/git.exe" ]]; then
 	export GIT_PYTHON_GIT_EXECUTABLE="$P/Git/cmd/git.exe"
 	#git() { "$P/Git/cmd/git.exe" "$@"; }
 fi
+
+IsVm() { IsVmwareVm; }
+IsVmwareVm() { [[ -d "$P/VMware/VMware Tools" ]]; }
