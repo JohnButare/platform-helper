@@ -667,7 +667,7 @@ start()
 	local runInDir; [[ "$1" == @(-rid|--run-in-dir) ]] && { runInDir="RunInDir"; shift; }
 	local elevate; [[ "$1" == @(-e|--elevate) ]] && { ! IsElevated && elevate="true"; shift; }
 	local wait; [[ "$1" == @(-w|--wait) ]] && { wait="--wait"; shift; }
-	local file="$1" args=( "${@:2}" ) open win
+	local file="$1" origFile="$1" args=( "${@:2}" ) open win
 
 	# default to bash if elevating
 	[[ $elevate && ! $file ]] && file="bash"
@@ -683,7 +683,7 @@ start()
 
 	# verify file
 	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
-	[[ ! -f "$file" ]] && { EchoErr "Unable to find $file"; return 1; }
+	[[ ! -f "$file" ]] && { EchoErr "Unable to find $origFile"; return 1; }
 
 	# extension specific execution
 	case "$(GetFileExtension "$file")" in
@@ -701,11 +701,11 @@ start()
 
 		# convert POSIX paths to Windows format for windows exectuable
 		if [[ $win && ( -e "$a" || ( ! "$a" =~ .*\\.* && "$a" =~ .*/.* && -e "$a" )) ]]; then
-			args[$i]="$(utw "$a")"
+			args[$i]="$(utw "$a")"			
 		fi
 
 		# cygstart requires arguments with spaces be quoted
-		[[ "$a" =~ ( ) ]] && args[i]="\"$a\""; 
+		#[[ "$a" =~ ( ) ]] && args[i]="\"$a\""; 
 
 	done	
 	#printf "wait=$wait\nprogram=$program\nargs="; ShowArray args; return
@@ -721,7 +721,7 @@ start()
 		fi
 		return
 	fi
-
+ 
 	if [[ $wait ]]; then
 		(
 			nohup $runInDir "$file" "${args[@]}" >& /dev/null &
@@ -730,7 +730,7 @@ start()
 	elif [[ $runInDir ]]; then
 		($runInDir "$file" "${args[@]}" >& /dev/null &)
 	else
-		(nohup $runInDir "$file" "${args[@]}" >& /dev/null &)
+		(nohup "$file" "${args[@]}" >& /dev/null &)
 	fi
 } 
 
