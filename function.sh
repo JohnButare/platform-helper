@@ -785,24 +785,6 @@ sudop() { sudo --preserve-env=PATH env "$@"; } # sudo preserve - run sudo with t
 # Applications
 #
 
-if [[ "$PLATFORM" == "win" ]]; then
-
-	alias ns="NpmShell"
-
-	npm() { APPDATA="$(utw $APPDATA)" "$P/nodejs/npm" "$@"; }
-	NpmShell() { intel IsIntelHost && ScriptEval intel SetProxy; WinShell; }
-	WinShell() { WIN_VARS=true SET_PWD="$PWD" start bash -l; }
-
-	AutoItScript() 
-	{
-		local script="${1/\.au3/}.au3"
-		[[ ! -f "$script" ]] && script="$(FindInPath "$script")"
-		[[ ! "$script" ]] && { echo "Could not find AutoIt script $1"; return 1; }
-		RunInDir AutoIt.exe /ErrorStdOut "$(utw "$script")" "${@:2}"
-	}
-
-fi
-
 GetTextEditor()
 {
 	p="$P/sublime_text/sublime_text"; [[ -f "$p" ]] && { echo "$p"; return 0; }

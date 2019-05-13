@@ -190,14 +190,14 @@ sshd()
 	! IsPlatform wsl && return
 
 	if [[ "$command" != "startup" ]]; then
-		printf "sshd"
-		service stop ssh >& /dev/null
+		printf "sshd."
+		service stop ssh # >& /dev/null
 		return
 	fi
 
 	if ! service running ssh; then
-		printf "sshd"
-		service ssh start >& /dev/null
+		printf "sshd."
+		service start ssh # >& /dev/null
 		return
 	fi
 

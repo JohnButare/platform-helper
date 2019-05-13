@@ -35,6 +35,15 @@ RunInDir()
 }
 
 # Window - Win [class] <title|class>, Au3Info.exe to get class
+
+AutoItScript() 
+{
+	local script="${1/\.au3/}.au3"
+	[[ ! -f "$script" ]] && script="$(FindInPath "$script")"
+	[[ ! "$script" ]] && { echo "Could not find AutoIt script $1"; return 1; }
+	RunInDir AutoIt.exe /ErrorStdOut "$(utw "$script")" "${@:2}"
+}
+
 WinActivate() { AutoItScript WinActivate "${@}"; }
 WinClose() { AutoItScript WinClose "${@}"; }
 WinList() { join -a 2 -e EMPTY -j 1 -t',' -o '2.1,1.2,2.2,2.3' <(ProcessListWin | sort -t, -k1) <(AutoItScript WinList | sort -t, -k1); } # causes error in Synology DSM
