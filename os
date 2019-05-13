@@ -73,7 +73,7 @@ SystemPropertiesCommand()
 
 environmentCommand() { SystemPropertiesCommand 3; }
 PathEditCommand() { SystemPropertiesCommand 3; }
-PathEditorCommand() { sudo "$@" PathEditor.exe; }
+PathEditorCommand() { start --run-in-dir --elevate PathEditor; }
 StoreCommand() { start "" "ms-windows-store:"; }
 
 run "$@"

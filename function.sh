@@ -95,6 +95,8 @@ function RunPlatform()
 	IsPlatform cygwin && { RunFunction $function cygwin || return; }
 }
 
+package() { sudo apt-get install -y "$@" || return; }
+
 #
 # Other
 #
@@ -610,41 +612,6 @@ SendKeys() { IsPlatform win && AutoItScript SendKeys "${@}"; } # SendKeys [TITLE
 #
 
 console() { start --direct proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternative run outside of mintty in a regular console (Start, Run, bash --login)
-IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $SUDO_USER ]]; }
-sudop() { sudo --preserve-env=PATH env "$@"; } # run sudo with the existing path, less secure
-
-elevate() { IsElevated && "$@" || RunInDir hstart64.exe /NOUAC /WAIT "wsl.exe $*"; } # asyncronous even with /WAIT and return result is not correct
-ElevateNoConsole() { IsElevated && "$@" || RunInDir hstart64.exe /NOCONSOLE /NOUAC /WAIT "wsl.exe $*"; }
-ElevatePause() { elevate RunPause "$*"; } # elevate the passed program and pause if there is an error
-IsElevated() { $WIN_ROOT/Windows/system32/whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; } # have the Windows Administrator token
-
-# RunInDir FILE - run a windows program that must be started 
-# Useful for programs that cannot be directly started from wsl even if they are in the path
-RunInDir()
-{
-	local cmd; [[ "$1" == "--cmd" ]] && { cmd="cmd.exe /c"; shift; }
-	local background; [[ "$1" == "--background" ]] && { background="true"; shift; }
-	local file="$1" path result
-
-	[[ ! $file ]] && { EchoErr "usage: RunInDir FILE"; return 1; }
-	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
-	[[ ! -f "$file" ]] && { EchoErr "Unable to find $file"; return 1; }
-
-	path="$(GetFilePath "$(GetFullPath "$file")")"
-	file="$(GetFileName "$file")"
-	[[ ! $cmd ]] && file="./$file"
-
-	pushd "$path" >& /dev/null
-	if [[ $background ]]; then
-		(nohup $cmd "$file" "${@:2}" >& /dev/null &)
-	else
-		$cmd "$file" "${@:2}"
-	fi
-	result=$?
-	popd >& /dev/null; 
-
-	return $result
-}
 
 IsExecutable()
 {
@@ -657,7 +624,86 @@ IsExecutable()
 	type -a "$p" >& /dev/null
 }
 
-# start [-e|--elevate] [-w|--wait] [-rid|--run-in-dir] FILE ARGUMENTS - start a program converting file arguments for the platform as needed
+IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $SUDO_USER ]]; }
+
+IsTaskRunning() # IsTaskRunng EXE
+{
+	local task="${1/\.exe/}"
+		
+	case "$PLATFORM" in
+		mac) ps -A | grep "$task" | grep -v "grep $task" >& /dev/null;;
+		win) GetFileName "$task" task; AutoItScript ProcessExists "${task}.exe";;
+	esac
+}
+
+ProcessClose() 
+{ 
+	local p="${1/.exe/}.exe"; GetFileName "$p" p
+
+	if [[ "$PLATFORM" == "win" ]]; then
+		# Process.exe only runs from the current directory in wsl
+		pushd "$PBIN" >& /dev/null || return
+		./Process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null
+		popd >& /dev/null || return
+	else
+		pkill "$p" > /dev/null
+	fi
+}
+
+ProcessIdExists() { kill -0 $1 >& /dev/null; } # fast
+
+ProcessKill()
+{
+	local p="$1"
+
+	if [[ "$PLATFORM" == "win" ]]; then
+		RunInDir pskill.exe "$p" > /dev/null
+	else
+		GetFileNameWithoutExtension "$p" p
+		pkill "$p" > /dev/null
+	fi
+}
+
+ProcessList() # PID,NAME
+{ 
+	#IsPlatform cygwin && { ps -W -e | awk '{ print $1 "," substr($0,index($0,$8)) }' && return; }
+
+	case $PLATFORM in
+		linux|win) ps -ef | awk '{ print $2 "," substr($0,index($0,$8)) }';;
+		mac) ps -ef | ${G}cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
+	esac
+}
+
+ProcessListWin() { tasklist.exe | awk '{ print $2 "," $1 }'; }
+
+ProcessResource() { IsPlatform win && { RunInDir handle.exe; return; } || echo "Not Implemented"; }; alias handle='ProcessResource'
+
+# ProcessType console|gui|windows windows: true if the executable requires windows paths (c:\...) instead of POSIX paths (/...)
+ProcessType() 
+{
+	local command="$1" file="$2"; 
+
+	[[ "$#" != 2 ]] && { EchoErr "ProcessType console|gui|windows FILE"; return 1; }
+	[[ ! -f  "$file" ]] && { EchoErr "$file does not exist"; return 1; }
+
+	case "$command" in
+
+		console|gui) 
+			IsPlatform win && { file "$file" | egrep -i $command > /dev/null; return; } || return 0;;
+			
+		windows) 
+			if IsPlatform cygwin; then 
+				utw "$file" | egrep -iv cygwin > /dev/null; return;
+			elif IsPlatform win; then 
+				file "$file" | grep PE32 > /dev/null; return;
+			else
+				return 1
+			fi
+			;;
+	esac
+}
+
+# start [-rid|--run-in-dir] [-e|--elevate] [-w|--wait] FILE ARGUMENTS - start a program converting file arguments for the platform as needed
 start() 
 {
 	[[ $1 == @(-h|--help) ]]	&& { echot "usage: start [-e|--elevate] [-w|--wait] [-rid|--run-in-dir] FILE ARGUMENTS
@@ -681,7 +727,7 @@ start()
 	# start directories and URL's
 	( [[ -d "$file" ]] || IsUrl "$file" ) && { start $open "$file"; return; }
 
-	# verify file
+	# verify file	
 	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
 	[[ ! -f "$file" ]] && { EchoErr "Unable to find $origFile"; return 1; }
 
@@ -706,7 +752,6 @@ start()
 
 		# cygstart requires arguments with spaces be quoted
 		#[[ "$a" =~ ( ) ]] && args[i]="\"$a\""; 
-
 	done	
 	#printf "wait=$wait\nprogram=$program\nargs="; ShowArray args; return
 
@@ -734,166 +779,7 @@ start()
 	fi
 } 
 
-# sudo [command](mintty) - start a program as super user under cygwin
-# sudo /cygdrive/c/Program\ Files/Sublime\ Text\ 3/sublime_text.exe
-# sudo cmd "/c ls & pause"
-# sudo "/cygdrive/c/Program Files/Sublime Text 3/sublime_text.exe" "a.txt"  b.txt
-# sudo service listfile
-if [[ "$PLATFORM_LIKE" == "cygwin" ]]; then
-	sudo() 
-	{
-		local program="mintty" ext standard direct hold="error" arguments wait
-		local cygstartOptions hstartOptions="/D="$(utw $PWD)"" powerShellOptions
-
-		while IsOption "$1"; do
-
-			if [[ "$1" == +(-s|--standard) ]]; then 
-				standard="true"
-				hstartOptions+=( /noelevate )
-
-			elif [[ "$1" == +(-h|--hide) ]]; then
-				hstartOptions+=( /noconsole )
-
-			elif [[ "$1" == +(-t|--test) ]]; then
-				hstartOptions+=( /test )
-
-			elif [[ "$1" == +(-w|--wait) ]]; then 
-				wait="true"
-				cygstartOptions+=( --wait )
-				hstartOptions+=( /wait )
-				powerShellOptions+=( -Wait )
-				hold="always"
-
-			elif [[ "$1" == +(-d|--direct) ]]; then
-				direct="--direct"
-
-			else
-				echot "\
-	usage: sudo [-s|--standard] [command](mintty) [arguments]... - start a command as a super user
-		[-s|--standard]  start the program non-elevated (hstart only)
-		[-w|--wait]      wait for the command to finish"
-				return 1
-			fi
-
-			shift
-		done
-
-		[[ ! $standard ]] && hstartOptions+=( /nouac )
-
-		[[ $# > 0 ]] && { program="$1"; shift; }
-		! type -P "$program" >& /dev/null && { EchoErr "start: $program: command not found"; return 1; }
-
-		program="$(FindInPath "$program")" # IsShellScript requires full path
-		arguments="$@"
-
-		# determine if hstart is not needed to change contexts
-		local elevated; IsElevated && elevated="true"
-		
-		if [[ (! $elevated && $standard) || ($elevated && ! $standard) ]]; then
-			if IsShellScript "$program"; then
-				"$program" "$@"
-			else
-				start $direct "${cygstartOptions[@]}" "$program" "$@"
-			fi
-			return
-		fi
-
-		# elevate with hstart if available and not waiting (hstart /wait flag only works for elevated starts)
-		if InPath hstart && [[ ! $wait ]]; then
-			if IsShellScript "$program"; then
-				hstart.exe "${hstartOptions[@]}" """mintty.exe"" --hold $hold bash.exe -l ""$program"" $arguments";
-			else
-				program="$(utw "$program")"
-				hstart.exe "${hstartOptions[@]}" """$program"" $arguments";
-			fi
-
-		# elevate with PowerShell
-		else
-			if IsShellScript "$program"; then
-				powershell -Command "Start-Process $powerShellOptions -Verb RunAs -FilePath mintty.exe \"--hold $hold bash.exe -l \"\"$program\"\" $arguments\"";
-			else
-				program="$(utw "$program")"
-				[[ $arguments ]] && arguments="-ArgumentList \"$@\""
-				powershell -Command "Start-Process $powerShellOptions -Verb RunAs -FilePath \"$program\" $arguments";
-			fi
-		fi
-
-	}
-fi
-
-IsTaskRunning() # IsTaskRunng EXE
-{
-	local task="${1/\.exe/}"
-		
-	case "$PLATFORM" in
-		mac) ps -A | grep "$task" | grep -v "grep $task" >& /dev/null;;
-		win) GetFileName "$task" task; AutoItScript ProcessExists "${task}.exe";;
-	esac
-}
-
-ProcessIdExists() { kill -0 $1 >& /dev/null; } # fast
-ProcessListWin() { tasklist.exe | awk '{ print $2 "," $1 }'; }
-
-ProcessClose() 
-{ 
-	local p="${1/.exe/}.exe"; GetFileName "$p" p
-
-	if [[ "$PLATFORM" == "win" ]]; then
-		# Process.exe only runs from the current directory in wsl
-		pushd "$PBIN" >& /dev/null || return
-		./Process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null
-		popd >& /dev/null || return
-	else
-		pkill "$p" > /dev/null
-	fi
-}
-
-ProcessKill()
-{
-	local p="$1"
-
-	if [[ "$PLATFORM" == "win" ]]; then
-		RunInDir pskill.exe "$p" > /dev/null
-	else
-		GetFileNameWithoutExtension "$p" p
-		pkill "$p" > /dev/null
-	fi
-}
-
-ProcessList() # PID,NAME
-{ 
-	#IsPlatform cygwin && { ps -W -e | awk '{ print $1 "," substr($0,index($0,$8)) }' && return; }
-
-	case $PLATFORM in
-		linux|win) ps -ef | awk '{ print $2 "," substr($0,index($0,$8)) }';;
-		mac) ps -ef | ${G}cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
-	esac
-}
-
-# ProcessType console|gui|windows windows: true if the executable requires windows paths (c:\...) instead of POSIX paths (/...)
-ProcessType() 
-{
-	local command="$1" file="$2"; 
-
-	[[ "$#" != 2 ]] && { EchoErr "ProcessType console|gui|windows FILE"; return 1; }
-	[[ ! -f  "$file" ]] && { EchoErr "$file does not exist"; return 1; }
-
-	case "$command" in
-
-		console|gui) 
-			IsPlatform win && { file "$file" | egrep -i $command > /dev/null; return; } || return 0;;
-			
-		windows) 
-			if IsPlatform cygwin; then 
-				utw "$file" | egrep -iv cygwin > /dev/null; return;
-			elif IsPlatform win; then 
-				file "$file" | grep PE32 > /dev/null; return;
-			else
-				return 1
-			fi
-			;;
-	esac
-}
+sudop() { sudo --preserve-env=PATH env "$@"; } # sudo preserve - run sudo with the existing path (less secure)
 
 #
 # Applications
