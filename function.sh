@@ -676,7 +676,7 @@ ProcessList() # PID,NAME
 
 ProcessListWin() { tasklist.exe | awk '{ print $2 "," $1 }'; }
 
-ProcessResource() { IsPlatform win && { RunInDir handle.exe; return; } || echo "Not Implemented"; }; alias handle='ProcessResource'
+ProcessResource() { IsPlatform win && { RunInDir handle.exe "$@"; return; } || echo "Not Implemented"; }; alias handle='ProcessResource'
 
 # ProcessType console|gui|windows windows: true if the executable requires windows paths (c:\...) instead of POSIX paths (/...)
 ProcessType() 
