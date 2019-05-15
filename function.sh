@@ -298,6 +298,7 @@ MakeShortcut()
 	local t="$1"; [[ ! -e "$t" ]] && t="$(FindInPath "$1")"
 	[[ ! -e "$t" && $suppress ]] && { return 1; }
 	[[ ! -e "$t" ]] && { EchoErr "MakeShortcut: could not find target $1"; return 1; }
+	! FindInPath "mkshortcut.exe" > /dev/null && return 0
 	mkshortcut.exe "$t" -n="$2" "${@:3}";
 }
 
