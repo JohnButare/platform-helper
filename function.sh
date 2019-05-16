@@ -781,6 +781,8 @@ start()
 } 
 
 sudop() { sudo --preserve-env=PATH env "$@"; } # sudo preserve - run sudo with the existing path (less secure)
+sudoa() { sudo --askpass --preserve-env=PATH env "$@"; } # sudo ask password and preserve - prompt for sudo password
+sudoc() { SUDO_ASKPASS="$bin/SudoAskPass" sudo --askpass --preserve-env=PATH env "$@"; } # sudo password from credential store and preserve
 
 #
 # Applications
