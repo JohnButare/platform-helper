@@ -1,3 +1,6 @@
+# Applications
+
+mmc() { start cmd.exe /c mmc.exe "$@"; }
 
 # Process
 
