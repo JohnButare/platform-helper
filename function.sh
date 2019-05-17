@@ -290,18 +290,6 @@ GetDisks() # GetDisks ARRAY
 	CopyArray getDisks "$1"
 }
 
-# MakeShortcut FILE LINK
-MakeShortcut() 
-{ 
-	local suppress; [[ "$1" == @(-s|--suppress) ]] && { suppress="true"; shift; }
-	(( $# < 2 )) && { EchoErr "usage: MakeShortcut TARGET NAME ..."; return 1; }
-	local t="$1"; [[ ! -e "$t" ]] && t="$(FindInPath "$1")"
-	[[ ! -e "$t" && $suppress ]] && { return 1; }
-	[[ ! -e "$t" ]] && { EchoErr "MakeShortcut: could not find target $1"; return 1; }
-	! FindInPath "mkshortcut.exe" > /dev/null && return 0
-	mkshortcut.exe "$t" -n="$2" "${@:3}";
-}
-
 CopyDir()
 {
 	local prefix="" cp="gcp" recursive="" o=(--force --preserve=timestamps) f=( );

@@ -1,8 +1,32 @@
+#
 # Applications
+#
 
 mmc() { start cmd.exe /c mmc.exe "$@"; }
 
+#
+# File System
+#
+
+# MakeShortcut FILE LINK
+MakeShortcut() 
+{ 
+	local suppress; [[ "$1" == @(-s|--suppress) ]] && { suppress="true"; shift; }
+	(( $# < 2 )) && { EchoErr "usage: MakeShortcut TARGET NAME ..."; return 1; }
+
+	local t="$1"; [[ ! -e "$t" ]] && t="$(FindInPath "$1")"
+	[[ ! -e "$t" && $suppress ]] && { return 1; }
+	[[ ! -e "$t" ]] && { EchoErr "MakeShortcut: could not find target $1"; return 1; }
+
+	local linkDir="$(utw "$(GetFilePath "$2")")"
+	local linkName="$(GetFileName "$2")"
+
+	RunInDir NirCmd.exe shortcut "$(utw "$t")" "$linkDir" "$linkName" "${@:3}";
+}
+
+#
 # Process
+#
 
 elevate() { IsElevated && "$@" || RunInDir hstart64.exe /NOUAC /WAIT "wsl.exe $*"; } # asyncronous even with /WAIT and return result is not correct
 ElevateNoConsole() { IsElevated && "$@" || RunInDir hstart64.exe /NOCONSOLE /NOUAC /WAIT "wsl.exe $*"; }
