@@ -768,9 +768,10 @@ start()
 	fi
 } 
 
-sudop() { sudo --preserve-env=PATH env "$@"; } # sudo preserve - run sudo with the existing path (less secure)
-sudoa() { sudo --askpass --preserve-env=PATH env "$@"; } # sudo ask password and preserve - prompt for sudo password
-sudoc() { SUDO_ASKPASS="$BIN/SudoAskPass" sudo --askpass --preserve-env=PATH env "$@"; } # sudo password from credential store and preserve
+SudoPreserve="sudo --preserve-env=PATH"; IsPlatform raspbian && SudoPreserve="sudo --preserve-env"
+sudop() { $SudoPreserve env "$@"; } # sudo preserve - run sudo with the existing path (less secure)
+sudoa() { $SudoPreserve --askpass "$@"; } # sudo ask password and preserve - prompt for sudo password
+sudoc() { SUDO_ASKPASS="$BIN/SudoAskPass" $SudoPreserve --askpass env "$@"; } # sudo password from credential store and preserve
 
 #
 # Applications
