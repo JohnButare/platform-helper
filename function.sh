@@ -93,6 +93,7 @@ function RunPlatform()
 	RunFunction $function $PLATFORM || return
 	IsPlatform wsl && { RunFunction $function wsl || return; }
 	IsPlatform cygwin && { RunFunction $function cygwin || return; }
+	return 0
 }
 
 package() { sudo apt-get install -y "$@" || return; }
