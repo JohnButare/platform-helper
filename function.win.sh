@@ -73,7 +73,7 @@ AutoItScript()
 
 WinActivate() { AutoItScript WinActivate "${@}"; }
 WinClose() { AutoItScript WinClose "${@}"; }
-WinList() { join -a 2 -e EMPTY -j 1 -t',' -o '2.1,1.2,2.2,2.3' <(ProcessListWin | sort -t, -k1) <(AutoItScript WinList | sort -t, -k1); } # causes error in Synology DSM
+WinList() { join -a 2 -e EMPTY -j 1 -t',' -o '2.1,1.2,2.2,2.3' <(ProcessList | sort -t, -k1) <(AutoItScript WinList | sort -t, -k1); } # causes error in Synology DSM
 WinGetState() {	AutoItScript WinGetState "${@}"; }
 WinGetTitle() {	AutoItScript WinGetTitle "${@}"; }
 WinSetState() { AutoItScript WinSetState "${@}"; }

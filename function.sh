@@ -255,6 +255,8 @@ utw() # UnixToWin
 	wslpath -w "$(realpath -m "$@")"
 } 
 
+utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
+
 ptw() { echo "${1////\\}"; } # PathToWin
 
 DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
@@ -459,7 +461,9 @@ IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ .*\*|\?.* ]]; }
 ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
+QuoteBackslashes() { sed 's/\\/\\\\/g'; }
 RemoveBackslash() { echo "${@//\\/}"; }
+RemoveCarriageReturn()  { sed 's/\r//g'; }
 
 GetWord() 
 { 
@@ -617,16 +621,7 @@ IsExecutable()
 }
 
 IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $SUDO_USER ]]; }
-
-IsTaskRunning() # IsTaskRunng EXE
-{
-	local task="${1/\.exe/}"
-		
-	case "$PLATFORM" in
-		mac) ps -A | grep "$task" | grep -v "grep $task" >& /dev/null;;
-		win) GetFileName "$task" task; AutoItScript ProcessExists "${task}.exe";;
-	esac
-}
+IsTaskRunning() { ProcessList | egrep -i ",$(utwq "$1")" >& /dev/null; }
 
 ProcessClose() 
 { 
@@ -656,17 +651,14 @@ ProcessKill()
 	fi
 }
 
-ProcessList() # PID,NAME
+ProcessList() # PID,NAME - show operating system native process ID and executable name with a full path
 { 
-	#IsPlatform cygwin && { ps -W -e | awk '{ print $1 "," substr($0,index($0,$8)) }' && return; }
-
 	case $PLATFORM in
-		linux|win) ps -ef | awk '{ print $2 "," substr($0,index($0,$8)) }';;
+		win) wmic.exe process get Name,ExecutablePath,ProcessID /format:csv | RemoveCarriageReturn | awk -F"," '{ print $4 "," ($2 == "" ? $3 : $2) }';;
+		linux) ps -ef | awk '{ print $2 "," substr($0,index($0,$8)) }';;
 		mac) ps -ef | ${G}cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
 	esac
 }
-
-ProcessListWin() { tasklist.exe | awk '{ print $2 "," $1 }'; }
 
 ProcessResource() { IsPlatform win && { RunInDir handle.exe "$@"; return; } || echo "Not Implemented"; }; alias handle='ProcessResource'
 
