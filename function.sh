@@ -485,7 +485,7 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d" $(( $s/60/
 
 IsSsh() { [[ "$SSH_TTY" ]]; }
 RemoteServer() { echo "${SSH_CONNECTION%% *}"; }
-PuttyAgent() { RunInDir pageant "$(utw "$HOME/.ssh/id_rsa.ppk")"; }
+PuttyAgent() { start pageant "$HOME/.ssh/id_rsa.ppk"; }
 
 #
 # account
@@ -600,7 +600,7 @@ printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf
 # Windows
 #
 
-WindowInfo() { IsPlatform win && start --run-in-dir Au3Info.exe; }
+WindowInfo() { IsPlatform win && start Au3Info; }
 SendKeys() { IsPlatform win && AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 
 #
@@ -621,7 +621,26 @@ IsExecutable()
 }
 
 IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $SUDO_USER ]]; }
-IsTaskRunning() { ProcessList | egrep -i ",$(utwq "$1")" >& /dev/null; }
+
+IsTaskRunning() 
+{
+	local file="$1" 
+
+	[[ "$(GetFilePath "$file")" ]] && file=",$(utwq "$file")" # convert paths to native
+	ProcessList | grep -i  "$file" >& /dev/null
+}
+
+# IsWindowsProces: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
+IsWindowsProces() 
+{
+	if IsPlatform cygwin; then 
+		utw "$file" | egrep -iv cygwin > /dev/null; return;
+	elif IsPlatform win; then
+		file "$file" | grep PE32 > /dev/null; return;
+	else
+			return 0
+	fi
+}
 
 ProcessClose() 
 { 
@@ -644,7 +663,7 @@ ProcessKill()
 	local p="$1"
 
 	if [[ "$PLATFORM" == "win" ]]; then
-		RunInDir pskill.exe "$p" > /dev/null
+		start pskill "$p" > /dev/null
 	else
 		GetFileNameWithoutExtension "$p" p
 		pkill "$p" > /dev/null
@@ -660,49 +679,24 @@ ProcessList() # PID,NAME - show operating system native process ID and executabl
 	esac
 }
 
-ProcessResource() { IsPlatform win && { RunInDir handle.exe "$@"; return; } || echo "Not Implemented"; }; alias handle='ProcessResource'
+ProcessResource() { IsPlatform win && { start handle.exe "$@"; return; } || echo "Not Implemented"; }; alias handle='ProcessResource'
 
-# ProcessType console|gui|windows windows: true if the executable requires windows paths (c:\...) instead of POSIX paths (/...)
-ProcessType() 
-{
-	local command="$1" file="$2"; 
-
-	[[ "$#" != 2 ]] && { EchoErr "ProcessType console|gui|windows FILE"; return 1; }
-	[[ ! -f  "$file" ]] && { EchoErr "$file does not exist"; return 1; }
-
-	case "$command" in
-
-		console|gui) 
-			IsPlatform win && { file "$file" | egrep -i $command > /dev/null; return; } || return 0;;
-			
-		windows) 
-			if IsPlatform cygwin; then 
-				utw "$file" | egrep -iv cygwin > /dev/null; return;
-			elif IsPlatform win; then 
-				file "$file" | grep PE32 > /dev/null; return;
-			else
-				return 1
-			fi
-			;;
-	esac
-}
-
-# start [-rid|--run-in-dir] [-e|--elevate] [-w|--wait] FILE ARGUMENTS - start a program converting file arguments for the platform as needed
+# start [-e|--elevate] [-w|--wait] FILE ARGUMENTS - start a program converting file arguments for the platform as needed
 start() 
 {
-	[[ $1 == @(-h|--help) ]]	&& { echot "usage: start [-e|--elevate] [-w|--wait] [-rid|--run-in-dir] FILE ARGUMENTS
+	[[ $1 == @(-h|--help) ]]	&& { echot "usage: start [-e|--elevate] [-w|--wait] FILE ARGUMENTS
 	Start a program converting file arguments for the platform as needed"; return 1; }
 
 	# file - executable (GUI|console)
-	local runInDir; [[ "$1" == @(-rid|--run-in-dir) ]] && { runInDir="RunInDir"; shift; }
-	local elevate; [[ "$1" == @(-e|--elevate) ]] && { ! IsElevated && elevate="true"; shift; }
+	local elevate; [[ "$1" == @(-e|--elevate) ]] && { ! IsElevated && elevate="/NOUAC"; shift; }
 	local wait; [[ "$1" == @(-w|--wait) ]] && { wait="--wait"; shift; }
-	local file="$1" origFile="$1" args=( "${@:2}" ) open win
+	local file="$1" origFile="$1" args=( "${@:2}" )
 
-	# default to bash if elevating
+	# run bash if elevating and no file was specified
 	[[ $elevate && ! $file ]] && file="bash"
 
 	# find open program
+	local open
 	if IsPlatform mac; then open="open"
 	elif IsPlatform cygwin; then open="cygstart"
 	elif IsPlatform win; then open="cmd.exe /c start"
@@ -711,55 +705,59 @@ start()
 	# start directories and URL's
 	( [[ -d "$file" ]] || IsUrl "$file" ) && { start $open "$file"; return; }
 
-	# verify file	
+	# verify the file	
 	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
 	[[ ! -f "$file" ]] && { EchoErr "Unable to find $origFile"; return 1; }
 
-	# extension specific execution
+	# start files with a specific extention
 	case "$(GetFileExtension "$file")" in
 		cmd) start $open "$file" "${args[@]}"; return;;
 		js|vbs) start cscript.exe /NoLogo "$file" "${args[@]}"; return;;
 	esac
 
-	# open the file if we cannot execute it directly
+	# start non-executable files
 	! IsExecutable "$file" && { start $open "$file" "${args[@]}"; return; }
-
-	# massage arguments
-	ProcessType windows "$file" && win="true"
-	for (( i=0 ; i < ${#args[@]} ; ++i )); do 
-		local a="${args[$i]}"	
-
-		# convert POSIX paths to Windows format for windows exectuable
-		if [[ $win && ( -e "$a" || ( ! "$a" =~ .*\\.* && "$a" =~ .*/.* && -e "$a" )) ]]; then
-			args[$i]="$(utw "$a")"			
-		fi
-
-		# cygstart requires arguments with spaces be quoted
-		#[[ "$a" =~ ( ) ]] && args[i]="\"$a\""; 
-	done	
-	#printf "wait=$wait\nprogram=$program\nargs="; ShowArray args; return
-
-	# run elevated
-	if [[ "$PLATFORM" == "win" && $elevate ]]; then
+	
+	# start Windows processes	
+	if IsPlatform win && IsWindowsProgram "$file"; then
 		[[ $wait ]] && wait="/WAIT"
 
-		if [[ $win ]]; then
-			RunInDir hstart64.exe /NOUAC $wait "$(utw "$file") ${args[*]}"
-		else
-			RunInDir hstart64.exe /NOUAC $wait "wsl.exe $*"
+		# convert POSIX paths to Windows format (i.e. c:\...)
+		for (( i=0 ; i < ${#args[@]} ; ++i )); do 
+			local a="${args[$i]}"	
+			[[  -e "$a" || ( ! "$a" =~ .*\\.* && "$a" =~ .*/.* && -e "$a" ) ]] && args[$i]="$(utw "$a")"			
+		done	
+		
+		# start Windows console process
+		if IsConsoleProgram "$file"; then
+			local path="$(GetFilePath "$file")" file="./$(GetFileName "$file")" result
+
+			# run from the current directory (some windows console programs will not start properly when run from the path in wsl, test with $win/wincred.exe)
+			pushd "$path" >& /dev/null
+			"$file" "${args[@]}"
+			result=$?
+			popd >& /dev/null; 
+
+			return $result
 		fi
-		return
+
+		# start indirectly ProcessStart, otherwise when this shell is exited this shell hangs and the init causes high cpu
+		pushd "$DATA/platform/win" >& /dev/null	
+		./RunProcess.exe "$(utw "$file")" "${args[@]}"
+		result=$?
+		popd >& /dev/null; 
+
+		return $result
 	fi
  
+ 	# non-Windows
 	if [[ $wait ]]; then
 		(
-			nohup $runInDir "$file" "${args[@]}" >& /dev/null &
+			nohup "$file" "${args[@]}" >& /dev/null &
 			wait $!
 		)
-	elif [[ $runInDir ]]; then
-		($runInDir "$file" "${args[@]}" >& /dev/null &)
 	else
-		(nohup "$file" "${args[@]}" >& /dev/null &)
+		(nohup "$file" "${args[@]}" >& /dev/null &)		
 	fi
 } 
 

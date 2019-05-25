@@ -99,13 +99,13 @@ RunExternalApp()
 	fi;
 
 	ShowStatus
-	"$app" --brief "${command}"
+	"$app" --brief "${command}" || return
 	[[ ! $brief ]] && echo done
+	return 0
 }
 
 TaskStart()
 {
-	local runInDir=""; [[ "$1" == "--run-in-dir" ]] && { runInDir="$1"; shift; }
 	local program="$1"
 	local title="$2"
 	local args=( "${@:2}" )
@@ -116,7 +116,7 @@ TaskStart()
 	if [[ "$command" == "startup" ]]; then
 		IsTaskRunning "$program" && return
 		ShowStatus || return
-		task start $runInDir --brief --title "$title" "$program" "${args[@]}"
+		task start --brief --title "$title" "$program" "${args[@]}"
 		[[ ! $brief ]] && echo done
 	else
 		IsTaskRunning "$program" || return
@@ -172,18 +172,18 @@ MapApp()
 	esac
 }
 
-AltTabTerminator() { IsTaskRunning "AltTabTer64" || TaskStart "$P/SAlt-Tab Terminator/AltTabTer64.exe" "" /startup; }
-AquaSnap() { IsTaskRunning "AquaSnap.Daemon" && return; printf "AquaSnap..."; RunInDir --cmd --background "$P32/AquaSnap/AquaSnap.Daemon.exe"; }
+AltTabTerminator() { IsTaskRunning "AltTabTer64.exe" || TaskStart "$P/SAlt-Tab Terminator/AltTabTer64.exe" "" /startup; }
+AquaSnap() { IsTaskRunning "AquaSnap.Daemon.exe" && return; printf "AquaSnap..."; start "$P32/AquaSnap/AquaSnap.Daemon.exe"; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
-cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
+cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE.exe" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
 Duet() { TaskStart "C:\Program Files\Kairos\Duet Display\duet.exe"; }
-Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer && start explorer; }
-GlassWire() { IsTaskRunning "GlassWire" || TaskStart "$P32/GlassWire/glasswire.exe" "" -hide; }
-Greenshot() { IsTaskRunning "Greenshot" || TaskStart "$P/Greenshot/Greenshot.exe" "" ; }
+Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer.exe && start explorer; }
+GlassWire() { IsTaskRunning "GlassWire.exe" || TaskStart "$P32/GlassWire/glasswire.exe" "" -hide; }
+Greenshot() { IsTaskRunning "Greenshot.exe" || TaskStart "$P/Greenshot/Greenshot.exe" "" ; }
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
-IntelRapidStorage() { IsTaskRunning "IAStorIcon" || RunInDir --background "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
+IntelRapidStorage() { IsTaskRunning "IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
-TidyTabs() { IsTaskRunning "TidyTabs.Daemon" && return; printf "TidyTabs..."; RunInDir --cmd --background "$P32/TidyTabs/TidyTabs.Daemon.exe"; }
+TidyTabs() { IsTaskRunning "TidyTabs.Daemon.exe" && return; printf "TidyTabs..."; start "$P32/TidyTabs/TidyTabs.Daemon.exe"; }
 
 sshd()
 { 

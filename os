@@ -73,7 +73,7 @@ SystemPropertiesCommand()
 
 environmentCommand() { SystemPropertiesCommand 3; }
 PathEditCommand() { SystemPropertiesCommand 3; }
-PathEditorCommand() { start --run-in-dir --elevate PathEditor; }
+PathEditorCommand() { start --elevate PathEditor; }
 StoreCommand() { start "" "ms-windows-store:"; }
 
 run "$@"

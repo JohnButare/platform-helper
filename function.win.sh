@@ -21,54 +21,43 @@ MakeShortcut()
 	local linkDir="$(utw "$(GetFilePath "$2")")"
 	local linkName="$(GetFileName "$2")"
 
-	RunInDir NirCmd.exe shortcut "$(utw "$t")" "$linkDir" "$linkName" "${@:3}";
+	start NirCmd shortcut "$t" "$linkDir" "$linkName" "${@:3}";
 }
 
 #
 # Process
 #
 
-elevate() { IsElevated && "$@" || RunInDir hstart64.exe /NOUAC /WAIT "wsl.exe $*"; } # asyncronous even with /WAIT and return result is not correct
-ElevateNoConsole() { IsElevated && "$@" || RunInDir hstart64.exe /NOCONSOLE /NOUAC /WAIT "wsl.exe $*"; }
+elevate() { IsElevated && "$@" || start --elevate "$*"; }
 ElevatePause() { elevate RunPause "$*"; } # elevate the passed program and pause if there is an error
+IsConsoleProgram() { file "$(FindInPath "$1")" | grep "(console)" >& /dev/null; }
+IsWindowsProgram() { file "$(FindInPath "$1")" | grep "(GUI)" >& /dev/null; }
 IsElevated() { $WIN_ROOT/Windows/system32/whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; } # have the Windows Administrator token
 
-# RunInDir FILE - run a windows program that must be started 
-# Useful for programs that cannot be directly started from wsl even if they are in the path
-RunInDir()
+# IsWindowsProgram: true if the file is a native windows program which requires windows paths for arguments (c:\...) instead of POSIX paths (/...)
+IsWindowsProgram() 
 {
-	local cmd; [[ "$1" == "--cmd" ]] && { cmd="cmd.exe /c"; shift; }
-	local background; [[ "$1" == "--background" ]] && { background="true"; shift; }
-	local file="$1" path result
+	local file="$(FindInPath "$file")"
 
-	[[ ! $file ]] && { EchoErr "usage: RunInDir FILE"; return 1; }
-	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
-	[[ ! -f "$file" ]] && { EchoErr "Unable to find $file"; return 1; }
-
-	path="$(GetFilePath "$(GetFullPath "$file")")"
-	file="$(GetFileName "$file")"
-	[[ ! $cmd ]] && file="./$file"
-
-	pushd "$path" >& /dev/null
-	if [[ $background ]]; then
-		(nohup $cmd "$file" "${@:2}" >& /dev/null &)
+	if IsPlatform cygwin; then 
+		utw "$file" | egrep -iv cygwin > /dev/null; return;
+	elif IsPlatform win; then
+		file "$file" | grep PE32 > /dev/null; return;
 	else
-		$cmd "$file" "${@:2}"
+			return 0
 	fi
-	result=$?
-	popd >& /dev/null; 
-
-	return $result
 }
 
-# Window - Win [class] <title|class>, Au3Info.exe to get class
+#
+# Window
+#
 
 AutoItScript() 
 {
 	local script="${1/\.au3/}.au3"
 	[[ ! -f "$script" ]] && script="$(FindInPath "$script")"
 	[[ ! "$script" ]] && { echo "Could not find AutoIt script $1"; return 1; }
-	RunInDir AutoIt.exe /ErrorStdOut "$(utw "$script")" "${@:2}"
+	start AutoIt /ErrorStdOut "$script" "${@:2}"
 }
 
 WinActivate() { AutoItScript WinActivate "${@}"; }
