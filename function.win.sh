@@ -30,7 +30,7 @@ MakeShortcut()
 
 elevate() { IsElevated && "$@" || start --elevate "$*"; }
 ElevatePause() { elevate RunPause "$*"; } # elevate the passed program and pause if there is an error
-IsConsoleProgram() { file "$(FindInPath "$1")" | grep "(console)" >& /dev/null; }
+IsConsoleProgram() { [[ $1 =~ .*AutoIt.* ]] && return 0; file "$(FindInPath "$1")" | grep "(console)" >& /dev/null; }
 IsWindowsProgram() { file "$(FindInPath "$1")" | grep "(GUI)" >& /dev/null; }
 IsElevated() { $WIN_ROOT/Windows/system32/whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; } # have the Windows Administrator token
 
@@ -52,34 +52,11 @@ IsWindowsProgram()
 # Window
 #
 
-AutoItScript() 
-{
-	local script="${1/\.au3/}.au3"
-	[[ ! -f "$script" ]] && script="$(FindInPath "$script")"
-	[[ ! "$script" ]] && { echo "Could not find AutoIt script $1"; return 1; }
-	start AutoIt /ErrorStdOut "$script" "${@:2}"
-}
+WinActivate() { start cmdow "$1" /res /act; }
+WinClose() { start cmdow "$1" /cls; }
+WinMin() { start cmdow "$1" /min; }
+WinList() { start cmdow /f; }
 
-WinActivate() { AutoItScript WinActivate "${@}"; }
-WinClose() { AutoItScript WinClose "${@}"; }
-WinList() { join -a 2 -e EMPTY -j 1 -t',' -o '2.1,1.2,2.2,2.3' <(ProcessList | sort -t, -k1) <(AutoItScript WinList | sort -t, -k1); } # causes error in Synology DSM
-WinGetState() {	AutoItScript WinGetState "${@}"; }
-WinGetTitle() {	AutoItScript WinGetTitle "${@}"; }
-WinSetState() { AutoItScript WinSetState "${@}"; }
-
-WinExists() { WinGetState "${@}"; (( $? & 1 )); }
-WinVisible() { WinGetState "${@}"; (( $? & 2 )); }
-WinEnabled() { WinGetState "${@}"; (( $? & 4 )); }
-WinActive() { WinGetState "${@}"; (( $? & 8 )); }
-WinMinimized() { WinGetState "${@}"; (( $? & 16 )); }
-WinMaximized() { WinGetState "${@}"; (( $? & 32)); }
-
-
-# sudo [command](mintty) - start a program as super user under cygwin
-# sudo /cygdrive/c/Program\ Files/Sublime\ Text\ 3/sublime_text.exe
-# sudo cmd "/c ls & pause"
-# sudo "/cygdrive/c/Program Files/Sublime Text 3/sublime_text.exe" "a.txt"  b.txt
-# sudo service listfile
 if [[ "$PLATFORM_LIKE" == "cygwin" ]]; then
 	sudo() 
 	{
