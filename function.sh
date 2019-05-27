@@ -681,15 +681,16 @@ ProcessList() # PID,NAME - show operating system native process ID and executabl
 
 ProcessResource() { IsPlatform win && { start handle.exe "$@"; return; } || echo "Not Implemented"; }; alias handle='ProcessResource'
 
-# start [-e|--elevate] [-w|--wait] FILE ARGUMENTS - start a program converting file arguments for the platform as needed
+# start a program converting file arguments for the platform as needed
 start() 
 {
-	[[ $1 == @(-h|--help) ]]	&& { echot "usage: start [-e|--elevate] [-w|--wait] FILE ARGUMENTS
+	[[ $1 == @(-h|--help) ]]	&& { echot "usage: start [-e|--elevate] [-w|--wait] [-ws|--windows-style hidden|maximized|minimized|normal] FILE ARGUMENTS
 	Start a program converting file arguments for the platform as needed"; return 1; }
 
 	# file - executable (GUI|console)
-	local elevate; [[ "$1" == @(-e|--elevate) ]] && { ! IsElevated && elevate="/NOUAC"; shift; }
+	local elevate; [[ "$1" == @(-e|--elevate) ]] && { ! IsElevated && elevate="--elevate"; shift; }
 	local wait; [[ "$1" == @(-w|--wait) ]] && { wait="--wait"; shift; }
+	local windowStyle; [[ "$1" == @(-ws|--window-style) ]] && { windowStyle="$1 $2"; shift 2; }
 	local file="$1" origFile="$1" args=( "${@:2}" )
 
 	# run bash if elevating and no file was specified
@@ -720,7 +721,6 @@ start()
 	
 	# start Windows processes	
 	if IsPlatform win && IsWindowsProgram "$file"; then
-		[[ $wait ]] && wait="/WAIT"
 
 		# convert POSIX paths to Windows format (i.e. c:\...)
 		for (( i=0 ; i < ${#args[@]} ; ++i )); do 
@@ -728,8 +728,8 @@ start()
 			[[  -e "$a" || ( ! "$a" =~ .*\\.* && "$a" =~ .*/.* && -e "$a" ) ]] && args[$i]="$(utw "$a")"			
 		done	
 		
-		# start Windows console process
-		if IsConsoleProgram "$file"; then
+		# start Windows conswslole process
+		if [[ ! $elevate ]] && IsConsoleProgram "$file"; then
 			local path="$(GetFilePath "$file")" file="./$(GetFileName "$file")" result
 
 			# run from the current directory (some windows console programs will not start properly when run from the path in wsl, test with $win/wincred.exe)
@@ -741,9 +741,9 @@ start()
 			return $result
 		fi
 
-		# start indirectly ProcessStart, otherwise when this shell is exited this shell hangs and the init causes high cpu
+		# start indirectly ProcessStart, otherwise when this shell is exited this shell may hang and the init process will causes high cpu
 		pushd "$DATA/platform/win" >& /dev/null	
-		./RunProcess.exe "$(utw "$file")" "${args[@]}"
+		./RunProcess.exe -v $wait $elevate $windowStyle "$(utw "$file")" "${args[@]}"
 		result=$?
 		popd >& /dev/null; 
 
