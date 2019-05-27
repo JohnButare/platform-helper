@@ -694,7 +694,7 @@ start()
 	local file="$1" origFile="$1" args=( "${@:2}" )
 
 	# run bash if elevating and no file was specified
-	[[ $elevate && ! $file ]] && file="bash"
+	IsPlatform win && [[ ! $file ]] && file="wsl.exe"
 
 	# find open program
 	local open
@@ -720,7 +720,7 @@ start()
 	! IsExecutable "$file" && { start $open "$file" "${args[@]}"; return; }
 	
 	# start Windows processes	
-	if IsPlatform win && IsWindowsProgram "$file"; then
+	if IsPlatform win && ( [[ $elevate ]] || IsWindowsProgram "$file" ) ; then
 
 		# convert POSIX paths to Windows format (i.e. c:\...)
 		for (( i=0 ; i < ${#args[@]} ; ++i )); do 
@@ -743,7 +743,7 @@ start()
 
 		# start indirectly ProcessStart, otherwise when this shell is exited this shell may hang and the init process will causes high cpu
 		pushd "$DATA/platform/win" >& /dev/null	
-		./RunProcess.exe -v $wait $elevate $windowStyle "$(utw "$file")" "${args[@]}"
+		./RunProcess.exe $wait $elevate $windowStyle "$(utw "$file")" "${args[@]}"
 		result=$?
 		popd >& /dev/null; 
 
