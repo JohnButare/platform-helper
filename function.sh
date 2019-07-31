@@ -19,7 +19,7 @@ shopt -s nocasematch extglob
 #
 # Platform
 # 
-# PLATFORM=linux|win|mac
+# PLATFORM=linux|mac|win
 # PLATFORM_LIKE=cygwin|debian|openwrt|synology
 # PLATFORM_ID=dsm|srm|raspian|ubiquiti|ubuntu
 
