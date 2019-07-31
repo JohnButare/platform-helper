@@ -761,10 +761,16 @@ start()
 	fi
 } 
 
-SudoPreserve="sudo --preserve-env=PATH"; IsPlatform raspbian && SudoPreserve="sudo --preserve-env"; IsPlatform mac && SudoPreserve="sudo"
-sudop() { $SudoPreserve env "$@"; } # sudo preserve - run sudo with the existing path (less secure)
-sudoa() { $SudoPreserve --askpass "$@"; } # sudo ask password and preserve - prompt for sudo password
-sudoc() { SUDO_ASKPASS="$BIN/SudoAskPass" $SudoPreserve --askpass env "$@"; } # sudo password from credential store and preserve
+if IsPlatform cygwin; then
+	sudop() { "$@"; }
+	sudoa() { "$@"; }
+	sudoc() { "$@"; }
+else
+	SudoPreserve="sudo --preserve-env=PATH"; IsPlatform raspbian && SudoPreserve="sudo --preserve-env"; IsPlatform mac && SudoPreserve="sudo"
+	sudop() { $SudoPreserve env "$@"; } # sudo preserve - run sudo with the existing path (less secure)
+	sudoa() { $SudoPreserve --askpass "$@"; } # sudo ask password and preserve - prompt for sudo password
+	sudoc() { SUDO_ASKPASS="$BIN/SudoAskPass" $SudoPreserve --askpass env "$@"; } # sudo password from credential store and preserve
+fi
 
 #
 # Applications
