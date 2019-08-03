@@ -397,4 +397,217 @@ FixVideoCommand()
 	devcon enable 'PCI\VEN_8086&DEV_191B&SUBSYS_80D5103C&REV_06' # Intel(R) HD Graphics 530
 }
 
+InstallCore()
+{
+	printf "**************************************************\n* Intel Core\n**************************************************\n" 
+	IsIntelHost || return
+	inst Syncplicity VisionApp OfficeFinal WindowsAdministrationTools || return
+	InstallIcsDeveloper || return
+	cleanup || return
+}
+
+InstallIcsDeveloper()
+{
+	printf "**************************************************\n* Intel Development Core\n**************************************************\n"
+
+	ask "Install applications" && { i DevCore CruiseControlTray SilverlightSdk || return; }
+	
+	if ask "Install OPC applications"; then
+		i MatrikonOpcSimulator GrayboxOpc OpcScout || return
+		git clone https://github.com/titanium-as/TitaniumAS.Opc.Client "$CODE/TitaniumAS.Opc.Client"
+	fi
+
+
+	makeDir "$pp/Development/Ics" || return
+
+	if ask "Install Intel Profile Manager"; then
+		run "Intel/Profile Manager/ITBAS.zip" "$P/ITBAS" || return
+
+		FindFile "Intel/Profile Manager/ProfileManager.xml" || return
+		$cp	"$file" "$WINDIR/system32" || return
+		chmod 744 "$WINDIR/system32/ProfileManager.xml" || return
+		makeDir "$WINDIR/SysWOW64" || return 
+		$cp "$file" "$WINDIR/SysWOW64" || return
+		chmod 744 "$WINDIR/SysWOW64/ProfileManager.xml" || return
+		$makeShortcut "$P/ITBAS/ProfileManager/ProfileManager.exe" "$pp/Development/Ics/Profile Manager" || return
+	fi
+
+	if ask "Install Antidote"; then
+		run "Intel/Antidote/setup/Antidote.zip" "$P/Antidote" || return
+	fi
+
+	if ask "Update machine.config"; then
+		clipw '<appSettings><add key="Environment" value="Development" /></appSettings>'
+		echo "- After </configSections> paste the text in the clipboard"
+		DotNetHelper 4 MachineConfig || return
+		pause
+	fi
+
+	if ask "Clone shared projects"; then
+		code clone Antidote Errgo Magellan ProfileManager CruiseControlPlugins IntelNuGet || return
+	fi
+
+	if ask "Configure Antidote"; then
+		local a="$CODE/Antidote"
+
+		chmod +x "$(utw "$CODE/Antidote/deployment/tools/other/nuget.exe")" || return
+
+ 		SqlServer service start || return
+		antidote verbose App=Antidote BuildType=LocalBuild || return
+
+		cp "$a/deployment/profiles/"*.profile "$P/ITBAS/Profiles" || return
+		makeDir "$a/Intel.Antidote.Models.Fixtures/Output" || return
+
+		MakeShortcut "$a/source/Gui/Wpf/AntidoteGui/bin/Debug/AntidoteGui.exe" "$pp/Development/Ics/Antidote" || return
+		chmod +x "$a/deployment/tools/other/"* || return
+	fi
+
+	if ask "Configure Magellan"; then
+		SqlServer service start || return
+		antidote verbose App=Magellan BuildType=LocalBuild CacheBrokerAddress=@DatabaseServer@ || return
+
+		cp "$CODE/Magellan/Profiles/"*.profile "$P/ITBAS/Profiles" || return
+
+		chgrp Administrators "$CODE/Magellan/unversioned/SqlData" || return; chmod 777 "$CODE/Magellan/unversioned/SqlData"
+	fi
+
+	applications=( ScadaPortal )
+	for app in "${applications[@]}"; do 
+		if ask "Setup $app"; then
+
+			code clone "$app" || return
+
+			if [[ ! -d "$CODE/${app}Test" ]]; then
+				echo "Copying repository to $CODE/${app}Test..."
+				cp -rp "$CODE/$app" "$CODE/${app}Test" || return
+			fi
+
+			antidote verbose App=$app BuildType=LocalBuild || return
+		fi
+	done
+
+	# SCADA Portal
+	makeDir "$P/Scada/Web/Log"
+}
+
+cleanup()
+{
+	ask 'Cleanup icons' && { IntelIcons || return; }
+
+	if ask 'Cleanup file system'; then
+
+		$rmd "$_root/Intel/"* "$_root/Scripts" "$uhome/mcafee dlp quarantined files"
+		$rm  "$_root/build.ini" "$_root/DFSInfo.txt" "$_root/wpm_log.txt"
+		$hide "$_root/Intel"
+		$hide "$_root/Quarantine"
+		$hide "$uhome/.cisco"
+		
+		makeDir "$udata/McAfee/Quarantine" || return
+		makeLink --merge --hide "$udata/McAfee/Quarantine" "$uhome/mcafee dlp quarantined files" || return
+	fi
+
+	if ask 'Cleanup startup programs'; then
+
+		$registry 32 delete "run/AgentUiRunKey" # "C:\Program Files (x86)\Autonomy\Connected BackupPC\Agent.exe" -ni -sss -e http://localhost:16386/
+		$registry 32 delete "run/McAfeeUpdaterUI"
+		$registry 32 delete "run/ShStatEXE"
+		$registry 32 delete "run/MNEBalloon" # "C:\Program Files (x86)\McAfee\Management of Native Encryption\toast32.exe"
+		$registry 32 delete "run/SunJavaUpdateSched"
+		$registry 32 delete "run/Cisco AnyConnect Secure Mobility Agent for Windows" # "C:\Program Files (x86)\Cisco\Cisco AnyConnect Secure Mobility Client\vpnui.exe" -autolaunched
+		$registry 32 delete "run/IMSS" # "C:\Program Files (x86)\Intel\Intel(R) Management Engine Components\IMSS\PIconStartup.exe" "C:\Program Files (x86)\Intel\Intel(R) Management Engine Components\IMSS\PrivacyIconClient.exe" 60
+		$registry 32 delete "run/IntelSMSystray" # C:\Program Files (x86)\IntelSM\IntelSMSystray\IntelSMSystemTray.exe
+		$registry 32 delete "run/WAATService" # C:\windows\SysWOW64\waatservice.exe -install, http://www.file.net/process/waatservice.exe.html
+
+		$registry delete "run/ErmTray" # "C:/Program Files/Intel/Security/ERM/Win64/ErmTray.exe"
+		$registry delete "run/IntelErmOfficeConfig" # C:\Program Files\Intel\Enterprise Rights Management\IntelErmOfficeConfig.exe -gm2 -check
+		$registry delete "run/ShadowPlay" # "C:\windows\system32\rundll32.exe" C:\windows\system32\nvspcap64.dll,ShadowPlayOnSystemStart
+		$registry delete "run/Syncplicity" # "C:\Program Files\Syncplicity\Syncplicity.exe" silent
+		$registry delete "run/McAfee Host Intrusion Prevention Tray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe
+		$registry delete "run/EpeFprTrainer" # "C:\Program Files\McAfee\Endpoint Encryption\EpeFprTrainer.exe"
+		$registry delete "run/MfeEpePcMonitor" # "C:\Program Files\McAfee\Endpoint Encryption\EpePcMonitor.exe"
+		$registry delete "run/SysTrayApp" # C:\Program Files\IDT\WDM\sttray64.exe
+		$registry delete "urun/test"
+
+		$rm "$up/Startup/Send to OneNote.lnk" || return
+
+	fi
+}
+
+CleanupIcons()
+{
+	printf "Updating Intel icons..."
+	! intel IsIntelHost && return 0
+
+	ChromeIcons || return
+	FoxitReaderIcons || return
+	nVidiaIcons || return
+	JavaIcons || return
+
+	local d="$oo/Intel"
+	makeDir "$d" || return
+	mergeDir --rename "$pp/Intel" "$d" || return
+	mergeDir --rename "$up/Intel" "$d" || return
+
+	# AnyConnect
+	mergeDir "$up/Cisco" "$oo" || return
+	mergeDir "$pp/Cisco" "$oo" || return
+	$mv "$pd/AnyConnect User Guide 3_1.lnk" "$oo/Cisco/Cisco AnyConnect Secure Mobility Client" || return
+	$mv "$pd/AnyConnect_Health_Check_Tool.lnk" "$oo/Cisco/Cisco AnyConnect Secure Mobility Client" || return
+	$rm "$pd/AnyConnect"*.lnk || return
+
+	# Application Migration
+	$mv "$pp/Application Migration.lnk" "$oo/Intel" || return
+	$rm "$pd/Application Migration.lnk" || return
+
+	# IBM BigFix
+	$mv "$up/IBM BigFix.lnk" "$pp/Operating System" || return
+
+	# Intel Graphics
+	$mv "$pp/Intel(R) HD Graphics Control Panel.lnk" "$pp/Operating System" || return
+	$rm "$pd/Intel(R) HD Graphics Control Panel.lnk" || return
+
+	# Intel Software Market
+	$mv "$pp/Intel Software Market.lnk" "$oo/Intel" || return
+	$rm "$pd/Intel Software Market.lnk" || return
+
+	# Intel WiFi
+	mergeDir "$pp/Intel PROSet Wireless" "$oo/Intel" || return
+	$rm "$pd/IT Wireless Utilities.lnk" || return
+	$rm "$pd/WiFi Health Advisor.lnk" || return
+	$rm "$ud/WiFi Health Advisor.lnk" || return
+
+	# Intel other
+	mergeDir "$pp/Thunderbolt(TM) Software" "$oo/Intel" || return
+	$mv "$pd/Intel Unite"*".lnk" "$pp/Operating SystemOther" || return
+	$mv "$pd/Intel AddaPrinter.lnk" "$oo/Intel" || return
+	$mv "$psm/Intel Security Checker.lnk" "$oo/Intel" || return
+	$rm "$pd/Intel Security Checker.lnk" || return
+
+	# McAfee
+	mergeDir "$pp/McAfee" "$oo" || return
+	mergeDir "$up/Pledge" "$oo/McAfee" || return
+	$mv "$up/McAfee Management of Native Encryption.lnk" "$oo/McAfee" || return
+	$mv "$up/McAfee VirusScan Scan Messages.lnk" "$oo/McAfee" || return
+
+	# Virtual Assistance Center
+	mergeDir "$pp/Virtual Assistance Center" "$oo/Intel" || return
+	mergeDir "$up/Virtual Assistance Center" "$oo/Intel" || return
+	$rm "$ud/IT Virtual Assistance Center.lnk" || return
+
+	# Wellnomics WorkPace
+	mergeDir "$pp/Wellnomics WorkPace" "$pp/Applications/Other/Intel" || return
+	$rm "$pd/Wellnomics WorkPace 5.0.4.lnk" || return	
+
+	# other
+	mergeDir "$pp/Fixlet Debugger" "$oo" || return
+	mergeDir "$pp/Microsoft System Center" "$oo" || return
+	mergeDir "$pp/Syncplicity" "$oo" || return
+
+	# device
+	mergeDir "$pp/Music, Photos and Videos" "$pp/Applications/Other/Intel" || return
+	
+	echo "done"
+	return
+}
+
 run "$@"
