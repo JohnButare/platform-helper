@@ -50,8 +50,10 @@ run()
 		else
 			RunExternalApp
 		fi
+		(( $? != 0 )) && { EchoErr "app: unable to run $app"; return 1; }
 	done
-	return "$?"
+	
+	return 0
 }
 
 RunInternalApp()
@@ -124,6 +126,8 @@ TaskStart()
 		task close --brief --title "$title" "$program" || return
 		[[ ! $brief ]] && echo done
 	fi
+
+	return 0
 }
 
 ShowStatus()
@@ -172,7 +176,7 @@ MapApp()
 	esac
 }
 
-AltTabTerminator() { IsTaskRunning "AltTabTer64.exe" || TaskStart "$P/SAlt-Tab Terminator/AltTabTer64.exe" "" /startup; }
+AltTabTerminator() { IsTaskRunning "AltTabTer64.exe" || TaskStart "$P/Alt-Tab Terminator/AltTabTer64.exe" "" /startup; }
 AquaSnap() { IsTaskRunning "AquaSnap.Daemon.exe" && return; printf "AquaSnap..."; start "$P32/AquaSnap/AquaSnap.Daemon.exe"; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
 cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE.exe" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
@@ -182,6 +186,7 @@ GlassWire() { IsTaskRunning "GlassWire.exe" || TaskStart "$P32/GlassWire/glasswi
 Greenshot() { IsTaskRunning "Greenshot.exe" || TaskStart "$P/Greenshot/Greenshot.exe" "" ; }
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 IntelRapidStorage() { IsTaskRunning "IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
+LogitechOptions() { IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
 TidyTabs() { IsTaskRunning "TidyTabs.Daemon.exe" && return; printf "TidyTabs..."; start "$P32/TidyTabs/TidyTabs.Daemon.exe"; }
 
@@ -198,7 +203,7 @@ sshd()
 	if ! service running ssh; then
 		printf "sshd."
 		sudoc service start ssh # >& /dev/null
-		return
+		return 0
 	fi
 
 	return 0
