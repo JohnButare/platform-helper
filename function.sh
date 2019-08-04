@@ -96,7 +96,12 @@ function RunPlatform()
 	return 0
 }
 
-package() { sudo apt-get install -y "$@" || return; }
+package() 
+{ 
+	IsPlatform debian && { sudo apt-get install -y "$@"; return; }
+	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
+	IsPlatform mac && { brew install -y "$@"; return; }	
+}
 
 #
 # Other
