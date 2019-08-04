@@ -508,7 +508,7 @@ FullName()
 #
 # network
 #
-IsInDomain() { [[ "$USERDOMAIN" != "$HOSTNAME" ]]; }
+IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }
 GetInterface() { ifconfig | head -1 | cut -d: -f1; }
 
 GetPrimaryIpAddress() # GetPrimaryIpAddres [INTERFACE] - get default network adapter
