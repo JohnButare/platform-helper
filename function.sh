@@ -103,6 +103,13 @@ package()
 	IsPlatform mac && { brew install -y "$@"; return; }	
 }
 
+packageu() # package uninstall
+{ 
+	IsPlatform debian && { sudo apt-get remove -y "$@"; return; }
+	IsPlatform cygwin && { apt-cyg remove -y "$@"; return; }
+	IsPlatform mac && { brew remove -y "$@"; return; }	
+}
+
 #
 # Other
 #
