@@ -180,6 +180,7 @@ AltTabTerminator() { IsTaskRunning "AltTabTer64.exe" || TaskStart "$P/Alt-Tab Te
 AquaSnap() { IsTaskRunning "AquaSnap.Daemon.exe" && return; printf "AquaSnap..."; start "$P32/AquaSnap/AquaSnap.Daemon.exe"; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
 cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE.exe" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
+Discord() { IsTaskRunning Discord.exe || TaskStart "$LOCALAPPDATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }
 Duet() { TaskStart "C:\Program Files\Kairos\Duet Display\duet.exe"; }
 Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer.exe && start explorer; }
 GlassWire() { IsTaskRunning "GlassWire.exe" || TaskStart "$P32/GlassWire/glasswire.exe" "" -hide; }
