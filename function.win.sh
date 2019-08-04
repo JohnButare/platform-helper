@@ -28,9 +28,10 @@ MakeShortcut()
 # Process
 #
 
-elevate() { IsElevated && "$@" || start --elevate "$*"; }
-ElevatePause() { elevate RunPause "$*"; } # elevate the passed program and pause if there is an error
-IsConsoleProgram() { [[ $1 =~ .*AutoIt.* ]] && return 0; file "$(FindInPath "$1")" | grep "(console)" >& /dev/null; }
+elevate() { IsElevated && "$@" || start --elevate "$@"; }
+ElevatePause() { elevate RunPauseError "$@"; } # elevate the passed program and pause if there is an error
+ElevatePauseAlways() { elevate RunPause "$@"; } # elevate the passed program and always pause
+IsConsoleProgram() { file "$(FindInPath "$1")" | grep "(console)" >& /dev/null; }
 IsShellScript() { file "$(FindInPath "$1")" | grep "shell script" >& /dev/null; }
 IsWindowsProgram() { file "$(FindInPath "$1")" | grep "(GUI)" >& /dev/null; }
 IsElevated() { $WIN_ROOT/Windows/system32/whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; } # have the Windows Administrator token

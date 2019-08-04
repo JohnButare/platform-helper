@@ -461,7 +461,8 @@ IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ .*\*|\?.* ]]; }
 ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
-QuoteBackslashes() { sed 's/\\/\\\\/g'; }
+QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
+QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces
 RemoveBackslash() { echo "${@//\\/}"; }
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 
@@ -721,16 +722,19 @@ start()
 	
 	# start Windows processes	
 	if IsPlatform win && ( [[ $elevate ]] || IsWindowsProgram "$file" ) ; then
+		local fullFile="$file"
 
 		# convert POSIX paths to Windows format (i.e. c:\...)
-		for (( i=0 ; i < ${#args[@]} ; ++i )); do 
-			local a="${args[$i]}"	
-			[[  -e "$a" || ( ! "$a" =~ .*\\.* && "$a" =~ .*/.* && -e "$a" ) ]] && args[$i]="$(utw "$a")"			
-		done	
-		
+		if IsWindowsProgram "$file"; then
+			for (( i=0 ; i < ${#args[@]} ; ++i )); do 
+				local a="${args[$i]}"	
+				[[  -e "$a" || ( ! "$a" =~ .*\\.* && "$a" =~ .*/.* && -e "$a" ) ]] && args[$i]="$(utw "$a")"			
+			done	
+		fi
+
 		# start Windows console process
 		if [[ ! $elevate ]] && IsConsoleProgram "$file"; then
-			local path="$(GetFilePath "$file")" file="./$(GetFileName "$file")" result
+			local path="$(GetFilePath "$fullFile")" file="./$(GetFileName "$fullFile")" result
 
 			# run from the current directory (some windows console programs will not start properly when run from the path in wsl, test with $win/wincred.exe)
 			pushd "$path" >& /dev/null
@@ -744,8 +748,14 @@ start()
 		# start indirectly with ProcessStart, otherwise when this shell is exited this shell may hang and the init process will causes high cpu
 		pushd "$DATA/platform/win" >& /dev/null	
 
-		if IsShellScript "$file"; then
-			./RunProcess.exe $wait $elevate $windowStyle wsl.exe -e "$(FindInPath inst)" "${args[@]}"
+		if IsShellScript "$fullFile"; then	
+
+			# escape spaces for shell scripts so arguments are preserved when elevating (we must be elevating scripts here)
+			for (( i=0 ; i < ${#args[@]} ; ++i )); do 
+				args[$i]="${args[$i]// /\\ }"
+			done	
+			
+			./RunProcess.exe $wait $elevate $windowStyle wsl.exe -e "$(FindInPath "$file")" "${args[@]}"
 		else
 			./RunProcess.exe $wait $elevate $windowStyle "$(utw "$file")" "${args[@]}"
 		fi
