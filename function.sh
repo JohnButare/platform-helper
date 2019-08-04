@@ -722,7 +722,7 @@ start()
 	
 	# start Windows processes	
 	if IsPlatform win && ( [[ $elevate ]] || IsWindowsProgram "$file" ) ; then
-		local fullFile="$file"
+		local fullFile="$(GetFullPath "$file")"
 
 		# convert POSIX paths to Windows format (i.e. c:\...)
 		if IsWindowsProgram "$file"; then
@@ -765,7 +765,7 @@ start()
 
 		return $result
 	fi
- 
+
  	# non-Windows
 	if [[ $wait ]]; then
 		(
