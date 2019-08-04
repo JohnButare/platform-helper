@@ -187,6 +187,8 @@ Greenshot() { IsTaskRunning "Greenshot.exe" || TaskStart "$P/Greenshot/Greenshot
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 IntelRapidStorage() { IsTaskRunning "IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
 LogitechOptions() { IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
+OneDrive() { IsTaskRunning OneDrive.exe || start "$LOCALAPPDATA/Microsoft/OneDrive/OneDrive.exe" /background; }
+SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
 TidyTabs() { IsTaskRunning "TidyTabs.Daemon.exe" && return; printf "TidyTabs..."; start "$P32/TidyTabs/TidyTabs.Daemon.exe"; }
 
