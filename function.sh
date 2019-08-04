@@ -728,7 +728,7 @@ start()
 			[[  -e "$a" || ( ! "$a" =~ .*\\.* && "$a" =~ .*/.* && -e "$a" ) ]] && args[$i]="$(utw "$a")"			
 		done	
 		
-		# start Windows conswslole process
+		# start Windows console process
 		if [[ ! $elevate ]] && IsConsoleProgram "$file"; then
 			local path="$(GetFilePath "$file")" file="./$(GetFileName "$file")" result
 
@@ -741,9 +741,15 @@ start()
 			return $result
 		fi
 
-		# start indirectly ProcessStart, otherwise when this shell is exited this shell may hang and the init process will causes high cpu
+		# start indirectly with ProcessStart, otherwise when this shell is exited this shell may hang and the init process will causes high cpu
 		pushd "$DATA/platform/win" >& /dev/null	
-		./RunProcess.exe $wait $elevate $windowStyle "$(utw "$file")" "${args[@]}"
+
+		if IsShellScript "$file"; then
+			./RunProcess.exe $wait $elevate $windowStyle wsl.exe -e "$(FindInPath inst)" "${args[@]}"
+		else
+			./RunProcess.exe $wait $elevate $windowStyle "$(utw "$file")" "${args[@]}"
+		fi
+
 		result=$?
 		popd >& /dev/null; 
 
