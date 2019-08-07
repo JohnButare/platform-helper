@@ -299,7 +299,10 @@ GetDisks() # GetDisks ARRAY
 			for disk in /media/psf/*; do getDisks+=( "$disk" ); done # Parallels hosts
 			;;
 		mac) IFS=$'\n' getDisks=( $(df | egrep "^/dev/" | gawk '{print $9}' | egrep -v '^/$|^/$') );;
-		win) for disk in /cygdrive/*; do getDisks+=( "$disk" ); done;;
+		win) 
+			[[ -d /mnt ]] && for disk in /mnt/*; do getDisks+=( "$disk" ); done
+			[[ -d /cygdrive ]] && for disk in /cygdrive/*; do getDisks+=( "$disk" ); done
+			;;
 	esac
 
 	CopyArray getDisks "$1"
