@@ -100,7 +100,7 @@ package()
 { 
 	IsPlatform debian && { sudo apt-get install -y "$@"; return; }
 	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
-	IsPlatform mac && { brew install -y "$@"; return; }	
+	IsPlatform mac && { brew install "$@"; return; }	
 }
 
 packageu() # package uninstall
@@ -226,6 +226,8 @@ HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 InPath() { which "$1" >& /dev/null; }
+EnsureDir() { echo "$(RemoveTrailingSlash "$1")/"; }
+GetParentDir() { echo "$(GetFilePath "$(GetFilePath "$1")")"; }
 
 FindInPath()
 {
@@ -310,8 +312,7 @@ GetDisks() # GetDisks ARRAY
 
 CopyDir()
 {
-	local prefix="" cp="gcp" recursive="" o=(--force --preserve=timestamps) f=( );
-		
+	local prefix="" cp="gcp" recursive="" o=(--force --preserve=timestamps) f=( ) help;
 	IsPlatform mac && { cp="acp"; o=(--progress); }
 	
 	# gcp requires an X display on some platforms, as a work around run with dbus-launch
@@ -319,26 +320,45 @@ CopyDir()
 
 	for arg in "$@"; do
 		[[ ! $1 ]] && { shift; continue; } 										# ignore empty options
+		[[ $1 == @(-h|--help) ]] && { help="true"; shift; continue; }
 		[[ $1 == @(-r|--recursive) ]] && { o+=(--recursive); recursive="true"; shift; continue; }
-		[[ $1 == @(-m|--mirror) ]] && { shift; continue; } 		# ignore --mirror (win only)
-		[[ $1 == @(-q|--quiet) ]] && { shift; continue; }			# ignore --quiet (win only)
-		[[ $1 == @(--retry) ]] && { shift; continue; }				# ignore --retry (win only)
-		[[ $1 == @(-xd|-xf) ]] && { shift; while (( $# != 0 )) && ! IsOption "$1"; do shift; done; continue; } # ignore -xd and -xf (win only)
+		[[ $1 == @(-v|--verbose) ]] && { o+=(--verbose); shift; continue; }
 		f+=($1); shift
 	done
 
+	[[ "${#f[@]}" != "2" || $help ]]	&& { echot "usage: CopyDir SRC_DIR DEST_DIR
+	-q, --quiet				minimize logging
+	-r, --recursive		copy directories recursively
+	-v, --verbose			maximize logging"; return 1; }
+
+	local src="${f[0]}" dest="$(EnsureDir "${f[1]}")" made result; 
+	local parent="$(GetParentDir "$dest")"
+	local finalSrcDir="$(GetFileName "$(RemoveTrailingSlash "$src")")"
+	local finalDestDir="$(GetFileName "$(RemoveTrailingSlash "$dest")")"
+
+	# if recursive dest cannot contain the directory to copy otherwise it will be duplicated
+	[[ $recursive && "$finalSrcDir" == "$finalDestDir" ]] && dest="$parent" || dest="$(RemoveTrailingSlash "$dest")/"
+
+	# create the parent directory if needed (acp and gcp require that the parent exists)
+	[[ $parent && ! -d "$parent" ]] && { ${G}mkdir --parents "$parent" || return; }
+
+	# destination directory must exist for non-recursive copies
+	[[ ! $recursive && ! -d "$dest" ]] && { made="true"; ${G}mkdir "$dest" || return; }
+
 	#o+=("--verbose")
-	# cp dir1 dir2 will not copy the top level directory, need a way to copy only top level directory
 	#dbus-launch gcp --recursive --force --preserve timestamps,mode --verbose /home/jjbutare/Volumes/public/documents/data/platform/linux/ /usr/local/data/platform/linux/ --recursive
+	#pause $src-$dest
 
 	if [[ $recursive ]]; then
-		$prefix $cp "${o[@]}" "${f[@]}" || return
+		$prefix $cp "${o[@]}" "$src" "$dest"
 	else
 		# for non-recursive copies the source must be files and the destination directory must exist
-		local src="${f[0]}"
-		local dest="${f[1]}" made=""; [[ ! -d "$dest" ]] && { made="true"; mkdir --parents "$dest" || return; }
-		$prefix $cp "${o[@]}" "$src"/* "$dest" || { [[ $made ]] && rm - fr "$dest"; return 1; }
+		$prefix $cp "${o[@]}" "$src"/* "$dest"
 	fi
+	result=$?
+
+	[[ "$result" != "0" && $made ]] && rm -fr "$dest";
+	return $result
 }
 
 if IsPlatform cygwin; then
@@ -419,9 +439,7 @@ CpProgress()
 	GetFilePath "$(GetFullPath "$src")" src || return
 
 	local fileSize="$(GetFileSize "$src/$fileName" MB)" || return
-	(( fileSize < size )) && 
-		cp "$src/$fileName" "$dest" ||
-		CopyDir "$src" "$dest" "$fileName" --quiet
+	(( fileSize < size )) && cp "$src/$fileName" "$dest" || CopyDir "$src/$fileName" "$dest"
 } 
 
 #
@@ -792,15 +810,36 @@ start()
 	fi
 } 
 
+# sudo
 if IsPlatform cygwin; then
 	sudop() { "$@"; }
 	sudoa() { "$@"; }
 	sudoc() { "$@"; }
 else
-	SudoPreserve="sudo --preserve-env=PATH"; IsPlatform raspbian && SudoPreserve="sudo --preserve-env"; IsPlatform mac && SudoPreserve="sudo"
-	sudop() { $SudoPreserve env "$@"; } # sudo preserve - run sudo with the existing path (less secure)
-	sudoa() { $SudoPreserve --askpass "$@"; } # sudo ask password and preserve - prompt for sudo password
-	sudoc() { SUDO_ASKPASS="$BIN/SudoAskPass" $SudoPreserve --askpass env "$@"; } # sudo password from credential store and preserve
+	SudoPreserve="sudo --preserve-env=PATH"
+	IsPlatform raspbian && SudoPreserve="sudo --preserve-env"
+	IsPlatform mac && SudoPreserve="sudo"
+
+	sudop() # preserve the existing path (less secure)
+	{ 
+		$SudoPreserve env "$@"
+	} 
+
+	sudoa() # use the SUDO_ASKPASS command to get the password if available and preserve the existing path
+	{ 
+		local askPass=""; [[ $SUDO_ASKPASS ]] && askPass="--askPass"
+		$SudoPreserve $askpass "$@";
+	} 
+
+	sudoc()  # use the credential store to get the password if available and preserve the existing path
+	{ 
+		if credential -q exists secure default; then
+			SUDO_ASKPASS="$BIN/SudoAskPass" $SudoPreserve --askpass env "$@"; 
+		else
+			$SudoPreserve env "$@"; 
+		fi
+	} 
+
 fi
 
 #
@@ -810,19 +849,29 @@ fi
 GetTextEditor()
 {
 	p="$P/sublime_text/sublime_text"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-	p="$P/Sublime Text.app/Contents/SharedSupport/bin/subl"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-	p="$P/Sublime Text 3/sublime_text.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-	p="$P/Notepad++/notepad++.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
+
+		case "$PLATFORM" in 
+			mac)
+				p="$P/Sublime Text.app/Contents/SharedSupport/bin/subl"; [[ -f "$p" ]] && { echo "$p"; return 0; }
+				echo "open -a TextEdit"; return 0
+				;;
+			win)
+				p="$P/Sublime Text 3/subl.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
+				p="$P/Notepad++/notepad++.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
+				;;
+		esac
+
 	InPath geany && { echo "geany"; return 0; }
 	InPath gedit && { echo "gedit"; return 0; }
 	InPath nano && { echo "nano"; return 0; }
 	InPath vi && { echo "vi"; return 0; }
+
 	EchoErr "No text editor found"; return 1;
 }
 
 TextEdit()
 {
-	local file files=() p=""
+	local file files=() p="" start="start"
 	local wait; [[ "$1" == +(-w|--wait) ]] && { wait="--wait"; shift; }
 	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
 	local p="$(GetTextEditor)"; [[ ! $p ]] && { EchoErr "No text editor found"; return 1; }
@@ -831,7 +880,15 @@ TextEdit()
 		[[ -e "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"
 	done
 	
-	[[ $# == 0 || "${#files[@]}" > 0 ]] && start $wait "${options[@]}" "$p" "${files[@]}"
+	# return if no files exist
+	[[ $# == 0 || "${#files[@]}" > 0 ]] || return 0
+
+	# edit the file
+	if [[ "$p" =~ nano|open.*|vi ]]; then
+		$p "${files[@]}"
+	else
+		$start $wait "${options[@]}" "$p" "${files[@]}"
+	fi
 }
 
 VimHelp() { echot "VIM: http://www.lagmonster.org/docs/vi.html

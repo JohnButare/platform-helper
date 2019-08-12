@@ -25,7 +25,6 @@ PUB="${PUB:-$USERS/Shared}"
 DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" UDATA="$DOC/data" UBIN="$UDATA/bin"
 
-
 set +a
 
 [[ "$TMP" != "/tmp"  ]] && { export TMP="/tmp"; export TEMP="/tmp"; }

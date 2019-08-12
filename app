@@ -91,8 +91,8 @@ RunInternalApp()
 
 RunExternalApp()
 {
-	GetAppFile || return
-	IsAppInstalled || return
+	GetAppFile || return 0
+	IsAppInstalled || return 0
 
 	if [[ "$command" == "startup" ]]; then
 		IsAppRunning && return
@@ -138,7 +138,6 @@ ShowStatus()
 GetAppFile()
 {
 	appFile="$(FindInPath "$app")"
-	#[[ ! $appFile ]] && { echo "app: $app was not found"; return 1; }
 	[[ -f "$appFile" ]]
 }
 
@@ -187,7 +186,7 @@ GlassWire() { IsTaskRunning "GlassWire.exe" || TaskStart "$P32/GlassWire/glasswi
 Greenshot() { IsTaskRunning "Greenshot.exe" || TaskStart "$P/Greenshot/Greenshot.exe" "" ; }
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 IntelRapidStorage() { IsTaskRunning "IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
-LogitechOptions() { IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
+LogitechOptions() { [[ ! -f "$P/Logitech/LogiOptions/LogiOptions.exe" ]] && return; IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
 OneDrive() { IsTaskRunning OneDrive.exe || start "$LOCALAPPDATA/Microsoft/OneDrive/OneDrive.exe" /background; }
 SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }

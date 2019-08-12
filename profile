@@ -127,7 +127,7 @@ saveCommand()
 		file="${HOSTNAME,,} $app Profile $(GetTimeStamp).$saveExtension"
 	fi
 
-	mkdir --parents "$dest" || return
+	${G}mkdir --parents "$dest" || return
 
 	# save specified files to a zip file
 	if [[ "$method" ==  "file" && -d "$src" ]]; then
@@ -168,7 +168,7 @@ copyDefaultProfile()
 	local src="$1" dest="$2" destDir
 
 	GetFilePath "$dest" destDir || return
-	[[ ! -d "$destDir" ]] && { MakeDir --parents "$destDir" || return; }
+	[[ ! -d "$destDir" ]] && { ${G}mkdir --parents "$destDir" || return; }
 
 	printf "Copying profile to $destDir..."
 	cp "$src" "$dest" || return

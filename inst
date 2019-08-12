@@ -4,8 +4,11 @@
 TemplateInstall()
 {
 	! IsPlatform win && return
+
 	printf "**************************************************\n* name\n**************************************************\n"
-	run "Paragon/ExtFS/Paragon-608-PEU_WinInstallSN-4.3.852.msi" || return # http://www.paragon-drivers.com/extfs-windows/
+
+	# http://www.paragon-drivers.com/extfs-windows/
+	run "Paragon/ExtFS/Paragon-608-PEU_WinInstallSN-4.3.852.msi" || return
 
 	echo "Updating icons..."
 	mergeDir "$pp/(dir)" "$ao" || return
@@ -29,7 +32,7 @@ TemplateFullInstall()
 
 	FindFile "Intel/Profile Manager/ProfileManager.xml" || return
 	$cp	"$file" "$WINDIR/system32" || return
-	$rc --mirror --quiet "$src" "$dest" || return
+	$cpDir "$src" "$dest" || return
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
@@ -77,23 +80,25 @@ usage()
 	echot "\
 usage: install cd|install APP*
 	Install programs
-	-h,  --hint DIR				first directory to search for installation files
-	-ie, --ignore-errors 	ignore errors for multiple installs
-  -nf, --no-run					do not find or run the installation program
-  -nrp,--no-run-prompt	do not ask to run the executable
-  -s,  --select				  select the install location"
+	-h,  --hint DIR			first directory to search for installation files
+	-ie, --ignore-errors	ignore errors for multiple installs
+	-nr, --no-run			do not find or run the installation program
+	-rp, --run-prompt	   	always ask to run the executable
+	-nrp,--no-run-prompt	never ask to run the executable
+	-s,  --select			select the install location"
 	exit $1
 }
 
 args()
 {
-	unset command apps host ignoreErrors noElevate noRun noRunPrompt select
+	unset command apps host ignoreErrors noElevate noRun noRunPrompt runPrompt select
 	originalArgs=( "$@" ) 
 	while [ "$1" != "" ]; do
 		case "$1" in
 			--no-elevate|-ne) noElevate="true";;
 			--no-run|-nr) noRun="true";;
 			--no-run-prompt|-nrp) noRunPrompt="true";;
+			--run-prompt|-rp) runPrompt="true";;
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			--hint|-h) hint=( --hint "$2" ); export INSTALL_DIR="$2"; shift;;
 			--ignore-errors|-ie) ignoreErrors="true";;
@@ -126,7 +131,12 @@ installCommand()
 i() {	InstallApps "$@"; }
 InstallApps()
 {
-	local prompt; { (( $# > 1 )) || [[ $noRunPrompt ]]; } && prompt="true"
+	local prompt; 
+
+	(( $# > 1 )) && prompt="true"
+	[[ $noRunPrompt ]] && prompt=
+	[[ $runPrompt ]] && prompt="true"
+
 	while (($# != 0 )); do
 		app="$1"; shift
 		if [[ ! $prompt ]] || ask "\nInstall $app"; then
@@ -153,16 +163,17 @@ InstallInit()
 
 	local test #="echo "
 	cp="${test}FileCommand cp"
+	cpDir="${test}CopyDir --recursive"
 	firewall="${test}firewall --suppress"
 	hide="${test}FileCommand hide"
 	hideAndSystem="${test}FileCommand HideAndSystem"
+	i() { inst --run-prompt "$@"; }
 	makeDir() { ${test}${G}mkdir --parents "$@"; }
-	makeDirOwner() { sudo mkdir --parents "$@" || return; sudo chown $USER "$@" || return; }
+	makeDirOwner() { sudo ${G}mkdir --parents "$@" || return; sudo chown $USER "$@" || return; }
 	makeLink() { ${test}MakeLink --suppress "$@"; }
 	makeShortcut="${test}MakeShortcut"
 	mergeDir() { ${test}MergeDir --parents --suppress "$@"; }
 	mv="${test}FileCommand mv"
-	rc="${test}CopyDir"
 	registry="${test}registry"
 	ren="${test}FileCommand ren"
 	rm="${test}${G}rm -f"
@@ -173,17 +184,34 @@ InstallInit()
 	setupFiles="$_data/setup"
 }
 
+MacStoreAppInstall()
+{
+	! IsPlatform mac && return
+
+	local name="$1" id="$2"
+
+	printf "**************************************************\n* $name\n**************************************************\n"
+	run "$id" || return
+
+	MacAppConfigure "$name" || return
+}
+
+IsMacStoreId() { IsPlatform mac && IsInteger "$1"; }
+MacAppConfigure() { ask "Do you want to configure $1" && { MacAppOpen "$1" || return; }; return 0; }
+MacAppOpen() { open -a "$1" || return; pause; }
+
 run() # run EXE [OPTIONS...]
 {
 	local p="$1" i; shift
 
-	[[ ! $p ]] && { EchoErr "inst: executable was not specified"; return 1; }
+	[[ ! $p ]] && return
 
 	if [[ "$1" == @(-p|--platform) ]]; then
 		shift
 		case "$PLATFORM" in win) i=1;; mac) i=2;; linux) i=3;; esac
-		[[ ! ${!i} ]] && { EchoErr "inst: $p not available on $PLATFORM"; return 1; }
-		p="$p${!i}"
+		[[ ! ${!i} ]] && return 0
+		local suffix="${!i}"
+		IsMacStoreId "$suffix" && p="$suffix" || p="$p$suffix" # AppStore ID
 		shift; shift; shift;
 	fi
 	
@@ -203,7 +231,7 @@ RunProgram()
 	[[ ! $pDesc ]] && { pDesc="$(IFS=/; echo "${pParts[*]: -3}")"; }
 	[[ ! $pDesc ]] && pDesc="$p"
 
-	[[ $noRunPrompt ]] && echo "Runing $pDesc..." || { ask "Do you want to run $pDesc" || return 0; }	
+	[[ $noRunPrompt ]] && echo "Runing $pDesc..." || { ! ask "Do you want to run $pDesc" && return; }	
 
 	local pExt; GetFileExtension "$p" pExt
 
@@ -217,12 +245,18 @@ RunProgram()
 		bat|cmd) cmd /c "$p" "$@" || return;;
 		deb) sudo gdebi "$p" "$@";;
 		dmg) RunDmg "$p" "$@" || return;;
-	  ism) start --minimize cmd /c start "$p";;
+		ism) start --minimize cmd /c start "$p";;
 		iso|img) iso mount "$p"; echo "If needed run the setup program manually..."; pause="--pause";;
 		msi) start --elevate --wait msiexec.exe /i "$p" "$@";;
 		pkg) sudo installer -pkg "$p" -target /;;
 		zip|7z|gz|tar|xpi|ear|jar|war) RunZip "$p" "$@" || return;;
-		*) "$p" "$@" || return;;
+		*) 
+			if IsMacStoreId "$p"; then
+				mas open $p
+			else
+				"$p" "$@" || return
+			fi
+			;;
 	esac
 	
 	[[ $pause || $standard ]] && pause "When the installation has finished press any key..."
@@ -252,11 +286,18 @@ RunDmg()
 DoRunDmg()
 {
 	local p="$1"; shift
-	hdiutil mount "$p" -mountpoint /Volumes/install -quiet || { EchoErr "inst: unable to mount \"$p\""; return 1; }
+
+	if ! hdiutil mount "$p" -mountpoint /Volumes/install -quiet; then
+		EchoErr "inst: unable to mount \"$p\""
+		hdiutil mount "$p" -mountpoint /Volumes/install
+		return 1
+	fi
 
 	echo "Installing...."
 	if [[ -f "/Volumes/install/Install.mpkg" ]]; then
 		sudo installer -pkg "/Volumes/install/Install.mpkg" -target /
+	elif ls /Volumes/install/*.pkg >& /dev/null; then
+		sudo installer -pkg /Volumes/install/*.pkg -target /
 	else
 		shopt -s  nullglob; local app=(/Volumes/install/*.app);  
 		[[ ! "$app" ]] && { EchoErr "inst: \"$p\" does not contain an application"; return 1; }
@@ -278,9 +319,15 @@ RunZip()
 	if [[ "$PLATFORM" == "mac" ]]; then
 		local dir="$(zipinfo -1 "$p" | head -1)"
 		if [[ "$dir" =~ ^.*app/$ ]]; then
-			[[ -d "/Applications/$dir" ]] && return 0
-			unzip "$p" -d "/Applications"; return
+			[[ -d "$P/$dir" ]] && return 0
+			unzip "$p" -d "$P"
+			return
 		fi
+	fi
+
+	if IsPlatform linux; then
+		tar xjvf "$P"  -C "$P" || return
+		return
 	fi
 
 	local installDir; PrepareInstallDir "$@" || return	
@@ -331,7 +378,7 @@ FindFile()
 {
 	local pattern; file="$1"
 
-	( IsUrl "$file" || [[ "$(GetWord "$file" 0 :)" == @(ism) ]] ) && return 0
+	IsMacStoreId "$file" || ( IsUrl "$file" || [[ "$(GetWord "$file" 0 :)" == @(ism) ]] ) && return 0
 
 	if IsWild "$file"; then
 		GetFileName "$file" pattern || return
@@ -376,21 +423,22 @@ bootstrap()
 
 	i bash || return
 	RunPlatform bootstrap || return
-	appCore || return
+	ask 'Update local passwords' && { password change || return; }
+	ask 'Update passwords in the credential store' && { password store || return; }
+	AppCore || return
 }
 
-bootstrapUbuntu()
+bootstrapCygwin() 
 {
-	[[ -f gsettings ]] && { gsettings set org.gnome.desktop.session idle-delay 0 || return; } # do not blank screen
-	return 0
+	i cygwin || return
 }
 
 bootstrapDebian() 
 {
 	local server="nas1"
 
-	echo "Installing programs..."
 	if ! InPath lolcat > /dev/null; then
+		printf "\nInstalling core programs..."
 		package unzip zip || return										# compression
 		package nautilus || return										# file
 		package fonts-inconsolata || return						# fonts
@@ -443,26 +491,34 @@ bootstrapDsm()
 
 bootstrapMac()
 {
-	if ask "Install brew"; then
-		ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go/install)" || return
-		brew doctor || return
-		brew update || return
+
+	if ! InPath lolcat > /dev/null; then
+		printf "\nInstalling core programs..."
+		package cask dialog expect || return
+		package fping nmap findutils wget wakeonlan || return # network
+		package mas || return 																# package
+		package tmux || return																# terminal
+		package lynx || return 																# web
+		package gawk cowsay lolcat || return 									# text
 	fi
 
-	ask "Install brew packages" && 
-		{ brew install bash cask coreutils findutils git fping nmap dialog exiftool wget wakeonlan || return; }
-
-	ask "Update path" && { sudo bash -c 'echo "/usr/local/data/bin
+	if [[ ! -f "/etc/paths.d/wiggin" ]]; then
+		sudo bash -c 'echo "/usr/local/data/bin
 /usr/local/data/platform/mac
-/usr/local/sbin" > /etc/paths.d/wiggin' || return; }
+/usr/ local/sbin" > /etc/paths.d/wiggin' || return;
+	fi
 
-	if ask "Disable dock"; then
-		defaults write com.apple.dashboard mcx-disabled -boolean true || return
-		killall Dock || return
-	fi	
+	echo "Disabling dashboard..."
+	defaults write com.apple.dashboard mcx-disabled -boolean true || return
+	killall Dock || return
 }
 
-bootstrapCygwin() { i cygwin || return; }
+bootstrapUbuntu()
+{
+	[[ -f gsettings ]] && { gsettings set org.gnome.desktop.session idle-delay 0 || return; } # do not blank screen
+	return 0
+}
+
 
 bootstrapWsl()
 {
@@ -494,34 +550,44 @@ bootstrapWin()
 
 AppCore()
 {
-	local browser="chrome firefox BrowserHomePage"
+	local browser="chrome firefox"
 
 	printf "**************************************************\n* Core Applications\n**************************************************\n"
 
-	echo "Installing platform applications..."
+	printf "\nInstalling platform applications...\n"
 	RunPlatform App || return
 
-	echo "Installing $HOSTNAME hardware..."
+	printf "\nInstalling $HOSTNAME hardware...\n"
 	case "$HOSTNAME" in
 		oversoul|ultron) i nVidia GigabyteMotherboard IntelUtilities || return;;
 	esac
 
-	echo "Installing $USER applications ..."
-	case "${USER#ad_}" in
-		jjbutare) i AltTabTerminator AutoHotKey AquaSnap BeyondCompare CloseAllWindows notepadpp StandardNotes sublime || return;;
+	printf "\nInstalling $USER applications...\n"
+	case "$USER" in
+		jjbutare) i sublime BeyondCompare CleanMyPc DropBox GreenShot LastPass speedtest StandardNotes sonos || return;;
 	esac
 
-	echo 'Installing applications...'
-	i SshCore python ruby xServer || return
-	IsPlatform ubuntu,mac,win && { i $browser DropBox GreenShot SevenZip || return; }
+	printf "\nInstalling $USER_$PLATFORM applications...\n"
+	case "$USER_$PLATFORM" in
+		jjbutare_mac) i apptivate CarrotWeather DayOne magnet pcalc spark WallpaperWizard yoink || return;;
+		jjbutare_win) i AltTabTerminator AutoHotKey AquaSnap CloseAllWindows notepadpp SevenZip || return;;
+	esac
 
-	echo "Installing $HOSTNAME applications..."
+	printf "\nInstalling applications...\n"
+	i $browser python ruby SshCore xServer || return
+
+	printf "\nInstalling $HOSTNAME applications...\n"
 	case "$HOSTNAME" in
-		bean) i office duet ParallelsDesktop || return;;
+		bean) i duet office ParallelsDesktop || return;;
 		pi*) i nodejs homebridge NodeRed || return;;
 		oversoul) i discord iCloud office Quicken todoist thunderbird VmwareWorkstation || return;;
 		ultron) i office || return;;
 	esac
+}
+
+AppMac()
+{
+	i iTerm || return
 }
 
 AppRaspbian() 
@@ -635,7 +701,10 @@ SshCore()
 {
 	printf "**************************************************\n* SSH - Secure Shell\n**************************************************\n"
 
-	i WinScp SshServer || return;	
+	i SshServer || return;
+	IsPlatform win && { i WinScp || return; }
+
+	return 0
 }
 
 SurveillanceCore()
@@ -688,9 +757,9 @@ SshPermission()
 
 SshServer()
 {
+	printf "**************************************************\n* SSH Server\n**************************************************\n"
 	local sshd
 
-	printf "**************************************************\n* SSH Server\n**************************************************\n"
 	makeDir ~/.ssh && $hide +h ~/.ssh || return
 
 	echo "Permissions..."
@@ -699,7 +768,7 @@ SshServer()
 	echo "Configuring..."
 	RunPlatform SshServer || return
 
-	if IsPlatform win && IsElevated; then
+	if IsPlatform win; then
 		echo "Updating firewall..."
 		$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$sshd")" || return
 
@@ -737,7 +806,7 @@ SshServerWsl()
 
 WinScp()
 {
-	[[ "$PLATFORM" != "win" ]] && return 0
+	! IsPlatform win && return
 
 	printf "**************************************************\n* WiNSCP \n**************************************************\n"
 	run "Shareware/WinSCP/WinSCP-5.15.1-Setup.exe" || return # https://winscp.net/eng/index.php
@@ -798,7 +867,7 @@ Bash()
 	local line='[[ -f /usr/local/data/bin/bash.bashrc ]] && . "/usr/local/data/bin/bash.bashrc"'
 	local before='# If not running interactively, don'\''t do anything' 
 
-	IsPlatform mac && file="/etc/bashrc"
+	IsPlatform mac && { file="/etc/bashrc"; before="if [ -z \"$PS1\" ]; then"; }
 	IsPlatform dsm && { file="/etc.defaults/.bashrc_profile"; before="if [ -f ~/.bashrc ]; then"; }
 
 	[[ ! -f "$file" ]] && { EchoErr "$file does not exist"; return 1; }
@@ -920,7 +989,7 @@ WindowsMediaPlayerInstall()
 ahk() { AutoHotKeyInstall; }
 AutoHotKeyInstall()
 {
-	! IsPlatform win && return
+	! IsPlatform win && return 0
 
 	printf "**************************************************\n* AutoHotKey\n**************************************************\n"
 	AutoHotKey close || return
@@ -937,12 +1006,14 @@ WinSplitInstall()
 
 SublimeInstall()
 {
-	! IsPlatform ubuntu,mac,win && return 0
+	IsPlatform ubuntu,mac,win || return
+
 	printf "**************************************************\n* Sublime Text Editor\n**************************************************\n"
 
-	local v=3207 # http://www.sublimetext.com/3 PackageControl (https://sublime.wbond.net/installation)
+	# http://www.sublimetext.com/3 
+	local v=3207
 	run "Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime_text_3_build_${v}_x64.tar.bz2" || return 
-	IsPlatform win && { run "Sublime/setup/sublime_merge_build_" -p "1092_x64_setup.exe" "" "" || return; }
+	run "Sublime/setup/sublime_merge_build_" -p "1092_x64_setup.exe" || return;
 	
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating registry..."	
@@ -951,14 +1022,14 @@ SublimeInstall()
 		echo "Updating icons..."
 		$mv "$pp/Sublime Text 3.lnk" "$pp/Applications/Sublime Text.lnk" || return
 		$mv "$pp/Sublime Merge.lnk" "$pp/Applications" || return
+		makeDir "$adata/Sublime Text 3" || return;
 	fi
 
 	makeDir "$udata/Sublime Text" || return
-	IsPlatform win && { makeDir "$adata/Sublime Text 3" || return; }
 	sublime profile restore default || return
 
-	if ask 'Add license'; then
-		echo '- Enter license'
+	if ask 'Do you want to configure Sublime Text'; then
+		echo '- Help, Enter license'
 		sublime start || return
 	fi
 }
@@ -1180,11 +1251,16 @@ pGinaInstall()
 
 DropBoxInstall()
 {
+	! IsPlatform ubuntu,mac,win && return
+
 	printf "**************************************************\n* DropBox\n**************************************************\n"
 	echo "- Choose folders to sync, uncheck large"
 
-	local v=57.4.89 # https://www.dropbox.com/download?full=1&plat=win https://www.dropbox.com/download?full=1&plat=mac https://www.dropbox.com/install-linux
-	run "Dropbox/setup/" -p "Dropbox $v Offline Installer.exe" "Dropbox $v.dmg" "dropbox_2015.10.28_amd64.deb" || return
+	# https://www.dropbox.com/download?full=1&plat=win 
+	# https://www.dropbox.com/download?full=1&plat=mac
+	# https://www.dropbox.com/install-linux
+	local v=78.4.119 
+	run "Dropbox/setup/" -p "Dropbox $v Offline Installer.exe" "Dropbox $v.dmg" "dropbox_2019.02.14_amd64.deb" || return
 
 	DropBoxFinal || return
 
@@ -1197,11 +1273,11 @@ DropBoxInstall()
 	- Bandwidth, Upload rate, Don't limit
   - Notifications, uncheck Edits to files
 - Print Screen, No, Thanks"
-		sudo --standard DropBox startup
+		DropBox startup
 		pause
 	fi
 
-	if ask "Do you want to update index locations"; then
+	if IsPlatform win && ask "Do you want to update index locations"; then
 		DropBox close
 
 		dir="$CLOUD/.dropbox.cache"
@@ -1216,7 +1292,7 @@ DropBoxInstall()
 		sudo --standard DropBox startup
 	fi
 
-	if ask "Do you want to update explorer"; then
+	if IsPlatform win && ask "Do you want to update explorer"; then
 		echot "\
 	- Dropbox, Include in Library, Documents
 	-  (not Intel) Libraries, Documents, Library Tools, Manage, Manage library
@@ -1229,6 +1305,8 @@ DropBoxInstall()
 
 DropBoxFinal()
 {
+	! IsPlatform win && return
+
 	echo "Updating icons..."
 	mergeDir "$pp/Dropbox" "$oo" || return
 	$rm "$up/Startup/Dropbox.lnk" || return
@@ -1293,7 +1371,7 @@ VsExtensions()
 	run "$vse/VSColorOutput.vsix" || return # http://visualstudiogallery.msdn.microsoft.com/f4d9c2b5-d6d7-4543-a7a5-2d7ebabc2496
 	run "$vse/SolutionLoadManager.vsix" # https://marketplace.visualstudio.com/items?itemName=kolomiets.SolutionLoadManager
 
-	ask 'Install optional extensions' || return 0;
+	ask 'Install optional extensions' || return;
 	run "$vse/Entrian-Attach-1.4.3-Setup.exe" || return # http://entrian.com/attach/download.html
 	run "$vse/NuGetTools.vsix" # https://marketplace.visualstudio.com/items?itemName=Ahlman.Base16NuGetTools
 	run "$vse/ProPowerTools.vsix" || return # https://marketplace.visualstudio.com/items?itemName=VisualStudioProductTeam.ProductivityPowerTools2015
@@ -1416,10 +1494,11 @@ BcInstall() { BeyondCompareInstall; }
 BeyondCompareInstall()
 {
 	! IsPlatform ubuntu,mac,win && return 0
+
 	printf "**************************************************\n* BeyondCompare\n**************************************************\n"
 
-	local v=4.2.10.23938 # http://www.scootersoftware.com/download.php
-	run "Scooter Software/Beyond Compare/setup/" -p "BCompare-$v.exe" "BCompareOSX-$v.zip" "bcompare-${v}_amd64.deb" || return
+	local v=4.2.10.23938 beta=4.3.0.24076 # http://www.scootersoftware.com/download.php
+	run "Scooter Software/Beyond Compare/setup/" -p "BCompare-$v.exe" "BCompareOSX-$beta.zip" "bcompare-${v}_amd64.deb" || return
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
@@ -1439,17 +1518,17 @@ BeyondCompareInstall()
 
 sonos()
 {
+	IsPlatform mac,win || return
+
 	printf "**************************************************\n* Sonos Music System\n**************************************************\n"
-	run "Sonos/setup/SonosDesktopController91." -p "exe" "dmg" "" || return # http://sonos.com/support/
+	
+	# http://sonos.com/support/
+	run "Sonos/setup/SonosDesktopController103." -p "exe" "dmg" || return
 
-	echo "Updating icons..."
-	sudo $rm "$pd/Sonos.lnk" || return
-	mergeDir "$pp/Sonos" "$pp/Media/Other" || return
-
-	if intel IsIntelHost; then
-		echo "- McAfee Host Intrusion Prevention, Add, Name=Sonos, Application=C:\Program Files (x86)\Sonos\Sonos.exe"
-		pause
-	fi
+	case "$PLATFORM" in
+		win) echo "Updating icons..."; sudo $rm "$pd/Sonos.lnk" || return; mergeDir "$pp/Sonos" "$pp/Media/Other" || return;;
+		mac) MacAppConfigure Sonos;;
+	esac
 }
 
 nUnitConsoleInstall()
@@ -1539,7 +1618,7 @@ thunderbird()
 
 }
 
-firefox()
+firefoxInstall()
 {
 	printf "**************************************************\n* Firefox\n**************************************************\n"
 
@@ -1556,18 +1635,25 @@ firefox()
 		$rm "$pd/Firefox.lnk" || return
 	fi
 
-	echot "\
+	if ask "Do you want to configure firefox"; then
+		echot "\
 - https://duckduckgo.com/, settings, Other Settings, Load Settings, DuckDuckButare"
+		firefox start || return
+	fi
 
 	return 0
 }
 
-chrome()
+chromeInstall()
 {
 	printf "**************************************************\n* Google Chrome Browser\n**************************************************\n"
 	echo '- Sign in, Email=NNN, Password=NNN'
 	
-	run "Google/Chrome/setup/" -p "ChromeStandaloneSetup64.exe" "googlechrome.dmg" "" || return # http://www.google.com/chrome/eula.html?system=true&standalone=1
+	# https://www.gtricks.com/chrome/how-to-download-chrome-offline-installer-for-windows-mac-and-linux/
+	# https://www.google.com/chrome/?system=true&standalone=1&platform=win64
+	# https://www.google.com/chrome/?platform=mac
+	# https://www.google.com/chrome/?platform=linux
+	run "Google/Chrome/setup/" -p "ChromeStandaloneSetup64.exe" "googlechrome.dmg" "google-chrome-stable_current_amd64.deb" || return
 
 	if [[ "$PLATFORM" == "win" ]]; then
 		ChromeIcons || return
@@ -1856,13 +1942,22 @@ VisionAppInstall()
 OfficeInstall()
 {
 	printf "**************************************************\n* Office 365\n**************************************************\n"
-	echo '- run D:\Office\Setup64.exe'
-	run "Microsoft/Office/setup/" -p "O365HomePremRetail.img" "Microsoft_Office_2016_Installer.pkg" "" || return # https://stores.office.com/myaccount/advancedinstalls.aspx
+
+	# https://stores.office.com/myaccount/advancedinstalls.aspx
+	IsPlatform win && echo '- run D:\Office\Setup64.exe'
+	run "Microsoft/Office/setup/" -p "O365HomePremRetail.img" "Microsoft_Office_16.27.19071500_Installer.pkg" || return
 	OfficeFinal || return
 }
 
 OfficeFinal()
 {
+	if IsPlatform mac; then
+		MacAppConfigure "Microsoft Word" || return
+		return 0
+	fi
+
+	! IsPlatform win && return
+
 	. office.sh || { EchoErr "inst: Office is not installed"; return 1; }
 
 	echo "Updating directories..."
@@ -1939,7 +2034,7 @@ gitDebian()
 gitMac()
 {
 	i GitX || return
-	ask 'Install git-extras and hub' && { brew install git-extras hub || return; }
+	ask 'Install git-extras and hub' && { brew install git git-extras hub || return; }
 }
 
 gitRaspbian()
@@ -1983,9 +2078,14 @@ gitForWindows()
 	- uncheck Windows Explorer Integration
 	- uncheck Associate .sh files to be run with Bash
 - Use Git from Git Bash only
+- Choosing the SSH executable, Use Plink=C:\Users\Public\Documents\data\platform\win\PLINK.EXE
 - Checkout as-is, commit as-is
+- Configuring extra options, check Enable file system caching and Enable Git Credential Manager
 - uncheck View ReleaseNotes.rtf"
-	run "Shareware/Git for Windows/setup/Git-2.22.0.rc0.windows.1-64-bit.exe" || return # https://github.com/git-for-windows/git/releases/
+
+	# https://git-scm.com/download/win
+	# https://github.com/git-for-windows/git/releases/
+	run "Shareware/Git for Windows/setup/Git-2.23.0.rc2.windows.1-64-bit.exe" || return 
 
 	if [[ -f "$P/Git/usr/bin/ssh.exe" ]]; then
 		echo "Disable ssh..."
@@ -2004,7 +2104,7 @@ gitForWindows()
 		"$gw" config --system core.autocrlf false || return
 		"$gw" config --system credential.helper wincred || return
 	else
-		EchoErr "NOTE: Git for Windows configuration requires elevation"
+		echo "Git for Windows system configuration not performed (requires elevation)"
 	fi	
 }
 
@@ -2016,7 +2116,10 @@ gitExtensions()
 	echot "\
 - uncheck Windows Explorer Integration, Add installation directory to PATH, and Visual Studio extension
 - (if using ssh-agent) Select OpenSSH"
-	run "Shareware/GitExtensions/setup/GitExtensions-3.1.1.6049.msi" || return # https://github.com/gitextensions/gitextensions/releases/latest
+
+
+	# https://github.com/gitextensions/gitextensions/releases/latest
+	run "Shareware/GitExtensions/setup/GitExtensions-3.1.1.6049.msi" || return
 
 	GitHelper gui || return
 	echot "- English, Quit"
@@ -2038,7 +2141,7 @@ gitExtensions()
 
 gitUp()
 {
-	pip install git-up || return;
+	pip3 install git-up || return;
 	git config --global git-up.rebase.auto false || return
 }
 
@@ -2101,22 +2204,6 @@ tortoiseGit()
 	- check Unversioned files mark parent folder as modified
 	- Icon Set, Icon Set=Straight"
 	GitHelper tgui /command:settings || return
-}
-
-BrowserHomePage()
-{
-	local file="$udata/replicate/default.htm"
-	local url="file:///$(utw "$file")"
-
-	[[ ! -f "$file" ]] && { EchoErr "inst: cannot access browser home page file \`$file\`: No such file"; return 1; }
-
- 	# Chrome
-	makeLink "$udata/replicate" "$adata/replicate" || return
-
-	# Internet Explorer
-	echo "- Tools, Internet Options, Use Current"
-	InternetExplorer start "$url" || return
-	pause
 }
 
 sysInternalsInstall()
@@ -2216,7 +2303,7 @@ NotepadPpInstall()
 	FindFile "Shareware/Notepad++" || return
 
 	if ask "Deleting existing plugins and install the defaults"; then
-		$rc --mirror --quiet "$file/plugins/default" "$P/Notepad++/plugins" || return
+		$cpDir "$file/plugins/default" "$P/Notepad++/plugins" || return
 	fi
 
 	echo "Updating registry..."
@@ -2321,8 +2408,20 @@ DashLane()
 
 LastPass()
 {
+	IsPlatform linux,mac,win || return
+
+	IsPlatform mac && { MacStoreAppInstall "LastPass" 926036361; return; }
+
 	printf "**************************************************\n* LastPass\n**************************************************\n"
-	run "LastPass/setup/lastappinstall_x64.exe" || return # https://lastpass.com/misc_download2.php
+	
+	# https://lastpass.com/misc_download2.php
+	run -p "LastPass/setup/" "LastPassInstaller.exe"  ""  "lplinux.tar.bz2" || return 
+
+	if IsPlatform linux; then
+		cd "$P/lplinux" || return
+		./install_lastpass.sh || return
+		return
+	fi
 
 	echo "Updating icons..."
 	mergeDir "$up/LastPass" "$oo" || return
@@ -2654,7 +2753,9 @@ Snagit, Preferences...
 ParallelsDesktopInstall()
 {
 	printf "**************************************************\n* Parallels Desktop\n**************************************************\n"
-	run "Parallels Desktop/setup/ParallelsDesktop-10.0.0-27675.dmg" || return # http://www.parallels.com/downloads/desktop/
+
+	# http://www.parallels.com/downloads/desktop/
+	run "Parallels Desktop/setup/ParallelsDesktop-15.0.0-46967.dmg" || return
 
 	echo "Updating icons..."
 	$rm "$la\com.parallels.mobile.prl_deskctl_agent.launchagent.plist" || return
@@ -2809,41 +2910,50 @@ DiskInventortyXInstall()
 
 RubyInstall()
 {
+	# install ruby
 	if ! InPath ruby; then
 		if IsPlatform cygwin; then { cygwin package ruby || return; }
-		elif IsPlatform debian; then { package ruby || return; }; fi
+		elif IsPlatform debian,mac; then { package ruby || return; }; fi
 	fi
 
+	# install development packages
 	if IsPlatform debian && [[ ! -f /usr/include/ruby-2.5.0/ruby.h ]]; then
 		local devPackage="ruby$(ruby -e 'puts RUBY_VERSION[/\d+\.\d+/]')-dev"
 		package $devPackage || return		
 	fi
 
+	# install SSL libraries
 	IsPlatform debian && [[ ! -d /usr/include/openssl ]] && { package libssl-dev || return; }
 
+	# create directories
 	makeDir ~/.gem && $hide ~/.gem || return
-	IsPlatform mac && { echo "gem: -n/usr/local/bin" >> ~/.gemrc; }
+
+	# update ~/.gemrc
+	if IsPlatform mac && ! grep "/usr/local/bin" ~/.gemrc  >& /dev/null; then
+		echo "gem: -n/usr/local/bin" >> ~/.gemrc
+	fi
 }
 
 PythonInstall()
 {	
 	printf "**************************************************\n* Python\n**************************************************\n"
 
+	# install python3
 	if ! InPath python3; then
 		if IsPlatform cygwin; then cygwin package python || return
-		elif IsPlatform debian; then package python3 || return; fi
+		elif IsPlatform debian,mac; then package python3 || return; fi
 	fi
 
-	# pip: https://packaging.python.org/tutorials/installing-packages/ https://pip.pypa.io/en/stable/installing/
-	if ! InPath pip; then
-		IsPlatform mac && { easy_install pip	|| return; }
-		! InPath pip && { python -m ensurepip --default-pip || return; }
-		! InPath pip && { get-pip.py || return; }
-	fi
+	# install pip3 - https://packaging.python.org/tutorials/installing-packages/ 
+	! InPath pip3 && { python3 -m ensurepip --default-pip || return; }
 
-	IsPlatform win && { makeDir ~/.cache ~/.pip && $hide ~/.cache ~/.pip || return; }
+	if IsPlatform win; then
+		echo "Creating directories..."
+		makeDir ~/.cache ~/.pip || return
+		$hide ~/.cache ~/.pip || return
+	fi
 	
-	! InPath pip-review && { pip install pip-tools || return; }
+	! InPath pip-compile && { pip3 install pip-tools || return; }
 }
 
 SevenZip()
@@ -2940,8 +3050,12 @@ DymoLabelInstall()
 
 DuetInstall()
 {
+	IsPlatform mac,win || return
+
 	printf "**************************************************\n* Duet Display\n**************************************************\n"
-	run "hardware/duet/" -p "DuetSetup-1-5-3-3.exe" "duet-2-0-3-4.zip" "" || return # 
+
+	# https://www.duetdisplay.com/#download
+	run "hardware/duet/" -p "DuetSetup-1-6-1-8.exe" "duet-2-0-7-2.zip" "" || return
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
@@ -3081,13 +3195,19 @@ UplayGames()
 
 GreenShot()
 {
-	printf "**************************************************\n* GreenShot\n**************************************************\n"
-	run "Shareware/Greenshot/setup/Greenshot-INSTALLER-1.2.10.6-RELEASE." -p "exe" "mac" "linux" || return # http://getgreenshot.org/downloads/
+	IsPlatform mac,win || return
 
-	if [[ "$PLATFORM" == "win" ]]; then	
-		echo "Updating icons..."
-		mergeDir "$pp/GreenShot" "$oo" || return
-	fi
+	printf "**************************************************\n* GreenShot\n**************************************************\n"
+
+	# http://getgreenshot.org/downloads/
+	run "Shareware/Greenshot/setup/" -p "Greenshot-INSTALLER-1.2.10.6-RELEASE.exe" "1103915944" "" || return
+
+	case "$PLATFORM" in
+		win) echo "Updating icons..."; mergeDir "$pp/GreenShot" "$oo" || return;;
+		mac) MacAppConfigure Greenshot || return;;
+	esac
+
+	return 0
 }
 
 PartitionAssistant()
@@ -3501,14 +3621,23 @@ NordVpn()
 
 CleanMyPc()
 {
-	printf "**************************************************\n* Clean My PC\n**************************************************\n"
-	run "MacPaw/Clean My PC/" -p "CleanMyPC.exe" "CleanMyMacX.dmg" "" || return # https://macpaw.com
+	IsPlatform mac,win || return
 
-	if [[ "$PLATFORM" == "win" ]]; then	
-		echo "Updating icons..."
-		mergeDir "$pp/CleanMyPC" "$oo" || return
-		$rm "$pd/CleanMyPC.lnk" || return
-	fi
+	printf "**************************************************\n* Clean My PC\n**************************************************\n"
+	
+	# https://macpaw.com
+	run "MacPaw/Clean My PC/" -p "CleanMyPC.exe" "CleanMyMacX.dmg" || return
+
+	case "$PLATFORM" in
+		win)
+			echo "Updating icons..."
+			mergeDir "$pp/CleanMyPC" "$oo" || return
+			$rm "$pd/CleanMyPC.lnk" || return
+			;;
+		mac) MacAppConfigure "CleanMyMac X" || return;;
+	esac
+
+	return 0
 }
 
 CloseAllWindows()
@@ -3597,17 +3726,20 @@ vlc()
 StandardNotes()
 {
 	! IsPlatform ubuntu,mac,win && return 0
+
 	printf "**************************************************\n* Standard Notes\n**************************************************\n"
 
-	local v="3.0.4" # https://standardnotes.org/ https://standardnotes.org/extensions?downloaded=linux
-	run "Shareware/Standard Notes/" -p "standard-notes-setup-$v.exe" "Standard Notes.app" "standard-notes-$v-x86_64.AppImage" || return
+	local v="3.0.15" # https://standardnotes.org/ https://standardnotes.org/extensions?downloaded=linux
+	run "Shareware/Standard Notes/" -p "standard-notes-setup-$v.exe" "standard-notes-$v-mac.zip" "standard-notes-$v-x86_64.AppImage" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then	
-		echo "Updating icons..."
-		$mv "$ud/Standard Notes.lnk" "$up/Applications" || return
-		$rm "$up/Standard Notes.lnk" || return
-	fi
-
+	case "$PLATFORM" in
+		win) 
+				echo "Updating icons..."
+				$mv "$ud/Standard Notes.lnk" "$up/Applications" || return
+				$rm "$up/Standard Notes.lnk" || return
+				;;
+		mac) MacAppConfigure "Standard Notes" || return;;
+	esac
 }
 
 AmcrestCamera()
@@ -3715,14 +3847,25 @@ xServer()
 	RunPlatform xServer || return
 }
 
-xServerMac() { run "UNIX/XQuartz/XQuartz-2.7.11.dmg" || return; } # https://www.xquartz.org/
+xServerCygwin() {	cygwin package x || return; mergeDir "$pp/Cygwin-X" "$oo" || return; }
 xServerRaspbian() { sudo bash -c '[[ ! -f $HOME/.Xauthority ]] && ln -s '$HOME'/.Xauthority $HOME/.Xauthority'; }		
 
-xServerCygwin()
+xServerMac()
 {
-	cygwin package x || return
-	mergeDir "$pp/Cygwin-X" "$oo" || return
+	# https://www.xquartz.org/ 
+	run "LINUX/XQuartz/XQuartz-2.7.11.dmg" || return
+
+
+	MacAppConfigure XQuartz || return
+
+	if ask 'Do you want to test XQuartz'; then
+		export DISPLAY=:0
+		/opt/X11/bin/xclock
+	fi
+
+	return 0
 }
+
 
 xServerWin()
 {
@@ -3795,7 +3938,8 @@ NodeRed()
 
 DiskImager()
 {
-	! IsPlatform win && return
+	IsPlatform win || return 0
+
 	printf "**************************************************\n* Disk Imager \n**************************************************\n"
 	run "Shareware/other/win32diskimager-1.0.0-install.exe" || return # http://www.paragon-drivers.com/extfs-windows/
 
@@ -3825,5 +3969,54 @@ Todoist()
 	mergeDir "$up/Todoist" "$up/Applications/Other" || return
 	$rm "$ud/Todoist.lnk" || return
 }
+
+iTerm()
+{
+	IsPlatform mac || return
+
+	printf "**************************************************\n* iTerm\n**************************************************\n"
+	
+	# https://iterm2.com/downloads.html
+	run "macOS/iTerm2/iTerm2-3_3_2beta2.zip" || return
+
+	if ask "Do you want to configure iTerm"; then
+		echo "- Preferences, General, Preferences, check Load preferences from a custom folder or URL=<paste>"
+		clipw "$udata/profile/default" || return
+		MacAppOpen iTerm || return
+	fi
+
+	return 0
+}
+
+apptivate()
+{
+	! IsPlatform mac && return
+
+	printf "**************************************************\n* Apptivate\n**************************************************\n"
+
+	# http://www.apptivateapp.com
+	run "macOS/Apptivate/Apptivate.app.zip" || return
+
+	if ask "Do you want to configure apptivate"; then
+		echot "Add Item...
+- iTerm, ctrl-cmd-3
+- Safari, ctrl-cmd-a
+- Standard Notes, ctrl-cmd-n
+- Sublime Text, ctrl-cmd-t"
+		MacAppOpen Apptivate || return
+	fi
+
+	return 0
+}
+
+CarrotWeather() { MacStoreAppInstall "CARROT Weather" 993487541; }
+DayOne() { MacStoreAppInstall "Day One" 1055511498; }
+LiveDesktop() { MacStoreAppInstall "LiveDesktop" 846060286; }
+Magnet() { MacStoreAppInstall "Magnet" 441258766; }
+pcalc() { MacStoreAppInstall "PCalc" 403504866; }
+spark() { MacStoreAppInstall Spark 1176895641; }
+speedtest() { MacStoreAppInstall Speedtest 1153157709; }
+WallpaperWizard() { MacStoreAppInstall "Wallpaper Wizard" 1266674560; }
+yoink() { MacStoreAppInstall Yoink 457622435; }
 
 args "$@"; ${command}Command "${args[@]}";
