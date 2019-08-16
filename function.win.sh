@@ -8,20 +8,22 @@ mmc() { start cmd.exe /c mmc.exe "$@"; }
 # File System
 #
 
-# MakeShortcut FILE LINK
+# MakeShortcut FILE LINK ARGUMENTS ICON_FILE ICON_RESOURCE_NUMBER [MAX|MIN] START_IN_FOLDER HOT_KEY
 MakeShortcut() 
 { 
 	local suppress; [[ "$1" == @(-s|--suppress) ]] && { suppress="true"; shift; }
 	(( $# < 2 )) && { EchoErr "usage: MakeShortcut TARGET NAME ..."; return 1; }
 
-	local t="$1"; [[ ! -e "$t" ]] && t="$(FindInPath "$1")"
-	[[ ! -e "$t" && $suppress ]] && { return 1; }
-	[[ ! -e "$t" ]] && { EchoErr "MakeShortcut: could not find target $1"; return 1; }
+	local f="$1" link="$2"
 
-	local linkDir="$(utw "$(GetFilePath "$2")")"
-	local linkName="$(GetFileName "$2")"
+	[[ ! -e "$f" ]] && f="$(FindInPath "$1")"
+	[[ ! -e "$f" && $suppress ]] && { return 1; }
+	[[ ! -e "$f" ]] && { EchoErr "MakeShortcut: could not find file $1"; return 1; }
 
-	start NirCmd shortcut "$t" "$linkDir" "$linkName" "${@:3}";
+	local linkDir="$(utw "$(GetFilePath "$link")")"
+	local linkName="$(GetFileName "$link")"
+
+	start NirCmd shortcut "$f" "$linkDir" "$linkName" "${@:3}";
 }
 
 #

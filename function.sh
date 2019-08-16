@@ -660,8 +660,8 @@ IsTaskRunning()
 {
 	local file="$1" 
 
-	[[ "$(GetFilePath "$file")" ]] && file=",$(utwq "$file")" # convert paths to native
-	ProcessList | grep -i  "$file" >& /dev/null
+	[[ "$(GetFilePath "$file")" ]] && file="$(utwq "$file")" # convert paths to native
+	ProcessList | egrep -v ",grep" | grep -i  ",$file" >& /dev/null
 }
 
 # IsWindowsProces: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
