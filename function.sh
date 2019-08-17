@@ -19,9 +19,6 @@ shopt -s nocasematch extglob
 #
 # Platform
 # 
-# PLATFORM=linux|mac|win
-# PLATFORM_LIKE=cygwin|debian|openwrt|synology
-# PLATFORM_ID=dsm|srm|raspian|ubiquiti|ubuntu
 
 [[ "$PLATFORM" == "win" ]] && . function.win.sh
 
@@ -489,6 +486,7 @@ GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 
 
 # integer
 IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
+HexToDecimal() { echo "$((16#${1#0x}))"; }
 
 # string
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }

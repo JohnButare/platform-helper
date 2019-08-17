@@ -5,6 +5,11 @@
 mmc() { start cmd.exe /c mmc.exe "$@"; }
 
 #
+# Windows Subsystem for Linux (WSL)
+#
+IsWsl2() { wsl.exe --help | iconv -f utf-16 -t UTF-8 | grep 'set-version' >& /dev/null; }
+
+#
 # File System
 #
 

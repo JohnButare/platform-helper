@@ -1,9 +1,16 @@
 # $bin/bash.bashrc, system-wide login initialization for all users and public scripts, executed by /etc/bash.bashrc
 
+#
 # Variables
+#
+# PLATFORM=linux|mac|win
+# PLATFORM_LIKE=cygwin|debian|openwrt|synology
+# PLATFORM_ID=dsm|srm|raspian|ubiquiti|ubuntu
+#
 # PLATFORM: P G VOLUMES USERS PUB DATA BIN PBIN CODE
 # USER: USER SUDO_USER HOME DOC UDATA UBIN ADATA
 # WINDOWS: WIN_ROOT WIN_USERS WIN_HOME
+
 set -a
 
 # LANG="en_US" - on Raspberry Pi settings this causes perl to start with errors, on Ubuntu this is set automatically
