@@ -16,6 +16,8 @@ InitializeBash()
 FUNCTIONS="true"
 shopt -s nocasematch extglob 
 
+HistoryClear() { cat /dev/null > ~/.bash_history && history -c; }
+
 #
 # Platform
 # 
