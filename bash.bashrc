@@ -23,7 +23,7 @@ USER="${USERNAME:-$USER}" DOC="" UDATA="" UBIN=""
 case "$(uname)" in 
 	CYGWIN*) PLATFORM="win" PLATFORM_LIKE="cygwin";;
 	Darwin)	PLATFORM="mac" USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support";;
-	Linux) PLATFORM="linux";;
+	Linux) PLATFORM="linux" ADATA="$HOME/.config";;
 	MINGW*) platform="win"; PLATFORM_LIKE=mingw;;
 esac
 [[ $(uname -r) =~ .*-Microsoft ]] && PLATFORM="win" # Windows Subsytem for Linux
