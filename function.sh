@@ -221,7 +221,7 @@ GetFileName() { r "${1##*/}" $2; }
 GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${gfnwe%.*}" $2; }
 GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
 GetDriveLabel() { local gdl="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; r "${gdl## Volume in drive ? is }" $2; }
-GetRealPath() { readlink -f "$@"; } # resolve symbolic links
+GetRealPath() { ${G}readlink -f "$@"; } # resolve symbolic links
 HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
