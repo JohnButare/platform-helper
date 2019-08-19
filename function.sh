@@ -691,7 +691,7 @@ ProcessClose()
 	fi
 }
 
-ProcessIdExists() { kill -0 $1 >& /dev/null; } # fast
+ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
 
 ProcessKill()
 {
