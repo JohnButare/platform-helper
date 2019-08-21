@@ -18,11 +18,31 @@ shopt -s nocasematch extglob
 
 HistoryClear() { cat /dev/null > ~/.bash_history && history -c; }
 
+function GetPlatformFiles() # GetPlatformFiles FILE_PREFIX FILE_SUFFIX
+{
+	files=()
+
+	[[ -f "$1$PLATFORM$2" ]] && files+="$1$PLATFORM$2"
+	[[ -f "$1$PLATFORM_LIKE$2" ]] && files+="$1$PLATFORM_LIKE$2"
+	[[ -f "$1$PLATFORM_ID$2" ]] && files+="$1$PLATFORM_ID$2"
+
+	[[ "$files" != "" ]]
+}
+
+SourceIfExists() { [[ -f "$1" ]] && { . "$1" || return; }; return 0; }
+
+SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
+{
+	local files; GetPlatformFiles "$1" "$2" || return 0;
+	for file in "${files[@]}"; do . "$file"; done
+}
+
 #
 # Platform
 # 
 
-[[ "$PLATFORM" == "win" ]] && . function.win.sh
+# platform specific functions
+SourceIfExistsPlatform "$BIN/function." ".sh" || return
 
 # GetPlatform [host](local) - get platform, platformLike, and platformId for the host
 # testing:  sf; time GetPlatform nas1 && echo "success: $platform-$platformLike-$platformId"

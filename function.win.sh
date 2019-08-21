@@ -147,3 +147,5 @@ if [[ "$PLATFORM_LIKE" == "cygwin" ]]; then
 
 	}
 fi
+
+return 0
