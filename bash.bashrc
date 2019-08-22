@@ -101,7 +101,7 @@ i() # --find --cd
 { 
 	local find force noRun select
 	if [[ "$1" == "--help" ]]; then echot "\
-usage: i [APP*|cd|force|info|select]
+usage: i [APP*|cd|dir|force|info|select]
   Install applications
   -nr, --no-run do not find or run the installation program
   -f, --force		check for a new installation location
@@ -124,6 +124,8 @@ usage: i [APP*|cd|force|info|select]
 	
 	if [[ $# == 0 || "$1" == @(cd) ]]; then
 		cd "$InstallDir"
+	elif [[ "$1" == @(dir) ]]; then
+		echo "$InstallDir"
 	elif [[ "$1" == @(info) ]]; then
 		echo "The installation directory is $InstallDir"
 	elif [[ ! $find ]]; then
