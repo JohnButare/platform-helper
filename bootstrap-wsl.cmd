@@ -23,6 +23,10 @@ set r=yes
 set /p r="Install Ubuntu? (%r%)? "
 if "%r%" == "yes" (
 	start %dist%
+	echo NOTE: system must be rebooted or files will not be copied correctly
+	pause
+	shutdown /t 0 /r
+	pause
 )
 
 set r=yes
