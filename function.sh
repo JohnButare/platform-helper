@@ -662,7 +662,7 @@ SendKeys() { IsPlatform win && AutoItScript SendKeys "${@}"; } # SendKeys [TITLE
 # Process
 #
 
-console() { start --direct proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternative run outside of mintty in a regular console (Start, Run, bash --login)
+console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternatively run in a regular Windows console (Start, Run, bash --login)
 
 IsExecutable()
 {
