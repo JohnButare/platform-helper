@@ -336,14 +336,14 @@ CopyDir()
 	IsPlatform mac && { cp="acp"; o=(--progress); }
 	
 	# gcp requires an X display on some platforms, as a work around run with dbus-launch
-	[[ ! "$DISPLAY" ]] && IsPlatform wsl,raspbian && { DbusSetup; prefix="dbus-launch"; }
+	IsPlatform wsl,raspbian && [[ ! $DISPLAY ]] && ! IsXServerRunning && { DbusSetup; prefix="dbus-launch"; }
 
 	for arg in "$@"; do
 		[[ ! $1 ]] && { shift; continue; } 										# ignore empty options
 		[[ $1 == @(-h|--help) ]] && { help="true"; shift; continue; }
 		[[ $1 == @(-r|--recursive) ]] && { o+=(--recursive); recursive="true"; shift; continue; }
 		[[ $1 == @(-v|--verbose) ]] && { o+=(--verbose); shift; continue; }
-		f+=($1); shift
+		f+=("$1"); shift
 	done
 
 	[[ "${#f[@]}" != "2" || $help ]]	&& { echot "usage: CopyDir SRC_DIR DEST_DIR
@@ -655,6 +655,7 @@ printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf
 # Windows
 #
 
+IsXServerRunning() { xprop -root >& /dev/null; }
 WindowInfo() { IsPlatform win && start Au3Info; }
 SendKeys() { IsPlatform win && AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 
