@@ -61,7 +61,7 @@ RenameComputerCommand()
 {
 	local newName
 	read -p "Enter computer name: " newName; echo
-	[[ $newName ]] && "$WINDIR/system32/wbem/wmic.exe" computersystem where caption=\"$HOSTNAME\" rename \"$newName\"
+	[[ $newName ]] && elevate run --pause-error powershell.exe Rename-Computer -NewName "$newName"
 	return 0
 }
 
