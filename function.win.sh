@@ -37,8 +37,6 @@ MakeShortcut()
 #
 
 elevate() { IsElevated && "$@" || start --elevate "$@"; }
-ElevatePause() { elevate RunPauseError "$@"; } # elevate the passed program and pause if there is an error
-ElevatePauseAlways() { elevate RunPause "$@"; } # elevate the passed program and always pause
 IsConsoleProgram() { file "$(FindInPath "$1")" | grep "(console)" >& /dev/null; }
 IsShellScript() { file "$(FindInPath "$1")" | grep "shell script" >& /dev/null; }
 IsWindowsProgram() { file "$(FindInPath "$1")" | grep "(GUI)" >& /dev/null; }
