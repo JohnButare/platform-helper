@@ -105,13 +105,13 @@ function IsPlatform()
 
 function RunPlatform()
 {
-	local function="$1"
+	local function="$1"; shift
 
-	RunFunction $function $PLATFORM_ID || return
-	RunFunction $function $PLATFORM_LIKE || return
-	RunFunction $function $PLATFORM || return
-	IsPlatform wsl && { RunFunction $function wsl || return; }
-	IsPlatform cygwin && { RunFunction $function cygwin || return; }
+	RunFunction $function $PLATFORM_ID "$@" || return
+	RunFunction $function $PLATFORM_LIKE "$@" || return
+	RunFunction $function $PLATFORM "$@" || return
+	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
+	IsPlatform cygwin && { RunFunction $function cygwin "$@" || return; }
 	return 0
 }
 
@@ -174,8 +174,8 @@ GetFunction() { declare -f | egrep -i "^$1 \(\) $" | sed "s/ () //"; return ${PI
 # RunFunction NAME SUFFIX - call a function with the specified suffix
 RunFunction()
 { 
-	local method="$1" suffix="$2"
-	[[ $suffix ]] && IsFunction $method${suffix^} && { $method${suffix^}; return; }
+	local method="$1" suffix="$2"; shift 2
+	[[ $suffix ]] && IsFunction $method${suffix^} && { $method${suffix^} "$@"; return; }
 	return 0
 }
 
