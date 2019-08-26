@@ -63,7 +63,7 @@ TemplateFullInstall()
 	service manual "nvUpdatusService"
 
 	echo "Updating firewall..."
-	$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/Cygwin/usr/sbin/sshd.exe")" || return
+	$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/OpenSSH/bin/sshd.exe")" || return
 
 	echo "Creating directories..."
 	makeDir "$_userDocuments/code/test"
@@ -179,7 +179,7 @@ InstallInit()
 	ren="${test}FileCommand ren"
 	rm="${test}${G}rm -f"
 	rmd="${test}${G}rm -fr"
-	sudo="sudo"; IsPlatform cygwin && sudo=""
+	sudo="sudo"
 		
 	netShareOptions=/grant:Everyone,full
 	setupFiles="$_data/setup"
@@ -425,11 +425,6 @@ bootstrap()
 	ask 'Update local passwords' && { password change || return; }
 	ask 'Update passwords in the credential store' && { password store || return; }
 	AppCore || return
-}
-
-bootstrapCygwin() 
-{
-	i cygwin || return
 }
 
 bootstrapDebian() 
@@ -763,21 +758,7 @@ SshServer()
 		$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$sshd")" || return
 
 		echo "Starting the sshd service..."
-		if IsPlatform cygwin; then
-			service start sshd || return;
-		elif IsPlatform win; then
-			/usr/sbin/service ssh status | grep "not running" >& /dev/null && { sudo service ssh start || return; }
-		fi
-	fi
-}
-
-SshServerCygwin()
-{
-	sshd="$P/Cygwin/usr/sbin/sshd.exe"
-
-	if ! IsPath sshd && ask 'Install SSH daemon'; then
-		echo "- StrictModes=no, local account=yes, service=yes, value of CYGWIN for the daemon=ntsec, use a diferent account name=no, create privileged account=yes, password=<administrator>"
-		ssh-host-config || return
+		/usr/sbin/service ssh status | grep "not running" >& /dev/null && { sudo service ssh start || return; }
 	fi
 }
 
@@ -790,8 +771,7 @@ SshServerWsl()
 		sudo visudo || return
 	fi
 
-	# stop Cygwin sshd service
-	service exist sshd && service running sshd && { service stop sshd || return; service demand sshd || return; } 
+	return 0
 }
 
 WinScp()
@@ -866,53 +846,6 @@ Bash()
 	fi
 }
 
-Cygwin()
-{
-	printf "**************************************************\n* Cygwin - POSIX environment for Windows\n**************************************************\n"
-
-	echo "Update environment variables..."
-	ScriptEval SetVar --system --path PATH "$P/Cygwin/bin" || return
-	ScriptEval SetVar --system --path PATH "$BIN" || return
-	ScriptEval SetVar --system --path PATH "$DATA/platform/$PLATFORM" || return
-	ScriptEval SetVar --path PATH "$UBIN" || return
-
-	echo "Adding user..." # first user added when Cygwin installed, other users are not
-	touch /etc/passwd || return
-	local user="$(mkpasswd -c)"
-	! grep "^$(id -un)" /etc/passwd > /dev/null && { echo "$user" >> /etc/passwd || return; }
-	
-	if grep ":/home" /etc/passwd > /dev/null; then
-		echo "Updating home directory locations..."
-		local escapedUsers="${_users//\//\\/}"
-		cp /etc/passwd /etc/passwd.bak || return
-		sed 's/:\/home/:'"$escapedUsers"'/g' < /etc/passwd.bak > /etc/passwd || return
-		HOME="$_users/$USER"; . bash.bashrc || return
-	fi
-
-	# icons and registry
-	if FindFile "Cygwin/setup"; then
-
-		echo "Copying files..."
-		cp "$file/Command Prompt.ico" "$P/Cygwin/etc" || return
-
-		echo "Updating registry..."
-		$registry import "$file/setup.reg" || return
-
-	fi
-
-	cygwin FixCompletion || return
-	ask "Install Cygwin Server service" && {  cygserver-config || return; }
-	ask "Install other Cygwin packages" && { cygwin package other || return; }
-
-	echo "Cleaning up..."
-	cygwin cleanup || return
-	$rmd "/home" || return
-	$makeShortcut "$P/Cygwin/bin/mintty.exe" "$pp/Operating System/bash" "-" || return
-	$makeShortcut "$BIN/run.sh" "$psm/Programs/Startup/startup" "startup" "" "" min || return
-
-	return 0	
-}
-
 NodeJsInstall()
 {	
 	printf "**************************************************\n* Node.js\n**************************************************\n"
@@ -920,17 +853,6 @@ NodeJsInstall()
 	if [[ "$PLATFORM" == "linux" ]] && ! InPath node ; then
 		curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash || return # get node version 10.x
 		package nodejs || return
-
-	elif IsPlatform cygwin; then	
-		run "Shareware/Node.js/setup/" -p "node-v11.8.0-x64.msi" || return # https://nodejs.org/en/
-
-		echo "Updating icons..."
-		mergeDir "$pp/Node.js" "$pp/Development/Other" || return
-		mergeDir "$up/Node.js" "$pp/Development/Other" || return
-
-		echo "Updating path..."
-		ScriptEval SetVar --path PATH "$P/nodejs" || return
-		ScriptEval SetVar --path PATH "$APPDATA/npm" || return	
 	fi
 
 	if [[ ! -f ~/.npmrc ]]; then
@@ -2048,20 +1970,6 @@ gitWin()
 	#cp "$setupFiles/hub.bash_completion.sh" "$COMPLETION/hub" || return
 }
 
-cygwinGit()
-{
-	local gw="$P/Git/cmd/git" gc="/usr/bin/git"
-
-	if [[ ! $noRun ]]; then
-		cygwin package git || return
-		cygwin FixCompletion || return
-	fi
-
-	echo "Configuring git..."
-	"$gc" config --system core.autocrlf false || return
-	"$gc" config --system credential.helper wincred || return
-}
-
 gfwInstall() { gitForWindows; }
 gitForWindows()
 {
@@ -2623,7 +2531,7 @@ Kindle for PC
 - Kindle DRM Reoval
   - Output Option, Set Output Folder, Documents/data/Kindle DRM
   - Kindle, Kindle Serial Number=NNN"
-	cygstart "https://www.amazon.com/gp/digital/fiona/manage?ie=UTF8&ref_=sv_kinc_7&signInRedirect=1&#manageDevices"
+	start "https://www.amazon.com/gp/digital/fiona/manage?ie=UTF8&ref_=sv_kinc_7&signInRedirect=1&#manageDevices"
 	kindle start || return
 	kindle decrypt || return
 }
@@ -2792,7 +2700,7 @@ ChocolateyInstall()
 {
 	printf "**************************************************\n* choclatey\n**************************************************\n"
 	# installs: user environment path=c:\Chocolatey\bin, ChocolateyInstall=c:\Chocolatey
-	cygstart --wait cmd /c powershell -NoProfile -ExecutionPolicy unrestricted -Command "iex ((new-object net.webclient).DownloadString('https://chocolatey.org/install.ps1'))" "&&" pause
+	start --wait cmd /c powershell -NoProfile -ExecutionPolicy unrestricted -Command "iex ((new-object net.webclient).DownloadString('https://chocolatey.org/install.ps1'))" "&&" pause
 }
 
 SyncplicityInstall()
@@ -2917,13 +2825,10 @@ DiskInventortyXInstall()
 
 RubyInstall()
 {
-	# install ruby
-	if ! InPath ruby; then
-		if IsPlatform cygwin; then { cygwin package ruby || return; }
-		elif IsPlatform debian,mac; then { package ruby || return; }; fi
-	fi
+	# ruby
+	! InPath ruby && IsPlatform debian,mac && { package ruby || return; }
 
-	# install development packages
+	# development
 	if IsPlatform debian && [[ ! -f /usr/include/ruby-2.5.0/ruby.h ]]; then
 		local devPackage="ruby$(ruby -e 'puts RUBY_VERSION[/\d+\.\d+/]')-dev"
 		package $devPackage || return		
@@ -2932,7 +2837,7 @@ RubyInstall()
 	! InPath gcc && { package gcc || return; }
 	! InPath make && { package make || return; }
 	
-	# install SSL libraries
+	# SSL libraries
 	IsPlatform debian && [[ ! -d /usr/include/openssl ]] && { package libssl-dev || return; }
 
 	# create directories
@@ -2948,13 +2853,10 @@ PythonInstall()
 {	
 	printf "**************************************************\n* Python\n**************************************************\n"
 
-	# install python3
-	if ! InPath python3; then
-		if IsPlatform cygwin; then cygwin package python || return
-		elif IsPlatform debian,mac; then package python3 || return; fi
-	fi
+	# python3
+	! InPath python3 && IsPlatform debian,mac && { package python3 || return; }
 
-	# install pip3 - https://packaging.python.org/tutorials/installing-packages/ 
+	# pip3 - https://packaging.python.org/tutorials/installing-packages/ 
 	! InPath pip3 && IsPlatform mac && { python3 -m ensurepip --default-pip || return; }
 	sudo -H python3 "$BIN/get-pip.py" || return; # ensure the latest pip
 
@@ -3878,7 +3780,6 @@ xServer()
 	RunPlatform xServer || return
 }
 
-xServerCygwin() {	cygwin package x || return; mergeDir "$pp/Cygwin-X" "$oo" || return; }
 xServerMac() { xQuartzInstall; }
 xServerRaspbian() { sudo bash -c '[[ ! -f $HOME/.Xauthority ]] && ln -s '$HOME'/.Xauthority $HOME/.Xauthority'; }		
 # MakeShortcut FILE LINK ARGUMENTS ICON_FILE ICON_RESOURCE_NUMBER [MAX|MIN] START_IN_FOLDER HOT_KEY
