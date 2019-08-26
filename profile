@@ -133,7 +133,7 @@ saveCommand()
 	if [[ "$method" ==  "file" && -d "$src" ]]; then
 		printf 'Backing up to "%s"...\n' "$file"
 		pushd "$src" > /dev/null || return
-		zip.exe -Sr "$(utw "$dest/$file")" $files -x "*.*_sync.txt*" || return
+		zip -r "$dest/$file" $files -x "*.*_sync.txt*" || return
 		popd > /dev/null || return
 
 	# save using the specified import/export program		
@@ -199,7 +199,7 @@ restoreCommand()
 
 	if [[ "$method" == "file" ]]; then
 		AppCloseSave "$app" || return
-		unzip -o "$(utw "$profile")" -d "$(utw "$profileDir")" || return
+		unzip "$profile" -d "$profileDir" || return
 		AppStartRestore "$app" || return
 		
 	elif [[ "$method" == "program" ]]; then
