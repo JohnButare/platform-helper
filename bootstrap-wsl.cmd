@@ -7,21 +7,21 @@ set host=nas1
 set data=\\%host%\public\documents\data
 set dist=%data%\install\LINUX\Ubuntu\windows\CanonicalGroupLimited.Ubuntu18.04onWindows_1804.2018.817.0_x64__79rhkp1fndgsc.Appx
 
-set r=yes
+set r=n
 set /p r="Update windows? (%r%)? "
-if "%r%" == "yes" (
+if "%r%" == "y" (
 	cmd /c start ms-settings:windowsupdate
 )
 
-set r=yes
+set r=n
 set /p r="Install Windows Subsystem for Linux? (%r%)? "
-if "%r%" == "yes" (
+if "%r%" == "y" (
 	DISM.exe /Online /Enable-Feature /FeatureName:Microsoft-Windows-Subsystem-Linux
 )
 
-set r=yes
+set r=n
 set /p r="Install Ubuntu? (%r%)? "
-if "%r%" == "yes" (
+if "%r%" == "y" (
 	start %dist%
 	echo NOTE: system must be rebooted or files will not be copied correctly
 	pause
@@ -29,9 +29,9 @@ if "%r%" == "yes" (
 	pause
 )
 
-set r=yes
+set r=y
 set /p r="Bootstrap? (%r%)? "
-if "%r%" == "yes" (
+if "%r%" == "y" (
 	copy %data%\bin\bootstrap-wsl \\wsl$\Ubuntu-18.04\tmp
 	wsl bash /tmp/bootstrap-wsl %user% %host%
 	pause
