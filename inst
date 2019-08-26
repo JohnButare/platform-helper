@@ -202,9 +202,8 @@ MacAppOpen() { open -a "$1" || return; pause; }
 
 run() # run EXE [OPTIONS...]
 {
-	local p="$1" i; shift
-
-	[[ ! $p ]] && return
+	local i
+	local p="$1"; shift; [[ ! $p ]] && return
 
 	if [[ "$1" == @(-p|--platform) ]]; then
 		shift
@@ -216,17 +215,19 @@ run() # run EXE [OPTIONS...]
 	fi
 	
 	[[ $noRun ]] && return;
+
 	FindFile "$p" || { ask "Continue the installation"; return; }
 	RunProgram "$file" "$@" || return
 }
 
 RunProgram()
 {
-	local p="$1"; shift
-	local pause; [[ "$1" == @(--pause) ]] && { pause="--pause"; shift; }
+	local p="$1" elevate pause; shift
 	
-	local pDesc="$1"
-	local pParts; StringToArray "$p" "/" pParts
+	[[ "$1" == @(--elevate) ]] && { elevate="elevate" pause="--pause"; shift; }
+	[[ "$1" == @(--pause) ]] && { pause="--pause"; shift; }
+
+	local pDesc pParts; StringToArray "$p" "/" pParts
 	[[ ! $pDesc ]] && { pDesc="$(IFS=/; echo "${pParts[*]: -3}")"; }
 	[[ ! $pDesc ]] && pDesc="$p"
 
@@ -246,14 +247,16 @@ RunProgram()
 		dmg) RunDmg "$p" "$@" || return;;
 		ism) start --minimize cmd /c start "$p";;
 		iso|img) iso mount "$p"; echo "If needed run the setup program manually..."; pause="--pause";;
-		msi) start --elevate --wait msiexec.exe /i "$p" "$@";;
+		msi) start --elevate --wait msiexec.exe /i "$p" "$@"; pause="--pause";;
 		pkg) sudo installer -pkg "$p" -target /;;
-		zip|7z|gz|tar|xpi|ear|jar|war) RunZip "$p" "$@" || return;;
+		zip|7z|gz|tar|xpi|ear|jar|war) 
+			IsPlatform win && { elevate="--elevate" pause="--pause"; }
+			InstallAppFromZip $elevate "$p" "$@" || return;;
 		*) 
 			if IsMacStoreId "$p"; then
 				mas open $p
 			else
-				"$p" "$@" || return
+				$elevate "$p" "$@" || return
 			fi
 			;;
 	esac
@@ -310,51 +313,6 @@ DoRunDmg()
 }
 
 DmgCleanup() { hdiutil detach /Volumes/install -quiet || return; }
-
-RunZip()
-{
-	local p="$1"; shift
-
-	if [[ "$PLATFORM" == "mac" ]]; then
-		local dir="$(zipinfo -1 "$p" | head -1)"
-		if [[ "$dir" =~ ^.*app/$ ]]; then
-			[[ -d "$P/$dir" ]] && return 0
-			unzip "$p" -d "$P"
-			return
-		fi
-	fi
-
-	if IsPlatform linux; then
-		tar xjvf "$P"  -C "$P" || return
-		return
-	fi
-
-	local installDir; PrepareInstallDir "$@" || return	
-	unzip -d "$installDir" "$p" || return
-
-	# If the archive contains a single directory move the contents of that directory up
-	if [[ "$(DirCount "$installDir")" == 1 ]]; then
-		for dir in "$installDir"/*; do
-			if [[ -d "$dir" ]]; then
-				MoveAll "$dir" "$installDir" || return
-				break
-			fi
-		done
-	fi
-}
-
-PrepareInstallDir()
-{
-	installDir="$1"; shift;
-	[[ ! $installDir ]] && { EchoErr "inst: installation directory was not specified"; return 1; }
-
-	if [[ -d "$installDir" ]]; then
-		ask "Do you want to delete the existing installation in \"$(GetFileNameWithoutExtension "$installDir")\"" -dr n || return
-		$rmd "$installDir" || return
-	fi
-
-	makeDir "$installDir" || return
-}
 
 FindEditorProgram()
 {
@@ -509,8 +467,6 @@ bootstrapUbuntu()
 
 bootstrapWsl()
 {
-	! IsElevated && { elevate run --pause-error inst bootstrapWsl; pause; return; }
-
 	$makeShortcut "wsl.exe" "$pp/Operating System/bash" "" "$(utw "$DATA/icons/Command Prompt.ico")" || return
 	$registry set "run/startup" REG_SZ 'c:\Windows\System32\wsl.exe /usr/local/data/bin/run startup' || return
 	run "LINUX/wsl/LxRunOffline/LxRunOffline-v3.4.0.zip" "$P/LxRunOffline" || return # https://github.com/DDoSolitary/LxRunOffline/releases
@@ -555,7 +511,7 @@ AppCore()
 
 	printf "\nInstalling $USER applications...\n"
 	case "$USER" in
-		jjbutare) i sublime BeyondCompare CleanMyPc LastPass StandardNotes || return;;
+		jjbutare) i LastPass sublime BeyondCompare CleanMyPc StandardNotes || return;;
 	esac
 
 	printf "\nInstalling ${USER}_$PLATFORM applications...\n"
@@ -893,8 +849,12 @@ AutoHotKeyInstall()
 	! IsPlatform win && return 0
 
 	printf "**************************************************\n* AutoHotKey\n**************************************************\n"
+
 	AutoHotKey close || return
-	run "Shareware/AutoHotKey/image/AutoHotkey_2.0-a100-52515e2.zip" "$P/AutoHotKey" || return # https://autohotkey.com/download/2.0/
+
+	# https://autohotkey.com/download/2.0/
+	run "Shareware/AutoHotKey/image/AutoHotkey_2.0-a104-3e7a969d.zip" "$P/AutoHotKey" || return 
+
 	AutoHotKey startup || return
 }
 
@@ -1095,6 +1055,7 @@ WindowsSetup()
 
 WindowsDirs()
 {
+	makeDir "$WIN_ROOT/temp" || return
 	makeDir "$WIN_HOME/temp" || return
 	makeDir "$pp/Applications/Other" || return
 	makeDir "$oo" || return
@@ -1403,7 +1364,7 @@ BeyondCompareInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
-		$mv "$pp/Beyond Compare 4.lnk" "$pp/Applications/Beyond Compare.lnk" || return
+		$ren "$pp/Beyond Compare 4.lnk" "$pp/Applications/Beyond Compare.lnk" || return
 		$rm "$ud/Beyond Compare 4.lnk" || return
 		$rm "$pd/Beyond Compare 4.lnk" || return
 	fi
@@ -1924,10 +1885,10 @@ gitWin()
 gfwInstall() { gitForWindows; }
 gitForWindows()
 {
-	! IsElevated && ask 'Configure Git For Windows' && { elevate run --pause-error inst GitForWindows; pause; return; }
-
 	local gw="$P/Git/cmd/git.exe"
+
 	printf "**************************************************\n* Git for Windows\n**************************************************\n"
+	! IsElevated && ask 'Configure Git For Windows' && { elevate run --pause-error inst GitForWindows; pause; return; }
 	
 	echot "\
 - Select Components
@@ -2275,13 +2236,15 @@ LastPass()
 	printf "**************************************************\n* LastPass\n**************************************************\n"
 	
 	# https://lastpass.com/misc_download2.php, App Store 926036361
-	run -p "LastPass/setup/" "LastPassInstaller.exe"  "LastPass.dmg"  "lplinux.tar.bz2" || return 
+	run "LastPass/setup/" -p "LastPassInstaller.exe" "LastPass.dmg" "lplinux.tar.bz2" --elevate || return 
 
 	case "$PLATFORM" in
+
 		linux)
 			cd "$P/lplinux" || return
 			./install_lastpass.sh || return
 			;;
+
 		win)
 			echo "Updating icons..."
 			mergeDir "$up/LastPass" "$oo" || return
@@ -2289,6 +2252,7 @@ LastPass()
 			echo "Updating registry..."	
 			$registry 32 delete "run/LastApp" # C:\Program Files (x86)\LastPass\lastapp.exe
 			;;
+
 		esac
 
 		return 0
@@ -3470,10 +3434,12 @@ CleanMyPc()
 	printf "**************************************************\n* Clean My PC\n**************************************************\n"
 	
 	# https://macpaw.com
-	run "MacPaw/Clean My PC/" -p "CleanMyPC.exe" "CleanMyMacX.dmg" || return
+	run "MacPaw/Clean My PC/" -p "CleanMyPC.exe" "CleanMyMacX.dmg" # returns error even if the setup is successful
 
 	case "$PLATFORM" in
 		win)
+			pause
+
 			echo "Updating icons..."
 			mergeDir "$pp/CleanMyPC" "$oo" || return
 			sudo $rm "$pd/CleanMyPC.lnk" || return
@@ -3501,7 +3467,7 @@ AltTabTerminator()
 	! IsPlatform win && return
 
 	printf "**************************************************\n* Alt-Tab Terminator\n**************************************************\n"
-	run "NTwind/AltTabTer_3.8-setup.exe" || return # https://www.ntwind.com/software/alttabter.html
+	run "NTwind/AltTabTer_3.8-setup.exe" --elevate || return # https://www.ntwind.com/software/alttabter.html
 
 	echo "Updating icons..."
 	mergeDir "$pp/Alt-Tab Terminator" "$oo" || return
