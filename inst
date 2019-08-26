@@ -708,10 +708,6 @@ SshServer()
 	RunPlatform SshServer || return
 
 	if IsPlatform win; then
-		echo "Updating firewall..."
-		$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$sshd")" || return
-
-		echo "Starting the sshd service..."
 		/usr/sbin/service ssh status | grep "not running" >& /dev/null && { sudo service ssh start || return; }
 	fi
 }
@@ -720,8 +716,8 @@ SshServerWsl()
 {
 	sshd="$LOCALAPPDATA/packages/canonicalgrouplimited.ubuntu18.04onwindows_79rhkp1fndgsc/localstate/rootfs/usr/sbin/sshd"
 
-	if ask "Update sudoers"; then
-		echo "$USER ALL = (root) NOPASSWD: /usr/sbin/sshd -D"
+	if ! sudo grep $USER /etc/sudoers >& /dev/null; then
+		clipw "$USER ALL = (root) NOPASSWD: /usr/sbin/sshd -D"
 		sudo visudo || return
 	fi
 
@@ -1484,7 +1480,7 @@ firefoxInstall()
 {
 	printf "**************************************************\n* Firefox\n**************************************************\n"
 
-	local v="68.0.1" # https://www.mozilla.org/en-US/firefox/all/
+	local v="68.0.2" # https://www.mozilla.org/en-US/firefox/all/
 	if IsPlatform raspbian; then
 		package firefox-esr || return
 	else
@@ -1497,13 +1493,8 @@ firefoxInstall()
 		sudo $rm "$pd/Firefox.lnk" || return
 	fi
 
-	if ask "Do you want to configure firefox"; then
-		echot "\
+	echot "\
 - https://duckduckgo.com/, settings, Other Settings, Load Settings, DuckDuckButare"
-		firefox start || return
-	fi
-
-	return 0
 }
 
 chromeInstall()
@@ -1515,7 +1506,7 @@ chromeInstall()
 	# https://www.google.com/chrome/?system=true&standalone=1&platform=win64
 	# https://www.google.com/chrome/?platform=mac
 	# https://www.google.com/chrome/?platform=linux
-	run "Google/Chrome/setup/" -p "ChromeStandaloneSetup64.exe" "googlechrome.dmg" "google-chrome-stable_current_amd64.deb" || return
+	run "Google/Chrome/setup/" -p "ChromeStandaloneSetup64.exe" "googlechrome.dmg" "google-chrome-stable_current_amd64.deb" --elevate || return
 
 	if [[ "$PLATFORM" == "win" ]]; then
 		ChromeIcons || return
@@ -1524,11 +1515,7 @@ chromeInstall()
 		$rm "$la\com.google.keystone.agent.plist" || return
 	fi
 
-	if ask "Do you want to configure Chrome"; then
-		echot "- Settings, uncheck Continue running background apps when Google Chrome is closed"
-		chrome start || return
-		pause
-	fi
+	echot "- Settings, uncheck Continue running background apps when Google Chrome is closed"
 }
 
 ChromeIcons()
@@ -1536,7 +1523,7 @@ ChromeIcons()
 		$mv "$pp/Google Chrome.lnk" "$pp/Applications" || return
 		$rm "$up/Google Chrome.lnk" || return
 		$rm "$ud/Google Chrome.lnk" || return
-		$rm "$pd/Google Chrome.lnk" || return
+		sudo $rm "$pd/Google Chrome.lnk" || return
 		$rm "$ud/Chrome App Launcher.lnk" || return
 		$rm "$ud/Google Chrome Canary Build.lnk" || return
 		mergeDir --rename "$pp/Google Chrome" "$ao/Chrome" || return
@@ -2249,7 +2236,8 @@ LastPass()
 
 		win)
 			echo "Updating icons..."
-			mergeDir "$up/LastPass" "$oo" || return
+			mergeDir "$pp/LastPass" "$oo" || return
+			sudo $rm "$pd/My LastPass Vault.lnk" || return
 
 			echo "Updating registry..."	
 			$registry 32 delete "run/LastApp" # C:\Program Files (x86)\LastPass\lastapp.exe
@@ -2743,16 +2731,21 @@ PythonInstall()
 	! InPath python3 && IsPlatform debian,mac && { package python3 || return; }
 
 	# pip3 - https://packaging.python.org/tutorials/installing-packages/ 
-	! InPath pip3 && IsPlatform mac && { python3 -m ensurepip --default-pip || return; }
-	sudo -H python3 "$BIN/get-pip.py" || return; # ensure the latest pip
+	if ! InPath pip3; then
+		IsPlatform mac && { python3 -m ensurepip --default-pip || return; }
+		IsPlatform debian && { package python3-pip || return; }
+		! InPath pip3 && { sudo -H python3 "$BIN/get-pip.py" || return; }
+	fi
 
-	if IsPlatform win; then
+	if IsPlatform win && [[ ! -d ~/.cache || ! -d ~/.pip ]]; then
 		echo "Creating directories..."
 		makeDir ~/.cache ~/.pip || return
 		$hide ~/.cache ~/.pip || return
 	fi
 	
 	! InPath pip-compile && { sudo pip3 install pip-tools || return; }
+
+	return 0
 }
 
 SevenZip()
@@ -2760,7 +2753,9 @@ SevenZip()
 	! IsPlatform win && return
 
 	printf "**************************************************\n* 7-Zip\n**************************************************\n"
-	run "Shareware/7-Zip/setup/7z1805-64.exe" || return # http://www.7-zip.org/download.html
+	
+	# http://www.7-zip.org/download.html
+	run "Shareware/7-Zip/setup/7z1900-x64.exe" --elevate || return
 
 	# Update bin files
 	$cp "$P/7-zip/7-zip.chm" "$DATA/platform/win" || return
@@ -2769,13 +2764,14 @@ SevenZip()
 	echo "Updating icons..."
 	mergeDir "$pp/7-Zip" "$ao" || return
 
-	clipw "$(utw "$P\Sublime Text 4\sublime_text.exe")" || return
+	clipw "$(utw "$P/Sublime Text 3/sublime_text.exe")" || return
 	echot "\
 - Tools, Options
-  - System,  above All Users click + twice
-  - View=Editor=<paste>
-  - Diff=C:\Program Files\Beyond Compare 4\BComp.exe
-  - Settings, check Show system menu"
+	- System, above $USER click + twice
+	- Editor
+ 		- View=Editor=<paste>
+		- Diff=C:\Program Files\Beyond Compare 4\BComp.exe
+	- Settings, check Show system menu"
   "$P/7-Zip/7zFM.exe" || return
 }
 
@@ -3174,7 +3170,9 @@ TidyTabs()
 	! IsPlatform win && return
 
 	printf "**************************************************\n* TidyTabs\n**************************************************\n"
-	run "NURGO/TidyTabs.msi" || return # https://www.nurgo-software.com/pricing/tidytabs
+	
+	# https://www.nurgo-software.com/pricing/tidytabs
+	run "NURGO/TidyTabs.msi" || return
 
 	echo "Updating icons..."
 	mergeDir "$pp/TidyTabs" "$oo" || return
@@ -3681,7 +3679,6 @@ xServer()
 
 xServerMac() { xQuartzInstall; }
 xServerRaspbian() { sudo bash -c '[[ ! -f $HOME/.Xauthority ]] && ln -s '$HOME'/.Xauthority $HOME/.Xauthority'; }		
-# MakeShortcut FILE LINK ARGUMENTS ICON_FILE ICON_RESOURCE_NUMBER [MAX|MIN] START_IN_FOLDER HOT_KEY
 xServerWin() { xMingInstall; 	$makeShortcut "wscript.exe" "$pp/Operating System/terminator" "$(utw "$DATA/platform/win")\terminator.vbs" "$(utw "$DATA/icons/terminator2.ico")" || return; }
 
 vcxsrvInstall()
@@ -3699,7 +3696,7 @@ xMingInstall()
 	! IsPlatform win && return;
 
 	# http://www.straightrunning.com/candidate/
-	run "LINUX/Xming/rel_x64_Xming-7-7-0-42-setup.exe" || return
+	run "LINUX/Xming/rel_x64_Xming-7-7-0-46-setup.exe" || return
 	run "LINUX/Xming/Xming-fonts-7-7-0-10-setup.exe" || return
 
 	mergeDir "$pp/Xming" "$pp/Operating System/Other" || return
