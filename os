@@ -68,7 +68,7 @@ RenameComputerCommand()
 SystemPropertiesCommand()
 {
 	local tab=; [[ $1 ]] && tab=",,$1"; 
-	start rundll32.exe /d shell32.dll,Control_RunDLL SYSDM.CPL$tab
+	rundll32.exe /d shell32.dll,Control_RunDLL SYSDM.CPL$tab
 }
 
 environmentCommand() { SystemPropertiesCommand 3; }
