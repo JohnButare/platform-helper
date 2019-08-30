@@ -232,22 +232,24 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 # File System
 #
 
-fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
-pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
+EnsureDir() { echo "$(RemoveTrailingSlash "$1")/"; }
+FileHide() { ! IsPlatform win && return; [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
+FileTouchAndHide() { [[ ! -f "$1" ]] && { touch "$1" || return; }; FileHide "$1"; }
 GetBatchDir() { GetFilePath "$0"; }
+GetDriveLabel() { local gdl="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; r "${gdl## Volume in drive ? is }" $2; }
 GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { r "${1##*/}" $2; }
 GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${gfnwe%.*}" $2; }
 GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
-GetDriveLabel() { local gdl="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; r "${gdl## Volume in drive ? is }" $2; }
+GetParentDir() { echo "$(GetFilePath "$(GetFilePath "$1")")"; }
 GetRealPath() { ${G}readlink -f "$@"; } # resolve symbolic links
-HideFile() { [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
+InPath() { which "$1" >& /dev/null; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
-InPath() { which "$1" >& /dev/null; }
-EnsureDir() { echo "$(RemoveTrailingSlash "$1")/"; }
-GetParentDir() { echo "$(GetFilePath "$(GetFilePath "$1")")"; }
+
+fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
+pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 
 FindInPath()
 {
@@ -756,7 +758,7 @@ start()
 	local open
 	if IsPlatform mac; then open="open"
 	elif IsPlatform cygwin; then open="cygstart"
-	elif IsPlatform win; then open="cmd.exe /c start"
+	elif IsPlatform win; then open="cmd.exe /c start \"no title\" /b"
 	elif InPath xdg-open; then open="xdg-open"; fi
 
 	# start directories and URL's
