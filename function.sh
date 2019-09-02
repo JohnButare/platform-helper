@@ -26,7 +26,7 @@ function GetPlatformFiles() # GetPlatformFiles FILE_PREFIX FILE_SUFFIX
 	[[ -f "$1$PLATFORM_LIKE$2" ]] && files+="$1$PLATFORM_LIKE$2"
 	[[ -f "$1$PLATFORM_ID$2" ]] && files+="$1$PLATFORM_ID$2"
 
-	[[ "$files" != "" ]]
+	return 0
 }
 
 SourceIfExists() { [[ -f "$1" ]] && { . "$1" || return; }; return 0; }
@@ -872,17 +872,23 @@ fi
 
 GetTextEditor()
 {
-	p="$P/sublime_text/sublime_text"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-
 		case "$PLATFORM" in 
+		
+			linux)
+				p="$P/sublime_text/sublime_text"; [[ -f "$p" ]] && { echo "$p"; return 0; }
+				p="$P/sublime_text_3/sublime_text"; [[ -f "$p" ]] && { echo "$p"; return 0; }
+				;;
+
 			mac)
 				p="$P/Sublime Text.app/Contents/SharedSupport/bin/subl"; [[ -f "$p" ]] && { echo "$p"; return 0; }
 				echo "open -a TextEdit"; return 0
 				;;
+
 			win)
 				p="$P/Sublime Text 3/subl.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
 				p="$P/Notepad++/notepad++.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
 				;;
+
 		esac
 
 	InPath geany && { echo "geany"; return 0; }

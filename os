@@ -59,10 +59,14 @@ pathCommand()
 
 RenameComputerCommand()
 {
+	! InPath hostnamectl && ! IsPlatform win && return
+
 	local newName
 	read -p "Enter computer name: " newName; echo
-	[[ $newName ]] && elevate run --pause-error powershell.exe Rename-Computer -NewName "$newName"
-	return 0
+	[[ ! $newName ]] && return
+
+	InPath hostnamectl && { hostnamectl set-hostname $newName; return; }
+	IsPlatform win && { elevate run --pause-error powershell.exe Rename-Computer -NewName "$newName"; return; }
 }
 
 SystemPropertiesCommand()

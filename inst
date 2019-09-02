@@ -243,14 +243,14 @@ RunProgram()
 
 	case "$pExt" in
 		bat|cmd) cmd /c "$p" "$@" || return;;
-		deb) sudo gdebi "$p" "$@";;
+		deb) ! InPath gdebi && { package gdebi || return; }; sudo gdebi "$p" "$@";;
 		dmg) RunDmg "$p" "$@" || return;;
 		ism) start --minimize cmd /c start "$p";;
 		iso|img) iso mount "$p"; echo "If needed run the setup program manually..."; pause="--pause";;
 		msi) elevate msiexec.exe /i "$p" "$@"; pause="--pause";;
 		pkg) sudo installer -pkg "$p" -target /;;
-		zip|7z|gz|tar|xpi|ear|jar|war) 
-			IsPlatform win && { elevate="--elevate" pause="--pause"; }
+		7z|bz2|gz|tar|xpi|zip|ear|jar|war) 
+			IsPlatform win && { elevate="--elevate" pause="--pause"; } || elevate=""
 			InstallAppFromZip $elevate "$p" "$@" || return;;
 		*) 
 			if IsMacStoreId "$p"; then
@@ -378,9 +378,13 @@ bootstrap()
 	printf "**************************************************\n* Bootstrap\n**************************************************\n"
 
 	i bash || return
+
 	RunPlatform bootstrap || return
+
 	ask 'Update local passwords' && { password change || return; }
 	ask 'Update passwords in the credential store' && { password store || return; }
+	ask "Rename computer" && { os RenameComputer || return; }
+
 	AppCore || return
 }
 
@@ -462,6 +466,14 @@ bootstrapMac()
 bootstrapUbuntu()
 {
 	[[ -f gsettings ]] && { gsettings set org.gnome.desktop.session idle-delay 0 || return; } # do not blank screen
+
+	echo "Updating file permissions..."
+	chmod ugo+x "$bin/"* || return
+
+	echo "Updating timezone..."
+	sudo mv /etc/localtime /etc/localtime.old
+	sudo ln -s /usr/share/zoneinfo/America/Denver /etc/localtime	
+
 	return 0
 }
 
@@ -881,7 +893,17 @@ SublimeInstall()
 	run "Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime_text_3_build_${v}_x64.tar.bz2" || return 
 	run "Sublime/setup/sublime_merge_build_" -p "1092_x64_setup.exe" || return;
 	
-	if [[ "$PLATFORM" == "win" ]]; then	
+	if [[ "$PLATFORM_LIKE" == "debian" ]]; then # https://www.sublimetext.com/docs/3/linux_repositories.html
+		[[ -d "$P/sublime_text_3" ]] && { sudo mv "$P/sublime_text_3" "$P/sublime_text" || return; }
+
+		echo "Installing sublime package repository for updates..."
+		wget -qO - https://download.sublimetext.com/sublimehq-pub.gpg | sudo apt-key add - || return
+		sudo apt-get install apt-transport-https || return
+		echo "deb https://download.sublimetext.com/ apt/stable/" | sudo tee /etc/apt/sources.list.d/sublime-text.list || return
+		sudo apt-get update || return
+		sudo apt-get install sublime-text || return
+
+	elif [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating registry..."	
 		registry delete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # Fix Windows Open With
 
@@ -1046,8 +1068,6 @@ WindowsSetup()
 
 	echo "Disable snap assist..."
  	registry set "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Advanced/SnapAssist" REG_DWORD 0 || return
-
-	ask "Rename computer" && { os RenameComputer || return; }
 
 	if ask "Change $USER full name"; then
 		local fullName
@@ -2230,7 +2250,7 @@ DashLane()
 
 LastPass()
 {
-	IsPlatform linux,mac,win || return
+	IsPlatform mac,win || return # LastPass for Linux only installs Chrome extension
 
 	printf "**************************************************\n* LastPass\n**************************************************\n"
 	
@@ -3582,6 +3602,7 @@ StandardNotes()
 	run "Shareware/Standard Notes/" -p "standard-notes-setup-$v.exe" "standard-notes-$v-mac.zip" "standard-notes-$v-x86_64.AppImage" || return
 
 	case "$PLATFORM" in
+
 		win) 
 			echo "Updating icons..."
 			$mv "$ud/Standard Notes.lnk" "$up/Applications" || return
@@ -3590,7 +3611,11 @@ StandardNotes()
 			echo "Moving data folders..."
 			makeLink --merge --hide "$udata/Standard Notes/backups" "$WIN_HOME/Standard Notes Backups" || return
 			;;
-		mac) MacAppConfigure "Standard Notes" || return;;
+
+		mac) 
+			MacAppConfigure "Standard Notes" || return
+			;;
+			
 	esac
 }
 
