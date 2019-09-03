@@ -79,6 +79,7 @@ PathAdd() {	[[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then PATH=$1:${
 ManPathAdd() { [[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
 
 case "$PLATFORM" in 
+	"linux") PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
 	"mac") PathAdd "/usr/local/bin" front;; # use brew utilities before system utilities
 	"win") PathAdd "/usr/bin" front # use CygWin utilities before system utilities (/etc/profile adds them first, but profile does not when called by "ssh <host> <script>.sh"
 esac
