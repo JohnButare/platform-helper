@@ -242,6 +242,7 @@ RunProgram()
  	[[ "$PLATFORM" == "win" ]] && export SEE_MASK_NOZONECHECKS=1 # disable Open File Secirity Warning
 
 	case "$pExt" in
+		AppImage) RunAppImage "$p" "$@" || return;;
 		bat|cmd) cmd /c "$p" "$@" || return;;
 		deb) ! InPath gdebi && { package gdebi || return; }; sudo gdebi "$p" "$@";;
 		dmg) RunDmg "$p" "$@" || return;;
@@ -274,6 +275,30 @@ RunDeb()
 	return 1
 }
 
+RunAppImage()
+{
+	local p="$1"; shift
+	local appName="$(GetFileNameWithoutExtension "$p")"
+	local app="$P/$(GetFileName "$p")"
+
+	if [[ -f "$app" ]] && ask "Do you want to delete the existing installation in \"$appName\"" -dr n; then
+		sudo ${G}rm -f "$app" || return
+	fi
+
+	if [[ ! -f "$app" ]]; then
+		echo "Installing....$app"
+		sudo gcp "$p" "$P" || { cat ~/.gcp/journal; return; }
+	fi
+
+	sudo chmod ugo+x "$app" || return
+
+	echo "Configuring $appName..."
+	start "$app" || return
+
+	pause="--pause"
+	return 0
+}
+
 RunDmg()
 {
 	local result
@@ -304,8 +329,8 @@ DoRunDmg()
 		shopt -s nullglob; local app=(/Volumes/install/*.app);  
 		[[ ! "$app" ]] && { EchoErr "inst: \"$p\" does not contain an application"; return 1; }
 		local dir; GetFileName "$app" dir || return
-		[[ -d "/Applications/$dir" ]] && return 0
-		sudo acp --recursive --progress-bar "$app" /Applications
+		[[ -d "$P/$dir" ]] && return 0
+		sudo acp --recursive --progress-bar "$app" "$P"
 	fi
 
 	echo "Updating Spotlight..."
@@ -3606,10 +3631,18 @@ StandardNotes()
 
 	printf "**************************************************\n* Standard Notes\n**************************************************\n"
 
-	local v="3.0.15" # https://standardnotes.org/ https://standardnotes.org/extensions?downloaded=linux
+	local v="3.0.15" # https://standardnotes.org/ r
 	run "Shareware/Standard Notes/" -p "standard-notes-setup-$v.exe" "standard-notes-$v-mac.zip" "standard-notes-$v-x86_64.AppImage" || return
 
 	case "$PLATFORM" in
+
+		linux)
+			cp "$InstallDir/Shareware/Standard Notes/appimagekit-standard-notes.desktop" ~/.local/share/applications || return
+			;;
+
+		mac) 
+			MacAppConfigure "Standard Notes" || return
+			;;
 
 		win) 
 			echo "Updating icons..."
@@ -3618,10 +3651,6 @@ StandardNotes()
 
 			echo "Moving data folders..."
 			makeLink --merge --hide "$udata/Standard Notes/backups" "$WIN_HOME/Standard Notes Backups" || return
-			;;
-
-		mac) 
-			MacAppConfigure "Standard Notes" || return
 			;;
 			
 	esac
