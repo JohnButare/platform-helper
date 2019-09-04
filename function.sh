@@ -334,7 +334,10 @@ GetDisks() # GetDisks ARRAY
 
 CopyDir()
 {
-	local prefix="" cp="gcp" recursive="" o=(--force --preserve=timestamps) f=( ) help;
+	# pcp is copied from the apt-get install gcp package source on Debian to $bin.   It is modified to remove
+	# deprecation warnings and renamed to avoid conflict with macOS gcp (GNU cp).   It still requires imports 
+	# from the gcp package installation.
+	local prefix="" cp="pcp" recursive="" o=(--force --preserve=timestamps) f=( ) help;
 	IsPlatform mac && { cp="acp"; o=(--progress); }
 	
 	# gcp requires an X display on some platforms, as a work around run with dbus-launch
