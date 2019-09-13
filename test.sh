@@ -1,2 +1,7 @@
 #!/usr/bin/env bash
-echo $0
+
+	case "jjbutare-mobA.foo" in
+		jjbutare-mobl*) echo yes
+	esac
+
+	echo $?

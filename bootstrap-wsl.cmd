@@ -5,7 +5,7 @@ REM bootstrap a Windows system for Windows Subsystem for Linux (WSL) running a d
 set user=jjbutare
 set host=nas1
 set data=\\%host%\public\documents\data
-set dist=%data%\install\LINUX\Ubuntu\windows\CanonicalGroupLimited.Ubuntu18.04onWindows_1804.2018.817.0_x64__79rhkp1fndgsc.Appx
+set dist=%data%\install\LINUX\wsl\setup\Ubuntu\CanonicalGroupLimited.Ubuntu18.04onWindows_1804.2018.817.0_x64__79rhkp1fndgsc.Appx
 
 set r=n
 set /p r="Update windows? (%r%)? "

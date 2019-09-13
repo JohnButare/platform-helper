@@ -142,7 +142,7 @@ InstallApps()
 
 		if [[ ! $prompt ]] || ask "\nInstall $app"; then
 			installFunction="$(GetInstallFunction)" || { EchoErr "inst: $app installation does not exist"; return 1; }
-			$installFunction || { [[ $ignoreErrors ]] && pause || return; }
+			$installFunction || { [[ $ignoreErrors ]] && pause || return 1; }
 		fi
 	done
 	return 0
@@ -403,8 +403,8 @@ bootstrap()
 	printf "**************************************************\n* Bootstrap\n**************************************************\n"
 
 	i bash || return
-
 	RunPlatform bootstrap || return
+	i SshServer xServer ruby python || return
 
 	ask 'Update local passwords' && { password change || return; }
 	ask 'Update passwords in the credential store' && { password store || return; }
@@ -517,8 +517,8 @@ bootstrapWin()
 	makeLink --symbolic "$WIN_HOME/Desktop" "$HOME/Desktop" || return
 	makeLink --symbolic "$WIN_HOME/Downloads" "$HOME/Downloads" || return
 
-	echo "Update environment variables..."
-	SetVar --system --path PATH "$DATA/platform/$PLATFORM" || return
+	#echo "Update environment variables..."
+	#SetVar --system --path PATH "$DATA/platform/$PLATFORM" || return
 
 	echo "Core Windows programs..."
 	i HiddenStartFinal WindowsConsole || return
@@ -541,34 +541,50 @@ AppCore()
 	printf "\nInstalling platform applications...\n"
 	RunPlatform App || return
 
+	AppHostHardwareCore || return
+	AppUserCore || return
+	AppUserPlatformCore || return
+	AppHostCore || return
+}
+
+AppHostHardwareCore()
+{
 	printf "\nInstalling $HOSTNAME hardware...\n"
 	case "$HOSTNAME" in
-		oversoul|ultron) i nVidia GigabyteMotherboard IntelUtilities || return;;
+		bean*) i LogitechOptions || return;;
+		jjbutare-mobl*) i IntelUtilities LogitechOptions || return;;
+		oversoul|ultron) i nVidia GigabyteMotherboard IntelUtilities LogitechOptions || return;;
 	esac
+}
 
+AppUserCore()
+{
 	printf "\nInstalling $USER applications...\n"
 	case "$USER" in
 		jjbutare) i LastPass sublime BeyondCompare CleanMyPc StandardNotes GitCore || return;;
 	esac
+}
 
+AppUserPlatformCore()
+{
 	printf "\nInstalling ${USER}_$PLATFORM applications...\n"
 	case "${USER}_$PLATFORM" in
 		jjbutare_mac) i apptivate magnet pcalc WallpaperWizard yoink || return;;
 		jjbutare_win) i AltTabTerminator AutoHotKey AquaSnap CloseAllWindows notepadpp SevenZip TidyTabs || return;;
 	esac
+}
 
-	printf "\nInstalling applications...\n"
-	i firefox python ruby SshCore xServer || return
-
+AppHostCore()
+{
 	printf "\nInstalling $HOSTNAME applications...\n"
-	local hostCommon="DropBox GreenShot office sonos"
+	local hostCommon="DropBox firefox GreenShot office sonos"
 	case "$HOSTNAME" in
-		bean.*) i $hostCommon CarrotWeather DayOne DuetDisplay ParallelsDesktop spark speedtest || return;;
-		jjbutare-wvm1.*) i UniFiController || return;;
-		jjbutare-mobl.*) i $hostCommon DuetDisplay || return;;
+		bean*) i $hostCommon CarrotWeather DayOne DuetDisplay ParallelsDesktop spark speedtest || return;;
+		jjbutare-mobl*) i $hostCommon DuetDisplay || return;;
+		jjbutare-wvm1*) i UniFiController || return;;
 		pi*) i nodejs homebridge NodeRed || return;;
-		oversoul.*) i $hostCommon discord iCloud Quicken todoist thunderbird VmwareWorkstation || return;;
-		ultron.*) i $hostCommon office || return;;
+		oversoul*) i $hostCommon discord iCloud Quicken todoist thunderbird VmwareWorkstation || return;;
+		ultron*) i $hostCommon office || return;;
 	esac
 }
 
@@ -680,16 +696,6 @@ PiCore()
  	i etcher firefox || return;
 }
 
-SshCore()
-{
-	printf "**************************************************\n* SSH - Secure Shell\n**************************************************\n"
-
-	i SshServer || return;
-	IsPlatform win && { i WinScp || return; }
-
-	return 0
-}
-
 SurveillanceCore()
 {
 	echo "Creating directories..."
@@ -763,6 +769,8 @@ SshServerWsl()
 	sshd="$LOCALAPPDATA/packages/canonicalgrouplimited.ubuntu18.04onwindows_79rhkp1fndgsc/localstate/rootfs/usr/sbin/sshd"
 
 	if ! sudo grep $USER /etc/sudoers >& /dev/null; then
+		echo "- paste at the end of the file"
+		pause
 		clipw "$USER ALL = (root) NOPASSWD: /usr/sbin/sshd -D"
 		sudo visudo || return
 	fi
@@ -843,6 +851,8 @@ Bash()
 		pause
 		sudo nano "$file" || return
 	fi
+
+	return 0
 }
 
 NodeJsInstall()
@@ -920,26 +930,29 @@ SublimeInstall()
 	local v=3207
 	run "Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime_text_3_build_${v}_x64.tar.bz2" || return 
 	run "Sublime/setup/sublime_merge_build_" -p "1092_x64_setup.exe" || return;
-	
-	if [[ "$PLATFORM_LIKE" == "debian" ]]; then # https://www.sublimetext.com/docs/3/linux_repositories.html
-		[[ -d "$P/sublime_text_3" ]] && { sudo mv "$P/sublime_text_3" "$P/sublime_text" || return; }
 
-		echo "Installing sublime package repository for updates..."
-		wget -qO - https://download.sublimetext.com/sublimehq-pub.gpg | sudo apt-key add - || return
-		sudo apt-get install apt-transport-https || return
-		echo "deb https://download.sublimetext.com/ apt/stable/" | sudo tee /etc/apt/sources.list.d/sublime-text.list || return
-		sudo apt-get update || return
-		sudo apt-get install sublime-text || return
+	case "$PLATFORM" in
 
-	elif [[ "$PLATFORM" == "win" ]]; then	
-		echo "Updating registry..."	
-		registry delete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # Fix Windows Open With
+		debian) # https://www.sublimetext.com/docs/3/linux_repositories.html
+			[[ -d "$P/sublime_text_3" ]] && { sudo mv "$P/sublime_text_3" "$P/sublime_text" || return; }
 
-		echo "Updating icons..."
-		$ren "$pp/Sublime Text 3.lnk" "$pp/Applications/Sublime Text.lnk" || return
-		$mv "$pp/Sublime Merge.lnk" "$pp/Applications" || return
-		makeDir "$adata/Sublime Text 3" || return;
-	fi
+			echo "Installing sublime package repository for updates..."
+			wget -qO - https://download.sublimetext.com/sublimehq-pub.gpg | sudo apt-key add - || return
+			sudo apt-get install apt-transport-https || return
+			echo "deb https://download.sublimetext.com/ apt/stable/" | sudo tee /etc/apt/sources.list.d/sublime-text.list || return
+			sudo apt-get update || return
+			sudo apt-get install sublime-text || return
+			;;
+
+		win)
+			registry delete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # Fix Windows Open With
+			$ren "$pp/Sublime Text 3.lnk" "$pp/Applications/Sublime Text.lnk" || return
+			$mv "$pp/Sublime Merge.lnk" "$pp/Applications" || return
+			makeDir "$adata/Sublime Text 3" || return;
+			;;
+			
+		esac
+
 
 	sublime profile restore default || return
 
@@ -1061,10 +1074,6 @@ WindowsSetup()
 	$registry 32 delete "run/NetFxUpdate_v1.1.4322" # "C:\Windows\Microsoft.NET\Framework\v1.1.4322\netfxupdate.exe" 1 v1.1.4322 GAC + NI NID, https://superuser.com/questions/137508/ngen-exe-is-constantly-using-cpu
 	$registry delete "run/SecurityHealth" # %windir%\system32\SecurityHealthSystray.exe
 
-	echo "Moving data folders..."
-	[[ -d "$udoc/My Data Sources" ]] && makeLink --windows --merge --hide "$udata/Data Sources" "$udoc/My Data Sources"
-	[[ -d "$udoc/Scanned Documents" ]] && makeLink --merge --hide "$udata/scans" "$udoc/Scanned Documents"
-
 	echo "Configuring..."
 	powershell.exe Set-ExecutionPolicy RemoteSigned || return
 	registry import "$setupFiles/Windows Setup.reg" || return
@@ -1111,6 +1120,7 @@ WindowsDirs()
 	makeDir "$pp/Applications/Other" || return
 	makeDir "$oo" || return
 	makeDir "$up/Applications/Other" || return
+	makeDir "$udata/app" || return
 }
 
 WindowsIcons()
@@ -1132,8 +1142,8 @@ WindowsIcons()
 	mergeDir --rename "$pp/Microsoft Silverlight" "$oo/Silverlight" || return
 	mergeDir --rename "$up/Windows PowerShell" "$oo/PowerShell" || return
 
+	[[ -f "$pp/Immersive Control Panel.lnk" && -f "$pp/Applications/Accessories/Immersive Control Panel.lnk" ]] && { $rm "$pp/Immersive Control Panel.lnk" || return; }
 	$mv "$pp/Immersive Control Panel.lnk" "$pp/Applications/Accessories" || return
-	$mv "$up/Immersive Control Panel.lnk" "$pp/Applications/Accessories" || return
 	$mv "$pd/Mac Files.lnk" "$pp/Operating System" || return # Parallels Guest
 	$mv "$pp/Windows Media Player.lnk" "$pp/Applications/Accessories" || return
 	$mv "$ud/Microsoft Edge.lnk" "$ao" || return
@@ -1177,7 +1187,7 @@ DropBoxInstall()
 	# https://www.dropbox.com/download?full=1&plat=win 
 	# https://www.dropbox.com/download?full=1&plat=mac
 	# https://www.dropbox.com/install-linux
-	local v=78.4.119 
+	local v=80.4.127 
 	run "Dropbox/setup/" -p "Dropbox $v Offline Installer.exe" "Dropbox $v.dmg" "dropbox_2019.02.14_amd64.deb" || return
 
 	DropBoxFinal || return
@@ -1189,31 +1199,15 @@ DropBoxInstall()
 		- (win) uncheck Start Dropbox on system startup
 		- (win) check Show Dropbox as a save location in Microsoft Office
   - Notifications, uncheck Edits to files
-  - Sync, Save hard drive space automatically=On
-- (win) Print Screen, No, Thanks"
+- (win) [Ctrl] Print Screen, No, Thanks"
 		DropBox startup
 		pause
-	fi
-
-	if IsPlatform win && ask "Do you want to update index locations"; then
-		DropBox close
-
-		dir="$CLOUD/.dropbox.cache"
-		makeDir  "$dir" || return
-		attrib.exe -h -s "$(utw "$dir")" || return
-
-		echo "- Modify, $(utw "$CLOUD"), check Dropbox, uncheck .dropbox.cache"
-		os index options || return
-		pause
-
-		$hideAndSystem "$dir" || return
-		sudo 3ard DropBox startup
 	fi
 
 	if IsPlatform win && ask "Do you want to update explorer"; then
 		echot "\
 	- Dropbox, Include in Library, Documents
-	-  (not Intel) Libraries, Documents, Library Tools, Manage, Manage library
+	-  Libraries, Documents, Library Tools, Manage, Manage library
   	- Move Up (to top), Set as default save location
   - View, List"
   	start explorer "$udoc" || return
@@ -1401,7 +1395,7 @@ VsIcons()
 IisExpressFinal()
 {
 	echo "Moving data folders..."
-	makeLink --merge --hide "$udata/IISExpress" "$udoc/IISExpress"
+	makeLink --merge --hide "$udata/app/IISExpress" "$udoc/IISExpress"
 	mergeDir "$udoc/My Web Sites" "$udoc/code/web"
 
 	echo "Setting permissions..."
@@ -1441,10 +1435,10 @@ sonos()
 	printf "**************************************************\n* Sonos Music System\n**************************************************\n"
 	
 	# http://sonos.com/support/
-	run "Sonos/setup/SonosDesktopController103." -p "exe" "dmg" || return
+	run "Sonos/setup/SonosDesktopController104." -p "exe" "dmg" "linux" --elevate || return
 
 	case "$PLATFORM" in
-		win) echo "Updating icons..."; sudo $rm "$pd/Sonos.lnk" || return; mergeDir "$pp/Sonos" "$pp/Media/Other" || return;;
+		win) sudo $rm "$pd/Sonos.lnk" || return; mergeDir "$pp/Sonos" "$pp/Media/Other" || return;;
 		mac) MacAppConfigure Sonos;;
 	esac
 }
@@ -1540,21 +1534,32 @@ firefoxInstall()
 {
 	printf "**************************************************\n* Firefox\n**************************************************\n"
 
-	local v="68.0.2" # https://www.mozilla.org/en-US/firefox/all/
+	# https://www.mozilla.org/en-US/firefox/all/
+	local v="69.0"
 	if IsPlatform raspbian; then
 		package firefox-esr || return
 	else
 		run "Mozilla/Firefox/setup/" -p "Firefox Setup $v.exe" "Firefox $v.dmg" "firefox-$v.tar.bz2" || return
 	fi
+
+	echot "\
+- Options
+	- Sign in to Sync, Sign In...
+- LastPass
+	- Options, LastPass, Enable
+	- check Allow this extension to run in Private Windows, Okay
+	- LastPass, Accept, Login, check Remember Password
+	- right click LastPass, Manage Extensions, ..., Options, Icons, select grey
+	- Last Pass, Open my Vault, Pin Tab
+- https://duckduckgo.com/, settings, Other Settings, Load Settings, DuckDuckButare"
+	pause
 	
 	if [[ "$PLATFORM" == "win" ]]; then	
-		echo "Updating icons..."
 		$mv "$pp/Firefox.lnk" "$pp/Applications" || return
 		sudo $rm "$pd/Firefox.lnk" || return
 	fi
 
-	echot "\
-- https://duckduckgo.com/, settings, Other Settings, Load Settings, DuckDuckButare"
+	return 0
 }
 
 chromeInstall()
@@ -1649,8 +1654,8 @@ SqlServerManagementStudioInstall()
 	run "$base/studio/plugins/SSMSBoostInstaller_3.4.6796.msi" || return # http://www.ssmsboost.com
 
 	echo "Moving data folders..."
-	local dir="$udata/SQL Server Management Studio"; makeDir "$dir" || return
-	makeLink --merge --hide "$udata/SQL Server Management Studio" "$udoc/SQL Server Management Studio" || return
+	local dir="$udata/app/SQL Server Management Studio"; makeDir "$dir" || return
+	makeLink --merge --hide "$udata/app/SQL Server Management Studio" "$udoc/SQL Server Management Studio" || return
 
 	echo "Linking script directory..."
 	[[ -d "$CLOUD/data/sql" ]] && { $makeShortcut "$CLOUD/data/sql" "$dir/Personal.lnk" || return; }
@@ -1829,16 +1834,17 @@ OfficeFinal()
 	. office.sh || { EchoErr "inst: Office is not installed"; return 1; }
 
 	echo "Updating directories..."
-	makeDir "$udata/Templates" "$_data/Templates" || return
+	makeDir "$_data/templates" "$udata/app/office" "$udata/templates" || return
 
 	echo "Moving data folders..."
-	makeLink --merge --hide "$udata/OneNote" "$udoc/OneNote Notebooks" || return
-	makeLink --merge --hide "$udata/app/office/template" "$udoc/Custom Office Templates" || return
+	MakeLink --merge --hide "$udata/app/office/template" "$udoc/Custom Office Templates" || return
 	
 	ask "Restore normal templates" && { word RestoreNormal || return; }
 	ask "Update registry" && { registry import "$setupFiles/ShellNew.reg" || return; }
 	ask "Update icons" && { OfficeIcons || return; }
 	ask "Configure" && { for o in "$setupFiles/Set Options".*; do start "$o" || return; pause; done; }
+
+	return 0
 }
 
 OfficeIcons()
@@ -1903,7 +1909,7 @@ GitCore()
 
 gitDebian()
 {
-	ask "Install git" && { package git gitg tig || return; }
+	ask "Install Debian git programs" && { package git git-extras gitg tig || return; }
 	return 0
 }
 
@@ -1921,57 +1927,61 @@ gitRaspbian()
 
 gitWin()
 {
-	ask 'Install Git for Windows' && { i gitForWindows || return; }
-	ask 'Install Git Extensions' && { i gitExtensions || return; }
-	ask 'Install git-extras' && { (cd /tmp && git clone --depth 1 https://github.com/tj/git-extras.git && cd git-extras && make install) || return; }
+	i gitForWindows gitExtensions || return
 
 	# .gitconfig link - for Windows programs, make it a hard link (symbolic links require elevation)
-	MakeLink --hide --hard $WIN_HOME/Documents/data/bin/.gitconfig $WIN_HOME/.gitconfig || return
+	if [[ ! -f "$WIN_HOME/.gitconfig" ]]; then
+		MakeLink --hide --hard $WIN_HOME/Documents/data/bin/.gitconfig $WIN_HOME/.gitconfig || return
+	fi
+
+	return 0
 }
 
 gfwInstall() { gitForWindows; }
 gitForWindows()
 {
-	local gw="$P/Git/cmd/git.exe"
-
 	printf "**************************************************\n* Git for Windows\n**************************************************\n"
-	! IsElevated && ask 'Configure Git For Windows' && { elevate run --pause-error inst GitForWindows; pause; return; }
 	
 	echot "\
 - Select Components
 	- uncheck Windows Explorer Integration
 	- uncheck Associate .sh files to be run with Bash
-- Use Git from Git Bash only
-- Choosing the SSH executable, Use Plink=C:\Users\Public\Documents\data\platform\win\PLINK.EXE
-- Checkout as-is, commit as-is
-- Configuring extra options, check Enable file system caching and Enable Git Credential Manager
-- check Enable experimental, built-in add -i/-p
+- Adjusting your PATH environment, select Use Git from Git Bash only
+- Configuring the line ending conversions, Checkout as-is, commit as-is
+- Configuring experimental options, check Enable experimental, built-in add -i/-p
 - uncheck View ReleaseNotes.rtf"
 
 	# https://git-scm.com/download/win
 	# https://github.com/git-for-windows/git/releases/
-	run "Shareware/Git for Windows/setup/Git-2.23.0.rc2.windows.1-64-bit.exe" || return 
-
-	if [[ -f "$P/Git/usr/bin/ssh.exe" ]]; then
-		echo "Disable ssh..."
-		mv "$P/Git/usr/bin/ssh.exe" "$P/Git/usr/bin/ssh_hold.exe" || return
-	fi
+	run "Shareware/Git for Windows/setup/Git-2.23.0.rc2.windows.1-64-bit.exe" --pause || return 
 	
 	echo "Updating icons..."
 	mergeDir "$pp/Git" "$pp/Development/Other" || return
 	mergeDir "$up/Git" "$pp/Development/Other" || return
 	$rm "$up/Git for Windows.lnk"	|| return
 
-	if IsElevated; then
-		echo "Configuring git..."
-		"$gw" config --system http.sslcainfo "$(utw "$P/Git/usr/ssl/certs/ca-bundle.crt")" || return
-		"$gw" config --system core.fscache true || return
-		"$gw" config --system core.filemode false || return
-		"$gw" config --system core.autocrlf false || return
-		"$gw" config --system credential.helper wincred || return
-	fi
+	ask 'Configure Git For Windows' && { ConfigureGitForWindows || return; }
 
 	return 0
+}
+
+ConfigureGitForWindows()
+{
+	local gw="$P/Git/cmd/git.exe"
+
+	! IsElevated && { elevate run --pause-error inst ConfigureGitForWindows; pause; return; }
+
+	if [[ -f "$P/Git/usr/bin/ssh.exe" ]]; then
+		echo "Disable ssh..."
+		mv "$P/Git/usr/bin/ssh.exe" "$P/Git/usr/bin/ssh_hold.exe" || return
+	fi
+
+	echo "Configuring git for windows..."
+	"$gw" config --system http.sslcainfo "$(utw "$P/Git/usr/ssl/certs/ca-bundle.crt")" || return
+	"$gw" config --system core.fscache true || return
+	"$gw" config --system core.filemode false || return
+	"$gw" config --system core.autocrlf false || return
+	"$gw" config --system credential.helper wincred || return
 }
 
 ge() { gitExtensions; }
@@ -1990,6 +2000,8 @@ gitExtensions()
 	pause
 
 	echo "Creating files..."
+	local f="$WIN_HOME/.gitconfig.backup"
+	[[ -f "$f" ]] && { start attrib -h -s "$f" || return; }
 	FileTouchAndHide "$WIN_HOME/.gitconfig.backup" || return
 
 	echo "Updating icons..."
@@ -2165,7 +2177,7 @@ NotepadPpInstall()
 	FindFile "Shareware/Notepad++" || return
 
 	if ask "Deleting existing plugins and install the defaults"; then
-		elevate run --pause-error $cpDir "$file/plugins/default" "$P/Notepad++/plugins" || return
+		pause elevate run --pause-error $cpDir "$file/plugins/default" "$P/Notepad++/plugins" || return
 		! IsElevated && pause
 	fi
 
@@ -2177,16 +2189,6 @@ NotepadPpInstall()
 	$rmd "$pp/Notepad++" || return
 
 	notepadpp profile restore default || return
-
-	echot "\
-- Settings, Shortcut Mapper...,  Reload from Disk=Ctrl+R
-- Explorer, Search=*.txt, Open with, Choose another app, check Always use this app to open .txt files, 
-  More apps, Look for another app on this PC, c:\Program Files\Notepad++\notepad++.exe
-- keyboard shortcuts 
-  ctrl-n/w=new/close,  ctrl+/-=zoom ctrl-r=refresh
-  [shift]ctrl-tab=switch, ctrl-shift-o=file switcher
-  [alt]click drag=[block] select, ctrl-space=auto complete"
-	notepadpp || return
 }
 
 jreInstall()
@@ -2788,6 +2790,7 @@ PythonInstall()
 	# pip3 - https://packaging.python.org/tutorials/installing-packages/ 
 	if ! InPath pip3; then
 		IsPlatform mac && { python3 -m ensurepip --default-pip || return; }
+		IsPlatform win && { package python3-pip; } # Ubuntu pip3 has issues
 		! InPath pip3 && { sudo -H python3 "$BIN/get-pip.py" || return; }
 	fi
 
@@ -2823,7 +2826,7 @@ SevenZip()
 	clipw "$(utw "$P/Sublime Text 3/sublime_text.exe")" || return
 	echot "\
 - Tools, Options
-	- System, above $USER click + twice
+	- System, above $USER click +
 	- Editor
  		- View=Editor=<paste>
 		- Diff=C:\Program Files\Beyond Compare 4\BComp.exe
@@ -2906,7 +2909,7 @@ DuetDisplayInstall()
 	printf "**************************************************\n* Duet Display\n**************************************************\n"
 
 	# https://www.duetdisplay.com/#download
-	run "hardware/duet/" -p "DuetSetup-1-6-1-8.exe" "duet-2-0-7-2.zip" "" || return
+	run "hardware/duet/" -p "DuetSetup-1-6-1-8.exe" "duet-2-0-7-2.zip" "" --elevate || return
 
 	case "$PLATFORM" in
 
@@ -2969,10 +2972,17 @@ IntelUtilities()
 
 	printf "**************************************************\n* Intel Driver Update Utility \n**************************************************\n"
 	run "Intel/driver/Intel-Driver-and-Support-Assistant-Installer.exe" || return # https://www-ssl.intel.com/content/www/us/en/support/detect.html
-	run "Intel/driver/SetupRST.exe" || return # https://downloadcenter.intel.com/download/27984/Intel-Rapid-Storage-Technology-Intel-RST-User-Interface-and-Driver?product=55005
-	run "Intel/driver/BT_21.20.0_64_Win10.exe" || return # https://www.intel.com/content/www/us/en/support/articles/000005489/network-and-i-o/wireless-networking.html
-	run "Intel/driver/WiFi_21.20.0_Driver64_Win10.exe" || return # https://downloadcenter.intel.com/download/28876/Windows-10-Wi-Fi-Drivers-for-Intel-Wireless-Adapters
-	run "Intel/driver/mb_driver_thunderbolt_x299/Winx64/setup.msi" || return
+	run "Intel/driver/BT_21.30.0_64_Win10.exe" --elevate || return # https://www.intel.com/content/www/us/en/support/articles/000005489/network-and-i-o/wireless-networking.html
+	run "Intel/driver/WiFi_21.30.3_Driver64_Win10.exe" --elevate || return # https://downloadcenter.intel.com/download/28876/Windows-10-Wi-Fi-Drivers-for-Intel-Wireless-Adapters
+
+	case "$HOSTNAME" in
+
+		oversoul|ultron) 
+			run "Intel/driver/SetupRST.exe" || return # https://downloadcenter.intel.com/download/27984/Intel-Rapid-Storage-Technology-Intel-RST-User-Interface-and-Driver?product=55005
+			run "Intel/driver/mb_driver_thunderbolt_x299/Winx64/setup.msi" || return
+			;;
+
+	esac
 
 	echo "Updating icons..."
 
@@ -2982,10 +2992,11 @@ IntelUtilities()
 
 	mv "$pp/Intel/Intel"*" Rapid Storage Technology.lnk" "$dest/Rapid Storage Technology.lnk" >& /dev/null
 	sudo rm -f "$pd/"*"Rapid Storage Technology.lnk" >& /dev/null
-	$rmd "$pp/Intel" || return
 
 	mv "$pp/Thunderbolt"*" Software/Thunderbolt"*" Software.lnk" "$dest/Thunderbolt.lnk"  >& /dev/null
 	rm -fr "$pp/Thunderbolt"*" Software" >& /dev/null
+
+	$rmd "$pp/Intel" || return
 
 	echo "Updating registry..."	
 	$registry delete "run/IAStorIcon" # "C:\Program Files\Intel\Intel(R) Rapid Storage Technology\IAStorIconLaunch.exe" "C:\Program Files\Intel\Intel(R) Rapid Storage Technology\IAStorIcon.exe" 60
@@ -3101,19 +3112,24 @@ CorsairUtilityEngine()
 LogitechOptions()
 {
 	printf "**************************************************\n* Logitech Options\n**************************************************\n"
-	run "hardware/Logitech/options/" -p "Options_6.80.372.exe" "Options_6.80.384.zip" "" || return # http://support.logitech.com/en_us/software/options
 
-	echo "Updating icons..."
-	$mv "$pp/Logitech/Logitech Options.lnk" "$pp/Operating System" || return
-	$rmd "$pp/Logitech" || return
+	# http://support.logitech.com/en_us/software/options
+	run "hardware/Logitech/options/" -p "Options_8.0.863.exe" "Options_8.00.559.zip" "" --elevate || return
 
-	echo "Updating registry..."	
-	$registry delete "run/LogiOptions" # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
-	$registry delete "run/Logitech Download Assistant" # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch
+	case "$PLATFORM" in
 
-	echot "\
-- Point & Scroll, Smooth Scrolling=Enabled, Scroll wheel direction=Inverted
-- Flow, Setup"
+		win)
+			$mv "$pp/Logitech/Logitech Options.lnk" "$pp/Operating System" || return
+			$rmd "$pp/Logitech" || return
+			$registry delete "run/LogiOptions" # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
+			$registry delete "run/Logitech Download Assistant" # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch
+			;;
+
+	esac
+
+	#profile --app "LogitechOptions" --method "$APPDATA/Logishrd/LogiOptions" --files "*" save default
+	#ProcessKill LogiOptionsMgr.exe >& /dev/null; ProcessKill LogiOverlay.exe >& /dev/null
+	profile --app "LogitechOptions" --method "$APPDATA/Logishrd/LogiOptions" restore || return
 }
 
 GlassWire()
@@ -3655,12 +3671,9 @@ StandardNotes()
 			;;
 
 		win) 
-			echo "Updating icons..."
 			$mv "$ud/Standard Notes.lnk" "$up/Applications" || return
 			$rm "$up/Standard Notes.lnk" || return
-
-			echo "Moving data folders..."
-			makeLink --merge --hide "$udata/Standard Notes/backups" "$WIN_HOME/Standard Notes Backups" || return
+			makeLink --merge --hide "$udata/app/Standard Notes/backups" "$WIN_HOME/Standard Notes Backups" || return
 			;;
 			
 	esac
