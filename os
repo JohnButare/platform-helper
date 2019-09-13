@@ -66,7 +66,13 @@ RenameComputerCommand()
 	[[ ! $newName ]] && return
 
 	InPath hostnamectl && { hostnamectl set-hostname $newName; return; }
-	IsPlatform win && { elevate run --pause-error powershell.exe Rename-Computer -NewName "$newName"; return; }
+
+	case "$PLATFORM" in
+		mac) sudo scutil --set HostName $newName || return;;
+		win) elevate run --pause-error powershell.exe Rename-Computer -NewName "$newName";;
+	esac
+
+	return $?
 }
 
 SystemPropertiesCommand()
