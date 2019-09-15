@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+. app.sh
+
+init()
+{ 
+	msc="$WINDIR/System32/virtmgmt.msc"
+}
+
+usage()
+{	
+		echot "\
+usage: hyperv IsInstalled|IsEnabled|start"
+	exit $1
+}
+
+args()
+{
+	unset -v brief command name
+
+	while [[ "$1" != "" ]]; do
+		[[ "$command" == @(dhcp|run) ]] && break
+		case "$1" in
+			--help) usage 0;;
+			IsRunning) command="IsRunning";; 
+			*)
+				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+	[[ ! $command ]] && command="startGui"
+	args=( "$@" )
+}
+
+#
+# internal
+#
+
+IsEnabled() { bcdedit.exe | grep -i hypervisorlaunchtype | egrep -i Auto >& /dev/null; }
+IsGuiInstalled() { [[ -f "$msc" ]]; }
+IsGuiRunning() { WinList | grep "Hyper-V Manager" >& /dev/null; }
+IsServiceRunning() { service running hvservice; }
+
+#
+# exteral
+#
+
+disableCommand()
+{
+	! IsElevated && { elevate run --pause-error hyperv disable; return; }
+	IsEnabled && { bcdedit.exe /set hypervisorlaunchtype off || return; }
+	IsServiceRunning && ask "Restart computer to finish disabling Hyper-V" && { power reboot || return; }
+	return 0
+}
+
+enableCommand()
+{
+	! IsElevated && { elevate run --pause-error hyperv enable; return; }
+	! IsEnabled && { bcdedit.exe /set hypervisorlaunchtype auto || return; }
+	! IsServiceRunning && ask "Restart computer to enable Hyper-V" && { power reboot || return; }
+	return 0
+}
+
+IsRunningCommand() { IsServiceRunning; }
+
+snapshotCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Checkpoint-VM'; listCommand; }; checkpointCommand() { snapshotCommand "$@"; }
+pauseCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Suspend-VM'; listCommand; }
+resumeCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Paused"} | Resume-VM'; listCommand; }
+startCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Off" -or $_.State -eq "Saved"} | Start-VM'; listCommand; }
+stopCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Stop-VM'; listCommand; }
+statusCommand() { listCommand "$@"; }; listCommand() { powershell.exe Get-VM; }
+
+startGuiCommand()
+{
+	! IsGuiInstalled && return 1; IsGuiRunning && return 0
+	start --elevate mmc "$(GetFileName "$msc")" "$@"
+}
+
+run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+
+run "$@"
