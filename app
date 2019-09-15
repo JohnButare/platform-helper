@@ -187,9 +187,16 @@ Greenshot() { IsTaskRunning "Greenshot.exe" || TaskStart "$P/Greenshot/Greenshot
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 IntelRapidStorage() { IsTaskRunning "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
 LogitechOptions() { [[ ! -f "$P/Logitech/LogiOptions/LogiOptions.exe" ]] && return; IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
-OneDrive() { IsTaskRunning OneDrive.exe || start "$LOCALAPPDATA/Microsoft/OneDrive/OneDrive.exe" /background; }
 SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
+
+OneDrive()
+{
+	IsTaskRunning OneDrive.exe && return
+
+	local file="$P32/Microsoft OneDrive/OneDrive.exe"; [[ ! -f "$file" ]] && file="$LOCALAPPDATA/Microsoft/OneDrive/OneDrive.exe"
+	start "$file" /background; 
+}
 
 sshd()
 { 
