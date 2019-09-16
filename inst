@@ -269,12 +269,6 @@ RunProgram()
 	esac	
 }
 
-RunDeb()
-{
-	EchoErr "Not Implemented"
-	return 1
-}
-
 RunAppImage()
 {
 	local p="$1"; shift
@@ -403,6 +397,7 @@ bootstrap()
 	printf "**************************************************\n* Bootstrap\n**************************************************\n"
 
 	i bash || return
+	HostUpdate os --force || return
 	RunPlatform bootstrap || return
 	i SshServer xServer ruby python || return
 
@@ -419,14 +414,15 @@ bootstrapDebian()
 
 	if ! InPath lolcat > /dev/null; then
 		printf "\nInstalling core programs..."
-		package unzip zip || return										# compression
-		package nautilus || return										# file
-		package fonts-inconsolata || return						# fonts
-		package gnome-system-monitor || return				# monitoring
-		package dnsutils etherwake iperf || return		# network	
-		package terminator tmux || return							# terminal
-		package cowsay figlet fortune lolcat || return				# text
-		package lynx || return 												# web
+		package unzip zip || return											# compression
+		package nautilus || return											# file
+		package fonts-inconsolata || return							# fonts
+		package gnome-system-monitor || return					# monitoring
+		package dnsutils etherwake iperf || return			# network	
+		package terminator tmux || return								# terminal
+		package cowsay figlet fortune lolcat || return	# text
+		package virt-what || return											# utility
+		package lynx || return 													# web
 		package x11-apps xterm || return 	# other
 	fi
 
@@ -436,8 +432,8 @@ bootstrapDebian()
 	fi
 
 	# file sharing
-	if ! IsPlatform win && ask 'Setup file sharing'; then
-		sudo apt-get upgrade samba || return
+	if ! IsPlatform win && ! egrep -i "$USER" "/etc/samba/smb.conf" >& /dev/null; then
+		package samba || return
 		sudo smbpasswd -a $USER || return
 		
 		echo "[root]
@@ -454,6 +450,9 @@ read only = no" | sudo tee -a /etc/samba/smb.conf || return
 	echo "Creating directories..."
 	makeDirOwner "$PUB" || return
 	
+	echo "Other Debian programs..."
+	! IsPlatform win && { i HypervLinuxTools || return; }
+
 	return 0
 }
 
@@ -490,6 +489,8 @@ bootstrapMac()
 
 bootstrapUbuntu()
 {
+	IsPlatform win && return # Ubuntu setup is not applicable for Windows
+
 	[[ -f gsettings ]] && { gsettings set org.gnome.desktop.session idle-delay 0 || return; } # do not blank screen
 
 	echo "Updating file permissions..."
@@ -528,6 +529,8 @@ bootstrapWin()
 
 	echo "Other Windows programs..."
 	i WindowsSetup SysInternals || return
+
+	return 0
 }
 
 #
@@ -2231,6 +2234,53 @@ HypervInstall()
 	mergeDir "$pp/Administrative Tools" "$pp/Operating System" || return
 }
 
+HypervLinuxTools()
+{
+	( IsPlatform win || [[ "$(sudo virt-what)" != "hyperv" ]] ) && return
+
+	package linux-tools-virtual linux-cloud-tools-virtual xrdp || return
+	sudo systemctl stop xrdp || return
+	sudo systemctl stop xrdp-sesman || return
+
+	local f="/etc/xrdp/xrdp.ini"
+	sudo sed -i_orig -e 's/use_vsock=false/use_vsock=true/g' "$f" || return
+	sudo sed -i_orig -e 's/security_layer=negotiate/security_layer=rdp/g' "$f" || return
+	sudo sed -i_orig -e 's/crypt_level=high/crypt_level=none/g' "$f" || return
+	sudo sed -i_orig -e 's/bitmap_compression=true/bitmap_compression=false/g' "$f" || return # fast when local
+
+	[[ ! -e /etc/xrdp/startubuntu.sh ]] && { echo "#!/bin/sh
+export GNOME_SHELL_SESSION_MODE=ubuntu
+export XDG_CURRENT_DESKTOP=ubuntu:GNOME
+exec /etc/xrdp/startwm.sh" | sudo tee /etc/xrdp/startubuntu.sh || return; }
+
+	sudo chmod a+x "/etc/xrdp/startubuntu.sh" || return
+	
+	sudo sed -i_orig -e 's/startwm/startubuntu/g' "/etc/xrdp/sesman.ini"  || return # setup the ubuntu session
+	sudo sed -i -e 's/FuseMountName=thinclient_drives/FuseMountName=shared-drives/g' "/etc/xrdp/sesman.ini"  || return # rename the redirected drives to 'shared-drives'
+	sudo sed -i_orig -e 's/allowed_users=console/allowed_users=anybody/g' "/etc/X11/Xwrapper.config" || return
+
+	# Blacklist the vmw module
+	[[ ! -e /etc/modprobe.d/blacklist_vmw_vsock_vmci_transport.conf ]] && 
+		{ echo "blacklist vmw_vsock_vmci_transport" | sudo tee -a "/etc/modprobe.d/blacklist_vmw_vsock_vmci_transport.conf" || return; }
+
+	#Ensure hv_sock gets loaded
+	[[ ! -e /etc/modules-load.d/hv_sock.conf ]] && echo "hv_sock" | sudo tee "/etc/modules-load.d/hv_sock.conf"
+	
+	# Configure the policy xrdp session
+	echo "[Allow Colord all Users]
+Identity=unix-user:*
+Action=org.freedesktop.color-manager.create-device;org.freedesktop.color-manager.create-profile;org.freedesktop.color-manager.delete-device;org.freedesktop.color-manager.delete-profile;org.freedesktop.color-manager.modify-device;org.freedesktop.color-manager.modify-profile
+ResultAny=no
+ResultInactive=no
+ResultActive=yes" | sudo tee "/etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla" || return
+
+	# reconfigure the service
+	sudo systemctl daemon-reload || return
+	sudo systemctl start xrdp || return
+
+	return 0
+}
+
 vmw() { VmwareWorkstationInstall; }
 VmwareWorkstationInstall()
 {
@@ -2790,27 +2840,25 @@ PythonInstall()
 
 		IsPlatform mac && { python3 -m ensurepip --default-pip || return; }
 
-		# Ubuntu pip3 has issues, but needs to be installed for get-pip to work
-		if IsPlatform ubuntu; then
-			package python3-pip || return;
-			! InPath pip3 && { sudo -H python3 "$BIN/get-pip.py" || return; }
-			packageu python3-pip || return;
-
-			sudo -H pip3 install --ignore-installed httplib2 pyasn1-modules pygobject pyxdg PyYAML || return
+		# Ubuntu pip3 has issues getting updated packages, but needs to be installed for get-pip to work
+		if IsPlatform ubuntu; then	
+			package python3-pip || return
+			packageu python3-pip || return
 		fi
 
 		! InPath pip3 && { sudo -H python3 "$BIN/get-pip.py" || return; }
 	fi
 
-	IsPlatform debian && { package libcairo2-dev libgirepository1.0-dev || return; }
+	if IsPlatform debian; then
+		package libcairo2-dev libgirepository1.0-dev || return
+		sudo -H pip3 install --ignore-installed httplib2 pyasn1-modules pygobject pyxdg PyYAML || return # fix issues updating packages
+	fi
 
 	if IsPlatform win && [[ ! -d ~/.cache || ! -d ~/.pip ]]; then
 		echo "Creating directories..."
 		makeDir ~/.cache ~/.pip || return
 		$hide ~/.cache ~/.pip || return
 	fi
-	
-	! InPath pip-compile && { sudo pip3 install pip-tools || return; }
 
 	return 0
 }
@@ -3660,7 +3708,7 @@ vlc()
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
 		mergeDir "$pp/VideoLAN" "$pp/Media/Other" || return
-		$rm "$pd/VLC media player.lnk" || return
+		$rmSudo "$pd/VLC media player.lnk" || return
 	fi
 }
 

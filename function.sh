@@ -79,6 +79,7 @@ function GetPlatform()
 }
 [[ "$PLATFORM_ID" && "$PLATFORM_LIKE" && "$PLATFORM_ID" ]] || { GetPlatform; PLATFORM="$platform" PLATFORM_ID="$platformId" PLATFORM_LIKE="$platformLike"; unset platform platformId platformLike; }
 
+
 # IsPlatform platform[,platform,...] [platform platformLike PlatformId](PLATFORM PLATFORM_LIKE PLATFORM_ID)
 function IsPlatform()
 {
@@ -98,18 +99,20 @@ function IsPlatform()
 			ipkg) InPath ipkg && return 0;;
 			opkg) InPath opkg && return 0;;
 		esac
+		[[ "$p" == "${platform}${platformId}" ]] && return 0 # i.e. LinuxUbuntu WinUbuntu
 	done
 
 	return 1
 }
 
+# RunPlatform PREFIX - call platrform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
 function RunPlatform()
 {
 	local function="$1"; shift
 
-	RunFunction $function $PLATFORM_ID "$@" || return
-	RunFunction $function $PLATFORM_LIKE "$@" || return
 	RunFunction $function $PLATFORM "$@" || return
+	RunFunction $function $PLATFORM_LIKE "$@" || return
+	RunFunction $function $PLATFORM_ID "$@" || return
 	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
 	IsPlatform cygwin && { RunFunction $function cygwin "$@" || return; }
 	return 0
@@ -388,38 +391,6 @@ CopyDir()
 	[[ "$result" != "0" && $made ]] && rm -fr "$dest";
 	return $result
 }
-
-if IsPlatform cygwin; then
-	CopyDir()
-	{
-		[[ $1 == @(-h|--help) ]]	&& { echot "usage: CopyDir SRC DEST [FILES] [OPTIONS]
-	-m, --mirror			remove extra files in DEST
-	-q, --quiet				minimize logging
-	-r, --recursively	copy directories recursively
-	--retry 			retry copy on failure
-	-v, --verbose			maximize logging
-	-xd DIRS					exclude files matching the name/path/wildcard
-	-xf FILES					exclude files matching the name/path/wildcard"; return 1; }
-
-		local o=( /COPY:DAT /ETA ) mirror quiet src dest # /DCOPY:DAT requires newer robocopy
-
-		for arg in "$@"; do
-			[[ $1 == @(-m|--mirror) ]] && { mirror="true"; o+=( /mir ); shift; continue; }
-			[[ $1 == @(-q|--quiet) ]] && { quiet="true"; o+=( /njh /njs /ndl ); shift; continue; }
-			[[ $1 == @(-r|--recursive) ]] && { o+=( /E ); shift; continue; }
-			[[ $1 == @(--retry) ]] && { o+=( /R:3 /W:2 ); shift; continue; }
-			[[ $1 == @(-v|--verbose) ]] && { o+=( /V ); shift; continue; }
-			IsOption "$1" && { o+=( "/${1:1}" ); shift; continue; }
-			! IsOption "$1" && [[ ! $src ]] && { src="$(utw "$1")"; shift; continue; }
-			! IsOption "$1" && [[ ! $dest ]] && { dest="$(utw "$1")"; shift; continue; }
-			o+=( "$1" ); shift
-		done
-		[[ $quiet && ! $mirror ]] && o+=( /xx )
-
-		robocopy "$src" "$dest" "${o[@]}"
-		(( $? < 8 )) # http://support.microsoft.com/kb/954404
-	}
-fi
 
 # FileCommand mv|cp|ren|hide SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
 FileCommand() 
@@ -841,36 +812,29 @@ start()
 } 
 
 # sudo
-if IsPlatform cygwin; then
-	sudop() { "$@"; }
-	sudoa() { "$@"; }
-	sudoc() { "$@"; }
-else
-	SudoPreserve="sudo --preserve-env=PATH"
-	IsPlatform raspbian && SudoPreserve="sudo --preserve-env"
-	IsPlatform mac && SudoPreserve="sudo"
+SudoPreserve="sudo --preserve-env=PATH"
+IsPlatform raspbian && SudoPreserve="sudo --preserve-env"
+IsPlatform mac && SudoPreserve="sudo"
 
-	sudop() # preserve the existing path (less secure)
-	{ 
-		$SudoPreserve env "$@"
-	} 
+sudop() # preserve the existing path (less secure)
+{ 
+	$SudoPreserve env "$@"
+} 
 
-	sudoa() # use the SUDO_ASKPASS command to get the password if available and preserve the existing path
-	{ 
-		local askPass=""; [[ $SUDO_ASKPASS ]] && askPass="--askPass"
-		$SudoPreserve $askpass "$@";
-	} 
+sudoa() # use the SUDO_ASKPASS command to get the password if available and preserve the existing path
+{ 
+	local askPass=""; [[ $SUDO_ASKPASS ]] && askPass="--askPass"
+	$SudoPreserve $askpass "$@";
+} 
 
-	sudoc()  # use the credential store to get the password if available and preserve the existing path
-	{ 
-		if credential -q exists secure default; then
-			SUDO_ASKPASS="$BIN/SudoAskPass" $SudoPreserve --askpass env "$@"; 
-		else
-			$SudoPreserve env "$@"; 
-		fi
-	} 
-
-fi
+sudoc()  # use the credential store to get the password if available and preserve the existing path
+{ 
+	if credential -q exists secure default; then
+		SUDO_ASKPASS="$BIN/SudoAskPass" $SudoPreserve --askpass env "$@"; 
+	else
+		$SudoPreserve env "$@"; 
+	fi
+} 
 
 #
 # Applications
