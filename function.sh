@@ -291,7 +291,14 @@ wtu() # WinToUnix
 utw() # UnixToWin
 { 
 	[[ ! "$@" || "$PLATFORM" != "win" ]] && { echo "$@"; return 1; }
+
+	local clean=""
+	[[ ! -e "$@" ]] && { touch "$@" || return; clean="true"; }
+
+	# utw requires the file exist in newer versions of wsl
 	wslpath -w "$(realpath -m "$@")"
+
+	[[ $clean ]] && { rm "$@" || return; }
 } 
 
 utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
