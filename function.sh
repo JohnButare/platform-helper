@@ -849,6 +849,7 @@ sudoc()  # use the credential store to get the password if available and preserv
 
 GetTextEditor()
 {
+	if ! IsSsh; then
 		case "$PLATFORM" in 
 		
 			linux)
@@ -867,7 +868,8 @@ GetTextEditor()
 				;;
 
 		esac
-
+	fi
+	
 	InPath geany && { echo "geany"; return 0; }
 	InPath gedit && { echo "gedit"; return 0; }
 	InPath nano && { echo "nano"; return 0; }
