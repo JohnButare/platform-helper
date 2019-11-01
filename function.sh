@@ -22,9 +22,9 @@ function GetPlatformFiles() # GetPlatformFiles FILE_PREFIX FILE_SUFFIX
 {
 	files=()
 
-	[[ -f "$1$PLATFORM$2" ]] && files+="$1$PLATFORM$2"
-	[[ -f "$1$PLATFORM_LIKE$2" ]] && files+="$1$PLATFORM_LIKE$2"
-	[[ -f "$1$PLATFORM_ID$2" ]] && files+="$1$PLATFORM_ID$2"
+	[[ -f "$1$PLATFORM$2" ]] && files+=("$1$PLATFORM$2")
+	[[ -f "$1$PLATFORM_LIKE$2" ]] && files+=("$1$PLATFORM_LIKE$2")
+	[[ -f "$1$PLATFORM_ID$2" ]] && files+=("$1$PLATFORM_ID$2")
 
 	return 0
 }
