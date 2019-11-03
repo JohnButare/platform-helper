@@ -65,7 +65,7 @@ RenameComputerCommand()
 	read -p "Enter computer name: " newName; echo
 	[[ ! $newName ]] && return
 
-	InPath hostnamectl && { hostnamectl set-hostname $newName; return; }
+	! IsPlatform win && InPath hostnamectl && { hostnamectl set-hostname $newName; return; }
 
 	case "$PLATFORM" in
 		mac) sudo scutil --set HostName $newName || return;;
