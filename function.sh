@@ -668,6 +668,7 @@ IsTaskRunning()
 {
 	local file="$1" 
 
+	[[ ! -f "$file" ]] && return 1
 	[[ "$(GetFilePath "$file")" ]] && file="$(utwq "$file")" # convert paths to native
 	ProcessList | egrep -v ",grep" | grep -i  ",$file" >& /dev/null
 }
