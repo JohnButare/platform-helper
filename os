@@ -69,7 +69,7 @@ RenameComputerCommand()
 
 	case "$PLATFORM" in
 		mac) sudo scutil --set HostName $newName || return;;
-		win) elevate run --pause-error powershell.exe Rename-Computer -NewName "$newName";;
+		win) elevate RunScript --pause-error powershell.exe Rename-Computer -NewName "$newName";;
 	esac
 
 	return $?

@@ -762,7 +762,7 @@ start()
 	# start non-executable files
 	! IsExecutable "$file" && { start $open "$file" "${args[@]}"; return; }
 	
-	# start Windows processes	
+	# start Windows processes, or start a process on Windows elevated
 	if IsPlatform win && ( [[ $elevate ]] || IsWindowsProgram "$file" ) ; then
 		local fullFile="$(GetFullPath "$file")"
 
@@ -808,7 +808,7 @@ start()
 		return $result
 	fi
 
- 	# non-Windows
+ 	# run a non-Windows program
 	if [[ $wait ]]; then
 		(
 			nohup "$file" "${args[@]}" >& /dev/null &
