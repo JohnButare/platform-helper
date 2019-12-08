@@ -79,28 +79,28 @@ usage()
 	echot "\
 usage: install cd|install APP*
 	Install programs
-	-h,  --hint DIR			first directory to search for installation files
+	-h,  --hint DIR				first directory to search for installation files
 	-ie, --ignore-errors	ignore errors for multiple installs
-	-nr, --no-run			do not find or run the installation program
+	-nr, --no-run					do not find or run the installation program
 	-rp, --run-prompt	   	always ask to run the executable
-	-nrp,--no-run-prompt	never ask to run the executable
+	-q,--quiet						minimize prompts 
 	-s,  --select			select the install location"
 	exit $1
 }
 
 args()
 {
-	unset command apps host ignoreErrors noRun noRunPrompt runPrompt select
+	unset command apps host ignoreErrors noRun quiet runPrompt select
 	
 	originalArgs=( "$@" ) 
 	while [ "$1" != "" ]; do
 		case "$1" in
-			--no-run|-nr) noRun="true";;
-			--no-run-prompt|-nrp) noRunPrompt="true";;
-			--run-prompt|-rp) runPrompt="true";;
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			--hint|-h) hint=( --hint "$2" ); export INSTALL_DIR="$2"; shift;;
 			--ignore-errors|-ie) ignoreErrors="true";;
+			--no-run|-nr) noRun="true";;
+			--quiet|-q) quiet="true";;
+			--run-prompt|-rp) runPrompt="true";;
 			--select|-s) select="--select";;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; } # command
@@ -133,7 +133,7 @@ InstallApps()
 	local prompt; 
 
 	(( $# > 1 )) && prompt="true"
-	[[ $noRunPrompt ]] && prompt=
+	[[ $quiet ]] && prompt=
 	[[ $runPrompt ]] && prompt="true"
 
 	while (($# != 0 )); do
@@ -232,7 +232,7 @@ RunProgram()
 	[[ ! $pDesc ]] && { pDesc="$(IFS=/; echo "${pParts[*]: -3}")"; }
 	[[ ! $pDesc ]] && pDesc="$p"
 
-	[[ $noRunPrompt ]] && echo "Runing $pDesc..." || { ! ask "Do you want to run $pDesc" && return; }	
+	[[ $quiet ]] && echo "Runing $pDesc..." || { ! ask "Do you want to run $pDesc" && return; }	
 
 	local pExt; GetFileExtension "$p" pExt
 
@@ -247,9 +247,10 @@ RunProgram()
 		bat|cmd) cmd /c "$p" "$@" || return;;
 		deb) ! InPath gdebi && { package gdebi || return; }; sudo gdebi "$p" "$@";;
 		dmg) RunDmg "$p" "$@" || return;;
+		inf) elevate --wait pnputil.exe -i -a "$p" "$@";;
 		ism) start --minimize cmd /c start "$p";;
 		iso|img) iso mount "$p"; echo "If needed run the setup program manually..."; pause="--pause";;
-		msi) msiexec.exe /i "$(utw "$p")" "$@"; pause="--pause";;
+		msi) msiexec.exe /quiet /qb /norestart /i "$(utw "$p")" "$@";;
 		pkg) sudo installer -pkg "$p" -target /;;
 		7z|bz2|gz|tar|xpi|zip|ear|jar|war) 
 			IsPlatform win && { elevate="--elevate" pause="--pause"; } || elevate=""
@@ -506,7 +507,7 @@ bootstrapUbuntu()
 bootstrapWsl()
 {
 	$makeShortcut "wsl.exe" "$pp/Operating System/bash" "" "$(utw "$DATA/icons/Command Prompt.ico")" || return
-	$registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/run startup' || return
+	$registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/RunScript startup' || return
 	run "LINUX/wsl/LxRunOffline/LxRunOffline-v3.4.0.zip" "$P/LxRunOffline" || return # https://github.com/DDoSolitary/LxRunOffline/releases
 
 	return 0
@@ -542,45 +543,45 @@ AppCore()
 	printf "**************************************************\n* Core Applications\n**************************************************\n"
 
 	printf "\nInstalling common applications...\n"
-	i JumpCloud SshServer xServer ruby python || return
+	i JumpCloud SshServer xServer || return
 
 	printf "\nInstalling platform applications...\n"
 	RunPlatform App || return
 
 	AppHostHardwareCore || return
 	AppUserCore || return
-	AppUserPlatformCore || return
 	AppHostCore || return
 }
 
 AppHostHardwareCore()
 {
-	local hw="nVidia GigabyteMotherboard IntelUtilities"
+	local hw="nVidia IntelUtilities LogitechOptions"
 
 	printf "\nInstalling $HOSTNAME hardware...\n"
 	case "$HOSTNAME" in
 		bean*) i LogitechOptions || return;;
-		jjbutare-mobl*) i IntelUtilities LogitechOptions || return;;
-		oversoul) i $hw LogitechOptions || return;;
-		ultron) i $hw || return;;
+		jjbutare-mobl*) i MsiMotherboard $hw || return;;
+		oversoul) i GigabyteMotherboard $hw || return;;
+		ultron) i GigabyteMotherboard $hw || return;;
 	esac
 }
 
 AppUserCore()
 {
-	printf "\nInstalling $USER applications...\n"
-	case "$USER" in
-		jjbutare) i LastPass sublime BeyondCompare CleanMyPc StandardNotes GitCore || return;;
-	esac
-}
-
-AppUserPlatformCore()
-{
+	# install core applications firs
 	printf "\nInstalling ${USER}_$PLATFORM applications...\n"
 	case "${USER}_$PLATFORM" in
-		jjbutare_mac) i apptivate bartender CarrotWeather magnet pcalc spark speedtest WallpaperWizard yoink || return;; 
-		jjbutare_win) i AltTabTerminator AutoHotKey AquaSnap CloseAllWindows notepadpp SevenZip TidyTabs || return;;
+		jjbutare_linux) i sublime || return;; 
+		jjbutare_mac) i sublime apptivate bartender CarrotWeather magnet pcalc spark speedtest WallpaperWizard yoink || return;; 
+		jjbutare_win) i sublime AutoHotKey AquaSnap AltTabTerminator  CloseAllWindows notepadpp SevenZip TidyTabs || return;;
 	esac
+
+	printf "\nInstalling $USER applications...\n"
+	case "$USER" in
+		jjbutare) i LastPass BeyondCompare CleanMyPc StandardNotes GitCore || return;;
+	esac
+
+	return 0
 }
 
 AppHostCore()
@@ -626,7 +627,6 @@ DevCore()
 		makeDir "$pp/Development/Other" || return
 		makeDir "$up/Development/Other" || return
 		$makeShortcut "$CODE" "$pp/Development/Code" || return
-		makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
 
 		ask "\nInstall SQL Development core" && { i iis SqlServerManagementStudio SqlPrompt SqlServer || return; }
 	fi
@@ -649,8 +649,7 @@ DevDotNetCore()
 	fi
 
 	echo "Installing Applications..."	
-	i VisualStudioCode VisualStudio ReSharper || return
-	IsPlatform win && { i ReSharper || return; }
+	i VisualStudioCode VisualStudio || return
 
 	if IsPlatform win && ask "Install optional applications"; then
 	 	i NUnitConsole LinqPad || return
@@ -671,7 +670,7 @@ DevWebCore()
 {
 	printf "**************************************************\n* Web Development Core\n**************************************************\n"
 
-	i chrome nodejs || return
+	i nodejs || return
 
 	gem install compass || return	
 	npm install -g yo bower grunt grunt-cli || return
@@ -868,7 +867,7 @@ NodeJsInstall()
 	printf "**************************************************\n* Node.js\n**************************************************\n"
 
 	if [[ "$PLATFORM" == "linux" ]] && ! InPath node ; then
-		curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash || return # get node version 10.x
+		curl -sL https://deb.nodesource.com/setup_12.x | sudo -E bash || return # get node version 10.x
 		package nodejs || return
 	fi
 
@@ -968,61 +967,6 @@ SublimeInstall()
 		echo '- Help, Enter license'
 		sublime start || return
 	fi
-}
-
-dotCoverInstall()
-{
-	printf "**************************************************\n* dotCover\n**************************************************\n"
-	run "JetBrains/dotCover/dotCoverSetup.2.6.608.466.msi" || return # http://www.jetbrains.com/dotcover/
-}
-
-ReSharperInstall()
-{
-	printf "**************************************************\n* ReSharper\n**************************************************\n"
-	
-	echo "- select Install: ReSharper, dotPeek"
-	run "JetBrains/ReSharper/setup/JetBrains.ReSharperUltimate.2019.1.1.exe" || return # http://www.jetbrains.com/resharper/download/index.html
-	
-	echo "Updating icons..."
-	mergeDir "$pp/JetBrains" "$pp/Development/DotNet/Other" || return
-	mergeDir "$up/JetBrains" "$pp/Development/DotNet/Other" || return
-
-	if ask "Restore profile"; then
-		ReSharper profile restore default || return
-	elif ask 'Configure ReSharper manually'; then
-		echot "\
-- ReSharper, Options
-	- Keyboards & Menus, ReSharper keyboard scheme=ReSharper 2.x or IntelliJ IDEA, Apply Scheme
-	- Environment, Editor, Editor Behavior, uncheck Use CamelHumps
-	- Environment, IntelliSense
-		- Autopopup, C#, Where value is expected, Do not display
-		- Completion Appearance, check Show Member Signatures and Show Summary
-	- Code Editing
-			- Code Cleanup, Add, default
-			- Check all except Embrace 'using' directives in region and Apply code body style
-	- C#, Formattign Style
-		- Blank Lines, Keep max blank lines=1 (2 places)
-		- Line Breaks and Wrapping, Other, check Place simple method on single line
-	- Tools
-		- Unit Testing
-			- Run up to 4 assemblies in parallel
-			- Uncheck Save and restore Unit Test Sessions
-			- Uncheck Wrap long lines in Unit Test Session output
-		- External Sources=Navigation to Sources, check all
-- Customize Keyboard (ctrl-shift-alt-k)
-	- ReSharper.ReShartper_DuplicateText, Remove, Remove (free ctrl-d)
-- notes: ctrl-n, <class>, click object, ctrl-b, Navigate to Decompiled Sources"
-		VisualStudio start
-	fi
-}
-
-dotPeekInstall()
-{
-	printf "**************************************************\n* dotPeek \n**************************************************\n"
-	run "JetBrains/dotPeek/JetBrains.dotPeek.2017.3.3.web.exe" || return # https://www.jetbrains.com/decompiler/download/
-
-	echo "Updating icons..."
-	mergeDir "$up/JetBrains" "$pp/Development/DotNet/Other" || return
 }
 
 WindowsConsoleInstall()
@@ -1183,37 +1127,32 @@ DropBoxInstall()
 	! IsPlatform ubuntu,mac,win && return
 
 	printf "**************************************************\n* DropBox\n**************************************************\n"
-	echo "- Choose folders to sync, uncheck large"
 
 	# https://www.dropbox.com/download?full=1&plat=win 
 	# https://www.dropbox.com/download?full=1&plat=mac
 	# https://www.dropbox.com/install-linux
-	local v=80.4.127
-	run "Dropbox/setup/" -p "Dropbox $v Offline Installer.exe" "Dropbox $v.dmg" "dropbox_2019.02.14_amd64.deb" || return
+	local v=86.4.146
+	run "Dropbox/setup/" -p "Dropbox $v Offline Installer.exe" "Dropbox $v.dmg" "dropbox_2019.02.14_amd64.deb" /S || return
 
 	DropBoxFinal || return
 
-	if ask "Do you want to configure DropBox"; then
+	if ask 'Do you want to configure Dropbox'; then
 		echot "\
-- Preferences...,
-  - General
-		- (win) uncheck Start Dropbox on system startup
-		- (win) check Show Dropbox as a save location in Microsoft Office
-  - Notifications, uncheck Edits to files
-- (win) [Ctrl] Print Screen, No, Thanks"
+	- Dropbox, Preferences...,
+	  - General
+			- (win) uncheck Start Dropbox on system startup
+			- (win) check Show Dropbox as a save location in Microsoft Office
+	  - Notifications, uncheck Edits to files
+	  - Sync, Slective Sync, uncheck large
+	- (win) [Ctrl] Print Screen, No, Thanks
+	- Explorer
+		- Dropbox, Include in Library, Documents
+		-  Libraries, Documents, Library Tools, Manage, Manage library
+	  	- Move Up (to top), Set as default save location
+	  - View, List"
 		DropBox startup
-		pause
+		IsPlatform win && start explorer "$udoc"
 	fi
-
-	if IsPlatform win && ask "Do you want to update explorer"; then
-		echot "\
-	- Dropbox, Include in Library, Documents
-	-  Libraries, Documents, Library Tools, Manage, Manage library
-  	- Move Up (to top), Set as default save location
-  - View, List"
-  	start explorer "$udoc" || return
-  	pause
-  fi
 }
 
 DropBoxFinal()
@@ -1240,7 +1179,7 @@ VisualStudioCode()
 	echot "- check Add ... to Windows Explorer and Register Code"
 	
 	# https://code.visualstudio.com/
-	run "Microsoft/Visual Studio/code/" -p "VSCodeUserSetup-x64-1.40.1.exe" "VSCode-darwin-stable.zip" "code_1.40.1-1573664190_amd64.deb" || return
+	run "Microsoft/Visual Studio/code/" -p "VSCodeUserSetup-x64-1.40.2.exe" "VSCode-darwin-stable.zip" "code_1.40.1-1573664190_amd64.deb" || return
 
 	if IsPlatform win; then
 		echo "Updating icons..."
@@ -1250,15 +1189,13 @@ VisualStudioCode()
 	return 0
 }
 
-vs() { vs19; }; VisualStudioInstall()
+vs() { VisualStudioInstall; }; VisualStudioInstall()
 {
 	vsInit || return
 	printf "**************************************************\n* Visual Studio\n**************************************************\n"
-	echot "\
-- Workloads, check .NET desktop development"
 
-	local setup="vs_community__2082780718.1523343320.exe" # https://www.visualstudio.com/downloads/
-	run "$vs/setup/$setup" || return
+	# https://www.visualstudio.com/downloads/
+	run "$vs/setup/" -p "vs_Community.exe" "visualstudioformacinstaller.dmg" || return
 	 
 	ask 'Install VisualStudio extensions' && { VsExtensions || return; }
 	VsFinal || return
@@ -1291,12 +1228,6 @@ VsFinal()
 	makeDir "$CODE/test/vs"
 
 	ask "Install IIS Express Final" && { IisExpressFinal || return; }
-	
-	if ask "Initialize Visual Studio"; then
-		echo "- Sign In, <Microsoft Live account>"
-		echo "- Close Visual Studio"
-		VisualStudio start; pause
-	fi
 
 	echo "Updating data folders..."
 	makeLink --merge --hide "$vsData" "$udoc/Visual Studio $vsName" || return
@@ -1385,7 +1316,6 @@ IisExpressFinal()
 {
 	echo "Moving data folders..."
 	makeLink --merge --hide "$udata/app/IISExpress" "$udoc/IISExpress"
-	mergeDir "$udoc/My Web Sites" "$udoc/code/web"
 
 	echo "Setting permissions..."
 	icacls "$(utw "$P32/IIS Express")" /grant "$USER:(OI)(CI)F" /T
@@ -1398,7 +1328,7 @@ BeyondCompareInstall()
 
 	printf "**************************************************\n* BeyondCompare\n**************************************************\n"
 
-	local v=4.3.2.24472 beta=4.3.0.24076 # http://www.scootersoftware.com/download.php
+	local v=4.3.3.24545 beta=4.3.3.24545 # http://www.scootersoftware.com/download.php
 	run "Scooter Software/Beyond Compare/setup/" -p "BCompare-$v.exe" "BCompareOSX-$beta.zip" "bcompare-${v}_amd64.deb" || return
 
 	if [[ "$PLATFORM" == "win" ]]; then	
@@ -1424,7 +1354,7 @@ sonos()
 	printf "**************************************************\n* Sonos Music System\n**************************************************\n"
 	
 	# http://sonos.com/support/
-	run "Sonos/setup/SonosDesktopController104." -p "exe" "dmg" "linux" --elevate || return
+	run "Sonos/setup/SonosDesktopController1051." -p "exe" "dmg" "linux" --elevate || return
 
 	case "$PLATFORM" in
 		win) sudo $rm "$pd/Sonos.lnk" || return; mergeDir "$pp/Sonos" "$pp/Media/Other" || return;;
@@ -1517,14 +1447,10 @@ firefoxInstall()
 	fi
 
 	echot "\
-- Options
-	- Sign in to Sync, Sign In...
+- Options, Sign in to Sync, Sign In...
 - LastPass
-	- Options, LastPass, Enable
-	- check Allow this extension to run in Private Windows, Okay
 	- LastPass, Accept, Login, check Remember Password
 	- right click LastPass, Manage Extensions, ..., Options, Icons, select grey
-	- Last Pass, Open my Vault, Pin Tab
 - https://duckduckgo.com/, settings, Other Settings, Load Settings, DuckDuckButare"
 	pause
 	
@@ -1541,7 +1467,7 @@ thunderbird()
 	printf "**************************************************\n* Thunderbird\n**************************************************\n"
 
 	# https://www.thunderbird.net/en-US/
-	local v="68.2.2"
+	local v="68.3.0"
 	run "Mozilla/Thunderbird/" -p "Thunderbird Setup $v.exe" "Thunderbird $v.dmg" "thunderbird-$v.tar.tar" || return
 
 
@@ -1557,7 +1483,8 @@ thunderbird()
 	# profile --app "Thunderbird" --method "$APPDATA/Thunderbird" --files "*" save default
 	makeDirOwner "$APPDATA/Thunderbird" || return
 	profile --app "Thunderbird" --method "$APPDATA/Thunderbird" restore || return
-	start "$P/Mozilla Thunderbird/thunderbird.exe" --profilemanager
+	local p="$P/Mozilla Thunderbird/thunderbird.exe"; [[ ! -f "$p" ]] && p="$P32/Mozilla Thunderbird/thunderbird.exe"
+	start "$p" --profilemanager
 }
 
 chromeInstall()
@@ -1815,8 +1742,7 @@ OfficeInstall()
 	printf "**************************************************\n* Office 365\n**************************************************\n"
 
 	# https://stores.office.com/myaccount/advancedinstalls.aspx
-	IsPlatform win && echo '- run D:\Office\Setup64.exe'
-	run "Microsoft/Office/setup/" -p "O365HomePremRetail.img" "Microsoft_Office_16.27.19071500_Installer.pkg" || return
+	run "Microsoft/Office/setup/" -p "Setup.X64.en-US_O365HomePremRetail_005e017f-e514-4dde-bdc7-95733d7a7be8_TX_PR_.exe" "Microsoft_Office_16.27.19071500_Installer.pkg" || return
 	OfficeFinal || return
 }
 
@@ -1880,8 +1806,8 @@ OfficeIcons()
 
 nVidiaInstall()
 {
-	printf "**************************************************\n* nVidia Video Driver\n**************************************************\n"
-	run "hardware/nVidia/driver/398.11/Win10_64/International/setup.exe" || return # http://www.nvidia.com/Download/Find.aspx?lang=en-us
+	printf "**************************************************\n* nVidia GeForce Experience\n**************************************************\n"
+	run "hardware/nVidia/experience/GeForce_Experience_v3.20.1.57.exe" || return # https://www.nvidia.com/en-us/geforce/geforce-experience/
 
 	# NVidia: https://www.ghacks.net/2016/11/07/nvidia-telemetry-tracking/
 
@@ -1906,7 +1832,8 @@ GitCore()
 
 gitDebian()
 {
-	ask "Install Debian git programs" && { package git git-extras gitg tig || return; }
+	[[ ! $quiet ]] && ! ask "Install Debian git programs" && return 0
+	package git git-extras gitg tig || return
 	return 0
 }
 
@@ -1939,18 +1866,9 @@ gitForWindows()
 {
 	printf "**************************************************\n* Git for Windows\n**************************************************\n"
 	
-	echot "\
-- Select Components
-	- uncheck Windows Explorer Integration
-	- uncheck Associate .sh files to be run with Bash
-- Adjusting your PATH environment, select Use Git from Git Bash only
-- Configuring the line ending conversions, Checkout as-is, commit as-is
-- Configuring experimental options, check Enable experimental, built-in add -i/-p
-- uncheck View ReleaseNotes.rtf"
-
 	# https://git-scm.com/download/win
 	# https://github.com/git-for-windows/git/releases/
-	run "Shareware/Git for Windows/setup/Git-2.24.0-64-bit.exe" --pause || return 
+	run "Shareware/Git for Windows/setup/Git-2.24.0.2-64-bit.exe" /silent || return 
 	
 	echo "Updating icons..."
 	mergeDir "$pp/Git" "$pp/Development/Other" || return
@@ -1986,9 +1904,6 @@ gitExtensions()
 {
 	printf "**************************************************\n* Git Extensions\n**************************************************\n"
 	
-	echot "\
-- uncheck Windows Explorer Integration and Add installation directory to PATH"
-
 	# https://github.com/gitextensions/gitextensions/releases/latest
 	run "Shareware/GitExtensions/setup/GitExtensions-3.2.1.6628.msi" || return
 
@@ -2960,7 +2875,7 @@ DuetDisplayInstall()
 	printf "**************************************************\n* Duet Display\n**************************************************\n"
 
 	# https://www.duetdisplay.com/#download
-	run "hardware/duet/" -p "DuetSetup-1-6-1-8.exe" "duet-2-1-0-8.zip" "" --elevate || return
+	run "hardware/duet/" -p "DuetSetup-1-8-2-1.exe" "duet-2-3-0-5.zip" "" --elevate || return
 
 	case "$PLATFORM" in
 
@@ -2972,8 +2887,7 @@ DuetDisplayInstall()
 
 	esac
 
-		echot "\
-- 60 FPS, High Power, 11024"
+	return 0
 }
 
 TidalInstall()
@@ -3017,18 +2931,20 @@ GrayboxOpcInstall()
 
 IntelUtilities()
 {
-	local dest="$oo/Intel"
-
 	IsVm && return 0
 
 	printf "**************************************************\n* Intel Driver Update Utility \n**************************************************\n"
-	run "Intel/driver/Intel-Driver-and-Support-Assistant-Installer.exe" || return # https://www-ssl.intel.com/content/www/us/en/support/detect.html
-	run "Intel/driver/BT_21.30.0_64_Win10.exe" --elevate || return # https://www.intel.com/content/www/us/en/support/articles/000005489/network-and-i-o/wireless-networking.html
-	run "Intel/driver/WiFi_21.30.3_Driver64_Win10.exe" --elevate || return # https://downloadcenter.intel.com/download/29003/Windows-10-Wi-Fi-Drivers-for-Intel-Wireless-Adapters?v=t
+	run "Intel/driver/Intel-Driver-and-Support-Assistant-Installer.exe" /q || return # https://www-ssl.intel.com/content/www/us/en/support/detect.html
+	run "Intel/driver/WiFi/WiFi_21.50.1_Driver64_Win10/Netwtw08.INF" || return # https://downloadcenter.intel.com/download/29124/Intel-PROSet-Wireless-Software-and-Drivers-for-IT-Admins
+	run "Intel/driver/Bluetooth/BT_21.50.0_64_Win10/Intel Bluetooth.msi" || return # https://downloadcenter.intel.com/download/29126/
 
 	case "$HOSTNAME" in
 
-		oversoul|ultron) 
+		jjbutare-mobl1)
+			run "Intel/driver/Serial IO/SerialIO_30.100.1915.1_PV_CNL_19H1/SetupSerialIO.exe" -s || return
+			;;
+
+		oversoul|ultron)
 			run "Intel/driver/SetupRST_17.5.2.1024.exe" --elevate || return # https://downloadcenter.intel.com/download/27984/Intel-Rapid-Storage-Technology-Intel-RST-User-Interface-and-Driver?product=55005
 			run "Intel/driver/mb_driver_thunderbolt_x299/Winx64/setup.msi" || return
 			;;
@@ -3036,7 +2952,7 @@ IntelUtilities()
 	esac
 
 	echo "Updating icons..."
-
+	local dest="$oo/Intel"
 	makeDir "$dest" || return	
 	$rmd "$pp/Intel Driver and Support Assistant"  || return
 	$rm "$pd/Intel(R) Driver Update Utility 2.7.2.lnk" || return
@@ -3052,7 +2968,7 @@ IntelUtilities()
 
 	echo "Updating registry..."	
 	$registry delete "run/IAStorIcon" # "C:\Program Files\Intel\Intel(R) Rapid Storage Technology\IAStorIconLaunch.exe" "C:\Program Files\Intel\Intel(R) Rapid Storage Technology\IAStorIcon.exe" 60
-	$registry 32 delete "run/DSATray" # C:\Program Files (x86)\Intel Driver and Support Assistant\DsaTray.exe
+	$registry 32 delete "run/Intel Driver \& Support Assistant" # C:\Program Files (x86)\Intel Driver and Support Assistant\DsaTray.exe
 }
 
 GameIcons()
@@ -3118,7 +3034,7 @@ GreenShot()
 	printf "**************************************************\n* GreenShot\n**************************************************\n"
 
 	# http://getgreenshot.org/downloads/
-	run "Shareware/Greenshot/setup/" -p "Greenshot-INSTALLER-1.2.10.6-RELEASE.exe" "1103915944" "" || return
+	run "Shareware/Greenshot/setup/" -p "Greenshot-INSTALLER-1.2.10.6-RELEASE.exe" "1103915944" "" /silent || return
 
 	case "$PLATFORM" in
 
@@ -3203,9 +3119,21 @@ GlassWire()
 - Activate GlassWire"
 }
 
+MsiMotherboard()
+{
+	IsVm && return 0
+
+	printf "**************************************************\n* MSI Motherboard\n**************************************************\n"
+	run "install/hardware/MSI/MSI PRESTIGE 15 A10SC-011/Creator Center/v1.1.1911.0501_1.1.1911.0501/Setup.exe" || return
+
+	mergeDir "$pp/MSI" "$oo" || return	
+}
+
 GigabyteMotherboard()
 {
-	printf "**************************************************\n* GFigabyte Motherboard\n**************************************************\n"
+	IsVm && return 0
+
+	printf "**************************************************\n* Gigabyte Motherboard\n**************************************************\n"
 	run "hardware/Gigabyte/setup/mb_utility_appcenter_B17.1226.1/setup.exe" || return # https://www.gigabyte.com/us/Motherboard/X299-DESIGNARE-EX-rev-10#support-dl
 
 	echot "\
@@ -3320,7 +3248,9 @@ AquaSnap()
 	! IsPlatform win && return
 
 	printf "**************************************************\n* AquaSnap\n**************************************************\n"
-	run "NURGO/AquaSnap.msi" || return # https://www.nurgo-software.com/pricing/aquasnap
+
+	# https://www.nurgo-software.com/pricing/aquasnap
+	run "NURGO/AquaSnap.msi" || return
 
 	echo "Updating icons..."
 	mergeDir "$pp/AquaSnap" "$oo" || return
@@ -3730,6 +3660,7 @@ StandardNotes()
 		win) 
 			$mv "$ud/Standard Notes.lnk" "$up/Applications" || return
 			$rm "$up/Standard Notes.lnk" || return
+			makeDir "$udata/app/Standard Notes" || return
 			makeLink --merge --hide "$udata/app/Standard Notes/backups" "$WIN_HOME/Standard Notes Backups" || return
 			;;
 			
@@ -4130,6 +4061,36 @@ JetBrains()
 		echo "Updating icons..."
 		mergeDir "$up/JetBrains Toolbox" "$up/Development/other" || return
 	fi
+
+	if ask "Restore ReSharper profile"; then
+		ReSharper profile restore default || return
+	elif ask 'Configure ReSharper manually'; then
+		echot "\
+- ReSharper, Options
+	- Keyboards & Menus, ReSharper keyboard scheme=ReSharper 2.x or IntelliJ IDEA, Apply Scheme
+	- Environment, Editor, Editor Behavior, uncheck Use CamelHumps
+	- Environment, IntelliSense
+		- Autopopup, C#, Where value is expected, Do not display
+		- Completion Appearance, check Show Member Signatures and Show Summary
+	- Code Editing
+			- Code Cleanup, Add, default
+			- Check all except Embrace 'using' directives in region and Apply code body style
+	- C#, Formattign Style
+		- Blank Lines, Keep max blank lines=1 (2 places)
+		- Line Breaks and Wrapping, Other, check Place simple method on single line
+	- Tools
+		- Unit Testing
+			- Run up to 4 assemblies in parallel
+			- Uncheck Save and restore Unit Test Sessions
+			- Uncheck Wrap long lines in Unit Test Session output
+		- External Sources=Navigation to Sources, check all
+- Customize Keyboard (ctrl-shift-alt-k)
+	- ReSharper.ReShartper_DuplicateText, Remove, Remove (free ctrl-d)
+- notes: ctrl-n, <class>, click object, ctrl-b, Navigate to Decompiled Sources"
+		VisualStudio start
+	fi
+
+	return 0
 }
 
 JumpCloud()
