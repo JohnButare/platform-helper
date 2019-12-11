@@ -36,11 +36,9 @@ MakeShortcut()
 # Process
 #
 
-elevate() { IsElevated && "$@" || start --elevate "$@"; }
 IsConsoleProgram() { file "$(FindInPath "$1")" | grep "(console)" >& /dev/null; }
 IsShellScript() { file "$(FindInPath "$1")" | grep "shell script" >& /dev/null; }
 IsWindowsProgram() { file "$(FindInPath "$1")" | grep "(GUI)" >& /dev/null; }
-IsElevated() { $WIN_ROOT/Windows/system32/whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; } # have the Windows Administrator token
 
 # IsWindowsProgram: true if the file is a native windows program which requires windows paths for arguments (c:\...) instead of POSIX paths (/...)
 IsWindowsProgram() 
@@ -53,6 +51,34 @@ IsWindowsProgram()
 			return 0
 	fi
 }
+
+# process elevation (use Administrator token)
+elevate() { IsElevated && "$@" || start --elevate "$@"; }
+IsElevated() { $WIN_ROOT/Windows/system32/whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; } # have the Windows Administrator token
+
+RunScriptElevated() # InstallAppFromZip SetVar
+{
+	local dir="$TMP/RunScriptElevated.$RANDOM"
+	local script="$dir/script.sh" log="$dir/log.txt" scriptResult="$dir/result.txt"
+
+	rm -fr "$dir"; mkdir "$dir" || return
+
+	touch "$log" # ensure log file exists so inotifywait does not return when it is created
+
+	echo "$@ |& tee $log; echo \${PIPESTATUS[0]} > $scriptResult" > "$script"
+	elevate RunScript source "$script"
+
+	if ! IsElevated; then
+		inotifywait -e create --quiet --quiet "$dir/" # wait for result file
+		[[ -f "$log" ]] && cat "$log"
+	fi
+
+	[[ -f "$scriptResult" ]] && scriptResult="$(cat "$scriptResult")"
+	rm -fr "$dir"
+	
+	return "$scriptResult"
+}
+
 
 #
 # Window
