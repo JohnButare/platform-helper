@@ -914,5 +914,14 @@ if [[ -f "$P/Git/cmd/git.exe" ]]; then
 	#git() { "$P/Git/cmd/git.exe" "$@"; }
 fi
 
-IsVm() { IsVmwareVm; }
-IsVmwareVm() { [[ -d "$P/VMware/VMware Tools" ]]; }
+IsVm() { [[ "$(sudo virt-what)" != "" ]]; }
+IsVmwareVm() { [[ "$(sudo virt-what)" == "vmware" ]]; }
+IsHypervVm() { [[ "$(sudo virt-what)" == "hyperv" ]]; }
+
+IsDesktop()
+{
+	IsPlatform mac,win && return 0
+	IsPlatform debian && [[ "$XDG_CURRENT_DESKTOP" != "" ]] && return 0
+	return 1
+}
+IsServer() { ! IsDesktop; }
