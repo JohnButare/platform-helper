@@ -17,7 +17,7 @@ set -a
 
 HOSTNAME="${HOSTNAME:-$(hostname -s)}" 
 
-P="/opt" G="" VOLUMES="/mnt" USERS="/home" PUB="" DATA="" BIN="" CODE="/Projects" 
+P="/opt" G="" VOLUMES="/mnt" USERS="/home" PUB="" DATA="" BIN="" 
 USER="${USERNAME:-$USER}" DOC="" UDATA="" UBIN=""
 
 case "$(uname)" in 
@@ -27,10 +27,11 @@ case "$(uname)" in
 	MINGW*) platform="win"; PLATFORM_LIKE=mingw;;
 esac
 [[ $(uname -r) =~ .*-Microsoft ]] && PLATFORM="win" # Windows Subsytem for Linux
-[[ "$PLATFORM" == "win" ]] && { WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)" ADATA="$WIN_HOME/AppData/Roaming" CODE="$WIN_ROOT/Projects"; }
+[[ "$PLATFORM" == "win" ]] && { WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)" ADATA="$WIN_HOME/AppData/Roaming"; }
 PUB="${PUB:-$USERS/Shared}"
 DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" UDATA="$DOC/data" UBIN="$UDATA/bin"
+CODE="$HOME/source"
 
 set +a
 
