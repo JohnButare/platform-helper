@@ -354,8 +354,8 @@ CopyDir()
 	IsPlatform Ubuntu && ! IsPlatform win && cp="pcp"
 
 	# gcp requires an X display on some platforms, as a work around run with dbus-launch
-	IsPlatform wsl,raspbian && [[ ! $DISPLAY ]] && ! IsXServerRunning && { DbusSetup; prefix="dbus-launch"; }
-
+	IsPlatform wsl,raspbian && InPath dbus-launch && [[ ! $DISPLAY ]] && ! IsXServerRunning && { DbusSetup; prefix="dbus-launch"; }
+	
 	for arg in "$@"; do
 		[[ ! $1 ]] && { shift; continue; } 										# ignore empty options
 		[[ $1 == @(-h|--help) ]] && { help="true"; shift; continue; }
