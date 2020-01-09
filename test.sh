@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-	case "jjbutare-mobA.foo" in
-		jjbutare-mobl*) echo yes
+	case "aa" in
+		a) false;;
+		*) true;;
 	esac
 
 	echo $?

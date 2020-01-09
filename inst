@@ -1,10 +1,22 @@
 #!/usr/bin/env bash
 . function.sh || exit
 
+IsInstallable()
+{
+	case "$1" in	
+		ahk|AutoHotKey|AltTabTerminator|AquaSnap|BlueStacks|CloseAllWindows|DiskImager|HiddenStart|Ninite|npp|Notepadpp|PartitionAssistant|pGine|RightClickEnhancer|SevenZip|TidyTabs|vcxsrv|WindowsConsole|WinScp|xMing) IsPlatform win;;
+		apptivate|bartender|CarrotWeather|DayOne|iTerm|LiveDesktop|Magnet|pcalc|spark|speedtest|WallpaperWizard|XQuartz|yoink) IsPlatform mac;;
+		CleanMyPc|Cricut|Domotz|DuetDisplay|GreenShot|LastPass|office|OriginGames|sonos) IsPlatform mac,win;;
+		bc|BeyondCompare|DropBox|JumpCloud|StandardNotes|Sublime|UniFiController) IsPlatform mac,ubuntu,win;;
+		firefox) IsPlatform debian,mac,win;;
+		*) true;;
+	esac
+
+	return $?
+}
+
 TemplateInstall()
 {
-	! IsPlatform win,mac && return
-
 	printf "**************************************************\n* name\n**************************************************\n"
 
 	# http://www.techsmith.com/download/licenses/snagitupgrade.asp
@@ -84,9 +96,8 @@ usage()
 usage: install cd|install APP*
 	Install programs
 	-h,  --hint DIR				first directory to search for installation files
-	-ie, --ignore-errors	ignore errors for multiple installs
 	-nr, --no-run					do not find or run the installation program
-	-rp, --run-prompt	   	always ask to run the executable
+	-np, --no-prompt	   	suppress prompts
 	-q,  --quiet					minimize prompts 
 	-s,  --select					select the install location"
 	exit $1
@@ -94,17 +105,17 @@ usage: install cd|install APP*
 
 args()
 {
-	unset command apps host ignoreErrors noRun quiet runPrompt select
-	
+	unset command apps host noPrompt noRun quiet select
+	# here here quiet
 	originalArgs=( "$@" ) 
 	while [ "$1" != "" ]; do
 		case "$1" in
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			--hint|-h) hint=( --hint "$2" ); export INSTALL_DIR="$2"; shift;;
-			--ignore-errors|-ie) ignoreErrors="true";;
+			--no-prompt|-np) noPrompt="true";;
 			--no-run|-nr) noRun="true";;
+			--no-prompt|-nrp) noPrompt="true";;
 			--quiet|-q) quiet="true";;
-			--run-prompt|-rp) runPrompt="true";;
 			--select|-s) select="--select";;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; } # command
@@ -137,15 +148,19 @@ InstallApps()
 	local prompt; 
 
 	(( $# > 1 )) && prompt="true"
-	[[ $quiet ]] && prompt=
-	[[ $runPrompt ]] && prompt="true"
+	[[ $noPrompt ]] && prompt=
 
 	while (($# != 0 )); do
 		app="$1"; shift
 
+		if ! IsInstallable "$app"; then
+			[[ ! $quiet ]] && echo "$app is not installable on $PLATFORM $PLATFORM_LIKE $PLATFORM_ID"
+			continue
+		fi
+
 		if [[ ! $prompt ]] || ask "\nInstall $app"; then
 			installFunction="$(GetInstallFunction)" || { EchoErr "inst: $app installation does not exist"; return 1; }
-			$installFunction || { [[ $ignoreErrors ]] && pause || return 1; }
+			$installFunction || return 1
 		fi
 	done
 	return 0
@@ -169,7 +184,6 @@ InstallInit()
 	firewall="firewall --suppress"
 	hide="FileCommand hide"
 	hideAndSystem="FileCommand HideAndSystem"
-	i() { inst --run-prompt "$@"; }
 	makeDir() { ${G}mkdir --parents "$@"; }
 	makeDirSudo() { sudo ${G}mkdir --parents "$@"; }
 	makeDirOwner() { sudo ${G}mkdir --parents "$@" || return; sudo chown $USER "$@" || return; }
@@ -243,7 +257,7 @@ RunProgram()
 		p="$t/$(GetFileName "$p")"
 	fi
 
-	[[ $quiet ]] && echo "Runing $pDesc..." || { ! ask "Do you want to run $pDesc" && return; }	
+	[[ $noPrompt ]] && echo "Runing $pDesc..." || { ! ask "Do you want to run $pDesc" && return; }
 
 	local pExt; GetFileExtension "$p" pExt
 
@@ -555,70 +569,24 @@ AppCore()
 	printf "**************************************************\n* Core Applications\n**************************************************\n"
 
 	printf "\nInstalling common applications...\n"
+	# install order:
+	# 1) browser - enter passwords
+	# 2) text editor - edit text files for issues
+	# 3) keyboard shortcuts - productivity
+	i firefox sublime AutoHotKey || return
 	i JumpCloud SshServer xServer || return
+	i AquaSnap BeyondCompare GitCore LastPass || return
 
 	printf "\nInstalling platform applications...\n"
 	RunPlatform App || return
 
 	AppHostHardwareCore || return
-	AppUserCore || return
 	AppHostCore || return
+	AppUserCore || return
 }
 
-AppHostHardwareCore()
-{
-	local hw="nVidia IntelUtilities LogitechOptions"
-
-	printf "\nInstalling $HOSTNAME hardware...\n"
-	case "$HOSTNAME" in
-		bean*) i LogitechOptions || return;;
-		jjbutare-mobl*) i MsiMotherboard $hw || return;;
-		oversoul) i GigabyteMotherboard $hw || return;;
-		ultron) i GigabyteMotherboard $hw || return;;
-	esac
-}
-
-AppUserCore()
-{
-	# install core applications firs
-	printf "\nInstalling ${USER}_$PLATFORM applications...\n"
-	case "${USER}_$PLATFORM" in
-		jjbutare_linux) i sublime || return;; 
-		jjbutare_mac) i sublime apptivate bartender CleanMyPc CarrotWeather LastPass magnet pcalc spark speedtest WallpaperWizard yoink || return;; 
-		jjbutare_win) i sublime AutoHotKey AquaSnap AltTabTerminator CleanMyPc CloseAllWindows LastPass notepadpp SevenZip TidyTabs || return;;
-	esac
-
-	printf "\nInstalling $USER applications...\n"
-	case "$USER" in
-		jjbutare) i BeyondCompare StandardNotes GitCore || return;;
-	esac
-
-	return 0
-}
-
-AppHostCore()
-{
-	printf "\nInstalling $HOSTNAME applications...\n"
-	local hostCommon="DropBox GreenShot office sonos"
-	case "$HOSTNAME" in
-		bean*) i $hostCommon ParallelsDesktop || return;;
-		jjbutare-mobl*) i $hostCommon DuetDisplay thunderbird || return;;
-		jjbutare-wvm1*) i UniFiController || return;;
-		pi*) i nodejs homebridge NodeRed || return;;
-		oversoul*) i $hostCommon discord iCloud Quicken todoist thunderbird VmwareWorkstation || return;;
-		ultron*) i $hostCommon || return;;
-	esac
-}
-
-AppDebian()
-{
-	i firefox || return
-}
-
-AppMac()
-{
-	i firefox iTerm || return
-}
+AppMac() { i iTerm || return; }
+AppWin() { i ninite RightClickEnhancer || return; }
 
 AppRaspbian() 
 { 
@@ -626,9 +594,44 @@ AppRaspbian()
 	sudo adduser $USER gpio || return
 }
 
-AppWin()
+AppHostHardwareCore()
 {
-	i ninite RightClickEnhancer || return
+	local pc="IntelUtilities nVidia LogitechOptions"
+
+	printf "\nInstalling $HOSTNAME hardware...\n"
+	case "$HOSTNAME" in
+		bean) i LogitechOptions || return;;
+		jjbutare-mobl) i MsiMotherboard $pc || return;;
+		oversoul) i GigabyteMotherboard $pc || return;;
+		ultron) i GigabyteMotherboard $pc || return;;
+	esac
+}
+
+AppHostCore()
+{
+	local common="CleanMyPc DropBox GreenShot office sonos StandardNotes"
+
+	printf "\nInstalling $HOSTNAME applications...\n"
+
+	case "$HOSTNAME" in
+		bean) i $common ParallelsDesktop || return;;
+		jjbutare-mobl1) i $common DuetDisplay todoist thunderbird VmwareWorkstation || return;;
+		jjbutare-wvm1) i UniFiController || return;;
+		oversoul) i $common iCloud Quicken todoist thunderbird VmwareWorkstation || return;;
+		pi1) i nodejs homebridge || return;;
+		ultron) i $common || return;;
+	esac
+}
+
+AppUserCore()
+{
+	local mac="apptivate bartender CarrotWeather magnet pcalc spark speedtest WallpaperWizard yoink"
+	local win="AltTabTerminator CloseAllWindows notepadpp SevenZip TidyTabs"
+
+	printf "\nInstalling $USER applications...\n"
+	case "$USER" in
+		jjbutare) i $mac $win || return;;
+	esac
 }
 
 DevCore()
@@ -806,8 +809,6 @@ SshServerWsl()
 
 WinScp()
 {
-	! IsPlatform win && return
-
 	printf "**************************************************\n* WiNSCP \n**************************************************\n"
 	run "Shareware/WinSCP/WinSCP-5.15.4-Setup.exe" || return # https://winscp.net/eng/index.php
 
@@ -924,11 +925,8 @@ WindowsMediaPlayerInstall()
 - Organize, Manage Libraries, Music, Add..., This PC, portable4"
 }
 
-ahk() { AutoHotKeyInstall; }
-AutoHotKeyInstall()
+ahk() { AutoHotKey; }; AutoHotKey()
 {
-	! IsPlatform win && return 0
-
 	printf "**************************************************\n* AutoHotKey\n**************************************************\n"
 
 	AutoHotKey close || return
@@ -948,8 +946,6 @@ WinSplitInstall()
 
 SublimeInstall()
 {
-	! IsPlatform ubuntu,mac,win && return
-
 	printf "**************************************************\n* Sublime Text Editor\n**************************************************\n"
 
 	# http://www.sublimetext.com/3 
@@ -988,10 +984,8 @@ SublimeInstall()
 	fi
 }
 
-WindowsConsoleInstall()
+WindowsConsole()
 {
-	! IsPlatform win && return
-
 	printf "**************************************************\n* Console \n**************************************************\n"
 
 	key="HKCU/Console"
@@ -1132,7 +1126,7 @@ WindowsIcons()
 	mergeDir "$pp/ICEpower" "$oo" || return	# Asus ZenBook laptop
 }
 
-pGinaInstall()
+pGina()
 {
 	printf "**************************************************\n* pGina\n**************************************************\n"
 	
@@ -1149,10 +1143,8 @@ pGinaInstall()
 	pGina profile restore default || return
 }
 
-DropBoxInstall()
+DropBox()
 {
-	! IsPlatform ubuntu,mac,win && return
-
 	printf "**************************************************\n* DropBox\n**************************************************\n"
 
 	# https://www.dropbox.com/download?full=1&plat=win 
@@ -1351,10 +1343,8 @@ IisExpressFinal()
 }
 
 BcInstall() { BeyondCompareInstall; }
-BeyondCompareInstall()
+BeyondCompare()
 {
-	! IsPlatform ubuntu,mac,win && return 0
-
 	printf "**************************************************\n* BeyondCompare\n**************************************************\n"
 
 	local v=4.3.3.24545 beta=4.3.3.24545 # http://www.scootersoftware.com/download.php
@@ -1378,8 +1368,6 @@ BeyondCompareInstall()
 
 sonos()
 {
-	! IsPlatform mac,win && return
-
 	printf "**************************************************\n* Sonos Music System\n**************************************************\n"
 	
 	# http://sonos.com/support/
@@ -1860,7 +1848,7 @@ GitCore()
 
 gitDebian()
 {
-	[[ ! $quiet ]] && ! ask "Install Debian git programs" && return 0
+	[[ $prompt ]] && ! ask "Install Debian git packages" && return 0
 	package git git-extras gitg tig || return
 	return 0
 }
@@ -2106,8 +2094,6 @@ TeamViewerInstall()
 npp() { NotepadPpInstall; }
 NotepadPpInstall()
 {
-	! IsPlatform win && return
-
 	printf "**************************************************\n* Notepad++\n**************************************************\n"
 	echo "- Uncheck Run Notepad++"
 
@@ -2271,10 +2257,8 @@ DashLane()
 	fi
 }
 
-LastPass()
+LastPass() # LastPass for Linux only installs Chrome extension
 {
-	! IsPlatform mac,win && return # LastPass for Linux only installs Chrome extension
-
 	printf "**************************************************\n* LastPass\n**************************************************\n"
 	
 	# https://lastpass.com/misc_download2.php, App Store 926036361
@@ -2815,8 +2799,6 @@ PythonInstall()
 
 SevenZip()
 {
-	! IsPlatform win && return
-
 	printf "**************************************************\n* 7-Zip\n**************************************************\n"
 	
 	# http://www.7-zip.org/download.html
@@ -2908,10 +2890,8 @@ DymoLabelInstall()
 	fi
 }
 
-DuetDisplayInstall()
+DuetDisplay()
 {
-	! IsPlatform mac,win && return
-
 	printf "**************************************************\n* Duet Display\n**************************************************\n"
 
 	# https://www.duetdisplay.com/#download
@@ -2971,8 +2951,6 @@ GrayboxOpcInstall()
 
 IntelUtilities()
 {
-	IsVm && return 0
-
 	printf "**************************************************\n* Intel Driver Update Utility \n**************************************************\n"
 	run "Intel/driver/Intel-Driver-and-Support-Assistant-Installer.exe" /q || return # https://www-ssl.intel.com/content/www/us/en/support/detect.html
 	run "Intel/driver/WiFi/WiFi_21.50.1_Driver64_Win10/Netwtw08.INF" || return # https://downloadcenter.intel.com/download/29124/Intel-PROSet-Wireless-Software-and-Drivers-for-IT-Admins
@@ -3048,8 +3026,6 @@ SteamGames()
 
 OriginGames()
 {
-	! IsPlatform win,mac && return
-
 	printf "**************************************************\n* Origin Games\n**************************************************\n"
 
 	# https://www.origin.com/usa/en-us/store/download
@@ -3090,8 +3066,6 @@ UplayGames()
 
 GreenShot()
 {
-	! IsPlatform mac,win && return
-
 	printf "**************************************************\n* GreenShot\n**************************************************\n"
 
 	# http://getgreenshot.org/downloads/
@@ -3113,8 +3087,6 @@ GreenShot()
 
 PartitionAssistant()
 {
-	! IsPlatform win && return
-
 	printf "**************************************************\n* Partition Assistant\n**************************************************\n"
 	
 	# http://www.aomeisoftware.com/download/pa/full/DM_Pro.zip
@@ -3182,8 +3154,6 @@ GlassWire()
 
 MsiMotherboard()
 {
-	IsVm && return 0
-
 	printf "**************************************************\n* MSI Motherboard\n**************************************************\n"
 	run "install/hardware/MSI/MSI PRESTIGE 15 A10SC-011/Creator Center/v1.1.1911.0501_1.1.1911.0501/Setup.exe" || return
 
@@ -3192,8 +3162,6 @@ MsiMotherboard()
 
 GigabyteMotherboard()
 {
-	IsVm && return 0
-
 	printf "**************************************************\n* Gigabyte Motherboard\n**************************************************\n"
 	run "hardware/Gigabyte/setup/mb_utility_appcenter_B17.1226.1/setup.exe" || return # https://www.gigabyte.com/us/Motherboard/X299-DESIGNARE-EX-rev-10#support-dl
 
@@ -3286,10 +3254,8 @@ TigerVnc()
 	$rm "$pd/PDFelement 6 Pro.lnk"
 }
 
-TidyTabsInstall() 
+TidyTabs() 
 { 
-	! IsPlatform win && return
-
 	printf "**************************************************\n* TidyTabs\n**************************************************\n"
 	
 	# https://www.nurgo-software.com/pricing/tidytabs
@@ -3306,8 +3272,6 @@ TidyTabsInstall()
 
 AquaSnap()
 {
-	! IsPlatform win && return
-
 	printf "**************************************************\n* AquaSnap\n**************************************************\n"
 
 	# https://www.nurgo-software.com/pricing/aquasnap
@@ -3530,8 +3494,6 @@ DasKeyboard()
 
 UniFiController()
 {
-	! IsPlatform mac,debian,win && return
-
 	[[ ! -d "$P32/Java" ]] && { jreInstall || return; }
 
 	printf "**************************************************\n* UniFi Controller\n**************************************************\n"
@@ -3571,8 +3533,6 @@ NordVpn()
 
 CleanMyPc()
 {
-	! IsPlatform mac,win && return
-
 	printf "**************************************************\n* Clean My PC\n**************************************************\n"
 	
 	# https://macpaw.com
@@ -3594,8 +3554,6 @@ CleanMyPc()
 
 CloseAllWindows()
 {
-	! IsPlatform win && return
-
 	printf "**************************************************\n* Close All Windows\n**************************************************\n"
 
 	# https://www.ntwind.com/software/closeall.html
@@ -3608,8 +3566,6 @@ CloseAllWindows()
 
 AltTabTerminator()
 {
-	! IsPlatform win && return
-
 	printf "**************************************************\n* Alt-Tab Terminator\n**************************************************\n"
 	
 	# https://www.ntwind.com/software/alttabter.html
@@ -3627,8 +3583,6 @@ AltTabTerminator()
 
 HiddenStart()
 {
-	! IsPlatform win && return
-
 	printf "**************************************************\n* Hidden Start\n**************************************************\n"
 
 	# https://www.ntwind.com/software/hstart.html
@@ -3704,8 +3658,6 @@ vlc()
 
 StandardNotes()
 {
-	! IsPlatform ubuntu,mac,win && return 0
-
 	printf "**************************************************\n* Standard Notes\n**************************************************\n"
 
 	local v="3.0.19" # https://standardnotes.org/
@@ -3863,14 +3815,16 @@ xServer()
 	RunPlatform xServer || return
 }
 
-xServerMac() { xQuartzInstall; }
-xServerRaspbian() { sudo bash -c '[[ ! -f $HOME/.Xauthority ]] && ln -s '$HOME'/.Xauthority $HOME/.Xauthority'; }		
-xServerWin() { xMingInstall; 	$makeShortcut "wscript.exe" "$pp/Operating System/terminator" "$(utw "$DATA/platform/win")\terminator.vbs" "$(utw "$DATA/icons/terminator2.ico")" || return; }
+xServerMac() { xQuartzInstall || return; }
+
+xServerWin() 
+{ 
+	xMingInstall || return
+	$makeShortcut "wscript.exe" "$pp/Operating System/terminator" "$(utw "$DATA/platform/win")\terminator.vbs" "$(utw "$DATA/icons/terminator2.ico")" || return
+}
 
 vcxsrvInstall()
 {
-	! IsPlatform win && return;
-
 	# https://sourceforge.net/projects/vcxsrv/
 	run "LINUX/VcXsrv/vcxsrv-64.1.20.1.4.installer.exe" --pause || return
 
@@ -3879,8 +3833,6 @@ vcxsrvInstall()
 
 xMingInstall()
 {
-	! IsPlatform win && return;
-
 	# http://www.straightrunning.com/candidate/
 	run "LINUX/Xming/rel_x64_Xming-7-7-0-46-setup.exe" || return
 	run "LINUX/Xming/Xming-fonts-7-7-0-10-setup.exe" || return
@@ -3892,8 +3844,6 @@ xMingInstall()
 
 xQuartzInstall()
 {
-	! IsPlatform mac && return;
-
 	# https://www.xquartz.org/ 
 	run "LINUX/XQuartz/XQuartz-2.7.11.dmg" || return
 
@@ -3964,8 +3914,6 @@ NodeRed()
 
 DiskImager()
 {
-	! IsPlatform win && return 0
-
 	printf "**************************************************\n* Disk Imager \n**************************************************\n"
 	run "Shareware/other/win32diskimager-1.0.0-install.exe" || return # http://www.paragon-drivers.com/extfs-windows/
 
@@ -3998,8 +3946,6 @@ Todoist()
 
 iTerm()
 {
-	! IsPlatform mac && return
-
 	printf "**************************************************\n* iTerm\n**************************************************\n"
 	
 	# https://iterm2.com/downloads.html
@@ -4020,8 +3966,6 @@ iTerm()
 
 apptivate()
 {
-	! IsPlatform mac && return
-
 	printf "**************************************************\n* Apptivate\n**************************************************\n"
 
 	# http://www.apptivateapp.com
@@ -4041,8 +3985,6 @@ apptivate()
 
 bartender()
 {
-	! IsPlatform mac && return
-
 	printf "**************************************************\n* Bartender\n**************************************************\n"
 
 	# https://www.macbartender.com/
@@ -4110,8 +4052,6 @@ VirtualBoxInstall()
 
 BlueStacksInstall()
 {
-	! IsPlatform win && return
-
 	printf "**************************************************\n* BlueStacks\n**************************************************\n"
 
 	# https://www.bluestacks.com/
@@ -4168,13 +4108,13 @@ JetBrains()
 }
 
 JumpCloud()
-{
+{		
 	printf "**************************************************\n* JumpCloud\n**************************************************\n"
 
 	# https://console.jumpcloud.com/#/systems/new
 	local key="d55d2d17f6fdc877905cf7dd798e7c910948eff3"
 
-	if IsPlatform debian && ! IsPlatform win; then
+	if IsPlatform ubuntu; then
 		curl --tlsv1.2 --silent --show-error --header "x-connect-key: $key" https://kickstart.jumpcloud.com/Kickstart | sudo bash
 	else
 		echo "connect key=<paste> ($key)"; clipw "$key"
@@ -4185,9 +4125,7 @@ JumpCloud()
 }
 
 NiniteInstall()
-{
-	! IsPlatform win && return
-
+{	
 	printf "**************************************************\n* Ninite\n**************************************************\n"
 	run "Ninite/setup/Ninite Agent Installer.exe" --elevate --no-pause /silent || return
 	return 0
@@ -4195,8 +4133,6 @@ NiniteInstall()
 
 DomotzInstall()
 {
-	! IsPlatform win,mac && return
-
 	printf "**************************************************\n* Domotz\n**************************************************\n"
 
 	# https://portal.domotz.com/portal/web_app
@@ -4213,8 +4149,6 @@ DomotzInstall()
 
 CricutInstall()
 {
-	! IsPlatform win,mac && return
-
 	printf "**************************************************\n* Cricut\n**************************************************\n"
 
 	# https://design-beta2.cricut.com/#/download
