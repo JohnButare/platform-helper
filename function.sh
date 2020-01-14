@@ -584,11 +584,6 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 { 
 	local host="$1" timeout="${2-200}"
 
-	if IsPlatform cygwin; then
-		ping -n 1 -w "$timeout" "$host" | grep "^Reply from " | cut -d" " -f 5 | tr -d 'time=<ms'
-		return ${PIPESTATUS[1]}
-	fi
-
 	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
 		return ${PIPESTATUS[0]}
@@ -914,9 +909,9 @@ if [[ -f "$P/Git/cmd/git.exe" ]]; then
 	#git() { "$P/Git/cmd/git.exe" "$@"; }
 fi
 
-IsVm() { [[ "$(sudo virt-what)" != "" ]]; }
-IsVmwareVm() { [[ "$(sudo virt-what)" == "vmware" ]]; }
-IsHypervVm() { [[ "$(sudo virt-what)" == "hyperv" ]]; }
+IsVm() { FindInPath virt-what && [[ "$(sudo virt-what)" != "" ]]; }
+IsVmwareVm() { FindInPath virt-what && [[ "$(sudo virt-what)" == "vmware" ]]; }
+IsHypervVm() { FindInPath virt-what && [[ "$(sudo virt-what)" == "hyperv" ]]; }
 
 IsDesktop()
 {

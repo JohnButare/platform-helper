@@ -7,7 +7,7 @@ IsInstallable()
 		ahk|AutoHotKey|AltTabTerminator|AquaSnap|BlueStacks|CloseAllWindows|DiskImager|HiddenStart|Ninite|npp|Notepadpp|PartitionAssistant|pGine|RightClickEnhancer|SevenZip|TidyTabs|vcxsrv|WindowsConsole|WinScp|xMing) IsPlatform win;;
 		apptivate|bartender|CarrotWeather|DayOne|iTerm|LiveDesktop|Magnet|pcalc|spark|speedtest|WallpaperWizard|XQuartz|yoink) IsPlatform mac;;
 		CleanMyPc|Cricut|Domotz|DuetDisplay|GreenShot|LastPass|office|OriginGames|sonos) IsPlatform mac,win;;
-		bc|BeyondCompare|DropBox|JumpCloud|StandardNotes|Sublime|UniFiController) IsPlatform mac,ubuntu,win;;
+		bc|BeyondCompare|Dropbox|JumpCloud|StandardNotes|Sublime|UniFiController) IsPlatform mac,ubuntu,win;;
 		firefox) IsPlatform debian,mac,win;;
 		*) true;;
 	esac
@@ -98,6 +98,7 @@ usage: install cd|install APP*
 	-h,  --hint DIR				first directory to search for installation files
 	-nr, --no-run					do not find or run the installation program
 	-np, --no-prompt	   	suppress prompts
+	-p,	 --prompt 				force promptinga	
 	-q,  --quiet					minimize prompts 
 	-s,  --select					select the install location"
 	exit $1
@@ -105,7 +106,7 @@ usage: install cd|install APP*
 
 args()
 {
-	unset command apps host noPrompt noRun quiet select
+	unset command apps forcePrompt host noPrompt noRun quiet select
 	# here here quiet
 	originalArgs=( "$@" ) 
 	while [ "$1" != "" ]; do
@@ -115,6 +116,7 @@ args()
 			--no-prompt|-np) noPrompt="true";;
 			--no-run|-nr) noRun="true";;
 			--no-prompt|-nrp) noPrompt="true";;
+			--prompt|-p) forcePrompt="true";;
 			--quiet|-q) quiet="true";;
 			--select|-s) select="--select";;
 			*)
@@ -147,7 +149,7 @@ InstallApps()
 {
 	local prompt; 
 
-	(( $# > 1 )) && prompt="true"
+	( [[ $forcePrompt ]] || (( $# > 1 )) ) && prompt="true"
 	[[ $noPrompt ]] && prompt=
 
 	while (($# != 0 )); do
@@ -210,8 +212,6 @@ MacStoreAppInstall()
 
 	printf "**************************************************\n* $name\n**************************************************\n"
 	run "$id" || return
-
-	MacAppConfigure "$name" || return
 }
 
 IsMacStoreId() { IsPlatform mac && IsInteger "$1"; }
@@ -346,12 +346,14 @@ DoRunDmg()
 		sudo installer -pkg "/Volumes/install/Install.mpkg" -target /
 	elif ls /Volumes/install/*.pkg >& /dev/null; then
 		sudo installer -pkg /Volumes/install/*.pkg -target /
-	else
+	elif ask "Install $p"; then
 		shopt -s nullglob; local app=(/Volumes/install/*.app);  
 		[[ ! "$app" ]] && { EchoErr "inst: \"$p\" does not contain an application"; return 1; }
 		local dir; GetFileName "$app" dir || return
 		[[ -d "$P/$dir" ]] && return 0
 		sudo acp --recursive --progress-bar "$app" "$P"
+	else
+		pause "When the installation is finished, press any key to continue..."
 	fi
 
 	echo "Updating Spotlight..."
@@ -568,6 +570,8 @@ AppCore()
 {
 	printf "**************************************************\n* Core Applications\n**************************************************\n"
 
+	forcePrompt="true"
+
 	printf "\nInstalling common applications...\n"
 	# install order:
 	# 1) browser - enter passwords
@@ -600,7 +604,7 @@ AppHostHardwareCore()
 
 	printf "\nInstalling $HOSTNAME hardware...\n"
 	case "$HOSTNAME" in
-		bean) i LogitechOptions || return;;
+		bean|jane) i LogitechOptions || return;;
 		jjbutare-mobl) i MsiMotherboard $pc || return;;
 		oversoul) i GigabyteMotherboard $pc || return;;
 		ultron) i GigabyteMotherboard $pc || return;;
@@ -609,12 +613,12 @@ AppHostHardwareCore()
 
 AppHostCore()
 {
-	local common="CleanMyPc DropBox GreenShot office sonos StandardNotes"
+	local common="CleanMyPc Dropbox GreenShot office sonos StandardNotes"
 
 	printf "\nInstalling $HOSTNAME applications...\n"
 
 	case "$HOSTNAME" in
-		bean) i $common ParallelsDesktop || return;;
+		bean|jane) i $common ParallelsDesktop || return;;
 		jjbutare-mobl1) i $common DuetDisplay todoist thunderbird VmwareWorkstation || return;;
 		jjbutare-wvm1) i UniFiController || return;;
 		oversoul) i $common iCloud Quicken todoist thunderbird VmwareWorkstation || return;;
@@ -1143,7 +1147,7 @@ pGina()
 	pGina profile restore default || return
 }
 
-DropBox()
+DropboxInstall()
 {
 	printf "**************************************************\n* DropBox\n**************************************************\n"
 
@@ -1153,43 +1157,48 @@ DropBox()
 	local v=86.4.146
 	run "Dropbox/setup/" -p "Dropbox $v Offline Installer.exe" "Dropbox $v.dmg" "dropbox_2019.02.14_amd64.deb" /S || return
 
-	DropBoxFinal || return
-
 	if ask 'Do you want to configure Dropbox'; then
-		echot "\
-	- Dropbox, Preferences...,
-	  - General
-			- (win) uncheck Start Dropbox on system startup
-			- (win) check Show Dropbox as a save location in Microsoft Office
-	  - Notifications, uncheck Edits to files
-	  - Sync, Slective Sync, uncheck large
-	- (win) [Ctrl] Print Screen, No, Thanks
-	- Explorer
-		- Dropbox, Include in Library, Documents
-		-  Libraries, Documents, Library Tools, Manage, Manage library
-	  	- Move Up (to top), Set as default save location
-	  - View, List"
-		DropBox startup
+		if IsPlatform win; then
+			echot "\
+		- Dropbox, Preferences...,
+		  - General
+				- uncheck Start Dropbox on system startup
+				- check Show Dropbox as a save location in Microsoft Office
+		  - Notifications, uncheck Edits to files
+		  - Sync, Slective Sync, uncheck large
+		- [Ctrl] Print Screen, No, Thanks
+		- Explorer
+			- Dropbox, Include in Library, Documents
+			-  Libraries, Documents, Library Tools, Manage, Manage library
+		  	- Move Up (to top), Set as default save location
+		  - View, List"
+		else
+			echot "\
+		- Dropbox, Preferences...,
+		  - Notifications, uncheck Edits to files
+		  - Sync, Slective Sync, Choose folders, uncheck large"
+		fi
+		dropbox startup
 		IsPlatform win && start explorer "$udoc"
 	fi
+
+	DropboxFinal || return
 }
 
-DropBoxFinal()
+DropboxFinal()
 {
 	local company="Juntos Holdings" user="John Butare"
 
-	! IsPlatform win && return
+	if IsPlatform win; then
+		mergeDir "$up/Dropbox" "$up/Applications/Other" || return
+		$rm "$up/Startup/Dropbox.lnk" || return
+		$rm "$ud/Dropbox.lnk" "$ud/$company Dropbox.lnk" || return
 
-	echo "Updating icons..."
-	mergeDir "$up/Dropbox" "$up/Applications/Other" || return
-	$rm "$up/Startup/Dropbox.lnk" || return
-	$rm "$ud/Dropbox.lnk" "$ud/$company Dropbox.lnk" || return
-
-	echo "Updating registry..."	
-	$registry set "HKCU/SOFTWARE/Classes/CLSID/{E31EA727-12ED-4702-820C-4B6445F28E1A}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return
-	$registry 32 delete "run/Dropbox" # "C:\Program Files (x86)\Dropbox\Client\Dropbox.exe" /systemstartup
-
-	makeLink "$WIN_HOME/$company Dropbox/$user" ~/Dropbox || return
+		$registry set "HKCU/SOFTWARE/Classes/CLSID/{E31EA727-12ED-4702-820C-4B6445F28E1A}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return
+		$registry 32 delete "run/Dropbox" # "C:\Program Files (x86)\Dropbox\Client\Dropbox.exe" /systemstartup
+	else
+		 makeLink "$HOME/$company Dropbox/$user" "$HOME/Dropbox" || return
+	fi
 }
 
 vscode() { VisualStudioCode; }

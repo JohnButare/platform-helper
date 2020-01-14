@@ -59,8 +59,6 @@ pathCommand()
 
 RenameComputerCommand()
 {
-	! InPath hostnamectl && ! IsPlatform win && return
-
 	local newName
 	read -p "Enter computer name: " newName; echo
 	[[ ! $newName ]] && return
@@ -68,7 +66,7 @@ RenameComputerCommand()
 	! IsPlatform win && InPath hostnamectl && { hostnamectl set-hostname $newName; return; }
 
 	case "$PLATFORM" in
-		mac) sudo scutil --set HostName $newName || return;;
+		linux|mac) sudo hostname -s $newName;;
 		win) elevate RunScript --pause-error powershell.exe Rename-Computer -NewName "$newName";;
 	esac
 
