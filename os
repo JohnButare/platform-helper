@@ -67,7 +67,7 @@ RenameComputerCommand()
 
 	case "$PLATFORM" in
 		linux|mac) sudo hostname -s $newName;;
-		win) elevate RunScript --pause-error powershell.exe Rename-Computer -NewName "$newName";;
+		win) elevate RunScript --pause-error "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" Rename-Computer -NewName "$newName";;
 	esac
 
 	return $?
