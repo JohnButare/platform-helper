@@ -909,9 +909,9 @@ if [[ -f "$P/Git/cmd/git.exe" ]]; then
 	#git() { "$P/Git/cmd/git.exe" "$@"; }
 fi
 
-IsVm() { FindInPath virt-what && [[ "$(sudo virt-what)" != "" ]]; }
-IsVmwareVm() { FindInPath virt-what && [[ "$(sudo virt-what)" == "vmware" ]]; }
-IsHypervVm() { FindInPath virt-what && [[ "$(sudo virt-what)" == "hyperv" ]]; }
+IsVm() { InPath virt-what && [[ "$(sudo virt-what)" != "" ]]; }
+IsVmwareVm() { InPath virt-what && [[ "$(sudo virt-what)" == "vmware" ]]; }
+IsHypervVm() { InPath virt-what && [[ "$(sudo virt-what)" == "hyperv" ]]; }
 
 IsDesktop()
 {
