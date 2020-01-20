@@ -66,7 +66,8 @@ RenameComputerCommand()
 	! IsPlatform win && InPath hostnamectl && { hostnamectl set-hostname $newName; return; }
 
 	case "$PLATFORM" in
-		linux|mac) sudo hostname -s $newName;;
+		linux) sudo hostname -s $newName;;
+		mac) sudo scutil --set HostName $newName;;
 		win) elevate RunScript --pause-error "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" Rename-Computer -NewName "$newName";;
 	esac
 
