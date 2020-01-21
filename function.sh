@@ -132,6 +132,17 @@ packageu() # package uninstall
 	IsPlatform mac && { brew remove -y "$@"; return; }	
 }
 
+packages() # install list of packages, assuming each is in the path
+{
+	local p
+
+	for p in "$@"; do
+		! InPath "$p" && { package "$p" || return; }
+	done
+
+	return 0
+}
+
 #
 # Other
 #
@@ -533,6 +544,7 @@ PuttyAgent() { start pageant "$HOME/.ssh/id_rsa.ppk"; }
 #
 
 ActualUser() { echo "${SUDO_USER-$USER}"; }
+UserExists() { getent passwd "$1" >& /dev/null; }
 
 FullName() 
 { 
