@@ -887,19 +887,31 @@ nodeInstalled() { InPath node; }
 
 NodeJsInstall()
 {	
-	printf "**************************************************\n* Node.js\n**************************************************\n"
+	local v="12"
+
+	printf "**************************************************\n* Node.js v$v\n**************************************************\n"
 
 	# https://nodejs.org/en/download/
-	if [[ "$PLATFORM" == "linux" ]] && ! InPath node ; then
-		curl -sL https://deb.nodesource.com/setup_12.x | sudo -E bash || return
+	if [[ "$PLATFORM" == "linux" ]] && ( ! InPath node || ! node --version | grep v12 >& /dev/null); then
+		echo "Installing node v$v..."
+		curl -sL https://deb.nodesource.com/setup_$v.x | sudo -E bash || return # get node version 10.x
 		package nodejs || return
 	fi
 
 	[[ ! -f ~/.npmrc ]] && { touch ~/.npmrc || return; }
 
+	echo "Installing core node packages..."
 	InPath nodemon || { $sudo npm install -g nodemon || return; }
+
+	echo "Updating npm..."
 	$sudo npm install -g npm@latest || return
 	$sudo npm update -g || return
+
+	echo "Rebuilding packages..."
+	cd "$(sudo npm -g prefix)/lib/node_modules" || return
+	sudo npm rebuild --unsafe-perm || return
+
+	return 0
 }
 
 WinampInstall()
@@ -1192,6 +1204,7 @@ DropboxFinal()
 	if IsPlatform win; then
 
 		mergeDir "$up/Dropbox" "$up/Applications/Other" || return
+		mergeDir "$pp/Dropbox" "$pp/Applications/Other" || return
 		$rm "$up/Startup/Dropbox.lnk" || return
 		$rm "$ud/Dropbox.lnk" "$ud/$company Dropbox.lnk" || return
 
@@ -3345,7 +3358,7 @@ Geekbench()
 	
 	# https://www.geekbench.com/
 	local v=5.1.0
-	run "shareware/Geekbench/" -p "Geekbench-$v-WindowsSetup.exe" "Geekbench-$v-Mac.zip" "Geekbench-$v-Linux.tar.gz" || return 
+	run "shareware/Geekbench/" -p "Geekbench-$v-WindowsSetup.exe" "Geekbench-$v-Mac.zip" "Geekbench-$v-Linux.tar.gz" --elevate || return 
 
 	if IsPlatform win; then
 		echo "Updating icons..."
@@ -3877,34 +3890,34 @@ xQuartzInstall()
 
 homebridge()
 {
+	local plugins="homebridge-node-alarm-dot-com homebridge-dyson-link homebridge-neato homebridge-vera homebridge-webos-tv homebridge-wol homebridge-zp"
+
 	printf "**************************************************\n* Homebridge\n**************************************************\n"
+
 	! nodeInstalled && { i nodejs || return; }
 	
 	if ! InPath homebridge; then
 		echo "Installing homebridge..."
 		sudo npm install -g --unsafe-perm homebridge homebridge-config-ui-x || return
-		ask "Install other packages" && { sudo npm install -g homebridge-node-alarm-dot-com homebridge-dyson-link homebridge-neato homebridge-vera homebridge-webos-tv homebridge-wol homebridge-zp || return; }
-		# TODO: homebridge-platform-ring-video-doorbell causes errors
 	fi
 
-	if [[ ! -f /etc/init.d/homebridge ]]; then
-		echo "Configuring service..."
-		scp oversoul:~/Dropbox/systems/homebridge/$HOSTNAME/homebridge /tmp
-		sudo mv /tmp/homebridge /etc/init.d || return
-		sudo chmod 755 /etc/init.d/homebridge || return
-		sudo update-rc.d homebridge defaults || return
+	packages g++ gcc make python || return
+
+	if ! [[ -f /etc/systemd/system/homebridge.service ]]; then
+		sudo hb-service install --user homebridge || return
 	fi
 
-	if [[ ! -f ~/config.json ]]; then
-		echo "Configuring homebridge..."
-		makeDir ~/.homebridge || return
-		scp oversoul:~/Dropbox/systems/homebridge/$HOSTNAME/config.json ~/.homebridge || return
+	if ! [[ -e ~/.homebridge ]]; then
+		echo "Linking ~/.homebridge to /var/lib/homebridge to enable $USER to run homebridge from the command line..."
+		ln -s -T /var/lib/homebridge ~/.homebridge
 	fi
 
 	if ask "Configuring Wake On Lan plugin"; then
 		InPath setcap && { sudo setcap cap_net_raw=pe /usr/bin/node || return; }
 		[[ -f /sbin/shutdown ]] && { sudo chmod +s /sbin/shutdown || return; }
 	fi
+
+	ask "Install other packages" && { sudo npm install -g $plugins || return; }
 	
 	return 0
 }
