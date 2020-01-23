@@ -4,7 +4,7 @@
 usage()
 {
 	echot "\
-usage: os <command>[environment|FindInfo|lock|store|SystemProperties]
+usage: os <command>[environment|FindInfo|lock|store|RenameComputer|SystemProperties]
 	index: index [options|start|stop|demand](options)
 	path [show|edit|editor|set [AllUsers]](editor)"
 	exit $1
