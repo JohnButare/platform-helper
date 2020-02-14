@@ -885,6 +885,8 @@ GetTextEditor()
 	EchoErr "No text editor found"; return 1;
 }
 
+export EDITOR="$(GetTextEditor)"
+
 TextEdit()
 {
 	local file files=() p="" start="start"
