@@ -3900,7 +3900,7 @@ xQuartzInstall()
 
 homebridge()
 {
-	local plugins="homebridge-node-alarm-dot-com homebridge-dyson-link homebridge-neato homebridge-vera homebridge-webos-tv homebridge-wol homebridge-zp"
+	local plugins="homebridge-neato homebridge-vera homebridge-webos-tv"
 
 	printf "**************************************************\n* Homebridge\n**************************************************\n"
 
@@ -3908,11 +3908,20 @@ homebridge()
 	
 	if ! InPath homebridge; then
 		echo "Installing homebridge..."
-		sudo npm install -g --unsafe-perm homebridge homebridge-config-ui-x || return
+		sudo npm install -g --unsafe-perm homebridge homebridge-config-ui-x homebridge-script homebridge-wol || return
 	fi
 
 	packages g++ gcc make python || return
 
+	RunPlatform homebridge || return
+
+	ask "Install other packages" && { sudo npm install -g $plugins || return; }
+	
+	return 0
+}
+
+homebridgeRaspbian()
+{
 	if ! [[ -f /etc/systemd/system/homebridge.service ]]; then
 		sudo hb-service install --user homebridge || return
 	fi
@@ -3927,8 +3936,23 @@ homebridge()
 		[[ -f /sbin/shutdown ]] && { sudo chmod +s /sbin/shutdown || return; }
 	fi
 
-	ask "Install other packages" && { sudo npm install -g $plugins || return; }
+	if ! grep "/usr/local/data/bin" /etc/default/homebridge >& /dev/null && ask "Configuring SSH plugin"; then
+		printf "\n"'export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/data/bin"' | sudo tee -a /etc/default/homebridge
+	fi
+
+	if ask "Change homebridge password"; then
+		sudo passwd homebridge || return
+	fi
 	
+	if [[ ! -d ~homebridge/.ssh ]] && ask 'Enable passwordless ssh for homebridge account (for homebridge-ssh and homebridge-script)'; then
+		sudo mkdir ~homebridge/.ssh || return
+		sudo cp ~/.ssh/known_hosts ~/.ssh/id_ed25519 ~/.ssh/id_rsa ~homebridge/.ssh || return
+		sudo chown homebridge ~homebridge/.ssh/known_hosts ~homebridge/.ssh/id_ed25519 ~homebridge/.ssh/id_rsa || return
+		sudo ssh-keygen -p -N '' -f ~homebridge/.ssh/id_ed25519 || return
+		sudo ssh-keygen -p -N '' -f ~homebridge/.ssh/id_rsa || return
+		su homebridge -c 'ssh '$USER'@'$HOSTNAME' ls > /dev/null' || return
+	fi
+
 	return 0
 }
 
