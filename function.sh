@@ -122,7 +122,8 @@ package()
 { 
 	IsPlatform debian && { sudo apt-get install -y "$@"; return; }
 	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
-	IsPlatform mac && { brew install "$@"; return; }	
+	IsPlatform mac && { brew install "$@"; return; }
+	IsPlatform dsm && { sudo ipkg install "$@"; return; }
 }
 
 packageu() # package uninstall
@@ -130,6 +131,7 @@ packageu() # package uninstall
 	IsPlatform debian && { sudo apt-get remove -y "$@"; return; }
 	IsPlatform cygwin && { apt-cyg remove -y "$@"; return; }
 	IsPlatform mac && { brew remove -y "$@"; return; }	
+	IsPlatform dsm && { sudo ipkg uninstall "$@"; return; }
 }
 
 packages() # install list of packages, assuming each is in the path
