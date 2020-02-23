@@ -4,43 +4,38 @@
 usage()
 {
 	echot "\
-usage: HostUtil available|boot|connect|info|start|ip
-	available	<host>						check if host is available, use fully qualified DNS 
-															host name to avoid name resolution lookup time
-	boot <host>|(<ip> <mac>)		boot the host
-	connect <host>|(<ip> <mac>)	boot and remote control the host
-	file cd|view|edit|update		manipulate the local host name files
-	info <host> [<var>]		 			get host information, variables are
-		${fields[*]}
-	start <host> <program>			start a program on host using ssh or psexe
-	version							display host information
-	-e, --eval									return variables to evaluate
-	-t, --timeout								milliseconds to wait for the host, default 500
-	-w, --wait [seconds](120)		wait for the host to become available 
-	-q, --quiet									minimize messages"
+usage: HostUtil available|boot|file|name|version
+	available	<host>							check if host is available, use fully qualified DNS host name to avoid local name resolution delay
+	boot <host|mac>								boot the host, if hostname requires an entry in /etc/ethers
+	file cd|view|edit|update			manipulate the local host name files
+	version												display host information
+	-e, --eval										return variables to evaluate
+	    --ssh											wait for an ssh connection
+	-t, --timeout <milliseconds>	milliseconds to wait for a response from the host
+	-w, --wait [120] 							wait seconds for the host to become available"
 	exit $1
 }
 
 init() 
 {
-	unset command host quiet wait
-	fields=(host network sleep backup mobile install virtual platform port wake ips macs)
-	fieldDefaults=(- - no no no no no - yes no -)
-	timeout=(--timeout 500)
+	unset command host ssh timeoutMilliseconds wait
+	timeoutMilliseconds=500
 }
 
 args()
 {
+	local waitDefault="120"
+
 	while [ "$1" != "" ]; do
 		case "$1" in
 			--eval|-e) eval="true";;
 			--help|-h) usage 0;;
-			--timeout|-t) timeout=(--timeout $2); shift;;
-			--quiet|-q) quiet=(--quiet);;
-			--wait|-w) IsInteger $2 && { wait=(--wait $2); shift; } || wait=(--wait 120);;
+			--ssh) ssh="true"; [[ ! $wait ]] && wait="$waitDefault";;
+			--timeout|-t) ! IsInteger $2 && usage; timeoutMilliseconds="$2"; shift;;
+			--wait|-w) IsInteger $2 && { wait="$2"; shift; } || wait="$waitDefault";;
 			*) 
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				! IsOption "$1" && [[ ! $host && "$command" == @(available|boot|connect|info|name|start) ]] && { GetHostArg "$@"; shift; continue; }	
+				! IsOption "$1" && [[ ! $host && "$command" == @(available|boot|name) ]] && { GetHostArg "$@"; shift; continue; }	
 	 			[[ "$command" == @(file|info|start) ]] && break
 				UnknownOption "$1"
 		esac
@@ -57,28 +52,33 @@ GetHostArg()
 	host="${1,,}"
 }
 
-GetMacAddressArg()
-{
-	[[ $# == 0 ]] && MissingOperand "mac address"
-	mac="$1"
-}
-
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
 
 availableCommand()
 {
-	case "$host" in
-		butare.net) return 0
-	esac
+	local found
 
 	AvailableCheck && { AvailableReturn; return 0; }
 	[[ ! $wait ]] && return 1
 
-	PrintErr "Waiting ${wait[1]} seconds for $host..."
+	PrintErr "Waiting $wait seconds for $host..."
 
-	for (( i=1; i<=${wait[1]}; ++i )); do
+	for (( i=1; i<=$wait; ++i )); do
  		read -n 1 -t 1 -s && { EchoErr "cancelled after $i seconds"; return 1; }
-		AvailableCheck && { EchoErr "found in $i seconds"; AvailableReturn; return 0; }
+
+		if [[ $found ]]; then
+			if ssh "$host" "ls /" >& /dev/null; then
+				EchoErr "ssh connected in $i seconds"
+				AvailableReturn
+				return 0
+			fi
+
+		elif AvailableCheck; then
+			PrintErr "found in $i seconds"
+			[[ ! $ssh ]] && { AvailableReturn; EchoErr; return 0; }
+			found="true"
+		fi
+
 		PrintErr "."
 	done
 
@@ -86,183 +86,17 @@ availableCommand()
 	return 1
 }
 
-AvailableCheck() { CheckHost $host ${timeout[1]}; }
+AvailableCheck() { pingTime="$(PingResponse $host $timeoutMilliseconds)"; }
 AvailableReturn() { [[ $eval ]] && ScriptReturn pingTime; }
-
-# CheckHost HOST TIMEOUT, sets pingTime - check if HOST is available minimizing the time taken
-#	if the hostname is not found, or if the hostname is found and the host is not available
-CheckHost()
-{
-	local host="$1" timeout="$2" timeoutIncrease=0 ip port platform
-	unset pingTime 
-
-	case "$host" in
-		ExampleHostNeedingExtraPingTime) timeoutIncrease=200;;
-	esac
-	(( timeout += $timeoutIncrease ))
-
-	if ! IsIpAddress "$host" && ScriptEval HostUtil info $host && [[ "$network" == "Wiggin" ]]; then
-		host="${ips[0]}"
-	fi
-
-	# Mac's respond to ping when asleep if any sharing services are enabled
-	{ ! IsInteger "$port" && [[ "$platform" == "mac" ]] ; } && port=88
-
-	if IsInteger "$port"; then
-		! ConnectToPort $host $port $timeout && return 1
-		[[ ! $eval ]] && return 0
-	fi
-
-	pingTime="$(PingResponse $host $timeout)"
-}
-
-CheckHostWin()
-{
-	local pingResult
-
-	if IsInteger "$port"; then
-		ConnectToPort $host $port $(( timeout * 2 )) || return 1
-		[[ $eval ]] && PingWin "$host"
-	else
-		# two checks increase reliability over a shorter timeout
-		local pingHost="$host" result; [[ $ip ]] && pingHost="$ip"	
-		PingWin "$pingHost"; [[ "$pingResult" == "Request timed out." ]] && PingWin "$pingHost" 
-		[[ "$pingResult" == @(|Request timed out.) ]] && return 1
-	fi
-	return 0
-}
-
-PingWin()
-{
-	local timeoutCheck="^Request timed out.$" successCheck="^Reply from .*time(=|<).*$" 
-	pingResult="$(ping -n 1 -w $timeout $host |& egrep "$timeoutCheck|$successCheck")"
-	pingTime="${pingResult#*time@(=|<)}"; pingTime="${pingTime%ms *}"
-}
-
-nameCommand()
-{
-	case "$host" in
-		$HOSTNAME) echo "${host}"; return 0;;
-		nas1) echo "nas1"; return 0;; 
-		nas2) echo "nas2"; return 0;; 
-	esac
-
-	infoCommand > /dev/null && { echo "${host%w}"; return 0; } # remove wireless nomenclature (w at end) for HostInfo.txt
-
-	quiet=(--quiet)
-	name="$(startCommand hostname)"
-	[[ ! $name ]] && name="$host"
-	name="${name,,}" # remove spaces
-	name="${name%%\.*}" # remove DNS suffix
-	echo "$name"	
-}
-
-startCommand()
-{
-	availableCommand || { [[ ! $quiet ]] && echo "$host is not available"; return 1; }
-
-	if ConnectToPort $host 22 $(( ${timeout[1]}*3 )) ; then
-		ssh $host "$@"
-	else
-		platform="$(infoCommand platform)"
-		[[ "$platform" == "win" ]] && psexec '\\'$host "$@" 2> /dev/null
-	fi
-}
-
-infoCommand()
-{
-	local field
-
-	(( $# > 0 )) && { field="$1"; shift; GetInfoFieldIndex "$field"; fieldIndex="$?"; }
-
-	[[ $# != 0 ]] && usage 1
-
-	local file="$BIN/HostInfo.txt"
-	[[ ! -f "$file" ]] && file="$(GetBatchDir)/HostInfo.txt"
-	[[ ! -f "$file" ]] && { EchoErr "HostUtil: unable to locate HostInfo.txt"; return 1; }
-
-	line=( $(grep -i "^$host[	 ]" "$file") )
-	[[ ! $line ]] && return 1
-
-	# Specific field
-	[[ $field ]] && { GetInfoValue $fieldIndex; echo "${!field}"; return; }
-
-	# All fields
- 	for (( i=0; i<${#fields[@]}; ++i )); do GetInfoValue $i; done
- 	ScriptReturn "${fields[@]}"
-}
-
-GetInfoValue() # GetInfoValue index - uses fields, fieldDefaults, line[], sets the field name
-{
-	local index="$1" 
-	local field="${fields[$index]}"
-	eval ${field}="${line[$index]}"
-
-	case "$field" in
-		ips|macs) IFS='-' read -r -a $field <<< "${!field}";;
-		*) [[ "$value" == "-" ]] && $field="${fieldDefaults[$index]}";;
-	esac
-}
-
-GetInfoFieldIndex()
-{
-	IsInArray "$1" fields && return $isInIndex
-	EchoErr "$field is not a valid variable.  Valid variables are ${fields[@]}"; exit 1;
-}
-
-connectCommand()
-{
-	if ! HostUtil available "$host" && [[ "$(HostUtil info "$host" macs)" != "" ]]; then
-		HostUtil boot "$host" --wait 30 || return
-	fi
-	
-	# [[ "$(HostUtil info "$host" platform)" == "win" ]] && ConnectWindows || ConnectOther
-	ConnectWindows
-}
-
-ConnectOther() { echo VisionApp "$host"; }
-
-ConnectWindows()
-{
-	local suffix="Remote Desktop/$host.rdp" rdp
-
-	if [[ -f "$UDATA/$suffix" ]]; then
-		rdp="$UDATA/$suffix"
-	elif [[ -f "$CLOUD/data/$suffix" ]]; then
-		rdp="$CLOUD/data/$suffix"
-	fi
-
-	if [[ $rdp ]]; then
-		start "$rdp"
-	else
-		start mstsc /f /v:$host
-	fi
-}
 
 bootCommand()
 {
-	local ip="$host" mac subNet=255.255.255.0
-
-	IsIpAddress "$host" && { GetMacAddressArg "$1"; shift; }
 	[[ $# != 0 ]] && UnknownOption "$1"
 
- 	HostUtil available "$host" && { echo "Host $host is already awake"; return; }
-
-	if [[ ! $mac ]]; then
-		ScriptEval HostUtil info "$host" && { ip="${ips[0]}"; mac="${macs[0]}"; }
-	fi
-
-	[[ ! $mac ]] && { MissingOperand "mac address"; }
-
- 	echo "Sending wakeup packet to $host..."
- 	if InPath wakeonlan; then
-		wakeonlan "${mac:0:2}:${mac:2:2}:${mac:4:2}:${mac:6:2}:${mac:8:2}:${mac:10:2}" || return # 00113217a755
-	elif InPath PowerOff; then
-		start PowerOff.exe wol -ip "$ip" -subnet "$subNet" -mac "$mac" || return
-	else
-		EchoErr "Unable to wakeup $host, no wakeup program found"
-		return 1
-	fi
+ 	HostUtil available --timeout $timeoutMilliseconds "$host" && { echo "Host $host is already awake"; return; }
+ 	power wake "$host" || return
+	[[ ! $wait ]] && return 0
+	availableCommand
 }
 
 fileCommand()
@@ -275,6 +109,20 @@ fileCommand()
 
 FileCdCommand() { echo "$hostFileDir"; }
 FileEditCommand() {	sudo edit "$hostFileDir/hosts"; }
+
+nameCommand()
+{
+	case "$host" in
+		$HOSTNAME) echo "${host}"; return 0;;
+		nas1) echo "nas1"; return 0;; 
+	esac
+
+	name="$(ssh $host hostname)"
+	[[ ! $name ]] && name="$host"
+	name="${name,,}" # remove spaces
+	name="${name%%\.*}" # remove DNS suffix
+	echo "$name"	
+}
 
 versionCommand() {  RunPlatform version || return; }
 

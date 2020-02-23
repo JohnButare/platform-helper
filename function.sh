@@ -134,6 +134,13 @@ packageu() # package uninstall
 	IsPlatform dsm && { sudo ipkg uninstall "$@"; return; }
 }
 
+packagel() # package list
+{ 
+	IsPlatform debian && { apt-cache search  "$@"; return; }
+	IsPlatform mac && { brew search "$@"; return; }	
+	IsPlatform dsm && { sudo ipkg list "$@"; return; }
+}
+
 packages() # install list of packages, assuming each is in the path
 {
 	local p
@@ -564,6 +571,7 @@ FullName()
 #
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }
 GetInterface() { ifconfig | head -1 | cut -d: -f1; }
+GetBroadcastAddress() { ifconfig | head -2 | tail -1 | awk '{ print $6; }'; }
 
 GetPrimaryIpAddress() # GetPrimaryIpAddres [INTERFACE] - get default network adapter
 {
@@ -597,6 +605,13 @@ IsIpAddress() # IP
 PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
 { 
 	local host="$1" timeout="${2-200}"
+
+	# Windows notes
+	# - ping and fping do not timeout quickly for unresponsive hosts in Windows OS Build 19041.84 Ubuntu 18.04.4
+	# - timeout is somewhat low for times under 3000ms, and does not delay longer than 3000ms even if set higher
+	if IsPlatform win; then
+		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null || return
+	fi
 
 	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
