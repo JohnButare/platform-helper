@@ -51,7 +51,7 @@ function GetPlatform()
 	local results host="$1" cmd='echo platform=$(uname); echo kernel=\"$(uname -r)\"; [[ -f /etc/os-release ]] && cat /etc/os-release; [[ -f /var/sysinfo/model ]] && echo ubiquiti=true; [[ -f /proc/syno_platform ]] && echo synology=true && [[ -f /bin/busybox ]] && echo busybox=true'
 
 	if [[ $host ]]; then
-		#HostUtil available $host || { EchoErr "$host is not available"; return 1; } # adds .5s
+		#IsAvailable $host || { EchoErr "$host is not available"; return 1; } # adds .5s
 		results="$(ssh ${host,,} "$cmd")" ; (( $? > 1 )) && return 1
 	else
 		results="$(eval $cmd)"
@@ -525,6 +525,7 @@ QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces
 RemoveBackslash() { echo "${@//\\/}"; }
 RemoveCarriageReturn()  { sed 's/\r//g'; }
+RemoveSpace() { echo "${@// /}"; }
 
 GetWord() 
 { 
@@ -569,6 +570,9 @@ FullName()
 #
 # network
 #
+
+RemoveDnsSuffix() { echo "${1%%.*}"; }
+IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }
 GetInterface() { ifconfig | head -1 | cut -d: -f1; }
 GetBroadcastAddress() { ifconfig | head -2 | tail -1 | awk '{ print $6; }'; }
@@ -602,13 +606,26 @@ IsIpAddress() # IP
   (( ${ip[0]}<255 && ${ip[1]}<255 && ${ip[2]}<255 && ${ip[3]}<255 ))
 }
 
+IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
+{ 
+	local host="$1" timeout="${2-200}"
+
+	if IsPlatform win; then
+		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null
+	elif InPath fping; then
+		fping -r 1 -t "$timeout" -e "$host" &> /dev/null
+	else
+		ping -c 1 -W 1 "$host"  &> /dev/null # -W timeoutSeconds
+	fi
+}
+
 PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
 { 
 	local host="$1" timeout="${2-200}"
 
-	# Windows notes
-	# - ping and fping do not timeout quickly for unresponsive hosts in Windows OS Build 19041.84 Ubuntu 18.04.4
-	# - timeout is somewhat low for times under 3000ms, and does not delay longer than 3000ms even if set higher
+	# Windows - ping and fping do not timeout quickly for unresponsive hosts in Windows OS Build 19041.84 Ubuntu 18.04.4,
+	#  so check for no response first using ping.exe which does not have this limitation.  The actual timeout is somewhat
+	#  low for times under 3000ms, and does not delay longer than 3000ms even if set higher.
 	if IsPlatform win; then
 		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null || return
 	fi
@@ -650,10 +667,25 @@ GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$
 [[ "$TABS" == "" ]] && TABS=2
 
 clear() { echo -en $'\e[H\e[2J'; }
-EchoErr() { echo "$@" > /dev/stderr; }
+
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
+
+SleepStatus() # SleepStatus SECONDS
+{
+	printf "Waiting for $1 seconds..."
+	for (( i=1; i<=$1; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
+		printf "."
+	done
+
+	echo "done"
+}
+
+# error output
+EchoErr() { echo "$@" > /dev/stderr; }
 PrintErr() { printf "$@" > /dev/stderr; }
 #ShowErr() { eval "$@" 2> >(sed 's/^/stderr: /') 1> >(sed 's/^/stdout: /'); } # error under Synology DSM
+
 
 # display tabs
 catt() { cat $* | expand -t $TABS; } 							# CatTab

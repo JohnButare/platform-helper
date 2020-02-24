@@ -4,87 +4,335 @@
 usage()
 {
 	echot "\
-usage: power hibernate|sleep|reboot|shutdown|wake
-	System power
-	fix info|sleep|wake		examine issues preventing computer sleep or wake"
+usage: power on|off|reboot|sleep|hibernate|status [host] [port]
+	Control host or PoE switch port power state.  
+	Use fully qualified domain name for host name to avoid local name resolution delay.
+	Turn turn a host on it must have an entry in /etc/ethers to get the MAC address.
+
+	status								report the status of the host or PoE switch (on or off)
+	fix info|sleep|wake		examine issues preventing computer sleep or wake
+
+
+	-t, --timeout [500]	milliseconds to wait for a response from the host
+											 shorter times are more responsive but may result in
+											 false off state detection
+	-w, --wait [120] 		seconds for the host to change state
+			--wait-ssh			wait for an ssh connection"
 	exit $1
 }
 
-init() { :; }
+# sleep and hibernate systemctl suspend and systemctl hibernate
 
 args()
 {
+	unset host poeSwitchDefault port switch timeoutMilliseconds waitDefault waitSeconds waitSsh
+
+	timeoutMilliseconds=500
+	waitDefault=120
+	poeSwitchDefault="StudyDeskPoeSwitch"
+
 	while [ "$1" != "" ]; do
 		case "$1" in
-			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			--help|-h) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			--timeout|-t) ! IsInteger $2 && usage; timeoutMilliseconds="$2"; shift;;
+			--wait|-w) IsInteger $2 && { waitSeconds="$2"; shift; } || waitSeconds="$waitDefault";;
+			--wait-ssh) waitSsh="true"; [[ ! $waitSeconds ]] && waitSeconds="$waitDefault";;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(fix|wake) ]] && break
+				[[ ! $port ]] && IsInteger $1 && { port="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $host && "$command" == @(on|off|sleep|reboot|status) ]] && { host="${1,,}"; shift; continue; }	
+				[[ "$command" == @(fix) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
 	done
+
+	# ensure command was specified
 	[[ ! $command ]] && MissingOperand "command"
+
+	# set default host for a PoE switch port
+	[[ $port && ! $host ]] && host="$poeSwitchDefault"
+
 	args=("$@")
 }
 
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
-
-wakeCommand() { wakeonlan -i $(GetBroadcastAddress) "$1"; } # $1 must be a MAC address or a host in /etc/ethers
-
-sleepCommand()
+init()
 {
-	echo "Issuing sleep..."
-	case "$PLATFORM" in
-		mac) 
-			#pmset sleepnow;;
-			#osascript -e 'tell application "Finder" to sleep';;
-			#"/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession" -suspend
-			osascript -e 'tell application "System Events" to sleep';;
-		win) start psshutdown -d -t 0;;
-		linux) sudo shutdown -s now;;
-	esac
-}
+	[[ $command == @(fix|status) ]] && return 0
 
-hibernateCommand()
-{
-	echo "Issuing hibernate..."
-	case "$PLATFORM" in
-		win) shutdown /h;;
-		*) echo "not unavailable";;
-	esac
-}
+	IsLocalHost "$host" && { setLocalPower; return; }
 
-cleanup()
-{
-	vmware IsInstalled && { vmware SuspendAll || return; }
+	# if possible map hosts to a switch PoE port so we can power it up or down
+	if ! IsLocalHost "$host"; then
+		case "$host" in
+			pi6) switch="$poeSwitchDefault" port=6;;
+			pi7) switch="$poeSwitchDefault" port=7;;
+			pi1) switch="$poeSwitchDefault" port=8;;
+		esac
+	fi
+
+	# control PoE switch port only
+	if [[ $port && ! $switch ]]; then
+		case "$command" in
+			on) switchPortOn "$host" "$port"; exit;;
+			off) switchPortOff "$host" "$port"; exit;;
+			*) EchoErr "Switch ports can only be turned on or off"; return 1;;
+		esac
+	fi
+
+	# force a wait if we need to change the power state of the switch port after the host turns off
+	[[ $switch && $command == @(off|hibernate) ]] && waitSeconds="$waitDefault"
+
+	# determin the current status off the host
+	initialHostStatus="off"
+	IsAvailable $host $timeoutMilliseconds && initialHostStatus="on"
+	IsAvailable $host $timeoutMilliseconds
+	
 	return 0
 }
 
-shutdownCommand()
-{
-	cleanup || return
+run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 
-	echo "Issuing shutdown..."
-	case "$PLATFORM" in 
-		mac|linux) sudo shutdown -h now;;
-		win) start psshutdown -s -f -t 0;;
+#
+# power for local host
+# 
+
+setLocalPower()
+{
+	[[ "$command" == "on" ]] && return 0
+
+	[[ "$command" == @(off|reboot) ]] && { cleanupHost || return; }
+
+	echo "Issuing $command..."
+	logger "issuing power $command..."
+
+	case "$command" in
+
+		off)
+			if IsPlatform win; then start psshutdown -s -f -t 0; exit
+				elif IsPlatform mac; then /sbin/shutdown -h now; exit
+				elif IsPlatform raspbian; then /sbin/shutdown --poweroff now; exit
+				elif InPath systemctl; then systemctl poweroff; exit
+				elif InPath shutdown; then shutdown --poweroff now; exit
+			fi;;
+
+		sleep)
+			if IsPlatform win; then start psshutdown -d -t 0; exit
+				elif IsPlatform mac; then osascript -e 'tell application "System Events" to sleep'; exit
+				elif IsPlatform raspbian; then :
+				elif InPath systemctl; then systemctl suspend; exit
+			fi;;
+
+		reboot)
+			if IsPlatform win; then start psshutdown -r -f -t 0; exit
+				elif IsPlatform mac,raspbian; then /sbin/shutdown -r now; exit
+				elif InPath systemctl; then systemctl reboot; exit
+				elif InPath shutdown; then shutdown --reboot now; 
+			fi;;
+
+		hibernate)
+			if IsPlatform win; then start psshutdown -h -f -t 0; exit
+				elif IsPlatform mac; then /sbin/shutdown -h now; exit
+				elif IsPlatform raspbian; then :
+				elif InPath systemctl; then systemctl hibernate; exit
+			fi;;
+
 	esac
+
+	EchoErr "$desc is not supported by $host"
+	return 1
 }
+
+# run required cleanup before host goes down
+cleanupHost()
+{
+	! vmware IsInstalled && return;
+
+	echo "Running shutdown scripts..."
+	vmware SuspendAll || return
+}
+
+#
+# switch port - assumes UniFi Ubiquiti PoE switch
+#
+
+# switchPortStatus switch port - get the power status of a PoE port
+switchPortStatus()
+{ 
+	local switch="$1" port="$2"
+	ssh admin@$switch swctrl poe show id $port |& grep Auto >& /dev/null
+}
+
+# switchPortOn switch port - turn the power of a PoE port on
+switchPortOn()
+{
+	local switch="$1" port="$2"
+
+	switchPortStatus $switch $port && { echo "$switch port $port is already on"; return; }
+
+	echo "Turning $switch port $port on..."
+	ssh admin@$switch swctrl poe set auto id $port
+}
+
+# switchPortOff switch port - turn the power of a PoE port off
+switchPortOff()
+{
+	local switch="$1" port="$2"
+
+	! switchPortStatus $switch $port && { echo "$switch port $port is already off"; return; }
+
+	echo "Turning $switch port $port off..."
+	ssh admin@$switch swctrl poe set off id $port
+}
+
+#
+# power for remote host
+#
+
+# waitOn host - wait waitSeconds for host to become available
+waitOn()
+{
+	local found
+
+	( [[ ! $waitSeconds ]] || IsAvailable $host $timeoutMilliseconds) && return 0
+
+	printf "Waiting $waitSeconds seconds for $host to be available..."
+
+	for (( i=1; i<=$waitSeconds; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
+
+		if [[ $found ]]; then
+			if ssh "$host" "ls /" >& /dev/null; then
+				printf "ssh connected in $i seconds"				
+				return 0
+			fi
+
+		elif IsAvailable "$host" "$timeoutMilliseconds"; then
+			printf "found in $i seconds"
+			[[ ! $ssh ]] && { echo; return 0; }
+			found="true"
+		fi
+
+		printf "."
+	done
+
+	echo "not found"
+	return 1
+}
+
+# waitOff host - wait waitSeconds for host to disconnect from the network
+waitOff()
+{
+	( [[ ! $waitSeconds ]] || ! IsAvailable "$host" "$timeoutMilliseconds") && return 0
+
+	printf "Waiting $waitSeconds seconds for $host to disconnect..."
+
+	for (( i=1; i<=$waitSeconds; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
+
+		if ! IsAvailable "$host" "$timeoutMilliseconds"; then
+			echo "disconnected in $i seconds"
+			return 0			
+		fi
+
+		printf "."
+	done
+
+	echo "still connected"
+	return 1
+}
+
+#
+# commands
+#
+
+# statusCommand - return 0 if the host (or host PoE port) is on, and 1 if off
+statusCommand()
+{
+	local result status="on"
+
+	if [[ $port ]]; then
+		switchPortStatus $host $port
+	else
+		IsAvailable $host $timeoutMilliseconds
+	fi	
+	result=$?
+
+	[[ "$result" != 0 ]] && status="off"
+
+	if [[ $port ]]; then
+		echo "$host port $port is $status"
+	else
+		echo "$host is $status" 
+	fi
+	
+	return $result
+}
+
+onCommand() 
+{ 
+	[[ "$initialHostStatus" == "on" ]] && { echo "$host is already on"; return 0; }
+
+	# power on associated switch port if specified
+	[[ $host && $switch && $port ]] && { switchPortOn $switch $port || return; }
+
+	# Turn on host using Wake-on-LAN.  A MAC address must be specified in /etc/ethers
+	echo "Turning $host on..."
+	wakeonlan -i $(GetBroadcastAddress) "$host"
+
+	# wait for the host to power up
+	waitOn "$host" || return
+} 
+
+offCommand()
+{
+	local desc="Powering off"; [[ "$command" == "hibernate" ]] && desc="Hibernating"
+
+	if [[ "$initialHostStatus" == "on" ]]; then
+		echo "$desc $host..."
+		ssh $host "power $command"
+		waitOff "$host"
+	fi
+
+	if [[ $switch ]]; then
+		[[ "$initialHostStatus" == "on" ]] && { SleepStatus 1 || return; }
+		switchPortOff "$switch" "$port" || return
+	fi
+
+	return 0
+}
+
+hibernateCommand() { offCommand; }
 
 rebootCommand()
 {
-	cleanup || return	
-
-	echo "Issuing reboot..."
-	case "$PLATFORM" in
-		linux|mac) sudo shutdown -r now;;
-		win) start psshutdown -r -f -t 0;;
-	esac		
+	if [[ "$initialHostStatus" == "off" ]]; then
+		[[ $switch ]] && { switchPortOff "$switch" "$port" || return; }
+		onCommand; return
+	fi
+	
+	echo "Rebooting $host..."
+	ssh $host "power $command"
+	waitOn "$host"
 }
+
+sleepCommand()
+{
+	[[ "$initialHostStatus" == "off" ]] && return 0;
+
+	echo "Sleeping $host..."
+	ssh $host "power $command"
+	waitOff "$host"
+}
+
+#
+# Fix Commands
+#
 
 fixCommand()
 {
+	! IsPlatform win && return
+
 	local command; CheckSubCommand fix "$1"; shift
 	[[ $# != 0 ]] && UnknownOption "$1"
 	Fix${command}Command "$@"

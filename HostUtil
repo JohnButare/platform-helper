@@ -4,100 +4,54 @@
 usage()
 {
 	echot "\
-usage: HostUtil available|boot|file|name|version
-	available	<host>							check if host is available, use fully qualified DNS host name to avoid local name resolution delay
-	boot <host|mac>								boot the host, if hostname requires an entry in /etc/ethers
+usage: HostUtil file|name|version
 	file cd|view|edit|update			manipulate the local host name files
-	version												display host information
-	-e, --eval										return variables to evaluate
-	    --ssh											wait for an ssh connection
-	-t, --timeout <milliseconds>	milliseconds to wait for a response from the host
-	-w, --wait [120] 							wait seconds for the host to become available"
+	name <host>										get the real name of host
+	version												display host information"
 	exit $1
 }
 
-init() 
-{
-	unset command host ssh timeoutMilliseconds wait
-	timeoutMilliseconds=500
-}
 
 args()
 {
-	local waitDefault="120"
+	unset command host
 
 	while [ "$1" != "" ]; do
 		case "$1" in
-			--eval|-e) eval="true";;
 			--help|-h) usage 0;;
-			--ssh) ssh="true"; [[ ! $wait ]] && wait="$waitDefault";;
-			--timeout|-t) ! IsInteger $2 && usage; timeoutMilliseconds="$2"; shift;;
-			--wait|-w) IsInteger $2 && { wait="$2"; shift; } || wait="$waitDefault";;
-			*) 
+			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				! IsOption "$1" && [[ ! $host && "$command" == @(available|boot|name) ]] && { GetHostArg "$@"; shift; continue; }	
-	 			[[ "$command" == @(file|info|start) ]] && break
+				! IsOption "$1" && [[ ! $host && "$command" == @(name) ]] && { host="${1,,}"; shift; continue; }	
+	 			[[ "$command" == @(file) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
 	done
 	[[ ! $command ]] && MissingOperand "command"
-	[[ ! $host && "$command" == *(available|boot|connect|info|name|start) ]] && MissingOperand "host"
 	args=("$@")
 }
 
-GetHostArg()
+run() {	args "$@"; ${command}Command "${args[@]}"; }
+
+nameCommand()
 {
-	[[ $# == 0 ]] && MissingOperand "host"
-	host="${1,,}"
+	IsLocalHost "$host" && { echo "$HOSTNAME"; return 0; }
+
+	# cached names
+	case "$host" in
+		nas1) echo "nas1"; return 0;; 
+	esac
+
+	name="$(ssh $host hostname)"
+	[[ ! $name ]] && name="$host"
+	name="${name,,}" # remove spaces
+	name="${name%%\.*}" # remove DNS suffix
+	echo "$name"	
 }
 
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
-
-availableCommand()
-{
-	local found
-
-	AvailableCheck && { AvailableReturn; return 0; }
-	[[ ! $wait ]] && return 1
-
-	PrintErr "Waiting $wait seconds for $host..."
-
-	for (( i=1; i<=$wait; ++i )); do
- 		read -n 1 -t 1 -s && { EchoErr "cancelled after $i seconds"; return 1; }
-
-		if [[ $found ]]; then
-			if ssh "$host" "ls /" >& /dev/null; then
-				EchoErr "ssh connected in $i seconds"
-				AvailableReturn
-				return 0
-			fi
-
-		elif AvailableCheck; then
-			PrintErr "found in $i seconds"
-			[[ ! $ssh ]] && { AvailableReturn; EchoErr; return 0; }
-			found="true"
-		fi
-
-		PrintErr "."
-	done
-
-	PrintErr "not found"
-	return 1
-}
-
-AvailableCheck() { pingTime="$(PingResponse $host $timeoutMilliseconds)"; }
-AvailableReturn() { [[ $eval ]] && ScriptReturn pingTime; }
-
-bootCommand()
-{
-	[[ $# != 0 ]] && UnknownOption "$1"
-
- 	HostUtil available --timeout $timeoutMilliseconds "$host" && { echo "Host $host is already awake"; return; }
- 	power wake "$host" || return
-	[[ ! $wait ]] && return 0
-	availableCommand
-}
+#
+# host file
+#
 
 fileCommand()
 {
@@ -110,19 +64,9 @@ fileCommand()
 FileCdCommand() { echo "$hostFileDir"; }
 FileEditCommand() {	sudo edit "$hostFileDir/hosts"; }
 
-nameCommand()
-{
-	case "$host" in
-		$HOSTNAME) echo "${host}"; return 0;;
-		nas1) echo "nas1"; return 0;; 
-	esac
-
-	name="$(ssh $host hostname)"
-	[[ ! $name ]] && name="$host"
-	name="${name,,}" # remove spaces
-	name="${name%%\.*}" # remove DNS suffix
-	echo "$name"	
-}
+#
+# host version
+#
 
 versionCommand() {  RunPlatform version || return; }
 
