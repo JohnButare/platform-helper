@@ -610,6 +610,9 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 { 
 	local host="$1" timeout="${2-200}"
 
+	# Windows - ping and fping do not timeout quickly for unresponsive hosts in Windows OS Build 19041.84 Ubuntu 18.04.4,
+	#  so check for no response first using ping.exe which does not have this limitation.  The actual timeout is somewhat
+	#  low for times under 3000ms, and does not delay longer than 3000ms even if set higher.	
 	if IsPlatform win; then
 		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null
 	elif InPath fping; then
@@ -626,17 +629,18 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 	# Windows - ping and fping do not timeout quickly for unresponsive hosts in Windows OS Build 19041.84 Ubuntu 18.04.4,
 	#  so check for no response first using ping.exe which does not have this limitation.  The actual timeout is somewhat
 	#  low for times under 3000ms, and does not delay longer than 3000ms even if set higher.
-	if IsPlatform win; then
+	# HOLD on this for now, seems OK on rosie 2/26/2020
+	if IsPlatform win_HOLD; then
 		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null || return
-	fi
-
-	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
+	elif InPath fping; then
+		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
+		return ${PIPESTATUS[0]}
+	else
+		ping -c 1 -W 1 "$host" |& grep "time=" | cut -d" " -f 7 | tr -d 'time=' # -W timeoutSeconds
 		return ${PIPESTATUS[0]}
 	fi
 
-	ping -c 1 -W 1 "$host" |& grep "time=" | cut -d" " -f 7 | tr -d 'time=' # -W timeoutSeconds
-	return ${PIPESTATUS[0]}
 }
 
 ConnectToPort() # ConnectToPort HOST PORT [TIMEOUT](200)
