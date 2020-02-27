@@ -130,7 +130,7 @@ packageu() # package uninstall
 { 
 	IsPlatform debian && { sudo apt-get remove -y "$@"; return; }
 	IsPlatform cygwin && { apt-cyg remove -y "$@"; return; }
-	IsPlatform mac && { brew remove -y "$@"; return; }	
+	IsPlatform mac && { brew remove "$@"; return; }	
 	IsPlatform dsm && { sudo ipkg uninstall "$@"; return; }
 }
 
@@ -575,7 +575,15 @@ RemoveDnsSuffix() { echo "${1%%.*}"; }
 IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }
 GetInterface() { ifconfig | head -1 | cut -d: -f1; }
-GetBroadcastAddress() { ifconfig | head -2 | tail -1 | awk '{ print $6; }'; }
+
+GetBroadcastAddress()
+{
+	if IsPlatform mac; then
+		ifconfig | grep broadcast | head -1 |  awk '{ print $6; }'
+	else
+		ifconfig | head -2 | tail -1 | awk '{ print $6; }'
+	fi
+}
 
 GetPrimaryIpAddress() # GetPrimaryIpAddres [INTERFACE] - get default network adapter
 {
