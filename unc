@@ -42,6 +42,11 @@ listCommand()
 {
 	local server="$(GetUncServer "$unc")"
 
+	if ! IsAvailable "$server"; then
+		EchoErr "Host $server is not available"
+		return 1
+	fi
+
 	if [[ $native ]]; then
 		ls "$server"
 
@@ -49,7 +54,7 @@ listCommand()
 		smbutil view "//$server" | grep "Disk"
 
 	elif InPath smbclient; then
-		sudo smbclient -L pi5 -U$USER
+		sudo smbclient -L $server -U$USER%$(credential -q get secure default) |& egrep -v tdb_new_database |& egrep -v "option is deprecated"
 
 	else
 		EchoErr "Unable to list shares on $server"
@@ -209,8 +214,15 @@ IsMountedCommand()
 	[[ $native ]] && { echo "$unc"; return; }
 
 	local server share shareId dirs; GetUncInfo "$unc"
-	local prefix=""; [[ "$PLATFORM" == "mac" ]] && prefix="$user@"
-	local node="$(mount | egrep "^//$prefix${server%%.*}.*/$shareId\\\$* on " | head -n 1 | cut -d" " -f 3)"
+	local prefix=""; IsPlatform mac && prefix="$user@"
+	local node
+
+	if IsPlatform synology; then
+		[[ "$shareId" == "root" ]] && shareId=
+		node="$(mount | egrep "^$user@$server:/$shareId on " | head -n 1 | cut -d" " -f 3)"
+	else
+		node="$(mount | egrep "^//$prefix${server%%.*}.*/$shareId\\\$* on " | head -n 1 | cut -d" " -f 3)"
+	fi
 
 	[[ ! $node ]] && return 1
 	[[ $dirs ]] && echo "$node/$dirs" || echo "$node"
