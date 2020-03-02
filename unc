@@ -41,12 +41,24 @@ args()
 listCommand()
 {
 	local server="$(GetUncServer "$unc")"
-	[[ $native ]] && { ls "$server"; return; } || smbutil view "//$server" | grep "Disk"
+
+	if [[ $native ]]; then
+		ls "$server"
+
+	elif InPath smbutil; then
+		smbutil view "//$server" | grep "Disk"
+
+	elif InPath smbclient; then
+		sudo smbclient -L pi5 -U$USER
+
+	else
+		EchoErr "Unable to list shares on $server"
+		return 1
+	fi
 }
 
 mountCommand()
 {
-	[[ ! "$(GetUncShare "$unc")" ]] && { EchoErr "unc mount: no share specified"; return 1; }
 	[[ $native ]] && { echo "$unc"; return 0; }
 
 	local volumeDir=~/"Volumes"
@@ -77,7 +89,11 @@ mountCommand()
 		return 1
 	fi
 
-	if IsPlatform linux; then
+	if IsPlatform synology; then # get error using SMB mounted drives, use sshfs instead
+		[[ "$share" == "root" ]] && share="/"
+		sudo sshfs -o allow_other "$user@$server:$share" "$mountDir"
+
+	elif IsPlatform linux; then
 
 		# add an entry to /etc/fstab so sudo is not required to write to the share		
 		if ! egrep -i "//$server/$shareId\\\$* $mountDir cifs username=$user,noauto,rw,users 0 0" /etc/fstab >& /dev/null; then
@@ -131,7 +147,7 @@ UnmountCommand()
 GetUncInfo()
 {
 	GetUncServer "$unc" server
-	GetUncShare "$unc" share; shareId="${share%%\$}"
+	GetUncShare "$unc" share; [[ ! $share ]] && share="root" ; shareId="${share%%\$}"
 	GetUncDirs "$unc" dirs
 	user="$USER"
 	[[ "$HOSTNAME" =~ (^nas.?.?$)  && "$user" == "admin" ]] && user="jjbutare"
