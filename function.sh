@@ -585,11 +585,18 @@ GetBroadcastAddress()
 	fi
 }
 
+GetPrimaryAdapterName()
+{
+	if IsPlatform win; then
+		ipconfig | grep $(GetPrimaryIpAddress) -B 4 | head -1 | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
+	fi
+}
+
 GetPrimaryIpAddress() # GetPrimaryIpAddres [INTERFACE] - get default network adapter
 {
-	if IsPlatform cygwin; then 
+	if IsPlatform win; then 
 		# default route (0.0.0.0 destination) with lowest metric
-		route -4 print | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | tr -s " " | cut -d " " -f 5
+		route.exe -4 print | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | tr -s " " | cut -d " " -f 5
 	else
 		ifconfig $1 | grep inet | egrep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }'
 	fi
@@ -660,6 +667,17 @@ ConnectToPort() # ConnectToPort HOST PORT [TIMEOUT](200)
 		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
 	else
 		echo | ncat -C "$host" "$port" >& /dev/null
+	fi
+}
+
+DhcpRenew()
+{ 
+	if IsPlatform win; then
+		local adapter="$(GetPrimaryAdapterName)"
+		echo "Old IP: $(GetPrimaryIpAddress)" || return
+		ipconfig.exe /release "$adapter" || return
+		ipconfig.exe /renew "$adapter" || return
+		echo "New IP: $(GetPrimaryIpAddress)" || return
 	fi
 }
 
