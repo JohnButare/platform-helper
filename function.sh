@@ -588,7 +588,7 @@ GetBroadcastAddress()
 GetPrimaryAdapterName()
 {
 	if IsPlatform win; then
-		ipconfig | grep $(GetPrimaryIpAddress) -B 4 | head -1 | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
+		ipconfig.exe | grep $(GetPrimaryIpAddress) -B 4 | grep "Ethernet adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
 	fi
 }
 
