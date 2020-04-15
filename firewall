@@ -6,6 +6,8 @@ usage()
 	echot "\
 usage: firewall [console|disable|enable|enabled|log|panel|rule|status](console)
  Manipulate the Windows firewall
+ 	group enable|disable
+ 	rule add|delete|enable|disable|exists|status
  	-h, --host HOST			the host to use
  	-s, --suppress			suppress errors if the firewall service is not running"
  	exit $1
@@ -23,6 +25,9 @@ usage: firewall COMMAND NAME
 args()
 {
 	unset command host suppress
+
+	originalArgs=( "$@" ) 
+	
 	while (( $# != 0 )); do
 		case "$1" in
 			-h|--host) host="$2"; shift;;
@@ -30,7 +35,7 @@ args()
 			--help) help="--help";;
 			*)
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "$command" == @(rule) ]] && break
+				[[ "$command" == @(group|rule) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -59,13 +64,41 @@ logCommand()
 
 ServiceRunning() { [[ "$(service state MpsSvc)" == "RUNNING" ]]; }
 
+checkServiceRunning()
+{
+	( ServiceRunning || [[ $suppress ]] ) && return 0
+	echo "firewall: service is not running"
+	return 1
+}
+
+groupCommand()
+{
+	checkServiceRunning || return
+	! IsElevated && { elevate RunScript --pause-error firewall "${originalArgs[@]}"; return; }
+
+	local command; CheckSubCommand group "$1"; shift
+	local name="$1"; shift; [[ ! $name ]] && MissingOperand "name"; 
+	[[ "$command" != "add" && $# != 0 ]] && UnknownOption "$1"
+	Group${command}Command "$@"
+}
+
+# Get-NetFirewallRule -DisplayGroup "File and Printer Sharing" -Direction Inbound | Where { $_.Profile -like "Private" } | Set-NetFirewallRule -Profile Private -Enable True
+GroupEnableCommand() 
+{
+	powershell.exe 'Get-NetFirewallRule -DisplayGroup "'$name'" -Direction Inbound | Where { $_.Profile -like "*Private*" } | Set-NetFirewallRule -Profile Private -Enable True'
+	# netsh.exe advfirewall firewall set group name="$name" new enable=yes; # sets for all profiles
+}
+
+GroupDisableCommand()
+{
+	powershell.exe 'Get-NetFirewallRule -DisplayGroup "'$name'" -Direction Inbound | Where { $_.Profile -like "*Private*" } | Set-NetFirewallRule -Profile Private -Enable False'
+	# netsh.exe advfirewall firewall set group name="$name" new enable=no # sets for all profiles
+}
+
 ruleCommand()
 {
-	if ! ServiceRunning; then
-		[[ $suppress ]] && return 0
-		echo "firewall: service is not running"
-		return 1
-	fi
+	checkServiceRunning || return
+	! IsElevated && { elevate RunScript --pause-error firewall "${originalArgs[@]}"; return; }
 
 	local command; CheckSubCommand rule "$1"; shift
 	local name="$1"; shift; [[ ! $name ]] && MissingOperand "name"; 
@@ -76,15 +109,26 @@ ruleCommand()
 RuleAddCommand()  
 { 
 	local command="add" new; RuleExistCommand && { command="set"; new="new"; }
-	! IsElevated && { EchoErr "adding firewall rules requires elevation"; return 1; }
 	printf "firewall: adding rule $name..."	
 	netsh.exe advfirewall firewall $command rule name="$name" $new "$@"
 }
 
-RuleDeleteCommand() { ! RuleExistCommand && return; netsh advfirewall firewall delete rule name="$name"; }
-RuleEnableCommand() { ! RuleExistCommand && return; netsh advfirewall firewall set rule name="$name" new enable=yes; }
-RuleDisableCommand() { ! RuleExistCommand && return; netsh advfirewall firewall set rule name="$name" new enable=no; }
+RuleDeleteCommand() { ! RuleExistCommand && return; netsh.exe advfirewall firewall delete rule name="$name"; }
 RuleExistCommand() { RuleStatusCommand > /dev/null;}
 RuleStatusCommand() { netsh.exe advfirewall firewall show rule name="$name"; }
+
+RuleEnableCommand()
+{ 
+	! RuleExistCommand && return
+	powershell.exe 'Get-NetFirewallRule -DisplayName "'$name'" -Direction Inbound | Where { $_.Profile -like "*Private*" } | Set-NetFirewallRule -Profile Private -Enable True'
+	# netsh.exe advfirewall firewall set rule name="$name" new enable=yes # sets for all profiles
+}
+
+RuleDisableCommand()
+{
+	! RuleExistCommand && return
+	powershell.exe 'Get-NetFirewallRule -DisplayName "'$name'" -Direction Inbound | Where { $_.Profile -like "*Private*" } | Set-NetFirewallRule -Profile Private -Enable False'
+	# netsh.exe advfirewall firewall set rule name="$name" new enable=no # sets for all profiles
+}
 
 run "$@"
