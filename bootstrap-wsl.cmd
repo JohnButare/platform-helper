@@ -3,7 +3,7 @@
 REM bootstrap a Windows system for Windows Subsystem for Linux (WSL) running a debian distribution
 
 set user=jjbutare
-set host=nas1
+set host=nas3
 set data=\\%host%\public\documents\data
 set dist=%data%\install\LINUX\wsl\setup\Ubuntu\CanonicalGroupLimited.Ubuntu18.04onWindows_1804.2018.817.0_x64__79rhkp1fndgsc.Appx
 

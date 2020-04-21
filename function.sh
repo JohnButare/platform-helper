@@ -47,7 +47,7 @@ SourceIfExistsPlatform "$BIN/function." ".sh" || return
 PlatformTmp() { IsPlatform win && "$(wtu "$tmp")" || echo "$TMP"; }
 
 # GetPlatform [host](local) - get platform, platformLike, and platformId for the host
-# testing:  sf; time GetPlatform nas1 && echo "success: $platform-$platformLike-$platformId"
+# testing:  sf; time GetPlatform nas? && echo "success: $platform-$platformLike-$platformId"
 function GetPlatform() 
 {
 	local results host="$1" cmd='echo platform=$(uname); echo kernel=\"$(uname -r)\"; [[ -f /etc/os-release ]] && cat /etc/os-release; [[ -f /var/sysinfo/model ]] && echo ubiquiti=true; [[ -f /proc/syno_platform ]] && echo synology=true && [[ -f /bin/busybox ]] && echo busybox=true'
