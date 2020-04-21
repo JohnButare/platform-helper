@@ -366,18 +366,15 @@ GetDisks() # GetDisks ARRAY
 
 CopyDir()
 {
-	local prefix="" cp="gcp" recursive="" o=(--force --preserve=timestamps) f=( ) help;
+	local help recursive sudo exclude=".git" o=(--info=progress2) f=( );
 
-	IsPlatform mac && { cp="acp"; o=(--progress); }
-	
-	# pcp is copied from the apt-get install gcp package source on Debian to $bin.   It is modified to remove
-	# deprecation warnings in Ubuntu and renamed to avoid conflict with macOS gcp (GNU cp).   It still requires imports 
-	# from the gcp package installation.
-	IsPlatform Ubuntu && ! IsPlatform win && cp="pcp"
+	# preserve metadata
+	o+=(--links --perms --times --group --owner)
 
-	# gcp requires an X display on some platforms, as a work around run with dbus-launch
-	IsPlatform wsl,raspbian && InPath dbus-launch && [[ ! $DISPLAY ]] && ! IsXServerRunning && { DbusSetup; prefix="dbus-launch"; }
+	# Windows requires sudo ppermissions to preserve metadata
+	IsPlatform win && sudo="sudoc"
 	
+	# arguments
 	for arg in "$@"; do
 		[[ ! $1 ]] && { shift; continue; } 										# ignore empty options
 		[[ $1 == @(-h|--help) ]] && { help="true"; shift; continue; }
@@ -386,34 +383,35 @@ CopyDir()
 		f+=("$1"); shift
 	done
 
+	o+=(--exclude="$exclude")
+
+	# help
 	[[ "${#f[@]}" != "2" || $help ]]	&& { echot "usage: CopyDir SRC_DIR DEST_DIR
 	-q, --quiet				minimize logging
 	-r, --recursive		copy directories recursively
 	-v, --verbose			maximize logging"; return 1; }
 
-	local src="${f[0]}" dest="$(EnsureDir "${f[1]}")" made result; 
+	local made result src="${f[0]}" dest="$(EnsureDir "${f[1]}")"; 
 	local parent="$(GetParentDir "$dest")"
 	local finalSrcDir="$(GetFileName "$(RemoveTrailingSlash "$src")")"
 	local finalDestDir="$(GetFileName "$(RemoveTrailingSlash "$dest")")"
 
-	# if recursive dest cannot contain the directory to copy otherwise it will be duplicated
-	[[ $recursive && "$finalSrcDir" == "$finalDestDir" ]] && dest="$parent" || dest="$(RemoveTrailingSlash "$dest")/"
-
-	# create the parent directory if needed (acp and gcp require that the parent exists)
+	# destination parent directory must exists
 	[[ $parent && ! -d "$parent" ]] && { ${G}mkdir --parents "$parent" || return; }
 
-	# destination directory must exist for non-recursive copies
-	[[ ! $recursive && ! -d "$dest" ]] && { made="true"; ${G}mkdir "$dest" || return; }
-
-	#o+=("--verbose")
-	#dbus-launch gcp --recursive --force --preserve timestamps,mode --verbose /home/jjbutare/Volumes/public/documents/data/platform/linux/ /usr/local/data/platform/linux/ --recursive
-	#pause $src-$dest
-
+	# destination parent directory must exist
+	[[ ! -d "$dest" ]] && { made="true"; ${G}mkdir --parents "$dest" || return; }
+	
+	# perform the copy
 	if [[ $recursive ]]; then
-		$prefix $cp "${o[@]}" "$src" "$dest"
-	else
-		# for non-recursive copies the source must be files and the destination directory must exist
-		$prefix $cp "${o[@]}" "$src"/* "$dest"
+
+		# dest cannot contain the directory to copy otherwise it will be duplicated
+		[[ "$finalSrcDir" == "$finalDestDir" ]] && dest="$parent"
+
+		$sudo rsync "${o[@]}" "$src" "$dest"
+
+	else # non-recursive copy - the source must be individual files
+		$sudo rsync "${o[@]}" "$src"/* "$dest"
 	fi
 	result=$?
 
