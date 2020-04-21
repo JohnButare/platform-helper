@@ -59,26 +59,32 @@ args()
 init()
 {
 	local c="StudyClosetSwitch" d="StudyDeskPoeSwitch"
+	
+	# map host aliases
+	case "$host" in
+		c) host="$c";;
+		d) host="$d";;
+	esac
 
 	[[ $command == @(fix|status) ]] && return 0
 
 	# set our power (the local hsot) 
 	IsLocalHost "$host" && { setLocalPower; return; }
 
-	# map host aliases
-	case "$host" in
-		c) host="$c";;
-		d) host="$d";;
+	# determine power command to use remotely
+	sshCommand="$BIN/power $command"
+	case "$command" in
+		off) basicSshCommand="shutdown now";;
+		reboot) basicSshCommand="shutdown -r now";;
 	esac
 	
 	# map hosts to a switch PoE port so we can power it up or down
-	
 	if ! IsLocalHost "$host"; then
 		case "$host" in
 			pi5) switch="$c" port=23;;
 			pi6) switch="$c" port=29;;
 			pi7) switch="$c" port=30;;
-			#) switch="$c" port=30;;
+			UniFiController) switch="$c" port=27 sshCommand="$basicSshCommand";;
 
 			#) switch="$d" port=5;;
 			#) switch="$d" port=6;;
@@ -99,7 +105,7 @@ init()
 	# force a wait if we need to change the power state of the switch port after the host turns off
 	[[ $switch && $command == @(off|hibernate) ]] && waitSeconds="$waitDefault"
 
-	# determin the current status off the host
+	# determine the current status off the host
 	initialHostStatus="off"
 	IsAvailable $host $timeoutMilliseconds && initialHostStatus="on"
 	IsAvailable $host $timeoutMilliseconds
@@ -123,7 +129,6 @@ setLocalPower()
 	logger "issuing power $command..."
 
 	case "$command" in
-
 		off)
 			if IsPlatform win; then start psshutdown -s -f -t 0; exit
 			elif IsPlatform mac; then /sbin/shutdown -h now; exit
@@ -298,7 +303,7 @@ onCommand()
 	# Turn on host using Wake-on-LAN.  A MAC address must be specified in /etc/ethers
 	local broadcastAddress="$(GetBroadcastAddress)"; [[ $broadcastAddress ]] && broadcastAddress="-i $broadcastAddress"
 	echo "Turning $host on..."
-	wakeonlan $broadcastAddress "$host"
+	wakeonlan $broadcastAddress "${host,,}" # host must be lower case to be found
 
 	# wait for the host to power up
 	waitOn "$host" || return
@@ -310,7 +315,7 @@ offCommand()
 
 	if [[ "$initialHostStatus" == "on" ]]; then
 		echo "$desc $host..."
-		ssh $host "$BIN/power $command"
+		ssh $host "$sshCommand"
 		waitOff "$host"
 	fi
 
