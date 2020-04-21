@@ -44,6 +44,8 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 # platform specific functions
 SourceIfExistsPlatform "$BIN/function." ".sh" || return
 
+PlatformTmp() { IsPlatform win && "$(wtu "$tmp")" || echo "$TMP"; }
+
 # GetPlatform [host](local) - get platform, platformLike, and platformId for the host
 # testing:  sf; time GetPlatform nas1 && echo "success: $platform-$platformLike-$platformId"
 function GetPlatform() 
