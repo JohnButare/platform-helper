@@ -312,12 +312,18 @@ wtu() # WinToUnix
 
 utw() # UnixToWin
 { 
-	[[ ! "$@" || "$PLATFORM" != "win" ]] && { echo "$@"; return 1; }
+	local clean="" file="$@"
 
-	local clean=""
-	[[ ! -e "$@" ]] && { touch "$@" || return; clean="true"; }
+	[[ ! "$file" || "$PLATFORM" != "win" ]] && { echo "$file"; return 1; }
 
 	# utw requires the file exist in newer versions of wsl
+	if [[ ! -e "$@" ]]; then
+		local filePath="$(GetFilePath "$@")"
+		[[ ! -d "$filePath" ]] && { ${G}mkdir --parents "$filePath" || return; }
+		touch "$@" || return
+		clean="true"
+	fi
+
 	wslpath -w "$(realpath -m "$@")"
 
 	[[ $clean ]] && { rm "$@" || return; }
@@ -754,7 +760,10 @@ IsTaskRunning()
 {
 	local file="$1" 
 
-	[[ "$(GetFilePath "$file")" ]] && file="$(utwq "$file")" # convert paths to native
+	# If the file has a path component convert file to Windows format since
+	# ProcesList returns paths in Windows format
+	[[ "$(GetFilePath "$file")" ]] && file="$(utwq "$file")"
+
 	ProcessList | egrep -v ",grep" | grep -i  ",$file" >& /dev/null
 }
 
