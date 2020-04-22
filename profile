@@ -41,10 +41,7 @@ args()
 
 init()
 {
-	local methodType 
-
-	methodParts=($method)
-	methodFirstPart="${methodParts[0]}"
+	local methodType
 	
 	# Profile files - profile contains ZIP of specified files
 	if [[ -d "$method" ]]; then
@@ -54,9 +51,10 @@ init()
 
 	# ProfileFiles program - program it will be used to import and export the profile  
 	# IN: profileDir, profileSaveExtension -  the profile file extension used by the program must be specified
-	elif InPath "$methodFirstPart"; then
+	elif which "$method" > /dev/null ; then
 		methodType="program"
 		profileProgram="$method"
+		
 		[[ ! $saveExtension ]] && { EchoErr "The profile save extension was not specified"; return 1; }
 		
 	# Registry profile - profile contains registry entries
@@ -142,12 +140,7 @@ saveCommand()
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$dest/$file")"
 		echo "Export the profile to the filename contained in the clipboard"
-
-		if (( ${#methodParts} > 1 )); then
-			ask "Start $methodFirstPart" && { $profileProgram || return; }
-		else
-			ask "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
-		fi
+		ask "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
 		pause
 		
 	# save the registry
@@ -212,13 +205,7 @@ restoreCommand()
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$profile")"
 		echo "Import the profile using the filemame contained in the clipboard"
-
-		if (( ${#methodParts} > 1 )); then
-			ask "Start $methodFirstPart" && { $profileProgram || return; }
-			pause
-		else
-			ask "Start $(GetFileName "$profileProgram")" && { start --wait "$profileProgram" || return; }
-		fi
+		ask "Start $(GetFileName "$profileProgram")" && { start --wait "$profileProgram" || return; }
 
 	elif [[ "$method" == "registry" ]]; then
 		AppCloseSave "$app" || return
