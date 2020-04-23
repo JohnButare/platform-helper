@@ -1011,9 +1011,18 @@ if [[ -f "$P/Git/cmd/git.exe" ]]; then
 	#git() { "$P/Git/cmd/git.exe" "$@"; }
 fi
 
-IsVm() { InPath virt-what && [[ "$(sudo virt-what)" != "" ]]; }
-IsVmwareVm() { InPath virt-what && [[ "$(sudo virt-what)" == "vmware" ]]; }
-IsHypervVm() { InPath virt-what && [[ "$(sudo virt-what)" == "hyperv" ]]; }
+VmHostCache() # cache the output of virt-what to avoid sudo prompt
+{
+	local f="$DATA/platform/vm-host.txt"
+
+	! InPath virt-what && { echo ""; return; } 
+	[[ ! -f "$f" ]] && { sudo virt-what > "$f" || return; }	
+	cat "$f"
+}
+
+IsVm() { [[ "$(VmHostCache)" ]]; }
+IsVmwareVm() { "$(VmHostCache)" == "vmware" ]]; }
+IsHypervVm() { "$(VmHostCache)" == "hyperv" ]]; }
 
 IsDesktop()
 {
