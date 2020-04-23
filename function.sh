@@ -1030,4 +1030,5 @@ IsDesktop()
 	IsPlatform debian && [[ "$XDG_CURRENT_DESKTOP" != "" ]] && return 0
 	return 1
 }
+
 IsServer() { ! IsDesktop; }
