@@ -5,7 +5,7 @@ IsInstallable()
 {
 	case "$1" in	
 		# Windows
-		ahk|AutoHotKey|AltTabTerminator|AquaSnap|CloseAllWindows|FileLocatorPro|HiddenStart|Ninite|npp|Notepadpp|RightClickEnhancer|SevenZip|TidyTabs|UltraMon|vcxsrv|WindowsConsole|WinScp|xMing) IsPlatform win;;
+		ahk|AutoHotKey|AltTabTerminator|AquaSnap|CloseAllWindows|FileLocatorPro|HiddenStart|Ninite|npp|Notepadpp|RightClickEnhancer|SevenZip|TidyTabs|UltraMon|vcxsrv|WinScp|xMing) IsPlatform win;;
 		AjaSystemTest|BlueStacks|DiskImager|PartitionAssistant|pGina|PowerrToys|stamps) IsPlatform win;;
 
 		# Mac
@@ -106,8 +106,8 @@ usage: install cd|install APP*
 	-h,  --hint DIR				first directory to search for installation files
 	-nr, --no-run					do not find or run the installation program
 	-np, --no-prompt	   	suppress prompts
-	-p,	 --prompt 				force promptinga	
-	-q,  --quiet					minimize prompts 
+	-p,	 --prompt 				force prompts
+	-q,  --quiet					minimize informational messages
 	-s,  --select					select the install location"
 	exit $1
 }
@@ -115,18 +115,19 @@ usage: install cd|install APP*
 args()
 {
 	unset command apps forcePrompt host noPrompt noRun quiet select
-	# here here quiet
+
 	originalArgs=( "$@" ) 
-	while [ "$1" != "" ]; do
+
+	while (( $# != 0 )); do
 		case "$1" in
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			--hint|-h) hint=( --hint "$2" ); export INSTALL_DIR="$2"; shift;;
-			--no-prompt|-np) noPrompt="true";;
-			--no-run|-nr) noRun="true";;
-			--no-prompt|-nrp) noPrompt="true";;
-			--prompt|-p) forcePrompt="true";;
-			--quiet|-q) quiet="true";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--no-run|-nr) noRun="--no-run";;
+			--prompt|-p) forcePrompt="--prompt";;
+			--quiet|-q) quiet="--quiet";;
 			--select|-s) select="--select";;
+			"") : ;;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; } # command
 				! IsOption "$1" && { apps+=( "$1" ); shift; continue; }
@@ -134,6 +135,7 @@ args()
 		esac
 		shift
 	done
+
 	[[ ! $command ]] && command='install'
 	[[ "$command" == "cd" && ${#apps[@]} != 0 ]] && UnknownOption "${apps[0]}"
 	[[ "$command" == "apps" && ${#apps[@]} == 0 ]] && MissingOperand "APPS"
@@ -197,7 +199,7 @@ InstallInit()
 	makeDir() { ${G}mkdir --parents "$@"; }
 	makeDirSudo() { sudo ${G}mkdir --parents "$@"; }
 	makeDirOwner() { sudo ${G}mkdir --parents "$@" || return; sudo chown $USER "$@" || return; }
-	makeLink() { MakeLink --suppress "$@"; }
+	makeLink() { MakeLink --suppress $quiet $noPrompt "$@"; }
 	makeShortcut="MakeShortcut"
 	mergeDir() { MergeDir --parents --suppress "$@"; }
 	mv="FileCommand mv"
@@ -449,14 +451,11 @@ bootstrap()
 	printf "**************************************************\n* Bootstrap\n**************************************************\n"
 
 	i bash || return
-	ask 'Platform bootstrap' && { RunPlatform bootstrap || return; }
-	ask 'Update local passwords' && { password change || return; }
-	ask "Rename computer" && { os RenameComputer || return; }
+	RunPlatform bootstrap || return
 
-	if ! IsPlatform win && ask "Allow all users to shut down the system"; then
-		local shutdown="$(FindInPath shutdown)"
-		[[ $shutdown ]] && { sudo chmod +s "$shutdown" || return; }
-	fi
+	password change || return
+	os RenameComputer || return
+	InPath shutdown && { sudo chmod +s "$(FindInPath shutdown)" || return; }
 
 	AppCore || return
 }
@@ -503,9 +502,10 @@ read only = no" | sudo tee -a /etc/samba/smb.conf || return
 	echo "Creating directories..."
 	makeDirOwner "$PUB" || return
 	
-	echo "Other Debian programs..."
-	( ! IsPlatform win && IsHypervVm ) && { i HypervLinuxTools || return; }
-	( ! IsPlatform win && IsVmwareVm ) && { i OpenVmTools || return; }
+	if ! IsPlatform win; then
+		IsHypervVm && { i HypervLinuxTools || return; }
+		IsVmwareVm && { i OpenVmTools || return; }
+	fi
 
 	return 0
 }
@@ -564,27 +564,24 @@ bootstrapWsl()
 	$makeShortcut "wsl.exe" "$pp/Operating System/bash" "" "$(utw "$DATA/icons/Command Prompt.ico")" || return
 	$registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/RunScript startup' || return
 	run "LINUX/wsl/LxRunOffline/LxRunOffline-v3.4.0.zip" "$P/LxRunOffline" || return # https://github.com/DDoSolitary/LxRunOffline/releases
-
 	return 0
 }
 
 bootstrapWin()
-{
-	echo "Core Windows programs..."
-	i HiddenStartFinal WindowsConsole || return
+{	
+	echo "Core Windows setup..." # run first to minimize prompts
+	i HiddenStartFinal || return
+	$registry import "$setupFiles/SysInternalsEula.reg"
+
+	echo "Update environment variables..."
+	SetVar --system --path PATH "$DATA/platform/$PLATFORM" || return
 
 	echo "Home directory..."
 	makeLink --symbolic "$WIN_HOME/Desktop" "$HOME/Desktop" || return
 	makeLink --symbolic "$WIN_HOME/Downloads" "$HOME/Downloads" || return
 
-	echo "Update environment variables..."
-	SetVar --system --path PATH "$DATA/platform/$PLATFORM" || return
-
-	echo "Start menu..."
-	elevate RunScript --pause-error GrantFullPermission "$psm" || return
-
 	echo "Other Windows programs..."
-	i WindowsSetup SysInternals || return
+	i WindowsSetup || return
 
 	return 0
 }
@@ -917,8 +914,7 @@ Bash()
 
 	[[ ! -f "$file" ]] && { EchoErr "$file does not exist"; return 1; }
 
-	if ask "Update $file"; then
-		
+	if ! grep "$line" "$file" >& /dev/null; then
 		IsPlatform debian && echo "- uncomment bash completion"
 		echo "$line"; clipw "$line"
 		echo "- paste before \"$before\""
@@ -1046,38 +1042,6 @@ SublimeInstall()
 	fi
 }
 
-WindowsConsole()
-{
-	printf "**************************************************\n* Console \n**************************************************\n"
-
-	key="HKCU/Console"
-
-	echo "Setting console defaults..."
-
-	registry set "$key/QuickEditMode" REG_DWORD 1 || return
-	registry set "$key/QuickEdit" REG_DWORD 1 || return
-
-	# foreground text: bright white=31 (255, 255, 255), white=23 (192,192,192)
-	registry set "$key/ScreenColors" REG_DWORD 7 || return
-
-	# Screen Background: black=0 (0,0,0), blue=8388608 (or 0, 0, 128)
-	# Black does not flicker when large amounts of text are displayed (for example when do dir bin:)
-	registry set "$key/ColorTable01" REG_DWORD 0 || return
-
-	registry set "$key/ColorTable11" REG_DWORD 16776960 || return
-	registry set "$key/ColorTable15" REG_DWORD 16777215 || return
-
-	# Font
-	registry set "$key/FaceName" REG_SZ "Lucida Console" || return
-	registry set "$key/FontFamily" REG_DWORD 54 || return
-	registry set "$key/FontSize" REG_DWORD 1048586 || return
-	registry set "$key/FontWeight" REG_DWORD 400 || return
-
-	# Screen 165x29 (1680x1050)
-	registry set "$key/ScreenBufferSize" REG_DWORD 19660964 || return
-	registry set "$key/WindowSize" REG_DWORD 3276964 || return # 3276964=164x50
-}
-
 WindowsDownload()
 {
 	# https://www.microsoft.com/en-us/software-download/windows10/
@@ -1094,66 +1058,11 @@ WindowsSetup()
 	printf "**************************************************\n* Windows Setup\n**************************************************\n"
 	! IsElevated && { elevate RunScript --pause-error inst WindowsSetup; pause; return; }
 
+	GrantFullPermission "$psm" || return
 	WindowsDirs || return
 	WindowsIcons || return
+	WindowsConfiguration || return
 	OneDrive || return
-
-	echo "Cleaning file system..."
-	$hide hide "$WIN_ROOT/PerfLogs" || return
-	$hide hide "$WIN_ROOT/Windows.old" || return
-	$rm "$WIN_HOME\Documents\My Music" || return
-	$rm "$WIN_HOME\Documents\My Pictures" || return
-	$rm "$WIN_HOME\Documents\My Videos" || return
-	$rm "$WIN_HOME\My Music" || return
-	$rm "$WIN_HOME\My Pictures" || return
-	$rm "$WIN_HOME\My Videos" || return
-
-	echo "Cleaning startup programs..."
-	$registry 32 delete "run/NetFxUpdate_v1.1.4322" # "C:\Windows\Microsoft.NET\Framework\v1.1.4322\netfxupdate.exe" 1 v1.1.4322 GAC + NI NID, https://superuser.com/questions/137508/ngen-exe-is-constantly-using-cpu
-	$registry delete "run/SecurityHealth" # %windir%\system32\SecurityHealthSystray.exe
-
-	echo "Configuring..."
-	powershell.exe Set-ExecutionPolicy RemoteSigned || return
-	registry import "$setupFiles/Windows Setup.reg" || return
-	numlock boot off || return
-	netsh.exe advfirewall firewall set rule group="Network Discovery" new enable=Yes || return
-
-	echo "Moving taskbar to the left side of the screen..."
-	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/StuckRects3/Settings' REG_BINARY 30000000FEFFFFFF02000000000000004E0000003200000000000000000000004E000000380400007800000001000000
-	ProcessKill explorer && start explorer
-
-	echo "Enabling VPN to server behind NAT..." 
- 	registry set "HKLM/SYSTEM/CurrentControlSet/Services/PolicyAgent/AssumeUDPEncapsulationContextOnSendRule" REG_DWORD 2 || return
-
-	echo "Enabling remote desktop connections..." 
- 	registry set "HKLM/SYSTEM/CurrentControlSet/Control/Terminal Server/fDenyTSConnections" REG_DWORD 0 || return
-
-	echo "Configure file sharing..."
-	$firewall group enable "File and Printer Sharing" || return
- 	registry set "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Policies/system/LocalAccountTokenFilterPolicy" REG_DWORD 1 || return # Enable remote administrator access to protected file shares (admin$, c$...)
-
-	echo "Hiding the recycle bin from the desktop..." 
- 	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/HideDesktopIcons/NewStartPanel/{645FF040-5081-101B-9F08-00AA002F954E}" REG_DWORD 1 || return
-
-	echo "Showing taskbar on main display only..."
- 	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/MMTaskbarEnabled" REG_DWORD 0 || return
-
-	echo "Disable snap assist..."
- 	registry set "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Advanced/SnapAssist" REG_DWORD 0 || return
-
-	echo "Disabling Explorer recent files and folders..."
- 	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ShowFrequent" REG_DWORD 0 || return
- 	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ShowRecent" REG_DWORD 0 || return
-
- 	ask 'Reset taskbar (cannot remove Edge)' && cmd.exe /c Reset_Clear_Pinned_Apps_on_Taskbar.bat
-
-	if ask "Change $USER full name"; then
-		local fullName
-		read -p "Enter $USER fullName: " fullName; echo
-		net.exe user $USER /fullname:"$fullName"  
-	fi
-
-	return 0
 }
 
 WindowsDirs()
@@ -1201,6 +1110,75 @@ WindowsIcons()
 
 	# 3rd party
 	mergeDir "$pp/ICEpower" "$oo" || return	# Asus ZenBook laptop
+}
+
+WindowsConfiguration()
+{
+		echo "Windows console..."
+	local key="HKCU/Console"
+	$registry set "$key/ColorTable01" REG_DWORD 0 || return
+	$registry set "$key/ColorTable11" REG_DWORD 16776960 || return
+	$registry set "$key/ColorTable15" REG_DWORD 16777215 || return
+	$registry set "$key/FaceName" REG_SZ "Lucida Console" || return
+	$registry set "$key/FontFamily" REG_DWORD 54 || return
+	$registry set "$key/FontSize" REG_DWORD 1048586 || return
+	$registry set "$key/FontWeight" REG_DWORD 400 || return
+	$registry set "$key/QuickEdit" REG_DWORD 1 || return
+	$registry set "$key/QuickEditMode" REG_DWORD 1 || return
+	$registry set "$key/ScreenBufferSize" REG_DWORD 19660964 || return
+	$registry set "$key/ScreenColors" REG_DWORD 7 || return
+	$registry set "$key/WindowSize" REG_DWORD 3276964 || return # 3276964=164x50
+
+	echo "Cleaning file system..."
+	$hide hide "$WIN_ROOT/PerfLogs" || return
+	$hide hide "$WIN_ROOT/Windows.old" || return
+	$rm "$WIN_HOME\Documents\My Music" || return
+	$rm "$WIN_HOME\Documents\My Pictures" || return
+	$rm "$WIN_HOME\Documents\My Videos" || return
+	$rm "$WIN_HOME\My Music" || return
+	$rm "$WIN_HOME\My Pictures" || return
+	$rm "$WIN_HOME\My Videos" || return
+
+	echo "Cleaning startup programs..."
+	$registry 32 delete "run/NetFxUpdate_v1.1.4322" # "C:\Windows\Microsoft.NET\Framework\v1.1.4322\netfxupdate.exe" 1 v1.1.4322 GAC + NI NID, https://superuser.com/questions/137508/ngen-exe-is-constantly-using-cpu
+	$registry delete "run/SecurityHealth" # %windir%\system32\SecurityHealthSystray.exe
+
+	echo "Configuring..."
+	powershell.exe Set-ExecutionPolicy RemoteSigned || return
+	registry import "$setupFiles/Windows Setup.reg" || return
+	numlock boot off || return
+	netsh.exe advfirewall firewall set rule group="Network Discovery" new enable=Yes || return
+
+	echo "Moving taskbar to the left side of the screen..."
+	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/StuckRects3/Settings' REG_BINARY 30000000FEFFFFFF02000000000000004E0000003200000000000000000000004E000000380400007800000001000000
+	
+	echo "Enabling VPN to server behind NAT..." 
+ 	registry set "HKLM/SYSTEM/CurrentControlSet/Services/PolicyAgent/AssumeUDPEncapsulationContextOnSendRule" REG_DWORD 2 || return
+
+	echo "Enabling remote desktop connections..." 
+ 	registry set "HKLM/SYSTEM/CurrentControlSet/Control/Terminal Server/fDenyTSConnections" REG_DWORD 0 || return
+
+	echo "Configure file sharing..."
+	$firewall group enable "File and Printer Sharing" || return
+ 	registry set "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Policies/system/LocalAccountTokenFilterPolicy" REG_DWORD 1 || return # Enable remote administrator access to protected file shares (admin$, c$...)
+
+	echo "Hiding the recycle bin from the desktop..." 
+ 	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/HideDesktopIcons/NewStartPanel/{645FF040-5081-101B-9F08-00AA002F954E}" REG_DWORD 1 || return
+
+	echo "Showing taskbar on main display only..."
+ 	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/MMTaskbarEnabled" REG_DWORD 0 || return
+
+	echo "Disable snap assist..."
+ 	registry set "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Advanced/SnapAssist" REG_DWORD 0 || return
+
+	echo "Disabling Explorer recent files and folders..."
+ 	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ShowFrequent" REG_DWORD 0 || return
+ 	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ShowRecent" REG_DWORD 0 || return
+
+	# enable change - move taskbar to left side
+	ProcessKill explorer && start explorer
+
+	return 0
 }
 
 pGina()
@@ -2090,12 +2068,6 @@ tortoiseGit()
 	- check Unversioned files mark parent folder as modified
 	- Icon Set, Icon Set=Straight"
 	GitHelper tgui /command:settings || return
-}
-
-sysInternalsInstall()
-{
-	printf "**************************************************\n* SysInternals Tools\n**************************************************\n"
-	registry import "$setupFiles/SysInternalsEula.reg"
 }
 
 appleCore()
@@ -4476,6 +4448,4 @@ deezerInstall()
 	return
 }
 
-# 
-# 
 args "$@"; ${command}Command "${args[@]}";

@@ -33,6 +33,12 @@ MakeShortcut()
 }
 
 #
+# Explorer
+#
+
+RestartExplorer() { ProcessKill explorer && start explorer; }
+
+#
 # Process
 #
 
