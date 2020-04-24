@@ -1021,8 +1021,8 @@ VmHostCache() # cache the output of virt-what to avoid sudo prompt
 }
 
 IsVm() { [[ "$(VmHostCache)" ]]; }
-IsVmwareVm() { "$(VmHostCache)" == "vmware" ]]; }
-IsHypervVm() { "$(VmHostCache)" == "hyperv" ]]; }
+IsVmwareVm() { [[ "$(VmHostCache)" == "vmware" ]]; }
+IsHypervVm() { [[ "$(VmHostCache)" == "hyperv" ]]; }
 
 IsDesktop()
 {
