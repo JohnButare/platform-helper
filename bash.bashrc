@@ -46,8 +46,11 @@ if [[ "$PLATFORM" == "win" ]]; then
 	# Unix programs uses upper case variables and Windows receives lower case variables (at least in Cygwin)
 	[[ "$PLATFORM_LIKE" == "cygwin" ]] && wslpath() { cygpath "$@"; }
 	utw() { [[ ! "$@" ]] && return; [[ "$PLATFORM" == "win" ]] && { wslpath -aw "$*"; return; } || echo "$@"; } # UnixToWin
-	export appdata="$(utw "$APPDATA")";
-	export localappdata="$(utw "$LOCALAPPDATA")";
+
+	# APPDATA and LOCALAPPDATA are truncated when using sudoc, i.e. sudoc service start ssh
+	[[ -d "$APPDATA" ]] && export appdata="$(utw "$APPDATA")";
+	[[ -d "$LOCALAPPDATA" ]] && export localappdata="$(utw "$LOCALAPPDATA")";
+
 	export programdata="$(utw "$PROGRAMDATA")"
 	export windir="$(utw "$WINDIR")"
 	export tmp="$localappdata\Temp"
