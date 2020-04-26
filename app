@@ -198,6 +198,21 @@ OneDrive()
 	start "$file" /background; 
 }
 
+terminator()
+{
+	[[ "$command" != "startup" ]] && return
+	printf "terminator."
+
+	# return if terminator is running
+	ps -u | egrep -v "grep" | egrep -i  "/usr/bin/python /usr/bin/terminator" >& /dev/null && return
+	
+	# set X DISPLAY if not set (initial login shell does not set DISPLAY)
+	[[ ! $DISPLAY ]] && export DISPLAY=:0
+
+	# start using terminator.vbs to ensure when this process stops terminator does not stop
+	wscript.exe "c:\Users\Public\Documents\data\platform\win\terminator.vbs"
+}
+
 sshd()
 { 
 	! IsPlatform wsl && return
@@ -210,7 +225,7 @@ sshd()
 
 	if ! service running ssh; then
 		printf "sshd."
-		sudoc service start ssh # >& /dev/null
+		sudoc service start ssh >& /dev/null
 		return 0
 	fi
 
