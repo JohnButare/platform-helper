@@ -88,9 +88,9 @@ init()
 			rp1) switch="$c" port=28;;
 			pi6) switch="$c" port=29;;
 			pi7) switch="$c" port=30;;
-			PoeSplitter) switch="$d" port=6;;
+			PoeSplitter) switch="$d" port=6 sshCommand="";;
 			TvTuner) switch="$g" port=5 sshCommand="";;
-			UniFiController) switch="$c" port=27 sshCommand="$basicSshCommand";;
+			UnifiController) switch="$c" port=27 sshCommand="$basicSshCommand";;
 		esac
 	fi
 
@@ -107,10 +107,11 @@ init()
 	[[ $switch && $command == @(off|hibernate) ]] && waitSeconds="$waitDefault"
 
 	# determine the current status off the host
-	initialHostStatus="off"
-	IsAvailable $host $timeoutMilliseconds && initialHostStatus="on"
-	IsAvailable $host $timeoutMilliseconds
-	
+	if [[ $sshCommand ]]; then
+		initialHostStatus="off"
+		IsAvailable $host $timeoutMilliseconds && initialHostStatus="on"
+	fi
+
 	return 0
 }
 
@@ -299,7 +300,10 @@ onCommand()
 	[[ "$initialHostStatus" == "on" ]] && { echo "$host is already on"; return 0; }
 
 	# power on associated switch port if specified
-	[[ $host && $switch && $port ]] && { switchPortOn $switch $port || return; }
+	if [[ $host && $switch && $port ]]; then
+		switchPortOn $switch $port || return
+		[[ ! $sshCommand ]] && return
+	fi
 
 	# Turn on host using Wake-on-LAN.  A MAC address must be specified in /etc/ethers
 	local broadcastAddress="$(GetBroadcastAddress)"; [[ $broadcastAddress ]] && broadcastAddress="-i $broadcastAddress"
@@ -318,14 +322,14 @@ offCommand()
 {
 	local desc="Powering off"; [[ "$command" == "hibernate" ]] && desc="Hibernating"
 
-	if [[ "$sshCommand" && "$initialHostStatus" == "on" ]]; then
+	if [[ $sshCommand && "$initialHostStatus" == "on" ]]; then
 		echo "$desc $host..."
 		ssh $host "$sshCommand"
 		waitOff "$host"
 	fi
 
 	if [[ $switch ]]; then
-		[[ "$sshCommand" && "$initialHostStatus" == "on" ]] && { SleepStatus 1 || return; }
+		[[ $sshCommand && "$initialHostStatus" == "on" ]] && { SleepStatus 1 || return; }
 		switchPortOff "$switch" "$port" || return
 	fi
 
