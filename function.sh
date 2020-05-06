@@ -278,14 +278,17 @@ pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"
 
 FindInPath()
 {
-	type -P "${1}" && return
-	IsPlatform wsl && { type -P "${1}.exe" && return; }
+	local file="$1"
+
+	[[ -f "$file" ]] && { echo "$file"; return; }
+	type -P "${file}" && return
+	IsPlatform wsl && { type -P "${file}.exe" && return; }
 	return 1
 }
 
 GetFullPath() 
 { 
-	local gfp="$(realpath -m "${@/#\~/$HOME}")"; r "$gfp" $2; # replace ~ with $HOME so we don't lost spaces in expansion
+	local gfp="$(realpath -m "${@/#\~/$HOME}")"; r "$gfp" $2; # replace ~ with $HOME so we don't lose spaces in expansion
 }
 
 HideAll()
@@ -872,7 +875,7 @@ start()
 		if [[ ! $elevate ]] && IsConsoleProgram "$file"; then
 			local path="$(GetFilePath "$fullFile")" file="./$(GetFileName "$fullFile")" result
 
-			# run from the current directory (some windows console programs will not start properly when run from the path in wsl, test with $win/wincred.exe)
+			# run from the current directory as some windows console programs will not start properly with a full path, test with $win/wincred.exe
 			pushd "$path" >& /dev/null
 			"$file" "${args[@]}"
 			result=$?
@@ -881,21 +884,20 @@ start()
 			return $result
 		fi
 
-		# start indirectly with ProcessStart, otherwise when this shell is exited this shell may hang and the init process will causes high cpu
-		pushd "$DATA/platform/win" >& /dev/null	
-
+		# escape spaces for shell scripts so arguments are preserved when elevating - we must be elevating scripts here
 		if IsShellScript "$fullFile"; then	
-
-			# escape spaces for shell scripts so arguments are preserved when elevating (we must be elevating scripts here)
 			for (( i=0 ; i < ${#args[@]} ; ++i )); do 
 				args[$i]="${args[$i]// /\\ }"
 			done	
-			
-			./RunProcess.exe $wait $elevate $windowStyle wsl.exe -e "$(FindInPath "$file")" "${args[@]}"
-		else
-			./RunProcess.exe $wait $elevate $windowStyle "$(utw "$file")" "${args[@]}"
 		fi
 
+		# start indirectly with RunProcess, otherwise when this shell is exited this shell may hang and the init process will causes high cpu
+		pushd "$DATA/platform/win" >& /dev/null	
+		if IsShellScript "$fullFile"; then			
+			./RunProcess.exe $wait $elevate $windowStyle wsl.exe -e "$(FindInPath "$fullFile")" "${args[@]}"
+		else
+			./RunProcess.exe $wait $elevate $windowStyle "$(utw "$fullFile")" "${args[@]}"
+		fi
 		result=$?
 		popd >& /dev/null; 
 

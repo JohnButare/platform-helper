@@ -44,12 +44,11 @@ RestartExplorer() { ProcessKill explorer && start explorer; }
 
 IsConsoleProgram() { file "$(FindInPath "$1")" | grep "(console)" >& /dev/null; }
 IsShellScript() { file "$(FindInPath "$1")" | grep "shell script" >& /dev/null; }
-IsWindowsProgram() { file "$(FindInPath "$1")" | grep "(GUI)" >& /dev/null; }
 
-# IsWindowsProgram: true if the file is a native windows program which requires windows paths for arguments (c:\...) instead of POSIX paths (/...)
+# IsWindowsProgram: true if the file is a native windows program
 IsWindowsProgram() 
 {
-	local file="$(FindInPath "$file")"
+	local file="$(FindInPath "$1")"
 
 	if IsPlatform win; then
 		file "$file" | grep PE32 > /dev/null; return;

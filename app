@@ -175,7 +175,7 @@ MapApp()
 	esac
 }
 
-AltTabTerminator() { IsTaskRunning "AltTabTer64.exe" || TaskStart "$P/Alt-Tab Terminator/AltTabTer64.exe" "" /startup; }
+AltTabTerminator() { IsTaskRunning "AltTabTer.exe" || TaskStart "$P/Alt-Tab Terminator/AltTabTer.exe" "" /startup; }
 AquaSnap() { [[ ! -f "$P32/AquaSnap/AquaSnap.Daemon.exe" ]] && return; IsTaskRunning "AquaSnap.Daemon.exe" && return; printf "AquaSnap..."; start "$P32/AquaSnap/AquaSnap.Daemon.exe"; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
 cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE.exe" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
@@ -201,10 +201,11 @@ OneDrive()
 terminator()
 {
 	[[ "$command" != "startup" ]] && return
-	printf "terminator."
 
 	# return if terminator is running
 	ps -u | egrep -v "grep" | egrep -i  "/usr/bin/python /usr/bin/terminator" >& /dev/null && return
+
+	printf "terminator."
 	
 	# set X DISPLAY if not set (initial login shell does not set DISPLAY)
 	[[ ! $DISPLAY ]] && export DISPLAY=:0
