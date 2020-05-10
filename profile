@@ -119,7 +119,7 @@ SaveDirCommand()
 
 saveCommand()
 {
-	local src="$profileDir" dest="$appProfileSaveDir" file
+	local src="$profileDir" dest="$appProfileSaveDir" file status
 
 	if [[ $profile ]]; then
 		file="$profile.$saveExtension"
@@ -133,8 +133,10 @@ saveCommand()
 	if [[ "$method" ==  "file" && -d "$src" ]]; then
 		printf 'Backing up to "%s"...\n' "$file"
 		pushd "$src" > /dev/null || return
-		zip -r "$dest/$file" $files -x "*.*_sync.txt*" || return
+		zip -r "$dest/$file" $files -x "*.*_sync.txt*"
+		status="$?"
 		popd > /dev/null || return
+		[[ "$status" != "0" ]] && return "$status"
 
 	# save using the specified import/export program		
 	elif [[ "$method" == "program" ]]; then
