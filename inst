@@ -220,13 +220,17 @@ InstallInit()
 
 StoreInstall()
 {
+	local name id
+
 	! IsPlatform mac,win && return
 
-	local name="$1" id="$2"
+	(( $# == 2 )) && { name="$1" id="$2"; }
+	(( $# == 1 )) && { id="$1"; }
 
-	printf "**************************************************\n* $name\n**************************************************\n"
-
-	RunPrompt "$name" || return 0
+	if [[ $name ]]; then
+		printf "**************************************************\n* $name\n**************************************************\n"
+		RunPrompt "$name" || return 0
+	fi
 
 	case "$PLATFORM" in 
 		mac) mas open $id;;
@@ -242,20 +246,20 @@ MacAppOpen() { open -a "$1" || return; pause; }
 
 run() # run EXE [OPTIONS...]
 {
-	local i
-	local p="$1"; shift; [[ ! $p ]] && return
+	local p="$1" dir; shift; [[ ! $p ]] && return
 
 	if [[ "$1" == @(-p|--platform) ]]; then
 		shift
-		case "$PLATFORM" in win) i=1;; mac) i=2;; linux) i=3;; esac
-		[[ ! ${!i} ]] && return 0
-		local suffix="${!i}"
-		IsMacStoreId "$suffix" && p="$suffix" || p="$p$suffix" # AppStore ID
+		dir="$p"
+		case "$PLATFORM" in win) p="$1";; mac) p="$2";; linux) p="$3";; esac
+		[[ ! $p ]] && return 0 # return if a program was not specified for the platform
+		p="$dir/$p"
 		shift; shift; shift;
 	fi
 	
 	[[ $noRun ]] && return;
 
+	IsMacStoreId "$p" && { StoreInstall "$p"; return; }
 	FindFile "$p" || { ask "Continue the installation"; return; }
 	RunProgram "$file" "$@" || return
 }
@@ -296,9 +300,7 @@ RunProgram()
 
 	local pExt; GetFileExtension "$p" pExt
 
-	[[ "$(GetWord "$p" 0 :)" == @(ism) ]] && pExt="ism"
-
- 	[[ "$pExt" == @(air|iso|ism|msu|vsix|xpi) ]] && pause="--pause"
+ 	[[ "$pExt" == @(air|iso|msu|vsix|xpi) ]] && pause="--pause"
 
  	[[ "$PLATFORM" == "win" ]] && export SEE_MASK_NOZONECHECKS=1 # disable Open File Secirity Warning
 
@@ -308,7 +310,6 @@ RunProgram()
 		deb) ! InPath gdebi && { package gdebi || return; }; sudo gdebi "$p" "$@";;
 		dmg) RunDmg "$p" "$@" || return;;
 		inf) elevate --wait pnputil.exe -i -a "$p" "$@";;
-		ism) start --minimize cmd /c start "$p";;
 		iso|img) iso mount "$p"; echo "If needed run the setup program manually..."; pause="--pause";;
 		msi) msiexec.exe /quiet /qb /norestart /i "$(utw "$p")" "$@";;
 		pkg) sudo installer $verboseInstaller -pkg "$p" -target /Applications;;
@@ -411,7 +412,7 @@ FindFile()
 {
 	local pattern; file="$1"
 
-	IsMacStoreId "$file" || ( IsUrl "$file" || [[ "$(GetWord "$file" 0 :)" == @(ism) ]] ) && return 0
+	(IsMacStoreId "$file" || IsUrl "$file" ) && return 0
 
 	if IsWild "$file"; then
 		GetFileName "$file" pattern || return
@@ -1233,7 +1234,7 @@ DropboxInstall()
 		  - Import, Change AutoPlay Settings, uncheck User AutoPlay for all media and devices
 		  - Notifications, uncheck Edits to files
 		  - Bandwidth, Upload rate, Don't Limit
-		  - Sync, Slective Sync, uncheck large
+		  - Sync, Selective Sync, uncheck large
 		- Explorer
 			- Dropbox, Include in Library, Documents
 			-  Libraries, Documents, Library Tools, Manage, Manage library
@@ -1835,7 +1836,7 @@ OfficeInstall()
 	printf "**************************************************\n* Office 365\n**************************************************\n"
 
 	# https://stores.office.com/myaccount/advancedinstalls.aspx 
-	run "Microsoft/Office/setup/" -p "Setup.X64.en-US_O365HomePremRetail_005e017f-e514-4dde-bdc7-95733d7a7be8_TX_PR_.exe" "Microsoft_Office_16.33.20011301_Installer.pkg" || return
+	run "Microsoft/Office/setup/" -p "Setup.X64.en-US_O365HomePremRetail_005e017f-e514-4dde-bdc7-95733d7a7be8_TX_PR_.exe" "Microsoft_Office_16.37.20051002_Installer.pkg" || return
 	OfficeFinal || return
 }
 
@@ -2657,32 +2658,6 @@ ChocolateyInstall()
 	start --wait cmd /c powershell -NoProfile -ExecutionPolicy unrestricted -Command "iex ((new-object net.webclient).DownloadString('https://chocolatey.org/install.ps1'))" "&&" pause
 }
 
-SyncplicityInstall()
-{
-	printf "**************************************************\n* Syncplicity\n**************************************************\n"
-
-	[[ ! -f "$P/Syncplicity/Syncplicity.exe" ]] && ask "Install Syncplicity" &&
-		{ run ism:appid=24064 "Syncplicity" || return; }
-
-	echo "Updating icons..."
-	mergeDir "$pp/Syncplicity" "$ao" || return
-
-	echo "Updating registry..."	
-	$registry delete "run/Syncplicity" # C:\Program Files\Syncplicity\Syncplicity.exe
-
-	pfpc "$HOME/Syncplicity"
-	echot "\
-- Settings, Account, check Hide file download notifications
-- Manage folders, Desktop/Documents/Favorites, Syncplicity, Delete folder
-- Explorer
-  - Libraries, Documents, Properties
-    - Add..., <paste>
-    - Move Up (to top), Set as default save location
-  - View, List"
-	start explorer "$udoc" || return
-
-}
-
 WindowsAdministrationToolsInstall()
 {
 	printf "**************************************************\n* Windows Administration Tools\n**************************************************\n"
@@ -3116,16 +3091,16 @@ GreenShot()
 	# http://getgreenshot.org/downloads/
 	run "Shareware/Greenshot/setup/" -p "Greenshot-INSTALLER-1.2.10.6-RELEASE.exe" "1103915944" "" /silent || return
 
-	case "$PLATFORM" in
+	if IsPlatform winl then
+		mergeDir "$pp/GreenShot" "$oo" || return
+		$registry delete "run/Greenshot" # C:\Program Files\Greenshot\Greenshot.exe
 
-		win) 
-			mergeDir "$pp/GreenShot" "$oo" || return
-			$registry delete "run/Greenshot" # C:\Program Files\Greenshot\Greenshot.exe
-			;;
+	elif IsPlatform mac && ask "Do you want to configure GreenShot"; then
+		echo "System Preferences, Security & Privacy, Screen Recording, check Greenshot"
+		MacAppOpen "$1" || return
+		pause
 
-		mac) MacAppConfigure Greenshot || return;;
-
-	esac
+	fi
 
 	return 0
 }
@@ -3165,24 +3140,23 @@ LogitechOptions()
 		# the macOS zip file contains an installation program, if this pattern repeats add a -run option that is passed to InstallAppFromZip, for macOS no argument is needed, unzip to $TEMP
 		FindFile "hardware/Logitech/options/LogiMgr Installer 8.10.64.app" || return
 		open -a "$file" || return
+		pause
 	else
 		run "hardware/Logitech/options/Options_8.10.154.exe" --elevate || return
 	fi
 
-	case "$PLATFORM" in
+	if IsPlatform win; then
+		$mv "$pp/Logitech/Logitech Options.lnk" "$pp/Operating System" || return
+		$rmd "$pp/Logitech" || return
+		$registry delete "run/LogiOptions" # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
+		$registry delete "run/Logitech Download Assistant" # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch
+	
+		#profile --app "LogitechOptions" --method "$APPDATA/Logishrd/LogiOptions" --files "*" save default
+		#ProcessKill LogiOptionsMgr.exe >& /dev/null; ProcessKill LogiOverlay.exe >& /dev/null
+		profile --app "LogitechOptions" --method "$APPDATA/Logishrd/LogiOptions" restore || return
+	fi
 
-		win)
-			$mv "$pp/Logitech/Logitech Options.lnk" "$pp/Operating System" || return
-			$rmd "$pp/Logitech" || return
-			$registry delete "run/LogiOptions" # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
-			$registry delete "run/Logitech Download Assistant" # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch
-			;;
-
-	esac
-
-	#profile --app "LogitechOptions" --method "$APPDATA/Logishrd/LogiOptions" --files "*" save default
-	#ProcessKill LogiOptionsMgr.exe >& /dev/null; ProcessKill LogiOverlay.exe >& /dev/null
-	profile --app "LogitechOptions" --method "$APPDATA/Logishrd/LogiOptions" restore || return
+	return 0
 }
 
 GlassWire()
@@ -4065,7 +4039,7 @@ iTerm()
 	printf "**************************************************\n* iTerm\n**************************************************\n"
 	
 	# https://iterm2.com/downloads.html
-	run "macOS/iTerm2/iTerm2-3_3_7.zip" || return
+	run "macOS/iTerm2/iTerm2-3_3_10.zip" || return
 
 	if ask "Do you want to install iTerm shell integration"; then # https://iterm2.com/documentation-shell-integration.html
 		curl -L https://iterm2.com/shell_integration/install_shell_integration_and_utilities.sh | bash
