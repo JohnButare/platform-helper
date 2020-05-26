@@ -4,11 +4,12 @@
 usage()
 {
 	echot "\
-usage: power on|off|reboot|sleep|hibernate|status [host] [port]
+usage: power on|off|reboot|sleep|firmware|hibernate|status [host] [port]
 	Control host or PoE switch port power state.  
 	Use fully qualified domain name for host name to avoid local name resolution delay.
 	Turn turn a host on it must have an entry in /etc/ethers to get the MAC address.
 
+	firmware							reboot to the UEFI firmware settings
 	status								report the status of the host or PoE switch (on or off)
 	fix info|sleep|wake		examine issues preventing computer sleep or wake
 
@@ -21,8 +22,6 @@ usage: power on|off|reboot|sleep|hibernate|status [host] [port]
 			--wait-ssh			wait for an ssh connection"
 	exit $1
 }
-
-# sleep and hibernate systemctl suspend and systemctl hibernate
 
 args()
 {
@@ -42,7 +41,7 @@ args()
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ ! $port ]] && IsInteger $1 && { port="$1"; shift; continue; }
-				! IsOption "$1" && [[ ! $host && "$command" == @(on|off|sleep|reboot|status) ]] && { host="${1,,}"; shift; continue; }	
+				! IsOption "$1" && [[ ! $host && "$command" == @(on|off|sleep|reboot|status|firmware) ]] && { host="${1,,}"; shift; continue; }	
 				[[ "$command" == @(fix) ]] && break
 				UnknownOption "$1"
 		esac
@@ -131,6 +130,17 @@ setLocalPower()
 	logger "issuing power $command..."
 
 	case "$command" in
+		firmware)
+			if IsPlatform win; then elevate --wait shutdown.exe /r /fw /t 0; exit
+			fi;;
+
+		hibernate)
+			if IsPlatform win; then start psshutdown -h -f -t 0; exit
+			elif IsPlatform mac; then /sbin/shutdown -h now; exit
+			elif IsPlatform raspbian; then :
+			elif InPath systemctl; then systemctl hibernate; exit
+			fi;;
+
 		off)
 			if IsPlatform win; then start psshutdown -s -f -t 0; exit
 			elif IsPlatform mac; then /sbin/shutdown -h now; exit
@@ -138,13 +148,6 @@ setLocalPower()
 			elif IsPlatform synology; then /sbin/shutdown -P now; exit
 			elif InPath systemctl; then systemctl poweroff; exit
 			elif InPath shutdown; then shutdown -p now; exit
-			fi;;
-
-		sleep)
-			if IsPlatform win; then start psshutdown -d -t 0; exit
-			elif IsPlatform mac; then osascript -e 'tell application "System Events" to sleep'; exit
-			elif IsPlatform raspbian; then :
-			elif InPath systemctl; then systemctl suspend; exit
 			fi;;
 
 		reboot)
@@ -156,11 +159,11 @@ setLocalPower()
 			elif InPath shutdown; then shutdown -r now; 
 			fi;;
 
-		hibernate)
-			if IsPlatform win; then start psshutdown -h -f -t 0; exit
-				elif IsPlatform mac; then /sbin/shutdown -h now; exit
-				elif IsPlatform raspbian; then :
-				elif InPath systemctl; then systemctl hibernate; exit
+		sleep)
+			if IsPlatform win; then start psshutdown -d -t 0; exit
+			elif IsPlatform mac; then osascript -e 'tell application "System Events" to sleep'; exit
+			elif IsPlatform raspbian; then :
+			elif InPath systemctl; then systemctl suspend; exit
 			fi;;
 
 	esac
@@ -356,6 +359,15 @@ sleepCommand()
 	[[ "$initialHostStatus" == "off" ]] && return 0;
 
 	echo "Sleeping $host..."
+	ssh $host "$BIN/power $command"
+	waitOff "$host"
+}
+
+firmwareCommand()
+{
+	[[ "$initialHostStatus" == "off" ]] && return 0;
+
+	echo "Entering firmware on $host..."
 	ssh $host "$BIN/power $command"
 	waitOff "$host"
 }

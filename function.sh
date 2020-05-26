@@ -44,7 +44,7 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 # platform specific functions
 SourceIfExistsPlatform "$BIN/function." ".sh" || return
 
-PlatformTmp() { IsPlatform win && "$(wtu "$tmp")" || echo "$TMP"; }
+PlatformTmp() { IsPlatform win && echo "$(wtu "$tmp")" || echo "$TMP"; }
 
 # GetPlatform [host](local) - get platform, platformLike, and platformId for the host
 # testing:  sf; time GetPlatform nas? && echo "success: $platform-$platformLike-$platformId"
@@ -258,7 +258,6 @@ ScriptReturn() # ScriptReturns [-s|--show] <var>...
 #
 
 EnsureDir() { echo "$(RemoveTrailingSlash "$1")/"; }
-FileHide() { ! IsPlatform win && return; [[ -e "$1" ]] && attrib.exe +h "$(utw "$1")"; }
 FileTouchAndHide() { [[ ! -f "$1" ]] && { touch "$1" || return; }; FileHide "$1"; }
 GetBatchDir() { GetFilePath "$0"; }
 GetDriveLabel() { local gdl="$(cmd /c vol "$1": |& head -1 | sed -e '/^Ma/d')"; r "${gdl## Volume in drive ? is }" $2; }
@@ -275,6 +274,15 @@ RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
+
+FileHide()
+{ 
+	! IsPlatform win && return
+	
+	for file in "${@}"; do
+		[[ -e "$file" ]] && { attrib.exe +h "$(utw "$file")" || return; }
+	done
+}
 
 FindInPath()
 {
@@ -322,7 +330,7 @@ utw() # UnixToWin
 	# utw requires the file exist in newer versions of wsl
 	if [[ ! -e "$@" ]]; then
 		local filePath="$(GetFilePath "$@")"
-		[[ ! -d "$filePath" ]] && { ${G}mkdir --parents "$filePath" || return; }
+		[[ ! -d "$filePath" ]] && { ${G}mkdir --parents "$filePath" >& /dev/null || return; }
 		touch "$@" || return
 		clean="true"
 	fi
@@ -428,14 +436,11 @@ CopyDir()
 	return $result
 }
 
-# FileCommand mv|cp|ren|hide SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
+# FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
 FileCommand() 
 { 
-	local args command="$1" dir="${@: -1}" file files=0 n
-	[[ "$command" == "hide" ]] && n=$(($#-1)) || n=$(($#-2))
+	local args command="$1" dir="${@: -1}" file files=0 n=$(($#-2))
 
-	[[ "$PLATFORM" != "win" && "$command" == @(hide|HideAndSystem) ]] && return 0
-	
 	for arg in "${@:2:$n}"; do
 		IsOption "$arg" && args+=( "$arg" )
 		[[ -e "$arg" ]] && { args+=( "$arg" ); (( ++files )); }
@@ -443,12 +448,11 @@ FileCommand()
 	(( files == 0 )) && return 0
 
 	case "$command" in
-		hide) for file in "${args[@]}"; do attrib.exe +h "$(utw "$file")" || return; done;;
-		HideAndSystem) for file in "${args[@]}"; do attrib +h +s "$(utw "$file")" || return; done;;
 		ren) 'mv' "${args[@]}" "$dir";;
-		*)
+		cp|mv)
 			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing \`$dir\`: No such directory"; return 1; }
 			"$command" -t "$dir" "${args[@]}";;
+		*) EchoErr "FileCommand: unknown command $command"; return 1;;
 	esac
 }
 

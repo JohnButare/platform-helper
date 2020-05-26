@@ -6,7 +6,7 @@ IsInstallable()
 	case "$1" in	
 		# Windows
 		ahk|AutoHotKey|AltTabTerminator|AquaSnap|CloseAllWindows|FileLocatorPro|HiddenStart|Ninite|npp|Notepadpp|RightClickEnhancer|SevenZip|TidyTabs|UltraMon|vcxsrv|WinScp|xMing) IsPlatform win;;
-		AjaSystemTest|BlueStacks|CPUZ|DiskImager|IntelExtremeTuning|PartitionAssistant|pGina|PowerPanel|PowerrToys|stamps) IsPlatform win;;
+		AjaSystemTest|BlueStacks|CPUZ|DiskImager|IntelExtremeTuning|LgMonitor|LxRunOffline|PartitionAssistant|pGina|PowerPanel|PowerrToys|QuickBooks|stamps|TaskLayout|Todoist) IsPlatform win;;
 
 		# Mac
 		apptivate|bartender|CarrotWeather|iTerm|KarabinerElements|LiveDesktop|Magnet|pcalc|spark|speedtest|WallpaperWizard|XQuartz) IsPlatform mac;;
@@ -34,7 +34,7 @@ TemplateInstall()
 	# http://www.techsmith.com/download/licenses/snagitupgrade.asp
 	run "TechSmith/SnagIt/setup/SnagIt V12.2.1." -p "win" "mac" "linux" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		$registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe 
 		mergeDir "$pp/(dir)" "$ao" || return
 		mergeDir "$pp/(dir)" "$pp/Development/Other" || return
@@ -76,29 +76,26 @@ TemplateFullInstall()
 
 	fi
 
-	echo "Moving data folders..."
 	makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
 
-	echo "Updating registry..."	
 	$registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe 
 	$registry import "$install/AutoHotKey/setup/other/AutoHotkey-64.reg" || return
 	$registry set "HKCU/SOFTWARE/Foo/File" REG_EXPAND_SZ "$(utw "$file")" || return
 
-	echo "Updating services..."
 	service manual "Stereo Service"
 	service manual "nvUpdatusService"
 
-	echo "Updating firewall..."
 	$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/OpenSSH/bin/sshd.exe")" || return
 
-	echo "Creating directories..."
 	makeDir "$_userDocuments/code/test"
 
 	sublime profile restore default || return
 
-	echot "\
-- configure"
-	app start
+	if askP 'Configure app'; then
+		echot "\
+	- configure"
+		app start
+	fi
 }
 
 usage()
@@ -196,11 +193,12 @@ InstallInit()
 	serverPrograms="$pp/Development"; [[ $server ]] && serverPrograms="$pp/Server";
 	oo="$pp/Operating System/Other"
 
+	askP() { [[ $noPrompt ]] && return 0; ask "$1"; }
 	cp="FileCommand cp"
 	cpDir="CopyDir --recursive"
 	firewall="firewall --suppress"
-	hide="FileCommand hide"
-	hideAndSystem="FileCommand HideAndSystem"
+	hide="FileHide"
+	hideAndSystem="FileHideAndSystem"
 	makeDir() { ${G}mkdir --parents "$@"; }
 	makeDirSudo() { sudo ${G}mkdir --parents "$@"; }
 	makeLink() { MakeLink --suppress $quiet $noPrompt "$@"; }
@@ -235,14 +233,14 @@ StoreInstall()
 
 	case "$PLATFORM" in 
 		mac) mas open $id;;
-		win) RunProcess.exe ms-windows-store://pdp/?ProductId=$id;;
+		win) start RunProcess.exe ms-windows-store://pdp/?ProductId=$id;;
 	esac
 	
 	RunPause
 }
 
 IsMacStoreId() { IsPlatform mac && IsInteger "$1"; }
-MacAppConfigure() { ask "Do you want to configure $1" && { MacAppOpen "$1" || return; }; return 0; }
+MacAppConfigure() { askP "Do you want to configure $1" && { MacAppOpen "$1" || return; }; return 0; }
 MacAppOpen() { open -a "$1" || return; pause; }
 
 run() # run EXE [OPTIONS...]
@@ -584,7 +582,6 @@ bootstrapWsl()
 {
 	$makeShortcut "wsl.exe" "$pp/Operating System/bash" "" "$(utw "$DATA/icons/Command Prompt.ico")" || return
 	$registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/RunScript startup' || return
-	run "LINUX/wsl/LxRunOffline/LxRunOffline-v3.4.0.zip" "$P/LxRunOffline" || return # https://github.com/DDoSolitary/LxRunOffline/releases
 	return 0
 }
 
@@ -614,25 +611,22 @@ bootstrapWin()
 AppCore()
 {
 	printf "**************************************************\n* Core Applications\n**************************************************\n"
-
-	forcePrompt="true"
-
-	i firefox sublime AutoHotKey BeyondCompare LastPass ssh xServer || return # browser first for passwords
-	IsVm && { i JumpCloud || return; }
-
+	AppInitial || return
 	RunPlatform App || return
 	AppHostHardwareCore || return
 	AppHostCore || return
 	AppUserCore || return
+}
 
-	IsVm && return
-	i zoom && return
-
+AppInitial()
+{
+	i firefox sublime AutoHotKey BeyondCompare ssh xServer || return # browser first for passwords
+	! IsVm && { i JumpCloud zoom || return; }
 	return 0
 }
 
 AppMac() { i iTerm KarabinerElements || return; }
-AppWin() { i AquaSnap ninite RightClickEnhancer || return; }
+AppWin() { i AquaSnap ninite || return; }
 
 AppRaspbian() 
 { 
@@ -642,23 +636,23 @@ AppRaspbian()
 
 AppHostHardwareCore()
 {
-	local pc="IntelDrivers nVidia LogitechOptions" mac="LogitechOptions"
+	local pc="IntelDriverUpdate nVidiaGeForceExperience LogitechOptions" mac="LogitechOptions"
 
 	case "$HOSTNAME" in
 		jane|pants) i $mac || return;;
-		oversoul) i GigabyteMotherboard $pc BrotherPrinter DymoLabel || return;;
+		oversoul) i $pc || return;;
 		rosie) i MsiMotherboard $pc || return;;
-		ultron) i GigabyteMotherboard $pc || return;;
+		ultron) i $pc || return;;
 	esac
 }
 
 AppHostCore()
 {
-	local common="CleanMyPc Dropbox GreenShot notion office"
+	local common="CleanMyPc Dropbox GreenShot notion office thunderbird"
 
 	case "$HOSTNAME" in
 		jane|micro|pants|rosie|ultron) i $common || return;; 
-		oversoul) i $common FileLocatorPro PartitionAssistant Quicken UltraMon || return;;
+		oversoul) i $common dymo Quicken UltraMon || return;;
 		pi5) i nodejs homebridge || return;;
 	esac
 
@@ -668,7 +662,7 @@ AppHostCore()
 AppUserCore()
 {
 	local mac="apptivate bartender CarrotWeather magnet pcalc spark speedtest WallpaperWizard yoink"
-	local win="AltTabTerminator CloseAllWindows notepadpp SevenZip TidyTabs Wallpaper4k"
+	local win="AltTabTerminator TidyTabs Wallpaper4k"
 
 	case "$USER" in
 		jjbutare) i $mac $win || return;;
@@ -679,27 +673,19 @@ DevCore()
 {
 	printf "**************************************************\n* Development Core\n**************************************************\n"
 	
-	echo "Creating directories..."
 	makeDir "$CODE/test" || return
-
-	i GitCore || return
 
 	if IsPlatform win; then
 		makeLink --merge "$WIN_HOME/source" "$CODE" || return
-
-		makeDir "$pp/Development/Other" || return
-		makeDir "$up/Development/Other" || return
 		$makeShortcut "$CODE" "$pp/Development/Code" || return
-
-		ask "\nInstall SQL Development core" && { i iis SqlServerManagementStudio SqlPrompt SqlServer || return; }
 	fi
 
-	i JetBrains || return
-	ask "\nInstall .NET Development core" && { DevDotNetCore || return; }
-	ask "\nInstall JAVA Development core" && { DevJavaCore || return; }
-	ask "\nInstall Web Development core" && { DevWebCore || return; }
+	i GitCore JetBrains DevDotNetCore DevJavaCore DevSqlCore DevWebCore || return
+}
 
-	return 0
+DevSqlCore()
+{
+	i iis SqlServerManagementStudio SqlPrompt SqlServer || return
 }
 
 DevDotNetCore() 
@@ -707,24 +693,15 @@ DevDotNetCore()
 	printf "**************************************************\n* .NET Development Core\n**************************************************\n"
 
 	if IsPlatform win; then
-		echo "Creating directories..."
 		makeDir "$pp/Development/DotNet/Other"
 	fi
 
-	echo "Installing Applications..."	
-	i VisualStudioCode VisualStudio || return
-
-	if IsPlatform win && ask "Install optional applications"; then
-	 	i NUnitConsole LinqPad || return
-	fi
-
-	return 0
+	i LinqPad NUnitConsole VisualStudioCode VisualStudio || return
 }
 
 DevJavaCore()
 {
 	printf "**************************************************\n* JAVA Development Core\n**************************************************\n"
-
 	local java="$pp/Development/Java/Other"
 	makeDir "$java" || return
 }
@@ -732,9 +709,7 @@ DevJavaCore()
 DevWebCore()
 {
 	printf "**************************************************\n* Web Development Core\n**************************************************\n"
-
 	i nodejs || return
-
 	gem install compass || return	
 	npm install -g yo bower grunt grunt-cli || return
 }
@@ -750,21 +725,14 @@ GameCore()
 MediaCore()
 {
 	printf "**************************************************\n* Media Core\n**************************************************\n"
-
-	echo "Creating directories..."
-	makeDir "$pp/Media/Other" || return
-	
-	echo "Updating icons..."
-	$makeShortcut "$DATA/platform/win/gspot.exe" "$pp/Media/GSpot" || return
-	$makeShortcut "$DATA/platform/win/InstalledCodec.exe" "$pp/Media/Installed Codecs"  || return
-	$makeShortcut "$DATA/platform/win/DSFMgr.exe" "$pp/Media/DirectShow Filter Manager" || return
-
-	ask 'Install book programs' && { i calibre calibre2opds kindle || return; }
-	ask 'Install camera programs' && { i CanonCamera || return; }
-	ask 'Install image programs' && { i picasa FastStoneImageViewer IrfanView || return; }
-	ask 'Install music programs' && { i deezer iTunes MusicBee plex tidal sonos || return; }
-	ask 'Install video programs' && { i vlc || return; }
+	i MediaBookCore MediaCameraCore MediaImageCore MediaMusicCore MediaVideoCore || return
 }
+
+MediaBookCore() { i calibre calibre2opds kindle; }
+MediaCameraCore() { i CanonCamera; }
+MediaImageCore() { i picasa FastStoneImageViewer IrfanView; }
+MediaMusicCore() { i deezer iTunes MusicBee plex tidal sonos; }
+MediaVideoCore() { i vlc; }
 
 PiCore()
 {
@@ -775,7 +743,6 @@ PiCore()
 SurveillanceCore()
 {
 	printf "**************************************************\n* Surveillance Core\n**************************************************\n"
-	makeDir "$pp/Surveillance/Other" || return
 	i AmcrestCamera qvr SurveillanceStation || return	
 }
 
@@ -788,17 +755,18 @@ TravelCore()
 UtilityCore()
 {
 	printf "**************************************************\n* Utility Core\n**************************************************\n"
- 
  	Utility${PLATFORM^} || return
-	ask 'Install disk programs' && { i CleanMyPc DiskImager diskInventortyX LinkShellExtension ParagonExtFs PartitionAssistant TeraCopy ToDoBackup TrueImage || return; }
-	ask 'Install encryption programs' && { i AxCrypt || return; }
-	ask 'Install hardware programs' &&  { i BrotherPrinter DasKeyboard DoxieGo DymoLabel EpsonScan LabelMaker LgMonitor LogitechOptions EpsonScan PowerPanel || return; }
-	ask 'Install network programs' && { i GlassWire NordVpn TigerVnc tribler || return; }
+ 	i UtilityDiskCore UtilityEncryptionCore UtilityHardwareCore UtilityNetworkCore || return
 }
 
 UtilityWin() { i RightClickEnhancer || return; }
 UtilityMac() { :; }
 UtilityLinux() { :; }
+
+UtilityDiskCore() { i CleanMyPc DiskImager diskInventortyX LinkShellExtension ParagonExtFs PartitionAssistant TeraCopy ToDoBackup TrueImage; }
+UtilityEncryptionCore() { i AxCrypt; }
+UtilityHardwareCore() { i BrotherPrinter DasKeyboard DoxieGo dymo EpsonScan LabelMaker LgMonitor LogitechOptions EpsonScan PowerPanel; }
+UtilityNetworkCore() { i GlassWire NordVpn TigerVnc tribler; }
 
 VmCore() { Vm${PLATFORM^} || return; }
 VmWin() { i VmwareWorkstation || return; }
@@ -830,14 +798,8 @@ SshPermission()
 ssh()
 {
 	printf "**************************************************\n* SSH\n**************************************************\n"
-	local sshd
-	
 	makeDir ~/.ssh && $hide +h ~/.ssh || return
-
-	echo "Permissions..."
 	SshPermission || return
-
-	echo "Configuring..."
 	RunPlatform Ssh || return
 }
 
@@ -873,7 +835,7 @@ WinScp()
 	run "Shareware/WinSCP/WinSCP-5.15.4-Setup.exe" || return
 
 	$mv "$pp/WinSCP.lnk" "$pp/Operating System" || return
-	rmSudo "$pd/WinSCP.lnk" || return
+	$rm "$pd/WinSCP.lnk" || return
 
 	clipw "$(utw "$udata/replicate/WinSCP.ini")"
 	echot "\
@@ -1054,7 +1016,7 @@ SublimeInstall()
 
 	sublime profile restore default || return
 
-	if ask 'Do you want to configure Sublime Text'; then
+	if askP 'Configure Sublime Text'; then
 		echo '- Help, Enter license'
 		sublime start || return
 	fi
@@ -1089,20 +1051,36 @@ WindowsSetup()
 	printf "**************************************************\n* Windows Setup\n**************************************************\n"
 	! IsElevated && { elevate RunScript --pause-error inst WindowsSetup; pause; return; }
 
-	GrantFullPermission "$psm" || return
+	WindowsPermissions || return
 	WindowsDirs || return
 	WindowsIcons || return
 	WindowsConfiguration || return
 	OneDrive || return
 }
 
+WindowsPermissions()
+{
+	! IsElevated && { elevate RunScript --pause-error inst WindowsPermissions; pause; return; }
+	GrantFullPermission "$psm" || return
+	GrantFullPermission "$pd" || return
+}
+
 WindowsDirs()
 {
 	makeDir "$WIN_ROOT/temp" || return
+	
 	makeDir "$pp/Applications/Other" || return
-	makeDir "$oo" || return
+	makeDir "$pp/Development/Other" || return
+	makeDir "$pp/Game/Other" || return
+	makeDir "$pp/Media/Other" || return
+	makeDir "$pp/Operating System/Other" || return
+	makeDir "$pp/Surveillance/Other" || return
+
 	makeDir "$up/Applications/Other" || return
+	makeDir "$up/Development/Other" || return
+
 	makeDir "$udata/app" || return
+
 }
 
 WindowsIcons()
@@ -1123,10 +1101,9 @@ WindowsIcons()
 	mergeDir --rename "$pp/Microsoft Silverlight" "$oo/Silverlight" || return
 	mergeDir --rename "$up/Windows PowerShell" "$oo/PowerShell" || return
 
-	[[ -f "$pp/Immersive Control Panel.lnk" && -f "$pp/Applications/Accessories/Immersive Control Panel.lnk" ]] && { $rm "$pp/Immersive Control Panel.lnk" || return; }
+	mvSudo "$pd/Mac Files.lnk" "$pp/Operating System" >& /dev/null
 	$mv "$pp/Immersive Control Panel.lnk" "$pp/Applications/Accessories" || return
-	sudo mv "$pd/Mac Files.lnk" "$pp/Operating System" >& /dev/null # Parallels Guest
-	$mv "$ud/Microsoft Edge.lnk" "$ao" || return
+	$mv "$ud/Microsoft Edge.lnk" "$pp/Applications" || return
 	$mv "$pp/OneDrive.lnk" "$up/Applications" || return
 	$mv "$up/OneDrive.lnk" "$up/Applications" || return
 	$mv "$pp/Windows Media Player.lnk" "$pp/Applications/Accessories" || return
@@ -1138,6 +1115,7 @@ WindowsIcons()
 
 	$hideAndSystem "$pp/Applications/Accessories/Desktop.ini" || return
 	$hideAndSystem "$pp/Applications/Accessories/Accessibility/Desktop.ini" || return
+	$hideAndSystem "$oo/PowerShell/desktop.ini" || return
 
 	# 3rd party
 	mergeDir "$pp/ICEpower" "$oo" || return	# Asus ZenBook laptop
@@ -1161,8 +1139,8 @@ WindowsConfiguration()
 	$registry set "$key/WindowSize" REG_DWORD 3276964 || return # 3276964=164x50
 
 	echo "Cleaning file system..."
-	$hide hide "$WIN_ROOT/PerfLogs" || return
-	$hide hide "$WIN_ROOT/Windows.old" || return
+	$hide "$WIN_ROOT/PerfLogs" || return
+	$hide "$WIN_ROOT/Windows.old" || return
 	$rm "$WIN_HOME\Documents\My Music" || return
 	$rm "$WIN_HOME\Documents\My Pictures" || return
 	$rm "$WIN_HOME\Documents\My Videos" || return
@@ -1212,6 +1190,14 @@ WindowsConfiguration()
 	return 0
 }
 
+LxRunOfflineInstall()
+{
+	printf "**************************************************\n* LX Run Offline\n**************************************************\n"
+
+	# https://github.com/DDoSolitary/LxRunOffline/releases
+	run "LINUX/wsl/LxRunOffline/LxRunOffline-v3.4.0.zip" "$P/LxRunOffline" || return
+}
+
 pGina()
 {
 	printf "**************************************************\n* pGina\n**************************************************\n"
@@ -1239,14 +1225,14 @@ DropboxInstall()
 	local v=97.4.467
 	run "Dropbox/" -p "Dropbox $v Offline Installer.exe" "Dropbox $v.dmg" "dropbox_2019.02.14_amd64.deb" /S || return
 
-	if ask 'Do you want to configure Dropbox'; then
+	if askP 'Configure Dropbox'; then
 		if IsPlatform win; then
 			echot "\
 		- Dropbox, Preferences...,
 		  - General
-				- check Show Dropbox as a save location in Microsoft Office
+		  	- uncheck Start Dropbox on system startup
 				- Dropbox Badge, Show only if others present
-		  - Import, Change AutoPlay Settings, uncheck User AutoPlay for all media and devices
+			- Backups, Change AutoPlay Settings, Removable drive=Take no action
 		  - Notifications, uncheck Edits to files
 		  - Bandwidth, Upload rate, Don't Limit
 		  - Sync, Selective Sync, uncheck large
@@ -1282,8 +1268,11 @@ DropboxFinal()
 		$registry 32 delete "run/Dropbox" # "C:\Program Files (x86)\Dropbox\Client\Dropbox.exe" /systemstartup
 		$registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{E31EA727-12ED-4702-820C-4B6445F28E1B}/" # Desktop Dropbox icon
 		$registry set "HKCU/SOFTWARE/Classes/CLSID/{E31EA727-12ED-4702-820C-4B6445F28E1A}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return # Desktop Dropbox icon
+
+		makeLink "$WIN_HOME/$company Dropbox/$user" "$HOME/Dropbox" || return
+		$hide "$WIN_HOME/$company Dropbox/.dropbox" || return
 	else
-		 makeLink "$HOME/$company Dropbox/$user" "$HOME/Dropbox" || return
+		makeLink "$HOME/$company Dropbox/$user" "$HOME/Dropbox" || return
 	fi
 }
 
@@ -1444,16 +1433,16 @@ BeyondCompareInstall()
 
 	# http://www.scootersoftware.com/download.php
 	local v=4.3.4.24657
-	run "Scooter Software/Beyond Compare/setup/" -p "BCompare-$v_x64.exe" "BCompareOSX-$v.zip" "bcompare-${v}_amd64.deb" || return
+	run "Scooter Software/Beyond Compare/setup/" -p "BCompare-${v}_x64.msi" "BCompareOSX-${v}.zip" "bcompare-${v}_amd64.deb" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then	
-		$ren "$pp/Beyond Compare 4.lnk" "$pp/Applications/Beyond Compare.lnk" || return
+	if IsPlatform win; then	
+		mergeDir --rename "$pp/Beyond Compare 4" "$ao/Beyond Compare" || return
+		$rm "$pd/Beyond Compare 4.lnk" || return
 		$rm "$ud/Beyond Compare 4.lnk" || return
-		rmSudo "$pd/Beyond Compare 4.lnk" || return
 		$registry delete "urun/BCClipboard" # C:\Program Files\Beyond Compare 4\BCClipboard.exe
 	fi
 
-	if ask 'Configure BeyondCompare'; then
+	if askP 'Configure BeyondCompare'; then
 		echo "- Help|Preferences, Enter Key..."
 		[[ "$PLATFORM" == "mac" ]] && echo "- Beyond Compare, Install Command Line Tools…"
 		BeyondCompare --wait start
@@ -1472,7 +1461,7 @@ sonos()
 	run "Sonos/setup/SonosDesktopController110." -p "exe" "dmg" "linux" --elevate || return
 
 	case "$PLATFORM" in
-		win) rmSudo "$pd/Sonos.lnk" || return; mergeDir "$pp/Sonos" "$pp/Media/Other" || return;;
+		win) $rm "$pd/Sonos.lnk" || return; mergeDir "$pp/Sonos" "$pp/Media/Other" || return;;
 		mac) MacAppConfigure Sonos;;
 	esac
 }
@@ -1571,7 +1560,7 @@ firefoxInstall()
 	
 	if [[ "$PLATFORM" == "win" ]]; then	
 		$mv "$pp/Firefox.lnk" "$pp/Applications" || return
-		rmSudo"$pd/Firefox.lnk" || return
+		$rm "$pd/Firefox.lnk" || return
 	fi
 
 	firefox profile restore default || return
@@ -1589,9 +1578,10 @@ thunderbird()
 
 	if IsPlatform win; then
 		$ren "$pp/Mozilla Thunderbird.lnk" "$pp/Applications/Thunderbird.lnk" || return
-		rmSudo "$pd/Mozilla Thunderbird.lnk" || return
+		$rm "$pd/Mozilla Thunderbird.lnk" || return
 	fi
 
+	makeDir "$APPDATA/Thunderbird" || return
 	profile --app "Thunderbird" --method "$APPDATA/Thunderbird" restore default || return
 }
 
@@ -1621,7 +1611,7 @@ ChromeIcons()
 		$mv "$pp/Google Chrome.lnk" "$pp/Applications" || return
 		$rm "$up/Google Chrome.lnk" || return
 		$rm "$ud/Google Chrome.lnk" || return
-		rmSudo "$pd/Google Chrome.lnk" || return
+		$rm "$pd/Google Chrome.lnk" || return
 		$rm "$ud/Chrome App Launcher.lnk" || return
 		$rm "$ud/Google Chrome Canary Build.lnk" || return
 		mergeDir --rename "$pp/Google Chrome" "$ao/Chrome" || return
@@ -1908,18 +1898,30 @@ OfficeIcons()
 	$registry delete "urun/Lync" # "c:\Program Files\Microsoft Office\root\office16\lync.exe" /fromrunkey
 }
 
-nVidiaInstall()
+nVidiaGeForceExperienceInstall()
 {
 	printf "**************************************************\n* nVidia GeForce Experience\n**************************************************\n"
-	run "hardware/nVidia/driver/445.87/setup.exe" --elevate --no-pause # https://www.nvidia.com/en-us/drivers/results/159423/
-	run "hardware/nVidia/experience/GeForce_Experience_v3.20.3.63.exe" --elevate || return # https://www.nvidia.com/en-us/geforce/geforce-experience/
+
+	# https://www.nvidia.com/en-us/geforce/geforce-experience/
+	run "hardware/nVidia/experience/GeForce_Experience_v3.20.3.63.exe" --elevate || return
+
+	nVidiaIcons || return
+}
+
+nVidiaDriverInstall()
+{
+	printf "**************************************************\n* nVidia Driver\n**************************************************\n"
+
+	# https://www.nvidia.com/en-us/drivers/results/159423/
+	run "hardware/nVidia/driver/445.87/setup.exe" --elevate
+
 	nVidiaIcons || return
 }
 
 nVidiaIcons()
 {
 	mergeDir --rename "$pp/NVIDIA Corporation" "$oo/NVIDIA" || return
-	rmSudo "$pd/GeForce Experience.lnk" || return
+	$rm "$pd/GeForce Experience.lnk" || return
 	return 0
 }
 
@@ -1977,7 +1979,7 @@ gitForWindows()
 	mergeDir "$up/Git" "$pp/Development/Other" || return
 	$rm "$up/Git for Windows.lnk"	|| return
 
-	ask 'Configure Git For Windows' && { ConfigureGitForWindows || return; }
+	askP 'Configure Git For Windows' && { ConfigureGitForWindows || return; }
 
 	return 0
 }
@@ -2187,7 +2189,7 @@ NotepadPpInstall()
 	registry import "$file/setup/NotepadPP.reg" || return
 	$mv "$pp/Notepad++.lnk" "$pp/Applications" || return
 	$rmd "$pp/Notepad++" || return
-	rmSudo "$pd/Notepad++.lnk" || return
+	$rm "$pd/Notepad++.lnk" || return
 
 	notepadpp profile restore default || return
 }
@@ -2303,7 +2305,7 @@ VmwareWorkstationInstall()
 
 	echo "Updating icons..."
 	mergeDir "$pp/VMware" "$oo" || return
-	rmSudo "$pd/VMware Workstation Pro.lnk" || return
+	$rm "$pd/VMware Workstation Pro.lnk" || return
 	makeDir "$udata/app/VMware" || return
 
 	echo "Updating firewall..." # When the guest uses NAT echo replies (ICMP type and code 0) must be allowed for ping to function on the guest
@@ -2311,10 +2313,7 @@ VmwareWorkstationInstall()
 
 	echot "\
 - Edit, Preferences...
-  - Workspace
-    - Default location for virtual machines=Documents\data\app\VMware or d:\data\VMware
-    - check Keep VMs running after workstation closes
-    - check Enable all shared folders by default
+  - Workspace, Default location for virtual machines=\data\VMware
   - Hotkeys, select Ctrl and Win only
   - Display
     - uncheck Autofit Window
@@ -2322,7 +2321,7 @@ VmwareWorkstationInstall()
     - uncheck Show toolbar edge when unpinned in full screen
   - Updates, check Automatically update VMware Tools on a virtual machine"
 	# Start manually as default location folder is not yet configured
-	start --wait "$P32/VMware/VMware Workstation/vmware.exe"
+	start --wait "$P32/VMware/VMware Workstation/vmware.exe" || return
 }
 
 DashLane()
@@ -2337,30 +2336,21 @@ DashLane()
 	fi
 }
 
-LastPass() # LastPass for Linux only installs Chrome extension
+LastPassInstall() # LastPass for Linux only installs Chrome extension
 {
 	printf "**************************************************\n* LastPass\n**************************************************\n"
 	
-	# https://lastpass.com/misc_download2.php, App Store 926036361
+	# https://lastpass.com/misc_download2.php
 	run "LastPass/setup/" -p "LastPassInstaller.exe" "LastPass.dmg" "lplinux.tar.bz2" --elevate || return 
 
-	case "$PLATFORM" in
-
-		linux)
-			cd "$P/lplinux" || return
-			./install_lastpass.sh || return
-			;;
-
-		win)
-			echo "Updating icons..."
-			mergeDir "$pp/LastPass" "$oo" || return
-			rmSudo "$pd/My LastPass Vault.lnk" || return
-
-			echo "Updating registry..."	
-			$registry 32 delete "run/LastApp" # C:\Program Files (x86)\LastPass\lastapp.exe
-			;;
-
-		esac
+	if IsPlatform linux; then
+		cd "$P/lplinux" || return
+		./install_lastpass.sh || return
+	elif IsPlatform win; then
+		mergeDir "$pp/LastPass" "$oo" || return
+		$rm "$pd/My LastPass Vault.lnk" || return
+		$registry 32 delete "run/LastApp" # C:\Program Files (x86)\LastPass\lastapp.exe
+	fi
 
 		return 0
 }
@@ -2674,8 +2664,8 @@ CreativeCloudInstall()
 	if [[ "$PLATFORM" == "win" ]]; then	
 		echo "Updating icons..."
 		makeDir "$pp/Media/Other/Adobe" || return
-		sudo mv "$pp/Adobe"*".lnk" "$pp/Media/Other/Adobe" >& /dev/null
-		sudo mv "$pd/Adobe"*".lnk" "$pp/Media/Other/Adobe" >& /dev/null
+		$mv "$pp/Adobe"*".lnk" "$pp/Media/Other/Adobe" >& /dev/null
+		$mv "$pd/Adobe"*".lnk" "$pp/Media/Other/Adobe" >& /dev/null
 
 		$registry 32 delete "run/Adobe Creative Cloud" # "C:\Program Files (x86)\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe" --showwindow=false --onOSstartup=true
 		$registry 32 delete "run/Acrobat Assistant 8.0" # "C:\Program Files (x86)\Adobe\Acrobat DC\Acrobat\Acrotray.exe"
@@ -2858,16 +2848,16 @@ MusicBeeInstall()
 - Cancel"
 }
 
-DymoLabelInstall()
+DymoInstall()
 {
 	printf "**************************************************\n* Dymo Label\n**************************************************\n"
 
 	# http://www.dymo.com/en-US/dymo-user-guides
-	run "DYMO/Label/" -p "DCDSetup1.2.exe" "DLS8Setup.8.7.4.dmg" || return 
+	run "hardware/DYMO/" -p "DCDSetup1.3.1.exe" "DLS8Setup.8.7.4.dmg" "" --elevate || return 
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		mergeDir "$pp/DYMO" "$ao" || return
-		rmSudo "$pd/DYMO Connect.lnk" || return
+		$rm "$pd/DYMO Connect.lnk" || return
 
 		$registry 32 delete "run/DymoOfficeHelper" # "C:\Program Files (x86)\DYMO\DYMO Connect\DYMO.OfficeHelper.exe" /w
 		$registry 32 delete "run/DYMOWebApi" # "C:\Program Files (x86)\DYMO\DYMO Connect\DYMO.WebApi.Win.Host.exe" /auto
@@ -2888,7 +2878,7 @@ DuetDisplay()
 
 		win) 
 			mergeDir "$pp/Duet Display" "$oo" || return
-			rmSudo "$pd/duet.lnk" || return
+			$rm "$pd/duet.lnk" || return
 			$registry 32 delete "run/Duet Display" # C:\Program Files\Kairos\Duet Display\duet.exe
 			;;
 
@@ -2936,33 +2926,33 @@ GrayboxOpcInstall()
 	mergeDir "$pp/Graybox" "$up/Development/Other" || return
 }
 
+IntelDriverUpdateInstall()
+{
+	printf "**************************************************\n* Intel Driver Update \n**************************************************\n"
+
+	# https://www-ssl.intel.com/content/www/us/en/support/detect.html
+	run "Intel/driver/Intel-Driver-and-Support-Assistant-Installer.exe" --elevate /q || return
+
+	IntelIcons || return
+}
+
 IntelDrivers()
 {
 	local a=(--elevate --no-pause)
 
 	printf "**************************************************\n* Intel Drivers \n**************************************************\n"
-	run "Intel/driver/Intel-Driver-and-Support-Assistant-Installer.exe" --elevate --no-pause /q || return # https://www-ssl.intel.com/content/www/us/en/support/detect.html
 	run "Intel/driver/WiFi/WiFi_21.80.2_Driver64_Win10/Netwtw08.INF" || return # https://downloadcenter.intel.com/download/29124/Intel-PROSet-Wireless-Software-and-Drivers-for-IT-Admins
 	run "Intel/driver/Bluetooth/BT_21.80.0_64_Win10/Intel Bluetooth.msi" --elevate --no-pause || return # https://downloadcenter.intel.com/download/29126/
+	run "Intel/driver/Serial IO/SerialIO_30.100.1915.1_PV_CNL_19H1/SetupSerialIO.exe" -s || return # rosie
+	i IntelStorageManagement ThunderboltControlCenter IntelIcons || return
+}
 
-	case "$HOSTNAME" in
-
-		oversoul|ultron)
-			IntelStorageManagementInstall || return;
-			ThunderboltControlCenterInstall || return
-			;;
-
-		rosie)
-			run "Intel/driver/Serial IO/SerialIO_30.100.1915.1_PV_CNL_19H1/SetupSerialIO.exe" -s || return
-			ThunderboltControlCenterInstall || return
-			;;
-
-	esac
-
+IntelIcons()
+{
 	makeDir "$oo/Intel" || return	
 	MergeDir --suppress "$pp/Intel" "$oo" || return
 	mv "$pp/Intel Driver "*" Support Assistant.lnk" "$oo/Intel/Intel Driver Update.lnk" >& /dev/null
-	$registry 32 delete "run/Intel Driver \& Support Assistant" # C:\Program Files (x86)\Intel Driver and Support Assistant\DsaTray.exe
+	$registry 32 delete "run/Intel Driver \& Support Assistant" || return # C:\Program Files (x86)\Intel Driver and Support Assistant\DsaTray.exe
 }
 
 IntelStorageManagementInstall() { StoreInstall "Intel Storage Management" "9MZNG5HZWZ1T"; }
@@ -3001,7 +2991,7 @@ SteamInstall()
 		$registry delete "urun/Steam" # Steam	Steam Client Bootstrapper	Valve Corporation, c:\program files (x86)\steam\steam.exe
 		mergeDir "$up/Steam" "$pp/Game/Other" || return
 		mergeDir "$pp/Steam" "$pp/Game/Other" || return
-		rmSudo "$pd/Steam.lnk" || return
+		$rm "$pd/Steam.lnk" || return
 		makeLink --merge --hide "$udata/app/Steam VR" "$udoc/steamvr" || return
 		GameIcons || return
 	fi
@@ -3019,7 +3009,7 @@ OriginInstall()
 	if [[ "$PLATFORM" == "win" ]]; then
 		$registry delete "urun/EADM" # "C:\Program Files (x86)\Origin\Origin.exe" -AutoStart
 		mergeDir "$pp/Origin" "$pp/Game/Other" || return
-		rmSudo "$pd/Origin.lnk" || return
+		$rm "$pd/Origin.lnk" || return
 	fi
 
 	return 0
@@ -3060,11 +3050,10 @@ GreenShot()
 		mergeDir "$pp/GreenShot" "$oo" || return
 		$registry delete "run/Greenshot" # C:\Program Files\Greenshot\Greenshot.exe
 
-	elif IsPlatform mac && ask "Do you want to configure GreenShot"; then
+	elif IsPlatform mac && askP "Do you want to configure GreenShot"; then
 		echo "System Preferences, Security & Privacy, Screen Recording, check Greenshot"
 		MacAppOpen "$1" || return
 		pause
-
 	fi
 
 	return 0
@@ -3079,21 +3068,18 @@ PartitionAssistantInstall()
 
 	mergeDir --rename "$pp/AOMEI Partition Assistant" "$oo/Partition Assistant" || return
 	$ren "$oo/Partition Assistant/AOMEI Partition Assistant Demo Edition "*".lnk" "$oo/Partition Assistant/Partition Assistant.lnk" || return
-	rmSudo "$pd/AOMEI Partition Assistant"*".lnk" || return
+	$rm "$pd/AOMEI Partition Assistant"*".lnk" || return
 }
 
-cue() { CorsairUtilityEngine; };
+icue() { CorsairUtilityEngine; };
 CorsairUtilityEngine()
 {
 	printf "**************************************************\n* Corsair Utility Engine (CUE)\n**************************************************\n"
-	run "hardware/Corsair/Utility Engine/iCUESetup_3.28.70_release.msi" || return # https://www.corsair.com/us/en/downloads
+	run "hardware/Corsair/Utility Engine/iCUESetup_3.28.75_release.msi" || return # https://www.corsair.com/us/en/downloads
 
-	echo "Updating icons..."
-	mvSudo "$pd/iCUE.lnk" "$pp/Game" || return
+	$mv "$pd/iCUE.lnk" "$pp/Operating System" || return
 	$rmd "$psm/Corsair" || return
-
-	echo "Updating registry..."	
-	$registry 32 delete "run/CORSAIR iCUE Software" # "C:\Program Files (x86)\Corsair\iCUE\iCUE Launcher.exe" --autorun
+	#$registry 32 delete "run/CORSAIR iCUE Software" # "C:\Program Files (x86)\Corsair\iCUE\iCUE Launcher.exe" --autorun
 }
 
 LogitechOptions()
@@ -3131,7 +3117,7 @@ GlassWire()
 
 	$registry delete "urun/GlassWire" # "C:\Program Files (x86)\GlassWire\glasswire.exe" -hide
 	mergeDir "$pp/GlassWire" "$oo" || return
-	rmSudo "$pd/GlassWire.lnk" || return
+	$rm "$pd/GlassWire.lnk" || return
 
 	echot "\
 - Show Mini Viewer
@@ -3193,7 +3179,7 @@ GigabyteMotherboard()
 	$registry 32 delete "RunOnce/SelLed" # C:\Program Files (x86)\GIGABYTE\RGBFusion\RunLed.exe
 	mv "$pp/AORUS/RGBFusion 2.0/"* "$d" >& /dev/null
 	rm -fr "$pp/AORUS" || return
-	rmSudo "$pd/RGBFusion 2.0.lnk" || return
+	$rm "$pd/RGBFusion 2.0.lnk" || return
 	$mv "$d/RGBFusion 2.0.lnk" "$d/RGB Fusion.lnk" || return
 
 	# other
@@ -3212,11 +3198,12 @@ Do not update APP Center
 EpsonScan()
 {
 	printf "**************************************************\n* Epson Scan\n**************************************************\n"
-	run "hardware/Epson/Perfection V100 Photo/epson13833.exe" || return # https://epson.com/Support/Scanners/Perfection-Series/Epson-Perfection-V100-Photo/s/SPT_B11B184051
 
-	echo "Updating icons..."
+	# https://epson.com/Support/Scanners/Perfection-Series/Epson-Perfection-V100-Photo/s/SPT_B11B184051
+	run "hardware/Epson/Perfection V100 Photo/epson13833.exe" || return
+
 	mergeDir "$pp/EPSON Scan" "$oo" || return
-	$rm "$pd/EPSON Scan.lnk"
+	$rm "$pd/EPSON Scan.lnk" || return
 }
 
 DoxieGo()
@@ -3232,9 +3219,10 @@ DoxieGo()
 PdfElement()
 {
 	printf "**************************************************\n* PDFelement\n**************************************************\n"
-	run "Wondershare/PDFelement/" -p "pdfelement6-pro_setup_full2990.exe" "mac-pdfelement6-pro_full2992.dmg" "" || return # ​https://pdf.wondershare.com/
 
-	echo "Updating icons..."
+	# ​https://pdf.wondershare.com/
+	run "Wondershare/PDFelement/" -p "pdfelement6-pro_setup_full2990.exe" "mac-pdfelement6-pro_full2992.dmg" "" || return
+
 	mergeDir "$pp/Wondershare/" "$pp/Applications/Other" || return
 	$rm "$pd/PDFelement 6 Pro.lnk"
 }
@@ -3243,11 +3231,12 @@ TigerVnc()
 {
 	printf "**************************************************\n* TigerVNC\n**************************************************\n"
 	echot "- uncheck all Server configuration options"
-	run "Shareware/TigerVNC/" -p "tigervnc64-1.8.0.exe" "" "" || return # ​https://github.com/TigerVNC/tigervnc/releases
 
-	echo "Updating icons..."
+	# ​https://github.com/TigerVNC/tigervnc/releases
+	run "Shareware/TigerVNC/" -p "tigervnc64-1.8.0.exe" "" "" || return
+
 	mergeDir --rename "$pp/TigerVNC 64-bit" "$oo/TigerVNC" || return
-	$rm "$pd/PDFelement 6 Pro.lnk"
+	$rm "$pd/PDFelement 6 Pro.lnk" || return
 }
 
 TidyTabsInstall() 
@@ -3283,19 +3272,15 @@ AquaSnap()
 Garmin()
 {
 	printf "**************************************************\n* Garmin\n**************************************************\n"
+
 	run "hardware/Garmin/setup/" -p "GarminExpress.exe" "GarminExpress.dmg" "" || return # GPS - https://www.garmin.com/en-US/software/express/
 	run "hardware/Garmin/setup/" -p "BaseCamp_462.exe" "BaseCampforMac_463.dmg" "" || return # GPS - https://www.garmin.com/en-US/shop/downloads/basecamp
 	run "hardware/Garmin/setup/" -p "inReach Sync en-US 166572.exe" "" "" || return # satellite - https://inreach.garmin.com/Sync
 
-	echo "Updating icons..."
 	mergeDir "$pp/Garmin" "$pp/Travel/Other" || return
 	$rm "$pd/Garmin Express.lnk"	
 	$rm "$pd/inReach Sync.lnk"	
-
-	echo "Moving data folders..."
 	makeLink --merge --hide "$udata/app/Garmin" "$udoc/My Garmin" || return
-
-	echo "Updating registry..."	
 	$registry delete "urun/GarminExpressTrayApp" # "C:\Program Files (x86)\Garmin\Express Tray\ExpressTray.exe"
 }
 
@@ -3312,6 +3297,7 @@ Sena()
 GoPro()
 {
 	printf "**************************************************\n* GoPro\n**************************************************\n"
+	
 	run "hardware/GoPro/setup/" -p "GoPro_Quik-WinInstaller-2.5.2.633.exe" "" "" || return # https://shop.gopro.com/softwareandapp/quik-%7C-desktop/Quik-Desktop.html#
 	run "hardware/GoPro/setup/" -p "FusionStudio_x64_111_2018-02-07.exe" "FusionStudio_Mac_Sierra_111_2018-02-07.dmg" "" || return # https://shop.gopro.com/softwareandapp/gopro-fusion-studio-app/fusion-studio.html
 
@@ -3319,7 +3305,7 @@ GoPro()
 	mergeDir "$pp/GoPro" "$pp/Travel/Other" || return
 	mergeDir "$up/GoPro Fusion Studio 1.1" "$pp/Travel/Other/GoPro" || return
 	mergeDir "$up/GoPro VR Player 3.0" "$pp/Travel/Other/GoPro" || return
-	$rm "$pd/GoPro Quik.lnk"	 || return
+	$rm "$pd/GoPro Quik.lnk" || return
 	$rm "$ud/GoPro Fusion Studio 1.1.lnk"	 || return
 	$rm "$ud/GoPro VR Player 3.0.lnk"	 || return
 }
@@ -3344,9 +3330,10 @@ Geekbench()
 dji()
 {
 	printf "**************************************************\n* DJI\n**************************************************\n"
-	run "hardware/dji/Assitant/setup/" -p "DJI Assistant 2 1.2.3.exe" "DJI+Assistant+2+1.2.3.pkg" "" || return # https://www.dji.com/mavic/info#downloads
 
-	echo "Updating icons..."
+	# https://www.dji.com/mavic/info#downloads
+	run "hardware/dji/Assitant/setup/" -p "DJI Assistant 2 1.2.3.exe" "DJI+Assistant+2+1.2.3.pkg" "" || return
+
 	mergeDir --rename "$up/DJI Product" "$pp/Travel/Other/DJI" || return
 	mergeDir --rename "$pp/DJI Product" "$pp/Travel/Other/DJI" || return
 	$rm "$pd/DJI Assistant 2.lnk" || return
@@ -3370,14 +3357,13 @@ OneDrive()
 tribler()
 {
 	printf "**************************************************\n* Tribler\n**************************************************\n"
-	run "shareware/tribler/Tribler_7.2.2_x64.exe" || return # https://www.tribler.org/
 
+	# https://www.tribler.org/
+	run "shareware/tribler/Tribler_7.2.2_x64.exe" || return
 
-	echo "Updating icons..."
 	mergeDir "$pp/VideoLAN" "$pp/Media/Other" || return
-	$rm "$pd/VLC media player.lnk" || return
-
 	mergeDir "$up/Tribler" "$oo" || return
+	$rm "$pd/VLC media player.lnk" || return
 	$rm "$ud/Tribler.lnk" || return
 
 		echot "\
@@ -3389,14 +3375,13 @@ tribler()
 TrueImage()
 {
 	printf "**************************************************\n* True Image\n**************************************************\n"
-	run "acronis/True Image/setup/AcronisTrueImage2019." -p "exe" "dmg" "" || return # https://www.acronis.com/en-us/support/updates/index.html
 
-	echo "Updating icons..."
+	# https://www.acronis.com/en-us/support/updates/index.html
+	run "acronis/True Image/setup/AcronisTrueImage2019." -p "exe" "dmg" "" || return
+
 	mergeDir "$pp/Acronis" "$oo" || return
 	$rm "$pp/Acronis True Image.lnk" || return
 	$rm "$pd/Acronis True Image.lnk" || return
-
-	echo "Updating registry..."	
 	$registry delete "run/Acronis Scheduler2 Service" # C:\Program Files (x86)\Common Files\Acronis\Schedule2\schedhlp.exe
 	$registry 32 delete "run/AcronisTibMounterMonitor" # C:\Program Files (x86)\Common Files\Acronis\TibMounter\TibMounterMonitor.exe
 	$registry 32 delete "run/TrueImageMonitor.exe" # C:\Program Files (x86)\Acronis\TrueImageHome\TrueImageMonitor.exe
@@ -3409,11 +3394,12 @@ TrueImage()
 ToDoBackup()
 {
 	printf "**************************************************\n* ToDo Backup\n**************************************************\n"
-	run "EaseUS/ToDo Backup Home/tbh_trial.exe" || return # https://www.easeus.com/backup-software/personal.html
+
+	# https://www.easeus.com/backup-software/personal.html
+	run "EaseUS/ToDo Backup Home/tbh_trial.exe" || return
 	
-	echo "Updating icons..."
 	mergeDir --rename "$pp/EaseUS Todo Backup 11.5" "$oo/ToDo Backup" || return
-	rmSudo "$pd/EaseUS Todo Backup Home 11.5.lnk" || return
+	$rm "$pd/EaseUS Todo Backup Home 11.5.lnk" || return
 }
 
 TeraCopy()
@@ -3425,28 +3411,29 @@ TeraCopy()
 ParagonExtFs()
 {
 	printf "**************************************************\n* Paragon ExtFS \n**************************************************\n"
-	run "Paragon/ExtFS/Paragon-608-PEU_WinInstallSN-4.3.852.msi" || return # http://www.paragon-drivers.com/extfs-windows/
+
+	# http://www.paragon-drivers.com/extfs-windows/
+	run "Paragon/ExtFS/Paragon-608-PEU_WinInstallSN-4.3.852.msi" || return
 	
-	echo "Updating icons..."
 	mergeDir --rename "$pp/Paragon ExtFS for Windows" "$oo/Paragon ExtFS" || return
 	$rm "$pd/Paragon ExtFS for Windows.lnk" || return
 
-	echo "Updating services..."
 	service manual "ParagonMounter" || return # does not allow computer to sleep
 }
 
 BrotherPrinter()
 {
 	printf "**************************************************\n* Brother Printer \n**************************************************\n"
-	echot "- Connection Type=Wired"
+	echot "- Connection Type=Wired, check Custom Install
+- Select Features=uncheck PC-FAX*"
 
 	# https://support.brother.com/g/b/downloadtop.aspx?c=us&lang=en&prod=mfcl2740dw_us_eu_as
-	run --pause "hardware/Brother/MFC-L2740DW/setup/" -p "MFC-L2740DW-inst-C1-US.EXE" "MonoLaserFB14_ULW_TP_110.dmg" || return
+	run "hardware/Brother/MFC-L2740DW/setup/" -p "MFC-L2740DW-inst-C1-US.EXE" "MonoLaserFB14_ULW_TP_110.dmg" --pause || return
 	
-	if [[ "$PLATFORM" == "win" ]]; then	
+	if IsPlatform win; then	
 		mergeDir "$pp/Brother" "$ao" || return
-		mvSudo "$pd/Brother Creative Center.lnk" "$ao/Brother" || return
-		rmSudo "$pd/Brother Utilities.lnk" || return
+		$mv "$pd/Brother Creative Center.lnk" "$ao/Brother" || return
+		$rm "$pd/Brother Utilities.lnk" || return
 		$registry 32 delete "RunOnce/BrUrl" || return # rundll32 url.dll,FileProtocolHandler http://www.brother.com/rd/productreserch/usa/
 		$registry 32 delete "RunOnce/OmniJoinURL" || return # C:\Program Files (x86)\Brother\Brmfl14d\OmniJoinTrial.exe /R
 		$registry 32 delete "run/BrStsMon00" # C:\Program Files (x86)\Browny02\Brother\BrStMonW.exe /AUTORUN
@@ -3470,24 +3457,22 @@ PowerPanel()
 
 LgMonitor()
 {
-	[[ "$PLATFORM" != "win" ]] && return 0;
 	printf "**************************************************\n* LG Monitor\n**************************************************\n"
-	run "hardware/LG/Gaming Monitor 34UC89G/" -p "OSC2_Setup_2-86.exe" "" "" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then	
-		echo "Updating icons..."
-		mergeDir "$pp/OnScreen Control" "$oo" || return
-		$rm "$pd/OnScreen Control.lnk" || return
-	fi
+	run "hardware/LG/Gaming Monitor 34UC89G/OSC2_Setup_2-86.exe" || return
+
+	mergeDir "$pp/OnScreen Control" "$oo" || return
+	$rm "$pd/OnScreen Control.lnk" || return
 }
 
 DasKeyboard()
 {
-	[[ "$PLATFORM" != "win" ]] && return 0;
 	printf "**************************************************\n* Das Keyboard\n**************************************************\n"
-	run "hardware/Das Keyboard/setup/" -p "Das-Keyboard-Q_3.2.4.exe" "q-Desktop.img" "linux" || return # https://www.daskeyboard.io/get-started/
 
-	if [[ "$PLATFORM" == "win" ]]; then	
+	# https://www.daskeyboard.io/get-started/
+	run "hardware/Das Keyboard/setup/" -p "Das-Keyboard-Q_3.2.4.exe" "q-Desktop.img" || return
+
+	if IsPlatform win; then	
 		mergeDir "$pp/Das-Keyboard-Q" "$oo" || return
 		$rm "$ud/das-keyboard-q.lnk" || return
 		$rmd "$up/GitHub, Inc" || return
@@ -3529,7 +3514,7 @@ NordVpn()
 
 	if [[ "$PLATFORM" == "win" ]]; then	
 		$rmd "$pp/NordVPN" || return
-		mvSudo "$pd/NordVPN.lnk" "$pp/Applications" || return
+		mv "$pd/NordVPN.lnk" "$pp/Applications" || return
 		$registry 32 delete "urun/NordVPN" || return # C:\Program Files (x86)\NordVPN\NordVPN.exe
 	fi
 }
@@ -3539,18 +3524,14 @@ CleanMyPc()
 	printf "**************************************************\n* Clean My PC\n**************************************************\n"
 	
 	# https://macpaw.com
-	run "MacPaw/Clean My/" -p "CleanMyPC.exe" "CleanMyMacX.dmg" # returns error even if the setup is successful
+	run "MacPaw/Clean My/" -p "CleanMyPC.exe" "CleanMyMacX.dmg" --pause # returns error even if the setup is successful
 
-	case "$PLATFORM" in
-		win)
-			pause
-
-			echo "Updating icons..."
-			mergeDir "$pp/CleanMyPC" "$oo" || return
-			rmSudo "$pd/CleanMyPC.lnk" || return
-			;;
-		mac) MacAppConfigure "CleanMyMac X" || return;;
-	esac
+	if IsPlatform mac; then
+		MacAppConfigure "CleanMyMac X" || return
+	elif IsPlatform win; then
+		mergeDir "$pp/CleanMyPC" "$oo" || return
+		$rm "$pd/CleanMyPC.lnk" || return
+	fi
 
 	return 0
 }
@@ -3564,7 +3545,7 @@ CloseAllWindows()
 
 	echo "Updating icons..."
 	mergeDir "$pp/CloseAll" "$oo" || return
-	rmSudo "$pd/CloseAll.lnk" || return
+	$rm "$pd/CloseAll.lnk" || return
 }
 
 AltTabTerminator()
@@ -3574,11 +3555,8 @@ AltTabTerminator()
 	# https://www.ntwind.com/software/alttabter.html
 	run "NTwind/AltTabTer_4.8-setup.exe" --elevate || return
 
-	echo "Updating icons..."
 	mergeDir "$pp/Alt-Tab Terminator" "$oo" || return
-	rmSudo "$pd/Alt-Tab Terminator.lnk" || return
-
-	echo "Updating registry..."	
+	$rm "$pd/Alt-Tab Terminator.lnk" || return
 	$registry delete "urun/Alt-Tab Terminator" # "C:\Program Files\Alt-Tab Terminator\AltTabTer64.exe" /startup
 
 	echot "\Settings...
@@ -3595,20 +3573,20 @@ HiddenStart()
 	run "NTwind/Hstart_4.7-setup.exe" --elevate || return 
 
 	mergeDir "$pp/Hidden Start" "$oo" || return
-	rmSudo "$pd/Hidden Start.lnk" || return
+	$rm "$pd/Hidden Start.lnk" || return
 
-	HiddenStartFinal
+	HiddenStartFinal || return
 }
 
 HiddenStartFinal()
 {
-	# license
+	echo "Adding license..."
 	if [[ ! "$(registry 32 get "HKLM/SOFTWARE/Alexander Avdonin/Hidden Start/RegName")" ]]; then
 			registry import "$setupFiles/HiddenStart.reg" || return
 			pause
 	fi
 
-	# scheduled task
+	echo "Adding scheduled task..."
 	if ! schtasks.exe | egrep HstartUAC-x64 >& /dev/null; then
 		start --wait hstart64.exe /nouac /wait ""cmd" /c echo Hidden Start 64 scheduled task is setup && pause"
 	fi
@@ -3621,30 +3599,18 @@ QuickenInstall()
 	printf "**************************************************\n* Quicken\n**************************************************\n"
 
 	# https://www.quicken.com/activate
-	run "Quicken/" -p "Quicken.exe" "Quicken.dmg" || return
+	run "Quicken/" -p "Quicken.exe" "Quicken.dmg" "" --elevate || return
 
-	echo "Updating icons..."
 	mergeDir --rename "$pp/Quicken" "$ao/Quicken"
-	$rm "$pd/Quicken.lnk"
-
-	echot "\
-- Run Quicken, select I am already a Quicken user, Next, Next, Documents/Finances/Current/Finances
-- Edit, Preferences
-  - Quicken Preferences,  Setup/Backup, uncheck Manual Backup Reminder
-  - Register/Data entry and QuickFill
-    - Check Use enter key to move between fields
-  - Reports and Graphs, select Customizing modifies current report or graph
-- Click One Step Update, Register 
-  - Check Don't show this summary again unless there is an error"
+	$rm "$pd/Quicken.lnk" || return
 }
 
 QuickBooks()
 {
-	[[ "$PLATFORM" != "win" ]] && return 0;
 	printf "**************************************************\n* Quick Books\n**************************************************\n"
-	run "Intuit/QuickBooks-Setup.exe" || return # 
 
-	echo "Updating icons..."
+	run "Intuit/QuickBooks-Setup.exe" || return
+
 	$mv "$ud/QuickBooks.lnk" "$pp/Applications" || return
 	$mv "$up/QuickBooks.lnk" "$pp/Applications" || return
 }
@@ -3654,34 +3620,38 @@ AxCrypt()
 	printf "**************************************************\n* AxCrypt\n**************************************************\n"
 	run "AxCrypt/setup/" -p "AxCrypt-2.1.1573.0-Setup.exe" "AxCrypt-Mac-2.2.578.0.pkg" "linux" || return # https://www.axcrypt.net/download/
 
-	if [[ "$PLATFORM" == "win" ]]; then	
-		echo "Updating icons..."
+	if IsPlatform win; then	
 		mergeDir "$pp/AxCrypt" "$oo" || return
-
-		echo "Moving data folders..."
 		makeLink --merge --hide "$udata/AxCrypt" "$udoc/My AxCrypt" || return
 		makeLink --merge --hide "$uhome/DropBox/data/AxCrypt" "$uhome/DropBox/My AxCrypt" || return
 		makeLink --merge --hide "$uhome/OneDrive/documents/data/AxCrypt" "$uhome/OneDrive/My AxCrypt" || return
 	fi
+
+	return 0
 }
 
 TaskLayout()
 {
-	[[ "$PLATFORM" != "win" ]] && return 0;
 	printf "**************************************************\n* TaskLayout\n**************************************************\n"
-	run "SystemGoods/TaskLayout-v0.7.0.5-Installer.exe" || return # http://www.systemgoods.com/
+
+	# http://www.systemgoods.com/
+	run "SystemGoods/TaskLayout-v0.7.0.5-Installer.exe" || return
 }
 
 vlc()
 {
 	printf "**************************************************\n* VLC Media Player\n**************************************************\n"
-	run "VideoLAN/" -p "vlc-3.0.4-win64.exe" "mac" "linux" || return # https://www.videolan.org/vlc/
 
-	if [[ "$PLATFORM" == "win" ]]; then	
+	# https://www.videolan.org/vlc/
+	run "VideoLAN/" -p "vlc-3.0.4-win64.exe" "mac" "linux" || return
+
+	if IsPlatform win; then	
 		echo "Updating icons..."
 		mergeDir "$pp/VideoLAN" "$pp/Media/Other" || return
-		rmSudo "$pd/VLC media player.lnk" || return
+		$rm "$pd/VLC media player.lnk" || return
 	fi
+
+	return 0
 }
 
 StandardNotes()
@@ -3689,27 +3659,20 @@ StandardNotes()
 	printf "**************************************************\n* Standard Notes\n**************************************************\n"
 
 	local v="3.0.19" # https://standardnotes.org/
-	IsPlatform mac && v="3.0.15" # v19 does not work under macOS 
 	run "Shareware/Standard Notes/" -p "standard-notes-setup-$v.exe" "standard-notes-$v-mac.zip" "standard-notes-$v-x86_64.AppImage" || return
 
-	case "$PLATFORM" in
+	if IsPlatform linux; then
+		cp "$InstallDir/Shareware/Standard Notes/appimagekit-standard-notes.desktop" ~/.local/share/applications || return
+	elif IsPlatform mac; then
+		MacAppConfigure "Standard Notes" || return
+	elif IsPlatform win; then
+		$mv "$ud/Standard Notes.lnk" "$up/Applications" || return
+		$rm "$up/Standard Notes.lnk" || return
+		makeDir "$udata/app/Standard Notes" || return
+		makeLink --merge --hide "$udata/app/Standard Notes/backups" "$WIN_HOME/Standard Notes Backups" || return
+	fi
 
-		linux)
-			cp "$InstallDir/Shareware/Standard Notes/appimagekit-standard-notes.desktop" ~/.local/share/applications || return
-			;;
-
-		mac) 
-			MacAppConfigure "Standard Notes" || return
-			;;
-
-		win) 
-			$mv "$ud/Standard Notes.lnk" "$up/Applications" || return
-			$rm "$up/Standard Notes.lnk" || return
-			makeDir "$udata/app/Standard Notes" || return
-			makeLink --merge --hide "$udata/app/Standard Notes/backups" "$WIN_HOME/Standard Notes Backups" || return
-			;;
-			
-	esac
+	return 0
 }
 
 AmcrestCamera()
@@ -3721,13 +3684,15 @@ AmcrestCamera()
 	run "hardware/Amcrest/setup/" -p "P2PSurveillance_3.01.001.0.exe" "" "" --elevate || return # browser plugin
 	run "hardware/Amcrest/setup/" -p "Amcrest+Surveillance+Pro+Setup+V1.14.1.R.20161018.exe" "Amcrest_Surveillance_Pro_Mac.bz2" "" --elevate || return
 
-	if [[ "$PLATFORM" == "win" ]]; then	
+	if IsPlatform win; then	
 		makeDir "$pp/Surveillance/Other" || return
-		mvSudo "$pd/Amcrest IP Config.lnk" "$pp/Surveillance" || return
-		mvSudo "$pd/Amcrest Surveillance Pro.lnk" "$pp/Surveillance" || return
+		mv "$pd/Amcrest IP Config.lnk" "$pp/Surveillance" || return
+		mv "$pd/Amcrest Surveillance Pro.lnk" "$pp/Surveillance" || return
 		$rmd "$pp/Amcrest IP Config" || return
 		$rmd "$pp/Amcrest Surveillance Pro" || return
 	fi
+
+	return 0
 }
 
 SurveillanceStation()
@@ -3735,14 +3700,15 @@ SurveillanceStation()
 	printf "**************************************************\n* 4 Station\n**************************************************\n"
 	run "hardware/Synology/Surveillance Station/" -p "Synology Surveillance Station Client-1.2.2-0589_x64.exe" "Synology Surveillance Station Client-1.2.2-0589.dmg" "linux" || return # https://www.synology.com/en-us/support/download/DS216+II?item_filter= x#utilities
 
-
-	if [[ "$PLATFORM" == "win" ]]; then	
+	if IsPlatform win; then	
 		echo "Updating icons..."
 		mergeDir "$pp/Synology" "$pp/Surveillance/Other" || return
 		$rm "$pd/Live View.lnk" || return
 		$rm "$pd/Surveillance Station Client.lnk" || return
 		$rm "$pd/Timeline.lnk" || return
 	fi
+
+	return 0
 }
 
 plex()
@@ -3753,7 +3719,11 @@ plex()
 	run "PLEX/" -p "Plex-1.6.3.1009-57cf57c8-x86_64.exe" "Plex-1.6.3.1009-57cf57c8-x86_64" || return 
 	run "PLEX/" -p "PlexMediaServer-1.18.8.2468-5d395aa9d-x86.exe" "PlexMediaServer-1.18.8.2468-5d395aa9d-x86_64.zip" "plexmediaserver_1.18.8.2468-5d395aa9d_amd64.deb" || return
 
-	[[ "$PLATFORM" == "win" ]] && { mergeDir "$pp/Plex" "$pp/Media/Other" || return; }
+	if [[ "$PLATFORM" == "win" ]]; then
+		mergeDir "$pp/Plex" "$pp/Media/Other" || return
+	fi
+
+	return 0
 }
 
 oculus()
@@ -3776,12 +3746,15 @@ oculus()
 LinkShellExtension()
 {
 	printf "**************************************************\n* Link Shell Extension\n**************************************************\n"
-	run "Shareware/Link Shell Extension/" -p "HardLinkShellExt_X64.exe" "mac" "linux" || return # http://schinagl.priv.at/nt/hardlinkshellext/hardlinkshellext.htm
 
-	if [[ "$PLATFORM" == "win" ]]; then	
-		echo "Updating icons..."
+ 	# http://schinagl.priv.at/nt/hardlinkshellext/hardlinkshellext.htm	
+	run "Shareware/Link Shell Extension/" -p "HardLinkShellExt_X64.exe" "mac" "linux" || return
+
+	if IsPlatform win; then	
 		mergeDir "$up/Link Shell Extension" "$oo" || return
 	fi
+
+	return 0
 }
 
 RightClickEnhancer()
@@ -3791,7 +3764,6 @@ RightClickEnhancer()
 	# https://rbsoft.org/downloads/right-click-enhancer/
 	run "RBSoft/Right Click Enhancer/Right.Click.Enhancer.Professional.Setup.exe" --elevate || return
 
-	echo "Updating icons..."
 	mergeDir "$up/Right Click Enhancer Professional" "$oo" || return
 	$rm "$ud/Right Click Enhancer Professional.lnk" || return	
 
@@ -3820,7 +3792,7 @@ BalenaEtcher() # disc image burner
 	local v="1.5.79" 
 	run "Balena/Etcher/" -p "balenaEtcher-Setup-$v.exe" "balenaEtcher-$v.dmg" "balena-etcher-electron-$v-linux-x64.zip" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		$mv "$up/balenaEtcher.lnk" "$up/Applications" || return
 		$rm "$ud/balenaEtcher.lnk" || return	
 	fi
@@ -3831,12 +3803,15 @@ BalenaEtcher() # disc image burner
 DockerInstall()
 {
 	printf "**************************************************\n* Docker\n**************************************************\n"
-	run "Shareware/Docker/" -p "Docker for Windows Installer.exe" "mac" "linux" || return # https://hub.docker.com/editions/community/docker-ce-desktop-windows
 
-	if [[ "$PLATFORM" == "win" ]]; then	
-		echo "Updating icons..."
-		$mv "$ud/Docker Desktop.lnk" "$pp/Operating Systemc" || return
+	# https://hub.docker.com/editions/community/docker-ce-desktop-windows
+	run "Shareware/Docker/" -p "Docker for Windows Installer.exe" || return
+
+	if IsPlatform win; then	
+		$mv "$ud/Docker Desktop.lnk" "$pp/Operating System" || return
 	fi
+
+	return 0
 }
 
 xServer()
@@ -3868,7 +3843,7 @@ xMingInstall()
 	run "LINUX/Xming/Xming-fonts-7-7-0-10-setup.exe" || return
 
 	mergeDir "$pp/Xming" "$oo" || return
-	$rm "$pd/XLaunch.lnk"
+	$rm "$pd/XLaunch.lnk" || return
 	$hide "$WIN_HOME/Xdefaults" || return
 }
 
@@ -3881,7 +3856,7 @@ xQuartzInstall()
 - Preferences, Security, check Allow connections from network clients"
 	MacAppConfigure XQuartz || return
 
-	if ask 'Do you want to test XQuartz'; then
+	if askP 'Test XQuartz'; then
 		export DISPLAY=:0
 		/opt/X11/bin/xclock
 	fi
@@ -3980,22 +3955,22 @@ DiskImager()
 Discord()
 {
 	printf "**************************************************\n* Discord\n**************************************************\n"
-	run "Discord/" -p "DiscordSetup.exe" "Discord.dmg" "discord-0.0.9.deb" || return # https://discordapp.com/download
+
+	# https://discordapp.com/download
+	run "Discord/" -p "DiscordSetup.exe" "Discord.dmg" "discord-0.0.9.deb" || return
 	
-	echo "Updating icons..."
 	mergeDir "$up/Discord Inc" "$up/Applications/Other" || return
 	$rm "$ud/Discord.lnk" || return
-
-	echo "Updating registry..."	
 	$registry delete "urun/Discord" # C:\Users\jjbutare\AppData\Local\Discord\app-0.0.305\Discord.exe --start-minimized
 }
 
 Todoist()
 {
 	printf "**************************************************\n* Todoist\n**************************************************\n"
-	run "Todoist/" -p "Todoist_for_Windows_Desktop_2_7_6.exe" "" "" || return # https://todoist.com/downloads/
-	
-	echo "Updating icons..."
+
+	# https://todoist.com/downloads/
+	run "Todoist/Todoist_for_Windows_Desktop_2_7_6.exe" || return
+		
 	mergeDir "$up/Todoist" "$up/Applications/Other" || return
 	$rm "$ud/Todoist.lnk" || return
 }
@@ -4011,13 +3986,9 @@ iTerm()
 		curl -L https://iterm2.com/shell_integration/install_shell_integration_and_utilities.sh | bash
 	fi
 
-	if ask "Do you want to configure iTerm"; then
-		echo "- Preferences, General, Preferences, check Load preferences from a custom folder or URL=<paste>"
-		clipw "$udata/profile/default" || return
-		MacAppOpen iTerm || return
-	fi
-
-	return 0
+	echo "- Preferences, General, Preferences, check Load preferences from a custom folder or URL=<paste>"
+	clipw "$udata/profile/default" || return
+	MacAppOpen iTerm || return
 }
 
 apptivate()
@@ -4027,7 +3998,7 @@ apptivate()
 	# http://www.apptivateapp.com
 	run "macOS/Apptivate/Apptivate.app.zip" || return
 
-	if ask "Do you want to configure apptivate"; then
+	if askP "Do you want to configure apptivate"; then
 		echot "Add Item...
 - iTerm, ctrl-cmd-3
 - Firefox, ctrl-cmd-a
@@ -4046,12 +4017,8 @@ bartender()
 	# https://www.macbartender.com/
 	run "macOS/Bartender/Bartender 3.zip" || return
 
-	if ask "Do you want to configure Bartender"; then
-		echot "- Clock User Dropbox VPN CleanMyMac Battery Bartender Notifications"
-		MacAppOpen "Bartender 3" || return
-	fi
-
-	return 0
+	echot "- Clock User Dropbox VPN CleanMyMac Battery Bartender Notifications"
+	MacAppOpen "Bartender 3" || return
 }
 
 # Windows Store
@@ -4100,9 +4067,9 @@ VirtualBoxInstall()
 	run "Shareware/VirtualBox/setup/" -p "VirtualBox-$v-Win.exe" "VirtualBox-$v-OSX.dmg" "virtualbox-$v~Ubuntu~bionic_amd64.deb" || return
 	ask 'Install VirtualBox extension pack' && { start "$InstallDir/Shareware/VirtualBox/extension/Oracle_VM_VirtualBox_Extension_Pack-6.0.12.vbox-extpack" || return; }
 
-	if [[ "$PLATFORM" == "win" ]]; then	
+	if IsPlatform win; then	
 		mergeDir "$pp/Oracle VM VirtualBox" "$oo" || return
-		rmSudo "$pd/Oracle VM VirtualBox.lnk" || return
+		$rm "$pd/Oracle VM VirtualBox.lnk" || return
 		$hide "$WIN_HOME/.VirtualBox" || return
 		makeLink --merge --hide "$udata/app/VirtualBox" "$WIN_HOME/VirtualBox VMs" || return
 	fi
@@ -4120,7 +4087,7 @@ BlueStacksInstall()
 	makeDir "$pp/Game/Other/BlueStacks" || return
 	$mv "$pp/BlueStacks.lnk" "$pp/Game/Other/BlueStacks" || return
 	$mv "$pp/BlueStacks Multi-Instance Manager.lnk" "$pp/Game/Other/BlueStacks" || return
-	rmSudo "$pd/BlueStacks Multi-Instance Manager.lnk" "$pd/BlueStacks.lnk" || return
+	$rm "$pd/BlueStacks Multi-Instance Manager.lnk" "$pd/BlueStacks.lnk" || return
 }
 
 JetBrains()
@@ -4187,8 +4154,9 @@ JumpCloud()
 NiniteInstall()
 {	
 	printf "**************************************************\n* Ninite\n**************************************************\n"
-	run "Ninite/setup/Ninite Agent Installer.exe" --elevate --no-pause /silent || return
-	return 0
+
+	# https://ninite.com/agent.exe
+	run "Ninite/Ninite Agent Installer.exe" --elevate --no-pause /silent || return
 }
 
 DomotzInstall()
@@ -4201,7 +4169,7 @@ DomotzInstall()
 
 	if IsPlatform win; then
 		$mv "$pp/Domotz Pro Desktop App.lnk" "$pp/Operating System" || return
-		rmSudo "$pd/Domotz Pro Desktop App.lnk"
+		$rm "$pd/Domotz Pro Desktop App.lnk" || return
 	fi
 
 	return 0
@@ -4215,7 +4183,7 @@ CricutInstall()
 	local v="5.2.14" 
 	run "hardware/Cricut/Cricut Design Space Install v$v." -p "exe" "mac" "" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		$registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe 
 		mergeDir "$up/Cricut Design Space Beta" "$up/Applications/other" || return
 		$mv "$ud/Cricut Design Space.lnk" "$up/Applications" || return 
@@ -4294,7 +4262,7 @@ SkypeInstall()
 	# https://www.skype.com/en/get-skype/
 	run "Microsoft/Skype/" -p "Skype-8.59.0.77.exe" "Skype-8.59.0.77.dmg" "skypeforlinux-64.deb" || return
 
-	[[ "$PLATFORM" == "win" ]] && { SkypeIcons || return; }
+	IsPlatform win && { SkypeIcons || return; }
 
 	return 0
 }
@@ -4303,7 +4271,7 @@ SkypeIcons()
 {
 	mergeDir "$pp/Skype" "$pp/Applications/Other" || return
 	$rm "$pp/"Skype*.lnk || return
-	rmSudo "$pd/Skype.lnk" || return
+	$rm "$pd/Skype.lnk" || return
 	$registry delete "urun/Skype for Desktop" # C:\Program Files (x86)\Microsoft\Skype for Desktop\Skype.exe
 }
 
@@ -4312,11 +4280,11 @@ ZoomInstall()
 	printf "**************************************************\n* Zoom\n**************************************************\n"
 
 	# https://zoom.us/support/download
-	run "Zoom/" -p "ZoomInstallerFull.msi" "ZoomInstallOnly.pkg" "" --pause || return
+	run "Zoom/" -p "ZoomInstallerFull.msi" "ZoomInstallOnly.pkg" --pause || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		mergeDir "$pp/Zoom" "$pp/Applications/Other" || return
-		rmSudo "$pd/Zoom.lnk" || return
+		$rm "$pd/Zoom.lnk" || return
 		$rm "$ud/Zoom.lnk" || return
 	fi
 
@@ -4329,10 +4297,10 @@ stamps()
 
 	run "other/stamps/Stamps.com.Connect.exe" --elevate || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		$registry 32 delete "run/Stamps.com" # C:\Program Files (x86)\Stamps.com Connect\StampsPlugin.exe a
 		mergeDir "$pp/Stamps.com Connect" "$pp/Applications/Other" || return
-		rmSudo "$pd/Launch Stamps.com Connect.lnk" || return
+		$rm "$pd/Launch Stamps.com Connect.lnk" || return
 	fi
 
 	return 0
@@ -4344,7 +4312,7 @@ AjaSystemTest()
 
 	run "Shareware/AJA System Test/" -p "AJA_SystemTest_12.5.0.msi" "" "" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		mergeDir "$pp/AJA" "$oo" || return
 	fi
 
@@ -4358,7 +4326,7 @@ JumpDesktopInstall()
 	# https://app.jumpdesktop.com/dashboard
 	run "JumpDesktop/" -p "JumpDesktop.exe" "JumpDesktopMac.zip" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		makeDir "$oo/Jump Desktop" || return
 		$mv "$pp/Jump Desktop.lnk" "$oo/Jump Desktop" || return
 		$mv "$pp/Jump Desktop Connect.lnk" "$pp/Operating System/other/Jump Desktop" || return
@@ -4374,7 +4342,7 @@ PowerToysInstall()
 	# https://github.com/microsoft/PowerToys
 	run "Microsoft/Windows/other/PowerToysSetup-0.16.1-x64.msi" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		$ren "$pp/PowerToys (Preview).lnk" "$pp/Operating System/Power Toys.lnk" || return
 	fi
 
@@ -4388,7 +4356,7 @@ qvrInstall()
 	# https://www.qnap.com/en/download?model=tvs-471&category=firmware
 	run "hardware/QNAP/QVR/" -p "QVRProClient.exe" "QVRMacClient-2.2.1-170221.dmg" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		mergeDir "$pp/QNAP" "$pp/Surveillance/Other" || return
 		$mv "$ud/QVR Pro Client.lnk" "$pp/Surveillance/Other/QNAP/QVR Pro Client" || return
 	fi
@@ -4410,9 +4378,9 @@ CpuzInstall()
 	# https://www.cpuid.com/softwares/cpu-z.html
 	run "CPUID/cpu-z_1.92-en.exe" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		mergeDir "$pp/CPUID" "$oo" || return
-		rmSudo "$pd/CPUID CPU-Z.lnk" || return
+		$rm "$pd/CPUID CPU-Z.lnk" || return
 	fi
 
 	return 0
@@ -4425,9 +4393,9 @@ IntelExtremeTuningInstall()
 	# https://downloadcenter.intel.com/download/24075/Intel-Extreme-Tuning-Utility-Intel-XTU
 	run "Intel/Exteme Tuning Utility/XTUSetup Software.exe" --elevate || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		mergeDir "$pp/Intel" "$oo" || return
-		rmSudo "$pd/Intel(R) Extreme Tuning Utility.lnk" || return
+		$rm "$pd/Intel(R) Extreme Tuning Utility.lnk" || return
 	fi
 
 	return 0
@@ -4440,9 +4408,9 @@ QnapExternalRaidManagerInstall()
 	# https://www.qnap.com/en/utilities/essentials
 	run "hardware/QNAP/Expansion Bay/setup/" -p "QNAPExternalRAIDManagerWindows-1.3.5.0309.exe" "QNAPExternalRAIDManagerMac-1.2.4.1202.dmg" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		mergeDir "$pp/QNAP" "$oo" || return
-		rmSudo "$pd/QNAP External RAID Manager.lnk" || return
+		$rm "$pd/QNAP External RAID Manager.lnk" || return
 	fi
 
 	return 0
@@ -4456,9 +4424,9 @@ CanonCameraInstall()
 	local d="hardware/Canon/EOS R/setup"
 	run "$d/EOS Utility v3.12.10." -p "exe" "zip" || return
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	if IsPlatform win; then
 		mergeDir "$pp/Canon Utilities" "$pp/Media/Other" || return
-		rmSudo "$pd/EOS Utility.lnk" || return
+		$rm "$pd/EOS Utility.lnk" || return
 		$rm "$pp/Startup/EOS Utility.lnk" || return # "C:\Program Files (x86)\Canon\EOS Utility\EOS Utility.exe" /AutoStartUp
 	fi
 
@@ -4473,8 +4441,8 @@ TeamViewerInstall()
 	run "TeamViewer/" -p "TeamViewer_Setup.exe" "TeamViewer.dmg" "teamviewer_15.5.3_amd64.deb" || return
 
 	if [[ "$PLATFORM" == "win" ]]; then
-		mv "$pp/TeamViewer.lnk" "$oo" || return
-		rmSudo "$pd/TeamViewer.lnk" || return
+		$mv "$pp/TeamViewer.lnk" "$oo" || return
+		$rm "$pd/TeamViewer.lnk" || return
 	fi
 
 	return 0
