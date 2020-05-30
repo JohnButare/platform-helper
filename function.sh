@@ -269,6 +269,7 @@ GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* 
 GetParentDir() { echo "$(GetFilePath "$(GetFilePath "$1")")"; }
 GetRealPath() { ${G}readlink -f "$@"; } # resolve symbolic links
 InPath() { which "$1" >& /dev/null; }
+IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff "$1" "$2" >& /dev/null; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 
@@ -372,10 +373,7 @@ GetDisks() # GetDisks ARRAY
 			for disk in /media/psf/*; do getDisks+=( "$disk" ); done # Parallels hosts
 			;;
 		mac) IFS=$'\n' getDisks=( $(df | egrep "^/dev/" | gawk '{print $9}' | egrep -v '^/$|^/$') );;
-		win) 
-			[[ -d /mnt ]] && for disk in /mnt/*; do getDisks+=( "$disk" ); done
-			[[ -d /cygdrive ]] && for disk in /cygdrive/*; do getDisks+=( "$disk" ); done
-			;;
+		win) [[ -d /mnt ]] && for disk in /mnt/*; do getDisks+=( "$disk" ); done;;
 	esac
 
 	CopyArray getDisks "$1"

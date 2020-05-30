@@ -10,10 +10,9 @@ usage()
 	echot "\
 usage: media COMMAND
 	AddDate FILES		add DateTimeOriginal to the specified files
-	get					get pictures from a device
+	get						get pictures from a device
 	info FILES 			display metadata
 	rename FILES		rename using the date taken  
-  SyncBooks				synchronize books
   -t, --test 			test the operation without making any changes
 	-v, --verbose		verbose output"
 	exit $1
@@ -25,8 +24,6 @@ usage: media get
 	-c, --copy				copy media 
 	-d, --dest DEST 	destination directory
 	-m, --move				move media
-	-nm,--no-metadata do not add import metadata
-	-nr,--no-review   do not review imported images
 	-p, --person NAME person's name used in the destination folder
 	-s, --source DIR	media source directory
 	-t, --test 				test the operation without making any changes
@@ -35,6 +32,7 @@ usage: media get
 args()
 {
 	unset -v command files help test verbose
+
 	while (( $# != 0 )); do
 		case "$1" in
 			--help) help="--help";;
@@ -49,6 +47,7 @@ args()
 		esac
 		shift
 	done
+
 	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage 0 || usage 0; }
 	[[ ! $command ]] && { MissingOperand "command"; }
 	if [[ "$command" == @(AddDate|info|rename) ]]; then 
@@ -58,17 +57,16 @@ args()
 	args=("$@")
 }
 
-GetArgs()
+getArgs()
 {
-	unset dest noMetadata person
-	operation="default" review="true"
+	unset dest person
+	operation="move"
+
 	while (( $# != 0 )); do
 		case "$1" in
 			--copy|-c) operation="copy";;
-			--dest) dest="$2"; shift;;
+			--dest|-d) dest="$2"; shift;;
 			--move|-m) operation="move";;
-			--no-metadata|-nm) noMetadata="true";;
-			--no-review|-nr) unset review;;
 			--person|-p) person="$2"; shift;;
 			--source|-s) source="$2"; shift;;
 			--test|-t) test="--test";;
@@ -77,9 +75,7 @@ GetArgs()
 		esac
 		shift
 	done
-	[[ $dest && ! -d "$dest" ]] && { EchoErr "media get: directory  \`$dest\` does not exit"; return 1; }
-	[[ ! $person ]] && person="$(FullName)"
-	[[ $source && ! -d "$source" ]] && { EchoErr "media get: cannot access \`$source\`: No such directory"; return 1; }
+
 	return 0
 }
 
@@ -87,7 +83,7 @@ init()
 {
 	mediaRoo=oversoul
 	mediaUnc="//$mediaRoo/Public"
-	nas="nas3"
+	nas="nas3" nasDir="public/media"
 
 	dateTakenMetadata=( -Make -Model -HandlerVendorId -Keywords 
 		-CompressorName -Software -CreatorTool -DateTimeOriginal -CreationTime
@@ -102,6 +98,10 @@ run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 #
 # Helper Functions
 # 
+
+GetNewName() { r "$(${G}date "+%Y_%m_%d %H_%M_%S" -d "$1")" $2; }
+NormalizeDate() {	r "$(${G}date "+%Y-%m-%d %H:%M:%S" -d "$1")" $2; }
+ExifDate() {	r "$(${G}date "+%Y:%m:%d %H:%M:%S" -d "$1")" $2; }
 
 GetMediaType()
 {
@@ -118,13 +118,9 @@ GetMediaType()
 	r "$result" $2
 }
 
-GetNewName() { r "$(${G}date "+%Y_%m_%d %H_%M_%S" -d "$1")" $2; }
-NormalizeDate() {	r "$(${G}date "+%Y-%m-%d %H:%M:%S" -d "$1")" $2; }
-ExifDate() {	r "$(${G}date "+%Y:%m:%d %H:%M:%S" -d "$1")" $2; }
-
 GetDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 {
-	local file="$1" metadataVar="$2" returnVar="$3"
+	local file="$1" metadataVar="$2" returnVar="$3" s
 	local -A md; CopyArray $metadataVar md
 	local mm="${md[Make]}-${md[Model]}" dto="${md[DateTimeOriginal]}" isUtc
 	local ext; GetFileExtension "$file" ext || return
@@ -135,55 +131,17 @@ GetDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 		s="$dto"
 		[[ "$mediaType" == "video" ]] && { s="${md[MediaCreateDate]}"; isUtc=true; }
 
-	# Sony HDR-SR12 (video), DSC-HX5V (still)
-	elif [[ "$mm" == @(sony-HDR-SR12|sony-DSC-HX5V|CASIO COMPUTER CO.,LTD.-EX-Z150) || ( "$mediaType" == "video" && "$mm" == @(sony-) )]]; then # no model for HDR-SR12 videos
-		s="$dto"
-
-	elif [[ "$mm" == "-" && "${md[CompressorName]}" == "Ambarella AVC encoder" ]]; then # GoPro
-		s="${md[MediaCreateDate]}"
-
-	# Motorola DROID RAZR
-	elif [[ "$mm" ==  @(motorola-DROID RAZR) || ( "$mediaType" == "video" && "${md[CompressorName]}" == "MOTO" ) ]]; then
-		s="$dto"
-		if [[ ! $s ]]; then
-			if [[ "$mediaType" == "video" ]]; then
-				isUtc=true
-			else # pictures="$dto"
-				if [[ ${md[CreatorTool]} ]]; then # photo editors change the ModifyDate
-					unset s
-				else	
-					s="${md[ModifyDate]}"
-				fi
-			fi
-			additionalMetadata+=( "-DateTimeOriginal=$(ExifDate "$s")" )
-		fi
-
-	# File modification date: Photo Booth, no metadata (( ${#v[@]} == 0 ))
-	elif [[ "${md[Keywords]}" =~ .*Photo\ Booth.* ]]; then
-		s="$dto"
-		if [[ ! $s ]]; then
-			s="$(${G}stat -c%y "$file")" || return;
-			additionalMetadata+=( "-DateTimeOriginal=$(ExifDate "$s")" )
-		fi
-
-	# PNG - Windows shows CreationTime as the Date taken
-	elif [[ "$ext" == @(PNG) ]]; then
-		s="$dto"
-		[[ ! $s ]] && s="${md[CreationTime]}"
-		[[ ! $s ]] && s="$(${G}stat -c%y "$file")" || return;
-		[[ $s && ! $dto ]] && additionalMetadata+=( "-DateTimeOriginal=$(ExifDate "$s")" )
-		[[ $s && ! ${md[CreationTime]} ]] && additionalMetadata+=( "-CreationTime=$(ExifDate "$s")" )
-
 	# Use DateTimeOriginal if present - Windows shows this as Date taken
 	elif [[ $dto ]]; then
 		s="$dto"
 
 	# no metadata - file modification date
 	elif (( ${#md[@]} == 0 )); then
-		printf "no metadata..."
+		printf "no metadata (using file modification date)..."
 		s="$(${G}stat -c%y "$file")" || return;
 		additionalMetadata+=( "-DateTimeOriginal=$(ExifDate "$s")" )
 
+	# metadata is preset, but could not determine the original datetime
 	else
 		return 1
 
@@ -215,268 +173,151 @@ AddMetadata()
 	fi
 }
 
-GetMetadata() # GetMetadata FILE ARRAY [METADATA...](dateTakenMetadata)
+GetMetadata() # GetMetadata FILE ARRAY [METADATA...](dateTakenMetadata) - put file metadata into an associate array
 {
-	local file="$1" array="$2" metadata=( "${@:3}" )
+	local file="$1" array="$2" metadata=( "${@:3}" ) result
+
 	[[ ! $metadata ]] && metadata=( "${dateTakenMetadata[@]}" )
-	#exiftool -fast2 -s2 "$(utw "$file")" "${metadata[@]}" 2> /dev/null | sed -e 's/: /]="/' -e 's/^/[/' -e 's/$/"/'  -e 's/:/-/' -e 's/:/-/'
-	#pause
-	eval "$array=( $(exiftool -fast2 -s2 "$(utw "$file")" "${metadata[@]}" 2> /dev/null | sed -e 's/: /]="/' -e 's/^/[/' -e 's/$/"/'  -e 's/:/-/' -e 's/:/-/' ) )"
+
+	result="$(exiftool -fast2 -s2 "$file" "${metadata[@]}" 2> /dev/null | sed -e 's/: /]="/' -e 's/^/[/' -e 's/$/"/' -e 's/:/-/' -e 's/:/-/' )"
+	eval "$array=( $result )"
 }
 
 #
 # Get Command
 #
 
-GetInit()
-{
-	processAfterDateSeconds="" # "$(GetSeconds "11/26/2012")" # process media after this date
-	bigFileSizeBytes=10000000 # 100 MiB, for progress file copy
-
-	dropbox="$HOME/Dropbox/Camera Uploads"
-	iCloud="$HOME/Pictures/iCloud Photos/My Photo Stream"
-	localDirs=( "$DOC/data/download/pictures" "$iCloud" "$dropbox" )
-
-	# options: GMT, copy, move
-	unset externalDirs
-	externalDirs=( /dcim/100OLYMP /mssony/moml0001 /dcim/100photo )
-	externalDirs+=( "/100APPLE:copy" "/101APPLE:copy" "/102APPLE:copy") # iOS, permanantly mount Media\DCIM using iExplorer
-	externalDirs+=( "/dcim/100GOPRO" )
-	externalDirs+=( "/dcim/100msdcf" "/dcim/101msdcf" "/avchd/bdmv/stream:move" ) # Sony-DSC-HX5V
-	externalDirs+=( "/dcim/100NIKON"  ) # Nikon (Alice)
-	externalDirs+=( "/dcim/100CASIO" ) # Casio Exilim 8.1 MP ( CASIO COMPUTER CO.,LTD.-EX-Z150 )
-	externalDirs+=( "/dcim/100msdcf" "/mp_root/101pnv01:move" "/avchd/bdmv/stream:move" )
-
-	fileFormat="^[0-9][0-9][0-9][0-9]_[0-9][0-9]_[0-9][0-9] [0-9][0-9]_[0-9][0-9]_[0-9][0-9]" # YYYY_MM_DD HH_MM_SS
-
-	local dir suffix="Camera/$person"
-	if [[ $dest ]]; then
-		destPicturePrefix="$(unc mount "//$dest/photo/$suffix")" || return
-		destVideoPrefix="$(unc mount "//$dest/video/$suffix")" || return
-	elif IsAvailable "$nas"; then
-		destPicturePrefix="$(unc mount "//$nas/usbshare1/photo/$suffix")" || return
-		destVideoPrefix="$(unc mount "//$nas/usbshare1/video/$suffix")" || return
-	else
-		destPicturePrefix="$(PublicPictures)/$suffix"
-		destVideoPrefix="$(PublicVideos)/$suffix"
-	fi
-
-	echo "Picture destination: $destPicturePrefix"
-	echo "Video destination: $destVideoPrefix"
-	ask 'Confirm destination locations then press any key to continue' --delay 3 || return 1
-	return 0
-}
-
 getCommand()
 {
-	local driveLabel importLocation imageProcessedDirs videoProcessedDirs tmpDir="/tmp/media"
+	local disks importLocation
 
-	GetArgs "${args[@]}" || return
-	GetInit || return
+	getArgs "${args[@]}" || return
+	getInit || return
 	
 	if [[ $source ]]; then
-		ProcessDir "$(GetFullPath "$source")" "$operation" || return
+		ProcessDir "$(GetFullPath "$source")" || return
 	else
-		for dir in "${localDirs[@]}"; do ProcessDir "$dir" "$operation" || return; done
-		for drive in "$VOLUMES/"*; do ProcessDrive "$drive" "$operation" || return; done
+		IsPlatform win && { unc MountWin || return; } # ensure newly added drives are mounted in WSL
+		GetDisks disks || return
+		for dir in "${localDirs[@]}"; do ProcessDir "$dir" || return; done
+		for drive in "${disks[@]}"; do ProcessDrive "$drive" || return; done
+	fi
+}
+
+getInit()
+{
+	localDirs=( "$DOC/data/download/pictures" )
+
+	! InPath exiftool && { package exiftool || return; }
+
+	# set directioes to check.  options: GMT, copy, move
+	unset mediaDirs
+	mediaDirs=(  )
+	mediaDirs+=( "/dcim/100GOPRO" ) 
+	mediaDirs+=( "/dcim/100msdcf" "/dcim/101msdcf" "/avchd/bdmv/stream" ) # Sony-DSC-HX5V
+	mediaDirs+=( "/DCIM/100EOS_R"  ) # Canon EOS
+	
+	fileFormat="^[0-9][0-9][0-9][0-9]_[0-9][0-9]_[0-9][0-9] [0-9][0-9]_[0-9][0-9]_[0-9][0-9]" # YYYY_MM_DD HH_MM_SS
+
+	if [[ $source && ! -d "$source" ]]; then
+		IsUncPath "$source" && { source="$(unc mount "$dest")"; } || return
+		[[ ! -d "$source" ]] && { EchoErr "source directory \"$source\" does not exist"; return 1; }
 	fi
 
-	[[ $review && $imageProcessedDirs ]] &&
-		for dir in "${imageProcessedDirs[@]}"; do { ImageEdit "$dir"; sleep 1; } done
+	unset useSuffix pictureDir videoDir
 
-	[[ $review && $videoProcessedDirs ]] &&
-		for dir in "${videoProcessedDirs[@]}"; do { VideoEdit "$dir"; sleep 1; } done
-
-	if [[ -d "$tmpDir" ]]; then
-		printf "cleanup..."
-		[[ $verbose ]] && echo "(removing \`$tmpDir\`)"
-		[[ ! $test ]] && { rm -fr "$tmpDir" || return; }
-		[[ ! $verbose ]] && echo "done"
+	if [[ $dest ]]; then
+		IsUncPath "$dest" && { dest="$(unc mount "$dest")" || return; }
+	else
+		! IsAvailable "$nas" && { EchoErr "$nas is not available"; return 1; }
+		dest="$(unc mount "//$nas/$nasDir")" || return
+		useSuffix="true"
 	fi
 
+	[[ ! -d "$dest" ]] && { EchoErr "destination directory  \"$dest\" does not exit"; return 1; }
+
+	if [[ $useSuffix ]]; then
+		[[ ! $person ]] && person="$(FullName)"
+
+		pictureDir="$dest/photo/Camera/$person" || return
+		${G}mkdir --parents "$pictureDir" || return
+
+		videoDir="$dest/video/Camera/$person" || return
+		${G}mkdir --parents "$videoDir" || return
+	fi
+
+	return 0
 }
 
 ProcessDrive()
 {
-	local drivePath="$1" operation="$2" dirs=( "${externalDirs[@]}" )
-	local drive; GetFileName "$drivePath" drive || return; [[ "$drive" == @(c|d|Macintosh HD|MobileBackups) ]] && return 0
-	local driveLabel; GetDriveLabel "$drive" driveLabel
-	local importLocation; [[ "$driveLabel" =~ .*(iPad|iPhone).* ]] && importLocation="${driveLabel%% - DCIM}"
-	local dir options
+	local drive="$1" dir
 
-	for dir in "${dirs[@]}"; do
-		IFS=":" read -a options <<<"$dir"; 
-		dir="${options[0]}"
-
-		[[ ! -d "$drivePath$dir" ]] && continue
-
-		local op="$operation"
-		if [[ "$op" == "default" ]]; then
-			if IsInArray copy options; then op="copy"
-			elif IsInArray move options; then op="move"; fi
-		fi
-
-		ProcessDir "$drivePath$dir" "$op" "$importLocation" || return
+	for dir in "${mediaDirs[@]}"; do
+		ProcessDir "$drive$dir" || return
 	done
 }
 
 ProcessDir()
 { 
-	local dir="$1" operation="$2" importLocation="$3"
+	local dir="$1"
+	
 	[[ ! -d "$dir" ]] && return
 
-	[[ ! $importLocation ]] && case "$dir" in
-		"$dropbox") importLocation="Dropbox";;
-		"$iCloud") importLocation="iCloud";;
-		*) importLocation="${dir///cygdrive/}"
-	esac
-
-	printf "**************************************************\n* $importLocation\n**************************************************\n"	
-
-	local processAfter
-	[[ -f "$dir/.processAfter" ]] && processAfter="$(cat "$dir/.processAfter")"
+	printf "Processing $dir..."	
 
 	shopt -s nullglob
-	for file in "$dir/"*; do ProcessFile "$file" "$operation" "$processAfter" || return; done
+	for file in "$dir/"*; do
+		ProcessFile "$file" || return
+	done
 
-	[[ "$operation" == "copy" ]] && 
-		echo "$(ls -1 "$dir" | tail -1 | sed 's/"//g')" > "$dir/.processAfter" || return
+	echo "done"
 }
 
 ProcessFile()
 {
-	local file="$1" operation="$2" processAfterFileName="$3" additionalMetadata
-	local fileName; GetFileName "$file" fileName || return
-
-	[[ $processAfterFileName && ! "$fileName" > "$processAfterFileName" ]] && return 0
-
-	printf "$fileName..."
-
-	local fileSize="$(GetFileSize "$file" B)"
-	local ext; GetFileExtension "$file" ext || return
-	local fileDesc; GetFileNameWithoutExtension "$file" fileDesc || return
+	local src="$1" additionalMetadata
+	local srcName; GetFileName "$src" srcName || return
+	local ext; GetFileExtension "$src" ext || return
+	local srcDesc; GetFileNameWithoutExtension "$src" srcDesc || return
 	local mediaType; GetMediaType "$ext" mediaType || return 0
-
-	[[ "$operation" == "default" ]] && operation="move"
-
-	local destPrefix="$destPicturePrefix"; [[ "$mediaType" == "video" ]] && destPrefix="$destVideoPrefix"
-	if [[ ! -d "$destPrefix" ]]; then
-		ask "Create the destination directory $destPrefix" || return 1
-		${G}mkdir --parents "$destPrefix" || return
+	local -A srcMetadata; GetMetadata "$src" srcMetadata || return
+	local dateTaken; GetDateTaken "$src" srcMetadata dateTaken || { echo "no DateTaken"; return 0; }
+	local srcNamePrefix; GetNewName "$dateTaken" srcNamePrefix || return
+	local destDir="$dest"
+	
+	if [[ $useSuffix ]]; then
+		destDir="$pictureDir"; [[ "$mediaType" == "video" ]] && destDir="$videoDir"
+		destDir="$destDir/$(${G}date +%Y -d "$dateTaken")/$(${G}date +%Y%m -d "$dateTaken")" # add YYYY/YYYYMM
+		${G}mkdir --parents "$destDir" || return
 	fi
+	
+	local dest="$destDir/$srcNamePrefix.$ext"
 
-	local -A fileMetadata; GetMetadata "$file" fileMetadata || return
-	local dateTaken; GetDateTaken "$file" fileMetadata dateTaken || { echo "no DateTaken"; return 0; }
-	local dateTakenSeconds=$(GetSeconds "$dateTaken")
-	local prefix; GetNewName "$dateTaken" prefix || return
-	local destDir="$destPrefix/$(${G}date +%Y -d "$dateTaken")/$(${G}date +%Y%m -d "$dateTaken")" 
-	local suffix dest="$destDir/$prefix.$ext"
+	[[ $verbose ]] && PrintMetadata "(metadata)" srcMetadata
 
-	[[ $processAfterDateSeconds ]] && CompareSeconds "$dateTakenSeconds" "<" "$processAfterDateSeconds" && 
-		{ echo "skipping"; return 0; }
-
-	#pause "$dateTaken-$dateTakenSeconds-$prefix-$destDir-$dest"
-	[[ $verbose ]] && PrintMetadata "(metadata)" fileMetadata
-
-	[[ ! -d "$destDir" ]] && { ${G}mkdir --parents "$destDir" || return; }
-
+	local suffix alreadyProcessed # add a suffix for media taken in the same second
 	while [[ -f "$dest" ]]; do
-		IsDuplicateFile && { RemoveProcessedFile "$file" "$prefix${suffix:+-$suffix}"; return; } 
-		(( ++suffix )); dest="$destDir/$prefix-$suffix.$ext" # use a suffix for rapid picture taking (same name, different size)
+		IsFileSame "$src" "$dest" && { alreadyProcessed="true"; break; }
+		(( ++suffix )); dest="$destDir/$srcNamePrefix-$suffix.$ext"
 	done
 
-	if [[ "$mediaType" == "picture" ]]; then
-		IsInArray "$destDir" imageProcessedDirs || imageProcessedDirs+=( "$destDir" );
+	printf "$srcNamePrefix${suffix:+-$suffix}..."
+
+	if [[ $alreadyProcessed ]]; then
+		printf "skipping (already processed)..."
 	else
-		IsInArray "$destDir" videoProcessedDirs || videoProcessedDirs+=( "$destDir" );
-	fi
-
-	local operationDesc="moving"; [[ "$operation" == "copy" ]] && operationDesc="copying"
-	printf "$prefix${suffix:+-$suffix}..."
-
-	local bigFile; (( fileSize >= bigFileSizeBytes )) && bigFile="true"
-
-	if [[ ! $noMetadata && "$ext" != @(avi|mts|m2ts) ]]; then
-		local tmpFile="$tmpDir/$fileName"
-		[[ ! -d "$tmpDir" ]] && { ${G}mkdir "$tmpDir" || return; }
-		GetCopyFile "$file" "$tmpFile" "" "caching" || return
-		AddImportedMetadata "$tmpFile" || return
-		GetCopyFile "$tmpFile" "$dest" "$bigFile" "$operationDesc" || return
-	else
-		GetCopyFile "$file" "$dest" "$bigFile" "$operationDesc" || return
+		[[ $verbose ]] && { echo "(cp \"$src\" \"$dest\")"; }
+		[[ ! $test ]] && { cp "$src" "$dest" || return; }
 	fi
 
 	if [[ "$operation" == "move" ]]; then
-		[[ $verbose ]] && echo "(rm \`$file\`)"
-		[[ ! $test ]] && { rm "$file" || return; }
+		[[ $verbose ]] && echo "(rm \"$src\")"
+		[[ ! $test ]] && { rm "$src" || return; }
 	fi
 
-	[[ ! $bigFile || $test ]] && echo "done"
 	[[ $verbose ]] && pause
-	return 0
-}
 
-IsDuplicateFile()
-{
-	# videos are duplicate if names match
-	[[ "$mediaType" == "video" ]] && return 0 
-
-	# current size is the same
-	[[ "$fileSize" == "$(GetFileSize "$dest" B)" ]] && return 0
-
-	# original size is the same
-	[[ "$fileSize" == "$(exiftool -fast2 -s3 -ImportedFileSizeBytes "$dest" 2> /dev/null | sed -e '/^Ma/d')" ]] && return 0
-
-	return 1
-}
-
-AddImportedMetadata()
-{
-	local toFile="$1"
-	AddMetadata "$toFile" "${additionalMetadata[@]}" \
-		-ImportedDate="$(${G}date '+%Y:%m:%d %H:%M:%S')" \
-		-ImportedFileModificationTime="$(ExifDate "$(${G}stat -c%y "$file")")" \
-		-ImportedFileSizeBytes="$fileSize" \
-		-ImportedOnHost="$HOSTNAME" \
-		-ImportedByUser="$USER" \
-		-ImportedFromFolder="$importLocation" \
-		-ImportedFileName="$fileName" \
-		-ImportedToFolder="${destDir///cygdrive/}"
-		
-}
-
-RemoveProcessedFile()
-{
-	local file="$1" desc="$2"
-	[[ "$operation" == "copy" ]] && { echo "$desc already processed...skipping"; return 0; }
-	printf "$desc already processed...removing..."
-	[[ $verbose ]] && echo "(removing \`$file\`)"
-	[[ ! $test ]] && { rm "$file" || return; }
-	echo "done"
-	return 0
-}
-
-GetCopyFile() # SRC DEST
-{
-	local src="$1" dest="$2" bigFile="$3" desc="$4"
-
-	printf "$desc..."
-	[[ $verbose ]] && { echo "(cp \"$src\" \"$dest\")"; }
-	[[ $test ]] && return 0
-	[[ ! $bigFile ]] && { cp "$src" "$dest"; return; }
-	[[ "$PLATFORM" != "win" ]] && { CopyDir "$src" "$dest"; return; }
-
-	local srcDir destDir srcFileName destFileName
-	
-	GetFilePath "$src" srcDir || return
-	GetFilePath "$dest" destDir || return
-	GetFileName "$src" srcFileName || return
-	GetFileName "$dest" destFileName || return
-
-	[[ "$srcFileName" != "$destFileName" ]] && { mv "$src" "$srcDir/$destFileName" || return; }
-	CopyDir "$srcDir/$destFileName" "$destDir" || return
-
-	[[ "$srcFileName" != "$destFileName" ]] && { mv "$srcDir/$destFileName" "$src" || return; }
 	return 0
 }
 
@@ -484,8 +325,11 @@ GetCopyFile() # SRC DEST
 # Other Commands
 #
 
-AddDateCommand() { for file in "${files[@]}"; do AddDate "$file" || return; done; }
-AddDate()
+addDateCommand() { for file in "${files[@]}"; do addDate "$file" || return; done; }
+infoCommand() { for file in "${files[@]}"; do info "$file" || return; done; }
+renameCommand() { for file in "${files[@]}"; do rename "$file" || return; done; }
+
+addDate()
 {
 	local file="$1"
 	local fileName; GetFileName "$file" fileName || return; printf "$fileName..."
@@ -498,8 +342,7 @@ AddDate()
 	printf "adding date..."; AddMetadata "$file" "${additionalMetadata[@]}"; echo "done"
 }
 
-renameCommand() { for file in "${files[@]}"; do Rename "$file" || return; done; }
-Rename()
+rename()
 {
 	local file="$1"
 	local path; GetFilePath "$file" path || return
@@ -526,19 +369,12 @@ Rename()
 	[[ ! $verbose ]] && echo "done"
 }
 
-infoCommand() { for file in "${files[@]}"; do Info "$file" || return; done; }
-Info()
+info()
 {
 	local file="$1"
 	declare -A fileMetadata; GetMetadata "$file" fileMetadata || return
 	PrintMetadata "$file" fileMetadata
 }
 
-SyncBooksCommand()
-{
-	#calibre opds || return
-	merge "$UDATA/books" "//nas3/home/documents/data/books" || return
-	merge "$UDATA/books" "//nas3/web/books" || return
-}
 
 run "$@"

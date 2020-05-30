@@ -34,6 +34,23 @@ MakeShortcut()
 	start NirCmd shortcut "$f" "$linkDir" "$linkName" "${@:3}";
 }
 
+GetDrives() 
+{
+	local drives=( $(fsutil.exe fsinfo drives | sed 's/:\\//g' | tr '[:upper:]' '[:lower:]' | RemoveCarriageReturn ) ) result=()
+	echo "${drives[@]:1}"
+}
+
+GetRemovableDrives() 
+{
+	local drives
+
+	for drive in "$(GetDrives)"; do
+		fsutil.exe fsinfo driveType "${drive}:\\" |& grep "Removable Drive" >& /dev/null && drives+=( "$drive" )
+	done
+
+	echo "${drives[@]}"
+}
+
 #
 # Explorer
 #
