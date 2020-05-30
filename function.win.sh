@@ -34,21 +34,32 @@ MakeShortcut()
 	start NirCmd shortcut "$f" "$linkDir" "$linkName" "${@:3}";
 }
 
-GetDrives() 
+GetWinDriveLabel() { cmd.exe /c vol "$1": |& RemoveCarriageReturn | grep "Volume in" | cut -d" " -f7; }
+
+GetWinDrives() 
 {
 	local drives=( $(fsutil.exe fsinfo drives | sed 's/:\\//g' | tr '[:upper:]' '[:lower:]' | RemoveCarriageReturn ) ) result=()
 	echo "${drives[@]:1}"
 }
 
-GetRemovableDrives() 
+GetWinRemovableDrives() 
 {
 	local drives
 
-	for drive in "$(GetDrives)"; do
+	for drive in "$(GetWinDrives)"; do
 		fsutil.exe fsinfo driveType "${drive}:\\" |& grep "Removable Drive" >& /dev/null && drives+=( "$drive" )
 	done
 
 	echo "${drives[@]}"
+}
+
+MountWinDrive()
+{
+	local drive="$1"
+	[[ "$drive" == "c" ]] && return 1
+	[[ ! -d "/mnt/$drive" ]] && { sudo mkdir "/mnt/$drive" || return 1; }
+	mount |& grep "$drive: on /mnt/$drive type drvfs" >& /dev/null && return 0
+	sudo mount -t drvfs "$drive:" "/mnt/$drive" >& /dev/null
 }
 
 #
