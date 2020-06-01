@@ -4,8 +4,8 @@
 # Variables
 #
 # PLATFORM=linux|mac|win
-# PLATFORM_LIKE=cygwin|debian|openwrt|synology
-# PLATFORM_ID=dsm|srm|raspian|ubiquiti|ubuntu
+# PLATFORM_LIKE=cygwin|debian|openwrt|qnap|synology
+# PLATFORM_ID=dsm|qts|srm|raspian|ubiquiti|ubuntu
 #
 # PLATFORM: P G VOLUMES USERS PUB DATA BIN PBIN CODE
 # USER: USER SUDO_USER HOME DOC UDATA UBIN ADATA
@@ -20,13 +20,19 @@ HOSTNAME="${HOSTNAME:-$(hostname -s)}"
 P="/opt" G="" VOLUMES="/mnt" USERS="/home" PUB="" DATA="" BIN="" 
 USER="${USERNAME:-$USER}" DOC="" UDATA="" UBIN=""
 
+# PLATFORM variables are not set until function.sh
 case "$(uname)" in 
-	CYGWIN*) PLATFORM="win" PLATFORM_LIKE="cygwin";;
 	Darwin)	PLATFORM="mac" USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support";;
 	Linux) PLATFORM="linux" ADATA="$HOME/.config";;
-	MINGW*) platform="win"; PLATFORM_LIKE=mingw;;
+	CYGWIN*) PLATFORM="win" PLATFORM_LIKE="cygwin";;
+	MINGW*) PLATFORM="win"; PLATFORM_LIKE="mingw";;
 esac
-[[ $(uname -r) =~ .*-Microsoft ]] && PLATFORM="win" # Windows Subsytem for Linux
+
+case "$(uname -r)" in 
+	*-Microsoft) PLATFORM="win";; # Windows Subsytem for Linux
+	*-qnap) PLATFORM_LIKE="qnap";;
+esac
+
 [[ "$PLATFORM" == "win" ]] && { WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)" ADATA="$WIN_HOME/AppData/Roaming"; }
 PUB="${PUB:-$USERS/Shared}"
 DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM"
@@ -83,9 +89,13 @@ PathAdd() {	[[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then PATH=$1:${
 ManPathAdd() { [[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
 
 case "$PLATFORM" in 
-	"linux") PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
 	"mac") PathAdd "/usr/local/bin" front;; # use brew utilities before system utilities
+	"ubuntu") PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
 	"win") PathAdd "/usr/bin" front # use CygWin utilities before system utilities (/etc/profile adds them first, but profile does not when called by "ssh <host> <script>.sh"
+esac
+
+case "$PLATFORM_LIKE" in
+	"qnap") PathAdd "/usr/local/sbin"; PathAdd "/usr/local/bin";;
 esac
 
 PathAdd "$PBIN" front

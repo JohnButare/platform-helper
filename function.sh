@@ -68,6 +68,7 @@ function GetPlatform()
 			MinGw*) platform="win"; ID_LIKE=mingw;;
 		esac
 		[[ $kernel =~ .*-Microsoft ]] && platform="win" # Windows Subsytem for Linux
+		[[ $kernel =~ .*-qnap ]] && ID_LIKE="qnap"
 		[[ $ID_LIKE =~ openwrt ]] && ID_LIKE="openwrt"
 		[[ $ubiquiti ]] && ID="ubiquiti"
 		[[ $synology ]] && { ID_LIKE="synology"; ID="dsm"; [[ $busybox ]] && ID="srm"; }
@@ -92,8 +93,8 @@ function IsPlatform()
 		case "$p" in 
 			win|mac|linux) [[ "$p" == "$platform" ]] && return 0;;
 			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return 0;; # Windows Subsystem for Linux
-			cygwin|debian|mingw|openwrt|synology) [[ "$p" == "$platformLike" ]] && return 0;;
-			dsm|srm|raspbian|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return 0;;
+			cygwin|debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return 0;;
+			dsm|qts|srm|raspbian|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return 0;;
 			busybox) InPath busybox && return 0;;
 
 			# package management
@@ -101,6 +102,7 @@ function IsPlatform()
 			ipkg) InPath ipkg && return 0;;
 			opkg) InPath opkg && return 0;;
 		esac
+
 		[[ "$p" == "${platform}${platformId}" ]] && return 0 # i.e. LinuxUbuntu WinUbuntu
 	done
 
@@ -120,27 +122,42 @@ function RunPlatform()
 	return 0
 }
 
+HasPackageManger() { IsPlatform debian,mac,dsm,qnap,cygwin; }
+
 package() 
 { 
 	IsPlatform debian && { sudo apt-get install -y "$@"; return; }
-	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
 	IsPlatform mac && { brew install "$@"; return; }
+
+	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
 	IsPlatform dsm && { sudo ipkg install "$@"; return; }
+	IsPlatform qnap && { sudo opkg install "$@"; return; }
 }
 
 packageu() # package uninstall
 { 
 	IsPlatform debian && { sudo apt-get remove -y "$@"; return; }
-	IsPlatform cygwin && { apt-cyg remove -y "$@"; return; }
 	IsPlatform mac && { brew remove "$@"; return; }	
+
+	IsPlatform cygwin && { apt-cyg remove -y "$@"; return; }
 	IsPlatform dsm && { sudo ipkg uninstall "$@"; return; }
+	IsPlatform qnap && { sudo opkg remove "$@"; return; }
 }
 
 packagel() # package list
 { 
 	IsPlatform debian && { apt-cache search  "$@"; return; }
 	IsPlatform mac && { brew search "$@"; return; }	
+
 	IsPlatform dsm && { sudo ipkg list "$@"; return; }
+	IsPlatform qnap && { opkg list "$@"; return; }
+}
+
+PackageExist() 
+{ 
+	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
+	IsPlatform mac && { brew search "/^$@$/" | egrep -v "No formula or cask found for" >& /dev/null; return; }	
+	IsPlatform dsm,qnap && { [[ "$(packagel "$1")" ]]; return; }
 }
 
 packages() # install list of packages, assuming each is in the path
@@ -722,8 +739,8 @@ SleepStatus() # SleepStatus SECONDS
 }
 
 # error output
-EchoErr() { echo "$@" > /dev/stderr; }
-PrintErr() { printf "$@" > /dev/stderr; }
+EchoErr() { printf "$@\n" >&2; }
+PrintErr() { printf "$@" >&2; }
 #ShowErr() { eval "$@" 2> >(sed 's/^/stderr: /') 1> >(sed 's/^/stdout: /'); } # error under Synology DSM
 
 
