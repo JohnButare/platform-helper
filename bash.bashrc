@@ -17,7 +17,7 @@ set -a
 
 HOSTNAME="${HOSTNAME:-$(hostname -s)}" 
 
-P="/opt" G="" VOLUMES="/mnt" USERS="/home" PUB="" DATA="" BIN="" 
+P="/opt" G="" VOLUMES="/mnt" USERS="/home" PUB="" DATA="" BIN="" DATAD="/" # DATAD (Data Drive)
 USER="${USERNAME:-$USER}" DOC="" UDATA="" UBIN=""
 
 # PLATFORM variables are not set until function.sh
@@ -29,11 +29,12 @@ case "$(uname)" in
 esac
 
 case "$(uname -r)" in 
-	*-Microsoft) PLATFORM="win";; # Windows Subsytem for Linux
-	*-qnap) PLATFORM_LIKE="qnap";;
+	*-Microsoft) PLATFORM="win" DATAD="/mnt/c" WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)" ADATA="$WIN_HOME/AppData/Roaming";;
+	*-qnap) PLATFORM_LIKE="qnap" PUB="/share/Public" DATAD="/share/data";;
 esac
 
-[[ "$PLATFORM" == "win" ]] && { WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)" ADATA="$WIN_HOME/AppData/Roaming"; }
+[[ -f /proc/syno_platform ]] && { PLATFORM_LIKE="synology" PUB="/volume1/public"; }
+
 PUB="${PUB:-$USERS/Shared}"
 DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" UDATA="$DOC/data" UBIN="$UDATA/bin"
