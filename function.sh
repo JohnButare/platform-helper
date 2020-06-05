@@ -125,7 +125,7 @@ HasPackageManger() { IsPlatform debian,mac,dsm,qnap,cygwin; }
 
 package() 
 { 
-	IsPlatform debian && { sudo apt-get install -y "$@"; return; }
+	IsPlatform debian && { sudo apt install -y "$@"; return; }
 	IsPlatform mac && { brew install "$@"; return; }
 
 	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
@@ -135,7 +135,7 @@ package()
 
 packageu() # package uninstall
 { 
-	IsPlatform debian && { sudo apt-get remove -y "$@"; return; }
+	IsPlatform debian && { sudo apt remove -y "$@"; return; }
 	IsPlatform mac && { brew remove "$@"; return; }	
 
 	IsPlatform cygwin && { apt-cyg remove -y "$@"; return; }

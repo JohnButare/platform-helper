@@ -5,6 +5,9 @@ usage()
 {
 	echot "\
 usage: HostUpdate [adobe|node|os|python|ruby]
+	debian|mac|win
+	windows|intel
+
 	-p, --prompt		prompt for what to update
 	-f, --force			update the host even if it might be up to date"
 	exit $1
@@ -40,6 +43,9 @@ init()
 
 run() {	args "$@" || return; init || return; $command; }
 
+#
+# Update everything
+#
 
 update()
 {
@@ -53,8 +59,17 @@ update()
 	ask "Cleanup" && { HostCleanup $prompt || return; }
 }
 
+#
+# Operating System Update
+#
+
 osUpdate() { RunPlatform Update; }
 
+#
+# Debian Specific
+# 
+
+debianUpdate() { UpdateDebian; }
 UpdateDebian() 
 { 
 	IsPlatform debian || return 0
@@ -65,44 +80,36 @@ UpdateDebian()
 	[[ ! $update && $force ]] && ask 'Update Debian' && update="true"
 
 	# update the package list
-	[[ $update ]] && { sudo apt-get update || return; }
+	[[ $update ]] && { sudo apt update || return; }
 
 	# upgrade packages if needed
-	! [[ "$(apt-check --human-readable 2>&1)" =~ "0 packages".* ]] && { sudo apt-get dist-upgrade -y || return; update="true"; }
+	! [[ "$(apt-check --human-readable 2>&1)" =~ "0 packages".* ]] && { sudo apt dist-upgrade -y || return; update="true"; }
 
 	[[ $update ]] && { sudo apt autoremove -y || return; }
 
 	# some packages are not listed in apt-check, update them if needed
 	local done=""; sudo apt autoremove -y |& grep "0 not upgraded" >& /dev/null && done="true"
-	[[ ! $done ]] && { sudo apt-get dist-upgrade -y || return; }
+	[[ ! $done ]] && { sudo apt dist-upgrade -y || return; }
 
 	[[ -f /var/run/reboot-required ]] && ask 'Reboot to finish the update' && { sudo reboot || return; }
 
 	return 0
 }
 
+#
+# macOS Specific
+#
+
+macUpdate() { UpdateMac; }
 UpdateMac()
 {
+	! IsPlatform mac && return 0
+
 	ask "Brew update" && { brewUpdate || return; }
 	ask "App Store update" && { mas upgrade || return; }
 	ask "Software update" && $sudo softwareupdate --install --all
 	return 0;
 }
-
-UpdateWin()
-{
-	IsSsh && return 0
-	ask "Windows update" && { windowsUpdate || return; }
-	intelDriverUpdateInstalled && ask "Intel driver update" && { intelDriverUpdate || return; }
-
-	return 0
-}
-
-adobeInstalled() { [[ -f "$P32\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe" ]]; }
-adobeUpdate() { adobeInstalled || return 0; start "$P32\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe"; }
-
-intelDriverUpdateInstalled() { [[ -d "$P32/Intel/Driver and Support Assistant" ]]; }
-intelDriverUpdate() { start "https://www.intel.com/content/www/us/en/support/intel-driver-support-assistant.html"; }
 
 brewUpdate()
 {
@@ -112,6 +119,46 @@ brewUpdate()
 	brew update || return
 	brew upgrade || return
 }
+
+#
+# Windows Specific
+#
+
+winUpdate() { UpdateWin; }
+UpdateWin()
+{
+	! IsPlatform win && return 0
+
+	IsSsh && return 0 # these update requires a GUI
+	ask "Windows update" && { windowsUpdate || return; }
+	intelUpdateInstalled && ask "Intel update" && { intelUpdate || return; }
+
+	return 0
+}
+
+intelUpdateInstalled() { [[ -d "$P32/Intel/Driver and Support Assistant" ]]; }
+intelUpdate()
+{ 
+	! IsPlatform win && return 0
+	start "https://www.intel.com/content/www/us/en/support/intel-driver-support-assistant.html"
+}
+
+windowsUpdate()
+{ 
+	! IsPlatform win && return 0
+	FindInPath "wuapp.exe" > /dev/null && start "wuapp.exe" || cmd.exe /c start ms-settings:windowsupdate >& /dev/null
+}
+
+#
+# Adobe
+#
+
+adobeInstalled() { [[ -f "$P32\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe" ]]; }
+adobeUpdate() { adobeInstalled || return 0; start "$P32\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe"; }
+
+#
+# NAS
+#
 
 nasUpdate()
 {
@@ -144,6 +191,10 @@ nasUpdate()
 	return 0
 }
 
+#
+# Node.js
+#
+
 nodeInstalled() { which node >& /dev/null; }
 nodeUpdate()
 {
@@ -151,6 +202,10 @@ nodeUpdate()
 	ask 'npm update' -dr n && { $sudo npm install -g npm@latest || return; }
 	$sudo npm update -g || return
 }
+
+#
+# Python
+#
 
 pythonInstalled() { which pip3 >& /dev/null; }
 pythonUpdate()
@@ -165,6 +220,10 @@ pythonUpdate()
 	return 0
 }
 
+#
+# Ruby
+#
+
 rubyInstalled() { which gem >& /dev/null; }
 rubyUpdate()
 {	
@@ -178,12 +237,6 @@ rubyUpdate()
 	$sudo gem update --system $nodoc $suffix
 	$sudo gem update $nodoc $suffix
 	return 0
-}
-
-windowsUpdate()
-{ 
-	! IsPlatform win && return 0
-	FindInPath "wuapp.exe" > /dev/null && start "wuapp.exe" || cmd.exe /c start ms-settings:windowsupdate >& /dev/null
 }
 
 run "$@"
