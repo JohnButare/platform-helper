@@ -651,12 +651,11 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 { 
 	local host="$1" timeout="${2-200}"
 
-	# Windows - ping and fping do not timeout quickly for unresponsive hosts in Windows OS Build 19041.84 Ubuntu 18.04.4,
-	#  so check for no response first using ping.exe which does not have this limitation.  The actual timeout is somewhat
-	#  low for times under 3000ms, and does not delay longer than 3000ms even if set higher.	
-	if IsPlatform win; then
-		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null
-	elif InPath fping; then
+	# In Windows build 19041.84 ping and fping did do not timeout quickly for unresponsive hosts so ping.exe was used first
+	# if IsPlatform win; then
+	# 	ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null
+	
+	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" &> /dev/null
 	else
 		ping -c 1 -W 1 "$host"  &> /dev/null # -W timeoutSeconds
