@@ -175,7 +175,7 @@ packages() # install list of packages, assuming each is in the path
 #
 
 EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of the variable in variable, or set it to var
-IsUrl() { [[ "$1" =~ http[s]?://.* ]]; }
+IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
 IsInteractive() { [[ "$-" == *i* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
 
@@ -662,6 +662,20 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 	fi
 }
 
+IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
+{
+	local host="$1" port="$2" timeout="${3-200}"
+
+	if InPath ncat; then
+		echo | ncat -C -w ${timeout}ms "$host" "$port" >& /dev/null
+	elif IsPlatform win; then	
+		! IsIpAddress "$host" && { host="$(GetIpAddress $host)" || return; }
+		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
+	else
+		return 1
+	fi
+}
+
 PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
 { 
 	local host="$1" timeout="${2-200}"
@@ -681,18 +695,6 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 		return ${PIPESTATUS[0]}
 	fi
 
-}
-
-ConnectToPort() # ConnectToPort HOST PORT [TIMEOUT](200)
-{
-	local host="$1" port="$2" timeout="${3-200}"
-
-	if IsPlatform cygwin; then	
-		! IsIpAddress "$host" && { host="$(GetIpAddress $host)" || return; }
-		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
-	else
-		echo | ncat -C "$host" "$port" >& /dev/null
-	fi
 }
 
 DhcpRenew()

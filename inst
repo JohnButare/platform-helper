@@ -6,7 +6,7 @@ IsInstallable()
 	case "$1" in	
 		# Windows
 		ahk|AutoHotKey|AltTabTerminator|AquaSnap|CloseAllWindows|FileLocatorPro|HiddenStart|Ninite|npp|Notepadpp|RightClickEnhancer|SevenZip|TidyTabs|UltraMon|vcxsrv|WinScp|xMing) IsPlatform win;;
-		AjaSystemTest|BlueStacks|CPUZ|DiskImager|IntelExtremeTuning|LgMonitor|LxRunOffline|PartitionAssistant|pGina|PowerPanel|PowerrToys|QuickBooks|stamps|TaskLayout|Todoist) IsPlatform win;;
+		AjaSystemTest|BlueStacks|CPUZ|DiskImager|IntelExtremeTuning|LgMonitor|LxRunOffline|PartitionAssistant|pGina|PowerPanel|PowerrToys|QuickBooks|stamps|TaskLayout|Todoist|Wallpaper4k) IsPlatform win;;
 
 		# Mac
 		apptivate|bartender|CarrotWeather|iTerm|KarabinerElements|LiveDesktop|Magnet|pcalc|spark|speedtest|WallpaperWizard|XQuartz) IsPlatform mac;;
@@ -16,7 +16,7 @@ IsInstallable()
 		CanonCamera|CleanMyPc|Cricut|deezer|Domotz|DuetDisplay|GreenShot|JumpDesktop|LastPass|LogitechOptions|notion|office|origin|QnapExternalRaidManager|qvr|sonos|zoom) IsPlatform mac,win;;
 
 		# Windows, Mac, Ubuntu
-		bc|BeyondCompare|Dropbox|JumpCloud|StandardNotes|steam|sublime|TeamViewer|UniFiController) IsPlatform mac,ubuntu,win;;
+		bc|BeyondCompare|Dropbox|JumpCloud|StandardNotes|steam|sublime|SublimeMerge|TeamViewer|UniFiController) IsPlatform mac,ubuntu,win;;
 
 		# other
 		firefox|skype) IsPlatform debian,mac,win;;
@@ -460,17 +460,13 @@ bootstrap()
 	i bash || return
 	RunPlatform bootstrap || return
 
-	password change || return
-	os RenameComputer || return
-
-	if InPath shutdown && ! IsPlatform mac; then
-		sudo chmod +s "$(FindInPath shutdown)" || return
-	fi
+	askP "Change $USER password" && { password change || return; }
+	askP "Change hostname from $HOSTNAME" && { os SetHostName || return; }
 
 	IsPlatform debian,mac,win && { AppCore || return; }
 }
 
-bootstrapLinuxCore()
+bootstrapCommonPackages() # debian and macOS
 {
 	if ! InPath lynx > /dev/null; then
 		printf "\nInstalling core packages..."
@@ -484,50 +480,35 @@ bootstrapLinuxCore()
 	return 0
 }
 
-bootstrapQnap() 
-{
-	if ! InPath lynx > /dev/null; then
-		printf "\nInstalling core packages..."
-		package coreutils-expand coreutils-head coreutils-sort || return		# core utilities
-		package dialog tmux || return																				# other
-		package atop htop iotop iperf3 nethogs || return										# monitoring
-		package etherwake nmap openssh-client-utils || return 							# network, fping is not functional
-		package hdparm || return																						# disk
-		package lynx || return																							# web
-	fi
-
-	# autorun
-	clipw "mkdir /usr/etc/sudoers.d
-echo \"$USER ALL=(ALL) ALL\" > /usr/etc/sudoers.d/$USER
-
-sudo ln -s /share/Public/documents/data /usr/local/data"
-	echo "- paste at the end of the file"
-	qnap autorun || return
-
-	return 0
-}
-
 bootstrapDebian() 
 {
-	bootstrapLinuxCore || return
+	bootstrapCommonPackages || return
 
 	if ! InPath uuencode > /dev/null; then
-		printf "\nInstalling other packages..."
+		echo "Installing other packages..."
 		package unzip zip || return																							# compression
 		package bonnie++ hdparm inotify-tools nautilus || return								# file
 		package fonts-inconsolata || return																			# fonts
 		package atop iotop iperf3 gnome-system-monitor nethogs || returns				# monitoring
 		package curl dnsutils etherwake smbclient || return											# network	
-		package screen terminator tmux tmuxinator || return											# terminal
+		package screen squidclient terminator tmux tmuxinator || return					# terminal
 		package apcalc libdbus-glib-1-dev virt-what || return										# utility
 		package lynx || return 																									# web
 		package x11-apps xterm || return 																				# window
-		package sharutils || return																							# other, sharutils (uuencode uudecode)
+		package pv sharutils || return																					# other, sharutils (uuencode uudecode)
 	fi
 
 	# text editors
-	if ! IsPlatform ubuntu,mac,win && ! InPath geany && ask 'Install text editors (gedit, geany)'; then
+	if ! IsPlatform ubuntu,mac,win && ! InPath geany; then
 		package geany gedit || return
+	fi
+
+	# policies
+	if InPath systemctl && systemctl >& /dev/null; then
+		echo "[Shutdown or suspend without a password]
+Identity=unix-user:$USER
+Action=org.freedesktop.login1.reboot-multiple-sessions;org.freedesktop.login1.set-wall-message;org.freedesktop.login1.halt;org.freedesktop.login1.power-off;org.freedesktop.login1.reboot;org.freedesktop.login1.suspend
+ResultAny=yes" | sudo tee "/etc/polkit-1/localauthority/50-local.d/allow_shutdown_suspend.pkla"
 	fi
 
 	# file sharing
@@ -562,11 +543,12 @@ bootstrapDsm()
 	package adduser coreutils cowsay file gawk lynx man-pages nano nmap openssh tmux xterm xft || return
  	sudo chmod u+s /bin/ping || return # allow ping without sudo
  	sudo chmod u+s /bin/mount.cifs || return
+	sudo chmod +s /sbin/shutdown || return
 }
 
 bootstrapMac()
 {
-	bootstrapLinuxCore || return
+	bootstrapCommonPackages || return
 
 	if ! InPath mas > /dev/null; then
 		printf "\nInstalling core programs..."
@@ -583,6 +565,41 @@ bootstrapMac()
 	echo "Disabling dashboard..."
 	defaults write com.apple.dashboard mcx-disabled -boolean true || return
 	killall Dock || return
+}
+
+bootstrapQnap() 
+{
+	if ! InPath lynx > /dev/null; then
+		printf "\nInstalling core packages..."
+		package coreutils-expand coreutils-head coreutils-sort || return		# core utilities
+		package dialog tmux || return																				# other
+		package atop htop iotop iperf3 nethogs || return										# monitoring
+		package etherwake nmap openssh-client-utils || return 							# network, fping is not functional
+		package hdparm || return																						# disk
+		package lynx || return																							# web
+	fi
+
+	# autorun
+	clipw "mkdir /usr/etc/sudoers.d
+echo \"$USER ALL=(ALL) ALL\" > /usr/etc/sudoers.d/$USER
+
+sudo ln -s /share/Public/documents/data /usr/local/data"
+	echo "- paste at the end of the file"
+	qnap autorun || return
+
+	return 0
+}
+
+bootstrapRaspbian()
+{
+	local locale="en_US.UTF-8" timezone="America/Denver"
+
+	sudo raspi-config nonint do_net_names 0 || return # enable predictable network names
+	sudo raspi-config nonint do_wifi_country US || return
+
+	! cat /etc/timezone | grep "$timezone" >& /dev/null && { sudo raspi-config nonint do_change_timezone "$timezone" || return; }
+	! cat /etc/default/locale | grep "$locale" >& /dev/null && { sudo raspi-config nonint do_change_locale en_US.UTF-8 || return; }
+	[[ -f /run/sshwarn ]] && { echo "Changing password for pi."; sudo passwd pi || return; }
 }
 
 bootstrapUbuntu()
@@ -656,7 +673,7 @@ AppWin() { i AquaSnap ninite || return; }
 AppRaspbian() 
 { 
 	! InPath gpio && { package wiringpi || return; }
-	sudo adduser $USER gpio || return
+	! groups $USER | grep gpio >& /dev/null && { sudo adduser $USER gpio || return; }
 }
 
 AppHostHardwareCore()
@@ -1054,7 +1071,7 @@ SublimeMergeInstall()
 
 	# https://www.sublimemerge.com/download
 	local v="1119"
-	run "Sublime/merge/sublime_merge_build_${v}_" -p "x64_setup.exe" "mac.zip" "amd64.deb" || return;
+	run "Sublime/merge/" -p "sublime_merge_build_${v}_x64_setup.exe" "sublime_merge_build_${v}_mac.zip" "sublime-merge_build_${v}_amd64.deb" || return;
 
 	IsPlatform win && { $mv "$pp/Sublime Merge.lnk" "$pp/Applications" || return; }
 

@@ -148,3 +148,4 @@ usage: i [APP*|cd|dir|force|info|select]
 		inst --hint "$InstallDir" $noRun "$@"
 	fi
 }
+
