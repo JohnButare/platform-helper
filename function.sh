@@ -1,22 +1,40 @@
 # function.sh: common functions for non-interactive scripts
-
-#
-# Configuration
-#
-
-InitializeBash()
-{
-	local file="${BASH_SOURCE[0]%/*}/bash.bashrc" 
-	[[ ! $SUDO_USER && $PS1 ]] && echo "WARNING: $file was not sourced in /etc/bash.bashrc"
-	[[ -f "$file" ]] && . "$file"
-}
-
-[[ ! $BIN ]] && InitializeBash
-
-FUNCTIONS="true"
 shopt -s nocasematch extglob 
 
-HistoryClear() { cat /dev/null > ~/.bash_history && history -c; }
+[[ ! $BIN ]] && { BASHRC="${BASH_SOURCE[0]%/*}/bash.bashrc"; [[ -f "$BASHRC" ]] && . "$BASHRC"; }
+
+#
+# Platform
+# 
+
+CheckPlatform || return
+
+# IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
+function IsPlatform()
+{
+	local checkPlatforms="$1" platforms p
+	local platform="${2:-$PLATFORM}" platformLike="${3:-$PLATFORM_LIKE}" platformId="${4:-$PLATFORM_ID}" wsl="${5:-$WSL}"
+
+	for p in ${checkPlatforms//,/ }; do
+		case "$p" in 
+			win|mac|linux) [[ "$p" == "$platform" ]] && return 0;;
+			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return 0;; # Windows Subsystem for Linux
+			wsl1|wsl2) [[ "$p" == "wsl$wsl" ]] && return 0;;
+			cygwin|debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return 0;;
+			dsm|qts|srm|raspbian|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return 0;;
+			busybox) InPath busybox && return 0;;
+
+			# package management
+			apt) InPath apt && return 0;;
+			ipkg) InPath ipkg && return 0;;
+			opkg) InPath opkg && return 0;;
+		esac
+
+		[[ "$p" == "${platform}${platformId}" ]] && return 0 # i.e. LinuxUbuntu WinUbuntu
+	done
+
+	return 1
+}
 
 function GetPlatformFiles() # GetPlatformFiles FILE_PREFIX FILE_SUFFIX
 {
@@ -37,76 +55,10 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 	for file in "${files[@]}"; do . "$file"; done
 }
 
-#
-# Platform
-# 
-
 # platform specific functions
 SourceIfExistsPlatform "$BIN/function." ".sh" || return
 
 PlatformTmp() { IsPlatform win && echo "$(wtu "$tmp")" || echo "$TMP"; }
-
-# GetPlatform [host](local) - get platform, platformLike, and platformId for the host
-# testing:  sf; time GetPlatform nas? && echo "success: $platform-$platformLike-$platformId"
-function GetPlatform() 
-{
-	local results host="$1" cmd='echo platform=$(uname); echo kernel=\"$(uname -r)\"; [[ -f /etc/os-release ]] && cat /etc/os-release; [[ -f /var/sysinfo/model ]] && echo ubiquiti=true; [[ -f /proc/syno_platform ]] && echo synology=true && [[ -f /bin/busybox ]] && echo busybox=true'
-
-	if [[ $host ]]; then
-		#IsAvailable $host || { EchoErr "$host is not available"; return 1; } # adds .5s
-		results="$(ssh ${host,,} "$cmd")" ; (( $? > 1 )) && return 1
-	else
-		results="$(eval $cmd)"
-	fi
-
-	results="$(
-		eval $results
-		case "$platform" in 
-			CYGWIN*) platform="win"; ID_LIKE=cygwin;;
-			Darwin)	platform="mac";;
-			Linux) platform="linux";;
-			MinGw*) platform="win"; ID_LIKE=mingw;;
-		esac
-		[[ $kernel =~ .*-Microsoft ]] && platform="win" # Windows Subsytem for Linux
-		[[ $kernel =~ .*-qnap ]] && ID_LIKE="qnap"
-		[[ $ID_LIKE =~ openwrt ]] && ID_LIKE="openwrt"
-		[[ $ubiquiti ]] && ID="ubiquiti"
-		[[ $synology ]] && { ID_LIKE="synology"; ID="dsm"; [[ $busybox ]] && ID="srm"; }
-		echo platform="$platform"
-		echo platformLike="$ID_LIKE"
-		echo platformId="$ID"
-	)"
-
-	eval $results
-	return 0
-}
-[[ "$PLATFORM_ID" && "$PLATFORM_LIKE" && "$PLATFORM_ID" ]] || { GetPlatform; PLATFORM="$platform" PLATFORM_ID="$platformId" PLATFORM_LIKE="$platformLike"; unset platform platformId platformLike; }
-
-# IsPlatform platform[,platform,...] [platform platformLike PlatformId](PLATFORM PLATFORM_LIKE PLATFORM_ID)
-function IsPlatform()
-{
-	local checkPlatforms="$1" platforms p
-	local platform="${2:-$PLATFORM}" platformLike="${3:-$PLATFORM_LIKE}" platformId="${4:-$PLATFORM_ID}"
-
-	for p in ${checkPlatforms//,/ }; do
-		case "$p" in 
-			win|mac|linux) [[ "$p" == "$platform" ]] && return 0;;
-			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return 0;; # Windows Subsystem for Linux
-			cygwin|debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return 0;;
-			dsm|qts|srm|raspbian|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return 0;;
-			busybox) InPath busybox && return 0;;
-
-			# package management
-			apt) InPath apt && return 0;;
-			ipkg) InPath ipkg && return 0;;
-			opkg) InPath opkg && return 0;;
-		esac
-
-		[[ "$p" == "${platform}${platformId}" ]] && return 0 # i.e. LinuxUbuntu WinUbuntu
-	done
-
-	return 1
-}
 
 # RunPlatform PREFIX - call platrform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
 function RunPlatform()
@@ -120,6 +72,10 @@ function RunPlatform()
 	IsPlatform cygwin && { RunFunction $function cygwin "$@" || return; }
 	return 0
 }
+
+#
+# Package Manager
+#
 
 HasPackageManger() { IsPlatform debian,mac,dsm,qnap,cygwin; }
 
@@ -323,10 +279,6 @@ HideAll()
 		attrib.exe +h "$f"
 	done
 }
-
-# (Man)PathAdd <path> [front], front adds to front and drops duplicates in middle
-PathAdd() {	[[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $PATH =~ (^|:)$1(:|$) ]]; then PATH+=:$1; fi; } 
-ManPathAdd() { [[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
 
 # Path conversion - ensure symbolic links are dereferenced for use in Windows
 [[ "$PLATFORM_LIKE" == "cygwin" ]] && wslpath() { cygpath "$@"; }
@@ -1052,3 +1004,5 @@ IsDesktop()
 }
 
 IsServer() { ! IsDesktop; }
+
+FUNCTIONS="true"

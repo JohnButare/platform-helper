@@ -1,77 +1,107 @@
 # $bin/bash.bashrc, system-wide login initialization for all users and public scripts, executed by /etc/bash.bashrc
+#. function.bashrc.sh
+
+set -a # export variables and functions to child processes
 
 #
-# Variables
+# functions
 #
+
+# GetPlatform [host](local) - get the platform for the specified host, sets platform, platformLike, platformId, and wsl
+# test:  sf; time GetPlatform nas? && echo "success: $platform-$platformLike-$platformId"
 # PLATFORM=linux|mac|win
 # PLATFORM_LIKE=cygwin|debian|openwrt|qnap|synology
 # PLATFORM_ID=dsm|qts|srm|raspian|ubiquiti|ubuntu
+# WSL=1|2 (Windows)
+function GetPlatform() 
+{
+	local results host="$1" cmd='echo platform=$(uname); echo kernel=\"$(uname -r)\"; [[ -f /etc/os-release ]] && cat /etc/os-release; [[ -f /var/sysinfo/model ]] && echo ubiquiti=true; [[ -f /proc/syno_platform ]] && echo synology=true && [[ -f /bin/busybox ]] && echo busybox=true'
+
+	if [[ $host ]]; then
+		#IsAvailable $host || { EchoErr "$host is not available"; return 1; } # adds .5s
+		results="$(ssh ${host,,} "$cmd")" ; (( $? > 1 )) && return 1
+	else
+		results="$(eval $cmd)"
+	fi
+
+	results="$(
+		eval $results
+		case "$platform" in 
+			CYGWIN*) platform="win"; ID_LIKE=cygwin;;
+			Darwin)	platform="mac";;
+			Linux) platform="linux";;
+			MinGw*) platform="win"; ID_LIKE=mingw;;
+		esac
+
+		if [[ $kernel =~ .*-Microsoft$ ]]; then platform="win" wsl=1
+		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platform="win" wsl=2
+		elif [[ $ID_LIKE =~ openwrt ]]; then ID_LIKE="openwrt"
+		elif [[ $kernel =~ .*-qnap ]]; then ID_LIKE="qnap"
+		elif [[ $synology ]]; then ID_LIKE="synology" ID="dsm"; [[ $busybox ]] && ID="srm"
+		elif [[ $ubiquiti ]]; then ID="ubiquiti"
+		fi
+
+		echo platform="$platform"
+		echo platformLike="$ID_LIKE"
+		echo platformId="$ID"
+		echo wsl="$wsl"
+	)"
+
+	eval $results
+	return 0
+}
+
+CheckPlatform() # ensure PLATFORM, PLATFORM_LIKE, and PLATFORM_ID are set
+{ 
+	[[ "$PLATFORM" && "$PLATFORM_LIKE" && "$PLATFORM_ID" ]] && return
+	GetPlatform || return
+	export PLATFORM="$platform" PLATFORM_ID="$platformId" PLATFORM_LIKE="$platformLike" WSL="$wsl"
+	unset platform platformId platformLike wsl
+}
+
+PathAdd() {	[[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $PATH =~ (^|:)$1(:|$) ]]; then PATH+=:$1; fi; }
+ManPathAdd() { [[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
+
 #
-# PLATFORM: P G VOLUMES USERS PUB DATA BIN PBIN CODE
-# USER: USER SUDO_USER HOME DOC UDATA UBIN ADATA
-# WINDOWS: WIN_ROOT WIN_USERS WIN_HOME
+# Platform
+#
 
-set -a
+CheckPlatform || return
 
-# LANG="en_US" - on Raspberry Pi settings this causes perl to start with errors, on Ubuntu this is set automatically
+#
+# Environment Variables
+#
 
-HOSTNAME="${HOSTNAME:-$(hostname -s)}" 
+# P=applications, BIN=programs, PBIN=platform programs, DATA=common data, DATAD=data drive (large data files), ADATA=application data
+# PUB=public documents, USERS=users home directory, VOLUMES=mounted system volumes
+P="/opt" BIN="" DATA="" DATAD="/" PUB="" USERS="/home" VOLUMES="/mnt" ADATA="$HOME/.config"
 
-P="/opt" G="" VOLUMES="/mnt" USERS="/home" PUB="" DATA="" BIN="" DATAD="/" # DATAD (Data Drive)
+# USER=logged on user, SUDO_USER, HOME=home directory, DOC=user documents, UDATA=user data, UBIN=user programs
+# UDATA=user data, CODE=source code
 USER="${USERNAME:-$USER}" DOC="" UDATA="" UBIN=""
 
-# PLATFORM variables are not set until function.sh
-case "$(uname)" in 
-	Darwin)	PLATFORM="mac" USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support";;
-	Linux) PLATFORM="linux" ADATA="$HOME/.config";;
-	CYGWIN*) PLATFORM="win" PLATFORM_LIKE="cygwin";;
-	MINGW*) PLATFORM="win"; PLATFORM_LIKE="mingw";;
+# G=GNU program prefix (i.e. gls)
+G="" 
+
+case "$PLATFORM" in 
+	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support";;
+	win) DATAD="/mnt/c" WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)"
+		WINDIR="$WIN_ROOT/Windows" PROGRAMDATA="$WIN_ROOT/ProgramData" ADATA=APPDATA="$WIN_HOME/AppData/Roaming" LOCALAPPDATA="$WIN_HOME/AppData/Local";;
 esac
 
-case "$(uname -r)" in 
-	*-Microsoft) PLATFORM="win" DATAD="/mnt/c" WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)" ADATA="$WIN_HOME/AppData/Roaming";;
-	*-qnap) PLATFORM_LIKE="qnap" PUB="/share/Public" DATAD="/share/data";;
+case "$PLATFORM_LIKE" in 	
+	qnap) PUB="/share/Public" DATAD="/share/data";;
+	synology) PUB="/volume1/public";;
 esac
 
-[[ -f /proc/syno_platform ]] && { PLATFORM_LIKE="synology" PUB="/volume1/public"; }
-
-PUB="${PUB:-$USERS/Shared}"
 DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" UDATA="$DOC/data" UBIN="$UDATA/bin"
 CODE="$HOME/source"
+HOSTNAME="${HOSTNAME:-$(hostname -s)}"
+PUB="${PUB:-$USERS/Shared}"
+declare {TMPDIR,TMP,TEMP}="${TMPDIR:-/tmp}"
 
 set +a
-
-[[ "$TMP" != "/tmp"  ]] && { export TMP="/tmp"; export TEMP="/tmp"; }
-
-if [[ "$PLATFORM" == "win" ]]; then
-	export APPDATA="$WIN_HOME/AppData/Roaming"
-	export LOCALAPPDATA="$WIN_HOME/AppData/Local"
-	export PROGRAMDATA="$WIN_ROOT/ProgramData"
-	export WINDIR="$WIN_ROOT/Windows"
-
-	# Unix programs uses upper case variables and Windows receives lower case variables (at least in Cygwin)
-	[[ "$PLATFORM_LIKE" == "cygwin" ]] && wslpath() { cygpath "$@"; }
-	utw() { [[ ! "$@" ]] && return; [[ "$PLATFORM" == "win" ]] && { wslpath -aw "$*"; return; } || echo "$@"; } # UnixToWin
-
-	# APPDATA and LOCALAPPDATA are truncated when using sudoc, i.e. sudoc service start ssh
-	[[ -d "$APPDATA" ]] && export appdata="$(utw "$APPDATA")";
-	[[ -d "$LOCALAPPDATA" ]] && export localappdata="$(utw "$LOCALAPPDATA")";
-
-	export programdata="$(utw "$PROGRAMDATA")"
-	export windir="$(utw "$WINDIR")"
-	export tmp="$localappdata\Temp"
-	export temp="$localappdata\Temp"
-
-	SetWinVars()
-	{
-		export APPDATA="$appdata" LOCALAPPDATA="$localappdata" PROGRAMDATA="$programdata"
-		export WINDIR="$windir" TMP="$tmp" TEMP="$temp"
-		unset appdata localappdata programdata windir tmp temp
-	}
-
-	[[ $WIN_VARS ]] && SetWinVars
-fi
 
 #
 # configuration
@@ -85,14 +115,11 @@ kill -SIGWINCH $$	>& /dev/null 	# ensure LINES and COLUMNS is set for a new term
 # paths
 #
 
-# (Man)PathAdd <path> [front], front adds to front and drops duplicates in middle
-PathAdd() {	[[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $PATH =~ (^|:)$1(:|$) ]]; then PATH+=:$1; fi; }
-ManPathAdd() { [[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
+ManPathAdd "$DATA/man"
 
 case "$PLATFORM" in 
 	"mac") PathAdd "/usr/local/bin" front;; # use brew utilities before system utilities
 	"ubuntu") PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
-	"win") PathAdd "/usr/bin" front # use CygWin utilities before system utilities (/etc/profile adds them first, but profile does not when called by "ssh <host> <script>.sh"
 esac
 
 case "$PLATFORM_LIKE" in
@@ -101,51 +128,18 @@ esac
 
 PathAdd "$PBIN" front
 PathAdd "$BIN" front
-PathAdd "$UDATA/bin"
-ManPathAdd "$DATA/man"
+PathAdd "$UBIN"
 
-# interactive initialization - remainder not needed in child processes or scripts
+#
+# Interactive Initialization
+#
+
 [[ "$-" != *i* ]] && return
+
 [[ ! $FUNCTIONS && -f "$BIN/function.sh" ]] && . "$BIN/function.sh"
-IsPlatform wsl && PathAdd "$WIN_ROOT/Windows/system32"
 
-#
-# install
-#
-
-i() # --find --cd
-{ 
-	local find force noRun select
-	if [[ "$1" == "--help" ]]; then echot "\
-usage: i [APP*|cd|dir|force|info|select]
-  Install applications
-  -nr, --no-run do not find or run the installation program
-  -f, --force		check for a new installation location
-  -s, --select	select the install location"
-	return 0
-	fi
-
-  [[ "$1" == @(--no-run|-nr) ]] && { noRun="$1"; shift; }
-	[[ "$1" == @(--force|-f) ]] && { force="true"; shift; }
-	[[ "$1" == @(--select|-s) ]] && { select="--select"; shift; }
-	[[ "$1" == @(select) ]] && { select="--select"; }
-	[[ "$1" == @(force) ]] && { force="true"; }
-
-	if [[ ! $noRun && ($force || $select || ! $InstallDir) ]]; then
-		ScriptEval FindInstallFile --eval $select || return
-		export INSTALL_DIR="$InstallDir"
-	fi
-
-	[[ "$1" == @(force|select) ]] && return 0
-	
-	if [[ $# == 0 || "$1" == @(cd) ]]; then
-		cd "$InstallDir"
-	elif [[ "$1" == @(dir) ]]; then
-		echo "$InstallDir"
-	elif [[ "$1" == @(info) ]]; then
-		echo "The installation directory is $InstallDir"
-	elif [[ ! $find ]]; then
-		inst --hint "$InstallDir" $noRun "$@"
-	fi
-}
-
+# warning message for interactive shells if the configuration was not set properly
+if [[ $BASHRC ]]; then
+	echo "System configuration was not set in /etc/bash.bashrc" > /dev/stderr # SUDO_USER PS1
+	unset BASHRC
+fi
