@@ -7,18 +7,15 @@ set user=jjbutare
 set host=nas3
 set data=\\%host%\public\documents\data
 set dist=%data%\install\LINUX\wsl\setup\Ubuntu\CanonicalGroupLimited.Ubuntu18.04onWindows_1804.2018.817.0_x64__79rhkp1fndgsc.Appx
+set kernel=%data%\install\LINUX\wsl\setup\wsl_update_x64.msi
 set distName=Ubuntu-18.04
-set wsl=2
 
 if not exist "c:\data\wsl" mkdir c:\data\wsl
 
 REM Enable Windows Subsystem for Linux - will restart
 if not exist "c:\windows\system32\wsl.exe" ( 
 	powershell -Command "Start-Process DISM.exe '/online /enable-feature /FeatureName:Microsoft-Windows-Subsystem-Linux /all /norestart' -Verb RunAs"
-	pause
-)
-
-if %wsl% == 2 (
+	powershell -Command "Start-Process msiexec.exe '/quiet /qb /norestart /i  %kernel%' -Verb RUnAs"
 	powershell -Command "Start-Process dism.exe '/online /enable-feature /FeatureName:VirtualMachinePlatform /all /norestart' -Verb RunAs"
 	pause
 )

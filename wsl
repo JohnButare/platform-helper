@@ -8,45 +8,53 @@ init()
 	dir="$DATAD/data/wsl"
 	shortcutDir="$PROGRAMDATA/Microsoft/Windows/Start Menu/Programs/Operating System/Other/WSL/"
 	defaultDistro="ubuntu-focal"
+
+	mkdir --parents "$dir/image" || return
+	mkdir --parents "$shortcutDir" || return
 }
 
 usage()
 {
 	echot "\
 usage: wsl - first letter of commands can be used, i.e. wsl v
-	copy DIST NEW - copy the specified distribution
-	delete DIST - delete the specified distribution
-	install DIST [SRC](ubuntu-focal) [VERSION](1) - install a distribution, SRC is either a file or 
-	  the name of the distribution (i.e. ubuntu-disco)
+
 	kill DIST - kill the specified distribution
 	list|ListPlain - list distributions, plain to remove formatting
 	run|run1|run2 - run a distribtion, specify a number to run the first WSL distribution listed
+	version - show the version of the distribution
+
+	backup DIST - backup the distribution
+	copy DIST NEW - copy the specified distribution
+	delete DIST - delete the specified distribution
+	restore DIST [SRC](ubuntu-focal) [VERSION](1) - restore distribution, SRC is a file or distribution (ubuntu-disco)
+
 	SetVersion DIST VERSION - set the version of a distribtuin
 	shortcut DIST [NAME](DIST) - create a shortcut for the distribution
 	summary [DIST](first) - show detailed summary for the distribution
-	version - show the version of the distribution
 	help - show wsl.exe and LxRunOffline.exe help"
+
 	exit $1
 }
 
 args()
 {
-	command="" version="1"
+	command=""
 	
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
-			-v|--version) [[ "$2" != @(1|2) ]] && usage; version="$2"; shift;;
+			backup|b) command="backup";;
 			help|h) command="help";;
 			kill|k) command="kill";;
 			list|l) command="list";;
 			ListPlain|lp) command="listPlain";;
 			run|r) command="run";;
+			SetVersion|s) command="setVersion";;
 			summary|s) command="summary";;
 			version|v) command="version";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(delete|install|kill|run|shortcut|summary) ]] && break
+				[[ "$command" == @(backup|delete|stall|kill|restore|run|SetVersion|shortcut|summary) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -55,7 +63,10 @@ args()
 	args=("$@")
 }
 
-getFirstDist() { listPlainCommand | head -1 | awk '{ print $1; }'; }
+distFirst() { listPlainCommand | head -1 | awk '{ print $1; }'; }
+distExists() { wsl lp | cut -d" " -f1 | grep "^${1}$"; }
+
+getDistArg() { distExists "$1" && dist="$1"; }
 
 copyCommand() { LxRunOffline.exe duplicate -n "$1" -N "$2" -d "$dir/$2" || LxRunOffline.exe unregister -n "$2"; }
 killCommand() { wsl.exe --terminate "$1"; }
@@ -64,10 +75,17 @@ listPlainCommand() { listCommand | cut -b 3- | tail +2 ; } # remove header and d
 runCommand() { wsl.exe --distribution "$1"; }
 run1Command() { runCommand "$(listPlainCommand | grep 1$ | head -1 | awk '{ print $1; }')"; }
 run2Command() { runCommand "$(listPlainCommand | grep 2$ | head -1 | awk '{ print $1; }')"; }
-summaryCommand() { LxRunOffline.exe summary -n "${1:-$(getFirstDist)}"; }
+summaryCommand() { LxRunOffline.exe summary -n "${1:-$(distFirst)}"; }
 setVersionCommand() { wsl.exe --set-version "$1" "$2"; }
 versionCommand() { echo "WSL $(IsPlatform wsl1 && echo 1 || echo 2)" | figlet | lolcat; }
 helpCommand() { wsl.exe --help | Utf16to8; LxRunOffline.exe |& Utf16to8; }
+
+backupCommand()
+{
+	local dist="$1"; [[ ! $dist ]] && usage;
+	local file="$(utw "$dir/image/$dist-$(GetTimeStamp).tar.gz")"
+	wsl.exe --export "$dist" "$file" || return
+}
 
 deleteCommand()
 {
@@ -78,12 +96,19 @@ deleteCommand()
 	rm -f "$shortcutDir/$dist"
 }
 
-installCommand()
+restoreCommand()
 {
-	local dist="$1" src="${2:-$defaultDistro}" name="${3:-$dist}"; [[ ! $dist ]] && usage;
-	local cachedFile="$dir/image/$src.tar.gz" file="${src}"
+	local dist src="$defaultDistro" version
 
-	mkdir --parents "$dir/image" || return
+	while [ "$1" != "" ]; do		
+		[[ "$1" == @(1|2) ]] && { version="$2"; shift; continue; }
+		getDistArg "$1" && { shift; continue; }
+		[[ ! $src ]] && { src="$1"; shift continue; }
+		UnknownOption "$1"
+	done
+	[[ ! $dist ]] && usage 1
+
+	local cachedFile="$dir/image/$src.tar.gz" file="${src}"
 
 	# find src from a locally cached file
 	[[ ! -f "$file" ]] && file="$cachedFile"
@@ -107,14 +132,12 @@ installCommand()
 	fi
 
 	wsl.exe --import "$dist" "$(utw "$dir/$dist")" "$(utw "$file")" --version "$version" || return
-	shortcutCommand "$dist" "$name" || return
+	shortcutCommand "$dist" || return
 }
 
 shortcutCommand()
 { 
 	local dist="$1" name="${2:-$dist}"; [[ ! $dist ]] && usage;
-
-	mkdir --parents "$shortcutDir" || return
 	MakeShortcut "wsl.exe" "$shortcutDir/$name" "-d $dist" "$(utw $(FindInPath wsl.exe))" || return
 }
 
