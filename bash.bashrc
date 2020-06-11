@@ -86,7 +86,8 @@ G=""
 case "$PLATFORM" in 
 	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support";;
 	win) DATAD="/mnt/c" WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)"
-		WINDIR="$WIN_ROOT/Windows" PROGRAMDATA="$WIN_ROOT/ProgramData" ADATA=APPDATA="$WIN_HOME/AppData/Roaming" LOCALAPPDATA="$WIN_HOME/AppData/Local";;
+		WINDIR="$WIN_ROOT/Windows" PROGRAMDATA="$WIN_ROOT/ProgramData" ADATA="$WIN_HOME/AppData/Roaming" LOCALAPPDATA="$WIN_HOME/AppData/Local"
+		APPDATA="$ADATA";;
 esac
 
 case "$PLATFORM_LIKE" in 	

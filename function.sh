@@ -4,129 +4,6 @@ shopt -s nocasematch extglob
 [[ ! $BIN ]] && { BASHRC="${BASH_SOURCE[0]%/*}/bash.bashrc"; [[ -f "$BASHRC" ]] && . "$BASHRC"; }
 
 #
-# Platform
-# 
-
-CheckPlatform || return
-
-# IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
-function IsPlatform()
-{
-	local checkPlatforms="$1" platforms p
-	local platform="${2:-$PLATFORM}" platformLike="${3:-$PLATFORM_LIKE}" platformId="${4:-$PLATFORM_ID}" wsl="${5:-$WSL}"
-
-	for p in ${checkPlatforms//,/ }; do
-		case "$p" in 
-			win|mac|linux) [[ "$p" == "$platform" ]] && return 0;;
-			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return 0;; # Windows Subsystem for Linux
-			wsl1|wsl2) [[ "$p" == "wsl$wsl" ]] && return 0;;
-			cygwin|debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return 0;;
-			dsm|qts|srm|raspbian|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return 0;;
-			busybox) InPath busybox && return 0;;
-
-			# package management
-			apt) InPath apt && return 0;;
-			ipkg) InPath ipkg && return 0;;
-			opkg) InPath opkg && return 0;;
-		esac
-
-		[[ "$p" == "${platform}${platformId}" ]] && return 0 # i.e. LinuxUbuntu WinUbuntu
-	done
-
-	return 1
-}
-
-function GetPlatformFiles() # GetPlatformFiles FILE_PREFIX FILE_SUFFIX
-{
-	files=()
-
-	[[ -f "$1$PLATFORM$2" ]] && files+=("$1$PLATFORM$2")
-	[[ -f "$1$PLATFORM_LIKE$2" ]] && files+=("$1$PLATFORM_LIKE$2")
-	[[ -f "$1$PLATFORM_ID$2" ]] && files+=("$1$PLATFORM_ID$2")
-
-	return 0
-}
-
-SourceIfExists() { [[ -f "$1" ]] && { . "$1" || return; }; return 0; }
-
-SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
-{
-	local files; GetPlatformFiles "$1" "$2" || return 0;
-	for file in "${files[@]}"; do . "$file"; done
-}
-
-# platform specific functions
-SourceIfExistsPlatform "$BIN/function." ".sh" || return
-
-PlatformTmp() { IsPlatform win && echo "$(wtu "$tmp")" || echo "$TMP"; }
-
-# RunPlatform PREFIX - call platrform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
-function RunPlatform()
-{
-	local function="$1"; shift
-
-	RunFunction $function $PLATFORM "$@" || return
-	RunFunction $function $PLATFORM_LIKE "$@" || return
-	RunFunction $function $PLATFORM_ID "$@" || return
-	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
-	IsPlatform cygwin && { RunFunction $function cygwin "$@" || return; }
-	return 0
-}
-
-#
-# Package Manager
-#
-
-HasPackageManger() { IsPlatform debian,mac,dsm,qnap,cygwin; }
-
-package() 
-{ 
-	IsPlatform debian && { sudo apt install -y "$@"; return; }
-	IsPlatform mac && { brew install "$@"; return; }
-
-	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
-	IsPlatform dsm && { sudo ipkg install "$@"; return; }
-	IsPlatform qnap && { sudo opkg install "$@"; return; }
-}
-
-packageu() # package uninstall
-{ 
-	IsPlatform debian && { sudo apt remove -y "$@"; return; }
-	IsPlatform mac && { brew remove "$@"; return; }	
-
-	IsPlatform cygwin && { apt-cyg remove -y "$@"; return; }
-	IsPlatform dsm && { sudo ipkg uninstall "$@"; return; }
-	IsPlatform qnap && { sudo opkg remove "$@"; return; }
-}
-
-packagel() # package list
-{ 
-	IsPlatform debian && { apt-cache search  "$@"; return; }
-	IsPlatform mac && { brew search "$@"; return; }	
-
-	IsPlatform dsm && { sudo ipkg list "$@"; return; }
-	IsPlatform qnap && { opkg list "$@"; return; }
-}
-
-PackageExist() 
-{ 
-	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
-	IsPlatform mac && { brew search "/^$@$/" | egrep -v "No formula or cask found for" >& /dev/null; return; }	
-	IsPlatform dsm,qnap && { [[ "$(packagel "$1")" ]]; return; }
-}
-
-packages() # install list of packages, assuming each is in the path
-{
-	local p
-
-	for p in "$@"; do
-		! InPath "$p" && { package "$p" || return; }
-	done
-
-	return 0
-}
-
-#
 # Other
 #
 
@@ -154,76 +31,160 @@ clipr()
 }
 
 #
-# scripts
+# Account
 #
 
-IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
-FilterShellScript() { egrep "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"; }
-IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
-IsOption() { [[ "$1" =~ ^-.* ]]; }
-IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
-UnknownOption() {	EchoErr "$(ScriptName): unknown option \`$1\`"; EchoErr "Try \`$(ScriptName) --help\` for more information";	exit 1; }
-MissingOperand() { EchoErr "$(ScriptName): missing $1 operand"; exit 1; }
-IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
-IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
-GetFunction() { declare -f | egrep -i "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
+ActualUser() { echo "${SUDO_USER-$USER}"; }
+UserExists() { getent passwd "$1" >& /dev/null; }
 
-# RunFunction NAME SUFFIX - call a function with the specified suffix
-RunFunction()
+FullName() 
 { 
-	local method="$1" suffix="$2"; shift 2
-	[[ $suffix ]] && IsFunction $method${suffix^} && { $method${suffix^} "$@"; return; }
+	case "$USER" in jjbutare|ad_jjbutare) echo John; return;; esac; 
+	local s
+	case "$PLATFORM" in
+		win) s="$(net user "$USER" |& grep -i "Full Name")"; s="${s:29}";;
+		mac)  s="$(dscl . -read /Users/$USER RealName | tail -n 1)"; s="${s:1}";;
+	esac
+	echo ${s:-$USER}; 
+}
+
+#
+# Applications
+#
+
+i() # invoke the installer script (inst) saving the INSTALL_DIR
+{ 
+	local find force noRun select
+
+	if [[ "$1" == "--help" ]]; then echot "\
+usage: i [APP*|cd|dir|force|info|select]
+  Install applications
+  -nr, --no-run do not find or run the installation program
+  -f, --force		check for a new installation location
+  -s, --select	select the install location"
 	return 0
+	fi
+
+  [[ "$1" == @(--no-run|-nr) ]] && { noRun="$1"; shift; }
+	[[ "$1" == @(--force|-f) ]] && { force="true"; shift; }
+	[[ "$1" == @(--select|-s) ]] && { select="--select"; shift; }
+	[[ "$1" == @(select) ]] && { select="--select"; }
+	[[ "$1" == @(force) ]] && { force="true"; }
+
+	if [[ ! $noRun && ($force || $select || ! $INSTALL_DIR) ]]; then
+		ScriptEval FindInstallFile --eval $select || return
+		export INSTALL_DIR="$InstallDir"
+		unset InstallDir file
+	fi
+
+	case "${1:-cd}" in
+		cd) cd "$INSTALL_DIR";;
+		dir) echo "$INSTALL_DIR";;
+		force|select) return 0;;
+		info) echo "The installation directory is $INSTALL_DIR";;
+		*) inst --hint "$INSTALL_DIR" $noRun "$@";;
+	esac
 }
 
-IsAlias() { type "-t $1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias
-GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}"; }
+#
+# Console
+#
 
-CheckCommand() 
-{	
-	[[ ! $1 ]]  && MissingOperand "command"
-	IsFunction "${1,,}Command" && { command="${1,,}"; return 0; } ; 
-	EchoErr "$(ScriptName): unknown command \`$1\`"
-	EchoErr "Try \`$(ScriptName) --help\` for valid commands"
-	exit 1
-} 
+clear() { echo -en $'\e[H\e[2J'; }
+pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 
-CheckSubCommand() 
-{	
-	local sub="$1"; command="$2"; 
-	[[ ! $command ]]  && MissingOperand "$sub command"
-	ProperCase "$sub" sub; ProperCase "$command" command; 
-	IsFunction "${sub}${command}Command" && { command="$command"; return 0; }
-	EchoErr "$(ScriptName): unknown $1 command \`$2\`"
-	EchoErr "Try \`$(ScriptName) $1 --help\` for valid commands"
-	exit 1
-} 
-
-ScriptName() { GetFileName $0; }
-ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
-ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b", does not work with aliases
-
-ScriptReturn() # ScriptReturns [-s|--show] <var>...
+SleepStatus() # SleepStatus SECONDS
 {
-	local var avar fmt="%q" arrays export
-	[[ "$1" == @(-s|--show) ]] && { fmt="\"%s\""; shift; }
-	[[ "$1" == @(-e|--export) ]] && { export="export "; shift; }
+	printf "Waiting for $1 seconds..."
+	for (( i=1; i<=$1; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
+		printf "."
+	done
 
-	# cache array lookup for performance
-	arrays="$(declare -p "$@" |& grep "^declare -a" 2> /dev/null)"
-
-	for var in "$@"; do
-		check=".*declare -a ${var}=.*"
-		if [[ "$arrays" =~ $check ]]; then
-			avar="$var[@]"
-			printf "$var=("
-			for value in "${!avar}"; do printf "$fmt " "$value"; done; 
-			echo ") "
-		else
-			printf "$export$var=$fmt\n" "${!var}"
-		fi
-	done;		
+	echo "done"
 }
+
+EchoErr() { printf "$@\n" >&2; }
+PrintErr() { printf "$@" >&2; }
+
+# display tabs
+[[ "$TABS" == "" ]] && TABS=2
+catt() { cat $* | expand -t $TABS; } 							# CatTab
+echot() { echo -e "$*" | expand -t $TABS; } 			# EchoTab
+lesst() { less -x $TABS $*; } 										# LessTab
+printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf pipe: cat file | printf -v var
+
+#
+# Data Types
+#
+
+# array
+CopyArray() { local ca; GetArrayDefinition "$1" ca; eval "$2=$ca"; }
+DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${!get}")} # DelimitArray DELIMITER ARRAY_VAR
+GetArrayDefinition() { local gad="$(declare -p $1)"; gad="(${gad#*\(}"; r "${gad%\'}" $2; }
+IsArray() {  [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
+ShowArray() { local var array="$1[@]"; printf -v var ' "%s"' "${!array}"; echo "${var:1}"; }
+ShowArrayDetail() { declare -p "$1"; }
+ShowArrayKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ShowArray keys; }
+StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
+
+# IsInArray [-w|--wild] [-aw|--awild] STRING ARRAY_VAR - return 0 if string is in the
+# array and set isInIndex , handles sparse arrays, the contents or the array can contain wild cards
+IsInArray() 
+{ 
+	local wild; [[ "$1" == @(-w|--wild) ]] && { wild="true"; shift; }
+	local awild; [[ "$1" == @(-aw|--array-wild) ]] && { awild="true"; shift; }
+	local s="$1" getIndexes="!$2[@]"; eval local indexes="( \${$getIndexes} )"
+
+	for isInIndex in "${indexes[@]}"; do
+		local getValue="$2[$isInIndex]"; local value="${!getValue}"
+		if [[ $wild ]]; then [[ "$value" == $s ]] && return 0;
+		elif [[ $awild ]]; then [[ "$s" == $value ]] && return 0;
+		else [[ "$s" == "$value" ]] && return 0; fi
+	done;
+
+	return 1
+}
+
+# date
+CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
+GetDateStamp() { ${G}date '+%Y%m%d'; }
+GetFileDateStamp() { date '+%Y%m%d' -d "$(stat --format="%y" "$1")"; }
+GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
+
+GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 to specified time
+{
+	[[ $1 ]] && { ${G}date +%s.%N -d "$1"; return; }
+	[[ $# == 0 ]] && ${G}date +%s.%N; # only return default date if no argument is specified
+}
+
+# integer
+IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
+HexToDecimal() { echo "$((16#${1#0x}))"; }
+
+# string
+IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
+IsWild() { [[ "$1" =~ .*\*|\?.* ]]; }
+ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
+QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
+QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces
+RemoveBackslash() { echo "${@//\\/}"; }
+RemoveCarriageReturn()  { sed 's/\r//g'; }
+RemoveSpace() { echo "${@// /}"; }
+
+GetWord() 
+{ 
+	(( $# < 2 || $# > 3 )) && { EchoErr "usage: GetWord STRING WORD [DELIMITER]"; return 1; }
+	local word=$(( $2 + 1 )); IFS=${3:- }; set -- $1; 
+	(( $# >= word )) && echo "${!word}" || return 1; 
+}
+
+# time
+ShowTime() { ${G}date '+%F %T.%N %Z' -d "$1"; }
+ShowSimpleTime() { ${G}date '+%D %T' -d "$1"; }
+TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')"; }
+TimestampDiff () { ${G}printf '%s' $(( $(${G}date -u +%s) - $(${G}date -u -d"$1" +%s))); }
+TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
 
 #
 # File System
@@ -447,107 +408,12 @@ CpProgress()
 } 
 
 #
-# Data Types
-#
-
-# array
-CopyArray() { local ca; GetArrayDefinition "$1" ca; eval "$2=$ca"; }
-DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${!get}")} # DelimitArray DELIMITER ARRAY_VAR
-GetArrayDefinition() { local gad="$(declare -p $1)"; gad="(${gad#*\(}"; r "${gad%\'}" $2; }
-IsArray() {  [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
-ShowArray() { local var array="$1[@]"; printf -v var ' "%s"' "${!array}"; echo "${var:1}"; }
-ShowArrayDetail() { declare -p "$1"; }
-ShowArrayKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ShowArray keys; }
-StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
-
-# IsInArray [-w|--wild] [-aw|--awild] STRING ARRAY_VAR - return 0 if string is in the
-# array and set isInIndex , handles sparse arrays, the contents or the array can contain wild cards
-IsInArray() 
-{ 
-	local wild; [[ "$1" == @(-w|--wild) ]] && { wild="true"; shift; }
-	local awild; [[ "$1" == @(-aw|--array-wild) ]] && { awild="true"; shift; }
-	local s="$1" getIndexes="!$2[@]"; eval local indexes="( \${$getIndexes} )"
-
-	for isInIndex in "${indexes[@]}"; do
-		local getValue="$2[$isInIndex]"; local value="${!getValue}"
-		if [[ $wild ]]; then [[ "$value" == $s ]] && return 0;
-		elif [[ $awild ]]; then [[ "$s" == $value ]] && return 0;
-		else [[ "$s" == "$value" ]] && return 0; fi
-	done;
-
-	return 1
-}
-
-# date
-
-CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
-GetDateStamp() { ${G}date '+%Y%m%d'; }
-GetFileDateStamp() { date '+%Y%m%d' -d "$(stat --format="%y" "$1")"; }
-GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
-
-GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 to specified time
-{
-	[[ $1 ]] && { ${G}date +%s.%N -d "$1"; return; }
-	[[ $# == 0 ]] && ${G}date +%s.%N; # only return default date if no argument is specified
-}
-
-# integer
-IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
-HexToDecimal() { echo "$((16#${1#0x}))"; }
-
-# string
-IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
-IsWild() { [[ "$1" =~ .*\*|\?.* ]]; }
-ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
-QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
-QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces
-RemoveBackslash() { echo "${@//\\/}"; }
-RemoveCarriageReturn()  { sed 's/\r//g'; }
-RemoveSpace() { echo "${@// /}"; }
-
-GetWord() 
-{ 
-	(( $# < 2 || $# > 3 )) && { EchoErr "usage: GetWord STRING WORD [DELIMITER]"; return 1; }
-	local word=$(( $2 + 1 )); IFS=${3:- }; set -- $1; 
-	(( $# >= word )) && echo "${!word}" || return 1; 
-}
-
-# time
-ShowTime() { ${G}date '+%F %T.%N %Z' -d "$1"; }
-ShowSimpleTime() { ${G}date '+%D %T' -d "$1"; }
-TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')"; }
-TimestampDiff () { ${G}printf '%s' $(( $(${G}date -u +%s) - $(${G}date -u -d"$1" +%s))); }
-TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
-
-#
-# ssh
+# Network
 #
 
 IsSsh() { [[ "$SSH_TTY" ]]; }
 RemoteServer() { echo "${SSH_CONNECTION%% *}"; }
 PuttyAgent() { start pageant "$HOME/.ssh/id_rsa.ppk"; }
-
-#
-# account
-#
-
-ActualUser() { echo "${SUDO_USER-$USER}"; }
-UserExists() { getent passwd "$1" >& /dev/null; }
-
-FullName() 
-{ 
-	case "$USER" in jjbutare|ad_jjbutare) echo John; return;; esac; 
-	local s
-	case "$PLATFORM" in
-		win) s="$(net user "$USER" |& grep -i "Full Name")"; s="${s:29}";;
-		mac)  s="$(dscl . -read /Users/$USER RealName | tail -n 1)"; s="${s:1}";;
-	esac
-	echo ${s:-$USER}; 
-}
-
-#
-# network
-#
 
 RemoveDnsSuffix() { echo "${1%%.*}"; }
 IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
@@ -632,14 +498,7 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 { 
 	local host="$1" timeout="${2-200}"
 
-	# Windows - ping and fping do not timeout quickly for unresponsive hosts in Windows OS Build 19041.84 Ubuntu 18.04.4,
-	#  so check for no response first using ping.exe which does not have this limitation.  The actual timeout is somewhat
-	#  low for times under 3000ms, and does not delay longer than 3000ms even if set higher.
-	# HOLD on this for now, seems OK on rosie 2/26/2020
-	if IsPlatform win_HOLD; then
-		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null || return
-		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
-	elif InPath fping; then
+	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
 		return ${PIPESTATUS[0]}
 	else
@@ -660,61 +519,146 @@ DhcpRenew()
 	fi
 }
 
-#
 # UNC Shares - \\SERVER\SHARE\DIRS
-#
-
 IsUncPath() { [[ "$1" =~ //.* ]]; }
 GetUncServer() { local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
 GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 
 #
-# Console
+# Package Manager
 #
 
-[[ "$TABS" == "" ]] && TABS=2
+HasPackageManger() { IsPlatform debian,mac,dsm,qnap,cygwin; }
 
-clear() { echo -en $'\e[H\e[2J'; }
+package() 
+{ 
+	IsPlatform debian && { sudo apt install -y "$@"; return; }
+	IsPlatform mac && { brew install "$@"; return; }
 
-pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
-
-SleepStatus() # SleepStatus SECONDS
-{
-	printf "Waiting for $1 seconds..."
-	for (( i=1; i<=$1; ++i )); do
- 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
-		printf "."
-	done
-
-	echo "done"
+	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
+	IsPlatform dsm && { sudo ipkg install "$@"; return; }
+	IsPlatform qnap && { sudo opkg install "$@"; return; }
 }
 
-# error output
-EchoErr() { printf "$@\n" >&2; }
-PrintErr() { printf "$@" >&2; }
-#ShowErr() { eval "$@" 2> >(sed 's/^/stderr: /') 1> >(sed 's/^/stdout: /'); } # error under Synology DSM
+packageu() # package uninstall
+{ 
+	IsPlatform debian && { sudo apt remove -y "$@"; return; }
+	IsPlatform mac && { brew remove "$@"; return; }	
 
+	IsPlatform cygwin && { apt-cyg remove -y "$@"; return; }
+	IsPlatform dsm && { sudo ipkg uninstall "$@"; return; }
+	IsPlatform qnap && { sudo opkg remove "$@"; return; }
+}
 
-# display tabs
-catt() { cat $* | expand -t $TABS; } 							# CatTab
-echot() { echo -e "$*" | expand -t $TABS; } 			# EchoTab
-lesst() { less -x $TABS $*; } 										# LessTab
-printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf pipe: cat file | printf -v var
+packagel() # package list
+{ 
+	IsPlatform debian && { apt-cache search  "$@"; return; }
+	IsPlatform mac && { brew search "$@"; return; }	
+
+	IsPlatform dsm && { sudo ipkg list "$@"; return; }
+	IsPlatform qnap && { opkg list "$@"; return; }
+}
+
+PackageExist() 
+{ 
+	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
+	IsPlatform mac && { brew search "/^$@$/" | egrep -v "No formula or cask found for" >& /dev/null; return; }	
+	IsPlatform dsm,qnap && { [[ "$(packagel "$1")" ]]; return; }
+}
+
+packages() # install list of packages, assuming each is in the path
+{
+	local p
+
+	for p in "$@"; do
+		! InPath "$p" && { package "$p" || return; }
+	done
+
+	return 0
+}
 
 #
-# Windows
-#
+# Platform
+# 
 
-IsXServerRunning() { xprop -root >& /dev/null; }
-WindowInfo() { IsPlatform win && start Au3Info; }
-SendKeys() { IsPlatform win && AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
+CheckPlatform || return
 
+# IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
+function IsPlatform()
+{
+	local checkPlatforms="$1" platforms p
+	local platform="${2:-$PLATFORM}" platformLike="${3:-$PLATFORM_LIKE}" platformId="${4:-$PLATFORM_ID}" wsl="${5:-$WSL}"
+
+	for p in ${checkPlatforms//,/ }; do
+		case "$p" in 
+			win|mac|linux) [[ "$p" == "$platform" ]] && return 0;;
+			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return 0;; # Windows Subsystem for Linux
+			wsl1|wsl2) [[ "$p" == "wsl$wsl" ]] && return 0;;
+			cygwin|debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return 0;;
+			dsm|qts|srm|raspbian|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return 0;;
+			busybox) InPath busybox && return 0;;
+
+			# package management
+			apt) InPath apt && return 0;;
+			ipkg) InPath ipkg && return 0;;
+			opkg) InPath opkg && return 0;;
+		esac
+
+		[[ "$p" == "${platform}${platformId}" ]] && return 0 # i.e. LinuxUbuntu WinUbuntu
+	done
+
+	return 1
+}
+
+function GetPlatformFiles() # GetPlatformFiles FILE_PREFIX FILE_SUFFIX
+{
+	files=()
+
+	[[ -f "$1$PLATFORM$2" ]] && files+=("$1$PLATFORM$2")
+	[[ -f "$1$PLATFORM_LIKE$2" ]] && files+=("$1$PLATFORM_LIKE$2")
+	[[ -f "$1$PLATFORM_ID$2" ]] && files+=("$1$PLATFORM_ID$2")
+
+	return 0
+}
+
+SourceIfExists() { [[ -f "$1" ]] && { . "$1" || return; }; return 0; }
+
+SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
+{
+	local files; GetPlatformFiles "$1" "$2" || return 0;
+	for file in "${files[@]}"; do . "$file"; done
+}
+
+PlatformTmp() { IsPlatform win && echo "$(wtu "$tmp")" || echo "$TMP"; }
+
+# RunPlatform PREFIX - call platrform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
+function RunPlatform()
+{
+	local function="$1"; shift
+
+	RunFunction $function $PLATFORM "$@" || return
+	RunFunction $function $PLATFORM_LIKE "$@" || return
+	RunFunction $function $PLATFORM_ID "$@" || return
+	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
+	IsPlatform cygwin && { RunFunction $function cygwin "$@" || return; }
+	return 0
+}
+
+IsDesktop()
+{
+	IsPlatform mac,win && return 0
+	IsPlatform debian && [[ "$XDG_CURRENT_DESKTOP" != "" ]] && return 0
+	return 1
+}
+
+IsServer() { ! IsDesktop; }
 #
 # Process
 #
 
 console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternatively run in a regular Windows console (Start, Run, bash --login)
+IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $SUDO_USER ]]; }
 
 IsExecutable()
 {
@@ -726,8 +670,6 @@ IsExecutable()
 	# alias, builtin, or function
 	type -a "$p" >& /dev/null
 }
-
-IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $SUDO_USER ]]; }
 
 IsTaskRunning() 
 {
@@ -911,8 +853,83 @@ sudoc()  # use the credential store to get the password if available and preserv
 } 
 
 #
-# Applications
+# Scripts
 #
+
+IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
+FilterShellScript() { egrep "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"; }
+IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
+IsOption() { [[ "$1" =~ ^-.* ]]; }
+IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
+UnknownOption() {	EchoErr "$(ScriptName): unknown option \`$1\`"; EchoErr "Try \`$(ScriptName) --help\` for more information";	exit 1; }
+MissingOperand() { EchoErr "$(ScriptName): missing $1 operand"; exit 1; }
+IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
+IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
+GetFunction() { declare -f | egrep -i "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
+
+# RunFunction NAME SUFFIX - call a function with the specified suffix
+RunFunction()
+{ 
+	local method="$1" suffix="$2"; shift 2
+	[[ $suffix ]] && IsFunction $method${suffix^} && { $method${suffix^} "$@"; return; }
+	return 0
+}
+
+IsAlias() { type "-t $1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias
+GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}"; }
+
+CheckCommand() 
+{	
+	[[ ! $1 ]]  && MissingOperand "command"
+	IsFunction "${1,,}Command" && { command="${1,,}"; return 0; } ; 
+	EchoErr "$(ScriptName): unknown command \`$1\`"
+	EchoErr "Try \`$(ScriptName) --help\` for valid commands"
+	exit 1
+} 
+
+CheckSubCommand() 
+{	
+	local sub="$1"; command="$2"; 
+	[[ ! $command ]]  && MissingOperand "$sub command"
+	ProperCase "$sub" sub; ProperCase "$command" command; 
+	IsFunction "${sub}${command}Command" && { command="$command"; return 0; }
+	EchoErr "$(ScriptName): unknown $1 command \`$2\`"
+	EchoErr "Try \`$(ScriptName) $1 --help\` for valid commands"
+	exit 1
+} 
+
+ScriptName() { GetFileName $0; }
+ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
+ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b", does not work with aliases
+
+ScriptReturn() # ScriptReturns [-s|--show] <var>...
+{
+	local var avar fmt="%q" arrays export
+	[[ "$1" == @(-s|--show) ]] && { fmt="\"%s\""; shift; }
+	[[ "$1" == @(-e|--export) ]] && { export="export "; shift; }
+
+	# cache array lookup for performance
+	arrays="$(declare -p "$@" |& grep "^declare -a" 2> /dev/null)"
+
+	for var in "$@"; do
+		check=".*declare -a ${var}=.*"
+		if [[ "$arrays" =~ $check ]]; then
+			avar="$var[@]"
+			printf "$var=("
+			for value in "${!avar}"; do printf "$fmt " "$value"; done; 
+			echo ") "
+		else
+			printf "$export$var=$fmt\n" "${!var}"
+		fi
+	done;		
+}
+
+#
+# Text Processing
+#
+
+Utf16toAnsi() { iconv -f utf-16 -t ISO-8859-1; }
+Utf16to8() { iconv -f utf-16 -t UTF-8; }
 
 GetTextEditor()
 {
@@ -969,19 +986,13 @@ TextEdit()
 	fi
 }
 
-VimHelp() { echot "VIM: http://www.lagmonster.org/docs/vi.html
-	I - insert before cursor, 	ctrl-shift-v / context-edit-paste - paste
-	escape - command mode
-	x/dd - delete character/line
-	:w - write, :q! - quit" ;}
+#
+# Virtual Machine
+#
 
-# Git - git for Windows is faster, but older than Cygwin git
-unset -f git
-unset GIT_PYTHON_GIT_EXECUTABLE
-if [[ -f "$P/Git/cmd/git.exe" ]]; then
-	export GIT_PYTHON_GIT_EXECUTABLE="$P/Git/cmd/git.exe"
-	#git() { "$P/Git/cmd/git.exe" "$@"; }
-fi
+IsVm() { [[ "$(VmHostCache)" ]]; }
+IsVmwareVm() { [[ "$(VmHostCache)" == "vmware" ]]; }
+IsHypervVm() { [[ "$(VmHostCache)" == "hyperv" ]]; }
 
 VmHostCache() # cache the output of virt-what to avoid sudo prompt
 {
@@ -992,17 +1003,15 @@ VmHostCache() # cache the output of virt-what to avoid sudo prompt
 	cat "$f"
 }
 
-IsVm() { [[ "$(VmHostCache)" ]]; }
-IsVmwareVm() { [[ "$(VmHostCache)" == "vmware" ]]; }
-IsHypervVm() { [[ "$(VmHostCache)" == "hyperv" ]]; }
+#
+# Windows
+#
 
-IsDesktop()
-{
-	IsPlatform mac,win && return 0
-	IsPlatform debian && [[ "$XDG_CURRENT_DESKTOP" != "" ]] && return 0
-	return 1
-}
+IsXServerRunning() { xprop -root >& /dev/null; }
+WindowInfo() { IsPlatform win && start Au3Info; }
+SendKeys() { IsPlatform win && AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
 
-IsServer() { ! IsDesktop; }
+# platform specific functions
+SourceIfExistsPlatform "$BIN/function." ".sh" || return
 
 FUNCTIONS="true"

@@ -2,12 +2,7 @@
 # Applications
 #
 
-mmc() { start cmd.exe /c mmc.exe "$@"; }
-
-#
-# Windows Subsystem for Linux (WSL)
-#
-IsWsl2() { wsl.exe --help | iconv -f utf-16 -t UTF-8 | grep 'set-version' >& /dev/null; }
+mmc() {	( cmd.exe /c mmc.exe "$@" & ) >& /dev/null; }
 
 #
 # File System

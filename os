@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 . function.sh
 
+run() {	args "$@"; ${command}Command "${args[@]}"; }
+
 usage()
 {
 	echot "\
-usage: os <command>[environment|index|lock|store|SystemProperties|version]
+usage: os [environment|index|lock|store|SystemProperties|version]
 	HostName|SetHostName
 	path [show|edit|editor|set [AllUsers]](editor)
 	index: index [options|start|stop|demand](options)"
@@ -17,7 +19,7 @@ args()
 	
 	while [ "$1" != "" ]; do
 		case "$1" in
-			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;		
+			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
 	 		SystemProperties) command="SystemProperties";;
 			SetHostName) command="SetHostname";;
 			*) 
@@ -30,8 +32,6 @@ args()
 	[[ ! $command ]] && usage 1
 	args=("$@")
 }
-
-run() {	args "$@"; ${command}Command "${args[@]}"; }
 
 environmentCommand() { SystemPropertiesCommand 3; }
 
@@ -188,7 +188,7 @@ versionWin()
 	local ubr="$(HexToDecimal "$(registry get "$r/UBR" | RemoveCarriageReturn)")"
 	local build="$(registry get "$r/CurrentBuild" | RemoveCarriageReturn)"
 
-	echo "Windows Version $releaseId (OS Build $build.$ubr, WSL $(IsWsl2 && echo 2 || echo 1) $PLATFORM_LIKE-$PLATFORM_ID)"
+	echo "Windows Version $releaseId (OS Build $build.$ubr, WSL $(IsPlatform wsl1 && echo 1 || echo 2) $PLATFORM_LIKE-$PLATFORM_ID)"
 }
 
 run "$@"
