@@ -3,7 +3,7 @@
 
 init()
 { 
-	msc="$WINDIR/System32/virtmgmt.msc"
+	gui="virtmgmt.msc"
 }
 
 usage()
@@ -18,10 +18,9 @@ args()
 	unset -v brief command name
 
 	while [[ "$1" != "" ]]; do
-		[[ "$command" == @(dhcp|run) ]] && break
 		case "$1" in
 			--help) usage 0;;
-			IsEnabled) command="IsEnabled";; StartGui) command="StartGui";;
+			IsEnabled) command="IsEnabled";;
 			*)
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				UnknownOption "$1"
@@ -32,42 +31,45 @@ args()
 	args=( "$@" )
 }
 
-IsEnabledCommand() { isEnabled; }
-
+checkInstalled () { ! isInstalled && { EchoError "Hyper-V is not installed"; exit 1; } }
 isEnabled() { bcdedit.exe | grep -i hypervisorlaunchtype | egrep -i Auto >& /dev/null; }
-isGuiInstalled() { [[ -f "$msc" ]]; }
-IsGuiRunning() { WinList | grep "Hyper-V Manager" >& /dev/null; }
+isInstalled() { service exist hvservice; }
 isServiceRunning() { service running hvservice; }
+
+IsEnabledCommand() { isEnabled; }
 
 DisableCommand()
 {
+	checkInstalled
 	! IsElevated && { elevate RunScript --pause-error hyperv disable; return; }
 	isEnabled && { bcdedit.exe /set hypervisorlaunchtype off || return; }
 	isServiceRunning && ask "Restart computer to finish disabling Hyper-V" && { power reboot || return; }
 	return 0
 }
 
-EnableCommand()
+enableCommand()
 {
+	checkInstalled
 	! IsElevated && { elevate RunScript --pause-error hyperv enable; return; }
 	! isEnabled && { bcdedit.exe /set hypervisorlaunchtype auto || return; }
 	! isServiceRunning && ask "Restart computer to enable Hyper-V" && { power reboot || return; }
 	return 0
 }
 
-StartGuiCommand()
+guiCommand()
 {
-	! IsGuiInstalled && return 1; IsGuiRunning && return 0
-	start --elevate mmc "$(GetFileName "$msc")" "$@"
+	! InPath "$gui" && { EchoErr "The Hyper-V management GUI is not installed"; }
+	WinList | grep "Hyper-V Manager" >& /dev/null && return 0
+	start "$gui" "$@"
 }
 
 # VM commands - make these subcommands hyperv vm COMMAND
-VmSnapshotCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Checkpoint-VM'; listCommand; }; checkpointCommand() { snapshotCommand "$@"; }
-VmPauseCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Suspend-VM'; listCommand; }
-VmResumeCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Paused"} | Resume-VM'; listCommand; }
-VmStartCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Off" -or $_.State -eq "Saved"} | Start-VM'; listCommand; }
-VmStopCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Stop-VM'; listCommand; }
-VmStatusCommand() { listCommand "$@"; }; listCommand() { powershell.exe Get-VM; }
+# VmSnapshotCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Checkpoint-VM'; listCommand; }; checkpointCommand() { snapshotCommand "$@"; }
+# VmPauseCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Suspend-VM'; listCommand; }
+# VmResumeCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Paused"} | Resume-VM'; listCommand; }
+# VmStartCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Off" -or $_.State -eq "Saved"} | Start-VM'; listCommand; }
+# VmStopCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Stop-VM'; listCommand; }
+# VmStatusCommand() { listCommand "$@"; }; listCommand() { powershell.exe Get-VM; }
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
 
