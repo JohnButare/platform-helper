@@ -5,11 +5,11 @@ run() {	init || return; args "$@"; ${command}Command "${args[@]}"; }
 
 init()
 { 
-	dir="$DATAD/data/wsl"
+	wslDir="$DATAD/data/wsl"
 	shortcutDir="$PROGRAMDATA/Microsoft/Windows/Start Menu/Programs/Operating System/Other/WSL/"
-	defaultDistro="ubuntu-focal"
+	defaultDistro="ubuntu-focal" defaultVersion="1"
 
-	mkdir --parents "$dir/image" || return
+	mkdir --parents "$wslDir/image" || return
 	mkdir --parents "$shortcutDir" || return
 }
 
@@ -21,17 +21,24 @@ usage: wsl - first letter of commands can be used, i.e. wsl v
 	kill DIST - kill the specified distribution
 	list|ListPlain - list distributions, plain to remove formatting
 	run|run1|run2 - run a distribtion, specify a number to run the first WSL distribution listed
-	version - show the version of the distribution
+
+	name - name of current distribution
+	dir [DIST](current) - show the installation directory of a distribution
+	version - show the version of the current distribution
+	summary [DIST](current) - show a detailed summary of a distribution
 
 	backup DIST - backup the distribution
+	restore DIST [SRC](ubuntu-focal) [VERSION](1) - restore distribution, SRC is a file or distribution (ubuntu-disco)
 	copy DIST NEW - copy the specified distribution
 	delete DIST - delete the specified distribution
-	restore DIST [SRC](ubuntu-focal) [VERSION](1) - restore distribution, SRC is a file or distribution (ubuntu-disco)
 
 	SetVersion DIST VERSION - set the version of a distribtuin
 	shortcut DIST [NAME](DIST) - create a shortcut for the distribution
-	summary [DIST](first) - show detailed summary for the distribution
-	help - show wsl.exe and LxRunOffline.exe help"
+	help - show wsl.exe and LxRunOffline.exe help
+
+examples:
+
+wsl restore Ubuntu-20.04 ubuntu-focal 2"
 
 	exit $1
 }
@@ -47,35 +54,38 @@ args()
 			help|h) command="help";;
 			kill|k) command="kill";;
 			list|l) command="list";;
+			name|n) command="name";;
 			ListPlain|lp) command="listPlain";;
 			run|r) command="run";;
-			SetVersion|s) command="setVersion";;
+			SetVersion|sv) command="setVersion";;
 			summary|s) command="summary";;
 			version|v) command="version";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(backup|delete|stall|kill|restore|run|SetVersion|shortcut|summary) ]] && break
+				[[ "$command" == @(backup|delete|dir|stall|kill|restore|run|SetVersion|shortcut|summary) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
 	done
+
 	[[ ! $command ]] && usage 1
 	args=("$@")
 }
 
 distFirst() { listPlainCommand | head -1 | awk '{ print $1; }'; }
-distExists() { wsl lp | cut -d" " -f1 | grep "^${1}$"; }
+distExists() { [[ "$(wsl lp | cut -d" " -f1 | grep "^${1}$")" ]]; }
+distCheck() { distExists "$1" && return; EchoErr "Distribution $1 does not exist"; return 1; }
 
-getDistArg() { distExists "$1" && dist="$1"; }
-
-copyCommand() { LxRunOffline.exe duplicate -n "$1" -N "$2" -d "$dir/$2" || LxRunOffline.exe unregister -n "$2"; }
+copyCommand() { LxRunOffline.exe duplicate -n "$1" -N "$2" -d "$wslDir/$2" || LxRunOffline.exe unregister -n "$2"; }
+dirCommand() { wtu "$(wsl summary ${1:-$(nameCommand)} | grep "Installation directory" | cut -d: -f 2- | cut -d" " -f 2)"; }
 killCommand() { wsl.exe --terminate "$1"; }
 listCommand() { wsl.exe --list --verbose | Utf16toAnsi | RemoveCarriageReturn; }
 listPlainCommand() { listCommand | cut -b 3- | tail +2 ; } # remove header and default distribution *
+nameCommand() { utw / | cut -d'\' -f4; }
 runCommand() { wsl.exe --distribution "$1"; }
 run1Command() { runCommand "$(listPlainCommand | grep 1$ | head -1 | awk '{ print $1; }')"; }
 run2Command() { runCommand "$(listPlainCommand | grep 2$ | head -1 | awk '{ print $1; }')"; }
-summaryCommand() { LxRunOffline.exe summary -n "${1:-$(distFirst)}"; }
+summaryCommand() { LxRunOffline.exe summary -n "${1:-$(nameCommand)}" | Utf16toAnsi | RemoveCarriageReturn; }
 setVersionCommand() { wsl.exe --set-version "$1" "$2"; }
 versionCommand() { echo "WSL $(IsPlatform wsl1 && echo 1 || echo 2)" | figlet | lolcat; }
 helpCommand() { wsl.exe --help | Utf16to8; LxRunOffline.exe |& Utf16to8; }
@@ -83,32 +93,38 @@ helpCommand() { wsl.exe --help | Utf16to8; LxRunOffline.exe |& Utf16to8; }
 backupCommand()
 {
 	local dist="$1"; [[ ! $dist ]] && usage;
-	local file="$(utw "$dir/image/$dist-$(GetTimeStamp).tar.gz")"
+	local file="$(utw "$wslDir/image/$dist-$(GetTimeStamp).tar.gz")"
 	wsl.exe --export "$dist" "$file" || return
 }
 
 deleteCommand()
 {
-	local dist="$1" name="${2:-$dist}"; [[ ! $dist ]] && usage;
+	local dist="$1"; distCheck "$dist" || return
+	local dir="$(dirCommand "$dist")"
 
-	! ask "Delete the $dist distribution" && return
-	LxRunOffline.exe uninstall -n "$dist" || return
-	rm -f "$shortcutDir/$dist"
+	[[ ! -d "$dir" ]] && { EchoErr "The $dist distribution directory was not found"; return 1; }
+
+	! ask -dr n "Delete the $dist distribution" && return
+
+	killCommand "$dist" || return
+	wsl.exe --unregister "$dist" || return
+	rm -fr "$dir" || return
 }
 
-restoreCommand()
+restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](1)
 {
-	local dist src="$defaultDistro" version
+	local dist src version
 
 	while [ "$1" != "" ]; do		
-		[[ "$1" == @(1|2) ]] && { version="$2"; shift; continue; }
-		getDistArg "$1" && { shift; continue; }
-		[[ ! $src ]] && { src="$1"; shift continue; }
+		[[ "$1" == @(1|2) ]] && { version="$1"; shift; continue; }
+		[[ ! $dist && ! -f "$1" ]] && { dist="$1"; shift; continue; }
+		[[ ! $src ]] && { src="$1"; shift; continue; }
 		UnknownOption "$1"
 	done
-	[[ ! $dist ]] && usage 1
+	[[ ! $dist ]] && { EchoErr "A distribution name was not specified"; exit 1; }
+	src="${src:-$defaultDistro}" version="${version:-$defaultVersion}"
 
-	local cachedFile="$dir/image/$src.tar.gz" file="${src}"
+	local cachedFile="$wslDir/image/$src.tar.gz" file="${src}"
 
 	# find src from a locally cached file
 	[[ ! -f "$file" ]] && file="$cachedFile"
@@ -131,7 +147,7 @@ restoreCommand()
 		return 1
 	fi
 
-	wsl.exe --import "$dist" "$(utw "$dir/$dist")" "$(utw "$file")" --version "$version" || return
+	wsl.exe --import "$dist" "$(utw "$wslDir/$dist")" "$(utw "$file")" --version "$version" || return
 	shortcutCommand "$dist" || return
 }
 
