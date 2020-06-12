@@ -77,35 +77,17 @@ hostnameCommand()
 	# use HOSTNAME for localhost
 	IsLocalHost "$host" && { echo "$HOSTNAME"; return 0; }
 
-	# use reverse DNS lookup for IP Address
+	# reverse DNS lookup for IP Address
 	if IsIpAddress "$host"; then
 		name="$(RemoveDnsSuffix $(nslookup $host |& grep "name =" | cut -d" " -f 3))"
 		[[ $name ]] && { echo "$name"; return ; }
 	fi
 
-	# cached names for speed
-	case "$host" in
-		nas1) echo "nas1"; return 0;; 
-		nas2) echo "nas2"; return 0;; 
-		nas3) echo "nas3"; return 0;; 
-	esac
-
-	# ssh port 608
-	if IsAvailablePort $host 608 1; then
-		name="$(RemoveSpace $(RemoveDnsSuffix $(ssh -p 608 $host hostname)))"
-		[[ $name ]] && { echo "$name"; return ; }
-	fi
-
-	# ssh port 22
-	if IsAvailablePort $host 22 1; then
-		name="$(RemoveSpace $(RemoveDnsSuffix $(ssh -p 22 $host hostname)))"
-		[[ $name ]] && { echo "$name"; return ; }
-	fi
+	# forward DNS lookup
+	name=$(host $host | grep " has address ") && { echo "$(RemoveDnsSuffix $name)"; return; }
 
 	# fallback on the name passed
-	[[ ! $name ]] && name="$host"
-
-	echo "$name"	
+	echo "$(RemoveDnsSuffix $host)"
 }
 
 SetHostnameCommand()

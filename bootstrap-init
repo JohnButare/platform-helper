@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+# bootstrap-init [USER](jjbutare) [HOST] - bootstrap a local system
+
+conf()
+{
+	user="${1:-jjbutare}"
+	host="${2:-nas3.hagerman.butare.net}"
+	domain="hagerman.butare.net"
+	proxy="http://proxy.$domain:3128"
+	timezone="America/Denver"
+}
+
+run()
+{
+	init || return
+	configureProxyServer || return
+	setupPackageManager || return
+	setTimezone || return
+	installPackages || return
+	createUser || return
+	runAsUser || return
+	mountPublic || return
+	runBootstrap || return
+}
+
+runBootstrap()
+{
+	echo "Bootstraping from $host..."
+	export PATH=$bin:$bin/../platform/$PLATFORM:$PATH
+	$bash bootstrap $host
+}
+
+configureProxyServer()
+{
+	[[ ! $proxy || ! -d /etc/apt/apt.conf.d || -f "/etc/apt/apt.conf.d/proxy" ]] && return
+
+	echo "Setting proxy server to $proxy..."
+	printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$proxy" "$proxy" | $sudo tee "/etc/apt/apt.conf.d/proxy"
+}
+
+createUser()
+{
+	IsMac || grep "$user" /etc/passwd >& /dev/null && return
+
+	echo "Creating user $user..."
+	sudo adduser "$user" --gecos "" || return
+	sudo usermod -aG sudo $user || return
+}
+
+runAsUser()
+{
+	[[ "$USER" == "$user" ]] && return
+	
+	local script="${BASH_SOURCE[0]}"
+
+	echo "Running $script as $user..."
+	cd /tmp || return
+	sudo chmod ugo+rwx "$script" || return
+	sudo --preserve-env=PATH --user=$user --set-home "$script"; exit
+}
+
+setTimezone()
+{
+	( IsMac || cat "/etc/timezone" |& grep "$timezone" > /dev/null ) && return
+
+	sudo DEBIAN_FRONTEND=noninteractive apt install -y tzdata || return
+	[[ ! -f "/usr/share/zoneinfo/$timezone" ]] && return
+	sudo ln -snf "/usr/share/zoneinfo/$timezone" "/etc/localtime" || return
+	echo "$timezone" | sudo tee "/etc/timezone" || return
+	dpkg-reconfigure -f noninteractive tzdata || return
+}
+
+#
+# Helper Functions
+#
+
+IsMac() { [[ "$PLATFORM" == "mac" ]]; }
+InPath () { which "$1" &> /dev/null; }
+pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
+
+#
+# Mount
+#
+
+mountPublic() 
+{ 
+	[[ -d "$bin" ]] && return
+
+	echo "Mounting //$host/public..."
+	mkdir -p "$mount" || return
+	mountPublic$p || return
+}
+
+mountPublicDebian()
+{
+	local line="//$host/public /home/$user/Volumes/public cifs username=$user,noauto,rw,users 0 0"
+	! grep "$line" /etc/fstab >& /dev/null && { echo "$line" | sudo tee -a //etc/fstab || return; }
+	mount.cifs "//$host/public" "$HOME/Volumes/public" -o user=$user sec=ntlmsspi || return
+}
+
+mountPublicMac() { mount_smbfs -s "smb://$user@$host/public" "$mount" || return; }
+mountPublicWin() { sudo mount -t drvfs "//$host/public" "$HOME/Volumes/public"; }
+
+#
+# Packages
+#
+
+installPackages()
+{
+	which xclip >& /dev/null && return
+
+	installPackages$p || return
+	installPackagesCommon || return
+
+	InPath apt && { apt update || return; } # fix "Could not find command-not-found database"
+}
+
+installPackagesCommon() { package dialog expect findutils gawk xclip; }
+
+installPackagesDebian()
+{	
+	package ubuntu-standard cifs-utils iputils-ping net-tools openssh-server resolvconf
+
+	# credential management - except for Raspberry Pi which is typically headless
+	if [[ "$ID" != "raspbian" ]]; then
+		sudo apt-get install -y gnome-keyring libsecret-tools || return
+	fi
+
+	return 0
+}
+
+installPackagesMac() 
+{
+	grep '/usr/local/bin/bash' /etc/shells >& /dev/null && return
+	echo -n "/usr/local/bin/bash" | pbcopy || return
+	sudo nano /etc/shells || return
+	chpass -s "/usr/local/bin/bash" || return 
+}
+
+installPackagesWin() { package ubuntu-standard iputils-ping ubuntu-wsl || return; }
+
+package()
+{
+	case $PLATFORM in
+		debian|win) sudo apt install -y "$@";;
+		mac) brew install "$@";;
+	esac
+}
+
+setupPackageManager()
+{
+	case $PLATFORM in
+		debian|win) [[ -f "/etc/update-motd.d/60-unminimize" ]] && { ( unminimize && apt update && apt dist-upgrade -y && apt install sudo ) || return; };;
+		mac) ! which brew >& /dev/null && { /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)" || return; };;
+	esac
+
+	return 0
+}
+
+#
+# Initialization
+#
+
+init()
+{
+	# variables
+	conf "$@" || return
+	bash=""
+	mount="$HOME/Volumes/public"
+	bin="$mount/documents/data/bin"
+	sudo="sudo"; ! InPath sudo && sudo=""
+
+	# PLATFORM=debian|mac|win
+	PLATFORM=debian
+	[[ "$(uname)" == "Darwin" ]] && PLATFORM=mac
+	[[ $(uname -r)  =~ microsoft ]] && PLATFORM=win
+	p=${PLATFORM^}
+
+	# ID=ubuntu|raspian
+	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
+
+	init$p
+}
+
+initDebian() { :; }
+
+initMac()
+{ 
+	bash="/usr/local/bin/bash"
+}
+
+initWin()
+{
+	:
+}
+
+run "$@"

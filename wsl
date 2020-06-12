@@ -18,7 +18,7 @@ usage()
 	echot "\
 usage: wsl - first letter of commands can be used, i.e. wsl v
 
-	kill DIST - kill the specified distribution
+	kill DIST - kill the distribution
 	list|ListPlain - list distributions, plain to remove formatting
 	run|run1|run2 - run a distribtion, specify a number to run the first WSL distribution listed
 
@@ -28,13 +28,17 @@ usage: wsl - first letter of commands can be used, i.e. wsl v
 	summary [DIST](current) - show a detailed summary of a distribution
 
 	backup DIST - backup the distribution
+	copy DIST NEW - copy the distribution
+	delete DIST - delete the distribution
+	init DIST - run bootstrap-init
 	restore DIST [SRC](ubuntu-focal) [VERSION](1) - restore distribution, SRC is a file or distribution (ubuntu-disco)
-	copy DIST NEW - copy the specified distribution
-	delete DIST - delete the specified distribution
 
 	SetVersion DIST VERSION - set the version of a distribtuin
+	SetDefaultUser [USER]($USER) - set the default user of the current distribution 
 	shortcut DIST [NAME](DIST) - create a shortcut for the distribution
 	help - show wsl.exe and LxRunOffline.exe help
+
+	-np, --no-prompt	   	suppress prompts
 
 examples:
 
@@ -45,11 +49,12 @@ wsl restore Ubuntu-20.04 ubuntu-focal 2"
 
 args()
 {
-	command=""
+	command="" noPrompt=""
 	
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
+			-np|--no-prompt) noPrompt="true"; ask() { :; };;
 			backup|b) command="backup";;
 			help|h) command="help";;
 			kill|k) command="kill";;
@@ -57,12 +62,13 @@ args()
 			name|n) command="name";;
 			ListPlain|lp) command="listPlain";;
 			run|r) command="run";;
+			SetDefaultUser|sdu) command="setDefaultUser";;
 			SetVersion|sv) command="setVersion";;
 			summary|s) command="summary";;
 			version|v) command="version";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(backup|delete|dir|stall|kill|restore|run|SetVersion|shortcut|summary) ]] && break
+				[[ "$command" == @(backup|delete|dir|init|kill|restore|run|SetVersion|shortcut|summary) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -74,14 +80,14 @@ args()
 
 distFirst() { listPlainCommand | head -1 | awk '{ print $1; }'; }
 distExists() { [[ "$(wsl lp | cut -d" " -f1 | grep "^${1}$")" ]]; }
-distCheck() { distExists "$1" && return; EchoErr "Distribution $1 does not exist"; return 1; }
+distArg() { dist="$1"; distExists "$dist" && return; EchoErr "Distribution $dist does not exist"; return 1; }
 
 copyCommand() { LxRunOffline.exe duplicate -n "$1" -N "$2" -d "$wslDir/$2" || LxRunOffline.exe unregister -n "$2"; }
 dirCommand() { wtu "$(wsl summary ${1:-$(nameCommand)} | grep "Installation directory" | cut -d: -f 2- | cut -d" " -f 2)"; }
 killCommand() { wsl.exe --terminate "$1"; }
 listCommand() { wsl.exe --list --verbose | Utf16toAnsi | RemoveCarriageReturn; }
 listPlainCommand() { listCommand | cut -b 3- | tail +2 ; } # remove header and default distribution *
-nameCommand() { utw / | cut -d'\' -f4; }
+nameCommand() { echo "$WSL_DISTRO_NAME"; }
 runCommand() { wsl.exe --distribution "$1"; }
 run1Command() { runCommand "$(listPlainCommand | grep 1$ | head -1 | awk '{ print $1; }')"; }
 run2Command() { runCommand "$(listPlainCommand | grep 2$ | head -1 | awk '{ print $1; }')"; }
@@ -99,7 +105,7 @@ backupCommand()
 
 deleteCommand()
 {
-	local dist="$1"; distCheck "$dist" || return
+	local dist; distArg "$1" || return
 	local dir="$(dirCommand "$dist")"
 
 	[[ ! -d "$dir" ]] && { EchoErr "The $dist distribution directory was not found"; return 1; }
@@ -109,6 +115,13 @@ deleteCommand()
 	killCommand "$dist" || return
 	wsl.exe --unregister "$dist" || return
 	rm -fr "$dir" || return
+}
+
+initCommand()
+{
+	local dist; distArg "$1" || return
+	cmd.exe /c 'copy '$(utw $BIN/bootstrap-init)' \\wsl$\'$dist'\tmp' || return
+	LxRunOffline.exe run -n "$dist" -w -c "bash -c \". /tmp/bootstrap-init\""
 }
 
 restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](1)
@@ -151,6 +164,14 @@ restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](1)
 	shortcutCommand "$dist" || return
 }
 
+setDefaultUserCommand()
+{
+	local user="${1:-$USER}" uid
+
+	uid="$(grep -i "$user" "/etc/passwd" | cut -d: -f3)"
+	[[ ! $uid ]] && { EchoErr "Could not find user $USER"; return 1; }
+	LxRunOffline.exe set-uid -n "$(nameCommand)" -v "$uid"
+}
 shortcutCommand()
 { 
 	local dist="$1" name="${2:-$dist}"; [[ ! $dist ]] && usage;

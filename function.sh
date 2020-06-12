@@ -582,8 +582,6 @@ packages() # install list of packages, assuming each is in the path
 # Platform
 # 
 
-CheckPlatform || return
-
 # IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
 function IsPlatform()
 {
