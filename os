@@ -7,7 +7,7 @@ usage()
 {
 	echot "\
 usage: os [environment|index|lock|store|SystemProperties|version]
-	HostName|SetHostName
+	hostname|SetHostname|workgroup|SetWorkgroup
 	path [show|edit|editor|set [AllUsers]](editor)
 	index: index [options|start|stop|demand](options)"
 	exit $1
@@ -20,11 +20,10 @@ args()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
-	 		SystemProperties) command="SystemProperties";;
-			SetHostName) command="SetHostname";;
+	 		SystemProperties) command="SystemProperties";; SetHostname) command="setHostname";; SetWorkgroup) command="setWorkgroup";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(hostname|path|update) ]] && break
+				[[ "$command" == @(hostname|path|update|SetWorkgroup) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -90,7 +89,7 @@ hostnameCommand()
 	echo "$(RemoveDnsSuffix $host)"
 }
 
-SetHostnameCommand()
+setHostnameCommand()
 {
 	local newName
 	read -p "Enter computer name: " newName; echo
@@ -102,6 +101,24 @@ SetHostnameCommand()
 	elif InPath hostnamectl; then sudo hostnamectl set-hostname $newName
 	elif IsPlatform linux; then sudo hostname -s $newName
 	fi
+}
+
+workgroupCommand()
+{ 
+	! IsPlatform win && return
+	net.exe config workstation | grep "Workstation domain" | awk '{ print $3; }'
+}
+
+setWorkgroupCommand()
+{ 
+	! IsPlatform win && return
+
+	local newWorkgroup="$1"
+
+	echo "The current workgroup is $(workgroupCommand)"
+	[[ ! $newWorkgroup ]] && read -p "Enter new workgroup: " newWorkgroup; echo
+
+	elevate powershell Add-computer -WorkgroupName "$newWorkgroup"
 }
 
 #

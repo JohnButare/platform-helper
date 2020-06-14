@@ -896,7 +896,9 @@ CheckSubCommand()
 	exit 1
 } 
 
-ScriptName() { GetFileName $0; }
+ScriptName() { GetFileName "${BASH_SOURCE[0]}"; }
+ScriptDir() { echo "${BASH_SOURCE[0]%/*}"; }
+
 ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
 ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b", does not work with aliases
 
