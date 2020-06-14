@@ -24,7 +24,7 @@ usage: wsl - first letter of commands can be used, i.e. wsl v
 
 	name - name of current distribution
 	dir [DIST](current) - show the installation directory of a distribution
-	version - show the version of the current distribution
+	version [DIST](current) - show the version of a distribution
 	summary [DIST](current) - show a detailed summary of a distribution
 
 	backup DIST - backup the distribution
@@ -34,7 +34,8 @@ usage: wsl - first letter of commands can be used, i.e. wsl v
 	restore DIST [SRC](ubuntu-focal) [VERSION](1) - restore distribution, SRC is a file or distribution (ubuntu-disco)
 
 	SetVersion DIST VERSION - set the version of a distribtuin
-	SetDefaultUser [USER]($USER) - set the default user of the current distribution 
+	GetDefaultUser DIST - get the default user sid of the specified distribution 
+	SetDefaultUser [USER]($USER) - set the default user of the distribution 
 	shortcut DIST [NAME](DIST) - create a shortcut for the distribution
 	help - show wsl.exe and LxRunOffline.exe help
 
@@ -56,6 +57,7 @@ args()
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
 			-np|--no-prompt) noPrompt="true"; ask() { :; };;
 			backup|b) command="backup";;
+			GetDefaultUser|gdu) command="getDefaultUser";;
 			help|h) command="help";;
 			kill|k) command="kill";;
 			list|l) command="list";;
@@ -68,7 +70,7 @@ args()
 			version|v) command="version";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(backup|delete|dir|init|kill|restore|run|SetVersion|shortcut|summary) ]] && break
+				[[ "$command" == @(backup|copy|delete|dir|GetDefaultUser|init|kill|restore|run|SetDefaultUser|SetVersion|shortcut|summary|version) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -78,12 +80,11 @@ args()
 	args=("$@")
 }
 
-distFirst() { listPlainCommand | head -1 | awk '{ print $1; }'; }
-distExists() { [[ "$(wsl lp | cut -d" " -f1 | grep "^${1}$")" ]]; }
+distFirst() { listPlainCommand "$1" | head -1 | awk '{ print $1; }'; }
+distExists() { [[ "$(listPlainCommand "$1" | cut -d" " -f1 | grep "^${1}$")" ]]; }
 distArg() { dist="$1"; distExists "$dist" && return; EchoErr "Distribution $dist does not exist"; return 1; }
-
-copyCommand() { LxRunOffline.exe duplicate -n "$1" -N "$2" -d "$wslDir/$2" || LxRunOffline.exe unregister -n "$2"; }
 dirCommand() { wtu "$(wsl summary ${1:-$(nameCommand)} | grep "Installation directory" | cut -d: -f 2- | cut -d" " -f 2)"; }
+getDefaultUserCommand() { LxRunOffline.exe get-uid -n "$1" | Utf16toAnsi | RemoveCarriageReturn; }
 killCommand() { wsl.exe --terminate "$1"; }
 listCommand() { wsl.exe --list --verbose | Utf16toAnsi | RemoveCarriageReturn; }
 listPlainCommand() { listCommand | cut -b 3- | tail +2 ; } # remove header and default distribution *
@@ -93,7 +94,6 @@ run1Command() { runCommand "$(listPlainCommand | grep 1$ | head -1 | awk '{ prin
 run2Command() { runCommand "$(listPlainCommand | grep 2$ | head -1 | awk '{ print $1; }')" "$@"; }
 summaryCommand() { LxRunOffline.exe summary -n "${1:-$(nameCommand)}" | Utf16toAnsi | RemoveCarriageReturn; }
 setVersionCommand() { wsl.exe --set-version "$1" "$2"; }
-versionCommand() { echo "WSL $(IsPlatform wsl1 && echo 1 || echo 2)" | figlet | lolcat; }
 helpCommand() { wsl.exe --help | Utf16to8; LxRunOffline.exe |& Utf16to8; }
 
 backupCommand()
@@ -101,6 +101,19 @@ backupCommand()
 	local dist="$1"; [[ ! $dist ]] && usage;
 	local file="$(utw "$wslDir/image/$dist-$(GetTimeStamp).tar.gz")"
 	wsl.exe --export "$dist" "$file" || return
+	BACKUP_FILE="$(wtu "$file")"
+}
+
+copyCommand()
+{ 
+	local dist; distArg "$1" || return
+	local src="$dist" dest="$2" destDir="$(utw "$wslDir/$2")" 
+	local version="$(versionCommand $src)" uid="$(getDefaultUserCommand "$src")"
+
+	distExists "$dest" && { EchoErr "The distribution $dest already exists"; return 1; }
+	backupCommand "$src" || return
+	restoreCommand "$dest" "$BACKUP_FILE" "$version" || return
+	LxRunOffline.exe set-uid -n "$dest" -v "$uid" || return
 }
 
 deleteCommand()
@@ -172,10 +185,19 @@ setDefaultUserCommand()
 	[[ ! $uid ]] && { EchoErr "Could not find user $USER"; return 1; }
 	LxRunOffline.exe set-uid -n "$(nameCommand)" -v "$uid"
 }
+
 shortcutCommand()
 { 
 	local dist="$1" name="${2:-$dist}"; [[ ! $dist ]] && usage;
 	MakeShortcut "wsl.exe" "$shortcutDir/$name" "-d $dist" "$(utw $(FindInPath wsl.exe))" || return
+}
+
+versionCommand()
+{
+	[[ $# == 0 ]] && { echo "WSL $(IsPlatform wsl1 && echo 1 || echo 2)" | figlet | lolcat; return; }
+
+	local dist; distArg "$1" || return	
+	listPlainCommand | grep ^test1 | awk '{ print $3; }'
 }
 
 run "$@"
