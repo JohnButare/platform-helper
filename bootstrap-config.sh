@@ -1,0 +1,7 @@
+user="jjbutare"
+domain="hagerman.butare.net"
+host="nas3.$domain"
+domain="$domain"
+proxy="http://proxy.$domain:3128"
+timezone="America/Denver"
+workgroup="Wiggin"
