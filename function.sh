@@ -17,7 +17,7 @@ clipw()
 	case "$PLATFORM" in 
 		linux) { [[ "$DISPLAY" ]] && InPath xclip; } && { echo -n "$@" | xclip -sel clip; };;
 		mac) echo -n "$@" | pbcopy;; 
-		win) IsPlatform cygwin && echo -n "$@" > /dev/clipboard || echo -n "$@" | clip.exe;;
+		win) ( cd /; echo -n "$@" | clip.exe );; # WSL 2 errors out if a program is run from a share
 	esac
 }
 
@@ -438,7 +438,7 @@ GetPrimaryAdapterName()
 
 GetPrimaryIpAddress() # GetPrimaryIpAddres [INTERFACE] - get default network adapter
 {
-	if IsPlatform win; then 
+	if IsPlatform wsl1; then 
 		# default route (0.0.0.0 destination) with lowest metric
 		route.exe -4 print | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | tr -s " " | cut -d " " -f 5
 	else
