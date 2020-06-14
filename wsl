@@ -33,9 +33,11 @@ usage: wsl - first letter of commands can be used, i.e. wsl v
 	init DIST - run bootstrap-init
 	restore DIST [SRC](ubuntu-focal) [VERSION](1) - restore distribution, SRC is a file or distribution (ubuntu-disco)
 
-	SetVersion DIST VERSION - set the version of a distribtuin
 	GetDefaultUser DIST - get the default user sid of the specified distribution 
 	SetDefaultUser [DIST](current) [USER]($USER) - set the default user of the distribution 
+
+	FixDnsNameLookup - fix DNS name lookup in WSL 2
+	SetVersion DIST VERSION - set the version of a distribtuin
 	shortcut DIST [NAME](DIST) - create a shortcut for the distribution
 	help - show wsl.exe and LxRunOffline.exe help
 
@@ -50,13 +52,14 @@ wsl restore Ubuntu-20.04 ubuntu-focal 2"
 
 args()
 {
-	command="" noPrompt=""
+	command="" noPrompt="" args=()
 	
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
 			-np|--no-prompt) noPrompt="true"; ask() { :; };;
 			backup|b) command="backup";;
+			FixDnsNameLookup) command="fixDnsNameLookup";;
 			GetDefaultUser|gdu) command="getDefaultUser";;
 			help|h) command="help";;
 			kill|k) command="kill";;
@@ -69,15 +72,13 @@ args()
 			summary|s) command="summary";;
 			version|v) command="version";;
 			*) 
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(backup|copy|delete|dir|GetDefaultUser|init|kill|restore|run|SetDefaultUser|SetVersion|shortcut|summary|version) ]] && break
-				UnknownOption "$1"
+				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				args+=("$1")
 		esac
 		shift
 	done
 
 	[[ ! $command ]] && usage 1
-	args=("$@")
 }
 
 distFirst() { listPlainCommand "$1" | head -1 | awk '{ print $1; }'; }
@@ -179,7 +180,7 @@ restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](1)
 
 setDefaultUserCommand()
 {
-	local dist; distExists "$1" && { dist="$1"; shift; }
+	local dist; distExists "$1" && { dist="$1"; shift; } || dist="$(nameCommand)"
 	local uid="${1:-$USER}"
 
 	! IsInteger "$uid" && uid="$(grep -i "$uid" "/etc/passwd" | head -1 | cut -d: -f3)"
@@ -195,10 +196,31 @@ shortcutCommand()
 
 versionCommand()
 {
-	[[ $# == 0 ]] && { echo "WSL $(IsPlatform wsl1 && echo 1 || echo 2)" | figlet | lolcat; return; }
+	[[ $# == 0 ]] && { IsPlatform wsl1 && echo 1 || echo 2; return; }
 
 	local dist; distArg "$1" || return	
 	listPlainCommand | grep ^test1 | awk '{ print $3; }'
+}
+
+fixDnsNameLookupCommand()
+{
+	! IsPlatform wsl2 && { EchoErr "Name resolution only needs to be fixed in WSL 2"; return 1; }
+
+	if ! grep "generateResolvConf = false" "/etc/wsl.conf" >& /dev/null; then
+		printf "[network]\ngenerateResolvConf = false\n" | sudo tee -a "/etc/wsl.conf"
+		clipw "wsl.exe -d $(wsl name) -e bash -l wsl FixDnsNameLookup"
+		pause "When WSL is terminated execute the contents of the clipboard..."
+		killCommand "$(nameCommand)" || return
+		exit
+	fi
+
+	# fix /etc/resolv.conf which is a link to a missing file after the restart
+	if ! grep "nameserver 192.168.100.2" "/etc/resolv.conf" >& /dev/null; then
+		sudo rm -f "/etc/resolve.conf" || return
+		printf "nameserver 192.168.100.2\nsearch hagerman.butare.net\n" | sudo tee "/etc/resolv.conf" || return
+	fi
+
+	return 0
 }
 
 run "$@"
