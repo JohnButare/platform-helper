@@ -989,13 +989,13 @@ TextEdit()
 #
 
 # hyperv microsoft
-IsVm() { [[ "$(VmHostCache)" =~ ^(|microsoft|hyperv)$ ]]; } # microsoft (HyperV) is returned for physical hosts running Hyper-V
+IsVm() { ! [[ "$(VmHostCache)" =~ ^(|microsoft|hyperv)$ ]]; } # microsoft (HyperV) is returned for physical hosts running Hyper-V
 IsVmwareVm() { [[ "$(VmHostCache)" == "vmware" ]]; }
 IsHypervVm() { [[ "$(VmHostCache)" == "hyperv" ]]; }
 
 VmHostCache() 
 {
-	InPath systemd-detect-virt && { systemd-detect-virt; return; }
+	InPath systemd-detect-virt && { systemd-detect-virt -v; return; }
 
 	# cache the output of virt-what to avoid sudo prompt
 	local f="$DATA/platform/vm-host.txt"
