@@ -1,31 +1,25 @@
 #!/usr/bin/env bash
 . function.sh
 
-run() {	args "$@" || return; init || return; cleanup; }
-
-init()
-{
-	[[ ! $prompt ]] && function ask { :; }
-	return 0; 
-}
+run() {	args "$@" || return; cleanup; }
 
 usage()
 {
 	echot "\
 usage: HostCleanup
 	Cleanup extraneous files and configuration on the host
-		-p, --prompt		prompt for what to cleanup"
+		-np, --no-prompt		do not prompt for what to cleanup"
 	exit $1
 }
 
 args()
 {
-	unset command prompt
+	unset command
 
 	while [ "$1" != "" ]; do
 		case "$1" in
-			-p|--prompt) prompt="--prompt";;		
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;		
+			-np|--no-prompt) function ask { :; };;		
 			*) 
 				IsFunction "${1,,}Update" && { command="${1,,}"; shift; continue; }
 				UnknownOption "$1"
@@ -38,24 +32,49 @@ args()
 
 cleanup()
 {
-	IsFunction "${PLATFORM}Cleanup" && { ${PLATFORM}Cleanup || return; }
-	IsFunction "${PLATFORM_LIKE}Cleanup" && { ${PLATFORM_LIKE}Cleanup || return; }
-	IsFunction "${PLATFORM_ID}Cleanup" && { ${PLATFORM_ID}Cleanup || return; }
-	return 0;
+	cleanupFiles || return
+	cleanupPrograms || return
+	RunPlatform cleanup || return
 }
 
-debianCleanup()
+cleanupFiles()
+{
+	echo -n "cleaning files..."
+
+	[[ -d "$TMP" ]] && { rm -fr "$TMP/"*; echo -n "."; }
+
+	if [[ "$PLATFORM" == "win" ]]; then
+		[[ -d "$LOCALAPPDATA/temp" ]] && { rm -fr "$LOCALAPPDATA/temp/"* >& /dev/null; echo -n "."; }
+		[[ -d "$WIN_ROOT/temp" ]] && { rm -fr "$WIN_ROOT/temp/"* >& /dev/null; echo -n "."; }
+		[[ -d "$WINDIR/Temp" ]] && { rm -fr "$WINDIR/Temp/"* >& /dev/null; echo -n "."; }
+	fi
+
+	echo "done"
+
+	return 0
+}
+
+cleanupPrograms()
+{
+	which gem >& /dev/null && ask "Cleanup gem" && { sudo gem cleanup || return; }
+	which brew >& /dev/null && ask "Cleanup brew" && { brew cleanup || return; }
+	return 0
+}
+
+cleanupDebian()
 {
 	sudoc apt-get clean -y || return 	# cleanup downloaded package files in /var/cache/apt/archives
 	sudoc apt autoremove -y || return
 	return 0
 }
 
-winCleanup()
+cleanupWin()
 {
-	ask 'cleanup path' && { start --elevate os path editor || return; }
-	ask 'cleanup startup programs' && { start --elevate autoruns || return; }
-	ask 'cleanup scheduled tasks' && { start --elevate task scheduler || return; }
+	ask 'Cleanup old windows versions' && { elevate CleanMgr.exe /AUTOCLEAN || return; }
+	ask 'Cleanup path' && { start --elevate os path editor || return; }
+	ask 'Cleanup startup programs' && { start --elevate autoruns || return; }
+	ask 'Cleanup scheduled tasks' && { start --elevate task scheduler || return; }
+	ask 'Cleanup remaining files' && { elevate CleanMgr.exe /VERYLOWDISK || return; }
 	return 0
 }
 
