@@ -171,7 +171,7 @@ MapApp()
 		PuttyAgent) app="pu";;
 		wmc) app="WindowsMediaCenter";;
 		wmp) app="WindowsMediaPlayer";;
-		X|XWindows) app="Xming";;
+		X|XWindows) app="xserver";;
 	esac
 }
 
