@@ -8,8 +8,6 @@ mmc() {	( cmd.exe /c mmc.exe "$@" & ) >& /dev/null; }
 # File System
 #
 
-FileHideAndSystem() { for file in "${@}"; do attrib.exe +h +s "$(utw "$file")" || return; done; }
-
 # MakeShortcut FILE LINK ARGUMENTS ICON_FILE ICON_RESOURCE_NUMBER [MAX|MIN] START_IN_FOLDER HOT_KEY
 MakeShortcut() 
 { 

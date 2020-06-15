@@ -17,7 +17,7 @@ clipw()
 	case "$PLATFORM" in 
 		linux) { [[ "$DISPLAY" ]] && InPath xclip; } && { echo -n "$@" | xclip -sel clip; };;
 		mac) echo -n "$@" | pbcopy;; 
-		win) ( cd /; echo -n "$@" | clip.exe );; # WSL 2 errors out if a program is run from a share
+		win) ( cd /; echo -n "$@" | clip.exe );; # cd / to fix WSL 2 error running from network share
 	esac
 }
 
@@ -208,15 +208,6 @@ RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 
-FileHide()
-{ 
-	! IsPlatform win && return
-	
-	for file in "${@}"; do
-		[[ -e "$file" ]] && { attrib.exe +h "$(utw "$file")" || return; }
-	done
-}
-
 FindInPath()
 {
 	local file="$1"
@@ -237,7 +228,7 @@ HideAll()
 	! IsPlatform win && return
 
 	for f in $('ls' -A | egrep '^\.'); do
-		attrib.exe +h "$f"
+		attrib "$f" +h 
 	done
 }
 
@@ -254,7 +245,16 @@ utw() # UnixToWin
 { 
 	local clean="" file="$@"
 
-	[[ ! "$file" || "$PLATFORM" != "win" ]] && { echo "$file"; return 1; }
+	[[ ! "$file" || "$PLATFORM" != "win" ]] && { echo "$@"; return 1; }
+
+	file="$(realpath -m "$@")"
+
+	# drvfs network shares (type 9p) do not map properly in WSL 2
+	# sudo mount -t drvfs //nas3/home /tmp/t; wslpath -a -w /tmp/t # \\nas3\home (WSL1) \\wsl$\test1\tmp\t (WSL 2)
+	if IsPlatform wsl2; then 
+		read wsl win <<<$(findmnt --types=9p --noheadings --output=TARGET,SOURCE --target "$file")
+		[[ $wsl && $win ]] && { echo "$(ptw "${file/$wsl/$win}")"; return; }
+	fi
 
 	# utw requires the file exist in newer versions of wsl
 	if [[ ! -e "$@" ]]; then
@@ -264,15 +264,13 @@ utw() # UnixToWin
 		clean="true"
 	fi
 
-	wslpath -w "$(realpath -m "$@")"
+	wslpath -w "$file"
 
 	[[ $clean ]] && { rm "$@" || return; }
 } 
 
 utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
-
 ptw() { echo "${1////\\}"; } # PathToWin
-
 DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
 
 explore() # explorer DIR - explorer DIR in GUI program
@@ -402,6 +400,25 @@ CpProgress()
 	local fileSize="$(GetFileSize "$src/$fileName" MB)" || return
 	(( fileSize < size )) && cp "$src/$fileName" "$dest" || CopyDir "$src/$fileName" "$dest"
 } 
+
+# File Attributes
+
+FileHide() { for f in "$@"; do	attrib "$f" +h || return; done; }
+FileShow() { for f in "$@"; do	attrib "$f" -h || return; done; }
+FileHideAndSystem() { for f in "$@"; do attrib "$f" +h +s || return; done; }
+
+attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe options must come after the file
+{ 
+	! IsPlatform win && return
+	
+	local f="$1"; shift
+
+	[[ ! -e "$f" ]] && { EchoErr "attrib: $f: No such file or directory"; return 2; }
+	f="$(utw "$f")"
+
+	# cd / to fix WSL 2 error running from network share
+	( cd /; attrib.exe "$@" "$f" ); 
+}
 
 #
 # Network
