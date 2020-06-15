@@ -27,75 +27,40 @@ IsInstallable()
 	return $?
 }
 
-TemplateInstall()
+doRun() { init && args "$@" && installApps "${apps[@]}"; }
+
+init() 
 {
-	printf "**************************************************\n* name\n**************************************************\n"
+	ScriptEval HostFindInfo -d || return
+	. "$(ScriptDir)/bootstrap-config.sh" || return
 
-	# http://www.techsmith.com/download/licenses/snagitupgrade.asp
-	run "TechSmith/SnagIt/setup/SnagIt V12.2.1." -p "win" "mac" "linux" || return
+	# commands
+	askP() { [[ $noPrompt ]] && return 0; ask "$1"; }
+	makeDir() { ${G}mkdir --parents "$@"; }
+	makeDirSudo() { sudo ${G}mkdir --parents "$@"; }
+	makeLink() { MakeLink --suppress $quiet $noPrompt "$@"; }
+	mergeDir() { MergeDir --parents --suppress "$@"; }
+	mvSudo() { [[ ! -e "$1" ]] && return; sudo mv "$1" "$2"; }
+	rmSudo() { [[ ! -f "$1" ]] && return; sudo ${G}rm -f "$1"; }
+	
+	cp="FileCommand cp"
+	cpDir="CopyDir --recursive"
+	firewall="firewall --suppress"
+	hide="FileHide"
+	hideAndSystem="FileHideAndSystem"
+	makeShortcut="MakeShortcut"
+	mv="FileCommand mv"
+	registry="registry"
+	ren="FileCommand ren"
+	rm="${G}rm -f"
+	rmd="${G}rm -fr"
+	sudo="sudo"
 
-	if IsPlatform win; then
-		$registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe 
-		mergeDir "$pp/(dir)" "$ao" || return
-		mergeDir "$pp/(dir)" "$pp/Development/Other" || return
-		$mv "$pp/Sublime Text 2.lnk" "$pp/Applications" || return
-		$rm "$pd/(prog).lnk" || return
-	fi
+	# variables
+	oo="$pp/Operating System/Other"
+	setupFiles="$_data/setup"
 
 	return 0
-}
-
-TemplateAlias() { TemplateFullInstall; };
-TemplateFullInstall()
-{
-	printf "**************************************************\n* name\n**************************************************\n"
-	echot "- application information"
-
-	local v="SnagIt V12.2.1." # http://www.techsmith.com/download/licenses/snagitupgrade.asp
-	run "TechSmith/SnagIt/setup/$v" -p "win" "mac" "linux" || return
-
-	local v="4.0.7.19761" # http://www.scootersoftware.com/beta.php
-	run "Scooter Software/Beyond Compare/setup/" -p "BCompare-$v.exe" "BCompareOSX-$v.zip" "bcompare-$v_i386.deb" || return
-
-	FindFile "Intel/Profile Manager/ProfileManager.xml" || return
-	$cp	"$file" "$WINDIR/system32" || return
-	$cpDir "$src" "$dest" || return
-
-	if [[ "$PLATFORM" == "win" ]]; then	
-		mergeDir "$pp/(dir)" "$pp/Development/Other" || return
-		mergeDir "$pp/(dir)" "$ao" || return
-		$rm "$pd/(prog).lnk" || return
-		mergeDir --rename "$pp/(dir)" "$ao/(new name)" || return
-		makeDir "$pp/Operating System/bash" || return
-		$makeShortcut "$InstallDir/bin/bash.exe" "$pp/Operating System/bash" "-" || return
-	
-	elif [[ "$PLATFORM" == "mac" ]]; then	
-		$rm "$la\com.adobe.AAM.Updater-1.0.plist" || return
-		$rm "$la\com.adobe.AdobeCreativeCloud.plist" || return
-		$rm "$ula\com.adobe.AAM.Updater-1.0.plist" || return
-
-	fi
-
-	makeLink --merge --hide "$udoc/code/web/sites" "$udoc/My Web Sites" || return
-
-	$registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe 
-	$registry import "$install/AutoHotKey/setup/other/AutoHotkey-64.reg" || return
-	$registry set "HKCU/SOFTWARE/Foo/File" REG_EXPAND_SZ "$(utw "$file")" || return
-
-	service manual "Stereo Service"
-	service manual "nvUpdatusService"
-
-	$firewall rule add "SSH" dir=in action=allow protocol=TCP localport=22 profile=private program="$(utw "$P/OpenSSH/bin/sshd.exe")" || return
-
-	makeDir "$_userDocuments/code/test"
-
-	sublime profile restore default || return
-
-	if askP 'Configure app'; then
-		echot "\
-	- configure"
-		app start
-	fi
 }
 
 usage()
@@ -115,12 +80,10 @@ usage: install cd|install APP*
 
 args()
 {
-	unset command apps forcePrompt host noPrompt noRun quiet select verbose verboseInstaller
-
-	originalArgs=( "$@" ) 
+	unset apps forcePrompt hint noPrompt noRun quiet select verbose verboseInstaller
 
 	while (( $# != 0 )); do
-		case "$1" in
+		case "$1" in "") : ;;
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			--hint|-h) hint=( --hint "$2" ); export INSTALL_DIR="$2"; shift;;
 			--no-prompt|-np) noPrompt="--no-prompt";;
@@ -129,35 +92,16 @@ args()
 			--quiet|-q) quiet="--quiet";;
 			--select|-s) select="--select";;
 			--verbose|-v) verbose="--verbose" verboseInstaller="-verbose";;
-			"") : ;;
-			*)
-				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; } # command
-				! IsOption "$1" && { apps+=( "$1" ); shift; continue; }
-				UnknownOption "$1"
+			*) IsOption "$1" && UnknownOption "$1" || apps+=( "$1" );;		
 		esac
 		shift
 	done
 
-	[[ ! $command ]] && command='install'
-	[[ "$command" == "cd" && ${#apps[@]} != 0 ]] && UnknownOption "${apps[0]}"
-	[[ "$command" == "apps" && ${#apps[@]} == 0 ]] && MissingOperand "APPS"
-	args=("$@")
+	return 0
 }
 
-cdCommand()
-{
-	FindFile || return
-	echo "$file"
-}
-
-installCommand()
-{
-	InstallInit || return
-	InstallApps "${apps[@]}" || return
-}
-
-i() {	InstallApps "$@"; }
-InstallApps()
+i() {	installApps "$@"; }
+installApps()
 {
 	local prompt; 
 
@@ -184,38 +128,6 @@ GetInstallFunction()
 {
 	declare -f | egrep -i "^${app} \(\) $|^${app}Install \(\) $" | sed "s/ () //" # Similar to GetFunction
 	return ${PIPESTATUS[1]}
-}
-
-InstallInit() 
-{
-	ScriptEval HostFindInfo -d || return
-	. "$(ScriptDir)/bootstrap-config.sh" || return
-
-	serverPrograms="$pp/Development"; [[ $server ]] && serverPrograms="$pp/Server";
-	oo="$pp/Operating System/Other"
-
-	askP() { [[ $noPrompt ]] && return 0; ask "$1"; }
-	cp="FileCommand cp"
-	cpDir="CopyDir --recursive"
-	firewall="firewall --suppress"
-	hide="FileHide"
-	hideAndSystem="FileHideAndSystem"
-	makeDir() { ${G}mkdir --parents "$@"; }
-	makeDirSudo() { sudo ${G}mkdir --parents "$@"; }
-	makeLink() { MakeLink --suppress $quiet $noPrompt "$@"; }
-	makeShortcut="MakeShortcut"
-	mergeDir() { MergeDir --parents --suppress "$@"; }
-	mv="FileCommand mv"
-	mvSudo() { [[ ! -e "$1" ]] && return; sudo mv "$1" "$2"; }
-	registry="registry"
-	ren="FileCommand ren"
-	rm="${G}rm -f"
-	rmSudo() { [[ ! -f "$1" ]] && return; sudo ${G}rm -f "$1"; }
-	rmd="${G}rm -fr"
-	sudo="sudo"
-		
-	netShareOptions=/grant:Everyone,full
-	setupFiles="$_data/setup"
 }
 
 StoreInstall()
@@ -1850,8 +1762,6 @@ SsUpdateServices()
 
 SsFinal()
 {
-	SsIcons || return;
-
 	os path editor || return
 	echo "- Remove SQL entries from the system path"
 	pause
@@ -1871,18 +1781,6 @@ SsRegistry()
 	$registry set "$r/DefaultOpenProjectLocation" REG_EXPAND_SZ "$dir" || return
 	$registry set "$r/DefaultOpenProjItemLocation" REG_EXPAND_SZ "$dir" || return
 	$registry set "$r/DefaultOpenSolutionLocation" REG_EXPAND_SZ "$dir" || return
-}
-
-SsIcons()
-{
-	echo "Updating icons..."	
-	mergeDir --rename "$pp/Microsoft SQL Server Tools 17" "$serverPrograms/Other/SQL Server Tools 2017"
-	mergeDir --rename "$pp/Microsoft SQL Server vNext CTP2.0" "$serverPrograms/Other/SQL Server 2017"		
-	mergeDir --rename "$pp/Microsoft SQL Server 2017" "$serverPrograms/Other/SQL Server 2017"
-	mergeDir --rename "$pp/Microsoft SQL Server 2016" "$serverPrograms/Other/SQL Server 2016"
-	mergeDir --rename "$pp/Microsoft SQL Server 2014" "$serverPrograms/Other/SQL Server 2014"
-	mergeDir --rename "$pp/Microsoft SQL Server 2012" "$serverPrograms/Other/SQL Server 2012"
-	mergeDir --rename "$pp/Microsoft SQL Server 2008" "$serverPrograms/Other/SQL Server 2008"
 }
 
 SqlPromptInstall()
@@ -4547,4 +4445,4 @@ TeamViewerInstall()
 	return 0
 }
 
-args "$@"; ${command}Command "${args[@]}";
+doRun "$@"
