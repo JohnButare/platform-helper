@@ -16,16 +16,12 @@ init()
 usage()
 {
 	echot "\
-usage: wsl - first letter of commands can be used, i.e. wsl v
+usage: wsl dir|IsRunning|name|summary|version [DIST](current)
+	First letter of commands can be used, i.e. wsl v
 
 	kill DIST - kill the distribution
 	list|ListPlain - list distributions, plain to remove formatting
 	run|run1|run2 [-u|--user] - run a distribtion, specify a number to run the first WSL distribution listed
-
-	name - name of current distribution
-	dir [DIST](current) - show the installation directory of a distribution
-	version [DIST](current) - show the version of a distribution
-	summary [DIST](current) - show a detailed summary of a distribution
 
 	backup DIST - backup the distribution
 	copy DIST NEW - copy the distribution
@@ -62,6 +58,7 @@ args()
 			FixDnsNameLookup) command="fixDnsNameLookup";;
 			GetDefaultUser|gdu) command="getDefaultUser";;
 			help|h) command="help";;
+			IsRunning|ir) command="isRunning";;
 			kill|k) command="kill";;
 			list|l) command="list";;
 			name|n) command="name";;
@@ -82,26 +79,31 @@ args()
 }
 
 distFirst() { listPlainCommand "$1" | head -1 | awk '{ print $1; }'; }
-distExists() { [[ "$(listPlainCommand "$1" | cut -d" " -f1 | grep "^${1}$")" ]]; }
-distArg() { dist="$1"; distExists "$dist" && return; EchoErr "Distribution $dist does not exist"; return 1; }
+distExists() { [[ $1 && "$(listPlainCommand "$1" | cut -d" " -f1 | grep "^${1}$")" ]]; }
+distArg() { dist="$1"; distExists "$dist" && return; EchoErr "Distribution $dist does not exist"; exit 1; }
+distDefaultArg() { [[ $1 ]] && { distArg "$1"; return 0; } || { dist="$(nameCommand)"; return 1; }; } # return 0 (true) if an arg is used
+
 dirCommand() { wtu "$(wsl summary ${1:-$(nameCommand)} | grep "Installation directory" | cut -d: -f 2- | cut -d" " -f 2)"; }
-getDefaultUserCommand() { LxRunOffline.exe get-uid -n "$1" | Utf16toAnsi | RemoveCarriageReturn; }
-killCommand() { wsl.exe --terminate "$1"; }
-listCommand() { wsl.exe --list --verbose | Utf16toAnsi | RemoveCarriageReturn; }
+getDefaultUserCommand() { lxr get-uid -n "$1" | Utf16toAnsi | RemoveCarriageReturn; }
+isRunningCommand() { distDefaultArg "$1" && shift; [[ "$(wsl ListPlain | grep "$dist" | awk '{ print $2; }')" == "Running" ]]; }
+killCommand() { w --terminate "$1"; }
+listCommand() { w --list --verbose | Utf16toAnsi | RemoveCarriageReturn; }
 listPlainCommand() { listCommand | cut -b 3- | tail +2 ; } # remove header and default distribution *
 nameCommand() { [[ $WSL_DISTRO_NAME ]] && echo "$WSL_DISTRO_NAME" || utw / | cut -d'\' -f4; } # WSL_DISTRO_NAME not set when using su/sudo
-runCommand() { wsl.exe --distribution "$@"; }
+runCommand() { w --distribution "$@"; }
 run1Command() { runCommand "$(listPlainCommand | grep 1$ | head -1 | awk '{ print $1; }')" "$@"; }
 run2Command() { runCommand "$(listPlainCommand | grep 2$ | head -1 | awk '{ print $1; }')" "$@"; }
-summaryCommand() { LxRunOffline.exe summary -n "${1:-$(nameCommand)}" | Utf16toAnsi | RemoveCarriageReturn; }
-setVersionCommand() { wsl.exe --set-version "$1" "$2"; }
-helpCommand() { wsl.exe --help | Utf16to8; LxRunOffline.exe |& Utf16to8; }
+summaryCommand() { lxr summary -n "${1:-$(nameCommand)}" | Utf16toAnsi | RemoveCarriageReturn; }
+setVersionCommand() { w --set-version "$1" "$2"; }
+helpCommand() { w --help | Utf16to8; lxr |& Utf16to8; }
 
 backupCommand()
 {
-	local dist="$1"; [[ ! $dist ]] && usage;
+	local dist; distArg "$1"
 	local file="$(utw "$wslDir/image/$dist-$(GetTimeStamp).tar.gz")"
-	wsl.exe --export "$dist" "$file" || return
+
+	isRunningCommand "$dist" && { EchoErr "The $dist distribution must be stopped to be backed up"; return 1; }
+	w --export "$dist" "$file" || return
 	BACKUP_FILE="$(wtu "$file")"
 }
 
@@ -114,7 +116,7 @@ copyCommand()
 	distExists "$dest" && { EchoErr "The distribution $dest already exists"; return 1; }
 	backupCommand "$src" || return
 	restoreCommand "$dest" "$BACKUP_FILE" "$version" || return
-	LxRunOffline.exe set-uid -n "$dest" -v "$uid" || return
+	lxr set-uid -n "$dest" -v "$uid" || return
 }
 
 deleteCommand()
@@ -127,7 +129,7 @@ deleteCommand()
 	! ask -dr n "Delete the $dist distribution" && return
 
 	killCommand "$dist" || return
-	wsl.exe --unregister "$dist" || return
+	w --unregister "$dist" || return
 	rm -fr "$dir" || return
 }
 
@@ -136,7 +138,7 @@ initCommand()
 	local dist; distArg "$1" || return
 	cmd.exe /c 'copy '$(utw $BIN/bootstrap-init)' \\wsl$\'$dist'\tmp' || return
 	cmd.exe /c 'copy '$(utw $BIN/bootstrap-config.sh)' \\wsl$\'$dist'\tmp' || return
-	LxRunOffline.exe run -n "$dist" -w -c "bash -c \". /tmp/bootstrap-init\""
+	lxr run -n "$dist" -w -c "bash -c \". /tmp/bootstrap-init\""
 }
 
 restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](1)
@@ -181,12 +183,12 @@ restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](1)
 
 setDefaultUserCommand()
 {
-	local dist; distExists "$1" && { dist="$1"; shift; } || dist="$(nameCommand)"
+	local dist; distDefaultArg "$1" && shift
 	local uid="${1:-$USER}"
 
 	! IsInteger "$uid" && uid="$(grep -i "$uid" "/etc/passwd" | head -1 | cut -d: -f3)"
 	[[ ! $uid ]] && { EchoErr "Could not find user $USER"; return 1; }
-	LxRunOffline.exe set-uid -n "$dist" -v "$uid"
+	lxr set-uid -n "$dist" -v "$uid"
 }
 
 shortcutCommand()
@@ -223,5 +225,9 @@ fixDnsNameLookupCommand()
 
 	return 0
 }
+
+# fix invalid argument issue when running from SMB mounted shares
+w() { ( cd /; wsl.exe "$@"; ); }
+lxr() { ( cd /; lxrunoffline.exe "$@"; ); }
 
 run "$@"
