@@ -83,7 +83,7 @@ IsWindowsProgram()
 
 # Windows process elevation (use Administrator token) 
 elevate() { IsElevated && "$@" || start --elevate "$@"; }
-IsElevated() { $WIN_ROOT/Windows/system32/whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; } # have the Windows Administrator token
+IsElevated() { ( cd /; whoami.exe /groups ) | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; } # have the Windows Administrator token
 
 RunScriptElevated() # run a scripts elevated that has quoted arguments, used in InstallAppFromZip SetVar
 {
