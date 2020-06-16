@@ -17,7 +17,7 @@ run()
 runBootstrap()
 {
 	echo "Bootstraping from $host..."
-	export PATH=$bin:$PATH
+	export PATH=/usr/local/data/bin:$bin:$PATH
 	$bash bootstrap "$host" "$install"
 }
 
@@ -142,15 +142,46 @@ package()
 setupPackageManager()
 {
 	case $PLATFORM in
-		debian|win) [[ -f "/etc/update-motd.d/60-unminimize" ]] && { ( unminimize && apt update && apt dist-upgrade -y && apt install sudo ) || return; };;
-		mac) ! which brew >& /dev/null && { /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)" || return; };;
+		debian|win) setupPackageManagerDebian;;
+		mac) ! which brew >& /dev/null && { /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"; };;
 	esac
+}
 
-	return 0
+setupPackageManagerDebian()
+{
+	local motd="/etc/update-motd.d/60-unminimize"
+
+	[[ ! -f "$motd" ]] && return
+
+	unminimizeDebianDoc || return
+
+	if  [ "$(dpkg-divert --truename /usr/bin/man)" = "/usr/bin/man.REAL" ]; then
+		rm -f "/usr/bin/man" || return
+		dpkg-divert --quiet --remove --rename "/usr/bin/man" || return
+	fi
+
+	apt update && apt dist-upgrade -y && apt install sudo && rm -f "$motd"
+}
+
+unminimizeDebianDoc() # from /usr/local/sbin/unminimize
+{
+	local config="/etc/dpkg/dpkg.cfg.d/excludes" configTmp="/etc/dpkg/dpkg.cfg.d/excludes.dpkg-tmp"
+
+	[[ ! -f "$config" && ! -f "$configTmp" ]] && return
+	[[ -f "$config" ]] && { mv "$config" "$configTmp" || return; }
+
+  apt-get update || return
+  apt-get upgrade -y || return
+  dpkg -S /usr/share/man/ |sed 's|, |\n|g;s|: [^:]*$||' | DEBIAN_FRONTEND=noninteractive xargs apt-get install --reinstall -y || return
+  dpkg --verify --verify-format rpm | awk '/..5......   \/usr\/share\/doc/ {print $2}' | sed 's|/[^/]*$||' | sort |uniq | xargs dpkg -S | sed 's|, |\n|g;s|: [^:]*$||' | uniq | DEBIAN_FRONTEND=noninteractive xargs apt-get install --reinstall -y || return
+  dpkg --verify --verify-format rpm | awk '/..5......   \/usr\/share\/locale/ {print $2}' | sed 's|/[^/]*$||' | sort |uniq | xargs dpkg -S | sed 's|, |\n|g;s|: [^:]*$||' | uniq | DEBIAN_FRONTEND=noninteractive xargs apt-get install --reinstall -y || return
+
+  dpkg --verify --verify-format rpm | awk '/..5......   \/usr\/share\/doc/ {exit 1}' && { rm "$configTmp" || return; }
+  return 0
 }
 
 #
-# Initialization
+# other
 #
 
 init()
