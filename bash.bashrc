@@ -59,8 +59,27 @@ CheckPlatform() # ensure PLATFORM, PLATFORM_LIKE, and PLATFORM_ID are set
 	unset platform platformId platformLike wsl
 }
 
-PathAdd() {	[[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then PATH=$1:${PATH//:$1:/:}; elif [[ ! $PATH =~ (^|:)$1(:|$) ]]; then PATH+=:$1; fi; }
-ManPathAdd() { [[ ! -d "$1" ]] && return; if [[ "$2" == "front" ]]; then MANPATH=$1:${MANPATH//:$1:/:}; elif [[ ! $MANPATH =~ (^|:)$1(:|$) ]]; then MANPATH+=:$1; fi; }
+PathAdd() # PathAdd [front] DIR...
+{	
+	local front; [[ "$1" == "front" ]] && front="true"
+
+	for f in "$@"; do 
+		[[ ! -d "$f" ]] && continue
+		[[ $front ]] && { PATH="$f:${PATH//:$f:/:}"; continue; }
+		[[ ! $PATH =~ (^|:)$f(:|$) ]] && PATH+=":$f"
+	done
+}
+
+ManPathAdd()
+{ 
+	local front; [[ "$1" == "front" ]] && front="true"
+
+	for f in "$@"; do
+		[[ ! -d "$f" ]] && continue
+		[[ $front ]] && { MANPATH="$f:${MANPATH//:$f:/:}"; continue; }
+		[[ ! $MANPATH =~ (^|:)$f(:|$) ]] && MANPATH+=":$f"
+	done
+}	
 
 #
 # Platform
@@ -119,16 +138,16 @@ kill -SIGWINCH $$	>& /dev/null 	# ensure LINES and COLUMNS is set for a new term
 ManPathAdd "$DATA/man"
 
 case "$PLATFORM" in 
-	"mac") PathAdd "/usr/local/bin" front;; # use brew utilities before system utilities
+	"mac") PathAdd front "/usr/local/bin";; # use brew utilities before system utilities
 	"ubuntu") PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
+	"win") PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$LOCALAPPDATA/Microsoft/WindowsApps"; # not set when using su
 esac
 
-case "$PLATFORM_LIKE" in
+case "$PLATFORM_LIKE" in	
 	"qnap") PathAdd "/usr/local/sbin"; PathAdd "/usr/local/bin";;
 esac
 
-PathAdd "$PBIN" front
-PathAdd "$BIN" front
+PathAdd front "$PBIN" "$BIN"
 PathAdd "$UBIN"
 
 #
