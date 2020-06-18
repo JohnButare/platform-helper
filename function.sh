@@ -962,6 +962,7 @@ GetTextEditor()
 			win)
 				p="$P/Sublime Text 3/subl.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
 				p="$P/Notepad++/notepad++.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
+				p="$WINDIR/system32/notepad.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
 				;;
 
 		esac
