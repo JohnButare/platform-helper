@@ -98,6 +98,8 @@ args()
 		shift
 	done
 
+	options=( $noPrompt $noRun $forcePrompt $quiet $verbose ) 
+
 	return 0
 }
 
@@ -954,7 +956,7 @@ SublimeInstall()
 
 	# http://www.sublimetext.com/3 
 	local v=3211
-	run "Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime_text_3_build_${v}_x64.tar.bz2" || return 
+	run "Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime_text_3_build_${v}_x64.tar.bz2" --elevate || return 
 
 	case "$PLATFORM" in
 
@@ -1014,7 +1016,7 @@ WindowsDownload()
 WindowsSetup()
 {
 	printf "**************************************************\n* Windows Setup\n**************************************************\n"
-	! IsElevated && { elevate RunScript --pause-error inst WindowsSetup; pause; return; }
+	! IsElevated && { elevate RunScript --pause-error inst WindowsSetup "${options[@]}"; pause; return; }
 	
 	WindowsPath || return
 	WindowsPermissions || return
@@ -1028,7 +1030,7 @@ WindowsPath() { SetVar --system --path PATH "$DATA/platform/$PLATFORM" || return
 
 WindowsPermissions()
 {
-	! IsElevated && { elevate RunScript --pause-error inst WindowsPermissions; pause; return; }
+	! IsElevated && { elevate RunScript --pause-error inst WindowsPermissions "${options[@]}"; pause; return; }
 	GrantFullPermission "$psm" || return
 	GrantFullPermission "$pd" || return
 }
@@ -1146,6 +1148,9 @@ WindowsConfiguration()
 	echo "Hiding the recycle bin from the desktop..." 
  	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/HideDesktopIcons/NewStartPanel/{645FF040-5081-101B-9F08-00AA002F954E}" REG_DWORD 1 || return
 
+	echo "Hiding the Bluetooth Devices icon in the task area..." 
+	registry set "HKCU/Control Panel/Bluetooth/Notification Area Icon" REG_DWORD 0 || return
+
 	echo "Showing taskbar on main display only..."
  	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/MMTaskbarEnabled" REG_DWORD 0 || return
 
@@ -1156,11 +1161,46 @@ WindowsConfiguration()
  	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ShowFrequent" REG_DWORD 0 || return
  	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ShowRecent" REG_DWORD 0 || return
 
+	echo 'Configuring theme...'
+	registry set 'HKCU/SOFTWARE/Microsoft/Windows/DWM/ColorPrevalence' REG_DWORD 1 || return # Show Accent Color on Title Bars and Window Borders
+
+	echo "Disabling AutoPlay..."
+	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/AutoplayHandlers/DisableAutoplay' REG_DWORD 1 || return
+
+	echo "Configuring printers..."
+	local p='cscript.exe C:\Windows\System32\Printing_Admin_Scripts\en-US\prnmngr.vbs'
+ 	$p -d -p Fax >& /dev/null
+ 	$p -d -p "Microsoft XPS Document Writer" >& /dev/null 
+ 	$p -d -p "OneNote (Desktop)" >& /dev/null 
+ 	$p -d -p "OneNote for Windows 10" >& /dev/null 
+
+	if IsVm; then
+		echo "Configuring power settings for a virtual machine..."
+		powercfg.exe /change standby-timeout-ac 0
+		powercfg.exe /change monitor-timeout-ac 0
+	fi
+
+	if [[ $workgroup ]]; then
+		echo "Coniguring network for $workgroup..."
+		network WorkgroupSet "$workgroup" || return
+		network ProfileSet "$(ProperCase "$workgroup")" || return
+	fi
+
+	echo "Coniguring network adapters..."
+	network AdapterName Ethernet0 wired0 >& /dev/null
+	network AdapterName "Bluetooth Network Connection" bluetooth >& /dev/null
+
+ 	if askP "Configure taskbar icons"; then
+	 	echo "Configuring taskbar icons..."
+	 	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/ShowCortanaButton' REG_DWORD 0 || return
+	 	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/ShowTaskViewButton' REG_DWORD 0 || return
+	 	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Search/SearchboxTaskbarMode' REG_DWORD 0 || return
+	 	taskbar reset --no-prompt --no-restart || return
+	fi	
+
 	# enable change - move taskbar to left side
 	ProcessKill explorer && start explorer
-
-	os SetWorkgroup "$workgroup" || return
-
+	
 	return 0
 }
 
@@ -1513,7 +1553,7 @@ firefoxInstall()
 	if IsPlatform raspbian; then
 		package firefox-esr || return
 	else
-		run "Mozilla/Firefox/" -p "Firefox Setup $v.msi" "Firefox $v.dmg" "firefox-$v.tar.bz2" || return
+		run "Mozilla/Firefox/" -p "Firefox Setup $v.msi" "Firefox $v.dmg" "firefox-$v.tar.bz2" --elevate || return
 	fi
 
 	echot "\
@@ -1943,7 +1983,7 @@ ConfigureGitForWindows()
 {
 	local gw="$P/Git/cmd/git.exe"
 
-	! IsElevated && { elevate RunScript --pause-error inst ConfigureGitForWindows; pause; return; }
+	! IsElevated && { elevate RunScript --pause-error inst ConfigureGitForWindows "${options[@]}"; pause; return; }
 
 	if [[ -f "$P/Git/usr/bin/ssh.exe" ]]; then
 		echo "Disable ssh..."
@@ -3539,7 +3579,8 @@ AltTabTerminatorInstall()
 	$rm "$pd/Alt-Tab Terminator.lnk" || return
 	$registry delete "urun/Alt-Tab Terminator" # "C:\Program Files\Alt-Tab Terminator\AltTabTer64.exe" /startup
 
-	echot "\Settings...
+	echot "\
+Settings...
 - Uncheck Autostart on Windows startup
 - Hamburger, check Replace Alt-Tab, uncheck Replace Win-Tab"
 	app AltTabTerminator || return
@@ -3560,13 +3601,13 @@ HiddenStartInstall()
 
 HiddenStartFinal()
 {
-	echo "Adding license..."
+	echo "Adding Hidden Start license..."
 	if [[ ! "$(registry 32 get "HKLM/SOFTWARE/Alexander Avdonin/Hidden Start/RegName")" ]]; then
 			registry import "$setupFiles/HiddenStart.reg" || return
 			pause
 	fi
 
-	echo "Adding scheduled task..."
+	echo "Adding Hidden Start scheduled task..."
 	if ! schtasks.exe | egrep HstartUAC-x64 >& /dev/null; then
 		start --wait hstart64.exe /nouac /wait ""cmd" /c echo Hidden Start 64 scheduled task is setup && pause"
 	fi
@@ -4442,6 +4483,10 @@ EdgeDeflectorInstall()
 	run "Shareware/other/EdgeDeflector_install.exe" --elevate || return
 }
 
-SystemInternalsInstall() { $registry import "$setupFiles/SysInternalsEula.reg"; }
+SystemInternalsInstall() 
+{ 
+	echo "Setting System Internals EULA..."
+	$registry import "$setupFiles/SysInternalsEula.reg"
+}
 
 doRun "$@"

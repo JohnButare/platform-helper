@@ -82,7 +82,25 @@ args()
 distFirst() { listPlainCommand "$1" | head -1 | awk '{ print $1; }'; }
 distExists() { [[ $1 && "$(listPlainCommand "$1" | cut -d" " -f1 | grep "^${1}$")" ]]; }
 distArg() { dist="$1"; distExists "$dist" && return; EchoErr "Distribution $dist does not exist"; exit 1; }
-distDefaultArg() { [[ $1 ]] && { distArg "$1"; return 0; } || { dist="$(nameCommand)"; return 1; }; } # return 0 (true) if an arg is used
+
+distDefaultArg() # return 0 (true) if an arg is used
+{
+	[[ $1 ]] && { distArg "$1"; return 0; } # arg was used
+
+	dist="$(nameCommand)"
+	[[ ! $dist ]] && { EchoErr "Could not find the default WSL distribution"; exit 1; }
+
+	return 1 # arg was not used
+}
+
+
+# fix invalid argument issue when running from SMB mounted shares
+w() { ( cd /; wsl.exe "$@"; ); }
+lxr() { ( cd /; lxrunoffline.exe "$@"; ); }
+
+#
+# Commands
+#
 
 dirCommand() { wtu "$(wsl summary ${1:-$(nameCommand)} | grep "Installation directory" | cut -d: -f 2- | cut -d" " -f 2)"; }
 isRunningCommand() { distDefaultArg "$1" && shift; [[ "$(wsl ListPlain | grep "$dist" | awk '{ print $2; }')" == "Running" ]]; }
@@ -195,6 +213,11 @@ setDefaultUserCommand()
 
 	! IsInteger "$uid" && uid="$(grep -i "$uid" "/etc/passwd" | head -1 | cut -d: -f3)"
 	[[ ! $uid ]] && { EchoErr "Could not find user $USER"; return 1; }
+
+	local currentUid="$(getDefaultUserCommand "$dist")" || return
+	[[ "$uid" == "$currentUid" ]] && return
+
+	echo "Chaning the default used from UID $currentUid to UID $uid..."
 	lxr set-uid -n "$dist" -v "$uid"
 }
 
@@ -232,9 +255,5 @@ fixDnsNameLookupCommand()
 
 	return 0
 }
-
-# fix invalid argument issue when running from SMB mounted shares
-w() { ( cd /; wsl.exe "$@"; ); }
-lxr() { ( cd /; lxrunoffline.exe "$@"; ); }
 
 run "$@"

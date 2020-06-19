@@ -166,11 +166,15 @@ HexToDecimal() { echo "$((16#${1#0x}))"; }
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ .*\*|\?.* ]]; }
 ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
-QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces
-RemoveBackslash() { echo "${@//\\/}"; }
 RemoveCarriageReturn()  { sed 's/\r//g'; }
+RemoveEmptyLines() { sed -r '/^\s*$/d'; }
 RemoveSpace() { echo "${@// /}"; }
+
+BackToForwardSlash() { echo "${@//\\//}"; }
+ForwardToBackSlash() { echo "${@////\\}"; }
+QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
+RemoveBackslash() { echo "${@//\\/}"; }
 
 GetWord() 
 { 
@@ -191,7 +195,6 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d" $(( $s/60/
 #
 
 EnsureDir() { echo "$(RemoveTrailingSlash "$1")/"; }
-FileTouchAndHide() { [[ ! -f "$1" ]] && { touch "$1" || return; }; FileHide "$1"; }
 GetBatchDir() { GetFilePath "$0"; }
 GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
@@ -403,9 +406,10 @@ CpProgress()
 
 # File Attributes
 
-FileHide() { for f in "$@"; do	attrib "$f" +h || return; done; }
-FileShow() { for f in "$@"; do	attrib "$f" -h || return; done; }
-FileHideAndSystem() { for f in "$@"; do attrib "$f" +h +s || return; done; }
+FileHide() { for f in "$@"; do [[ -f "$f" ]] && { attrib "$f" +h || return; }; done; return 0; }
+FileTouchAndHide() { [[ ! -f "$1" ]] && { touch "$1" || return; }; FileHide "$1"; return 0; }
+FileShow() { for f in "$@"; do [[ -f "$f" ]] && { attrib "$f" -h || return; }; done; return 0; }
+FileHideAndSystem() { for f in "$@"; do [[ -f "$f" ]] && { attrib "$f" +h +s || return; }; done; return 0; }
 
 attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe options must come after the file
 { 
@@ -909,7 +913,7 @@ CheckSubCommand()
 	exit 1
 } 
 
-ScriptName() { GetFileName "${BASH_SOURCE[0]}"; }
+ScriptName() { GetFileName "${BASH_SOURCE[-1]}"; }
 ScriptDir() { echo "${BASH_SOURCE[0]%/*}"; }
 
 ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases

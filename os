@@ -7,7 +7,7 @@ usage()
 {
 	echot "\
 usage: os [environment|index|lock|store|SystemProperties|version]
-	hostname|SetHostname|workgroup|SetWorkgroup
+	hostname|SetHostname
 	path [show|edit|editor|set [AllUsers]](editor)
 	index: index [options|start|stop|demand](options)"
 	exit $1
@@ -20,7 +20,7 @@ args()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
-	 		SystemProperties) command="SystemProperties";; SetHostname) command="setHostname";; SetWorkgroup) command="setWorkgroup";;
+	 		SystemProperties) command="SystemProperties";; SetHostname) command="setHostname";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ "$command" == @(hostname|path|update|SetWorkgroup) ]] && break
@@ -97,28 +97,10 @@ setHostnameCommand()
 
 	if IsPlatform raspbian; then sudo raspi-config nonint do_hostname $newName
 	elif IsPlatform mac; then sudo scutil --set HostName $newName
-	elif IsPlatform win; then elevate RunScript --pause-error "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" Rename-Computer -NewName "$newName"
+	elif IsPlatform win; then elevate RunScript --pause-error "$(FindPowershell)" Rename-Computer -NewName "$newName"
 	elif InPath hostnamectl; then sudo hostnamectl set-hostname $newName
 	elif IsPlatform linux; then sudo hostname -s $newName
 	fi
-}
-
-workgroupCommand()
-{ 
-	! IsPlatform win && return
-	net.exe config workstation | grep "Workstation domain" | awk '{ print $3; }'
-}
-
-setWorkgroupCommand()
-{ 
-	! IsPlatform win && return
-
-	local newWorkgroup="$1"
-
-	echo "The current workgroup is $(workgroupCommand)"
-	[[ ! $newWorkgroup ]] && read -p "Enter new workgroup: " newWorkgroup; echo
-
-	elevate powershell Add-computer -WorkgroupName "$newWorkgroup"
 }
 
 #

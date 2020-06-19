@@ -9,8 +9,11 @@ init()
 
 	proxyServer="proxy.hagerman.butare.net" proxyPort="3128"
 	noProxy="localhost,127.0.0.1,.hagerman.butare.net,.releases.ubuntu.com"
-
 	wpadServer="nas3.hagerman.butare.net" wpadFile="/share/Web/autoproxy/wpad.dat"
+
+	adapterKey='HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Network​'
+	profileKey='HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/NetworkList/Profiles/'
+
 }
 
 usage()
@@ -21,7 +24,10 @@ usage: network cache center dns name run proxy
 	proxy [apt|wpad|vars] 
 		-e, --enable
 		-d, --disable
-		-s, --status"
+		-s, --status
+	AdapterEdit|AdapterList|AdapterName - network adapters
+	ProfileEdit|ProfileList|ProfileSet - network profiles
+	workgroup|WorkgroupSet"
 	exit $1
 }
 
@@ -31,9 +37,13 @@ args()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) usage 0;;
+			AdapterEdit) command="adapterEdit";; AdapterList) command="adapterList";; AdapterName) command="adapterName";;
+			ProfileEdit) command="profileEdit";; ProfileList) command="profileList";; ProfileSet) command="profileSet";;
+			WorkgroupSet) command="workgroupSet";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ "$command" == @(cache|check|dns|proxy|run) ]] && break
+				[[ "$command" == @(AdapterName|ProfileSet|WorkgroupSet) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -62,6 +72,105 @@ DnsFlushCommand()
 		mac) sudo killall -HUP mDNSResponder;;
 	esac
 }
+
+#
+# Workgroup Commands
+#
+
+workgroupCommand()
+{ 
+	! IsPlatform win && return
+	net.exe config workstation | grep "Workstation domain" | RemoveCarriageReturn | awk '{ print $3; }'
+}
+
+workgroupSetCommand()
+{ 
+	! IsPlatform win && return
+
+	local newWorkgroup="$1"
+	[[ ! $newWorkgroup ]] && { read -p "Enter new workgroup: " newWorkgroup; echo; }
+
+	[[ "$(workgroupCommand)" == "$newWorkgroup" ]] && return
+
+	echo "The current workgroup is $(workgroupCommand), setting the workgroup to $newWorkgroup..."
+
+	elevate RunScript --pause-error "$(FindPowershell)" Add-computer -WorkgroupName "$newWorkgroup"
+}
+
+#
+# Adapter Commands - network adapters
+#
+
+adapterEditCommand() { registry edit "$adapterKey"; }
+
+adapterListCommand()
+{
+	! IsElevated && { elevate RunScript --pause network AdapterList "$@"; return; }
+	powershell.exe Get-NetAdapter | RemoveCarriageReturn | RemoveEmptyLines | tail -n +3
+}
+
+adapterNameCommand() # OLD NEW
+{ 
+	! IsElevated && { elevate RunScript --pause-error network AdapterName "$@"; pause; return; }
+
+	local old="$1"; [[ ! $old ]] && { MissingOperand "old name"; }
+	local new="$2"; [[ ! $new ]] && { MissingOperand "new name"; }
+
+	powershell.exe Rename-NetAdapter -Name \"$old\" -NewName \"$new\"
+}
+
+#
+# Profile Commands - Windows network profiles
+#
+
+profileEditCommand() { registry edit "$profileKey"; }
+
+profileListCommand()
+{
+	! IsElevated && { elevate RunScript --pause network ProfileList "$@"; return; }
+
+	local IFS=$'\n' name type category
+
+	for key in $(registry get "$profileKey"); do
+		name="$(registry get "$key/ProfileName" | RemoveCarriageReturn)"
+		type="$(registry get "$key/NameType" | RemoveCarriageReturn)"
+		category="$(registry get "$key/Category" | RemoveCarriageReturn)"
+
+		case "$type" in
+			0x6) type="Wired";;
+			0x17) type="VPN";;
+			0x47) type="Wireless";;
+			0xF3) type="Mobile Broadband";;
+		esac
+
+		case "$category" in
+			0x0) category="public";;
+			0x1) category="private";;
+			0x2) category="work";;
+		esac
+
+		echo "$name: $category $type"
+	done
+}
+
+# profileSetCommand NAME - if there is only one network profile, set it's name and make it a private network
+profileSetCommand()
+{
+	! IsElevated && { elevate RunScript --pause-error network ProfileSet "$@"; pause; return; }
+
+	local name="$1"; [[ ! $name ]] && { MissingOperand "name"; }
+	local numProfiles="$(registry get "$profileKey" | RemoveEmptyLines | wc -l)"
+
+	(( $numProfiles > 1 )) && { EchoErr "Cannot set the profile if more than one exists"; return 1; }
+
+	local key="$(registry get "$profileKey" | RemoveEmptyLines | head -1)"
+	registry set "$key/ProfileName" REG_SZ "$name" || return
+	registry set "$key/Category" REG_DWORD "1" || return # private
+}
+
+#
+# Proxy Commands
+#
 
 proxyCommand()
 {
