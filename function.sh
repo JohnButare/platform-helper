@@ -817,7 +817,7 @@ start()
 		# start indirectly with RunProcess, otherwise when this shell is exited this shell may hang and the init process will causes high cpu
 		pushd "$DATA/platform/win" >& /dev/null	
 		if IsShellScript "$fullFile"; then			
-			./RunProcess.exe $wait $elevate $windowStyle wsl.exe -e "$(FindInPath "$fullFile")" "${args[@]}"
+			./RunProcess.exe $wait $elevate $windowStyle wsl.exe --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
 		else
 			./RunProcess.exe $wait $elevate $windowStyle "$(utw "$fullFile")" "${args[@]}"
 		fi
