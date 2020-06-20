@@ -100,6 +100,11 @@ powershell()
 	EchoErr "Could not find powershell"; return 1;
 }
 
+store()
+{
+	IsPlatform win && { cmd.exe /c start ms-windows-store: >& /dev/null; return; }
+}
+
 #
 # Console
 #
