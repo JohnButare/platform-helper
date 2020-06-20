@@ -4,13 +4,6 @@
 
 mmc() {	( cmd.exe /c mmc.exe "$@" & ) >& /dev/null; }
 
-FindPowershell() 
-{ 
-	FindInPath powershell.exe && return
-	[[ -f "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" ]] && { echo "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe"; return; }
-	EchoErr "Could not find powershell"; return 1;
-}
-
 #
 # File System
 #

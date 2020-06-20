@@ -86,6 +86,20 @@ usage: i [APP*|cd|dir|force|info|select]
 	esac
 }
 
+powershell() 
+{ 
+	local files=( "A$P/PowerShell/7/pwsh.exe" "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" )
+
+	[[ "$1" == @(--version|-v) ]] && { powershell -Command '$PSVersionTable'; return; }
+	
+	FindInPath Apowershell.exe && { powershell.exe "$@"; }
+	for f in "${files[@]}"; do
+		[[ -f "$f" ]] && { "$f" "$@"; return; }
+	done
+	
+	EchoErr "Could not find powershell"; return 1;
+}
+
 #
 # Console
 #
