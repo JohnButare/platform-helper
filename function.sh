@@ -1051,12 +1051,24 @@ VmHostCache()
 }
 
 #
-# Windows
+# Window
 #
 
 IsXServerRunning() { xprop -root >& /dev/null; }
-WindowInfo() { IsPlatform win && start Au3Info; }
+WinInfo() { IsPlatform win && start Au3Info; }
 SendKeys() { IsPlatform win && AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
+
+WinSetState() # TITLE --restore|-r --maximize|-max --minimize|-min hide|-h --unhide|-uh
+{
+	local title="$1" state="$2" args
+	! IsPlatform win && return
+
+	case "$state" in
+		--restore|-r) args="/res";; --maximize|-max) args="/max";; --minimize|-min) args="/min";; --hide|-h) args="/hid";; --unhide|-uh) args="/vis";;
+	esac
+
+	cmdow.exe "$1" $args
+}
 
 # platform specific functions
 SourceIfExistsPlatform "$BIN/function." ".sh" || return
