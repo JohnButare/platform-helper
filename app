@@ -176,7 +176,6 @@ MapApp()
 }
 
 AltTabTerminator() { IsTaskRunning "AltTabTer.exe" || TaskStart "$P/Alt-Tab Terminator/AltTabTer.exe" "" /startup; }
-AquaSnap() { [[ ! -f "$P32/AquaSnap/AquaSnap.Daemon.exe" ]] && return; IsTaskRunning "AquaSnap.Daemon.exe" && return; printf "AquaSnap..."; start "$P32/AquaSnap/AquaSnap.Daemon.exe"; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
 cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE.exe" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
 discord() { IsTaskRunning Discord.exe || TaskStart "$LOCALAPPDATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }

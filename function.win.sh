@@ -87,7 +87,7 @@ IsElevated() # return true if the user has an Admministrator token
 	( cd /; whoami.exe /groups ) | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; 
 } 
 
-RunScriptElevated() # run a scripts elevated that has quoted arguments, used in InstallAppFromZip SetVar
+RunScriptElevated() # run a scripts elevated that has quoted arguments
 {
 	local dir="$TMP/RunScriptElevated.$RANDOM"
 	local script="$dir/script.sh" log="$dir/log.txt" scriptResult="$dir/result.txt"
