@@ -26,8 +26,6 @@ MakeShortcut()
 	start NirCmd shortcut "$f" "$linkDir" "$linkName" "${@:3}";
 }
 
-GetWinDriveLabel() { cmd.exe /c vol "$1": |& RemoveCarriageReturn | grep "Volume in" | cut -d" " -f7; }
-
 GetWinDrives() 
 {
 	local drives=( $(fsutil.exe fsinfo drives | sed 's/:\\//g' | tr '[:upper:]' '[:lower:]' | RemoveCarriageReturn ) ) result=()

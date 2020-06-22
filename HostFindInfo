@@ -15,7 +15,7 @@ usage: HostFindInfo [target](local)
 
 args()
 {
-	unset detail target targetIsDir noTargetCheck
+	unset detail target noTargetCheck
 
 	while [ "$1" != "" ]; do
 		case "$1" in
@@ -56,24 +56,17 @@ CheckTarget()
 		return 1
 	fi
 
-	[[ "$target" =~ / ]] && targetIsDir="true"
-
-	[[ ! "$target" || "$noTargetCheck" ]] && return
-
-	if [[ "$targetIsDir" && ! -d "$target" ]]; then
-		EchoErr "Directory \"$target\" does not exist"
-		return 1
-	fi
-
-	if [[ ! "$targetIsDir" ]] && ! IsAvailable "$target"; then	
+	if [[ "$target" && ! "$noTargetCheck" && ! -d "$target" ]] && ! IsAvailable "$target"; then
 		EchoErr "Host $target is not available"
 		return 1
 	fi
+
+	return 0
 }
 
 GetDirs()
 {	
-	dirVars=(_root _winRoot _platform _platformLike _platformId _data _datad _users _pub _users _user _home _adata)
+	dirVars=(_root _platform _platformLike _platformId _data _datad  _pub _users _user _home _adata)
 	for var in "${dirVars[@]}"; do unset $var; done
 
 	_user="$user"
@@ -84,15 +77,22 @@ GetDirs()
 		_platformLike="$PLATFORM_LIKE"
 		_platformId="$PLATFORM_ID"
 		_root="/"	
-		_winRoot="$WIN_ROOT"
 		_users="$USERS" 
 		_pub="$PUB"
 		_data="$DATA"
 		_datad="$DATAD"
 		[[ "$_user" == "$USER" ]] && _home="$HOME"
 
-	# Mounted directory	
-	elif [[ $targetIsDir ]]; then
+	# directory - mounted USB drive
+	elif [[ -d "$target/public" ]]; then
+		_root="$target"
+		_pub="$_root/public"
+		_data="$_pub/documents/data"
+		[[ -d "$target/home" ]] && _home="$_root/home"
+
+	# directory - mounted host
+	elif [[ -d "$target" ]]; then
+
 		if [[ -d "$target/usr/local" ]]; then
 			_platform="linux"
 		elif [[ -d "$target/Applications" ]]; then
@@ -105,19 +105,19 @@ GetDirs()
 		fi
 		_root="$target"
 
-	# nas - saves approximately 1s
+	# host UNC - nas
 	elif [[ $target =~ nas ]]; then
 		_platform="linux" _platformLike="synology"_platformId="dsm"
 		[[ $target =~ "nas3" ]] && { _platformLike="qnap" _platformId="qts"; }
 		GetNasDirs || return
 	
-	# UNC with platform using SSH
+	# host UNC - get platform using SSH
 	elif GetPlatform "$target" >& /dev/null; then
 		_platform="$platform" _platformLike="$platformLike"	_platformId="$platformId"
 		_root="//$target/root"; IsPlat win && _root="//$target/c$"
 		IsPlat qnap,synology && { GetNasDirs || return; }
 
-	# UNC with Windows default share
+	# host UNC - Windows c$ share
 	elif unc mount "//$target/c$" >& /dev/null; then 
 		_platform="win"
 		_root="//$target/c$"
@@ -128,7 +128,15 @@ GetDirs()
 
 	fi
 
-	FindDirsWorker || return
+	[[ $_users ]] || { IsPlat mac,win && _users="$_root/Users"; IsPlat linux && _users="$_root/home"; };
+	[[ $_pub ]] || { IsPlat mac,win && _pub="$_users/Shared"; IsPlat win && _pub="$_users/Public"; };
+	[[ $_data ]] || { _data="$_root/usr/local/data"; IsPlat win && _data="$_pub/Documents/data"; }
+	[[ $_datad ]] || { _datad="$_root"; }
+	_user="${_user:-$USER}"
+	[[ ! $_home && $_users ]] && _home="$_users/$_user"
+	[[ $_adata ]] || { IsPlat mac && _adata="$_home/Library/Application Support"; IsPlat win && _adata="$WIN_HOME/AppData/Roaming"; }
+
+	return 0
 }
 
 # GetNasDirs() - assume a NAS exposes these shares
@@ -141,18 +149,7 @@ GetNasDirs()
 	_home="$_root/home"
 }
 
-FindDirsWorker()
-{
-	[[ $_users ]] || { _users="$_root/Users"; IsPlat linux && _users="$_root/home"; };
-	[[ $_pub ]] || { _pub="$_users/Shared"; IsPlat win && _pub="$_users/Public"; };
-	[[ $_data ]] || { _data="$_root/usr/local/data"; IsPlat win && _data="$_pub/Documents/data"; }
-	_user="${_user:-$USER}"
-	_home="${_home:-$_users/$_user}"
-	IsPlat mac && _adata="$_home/Library/Application Support"; IsPlat win && _adata="$WIN_HOME/AppData/Roaming"
-	return 0
-}
-
-IsPlat() { IsPlatform $1 $_platform $_platformId $_platformLike; }
+IsPlat() { [[ ! $_platform ]] && return 1; IsPlatform $1 $_platform $_platformId $_platformLike; }
 
 FindDetail()
 {
@@ -167,33 +164,24 @@ FindDetail()
 	adata="$_adata"
 
 	case "$_platform" in
+
 		win)
 			infoVars+=( psm pp ao adata usm up )
-			psm="$_winRoot/ProgramData/Microsoft/Windows/Start Menu"
+			psm="$_root/mnt/c/ProgramData/Microsoft/Windows/Start Menu"
 			pp="$psm/Programs"
 			ao="$pp/Applications/Other"
 			usm="$adata/Microsoft/Windows/Start Menu"	
 			up="$usm/Programs"
 			;;
+
 		mac)
 			infoVars+=( si la ula )
 			si="/Library/StartupItems"
 			la="/Library/LaunchAgents"
 			ula="$HOME/Library/LaunchAgents"
+			;;
+
 	esac
-
-	infoVars+=( product version client server )
-
-	client="true"
-
-	if IsPlat cygwin; then
-		local r="/proc/registry/HKEY_LOCAL_MACHINE/Software/Microsoft/Windows NT/CurrentVersion"
-		product=$(tr -d '\000' < "$r/ProductName")
-		version="10.0"; [[ "$product" != Windows\ 10* ]] && version=$(tr -d '\000' < "$r/CurrentVersion"); 
-		client=; [[ -f "$r/InstallationType" && $(tr -d '\000' < "$r/InstallationType") == "client" ]] && client="true"
-	fi
-
-	server=; [[ ! $client ]] && server="true"
 
 	ScriptReturn "${dirVars[@]}" "${infoVars[@]}"
 }

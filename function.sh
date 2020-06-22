@@ -230,6 +230,12 @@ RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 
+GetDriveLabel()
+{ 
+	! IsPlatform win && { echo ""; return 0; }
+	cmd.exe /c vol "$1": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7;
+}
+
 FindInPath()
 {
 	local file="$1"

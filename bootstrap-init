@@ -31,7 +31,7 @@ configureProxyServer()
 
 createUser()
 {
-	IsMac || grep "$user" /etc/passwd >& /dev/null && return
+	isMac || [[ ! $user ]] || grep "$user" /etc/passwd >& /dev/null && return
 
 	echo "Creating user $user..."
 	sudo adduser "$user" --gecos "" || return
@@ -40,7 +40,7 @@ createUser()
 
 runAsUser()
 {
-	[[ "$USER" == "$user" ]] && return
+	[[ $user && "$USER" == "$user" ]] && return
 	
 	local script="${BASH_SOURCE[0]}"
 
@@ -53,7 +53,7 @@ runAsUser()
 
 setTimezone()
 {
-	( IsMac || cat "/etc/timezone" |& grep "$timezone" > /dev/null ) && return
+	( isMac || [[ ! $timezone ]] || cat "/etc/timezone" |& grep "$timezone" > /dev/null ) && return
 
 	sudo DEBIAN_FRONTEND=noninteractive apt install -y tzdata || return
 	[[ ! -f "/usr/share/zoneinfo/$timezone" ]] && return
@@ -66,8 +66,9 @@ setTimezone()
 # Helper Functions
 #
 
-IsMac() { [[ "$PLATFORM" == "mac" ]]; }
-InPath () { which "$1" &> /dev/null; }
+isMac() { [[ "$PLATFORM" == "mac" ]]; }
+isWin() { [[ "$PLATFORM" == "win" ]]; }
+inPath () { which "$1" &> /dev/null; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 
 #
@@ -78,6 +79,8 @@ mountPublic()
 { 
 	[[ -d "$bin" ]] && return
 
+	isWin && isMountedDrive && { mountWinDrive "$host" || return; }
+
 	echo "Mounting //$host/public..."
 	mkdir -p "$mount" || return
 	mountPublic$p || return
@@ -85,13 +88,21 @@ mountPublic()
 
 mountPublicDebian()
 {
-	local line="//$host/public /home/$user/Volumes/public cifs username=$user,noauto,rw,users 0 0"
+	local line="//$host/public $HOME/Volumes/public cifs username=$USER,noauto,rw,users 0 0"
 	! grep "$line" /etc/fstab >& /dev/null && { echo "$line" | sudo tee -a //etc/fstab || return; }
-	mount.cifs "//$host/public" "$HOME/Volumes/public" -o user=$user sec=ntlmsspi || return
+	mount.cifs "//$host/public" "$HOME/Volumes/public" -o user=$USER sec=ntlmsspi || return
 }
 
-mountPublicMac() { mount_smbfs -s "smb://$user@$host/public" "$mount" || return; }
+mountPublicMac() { mount_smbfs -s "smb://$USER@$host/public" "$mount" || return; }
 mountPublicWin() { sudo mount -t drvfs "//$host/public" "$HOME/Volumes/public"; }
+
+mountWinDrive() # dir - mounted directory for the drive, must start with /mnt, i.e. /mnt/d
+{ 
+	local dir="$1" drive="${dir/\/mnt\//}"
+	[[ ! -d "$dir" ]] && { sudo mkdir "$dir" || return 1; }
+	mount 2>&1 | grep "$drive: on $dir type drvfs" &> /dev/null && return 0;
+	sudo mount -t drvfs "$drive:" "$dir" &> /dev/null
+}
 
 #
 # Packages
@@ -104,7 +115,7 @@ installPackages()
 	installPackages$p || return
 	installPackagesCommon || return
 
-	InPath apt && { apt update || return; } # fix "Could not find command-not-found database"
+	inPath apt && { apt update || return; } # fix "Could not find command-not-found database"
 }
 
 installPackagesCommon() { package dialog expect findutils gawk rsync xclip; }
@@ -184,16 +195,18 @@ unminimizeDebianDoc() # from /usr/local/sbin/unminimize
 # other
 #
 
+isMountedDrive() { [[ -d "$host/public" ]] || [[ "$host" =~ ^/mnt ]]; }
+
 init()
 {
 	. "${BASH_SOURCE[0]%/*}/bootstrap-config.sh" || return
 
-	# variables
-	bash=""
-	mount="$HOME/Volumes/public"
+		# variables
+	bash=""	
+	mount="$HOME/Volumes/public"; isMountedDrive && mount="$host/public"
 	bin="$mount/Documents/data/bin"
 	install="$mount/Documents/data/install"
-	sudo="sudo"; ! InPath sudo && sudo=""
+	sudo="sudo"; ! inPath sudo && sudo=""
 
 	# PLATFORM=debian|mac|win
 	PLATFORM=debian
