@@ -6,6 +6,6 @@ timezone="America/Denver"
 workgroup="WIGGIN"
 
 #user=""
-#host="/mnt/d"
+host="/mnt/d"
 #proxy=""
 #workgroup=""

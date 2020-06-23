@@ -31,12 +31,15 @@ usage: registry [32|64] COMMAND
   import FILE										import registry entries from a file
   IsKey KEY											check if key is a registry key
   reg			 											run 32 or 64 bit version of reg.exe
+  register|unregister FILE 			register or unregister the registry entries in a DLL											
   set KEY [TYPE](REG_SZ) DATA"
 	exit $1
 }
 
 args()
 {
+	unset file
+
 	originalArgs=( "$@" ) 
 
 	while [ "$1" != "" ]; do
@@ -46,9 +49,12 @@ args()
 			IsKey) command="IsKey";;
 			*)
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				{ ! IsOption "$1" && [[ ! $key && "$command" == @(delete|exist|get|set|IsKey) ]]; } && { GetKeyValueArg "$@"; shift; continue; }
-				{ ! IsOption "$1" && [[ ! $key && "$command" == @(edit|export) ]]; } && { GetKeyArg "$@"; shift; continue; }
-				{ ! IsOption "$1" && [[ "$command" == "set" ]]; } && { { GetDataType "$@" || GetData "$@"; } && { shift; continue; }; }
+				if ! IsOption "$1" ]]; then
+					[[ ! $key && "$command" == @(delete|exist|get|set|IsKey) ]] && { GetKeyValueArg "$@" || return; shift; continue; }
+					[[ ! $key && "$command" == @(edit|export) ]] && { GetKeyArg "$@" || return; shift; continue; }
+					[[ ! $key && "$command" == @(register|unregister) ]] && { GetFileArg "$@" || return; shift; continue; }
+					[[ "$command" == "set" ]] && { { GetDataType "$@" || GetData "$@"; } && { shift; continue; }; }
+				fi
 				[[ "$command" == @(export|import|reg) ]] && break
 				UnknownOption "$1"
 		esac
@@ -112,6 +118,8 @@ importCommand()
 }
 
 regCommand() { "$reg" "$@"; }
+registerCommand() { elevate regsvr32.exe /s \"$(utw "$file")\"; }
+unregisterCommand() { elevate regsvr32.exe /s /u \"$(utw "$file")\"; }
 
 setCommand()
 {
@@ -133,6 +141,14 @@ GetDataType()
 {
 	[[ $dataType || "$1" != +(REG_SZ|REG_MULTI_SZ|REG_EXPAND_SZ|REG_DWORD|REG_QWORD|REG_BINARY|REG_NONE) ]] && return 1
 	dataType=( /t "$1" )
+}
+
+GetFileArg()
+{
+	[[ $# == 0 ]] && MissingOperand "file"
+	file="$1"
+	[[ ! -f "$file" ]] && { EchoErr "$file does not exist"; return 1; }
+	return 0
 }
 
 GetKeyArg()
