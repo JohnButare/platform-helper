@@ -636,7 +636,7 @@ function IsPlatform()
 			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return 0;; # Windows Subsystem for Linux
 			wsl1|wsl2) [[ "$p" == "wsl$wsl" ]] && return 0;;
 			cygwin|debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return 0;;
-			dsm|qts|srm|raspbian|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return 0;;
+			dsm|qts|srm|raspbian|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return 0;;
 			busybox) InPath busybox && return 0;;
 
 			# package management

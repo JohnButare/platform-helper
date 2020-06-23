@@ -11,7 +11,7 @@ set -a # export variables and functions to child processes
 # test:  sf; time GetPlatform nas? && echo "success: $platform-$platformLike-$platformId"
 # PLATFORM=linux|mac|win
 # PLATFORM_LIKE=cygwin|debian|openwrt|qnap|synology
-# PLATFORM_ID=dsm|qts|srm|raspian|ubiquiti|ubuntu
+# PLATFORM_ID=dsm|qts|srm|raspian|rock|ubiquiti|ubuntu
 # WSL=1|2 (Windows)
 function GetPlatform() 
 {
@@ -36,6 +36,7 @@ function GetPlatform()
 		if [[ $kernel =~ .*-Microsoft$ ]]; then platform="win" wsl=1
 		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platform="win" wsl=2
 		elif [[ $ID_LIKE =~ openwrt ]]; then ID_LIKE="openwrt"
+		elif [[ $kernel =~ .*-rock ]]; then ID="rock"
 		elif [[ $kernel =~ .*-qnap ]]; then ID_LIKE="qnap"
 		elif [[ $synology ]]; then ID_LIKE="synology" ID="dsm"; [[ $busybox ]] && ID="srm"
 		elif [[ $ubiquiti ]]; then ID="ubiquiti"
