@@ -53,7 +53,8 @@ runAsUser()
 
 setTimezone()
 {
-	( isMac || [[ ! $timezone ]] || cat "/etc/timezone" |& grep "$timezone" > /dev/null ) && return
+	# macOS bash 3.2 - cannot use |& to redirect standard error, must use 2>&1
+	( isMac || [[ ! $timezone ]] || cat "/etc/timezone" 2>&1 | grep "$timezone" > /dev/null ) && return
 
 	sudo DEBIAN_FRONTEND=noninteractive apt install -y tzdata || return
 	[[ ! -f "/usr/share/zoneinfo/$timezone" ]] && return
@@ -83,18 +84,18 @@ mountPublic()
 
 	echo "Mounting //$host/public..."
 	mkdir -p "$mount" || return
-	mountPublic$p || return
+	mountPublic-$PLATFORM || return
 }
 
-mountPublicDebian()
+mountPublic-debian()
 {
 	local line="//$host/public $HOME/Volumes/public cifs username=$USER,noauto,rw,users 0 0"
 	! grep "$line" /etc/fstab >& /dev/null && { echo "$line" | sudo tee -a //etc/fstab || return; }
 	echo mount.cifs "//$host/public" "$HOME/Volumes/public" -o user=$USER sec=ntlmsspi || return
 }
 
-mountPublicMac() { mount_smbfs -s "smb://$USER@$host/public" "$mount" || return; }
-mountPublicWin() { sudo mount -t drvfs "//$host/public" "$HOME/Volumes/public"; }
+mountPublic-mac() { mount_smbfs -s "smb://$USER@$host/public" "$mount" || return; }
+mountPublic-win() { sudo mount -t drvfs "//$host/public" "$HOME/Volumes/public"; }
 
 mountWinDrive() # dir - mounted directory for the drive, must start with /mnt, i.e. /mnt/d
 { 
@@ -110,19 +111,17 @@ mountWinDrive() # dir - mounted directory for the drive, must start with /mnt, i
 
 installPackages()
 {
-	which xclip >& /dev/null && return
+	which rsync >& /dev/null && return
 
-	installPackages$p || return
-	installPackagesCommon || return
-
-	inPath apt && { apt update || return; } # fix "Could not find command-not-found database"
+	installPackages-$PLATFORM || return
+	installPackages-common || return
 }
 
-installPackagesCommon() { package dialog expect findutils gawk rsync xclip; }
+installPackages-common() { package dialog expect findutils gawk rsync; }
 
-installPackagesDebian()
+installPackages-debian()
 {	
-	package ubuntu-standard cifs-utils iputils-ping net-tools openssh-server resolvconf
+	package ubuntu-standard cifs-utils iputils-ping net-tools openssh-server resolvconf xclip
 
 	# credential management - except for Raspberry Pi which is typically headless
 	if [[ "$ID" != "raspbian" ]]; then
@@ -132,15 +131,21 @@ installPackagesDebian()
 	return 0
 }
 
-installPackagesMac() 
+installPackages-mac() 
 {
+	package bash coreutils gnu-sed;
+
 	grep '/usr/local/bin/bash' /etc/shells >& /dev/null && return
 	echo -n "/usr/local/bin/bash" | pbcopy || return
 	sudo nano /etc/shells || return
 	chpass -s "/usr/local/bin/bash" || return 
 }
 
-installPackagesWin() { package ubuntu-standard iputils-ping ubuntu-wsl || return; }
+installPackages-win() 
+{ 
+	package ubuntu-standard iputils-ping ubuntu-wsl || return
+	inPath apt && { apt update || return; } # fix "Could not find command-not-found database" in WSL
+}
 
 package()
 {
@@ -150,15 +155,17 @@ package()
 	esac
 }
 
-setupPackageManager()
+setupPackageManager() { setupPackageManager-$PLATFORM; }
+
+setupPackageManager-mac()
 {
-	case $PLATFORM in
-		debian|win) setupPackageManagerDebian;;
-		mac) ! which brew >& /dev/null && { /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"; };;
-	esac
+	which brew >& /dev/null && return
+	/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
 }
 
-setupPackageManagerDebian()
+setupPackageManager-win() { setupPackageManager-debian; }
+
+setupPackageManager-debian()
 {
 	local motd="/etc/update-motd.d/60-unminimize"
 
@@ -204,21 +211,22 @@ init()
 {
 	. "${BASH_SOURCE[0]%/*}/bootstrap-config.sh" || return
 
-		# variables
-	bash=""	
+	# PLATFORM=debian|mac|win
+	PLATFORM=debian
+	[[ "$(uname)" == "Darwin" ]] && PLATFORM=mac
+	[[ $(uname -r)  =~ [Mm]icrosoft ]] && PLATFORM=win
+
+	# ID=ubuntu|raspian
+	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
+
+	# variables
+	bash=""; isMac && bash="/usr/local/bin/bash"
 	mount="$HOME/Volumes/public"; isMountedDrive && mount="$host/public"
 	bin="$mount/documents/data/bin"
 	install="$mount/Documents/data/install"
 	sudo="sudo"; ! inPath sudo && sudo=""
 
-	# PLATFORM=debian|mac|win
-	PLATFORM=debian
-	[[ "$(uname)" == "Darwin" ]] && PLATFORM=mac bash="/usr/local/bin/bash"
-	[[ $(uname -r)  =~ [Mm]icrosoft ]] && PLATFORM=win
-	p=${PLATFORM^}
-
-	# ID=ubuntu|raspian
-	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
+	return 0
 }
 
 run "$@"

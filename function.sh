@@ -299,7 +299,7 @@ utw() # UnixToWin
 
 utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
 ptw() { echo "${1////\\}"; } # PathToWin
-DirCount() { command ls "$1" | wc -l; return "${PIPESTATUS[0]}"; }
+DirCount() { RemoveSpace "$(command ls "$1" | wc -l)"; return "${PIPESTATUS[0]}"; }
 
 explore() # explorer DIR - explorer DIR in GUI program
 {
@@ -1058,8 +1058,9 @@ VmHostCache()
 #
 
 IsXServerRunning() { xprop -root >& /dev/null; }
-WinInfo() { IsPlatform win && start Au3Info; }
+RestartGui() { IsPlatform win && { RestartExplorer; return; }; IsPlatform mac && { RestartDock; return; }; }
 SendKeys() { IsPlatform win && AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
+WinInfo() { IsPlatform win && start Au3Info; }
 
 WinSetState() # TITLE --restore|-r --maximize|-max --minimize|-min hide|-h --unhide|-uh
 {

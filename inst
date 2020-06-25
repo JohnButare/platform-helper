@@ -396,7 +396,6 @@ bootstrapCommonPackages() # debian|mac
 	if ! InPath lynx > /dev/null; then
 		printf "\nInstalling core packages..."
 		package tldr || return
-		package gcp  || return 													# file
 		package glances htop || return									# monitoring
 		package fping nmap  || return 									# network	
 		package tmux tmuxinator || return								# terminal
@@ -416,16 +415,14 @@ bootstrapDebian()
 
 	if ! InPath uuencode > /dev/null; then
 		echo "Installing other packages..."
+		package lynx sharutils xterm || return
 		package unzip zip || return																							# compression
-		package bonnie++ hdparm inotify-tools nautilus || return								# file
-		package fonts-inconsolata || return																			# fonts
-		package atop iotop iperf3 gnome-system-monitor nethogs || returns				# monitoring
+		package bonnie++ gcp hdparm inotify-tools nautilus || return						# file
+		package atop iotop iperf3 gnome-system-monitor nethogs pv || returns		# monitoring
 		package curl dnsutils etherwake net-tools smbclient || return						# network	
 		package screen squidclient terminator tmux tmuxinator || return					# terminal
 		package apcalc libdbus-glib-1-dev virt-what || return										# utility
-		package lynx || return 																									# web
-		package x11-apps xterm || return 																				# window
-		package pv sharutils || return																					# other, sharutils (uuencode uudecode)
+		package fonts-inconsolata x11-apps xterm || return											# window
 	fi
 
 	# text editors
@@ -498,7 +495,7 @@ bootstrapMac()
 
 	if ! InPath mas > /dev/null; then
 		printf "\nInstalling core programs..."
-		package duti || return
+		package dockutil duti || return
 		package findutils wget wakeonlan || return	# network
 		package cask mas || return 									# package
 	fi
@@ -509,9 +506,7 @@ bootstrapMac()
 /usr/local/sbin" > /etc/paths.d/wiggin' || return;
 	fi
 
-	echo "Disabling dashboard..."
-	defaults write com.apple.dashboard mcx-disabled -boolean true || return
-	killall Dock || return
+	i MacSetup || return
 }
 
 bootstrapQnap() 
@@ -829,7 +824,7 @@ SshMac()
 	return 0
 }
 
-WinScp()
+WinScpInstall()
 {
 	printf "**************************************************\n* WiNSCP \n**************************************************\n"
 
@@ -847,225 +842,63 @@ WinScp()
 }
 
 #
-# Other Programs
+# Mac Setup
 #
 
-Bash()
+MacSetup()
 {
-	printf "**************************************************\n* Bash - Bourne Again Shell\n**************************************************\n"
-	printf "Configuring bash..."
+	printf "**************************************************\n* Mac Setup\n**************************************************\n"
+	i MacDockClean MacAppCleanup || return
+}
 
-	printf "links..."
+MacConfigure()
+{
+	echo "Configuring dock..."
 
-	local files=(.bashrc .bash_logout .bash_profile .dialogrc .gitconfig .gitignore .kdiff3rc .lessfilter .magic .inputrc .minttyrc .Xresources)
-	for file in "${files[@]}"; do
-		printf "."
-		makeLink --symbolic --hide "$UBIN/$file" "$HOME/$file" || return
+	defaults write com.apple.dock orientation -string bottom || return 	# bottom|left|right
+	defaults write com.apple.dock mineffect -string scale || return 		# genie|scale
+	defaults write com.apple.dock tilesize -integer 40 || return
+	defaults write com.apple.dock magnification -bool FALSE || return		# largesize is magnification size
+	defaults write com.apple.dock minimize-to-application -bool TRUE || return
+	defaults write com.apple.dock launchanim -bool FALSE || return			# Animate opening applications
+	defaults write com.apple.dock autohide -bool FALSE || return
+	defaults write com.apple.dock show-process-indicators -bool TRUE || return
+	defaults write com.apple.dock show-recents -bool TRUE || return
+	defaults write com.apple.dock NSTableViewDefaultSizeMode -integer 3 || return # General, Sidebar icon size=Large
+	RestartDock || return
+
+	defaults write com.apple.finder QuitMenuItem -bool true || return
+	defaults write com.apple.finder WarnOnEmptyTrash -bool false || return
+	RestartFinder || return
+}
+
+MacDockCleanup()
+{
+	local args=() apps=( Launchpad Mail FaceTime Maps Photos Contacts Calendar Reminders Notes Music Podcasts TV News "App Store" "System Preferences" )
+
+	for app in "${apps[@]}"; do
+		args+=( --remove "$app" )
 	done
 
-	if [[ ! -f /etc/ethers ]]; then
-		sudo ${G}ln --symbolic "$BIN/ethers" "/etc/ethers" || return
-	fi
-
-	printf "config..."
-	makeDir ~/.config || return
-	for dir in $(ls $UBIN/.config); do
-		if [[ -d "$UBIN/.config/$dir" ]]; then
-			printf "."
-			makeLink --symbolic "$UBIN/.config/$dir" "$HOME/.config/$dir" || return
-		fi
-	done
-
-	printf "create..."
-	files=( .bash_history .hushlogin .lesshst )
-	for file in "${files[@]}"; do
-		printf "."
-		touch "$HOME/$file" || return
-	done
-
-	printf "ssh..."
-	SshPermission || return
-
-	echo "done"
-
-	local file="/etc/bash.bashrc"
-	local line='[[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"'
-	local after="# this file has to be sourced in"
-	local before='# If not running interactively, don'\''t do anything' 
-
-	IsPlatform mac && { file="/etc/bashrc"; before="if [ -z \"$PS1\" ]; then"; }
-	IsPlatform qnap && { file="/opt/etc/profile"; before="# Please note"; }
-	IsPlatform dsm && { file="/etc.defaults/.bashrc_profile"; before="if [ -f ~/.bashrc ]; then"; }
-
-	[[ ! -f "$file" ]] && { EchoErr "$file does not exist"; return 1; }
-
-	# try and add the line automatically
-	if ! grep "$line" "$file" >& /dev/null; then		
-		[[ $before ]] && { sudo sed -ie '/^'"$after"'/a \\n'"$line"'' "$file" || return; }
-	fi
-
-	# add the line manually
-	if ! grep "$line" "$file" >& /dev/null; then
-		echo "$line"; clipw "$line"
-		echo "- paste before \"$before\""
-		pause
-		sudo nano "$file" || return
-	fi
-
-	return 0
+	dockutil "${args[@]}" || return
 }
 
-nodeInstalled() { InPath node; }
-
-NodeJsInstall()
-{	
-	local v="12"
-
-	printf "**************************************************\n* Node.js v$v\n**************************************************\n"
-
-	# https://nodejs.org/en/download/
-	if [[ "$PLATFORM" == "linux" ]] && ( ! InPath node || ! node --version | grep v12 >& /dev/null); then
-		echo "Installing node v$v..."
-		curl -sL https://deb.nodesource.com/setup_$v.x | sudo -E bash || return # get node version 10.x
-		package nodejs || return
-	fi
-
-	[[ ! -f ~/.npmrc ]] && { touch ~/.npmrc || return; }
-
-	echo "Installing core node packages..."
-	InPath nodemon || { $sudo npm install -g nodemon || return; }
-
-	echo "Updating npm..."
-	$sudo npm install -g npm@latest || return
-	$sudo npm update -g || return
-
-	echo "Rebuilding packages..."
-	cd "$(sudo npm -g prefix)/lib/node_modules" || return
-	sudo npm rebuild --unsafe-perm || return
-
-	return 0
-}
-
-WinampInstall()
+MacAppCleanup()
 {
-	printf "**************************************************\n* Winamp\n**************************************************\n"
-	
-	run "Nullsoft/WinAmp/setup/winamp565_pro_all.exe" || return
-
-	echo "Updating icons..."
-	mergeDir "$pp/Winamp" "$ao" || return
-	mergeDir --rename "$up/Winamp Detector Plug-in" "$ao/Winamp" || return
-	$rm "$pd/Winamp.lnk" || return
-
-	echot "Note
-- WiFi Sync - disable addition network interfaces (i.e. VMware networks), run WinAmp as Administrator"
+	#echo "Removing applications..."
+	#mas uninstall N
+	:
 }
 
-wmp() { WindowsMediaPlayerInstall; }
-WindowsMediaPlayerInstall()
-{
-	printf "**************************************************\n* Windows Media Player\n**************************************************\n"
-	
- 	start "$P32\Windows Media Player\wmplayer.exe" || return
-
-	echot "\
-- Recommended settings
-- Organize, Manage Libraries, Music, Add..., This PC, portable4"
-}
-
-ahk() { AutoHotKeyInstall; }; AutoHotKeyInstall()
-{
-	printf "**************************************************\n* AutoHotKey\n**************************************************\n"
-
-	AutoHotKey close || return
-
-	# https://www.autohotkey.com/ https://autohotkey.com/download/2.0/
-	run "Shareware/AutoHotKey/image/AutoHotkey_2.0-a108-a2fa0498.zip" "$P/AutoHotKey" || return 
-
-	AutoHotKey startup || return
-}
-
-WinSplitInstall()
-{
-	printf "**************************************************\n* WinSplit\n**************************************************\n"
-	run "Shareware/WinSplit Revolution/image.zip" "$P32/WinSplit Revolution" || return
-	WinSplit startup
-}
-
-SublimeInstall()
-{
-	printf "**************************************************\n* Sublime Text Editor\n**************************************************\n"
-
-	# http://www.sublimetext.com/3 
-	local v=3211
-	run "Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime_text_3_build_${v}_x64.tar.bz2" --elevate || return 
-
-	case "$PLATFORM" in
-
-		debian) # https://www.sublimetext.com/docs/3/linux_repositories.html
-			mvSudo "$P/sublime_text_3" "$P/sublime_text" || return
-
-			echo "Installing sublime package repository for updates..."
-			wget -qO - https://download.sublimetext.com/sublimehq-pub.gpg | sudo apt-key add - || return
-			sudo apt-get install apt-transport-https || return
-			echo "deb https://download.sublimetext.com/ apt/stable/" | sudo tee /etc/apt/sources.list.d/sublime-text.list || return
-			sudo apt-get update || return
-			sudo apt-get install sublime-text || return
-			;;
-
-		win)
-			makeLink --merge --hide "$udata/app/Dash" "$udoc/Dash" || return
-			registry delete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # Fix Windows Open With
-			$ren "$pp/Sublime Text 3.lnk" "$pp/Applications/Sublime Text.lnk" || return
-			makeDir "$adata/Sublime Text 3" || return; # for profile
-			;;
-			
-	esac
-
-
-	sublime profile restore default || return
-
-	if askP 'Configure Sublime Text'; then
-		echo '- Help, Enter license'
-		sublime start || return
-	fi
-}
-
-SublimeMergeInstall()
-{
-	printf "**************************************************\n* Sublime Merge\n**************************************************\n"
-
-	# https://www.sublimemerge.com/download
-	local v="1119"
-	run "Sublime/merge/" -p "sublime_merge_build_${v}_x64_setup.exe" "sublime_merge_build_${v}_mac.zip" "sublime-merge_build_${v}_amd64.deb" || return;
-
-	IsPlatform win && { $mv "$pp/Sublime Merge.lnk" "$pp/Applications" || return; }
-
-	return 0
-}
-
-WindowsDownload()
-{
-	# https://www.microsoft.com/en-us/software-download/windows10/
-	local v=1909
-	run "Microsoft/Windows/setup/$v/MediaCreationTool$v.exe" --elevate || return
-
-	[[ ! -f ~/Downloads/Windows.iso ]] && { EchoErr "Windpows was not downloaded"; return 1; }
-
-	gcp ~/Downloads/Windows.iso "$(GetFilePath "$file")/Windows_$v.iso" || return
-}
+#
+# Windows Setup
+#
 
 WindowsSetup()
 {
 	printf "**************************************************\n* Windows Setup\n**************************************************\n"
 	! IsElevated && { elevate RunScript --pause-error inst WindowsSetup "${options[@]}"; pause; return; }
-	
-	WindowsPath || return
-	WindowsPermissions || return
-	WindowsDirs || return
-	WindowsIcons || return
-	WindowsConfiguration || return
-	OneDrive || return
+	i WindowsPath WindowsPermissions WindowsDirs WindowsIcons WindowsConfiguration OneDrive || return
 }
 
 WindowsPath() { SetVar --system --path PATH "$DATA/platform/$PLATFORM" || return; }
@@ -1244,6 +1077,215 @@ WindowsConfiguration()
 	ProcessKill explorer && start explorer
 	
 	return 0
+}
+
+#
+# Other Programs
+#
+
+BashInstall()
+{
+	printf "**************************************************\n* Bash - Bourne Again Shell\n**************************************************\n"
+	printf "Configuring bash..."
+
+	printf "links..."
+
+	local files=(.bashrc .bash_logout .bash_profile .dialogrc .gitconfig .gitignore .kdiff3rc .lessfilter .magic .inputrc .minttyrc .Xresources)
+	for file in "${files[@]}"; do
+		printf "."
+		makeLink --symbolic --hide "$UBIN/$file" "$HOME/$file" || return
+	done
+
+	if [[ ! -f /etc/ethers ]]; then
+		sudo ${G}ln --symbolic "$BIN/ethers" "/etc/ethers" || return
+	fi
+
+	printf "config..."
+	makeDir ~/.config || return
+	for dir in $(ls $UBIN/.config); do
+		if [[ -d "$UBIN/.config/$dir" ]]; then
+			printf "."
+			makeLink --symbolic "$UBIN/.config/$dir" "$HOME/.config/$dir" || return
+		fi
+	done
+
+	printf "create..."
+	files=( .bash_history .hushlogin .lesshst )
+	for file in "${files[@]}"; do
+		printf "."
+		touch "$HOME/$file" || return
+	done
+
+	printf "ssh..."
+	SshPermission || return
+
+	echo "done"
+
+	local file="/etc/bash.bashrc"
+	local line='[[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"'
+	local after="# this file has to be sourced in"
+	local before='# If not running interactively, don'\''t do anything' 
+
+	IsPlatform mac && { file="/etc/bashrc"; after="# System-wide .bashrc file" before="if [ -z \"$PS1\" ]; then"; }
+	IsPlatform qnap && { file="/opt/etc/profile"; before="# Please note"; }
+	IsPlatform dsm && { file="/etc.defaults/.bashrc_profile"; before="if [ -f ~/.bashrc ]; then"; }
+
+	[[ ! -f "$file" ]] && { EchoErr "$file does not exist"; return 1; }
+
+	# try and add the line automatically
+	if ! grep "$line" "$file" >& /dev/null && [[ $after ]]; then		
+		sudo ${G}sed -ie '/^'"$after"'/a \\n'"$line"'' "$file" || return
+	fi
+
+	# add the line manually
+	if ! grep "$line" "$file" >& /dev/null; then
+		echo "$line"; clipw "$line"
+		echo "- paste before \"$before\""
+		pause
+		sudo nano "$file" || return
+	fi
+
+	return 0
+}
+
+nodeInstalled() { InPath node; }
+
+NodeJsInstall()
+{	
+	local v="12"
+
+	printf "**************************************************\n* Node.js v$v\n**************************************************\n"
+
+	# https://nodejs.org/en/download/
+	if [[ "$PLATFORM" == "linux" ]] && ( ! InPath node || ! node --version | grep v12 >& /dev/null); then
+		echo "Installing node v$v..."
+		curl -sL https://deb.nodesource.com/setup_$v.x | sudo -E bash || return # get node version 10.x
+		package nodejs || return
+	fi
+
+	[[ ! -f ~/.npmrc ]] && { touch ~/.npmrc || return; }
+
+	echo "Installing core node packages..."
+	InPath nodemon || { $sudo npm install -g nodemon || return; }
+
+	echo "Updating npm..."
+	$sudo npm install -g npm@latest || return
+	$sudo npm update -g || return
+
+	echo "Rebuilding packages..."
+	cd "$(sudo npm -g prefix)/lib/node_modules" || return
+	sudo npm rebuild --unsafe-perm || return
+
+	return 0
+}
+
+WinampInstall()
+{
+	printf "**************************************************\n* Winamp\n**************************************************\n"
+	
+	run "Nullsoft/WinAmp/setup/winamp565_pro_all.exe" || return
+
+	echo "Updating icons..."
+	mergeDir "$pp/Winamp" "$ao" || return
+	mergeDir --rename "$up/Winamp Detector Plug-in" "$ao/Winamp" || return
+	$rm "$pd/Winamp.lnk" || return
+
+	echot "Note
+- WiFi Sync - disable addition network interfaces (i.e. VMware networks), run WinAmp as Administrator"
+}
+
+wmp() { WindowsMediaPlayerInstall; }
+WindowsMediaPlayerInstall()
+{
+	printf "**************************************************\n* Windows Media Player\n**************************************************\n"
+	
+ 	start "$P32\Windows Media Player\wmplayer.exe" || return
+
+	echot "\
+- Recommended settings
+- Organize, Manage Libraries, Music, Add..., This PC, portable4"
+}
+
+ahk() { AutoHotKeyInstall; }; AutoHotKeyInstall()
+{
+	printf "**************************************************\n* AutoHotKey\n**************************************************\n"
+
+	AutoHotKey close || return
+
+	# https://www.autohotkey.com/ https://autohotkey.com/download/2.0/
+	run "Shareware/AutoHotKey/image/AutoHotkey_2.0-a108-a2fa0498.zip" "$P/AutoHotKey" || return 
+
+	AutoHotKey startup || return
+}
+
+WinSplitInstall()
+{
+	printf "**************************************************\n* WinSplit\n**************************************************\n"
+	run "Shareware/WinSplit Revolution/image.zip" "$P32/WinSplit Revolution" || return
+	WinSplit startup
+}
+
+SublimeInstall()
+{
+	printf "**************************************************\n* Sublime Text Editor\n**************************************************\n"
+
+	# http://www.sublimetext.com/3 
+	local v=3211
+	run "Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime_text_3_build_${v}_x64.tar.bz2" --elevate || return 
+
+	case "$PLATFORM" in
+
+		debian) # https://www.sublimetext.com/docs/3/linux_repositories.html
+			mvSudo "$P/sublime_text_3" "$P/sublime_text" || return
+
+			echo "Installing sublime package repository for updates..."
+			wget -qO - https://download.sublimetext.com/sublimehq-pub.gpg | sudo apt-key add - || return
+			sudo apt-get install apt-transport-https || return
+			echo "deb https://download.sublimetext.com/ apt/stable/" | sudo tee /etc/apt/sources.list.d/sublime-text.list || return
+			sudo apt-get update || return
+			sudo apt-get install sublime-text || return
+			;;
+
+		win)
+			makeLink --merge --hide "$udata/app/Dash" "$udoc/Dash" || return
+			registry delete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # Fix Windows Open With
+			$ren "$pp/Sublime Text 3.lnk" "$pp/Applications/Sublime Text.lnk" || return
+			makeDir "$adata/Sublime Text 3" || return; # for profile
+			;;
+			
+	esac
+
+
+	sublime profile restore default || return
+
+	if askP 'Configure Sublime Text'; then
+		echo '- Help, Enter license'
+		sublime start || return
+	fi
+}
+
+SublimeMergeInstall()
+{
+	printf "**************************************************\n* Sublime Merge\n**************************************************\n"
+
+	# https://www.sublimemerge.com/download
+	local v="1119"
+	run "Sublime/merge/" -p "sublime_merge_build_${v}_x64_setup.exe" "sublime_merge_build_${v}_mac.zip" "sublime-merge_build_${v}_amd64.deb" || return;
+
+	IsPlatform win && { $mv "$pp/Sublime Merge.lnk" "$pp/Applications" || return; }
+
+	return 0
+}
+
+WindowsDownload()
+{
+	# https://www.microsoft.com/en-us/software-download/windows10/
+	local v=1909
+	run "Microsoft/Windows/setup/$v/MediaCreationTool$v.exe" --elevate || return
+
+	[[ ! -f ~/Downloads/Windows.iso ]] && { EchoErr "Windpows was not downloaded"; return 1; }
+
+	gcp ~/Downloads/Windows.iso "$(GetFilePath "$file")/Windows_$v.iso" || return
 }
 
 pGina()
@@ -1606,7 +1648,9 @@ firefoxInstall()
 - https://duckduckgo.com/, settings, Other Settings, Load Settings, DuckDuckButare"
 	pause
 	
-	if [[ "$PLATFORM" == "win" ]]; then	
+	if IsPlatform mac; then
+		dockutil --add "/Applications/Firefox.app" || return
+	elif [[ "$PLATFORM" == "win" ]]; then	
 		$mv "$pp/Firefox.lnk" "$pp/Applications" || return
 		$rm "$pd/Firefox.lnk" || return
 	fi
@@ -1861,7 +1905,10 @@ OfficeInstall()
 
 OfficeFinal()
 {
-	if IsPlatform win; then
+	if IsPlatform mac; then
+		sudo rm -fr "$P/Microsoft OneDrive.app" "$P/Microsoft OneNote.app" "$P/Microsoft Outlook.app" || return
+
+	elif IsPlatform win; then
 		. office.sh || { EchoErr "inst: Office is not installed"; return 1; }
 
 		makeDir "$_data/templates" "$udata/app/office" "$udata/templates" || return
@@ -2896,7 +2943,24 @@ DymoInstall()
 	# http://www.dymo.com/en-US/dymo-user-guides
 	run "hardware/DYMO/" -p "DCDSetup1.3.1.exe" "DLS8Setup.8.7.4.dmg" "" --elevate || return 
 
-	if [[ "$PLATFORM" == "win" ]]; then	
+	if IsPlatform mac; then
+		local base="$udata/app/DYMO Label"
+		local addressBook="$base/Address Books" label="$base/Labels"
+
+		# ~/Documents/DYMOS Label Software is still re-created on startup
+		mergeDir --rename "$udoc/DYMO Label Software" "$base" || return
+
+		defaults write com.dymo.dls DataTrackingFolder -string "~/Documents/data/app/DYMO Label" || return
+		defaults write com.dymo.dls AddressBookDirectory -string "$addressBook" || return
+		defaults write com.dymo.dls LabelsDirectory -string "$label" || return
+		
+		defaults write com.dymo.dls LastAddressBookDirectory -string "$addressBook" || return
+		defaults write com.dymo.dls LastLabelsDirectory -string "$label" || return
+		defaults write com.dymo.dls LastSavedFile -string "" || return
+
+		defaults write com.dymo.dls DefaultReturnAddress -string "John Butare\\n9204 Hagerman Ave., NE\\nAlbuquerque,NM 87109" || return
+
+	elif IsPlatform win; then	
 		mergeDir "$pp/DYMO" "$ao" || return
 		$rm "$pd/DYMO Connect.lnk" || return
 
@@ -3123,7 +3187,7 @@ icue() { CorsairUtilityEngine; };
 CorsairUtilityEngine()
 {
 	printf "**************************************************\n* Corsair Utility Engine (CUE)\n**************************************************\n"
-	run "hardware/Corsair/Utility Engine/iCUESetup_3.28.75_release.msi" || return # https://www.corsair.com/us/en/downloads
+	run "hardware/Corsair/Utility Engine/iCUESetup_3.30.89_release.msi" || return # https://www.corsair.com/us/en/downloads
 
 	$mv "$pd/iCUE.lnk" "$pp/Operating System" || return
 	$rmd "$psm/Corsair" || return
@@ -4024,15 +4088,26 @@ iTerm()
 	printf "**************************************************\n* iTerm\n**************************************************\n"
 	
 	# https://iterm2.com/downloads.html
-	run "macOS/iTerm2/iTerm2-3_3_10.zip" || return
+	run "macOS/iTerm2/iTerm2-3_3_11.zip" || return
 
 	if ask "Do you want to install iTerm shell integration"; then # https://iterm2.com/documentation-shell-integration.html
 		curl -L https://iterm2.com/shell_integration/install_shell_integration_and_utilities.sh | bash
 	fi
 
+	dockutil --add "/Applications/iTerm.app" --after "Notion" || return
+
 	echo "- Preferences, General, Preferences, check Load preferences from a custom folder or URL=<paste>"
 	clipw "$udata/profile/default" || return
 	MacAppOpen iTerm || return
+}
+
+macDock()
+{
+	dockutil --move "Messages" --after "Safari" || return
+	dockutil --move "Spark" --after "Messages" || return
+	dockutil --move "Firefox" --after "Spark" || return
+	dockutil --move "Notion" --after "Firefox" || return
+	dockutil --move "iTerm" --after "Notion" || return
 }
 
 apptivate()
@@ -4326,7 +4401,9 @@ ZoomInstall()
 	# https://zoom.us/support/download
 	run "Zoom/" -p "ZoomInstallerFull.msi" "ZoomInstallOnly.pkg" --pause || return
 
-	if IsPlatform win; then
+	if IsPlatform mac; then
+		mergeDir "$udoc/Zoom" "$udata/app" || return
+	elif IsPlatform win; then
 		mergeDir "$pp/Zoom" "$pp/Applications/Other" || return
 		$rm "$pd/Zoom.lnk" || return
 		$rm "$ud/Zoom.lnk" || return
