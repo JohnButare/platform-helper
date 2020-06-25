@@ -78,7 +78,12 @@ IsWindowsProgram()
 }
 
 # Windows process elevation (use Administrator token) 
-elevate() { IsElevated && "$@" || start --elevate "$@"; }
+elevate()
+{
+	IsElevated && { "$@"; return; }
+	[[ "$#" == "0" ]] && { start --elevate RunScript RunInDir "$PWD"; return; }
+	start --elevate "$@"
+}
 
 IsElevated() # return true if the user has an Admministrator token
 { 
