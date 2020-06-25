@@ -811,6 +811,9 @@ start()
 	# start non-executable files
 	! IsExecutable "$file" && { start $open "$file" "${args[@]}"; return; }
 	
+	# start Mac application
+	[[ "$file" =~ \.app$ ]] && { open -a "$file" --args "${args[@]}"; return; }
+
 	# start Windows processes, or start a process on Windows elevated
 	if IsPlatform win && ( [[ $elevate ]] || IsWindowsProgram "$file" ) ; then
 		local fullFile="$(GetFullPath "$file")"

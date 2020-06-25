@@ -1,43 +1,7 @@
 #!/usr/bin/env bash
 . app.sh || exit
 
-usage()
-{
-	echot "\
-usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
-	Profile services for batch files
-	save|restore [profile](default)
-	-a|--app NAME					name of the application
-	-f|--files FILE...		for directory profiles, file patterns in the profile
-	-g|--global 					use the global profile in install/bootstrap/profile
-	-m|--method	<dir>|<program>|<key>
-	-se|--save-extension  for program profiles, the profile extension used by the program"
-	exit $1 
-}
-
-args()
-{
-	unset app files global method profile saveExtension
-	while (( $# != 0 )); do
-		case "$1" in
-			-a|--app) app="$2"; shift;;
-			-f|--files) files="$2"; shift;;
-			-g|--global) global="--global";;
-			-m|--method) method="$2"; shift;;
-			-se|--save-extension) saveExtension="$2"; shift;;
-			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
-			CopyGlobal) command="CopyGlobal";; SaveDir) command="SaveDir";;
-			*)
-				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				! IsOption "$1" && [[ ! $profile &&  "${command}" == @(save|restore) ]] && { profile="$1"; shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	[[ ! $command ]] && command='dir'
-	[[ ! $app ]] && MissingOperand "app"
-	args=("$@")
-}
+run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 
 init()
 {
@@ -78,7 +42,48 @@ init()
 	return 0
 }
 
-run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
+usage()
+{
+	echot "\
+usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
+	Profile services for batch files
+	save|restore [profile](default)
+	-a|--app NAME					name of the application
+	-f|--files FILE...		for directory profiles, file patterns in the profile
+	-g|--global 					use the global profile in install/bootstrap/profile
+	-m|--method	<dir>|<program>|<key>
+	-se|--save-extension  for program profiles, the profile extension used by the program"
+	exit $1 
+}
+
+args()
+{
+	unset app files global method profile saveExtension
+
+	while (( $# != 0 )); do
+		case "$1" in
+			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			-a|--app) app="$2"; shift;;
+			-f|--files) files="$2"; shift;;
+			-g|--global) global="--global";;
+			-m|--method) method="$2"; shift;;
+			-se|--save-extension) saveExtension="$2"; shift;;
+			CopyGlobal) command="copyGlobal";; SaveDir) command="saveDir";;
+			*)
+				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				! IsOption "$1" && [[ ! $profile &&  "${command}" == @(save|restore) ]] && { profile="$1"; shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+	[[ ! $command ]] && command='dir'
+	[[ ! $app ]] && MissingOperand "app"
+	args=("$@")
+}
+
+#
+# Commands
+#
 
 CopyGlobalCommand()
 {
@@ -88,12 +93,6 @@ CopyGlobalCommand()
 	cp "$userProfile" "$globalProfile" || return
 }
 
-findGlobalProfile()
-{
-	 globalProfileSaveDir="$(FindInstallFile "profile")" || return
-	 globalProfile="$globalProfileSaveDir/$app Profile.$saveExtension"
-}
-
 dirCommand()
 {
 	case "$method" in
@@ -101,80 +100,6 @@ dirCommand()
 		program) start "$profileProgram";;
 		registry) registry edit "$profileKey";;
 	esac
-}
-
-SaveDirCommand()
-{
-	if [[ $global ]]; then
-		findGlobalProfile || return
-		echo "$globalProfileSaveDir"
-	elif [[ -d "$appProfileSaveDir" ]]; then
-		echo "$appProfileSaveDir"
-	elif [[ -d "$profileSaveDir" ]]; then
-		echo "$profileSaveDir"		
-	else
-		echo "The profile save directory $UDATA/profile does not exist"
-	fi
-}
-
-saveCommand()
-{
-	local src="$profileDir" dest="$appProfileSaveDir" file status
-
-	if [[ $profile ]]; then
-		file="$profile.$saveExtension"
-	else
-		file="${HOSTNAME,,} $app Profile $(GetTimeStamp).$saveExtension"
-	fi
-
-	${G}mkdir --parents "$dest" || return
-
-	# save specified files to a zip file
-	if [[ "$method" ==  "file" && -d "$src" ]]; then
-		printf 'Backing up to "%s"...\n' "$file"
-		pushd "$src" > /dev/null || return
-		zip -r "$dest/$file" $files -x "*.*_sync.txt*"
-		status="$?"
-		popd > /dev/null || return
-		[[ "$status" != "0" ]] && return "$status"
-
-	# save using the specified import/export program		
-	elif [[ "$method" == "program" ]]; then
-		clipw "$(utw "$dest/$file")"
-		echo "Export the profile to the filename contained in the clipboard"
-		ask "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
-		pause
-		
-	# save the registry
-	elif [[ "$method" == "registry" ]]; then
-		printf 'Backing up to "%s"...' "$file"
-		registry export "$profileKey" "$dest/$file" || return
-		echo "done"
-		
-	fi
-		
-	# Copy the default profile to the replicate directory
-	if [[ "$file" == "default.$saveExtension" && -f "$dest/$file" ]]; then
-		if [[ $global ]]; then
-			findGlobalProfile || return
-			copyDefaultProfile "$dest/$file" "$globalProfile" || return
-		else
-			copyDefaultProfile "$dest/$file" "$userProfile" || return
-		fi
-	fi
-
-}
-
-copyDefaultProfile()
-{
-	local src="$1" dest="$2" destDir
-
-	GetFilePath "$dest" destDir || return
-	[[ ! -d "$destDir" ]] && { ${G}mkdir --parents "$destDir" || return; }
-
-	printf "Copying profile to $destDir..."
-	cp "$src" "$dest" || return
-	echo "done"
 }
 
 restoreCommand()
@@ -219,6 +144,91 @@ restoreCommand()
 	echo "$app profile \"$filename\" has been restored"
 
 	return 0
+}
+
+saveCommand()
+{
+	local src="$profileDir" dest="$appProfileSaveDir" file status
+
+	if [[ $profile ]]; then
+		file="$profile.$saveExtension"
+	else
+		file="$(ProperCase "$(RemoveDnsSuffix "$HOSTNAME")") $app Profile $(GetTimeStamp).$saveExtension"
+	fi
+
+	${G}mkdir --parents "$dest" || return
+
+	# save specified files to a zip file
+	if [[ "$method" ==  "file" && -d "$src" ]]; then
+		printf 'Backing up to "%s"...\n' "$file"
+		
+		pushd "$src" > /dev/null || return
+		zip -r "$dest/$file" $files -x "*.*_sync.txt*"
+		status="$?"
+		popd > /dev/null || return
+		[[ "$status" != "0" ]] && return "$status"
+
+	# save using the specified import/export program		
+	elif [[ "$method" == "program" ]]; then
+		clipw "$(utw "$dest/$file")"
+		echo "Export the profile to the filename contained in the clipboard"
+		ask "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
+		pause
+		
+	# save the registry
+	elif [[ "$method" == "registry" ]]; then
+		printf 'Backing up to "%s"...' "$file"
+		registry export "$profileKey" "$dest/$file" || return
+		echo "done"
+		
+	fi
+		
+	# Copy the default profile to the replicate directory
+	if [[ "$file" == "default.$saveExtension" && -f "$dest/$file" ]]; then
+		if [[ $global ]]; then
+			findGlobalProfile || return
+			copyDefaultProfile "$dest/$file" "$globalProfile" || return
+		else
+			copyDefaultProfile "$dest/$file" "$userProfile" || return
+		fi
+	fi
+
+}
+
+saveDirCommand()
+{
+	if [[ $global ]]; then
+		findGlobalProfile || return
+		echo "$globalProfileSaveDir"
+	elif [[ -d "$appProfileSaveDir" ]]; then
+		echo "$appProfileSaveDir"
+	elif [[ -d "$profileSaveDir" ]]; then
+		echo "$profileSaveDir"		
+	else
+		echo "The profile save directory $UDATA/profile does not exist"
+	fi
+}
+
+#
+# helper
+#
+
+copyDefaultProfile()
+{
+	local src="$1" dest="$2" destDir
+
+	GetFilePath "$dest" destDir || return
+	[[ ! -d "$destDir" ]] && { ${G}mkdir --parents "$destDir" || return; }
+
+	printf "Copying profile to $destDir..."
+	cp "$src" "$dest" || return
+	echo "done"
+}
+
+findGlobalProfile()
+{
+	 globalProfileSaveDir="$(FindInstallFile "profile")" || return
+	 globalProfile="$globalProfileSaveDir/$app Profile.$saveExtension"
 }
 
 run "$@"
