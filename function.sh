@@ -795,6 +795,9 @@ start()
 	elif IsPlatform win; then open="cmd.exe /c start \"no title\" /b"
 	elif InPath xdg-open; then open="xdg-open"; fi
 
+	# start Mac application
+	[[ "$file" =~ \.app$ ]] && { open -a "$file" --args "${args[@]}"; return; }
+
 	# start directories and URL's
 	( [[ -d "$file" ]] || IsUrl "$file" ) && { start $open "$file"; return; }
 
@@ -810,9 +813,6 @@ start()
 
 	# start non-executable files
 	! IsExecutable "$file" && { start $open "$file" "${args[@]}"; return; }
-	
-	# start Mac application
-	[[ "$file" =~ \.app$ ]] && { open -a "$file" --args "${args[@]}"; return; }
 
 	# start Windows processes, or start a process on Windows elevated
 	if IsPlatform win && ( [[ $elevate ]] || IsWindowsProgram "$file" ) ; then
