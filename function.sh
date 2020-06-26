@@ -110,13 +110,33 @@ store()
 #
 
 clear() { echo -en $'\e[H\e[2J'; }
-pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
+pause() { local response m="${@:-Press any key when ready...}"; ReadChars "" "" "$m"; }
+
+# ReadChars N [SECONDS] [MESSAGE] - silently read N characters into the response variable optionally waiting SECONDS
+# - mask the differences between the read commands in bash and zsh
+ReadChars() 
+{ 
+	local result n="${1:-1}" t m="$3"; [[ $2 ]] && t=( -t $2 ) # must be an array in zsh
+
+	[[ $m ]] && printf "$m"
+
+	if [[ $ZSH_NAME ]]; then # single line statement fails in zsh
+		read -s -k $n ${t[@]} "response"
+	else
+		read -n $n -s ${t[@]} response
+	fi
+	result="$?"
+
+	[[ ! $ZSH_NAME && $m ]] && echo
+
+	return "$result"
+}
 
 SleepStatus() # SleepStatus SECONDS
 {
 	printf "Waiting for $1 seconds..."
 	for (( i=1; i<=$1; ++i )); do
- 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
+ 		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
 		printf "."
 	done
 
