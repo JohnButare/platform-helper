@@ -624,6 +624,8 @@ packages() # install list of packages, assuming each is in the path
 # Platform
 # 
 
+PlatformDescription() { echo "$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"; }
+
 # IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
 function IsPlatform()
 {
@@ -693,6 +695,7 @@ IsDesktop()
 }
 
 IsServer() { ! IsDesktop; }
+
 #
 # Process
 #

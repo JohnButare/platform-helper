@@ -141,7 +141,7 @@ versionMac()
 
 versionDebian()
 {
-	local platform="$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"
+	local platform="$(PlatformDescription)"
 
 	if ! InPath lsb_release; then
 		echo "$platform"
