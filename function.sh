@@ -167,8 +167,10 @@ ShowArrayDetail() { declare -p "$1"; }
 ShowArrayKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ShowArray keys; }
 StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
 
-# IsInArray [-w|--wild] [-aw|--awild] STRING ARRAY_VAR - return 0 if string is in the
-# array and set isInIndex , handles sparse arrays, the contents or the array can contain wild cards
+# IsInArray [-w|--wild] [-aw|--awild] STRING ARRAY_VAR
+# - return 0 if string is in the array and set isInIndex to the index of the returned element.
+# - handles sparse arrays
+# - the contents or the array can contain wild cards
 IsInArray() 
 { 
 	local wild; [[ "$1" == @(-w|--wild) ]] && { wild="true"; shift; }
@@ -177,6 +179,7 @@ IsInArray()
 
 	for isInIndex in "${indexes[@]}"; do
 		local getValue="$2[$isInIndex]"; local value="${!getValue}"
+
 		if [[ $wild ]]; then [[ "$value" == $s ]] && return 0;
 		elif [[ $awild ]]; then [[ "$s" == $value ]] && return 0;
 		else [[ "$s" == "$value" ]] && return 0; fi
