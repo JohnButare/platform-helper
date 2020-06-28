@@ -115,14 +115,4 @@ RunScriptElevated() # run a scripts elevated that has quoted arguments
 	return "$scriptResult"
 }
 
-
-#
-# Window
-#
-
-WinActivate() { start cmdow "$1" /res /act; }
-WinClose() { start cmdow "$1" /cls; }
-WinMin() { start cmdow "$1" /min; }
-WinList() { start cmdow /f; }
-
 return 0

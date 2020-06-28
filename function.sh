@@ -1091,16 +1091,18 @@ VmHostCache()
 
 IsXServerRunning() { xprop -root >& /dev/null; }
 RestartGui() { IsPlatform win && { RestartExplorer; return; }; IsPlatform mac && { RestartDock; return; }; }
-SendKeys() { IsPlatform win && AutoItScript SendKeys "${@}"; } # SendKeys [TITLE|class CLASS] KEYS
-WinInfo() { IsPlatform win && start Au3Info; }
 
-WinSetState() # TITLE --restore|-r --maximize|-max --minimize|-min hide|-h --unhide|-uh
+WinInfo() { IsPlatform win && start Au3Info; } # Windows Information
+WinList() { ! IsPlatform win && return; start cmdow /f | RemoveCarriageReturn; }
+
+WinSetState() # TITLE --activate|-a --close|-c --restore|-r --maximize|-max --minimize|-min hide|-h --unhide|-uh
 {
 	local title="$1" state="$2" args
 	! IsPlatform win && return
 
 	case "$state" in
-		--restore|-r) args="/res";; --maximize|-max) args="/max";; --minimize|-min) args="/min";; --hide|-h) args="/hid";; --unhide|-uh) args="/vis";;
+		--activate|-a) args="/res /act";; --close|-c) args="/cls";; --restore|-r) args="/res /act";;
+		--maximize|-max) args="/res /act /max";; --minimize|-min) args="/min";; --hide|-h) args="/hid";; --unhide|-uh) args="/vis";;
 	esac
 
 	cmdow.exe "$1" $args
