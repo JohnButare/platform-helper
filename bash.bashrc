@@ -136,7 +136,7 @@ kill -SIGWINCH $$	>& /dev/null 	# ensure LINES and COLUMNS is set for a new term
 # paths
 #
 
-ManPathAdd "$DATA/man"
+ManPathAdd "/usr/local/man" "$DATA/man"
 
 case "$PLATFORM" in 
 	"mac") PathAdd front "/usr/local/bin";; # use brew utilities before system utilities
