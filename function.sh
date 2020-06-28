@@ -595,31 +595,31 @@ HasPackageManger() { IsPlatform debian,mac,dsm,qnap,cygwin; }
 
 package() 
 { 
-	IsPlatform debian && { sudo apt install -y "$@"; return; }
-	IsPlatform mac && { brew install "$@"; return; }
-
 	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
+	IsPlatform debian && { sudo apt install -y "$@"; return; }
 	IsPlatform dsm && { sudo ipkg install "$@"; return; }
+	IsPlatform mac && { brew install "$@"; return; }
 	IsPlatform qnap && { sudo opkg install "$@"; return; }
+	return 0
 }
 
 packageu() # package uninstall
 { 
-	IsPlatform debian && { sudo apt remove -y "$@"; return; }
-	IsPlatform mac && { brew remove "$@"; return; }	
-
 	IsPlatform cygwin && { apt-cyg remove -y "$@"; return; }
+	IsPlatform debian && { sudo apt remove -y "$@"; return; }
 	IsPlatform dsm && { sudo ipkg uninstall "$@"; return; }
+	IsPlatform mac && { brew remove "$@"; return; }	
 	IsPlatform qnap && { sudo opkg remove "$@"; return; }
+	return 0
 }
 
 packagel() # package list
 { 
 	IsPlatform debian && { apt-cache search  "$@"; return; }
-	IsPlatform mac && { brew search "$@"; return; }	
-
 	IsPlatform dsm && { sudo ipkg list "$@"; return; }
+	IsPlatform mac && { brew search "$@"; return; }	
 	IsPlatform qnap && { opkg list "$@"; return; }
+	return 0
 }
 
 PackageExist() 
@@ -627,6 +627,7 @@ PackageExist()
 	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
 	IsPlatform mac && { brew search "/^$@$/" | egrep -v "No formula or cask found for" >& /dev/null; return; }	
 	IsPlatform dsm,qnap && { [[ "$(packagel "$1")" ]]; return; }
+	return 0
 }
 
 packages() # install list of packages, assuming each is in the path
@@ -637,6 +638,14 @@ packages() # install list of packages, assuming each is in the path
 		! InPath "$p" && { package "$p" || return; }
 	done
 
+	return 0
+}
+
+PackageUpdate()
+{
+	IsPlatform debian && { sudo apt update || return; sudo apt dist-upgrade -y; return; }
+	IsPlatform mac && { brew update || return; brew upgrade; return; }
+	IsPlatform qnap && { sudo opkg update || return; sudo opkg upgade; return; }
 	return 0
 }
 
