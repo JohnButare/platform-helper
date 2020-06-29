@@ -128,7 +128,6 @@ set +a
 # configuration
 # 
 
-shopt -s nocasematch
 export LINES COLUMNS 						# make available for dialogs in executable scripts
 kill -SIGWINCH $$	>& /dev/null 	# ensure LINES and COLUMNS is set for a new termnal before it is resized
 

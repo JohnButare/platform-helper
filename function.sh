@@ -1,5 +1,10 @@
 # function.sh: common functions for non-interactive scripts
-shopt -s nocasematch extglob 
+
+IsBash() { [[ $BASH_VERSION ]]; }
+IsZsh() { [[ $ZSH_VERSION ]]; }
+
+IsBash && { shopt -s nocasematch extglob;  PLATFORM_SHELL="bash"; whence() { type "$@"; }; }
+IsZsh && { setopt GLOB_SUBST KSH_GLOB EXTENDED_GLOB ; PLATFORM_SHELL="zsh"; }
 
 [[ ! $BIN ]] && { BASHRC="${BASH_SOURCE[0]%/*}/bash.bashrc"; [[ -f "$BASHRC" ]] && . "$BASHRC"; }
 
@@ -118,7 +123,7 @@ ReadChars()
 { 
 	local result n="${1:-1}" t m="$3"; [[ $2 ]] && t=( -t $2 ) # must be an array in zsh
 
-	[[ $m ]] && printf "$m"
+	[[ $m ]] && printf "%s" "$m"
 
 	if [[ $ZSH_NAME ]]; then # single line statement fails in zsh
 		read -s -k $n ${t[@]} "response"
@@ -127,7 +132,7 @@ ReadChars()
 	fi
 	result="$?"
 
-	[[ ! $ZSH_NAME && $m ]] && echo
+	[[ $m ]] && echo
 
 	return "$result"
 }
@@ -159,27 +164,53 @@ printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf
 
 # array
 CopyArray() { local ca; GetArrayDefinition "$1" ca; eval "$2=$ca"; }
-DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${!get}")} # DelimitArray DELIMITER ARRAY_VAR
 GetArrayDefinition() { local gad="$(declare -p $1)"; gad="(${gad#*\(}"; r "${gad%\'}" $2; }
-IsArray() {  [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
-ShowArray() { local var array="$1[@]"; printf -v var ' "%s"' "${!array}"; echo "${var:1}"; }
 ShowArrayDetail() { declare -p "$1"; }
-ShowArrayKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ShowArray keys; }
-StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
+
+if IsBash; then
+	DelimitArray() { local -n delimitArray="$2"; IFS=$1; echo "${delimitArray[*]}"; } # DelimitArray DELIMITER ARRAY_VAR
+	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
+	ShowArray() { local result; local -n showArray="$1"; printf -v result ' "%s"' "${showArray[@]}"; printf "%s\n" "${result:1}"; }
+	ShowArrayKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ShowArray keys; }
+	StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
+
+	RemoveFromArray() # VALUE ARRAY_VAR
+	{
+		local i value="$1"; local -n removeFromArray="$2"; 
+
+		for i in "${!removeFromArray[@]}"; do
+			[[ "${removeFromArray[$i]}" == "$value" ]] && unset removeFromArray[$i]
+		done
+	}
+
+else
+	DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${(P)get}")} # DelimitArray DELIMITER ARRAY_VAR
+	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "array" ]]; }
+	ShowArray() { local var showArray="$1"; printf -v var ' "%s"' "${${(P)showArray}[@]}"; printf "%s\n" "${var:1}"; }
+	ShowArrayKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ShowArray getKeys; }
+	StringToArray() { IFS=$2 read -A $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
+
+	RemoveFromArray() # VALUE ARRAY_VAR - remove all values from an array
+	{
+		local i value="$1" removeFromArray="$2"; 
+
+		for (( i=1; i<=${#${(P)removeFromArray}}; i++ )) do
+			[[ "${${(P)removeFromArray}[$i]}" == "$value" ]] && eval $removeFromArray'['$i']=()'
+		done
+	}
+
+fi
 
 # IsInArray [-w|--wild] [-aw|--awild] STRING ARRAY_VAR
-# - return 0 if string is in the array and set isInIndex to the index of the returned element.
-# - handles sparse arrays
-# - the contents or the array can contain wild cards
 IsInArray() 
 { 
-	local wild; [[ "$1" == @(-w|--wild) ]] && { wild="true"; shift; }
-	local awild; [[ "$1" == @(-aw|--array-wild) ]] && { awild="true"; shift; }
-	local s="$1" getIndexes="!$2[@]"; eval local indexes="( \${$getIndexes} )"
+	local wild; [[ "$1" == @(-w|--wild) ]] && { wild="true"; shift; }						# value contain glob patterns
+	local awild; [[ "$1" == @(-aw|--array-wild) ]] && { awild="true"; shift; }	# array contains glob patterns
+	local s="$1" a=() value
 
-	for isInIndex in "${indexes[@]}"; do
-		local getValue="$2[$isInIndex]"; local value="${!getValue}"
-
+	IsBash && { local -n isInArray="$2"; a=( "${isInArray[@]}" ); } || { isInArray="$2"; a=( "${${(P)isInArray}[@]}" ); }
+	
+	for value in "${a[@]}"; do
 		if [[ $wild ]]; then [[ "$value" == $s ]] && return 0;
 		elif [[ $awild ]]; then [[ "$s" == $value ]] && return 0;
 		else [[ "$s" == "$value" ]] && return 0; fi
@@ -206,7 +237,7 @@ HexToDecimal() { echo "$((16#${1#0x}))"; }
 
 # string
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
-IsWild() { [[ "$1" =~ .*\*|\?.* ]]; }
+IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
 QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces
 RemoveCarriageReturn()  { sed 's/\r//g'; }
@@ -261,11 +292,18 @@ GetDriveLabel()
 
 FindInPath()
 {
-	local file="$1"
+	local file="$1" 
 
 	[[ -f "$file" ]] && { echo "$file"; return; }
-	type -P "${file}" && return
-	IsPlatform wsl && { type -P "${file}.exe" && return; }
+
+	if [[ $ZSH ]]; then
+		whence -p "${file}" && return
+		IsPlatform wsl && { whence -p "${file}.exe" && return; }
+	else
+		type -P "${file}" && return
+		IsPlatform wsl && { type -P "${file}.exe" && return; }
+	fi
+
 	return 1
 }
 
@@ -318,6 +356,7 @@ utw() # UnixToWin
 	wslpath -w "$file"
 
 	[[ $clean ]] && { rm "$@" || return; }
+	return 0
 } 
 
 utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
@@ -359,8 +398,7 @@ CopyDir()
 	# preserve metadata
 	o+=(--links --perms --times --group --owner)
 
-	# Windows requires sudo ppermissions to preserve metadata
-	IsPlatform win && sudo="sudoc"
+	IsPlatform win && sudo="sudoc" # required to preserve metadata in Windows
 	
 	# arguments
 	for arg in "$@"; do
@@ -440,7 +478,7 @@ CpProgress()
 		[[ "$1" == @(-s|--size) ]] && { size="$2"; shift; shift; continue; }
 		! IsOption "$1" && [[ ! $src ]] && { src="$1"; shift; continue; }
 		! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
-		EchoErr "CopyFile: unknown option `$1`"; return 1;
+		EchoErr "CopyFile: unrecognized option `$1`"; return 1;
 	done
 
 	[[ ! -f "$src" ]] && { EchoErr "CopyFile: cannot access \`$src\`: No such file"; return 1; }
@@ -809,76 +847,85 @@ ProcessList() # PID,NAME - show operating system native process ID and executabl
 ProcessResource() { IsPlatform win && { start handle.exe "$@"; return; } || echo "Not Implemented"; }; alias handle='ProcessResource'
 
 # start a program converting file arguments for the platform as needed
+
+startUsage()
+{
+	echot "\
+Usage: start [OPTION]... FILE [ARGUMENTS]...
+	Start a program converting file arguments for the platform as needed
+
+	-e, --elevate 					run the program with an elevated administrator token (Windows)
+	-o, --open							open the the file using the associated program
+	-w, --wait							wait for the program to run before returning
+	-ws, --windows-style 		hidden|maximized|minimized|normal"
+}
+
 start() 
 {
-	[[ $1 == @(-h|--help) ]]	&& { echot "usage: start [-e|--elevate] [-w|--wait] [-ws|--windows-style hidden|maximized|minimized|normal] FILE ARGUMENTS
-	Start a program converting file arguments for the platform as needed"; return 1; }
+	local elevate file wait windowStyle
 
-	# file - executable (GUI|console)
-	local elevate; [[ "$1" == @(-e|--elevate) ]] && { ! IsElevated && elevate="--elevate"; shift; }
-	local wait; [[ "$1" == @(-w|--wait) ]] && { wait="--wait"; shift; }
-	local windowStyle; [[ "$1" == @(-ws|--window-style) ]] && { windowStyle="$1 $2"; shift 2; }
-	local file="$1" origFile="$1" args=( "${@:2}" )
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-e|--elevate) ! IsElevated && elevate="--elevate";;
+			-h|--help) startUsage; return 0;;
+			-w|--wait) wait="--wait";;
+			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle="$1 $2"; shift;;
+			*)
+				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; break; }
+				UnknownOption "$1" start; return
+		esac
+		shift
+	done
+	[[ ! "$file" ]] && { MissingOperand "file" "start"; return; }
 
-	# run bash if elevating and no file was specified
-	IsPlatform win && [[ ! $file ]] && file="wsl.exe"
+	local args=( "$@" ) fileOrig="$file"
 
-	# find open program
-	local open
-	if IsPlatform mac; then open="open"
-	elif IsPlatform cygwin; then open="cygstart"
-	elif IsPlatform win; then open="cmd.exe /c start \"no title\" /b"
-	elif InPath xdg-open; then open="xdg-open"; fi
+	# open file with the associated program
+	local open=()
+	if IsPlatform mac; then open=( open )
+	elif IsPlatform win; then open=( cmd.exe /c start \"open\" /b ) # must set title with quotes so quoted arguments are interpreted as file to start, test with start "/mnt/c/Program Files"
+	elif InPath xdg-open; then open=( xdg-open )
+	else open="NO_OPEN"; fi
 
 	# start Mac application
 	[[ "$file" =~ \.app$ ]] && { open -a "$file" --args "${args[@]}"; return; }
 
 	# start directories and URL's
-	( [[ -d "$file" ]] || IsUrl "$file" ) && { start $open "$file"; return; }
+	{ [[ -d "$file" ]] || IsUrl "$file"; } && { start "${open[@]}" "$file" "${args[@]}"; return; }
 
 	# verify the file	
 	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
-	[[ ! -f "$file" ]] && { EchoErr "Unable to find $origFile"; return 1; }
+	[[ ! -f "$file" ]] && { EchoErr "Unable to find $fileOrig"; return 1; }
 
 	# start files with a specific extention
 	case "$(GetFileExtension "$file")" in
-		cmd) start $open "$file" "${args[@]}"; return;;
+		cmd) start "${open[@]}" "$file" "${args[@]}"; return;;
 		js|vbs) start cscript.exe /NoLogo "$file" "${args[@]}"; return;;
 	esac
 
 	# start non-executable files
-	! IsExecutable "$file" && { start $open "$file" "${args[@]}"; return; }
+	! IsExecutable "$file" && { start "${open[@]}" "$file" "${args[@]}"; return; }
 
 	# start Windows processes, or start a process on Windows elevated
 	if IsPlatform win && ( [[ $elevate ]] || IsWindowsProgram "$file" ) ; then
 		local fullFile="$(GetFullPath "$file")"
 
-		# convert POSIX paths to Windows format (i.e. c:\...)
+		# convert POSIX paths to Windows format (i.e. c:\...)		
 		if IsWindowsProgram "$file"; then
-			for (( i=0 ; i < ${#args[@]} ; ++i )); do 
-				local a="${args[$i]}"	
-				[[  -e "$a" || ( ! "$a" =~ .*\\.* && "$a" =~ .*/.* && -e "$a" ) ]] && args[$i]="$(utw "$a")"			
-			done	
+			local a newArgs=()
+			for a in "${args[@]}"; do 
+				[[  -e "$a" || ( ! "$a" =~ .*\\.* && "$a" =~ .*/.* && -e "$a" ) ]] && { newArgs+=( "$(utw "$a")" ) || return; } || newArgs+=( "$a" )
+			done
+			args=("${newArgs[@]}")
 		fi
 
 		# start Windows console process
-		if [[ ! $elevate ]] && IsConsoleProgram "$file"; then
-			local path="$(GetFilePath "$fullFile")" file="./$(GetFileName "$fullFile")" result
-
-			# run from the current directory as some windows console programs will not start properly with a full path, test with $win/wincred.exe
-			pushd "$path" >& /dev/null
-			"$file" "${args[@]}"
-			result=$?
-			popd >& /dev/null; 
-
-			return $result
-		fi
+		[[ ! $elevate ]] && IsConsoleProgram "$file" && { "$fullFile" "${args[@]}"; return; }
 
 		# escape spaces for shell scripts so arguments are preserved when elevating - we must be elevating scripts here
 		if IsShellScript "$fullFile"; then	
-			for (( i=0 ; i < ${#args[@]} ; ++i )); do 
-				args[$i]="${args[$i]// /\\ }"
-			done	
+			IsBash && for (( i=0 ; i < ${#args[@]} ; ++i )); do args[$i]="${args[$i]// /\\ }"; done
+			IsZsh && for (( i=1 ; i <= ${#args[@]} ; ++i )); do args[$i]="${args[$i]// /\\ }"; done	
 		fi
 
 		# start indirectly with RunProcess, otherwise when this shell is exited this shell may hang and the init process will causes high cpu
@@ -905,30 +952,30 @@ start()
 	fi
 } 
 
-# sudo
-SudoPreserve="sudo --preserve-env=PATH"
-IsPlatform raspbian && SudoPreserve="sudo --preserve-env"
-IsPlatform mac && SudoPreserve="sudo"
+sudop() 
+{
+	local SUDO_ASKPASS; [[ "$1" == @(-cs|--credential-store) ]] && { shift; credential -q exists secure default && SUDO_ASKPASS="$BIN/SudoAskPass"; }
 
-sudop() # preserve the existing path (less secure)
-{ 
-	$SudoPreserve env "$@"
-} 
+}
 
-sudoa() # use the SUDO_ASKPASS command to get the password if available and preserve the existing path
+unalias sudoc >& /dev/null;
+sudoc()  # use the credential store to get the password if available, --preserve|-p to preserve the existing path (less secure)
 { 
-	local askPass=""; [[ $SUDO_ASKPASS ]] && askPass="--askPass"
-	$SudoPreserve $askpass "$@";
-} 
+	local p=(sudo) preserve; [[ "$1" == @(-p|--preserve) ]] && { preserve="true"; shift; }
 
-sudoc()  # use the credential store to get the password if available and preserve the existing path
-{ 
+	if [[ $preserve ]]; then
+		if IsPlatform raspbian; then p+=( --preserve-env )
+		elif ! IsPlatform mac; then p+=( --preserve-env=PATH )
+		fi
+	fi
+
 	if credential -q exists secure default; then
-		SUDO_ASKPASS="$BIN/SudoAskPass" $SudoPreserve --askpass env "$@"; 
+		SUDO_ASKPASS="$BIN/SudoAskPass" "${p[@]}" --askpass "$@"; 
 	else
-		$SudoPreserve env "$@"; 
+		"${p[@]}" "$@"; 
 	fi
 } 
+IsZsh && alias sudoc="nocorrect sudoc" # prevent auto correction, i.e. sudoc ls
 
 #
 # Scripts
@@ -939,8 +986,8 @@ FilterShellScript() { egrep "shell script|bash.*script|Bourne-Again shell script
 IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
 IsOption() { [[ "$1" =~ ^-.* ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
-UnknownOption() {	EchoErr "$(ScriptName): unknown option \`$1\`"; EchoErr "Try \`$(ScriptName) --help\` for more information";	exit 1; }
-MissingOperand() { EchoErr "$(ScriptName): missing $1 operand"; exit 1; }
+UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unknown unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information";	[[ "$-" == *i* ]] && return 1 || exit 1; }
+MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; [[ "$-" == *i* ]] && return 1 || exit 1; }
 IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
 IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
 GetFunction() { declare -f | egrep -i "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
@@ -976,11 +1023,11 @@ CheckSubCommand()
 	exit 1
 } 
 
-ScriptName() { GetFileName "${BASH_SOURCE[-1]}"; }
-ScriptDir() { echo "${BASH_SOURCE[0]%/*}"; }
+ScriptName() { IsBash && GetFileName "${BASH_SOURCE[-1]}" || GetFileName "$ZSH_SCRIPT"; }
+ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
 
-ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned, does not work with aliases
-ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b", does not work with aliases
+ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
+ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b"
 
 ScriptReturn() # ScriptReturns [-s|--show] <var>...
 {
@@ -1047,23 +1094,23 @@ export EDITOR="$(GetTextEditor)"
 
 TextEdit()
 {
-	local file files=() p="" start="start"
+	local file files=() p=""
 	local wait; [[ "$1" == +(-w|--wait) ]] && { wait="--wait"; shift; }
-	local options; while IsOption "$1"; do options+=( "$1" ); shift; done
+	local options=(); while IsOption "$1"; do options+=( "$1" ); shift; done
 	local p="$(GetTextEditor)"; [[ ! $p ]] && { EchoErr "No text editor found"; return 1; }
 
 	for file in "$@"; do
 		[[ -e "$file" ]] && files+=( "$file" ) || EchoErr "$(GetFileName "$file") does not exist"
 	done
-	
+
 	# return if no files exist
 	[[ $# == 0 || "${#files[@]}" > 0 ]] || return 0
 
 	# edit the file
-	if [[ "$p" =~ nano|open.*|vi ]]; then
+	if [[ "$p" =~ (nano|open.*|vi) ]]; then
 		$p "${files[@]}"
 	else
-		$start $wait "${options[@]}" "$p" "${files[@]}"
+		start $wait "${options[@]}" "$p" "${files[@]}"
 	fi
 }
 
@@ -1095,20 +1142,77 @@ VmHostCache()
 IsXServerRunning() { xprop -root >& /dev/null; }
 RestartGui() { IsPlatform win && { RestartExplorer; return; }; IsPlatform mac && { RestartDock; return; }; }
 
-WinInfo() { IsPlatform win && start Au3Info; } # Windows Information
+WinInfo() { IsPlatform win && start Au3Info; } # get window information
 WinList() { ! IsPlatform win && return; start cmdow /f | RemoveCarriageReturn; }
 
-WinSetState() # TITLE --activate|-a --close|-c --restore|-r --maximize|-max --minimize|-min hide|-h --unhide|-uh
+InitializeXServer()
 {
-	local title="$1" state="$2" args
-	! IsPlatform win && return
+	[[ "$DISPLAY" || ! -f /usr/bin/xprop ]] && return
 
-	case "$state" in
-		--activate|-a) args="/res /act";; --close|-c) args="/cls";; --restore|-r) args="/res /act";;
-		--maximize|-max) args="/res /act /max";; --minimize|-min) args="/min";; --hide|-h) args="/hid";; --unhide|-uh) args="/vis";;
-	esac
+	if [[ "$WSL" == "2" ]]; then
+		export WSL_HOST="$(awk '/nameserver / {print $2; exit}' /etc/resolv.conf 2>/dev/null)"
+		export DISPLAY="${WSL_HOST}:0"
+		export LIBGL_ALWAYS_INDIRECT=1
+	else
+		export DISPLAY=:0
+	fi
 
-	cmdow.exe "$1" $args
+	return 0
+}
+
+WinSetStateUsage()
+{
+	echot "\
+Usage: WinSetState [OPTION](--activate) WIN
+	Set the state of the specified windows title or class
+
+	-a, --activate 					make the window active
+	-c, --close 						close the window gracefully
+
+	-max, --maximize				maximize the window
+	-min, --minimize				minimize the window
+
+	-h, --hide							hide the window (Windows)
+	-uh, --unhide						unhide the window (Windows)"
+}
+
+WinSetState()
+{
+	local wargs=( /res /act ) args=( -a ) title result
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-a|--activate) wargs=( /res /act ); args=( -a );;
+			-c|--close) wargs=( /res /act ); args=( -c );;
+			-max|--maximize) wargs=( /res /act /max ) args=( -a );;
+			-min|--minimize) wargs=( /min );;
+			-h|--hide) wargs=( /hid );;
+			-uh|--unhide) wargs=( /vis );;
+			-h|--help) winSetStateUsage; return 0;;
+			*)
+				if [[ ! $title ]]; then title="$1"
+				else UnknownOption "$1" "WinSetState"; return; fi
+		esac
+		shift
+	done
+
+	# X Windows - see if title matches a windows running on the X server
+	if [[ $DISPLAY ]] && InPath wmctrl; then
+		id="$(wmctrl -l -x | egrep -i "$title" | head -1 | cut -d" " -f1)"
+
+		if [[ $id ]]; then
+			[[ $args ]] && { wmctrl -i "${args[@]}" "$id"; return; }
+			return 0
+		fi
+	fi
+
+	# Windows - see if the title matches a windows running in Windows
+	if IsPlatform win; then
+		cmdow.exe "$title" "${wargs[@]}" >& /dev/null
+		return
+	fi
+
+	return 1
 }
 
 # platform specific functions
