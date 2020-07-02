@@ -53,6 +53,30 @@ FullName()
 	echo ${s:-$USER}; 
 }
 
+GetCurrentShell()
+{
+	local r
+
+	if InPath dscl; then 
+		echo "$(dscl . -read $HOME UserShell | cut -d" " -f2)"
+	elif [[ -f /etc/passwd ]]; then
+		echo "$(grep $USER /etc/passwd | cut -d: -f7)"
+	else
+		EchoErr "GetCurrentShell: cannot determine current shell"
+		return 1
+	fi
+}
+
+SetCurrentShell() # SetCurrentShell SHELL
+{
+	[[ ! $1 ]] && { MissingOperand "shell" "SetCurrentShell"; return; }
+	local shell="$(grep "$1" /etc/shells | tail -1)" # assume the last shell is the newest
+	[[ ! $shell ]] && { EchoErr "SetCurrentShell: $1 is not a valid default shell"; return 1; }
+
+	[[ "$(GetCurrentShell)" == "$shell" ]] && return 0
+	chsh -s "$shell" || return
+}
+
 #
 # Applications
 #
