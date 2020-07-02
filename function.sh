@@ -1188,7 +1188,7 @@ WinSetState()
 			-min|--minimize) wargs=( /min );;
 			-h|--hide) wargs=( /hid );;
 			-uh|--unhide) wargs=( /vis );;
-			-h|--help) winSetStateUsage; return 0;;
+			-h|--help) WinSetStateUsage; return 0;;
 			*)
 				if [[ ! $title ]]; then title="$1"
 				else UnknownOption "$1" "WinSetState"; return; fi
