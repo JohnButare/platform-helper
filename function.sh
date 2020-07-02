@@ -20,9 +20,9 @@ r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VA
 clipw() 
 { 
 	case "$PLATFORM" in 
-		linux) { [[ "$DISPLAY" ]] && InPath xclip; } && { echo -n "$@" | xclip -sel clip; };;
-		mac) echo -n "$@" | pbcopy;; 
-		win) ( cd /; echo -n "$@" | clip.exe );; # cd / to fix WSL 2 error running from network share
+		linux) { [[ "$DISPLAY" ]] && InPath xclip; } && { printf "%s" "$@" | xclip -sel clip; };;
+		mac) printf "%s" "$@" | pbcopy;; 
+		win) ( cd /; printf "%s" "$@" | clip.exe );; # cd / to fix WSL 2 error running from network share
 	esac
 }
 
