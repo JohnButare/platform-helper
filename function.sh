@@ -893,7 +893,7 @@ start()
 			-e|--elevate) ! IsElevated && elevate="--elevate";;
 			-h|--help) startUsage; return 0;;
 			-w|--wait) wait="--wait";;
-			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle="$1 $2"; shift;;
+			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "$1" "$2" ); shift;;
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; break; }
 				UnknownOption "$1" start; return
@@ -952,15 +952,12 @@ start()
 			IsZsh && for (( i=1 ; i <= ${#args[@]} ; ++i )); do args[$i]="${args[$i]// /\\ }"; done	
 		fi
 
-		# start indirectly with RunProcess, otherwise when this shell is exited this shell may hang and the init process will causes high cpu
-		pushd "$DATA/platform/win" >& /dev/null	
 		if IsShellScript "$fullFile"; then			
-			./RunProcess.exe $wait $elevate $windowStyle wsl.exe --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
+			RunProcess.exe $wait $elevate "${windowStyle[@]}" wsl.exe --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
 		else
-			./RunProcess.exe $wait $elevate $windowStyle "$(utw "$fullFile")" "${args[@]}"
+			RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
 		fi
 		result=$?
-		popd >& /dev/null; 
 
 		return $result
 	fi
