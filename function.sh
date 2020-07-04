@@ -1183,6 +1183,8 @@ InitializeXServer()
 		export WSL_HOST="$(awk '/nameserver / {print $2; exit}' /etc/resolv.conf 2>/dev/null)"
 		export DISPLAY="${WSL_HOST}:0"
 		export LIBGL_ALWAYS_INDIRECT=1
+	elif [[ $SSH_CONNECTION ]]; then
+		export DISPLAY="$(GetWord "$SSH_CONNECTION" 1):0"
 	else
 		export DISPLAY=:0
 	fi
