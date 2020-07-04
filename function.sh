@@ -273,12 +273,20 @@ ForwardToBackSlash() { echo "${@////\\}"; }
 QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 RemoveBackslash() { echo "${@//\\/}"; }
 
-GetWord() 
-{ 
-	(( $# < 2 || $# > 3 )) && { EchoErr "usage: GetWord STRING WORD [DELIMITER]"; return 1; }
-	local word=$(( $2 + 1 )); IFS=${3:- }; set -- $1; 
-	(( $# >= word )) && echo "${!word}" || return 1; 
-}
+if IsZsh; then
+	GetWord() 
+	{ 
+		(( $# < 2 || $# > 3 )) && { EchoErr "usage: GetWord STRING WORD [DELIMITER] - 1 based"; return 1; }
+		local s="$1" delimiter="${3:- }" word="$2"; echo "${${(@ps/$delimiter/)s}[$word]}"
+	}
+else
+	GetWord() 
+	{ 
+		(( $# < 2 || $# > 3 )) && { EchoErr "usage: GetWord STRING WORD [DELIMITER] - 1 based"; return 1; }
+		local word=$(( $2 + 1 )); IFS=${3:- }; set -- $1; 
+		((word=word-1)); (( word < 1 || word > $# )) && echo "" || echo "${!word}"
+	}
+fi
 
 # time
 ShowTime() { ${G}date '+%F %T.%N %Z' -d "$1"; }
