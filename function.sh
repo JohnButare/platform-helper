@@ -776,8 +776,9 @@ function RunPlatform()
 	RunFunction $function $PLATFORM "$@" || return
 	RunFunction $function $PLATFORM_LIKE "$@" || return
 	RunFunction $function $PLATFORM_ID "$@" || return
-	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
 	IsPlatform cygwin && { RunFunction $function cygwin "$@" || return; }
+	IsPlatform debian,mac && { RunFunction $function macDebian "$@" || return; }
+	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
 	return 0
 }
 
