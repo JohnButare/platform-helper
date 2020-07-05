@@ -4,7 +4,7 @@ IsBash() { [[ $BASH_VERSION ]]; }
 IsZsh() { [[ $ZSH_VERSION ]]; }
 
 IsBash && { shopt -s nocasematch extglob;  PLATFORM_SHELL="bash"; whence() { type "$@"; }; }
-IsZsh && { setopt GLOB_SUBST KSH_GLOB EXTENDED_GLOB ; PLATFORM_SHELL="zsh"; }
+IsZsh && { setopt KSH_GLOB EXTENDED_GLOB; PLATFORM_SHELL="zsh"; }
 
 [[ ! $BIN ]] && { BASHRC="${BASH_SOURCE[0]%/*}/bash.bashrc"; [[ -f "$BASHRC" ]] && . "$BASHRC"; }
 
