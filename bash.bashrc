@@ -66,8 +66,8 @@ PathAdd() # PathAdd [front] DIR...
 
 	for f in "$@"; do 
 		[[ ! -d "$f" ]] && continue
-		[[ $front ]] && { PATH="$f:${PATH//:$f:/:}"; continue; }
-		[[ ! $PATH =~ (^|:)$f(:|$) ]] && PATH+=":$f"
+		[[ $front ]] && { PATH="$f:${PATH//:$f:/:}"; continue; } # force to front
+		[[ ! $PATH =~ (^|:)$f(:|$) ]] && PATH+=":$f" # add to back if not present
 	done
 }
 
@@ -144,7 +144,7 @@ case "$PLATFORM" in
 esac
 
 case "$PLATFORM_LIKE" in	
-	"qnap") PathAdd "/usr/local/sbin"; PathAdd "/usr/local/bin";;
+	"qnap") PathAdd front "/opt/sbin" "/opt/bin"; PathAdd "/usr/local/sbin" "/usr/local/bin" "/share/CACHEDEV1_DATA/.qpkg/container-station/bin";;
 esac
 
 PathAdd front "$PBIN" "$BIN"

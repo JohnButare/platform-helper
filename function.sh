@@ -53,11 +53,11 @@ FullName()
 	echo ${s:-$USER}; 
 }
 
-GetCurrentShell()
+GetLoginShell()
 {
 	local r
 
-	if InPath dscl; then 
+	if InPath dscl; then # mac
 		echo "$(dscl . -read $HOME UserShell | cut -d" " -f2)"
 	elif [[ -f /etc/passwd ]]; then
 		echo "$(grep $USER /etc/passwd | cut -d: -f7)"
@@ -67,14 +67,32 @@ GetCurrentShell()
 	fi
 }
 
-SetCurrentShell() # SetCurrentShell SHELL
+SetLoginShell() # SetCurrentShell SHELL
 {
-	[[ ! $1 ]] && { MissingOperand "shell" "SetCurrentShell"; return; }
-	local shell="$(grep "$1" /etc/shells | tail -1)" # assume the last shell is the newest
-	[[ ! $shell ]] && { EchoErr "SetCurrentShell: $1 is not a valid default shell"; return 1; }
+	local shell; shell="$(FindLoginShell "$1")" || return
 
-	[[ "$(GetCurrentShell)" == "$shell" ]] && return 0
-	chsh -s "$shell" || return
+	[[ "$(GetLoginShell)" == "$shell" ]] && return 0
+
+	if InPath chsh; then chsh -s "$shell"
+	elif InPath usermod; then sudo usermod --shell "$shell" $USER
+	else EchoErr "SetLoginShell: unable to change login shell to $1"
+	fi
+}
+
+FindLoginShell() # FindShell SHELL - find the path to a valid login shell
+{
+	local shell shells="/etc/shells"
+
+	[[ ! $1 ]] && { MissingOperand "shell" "FindLoginShell"; return; }
+
+	if [[ -f "$shells" ]]; then
+		shell="$(grep "/$1" /etc/shells | tail -1)" # assume the last shell is the newest
+	else
+		shell="$(which shell)" # no valid shell file, assume it is valid and search for it in the path
+	fi
+
+	[[ ! $shell ]] && { EchoErr "FindLoginShell: $1 is not a valid default shell"; return 1; }
+	echo "$shell"
 }
 
 #
