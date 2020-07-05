@@ -226,7 +226,7 @@ sshd()
 
 	if ! service running ssh; then
 		printf "sshd."
-		sudoc service start ssh >& /dev/null
+		sudoc "/usr/sbin/service" ssh start >& /dev/null
 		return 0
 	fi
 
