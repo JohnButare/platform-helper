@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bootstrap-init [USER](jjbutare) [HOST] - bootstrap a local system
+# bootstrap-init - bootstrap a local system
 
 run()
 {
@@ -8,25 +8,34 @@ run()
 	setupPackageManager || return
 	setTimezone || return
 	installPackages || return
+	configureOs || return
 	createUser || return
 	runAsUser || return
 	mountPublic || return
 	runBootstrap || return
 }
 
-runBootstrap()
-{
-	echo "Bootstraping from $host..."
-	export PATH=$bin:$PATH
-	$bash bootstrap "$host" "$install"
-}
-
 configureProxyServer()
 {
-	[[ ! $proxy || ! -d /etc/apt/apt.conf.d || -f "/etc/apt/apt.conf.d/proxy" ]] && return
+	[[ ! $proxy ]] && return
 
 	echo "Setting proxy server to $proxy..."
+	export {HTTP_PROXY,HTTPS_PROXY}="$proxy"
+
+	[[ ! -d /etc/apt/apt.conf.d || -f "/etc/apt/apt.conf.d/proxy" ]] && return
 	printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$proxy" "$proxy" | $sudo tee "/etc/apt/apt.conf.d/proxy"
+}
+
+setTimezone()
+{
+	# macOS bash 3.2 - cannot use |& to redirect standard error, must use 2>&1
+	( isMac || [[ ! $timezone ]] || cat "/etc/timezone" 2>&1 | grep "$timezone" > /dev/null ) && return
+
+	sudo DEBIAN_FRONTEND=noninteractive apt install -y tzdata || return
+	[[ ! -f "/usr/share/zoneinfo/$timezone" ]] && return
+	sudo ln -snf "/usr/share/zoneinfo/$timezone" "/etc/localtime" || return
+	echo "$timezone" | sudo tee "/etc/timezone" || return
+	sudo dpkg-reconfigure -f noninteractive tzdata || return
 }
 
 createUser()
@@ -51,29 +60,84 @@ runAsUser()
 	exit
 }
 
-setTimezone()
+runBootstrap()
 {
-	# macOS bash 3.2 - cannot use |& to redirect standard error, must use 2>&1
-	( isMac || [[ ! $timezone ]] || cat "/etc/timezone" 2>&1 | grep "$timezone" > /dev/null ) && return
-
-	sudo DEBIAN_FRONTEND=noninteractive apt install -y tzdata || return
-	[[ ! -f "/usr/share/zoneinfo/$timezone" ]] && return
-	sudo ln -snf "/usr/share/zoneinfo/$timezone" "/etc/localtime" || return
-	echo "$timezone" | sudo tee "/etc/timezone" || return
-	sudo dpkg-reconfigure -f noninteractive tzdata || return
+	echo "Bootstraping from $host..."
+	export PATH=$bin:$PATH
+	$bash bootstrap "$host" "$install"
 }
 
 #
-# Helper Functions
+# Configure OS
 #
 
-isMac() { [[ "$PLATFORM" == "mac" ]]; }
-isWin() { [[ "$PLATFORM" == "win" ]]; }
-inPath () { which "$1" &> /dev/null; }
-pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
+configureOs() { configure-$PLATFORM; }
+configure-debian() { : }
+
+configure-entware()
+{
+	if isQnap; then
+		mkdir /usr/etc/sudoers.d || return
+		echo "jjbutare ALL=(ALL) ALL" > /usr/etc/sudoers.d/jjbutare || return
+	fi
+	
+	echo "Change shell to /opt/bin/bash for all shells with /share/homes home directory..."
+	nano /etc/passwd 
+	pause
+}
+
+configure-mac()
+{
+	grep '/usr/local/bin/bash' /etc/shells >& /dev/null && return
+	echo -n "/usr/local/bin/bash" | pbcopy || return
+	sudo nano /etc/shells || return
+	chpass -s "/usr/local/bin/bash" || return 
+}
+
+configure-win()
+{
+	inPath apt && { apt update || return; } # fix "Could not find command-not-found database" in WSL
+	return
+}
 
 #
-# Mount
+# Initialize
+#
+
+init()
+{
+	initPlatform || return
+
+	. "${BASH_SOURCE[0]%/*}/bootstrap-config.sh" || return
+
+	bash=""; isMac && bash="/usr/local/bin/bash"
+	mount="$HOME/Volumes/public"; isMountedDrive && mount="$host/public"
+	bin="$mount/documents/data/bin"
+	install="$mount/Documents/data/install"
+	sudo="sudo"; ! inPath sudo && sudo=""
+
+	return 0
+}
+
+initPlatform()
+{
+		# PLATFORM=debian|entware|mac|win
+	PLATFORM=debian
+	[[ "$(uname)" == "Darwin" ]] && PLATFORM=mac
+	[[ $(uname -r)  =~ [Mm]icrosoft ]] && PLATFORM=win
+
+	# PLATFORM_LIKE=qnap|synology
+	[[ $(uname -r) =~ .*-qnap ]] && { PLATFORM="entware" PLATFORM_LIKE="qnap"; }
+	[[ -f /proc/syno_platform ]] && { PLATFORM="entware" PLATFORM_LIKE="synology"; }
+
+	# ID=ubuntu|raspian
+	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
+
+	return 0
+}
+
+#
+# Mount Public
 #
 
 mountPublic() 
@@ -94,6 +158,7 @@ mountPublic-debian()
 	echo mount.cifs "//$host/public" "$HOME/Volumes/public" -o user=$USER sec=ntlmsspi || return
 }
 
+mountPublic-entware() { mountPublic-debian; }
 mountPublic-mac() { mount_smbfs -s "smb://$USER@$host/public" "$mount" || return; }
 mountPublic-win() { sudo mount -t drvfs "//$host/public" "$HOME/Volumes/public"; }
 
@@ -114,56 +179,33 @@ installPackages()
 	which rsync >& /dev/null && return
 
 	installPackages-$PLATFORM || return
-	installPackages-common || return
+	! isEntware && { package expect || return; }
+	package dialog findutils gawk rsync || return
 }
 
-installPackages-common() { package dialog expect findutils gawk rsync; }
-
-installPackages-debian()
-{	
-	package ubuntu-standard cifs-utils iputils-ping net-tools openssh-server resolvconf xclip
-
-	# credential management - except for Raspberry Pi which is typically headless
-	if [[ "$ID" != "raspbian" ]]; then
-		sudo apt-get install -y gnome-keyring libsecret-tools || return
-	fi
-
-	return 0
-}
-
-installPackages-mac() 
-{
-	package bash coreutils dialog gnu-sed;
-
-	grep '/usr/local/bin/bash' /etc/shells >& /dev/null && return
-	echo -n "/usr/local/bin/bash" | pbcopy || return
-	sudo nano /etc/shells || return
-	chpass -s "/usr/local/bin/bash" || return 
-}
-
-installPackages-win() 
-{ 
-	package ubuntu-standard iputils-ping ubuntu-wsl || return
-	inPath apt && { apt update || return; } # fix "Could not find command-not-found database" in WSL
-}
+installPackages-debian() { package ubuntu-standard cifs-utils iputils-ping net-tools openssh-server resolvconf xclip; }
+installPackages-entware() { package bash coreutils coreutils-ln coreutils-readlink nano; }
+installPackages-mac() { package bash coreutils gnu-sed; }
+installPackages-win() { package ubuntu-standard iputils-ping ubuntu-wsl || return; }
 
 package()
 {
 	case $PLATFORM in
 		debian|win) sudo apt install -y "$@";;
 		mac) brew install "$@";;
+		qnap|snyology) opkg install "$@";;
 	esac
 }
 
 setupPackageManager() { setupPackageManager-$PLATFORM; }
+setupPackageManager-entware() { wget -O - "http://bin.entware.net/x64-k3.2/installer/generic.sh" | /bin/sh; }
+setupPackageManager-win() { setupPackageManager-debian; }
 
 setupPackageManager-mac()
 {
 	which brew >& /dev/null && return
 	/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
 }
-
-setupPackageManager-win() { setupPackageManager-debian; }
 
 setupPackageManager-debian()
 {
@@ -202,31 +244,16 @@ unminimizeDebianDoc() # from /usr/local/sbin/unminimize
 }
 
 #
-# other
+# helper
 #
 
+isEntware() { [[ "$PLATFORM" == "entware" ]]; }
 isMountedDrive() { [[ -d "$host/public" ]] || [[ "$host" =~ ^/mnt ]]; }
+isMac() { [[ "$PLATFORM" == "mac" ]]; }
+isWin() { [[ "$PLATFORM" == "win" ]]; }
+isQnap() { [[ "$PLATFORM_LIKE" == "qnap" ]]; }
 
-init()
-{
-	. "${BASH_SOURCE[0]%/*}/bootstrap-config.sh" || return
-
-	# PLATFORM=debian|mac|win
-	PLATFORM=debian
-	[[ "$(uname)" == "Darwin" ]] && PLATFORM=mac
-	[[ $(uname -r)  =~ [Mm]icrosoft ]] && PLATFORM=win
-
-	# ID=ubuntu|raspian
-	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
-
-	# variables
-	bash=""; isMac && bash="/usr/local/bin/bash"
-	mount="$HOME/Volumes/public"; isMountedDrive && mount="$host/public"
-	bin="$mount/documents/data/bin"
-	install="$mount/Documents/data/install"
-	sudo="sudo"; ! inPath sudo && sudo=""
-
-	return 0
-}
+inPath () { which "$1" &> /dev/null; }
+pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 
 run "$@"

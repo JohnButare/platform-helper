@@ -75,6 +75,7 @@ SetLoginShell() # SetCurrentShell SHELL
 
 	if InPath chsh; then chsh -s "$shell"
 	elif InPath usermod; then sudo usermod --shell "$shell" $USER
+	elif [[ -f /etc/passwd ]]; then { clipw "$shell"; sudo nano "/etc/passwd"; }
 	else EchoErr "SetLoginShell: unable to change login shell to $1"
 	fi
 }
@@ -688,9 +689,8 @@ package()
 { 
 	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
 	IsPlatform debian && { sudo apt install -y "$@"; return; }
-	IsPlatform dsm && { sudo ipkg install "$@"; return; }
+	IsPlatform dsm,qnap && { sudo opkg install "$@"; return; }
 	IsPlatform mac && { brew install "$@"; return; }
-	IsPlatform qnap && { sudo opkg install "$@"; return; }
 	return 0
 }
 
@@ -698,18 +698,16 @@ packageu() # package uninstall
 { 
 	IsPlatform cygwin && { apt-cyg remove -y "$@"; return; }
 	IsPlatform debian && { sudo apt remove -y "$@"; return; }
-	IsPlatform dsm && { sudo ipkg uninstall "$@"; return; }
+	IsPlatform dsm,qnap && { sudo opkg remove "$@"; return; }
 	IsPlatform mac && { brew remove "$@"; return; }	
-	IsPlatform qnap && { sudo opkg remove "$@"; return; }
 	return 0
 }
 
 packagel() # package list
 { 
 	IsPlatform debian && { apt-cache search  "$@"; return; }
-	IsPlatform dsm && { sudo ipkg list "$@"; return; }
+	IsPlatform dsm,qnap && { sudo opkg list "$@"; return; }
 	IsPlatform mac && { brew search "$@"; return; }	
-	IsPlatform qnap && { opkg list "$@"; return; }
 	return 0
 }
 
@@ -751,15 +749,17 @@ function IsPlatform()
 {
 	local checkPlatforms="$1" platforms p
 	local platform="${2:-$PLATFORM}" platformLike="${3:-$PLATFORM_LIKE}" platformId="${4:-$PLATFORM_ID}" wsl="${5:-$WSL}"
+	local platforms=( ${checkPlatforms//,/ } ); IsZsh && platforms=( "${=platforms}" )
 
-	for p in ${checkPlatforms//,/ }; do
+	for p in "${platforms[@]}"; do
 		case "$p" in 
-			win|mac|linux) [[ "$p" == "$platform" ]] && return 0;;
-			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return 0;; # Windows Subsystem for Linux
-			wsl1|wsl2) [[ "$p" == "wsl$wsl" ]] && return 0;;
-			cygwin|debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return 0;;
-			dsm|qts|srm|raspbian|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return 0;;
-			busybox) InPath busybox && return 0;;
+			win|mac|linux) [[ "$p" == "$platform" ]] && return;;
+			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return;; # Windows Subsystem for Linux
+			wsl1|wsl2) [[ "$p" == "wsl$wsl" ]] && return;;
+			cygwin|debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return;;
+			dsm|qts|srm|raspbian|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return;;
+			busybox) InPath busybox && return;;
+			entware) IsPlatform qnap,synology && return;;
 
 			# package management
 			apt) InPath apt && return 0;;
@@ -803,6 +803,7 @@ function RunPlatform()
 	RunFunction $function $PLATFORM_LIKE "$@" || return
 	RunFunction $function $PLATFORM_ID "$@" || return
 	IsPlatform cygwin && { RunFunction $function cygwin "$@" || return; }
+	IsPlatform qnap,synology && { RunFunction $function entware "$@" || return; }
 	IsPlatform debian,mac && { RunFunction $function macDebian "$@" || return; }
 	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
 	return 0

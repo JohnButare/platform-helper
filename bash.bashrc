@@ -138,13 +138,13 @@ kill -SIGWINCH $$	>& /dev/null 	# ensure LINES and COLUMNS is set for a new term
 ManPathAdd "/usr/local/man" "$DATA/man"
 
 case "$PLATFORM" in 
-	"mac") PathAdd front "/usr/local/bin";; # use brew utilities before system utilities
-	"ubuntu") PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
-	"win") PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$LOCALAPPDATA/Microsoft/WindowsApps"; # not set when using su
+	mac) PathAdd front "/usr/local/bin";; # use brew utilities before system utilities
+	ubuntu) PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
+	win) PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$LOCALAPPDATA/Microsoft/WindowsApps"; # not set when using su
 esac
 
 case "$PLATFORM_LIKE" in	
-	"qnap") PathAdd front "/opt/sbin" "/opt/bin"; PathAdd "/usr/local/sbin" "/usr/local/bin" "/share/CACHEDEV1_DATA/.qpkg/container-station/bin";;
+	qnap|synology) PathAdd front "/opt/sbin" "/opt/bin"; PathAdd "/usr/local/sbin" "/usr/local/bin" "/share/CACHEDEV1_DATA/.qpkg/container-station/bin";;
 esac
 
 PathAdd front "$PBIN" "$BIN"
