@@ -61,7 +61,7 @@ CheckPlatform() # ensure PLATFORM, PLATFORM_LIKE, and PLATFORM_ID are set
 }
 
 PathAdd() # PathAdd [front] DIR...
-{	
+{
 	local front; [[ "$1" == "front" ]] && front="true"
 
 	for f in "$@"; do 
@@ -140,10 +140,11 @@ ManPathAdd "/usr/local/man" "$DATA/man"
 case "$PLATFORM" in 
 	mac) PathAdd front "/usr/local/bin";; # use brew utilities before system utilities
 	ubuntu) PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
-	win) PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$LOCALAPPDATA/Microsoft/WindowsApps"; # not set when using su
+	win) PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$LOCALAPPDATA/Microsoft/WindowsApps";;
 esac
 
 case "$PLATFORM_LIKE" in	
+	debian) PathAdd front "/usr/local/games" "/sbin" "/usr/sbin" "/usr/local/sbin";;
 	qnap|synology) PathAdd front "/opt/sbin" "/opt/bin"; PathAdd "/usr/local/sbin" "/usr/local/bin" "/share/CACHEDEV1_DATA/.qpkg/container-station/bin";;
 esac
 
