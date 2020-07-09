@@ -1196,7 +1196,7 @@ WinList() { ! IsPlatform win && return; start cmdow /f | RemoveCarriageReturn; }
 
 InitializeXServer()
 {
-	[[ "$DISPLAY" || ! -f /usr/bin/xprop ]] && return
+	{ [[ "$DISPLAY" ]] || ! InPath xprop; } && return
 
 	if [[ "$WSL" == "2" ]]; then
 		export WSL_HOST="$(awk '/nameserver / {print $2; exit}' /etc/resolv.conf 2>/dev/null)"
