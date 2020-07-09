@@ -202,6 +202,8 @@ terminator()
 {
 	[[ "$command" != "startup" ]] && return
 
+	IsSsh && return
+
 	# return if terminator is running
 	ps -u | egrep -v "grep" | egrep -i  "/usr/bin/python /usr/bin/terminator" >& /dev/null && return
 
@@ -210,8 +212,12 @@ terminator()
 	# set X DISPLAY if not set (initial login shell does not set DISPLAY)
 	[[ ! $DISPLAY ]] && export DISPLAY=:0
 
-	# start using terminator.vbs to ensure when this process stops terminator does not stop
-	wscript.exe "c:\Users\Public\Documents\data\platform\win\terminator.vbs"
+	if IsPlatform win; then
+		# start using terminator.vbs to ensure when this process stops terminator does not stop
+		wscript.exe "c:\Users\Public\Documents\data\platform\win\terminator.vbs"
+	else
+		start terminator
+	fi
 }
 
 sshd()
