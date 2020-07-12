@@ -714,6 +714,8 @@ packagel() # package list
 	return 0
 }
 
+packageli() { dpkg --get-selections; } # package list installed
+
 PackageExist() 
 { 
 	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
