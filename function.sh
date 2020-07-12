@@ -623,9 +623,12 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 { 
 	local host="$1" timeout="${2-200}"
 
-	# In Windows build 19041.84 ping and fping did do not timeout quickly for unresponsive hosts so ping.exe was used first
-	# if IsPlatform win; then
-	# 	ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null
+	# Windows - ping and fping do not timeout quickly for unresponsive hosts so use ping.exe
+	if IsPlatform win; then
+		# resolve IP address to avoid slow ping.exe name resolution
+		! IsIpAddress "$host" && { host="$(GetIpAddress "$host")"; [[ ! $host ]] && return 1; }
+		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null; return
+	fi
 	
 	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" &> /dev/null
