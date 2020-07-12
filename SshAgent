@@ -1,66 +1,93 @@
 #!/usr/bin/env bash
 . function.sh
 
-SshEnv="$HOME/.ssh/environment"
+run() {	init && args "$@" && ${command}Command "${args[@]}"; }
 
-function startCommand
+init()
 {
-	local result password="$(credential -q get ssh default)"
-
-	ssh-agent | sed 's/^echo/#echo/' > "${SshEnv}"
-	chmod 600 "$SshEnv"
-	. "$SshEnv" > /dev/null
-
-	if [[ "$password" ]]; then
-		ssh-add-helper $password >& /dev/null
-		result="$?"
-		[[ $result != 0 ]] && ssh-add-helper $password
-	else	
-		ssh-add |& grep -v "Identity added:" >& /dev/null
-		result="${PIPESTATUS[0]}"
-		[[ $result != 0 ]] && ssh-add
-	fi
-
-	if [[ $result == 0 ]]; then
-		echo "Identity for $USER has been added to the SSH agent"
-	else
-		EchoErr "Unable to add identity for $USER to the SSH agent"
-	fi
-	return "$result"
+	f="$HOME/.ssh/environment"
+	[[ ! -d "$HOME/.ssh" ]] && exit 0
+	return 0
 }
 
 usage()
 {
-	echot "usage: SshAgent check cleanup fix initialize start startup"
-	exit 1
+	echot "\
+usage: SshAgent [check|cleanup|environment|show|start](show)
+	Control the SSH Agent.
+
+	check					check for proper operation of the SSH Agent 
+	cleanup				cleanup the SSH Agent processes and files
+	environment		return the SSH Agent environment in a format suitable for sourcing
+	show					show the keys in the SSH Agent
+	start					start the SSH Agent						
+
+	-f, --force				force initialization even if we beliece the SSH Agent is setup properly
+	-q, --quiet				show less output
+	-v, --verbose			display detailed output"
+	exit $1
 }
 
-initializeCommand()
+args()
 {
-	[[ -f "${SshEnv}" ]] && cat "${SshEnv}"
+	declare -g quit verbose
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-f|--force) force="true";;
+			-h|--help) usage 0;;
+			-q|--quiet) quiet="true";;
+			-v|--verbose) verbose="true";;
+			*)
+				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+
+	[[ ! $command ]] && { command="check"; verbose="true"; }
+	args=("$@")
 }
 
 checkCommand()
 {
-	[[ -S "$SSH_AUTH_SOCK" ]] && ProcessIdExists "$SSH_AGENT_PID" && return 0
+	if [[ ! -f "$f" ]]; then
+		[[ $verbose ]] && EchoErr "SshAgent: the environment file $f does not exist"
+		return 1
+	fi
 
-	[[ ! -f "${SshEnv}" ]] && return 1
-	. "${SshEnv}" > /dev/null
+	if [[ ! $SSH_AUTH_SOCK || ! $SSH_AGENT_PID ]]; then
+		[[ $verbose ]] && EchoErr "SshAgent: the environment was not loaded"
+	fi
+	
+	local oldAuthSock="$SSH_AUTH_SOCK" oldAgentPid="$SSH_AGENT_PID"
 
-	[[ -S "$SSH_AUTH_SOCK" ]] && ProcessIdExists "$SSH_AGENT_PID"
-}
+	if ! . "$f"; then
+		[[ $verbose ]] && EchoErr "SshAgent: unable to read the SSH Agent configuration file $f"
+		return 1
+	fi
 
-startupCommand()
-{
-	checkCommand && return
-	cleanupCommand
-	startCommand
-}
+	if [[ "$SSH_AUTH_SOCK" != "${oldAuthSock:-$SSH_AUTH_SOCK}" || "$SSH_AGENT_PID" != "${sshAgentPid:-$SSH_AGENT_PID}" ]]; then
+		[[ $verbose ]] && EchoErr "SshAgent: the environment was not correct"
+	fi
 
-fixCommand()
-{
-	cleanupCommand || return
-	startCommand || return
+	if [[ ! -S "$SSH_AUTH_SOCK" ]]; then
+		[[ $verbose ]] && EchoErr "SshAgent: the ssh agent socket ($SSH_AUTH_SOCK) is not valid"
+		return 1
+	fi
+
+	if ! ProcessIdExists "$SSH_AGENT_PID"; then
+		[[ $verbose ]] && EchoErr "SshAgent: the ssh agent socket process ($SSH_AGENT_PID) is not running"
+		return 1
+	fi
+
+	if ! ssh-add -L >& /dev/null; then
+		[[ $verbose ]] && EchoErr "SshAgent: no identities are loaded in the SSH Agent"
+		return 1
+	fi
+
+	[[ $verbose && ! $quiet ]] && echo "The SSH Agent is working properly and contains $(ssh-add -L | wc -l) identities"
+
 	return 0
 }
 
@@ -68,9 +95,46 @@ cleanupCommand()
 {
 	ProcessKill ssh-agent &> /dev/null
 	rm -fr "/tmp/ssh-"*
+	rm -f "$f"
 }
 
-[[ -d "$HOME/.ssh" ]] || exit 0
-{ [[ $# == 0 ]] || ! IsFunction ${1}Command; } && usage
-${1}Command ${@:2}
-exit $?
+environmentCommand() { [[ -f "$f" ]] && cat "$f"; }
+
+showCommand() 
+{	
+	verbose="true"
+	checkCommand || return
+	ssh-add -L
+}
+
+startCommand()
+{
+	local result output="/dev/null"; [[ $verbose ]] && output="/dev/stdout"
+
+	[[ ! $force ]] && { checkCommand && return; }
+	cleanupCommand || return
+
+	# start the SSH Agent
+	ssh-agent | egrep -v "^(echo|#echo)" > "$f"
+	[[ ! -f "$f" ]] && { EchoErr "SshAgent: unable to run the SSH Agent"; return 1; }
+	chmod 600 "$f" || return
+	. "$f" || { EchoErr "SshAgent: unable to read the SSH Agent configuration file $f"; return 1; }
+
+	# add the keys to the SSH Agent
+	if credential exists ssh default; then
+		DISPLAY=1 SSH_ASKPASS="SshCredential" ssh-add < /dev/null >& "$output"
+	else
+		ssh-add |& grep -v "Identity added:" >& "$output"
+	fi
+	result="$?"
+
+	if [[ $result == 0 ]]; then
+		[[ ! $quiet ]] && echo "$(ssh-add -L | wc -l) identities have been added to the SSH agent"
+	else
+		EchoErr "SshAgent: unable to add identity for $USER to the SSH agent"
+	fi
+
+	return $result
+}
+
+run "$@"
