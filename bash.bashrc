@@ -11,7 +11,7 @@ set -a # export variables and functions to child processes
 # test:  sf; time GetPlatform nas? && echo "success: $platform-$platformLike-$platformId"
 # PLATFORM=linux|mac|win
 # PLATFORM_LIKE=cygwin|debian|openwrt|qnap|synology
-# PLATFORM_ID=dsm|qts|srm|raspian|rock|ubiquiti|ubuntu
+# PLATFORM_ID=dsm|pixel|qts|raspian|rock|srm|ubiquiti|ubuntu
 # WSL=1|2 (Windows)
 function GetPlatform() 
 {
@@ -41,6 +41,8 @@ function GetPlatform()
 		elif [[ $synology ]]; then ID_LIKE="synology" ID="dsm"; [[ $busybox ]] && ID="srm"
 		elif [[ $ubiquiti ]]; then ID="ubiquiti"
 		fi
+
+		[[ "$ID" == "debian" && ! $ID_LIKE ]] && which raspi-config >& /dev/null && { ID_LIKE="debian"; ID="pixel"; }
 
 		echo platform="$platform"
 		echo platformLike="$ID_LIKE"
