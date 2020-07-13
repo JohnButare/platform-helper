@@ -424,7 +424,7 @@ explore() # explorer DIR - explorer DIR in GUI program
 	IsPlatform mac && { open "$dir"; return; }
 	IsPlatform wsl1 && { explorer.exe "$(utw "$dir")"; return; }
 	IsPlatform wsl2 && { local dir="$PWD"; ( cd /tmp; explorer.exe "$(utw "$dir")" ); return; } # invalid argument when starting from mounted network share
-	IsPlatform debian && IsInPath nautilus && { start nautilus "$dir"; return; }
+	IsPlatform debian && InPath nautilus && { start nautilus "$dir"; return; }
 	
 	EchoErr "The $PLATFORM_ID platform does not have a file explorer"; return 1
 }
