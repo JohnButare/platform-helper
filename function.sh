@@ -669,14 +669,20 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 }
 
 DhcpRenew()
-{ 
+{
+	echo "Old IP: $(GetPrimaryIpAddress)" || return
+
 	if IsPlatform win; then
 		local adapter="$(GetPrimaryAdapterName)"
 		echo "Old IP: $(GetPrimaryIpAddress)" || return
 		ipconfig.exe /release "$adapter" || return
 		ipconfig.exe /renew "$adapter" || return
-		echo "New IP: $(GetPrimaryIpAddress)" || return
+	elif IsPlatform debian && InPath dhclient; then
+		sudo dhclient -r || return
+		sudo dhclient || return
 	fi
+
+	echo "New IP: $(GetPrimaryIpAddress)" || return
 }
 
 # UNC Shares - \\SERVER\SHARE\DIRS
