@@ -286,6 +286,9 @@ QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveEmptyLines() { sed -r '/^\s*$/d'; }
 RemoveSpace() { echo "${@// /}"; }
+RemoveSpaceEnd() { echo "${@%%*( )}"; }
+RemoveSpaceFront() { echo "${@##*( )}"; }
+RemoveSpaceTrim() { echo "$(RemoveSpaceFront "$(RemoveSpaceEnd "$@")")"; }
 
 BackToForwardSlash() { echo "${@//\\//}"; }
 ForwardToBackSlash() { echo "${@////\\}"; }
@@ -1172,21 +1175,24 @@ TextEdit()
 # Virtual Machine
 #
 
-# hyperv microsoft
-IsVm() { ! [[ "$(VmHostCache)" =~ ^(|microsoft|hyperv)$ ]]; } # microsoft (HyperV) is returned for physical hosts running Hyper-V
-IsVmwareVm() { [[ "$(VmHostCache)" == "vmware" ]]; }
-IsHypervVm() { [[ "$(VmHostCache)" == "hyperv" ]]; }
+IsChroot() { systemd-detect-virt -r; }
+IsVm() { [[ $(VmType) ]]; }
+IsVmwareVm() { [[ "$(VmType)" == "vmware" ]]; }
+IsHypervVm() { [[ "$(VmType)" == "hyperv" ]]; }
 
-VmHostCache() 
-{
-	InPath systemd-detect-virt && { systemd-detect-virt -v; return; }
+VmType() # vmware|hyperv
+{	
+	! InPath systemd-detect-virt && return 1 # assume physical host if systemd-detect-virt is not present
 
-	# cache the output of virt-what to avoid sudo prompt
-	local f="$DATA/platform/vm-host.txt"
+	local result="$(systemd-detect-virt -v)"
 
-	! InPath virt-what && { echo ""; return; } 
-	[[ ! -f "$f" ]] && { sudo virt-what > "$f" || return; }	
-	cat "$f"
+	if IsPlatform win && [[ "$result" == "microsoft" ]]; then # Hyper-V is detected on the physical host and the virtual machine as "microsoft"
+		[[ "$(RemoveSpaceTrim $(wmic.exe baseboard get manufacturer, product | RemoveCarriageReturn | tail -2 | head -1))" != "Microsoft Corporation  Virtual Machine" ]] && result=""
+	fi
+
+	[[ "$result" == "microsoft" ]] && result="hyperv"
+
+	echo "$result"
 }
 
 #
