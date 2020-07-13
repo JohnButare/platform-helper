@@ -384,7 +384,8 @@ bootstrapNewOs()
 
 bootstrapMacDebian() # debian|mac
 {
-	printf "\nInstalling Mac and Debian packages..."
+	if ! InPath lynx > /dev/null; then
+		printf "\nInstalling Mac and Debian packages..."
 		packages tldr ncdu
 		package glances htop || return														# monitoring
 		package fping mosh ncat nmap traceroute || return					# network	
@@ -400,6 +401,8 @@ bootstrapDebian()
 {
 	# prevent prompting for keyboard during later installs
 	sudo DEBIAN_FRONTEND=noninteractive apt-get install -y keyboard-configuration || return
+
+	i OpenVmTools || return
 
 	if ! InPath wmctrl ; then
 		echo "Installing other packages..."
@@ -445,11 +448,6 @@ read only = no" | sudo tee -a /etc/samba/smb.conf || return
 
 	echo "Creating directories..."
 	MakeDirOwner "$PUB" || return
-	
-	if ! IsPlatform win; then
-		IsHypervVm && { i HypervLinuxTools || return; }
-		IsVmwareVm && { i VmwareLinuxTools || return; }
-	fi
 
 	i DebianSetup || return
 }
@@ -1149,7 +1147,7 @@ firefoxInstall()
 
 	# https://www.mozilla.org/en-US/firefox/all/
 	local v="76.0.1"
-	if IsPlatform raspbian; then
+	if IsPlatform pixel,raspbian; then
 		package firefox-esr || return
 	else
 		run "other/Mozilla/Firefox/" -p "Firefox Setup $v.msi" "Firefox $v.dmg" "firefox-$v.tar.bz2" --elevate || return
@@ -2777,51 +2775,6 @@ hypervInstall()
 	hyperv gui || return
 }
 
-HypervLinuxTools()
-{
-	( IsPlatform win || ! IsHypervVm ) && return
-
-	package linux-tools-virtual linux-cloud-tools-virtual xrdp || return
-	sudo systemctl stop xrdp || return
-	sudo systemctl stop xrdp-sesman || return
-
-	local f="/etc/xrdp/xrdp.ini"
-	sudo sed -i_orig -e 's/use_vsock=false/use_vsock=true/g' "$f" || return
-	sudo sed -i_orig -e 's/security_layer=negotiate/security_layer=rdp/g' "$f" || return
-	sudo sed -i_orig -e 's/crypt_level=high/crypt_level=none/g' "$f" || return
-	sudo sed -i_orig -e 's/bitmap_compression=true/bitmap_compression=false/g' "$f" || return # fast when local
-
-	[[ ! -e /etc/xrdp/startubuntu.sh ]] && { echo "#!/bin/sh
-export GNOME_SHELL_SESSION_MODE=ubuntu
-export XDG_CURRENT_DESKTOP=ubuntu:GNOME
-exec /etc/xrdp/startwm.sh" | sudo tee /etc/xrdp/startubuntu.sh || return; }
-
-	sudo chmod a+x "/etc/xrdp/startubuntu.sh" || return
-	
-	sudo sed -i_orig -e 's/startwm/startubuntu/g' "/etc/xrdp/sesman.ini"  || return # setup the ubuntu session
-	sudo sed -i -e 's/FuseMountName=thinclient_drives/FuseMountName=shared-drives/g' "/etc/xrdp/sesman.ini"  || return # rename the redirected drives to 'shared-drives'
-	sudo sed -i_orig -e 's/allowed_users=console/allowed_users=anybody/g' "/etc/X11/Xwrapper.config" || return
-
-	# Blacklist the vmw module
-	[[ ! -e /etc/modprobe.d/blacklist_vmw_vsock_vmci_transport.conf ]] && 
-		{ echo "blacklist vmw_vsock_vmci_transport" | sudo tee -a "/etc/modprobe.d/blacklist_vmw_vsock_vmci_transport.conf" || return; }
-
-	#Ensure hv_sock gets loaded
-	[[ ! -e /etc/modules-load.d/hv_sock.conf ]] && echo "hv_sock" | sudo tee "/etc/modules-load.d/hv_sock.conf"
-	
-	# Configure the policy xrdp session
-	echo "[Allow Colord all Users]
-Identity=unix-user:*
-Action=org.freedesktop.color-manager.create-device;org.freedesktop.color-manager.create-profile;org.freedesktop.color-manager.delete-device;org.freedesktop.color-manager.delete-profile;org.freedesktop.color-manager.modify-device;org.freedesktop.color-manager.modify-profile
-ResultAny=no
-ResultInactive=no
-ResultActive=yes" | sudo tee "/etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla" || return
-
-	# reconfigure the service
-	sudo systemctl daemon-reload || return
-	sudo systemctl start xrdp || return
-}
-
 VirtualBoxInstall()
 {
 	printf "**************************************************\n* VirtualBox\n**************************************************\n"
@@ -2871,8 +2824,10 @@ VmwareWorkstationInstall()
 	vmware start || return
 }
 
-VmwareLinuxTools()
+OpenVmTools()
 {
+	{ IsPlatform win || ! IsVm; } && return
+
 	if IsServer; then
 		package open-vm-tools || return	
 	elif IsDesktop; then
@@ -2881,7 +2836,6 @@ VmwareLinuxTools()
 
 	return 0
 }
-
 
 #
 # Other Programs
