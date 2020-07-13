@@ -629,7 +629,7 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 	# Windows - ping and fping do not timeout quickly for unresponsive hosts so use ping.exe
 	if IsPlatform win; then
 		# resolve IP address to avoid slow ping.exe name resolution
-		! IsIpAddress "$host" && { host="$(GetIpAddress "$host")"; [[ ! $host ]] && return 1; }
+		! IsIpAddress "$host" && { host="$(getent hosts "$host" | cut -d" " -f 1)"; [[ ! $host ]] && return 1; }
 		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null; return
 	fi
 	
