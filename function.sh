@@ -568,14 +568,11 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 # Network
 #
 
-IsSsh() { [[ "$SSH_TTY" ]]; }
-RemoteServer() { echo "${SSH_CONNECTION%% *}"; }
-PuttyAgent() { start pageant "$HOME/.ssh/id_rsa.ppk"; }
-
-RemoveDnsSuffix() { echo "${1%%.*}"; }
 IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }
 GetInterface() { ifconfig | head -1 | cut -d: -f1; }
+HostNameCheck() { SshHelper "$@" hostname; }
+RemoveDnsSuffix() { echo "${1%%.*}"; }
 
 GetBroadcastAddress()
 {
@@ -618,8 +615,14 @@ IsIpAddress() # IP
 {
   local ip="$1"
   [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && return 1
-	IFS='.' read -a ip <<< "$ip"
-  (( ${ip[0]}<255 && ${ip[1]}<255 && ${ip[2]}<255 && ${ip[3]}<255 ))
+	
+  if IsBash; then
+  	IFS='.' read -a ip <<< "$ip"
+  	(( ${ip[0]}<255 && ${ip[1]}<255 && ${ip[2]}<255 && ${ip[3]}<255 ))
+  else # zsh
+  	ip=( "${(s/./)ip}" )
+  	(( ${ip[1]}<255 && ${ip[2]}<255 && ${ip[3]}<255 && ${ip[4]}<255 ))
+  fi
 }
 
 IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
@@ -628,8 +631,13 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 
 	# Windows - ping and fping do not timeout quickly for unresponsive hosts so use ping.exe
 	if IsPlatform win; then
+
+		# resolve .local host - WSL getent does not currently resolve mDns (.local) addresses
+		IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
+
 		# resolve IP address to avoid slow ping.exe name resolution
 		! IsIpAddress "$host" && { host="$(getent hosts "$host" | cut -d" " -f 1)"; [[ ! $host ]] && return 1; }
+
 		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null; return
 	fi
 	
@@ -643,6 +651,9 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 {
 	local host="$1" port="$2" timeout="${3-200}"
+ 
+ 	# resolve .local host - WSL getent does not currently resolve mDns (.local) addresses
+	IsPlatform win && IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
 
 	if InPath ncat; then
 		echo | ncat -C -w ${timeout}ms "$host" "$port" >& /dev/null
@@ -657,6 +668,9 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
 { 
 	local host="$1" timeout="${2-200}"
+
+	# resolve .local host - WSL getent does not currently resolve mDns (.local) addresses
+	IsPlatform win && IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
 
 	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
@@ -685,11 +699,90 @@ DhcpRenew()
 	echo "New IP: $(GetPrimaryIpAddress)" || return
 }
 
+IsLocalAddress() { IsBash && [[ "$1" =~ .*'.'local$ ]] || [[ "$1" =~ .*\\.local$ ]]; }
+
+MdnsResolve()
+{
+	local name="$1" result
+
+	{ [[ ! $name ]] || ! IsLocalAddress "$name"; } && return 1
+
+	# Currently WSL does not resolve mDns .local address but Windows does
+	if IsPlatform win; then
+		result="$(ping.exe -4 -n 1 -w 200 "$name" |& grep "Pinging " | awk '{ print $3; }' | sed 's/\[//g' | sed 's/\]//g')"
+	else
+		result="$(avahi-resolve-address -4 -n "$name" | awk '{ print $2; }')"
+	fi
+
+	[[ $result ]] && echo "$result"
+}
+
 # UNC Shares - \\SERVER\SHARE\DIRS
 IsUncPath() { [[ "$1" =~ //.* ]]; }
 GetUncServer() { local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
 GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
+
+# SSH
+
+IsSsh() { [[ "$SSH_TTY" ]]; }
+RemoteServer() { echo "${SSH_CONNECTION%% *}"; }
+RemoteServerName() { nslookup "$(RemoteServer)" | grep "name =" | cut -d" " -f3; }
+
+# SshAgentHelper - wrapper for SshAgent which ensures the correct variables are set in the calling shell
+SshAgentHelper()
+{ 
+	[[ -f "$HOME/.ssh/environment" ]] && . "$HOME/.ssh/environment"
+	SshAgent "$@" && . "$HOME/.ssh/environment"
+}
+
+# SshAgentCheck - check and start the SSH Agent if needed
+SshAgentCheck()
+{
+	[[ -f "$HOME/.ssh/environment" ]] && . "$HOME/.ssh/environment"
+	ssh-add -L >& /dev/null && return
+	SshAgentHelper start --verbose --quiet
+}
+
+# SSH
+
+SshHelper() 
+{
+	local x mosh host args=()
+
+	[[ $# == 0 || $1 == @(--help) ]]	&& { echot "usage: SshHelper HOST
+	-m, --mosh					connecting using mosh
+	-x, --x-forwarding  conntect with X forwarding"; return 1; }
+
+	while (( $# != 0 )); do 
+		case "$1" in "") : ;;
+			-m|--mosh) mosh="true";;
+			-x|--x-forwarding) x="true";;
+			*) { ! IsOption "$1" && [[ ! $host ]]; } && host="$1" || args+=( "$1" );;
+		esac
+		shift
+	done
+	[[ ! $host ]] && MissingOperand "host" "SshHelper"
+	set -- "${args[@]}"
+
+	# fix SSH Agent if possible
+	SshAgentCheck 
+
+	# resolve .local host - WSL getent does not currently resolve mDns (.local) addresses
+	IsPlatform win && IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
+
+	[[ $mosh ]] && { mosh "$host" "$@"; return; }
+	[[ ! $x ]] && { ssh "$host" $@; return; }
+
+	# -y send diagnostic messages to syslog - supresses "Warning: No xauth data; using fake authentication data for X11 forwarding."
+	if IsPlatform wsl1; then # WSL 1 does not support X sockets over ssh and requires localhost
+		DISPLAY=localhost:0 ssh -Xy "$host" $@
+	elif IsPlatform mac,wsl2; then # macOS XQuartz requires trusted X11 forwarding
+		ssh -Yy "$host" $@
+	else # use use untrusted (X programs are not trusted to use all X features on the host)
+		ssh -Xy "$host" $@
+	fi
+} 
 
 #
 # Package Manager
