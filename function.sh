@@ -769,7 +769,7 @@ SshHelper()
 	SshAgentCheck 
 
 	# resolve .local host - WSL getent does not currently resolve mDns (.local) addresses
-	IsPlatform win && IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
+	IsPlatform win && IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || { EchoErr "ssh: Could not resolve hostname $host: Name or service not known"; return 1; }; }
 
 	[[ $mosh ]] && { mosh "$host" "$@"; return; }
 	[[ ! $x ]] && { ssh "$host" $@; return; }
