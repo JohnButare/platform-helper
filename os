@@ -83,7 +83,7 @@ hostnameCommand()
 	fi
 
 	# forward DNS lookup
-	name=$(host $host | grep " has address ") && { echo "$(RemoveDnsSuffix $name)"; return; }
+	IsPath host && name=$(host $host | grep " has address ") && { echo "$(RemoveDnsSuffix $name)"; return; }
 
 	# fallback on the name passed
 	echo "$(RemoveDnsSuffix $host)"
@@ -141,25 +141,44 @@ versionMac()
 
 versionDebian()
 {
-	local platform="$(PlatformDescription)"
+	local platform="$(PlatformDescription)" distributor version codename hardware
 
 	if ! InPath lsb_release; then
 		echo "$platform"
 		return 0
 	fi
 
-	local release="$(lsb_release -a |& grep Description | cut -f 2- | sed 's/ (buster)//')"
-	local codeName="$(lsb_release -a |& grep Codename | cut -f 2-)"
+	# Distributor
+	distributor="$(lsb_release -a |& grep "Distributor ID:" | cut -f 2-)"
+	IsPlatform raspbian && distributor+="/Debian"
 
-	! IsPlatform ubuntu && codeName+=" $(cat /etc/debian_version)"
+	# Version
+	version="$(lsb_release -a |& grep "Release:" | cut -f 2-)"	
+	IsPlatform ubuntu && version="$(lsb_release -a |& grep "Description:" | cut -f 2- | sed 's/'$distributor' //')"
+	IsPlatform raspbian && [[ -f /etc/debian_version ]] && version="$(cat /etc/debian_version)"
+	
+	# Code Name
+	codename="$(lsb_release -a |& grep "Codename:" | cut -f 2-)"
 
-	echo "$release ($codeName, $platform)"
+	# hardware
+	# uname -m: armv71, x86_64, mips, mip64
+	# dpkg --print-architecture: amd64, armhf
+	hardware="$(uname -m)" 
+	InPath dpkg && hardware+=" ($(dpkg --print-architecture))"
+
+	echo "distribution: $distributor $version ($codename)"
+	echo "    platform: $platform"
+	echo "      kernel: $(uname -r)"
+	echo "    hardware: $hardware" 
+	[[ -f "/etc/debian_chroot" ]] && echo "      chroot: $(cat "/etc/debian_chroot")"
+	IsVm && echo "          vm: $(VmType)"
+	return 0
 }
 
 versionRaspbian()
 {
 	cpu=$(</sys/class/thermal/thermal_zone0/temp)
-	echo "CPU Temperature $((cpu/1000))'C"
+	echo "    CPU temp: $((cpu/1000))'C"
 }
 
 versionWin()
@@ -169,7 +188,7 @@ versionWin()
 	local ubr="$(HexToDecimal "$(registry get "$r/UBR" | RemoveCarriageReturn)")"
 	local build="$(registry get "$r/CurrentBuild" | RemoveCarriageReturn)"
 
-	echo "Windows Version $releaseId (OS Build $build.$ubr, WSL $(IsPlatform wsl1 && echo 1 || echo 2) $PLATFORM_LIKE-$PLATFORM_ID)"
+	echo "     windows: $releaseId (build $build.$ubr, WSL $(IsPlatform wsl1 && echo 1 || echo 2))"
 }
 
 run "$@"
