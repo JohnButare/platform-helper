@@ -83,7 +83,7 @@ hostnameCommand()
 	fi
 
 	# forward DNS lookup
-	IsPath host && name=$(host $host | grep " has address ") && { echo "$(RemoveDnsSuffix $name)"; return; }
+	InPath host && name=$(host $host | grep " has address ") && { echo "$(RemoveDnsSuffix $name)"; return; }
 
 	# fallback on the name passed
 	echo "$(RemoveDnsSuffix $host)"
