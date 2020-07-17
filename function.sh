@@ -1290,6 +1290,7 @@ VmType() # vmware|hyperv
 	fi
 
 	[[ "$result" == "microsoft" ]] && result="hyperv"
+	[[ "$result" == "none" ]] && result=""
 
 	echo "$result"
 }
