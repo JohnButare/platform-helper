@@ -1274,7 +1274,7 @@ TextEdit()
 # Virtual Machine
 #
 
-IsChroot() { systemd-detect-virt -r; }
+IsChroot() { [[ -f "/etc/debian_chroot" ]] || sudo systemd-detect-virt -r; }
 IsVm() { [[ $(VmType) ]]; }
 IsVmwareVm() { [[ "$(VmType)" == "vmware" ]]; }
 IsHypervVm() { [[ "$(VmType)" == "hyperv" ]]; }
