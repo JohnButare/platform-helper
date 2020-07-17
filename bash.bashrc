@@ -42,7 +42,10 @@ function GetPlatform()
 		elif [[ $ubiquiti ]]; then ID="ubiquiti"
 		fi
 
-		[[ "$ID" == "debian" && ! $ID_LIKE ]] && which raspi-config >& /dev/null && { ID_LIKE="debian"; ID="pixel"; }
+		if [[ "$ID" == "debian" && ! $ID_LIKE ]]; then
+			ID="none" ID_LIKE="debian"
+			which raspi-config >& /dev/null && ID="pixel"
+		fi
 
 		echo platform="$platform"
 		echo platformLike="$ID_LIKE"
