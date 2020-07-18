@@ -573,6 +573,7 @@ IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }
 GetInterface() { ifconfig | head -1 | cut -d: -f1; }
 HostNameCheck() { SshHelper "$@" hostname; }
 RemoveDnsSuffix() { echo "${1%%.*}"; }
+UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }
 
 GetBroadcastAddress()
 {
@@ -863,7 +864,7 @@ function IsPlatform()
 			win|mac|linux) [[ "$p" == "$platform" ]] && return;;
 			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return;; # Windows Subsystem for Linux
 			wsl1|wsl2) [[ "$p" == "wsl$wsl" ]] && return;;
-			cygwin|debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return;;
+			debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return;;
 			dsm|qts|srm|raspbian|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return;;
 			busybox) InPath busybox && return;;
 			entware) IsPlatform qnap,synology && return;;
@@ -872,6 +873,11 @@ function IsPlatform()
 			apt) InPath apt && return 0;;
 			ipkg) InPath ipkg && return 0;;
 			opkg) InPath opkg && return 0;;
+
+			# kernel
+			winkernel) [[ "$PLATFORM_KERNEL" == "win" ]] && return 0;;
+			linuxkernel) [[ "$PLATFORM_KERNEL" == "linux" ]] && return 0;;
+
 		esac
 
 		[[ "$p" == "${platform}${platformId}" ]] && return 0 # i.e. LinuxUbuntu WinUbuntu
@@ -1250,7 +1256,7 @@ GetTextEditor()
 # - be a physical file in the path 
 # - accept a UNIX style path as the file to edit
 # - return only when the file has been edited
-SetTextEditor() {	IsInstalled sublime && export {SUDO_EDITOR,EDITOR}="$BIN/sublime -w"; }
+SetTextEditor() {	IsInstalled sublime && export {SUDO_EDITOR,EDITOR}="$BIN/sublime -w"; return 0; }
 
 TextEdit()
 {
@@ -1278,30 +1284,33 @@ TextEdit()
 # Virtual Machine
 #
 
-IsChroot() { [[ $(ChrootName) ]]; }
-IsVm() { [[ $(VmType) ]]; }
-IsVmwareVm() { [[ "$(VmType)" == "vmware" ]]; }
-IsHypervVm() { [[ "$(VmType)" == "hyperv" ]]; }
+IsChroot() { GetChrootName; [[ $CHROOT_NAME ]]; }
+ChrootName() { GetChrootName; echo "$CHROOT_NAME"; }
+ChrootPlatform() { ! IsChroot && return; [[ $(uname -r) =~ [Mm]icrosoft ]] && echo "win" || echo "linux"; }
 
-ChrootName()
+IsVm() { GetVmType; [[ $VM_TYPE ]]; }
+IsVmwareVm() { GetVmType; [[ "$VM_TYPE" == "vmware" ]]; }
+IsHypervVm() { GetVmType; [[ "$VM_TYPE" == "hyperv" ]]; }
+VmType() { GetVmType; echo "$VM_TYPE"; }
+
+GetChrootName()
 {
-	[[ $CHROOT_CHECKED ]] && { echo "$CHROOT_NAME"; return; }
+	[[ $CHROOT_CHECKED ]] && return
 	
 	if [[ -f "/etc/debian_chroot" ]]; then
 		CHROOT_NAME="$(cat "/etc/debian_chroot")"
-	elif IsPlatform wsl1 && sudoc systemd-detect-virt -r; then
+	elif [[ "$PLATFORM_KERNEL" != "win" ]] && [[ "$(stat / --printf="%i")" != "2" ]]; then
 		CHROOT_NAME="chroot"
-	elif ! IsPlatform wsl1 && [[ "$(stat / --printf="%i")" != "2" ]]; then
+	elif IsPlatform wsl1 && sudoc systemd-detect-virt -r; then
 		CHROOT_NAME="chroot"
 	fi
 
 	CHROOT_CHECKED="true"
-	echo "$CHROOT_NAME"
 }
 
-VmType() # vmware|hyperv
+GetVmType() # vmware|hyperv
 {	
-	[[ $VM_TYPE_CHECKED ]] && { echo "$VM_TYPE"; return; }
+	[[ $VM_TYPE_CHECKED ]] && return
 
 	local result
 
@@ -1321,7 +1330,6 @@ VmType() # vmware|hyperv
 	fi
 
 	VM_TYPE_CHECKED="true" VM_TYPE="$result"
-	echo "$VM_TYPE"
 }
 
 #

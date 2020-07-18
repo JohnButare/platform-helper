@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+. function.sh
+
+run() {	init && args "$@" && ${command}Command "${args[@]}"; }
+
+init()
+{ 
+	os="/var/chroot"; mkdir --parents "$os" || return
+	config="/etc/schroot"
+
+	debianMirror="http://deb.debian.org/debian"
+	ubuntuMirror="http://archive.ubuntu.com/ubuntu/"
+
+	defaultPackages="sudo"
+}
+
+usage()
+{
+	echot "\
+usage: ChrootHelper config|dir|exists|install|installed|list|run NAME
+	
+	config [DIST](default) - edit distribution configuration
+	install DIST [SUITE](dist) - install a new distribution
+		The SUITE may be a release code name (eg, sid, stretch, jessie) or a symbolic name (eg, unstable, 
+		testing, stable, oldstable)
+
+		-d, --debian 		use the Debian mirror
+		-u, --ubuntu 		use the Ubuntu mirror"
+	exit $1
+}
+
+args()
+{
+	command="" noPrompt="" args=()
+	
+	while [ "$1" != "" ]; do
+		case "$1" in
+			-h|--help) usage 0;;
+			config|c) command="config";;
+			install|i) command="install";;
+			run|r) command="run";;
+			*) 
+				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				args+=("$1")
+		esac
+		shift
+	done
+
+	[[ ! $command ]] && usage 1
+	return 0
+}
+
+distExists() { schroot --list | egrep '^chroot:'$1'$' >& /dev/null; }
+distDir() { ! distExists "$1" && return 1; schroot -c "$1" --config | egrep '^directory=' | cut -d"=" -f2; }
+distArg() {	dist="$1"; [[ ! $dist ]] && MissingOperand "dist"; ! distExists "$dist" && { EchoErr "Distribution $dist does not exist"; exit 1; }; }
+
+#
+# Commands
+#
+
+dirCommand() { distDir "$1"; }
+existsCommand() { distExists "$1"; }
+installedCommand() { InPath schroot; }
+listCommand() { schroot -l; }
+runCommand() {	local dist; distArg "$1"; shift; schroot -c "$dist" "$@"; }
+
+configCommand() 
+{ 
+	local dist="default"
+
+	[[ $1 ]] && { distArg "$1"; shift; }
+	[[ $# != 0 ]] && usage
+
+	SetTextEditor || return
+	sudoedit "$config/chroot.d/$dist"
+}
+
+installCommand()
+{
+
+	local dist suite mirror
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-d|--debian) mirror="$debianMirror";;
+			-u|--ubuntu) mirror="$ubuntuMirror";;
+			*)
+				! IsOption "$1" && [[ ! $dist ]] && { dist="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $suite ]] && { suite="$1"; shift; continue; }
+				UnknownOption "$1"; return
+		esac
+		shift
+	done
+	[[ ! $dist ]] && { MissingOperand "dist"; return; }
+	[[ ! $suite ]] && suite="$dist"
+
+	# find the mirror if not specified
+	if [[ ! $mirror ]]; then
+		if UrlExists "$debianMirror/dists/$suite"; then mirror="$debianMirror"
+		elif UrlExists "$ubuntuMirror/dists/$suite"; then mirror="$ubuntuMirror"
+		else EchoErr "Could not find suite $suite"; return 1
+		fi
+	fi
+
+	# configuration
+	if ! distExists "$dist"; then	
+	echo "[$dist]
+description=$dist ($mirror)
+directory=$os/$dist
+type=directory
+users=$USER
+root-users=$USER
+root-groups=root" | sudo tee "$config/chroot.d/$dist" || return
+	fi
+
+	# directory
+	local dir; dir="$(distDir "$dist")" || return
+
+	if [[ -d "$dir" ]]; then
+		ask -dr n "The distribtion alreadys exists in $dir, do you want to delete it" || return
+		sudo rm -fr $dir || return
+	fi
+
+	sudo debootstrap --include=$defaultPackages "$suite" "$dir" || return
+}
+
+run "$@"

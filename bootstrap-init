@@ -10,6 +10,7 @@ run()
 	installPackages || return
 	configureOs || return
 	createUser || return
+	createUserHome || return
 	runAsUser || return
 	mountPublic || return
 	runBootstrap || return
@@ -45,6 +46,17 @@ createUser()
 	echo "Creating user $user..."
 	sudo adduser "$user" --gecos "" || return
 	sudo usermod -aG sudo $user || return
+}
+
+createUserHome()
+{
+	isMac || [[ ! $user ]] && return
+
+	local dir="$(grep "$user" /etc/passwd | cut -d: -f 6)"
+	[[ -d "$dir" ]] && return
+
+	echo "Creating user $user home directory..."
+	sudo mkhomedir_helper $user || return
 }
 
 runAsUser()
@@ -96,7 +108,7 @@ configure-mac()
 
 configure-win()
 {
-	inPath apt && { apt update || return; } # fix "Could not find command-not-found database" in WSL
+	inPath apt && { $sudo apt update || return; } # fix "Could not find command-not-found database" in WSL
 	return
 }
 
@@ -116,15 +128,22 @@ init()
 	install="$mount/Documents/data/install"
 	sudo="sudo"; ! inPath sudo && sudo=""
 
+	# debian only includes sbin directories in the root users path
+	PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" 
+
 	return 0
 }
 
 initPlatform()
 {
+	chroot=""; [[ -f /etc/debian_chroot ]] && chroot="$(cat "/etc/debian_chroot")"
+
+	platform_kernel="linux"; [[ $(uname -r) =~ [Mm]icrosoft ]] && platform_kernel="win"
+
 	# platform=debian|entware|mac|win
 	platform=debian
 	[[ "$(uname)" == "Darwin" ]] && platform=mac
-	[[ $(uname -r)  =~ [Mm]icrosoft ]] && platform=win
+	[[ ! $chroot && "$platform_kernel" == "win" ]] && platform=win
 
 	# platform_like=qnap|synology
 	[[ $(uname -r) =~ .*-qnap ]] && { platform="entware" platform_like="qnap"; }
@@ -148,7 +167,11 @@ mountPublic()
 
 	echo "Mounting //$host/public..."
 	mkdir -p "$mount" || return
-	mountPublic-$platform || return
+
+	if isWinKernel; then mountPublic-win
+	elif isEntware; then mountPublic-debian
+	else mountPublic-$platform
+	fi
 }
 
 mountPublic-debian()
@@ -158,7 +181,6 @@ mountPublic-debian()
 	mount.cifs "//$host/public" "$HOME/Volumes/public" -o user=$USER sec=ntlmsspi || return
 }
 
-mountPublic-entware() { mountPublic-debian; }
 mountPublic-mac() { mount_smbfs -s "smb://$USER@$host/public" "$mount" || return; }
 mountPublic-win() { sudo mount -t drvfs "//$host/public" "$HOME/Volumes/public"; }
 
@@ -176,18 +198,30 @@ mountWinDrive() # dir - mounted directory for the drive, must start with /mnt, i
 
 installPackages()
 {
-	inPath dialog && inPath mount.cifs && inPath rsync && return
+	inPath dialog && inPath gawk && inPath rsync && return
 
-	isUbuntu || isWin && { package ubuntu-standard || return; }
+	installPackages-pre || return
 	installPackages-$platform || return
-	! isEntware && { package expect || return; }
-	package dialog findutils gawk rsync || return
+	installPackages-post || return
 }
 
 installPackages-debian() { package cifs-utils iputils-ping net-tools openssh-server resolvconf xclip; }
 installPackages-entware() { package bash coreutils coreutils-ln coreutils-readlink nano; }
 installPackages-mac() { package bash coreutils gnu-sed; }
-installPackages-win() { package iputils-ping ubuntu-wsl || return; }
+installPackages-win() { package iputils-ping; }
+
+installPackages-pre()
+{
+	isUbuntu && isWin && { package ubuntu-standard || return; }
+	return 0
+}
+
+installPackages-post()
+{
+	isUbuntu && isWin && { ubuntu-wsl || return; }
+	! isEntware && { package expect || return; }
+	package dialog findutils gawk rsync || return
+}
 
 package()
 {
@@ -234,7 +268,7 @@ unminimizeDebianDoc() # from /usr/local/sbin/unminimize
   $sudo apt-get update || return
   $sudo apt-get upgrade -y || return
   dpkg -S /usr/share/man/ |sed 's|, |\n|g;s|: [^:]*$||' | DEBIAN_FRONTEND=noninteractive xargs $sudo apt-get install --reinstall -y || return
-  dpkg --verify --verify-format rpm | awk '/..5......   \/usr\/share\/doc/ {print $2}' | sed 's|/[^/]*$||' | sort |uniq | xargs dpkg -S | sed 's|, |\n|g;s|: [^:]*$||' | uniq | DEBIAN_FRONTEND=noninteractive xargs $sudo apt-get install --reinstall -y || return
+  dpkg --verif y--verify-format rpm | awk '/..5......   \/usr\/share\/doc/ {print $2}' | sed 's|/[^/]*$||' | sort |uniq | xargs dpkg -S | sed 's|, |\n|g;s|: [^:]*$||' | uniq | DEBIAN_FRONTEND=noninteractive xargs $sudo apt-get install --reinstall -y || return
   dpkg --verify --verify-format rpm | awk '/..5......   \/usr\/share\/locale/ {print $2}' | sed 's|/[^/]*$||' | sort |uniq | xargs dpkg -S | sed 's|, |\n|g;s|: [^:]*$||' | uniq | DEBIAN_FRONTEND=noninteractive xargs $sudo apt-get install --reinstall -y || return
 
   if $sudo dpkg --verify --verify-format rpm | awk '/..5......   \/usr\/share\/doc/ {exit 1}'; then
@@ -248,11 +282,14 @@ unminimizeDebianDoc() # from /usr/local/sbin/unminimize
 # helper
 #
 
+isChroot() { [[ $chroot ]]; }
+isDebian() { [[ "$platform" == "debian" ]]; }
 isEntware() { [[ "$platform" == "entware" ]]; }
 isMac() { [[ "$platform" == "mac" ]]; }
 isPi() { [[ "$ID" == "raspbian" ]]; }
 isUbuntu() { [[ "$ID" == "ubuntu" ]]; }
 isWin() { [[ "$platform" == "win" ]]; }
+isWinKernel() { [[ "$platform_kernel" == "win" ]]; }
 isQnap() { [[ "$platform_like" == "qnap" ]]; }
 
 isMountedDrive() { [[ -d "$host/public" ]] || [[ "$host" =~ ^/mnt ]]; }

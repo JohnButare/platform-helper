@@ -13,9 +13,17 @@ set -a # export variables and functions to child processes
 # PLATFORM_LIKE=cygwin|debian|openwrt|qnap|synology
 # PLATFORM_ID=dsm|pixel|qts|raspian|rock|srm|ubiquiti|ubuntu
 # WSL=1|2 (Windows)
+
 function GetPlatform() 
 {
-	local results host="$1" cmd='echo platform=$(uname); echo kernel=\"$(uname -r)\"; [[ -f /etc/os-release ]] && cat /etc/os-release; [[ -f /var/sysinfo/model ]] && echo ubiquiti=true; [[ -f /proc/syno_platform ]] && echo synology=true && [[ -f /bin/busybox ]] && echo busybox=true'
+	local results host="$1" cmd='
+echo platform=$(uname);
+echo kernel=\"$(uname -r)\";
+[[ -f /etc/os-release ]] && cat /etc/os-release;
+[[ -f "/etc/debian_chroot" ]] && echo chroot=\""$(cat "/etc/debian_chroot")"\";
+[[ -f /var/sysinfo/model ]] && echo ubiquiti=true;
+[[ -f /proc/syno_platform ]] && echo synology=true;
+[[ -f /bin/busybox ]] && echo busybox=true'
 
 	if [[ $host ]]; then
 		#IsAvailable $host || { EchoErr "$host is not available"; return 1; } # adds .5s
@@ -24,17 +32,20 @@ function GetPlatform()
 		results="$(eval $cmd)"
 	fi
 
+	# don't let all of the variables defined in results leak out of this function
 	results="$(
 		eval $results
+
+		platformKernel="linux"; [[ $kernel =~ .*-[Mm]icrosoft ]] && platformKernel="win"
+
 		case "$platform" in 
-			CYGWIN*) platform="win"; ID_LIKE=cygwin;;
 			Darwin)	platform="mac";;
 			Linux) platform="linux";;
 			MinGw*) platform="win"; ID_LIKE=mingw;;
 		esac
 
-		if [[ $kernel =~ .*-Microsoft$ ]]; then platform="win" wsl=1
-		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platform="win" wsl=2
+		if [[ ! $chroot && $kernel =~ .*-Microsoft$ ]]; then platform="win" wsl=1
+		elif [[ ! $chroot && $kernel =~ .*-microsoft-standard$ ]]; then platform="win" wsl=2
 		elif [[ $ID_LIKE =~ openwrt ]]; then ID_LIKE="openwrt"
 		elif [[ $kernel =~ .*-rock ]]; then ID="rock"
 		elif [[ $kernel =~ .*-qnap ]]; then ID_LIKE="qnap"
@@ -50,7 +61,9 @@ function GetPlatform()
 		echo platform="$platform"
 		echo platformLike="$ID_LIKE"
 		echo platformId="$ID"
+		echo platformKernel="$platformKernel"
 		echo wsl="$wsl"
+		echo chroot="\"$chroot\""
 	)"
 
 	eval $results
@@ -61,8 +74,8 @@ CheckPlatform() # ensure PLATFORM, PLATFORM_LIKE, and PLATFORM_ID are set
 { 
 	[[ "$PLATFORM" && "$PLATFORM_LIKE" && "$PLATFORM_ID" ]] && return
 	GetPlatform || return
-	export PLATFORM="$platform" PLATFORM_ID="$platformId" PLATFORM_LIKE="$platformLike" WSL="$wsl"
-	unset platform platformId platformLike wsl
+	export CHROOT="$chroot" PLATFORM="$platform" PLATFORM_ID="$platformId" PLATFORM_LIKE="$platformLike" PLATFORM_KERNEL="$platformKernel" WSL="$wsl"
+	unset chroot platform platformId platformLike platformKernel wsl
 }
 
 PathAdd() # PathAdd [front] DIR...
