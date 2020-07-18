@@ -1274,25 +1274,50 @@ TextEdit()
 # Virtual Machine
 #
 
-IsChroot() { [[ -f "/etc/debian_chroot" ]] || sudo systemd-detect-virt -r; }
+IsChroot() { [[ $(ChrootName) ]]; }
 IsVm() { [[ $(VmType) ]]; }
 IsVmwareVm() { [[ "$(VmType)" == "vmware" ]]; }
 IsHypervVm() { [[ "$(VmType)" == "hyperv" ]]; }
 
+ChrootName()
+{
+	[[ $CHROOT_CHECKED ]] && { echo "$CHROOT_NAME"; return; }
+	
+	if [[ -f "/etc/debian_chroot" ]]; then
+		CHROOT_NAME="$(cat "/etc/debian_chroot")"
+	elif IsPlatform wsl1 && sudoc systemd-detect-virt -r; then
+		CHROOT_NAME="chroot"
+	elif ! IsPlatform wsl1 && [[ "$(stat / --printf="%i")" != "2" ]]; then
+		CHROOT_NAME="chroot"
+	fi
+
+	CHROOT_CHECKED="true"
+	echo "$CHROOT_NAME"
+}
+
 VmType() # vmware|hyperv
 {	
-	! InPath systemd-detect-virt && return 1 # assume physical host if systemd-detect-virt is not present
+	[[ $VM_TYPE_CHECKED ]] && { echo "$VM_TYPE"; return; }
 
-	local result="$(systemd-detect-virt -v)"
+	local result
 
-	if IsPlatform win && [[ "$result" == "microsoft" ]]; then # Hyper-V is detected on the physical host and the virtual machine as "microsoft"
-		[[ "$(RemoveSpaceTrim $(wmic.exe baseboard get manufacturer, product | RemoveCarriageReturn | tail -2 | head -1))" != "Microsoft Corporation  Virtual Machine" ]] && result=""
+	if InPath systemd-detect-virt; then
+		result="$(systemd-detect-virt -v)"
+	elif InPath virt-what; then
+		result="$(sudoc virt-what)"
+	else
+		result=""
 	fi
 
 	[[ "$result" == "microsoft" ]] && result="hyperv"
 	[[ "$result" == "none" ]] && result=""
 
-	echo "$result"
+	if IsPlatform win && [[ "$result" == "hyperv" ]]; then # Hyper-V is detected on the physical host and the virtual machine as "microsoft"
+		[[ "$(RemoveSpaceTrim $(wmic.exe baseboard get manufacturer, product | RemoveCarriageReturn | tail -2 | head -1))" != "Microsoft Corporation  Virtual Machine" ]] && result=""
+	fi
+
+	VM_TYPE_CHECKED="true" VM_TYPE="$result"
+	echo "$VM_TYPE"
 }
 
 #
