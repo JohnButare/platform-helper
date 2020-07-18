@@ -1246,7 +1246,11 @@ GetTextEditor()
 	EchoErr "No text editor found"; return 1;
 }
 
-export EDITOR="$(GetTextEditor)"
+# SetTextEditor - set the default text editor for commands.  The text editor must:
+# - be a physical file in the path 
+# - accept a UNIX style path as the file to edit
+# - return only when the file has been edited
+SetTextEditor() {	IsInstalled sublime && export {SUDO_EDITOR,EDITOR}="$BIN/sublime -w"; }
 
 TextEdit()
 {
