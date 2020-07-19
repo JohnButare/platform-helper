@@ -48,17 +48,19 @@ usage()
 usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
 	Profile services for batch files
 	save|restore [profile](default)
-	-a|--app NAME					name of the application
-	-f|--files FILE...		for directory profiles, file patterns in the profile
-	-g|--global 					use the global profile in install/bootstrap/profile
-	-m|--method	<dir>|<program>|<key>
-	-se|--save-extension  for program profiles, the profile extension used by the program"
+
+	-a,  --app NAME					name of the application
+	-f,  --files FILE...		for directory profiles, file patterns in the profile
+	-g,  --global 					use the global profile in install/bootstrap/profile
+	-m,  --method	<dir>|<program>|<key>
+	-np, --no-prompt	   		suppress interactive prompts
+	-se, --save-extension  	for program profiles, the profile extension used by the program"
 	exit $1 
 }
 
 args()
 {
-	unset app files global method profile saveExtension
+	unset app files global method noPrompt profile saveExtension
 
 	while (( $# != 0 )); do
 		case "$1" in
@@ -67,6 +69,7 @@ args()
 			-f|--files) files="$2"; shift;;
 			-g|--global) global="--global";;
 			-m|--method) method="$2"; shift;;
+			-np|--no-prompt) noPrompt="--no-prompt";;
 			-se|--save-extension) saveExtension="$2"; shift;;
 			CopyGlobal) command="copyGlobal";; SaveDir) command="saveDir";;
 			*)
@@ -122,7 +125,7 @@ restoreCommand()
 	
 	[[ ! -f "$profile" ]] && { EchoErr "profile: cannot access profile \`$filename\`: No such file"; return 1; }
 
-	! ask "Restore $app$globalDescription profile \"$filename\"?" -dr n && return 0
+	! askP "Restore $app$globalDescription profile \"$filename\"?" -dr n && return 0
 
 	if [[ "$method" == "file" ]]; then
 		AppCloseSave "$app" || return
@@ -132,7 +135,7 @@ restoreCommand()
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$profile")"
 		echo "Import the profile using the filemame contained in the clipboard"
-		ask "Start $(GetFileName "$profileProgram")" && { start --wait "$profileProgram" || return; }
+		askP "Start $(GetFileName "$profileProgram")" && { start --wait "$profileProgram" || return; }
 
 	elif [[ "$method" == "registry" ]]; then
 		AppCloseSave "$app" || return
@@ -172,7 +175,7 @@ saveCommand()
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$dest/$file")"
 		echo "Export the profile to the filename contained in the clipboard"
-		ask "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
+		askP "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
 		pause
 		
 	# save the registry
@@ -212,6 +215,8 @@ saveDirCommand()
 #
 # helper
 #
+
+askP() { [[ $noPrompt ]] && { echo "$1..."; return; }; ask "$1"; }
 
 copyDefaultProfile()
 {

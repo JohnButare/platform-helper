@@ -5,22 +5,26 @@ run() {	init && args "$@" && ${command}Command "${args[@]}"; }
 
 init()
 { 
-	os="/var/chroot"; mkdir --parents "$os" || return
 	config="/etc/schroot"
+
+	os="/var/chroot"; sudo mkdir --parents "$os" || return
+	osBak="/var/chroot/bak"; sudo mkdir --parents "$osBak" || return
 
 	debianMirror="http://deb.debian.org/debian"
 	ubuntuMirror="http://archive.ubuntu.com/ubuntu/"
 
 	defaultPackages="sudo"
+	copyOptions=( -r --devices --specials --links --perms --times --group --owner --info=progress2 )
 }
 
 usage()
 {
 	echot "\
-usage: ChrootHelper config|dir|exists|install|installed|list|run NAME
+usage: ChrootHelper delete|dir|exists|install|installed|list|run NAME
 	
-	config [DIST](default) - edit distribution configuration
-	install DIST [SUITE](dist) - install a new distribution
+	backup|restore DIST					backup or restore a distribution	
+	config [DIST](default) 			edit distribution configuration
+	install DIST [SUITE](dist) 	install a new distribution
 		The SUITE may be a release code name (eg, sid, stretch, jessie) or a symbolic name (eg, unstable, 
 		testing, stable, oldstable)
 
@@ -46,13 +50,14 @@ args()
 		shift
 	done
 
-	[[ ! $command ]] && usage 1
+	[[ ! $command ]] && command="run"
 	return 0
 }
 
-distExists() { schroot --list | egrep '^chroot:'$1'$' >& /dev/null; }
-distDir() { ! distExists "$1" && return 1; schroot -c "$1" --config | egrep '^directory=' | cut -d"=" -f2; }
 distArg() {	dist="$1"; [[ ! $dist ]] && MissingOperand "dist"; ! distExists "$dist" && { EchoErr "Distribution $dist does not exist"; exit 1; }; }
+distDir() { ! distExists "$1" && return 1; schroot -c "$1" --config | egrep '^directory=' | cut -d"=" -f2; }
+distDirValidate() { local distDir; distDir="$(distDir "$1")" || return; [[ -d "$distDir" ]] && return; EchoErr "$dist directory \"$distDir\" does not exist"; return 1; }
+distExists() { schroot --list | egrep '^chroot:'$1'$' >& /dev/null; }
 
 #
 # Commands
@@ -61,7 +66,7 @@ distArg() {	dist="$1"; [[ ! $dist ]] && MissingOperand "dist"; ! distExists "$di
 dirCommand() { distDir "$1"; }
 existsCommand() { distExists "$1"; }
 installedCommand() { InPath schroot; }
-listCommand() { schroot -l; }
+listCommand() { schroot --list --all "$@"; }
 runCommand() {	local dist; distArg "$1"; shift; schroot -c "$dist" "$@"; }
 
 configCommand() 
@@ -73,6 +78,18 @@ configCommand()
 
 	SetTextEditor || return
 	sudoedit "$config/chroot.d/$dist"
+}
+
+deleteCommand()
+{
+	local dist="$1" dir; dir="$(distDir "$dist")" || return
+
+	[[ ! -d "$dir" ]] && return
+	ask -dr n "Do you want to delete the $dist distribution" || return
+
+	printf "Removing $dist..."
+	sudo rm -fr $dir || return
+	echo "done"
 }
 
 installCommand()
@@ -113,16 +130,40 @@ root-users=$USER
 root-groups=root" | sudo tee "$config/chroot.d/$dist" || return
 	fi
 
-	# directory
-	local dir; dir="$(distDir "$dist")" || return
+	deleteCommand "$dist" || return
+	sudo debootstrap --include=$defaultPackages "$suite" "$(distDir "$dist")" || return
+	bootstrap-remote "$dist" || return
+}
 
-	if [[ -d "$dir" ]]; then
-		ask -dr n "The distribtion alreadys exists in $dir, do you want to delete it" || return
-		sudo rm -fr $dir || return
+restoreCommand()
+{
+	local dist; distArg "$1"; shift
+
+	[[ ! -d "$osBak/$dist" ]] && { EchoErr "$dist backup does not exist"; return 1; }
+	deleteCommand "$dist" || return
+	sudo rsync "${copyOptions[@]}" "$osBak/$dist/" "$(distDir "$dist")/"
+}
+
+backupCommand()
+{
+	local dist; distArg "$1"; shift
+
+	distDirValidate	"$dist" || return
+
+	if [[ -d "$osBak/$dist" ]]; then
+		ask -dr n "Do you want to delete the $dist backup" || return
+		printf "Removing $dist backup..."
+		sudo rm -fr "$osBak/$dist" || return
+		echo "done"
 	fi
 
-	sudo debootstrap --include=$defaultPackages "$suite" "$dir" || return
-	bootstrap-remote  "$dist" || return
+	sudo rsync "${copyOptions[@]}" "$(distDir "$dist")/" "$osBak/$dist"
+}
+
+fixCommand()
+{
+	local dist; distArg "$1"; shift
+	sudo rm "$(distDir	"$dist")/etc/resolv.conf" || return
 }
 
 run "$@"

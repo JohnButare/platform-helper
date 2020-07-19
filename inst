@@ -38,8 +38,7 @@ init()
 	rmd="${G}rm -fr"
 	sudo="sudo"
 
-	# variables
-	unset newOs
+	# variables	
 	oo="$pp/Operating System/Other"
 	setupFiles="$_data/setup"
 
@@ -53,7 +52,7 @@ usage: install cd|install APP*
 	Install programs
 	-h,  --hint DIR				first directory to search for installation files
 	-nr, --no-run					do not find or run the installation program
-	-np, --no-prompt	   	suppress prompts
+	-np, --no-prompt	   	suppress interactive prompts
 	-p,	 --prompt 				force prompts
 	-q,  --quiet					minimize informational messages
 	-s,  --select					select the install location
@@ -362,25 +361,55 @@ macAppOpen() { open -a "$1" || return; pause; }
 bootstrap()
 {
 	printf "**************************************************\n* Bootstrap\n**************************************************\n"	
-	local newOs="true"; IsInstalled sublime && newOs=""
-
-	i bash ssh zsh || return
+	bootstrapCommon || return
 	RunPlatform bootstrap || return
+	i bash ssh zsh || return
 }
 
-bootstrapNewOs()
+bootstrapCommon()
 {
-	makeDir "$CODE/test" || return
-		! IsInstalled xserver && { i xServer || return; }
-	askP "Change hostname from $HOSTNAME" && { os SetHostName || return; }
-	IsPlatform debian,mac,win && { appCore || return; }
+	printf "files..."
+	files=( .bash_history .hushlogin .lesshst .z )
+	for file in "${files[@]}"; do
+		printf "."
+		touch "$HOME/$file" || return
+	done
+
+	printf "directories..."
+	files=( $HOME/.config  $CODE/test )
+	for dir in "${files[@]}"; do
+		printf "."; makeDir "$dir" || return
+	done
+
+	files=( "$PUB" )
+	for dir in "${files[@]}"; do
+		printf "."; makeDirSudo "$dir" || return
+	done
+
+	printf "links..."
+	local files=(.bashrc .bash_logout .bash_profile .dialogrc .gitconfig .gitignore .inputrc .kdiff3rc .lessfilter .magic .minttyrc .p10k.zsh .tmux.conf .Xresources .zshrc)
+	for file in "${files[@]}"; do
+		printf "."; makeLink --symbolic --hide "$UBIN/$file" "$HOME/$file" || return
+	done
+
+	for dir in $(ls $UBIN/.config); do
+		printf "."; makeLink --symbolic "$UBIN/.config/$dir" "$HOME/.config/$dir" || return
+	done
+
+	if [[ ! -f /etc/ethers ]]; then
+		printf "."; sudo ${G}ln --symbolic "$BIN/ethers" "/etc/ethers" || return
+	fi
+
+	echo "done"
 }
 
 bootstrapMacDebian() # debian|mac
 {
+	printf "**************************************************\n* Bootstrap Mac OS and Debian \n**************************************************\n"
+
 	if ! InPath lolcat > /dev/null; then
 		printf "\nInstalling Mac and Debian packages..."
-		packages tldr ncdu
+		package tldr ncdu || return
 		package unzip zip || return																# compression
 		package glances htop || return														# monitoring
 		package curl fping mosh ncat traceroute || return					# network	
@@ -392,11 +421,12 @@ bootstrapMacDebian() # debian|mac
 
 bootstrapDebian() 
 {
+	printf "**************************************************\n* Bootstrap Debian\n**************************************************\n"
+
 	# prevent prompting for keyboard during later installs
 	sudo DEBIAN_FRONTEND=noninteractive apt-get install -y keyboard-configuration || return
 
 	if ! IsPlatform win; then
-		package nautilus gnome-system-monitor || return
 		IsHypervVm && { i HypervLinuxTools || return; }
 		IsVmwareVm && { i VmwareLinuxTools || return; }
 	fi
@@ -406,82 +436,19 @@ bootstrapDebian()
 		package sharutils || return																										# other
 		package gcp hdparm inotify-tools || return																		# file
 		package atop bonnie++ iotop iperf3 nethogs pv || return												# monitoring
-		package avahi-daemon dnsutils etherwake net-tools smbclient || return					# network	
+		package avahi-daemon dnsutils etherwake net-tools || return										# network	
+		PackageNoPrompt smbclient || return
 		package screen squidclient tmux tmuxinator || return													# terminal
 		package libdbus-glib-1-dev virt-what || return																# utility
 	fi
 
-	# text editors
-	if ! IsPlatform ubuntu,mac,win && ! InPath geany; then
-		package geany gedit || return
-	fi
-
-	# policies
-	if InPath systemctl && systemctl >& /dev/null; then
-		echo "[Shutdown or suspend without a password]
-Identity=unix-user:$USER
-Action=org.freedesktop.login1.halt-multiple-sessions;org.freedesktop.login1.reboot-multiple-sessions;org.freedesktop.login1.set-wall-message;org.freedesktop.login1.halt;org.freedesktop.login1.power-off;org.freedesktop.login1.reboot;org.freedesktop.login1.suspend
-ResultAny=yes" | sudo tee "/etc/polkit-1/localauthority/50-local.d/allow_shutdown_suspend.pkla"
-	fi
-
-	# file sharing
-	if ! IsPlatform win && ! egrep -i "$USER" "/etc/samba/smb.conf" >& /dev/null; then
-		package samba || return
-		sudo smbpasswd -a $USER || return
-		
-		echo "[root]
-path = /
-valid users = $USER
-read only = no" | sudo tee -a /etc/samba/smb.conf || return
-
-		sudo service smbd restart || return
-	fi
-
-	echo "Configuring..."
-	DbusSetup || return
-	rebootPermission || return
-
-	echo "Creating directories..."
-	MakeDirOwner "$PUB" || return
-
 	i DebianSetup || return
-}
-
-rebootPermission()
-{
-	local dir="/etc/polkit-1/localauthority/50-local.d" file="allow_shutdown_suspend.pkla"
-	! sudo ls "$dir" >& /dev/null || sudo ls "$dir/$file" >& /dev/null && return
-
-	cat << EOF | sudo tee -a "$dir/$file"
-[Shutdown or suspend without a password]
-Identity=unix-user:$USER
-Action=org.freedesktop.login1.set-wall-message;org.freedesktop.login1.halt;org.freedesktop.login1.power-off;org.freedesktop.login1.reboot;org.freedesktop.login1.suspend
-ResultAny=yes
-EOF
-
-	return 0
-}
-
-bootstrapMac()
-{
-	if ! InPath mas > /dev/null; then
-		printf "\nInstalling core programs..."
-		package dockutil duti fontconfig || return
-		package findutils wget wakeonlan || return	# network
-		package cask mas || return 									# package
-	fi
-
-	if [[ ! -f "/etc/paths.d/wiggin" ]]; then
-		sudo bash -c 'echo "/usr/local/data/bin
-/usr/local/data/platform/mac
-/usr/local/sbin" > /etc/paths.d/wiggin' || return;
-	fi
-
-	i MacSetup || return
 }
 
 bootstrapEntware() 
 {
+	printf "**************************************************\n* Bootstrap Entware\n**************************************************\n"
+
 	if ! InPath lynx > /dev/null; then
 		printf "\nInstalling core packages..."
 		package coreutils-expand coreutils-head coreutils-sort || return		# core utilities
@@ -502,8 +469,30 @@ bootstrapEntware()
 	makeFileSudo "$file" || return; sudo chmod +x "$file" || return
 }
 
+bootstrapMac()
+{
+	printf "**************************************************\n* Bootstrap Mac\n**************************************************\n"
+
+	if ! InPath mas > /dev/null; then
+		printf "\nInstalling core programs..."
+		package dockutil duti fontconfig || return
+		package findutils wget wakeonlan || return	# network
+		package cask mas || return 									# package
+	fi
+
+	if [[ ! -f "/etc/paths.d/wiggin" ]]; then
+		sudo bash -c 'echo "/usr/local/data/bin
+/usr/local/data/platform/mac
+/usr/local/sbin" > /etc/paths.d/wiggin' || return;
+	fi
+
+	i MacSetup || return
+}
+
 bootstrapQnap()
 {
+	printf "**************************************************\n* Bootstrap QNAP\n**************************************************\n"
+
 	pacakge iotop || return
 
 	# autorun
@@ -520,12 +509,31 @@ sudo ln -s /share/Public/documents/data /usr/local/data"
 
 bootstrapRock()
 {
+	printf "**************************************************\n* Bootstrap Rock Pi\n**************************************************\n"
+
 	# https://wiki.radxa.com/Rockpi4/Ubuntu#
 	echo "Changing password for rock."; sudo passwd rock || return
+
+	local f="/etc/apt/sources.list.d/apt-radxa-com.list"
+
+	if [[ ! -f "$f" ]]; then
+		echo "Adding radxa package source..."
+		export DISTRO=bionic-stable
+		echo "deb http://apt.radxa.com/$DISTRO/ ${DISTRO%-*} main" | sudo tee -a /etc/apt/sources.list.d/apt-radxa-com.list || return
+		wget -O - apt.radxa.com/$DISTRO/public.key | sudo apt-key add - || return
+		sudo apt-get update && sudo apt-get upgrade || return
+	fi
+	
+	sudo apt-get install rockchip-overlay rockchip-fstab || return
+	sudo apt-get install -y rockpi4b-rk-u-boot-latest || return
+	sudo apt-get install linux-base || return
+	sudo apt-get install linux-4.4-latest || return
 }
 
 bootstrapRaspbian()
 {
+	printf "**************************************************\n* Bootstrap Raspberry Pi OS\n**************************************************\n"
+
 	local locale="en_US.UTF-8" timezone="US/Mountain"
 
 	sudo raspi-config nonint do_net_names 0 || return # enable predictable network names
@@ -538,6 +546,8 @@ bootstrapRaspbian()
 
 bootstrapUbuntu()
 {
+	printf "**************************************************\n* Bootstrap Ubuntu\n**************************************************\n"
+
 	IsPlatform win && return # Ubuntu setup is not applicable for Windows
 
 	[[ -f gsettings ]] && { gsettings set org.gnome.desktop.session idle-delay 0 || return; } # do not blank screen
@@ -559,20 +569,21 @@ bootstrapUbuntu()
 
 bootstrapWsl()
 {
+	printf "**************************************************\n* Bootstrap WSL\n**************************************************\n"
+
 	wsl SetDefaultUser || return
 	$registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/RunScript startup' || return
 }
 
 bootstrapWin()
 {
+	printf "**************************************************\n* Bootstrap Windows\n**************************************************\n"
+
 	makeLink --symbolic "$WIN_HOME/Desktop" "$HOME/Desktop" || return
 	makeLink --symbolic "$WIN_HOME/Downloads" "$HOME/Downloads" || return
 
-	# WSL is setup, return if this is not a new Windows installation
-	[[ ! $newOs ]] && return
-
-	# install HiddenStart and System Internals first to minimize prompts
-	i HiddenStartFinal SystemInternals WindowsSetup || return
+	# install HiddenStart and System Internals first to minimize prompts (assume this is done if Sublime is installed)
+	! IsInstalled sublime && { i HiddenStartFinal SystemInternals WindowsSetup || return; }
 }
 
 #
@@ -582,41 +593,30 @@ bootstrapWin()
 appCore()
 {
 	printf "**************************************************\n* Core Applications\n**************************************************\n"
+
 	i AppInitial || return
 	RunPlatform app || return
-	! IsVm && { appNotVm || return; }
 	i AppFinal || return
 	i AppHostHardwareCore AppHostCore || return
 }
 
-appInitial() { i CredentialStore firefox sublime BeyondCompare || return; }
-appDebian() { i terminator || return; }
+appInitial() { IsPlatform full && { i firefox sublime BeyondCompare || return; }
 appMac() { i iTerm karabiner rectangle || return; }
-appWin() { i AutoHotKey AquaSnap EdgeDeflector ninite WindowsTerminal || return; }
-appNotVm() { i JumpCloud zoom xServer || return; }
+appWin() { i AutoHotKey AquaSnap EdgeDeflector WindowsTerminal || return; }
+appPhysical() { i ninite JumpCloud zoom || return; }
 appFinal() { i colorls fzf || return; }
+
+appDebian()
+{ 
+	i xServer xClient terminator || return
+	! IsPlatform mac,ubuntu,win && { package gedit gnome-system-monitor nautilus || return; }
+	password CheckStore && { i CredentialStore || return; }
+}
 
 appRaspbian() 
 { 
 	! InPath gpio && { package wiringpi || return; }
 	! groups $USER | grep gpio >& /dev/null && { sudo adduser $USER gpio || return; }
-}
-
-appRock() 
-{ 
-	local f="/etc/apt/sources.list.d/apt-radxa-com.list"
-
-	if [[ ! -f "$f" ]]; then
-		export DISTRO=bionic-stable
-		echo "deb http://apt.radxa.com/$DISTRO/ ${DISTRO%-*} main" | sudo tee -a /etc/apt/sources.list.d/apt-radxa-com.list || return
-		wget -O - apt.radxa.com/$DISTRO/public.key | sudo apt-key add - || return
-		sudo apt-get update && sudo apt-get upgrade || return
-	fi
-	
-	sudo apt-get install rockchip-overlay rockchip-fstab || return
-	sudo apt-get install -y rockpi4b-rk-u-boot-latest || return
-	sudo apt-get install linux-base || return
-	sudo apt-get install linux-4.4-latest || return
 }
 
 appHostHardwareCore()
@@ -723,6 +723,14 @@ vmMac() { i ParallelsDesktop || return; }
 # SSH Programs
 # 
 
+ssh()
+{
+	printf "**************************************************\n* SSH\n**************************************************\n"
+	makeDir ~/.ssh && $hide ~/.ssh || return
+	SshPermission || return
+	RunPlatform Ssh || return
+}
+
 SshPermission()
 {
 	[[ ! -d ~/.ssh ]] && return
@@ -739,14 +747,6 @@ SshPermission()
 	[[ -f ~/.ssh/id_ed25519 ]] && { chmod 700 ~/.ssh/id_ed25519 || return; }
 
 	return 0
-}
-
-ssh()
-{
-	printf "**************************************************\n* SSH\n**************************************************\n"
-	makeDir ~/.ssh && $hide ~/.ssh || return
-	SshPermission || return
-	RunPlatform Ssh || return
 }
 
 SshWsl()
@@ -795,8 +795,23 @@ WinScpInstall()
 DebianSetup()
 {
 	printf "**************************************************\n* Debian Setup\n**************************************************\n"
-	i DebianFonts || return
-	i DebianProxyServer || return
+	i DebianFileSharing DebianFonts DebianPolicies DebianProxyServer || return
+	DbusSetup || return
+}
+
+DebianFileSharing()
+{
+	IsPlatform win && egrep -i "$USER" "/etc/samba/smb.conf" >& /dev/null && return
+
+	package samba || return
+	sudo smbpasswd -a $USER || return
+	
+	echo "[root]
+path = /
+valid users = $USER
+read only = no" | sudo tee -a /etc/samba/smb.conf || return
+
+	sudo service smbd restart || return
 }
 
 DebianFonts()
@@ -809,6 +824,24 @@ DebianFonts()
 	findFile "fonts/MesloLGS NF" || return
 	sudo cp "$file/"*.ttf "$dir" || return
 	fc-cache -fv || return
+}
+
+DebianPolicies()
+{
+	local dir="/etc/polkit-1/localauthority/50-local.d" file
+
+	! { InPath systemctl && systemctl >& /dev/null && sudo ls "$dir" >& /dev/null; } && return
+
+	# reboot
+	file="$dir/allow_shutdown_suspend.pkla"
+	if ! sudo ls "$file" >& /dev/null; then
+		echo "[Shutdown or suspend without a password]
+Identity=unix-user:$USER
+Action=org.freedesktop.login1.halt-multiple-sessions;org.freedesktop.login1.reboot-multiple-sessions;org.freedesktop.login1.set-wall-message;org.freedesktop.login1.halt;org.freedesktop.login1.power-off;org.freedesktop.login1.reboot;org.freedesktop.login1.suspend
+ResultAny=yes" | sudo tee "$file"
+	fi
+
+	return 0
 }
 
 DebianProxyServer()
@@ -2687,11 +2720,16 @@ terminator()
 # X Windows
 #
 
+xClient()
+{
+	printf "**************************************************\n* X Client\n**************************************************\n"
+	package x11-utils xclip wmctrl || return
+}
+
 xServer()
 {
 	printf "**************************************************\n* X Server\n**************************************************\n"
 	RunPlatform xServer || return
-	package wmctrl || return
 }
 
 xServerMac()
@@ -2892,47 +2930,13 @@ VmwareLinuxTools()
 	return 0
 }
 
-
 #
 # Other Programs
 #
 
 BashInstall()
 {
-	printf "**************************************************\n* Bash - Bourne Again Shell\n**************************************************\n"
-	printf "Configuring bash..."
-
-	printf "links..."
-	local files=(.bashrc .bash_logout .bash_profile .dialogrc .gitconfig .gitignore .inputrc .kdiff3rc .lessfilter .magic .minttyrc .tmux.conf .Xresources)
-	for file in "${files[@]}"; do
-		printf "."
-		makeLink --symbolic --hide "$UBIN/$file" "$HOME/$file" || return
-	done
-
-	if [[ ! -f /etc/ethers ]]; then
-		sudo ${G}ln --symbolic "$BIN/ethers" "/etc/ethers" || return
-	fi
-
-	printf "config..."
-	makeDir ~/.config || return
-	for dir in $(ls $UBIN/.config); do
-		if [[ -d "$UBIN/.config/$dir" ]]; then
-			printf "."
-			makeLink --symbolic "$UBIN/.config/$dir" "$HOME/.config/$dir" || return
-		fi
-	done
-
-	printf "create..."
-	files=( .bash_history .hushlogin .lesshst .z )
-	for file in "${files[@]}"; do
-		printf "."
-		touch "$HOME/$file" || return
-	done
-
-	printf "ssh..."
-	SshPermission || return
-
-	echo "done"
+	printf "**************************************************\n* Bourne Again Shell\n**************************************************\n"
 
 	# profile
 	local file="/etc/bash.bashrc"
@@ -2964,15 +2968,6 @@ BashInstall()
 ZshInstall()
 {
 	printf "**************************************************\n* Z shell\n**************************************************\n"
-	printf "Configuring zsh..."
-
-	printf "links..."
-	local files=(.zshrc .p10k.zsh)
-	for file in "${files[@]}"; do
-		printf "."
-		makeLink --symbolic --hide "$UBIN/$file" "$HOME/$file" || return
-	done
-	echo "done"
 
 	ZshHelper profile restore default || return
 
@@ -2991,6 +2986,7 @@ ZshInstall()
 	[[ -d "$dir" ]] && { sudo chmod go-w "$dir" || return; }
 	[[ -d "$dir/site-functions" ]] && { sudo chmod go-w "$dir/site-functions" || return; }
 
+	# login shell
 	SetLoginShell zsh || return
 }
 
@@ -4668,7 +4664,7 @@ chrootInstall()
 CredentialStoreInstall()
 {
 	printf "**************************************************\n* Credential Store\n**************************************************\n"
-	password CheckStore || return
+	password store || return
 }
 
 TmuxInstall()

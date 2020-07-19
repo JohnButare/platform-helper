@@ -745,8 +745,6 @@ SshAgentCheck()
 	SshAgentHelper start --verbose --quiet
 }
 
-# SSH
-
 SshHelper() 
 {
 	local x mosh host args=()
@@ -790,6 +788,9 @@ SshHelper()
 #
 
 HasPackageManger() { IsPlatform debian,mac,dsm,qnap,cygwin; }
+PackageListInstalled() { InPath dpkg && dpkg --get-selections; }
+PackagePurge() { InPath wajig && wajig purgeremoved; }
+PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
 
 package() 
 { 
@@ -817,8 +818,6 @@ packagel() # package list
 	return 0
 }
 
-packageli() { dpkg --get-selections; } # package list installed
-
 PackageExist() 
 { 
 	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
@@ -827,8 +826,22 @@ PackageExist()
 	return 0
 }
 
-PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
-PackagePurge() { InPath wajig && wajig purgeremoved; }
+PackageUpdate()
+{
+	IsPlatform debian && { sudo apt update || return; sudo apt dist-upgrade -y; return; }
+	IsPlatform mac && { brew update || return; brew upgrade; return; }
+	IsPlatform qnap && { sudo opkg update || return; sudo opkg upgade; return; }
+	return 0
+}
+
+PackageNoPrompt()
+{
+	if IsPlatform debian; then
+		sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+	else
+		package "$@"
+	fi
+}
 
 packages() # install list of packages, assuming each is in the path
 {
@@ -838,14 +851,6 @@ packages() # install list of packages, assuming each is in the path
 		! InPath "$p" && { package "$p" || return; }
 	done
 
-	return 0
-}
-
-PackageUpdate()
-{
-	IsPlatform debian && { sudo apt update || return; sudo apt dist-upgrade -y; return; }
-	IsPlatform mac && { brew update || return; brew upgrade; return; }
-	IsPlatform qnap && { sudo opkg update || return; sudo opkg upgade; return; }
 	return 0
 }
 
@@ -869,6 +874,10 @@ function IsPlatform()
 			wsl1|wsl2) [[ "$p" == "wsl$wsl" ]] && return;;
 			debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return;;
 			dsm|qts|srm|raspbian|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return;;
+
+			# other
+			full) IsPlatform mac,ubuntu,win && return;;
+			basic) ! IsPlatform full && return;;
 			busybox) InPath busybox && return;;
 			entware) IsPlatform qnap,synology && return;;
 
@@ -880,6 +889,11 @@ function IsPlatform()
 			# kernel
 			winkernel) [[ "$PLATFORM_KERNEL" == "win" ]] && return 0;;
 			linuxkernel) [[ "$PLATFORM_KERNEL" == "linux" ]] && return 0;;
+
+			# virtual machine
+			chroot) IsChroot; return 0;;
+			physical) ! IsVm; return 0;;
+			vm) IsVm; return 0;;
 
 		esac
 
@@ -918,10 +932,13 @@ function RunPlatform()
 	RunFunction $function $PLATFORM "$@" || return
 	RunFunction $function $PLATFORM_LIKE "$@" || return
 	RunFunction $function $PLATFORM_ID "$@" || return
-	IsPlatform cygwin && { RunFunction $function cygwin "$@" || return; }
-	IsPlatform qnap,synology && { RunFunction $function entware "$@" || return; }
-	IsPlatform debian,mac && { RunFunction $function macDebian "$@" || return; }
 	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
+	IsPlatform entware && { RunFunction $function entware "$@" || return; }
+	IsPlatform debian,mac && { RunFunction $function macDebian "$@" || return; }
+	IsPlatform full && { RunFunction $function full "$@" || return; }
+	IsPlatform basic && { RunFunction $function basic "$@" || return; }
+	IsPlatform vm && { RunFunction $function vm "$@" || return; }
+	IsPlatform physical && { RunFunction $function physical "$@" || return; }
 	return 0
 }
 
@@ -1347,7 +1364,7 @@ WinList() { ! IsPlatform win && return; start cmdow /f | RemoveCarriageReturn; }
 
 InitializeXServer()
 {
-	{ [[ "$DISPLAY" ]] || ! InPath xprop; } && return
+	{ [[ "$DISPLAY" ]] || ! InPath xauth; } && return
 
 	if [[ "$WSL" == "2" ]]; then
 		export WSL_HOST="$(awk '/nameserver / {print $2; exit}' /etc/resolv.conf 2>/dev/null)"
