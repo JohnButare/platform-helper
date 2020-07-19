@@ -827,6 +827,9 @@ PackageExist()
 	return 0
 }
 
+PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
+PackagePurge() { InPath wajig && wajig purgeremoved; }
+
 packages() # install list of packages, assuming each is in the path
 {
 	local p
