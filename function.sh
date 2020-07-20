@@ -1243,33 +1243,14 @@ Utf16to8() { iconv -f utf-16 -t UTF-8; }
 
 GetTextEditor()
 {
-	if ! IsSsh; then
-		case "$PLATFORM" in 
-		
-			linux)
-				p="$P/sublime_text/sublime_text"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-				p="$P/sublime_text_3/sublime_text"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-				;;
-
-			mac)
-				p="$P/Sublime Text.app/Contents/SharedSupport/bin/subl"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-				echo "open -a TextEdit"; return 0
-				;;
-
-			win)
-				p="$P/Sublime Text 3/subl.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-				p="$P/Notepad++/notepad++.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-				p="$WINDIR/system32/notepad.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }
-				;;
-
-		esac
-	fi
-	
+	IsInstalled sublime && { echo "$(sublime program)"; return 0; }
+	! IsSsh && IsPlatform mac && { echo "open -a TextEdit"; return 0; }
+	! IsSsh && IsPlatform win && { p="$P/Notepad++/notepad++.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }; }
+	! IsSsh && InPath notepad.exe && { echo "notepad.exe"; return 0; }
 	InPath geany && { echo "geany"; return 0; }
 	InPath gedit && { echo "gedit"; return 0; }
 	InPath nano && { echo "nano"; return 0; }
 	InPath vi && { echo "vi"; return 0; }
-
 	EchoErr "No text editor found"; return 1;
 }
 
