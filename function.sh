@@ -850,6 +850,20 @@ packages() # install list of packages, assume each package name is in the path
 	package "$@"
 }
 
+PackagesExclude()
+{
+	local packages=() mac=( atop hdparm inotify-tools squidclient virt-what )	
+
+	for package in "$@"; do
+		if IsPlatform mac; then ! IsInArray "$package" mac && packages+=( $package )
+		else packages+=( $package )
+		fi
+	done
+
+	[[ "${packages[@]}" == "" ]] && return 0
+	packages "${packages[@]}"
+}
+
 #
 # Platform
 # 
