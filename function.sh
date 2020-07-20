@@ -330,7 +330,7 @@ GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${g
 GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
 GetParentDir() { echo "$(GetFilePath "$(GetFilePath "$1")")"; }
 GetRealPath() { ${G}readlink -f "$@"; } # resolve symbolic links
-InPath() { which "$1" >& /dev/null; }
+InPath() { local f; for f in "$@"; do ! which "$f" >& /dev/null && return 1; done; return 0; }
 IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff "$1" "$2" >& /dev/null; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
@@ -844,15 +844,10 @@ PackageNoPrompt()
 	fi
 }
 
-packages() # install list of packages, assuming each is in the path
+packages() # install list of packages, assume each package name is in the path
 {
-	local p
-
-	for p in "$@"; do
-		! InPath "$p" && { package "$p" || return; }
-	done
-
-	return 0
+	InPath "$@" && return 0
+	package "$@"
 }
 
 #
@@ -877,8 +872,6 @@ function IsPlatform()
 			dsm|qts|srm|raspbian|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return;;
 
 			# other
-			full) IsPlatform mac,ubuntu,win && return;;
-			basic) ! IsPlatform full && return;;
 			busybox) InPath busybox && return;;
 			entware) IsPlatform qnap,synology && return;;
 
@@ -935,9 +928,7 @@ function RunPlatform()
 	RunFunction $function $PLATFORM_ID "$@" || return
 	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
 	IsPlatform entware && { RunFunction $function entware "$@" || return; }
-	IsPlatform debian,mac && { RunFunction $function macDebian "$@" || return; }
-	IsPlatform full && { RunFunction $function full "$@" || return; }
-	IsPlatform basic && { RunFunction $function basic "$@" || return; }
+	IsPlatform debian,mac && { RunFunction $function DebianMac "$@" || return; }
 	IsPlatform vm && { RunFunction $function vm "$@" || return; }
 	IsPlatform physical && { RunFunction $function physical "$@" || return; }
 	return 0
