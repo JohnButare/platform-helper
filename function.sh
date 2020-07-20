@@ -715,7 +715,8 @@ MdnsResolve()
 		result="$(avahi-resolve-address -4 -n "$name" | awk '{ print $2; }')"
 	fi
 
-	[[ $result ]] && echo "$result"
+	[[ ! $result ]] && { EchoErr "mDNS: Could not resolve hostname $host"; return 1; } 
+	echo "$result"
 }
 
 # UNC Shares - \\SERVER\SHARE\DIRS
@@ -778,7 +779,7 @@ SshHelper()
 		DISPLAY=localhost:0 ssh -Xy "$host" $@
 	elif IsPlatform mac,wsl2; then # macOS XQuartz requires trusted X11 forwarding
 		ssh -Yy "$host" $@
-	else # use use untrusted (X programs are not trusted to use all X features on the host)
+	else # use untrusted (X programs are not trusted to use all X features on the host)
 		ssh -Xy "$host" $@
 	fi
 } 
