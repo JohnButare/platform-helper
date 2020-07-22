@@ -890,18 +890,18 @@ function IsPlatform()
 			entware) IsPlatform qnap,synology && return;;
 
 			# package management
-			apt) InPath apt && return 0;;
-			ipkg) InPath ipkg && return 0;;
-			opkg) InPath opkg && return 0;;
+			apt) InPath apt && return;;
+			ipkg) InPath ipkg && return;;
+			opkg) InPath opkg && return;;
 
 			# kernel
-			winkernel) [[ "$PLATFORM_KERNEL" == "win" ]] && return 0;;
-			linuxkernel) [[ "$PLATFORM_KERNEL" == "linux" ]] && return 0;;
+			winkernel) [[ "$PLATFORM_KERNEL" == "win" ]] && return;;
+			linuxkernel) [[ "$PLATFORM_KERNEL" == "linux" ]] && return;;
 
 			# virtual machine
-			chroot) IsChroot; return 0;;
-			physical) ! IsVm; return 0;;
-			vm) IsVm; return 0;;
+			chroot) IsChroot && return;;
+			physical) ! IsVm && return;;
+			vm) IsVm && return;;
 
 		esac
 
@@ -927,7 +927,8 @@ SourceIfExists() { [[ -f "$1" ]] && { . "$1" || return; }; return 0; }
 SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 {
 	local files; GetPlatformFiles "$1" "$2" || return 0;
-	for file in "${files[@]}"; do . "$file"; done
+	for file in "${files[@]}"; do . "$file" || return; done
+	return 0
 }
 
 PlatformTmp() { IsPlatform win && echo "$(wtu "$tmp")" || echo "$TMP"; }
