@@ -639,7 +639,8 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 		# resolve IP address to avoid slow ping.exe name resolution
 		! IsIpAddress "$host" && { host="$(getent hosts "$host" | cut -d" " -f 1)"; [[ ! $host ]] && return 1; }
 
-		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null; return
+		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null
+		return
 	fi
 	
 	if InPath fping; then
