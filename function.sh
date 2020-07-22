@@ -1062,7 +1062,7 @@ start()
 		case "$1" in "") : ;;
 			-e|--elevate) ! IsElevated && IsPlatform win && elevate="--elevate";;
 			-h|--help) startUsage; return 0;;
-			-s|--sudo) sudo="sudo";;
+			-s|--sudo) sudo="sudoc";;
 			-w|--wait) wait="--wait";;
 			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "$1" "$2" ); shift;;
 			*)
@@ -1267,7 +1267,16 @@ GetTextEditor()
 # - be a physical file in the path 
 # - accept a UNIX style path as the file to edit
 # - return only when the file has been edited
-SetTextEditor() {	IsInstalled sublime && export {SUDO_EDITOR,EDITOR}="$BIN/sublime -w"; return 0; }
+SetTextEditor()
+{
+	local e
+	
+	if IsInstalled sublime; then e="$BIN/sublime -w"
+	elif InPath geany; then e="geany -i"
+	fi
+		
+	export {SUDO_EDITOR,EDITOR}="$e"
+}
 
 TextEdit()
 {

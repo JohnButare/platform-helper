@@ -67,7 +67,22 @@ dirCommand() { distDir "$1"; }
 existsCommand() { distExists "$1"; }
 installedCommand() { InPath schroot; }
 listCommand() { schroot --list --all "$@"; }
-runCommand() {	local dist; distArg "$1"; shift; schroot -c "$dist" "$@"; }
+
+backupCommand()
+{
+	local dist; distArg "$1"; shift
+
+	distDirValidate	"$dist" || return
+
+	if [[ -d "$osBak/$dist" ]]; then
+		ask -dr n "Do you want to delete the $dist backup" || return
+		printf "Removing $dist backup..."
+		sudo rm -fr "$osBak/$dist" || return
+		echo "done"
+	fi
+
+	sudo rsync "${copyOptions[@]}" "$(distDir "$dist")/" "$osBak/$dist"
+}
 
 configCommand() 
 { 
@@ -90,6 +105,12 @@ deleteCommand()
 	printf "Removing $dist..."
 	sudo rm -fr $dir || return
 	echo "done"
+}
+
+fixCommand()
+{
+	local dist; distArg "$1"; shift
+	sudo rm "$(distDir	"$dist")/etc/resolv.conf" || return
 }
 
 installCommand()
@@ -144,26 +165,33 @@ restoreCommand()
 	sudo rsync "${copyOptions[@]}" "$osBak/$dist/" "$(distDir "$dist")/"
 }
 
-backupCommand()
+emulatePi()
 {
 	local dist; distArg "$1"; shift
+	local distDir="$(distDir "$dist")" result 
+	
+	ARCH=$(dpkg --print-architecture)
+  [[ "$ARCH" != "armhf" ]] && ! InPath qemu-arm-static && { EchoErr "qemu-arm-static command not found. Try: sudo apt-get install binfmt-support qemu-user-static"; exit 1; }
+  
+  [[ -f "$distDir/etc/ld.so.preload" ]] && { sudo mv "$distDir/etc/ld.so.preload" "$distDir/etc/ld.so.preload.disabled" || return; }
+	
+	sudo install -m 0755 /usr/bin/qemu-arm-static $distDir/usr/bin/qemu-arm-static || return
+	schroot -c "$dist" "$@"; result=$?
 
-	distDirValidate	"$dist" || return
-
-	if [[ -d "$osBak/$dist" ]]; then
-		ask -dr n "Do you want to delete the $dist backup" || return
-		printf "Removing $dist backup..."
-		sudo rm -fr "$osBak/$dist" || return
-		echo "done"
-	fi
-
-	sudo rsync "${copyOptions[@]}" "$(distDir "$dist")/" "$osBak/$dist"
+	[[ -f "$distDir/etc/ld.so.preload.disabled" ]] && { sudo mv "$distDir/etc/ld.so.preload.disabled" "$distDir/etc/ld.so.preload" || return; }
+	return $result
 }
 
-fixCommand()
-{
+runCommand() 
+{	
 	local dist; distArg "$1"; shift
-	sudo rm "$(distDir	"$dist")/etc/resolv.conf" || return
+	
+	ARCH=$(dpkg --print-architecture)
+  if [[ "$ARCH" != "armhf" ]]; then
+		emulatePi "$dist" "$@"
+	else
+		schroot -c "$dist" "$@"
+	fi
 }
 
 run "$@"
