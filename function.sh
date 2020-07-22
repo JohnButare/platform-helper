@@ -1049,18 +1049,20 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 
 	-e, --elevate 					run the program with an elevated administrator token (Windows)
 	-o, --open							open the the file using the associated program
+	-s, --sudo							run the program as root
 	-w, --wait							wait for the program to run before returning
 	-ws, --windows-style 		hidden|maximized|minimized|normal"
 }
 
 start() 
 {
-	local elevate file wait windowStyle
+	local elevate file sudo wait windowStyle
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-e|--elevate) ! IsElevated && elevate="--elevate";;
+			-e|--elevate) ! IsElevated && IsPlatform win && elevate="--elevate";;
 			-h|--help) startUsage; return 0;;
+			-s|--sudo) sudo="sudo";;
 			-w|--wait) wait="--wait";;
 			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "$1" "$2" ); shift;;
 			*)
@@ -1113,7 +1115,7 @@ start()
 		fi
 
 		# start Windows console process
-		[[ ! $elevate ]] && IsConsoleProgram "$file" && { "$fullFile" "${args[@]}"; return; }
+		[[ ! $elevate ]] && IsConsoleProgram "$file" && { $sudo "$fullFile" "${args[@]}"; return; }
 
 		# escape spaces for shell scripts so arguments are preserved when elevating - we must be elevating scripts here
 		if IsShellScript "$fullFile"; then	
@@ -1134,11 +1136,11 @@ start()
  	# run a non-Windows program
 	if [[ $wait ]]; then
 		(
-			nohup "$file" "${args[@]}" >& /dev/null &
+			nohup $sudo "$file" "${args[@]}" >& /dev/null &
 			wait $!
 		)
 	else
-		(nohup "$file" "${args[@]}" >& /dev/null &)		
+		(nohup $sudo "$file" "${args[@]}" >& /dev/null &)		
 	fi
 } 
 
