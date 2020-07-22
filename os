@@ -20,10 +20,10 @@ args()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
-	 		SystemProperties) command="SystemProperties";; SetHostname) command="setHostname";;
+	 		CodeName) command="codeName";; SystemProperties) command="systemProperties";; SetHostname) command="setHostname";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(hostname|path|update|SetWorkgroup) ]] && break
+				[[ "$command" == @(CodeName|hostname|path|update|SetWorkgroup) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -55,7 +55,7 @@ storeCommand()
 	esac
 }	
 
-SystemPropertiesCommand()
+systemPropertiesCommand()
 {
 	case "$PLATFORM" in
 		win)
@@ -139,6 +139,8 @@ versionMac()
 	echo "macOS $version ($codeName build $build)"
 }
 
+codeNameCommand() { InPath lsb_release && lsb_release -a |& grep "Codename:" | cut -f 2-; }
+
 versionDebian()
 {
 	local platform="$(PlatformDescription)" distributor version codename hardware
@@ -153,7 +155,7 @@ versionDebian()
 	IsPlatform raspbian && distributor+="/Debian"
 
 	# Version
-	version="$(lsb_release -a |& grep "Release:" | cut -f 2-)"	
+	version="$(codeNameCommand)"
 	IsPlatform ubuntu && version="$(lsb_release -a |& grep "Description:" | cut -f 2- | sed 's/'$distributor' //')"
 	IsPlatform raspbian && [[ -f /etc/debian_version ]] && version="$(cat /etc/debian_version)"
 	
