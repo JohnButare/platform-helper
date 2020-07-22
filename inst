@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 . function.sh || exit
 
-debian=( chroot mDns terminator )
+debian=( chroot geany gnupg mDns pass terminator )
 mac=( apptivate bartender CarrotWeather DayOne iTerm karabiner LiveDesktop Magnet pcalc rectagle spark speedtest WallpaperWizard XQuartz yoink )
 win=( ahk AutoHotKey AltTabTerminator AquaSnap CloseAllWindows DiskImager EdgeDeflector FileLocatorPro HiddenStart Ninite npp Notepadpp RightClickEnhancer SevenZip TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager IntelExtremeTuning LgMonitor NitroPdf PartitionAssistant pGina PowerPanel PowerrToys QuickBooks stamps TaskLayout Todoist Wallpaper4k )
 macWin=( CanonCamera CleanMy Cricut deezer Domotz DuetDisplay GreenShot JumpDesktop LastPass LogitechOptions notion office origin PdfElement QnapExternalRaidManager qvr sonos zoom )
@@ -118,8 +118,8 @@ findCompareProgram()
 {
 	args="" name="" program=""	
 	BeyondCompare IsInstalled && { name="bc" program="BeyondCompare"; return; }
+	InPath meld && { name="meld" program="meld"; return; }
 	InPath kompare && { name="kompare" program="kompare"; return; }
-	[[ -f "$P32/KDiff3/kdiff3.exe" ]] && { name="kdiff3" program="$P32/KDiff3/kdiff3.exe"; return; }
 	return 1
 }
 
@@ -590,7 +590,8 @@ appDebian()
 	if IsPlatform mac,ubuntu,win; then
 		i colorls || return # slow on embedded systems such as Raspberry Pi
 	else
-		packages geany gedit gnome-system-monitor nautilus || return
+		packages gedit gnome-system-monitor meld nautilus || return
+		i geany || return
 	fi
 
 	password CheckStore && { i CredentialStore || return; }
@@ -600,9 +601,9 @@ UtilitiesInstall()
 {
 	PackagesExclude hdparm ncdu || return																									# file
 	PackagesExclude atop bonnie++ glances inotify-tools iotop iperf3 nethogs pv || return	# monitoring
-	PackagesExclude fping mosh ncat traceroute || return																		# network
+	PackagesExclude fping mosh ncat traceroute || return																	# network
 	PackagesExclude screen squidclient  || return																					# terminal
-	PackagesExclude cowsay figlet fortune lolcat || return																	# text	
+	PackagesExclude colordiff cowsay figlet fortune lolcat || return											# text	
 	PackagesExclude ncdu virt-what || return
 }
 
@@ -807,7 +808,7 @@ DebianFileSharing()
 {
 	IsPlatform win && egrep -i "$USER" "/etc/samba/smb.conf" >& /dev/null && return
 
-	package samba || return
+	! InPath smbpasswd && { package samba || return; }
 	sudo smbpasswd -a $USER || return
 	
 	echo "[root]
@@ -1216,6 +1217,96 @@ firefoxInstall()
 }
 
 #
+# Linux
+#
+
+chrootInstall()
+{
+	printf "**************************************************\n* chroot\n**************************************************\n"
+	package debootstrap schroot || return
+	makeDirSudo "/var/chroot" || return
+	return 0
+}
+
+CredentialStoreInstall()
+{
+	printf "**************************************************\n* Credential Store\n**************************************************\n"
+
+	IsPlatform ubuntu && { package gnome-keyring libsecret-tools || return; }
+	! IsPlatform mac,buntu,win && { i gpg pass || return; }
+	
+	password store || return
+}
+
+fzf()
+{
+	printf "**************************************************\n* fzf (Fuzzy Search)\n**************************************************\n"
+
+	# https://github.com/junegunn/fzf
+	if [[ ! -d ~/.fzf ]]; then
+		if findFile "platform/linux/fzf/fzf.image.zip"; then
+			unzip "$file" -d ~ || return
+		else
+			git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf || return
+		fi
+	fi
+
+	# do not update shell configuration files, assume ~/fzf.SHELL is sourced
+	sudo ~/.fzf/install --no-update-rc --completion --key-bindings || return
+
+	printf "links..."
+	local dest="/usr/local/bin" files=(fzf fzf-tmux)
+	for file in "${files[@]}"; do
+		printf "."
+		[[ ! -e "$dest/$file" ]] && { sudo ln -s "$HOME/.fzf/bin/$file" "$dest/$file" || return; }
+	done
+	echo "done"
+
+	return 0
+}
+
+GeanyInstall()
+{
+	printf "**************************************************\n* Geany\n**************************************************\n"
+	packages geany || return
+	GeanyHelper profile restore default || return
+}
+
+GpgInstall()
+{
+	printf "**************************************************\n* GNU PGP\n**************************************************\n"
+	packages gpg || return
+	makeLink --symbolic "$UDATA/app/gpg" "$HOME/.gnupg" || return
+	chmod go-rwx $UDATA/app/gpg || return
+}
+
+NetworkUtilitiesInstall()
+{
+	printf "**************************************************\n* Network Utilities\n**************************************************\n"
+	package lynx nmap || retuirn
+}
+
+PackageManagementInstall()
+{
+	printf "**************************************************\n* Package Management\n**************************************************\n"
+	package apt-show-versions debsums wajig || return	
+}
+
+PassInstall()
+{
+	printf "**************************************************\n* pass\n**************************************************\n"
+	packages pass;
+	makeLink --symbolic "$UDATA/app/pass" "$HOME/.password-store" || return
+	chmod go-rwx $UDATA/app/pass || return
+}
+
+TmuxInstall()
+{
+	printf "**************************************************\n* tmux\n**************************************************\n"
+	packages tmux tmuxinator || return	
+}
+
+#
 # Game
 #
 
@@ -1344,15 +1435,14 @@ uplayInstall()
 
 GitCore()
 {
-	package git git-extras gitg tig || return
-	RunPlatform git
-	! IsVm && { GitHelper bin || return; }
+	packages git git-extras gitg tig || return
+	! IsPlatform chroot,vm && { GitHelper bin || return; }
 	return 0
 }
 
 gitMac() { i fork SublimeMerge || return; }
-gitRaspbian() { package gitg kompare || return; }
-gitUbuntu() { package gitg SublimeMerge || return; }
+gitRaspbian() { packages gitg kompare || return; }
+gitUbuntu() { packages gitg SublimeMerge || return; }
 
 gitWin()
 {
@@ -2718,7 +2808,7 @@ iTermInstall()
 terminator()
 {
 	printf "**************************************************\n* Terminator\n**************************************************\n"
-	package terminator || return
+	packages terminator || return
 	TerminatorHelper profile restore default || return
 }
 
@@ -3214,7 +3304,7 @@ BeyondCompareInstall()
 	printf "**************************************************\n* BeyondCompare\n**************************************************\n"
 
 	# http://www.scootersoftware.com/download.php
-	local v=4.3.4.24657
+	local v=4.3.5.24893
 	run "other/Scooter Software/Beyond Compare/setup/" -p "BCompare-${v}_x64.msi" "BCompareOSX-${v}.zip" "bcompare-${v}_amd64.deb" || return
 
 	if IsPlatform win; then	
@@ -4631,67 +4721,6 @@ RectangleInstall()
 	printf "**************************************************\n* Rectangle\n**************************************************\n"
 	brew cask install rectangle || return # https://rectangleapp.com/
 	rectangle profile restore default || return
-}
-
-fzf()
-{
-	printf "**************************************************\n* fzf (Fuzzy Search)\n**************************************************\n"
-
-	# https://github.com/junegunn/fzf
-	if [[ ! -d ~/.fzf ]]; then
-		if findFile "platform/linux/fzf/fzf.image.zip"; then
-			unzip "$file" -d ~ || return
-		else
-			git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf || return
-		fi
-	fi
-
-	# do not update shell configuration files, assume ~/fzf.SHELL is sourced
-	sudo ~/.fzf/install --no-update-rc --completion --key-bindings || return
-
-	printf "links..."
-	local dest="/usr/local/bin" files=(fzf fzf-tmux)
-	for file in "${files[@]}"; do
-		printf "."
-		[[ ! -e "$dest/$file" ]] && { sudo ln -s "$HOME/.fzf/bin/$file" "$dest/$file" || return; }
-	done
-	echo "done"
-
-
-	return 0
-}
-
-chrootInstall()
-{
-	printf "**************************************************\n* chroot\n**************************************************\n"
-	package debootstrap schroot || return
-	makeDirSudo "/var/chroot" || return
-	return 0
-}
-
-CredentialStoreInstall()
-{
-	printf "**************************************************\n* Credential Store\n**************************************************\n"
-	! IsPlatform win && { package gnome-keyring libsecret-tools || return; }
-	password store || return
-}
-
-TmuxInstall()
-{
-	printf "**************************************************\n* tmux\n**************************************************\n"
-	packages tmux tmuxinator || return	
-}
-
-PackageManagementInstall()
-{
-	printf "**************************************************\n* Package Management\n**************************************************\n"
-	package apt-show-versions debsums wajig || return	
-}
-
-NetworkUtilitiesInstall()
-{
-	printf "**************************************************\n* Network Utilities\n**************************************************\n"
-	package lynx nmap || retuirn
 }
 
 main "$@"
