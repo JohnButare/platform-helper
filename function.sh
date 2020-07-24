@@ -603,9 +603,20 @@ GetPrimaryIpAddress() # GetPrimaryIpAddres [INTERFACE] - get default network ada
 
 GetIpAddress() # [HOST]
 {
-	[[ ! $1 ]] && { GetPrimaryIpAddress; return; }
-	IsIpAddress "$1" && { echo "$1"; return; }
-	host "$1" | grep "has address" | cut -d" " -f 4; return ${PIPESTATUS[0]}
+	local host="$1" ip
+
+	[[ ! $host ]] && { GetPrimaryIpAddress; return; }
+
+	IsIpAddress "$host" && { echo "$host"; return; }
+	IsLocalAddress "$host" && { MdnsResolve "$host" 2> /dev/null || return; }
+
+	# getent is fast and resolve .local (mDNS) addresses on some platforms
+	if InPath getent; then ip="$(getent hosts "$host" |& cut -d" " -f 1)"
+	elif InPath host; then ip="$(host "$host" |& grep "has address" | cut -d" " -f 4)"
+	elif InPath nslookup; then ip="$(nslookup "$host" |& tail -3 | grep "Address:" | cut -d" " -f 2)"
+	fi
+
+	[[ $ip ]] && { echo "$ip"; return ; }
 }
 
 IsIpAddress() # IP
@@ -724,9 +735,27 @@ GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$
 
 # SSH
 
+GetSshUser() { echo "$1" | cut -s -d@ -f 1; } # USER@SERVER:PORT
+GetSshHost() { echo "$1" | cut -d@ -f 2 | cut -d: -f 1; }
+GetSshPort() { echo "$1" | cut -s -d: -f 2; }
+
 IsSsh() { [[ "$SSH_TTY" ]]; }
 RemoteServer() { echo "${SSH_CONNECTION%% *}"; }
 RemoteServerName() { nslookup "$(RemoteServer)" | grep "name =" | cut -d" " -f3; }
+
+IsInSshConfig() # IsInSshConfig HOST - return true if HOST matches an entry in ~/.ssh/config
+{
+	local hostFull="$1" host="$(GetSshHost "$1")" defaultFull default="DEFAULT_CONFIG"
+	defaultFull="${hostFull/$host/$default}"
+	# echo $defaultFull-$default-$hostFull-$host
+	# ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$" > /tmp/1.txt	
+	# ssh -G "$hostFull" | grep -i -v "^hostname ${host}$" > /tmp/2.txt
+	# colordiff /tmp/1.txt /tmp/2.txt && echo SAME
+
+	[[ "$(ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$")" != "$(ssh -G "$hostFull" | grep -i -v "^hostname ${host}$")" ]] && return 0; # something other than the host changed
+	ssh -G "$hostFull" | egrep -i "^hostname ${host}$" >& /dev/null && return 1 # host is unchanged
+	return 0
+}
 
 # SshAgentHelper - wrapper for SshAgent which ensures the correct variables are set in the calling shell
 SshAgentHelper()
@@ -765,21 +794,37 @@ SshHelper()
 	# fix SSH Agent if possible
 	SshAgentCheck 
 
-	# resolve IP address - for .local host - WSL getent does not currently resolve mDns (.local) addresses
-	local ip; ip="$(GetIpAddress "$host")"
-	[[ ! $ip ]] && ! IsLocalAddress "$host" && ip="$(MdnsResolve "$host.local" 2> /dev/null)"
-	[[ ! $ip ]] && { EchoErr "ssh: Could not resolve hostname $host: Name or service not known"; return 1; }
+	# get the port if the host is in the format USER@HOST:PORT
+	local port="$(GetSshPort "$host")" portArg; [[ ! $port ]] && port="22"
+	portArg="-p $port"
+	host="${host/:$port/}"
+	
+	# resolve IP address and check the port.   Try the .local address if:
+	# - host does not resolve to an IP address
+	# - the port is not responsive on the host
+	# This allows discovery of dynamic .local address, or hosts that are temporarily using a dynamic .local address.
+	if ! IsInSshConfig "$host"; then
+		local hostFull="$host" ip mdnsIp; host="$(GetSshHost "$host")"
 
-	[[ $mosh ]] && { mosh "$ip" "$@"; return; }
-	[[ ! $x ]] && { ssh "$ip" $@; return; }
+		ip="$(GetIpAddress "$host")"
+
+		{ [[ ! $ip ]] || ! IsAvailablePort "$ip" "$port"; } && ! IsLocalAddress "$host" && ip="$(MdnsResolve "$host.local" 2> /dev/null)"
+		[[ ! $ip ]] && { EchoErr "ssh: Could not resolve $host : Name or service not known"; return 1; }
+		! IsAvailablePort "$ip" "$port" && { "ssh: $host is not responding on port $port"; return 1; }
+
+		host="${hostFull/$host/$ip}"
+	fi
+
+	[[ $mosh ]] && { mosh "$host" "$@"; return; }
+	[[ ! $x ]] && { ssh "$host" $@; return; }
 
 	# -y send diagnostic messages to syslog - supresses "Warning: No xauth data; using fake authentication data for X11 forwarding."
 	if IsPlatform wsl1; then # WSL 1 does not support X sockets over ssh and requires localhost
-		DISPLAY=localhost:0 ssh -Xy "$ip" $@
+		DISPLAY=localhost:0 ssh -Xy "$host" $portArg $@
 	elif IsPlatform mac,wsl2; then # macOS XQuartz requires trusted X11 forwarding
-		ssh -Yy "$ip" $@
+		ssh -Yy "$host" $portArg $@
 	else # use untrusted (X programs are not trusted to use all X features on the host)
-		ssh -Xy "$ip" $@
+		ssh -Xy "$host" $@ $portArg 
 	fi
 } 
 
