@@ -11,36 +11,73 @@ init()
 usage()
 {	
 		echot "\
-usage: hyperv IsInstalled|IsEnabled|start"
+usage: hyperv IsInstalled|IsEnabled|start
+	list|ListPlain|status 				list virtual machines
+	console|ssh VM        				connect to a vm
+	on|off|reboot|sleep|shutdown|status VM
+		-h|--hard			perform a hard reboot or power off
+	checkpoint [VM] [CHECKPOINT](image)"
 	exit $1
 }
 
 args()
 {
-	unset -v brief command name
+	unset -v all brief command hard vm
 
 	while [[ "$1" != "" ]]; do
 		case "$1" in
+			-a|--all) all="true";;
+			-h|--hard) hard="true";;
 			--help) usage 0;;
-			IsEnabled) command="IsEnabled";;
+			ConsoleEdit) command="consoleEdit";; IsEnabled) command="isEnabled";; ListPlain) command="listPlain";;
 			*)
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				needsVmName "$command" && [[ ! $vm ]] && { vm="$1"; shift; continue; }
 				UnknownOption "$1"
 		esac
 		shift
 	done
-	[[ ! $command ]] && command="startGui"
+
+	[[ ! $command ]] && command="gui"
+	needsVmName "$command" && [[ ! $all && ! $vm ]] && MissingOperand "VM"
+
+	# assume vm names are prefixed with HOSTNAME, i.e. oversoul-ud1 (Ubuntu Desktop 1 on oversoul)
+	[[ ! "$vm" =~ - ]] && vm="$HOSTNAME-$vm"
+
 	args=( "$@" )
 }
 
+#
+# helper
+#
+
+needsVmName() { [[ "$1" == @(checkpoint|console|consoleEdit|on|off|reboot|ssh|sleep|shutdown) ]]; }
 checkInstalled () { ! isInstalled && { EchoError "Hyper-V is not installed"; exit 1; } }
 isEnabled() { bcdedit.exe | grep -i hypervisorlaunchtype | egrep -i Auto >& /dev/null; }
 isInstalled() { service exist hvservice; }
 isServiceRunning() { service running hvservice; }
 
-IsEnabledCommand() { isEnabled; }
+#
+# commands
+#
 
-DisableCommand()
+
+isEnabledCommand() { isEnabled; }
+listCommand() { RunScriptElevated powershell Get-VM | RemoveCarriageReturn; }
+listPlainCommand() { RunScriptElevated powershell Get-VM | RemoveCarriageReturn | tail +4 | cut -d" " -f 1 | egrep -v '^$'; }
+statusCommand() { listCommand; }
+
+checkpointCommand() # -SnapshotName NAME
+{ 
+	if [[ $all ]]; then
+		RunScriptElevated powershell 'Get-VM \| Checkpoint-VM'
+	else
+		RunScriptElevated powershell Checkpoint-VM -Name "$vm"
+	fi
+}
+
+
+disableCommand()
 {
 	checkInstalled
 	! IsElevated && { elevate RunScript --pause-error hyperv disable; return; }
@@ -65,12 +102,60 @@ guiCommand()
 	start "$gui" "$@"
 }
 
-# VM commands - make these subcommands hyperv vm COMMAND
-# VmSnapshotCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Checkpoint-VM'; listCommand; }; checkpointCommand() { snapshotCommand "$@"; }
-# VmPauseCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Suspend-VM'; listCommand; }
-# VmResumeCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Paused"} | Resume-VM'; listCommand; }
-# VmStartCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Off" -or $_.State -eq "Saved"} | Start-VM'; listCommand; }
-# VmStopCommand() { powershell.exe 'Get-VM | where {$_.State -eq "Running"} | Stop-VM'; listCommand; }
-# VmStatusCommand() { listCommand "$@"; }; listCommand() { powershell.exe Get-VM; }
+#
+# Connect Commands
+#
+
+consoleCommand() { elevate VmConnect.exe "$HOSTNAME" "$vm"; }
+consoleEditCommand() { elevate VmConnect.exe "$HOSTNAME" "$vm" /edit; }
+sshCommand() { SshHelper -x "$vm" "$@"; }
+
+#
+# Power Commands
+#
+
+onCommand()
+{ 
+	if [[ $all ]]; then
+		RunScriptElevated powershell 'Get-VM \| where {\$_.State -eq \"Paused\"} \| Resume-VM' || return
+		RunScriptElevated powershell 'Get-VM \| where {\$_.State -eq \"Off\"} \| Start-VM' || return
+	else
+		RunScriptElevated powershell Start-VM -Name "$vm"
+	fi
+}
+
+sleepCommand()
+{ 
+	if [[ $all ]]; then
+		RunScriptElevated powershell 'Get-VM \| where {\$_.State -eq \"Running\"} \| Suspend-VM'
+	else
+		RunScriptElevated powershell Suspend-VM -Name "$vm"
+	fi
+}
+
+offCommand()
+{
+	local arg; [[ $hard ]] && arg="-TurnOff"
+
+	if [[ $all ]]; then
+		RunScriptElevated powershell 'Get-VM \| where {\$_.State -eq \"Running\"} \| Stop-VM '$arg
+	else
+		RunScriptElevated powershell Stop-VM -Name "$vm" $arg
+	fi
+}
+
+rebootCommand() 
+{ 
+	if [[ $hard ]]; then
+		if [[ $all ]]; then
+			RunScriptElevated powershell 'Get-VM \| where {\$_.State -eq \"Running\"} \| Restart-VM -Type Reset -Force'
+		else
+			RunScriptElevated powershell Restart-VM -Name "$vm" -Type Reset -Force
+		fi
+		return
+	fi
+
+	printf "rebooting..."; offCommand && printf "off..."; onCommand && printf "on..."; echo "done"
+}
 
 run "$@"

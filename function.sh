@@ -605,11 +605,7 @@ GetIpAddress() # [HOST]
 {
 	[[ ! $1 ]] && { GetPrimaryIpAddress; return; }
 	IsIpAddress "$1" && { echo "$1"; return; }
-	if IsPlatform cygwin; then 
-		ping -n 1 -w 0 "$1" | grep "^Pinging" | cut -d" " -f 3 | tr -d '[]'; return ${PIPESTATUS[1]}
-	else
-		host "$1" | grep "has address" | cut -d" " -f 4; return ${PIPESTATUS[0]}
-	fi
+	host "$1" | grep "has address" | cut -d" " -f 4; return ${PIPESTATUS[0]}
 }
 
 IsIpAddress() # IP
@@ -769,19 +765,21 @@ SshHelper()
 	# fix SSH Agent if possible
 	SshAgentCheck 
 
-	# resolve .local host - WSL getent does not currently resolve mDns (.local) addresses
-	IsPlatform win && IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || { EchoErr "ssh: Could not resolve hostname $host: Name or service not known"; return 1; }; }
+	# resolve IP address - for .local host - WSL getent does not currently resolve mDns (.local) addresses
+	local ip; ip="$(GetIpAddress "$host")"
+	[[ ! $ip ]] && ! IsLocalAddress "$host" && ip="$(MdnsResolve "$host.local" 2> /dev/null)"
+	[[ ! $ip ]] && { EchoErr "ssh: Could not resolve hostname $host: Name or service not known"; return 1; }
 
-	[[ $mosh ]] && { mosh "$host" "$@"; return; }
-	[[ ! $x ]] && { ssh "$host" $@; return; }
+	[[ $mosh ]] && { mosh "$ip" "$@"; return; }
+	[[ ! $x ]] && { ssh "$ip" $@; return; }
 
 	# -y send diagnostic messages to syslog - supresses "Warning: No xauth data; using fake authentication data for X11 forwarding."
 	if IsPlatform wsl1; then # WSL 1 does not support X sockets over ssh and requires localhost
-		DISPLAY=localhost:0 ssh -Xy "$host" $@
+		DISPLAY=localhost:0 ssh -Xy "$ip" $@
 	elif IsPlatform mac,wsl2; then # macOS XQuartz requires trusted X11 forwarding
-		ssh -Yy "$host" $@
+		ssh -Yy "$ip" $@
 	else # use untrusted (X programs are not trusted to use all X features on the host)
-		ssh -Xy "$host" $@
+		ssh -Xy "$ip" $@
 	fi
 } 
 
@@ -1051,7 +1049,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 	-o, --open							open the the file using the associated program
 	-s, --sudo							run the program as root
 	-w, --wait							wait for the program to run before returning
-	-ws, --windows-style 		hidden|maximized|minimized|normal"
+	-ws, --window-style 		hidden|maximized|minimized|normal"
 }
 
 start() 
@@ -1064,7 +1062,7 @@ start()
 			-h|--help) startUsage; return 0;;
 			-s|--sudo) sudo="sudoc";;
 			-w|--wait) wait="--wait";;
-			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "$1" "$2" ); shift;;
+			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "--window-style" "$2" ); shift;;
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; break; }
 				UnknownOption "$1" start; return
