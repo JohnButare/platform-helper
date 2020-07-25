@@ -670,7 +670,7 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 		! IsIpAddress "$host" && { host="$(GetIpAddress $host)" || return; }
 		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
 	else
-		return 1
+		return 0 # assume the host is available if we cannot check
 	fi
 }
 
