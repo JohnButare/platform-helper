@@ -774,7 +774,7 @@ SshAgentCheck()
 
 SshHelper() 
 {
-	local x mosh host args=()
+	local args=() mosh host port x
 
 	[[ $# == 0 || $1 == @(--help) ]]	&& { echot "usage: SshHelper HOST
 	-m, --mosh					connecting using mosh
@@ -794,16 +794,20 @@ SshHelper()
 	# fix SSH Agent if possible
 	SshAgentCheck 
 
-	# get the port if the host is in the format USER@HOST:PORT
-	local port="$(GetSshPort "$host")" portArg; [[ ! $port ]] && port="22"
-	portArg="-p $port"
+	# port - get a port specified in the host and remove it from the name, format USER@HOST:PORT
+	port="$(GetSshPort "$host")" 
 	host="${host/:$port/}"
-	
-	# resolve IP address and check the port.   Try the .local address if:
-	# - host does not resolve to an IP address
-	# - the port is not responsive on the host
-	# This allows discovery of dynamic .local address, or hosts that are temporarily using a dynamic .local address.
+
+	# identify port and IP if the host is in ~/.ssh/config 	
 	if ! IsInSshConfig "$host"; then
+		[[ ! $port ]] && port="22"
+
+		# resolve IP address and check the port.   Try the .local address if:
+		# - host does not resolve to an IP address
+		# - the port is not responsive on the host
+		# This allows discovery of dynamic .local address, or hosts that are temporarily using a dynamic .local address.
+
+
 		local hostFull="$host" ip mdnsIp; host="$(GetSshHost "$host")"
 
 		ip="$(GetIpAddress "$host")"
@@ -815,16 +819,23 @@ SshHelper()
 		host="${hostFull/$host/$ip}"
 	fi
 
-	[[ $mosh ]] && { mosh "$host" "$@"; return; }
-	[[ ! $x ]] && { ssh "$host" $@; return; }
+	# arguments
+	args=($host)
+	[[ $port ]] && args+=(-p "$port")
+	[[ ! $mosh ]] && args+=(-y) # send diagnostic messages to syslog to supresses "Warning: No xauth data; using fake authentication data for X11 forwarding." in Windows
+	set -- "${args[@]}" "$@"
 
-	# -y send diagnostic messages to syslog - supresses "Warning: No xauth data; using fake authentication data for X11 forwarding."
-	if IsPlatform wsl1; then # WSL 1 does not support X sockets over ssh and requires localhost
-		DISPLAY=localhost:0 ssh -Xy "$host" $portArg $@
+	# connect using ssh
+	if [[ $mosh ]]; then
+		mosh "$@"
+	elif [[ ! $x ]]; then
+		ssh "$@"
+	elif IsPlatform wsl1; then # WSL 1 does not support X sockets over ssh and requires localhost
+		DISPLAY=localhost:0 ssh -Xy "$@"
 	elif IsPlatform mac,wsl2; then # macOS XQuartz requires trusted X11 forwarding
-		ssh -Yy "$host" $portArg $@
-	else # use untrusted (X programs are not trusted to use all X features on the host)
-		ssh -Xy "$host" $@ $portArg 
+		ssh -Yy "$@"
+	else # for everything else, use untrusted X Forwarding, where X programs are not trusted to use all X features on the host
+		ssh -Xy "$@"
 	fi
 } 
 
