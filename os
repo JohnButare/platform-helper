@@ -122,68 +122,96 @@ pathCommand()
 # os version
 #
 
-versionCommand() {  RunPlatform version || return; }
+codeNameCommand() { InPath lsb_release && lsb_release -a |& grep "Codename:" | cut -f 2-; }
 
-versionMac()
+versionCommand()
+{
+	echo "    platform: $(PlatformDescription)"
+
+	versionDistribution	|| return
+	IsPlatform mac && { versionDistributionMac || return; }
+	IsPlatform win && { versionDistributionWin || return; }
+
+	# Linux Kernel
+	echo "      kernel: $(uname -r)$(versionOsBits)"
+
+	# hardware
+	local hardware="$(uname -m)" # armv71|mips|mip64|x86_64
+	InPath dpkg && hardware+=" ($(dpkg --print-architecture))" # amd64, armhf
+	echo "    hardware: $hardware" 
+
+	versionCpu || return
+
+	# chroot
+	[[ -f "/etc/debian_chroot" ]] && echo "      chroot: $(cat "/etc/debian_chroot")"
+
+	# Virtual Machine
+	IsVm && echo "          vm: $(VmType)"
+
+	RunPlatform version || return
+}
+
+versionCpu()
+{
+	! InPath lscpu && return
+
+	local model count
+
+	model="$(lscpu | grep "^Model name:" | cut -d: -f 2)"
+	count="$(lscpu | grep "^CPU(s):" | cut -d: -f 2)"
+	echo "         cpu: $(RemoveSpace "$model") ($(RemoveSpace "$count") CPU)"
+}
+
+versionOsBits()
+{
+	local bits="32" # assume 32 bit operating system
+
+	if InPath getconf; then bits="$(getconf LONG_BIT)"
+	elif InPath lscpu; then lscpu | grep "CPU op-mode(s): 32-bit, 64-bit" >& /dev/null && bits="64"
+	else return
+	fi
+
+	echo " ($bits bit)"
+}
+
+versionDistribution()
+{
+	! InPath lsb_release && return
+
+	local distributor version codename
+
+	# Distributor - Debian|Raspbian|Ubuntu
+	distributor="$(lsb_release -a |& grep "Distributor ID:" | cut -f 2-)"
+	IsPlatform raspbian && distributor+="/Debian"
+
+	# Version - 10.4|20.04.1 LTS
+	version="$(lsb_release -a |& grep "Release:" | cut -f 2-)"
+	if IsPlatform ubuntu; then version="$(lsb_release -a |& grep "Description:" | cut -f 2- | sed 's/'$distributor' //')"
+	elif [[ -f /etc/debian_version ]]; then version="$(cat /etc/debian_version)"
+	fi
+
+	# Code Name - buster|focal
+	codename="$(lsb_release -a |& grep "Codename:" | cut -f 2-)"
+
+	echo "distribution: $distributor $version ($codename)"
+}
+
+versionDistributionMac()
 {
 	local version="$(system_profiler SPSoftwareDataType | grep "System Version" | cut -f 10 -d" ")"
 	local build="$(system_profiler SPSoftwareDataType | grep "System Version" | cut -f 11 -d" " | sed 's/(//' | sed 's/)//' )"
 	local codeName
 
 	case "$version" in
-		"10.15") codeName="Mojave";;
-		"10.16") codeName="Catalina";;
-		*) codeName="?";;
+		10.15*) codeName="Mojave";;
+		10.16*) codeName="Catalina";;
+		*) codeName="unknown";;
 	esac
 
-	echo "macOS $version ($codeName build $build)"
+	echo "distribution: macOS $version ($codeName build $build)"
 }
 
-codeNameCommand() { InPath lsb_release && lsb_release -a |& grep "Codename:" | cut -f 2-; }
-
-versionDebian()
-{
-	local platform="$(PlatformDescription)" distributor version codename hardware
-
-	if ! InPath lsb_release; then
-		echo "$platform"
-		return 0
-	fi
-
-	# Distributor
-	distributor="$(lsb_release -a |& grep "Distributor ID:" | cut -f 2-)"
-	IsPlatform raspbian && distributor+="/Debian"
-
-	# Version
-	version="$(codeNameCommand)"
-	IsPlatform ubuntu && version="$(lsb_release -a |& grep "Description:" | cut -f 2- | sed 's/'$distributor' //')"
-	IsPlatform raspbian && [[ -f /etc/debian_version ]] && version="$(cat /etc/debian_version)"
-	
-	# Code Name
-	codename="$(lsb_release -a |& grep "Codename:" | cut -f 2-)"
-
-	# hardware
-	# uname -m: armv71, x86_64, mips, mip64
-	# dpkg --print-architecture: amd64, armhf
-	hardware="$(uname -m)" 
-	InPath dpkg && hardware+=" ($(dpkg --print-architecture))"
-
-	echo "distribution: $distributor $version ($codename)"
-	echo "    platform: $platform"
-	echo "      kernel: $(uname -r)"
-	echo "    hardware: $hardware" 
-	[[ -f "/etc/debian_chroot" ]] && echo "      chroot: $(cat "/etc/debian_chroot")"
-	IsVm && echo "          vm: $(VmType)"
-	return 0
-}
-
-versionRaspbian()
-{
-	cpu=$(</sys/class/thermal/thermal_zone0/temp)
-	echo "    CPU temp: $((cpu/1000))'C"
-}
-
-versionWin()
+versionDistributionWin()
 {
 	local r="HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion"
 	local releaseId="$(registry get "$r/ReleaseID" | RemoveCarriageReturn)"
@@ -191,6 +219,13 @@ versionWin()
 	local build="$(registry get "$r/CurrentBuild" | RemoveCarriageReturn)"
 
 	echo "     windows: $releaseId (build $build.$ubr, WSL $(IsPlatform wsl1 && echo 1 || echo 2))"
+}
+
+versionRaspbian()
+{
+	cpu=$(</sys/class/thermal/thermal_zone0/temp)
+	echo "    CPU temp: $((cpu/1000))'C"
+	echo "    model: $(cat /proc/cpuinfo | grep "^Model" | cut -d":" -f 2)"
 }
 
 run "$@"
