@@ -6,23 +6,23 @@ run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 usage()
 {
 	echot "\
-usage: power on|off|reboot|sleep|firmware|hibernate|status [host] [port]
+usage: power on|off|reboot|sleep|firmware|hibernate [host] [port]
 	Control host or PoE switch port power state.  
 	Use fully qualified domain name for host name to avoid local name resolution delay.
 	Turn turn a host on it must have an entry in /etc/ethers to get the MAC address.
 
-	firmware							reboot to the UEFI firmware settings
-	status [port]					report the status of the host or PoE switch (on or off)
-												if port is all then the status of all switch ports is displayed
-	fix info|sleep|wake		examine issues preventing computer sleep or wake
+	firmware									reboot to the UEFI firmware settings
+	status host [port|all]		report the status of the host or PoE switch (on or off)
+															If port is all then the status of all switch ports is displayed
+	fix info|sleep|wake				examine issues preventing computer sleep or wake
 
-  -f, --force 					force the wakeup command to be sent
-  -s, --ssh 						make an ssh connection
-	-t, --timeout [500]		milliseconds to wait for a response from the host
-												shorter times are more responsive but may result in
-											 	false off state detection
-	-w, --wait [120]			seconds for the host to change state
-			--wait-ssh				wait for an ssh connection"
+  -f, --force 							force the wakeup command to be sent
+  -s, --ssh 								make an ssh connection
+	-t, --timeout [500]				milliseconds to wait for a response from the host
+															Shorter times are more responsive but may result in
+											 			false off state detection
+	-w, --wait [120]					seconds for the host to change state
+			--wait-ssh						wait for an ssh connection"
 	exit $1
 }
 
@@ -45,7 +45,7 @@ args()
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ ! $port ]] && { IsInteger "$1" || [[ "$1" == "all" ]]; } && { port="$1"; shift; continue; }
-				! IsOption "$1" && [[ ! $host && "$command" == @(on|off|sleep|reboot|status|firmware) ]] && { host="${1,,}"; shift; continue; }	
+				! IsOption "$1" && [[ ! $host ]] && needsHostName "$command" && { host="${1,,}"; shift; continue; }	
 
 				[[ "$command" == @(fix) ]] && break
 				UnknownOption "$1"
@@ -53,11 +53,8 @@ args()
 		shift
 	done
 
-	# ensure command was specified
 	[[ ! $command ]] && MissingOperand "command"
-
-	# set default host for a PoE switch port
-	[[ $port && ! $host ]] && host="$poeSwitchDefault"
+	[[ ! $host ]] && needsHostName "$command" && MissingOperand "host"
 
 	args=("$@")
 }
@@ -75,8 +72,10 @@ init()
 		g) host="$g";; # garage switch
 	esac
 
-	[[ $command == @(fix|status) ]] && return 0
+	hostName="$host"
 
+	[[ $command == @(fix|status) ]] && return 0
+	
 	# set power for a local Hyper-V host (assume Hyper-V hosts start with $HOSTNAME-)
 	[[ $host =~ $HOSTNAME- ]] && { setVmPower; exit; }
 
@@ -90,20 +89,16 @@ init()
 		reboot) basicSshCommand="shutdown -r now";;
 	esac
 	
-	# map hosts to a switch PoE port so we can power it up or down
-	if ! IsLocalHost "$host"; then
-		case "$(RemoveDnsSuffix "$host")" in
-			pi5) switch="$c" port=23;;
-			pi6) switch="$c" port=29;;
-			pi7) switch="$d" port=5;;
-			rp1) switch="$c" port=28;;
-			PoeSplitter) switch="$d" port=6 sshCommand="";;
-			TvTuner) switch="$g" port=5 sshCommand="";;
-			UnifiController) switch="$c" port=27 sshCommand="$basicSshCommand";;
-		esac
-	fi
+	# get host switch and port so we can power it up or down
+	local hostShort="$(RemoveDnsSuffix "$host")"
+	local line=( $(grep "^$hostShort[ 	]" "$DATA/setup/ports") )
+	switch="${line[1]}" port="${line[2]}"
 
-	hostName="$host"
+	# dermine if the host needs a special SSH command
+	case "$hostShort" in
+		PoeSplitter|TvTuner) sshCommand="";;
+		*Ap|*Switch|UnifiController) sshCommand="$basicSshCommand";;
+	esac
 
 	# control PoE switch port only
 	if [[ $port && ! $switch ]]; then
@@ -126,6 +121,8 @@ init()
 
 	return 0
 }
+
+needsHostName() { [[ "$1" == @(on|off|sleep|reboot|status|firmware) ]]; }
 
 #
 # power for Hyper-V guest
