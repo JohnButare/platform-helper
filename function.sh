@@ -860,8 +860,8 @@ PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
 package() 
 { 
 	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
-	IsPlatform debian && { sudo apt install -y "$@"; return; }
-	IsPlatform dsm,qnap && { sudo opkg install "$@"; return; }
+	IsPlatform debian && { sudoc apt install -y "$@"; return; }
+	IsPlatform dsm,qnap && { sudoc opkg install "$@"; return; }
 	IsPlatform mac && { brew install "$@"; return; }
 	return 0
 }
@@ -881,6 +881,11 @@ packagel() # package list
 	IsPlatform dsm,qnap && { sudo opkg list "$@"; return; }
 	IsPlatform mac && { brew search "$@"; return; }	
 	return 0
+}
+
+packagei() # package info, shows files installed by a package, 
+{
+	IsPlatform debian && { apt show "$1"; dpkg -L "$1"; echo; dpkg -L "$1" | grep 'bin/'; }
 }
 
 PackageExist() 

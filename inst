@@ -636,7 +636,7 @@ appHostCore()
 		jane|pants|rosie) i $common $commonMac || return;; 
 		micro|ultron) i $common $commonPc || return;; 
 		oversoul) i $common $commonPc dymo Quicken UltraMon || return;;
-		pi1|pi2) i nodejs homebridge domotz UnifiController || return;;
+		pi1|pi2) i nodejs homebridge domotz unifi || return;;
 	esac
 
 	return 0
@@ -1235,8 +1235,15 @@ CredentialStoreInstall()
 {
 	printf "**************************************************\n* Credential Store\n**************************************************\n"
 	
-	IsPlatform raspbian,ubuntu && ! InPath secret-tool && { package libsecret-tools || return; }
-	! IsPlatform mac,raspbian,ubuntu,win && { i gpg pass || return; }
+	# Ubuntu - make sure gnome-keyring is installed (it is not by default in Raspberry Pi OS)
+	if IsPlatform raspbian,ubuntu; then
+		! InPath secret-tool && { package gnome-keyring libsecret-tools || return; }
+
+	# Win and Mac have the credential manager, for all other platforms use gpg and pass
+	elif ! IsPlatform mac,raspbian,ubuntu,win; then
+		i gpg pass || return
+	fi
+	
 	! password CheckStore && { password store || return; }
 }
 
@@ -2143,23 +2150,33 @@ surveillanceStationInstall()
 	return 0
 }
 
-uniFiControllerInstall()
+unifiInstall()
 {
-	[[ ! -d "$P32/Java" ]] && { jreInstall || return; }
-
 	printf "**************************************************\n* UniFi Controller\n**************************************************\n"
 
 	# https://www.ui.com/download/unifi
-	run "hardware/Ubiquiti Networks/UniFi/controller/" -p "UniFi-installer.exe" "UniFi.pkg" "BZ.ar934x.v3.9.27.8537.180317.1223.bin" || return
+	! IsPlatform debian && { run "hardware/Ubiquiti Networks/UniFi/controller/" -p "UniFi-installer.exe" "UniFi.pkg" "unifi_sysvinit_all.deb" || return; }
 	
-	if [[ "$PLATFORM" == "win" ]]; then	
-
-		echo "Updating icons..."
+	if IsPlatform win; then	
 		mergeDir "$up/Ubiquiti UniFi" "$oo" || return
-		$rm "$ud/UniFi.lnk" || return		
-
-		echo "Moving data folders..."
+		$rm "$ud/UnicatFi.lnk" || return		
 		MakeLink --merge --hide "$udata/Unifi Controller" "$WIN_HOME/Ubiquiti UniFi" || return
+
+	elif IsPlatform debian,raspbian; then		
+
+		# add UniFi sources
+		if [[ ! -f "/etc/apt/sources.list.d/100-ubnt-unifi.list" ]]; then
+			echo 'deb https://www.ui.com/downloads/unifi/debian stable ubiquiti' | sudo tee /etc/apt/sources.list.d/100-ubnt-unifi.list || return
+			sudo wget -O /etc/apt/trusted.gpg.d/unifi-repo.gpg https://dl.ui.com/unifi/unifi-repo.gpg || return
+			sudo apt-get update || return
+		fi
+
+		# install packages
+		IsPlatform raspbian && { package haveged || return; } # fix raspbian slow startup (low hardware entropy)
+		package ca-certificates apt-transport-https || return
+		package openjdk-8-jre-headless ca-certificates-java java-common jsvc libcommons-daemon-java || return
+		package mongodb || return
+		package unifi || return
 
 	fi
 
@@ -2283,7 +2300,20 @@ devJavaCore()
 jreInstall()
 {
 	printf "**************************************************\n* Java Runtime Environment \n**************************************************\n"
-	
+	RunPlatform jre || return
+	javaFinal
+}
+
+jreDebian()
+{
+	IsPlatform win && return
+	package openjdk-11-jre-headless || return
+}
+
+jreWin()
+{
+	[[ ! -d "$P32/Java" ]] && return
+
 	# Download 7: http://www.oracle.com/technetwork/java/javase/downloads/index-jsp-138363.html#javasejdk
 	# Download: http://www.java.com/en/download/manual.jsp
 	# Download: http://www.oracle.com/technetwork/java/javase/downloads/index.html
@@ -2292,12 +2322,11 @@ jreInstall()
 	# Services: JavaQuickStarterService
 	run "Sun/Java/jre/*-x86.exe" || return
 	run "Sun/Java/jre/*-x64.exe" || return
-
-	javaFinal
 }
 
 javaFinal()
 {
+	! IsPlatform win && return
 	mergeDir "$pp/Java" "$oo" || return
 	$registry 32 delete "run/SunJavaUpdateSched" || return
 	$registry 64 delete "run/SunJavaUpdateSched" || return
