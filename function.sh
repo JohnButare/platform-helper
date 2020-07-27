@@ -608,11 +608,15 @@ GetIpAddress() # [HOST]
 	[[ ! $host ]] && { GetPrimaryIpAddress; return; }
 
 	IsIpAddress "$host" && { echo "$host"; return; }
+
+	# Resolve mDNS (.local) addresses exclicitly as the name resolution commands below can fail on some hosts
+	# In Windows WSL the methods below never resolve mDNS addresses
 	IsLocalAddress "$host" && { MdnsResolve "$host" 2> /dev/null || return; }
 
-	# getent is fast and resolve .local (mDNS) addresses on some platforms
-	if InPath getent; then ip="$(getent hosts "$host" |& cut -d" " -f 1)"
-	elif InPath host; then ip="$(host "$host" |& grep "has address" | cut -d" " -f 4)"
+	# host and getent are fast and can sometimes resolve .local (mDNS) addresses 
+	# getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
+	if InPath host; then ip="$(host "$host" |& grep "has address" | cut -d" " -f 4)"
+	elif InPath getent; then ip="$(getent hosts "$host" |& cut -d" " -f 1)"
 	elif InPath nslookup; then ip="$(nslookup "$host" |& tail -3 | grep "Address:" | cut -d" " -f 2)"
 	fi
 
@@ -639,13 +643,7 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 
 	# Windows - ping and fping do not timeout quickly for unresponsive hosts so use ping.exe
 	if IsPlatform win; then
-
-		# resolve .local host - WSL getent does not currently resolve mDns (.local) addresses
-		IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
-
-		# resolve IP address to avoid slow ping.exe name resolution
-		! IsIpAddress "$host" && { host="$(getent hosts "$host" | cut -d" " -f 1)"; [[ ! $host ]] && return 1; }
-
+		host="$(GetIpAddress "$host")" || return # resolve IP address to avoid slow ping.exe name resolution
 		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null
 		return
 	fi
@@ -661,8 +659,8 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 {
 	local host="$1" port="$2" timeout="${3-200}"
  
- 	# resolve .local host - WSL getent does not currently resolve mDns (.local) addresses
-	IsPlatform win && IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
+	# resolve addresses exclicitly in WSL due to various name resolution issues (see GetIpAddress)
+	IsPlatform win && { host="$(GetIpAddress "$host")" || return; }
 
 	if InPath ncat; then
 		echo | ncat -C -w ${timeout}ms "$host" "$port" >& /dev/null
@@ -678,8 +676,8 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 { 
 	local host="$1" timeout="${2-200}"
 
-	# resolve .local host - WSL getent does not currently resolve mDns (.local) addresses
-	IsPlatform win && IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
+	# resolve addresses exclicitly in WSL due to various name resolution issues (see GetIpAddress)
+	IsPlatform win && { host="$(GetIpAddress "$host")" || return; }
 
 	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
@@ -798,24 +796,35 @@ SshHelper()
 	port="$(GetSshPort "$host")" 
 	host="${host/:$port/}"
 
-	# identify port and IP if the host is in ~/.ssh/config 	
+	# identify  port and IP if the host is in ~/.ssh/config 	
 	if ! IsInSshConfig "$host"; then
-		[[ ! $port ]] && port="22"
-
-		# resolve IP address and check the port.   Try the .local address if:
-		# - host does not resolve to an IP address
-		# - the port is not responsive on the host
-		# This allows discovery of dynamic .local address, or hosts that are temporarily using a dynamic .local address.
-
-
 		local hostFull="$host" ip mdnsIp; host="$(GetSshHost "$host")"
 
+		# assume port 22 if none was specified
+		[[ ! $port ]] && port="22"
+
+		# resulve the host using DNS first
 		ip="$(GetIpAddress "$host")"
 
-		{ [[ ! $ip ]] || ! IsAvailablePort "$ip" "$port"; } && ! IsLocalAddress "$host" && ip="$(MdnsResolve "$host.local" 2> /dev/null)"
-		[[ ! $ip ]] && { EchoErr "ssh: Could not resolve $host : Name or service not known"; return 1; }
-		! IsAvailablePort "$ip" "$port" && { "ssh: $host is not responding on port $port"; return 1; }
+		# if the DNS ip did not resolve or is not responding try mDNS (.local) name resolution
+		if ! IsLocalAddress "$host" && { [[ ! $ip ]] || ! IsAvailablePort "$ip" "$port"; }; then
+			mdnsIp="$(MdnsResolve "$host.local" 2> /dev/null)"
+			[[ $mdnsIp ]] && ip="$mdnsIp"
+		fi
 
+		# unable to resolve the hostname
+		if [[ ! $ip ]]; then
+			EchoErr "ssh: Could not resolve $host : Name or service not known"
+			return 1
+		fi
+
+		# the host is not available on the specified port
+		if ! IsAvailablePort "$ip" "$port"; then
+			EchoErr "ssh: $host ($ip) is not responding on port $port"
+			return 1
+		fi
+
+		# replace the hostname with the IP address that was resolved
 		host="${hostFull/$host/$ip}"
 	fi
 
