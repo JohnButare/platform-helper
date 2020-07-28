@@ -51,7 +51,7 @@ init()
 
 	# SC data area error - http://www.dostips.com/forum/viewtopic.php?f=3&t=3408
 	scBufferSize=5000
-	sc="sc.exe"
+	sc="sc.exe" # service command
 
 	if [[ ! $noHostCheck && $host && "$host" != @(localhost|$HOSTNAME) ]]; then
 		! IsAvailable "$host" && { EchoErr "service: $host is not available"; return 1; }
@@ -77,6 +77,7 @@ isLinuxService() { [[ -f "/etc/init.d/$1" ]]; }
 checkLinuxService() { isLinuxService "$1" && return 0; EchoErr "service: $1 is not a valid service"; return 1; }
 runningCommand() { [[ "$(stateCommand)" == "RUNNING" ]]; }
 showCommand() { IsPlatform win && start services.msc; }
+lsc() { IsPlatform wsl1 && { sudoc "/usr/sbin/service" "$2" "$1"; return; }; sudoc systemctl "$1" "$2"; } # Linux Service Command COMMAND HOST
 
 check()
 {
@@ -136,7 +137,7 @@ detailCommand()
 {
 	echo "Status of $service service$hostDescription..."
 
-	if IsPlatform win && ! isUnixService "$service"; then 
+	if IsPlatform win && ! isLinuxService "$service"; then 
 		$sc $hostUnc GetDisplayName "$service"
 		$sc $hostUnc qdescription  "$service" $scBufferSize
 		$sc $hostUnc queryex "$service" $scBufferSize
@@ -144,7 +145,7 @@ detailCommand()
 		$sc $hostUnc qfailure "$service"
 	else
 		checkLinuxService "$service" || return
-		systemctl status "$service"
+		lsc status "$service"
 	fi
 }
 
@@ -172,17 +173,25 @@ startTypeCommand()
 		GetWord "$($sc $hostUnc qc "$service" $ScBufferSize |& RemoveCarriageReturn | grep START_TYPE)" 4
 	else
 		checkLinuxService "$service" || return
-		systemctl status "$service" | egrep "^[ ]*Loaded:" | grep "enabled;" >& /dev/null && echo "AUTO_START" || echo "DISABLED"
+		if [[ "lsc" == "/usr/sbin/service" ]]; then
+			echo "unknown"
+		else
+			lsc status "$service" | egrep "^[ ]*Loaded:" | grep "enabled;" >& /dev/null && echo "AUTO_START" || echo "DISABLED"
+		fi
 	fi
 }
 
 stateCommand() 
 { 
-	if IsPlatform win && ! isUnixService "$service"; then 
+	if IsPlatform win && ! isLinuxService "$service"; then 
 		GetWord "$($sc $hostUnc query "$service" |& grep STATE)" 4; 
 	else
 		checkLinuxService "$service" || return
-		systemctl status "$service" | grep "active (running)" > /dev/null && echo "RUNNING" || echo "STOPPED"
+		if IsPlatform wsl; then
+			lsc status "$service" | grep "is running" > /dev/null && echo "RUNNING" || echo "STOPPED"
+		else
+			lsc status "$service" | grep "active (running)" > /dev/null && echo "RUNNING" || echo "STOPPED"
+		fi
 	fi
 }
 
@@ -199,12 +208,12 @@ autoCommand()
 { 
 	[[ "$(startTypeCommand)" == "AUTO_START" ]] && return
 	
-	if IsPlatform win && ! isUnixService "$service"; then 
+	if IsPlatform win && ! isLinuxService "$service"; then 
 		checkElevated && { elevate RunScript --pause-error service auto $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }	
 		$sc config $hostUnc "$service" start= auto; 
 	else
 		checkLinuxService "$service" || return
-		sudo systemctl enable "$service" || return
+		lsc enable "$service" || return
 	fi
 }
 
@@ -221,12 +230,12 @@ disableCommand()
 { 
 	[[ "$(startTypeCommand)" == "DISABLED" ]] && return 
 	
-	if IsPlatform win && ! isUnixService "$service"; then 
+	if IsPlatform win && ! isLinuxService "$service"; then 
 		checkElevated && { elevate RunScript --pause-error service disable $wait $noServiceCheck $noHostCheck "$service" "$host"; return; }
 		$sc config $hostUnc "$service" start= disabled; 
 	else
 		checkLinuxService "$service" || return
-		sudo systemctl disable "$service" || return
+		lsc disable "$service" || return
 	fi
 }
 
@@ -246,11 +255,11 @@ startCommand()
 
 	checkWaiting; printf "Starting $service service$hostDescription...$waiting"
 
-	if IsPlatform win && ! isUnixService "$service"; then 
+	if IsPlatform win && ! isLinuxService "$service"; then 
 		result="$($sc $hostUnc start "$service")" || { EchoErr "$result"; return 1; }
 	else
 		checkLinuxService "$service" || return
-		sudo systemctl start "$service" || return
+		lsc start "$service" || return
 	fi
 
 	[[ $wait ]] && waitForState RUNNING start started
@@ -263,11 +272,11 @@ stopCommand()
 
 	checkWaiting; printf "Stopping $service service$hostDescription..."$waiting
 
-	if IsPlatform win && ! isUnixService "$service"; then 
+	if IsPlatform win && ! isLinuxService "$service"; then 
 		result="$($sc $hostUnc stop "$service")" || { EchoErr "$result"; return 1; }
 	else
 		checkLinuxService "$service" || return
-		sudo systemctl stop "$service" || return
+		lsc stop "$service" || return
 	fi
 
 	[[ $wait ]] && waitForState STOPPED stop stopped
