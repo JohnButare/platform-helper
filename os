@@ -136,11 +136,10 @@ versionCommand()
 	echo "      kernel: $(uname -r)$(versionOsBits)"
 
 	# hardware
+	versionCpu || return
 	local hardware="$(uname -m)" # armv71|mips|mip64|x86_64
 	InPath dpkg && hardware+=" ($(dpkg --print-architecture))" # amd64, armhf
 	echo "    hardware: $hardware" 
-
-	versionCpu || return
 
 	# chroot
 	[[ -f "/etc/debian_chroot" ]] && echo "      chroot: $(cat "/etc/debian_chroot")"
@@ -224,8 +223,8 @@ versionDistributionWin()
 versionRaspbian()
 {
 	cpu=$(</sys/class/thermal/thermal_zone0/temp)
+	echo "       model: $(cat /proc/cpuinfo | grep "^Model" | cut -d":" -f 2)"
 	echo "    CPU temp: $((cpu/1000))'C"
-	echo "    model: $(cat /proc/cpuinfo | grep "^Model" | cut -d":" -f 2)"
 }
 
 run "$@"
