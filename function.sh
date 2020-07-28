@@ -575,6 +575,12 @@ HostNameCheck() { SshHelper "$@" hostname; }
 RemoveDnsSuffix() { echo "${1%%.*}"; }
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }
 
+GetMacAddress() # [HOST]
+{
+	local host="${1:-$HOSTNAME}"
+	egrep " $host$" "/etc/ethers" | cut -d" " -f1
+}
+
 GetBroadcastAddress()
 {
 	if IsPlatform mac; then
@@ -588,6 +594,8 @@ GetPrimaryAdapterName()
 {
 	if IsPlatform win; then
 		ipconfig.exe | grep $(GetPrimaryIpAddress) -B 4 | grep "Ethernet adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
+	else
+		ifconfig | grep "UP,BROADCAST,RUNNING" | head -1 | cut -d":" -f1
 	fi
 }
 
@@ -1236,6 +1244,8 @@ sudoc()  # use the credential store to get the password if available, --preserve
 	fi
 } 
 IsZsh && alias sudoc="nocorrect sudoc" # prevent auto correction, i.e. sudoc ls
+
+sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$1"; }
 
 #
 # Scripts
