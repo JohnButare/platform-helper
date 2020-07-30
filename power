@@ -32,7 +32,7 @@ usage: power on|off|reboot|sleep|firmware|hibernate [host] [port]
 															Return 0 if the host (or host PoE port) is on, and 1 if off
 	fix info|sleep|wake				examine issues preventing computer sleep or wake
 
-  -f, --force 							force the wakeup command to be sent
+  -f, --force 							force the power operation even if we believe the host is in the correct state
   -s, --ssh 								make an ssh connection
 	-t, --timeout [500]				milliseconds to wait for a response from the host.
 	-w, --wait [120]					seconds for the host to change state
@@ -185,50 +185,47 @@ powerCommand()
 	
 	# host specific power commands
 	case "$(RemoveDnsSuffix "$host")" in
-		PoeSplitter|TvTuner) sshCommand="";;
-		*Ap|*Switch|UnifiController) sshCommand="$basicSshCommand";;
+		AirthingsBridge|*Camera|GarageWaterHeater|HueBridge|TvTuner) sshCommand="";;
+		*Ap|*Switch|UnifiController|VeraBridge) sshCommand="$basicSshCommand";;
 	esac
-
-# here here
 
 	# force a wait if we need to change the power state of the switch port after the host turns off
 	[[ $switch && $op == @(off|hibernate) ]] && waitSeconds="$waitDefault"
 
 	# determine the current status off the host
-	if [[ $sshCommand ]]; then
-		IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
-		initialHostStatus="off"
-		IsAvailable $host $timeoutMilliseconds && initialHostStatus="on"
-	fi
+	local initialState="off"; IsAvailable $host $timeoutMilliseconds && initialState="on"
 
-	printf "Issuing $op to $host..."
+	# description
+	local desc expectedState="off"
+	case "$op" in
+		firmware) desc="Entering firmware on";;
+		hibernate) desc="Hibernating";;
+		off) desc="Powering off";;
+		on) desc="Powering on"; expectedState="on";;
+		reboot) desc="Rebooting"; expectedState="on";;
+		sleep) desc="Sleeping";;
+	esac
 
-		# set power for a local Hyper-V host (assume Hyper-V hosts start with $HOSTNAME-)
-	[[ $host =~ $HOSTNAME- ]] && { setVmPower; exit; }
+	[[ ! $force && "$initialState" == "$expectedState" ]] && { echo "$host is already $expectedState"; return 0; }
 
+	[[ ! $sshCommand && ! ( "$op" == "off" && $port ) ]] && { EchoErr "\n$host does not support the $op power operation"; return 1; }
 
-	local desc="Powering off"; [[ "$command" == "hibernate" ]] && desc="Hibernating"
 	echo "$desc $hostName..."
-		echo "Rebooting $hostName..."
-	echo "Sleeping $hostName..."
-	printf "Entering firmware on $hostName..."
 
-	return 0
+	# perform operation
+	if [[ "$op" == @(firmware|hibernate|sleep) ]];		
+		SshHelper $host "$sshCommand" || return
+		waitOff || return
+	else
+		do$op || return
+	fi
+	
+	echo "done"
 }
-
-doFirmware()
-{
-	[[ "$initialHostStatus" == "off" ]] && return 0;
-
-	SshHelper $host "$BIN/power $command" || return
-	waitOff || return
-}
-
-doHibernate() { doOff; }
 
 doOn() 
 { 
-	[[ ! $force && "$initialHostStatus" == "on" ]] && { echo "$hostName is already on"; return 0; }
+	[[ ! $force && "$initialState" == "on" ]] && { echo "$hostName is already on"; return 0; }
 
 	local power; [[ $host && $switch && $port ]] && power="true"
 	# power on associated switch port if specified
@@ -255,37 +252,23 @@ doOn()
 
 doOff()
 {
-	if [[ $sshCommand && "$initialHostStatus" == "on" ]]; then
+	if [[ $sshCommand && "$initialState" == "on" ]]; then
 		SshHelper $host "$sshCommand" || return
 		waitOff || return
 	fi
 
 	if [[ $switch ]]; then
 		printf "port..."
-		[[ $sshCommand && "$initialHostStatus" == "on" ]] && { sleep 1 || return; }
+		[[ $sshCommand && "$initialState" == "on" ]] && { sleep 1 || return; }
 		switchPortOff "$switch" "$port" || return
 	fi
 
 	return 0
 }
 
-doSleep()
-{
-	[[ "$initialHostStatus" == "off" ]] && return 0;
-	SshHelper $host "$BIN/power $command" || return
-	waitOff || return
-}
-
-setVmPower()
-{
-	[[ "$command" = @(on|off|reboot|sleep) ]] && { hyperv "$command" "$host"; return; }
-	EchoErr "Hyper-V $command command is not supported"
-	return 1
-}
-
 doReboot()
 {
-	if [[ "$initialHostStatus" == "off" ]]; then
+	if [[ "$initialState" == "off" ]]; then
 		[[ $switch ]] && { printf "port..."; switchPortOff "$switch" "$port" || return; }
 		onCommand; return
 	fi
@@ -293,55 +276,6 @@ doReboot()
 	SshHelper $host "$BIN/power $command" || return
 	waitOff || return
 	waitOn || return
-}
-
-# waitOn - wait waitSeconds for host to become available
-waitOn()
-{
-	local found
-
-	( [[ ! $waitSeconds ]] || IsAvailable $host $timeoutMilliseconds) && return 0
-
-	printf "Waiting ${waitSeconds}s for $hostName to become available..."
-
-	for (( i=1; i<=$waitSeconds; ++i )); do
- 		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
-
-		if [[ $found ]]; then
-			SshHelper "$host" "ls /" >& /dev/null && { echo "ssh"; return 0; }
-
-		elif IsAvailable "$host" "$timeoutMilliseconds"; then
-			[[ ! $waitSsh ]] && { echo "found"; return 0; }
-			printf "found..."; found="true"
-		fi
-
-		printf "."
-	done
-
-	echo "not found"
-	return 1
-}
-
-# waitOff - wait waitSeconds for host to disconnect from the network
-waitOff()
-{
-	( [[ ! $waitSeconds ]] || ! IsAvailable "$host" "$timeoutMilliseconds") && return 0
-
-	printf "Waiting ${waitSeconds}s for $hostName to disconnect..."
-
-	for (( i=1; i<=$waitSeconds; ++i )); do
- 		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
-
-		if ! IsAvailable "$host" "$timeoutMilliseconds"; then
-			echo "disconnected"
-			return 0			
-		fi
-
-		printf "."
-	done
-
-	echo "still connected"
-	return 1
 }
 
 setLocalPower() # op
@@ -396,6 +330,55 @@ setLocalPower() # op
 	esac
 
 	EchoErr "$op is not supported"
+	return 1
+}
+
+# waitOn - wait waitSeconds for host to become available
+waitOn()
+{
+	local found
+
+	( [[ ! $waitSeconds ]] || IsAvailable $host $timeoutMilliseconds) && return 0
+
+	printf "Waiting ${waitSeconds}s for $hostName to become available..."
+
+	for (( i=1; i<=$waitSeconds; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
+
+		if [[ $found ]]; then
+			SshHelper "$host" "ls /" >& /dev/null && { echo "ssh"; return 0; }
+
+		elif IsAvailable "$host" "$timeoutMilliseconds"; then
+			[[ ! $waitSsh ]] && { echo "found"; return 0; }
+			printf "found..."; found="true"
+		fi
+
+		printf "."
+	done
+
+	echo "not found"
+	return 1
+}
+
+# waitOff - wait waitSeconds for host to disconnect from the network
+waitOff()
+{
+	( [[ ! $waitSeconds ]] || ! IsAvailable "$host" "$timeoutMilliseconds") && return 0
+
+	printf "Waiting ${waitSeconds}s for $hostName to disconnect..."
+
+	for (( i=1; i<=$waitSeconds; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
+
+		if ! IsAvailable "$host" "$timeoutMilliseconds"; then
+			echo "disconnected"
+			return 0			
+		fi
+
+		printf "."
+	done
+
+	echo "still connected"
 	return 1
 }
 
