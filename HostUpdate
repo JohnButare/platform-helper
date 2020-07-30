@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
-. function.sh
-. color.sh
+. function.sh || return
+. color.sh || return
+
+run() {	args "$@" || return; init || return; $command; }
+
+init()
+{
+	fileServer="nas3.hagerman.butare.net"
+	updateDir="$DATA/update"; [[ ! -d "$updateDir" ]] && { mkdir "$updateDir" || return; }
+	ohMyZsh="$HOME/.oh-my-zsh"	
+	[[ ! $prompt ]] && function ask { printf "${BLUE}%s${RESET}\n" "Updating $1..."; }
+	return 0
+}
 
 usage()
 {
@@ -35,61 +46,47 @@ args()
 	return 0
 }
 
-init()
-{
-	ohMyZsh="$HOME/.oh-my-zsh"	
-	
-	[[ ! $prompt ]] && function ask { printf "${BLUE}%s${RESET}\n" "Updating $1..."; }
-	
-	return 0
-}
-
-run() {	args "$@" || return; init || return; $command; }
-
 #
-# Update everything
+# everything
 #
 
 update()
 {
-	ask "NAS" && { nasUpdate || return; }
-	osUpdate || return
-	ohMyZshInstalled && ask "Oh My Zsh" && { ohMyZshUpdate || return; }
+	ask "files" && { fileUpdate || return; }
+	ask "os" && { osUpdate || return; }
 	adobeInstalled && ask "Adobe Create Cloud" && { adobeUpdate || return; }
 	nodeInstalled && ask "Node.js" && { nodeUpdate || return; }
-	rubyInstalled && ask "Ruby" && { rubyUpdate || return; }
+	ohMyZshInstalled && ask "Oh My Zsh" && { ohMyZshUpdate || return; }
 	pythonInstalled && ask "Python" && { pythonUpdate || return; }
-
+	rubyInstalled && ask "Ruby" && { rubyUpdate || return; }
 	return 0
 }
 
 #
-# Operating System Update
+# Operating System
 #
 
 osUpdate() { RunPlatform Update; }
+debianUpdate() { IsPlatform debian && UpdateDebian; }
+macUpdate() { IsPlatform mac && UpdateMac; }
+qnapUpdate() { IsPlatform qnap && UpdateQnap; }
+winUpdate() { IsPlatform win && UpdateWin; }
 
 #
-# Debian Specific
+# debian
 # 
 
-debianUpdate() { UpdateDebian; }
-UpdateDebian() 
+UpdateDebian()
 { 
-	IsPlatform debian || return 0
-
-	# update package list if it is out of date (not updated today)
-	local update="true" 
-	[[ "$(GetDateStamp)" == "$(GetFileDateStamp /var/cache/apt/pkgcache.bin)" ]] && update=
-	[[ ! $update && $force ]] && ask 'Update Debian' && update="true"
+	! UpdateNeeded "debian" && return
 
 	# update the package list
-	[[ $update ]] && { sudoc apt update || return; }
+	sudoc apt update || return
 
 	# upgrade packages if needed
 	! [[ "$(apt-check --human-readable 2>&1)" =~ "0 packages".* ]] && { sudo apt dist-upgrade -y || return; update="true"; }
 
-	[[ $update ]] && { sudo apt autoremove -y || return; }
+	sudo apt autoremove -y || return
 
 	# some packages are not listed in apt-check, update them if needed
 	local done=""; sudo apt autoremove -y |& grep "0 not upgraded" >& /dev/null && done="true"
@@ -97,18 +94,15 @@ UpdateDebian()
 
 	[[ -f /var/run/reboot-required ]] && ask 'Reboot to finish the update' && { sudo reboot || return; }
 
-	return 0
+	UpdateDone "debian"
 }
 
 #
-# macOS Specific
+# mac
 #
 
-macUpdate() { UpdateMac; }
 UpdateMac()
 {
-	! IsPlatform mac && return
-
 	ask "Brew update" && { brewUpdate || return; }
 	ask "App Store update" && { mas upgrade || return; }
 	ask "Software update" && sudo softwareupdate --install --all
@@ -117,55 +111,68 @@ UpdateMac()
 
 brewUpdate()
 {
-	! IsPlatform mac && return
-
-	# brew doctor || return # errors out in Catalina
+	brew doctor || return
 	brew update || return
 	brew upgrade || return
 	brew cask upgrade || return
 }
 
 #
-# QNAP Specific
+# QNAP
 #
 
-qnapUpdate() { UpdateQnap; }
 UpdateQnap()
 {
-	! IsPlatform qnap && return
-
 	sudo opkg update || return
 	sudo opkg upgrade || return
 }
 
 #
-# Windows Specific
+# Windows
 #
 
-winUpdate() { UpdateWin; }
 UpdateWin()
 {
-	! IsPlatform win && return 0
-
+	! UpdateNeeded "win" && return
 	IsSsh && return 0 # these update requires a GUI
 	ask "Windows update" && { windowsUpdate || return; }
 	ask "Store update" && { store || return; }
 	intelUpdateInstalled && ask "Intel update" && { intelUpdate || return; }
-
-	return 0
+	UpdateDone "win"
 }
 
 intelUpdateInstalled() { [[ -d "$P32/Intel/Driver and Support Assistant" ]]; }
-intelUpdate()
-{ 
-	! IsPlatform win && return 0
-	start "https://www.intel.com/content/www/us/en/support/intel-driver-support-assistant.html"
+intelUpdate() {  start "https://www.intel.com/content/www/us/en/support/intel-driver-support-assistant.html"; }
+windowsUpdate() {  FindInPath "wuapp.exe" > /dev/null && start "wuapp.exe" || cmd.exe /c start ms-settings:windowsupdate >& /dev/null; }
+
+#
+# Adobe
+#
+
+adobeInstalled() { [[ -f "$P32\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe" ]]; }
+adobeUpdate() { adobeInstalled || return 0; start "$P32\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe"; }
+
+#
+# Files
+#
+
+fileUpdate() 
+{
+	! IsAvailable $fileServer && return
+	SyncLocalFiles $fileServer || return
 }
 
-windowsUpdate()
-{ 
-	! IsPlatform win && return 0
-	FindInPath "wuapp.exe" > /dev/null && start "wuapp.exe" || cmd.exe /c start ms-settings:windowsupdate >& /dev/null
+#
+# Node.js
+#
+
+nodeInstalled() { which node >& /dev/null; }
+nodeUpdate()
+{
+	local file="$WINDIR/update.txt"; [[ ! $force ]] && CheckFileDateStamp "$file" && return
+	nodeInstalled || return 0
+	ask 'npm update' -dr n && { sudo npm install -g npm@latest || return; }
+	sudo npm update -g || return
 }
 
 #
@@ -176,10 +183,11 @@ ohMyZshInstalled() { InPath zsh && [[ -d "$ohMyZsh/.git" ]]; }
 
 ohMyZshUpdate() 
 { 
-	local t="$ohMyZsh/custom/themes" p="$ohMyZsh/custom/plugins"
-	plugins=( "$t/powerlevel10k" "$p/zsh-syntax-highlighting" )
+	{ ! ohMyZshInstalled || ! UpdateNeeded "ohMyZsh"; } && return
 
-	ohMyZshInstalled || return 0
+	local t="$ohMyZsh/custom/themes" p="$ohMyZsh/custom/plugins"
+	local plugins=( "$t/powerlevel10k" "$p/zsh-syntax-highlighting" )
+
 	zsh -i -c upgrade_oh_my_zsh || return
 
 	pushd >& /dev/null
@@ -193,55 +201,7 @@ ohMyZshUpdate()
 
 	popd >& /dev/null
 
-	return 0
-}
-
-#
-# Adobe
-#
-
-adobeInstalled() { [[ -f "$P32\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe" ]]; }
-adobeUpdate() { adobeInstalled || return 0; start "$P32\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe"; }
-
-#
-# NAS
-#
-
-nasUpdate()
-{
-	local server="nas3.hagerman.butare.net"
-
-	! IsAvailable $server && return
-
-	if InPath git; then
-
-		if [[ -d "$BIN/.git" ]]; then
-			GitHelper changes "$BIN" && { GitHelper commit "$BIN" && pause; }
-			cd "$BIN" && git pull --rebase
-		fi
-
-		if [[ -d "$UBIN/.git" ]]; then
-			GitHelper changes "$UBIN" && { GitHelper commit "$UBIN" && pause; }
-			cd "$UBIN" && git pull --rebase
-		fi
-		
-	fi
-
-	SyncLocalFiles $server || return
-
-	return 0
-}
-
-#
-# Node.js
-#
-
-nodeInstalled() { which node >& /dev/null; }
-nodeUpdate()
-{
-	nodeInstalled || return 0
-	ask 'npm update' -dr n && { sudo npm install -g npm@latest || return; }
-	sudo npm update -g || return
+	UpdateDone "ohMyZsh"
 }
 
 #
@@ -268,17 +228,21 @@ pythonUpdate()
 rubyInstalled() { which gem >& /dev/null; }
 rubyUpdate()
 {	
-	local nodoc= suffix
+	{ ! rubyInstalled || ! UpdateNeeded "debian"; } && return
 
-	rubyInstalled || return
-	
-	[[ "$PLATFORM" == "mac" ]] && { suffix="-n /usr/local/bin"; }
-	[[ "$PLATFORM" == "win" ]] && nodoc=--no-document # faster and --system fails with documentation update on Cygwin
+	local suffix; [[ "$PLATFORM" == "mac" ]] && { suffix="-n /usr/local/bin"; }
 
-	sudo gem update --system $nodoc $suffix
+	sudo gem update --system $suffix
 	sudo gem update $nodoc $suffix
 
-	return 0
+	UpdateDone "ruby"
 }
+
+#
+# Helper Functions
+#
+
+UpdateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$DATA/update/$1")" ]]; }
+UpdateDone() { touch "$updateDir/$1"; }
 
 run "$@"
