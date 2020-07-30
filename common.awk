@@ -25,7 +25,7 @@ function CommonConstants()
 
 function PipeMake(cmd)
 {
-	if (AWK_Program == "gawk16" || AWK_Program == "gawk32")
+	if (AWK_Program == "awk16" || AWK_Program == "awk32")
            return(gget("bin") "\\tcc.exe /c (" cmd ")")
 	else
 	   return("(" cmd ")")
@@ -67,7 +67,7 @@ function BatchDefer(BatchFileName)
   SystemDefer("if exist " BatchFileName " " BatchFileName)  
 }
 
-# Run a 4dos system command, but defer it's processing until gawk exists.
+# Run a 4dos system command, but defer it's processing until awk exists.
 # This minimizes calls to the os for some system calls.
 function SystemDefer(cmd)
 {

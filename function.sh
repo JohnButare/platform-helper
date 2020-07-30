@@ -438,7 +438,7 @@ GetDisks() # GetDisks ARRAY
 			for disk in /mnt/hgfs/*; do getDisks+=( "$disk" ); done # VMware host
 			for disk in /media/psf/*; do getDisks+=( "$disk" ); done # Parallels hosts
 			;;
-		mac) IFS=$'\n' getDisks=( $(df | grep "^/dev/" | gawk '{print $9}' | grep -v '^/$|^/$') );;
+		mac) IFS=$'\n' getDisks=( $(df | grep "^/dev/" | awk '{print $9}' | grep -v '^/$|^/$') );;
 		win) [[ -d /mnt ]] && for disk in /mnt/*; do getDisks+=( "$disk" ); done;;
 	esac
 
