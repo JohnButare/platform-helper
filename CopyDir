@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+. function.sh || exit
+
+run() {	init && args "$@" && CopyDir "${args[@]}"; }
+
+init() { :; }
+
+usage()
+{
+	echot "usage: CopyDir SRC_DIR DEST_DIR
+	-c, --chroot			copy a chroot directory
+	-r, --recursive		copy directories recursively
+	-v, --verbose			maximize logging"; exit $1; 
+}
+
+args()
+{
+	help="" recursive="" sudo="" exclude=".git" o=(--info=progress2) args=( )
+
+	o+=(--links --perms --times --group --owner) # preserve metadata
+	IsPlatform win && sudo="sudoc" # required to preserve metadata in Windows
+	
+	# arguments
+	for arg in "$@"; do
+		[[ ! $1 ]] && { shift; continue; } 										# ignore empty options
+		[[ $1 == @(-c|--chroot) ]] && { o+=( -r --devices --specials --links --perms --times --group --owner --info=progress2 ); shift; continue; }
+		[[ $1 == @(-h|--help) ]] && usage 0
+		[[ $1 == @(-r|--recursive) ]] && { o+=(--recursive); recursive="true"; shift; continue; }
+		[[ $1 == @(-v|--verbose) ]] && { o+=(--verbose); shift; continue; }
+		args+=("$1"); shift
+	done
+
+	o+=(--exclude="$exclude")
+	(( ${#args[@]} != 2 )) && usage 1
+	src="${args[0]}" dest="$(EnsureDir "${args[1]}")"
+}
+
+CopyDir()
+{	
+	local made result
+	local parent="$(GetParentDir "$dest")"
+	local finalSrcDir="$(GetFileName "$(RemoveTrailingSlash "$src")")"
+	local finalDestDir="$(GetFileName "$(RemoveTrailingSlash "$dest")")"
+
+	# destination parent directory must exists
+	[[ $parent && ! -d "$parent" ]] && { ${G}mkdir --parents "$parent" || return; }
+
+	# destination parent directory must exist
+	[[ ! -d "$dest" ]] && { made="true"; ${G}mkdir --parents "$dest" || return; }
+
+	# perform the copy
+	if [[ $recursive ]]; then
+
+		# dest cannot contain the directory to copy otherwise it will be duplicated
+		[[ "$finalSrcDir" == "$finalDestDir" ]] && dest="$parent"
+
+		$sudo rsync "${o[@]}" "$src" "$dest"
+
+	elif [[ -f "$src" ]]; then
+		$sudo rsync "${o[@]}" "$src" "$dest"
+
+	else # non-recursive copy - the source must be individual files
+		$sudo rsync "${o[@]}" "$src/"* "$dest"
+
+	fi
+	result=$?
+
+	[[ "$result" != "0" && $made ]] && rm -fr "$dest";
+	return $result
+}
+
+run "$@"

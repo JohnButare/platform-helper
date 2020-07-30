@@ -29,16 +29,20 @@ usage: ChrootHelper delete|dir|exists|install|installed|list|run NAME
 		testing, stable, oldstable)
 
 		-d, --debian 		use the Debian mirror
-		-u, --ubuntu 		use the Ubuntu mirror"
+		-u, --ubuntu 		use the Ubuntu mirror
+
+	run NAME
+		-a|--arch	ARCH	use the specified architecture for the distribution"
 	exit $1
 }
 
 args()
 {
-	command="" noPrompt="" args=()
+	arch="" command="" noPrompt="" args=()
 	
 	while [ "$1" != "" ]; do
 		case "$1" in
+			-a|--arch) arch="$2"; shift 2; [[ ! $arch ]] && MissingOperand "arch"; continue;;
 			-h|--help) usage 0;;
 			config|c) command="config";;
 			install|i) command="install";;
@@ -51,13 +55,21 @@ args()
 	done
 
 	[[ ! $command ]] && command="run"
+	[[ $arch && "$arch" != "armhf" ]] && { EchoErr "ChrootHelper: only ARM emulation is supported"; return 1; }
+
 	return 0
 }
 
 distArg() {	dist="$1"; [[ ! $dist ]] && MissingOperand "dist"; ! distExists "$dist" && { EchoErr "Distribution $dist does not exist"; exit 1; }; }
-distDir() { ! distExists "$1" && return 1; schroot -c "$1" --config | grep '^directory=' | cut -d"=" -f2; }
 distDirValidate() { local distDir; distDir="$(distDir "$1")" || return; [[ -d "$distDir" ]] && return; EchoErr "$dist directory \"$distDir\" does not exist"; return 1; }
-distExists() { schroot --list | grep '^chroot:'$1'$' >& /dev/null; }
+distExists() { ! InPath schroot && return 0; schroot --list | grep '^chroot:'$1'$' >& /dev/null; }
+
+distDir()
+{ 
+	! distExists "$1" && return 1
+	! InPath schroot && { EchoErr "ChrootHelper: unable to local the $dist distribution"; return 1; }
+	schroot -c "$1" --config | grep '^directory=' | cut -d"=" -f2
+}
 
 #
 # Commands
@@ -165,37 +177,36 @@ restoreCommand()
 	sudo rsync "${copyOptions[@]}" "$osBak/$dist/" "$(distDir "$dist")/"
 }
 
-emulatePi()
+emulate()
 {
 	local dist; distArg "$1"; shift
-	local distDir="$(distDir "$dist")" result 
+	local distDir result; distDir="$(distDir "$dist")" || return
 	
-	ARCH=$(dpkg --print-architecture)
-  [[ "$ARCH" != "armhf" ]] && ! InPath qemu-arm-static && { EchoErr "qemu-arm-static command not found. Try: sudo apt-get install binfmt-support qemu-user-static"; exit 1; }
+	! InPath qemu-arm-static && { EchoErr "qemu-arm-static command not found. Try: sudo apt-get install binfmt-support qemu-user-static"; exit 1; }
   
   [[ -f "$distDir/etc/ld.so.preload" ]] && { sudo mv "$distDir/etc/ld.so.preload" "$distDir/etc/ld.so.preload.disabled" || return; }
 	
-	sudo install -m 0755 /usr/bin/qemu-arm-static $distDir/usr/bin/qemu-arm-static || return
+	sudo install -m 0755 "/usr/bin/qemu-arm-static" "$distDir/usr/bin/qemu-arm-static" || return
 	schroot -c "$dist" "$@"; result=$?
 
 	[[ -f "$distDir/etc/ld.so.preload.disabled" ]] && { sudo mv "$distDir/etc/ld.so.preload.disabled" "$distDir/etc/ld.so.preload" || return; }
+
 	return $result
 }
 
 runCommand() 
 {	
 	local dist; distArg "$1"; shift
-	
-	ARCH=$(dpkg --print-architecture)
-  if [[ "$ARCH" != "armhf" ]]; then
-		emulatePi "$dist" "$@"
-	elseif InPath schroot; then
+		
+  if [[ "$arch" != "$(dpkg --print-architecture)" ]]; then
+		emulate "$dist" "$@"
+	elif InPath schroot; then
 		schroot -c "$dist" "$@"
 	elif IsPlatform mac; then
 		sudo HOME=/home/jjbutare chroot -u $USERNAME "$dist" zsh --login "$@"
 	elif InPath /opt/bin/chroot; then
 		sudo HOME=/home/$USERNAME /opt/bin/chroot --userspec=$USERNAME . zsh --login "$@"
-	else
+	elif InPath chroot; then
 		sudo HOME=/home/$USERNAME chroot --userspec=$USERNAME . zsh --login "$@"
 	else
 		EchoErr "ChrootHelper: no chroot program found"

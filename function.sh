@@ -392,13 +392,6 @@ utw() # UnixToWin
 
 	file="$(realpath -m "$@")"
 
-	# drvfs network shares (type 9p) do not map properly in WSL 2
-	# sudo mount -t drvfs //nas3/home /tmp/t; wslpath -a -w /tmp/t # \\nas3\home (WSL1) \\wsl$\test1\tmp\t (WSL 2)
-	if IsPlatform wsl2; then 
-		read wsl win <<<$(findmnt --types=9p --noheadings --output=TARGET,SOURCE --target "$file")
-		[[ $wsl && $win ]] && { echo "$(ptw "${file/$wsl/$win}")"; return; }
-	fi
-
 	# utw requires the file exist in newer versions of wsl
 	if [[ ! -e "$@" ]]; then
 		local filePath="$(GetFilePath "$@")"
@@ -445,60 +438,6 @@ GetDisks() # GetDisks ARRAY
 	CopyArray getDisks "$1"
 }
 
-CopyDir()
-{
-	local help recursive sudo exclude=".git" o=(--info=progress2) f=( );
-
-	# preserve metadata
-	o+=(--links --perms --times --group --owner)
-
-	IsPlatform win && sudo="sudoc" # required to preserve metadata in Windows
-	
-	# arguments
-	for arg in "$@"; do
-		[[ ! $1 ]] && { shift; continue; } 										# ignore empty options
-		[[ $1 == @(-h|--help) ]] && { help="true"; shift; continue; }
-		[[ $1 == @(-r|--recursive) ]] && { o+=(--recursive); recursive="true"; shift; continue; }
-		[[ $1 == @(-v|--verbose) ]] && { o+=(--verbose); shift; continue; }
-		f+=("$1"); shift
-	done
-
-	o+=(--exclude="$exclude")
-
-	# help
-	[[ "${#f[@]}" != "2" || $help ]]	&& { echot "usage: CopyDir SRC_DIR DEST_DIR
-	-q, --quiet				minimize logging
-	-r, --recursive		copy directories recursively
-	-v, --verbose			maximize logging"; return 1; }
-
-	local made result src="${f[0]}" dest="$(EnsureDir "${f[1]}")"; 
-	local parent="$(GetParentDir "$dest")"
-	local finalSrcDir="$(GetFileName "$(RemoveTrailingSlash "$src")")"
-	local finalDestDir="$(GetFileName "$(RemoveTrailingSlash "$dest")")"
-
-	# destination parent directory must exists
-	[[ $parent && ! -d "$parent" ]] && { ${G}mkdir --parents "$parent" || return; }
-
-	# destination parent directory must exist
-	[[ ! -d "$dest" ]] && { made="true"; ${G}mkdir --parents "$dest" || return; }
-	
-	# perform the copy
-	if [[ $recursive ]]; then
-
-		# dest cannot contain the directory to copy otherwise it will be duplicated
-		[[ "$finalSrcDir" == "$finalDestDir" ]] && dest="$parent"
-
-		$sudo rsync "${o[@]}" "$src" "$dest"
-
-	else # non-recursive copy - the source must be individual files
-		$sudo rsync "${o[@]}" "$src"/* "$dest"
-	fi
-	result=$?
-
-	[[ "$result" != "0" && $made ]] && rm -fr "$dest";
-	return $result
-}
-
 # FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
 FileCommand() 
 { 
@@ -541,7 +480,8 @@ CpProgress()
 	GetFilePath "$(GetFullPath "$src")" src || return
 
 	local fileSize="$(GetFileSize "$src/$fileName" MB)" || return
-	(( fileSize < size )) && cp "$src/$fileName" "$dest" || CopyDir "$src/$fileName" "$dest"
+	(( fileSize < size )) && { cp "$src/$fileName" "$dest" || return; }
+	CopyDir "$src/$fileName" "$dest"
 } 
 
 # File Attributes
@@ -649,28 +589,20 @@ IsIpAddress() # IP
 
 IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
 { 
-	local host="$1" timeout="${2-200}"
+	local host="$1" timeout="${2-200}"; host="$(GetIpAddress "$host")" || return
 
-	# Windows - ping and fping do not timeout quickly for unresponsive hosts so use ping.exe
-	if IsPlatform win; then
-		host="$(GetIpAddress "$host")" || return # resolve IP address to avoid slow ping.exe name resolution
-		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null
-		return
-	fi
-	
-	if InPath fping; then
+	if IsPlatform wsl1; then # WSL 1 ping and fping do not timeout quickly for unresponsive hosts so use ping.exe
+		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null 
+	elif InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" &> /dev/null
 	else
-		ping -c 1 -W 1 "$host"  &> /dev/null # -W timeoutSeconds
+		ping -c 1 -W 1 "$host" &> /dev/null # -W timeoutSeconds
 	fi
 }
 
 IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 {
-	local host="$1" port="$2" timeout="${3-200}"
- 
-	# resolve addresses exclicitly in WSL due to various name resolution issues (see GetIpAddress)
-	IsPlatform win && { host="$(GetIpAddress "$host")" || return; }
+	local host="$1" port="$2" timeout="${3-200}"; host="$(GetIpAddress "$host")" || return
 
 	if InPath ncat; then
 		echo | ncat -C -w ${timeout}ms "$host" "$port" >& /dev/null
@@ -684,10 +616,7 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 
 PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
 { 
-	local host="$1" timeout="${2-200}"
-
-	# resolve addresses exclicitly in WSL due to various name resolution issues (see GetIpAddress)
-	IsPlatform win && { host="$(GetIpAddress "$host")" || return; }
+	local host="$1" timeout="${2-200}"; host="$(GetIpAddress "$host")" || return
 
 	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
@@ -813,7 +742,7 @@ SshHelper()
 		# assume port 22 if none was specified
 		[[ ! $port ]] && port="22"
 
-		# resulve the host using DNS first
+		# resolve the host using DNS first
 		ip="$(GetIpAddress "$host")"
 
 		# if the DNS ip did not resolve or is not responding try mDNS (.local) name resolution
