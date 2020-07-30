@@ -370,7 +370,7 @@ HideAll()
 {
 	! IsPlatform win && return
 
-	for f in $('ls' -A | egrep '^\.'); do
+	for f in $('ls' -A | grep -E '^\.'); do
 		attrib "$f" +h 
 	done
 }
@@ -438,7 +438,7 @@ GetDisks() # GetDisks ARRAY
 			for disk in /mnt/hgfs/*; do getDisks+=( "$disk" ); done # VMware host
 			for disk in /media/psf/*; do getDisks+=( "$disk" ); done # Parallels hosts
 			;;
-		mac) IFS=$'\n' getDisks=( $(df | egrep "^/dev/" | gawk '{print $9}' | egrep -v '^/$|^/$') );;
+		mac) IFS=$'\n' getDisks=( $(df | grep "^/dev/" | gawk '{print $9}' | grep -v '^/$|^/$') );;
 		win) [[ -d /mnt ]] && for disk in /mnt/*; do getDisks+=( "$disk" ); done;;
 	esac
 
@@ -578,7 +578,7 @@ UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }
 GetMacAddress() # [HOST]
 {
 	local host="${1:-$HOSTNAME}"
-	egrep " $host$" "/etc/ethers" | cut -d" " -f1
+	grep " $host$" "/etc/ethers" | cut -d" " -f1
 }
 
 GetBroadcastAddress()
@@ -761,7 +761,7 @@ IsInSshConfig() # IsInSshConfig HOST - return true if HOST matches an entry in ~
 	# colordiff /tmp/1.txt /tmp/2.txt && echo SAME
 
 	[[ "$(ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$")" != "$(ssh -G "$hostFull" | grep -i -v "^hostname ${host}$")" ]] && return 0; # something other than the host changed
-	ssh -G "$hostFull" | egrep -i "^hostname ${host}$" >& /dev/null && return 1 # host is unchanged
+	ssh -G "$hostFull" | grep -i "^hostname ${host}$" >& /dev/null && return 1 # host is unchanged
 	return 0
 }
 
@@ -901,7 +901,7 @@ packagei() # package info, shows files installed by a package,
 PackageExist() 
 { 
 	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
-	IsPlatform mac && { brew search "/^$@$/" | egrep -v "No formula or cask found for" >& /dev/null; return; }	
+	IsPlatform mac && { brew search "/^$@$/" | grep -v "No formula or cask found for" >& /dev/null; return; }	
 	IsPlatform dsm,qnap && { [[ "$(packagel "$1")" ]]; return; }
 	return 0
 }
@@ -1051,7 +1051,7 @@ IsExecutable()
 	local p="$@"; [[ ! $p ]] && { EchoErr "usage: IsExecutable PROGRAM"; return 1; }
 
 	# executable file - realpath resolves symbolic links, use -m so directory existence is not checked (which can error out for mounted network volumes)
-	[[ -f "$p" ]] && { file "$(realpath -m "$p")" | egrep "executable|ELF" > /dev/null; return; }
+	[[ -f "$p" ]] && { file "$(realpath -m "$p")" | grep -E "executable|ELF" > /dev/null; return; }
 
 	# alias, builtin, or function
 	type -a "$p" >& /dev/null
@@ -1065,15 +1065,13 @@ IsTaskRunning()
 	# ProcesList returns paths in Windows format
 	[[ "$(GetFilePath "$file")" ]] && file="$(utwq "$file")"
 
-	ProcessList | egrep -v ",grep" | grep -i  ",$file" >& /dev/null
+	ProcessList | grep -v ",grep" | grep -i  ",$file" >& /dev/null
 }
 
 # IsWindowsProces: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
 IsWindowsProces() 
 {
-	if IsPlatform cygwin; then 
-		utw "$file" | egrep -iv cygwin > /dev/null; return;
-	elif IsPlatform win; then
+	if IsPlatform win; then
 		file "$file" | grep PE32 > /dev/null; return;
 	else
 			return 0
@@ -1256,7 +1254,7 @@ sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$1"; }
 #
 
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
-FilterShellScript() { egrep "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"; }
+FilterShellScript() { grep -E "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"; }
 IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
 IsOption() { [[ "$1" =~ ^-.* ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
@@ -1264,7 +1262,7 @@ UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unknown unrecognized option \`$1
 MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; [[ "$-" == *i* ]] && return 1 || exit 1; }
 IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
 IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
-GetFunction() { declare -f | egrep -i "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
+GetFunction() { declare -f | grep -iE "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
 
 # RunFunction NAME SUFFIX - call a function with the specified suffix
 RunFunction()
@@ -1498,7 +1496,7 @@ WinSetState()
 
 	# X Windows - see if title matches a windows running on the X server
 	if [[ $DISPLAY ]] && InPath wmctrl; then
-		id="$(wmctrl -l -x | egrep -i "$title" | head -1 | cut -d" " -f1)"
+		id="$(wmctrl -l -x | grep -i "$title" | head -1 | cut -d" " -f1)"
 
 		if [[ $id ]]; then
 			[[ $args ]] && { wmctrl -i "${args[@]}" "$id"; return; }

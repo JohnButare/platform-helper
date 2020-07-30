@@ -205,7 +205,7 @@ terminator()
 	IsSsh && return
 
 	# return if terminator is running
-	ps -u | egrep -v "grep" | egrep -i  "/usr/bin/python /usr/bin/terminator" >& /dev/null && return
+	ps -u | grep -v "grep" | grep -i  "/usr/bin/python /usr/bin/terminator" >& /dev/null && return
 
 	printf "terminator."
 	
