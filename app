@@ -35,10 +35,10 @@ args()
 }
 
 run()
-{
+{	
 	init
 	args "$@"
-
+	
 	for app in "${args[@]}"
 	do
 		MapApp || return
@@ -210,9 +210,9 @@ terminator()
 	printf "terminator."
 	
 	# set X DISPLAY if not set (initial login shell does not set DISPLAY)
-	[[ ! $DISPLAY ]] && export DISPLAY=:0
+	[[ ! $DISPLAY ]] && InitializeXServer
 
-	if IsPlatform win; then
+	if IsPlatform wsl1; then
 		# start using terminator.vbs to ensure when this process stops terminator does not stop
 		wscript.exe "c:\Users\Public\Documents\data\platform\win\terminator.vbs"
 	else
@@ -232,7 +232,7 @@ sshd()
 
 	if ! service running ssh; then
 		printf "sshd."
-		sudoc "/usr/sbin/service" ssh start >& /dev/null
+		sudoc service start ssh > /dev/null
 		return 0
 	fi
 

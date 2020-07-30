@@ -168,7 +168,7 @@ ReadChars()
 
 	[[ $m ]] && printf "%s" "$m"
 
-	if [[ $ZSH_NAME ]]; then # single line statement fails in zsh
+	if IsZsh; then # single line statement fails in zsh
 		read -s -k $n ${t[@]} "response"
 	else
 		read -n $n -s ${t[@]} response
@@ -350,7 +350,7 @@ FindInPath()
 
 	[[ -f "$file" ]] && { echo "$file"; return; }
 
-	if [[ $ZSH ]]; then
+	if IsZsh; then
 		whence -p "${file}" && return
 		IsPlatform wsl && { whence -p "${file}.exe" && return; }
 	else
@@ -590,6 +590,8 @@ GetBroadcastAddress()
 	fi
 }
 
+GetDefaultGateway() { route -n | grep '^0.0.0.0' | awk '{ print $2; }'; }
+
 GetPrimaryAdapterName()
 {
 	if IsPlatform win; then
@@ -605,7 +607,7 @@ GetPrimaryIpAddress() # GetPrimaryIpAddres [INTERFACE] - get default network ada
 		# default route (0.0.0.0 destination) with lowest metric
 		route.exe -4 print | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | tr -s " " | cut -d " " -f 5
 	else
-		ifconfig $1 | grep inet | egrep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }'
+		ifconfig $1 | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }'
 	fi
 }
 
@@ -1446,9 +1448,8 @@ InitializeXServer()
 {
 	{ [[ "$DISPLAY" ]] || ! InPath xauth; } && return
 
-	if [[ "$WSL" == "2" ]]; then
-		export WSL_HOST="$(awk '/nameserver / {print $2; exit}' /etc/resolv.conf 2>/dev/null)"
-		export DISPLAY="${WSL_HOST}:0"
+	if IsPlatform wsl2; then
+		export DISPLAY="$(GetDefaultGateway):0"
 		export LIBGL_ALWAYS_INDIRECT=1
 	elif [[ $SSH_CONNECTION ]]; then
 		export DISPLAY="$(GetWord "$SSH_CONNECTION" 1):0"
