@@ -7,7 +7,7 @@ usage()
 {
 	echot "\
 usage: os [environment|index|lock|store|SystemProperties|version]
-	hostname|SetHostname
+	hostname|SetHostname [NAME]
 	path [show|edit|editor|set [AllUsers]](editor)
 	index: index [options|start|stop|demand](options)"
 	exit $1
@@ -23,7 +23,7 @@ args()
 	 		CodeName) command="codeName";; SystemProperties) command="systemProperties";; SetHostname) command="setHostname";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(CodeName|hostname|path|update|SetWorkgroup) ]] && break
+				[[ "$command" == @(CodeName|hostname|path|update|SetHostName|SetWorkgroup) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -91,10 +91,10 @@ hostnameCommand()
 
 setHostnameCommand()
 {
-	local newName
-	read -p "Enter computer name: " newName; echo
-	[[ ! $newName ]] && return
-
+	local newName="$1"; [[ $newName ]] && shift
+	[[ ! $newName ]] && { read -p "Enter new host name: " newName; echo; }
+	[[ ! $newName ]] && { MissingOperand "name"; }
+	
 	if IsPlatform raspbian; then sudo raspi-config nonint do_hostname $newName
 	elif IsPlatform mac; then sudo scutil --set HostName $newName
 	elif IsPlatform win; then elevate RunScript --pause-error powershell Rename-Computer -NewName "$newName"
