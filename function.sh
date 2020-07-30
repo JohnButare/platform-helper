@@ -972,7 +972,7 @@ function IsPlatform()
 			opkg) InPath opkg && return;;
 
 			# kernel
-			winkernel) [[ "$PLATFORM_KERNEL" == "win" ]] && return;;
+			winkernel) [[ "$PLATFORM_KERNEL" == @(wsl1|wsl2) ]] && return;;
 			linuxkernel) [[ "$PLATFORM_KERNEL" == "linux" ]] && return;;
 
 			# virtual machine
@@ -1019,6 +1019,8 @@ function RunPlatform()
 	RunFunction $function $PLATFORM_LIKE "$@" || return
 	RunFunction $function $PLATFORM_ID "$@" || return
 	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
+	IsPlatform wsl1 && { RunFunction $function wsl1 "$@" || return; }
+	IsPlatform wsl2 && { RunFunction $function wsl2 "$@" || return; }
 	IsPlatform entware && { RunFunction $function entware "$@" || return; }
 	IsPlatform debian,mac && { RunFunction $function DebianMac "$@" || return; }
 	IsPlatform vm && { RunFunction $function vm "$@" || return; }
@@ -1397,7 +1399,7 @@ GetChrootName()
 	
 	if [[ -f "/etc/debian_chroot" ]]; then
 		CHROOT_NAME="$(cat "/etc/debian_chroot")"
-	elif [[ "$PLATFORM_KERNEL" != "win" ]] && [[ "$(stat / --printf="%i")" != "2" ]]; then
+	elif ! IsPlatform winKernel && [[ "$(stat / --printf="%i")" != "2" ]]; then
 		CHROOT_NAME="chroot"
 	elif IsPlatform wsl1 && sudoc systemd-detect-virt -r; then
 		CHROOT_NAME="chroot"

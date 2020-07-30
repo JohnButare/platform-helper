@@ -36,16 +36,19 @@ echo kernel=\"$(uname -r)\";
 	results="$(
 		eval $results
 
-		platformKernel="linux"; [[ $kernel =~ .*-[Mm]icrosoft ]] && platformKernel="win"
-
+		platformKernel="linux"
+		if [[ $kernel =~ .*-Microsoft$ ]]; then platformKernel="wsl1"
+		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platformKernel="wsl2"
+		fi
+		
 		case "$platform" in 
 			Darwin)	platform="mac";;
 			Linux) platform="linux";;
 			MinGw*) platform="win"; ID_LIKE=mingw;;
 		esac
 
-		if [[ ! $chroot && $kernel =~ .*-Microsoft$ ]]; then platform="win" wsl=1
-		elif [[ ! $chroot && $kernel =~ .*-microsoft-standard$ ]]; then platform="win" wsl=2
+		if [[ ! $chroot && "$platformKernel" == "wsl1" ]]; then platform="win" wsl=1
+		elif [[ ! $chroot && "$platformKernel" == "wsl2" ]]; then platform="win" wsl=2
 		elif [[ $ID_LIKE =~ openwrt ]]; then ID_LIKE="openwrt"
 		elif [[ $kernel =~ .*-rock ]]; then ID="rock"
 		elif [[ $kernel =~ .*-qnap ]]; then ID_LIKE="qnap"
