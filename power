@@ -23,11 +23,11 @@ init()
 usage()
 {
 	echot "\
-usage: power on|off|reboot|sleep|firmware|hibernate [host] [port]
+usage: power on|off|reboot|sleep|firmware|hibernate [host]:[port|all]
 	Control host or PoE switch port power state.
 
 	firmware									reboot to the UEFI firmware settings
-	status host [port|all]		report the status of the host or PoE switch (on or off)
+	status host:[port|all]		report the status of the host or PoE switch (on or off)
 															If port is all then the status of all switch ports is displayed
 															Return 0 if the host (or host PoE port) is on, and 1 if off
 	fix info|sleep|wake				examine issues preventing computer sleep or wake
@@ -57,13 +57,17 @@ args()
 				[[ ! $command && "$1" == @(on|off|reboot|sleep|firmware|hibernate) ]] && { command="power"; op="$1"; shift; continue; }
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ ! $host && "$command" == @(power|status) ]] && ! IsOption "$1" && { host="${1,,}"; shift; continue; }
-				[[ ! $port ]] && { IsInteger "$1" || [[ "$1" == "all" ]]; } && { port="$1"; shift; continue; }
-				[[ "$command" != @(fix) ]] && UnknownOption "$1"
+				[[ "$command" == @(fix) ]] && break
+				UnknownOption "$1"
 		esac
 		shift
 	done
 
+	port="$(GetWord "$host" 2 :)"
+	host="$(GetWord "$host" 1 :)"
+
 	[[ ! $command ]] && MissingOperand "command"
+
 	args=("$@")
 }
 
@@ -79,7 +83,7 @@ statusCommand()
 
 	if [[ $port ]]; then
 		if [[ "$port" == "all" ]]; then
-			SshHelper admin@$host swctrl poe show | grep "On[ ]*Good"; return
+			SshHelper admin@$host swctrl poe show; return
 		else
 			switchPortStatus $host $port
 		fi
@@ -165,19 +169,21 @@ powerCommand()
 {
 	IsLocalHost "$host" && { setLocalPower "$op"; return; }
 
+	local opf="$(ProperCase "$op")"
+
 	# control switch port only
 	if [[ $port ]]; then
-		case "$op" in
-			on) switchPortOn "$host" "$port"; exit;;
-			off) switchPortOff "$host" "$port"; exit;;
-			*) EchoErr "Switch ports can only be turned on or off"; return 1;;
-		esac
+		[[ "$op" != @(on|off) ]] && { EchoErr "Switch ports can only be turned on or off"; return 1; }
+		switchPort$opf "$host" "$port" || return; 
+		echo "done"; return
 	fi
 
+	# get switch port information
 	local switch port; getSwitchPort "$host" || return
-	local basicSshCommand sshCommand="$BIN/power $op"
+	local power; [[ $host && $switch && $port ]] && power="true"
 
-	# basic ssh commands when the power script is not present
+	# ssh command to use to control host power
+	local basicSshCommand sshCommand="$BIN/power $op"
 	case "$op" in
 		off) basicSshCommand="shutdown now";;
 		reboot) basicSshCommand="shutdown -r now";;
@@ -202,7 +208,7 @@ powerCommand()
 		hibernate) desc="Hibernating";;
 		off) desc="Powering off";;
 		on) desc="Powering on"; expectedState="on";;
-		reboot) desc="Rebooting"; expectedState="on";;
+		reboot) desc="Rebooting"; expectedState="";;
 		sleep) desc="Sleeping";;
 	esac
 
@@ -210,27 +216,28 @@ powerCommand()
 
 	[[ ! $sshCommand && ! ( "$op" == "off" && $port ) ]] && { EchoErr "\n$host does not support the $op power operation"; return 1; }
 
-	echo "$desc $hostName..."
+	printf "$desc $hostName..."
 
 	# perform operation
-	if [[ "$op" == @(firmware|hibernate|sleep) ]]; then
+	if [[ "$op" == @(firmware|sleep) ]]; then
 		SshHelper $host "$sshCommand" || return
-		waitOff || return
+		waitOff "$waitSeconds" || return
 	else
-		do$op || return
+		do$opf || return
 	fi
 	
 	echo "done"
+
+	[[ $ssh ]] && { SshHelper -x "$host" || return; }
+	return 0
 }
 
 doOn() 
 { 
 	[[ ! $force && "$initialState" == "on" ]] && { echo "$hostName is already on"; return 0; }
-
-	local power; [[ $host && $switch && $port ]] && power="true"
+	
 	# power on associated switch port if specified
 	if [[ $power ]]; then
-		printf "power..."
 		switchPortOn $switch $port || return
 		[[ ! $sshCommand ]] && { echo "done"; return; }
 	fi
@@ -238,27 +245,26 @@ doOn()
 	# Turn on host using Wake-on-LAN.  A MAC address must be specified in /etc/ethers
 	if grep "${host}$" "/etc/ethers" >& /dev/null; then
 		local broadcastAddress="$(GetBroadcastAddress)"; [[ $broadcastAddress ]] && broadcastAddress="-i $broadcastAddress"
-		echo "wol..."
-		wakeonlan $broadcastAddress "${host,,}" # host must be lower case to be found
+		printf "wol..."
+		wakeonlan $broadcastAddress "${host,,}" > /dev/null # host must be lower case to be found
 	fi
 
 	# wait for the host to power up
-	waitOn || return
-
-	[[ $ssh ]] && { SshHelper -x "$host"; return; }
+	waitOn "$waitSeconds" || return
 
 	return 0
 } 
 
+doHibernate() { doOff; }
+
 doOff()
 {
 	if [[ $sshCommand && "$initialState" == "on" ]]; then
-		SshHelper $host "$sshCommand" || return
-		waitOff || return
+		SshHelper $host "$sshCommand" > /dev/null || return
+		waitOff "$waitSeconds" || return
 	fi
 
 	if [[ $switch ]]; then
-		printf "port..."
 		[[ $sshCommand && "$initialState" == "on" ]] && { sleep 1 || return; }
 		switchPortOff "$switch" "$port" || return
 	fi
@@ -269,13 +275,13 @@ doOff()
 doReboot()
 {
 	if [[ "$initialState" == "off" ]]; then
-		[[ $switch ]] && { printf "port..."; switchPortOff "$switch" "$port" || return; }
-		onCommand; return
+		[[ $switch ]] && { switchPortOff "$switch" "$port" || return; } # make sure the switch port if off
+		doOn; return
 	fi
 	
-	SshHelper $host "$BIN/power $command" || return
-	waitOff || return
-	waitOn || return
+	SshHelper $host "$sshCommand" >& /dev/null || return
+	waitOff "${waitSeconds:-$waitDefault}" || return
+	waitOn "${waitSeconds}" || return
 }
 
 setLocalPower() # op
@@ -287,7 +293,7 @@ setLocalPower() # op
 		off|reboot) vmware IsInstalled && { vmware SuspendAll || return; }
 	esac
 
-	printf "Issuing $op..."
+	printf "$op..."
 
 	# assumes policy is set so no password is required (for remote power operation)
 	case "$op" in
@@ -333,52 +339,54 @@ setLocalPower() # op
 	return 1
 }
 
-# waitOn - wait waitSeconds for host to become available
+# waitOn SECONDS - wait for host to become available
 waitOn()
 {
-	local found
+	local found s="$1"
 
-	( [[ ! $waitSeconds ]] || IsAvailable $host $timeoutMilliseconds) && return 0
+	( [[ ! $s ]] || IsAvailable $host $timeoutMilliseconds) && return 0
 
-	printf "Waiting ${waitSeconds}s for $hostName to become available..."
+	printf "waiting..."
 
-	for (( i=1; i<=$waitSeconds; ++i )); do
+	for (( i=1; i<=$s; ++i )); do
  		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
 
 		if [[ $found ]]; then
-			SshHelper "$host" "ls /" >& /dev/null && { echo "ssh"; return 0; }
+			SshHelper "$host" "ls /" >& /dev/null && { printf "ssh..."; return 0; }
 
 		elif IsAvailable "$host" "$timeoutMilliseconds"; then
-			[[ ! $waitSsh ]] && { echo "found"; return 0; }
-			printf "found..."; found="true"
+			found="true"; printf "found..."
+			[[ ! $waitSsh ]] && return 0
 		fi
 
 		printf "."
 	done
 
-	echo "not found"
+	printf "not found"
 	return 1
 }
 
-# waitOff - wait waitSeconds for host to disconnect from the network
+# waitOff SECONDS - wait for host to disconnect from the network
 waitOff()
 {
-	( [[ ! $waitSeconds ]] || ! IsAvailable "$host" "$timeoutMilliseconds") && return 0
+	local s="$1"
 
-	printf "Waiting ${waitSeconds}s for $hostName to disconnect..."
+	( [[ ! $s ]] || ! IsAvailable "$host" "$timeoutMilliseconds") && return 0
 
-	for (( i=1; i<=$waitSeconds; ++i )); do
+	printf "waiting..."
+
+	for (( i=1; i<=$s; ++i )); do
  		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
 
 		if ! IsAvailable "$host" "$timeoutMilliseconds"; then
-			echo "disconnected"
+			printf "disconnected..."
 			return 0			
 		fi
 
 		printf "."
 	done
 
-	echo "still connected"
+	printf "still connected..."
 	return 1
 }
 
@@ -405,29 +413,27 @@ switchWatts() { SshHelper admin@$1 swctrl poe show id $2 |& tail -1 | cut -c65-7
 switchPortStatus()
 { 
 	local switch="$1" port="$2"
-	SshHelper admin@$1 swctrl poe show id $2 |& grep "On[ ]*Good" >& /dev/null
+	SshHelper admin@$1 swctrl poe show id $2 |& cut -c7-13 | grep "Auto" >& /dev/null
 }
 
 # switchPortOn switch port - turn the power of a PoE port on
 switchPortOn()
 {
 	local switch="$1" port="$2"
-
-	switchPortStatus $switch $port && { echo "$switch port $port is already on"; return; }
-
-	echo "Turning $switch port $port on..."
-	SshHelper admin@$switch swctrl poe set auto id $port
+	printf "port..."
+	switchPortStatus $switch $port && { printf "already on..."; return; }
+	SshHelper admin@$switch swctrl poe set auto id $port || return
+	printf "on..."
 }
 
 # switchPortOff switch port - turn the power of a PoE port off
 switchPortOff()
 {
 	local switch="$1" port="$2"
-
-	! switchPortStatus $switch $port && { echo "$switch port $port is already off"; return; }
-
-	echo "Turning $switch port $port off..."
-	SshHelper admin@$switch swctrl poe set off id $port
+	printf "port..."
+	! switchPortStatus $switch $port && { printf "already off..."; return; }
+	SshHelper admin@$switch swctrl poe set off id $port || return
+	printf "off..."
 }
 
 run "$@"
