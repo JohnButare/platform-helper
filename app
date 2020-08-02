@@ -132,7 +132,7 @@ TaskStart()
 
 ShowStatus()
 {
-	[[ $brief ]] && printf "$app..." || printf "$status $app..."
+	[[ $brief ]] && printf "$appDesc..." || printf "$status $appDesc..."
 }
 
 GetAppFile()
@@ -163,12 +163,15 @@ IsAppRunning()
 
 MapApp()
 {
+	appDesc="$app"
+
 	case "$app" in
 		cctray) app="CruiseControlTray";;
 		ProcExp|pe) app="ProcessExplorer";;
 		tc) app="TrueCrypt";;
 		keys) app="AutoHotKey";;
 		PuttyAgent) app="pu";;
+		terminator) app="TerminatorHelper";;
 		wmc) app="WindowsMediaCenter";;
 		wmp) app="WindowsMediaPlayer";;
 		X|XWindows) app="xserver";;
@@ -196,28 +199,6 @@ OneDrive()
 
 	local file="$P32/Microsoft OneDrive/OneDrive.exe"; [[ ! -f "$file" ]] && file="$LOCALAPPDATA/Microsoft/OneDrive/OneDrive.exe"
 	start "$file" /background; 
-}
-
-terminator()
-{
-	[[ "$command" != "startup" ]] && return
-
-	IsSsh && return
-
-	# return if terminator is running
-	ps -u | grep -v "grep" | grep -i  "/usr/bin/python /usr/bin/terminator" >& /dev/null && return
-
-	printf "terminator."
-	
-	# set X DISPLAY if not set (initial login shell does not set DISPLAY)
-	[[ ! $DISPLAY ]] && InitializeXServer
-
-	if IsPlatform wsl1; then
-		# start using terminator.vbs to ensure when this process stops terminator does not stop
-		wscript.exe "c:\Users\Public\Documents\data\platform\win\terminator.vbs"
-	else
-		start terminator
-	fi
 }
 
 sshd()
