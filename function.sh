@@ -563,10 +563,11 @@ GetIpAddress() # [HOST]
 	# In Windows WSL the methods below never resolve mDNS addresses
 	IsLocalAddress "$host" && { MdnsResolve "$host" 2> /dev/null || return; }
 
-	# host and getent are fast and can sometimes resolve .local (mDNS) addresses 
-	# getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
-	if InPath host; then ip="$(host "$host" |& grep "has address" | cut -d" " -f 4)"
-	elif InPath getent; then ip="$(getent hosts "$host" |& cut -d" " -f 1)"
+	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
+	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
+	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
+	if InPath getent; then ip="$(getent hosts "$host" |& cut -d" " -f 1)"
+	elif InPath host; then ip="$(host -t A "$host" |& grep -v "^ns." | head -1 | grep "has address" | cut -d" " -f 4)"
 	elif InPath nslookup; then ip="$(nslookup "$host" |& tail -3 | grep "Address:" | cut -d" " -f 2)"
 	fi
 
@@ -589,8 +590,13 @@ IsIpAddress() # IP
 
 IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
 { 
-	local host="$1" timeout="${2-200}"; host="$(GetIpAddress "$host")" || return
+	local host="$1" timeout="${2-200}"
 
+	# resolve the IP address explicitly:
+	# - mDNS name resolution is intermitant
+	# - Windows ping.exe name resolution is slow for non-existent hosts
+	host="$(GetIpAddress "$host")" || return 
+		
 	if IsPlatform wsl1; then # WSL 1 ping and fping do not timeout quickly for unresponsive hosts so use ping.exe
 		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null 
 	elif InPath fping; then

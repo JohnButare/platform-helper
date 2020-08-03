@@ -80,7 +80,6 @@ IsWindowsProgram()
 # Windows process elevation (use Administrator token) 
 elevate()
 {
-	IsElevated && { "$@"; return; }
 	[[ "$#" == "0" ]] && { start --elevate RunScript RunInDir "$PWD"; return; }
 	start --elevate "$@"
 }
@@ -94,6 +93,8 @@ IsElevated() # return true if the user has an Admministrator token
 
 RunScriptElevated() # run commands elevated that has quoted arguments
 {
+	IsElevated && { eval "$@"; return; }
+
 	local dir="$TMP/RunScriptElevated.$RANDOM"
 	local script="$dir/script.sh" log="$dir/log.txt" scriptResult="$dir/result.txt"
 

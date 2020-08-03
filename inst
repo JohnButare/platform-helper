@@ -565,6 +565,7 @@ bootstrapWin()
 
 	# install HiddenStart and System Internals first to minimize prompts (assume this is done if Sublime is installed)
 	! IsInstalled sublime && { i HiddenStartFinal SystemInternals WindowsSetup || return; }
+	return 0
 }
 
 #
@@ -751,7 +752,7 @@ SshWsl()
 	fi
 
 	! InPath sshd && { package openssh-server || return; }
-	/usr/sbin/service ssh status | grep "not running" >& /dev/null && { sudo service ssh start || return; }
+	sudo service start ssh || return
 
 	return 0
 }
@@ -807,7 +808,7 @@ DebianDns()
 
 DebianFileSharing()
 {
-	IsPlatform win && grep -i "$USER" "/etc/samba/smb.conf" >& /dev/null && return
+	{ IsPlatform win || grep -i "$USER" "/etc/samba/smb.conf" >& /dev/null; } && return
 
 	! InPath smbpasswd && { package samba || return; }
 	sudo smbpasswd -a $USER || return
@@ -934,7 +935,7 @@ MacAppCleanup()
 WindowsSetup()
 {
 	! IsElevated && { elevate RunScript --pause-error inst WindowsSetup "${options[@]}"; pause; return; }
-	i WindowsPath WindowsPermissions WindowsDirs WindowsIcons WindowsConfiguration OneDrive || return
+	i WindowsPath WindowsPermissions WindowsDirs WindowsIcons WindowsFonts WindowsConsole WindowsConfiguration OneDrive || return
 }
 
 WindowsPath() { SetVar --system --path PATH "$DATA/platform/$PLATFORM" || return; }
@@ -1010,9 +1011,6 @@ WindowsIcons()
 
 WindowsConfiguration()
 {
-	WindowsFonts || return
-	WindowsConsole || return
-
 	echo "Cleaning file system..."
 	$hide "$WIN_ROOT/PerfLogs" || return
 	$hide "$WIN_ROOT/Windows.old" || return
@@ -1111,7 +1109,8 @@ WindowsFonts()
 	! IsElevated && { elevate RunScript --pause-error inst WindowsFonts "${options[@]}"; pause; return; }
 
 	findFile "fonts/MesloLGS NF" || return
-	pushd "$file" >& /dev/null || return
+	CopyDir "$file" "/tmp/fonts" || return # fontreg.exe fails on network share in wsl 2
+	pushd "/tmp/fonts" >& /dev/null || return
 	fontreg.exe /copy || return # requires elevation
 	popd  >& /dev/null || return
 
@@ -1146,7 +1145,7 @@ WindowsConsole()
 	$registry set "$key/WindowSize" REG_DWORD 3276964 || return # 3276964=164x50
 }
 
-windowsDownload()
+WindowsDownload()
 {
 	# https://www.microsoft.com/en-us/software-download/windows10/
 	local v=1909
@@ -1155,6 +1154,27 @@ windowsDownload()
 	[[ ! -f ~/Downloads/Windows.iso ]] && { EchoErr "Windpows was not downloaded"; return 1; }
 
 	gcp ~/Downloads/Windows.iso "$(GetFilePath "$file")/Windows_$v.iso" || return
+}
+
+wslInstall() { WindowsSubsystemForLinuxInstall; }
+WindowsSubsystemForLinuxInstall()
+{	
+	local data="$DATAD/data/wsl"; makeDir "$data" || return
+	local dist="Ubuntu-20.04"; IsVm && dist="Ubuntu-18.04" # wsl 1 only support Ubuntu-18.04 for now
+
+	# install wsl 1
+	[[ ! "$WINDIR/system32/wsl.exe" ]] && { RunScriptElevated "DISM.exe /online /enable-feature /FeatureName:Microsoft-Windows-Subsystem-Linux /all /norestart" || return; }
+
+	# add support for wsl 2 - except for VM's (runs slowly with nested virtualization)
+	if ! IsVm; then
+		run "platform/LINUX/wsl/setup/wsl_update_x64.msi" || return
+		ask "Install the virtual machine platform" && { RunScriptElevated dism.exe /online /enable-feature /FeatureName:VirtualMachinePlatform /all /norestart || return; }
+	fi
+
+	# install a distribution
+	wsl exists "$dist" >& /dev/null && return
+	wsl restore "$dist" "$dist" || return
+	wsl init "$dist" || return
 }
 
 #
@@ -1246,15 +1266,17 @@ CredentialStoreInstall()
 	printf "**************************************************\n* Credential Store\n**************************************************\n"
 	
 	# Ubuntu - make sure gnome-keyring is installed (it is not by default in Raspberry Pi OS)
-	if IsPlatform raspbian,ubuntu; then
+	if IsPlatform raspbian,ubuntu && ! IsPlatform win; then
 		! InPath secret-tool && { package gnome-keyring libsecret-tools || return; }
 
 	# Win and Mac have the credential manager, for all other platforms use gpg and pass
 	elif ! IsPlatform mac,raspbian,ubuntu,win; then
 		i gpg pass || return
+
 	fi
 	
 	! password CheckStore && { password store || return; }
+	return 0
 }
 
 fzf()
@@ -1350,6 +1372,10 @@ gameIcons()
 	makeLink --merge --hide "$udata/app/Shadow of the Tomb Raider" "$udoc/Shadow of the Tomb Raider" || return
 
 	echo "Updating icons..."	
+
+	mergeDir "$pp/Call of Duty Modern Warfare" "$pp/Game/Other" || return
+	mergeDir "$pp/Battle.net" "$pp/Game/Other" || return
+
 	$mv "$ud/Rockstar Games Launcher.lnk" "$pp/Game" || return
 	
 	$mv "$ud/The Elder Scrolls V Skyrim VR.url" "$pp/Game" || return
@@ -2422,7 +2448,7 @@ officeIcons()
 	$mv "$pp/"Word.lnk "$p" || return
 	$rm "$up/Startup/Send to OneNote.lnk" || return
 
-	SkypeIcons || return
+	skypeIcons || return
 
 	mergeDir --rename "$pp/Microsoft Office 2013" "$p" || return
 	mergeDir --rename "$p/Office 2013 Tools" "$p/tools" || return
@@ -2973,11 +2999,10 @@ hypervInstall()
 {
 	printf "**************************************************\n* Hyper-V\n**************************************************\n"
 
-	local data="$DATAD/data/Hyper-V"
+	local data="$DATAD/data/Hyper-V"; makeDir "$data" || return
 	elevate RunScript --pause-error DISM.exe /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V
 	pause
-
-	makeDir "$data" || return
+	
 	mergeDir "$pp/Administrative Tools" "$pp/Operating System" || return
 
 	clipw "$(utw "$data")" || return
@@ -3060,8 +3085,7 @@ VmwareWorkstationInstall()
 	# https://my.vmware.com/group/vmware/downloads#tab1
 	run "other/VMware/workstation/" -p "VMware-workstation-full-15.5.6-16341506.exe" "" "VMware-Workstation-Full-15.5.6-16341506.x86_64.bundle" --elevate || return
 
-	local data="$DATAD/data/VMware"
-	makeDir "$data" || return
+	local data="$DATAD/data/VMware"; makeDir "$data" || return
 	mergeDir "$pp/VMware" "$oo" || return
 	$rm "$pd/VMware Workstation Pro.lnk" || return
 

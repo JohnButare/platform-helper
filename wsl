@@ -7,7 +7,7 @@ init()
 { 
 	wslDir="$DATAD/data/wsl"
 	shortcutDir="$PROGRAMDATA/Microsoft/Windows/Start Menu/Programs/Operating System/Other/WSL/"
-	defaultDistro="ubuntu-focal" defaultVersion="1"
+	defaultDistro="ubuntu-focal" defaultVersion="2"
 
 	mkdir --parents "$wslDir/image" || return
 	mkdir --parents "$shortcutDir" || return
@@ -16,7 +16,7 @@ init()
 usage()
 {
 	echot "\
-usage: wsl dir|IsRunning|name|summary|version [DIST](current)
+usage: wsl dir|exists|IsRunning|name|summary|version [DIST](current)
 	First letter of commands can be used, i.e. wsl v
 
 	kill DIST - kill the distribution
@@ -27,7 +27,7 @@ usage: wsl dir|IsRunning|name|summary|version [DIST](current)
 	copy DIST NEW - copy the distribution
 	delete DIST - delete the distribution
 	init DIST - run bootstrap-init
-	restore DIST [SRC](ubuntu-focal) [VERSION](1) - restore distribution, SRC is a file or distribution (ubuntu-disco)
+	restore DIST [SRC](ubuntu-focal) [VERSION](2) - restore distribution, SRC is a file or distribution (ubuntu-disco)
 
 	GetDefaultUser DIST - get the default user sid of the specified distribution 
 	SetDefaultUser [DIST](current) [USER]($USER) - set the default user of the distribution 
@@ -81,7 +81,7 @@ args()
 
 distFirst() { listPlainCommand "$1" | head -1 | awk '{ print $1; }'; }
 distExists() { [[ $1 && "$(listPlainCommand "$1" | cut -d" " -f1 | grep "^${1}$")" ]]; }
-distArg() {	dist="$1"; [[ ! $dist ]] && MissingOperand "dist"; ! distExists "$dist" && { EchoErr "Distribution $dist does not exist"; exit 1; }; }
+distArg() {	dist="$1"; [[ ! $dist ]] && MissingOperand "dist"; ! distExists "$dist" && { EchoErr "Distribution $dist does not exist"; exit 1; }; return 0; }
 
 distDefaultArg() # return 0 (true) if an arg is used
 {
@@ -103,6 +103,7 @@ lxr() { ( cd /; lxrunoffline.exe "$@"; ); }
 #
 
 dirCommand() { wtu "$(wsl summary ${1:-$(nameCommand)} | grep "Installation directory" | cut -d: -f 2- | cut -d" " -f 2)"; }
+existsCommand() { distArg "$1"; }
 isRunningCommand() { distDefaultArg "$1" && shift; [[ "$(wsl ListPlain | grep "$dist" | awk '{ print $2; }')" == "Running" ]]; }
 killCommand() { w --terminate "$1"; }
 listCommand() { w --list --verbose | Utf16toAnsi | RemoveCarriageReturn; }
@@ -159,9 +160,10 @@ initCommand()
 	lxr run -n "$dist" -w -c "bash -c \". /tmp/bootstrap-init\""
 }
 
-restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](1)
+restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](2)
 {
-	local dist src version
+	local cachedFile dist src version i="$(i dir)"
+	local image="$i/platform/LINUX/wsl/image"
 
 	while [ "$1" != "" ]; do		
 		[[ "$1" == @(1|2) ]] && { version="$1"; shift; continue; }
@@ -170,24 +172,33 @@ restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](1)
 		UnknownOption "$1"
 	done
 	[[ ! $dist ]] && { EchoErr "A distribution name was not specified"; exit 1; }
-	src="${src:-$defaultDistro}" version="${version:-$defaultVersion}"
+	src="${src:-$defaultDistro}" wslVersion="${version:-$defaultVersion}"
 
-	local cachedFile="$wslDir/image/$src.tar.gz" file="${src}"
+	# full path to the source was specified
+	file="${src}"
 
-	# find src from a locally cached file
-	[[ ! -f "$file" ]] && file="$cachedFile"
+	# check if src is a cached file
+	[[ ! -f "$file" ]] && file="$wslDir/image/$src.tar.gz" 
 
-	# find src from install directory
+	# check for src in each distribution in the image directory
 	if [[ ! -f "$file" ]]; then
-		local i d v; IFS='-' read d v <<<"$src"; # d=distribution v=version	
-		i="$(i dir)" && file="$(ls "$i/LINUX/wsl/image/$d/$d-$v-"* |& head -1)"
+		for dir in "$image/"*; do
+			file="$dir/$src.tar.gz"
+			[[ -f "$file" ]] && break
+		done
+	fi
+
+	# find src from install directory - assume src is in the format distribution-version, i.e. ubuntu-focal
+	if [[ ! -f "$file" ]]; then
+		local i d v; IFS='-' read d v <<<"$src"
+		file="$(ls "$image/$d/$d-$v-"* |& head -1)"
 	fi
 
 	# find src from LxRunOffline download site - https://github.com/DDoSolitary/LxRunOffline/wiki
 	if [[ ! -f "$file" ]]; then
-		file="$cachedFile"
+		file="$wslDir/image/$src.tar.gz"
 		curl -L "http://lxrunoffline.apphb.com/download/$d/$v" -o "$file"
-		! tar -tzf "$file" >& /dev/null && rm "$file"
+		! tar -tzf "$file" >& /dev/null && rm -f "$file" >& /dev/null
 	fi
 
 	if [[ ! -f "$file" ]]; then
@@ -195,7 +206,8 @@ restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](1)
 		return 1
 	fi
 
-	wsl.exe --import "$dist" "$(utw "$wslDir/$dist")" "$(utw "$file")" --version "$version" || return
+	echo "Importing $(GetFileName "$file") as $dist..."
+ 	wsl.exe --import "$dist" "$(utw "$wslDir/$dist")" "$(utw "$file")" --version "$wslVersion" || return
 	shortcutCommand "$dist" || return
 }
 
