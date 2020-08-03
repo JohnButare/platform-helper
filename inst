@@ -553,7 +553,7 @@ bootstrapWsl()
 	printf "**************************************************\n* Bootstrap WSL\n**************************************************\n"
 
 	wsl SetDefaultUser || return
-	$registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/RunScript startup' || return
+	wslFinal || return
 }
 
 bootstrapWin()
@@ -969,8 +969,6 @@ WindowsIcons()
 {
 	echo "Updating icons..."
 
-	$makeShortcut "wsl.exe" "$pp/Operating System/bash" "" "$(utw "$DATA/icons/Command Prompt.ico")" || return
-
 	mergeDir "$up/Accessibility" "$pp/Applications/Accessories" || return
 	mergeDir "$pp/Accessibility" "$pp/Applications/Accessories" || return
 	mergeDir "$up/Accessories" "$pp/Applications" || return
@@ -1167,18 +1165,30 @@ WindowsSubsystemForLinuxInstall()
 	local dist="Ubuntu-20.04"; IsVm && dist="Ubuntu-18.04" # wsl 1 only support Ubuntu-18.04 for now
 
 	# install wsl 1
-	[[ ! "$WINDIR/system32/wsl.exe" ]] && { RunScriptElevated "DISM.exe /online /enable-feature /FeatureName:Microsoft-Windows-Subsystem-Linux /all /norestart" || return; }
+	if [[ ! "$WINDIR/system32/wsl.exe" ]]; then
+		RunScriptElevated "DISM.exe /online /enable-feature /FeatureName:Microsoft-Windows-Subsystem-Linux /all /norestart" || return
+		pause "Press any key to reboot..."; power reboot; return
+	fi
 
-	# add support for wsl 2 - except for VM's (runs slowly with nested virtualization)
-	if ! IsVm; then
+	# install wsl 2 - except in VM's (runs slowly with nested virtualization)
+	if ! IsVm && wsl.exe --set-default-version 2 | Utf16toAnsi | RemoveCarriageReturn | grep "Please enable the Virtual Machine Platform" >& /dev/null; then
 		run "platform/LINUX/wsl/setup/wsl_update_x64.msi" || return
 		ask "Install the virtual machine platform" && { RunScriptElevated dism.exe /online /enable-feature /FeatureName:VirtualMachinePlatform /all /norestart || return; }
 	fi
 
 	# install a distribution
-	wsl exists "$dist" >& /dev/null && return
-	wsl restore "$dist" "$dist" || return
-	wsl init "$dist" || return
+	if ! wsl exists "$dist" >& /dev/null && askP "Install the $dist distribution"; then
+		wsl restore "$dist" "$dist" || return
+		wsl init "$dist" || return
+	fi
+
+	wslFinal || return
+}
+
+wslIcons()
+{ 
+	$registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/RunScript startup' || return
+	$makeShortcut "wsl.exe" "$pp/Operating System/bash" || return
 }
 
 wingetInstall() { storeInstall "winget" "9nblggh4nns1"; }
@@ -2906,8 +2916,20 @@ iTermInstall()
 terminator()
 {
 	printf "**************************************************\n* Terminator\n**************************************************\n"
+
 	packages terminator || return
 	TerminatorHelper profile restore default || return
+
+	if IsPlatform win; then
+		local d="$PROGRAMDATA/terminator"
+		makeDir "$d" || return
+
+		# IsPlatform wsl2
+		cp "$DATA/icons/terminator2.ico" "$DATA/platform/win/terminator.vbs" "$d" || return
+		$makeShortcut "wscript.exe" "$pp/Operating System/terminator" "$(utw "$d")\terminator.vbs" "$(utw "$d/terminator2.ico")" || return
+	fi
+
+	return 0
 }
 
 #
@@ -2926,16 +2948,8 @@ xServer()
 	RunPlatform xServer || return
 }
 
-xServerMac()
-{ 
-	xQuartzInstall || return
-}
-
-xServerWin() 
-{ 
-	x410Install || return
-	$makeShortcut "wscript.exe" "$pp/Operating System/terminator" "$(utw "$DATA/platform/win")\terminator.vbs" "$(utw "$DATA/icons/terminator2.ico")" || return
-}
+xServerMac() { xQuartzInstall || return; }
+xServerWin() { x410Install || return; }
 
 vcxsrvInstall()
 {
