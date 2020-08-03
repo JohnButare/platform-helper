@@ -1182,7 +1182,7 @@ sudoc()  # use the credential store to get the password if available, --preserve
 } 
 IsZsh && alias sudoc="nocorrect sudoc" # prevent auto correction, i.e. sudoc ls
 
-sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$1"; }
+sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
 
 #
 # Scripts
