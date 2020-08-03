@@ -321,6 +321,7 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d" $(( $s/60/
 # File System
 #
 
+DirCount() { RemoveSpace "$(command ls "$1" | wc -l)"; return "${PIPESTATUS[0]}"; }
 EnsureDir() { echo "$(RemoveTrailingSlash "$1")/"; }
 GetBatchDir() { GetFilePath "$0"; }
 GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
@@ -330,6 +331,7 @@ GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${g
 GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
 GetParentDir() { echo "$(GetFilePath "$(GetFilePath "$1")")"; }
 GetRealPath() { ${G}readlink -f "$@"; } # resolve symbolic links
+IsDirEmpty() { [[ "$(find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
 InPath() { local f; for f in "$@"; do ! which "$f" >& /dev/null && return 1; done; return 0; }
 IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff "$1" "$2" >& /dev/null; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
@@ -337,12 +339,6 @@ RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
-
-GetDriveLabel()
-{ 
-	! IsPlatform win && { echo ""; return 0; }
-	cmd.exe /c vol "$1": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7;
-}
 
 FindInPath()
 {
@@ -375,8 +371,161 @@ HideAll()
 	done
 }
 
-# Path conversion - ensure symbolic links are dereferenced for use in Windows
-[[ "$PLATFORM_LIKE" == "cygwin" ]] && wslpath() { cygpath "$@"; }
+explore() # explorer DIR - explorer DIR in GUI program
+{
+	local dir="$1"; [[ ! $dir ]] && dir="."
+	
+	IsPlatform mac && { open "$dir"; return; }
+	IsPlatform wsl1 && { explorer.exe "$(utw "$dir")"; return; }
+	IsPlatform wsl2 && { local dir="$PWD"; ( cd /tmp; explorer.exe "$(utw "$dir")" ); return; } # invalid argument when starting from mounted network share
+	IsPlatform debian && InPath nautilus && { start nautilus "$dir"; return; }
+	
+	EchoErr "The $PLATFORM_ID platform does not have a file explorer"; return 1
+}
+
+# FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
+FileCommand() 
+{ 
+	local args command="$1" dir="${@: -1}" file files=0 n=$(($#-2))
+
+	for arg in "${@:2:$n}"; do
+		IsOption "$arg" && args+=( "$arg" )
+		[[ -e "$arg" ]] && { args+=( "$arg" ); (( ++files )); }
+	done
+	(( files == 0 )) && return 0
+
+	case "$command" in
+		ren) 'mv' "${args[@]}" "$dir";;
+		cp|mv)
+			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing \`$dir\`: No such directory"; return 1; }
+			"$command" -t "$dir" "${args[@]}";;
+		*) EchoErr "FileCommand: unknown command $command"; return 1;;
+	esac
+}
+
+CpProgress()
+{
+	local src dest size=100 fileName
+	[[ $# == 0 || $1 == @(--help) ]]	&& { EchoErr "usage: CpProgress FILE DIR
+  -s, --size SIZE		show progress for files larger than SIZE MB"; return 1; }
+
+	while (( $# != 0 )); do
+		[[ "$1" == @(-s|--size) ]] && { size="$2"; shift; shift; continue; }
+		! IsOption "$1" && [[ ! $src ]] && { src="$1"; shift; continue; }
+		! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
+		EchoErr "CopyFile: unrecognized option `$1`"; return 1;
+	done
+
+	[[ ! -f "$src" ]] && { EchoErr "CopyFile: cannot access \`$src\`: No such file"; return 1; }
+	[[ ! -d "$dest" ]] && { EchoErr "CopyFile: cannot access \`$dest\`: No such directory"; return 1; }		
+	GetFileName "$src" fileName || return
+	GetFilePath "$(GetFullPath "$src")" src || return
+
+	local fileSize="$(GetFileSize "$src/$fileName" MB)" || return
+	(( fileSize < size )) && { cp "$src/$fileName" "$dest" || return; }
+	CopyDir "$src/$fileName" "$dest"
+} 
+
+# MoveAll SRC DEST - move contents of SRC to DEST including hidden files and folders
+MoveAll()
+{ 
+	[[ ! $1 || ! $2 ]] && { EchoErr "usage: MoveAll SRC DEST"; return 1; }
+	shopt -s dotglob nullglob
+	mv "$1/"* "$2" && rmdir "$1"
+}
+
+# Disks
+
+GetDriveLabel()
+{ 
+	! IsPlatform win && { echo ""; return 0; }
+	cmd.exe /c vol "$1": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7;
+}
+
+GetDisks() # GetDisks ARRAY
+{
+	local getDisks disk;
+
+	case "$PLATFORM" in
+		linux) 
+			for disk in /mnt/hgfs/*; do getDisks+=( "$disk" ); done # VMware host
+			for disk in /media/psf/*; do getDisks+=( "$disk" ); done # Parallels hosts
+			;;
+		mac) IFS=$'\n' getDisks=( $(df | grep "^/dev/" | awk '{print $9}' | grep -v '^/$|^/$') );;
+		win) [[ -d /mnt ]] && for disk in /mnt/*; do getDisks+=( "$disk" ); done;;
+	esac
+
+	CopyArray getDisks "$1"
+}
+
+GetDrives() 
+{
+	local drives=()
+
+	if IsPlatform win; then
+		drives=( $(fsutil.exe fsinfo drives | sed 's/:\\//g' | tr '[:upper:]' '[:lower:]' | RemoveCarriageReturn ) )
+		echo "${drives[@]:1}"
+	else
+		drives=( $(command ls /dev/sd[a-b][0-9]* /dev/mmcblk[0-9]p[0-9]* | sed 's/\/dev\///g') )
+		echo "${drives[@]}"
+	fi
+}
+
+MountDrive()
+{
+	local drive="$1"
+
+	[[ ! -d "/mnt/$drive" ]] && { sudo mkdir "/mnt/$drive" || return 1; }
+
+	if IsPlatform win; then
+		[[ "$drive" == "c" ]] && return 1
+		mount |& grep "$drive: on /mnt/$drive type drvfs" >& /dev/null && return 0
+		sudo mount -t drvfs "$drive:" "/mnt/$drive" >& /dev/null
+	else
+		[[ ! -e "/dev/$drive" ]] && { EchoErr "$drive is not a device"; return 1; }
+		sudo mount "/dev/$drive" "/mnt/$drive"
+	fi
+}
+
+UnMountDrive()
+{
+	local drive="$1"
+	[[ ! -d "/mnt/$drive" ]] && return 0
+	sudo umount "/mnt/$drive"
+	sudo rmdir "/mnt/$drive"
+}
+
+MountAllDrives()
+{
+	printf "mounting..."
+
+	for drive in $(GetDrives); do
+		MountDrive "$drive" > /dev/null && printf "$drive."
+	done
+
+	echo "done"	
+}
+
+UnMountAllDrives()
+{
+	printf "unmounting..."
+	
+	if ! IsDirEmpty "/mnt" ; then
+		for drive in /mnt/*; do
+			[[ "$drive" == "/mnt/c" ]] && continue
+			drive="$(GetFileName "$drive")"
+			printf "$drive."
+			UnMountDrive "$drive" >& /dev/null
+		done
+	fi
+	
+	echo "done"
+}
+
+# Path Conversion
+
+utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
+ptw() { echo "${1////\\}"; } # PathToWin
 
 wtu() # WinToUnix
 {
@@ -404,84 +553,6 @@ utw() # UnixToWin
 
 	[[ $clean ]] && { rm "$@" || return; }
 	return 0
-} 
-
-utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
-ptw() { echo "${1////\\}"; } # PathToWin
-DirCount() { RemoveSpace "$(command ls "$1" | wc -l)"; return "${PIPESTATUS[0]}"; }
-
-explore() # explorer DIR - explorer DIR in GUI program
-{
-	local dir="$1"; [[ ! $dir ]] && dir="."
-	
-	IsPlatform mac && { open "$dir"; return; }
-	IsPlatform wsl1 && { explorer.exe "$(utw "$dir")"; return; }
-	IsPlatform wsl2 && { local dir="$PWD"; ( cd /tmp; explorer.exe "$(utw "$dir")" ); return; } # invalid argument when starting from mounted network share
-	IsPlatform debian && InPath nautilus && { start nautilus "$dir"; return; }
-	
-	EchoErr "The $PLATFORM_ID platform does not have a file explorer"; return 1
-}
-
-GetDisks() # GetDisks ARRAY
-{
-	local getDisks disk;
-
-	case "$PLATFORM" in
-		linux) 
-			for disk in /mnt/hgfs/*; do getDisks+=( "$disk" ); done # VMware host
-			for disk in /media/psf/*; do getDisks+=( "$disk" ); done # Parallels hosts
-			;;
-		mac) IFS=$'\n' getDisks=( $(df | grep "^/dev/" | awk '{print $9}' | grep -v '^/$|^/$') );;
-		win) [[ -d /mnt ]] && for disk in /mnt/*; do getDisks+=( "$disk" ); done;;
-	esac
-
-	CopyArray getDisks "$1"
-}
-
-# FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
-FileCommand() 
-{ 
-	local args command="$1" dir="${@: -1}" file files=0 n=$(($#-2))
-
-	for arg in "${@:2:$n}"; do
-		IsOption "$arg" && args+=( "$arg" )
-		[[ -e "$arg" ]] && { args+=( "$arg" ); (( ++files )); }
-	done
-	(( files == 0 )) && return 0
-
-	case "$command" in
-		ren) 'mv' "${args[@]}" "$dir";;
-		cp|mv)
-			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing \`$dir\`: No such directory"; return 1; }
-			"$command" -t "$dir" "${args[@]}";;
-		*) EchoErr "FileCommand: unknown command $command"; return 1;;
-	esac
-}
-
-# MoveAll SRC DEST - move contents of SRC to DEST including hidden files and folders
-MoveAll() { [[ ! $1 || ! $2 ]] && { EchoErr "usage: MoveAll SRC DEST"; return 1; }; shopt -s dotglob nullglob; mv "$1/"* "$2" && rmdir "$1"; }
-
-CpProgress()
-{
-	local src dest size=100 fileName
-	[[ $# == 0 || $1 == @(--help) ]]	&& { EchoErr "usage: CpProgress FILE DIR
-  -s, --size SIZE		show progress for files larger than SIZE MB"; return 1; }
-
-	while (( $# != 0 )); do
-		[[ "$1" == @(-s|--size) ]] && { size="$2"; shift; shift; continue; }
-		! IsOption "$1" && [[ ! $src ]] && { src="$1"; shift; continue; }
-		! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
-		EchoErr "CopyFile: unrecognized option `$1`"; return 1;
-	done
-
-	[[ ! -f "$src" ]] && { EchoErr "CopyFile: cannot access \`$src\`: No such file"; return 1; }
-	[[ ! -d "$dest" ]] && { EchoErr "CopyFile: cannot access \`$dest\`: No such directory"; return 1; }		
-	GetFileName "$src" fileName || return
-	GetFilePath "$(GetFullPath "$src")" src || return
-
-	local fileSize="$(GetFileSize "$src/$fileName" MB)" || return
-	(( fileSize < size )) && { cp "$src/$fileName" "$dest" || return; }
-	CopyDir "$src/$fileName" "$dest"
 } 
 
 # File Attributes

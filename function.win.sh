@@ -26,30 +26,15 @@ MakeShortcut()
 	start NirCmd shortcut "$f" "$linkDir" "$linkName" "${@:3}";
 }
 
-GetWinDrives() 
-{
-	local drives=( $(fsutil.exe fsinfo drives | sed 's/:\\//g' | tr '[:upper:]' '[:lower:]' | RemoveCarriageReturn ) ) result=()
-	echo "${drives[@]:1}"
-}
-
 GetWinRemovableDrives() 
 {
 	local drives
 
-	for drive in "$(GetWinDrives)"; do
+	for drive in "$(GetDrives)"; do
 		fsutil.exe fsinfo driveType "${drive}:\\" |& grep "Removable Drive" >& /dev/null && drives+=( "$drive" )
 	done
 
 	echo "${drives[@]}"
-}
-
-MountWinDrive()
-{
-	local drive="$1"
-	[[ "$drive" == "c" ]] && return 1
-	[[ ! -d "/mnt/$drive" ]] && { sudo mkdir "/mnt/$drive" || return 1; }
-	mount |& grep "$drive: on /mnt/$drive type drvfs" >& /dev/null && return 0
-	sudo mount -t drvfs "$drive:" "/mnt/$drive" >& /dev/null
 }
 
 #
