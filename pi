@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+. function.sh
+
+run() {	init && args "$@" && ${command}Command "${args[@]}"; }
+
+init() { :; }
+
+usage()
+{
+	echot "\
+usage: pi image|EnableSsh
+	Raspberry Pi helper commands"
+	exit $1
+}
+
+args()
+{
+	unset file
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--help|-h) usage 0;;
+			EnableSsh) command="enableSsh";;
+			*)
+				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
+				[[ "$command" == @(image) ]] && break
+				UnknownOption "$1"
+		esac
+		shift
+	done
+
+	[[ ! $command ]] && { MissingOperand "command"; }
+	args=("$@")
+}
+
+imageCommand()
+{
+	! IsElevated && { elevate RunScript --pause-error pi image "$@"; return; }
+
+	local image="$(i dir)/platform/Raspberry Pi/Raspberry Pi OS" || return
+
+	# select the firmware file
+	local file="$1"; shift
+	[[ ! $file ]] && { file="$(dialog --title "Select image" --stdout --fselect "$image/" $(($LINES-12)) 100)"; clear; }
+	[[ ! $file ]] && { MissingOperand "file"; return 1; }
+	[[ ! -f "$file" ]] && { EchoErr "pi: image \"$file\" does not exist"; return 1; }
+
+	"$P/balena-cli/balena.exe" local flash "$(utw "$file")" --yes
+
+	# does not mount properly just after flash so try several times
+	for (( i=1; i<=10; ++i )); do
+		enableSshCommand && return
+		sleep 1
+	done
+
+	return 0
+}
+
+enableSshCommand()
+{
+	local found
+
+	MountAllDrives || return
+
+	printf "enabling..."
+	GetDisks disks || return
+	for drive in "${disks[@]}"; do
+		[[ ! -f "$drive/start.elf" ]] && continue
+		touch "$drive/ssh" || return
+		printf "$(GetFileName "$drive")..."
+		found="true"
+	done
+	echo "done" 
+
+	UnMountAllDrives || return
+
+	[[ ! $found ]] && { echo "PiEnableSsh: no Raspberry Pi images found"; return 1; }
+	return 0
+}
+
+run "$@"

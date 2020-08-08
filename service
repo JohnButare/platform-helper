@@ -7,7 +7,7 @@ usage()
 	echot "\
 usage: service [COMMAND](start) SERVICE [HOST]
 	Control Windows services
-	detail|exist|list|ListFile|StartType|show|state|status|running
+	detail|exists|list|ListFile|StartType|show|state|status|running
 	continue|pause|restart|start|stop				control service
 	auto|delete|demand|disable|manual		 		configure service
 	-h, --host 								host to check
@@ -61,7 +61,7 @@ init()
 
 	if [[ "$command" != @(list|ListFile|show) ]]; then
 		[[ $service ]] || MissingOperand "service"
-		[[ "$command" != "exist" ]] && { check || return; }
+		[[ "$command" != "exists" ]] && { check || return; }
 	fi
 
 	return 0
@@ -74,26 +74,29 @@ run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
 #
 
 isLinuxService() { [[ -f "/etc/init.d/$1" ]]; }
-checkLinuxService() { isLinuxService "$1" && return 0; EchoErr "service: $1 is not a valid service"; return 1; }
-runningCommand() { [[ "$(stateCommand)" == "RUNNING" ]]; }
-showCommand() { IsPlatform win && start services.msc; }
+checkLinuxService() { isLinuxService "$1" && return 0; EchoErr "service: $1 does not exist as an installed service"; return 1; }
 lsc() { IsPlatform wsl && { sudoc "/usr/sbin/service" "$2" "$1"; return; }; sudoc systemctl "$1" "$2"; } # Linux Service Command COMMAND HOST
 
 check()
 {
 	[[ $noServiceCheck ]] && return 0
 
-	local result="$(sc $hostUnc query "$service" |& grep FAILED)"
-	resultCode="${result#*FAILED }"; resultCode="${resultCode%:}"
+	isLinuxService "$service" && return;
+	! IsPlatform win && { invalidService; return; }
+
+	local result="$(sc.exe $hostUnc query "$service" | RemoveCarriageReturn |& grep FAILED)"
+	resultCode="${result#*FAILED }"; resultCode="${resultCode%%:}"
 
 	case $resultCode in
-		1060) echo "service: $service does not exist as an installed service$hostDescription";;
+		1060) invalidService;;
   	5) echo "service: access to the service control manager denied$hostDescription";;
 		*) return 0
 	esac
 
 	return 1
 }
+
+invalidService() { EchoErr "service: $service does not exist as an installed service$hostDescription"; return 1; }
 
 checkElevated()
 {
@@ -130,6 +133,10 @@ waitForState()
 #
 # Commands
 #
+
+existsCommand() { check; }
+runningCommand() { [[ "$(stateCommand)" == "RUNNING" ]]; }
+showCommand() { IsPlatform win && start services.msc; }
 
 # information
 
@@ -262,7 +269,9 @@ startCommand()
 		lsc start "$service" || return
 	fi
 
-	[[ $wait ]] && waitForState RUNNING start started
+	[[ $wait ]] && { waitForState RUNNING start started || return; }
+	
+	return 0
 }
 
 stopCommand()

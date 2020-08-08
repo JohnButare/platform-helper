@@ -62,6 +62,8 @@ createUserHome()
 runAsUser()
 {
 	[[ $user && "$USER" == "$user" ]] && return
+
+	[[ $restart ]] && { echo "Restarting to run as the $USER..."; return 1; }
 	
 	local script="${BASH_SOURCE[0]}"
 
@@ -108,7 +110,7 @@ configure-mac()
 
 configure-win()
 {
-	inPath apt && { $sudo apt update || return; } # fix "Could not find command-not-found database" in WSL
+	InPath apt && { $sudo apt update || return; } # fix "Could not find command-not-found database" in WSL
 	return
 }
 
@@ -118,6 +120,8 @@ configure-win()
 
 init()
 {
+	[[ "$1" == "--restart" ]] && { restart="true"; shift; }
+
 	initPlatform || return
 
 	. "${BASH_SOURCE[0]%/*}/bootstrap-config.sh" || return
@@ -126,7 +130,7 @@ init()
 	mount="$HOME/Volumes/public"; isMountedDrive && mount="$host/public"
 	bin="$mount/documents/data/bin"
 	install="$mount/Documents/data/install"
-	sudo="sudo"; ! inPath sudo && sudo=""
+	sudo="sudo"; ! InPath sudo && sudo=""
 
 	# debian only includes sbin directories in the root users path
 	PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" 
@@ -226,12 +230,15 @@ installPackages-post()
 
 package()
 {
+	packageInstalled "$@" && return
 	case $platform in
 		debian|win) sudo apt install -y --allow-unauthenticated "$@";;
 		mac) brew install "$@";;
 		qnap|snyology) opkg install "$@";;
 	esac
 }
+
+packageInstalled() { ! InPath dpkg && return 1; ! dpkg --get-selections "$@" |& grep "no packages found" > /dev/null && return; }
 
 setupPackageManager() { setupPackageManager-$platform; }
 setupPackageManager-entware() { wget -O - "http://bin.entware.net/x64-k3.2/installer/generic.sh" | /bin/sh; }
@@ -245,21 +252,31 @@ setupPackageManager-mac()
 
 setupPackageManager-debian()
 {
-	local motd="/etc/update-motd.d/60-unminimize"
-
-	[[ ! -f "$motd" ]] && return
-
-	unminimizeDebianDoc || return
-
-	if  [ "$(dpkg-divert --truename /usr/bin/man)" = "/usr/bin/man.REAL" ]; then
-		rm -f "/usr/bin/man" || return
-		dpkg-divert --quiet --remove --rename "/usr/bin/man" || return
-	fi
-
-	apt update && apt dist-upgrade -y && apt install sudo && rm -f "$motd"
+	debianUnminimizeDoc || return
+	debianFixMan || return
+	debianPackageUpdate || return
+	debianPackageCore || return
+	return 0
 }
 
-unminimizeDebianDoc() # from /usr/local/sbin/unminimize
+debianPackageCore()
+{
+	InPath "sudo" && return
+	apt install sudo -y || return
+}
+
+debianPackageUpdate()
+{ 
+	$sudo apt update -y || return
+	$sudo apt dist-upgrade -y || return
+	$sudo apt autoremove -y || return
+
+	[[ -f /var/run/reboot-required ]] && { echo "Rebooting...."; $sudo reboot now; exit 1; }
+
+	return 0
+}
+
+debianUnminimizeDoc() # from /usr/local/sbin/unminimize
 {
 	local config="/etc/dpkg/dpkg.cfg.d/excludes" configTmp="/etc/dpkg/dpkg.cfg.d/excludes.dpkg-tmp" motd="/etc/update-motd.d/60-unminimize"
 
@@ -279,6 +296,14 @@ unminimizeDebianDoc() # from /usr/local/sbin/unminimize
   return 0
 }
 
+debianFixMan()
+{
+	[[ "$(dpkg-divert --truename /usr/bin/man)" != "/usr/bin/man.REAL" ]] && return
+
+	$sudo rm -f "/usr/bin/man" || return
+	$sudo dpkg-divert --quiet --remove --rename "/usr/bin/man" || return
+}
+
 #
 # helper
 #
@@ -293,7 +318,7 @@ isWsl2() { [[ "$(uname -r)" =~ .*-microsoft-standard$ ]]; }
 isQnap() { [[ "$platform_like" == "qnap" ]]; }
 
 isMountedDrive() { [[ -d "$host/public" ]] || [[ "$host" =~ ^/mnt ]]; }
-inPath () { which "$1" &> /dev/null; }
+InPath () { which "$1" &> /dev/null; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 
 run "$@"

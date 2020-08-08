@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 . function.sh
+
 # bootstrap-remote [REMOTE|DIR](pi@pi1) - bootstrap a remote system
 
 init()
@@ -22,17 +23,37 @@ copyFiles() { scp "$BIN/bootstrap-init" "$BIN/bootstrap-config.sh" "$1"; }
 
 bootstrapSsh()
 {
-	IsLocalAddress "$remote" && { remote=$(MdnsResolve "$remote") || return; }
-	configureSsh || return
-	copyFiles "$remote:/tmp" || return
-	ssh -t $remote bash -l "/tmp/bootstrap-init" || return
+	local host="$(GetSshHost "$remote")"
+	
+	power on "$host" || return
+	sshWait || return
+	sshConfigure || return
+
+	while true; do 
+		copyFiles "$remote:/tmp" || return # /tmp cleared on reboot
+		sshUser || return
+		ssh -Y -t $remote bash -l "/tmp/bootstrap-init --restart" && return # connect using X forwarding to allow use of the credential store			
+		sshWait || return 
+	done
 }
 
-configureSsh()
+sshConfigure()
 {
 	ssh $remote ls '~/.ssh >& /dev/null' && return
 	ssh $remote '[[ -d ~/.ssh ]] || mkdir ~/.ssh' || return
 	scp ~/.ssh/* ''$remote':~/.ssh' || return
+}
+
+# sshUser - if the user in the configuration exists use it
+sshUser() { ssh $remote getent passwd $user >& /dev/null && remote="$user@$host"; return 0; } 
+
+# sshWait - wait for the host to become available (after initial boot or reboot)
+sshWait() 
+{
+	IsLocalAddress "$host" && { host=$(MdnsResolve "$host") || return; remote="$(SshUser "$remote")$host"; }
+	IsAvailablePort "$host" 22 && return
+	WaitForPort "$host" 22 || return
+	return 0
 }
 
 bootstrapChroot()

@@ -65,7 +65,13 @@ IsWindowsProgram()
 # Windows process elevation (use Administrator token) 
 elevate()
 {
+	# Launch Windows Terminal elevated in the current directory
+	[[ "$#" == "0" ]] && InPath wt.exe && { start --elevate wt.exe -d "$(utw "$PWD")"; return; }
+
+	# Launch a regular terminal elevated in the current directory
 	[[ "$#" == "0" ]] && { start --elevate RunScript RunInDir "$PWD"; return; }
+
+	# Launch the specified program elevated
 	start --elevate "$@"
 }
 

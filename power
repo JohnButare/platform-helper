@@ -42,7 +42,7 @@ usage: power on|off|reboot|sleep|firmware|hibernate [host]:[port|all]
 
 args()
 {
-	unset force host op port ssh switch waitSeconds waitSsh
+	unset force host op port ssh switch user waitSeconds waitSsh
 	timeoutMilliseconds=500 waitDefault=120 poeSwitchDefault="StudyDeskSwitch"
 
 	while [ "$1" != "" ]; do
@@ -65,6 +65,8 @@ args()
 
 	port="$(GetWord "$host" 2 :)"
 	host="$(GetWord "$host" 1 :)"
+	sshHost="$host"
+	host="$(GetSshHost "$host")"
 
 	[[ ! $command ]] && MissingOperand "command"
 
@@ -212,7 +214,11 @@ powerCommand()
 		sleep) desc="Sleeping";;
 	esac
 
-	[[ ! $force && "$initialState" == "$expectedState" ]] && { echo "$host is already $expectedState"; return 0; }
+	if [[ ! $force && "$initialState" == "$expectedState" ]]; then
+		[[ "$op" == "on" && $waitSsh ]] && ! checkSsh && { doWaitSsh; return; }
+		echo "$host is already $expectedState"
+		return 0
+	fi
 
 	[[ ! $sshCommand && ! ( "$op" == "off" && $port ) ]] && { EchoErr "\n$host does not support the $op power operation"; return 1; }
 
@@ -220,7 +226,7 @@ powerCommand()
 
 	# perform operation
 	if [[ "$op" == @(firmware|sleep) ]]; then
-		SshHelper $host "$sshCommand" || return
+		SshHelper $sshHost "$sshCommand" || return
 		waitOff "$waitSeconds" || return
 	else
 		do$opf || return
@@ -228,9 +234,11 @@ powerCommand()
 	
 	echo "done"
 
-	[[ $ssh ]] && { SshHelper -x "$host" || return; }
+	[[ $ssh ]] && { SshHelper -x "$sshHost" || return; }
 	return 0
 }
+
+doWaitSsh() { printf "$hostName..."; waitOn "${waitSeconds}" || return; echo "done"; }
 
 doOn() 
 { 
@@ -260,7 +268,7 @@ doHibernate() { doOff; }
 doOff()
 {
 	if [[ $sshCommand && "$initialState" == "on" ]]; then
-		SshHelper $host "$sshCommand" > /dev/null || { offCleanup; return 1; }
+		SshHelper $sshHost "$sshCommand" > /dev/null || { offCleanup; return 1; }
 		waitOff "$waitSeconds" || return
 	fi
 
@@ -281,7 +289,7 @@ doReboot()
 		doOn; return
 	fi
 	
-	SshHelper $host "$sshCommand" >& /dev/null || return
+	SshHelper $sshHost "$sshCommand" >& /dev/null || return
 	waitOff "${waitSeconds:-$waitDefault}" || return
 	waitOn "${waitSeconds}" || return
 }
@@ -354,7 +362,7 @@ waitOn()
  		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
 
 		if [[ $found ]]; then
-			SshHelper "$host" "ls /" >& /dev/null && { printf "ssh..."; return 0; }
+			checkSsh && { printf "ssh..."; return 0; }
 
 		elif IsAvailable "$host" "$timeoutMilliseconds"; then
 			found="true"; printf "found..."
@@ -367,6 +375,8 @@ waitOn()
 	printf "not found"
 	return 1
 }
+
+checkSsh() { SshHelper "$sshHost" "ls /" >& /dev/null; }
 
 # waitOff SECONDS - wait for host to disconnect from the network
 waitOff()

@@ -17,10 +17,22 @@ IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
 IsInteractive() { [[ "$-" == *i* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
 
-clipw() 
+clipok()
 { 
 	case "$PLATFORM" in 
-		linux) { [[ "$DISPLAY" ]] && InPath xclip; } && { printf "%s" "$@" | xclip -sel clip; };;
+		linux) [[ "$DISPLAY" ]] && InPath xclip;;
+		mac) InPath pbcopy;; 
+		win) InPath clip.exe paste.exe;;
+	esac
+	
+}
+
+clipw() 
+{ 
+	! clipok && return 1;
+
+	case "$PLATFORM" in 
+		linux) printf "%s" "$@" | xclip -sel clip;;
 		mac) printf "%s" "$@" | pbcopy;; 
 		win) ( cd /; printf "%s" "$@" | clip.exe );; # cd / to fix WSL 2 error running from network share
 	esac
@@ -28,10 +40,12 @@ clipw()
 
 clipr() 
 { 
+	! clipok && return 1;
+	
 	case "$PLATFORM" in
-		linux) InPath xclip && xclip -o -sel clip;;
+		linux) xclip -o -sel clip;;
 		mac) pbpaste;;
-		win) IsPlatform cygwin && cat /dev/clipboard;;
+		win) paste.exe | tail -n +2;;
 	esac
 }
 
@@ -541,6 +555,13 @@ utw() # UnixToWin
 
 	file="$(realpath -m "$@")"
 
+	# drvfs network shares (type 9p) do not map properly in WSL 2
+	# sudo mount -t drvfs //nas3/home /tmp/t; wslpath -a -w /tmp/t # \\nas3\home (WSL1) \\wsl$\test1\tmp\t (WSL 2)
+	if IsPlatform wsl2; then 
+		read wsl win <<<$(findmnt --types=cifs --noheadings --output=TARGET,SOURCE --target "$file")
+		[[ $wsl && $win ]] && { echo "$(ptw "${file/$wsl/$win}")"; return; }
+	fi
+
 	# utw requires the file exist in newer versions of wsl
 	if [[ ! -e "$@" ]]; then
 		local filePath="$(GetFilePath "$@")"
@@ -632,7 +653,7 @@ GetIpAddress() # [HOST]
 
 	# Resolve mDNS (.local) addresses exclicitly as the name resolution commands below can fail on some hosts
 	# In Windows WSL the methods below never resolve mDNS addresses
-	IsLocalAddress "$host" && { MdnsResolve "$host" 2> /dev/null || return; }
+	IsLocalAddress "$host" && { MdnsResolve "$host" 2> /dev/null; return; }
 
 	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
@@ -667,7 +688,7 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 	# - mDNS name resolution is intermitant
 	# - Windows ping.exe name resolution is slow for non-existent hosts
 	host="$(GetIpAddress "$host")" || return 
-		
+	
 	if IsPlatform wsl1; then # WSL 1 ping and fping do not timeout quickly for unresponsive hosts so use ping.exe
 		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null 
 	elif InPath fping; then
@@ -689,6 +710,20 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 	else
 		return 0 # assume the host is available if we cannot check
 	fi
+}
+
+WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS](200) [SECONDS](120)
+{
+	local host="$1" port="$2" timeout="${3-200}" seconds="${4-200}"
+
+	printf "Waiting for $host:$port..."
+	for (( i=1; i<=$seconds; ++i )); do
+ 		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
+		printf "."
+		IsAvailablePort "$host" "$port" "$timeout" && { echo "found"; return; }
+	done
+
+	echo "not found"; return 1
 }
 
 PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
@@ -850,17 +885,19 @@ SshHelper()
 	[[ ! $mosh ]] && args+=(-y) # send diagnostic messages to syslog to supresses "Warning: No xauth data; using fake authentication data for X11 forwarding." in Windows
 	set -- "${args[@]}" "$@"
 
+	local log="" # -y send output to syslog
+
 	# connect using ssh
 	if [[ $mosh ]]; then
 		mosh "$@"
 	elif [[ ! $x ]]; then
 		ssh "$@"
 	elif IsPlatform wsl1; then # WSL 1 does not support X sockets over ssh and requires localhost
-		DISPLAY=localhost:0 ssh -Xy "$@"
-	elif IsPlatform mac,wsl2; then # macOS XQuartz requires trusted X11 forwarding
-		ssh -Yy "$@"
+		DISPLAY=localhost:0 ssh -X $log "$@"
+	elif IsPlatform mac,wsl2; then # macOS XQuartz requires trusted X11 forwarding, where X programs are trusted to use all X features on the host
+		ssh -Y $log "$@"
 	else # for everything else, use untrusted X Forwarding, where X programs are not trusted to use all X features on the host
-		ssh -Xy "$@"
+		ssh -X $log "$@"
 	fi
 } 
 
@@ -869,13 +906,14 @@ SshHelper()
 #
 
 HasPackageManger() { IsPlatform debian,mac,dsm,qnap,cygwin; }
-PackageListInstalled() { InPath dpkg && dpkg --get-selections; }
+PackageListInstalled() { InPath dpkg && dpkg --get-selections "$@"; }
 PackagePurge() { InPath wajig && wajig purgeremoved; }
 PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
 
 package() 
-{ 
-	IsPlatform cygwin && { apt-cyg install -y "$@"; return; }
+{
+	local force; [[ "$1" =~ (^--force$|^-f$) ]] && { force="true"; shift; }
+	[[ ! $force ]] && { PackageInstalled "$@" && return; }
 	IsPlatform debian && { sudoc apt install -y "$@"; return; }
 	IsPlatform dsm,qnap && { sudoc opkg install "$@"; return; }
 	IsPlatform mac && { brew install "$@"; return; }
@@ -899,43 +937,13 @@ packagel() # package list
 	return 0
 }
 
-packagei() # package info, shows files installed by a package, 
-{
-	IsPlatform debian && { apt show "$1"; dpkg -L "$1"; echo; dpkg -L "$1" | grep 'bin/'; }
-}
-
-PackageExist() 
-{ 
-	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
-	IsPlatform mac && { brew search "/^$@$/" | grep -v "No formula or cask found for" >& /dev/null; return; }	
-	IsPlatform dsm,qnap && { [[ "$(packagel "$1")" ]]; return; }
-	return 0
-}
-
-PackageUpdate()
-{
-	IsPlatform debian && { sudo apt update || return; sudo apt dist-upgrade -y; return; }
-	IsPlatform mac && { brew update || return; brew upgrade; return; }
-	IsPlatform qnap && { sudo opkg update || return; sudo opkg upgade; return; }
-	return 0
-}
-
-PackageNoPrompt()
-{
-	if IsPlatform debian; then
-		sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
-	else
-		package "$@"
-	fi
-}
-
-packages() # install list of packages, assume each package name is in the path
+packages() # install list of packages, assume each package name is in the path.  If all packages are installed packages silently returns.
 {
 	InPath "$@" && return 0
 	package "$@"
 }
 
-PackagesExclude()
+PackagesExclude() # install a list of packages respecting excluding packages not approrpriate for the current platform
 {
 	local packages=() mac=( atop hdparm inotify-tools squidclient virt-what )	
 
@@ -946,7 +954,50 @@ PackagesExclude()
 	done
 
 	[[ "${packages[@]}" == "" ]] && return 0
-	packages "${packages[@]}"
+	package "${packages[@]}"
+}
+
+PackageExist() 
+{ 
+	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
+	IsPlatform mac && { brew search "/^$@$/" | grep -v "No formula or cask found for" >& /dev/null; return; }	
+	IsPlatform dsm,qnap && { [[ "$(packagel "$1")" ]]; return; }
+	return 0
+}
+
+PackageInfo() # shows files installed by a package,
+{
+	IsPlatform debian && { apt show "$1"; dpkg -L "$1"; echo; dpkg -L "$1" | grep 'bin/'; }
+}
+
+PackageInstalled()
+{ 
+	! InPath dpkg && return 1
+
+	# ensure the package counts match, i.e. dpkg --get-selectations samba will not return anything if samba-common is installed
+	[[ "$(dpkg --get-selections "$@" |& grep -v "no packages found" | wc -l)" == "$#" ]]
+}
+
+PackageNoPrompt() # install packages without prompting for input
+{
+	if IsPlatform debian; then
+		sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+	else
+		package "$@"
+	fi
+}
+
+PackageUpdate() # update packages
+{
+	IsPlatform debian && { sudo apt update || return; sudo apt dist-upgrade -y; return; }
+	IsPlatform mac && { brew update || return; brew upgrade; return; }
+	IsPlatform qnap && { sudo opkg update || return; sudo opkg upgade; return; }
+	return 0
+}
+
+PackageWhich() # which package is an executable in
+{
+	IsPlatform debian && { dpkg -S "$(which "$1")"; return; }
 }
 
 #
@@ -1050,11 +1101,16 @@ IsServer() { ! IsDesktop; }
 #
 
 console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternatively run in a regular Windows console (Start, Run, bash --login)
+CoprocCat() { cat 0<&${COPROC[0]}; } # read output from a process started with coproc
 IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $SUDO_USER ]]; }
 
 IsExecutable()
 {
 	local p="$@"; [[ ! $p ]] && { EchoErr "usage: IsExecutable PROGRAM"; return 1; }
+	local ext="$(GetFileExtension "$p")"
+
+	# file $LOCALAPPDATA/Microsoft/WindowsApps/*.exe returns empty, so assume files that end in exe are executable
+	[[ -f "$p" && "$ext" =~ (^exe$|^com$) ]] && return 0
 
 	# executable file - realpath resolves symbolic links, use -m so directory existence is not checked (which can error out for mounted network volumes)
 	[[ -f "$p" ]] && { file "$(realpath -m "$p")" | grep -E "executable|ELF" > /dev/null; return; }
@@ -1207,8 +1263,9 @@ start()
 			IsZsh && for (( i=1 ; i <= ${#args[@]} ; ++i )); do args[$i]="${args[$i]// /\\ }"; done	
 		fi
 
-		if IsShellScript "$fullFile"; then			
-			RunProcess.exe $wait $elevate "${windowStyle[@]}" wsl.exe --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
+		if IsShellScript "$fullFile"; then
+			local p="wsl.exe"; InPath wt.exe && p="wt.exe wsl.exe" # launch using Windows Terminal if installed
+			RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
 		else
 			RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
 		fi

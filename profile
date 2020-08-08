@@ -129,7 +129,7 @@ restoreCommand()
 
 	if [[ "$method" == "file" ]]; then
 		AppCloseSave "$app" || return
-		unzip "$profile" -d "$profileDir" || return
+		unzip -o "$profile" -d "$profileDir" || return
 		AppStartRestore "$app" || return
 		
 	elif [[ "$method" == "program" ]]; then
