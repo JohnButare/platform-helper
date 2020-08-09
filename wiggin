@@ -22,6 +22,8 @@ usage: wiggin off
 
 args()
 {
+	unset -v command
+
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--help) usage 0;;
@@ -34,6 +36,7 @@ args()
 	done
 
 	[[ ! $command ]] && { MissingOperand "command"; }
+	[[ "$comamnd" == @(edit ) && ! $host ]] && MissingOperand "host"
 
 	args=("$@")
 }
@@ -55,7 +58,7 @@ configCommand()
 	Config${command}Command "$@"
 }
 
-ConfigEditCommand() { TextEdit "$DATA/setup/ports" "$ncd/DNS Reverse.txt" "$ncd/DNS Forward.txt" "$ncd/DHCP Options.txt" "$ncd/DHCP Reservations.txt"; }
+ConfigEditCommand() { TextEdit "$DATA/setup/ports" "$ncd/named.conf.local" "$ncd/DNS Reverse.txt" "$ncd/DNS Forward.txt" "$ncd/DHCP Options.txt" "$ncd/DHCP Reservations.txt"; }
 
 ConfigBackupCommand() 
 { 
@@ -82,44 +85,66 @@ ConfigBackupCommand()
 
 ConfigUpdateCommand()
 {
-	local h="$host" f="/tmp/reservations.txt"
+	IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
+	# updateDhcp || return
+	updateDns || return
+	return 0
+}
 
-	[[ $h ]] || { EchoErr "USAGE: NetworkConfigurationUpdate HOST"; return 1; }
+updateDns()
+{
+	local dir="$TMP/dns.$RANDOM"; rm -fr "$dir"; mkdir "$dir" || return
+
+	echo "Creating DNS configuration files..."
+	cp "$ncd/named.conf.local" "$dir" || return
+	cp "$ncd/DNS Forward.txt" "$dir/hagerman.butare.net"
+	for zone in 100 101 102; do
+		{ cat "$ncd/template/$zone.txt"; grep "$zone.168.192" "$ncd/DNS Reverse.txt"; } > "$dir/$zone.168.192.in-addr.arpa"
+	done
+
+	echo "Updating DNS configuration files on $host..."
+	local target="$host:/etc/bind"; [[ "$host" =~ (^nas?&) ]] && target="root@$host:/var/packages/DNSServer/target/named/etc/zone/master"
+	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" "$dir/"* "$target" || return
+
+	# cleanup
+	rm -fr "$dir" || return
+
+	# restart the service
+	SshHelper $host service restart bind9 || return
+}
+
+updateDhcp()
+{
+	local dir="$TMP/dhcp.$RANDOM"; rm -fr "$dir"; mkdir "$dir" || return
+	local reservations="$dir/reservations.txt"
 
  	# cleanup reservations by removing comments, empty lines, and lines with only spaces (fix etherwake warning)
-	cat "$ncd/DHCP Reservations.txt" | sed '/^#/d' | sed '/^$/ d' | sed 's/^ *$//g' > "$f"
+	cat "$ncd/DHCP Reservations.txt" | sed '/^#/d' | sed '/^$/ d' | sed 's/^ *$//g' > "$reservations"
 
 	# update ethers - downcase to make etherwake case agnostic
 	echo "Updating the ethers configuration..."
-	awk '{ FS=","; gsub(/dhcp-host=/,""); print $1 " " $2 }' "$f" | tr A-Z a-z > "$DATA/setup/ethers" || return
+	awk '{ FS=","; gsub(/dhcp-host=/,""); print $1 " " $2 }' "$reservations" | tr A-Z a-z > "$DATA/setup/ethers" || return
 
+	# update hosts
 	echo "Updating the host configuration data..."
-	awk '{ FS=","; gsub(/dhcp-host=/,""); print $2 }' "$f" | sort > "$DATA/setup/hosts" || return
+	awk '{ FS=","; gsub(/dhcp-host=/,""); print $2 }' "$reservations" | sort > "$DATA/setup/hosts" || return
 
-	echo "Updating DHCP configuration on $h..."
-	local target="root@$h:/etc/dhcpd"
+	echo "Updating DHCP configuration on $host..."
+	local target="root@$host:/etc/dhcpd"
 	scp "$ncd/DHCP Options.txt" "$target/dhcpd-dns-dns.conf"
 
-	target="root@$h:/etc/dhcpd"
-	case "$h" in
-		router) scp "$f" "$target/dhcpdStatic.ori"; scp "$f" "$target/dhcpd-static-static.conf";;
-		nas?) scp "$f" "$target/dhcpd-eth0-static.conf";
+	target="root@$host:/etc/dhcpd"
+	case "$host" in		
+		router) 
+			scp "$reservations" "$target/dhcpdStatic.ori"
+			scp "$reservations" "$target/dhcpd-static-static.conf"
+			;;
+		nas?) scp "$reservations" "$target/dhcpd-eth0-static.conf";;
+		pi?) : ;
 	esac
 
-	echo "Updating DNS configuration on $h..."
-	local target="root@$h:/var/packages/DNSServer/target/named/etc/zone/master"
-	scp "$ncd/DNS Forward.txt" "$target/hagerman.butare.net"
-
-	local reverse="$ncd/DNS Reverse.txt" t="$ncd/template"
-	{ cat "$t/100.txt"; grep 100.168.192 "$reverse"; } > "/tmp/100.txt"
-	{ cat "$t/101.txt"; grep 101.168.192 "$reverse"; } > "/tmp/101.txt"
-	{ cat "$t/102.txt"; grep 102.168.192 "$reverse"; } > "/tmp/102.txt"
-
-	scp "/tmp/100.txt" "$target/100.168.192.in-addr.arpa"
-	scp "/tmp/101.txt" "$target/101.168.192.in-addr.arpa"
-	scp "/tmp/102.txt" "$target/102.168.192.in-addr.arpa"
-
-	return 0
+	# cleanup
+	rm -fr "$dir" || return
 }
 
 #

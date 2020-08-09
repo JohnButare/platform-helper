@@ -86,10 +86,8 @@ RunScriptElevated() # run commands elevated that has quoted arguments
 {
 	IsElevated && { eval "$@"; return; }
 
-	local dir="$TMP/RunScriptElevated.$RANDOM"
+	local dir="$TMP/RunScriptElevated.$RANDOM"; rm -fr "$dir"; mkdir "$dir" || return
 	local script="$dir/script.sh" log="$dir/log.txt" scriptResult="$dir/result.txt"
-
-	rm -fr "$dir"; mkdir "$dir" || return
 
 	touch "$log" # ensure log file exists so inotifywait does not return when it is created
 

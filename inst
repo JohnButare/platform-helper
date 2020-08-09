@@ -364,6 +364,8 @@ isMacStoreId() { IsPlatform mac && IsInteger "$1"; }
 macAppConfigure() { askP "Configure $1" && { macAppOpen "$1" || return; }; return 0; }
 macAppOpen() { open -a "$1" || return; pause; }
 
+verifyStaticIpAddress() { [[ -f /etc/dhcpcd.conf ]] && grep "^static ip_address=" /etc/dhcpcd.conf >& /dev/null; }
+
 #
 # test
 #
@@ -433,19 +435,14 @@ bootstrapDebian()
 {
 	header "Bootstrap Debian"
 
-	# prevent prompting for keyboard during later installs
-	sudo DEBIAN_FRONTEND=noninteractive apt-get install -y keyboard-configuration || return
-
 	if ! IsPlatform win; then
 		IsHypervVm && { i HypervLinuxTools || return; }
 		IsVmwareVm && { i VmwareLinuxTools || return; }
 	fi
 
-	if ! InPath smbget ; then
-		package libdbus-glib-1-dev sharutils || return																# other
-		package avahi-daemon dnsutils net-tools wakeonlan || return										# network	
-		package --no-prompt smbclient || return
-	fi
+	package dialog libdbus-glib-1-dev sharutils || return													# other
+	package avahi-daemon dnsutils net-tools wakeonlan || return										# network	
+	package --no-prompt keyboard-configuration smbclient || return
 
 	i DebianSetup || return
 }
@@ -1345,22 +1342,31 @@ CredentialStoreInstall()
 	return 0
 }
 
-dnsServer()
+dnsServerInstall()
 {
 	header "ISC BIND9 DNS Server"	
 	! verifyStaticIpAddress && { EchoErr "DHCP Server requires a static IP address"; return 1; }
-	package bind9 bind9-utils bind9-doc bind9-dnsutils bind9-host || return
+	
+	if IsPlatform raspbian; then
+		package bind9 bind9utils bind9-doc dnsutils bind9-host || return
+	else
+		package bind9 bind9-utils bind9-doc bind9-dnsutils bind9-host || return
+	fi
+
+	# enable remote passwordless update
+	local line="$USER ALL=(ALL) NOPASSWD: ALL"
+	! sudo grep "^$line$" /etc/sudoers >& /dev/null && echo "$line" | sudo tee -a "/etc/sudoers" || return
+
+	sudo update-rc.d bind9 defaults || return # service defaults
 } 
 
-dhcpServer()
+dhcpServerInstall()
 {
 	header "ISC Kea DHCP Server"	
 	! verifyStaticIpAddress && { EchoErr "DHCP Server requires a static IP address"; return 1; }
 }
 
-verifyStaticIpAddress() { [[ -f /etc/dhcpd.conf ]] && grep "^static ip_address=" /etc/dhcpd.conf >& /dev/null; }
-
-fzf()
+fzfInstall()
 {
 	header "fzf (Fuzzy Search)"
 

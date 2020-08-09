@@ -600,6 +600,7 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 # Network
 #
 
+ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip r; }
 IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }
 GetInterface() { ifconfig | head -1 | cut -d: -f1; }
@@ -1286,7 +1287,6 @@ start()
 sudop() 
 {
 	local SUDO_ASKPASS; [[ "$1" == @(-cs|--credential-store) ]] && { shift; credential -q exists secure default && SUDO_ASKPASS="$BIN/SudoAskPass"; }
-
 }
 
 unalias sudoc >& /dev/null;
