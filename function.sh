@@ -910,13 +910,31 @@ PackageListInstalled() { InPath dpkg && dpkg --get-selections "$@"; }
 PackagePurge() { InPath wajig && wajig purgeremoved; }
 PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
 
-package() 
+package() # package install
 {
+	local packages=() mac=( atop hdparm inotify-tools squidclient virt-what )	
 	local force; [[ "$1" =~ (^--force$|^-f$) ]] && { force="true"; shift; }
+	local noPrompt; [[ "$1" =~ (^--no-prompt$|^-np$) ]] && { noPrompt="true"; shift; }
+
+	# add non-excluded packages
+	for package in "$@"; do
+		if IsPlatform mac; then ! IsInArray "$package" mac && packages+=( $package )
+		else packages+=( $package )
+		fi
+	done
+	[[ "$@" == "" ]] && return 0
+
+	# just return if all of the packages are installed
 	[[ ! $force ]] && { PackageInstalled "$@" && return; }
-	IsPlatform debian && { sudoc apt install -y "$@"; return; }
-	IsPlatform dsm,qnap && { sudoc opkg install "$@"; return; }
-	IsPlatform mac && { brew install "$@"; return; }
+
+	# disable prompting if possible
+	[[ $noPrompt ]] && IsPlatform debian && noPrompt="DEBIAN_FRONTEND=noninteractive"
+
+	# install the packages
+	IsPlatform debian && { sudoc $noPrompt apt install -y "${packages[@]}"; return; }
+	IsPlatform dsm,qnap && { sudoc opkg install "${packages[@]}"; return; }
+	IsPlatform mac && { brew install "${packages[@]}"; return; }
+
 	return 0
 }
 
@@ -929,34 +947,6 @@ packageu() # package uninstall
 	return 0
 }
 
-packagel() # package list
-{ 
-	IsPlatform debian && { apt-cache search  "$@"; return; }
-	IsPlatform dsm,qnap && { sudo opkg list "$@"; return; }
-	IsPlatform mac && { brew search "$@"; return; }	
-	return 0
-}
-
-packages() # install list of packages, assume each package name is in the path.  If all packages are installed packages silently returns.
-{
-	InPath "$@" && return 0
-	package "$@"
-}
-
-PackagesExclude() # install a list of packages respecting excluding packages not approrpriate for the current platform
-{
-	local packages=() mac=( atop hdparm inotify-tools squidclient virt-what )	
-
-	for package in "$@"; do
-		if IsPlatform mac; then ! IsInArray "$package" mac && packages+=( $package )
-		else packages+=( $package )
-		fi
-	done
-
-	[[ "${packages[@]}" == "" ]] && return 0
-	package "${packages[@]}"
-}
-
 PackageExist() 
 { 
 	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
@@ -967,24 +957,32 @@ PackageExist()
 
 PackageInfo() # shows files installed by a package,
 {
-	IsPlatform debian && { apt show "$1"; dpkg -L "$1"; echo; dpkg -L "$1" | grep 'bin/'; }
+	! IsPlatform debian && return
+	
+	apt show "$1" || return
+	! PackageInstalled "$1" && return
+	dpkg -L "$1"; echo
+	dpkg -L "$1" | grep 'bin/'
 }
 
 PackageInstalled()
 { 
-	! InPath dpkg && return 1
+	[[ "$@" == "" ]] && return 0
 
-	# ensure the package counts match, i.e. dpkg --get-selectations samba will not return anything if samba-common is installed
-	[[ "$(dpkg --get-selections "$@" |& grep -v "no packages found" | wc -l)" == "$#" ]]
+	if InPath dpkg; then
+		# ensure the package counts match, i.e. dpkg --get-selectations samba will not return anything if samba-common is installed
+		[[ "$(dpkg --get-selections "$@" |& grep -v "no packages found" | wc -l)" == "$#" ]]
+	else
+		InPath "$@" # assumes each package name is in the path
+	fi
 }
 
-PackageNoPrompt() # install packages without prompting for input
-{
-	if IsPlatform debian; then
-		sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
-	else
-		package "$@"
-	fi
+PackageList() # package list
+{ 
+	IsPlatform debian && { apt-cache search  "$@"; return; }
+	IsPlatform dsm,qnap && { sudo opkg list "$@"; return; }
+	IsPlatform mac && { brew search "$@"; return; }	
+	return 0
 }
 
 PackageUpdate() # update packages
