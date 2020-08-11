@@ -279,7 +279,7 @@ IsInArray()
 # date
 CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
 GetDateStamp() { ${G}date '+%Y%m%d'; }
-GetFileDateStamp() { date '+%Y%m%d' -d "$(stat --format="%y" "$1")"; }
+GetFileDateStamp() { ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
 GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
 
 GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 to specified time
