@@ -106,6 +106,27 @@ RunExternalApp()
 	return 0
 }
 
+RunService()
+{ 
+	! IsPlatform wsl && return
+
+	local service="$1"
+	
+	if [[ "$command" != "startup" ]]; then
+		printf "$service."
+		service stop $service # >& /dev/null
+		return
+	fi
+
+	if ! service running $service; then
+		printf "$service."
+		sudoc service start $service > /dev/null
+		return 0
+	fi
+
+	return 0
+}
+
 TaskStart()
 {
 	local program="$1"
@@ -180,6 +201,7 @@ MapApp()
 
 AltTabTerminator() { IsTaskRunning "AltTabTer.exe" || TaskStart "$P/Alt-Tab Terminator/AltTabTer.exe" "" /startup; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
+chrony() { RunService "chrony"; }
 cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE.exe" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
 discord() { IsTaskRunning Discord.exe || TaskStart "$LOCALAPPDATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }
 duet() { TaskStart "$P/Kairos/Duet Display/duet.exe"; }
@@ -191,6 +213,7 @@ IntelRapidStorage() { IsTaskRunning "$P/Intel/Intel(R) Rapid Storage Technology/
 LogitechOptions() { [[ ! -f "$P/Logitech/LogiOptions/LogiOptions.exe" ]] && return; IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
 PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.exe"; [[ ! -f "$p" ]] && return; IsTaskRunning "$p" || start "$p"; }
 SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
+sshd() { RunService "sshd"; }
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
 
 OneDrive()
@@ -199,25 +222,6 @@ OneDrive()
 
 	local file="$P32/Microsoft OneDrive/OneDrive.exe"; [[ ! -f "$file" ]] && file="$LOCALAPPDATA/Microsoft/OneDrive/OneDrive.exe"
 	start "$file" /background; 
-}
-
-sshd()
-{ 
-	! IsPlatform wsl && return
-
-	if [[ "$command" != "startup" ]]; then
-		printf "sshd."
-		service stop ssh # >& /dev/null
-		return
-	fi
-
-	if ! service running ssh; then
-		printf "sshd."
-		sudoc service start ssh > /dev/null
-		return 0
-	fi
-
-	return 0
 }
 
 IntelDesktopControlCenter() 
