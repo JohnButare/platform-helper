@@ -1,5 +1,4 @@
 # $bin/bash.bashrc, system-wide login initialization for all users and public scripts, executed by /etc/bash.bashrc
-#. function.bashrc.sh
 
 set -a # export variables and functions to child processes
 
@@ -161,7 +160,10 @@ ManPathAdd "/usr/local/man" "$DATA/man"
 case "$PLATFORM" in 
 	mac) PathAdd front "/usr/local/bin";; # use brew utilities before system utilities
 	ubuntu) PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
-	win) PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$LOCALAPPDATA/Microsoft/WindowsApps";;
+	win) 
+ 		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
+		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$LOCALAPPDATA/Microsoft/WindowsApps"
+		;;
 esac
 
 case "$PLATFORM_LIKE" in	
@@ -171,7 +173,6 @@ esac
 
 PathAdd front "$PBIN" "$BIN"
 PathAdd "$UBIN"
-PathAdd "$HOME/.rvm/bin"
 
 #
 # Interactive Initialization
@@ -186,3 +187,4 @@ if [[ $BASHRC ]]; then
 	echo "System configuration was not set in /etc/bash.bashrc" > /dev/stderr # SUDO_USER PS1
 	unset BASHRC
 fi
+
