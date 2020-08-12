@@ -769,6 +769,8 @@ MdnsResolve()
 	# Currently WSL does not resolve mDns .local address but Windows does
 	if IsPlatform win; then
 		result="$(ping.exe -4 -n 1 -w 200 "$name" |& grep "Pinging " | awk '{ print $3; }' | sed 's/\[//g' | sed 's/\]//g')"
+	elif IsPlatform mac; then
+		result="$(ping -c 1 -W 200 "$name" |& grep "bytes from" | gcut -d" " -f 4 | sed s/://)"
 	else
 		result="$(avahi-resolve-address -4 -n "$name" | awk '{ print $2; }')"
 	fi
