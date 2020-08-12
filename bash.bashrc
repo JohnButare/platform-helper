@@ -171,6 +171,7 @@ esac
 
 PathAdd front "$PBIN" "$BIN"
 PathAdd "$UBIN"
+PathAdd "$HOME/.rvm/bin"
 
 #
 # Interactive Initialization
