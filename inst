@@ -409,7 +409,7 @@ bootstrapCommon()
 	done
 
 	printf "links..."
-	local files=(.bashrc .bash_logout .bash_profile .dialogrc .gitconfig .gitignore .inputrc .kdiff3rc .lessfilter .magic .minttyrc .p10k.zsh .tmux.conf .Xresources .zshrc)
+	local files=(.bashrc .bash_logout .bash_profile .dialogrc .gitconfig .gitignore .inputrc .kdiff3rc .lessfilter .magic .minttyrc .p10k.zsh .Xresources .zshrc)
 	for file in "${files[@]}"; do
 		printf "."; makeLink --symbolic --hide "$UBIN/$file" "$HOME/$file" || return
 	done
@@ -458,7 +458,7 @@ bootstrapEntware()
 		package file hdparm ncdu || return																									# file
 		package atop htop iperf3 lscpu nethogs || return																		# monitoring
 		package etherwake ncat openssh-client-utils || return 															# network, fping is not functional
-		package lynx || return																															# web
+		package elinks lynx urlview || return																															# web
 	fi
 
 	sudo chmod ugo+r /opt/etc/man_db.conf || return
@@ -703,7 +703,7 @@ devWebCore()
 {
 	header "Web Development Core"
 	i nodejs || return
-	gem install compass || return	
+	gemp compass || return	
 	npm install -g yo bower grunt grunt-cli || return
 }
 
@@ -1461,7 +1461,16 @@ TmuxInstall()
 {
 	header "tmux"
 	package tmux || return	
-	gem tmuxinator || return
+	gemp tmuxinator || return
+
+	# https://github.com/gpakosz/.tmux
+	if [[ ! -d "$HOME/.tmux" ]]; then
+		git clone "https://github.com/gpakosz/.tmux.git" "$HOME/.tmux" || return
+		ln -s -f ".tmux/.tmux.conf" "$HOME" || return
+		ln -s -f "$UBIN/.tmux.conf.local" "$HOME" || return	
+	fi
+
+	return 0
 }
 
 #
@@ -2972,19 +2981,21 @@ PythonInstall()
 # Ruby
 #
 
-gem() { i --no-header ruby || return; $(FindInPath gem) install "$@"; }
+gemp() # gem package
+{ 
+	i --no-header ruby || return
+	InPath "$@" && return
+	gem install "$@" || return
+}
 
 RubyInstall()
 {
 	header "Ruby"
 
-	# ruby
-	if ! InPath rvm; then
-		gpg --keyserver hkp://ipv4.pool.sks-keyservers.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3 7D2BAF1CF37B13E2069D6956105BD0E739499BDB
-		curl -sSL https://get.rvm.io | bash -s stable || return
-		. "$HOME/.rvm/scripts/rvm" || return # add rvm to path in current shell
-		rvm install 2.7 || return
-		. "$HOME/.rvm/scripts/rvm" || return # add rvm to path in current shell
+	if IsPlatform raspbian; then # rvm does not include arm binaries and compilation takes a long time
+		i --no-header RubyPackage || return
+	else
+		i --no-header RubyRvm || return
 	fi
 
 	# create directories
@@ -2995,10 +3006,54 @@ RubyInstall()
 		echo "gem: -n/usr/local/bin" >> ~/.gemrc
 	fi
 
-	gem lolcat || return
+	! InPath lolcat && { gem install lolcat || return; }
+
+	return 0
 }
 
-ColorLsInstall() {  header "colorls"; gem colorls; }
+RubyRvmInstall()
+{
+	header "Ruby (rvm)"
+
+	# rvm
+	if [[ ! -d "$HOME/.rvm" ]]; then
+		gpg --keyserver hkp://ipv4.pool.sks-keyservers.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3 7D2BAF1CF37B13E2069D6956105BD0E739499BDB
+		curl -sSL https://get.rvm.io | bash -s stable || return
+		. "$HOME/.rvm/scripts/rvm" || return # add rvm to path in current shell
+	fi
+
+	# ruby
+	if ! InPath ruby; then
+		rvm install 2.7 || return
+		. "$HOME/.rvm/scripts/rvm" || return # add ruby and gem to the path in current shell
+	fi
+
+	return 0
+}
+
+RubyPackageInstall()
+{
+	header "Ruby (package)"
+
+	# ruby
+	! InPath ruby && { package ruby || return; }
+
+	# development
+	if [[ ! -f /usr/include/ruby-2.5.0/ruby.h ]]; then
+		local devPackage="ruby$(ruby -e 'puts RUBY_VERSION[/\d+\.\d+/]')-dev"
+		package $devPackage || return		
+	fi
+
+	! InPath gcc && { package gcc || return; }
+	! InPath make && { package make || return; }
+	
+	# SSL libraries
+	IsPlatform debian && [[ ! -d /usr/include/openssl ]] && { package libssl-dev || return; }
+
+	return 0
+}
+
+ColorLsInstall() {  header "colorls"; gemp colorls; }
 
 #
 # Terminals
