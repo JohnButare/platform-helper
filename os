@@ -107,9 +107,6 @@ setHostnameCommand()
 # path 
 #
 
-PathEditCommand() { SystemPropertiesCommand 3; }
-PathEditorCommand() { start --elevate PathEditor; }
-
 pathCommand()
 {
 	command="show"
@@ -117,6 +114,18 @@ pathCommand()
 	[[ $command != @(editor) && $# != 0 ]] && UnknownOption "$1"
 	Path${command}Command "$@"
 }
+
+PathEditCommand() { SystemPropertiesCommand 3; }
+
+PathEditorCommand()
+{ 
+	if IsPlatform win; then
+		start --elevate PathEditor.exe
+	elif InPath vared; then
+		vared PATH
+	fi
+}
+
 
 #
 # os version
