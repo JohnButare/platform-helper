@@ -7,6 +7,9 @@ init()
 { 
 	devices=( pi5 pi6 rp1 UnifiController )
 
+	network="wiggin"
+	network="test"
+
 	nc="$CLOUD/network" # network configuration
 	ncd="$nc/dhcp"
 }
@@ -36,7 +39,7 @@ args()
 	done
 
 	[[ ! $command ]] && { MissingOperand "command"; }
-	[[ "$comamnd" == @(edit ) && ! $host ]] && MissingOperand "host"
+	[[ "$comamnd" == @(edit) && ! $host ]] && MissingOperand "host"
 
 	args=("$@")
 }
@@ -45,16 +48,20 @@ args()
 # configuration
 #
 
-# DHCP Reservation.txt-> dhcpd-eth0-static.conf
-# DHCP Options.txt -> dhcpd-dns-dns.conf
-# DNS Forward.txt -> hagerman.butare.net
-# DNS Reverse.txt -> 100.168.192.in-addr.arpa
-
 configCommand()
 {
+	# parse arguments
 	local command; CheckSubCommand config "$1"; shift
 	[[ "$command" != "edit" ]] && { local host="$1"; shift; [[ ! $host ]] && MissingOperand "host"; }
 	[[ $# != 0 ]] && UnknownOption "$1"
+
+	# update host
+	if [[ "$command" != "edit" ]]; then
+		local hostName="$host"
+		IsPlatform win && IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
+	fi
+
+	# run command
 	Config${command}Command "$@"
 }
 
@@ -85,8 +92,7 @@ ConfigBackupCommand()
 
 ConfigUpdateCommand()
 {
-	IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
-	# updateDhcp || return
+	updateDhcp || return
 	updateDns || return
 	return 0
 }
@@ -96,55 +102,65 @@ updateDns()
 	local dir="$TMP/dns.$RANDOM"; rm -fr "$dir"; mkdir "$dir" || return
 
 	echo "Creating DNS configuration files..."
-	cp "$ncd/named.conf.local" "$dir" || return
+	cp "$ncd/named.conf."* "$dir" || return
 	cp "$ncd/DNS Forward.txt" "$dir/hagerman.butare.net"
 	for zone in 100 101 102; do
 		{ cat "$ncd/template/$zone.txt"; grep "$zone.168.192" "$ncd/DNS Reverse.txt"; } > "$dir/$zone.168.192.in-addr.arpa"
 	done
 
 	echo "Updating DNS configuration files on $host..."
-	local target="$host:/etc/bind"; [[ "$host" =~ (^nas?&) ]] && target="root@$host:/var/packages/DNSServer/target/named/etc/zone/master"
-	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" "$dir/"* "$target" || return
+	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" "$dir/"* "$host:/etc/bind" --info=progress2 || return
 
 	# cleanup
 	rm -fr "$dir" || return
 
 	# restart the service
-	SshHelper $host service restart bind9 || return
+	SshHelper $hostName service restart bind9 || return
 }
 
 updateDhcp()
 {
-	local dir="$TMP/dhcp.$RANDOM"; rm -fr "$dir"; mkdir "$dir" || return
-	local reservations="$dir/reservations.txt"
+	local dhcp="$ncd/$network"
+	local r="$dhcp/kea-dhcp4-$network-reservations.json"
 
- 	# cleanup reservations by removing comments, empty lines, and lines with only spaces (fix etherwake warning)
-	cat "$ncd/DHCP Reservations.txt" | sed '/^#/d' | sed '/^$/ d' | sed 's/^ *$//g' > "$reservations"
+	echo "Updating the ethers configuration..." # downcase to make etherwake case agnostic
+	configToCommaDelimited "$r" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
 
-	# update ethers - downcase to make etherwake case agnostic
-	echo "Updating the ethers configuration..."
-	awk '{ FS=","; gsub(/dhcp-host=/,""); print $1 " " $2 }' "$reservations" | tr A-Z a-z > "$DATA/setup/ethers" || return
-
-	# update hosts
 	echo "Updating the host configuration data..."
-	awk '{ FS=","; gsub(/dhcp-host=/,""); print $2 }' "$reservations" | sort > "$DATA/setup/hosts" || return
+	configToCommaDelimited "$r" |  awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return 
+
+	printf "Validating configuration files..."
+	for file in "$dhcp/kea-"*-reservations.json; do validateFile "$file" || return; done
+	echo "done"
 
 	echo "Updating DHCP configuration on $host..."
-	local target="root@$host:/etc/dhcpd"
-	scp "$ncd/DHCP Options.txt" "$target/dhcpd-dns-dns.conf"
+	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" --info=progress2 "$ncd/$network/kea-dhcp4"* "$host:/etc/kea" || return
 
-	target="root@$host:/etc/dhcpd"
-	case "$host" in		
-		router) 
-			scp "$reservations" "$target/dhcpdStatic.ori"
-			scp "$reservations" "$target/dhcpd-static-static.conf"
-			;;
-		nas?) scp "$reservations" "$target/dhcpd-eth0-static.conf";;
-		pi?) : ;
-	esac
+	# restart the service
+	SshHelper $hostName service restart kea-dhcp4-server || return
+}
 
-	# cleanup
-	rm -fr "$dir" || return
+configToCommaDelimited() # configToCommaDelimited FILE - convert a Kea configuration file to comma delimited
+{
+	configToJson "$1" | 
+		jq '.[]|{a: .hostname, b: ."hw-address", c: ."ip-address"}|join(",")' | # convert to comma delimited
+		sed 's/\"//g'	|	# remove quotes
+		sort
+}
+
+configToJson() # configToJson FILE - convert a Kea configuration file to valid JSON
+{
+	cat "$1" | 
+		sed '/^[ ]*\/\//d' |  # remove comments - lines that begin with //
+		sed '/<\?include/d'  	# remove <?include ?> directives
+}
+
+validateFile()
+{
+	printf "$(GetFileName "$1")..."; configToJson "$1" | jq > /dev/null && return
+	configToJson "$1" > "/tmp/dhcp.json" 2> /dev/null
+	TextEdit "$1" "/tmp/dhcp.json" || return
+	return 1
 }
 
 #

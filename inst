@@ -703,7 +703,6 @@ devWebCore()
 {
 	header "Web Development Core"
 	i nodejs || return
-	gemp compass || return	
 	npm install -g yo bower grunt grunt-cli || return
 }
 
@@ -910,6 +909,13 @@ DebianSudo()
 	echo "Paste the contents of the clipboard ($clip) at the beginning of the secure_path"
 	clipw "$clip" || pause
 	sudo visudo || return
+}
+
+DebianSudoPasswordless()
+{
+	local line="$USER ALL=(ALL) NOPASSWD: ALL"
+	sudo grep "^$line$" /etc/sudoers >& /dev/null && return
+	echo "$line" | sudo tee -a "/etc/sudoers" || return
 }
 
 #
@@ -1366,11 +1372,8 @@ dnsServerInstall()
 		package bind9 bind9-utils bind9-doc bind9-dnsutils bind9-host || return
 	fi
 
-	# enable remote passwordless update
-	local line="$USER ALL=(ALL) NOPASSWD: ALL"
-	! sudo grep "^$line$" /etc/sudoers >& /dev/null && echo "$line" | sudo tee -a "/etc/sudoers" || return
-
-	sudo update-rc.d bind9 defaults || return # service defaults
+	sudo update-rc.d bind9 defaults || return
+	DebianSudoPasswordless || return # for remote updates
 } 
 
 dhcpServerInstall()
@@ -1378,12 +1381,12 @@ dhcpServerInstall()
 	header "ISC Kea DHCP Server"	
 	! verifyStaticIpAddress && { EchoErr "DHCP Server requires a static IP address"; return 1; }
 
-	package kea-dhcp4-server kea-dhcp6-server kea-admin kea-dhcp-ddns-server kea-dev kea-doc || return
-	# kea-ctrl-agent # not Pi
+	package kea-dhcp4-server kea-admin kea-dhcp-ddns-server kea-dev kea-doc || return # kea-ctrl-agent kea-dhcp6-server
 
-
-
-
+	makeDirSudo "/var/run/kea" || return
+	service auto kea-dhcp4-server || return
+	sudo update-rc.d kea-dhcp4-server defaults || return
+	DebianSudoPasswordless || return # for remote updates
 }
 
 fzfInstall()
@@ -1461,14 +1464,11 @@ TmuxInstall()
 {
 	header "tmux"
 	package tmux || return	
-	gemp tmuxinator || return
 
 	# https://github.com/gpakosz/.tmux
-	if [[ ! -d "$HOME/.tmux" ]]; then
-		git clone "https://github.com/gpakosz/.tmux.git" "$HOME/.tmux" || return
-		ln -s -f ".tmux/.tmux.conf" "$HOME" || return
-		ln -s -f "$UBIN/.tmux.conf.local" "$HOME" || return	
-	fi
+	[[ ! -d "$HOME/.tmux" ]] && { git clone "https://github.com/gpakosz/.tmux.git" "$HOME/.tmux" || return; }
+	ln -s -f ".tmux/.tmux.conf" "$HOME" || return
+	ln -s -f "$UBIN/.tmux.conf.local" "$HOME" || return	
 
 	return 0
 }
@@ -2988,11 +2988,12 @@ gemp() # gem package
 	gem install "$@" || return
 }
 
+rvmInstalled() { [[ ! -d "$HOME/.rvm" ]]; }
 RubyInstall()
 {
 	header "Ruby"
 
-	if IsPlatform raspbian; then # rvm does not include arm binaries and compilation takes a long time
+	if ! rvmInstalled && IsPlatform raspbian; then # rvm does not include arm binaries and compilation takes a long time
 		i --no-header RubyPackage || return
 	else
 		i --no-header RubyRvm || return
@@ -3016,7 +3017,7 @@ RubyRvmInstall()
 	header "Ruby (rvm)"
 
 	# rvm
-	if [[ ! -d "$HOME/.rvm" ]]; then
+	if ! rvmInstalled; then
 		gpg --keyserver hkp://ipv4.pool.sks-keyservers.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3 7D2BAF1CF37B13E2069D6956105BD0E739499BDB
 		curl -sSL https://get.rvm.io | bash -s stable || return
 		. "$HOME/.rvm/scripts/rvm" || return # add rvm to path in current shell

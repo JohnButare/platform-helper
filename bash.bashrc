@@ -187,4 +187,3 @@ if [[ $BASHRC ]]; then
 	echo "System configuration was not set in /etc/bash.bashrc" > /dev/stderr # SUDO_USER PS1
 	unset BASHRC
 fi
-

@@ -686,7 +686,7 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 	local host="$1" timeout="${2-200}"
 
 	# resolve the IP address explicitly:
-	# - mDNS name resolution is intermitant
+	# - mDNS name resolution is intermitant (double check this on various platforms)
 	# - Windows ping.exe name resolution is slow for non-existent hosts
 	host="$(GetIpAddress "$host")" || return 
 	
@@ -706,7 +706,6 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 	if InPath ncat; then
 		echo | ncat -C -w ${timeout}ms "$host" "$port" >& /dev/null
 	elif IsPlatform win; then	
-		! IsIpAddress "$host" && { host="$(GetIpAddress $host)" || return; }
 		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
 	else
 		return 0 # assume the host is available if we cannot check
@@ -751,8 +750,8 @@ DhcpRenew()
 		ipconfig.exe /release "$adapter" || return
 		ipconfig.exe /renew "$adapter" || return
 	elif IsPlatform debian && InPath dhclient; then
-		sudo dhclient -r || return
-		sudo dhclient || return
+		sudoc dhclient -r || return
+		sudoc dhclient || return
 	fi
 
 	echo "New IP: $(GetPrimaryIpAddress)" || return
@@ -850,7 +849,7 @@ SshHelper()
 	port="$(GetSshPort "$host")" 
 	host="${host/:$port/}"
 
-	# identify  port and IP if the host is in ~/.ssh/config 	
+	# identify port and IP if the host is in ~/.ssh/config 	
 	if ! IsInSshConfig "$host"; then
 		local hostFull="$host" ip mdnsIp; host="$(GetSshHost "$host")"
 
