@@ -1,24 +1,32 @@
 #!/usr/bin/env bash
 . function.sh || exit
+. color.sh || exit
 
 run() {	init && args "$@" && ${command}Command "${args[@]}"; }
 
 init()
 { 
+	# devcices to turn on and off
 	devices=( pi5 pi6 rp1 UnifiController )
 
-	network="wiggin"
-	network="test"
+	# network configuration
+	network="wiggin" # wiggin test
+	domain="hagerman.butare.net"
 
-	nc="$CLOUD/network" # network configuration
-	ncd="$nc/dhcp"
+	# server file locations
+	dhcpDir="/etc/kea"
+	dnsDir="/etc/bind"
+
+	# cloud configuration location
+	nc="$CLOUD/network"
+	ncd="$nc/configuration"
 }
 
 usage()
 {
 	echot "\
 usage: wiggin off
-	config edit|backup|update [host]
+	config backup|update|edit [host]
 	on|off - power on or off all devices in the Wiggin study network closet switch"
 	exit $1
 }
@@ -57,7 +65,7 @@ configCommand()
 
 	# update host
 	if [[ "$command" != "edit" ]]; then
-		local hostName="$host"
+		local hostName="$host" hostNameShort="$(RemoveDnsSuffix "$host")"
 		IsPlatform win && IsLocalAddress "$host" && { host="$(MdnsResolve "$host")" || return; }
 	fi
 
@@ -65,51 +73,79 @@ configCommand()
 	Config${command}Command "$@"
 }
 
-ConfigEditCommand() { TextEdit "$DATA/setup/ports" "$ncd/named.conf.local" "$ncd/DNS Reverse.txt" "$ncd/DNS Forward.txt" "$ncd/DHCP Options.txt" "$ncd/DHCP Reservations.txt"; }
+ConfigEditCommand() { TextEdit "$DATA/setup/ports" "$ncd/dns/forward.txt" "$ncd/dhcp/wiggin/kea-dhcp4-wiggin-reservations.json"; }
+ConfigBackupCommand() { doBackup; }
+ConfigUpdateCommand() { doUpdate; }
 
-ConfigBackupCommand() 
+#
+# backup/update
+# 
+
+doBackup()
 { 
-	local h="$host" d="$ncd/backup" stamp="$(GetDateStamp)"
-
-	[[ $h ]] || { EchoErr "USAGE: NetworkConfigurationBackup HOST"; return 1; }
+	local h="$hostNameShort" d="$ncd/backup" stamp="$(GetDateStamp)"
 
 	# DHCP
-	echo "Backing up DHCP configuration from $h..."
+	echo "${BLUE}Backing up DHCP configuration from $h...${RESET}"
 	local f="$h.dhcpd.zip" i=1
 	while [[ -f "$d/$stamp.$i.$f" ]]; do (( ++i )); done
-	ssh $h "rm -f $f; zip -r $f /etc/dhcpd" || return
-	scp $h:~/$f "$d/$stamp.$i.$f" || return
+	ssh $host "rm -f $f; zip -r $f $dhcpDir" || return
+	scp $host:~/$f "$d/$stamp.$i.$f" || return
 
 	# DNS	
-	echo "Backing up DNS configuration from $h..."
+	echo "${BLUE}Backing up DNS configuration from $h...${RESET}"
 	f="$h.dns.zip" i="1"
 	while [[ -f "$d/$stamp.$i.$f" ]]; do (( ++i )); done
-	ssh $h "rm -f $f; zip -r $f /var/packages/DNSServer/target/named/etc/zone/master" || return
-	scp $h:~/$f "$d/$stamp.$i.$f" || return
+	ssh $host "rm -f $f; zip -r $f $dnsDir --exclude \*.key \*.zip" || return
+	scp $host:~/$f "$d/$stamp.$i.$f" || return
 
-	echo "Successfully backed up $h network configuration"
+	echo "${GREEN}Successfully backed up $h network configuration${RESET}"
 }
 
-ConfigUpdateCommand()
+doUpdate()
 {
+	local r; initReservations || return
+	doBackup || return
 	updateDhcp || return
 	updateDns || return
 	return 0
 }
 
+initReservations()
+{
+	r="$ncd/dhcp/$network/kea-dhcp4-$network-reservations.json"
+	validateFile "$r" || return
+}
+
 updateDns()
 {
+	local config="$ncd/dns"
 	local dir="$TMP/dns.$RANDOM"; rm -fr "$dir"; mkdir "$dir" || return
 
 	echo "Creating DNS configuration files..."
-	cp "$ncd/named.conf."* "$dir" || return
-	cp "$ncd/DNS Forward.txt" "$dir/hagerman.butare.net"
+	cp "$config/named.conf."* "$dir" || return
+
+	cp "$config/forward.txt" "$dir/$domain" || return
+	configToCommaDelimited "$r" | awk -F "," '{ print $1 ".'$domain'.	A	" $3 }' | column -t	>> "$dir/$domain" || return
+
 	for zone in 100 101 102; do
-		{ cat "$ncd/template/$zone.txt"; grep "$zone.168.192" "$ncd/DNS Reverse.txt"; } > "$dir/$zone.168.192.in-addr.arpa"
+		local z="$dir/$zone.168.192.in-addr.arpa"
+
+		cat "$config/$zone.txt" > "$z"
+
+		{ printf "\n; static\n"; cat "$config/reverse.txt" | grep "^[0-10]*.$zone.168.192"; } >> "$z"
+
+		{ printf "\n; dynamic\n"
+			configToCommaDelimited "$r" |
+				grep ",192.168.$zone." |
+				sed "s/192.168.$zone.//" |
+				awk -F "," '{ print $3 ".'$zone'.168.192.in-addr.arpa. PTR " $1 ".'$domain'." }' |
+				column -t; } >> "$z"
+
 	done
 
 	echo "Updating DNS configuration files on $host..."
-	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" "$dir/"* "$host:/etc/bind" --info=progress2 || return
+	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" "$dir/"* "$host:$dnsDir" --info=progress2 || return
 
 	# cleanup
 	rm -fr "$dir" || return
@@ -120,8 +156,12 @@ updateDns()
 
 updateDhcp()
 {
-	local dhcp="$ncd/$network"
-	local r="$dhcp/kea-dhcp4-$network-reservations.json"
+	local config="$ncd/dhcp/$network"
+	
+	if [[ -f "$config/kea-dhcp4-$network-host.json" ]]; then
+		echo "Updating configuration for $hostNameShort..."
+		cp "$config/kea-dhcp4-$network-$hostNameShort.json" "$config/kea-dhcp4-$network.json" || return
+	fi
 
 	echo "Updating the ethers configuration..." # downcase to make etherwake case agnostic
 	configToCommaDelimited "$r" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
@@ -129,12 +169,8 @@ updateDhcp()
 	echo "Updating the host configuration data..."
 	configToCommaDelimited "$r" |  awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return 
 
-	printf "Validating configuration files..."
-	for file in "$dhcp/kea-"*-reservations.json; do validateFile "$file" || return; done
-	echo "done"
-
 	echo "Updating DHCP configuration on $host..."
-	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" --info=progress2 "$ncd/$network/kea-dhcp4"* "$host:/etc/kea" || return
+	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" --info=progress2 "$config/kea-dhcp4"* "$host:$dhcpDir" || return
 
 	# restart the service
 	SshHelper $hostName service restart kea-dhcp4-server || return
@@ -151,13 +187,13 @@ configToCommaDelimited() # configToCommaDelimited FILE - convert a Kea configura
 configToJson() # configToJson FILE - convert a Kea configuration file to valid JSON
 {
 	cat "$1" | 
-		sed '/^[ ]*\/\//d' |  # remove comments - lines that begin with //
+		sed '/^[	 ]*\/\//d' |  # remove comments - lines that begin with //
 		sed '/<\?include/d'  	# remove <?include ?> directives
 }
 
 validateFile()
 {
-	printf "$(GetFileName "$1")..."; configToJson "$1" | jq > /dev/null && return
+	configToJson "$1" | jq > /dev/null && return
 	configToJson "$1" > "/tmp/dhcp.json" 2> /dev/null
 	TextEdit "$1" "/tmp/dhcp.json" || return
 	return 1
