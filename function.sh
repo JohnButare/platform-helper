@@ -346,7 +346,7 @@ GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* 
 GetParentDir() { echo "$(GetFilePath "$(GetFilePath "$1")")"; }
 GetRealPath() { ${G}readlink -f "$@"; } # resolve symbolic links
 IsDirEmpty() { [[ "$(find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
-InPath() { local f; for f in "$@"; do ! which "$f" >& /dev/null && return 1; done; return 0; }
+InPath() { local f option; IsZsh && option="-p"; for f in "$@"; do ! which $option "$f" >& /dev/null && return 1; done; return 0; }
 IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff "$1" "$2" >& /dev/null; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
