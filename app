@@ -213,7 +213,7 @@ IntelRapidStorage() { IsTaskRunning "$P/Intel/Intel(R) Rapid Storage Technology/
 LogitechOptions() { [[ ! -f "$P/Logitech/LogiOptions/LogiOptions.exe" ]] && return; IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
 PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.exe"; [[ ! -f "$p" ]] && return; IsTaskRunning "$p" || start "$p"; }
 SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
-sshd() { RunService "sshd"; }
+sshd() { RunService "ssh"; }
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
 
 OneDrive()

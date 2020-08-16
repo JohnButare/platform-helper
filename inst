@@ -505,12 +505,11 @@ sudo ln -s /share/Public/documents/data /usr/local/data"
 	return 0
 }
 
-bootstrapRock()
+bootstrapRock() # https://wiki.radxa.com/Rockpi4/Ubuntu#
 {
 	header "Bootstrap Rock Pi"
 
-	# https://wiki.radxa.com/Rockpi4/Ubuntu#
-	echo "Changing password for rock."; sudo passwd rock || return
+	password linux -u rock || return
 
 	local f="/etc/apt/sources.list.d/apt-radxa-com.list"
 
@@ -539,7 +538,7 @@ bootstrapRaspbian()
 
 	! cat /etc/timezone | grep "$timezone" >& /dev/null && { sudo raspi-config nonint do_change_timezone "$timezone" || return; }
 	! cat /etc/default/locale | grep "$locale" >& /dev/null && { sudo raspi-config nonint do_change_locale $locale || return; export LOCALE="$locale"; }
-	[[ -f /run/sshwarn ]] && { echo "Changing password for pi."; sudo passwd pi || return; }
+	[[ -f /run/sshwarn ]] && { password linux -u pi || return; }
 	
 	return 0
 }
@@ -850,7 +849,6 @@ DebianFileSharing()
 
 	! InPath smbd && { package samba || return; } # service
 	! InPath smbclient && { package smbclient || return; }
-	sudo smbpasswd -a $USER || return
 	
 	echo "[root]
 path = /
@@ -2951,7 +2949,7 @@ PdfElement()
 # Python
 #
 
-pythonCheck() { ! InPath python3 pip3 && { i python --no-header || return; }; }
+pythonCheck() { InPath python3 pip3 && return; i --no-header python || return; }
 
 PythonInstall()
 {	
@@ -2999,7 +2997,7 @@ GemInstall() # gem package
 	gem install "$@" || return
 }
 
-rubyCheck() { ! InPath ruby && { i ruby --no-header || return; }; }
+rubyCheck() { InPath ruby && return 0; i --no-header ruby || return; }
 rvmInstalled() { [[ ! -d "$HOME/.rvm" ]]; }
 
 RubyInstall()
@@ -3376,7 +3374,7 @@ ZshInstall()
 	SetLoginShell zsh || return
 }
 
-nodeCheck() { ! InPath node npm && { i nodejs --no-header || return; }; }
+nodeCheck() { InPath node npm && return; i --no-header nodejs || return; }
 nodeInstall() { NodeJsInstall; }
 
 NodeJsInstall()
@@ -4661,7 +4659,6 @@ homebridge()
 	nodeCheck || return
 
 	if ! InPath homebridge; then
-		echo "Installing homebridge..."
 		sudo npm install -g --unsafe-perm homebridge homebridge-config-ui-x || return
 	fi
 
@@ -4674,36 +4671,43 @@ homebridgeRaspbian()
 		sudo hb-service install --user homebridge || return
 	fi
 
-	if ! [[ -e ~/.homebridge ]]; then
-		echo "Linking /var/lib/homebridge to ~/.homebridge to enable $USER to run homebridge from the command line..."
-		ln -s -T /var/lib/homebridge ~/.homebridge
-	fi
+	# Enable running homebridge from the command line for the current user
+	makeLink --symbolic "/var/lib/homebridge" "$HOME/.homebridge" || return
 
-	if ask "Configuring Wake On Lan plugin"; then
-		InPath setcap && { sudo setcap cap_net_raw=pe /usr/bin/node || return; }
-	fi
+	# Configuring Wake On Lan plugin
+	InPath setcap && { sudo setcap cap_net_raw=pe /usr/bin/node || return; }
 
-	if ! grep "/usr/local/data/bin" /etc/default/homebridge >& /dev/null && ask "Configuring SSH plugin"; then
+	if ! grep "/usr/local/data/bin" /etc/default/homebridge >& /dev/null; then
 		printf "\n"'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/data/bin"'"\n" | sudo tee -a /etc/default/homebridge
 	fi
 
-	if ask "Change homebridge password"; then
-		sudo passwd homebridge || return
+	if ! credential exists homebridge default; then
+		password linux -u homebridge --save || return
 	fi
 	
+	# Enable passwordless ssh for the homebridge account - for scripts using ssh
 	if [[ ! -d ~homebridge/.ssh ]]; then
+	
 		sudo mkdir ~homebridge/.ssh || return
 
 		sudo cp ~/.ssh/config ~/.ssh/known_hosts ~homebridge/.ssh || return
 		sudo chown homebridge ~homebridge/.ssh/config ~homebridge/.ssh/known_hosts || return
 
-		sudo ~/.ssh/id_ed25519 ~/.ssh/id_rsa ~homebridge/.ssh || return
+		sudo cp ~/.ssh/id_ed25519 ~/.ssh/id_rsa ~homebridge/.ssh || return
 		sudo chown homebridge ~homebridge/.ssh/known_hosts ~homebridge/.ssh/id_ed25519 ~homebridge/.ssh/id_rsa || return
-		sudo ssh-keygen -p -N '' -f ~homebridge/.ssh/id_ed25519 || return
-		sudo ssh-keygen -p -N '' -f ~homebridge/.ssh/id_rsa || return
+	
+		echo "Removing passphrase from private key files..."
+		local p="$(credential get ssh default)"; [[ ! $p ]] && read -s -p "Enter your ssh passphrase: " password; echo
+		sudo ssh-keygen -p -P "$p" -N '' -f ~homebridge/.ssh/id_ed25519 || return
+		sudo ssh-keygen -p -P "$p" -N '' -f ~homebridge/.ssh/id_rsa || return
 
-		# test ssh connection
-		su homebridge -c 'ssh '$USER'@'$HOSTNAME' ls > /dev/null' || return
+		echo "Testing passwordless ssh connection as homebridge..."
+		su - homebridge <<!
+$(credential get homebridge)
+ssh $USER@$HOSTNAME ls
+!
+		[[ $? != 0 ]] && return 1
+	
 	fi
 
 	return 0
@@ -4711,8 +4715,9 @@ homebridgeRaspbian()
 
 homebridgeWiggin()
 {
-	local plugins="homebridge-chamberlain homebridge-neato homebridge-ring homebridge-script2 homebridge-vera homebridge-webos-tv homebridge-wol homebridge-zp"
-	sudo npm install -g $plugins || return
+	header "Homebridge Wiggin"
+	sudo npm install -g homebridge-chamberlain homebridge-neato homebridge-script2 homebridge-vera homebridge-webos-tv homebridge-wol homebridge-zp || return
+	sudo npm install -g --unsafe-perm homebridge-ring || return
 }
 
 NodeRed()
