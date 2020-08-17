@@ -87,10 +87,15 @@ SetLoginShell() # SetCurrentShell SHELL
 
 	[[ "$(GetLoginShell)" == "$shell" ]] && return 0
 
-	if InPath chsh; then chsh -s "$shell"
-	elif InPath usermod; then sudo usermod --shell "$shell" $USER
-	elif [[ -f /etc/passwd ]]; then { clipw "$shell"; sudo nano "/etc/passwd"; }
-	else EchoErr "SetLoginShell: unable to change login shell to $1"
+	if InPath chsh; then
+		chsh -s "$shell"
+	elif InPath usermod; then
+			sudo usermod --shell "$shell" $USER
+	elif [[ -f /etc/passwd ]]; then
+		clipw "$shell" || { echo "Change the $USER login shell (after last :) to $shell"; pause; }
+		sudo nano "/etc/passwd"
+	else
+		EchoErr "SetLoginShell: unable to change login shell to $1"
 	fi
 }
 
@@ -106,7 +111,7 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 		shell="$(which shell)" # no valid shell file, assume it is valid and search for it in the path
 	fi
 
-	[[ ! $shell ]] && { EchoErr "FindLoginShell: $1 is not a valid default shell"; return 1; }
+	[[ ! -f "$shell" ]] && { EchoErr "FindLoginShell: $1 is not a valid default shell"; return 1; }
 	echo "$shell"
 }
 
@@ -539,7 +544,7 @@ UnMountAllDrives()
 # Path Conversion
 
 utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
-ptw() { echo "${1////\\}"; } # PathToWin
+ptw() { printf "%s\n" "${1//\//"\\"}"; } # PathToWin - use printf so zsh does not interpret back slashes (\)
 
 wtu() # WinToUnix
 {
@@ -555,11 +560,10 @@ utw() # UnixToWin
 
 	file="$(realpath -m "$@")"
 
-	# drvfs network shares (type 9p) do not map properly in WSL 2
-	# sudo mount -t drvfs //nas3/home /tmp/t; wslpath -a -w /tmp/t # \\nas3\home (WSL1) \\wsl$\test1\tmp\t (WSL 2)
+	# network shares do not translate properly in WSL 2
 	if IsPlatform wsl2; then 
 		read wsl win <<<$(findmnt --types=cifs --noheadings --output=TARGET,SOURCE --target "$file")
-		[[ $wsl && $win ]] && { echo "$(ptw "${file/$wsl/$win}")"; return; }
+		[[ $wsl && $win ]] && { ptw "${file/$wsl/$win}"; return; } # network share	
 	fi
 
 	# utw requires the file exist in newer versions of wsl

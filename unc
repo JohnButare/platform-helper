@@ -24,19 +24,21 @@ usage: unc mount|unmount|IsMounted|ListMounted|UnmountAll UNC
 	list								list UNC disks on the host
 	mount|unmount UNC		unmount or mount UNC and return DIR mounted
 
-	-nhc, --no-host-check	do not check if the host is available
-	-q, --quiet						hide status messages"
+	-nhc, --no-host-check		do not check if the host is available
+	-q, 	--quiet						hide status messages
+	-s, 	--ssh							use sshfs to mount the share"
 	exit $1
 }
 
 args()
 {
-	unset -v command noHostCheck quiet unc
+	unset -v command noHostCheck quiet sshFs unc
 
 	while (( $# != 0 )); do
 		case "$1" in
 			-h|--help) usage 0;;
 			-nhc|--no-host-check) noHostCheck="true";;
+			-s|--ssh) sshFs="true";;
 			-q|--quiet) quiet="--quiet";;
 			IsMounted) command="isMounted";; ListMounted) command="listMounted";; UnmountAll) command="unmountAll";;
 			*)
@@ -56,13 +58,15 @@ isMountedCommand() # unc
 {
 	local node prefix; IsPlatform mac && prefix="$user@"
 
-	if IsPlatform synology; then
+	# check for an SMB share
+	node="$(mount | grep "^//$prefix${server%%.*}.*/$shareId\\\$* on " | head -n 1 | cut -d" " -f 3)"
+
+	# check for an sshfs share
+	if [[ ! $node ]]; then
 		[[ "$shareId" == "root" ]] && shareId=
 		node="$(mount | grep "^$user@$server:/$shareId on " | head -n 1 | cut -d" " -f 3)"
-	else
-		node="$(mount | grep "^//$prefix${server%%.*}.*/$shareId\\\$* on " | head -n 1 | cut -d" " -f 3)"
-	fi
-
+	fi		
+	
 	[[ ! $node ]] && return 1
 	[[ $dirs ]] && echo "$node/$dirs" || echo "$node"
 }
@@ -117,9 +121,9 @@ mountCommand() # unc
 	if [[ "$PLATFORM_KERNEL" == "wsl1" || "$server" == "wsl$" ]]; then
 		sudoc mount -t drvfs "//$server/$share" "$mountDir" 
 
-	elif IsPlatform synology; then # get error using SMB mounted drives, use sshfs instead
-		[[ "$share" == "root" ]] && share="/"
-		sudo sshfs -o allow_other "$user@$server:$share" "$mountDir"
+	elif [[ $sshFs ]] || IsPlatform synology; then # synology mount.cifs does not work
+		[[ "$share" == "root" ]] && share=""
+		sshfs -o allow_other "$user@$server:/$share" "$mountDir"
 
 	elif IsPlatform linux,wsl2; then
 		local sudo; IsPlatform qnap && sudo="sudo"
