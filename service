@@ -10,24 +10,26 @@ usage: service [COMMAND](start) SERVICE [HOST]
 	detail|exists|list|ListFile|log|StartType|show|state|status|running
 	continue|pause|restart|start|stop				control service
 	auto|delete|demand|disable|manual		 		configure service
-	-h, --host 								host to check
-	    --no-host-check 			do not check for host availability
-	    --no-service-check		do not check for service existence
-	-w, --wait								wait for the service to change state"
+	-f, 		--force 							force the service operation even if we the service shows to be in the correct state
+	-h, 		--host 								host to check
+	-nhc,		--no-host-check 			do not check for host availability
+	-nsc,		--no-service-check		do not check for service existence
+	-w, 		--wait								wait for the service to change state"
 	exit $1
 }
 
 args()
 {
-	unset command service host noHostCheck noServiceCheck wait 
+	unset command force service host noHostCheck noServiceCheck wait 
 
 	[[ $# == 0 ]] && { command="show"; return; }
 	
 	while (( $# != 0 )); do
 		case "$1" in
+			--force|-f) force="true";;
 			--host|-h) host="$2"; shift;;
-			--no-host-check) noHostCheck="--no-host-check";;
-			--no-service-check) noServiceCheck="--no-service-check";;
+			--no-host-check|-nhc) noHostCheck="--no-host-check";;
+			--no-service-check|-nsc) noServiceCheck="--no-service-check";;
 			--wait|-w) wait="--wait";;
 			--help) help="--help";;
 			ListFile) command="listFile";; StartType) command="startType";;
@@ -174,7 +176,7 @@ demandCommand()
 {	
 	[[ "$type" != "win" ]] && { disableCommand; return; }
 
-	[[ "$(startTypeCommand)" == "DEMAND_START" ]] && return 
+	[[ ! $force && "$(startTypeCommand)" == "DEMAND_START" ]] && return 
 	$sc config $hostUnc "$service" start= demand; 
 }
 
@@ -182,7 +184,7 @@ continueCommand()
 {
 	[[ "$type" != "win" ]] && { startCommand; return; }
 	
-	[[ "$(stateCommand)" != "PAUSED" ]] && return 
+	[[ ! $force && "$(stateCommand)" != "PAUSED" ]] && return 
 	
 	checkWaiting; printf "Continuing $service service$hostDescription..."$waiting
 	result="$($sc $hostUnc continue "$service")" || { EchoErr "$result"; return 1; }
@@ -210,7 +212,7 @@ pauseCommand()
 {
 	[[ "$type" != "win" ]] && { stopCommand; return; }
 	
-	[[ "$(stateCommand)" != "RUNNING" ]] && return 
+	[[ ! $force && "$(stateCommand)" != "RUNNING" ]] && return 
 
 	checkWaiting; printf "Pausing $service service$hostDescription..."$waiting
 	result="$($sc $hostUnc pause "$service")" || { EchoErr "$result"; return 1; }
@@ -303,7 +305,7 @@ logWin() { EventViewer; }
 
 startCommand()
 {
-	[[ "$(stateCommand)" != "STOPPED" ]] && return 
+	[[ ! $force && "$(stateCommand)" != "STOPPED" ]] && return 
 
 	checkWaiting; printf "Starting $service service$hostDescription...$waiting"
 	start$type || return
@@ -326,7 +328,7 @@ stateLinux()
 	if IsPlatform wsl; then
 		linuxServiceCommand status "$service" | grep "is running" > /dev/null && echo "RUNNING" || echo "STOPPED"
 	else
-		linuxServiceCommand status "$service" | grep "active (.*)" > /dev/null && echo "RUNNING" || echo "STOPPED"
+		linuxServiceCommand status "$service" | grep "inactive (.*)" > /dev/null && echo "STOPPED" || echo "RUNNING"
 	fi
 }
 
@@ -358,7 +360,7 @@ startTypeWin() { GetWord "$($sc $hostUnc qc "$service" $ScBufferSize |& RemoveCa
 
 stopCommand()
 {
-	[[ "$(stateCommand)" != "RUNNING" ]] && return 
+	[[ ! $force && "$(stateCommand)" != "RUNNING" ]] && return 
 
 	checkWaiting; printf "Stopping $service service$hostDescription..."$waiting
 	stop$type || return
