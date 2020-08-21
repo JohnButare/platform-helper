@@ -93,7 +93,7 @@ SetLoginShell() # SetCurrentShell SHELL
 			sudo usermod --shell "$shell" $USER
 	elif [[ -f /etc/passwd ]]; then
 		clipw "$shell" || { echo "Change the $USER login shell (after last :) to $shell"; pause; }
-		sudo nano "/etc/passwd"
+		sudoedit "/etc/passwd"
 	else
 		EchoErr "SetLoginShell: unable to change login shell to $1"
 	fi
@@ -1405,6 +1405,7 @@ GetTextEditor()
 	! IsSsh && InPath notepad.exe && { echo "notepad.exe"; return 0; }
 	InPath geany && { echo "geany"; return 0; }
 	InPath gedit && { echo "gedit"; return 0; }
+	InPath micro && { echo "micro"; return 0; }
 	InPath nano && { echo "nano"; return 0; }
 	InPath vi && { echo "vi"; return 0; }
 	EchoErr "No text editor found"; return 1;
@@ -1420,6 +1421,9 @@ SetTextEditor()
 	
 	if IsInstalled sublime; then e="$BIN/sublime -w"
 	elif InPath geany; then e="geany -i"
+	elif InPath micro; then e="micro"
+	elif InPath nano; then e="nano"
+	elif InPath vi; then e="vi"
 	fi
 		
 	export {SUDO_EDITOR,EDITOR}="$e"
@@ -1440,7 +1444,7 @@ TextEdit()
 	[[ $# == 0 || "${#files[@]}" > 0 ]] || return 0
 
 	# edit the file
-	if [[ "$p" =~ (nano|open.*|vi) ]]; then
+	if [[ "$p" =~ (micro|nano|open.*|vi) ]]; then
 		$p "${files[@]}"
 	else
 		start $wait "${options[@]}" "$p" "${files[@]}"
