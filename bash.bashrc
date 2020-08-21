@@ -9,7 +9,7 @@ set -a # export variables and functions to child processes
 # GetPlatform [host](local) - get the platform for the specified host, sets platform, platformLike, platformId, and wsl
 # test:  sf; time GetPlatform nas? && echo "success: $platform-$platformLike-$platformId"
 # PLATFORM=linux|mac|win
-# PLATFORM_LIKE=cygwin|debian|openwrt|qnap|synology
+# PLATFORM_LIKE=debian|openwrt|qnap|synology
 # PLATFORM_ID=dsm|pixel|qts|raspian|rock|srm|ubiquiti|ubuntu
 # WSL=1|2 (Windows)
 

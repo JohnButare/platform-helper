@@ -911,7 +911,7 @@ SshHelper()
 # Package Manager
 #
 
-HasPackageManger() { IsPlatform debian,mac,dsm,qnap,cygwin; }
+HasPackageManger() { IsPlatform debian,mac,dsm,qnap; }
 PackageListInstalled() { InPath dpkg && dpkg --get-selections "$@"; }
 PackagePurge() { InPath wajig && wajig purgeremoved; }
 PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
@@ -946,7 +946,6 @@ package() # package install
 
 packageu() # package uninstall
 { 
-	IsPlatform cygwin && { apt-cyg remove -y "$@"; return; }
 	IsPlatform debian && { sudo apt remove -y "$@"; return; }
 	IsPlatform dsm,qnap && { sudo opkg remove "$@"; return; }
 	IsPlatform mac && { brew remove "$@"; return; }	
@@ -1106,7 +1105,7 @@ IsServer() { ! IsDesktop; }
 
 console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternatively run in a regular Windows console (Start, Run, bash --login)
 CoprocCat() { cat 0<&${COPROC[0]}; } # read output from a process started with coproc
-IsRoot() { IsPlatform cygwin && { IsElevated.exe > /dev/null; return; } || [[ $SUDO_USER ]]; }
+IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 
 IsExecutable()
 {
