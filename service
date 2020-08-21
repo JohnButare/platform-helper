@@ -49,25 +49,33 @@ args()
 
 init()
 { 
-	unset hostUnc hostDescription
+	unset hostUnc hostDescription sudo type useSystemd
 
-	# SC data area error - http://www.dostips.com/forum/viewtopic.php?f=3&t=3408
-	scBufferSize=5000
-	sc="sc.exe" # service command
+	# Windows Service (sc.exe) - fix SC data area error - http://www.dostips.com/forum/viewtopic.php?f=3&t=3408
+	scBufferSize=5000 sc="sc.exe" # service command
 
+	# service argument
+	[[ ! $service && "$command" != @(list|ListFile|show) ]] && MissingOperand "service"
+
+	# check remote host
 	if [[ ! $noHostCheck && $host && "$host" != @(localhost|$HOSTNAME) ]]; then
 		! IsAvailable "$host" && { EchoErr "service: $host is not available"; return 1; }
 		hostUnc='\\'"$host"
 		hostDescription=" on $host"
 	fi
-
-	[[ ! $service && "$command" != @(list|ListFile|show) ]] && MissingOperand "service"
 		
+	# initialize service variables
 	[[ "$command" != @(exists|list|ListFile|show) ]] && { initService || return; }
 
-	if IsPlatform win && ! isLinuxService "$service" && [[ "$command" == @(auto|demand|disable|pause|stop) ]] && ! IsElevated; then
-		elevate RunScript --pause-error service $command $wait $noServiceCheck $noHostCheck "$service" "$host"
-		exit $?
+	# run with additional permissions if needed
+	if [[ "$command" == @(auto|demand|disable|pause|stop) ]]; then
+
+		# Windows elevation
+		if IsPlatform win && ! isLinuxService "$service" && ! IsElevated; then
+			elevate RunScript --pause-error service $command $wait $noServiceCheck $noHostCheck "$service" "$host"
+			exit $?
+		fi
+
 	fi
 
 	return 0
@@ -88,7 +96,16 @@ initService()
 			fi
 			;;
 
-		linux) isLinuxService "$service" && return;;
+		linux) 
+			! isLinuxService "$service" && return 1
+
+			# systemctl requires the system be started with the init process as PID 1 (which is not the case for Docker)
+			ps -aux | head -2 | tail -1 | grep "init$" >& /dev/null && { useSystemd="true"; return; }
+
+			[[ -f "/etc/init.d/$service" ]] && return
+
+			EchoErr "service: unable to control $service"; return 1
+			;;
 
 		win)
 			isLinuxService "$service" && { type="Linux"; return; }	
@@ -140,15 +157,14 @@ checkWaiting()
 	[[ ! $wait ]] && waiting="\n"
 }
 
-isLinuxService()
-{
-	[[ -f "/etc/init.d/$1" || -f "/etc/systemd/system/$1.service" ]]
-}
+isLinuxService() { [[ -f "/etc/init.d/$1" || -f "/etc/systemd/system/$1.service" ]]; }
 
-linuxServiceCommand() # Linux Service Command COMMAND HOST
+linuxService() # Linux Service Command - COMMAND SERVICE
 {
-	IsPlatform wsl && { sudoc "/usr/sbin/service" "$2" "$1"; return; }
-	sudoc systemctl "$1" "$2"
+	if IsPlatform wsl; then sudoc "/usr/sbin/service" "$2" "$1"
+	elif [[ $useSystemd ]]; then sudoc systemctl "$1" "$2"
+	else sudoc "/etc/init.d/$2" "$1"
+	fi
 }
 
 waitForState()
@@ -241,7 +257,7 @@ statusCommand()
 #
 
 autoCommand() { [[ "$(startTypeCommand)" == "AUTO_START" ]] && return; auto$type; }
-autoLinux() { linuxServiceCommand enable "$service"; }
+autoLinux() { linuxService enable "$service"; }
 autoMac() { :; }
 autoWin() {	$sc config $hostUnc "$service" start= auto; }
 
@@ -250,7 +266,7 @@ autoWin() {	$sc config $hostUnc "$service" start= auto; }
 #
 
 detailCommand() { statusCommand && detail$type; }
-detailLinux() { linuxServiceCommand status "$service"; }
+detailLinux() { linuxService status "$service"; }
 
 detailMac()
 {
@@ -275,7 +291,7 @@ detailWin()
 disableCommand() { [[ "$(startTypeCommand)" == "DISABLED" ]] && return; disable$type; }
 disableMac() { $sudo launchctl disable "$service"; }
 disableWin() { $sc config $hostUnc "$service" start= disabled; }
-disableLinux() { linuxServiceCommand disable "$service"; }
+disableLinux() { linuxService disable "$service"; }
 
 #
 # List Command
@@ -313,7 +329,7 @@ startCommand()
 	waitForState RUNNING start started || return
 }
 
-startLinux() { linuxServiceCommand start "$service"; }
+startLinux() { linuxService start "$service"; }
 startMac() { $sudo launchctl load -w "$config"; }
 startWin() { local result; result="$($sc $hostUnc start "$service")" || { EchoErr "$result"; return 1; }; }
 
@@ -325,10 +341,8 @@ stateCommand() { state$type; }
 
 stateLinux()
 {
-	if IsPlatform wsl; then
-		linuxServiceCommand status "$service" | grep "is running" > /dev/null && echo "RUNNING" || echo "STOPPED"
-	else
-		linuxServiceCommand status "$service" | grep "inactive (.*)" > /dev/null && echo "STOPPED" || echo "RUNNING"
+	if [[ $useSystemd ]]; then linuxService status "$service" | grep "inactive (.*)" > /dev/null && echo "STOPPED" || echo "RUNNING"
+	else linuxService status "$service" | grep "is running" > /dev/null && echo "RUNNING" || echo "STOPPED"
 	fi
 }
 
@@ -342,7 +356,11 @@ stateWin() { GetWord "$($sc $hostUnc query "$service" |& grep STATE)" 4; }
 
 startTypeCommand() { startType$type; }
 
-startTypeLinux() { linuxServiceCommand status "$service" | grep -E "^[ ]*Loaded:" | grep "enabled;" >& /dev/null && echo "AUTO_START" || echo "DISABLED"; }
+startTypeLinux()
+{
+	[[ ! $useSystemd ]] && { echo "unknown"; return; }
+	linuxService status "$service" | grep -E "^[ ]*Loaded:" | grep "enabled;" >& /dev/null && echo "AUTO_START" || echo "DISABLED"
+}
 
 startTypeMac()
 {
@@ -368,7 +386,7 @@ stopCommand()
 	waitForState "STOPPED" "stop" "stopped"
 }
 
-stopLinux() { linuxServiceCommand stop "$service"; }
+stopLinux() { linuxService stop "$service"; }
 stopMac() { $sudo launchctl unload "$config"; }
 stopWin() { result="$($sc $hostUnc stop "$service")" || { EchoErr "$result"; return 1; }; }
 
