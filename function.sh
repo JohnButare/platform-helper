@@ -1038,6 +1038,8 @@ function IsPlatform()
 			linuxkernel) [[ "$PLATFORM_KERNEL" == "linux" ]] && return;;
 
 			# virtual machine
+			container) IsContainer && return;;
+			docker) IsDocker && return;;
 			chroot) IsChroot && return;;
 			physical) ! IsVm && return;;
 			vm) IsVm && return;;
@@ -1452,6 +1454,9 @@ TextEdit()
 IsChroot() { GetChrootName; [[ $CHROOT_NAME ]]; }
 ChrootName() { GetChrootName; echo "$CHROOT_NAME"; }
 ChrootPlatform() { ! IsChroot && return; [[ $(uname -r) =~ [Mm]icrosoft ]] && echo "win" || echo "linux"; }
+
+IsContainer() { ! InPath systemd-detect-virt && return 1; [[ "$(systemd-detect-virt --container)" != "none" ]]; }
+IsDocker() { ! InPath systemd-detect-virt && return 1; [[ "$(systemd-detect-virt --container)" == "docker" ]]; }
 
 IsVm() { GetVmType; [[ $VM_TYPE ]]; }
 IsVmwareVm() { GetVmType; [[ "$VM_TYPE" == "vmware" ]]; }

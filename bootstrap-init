@@ -63,7 +63,7 @@ runAsUser()
 {
 	[[ $user && "$USER" == "$user" ]] && return
 
-	[[ $restart ]] && { echo "Restarting to run as the $USER..."; return 1; }
+	[[ $restart ]] && { echo "Restarting to run as the $USER..."; return 100; }
 	
 	local script="${BASH_SOURCE[0]}"
 
@@ -130,7 +130,9 @@ init()
 	mount="$HOME/Volumes/public"; isMountedDrive && mount="$host/public"
 	bin="$mount/documents/data/bin"
 	install="$mount/Documents/data/install"
+
 	sudo="sudo"; ! InPath sudo && sudo=""
+	[[ ! $sudo && "$USER" != "root" ]] && { echo "bootstrap-init: sudo is not present and user is not root"; return 1; }
 
 	# debian only includes sbin directories in the root users path
 	PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" 
@@ -141,6 +143,7 @@ init()
 initPlatform()
 {
 	chroot=""; [[ -f /etc/debian_chroot ]] && chroot="$(cat "/etc/debian_chroot")"
+	container=""; InPath systemd-detect-virt && [[ "$(systemd-detect-virt --container)" != "none" ]] && container="true"
 
 	platform_kernel="linux"
 	if [[ "$(uname -r)" =~ .*-Microsoft$ ]]; then platform_kernel="wsl1"
@@ -150,13 +153,13 @@ initPlatform()
 	# platform=debian|entware|mac|win
 	platform=debian
 	[[ "$(uname)" == "Darwin" ]] && platform=mac
-	[[ ! $chroot && "$platform_kernel" == @(wsl1|wsl2) ]] && platform=win
+	! isChroot && [[ "$platform_kernel" == @(wsl1|wsl2) ]] && platform=win
 
 	# platform_like=qnap|synology
-	[[ $(uname -r) =~ .*-qnap ]] && { platform="entware" platform_like="qnap"; }
-	[[ -f /proc/syno_platform ]] && { platform="entware" platform_like="synology"; }
+	! isContainer && [[ $(uname -r) =~ .*-qnap ]] && { platform="entware" platform_like="qnap"; }
+	! isContainer && [[ -f /proc/syno_platform ]] && { platform="entware" platform_like="synology"; }
 
-	# ID=ubuntu|raspbian
+	# ID=ubuntu|raspbian|qts
 	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
 
 	return 0
@@ -271,7 +274,7 @@ debianPackageUpdate()
 	$sudo apt dist-upgrade -y || return
 	$sudo apt autoremove -y || return
 
-	[[ -f /var/run/reboot-required ]] && { echo "Rebooting...."; $sudo reboot now; exit 1; }
+	[[ -f /var/run/reboot-required ]] && { echo "Rebooting...."; $sudo reboot now; exit 100; }
 
 	return 0
 }
@@ -309,6 +312,7 @@ debianFixMan()
 #
 
 isChroot() { [[ $chroot ]]; }
+isContainer() { [[ $container ]]; }
 isDebian() { [[ "$platform" == "debian" ]]; }
 isMac() { [[ "$platform" == "mac" ]]; }
 isPi() { [[ "$ID" == "raspbian" ]]; }

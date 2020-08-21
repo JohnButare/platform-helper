@@ -22,7 +22,8 @@ echo kernel=\"$(uname -r)\";
 [[ -f "/etc/debian_chroot" ]] && echo chroot=\""$(cat "/etc/debian_chroot")"\";
 [[ -f /var/sysinfo/model ]] && echo ubiquiti=true;
 [[ -f /proc/syno_platform ]] && echo synology=true;
-[[ -f /bin/busybox ]] && echo busybox=true'
+[[ -f /bin/busybox ]] && echo busybox=true;
+[[ -f /usr/bin/systemd-detect-virt && "$(systemd-detect-virt --container)" != "none" ]] && echo container=true;'
 
 	if [[ $host ]]; then
 		#IsAvailable $host || { EchoErr "$host is not available"; return 1; } # adds .5s
@@ -46,13 +47,15 @@ echo kernel=\"$(uname -r)\";
 			MinGw*) platform="win"; ID_LIKE=mingw;;
 		esac
 
-		if [[ ! $chroot && "$platformKernel" == "wsl1" ]]; then platform="win" wsl=1
-		elif [[ ! $chroot && "$platformKernel" == "wsl2" ]]; then platform="win" wsl=2
-		elif [[ $ID_LIKE =~ openwrt ]]; then ID_LIKE="openwrt"
-		elif [[ $kernel =~ .*-rock ]]; then ID="rock"
-		elif [[ $kernel =~ .*-qnap ]]; then ID_LIKE="qnap"
-		elif [[ $synology ]]; then ID_LIKE="synology" ID="dsm"; [[ $busybox ]] && ID="srm"
-		elif [[ $ubiquiti ]]; then ID="ubiquiti"
+		if [[ ! $chroot && ! $container ]]; then
+			if [[ "$platformKernel" == "wsl1" ]]; then platform="win" wsl=1
+			elif [[ "$platformKernel" == "wsl2" ]]; then platform="win" wsl=2
+			elif [[ $ID_LIKE =~ openwrt ]]; then ID_LIKE="openwrt"
+			elif [[ $kernel =~ .*-rock ]]; then ID="rock"
+			elif [[ $kernel =~ .*-qnap ]]; then ID_LIKE="qnap"
+			elif [[ $synology ]]; then ID_LIKE="synology" ID="dsm"; [[ $busybox ]] && ID="srm"
+			elif [[ $ubiquiti ]]; then ID="ubiquiti"
+			fi
 		fi
 
 		if [[ "$ID" == "debian" && ! $ID_LIKE ]]; then
