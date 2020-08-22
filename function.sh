@@ -301,7 +301,8 @@ HexToDecimal() { echo "$((16#${1#0x}))"; }
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
-QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces
+QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
+QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveEmptyLines() { sed -r '/^\s*$/d'; }
 RemoveSpace() { echo "${@// /}"; }
