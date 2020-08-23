@@ -167,10 +167,7 @@ powershell()
 	EchoErr "Could not find powershell"; return 1;
 }
 
-store()
-{
-	IsPlatform win && { cmd.exe /c start ms-windows-store: >& /dev/null; return; }
-}
+store() { IsPlatform win && { cmd.exe /c start ms-windows-store: >& /dev/null; return; }; }
 
 #
 # Console
@@ -919,7 +916,8 @@ PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
 
 package() # package install
 {
-	local packages=() mac=( atop hdparm inotify-tools squidclient virt-what )	
+	local packages=() 
+	local mac=( atop hdparm inotify-tools squidclient virt-what )	
 	local force; [[ "$1" =~ (^--force$|^-f$) ]] && { force="true"; shift; }
 	local noPrompt; [[ "$1" =~ (^--no-prompt$|^-np$) ]] && { noPrompt="true"; shift; }
 
@@ -953,7 +951,7 @@ packageu() # package uninstall
 	return 0
 }
 
-PackageExist() 
+PackageExist()  # return true if the specified package exists
 { 
 	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
 	IsPlatform mac && { brew search "/^$@$/" | grep -v "No formula or cask found for" >& /dev/null; return; }	
@@ -961,7 +959,7 @@ PackageExist()
 	return 0
 }
 
-PackageInfo() # shows files installed by a package,
+PackageInfo() # shows files installed by a package
 {
 	! IsPlatform debian && return
 	
@@ -971,7 +969,7 @@ PackageInfo() # shows files installed by a package,
 	dpkg -L "$1" | grep 'bin/'
 }
 
-PackageInstalled()
+PackageInstalled() # return true if a package is installed
 { 
 	[[ "$@" == "" ]] && return 0
 
@@ -983,7 +981,7 @@ PackageInstalled()
 	fi
 }
 
-PackageList() # package list
+PackageList() # package list - search for a package
 { 
 	IsPlatform debian && { apt-cache search  "$@"; return; }
 	IsPlatform dsm,qnap && { sudo opkg list "$@"; return; }
@@ -1042,7 +1040,7 @@ function IsPlatform()
 			container) IsContainer && return;;
 			docker) IsDocker && return;;
 			chroot) IsChroot && return;;
-			physical) ! IsVm && return;;
+			physical) ! IsChroot && ! IsContainer && ! IsVm && return;;
 			vm) IsVm && return;;
 
 		esac
@@ -1367,13 +1365,20 @@ ScriptName() { IsBash && GetFileName "${BASH_SOURCE[-1]}" || GetFileName "$ZSH_S
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
 
 ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
-ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } # ScriptEval <script> [<arguments>] - run a script and evaluate it's output, typical variables to set using  printf "a=%q;b=%q;" "result a" "result b"
 
-ScriptReturn() # ScriptReturns [-s|--show] <var>...
+# ScriptEval <script> [<arguments>] - run a script and evaluate the output.
+#    Typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
+ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } 
+
+# ScriptReturn [-s|--show] <var>... - return the specified variables as output from the script in a escaped format.
+#    The script should be called using ScriptEval.
+#   -e, --export		the returned variables should be exported
+#   -s, --show			show the variables in a human readable format instead of a escpaed format
+ScriptReturn() 
 {
 	local var avar fmt="%q" arrays export
-	[[ "$1" == @(-s|--show) ]] && { fmt="\"%s\""; shift; }
 	[[ "$1" == @(-e|--export) ]] && { export="export "; shift; }
+	[[ "$1" == @(-s|--show) ]] && { fmt="\"%s\""; shift; }
 
 	# cache array lookup for performance
 	arrays="$(declare -p "$@" |& grep "^declare -a" 2> /dev/null)"

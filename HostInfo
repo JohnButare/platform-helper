@@ -1,26 +1,41 @@
 #!/usr/bin/env bash
 . function.sh
 
+run()
+{
+	local local dirVars=() infoVars=()
+
+	args "$@" || return
+	CheckTarget || return
+	GetDirs || return
+	[[ $detail ]] && { FindDetail || return; }
+ 	ScriptReturn $show "${dirVars[@]}" "${infoVars[@]}"
+}
+
 usage()
 {
 	echot "\
-usage: HostFindInfo [target](local)
-	Find information about the specified target (a host or directory).  If the target is \"host\", find
-	a mounted host, such as a virtual machine host of a guest virtual machine.
-	-d, --detail			include more detailed information
-	-u, --user USER($USER)	the user to find directories for
-    -ntc,--no-target-check 	do not check if the target is available"
+usage: HostInfo [target](local)
+	Find information about the specified target (a host or directory).  
+	If the target is \"host\", find a mounted host, such as a virtual machine host of a guest virtual machine.
+
+	-d, 	--detail						include more detailed information
+  -ntc,	--no-target-check 	do not check if the target is available
+  -s, 	--show							show the variables in addition to setting them for debugging
+	-u, 	--user USER($USER)	the user to find directories for
+  "
 	exit $1
 }
 
 args()
 {
-	unset detail target noTargetCheck
+	unset detail noTargetCheck show target 
 
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;		
 			-d|--detail) detail="true";;
+			-s|--show) show="--show";;
 			-ntc|--no-target-check) noTargetCheck="true";;
 			-u|--user) shift; user="$1";;
 			*) 
@@ -31,18 +46,11 @@ args()
 	done
 }
 
-run() {	args "$@"; [[ $detail ]] && FindDetail || FindDirs; }
-
-FindDirs()
-{
-	CheckTarget || return
-	GetDirs || return
-	ScriptReturn $show "${dirVars[@]}"
-}
-
 CheckTarget()
 {
-	# check if this computer has another computer mounted on a disk, such as a virtual machine host of a guest virtual machine.
+	[[ ! $target ]] && local="true"
+
+	# check for a host mounted on a directory hosts (such as a virtual machine host)
 	if [[ "$target" == "host" ]]; then
 		local disks; GetDisks disks
 
@@ -56,13 +64,69 @@ CheckTarget()
 		return 1
 	fi
 
+	# check if the host is available
 	if [[ "$target" && ! "$noTargetCheck" && ! -d "$target" ]] && ! IsAvailable "$target"; then
 		EchoErr "Host $target is not available"
 		return 1
 	fi
 	
-	targetShort="$(RemoveDnsSuffix "$target")"
+	# get the name of the host
+	[[ $local ]] && name="$HOSTNAME" || name="$(RemoveDnsSuffix "$target")"
 
+	return 0
+}
+
+FindDetail()
+{
+	#
+	# additional directory information
+	#
+	infoVars=( pd ud udoc uhome udata adata)
+	pd="$_pub/Desktop"
+	ud="$_home/Desktop"
+	udoc="$_home/Documents"
+	uhome="$_home"
+	udata="$udoc/data"
+	adata="$_adata"
+
+	#
+	# platform information
+	#
+	case "$_platform" in
+
+		win)
+			infoVars+=( psm pp ao adata usm up )
+			psm="$_root/mnt/c/ProgramData/Microsoft/Windows/Start Menu"
+			pp="$psm/Programs"
+			ao="$pp/Applications/Other"
+			usm="$adata/Microsoft/Windows/Start Menu"	
+			up="$usm/Programs"
+			;;
+
+		mac)
+			infoVars+=( si la ula )
+			si="/Library/StartupItems"
+			la="/Library/LaunchAgents"
+			ula="$HOME/Library/LaunchAgents"
+			;;
+
+	esac
+
+	#
+	# host specific information
+	#
+	local vars=( _minimalInstall )
+	unset "${vars[@]}"
+	infoVars+=( "${vars[@]}" )
+		
+	# limit what is installed on embedded systems such as Raspberry Pi, nas, and doccker systems
+	IsPlat raspbian && _minimalInstall="true" 
+	[[ $local ]] && IsPlatform docker && _minimalInstall="true"
+
+	# overrides for specific hosts
+	# case "$name" in		
+	# esac
+	
 	return 0
 }
 
@@ -109,12 +173,12 @@ GetDirs()
 		_root="$target"
 
 	# host nas1 - save ssh discovery time
-	elif [[ "$targetShort" == @(nas1) ]]; then
+	elif [[ "$name" == @(nas1) ]]; then
 		_platform="linux" _platformLike="synology" _platformId="dsm"
 		GetNasDirs || return
 
 	# host nas3 - save ssh discovery time
-	elif [[ "$targetShort" == @(nas3) ]]; then
+	elif [[ "$name" == @(nas3) ]]; then
 		_platform="linux" _platformLike="qnap" _platformId="qts"
 		GetNasDirs || return
 
@@ -166,40 +230,5 @@ GetNasDirs()
 }
 
 IsPlat() { [[ ! $_platform ]] && return 1; IsPlatform $1 $_platform $_platformLike $_platformId; }
-
-FindDetail()
-{
-	GetDirs || return
-
-	infoVars=( pd ud udoc uhome udata adata)
-	pd="$_pub/Desktop"
-	ud="$_home/Desktop"
-	udoc="$_home/Documents"
-	uhome="$_home"
-	udata="$udoc/data"
-	adata="$_adata"
-
-	case "$_platform" in
-
-		win)
-			infoVars+=( psm pp ao adata usm up )
-			psm="$_root/mnt/c/ProgramData/Microsoft/Windows/Start Menu"
-			pp="$psm/Programs"
-			ao="$pp/Applications/Other"
-			usm="$adata/Microsoft/Windows/Start Menu"	
-			up="$usm/Programs"
-			;;
-
-		mac)
-			infoVars+=( si la ula )
-			si="/Library/StartupItems"
-			la="/Library/LaunchAgents"
-			ula="$HOME/Library/LaunchAgents"
-			;;
-
-	esac
-
-	ScriptReturn "${dirVars[@]}" "${infoVars[@]}"
-}
 
 run "$@"

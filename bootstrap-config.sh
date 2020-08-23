@@ -1,5 +1,6 @@
 user="jjbutare" 									# user to run bootstrap as
 timezone="America/Denver"					# host timezone
+locale="en_US.UTF-8"							# host locale
 
 domain="hagerman.butare.net" 
 dns1="192.168.100.10"
