@@ -32,6 +32,7 @@ args()
 	args=("$@")
 }
 
+codeNameCommand() { InPath lsb_release && lsb_release -a |& grep "Codename:" | cut -f 2-; }
 environmentCommand() { SystemPropertiesCommand 3; }
 
 indexCommand()
@@ -128,10 +129,8 @@ PathEditorCommand()
 
 
 #
-# os version
+# version
 #
-
-codeNameCommand() { InPath lsb_release && lsb_release -a |& grep "Codename:" | cut -f 2-; }
 
 versionCommand()
 {
