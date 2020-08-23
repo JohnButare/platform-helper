@@ -1479,7 +1479,7 @@ GetChrootName()
 	
 	if [[ -f "/etc/debian_chroot" ]]; then
 		CHROOT_NAME="$(cat "/etc/debian_chroot")"
-	elif ! IsPlatform winKernel && [[ "$(stat / --printf="%i")" != "2" ]]; then
+	elif ! IsPlatform winKernel && [[ "$(${G}stat / --printf="%i")" != "2" ]]; then
 		CHROOT_NAME="chroot"
 	elif IsPlatform wsl1 && sudoc systemd-detect-virt -r; then
 		CHROOT_NAME="chroot"
