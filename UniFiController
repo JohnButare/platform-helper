@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+. function.sh || exit
+
+run() { init && args "$@" && ${command}Command "${args[@]}"; cleanup; }
+
+init()
+{
+  user="$(credential get unifi user)"
+  password="$(credential get unifi password)"
+  url="$(credential get unifi url)"
+	site="default"
+  cookie=$(mktemp)
+	curl="curl --tlsv1 --cookie $cookie --cookie-jar $cookie --insecure"
+
+	! [[ $user && $password && $url ]] && { EchoErr "UnifiController: unifi user, password, or url is not in the credential store"; return 1; }
+
+  $curl --silent --data '{"username":"'$user'", "password":"'$password'"}' "$url/api/login" > /dev/null || return
+}
+
+cleanup()
+{
+	$curl --silent "$url/logout" > /dev/null
+	rm -f "$cookie"
+}
+
+usage()
+{
+echot "\
+usage: UniFiController 
+	Access the UnifiController
+	-f, --file FILE             the file for the command
+	-s, --show                      show results
+	-v, --verbose                   display detailed output"
+	exit $1
+}
+
+args()
+{
+	unset command file
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-h|--help) usage 0;;
+			*)
+				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
+				break
+		esac
+		shift
+	done
+
+	command="${command:-api}"
+
+	args=("$@")
+}
+
+apiCommand()
+{
+	# /stat/sta - status
+	# /stat/health
+  local uri="${1:-/stat/sta}" json="${2:-{}}"
+  [[ "${uri:0:1}" != "/" ]] && uri="/$uri"
+  $curl --silent --data "$json" "$url/api/s/$site$uri" | jq
+}
+
+backupCommand()
+{
+	local file="${1:-unifi_controller_backup_$(GetTimeStamp).unf}" result
+
+  # ask controller to do a backup, response contains the path to the backup file
+  printf "backup..."
+  result="$($curl --silent --data '{"cmd":"backup"}' "$url/api/s/$site/cmd/backup")"
+  path="$(echo $result | sed -n 's/.*\(\/dl.*unf\).*/\1/p')"
+
+  # download the backup to the destinated output file
+  echo "download..."
+  $curl "$url$path" -o "$file"
+}
+
+run "$@"
+
