@@ -16,6 +16,7 @@ EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of 
 IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
 IsInteractive() { [[ "$-" == *i* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
+SetUpdateDir() { updateDir="$DATA/update"; [[ -d "$updateDir" ]] && return; mkdir "$updateDir" || return; }
 
 clipok()
 { 
@@ -88,9 +89,9 @@ SetLoginShell() # SetCurrentShell SHELL
 	[[ "$(GetLoginShell)" == "$shell" ]] && return 0
 
 	if InPath chsh; then
-		chsh -s "$shell"
+		chsh -s "$shell" # chsh does not work with sudo in wsl
 	elif InPath usermod; then
-			sudo usermod --shell "$shell" $USER
+		sudoc usermod --shell "$shell" $USER
 	elif [[ -f /etc/passwd ]]; then
 		clipw "$shell" || { echo "Change the $USER login shell (after last :) to $shell"; pause; }
 		sudoedit "/etc/passwd"
@@ -298,8 +299,6 @@ HexToDecimal() { echo "$((16#${1#0x}))"; }
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
-QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
-QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveEmptyLines() { sed -r '/^\s*$/d'; }
 RemoveSpace() { echo "${@// /}"; }
@@ -307,9 +306,12 @@ RemoveSpaceEnd() { echo "${@%%*( )}"; }
 RemoveSpaceFront() { echo "${@##*( )}"; }
 RemoveSpaceTrim() { echo "$(RemoveSpaceFront "$(RemoveSpaceEnd "$@")")"; }
 
+QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
+QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
+QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
+
 BackToForwardSlash() { echo "${@//\\//}"; }
 ForwardToBackSlash() { echo "${@////\\}"; }
-QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 RemoveBackslash() { echo "${@//\\/}"; }
 
 if IsZsh; then
@@ -357,6 +359,8 @@ RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 
+CopyFileProgress() { rsync --info=progress2 "$@"; }
+
 FindInPath()
 {
 	local file="$1" 
@@ -394,7 +398,7 @@ explore() # explorer DIR - explorer DIR in GUI program
 	
 	IsPlatform mac && { open "$dir"; return; }
 	IsPlatform wsl1 && { explorer.exe "$(utw "$dir")"; return; }
-	IsPlatform wsl2 && { local dir="$PWD"; ( cd /tmp; explorer.exe "$(utw "$dir")" ); return; } # invalid argument when starting from mounted network share
+	IsPlatform wsl2 && { local dir="$PWD"; ( cd /tmp; explorer.exe "$(utw "$dir")" ); return; } # cd to local directory to fix invalid argument error running programs from SMB mounted shares
 	IsPlatform debian && InPath nautilus && { start nautilus "$dir"; return; }
 	
 	EchoErr "The $PLATFORM_ID platform does not have a file explorer"; return 1
@@ -785,6 +789,8 @@ IsUncPath() { [[ "$1" =~ //.* ]]; }
 GetUncServer() { local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
 GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
+GetUncShareFromFile() { findmnt --types=cifs --noheadings --output=TARGET,SOURCE --target "$1" | cut -d" " -f 2; }
+
 
 # SSH
 
@@ -1071,7 +1077,7 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 	return 0
 }
 
-PlatformTmp() { IsPlatform win && echo "$(wtu "$tmp")" || echo "$TMP"; }
+PlatformTmp() { IsPlatform win && echo "$LOCALAPPDATA/Temp" || echo "$TMP"; }
 
 # RunPlatform PREFIX - call platrform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
 function RunPlatform()
@@ -1194,19 +1200,22 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 	-e, --elevate 					run the program with an elevated administrator token (Windows)
 	-o, --open							open the the file using the associated program
 	-s, --sudo							run the program as root
+	-t, --terminal 					the terminal used to elevate programs, valid values are wsl|wt
+													wt does not preserve the current working directory
 	-w, --wait							wait for the program to run before returning
 	-ws, --window-style 		hidden|maximized|minimized|normal"
 }
 
 start() 
 {
-	local elevate file sudo wait windowStyle
+	local elevate file sudo terminal wait windowStyle
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-e|--elevate) ! IsElevated && IsPlatform win && elevate="--elevate";;
 			-h|--help) startUsage; return 0;;
 			-s|--sudo) sudo="sudoc";;
+			-t|--terminal) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
 			-w|--wait) wait="--wait";;
 			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "--window-style" "$2" ); shift;;
 			*)
@@ -1268,7 +1277,7 @@ start()
 		fi
 
 		if IsShellScript "$fullFile"; then
-			local p="wsl.exe"; InPath wt.exe && p="wt.exe wsl.exe" # launch using Windows Terminal if installed
+			local p="wsl.exe"; [[ "$terminal" == "wt" ]] && InPath wt.exe && p="wt.exe -d "$PWD" wsl.exe"
 			RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
 		else
 			RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
@@ -1311,6 +1320,7 @@ sudoc()  # use the credential store to get the password if available, --preserve
 		"${p[@]}" "$@"; 
 	fi
 } 
+
 IsZsh && alias sudoc="nocorrect sudoc" # prevent auto correction, i.e. sudoc ls
 
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }

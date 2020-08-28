@@ -12,7 +12,7 @@ init()
 	# isInstallable
 	debian=( chrony chroot dnsServer dhcpServer geany gnupg kea mDns pass SaltMinion terminator )
 	mac=( apptivate bartender CarrotWeather DayOne iTerm karabiner LiveDesktop Magnet pcalc rectagle spark speedtest WallpaperWizard XQuartz yoink )
-	win=( ahk AutoHotKey AltTabTerminator AquaSnap CloseAllWindows DiskImager EdgeDeflector FileLocatorPro HiddenStart Ninite npp Notepadpp RightClickEnhancer SevenZip TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager IntelExtremeTuning LgMonitor NitroPdf PartitionAssistant pGina PowerPanel PowerrToys QuickBooks stamps TaskLayout TemperatureLogger Todoist Wallpaper4k )
+	win=( ahk AutoHotKey AltTabTerminator AquaSnap CloseAllWindows DiskImager EdgeDeflector FileLocatorPro Ninite npp Notepadpp RightClickEnhancer SevenZip TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager IntelExtremeTuning LgMonitor NitroPdf PartitionAssistant pGina PowerPanel PowerrToys QuickBooks stamps TaskLayout TemperatureLogger Todoist Wallpaper4k )
 	macWin=( BlueSherpa CanonCamera CleanMy Cricut deezer Domotz DuetDisplay GreenShot JumpDesktop LastPass LogitechOptions notion office origin PdfElement QnapExternalRaidManager qvr sonos zoom )
 	macUbuntuWin=( BalenaEtcher bc BeyondCompare Dropbox JumpCloud StandardNotes steam sublime SublimeMerge TeamViewer )
 	macDebianWin=( colorls CredentialStore firefox fzf LinuxNetworkUtilities PackageManagement skype tmux xServer )
@@ -34,6 +34,10 @@ init()
 	# variables	
 	oo="$pp/Operating System/Other"
 	setupFiles="$_data/setup"
+	export PLATFORM_PATH="$DATA/platform/$PLATFORM"
+
+	# update tracking
+	SetUpdateDir || return
 }
 
 usage()
@@ -85,12 +89,12 @@ macAppConfigure() { askP "Configure $1" && { macAppOpen "$1" || return; }; retur
 macAppOpen() { open -a "$1" || return; pause; }
 makeDir() { ${G}mkdir --parents "$1"; }
 makeDirSudo() { [[ -d "$1" ]] && return; sudo ${G}mkdir --parents "$1"; }
-makeFileSudo() { local file=$"1" dir="$(GetFilePath "$1")"; makeDirSudo "$dir" || return; [[ ! -f "$dir" ]] && { sudo touch "$file" || return; }; }
+makeFileSudo() { local file="$1" dir="$(GetFilePath "$1")"; makeDirSudo "$dir" || return; [[ ! -f "$dir" ]] && { sudo touch "$file" || return; }; }
 makeLink() { MakeLink --suppress $quiet $noPrompt "$@"; }
 mergeDir() { MergeDir --parents --suppress "$@"; }
 minimalInstall() { [[ $_minimalInstall ]]; }
-mvSudo() { [[ ! -e "$1" ]] && return; sudo mv "$1" "$2"; }
-rmSudo() { [[ ! -f "$1" ]] && return; sudo ${G}rm -f "$1"; }
+mvSudo() { [[ ! -e "$1" ]] && return; sudoc mv "$1" "$2"; }
+rmSudo() { [[ ! -f "$1" ]] && return; sudoc ${G}rm -f "$1"; }
 verifyStaticIpAddress() { [[ -f /etc/dhcpcd.conf ]] && grep "^static ip_address=" /etc/dhcpcd.conf >& /dev/null; }
 
 findCompareProgram()
@@ -139,7 +143,7 @@ getInstallFunction()
 header()
 {
 	[[ $noHeader ]] && return
-	printf "${BLUE}**************************************************\n* ${RB_INDIGO}$1${BLUE}\n**************************************************${RESET}\n"
+	printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n**************************************************${RESET}\n"
 }
 
 i()
@@ -202,45 +206,57 @@ run() # run EXE [OPTIONS...]
 	runProgram "$file" "$@" || return
 }
 
-runPause()
-{
+runDone()
+{ 
+	[[ $noPrompt ]] && echo "${RB_GREEN}done${RESET}"
 	[[ $pause ]] && pause "When the installation has finished press any key..."
 	return 0
 }
 
 runPrompt()
 {
-	local desc="$1"
-	[[ $noPrompt ]] && { echo "Runing $desc..."; return 0; }
-	ask "Do you want to run $desc"
+	if [[ $noPrompt ]]; then
+		printf "${RB_GREEN}Running $1...${RESET}"
+	else
+		ask "Do you want to run $1"
+	fi
 }
 
-runProgram() {
-	local p="$1" copyLocal elevate pause; shift
+runProgram()
+{
+	local p="$1" copyLocal elevate pause rename; shift
 
 	[[ "$1" == @(--copy-local) ]] && { copyLocal="true"; shift; }
-	[[ "$1" == @(--elevate) ]] && { shift; IsPlatform win && { elevate="elevate" pause="--pause"; shift; }; }
+	[[ "$1" == @(--rename) ]] && { copyLocal="true" rename="true"; shift; } # must copy for rename so we do not impact the original file
+	[[ "$1" == @(--elevate) ]] && { shift; IsPlatform win && elevate="--elevate"; }
 	[[ "$1" == @(--no-pause) ]] && { pause=""; shift; }
 	[[ "$1" == @(--pause) ]] && { pause="--pause"; shift; }
 
+	local pExt; GetFileExtension "$p" pExt
 	local pDesc pParts; StringToArray "$p" "/" pParts
 	[[ ! $pDesc ]] && { pDesc="$(IFS=/; echo "${pParts[*]: -3}")"; }
 	[[ ! $pDesc ]] && pDesc="$p"
+	
+	# pause for installations which return without waiting
+	[[ "$pExt" == @(air|iso|msu|vsix|xpi) ]] && pause="--pause"
 
-	if [[ $copyLocal ]]; then
-		local t="$(PlatformTmp)"
-		cp "$p" "$t" > /dev/null
-		p="$t/$(GetFileName "$p")"
-	fi
+	# elevate for installations which always require it
+	[[ "$pExt" == @(msi) ]] && elevate="--elevate"
 
 	runPrompt "$pDesc" || return 0
+	[[ $copyLocal ]] && { runCopyLocal || return; }	
 
-	local pExt; GetFileExtension "$p" pExt
+	# use new mounted install share while elevated - in WSL 2 mounted network shares are not present when elevating
+	if ! IsElevated && [[ $elevate ]] && IsPlatform wsl2; then
+		local installUnc="$(GetUncShareFromFile "$INSTALL_DIR")"
+		local newInstallDir="$(RunScriptElevated unc mount "$installUnc")/documents/data/install" || return
+		p="${p/$INSTALL_DIR/$newInstallDir}"
+	fi
 
- 	[[ "$pExt" == @(air|iso|msu|vsix|xpi) ]] && pause="--pause"
+	# disable Open File Secirity Warning
+ 	[[ "$PLATFORM" == "win" ]] && export SEE_MASK_NOZONECHECKS=1 
 
- 	[[ "$PLATFORM" == "win" ]] && export SEE_MASK_NOZONECHECKS=1 # disable Open File Secirity Warning
-
+ 	# run the installation
 	case "$pExt" in
 		app) start "$p" "$@";;
 		AppImage) runAppImage "$p" "$@" || return;;
@@ -249,17 +265,36 @@ runProgram() {
 		dmg) runDmg "$p" "$@" || return;;
 		inf) elevate --wait pnputil.exe -i -a "$p" "$@";;
 		iso|img) iso mount "$p"; echo "If needed run the setup program manually..."; pause="--pause";;
-		msi) msiexec.exe /quiet /qb /norestart /i "$(utw "$p")" "$@";;
+		msi) RunScriptElevated RunMsi "$p" "$@" || return;;
+		msixbundle) start "$p" "$@" || return; pause="--pause";;
 		pkg) sudo installer $verboseInstaller -pkg "$p" -target /Applications;;
-		7z|bz2|gz|tar|xpi|zip|ear|jar|war) runZip "$p" "$@" || return;;
-		*) $elevate "$p" "$@" || return;;
+		7z|bz2|gz|tar|xpi|zip|ear|jar|war) echo; InstallAppFromZip $noPrompt $elevate "$p" "$@" || return;;
+		*) runExecutable "$p" "$@" || return;;
 	esac
 	
-	runPause || return
+	[[ $copyLocal ]] && rm "$p" >& /dev/null
+
+	runDone || return
 	
 	case "$pExt" in
 		iso) iso dismount "$p" || return
 	esac	
+}
+
+runCopyLocal()
+{
+	local t="$(PlatformTmp)"
+
+	CopyFileProgress "$p" "$t" || return
+	p="$t/$(GetFileName "$p")"
+
+	if [[ $rename ]]; then
+		local newP="$(mktemp --tmpdir="$(PlatformTmp)" --suffix ".$(GetFileExtension "$p")")"
+		mv "$p" "$newP" || return
+		p="$newP"
+	fi
+
+	return 0
 }
 
 runAppImage()
@@ -325,10 +360,15 @@ runDmgWorker()
 	mdimport "/Applications/$dir" || return
 }
 
-runZip()
+runExecutable()
 {
-	IsPlatform win && { elevate="--elevate" pause="--pause"; }
-	InstallAppFromZip $elevate "$p" "$@" || return
+	local p="$1"; shift
+
+	if [[ $elevate ]]; then
+		RunScriptElevated "$p" "$@"
+	else
+		start "$p" "$@"
+	fi
 }
 
 selectFile() # DIR PATTERN
@@ -368,7 +408,7 @@ storeInstall()
 		win) start RunProcess.exe ms-windows-store://pdp/?ProductId=$id;;
 	esac
 	
-	runPause || return
+	runDone || return
 }
 
 #
@@ -386,16 +426,13 @@ appCore()
 
 appInitial() { ! minimalInstall && i firefox; i sublime BeyondCompare || return; }
 appMac() { i gpg iTerm karabiner rectangle LinuxUtilities || return; }
-appWin() { i AutoHotKey AquaSnap EdgeDeflector WindowsTerminal winget || return; }
+appWin() { i WindowsTerminal AutoHotKey AquaSnap EdgeDeflector winget || return; }
 
 appDebian()
 { 
 	i CredentialStore xServer xClient || return
-	i chrony PackageManagement terminator tmux LinuxUtilities || return
+	i PackageManagement terminator tmux LinuxUtilities || return
 	
-	# colorls - slow on Raspberry Pi
-	! IsPlatform raspbian && { i colorls || return; }
-
 	# alternative text editors (gedit, geany)
 	! IsInstalled sublime && { package gedit || return; i geany || return; }
 
@@ -405,10 +442,13 @@ appDebian()
 	# alternative system monitor and file manager
 	! IsPlatform mac,ubuntu,win && { package gnome-system-monitor nautilus || return; }
 
+	# colorls - only on a faster physical system
+	IsPlatform physical && ! IsPlatform raspbian && { i colorls || return; }
+
 	return 0
 }
 
-appPhysical() { i ninite JumpCloud SaltMinion zoom || return; }
+appPhysical() { i chrony colorls JumpCloud ninite SaltMinion zoom || return; }
 
 appRaspbian() 
 { 
@@ -419,11 +459,12 @@ appRaspbian()
 
 appHostname()
 {
-	! [[ "$HOSTNAME" =~ ^raspberrypi$ ]] && return
+	[[ -f "$updateDir/NewHostname" ]] && return
 
 	os SetHostname || return
-	echo "Rebooting..."
-	sudo reboot now; exit 1
+
+	[[ -f "$updateDir/NewHostname" ]] && { power reboot; exit 1; }
+	return 0
 }
 
 appHostHardwareCore()
@@ -588,7 +629,7 @@ CalibreInstall()
 Calibre2opdsInstall()
 {
 	header "calibre2opds"
-	run "shareware/Calibre/calibre2opds/setup/calibre2opds-3.3-253.zip" "$P/calibre2opds" || return # http://calibre2opds.com/downloads/
+	run "shareware/Calibre/calibre2opds/setup/calibre2opds-3.3-253.zip" --elevate "$P/calibre2opds" || return # http://calibre2opds.com/downloads/
 
 	echo "Updating icons..."
 	$makeShortcut "$P/calibre2opds/rungui.cmd" "$pp/Media/calibre2opds - OPDS Catalog Generator" "-" "" "" min || return
@@ -680,6 +721,14 @@ bootstrapCommon()
 	fi
 
 	echo "done"
+
+	# add passwords to the credential store now to minimize prompting 
+	! password CheckStore && { password store || return; }
+
+	# set the default WSL distribution user now to aid troubleshooting issues.
+	IsPlatform wsl && { wsl SetDefaultUser "$(wsl name)" "$user" || return; }
+
+	return 0
 }
 
 bootstrapDebianMac() # debian|mac
@@ -700,6 +749,7 @@ bootstrapDebian()
 	package dialog file libdbus-glib-1-dev man sharutils || return								# other
 	package avahi-daemon dnsutils net-tools wakeonlan || return										# network	
 	package --no-prompt keyboard-configuration smbclient || return
+
 	i DebianSetup || return
 }
 
@@ -739,7 +789,7 @@ bootstrapMac()
 
 	if [[ ! -f "/etc/paths.d/wiggin" ]]; then
 		sudo bash -c 'echo "/usr/local/data/bin
-/usr/local/data/platform/mac
+$PLATFORM_PATH
 /usr/local/sbin" > /etc/paths.d/wiggin' || return;
 	fi
 
@@ -825,8 +875,6 @@ bootstrapUbuntu()
 bootstrapWsl()
 {
 	header "Bootstrap WSL"
-
-	wsl SetDefaultUser || return
 	wslFinal || return
 }
 
@@ -837,9 +885,7 @@ bootstrapWin()
 	makeLink --symbolic "$WIN_HOME/Desktop" "$HOME/Desktop" || return
 	makeLink --symbolic "$WIN_HOME/Downloads" "$HOME/Downloads" || return
 
-	# install HiddenStart and System Internals first to minimize prompts (assume this is done if Sublime is installed)
-	! IsInstalled sublime && { i HiddenStartFinal SystemInternals WindowsSetup || return; }
-	return 0
+	i WindowsSetup || return
 }
 
 #
@@ -893,16 +939,8 @@ firefoxInstall()
 	if IsPlatform pixel,raspbian; then
 		package firefox-esr || return
 	else
-		run "other/Mozilla/Firefox/" -p "Firefox Setup $v.msi" "Firefox $v.dmg" "firefox-$v.tar.bz2" --elevate || return
+		run "other/Mozilla/Firefox/" -p "Firefox Setup $v.msi" "Firefox $v.dmg" "firefox-$v.tar.bz2" || return # setup fails with names in spaces
 	fi
-
-	echot "\
-- Options, Sign in to Sync, Sign In...
-- LastPass
-	- LastPass, Accept, Login, check Remember Password
-	- right click LastPass, Manage Extensions, ..., Options, Icons, select grey
-- https://duckduckgo.com/, settings, Other Settings, Load Settings, DuckDuckButare"
-	pause
 	
 	if IsPlatform mac; then
 		dockutil --add "/Applications/Firefox.app" || return
@@ -911,7 +949,16 @@ firefoxInstall()
 		$rm "$pd/Firefox.lnk" || return
 	fi
 
-	firefox $noPrompt profile restore default || return
+	echo; firefox $noPrompt profile restore default || return
+
+	echot "\
+
+- Options, Sign in to Sync, Sign In...
+- LastPass
+	- LastPass, Accept, Login, check Remember Password
+	- right click LastPass, Manage Extensions, ..., Options, Icons, select grey
+- https://duckduckgo.com/, settings, Other Settings, Load Settings, DuckDuckButare"
+
 }
 
 #
@@ -1017,9 +1064,9 @@ DebianLocale()
 	[[ ! $line ]] && { EchoErr "inst: $locale is not supported"; return 1; }
 
   local encoding="$(echo $line | cut -f2 -d " ")"
-  echo "$locale $encoding" >> "/etc/locale.gen"
-  sed -i "s/^\s*LANG=\S*/LANG=$locale/" "/etc/default/locale" || return
-  dpkg-reconfigure -f noninteractive locales || return
+  echo "$locale $encoding" | sudo tee -a "/etc/locale.gen" || return
+  sudo sed -i "s/^\s*LANG=\S*/LANG=$locale/" "/etc/default/locale" || return
+  sudo dpkg-reconfigure -f noninteractive locales || return
 }
 
 DebianPolicies()
@@ -1051,7 +1098,7 @@ DebianSudo()
 	sudo grep "/usr/local/data/bin" "/etc/sudoers" >& /dev/null && return
 
 	local find="/usr/local/sbin"
-	local clip="/usr/local/data/bin:/usr/local/data/platform/$PLATFORM:"
+	local clip="/usr/local/data/bin:$PLATFORM_PATH:"
 
 	# try automatic change
 	sudo sed -i "s/$(echo "$find" | QuotePath)/$(echo "$clip$find:" | QuotePath)/" "/etc/sudoers" || return
@@ -1228,7 +1275,7 @@ ZoomInstall()
 	header "Zoom"
 
 	# https://zoom.us/support/download
-	run "other/Zoom/" -p "ZoomInstallerFull.msi" "ZoomInstallOnly.pkg" --pause || return
+	run "other/Zoom/" -p "ZoomInstallerFull.msi" "ZoomInstallOnly.pkg" || return
 
 	if IsPlatform mac; then
 		mergeDir "$udoc/Zoom" "$udata/app" || return
@@ -1298,7 +1345,7 @@ FileLocatorProInstall()
 
 	# https://www.mythicsoft.com/filelocatorpro/download/
 	local v="2946" 
-	run "platform/win/Mythicsoft/FileLocator Pro/setup/filelocator_x64_$v.msi" || return
+	run "platform/win/Mythicsoft/FileLocator Pro/filelocator_x64_$v.msi" || return
 
 	if [[ "$PLATFORM" == "win" ]]; then
 		mergeDir "$pp/FileLocator Pro" "$oo" || return
@@ -1589,7 +1636,7 @@ PicasaInstall()
 - Select Don't use Picasa Photo Viewer"
 
 	run "other/Google/Picasa/setup/Picasa Setup v3.9.139.161.exe" || return
-	run "other/Google/Picasa/starter/image v2.0.zip" "$P32/PicasaStarter" || return
+	run "other/Google/Picasa/starter/image v2.0.zip" "$P32/PicasaStarter" --elevate || return
 
 	echo "Updating icons..."
 	mergeDir --rename "$pp/Picasa 3" "$pp/Media/Other/Picasa" || return
@@ -1624,7 +1671,7 @@ LinuxUtilitiesInstall()
 	package colordiff cowsay figlet fortune-mod jq || return													# text	
 	package tty-clock virt-what || return
 
-	[[ "$(os CodeName)" != "xenial" ]] && { package ncat || return; } # gitlab docker image is xenial
+	[[ "$(os CodeName)" != @(bionic|xenial) ]] && { package ncat || return; }
 
 	return 0
 }
@@ -2067,7 +2114,7 @@ BalenaEtcher() # disc image burner
 	run "$dir/" -p "balenaEtcher-Setup-$v.exe" "balenaEtcher-$v.dmg" "balena-etcher-electron-$v-linux-x64.zip" || return
 
 	v="v12.14.1" # 
-	run "$dir/balena-cli-$v-" -p "windows-x64-standalone.zip" "macOS-x64-standalone.zip" "linux-x64-standalone.zip" "$P/balena-cli" --elevate || return
+	run "$dir/balena-cli-$v-" -p "windows-x64-standalone.zip" "macOS-x64-standalone.zip" "linux-x64-standalone.zip" --elevate "$P/balena-cli" || return
 
 	if IsPlatform win; then
 		$mv "$up/balenaEtcher.lnk" "$up/Applications" || return
@@ -2392,11 +2439,9 @@ IntelDriverUpdateInstall()
 
 IntelDriversInstall()
 {
-	local a=(--elevate --no-pause)
-
 	header "Intel Drivers "
 	run "hardware/Intel/driver/WiFi/WiFi_21.80.2_Driver64_Win10/Netwtw08.INF" || return # https://downloadcenter.intel.com/download/29124/Intel-PROSet-Wireless-Software-and-Drivers-for-IT-Admins
-	run "hardware/Intel/driver/Bluetooth/BT_21.80.0_64_Win10/Intel Bluetooth.msi" --elevate --no-pause || return # https://downloadcenter.intel.com/download/29126/
+	run "hardware/Intel/driver/Bluetooth/BT_21.80.0_64_Win10/Intel Bluetooth.msi" || return # https://downloadcenter.intel.com/download/29126/
 	run "hardware/Intel/driver/Serial IO/SerialIO_30.100.1915.1_PV_CNL_19H1/SetupSerialIO.exe" -s || return # rosie
 	i IntelStorageManagement IntelThunderboltControlCenter IntelIcons || return
 }
@@ -3222,7 +3267,7 @@ powerShellInstall()
 	header "PowerShell"
 	
 	# https://aka.ms/pscore6
-	run "other/Microsoft/PowerShell/" -p "PowerShell-7.0.2-win-x64.msi" "powershell-7.0.2-osx-x64.pkg" "powershell-7.0.2-linux-x64.tar.gz" --elevate || return
+	run "other/Microsoft/PowerShell/" -p "PowerShell-7.0.2-win-x64.msi" "powershell-7.0.2-osx-x64.pkg" "powershell-7.0.2-linux-x64.tar.gz" || return
 }
 
 powerToysInstall()
@@ -3355,9 +3400,9 @@ sqlServerFinal()
 	pause
 }
 
-systemInternalsInstall() 
+SystemInternalsInstall() 
 { 
-	echo "Setting System Internals EULA..."
+	header "System Internals"
 	$registry import "$setupFiles/SysInternalsEula.reg"
 }
 
@@ -3923,8 +3968,7 @@ AxCrypt()
 CredentialStoreInstall()
 {
 	header "Credential Store"
-	i --no-header xClient
-
+	
 	# Mac OS and Windows - credential managed is installed with the OS
 	if IsPlatform mac,win; then
 		:
@@ -4206,7 +4250,7 @@ terminator()
 		makeDir "$d" || return
 
 		# IsPlatform wsl2
-		cp "$DATA/icons/terminator2.ico" "$DATA/platform/win/terminator.vbs" "$d" || return
+		cp "$DATA/icons/terminator2.ico" "$PLATFORM_PATH/terminator.vbs" "$d" || return
 		$makeShortcut "wscript.exe" "$pp/Operating System/terminator" "$(utw "$d")\terminator.vbs" "$(utw "$d/terminator2.ico")" || return
 	fi
 
@@ -4289,8 +4333,8 @@ SublimeInstall()
 	header "Sublime Text Editor"
 
 	# http://www.sublimetext.com/3 
-	local v=3211
-	run "other/Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime_text_3_build_${v}_x64.tar.bz2" --elevate || return 
+	local v=3211 args=(); IsPlatform win && args+=(/VERYSILENT) 	
+	run "other/Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime_text_3_build_${v}_x64.tar.bz2" --elevate "${args[@]}" || return 
 
 	if IsPlatform win; then
 		makeLink --merge --hide "$udata/app/Dash" "$udoc/Dash" || return
@@ -4298,7 +4342,7 @@ SublimeInstall()
 		$ren "$pp/Sublime Text 3.lnk" "$pp/Applications/Sublime Text.lnk" || return
 		makeDir "$adata/Sublime Text 3" || return; # for profile
 	fi
-
+	
 	sublime $noPrompt profile restore default || return
 	SetTextEditor || return
 }
@@ -4351,7 +4395,7 @@ senaInstall()
 # utility
 #
 
-utilityCore() { i AltTabTerminator aptivate AutoHotKey bartender CloseAllWIndows EdgeDeflector flux greenshot karabiner HiddenStart LinkShellExtension RightClickEnhancer SevenZip TaskLayout TidyTabs; }
+utilityCore() { i AltTabTerminator aptivate AutoHotKey bartender CloseAllWIndows EdgeDeflector flux greenshot karabiner LinkShellExtension RightClickEnhancer SevenZip TaskLayout TidyTabs; }
 
 ahk() { AutoHotKeyInstall; }
 AutoHotKeyInstall()
@@ -4477,7 +4521,7 @@ KarabinerInstall() # keyboard shortcuts for MacOS
 	macAppOpen Karabiner-Elements || return
 }
 
-HiddenStartInstall()
+HiddenStart()
 {
 	header "Hidden Start"
 
@@ -4490,17 +4534,19 @@ HiddenStartInstall()
 	HiddenStartFinal || return
 }
 
-HiddenStartFinal()
+HiddenStartConfigued() { schtasks.exe | grep HstartUAC-x64 >& /dev/null; }
+
+HiddenStartConfigure()
 {
-	echo "Adding Hidden Start license..."
+	header "Hidden Start Configuration"
+
 	if [[ ! "$(registry 32 get "HKLM/SOFTWARE/Alexander Avdonin/Hidden Start/RegName")" ]]; then
 			registry import "$setupFiles/HiddenStart.reg" || return
-			pause
 	fi
 
-	echo "Adding Hidden Start scheduled task..."
-	if ! schtasks.exe | grep HstartUAC-x64 >& /dev/null; then
-		start --wait hstart64.exe /nouac /wait ""cmd" /c echo Hidden Start 64 scheduled task is setup && pause"
+	if ! HiddenStartConfigued; then
+		start --wait hstart64.exe /nouac /wait ""cmd" /c echo Hidden Start 64 scheduled task is setup"
+		! HiddenStartConfigued && { EchoErr "inst: unable to add the Hidden Start scheduled task"; return 1; }
 	fi
 
 	return 0
@@ -4553,8 +4599,8 @@ SevenZip()
 	run "shareware/7-Zip/setup/7z1900-x64.exe" --elevate || return
 
 	# Update bin files
-	$cp "$P/7-zip/7-zip.chm" "$DATA/platform/win" || return
-	$cp "$P/7-zip/7z.exe" "$P/7-zip/7z.dll" "$DATA/platform/win" || return
+	$cp "$P/7-zip/7-zip.chm" "$PLATFORM_PATH" || return
+	$cp "$P/7-zip/7z.exe" "$P/7-zip/7z.dll" "$PLATFORM_PATH" || return
 
 	echo "Updating icons..."
 	mergeDir "$pp/7-Zip" "$ao" || return
@@ -4871,11 +4917,20 @@ WinSplitInstall()
 
 WindowsSetup()
 {
-	! IsElevated && { elevate RunScript --pause-error inst WindowsSetup "${options[@]}"; pause; return; }
+	header "Windows Setup"
+	
+	if ! IsElevated; then
+		export WSLENV="PATH/l" # ensure hstart64.exe is in the path for elevate
+		elevate RunScript --pause-error inst WindowsSetup "${options[@]}" || return
+		pause "When the Windows Setup finishes running press any key to continue..."
+		return
+	fi
+
+	i HiddenStartConfigure SystemInternals || return # run first to minimize prompts
 	i WindowsPath WindowsPermissions WindowsDirs WindowsIcons WindowsFonts WindowsConsole WindowsConfiguration OneDrive || return
 }
 
-WindowsPath() { SetVar --system --path PATH "$DATA/platform/$PLATFORM" || return; }
+WindowsPath() { SetVar --system --path PATH "$PLATFORM_PATH" || return; }
 
 WindowsPermissions()
 {
@@ -4924,6 +4979,7 @@ WindowsIcons()
 	$mv "$pp/OneDrive.lnk" "$up/Applications" || return
 
 	$rm "$pd/Microsoft Edge.lnk" || return
+	$rm "$ud/Microsoft Edge.lnk" || return
 	$rm "$up/Microsoft Edge.lnk" || return
 	$rm "$up/OneDrive.lnk" || return
 
@@ -4973,7 +5029,7 @@ WindowsConfiguration()
 	echo "Moving taskbar to the left side of the screen..."
 	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/StuckRects3/Settings' REG_BINARY 30000000FEFFFFFF02000000000000004E0000003200000000000000000000004E000000380400007800000001000000
 	
-	echo "Enabling VPN to server behind NAT..." 
+	echo "Enabling VPN to a server behind NAT..." 
  	registry set "HKLM/SYSTEM/CurrentControlSet/Services/PolicyAgent/AssumeUDPEncapsulationContextOnSendRule" REG_DWORD 2 || return
 
 	echo "Enabling remote desktop connections..." 
@@ -5049,9 +5105,10 @@ WindowsFonts()
 
 	findFile "fonts/MesloLGS NF" || return
 	CopyDir "$file" "/tmp/fonts" || return # fontreg.exe fails on network share in wsl 2
-	pushd "/tmp/fonts" >& /dev/null || return
-	fontreg.exe /copy || return # requires elevation
+	pushd "/tmp/fonts" > /dev/null || return
+	FontReg.exe /copy || return # requires elevation
 	popd  >& /dev/null || return
+	rm -fr "/tmp/fonts" >& /dev/null
 
 	local file="/etc/fonts/local.conf"
 	if [[ ! -f "$file" ]]; then
@@ -5123,7 +5180,7 @@ WindowsSubsystemForLinuxInstall()
 	wslFinal || return
 }
 
-wslIcons()
+wslFinal()
 { 
 	$registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/RunScript startup' || return
 	$makeShortcut "wsl.exe" "$pp/Operating System/bash" || return
@@ -5162,9 +5219,10 @@ x410Install()
 	# http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/d58e1ec4-93e0-419d-9087-b4b6140cec73?P1=1592686347&P2=402&P3=2&P4=UINsnvSEcuBjJQ1nWgwyab8CSRSOjheiHY2nIZlGQhKh9frMHHpM4v%2bgxSuXfpuueMtIyJYmmBg4CnBrrW5dpw%3d%3d
 	# storeInstall "X410" "9NLP712ZMN9Q" || return
 	run "platform/linux/X Windows/X410/setup/X410_StorePkg_2.8.2.0_x64.appx" || return
-	
-	echo "- check Allow Public Access.   At the Windows Firewall prompt check Public"
-	pause
+
+echot "\
+	- check Allow Public Access
+	- at the Windows Firewall prompt check Public"
 }
 
 xMingInstall()

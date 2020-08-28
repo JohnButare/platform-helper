@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 . function.sh
+. color.sh || return
 
 runLinux() { sudo tar xjvf "$p" -C "$P"; }
 
@@ -13,14 +14,22 @@ runMac()
 	fi
 
 	getDest "$@" && shift || return
+	checkExists "$dest" || return
 	runCommon
 }
 
 runWin()
 {
 	getDest "$@" && shift || return
-	[[ "$elevate" ]] && ! IsElevated && { RunScriptElevated "InstallAppFromZip \"$p\" \"$dest\" "$@""; return; }
-	runCommon
+	checkExists "$dest" || return
+	
+	if [[ "$elevate" ]] && ! IsElevated; then
+		echo "${RB_GREEN}inflating...${RESET}"
+		RunScriptElevated "InstallAppFromZip --no-prompt \"$p\" \"$dest\" "$@"" || return
+		echo "${RB_GREEN}done${RESET}"
+	else
+		runCommon
+	fi
 }
 
 getDest()
@@ -36,14 +45,19 @@ checkExists()
 
 	[[ ! -d "$dir" ]] && return
 		
-	ask "Do you want to delete the existing installation in \"$dir\"" -dr n || return
-	${G}rm -fr "$dir" || return
+	[[ ! $noPrompt ]] && { ask "Do you want to delete the existing installation in \"$dir\"" -dr n || return; }
+
+	if IsPlatform win && ! IsElevated; then
+		printf "${RB_GREEN}cleaning...${RESET}"
+		RunScriptElevated rm -fr "\"$dir\"" || return
+		echo "${RB_GREEN}done${RESET}"
+	else
+		${G}rm -fr "$dir"
+	fi
 }
 
 runCommon()
 {
-	checkExists "$dest" || return
-
 	${G}mkdir --parents "$dest" || return
 	unzip -d "$dest" "$p" || return
 
@@ -63,9 +77,10 @@ runCommon()
 run()
 {
 	local elevate; [[ "$1" == "--elevate" ]] && { elevate="true"; shift; }
+	local noPrompt; [[ "$1" == "--no-prompt" ]] && { noPrompt="true"; shift; }
 	local p="$1"; shift
 	local dest
-	
+
 	[[ ! $p ]] && { EchoErr "app: installation source was not specified"; return 1; }
 	RunPlatform run "$@"
 }

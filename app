@@ -112,6 +112,8 @@ RunService()
 
 	local service="$1"
 	
+	! service exists "$1" && return
+
 	if [[ "$command" != "startup" ]]; then
 		printf "$service."
 		service stop $service # >& /dev/null

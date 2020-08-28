@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 . app.sh || exit
+. color.sh || return
 
 run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 
@@ -125,7 +126,7 @@ restoreCommand()
 	
 	[[ ! -f "$profile" ]] && { EchoErr "profile: cannot access profile \`$filename\`: No such file"; return 1; }
 
-	! askP "Restore $app$globalDescription profile \"$filename\"?" -dr n && return 0
+	! askP "Restore $app$globalDescription profile \"$filename\"" -dr n && return 0
 
 	if [[ "$method" == "file" ]]; then
 		AppCloseSave "$app" || return
@@ -216,7 +217,14 @@ saveDirCommand()
 # helper
 #
 
-askP() { [[ $noPrompt ]] && { echo "$1..."; return; }; ask "$1"; }
+askP()
+{
+	if [[ $noPrompt ]]; then
+		echo "${RB_GREEN}$1...${RESET}"
+	else
+		ask "$1"
+	fi
+}
 
 copyDefaultProfile()
 {

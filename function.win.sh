@@ -23,7 +23,7 @@ MakeShortcut()
 	local linkDir="$(utw "$(GetFilePath "$link")")"
 	local linkName="$(GetFileName "$link")"
 
-	start NirCmd shortcut "$f" "$linkDir" "$linkName" "${@:3}";
+	start nircmd shortcut "$f" "$linkDir" "$linkName" "${@:3}";
 }
 
 GetWinRemovableDrives() 
@@ -56,7 +56,9 @@ IsWindowsProgram()
 	local file="$(FindInPath "$1")"
 
 	if IsPlatform win; then
-		file "$file" | grep PE32 > /dev/null; return;
+		file "$file" | grep PE32 > /dev/null && return;
+		echo $file | grep "WindowsApps" > /dev/null && return; # the file command does not work properly for Windows Apps (file "$LOCALAPPDATA/Microsoft/WindowsApps/wt.exe")
+		return
 	else
 			return 0
 	fi
@@ -65,11 +67,11 @@ IsWindowsProgram()
 # Windows process elevation (use Administrator token) 
 elevate()
 {
-	# Launch Windows Terminal elevated in the current directory
-	[[ "$#" == "0" ]] && InPath wt.exe && { start --elevate wt.exe -d "$(utw "$PWD")"; return; }
-
-	# Launch a regular terminal elevated in the current directory
-	[[ "$#" == "0" ]] && { start --elevate RunScript RunInDir "$PWD"; return; }
+	# Launch a terminal elevated in the current directory
+	if [[ "$#" == "0" ]]; then
+		InPath wt.exe && { start --elevate wt.exe -d "$PWD"; return; }
+		start --elevate wsl.exe; return;
+	fi
 
 	# Launch the specified program elevated
 	start --elevate "$@"

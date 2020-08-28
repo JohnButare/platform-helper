@@ -23,7 +23,7 @@ echo kernel=\"$(uname -r)\";
 [[ -f /var/sysinfo/model ]] && echo ubiquiti=true;
 [[ -f /proc/syno_platform ]] && echo synology=true;
 [[ -f /bin/busybox ]] && echo busybox=true;
-[[ -f /usr/bin/systemd-detect-virt && "$(systemd-detect-virt --container)" != "none" ]] && echo container=true;'
+[[ -f /usr/bin/systemd-detect-virt ]] && container=\"$(systemd-detect-virt --container)\";'
 
 	if [[ $host ]]; then
 		#IsAvailable $host || { EchoErr "$host is not available"; return 1; } # adds .5s
@@ -40,14 +40,14 @@ echo kernel=\"$(uname -r)\";
 		if [[ $kernel =~ .*-Microsoft$ ]]; then platformKernel="wsl1"
 		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platformKernel="wsl2"
 		fi
-		
-		case "$platform" in 
+
+		case "$platform" in
 			Darwin)	platform="mac";;
 			Linux) platform="linux";;
 			MinGw*) platform="win"; ID_LIKE=mingw;;
 		esac
 
-		if [[ ! $chroot && ! $container ]]; then
+		if [[ ! $chroot && "$container" != @(none|wsl) ]]; then
 			if [[ "$platformKernel" == "wsl1" ]]; then platform="win" wsl=1
 			elif [[ "$platformKernel" == "wsl2" ]]; then platform="win" wsl=2
 			elif [[ $ID_LIKE =~ openwrt ]]; then ID_LIKE="openwrt"

@@ -8,9 +8,6 @@ init()
 	wslDir="$DATAD/data/wsl"
 	shortcutDir="$PROGRAMDATA/Microsoft/Windows/Start Menu/Programs/Operating System/Other/WSL/"
 	defaultDistro="ubuntu-focal" defaultVersion="2"
-
-	mkdir --parents "$wslDir/image" || return
-	mkdir --parents "$shortcutDir" || return
 }
 
 usage()
@@ -75,9 +72,15 @@ args()
 		shift
 	done
 
+	[[ "$command" == @(backup|copy|restore) ]] && { validateWslDir || return; }
+
 	[[ ! $command ]] && usage 1
 	return 0
 }
+
+#
+# helper functions
+#
 
 distFirst() { listPlainCommand "$1" | head -1 | awk '{ print $1; }'; }
 distExists() { [[ $1 && "$(listPlainCommand "$1" | cut -d" " -f1 | grep "^${1}$")" ]]; }
@@ -93,10 +96,11 @@ distDefaultArg() # return 0 (true) if an arg is used
 	return 1 # arg was not used
 }
 
+validateWslDir() { [[ -d "$wslDir/image" ]] && return; mkdir --parents "$wslDir/image"; }
 
-# fix invalid argument issue when running from SMB mounted shares
+# cd to local directory to fix invalid argument error running programs from SMB mounted shares
 w() { ( cd /; wsl.exe "$@"; ); }
-lxr() { ( cd /; lxrunoffline.exe "$@"; ); }
+lxr() { ( cd /; LxRunOffline.exe "$@"; ); }
 
 #
 # Commands
@@ -108,7 +112,6 @@ isRunningCommand() { distDefaultArg "$1" && shift; [[ "$(wsl ListPlain | grep "$
 killCommand() { w --terminate "$1"; }
 listCommand() { w --list --verbose | Utf16toAnsi | RemoveCarriageReturn; }
 listPlainCommand() { listCommand | cut -b 3- | tail +2 ; } # remove header and default distribution *
-nameCommand() { [[ $WSL_DISTRO_NAME ]] && echo "$WSL_DISTRO_NAME" || utw / | cut -d'\' -f4; } # WSL_DISTRO_NAME not set when using su/sudo
 runCommand() { w --distribution "$@"; }
 run1Command() { runCommand "$(listPlainCommand | grep 1$ | head -1 | awk '{ print $1; }')" "$@"; }
 run2Command() { runCommand "$(listPlainCommand | grep 2$ | head -1 | awk '{ print $1; }')" "$@"; }
@@ -159,6 +162,12 @@ initCommand()
 	cmd.exe /c 'copy '$(utw $BIN/bootstrap-config.sh)' \\wsl$\'$dist'\tmp' || return
 	lxr run -n "$dist" -w -c "bash -c \". /tmp/bootstrap-init\""
 }
+
+nameCommand()
+{
+	# WSL_DISTRO_NAME is not passed by default when using su/sudo/login
+	[[ $WSL_DISTRO_NAME ]] && echo "$WSL_DISTRO_NAME" || utw / | cut -d'\' -f4
+} 
 
 restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](2)
 {
@@ -235,6 +244,7 @@ setDefaultUserCommand()
 shortcutCommand()
 { 
 	local dist="$1" name="${2:-$dist}"; [[ ! $dist ]] && usage;
+	[[ ! -d "$shortcutDir" ]] && { mkdir --parents "$shortcutDir" || return; }
 	MakeShortcut "wsl.exe" "$shortcutDir/$name" "-d $dist" "$(utw $(FindInPath wsl.exe))" || return
 }
 
