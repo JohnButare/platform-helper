@@ -55,7 +55,8 @@ usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
 	-g,  --global 					use the global profile in install/bootstrap/profile
 	-m,  --method	<dir>|<program>|<key>
 	-np, --no-prompt	   		suppress interactive prompts
-	-se, --save-extension  	for program profiles, the profile extension used by the program"
+	-se, --save-extension  	for program profiles, the profile extension used by the program
+	-v,  --verbose  				show verbose output"
 	exit $1 
 }
 
@@ -72,6 +73,7 @@ args()
 			-m|--method) method="$2"; shift;;
 			-np|--no-prompt) noPrompt="--no-prompt";;
 			-se|--save-extension) saveExtension="$2"; shift;;
+			-v|--verbose) verbose="--verbose";;
 			CopyGlobal) command="copyGlobal";; SaveDir) command="saveDir";;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
@@ -102,7 +104,7 @@ dirCommand()
 	case "$method" in
 		file) echo "$profileDir";;
 		program) start "$profileProgram";;
-		registry) registry edit "$profileKey";;
+		registry) registry edit $verbose "$profileKey";;
 	esac
 }
 
@@ -140,7 +142,7 @@ restoreCommand()
 
 	elif [[ "$method" == "registry" ]]; then
 		AppCloseSave "$app" || return
-		registry import "$profile" || return
+		registry import $verbose "$profile" || return
 		AppStartRestore "$app" || return
 
 	fi
@@ -182,7 +184,7 @@ saveCommand()
 	# save the registry
 	elif [[ "$method" == "registry" ]]; then
 		printf 'Backing up to "%s"...' "$file"
-		registry export "$profileKey" "$dest/$file" || return
+		registry export "$profileKey" "$dest/$file" $verbose || return
 		echo "done"
 		
 	fi

@@ -2,41 +2,72 @@
 . function.sh
 . color.sh || return
 
-runLinux() { sudo tar xjvf "$p" -C "$P"; }
+run() {	init && args "$@" && install; }
 
-runMac()
+init() { :; }
+
+usage()
 {
-	local dir="$(zipinfo -1 "$p" | head -1)"
+	echot "\
+usage: InstallAppFromZip ZIP [DESTINATION]($P) -- ZIP_OPTIONS
+	Install an application from a ZIP file.
+
+	-e, --elevate				in Windows install the application with an elevated (Administrator) token
+	-np, --no-prompt		do not prompt for input
+	-v, --verbose				display detailed output"
+	exit $1
+}
+
+args()
+{
+	unset -v dest elevate noPrompt verbose zip
+	
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-e|--elevate) elevate="--elevate";;
+			-h|--help) usage 0;;
+			-np|--no-prompt) noPrompt="--no-prompt";;
+			-v|--verbose) verbose="--verbose";;
+			*)
+				! IsOption "$1" && [[ ! $zip ]] && { zip="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+
+	[[ ! $zip ]] && MissingOperand "zip"
+	dest="${dest:-$P}"
+
+	return 0
+}
+
+install() { RunPlatform install; }
+
+installLinux() { sudo tar xjvf "$zip" -C "$dest"; }
+
+installMac()
+{
+	local dir="$(zipinfo -1 "$zip" | head -1)"
 	if [[ "$dir" =~ ^.*app/$ ]]; then
-		checkExists "$P/$dir" || return
+		checkExists "$dest/$dir" || return
 		unzip "$p" -d "$P"
 		return
 	fi
 
-	getDest "$@" && shift || return
 	checkExists "$dest" || return
 	runCommon
 }
 
-runWin()
+installWin()
 {
-	getDest "$@" && shift || return
 	checkExists "$dest" || return
 	
 	if [[ "$elevate" ]] && ! IsElevated; then
-		echo "${RB_GREEN}inflating...${RESET}"
-		RunScriptElevated "InstallAppFromZip --no-prompt \"$p\" \"$dest\" "$@"" || return
-		echo "${RB_GREEN}done${RESET}"
+		RunScript --elevate $verbose -- InstallAppFromZip $verbose --no-prompt "$zip" "$dest" || return
 	else
 		runCommon
 	fi
-}
-
-getDest()
-{
-	dest="$1"; shift
-	[[ ! $dest ]] && { EchoErr "app: installation directory was not specified"; return 1; }
-	return 0
 }
 
 checkExists()
@@ -48,9 +79,9 @@ checkExists()
 	[[ ! $noPrompt ]] && { ask "Do you want to delete the existing installation in \"$dir\"" -dr n || return; }
 
 	if IsPlatform win && ! IsElevated; then
-		printf "${RB_GREEN}cleaning...${RESET}"
-		RunScriptElevated rm -fr "\"$dir\"" || return
-		echo "${RB_GREEN}done${RESET}"
+		printf "cleaning..."
+		RunScript --elevate -- rm -fr "\"$dir\"" || return
+		echo "done"
 	else
 		${G}rm -fr "$dir"
 	fi
@@ -59,12 +90,15 @@ checkExists()
 runCommon()
 {
 	${G}mkdir --parents "$dest" || return
-	unzip -d "$dest" "$p" || return
+
+	[[ $verbose ]] && hilight "Unzipping \"$(GetFileName "$zip")\" to \"$dest\"..." || hilight "Inflating..."
+	unzip -d "$dest" "$zip" || return
 
 	# If the archive contains a single directory move the contents of that directory up
-	if [[ "$(DirCount "$dest")" == 1 ]]; then
-		for dir in "$dest"/*; do
+	if [[ "$(DirCount "$dest")" == 1 ]]; then		
+		for dir in "$dest"/*; do			
 			if [[ -d "$dir" ]]; then
+				[[ $verbose ]] && hilight "Moving \"$(GetFileName "$dir")\" to \"$dest\"..."
 				MoveAll "$dir" "$dest" || return
 				break
 			fi
@@ -72,17 +106,6 @@ runCommon()
 	fi
 
 	return 0
-}
-
-run()
-{
-	local elevate; [[ "$1" == "--elevate" ]] && { elevate="true"; shift; }
-	local noPrompt; [[ "$1" == "--no-prompt" ]] && { noPrompt="true"; shift; }
-	local p="$1"; shift
-	local dest
-
-	[[ ! $p ]] && { EchoErr "app: installation source was not specified"; return 1; }
-	RunPlatform run "$@"
 }
 
 run "$@"

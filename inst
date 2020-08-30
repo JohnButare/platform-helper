@@ -25,7 +25,6 @@ init()
 	hideAndSystem="FileHideAndSystem"
 	makeShortcut="MakeShortcut"
 	mv="FileCommand mv"
-	registry="registry"
 	ren="FileCommand ren"
 	rm="${G}rm -f"
 	rmd="${G}rm -fr"
@@ -217,6 +216,8 @@ runPrompt()
 {
 	if [[ $noPrompt ]]; then
 		printf "${RB_GREEN}Running $1...${RESET}"
+		[[ $verbose ]] && echo
+		return 0
 	else
 		ask "Do you want to run $1"
 	fi
@@ -224,13 +225,8 @@ runPrompt()
 
 runProgram()
 {
-	local p="$1" copyLocal elevate pause rename; shift
-
-	[[ "$1" == @(--copy-local) ]] && { copyLocal="true"; shift; }
-	[[ "$1" == @(--rename) ]] && { copyLocal="true" rename="true"; shift; } # must copy for rename so we do not impact the original file
-	[[ "$1" == @(--elevate) ]] && { shift; IsPlatform win && elevate="--elevate"; }
-	[[ "$1" == @(--no-pause) ]] && { pause=""; shift; }
-	[[ "$1" == @(--pause) ]] && { pause="--pause"; shift; }
+	local args=() copyLocal elevate p pause rename
+	runArgs "$@" || return; set -- "${args[@]}"
 
 	local pExt; GetFileExtension "$p" pExt
 	local pDesc pParts; StringToArray "$p" "/" pParts
@@ -243,18 +239,19 @@ runProgram()
 	# elevate for installations which always require it
 	[[ "$pExt" == @(msi) ]] && elevate="--elevate"
 
-	runPrompt "$pDesc" || return 0
 	[[ $copyLocal ]] && { runCopyLocal || return; }	
+
+	runPrompt "$pDesc" || return 0
 
 	# use new mounted install share while elevated - in WSL 2 mounted network shares are not present when elevating
 	if ! IsElevated && [[ $elevate ]] && IsPlatform wsl2; then
 		local installUnc="$(GetUncShareFromFile "$INSTALL_DIR")"
-		local newInstallDir="$(RunScriptElevated unc mount "$installUnc")/documents/data/install" || return
+		local newInstallDir="$(RunScript --elevate -- unc mount "$installUnc")/documents/data/install" || return
 		p="${p/$INSTALL_DIR/$newInstallDir}"
 	fi
 
 	# disable Open File Secirity Warning
- 	[[ "$PLATFORM" == "win" ]] && export SEE_MASK_NOZONECHECKS=1 
+ 	[[ "$PLATFORM" == "win" ]] && export SEE_MASK_NOZONECHECKS=1
 
  	# run the installation
 	case "$pExt" in
@@ -265,11 +262,10 @@ runProgram()
 		dmg) runDmg "$p" "$@" || return;;
 		inf) elevate --wait pnputil.exe -i -a "$p" "$@";;
 		iso|img) iso mount "$p"; echo "If needed run the setup program manually..."; pause="--pause";;
-		msi) RunScriptElevated RunMsi "$p" "$@" || return;;
-		msixbundle) start "$p" "$@" || return; pause="--pause";;
+		msi) RunMsi $elevate $verbose "$p" -- "$@" || return;;
 		pkg) sudo installer $verboseInstaller -pkg "$p" -target /Applications;;
-		7z|bz2|gz|tar|xpi|zip|ear|jar|war) echo; InstallAppFromZip $noPrompt $elevate "$p" "$@" || return;;
-		*) runExecutable "$p" "$@" || return;;
+		7z|bz2|gz|tar|xpi|zip|ear|jar|war) echo; InstallAppFromZip $elevate $noPrompt $verbose "$p" "$@" || return;;
+		*) RunExecutable $elevate $verbose "$p" -- "$@" || return;;
 	esac
 	
 	[[ $copyLocal ]] && rm "$p" >& /dev/null
@@ -281,9 +277,31 @@ runProgram()
 	esac	
 }
 
+runArgs()
+{
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-cl|--copy-local) copyLocal="true";;
+			-e|--elevate) IsPlatform win && elevate="--elevate";;
+			-r|--rename) copyLocal="true" rename="true";; # must copy for rename so we do not impact the original file
+			-p|--pause) pause="--pause";;
+			-np|--no-pause) pause="";;
+			*) [[ "$1" == "--" ]] && { shift; args+=( "$@" ); break; }
+				! IsOption "$1" && [[ ! $p ]] && { p="$1"; shift; continue; }
+				! IsOption "$1" && UnknownOption "$1" "run"
+		esac
+		shift
+	done
+
+	[[ ! "$p" ]] && { MissingOperang "program" "run"; }
+	return 0
+}
+
 runCopyLocal()
 {
 	local t="$(PlatformTmp)"
+
+	[[ $verbose ]] && hilight "Copying \"$(GetFileName "$p")\" to \"$t\"..."
 
 	CopyFileProgress "$p" "$t" || return
 	p="$t/$(GetFileName "$p")"
@@ -358,17 +376,6 @@ runDmgWorker()
 
 	echo "Updating Spotlight..."
 	mdimport "/Applications/$dir" || return
-}
-
-runExecutable()
-{
-	local p="$1"; shift
-
-	if [[ $elevate ]]; then
-		RunScriptElevated "$p" "$@"
-	else
-		start "$p" "$@"
-	fi
 }
 
 selectFile() # DIR PATTERN
@@ -538,13 +545,13 @@ ccIcons()
 	$mv "$pp/Adobe"*".lnk" "$pp/Media/Other/Adobe" >& /dev/null
 	$mv "$pd/Adobe"*".lnk" "$pp/Media/Other/Adobe" >& /dev/null
 
-	$registry 32 delete "run/Adobe Creative Cloud" # "C:\Program Files (x86)\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe" --showwindow=false --onOSstartup=true
-	$registry 32 delete "run/Acrobat Assistant 8.0" # "C:\Program Files (x86)\Adobe\Acrobat DC\Acrobat\Acrotray.exe"
-	$registry delete "run/AdobeGCInvoker-1.0" # "C:\Program Files (x86)\Common Files\Adobe\AdobeGCClient\AGCInvokerUtility.exe"
-	$registry delete "urun/Adobe Acrobat Synchronizer" # "C:\Program Files (x86)\Adobe\Acrobat DC\Acrobat\AdobeCollabSync.exe"
+	registry 32 delete "run/Adobe Creative Cloud" # "C:\Program Files (x86)\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe" --showwindow=false --onOSstartup=true
+	registry 32 delete "run/Acrobat Assistant 8.0" # "C:\Program Files (x86)\Adobe\Acrobat DC\Acrobat\Acrotray.exe"
+	registry delete "run/AdobeGCInvoker-1.0" # "C:\Program Files (x86)\Common Files\Adobe\AdobeGCClient\AGCInvokerUtility.exe"
+	registry delete "urun/Adobe Acrobat Synchronizer" # "C:\Program Files (x86)\Adobe\Acrobat DC\Acrobat\AdobeCollabSync.exe"
 
-	$registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{0E270DAA-1BE6-48F2-AC49-30EDF67ECDE9}/" # Desktop Creative Cloud icon
-	$registry set "HKCU/Software/Classes/CLSID/{0E270DAA-1BE6-48F2-AC49-30EDF67ECDE9}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return # Desktop Creative Cloud icon
+	registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{0E270DAA-1BE6-48F2-AC49-30EDF67ECDE9}/" # Desktop Creative Cloud icon
+	registry set "HKCU/Software/Classes/CLSID/{0E270DAA-1BE6-48F2-AC49-30EDF67ECDE9}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return # Desktop Creative Cloud icon
 
 	makeLink --merge "$udata/app/Creative Cloud Files" "$WIN_HOME/Creative Cloud Files" || return
 	makeLink --merge --hide "$udata/app/Adobe" "$udoc/Adobe" || return
@@ -564,7 +571,7 @@ AppleCore()
 
 QuickTimePost()
 {
-	$registry 32 delete "run/QuickTime Task" # "C:/Program Files/QuickTime/qttask.exe" -atboottime
+	registry 32 delete "run/QuickTime Task" # "C:/Program Files/QuickTime/qttask.exe" -atboottime
 
 	echo "Updating icons..."
 	makeDir "$ao/Apple" || return
@@ -746,7 +753,7 @@ bootstrapDebian()
 		IsVmwareVm && { i VmwareLinuxTools || return; }
 	fi
 
-	package dialog file libdbus-glib-1-dev man sharutils || return								# other
+	package dialog file git libdbus-glib-1-dev man sharutils || return						# other
 	package avahi-daemon dnsutils net-tools wakeonlan || return										# network	
 	package --no-prompt keyboard-configuration smbclient || return
 
@@ -980,7 +987,7 @@ BeyondCompareInstall()
 		mergeDir --rename "$pp/Beyond Compare 4" "$ao/Beyond Compare" || return
 		$rm "$pd/Beyond Compare 4.lnk" || return
 		$rm "$ud/Beyond Compare 4.lnk" || return
-		$registry delete "urun/BCClipboard" # C:\Program Files\Beyond Compare 4\BCClipboard.exe
+		registry delete "urun/BCClipboard" # C:\Program Files\Beyond Compare 4\BCClipboard.exe
 	fi
 	
 	echo "- Help|Preferences, Enter Key..."
@@ -1362,7 +1369,7 @@ iExplorerInstall()
 
 	if [[ "$PLATFORM" == "win" ]]; then
 		echo "Updating registry..."	
-		$registry delete "urun/iExplorer" # "C:\Program Files (x86)\iExplorer\iExplorer.exe" /background
+		registry delete "urun/iExplorer" # "C:\Program Files (x86)\iExplorer\iExplorer.exe" /background
 
 		echo "Updating icons..."
 		mergeDir "$pp/iExplorer" "$oo" || return
@@ -1428,9 +1435,9 @@ TrueImage()
 	mergeDir "$pp/Acronis" "$oo" || return
 	$rm "$pp/Acronis True Image.lnk" || return
 	$rm "$pd/Acronis True Image.lnk" || return
-	$registry delete "run/Acronis Scheduler2 Service" # C:\Program Files (x86)\Common Files\Acronis\Schedule2\schedhlp.exe
-	$registry 32 delete "run/AcronisTibMounterMonitor" # C:\Program Files (x86)\Common Files\Acronis\TibMounter\TibMounterMonitor.exe
-	$registry 32 delete "run/TrueImageMonitor.exe" # C:\Program Files (x86)\Acronis\TrueImageHome\TrueImageMonitor.exe
+	registry delete "run/Acronis Scheduler2 Service" # C:\Program Files (x86)\Common Files\Acronis\Schedule2\schedhlp.exe
+	registry 32 delete "run/AcronisTibMounterMonitor" # C:\Program Files (x86)\Common Files\Acronis\TibMounter\TibMounterMonitor.exe
+	registry 32 delete "run/TrueImageMonitor.exe" # C:\Program Files (x86)\Acronis\TrueImageHome\TrueImageMonitor.exe
 
 	echot "\
 - Active Protection, off
@@ -1493,9 +1500,9 @@ DropboxFinal()
 		$rm "$up/Startup/Dropbox.lnk" || return
 		$rm "$ud/Dropbox.lnk" "$ud/$company Dropbox.lnk" || return
 
-		#$registry 32 delete "run/Dropbox" # "C:\Program Files (x86)\Dropbox\Client\Dropbox.exe" /systemstartup
-		$registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{E31EA727-12ED-4702-820C-4B6445F28E1B}/" # Desktop Dropbox icon
-		$registry set "HKCU/SOFTWARE/Classes/CLSID/{E31EA727-12ED-4702-820C-4B6445F28E1A}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return # Desktop Dropbox icon
+		#registry 32 delete "run/Dropbox" # "C:\Program Files (x86)\Dropbox\Client\Dropbox.exe" /systemstartup
+		registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{E31EA727-12ED-4702-820C-4B6445F28E1B}/" # Desktop Dropbox icon
+		registry set "HKCU/SOFTWARE/Classes/CLSID/{E31EA727-12ED-4702-820C-4B6445F28E1A}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return # Desktop Dropbox icon
 
 		makeLink "$WIN_HOME/$company Dropbox/$user" "$HOME/Dropbox" || return
 		$hide "$WIN_HOME/$company Dropbox/.dropbox" || return
@@ -1535,9 +1542,9 @@ OneDriveInstall()
 	SetVar --delete OneDrive || return
 	SetVar --delete OneDriveConsumer || return
 
-	$registry delete "urun/OneDrive" # "C:\Users\jjbutare\AppData\Local\Microsoft\OneDrive\OneDrive.exe" /background
-	$registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/" # Desktop One Drive icon
-	$registry set "HKCR/CLSID/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return # Desktop One Drive icon
+	registry delete "urun/OneDrive" # "C:\Users\jjbutare\AppData\Local\Microsoft\OneDrive\OneDrive.exe" /background
+	registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/" # Desktop One Drive icon
+	registry set "HKCR/CLSID/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return # Desktop One Drive icon
 
 	$mv "$pp/OneDrive"*".lnk" "$pp/Applications/Accessories" || return
 	$mv "$up/OneDrive"*".lnk" "$pp/Applications/Accessories" || return
@@ -1761,7 +1768,7 @@ fzfInstall()
 		printf "."
 		[[ ! -e "$dest/$file" ]] && { sudo ln -s "$HOME/.fzf/bin/$file" "$dest/$file" || return; }
 	done
-	echo "done"
+	[[ ! $verbose ]] && echo "done"
 
 	return 0
 }
@@ -1873,7 +1880,7 @@ originInstall()
 	run "game/Origin/" -p "OriginThinSetup.exe" "Origin.dmg" "" || return
 
 	if [[ "$PLATFORM" == "win" ]]; then
-		$registry delete "urun/EADM" # "C:\Program Files (x86)\Origin\Origin.exe" -AutoStart
+		registry delete "urun/EADM" # "C:\Program Files (x86)\Origin\Origin.exe" -AutoStart
 		mergeDir "$pp/Origin" "$pp/Game/Other" || return
 		$rm "$pd/Origin.lnk" || return
 	fi
@@ -1887,7 +1894,7 @@ steamInstall()
 	run "game/Steam/" -p "SteamSetup.exe" "steam.dmg" "steam_latest.deb" --elevate || return # http://store.steampowered.com/about/
 	
 	if IsPlatform win; then
-		$registry delete "urun/Steam" # Steam	Steam Client Bootstrapper	Valve Corporation, c:\program files (x86)\steam\steam.exe
+		registry delete "urun/Steam" # Steam	Steam Client Bootstrapper	Valve Corporation, c:\program files (x86)\steam\steam.exe
 		mergeDir "$up/Steam" "$pp/Game/Other" || return
 		mergeDir "$pp/Steam" "$pp/Game/Other" || return
 		$rm "$pd/Steam.lnk" || return
@@ -2018,7 +2025,7 @@ gitForWindowsInstall()
 
 gitForWindowsConfigure()
 {
-	! IsElevated && { elevate RunScript --pause-error inst GitForWindowsConfigure "${options[@]}"; pause; return; }
+	! IsElevated && { RunScript --elevate $verbose -- inst GitForWindowsConfigure "${options[@]}"; return; }
 
 	local gw="$P/Git/cmd/git.exe"
 
@@ -2147,10 +2154,10 @@ BrotherPrinterInstall()
 		mergeDir "$pp/Brother" "$ao" || return
 		$mv "$pd/Brother Creative Center.lnk" "$ao/Brother" || return
 		$rm "$pd/Brother Utilities.lnk" || return
-		$registry 32 delete "RunOnce/BrUrl" || return # rundll32 url.dll,FileProtocolHandler http://www.brother.com/rd/productreserch/usa/
-		$registry 32 delete "RunOnce/OmniJoinURL" || return # C:\Program Files (x86)\Brother\Brmfl14d\OmniJoinTrial.exe /R
-		$registry 32 delete "run/BrStsMon00" # C:\Program Files (x86)\Browny02\Brother\BrStMonW.exe /AUTORUN
-		$registry 32 delete "run/ControlCenter4" # C:\Program Files (x86)\ControlCenter4\BrCcBoot.exe /autorun
+		registry 32 delete "RunOnce/BrUrl" || return # rundll32 url.dll,FileProtocolHandler http://www.brother.com/rd/productreserch/usa/
+		registry 32 delete "RunOnce/OmniJoinURL" || return # C:\Program Files (x86)\Brother\Brmfl14d\OmniJoinTrial.exe /R
+		registry 32 delete "run/BrStsMon00" # C:\Program Files (x86)\Browny02\Brother\BrStMonW.exe /AUTORUN
+		registry 32 delete "run/ControlCenter4" # C:\Program Files (x86)\ControlCenter4\BrCcBoot.exe /autorun
 	fi
 
 	return 0
@@ -2181,7 +2188,7 @@ CorsairUtilityEngine()
 
 	$mv "$pd/iCUE.lnk" "$pp/Operating System" || return
 	$rmd "$psm/Corsair" || return
-	$registry 32 delete "run/CORSAIR iCUE Software" # "C:\Program Files (x86)\Corsair\iCUE\iCUE Launcher.exe" --autorun
+	registry 32 delete "run/CORSAIR iCUE Software" # "C:\Program Files (x86)\Corsair\iCUE\iCUE Launcher.exe" --autorun
 	service stop CorsairService || return # high CPU
 }
 
@@ -2194,7 +2201,7 @@ CricutInstall()
 	run "hardware/Cricut/Cricut Design Space Install v$v." -p "exe" "mac" "" || return
 
 	if IsPlatform win; then
-		$registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe 
+		registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe 
 		mergeDir "$up/Cricut Design Space Beta" "$up/Applications/other" || return
 		$mv "$ud/Cricut Design Space.lnk" "$up/Applications" || return 
 		$mv "$ud/Cricut Design Space Beta.lnk" "$up/Applications" || return
@@ -2230,7 +2237,7 @@ DasKeyboardInstall()
 		mergeDir "$pp/Das-Keyboard-Q" "$oo" || return
 		$rm "$ud/das-keyboard-q.lnk" || return
 		$rmd "$up/GitHub, Inc" || return
-		$registry 32 delete "run/Das Keyboard Q" || return # C:\Users\jjbutare\AppData\Local\das-keyboard-q\das-keyboard-q.exe
+		registry 32 delete "run/Das Keyboard Q" || return # C:\Users\jjbutare\AppData\Local\das-keyboard-q\das-keyboard-q.exe
 	fi
 }
 
@@ -2268,7 +2275,7 @@ DuetDisplayInstall()
 		win) 
 			mergeDir "$pp/Duet Display" "$oo" || return
 			$rm "$pd/duet.lnk" || return
-			$registry 32 delete "run/Duet Display" # C:\Program Files\Kairos\Duet Display\duet.exe
+			registry 32 delete "run/Duet Display" # C:\Program Files\Kairos\Duet Display\duet.exe
 			;;
 
 	esac
@@ -2304,9 +2311,9 @@ DymoInstall()
 		mergeDir "$pp/DYMO" "$ao" || return
 		$rm "$pd/DYMO Connect.lnk" || return
 
-		$registry 32 delete "run/DymoOfficeHelper" # "C:\Program Files (x86)\DYMO\DYMO Connect\DYMO.OfficeHelper.exe" /w
-		$registry 32 delete "run/DYMOWebApi" # "C:\Program Files (x86)\DYMO\DYMO Connect\DYMO.WebApi.Win.Host.exe" /auto
-		$registry delete "urun/DYMOConnectLauncher" # "C:\Program Files (x86)\DYMO\DYMO Connect\DYMOConnectLauncher.exe"
+		registry 32 delete "run/DymoOfficeHelper" # "C:\Program Files (x86)\DYMO\DYMO Connect\DYMO.OfficeHelper.exe" /w
+		registry 32 delete "run/DYMOWebApi" # "C:\Program Files (x86)\DYMO\DYMO Connect\DYMO.WebApi.Win.Host.exe" /auto
+		registry delete "urun/DYMOConnectLauncher" # "C:\Program Files (x86)\DYMO\DYMO Connect\DYMOConnectLauncher.exe"
 	fi
 
 	return 0
@@ -2341,14 +2348,14 @@ GigabyteMotherboardInstall()
 	run "$d/Fast Boot vB17.0619.1/setup.exe" "${a[@]}" || return
 	run "$d/V-Tuner vB17.0616.1/setup.exe" "${a[@]}" || return
 
-	$registry delete "run/RtkAudUService" # "C:\WINDOWS\System32\RtkAudUService64.exe" -background
-	$registry delete "run/RTHDVCPL" # "C:\Program Files\Realtek\Audio\HDA\RtkNGUI64.exe" -s
+	registry delete "run/RtkAudUService" # "C:\WINDOWS\System32\RtkAudUService64.exe" -background
+	registry delete "run/RTHDVCPL" # "C:\Program Files\Realtek\Audio\HDA\RtkNGUI64.exe" -s
 
 	d="$oo/GIGABYTE"
 	mergeDir "$pp/GIGABYTE" "$oo" || return
 
 	# Application Center
-	$registry 32 delete "RunOnce/PreRun" # C:\Program Files (x86)\GIGABYTE\AppCenter\PreRun.exe
+	registry 32 delete "RunOnce/PreRun" # C:\Program Files (x86)\GIGABYTE\AppCenter\PreRun.exe
 	mv "$d/APP Center/"* "$d" >& /dev/null
 	rm -fr "$d/APP Center" || return
 	[[ -f "$d/Launch APP Center.lnk" ]] && { mv "$d/Launch APP Center.lnk" "$d/GIGABYTE Application Center.lnk" || return; }
@@ -2367,7 +2374,7 @@ GigabyteMotherboardInstall()
 	rm -fr "$d/@BIOS" || return
 
 	# RGB Fusion
-	$registry 32 delete "RunOnce/SelLed" # C:\Program Files (x86)\GIGABYTE\RGBFusion\RunLed.exe
+	registry 32 delete "RunOnce/SelLed" # C:\Program Files (x86)\GIGABYTE\RGBFusion\RunLed.exe
 	mv "$pp/AORUS/RGBFusion 2.0/"* "$d" >& /dev/null
 	rm -fr "$pp/AORUS" || return
 	$rm "$pd/RGBFusion 2.0.lnk" || return
@@ -2474,7 +2481,7 @@ IntelIcons()
 	mv "$pp/Intel Driver "*" Support Assistant.lnk" "$oo/Intel/Intel Driver Update.lnk" >& /dev/null
 	$mv "$ud/Intel(R) Processor Identification Utility.lnk" "$oo/Intel" || return
 
-	$registry 32 delete "run/Intel Driver \& Support Assistant" || return # C:\Program Files (x86)\Intel Driver and Support Assistant\DsaTray.exe
+	registry 32 delete "run/Intel Driver \& Support Assistant" || return # C:\Program Files (x86)\Intel Driver and Support Assistant\DsaTray.exe
 }
 
 IntuosProInstall()
@@ -2509,8 +2516,8 @@ LogitechOptionsInstall()
 	if IsPlatform win; then
 		$mv "$pp/Logitech/Logitech Options.lnk" "$pp/Operating System" || return
 		$rmd "$pp/Logitech" || return
-		$registry delete "run/LogiOptions" # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
-		$registry delete "run/Logitech Download Assistant" # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch	
+		registry delete "run/LogiOptions" # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
+		registry delete "run/Logitech Download Assistant" # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch	
 	fi
 
 	LogitechOptions $noPrompt profile restore default || return
@@ -2548,7 +2555,7 @@ nVidiaFinal()
 {
 	mergeDir --rename "$pp/NVIDIA Corporation" "$oo/NVIDIA" || return
 	$rm "$pd/GeForce Experience.lnk" || return
-	$registry delete "HKEY_CLASSES_ROOT/Directory/Background/shellex/ContextMenuHandlers/NvCplDesktopContext/" || return
+	registry delete "HKEY_CLASSES_ROOT/Directory/Background/shellex/ContextMenuHandlers/NvCplDesktopContext/" || return
 	return 0
 }
 
@@ -2966,7 +2973,7 @@ GlassWireInstall()
 	header "GlassWire"
 	run "network/GlassWire/GlassWireSetup.exe" --elevate || return # https://www.glasswire.com/download/
 
-	$registry delete "urun/GlassWire" # "C:\Program Files (x86)\GlassWire\glasswire.exe" -hide
+	registry delete "urun/GlassWire" # "C:\Program Files (x86)\GlassWire\glasswire.exe" -hide
 	mergeDir "$pp/GlassWire" "$oo" || return
 	$rm "$pd/GlassWire.lnk" || return
 
@@ -3018,7 +3025,7 @@ NordVpnInstall()
 	if [[ "$PLATFORM" == "win" ]]; then	
 		$rmd "$pp/NordVPN" || return
 		mv "$pd/NordVPN.lnk" "$pp/Applications" || return
-		$registry 32 delete "urun/NordVPN" || return # C:\Program Files (x86)\NordVPN\NordVPN.exe
+		registry 32 delete "urun/NordVPN" || return # C:\Program Files (x86)\NordVPN\NordVPN.exe
 	fi
 }
 
@@ -3143,8 +3150,8 @@ javaFinal()
 {
 	! IsPlatform win && return
 	mergeDir "$pp/Java" "$oo" || return
-	$registry 32 delete "run/SunJavaUpdateSched" || return
-	$registry 64 delete "run/SunJavaUpdateSched" || return
+	registry 32 delete "run/SunJavaUpdateSched" || return
+	registry 64 delete "run/SunJavaUpdateSched" || return
 }
 
 #
@@ -3237,7 +3244,7 @@ officeIcons()
 	for f in "$p/"*2016.lnk; do $ren "$f" "${f/ 2016/}" || return; done
 	for f in "$p/tools/"*2016*.lnk; do $ren "$f" "${f/ 2016/}" || return; done
 
-	$registry delete "urun/Lync" # "c:\Program Files\Microsoft Office\root\office16\lync.exe" /fromrunkey
+	registry delete "urun/Lync" # "c:\Program Files\Microsoft Office\root\office16\lync.exe" /fromrunkey
 }
 
 officeFinal()
@@ -3301,7 +3308,7 @@ skypeIcons()
 	mergeDir "$pp/Skype" "$pp/Applications/Other" || return
 	$rm "$pp/"Skype*.lnk || return
 	$rm "$pd/Skype.lnk" || return
-	$registry delete "urun/Skype for Desktop" # C:\Program Files (x86)\Microsoft\Skype for Desktop\Skype.exe
+	registry delete "urun/Skype for Desktop" # C:\Program Files (x86)\Microsoft\Skype for Desktop\Skype.exe
 }
 
 ss() { sqlServerInstall; }
@@ -3382,13 +3389,13 @@ sqlServerFinal()
 	local dir="$(utw "$udata/sql")" r="HKCU/Software/Microsoft/SQL Server Management Studio/${versionNum}.0"
 
 	echo "Updating SQL Server registry..."
-	$registry set "$r/DefaultBrowseComponentLocation" REG_EXPAND_SZ "$dir" || return
-	$registry set "$r/DefaultFileOpenLocation" REG_EXPAND_SZ "$dir" || return
-	$registry set "$r/DefaultNewProjectLocation" REG_EXPAND_SZ "$dir" || return
-	$registry set "$r/DefaultNewProjItemLocation" REG_EXPAND_SZ "$dir" || return
-	$registry set "$r/DefaultOpenProjectLocation" REG_EXPAND_SZ "$dir" || return
-	$registry set "$r/DefaultOpenProjItemLocation" REG_EXPAND_SZ "$dir" || return
-	$registry set "$r/DefaultOpenSolutionLocation" REG_EXPAND_SZ "$dir" || return
+	registry set "$r/DefaultBrowseComponentLocation" REG_EXPAND_SZ "$dir" || return
+	registry set "$r/DefaultFileOpenLocation" REG_EXPAND_SZ "$dir" || return
+	registry set "$r/DefaultNewProjectLocation" REG_EXPAND_SZ "$dir" || return
+	registry set "$r/DefaultNewProjItemLocation" REG_EXPAND_SZ "$dir" || return
+	registry set "$r/DefaultOpenProjectLocation" REG_EXPAND_SZ "$dir" || return
+	registry set "$r/DefaultOpenProjItemLocation" REG_EXPAND_SZ "$dir" || return
+	registry set "$r/DefaultOpenSolutionLocation" REG_EXPAND_SZ "$dir" || return
 
 	if [[ $client ]]; then
 		SqlServer service demand --all || return
@@ -3403,7 +3410,7 @@ sqlServerFinal()
 SystemInternalsInstall() 
 { 
 	header "System Internals"
-	$registry import "$setupFiles/SysInternalsEula.reg"
+	registry import "$setupFiles/SysInternalsEula.reg"
 }
 
 vscode() { visualStudioCodeInstall; }
@@ -3491,16 +3498,16 @@ visualStudioFinal()
 	$rmd "$pp/Microsoft Expression" || return
 	$rmd "$up/Microsoft Corporation" || return
 	
-	$registry 32 set "$r/DefaultFileOpenLocation" REG_EXPAND_SZ "$c" || return
-	$registry 32 set "$r/DefaultNewProjectLocation" REG_EXPAND_SZ "$c" || return
-	$registry 32 set "$r/DefaultNewProjItemLocation" REG_EXPAND_SZ "$c" || return
-	$registry 32 set "$r/DefaultOpenProjectLocation" REG_EXPAND_SZ "$c" || return
-	$registry 32 set "$r/DefaultOpenProjItemLocation" REG_EXPAND_SZ "$c" || return
-	$registry 32 set "$r/DefaultOpenSolutionLocation" REG_EXPAND_SZ "$c" || return
-	$registry 32 set "$r/VisualStudioProjectsLocation" REG_EXPAND_SZ "$c" || return
-	$registry 32 set "$r/UserProjectTemplatesLocation" REG_EXPAND_SZ "$(utw "$vsData/Templates/ProjectTemplates")" || return
-	$registry 32 set "$r/UserItemTemplatesLocation" REG_EXPAND_SZ "$(utw "$vsData/Templates/ItemTemplates")" || return
-	$registry 32 set "$r/VisualStudioLocation" REG_EXPAND_SZ "$(utw "$vsData")" || return
+	registry 32 set "$r/DefaultFileOpenLocation" REG_EXPAND_SZ "$c" || return
+	registry 32 set "$r/DefaultNewProjectLocation" REG_EXPAND_SZ "$c" || return
+	registry 32 set "$r/DefaultNewProjItemLocation" REG_EXPAND_SZ "$c" || return
+	registry 32 set "$r/DefaultOpenProjectLocation" REG_EXPAND_SZ "$c" || return
+	registry 32 set "$r/DefaultOpenProjItemLocation" REG_EXPAND_SZ "$c" || return
+	registry 32 set "$r/DefaultOpenSolutionLocation" REG_EXPAND_SZ "$c" || return
+	registry 32 set "$r/VisualStudioProjectsLocation" REG_EXPAND_SZ "$c" || return
+	registry 32 set "$r/UserProjectTemplatesLocation" REG_EXPAND_SZ "$(utw "$vsData/Templates/ProjectTemplates")" || return
+	registry 32 set "$r/UserItemTemplatesLocation" REG_EXPAND_SZ "$(utw "$vsData/Templates/ItemTemplates")" || return
+	registry 32 set "$r/VisualStudioLocation" REG_EXPAND_SZ "$(utw "$vsData")" || return
 
 	i IisExpressFinal SilverlightIcons || return
 }
@@ -4014,7 +4021,7 @@ LastPassInstall() # LastPass for Linux only installs Chrome extension
 	elif IsPlatform win; then
 		mergeDir "$pp/LastPass" "$oo" || return
 		$rm "$pd/My LastPass Vault.lnk" || return
-		$registry 32 delete "run/LastApp" # C:\Program Files (x86)\LastPass\lastapp.exe
+		registry 32 delete "run/LastApp" # C:\Program Files (x86)\LastPass\lastapp.exe
 	fi
 
 		return 0
@@ -4275,7 +4282,7 @@ windowsTerminalInstall()
 	header "Windows Terminal"
 	
 	# https://github.com/microsoft/terminal/releases
-	run "other/Microsoft/Windows/terminal/Microsoft.WindowsTerminalPreview_1.0.1402.0_8wekyb3d8bbwe.msixbundle" --elevate || return
+	run "other/Microsoft/Windows/terminal/Microsoft.WindowsTerminalPreview_1.3.2382.0_8wekyb3d8bbwe.msixbundle" --elevate || return
 
 	WindowsTerminal $noPrompt profile restore default || return	
 }
@@ -4318,7 +4325,7 @@ NotepadPpInstall()
 
 	findFile "shareware/Notepad++" || return
 
-	ask "Update plugins" && { RunScriptElevated "rsync -vr --delete $file/setup/plugins \"$P/Notepad++\"" || return; }
+	ask "Update plugins" && { RunScript --elevate $verbose -- rsync -vr --delete "\"$file/setup/plugins\"" "\"$P/Notepad++\"" || return; }
 
 	registry import "$file/setup/NotepadPP.reg" || return
 	$mv "$pp/Notepad++.lnk" "$pp/Applications" || return
@@ -4332,9 +4339,12 @@ SublimeInstall()
 {
 	header "Sublime Text Editor"
 
+	# copy the install to the local drive to fix invalid argument error running the Windows exe locally
+	local args=(); IsPlatform win && args+=(--copy-local --elevate -- /VERYSILENT) 	
+
 	# http://www.sublimetext.com/3 
-	local v=3211 args=(); IsPlatform win && args+=(/VERYSILENT) 	
-	run "other/Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime_text_3_build_${v}_x64.tar.bz2" --elevate "${args[@]}" || return 
+	local v=3211
+	run "other/Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "sublime_text_3_build_${v}_x64.tar.bz2" "${args[@]}" || return 
 
 	if IsPlatform win; then
 		makeLink --merge --hide "$udata/app/Dash" "$udoc/Dash" || return
@@ -4378,7 +4388,7 @@ garminInstall()
 	$rm "$pd/Garmin Express.lnk"	
 	$rm "$pd/inReach Sync.lnk"	
 	makeLink --merge --hide "$udata/app/Garmin" "$udoc/My Garmin" || return
-	$registry delete "urun/GarminExpressTrayApp" # "C:\Program Files (x86)\Garmin\Express Tray\ExpressTray.exe"
+	registry delete "urun/GarminExpressTrayApp" # "C:\Program Files (x86)\Garmin\Express Tray\ExpressTray.exe"
 }
 
 senaInstall()
@@ -4405,9 +4415,11 @@ AutoHotKeyInstall()
 	AutoHotKey close || return
 
 	# https://www.autohotkey.com/ https://autohotkey.com/download/2.0/
-	run "shareware/AutoHotKey/image/AutoHotkey_2.0-a115-f7c71ea8.zip" "$P/AutoHotKey" || return 
+	run "shareware/AutoHotKey/image/AutoHotkey_2.0-a115-f7c71ea8.zip" --elevate -- "$P/AutoHotKey" || return 
 
+	printf "${RB_GREEN}Starting AutoHotKey...${RESET}"
 	AutoHotKey startup || return
+	echo "${RB_GREEN}done${RESET}"
 }
 
 altTabTerminatorInstall()
@@ -4419,7 +4431,7 @@ altTabTerminatorInstall()
 
 	mergeDir "$pp/Alt-Tab Terminator" "$oo" || return
 	$rm "$pd/Alt-Tab Terminator.lnk" || return
-	$registry delete "urun/Alt-Tab Terminator" # "C:\Program Files\Alt-Tab Terminator\AltTabTer64.exe" /startup
+	registry delete "urun/Alt-Tab Terminator" # "C:\Program Files\Alt-Tab Terminator\AltTabTer64.exe" /startup
 
 	echot "\
 Settings...
@@ -4472,7 +4484,8 @@ EdgeDeflectorInstall() # redirect Windows Start menu to browser of choice
 	header "EdgeDeflector"
 
 	# https://github.com/da2x/EdgeDeflector/releases
-	run "shareware/other/EdgeDeflector_install.exe" --elevate || return
+	# copy local to avoid the unknown zone prompt
+	run "shareware/other/EdgeDeflector_install.exe" --elevate --copy-local || return
 }
 
 FluxInstall()
@@ -4484,7 +4497,7 @@ FluxInstall()
 	mergeDir "$up/Flux" "$up/Operating System/Other" || return
 
 	echo "Updating registry..."	
-	$registry delete "urun/f.lux" # "C:\Users\jjbutare\AppData\Local\FluxSoftware\Flux\flux.exe" /noshow
+	registry delete "urun/f.lux" # "C:\Users\jjbutare\AppData\Local\FluxSoftware\Flux\flux.exe" /noshow
 
 	echot "\
 - Location: Search
@@ -4502,7 +4515,7 @@ Greenshot()
 
 	if IsPlatform win; then
 		mergeDir "$pp/GreenShot" "$oo" || return
-		$registry delete "run/Greenshot" # C:\Program Files\Greenshot\Greenshot.exe
+		registry delete "run/Greenshot" # C:\Program Files\Greenshot\Greenshot.exe
 
 	elif IsPlatform mac && askP "Configure GreenShot"; then
 		echo "System Preferences, Security & Privacy, Screen Recording, check Greenshot"
@@ -4632,7 +4645,7 @@ TidyTabsInstall()
 	run "platform/win/NURGO/TidyTabs.msi" || return
 
 	mergeDir "$pp/TidyTabs" "$oo" || return
-	$registry delete "urun/TidyTabs" || return; # C:\Program Files (x86)\TidyTabs\TidyTabs.Daemon.exe
+	registry delete "urun/TidyTabs" || return; # C:\Program Files (x86)\TidyTabs\TidyTabs.Daemon.exe
 	TidyTabs profile restore default || return
 }
 
@@ -4688,8 +4701,7 @@ hypervInstall()
 	header "Hyper-V"
 
 	local data="$DATAD/data/Hyper-V"; makeDir "$data" || return
-	elevate RunScript --pause-error DISM.exe /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V
-	pause
+	RunScript --elevate $verbose -- DISM.exe /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V
 	
 	mergeDir "$pp/Administrative Tools" "$pp/Operating System" || return
 
@@ -4851,7 +4863,7 @@ AquaSnapInstall() # Windows preferred
 	run "platform/win/NURGO/AquaSnap.msi" || return
 
 	mergeDir "$pp/AquaSnap" "$oo" || return
-	$registry delete "urun/AquaSnap" || return; # C:\Program Files (x86)\AquaSnap\AquaSnap.Daemon.exe
+	registry delete "urun/AquaSnap" || return; # C:\Program Files (x86)\AquaSnap\AquaSnap.Daemon.exe
 	AquaSnap profile restore default || return
 }
 
@@ -4866,7 +4878,7 @@ MosaicoInstall()
 	mergeDir "$pp/Mosaico" "$oo" || return
 
 	echo "Updating registry..."	
-	$registry delete "urun/Mosaico" # C:\Program Files (x86)\Mosaico\mosaico.exe
+	registry delete "urun/Mosaico" # C:\Program Files (x86)\Mosaico\mosaico.exe
 
 	echot "\
 - Try Mosaico for Free!
@@ -4921,8 +4933,7 @@ WindowsSetup()
 	
 	if ! IsElevated; then
 		export WSLENV="PATH/l" # ensure hstart64.exe is in the path for elevate
-		elevate RunScript --pause-error inst WindowsSetup "${options[@]}" || return
-		pause "When the Windows Setup finishes running press any key to continue..."
+		RunScript --elevate --no-hide $verbose -- inst WindowsSetup "${options[@]}"
 		return
 	fi
 
@@ -4934,7 +4945,7 @@ WindowsPath() { SetVar --system --path PATH "$PLATFORM_PATH" || return; }
 
 WindowsPermissions()
 {
-	! IsElevated && { elevate RunScript --pause-error inst WindowsPermissions "${options[@]}"; pause; return; }
+	! IsElevated && { RunScript --elevate --no-hide $verbose -- inst WindowsPermissions "${options[@]}"; return; }
 	GrantFullPermission "$psm" || return
 	GrantFullPermission "$pd" || return
 }
@@ -5017,8 +5028,8 @@ WindowsConfiguration()
 	$rm "$WIN_HOME\My Videos" || return
 
 	echo "Cleaning startup programs..."
-	$registry 32 delete "run/NetFxUpdate_v1.1.4322" # "C:\Windows\Microsoft.NET\Framework\v1.1.4322\netfxupdate.exe" 1 v1.1.4322 GAC + NI NID, https://superuser.com/questions/137508/ngen-exe-is-constantly-using-cpu
-	$registry delete "run/SecurityHealth" # %windir%\system32\SecurityHealthSystray.exe
+	registry 32 delete "run/NetFxUpdate_v1.1.4322" # "C:\Windows\Microsoft.NET\Framework\v1.1.4322\netfxupdate.exe" 1 v1.1.4322 GAC + NI NID, https://superuser.com/questions/137508/ngen-exe-is-constantly-using-cpu
+	registry delete "run/SecurityHealth" # %windir%\system32\SecurityHealthSystray.exe
 
 	echo "Configuring..."
 	powershell.exe Set-ExecutionPolicy RemoteSigned || return
@@ -5101,7 +5112,7 @@ WindowsConfiguration()
 
 WindowsFonts()
 {
-	! IsElevated && { elevate RunScript --pause-error inst WindowsFonts "${options[@]}"; pause; return; }
+	! IsElevated && { RunScript --elevate --no-hide $verbose -- inst WindowsFonts "${options[@]}"; return; }
 
 	findFile "fonts/MesloLGS NF" || return
 	CopyDir "$file" "/tmp/fonts" || return # fontreg.exe fails on network share in wsl 2
@@ -5127,18 +5138,18 @@ EOF
 WindowsConsole()
 {
 	local key="HKCU/Console"
-	$registry set "$key/ColorTable01" REG_DWORD 0 || return
-	$registry set "$key/ColorTable11" REG_DWORD 16776960 || return
-	$registry set "$key/ColorTable15" REG_DWORD 16777215 || return
-	$registry set "$key/FaceName" REG_SZ "Lucida Console" || return
-	$registry set "$key/FontFamily" REG_DWORD 54 || return
-	$registry set "$key/FontSize" REG_DWORD 1048586 || return
-	$registry set "$key/FontWeight" REG_DWORD 400 || return
-	$registry set "$key/QuickEdit" REG_DWORD 1 || return
-	$registry set "$key/QuickEditMode" REG_DWORD 1 || return
-	$registry set "$key/ScreenBufferSize" REG_DWORD 19660964 || return
-	$registry set "$key/ScreenColors" REG_DWORD 7 || return
-	$registry set "$key/WindowSize" REG_DWORD 3276964 || return # 3276964=164x50
+	registry set "$key/ColorTable01" REG_DWORD 0 || return
+	registry set "$key/ColorTable11" REG_DWORD 16776960 || return
+	registry set "$key/ColorTable15" REG_DWORD 16777215 || return
+	registry set "$key/FaceName" REG_SZ "Lucida Console" || return
+	registry set "$key/FontFamily" REG_DWORD 54 || return
+	registry set "$key/FontSize" REG_DWORD 1048586 || return
+	registry set "$key/FontWeight" REG_DWORD 400 || return
+	registry set "$key/QuickEdit" REG_DWORD 1 || return
+	registry set "$key/QuickEditMode" REG_DWORD 1 || return
+	registry set "$key/ScreenBufferSize" REG_DWORD 19660964 || return
+	registry set "$key/ScreenColors" REG_DWORD 7 || return
+	registry set "$key/WindowSize" REG_DWORD 3276964 || return # 3276964=164x50
 }
 
 WindowsDownload()
@@ -5157,18 +5168,36 @@ wslInstall() { WindowsSubsystemForLinuxInstall; }
 WindowsSubsystemForLinuxInstall()
 {	
 	local data="$DATAD/data/wsl"; makeDir "$data" || return
-	local dist="Ubuntu-20.04"; IsVm && dist="Ubuntu-18.04" # wsl 1 only support Ubuntu-18.04 for now
 
-	# install wsl 1
-	if [[ ! "$WINDIR/system32/wsl.exe" ]]; then
-		RunScriptElevated "DISM.exe /online /enable-feature /FeatureName:Microsoft-Windows-Subsystem-Linux /all /norestart" || return
-		pause "Press any key to reboot..."; power reboot; return
+	# VMware Workstation does not support nested virtualization if the host is using Hyper-V
+	local dist="Ubuntu-20.04"; IsVmwareVm && dist="Ubuntu-18.04"
+
+	# install WSL
+	if ! InPath bash.exe ; then
+
+		# newer versions of windows just run wsl.exe --install
+		if InPath wsl.exe; then
+			RunScript --elevate --no-hide -- wsl.exe --install || return
+
+		# WSL 1 only
+		elif IsVmwareVm; then
+			RunScript --elevate --no-hide -- DISM.exe /online /enable-feature /FeatureName:Microsoft-Windows-Subsystem-Linux /all /norestart || return
+		
+		# WSL 2
+		else
+			run "platform/LINUX/wsl/setup/wsl_update_x64.msi" || return # Linux kernel update
+			RunScript --elevate --no-hide -- dism.exe /online /enable-feature /FeatureName:VirtualMachinePlatform /all /norestart || return
+
+		fi
+
+		return
 	fi
 
-	# install wsl 2 - except in VM's (runs slowly with nested virtualization)
-	if ! IsVm && wsl.exe --set-default-version 2 | Utf16toAnsi | RemoveCarriageReturn | grep "Please enable the Virtual Machine Platform" >& /dev/null; then
-		run "platform/LINUX/wsl/setup/wsl_update_x64.msi" || return
-		ask "Install the virtual machine platform" && { RunScriptElevated dism.exe /online /enable-feature /FeatureName:VirtualMachinePlatform /all /norestart || return; }
+	# update the WSL 2 kernel
+	if wsl.exe --update --status >& /dev/null; then # check if the wsl.exe  --update --status option exists (newer versions of Windows)
+		if wsl.exe --update --status |& grep "kernel file is not found" >& /dev/null; then
+			RunScript --elevate --no-hide -- wsl.exe --update
+		fi
 	fi
 
 	# install a distribution
@@ -5182,7 +5211,7 @@ WindowsSubsystemForLinuxInstall()
 
 wslFinal()
 { 
-	$registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/RunScript startup' || return
+	registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/RunScript startup' || return
 	$makeShortcut "wsl.exe" "$pp/Operating System/bash" || return
 }
 
@@ -5265,7 +5294,7 @@ DiscordInstall()
 	
 	mergeDir "$up/Discord Inc" "$up/Applications/Other" || return
 	$rm "$ud/Discord.lnk" || return
-	$registry delete "urun/Discord" # C:\Users\jjbutare\AppData\Local\Discord\app-0.0.305\Discord.exe --start-minimized
+	registry delete "urun/Discord" # C:\Users\jjbutare\AppData\Local\Discord\app-0.0.305\Discord.exe --start-minimized
 }
 
 StampsInstall()
@@ -5275,7 +5304,7 @@ StampsInstall()
 	run "other/stamps/Stamps.com.Connect.exe" --elevate || return
 
 	if IsPlatform win; then
-		$registry 32 delete "run/Stamps.com" # C:\Program Files (x86)\Stamps.com Connect\StampsPlugin.exe a
+		registry 32 delete "run/Stamps.com" # C:\Program Files (x86)\Stamps.com Connect\StampsPlugin.exe a
 		mergeDir "$pp/Stamps.com Connect" "$pp/Applications/Other" || return
 		$rm "$pd/Launch Stamps.com Connect.lnk" || return
 	fi

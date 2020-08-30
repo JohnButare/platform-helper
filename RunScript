@@ -1,47 +1,142 @@
 #!/usr/bin/env bash
+# test: RunScript -v -nh --elevate -- touch /mnt/c/hi.txt \; sleep 2 \; echo \"all done\"
 
-# run - run a shell script (or executable)
-# - finds function.sh even if it is not in the PATH (useful for initial startup, non-login shells, or running as root)
-# - simplify pausing the script (useful when running elevated in Windows, i.e. elevate RunScript --pause-error service start WpnUserService_5f5dbe)
-#
-# -x						force initialization of the X server
-# --multiple		allow multiple commands, i.e. "sudo RunScript 'ls; pause'", use where can't use bash -c
-# --pause				pause after the command is run, useful for transitory windows
-# --pause-error	pause after the command is run with an error, useful for transitory windows
+run() {	init && args "$@" && runScript; }
 
-# critical functions (in case we cannot source function.sh)
+init() { LoadFunctions || return; }
+
+usage()
+{
+	echot "\
+usage: RunScript [--] SCRIPT
+	Run a shell script, executable, or a series of commands.	
+	- finds function.sh even if it is not in the PATH.  This is useful for initial startup, non-login shells,
+	  or running as root.
+	- simplifies pausing the script.  This is useful when running elevated in Windows, 
+	  i.e. elevate RunScript --pause-error service start WpnUserService_5f5dbe
+
+	-e, --elevate				in Windows run the script with an elevated (Administrator) token
+	-m, --multiple			allow multiple commands, i.e. \"sudo RunScript 'ls; pause'\"
+											Useful in cases where bash -c cannot be used.
+	-nh, --no-hide			do not hide the elevated script window
+	-p, --pause					pause after the command is run, useful for transitory windows
+	-pe, --pause-error	pause after the command is run with an error, useful for transitory windows
+	-v, --verbose				display detailed output
+	-x									force initialization of the X server
+	--     							Signal the end of options. This is useful to allow further arguments to the script
+											program itself to start with a  “-”.  This provides consistency with the 
+											argument parsing convention used by most other POSIX programs."
+	exit $1
+}
+
+args()
+{
+	declare -g script=() windowStyle="--window-style hidden"
+	unset -v elevate multiple pause pauseError verbose 
+	
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-e|--elevate) elevate="true";;
+			-h|--help) usage 0;;
+			-nh|--no-hide) windowStyle="";;
+			-m|--multiple) multiple="eval";;
+			-p|--pause) pause="true";;
+			-pe|--pause-error) pauseError="true";;
+			-v|--verbose) verbose="true";;
+			-x) InitializeXServer || return;;
+			*)
+				[[ "$1" == "--" ]] && { shift; script+=( "$@" ); break; }
+				! IsOption "$1" &&  { script+=( "$1" ); shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+
+	[[ ! $script ]] && MissingOperand "script"
+	
+	return 0
+}
+
+runScript()
+{
+	# elevate if needed
+	[[ $elevate ]] && IsPlatform win && ! IsElevated && { runScriptElevated; return; }
+
+	# run the script
+	$multiple "${script[@]}"
+	local result="$?"
+
+	# pause if needed
+	if [[ "$result" != "0" && $pauseError ]]; then
+		EchoErr "RunScript: the script returned error $result"
+		pause
+	elif [[ $pause ]]; then
+		pause
+	fi
+
+	return $result
+}
+
+runScriptElevated() # run commands elevated that has quoted arguments
+{
+	local dir="$(mktemp -d -t 'RunScript.XXXXXXXXXX')" || return
+
+	# script: the script file
+	# scriptLog: a file which contains the standard output and error of the script
+	# scriptResult: a file which contains the return code (result) of the script
+	local scriptFile="$dir/script.sh" scriptLog="$dir/log.txt" scriptResult="$dir/result.txt"
+
+	# create the script log file now so inotifywait does not return when it is created
+	touch "$scriptLog" || return
+
+	# create the script and run it elevated.  ShowArray is used to quote each argument of the script.
+	# This ensure script arguments with spaces are preserved as a single argument.
+	cat > "$scriptFile" <<DONE
+#!/usr/bin/env bash
+$(ShowArray script) |& tee $scriptLog
+echo \${PIPESTATUS[0]} > $scriptResult
+DONE
+
+	[[ $verbose ]] && { hilight "The script file that will be run is:"; cat "$scriptFile"; }
+
+	# ensure the user with an elevated token can run the script
+	chmod ugo+x "$scriptFile" || return
+
+	# execute the script - 
+	start --elevate $windowStyle RunScript "${scriptFile}" || return
+
+	# wait for the creation of the script result file
+	inotifywait -e create --quiet --quiet "$dir/"
+
+	# show the script log if it was created
+	[[ $verbose ]] && { hilight "Script file output:"; }
+	[[ -f "$scriptLog" ]] && cat "$scriptLog"
+	
+	# get the script result (return code) if it was created (if the script was killed, cancelled, or interrupted it will not have a result)
+	[[ -f "$scriptResult" ]] && scriptResult="$(cat "$scriptResult")"
+	[[ $verbose ]] && { hilight "Script result: ${RESET}${scriptResult}"; }
+
+	# cleanup
+	rm -fr "$dir"
+	
+	return "$scriptResult"
+}
+
+# functions which may be used before we load function.sh
 EchoErr() { echo "$@" > /dev/stderr; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 
-# source function.sh - find it in the path, the current directory, the script directory, the /usr/local/bin
-f="$(type -P "function.sh")"
-if [[ "$?" != "0" ]]; then
-	f="$PWD/function.sh"
-	[[ ! -f "$f" ]] && f="${BASH_SOURCE[0]%/*}/function.sh"
-	[[ ! -f "$f" ]] && f="/usr/local/data/bin/function.sh"
-	[[ ! -f "$f" ]] && { EchoErr "Unable to find function.sh"; pause; exit 1; }
-fi
-. "$f" || { EchoErr "Unexpected error sourcing function.sh"; pause; exit 1; }
+# Load functions from function.sh - looki n the path, the current directory, the script directory, and /usr/local/bin
+LoadFunctions() 
+{
+	f="$(type -P "function.sh")"
+	if [[ "$?" != "0" ]]; then
+		f="$PWD/function.sh"
+		[[ ! -f "$f" ]] && f="${BASH_SOURCE[0]%/*}/function.sh"
+		[[ ! -f "$f" ]] && f="/usr/local/data/bin/function.sh"
+		[[ ! -f "$f" ]] && { EchoErr "Unable to find function.sh"; pause; return 1; }
+	fi
+	. "$f" || { EchoErr "Unexpected error sourcing function.sh"; pause; return 1; }
+}
 
-# arguments
-[[ "$1" == "-x" ]] && { InitializeXServer || return; shift; }
-multiple=""; [[ "$1" == "--multiple" ]] && { multiple="true"; shift; } 
-pause=""; [[ "$1" == "--pause" ]] && { pause="true"; shift; }
-pauseError=""; [[ "$1" == "--pause-error" ]] && { pauseError="true"; shift; }
-
-# run the passed program 
-if [[ $multiple ]]; then
-	eval "$@"
-else
-	"$@"
-fi
-result="$?"
-
-if [[ "$result" != "0" && $pauseError ]]; then
-	EchoErr "RunScript: the script returned error $result"
-	pause
-	exit $result
-fi
-
-[[ $pause ]] && pause
-exit $result
+run "$@"

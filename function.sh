@@ -50,6 +50,10 @@ clipr()
 	esac
 }
 
+InitColor() { RB_BLUE=$(printf '\033[38;5;021m') RB_GREEN=$(printf '\033[38;5;082m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
+header() { InitColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
+hilight() { InitColor; printf "${RB_GREEN}$1${RESET}\n"; }
+
 #
 # Account
 #
@@ -1334,7 +1338,7 @@ FilterShellScript() { grep -E "shell script|bash.*script|Bourne-Again shell scri
 IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
 IsOption() { [[ "$1" =~ ^-.* ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
-UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unknown unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information";	[[ "$-" == *i* ]] && return 1 || exit 1; }
+UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unknown unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information.";	[[ "$-" == *i* ]] && return 1 || exit 1; }
 MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; [[ "$-" == *i* ]] && return 1 || exit 1; }
 IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
 IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function

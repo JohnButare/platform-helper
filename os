@@ -98,7 +98,7 @@ setHostnameCommand()
 	
 	if IsPlatform raspbian; then sudo raspi-config nonint do_hostname $newName || return
 	elif IsPlatform mac; then sudo scutil --set HostName $newName || return
-	elif IsPlatform win; then RunScriptElevated powershell Rename-Computer -NewName "$newName" || return
+	elif IsPlatform win; then RunScript --elevate -- powershell.exe Rename-Computer -NewName "$newName" || return
 	elif InPath hostnamectl; then sudo hostnamectl set-hostname $newName || return
 	elif IsPlatform linux; then sudo hostname -s $newName || return
 	fi

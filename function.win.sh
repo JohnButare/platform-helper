@@ -84,27 +84,4 @@ IsElevated() # return true if the user has an Admministrator token
 	( cd /; whoami.exe /groups ) | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; 
 } 
 
-RunScriptElevated() # run commands elevated that has quoted arguments
-{
-	IsElevated && { eval "$@"; return; }
-
-	local dir="$TMP/RunScriptElevated.$RANDOM"; rm -fr "$dir"; mkdir "$dir" || return
-	local script="$dir/script.sh" log="$dir/log.txt" scriptResult="$dir/result.txt"
-
-	touch "$log" # ensure log file exists so inotifywait does not return when it is created
-
-	echo "$@ |& tee $log; echo \${PIPESTATUS[0]} > $scriptResult" > "$script"
-	elevate --window-style hidden RunScript source "$script"
-
-	if ! IsElevated; then
-		inotifywait -e create --quiet --quiet "$dir/" # wait for result file
-		[[ -f "$log" ]] && cat "$log"
-	fi
-
-	[[ -f "$scriptResult" ]] && scriptResult="$(cat "$scriptResult")"
-	rm -fr "$dir"
-	
-	return "$scriptResult"
-}
-
 return 0
