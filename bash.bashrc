@@ -15,7 +15,7 @@ set -a # export variables and functions to child processes
 
 function GetPlatform() 
 {
-	local results host="$1" cmd='
+	local results host="$1" chroot ubiquiti synology busybox container cmd='
 echo platform=$(uname);
 echo kernel=\"$(uname -r)\";
 [[ -f /etc/os-release ]] && cat /etc/os-release;
@@ -23,7 +23,7 @@ echo kernel=\"$(uname -r)\";
 [[ -f /var/sysinfo/model ]] && echo ubiquiti=true;
 [[ -f /proc/syno_platform ]] && echo synology=true;
 [[ -f /bin/busybox ]] && echo busybox=true;
-[[ -f /usr/bin/systemd-detect-virt ]] && container=\"$(systemd-detect-virt --container)\";'
+[[ -f /usr/bin/systemd-detect-virt ]] && echo container=\"$(systemd-detect-virt --container)\";'
 
 	if [[ $host ]]; then
 		#IsAvailable $host || { EchoErr "$host is not available"; return 1; } # adds .5s
@@ -47,7 +47,12 @@ echo kernel=\"$(uname -r)\";
 			MinGw*) platform="win"; ID_LIKE=mingw;;
 		esac
 
-		if [[ ! $chroot && "$container" != @(none|wsl) ]]; then
+		case "$container" in
+			""|none|wsl) container="";;
+			*) container="true";;
+		esac
+
+		if [[ ! $chroot && ! $container ]]; then
 			if [[ "$platformKernel" == "wsl1" ]]; then platform="win" wsl=1
 			elif [[ "$platformKernel" == "wsl2" ]]; then platform="win" wsl=2
 			elif [[ $ID_LIKE =~ openwrt ]]; then ID_LIKE="openwrt"

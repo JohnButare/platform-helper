@@ -92,6 +92,8 @@ hostnameCommand()
 
 setHostnameCommand()
 {
+	local result
+
 	local newName="$1"; [[ $newName ]] && shift
 	[[ ! $newName ]] && { read -p "Enter new host name (current $HOSTNAME): " newName; }
 	[[ ! $newName || "$newName" == "$HOSTNAME" ]] && return
@@ -99,12 +101,12 @@ setHostnameCommand()
 	if IsPlatform raspbian; then sudo raspi-config nonint do_hostname $newName || return
 	elif IsPlatform mac; then sudo scutil --set HostName $newName || return
 	elif IsPlatform win; then RunScript --elevate -- powershell.exe Rename-Computer -NewName "$newName" || return
-	elif InPath hostnamectl; then sudo hostnamectl set-hostname $newName || return
-	elif IsPlatform linux; then sudo hostname -s $newName || return
+	elif IsPlatform linux; then
+		InPath hostnamectl && { sudo hostnamectl set-hostname $newName >& /dev/null; result="$?"; }
+		[[ "$result" != "0" ]] && { sudo hostname $newName || return; }
 	fi
 
-	SetUpdateDir || return
-	echo "$newName" > "$updateDir/NewHostname"
+	UpdateInit && UpdateDone "NewHostname"
 }
 
 #

@@ -36,7 +36,7 @@ init()
 	export PLATFORM_PATH="$DATA/platform/$PLATFORM"
 
 	# update tracking
-	SetUpdateDir || return
+	UpdateInit || return
 }
 
 usage()
@@ -44,6 +44,7 @@ usage()
 	echot "\
 usage: install cd|install APP*
 	Install programs
+	-f,  --force					force installation even if a minimal install is selected
 	-h,  --hint DIR				first directory to search for installation files
 	-nr, --no-run					do not find or run the installation program
 	-np, --no-prompt	   	suppress interactive prompts
@@ -56,10 +57,11 @@ usage: install cd|install APP*
 
 args()
 {
-	unset apps forcePrompt hint noPrompt noRun quiet select verbose verboseInstaller
+	unset apps force forcePrompt hint noPrompt noRun quiet select verbose verboseInstaller
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--force|-f) force="true";;
 			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			--hint|-h) hint=( --hint "$2" ); export INSTALL_DIR="$2"; shift;;
 			--no-prompt|-np) noPrompt="--no-prompt";;
@@ -73,7 +75,7 @@ args()
 		shift
 	done
 
-	options=( $noPrompt $noRun $forcePrompt $quiet $verbose ) 
+	options=( $force $forcePrompt $noPrompt $noRun $quiet $verbose ) 
 
 	return 0
 }
@@ -207,7 +209,7 @@ run() # run EXE [OPTIONS...]
 
 runDone()
 { 
-	[[ $noPrompt ]] && echo "${RB_GREEN}done${RESET}"
+	[[ $noPrompt ]] && IsPlatform win && echo "${RB_GREEN}done${RESET}"
 	[[ $pause ]] && pause "When the installation has finished press any key..."
 	return 0
 }
@@ -216,7 +218,7 @@ runPrompt()
 {
 	if [[ $noPrompt ]]; then
 		printf "${RB_GREEN}Running $1...${RESET}"
-		[[ $verbose ]] && echo
+		{ ! IsPlatform win || [[ $verbose ]]; } && echo
 		return 0
 	else
 		ask "Do you want to run $1"
@@ -244,12 +246,9 @@ runProgram()
 	runPrompt "$pDesc" || return 0
 
 	# use new mounted install share while elevated - in WSL 2 mounted network shares are not present when elevating
-	if ! IsElevated && [[ $elevate ]] && IsPlatform wsl2; then
+	if IsPlatform win && ! IsElevated && [[ $elevate ]] && IsPlatform wsl2; then
 		local installUnc="$(GetUncShareFromFile "$INSTALL_DIR")"
-		echo 1
-		RunScript --elevate $verbose -- unc mount "$installUnc"
 		local newInstallDir="$(RunScript --elevate -- unc mount "$installUnc")/documents/data/install" || return
-		echo 2
 		p="${p/$INSTALL_DIR/$newInstallDir}"
 	fi
 
@@ -429,24 +428,23 @@ appCore()
 {
 	header "Core Applications"
 
-	i AppInitial || return
 	RunPlatform app || return
 	i AppHostname AppHostHardwareCore AppHostCore || return
 }
 
-appInitial() { ! minimalInstall && i firefox; i sublime BeyondCompare || return; }
 appMac() { i gpg iTerm karabiner rectangle LinuxUtilities || return; }
 appWin() { i WindowsTerminal AutoHotKey AquaSnap EdgeDeflector winget || return; }
 
 appDebian()
 { 
+	{ [[ ! $force ]] && minimalInstall; } && return
+
 	i CredentialStore xServer xClient || return
 	i PackageManagement terminator tmux LinuxUtilities || return
-	
-	# alternative text editors (gedit, geany)
-	! IsInstalled sublime && { package gedit || return; i geany || return; }
+	i firefox sublime BeyondCompare || return
 
-	# alternative file comparison (meld) 
+	# alternatives if sublime or BeyondCompare cannot be installed
+	! IsInstalled sublime && { package gedit || return; i geany || return; }
 	! IsInstalled BeyondCompare && { package meld || return; }
 
 	# alternative system monitor and file manager
@@ -458,7 +456,7 @@ appDebian()
 	return 0
 }
 
-appPhysical() { i chrony colorls JumpCloud ninite SaltMinion zoom || return; }
+appPhysical() { i chrony JumpCloud ninite SaltMinion zoom || return; }
 
 appRaspbian() 
 { 
@@ -469,11 +467,15 @@ appRaspbian()
 
 appHostname()
 {
-	[[ -f "$updateDir/NewHostname" ]] && return
-
+	IsDocker && return # Docker hostname must be set in the containers config.vs.json
+	
+	! UpdateNeeded "NewHostname" && return
+	
 	os SetHostname || return
 
-	[[ -f "$updateDir/NewHostname" ]] && { power reboot; exit 1; }
+	# reboot if the os SetHostname indicates a new hostname
+	UpdateDone "NewHostname" && { power reboot; exit 1; }
+
 	return 0
 }
 

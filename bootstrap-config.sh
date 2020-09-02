@@ -7,7 +7,7 @@ dns1="192.168.100.10"
 dns2="192.168.100.11"
 workgroup="Wiggin"
 
-host="nas3.$domain" 							# host or mounted drive to use for scripts and installers
+host="nas3.$domain" port=608			# host or mounted drive to use for scripts and installers
 proxy="http://proxy.$domain:3128" # proxy server for package download
 
 #user=""

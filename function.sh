@@ -16,7 +16,10 @@ EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of 
 IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
 IsInteractive() { [[ "$-" == *i* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
-SetUpdateDir() { updateDir="$DATA/update"; [[ -d "$updateDir" ]] && return; mkdir "$updateDir" || return; }
+
+UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; mkdir --parents "$updateDir"; }
+UpdateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
+UpdateDone() { touch "$updateDir/$1"; }
 
 clipok()
 { 
