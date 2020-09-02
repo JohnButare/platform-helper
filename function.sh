@@ -1050,8 +1050,8 @@ function IsPlatform()
 			container) IsContainer && return;;
 			docker) IsDocker && return;;
 			chroot) IsChroot && return;;
-			physical) ! IsChroot && ! IsContainer && ! IsVm && return;;
-			vm) IsVm && return;;
+			host|physical) ! IsChroot && ! IsContainer && ! IsVm && return;;
+			guest|vm|virtual) IsVm && return;;
 
 		esac
 
@@ -1520,7 +1520,8 @@ GetVmType() # vmware|hyperv
 	[[ "$result" == "none" ]] && result=""
 
 	if IsPlatform win && [[ "$result" == "hyperv" ]]; then # Hyper-V is detected on the physical host and the virtual machine as "microsoft"
-		[[ "$(RemoveSpaceTrim $(wmic.exe baseboard get manufacturer, product | RemoveCarriageReturn | tail -2 | head -1))" != "Microsoft Corporation  Virtual Machine" ]] && result=""
+		local product="$(RemoveSpaceTrim $(wmic.exe baseboard get product | RemoveCarriageReturn | tail -2 | head -1))"
+		[[ "$product" != "Virtual Machine" ]] && result=""
 	fi
 
 	VM_TYPE_CHECKED="true" VM_TYPE="$result"
