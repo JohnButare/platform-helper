@@ -89,21 +89,19 @@ initService()
 
 	case $PLATFORM in
 		mac)
-			if config="$(macGetServices | grep "\/${service}\.plist$")"; then
-				sudo=""; find "${macDaemons[@]}" -type f | grep "\/${service}\.plist$" >& /dev/null && sudo="sudoc"
-				label="$(cat "$config" | grep '<string>' | head -1 | cut -d'>' -f 2 | cut -d '<' -f 1)"
-				return 0
-			fi
+			config="$(macGetServices | grep "\/${service}\.plist$")" || { unknownService; return; }
+			sudo=""; find "${macDaemons[@]}" -type f | grep "\/${service}\.plist$" >& /dev/null && sudo="sudoc"
+			label="$(cat "$config" | grep '<string>' | head -1 | cut -d'>' -f 2 | cut -d '<' -f 1)"
 			;;
 
 		linux) 
-			! isLinuxService "$service" && return 1
+			isLinuxService "$service" || { unknownService; return; }
 
-			# systemctl requires the system be started with the init process as PID 1 (which is not the case for Docker)
+			# use systemd if in the init process is is  PID 1
 			ps -aux | head -2 | tail -1 | grep "init$" >& /dev/null && { useSystemd="true"; return; }
 
 			[[ -f "/etc/init.d/$service" ]] && return
-
+			
 			EchoErr "service: unable to control $service"; return 1
 			;;
 
@@ -116,14 +114,19 @@ initService()
 			case $resultCode in
 				"") return 0;;
 		  	5) echo "service: access to the service control manager denied on $host"; return 1;;
-				1060) : ;; # The specified service does not exist as an installed service.
+				1060) unknownService; return;;
 				*) EchoErr "service: unknown error $resultCode accessing $service"; return 1;;
 			esac
 			;;
 
 	esac
 
-	EchoErr "service: $service does not exist as an installed service$hostDescription"; return 1
+}
+
+unknownService() 
+{
+	EchoErr "service: $service does not exist as an installed service$hostDescription"
+	return 1
 }
 
 run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
