@@ -134,14 +134,15 @@ i() # invoke the installer script (inst) saving the INSTALL_DIR
 	if [[ "$1" == "--help" ]]; then echot "\
 usage: i [APP*|cd|dir|force|info|select]
   Install applications
+	-f,  --force					force installation even if a minimal install is selected
   -nr, --no-run do not find or run the installation program
   -f, --force		check for a new installation location
   -s, --select	select the install location"
 	return 0
 	fi
 
+	[[ "$1" == @(--force|-f) ]] && { force="--force"; shift; }
   [[ "$1" == @(--no-run|-nr) ]] && { noRun="$1"; shift; }
-	[[ "$1" == @(--force|-f) ]] && { force="true"; shift; }
 	[[ "$1" == @(--select|-s) ]] && { select="--select"; shift; }
 	[[ "$1" == @(select) ]] && { select="--select"; }
 	[[ "$1" == @(force) ]] && { force="true"; }
@@ -157,7 +158,7 @@ usage: i [APP*|cd|dir|force|info|select]
 		dir) echo "$INSTALL_DIR";;
 		force|select) return 0;;
 		info) echo "The installation directory is $INSTALL_DIR";;
-		*) inst --hint "$INSTALL_DIR" $noRun "$@";;
+		*) inst --hint "$INSTALL_DIR" $noRun $force "$@";;
 	esac
 }
 
@@ -204,10 +205,20 @@ ReadChars()
 	return "$result"
 }
 
-SleepStatus() # SleepStatus SECONDS
+SleepStatus()
 {
-	printf "Waiting for $1 seconds..."
-	for (( i=1; i<=$1; ++i )); do
+	local i message seconds=5
+
+	case "$#" in
+		0) :;;
+		1) IsInteger "$1" && seconds="$1" || message="$1";;
+		2) message="$1"; seconds=$2;;
+		*) EchoErr "usage: SleepStatus [MESSAGE](Waiting for n seconds) [SECONDS](5)"
+	esac
+	[[ ! $message ]] && message="Waiting for $seconds seconds"
+
+	printf "$message..."
+	for (( i=1; i<=$seconds; ++i )); do
  		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
 		printf "."
 	done

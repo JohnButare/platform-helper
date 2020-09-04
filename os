@@ -90,23 +90,23 @@ hostnameCommand()
 	echo "$(RemoveDnsSuffix $host)"
 }
 
-setHostnameCommand()
+setHostnameCommand() # 0=name changed, 1=name unchanged, 2=error
 {
 	local result
 
 	local newName="$1"; [[ $newName ]] && shift
 	[[ ! $newName ]] && { read -p "Enter new host name (current $HOSTNAME): " newName; }
-	[[ ! $newName || "$newName" == "$HOSTNAME" ]] && return
+	[[ ! $newName || "$newName" == "$HOSTNAME" ]] && return 1
 	
-	if IsPlatform raspbian; then sudo raspi-config nonint do_hostname $newName || return
-	elif IsPlatform mac; then sudo scutil --set HostName $newName || return
-	elif IsPlatform win; then RunScript --elevate -- powershell.exe Rename-Computer -NewName "$newName" || return
+	if IsPlatform raspbian; then sudo raspi-config nonint do_hostname "$newName" && return 0
+	elif IsPlatform mac; then sudo scutil --set HostName "$newName" && return 0
+	elif IsPlatform win; then RunScript --elevate -- powershell.exe Rename-Computer -NewName "$newName" && return 0
 	elif IsPlatform linux; then
-		InPath hostnamectl && { sudo hostnamectl set-hostname $newName >& /dev/null; result="$?"; }
-		[[ "$result" != "0" ]] && { sudo hostname $newName || return; }
+		InPath hostnamectl && { sudo hostnamectl set-hostname "$newName" >& /dev/null && return 0; }
+		sudo hostname "$newName" && return 0
 	fi
 
-	UpdateInit && UpdateDone "NewHostname"
+	return 2
 }
 
 #
