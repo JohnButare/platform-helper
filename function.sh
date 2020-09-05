@@ -1433,12 +1433,15 @@ Utf16to8() { iconv -f utf-16 -t UTF-8; }
 
 GetTextEditor()
 {
-	IsInstalled sublime && { echo "$(sublime program)"; return 0; }
-	! IsSsh && IsPlatform mac && { echo "open -a TextEdit"; return 0; }
-	! IsSsh && IsPlatform win && { p="$P/Notepad++/notepad++.exe"; [[ -f "$p" ]] && { echo "$p"; return 0; }; }
-	! IsSsh && InPath notepad.exe && { echo "notepad.exe"; return 0; }
-	InPath geany && { echo "geany"; return 0; }
-	InPath gedit && { echo "gedit"; return 0; }
+	if HasWindowManager; then
+		IsInstalled sublime && { echo "$(sublime program)"; return 0; }
+		IsPlatform win && IsPath "$P/Notepad++/notepad++.exe" && { echo "$P/Notepad++/notepad++.exe"; return 0; }
+		InPath geany && { echo "geany"; return 0; }
+		IsPlatform mac && { echo "open -a TextEdit"; return 0; }
+		IsPlatform win && InPath notepad.exe && { echo "notepad.exe"; return 0; }
+		InPath gedit && { echo "gedit"; return 0; }
+	fi
+
 	InPath micro && { echo "micro"; return 0; }
 	InPath nano && { echo "nano"; return 0; }
 	InPath vi && { echo "vi"; return 0; }
@@ -1545,6 +1548,7 @@ GetVmType() # vmware|hyperv
 # Window
 #
 
+HasWindowManager() { ! IsSsh || IsXServerRunning; } # assume if we are not in an SSH shell we are running under a Window manager
 IsXServerRunning() { xprop -root >& /dev/null; }
 RestartGui() { IsPlatform win && { RestartExplorer; return; }; IsPlatform mac && { RestartDock; return; }; }
 
