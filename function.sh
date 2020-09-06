@@ -367,15 +367,14 @@ GetFileName() { r "${1##*/}" $2; }
 GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${gfnwe%.*}" $2; }
 GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
 GetParentDir() { echo "$(GetFilePath "$(GetFilePath "$1")")"; }
-GetRealPath() { ${G}readlink -f "$@"; } # resolve symbolic links
 IsDirEmpty() { [[ "$(find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
 InPath() { local f option; IsZsh && option="-p"; for f in "$@"; do ! which $option "$f" >& /dev/null && return 1; done; return 0; }
 IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff "$1" "$2" >& /dev/null; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
 
-fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
-pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(${G}realpath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
+fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
+pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 
 CopyFileProgress() { rsync --info=progress2 "$@"; }
 
@@ -398,7 +397,13 @@ FindInPath()
 
 GetFullPath() 
 { 
-	local gfp="$(realpath -m "${@/#\~/$HOME}")"; r "$gfp" $2; # replace ~ with $HOME so we don't lose spaces in expansion
+	local gfp="$(GetRealPath "${@/#\~/$HOME}")"; r "$gfp" $2; # replace ~ with $HOME so we don't lose spaces in expansion
+}
+
+GetRealPath()  # resolve symbolic links, use -m so directory existence is not checked (which can error out for mounted network volumes)
+{
+	InPath {G}realpath && { ${G}realpath -m "@"; return; }
+	${G}readlink -f "$@"
 }
 
 HideAll()
@@ -578,7 +583,7 @@ utw() # UnixToWin
 
 	[[ ! "$file" || "$PLATFORM" != "win" ]] && { echo "$@"; return 1; }
 
-	file="$(realpath -m "$@")"
+	file="$(GetRealPath "$@")"
 
 	# network shares do not translate properly in WSL 2
 	if IsPlatform wsl2; then 
@@ -1140,8 +1145,8 @@ IsExecutable()
 	# file $LOCALAPPDATA/Microsoft/WindowsApps/*.exe returns empty, so assume files that end in exe are executable
 	[[ -f "$p" && "$ext" =~ (^exe$|^com$) ]] && return 0
 
-	# executable file - realpath resolves symbolic links, use -m so directory existence is not checked (which can error out for mounted network volumes)
-	[[ -f "$p" ]] && { file "$(realpath -m "$p")" | grep -E "executable|ELF" > /dev/null; return; }
+	# executable file
+	[[ -f "$p" ]] && { file "$(GetRealPath "$p")" | grep -E "executable|ELF" > /dev/null; return; }
 
 	# alias, builtin, or function
 	type -a "$p" >& /dev/null
