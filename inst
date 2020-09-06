@@ -527,6 +527,28 @@ WallpaperWizard() { storeInstall "Wallpaper Wizard" 1266674560; }
 yoink() { storeInstall Yoink 457622435; }
 
 #
+# Application Directories (appdata appconfig)
+#
+
+AppDir()
+{
+	declare {appConfigDir,appDataDir}="$DATA" # default location
+
+	RunPlatform AppDir || return # set platform specific location
+
+	makeDir "$appConfigDir/appconfig" || return
+	makeDir "$appDataDir/appdata" || return
+
+	[[ ! -d "$DATA/appconfig" ]] && { MakeLink --symbolic "$appConfigDir/appconfig" "$DATA/appconfig" || return; }
+	[[ ! -d "$DATA/appdata" ]] && { MakeLink --symbolic "$appDataDir/appdata" "$DATA/appdata" || return; }
+	
+	return 0
+}
+
+AppDirQnap() { appDataDir="/share/data"; } # locate data on large physical drive
+AppDirWin() { local d="$PUB/Documents"; appConfigDir="$d" appDataDir="$d"; } # locate on physical Windows drive
+
+#
 # Adobe
 #
 
@@ -698,15 +720,21 @@ Kindle for PC
 bootstrap()
 {
 	header "Bootstrap"	
-	bootstrapCommon || return
+
+	bootstrapStart || return
 	RunPlatform bootstrap || return
-	i micro bash ssh zsh || return	
+	bootstrapEnd || return
+
+	i AppDir micro bash ssh zsh || return	
+
 	return 0
 }
 
-bootstrapCommon()
+bootstrapStart()
 {
+	# files
 	printf "files..."
+
 	files=( .bash_history .hushlogin .lesshst .z )
 	for file in "${files[@]}"; do
 		printf "."
@@ -747,6 +775,11 @@ bootstrapCommon()
 	IsPlatform wsl && { wsl SetDefaultUser "$(wsl name)" "$user" || return; }
 
 	return 0
+}
+
+bootstrapEnd()
+{
+	:
 }
 
 bootstrapDebianMac() # debian|mac
@@ -818,6 +851,7 @@ bootstrapQnap()
 {
 	header "Bootstrap QNAP"
 
+	# packages
 	pacakge iotop || return
 
 	# autorun
@@ -4734,13 +4768,15 @@ hypervInstall()
 {
 	header "Hyper-V"
 
-	local data="$DATAD/data/Hyper-V"; makeDir "$data" || return
+	local data="$DATA/appdata/Hyper-V"; makeDir "$data" || return
 	RunScript --elevate $verbose -- DISM.exe /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V
-	
+
 	mergeDir "$pp/Administrative Tools" "$pp/Operating System" || return
 
 	local clip="$(utw "$data")"; clipw "$clip"
-	echot "- Hyper-V Manager, $HOSTNAME, Hyper-V Settings..., Virtual Hard Disks and Virtual Machines, folder=<paste> ($data)" 
+	echot "- Hyper-V Manager, $HOSTNAME, Hyper-V Settings...
+	- Virtual Hard Disks=<paste> ($data)\Virtual Hard Disks
+	- Virtual Machines=<paste> ($data)" 
 	hyperv gui || return
 }
 
@@ -4826,7 +4862,7 @@ VirtualBoxInstall()
 {
 	header "VirtualBox"
 
-	local data="$DATAD/data/VirtualBox" v="6.1.10-138449"	# https://www.virtualbox.org/wiki/Downloads
+	local data="$DATA/appdata/VirtualBox" v="6.1.10-138449"	# https://www.virtualbox.org/wiki/Downloads
 	run "shareware/VirtualBox/setup/" -p "VirtualBox-$v-Win.exe" "VirtualBox-$v-OSX.dmg" "virtualbox-$v~Ubuntu~bionic_amd64.deb" || return
 	run "shareware/VirtualBox/extension/Oracle_VM_VirtualBox_Extension_Pack-6.1.10.vbox-extpack" || return
 
@@ -4850,7 +4886,7 @@ VmwareWorkstationInstall()
 	# https://my.vmware.com/group/vmware/downloads#tab1
 	run "other/VMware/workstation/" -p "VMware-workstation-full-15.5.6-16341506.exe" "" "VMware-Workstation-Full-15.5.6-16341506.x86_64.bundle" --elevate || return
 
-	local data="$DATAD/data/VMware"; makeDir "$data" || return
+	local data="$DATA/appdata/VMware"; makeDir "$data" || return
 	mergeDir "$pp/VMware" "$oo" || return
 	$rm "$pd/VMware Workstation Pro.lnk" || return
 
@@ -5148,8 +5184,11 @@ WindowsFonts()
 {
 	! IsElevated && { RunScript --elevate --no-hide $verbose -- inst WindowsFonts "${options[@]}"; return; }
 
+	# copy fonts
 	findFile "fonts/MesloLGS NF" || return
 	CopyDir "$file" "/tmp/fonts" || return # fontreg.exe fails on network share in wsl 2
+
+	# install fonts
 	pushd "/tmp/fonts" > /dev/null || return
 	FontReg.exe /copy || return # requires elevation
 	popd  >& /dev/null || return
@@ -5201,7 +5240,7 @@ WindowsDownload()
 wslInstall() { WindowsSubsystemForLinuxInstall; }
 WindowsSubsystemForLinuxInstall()
 {	
-	local data="$DATAD/data/wsl"; makeDir "$data" || return
+	local data="$DATA/appdata/wsl"; makeDir "$data" || return
 
 	# VMware Workstation does not support nested virtualization if the host is using Hyper-V
 	local dist="Ubuntu-20.04"; IsVmwareVm && dist="Ubuntu-18.04"

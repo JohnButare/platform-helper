@@ -120,9 +120,9 @@ CheckPlatform || return
 # Environment Variables
 #
 
-# P=applications, BIN=programs, PBIN=platform programs, DATA=common data, DATAD=data drive (large data files), ADATA=application data
+# P=applications, BIN=programs, PBIN=platform programs, DATA=common data, ADATA=application data
 # PUB=public documents, USERS=users home directory, VOLUMES=mounted system volumes
-P="/opt" BIN="" DATA="" DATAD="/" PUB="" USERS="/home" VOLUMES="/mnt" ADATA="$HOME/.config"
+P="/opt" BIN="" DATA="" PUB="" USERS="/home" VOLUMES="/mnt" ADATA="$HOME/.config"
 
 # USER=logged on user, SUDO_USER, HOME=home directory, DOC=user documents, UDATA=user data, UBIN=user programs
 # UDATA=user data, CODE=source code
@@ -133,13 +133,13 @@ G=""
 
 case "$PLATFORM" in 
 	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support";;
-	win) DATAD="/mnt/c" WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)"
+	win) WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)"
 		WINDIR="$WIN_ROOT/Windows" PROGRAMDATA="$WIN_ROOT/ProgramData" ADATA="$WIN_HOME/AppData/Roaming" LOCALAPPDATA="$WIN_HOME/AppData/Local"
 		APPDATA="$ADATA";;
 esac
 
 case "$PLATFORM_LIKE" in 	
-	qnap) PUB="/share/Public" DATAD="/share/data";;
+	qnap) PUB="/share/Public";;
 	synology) PUB="/volume1/public";;
 esac
 
