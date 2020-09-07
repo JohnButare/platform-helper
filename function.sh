@@ -1321,33 +1321,6 @@ start()
 	fi
 } 
 
-sudop() 
-{
-	local SUDO_ASKPASS; [[ "$1" == @(-cs|--credential-store) ]] && { shift; credential -q exists secure default && SUDO_ASKPASS="$BIN/SudoAskPass"; }
-}
-
-unalias sudoc >& /dev/null;
-sudoc()  # use the credential store to get the password if available, --preserve|-p to preserve the existing path (less secure)
-{ 
-	local p=(sudo) preserve; [[ "$1" == @(-p|--preserve) ]] && { preserve="true"; shift; }
-
-	if [[ $preserve ]]; then
-		if IsPlatform raspbian; then p+=( --preserve-env )
-		elif ! IsPlatform mac; then p+=( --preserve-env=PATH )
-		fi
-	fi
-
-	if credential -q exists secure default; then
-		SUDO_ASKPASS="$BIN/SudoAskPass" "${p[@]}" --askpass "$@"; 
-	else
-		"${p[@]}" "$@"; 
-	fi
-} 
-
-IsZsh && alias sudoc="nocorrect sudoc" # prevent auto correction, i.e. sudoc ls
-
-sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
-
 #
 # Scripts
 #
@@ -1428,6 +1401,38 @@ ScriptReturn()
 		fi
 	done;		
 }
+
+#
+# Security
+#
+
+sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
+
+sudoc()  # use the credential store to get the password if available, --preserve|-p to preserve the existing path (less secure)
+{ 
+	local p=(sudo) preserve; [[ "$1" == @(-p|--preserve) ]] && { preserve="true"; shift; }
+
+	if [[ $preserve ]]; then
+		if IsPlatform raspbian; then p+=( --preserve-env )
+		elif ! IsPlatform mac; then p+=( --preserve-env=PATH )
+		fi
+	fi
+
+	if credential -q exists secure default; then
+		SUDO_ASKPASS="$BIN/SudoAskPass" "${p[@]}" --askpass "$@"; 
+	else
+		"${p[@]}" "$@"; 
+	fi
+} 
+
+sudoe()  # sudoedit with credentials
+{ 
+	if credential -q exists secure default; then
+		SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$1";
+	else
+		sudo "$1"; 
+	fi
+} 
 
 #
 # Text Processing
