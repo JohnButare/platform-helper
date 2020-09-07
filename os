@@ -203,7 +203,7 @@ versionDistribution()
 	fi
 
 	# Code Name - buster|focal
-	codename="$(lsb_release -a |& grep "Codename:" | cut -f 2-)"
+	codename="$(lsb_release -cs)"
 
 	echo "distribution: $distributor $version ($codename)"
 }
