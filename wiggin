@@ -10,9 +10,12 @@ init()
 	devices=( pi5 pi6 rp1 UnifiController )
 
 	# network configuration
-	network="wiggin" # wiggin test
+	network="wiggin"
 	domain="hagerman.butare.net"
 	externalDomain="butare.net"
+	subnetPi1="192.168.102.1 - 192.168.102.254"
+	subnetPi2="192.168.103.1 - 192.168.103.254"
+	subnetDefault="$subnetPi1"
 
 	# server file locations
 	dhcpDir="/etc/kea"
@@ -121,7 +124,7 @@ initReservations()
 updateDns()
 {
 	local config="$ncd/dns"
-	local dir="$TMP/dns.$RANDOM"; rm -fr "$dir"; mkdir "$dir" || return
+	local dir="$(mktemp -d -t 'dns.XXXXXXXXXX')" || return
 
 	echo "Creating DNS configuration files..."
 	cp "$config/named.conf."* "$dir" || return
@@ -159,11 +162,13 @@ updateDns()
 updateDhcp()
 {
 	local config="$ncd/dhcp/$network"
+	local dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
+	local subnetVar="subnet$(ProperCase "$hostNameShort")"
+	local subnet="${!subnetVar:-$subnetDefault}"
 	
-	if [[ -f "$config/kea-dhcp4-$network-host.json" ]]; then
-		echo "Updating configuration for $hostNameShort..."
-		cp "$config/kea-dhcp4-$network-$hostNameShort.json" "$config/kea-dhcp4-$network.json" || return
-	fi
+	echo "Updating DHCP configuration for $hostNameShort..."
+	cp "$config/"* "$dir" || return
+	sed -i "s/SUBNET4_POOL/$subnet/" "$dir/kea-dhcp4-$network.json" || return
 
 	echo "Updating the ethers configuration..." # downcase to make etherwake case agnostic
 	configToCommaDelimited "$r" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
@@ -172,7 +177,10 @@ updateDhcp()
 	configToCommaDelimited "$r" |  awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return 
 
 	echo "Updating DHCP configuration on $host..."
-	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" --info=progress2 "$config/kea-dhcp4"* "$host:$dhcpDir" || return
+	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" --info=progress2 "$dir/"* "$host:$dhcpDir" || return
+
+	# cleanup
+	rm -fr "$dir" || return
 
 	# restart the service
 	SshHelper $hostName service restart kea-dhcp4-server || return
