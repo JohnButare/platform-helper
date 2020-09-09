@@ -167,11 +167,14 @@ ManPathAdd "/usr/local/man" "$DATA/man"
 
 case "$PLATFORM" in 
 	mac) PathAdd front "/usr/local/bin";; # use brew utilities before system utilities
-	ubuntu) PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
 		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$LOCALAPPDATA/Microsoft/WindowsApps"
 		;;
+esac
+
+case "$PLATFORM_ID" in	
+	ubuntu) PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
 esac
 
 case "$PLATFORM_LIKE" in	
