@@ -123,6 +123,7 @@ RunService()
 	if ! service running $service; then
 		printf "$service."
 		sudoc service start $service > /dev/null
+		IsPlatform wsl2 && [[ "$service" == "ssh" ]] && { RunScript --elevate -- powershell.exe WslPortForward.ps1 > /dev/null; }
 		return 0
 	fi
 
