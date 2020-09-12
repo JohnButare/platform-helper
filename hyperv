@@ -6,33 +6,46 @@ run() {	init; args "$@"; ${command}Command "${args[@]}"; }
 init()
 { 
 	gui="virtmgmt.msc"
+	disks="$DATA/appdata/Hyper-V/Virtual Hard Disks"
 }
 
 usage()
 {	
 		echot "\
 usage: hyperv IsInstalled|IsEnabled|start
+	exists|delete VM
 	list|ListPlain|status 				list virtual machines
 	console|ssh VM        				connect to a vm
+	checkpoint [VM] [CHECKPOINT](image)
+
+	create 
+		-t|--type linux|pxe|win 		type of VM defaults to use, defaults to pxe
+		-f|--force		force creation or deletion even if the VM already exists
+
 	on|off|reboot|sleep|shutdown|status VM
 		-h|--hard			perform a hard reboot or power off
-	checkpoint [VM] [CHECKPOINT](image)"
+
+
+	-v|--verbose		show verbose output"
 	exit $1
 }
 
 args()
 {
-	unset -v all brief command hard vm
+	unset -v all brief command force hard type verbose vm
 
 	while [[ "$1" != "" ]]; do
 		case "$1" in
 			-a|--all) all="true";;
+			-f|--force) force="true";;
 			-h|--hard) hard="true";;
+			-t|--type) type="$2"; shift; ! IsFunction "CreateBefore$(ProperCase "$type")" && usage 1;;
+			-v|--verbose) verbose="--verbose";;
 			--help) usage 0;;
 			ConsoleEdit) command="consoleEdit";; IsEnabled) command="isEnabled";; ListPlain) command="listPlain";;
 			*)
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				needsVmName "$command" && [[ ! $vm ]] && { vm="$1"; shift; continue; }
+				needsVmName "$command" && [[ ! $vm ]] && { vm="$1"; shift; continue; }				
 				UnknownOption "$1"
 		esac
 		shift
@@ -44,23 +57,27 @@ args()
 	# assume vm names are prefixed with HOSTNAME, i.e. oversoul-ud1 (Ubuntu Desktop 1 on oversoul)
 	[[ ! "$vm" =~ - ]] && vm="$HOSTNAME-$vm"
 
-	args=( "$@" )
+	type="${test:-pxe}"
 }
 
 #
 # helper
 #
 
-needsVmName() { [[ "$1" == @(checkpoint|console|consoleEdit|on|off|reboot|ssh|sleep|shutdown) ]]; }
+needsVmName() { [[ "$1" == @(checkpoint|console|consoleEdit|create|delete|exists|on|off|reboot|ssh|sleep|shutdown) ]]; }
 checkInstalled () { ! isInstalled && { EchoError "Hyper-V is not installed"; exit 1; } }
 isEnabled() { bcdedit.exe | grep -i hypervisorlaunchtype | grep -i Auto >& /dev/null; }
 isInstalled() { service exist hvservice; }
 isServiceRunning() { service running hvservice; }
 
+ps() { RunScript $verbose --elevate -- powershell "$@"; }
+psRaw() { RunScript --elevate -- powershell "$@"; }
+
+deleteVmDiskFiles() { rm -f "$disks/${vm}.vhdx" "$disks/${vm}_"*".avhdx"; }
+
 #
 # commands
 #
-
 
 isEnabledCommand() { isEnabled; }
 listCommand() { RunScript --elevate -- powershell Get-VM | RemoveCarriageReturn; }
@@ -109,6 +126,65 @@ guiCommand()
 consoleCommand() { elevate VmConnect.exe "$HOSTNAME" "$vm"; }
 consoleEditCommand() { elevate VmConnect.exe "$HOSTNAME" "$vm" /edit; }
 sshCommand() { SshHelper -x "$vm" "$@"; }
+
+#
+# Create Commands
+#
+
+existsCommand() { psRaw 'Get-VM | where {\$_.Name -eq \"'$vm'\"}' | grep "$vm" >& /dev/null; }
+
+deleteCommand()
+{
+	[[ ! $vm ]] && { MissingOperand "vm"; }
+	[[ ! $force ]] && { ask "Are you sure you want to delete the $vm vm and all of it's disk files" -dr n || return; }
+
+	printf "deleting $vm..."
+	ps 'Remove-VM -name \"'$vm'\" -force' >& /dev/null
+	printf "."; deleteVmDiskFiles || return
+	echo "done"
+}
+
+createCommand() 
+{ 
+	if [[ $force ]]; then
+		deleteCommand >& /dev/null
+	elif existsCommand; then
+		ask "hyperv: $vm already exists.  Delete it" -dr n || return
+		deleteCommand || return
+	fi
+	deleteVmDiskFiles || return
+
+	local disk="$(utw "$disks/$vm.vhdx")"
+	local f="$(mktemp --suffix=.ps1 -p "$WINDIR/Temp")"
+	local hdGb="10" memoryGb="2" processors="2" secureBoot="Off"
+
+	CreateBefore$(ProperCase "$type") "$@"
+
+	cat << EOF > "$f"
+New-VM -Name "$vm" -MemoryStartupBytes ${memoryGb}GB -Generation 2 -BootDevice CD -SwitchName "external" -ErrorAction Stop
+New-VHD -Path "$disk" -SizeBytes ${hdGb}GB -Dynamic -ErrorAction Stop
+Add-VMHardDiskDrive -VMName "$vm" -Path "$disk" -ErrorAction Stop
+Set-VMProcessor -VMName "$vm" -Count $processors -ExposeVirtualizationExtensions \$True -ErrorAction Stop
+Enable-VMIntegrationService -VMName "$vm" -Name "Guest Service Interface" -ErrorAction Stop
+Set-VMFirmware -VMName "$vm" -EnableSecureBoot "$secureBoot" -ErrorAction Stop
+EOF
+
+	CreateAfter$(ProperCase "$type") "$@"
+
+	ps "$(utw "$f")" || return
+	rm -f "$f" || return
+
+	echo "$type virtual machine $vm created"
+}
+
+CreateBeforeLinux() { :; }
+CreateAfterLinux() { :; }
+
+CreateBeforePxe() { :; }
+CreateAfterPxe() { :; }
+
+CreateBeforeWin() { memoryGb="4" secureBoot="On"; }
+CreateAfterWin() { :; }
 
 #
 # Power Commands
