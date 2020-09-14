@@ -176,7 +176,11 @@ powershell()
 	EchoErr "Could not find powershell"; return 1;
 }
 
-store() { IsPlatform win && { cmd.exe /c start ms-windows-store: >& /dev/null; return; }; }
+store()
+{
+	IsPlatform win && { cmd.exe /c start ms-windows-store: >& /dev/null; return; };
+	return 0
+}
 
 #
 # Console
@@ -476,6 +480,20 @@ MoveAll()
 	[[ ! $1 || ! $2 ]] && { EchoErr "usage: MoveAll SRC DEST"; return 1; }
 	shopt -s dotglob nullglob
 	mv "$1/"* "$2" && rmdir "$1"
+}
+
+# UnzipSafe - use platform specific unzip to fix unzip errors syncing metadata on Windows drives
+UnzipSafe()
+{
+	local zip="$1" dest="$2"
+
+	if IsPlatform win; then
+		7z.exe x "$(utw "$zip")" -o"$(utw "$dest")" -y -bb3 || return
+	else
+		unzip -o "$zip" -d "$dest" || return
+	fi
+
+	return 0
 }
 
 # Disks
@@ -1445,7 +1463,7 @@ GetTextEditor()
 {
 	if HasWindowManager; then
 		IsInstalled sublime && { echo "$(sublime program)"; return 0; }
-		IsPlatform win && IsPath "$P/Notepad++/notepad++.exe" && { echo "$P/Notepad++/notepad++.exe"; return 0; }
+		IsPlatform win && InPath "$P/Notepad++/notepad++.exe" && { echo "$P/Notepad++/notepad++.exe"; return 0; }
 		InPath geany && { echo "geany"; return 0; }
 		IsPlatform mac && { echo "open -a TextEdit"; return 0; }
 		IsPlatform win && InPath notepad.exe && { echo "notepad.exe"; return 0; }

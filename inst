@@ -85,6 +85,7 @@ args()
 #
 
 AdkInstall() { i WindowsAssessmentAndDeploymentKit; }
+AhkInstall() { AutoHotKeyInstall; }
 SsInstall() { i SqlServer; }
 SsmsInstall() { i SqlServerManagementStudio; }
 VsInstall() { i VisualStudio; }
@@ -444,7 +445,7 @@ appCore()
 }
 
 appMac() { i gpg iTerm karabiner rectangle LinuxUtilities xServer || return; }
-appWin() { i WindowsTerminal AutoHotKey AquaSnap EdgeDeflector winget xServer || return; }
+appWin() { i WindowsStore WindowsTerminal AutoHotKey AquaSnap EdgeDeflector winget xServer || return; }
 
 appDebian()
 { 
@@ -461,9 +462,6 @@ appDebian()
 
 	# alternative system monitor and file manager
 	! IsPlatform mac,ubuntu,win && { package gnome-system-monitor nautilus || return; }
-
-	# colorls - only on a faster physical system
-	IsPlatform physical && ! IsPlatform raspbian && { i colorls || return; }
 
 	return 0
 }
@@ -805,10 +803,11 @@ bootstrapDebian()
 	header "Bootstrap Debian"
 
 	if ! IsPlatform win; then
+IsHypervVm && echo "Hyper-V"
 		IsHypervVm && { i HypervLinuxTools || return; }
 		IsVmwareVm && { i VmwareLinuxTools || return; }
 	fi
-
+pause
 	package dialog file git libdbus-glib-1-dev man sharutils || return						# other
 	package avahi-daemon dnsutils net-tools wakeonlan || return										# network	
 	package --no-prompt keyboard-configuration smbclient || return
@@ -1005,7 +1004,7 @@ firefoxInstall()
 	IsPlatform debian && firefox IsInstalled && ! firefox program | grep "$P" >& /dev/null && { echo "firefox is already install to $(firefox program)"; return; }
 
 	# https://www.mozilla.org/en-US/firefox/all/
-	local v="76.0.1"
+	local v="80.0.1"
 	if IsPlatform pixel,raspbian; then
 		package firefox-esr || return
 	else
@@ -1043,7 +1042,7 @@ BeyondCompareInstall()
 	header "BeyondCompare"
 
 	# http://www.scootersoftware.com/download.php
-	local v=4.3.5.24893
+	local v=4.3.6.25063
 	run "other/Scooter Software/Beyond Compare/setup/" -p "BCompare-${v}_x64.msi" "BCompareOSX-${v}.zip" "bcompare-${v}_amd64.deb" || return
 
 	if IsPlatform win; then	
@@ -2574,7 +2573,7 @@ LogitechOptionsInstall()
 
 	# http://support.logitech.com/en_us/software/options
 	# the macOS zip file contains an installation program, if this pattern repeats add a -run option that is passed to InstallAppFromZip, for macOS no argument is needed, unzip to $TEMP
-	run "hardware/Logitech/options/" -p "Options_8.20.329.exe" "LogiMgr Installer 8.10.64.app" "" --elevate || return
+	run "hardware/Logitech/options/" -p "Options_8.30.310.exe" "LogiMgr Installer 8.30.293.app" "" --elevate || return
 
 	if IsPlatform win; then
 		$mv "$pp/Logitech/Logitech Options.lnk" "$pp/Operating System" || return
@@ -2807,7 +2806,7 @@ ThunderbirdInstall()
 	header "Thunderbird"
 
 	# https://www.thunderbird.net/en-US/thunderbird/all/#E
-	local v="68.8.0"
+	local v="78.2.2"
 	run "other/Mozilla/Thunderbird/" -p "Thunderbird Setup $v.msi" "Thunderbird $v.dmg" "thunderbird-$v.tar.tar" || return
 
 	if IsPlatform win; then
@@ -3512,6 +3511,79 @@ WindowsAssessmentAndDeploymentKitInstall()
 	mergeDir "$pp/Windows Kits" "$pp/Development/Other" || return
 }
 
+WindowsDownloadInstall()
+{
+	header "Windows Download"
+
+	# 1909 https://www.microsoft.com/en-us/software-download/windows10/
+	# 20201 https://docs.microsoft.com/en-us/windows-insider/flight-hub/ https://www.microsoft.com/en-us/software-download/windowsinsiderpreviewadvanced?lc=1033&wa=wsignin1.0
+	local v=1909
+	run "other/Microsoft/Windows/setup/$v/MediaCreationTool$v.exe" --elevate || return
+
+	[[ ! -f ~/Downloads/Windows.iso ]] && { EchoErr "Windpows was not downloaded"; return 1; }
+
+	gcp ~/Downloads/Windows.iso "$(GetFilePath "$file")/Windows_$v.iso" || return
+}
+
+WindowsStoreInstall()
+{
+	echo "Configuring Windows Store..."
+	echo "Log in to the Windows Store"
+	store || return
+}
+
+WindowsSubsystemForLinuxInstall()
+{	
+	header "Windows Subsystem for Linux"
+
+	local data="$DATA/appdata/wsl"; makeDir "$data" || return
+
+	# VMware Workstation does not support nested virtualization if the host is using Hyper-V
+	local dist="Ubuntu-20.04"; IsVmwareVm && dist="Ubuntu-18.04"
+
+	# install WSL
+	if ! InPath bash.exe ; then
+
+		# newer versions of windows just run wsl.exe --install
+		if InPath wsl.exe; then
+			RunScript --elevate --no-hide -- wsl.exe --install || return
+
+		# WSL 1 only
+		elif IsVmwareVm; then
+			RunScript --elevate --no-hide -- DISM.exe /online /enable-feature /FeatureName:Microsoft-Windows-Subsystem-Linux /all /norestart || return
+		
+		# WSL 2
+		else
+			run "platform/LINUX/wsl/setup/wsl_update_x64.msi" || return # Linux kernel update
+			RunScript --elevate --no-hide -- dism.exe /online /enable-feature /FeatureName:VirtualMachinePlatform /all /norestart || return
+
+		fi
+
+		return
+	fi
+
+	# update the WSL 2 kernel
+	if wsl.exe --update --status >& /dev/null; then # check if the wsl.exe  --update --status option exists (newer versions of Windows)
+		if wsl.exe --update --status |& grep "kernel file is not found" >& /dev/null; then
+			RunScript --elevate --no-hide -- wsl.exe --update
+		fi
+	fi
+
+	# install a distribution
+	if ! wsl exists "$dist" >& /dev/null && askP "Install the $dist distribution"; then
+		wsl restore "$dist" "$dist" || return
+		wsl init "$dist" || return
+	fi
+
+	wslFinal || return
+}
+
+wslFinal()
+{ 
+	registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/RunScript startup' || return
+	$makeShortcut "wsl.exe" "$pp/Operating System/bash" || return
+}
+
 #
 # .NET
 #
@@ -3892,7 +3964,7 @@ GemInstall() # gem package
 	gem install "$@" || return
 }
 
-rubyCheck() { InPath ruby && return 0; i --no-header ruby || return; }
+rubyCheck() { InPath ruby rvm && return 0; i --no-header ruby || return; }
 rvmInstalled() { [[ -d "$HOME/.rvm" ]]; }
 
 RubyInstall()
@@ -4330,7 +4402,7 @@ surveillanceStationInstall()
 # terminals
 #
 
-terminalCore() { i iTerm  terminator tmux WindowsTerminal; }
+terminalCore() { i iTerm terminator tmux WindowsTerminal; }
 
 iTermInstall()
 {
@@ -4387,7 +4459,7 @@ windowsTerminalInstall()
 	header "Windows Terminal"
 	
 	# https://github.com/microsoft/terminal/releases
-	run "other/Microsoft/Windows/terminal/Microsoft.WindowsTerminalPreview_1.3.2382.0_8wekyb3d8bbwe.msixbundle" --elevate || return
+	run "other/Microsoft/Windows/terminal/Microsoft.WindowsTerminalPreview_1.3.2382.0_8wekyb3d8bbwe.msixbundle" || return
 
 	WindowsTerminal $noPrompt profile restore default || return	
 }
@@ -4512,7 +4584,6 @@ senaInstall()
 
 utilityCore() { i AltTabTerminator aptivate AutoHotKey bartender CloseAllWIndows EdgeDeflector flux greenshot karabiner LinkShellExtension RightClickEnhancer SevenZip TaskLayout TidyTabs; }
 
-ahk() { AutoHotKeyInstall; }
 AutoHotKeyInstall()
 {
 	header "AutoHotKey"
@@ -4879,9 +4950,6 @@ ResultActive=yes" | sudo tee "/etc/polkit-1/localauthority/50-local.d/45-allow-c
 	# reconfigure the service
 	sudo systemctl daemon-reload || return
 	sudo systemctl start xrdp || return
-
-	echo "Run the following on the host..."
-	echo "elevate powershell Set-VM -VMName oversoul-lvm  -EnhancedSessionTransportType HvSocket"
 }
 
 ParallelsDesktopInstall()
@@ -4991,7 +5059,7 @@ AquaSnapInstall() # Windows preferred
 
 	mergeDir "$pp/AquaSnap" "$oo" || return
 	registry delete "urun/AquaSnap" || return; # C:\Program Files (x86)\AquaSnap\AquaSnap.Daemon.exe
-	AquaSnap profile restore default || return
+	AquaSnap $noPrompt profile restore default || return
 }
 
 MosaicoInstall()
@@ -5054,7 +5122,7 @@ WinSplitInstall()
 # Windows Setup
 #
 
-WindowsSetup()
+WindowsSetupInstall()
 {
 	header "Windows Setup"
 	
@@ -5065,12 +5133,13 @@ WindowsSetup()
 	fi
 
 	i HiddenStartConfigure SystemInternals || return # run first to minimize prompts
-	i WindowsPath WindowsPermissions WindowsDirs WindowsIcons WindowsFonts WindowsConsole WindowsConfiguration OneDrive || return
+	i WindowsPath WindowsPermissions WindowsDirectories WindowsIcons WindowsFonts WindowsConsole WindowsConfiguration OneDrive || return	
 }
 
-WindowsConfiguration()
+WindowsConfigurationInstall()
 {
-	echo "Cleaning file system..."
+	header "Windows Configuration"
+
 	$hide "$WIN_ROOT/PerfLogs" || return
 	$hide "$WIN_ROOT/Windows.old" || return
 	$rm "$WIN_HOME\Documents\My Music" || return
@@ -5163,8 +5232,10 @@ WindowsConfiguration()
 	return 0
 }
 
-WindowsConsole()
+WindowsConsoleInstall()
 {
+	header "Windows Console"
+
 	local key="HKCU/Console"
 	registry set "$key/ColorTable01" REG_DWORD 0 || return
 	registry set "$key/ColorTable11" REG_DWORD 16776960 || return
@@ -5180,8 +5251,10 @@ WindowsConsole()
 	registry set "$key/WindowSize" REG_DWORD 3276964 || return # 3276964=164x50
 }
 
-WindowsDirs()
+WindowsDirectoriesInstall()
 {
+	header "Windows Directories"
+
 	makeDir "$WIN_ROOT/temp" || return
 	
 	makeDir "$pp/Applications/Other" || return
@@ -5198,21 +5271,11 @@ WindowsDirs()
 
 }
 
-WindowsDownload()
-{
-	# 1909 https://www.microsoft.com/en-us/software-download/windows10/
-	# 20201 https://docs.microsoft.com/en-us/windows-insider/flight-hub/ https://www.microsoft.com/en-us/software-download/windowsinsiderpreviewadvanced?lc=1033&wa=wsignin1.0
-	local v=1909
-	run "other/Microsoft/Windows/setup/$v/MediaCreationTool$v.exe" --elevate || return
-
-	[[ ! -f ~/Downloads/Windows.iso ]] && { EchoErr "Windpows was not downloaded"; return 1; }
-
-	gcp ~/Downloads/Windows.iso "$(GetFilePath "$file")/Windows_$v.iso" || return
-}
-
-WindowsFonts()
+WindowsFontsInstall()
 {
 	! IsElevated && { RunScript --elevate --no-hide $verbose -- inst WindowsFonts "${options[@]}"; return; }
+
+	header "Windows Fonts"
 
 	# copy fonts
 	findFile "fonts/MesloLGS NF" || return
@@ -5238,9 +5301,9 @@ EOF
 	return 0
 }
 
-WindowsIcons()
+WindowsIconsInstall()
 {
-	echo "Updating icons..."
+	header "Windows Icons"
 
 	mergeDir "$up/Accessibility" "$pp/Applications/Accessories" || return
 	mergeDir "$pp/Accessibility" "$pp/Applications/Accessories" || return
@@ -5283,65 +5346,19 @@ WindowsIcons()
 	mergeDir "$pp/core Temp" "$oo" || return
 	$rm "$ud/Core Temp.lnk" || return
 	$rm "$ud/WizTree.lnk" || return
+	$rm "$ud/bootstrap-wsl2 - Shortcut.lnk" || return
 }
 
-WindowsPath() { SetVar --system --path PATH "$PLATFORM_PATH" || return; }
+WindowsPathInstall() { header "Windows Path"; SetVar --system --path PATH "$PLATFORM_PATH" || return; }
 
-WindowsPermissions()
+WindowsPermissionsInstall()
 {
 	! IsElevated && { RunScript --elevate --no-hide $verbose -- inst WindowsPermissions "${options[@]}"; return; }
+
+	header "Windows Permissions"
+
 	GrantFullPermission "$psm" || return
 	GrantFullPermission "$pd" || return
-}
-
-WindowsSubsystemForLinuxInstall()
-{	
-	local data="$DATA/appdata/wsl"; makeDir "$data" || return
-
-	# VMware Workstation does not support nested virtualization if the host is using Hyper-V
-	local dist="Ubuntu-20.04"; IsVmwareVm && dist="Ubuntu-18.04"
-
-	# install WSL
-	if ! InPath bash.exe ; then
-
-		# newer versions of windows just run wsl.exe --install
-		if InPath wsl.exe; then
-			RunScript --elevate --no-hide -- wsl.exe --install || return
-
-		# WSL 1 only
-		elif IsVmwareVm; then
-			RunScript --elevate --no-hide -- DISM.exe /online /enable-feature /FeatureName:Microsoft-Windows-Subsystem-Linux /all /norestart || return
-		
-		# WSL 2
-		else
-			run "platform/LINUX/wsl/setup/wsl_update_x64.msi" || return # Linux kernel update
-			RunScript --elevate --no-hide -- dism.exe /online /enable-feature /FeatureName:VirtualMachinePlatform /all /norestart || return
-
-		fi
-
-		return
-	fi
-
-	# update the WSL 2 kernel
-	if wsl.exe --update --status >& /dev/null; then # check if the wsl.exe  --update --status option exists (newer versions of Windows)
-		if wsl.exe --update --status |& grep "kernel file is not found" >& /dev/null; then
-			RunScript --elevate --no-hide -- wsl.exe --update
-		fi
-	fi
-
-	# install a distribution
-	if ! wsl exists "$dist" >& /dev/null && askP "Install the $dist distribution"; then
-		wsl restore "$dist" "$dist" || return
-		wsl init "$dist" || return
-	fi
-
-	wslFinal || return
-}
-
-wslFinal()
-{ 
-	registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\wsl.exe /usr/local/data/bin/RunScript startup' || return
-	$makeShortcut "wsl.exe" "$pp/Operating System/bash" || return
 }
 
 #

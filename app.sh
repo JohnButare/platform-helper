@@ -5,20 +5,22 @@ FunctionExists() { grep -q "$1"'()' "$2"; } # FunctionExists FUNCTION FILE - fun
 CommandExists() { FunctionExists "${1}Command" "$2" ; } # CommandExists COMMAND APP - application supports command
 
 AppExists() { FindInPath "$1" > /dev/null; }
+AppIsInstalled() { AppCommand IsInstalled "$1"; }
 AppStart() { AppCommand start "$1"; }
 AppClose() { AppCommand close "$1"; }
 AppIsRunning() { AppCommand IsRunning "$1"; }
 
 AppCloseSave()
 {
-	AppIsRunning "$1" || return 0
-	isRunning="true"
+	! AppIsInstalled "$1" && return 0
+	! AppIsRunning "$1" && return 0
+	wasRunning="true"
 	AppClose "$1"
 }
 
 AppStartRestore()
 {
-	[[ $isRunning ]] || return 0
+	[[ ! $wasRunning ]] && return 0
 	AppStart "$1"
 }
 
