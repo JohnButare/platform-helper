@@ -57,7 +57,7 @@ args()
 	# assume vm names are prefixed with HOSTNAME, i.e. oversoul-ud1 (Ubuntu Desktop 1 on oversoul)
 	[[ ! "$vm" =~ - ]] && vm="$HOSTNAME-$vm"
 
-	type="${test:-pxe}"
+	type="${type:-pxe}"
 }
 
 #
@@ -79,6 +79,7 @@ deleteVmDiskFiles() { rm -f "$disks/${vm}.vhdx" "$disks/${vm}_"*".avhdx"; }
 # commands
 #
 
+existsCommand() { psRaw 'Get-VM | where {\$_.Name -eq \"'$vm'\"}' | grep "$vm" >& /dev/null; }
 isEnabledCommand() { isEnabled; }
 listCommand() { RunScript --elevate -- powershell Get-VM | RemoveCarriageReturn; }
 listPlainCommand() { RunScript --elevate -- powershell Get-VM | RemoveCarriageReturn | tail +4 | cut -d" " -f 1 | grep -v '^$'; }
@@ -93,6 +94,16 @@ checkpointCommand() # -SnapshotName NAME
 	fi
 }
 
+deleteCommand()
+{
+	[[ ! $vm ]] && { MissingOperand "vm"; }
+	[[ ! $force ]] && { ask "Are you sure you want to delete the $vm vm and all of it's disk files" -dr n || return; }
+
+	printf "deleting $vm..."
+	ps 'Remove-VM -name \"'$vm'\" -force' >& /dev/null
+	printf "."; deleteVmDiskFiles || return
+	echo "done"
+}
 
 disableCommand()
 {
@@ -131,19 +142,6 @@ sshCommand() { SshHelper -x "$vm" "$@"; }
 # Create Commands
 #
 
-existsCommand() { psRaw 'Get-VM | where {\$_.Name -eq \"'$vm'\"}' | grep "$vm" >& /dev/null; }
-
-deleteCommand()
-{
-	[[ ! $vm ]] && { MissingOperand "vm"; }
-	[[ ! $force ]] && { ask "Are you sure you want to delete the $vm vm and all of it's disk files" -dr n || return; }
-
-	printf "deleting $vm..."
-	ps 'Remove-VM -name \"'$vm'\" -force' >& /dev/null
-	printf "."; deleteVmDiskFiles || return
-	echo "done"
-}
-
 createCommand() 
 { 
 	if [[ $force ]]; then
@@ -156,22 +154,24 @@ createCommand()
 
 	local disk="$(utw "$disks/$vm.vhdx")"
 	local f="$(mktemp --suffix=.ps1 -p "$WINDIR/Temp")"
+
 	local hdGb="10" memoryGb="2" processors="2" secureBoot="Off" switch="Default Switch"
+	local nestedVirtualization="False"
 
 	[[ "$HOSTNAME" == "oversoul" ]] && switch="external"
 	
-	CreateBefore$(ProperCase "$type") "$@"
+	CreateBefore$(ProperCase "$type") "$@" || return
 
 	cat << EOF > "$f"
 New-VM -Name "$vm" -MemoryStartupBytes ${memoryGb}GB -Generation 2 -BootDevice CD -SwitchName "$switch" -ErrorAction Stop
 New-VHD -Path "$disk" -SizeBytes ${hdGb}GB -Dynamic -ErrorAction Stop
 Add-VMHardDiskDrive -VMName "$vm" -Path "$disk" -ErrorAction Stop
-Set-VMProcessor -VMName "$vm" -Count $processors -ExposeVirtualizationExtensions \$True -ErrorAction Stop
+Set-VMProcessor -VMName "$vm" -Count $processors -ExposeVirtualizationExtensions \$${nestedVirtualization} -ErrorAction Stop
 Enable-VMIntegrationService -VMName "$vm" -Name "Guest Service Interface" -ErrorAction Stop
 Set-VMFirmware -VMName "$vm" -EnableSecureBoot "$secureBoot" -ErrorAction Stop
 EOF
 
-	CreateAfter$(ProperCase "$type") "$@"
+	CreateAfter$(ProperCase "$type") "$@" || return
 
 	ps "$(utw "$f")" || return
 	rm -f "$f" || return
@@ -185,7 +185,7 @@ CreateAfterLinux() { :; }
 CreateBeforePxe() { :; }
 CreateAfterPxe() { :; }
 
-CreateBeforeWin() { hdGb="50" memoryGb="4" secureBoot="On"; }
+CreateBeforeWin() { hdGb="50" memoryGb="4" nestedVirtualization="True" processors="4"; }
 CreateAfterWin() { :; }
 
 #
