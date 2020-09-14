@@ -13,9 +13,10 @@ usage()
 {	
 		echot "\
 usage: hyperv IsInstalled|IsEnabled|start
+	switch VM [NAME](Default Adapter) 	set the network switch
 	exists|delete VM
-	list|ListPlain|status 				list virtual machines
-	console|ssh VM        				connect to a vm
+	list|ListPlain|status 							list virtual machines
+	console|ssh VM        							connect to a vm
 	checkpoint [VM] [CHECKPOINT](image)
 
 	create 
@@ -45,7 +46,8 @@ args()
 			ConsoleEdit) command="consoleEdit";; IsEnabled) command="isEnabled";; ListPlain) command="listPlain";;
 			*)
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				needsVmName "$command" && [[ ! $vm ]] && { vm="$1"; shift; continue; }				
+				needsVmName "$command" && [[ ! $vm ]] && { vm="$1"; shift; continue; }
+				! IsOption "$1" && [[ "$command" == @(switch) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -58,22 +60,22 @@ args()
 	[[ ! "$vm" =~ - ]] && vm="$HOSTNAME-$vm"
 
 	type="${type:-pxe}"
+	args=( "$@" )
 }
 
 #
 # helper
 #
 
-needsVmName() { [[ "$1" == @(checkpoint|console|consoleEdit|create|delete|exists|on|off|reboot|ssh|sleep|shutdown) ]]; }
+needsVmName() { [[ "$1" == @(checkpoint|console|consoleEdit|create|delete|exists|on|off|reboot|ssh|sleep|shutdown|switch) ]]; }
 checkInstalled () { ! isInstalled && { EchoError "Hyper-V is not installed"; exit 1; } }
+deleteVmDiskFiles() { rm -f "$disks/${vm}.vhdx" "$disks/${vm}_"*".avhdx"; }
 isEnabled() { bcdedit.exe | grep -i hypervisorlaunchtype | grep -i Auto >& /dev/null; }
 isInstalled() { service exist hvservice; }
 isServiceRunning() { service running hvservice; }
-
+listSwitch() { ps 'Get-VMSwitch' | tail +3 | cut -d" " -f 1; }
 ps() { RunScript $verbose --elevate -- powershell "$@"; }
 psRaw() { RunScript --elevate -- powershell "$@"; }
-
-deleteVmDiskFiles() { rm -f "$disks/${vm}.vhdx" "$disks/${vm}_"*".avhdx"; }
 
 #
 # commands
@@ -130,6 +132,12 @@ guiCommand()
 	start "$gui" "$@"
 }
 
+switchCommand()
+{
+	local switch="${1:-Default Switch}"
+	ps 'Get-VM | Get-VMNetworkAdapter | Connect-VMNetworkAdapter -SwitchName \""'"$switch"'"\"'
+}
+
 #
 # Connect Commands
 #
@@ -143,7 +151,7 @@ sshCommand() { SshHelper -x "$vm" "$@"; }
 #
 
 createCommand() 
-{ 
+{
 	if [[ $force ]]; then
 		deleteCommand >& /dev/null
 	elif existsCommand; then
@@ -158,7 +166,7 @@ createCommand()
 	local hdGb="10" memoryGb="2" processors="2" secureBoot="Off" switch="Default Switch"
 	local nestedVirtualization="False"
 
-	[[ "$HOSTNAME" == "oversoul" ]] && switch="external"
+	listSwitch | grep "^external$" >& /dev/null && switch="external"
 	
 	CreateBefore$(ProperCase "$type") "$@" || return
 
@@ -171,6 +179,8 @@ Enable-VMIntegrationService -VMName "$vm" -Name "Guest Service Interface" -Error
 Set-VMFirmware -VMName "$vm" -EnableSecureBoot "$secureBoot" -ErrorAction Stop
 EOF
 
+	[[ $verbose ]] && { cat "$f"; }
+	
 	ps "$(utw "$f")" || return
 	rm -f "$f" || return
 
