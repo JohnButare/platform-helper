@@ -482,8 +482,8 @@ MoveAll()
 	mv "$1/"* "$2" && rmdir "$1"
 }
 
-# UnzipSafe - use platform specific unzip to fix unzip errors syncing metadata on Windows drives
-UnzipSafe()
+# UnzipPlatform - use platform specific unzip to fix unzip errors syncing metadata on Windows drives
+UnzipPlatform()
 {
 	local zip="$1" dest="$2"
 
