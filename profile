@@ -55,6 +55,7 @@ usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
 	-g,  --global 					use the global profile in install/bootstrap/profile
 	-m,  --method	<dir>|<program>|<key>
 	-np, --no-prompt	   		suppress interactive prompts
+	-p,  --platform 				use platform specific unzip
 	-se, --save-extension  	for program profiles, the profile extension used by the program
 	-v,  --verbose  				show verbose output"
 	exit $1 
@@ -62,7 +63,7 @@ usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
 
 args()
 {
-	unset app files global method noPrompt profile saveExtension
+	unset app files global method noPrompt platform profile saveExtension
 
 	while (( $# != 0 )); do
 		case "$1" in
@@ -72,6 +73,7 @@ args()
 			-g|--global) global="--global";;
 			-m|--method) method="$2"; shift;;
 			-np|--no-prompt) noPrompt="--no-prompt";;
+			-p|--platform) platform="true";;
 			-se|--save-extension) saveExtension="$2"; shift;;
 			-v|--verbose) verbose="--verbose";;
 			CopyGlobal) command="copyGlobal";; SaveDir) command="saveDir";;
@@ -132,7 +134,11 @@ restoreCommand()
 
 	if [[ "$method" == "file" ]]; then
 		AppCloseSave "$app" || return
-		UnzipPlatform "$profile" "$profileDir" || return
+		if [[ $platform ]]; then
+			UnzipPlatform "$profile" "$profileDir" || return
+		else
+			unzip  -o "$profile" -d "$profileDir" || return
+		fi
 		AppStartRestore "$app" || return
 		
 	elif [[ "$method" == "program" ]]; then

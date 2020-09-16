@@ -404,9 +404,10 @@ GetFullPath()
 	local gfp="$(GetRealPath "${@/#\~/$HOME}")"; r "$gfp" $2; # replace ~ with $HOME so we don't lose spaces in expansion
 }
 
-GetRealPath()  # resolve symbolic links, use -m so directory existence is not checked (which can error out for mounted network volumes)
+GetRealPath()  # resolve symbolic links
 {
-	InPath {G}realpath && { ${G}realpath -m "@"; return; }
+	# use -m so directory existence is not checked (which can error out for mounted network volumes)
+	InPath ${G}realpath && { ${G}realpath -m "$@"; return; }
 	${G}readlink -f "$@"
 }
 
@@ -601,7 +602,7 @@ utw() # UnixToWin
 
 	[[ ! "$file" || "$PLATFORM" != "win" ]] && { echo "$@"; return 1; }
 
-	file="$(GetRealPath "$@")"
+	file="$(GetRealPath "$@")" || return
 
 	# network shares do not translate properly in WSL 2
 	if IsPlatform wsl2; then 
@@ -1564,9 +1565,13 @@ GetVmType() # vmware|hyperv
 	[[ "$result" == "microsoft" ]] && result="hyperv"
 	[[ "$result" == "none" ]] && result=""
 
-	if IsPlatform win && [[ "$result" == "hyperv" ]]; then # Hyper-V is detected on the physical host and the virtual machine as "microsoft"
+	# In wsl2, Hyper-V is detected on the physical host and the virtual machine as "microsoft" so check the product
+	if IsPlatform wsl2 && [[ "$result" == "hyperv" ]]; then
 		local product="$(RemoveSpaceTrim $(wmic.exe baseboard get product | RemoveCarriageReturn | tail -2 | head -1))"
-		[[ "$product" != "Virtual Machine" ]] && result=""
+		if [[ "$product" == "440BX Desktop Reference Platform" ]]; then result="vmware"
+		elif [[ "$product" == "Virtual Machine" ]]; then result="hyperv"
+		else result=""
+		fi
 	fi
 
 	VM_TYPE_CHECKED="true" VM_TYPE="$result"
