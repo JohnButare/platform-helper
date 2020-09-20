@@ -20,59 +20,116 @@ init()
 usage()
 {
 	echot "\
-usage: network cache center dns name proxy run update
-	dns flush
+usage: network cache center dns name proxy run
+
+	adapter edit|list|name 	network adapter commands
+	dns flush 							dns commands
+	profile edit|list|set 	network profile commands
 	proxy [apt|wpad|vars] 
 		-e, --enable
 		-d, --disable
 		-s, --status
-	AdapterEdit|AdapterList|AdapterName - network adapters
-	ProfileEdit|ProfileList|ProfileSet - network profiles
-	workgroup|WorkgroupSet"
+	current name|update     current network commands
+		update 								update network settings for the current network
+	workgroup name|set 			SAMBA workgroup commands
+
+	-q,  --quiet						minimize informational messages"
 	exit $1
 }
 
 args()
 {
-	unset command
+	unset command quiet
+
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) usage 0;;
-			AdapterEdit) command="adapterEdit";; AdapterList) command="adapterList";; AdapterName) command="adapterName";;
-			ProfileEdit) command="profileEdit";; ProfileList) command="profileList";; ProfileSet) command="profileSet";;
-			WorkgroupSet) command="workgroupSet";;
+			-q|--quiet) quiet="--quiet";;
 			*) 
+				[[ "$command" == @(adapter|cache|check|current|dns|profile|proxy|run|workgroup) ]] && break
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(cache|check|dns|proxy|run) ]] && break
-				[[ "$command" == @(AdapterName|ProfileSet|WorkgroupSet) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
 	done
+
 	[[ ! $command ]] && { command="center"; }
 	args=( "$@" )
 }
+
+#
+# commands
+#
 
 runCommand() { ssh "$1" 'source /etc/profile; '"${@:2}"''; }
 centerCommand() {	start control /name Microsoft.NetworkAndSharingCenter; }
 cacheCommand() { IsAvailable "$1" || return; net use '\\'$1'\ipc$' >& /dev/null; }
 nameCommand() { registry edit 'HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/NetworkList/Profiles'; }
 
-updateCommand()
+#
+# adapter commands
+#
+
+adapterCommand()
 {
-	local network="external"
+	command="List"
+	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Adapter${s}Command && { command="$s"; shift; }
+	Adapter${command}Command "$@"
+}
+
+AdapterEditCommand() { registry edit "$adapterKey"; }
+
+AdapterListCommand()
+{
+	! IsElevated && { RunScript --elevate network adapter list "$@"; return; }
+	powershell.exe Get-NetAdapter | RemoveCarriageReturn | RemoveEmptyLines | tail -n +3
+}
+
+AdapterNameCommand() # OLD NEW
+{ 
+	local old="$1"; [[ ! $old ]] && { MissingOperand "old name"; }
+	local new="$2"; [[ ! $new ]] && { MissingOperand "new name"; }
+
+	! IsElevated && { RunScript --elevate -- network adapter name "$@"; return; }
+	powershell.exe Rename-NetAdapter -Name \"$old\" -NewName \"$new\"
+}
+
+#
+# current network commands
+#
+
+currentCommand()
+{
+	command="Name"
+	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Current${s}Command && { command="$s"; shift; }
+	[[ $# != 0 ]] && usage
+	Current${command}Command "$@"
+}
+
+CurrentNameCommand()
+{
+	network="external"
 
 	for i in "${!networks[@]}"
 	do
 		local name="$i" ip="${networks[$i]}"
-		printf "Checking $name ($ip)..."
+		[[ ! $quiet ]] && printf "Checking $name ($ip)..."
 		if IsAvailable "$ip" && dig @$ip bogus +time=1 +tries=1 >& /dev/null; then
-			echo "found"
+			[[ ! $quiet ]] && echo "found"
 			network="$name"
 			break
 		fi 
 	done
-	[[ "$network" == "external" ]] && echo "done"
+	[[ "$network" == "external" && ! $quiet ]] && echo "done"
+
+	[[ $quiet ]] && echo "$network" || echo "The current network is $network"
+}
+
+CurrentUpdateCommand()
+{
+	local network
+
+	CurrentNameCommand || return
 
 	local file="$DATA/setup/resolv.conf.$network"
 	if [[ ! -f "$file" ]]; then
@@ -85,7 +142,7 @@ updateCommand()
 }
 
 #
-# DNS Commands
+# DNS commands
 #
 
 dnsCommand()
@@ -105,71 +162,27 @@ DnsFlushCommand()
 }
 
 #
-# Workgroup Commands
+# profile commands -  - Windows network profiles
 #
 
-workgroupCommand()
-{ 
-	if IsPlatform win; then
-		net.exe config workstation | grep "Workstation domain" | RemoveCarriageReturn | awk '{ print $3; }'
-	elif [[ -f "/etc/samba/smb.conf" ]]; then
-		cat "/etc/samba/smb.conf" | grep -i "^[ 	]*workgroup[ 	]*=[ 	s]*" | cut -d "=" -f 2 | sed 's/ //g'
- 	else
-		echo "unknown"
-	fi 
-}
-
-workgroupSetCommand()
+profileCommand()
 {
-	local newWorkgroup="$1"
-	[[ ! $newWorkgroup ]] && { read -p "Enter new workgroup: " newWorkgroup; echo; }
-
-	[[ "$(workgroupCommand)" == "$newWorkgroup" ]] && return
-
-	echo "The current workgroup is $(workgroupCommand), setting the workgroup to $newWorkgroup..."
-
-	if [[ -f "/etc/samba/smb.conf" ]]; then
-		sudo sed -i "s/^[        ]*workgroup[    ]*=.*$/workgroup = ${newWorkgroup}/" "/etc/samba/smb.conf" || return
-	fi
-
-	if IsPlatform win; then
-		elevate RunScript --pause-error powershell Add-computer -WorkgroupName "$newWorkgroup" || return
-	fi
+	! IsPlatform win && { EchoErr "network: profile is only implemented for Windows"; return 1; }
 	
-	return 0
+	command="List"
+	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Profile${s}Command && { command="$s"; shift; }
+	Profile${command}Command "$@"
 }
 
 #
-# Adapter Commands - network adapters
+# Profile Commands
 #
 
-adapterEditCommand() { registry edit "$adapterKey"; }
+ProfileEditCommand() { registry edit "$profileKey"; }
 
-adapterListCommand()
+ProfileListCommand()
 {
-	! IsElevated && { elevate RunScript --pause network AdapterList "$@"; return; }
-	powershell.exe Get-NetAdapter | RemoveCarriageReturn | RemoveEmptyLines | tail -n +3
-}
-
-adapterNameCommand() # OLD NEW
-{ 
-	! IsElevated && { elevate RunScript --pause-error network AdapterName "$@"; pause; return; }
-
-	local old="$1"; [[ ! $old ]] && { MissingOperand "old name"; }
-	local new="$2"; [[ ! $new ]] && { MissingOperand "new name"; }
-
-	powershell.exe Rename-NetAdapter -Name \"$old\" -NewName \"$new\"
-}
-
-#
-# Profile Commands - Windows network profiles
-#
-
-profileEditCommand() { registry edit "$profileKey"; }
-
-profileListCommand()
-{
-	! IsElevated && { elevate RunScript --pause network ProfileList "$@"; return; }
+	! IsElevated && { RunScript --elevate network profile list "$@"; return; }
 
 	local IFS=$'\n' name type category
 
@@ -195,10 +208,10 @@ profileListCommand()
 	done
 }
 
-# profileSetCommand NAME - if there is only one network profile, set it's name and make it a private network
-profileSetCommand()
+# profile set NAME - if there is only one network profile, set it's name and make it a private network
+ProfileSetCommand()
 {
-	! IsElevated && { elevate RunScript --pause-error network ProfileSet "$@"; pause; return; }
+	! IsElevated && { RunScript --elevate network profile set "$@"; pause; return; }
 
 	local name="$1"; [[ ! $name ]] && { MissingOperand "name"; }
 	local numProfiles="$(registry get "$profileKey" | RemoveEmptyLines | wc -l)"
@@ -211,7 +224,49 @@ profileSetCommand()
 }
 
 #
-# Proxy Commands
+# workgroup commands
+#
+
+workgroupCommand()
+{
+	command="Name"
+	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Workgroup${s}Command && { command="$s"; shift; }
+	Workgroup${command}Command "$@"
+}
+
+WorkgroupNameCommand()
+{ 
+	if IsPlatform win; then
+		net.exe config workstation | grep "Workstation domain" | RemoveCarriageReturn | awk '{ print $3; }'
+	elif [[ -f "/etc/samba/smb.conf" ]]; then
+		cat "/etc/samba/smb.conf" | grep -i "^[ 	]*workgroup[ 	]*=[ 	s]*" | cut -d "=" -f 2 | sed 's/ //g'
+ 	else
+		echo "unknown"
+	fi 
+}
+
+WorkgroupSetCommand()
+{
+	local newWorkgroup="$1"
+	[[ ! $newWorkgroup ]] && { read -p "Enter new workgroup: " newWorkgroup; echo; }
+
+	[[ "$(workgroupCommand)" == "$newWorkgroup" ]] && return
+
+	echo "The current workgroup is $(workgroupCommand), setting the workgroup to $newWorkgroup..."
+
+	if [[ -f "/etc/samba/smb.conf" ]]; then
+		sudo sed -i "s/^[        ]*workgroup[    ]*=.*$/workgroup = ${newWorkgroup}/" "/etc/samba/smb.conf" || return
+	fi
+
+	if IsPlatform win; then
+		elevate RunScript --pause-error powershell Add-computer -WorkgroupName "$newWorkgroup" || return
+	fi
+	
+	return 0
+}
+
+#
+# proxy commands
 #
 
 proxyCommand()
