@@ -132,12 +132,12 @@ i() # invoke the installer script (inst) saving the INSTALL_DIR
 	local find force noRun select
 
 	if [[ "$1" == "--help" ]]; then echot "\
-usage: i [APP*|cd|dir|force|info|select]
+usage: i [APP*|bak|cd|dir|force|info|select]
   Install applications
-	-f,  --force					force installation even if a minimal install is selected
-  -nr, --no-run do not find or run the installation program
-  -f, --force		check for a new installation location
-  -s, --select	select the install location"
+	-f,  --force		force installation even if a minimal install is selected
+  -nr, --no-run 	do not find or run the installation program
+  -f,  --force		check for a new installation location
+  -s,  --select		select the install location"
 	return 0
 	fi
 
@@ -149,11 +149,12 @@ usage: i [APP*|cd|dir|force|info|select]
 
 	if [[ ! $noRun && ($force || $select || ! $INSTALL_DIR) ]]; then
 		ScriptEval FindInstallFile --eval $select || return
-		export INSTALL_DIR="$InstallDir"
-		unset InstallDir file
+		export INSTALL_DIR="$installDir"
+		unset installDir file
 	fi
 
 	case "${1:-cd}" in
+		bak) InstBak;;
 		cd) cd "$INSTALL_DIR";;
 		dir) echo "$INSTALL_DIR";;
 		force|select) return 0;;
@@ -499,10 +500,13 @@ UnzipPlatform()
 
 # Disks
 
+IsDrive() { [[ "$1" =~ ^/mnt ]]; } # IsDrive DIR - return true if the specified directory is a mounted drive
+GetDrive() { ! IsDrive "$1" && return; echo "$1" | cut -d "/" -f 3; } # GetDrive DIR - get the name of the drive from a mounted DIRECTORY
+
 GetDriveLabel()
 { 
 	! IsPlatform win && { echo ""; return 0; }
-	cmd.exe /c vol "$1": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7;
+	cmd.exe /c vol "$1": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7-;
 }
 
 GetDisks() # GetDisks ARRAY
@@ -534,35 +538,51 @@ GetDrives()
 	fi
 }
 
+# IsDriveMounted DRIVES - return true if all DRIVES are mounted to /mnt/DRIVE
+IsDriveMounted()
+{
+	local drive type="9p"; IsPlatform wsl1 && type="drvfs"
+
+	for drive in "$@"; do
+		[[ ! -d "/mnt/$drive" ]] && return 1
+		IsPlatform win && { mount -t "$type" |& grep -i "^$drive:[\\]\? on /mnt/$drive type $type" >& /dev/null || return; }
+	done
+	
+	return 0
+}
+
 MountDrive()
 {
 	local drive="$1"
 
-	[[ ! -d "/mnt/$drive" ]] && { sudo mkdir "/mnt/$drive" || return 1; }
+	[[ ! -d "/mnt/$drive" ]] && { sudoc mkdir "/mnt/$drive" || return 1; }
 
 	if IsPlatform win; then
 		[[ "$drive" == "c" ]] && return 1
-		mount |& grep "$drive: on /mnt/$drive type drvfs" >& /dev/null && return 0
-		sudo mount -t drvfs "$drive:" "/mnt/$drive" >& /dev/null
+		IsDriveMounted "$drive" && return 0
+		sudoc mount -t drvfs "$drive:" "/mnt/$drive" >& /dev/null
 	else
 		[[ ! -e "/dev/$drive" ]] && { EchoErr "$drive is not a device"; return 1; }
-		sudo mount "/dev/$drive" "/mnt/$drive"
+		sudoc mount "/dev/$drive" "/mnt/$drive"
 	fi
 }
 
 UnMountDrive()
 {
 	local drive="$1"
-	[[ ! -d "/mnt/$drive" ]] && return 0
-	sudo umount "/mnt/$drive"
-	sudo rmdir "/mnt/$drive"
+	[[ ! -e "/mnt/$drive" ]] && return 0
+	sudoc umount "/mnt/$drive"
+	sudoc rmdir "/mnt/$drive"
 }
 
 MountAllDrives()
 {
+	local drives="$(GetDrives)"; IsDriveMounted ${drives[@]} && return
+
 	printf "mounting..."
 
-	for drive in $(GetDrives); do
+	for drive in ${drives[@]}; do
+		[[ "$drive" == "c" ]] && continue
 		MountDrive "$drive" > /dev/null && printf "$drive."
 	done
 
@@ -832,7 +852,6 @@ GetUncServer() { local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } 
 GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 GetUncShareFromFile() { findmnt --types=cifs --noheadings --output=TARGET,SOURCE --target "$1" | cut -d" " -f 2; }
-
 
 # SSH
 
@@ -1418,7 +1437,7 @@ ScriptReturn()
 		else
 			printf "$export$var=$fmt\n" "${!var}"
 		fi
-	done;		
+	done
 }
 
 #

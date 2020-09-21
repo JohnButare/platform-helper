@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
 . function.sh || return
 
+run() {	init && args "$@" && ${command}Command "${args[@]}"; }
+
+init()
+{
+	declare -Ag dirs
+	preferredServers=( nas3 ) # 10G servers
+}
+
 usage()
 {
 	echot "\
 usage: FindInstallFile FILE
 	Find an installation file or directory from known locations.  Searches 
 	INSTALL_DIR if defined.  
-	-e, --eval				return variables to evaluate (InstallDir and file)
+
+	-a, --all					return all found directories
+	-e, --eval				return variables to evaluate (installDir and file)
+	-f, --force				do not use cached installation directory
 	-h, --hint DIR 		first directory to search
 	-q, --quiet				do not display status messages
 	-s, --select			select the install location
@@ -18,141 +29,192 @@ usage: FindInstallFile FILE
 
 args()
 {
-	unset eval fileSuffix hint quiet select suppress
+	unset command fileSuffix
+	unset eval force hint quiet suppress # argumrnts
+
+	command="closest"
+
 	while [ "$1" != "" ]; do
 		case "$1" in
-			--eval|-e) eval="true";;
-			--hint|-h) hint="$2"; shift;;
-			--quiet|-q) quiet="true";;
-			--select|-s) select="true";;
-			--suppress) suppress="true";;
-			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			-a|--all) command="all";;
+			-e|--eval) eval="true";;
+			   --help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
+			-f|--force) force="true";;
+			-h|--hint) hint="$2"; shift;;
+			-q|--quiet) quiet="true";;
+			-s|--select) command="select";;
+			   --suppress) suppress="true";;
 			*)
 				! IsOption "$1" && [[ ! $fileSuffix ]] && { fileSuffix="$1"; shift; continue; }
 				UnknownOption "$1"
 		esac
 		shift
 	done
+
 	args=("$@")
 }
 
-AddDirs()
+#
+# commands
+#
+
+allCommand()
+{	
+	quiet="true"
+
+	addDirs || return
+	checkServerAvailability || return
+
+	for key in "${closestKeys[@]}"; do
+		echo "${dirs["$key"]}"
+	done
+}
+
+closestCommand() { findClosest && returnData; }
+selectCommand() { findSelect && returnData; }
+
+#
+# helper
+#
+
+addDir() { dirs["$1"]+="$2"; }
+printStatus() { [[ ! $quiet ]] && PrintErr "$1"; }
+returnData() { [[ $eval ]] && ScriptReturn installDir file || echo "$file"; }
+status() { [[ ! $quiet ]] && EchoErr "$1"; }
+
+addDirs()
 {
-	AddLocalDirs || return
+	[[ $hint ]] && { addDir "$hint" "$hint" || return; }
+
+	addLocalDirs || return
 
 	# Wiggin
-	if IsAvailable nas3.hagerman.butare.net; then AddDir nas3 "//nas3.hagerman.butare.net/public/documents/data/install"
-	elif IsAvailable nas1.hagerman.butare.net; then AddDir nas1 "//nas1.hagerman.butare.net/public/Documents/data/install"
-	fi
+	IsAvailable nas1.hagerman.butare.net && addDir nas1 "//nas1.hagerman.butare.net/public/Documents/data/install"
+	IsAvailable nas3.hagerman.butare.net && addDir nas3 "//nas3.hagerman.butare.net/public/documents/data/install"
 
 	return 0
 }
 
-AddLocalDirs()
+addLocalDirs()
 {
-	local disks; GetDisks disks
+	local disks
+
+	MountAllDrives || return
+	GetDisks disks || return
 
 	for disk in "${disks[@]}"; do
-		[[ -d "$disk/public/documents/data/install" ]] && AddDir "local-$(GetFileName "$disk")" "$disk/public/documents/data/install" # portable
-		[[ -d "$disk/nas3/public/documents/data/install" ]] && AddDir "local-$(GetFileName "$disk")" "$disk/nas3/public/documents/data/install" # backup disk
+		[[ -d "$disk/public/documents/data/install" ]] && addDir "local-$(GetFileName "$disk")" "$disk/public/documents/data/install" # portable
+		[[ -d "$disk/nas3/public/documents/data/install" ]] && addDir "local-$(GetFileName "$disk")" "$disk/nas3/public/documents/data/install" # backup disk
 	done
 
 	# VMware Host
-	[[ -d "/mnt/hgfs/c/Users/Public/Documents/data" ]] && AddDir "vmware-host" "/mnt/hgfs/c/Users/Public/Documents/data"
-	IsVmwareVm && [[ -d "//vmware-host/Shared Folders/d/users/public/install/" ]] && AddDir "host-drive-d" "//vmware-host/Shared Folders/d/users/public/install"
+	[[ -d "/mnt/hgfs/c/Users/Public/Documents/data" ]] && addDir "vmware-host" "/mnt/hgfs/c/Users/Public/Documents/data"
+	IsVmwareVm && [[ -d "//vmware-host/Shared Folders/d/users/public/install/" ]] && addDir "host-drive-d" "//vmware-host/Shared Folders/d/users/public/install"
 
 	# Parallels Host
-	[[ -d "/media/psf/AllFiles" ]] && AddDir "parallels-host" "/media/psf/AllFiles"
+	[[ -d "/media/psf/AllFiles" ]] && addDir "parallels-host" "/media/psf/AllFiles"
 
 	# Synology DSM NAS
-	[[ -d "/volume1/public/documents/data/install" ]] && AddDir "dsm-host" "/volume1/public/documents/data/install"
+	[[ -d "/volume1/public/documents/data/install" ]] && addDir "dsm-host" "/volume1/public/documents/data/install"
 
 	# QNAP NAS
-	[[ -d "/share/Public/documents/data/install" ]] && AddDir "qnap-host" "/share/Public/documents/data/install"
+	[[ -d "/share/Public/documents/data/install" ]] && addDir "qnap-host" "/share/Public/documents/data/install"
 
 	return 0
 }
 
-AddDir() { dirs["$1"]+="$2"; }
-
-CheckDir()
+checkDir()
 {
 	local dir="$1"
 
 	IsUncPath "$dir" && { dir="$(unc mount "$dir")" || return; }
 
 	if [[ -e "$dir/$fileSuffix" ]]; then
-		InstallDir="$dir"
+		installDir="$dir"
 		file="$dir/$fileSuffix"
 		return 0
 	fi
 	return 1
 }
 
-CheckServerAvailability()
+checkServerAvailability()
 {
 	local pingTime
 
-	[[ ! $quiet ]] && PrintErr "checking..." 
+	printStatus "checking..." 
 
 	for key in "${!dirs[@]}"; do
 		local dir="${dirs["$key"]}" server
 		unset dirs["$key"]
-		GetUncServer "$dir" server; [[ ! $server || "$server" == "vmware-host" ]] && { AddDir "0-$key" "$dir"; continue; }
-		pingResult="$(PingResponse "$server")" && { AddDir "$pingTime-$key" "$dir" || return; }
-		[[ ! $quiet ]] && PrintErr "." 
+		GetUncServer "$dir" server; [[ ! $server || "$server" == "vmware-host" ]] && { addDir "0-$key" "$dir"; continue; }
+		pingTime="$(PingResponse "$server")" && { addDir "$pingTime-$key" "$dir" || return; }
+		printStatus "." 
 	done
+
 	[[ "${#dirs[@]}" == "0" ]] && return 0
 
 	shopt -s lastpipe
+
+	# sort the array by ping time
 	printf '%s\0' "${!dirs[@]}" | sort --numeric --zero-terminated | xargs -0n1 | readarray -t closestKeys
 
 	return 0
 }
 
-FindClosest()
+findClosest()
 {
-	local items
+	local dir key server
 
-	[[ $hint ]] && { CheckDir "$hint" && return; }	
-	[[ $INSTALL_DIR ]] && { CheckDir "$INSTALL_DIR" && return; }
+	[[ $hint ]] && { checkDir "$hint" && return; }	
+	[[ ! $force && $INSTALL_DIR ]] && { checkDir "$INSTALL_DIR" && return; }
+
+	addDirs ||return
 
 	# check local dirs	
 	for key in "${!dirs[@]}"; do
-		local dir="${dirs["$key"]}" server
+		dir="${dirs["$key"]}"
 		GetUncServer "$dir" server; [[ $server ]] && continue
-		CheckDir "$dir" && return
+		checkDir "$dir" && return
 		unset dirs["$key"]
 	done
 
-	CheckServerAvailability || return
+	checkServerAvailability || return
 	
+	# check preferred servers
 	for key in "${closestKeys[@]}"; do
-		[[ ! $quiet ]] && PrintErr "${key#*-}..." 
-		CheckDir "${dirs["$key"]}" && { [[ ! $quiet ]] && EchoErr "found"; return 0; }
+		server="${key#*-}"
+		if IsInArray "$server" preferredServers; then
+			printStatus "$server..." 
+			checkDir "${dirs["$key"]}" && { status "found"; return 0; }
+		fi
 	done
 
-	[[ ! $quiet ]] && EchoErr "not found"
+	# check closet servers
+	for key in "${closestKeys[@]}"; do
+		printStatus "${key#*-}..." 
+		checkDir "${dirs["$key"]}" && { status "found"; return 0; }
+	done
+
+	status "not found"
 	[[ ! $suppress ]] && EchoErr "FindInstallFile: Could not locate ${fileSuffix:-the installation directory}"
 	return 1
 }
 
-Select()
+findSelect()
 {
-	[[ $hint ]] && AddDir "$hint" "$hint"
-
-	CheckServerAvailability || return
+	addDirs || return
+	checkServerAvailability || return
 
 	local items=( )
 	for key in "${closestKeys[@]}"; do
 		local dir="${dirs["$key"]}" desc="${key#*-}" ms="${key%%-*}ms away"
 		items+=( "$desc" "$ms" )
-		unset dirs["$key"]; AddDir "$desc" "$dir"
+		unset dirs["$key"]; addDir "$desc" "$dir"
 	done
 
 	if (( ${#items[@]} == 0 )); then
-		[[ ! $quiet ]] && EchoErr "not found"
-		[[ ! $suppress ]] && EchoErr "FindInstallFile: Could not locate any installation servers"
+		status "not found"
+		[[ ! $suppress ]] && EchoErr "FindInstallFile: could not locate any installation servers"
 		return 1
 	fi
 
@@ -160,24 +222,13 @@ Select()
 		local result=$(dialog --stdout --backtitle "Select Installation Location" \
 	  	--menu "Choose the location to search for:\n$fileSuffix" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
 		[[ "$result" == "" ]] && return 1
-		[[ ! $quiet ]] && PrintErr "checking...$result ("${dirs[$result]}")..."
-		CheckDir "${dirs[$result]}" && { [[ ! $quiet ]] && EchoErr "found"; return; }
+		printStatus "checking...$result ("${dirs[$result]}")..."
+		checkDir "${dirs[$result]}" && { status "found"; return; }
 
-		[[ ! $quiet ]] && EchoErr "not found"
+		status "not found"
 		[[ ! $suppress ]] && EchoErr "FindInstallFile: ${fileSuffix:-the installation directory} is not located on $result"
 		pause
 	done
-
-}
-
-run() 
-{	
-	local -A dirs; local closestKeys
-	args "$@" || return; 
-	AddDirs || return
-
-	[[ $select ]] && { Select || return; } || { FindClosest || return; }
-	[[ $eval ]] && { ScriptReturn InstallDir file; true; } || { echo "$file"; true; }
 }
 
 run "$@"
