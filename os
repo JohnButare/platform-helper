@@ -79,12 +79,15 @@ hostnameCommand()
 
 	# reverse DNS lookup for IP Address
 	if IsIpAddress "$host"; then
-		name="$(RemoveDnsSuffix $(nslookup $host |& grep "name =" | cut -d" " -f 3))"
-		[[ $name ]] && { echo "$name"; return ; }
+		name="$(nslookup $host |& grep "name =" | cut -d" " -f 3 | RemoveDnsSuffix)"
+		echo "${name:-$host}"; return
 	fi
 
 	# forward DNS lookup
-	InPath host && name=$(host $host | grep " has address ") && { echo "$(RemoveDnsSuffix $name)"; return; }
+	if InPath host; then
+		name="$(host $host | grep " has address " | cut -d" " -f 1 | RemoveDnsSuffix)"
+		echo "${name:-$host}"; return
+	fi
 
 	# fallback on the name passed
 	echo "$(RemoveDnsSuffix $host)"

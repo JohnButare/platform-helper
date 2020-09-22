@@ -3,7 +3,7 @@
 IsBash() { [[ $BASH_VERSION ]]; }
 IsZsh() { [[ $ZSH_VERSION ]]; }
 
-IsBash && { shopt -s nocasematch extglob;  PLATFORM_SHELL="bash"; whence() { type "$@"; }; }
+IsBash && { shopt -s nocasematch extglob expand_aliases;  PLATFORM_SHELL="bash"; whence() { type "$@"; }; }
 IsZsh && { setopt KSH_GLOB EXTENDED_GLOB; PLATFORM_SHELL="zsh"; }
 
 [[ ! $BIN ]] && { BASHRC="${BASH_SOURCE[0]%/*}/bash.bashrc"; [[ -f "$BASHRC" ]] && . "$BASHRC"; }
@@ -11,6 +11,8 @@ IsZsh && { setopt KSH_GLOB EXTENDED_GLOB; PLATFORM_SHELL="zsh"; }
 #
 # Other
 #
+
+alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"' # get arguments from standard input if not specified on command line
 
 EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of the variable in variable, or set it to var
 IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
@@ -147,7 +149,7 @@ usage: i [APP*|bak|cd|dir|force|info|select]
 	[[ "$1" == @(select) ]] && { select="--select"; }
 	[[ "$1" == @(force) ]] && { force="true"; }
 
-	if [[ ! $noRun && ($force || $select || ! $INSTALL_DIR) ]]; then
+	if [[ ! $noRun && ($force || $select || ! $INSTALL_DIR || ! -d "$INSTALL_DIR") ]]; then
 		ScriptEval FindInstallFile --eval $select || return
 		export INSTALL_DIR="$installDir"
 		unset installDir file
@@ -234,12 +236,14 @@ SleepStatus()
 EchoErr() { printf "$@\n" >&2; }
 PrintErr() { printf "$@" >&2; }
 
+# printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var
+printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; }
+
 # display tabs
 [[ "$TABS" == "" ]] && TABS=2
 catt() { cat $* | expand -t $TABS; } 							# CatTab
 echot() { echo -e "$*" | expand -t $TABS; } 			# EchoTab
 lesst() { less -x $TABS $*; } 										# LessTab
-printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; } # printf pipe: cat file | printf -v var
 
 #
 # Data Types
@@ -321,21 +325,21 @@ HexToDecimal() { echo "$((16#${1#0x}))"; }
 # string
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
-ProperCase() { arg="${1,,}"; r "${arg^}" $2; }
+ProperCase() { GetArgs; arg="${1,,}"; r "${arg^}" $2; }
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveEmptyLines() { sed -r '/^\s*$/d'; }
-RemoveSpace() { echo "${@// /}"; }
-RemoveSpaceEnd() { echo "${@%%*( )}"; }
-RemoveSpaceFront() { echo "${@##*( )}"; }
-RemoveSpaceTrim() { echo "$(RemoveSpaceFront "$(RemoveSpaceEnd "$@")")"; }
+RemoveSpace() { GetArgs; echo "${@// /}"; }
+RemoveSpaceEnd() { GetArgs; echo "${@%%*( )}"; }
+RemoveSpaceFront() { GetArgs; echo "${@##*( )}"; }
+RemoveSpaceTrim() { GetArgs; echo "$(RemoveSpaceFront "$(RemoveSpaceEnd "$@")")"; }
 
 QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
 QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
 
-BackToForwardSlash() { echo "${@//\\//}"; }
-ForwardToBackSlash() { echo "${@////\\}"; }
-RemoveBackslash() { echo "${@//\\/}"; }
+BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
+ForwardToBackSlash() { GetArgs; echo "${@////\\}"; }
+RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
 
 if IsZsh; then
 	GetWord() 
@@ -363,25 +367,65 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d" $(( $s/60/
 # File System
 #
 
+CopyFileProgress() { rsync --info=progress2 "$@"; }
 DirCount() { RemoveSpace "$(command ls "$1" | wc -l)"; return "${PIPESTATUS[0]}"; }
-EnsureDir() { echo "$(RemoveTrailingSlash "$1")/"; }
+EnsureDir() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
 GetBatchDir() { GetFilePath "$0"; }
 GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
-GetFilePath() { local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
-GetFileName() { r "${1##*/}" $2; }
+GetFilePath() { GetArgs; local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
+GetFileName() { GetArgs; r "${1##*/}" $2; }
 GetFileNameWithoutExtension() { local gfnwe="$1"; GetFileName "$1" gfnwe; r "${gfnwe%.*}" $2; }
 GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
-GetParentDir() { echo "$(GetFilePath "$(GetFilePath "$1")")"; }
+GetLastDir() { GetArgs; echo "$@" | RemoveTrailingSlash | GetFileName; }
+GetParentDir() { GetArgs; echo "$@" | GetFilePath | GetFilePath; }
 IsDirEmpty() { [[ "$(find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
 InPath() { local f option; IsZsh && option="-p"; for f in "$@"; do ! which $option "$f" >& /dev/null && return 1; done; return 0; }
 IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff "$1" "$2" >& /dev/null; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
-RemoveTrailingSlash() { r "${1%%+(\/)}" $2; }
+RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
 
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 
-CopyFileProgress() { rsync --info=progress2 "$@"; }
+explore() # explorer DIR - explorer DIR in GUI program
+{
+	local dir="$1"; [[ ! $dir ]] && dir="."
+	
+	IsPlatform mac && { open "$dir"; return; }
+	IsPlatform wsl1 && { explorer.exe "$(utw "$dir")"; return; }
+	IsPlatform wsl2 && { local dir="$PWD"; ( cd /tmp; explorer.exe "$(utw "$dir")" ); return 0; } # cd to local directory to fix invalid argument error running programs from SMB mounted shares
+	IsPlatform debian && InPath nautilus && { start nautilus "$dir"; return; }
+	
+	EchoErr "The $PLATFORM_ID platform does not have a file explorer"; return 1
+}
+
+# FileCacheFlush - flush cached files. Lots of file copying, such as for a file backup, can fill up the file cache and consume available memory.
+FileCacheFlush()
+{ 
+	sudoc sync || return
+	[[ -f /proc/sys/vm/drop_caches ]] && { sudoc bash -c "echo 3 > /proc/sys/vm/drop_caches" || return; }
+	return 0
+}
+
+# FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
+FileCommand() 
+{ 
+	local args command="$1" dir="${@: -1}" file files=0 n=$(($#-2))
+
+	for arg in "${@:2:$n}"; do
+		IsOption "$arg" && args+=( "$arg" )
+		[[ -e "$arg" ]] && { args+=( "$arg" ); (( ++files )); }
+	done
+	(( files == 0 )) && return 0
+
+	case "$command" in
+		ren) 'mv' "${args[@]}" "$dir";;
+		cp|mv)
+			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing \`$dir\`: No such directory"; return 1; }
+			"$command" -t "$dir" "${args[@]}";;
+		*) EchoErr "FileCommand: unknown command $command"; return 1;;
+	esac
+}
 
 FindInPath()
 {
@@ -421,61 +465,6 @@ HideAll()
 	done
 }
 
-explore() # explorer DIR - explorer DIR in GUI program
-{
-	local dir="$1"; [[ ! $dir ]] && dir="."
-	
-	IsPlatform mac && { open "$dir"; return; }
-	IsPlatform wsl1 && { explorer.exe "$(utw "$dir")"; return; }
-	IsPlatform wsl2 && { local dir="$PWD"; ( cd /tmp; explorer.exe "$(utw "$dir")" ); return 0; } # cd to local directory to fix invalid argument error running programs from SMB mounted shares
-	IsPlatform debian && InPath nautilus && { start nautilus "$dir"; return; }
-	
-	EchoErr "The $PLATFORM_ID platform does not have a file explorer"; return 1
-}
-
-# FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
-FileCommand() 
-{ 
-	local args command="$1" dir="${@: -1}" file files=0 n=$(($#-2))
-
-	for arg in "${@:2:$n}"; do
-		IsOption "$arg" && args+=( "$arg" )
-		[[ -e "$arg" ]] && { args+=( "$arg" ); (( ++files )); }
-	done
-	(( files == 0 )) && return 0
-
-	case "$command" in
-		ren) 'mv' "${args[@]}" "$dir";;
-		cp|mv)
-			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing \`$dir\`: No such directory"; return 1; }
-			"$command" -t "$dir" "${args[@]}";;
-		*) EchoErr "FileCommand: unknown command $command"; return 1;;
-	esac
-}
-
-CpProgress()
-{
-	local src dest size=100 fileName
-	[[ $# == 0 || $1 == @(--help) ]]	&& { EchoErr "usage: CpProgress FILE DIR
-  -s, --size SIZE		show progress for files larger than SIZE MB"; return 1; }
-
-	while (( $# != 0 )); do
-		[[ "$1" == @(-s|--size) ]] && { size="$2"; shift; shift; continue; }
-		! IsOption "$1" && [[ ! $src ]] && { src="$1"; shift; continue; }
-		! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
-		EchoErr "CopyFile: unrecognized option `$1`"; return 1;
-	done
-
-	[[ ! -f "$src" ]] && { EchoErr "CopyFile: cannot access \`$src\`: No such file"; return 1; }
-	[[ ! -d "$dest" ]] && { EchoErr "CopyFile: cannot access \`$dest\`: No such directory"; return 1; }		
-	GetFileName "$src" fileName || return
-	GetFilePath "$(GetFullPath "$src")" src || return
-
-	local fileSize="$(GetFileSize "$src/$fileName" MB)" || return
-	(( fileSize < size )) && { cp "$src/$fileName" "$dest" || return; }
-	CopyDir "$src/$fileName" "$dest"
-} 
-
 # MoveAll SRC DEST - move contents of SRC to DEST including hidden files and folders
 MoveAll()
 { 
@@ -496,113 +485,6 @@ UnzipPlatform()
 	fi
 
 	return 0
-}
-
-# Disks
-
-IsDrive() { [[ "$1" =~ ^/mnt ]]; } # IsDrive DIR - return true if the specified directory is a mounted drive
-GetDrive() { ! IsDrive "$1" && return; echo "$1" | cut -d "/" -f 3; } # GetDrive DIR - get the name of the drive from a mounted DIRECTORY
-
-GetDriveLabel()
-{ 
-	! IsPlatform win && { echo ""; return 0; }
-	cmd.exe /c vol "$1": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7-;
-}
-
-GetDisks() # GetDisks ARRAY
-{
-	local getDisks disk;
-
-	case "$PLATFORM" in
-		linux) 
-			for disk in /mnt/hgfs/*; do getDisks+=( "$disk" ); done # VMware host
-			for disk in /media/psf/*; do getDisks+=( "$disk" ); done # Parallels hosts
-			;;
-		mac) IFS=$'\n' getDisks=( $(df | grep "^/dev/" | awk '{print $9}' | grep -v '^/$|^/$') );;
-		win) [[ -d /mnt ]] && for disk in /mnt/*; do getDisks+=( "$disk" ); done;;
-	esac
-
-	CopyArray getDisks "$1"
-}
-
-GetDrives() 
-{
-	local drives=()
-
-	if IsPlatform win; then
-		drives=( $(fsutil.exe fsinfo drives | sed 's/:\\//g' | tr '[:upper:]' '[:lower:]' | RemoveCarriageReturn ) )
-		echo "${drives[@]:1}"
-	else
-		drives=( $(command ls /dev/sd[a-b][0-9]* /dev/mmcblk[0-9]p[0-9]* | sed 's/\/dev\///g') )
-		echo "${drives[@]}"
-	fi
-}
-
-# IsDriveMounted DRIVES - return true if all DRIVES are mounted to /mnt/DRIVE
-IsDriveMounted()
-{
-	local drive type="9p"; IsPlatform wsl1 && type="drvfs"
-
-	for drive in "$@"; do
-		[[ ! -d "/mnt/$drive" ]] && return 1
-		IsPlatform win && { mount -t "$type" |& grep -i "^$drive:[\\]\? on /mnt/$drive type $type" >& /dev/null || return; }
-	done
-	
-	return 0
-}
-
-MountDrive()
-{
-	local drive="$1"
-
-	[[ ! -d "/mnt/$drive" ]] && { sudoc mkdir "/mnt/$drive" || return 1; }
-
-	if IsPlatform win; then
-		[[ "$drive" == "c" ]] && return 1
-		IsDriveMounted "$drive" && return 0
-		sudoc mount -t drvfs "$drive:" "/mnt/$drive" >& /dev/null
-	else
-		[[ ! -e "/dev/$drive" ]] && { EchoErr "$drive is not a device"; return 1; }
-		sudoc mount "/dev/$drive" "/mnt/$drive"
-	fi
-}
-
-UnMountDrive()
-{
-	local drive="$1"
-	[[ ! -e "/mnt/$drive" ]] && return 0
-	sudoc umount "/mnt/$drive"
-	sudoc rmdir "/mnt/$drive"
-}
-
-MountAllDrives()
-{
-	local drives="$(GetDrives)"; IsDriveMounted ${drives[@]} && return
-
-	printf "mounting..."
-
-	for drive in ${drives[@]}; do
-		[[ "$drive" == "c" ]] && continue
-		MountDrive "$drive" > /dev/null && printf "$drive."
-	done
-
-	echo "done"	
-}
-
-UnMountAllDrives()
-{
-	printf "unmounting..."
-	
-	if ! IsDirEmpty "/mnt" ; then
-		for drive in /mnt/*; do
-			[[ "$drive" == "/mnt/c" ]] && continue
-			drive="$(GetFileName "$drive")"
-			printf "$drive."
-			UnMountDrive "$drive" >& /dev/null
-		done
-	fi
-	
-	echo "done"
 }
 
 # Path Conversion
@@ -665,6 +547,167 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 }
 
 #
+# File System - Drives
+#
+
+# DRIVE - the device name such as sdb1, or d in Windows
+# MOUNTS - the mounted location of a drive, i.e. /mnt/t
+
+# GetDrive DIR - get the drive name of the drive from the specified mounted directory
+GetDrive() 
+{
+	local dir="$1"
+	local mount="$(findmnt --target "$dir" --output=TARGET --noheadings)"
+	[[ ! $mount ]] && { EchoErr "GetDrive: \"$dir\" is not a mounted drive"; return 1; }
+	GetFileName "$mount"
+} 
+
+# GetDriveLabel DRIVE - get the label for the specified mounted drive
+GetDriveLabel()
+{ 
+	! IsPlatform win && { echo ""; return 0; }
+	cmd.exe /c vol "$1": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7-;
+}
+
+# GetDrives ARRAY - return all drives attached to the system in the specified array
+GetDrives() 
+{
+	local getDrives
+
+	if IsPlatform win; then
+		getDrives=( $(fsutil.exe fsinfo drives | sed 's/:\\//g' | tr '[:upper:]' '[:lower:]' | RemoveCarriageReturn ) )
+		getDrives=( "${getDrives[@]:1}" )
+	else
+		getDrives=( $(command ls /dev/sd[a-b][0-9]* /dev/mmcblk[0-9]p[0-9]* | sed 's/\/dev\///g') )
+	fi
+
+	CopyArray getDrives "$1"
+}
+
+# GetDriveMounts ARRAY - return all mounted drive locations in the specified array
+GetDriveMounts() 
+{
+	local getDisks disk;
+
+	case "$PLATFORM" in
+		linux) 
+			for disk in /mnt/hgfs/*; do getDisks+=( "$disk" ); done # VMware host
+			for disk in /media/psf/*; do getDisks+=( "$disk" ); done # Parallels hosts
+			;;
+		mac) IFS=$'\n' getDisks=( $(df | grep "^/dev/" | awk '{print $9}' | grep -v '^/$|^/$') );;
+		win) [[ -d /mnt ]] && for disk in /mnt/*; do getDisks+=( "$disk" ); done;;
+	esac
+
+	CopyArray getDisks "$1"
+}
+
+# GetMountType DIR - get the file system type of the mounted directory
+GetMountType()
+{ 
+	local type="$(findmnt --noheadings --output=FSTYPE --target "$1")"
+	[[ "$type" == "9p" ]] && type="$(fsutil.exe fsinfo volumeinfo d: | grep "File System Name" | RemoveCarriageReturn | cut -d: -f 2)"
+	echo "$type"
+}
+
+# IsDrive DIR - return true if the specified directory is a mounted disk drive (not a network shared drive)
+IsDrive()
+{ 
+	[[ "$1" =~ ^/mnt ]]
+} 
+
+# IsDriveMounted DRIVE1 [DRIVE2...] - return true if all specified drives are mounted
+IsDriveMounted()
+{
+	local drive type="9p"; IsPlatform wsl1 && type="drvfs"
+
+	for drive in "$@"; do
+		[[ ! -d "/mnt/$drive" ]] && return 1
+		IsPlatform win && { mount -t "$type" |& grep -i "^$drive:[\\]\? on /mnt/$drive type $type" >& /dev/null || return; }
+	done
+	
+	return 0
+}
+
+# IsMountWin DIR - return true if the mounted filesystem type of the specified directory is mounted using Windows (file system type 9p)
+IsMountWin() 
+{
+	IsPlatform win && [[ "$(findmnt --noheadings --output=FSTYPE --target "$1")" == "9p" ]]
+}
+
+# MountAllDrives - mount all the drives available in the system
+MountAllDrives()
+{
+	local quiet; [[ --quiet =~ ^(-q|--quiet)$ ]] && quiet="true"
+	local drives; GetDrives drives || return
+
+	IsDriveMounted "${drives[@]}" && return
+
+	[[ ! $quiet ]] && printf "mounting..."
+
+	for drive in "${drives[@]}"; do
+		[[ "$drive" == "c" ]] && continue
+		MountDrive "$drive" > /dev/null && [[ ! $quiet ]] && printf "$drive."
+	done
+
+	[[ ! $quiet ]] && echo "done"	
+	return 0
+}
+
+# MountDrive DRIVE - mount a drive
+MountDrive()
+{
+	local drive="$1"; shift
+	local m="/mnt/$drive" # mount point
+
+	[[ ! $drive ]] && { MissingOperand "drive" "MountDrive"; return 1; }
+	[[ $# != 0 ]] && { EchoErr "usage: MountDrive DRIVE"; return 1; }
+
+	# unmount a drive that is no longer present
+	[[ -e "$m" && ! -d "$m" ]] && { sudo umount "$m" || return; }
+
+	# create the mount directory
+	[[ ! -d "$m" ]] && { sudoc mkdir "$m" || return 1; }
+
+	# mount the drive
+	if IsPlatform win; then
+		[[ "$drive" == "c" ]] && return 1
+		IsDriveMounted "$drive" && return 0
+		sudoc mount -t drvfs "$drive:" "$m" ; return
+	else
+		[[ ! -e "/dev/$drive" ]] && { EchoErr "$drive is not a device"; return 1; }
+		mount "/dev/$drive" "$m"
+	fi
+}
+
+# UnMountDrive DRIVE - unmount a drive
+UnMountDrive()
+{
+	local drive="$1"
+	[[ ! -e "/mnt/$drive" ]] && return 0
+	sudoc umount "/mnt/$drive"
+	sudoc rmdir "/mnt/$drive"
+}
+
+UnMountAllDrives()
+{
+	local quiet; [[ --quiet =~ ^(-q|--quiet)$ ]] && quiet="true"
+
+	{ [[ ! -d /mnt ]] || (( $(DirCount "/mnt") < 2 )); } && return
+
+	[[ ! $quiet ]] && printf "unmounting..."
+	
+	for drive in /mnt/*; do
+		[[ "$drive" == "/mnt/c" ]] && continue
+		drive="$(GetFileName "$drive")"
+		[[ ! $quiet ]] && printf "$drive."
+		UnMountDrive "$drive" >& /dev/null
+	done
+	
+	[[ ! $quiet ]] && echo "done"
+	return 0
+}
+
+#
 # Network
 #
 
@@ -672,15 +715,11 @@ ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip r; }
 IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }
 GetInterface() { ifconfig | head -1 | cut -d: -f1; }
+GetDefaultGateway() { route -n | grep '^0.0.0.0' | awk '{ print $2; }'; }
+GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }
 HostNameCheck() { SshHelper "$@" hostname; }
-RemoveDnsSuffix() { echo "${1%%.*}"; }
+RemoveDnsSuffix() { GetArgs; echo "${@%%.*}"; }
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }
-
-GetMacAddress() # [HOST]
-{
-	local host="${1:-$HOSTNAME}"
-	grep " $host$" "/etc/ethers" | cut -d" " -f1
-}
 
 GetBroadcastAddress()
 {
@@ -690,8 +729,6 @@ GetBroadcastAddress()
 		ifconfig | head -2 | tail -1 | awk '{ print $6; }'
 	fi
 }
-
-GetDefaultGateway() { route -n | grep '^0.0.0.0' | awk '{ print $2; }'; }
 
 GetPrimaryAdapterName()
 {
@@ -1248,7 +1285,8 @@ ProcessList() # PID,NAME - show operating system native process ID and executabl
 	esac
 }
 
-ProcessResource() { IsPlatform win && { start handle.exe "$@"; return; } || echo "Not Implemented"; }; alias handle='ProcessResource'
+handle() { ProcessResource; }
+ProcessResource() { IsPlatform win && { start handle.exe "$@"; return; } || echo "Not Implemented"; }
 
 # start a program converting file arguments for the platform as needed
 

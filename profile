@@ -165,7 +165,7 @@ saveCommand()
 	if [[ $profile ]]; then
 		file="$profile.$saveExtension"
 	else
-		file="$(ProperCase "$(RemoveDnsSuffix "$HOSTNAME")") $app Profile $(GetTimeStamp).$saveExtension"
+		file="$(echo "$HOSTNAME" | RemoveDnsSuffix | ProperCase) $app Profile $(GetTimeStamp).$saveExtension"		
 	fi
 
 	${G}mkdir --parents "$dest" || return

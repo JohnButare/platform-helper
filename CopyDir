@@ -23,30 +23,31 @@ usage()
 
 args()
 {
-	unset help recursive sudo 
+	unset archive delete help recursive verbose
 
 	exclude=".git" args=( ) o=(--info=progress2)
-	o+=(--links --perms --times --group --owner) # preserve metadata
-	
+	o+=(--times) # preserve times, required for incremental sync
+	o+=(--links --perms --group --owner) # preserve other metadata
+	#o+=(-@2) # modify window in seconds to consider files the same, 2 seconds needed for FAT file systems which use 1 second granularity
+
 	# arguments
 	for arg in "$@"; do
 		[[ ! $1 ]] && { shift; continue; } # ignore empty options
 		
+		# archive implies -rlptgoD, or --recursive --links --perms --times --group --owner --devices --specials
 		if [[ $1 == @(-a|--archive) ]]; then
-			o+=( --archive ) # archive implies -rlptgoD, or --recursive --links --perms --times --group --owner --devices --specials
-			recursive="true"
-			IsPlatform win && sudo="sudoc" # required for preserving metadata in Windows
+			o+=( --archive )
+			declare {archive,recursive}="true"
 			shift; continue
 		fi
 
-		[[ $1 == @(-d|--delete) ]] && { o+=(--delete); shift; continue; }
+		[[ $1 == @(-d|--delete) ]] && { delete="true"; shift; o+=(--delete); continue; }
 		[[ $1 == @(-h|--help) ]] && usage 0
-		[[ $1 == @(-r|--recursive) ]] && { o+=(--recursive); recursive="true"; shift; continue; }
-		[[ $1 == @(-v|--verbose) ]] && { o+=(--verbose); shift; continue; }
+		[[ $1 == @(-r|--recursive) ]] && { recursive="true"; shift; o+=(--recursive); continue; }
+		[[ $1 == @(-v|--verbose) ]] && { verbose="true"; shift; o+=(--verbose); continue; }
+
 		args+=("$1"); shift
 	done
-
-	IsPlatform win && [[ $archive ]] && sudo="sudoc" 
 
 	o+=(--exclude="$exclude")
 
@@ -57,27 +58,81 @@ args()
 
 CopyDir()
 {	
-	local made result src="$1" dest="$2"
+	local src="$1" dest="$2"
 
 	# check if the source exists
 	[[ ! -e "$src" ]] && { EchoErr "CopyDir: source \"$src\" does not exist"; return 1; }
 
 	# create destination parent directory if needed
-	local parent="$(GetParentDir "$dest")"
+	local parent="$(EnsureDir "$dest" | GetParentDir)"
 	[[ $parent && ! -d "$parent" ]] && { ${G}mkdir --parents "$parent" || return; }
 
-	# recursive copy or src is a file
-	if [[ $recursive || -f "$src" ]]; then
-		$sudo rsync "${o[@]}" "$src" "$dest"
+	local lastDirsMatch; [[ "$(GetLastDir "$src")" == "$(GetLastDir "$dest")" ]] && lastDirsMatch="true"
 
-	# non-recursive directrory copy - the source must be individual files
+	# if the src and dest end with the same directory, ensure src ends with a slash so the directory is not duplicated in the dest
+	[[ $recursive && $lastDirsMatch ]] && src="$(RemoveTrailingSlash "$src")/"
+
+	if IsMountWin "$src" || IsMountWin "$parent"; then
+		CopyDirWin
 	else
-		$sudo rsync "${o[@]}" "$src/"* "$dest"
+		CopyDirRsync
+	fi
+}
+
+CopyDirRsync()
+{
+	local result
+
+	# limit the file cache memory used, otherwise all host memory will be consumed	
+	if [[ -d "/sys/fs/cgroup/memory" ]]; then
+
+		if InPath cgcreate; then
+			sudoc cgcreate -g memory:backup || exit
+		elif [[ ! -d "/sys/fs/cgroup/memory/backup" ]]; then
+			sudo mkdir "/sys/fs/cgroup/memory/backup" || exit
+		fi
+
+		sudoc env ppid=$$ bash -c '	
+			echo 256M > /sys/fs/cgroup/memory/backup/memory.limit_in_bytes || exit
+			echo $ppid > /sys/fs/cgroup/memory/backup/tasks || exit
+		'
 
 	fi
-	result=$?
 
-	return $result
+	# perform the copy
+	if [[ $recursive || -f "$src" ]]; then
+		rsync "${o[@]}" "$src" "$dest"
+	else
+		rsync "${o[@]}" "$src/"* "$dest"
+	fi
+	result="$?"
+
+	FileCacheFlush || return
+	InPath cgdelete && { sudoc cgdelete -g memory:backup || return; }
+
+	return "$result"
+}
+
+CopyDirWin()
+{
+	o=(/e /j) 			# recursive, unbuffered IO
+	o+=(/njh /ndl) 	# logging - no header, no directory list, show file progress
+
+	[[ $archive ]] && o+=(/COPYALL)
+	[[ $delete ]] && o+=(/PURGE)
+	[[ $exclude ]] && o+=(/XD $exclude )
+	[[ $verbose ]] && o+=(/V)
+	[[ $(GetMountType .) =~ FAT ]] && o+=(/FFT) # 2 second window to compensate for FAT file system
+
+	# mimic rsync - if the source does not end with a slash, create the final directory of the source in the dest
+	[[ ! $lastDirsMatch && ! -f "$src" && ! "$src" =~ /$ ]] && dest="$(RemoveTrailingSlash "$dest")/$(GetLastDir "$src")"
+
+	# get files to copy if needed
+	local files=()
+	[[ -f "$src" ]] && { files="$(GetFileName "$src")"; GetFilePath "$src" src; }
+
+	robocopy.exe "$(utw "$src")" "$(utw "$dest")" "${files[@]}" "${o[@]}"
+	(( $? < 8 ))
 }
 
 run "$@"
