@@ -5,7 +5,6 @@ run() {	init || return; args "$@" || return; ${command}Command "${args[@]}"; }
 
 init()
 {
-	driveLetters="d e f g h i j k l m n o p q r s t u v w x y z"
 	volumeDir=~/"Volumes"
 
 	if ! [[ -d "$volumeDir" ]] && ! ${G}mkdir "$volumeDir"; then
@@ -22,7 +21,7 @@ usage()
 usage: unc mount|unmount|IsMounted|ListMounted|UnmountAll UNC
 	browse							browse the UNC shares on the network
 	IsMounted	UNC				if UNC is mounted returns DIR mounted to
-	list								list UNC disks on the host
+	list HOST						list UNC disks on the host
 	mount|unmount UNC		unmount or mount UNC and return DIR mounted
 
 	-nhc, --no-host-check		do not check if the host is available
@@ -48,15 +47,20 @@ args()
 			*)
 				IsUncPath "$1" && [[ ! $unc ]] && { unc="$1"; shift; getUncInfo "$unc" || return; continue; }
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
+				[[ "$command" == @(list) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
 	done
 
 	[[ ! $command ]] && { usage 1; }
-	[[ "$comamnd" == @(IsMounted|mount|UnMount) && ! $unc ]] && MissingOperand "unc"
+	[[ "$command" == @(IsMounted|mount|unmount) && ! $unc ]] && MissingOperand "unc"
 	args=("$@")
 }
+
+#
+# commands
+#
 
 browseCommand()
 {
@@ -94,21 +98,21 @@ listMountedCommand()
 
 listCommand()
 {
-	local server="$(GetUncServer "$unc")"
+	local host="$1"; shift
+	[[ ! $host ]] && MissingOperand "host"
+	! IsAvailable "$host" && { EchoErr "unc: $host is not available"; return 1; }
 
-	if ! IsAvailable "$server"; then
-		EchoErr "Host $server is not available"
-		return 1
-	fi
+	[[ "$#" != "0" ]] && usage
 
+	# browse host	
 	if InPath smbutil; then
-		smbutil view "//$server" | grep "Disk"
+		smbutil view "//$host" | grep "Disk"
 
 	elif InPath smbclient; then
-		sudoc smbclient -L $server -U$USER%$(credential -q get secure default) |& grep -v "tdb_new_database" |& grep -v "option is deprecated"
+		sudoc smbclient -L $host -U$USER%$(credential -q get secure default) |& grep -v "tdb_new_database" |& grep -v "option is deprecated"
 
 	else
-		EchoErr "Unable to list shares on $server"
+		EchoErr "unc: unable to list shares off $host"
 		return 1
 	fi
 }
@@ -117,22 +121,19 @@ mountCommand() # unc
 {
 	local result dir; dir="$(isMountedCommand)" && { echo "$dir"; return 0; }
 
+	# ensure server is available
 	if [[ ! $noHostCheck && "$server" != "wsl$" ]] && ! IsAvailable "$server"; then
-		[[ ! "$quiet" ]] && EchoErr "Host $server is not available"
+		[[ ! "$quiet" ]] && error "host $server is not available"
 		return 1
 	fi
 
 	# remove an existing share in the mountDir
-	if [[ -d "$mountDir" ]]; then
-		umount "$mountDir" >& /dev/null
-		rmdir "$mountDir" >& /dev/null
-	fi
+	cleanupMountDir "$mountDir" || return
 
-	if ! ${G}mkdir --parents "$mountDir"; then
-		EchoErr "Could not create the mount directory $mountDir"
-		return 1
-	fi
+	# create the mount directory
+	! ${G}mkdir --parents "$mountDir" && error "could not create the mount directory \`$mountDir\`"
 
+	# mount
 	if [[ "$PLATFORM_KERNEL" == "wsl1" || "$server" == "wsl$" ]]; then
 		sudoc mount -t drvfs "//$server/$share" "$mountDir" 
 
@@ -169,19 +170,19 @@ mountCommand() # unc
 
 	fi
 
+	# return the mounted directory
 	if isMountedCommand; then
 		return 0
 	else
-		cleanupMountDir
+		cleanupMountDir "$mountDir"
 		return 1
 	fi
 }
 
-unmountCommand() # unc
+unmountCommand() 
 {
-	local dir; dir="$(isMountedCommand)" || { cleanupMountDir; return; }
-	unmount "$dir"
-	cleanupMountDir
+	doUnmount "$mountDir"
+	cleanupMountDir "$mountDir"
 }
 
 unmountAllCommand()
@@ -202,10 +203,23 @@ unmountAllCommand()
 # Helper Functions
 #
 
+error() { EchoErr "$(ScriptName): $1"; exit 1; }
+
 cleanupMountDir()
 {
-	{ isMountedCommand || [[ ! -d "$mountDir" ]]; } && return
-	rmdir "$mountDir" > /dev/null
+	local dir="$1"
+	[[ ! -e "$dir" ]] && return
+	findmnt "$dir" >& /dev/null && doUnmount "$dir" >& /dev/null
+	rmdir "$dir" >& /dev/null
+	[[ ! -e "$dir" ]]
+}
+
+doUnmount()
+{
+	case "$PLATFORM" in
+		mac) GetFileName "$dir" dir; osascript -e "tell application \"Finder\"" -e "eject \"$dir\"" -e "end tell";;
+		linux|win) sudoc umount "$dir";;
+	esac
 }
 
 getUncInfo() # GetUncInfo unc - sets server share shareId dirs user mountDir
@@ -220,14 +234,6 @@ getUncInfo() # GetUncInfo unc - sets server share shareId dirs user mountDir
 	IsPlatform wsl2 && IsElevated && mountDir="${mountDir}_elevated" 
 
 	return 0
-}
-
-unmount()
-{
-	case "$PLATFORM" in
-		mac) GetFileName "$dir" dir; osascript -e "tell application \"Finder\"" -e "eject \"$dir\"" -e "end tell";;
-		linux|win) sudoc umount "$dir";;
-	esac
 }
 
 run "$@"

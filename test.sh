@@ -1,8 +1,7 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 . function.sh || exit
 
- su - homebridge <<!
-$(credential get homebridge)
-ssh $USER@$HOSTNAME ls
-!
-echo $?
+IFS=$'\n' files=( $(drive mounts) )
+for file in "${files[@]}"; do
+	echo -"$file"-
+done

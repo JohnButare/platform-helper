@@ -1,0 +1,330 @@
+#!/usr/bin/env bash
+. function.sh
+
+run() {	init || return; args "$@" || return; ${command}Command "${args[@]}"; }
+
+init()
+{
+	unset efiDevice
+	driveLetters=( c d e f g h i j k l m n o p q r s t u v w x y z )
+	mountRoot="/mnt"; IsPlatform ubuntu && mountRoot="/media/$USER"
+}
+
+usage()
+{
+	echot "\
+usage: drive
+	DEVICE 	the drive device name to mount.  Ex: sdb1, d (Windows), or all (all available drives)
+	DIR			a directeory in the mounted drive
+
+	IsMounted|mount|unmount DEVICE
+		IsMounted				if the specified device is mounted return the directory it is mounted to
+		mount|unmount		mount or unmount the specified device and return the directory it is mounted to
+
+	device|FileSystem|label|type|IsDrive|IsWin DEVICE|DIR
+		device					get the device name of the drive
+		FileSystem			get the file system of the drive
+		IsWin						return true if the drive is mounted using Windows drvfs
+
+	list							list all device names for drives physically attached to the system that 
+											may or may not be mounted
+	mounts						list all mounted drives
+
+	-q, 	--quiet			hide status messages"
+	exit $1
+}
+
+args()
+{
+	unset -v alll command device quiet
+
+	while (( $# != 0 )); do
+		case "$1" in
+			-h|--help) usage 0;;
+			-q|--quiet) quiet="--quiet";;
+			FileSystem) command="fileSystem";; IsDrive) command="isDrive";; IsMounted) command="isMounted";; IsWin) command="isWin";;
+			*)
+				[[ ! $device ]] && getDevice "$1" && { shift; continue; }
+				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
+				[[ "$command" == @(device|FileSystem|IsDrive|IsWin|label|type) ]] && break
+				UnknownOption "$1"
+		esac
+		shift
+	done
+
+	[[ ! $command ]] && { usage 1; }
+	[[ "$command" == @(IsMounted|mount|unmount) && ! $device ]] && MissingOperand "device"
+	[[ "$device" == "all" ]] && all="true"
+
+	args=("$@")
+}
+
+#
+# commands
+# 
+
+isMountedCommand() { [[ $all ]] && { areAllMounted; return; }; isMounted "$device" $quiet; }
+isWinCommand() { IsPlatform win && [[ "$(typeCommand "$@")" == "9p" ]]; }
+listCommand() { getAllDrives; }
+mountCommand() { [[ $all ]] && { allMount; return; }; doMount "$device" "$quiet"; }
+unmountCommand() { [[ $all ]] && { allUnmount; return; }; doUnmount "$device" "$quiet"; }
+
+deviceCommand()
+{
+	getDrive "$@" || return	
+	echo "$device"
+}
+
+fileSystemCommand()
+{
+	{ [[ ! $device ]] || isDriveLetter "$device"; } && { getDrive "$@" || return; }
+	
+	local type="$(getType)"
+	[[ "$type" == "9p" ]] && type="$(fsutil.exe fsinfo volumeinfo ${device}: | grep "File System Name" | RemoveCarriageReturn | cut -d: -f 2 | RemoveSpace)"
+	echo "$type"
+}
+
+isDriveCommand()
+{
+	[[ ! $device ]] && { getDrive "$@" || return; }
+	isDevice "$device"
+}
+
+labelCommand()
+{
+	[[ ! $device ]] && { getDrive "$@" || return; }
+
+	if isDriveLetter "$device" && IsPlatform win; then
+		cmd.exe /c vol "$device": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7-
+	else
+		lsblk -f -l --output LABEL --noheadings "/dev/$device" |& grep -v "not a block device"
+	fi
+}
+
+mountsCommand()
+{
+	local d=() drive;
+
+	# standard mounted drives
+	while read -r device; do
+		dir="$(isMounted "$device")" && d+=( "$dir" )
+	done < <(getAllDrives)
+
+	# other drives
+	case "$PLATFORM" in
+		linux) d+=( $(find /mnt/hgfs/* /media/psf/* |& grep -v "No such file") );;
+		mac) IFS=$'\n' d+=( $(df | grep "^/dev/" | awk '{print $9}' | grep -v '^/$|^/$') );;
+	esac
+
+	ListArray d
+}
+
+typeCommand()
+{
+	{ [[ ! $device ]] || isDriveLetter "$device"; } && { getDrive "$@" || return; }
+	getType
+}
+
+#
+# helper
+#
+
+error() { EchoErr "$(ScriptName): $1"; exit 1; }
+isDriveLetter() { IsPlatform win && IsInArray "$1" driveLetters; }
+
+isDevice()
+{
+	[[ "$1" == @("all") || -e "/dev/$1" ]] || isDriveLetter "$1"
+}
+
+allMount()
+{
+	areAllMounted && return
+
+	[[ ! $quiet ]] && printf "mounting..."
+
+	while read -r device; do
+		{ isMounted "$device" --quiet || ! canMount "$device"; } && continue
+		doMount "$device" --quiet || return
+		[[ ! $quiet ]] && printf "$device."
+	done < <(getAllDrives)
+
+	[[ ! $quiet ]] && echo "done"	
+	return 0
+}
+
+allUnmount()
+{
+	areAllUnmounted && return
+
+	[[ ! $quiet ]] && printf "unmounting..."
+
+	while read -r device; do
+		{ ! isMounted "$device" --quiet || ! canUnmount "$device"; } && continue
+		doUnmount "$device" --quiet || return
+		[[ ! $quiet ]] && printf "$device."
+	done < <(getAllDrives)
+
+	[[ ! $quiet ]] && echo "done"	
+	return 0
+}
+
+areAllMounted()
+{
+	while read -r device; do
+		canMount "$device" && ! isMounted "$device" --quiet && return 1
+	done < <(getAllDrives)
+
+	return 0
+}
+
+areAllUnmounted()
+{
+	while read -r device; do
+		canUnmount "$device" && isMounted "$device" --quiet && return 1
+	done < <(getAllDrives)
+
+	return 0
+}
+
+canMount()
+{
+	local type="$(getType "$1")"
+	[[ "$type" == "" ]] && { reason="no filesystem"; return 1; }
+	[[ "$type" == "LVM2_member" ]] && { reason="logical volume member"; return 1; }
+	return 0
+}
+
+canUnmount()
+{
+	[[ "$1" != "c" ]] && ! isEfiDevice "$1"
+}
+
+isEfiDevice()
+{
+	IsPlatform win && return 0
+	[[ ! $efiDevice ]] && efiDevice="$(findmnt --noheadings --output=SOURCE --target "/boot/efi" | GetFileName)"
+	[[ "$1" == "$efiDevice" ]]
+}
+
+cleanupMountDir() # dir
+{
+	local dir="$1"
+	[[ ! -e "$dir" ]] && return
+	findmnt "$dir" >& /dev/null && sudoc umount "$dir" >& /dev/null
+	sudoc rmdir "$dir" >& /dev/null
+	[[ ! -e "$dir" ]]
+}
+
+doMount() # device
+{
+	local device="$1" quiet; [[ "$2" == @(-q|--quiet) ]] && quiet="--quiet"
+	local result dir; dir="$(isMounted "$device")" && { [[ ! $quiet ]] && echo "$dir"; return 0; }
+	local m="$mountRoot/$device" # mount point
+
+	# return if we cannot mount the drive
+	! canMount "$device" && error "cannot mount $device ($reason)"
+
+	# unmount a drive that is no longer present
+	cleanupMountDir "$m" || return	
+
+	# create the mount directory
+	[[ ! -d "$m" ]] && { sudoc mkdir "$m" || return 1; }
+
+	# mount the drive
+	if isDriveLetter "$device"; then
+		sudoc mount -t drvfs "$device:" "$m"
+	else
+		sudoc mount "/dev/$device" "$m"
+	fi
+
+	if isMounted "$device" "$quiet"; then
+		return 0
+	else
+		cleanupMountDir
+		return 1
+	fi
+}
+
+doUnmount()
+{
+	local device="$1" quiet; [[ "$2" == @(-q|--quiet) ]] && quiet="true"
+	local dir="$(isMounted "$device")" || return
+
+	# return if we cannot unmount this drive
+	! canUnmount "$device" && error "cannot unmount $device"
+
+	# unmount
+	sudoc umount "$dir"
+	cleanupMountDir "$dir"
+}
+
+getAllDrives()
+{
+	local d=()
+
+	if IsPlatform win; then
+		d=( $(fsutil.exe fsinfo drives | sed 's/:\\//g' | sed 's/Drives: //g' | tr '[:upper:]' '[:lower:]' | RemoveCarriageReturn ) )
+	fi
+
+	d+=( $(find /dev/sd[a-b][0-9]* /dev/mmcblk[0-9]p[0-9]* /dev/nvme0n[0-9]p[0-9] |& grep -v "No such file" | sed 's/\/dev\///g') )
+
+	ListArray d
+}
+
+# getDevice DEVICE - get the device argument
+getDevice()
+{
+	local check="$1"; [[ "$(GetFilePath "$check")" == "/dev" ]] && check="$(GetFileName "$check")"
+	! isDevice "$check" && return 1
+	device="$check"
+}
+
+# getDrive DIR - validates the drive from the specified device or passed directory.  device and mountDir are set on return.
+getDrive()
+{
+	# use the device if specified
+	if [[ $device ]]; then
+		mountDir="$(isMounted "$device")" || error "$device is not mounted"
+
+	# get the drive from the passed directory
+	else
+		local dir="$1"
+
+		# validate only one argument is passed and it is a directory
+		[[ "$#" != "1" ]] && usage
+		[[ ! -d "$dir" ]] && error "mount directory \`$dir\` does not exist"
+
+		# get the mount target and source for the specified directory
+		read mountDir device <<<$(findmnt --noheadings --output=TARGET,SOURCE --target "$dir")
+
+		# if the device is a drive letter change it to a single letter, i.e. c:\ or c: => c
+		[[ "$device" =~ : ]] && device="${device:0:1}"
+
+		# if the device is a path to a directory (i.e. /dev/sdb1) get the actual device (i.e. sdb1)
+		[[ -e "$device" ]] && device="$(GetFileName "$device")"
+	fi
+
+	return 0
+}
+
+getType()
+{
+	[[ $mountDir ]] && { findmnt --list --noheadings --output=FSTYPE --target "$mountDir"; return; }
+	isDriveLetter "$device" && IsPlatform win && { echo "9p"; return; }
+	[[ -e "/dev/$device" ]] && InPath lsblk && { lsblk -fs --list --noheadings --output FSTYPE "/dev/$device"; return; }
+	return 1
+}
+
+isMounted() # device
+{
+	local device="$1" quiet; [[ "$2" == @(-q|--quiet) ]] && quiet="true"
+	local pattern="/dev/${device}"; isDriveLetter "$device" && pattern="^[${device}]:[\]?"
+	local dir="$(findmnt --noheadings --output=SOURCE,TARGET --list | grep -Ei "^${pattern}[ ]+" | tr -s " " | cut -d" " -f2)"
+
+	[[ ! $dir ]] && return 1
+	[[ ! $quiet ]] && echo "$dir"
+	return 0
+}
+
+run "$@"

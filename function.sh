@@ -4,7 +4,7 @@ IsBash() { [[ $BASH_VERSION ]]; }
 IsZsh() { [[ $ZSH_VERSION ]]; }
 
 IsBash && { shopt -s nocasematch extglob expand_aliases;  PLATFORM_SHELL="bash"; whence() { type "$@"; }; }
-IsZsh && { setopt KSH_GLOB EXTENDED_GLOB; PLATFORM_SHELL="zsh"; }
+IsZsh && { setopt EXTENDED_GLOB KSH_GLOB NO_NO_MATCH; PLATFORM_SHELL="zsh"; }
 
 [[ ! $BIN ]] && { BASHRC="${BASH_SOURCE[0]%/*}/bash.bashrc"; [[ -f "$BASHRC" ]] && . "$BASHRC"; }
 
@@ -257,6 +257,7 @@ ShowArrayDetail() { declare -p "$1"; }
 if IsBash; then
 	DelimitArray() { local -n delimitArray="$2"; IFS=$1; echo "${delimitArray[*]}"; } # DelimitArray DELIMITER ARRAY_VAR
 	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
+	ListArray() { local -n listArray="$1"; printf '%s\n' "${listArray[@]}"; }
 	ShowArray() { local result; local -n showArray="$1"; printf -v result ' "%s"' "${showArray[@]}"; printf "%s\n" "${result:1}"; }
 	ShowArrayKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ShowArray keys; }
 	StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
@@ -273,6 +274,7 @@ if IsBash; then
 else
 	DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${(P)get}")} # DelimitArray DELIMITER ARRAY_VAR
 	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "array" ]]; }
+	ListArray() { printf '%s\n' "${${(P)1}[@]}"; }
 	ShowArray() { local var showArray="$1"; printf -v var ' "%s"' "${${(P)showArray}[@]}"; printf "%s\n" "${var:1}"; }
 	ShowArrayKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ShowArray getKeys; }
 	StringToArray() { IFS=$2 read -A $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
@@ -547,167 +549,6 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 }
 
 #
-# File System - Drives
-#
-
-# DRIVE - the device name such as sdb1, or d in Windows
-# MOUNTS - the mounted location of a drive, i.e. /mnt/t
-
-# GetDrive DIR - get the drive name of the drive from the specified mounted directory
-GetDrive() 
-{
-	local dir="$1"
-	local mount="$(findmnt --target "$dir" --output=TARGET --noheadings)"
-	[[ ! $mount ]] && { EchoErr "GetDrive: \"$dir\" is not a mounted drive"; return 1; }
-	GetFileName "$mount"
-} 
-
-# GetDriveLabel DRIVE - get the label for the specified mounted drive
-GetDriveLabel()
-{ 
-	! IsPlatform win && { echo ""; return 0; }
-	cmd.exe /c vol "$1": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7-;
-}
-
-# GetDrives ARRAY - return all drives attached to the system in the specified array
-GetDrives() 
-{
-	local getDrives
-
-	if IsPlatform win; then
-		getDrives=( $(fsutil.exe fsinfo drives | sed 's/:\\//g' | tr '[:upper:]' '[:lower:]' | RemoveCarriageReturn ) )
-		getDrives=( "${getDrives[@]:1}" )
-	else
-		getDrives=( $(command ls /dev/sd[a-b][0-9]* /dev/mmcblk[0-9]p[0-9]* | sed 's/\/dev\///g') )
-	fi
-
-	CopyArray getDrives "$1"
-}
-
-# GetDriveMounts ARRAY - return all mounted drive locations in the specified array
-GetDriveMounts() 
-{
-	local getDisks disk;
-
-	case "$PLATFORM" in
-		linux) 
-			for disk in /mnt/hgfs/*; do getDisks+=( "$disk" ); done # VMware host
-			for disk in /media/psf/*; do getDisks+=( "$disk" ); done # Parallels hosts
-			;;
-		mac) IFS=$'\n' getDisks=( $(df | grep "^/dev/" | awk '{print $9}' | grep -v '^/$|^/$') );;
-		win) [[ -d /mnt ]] && for disk in /mnt/*; do getDisks+=( "$disk" ); done;;
-	esac
-
-	CopyArray getDisks "$1"
-}
-
-# GetMountType DIR - get the file system type of the mounted directory
-GetMountType()
-{ 
-	local type="$(findmnt --noheadings --output=FSTYPE --target "$1")"
-	[[ "$type" == "9p" ]] && type="$(fsutil.exe fsinfo volumeinfo d: | grep "File System Name" | RemoveCarriageReturn | cut -d: -f 2)"
-	echo "$type"
-}
-
-# IsDrive DIR - return true if the specified directory is a mounted disk drive (not a network shared drive)
-IsDrive()
-{ 
-	[[ "$1" =~ ^/mnt ]]
-} 
-
-# IsDriveMounted DRIVE1 [DRIVE2...] - return true if all specified drives are mounted
-IsDriveMounted()
-{
-	local drive type="9p"; IsPlatform wsl1 && type="drvfs"
-
-	for drive in "$@"; do
-		[[ ! -d "/mnt/$drive" ]] && return 1
-		IsPlatform win && { mount -t "$type" |& grep -i "^$drive:[\\]\? on /mnt/$drive type $type" >& /dev/null || return; }
-	done
-	
-	return 0
-}
-
-# IsMountWin DIR - return true if the mounted filesystem type of the specified directory is mounted using Windows (file system type 9p)
-IsMountWin() 
-{
-	IsPlatform win && [[ "$(findmnt --noheadings --output=FSTYPE --target "$1")" == "9p" ]]
-}
-
-# MountAllDrives - mount all the drives available in the system
-MountAllDrives()
-{
-	local quiet; [[ --quiet =~ ^(-q|--quiet)$ ]] && quiet="true"
-	local drives; GetDrives drives || return
-
-	IsDriveMounted "${drives[@]}" && return
-
-	[[ ! $quiet ]] && printf "mounting..."
-
-	for drive in "${drives[@]}"; do
-		[[ "$drive" == "c" ]] && continue
-		MountDrive "$drive" > /dev/null && [[ ! $quiet ]] && printf "$drive."
-	done
-
-	[[ ! $quiet ]] && echo "done"	
-	return 0
-}
-
-# MountDrive DRIVE - mount a drive
-MountDrive()
-{
-	local drive="$1"; shift
-	local m="/mnt/$drive" # mount point
-
-	[[ ! $drive ]] && { MissingOperand "drive" "MountDrive"; return 1; }
-	[[ $# != 0 ]] && { EchoErr "usage: MountDrive DRIVE"; return 1; }
-
-	# unmount a drive that is no longer present
-	[[ -e "$m" && ! -d "$m" ]] && { sudo umount "$m" || return; }
-
-	# create the mount directory
-	[[ ! -d "$m" ]] && { sudoc mkdir "$m" || return 1; }
-
-	# mount the drive
-	if IsPlatform win; then
-		[[ "$drive" == "c" ]] && return 1
-		IsDriveMounted "$drive" && return 0
-		sudoc mount -t drvfs "$drive:" "$m" ; return
-	else
-		[[ ! -e "/dev/$drive" ]] && { EchoErr "$drive is not a device"; return 1; }
-		mount "/dev/$drive" "$m"
-	fi
-}
-
-# UnMountDrive DRIVE - unmount a drive
-UnMountDrive()
-{
-	local drive="$1"
-	[[ ! -e "/mnt/$drive" ]] && return 0
-	sudoc umount "/mnt/$drive"
-	sudoc rmdir "/mnt/$drive"
-}
-
-UnMountAllDrives()
-{
-	local quiet; [[ --quiet =~ ^(-q|--quiet)$ ]] && quiet="true"
-
-	{ [[ ! -d /mnt ]] || (( $(DirCount "/mnt") < 2 )); } && return
-
-	[[ ! $quiet ]] && printf "unmounting..."
-	
-	for drive in /mnt/*; do
-		[[ "$drive" == "/mnt/c" ]] && continue
-		drive="$(GetFileName "$drive")"
-		[[ ! $quiet ]] && printf "$drive."
-		UnMountDrive "$drive" >& /dev/null
-	done
-	
-	[[ ! $quiet ]] && echo "done"
-	return 0
-}
-
-#
 # Network
 #
 
@@ -885,9 +726,9 @@ MdnsResolve()
 
 # UNC Shares - \\SERVER\SHARE\DIRS
 IsUncPath() { [[ "$1" =~ //.* ]]; }
-GetUncServer() { local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
-GetUncShare() { local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
-GetUncDirs() { local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
+GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
+GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
+GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 GetUncShareFromFile() { findmnt --types=cifs --noheadings --output=TARGET,SOURCE --target "$1" | cut -d" " -f 2; }
 
 # SSH

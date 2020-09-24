@@ -28,11 +28,9 @@ MakeShortcut()
 
 GetWinRemovableDrives() 
 {
-	local drives
-
-	for drive in "$(GetDrives)"; do
+	while read -r drive; do
 		fsutil.exe fsinfo driveType "${drive}:\\" |& grep "Removable Drive" >& /dev/null && drives+=( "$drive" )
-	done
+	done < <(drive list)
 
 	echo "${drives[@]}"
 }
