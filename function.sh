@@ -329,7 +329,7 @@ IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 ProperCase() { GetArgs; arg="${1,,}"; r "${arg^}" $2; }
 RemoveCarriageReturn()  { sed 's/\r//g'; }
-RemoveEmptyLines() { sed -r '/^\s*$/d'; }
+RemoveEmptyLines() { ${G}sed -r '/^\s*$/d'; }
 RemoveSpace() { GetArgs; echo "${@// /}"; }
 RemoveSpaceEnd() { GetArgs; echo "${@%%*( )}"; }
 RemoveSpaceFront() { GetArgs; echo "${@##*( )}"; }
