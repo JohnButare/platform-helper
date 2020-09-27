@@ -14,7 +14,7 @@ init()
 usage()
 {
 	echot "\
-usage: drive
+usage: drive COMMAND(detail)
 	DEVICE 	the drive device name to mount.  Ex: sdb1, d (Windows), or all (all available drives)
 	DIR			a directeory in the mounted drive
 
@@ -27,8 +27,8 @@ usage: drive
 		FileSystem			get the file system of the drive
 		IsWin						return true if the drive is mounted using Windows drvfs
 
-	list							list all device names for drives physically attached to the system that 
-											may or may not be mounted
+	detail						list detailed information of all drives
+	list							list device names of all drives
 	mounts						list all mounted drives
 
 	-q, 	--quiet			hide status messages"
@@ -53,7 +53,7 @@ args()
 		shift
 	done
 
-	[[ ! $command ]] && { usage 1; }
+	command="${command:-detail}"
 	[[ "$command" == @(IsMounted|mount|unmount) && ! $device ]] && MissingOperand "device"
 	[[ "$device" == "all" ]] && all="true"
 
@@ -72,34 +72,39 @@ getDeviceArg()
 # commands
 # 
 
-isMountedCommand() { [[ $all ]] && { areAllMounted; return; }; isMounted "$device" $quiet; }
+isMountedCommand() { [[ $all ]] && { areAllMounted; return; }; isMounted $quiet; }
 mountCommand() { [[ $all ]] && { allMount; return; }; doMount "$device" "$quiet"; }
 unmountCommand() { [[ $all ]] && { allUnmount; return; }; doUnmount "$device" "$quiet"; }
 
 deviceCommand() { getDevice "$@" || return; echo "$device"; }
+fileSystemCommand() { getDevice "$@" || return; getFileSystem; }
 isDriveCommand() { getDevice "$@" || return; isDevice "$device"; }
 isWinCommand() { IsPlatform win && [[ "$(typeCommand "$@")" == "9p" ]]; }
 labelCommand() { getDevice "$@" || return; getLabel; }
 listCommand() { getAllDrives; }
 typeCommand() { getDevice "$@" || return; getType; }
 
-fileSystemCommand()
+detailCommand()
 {
-	getDevice "$@" || return
-	
-	local type="$(getType)"
-	[[ "$type" == "9p" ]] && type="$(fsutil.exe fsinfo volumeinfo ${device}: | grep "File System Name" | RemoveCarriageReturn | cut -d: -f 2 | RemoveSpace)"
-	echo "$type"
+	local device devices
+
+	echot "DEVICE	MOUNTPOINT	FS		LABEL"
+
+	IFS=$'\n' devices=( $(drive list) )
+	for device in ${devices[@]}; do
+		echot "$device		$(isMounted)		$(getFs)	$(getLabel)"
+	done
 }
 
 mountsCommand()
 {
-	local d=() drive;
+	local d=() device devices;
 
 	# standard mounted drives
-	while read -r device; do
+	IFS=$'\n' devices=( $(getAllDrives) )
+	for device in "${devices[@]}"; do
 		dir="$(isMounted "$device")" && d+=( "$dir" )
-	done < <(getAllDrives)
+	done
 
 	# other drives
 	case "$PLATFORM" in
@@ -204,7 +209,7 @@ cleanupMountDir() # dir
 doMount() # device
 {
 	local device="$1" quiet; [[ "$2" == @(-q|--quiet) ]] && quiet="--quiet"
-	local result dir; dir="$(isMounted "$device")" && { [[ ! $quiet ]] && echo "$dir"; return 0; }
+	local result dir; dir="$(isMounted)" && { [[ ! $quiet ]] && echo "$dir"; return 0; }
 	local m="$mountRoot/$device" # mount point
 
 	# return if we cannot mount the drive
@@ -223,7 +228,7 @@ doMount() # device
 		sudoc mount "/dev/$device" "$m"
 	fi
 
-	if isMounted "$device" "$quiet"; then
+	if isMounted "$quiet"; then
 		return 0
 	else
 		cleanupMountDir
@@ -234,7 +239,7 @@ doMount() # device
 doUnmount()
 {
 	local device="$1" quiet; [[ "$2" == @(-q|--quiet) ]] && quiet="true"
-	local dir="$(isMounted "$device")" || return
+	local dir="$(isMounted)" || return
 
 	# return if we cannot unmount this drive
 	! canUnmount "$device" && error "cannot unmount $device"
@@ -279,6 +284,13 @@ getDevice()
 	return 0
 }
 
+getFs()
+{	
+	local fs="$(getType)"
+	[[ "$fs" == "9p" ]] && fs="$(fsutil.exe fsinfo volumeinfo ${device}: | grep "File System Name" | RemoveCarriageReturn | cut -d: -f 2 | RemoveSpace)"
+	echo "$fs"
+}
+
 getLabel()
 {
 	# drive letter
@@ -308,7 +320,7 @@ getType()
 
 isMounted() # device
 {
-	local device="$1" quiet; [[ "$2" == @(-q|--quiet) ]] && quiet="true"
+	local quiet; [[ "$2" == @(-q|--quiet) ]] && quiet="true"
 	local pattern="/dev/${device}"; isDriveLetter "$device" && pattern="^[${device}]:[\]?"
 	local dir="$(findmnt --noheadings --output=SOURCE,TARGET --list | grep -Ei "^${pattern}[ ]+" | tr -s " " | cut -d" " -f2)"
 
