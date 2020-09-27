@@ -31,23 +31,27 @@ usage: drive COMMAND(detail)
 	list							list device names of all drives
 	mounts						list all mounted drives
 
-	-q, 	--quiet			hide status messages"
+	win exists|list|online|offline - windows drives
+
+	-q, 	--quiet			hide status messages
+	-v, 	--verbose		show verbose output"
 	exit $1
 }
 
 args()
 {
-	unset -v alll command device quiet
+	unset -v alll command device quiet verbose
 
 	while (( $# != 0 )); do
 		case "$1" in
 			-h|--help) usage 0;;
 			-q|--quiet) quiet="--quiet";;
+			-v|--verbose) verbose="--verbose";;
 			FileSystem) command="fileSystem";; IsDrive) command="isDrive";; IsMounted) command="isMounted";; IsWin) command="isWin";;
 			*)
 				[[ ! $device ]] && getDeviceArg "$1" && { shift; continue; }
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "$command" == @(device|FileSystem|IsDrive|IsWin|label|type) ]] && break
+				[[ "$command" == @(device|FileSystem|IsDrive|IsWin|label|type|win) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -73,8 +77,8 @@ getDeviceArg()
 # 
 
 isMountedCommand() { [[ $all ]] && { areAllMounted; return; }; isMounted $quiet; }
-mountCommand() { [[ $all ]] && { allMount; return; }; doMount "$device" "$quiet"; }
-unmountCommand() { [[ $all ]] && { allUnmount; return; }; doUnmount "$device" "$quiet"; }
+mountCommand() { [[ $all ]] && { allMount; return; }; doMount "$quiet"; }
+unmountCommand() { [[ $all ]] && { allUnmount; return; }; doUnmount "$quiet"; }
 
 deviceCommand() { getDevice "$@" || return; echo "$device"; }
 fileSystemCommand() { getDevice "$@" || return; getFileSystem; }
@@ -87,10 +91,10 @@ typeCommand() { getDevice "$@" || return; getType; }
 detailCommand()
 {
 	local device devices
+	IFS=$'\n' devices=( $(drive list) )
 
 	echot "DEVICE	MOUNTPOINT	FS		LABEL"
 
-	IFS=$'\n' devices=( $(drive list) )
 	for device in ${devices[@]}; do
 		echot "$device		$(isMounted)		$(getFs)	$(getLabel)"
 	done
@@ -103,7 +107,7 @@ mountsCommand()
 	# standard mounted drives
 	IFS=$'\n' devices=( $(getAllDrives) )
 	for device in "${devices[@]}"; do
-		dir="$(isMounted "$device")" && d+=( "$dir" )
+		dir="$(isMounted)" && d+=( "$dir" )
 	done
 
 	# other drives
@@ -114,6 +118,22 @@ mountsCommand()
 
 	ListArray d
 }
+
+#
+# win commands
+#
+
+winCommand()
+{
+	local command; CheckSubCommand win "$1"; shift
+	Win${command}Command "$@"
+}
+
+WinListCommand() { diskpart "list disk" | grep -E 'Online|Offline|Status|---'; }
+WinExistsCommand() { diskpart "select disk $1" | grep "Disk $1 is now the selected disk." >& /dev/null; }
+WinGetofflineCommand() { drive win list | grep Offline | tr -s " " | cut -d" " -f3; }
+WinOnlineCommand() { diskpart "select disk $1 \n online disk" | grep "DiskPart successfully onlined the selected disk" >& /dev/null; }
+WinOfflineCommand() { diskpart "select disk $1 \n offline disk" | grep "DiskPart successfully offlined the selected disk" >& /dev/null; }
 
 #
 # helper
@@ -133,11 +153,14 @@ allMount()
 
 	[[ ! $quiet ]] && printf "mounting..."
 
-	while read -r device; do
-		{ isMounted "$device" --quiet || ! canMount "$device"; } && continue
-		doMount "$device" --quiet || return
+	local device devices
+	IFS=$'\n' devices=( $(drive list) )
+
+	for device in "${devices[@]}"; do
+		{ isMounted --quiet || ! canMount; } && continue
+		doMount --quiet || return
 		[[ ! $quiet ]] && printf "$device."
-	done < <(getAllDrives)
+	done
 
 	[[ ! $quiet ]] && echo "done"	
 	return 0
@@ -149,11 +172,14 @@ allUnmount()
 
 	[[ ! $quiet ]] && printf "unmounting..."
 
-	while read -r device; do
-		{ ! isMounted "$device" --quiet || ! canUnmount "$device"; } && continue
-		doUnmount "$device" --quiet || return
+	local device devices
+	IFS=$'\n' devices=( $(drive list) )
+	
+	for device in "${devices[@]}"; do
+		{ ! isMounted --quiet || ! canUnmount; } && continue
+		doUnmount --quiet || return
 		[[ ! $quiet ]] && printf "$device."
-	done < <(getAllDrives)
+	done
 
 	[[ ! $quiet ]] && echo "done"	
 	return 0
@@ -161,25 +187,31 @@ allUnmount()
 
 areAllMounted()
 {
-	while read -r device; do
-		canMount "$device" && ! isMounted "$device" --quiet && return 1
-	done < <(getAllDrives)
+	local device devices
+	IFS=$'\n' devices=( $(drive list) )
+
+	for device in "${devices[@]}"; do
+		canMount && ! isMounted --quiet && return 1
+	done
 
 	return 0
 }
 
 areAllUnmounted()
 {
-	while read -r device; do
-		canUnmount "$device" && isMounted "$device" --quiet && return 1
-	done < <(getAllDrives)
+	local device devices
+	IFS=$'\n' devices=( $(drive list) )
+	
+	for device in "${devices[@]}"; do
+		canUnmount && isMounted --quiet && return 1
+	done
 
 	return 0
 }
 
 canMount()
 {
-	local type="$(getType "$1")"
+	local type="$(getType "$device")"
 	[[ "$type" == "" ]] && { reason="no filesystem"; return 1; }
 	[[ "$type" == "LVM2_member" ]] && { reason="logical volume member"; return 1; }
 	return 0
@@ -187,14 +219,14 @@ canMount()
 
 canUnmount()
 {
-	[[ "$1" != "c" ]] && ! isEfiDevice "$1"
+	[[ "$device" != "c" ]] && ! isEfiDevice
 }
 
 isEfiDevice()
 {
 	IsPlatform win && return 1
 	[[ ! $efiDevice ]] && efiDevice="$(findmnt --noheadings --output=SOURCE --target "/boot/efi" | GetFileName)"
-	[[ "$1" == "$efiDevice" ]]
+	[[ "$device" == "$efiDevice" ]]
 }
 
 cleanupMountDir() # dir
@@ -206,14 +238,14 @@ cleanupMountDir() # dir
 	[[ ! -e "$dir" ]]
 }
 
-doMount() # device
+doMount()
 {
-	local device="$1" quiet; [[ "$2" == @(-q|--quiet) ]] && quiet="--quiet"
+	local quiet; [[ "$1" == @(-q|--quiet) ]] && quiet="--quiet"
 	local result dir; dir="$(isMounted)" && { [[ ! $quiet ]] && echo "$dir"; return 0; }
 	local m="$mountRoot/$device" # mount point
 
 	# return if we cannot mount the drive
-	! canMount "$device" && error "cannot mount $device ($reason)"
+	! canMount && error "cannot mount $device ($reason)"
 
 	# unmount a drive that is no longer present
 	cleanupMountDir "$m" || return	
@@ -238,11 +270,11 @@ doMount() # device
 
 doUnmount()
 {
-	local device="$1" quiet; [[ "$2" == @(-q|--quiet) ]] && quiet="true"
+	local quiet; [[ "$1" == @(-q|--quiet) ]] && quiet="true"
 	local dir="$(isMounted)" || return
 
 	# return if we cannot unmount this drive
-	! canUnmount "$device" && error "cannot unmount $device"
+	! canUnmount && error "cannot unmount $device"
 
 	# unmount
 	sudoc umount "$dir"
@@ -315,14 +347,19 @@ getType()
 	! IsPlatform win && { lsblk -fs --list --noheadings --output FSTYPE "/dev/$device"; return; }
 
 	# blkid
-	local type="$(eval $(blkid "/dev/$device" -o export); echo $TYPE)" || return; echo "$type"
+	local type="$(eval $(sudoc blkid "/dev/$device" -o export); echo $TYPE)" || return; echo "$type"
 }
 
 isMounted() # device
 {
-	local quiet; [[ "$2" == @(-q|--quiet) ]] && quiet="true"
+	local quiet; [[ "$1" == @(-q|--quiet) ]] && quiet="true"
 	local pattern="/dev/${device}"; isDriveLetter "$device" && pattern="^[${device}]:[\]?"
 	local dir="$(findmnt --noheadings --output=SOURCE,TARGET --list | grep -Ei "^${pattern}[ ]+" | tr -s " " | cut -d" " -f2)"
+
+	# On Windows build 20221.1000 the SOURCE is drvfs instead of the drive letter
+	if [[ ! $dir ]] && isDriveLetter "$device" &&  findmnt "/mnt/$device" >& /dev/null; then
+		dir="/mnt/$device"		
+	fi
 
 	[[ ! $dir ]] && return 1
 	[[ ! $quiet ]] && echo "$dir"

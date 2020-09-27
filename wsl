@@ -37,6 +37,7 @@ usage: wsl dir|exists|IsRunning|name|summary|version [DIST](current)
 	help - show wsl.exe and LxRunOffline.exe help
 
 	-np, --no-prompt	   	suppress prompts
+	-v|--verbose			show verbose output
 
 examples:
 
@@ -47,12 +48,13 @@ wsl restore Ubuntu-20.04 ubuntu-focal 2"
 
 args()
 {
-	command="" noPrompt="" args=()
+	unset command noPrompt args verbose
 	
 	while [ "$1" != "" ]; do
 		case "$1" in
 			--help|-h) usage 0;;
 			--no-prompt|-np) noPrompt="true"; ask() { :; };;
+			--verbose|-v) verbose="--verbose";;
 			backup|b) command="backup";;
 			FixDnsNameLookup) command="fixDnsNameLookup";;
 			GetDefaultUser|gdu) command="getDefaultUser";;
@@ -87,6 +89,7 @@ args()
 distFirst() { listPlainCommand "$1" | head -1 | awk '{ print $1; }'; }
 distExists() { [[ $1 && "$(listPlainCommand "$1" | cut -d" " -f1 | grep "^${1}$")" ]]; }
 distArg() {	dist="$1"; [[ ! $dist ]] && MissingOperand "dist"; ! distExists "$dist" && { EchoErr "Distribution $dist does not exist"; exit 1; }; return 0; }
+error() { EchoErr "$(ScriptName): $1"; exit 1; }
 supports() { wsl.exe --help | Utf16to8 | grep '\-\-'"$1" >& /dev/null; }
 
 distDefaultArg() # return 0 (true) if an arg is used
@@ -170,7 +173,23 @@ initCommand()
 mountCommand()
 {
 	! supports "mount" && { error "mounting is not implemented in this version of WSL"; }
-	echo "not implemented"
+
+	local disk="$(drive win GetOffline | head -1)"
+	if [[ ! $disk ]]; then
+		EchoErr "wsl: there are no offline disks to mount
+  use \`drive win offline NUM\` to offline a disk for use in WSL
+"
+		drive win list
+		return 1
+	fi
+
+	if IsElevated; then
+		wsl.exe --mount '\\.\PHYSICALDRIVE'$disk'' --bare || return
+	else
+		RunScript $verbose --elevate -- wsl mount "$disk" || return
+	fi
+
+	drive mount all
 }
 
 nameCommand()
