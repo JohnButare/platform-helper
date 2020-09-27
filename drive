@@ -7,7 +7,8 @@ init()
 {
 	unset efiDevice
 	driveLetters=( c d e f g h i j k l m n o p q r s t u v w x y z )
-	mountRoot="/mnt"; IsPlatform ubuntu && mountRoot="/media/$USER"
+	mountRoot="/mnt"; [[ -d "/media/$USER" ]] && mountRoot="/media/$USER" # Ubuntu
+	return 0
 }
 
 usage()
@@ -44,7 +45,7 @@ args()
 			-q|--quiet) quiet="--quiet";;
 			FileSystem) command="fileSystem";; IsDrive) command="isDrive";; IsMounted) command="isMounted";; IsWin) command="isWin";;
 			*)
-				[[ ! $device ]] && getDevice "$1" && { shift; continue; }
+				[[ ! $device ]] && getDeviceArg "$1" && { shift; continue; }
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
 				[[ "$command" == @(device|FileSystem|IsDrive|IsWin|label|type) ]] && break
 				UnknownOption "$1"
@@ -59,46 +60,36 @@ args()
 	args=("$@")
 }
 
+# getDeviceArg DEVICE - get the device argument (either DEVICE or /dev/DEVICE)
+getDeviceArg()
+{
+	local check="$1"; [[ "$(GetFilePath "$check")" == "/dev" ]] && check="$(GetFileName "$check")"
+	! isDevice "$check" && return 1
+	device="$check"
+}
+
 #
 # commands
 # 
 
 isMountedCommand() { [[ $all ]] && { areAllMounted; return; }; isMounted "$device" $quiet; }
-isWinCommand() { IsPlatform win && [[ "$(typeCommand "$@")" == "9p" ]]; }
-listCommand() { getAllDrives; }
 mountCommand() { [[ $all ]] && { allMount; return; }; doMount "$device" "$quiet"; }
 unmountCommand() { [[ $all ]] && { allUnmount; return; }; doUnmount "$device" "$quiet"; }
 
-deviceCommand()
-{
-	getDrive "$@" || return	
-	echo "$device"
-}
+deviceCommand() { getDevice "$@" || return; echo "$device"; }
+isDriveCommand() { getDevice "$@" || return; isDevice "$device"; }
+isWinCommand() { IsPlatform win && [[ "$(typeCommand "$@")" == "9p" ]]; }
+labelCommand() { getDevice "$@" || return; getLabel; }
+listCommand() { getAllDrives; }
+typeCommand() { getDevice "$@" || return; getType; }
 
 fileSystemCommand()
 {
-	{ [[ ! $device ]] || isDriveLetter "$device"; } && { getDrive "$@" || return; }
+	getDevice "$@" || return
 	
 	local type="$(getType)"
 	[[ "$type" == "9p" ]] && type="$(fsutil.exe fsinfo volumeinfo ${device}: | grep "File System Name" | RemoveCarriageReturn | cut -d: -f 2 | RemoveSpace)"
 	echo "$type"
-}
-
-isDriveCommand()
-{
-	[[ ! $device ]] && { getDrive "$@" || return; }
-	isDevice "$device"
-}
-
-labelCommand()
-{
-	[[ ! $device ]] && { getDrive "$@" || return; }
-
-	if isDriveLetter "$device" && IsPlatform win; then
-		cmd.exe /c vol "$device": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7-
-	else
-		lsblk -f -l --output LABEL --noheadings "/dev/$device" |& grep -v "not a block device"
-	fi
 }
 
 mountsCommand()
@@ -117,12 +108,6 @@ mountsCommand()
 	esac
 
 	ListArray d
-}
-
-typeCommand()
-{
-	{ [[ ! $device ]] || isDriveLetter "$device"; } && { getDrive "$@" || return; }
-	getType
 }
 
 #
@@ -202,7 +187,7 @@ canUnmount()
 
 isEfiDevice()
 {
-	IsPlatform win && return 0
+	IsPlatform win && return 1
 	[[ ! $efiDevice ]] && efiDevice="$(findmnt --noheadings --output=SOURCE --target "/boot/efi" | GetFileName)"
 	[[ "$1" == "$efiDevice" ]]
 }
@@ -272,48 +257,53 @@ getAllDrives()
 	ListArray d
 }
 
-# getDevice DEVICE - get the device argument
+# getDevice DIR - get the devce for the passed directory
 getDevice()
 {
-	local check="$1"; [[ "$(GetFilePath "$check")" == "/dev" ]] && check="$(GetFileName "$check")"
-	! isDevice "$check" && return 1
-	device="$check"
-}
+	[[ $device ]] && return
 
-# getDrive DIR - validates the drive from the specified device or passed directory.  device and mountDir are set on return.
-getDrive()
-{
-	# use the device if specified
-	if [[ $device ]]; then
-		mountDir="$(isMounted "$device")" || error "$device is not mounted"
+	# validate only one argument is passed and it is a directory
+	local dir="$1"
+	[[ "$#" != "1" ]] && usage
+	[[ ! -d "$dir" ]] && error "mount directory \`$dir\` does not exist"
 
-	# get the drive from the passed directory
-	else
-		local dir="$1"
+	# get the mount target and source for the specified directory
+	read device <<<$(findmnt --noheadings --output=SOURCE --target "$dir")
 
-		# validate only one argument is passed and it is a directory
-		[[ "$#" != "1" ]] && usage
-		[[ ! -d "$dir" ]] && error "mount directory \`$dir\` does not exist"
+	# if the device is a drive letter change it to a single letter, i.e. c:\ or c: => c
+	[[ "$device" =~ : ]] && device="${device:0:1}"
 
-		# get the mount target and source for the specified directory
-		read mountDir device <<<$(findmnt --noheadings --output=TARGET,SOURCE --target "$dir")
-
-		# if the device is a drive letter change it to a single letter, i.e. c:\ or c: => c
-		[[ "$device" =~ : ]] && device="${device:0:1}"
-
-		# if the device is a path to a directory (i.e. /dev/sdb1) get the actual device (i.e. sdb1)
-		[[ -e "$device" ]] && device="$(GetFileName "$device")"
-	fi
+	# if the device is a path to a directory (i.e. /dev/sdb1) get the actual device (i.e. sdb1)
+	[[ -e "$device" ]] && device="$(GetFileName "$device")"
 
 	return 0
 }
 
+getLabel()
+{
+	# drive letter
+	isDriveLetter "$device" && { cmd.exe /c vol "$device": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7-; return; }
+
+	# lsblk - except in Windows where lsblk label is empty
+	! IsPlatform win && { lsblk -f -l --output LABEL --noheadings "/dev/$device" |& grep -v "not a block device"; return; }
+
+	# blkid
+	local label="$(eval $(blkid "/dev/$device" -o export); echo $LABEL)" || return; echo "$label"
+}
+
 getType()
 {
+	# findmnt - for mounted drives
 	[[ $mountDir ]] && { findmnt --list --noheadings --output=FSTYPE --target "$mountDir"; return; }
-	isDriveLetter "$device" && IsPlatform win && { echo "9p"; return; }
-	[[ -e "/dev/$device" ]] && InPath lsblk && { lsblk -fs --list --noheadings --output FSTYPE "/dev/$device"; return; }
-	return 1
+
+	# drive letters - type 9p if using Windows
+	isDriveLetter "$device" && { echo "9p"; return; }
+
+	# lsblk - except in Windows where lsblk -fs file system is empty
+	! IsPlatform win && { lsblk -fs --list --noheadings --output FSTYPE "/dev/$device"; return; }
+
+	# blkid
+	local type="$(eval $(blkid "/dev/$device" -o export); echo $TYPE)" || return; echo "$type"
 }
 
 isMounted() # device
