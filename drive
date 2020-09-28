@@ -33,7 +33,7 @@ usage: drive COMMAND(detail)
 
 	detail						list detailed information of all drives
 	list							list device names of all drives
-	mounts						list all mounted drives
+	mounts						list mount directory of all mounted drives
 
 	win exists|list|online|offline - windows drives
 
@@ -217,6 +217,8 @@ error() { EchoErr "$(ScriptName): $1"; exit 1; }
 isDevice() { [[ "$1" == @("all") || -e "/dev/$1" ]] || isDriveLetter "$1"; }
 isDriveLetter() { IsPlatform win && IsInArray "$1" driveLetters; }
 isLvm() { sudo lvdisplay -c | cut -d: -f1 | RemoveSpace | grep "^/dev/${device}$" >& /dev/null; }
+log() { [[ $quiet ]] && return; printf "$@"; }
+platformUnmount() { sudoc umount "$mountDir"; }
 showResult() { [[ $1 && ! $all && ! $quiet ]] && echo "$1"; [[ $1 ]]; }
 
 allMount()
@@ -225,19 +227,17 @@ allMount()
 
 	areAllMounted && return
 
-	[[ ! $quiet ]] && printf "mounting..."
-
+	log "mounting..."
 	for device in "${devices[@]}"; do
 
 		{ isMounted || ! canMount; } && continue
 
-		[[ ! $quiet ]] && printf "$device."
+		log "$device."
 		doMount; result="$?"
 		[[ "$result" != "0" && ! $ignoreErrors ]] && return "$result"
 
 	done
-
-	[[ ! $quiet ]] && echo "done"	
+	log "done\n"
 
 	return 0
 }
@@ -246,19 +246,13 @@ allUnmount()
 {
 	areAllUnmounted && return
 
-	[[ ! $quiet ]] && printf "unmounting..."
-	
+	log "unmounting..."	
 	for device in "${devices[@]}"; do
-
 		{ ! isMounted || ! canUnmount; } && continue
-
-		[[ ! $quiet ]] && printf "$device."
-		doUnMount; result="$?"
+		log "$device."; doUnmount; result="$?"
 		[[ "$result" != "0" && ! $ignoreErrors ]] && return "$result"
-
 	done
-
-	[[ ! $quiet ]] && echo "done"	
+	log "done\n"
 
 	return 0
 }
@@ -307,51 +301,50 @@ isEfiDevice()
 
 cleanupMountDir() # dir
 {
-	local dir="$1"
-	[[ ! -e "$dir" ]] && return
-	findmnt "$dir" >& /dev/null && sudoc umount "$dir" >& /dev/null
-	sudoc rmdir "$dir" >& /dev/null
-	[[ ! -e "$dir" ]]
+	[[ ! -e "$mountDir" ]] && return
+	findmnt "$mountDir" >& /dev/null && platformUnmount >& /dev/null
+	sudoc rmdir "$mountDir" >& /dev/null
+	[[ ! -e "$mountDir" ]]
 }
 
 doMount()
 {
-	local result dir; dir="$(isMounted)" && { showResult "$dir"; return; }
+	# return if the drive is already mounted
+	mountDir="$(isMounted)" && { showResult "$mountDir"; return; }
 
 	# identify the mount point - use the drive label if possible
-	local m="$mountRoot/$device" label="$(getLabel)"
+	mountDir="$mountRoot/$device" label="$(getLabel)"
 	[[ $label && ! -e "$mountRoot/$label" ]] && m="$mountRoot/$label"
 
 	# return if we cannot mount the drive
 	! canMount && error "cannot mount $device ($reason)"
 
 	# unmount a drive that is no longer present
-	cleanupMountDir "$m" || return
+	cleanupMountDir || return
 
 	# create the mount directory
-	[[ ! -d "$m" ]] && { sudoc mkdir --parents "$m" || return 1; } # use --parents for LVM
+	[[ ! -d "$mountDir" ]] && { sudoc mkdir --parents "$mountDir" || return 1; } # use --parents for LVM
 
 	# mount the drive - supress some errors when mounting all devices
 	local desc result
 
 	if isDriveLetter "$device"; then
-
+		
 		if [[ $all ]]; then
-			desc="$(sudoc mount -t drvfs "$device:" "$m" 2>&1)"; result="$?"
+			local result
+			desc="$(sudoc mount -t drvfs "$device:" "$mountDir" 2>&1)"; result="$?"
 
 			if echo "$desc" | grep "No medium found" >& /dev/null; then
-				[[ ! $quiet ]] && printf "(no media)..."
-				cleanupMountDir
-				return 0
+				log "(no media)..."; cleanupMountDir; return 0
 			fi
 
 			[[ "$result" != "0" ]] && EchoErr "$result"
 		else
-			sudoc mount -t drvfs "$device:" "$m"
+			sudoc mount -t drvfs "$device:" "$mountDir"
 		fi
 
 	else
-		sudoc mount "/dev/$device" "$m"
+		sudoc mount "/dev/$device" "$mountDir"
 	fi
 
 	# check the mounted drive
@@ -365,14 +358,15 @@ doMount()
 
 doUnmount()
 {
-	local dir="$(isMounted)" || return
+	mountDir="$(isMounted)" || return
 
 	# return if we cannot unmount this drive
 	! canUnmount && error "cannot unmount $device"
 
-	# unmount
-	sudoc umount "$dir"
-	cleanupMountDir "$dir"
+	# unmount and cleanup
+	platformUnmount; cleanupMountDir
+
+	return 0
 }
 
 getAllDevices() # sets devices array
@@ -458,9 +452,10 @@ getType()
 	local type="$(eval $(sudoc blkid "/dev/$device" -o export); echo $TYPE)" || return; echo "$type"
 }
 
-isMounted() # device
+isMounted()
 {
 	local pattern="/dev/${device}"; isDriveLetter "$device" && pattern="${device}:[\]?"
+
 	local dir="$(findmnt --noheadings --output=SOURCE,TARGET --list |
 		sed 's/mapper\///g' | sed 's/-/\//g' | 	# /dev/mapper/vg01-p3 -> /dev/vg01/p3
 		grep -Ei "^${pattern}[ ]+" | 						# find device

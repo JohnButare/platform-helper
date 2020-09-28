@@ -18,7 +18,9 @@ init()
 usage()
 {
 	echot "\
-usage: unc mount|unmount|IsMounted|ListMounted|UnmountAll UNC
+usage: unc mount|unmount|IsMounted|mounts UNC
+	UNC 		the server, share, and optional directory to mount in the format //server/share/dir, or all (all shares)
+
 	browse							browse the UNC shares on the network
 	IsMounted	UNC				if UNC is mounted returns DIR mounted to
 	list HOST						list UNC disks on the host
@@ -43,8 +45,9 @@ args()
 			-s|--ssh) sshFs="true";;
 			-n|--nfs) nfsFs="true";;
 			-q|--quiet) quiet="--quiet";;
-			IsMounted) command="isMounted";; ListMounted) command="listMounted";; UnmountAll) command="unmountAll";;
+			IsMounted) command="isMounted";; ListMounted) command="listMounted";;
 			*)
+				[[ "$1" == "all" ]] && { all="true"; shift; continue; }
 				IsUncPath "$1" && [[ ! $unc ]] && { unc="$1"; shift; getUncInfo "$unc" || return; continue; }
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
 				[[ "$command" == @(list) ]] && break
@@ -54,7 +57,10 @@ args()
 	done
 
 	[[ ! $command ]] && { usage 1; }
-	[[ "$command" == @(IsMounted|mount|unmount) && ! $unc ]] && MissingOperand "unc"
+
+	[[ "$command" == @(IsMounted|mount) && ! $unc ]] && MissingOperand "unc"
+	[[ "$command" == @(unmount) ]] && ! [[ $all || $unc ]] && MissingOperand "unc"
+
 	args=("$@")
 }
 
@@ -62,39 +68,14 @@ args()
 # commands
 #
 
+isMountedCommand() { isMounted; }
+mountsCommand() { findmnt --type=cifs,nfs,sshfs --noheadings --output=TARGET | grep "$volumeDir"; }
+
 browseCommand()
 {
 	{ IsPlatform win || ! InPath "smbtree"; } && { EchoErr "unc: unable to browse the network"; return 1; }
 	sudoc smbtree
 }
-
-isMountedCommand() # unc
-{
-	local node prefix; IsPlatform mac && prefix="$user@"
-
-	# check for an SMB share
-	node="$(mount | grep "^//$prefix${server%%.*}.*/$shareId\\\$* on " | head -n 1 | cut -d" " -f 3)"
-
-	# check for an NFS share
-	if [[ ! $node ]]; then
-		node="$(mount | grep "^${server%%.*}.*:/$shareId$* on " | head -n 1 | cut -d" " -f 3)"
-	fi
-
-	# check for an sshfs share
-	if [[ ! $node ]]; then
-		[[ "$shareId" == "root" ]] && shareId=
-		node="$(mount | grep "^$user@$server:/$shareId on " | head -n 1 | cut -d" " -f 3)"
-	fi		
-	
-	[[ ! $node ]] && return 1
-	[[ $dirs ]] && echo "$node/$dirs" || echo "$node"
-}
-
-listMountedCommand()
-{
-	ls ~/Volumes | grep "_" | sed 's/_/\//g' | awk '{ print "//"$1 }'
-}
-
 
 listCommand()
 {
@@ -117,9 +98,9 @@ listCommand()
 	fi
 }
 
-mountCommand() # unc
+mountCommand()
 {
-	local result dir; dir="$(isMountedCommand)" && { echo "$dir"; return 0; }
+	local result; unc="$(isMounted)" && { showResult "$unc"; return; }
 
 	# ensure server is available
 	if [[ ! $noHostCheck && "$server" != "wsl$" ]] && ! IsAvailable "$server"; then
@@ -171,30 +152,26 @@ mountCommand() # unc
 	fi
 
 	# return the mounted directory
-	if isMountedCommand; then
+	if isMounted; then
 		return 0
 	else
-		cleanupMountDir "$mountDir"
+		cleanupMountDir
 		return 1
 	fi
 }
 
-unmountCommand() 
+unmountCommand()
 {
-	doUnmount "$mountDir"
-	cleanupMountDir "$mountDir"
-}
+	[[ ! $all ]] && { doUnmount; return; }
 
-unmountAllCommand()
-{
-	local uncs="$(unc ListMounted)"
-	
-	printf "unmounting..."
-	for unc in $uncs; do
-		printf "$unc..."
-		unc unmount "$unc" || return
+	IFS=$'\n' mountDirs=( $(unc mounts) )
+	[[ ! $mountDirs ]] && return
+
+	log "unmounting..."
+	for mountDir in "${mountDirs[@]}"; do
+		log "$(GetFileName "$mountDir")."; doUnmount || return
 	done
-	echo "done"
+	log "done\n"
 	
 	return 0
 }
@@ -203,22 +180,47 @@ unmountAllCommand()
 # Helper Functions
 #
 
+doUnmount() { platformUnmount; cleanupMountDir; }
 error() { EchoErr "$(ScriptName): $1"; exit 1; }
+log() { [[ $quiet ]] && return; printf "$@"; }
+showResult() { [[ $1 && ! $all && ! $quiet ]] && echo "$1"; [[ $1 ]]; }
 
 cleanupMountDir()
 {
-	local dir="$1"
-	[[ ! -e "$dir" ]] && return
-	findmnt "$dir" >& /dev/null && doUnmount "$dir" >& /dev/null
-	rmdir "$dir" >& /dev/null
-	[[ ! -e "$dir" ]]
+	[[ ! -e "$mountDir" ]] && return
+	findmnt "$mountDir" >& /dev/null && platformUnmount >& /dev/null
+	rmdir "$mountDir" >& /dev/null
+	[[ ! -e "$mountDir" ]]
 }
 
-doUnmount()
+isMounted()
+{
+	local unc prefix; IsPlatform mac && prefix="$user@"
+
+	# check for an SMB share
+	unc="$(mount | grep "^//$prefix${server%%.*}.*/$shareId\\\$* on " | head -n 1 | cut -d" " -f 3)"
+
+	# check for an NFS share
+	if [[ ! $unc ]]; then
+		unc="$(mount | grep "^${server%%.*}.*:/$shareId$* on " | head -n 1 | cut -d" " -f 3)"
+	fi
+
+	# check for an sshfs share
+	if [[ ! $unc ]]; then
+		[[ "$shareId" == "root" ]] && shareId=
+		unc="$(mount | grep "^$user@$server:/$shareId on " | head -n 1 | cut -d" " -f 3)"
+	fi		
+	
+	[[ $unc && $dirs ]] && unc="$unc/$dirs"
+
+	showResult "$unc"
+}
+
+platformUnmount()
 {
 	case "$PLATFORM" in
-		mac) GetFileName "$dir" dir; osascript -e "tell application \"Finder\"" -e "eject \"$dir\"" -e "end tell";;
-		linux|win) sudoc umount "$dir";;
+		mac) osascript -e "tell application \"Finder\"" -e "eject \"$(GetFileName "$mountDir")\"" -e "end tell";;
+		linux|win) sudoc umount "$mountDir";;
 	esac
 }
 
