@@ -37,18 +37,20 @@ usage: drive COMMAND(detail)
 
 	win exists|list|online|offline - windows drives
 
-	-q, 	--quiet			hide status messages
-	-v, 	--verbose		show verbose output"
+	-ie,	--ignore-errors	ignore errors when operating on all drives
+	-q, 	--quiet					hide status messages
+	-v, 	--verbose				show verbose output"
 	exit ${1:-1}
 }
 
 args()
 {
-	unset -v all command device quiet verbose
+	unset -v all command device ignoreErrors quiet verbose
 
 	while (( $# != 0 )); do
 		case "$1" in
 			-h|--help) usage 0;;
+			-ie|--ignore-errors) ignoreErrors="true";;
 			-q|--quiet) quiet="--quiet";;
 			-v|--verbose) verbose="--verbose";;
 			IsDrive) command="isDrive";; IsMounted) command="isMounted";; IsWin) command="isWin";;
@@ -81,9 +83,9 @@ getDeviceArg()
 # commands
 # 
 
-isMountedCommand() { [[ $all ]] && { areAllMounted; return; }; isMounted $quiet; }
-mountCommand() { [[ $all ]] && { allMount; return; }; doMount "$quiet"; }
-unmountCommand() { [[ $all ]] && { allUnmount; return; }; doUnmount "$quiet"; }
+isMountedCommand() { [[ $all ]] && { areAllMounted; return; }; isMounted; }
+mountCommand() { [[ $all ]] && { allMount; return; }; doMount; }
+unmountCommand() { [[ $all ]] && { allUnmount; return; }; doUnmount; }
 
 deviceCommand() { getDevice "$@" || return; echo "$device"; }
 fsCommand() { getDevice "$@" || return; getFs; }
@@ -212,24 +214,27 @@ WinOfflineCommand() { diskpart "select disk $1 \n offline disk" | grep "DiskPart
 #
 
 error() { EchoErr "$(ScriptName): $1"; exit 1; }
+isDevice() { [[ "$1" == @("all") || -e "/dev/$1" ]] || isDriveLetter "$1"; }
 isDriveLetter() { IsPlatform win && IsInArray "$1" driveLetters; }
 isLvm() { sudo lvdisplay -c | cut -d: -f1 | RemoveSpace | grep "^/dev/${device}$" >& /dev/null; }
-
-isDevice()
-{
-	[[ "$1" == @("all") || -e "/dev/$1" ]] || isDriveLetter "$1"
-}
+showResult() { [[ $1 && ! $all && ! $quiet ]] && echo "$1"; [[ $1 ]]; }
 
 allMount()
 {
+	local result
+
 	areAllMounted && return
 
 	[[ ! $quiet ]] && printf "mounting..."
 
 	for device in "${devices[@]}"; do
-		{ isMounted --quiet || ! canMount; } && continue
-		doMount --quiet || return
+
+		{ isMounted || ! canMount; } && continue
+
 		[[ ! $quiet ]] && printf "$device."
+		doMount; result="$?"
+		[[ "$result" != "0" && ! $ignoreErrors ]] && return "$result"
+
 	done
 
 	[[ ! $quiet ]] && echo "done"	
@@ -244,9 +249,13 @@ allUnmount()
 	[[ ! $quiet ]] && printf "unmounting..."
 	
 	for device in "${devices[@]}"; do
-		{ ! isMounted --quiet || ! canUnmount; } && continue
-		doUnmount --quiet || return
+
+		{ ! isMounted || ! canUnmount; } && continue
+
 		[[ ! $quiet ]] && printf "$device."
+		doUnMount; result="$?"
+		[[ "$result" != "0" && ! $ignoreErrors ]] && return "$result"
+
 	done
 
 	[[ ! $quiet ]] && echo "done"	
@@ -259,7 +268,7 @@ areAllMounted()
 	getAllDevices || return
 
 	for device in "${devices[@]}"; do
-		canMount && ! isMounted --quiet && return 1
+		canMount && ! isMounted && return 1
 	done
 
 	return 0
@@ -270,7 +279,7 @@ areAllUnmounted()
 	getAllDevices || return
 	
 	for device in "${devices[@]}"; do
-		canUnmount && isMounted --quiet && return 1
+		canUnmount && isMounted && return 1
 	done
 
 	return 0
@@ -307,8 +316,7 @@ cleanupMountDir() # dir
 
 doMount()
 {
-	local quiet; [[ "$1" == @(-q|--quiet) ]] && quiet="--quiet"
-	local result dir; dir="$(isMounted)" && { [[ ! $quiet ]] && echo "$dir"; return 0; }
+	local result dir; dir="$(isMounted)" && { showResult "$dir"; return; }
 
 	# identify the mount point - use the drive label if possible
 	local m="$mountRoot/$device" label="$(getLabel)"
@@ -318,19 +326,36 @@ doMount()
 	! canMount && error "cannot mount $device ($reason)"
 
 	# unmount a drive that is no longer present
-	cleanupMountDir "$m" || return	
+	cleanupMountDir "$m" || return
 
 	# create the mount directory
 	[[ ! -d "$m" ]] && { sudoc mkdir --parents "$m" || return 1; } # use --parents for LVM
 
-	# mount the drive
+	# mount the drive - supress some errors when mounting all devices
+	local desc result
+
 	if isDriveLetter "$device"; then
-		sudoc mount -t drvfs "$device:" "$m"
+
+		if [[ $all ]]; then
+			desc="$(sudoc mount -t drvfs "$device:" "$m" 2>&1)"; result="$?"
+
+			if echo "$desc" | grep "No medium found" >& /dev/null; then
+				[[ ! $quiet ]] && printf "(no media)..."
+				cleanupMountDir
+				return 0
+			fi
+
+			[[ "$result" != "0" ]] && EchoErr "$result"
+		else
+			sudoc mount -t drvfs "$device:" "$m"
+		fi
+
 	else
 		sudoc mount "/dev/$device" "$m"
 	fi
 
-	if isMounted "$quiet"; then
+	# check the mounted drive
+	if isMounted; then
 		return 0
 	else
 		cleanupMountDir
@@ -340,7 +365,6 @@ doMount()
 
 doUnmount()
 {
-	local quiet; [[ "$1" == @(-q|--quiet) ]] && quiet="true"
 	local dir="$(isMounted)" || return
 
 	# return if we cannot unmount this drive
@@ -436,7 +460,6 @@ getType()
 
 isMounted() # device
 {
-	local quiet; [[ "$1" == @(-q|--quiet) ]] && quiet="true"
 	local pattern="/dev/${device}"; isDriveLetter "$device" && pattern="${device}:[\]?"
 	local dir="$(findmnt --noheadings --output=SOURCE,TARGET --list |
 		sed 's/mapper\///g' | sed 's/-/\//g' | 	# /dev/mapper/vg01-p3 -> /dev/vg01/p3
@@ -448,9 +471,7 @@ isMounted() # device
 		dir="/mnt/$device"		
 	fi
 
-	[[ ! $dir ]] && return 1
-	[[ ! $quiet ]] && echo "$dir"
-	return 0
+	showResult "$dir"
 }
 
 run "$@"
