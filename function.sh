@@ -22,6 +22,9 @@ r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VA
 UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; mkdir --parents "$updateDir"; }
 UpdateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
 UpdateDone() { touch "$updateDir/$1"; }
+UpdateGet() { cat "$updateDir/$1"; }
+UpdateSet() { printf "$2" > "$updateDir/$1"; }
+
 
 clipok()
 { 

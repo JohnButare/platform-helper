@@ -7,6 +7,7 @@ init()
 {
 	command='network'
 
+	proxyNetwork="wiggin"
 	proxyServer="proxy.hagerman.butare.net" proxyPort="3128"
 	noProxy="localhost,127.0.0.1,.hagerman.butare.net,.releases.ubuntu.com"
 	wpadServer="nas3.hagerman.butare.net" wpadFile="/share/Web/autoproxy/wpad.dat"
@@ -15,6 +16,8 @@ init()
 	profileKey='HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/NetworkList/Profiles/'
 	
 	declare -Ag networks=( [wiggin]=192.168.100.10 [foo]=192.168.1.5 )
+
+	UpdateInit || return
 }
 
 usage()
@@ -115,12 +118,15 @@ CurrentNameCommand()
 	for i in "${!networks[@]}"
 	do
 		local name="$i" ip="${networks[$i]}"
+
+		# check if the IP is available, if it is see if the DNS server can resolve names 
 		[[ ! $quiet ]] && printf "Checking $name ($ip)..."
 		if IsAvailable "$ip" && dig @$ip bogus +time=1 +tries=1 >& /dev/null; then
 			[[ ! $quiet ]] && echo "found"
 			network="$name"
 			break
-		fi 
+		fi
+
 	done
 	[[ "$network" == "external" && ! $quiet ]] && echo "done"
 
@@ -129,18 +135,25 @@ CurrentNameCommand()
 
 CurrentUpdateCommand()
 {
-	local network
+	local network existing="$(UpdateGet "network")"
 
-	CurrentNameCommand || return
+	hilight "Determining network..."
+	echo "Existing network is ${existing:-unknown}"
+	! CurrentNameCommand && return
+
+	hilight "Setting the network to $network..."
+
+	UpdateSet "network" "$network" || return
 
 	local file="$DATA/setup/resolv.conf.$network"
-	if [[ ! -f "$file" ]]; then
-		EchoErr "network: could not find a network configuration file for $network"
-		return 1
-	fi
-
-	echo "Setting the network to $network"
+	[[ ! -f "$file" ]] && { EchoErr "network: could not find a network configuration file for $network"; return 1; }
 	sudoc cp "$file" "/etc/resolv.conf"
+
+	local status="disable"; [[ "$network" == "$proxyNetwork" ]] && status="enable"
+	UpdateSet "proxy" "$status" || return
+	ScriptEval network proxy vars --$status || return
+	network proxy apt --$status || return
+	network proxy status || return
 }
 
 #
@@ -279,6 +292,10 @@ proxyCommand()
 	local allVars="$proxyVars,$noProxyVars"
 	local aptFile="/etc/apt/apt.conf.d/proxy"
 
+	# status
+	[[ "$#" == "0" || "$1" == @(status|--status|-s) ]] && { ProxyStatusCommand; return; }
+
+	# vars command
 	local command="Vars"
 	[[ "$1" =~ ^(apt|wpad|vars)$ ]] && { command="$(ProperCase "$1")"; shift; }
 
@@ -294,27 +311,33 @@ proxyCommand()
 	Proxy${command}${subCommand}Command "$@"
 }
 
-ProxyVarsEnableCommand()
+ProxyStatusCommand()
 {
-	! IsAvailable "$proxyServer" && { ProxyVarsDisableCommand; return; }
-	echo "export {$proxyVars}=\"http://$proxy/\"; eval export {$noProxyVars}=\"$noProxy\""
+	echot "\
+proxy=$(ProxyVarsStatusCommand)
+apt proxy=$(ProxyAptStatusCommand)"	
 }
 
+ProxyVarsEnableCommand() { echo "export {$proxyVars}=\"http://$proxy/\"; eval export {$noProxyVars}=\"$noProxy\""; }
 ProxyVarsDisableCommand() {	echo "unset {$allVars}; unset {$allVars}"; }
 ProxyVarsStatusCommand() { (( $(export | grep -i 'proxy=\"http' | wc -l) > 1 )) && echo "enabled" || echo "disabled"; }
 
 ProxyAptEnableCommand()
 {
-	[[ -f "$aptFile" ]] && return
+	[[ ! -f "$aptFile" ]] && return
 	echo "Acquire::http::Proxy \"http://$proxy\";
 Acquire::https::Proxy \"http://$proxy\";" | sudo tee "$aptFile"
 }
 
-ProxyAptDisableCommand() { [[ -f "$aptFile" ]] && sudo rm "$aptFile"; }
+ProxyAptDisableCommand() { [[ ! -f "$aptFile" ]] && return; sudo rm "$aptFile"; }
 ProxyAptStatusCommand() { [[ -f "$aptFile" ]] && echo "enabled" || echo "disabled"; }
 
 ProxyWpadEnableCommand() { scp "$CLOUD/network/proxy/wpad.dat.enable" "$wpadServer:$wpadFile"; }
 ProxyWpadDisableCommand() { scp "$CLOUD/network/proxy/wpad.dat.disable" "$wpadServer:$wpadFile"; }
 ProxyWpadStatusCommand() { ssh $wpadServer cat "$wpadFile" | grep "PROXY" > /dev/null && echo "enabled" || echo "disabled"; }
+
+#
+# helper
+#
 
 run "$@"
