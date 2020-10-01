@@ -184,7 +184,8 @@ powershell()
 
 store()
 {
-	IsPlatform win && { cmd.exe /c start ms-windows-store: >& /dev/null; return; };
+	IsPlatform win && { cmd.exe /c start ms-windows-store: >& /dev/null; }
+	InPath gnome-software && { coproc gnome-software; }
 	return 0
 }
 
@@ -399,8 +400,9 @@ explore() # explorer DIR - explorer DIR in GUI program
 	IsPlatform mac && { open "$dir"; return; }
 	IsPlatform wsl1 && { explorer.exe "$(utw "$dir")"; return; }
 	IsPlatform wsl2 && { local dir="$PWD"; ( cd /tmp; explorer.exe "$(utw "$dir")" ); return 0; } # cd to local directory to fix invalid argument error running programs from SMB mounted shares
-	IsPlatform debian && InPath nautilus && { start nautilus "$dir"; return; }
-	
+	InPath nautilus && { start nautilus "$dir"; return; }
+	InPath mc && { mc; return; } # Midnight Commander
+
 	EchoErr "The $PLATFORM_ID platform does not have a file explorer"; return 1
 }
 
