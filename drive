@@ -28,7 +28,7 @@ usage: drive COMMAND(detail)
 		device					get the device name of the drive
 		format FS				format the device
 		IsWin						return true if the drive is mounted using Windows drvfs
-		fs			get the file system of the drive
+		fs							get the file system of the drive
 		SetLabel LABEL 	set the label of the drive
 		type						get the type of the drive (9p for Windows mounted drives)
 
@@ -36,7 +36,8 @@ usage: drive COMMAND(detail)
 	list							list device names of all drives
 	mounts						list mount directory of all mounted drives
 
-	win exists|list|online|offline - windows drives
+	win exists|GetOffline|list|online|offline - windows drives
+		use \`wsl mount\` to mount a windows drive in WSL
 
 	-ie,	--ignore-errors	ignore errors when operating on all drives
 	-q, 	--quiet					hide status messages
@@ -224,7 +225,7 @@ isDriveLetter() { IsPlatform win && IsInArray "$1" driveLetters; }
 isLvm() { sudo lvdisplay -c | cut -d: -f1 | RemoveSpace | grep "^/dev/${device}$" >& /dev/null; }
 log() { [[ $quiet ]] && return; printf "$@"; }
 platformUnmount() { sudoc umount "$mountDir"; }
-showResult() { [[ $1 && ! $all && ! $quiet ]] && echo "$1"; [[ $1 ]]; }
+showResult() { [[ $mountDir && ! $all && ! $quiet ]] && echo "$mountDir"; [[ $mountDir ]]; }
 
 allMount()
 {
@@ -237,7 +238,7 @@ allMount()
 
 		{ isMounted || ! canMount; } && continue
 
-		log "$device."
+		log "$device..."
 		doMount; result="$?"
 		[[ "$result" != "0" && ! $ignoreErrors ]] && return "$result"
 
@@ -254,7 +255,7 @@ allUnmount()
 	log "unmounting..."	
 	for device in "${devices[@]}"; do
 		{ ! isMounted || ! canUnmount; } && continue
-		log "$device."; doUnmount; result="$?"
+		log "$device..."; doUnmount; result="$?"
 		[[ "$result" != "0" && ! $ignoreErrors ]] && return "$result"
 	done
 	log "done\n"
@@ -315,7 +316,7 @@ cleanupMountDir() # dir
 doMount()
 {
 	# return if the drive is already mounted
-	mountDir="$(isMounted)" && { showResult "$mountDir"; return; }
+	isMounted && { showResult; return; }
 
 	# identify the mount point - use the drive label if possible
 	mountDir="$mountRoot/$device" label="$(getLabel)"
@@ -363,8 +364,8 @@ doMount()
 
 doUnmount()
 {
-	mountDir="$(isMounted)" || return
-
+	isMounted || return
+	
 	# return if we cannot unmount this drive
 	! canUnmount && error "cannot unmount $device"
 
@@ -445,7 +446,7 @@ getLabel()
 getType()
 {
 	# findmnt - for mounted drives
-	[[ $mountDir ]] && { findmnt --list --noheadings --output=FSTYPE --target "$mountDir"; return; }
+	[[ -d $mountDir ]] && { findmnt --list --noheadings --output=FSTYPE --target "$mountDir"; return; }
 
 	# drive letters - type 9p if using Windows
 	isDriveLetter "$device" && { echo "9p"; return; }
@@ -454,24 +455,25 @@ getType()
 	! IsPlatform win && { lsblk -fs --list --noheadings --output FSTYPE "/dev/$device"; return; }
 
 	# blkid
-	local type="$(eval $(sudoc blkid "/dev/$device" -o export); echo $TYPE)" || return; echo "$type"
+	local type="$(eval $(sudoc blkid "/dev/$device" -o export); echo $TYPE)" || return
+	echo "$type"
 }
 
 isMounted()
 {
 	local pattern="/dev/${device}"; isDriveLetter "$device" && pattern="${device}:[\]?"
 
-	local dir="$(findmnt --noheadings --output=SOURCE,TARGET --list |
+	mountDir="$(findmnt --noheadings --output=SOURCE,TARGET --list |
 		sed 's/mapper\///g' | sed 's/-/\//g' | 	# /dev/mapper/vg01-p3 -> /dev/vg01/p3
 		grep -Ei "^${pattern}[ ]+" | 						# find device
 		tr -s " " | cut -d" " -f2)"							# remove spaces and return target
 
 	# On Windows build 20221.1000 the SOURCE is drvfs instead of the drive letter
-	if [[ ! $dir ]] && isDriveLetter "$device" &&  findmnt "/mnt/$device" >& /dev/null; then
-		dir="/mnt/$device"		
+	if [[ ! $mountDir ]] && isDriveLetter "$device" &&  findmnt "/mnt/$device" >& /dev/null; then
+		mountDir="/mnt/$device"		
 	fi
 
-	showResult "$dir"
+	showResult
 }
 
 run "$@"

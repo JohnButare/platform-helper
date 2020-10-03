@@ -30,7 +30,7 @@ usage: wsl dir|exists|IsRunning|name|summary|version [DIST](current)
 	SetDefaultUser [DIST](current) [USER]($USER) - set the default user of the distribution 
 
 	FixDnsNameLookup - fix DNS name lookup in WSL 2
-	mount - mount a Windows drive in WSL
+	mount|unmount DISK_NUMBER - mount or unmount a Windows drive in WSL
 	SetVersion DIST VERSION - set the version of a distribtuin
 	shortcut DIST [NAME](DIST) - create a shortcut for the distribution
 	update - update WSL
@@ -170,28 +170,6 @@ initCommand()
 	lxr run -n "$dist" -w -c "bash -c \". /tmp/bootstrap-init\""
 }
 
-mountCommand()
-{
-	! supports "mount" && { error "mounting is not implemented in this version of WSL"; }
-
-	local disk="$(drive win GetOffline | head -1)"
-	if [[ ! $disk ]]; then
-		EchoErr "wsl: there are no offline disks to mount
-  use \`drive win offline NUM\` to offline a disk for use in WSL
-"
-		drive win list
-		return 1
-	fi
-
-	if IsElevated; then
-		wsl.exe --mount '\\.\PHYSICALDRIVE'$disk'' --bare || return
-	else
-		RunScript $verbose --elevate -- wsl mount "$disk" || return
-	fi
-
-	drive mount all
-}
-
 nameCommand()
 {
 	# WSL_DISTRO_NAME is not passed by default when using su/sudo/login
@@ -306,6 +284,57 @@ fixDnsNameLookupCommand()
 	fi
 
 	return 0
+}
+
+#
+# mount/unmount disks
+#
+
+mountCommand()
+{
+	! supports "mount" && { error "mounting is not implemented in this version of WSL"; }
+
+	# get the disk to mount
+	local disk="${1:-$(drive win GetOffline | head -1)}"
+	
+	if [[ ! $disk ]]; then
+		EchoErr "wsl: there are no offline disks to mount
+  use \`drive win offline NUM\` to offline a disk for use in WSL
+"
+		drive win list
+		return 1
+	fi
+
+	# run elevated
+	! IsElevated && { RunScript $verbose --elevate -- wsl mount "$disk"; return; }
+
+	# get the existing block devices
+	local devices; IFS=$'/n' devices=( $(lsblk -no NAME) )
+
+	# mount the disk
+	wsl.exe --mount '\\.\PHYSICALDRIVE'$disk'' --bare || return
+
+	# start LVM service and scan for volumes
+	if InPath vgscan; then
+		service start lvm2 || return
+		sudo vgscan --mknodes || return
+	fi
+
+	# wait for the block device to be mounted and return it
+	lsblk -no NAME | grep -v "$(ListArray devices)"
+}
+
+unmountCommand()
+{
+	! supports "unmount" && { error "mounting is not implemented in this version of WSL"; }
+
+	local disk="${1}"; [[ ! $disk ]] && MissingOperand "disk"
+	
+	if IsElevated; then
+		wsl.exe --unmount '\\.\PHYSICALDRIVE'$disk'' || return
+	else
+		RunScript $verbose --elevate -- wsl unmount "$disk" || return
+	fi
 }
 
 run "$@"
