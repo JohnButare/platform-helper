@@ -888,7 +888,7 @@ package() # package install
 	# install the packages
 	IsPlatform debian && { sudoc $noPrompt apt install -y "${packages[@]}"; return; }
 	IsPlatform dsm,qnap && { sudoc opkg install "${packages[@]}"; return; }
-	IsPlatform mac && { brew install "${packages[@]}"; return; }
+	IsPlatform mac && { HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"; return; }
 
 	return 0
 }
