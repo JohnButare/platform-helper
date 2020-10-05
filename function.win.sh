@@ -26,15 +26,6 @@ MakeShortcut()
 	start nircmd shortcut "$f" "$linkDir" "$linkName" "${@:3}";
 }
 
-GetWinRemovableDrives() 
-{
-	while read -r drive; do
-		fsutil.exe fsinfo driveType "${drive}:\\" |& grep "Removable Drive" >& /dev/null && drives+=( "$drive" )
-	done < <(drive list)
-
-	echo "${drives[@]}"
-}
-
 #
 # Explorer
 #

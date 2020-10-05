@@ -239,6 +239,7 @@ SleepStatus()
 
 EchoErr() { printf "$@\n" >&2; }
 PrintErr() { printf "$@" >&2; }
+ScriptErr() { EchoErr "$(ScriptName): $1"; }
 
 # printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var
 printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; }

@@ -33,7 +33,7 @@ usage: drive COMMAND(detail)
 		type						get the type of the drive (9p for Windows mounted drives)
 
 	detail						list detailed information of all drives
-	list							list device names of all drives
+	list [removable]	list device names of all or specified types of drives
 	mounts						list mount directory of all mounted drives
 
 	win exists|GetOffline|list|online|offline - windows drives
@@ -60,7 +60,7 @@ args()
 			*)
 				[[ ! $device ]] && getDeviceArg "$1" && { shift; continue; }
 				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "$command" == @(device|fs|format|IsDrive|IsWin|label|resize|SetLabel|type|win) ]] && break
+				[[ "$command" == @(device|fs|format|IsDrive|IsWin|label|list|resize|SetLabel|type|win) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -94,7 +94,6 @@ fsCommand() { getDevice "$@" || return; getFs; }
 isDriveCommand() { getDevice "$@" || return; isDevice "$device"; }
 isWinCommand() { IsPlatform win && [[ "$(typeCommand "$@")" == "9p" ]]; }
 labelCommand() { getDevice "$@" || return; getLabel; }
-listCommand() { getAllDevices; ListArray devices; }
 typeCommand() { getDevice "$@" || return; getType; }
 
 detailCommand()
@@ -109,7 +108,9 @@ detailCommand()
 		PrintErr "searching..."
 
 		hilight "DEVICE:FS:LABEL"
+
 		for device in ${devices[@]}; do
+			unset mountDir
 			fs="$(getFs)" label=$(getLabel); PrintErr .
 			[[ "$fs" == "LVM2_member" ]] && continue
 			echo "$device:$fs:$label"
@@ -137,6 +138,37 @@ formatCommand()
 	fi
 }
 
+listCommand()
+{
+	local d device devices type="$1" result=()
+
+	# arguments
+	[[ $type ]] && { shift; [[ "$type" != "removable" ]] && usage; }
+	[[ $# != 0 ]] && usage
+
+	# get devices
+	getAllDevices || return
+
+	# list devices and return if the type was not specified
+	[[ ! $type ]] && { [[ $devices ]] && ListArray devices; return; }
+
+	# filter by type, currently only removable
+	for device in "${devices[@]}"; do
+		isRemovable && d+=( "$device" )
+	done
+
+	[[ $d ]] && ListArray d
+	return 0
+}
+
+isRemovable()
+{
+	isDriveLetter "$device" && fsutil.exe fsinfo driveType "${drive}:\\" |& grep "Removable Drive" >& /dev/null && return
+	[[ "$(lsblk --nodeps --noheadings --output RM "/dev/$device")" == "1" ]] && return
+	udevadm info --query=property --export --name="/dev/$device" | grep "ID_BUS='usb'" >& /dev/null && return
+	return 1
+}
+
 mountsCommand()
 {
 	local d=()
@@ -145,7 +177,9 @@ mountsCommand()
 	getAllDevices || return
 	
 	for device in "${devices[@]}"; do
-		isMounted && d+=( "$mountDir" )
+		mountDir="$(getMountDir)" || continue
+		! canUnmount && continue
+		d+=( "$mountDir" )
 	done
 
 	# other drives
@@ -154,6 +188,7 @@ mountsCommand()
 		mac) IFS=$'\n' d+=( $(df | grep "^/dev/" | awk '{print $9}' | grep -v '^/$|^/$') );;
 	esac
 
+	[[ ! $d ]] && return
 	ListArray d
 }
 
@@ -167,8 +202,8 @@ resizeCommand()
 	[[ ! $size ]] && MissingOperand "size"
 		
 	# checks
-	isDriveLetter "$device" && error "cannot resize Windows mounted drives"
-	! isLvm && error "cannot resize a non-LVM drives"
+	isDriveLetter "$device" && { ScriptErr "cannot resize Windows mounted drives"; return 1; }
+	! isLvm && { ScriptErr "cannot resize a non-LVM drives"; return 1; }
 
 	# resize
 	local d="/dev/$device"
@@ -225,10 +260,10 @@ WinOfflineCommand() { diskpart "select disk $1 \n offline disk" | grep "DiskPart
 # helper
 #
 
-error() { EchoErr "$(ScriptName): $1"; exit 1; }
-isDevice() { [[ "$1" == @("all") || -e "/dev/$1" ]] || isDriveLetter "$1"; }
+isDevice() { [[ "$1" == @("all") || -b "/dev/$1" ]] || isDriveLetter "$1"; }
 isDriveLetter() { IsPlatform win && IsInArray "$1" driveLetters; }
 isLvm() { sudo lvdisplay -c | cut -d: -f1 | RemoveSpace | grep "^/dev/${device}$" >& /dev/null; }
+isMounted() { getMountDir >& /dev/null; }
 log() { [[ $quiet ]] && return; printf "$@"; }
 platformUnmount() { sudoc umount "$mountDir"; }
 returnMountDir() { [[ $mountDir && ! $quiet ]] && echo "$mountDir"; [[ $mountDir ]]; }
@@ -241,13 +276,10 @@ allMount()
 
 	log "mounting..."
 	for device in "${devices[@]}"; do
-
+		unset mountDir
 		{ isMounted || ! canMount; } && continue
-
-		log "$device..."
-		doMount; result="$?"
+		log "$device..."; doMount; result="$?"
 		[[ "$result" != "0" && ! $ignoreErrors ]] && return "$result"
-
 	done
 	log "done\n"
 
@@ -256,14 +288,19 @@ allMount()
 
 allUnmount()
 {
+	local devicesToUnmount
+
 	areAllUnmounted && return
 
 	log "unmounting..."	
+
 	for device in "${devices[@]}"; do
+		unset mountDir
 		{ ! isMounted || ! canUnmount; } && continue
 		log "$device..."; doUnmount; result="$?"
 		[[ "$result" != "0" && ! $ignoreErrors ]] && return "$result"
 	done
+
 	log "done\n"
 
 	return 0
@@ -274,6 +311,7 @@ areAllMounted()
 	getAllDevices || return
 
 	for device in "${devices[@]}"; do
+		unset mountDir
 		canMount && ! isMounted && return 1
 	done
 
@@ -285,6 +323,7 @@ areAllUnmounted()
 	getAllDevices || return
 	
 	for device in "${devices[@]}"; do
+		unset mountDir
 		canUnmount && isMounted && return 1
 	done
 
@@ -296,12 +335,21 @@ canMount()
 	local type="$(getType)"
 	[[ "$type" == "" ]] && { reason="no filesystem"; return 1; }
 	[[ "$type" == "LVM2_member" ]] && { reason="logical volume member"; return 1; }
+	[[ "$type" == "swap" ]] && { reason="swap drive"; return 1; }
 	return 0
 }
 
 canUnmount()
 {
-	[[ "$device" != "c" ]] && ! isEfiDevice
+	[[ "$device" == "c" ]] && { reason="boot drive"; return 1; }
+
+	! IsPlatform linux return 0
+
+	local mountDir="$(getMountDir)"
+	[[ "$mountDir" == "/boot/efi" ]] && { reason="firmware drive"; return 1; }
+	[[ "$mountDir" == "/" ]] && { reason="boot drive"; return 1; }
+
+	return 0
 }
 
 isEfiDevice()
@@ -311,25 +359,26 @@ isEfiDevice()
 	[[ "$device" == "$efiDevice" ]]
 }
 
-cleanupMountDir() # dir
+cleanupMountDir() 
 {
 	[[ ! -e "$mountDir" ]] && return
 	findmnt "$mountDir" >& /dev/null && platformUnmount >& /dev/null
-	sudoc rmdir "$mountDir" >& /dev/null
+	sudoc rmdir "$mountDir" || return
+	sudo rmdir "${mountRoot}/"* >& /dev/null # cleanup empty mount directories
 	[[ ! -e "$mountDir" ]]
 }
 
 doMount()
 {
 	# return if the drive is already mounted
-	isMounted && return
+	mountDir="$(getMountDir)" && return
 
 	# identify the mount point - use the drive label if possible
 	mountDir="$mountRoot/$device" label="$(getLabel)"
 	[[ $label && ! -e "$mountRoot/$label" ]] && mountDir="$mountRoot/$label"
 
 	# return if we cannot mount the drive
-	! canMount && error "cannot mount $device ($reason)"
+	! canMount && { ScriptErr "cannot mount $device ($reason)"; return 1; }
 
 	# unmount a drive that is no longer present
 	cleanupMountDir || return
@@ -341,20 +390,7 @@ doMount()
 	local desc result
 
 	if isDriveLetter "$device"; then
-		
-		if [[ $all ]]; then
-			local result
-			desc="$(sudoc mount -t drvfs "$device:" "$mountDir" 2>&1)"; result="$?"
-
-			if echo "$desc" | grep "No medium found" >& /dev/null; then
-				log "(no media)..."; cleanupMountDir; return 0
-			fi
-
-			[[ "$result" != "0" ]] && EchoErr "$result"
-		else
-			sudoc mount -t drvfs "$device:" "$mountDir"
-		fi
-
+		doMountDriveLetter	
 	else
 		sudoc mount "/dev/$device" "$mountDir"
 	fi
@@ -368,17 +404,32 @@ doMount()
 	fi
 }
 
-doUnmount()
+doMountDriveLetter()
 {
-	isMounted || return
-	
-	# return if we cannot unmount this drive
-	! canUnmount && error "cannot unmount $device"
+	[[ ! $all ]] && { sudoc mount -t drvfs "$device:" "$mountDir"; return; }
 
-	# unmount and cleanup
-	platformUnmount; cleanupMountDir
+	# when mounting all drives, do not error out for empty optical media drives
+
+	local result
+	desc="$(sudoc mount -t drvfs "$device:" "$mountDir" 2>&1)"; result="$?"
+
+	if echo "$desc" | grep "No medium found" >& /dev/null; then
+		log "(no media)..."; cleanupMountDir; return 0
+	fi
+
+	[[ "$result" != "0" ]] && { ScriptErr "$result"; return $result; }
 
 	return 0
+}
+
+doUnmount()
+{
+	mountDir="$(getMountDir)" || return 0
+	
+	# return if we cannot unmount this drive
+	! canUnmount && { ScriptErr "cannot unmount $device ($reason)"; return 1; }
+
+	platformUnmount && cleanupMountDir
 }
 
 getAllDevices() # sets devices array
@@ -404,30 +455,36 @@ getAllDevices() # sets devices array
 	return 0
 }
 
-# getDevice DIR - get the devce for the passed directory
+# getDevice DIR - ensure device is set from the passed mounted directory
 getDevice()
 {
+	# use the device if set
 	[[ $device ]] && return
 
-	# validate only one argument is passed and it is a directory
+	# get passed directory argument
 	local dir="$1"; shift; [[ "$#" != "0" ]] && usage
 	[[ ! $dir ]] && MissingOperand "dir"
-	[[ ! -d "$dir" ]] && error "mount directory \`$dir\` does not exist"
+	[[ ! -d "$dir" ]] && { ScriptErr "mount directory \`$dir\` does not exist"; return 1; }
 
-	# get the mount target and source for the specified directory
+	# get device - the source for the mounted target directory
 	read device <<<$(findmnt --noheadings --output=SOURCE --target "$dir")
 
-	# On Windows build 20221.1000 the SOURCE is drvfs instead of the drive letter
-	[[ "$device" == "drvfs" ]] && { device="$(GetFileName "$dir")"; return; }
+	# if the device (source) is drvfs, look in the mount OPTIONS for path=LETTER (Windows build 20221.1000)
+	if [[ "$device" == "drvfs" ]]; then
+		local options; IFS=';' o=( $(findmnt --noheadings --output=OPTIONS --target "$dir") )
+		device="$(ListArray options | grep "^path=" | cut -d"=" -f2)"
+	fi
 
-	# LVM - i.e. /dev/mapper/vg01-p1 -> vg01/p1
-	[[ "$device" =~ ^/dev/mapper/ ]] && { device="${device#/dev/mapper/}"; device="${device/-/\/}"; return; }
+	# change drive letters to a single lower case letter, i.e. C:\ -> c
+	[[ "$device" =~ : ]] && { device="${device:0:1}"; device="${device,,}"; return; }
 
-	# drive letter - change to single letter, i.e. c:\ or c: => c
-	[[ "$device" =~ : ]] && { device="${device:0:1}"; return; }
+	# remove /dev from the device, i.e. /dev/sdb1 -> sdb1
+	[[ "$device" =~ ^/dev/ ]] && device="${device#/dev/}"
 
-	# deivce directory - remove /dev/, i.e. /dev/sdb1 -> sdb1
-	[[ -e "$device" ]] && { device="$(GetFileName "$device")"; return; }
+	# ensure the device is a block device
+	[[ ! -b "/dev/$device" ]] && { ScriptErr "$device is not a valid block device"; return 1; }
+
+	return 0
 }
 
 getFs()
@@ -439,47 +496,40 @@ getFs()
 
 getLabel()
 {
-	# drive letter
+	# Windows drive letters
 	isDriveLetter "$device" && { cmd.exe /c vol "$device": |& RemoveCarriageReturn | grep -v "has no label" | grep "Volume in" | cut -d" " -f7-; return; }
 
-	# lsblk - except in Windows where lsblk label is empty
-	! IsPlatform win && { lsblk -f -l --output LABEL --noheadings "/dev/$device" |& grep -v "not a block device"; return; }
+	# lsblk, except in Windows where the label is empty
+	! IsPlatform win && { lsblk --nodeps --noheadings --output LABEL "/dev/$device" |& grep -v "not a block device"; return; }
 
 	# blkid
-	local label="$(eval $(blkid "/dev/$device" -o export); echo $LABEL)" || return; echo "$label"
+	local label="$(eval $(blkid "/dev/$device" -o export); echo $LABEL)" || return
+	echo "$label"
+}
+
+getMountDir()
+{
+	if isDriveLetter "$device"; then
+		findmnt --list --output=TARGET,OPTIONS | grep -iE "path=$device"':?\\?' | cut -d" " -f1
+	else
+		findmnt --noheadings --output=TARGET --source "/dev/$device"
+	fi
 }
 
 getType()
 {
 	# use findmnt to get the type if we have the mount directory
-	[[ -d $mountDir ]] && { findmnt --list --noheadings --output=FSTYPE --target "$mountDir"; return; }
+	[[ -d "$mountDir" ]] && { findmnt --noheadings --output=FSTYPE --target "$mountDir"; return; }
 
-	# for Windows drive letters the type must be 9p
+	# Windows drive letters - the type must be 9p
 	isDriveLetter "$device" && { echo "9p"; return; }
 
-	# use lsblk to find the type of the specified device - except in Windows where lsblk -fs file system is empty
-	! IsPlatform win && { lsblk --noheadings --output FSTYPE --nodeps "/dev/$device"; return; }
+	# lsblk, except in Windows where the file system is empty
+	! IsPlatform win && { lsblk --nodeps --noheadings --output FSTYPE "/dev/$device"; return; }
 
 	# blkid
 	local type="$(eval $(sudoc blkid "/dev/$device" -o export); echo $TYPE)" || return
 	echo "$type"
-}
-
-isMounted()
-{
-	local pattern="/dev/${device}"; isDriveLetter "$device" && pattern="${device}:[\]?"
-
-	mountDir="$(findmnt --noheadings --output=SOURCE,TARGET --list |
-		sed 's/mapper\///g' | sed 's/-/\//g' | 	# /dev/mapper/vg01-p3 -> /dev/vg01/p3
-		grep -Ei "^${pattern}[ ]+")" 						# find device
-	mountDir="${mountDir/$pattern*( )/}"			# remove pattern and spaces
-
-	# On Windows build 20221.1000 the SOURCE is drvfs instead of the drive letter
-	if [[ ! $mountDir ]] && isDriveLetter "$device" &&  findmnt "/mnt/$device" >& /dev/null; then
-		mountDir="/mnt/$device"		
-	fi
-
-	[[ $mountDir ]]
 }
 
 run "$@"
