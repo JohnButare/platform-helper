@@ -170,6 +170,7 @@ case "$PLATFORM" in
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
 		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$LOCALAPPDATA/Microsoft/WindowsApps"
+		PathAdd front "$DATA/platform/linux"
 		;;
 esac
 
@@ -182,7 +183,7 @@ case "$PLATFORM_LIKE" in
 	qnap|synology) PathAdd front "/opt/sbin" "/opt/bin"; PathAdd "/usr/local/sbin" "/usr/local/bin" "/share/CACHEDEV1_DATA/.qpkg/container-station/bin";;
 esac
 
-PathAdd front "$PBIN" "$BIN"
+PathAdd front "$DATA/platform/agnostic" "$PBIN" "$BIN"
 PathAdd "$UBIN"
 
 #
