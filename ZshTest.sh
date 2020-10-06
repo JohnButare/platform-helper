@@ -1,4 +1,4 @@
-
+#!/usr/bin/env zsh
 
 if [[ $ZSH_NAME ]]; then
 	alias help="run-help"
