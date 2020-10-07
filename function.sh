@@ -19,12 +19,12 @@ IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
 IsInteractive() { [[ "$-" == *i* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
 
+# update - temporary file location
 UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; mkdir --parents "$updateDir"; }
 UpdateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
 UpdateDone() { touch "$updateDir/$1"; }
 UpdateGet() { cat "$updateDir/$1"; }
 UpdateSet() { printf "$2" > "$updateDir/$1"; }
-
 
 clipok()
 { 
@@ -36,6 +36,7 @@ clipok()
 	
 }
 
+# clipboard
 clipw() 
 { 
 	! clipok && return 1;
@@ -58,6 +59,7 @@ clipr()
 	esac
 }
 
+# logging
 InitColor() { RB_BLUE=$(printf '\033[38;5;021m') RB_GREEN=$(printf '\033[38;5;082m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
 header() { InitColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
 hilight() { InitColor; printf "${RB_GREEN}$1${RESET}\n"; }
@@ -378,14 +380,15 @@ CopyFileProgress() { rsync --info=progress2 "$@"; }
 DirCount() { RemoveSpace "$(command ls "$1" | wc -l)"; return "${PIPESTATUS[0]}"; }
 EnsureDir() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
 GetBatchDir() { GetFilePath "$0"; }
-GetFileSize() { [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
+GetFileSize() { GetArgs; [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { GetArgs; local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { GetArgs; r "${1##*/}" $2; }
 GetFileNameWithoutExtension() { GetArgs; local gfnwe="$1"; GetFileName "$1" gfnwe; r "${gfnwe%.*}" $2; }
-GetFileExtension() { local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
+GetFileExtension() { GetArgs; local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
+GetFullPath() { GetArgs; local gfp="$(GetRealPath "${@/#\~/$HOME}")"; r "$gfp" $2; } # replace ~ with $HOME so we don't lose spaces in expansion
 GetLastDir() { GetArgs; echo "$@" | RemoveTrailingSlash | GetFileName; }
 GetParentDir() { GetArgs; echo "$@" | GetFilePath | GetFilePath; }
-IsDirEmpty() { [[ "$(find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
+IsDirEmpty() { GetArgs; [[ "$(find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
 InPath() { local f option; IsZsh && option="-p"; for f in "$@"; do ! which $option "$f" >& /dev/null && return 1; done; return 0; }
 IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff "$1" "$2" >& /dev/null; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
@@ -450,11 +453,6 @@ FindInPath()
 	fi
 
 	return 1
-}
-
-GetFullPath() 
-{ 
-	local gfp="$(GetRealPath "${@/#\~/$HOME}")"; r "$gfp" $2; # replace ~ with $HOME so we don't lose spaces in expansion
 }
 
 GetRealPath()  # resolve symbolic links
@@ -1058,6 +1056,7 @@ IsServer() { ! IsDesktop; }
 console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternatively run in a regular Windows console (Start, Run, bash --login)
 CoprocCat() { cat 0<&${COPROC[0]}; } # read output from a process started with coproc
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
+IsSystemd() { cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
 
 IsExecutable()
 {
@@ -1133,7 +1132,11 @@ ProcessList() # PID,NAME - show operating system native process ID and executabl
 }
 
 handle() { ProcessResource; }
-ProcessResource() { IsPlatform win && { start handle.exe "$@"; return; } || echo "Not Implemented"; }
+ProcessResource()
+{
+	IsPlatform win && { start handle.exe "$@"; return; }
+	echo "Not Implemented"
+}
 
 # start a program converting file arguments for the platform as needed
 
