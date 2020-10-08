@@ -188,6 +188,7 @@ store()
 {
 	IsPlatform win && { cmd.exe /c start ms-windows-store: >& /dev/null; }
 	InPath gnome-software && { coproc gnome-software; }
+	InPath snap-store && { coproc snap-store; }
 	return 0
 }
 
