@@ -127,6 +127,12 @@ RunService()
 		return 0
 	fi
 
+	# For wsl2 running systemd the ssh service will already be running, so just forward the ssh ports
+	if IsPlatform wsl2 && IsSystemd && [[ "$service" == "ssh" ]] && service running $service; then
+		printf "$service ports."
+		RunScript --elevate -- powershell.exe WslPortForward.ps1 > /dev/null
+	fi
+
 	return 0
 }
 
