@@ -7,26 +7,32 @@ init()
 { 
 	gui="virtmgmt.msc"
 	disks="$DATA/appdataw/Hyper-V/Virtual Hard Disks"
+	controller="2" # assume controller location 2, 0 is usually a DVD drive and 1 is usually the system hard drive
 }
 
 usage()
 {	
 		echot "\
 usage: hyperv IsInstalled|IsEnabled|start
-	switch VM [NAME](Default Adapter) 	set the network switch
-	exists|delete VM
+
 	list|ListPlain|status 							list virtual machines
+
 	console|ssh VM        							connect to a vm
-	checkpoint [VM] [CHECKPOINT](image)
+	checkpoint [VM] [CHECKPOINT](image)	checkpoint a vm
+	delete VM														delete a vm
+	exists VM														return 0 if the vm exists
+	mount|unmount VM										mount the first offline drive to VM
+	switch VM [NAME](Default Adapter) 	set the network switch
+	guest vm [linux|win](win)						configure the guest services for the vm
 
 	create 
 		-t, 	--type linux|pxe|win 		type of VM defaults to use, defaults to pxe
 		-f, 	--force									force creation or deletion even if the VM already exists
 
-	on|off|reboot|sleep|shutdown|status VM
+	on|off|reboot|sleep|status VM
 		-h, 	--hard			perform a hard reboot or power off
 
-
+	-a, 	--all				operate on all VM's
 	-v, 	--verbose		show verbose output"
 	exit $1
 }
@@ -47,7 +53,7 @@ args()
 			*)
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				needsVmName "$command" && [[ ! $vm ]] && { vm="$1"; shift; continue; }
-				! IsOption "$1" && [[ "$command" == @(switch) ]] && break
+				! IsOption "$1" && [[ "$command" == @(guest|switch) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -67,8 +73,8 @@ args()
 # helper
 #
 
-needsVmName() { [[ "$1" == @(checkpoint|console|consoleEdit|create|delete|exists|on|off|reboot|ssh|sleep|shutdown|switch) ]]; }
-checkInstalled () { ! isInstalled && { EchoError "Hyper-V is not installed"; exit 1; } }
+needsVmName() { [[ "$1" == @(checkpoint|console|consoleEdit|create|delete|exists|guest|mount|unmount|on|off|reboot|ssh|sleep|shutdown|switch) ]]; }
+checkInstalled () { ! isInstalled && { EchoErr "Hyper-V is not installed"; exit 1; } }
 deleteVmDiskFiles() { rm -f "$disks/${vm}.vhdx" "$disks/${vm}_"*".avhdx"; }
 isEnabled() { bcdedit.exe | grep -i hypervisorlaunchtype | grep -i Auto >& /dev/null; }
 isInstalled() { service exist hvservice; }
@@ -87,12 +93,12 @@ listCommand() { RunScript --elevate -- powershell Get-VM | RemoveCarriageReturn;
 listPlainCommand() { RunScript --elevate -- powershell Get-VM | RemoveCarriageReturn | tail +4 | cut -d" " -f 1 | grep -v '^$'; }
 statusCommand() { listCommand; }
 
-checkpointCommand() # -SnapshotName NAME
+checkpointCommand()
 { 
 	if [[ $all ]]; then
-		RunScript --elevate -- powershell 'Get-VM \| Checkpoint-VM'
+		ps 'Get-VM \| Checkpoint-VM'
 	else
-		RunScript --elevate -- powershell Checkpoint-VM -Name "$vm"
+		ps 'Checkpoint-VM -Name \"'$vm'\"'
 	fi
 }
 
@@ -123,6 +129,16 @@ enableCommand()
 	! isEnabled && { bcdedit.exe /set hypervisorlaunchtype auto || return; }
 	! isServiceRunning && ask "Restart computer to enable Hyper-V" && { power reboot || return; }
 	return 0
+}
+
+guestCommand()
+{
+	local os="${1:-win}" transport="VMBus"
+
+	[[ "$os" != @(linux|win) ]] && usage
+
+	[[ "$os" == "linux" ]] && transport="HvSocket"
+	ps 'Set-VM -VMName \"'$vm'\" -EnhancedSessionTransportType '$transport'' || return
 }
 
 guiCommand()
@@ -190,13 +206,30 @@ EOF
 }
 
 CreateBeforeLinux() { :; }
-CreateAfterLinux() { ps 'Set-VM -VMName \"'$vm'\" -EnhancedSessionTransportType HvSocket'; }
+CreateAfterLinux() { guestCommand "linux"; }
 
 CreateBeforePxe() { :; }
 CreateAfterPxe() { :; }
 
 CreateBeforeWin() { hdGb="50" memoryGb="4" nestedVirtualization="True" processors="4"; }
 CreateAfterWin() { :; }
+
+#
+# Drive Commands
+#
+
+mountCommand()
+{
+	local drive="$(drive win GetOffline)"
+	[[ ! $drive ]] && { ScriptErr "there are no offline drives to mount"; return 1; }
+
+	ps 'Add-VMHardDiskDrive -VMname \"'$vm'\" -ControllerType SCSI -ControllerNumber 0 -ControllerLocation '$controller' -DiskNumber '$drive || return
+}
+
+unmountCommand()
+{
+	ps 'Remove-VMHardDiskDrive -VMname \"'$vm'\" -ControllerType SCSI -ControllerNumber 0 -ControllerLocation '$controller || return
+}
 
 #
 # Power Commands
