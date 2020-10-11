@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+. app.sh || exit
+
+run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+
+init() 
+{ 
+	homebridgeDir="$HOME/.homebridge"
+	[[ ! -d ~/.homebridge || -L ~/.homebridge ]] && homebridgeDir="/var/lib/homebridge"
+}
+
+usage()
+{
+	echot "\
+usage: HomebridgeHelper
+	backup [HOST]				backup homebridge configuration
+	restore HOST FILE		restore homebridge configuration"
+	exit ${1:-1}
+}
+
+args()
+{
+	unset -v noPrompt 
+
+	while (( $# != 0 )); do
+		case "$1" in
+			--help|-h) usage 0;;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			*)
+				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				! IsOption "$1" && [[ "$command" == @(backup|restore) ]] && break
+				UnknownOption "$1"
+		esac
+		shift
+	done
+	
+	[[ ! $command ]] && { MissingOperand "command"; }
+	args=( "$@" )
+}
+
+#
+# Commands
+#
+
+backupCommand()
+{
+	if (( $# == 0 )); then
+		[[ ! -d "$homebridgeDir" ]] && { ScriptErr "unable to locate the homebridge directory"; return 1; }
+		AppBackup "$HOSTNAME.homebridge" "$homebridgeDir" || return
+	else
+		backupRemote "$@"
+	fi
+}
+
+# /var/lib/homebridge
+backupRemote()
+{
+	local host="$1"; shift; [[ ! $host ]] && { MissingOperand "host" || return 1; }	
+	local file="$host.homebridge.zip"
+	local cloud="$CLOUD"; [[ ! -d "$cloud" ]] && { ScriptErr "cloud backup directory ``$CLOUD`` does not exist"; return; }
+	local dest="$cloud/network/homebridge/backup"; [[ ! -d "$dest" ]] && { mkdir "$dest" || return; }
+
+	(( $# != 0 )) && usage
+
+	hilight "Backing up $host Homebridge configuration..."
+	ssh $host "rm -f $file; zip -r $file .homebridge" || return
+	scp $host:~/$file "$dest/$file" || return
+	ssh $host "rm -f $file" || return
+}
+
+restoreCommand()
+{
+	local host="$1"; shift; [[ ! $host ]] && { MissingOperand "host" || return 1; }	
+	local file="$2.homebridge.zip"; shift; [[ ! $host ]] && { MissingOperand "file" || return 1; }	
+	
+	(( $# != 0 )) && usage
+
+	[[ ! -f "$f" ]] && { ScriptErr "file `$f` does not exist"; return 1; }
+
+	ask -dr n "Are you sure you want to restore "$f" to $h" || return
+
+	hilight "Restoring $host Homebridge configuration..."
+	scp "$f" $h:~ || return
+	ssh -t $h "sudo hb-service stop && sudo find ~/.homebridge -mindepth 1 -maxdepth 1 -exec rm -fr {} + && sudo unzip -o $f -d ~" || return
+}
+
+run "$@"

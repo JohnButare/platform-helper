@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 . function.sh || exit
+. app.sh || exit
 . color.sh || exit
 
 run() {	init && args "$@" && ${command}Command "${args[@]}"; }
 
 init()
-{ 
+{
 	# devcices to turn on and off
 	devices=( pi5 pi6 rp1 UnifiController )
 
@@ -30,6 +31,7 @@ usage()
 {
 	echot "\
 usage: wiggin off
+	backup web
 	config backup|update|edit [host]
 	on|off - power on or off all devices in the Wiggin study network closet switch"
 	exit $1
@@ -44,7 +46,7 @@ args()
 			--help) usage 0;;
 			*)
 				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				[[ "$command" == @(config) ]] && break	# defer argument processing
+				[[ "$command" == @(backup|config) ]] && break # defer argument processing
 				UnknownOption "$1"
 		esac
 		shift
@@ -54,6 +56,42 @@ args()
 	[[ "$comamnd" == @(edit) && ! $host ]] && MissingOperand "host"
 
 	args=("$@")
+}
+
+#
+# backup
+#
+
+backupCommand()
+{
+	# parse arguments
+	local command; CheckSubCommand backup "$1"; shift
+	[[ $# != 0 ]] && UnknownOption "$1"
+
+	# run command
+	Backup${command}Command "$@"
+}
+
+BackupWebCommand() { AppBackup "$(RemoveDnsSuffix "$fileServer").web" "//$fileServer/root/share/CACHEDEV1_DATA/Web" || return; }
+BackupContainerstationCommand() { AppBackup "$(RemoveDnsSuffix "$fileServer").ContainerStation" "//$fileServer/root/share/data/Container/container-station-data/application" || return; }
+
+BackupQnapCommand()
+{
+	! IsPlatform QNAP && { ScriptErr "can only backup QNAP operating system"; return 1; }
+
+	local file="$(AppGetBackupDir)/${HOSTNAME}.settings" || return
+
+	# maybe intended to be a backup number, but it is filled with a constant (127) when
+	# using the backup function from the webpage, file is not removed after backup, but
+	# missing after next reboot...
+	echo "127" | sudo tee "/etc/save_no.conf" || return
+
+	sudo tar cvf - "/etc/config/"* "/etc/save_no.conf" | gzip > "$file.tgz" || return
+
+	PC1 e ICPIPNASWAREV301 "$file.tgz" "$file.bin" || return
+	PC2 "$file.bin" "" "" || return
+
+	rm "$file.tgz" || return
 }
 
 #
@@ -78,15 +116,11 @@ configCommand()
 }
 
 ConfigEditCommand() { TextEdit "$DATA/setup/ports" "$ncd/dns/$externalDomain" "$ncd/dns/forward.txt" "$ncd/dhcp/wiggin/kea-dhcp4-wiggin-reservations.json"; }
-ConfigBackupCommand() { doBackup; }
-ConfigUpdateCommand() { doUpdate; }
+ConfigBackupCommand() { configBackup; }
+ConfigUpdateCommand() { configUpdate; }
 
-#
-# backup/update
-# 
-
-doBackup()
-{ 
+configBackup()
+{
 	local h="$hostNameShort" d="$ncd/backup" stamp="$(GetDateStamp)"
 
 	# DHCP
@@ -96,7 +130,7 @@ doBackup()
 	ssh $host "rm -f $f; zip -r $f $dhcpDir" || return
 	scp $host:~/$f "$d/$stamp.$i.$f" || return
 
-	# DNS	
+	# DNS
 	echo "${BLUE}Backing up DNS configuration from $h...${RESET}"
 	f="$h.dns.zip" i="1"
 	while [[ -f "$d/$stamp.$i.$f" ]]; do (( ++i )); done
@@ -106,22 +140,17 @@ doBackup()
 	echo "${GREEN}Successfully backed up $h network configuration${RESET}"
 }
 
-doUpdate()
+configUpdate()
 {
-	local r; initReservations || return
-	doBackup || return
-	updateDhcp || return
-	updateDns || return
+	local r="$ncd/dhcp/$network/kea-dhcp4-$network-reservations.json"
+	configFileValidate "$r" || return
+	configBackup || return
+	configUpdateDhcp || return
+	configUpdateDns || return
 	return 0
 }
 
-initReservations()
-{
-	r="$ncd/dhcp/$network/kea-dhcp4-$network-reservations.json"
-	validateFile "$r" || return
-}
-
-updateDns()
+configUpdateDns()
 {
 	local config="$ncd/dns"
 	local dir="$(mktemp -d -t 'dns.XXXXXXXXXX')" || return
@@ -131,7 +160,7 @@ updateDns()
 
 	cp "$config/$externalDomain" "$dir" || return
 	cp "$config/forward.txt" "$dir/$domain" || return
-	configToCommaDelimited "$r" | awk -F "," '{ print $1 ".'$domain'.	A	" $3 }' | column -t	>> "$dir/$domain" || return
+	configFileToCommaDelimited "$r" | awk -F "," '{ print $1 ".'$domain'.	A	" $3 }' | column -t	>> "$dir/$domain" || return
 
 	for zone in 100 101 102; do
 		local z="$dir/$zone.168.192.in-addr.arpa"
@@ -141,7 +170,7 @@ updateDns()
 		{ printf "\n; static\n"; cat "$config/reverse.txt" | grep "^[0-10]*.$zone.168.192"; } >> "$z"
 
 		{ printf "\n; dynamic\n"
-			configToCommaDelimited "$r" |
+			configFileToCommaDelimited "$r" |
 				grep ",192.168.$zone." |
 				sed "s/192.168.$zone.//" |
 				awk -F "," '{ print $3 ".'$zone'.168.192.in-addr.arpa. PTR " $1 ".'$domain'." }' |
@@ -159,22 +188,22 @@ updateDns()
 	SshHelper $hostName service restart bind9 || return
 }
 
-updateDhcp()
+configUpdateDhcp()
 {
 	local config="$ncd/dhcp/$network"
 	local dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
 	local subnetVar="subnet$(ProperCase "$hostNameShort")"
 	local subnet="${!subnetVar:-$subnetDefault}"
-	
+
 	echo "Updating DHCP configuration for $hostNameShort..."
 	cp "$config/"* "$dir" || return
 	sed -i "s/SUBNET4_POOL/$subnet/" "$dir/kea-dhcp4-$network.json" || return
 
 	echo "Updating the ethers configuration..." # downcase to make etherwake case agnostic
-	configToCommaDelimited "$r" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
+	configFileToCommaDelimited "$r" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
 
 	echo "Updating the host configuration data..."
-	configToCommaDelimited "$r" |  awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return 
+	configFileToCommaDelimited "$r" |  awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return
 
 	echo "Updating DHCP configuration on $host..."
 	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" --info=progress2 "$dir/"* "$host:$dhcpDir" || return
@@ -186,26 +215,29 @@ updateDhcp()
 	SshHelper $hostName service restart kea-dhcp4-server || return
 }
 
-configToCommaDelimited() # configToCommaDelimited FILE - convert a Kea configuration file to comma delimited
+configFileToCommaDelimited() # configFileToCommaDelimited FILE - convert a Kea configuration file to comma delimited
 {
-	configToJson "$1" | 
+	configFileToJson "$1" |
 		jq '.[]|{a: .hostname, b: ."hw-address", c: ."ip-address"}|join(",")' | # convert to comma delimited
 		sed 's/\"//g'	|	# remove quotes
 		sort
 }
 
-configToJson() # configToJson FILE - convert a Kea configuration file to valid JSON
+configFileToJson() # configFileToJson FILE - convert a Kea configuration file to valid JSON
 {
-	cat "$1" | 
+	cat "$1" |
 		sed '/^[	 ]*\/\//d' |  # remove comments - lines that begin with //
 		sed '/<\?include/d'  	# remove <?include ?> directives
 }
 
-validateFile()
+configFileValidate()
 {
-	configToJson "$1" | jq > /dev/null && return
-	configToJson "$1" > "/tmp/dhcp.json" 2> /dev/null
-	TextEdit "$1" "/tmp/dhcp.json" || return
+	configFileToJson "$1" | jq > /dev/null && return
+
+	# view the file issues in a text editor
+	local file="$(mktemp)" || return
+	configFileToJson "$1" > "$file" 2> /dev/null
+	TextEdit "$1" "$file" || return
 	return 1
 }
 
@@ -213,8 +245,8 @@ validateFile()
 # on/off
 #
 
-offCommand() 
-{ 
+offCommand()
+{
 	ask "Are you sure you want to power off all Wiggin devices" -dr n || return
 
 	for device in "${devices[@]}"; do
@@ -222,8 +254,8 @@ offCommand()
 	done
 }
 
-onCommand() 
-{ 
+onCommand()
+{
 	ask "Are you sure you want to power off all Wiggin devices" -dr n || return
 
 	for device in "${devices[@]}"; do

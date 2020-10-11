@@ -10,6 +10,8 @@ workgroup="Wiggin"
 host="nas3.$domain" port=608			# host or mounted drive to use for scripts and installers
 proxy="http://proxy.$domain:3128" # proxy server for package download
 
+fileServer="$host"
+
 #user=""
 #host="/mnt/d"
 #proxy=""
