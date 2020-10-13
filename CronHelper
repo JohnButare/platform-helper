@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "${BASH_SOURCE[0]%/*}/function.sh" || exit # function.sh may not be in the path if running from cron
 . app.sh || exit
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
@@ -20,6 +21,7 @@ args()
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			*)
 				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
+				! IsOption "$1" && [[ "$command" == @(debug) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -34,5 +36,70 @@ args()
 #
 
 backupCommand() { AppBackup "$HOSTNAME.cron" /etc/cron* || return; }
+
+# crontest
+# See https://github.com/Stabledog/crontest for canonical source.
+
+# Test wrapper for cron tasks.  The suggested use is:
+#
+#  1. When adding your cron job, use all 5 stars to make it run every minute
+#  2. Wrap the command in crontest
+#        
+#
+#  Example:
+#
+#  $ crontab -e
+#     * * * * * /usr/local/bin/crontest $HOME/bin/my-new-script --myparams
+#
+#  Now, cron will run your job every minute, but crontest will only allow one
+#  instance to run at a time.  
+#
+#  crontest always wraps the command in "screen -d -m" if possible, so you can
+#  use "screen -x" to attach and interact with the job.   
+#
+#  If --bashdb is used, the command line will be passed to bashdb.  Thus you
+#  can attach with "screen -x" and debug the remaining command in context.
+#
+#  NOTES:
+#   - crontest can be used in other contexts, it doesn't have to be a cron job.
+#       Any place where commands are invoked without an interactive terminal and
+#       may need to be debugged.
+#
+#   - crontest writes its own stuff to /tmp/crontest.log
+#
+#   - If GNU screen isn't available, neither is --bashdb
+debugCommand()
+{
+	local command log="/tmp/cron_debug.log" result
+	local lockFile=$( if [[ -d /var/lock ]]; then echo /var/lock/cron_debug.lock; else echo /tmp/cron_debug.lock; fi )
+	local screen; InPath screen && { screen="true"; command="$(FindInPath screen) -D -m "; } # put the task inside a pseudo-terminal owned by screen
+
+  # Lock the lockFile (no, we do not wish to follow the standard advice of wrapping this in a subshell!)
+  exec 9> "$lockFile"
+  flock -n 9 || return
+
+  # cleanup old log
+  [[ -f $log ]] && { rm -f $log || return; }
+
+  log "cron debug starting at $(date)"
+  log "args: $@"
+  log "screen: $(FindInPath screen)"
+  log "use screen: $( if $screen; then echo "yes"; else echo "no"; fi )"
+  log "command line: $command $@"
+
+  $command "$@"
+  result=$?
+
+  log "command result: $result"
+
+  # release the lock
+  9<&-
+}
+
+#
+# helper
+#
+
+log() { echo "$@" >> $log; }
 
 run "$@"
