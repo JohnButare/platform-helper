@@ -154,7 +154,7 @@ versionCommand()
 	# hardware
 	versionCpu || return
 	local hardware="$(uname -m)" # armv71|mips|mip64|x86_64
-	InPath dpkg && hardware+=" ($(dpkg --print-architecture))" # amd64, armhf
+	InPath dpkg && hardware+=" ($(PlatformArchitecture))" # amd64, armhf
 	echo "    hardware: $hardware" 
 
 	# chroot

@@ -956,7 +956,9 @@ PackageWhich() # which package is an executable in
 # Platform
 # 
 
+PlatformSummary() { echo "$(PlatformArchitecture) $(PlatformDescription)"; }
 PlatformDescription() { echo "$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"; }
+PlatformArchitecture() { dpkg --print-architecture; }
 
 # IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
 function IsPlatform()
@@ -985,6 +987,7 @@ function IsPlatform()
 			# kernel
 			winkernel) [[ "$PLATFORM_KERNEL" == @(wsl1|wsl2) ]] && return;;
 			linuxkernel) [[ "$PLATFORM_KERNEL" == "linux" ]] && return;;
+			raspbiankernel) [[ "$PLATFORM_KERNEL" == "raspbian" ]] && return;;
 
 			# virtual machine
 			container) IsContainer && return;;

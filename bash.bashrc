@@ -39,6 +39,8 @@ echo kernel=\"$(uname -r)\";
 		platformKernel="linux"
 		if [[ $kernel =~ .*-Microsoft$ ]]; then platformKernel="wsl1"
 		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platformKernel="wsl2"
+		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platformKernel="wsl2"
+		elif [[ $kernel =~ .*-raspi$ ]]; then platformKernel="raspbian"
 		fi
 
 		case "$platform" in
