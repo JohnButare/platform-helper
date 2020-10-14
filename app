@@ -211,6 +211,7 @@ MapApp()
 AltTabTerminator() { IsTaskRunning "AltTabTer.exe" || TaskStart "$P/Alt-Tab Terminator/AltTabTer.exe" "" /startup; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
 chrony() { RunService "chrony"; }
+cron() { RunService "cron"; }
 cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE.exe" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
 dbus() { RunService "dbus"; }
 discord() { IsTaskRunning Discord.exe || TaskStart "$LOCALAPPDATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }
@@ -219,6 +220,7 @@ duet() { TaskStart "$P/Kairos/Duet Display/duet.exe"; }
 Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer.exe && start explorer; }
 GlassWire() { IsTaskRunning "GlassWire.exe" || TaskStart "$P32/GlassWire/glasswire.exe" "" -hide; }
 Greenshot() { IsTaskRunning "Greenshot.exe" || TaskStart "$P/Greenshot/Greenshot.exe" "" ; }
+incron() { RunService "incron"; }
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 IntelRapidStorage() { IsTaskRunning "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
 LogitechOptions() { [[ ! -f "$P/Logitech/LogiOptions/LogiOptions.exe" ]] && return; IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
