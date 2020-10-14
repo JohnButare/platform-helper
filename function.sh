@@ -480,6 +480,28 @@ MoveAll()
 	mv "$1/"* "$2" && rmdir "$1"
 }
 
+SelectFile() # DIR PATTERN MESSAGE
+{
+	local dir="$1" pattern="$2" message="${3:-Choose a file}" result items=()
+
+	pushd "$dir" > /dev/null || return
+	
+	if IsZsh; then
+		for f in $~pattern; do items+=( "$f" "" ); done
+	else
+		for f in $pattern; do items+=( "$f" "" ); done
+	fi
+
+	result=$(dialog --stdout --backtitle "Select File" \
+  	--menu "Choose file to install:" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
+	clear
+
+	[[ ! $result ]] && { EchoErr "a file was not selected"; return 1; }
+
+	file="$dir/$result"
+	popd > /dev/null
+}
+
 # UnzipPlatform - use platform specific unzip to fix unzip errors syncing metadata on Windows drives
 UnzipPlatform()
 {
