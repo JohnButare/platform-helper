@@ -11,10 +11,22 @@ usage()
 usage: pi power
 	Raspberry Pi helper commands
 
-	clone		launch SD card copier to copy files (not entire device, faster)	
-	EnableSsh|image
+	image gui
+		balena  	create an image using Balena Etcher
+		clone  		create an image using Pi Clone (faster file copy)
+		backup		create an image from this Raspberry Pi
+		restore		restore an image to a connected drive
+		ssh				enable ssh for images on all drives
 
-	firmware dir|channel|edit|info|update"
+	firmware channel|dir|info apply|configure|edit|update
+
+		dir				return the firmware directory
+		channel		edit the firmware channel (beta, stable, or critical)
+
+		apply			apply firmware changes from a file
+		configure	configure the firmware
+		edit			configure and apply the firmware
+		update		update the Raspberry Pi with the latests firmware"
 	exit $1
 }
 
@@ -42,55 +54,7 @@ args()
 # commands
 #
 
-cloneCommand() { coproc sudox dbus-launch piclone; }
 powerCommand() { ! dmesg --time-format ctime | grep -i volt; } # check for under voltage in the log
-
-imageCommand()
-{
-	! IsElevated && { elevate RunScript --pause-error pi image "$@"; return; }
-
-	local image="$(i dir)/platform/Raspberry Pi/Raspberry Pi OS" || return
-
-	# select the firmware file
-	local file="$1"; shift
-	[[ ! $file ]] && { file="$(dialog --title "Select image" --stdout --fselect "$image/" $(($LINES-12)) 100)"; clear; }
-	[[ ! $file ]] && { MissingOperand "file"; return 1; }
-	[[ ! -f "$file" ]] && { EchoErr "pi: image \"$file\" does not exist"; return 1; }
-
-	"$P/balena-cli/balena.exe" local flash "$(utw "$file")" --yes
-
-	# does not mount properly just after flash so try several times
-	for (( i=1; i<=10; ++i )); do
-		enableSshCommand && return
-		sleep 1
-	done
-
-	return 0
-}
-
-enableSshCommand()
-{
-	local drive drives found
-
-	drive mount all || return
-	IFS=$'\n' drives=( $(drive mounts) )
-
-	printf "enabling..."
-	
-	for drive in "${drives[@]}"; do
-		[[ ! -f "$drive/start.elf" ]] && continue
-		touch "$drive/ssh" || return
-		printf "$(GetFileName "$drive")..."
-		found="true"
-	done
-
-	echo "done" 
-
-	drive unmount all || return
-
-	[[ ! $found ]] && { echo "PiEnableSsh: no Raspberry Pi images found"; return 1; }
-	return 0
-}
 
 #
 # Firmware Commands
@@ -101,7 +65,6 @@ firmwareCommand()
 	local channel="/etc/default/rpi-eeprom-update"
 	local dir="/lib/firmware/raspberrypi/bootloader"
 
-	# detailed sub command: see SqlServer
 	local command; CheckSubCommand firmware "$1"; shift
 	[[ $# != 0 ]] && UnknownOption "$1"
 	Firmware${command}Command "$@"
@@ -123,39 +86,144 @@ FirmwareInfoCommand()
 	sudo vcgencmd bootloader_config | RemoveEmptyLines || return
 }
 
+FirmwareApplyCommand()
+{
+	firmwareGetFile "$@" || return
+	sudo rpi-eeprom-update -d -f "$dir/new-config.bin" || return
+}
+
 FirmwareEditCommand()
 {
-	local FIRMWARE_RELEASE_STATUS; . "$channel" || return
-	local dir="$dir/$FIRMWARE_RELEASE_STATUS"
-	local config="$dir/bootconf.txt"; [[ -f "$config" ]] && { sudo bak --move "$config" || return; }
+	firmwareGetFile "$@" || return
+	FirmwareConfigureCommand "@" || return
+	FirmwareApplyCommand || return
+}
 
-	# select the firmware file
-	local file="$1"; shift
-	[[ ! "$file" ]] && { file="$(dialog --title "Select Firmware" --stdout --fselect ""$dir/"" $(($LINES-12)) 100)"; clear; }
-	[[ ! "$file" ]] && { MissingOperand "file"; return 1; }
-	[[ ! -f "$file" ]] && { EchoErr "PiFirmwareEdit: firmware file \"$file\" does not exist"; return 1; }
+FirmwareConfigureCommand()
+{
+	firmwareGetFile "$@" || return
+
+	# backup existing configuration changes
+	[[ -f "$config" ]] && { sudo bak --move "$config" || return; }
 	
-	# extract the configuration
+	# extract configuration from the firmware file
 	sudoc cp "$file" "$dir/current.bin" || return
 	rpi-eeprom-config "$dir/current.bin" | sudo tee "$config" || return
 	[[ ! -f "$config" || "$(cat "$config")" == "" ]] && { EchoErr "Unable to extract the firmware configuration from \"$file\""; return 1; }
 	sudo cp "$config" "$config.orig" || return
-	
+
 	# edit the configuration
 	sudoedit "$config" || return
-	
+
 	# add the configuration to the firmware file
 	if ! diff "$config" "$config.orig" >& /dev/null; then
 		printf "Adding the configuration changes to the firmware file..."
 		sudo rpi-eeprom-config --out "$dir/new-config.bin" --config "$config" "$dir/current.bin" || return
 		echo "done"
 	fi
+
+	return 0
+}
+
+firmwareGetFile() # sets file, dir, and config
+{
+	local FIRMWARE_RELEASE_STATUS; . "$channel" || return
 	
-	# apply the firmware
-	if ask -dr n "Apply the firmware changes"; then
-		sudo rpi-eeprom-update -d -f "$dir/new-config.bin" || return
-	fi
+	dir="$dir/$FIRMWARE_RELEASE_STATUS"
+	config="$dir/bootconf.txt"
+
+	[[ ! $file ]] && { file="$1"; shift; }
+	[[ ! $file ]] && { file="$(dialog --title "Select Firmware" --stdout --fselect ""$dir/"" $(($LINES-12)) 100)"; clear; }
+	[[ ! $file ]] && { MissingOperand "file"; return 1; }
+	[[ ! -f "$file" ]] && { ScriptErr "firmware file \"$file\" does not exist"; return 1; }
+
+	return 0
+}
+
+#
+# Image Commands
+#
+
+imageCommand()
+{
+	local command; CheckSubCommand image "${1:-clone}"; shift
+	[[ $# != 0 ]] && UnknownOption "$1"
+	Image${command}Command "$@"
+}
+
+ImageCloneCommand() { coproc sudox dbus-launch piclone; }
+
+# ImageBackupCommand - backup the host to an img file.   The backup is done to a remote host to
+# - cannot back up to the drive we are backing up
+# - faster access than Micro-SD card
+# - faster compression (utilize 36 cores)
+ImageBackupCommand()
+{
+	local device="mmcblk0" fileName="$HOSTNAME.img" compressionHost="oversoul"
+
+	! IsPlatform PiKernel && { ScriptErr "can only backup a Raspbery Pi"; }
+
+	local dir="$(unc mount --ssh //$compressionHost/root/tmp)" || return	
+	local file="$dir/$fileName" localFile="/tmp/$fileName"
+	local size="$(drive size $device)"; [[ $size ]] && size="--size ${size,,}"
+
+	hilight "Backing up $HOSTNAME to $file..."
+	sudo pv $size -tpreb "/dev/$device" | dd bs=4M > "$file" || return
+
+	hilight "Compressing $fileName..."
+ 	ssh "$compressionHost" -t -- pv $size -tpreb "$localFile" \| xz -1 -z -T 0 - \> "$localFile.xz" || return
+}
+
+ImageRestoreCommand()
+{
+	echo "Not Implemented"
+}
+
+ImageBalenaCommand()
+{
+	! IsElevated && { elevate RunScript --pause-error pi image balena "$@"; return; }
+
+	local image="$(i dir)/platform/Raspberry Pi/Raspberry Pi OS" || return
+
+	# select the firmware file
+	local file="$1"; shift
+	[[ ! $file ]] && { file="$(dialog --title "Select image" --stdout --fselect "$image/" $(($LINES-12)) 100)"; clear; }
+	[[ ! $file ]] && { MissingOperand "file"; return 1; }
+	[[ ! -f "$file" ]] && { EchoErr "pi: image \"$file\" does not exist"; return 1; }
+
+	"$P/balena-cli/balena.exe" local flash "$(utw "$file")" --yes
+
+	# does not mount properly just after flash so try several times
+	for (( i=1; i<=10; ++i )); do
+		ImageSshCommand && return
+		sleep 1
+	done
+
+	return 0
+}
+
+ImageSshCommand()
+{
+	local drive drives found
+
+	drive mount all || return
+	IFS=$'\n' drives=( $(drive mounts) )
+
+	printf "enabling..."
 	
+	for drive in "${drives[@]}"; do
+		[[ ! -f "$drive/start.elf" ]] && continue
+		touch "$drive/ssh" || return
+		printf "$(GetFileName "$drive")..."
+		found="true"
+	done
+
+	echo "done" 
+
+	drive unmount all || return
+
+	[[ ! $found ]] && { ScriptErr "no Raspberry Pi images found"; return 1; }
+
 	return 0
 }
 

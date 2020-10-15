@@ -101,7 +101,7 @@ setHostnameCommand() # 0=name changed, 1=name unchanged, 2=error
 	[[ ! $newName ]] && { read -p "Enter new host name (current $HOSTNAME): " newName; }
 	[[ ! $newName || "$newName" == "$HOSTNAME" ]] && return 1
 	
-	if IsPlatform raspbian; then sudo raspi-config nonint do_hostname "$newName" && return 0
+	if IsPlatform pi; then sudo raspi-config nonint do_hostname "$newName" && return 0
 	elif IsPlatform mac; then sudo scutil --set HostName "$newName" && return 0
 	elif IsPlatform win; then RunScript --elevate -- powershell.exe Rename-Computer -NewName "$newName" && return 0
 	elif IsPlatform linux; then
@@ -197,7 +197,7 @@ versionDistribution()
 
 	# Distributor - Debian|Raspbian|Ubuntu
 	distributor="$(lsb_release -a |& grep "Distributor ID:" | cut -f 2-)"
-	IsPlatform raspbian && distributor+="/Debian"
+	IsPlatform pi && distributor+="/Debian"
 
 	# Version - 10.4|20.04.1 LTS
 	version="$(lsb_release -a |& grep "Release:" | cut -f 2-)"
@@ -236,7 +236,7 @@ versionDistributionWin()
 	echo "     windows: $releaseId (build $build.$ubr, WSL $(IsPlatform wsl1 && echo 1 || echo 2))"
 }
 
-versionRaspbian()
+versionPi()
 {
 	cpu=$(</sys/class/thermal/thermal_zone0/temp)
 	echo "       model: $(cat /proc/cpuinfo | grep "^Model" | cut -d":" -f 2)"

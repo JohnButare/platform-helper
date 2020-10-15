@@ -1023,7 +1023,7 @@ function IsPlatform()
 			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return;; # Windows Subsystem for Linux
 			wsl1|wsl2) [[ "$p" == "wsl$wsl" ]] && return;;
 			debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return;;
-			dsm|qts|srm|raspbian|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return;;
+			dsm|qts|srm|pi|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return;;
 
 			# other
 			busybox) InPath busybox && return;;
@@ -1037,7 +1037,7 @@ function IsPlatform()
 			# kernel
 			winkernel) [[ "$PLATFORM_KERNEL" == @(wsl1|wsl2) ]] && return;;
 			linuxkernel) [[ "$PLATFORM_KERNEL" == "linux" ]] && return;;
-			raspbiankernel) [[ "$PLATFORM_KERNEL" == "raspbian" ]] && return;;
+			pikernel) [[ "$PLATFORM_KERNEL" == "pi" ]] && return;;
 
 			# virtual machine
 			container) IsContainer && return;;
@@ -1398,7 +1398,7 @@ sudoc()  # use the credential store to get the password if available, --preserve
 	local p=(sudo) preserve; [[ "$1" == @(-p|--preserve) ]] && { preserve="true"; shift; }
 
 	if [[ $preserve ]]; then
-		if IsPlatform raspbian; then p+=( --preserve-env )
+		if IsPlatform pi; then p+=( --preserve-env )
 		elif ! IsPlatform mac; then p+=( --preserve-env=PATH )
 		fi
 	fi

@@ -40,7 +40,7 @@ echo kernel=\"$(uname -r)\";
 		if [[ $kernel =~ .*-Microsoft$ ]]; then platformKernel="wsl1"
 		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platformKernel="wsl2"
 		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platformKernel="wsl2"
-		elif [[ $kernel =~ .*-raspi$ ]]; then platformKernel="raspbian"
+		elif [[ "$ID" == "raspbian" || $kernel =~ .*-raspi$ ]]; then platformKernel="pi"
 		fi
 
 		case "$platform" in
@@ -64,6 +64,8 @@ echo kernel=\"$(uname -r)\";
 			elif [[ $ubiquiti ]]; then ID="ubiquiti"
 			fi
 		fi
+
+		[[ "$ID" == "raspbian" ]] && ID="pi"
 
 		if [[ "$ID" == "debian" && ! $ID_LIKE ]]; then
 			ID="none" ID_LIKE="debian"
