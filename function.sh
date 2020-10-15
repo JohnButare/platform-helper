@@ -756,7 +756,35 @@ IsUncPath() { [[ "$1" =~ //.* ]]; }
 GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
 GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
-GetUncShareFromFile() { findmnt --types=cifs --noheadings --output=TARGET,SOURCE --target "$1" | cut -d" " -f 2; }
+
+FileToUncShare() { findmnt --types=cifs --noheadings --output=SOURCE --target "$1"; }
+FileToUncRoot() { findmnt --types=cifs --noheadings --output=TARGET --target "$1"; }
+
+FileToUnc()
+{
+	local file="$1"
+
+	IsUncPath "$file" && { echo "$file"; return; }
+
+	file="$(GetFullPath "$file")"
+	echo "${file/$(FileToUncRoot "$file")/$(FileToUncShare "$file")}"
+}
+
+FileToDesc() # short description for the file
+{
+	local desc file="$1"
+
+	file="$(FileToUnc "$file")"
+
+	# remove the server DNS suffix from UNC paths
+	IsUncPath "$file" && file="//$(GetUncServer "$file" | RemoveDnsSuffix)/$(GetUncShare "$file")/$(GetUncDirs "$file")"
+
+	# replace $HOME with ~
+	file="${file/$USERS/~}"
+
+	 echo "$file"
+}
+
 
 # SSH
 
@@ -1041,9 +1069,10 @@ SourceIfExists() { [[ -f "$1" ]] && { . "$1" || return; }; return 0; }
 
 SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 {
-	local files; GetPlatformFiles "$1" "$2" || return 0;
+	local file files
+
+	GetPlatformFiles "$1" "$2" || return 0;
 	for file in "${files[@]}"; do . "$file" || return; done
-	return 0
 }
 
 PlatformTmp() { IsPlatform win && echo "$LOCALAPPDATA/Temp" || echo "$TMP"; }
