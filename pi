@@ -8,8 +8,13 @@ init() { :; }
 usage()
 {
 	echot "\
-usage: pi image|EnableSsh
-	Raspberry Pi helper commands"
+usage: pi power
+	Raspberry Pi helper commands
+
+	clone		launch SD card copier to copy files (not entire device, faster)	
+	EnableSsh|image
+
+	firmware dir|channel|edit|info|update"
 	exit $1
 }
 
@@ -23,7 +28,7 @@ args()
 			EnableSsh) command="enableSsh";;
 			*)
 				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				[[ "$command" == @(image) ]] && break
+				[[ "$command" == @(firmware|image) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -32,6 +37,13 @@ args()
 	[[ ! $command ]] && { MissingOperand "command"; }
 	args=("$@")
 }
+
+#
+# commands
+#
+
+cloneCommand() { coproc sudox dbus-launch piclone; }
+powerCommand() { ! dmesg --time-format ctime | grep -i volt; } # check for under voltage in the log
 
 imageCommand()
 {
@@ -77,6 +89,73 @@ enableSshCommand()
 	drive unmount all || return
 
 	[[ ! $found ]] && { echo "PiEnableSsh: no Raspberry Pi images found"; return 1; }
+	return 0
+}
+
+#
+# Firmware Commands
+#
+
+firmwareCommand()
+{
+	local channel="/etc/default/rpi-eeprom-update"
+	local dir="/lib/firmware/raspberrypi/bootloader"
+
+	# detailed sub command: see SqlServer
+	local command; CheckSubCommand firmware "$1"; shift
+	[[ $# != 0 ]] && UnknownOption "$1"
+	Firmware${command}Command "$@"
+}
+
+FirmwareDirCommand() { echo "$dir"; }
+FirmwareChannelCommand() { sudoedit "$channel"; }
+FirmwareUpdateCommand() { sudo rpi-eeprom-update -a && { ask "Reboot" && power reboot || return 0; }; }
+
+FirmwareInfoCommand()
+{
+	header "Bootloader Version"
+	sudoc vcgencmd bootloader_version || return
+	
+	[[ -f "$channel" ]] && { printf "\nUpdate channel:\n"; cat "$channel"; }
+	echo
+
+	header "Bootloader Configurationn"
+	sudo vcgencmd bootloader_config | RemoveEmptyLines || return
+}
+
+FirmwareEditCommand()
+{
+	local FIRMWARE_RELEASE_STATUS; . "$channel" || return
+	local dir="$dir/$FIRMWARE_RELEASE_STATUS"
+	local config="$dir/bootconf.txt"; [[ -f "$config" ]] && { sudo bak --move "$config" || return; }
+
+	# select the firmware file
+	local file="$1"; shift
+	[[ ! "$file" ]] && { file="$(dialog --title "Select Firmware" --stdout --fselect ""$dir/"" $(($LINES-12)) 100)"; clear; }
+	[[ ! "$file" ]] && { MissingOperand "file"; return 1; }
+	[[ ! -f "$file" ]] && { EchoErr "PiFirmwareEdit: firmware file \"$file\" does not exist"; return 1; }
+	
+	# extract the configuration
+	sudoc cp "$file" "$dir/current.bin" || return
+	rpi-eeprom-config "$dir/current.bin" | sudo tee "$config" || return
+	[[ ! -f "$config" || "$(cat "$config")" == "" ]] && { EchoErr "Unable to extract the firmware configuration from \"$file\""; return 1; }
+	sudo cp "$config" "$config.orig" || return
+	
+	# edit the configuration
+	sudoedit "$config" || return
+	
+	# add the configuration to the firmware file
+	if ! diff "$config" "$config.orig" >& /dev/null; then
+		printf "Adding the configuration changes to the firmware file..."
+		sudo rpi-eeprom-config --out "$dir/new-config.bin" --config "$config" "$dir/current.bin" || return
+		echo "done"
+	fi
+	
+	# apply the firmware
+	if ask -dr n "Apply the firmware changes"; then
+		sudo rpi-eeprom-update -d -f "$dir/new-config.bin" || return
+	fi
+	
 	return 0
 }
 
