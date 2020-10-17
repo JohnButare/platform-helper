@@ -214,7 +214,7 @@ chrony() { RunService "chrony"; }
 cron() { RunService "cron"; }
 cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE.exe" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
 dbus() { RunService "dbus"; }
-discord() { IsTaskRunning Discord.exe || TaskStart "$LOCALAPPDATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }
+discord() { IsTaskRunning Discord.exe || TaskStart "$ADATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }
 docker() { RunService "docker"; }
 duet() { TaskStart "$P/Kairos/Duet Display/duet.exe"; }
 Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer.exe && start explorer; }
@@ -233,7 +233,7 @@ OneDrive()
 {
 	IsTaskRunning OneDrive.exe && return
 
-	local file="$P32/Microsoft OneDrive/OneDrive.exe"; [[ ! -f "$file" ]] && file="$LOCALAPPDATA/Microsoft/OneDrive/OneDrive.exe"
+	local file="$P32/Microsoft OneDrive/OneDrive.exe"; [[ ! -f "$file" ]] && file="$ADATA/Microsoft/OneDrive/OneDrive.exe"
 	start "$file" /background; 
 }
 

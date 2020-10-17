@@ -137,12 +137,7 @@ G=""
 
 case "$PLATFORM" in 
 	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support";;
-
-	win) 
-		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows" WIN_USERS="$WIN_ROOT/Users" 
-		P="$WIN_ROOT/Program Files" P32="$P (x86)" ADATA="$WIN_HOME/AppData/Roaming" APPDATA="$ADATA" PROGRAMDATA="$WIN_ROOT/ProgramData"
-		WIN_HOME="$WIN_USERS/$USER" WIN_DOC="$WIN_HOME/Documents" WIN_UDATA="$WIN_DOC/data" WIN_CODE="$WIN_HOME/source" LOCALAPPDATA="$WIN_HOME/AppData/Local"
-		;;
+	win) WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows" P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" WIN_HOME="$WIN_ROOT/Users/$USER" ADATA="$WIN_HOME/AppData/Local";;
 esac
 
 case "$PLATFORM_LIKE" in 	
@@ -152,7 +147,7 @@ esac
 
 DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" UDATA="$DOC/data" UBIN="$UDATA/bin"
-CODE="$HOME/source"
+CODE="$HOME/code"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
 PUB="${PUB:-$USERS/Shared}"
 declare {TMPDIR,TMP,TEMP}="${TMPDIR:-/tmp}"
@@ -176,7 +171,7 @@ case "$PLATFORM" in
 	mac) PathAdd front "/usr/local/bin";; # use brew utilities before system utilities
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
-		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$LOCALAPPDATA/Microsoft/WindowsApps"
+		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$ADATA/Microsoft/WindowsApps"
 		PathAdd front "$DATA/platform/linux"
 		;;
 esac
