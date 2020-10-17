@@ -569,10 +569,9 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 	local f="$1"; shift
 
 	[[ ! -e "$f" ]] && { EchoErr "attrib: $f: No such file or directory"; return 2; }
-	f="$(utw "$f")"
-
-	# cd / to fix WSL 2 error running from network share
-	( cd /; attrib.exe "$@" "$f" ); 
+	
+	# /L flag does not work (target changed not link) from WSL when full path specified, i.e. attrib.exe /l +h 'C:\Users\jjbutare\Documents\data\app\Audacity'
+	( cd "$(GetFilePath "$f")"; attrib.exe "$@" "$(GetFileName "$f")" );
 }
 
 #

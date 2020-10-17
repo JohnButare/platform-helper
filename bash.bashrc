@@ -137,9 +137,12 @@ G=""
 
 case "$PLATFORM" in 
 	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support";;
-	win) WIN_ROOT="/mnt/c" WIN_USERS="$WIN_ROOT/Users" WIN_HOME="$WIN_USERS/$USER" P="$WIN_ROOT/Program Files" P32="$P (x86)"
-		WINDIR="$WIN_ROOT/Windows" PROGRAMDATA="$WIN_ROOT/ProgramData" ADATA="$WIN_HOME/AppData/Roaming" LOCALAPPDATA="$WIN_HOME/AppData/Local"
-		APPDATA="$ADATA";;
+
+	win) 
+		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows" WIN_USERS="$WIN_ROOT/Users" 
+		P="$WIN_ROOT/Program Files" P32="$P (x86)" ADATA="$WIN_HOME/AppData/Roaming" APPDATA="$ADATA" PROGRAMDATA="$WIN_ROOT/ProgramData"
+		WIN_HOME="$WIN_USERS/$USER" WIN_DOC="$WIN_HOME/Documents" WIN_UDATA="$WIN_DOC/data" WIN_CODE="$WIN_HOME/source" LOCALAPPDATA="$WIN_HOME/AppData/Local"
+		;;
 esac
 
 case "$PLATFORM_LIKE" in 	
