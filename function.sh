@@ -756,24 +756,11 @@ GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*
 GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 
-FileToUncShare() { findmnt --types=cifs --noheadings --output=SOURCE --target "$1"; }
-FileToUncRoot() { findmnt --types=cifs --noheadings --output=TARGET --target "$1"; }
-
-FileToUnc()
-{
-	local file="$1"
-
-	IsUncPath "$file" && { echo "$file"; return; }
-
-	file="$(GetFullPath "$file")"
-	echo "${file/$(FileToUncRoot "$file")/$(FileToUncShare "$file")}"
-}
-
 FileToDesc() # short description for the file
 {
 	local desc file="$1"
 
-	file="$(FileToUnc "$file")"
+	file="$(unc get unc "$file")"
 
 	# remove the server DNS suffix from UNC paths
 	IsUncPath "$file" && file="//$(GetUncServer "$file" | RemoveDnsSuffix)/$(GetUncShare "$file")/$(GetUncDirs "$file")"
