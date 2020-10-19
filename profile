@@ -228,7 +228,7 @@ saveDirCommand()
 askP()
 {
 	if [[ $noPrompt ]]; then
-		echo "${RB_GREEN}$1...${RESET}"
+		echo "${GREEN}$1...${RESET}"
 	else
 		ask "$1"
 	fi

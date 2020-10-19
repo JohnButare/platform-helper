@@ -249,7 +249,7 @@ run() # run EXE [OPTIONS...]
 
 runDone()
 {
-	[[ $noPrompt ]] && IsPlatform win && echo "${RB_GREEN}done${RESET}"
+	[[ $noPrompt ]] && IsPlatform win && echo "${GREEN}done${RESET}"
 	[[ $pause ]] && pause "When the installation has finished press any key..."
 	return 0
 }
@@ -257,7 +257,7 @@ runDone()
 runPrompt()
 {
 	if [[ $noPrompt ]]; then
-		printf "${RB_GREEN}Running $1...${RESET}"
+		printf "${GREEN}Running $1...${RESET}"
 		{ ! IsPlatform win || [[ $verbose ]]; } && echo
 		return 0
 	else
@@ -459,7 +459,7 @@ appPhysical() { i chrony IntelDriverUpdate JumpCloud LogitechOptions ninite nVid
 
 appDebian()
 {
-	i CredentialStore sublime xClient SevenZip || return
+	i CredentialStore CloudInit sublime xClient SevenZip || return
 
 	{ [[ ! $force ]] && minimalInstall; } && return
 
@@ -497,10 +497,8 @@ appHostname()
 		0) # name changed
 			UpdateDone "HostnameChanged" || return
 			SleepStatus "Rebooting in 5 seconds" 5 || return
-			power reboot || return
-			exit 100 # return 100 to retry
-			;;
-		1) UpdateDone "HostnameChanged" || return; return 0;; # name unchanged
+			power reboot --exit 100; return;; # return 100 for bootstrap-init to retry
+		1) UpdateDone "HostnameChanged"; return;; # name unchanged
 		2) return 1;; # error
 	esac
 }
@@ -1068,7 +1066,7 @@ BeyondCompareInstall()
 DebianSetup()
 {
 	header "Debian Setup"
-	i apt DebianDns DebianFileSharing DebianFonts DebianLocale DebianPolicies DebianProxyServer DebianSudo || return
+	i apt DebianDns DebianFileSharing DebianFonts DebianLocale DebianPolicies DebianProxyServer DebianSudoSecurePath || return
 	DbusSetup || return
 }
 
@@ -1166,7 +1164,7 @@ DebianProxyServer()
 	echo 'Defaults env_keep += "ftp_proxy http_proxy https_proxy no_proxy FTP_PROXY HTTP_PROXY HTTPS_PROXY NO_PROXY"' | sudo tee -a /etc/sudoers || return
 }
 
-DebianSudo()
+DebianSudoSecurePath() # add /usr/local/data/bin to the sudo secure path
 {
 	sudo grep "/usr/local/data/bin" "/etc/sudoers" >& /dev/null && return
 
@@ -2188,7 +2186,7 @@ BalenaEtcher() # disc image burner
 	local v="1.5.79" dir="hardware/Balena/Etcher"
 	run "$dir/" -p "balenaEtcher-Setup-$v.exe" "balenaEtcher-$v.dmg" "balena-etcher-electron-$v-linux-x64.zip" || return
 
-	v="v12.14.1" #
+	v="v12.25.1" #
 	run "$dir/balena-cli-$v-" -p "windows-x64-standalone.zip" "macOS-x64-standalone.zip" "linux-x64-standalone.zip" --elevate "$P/balena-cli" || return
 
 	if IsPlatform win; then
@@ -2986,7 +2984,29 @@ NodeJsInstall()
 # Network
 #
 
-NetworkCore() { i domotz domotzAgent fiddler GlassWire JumpCloud JumpDesktop mDns Ninite NordVpn Proxifier TigerVnc Tribler UnifiController Wireshark; }
+NetworkCore() { i CloudInit domotz domotzAgent fiddler GlassWire JumpCloud JumpDesktop mDns MozillaVpn Ninite NordVpn Proxifier TigerVnc Tribler UnifiController Wireshark; }
+
+CloudInitInstall() { CloudInitLimitUser; }
+
+# limit the users sudo rights if they are too broad (cloud-init adds NOPASSWD:ALL)
+CloudInitLimitUser()
+{
+	local file="/etc/sudoers.d/90-cloud-init-users"
+	local line="$USER ALL=(ALL) NOPASSWD:ALL"
+
+	! sudoc ls "$file" >& /dev/null && return 						# no cloud-init sudo file
+	! sudoc grep "$line" "$file" >& /dev/null && return		# user is already limited
+
+	# add the user to the sudo group as a fail-safe
+	sudoc usermod -aG sudo $USER || return
+
+	# change the users password if not know since it is set randomly in cloud-init
+	hilight "Enter $USER password and change if not known..."		
+	[[ "$(su -c whoami $USER)" != "$USER" ]] && sudo passwd $USER
+
+	# remove NOPASSWD:ALL from the user in the sudo cloud-init settings	
+	sudoc sed -i "s/^$line/$USER ALL=(ALL) ALL/" "$file" || return
+}
 
 DomotzInstall()
 {
@@ -4151,6 +4171,7 @@ ZshInstall()
 	[[ -d "$dir/site-functions" ]] && { sudo chmod go-w "$dir/site-functions" || return; }
 
 	# plugins
+	#zplug-install "mafredri/zsh-async", from:"github", use:"async.zsh" || return
 	zplug-install "b4b4r07/enhancd", use:init.sh || return
 	zplug-install "zsh-users/zsh-syntax-highlighting", from:github, defer:3 || return
 	zplug-install || return
@@ -4640,9 +4661,9 @@ AutoHotKeyInstall()
 	# https://www.autohotkey.com/ https://autohotkey.com/download/2.0/
 	run "shareware/AutoHotKey/image/AutoHotkey_2.0-a115-f7c71ea8.zip" --elevate -- "$P/AutoHotKey" || return
 
-	printf "${RB_GREEN}Starting AutoHotKey...${RESET}"
+	printf "${GREEN}Starting AutoHotKey...${RESET}"
 	AutoHotKey startup || return
-	echo "${RB_GREEN}done${RESET}"
+	echo "${GREEN}done${RESET}"
 }
 
 altTabTerminatorInstall()

@@ -20,9 +20,9 @@ usage: drive COMMAND(detail)
 	DEVICE 	the drive device name to mount.  Ex: sdb1, d (Windows), or all (all available drives)
 	DIR			a directeory in the mounted drive
 
-	IsMounted|mount|unmount DEVICE
+	IsMounted|mount|unmount|remount DEVICE
 		IsMounted				if the specified device is mounted return the directory it is mounted to
-		mount|unmount		mount or unmount the specified device and return the directory it is mounted to
+		mount						mount the specified device and return the directory it is mounted to
 
 	device|fs|format|IsDrive|IsWin|label|resize|SetLabel|size|type DEVICE|DIR
 		device					get the device name of the drive
@@ -40,7 +40,6 @@ usage: drive COMMAND(detail)
 	win exists|GetOffline|list|online|offline - windows drives
 		use \`wsl mount\` to mount a windows drive in WSL
 
-	-ie,	--ignore-errors	ignore errors when operating on all drives
 	-q, 	--quiet					hide status messages
 	-v, 	--verbose				show verbose output"
 	exit ${1:-1}
@@ -48,12 +47,11 @@ usage: drive COMMAND(detail)
 
 args()
 {
-	unset -v all command device ignoreErrors quiet verbose
+	unset -v all command device quiet verbose
 
 	while (( $# != 0 )); do
 		case "$1" in
 			-h|--help) usage 0;;
-			-ie|--ignore-errors) ignoreErrors="true";;
 			-q|--quiet) quiet="--quiet";;
 			-v|--verbose) verbose="--verbose";;
 			IsDrive) command="isDrive";; IsMounted) command="isMounted";; IsWin) command="isWin";;
@@ -68,7 +66,7 @@ args()
 	done
 
 	command="${command:-detail}"
-	[[ "$command" == @(IsMounted|mount|unmount) && ! $device ]] && MissingOperand "device"
+	[[ "$command" == @(IsMounted|mount|unmount|remount) && ! $device ]] && MissingOperand "device"
 	[[ "$device" == "all" ]] && all="true"
 
 	args=("$@")
@@ -89,6 +87,7 @@ getDeviceArg()
 isMountedCommand() { [[ $all ]] && { areAllMounted; return; }; isMounted; }
 mountCommand() { [[ $all ]] && { allMount; return; }; doMount && returnMountDir; }
 unmountCommand() { [[ $all ]] && { allUnmount; return; }; doUnmount; }
+remountCommand() { [[ $all ]] && { allUnMount; allMount; return; }; doUnmount; doMount && returnMountDir; }
 
 deviceCommand() { getDevice "$@" || return; echo "$device"; }
 fsCommand() { getDevice "$@" || return; getFs; }
@@ -277,12 +276,13 @@ allMount()
 	areAllMounted && return
 
 	log "mounting..."
+
 	for device in "${devices[@]}"; do
 		unset mountDir
 		{ isMounted || ! canMount; } && continue
-		log "$device..."; doMount; result="$?"
-		[[ "$result" != "0" && ! $ignoreErrors ]] && return "$result"
+		log "$device"; doMount
 	done
+
 	log "done\n"
 
 	return 0
@@ -299,8 +299,7 @@ allUnmount()
 	for device in "${devices[@]}"; do
 		unset mountDir
 		{ ! isMounted || ! canUnmount; } && continue
-		log "$device..."; doUnmount; result="$?"
-		[[ "$result" != "0" && ! $ignoreErrors ]] && return "$result"
+		log "$device"; doUnmount
 	done
 
 	log "done\n"
@@ -347,7 +346,7 @@ canUnmount()
 
 	! IsPlatform linux return 0
 
-	local mountDir="$(getMountDir)"
+	local mountDir; mountDir="$(getMountDir)" || return
 	[[ "$mountDir" == "/boot/efi" ]] && { reason="firmware drive"; return 1; }
 	[[ "$mountDir" == "/" ]] && { reason="boot drive"; return 1; }
 
@@ -394,7 +393,7 @@ doMount()
 	if isDriveLetter "$device"; then
 		doMountDriveLetter	
 	else
-		sudoc mount "/dev/$device" "$mountDir"
+		doMountOther
 	fi
 
 	# check the mounted drive
@@ -410,18 +409,31 @@ doMountDriveLetter()
 {
 	[[ ! $all ]] && { sudoc mount -t drvfs "$device:" "$mountDir"; return; }
 
-	# when mounting all drives, do not error out for empty optical media drives
+	local result desc
 
-	local result
 	desc="$(sudoc mount -t drvfs "$device:" "$mountDir" 2>&1)"; result="$?"
-
+	
+	# when mounting all drives, do not error out for empty optical media drives
 	if echo "$desc" | grep "No medium found" >& /dev/null; then
-		log "(no media)..."; cleanupMountDir; return 0
+		log " (no media)..."; cleanupMountDir; return 0
+	elif [[ "$result" != "0" ]]; then
+		log " (failed)..."
+	else
+		log "..."
 	fi
 
-	[[ "$result" != "0" ]] && { ScriptErr "$result"; return $result; }
+	[[ "$result" == "0" ]]
+}
 
-	return 0
+doMountOther()
+{
+	[[ ! $all ]] && { sudoc mount "/dev/$device" "$mountDir"; return; }
+
+	local result desc
+	desc="$(sudoc mount "/dev/$device" "$mountDir"  2>&1)"; result="$?"
+	[[ "$result" == "0" ]] && log "..." || log " (failed)..."
+
+	[[ "$result" == "0" ]]
 }
 
 doUnmount()
@@ -431,7 +443,13 @@ doUnmount()
 	# return if we cannot unmount this drive
 	! canUnmount && { ScriptErr "cannot unmount $device ($reason)"; return 1; }
 
-	platformUnmount && cleanupMountDir
+	[[ ! $all ]] && { platformUnmount && cleanupMountDir; return; }
+
+	local result desc
+	desc="$(platformUnmount 2>&1 && cleanupMountDir 2>&1)"; result="$?"
+	[[ "$result" == "0" ]] && log "..." || log " (failed)..."
+
+	[[ "$result" == "0" ]]	
 }
 
 getAllDevices() # sets devices array
@@ -520,11 +538,16 @@ getLabel()
 
 getMountDir()
 {
+	local dir
+
 	if isDriveLetter "$device"; then
-		findmnt --list --output=TARGET,OPTIONS | grep -iE "path=$device"':?\\?' | cut -d" " -f1
+		dir="$(findmnt --list --output=TARGET,OPTIONS | grep -iE "path=$device"':?\\?' | cut -d" " -f1)"
 	else
-		findmnt --noheadings --output=TARGET --source "/dev/$device"
+		dir="$(findmnt --noheadings --output=TARGET --source "/dev/$device")"
 	fi
+
+	[[ $dir ]] && echo "$dir"
+	[[ $dir ]]
 }
 
 getType()

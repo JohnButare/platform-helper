@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 . function.sh
+. color.sh
 
 run() {	init && args "$@" && ${command}Command "${args[@]}"; }
 
-init() { :; }
+init()
+{
+	piImage="platform/linux/Raspberry Pi/image"
+	piOs="platform/linux/Raspberry Pi/Raspberry Pi OS"
+	ubuntuImage="platform/linux/Ubuntu/image"
+}
 
 usage()
 {
@@ -12,11 +18,10 @@ usage: pi balena|power
 	Raspberry Pi helper commands
 
 	image
-		balena  	create an image using Balena Etcher
-		clone  		create an image using Pi Clone (faster file copy)
-		backup		create an image from this Raspberry Pi
-		restore		restore an image to a connected drive
-		ssh				enable ssh for images on all drives
+		clone  					create an image using Pi Clone (faster file copy)
+		backup					create an image from this Raspberry Pi
+		restore	[IMAGE]	restore an image to a connected drive
+		configure				enable ssh for images on all drives
 
 	firmware channel|dir|info apply|configure|edit|update
 
@@ -148,7 +153,7 @@ firmwareGetFile() # sets file, dir, and config
 imageCommand()
 {
 	local command; CheckSubCommand image "${1:-clone}"; shift
-	[[ $# != 0 ]] && UnknownOption "$1"
+	[[ $# != 0 && "$command" != @(restore) ]] && UnknownOption "$1"
 	Image${command}Command "$@"
 }
 
@@ -190,7 +195,7 @@ ImageBackupCommand()
  	ssh "$host" -t -- pv $size -tpreb "$file" \| xz -1 -z -T 0 - \> "$file.xz" || return
 
  	# copy compressed file to image directory
-	local image="$(ssh oversoul -t -- FindInstallFile --quiet "$(QuoteSpaces "platform/linux/Raspberry Pi/image")")"
+	local image="$(ssh oversoul -t -- FindInstallFile --quiet "$(QuoteSpaces "$piImage")")"
  	hilight "Copying $fileName to the install server..."
 	ssh "$host" -t -- CopyDir "$file.xz" "$(QuoteSpaces "$image")/$fileName.xz" || return
 
@@ -200,55 +205,87 @@ ImageBackupCommand()
 
 ImageRestoreCommand()
 {
-	echo "Not Implemented"
-}
+	IsPlatform win && ! IsElevated && { elevate RunScript --pause pi image restore "$@"; return; }
 
-ImageBalenaCommand()
-{
-	! IsElevated && { elevate RunScript --pause-error pi image balena "$@"; return; }
+	# arguments
+	local image="$1"; [[ $image ]] && shift
 
-	local image="$(i dir)/platform/linux/Raspberry Pi/Raspberry Pi OS" || return
+	# image aliases
+	local selectDir="$piOs"
+	case "$image" in
+		image) unset image; selectDir="$piImage";;
+		server|ubuntu-server) image="$(installFile "$ubuntuImage/ubuntu-20.04.1-preinstalled-server-arm64+raspi.img.xz")"
+	esac
 
-	# select the firmware file
-	local file="$1"; shift
-	[[ ! $file ]] && { file="$(dialog --title "Select image" --stdout --fselect "$image/" $(($LINES-12)) 100)"; clear; }
-	[[ ! $file ]] && { MissingOperand "file"; return 1; }
-	[[ ! -f "$file" ]] && { EchoErr "pi: image \"$file\" does not exist"; return 1; }
+	# select the image from the selectDir
+	if [[ ! $image ]]; then
+		local imageDir="$(installFile "$selectDir")" || return
+		image="$(dialog --title "Select image" --stdout --fselect "$imageDir/" $(($LINES-12)) 100)"
+		clear
+	fi
+	
+	# validate the image selected
+	[[ ! $image ]] && { MissingOperand "image"; return 1; }
+	[[ ! -f "$image" ]] && { EchoErr "pi: image \"$image\" does not exist"; return 1; }
+	[[ $# != 0 ]] && usage 1
 
-	"$P/balena-cli/balena.exe" local flash "$(utw "$file")" --yes
+	if [[ -f "$P/balena-cli/balena.exe" ]]; then		
+		#elevate RunScript --pause --wait -- "$P/balena-cli/balena.exe" local flash "$(utw "$image" | QuoteBackslashes)" --yes || return
+		"$P/balena-cli/balena.exe" local flash "$(utw "$image")" --yes || return
+	elif InPath flash; then
+		flash "$image" || return
+	else
+		ScriptErr "no flash program found"; return 1
+	fi
 
 	# does not mount properly just after flash so try several times
+	hilight 'configuring...'
 	for (( i=1; i<=10; ++i )); do
-		ImageSshCommand && return
+		ImageConfigureCommand && return
 		sleep 1
 	done
 
 	return 0
 }
 
-ImageSshCommand()
+ImageConfigureCommand()
 {
 	local drive drives found
 
 	drive mount all || return
 	IFS=$'\n' drives=( $(drive mounts) )
 
-	printf "enabling..."
+	printf "configuring..."
 	
 	for drive in "${drives[@]}"; do
 		[[ ! -f "$drive/start.elf" ]] && continue
-		touch "$drive/ssh" || return
 		printf "$(GetFileName "$drive")..."
+
+		if [[ -f "$drive/user-data" ]]; then
+			printf "${RB_BLUE}cloud-init${RESET}..."
+			cp "$DATA/setup/user-data" "$drive"
+		else
+			printf "${RB_BLUE}ssh${RESET}..."
+			touch "$drive/ssh" || return
+		fi
+		
 		found="true"
+		break
 	done
 
 	echo "done" 
 
 	drive unmount all || return
 
-	[[ ! $found ]] && { ScriptErr "no Raspberry Pi images found"; return 1; }
+	[[ ! $found ]] && { ScriptErr "no boot images found"; return 1; }
 
 	return 0
 }
+
+#
+# helper
+#
+
+installFile() { FindInstallFile --quiet "$1"; }
 
 run "$@"

@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 . function.sh
 
-# bootstrap-remote [HOST|DIR](pi@pi1) [SSH_PORT](22) - bootstrap a remote system
+# bootstrap-remote HOST|DIR [SSH_PORT](22) - bootstrap a remote system
 
 init()
 {
 	. "${BASH_SOURCE[0]%/*}/bootstrap-config.sh" || return
-	remote="${1:-pi@pi1}"
+
+	remote="${1}"; [[ ! $remote ]] && MissingOperand "host"
 	port="${2:-22}"
+	sshArgs=( $remote -p $port -oStrictHostKeyChecking=no )
+	scpArgs=( -P $port -oStrictHostKeyChecking=no )
 	coreFiles=( "$BIN/bootstrap-init" "$BIN/bootstrap-config.sh" )
+
+
 }
 
 run()
@@ -32,6 +37,7 @@ bootstrapChroot()
 	[[ ! -d "$dir" ]] && { EchoErr "$dist root directory "$dir" does not exist"; return 1; }
 
 	# copy core files
+	hilight "Copying core files..."
 	cp "${coreFiles[@]}" "/tmp" || return # some chroots mount our tmp directory
 	cp "${coreFiles[@]}" "$dir/tmp" || return 
 
@@ -53,11 +59,19 @@ bootstrapSsh()
 	sshConfigure || return
 
 	while true; do 
-		scp -P $port "${coreFiles[@]}" "$remote:/tmp" # /tmp cleared on reboot
+
+		hilight "Copying core files..."
+		scp "${scpArgs[@]}" "${coreFiles[@]}" "$remote:/tmp" # /tmp cleared on reboot
+
 		sshCheckUser || return
-		ssh -Y -t $remote -p $port bash -l "/tmp/bootstrap-init --restart" # connect using X forwarding to allow use of the credential store
+
+		ssh "${sshArgs[@]}" -Yt -- bash -l "/tmp/bootstrap-init --restart" # connect using X forwarding to allow use of the credential store
 		result="$?"; [[ "$result" != "100" ]] && return "$result"
+
+		hilight "Reconnecting to $host..."
+		sleep 2
 		sshWait || return 
+		
 	done
 }
 
@@ -82,20 +96,21 @@ sshWait()
 
 sshConfigure()
 {
-	ssh $remote -p $port -- '\
-ls "~/.ssh/authorized_keys" >& /dev/null && exit 0;\
-[[ ! -d ~/.ssh ]] && mkdir ~/.ssh;\
-exit 1' && pause return 
+	ssh "${sshArgs[@]}" 'bash -s' <<EOF && return
+[[ -f "\$HOME/.ssh/authorized_keys" ]] && exit 0
+[[ ! -d "\$HOME/.ssh" ]] && mkdir "\$HOME/.ssh"
+exit 1
+EOF
 
 	hilight "Configuring ssh..."
-	scp -P $port "$HOME/.ssh/"* ''$remote':~/.ssh' || return
+	scp "${scpArgs[@]}" "$HOME/.ssh/"* ''$remote':~/.ssh' || return
 }
 
 # sshCheckUser - if the user specified in the configuration exists make sure we use it
 sshCheckUser() 
 { 
 	[[ "$user" == "$remoteUser" ]] && return
-	ssh $remote getent passwd $user >& /dev/null && remote="$user@$host"
+	ssh "${sshArgs[@]}" -- getent passwd $user >& /dev/null && remote="$user@$host"
 	return 0
 } 
 

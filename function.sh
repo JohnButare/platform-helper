@@ -60,9 +60,9 @@ clipr()
 }
 
 # logging
-InitColor() { RB_BLUE=$(printf '\033[38;5;021m') RB_GREEN=$(printf '\033[38;5;082m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
+InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
 header() { InitColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
-hilight() { InitColor; printf "${RB_GREEN}$1${RESET}\n"; }
+hilight() { InitColor; printf "${GREEN}$1${RESET}\n"; }
 
 #
 # Account
@@ -103,7 +103,7 @@ SetLoginShell() # SetCurrentShell SHELL
 	[[ "$(GetLoginShell)" == "$shell" ]] && return 0
 
 	if InPath chsh; then
-		chsh -s "$shell" # chsh does not work with sudo in wsl
+		sudoc chsh -s "$shell" $USER
 	elif InPath usermod; then
 		sudoc usermod --shell "$shell" $USER
 	elif [[ -f /etc/passwd ]]; then

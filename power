@@ -32,6 +32,7 @@ usage: power on|off|reboot|sleep|firmware|hibernate [host]:[port|all]
 															Return 0 if the host (or host PoE port) is on, and 1 if off
 	fix info|sleep|wake				examine issues preventing computer sleep or wake
 
+  -e, --exit 								return the specified exit code after the power command
   -f, --force 							force the power operation even if we believe the host is in the correct state
   -s, --ssh 								make an ssh connection
 	-t, --timeout [500]				milliseconds to wait for a response from the host.
@@ -43,11 +44,12 @@ usage: power on|off|reboot|sleep|firmware|hibernate [host]:[port|all]
 
 args()
 {
-	unset force host op port ssh switch user verbose waitSeconds waitSsh
+	unset exit force host op port ssh switch user verbose waitSeconds waitSsh
 	timeoutMilliseconds=500 waitDefault=120 poeSwitchDefault="StudyDeskSwitch"
 
 	while [ "$1" != "" ]; do
 		case "$1" in
+			--exit|-e) exit="$2"; shift;;
 			--force|-f) force="true";;
 			--help|-h) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			--ssh|-s) ssh="true"; waitSsh="true"; [[ ! $waitSeconds ]] && waitSeconds="$waitDefault";;
@@ -173,9 +175,29 @@ powercfg.exe -RequestsOverride SERVICE "\Device\HarddiskVolume1\Windows\System32
 
 powerCommand()
 {
-	IsLocalHost "$host" && { setLocalPower "$op"; return; }
+	if ! IsLocalHost "$host"; then doRemotePower
+	elif [[ $exit ]]; then doExitPower
+	else doLocalPower "$op"
+	fi
+}
 
-	local opf="$(ProperCase "$op")"
+# run the power command and ensure the exit code is returned to the callers
+doExitPower()
+{
+	# ensure sudo credentials are active
+	sudoc -v 
+
+	# perform the power operation in a delayed sub-shell so this shell can process the exit code
+	# the sub-shell is disconnected so the power command still runs if this shell terminates
+	{ nohup bash -c 'sleep 2; power $op' & } 
+
+	exit $exit
+}
+
+
+doRemotePower()
+{
+	local opf="$(ProperCase "$op")" # op for function
 
 	# control switch port only
 	if [[ $port ]]; then
@@ -298,7 +320,7 @@ doReboot()
 	waitOn "${waitSeconds}" || return
 }
 
-setLocalPower() # op
+doLocalPower() # op
 {
 	local op="$1"
 

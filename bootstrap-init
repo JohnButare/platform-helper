@@ -23,7 +23,7 @@ configureProxyServer()
 	[[ ! $HTTP_PROXY ]] && export {HTTP_PROXY,HTTPS_PROXY}="$proxy"
 
 	if [[ -d /etc/apt/apt.conf.d && ! -f "/etc/apt/apt.conf.d/proxy" ]]; then
-		header "Setting proxy server to $proxy"
+		hilight "Setting proxy server to $proxy..."
 		printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$proxy" "$proxy" | $sudo tee "/etc/apt/apt.conf.d/proxy"
 	fi
 
@@ -46,7 +46,7 @@ createUser()
 {
 	IsMac || [[ ! $user ]] || grep "$user" /etc/passwd >& /dev/null && return
 
-	header "Creating user $user"
+	hilight "Creating user $user"
 	sudo adduser "$user" --gecos "" || return
 	sudo usermod -aG sudo $user || return
 }
@@ -58,7 +58,7 @@ createUserHome()
 	local dir="$(grep "$user" /etc/passwd | cut -d: -f 6)"
 	[[ -d "$dir" ]] && return
 
-	header "Creating user $user home directory"
+	hilight "Creating user $user home directory..."
 	sudo mkhomedir_helper $user || return
 }
 
@@ -66,11 +66,11 @@ runAsUser()
 {
 	[[ $user && "$USER" == "$user" ]] && return
 
-	[[ $restart ]] && { header "Restarting to run as $user"; return 100; }
+	[[ $restart ]] && { hilight "Restarting to run as $user..."; return 100; }
 	
 	local script="${BASH_SOURCE[0]}"
 
-	header "Running $script as $user"
+	hilight "Running $script as $user..."
 	cd /tmp || return
 	sudo chmod ugo+rwx "$script" || return
 	sudo --preserve-env --user=$user --set-home "$script" # preserve entire environment so wslpath works properly and WSL_ environment variables are passed
@@ -79,16 +79,25 @@ runAsUser()
 
 runBootstrap()
 {
-	header "Bootstraping from $host"
+	hilight "Bootstraping from $host..."
 	export PATH=$bin:$PATH
 	$bash bootstrap "$host" "$install"
 }
 
 doReboot()
 {
-	header "Rebooting"
-	IsWin && wsl.exe --shutdown || $sudo reboot now
-	exit 100
+	hilight "Rebooting..."
+
+	IsWin && { sync; wsl.exe --shutdown; exit 100; }
+
+	# cache sudo credentials
+	[[ $sudo ]] && $sudo -v 
+
+	# reboot with a delay to allow exit
+	{ nohup bash -c "sleep 1; sudo reboot now" & } >& /dev/null
+
+	# status 100 indicates a retry to bootstrap-init
+	exit 100 
 }
 
 #
@@ -98,7 +107,8 @@ doReboot()
 configureOs() 
 {
 	! UpdateNeeded "os" && return
-	header "Configuring the operating system"
+
+	hilight "Configuring the operating system..."
 	configure-$platform || return
 	UpdateDone "os" || return
 }
@@ -112,7 +122,7 @@ configure-entware()
 		echo "jjbutare ALL=(ALL) ALL" > /usr/etc/sudoers.d/jjbutare || return
 	fi
 	
-	header "Change shell to /opt/bin/bash for all shells with /share/homes home directory"
+	hilight "Change shell to /opt/bin/bash for all shells with /share/homes home directory..."
 	nano "/etc/passwd"  || return
 	pause
 }
@@ -141,7 +151,7 @@ init()
 	. "${BASH_SOURCE[0]%/*}/bootstrap-config.sh" || return
 
 	# variables
-	RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m')
+	GREEN=$(printf '\033[32m') RESET=$(printf '\033[m')
 
 	# arguments
 	[[ "$1" == "--force" ]] && { force="true"; shift; }
@@ -202,7 +212,7 @@ mountPublic()
 
 	IsWin && IsMountedDrive && { mountWinDrive "$host" || return; }
 
-	header "Mounting //$host/public"
+	hilight "Mounting //$host/public..."
 	mkdir -p "$mount" || return
 
 	if [[ "$platform_kernel" == "wsl1" ]]; then mountPublic-win
@@ -236,7 +246,8 @@ mountWinDrive() # dir - mounted directory for the drive, must start with /mnt, i
 installPackages()
 {
 	! UpdateNeeded "packages" && return
-	header "Installing packages"
+
+	hilight "Installing packages..."
 	installPackages-pre || return
 	installPackages-$platform || return
 	installPackages-post || return
@@ -296,7 +307,8 @@ packageInstalled() # return 0 if all passed packages are installed
 setupPackageManager()
 {
 	! UpdateNeeded "PackageManager" && return
-	header "Setting up the package manager"
+
+	hilight "Setting up the package manager..."
 	setupPackageManager-$platform || return
 	UpdateDone "PackageManager" || return
 }
@@ -327,7 +339,7 @@ debianPackageCore()
 
 debianPackageUpdate()
 {
-	header "Updating packages"
+	hilight "Updating packages..."
 	$sudo apt update -y || return
 	$sudo apt dist-upgrade -y || return
 	$sudo apt autoremove -y || return
@@ -344,7 +356,7 @@ debianUnminimizeDoc() # from /usr/local/sbin/unminimize
 	[[ ! -f "$config" && ! -f "$configTmp" && ! -f "$motd" ]] && return
 	[[ -f "$config" ]] && { $sudo mv "$config" "$configTmp" || return; }
 
-	header "Restoring documentation"
+	hilight "Restoring documentation..."
   $sudo apt-get update || return
   $sudo apt-get upgrade -y || return
   dpkg -S /usr/share/man/ |sed 's|, |\n|g;s|: [^:]*$||' | DEBIAN_FRONTEND=noninteractive xargs $sudo apt-get install --reinstall -y || return
@@ -382,7 +394,7 @@ IsQnap() { [[ "$platform_like" == "qnap" ]]; }
 
 GetDateStamp() { ${G}date '+%Y%m%d'; }
 GetFileDateStamp() { ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
-header() { printf "${RB_BLUE}$1...${RESET}\n"; }
+hilight() { printf "${GREEN}$1${RESET}\n"; }
 InPath () { which "$1" &> /dev/null; }
 IsMountedDrive() { [[ -d "$host/public" ]] || [[ "$host" =~ ^/mnt ]]; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
