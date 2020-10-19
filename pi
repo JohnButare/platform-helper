@@ -157,21 +157,44 @@ ImageCloneCommand() { coproc sudox dbus-launch piclone; }
 # - cannot back up to the drive we are backing up
 # - faster access than Micro-SD card
 # - faster compression (utilize 36 cores)
+# On Windows, much faster to backup to c$ share than /root/tmp share over ssh.
 ImageBackupCommand()
 {
-	local device="mmcblk0" fileName="$HOSTNAME.img" compressionHost="oversoul"
+	local device="mmcblk0" fileName="$HOSTNAME.$(GetDateStamp).img" 
+	local host="oversoul" hostUnc="/root/tmp" win
+	local dir file size="$(drive size $device)"; [[ $size ]] && size="--size ${size,,}"
 
 	! IsPlatform PiKernel && { ScriptErr "can only backup a Raspbery Pi"; }
+	! IsAvailable "$host" && { ScriptErr: "host \`$host\` is not available"; return 1; }
 
-	local dir="$(unc mount --ssh //$compressionHost/root/tmp)" || return	
-	local file="$dir/$fileName" localFile="/tmp/$fileName"
-	local size="$(drive size $device)"; [[ $size ]] && size="--size ${size,,}"
+	# get compression host information
+	eval "$(HostFindInfo "$host")" || return
+	IsPlatform win $_platform $_platformLike $_platformId && { win="true" hostUnc="c\$/temp"; }
 
-	hilight "Backing up $HOSTNAME to $file..."
+	# backup
+	hilight "Backing up $HOSTNAME..."
+	dir="$(unc mount //$host/$hostUnc)" || return	
+	file="$dir/$fileName"
 	sudo pv $size -tpreb "/dev/$device" | dd bs=4M > "$file" || return
 
+	# copy
+	if [[ $win ]]; then
+		hilight "Copying $fileName on $host..."
+		ssh "$host" -t -- CopyDir "/mnt/c/temp/$fileName" "/tmp" || return
+	fi
+
+	# compress
 	hilight "Compressing $fileName..."
- 	ssh "$compressionHost" -t -- pv $size -tpreb "$localFile" \| xz -1 -z -T 0 - \> "$localFile.xz" || return
+	file="/tmp/$fileName"
+ 	ssh "$host" -t -- pv $size -tpreb "$file" \| xz -1 -z -T 0 - \> "$file.xz" || return
+
+ 	# copy compressed file to image directory
+	local image="$(ssh oversoul -t -- FindInstallFile --quiet "$(QuoteSpaces "platform/Raspberry Pi/image")")"
+ 	hilight "Copying $fileName to the install server..."
+	ssh "$host" -t -- CopyDir "$file.xz" "$(QuoteSpaces "$image")/$fileName.xz" || return
+
+ 	# cleanup
+ 	ssh "$host" -t -- rm -f "/tmp/$fileName" "/tmp/$fileName.xz" "/mnt/c/temp/$fileName" || return
 }
 
 ImageRestoreCommand()

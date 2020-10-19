@@ -345,7 +345,7 @@ RemoveSpaceTrim() { GetArgs; echo "$(RemoveSpaceFront "$(RemoveSpaceEnd "$@")")"
 
 QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
-QuoteSpaces() { sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
+QuoteSpaces() { GetArgs; echo "$@" | sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
 
 BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
 ForwardToBackSlash() { GetArgs; echo "${@////\\}"; }
