@@ -994,7 +994,7 @@ PackageWhich() # which package is an executable in
 
 PlatformSummary() { echo "$(PlatformArchitecture) $(PlatformDescription)"; }
 PlatformDescription() { echo "$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"; }
-PlatformArchitecture() { dpkg --print-architecture; }
+PlatformArchitecture() { dpkg --print-architecture; } # amd64, armhf
 
 # IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
 function IsPlatform()

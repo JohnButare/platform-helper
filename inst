@@ -93,7 +93,8 @@ args()
 AdkInstall() { i WindowsAssessmentAndDeploymentKit; }
 AhkInstall() { i AutoHotKey; }
 ccInstall() { i CreativeCloud; }
-geInstall() { i GitExtensions; }
+DnsServerInstall() { i bind; }
+DhcpServerInstall() { i kea; }
 icue() { i CorsairUtilityEngine; };
 ffInstall() { i firefox; }
 paInstall() { i PartitionAssistant; }
@@ -166,8 +167,9 @@ getInstallFunction()
 
 header()
 {
+	installDesc="$1"
 	[[ $noHeader ]] && return
-	printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n**************************************************${RESET}\n"
+	printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$installDesc${RB_BLUE}\n**************************************************${RESET}\n"
 }
 
 i()
@@ -194,6 +196,19 @@ i()
 
 	unset noHeader
 	return 0
+}
+
+# installExecutable DIR NAME- find an executable for the current platform in the passed directory
+# If found, the the executable is copied to /usr/local/bin as NAME
+installExecutable()
+{
+	local dir="$1" name="$2" file; [[ ! $name ]] && name="$(GetFileName "$dir")"
+
+	findFile "$dir" || return
+	file="$(os executable find "$file")" || return
+	[[ ! $file ]] && { ScriptErr "could not find an executable for $installDesc"; return 1; }
+
+	sudoc cp "$file" "/usr/local/bin/$name" || return
 }
 
 isInstallable()
@@ -1258,14 +1273,18 @@ GoInstall()
 	gccCheck || return
 
 	# https://golang.org/dl/
-	local platform="amd64"
+	local platform
 	case "$(uname -m)" in "") : ;;
 		armv7l) platform="armv6l";;
 		aarch64) platform="arm64";;
+		x86_64) platform="amd64";;
 	esac
+	IsPlatform mac && platform="darwin-amd64"
+	[[ ! $platform ]] && { ScriptErr "unknown platform"; return 1; }
+
 	findFile "other/Go/image/go1.15.3.linux-$platform.tar.gz" || return
 
-	sudo tar -C "/usr/local" -xzf "$file" || return
+	sudoc tar -C "/usr/local" -xzf "$file" || return
 }
 
 JetBrainsInstall()
@@ -1790,35 +1809,6 @@ chrootInstall()
 	return 0
 }
 
-dnsServerInstall()
-{
-	header "ISC BIND9 DNS Server"
-	! verifyStaticIpAddress && { EchoErr "DHCP Server requires a static IP address"; return 1; }
-
-	if IsPlatform pi; then
-		package bind9 bind9utils bind9-doc dnsutils bind9-host || return
-	else
-		package bind9 bind9-utils bind9-doc bind9-dnsutils bind9-host || return
-	fi
-
-	sudo update-rc.d bind9 defaults || return
-	DebianSudoPasswordless || return # for remote updates
-}
-
-dhcpServerInstall() { keaInstall "$@"; }
-keaInstall()
-{
-	header "ISC Kea DHCP Server"
-	! verifyStaticIpAddress && { EchoErr "DHCP Server requires a static IP address"; return 1; }
-
-	package kea-dhcp4-server kea-admin kea-dhcp-ddns-server kea-dev kea-doc || return # kea-ctrl-agent kea-dhcp6-server
-
-	makeDirSudo "/var/run/kea" || return
-	sudo update-rc.d kea-dhcp4-server defaults || return
-	service auto kea-dhcp4-server || return
-	DebianSudoPasswordless || return # for remote updates
-}
-
 fzfInstall()
 {
 	header "fzf (Fuzzy Search)"
@@ -1852,16 +1842,6 @@ GpgInstall()
 	package gpg || return
 	makeLink --symbolic "$UDATA/app/gpg" "$HOME/.gnupg" || return
 	chmod go-rwx "$UDATA/app/gpg" || return
-}
-
-SaltMinionInstall()
-{
-	IsPlatform win && return
-
-	header "Salt Minion"
-	package salt-minion || return
-	sudo sed -i 's/^#master: salt$/master: salt/' /etc/salt/minion || return
-	service restart salt-minion || return
 }
 
 #
@@ -2070,9 +2050,7 @@ GhqInstall()
 	header "ghq"
 
 	# https://github.com/x-motemen/ghq
-	findFile "shareware/ghq/ghq_$(uname -m)" || return
-
-	sudoc cp "$file" "/usr/local/bin/ghq" || return
+	installExecutable "shareware/ghq" || return
 }
 
 gfwInstall() { gitForWindows; }
@@ -2814,6 +2792,28 @@ MacAppCleanup()
 }
 
 #
+# IT Management
+#
+
+HashiUpInstall()
+{
+	header "hashi-up"
+
+	# https://github.com/jsiebens/hashi-up
+	installExecutable "shareware/hashi-up" || return
+}
+
+SaltMinionInstall()
+{
+	IsPlatform win && return
+
+	header "Salt Minion"
+	package salt-minion || return
+	sudo sed -i 's/^#master: salt$/master: salt/' /etc/salt/minion || return
+	service restart salt-minion || return
+}
+
+#
 # mail
 #
 
@@ -2996,6 +2996,21 @@ NodeJsInstall()
 
 NetworkCore() { i CloudInit domotz domotzAgent fiddler GlassWire JumpCloud JumpDesktop mDns MozillaVpn Ninite NordVpn Proxifier TigerVnc Tribler UnifiController Wireshark; }
 
+bindInstall()
+{
+	header "ISC BIND9 DNS Server"
+	! verifyStaticIpAddress && { EchoErr "DHCP Server requires a static IP address"; return 1; }
+
+	if IsPlatform pi; then
+		package bind9 bind9utils bind9-doc dnsutils bind9-host || return
+	else
+		package bind9 bind9-utils bind9-doc bind9-dnsutils bind9-host || return
+	fi
+
+	sudo update-rc.d bind9 defaults || return
+	DebianSudoPasswordless || return # for remote updates
+}
+
 CloudInitInstall() { CloudInitLimitUser; }
 
 # limit the users sudo rights if they are too broad (cloud-init adds NOPASSWD:ALL)
@@ -3102,6 +3117,19 @@ JumpCloudInstall()
 	IsPlatform win && { $mv "$pp/jumpcloud-agent-app.lnk" "$pp/Operating System" || return; }
 
 	return 0
+}
+
+keaInstall()
+{
+	header "ISC Kea DHCP Server"
+	! verifyStaticIpAddress && { EchoErr "DHCP Server requires a static IP address"; return 1; }
+
+	package kea-dhcp4-server kea-admin kea-dhcp-ddns-server kea-dev kea-doc || return # kea-ctrl-agent kea-dhcp6-server
+
+	makeDirSudo "/var/run/kea" || return
+	sudo update-rc.d kea-dhcp4-server defaults || return
+	service auto kea-dhcp4-server || return
+	DebianSudoPasswordless || return # for remote updates
 }
 
 mDnsInstall()

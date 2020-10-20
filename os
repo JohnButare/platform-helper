@@ -6,10 +6,14 @@ run() {	args "$@"; ${command}Command "${args[@]}"; }
 usage()
 {
 	echot "\
-usage: os [environment|index|lock|store|SystemProperties|version]
+usage: os [environment|index|lock|store|SystemProperties]
 	hostname|SetHostname [NAME]
 	path [show|edit|editor|set [AllUsers]](editor)
-	index: index [options|start|stop|demand](options)"
+	index: index [options|start|stop|demand](options)
+	architecture|bits|hardware|version 			OS and machine information
+	executable															OS executable information
+		format 			returns the formmat of the executable (leading text returned by the \`find\` command
+		find DIR		return the executables for the current machine in the target directory"
 	exit $1
 }
 
@@ -23,7 +27,7 @@ args()
 	 		CodeName) command="codeName";; SystemProperties) command="systemProperties";; SetHostname) command="setHostname";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(CodeName|hostname|path|update|SetHostName|SetWorkgroup) ]] && break
+				[[ "$command" == @(CodeName|executable|hostname|path|update|SetHostName|SetWorkgroup) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -135,6 +139,66 @@ PathEditorCommand()
 	fi
 }
 
+#
+# information
+#
+
+# architectureCommand - return the machine architecture, one of ARM, MIPS, or x86_64 (Intel/AMD)
+architectureCommand()
+{
+	case "$(hardwareCommand)" in
+		armv7l|aarch64) echo "ARM";;
+		mips|mip64) echo "MIPS";;
+		x86_64) echo "x86-64";;
+	esac
+}
+
+bitsCommand() # 32 or 64
+{
+	local bits="32" # assume 32 bit operating system
+
+	if InPath getconf; then bits="$(getconf LONG_BIT)"
+	elif InPath lscpu; then lscpu | grep "CPU op-mode(s): 32-bit, 64-bit" >& /dev/null && bits="64"
+	else return
+	fi
+
+	echo "$bits"
+}
+
+# hardware - return the machine hardware, one of:
+# armv71|aarch64 	ARM, 32|64 bit
+# mips|mip64			MIPS, 32|64 bit
+# x86_64 					x86_64 (Intel/AMD), 64 bit
+hardwareCommand() ( uname -m; )
+
+#
+# executable
+#
+
+executableCommand()
+{
+	local command; CheckSubCommand executable "$1"; shift
+	Executable${command}Command "$@"
+}
+
+ExecutableInfoCommand()
+{
+	[[ $# != 0 ]] && UnknownOption "$1"
+
+	IsPlatform mac && { echo "Mach-O $(os bits)-bit $(architectureCommand)"; return; }
+	IsPlatform linux,win && { echo "ELF $(os bits)-bit LSB executable, $(architectureCommand)"; return; }
+	return 1
+}
+
+ExecutableFindCommand()
+{
+	local dir="$1"; shift; [[ ! $dir ]] && MissingOperand "dir"; 
+	[[ $# != 0 ]] && UnknownOption "$1"
+	[[ ! -d "$dir" ]] && { ScriptErr "Specified path \`$dir\` does not exit."; }
+
+	file "$dir"/* | grep "$(ExecutableInfoCommand)" | cut -d: -f1
+	return "${PIPESTATUS[1]}"
+}
 
 #
 # version
@@ -149,12 +213,13 @@ versionCommand()
 	IsPlatform win && { versionDistributionWin || return; }
 
 	# Linux Kernel
-	echo "      kernel: $(uname -r)$(versionOsBits)"
+	local bits="$(bitsCommand)"; [[ $bits ]] && bits=" ($bits bit)"
+	echo "      kernel: $(uname -r)$bits"
 
 	# hardware
 	versionCpu || return
-	local hardware="$(uname -m)" # armv71|mips|mip64|x86_64
-	InPath dpkg && hardware+=" ($(PlatformArchitecture))" # amd64, armhf
+	local hardware="$(architectureCommand)"
+	[[ "$hardware" != "$(hardwareCommand)" ]] && hardware+=" ($(hardwareCommand))"
 	echo "    hardware: $hardware" 
 
 	# chroot
@@ -175,18 +240,6 @@ versionCpu()
 	model="$(lscpu | grep "^Model name:" | cut -d: -f 2)"
 	count="$(lscpu | grep "^CPU(s):" | cut -d: -f 2)"
 	echo "         cpu: $(RemoveSpace "$model") ($(RemoveSpace "$count") CPU)"
-}
-
-versionOsBits()
-{
-	local bits="32" # assume 32 bit operating system
-
-	if InPath getconf; then bits="$(getconf LONG_BIT)"
-	elif InPath lscpu; then lscpu | grep "CPU op-mode(s): 32-bit, 64-bit" >& /dev/null && bits="64"
-	else return
-	fi
-
-	echo " ($bits bit)"
 }
 
 versionDistribution()
@@ -239,7 +292,7 @@ versionDistributionWin()
 versionPi()
 {
 	cpu=$(</sys/class/thermal/thermal_zone0/temp)
-	echo "       model: $(cat /proc/cpuinfo | grep "^Model" | cut -d":" -f 2)"
+	echo "       model:$(cat /proc/cpuinfo | grep "^Model" | cut -d":" -f 2)"
 	echo "    CPU temp: $((cpu/1000))'C"
 }
 
