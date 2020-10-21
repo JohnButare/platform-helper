@@ -889,7 +889,23 @@ SshHelper()
 	else # for everything else, use untrusted X Forwarding, where X programs are not trusted to use all X features on the host
 		ssh -X $log "$@"
 	fi
-} 
+}
+
+SshPermissionFix()
+{
+	local user="$1"; [[ ! $user ]] && { MissingOperand "user"; return 1; }
+	
+	sudoc bash -l << EOF
+	find "$USERS/$user/.ssh" | xargs chown $user || exit
+	find "$USERS/$user/.ssh" | sudo xargs chgrp "$user" || exit
+	sudo chmod 700 "$USERS/$user/.ssh" || exit
+
+	[[ -f "$USERS/$user/.ssh/config" ]] && sudo chmod 700 "$USERS/$user/.ssh/config" || exit
+	[[ -f "$USERS/$user/.ssh/authorized_keys" ]] && sudo chmod 700 "$USERS/$user/.ssh/authorized_keys" || exit
+	[[ -f "$USERS/$user/.ssh/id_rsa" ]] && sudo chmod 700 "$USERS/$user/.ssh/id_rsa" || exit
+	[[ -f "$USERS/$user/.ssh/id_ed25519" ]] && sudo chmod 700 "$USERS/$user/.ssh/id_ed25519" || exit
+EOF
+}
 
 #
 # Package Manager
