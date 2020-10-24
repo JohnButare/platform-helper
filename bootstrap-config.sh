@@ -12,8 +12,8 @@ host="nas3.$domain" port=608			# host or mounted drive to use for scripts and in
 proxy="http://proxy.$domain:3128" # proxy server for package download
 
 fileServer="$host"
-consulServers=pi4
-nomadServers=pi4
+hashiServers=( pi3 pi4 )
+hashiClients=( rp1 pi5 )
 
 #user=""
 #host="/mnt/d"

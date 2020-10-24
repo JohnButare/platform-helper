@@ -4,25 +4,24 @@
 
 run() {	init && args "$@" && ${command}Command "${args[@]}"; }
 
-init() 
-{ 
-	user="$USER" #user="$systemUser"
-}
+init() { :; }
 
 usage()
 {
 	echot "\
 usage: $(ScriptName) 
-	install consul[s]|nomad[s] HOST - add s to install as a server"
+	install consul|nomad [HOSTS](all)
+		-s, --server				comma separated list of servers"
 	exit ${1:-1}
 }
 
 args()
 {
+	expect="1" join=""
+
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-h|--help) usage 0;;
-			one|OneAlias) command="one";; # case-insensitive commands
 			*)
 				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
 				! IsOption "$1" && [[ "$command" == @(install) ]] && break
@@ -40,37 +39,64 @@ args()
 # commands
 #
 
+initInstall()
+{
+
+	user="$systemUser" # requires passwordless sudo permission
+	common=( --user "$user" --show ) # --show
+	consul=( --datacenter "$workgroup" --client "0.0.0.0" --bind "{{ GetInterfaceIP \"eth0\" }}" )
+	consulServer=( --server --bootstrap-expect="$expect" --advertise "{{ GetInterfaceIP \"eth0\" }}" )
+
+	# dig @pi4 -p 8600 consul.service.dc1.consul
+
+	# expect
+	# retry-join
+	# hashiServers hashiClients
+
+	if [[ $join ]]; then
+		StringToArray "$servers" "," join
+		for server in "${servers[@]}"; do consul+=( --retry-join="$server" ); done
+	fi
+}
+
 installCommand()
 {
 	local command; CheckSubCommand install "$1"; shift
-	local host="$1"; shift; [[ ! $host ]] && MissingOperand "host"
-	[[ $# != 0 ]] && UnknownOption "$1"
-	Install${command}Command "$@"
+
+	[[ "$1" == "all" && "$#" == "1" ]] && { join="$(DelimitArray "," hashiServers)"; initInstall && installAll; return; }
+	[[ ! $1 ]] && MissingOperand "host"
+
+	initInstall || return
+	for host in "$@"; do Install${command}Command "$@"; done
 }
 
-InstallConsulsCommand()
+installAll()
 {
-	hashi-up consul install \
-	  --ip "$(GetIpAddress "$host")" \
-	  --user "$user" \
+	local expect="${#hashiServers[@]}"
+	for host in "${hashiServers[@]}"; do InstallConsulserverCommand || return; done
+	for host in "${hashiClients[@]}"; do InstallConsulCommand || return; done
+}
+
+installConsulCommand()
+{ 
+	hashi-up consul install --ip "$(GetIpAddress "$host")" "${common[@]}" "${consul[@]}" \
 	  --server \
-	  --advertise "{{ GetInterfaceIP \"eth0\" }}" \
-	  --bind "{{ GetInterfaceIP \"eth0\" }}" \
-	  --client 0.0.0.0
+	  --bootstrap-expect="$expect" \
+	  --advertise "{{ GetInterfaceIP \"eth0\" }}"
+
+	hashi-up consul install --ip "$(GetIpAddress "$host")" "${common[@]}" "${consul[@]}"
 }
 
-InstallConsulCommand()
+InstallNomadCommand()
 {
-	echo hashi-up consul install \
+	hashi-up nomad install --ip "$(GetIpAddress "$host")" 
 	  --ip "$(GetIpAddress "$host")" \
 	  --user "$user" \
 	  --client \
-	  --advertise "{{ GetInterfaceIP \"eth0\" }}" \
-	  --bind "{{ GetInterfaceIP \"eth0\" }}" \
-    --retry-join "$(GetIpAddress "$consulServers")"
+	  --advertise "{{ GetInterfaceIP \"eth0\" }}"
 }
 
-InstallNomadsCommand()
+InstallNomadserverCommand()
 {
 	hashi-up nomad install \
 	  --ip "$(GetIpAddress "$host")" \
@@ -78,15 +104,6 @@ InstallNomadsCommand()
 	  --server \
 	  --advertise "{{ GetInterfaceIP \"eth0\" }}" \
 	  --bootstrap-expect 1
-}
-
-InstallNomadCommand()
-{
-	hashi-up nomad install \
-	  --ip "$(GetIpAddress "$host")" \
-	  --user "$user" \
-	  --client \
-	  --advertise "{{ GetInterfaceIP \"eth0\" }}"
 }
 
 #
