@@ -9,22 +9,24 @@ init() { :; }
 usage()
 {
 	echot "\
-usage: $(ScriptName) 
-	install consul|nomad [HOSTS](all)
-		-s, --server				comma separated list of servers"
+usage: $(ScriptName)
+	install consul|nomad 				if no hosts are specified use hosts from bootstrap-config.sh
+		-c, --clients	HOSTS				comma separated list of clients to install
+		-dc, --datacenter					name of the data center
+		-j, --join HOSTS					comma separated list of hosts to join to, defaults to specified servers
+		-s, --server HOSTS				comma separated list of servers to install
+	remove consul|nomad"
 	exit ${1:-1}
 }
 
 args()
 {
-	expect="1" join=""
-
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-h|--help) usage 0;;
 			*)
 				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				! IsOption "$1" && [[ "$command" == @(install) ]] && break
+				! IsOption "$1" && [[ "$command" == @(install|remove) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -36,75 +38,103 @@ args()
 }
 
 #
-# commands
+# Install Command
 #
-
-initInstall()
-{
-
-	user="$systemUser" # requires passwordless sudo permission
-	common=( --user "$user" --show ) # --show
-	consul=( --datacenter "$workgroup" --client "0.0.0.0" --bind "{{ GetInterfaceIP \"eth0\" }}" )
-	consulServer=( --server --bootstrap-expect="$expect" --advertise "{{ GetInterfaceIP \"eth0\" }}" )
-
-	# dig @pi4 -p 8600 consul.service.dc1.consul
-
-	# expect
-	# retry-join
-	# hashiServers hashiClients
-
-	if [[ $join ]]; then
-		StringToArray "$servers" "," join
-		for server in "${servers[@]}"; do consul+=( --retry-join="$server" ); done
-	fi
-}
 
 installCommand()
 {
-	local command; CheckSubCommand install "$1"; shift
+	local clients=() command datacenter="$workgroup" servers=() join=()
 
-	[[ "$1" == "all" && "$#" == "1" ]] && { join="$(DelimitArray "," hashiServers)"; initInstall && installAll; return; }
-	[[ ! $1 ]] && MissingOperand "host"
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-c|--client) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," clients;;
+			-dc|--datacenter) datacenter="$1";;
+			-j|--join) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," join;;
+			-s|--servers) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," servers;;
+			*)
+				! IsOption "$1" && [[ ! $command ]] && { CheckSubCommand "install" "$1"; shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+
+	[[ ! $command ]] && { usage; }
+
+	# defaults
+	[[ ! $clients && ! $servers ]] && { clients=( "${hashiClients[@]}" ) servers=( "${hashiServers[@]}" ); }
+	[[ ! $join ]] && join=( "${servers[@]}" )
+	[[ ! $join ]] && join=( "${hashiServers[@]}" )
 
 	initInstall || return
-	for host in "$@"; do Install${command}Command "$@"; done
+	$command || return
 }
 
-installAll()
+initInstall()
 {
-	local expect="${#hashiServers[@]}"
-	for host in "${hashiServers[@]}"; do InstallConsulserverCommand || return; done
-	for host in "${hashiClients[@]}"; do InstallConsulCommand || return; done
+	user="$systemUser" # requires passwordless sudo permission
+	common=( --user "$user" ) # --show
+
+	consul=( --datacenter "$datacenter" --client "0.0.0.0" --bind "{{ GetInterfaceIP \"eth0\" }}" )
+	consulServer=( --server --bootstrap-expect="${#servers[@]}" --advertise "{{ GetInterfaceIP \"eth0\" }}" )
+	for host in "${join[@]}"; do consul+=( --retry-join="$host" ); done
+
+	nomad=( --datacenter "$datacenter" --client "0.0.0.0" )
+	nomadServer=( --server --bootstrap-expect="${#servers[@]}" --advertise "{{ GetInterfaceIP \"eth0\" }}" )
 }
 
 installConsulCommand()
 { 
-	hashi-up consul install --ip "$(GetIpAddress "$host")" "${common[@]}" "${consul[@]}" \
-	  --server \
-	  --bootstrap-expect="$expect" \
-	  --advertise "{{ GetInterfaceIP \"eth0\" }}"
+	for host in "${servers[@]}"; do
+		hilight "Installing consul server on $host..."
+		hashi-up consul install --ip "$(GetIpAddress "$host")" "${common[@]}" "${consul[@]}" "${consulServer[@]}" || return
+	done
 
-	hashi-up consul install --ip "$(GetIpAddress "$host")" "${common[@]}" "${consul[@]}"
+	for host in "${clients[@]}"; do
+		hilight "Installing consul client on $host..."
+		hashi-up consul install --ip "$(GetIpAddress "$host")" "${common[@]}" "${consul[@]}" || return
+	done
 }
 
-InstallNomadCommand()
+installNomadCommand()
 {
-	hashi-up nomad install --ip "$(GetIpAddress "$host")" 
-	  --ip "$(GetIpAddress "$host")" \
-	  --user "$user" \
-	  --client \
-	  --advertise "{{ GetInterfaceIP \"eth0\" }}"
+	for host in "${servers[@]}"; do
+		hilight "Installing nomad server on $host..."
+		hashi-up nomad install --ip "$(GetIpAddress "$host")" "${common[@]}" "${nomad[@]}" "${nomadServer[@]}" || return
+	done
+
+	for host in "${clients[@]}"; do
+		hilight "Installing nomad client on $host..."
+		hashi-up nomad install --ip "$(GetIpAddress "$host")" "${common[@]}" "${nomad[@]} --client" || return
+	done
 }
 
-InstallNomadserverCommand()
+#
+# Remove Command
+#
+
+removeCommand()
 {
-	hashi-up nomad install \
-	  --ip "$(GetIpAddress "$host")" \
-	  --user "$user" \
-	  --server \
-	  --advertise "{{ GetInterfaceIP \"eth0\" }}" \
-	  --bootstrap-expect 1
+	local command; CheckSubCommand remove "$1"; shift
+	[[ $# != 0 ]] && UnknownOption "$1"
+	$command "$@"
 }
+
+removeConsulCommand()
+{
+	service exists consul && { service delete consul || return; }
+	sudo rm -fr "/etc/consul.d" || return
+	sudo rm -fr "/opt/consul" || return
+	sudo rm -f "/usr/local/bin/consul" || return
+}
+
+removeNomadCommand()
+{
+	service exists nomad && { service delete nomad || return; }
+	sudo rm -fr "/etc/nomad.d" || return
+	sudo rm -fr "/opt/nomad" || return
+	sudo rm -f "/usr/local/bin/nomad" || return
+}
+
 
 #
 # helper
