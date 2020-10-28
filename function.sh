@@ -346,6 +346,7 @@ RemoveSpaceTrim() { GetArgs; echo "$(RemoveSpaceFront "$(RemoveSpaceEnd "$@")")"
 QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
 QuoteSpaces() { GetArgs; echo "$@" | sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
+RemoveQuotes() { sed 's/"//g'; }
 
 BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
 ForwardToBackSlash() { GetArgs; echo "${@////\\}"; }
@@ -1010,7 +1011,7 @@ PackageWhich() # which package is an executable in
 
 PlatformSummary() { echo "$(PlatformArchitecture) $(PlatformDescription)"; }
 PlatformDescription() { echo "$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"; }
-PlatformArchitecture() { dpkg --print-architecture; } # amd64, armhf
+PlatformArchitecture() { ! InPath dpkg && return; dpkg --print-architecture; } # amd64, armhf
 
 # IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
 function IsPlatform()

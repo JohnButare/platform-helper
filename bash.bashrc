@@ -198,6 +198,6 @@ PathAdd "$UBIN"
 
 # warning message for interactive shells if the configuration was not set properly
 if [[ $BASHRC ]]; then
-	echo "System configuration was not set in /etc/bash.bashrc" > /dev/stderr # SUDO_USER PS1
+	echo "System configuration was not set in /etc/bash.bashrc" >&2
 	unset BASHRC
 fi
