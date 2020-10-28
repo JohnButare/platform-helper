@@ -196,7 +196,7 @@ executableFindCommand()
 	[[ $# != 0 ]] && UnknownOption "$1"
 	[[ ! -d "$dir" ]] && { ScriptErr "Specified path \`$dir\` does not exit."; }
 
-	file "$dir"/* | grep "$(ExecutableInfoCommand)" | cut -d: -f1
+	file "$dir"/* | grep "$(executableInfoCommand)" | cut -d: -f1
 	return "${PIPESTATUS[1]}"
 }
 
