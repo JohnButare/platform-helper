@@ -396,6 +396,9 @@ IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff 
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
 
+GetFiles() { find "${2:-.}" -maxdepth 1 -name "$1" -type f -print0; } # for while loop
+ReadFile() { read -d $'\0' file; }
+
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 
