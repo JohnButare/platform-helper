@@ -178,10 +178,10 @@ hardwareCommand() ( uname -m; )
 executableCommand()
 {
 	local command; CheckSubCommand executable "$1"; shift
-	Executable${command}Command "$@"
+	$command "$@"
 }
 
-ExecutableInfoCommand()
+executableInfoCommand()
 {
 	[[ $# != 0 ]] && UnknownOption "$1"
 
@@ -190,7 +190,7 @@ ExecutableInfoCommand()
 	return 1
 }
 
-ExecutableFindCommand()
+executableFindCommand()
 {
 	local dir="$1"; shift; [[ ! $dir ]] && MissingOperand "dir"; 
 	[[ $# != 0 ]] && UnknownOption "$1"

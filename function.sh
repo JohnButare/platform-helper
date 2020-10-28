@@ -1339,19 +1339,16 @@ CheckCommand()
 	[[ ! $1 ]]  && MissingOperand "command"
 	IsFunction "${1,,}Command" && { command="${1,,}"; return 0; } ; 
 	EchoErr "$(ScriptName): unknown command \`$1\`"
-	EchoErr "Try \`$(ScriptName) --help\` for valid commands"
 	exit 1
 } 
 
 CheckSubCommand() 
 {	
-	local sub="$1"; command="$2"; 
-	[[ ! $command ]]  && MissingOperand "$sub command"
-	ProperCase "$sub" sub; ProperCase "$command" command; 
-	IsFunction "${sub}${command}Command" && { command="$command"; return 0; }
-	EchoErr "$(ScriptName): unknown $1 command \`$2\`"
-	EchoErr "Try \`$(ScriptName) $1 --help\` for valid commands"
-	exit 1
+	local sub="$1"
+	[[ ! $2 ]]  && MissingOperand "$sub command"
+	command="$sub$(ProperCase "$2")Command"; 
+	IsFunction "$command" && return 0
+	EchoErr "$(ScriptName): unknown $sub command \`$2\`"; exit 1
 } 
 
 ScriptName() { IsBash && GetFileName "${BASH_SOURCE[-1]}" || GetFileName "$ZSH_SCRIPT"; }
