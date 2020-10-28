@@ -14,13 +14,14 @@ usage: service [COMMAND](start) SERVICE [HOST]
 	-h, 		--host 								host to check
 	-nhc,		--no-host-check 			do not check for host availability
 	-nsc,		--no-service-check		do not check for service existence
+	-q, 		--quiet								minimize output
 	-w, 		--wait								wait for the service to change state"
 	exit $1
 }
 
 args()
 {
-	unset command force service host noHostCheck noServiceCheck wait 
+	unset command force service host noHostCheck noServiceCheck quiet wait
 
 	[[ $# == 0 ]] && { command="show"; return; }
 	
@@ -30,6 +31,7 @@ args()
 			--host|-h) host="$2"; shift;;
 			--no-host-check|-nhc) noHostCheck="--no-host-check";;
 			--no-service-check|-nsc) noServiceCheck="--no-service-check";;
+			--quiet|-q) quiet="--quiet";;
 			--wait|-w) wait="--wait";;
 			--help) help="--help";;
 			ListFile) command="listFile";; StartType) command="startType";;
@@ -68,7 +70,7 @@ init()
 	[[ "$command" != @(exists|list|ListFile|show) ]] && { initService || return; }
 
 	# run with additional permissions if needed
-	if [[ "$command" == @(auto|demand|disable|pause|stop) ]]; then
+	if [[ "$command" == @(auto|delete|demand|disable|pause|stop) ]]; then
 
 		# Windows elevation
 		if IsPlatform win && ! isLinuxService "$service" && ! IsElevated; then
@@ -123,7 +125,7 @@ checkSystemd() { IsSystemd && useSystemd="true"; return 0; }
 
 unknownService() 
 {
-	EchoErr "service: $service does not exist as an installed service$hostDescription"
+	[[ ! $quiet ]] && EchoErr "service: $service does not exist as an installed service$hostDescription"
 	return 1
 }
 
@@ -263,6 +265,21 @@ autoCommand() { [[ "$(startTypeCommand)" == "AUTO_START" ]] && return; auto$type
 autoLinux() { linuxService enable "$service"; }
 autoMac() { :; }
 autoWin() {	$sc config $hostUnc "$service" start= auto; }
+
+#
+# Delete Command
+#
+
+deleteCommand() { stopCommand || return; disableCommand || return; delete$type; }
+deleteMac() { :; }
+deleteWin() {	$sc delete $hostUnc "$service"; }
+
+deleteLinux()
+{
+	sudo rm -f "/etc/systemd/system/$service.service" || return
+	sudo systemctl daemon-reload || return
+	sudo systemctl reset-failed || return
+}
 
 #
 # Detail Command
