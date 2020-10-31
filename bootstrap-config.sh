@@ -5,7 +5,7 @@ locale="en_US.UTF-8"							# host locale
 domain="hagerman.butare.net" 
 dns1="192.168.100.10"
 dns2="192.168.100.11"
-workgroup="Wiggin"
+workgroup="hagerman"
 systemUser="wsystem"
 
 host="nas3.$domain" port=608			# host or mounted drive to use for scripts and installers
