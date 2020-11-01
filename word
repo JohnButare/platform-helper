@@ -2,39 +2,55 @@
 . app.sh || exit
 . office.sh || exit
 
+run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+
 init()
 {
-	command='start'
 	title="${OfficeTitle}Word";
 	program="$WordProgram";
 	fastStart="$DATA/setup/wfs.docx"
 	replicate="$UDATA/replicate"
+	cloudDir="$CLOUD/network/application/word"
+	normalFile="$OfficeTemplates/Normal.dotm"
+	normalTemplate="Normal $(ProperCase "$PLATFORM") Original.dotm"
+	templateFile="$replicate/$normalTemplate"
 }
 
-usage() {	echot "usage: word [start|startup|close|restart](start)
-	configure|info|RestoreNormal|SaveNormal|show
-	hide|restore: hide or restore the FastStart document
-	-b, --brief		brief status messages"; exit $1; }
+usage()
+{
+	echot "\
+usage: word [close|configure|info|restart|show|start|startup](start)
+	hide|restore											hide or restore the FastStart document
+	normal backup|restore|IsChanged		backup or restore the normal template
 
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+	-b, --brief		brief status messages"
+	exit $1
+}
 
 args()
 {
-	unset -v brief
+	unset -v command brief
+
 	while [[ "$1" != "" ]]; do
 		case "$1" in
 			--brief|-b) brief="--brief";;
 			--help) usage 0;;
-			IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";;
-			configure) command="Configure";; RestoreNormal) command="RestoreNormal";; SaveNormal) command="SaveNormal";;
+			IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";; configure) command="Configure";;
 			*) 
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(start|profile) ]] && break;
+				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
+				[[ "$command" == @(normal|profile|start|) ]] && break;
 				UnknownOption "$1"
 		esac
 		shift
 	done
 	args=( "$@" )
+}
+
+configureCommand()
+{
+	local options="$DATA/setup/Set Options $(ProperCase "$PLATFORM").docm"
+	[[ ! -f "$options" ]] && { ScriptErr "the configuration file \`$options\` does not exist"; return 1; }
+	start "$options"
 }
 
 startCommand()
@@ -49,78 +65,71 @@ startupCommand()
 	start --window-style minimized "$program" /w /q "$fastStart"
 }
 
+closeCommand() { ! IsRunningCommand && return 0; ProcessClose "$program"; } 
+hideCommand() { WinSetState "$WordFastStartTitle" hide; }
 IsInstalledCommand() { [[ -e "$program" ]]; }
 IsRunningCommand() { IsTaskRunning "$program"; }
-closeCommand() { ! IsRunningCommand && return 0; ProcessClose "$program"; } 
-restartCommand() { closeCommand && startCommand; }
 profileCommand() {	tc profile.btm "$@" || usage; }
-
+restartCommand() { closeCommand && startCommand; }
 restoreCommand() { WinSetState "$WordFastStartTitle" restore; }
-hideCommand() { WinSetState "$WordFastStartTitle" hide; }
 
-SaveNormalCommand()
-{
-	cp "$OfficeTemplates/Normal.dotm" "$replicate/Normal $(ProperCase "$PLATFORM") Original.dotm" || return $?
-	return 0
-}
+#
+# Normal Commands
+#
 
-RestoreNormalCommand()
-{
-	! IsInstalledCommand && return 1
+normalIschangedCommand() { normalIsChanged; }
 
-	local IsRunning=0
-
-	for ext in dot dotm; do RestoreNormalExtension "Normal" "$ext" || return; done
-
-	[[ $IsRunning == 1 ]] && startupCommand
-
-	return 0
-}
-
-RestoreNormalExtension()
-{
-	local template="$1"
-	local ext="$2"
-	local normal="$OfficeTemplates/$template.$ext"
-	local original="$replicate/$template $PLATFORM Original.$ext"
-
-	[[ ! -f "$original" ]] && return 0
-
-	[[ ! -f "$normal" ]] && { cp "$original" "$normal"; return; }
-	
- 	diff "$normal" "$original" >& /dev/null && return
-
-  printf "Restoring the $template template..."
-   
-	if [[ "$PLATFORM" == "win" ]] && word IsRunning; then
-		IsRunning=1
-		word close
-		sleep 2
+normalIsChanged()
+{ 
+	if cmp -s "$normalFile" "$templateFile"; then
+		echo "The normal template is unchanged."
+		return 1
+	else
+		echo "The normal template has been changed."
+		return 0
 	fi
-	
-  while true; do
-    
-    printf "copying..."
-    cp "$original" "$normal" && echo "done"
-    
-    diff "$original" "$normal" && break
-
-    if which handle >& /dev/null; then
-	    handle "$template"
-	    echo ""
-	    pause "Manually close the above tasks then press any key to continue..."
-		fi
-
-  done
 }
 
-ConfigureCommand()
+normalCommand()
+{	
+	[[ ! -f "$templateFile" ]] && { ScriptErr "the template file \`$templateFile\` does not exist"; return 1; }
+	[[ ! -f "$normalFile" ]] && { cp "$templateFile" "$normalFile"; return; }
+
+	local command; CheckSubCommand normal "$1"; shift
+	[[ $# != 0 ]] && UnknownOption "$1"
+	$command "$@"
+}
+
+normalRestoreCommand()
 {
-	local options="$DATA/setup/Set Options $(ProperCase "$PLATFORM").docm"
+	! normalIsChanged && return
 
-	[[ ! -f "$options" ]] && { ScriptErr "the configuration file \`$options\` does not exist"; return 1; }
+  printf "Restoring the normal template..."
+  cp "$templateFile" "$normalFile" || return
+  echo "done" 
 
-	start "$options"
+	return 0
+}
+
+normalBackupCommand()
+{
+	! normalIschangedCommand && return
+
+	printf "Backing up the normal template..."		
+
+	if ! cmp -s "$normalFile" "$replicate/$normalTemplate"; then
+		printf "replicate..."
+		cp "$normalFile" "$replicate/$normalTemplate" || return
+	fi
+
+	if [[ -d "$cloudDir" ]] && ! cmp -s "$normalFile" "$cloudDir/$normalTemplate"; then
+		printf "cloud..."
+		cp "$normalFile" "$cloudDir/$normalTemplate" || return
+	fi
+
+	echo "done"
+
+	return 0
 }
 
 run "$@"
