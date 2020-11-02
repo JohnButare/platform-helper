@@ -83,18 +83,18 @@ hostnameCommand()
 
 	# reverse DNS lookup for IP Address
 	if IsIpAddress "$host"; then
-		name="$(nslookup $host |& grep "name =" | cut -d" " -f 3 | RemoveDnsSuffix)"
+		name="$(nslookup $host |& grep "name =" | cut -d" " -f 3)"
 		echo "${name:-$host}"; return
 	fi
 
 	# forward DNS lookup
 	if InPath host; then
-		name="$(host $host | grep " has address " | cut -d" " -f 1 | RemoveDnsSuffix)"
+		name="$(host $host | grep " has address " | cut -d" " -f 1)"
 		echo "${name:-$host}"; return
 	fi
 
 	# fallback on the name passed
-	echo "$(RemoveDnsSuffix $host)"
+	echo "$host"
 }
 
 setHostnameCommand() # 0=name changed, 1=name unchanged, 2=error
