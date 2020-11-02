@@ -242,7 +242,6 @@ SleepStatus()
 
 EchoErr() { printf "$@\n" >&2; }
 PrintErr() { printf "$@" >&2; }
-ScriptErr() { EchoErr "$(ScriptName): $1"; }
 
 # printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var
 printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; }
@@ -1316,16 +1315,19 @@ start()
 # Scripts
 #
 
-IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
 FilterShellScript() { grep -E "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"; }
+GetFunction() { declare -f | grep -iE "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
+IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
 IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
-IsOption() { [[ "$1" =~ ^-.* ]]; }
-IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
-UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unknown unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information.";	[[ "$-" == *i* ]] && return 1 || exit 1; }
-MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; [[ "$-" == *i* ]] && return 1 || exit 1; }
 IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
 IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
-GetFunction() { declare -f | grep -iE "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
+ScriptErr() { EchoErr "$(ScriptName): $1"; }
+
+# arguments
+IsOption() { [[ "$1" =~ ^-.* ]]; }
+IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
+MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; [[ "$-" == *i* ]] && return 1 || exit 1; }
+UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unknown unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information.";	[[ "$-" == *i* ]] && return 1 || exit 1; }
 
 # RunFunction NAME SUFFIX - call a function with the specified suffix
 RunFunction()
