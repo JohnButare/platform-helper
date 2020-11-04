@@ -256,18 +256,35 @@ lesst() { less -x $TABS $*; } 										# LessTab
 # Data Types
 #
 
-# array
-CopyArray() { local ca; GetArrayDefinition "$1" ca; eval "$2=$ca"; }
-GetArrayDefinition() { local gad="$(declare -p $1)"; gad="(${gad#*\(}"; r "${gad%\'}" $2; }
-ShowArrayDetail() { declare -p "$1"; }
+GetDef() { local gd="$(declare -p $1)"; gd="${gd#*\=}"; gd="${gd#\(}"; r "${gd%\)}" $2; } # get definition
+GetDefs() { for gda in "$@"; do printf "$(GetDef $gda)"; done; } # get all definitions
+
+# AppendArray VAR1 VAR2 ... - combine arrays into first array
+AppendArray()
+{
+	local car="$1"; shift # combine array result
+	for ca in "$@"; do eval "$car+=( $(GetDef $ca) )"; done
+} 
+
+# CopyArray SRC_VAR TARGET_VAR - copy source array variable to target array variable
+CopyArray() { declare -g $(GetType $1) $2; eval "$2=( $(GetDef $1) )"; }
 
 if IsBash; then
-	DelimitArray() { local -n delimitArray="$2"; IFS=$1; echo "${delimitArray[*]}"; } # DelimitArray DELIMITER ARRAY_VAR
+	GetType() { local gt="$(declare -p $1)"; gt="${gt#declare }"; r "${gt%% *}" $2; } # get type
+	DelimitArray() { local -n delimitArray="$2"; IFS=$1; printf "${delimitArray[*]}"; } # DelimitArray DELIMITER ARRAY_VAR
 	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
 	ListArray() { local -n listArray="$1"; printf '%s\n' "${listArray[@]}"; }
-	ShowArray() { local result; local -n showArray="$1"; printf -v result ' "%s"' "${showArray[@]}"; printf "%s\n" "${result:1}"; }
 	ShowArrayKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ShowArray keys; }
 	StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
+
+	# ShowArray	ARRAY [DELIMITER]( )
+	ShowArray()
+	{
+		local result delimiter="${2:- }"
+		local -n showArray="$1"
+		printf -v result '"%s"'"$delimiter" "${showArray[@]}"
+		printf "%s\n" "${result%$delimiter}"
+	}
 
 	RemoveFromArray() # VALUE ARRAY_VAR
 	{
@@ -279,7 +296,8 @@ if IsBash; then
 	}
 
 else
-	DelimitArray() { (local get="$2[*]"; IFS=$1; echo "${(P)get}")} # DelimitArray DELIMITER ARRAY_VAR
+	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; r "${gt%% *}" $2; } # get type
+	DelimitArray() { (local get="$2[*]"; IFS=$1; printf "${(P)get}")} # DelimitArray DELIMITER ARRAY_VAR
 	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "array" ]]; }
 	ListArray() { printf '%s\n' "${${(P)1}[@]}"; }
 	ShowArray() { local var showArray="$1"; printf -v var ' "%s"' "${${(P)showArray}[@]}"; printf "%s\n" "${var:1}"; }
