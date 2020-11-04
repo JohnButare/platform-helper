@@ -79,7 +79,7 @@ hostnameCommand()
 	local host="$1" name
 
 	# use HOSTNAME for localhost
-	IsLocalHost "$host" && { echo "$HOSTNAME"; return 0; }
+	IsLocalHost "$host" && host="$HOSTNAME"
 
 	# reverse DNS lookup for IP Address
 	if IsIpAddress "$host"; then
