@@ -1,0 +1,319 @@
+#!/usr/bin/env bash
+. function.sh || exit
+. bootstrap-config.sh || exit
+
+run() {	init && args "$@" && ${command}Command "${args[@]}"; }
+
+init() { :; }
+
+usage()
+{
+	echot "\
+usage: $(ScriptName)
+	install consul|nomad 				if no hosts are specified use hosts from bootstrap-config.sh
+		-c, --clients	HOSTS				comma separated list of clients to install
+		-s, --server HOSTS				comma separated list of servers to install
+		-j, --join HOSTS					comma separated list of hosts to join to, defaults to servers
+				--certificates DIR		directory for PKI certificates, if specified TLS will be enabled
+	remove consul|nomad"
+	exit ${1:-1}
+}
+
+args()
+{
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-h|--help) usage 0;;
+			*)
+				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
+				! IsOption "$1" && [[ "$command" == @(install|remove) ]] && break
+				UnknownOption "$1"
+		esac
+		shift
+	done
+
+	[[ ! $command ]] && { usage; }
+
+	args=("$@")
+}
+
+#
+# Install Command
+#
+
+installCommand()
+{
+	local ca caKey certificateDir command clients=() servers=() join=()
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-h|--help) usage 0;;
+			-c|--client) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," clients;;
+			-s|--servers) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," servers;;
+			-j|--join) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," join;;
+			   --certificates) initCertificates "$2" || return; shift;;
+			*)
+				! IsOption "$1" && [[ ! $command ]] && { CheckSubCommand "install" "$1"; shift; continue; }
+				UnknownOption "$1"
+		esac
+		shift
+	done
+
+	[[ ! $command ]] && { usage; }
+
+	# defaults
+	[[ ! $clients && ! $servers ]] && { clients=( "${hashiClients[@]}" ) servers=( "${hashiServers[@]}" ); }
+	[[ ! $join ]] && join=( "${servers[@]}" )
+	[[ ! $join ]] && join=( "${hashiServers[@]}" )
+
+	local datacenter user commonOptions consulOptions consulOptionsServer nomadOptions nomadServerOptions
+	initInstall || return
+
+	$command || return
+}
+
+initInstall()
+{
+	datacenter="$workgroup"
+	user="$systemUser" # requires passwordless sudo permission
+
+	# common installation options
+	commonOptions=( --user "$user" ) # --show
+
+	# consul installation options
+	consulOptions=( --datacenter "$datacenter" --client "0.0.0.0" --bind "{{ GetInterfaceIP \"eth0\" }}" )
+	consulServerOptions=( --server --bootstrap-expect="${#join[@]}" --advertise "{{ GetInterfaceIP \"eth0\" }}" )
+	for host in "${join[@]}"; do consulOptions+=( --retry-join="$host" ); done
+
+	# nomad installation options
+	nomadOptions=( --datacenter "$datacenter" --client "0.0.0.0" )
+	nomadServerOptions=( --server --bootstrap-expect="${#servers[@]}" --advertise "{{ GetInterfaceIP \"eth0\" }}" )
+}
+
+installConsulCommand()
+{ 
+	for host in "${servers[@]}"; do installConsulServer "$host" || return; done
+	for host in "${clients[@]}"; do installConsulClient "$host" || return; done	
+}
+
+installConsulServer()
+{
+	local host="$1" certificateOptions
+
+	initServerCertificate "$host" || return
+
+	hilight "Installing consul server on $host..."		
+
+	[[ $certificateDir ]] && certificateOptions=( \
+		--ca-file "$ca" \
+		--cert-file "$hostCa" \
+		--key-file "$hostCaKey" \
+	)
+
+	hashi-up consul install \
+		--ip "$(GetIpAddress "$host")" \
+		"${commonOptions[@]}" \
+		"${certificateOptions[@]}" \
+		"${consulOptions[@]}" \
+		"${consulServerOptions[@]}" || return
+}
+
+installConsulClient()
+{
+	local host="$1" certificateOptions
+
+	hilight "Installing consul client on $host..."
+
+	hashi-up consul install \
+		--ip "$(GetIpAddress "$host")" \
+		"${commonOptions[@]}" \
+		"${certificateOptions[@]}" \
+		"${consulOptions[@]}" || return
+}
+
+installNomadCommand()
+{
+	for host in "${servers[@]}"; do
+		hilight "Installing nomad server on $host..."
+		hashi-up nomad install --ip "$(GetIpAddress "$host")" "${commonOptions[@]}" "${nomadOptions[@]}" "${nomadServerOptions[@]}" || return
+	done
+
+	for host in "${clients[@]}"; do
+		hilight "Installing nomad client on $host..."
+		hashi-up nomad install --ip "$(GetIpAddress "$host")" "${commonOptions[@]}" "${nomadOptions[@]} --client" || return
+	done
+}
+
+installVaultCommand()
+{
+	local name="vault"
+	local user="$name" config="/etc/$name.d" data="/opt/$name"
+	local configFile="$config/$name.hcl" serviceFile="/etc/systemd/system/$name.service"
+
+	! InPath "$name" && { inst "$name" || return; }
+
+	# allow memory locking without elevation (so don't need to run as root)
+	sudoc setcap cap_ipc_lock=+ep "$(FindInPath "$name")" || return
+
+	# make directories
+	[[ ! -d "$config" ]] && { sudo mkdir "$config" || return; }
+	[[ ! -d "$data" ]] && { sudo mkdir "$data" || return; }
+
+	# setup vault user	
+	if ! getent passwd "$user" >& /dev/null; then
+		sudo useradd -r -d "/etc/$user.d" -s "/bin/false" "$user" || return
+		sudo install -o "$user" -g "$user" -m 750 -d "$config" || return
+		sudo install -o "$user" -g "$user" -m 750 -d "$data" || return
+	fi
+
+	# configuration file
+	if [[ ! -f "$configFile" ]]; then
+		cat << EOF | sudo tee "$configFile" || return
+storage "raft" {
+  path    = "$data"
+}
+
+listener "tcp" {
+  address     = "0.0.0.0:8200"
+  tls_disable = 0
+}
+
+api_addr = "http://0.0.0.0:8200"
+cluster_addr = "https://$HOSTNAME:8201"
+ui = true
+EOF
+
+		sudo chown "$user" "$configFile" || return
+		sudo chmod 640 "$configFile" || return
+	fi
+
+	# service
+	if [[ ! -f "$serviceFile" ]]; then
+		cat << EOF | sudo tee "$serviceFile" || return
+[Unit]
+Description="HashiCorp Vault"
+Documentation=https://www.vaultproject.io/
+Wants=network-online.target
+After=network-online.target
+ConditionFileNotEmpty=$configFile
+
+[Service]
+User=$user
+Group=$user
+ExecReload=/bin/kill -HUP 
+ExecStart=$(FindInPath "$name") server -config=$config
+KillMode=process
+KillSignal=SIGINT
+LimitNOFILE=infinity
+LimitNPROC=infinity
+Restart=on-failure
+RestartSec=2
+StartLimitBurst=3
+StartLimitIntervalSec=10
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target
+EOF
+		sudo systemctl daemon-reload || return
+		service auto "$name" || return
+		service start "$name" || return
+	fi
+}
+
+initCertificates()
+{
+	certificateDir="$1"
+	ca="$baseDomain-agent-ca.pem"
+	caKey="$baseDomain-agent-ca-key.pem"
+
+	[[ ! $certificateDir ]] && MissingOperand "certificates"
+	[[ ! -d "$certificateDir" ]] && { mkdir --parents "$certificateDir" || return; }
+	
+	certificatesExist "$ca" "$caKey" && return
+	certificatesValid "$ca" "$caKey" || return
+
+	hilight "Creating the certificate authority PKI files for $baseDomain..."
+	consul tls ca create -domain="$baseDomain" -name-constraint || return # the name constraint is required for HTTPS UI
+}
+
+initServerCertificate()
+{	
+	local host="$(RemoveDnsSuffix "$1")"
+	local hostFqdn="$(os hostname "$host")" || return # host fully qualified domain name
+
+	[[ ! $certificateDir ]] && return
+
+	pushd "$certificateDir" >& /dev/null || return
+
+	hostCa="$datacenter-server-$baseDomain-$host.pem"
+	hostCaKey="$datacenter-server-$baseDomain-$host-key.pem"
+
+	certificatesExist "$hostCa" "$hostCaKey" && return
+	certificatesValid "$hostCa" "$hostCaKey" || return
+	
+	hilight "Creating the $host server certificate..."
+
+	# remove temporary certs
+	rm -f "$datacenter-server-$baseDomain-?.pem" "$datacenter-server-$baseDomain-?-key.pem" || return
+
+	# create the cert
+	consul tls cert create -server \
+		-domain="$baseDomain" \
+		-dc="$datacenter" \
+		-additional-ipaddress="$(GetIpAddress "$host")" \
+		-additional-dnsname="$hostFqdn" \
+		-node="$host" || return
+
+	# rename the temporary cert
+	mv "$datacenter-server-$baseDomain-0.pem" "$hostCa" || return
+	mv "$datacenter-server-$baseDomain-0-key.pem" "$hostCaKey" || return
+
+	popd >& /dev/null || return
+}
+
+certificatesExist() { [[ -f "$certificateDir/$1" && -f "$certificateDir/$2" ]]; }
+
+certificatesValid()
+{
+	local ca="$certificateDir/$1" caKey="$certificateDir/$2"	
+
+	certificatesExist "$1" "$2" && return 0
+	[[ ! -f "$ca" && -f "$caKey" ]] && { ScriptErr "the certificate authority \`$1\` is missing"; return 1; }
+	[[ ! -f "$caKey" && -f "$ca" ]] && { ScriptErr "the certificate authority key \`$2\` is missing"; return 1; }
+
+	return 0
+}
+
+#
+# Remove Command
+#
+
+removeCommand()
+{
+	local command; CheckSubCommand remove "$1"; shift
+	[[ $# != 0 ]] && UnknownOption "$1"
+	$command "$@"
+}
+
+removeConsulCommand()
+{
+	service exists consul && { service delete consul || return; }
+	sudo rm -fr "/etc/consul.d" || return
+	sudo rm -fr "/opt/consul" || return
+	sudo rm -f "/usr/local/bin/consul" || return
+}
+
+removeNomadCommand()
+{
+	service exists nomad && { service delete nomad || return; }
+	sudo rm -fr "/etc/nomad.d" || return
+	sudo rm -fr "/opt/nomad" || return
+	sudo rm -f "/usr/local/bin/nomad" || return
+}
+
+#
+# helper
+#
+
+run "$@"

@@ -8,8 +8,8 @@ usage()
 usage: service [COMMAND](start) SERVICE [HOST]
 	Control Windows services
 	detail|exists|list|ListFile|log|StartType|show|state|status|running
-	continue|pause|restart|start|stop				control service
-	auto|delete|demand|disable|manual		 		configure service
+	continue|pause|reload|restart|start|stop				control service
+	auto|delete|demand|disable|manual		 						configure service
 	-f, 		--force 							force the service operation even if we the service shows to be in the correct state
 	-h, 		--host 								host to check
 	-nhc,		--no-host-check 			do not check for host availability
@@ -187,6 +187,20 @@ waitForState()
 	echo "did not $2 in $seconds seconds"; return 1
 }
 
+waitForStop()
+{
+	local seconds=30 state="$1"
+
+	for (( i=1; i<=seconds; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
+ 		[[ "$(stateCommand)" == "STOPPED" ]] && { echo "stopped in $i seconds"; return 0; }
+ 		[[ "$(stateCommand)" == "failed" ]] && { echo "failed in $i seconds"; return 0; }
+		printf "."
+	done
+
+	echo "did not stop in $seconds seconds"; return 1
+}
+
 #
 # Commands
 #
@@ -241,6 +255,16 @@ pauseCommand()
 	result="$($sc $hostUnc pause "$service")" || { EchoErr "$result"; return 1; }
 	[[ ! $wait ]] && return
 	waitForState "PAUSED" "pause" "paused"
+}
+
+reloadCommand()
+{
+	if [[ $useSystemd ]]; then
+		sudo systemctl daemon-reload || return
+		sudo systemctl reset-failed || return
+	else
+		restartCommand || return
+	fi
 }
 
 restartCommand() 
@@ -405,7 +429,7 @@ stopCommand()
 	checkWaiting; printf "Stopping $service service$hostDescription..."$waiting
 	stop$type || return
 	[[ ! $wait ]] && return
-	waitForState "STOPPED" "stop" "stopped"
+	waitForStop
 }
 
 stopLinux() { linuxService stop "$service"; }

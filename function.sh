@@ -263,7 +263,7 @@ GetDefs() { for gda in "$@"; do printf "$(GetDef $gda)"; done; } # get all defin
 AppendArray()
 {
 	local car="$1"; shift # combine array result
-	for ca in "$@"; do eval "$car+=( $(GetDef $ca) )"; done
+	for appendArray in "$@"; do eval "$car+=( $(GetDef $appendArray) )"; done
 } 
 
 # CopyArray SRC_VAR TARGET_VAR - copy source array variable to target array variable
@@ -606,8 +606,11 @@ GetInterface() { ifconfig | head -1 | cut -d: -f1; }
 GetDefaultGateway() { route -n | grep '^0.0.0.0' | awk '{ print $2; }'; }
 GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }
 HostNameCheck() { SshHelper "$@" hostname; }
-RemoveDnsSuffix() { GetArgs; echo "${@%%.*}"; }
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }
+
+GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }
+HasDnsSuffix() { GetArgs; [[ "$1" =~ \. ]]; }
+RemoveDnsSuffix() { GetArgs; printf "${@%%.*}"; }
 
 GetBroadcastAddress()
 {
@@ -1162,6 +1165,13 @@ IsTaskRunning()
 	ProcessList | grep -v ",grep" | grep -i  ",$file" >& /dev/null
 }
 
+# IsProcessRunning PROCESS - faster, no Windows processes
+IsProcessRunning()
+{
+	local o="-snq"; IsPlatform mac && unset o; 
+	pidof $o "$1"
+}
+
 # IsWindowsProces: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
 IsWindowsProces() 
 {
@@ -1418,7 +1428,7 @@ sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
 
 sudoc()  # use the credential store to get the password if available, --preserve|-p to preserve the existing path (less secure)
 { 
-	local p=(sudo) preserve; [[ "$1" == @(-p|--preserve) ]] && { preserve="true"; shift; }
+	local p=( "$(FindInPath "sudo")" ) preserve; [[ "$1" == @(-p|--preserve) ]] && { preserve="true"; shift; }
 
 	if [[ $preserve ]]; then
 		if IsPlatform pi; then p+=( --preserve-env )
