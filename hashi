@@ -160,11 +160,7 @@ installVaultCommand()
 	[[ ! -d "$data" ]] && { sudo mkdir "$data" || return; }
 
 	# setup vault user	
-	if ! getent passwd "$user" >& /dev/null; then
-		sudo useradd -r -d "/etc/$user.d" -s "/bin/false" "$user" || return
-		sudo install -o "$user" -g "$user" -m 750 -d "$config" || return
-		sudo install -o "$user" -g "$user" -m 750 -d "$data" || return
-	fi
+	addUser "$user" "$config" "$data" || return
 
 	# configuration file
 	if [[ ! -f "$configFile" ]]; then
@@ -220,6 +216,37 @@ EOF
 		service start "$name" || return
 	fi
 }
+
+#
+# Remove Command
+#
+
+removeCommand()
+{
+	local command; CheckSubCommand remove "$1"; shift
+	[[ $# != 0 ]] && UnknownOption "$1"
+	$command "$@"
+}
+
+removeConsulCommand()
+{
+	service exists consul && { service delete consul || return; }
+	sudo rm -fr "/etc/consul.d" || return
+	sudo rm -fr "/opt/consul" || return
+	sudo rm -f "/usr/local/bin/consul" || return
+}
+
+removeNomadCommand()
+{
+	service exists nomad && { service delete nomad || return; }
+	sudo rm -fr "/etc/nomad.d" || return
+	sudo rm -fr "/opt/nomad" || return
+	sudo rm -f "/usr/local/bin/nomad" || return
+}
+
+#
+# certificates
+#
 
 initCertificates()
 {
@@ -286,34 +313,33 @@ certificatesValid()
 }
 
 #
-# Remove Command
-#
-
-removeCommand()
-{
-	local command; CheckSubCommand remove "$1"; shift
-	[[ $# != 0 ]] && UnknownOption "$1"
-	$command "$@"
-}
-
-removeConsulCommand()
-{
-	service exists consul && { service delete consul || return; }
-	sudo rm -fr "/etc/consul.d" || return
-	sudo rm -fr "/opt/consul" || return
-	sudo rm -f "/usr/local/bin/consul" || return
-}
-
-removeNomadCommand()
-{
-	service exists nomad && { service delete nomad || return; }
-	sudo rm -fr "/etc/nomad.d" || return
-	sudo rm -fr "/opt/nomad" || return
-	sudo rm -f "/usr/local/bin/nomad" || return
-}
-
-#
 # helper
 #
+
+addUser()
+{
+	local user="$1" config="$2" data="$3"
+
+	runScript <<-EOF
+		getent passwd "$user" >& /dev/null && exit
+
+		echo "Creating user $user...""
+		sudo useradd -r -d "$config" -s "/bin/false" "$user" || exit
+		sudo install -o "$user" -g "$user" -m 750 -d "$config" || exit
+		sudo install -o "$user" -g "$user" -m 750 -d "$data" || exit
+	EOF
+
+}
+
+runScript()
+{
+	local script="$(cat < /dev/stdin)"
+
+	if [[ $host ]]; then
+		ssh "$user@$host" "$script"
+	else
+		bash -c "$user@$host" "$script"
+	fi
+}
 
 run "$@"
