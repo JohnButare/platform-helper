@@ -820,7 +820,7 @@ SshHelper()
 
 	[[ $# == 0 || $1 == @(--help) ]]	&& { echot "usage: SshHelper HOST
 	-m, --mosh					connecting using mosh
-	-x, --x-forwarding  conntect with X forwarding"; return 1; }
+	-x, --x-forwarding  connect with X forwarding"; return 1; }
 
 	while (( $# != 0 )); do 
 		case "$1" in "") : ;;
