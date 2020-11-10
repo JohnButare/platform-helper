@@ -600,7 +600,7 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 #
 
 ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip r; }
-IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
+IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }
 GetInterface() { ifconfig | head -1 | cut -d: -f1; }
 GetDefaultGateway() { route -n | grep '^0.0.0.0' | awk '{ print $2; }'; }

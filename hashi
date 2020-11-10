@@ -32,14 +32,14 @@ usage: $(ScriptName) config|install|remove|resolve
 
 args()
 {
-	unset force host test
+	unset force hostArg test
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-f|--force) force="true";;
+			-f|--force) force="--force";;
 			-h|--help) usage 0;;
-			-h|--host) [[ ! $2 ]] && IsOption "$2" && usage 1; host="$2"; shift;;
-			-t|--test) test="true";;
+			-h|--host) [[ ! $2 ]] && IsOption "$2" && usage 1; hostArg="$2"; shift;;
+			-t|--test) test="--test";;
 			*)
 				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
 				[[ "$command" == @(install|remove|resolve) ]] && break
@@ -49,7 +49,8 @@ args()
 	done
 
 	[[ ! $command ]] && { usage; }
-	[[ $host ]] && ! HasDnsSuffix "$host" && host+=".$domain"
+	[[ $hostArg ]] && IsLocalHost "$hostArg" && hostArg="127.0.0.1"
+	! IsLocalHost "$hostArg" && ! HasDnsSuffix "$hostArg" && hostArg+=".$domain"
 
 	args=("$@")
 }
@@ -77,7 +78,9 @@ configCert()
 {
 	local name="$1"
 
-	cert="/opt/$name/cert"
+	certDir="$encrypt/$name"	# source (private) certificate directory
+	cert="/opt/$name/cert" 		# public (program) certificate directory
+
 	ca="$name-ca.pem"
 	caKey="$name-ca-key.pem"
 	certCli=$name-cli.pem
@@ -104,7 +107,8 @@ configInstall()
 	[[ ! $clients && ! $servers ]] && { clients=( "${hashiClients[@]}" ) servers=( "${hashiServers[@]}" ); }
 	[[ ! $join ]] && join=( "${servers[@]}" )
 	[[ ! $join ]] && join=( "${hashiServers[@]}" )
-
+	joinFqdn=(); local h; for h in "${join[@]}"; do joinFqdn+=( "$(os hostname "$h")" ); done
+	
 	return 0
 }
 
@@ -176,7 +180,7 @@ usage: $(ScriptName) install cli|consul|nomad|vault
 installCommand()
 {
 	local command name clients=() servers=() join=()
-	local encrypt privateCertDir
+	local encrypt certDir
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -184,7 +188,7 @@ installCommand()
 			-c|--clients) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," clients;;
 			-s|--servers) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," servers;;
 			-j|--join) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," join;;
-			-cert|--certificates) encrypt="true"; privateCertDir="$2" || return; shift;;
+			-cert|--certificates) encrypt="$2"; shift;;
 			*)
 				! IsOption "$1" && [[ ! $command ]] && { CheckSubCommand "install" "$1"; name="$1"; shift; continue; }
 				UnknownOption "$1"
@@ -215,18 +219,21 @@ installCommand()
 
 installCliCommand()
 {
-	! InPath "$name" && { inst "$name" || return; }
-
-	[[ ! $encrypt ]] && return
-
 	for name in "${modules[@]}"; do
+
+		{ [[ $force ]] || ! InPath "$name"; } && { inst $force "$name" || return; }
+
 		configCert "$name" || return
-		if [[ -d "$privateCertDir/$ca" ]]; then
+		if [[ $encrypt ]] && { [[ $force || ! -f "$cert/$ca" ]]; }; then
+			printf "Installing $name certificates..."
 			sudoc mkdir --parents "$cert" || return
-			sudo cp "$privateCertDir/$ca" "$privateCertDir/$name-cli"* "$cert" || return
+			sudoc cp "$certDir/$ca" "$certDir/$name-cli"* "$cert" || return
+			echo "done"
 		fi
+
 	done
 
+	return 0
 }
 
 installConsulCommand()
@@ -307,29 +314,34 @@ installConsulCommon()
 
 installConsulServer() 
 { 
-	consulCertServerCopy "$host" || return
+	consulCertServerCopy || return
 	AppendArray o serverOptions guiOptions
 }
 
-installConsulClient() { :; }
+installConsulClient()
+{
+	consulCertClientCopy || return
+}
 
 consulCertInit()
 {
 	# certificates are created using consul
 	! InPath "consul" && { inst "consul" || return; }
 
+	pushd "$certDir" > /dev/null || return
+
 	# create the CA and CLI certificates
 	consulCertCaMake || return
 	consulCertCliMake || return
+
+	popd > /dev/null || return
 }
 
 consulCertCaMake()
 {
 	certExist "$ca" "$caKey" && return
 
-	hilight "Creating the certificate authority PKI files for $baseDomain..."
-
-	pushd "$privateCertDir" >& /dev/null || return
+	hilight "Creating the certificate authority for $baseDomain..."
 
 	# create the cert
 	consul tls ca create \
@@ -339,17 +351,36 @@ consulCertCaMake()
 	# rename the cert
 	mv "$baseDomain-agent-ca.pem" "$ca" || return
 	mv "$baseDomain-agent-ca-key.pem" "$caKey" || return
+}
 
-	popd >& /dev/null || return
+# consulCertClientGet - get the auto generated consul client certficate authority
+# which is needed by other clients like nomad
+consulCertClientCopy()
+{
+	[[ ! $encrypt ]] && return
+
+	local f="$certDir/$certClient"
+
+	if [[ ! -f "$f" ]]; then
+
+		! InPath "consul-k8s" && { inst "consul-k8s" || return; }
+	
+		consul-k8s get-consul-client-ca \
+			--server-addr "$(getServer "consul")" \
+			--server-port "$consulHttpsPort" \
+			--ca-file="$certDir/$ca" \
+			--output-file "$f" || return
+
+	fi
+		
+	cp "$certDir/$certClient" "$tmpDir/cert" || return
 }
 
 consulCertCliMake()
 {
 	certExist "$certCli" "$certCliKey" && return
 
-	hilight "Creating the consul CLI certificates..."
-
-	pushd "$privateCertDir" >& /dev/null || return
+	hilight "Creating the CLI certificates..."
 
 	# remove any existing temporary certs
 	rm -f "$datacenter-cli-$baseDomain-"?".pem" "$datacenter-cli-$baseDomain-"?"-key.pem" || return
@@ -364,21 +395,19 @@ consulCertCliMake()
 	# rename the temporary cert
 	mv "$datacenter-cli-$baseDomain-0.pem" "$certCli" || return
 	mv "$datacenter-cli-$baseDomain-0-key.pem" "$certCliKey" || return
-
-	popd >& /dev/null || return
 }
 
 consulCertServerCopy()
 {	
+	[[ ! $encrypt ]] && return
+
 	local c="consul-server-$host.pem"
 	local k="consul-server-$host-key.pem"
 
-	[[ ! $encrypt ]] && return
-
 	consulCertServerMake "$c" "$k" || return
 
-	cp "$privateCertDir/$c" "$tmpDir/cert/$certServer" || return
-	cp "$privateCertDir/$k" "$tmpDir/cert/$certServerKey" || return
+	cp "$certDir/$c" "$tmpDir/cert/$certServer" || return
+	cp "$certDir/$k" "$tmpDir/cert/$certServerKey" || return
 }
 
 consulCertServerMake()
@@ -390,7 +419,7 @@ consulCertServerMake()
 	hilight "Creating the $host server certificate..."
 
 	# move to the certificate directory
-	pushd "$privateCertDir" >& /dev/null || return
+	pushd "$certDir" >& /dev/null || return
 
 	# remove any existing temporary certs
 	rm -f "$datacenter-server-$baseDomain-?.pem" "$datacenter-server-$baseDomain-?-key.pem" || return
@@ -483,16 +512,24 @@ installNomadCommon()
 { 
 	[[ ! $encrypt ]] && return
 
+	# set the certificate configuration to consul
 	configCert "consul" || return
 
+	local caCert="$ca"
+
+	# get the auto generated consul client certificate
+	[[ "$type" == "client" ]] && caCert="$certClient"
+	
+	# create the service environment file
 	cat > "$tmpDir/$name.env" <<-EOF
 		CONSUL_HTTP_SSL=true
-		CONSUL_CACERT=$cert/$ca
+		CONSUL_CACERT=$cert/$caCert
 		CONSUL_CLIENT_CERT=$cert/$certServer
 		CONSUL_CLIENT_KEY=$cert/$certServerKey
 	EOF
 
-	configCert "$name" || return
+	# return the nomad certificate configuration
+	configCert "nomad" || return
 }
 
 installNomadServer()
@@ -509,7 +546,81 @@ installNomadClient()
 
 nomadCertInit()
 {
-	:;
+	# certificates are created using consul
+	! InPath "cfssl" && { inst "cfssl" || return; }
+
+	pushd "$certDir" >& /dev/null || return
+
+	# create the CA and CLI certificates
+	nomadCertCaMake || return
+	nomadCertServerMake || return
+	nomadCertClientMake || return
+	nomadCertCliMake || return
+
+	popd >& /dev/null || return
+}
+
+nomadCertCaMake()
+{
+	certExist "$ca" "$caKey" && return
+
+	hilight "Creating the nomad certificate authority..."
+	cfssl print-defaults csr | cfssl gencert -initca - | cfssljson -bare nomad-ca || return
+}
+
+nomadCertServerMake()
+{
+	certExist "$certServer" "$certServerKey" && return
+
+	hilight "Creating the server certificate..."
+
+	# create the cfssl configuration file
+	[[ ! -f "cfssl.json" ]] && { cat <<-EOF > cfssl.json || return; }
+		{
+		    "signing": {
+		        "default": {
+		            "expiry": "87600h",
+		            "usages": [
+		                "signing",
+		                "key encipherment",
+		                "server auth",
+		                "client auth"
+		            ]
+		        }
+		    }
+		}
+	EOF
+
+	# add the nomad servers to the certificate
+	local h="$(DelimitArray "," joinFqdn)"; [[ $h ]] && h+=","
+	local hosts="${h}server.global.nomad,localhost,127.0.0.1"
+
+	# create the certificate
+	echo '{}' | \
+		cfssl gencert -ca=nomad-ca.pem -ca-key=nomad-ca-key.pem -config=cfssl.json -hostname="$hosts" - | \
+		cfssljson -bare nomad-server || return
+}
+
+nomadCertClientMake()
+{
+	certExist "$certClient" "$certClientKey" && return
+
+	hilight "Creating the client certificate..."
+
+	echo '{}' | \
+		cfssl gencert -ca=nomad-ca.pem -ca-key=nomad-ca-key.pem -profile=client - | \
+		cfssljson -bare nomad-client || return
+}
+
+nomadCertCliMake()
+{
+	certExist "$certCli" "$certCliKey" && return
+
+	hilight "Creating the CLI certificate..."
+
+	echo '{}' | \
+		cfssl gencert -ca=nomad-ca.pem -ca-key=nomad-ca-key.pem -profile=client - | \
+		cfssljson -bare nomad-cli
 }
 
 #
@@ -590,14 +701,14 @@ removeNomadCommand() { :; }
 # Certificate Helper
 #
 
-certExist() { [[ -f "$privateCertDir/$1" && -f "$privateCertDir/$2" ]]; }
+certExist() { [[ -f "$certDir/$1" && -f "$certDir/$2" ]]; }
 
 certInit()
 {
 	[[ ! $encrypt ]] && return
 
 	# create the certificate directory
-	[[ ! -d "$privateCertDir" ]] && { mkdir --parents "$privateCertDir" || return; }
+	[[ ! -d "$certDir" ]] && { mkdir --parents "$certDir" || return; }
 
 	# module specific certificate initialization
 	${name}CertInit || return
@@ -606,15 +717,13 @@ certInit()
 certServerCopy()
 {
 	[[ ! $encrypt ]] && return
-	cp "$privateCertDir/$certServer" "$tmpDir/cert" || return
-	cp "$privateCertDir/$certServerKey" "$tmpDir/cert" || return
+	cp "$certDir/$certServer" "$certDir/$certServerKey" "$tmpDir/cert" || return
 }
 
 certClientCopy()
 {
 	[[ ! $encrypt ]] && return
-	cp "$privateCertDir/$certClient" "$tmpDir/cert" || return
-	cp "$privateCertDir/$certClientKey" "$tmpDir/cert" || return
+	cp "$certDir/$certClient" "$certDir/$certClientKey" "$tmpDir/cert" || return
 }
 
 #
@@ -623,7 +732,7 @@ certClientCopy()
 
 installAll()
 {
-	local server hostFqdn
+	local hostFqdn type
 	local -A o
 
 	# certificate initialization
@@ -637,13 +746,15 @@ installAll()
 
 	# install servers
 	for host in "${servers[@]}"; do
-		installInit "true" || return
+		type="server"
+		installInit || return
 		install$(ProperCase "$name")Server || return
 		installPerform || return
 	done
 
 	# install clients
 	for host in "${clients[@]}"; do
+		type="client"
 		installInit || return
 		install$(ProperCase "$name")Client || return
 		installPerform || return
@@ -652,8 +763,6 @@ installAll()
 
 installInit()
 {
-	local server="$1" type="client"; [[ $server ]] && type="server"
-
 	# host information
 	hostFqdn="$(os hostname "$host")" || return # host fully qualified domain name
 	host="$(RemoveDnsSuffix "$hostFqdn")"
@@ -669,7 +778,7 @@ installInit()
 	! IsLocalHost "$host" && { installExecutable || return; }
 
 	# copy certificates
-	[[ $encrypt ]] && { cp "$privateCertDir/$ca" "$privateCertDir/$name-cli"* "$tmpDir/cert" || return; }
+	[[ $encrypt ]] && { cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$tmpDir/cert" || return; }
 
 	# service
 	printf "" > "$tmpDir/$name.env"
@@ -918,7 +1027,7 @@ getPort()
 # getServer MODULE - get the server for the module
 getServer()
 {
-	[[ $host ]] && { echo "$host"; return; }
+	[[ $hostArg ]] && { echo "$hostArg"; return; }
 
 	if [[ -f $serviceFile ]] && IsProcessRunning $name && service running "$1"; then
 		echo "127.0.0.1"
