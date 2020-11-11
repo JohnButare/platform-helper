@@ -128,10 +128,10 @@ configCommand()
 
 		[[ -f "$cert/$certCli" ]] && args+=" -ca-file=$cert/$ca -client-cert=$cert/$certCli -client-key=$cert/$certCliKey"
 
-		local addr="ADDR"; [[ "$name" == "consul" ]] && addr="HTTP_ADDR"
+		local http=""; [[ "$name" == "consul" ]] && http="HTTP_"
 
 		cat <<-EOF
-			export ${name^^}_$addr="$url"
+			export ${name^^}_${http}ADDR="$url"
 			export ${name^^}_ARGS="-http-addr=$url$args"
 		EOF
 
@@ -142,7 +142,7 @@ configCommand()
 				export ${name^^}_CLIENT_KEY="$cert/$certCliKey"
 			EOF
 
-		local token; token="$(getToken "$name")" && echo "export ${name^^}_HTTP_TOKEN=\"$token\""
+		local token; token="$(getToken "$name")" && echo "export ${name^^}_${http}TOKEN=\"$token\""
 
 		echo
 
@@ -235,6 +235,10 @@ installCliCommand()
 
 	return 0
 }
+
+#
+# Install Consul Command
+#
 
 installConsulCommand()
 { 
@@ -442,7 +446,7 @@ consulCertServerMake()
 }
 
 #
-# Install Nomad
+# Install Nomad Command
 #
 
 installNomadCommand()
@@ -462,6 +466,10 @@ installNomadCommand()
 	)
 
 	aclOptions=(
+	)
+
+	aclOptions=(
+		[acl]="{ enabled = true }"
 	)
 
 	serverOptions=(
@@ -759,6 +767,8 @@ installAll()
 		install$(ProperCase "$name")Client || return
 		installPerform || return
 	done
+
+	installAcl || return
 }
 
 installInit()
@@ -796,8 +806,8 @@ installInit()
 installPerform()
 {
 	# create the configuration files
-	installHclConfig o > "$tmpDir/config/$configFileBase" || return
-	installServiceConfig > "$tmpDir/$name.service" || return
+	installConfigHcl o > "$tmpDir/config/$configFileBase" || return
+	installConfigService > "$tmpDir/$name.service" || return
 
 	# copy the files to the remote host
 	if ! IsLocalHost "$host"; then
@@ -869,8 +879,34 @@ installPerform()
 
 }
 
-# installHclConfig - turn the passed array variables into an HCL script
-installHclConfig()
+installAcl()
+{
+	eval "$(hashi config)"
+	
+	# generate the bootstrap token
+	local token="$($name acl bootstrap 2>&1)" || return 0
+	local secret="$(echo "$token" | grep "Secret ID" | cut -d= -f 2 | RemoveSpace)" 
+
+	# store the bootstrap token in the credential store
+	[[ $secret ]] && credential set "$name" token "$secret"
+
+	# show the full bootstrap text
+	header "$name Bootstrap Token"
+	hilight "Store the following bootstrap token in a secure location:"
+	echo "$token"
+
+	# check if the bootstrap token was stored correctly
+	if [[ ! $secret || "$(credential get "$name" token)" != "$secret" ]]; then
+		EchoErr "unable to store the bootstrap token in the credential store"
+		return 1
+	fi
+
+	return 0
+}
+
+
+# installConfigHcl - turn the passed array variables into an HCL script
+installConfigHcl()
 {
 	local key var
 
@@ -894,7 +930,7 @@ installHclConfig()
 	done
 }
 
-installServiceConfig()
+installConfigService()
 {
 	local exec="ExecStart=$execStart"
 	[[ $execReload ]] && exec+=$'\n'"ExecReload=$execReload"
