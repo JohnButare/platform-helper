@@ -609,8 +609,11 @@ HostNameCheck() { SshHelper "$@" hostname; }
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }
 
 GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }
-HasDnsSuffix() { GetArgs; [[ "$1" =~ \. ]]; }
+HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }
 RemoveDnsSuffix() { GetArgs; printf "${@%%.*}"; }
+
+# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already  present
+AddDnsSuffix() { HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; }
 
 GetBroadcastAddress()
 {

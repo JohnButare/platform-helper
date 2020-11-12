@@ -6,7 +6,7 @@ run() {	init && args "$@" && ${command}Command "${args[@]}"; }
 
 init()
 {
-	modules=( consul nomad vault )
+	products=( consul nomad vault )
 	datacenter="$workgroup"
 
 	consulHttpPort="8500"
@@ -20,19 +20,26 @@ init()
 usage()
 {
 	echot "\
-usage: $(ScriptName) config|install|remove|ui|unseal
+usage: $(ScriptName) COMMAND
 
-	install|remove cli|consul|nomad|vault 
-		install or remove a product
-	
-	lookup|resolve	[all] [NAME[.service]]
-		lookup or resolve the first or all names
+	config						display the configuration variables
+	ui								start the hashi-ui server and launch it
 
-	config		return the configuration variables
+	install|remove [PRODUCT]		install or remove a product
+		PRODUCT can be cli|consul|nomad|vault
 
+	lookup|resolve 		get the first or all hosts
+		[all] [NAME[.service]]
+	unseal 		unseal the vault for the specified hosts
+
+--host [HOST|all](found) - comma separated list of hosts to unseal
+
+	-h, --host HOST		use the specified host
 	-f, --force				force installation
-	-h, --host				use the specified host
-	-t, --test				do not make changes	"
+	-t, --test				do not make changes	
+
+
+	"
 	exit ${1:-1}
 }
 
@@ -55,8 +62,6 @@ args()
 	done
 
 	[[ ! $command ]] && { usage; }
-	[[ $hostArg ]] && IsLocalHost "$hostArg" && hostArg="127.0.0.1"
-	! IsLocalHost "$hostArg" && ! HasDnsSuffix "$hostArg" && hostArg+=".$domain"
 
 	args=("$@")
 }
@@ -109,9 +114,11 @@ configInstall()
 	executable="$(FindInPath "$name")" || return
 	user="$name"
 
-	# defaults
+	# clients and server defaults
 	[[ "$name" == "vault" && ! $servers ]] && { servers=( "${vaultServers[@]}" ); }
 	[[ ! $clients && ! $servers ]] && { clients=( "${hashiClients[@]}" ) servers=( "${hashiServers[@]}" ); }
+
+	# join servers
 	[[ ! $join ]] && join=( "${servers[@]}" )
 	[[ ! $join ]] && join=( "${hashiServers[@]}" )
 	joinFqdn=(); local h; for h in "${join[@]}"; do joinFqdn+=( "$(os hostname "$h")" ); done
@@ -127,7 +134,7 @@ configCommand()
 {
 	(( $# != 0 )) && usage 1
 
-	for name in "${modules[@]}"; do
+	for name in "${products[@]}"; do
 		configCommon "$name" || return
 		configCert "$name" || return
 
@@ -184,25 +191,25 @@ resolveCommand()
 
 uiCommand()
 {
-	local module
+	local product
 
-	module="consul"
-	configCommon "$module" || return
-	configCert "$module" || return
+	product="consul"
+	configCommon "$product" || return
+	configCert "$product" || return
 	export CONSUL_ENABLE="true"
-	export CONSUL_ADDR="$(getUrl "$module")"
-	export CONSUL_ACL_TOKEN="$(credential get "$module" token)"
+	export CONSUL_ADDR="$(getUrl "$product")"
+	export CONSUL_ACL_TOKEN="$(credential get "$product" token)"
 	export CONSUL_HTTP_SSL="true"
 	export CONSUL_CACERT="$cert/$ca"
 	export CONSUL_CLIENT_CERT="$cert/$certCli"
 	export CONSUL_CLIENT_KEY="$cert/$certCliKey"
 
-	module="nomad"
-	configCommon "$module" || return
-	configCert "$module" || return
+	product="nomad"
+	configCommon "$product" || return
+	configCert "$product" || return
 	export NOMAD_ENABLE="true"
-	export NOMAD_ADDR="$(getUrl "$module")"
-	export NOMAD_ACL_TOKEN="$(credential get "$module" token)"
+	export NOMAD_ADDR="$(getUrl "$product")"
+	export NOMAD_ACL_TOKEN="$(credential get "$product" token)"
 	export NOMAD_HTTP_SSL="true"
 	export NOMAD_CACERT="$cert/$ca"
 	export NOMAD_CLIENT_CERT="$cert/$certCli"
@@ -214,10 +221,30 @@ uiCommand()
 
 unsealCommand()
 {
-	[[ ! -n $VAULT_ADDR ]] && eval "$(hashi config)"
+	local host hosts=() key
 
-	for key in 1 2 3; do
-		vault operator unseal $(credential get vault key$key)
+	# get the vault hosts
+	if [[ ! $hostArg ]]; then
+		hosts=( "${vaultServers[@]}" )
+	else
+		StringToArray "$hostArg" "," hosts
+	fi
+
+	# unseal each host
+	for host in "${hosts[@]}"; do
+		header "$host"
+		eval "$(hashi config --host "$host")"
+
+		for n in 1 2 3; do
+			hilight "Unsealing $host with key $n..."
+			key="$(credential get vault key$n)"
+			if [[ $key ]]; then
+				vault operator unseal "$key" || return
+			else
+				echo "key $n does not exist in the credential store"
+			fi
+		done
+
 	done
 }
 
@@ -281,7 +308,7 @@ installCommand()
 
 installCliCommand()
 {
-	for name in "${modules[@]}"; do
+	for name in "${products[@]}"; do
 
 		{ [[ $force ]] || ! InPath "$name"; } && { inst $force "$name" || return; }
 
@@ -730,8 +757,9 @@ installVaultCommand()
 
 	guiOptions=( [ui]="true" )
 
-	# install
+	# install and initialize
 	installAll || return
+	vaultInit || return
 }
 
 installVaultCommon()
@@ -753,6 +781,36 @@ installVaultCommon()
 }
 
 installVaultServer() { AppendArray o guiOptions; }
+
+vaultInit()
+{
+	# here here
+	vault operator init || return
+
+
+		eval "$(hashi config)"
+	
+	# generate the bootstrap token
+	local token; token="$($name acl bootstrap 2>&1)" || return 0
+	local secret="$(echo "$token" | grep "Secret ID" | cut -d= -f 2 | RemoveSpace)" 
+
+	# store the bootstrap token in the credential store
+	[[ $secret ]] && credential set "$name" token "$secret"
+
+	# show the full bootstrap text
+	header "$name Bootstrap Token"
+	hilight "Store the following bootstrap token in a secure location:"
+	echo "$token"
+
+	# check if the bootstrap token was stored correctly
+	if [[ ! $secret || "$(credential get "$name" token)" != "$secret" ]]; then
+		EchoErr "unable to store the bootstrap token in the credential store"
+		return 1
+	fi
+
+	return 0
+
+}
 
 #
 # Remove Command
@@ -808,7 +866,7 @@ certInit()
 	# create the certificate directory
 	[[ ! -d "$certDir" ]] && { mkdir --parents "$certDir" || return; }
 
-	# module specific certificate initialization
+	# product specific certificate initialization
 	RunFunction "${name}CertInit"
 }
 
@@ -1155,50 +1213,59 @@ removeCommon()
 # helper
 #
 
-# getPort MODULE - get the primary port for the module
+# getPort PRODUCT - get the primary port for the specified product
 getPort()
 {
+	local p="$1"
 	declare -n port
 
 	if [[ -d "$cert" ]]; then
-		port="${1}HttpsPort"
+		port="${p}HttpsPort"
 		echo "$port"
 	else
-		port="${1}HttpPort"
+		port="${p}HttpPort"
 		echo "$port"
 	fi
 }
 
-# getServer MODULE - get the server for the module
+# getServer PRODUCT - get the server for the product
 getServer()
 {
-	[[ $hostArg ]] && { echo "$hostArg"; return; }
+	local p="$1"
 
-	if [[ -f $serviceFile ]] && IsProcessRunning $name && service running "$1"; then
+	# use the hostArg
+	if [[ $hostArg ]]; then
+		IsLocalHost "$hostArg" && echo "127.0.0.1" || AddDnsSuffix "$hostArg" "$domain" 
+		return
+	fi
+
+	if [[ -f $serviceFile ]] && IsProcessRunning $name && service running "$p"; then
 		echo "127.0.0.1"
 	else
-		echo "$(GetWord "$hashiServers" 1).$domain"
+		AddDnsSuffix "$(GetWord "$hashiServers" 1)" "$domain"
 	fi
 }
 
-# getToken MODULE - get the authentication token for the module
+# getToken PRODUCT - get the authentication token for the product
 getToken() { credential get "$1" token; }
 
-
+# getConsulTokenConfig - get the consul token configuration text
 getConsulTokenConfig()
 {
-	local token="$(getConsulTokenConfig)"
+	local token="$(getToken "consul")"
 	token="$(getToken "consul")" && token=$'\n'"  token=\"$token\""
 	echo "$token"
 }
 
-# getUrl MODULE - get the communication URL for the module
+# getUrl PRODUCT - get the communication URL for the product
 getUrl()
 {
+	local p="$1"
+
 	if [[ -d "$cert" ]]; then
-		echo "https://$(getServer "$1"):$(getPort "$1")"
+		echo "https://$(getServer "$p"):$(getPort "$p")"
 	else
-		echo "http://$(getServer "$1"):$(getPort "$1")"
+		echo "http://$(getServer "$p"):$(getPort "$p")"
 	fi
 }
 
