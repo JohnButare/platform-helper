@@ -6,23 +6,29 @@ run() {	init && args "$@" && ${command}Command "${args[@]}"; }
 
 init()
 {
-	modules=( consul nomad )
+	modules=( consul nomad vault )
 	datacenter="$workgroup"
 
 	consulHttpPort="8500"
 	consulHttpsPort="8501"
 	nomadHttpPort="4646"
 	nomadHttpsPort="4646"
+	vaultHttpPort="8200"
+	vaultHttpsPort="8200"
 }
 
 usage()
 {
 	echot "\
-usage: $(ScriptName) config|install|remove|resolve|ui
-	install|remove cli|consul|nomad|vault 		install or remove the product
+usage: $(ScriptName) config|install|remove|ui|unseal
 
-	config									return the configuration variables
-	resolve	[all] [NAME]		resolve the first or all adresses names
+	install|remove cli|consul|nomad|vault 
+		install or remove a product
+	
+	lookup|resolve	[all] [NAME[.service]]
+		lookup or resolve the first or all names
+
+	config		return the configuration variables
 
 	-f, --force				force installation
 	-h, --host				use the specified host
@@ -42,7 +48,7 @@ args()
 			-t|--test) test="--test";;
 			*)
 				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				[[ "$command" == @(install|remove|resolve) ]] && break
+				[[ "$command" == @(install|lookup|remove|resolve) ]] && break
 				UnknownOption "$1"
 		esac
 		shift
@@ -76,7 +82,7 @@ configCommon()
 
 configCert()
 {
-	local name="$1"
+	local name="$1"; [[ "$name" == "vault" ]] && name="consul" # vault uses consul certificates
 
 	certDir="$encrypt/$name"	# source (private) certificate directory
 	cert="/opt/$name/cert" 		# public (program) certificate directory
@@ -104,6 +110,7 @@ configInstall()
 	user="$name"
 
 	# defaults
+	[[ "$name" == "vault" && ! $servers ]] && { servers=( "${vaultServers[@]}" ); }
 	[[ ! $clients && ! $servers ]] && { clients=( "${hashiClients[@]}" ) servers=( "${hashiServers[@]}" ); }
 	[[ ! $join ]] && join=( "${servers[@]}" )
 	[[ ! $join ]] && join=( "${hashiServers[@]}" )
@@ -149,13 +156,29 @@ configCommand()
 	done
 }
 
+lookupCommand()
+{
+	local name="$1"; [[ ! $name ]] && usage 1
+
+	! HasDnsSuffix "$name" && name+=".service"
+	name+=".$domain"
+
+	configCommon "consul" || return
+	nslookup -port=8600 -type=a -norecurse "$name" "$(getServer "consul")"
+}
+
 resolveCommand()
 {
 	local all="head -1"; [[ "$1" == "all" ]] && { all="cat"; shift; }
 
-	(( $# != 1 )) && usage 1
+	local result="$(lookupCommand "$@")" || return
 
-	nslookup -port=8600 -type=a -norecurse "$1" "$(getServer "consul")" | tail +4 | grep "^Address:" | cut -d: -f2 | RemoveSpace | $all
+	if [[ "$result" =~ .*canonical\ name.* ]]; then
+		printf "$result" | tail +4 | grep "canonical name =" | cut -d= -f2 | RemoveSpace | sed 's/.$//' | $all
+	else
+		printf "$result" | tail +4 | grep "^Address:" | cut -d: -f2 | RemoveSpace | $all
+	fi
+
 	return "${PIPESTATUS[0]}"
 }
 
@@ -187,6 +210,15 @@ uiCommand()
 
 	hashi-ui-linux-amd64 &
 	start "http://$(GetIpAddress):3000"
+}
+
+unsealCommand()
+{
+	[[ ! -n $VAULT_ADDR ]] && eval "$(hashi config)"
+
+	for key in 1 2 3; do
+		vault operator unseal $(credential get vault key$key)
+	done
 }
 
 #
@@ -273,7 +305,7 @@ installCliCommand()
 installConsulCommand()
 { 
 	# configuration
-	local -A options serverOptions aclOptions guiOptions 
+	local -A options serverOptions guiOptions 
 	local -A commonEncryptOptions clientEncryptOptions serverEncryptOptions 
 
 	options=( 
@@ -283,9 +315,6 @@ installConsulCommand()
 		[client_addr]="0.0.0.0"
 		[bind_addr]='{{ GetInterfaceIP \"eth0\" }}'
 		[retry_join]="[ $(ShowArray join ", ") ]"
-	)
-
-	aclOptions=(
 		[acl]="$(cat <<-EOF
 			{ 
 			  enabled = true
@@ -341,6 +370,7 @@ installConsulCommon()
 	)"
 
 	serviceType="notify"
+	networkTarget="Requires=network-online.target"
 	execStart="$executable agent -config-dir=$config"
 	execReload="$executable reload $cliArgs"
 	execStop="$executable leave $cliArgs"
@@ -482,24 +512,18 @@ consulCertServerMake()
 installNomadCommand()
 {
 	# configuration
-	local -A options clientOptions serverOptions aclOptions 
+	local -A options clientOptions serverOptions guiOptions
 	local -A commonEncryptOptions clientEncryptOptions serverEncryptOptions 
 
-	local token; token="$(getToken "consul")" && token=$'\n'"	token=\"$token\""
+	local token="$(getConsulTokenConfig)"
 
 	options=( 
 		[datacenter]="$datacenter"
 		[data_dir]="/opt/$name"
-		[consul]="{$token
-  address = \"127.0.0.1:$(getPort "consul")\"
-}"
-	)
-
-	aclOptions=(
-	)
-
-	aclOptions=(
 		[acl]="{ enabled = true }"
+		[consul]="{$token
+        address = \"127.0.0.1:$(getPort "consul")\"
+}"
 	)
 
 	serverOptions=(
@@ -513,9 +537,6 @@ installNomadCommand()
 		[client]="{
 	enabled = true 
 }"
-	)
-
-	commonEncryptOptions=(
 	)
 
 	clientEncryptOptions=(
@@ -667,33 +688,71 @@ nomadCertCliMake()
 
 installVaultCommand()
 {
-	local -A o options guiOptions
+	# configuration
+	local -A options clientOptions serverOptions guiOptions
+
+	local token="$(getConsulTokenConfig)"
 
 	# configuration
 	options=(
-		[storage]='"raft" { path = "'$data'" }'
-		[listener]='"tcp" { address = "0.0.0.0:8200", tls_disable = 0 }'
-		[api_addr]='http://0.0.0.0:8200'
-		[cluster_addr]='https://'$host':8201'
+		[listener]="\"tcp\" $(cat <<-EOF
+			{ 
+			  address = "0.0.0.0:8200"
+			  tls_cert_file = "$cert/$certCli"
+  		  tls_key_file = "$cert/$certCliKey"
+			}
+			EOF
+		)"
+
+		[storage]="\"consul\" $(cat <<-EOF
+			{$token
+			  path = "vault/"
+			  address = "127.0.0.1:8501"
+			  scheme = "https"
+			  tls_ca_file = "$cert/$ca"
+			  tls_cert_file = "$cert/$certCli"
+			  tls_key_file = "$cert/$certCliKey"
+			}
+			EOF
+		)"
+
+		[service_registration]="\"consul\" $(cat <<-EOF
+				{$token
+				  address="127.0.0.1:8501"
+				  scheme="https"
+				  tls_ca_file = "$cert/$ca"
+				  tls_cert_file = "$cert/$certCli"
+				  tls_key_file = "$cert/$certCliKey"
+				}
+			EOF
+		)"
 	)
 
 	guiOptions=( [ui]="true" )
-
-	clients+=( "${servers[@]}" )
-	unset servers
 
 	# install
 	installAll || return
 }
 
-installVaultClient()
+installVaultCommon()
 {
-	scriptRun "$(cat <<-EOF
+	# options
+	o[api_addr]="https://$hostFqdn:8200"
+
+	# service
+	execStart="$executable server -config=$config"
+
+	# script
+	scriptFinal="$(cat <<-EOF
+		echo "Configuring vault..."
+
 		# allow memory locking without elevation (so don't need to run as root)
 		sudo setcap cap_ipc_lock=+ep "$executable" || return
 		EOF
 	)"
 }
+
+installVaultServer() { AppendArray o guiOptions; }
 
 #
 # Remove Command
@@ -734,6 +793,7 @@ removeCommand()
 
 removeConsulCommand() { :; }
 removeNomadCommand() { :; }
+removeVaultCommand() { :; }
 
 #
 # Certificate Helper
@@ -749,7 +809,7 @@ certInit()
 	[[ ! -d "$certDir" ]] && { mkdir --parents "$certDir" || return; }
 
 	# module specific certificate initialization
-	${name}CertInit || return
+	RunFunction "${name}CertInit"
 }
 
 certServerCopy()
@@ -770,13 +830,14 @@ certClientCopy()
 
 installAll()
 {
-	local hostFqdn type
+	local f hostFqdn hostIp type scriptFinal
 	local -A o
 
 	# certificate initialization
 	certInit || return
 
 	# service
+	local networkTarget="Wants=network-online.target"
 	local serviceType="simple"
 	local execStart="$executable agent -config=$config"
 	local execReload="/bin/kill -HUP"
@@ -786,7 +847,7 @@ installAll()
 	for host in "${servers[@]}"; do
 		type="server"
 		installInit || return
-		install$(ProperCase "$name")Server || return
+		RunFunction "install$(ProperCase "$name")Server" || return
 		installPerform || return
 	done
 
@@ -794,7 +855,7 @@ installAll()
 	for host in "${clients[@]}"; do
 		type="client"
 		installInit || return
-		install$(ProperCase "$name")Client || return
+		RunFunction "install$(ProperCase "$name")Client" || return
 		installPerform || return
 	done
 
@@ -803,9 +864,12 @@ installAll()
 
 installInit()
 {
+	scriptFinal=""
+
 	# host information
 	hostFqdn="$(os hostname "$host")" || return # host fully qualified domain name
 	host="$(RemoveDnsSuffix "$hostFqdn")"
+	hostIp="$(GetIpAddress "$hostFqdn")"
 
 	# header
 	header "Install $(ProperCase "$name") $(ProperCase "$type") ($host)"
@@ -818,19 +882,17 @@ installInit()
 	! IsLocalHost "$host" && { installExecutable || return; }
 
 	# copy certificates
-	[[ $encrypt ]] && { cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$tmpDir/cert" || return; }
+	[[ $encrypt ]] && { FileCommand cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$tmpDir/cert" || return; }
 
 	# service
 	printf "" > "$tmpDir/$name.env"
 
 	# options - other options added in installPRODUCTServer or installPRODUCTClient
-	o=( )
-	AppendArray o options aclOptions
-	[[ $encrypt ]] && AppendArray o commonEncryptOptions ${type}EncryptOptions
+	o=( ); AppendArray o options
+	[[ "$encrypt" ]] && IsDeclared commonEncryptOptions && AppendArray o commonEncryptOptions
+	[[ "$encrypt" ]] && IsDeclared ${type}EncryptOptions && AppendArray o ${type}EncryptOptions
 
-	install$(ProperCase "$name")Common || return
-
-	return 0
+	RunFunction "install$(ProperCase "$name")Common"
 }
 
 installPerform()
@@ -898,6 +960,8 @@ installPerform()
 			sudo systemctl start "$name" || exit
 		fi
 
+		$scriptFinal
+
 		# cleanup
 		echo "Cleaning up..."
 		rm -fr "/tmp/$name.tmp"
@@ -914,7 +978,7 @@ installAcl()
 	eval "$(hashi config)"
 	
 	# generate the bootstrap token
-	local token="$($name acl bootstrap 2>&1)" || return 0
+	local token; token="$($name acl bootstrap 2>&1)" || return 0
 	local secret="$(echo "$token" | grep "Secret ID" | cut -d= -f 2 | RemoveSpace)" 
 
 	# store the bootstrap token in the credential store
@@ -946,11 +1010,21 @@ installConfigHcl()
 		for key in "${!config[@]}"; do
 
 			local equal=" =" quote="true" v="${config[$key]}"
-			local fc="${v:0:1}" # first character
-			[[ "$fc" == "{" && "${v:0:2}" != "{{" ]] && quote="" equal=""
+			local fc="${v:0:1}" sc="${v:1:1}" # first and second characters
+
+			# example: addresses { https = "0.0.0.0" }
+			[[ "$fc" == "{" && "$sc" != "{" ]] && quote="" equal=""
+
+			# example: retry_join = [ "pi3", "pi4" ]
 			[[ "$fc" == "[" ]] && quote=""
-			[[ "$fc" == "\"" ]] && quote=""
+
+			# listener "tcp" { address = "0.0.0.0:8200", tls_disable = 1 }
+			[[ "$fc" == "\"" ]] && quote="" equal=""
+
+			# boolean, example: server = true			
 			[[ "$v" == @(true|false) ]] && quote=""
+
+			# integer, example: bootstrap_expect = 2
 			IsInteger "$v" && quote=""
 
 			[[ $quote ]] && echo "$key$equal \"${config[$key]}\"" || echo "$key$equal ${config[$key]}"
@@ -970,7 +1044,7 @@ installConfigService()
 		[Unit]
 		Description="HashiCorp $(ProperCase "$name")
 		Documentation=https://www.hashicorp.com/products/$name
-		Requires=network-online.target
+		$networkTarget
 		After=network-online.target
 		ConditionFileNotEmpty=$configFile
 
@@ -983,7 +1057,12 @@ installConfigService()
 		KillMode=process
 		KillSignal=SIGINT
 		Restart=on-failure
-		LimitNOFILE=65536
+		RestartSec=2
+		StartLimitBurst=3
+		StartLimitIntervalSec=10
+		LimitNOFILE=infinity
+		LimitNPROC=infinity
+		TasksMax=infinity
 
 		[Install]
 		WantedBy=multi-user.target
@@ -1105,6 +1184,14 @@ getServer()
 # getToken MODULE - get the authentication token for the module
 getToken() { credential get "$1" token; }
 
+
+getConsulTokenConfig()
+{
+	local token="$(getConsulTokenConfig)"
+	token="$(getToken "consul")" && token=$'\n'"  token=\"$token\""
+	echo "$token"
+}
+
 # getUrl MODULE - get the communication URL for the module
 getUrl()
 {
@@ -1117,7 +1204,7 @@ getUrl()
 
 scriptRun()
 {
-	local functions="$(FindInPath function.sh)" script="$1"
+	local functions="$(FindInPath function.sh | GetFullPath)" script="$1"
 
 	script="$(cat <<-EOF
 

@@ -176,7 +176,7 @@ powershell()
 
 	[[ "$1" == @(--version|-v) ]] && { powershell -Command '$PSVersionTable'; return; }
 	
-	FindInPath Apowershell.exe && { powershell.exe "$@"; }
+	FindInPath powershell.exe && { powershell.exe "$@"; }
 	for f in "${files[@]}"; do
 		[[ -f "$f" ]] && { "$f" "$@"; return; }
 	done
@@ -1357,11 +1357,12 @@ IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; [[ "$-" == *i* ]] && return 1 || exit 1; }
 UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unknown unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information.";	[[ "$-" == *i* ]] && return 1 || exit 1; }
 
-# RunFunction NAME SUFFIX - call a function with the specified suffix
+# RunFunction NAME [SUFFIX] - call a function if it exists, optionally with the specified suffix
 RunFunction()
 { 
-	local method="$1" suffix="$2"; shift 2
-	[[ $suffix ]] && IsFunction $method${suffix^} && { $method${suffix^} "$@"; return; }
+	local f="$1" suffix; shift
+	IsFunction "$f${1^}" && { f="$f${1^}"; shift; } # method argument
+	IsFunction "$f" && { "$f" "$@"; return; }				# run function if it exists
 	return 0
 }
 

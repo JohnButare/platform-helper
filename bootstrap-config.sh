@@ -14,7 +14,8 @@ proxy="http://proxy.$domain:3128" # proxy server for package download
 
 fileServer="$host"
 hashiServers=( pi3 pi4 )
-hashiClients=( pi5 rp1 )
+hashiClients=( pi5 pi6 )
+vaultServers=( "${hashiServers[@]}" )
 
 #user=""
 #host="/mnt/d"
