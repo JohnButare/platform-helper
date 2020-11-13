@@ -96,6 +96,14 @@ GetLoginShell()
 	fi
 }
 
+AddLoginShell()
+{
+	local shell="$1" shells="/etc/shells";  IsPlatform entware && shells="/opt/etc/shells"
+	[[ ! -f "$shell" ]] && { EchoErr "AddLoginShell: $shell is not a valid shell"; return 1; }
+	grep "$shell" "$shells" >& /dev/null && return
+	echo "$shell" | sudo tee "$shells" || return
+}
+
 SetLoginShell() # SetCurrentShell SHELL
 {
 	local shell; shell="$(FindLoginShell "$1")" || return
@@ -116,14 +124,14 @@ SetLoginShell() # SetCurrentShell SHELL
 
 FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 {
-	local shell shells="/etc/shells"
+	local shell shells="/etc/shells";  IsPlatform entware && shells="/opt/etc/shells"
 
 	[[ ! $1 ]] && { MissingOperand "shell" "FindLoginShell"; return; }
 
 	if [[ -f "$shells" ]]; then
-		shell="$(grep "/$1" /etc/shells | tail -1)" # assume the last shell is the newest
+		shell="$(grep "/$1" "$shells" | tail -1)" # assume the last shell is the newest
 	else
-		shell="$(which shell)" # no valid shell file, assume it is valid and search for it in the path
+		shell="$(which "$1")" # no valid shell file, assume it is valid and search for it in the path
 	fi
 
 	[[ ! -f "$shell" ]] && { EchoErr "FindLoginShell: $1 is not a valid default shell"; return 1; }
@@ -1360,13 +1368,13 @@ IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; [[ "$-" == *i* ]] && return 1 || exit 1; }
 UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unknown unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information.";	[[ "$-" == *i* ]] && return 1 || exit 1; }
 
-# RunFunction NAME [SUFFIX] - call a function if it exists, optionally with the specified suffix
+# RunFunction NAME [SUFFIX|--] [ARGS]- call a function if it exists, optionally with the specified suffix
 RunFunction()
 { 
-	local f="$1" suffix; shift
-	IsFunction "$f${1^}" && { f="$f${1^}"; shift; } # method argument
-	IsFunction "$f" && { "$f" "$@"; return; }				# run function if it exists
-	return 0
+	local f="$1" suffix="$2"; shift 2
+	[[ $suffix && "$suffix" != "--" ]] && f+="${suffix^}"
+	! IsFunction "$f" && return
+	"$f" "$@"
 }
 
 IsAlias() { type "-t $1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias

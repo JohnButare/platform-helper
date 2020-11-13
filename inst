@@ -815,7 +815,7 @@ bootstrapStart()
 
 bootstrapEnd()
 {
-	:
+	SetLoginShell zsh || return
 }
 
 bootstrapDebianMac() # debian|mac
@@ -892,15 +892,21 @@ bootstrapQnap()
 	header "Bootstrap QNAP"
 
 	# autorun
-	local clip="mkdir /usr/etc/sudoers.d
-echo \"$USER ALL=(ALL) ALL\" > /usr/etc/sudoers.d/$USER
-echo \"wsystem ALL=(ALL) ALL\" > /usr/etc/sudoers.d/wsystem
-echo \"wsystem-local ALL=(ALL) ALL\" > /usr/etc/sudoers.d/wsystem-local
+	if UpdateNeeded "QnapAutorun"; then
+		local clip="$(cat <<-EOF
+			mkdir /usr/etc/sudoers.d
+			echo "$USER ALL=(ALL) ALL" > "/usr/etc/sudoers.d/$USER"
+			echo "wsystem ALL=(ALL) ALL" > "/usr/etc/sudoers.d/wsystem"
+			echo "wsystem-local ALL=(ALL) ALL" > "/usr/etc/sudoers.d/wsystem-local"
 
-sudo ln -s /share/Public/documents/data /usr/local/data"
+			sudo ln -s "/share/Public/documents/data" "/usr/local/data"
+			EOF
+		)"
 
-	printf "- paste at the end of the file:\n$clip\n"; clipw "$clip" || pause
-	qnap autorun || return
+		echo -e "- paste at the end of the file:\n$clip"; clipw "$clip" || pause
+		qnap autorun || return
+		UpdateDone "QnapAutorun"
+	fi
 
 	# access $DATA from root share, this should be shared out as root
 	sudo MakeLink --symbolic "/" "/share/homes/admin/root" || return
@@ -4189,7 +4195,7 @@ RaspberryPiSwap()
 	grep "CONF_SWAPSIZE=4096" "/etc/dphys-swapfile" >& /dev/null && return
 
 	local clip="CONF_SWAPSIZE=4096"
-	printf "- paste:\n$clip\n"; clipw "$clip" || pause
+	echo -e "- paste:\n$clip"; clipw "$clip" || pause
 
 	sudoedit "/etc/dphys-swapfile" || return
 	sudo "/etc/init.d/dphys-swapfile" stop || return
@@ -4232,9 +4238,12 @@ BashInstall()
 	# entware zsh does not source /opt/etc/profile so use /opt/etc/zprofile
 	file="/opt/etc/zprofile"
 	if IsPlatform entware && ! grep "$line" "$file" >& /dev/null; then
-		echo "$line" >> "$file" || return
-		chmod +x "$file" || return
+		echo "$line" | sudo tee -a "$file" || return
+		sudo chmod +x "$file" || return
 	fi
+
+	# login shell
+	IsPlatform entware && { AddLoginShell "/opt/bin/bash" || return; }
 
 	return 0
 }
@@ -4248,7 +4257,9 @@ ZshInstall()
 	package zsh || return
 
 	# zshenv
-	local file="/etc/zsh/zshenv";  IsPlatform mac && file="/etc/zshenv"; IsPlatform entware && file="/opt/etc/zshenv"
+	local file="/etc/zsh/zshenv"
+	IsPlatform mac && file="/etc/zshenv"
+	IsPlatform entware && file="/opt/etc/zshenv"
 	makeFileSudo "$file" || return
 
 	# profile
@@ -4261,7 +4272,7 @@ ZshInstall()
 	[[ -d "$dir/site-functions" ]] && { sudo chmod go-w "$dir/site-functions" || return; }
 
 	# login shell
-	SetLoginShell zsh || return
+	IsPlatform entware && { AddLoginShell "/opt/bin/zsh" || return; }
 }
 
 ZplugInstall()

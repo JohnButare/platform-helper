@@ -32,8 +32,9 @@ configureProxyServer()
 
 setTimezone()
 {
-	# macOS bash 3.2 - cannot use |& to redirect standard error, must use 2>&1
-	( IsMac || [[ ! $timezone ]] || cat "/etc/timezone" 2>&1 | grep "$timezone" > /dev/null ) && return
+	! IsDebian && return
+
+	( [[ ! $timezone ]] || cat "/etc/timezone" |& grep "$timezone" > /dev/null ) && return
 
 	$sudo DEBIAN_FRONTEND=noninteractive apt install -y tzdata || return
 	[[ ! -f "/usr/share/zoneinfo/$timezone" ]] && return
@@ -79,7 +80,8 @@ runAsUser()
 
 runBootstrap()
 {
-	hilight "Bootstraping from $host..."
+	local desc=" from $host"; [[ ! $host ]] && desc="" 
+	hilight "Bootstraping$desc..."
 	export PATH=$bin:$PATH
 	$bash bootstrap "$host" "$install"
 }
@@ -118,13 +120,11 @@ configure-debian() { :; }
 configure-entware()
 {
 	if IsQnap; then
-		mkdir /usr/etc/sudoers.d || return
-		echo "jjbutare ALL=(ALL) ALL" > /usr/etc/sudoers.d/jjbutare || return
+		[[ ! -d "/usr/etc/sudoers.d" ]] && { mkdir /usr/etc/sudoers.d || return; }
+		[[ ! -f "/usr/etc/sudoers.d/$user" ]] && { echo "$user ALL=(ALL) ALL" > /usr/etc/sudoers.d/$user || return; }
 	fi
-	
-	hilight "Change shell to /opt/bin/bash for all shells with /share/homes home directory..."
-	nano "/etc/passwd"  || return
-	pause
+
+	return 0	
 }
 
 configure-mac()
@@ -164,6 +164,7 @@ init()
 	initPlatform || return
 	bash=""; IsMac && bash="/usr/local/bin/bash"
 	mount="$HOME/Volumes/public"; IsMountedDrive && mount="$host/public"
+	[[ -d "/share/Public/documents/data/install" ]] && { host=""; mount="/share/Public"; } # local install source
 	bin="$mount/documents/data/bin"
 	install="$mount/Documents/data/install"
 
@@ -254,8 +255,14 @@ installPackages()
 	UpdateDone "packages" || return
 }
 
+installPackages-pre()
+{
+	IsUbuntu && IsWin && { package ubuntu-standard || return; }
+	return 0
+}
+
 installPackages-debian() { package cgroup-tools cifs-utils iputils-ping net-tools openssh-server; }
-installPackages-entware() { package bash coreutils coreutils-ln coreutils-readlink nano; }
+installPackages-entware() { package bash coreutils coreutils-ln coreutils-readlink mount-utils nano; }
 installPackages-mac() { package bash coreutils gnu-sed gsed; }
 
 installPackages-win()
@@ -265,12 +272,6 @@ installPackages-win()
 	# using Ubuntu-20.04 WSL image dpg --get-selections returns nothing
 	! InPath mount-cifs && { sudo apt install -y cifs-utils || return; }
 
-	return 0
-}
-
-installPackages-pre()
-{
-	IsUbuntu && IsWin && { package ubuntu-standard || return; }
 	return 0
 }
 
@@ -284,10 +285,11 @@ installPackages-post()
 package()
 {
 	packageInstalled "$@" && return
+
 	case $platform in
 		debian|win) sudo apt install -y --allow-unauthenticated "$@";;
 		mac) brew install "$@";;
-		qnap|snyology) sudo opkg install "$@";;
+		entware) sudo opkg install "$@";;
 	esac
 }
 
@@ -332,8 +334,9 @@ setupPackageManager-debian()
 
 setupPackageManager-entware()
 {
-		wget -O - "http://bin.entware.net/x64-k3.2/installer/generic.sh" | sudo /bin/sh
-		export PATH=/opt/bin:$PATH
+	[[ ! -d "/opt/bin" ]] && { wget -O - "http://bin.entware.net/x64-k3.2/installer/generic.sh" | sudo /bin/sh || return; }
+	[[ ! -f "/opt/bin/stat" ]] && { sudo opkg install coreutils-stat || return; } # we need stat now
+	export PATH=/opt/bin:$PATH
 }
 
 debianPackageCore()
@@ -397,8 +400,6 @@ IsWin() { [[ "$platform" == "win" ]]; }
 IsWsl2() { [[ "$(uname -r)" =~ .*-microsoft-standard$ ]]; }
 IsQnap() { [[ "$platform_like" == "qnap" ]]; }
 
-GetDateStamp() { ${G}date '+%Y%m%d'; }
-GetFileDateStamp() { ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
 hilight() { printf "${GREEN}$1${RESET}\n"; }
 InPath () { which "$1" &> /dev/null; }
 IsMountedDrive() { [[ -d "$host/public" ]] || [[ "$host" =~ ^/mnt ]]; }
@@ -407,5 +408,13 @@ pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; ec
 UpdateInit() { updateDir="$1"; [[ -d "$updateDir" ]] && return; mkdir --parents "$updateDir"; }
 UpdateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
 UpdateDone() { sudo touch "$updateDir/$1"; }
+
+GetDateStamp() { ${G}date '+%Y%m%d'; }
+
+GetFileDateStamp()
+{ 
+	stat |& grep "BusyBox" >& /dev/null && return # wait until better stat is installed
+	${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"
+}
 
 run "$@"
