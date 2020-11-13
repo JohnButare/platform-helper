@@ -113,6 +113,7 @@ configInstall()
 	tmpDirTemplate="hashi.XXXXXXXXXX"
 	executable="$(FindInPath "$name")" || return
 	user="$name"
+	commonOptions=( [log_level]="Info" )
 
 	# clients and server defaults
 	[[ "$name" == "vault" && ! $servers ]] && { servers=( "${vaultServers[@]}" ); }
@@ -270,6 +271,7 @@ installCommand()
 {
 	local command name clients=() servers=() join=()
 	local encrypt certDir
+	local -A commonOptions
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -335,7 +337,7 @@ installConsulCommand()
 	local -A options serverOptions guiOptions 
 	local -A commonEncryptOptions clientEncryptOptions serverEncryptOptions 
 
-	options=( 
+	options=(
 		[domain]="$baseDomain"
 		[datacenter]="$datacenter"
 		[data_dir]="/opt/$name"
@@ -725,8 +727,8 @@ installVaultCommand()
 		[listener]="\"tcp\" $(cat <<-EOF
 			{ 
 			  address = "0.0.0.0:8200"
-			  tls_cert_file = "$cert/$certCli"
-  		  tls_key_file = "$cert/$certCliKey"
+			  tls_cert_file = "$cert/$certServer"
+			  tls_key_file = "$cert/$certServerKey"
 			}
 			EOF
 		)"
@@ -784,32 +786,33 @@ installVaultServer() { AppendArray o guiOptions; }
 
 vaultInit()
 {
-	# here here
-	vault operator init || return
+	eval "$(hashi config --host "$(GetWord "$servers" 1)")"
 
+	# generate the unseal keys
+	local n key s seals; seals="$(vault operator init 2>&1)" || return 0
 
-		eval "$(hashi config)"
-	
-	# generate the bootstrap token
-	local token; token="$($name acl bootstrap 2>&1)" || return 0
-	local secret="$(echo "$token" | grep "Secret ID" | cut -d= -f 2 | RemoveSpace)" 
+	IFS=$'\n' seals=( $(echo "$seals" | grep "Unseal Key") )
+	for s in "${seals[@]}"; do
+		n="$(echo "$s" | cut -d: -f1 | cut -d" " -f 3)"
+		key="$(echo "$s" | cut -d: -f2 | RemoveSpace)"
+		credential set vault "key$n" "$key"
+	done
 
-	# store the bootstrap token in the credential store
-	[[ $secret ]] && credential set "$name" token "$secret"
+	declare token; token="$(cat "/tmp/a.txt" | grep "Initial Root Token" | cut -d: -f 2 | RemoveSpace)" || return 0
+	credential set vault token "$token"
 
-	# show the full bootstrap text
-	header "$name Bootstrap Token"
-	hilight "Store the following bootstrap token in a secure location:"
-	echo "$token"
+	# show the full seal text
+	header "Vault Seal"
+	hilight "Store the following Vault seals in a secure location:"
+	echo "$seals"
 
-	# check if the bootstrap token was stored correctly
-	if [[ ! $secret || "$(credential get "$name" token)" != "$secret" ]]; then
-		EchoErr "unable to store the bootstrap token in the credential store"
+	# check if the seals were stored correctly
+	if [[ "$(credential get vault token)" != "$token" ]]; then
+		EchoErr "unable to store the Vault root token and possibly the Vault seals in the credential store"
 		return 1
 	fi
 
 	return 0
-
 }
 
 #
@@ -946,7 +949,7 @@ installInit()
 	printf "" > "$tmpDir/$name.env"
 
 	# options - other options added in installPRODUCTServer or installPRODUCTClient
-	o=( ); AppendArray o options
+	o=( ); AppendArray o commonOptions options
 	[[ "$encrypt" ]] && IsDeclared commonEncryptOptions && AppendArray o commonEncryptOptions
 	[[ "$encrypt" ]] && IsDeclared ${type}EncryptOptions && AppendArray o ${type}EncryptOptions
 
@@ -1033,8 +1036,8 @@ installPerform()
 
 installAcl()
 {
-	eval "$(hashi config)"
-	
+	eval "$(hashi config --host "$(GetWord "$servers" 1)")"
+
 	# generate the bootstrap token
 	local token; token="$($name acl bootstrap 2>&1)" || return 0
 	local secret="$(echo "$token" | grep "Secret ID" | cut -d= -f 2 | RemoveSpace)" 
@@ -1253,7 +1256,7 @@ getToken() { credential get "$1" token; }
 getConsulTokenConfig()
 {
 	local token="$(getToken "consul")"
-	token="$(getToken "consul")" && token=$'\n'"  token=\"$token\""
+	token="$(getToken "consul")" && token=$'\n'"  token = \"$token\""
 	echo "$token"
 }
 
