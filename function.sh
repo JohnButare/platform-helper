@@ -1460,7 +1460,7 @@ sudoe()  # sudoedit with credentials
 	if credential -q exists secure default; then
 		SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$1";
 	else
-		sudo "$1"; 
+		sudoedit "$1"; 
 	fi
 } 
 
