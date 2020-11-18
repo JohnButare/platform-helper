@@ -63,6 +63,7 @@ clipr()
 InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
 header() { InitColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
 hilight() { InitColor; printf "${GREEN}$1${RESET}\n"; }
+CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
 #
 # Account
