@@ -1356,12 +1356,13 @@ start()
 #
 
 FilterShellScript() { grep -E "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"; }
-GetFunction() { declare -f | grep -iE "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
 IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
 IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
-IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
-ScriptErr() { EchoErr "$(ScriptName): $1"; }
+
+# aliases
+IsAlias() { type "-t $1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias
+GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}"; }
 
 # arguments
 IsOption() { [[ "$1" =~ ^-.* ]]; }
@@ -1369,22 +1370,19 @@ IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; [[ "$-" == *i* ]] && return 1 || exit 1; }
 UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unknown unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information.";	[[ "$-" == *i* ]] && return 1 || exit 1; }
 
-# RunFunction NAME [SUFFIX|--] [ARGS]- call a function if it exists, optionally with the specified suffix
-RunFunction()
-{ 
-	local f="$1" suffix="$2"; shift 2
-	[[ $suffix && "$suffix" != "--" ]] && f+="${suffix^}"
-	! IsFunction "$f" && return
-	"$f" "$@"
-}
-
-IsAlias() { type "-t $1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias
-GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}"; }
-
+# commands
 CheckCommand() 
 {	
 	[[ ! $1 ]]  && MissingOperand "command"
 	IsFunction "${1,,}Command" && { command="${1,,}"; return 0; } ; 
+	EchoErr "$(ScriptName): unknown command \`$1\`"
+	exit 1
+} 
+
+CheckCommandNew() 
+{		
+	IsOption "$1" && return
+	[[ $1 ]] && IsFunction "${1,,}Command" && command="$(GetFunction "$1")" && return
 	EchoErr "$(ScriptName): unknown command \`$1\`"
 	exit 1
 } 
@@ -1398,10 +1396,25 @@ CheckSubCommand()
 	EchoErr "$(ScriptName): unknown $sub command \`$2\`"; exit 1
 } 
 
-ScriptName() { IsBash && GetFileName "${BASH_SOURCE[-1]}" || GetFileName "$ZSH_SCRIPT"; }
-ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
+# functions
+GetFunction() { declare -f | grep -iE "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
+IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
+
+# RunFunction NAME [SUFFIX|--] [ARGS]- call a function if it exists, optionally with the specified suffix
+RunFunction()
+{ 
+	local f="$1" suffix="$2"; shift 2
+	[[ $suffix && "$suffix" != "--" ]] && f+="${suffix^}"
+	! IsFunction "$f" && return
+	"$f" "$@"
+}
+
+# scripts
 
 ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
+ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
+ScriptErr() { EchoErr "$(ScriptName): $1"; }
+ScriptName() { IsBash && GetFileName "${BASH_SOURCE[-1]}" || GetFileName "$ZSH_SCRIPT"; }
 
 # ScriptEval <script> [<arguments>] - run a script and evaluate the output.
 #    Typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
@@ -1431,6 +1444,17 @@ ScriptReturn()
 			printf "$export$var=$fmt\n" "${!var}"
 		fi
 	done
+}
+
+# ScriptUsage RESULT USAGE_TEXT
+ScriptUsage()
+{
+	if [[ $command ]] && IsFunction "${command}Usage"; then
+		${command}Usage
+	else
+		echot "$2"
+	fi
+	exit "${1:-1}"
 }
 
 #
