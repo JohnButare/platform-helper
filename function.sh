@@ -361,7 +361,6 @@ HexToDecimal() { echo "$((16#${1#0x}))"; }
 # string
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
-ProperCase() { GetArgs; arg="${1,,}"; r "${arg^}" $2; }
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveEmptyLines() { ${G}sed -r '/^\s*$/d'; }
 RemoveSpace() { GetArgs; echo "${@// /}"; }
@@ -379,18 +378,26 @@ ForwardToBackSlash() { GetArgs; echo "${@////\\}"; }
 RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
 
 if IsZsh; then
+	LowerCase() { GetArgs; r "${1:l}" $2; }
+	ProperCase() { GetArgs; r "${(C)1}" $2; }
+
 	GetWord() 
 	{ 
 		(( $# < 2 || $# > 3 )) && { EchoErr "usage: GetWord STRING WORD [DELIMITER] - 1 based"; return 1; }
 		local s="$1" delimiter="${3:- }" word="$2"; echo "${${(@ps/$delimiter/)s}[$word]}"
 	}
+
 else
+	LowerCase() { GetArgs; r "${1,,}" $2; }
+	ProperCase() { GetArgs; local arg="${1,,}"; r "${arg^}" $2; }
+
 	GetWord() 
 	{ 
 		(( $# < 2 || $# > 3 )) && { EchoErr "usage: GetWord STRING WORD [DELIMITER] - 1 based"; return 1; }
 		local word=$(( $2 + 1 )); IFS=${3:- }; set -- $1; 
 		((word=word-1)); (( word < 1 || word > $# )) && echo "" || echo "${!word}"
 	}
+
 fi
 
 # time
@@ -1367,10 +1374,86 @@ GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}";
 # arguments
 IsOption() { [[ "$1" =~ ^-.* ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
-MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; [[ "$-" == *i* ]] && return 1 || exit 1; }
-UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unknown unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information.";	[[ "$-" == *i* ]] && return 1 || exit 1; }
+MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; ScriptExit; }
+UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information.";	ScriptExit; }
 
-# commands
+# GetArg VAR [DESC] OPTION VALUE - get an option value.  Sets var to value and increments shift if needed.
+#   -o|--option -oVAL -o VAL -o=VAL --option=VAL --option VAL
+GetArg()
+{
+	local -n var="$1"
+	local desc="$1"; ! IsOption "$2" && { desc="$2"; shift; }
+	local opt="$2" value="$3"
+	local longOpt; [[ "$opt" =~ ^-- ]] && longOpt="true"
+
+	# -o=VAL --option=VAL
+	if [[ "$opt" =~ = ]]; then
+		[[ $longOpt ]] && value="$(GetWord "$opt" 2 "=")" || value="${opt:2}"
+
+	# -oVAL
+	elif [[ ! $longOpt ]] && (( ${#opt} > 2 )); then
+		value="${opt:2}"
+
+	# -o VAL --option VAL
+	elif [[ $value ]] && ! IsOption "$value"; then
+		shift="$(( $shift + 1 ))"
+		
+	else
+		MissingOperand "$desc"; return 1
+
+	fi
+
+	var="$value"
+}
+
+# GetOption OPTION - get an option for the commands
+GetOption()
+{
+	# not an option, add it to args
+	! IsOption "$1" && { args+=("$1"); return; }
+
+	# see if a commmand takes the option
+	local c
+	for c in "${commands[@]}"; do
+		IsFunction "${c}Arg" && "${c}Arg" "$@" && return
+	done
+
+	# not a valid option
+	UnknownOption "$1"
+}
+
+# GetCommand - get a command by looking for function in the format cmd1Cmd2Command
+#   Sets args, command, and commands
+GetCommand()
+{
+	local arg c test
+	args=() command="" commandNames=() commands=() help="" otherArgs=() shift="1"
+
+	for arg in "$@"; do
+
+		# option
+		IsOption "$arg" && { args+=("$arg"); continue; }
+
+		# get the possible command, i.e. dhcpCommand or dhcpStatusCommand
+		[[ $command ]] && ProperCase "$arg" c || LowerCase "$arg" c;
+		c="${command}${c}"
+
+		# find the exact command or look for a case-insensitive match
+		if IsFunction "${c}Command" || s="$(FindFunction "${c}Command")"; then
+			command="$c" commands+=("$c") commandNames+=("${arg,,}")
+			IsFunction "${c}Init" && { "${c}Init" || return; }
+			continue
+		fi
+
+		# not a command
+		args+=("$arg")		
+
+	done
+
+	return 0
+}
+
+# CheckCommand - LEGACY
 CheckCommand() 
 {	
 	[[ ! $1 ]]  && MissingOperand "command"
@@ -1379,14 +1462,7 @@ CheckCommand()
 	exit 1
 } 
 
-CheckCommandNew() 
-{		
-	IsOption "$1" && return
-	[[ $1 ]] && IsFunction "${1,,}Command" && command="$(GetFunction "$1")" && return
-	EchoErr "$(ScriptName): unknown command \`$1\`"
-	exit 1
-} 
-
+# CheckSubCommand - LEGACY
 CheckSubCommand() 
 {	
 	local sub="$1"
@@ -1397,8 +1473,14 @@ CheckSubCommand()
 } 
 
 # functions
-GetFunction() { declare -f | grep -iE "^$1 \(\) $" | sed "s/ () //"; return ${PIPESTATUS[1]}; } # GetFunction NAME - get function NAME case-insensitive
 IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
+
+# FindFunction NAME - find a function NAME case-insensitive
+if IsBash; then
+	FindFunction() { declare -F | grep -iE "^declare -f ${1}$" | sed "s/declare -f //"; return "${PIPESTATUS[1]}"; }
+else
+	FindFunction() { print -l ${(ok)functions} | grep -iE "^${1}$" ; }
+fi
 
 # RunFunction NAME [SUFFIX|--] [ARGS]- call a function if it exists, optionally with the specified suffix
 RunFunction()
@@ -1414,6 +1496,7 @@ RunFunction()
 ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
 ScriptErr() { EchoErr "$(ScriptName): $1"; }
+ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
 ScriptName() { IsBash && GetFileName "${BASH_SOURCE[-1]}" || GetFileName "$ZSH_SCRIPT"; }
 
 # ScriptEval <script> [<arguments>] - run a script and evaluate the output.

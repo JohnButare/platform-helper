@@ -43,7 +43,7 @@ run()
 	do
 		MapApp || return
 		[[ $brief ]] && printf "."
-		if f="$(GetFunction "$app")"; then
+		if f="$(FindFunction "$app")"; then
 			"$f"
 		elif IsInArray "$app" localApps; then
 			RunInternalApp

@@ -2,7 +2,57 @@
 . function.sh || exit
 . bootstrap-config.sh || exit
 
-run() {	init && args "$@" && ${command}Command "${args[@]}"; }
+run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: hashi  [OPTION]... [COMMAND]...
+
+	check							check the configuration
+	config						display the configuration variables
+	install|remove 		install or remove a module
+	lookup|resolve 		[all] [NAME[.service]] - lookup or resolve a service
+	ui								start the hashi-ui server and launch it
+	unseal 				unseal the vault for the specified hosts
+
+	-H, --host HOST		comma sepated list of hosts for the command
+	-f, --force				force installation
+	-t, --test				do not make changes"
+}
+
+args()
+{
+	unset force hostArg test
+
+	# commands
+	GetCommand "$@" || return
+	set -- "${args[@]}"; args=()
+
+	# options
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-f|--force) force="--force";;
+			-h|--help) help="true";;
+			-H*|--host=*|--host) GetArg hostArg host "$@";;
+			-t|--test) test="--test";;
+			*) GetOption "$@";;
+		esac
+		shift "$shift"; shift=1
+	done
+
+	# other arguments
+	set -- "${args[@]}"; args=()
+	[[ $help ]] && usage 0; [[ ! $command ]] && usage
+	
+	# validatation
+	[[ $@ && "$command" != @(install|lookup|remove|resolve) ]] && usage
+	args=("$@")
+}
+
+#
+# configuration
+#
 
 init()
 {
@@ -17,49 +67,6 @@ init()
 	vaultHttpPort="8200"
 	vaultHttpsPort="8200"
 }
-
-usage()
-{
-	ScriptUsage "$1" "\
-usage: $(ScriptName) COMMAND
-	check							check the configuration
-	config						display the configuration variables
-	install|remove 		install or remove a module
-	lookup|resolve 		[all] [NAME[.service]] - lookup or resolve a service
-	ui								start the hashi-ui server and launch it
-	unseal 				unseal the vault for the specified hosts
-
-	-h, --host HOST		comma sepated list of hosts for the command
-	-f, --force				force installation
-	-t, --test				do not make changes"
-}
-
-args()
-{
-	unset force hostArg test
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			-f|--force) force="--force";;
-			-h|--help) usage 0;;
-			-h|--host) [[ ! $2 ]] && IsOption "$2" && usage 1; hostArg="$2"; shift;;
-			-t|--test) test="--test";;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				[[ "$command" == @(install|lookup|remove|resolve) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
-
-	[[ ! $command ]] && { usage; }
-
-	args=("$@")
-}
-
-#
-# configuration
-#
 
 configCommon()
 {
@@ -93,6 +100,12 @@ configCert()
 	certServerKey=$name-server-key.pem
 }
 
+configHashi()
+{
+	local server="$(GetWord "$servers" 1)"; [[ ! $server ]] && server="${hashiServers[0]}"
+	eval "$(hashi config --host "$server")"
+}
+
 configInstall()
 {
 	local name="$1"
@@ -124,8 +137,6 @@ configInstall()
 
 configCommand()
 {
-	(( $# != 0 )) && usage 1
-
 	for name in "${products[@]}"; do
 
 		configCommon "$name" || return
@@ -162,8 +173,6 @@ configCommand()
 
 checkCommand()
 {
-	(( $# != 0 )) && usage 1	
-
 	{
 		hilight "module-ui-token"
 		for name in "${products[@]}"; do	
@@ -178,8 +187,6 @@ checkCommand()
 		done
 	} | column -c $(tput cols) -t -s- -n
 }
-
-httpVar() { http=""; [[ "$1" == "consul" ]] && http="HTTP_"; }
 
 lookupCommand()
 {
@@ -267,63 +274,39 @@ unsealCommand()
 }
 
 #
-# Install Commands
+# Install Command
 #
+
+installInit() { clients=() servers=() join=() encrypt="" ; }
 
 installUsage()
 {
 	echot "\
-usage: $(ScriptName) install cli|consul|nomad|vault
-
-	If no hosts are specified use hosts from bootstrap-config.sh.
+Usage: $(ScriptName) install cli|consul|nomad|vault
+Install a HashiCorp module.  If no hosts are specified use the hosts
+specified	in bootstrap-config.sh.
 
 	-c, --clients	HOSTS					comma separated list of clients to install
 	-s, --server HOSTS					comma separated list of servers to install
-	-j, --join HOSTS						comma separated list of hosts to join to, defaults to servers
-	-cert, --certificates DIR		directory for PKI certificates, if specified TLS will be enabled"
+	-j, --join HOSTS						comma separated list of hosts to join to, 
+	                              defaults to servers
+	-cert, --certificates=DIR		directory for PKI certificates, if specified
+																TLS will be enabled"
 	exit ${1:-1}
 }
 
-installCommand()
+installArg()
 {
-	local command name clients=() servers=() join=()
-	local encrypt certDir
-	local -A commonOptions
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			-h|--help) installUsage 0;;
-			-c|--clients) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," clients;;
-			-s|--servers) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," servers;;
-			-j|--join) [[ ! $2 ]] && usage 0; shift; StringToArray "$1" "," join;;
-			-cert|--certificates) encrypt="$2"; shift;;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckSubCommand "install" "$1"; name="$1"; shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
-
-	[[ ! $command ]] && { usage; }
-
-	# run other installation commands
-	[[ "$name" == @(cli) ]] && { $command; return; }
-
-	# configuration variables
-	configCommon "$name" || return
-	configCert "$name" || return
-	configInstall "$name" || return
-
-	# temporary files
-	local result tmpDir="$(mktemp -d -t "$tmpDirTemplate")" || return
-
-	# run the command
-	$command; result="$?"
-
-	# cleanup
-	[[ ! $test ]] && { rm -fr "$tmpDir"; ssh "$host" rm -fr "$tmpDir"; }
-	return "$result"
+	case "$1" in "") : ;;
+		-c|--clients) GetArg "clients" "$@"; StringToArray "$clients" "," clients;;
+		-s|--servers) GetArg "servers" "$@"; StringToArray "$1" "," servers;;
+		-j|--join) GetArg "join" "$@"; StringToArray "$1" "," join;;
+		-C*|--certificates=*|--certificates) GetArg encrypt certificates "$@";;
+		*) return 1;;
+	esac
 }
+
+installCommand() { usage; }
 
 installCliCommand()
 {
@@ -350,6 +333,8 @@ installCliCommand()
 
 installConsulCommand()
 { 
+	installCommon || return
+
 	# configuration
 	local -A options serverOptions guiOptions 
 	local -A commonEncryptOptions clientEncryptOptions serverEncryptOptions 
@@ -557,6 +542,8 @@ consulCertServerMake()
 
 installNomadCommand()
 {
+	installCommon || return
+
 	# configuration
 	local -A options clientOptions serverOptions guiOptions
 	local -A commonEncryptOptions clientEncryptOptions serverEncryptOptions 
@@ -734,6 +721,8 @@ nomadCertCliMake()
 
 installVaultCommand()
 {
+	installCommon || return
+
 	# configuration
 	local -A options clientOptions serverOptions guiOptions
 
@@ -851,33 +840,66 @@ removeUsage()
 removeCommand()
 {
 	local command="" hosts=() name
-
-	# parse arguments
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			-h|--help) removeUsage 0;;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckSubCommand "remove" "$1"; name="$1"; shift; continue; }
-				! IsOption "$@" && { hosts+=( "$1" ); shift; continue; }
-				removeUsage 1
-		esac
-		shift
-	done
-
-	# check arguments
-	[[ ! $command ]] && { usage; }
-	[[ ! $hosts ]] && hosts=( "localhost" )
+	local name="${commands[1]}" # name of the module to remove
+	local hosts=("$@"); [[ ! $hosts ]] && hosts=( "localhost" )
 
 	# configuration variables
 	configCommon "$name" || return
 
 	# remove
-	removeDo "${hosts[@]}" || return
+	removeModule "${hosts[@]}" || return
 }
 
 removeConsulCommand() { :; }
 removeNomadCommand() { :; }
 removeVaultCommand() { :; }
+
+removeModule()
+{
+	for host in "$@"; do
+		header "Remove $(ProperCase "$name") ($host)"
+		removeCommon || return
+		$command "$@" || return
+	done
+}
+
+removeCommon()
+{
+	scriptRun "$(cat <<-EOF
+
+		# delete service
+		if [[ -f "$serviceFile" ]]; then
+			echo "Deleting the service..."
+			sudo systemctl stop "$name" || exit
+			sudo systemctl disable "$name" || exit
+			sudo rm -f "$serviceFile" || return
+			sudo systemctl daemon-reload || return
+			sudo systemctl reset-failed || return
+		fi
+
+		printf "cleaning..."
+
+		printf "user..."
+		sudo userdel "$name"
+		sudo userdel "$name" >& /dev/null
+
+		printf "configuration..."; 
+		sudo rm -fr "/etc/$name.d" || return
+
+		printf "data..."; 
+		sudo rm -fr "/opt/$name" || return
+
+		printf "executable..."; 
+		sudo rm -f "/usr/local/bin/$name" || return
+
+		printf "temporary files..."; 
+		sudo rm -f "/tmp/$name."* || return
+
+		echo "done"
+
+		EOF
+	)"
+}
 
 #
 # Certificate Helper
@@ -896,26 +918,40 @@ certInit()
 	RunFunction "${name}CertInit"
 }
 
-certServerCopy()
-{
-	[[ ! $encrypt ]] && return
-	cp "$certDir/$certServer" "$certDir/$certServerKey" "$tmpDir/cert" || return
-}
-
 certClientCopy()
 {
 	[[ ! $encrypt ]] && return
 	cp "$certDir/$certClient" "$certDir/$certClientKey" "$tmpDir/cert" || return
 }
 
+certServerCopy()
+{
+	[[ ! $encrypt ]] && return
+	cp "$certDir/$certServer" "$certDir/$certServerKey" "$tmpDir/cert" || return
+}
+
 #
-# install Helper
+# Install Helper
 #
+
+installCommon()
+{
+	declare -g certDir 
+	declare -g name="${commandNames[1]}"; [[ ! $name ]] && usage; # name of the module to install
+	declare -Ag commonOptions
+
+	configCommon "$name" || return
+	configCert "$name" || return
+	configInstall "$name" || return
+}
 
 installAll()
 {
 	local f hostFqdn hostIp type scriptFinal
 	local -A o
+	
+	# temporary files
+	local result tmpDir="$(mktemp -d -t "$tmpDirTemplate")" || return
 
 	# certificate initialization
 	certInit || return
@@ -930,23 +966,29 @@ installAll()
 	# install servers
 	for host in "${servers[@]}"; do
 		type="server"
-		installInit || return
+		installHostInit || return
 		RunFunction "install$(ProperCase "$name")Server" || return
-		installPerform || return
+		installHost || return
 	done
 
 	# install clients
 	for host in "${clients[@]}"; do
 		type="client"
-		installInit || return
+		installHostInit || return
 		RunFunction "install$(ProperCase "$name")Client" || return
-		installPerform || return
+		installHost || return
 	done
 
+	# instal the access control list
 	installAcl || return
+
+	# cleanup
+	[[ ! $test ]] && { rm -fr "$tmpDir"; ssh "$host" rm -fr "$tmpDir"; }
+
+	return 0
 }
 
-installInit()
+installHostInit()
 {
 	scriptFinal=""
 
@@ -979,7 +1021,7 @@ installInit()
 	RunFunction "install$(ProperCase "$name")Common"
 }
 
-installPerform()
+installHost()
 {
 	# create the configuration files
 	installConfigHcl o > "$tmpDir/config/$configFileBase" || return
@@ -1059,13 +1101,14 @@ installPerform()
 
 installAcl()
 {
-	eval "$(hashi config --host "$(GetWord "$servers" 1)")"
+	configHashi || return
 
 	# generate the bootstrap token
 	local token; token="$($name acl bootstrap 2>&1)" || return 0
 	local secret="$(echo "$token" | grep "Secret ID" | cut -d= -f 2 | RemoveSpace)" 
 
 	# store the bootstrap token in the credential store
+	[[ $test ]] && return
 	[[ $secret ]] && credential set "$name" token "$secret"
 
 	# show the full bootstrap text
@@ -1185,59 +1228,18 @@ installExecutable()
 }
 
 #
-# remove helper
-#
-
-removeDo()
-{
-	for host in "$@"; do
-		header "Remove $(ProperCase "$name") ($host)"
-		removeCommon || return
-		$command "$@" || return
-	done
-}
-
-removeCommon()
-{
-	scriptRun "$(cat <<-EOF
-
-		# delete service
-		if [[ -f "$serviceFile" ]]; then
-			echo "Deleting the service..."
-			sudo systemctl stop "$name" || exit
-			sudo systemctl disable "$name" || exit
-			sudo rm -f "$serviceFile" || return
-			sudo systemctl daemon-reload || return
-			sudo systemctl reset-failed || return
-		fi
-
-		printf "cleaning..."
-
-		printf "user..."
-		sudo userdel "$name"
-		sudo userdel "$name" >& /dev/null
-
-		printf "configuration..."; 
-		sudo rm -fr "/etc/$name.d" || return
-
-		printf "data..."; 
-		sudo rm -fr "/opt/$name" || return
-
-		printf "executable..."; 
-		sudo rm -f "/usr/local/bin/$name" || return
-
-		printf "temporary files..."; 
-		sudo rm -f "/tmp/$name."* || return
-
-		echo "done"
-
-		EOF
-	)"
-}
-
-#
 # helper
 #
+
+httpVar() { http=""; [[ "$1" == "consul" ]] && http="HTTP_"; }
+
+# getConsulTokenConfig - get the consul token configuration text
+getConsulTokenConfig()
+{
+	local token="$(getToken "consul")"
+	token="$(getToken "consul")" && token=$'\n'"  token = \"$token\""
+	echo "$token"
+}
 
 # getPort PRODUCT - get the primary port for the specified product
 getPort()
@@ -1275,14 +1277,6 @@ getServer()
 # getToken PRODUCT - get the authentication token for the product
 getToken() { credential get "$1" token; }
 
-# getConsulTokenConfig - get the consul token configuration text
-getConsulTokenConfig()
-{
-	local token="$(getToken "consul")"
-	token="$(getToken "consul")" && token=$'\n'"  token = \"$token\""
-	echo "$token"
-}
-
 # getUrl PRODUCT - get the communication URL for the product
 getUrl()
 {
@@ -1295,6 +1289,7 @@ getUrl()
 	fi
 }
 
+# scriptRun SCRIPT - run the specified script locally over over ssh
 scriptRun()
 {
 	local functions="$(FindInPath function.sh | GetFullPath)" script="$1"
