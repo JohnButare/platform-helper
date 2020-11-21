@@ -7,14 +7,13 @@ run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: hashi  [OPTION]... [COMMAND]...
+Usage: hashi [OPTION]... [COMMAND]...
+Helper commands for HashiCorp consul, nomad, and vault products.
 
-	check							check the configuration
-	config						display the configuration variables
-	install|remove 		install or remove a module
-	lookup|resolve 		[all] [NAME[.service]] - lookup or resolve a service
+	PRODUCT|all				commands for a product or all products
+	install|remove 		install or remove a product
+	lookup|resolve		lookup or resolve a service
 	ui								start the hashi-ui server and launch it
-	unseal 				unseal the vault for the specified hosts
 
 	-H, --host HOST		comma sepated list of hosts for the command
 	-f, --force				force installation
@@ -135,58 +134,8 @@ configInstall()
 # Commands
 #
 
-configCommand()
-{
-	for name in "${products[@]}"; do
-
-		configCommon "$name" || return
-		configCert "$name" || return
-
-		local args="" 
-		local url="$(getUrl "$name")"
-		local http; httpVar "$name";
-
-		[[ -f "$cert/$certCli" ]] && args+=" -ca-file=$cert/$ca -client-cert=$cert/$certCli -client-key=$cert/$certCliKey"
-
-		cat <<-EOF
-			export ${name^^}_${http}ADDR="$url"
-			export ${name^^}_ARGS="-http-addr=$url$args"
-		EOF
-
-		[[ -f "$cert/$certCli" ]] &&
-			cat <<-EOF
-				export ${name^^}_CACERT="$cert/$ca"
-				export ${name^^}_CLIENT_CERT="$cert/$certCli"
-				export ${name^^}_CLIENT_KEY="$cert/$certCliKey"
-			EOF
-
-		# TOKEN - set the TOKEN variable if it is not already set, i.e. nomad can set the VAULT_TOKEN
-		local token tokenVar tokenVal
-		tokenVar="${name^^}_${http}TOKEN"
-		tokenVal="$(eval echo "\$$tokenVar")"
-		[[ ! $tokenVal ]] && token="$(getToken "$name")" && echo "export $tokenVar=\"$token\""
-
-		echo
-
-	done
-}
-
-checkCommand()
-{
-	{
-		hilight "module-ui-token"
-		for name in "${products[@]}"; do	
-
-			! InPath "$name" && continue
-
-			local http; httpVar "$name";
-			local -n addr="${name^^}_${http}ADDR"
-			local -n token="${name^^}_${http}TOKEN"; [[ $token ]] && token="true" || token="false"
-
-			echo "$name-${addr}-$token"
-		done
-	} | column -c $(tput cols) -t -s- -n
-}
+lookupUsage() { echot "Usage: hashi lookup NAME[.service]
+Lookup a service in consul.   All service endpoints are returned."; }
 
 lookupCommand()
 {
@@ -198,6 +147,10 @@ lookupCommand()
 	configCommon "consul" || return
 	nslookup -port=8600 -type=a -norecurse "$name" "$(getServer "consul")"
 }
+
+resolveUsage() { echot "Usage: hashi resolve [all] NAME[.service]
+resolve a service in consul to an IP address or canonical name.
+Unless all is specified only the first IP address is returned."; }
 
 resolveCommand()
 {
@@ -244,35 +197,6 @@ uiCommand()
 	start "http://$(GetIpAddress):3000"
 }
 
-unsealCommand()
-{
-	local host hosts=() key
-
-	# get the vault hosts
-	if [[ $hostArg ]]; then
-		StringToArray "$hostArg" "," hosts
-	else
-		hosts=( "${vaultServers[@]}" )
-	fi
-
-	# unseal each host
-	for host in "${hosts[@]}"; do
-		header "$host"
-		eval "$(hashi config --host "$host")"
-
-		for n in 1 2 3; do
-			hilight "Unsealing $host with key $n..."
-			key="$(credential get vault key$n)"
-			if [[ $key ]]; then
-				vault operator unseal "$key" || return
-			else
-				echo "key $n does not exist in the credential store"
-			fi
-		done
-
-	done
-}
-
 #
 # Install Command
 #
@@ -282,8 +206,8 @@ installInit() { clients=() servers=() join=() encrypt="" ; }
 installUsage()
 {
 	echot "\
-Usage: $(ScriptName) install cli|consul|nomad|vault
-Install a HashiCorp module.  If no hosts are specified use the hosts
+Usage: hashi install cli|consul|nomad|vault
+Install a HashiCorp product.  If no hosts are specified use the hosts
 specified	in bootstrap-config.sh.
 
 	-c, --clients	HOSTS					comma separated list of clients to install
@@ -292,7 +216,6 @@ specified	in bootstrap-config.sh.
 	                              defaults to servers
 	-cert, --certificates=DIR		directory for PKI certificates, if specified
 																TLS will be enabled"
-	exit ${1:-1}
 }
 
 installArg()
@@ -767,7 +690,7 @@ installVaultCommand()
 
 	# install and initialize
 	installAll || return
-	vaultInit || return
+	installVaultInit || return
 }
 
 installVaultCommon()
@@ -790,7 +713,7 @@ installVaultCommon()
 
 installVaultServer() { AppendArray o guiOptions; }
 
-vaultInit()
+installVaultInit()
 {
 	# set the vault configuration variables
 	eval "$(hashi config --host "$(GetWord "$servers" 1)")"
@@ -840,21 +763,21 @@ removeUsage()
 removeCommand()
 {
 	local command="" hosts=() name
-	local name="${commands[1]}" # name of the module to remove
+	local name="${commands[1]}" # name of the product to remove
 	local hosts=("$@"); [[ ! $hosts ]] && hosts=( "localhost" )
 
 	# configuration variables
 	configCommon "$name" || return
 
 	# remove
-	removeModule "${hosts[@]}" || return
+	removeProduct "${hosts[@]}" || return
 }
 
 removeConsulCommand() { :; }
 removeNomadCommand() { :; }
 removeVaultCommand() { :; }
 
-removeModule()
+removeProduct()
 {
 	for host in "$@"; do
 		header "Remove $(ProperCase "$name") ($host)"
@@ -937,7 +860,7 @@ certServerCopy()
 installCommon()
 {
 	declare -g certDir 
-	declare -g name="${commandNames[1]}"; [[ ! $name ]] && usage; # name of the module to install
+	declare -g name="${commandNames[1]}"; [[ ! $name ]] && usage; # name of the product to install
 	declare -Ag commonOptions
 
 	configCommon "$name" || return
@@ -1225,6 +1148,171 @@ installExecutable()
 	# copy the executable
 	cp "$file" "$tmpDir/$name" || return
 	echo "copied"
+}
+
+#
+# Config Commands
+#
+
+configUsage()
+{
+	echot "\
+Usage: hashi config [OPTION]... [COMMAND]...
+Configure the HashiCorp tools.
+
+	show		show the configuration variables
+	status	show the configuration status"
+}
+
+configCommand() { usage; }
+
+configStatusCommand()
+{
+	{
+		hilight "product-ui-token"
+		for name in "${products[@]}"; do	
+
+			! InPath "$name" && continue
+
+			local http; httpVar "$name";
+			local -n addr="${name^^}_${http}ADDR"
+			local -n token="${name^^}_${http}TOKEN"; [[ $token ]] && token="true" || token="false"
+
+			echo "$name-${addr}-$token"
+		done
+	} | column -c $(tput cols) -t -s- -n
+}
+
+configShowCommand()
+{
+	for name in "${products[@]}"; do
+
+		configCommon "$name" || return
+		configCert "$name" || return
+
+		local args="" 
+		local url="$(getUrl "$name")"
+		local http; httpVar "$name";
+
+		[[ -f "$cert/$certCli" ]] && args+=" -ca-file=$cert/$ca -client-cert=$cert/$certCli -client-key=$cert/$certCliKey"
+
+		cat <<-EOF
+			export ${name^^}_${http}ADDR="$url"
+			export ${name^^}_ARGS="-http-addr=$url$args"
+		EOF
+
+		[[ -f "$cert/$certCli" ]] &&
+			cat <<-EOF
+				export ${name^^}_CACERT="$cert/$ca"
+				export ${name^^}_CLIENT_CERT="$cert/$certCli"
+				export ${name^^}_CLIENT_KEY="$cert/$certCliKey"
+			EOF
+
+		# TOKEN - set the TOKEN variable if it is not already set, i.e. nomad can set the VAULT_TOKEN
+		local token tokenVar tokenVal
+		tokenVar="${name^^}_${http}TOKEN"
+		tokenVal="$(eval echo "\$$tokenVar")"
+		[[ ! $tokenVal ]] && token="$(getToken "$name")" && echo "export $tokenVar=\"$token\""
+
+		echo
+
+	done
+}
+
+#
+# All Commands
+#
+
+allUsage()
+{
+	echot "\
+Usage: hashi all status
+Commands for all products."
+}
+
+allCommand() { usage; }
+
+allStatusCommand()
+{
+	local p
+
+	for p in "${products[@]}"; do
+		header "$(ProperCase "$p") Status"
+		${p}StatusCommand || return
+	done
+}
+
+#
+# Consul Commands
+#
+
+consulUsage()
+{
+	echot "\
+Usage: hashi consul status
+Consul commands."
+}
+
+consulCommand() { usage; }
+consulStatusCommand() { consul members; }
+
+#
+# Nomad Commands
+#
+
+nomadUsage()
+{
+	echot "\
+Usage: hashi nomad status
+Nomad commands."
+}
+
+nomadCommand() { usage; }
+nomadStatusCommand() { nomad node status; }
+
+#
+# Vault Commands
+#
+
+vaultUsage()
+{
+	echot "\
+Usage: hashi vault status|unseal
+Vault commands.
+
+	unseal			unseal the vault using keys from the credential store"
+}
+
+vaultCommand() { usage; }
+vaultStatusCommand() { vault status; }
+
+vaultUnsealCommand()
+{
+	local host hosts=() key
+
+	# get the vault hosts
+	if [[ $hostArg ]]; then
+		StringToArray "$hostArg" "," hosts
+	else
+		hosts=( "${vaultServers[@]}" )
+	fi
+
+	# unseal each host
+	for host in "${hosts[@]}"; do
+		header "$host"
+		eval "$(hashi config --host "$host")"
+
+		for n in 1 2 3; do
+			hilight "Unsealing $host with key $n..."
+			key="$(credential get vault key$n)"
+			if [[ $key ]]; then
+				vault operator unseal "$key" || return
+			else
+				echo "key $n does not exist in the credential store"
+			fi
+		done
+
+	done
 }
 
 #

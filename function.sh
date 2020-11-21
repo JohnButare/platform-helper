@@ -1388,7 +1388,7 @@ GetArg()
 
 	# -o=VAL --option=VAL
 	if [[ "$opt" =~ = ]]; then
-		[[ $longOpt ]] && value="$(GetWord "$opt" 2 "=")" || value="${opt:2}"
+		[[ $longOpt ]] && value="$(GetWord "$opt" 2 "=")" || value="${opt:3}"
 
 	# -oVAL
 	elif [[ ! $longOpt ]] && (( ${#opt} > 2 )); then
