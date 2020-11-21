@@ -277,6 +277,7 @@ AppendArray()
 
 # CopyArray SRC_VAR TARGET_VAR - copy source array variable to target array variable
 CopyArray() { declare -g $(GetType $1) $2; eval "$2=( $(GetDef $1) )"; }
+ReverseArray() { ListArray "$1" | tac; }
 
 if IsBash; then
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#declare }"; r "${gt%% *}" $2; } # get type
@@ -1377,82 +1378,6 @@ IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; ScriptExit; }
 UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information.";	ScriptExit; }
 
-# GetArg VAR [DESC] OPTION VALUE - get an option value.  Sets var to value and increments shift if needed.
-#   -o|--option -oVAL -o VAL -o=VAL --option=VAL --option VAL
-GetArg()
-{
-	local -n var="$1"
-	local desc="$1"; ! IsOption "$2" && { desc="$2"; shift; }
-	local opt="$2" value="$3"
-	local longOpt; [[ "$opt" =~ ^-- ]] && longOpt="true"
-
-	# -o=VAL --option=VAL
-	if [[ "$opt" =~ = ]]; then
-		[[ $longOpt ]] && value="$(GetWord "$opt" 2 "=")" || value="${opt:3}"
-
-	# -oVAL
-	elif [[ ! $longOpt ]] && (( ${#opt} > 2 )); then
-		value="${opt:2}"
-
-	# -o VAL --option VAL
-	elif [[ $value ]] && ! IsOption "$value"; then
-		shift="$(( $shift + 1 ))"
-		
-	else
-		MissingOperand "$desc"; return 1
-
-	fi
-
-	var="$value"
-}
-
-# GetOption OPTION - get an option for the commands
-GetOption()
-{
-	# not an option, add it to args
-	! IsOption "$1" && { args+=("$1"); return; }
-
-	# see if a commmand takes the option
-	local c
-	for c in "${commands[@]}"; do
-		IsFunction "${c}Arg" && "${c}Arg" "$@" && return
-	done
-
-	# not a valid option
-	UnknownOption "$1"
-}
-
-# GetCommand - get a command by looking for function in the format cmd1Cmd2Command
-#   Sets args, command, and commands
-GetCommand()
-{
-	local arg c test
-	args=() command="" commandNames=() commands=() help="" otherArgs=() shift="1"
-
-	for arg in "$@"; do
-
-		# option
-		IsOption "$arg" && { args+=("$arg"); continue; }
-
-		# get the possible command, i.e. dhcpCommand or dhcpStatusCommand
-		[[ $command ]] && ProperCase "$arg" c || LowerCase "$arg" c;
-		c="${command}${c}"
-
-		# find the exact command or look for a case-insensitive match
-		if IsFunction "${c}Command" || s="$(FindFunction "${c}Command")"; then
-			command="$c" commands+=("$c") commandNames+=("${arg,,}")
-			IsFunction "${c}Init" && { "${c}Init" || return; }
-			continue
-		fi
-
-		# not a command
-		args+=("$arg")		
-
-	done
-
-	return 0
-}
-
 # CheckCommand - LEGACY
 CheckCommand() 
 {	
@@ -1527,17 +1452,6 @@ ScriptReturn()
 			printf "$export$var=$fmt\n" "${!var}"
 		fi
 	done
-}
-
-# ScriptUsage RESULT USAGE_TEXT
-ScriptUsage()
-{
-	if [[ $command ]] && IsFunction "${command}Usage"; then
-		${command}Usage
-	else
-		echot "$2"
-	fi
-	exit "${1:-1}"
 }
 
 #

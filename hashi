@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. script.sh || exit
 . bootstrap-config.sh || exit
 
 run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
@@ -14,37 +14,32 @@ Helper commands for HashiCorp consul, nomad, and vault products.
 	install|remove 		install or remove a product
 	lookup|resolve		lookup or resolve a service
 	ui								start the hashi-ui server and launch it
+	status						status for all products
 
-	-H, --host HOST		comma sepated list of hosts for the command
-	-f, --force				force installation
-	-t, --test				do not make changes"
+	-H, --host HOST		comma sepated list of hosts for the command"
 }
 
 args()
 {
-	unset force hostArg test
+	unset hostArg
 
 	# commands
-	GetCommand "$@" || return
-	set -- "${args[@]}"; args=()
+	ScriptCommand "$@" || return
 
 	# options
+	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-f|--force) force="--force";;
 			-h|--help) usage 0;;
-			-H*|--host=*|--host) GetArg hostArg host "$@";;
-			-t|--test) test="--test";;
-			*) GetOption "$@";;
+			-H*|--host=*|--host) ScriptArg hostArg host "$@";;
+			*) ScriptOption "$@";;
 		esac
 		shift "$shift"; shift=1
 	done
+	set -- "${args[@]}"
 
-	# other arguments
-	set -- "${args[@]}"; args=()
-	[[ ! $command ]] && usage
-	
-	# validatation
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
 	[[ $@ && "$command" != @(install|lookup|remove|resolve) ]] && usage
 	args=("$@")
 }
@@ -59,12 +54,9 @@ init()
 	datacenter="$workgroup"
 
 	# ports
-	consulHttpPort="8500"
-	consulHttpsPort="8501"
-	nomadHttpPort="4646"
-	nomadHttpsPort="4646"
-	vaultHttpPort="8200"
-	vaultHttpsPort="8200"
+	consulHttpPort="8500" consulHttpsPort="8501"
+	declare -g {nomadHttpPort,nomadHttpsPort}="4646"
+	declare -g {vaultHttpPort,vaultHttpsPort}="8200"
 }
 
 configCommon()
@@ -201,7 +193,7 @@ uiCommand()
 # Install Command
 #
 
-installInit() { clients=() servers=() join=() encrypt="" ; }
+installInit() { clients=() servers=() join=() encrypt="" force="" test=""; }
 
 installUsage()
 {
@@ -210,21 +202,23 @@ Usage: hashi install cli|consul|nomad|vault
 Install a HashiCorp product.  If no hosts are specified use the hosts
 specified	in bootstrap-config.sh.
 
-	-c, --clients	HOSTS					comma separated list of clients to install
-	-s, --server HOSTS					comma separated list of servers to install
-	-j, --join HOSTS						comma separated list of hosts to join to, 
-	                              defaults to servers
-	-cert, --certificates=DIR		directory for PKI certificates, if specified
-																TLS will be enabled"
+	-c, --clients	HOSTS		comma separated list of clients to install
+	-s, --server HOSTS		comma separated list of servers to install
+	-j, --join HOSTS			comma separated list of hosts to join to, defaults to servers
+	-e, --encrypt DIR			directory for PKI certificates, if specified TLS will be enabled
+	-f, --force				force installation
+	-t, --test				do not make changes"
 }
 
-installArg()
+installOption()
 {
 	case "$1" in "") : ;;
-		-c|--clients) GetArg "clients" "$@"; StringToArray "$clients" "," clients;;
-		-s|--servers) GetArg "servers" "$@"; StringToArray "$1" "," servers;;
-		-j|--join) GetArg "join" "$@"; StringToArray "$1" "," join;;
-		-C*|--certificates=*|--certificates) GetArg encrypt certificates "$@";;
+		-c|--clients) ScriptArg "clients" "$@"; StringToArray "$clients" "," clients;;
+		-s|--servers) ScriptArg "servers" "$@"; StringToArray "$1" "," servers;;
+		-j|--join) ScriptArg "join" "$@"; StringToArray "$1" "," join;;
+		-e*|--encrypt=*|--encrypt) ScriptArg encrypt certificates "$@";;
+		-f|--force) force="--force";;
+		-t|--test) test="--test";;
 		*) return 1;;
 	esac
 }
@@ -471,13 +465,11 @@ installNomadCommand()
 	local -A options clientOptions serverOptions guiOptions
 	local -A commonEncryptOptions clientEncryptOptions serverEncryptOptions 
 
-	local token="$(getConsulTokenConfig)"
-
 	options=( 
 		[datacenter]="$datacenter"
 		[data_dir]="/opt/$name"
 		[acl]="{ enabled = true }"
-		[consul]="{$token
+		[consul]="{$(getConsulTokenConfig)
         address = \"127.0.0.1:$(getPort "consul")\"
 }"
 	)
@@ -649,8 +641,6 @@ installVaultCommand()
 	# configuration
 	local -A options clientOptions serverOptions guiOptions
 
-	local token="$(getConsulTokenConfig)"
-
 	# configuration
 	options=(
 		[listener]="\"tcp\" $(cat <<-EOF
@@ -663,7 +653,7 @@ installVaultCommand()
 		)"
 
 		[storage]="\"consul\" $(cat <<-EOF
-			{$token
+			{$(getConsulTokenConfig)
 			  path = "vault/"
 			  address = "127.0.0.1:8501"
 			  scheme = "https"
@@ -1164,7 +1154,7 @@ Configure the HashiCorp tools.
 	status	show the configuration status"
 }
 
-configCommand() { usage; }
+configCommand() { configShowCommand; }
 
 configStatusCommand()
 {
@@ -1212,7 +1202,7 @@ configShowCommand()
 		local token tokenVar tokenVal
 		tokenVar="${name^^}_${http}TOKEN"
 		tokenVal="$(eval echo "\$$tokenVar")"
-		[[ ! $tokenVal ]] && token="$(getToken "$name")" && echo "export $tokenVar=\"$token\""
+		[[ ! $tokenVal ]] && token="$(getToken "$name" 2>&1)" && echo "export $tokenVar=\"$token\""
 
 		echo
 
@@ -1231,6 +1221,8 @@ Commands for all products."
 }
 
 allCommand() { usage; }
+
+statusCommand() { allStatusCommand; }
 
 allStatusCommand()
 {
@@ -1263,12 +1255,87 @@ consulStatusCommand() { consul members; }
 nomadUsage()
 {
 	echot "\
-Usage: hashi nomad status
+Usage: hashi nomad job|status
 Nomad commands."
 }
 
 nomadCommand() { usage; }
 nomadStatusCommand() { nomad node status; }
+
+#
+# Nomad Job Commands
+#
+
+nomadJobUsage()
+{
+	echot "\
+Usage: hashi nomad job NAME
+Nomad job commands.
+
+	force	NAME		force a job to start
+	log	NAME			show the log for a job
+	status [NAME]	status of all running jobs or the specified job"
+}
+# NomadLog [-f|--follow] NAME - show the log for a periodic job optionally following the log output
+
+nomadJobArgs()
+{
+	job="$1"; shift; ((++shift))
+	[[ ! $job && "${commandNames[2]}" != @(|status) ]] && usage
+	return 0
+}
+
+nomadJobCommand() {	nomadJobStatusCommand; }
+
+nomadJobStatusCommand() 
+{
+	if [[ $job ]]; then
+		nomadGetAllocId || return
+		nomad alloc status "$allocId"
+	else
+		nomad job status | grep -v dead
+	fi
+}
+
+nomadJobForceCommand() { nomad job periodic force "$job"; }
+
+nomadJobLogInit() { follow=""; }
+
+nomadJobLogOption() 
+{
+	case "$1" in
+		-f|--follow) follow="true";;
+		*) return 1
+	esac
+}
+
+nomadJobLogCommand()
+{
+	nomadGetAllocId || return
+	
+	if [[ $follow ]]; then
+		nomad alloc logs -f "$allocId" &
+		nomad alloc logs -stderr -f "$allocId"
+	else		
+		header "Standard Output"; nomad alloc logs "$allocId"
+		header "Standard Error"; nomad alloc logs -stderr "$allocId"
+	fi		
+}
+
+nomadGetJobId()
+{ 
+	jobId="$(nomad job status "$job" |& tail -1 |& cut -d" " -f1)"
+	[[ "$jobId" =~ $job/periodic-.* ]] && return
+	ScriptErr "Unknown job \`$job\`"; exit 1
+}
+
+nomadGetAllocId()
+{
+	[[ ! $jobId ]] && { nomadGetJobId || return; }
+	allocId="$(nomad job status "$jobId" |& tail -1 |& cut -d" " -f1)"
+	[[ "${#allocId}" == "8" ]] && return
+	ScriptErr "No allocations for job \`$job\`"; exit 1
+}
 
 #
 # Vault Commands
@@ -1324,9 +1391,8 @@ httpVar() { http=""; [[ "$1" == "consul" ]] && http="HTTP_"; }
 # getConsulTokenConfig - get the consul token configuration text
 getConsulTokenConfig()
 {
-	local token="$(getToken "consul")"
-	token="$(getToken "consul")" && token=$'\n'"  token = \"$token\""
-	echo "$token"
+	local token; token="$(getToken "consul" 2>&1)" || return
+	echo $'\n'"  token = \"$token\""
 }
 
 # getPort PRODUCT - get the primary port for the specified product
