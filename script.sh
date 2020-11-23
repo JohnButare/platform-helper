@@ -72,6 +72,27 @@ ScriptCommand()
 	[[ $command ]] && return || usage
 }
 
+# ScriptGetArg VAR [DESC](VAR) VALUE - get an argument.  Sets var to value and increments shift
+ScriptGetArg()
+{
+	local varArg="$1"
+	local -n var="$varArg"
+	local desc="$varArg"; [[ $# == 3 ]] && { desc="$2"; shift; }
+	local value="$3"; [[ ! $value ]] && MissingOperand "$desc"
+	var="$value"; ((++shift))
+}
+
+# ScriptGetFileArg [VAR](file) [DESC](VAR) FILE - get a file argument
+ScriptGetFileArg()
+{
+	local varArg="file"; (( $# > 1 )) && { varArg="$1"; shift; }
+	local -n var="$varArg"
+	local desc="$varArg"; (( $# > 1 )) && { desc="$2"; shift; }
+	local value="$1"; [[ ! $value ]] && MissingOperand "$desc"
+	[[ ! -e "$value" ]] && ScriptErr "cannot access \`$value\`: No such file or directory"
+	var="$value"; ((++shift))
+}
+
 # ScriptOption OPTION - get an option for the commands
 ScriptOption()
 {

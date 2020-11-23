@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-. function.sh
+. script.sh || exit
 
-run() {	init || return; args "$@" || return; ${command}Command "${args[@]}"; }
+run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
 
 init()
 {
@@ -17,79 +17,132 @@ init()
 
 usage()
 {
-	echot "\
-usage: unc mount|unmount|IsMounted|mounts UNC
-	UNC 		the server, share, and optional directory to mount in the format //server/share/dir, or all (all shares)
+	ScriptUsage "$1" "\
+Usage: unc mount|unmount|IsMounted UNC|all
+Mount network volumes using UNC (Universal Naming Convention) format.
+UNC is a server, share, and optional directory in the format //server/share/dir.
 
 	browse									browse the UNC shares on the network
-	get	root|share|unc FILE	get the UNC root (i.e. ~/Volumes/public) share or unc (i.e. //nas3/public) from a mounted file
-	IsMounted	UNC						if UNC is mounted returns DIR mounted to
-	IsUnc FILE							return true if the file is on a mounted UNC share
+	get root|share|unc FILE	get information about the specified mounted location
 	list HOST								list UNC disks on the host
-	mount|unmount UNC				unmount or mount UNC and return DIR mounted
+	mounts									return all mounted shares
 
-	-nhc, --no-host-check		do not check if the host is available
-	-q, 	--quiet						hide status messages
-
-	-n, 	--nfs							use nfs to mount the share
-	-s, 	--ssh							use sshfs to mount the share"
+	-q, --quiet						hide status messages"
 	exit $1
 }
 
 args()
 {
-	unset -v command nfsFs noHostCheck quiet sshFs unc
+	unset -v command quiet unc
 
-	while (( $# != 0 )); do
-		case "$1" in
+	# commands
+	ScriptCommand "$@" || return
+
+	# options
+	set -- "${args[@]}"; args=()
+	while (( $# != 0 )); do		
+		case "$1" in "") : ;;
 			-h|--help) usage 0;;
-			-nhc|--no-host-check) noHostCheck="true";;
-			-s|--ssh) sshFs="true";;
-			-n|--nfs) nfsFs="true";;
 			-q|--quiet) quiet="--quiet";;
-			IsMounted) command="isMounted";; IsUnc) command="isUnc";; ListMounted) command="listMounted";;
-			*)
-				[[ "$1" == "all" ]] && { all="true"; shift; continue; }
-				IsUncPath "$1" && [[ ! $unc ]] && { unc="$1"; shift; getUncInfo "$unc" || return; continue; }
-				[[ -e "$1" ]] && isUncCommand "$1" && { unc="$(getCommand unc "$1")"; shift; getUncInfo "$unc" || return; continue; }
-				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "$command" == @(get|isUnc|list) ]] && break
-				UnknownOption "$1"
+			*) ScriptOption "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
+	set -- "${args[@]}"
+	
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
+	getUncArg "$1" || return; shift "$shift"
+	[[ $@ ]] && usage
 
-	[[ ! $command ]] && { usage 1; }
+	return 0
+}
 
-	[[ "$command" == @(IsMounted|mount) && ! $unc ]] && MissingOperand "unc"
-	[[ "$command" == @(unmount) ]] && ! [[ $all || $unc ]] && MissingOperand "unc"
+needsUnc() { [[ "$command" == @(IsMounted|mount|unmount) ]]; }
 
-	args=("$@")
+getUncArg()
+{
+	shift=0; ! needsUnc && return
+	((++shift))
+
+	# unc
+	IsUncPath "$1" && { getUncInfo "$1"; return; }
+
+	# unc is "all" - for unmount
+	[[ "$command" == "unmount" && "$1" == "all" ]] && { unc="all"; return; }
+
+	# unc is a mounted file or directory
+	[[ -e "$1" ]] && { file="$1"; unc="$(getUncCommand)"; getUncInfo "$unc"; return; }
+
+	MissingOperand "unc"
 }
 
 #
-# commands
+# Get Commands
 #
 
-isMountedCommand() { isMounted; }
-isUncCommand() { [[ $(getCommand root "$@") ]]; }
-mountsCommand() { findmnt --type=cifs,nfs,sshfs --noheadings --output=TARGET | grep "$volumeDir"; }
-
-browseCommand()
+getUsage()
 {
-	{ IsPlatform win || ! InPath "smbtree"; } && { EchoErr "unc: unable to browse the network"; return 1; }
-	sudoc smbtree
+	echot "\
+Usage: unc get root|share|unc FILE
+Get UNC information about the specified mounted directory.
+For the examples below assume //server/share is mounted at 
+~/Volumes/server_share and file is ~/Volumes/server_share/dir1/dir2.
+
+	root 		the root directory of the UNC, i.e. ~/Volumes/server_share
+	share		the name of the share, i.e. //server/share
+	unc			the full UNC associated with the file, i.e. //server/share/dir1/dir2"
+}
+
+getArgs()
+{
+	IsUncPath "$1" && { file="$1"; ((++shift)); return; }
+	ScriptGetFileArg "$1"
+}
+
+getCommand() { usage; }
+
+getRootCommand()
+{
+	IsUncPath "$file" && { echo "$(GetUncRoot "$file")"; return; }
+
+	InPath findmnt && { findmnt --types=cifs --noheadings --output=TARGET --target "$file"; return; }
+	InPath df && { df -P "$file" | awk 'END{print $NF}'; return; }
+	return 1
+}
+
+getShareCommand()
+{
+	IsUncPath "$file" && { echo "$(GetUncShare "$file")"; return; }
+
+	InPath findmnt && { findmnt --types=cifs --noheadings --output=SOURCE --target "$file"; return; }
+	InPath df && { df -P . | awk 'END{print $1}'; return; }
+	return 1
+}
+
+getUncCommand()
+{
+	IsUncPath "$file" && { echo "$file"; return; }
+
+	file="$(GetFullPath "$file")" || return
+	local root; root="$(getRootCommand)" || return
+	local share; share="$(getShareCommand)" || return
+	echo "${file/$root/$share}"
+}
+
+#
+# List Command
+#
+
+listArgs()
+{
+	ScriptGetArg "host" "$1"
+	! IsAvailable "$host" && { ScriptErr "$host is not available"; return 1; }
+	return 0
 }
 
 listCommand()
 {
-	local host="$1"; shift
-	[[ ! $host ]] && MissingOperand "host"
-	! IsAvailable "$host" && { EchoErr "unc: $host is not available"; return 1; }
-
-	[[ "$#" != "0" ]] && usage
-
-	# browse host	
 	if InPath smbutil; then
 		smbutil view "//$host" | grep "Disk"
 
@@ -97,9 +150,36 @@ listCommand()
 		sudoc smbclient -L $host -U$USER%$(credential -q get secure default) |& grep -v "tdb_new_database" |& grep -v "option is deprecated"
 
 	else
-		EchoErr "unc: unable to list shares off $host"
+		EchoErr "unc: unable to list shares for $host"
 		return 1
 	fi
+}
+
+#
+# Mount Command
+#
+
+mountInit() { nfsFs="" noHostCheck="" sshFs=""; }
+
+mountUsage()
+{
+	echot "\
+Usage: unc mount UNC
+Mount a UNC share.
+
+	-N, --no-host-check		do not check if the host is available before mounting it
+	-n, --nfs							use nfs to mount the share
+	-s, --ssh							use sshfs to mount the share"
+}
+
+mountOption() 
+{
+	case "$1" in
+		-n|--nfs) nfsFs="true";;
+		-N|--no-host-check) noHostCheck="true";;
+		-s|--ssh) sshFs="true";;
+		*) return 1
+	esac
 }
 
 mountCommand()
@@ -167,9 +247,23 @@ mountCommand()
 	fi
 }
 
+#
+# commands
+#
+
+isMountedCommand() { isMounted; }
+
+mountsCommand() { findmnt --type=cifs,nfs,sshfs --noheadings --output=TARGET | grep "$volumeDir"; }
+
+browseCommand()
+{
+	{ IsPlatform win || ! InPath "smbtree"; } && { EchoErr "unc: unable to browse the network"; return 1; }
+	sudoc smbtree
+}
+
 unmountCommand()
 {
-	[[ ! $all ]] && { doUnmount; return; }
+	[[ "$unc" != "all" ]] && { doUnmount; return; }
 
 	IFS=$'\n' mountDirs=( $(unc mounts) )
 	[[ ! $mountDirs ]] && return
@@ -184,46 +278,12 @@ unmountCommand()
 }
 
 #
-# Get Commands
-#
-
-getCommand()
-{
-	local command; CheckSubCommand get "$1"; shift
-	local file="$1"; shift; [[ ! $file ]] && MissingOperand "file"; 
-	[[ $# != 0 ]] && UnknownOption "$1"
-	$command "$@"
-}
-
-getRootCommand()
-{
-	InPath findmnt && { findmnt --types=cifs --noheadings --output=TARGET --target "$file"; return; }
-	InPath df && { df -P "$file" | awk 'END{print $NF}'; return; }
-	return 1
-}
-
-getShareCommand()
-{
-	InPath findmnt && { findmnt --types=cifs --noheadings --output=SOURCE --target "$file"; return; }
-	InPath df && { df -P . | awk 'END{print $1}'; return; }
-	return 1
-}
-
-getUncCommand()
-{
-	IsUncPath "$file" && { echo "$file"; return; }
-
-	file="$(GetFullPath "$file")"
-	echo "${file/$(getRootCommand "$file")/$(getShareCommand "$file")}"
-}
-
-#
 # Helper Functions
 #
 
 doUnmount() { platformUnmount; cleanupMountDir; }
 log() { [[ $quiet ]] && return; printf "$@"; }
-showResult() { [[ $1 && ! $all && ! $quiet ]] && echo "$1"; [[ $1 ]]; }
+showResult() { [[ $1 && ! $quiet ]] && echo "$1"; [[ $1 ]]; }
 
 cleanupMountDir()
 {
@@ -269,6 +329,7 @@ platformUnmount()
 
 getUncInfo() # GetUncInfo unc - sets server share shareId dirs user mountDir
 {
+	unc="$1"; [[ ! $unc ]] && return 1
 	GetUncServer "$unc" server; IsPlatform win && IsLocalAddress "$server" && { server="$(MdnsResolve "$server")" || return; }
 	GetUncShare "$unc" share; [[ ! $share ]] && share="root" ; shareId="${share%%\$}"
 	GetUncDirs "$unc" dirs

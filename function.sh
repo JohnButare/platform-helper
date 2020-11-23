@@ -796,14 +796,18 @@ MdnsResolve()
 
 # UNC Shares - \\SERVER\SHARE\DIRS
 IsUncPath() { [[ "$1" =~ //.* ]]; }
+GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; } # //USER@SERVER/SHARE/DIRS
 GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
 GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 
-FileToDesc() # short description for the file, mounted volumes are converted to UNC,i.e. //server/share/...
+FileToDesc() # short description for the file, mounted volumes are converted to UNC,i.e. //server/share.
 {
 	local desc file="$1"; [[ ! $1 ]] && MissingOperand "FileToDesc" "file"
 
+	[[ ! -e "$file" ]] && { echo "$file"; return; }
+
+	# get the unc if file is mounted
 	file="$(unc get unc "$file")"
 
 	# remove the server DNS suffix from UNC paths
