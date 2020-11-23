@@ -800,9 +800,9 @@ GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*
 GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
 GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 
-FileToDesc() # short description for the file
+FileToDesc() # short description for the file, mounted volumes are converted to UNC,i.e. //server/share/...
 {
-	local desc file="$1"
+	local desc file="$1"; [[ ! $1 ]] && MissingOperand "FileToDesc" "file"
 
 	file="$(unc get unc "$file")"
 
@@ -1391,7 +1391,7 @@ CheckCommand()
 CheckSubCommand() 
 {	
 	local sub="$1"
-	[[ ! $2 ]]  && MissingOperand "$sub command"
+	[[ ! $2 ]] && MissingOperand "$sub command"
 	command="$sub$(ProperCase "$2")Command"; 
 	IsFunction "$command" && return 0
 	EchoErr "$(ScriptName): unknown $sub command \`$2\`"; exit 1
