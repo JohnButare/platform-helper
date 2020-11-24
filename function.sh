@@ -1003,12 +1003,14 @@ packageExclude()
 	# macOS
 	! IsPlatform mac && { echo "$@"; return; }
 
-	local mac=( atop fortune-mod hdparm inotify-tools iotop ksystemlog squidclient virt-what )	
-	local macArm=( bat bonnie++ iproute2 pv rust traceroute )
+	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog squidclient virt-what )	
+	local macArm=( bat bonnie++ pv rust traceroute )
+	local macx86=( ncat traceroute )
 
 	for p in "$@"; do
 		IsPlatform mac && IsInArray "$p" mac && continue
 		IsPlatformAll mac,arm && IsInArray "$p" macArm && continue
+		IsPlatformAll mac,x86 && IsInArray "$p" macx86 && continue
 		r+=( "$p" )
 	done
 
