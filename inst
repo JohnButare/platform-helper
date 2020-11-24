@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 . function.sh || exit
-. color.sh || return
+. color.sh || exit
 
 main() { init && args "$@" && i "${apps[@]}"; }
 
@@ -16,8 +16,7 @@ init()
 	macWin=( BlueSherpa CanonCamera CleanMy Cricut deezer Domotz DuetDisplay GreenShot JumpDesktop keybase LastPass LogitechOptions notion office origin PdfElement QnapExternalRaidManager qvr sonos xServer zoom )
 	macUbuntuWin=( BalenaEtcher bc BeyondCompare Dropbox JumpCloud StandardNotes steam sublime SublimeMerge TeamViewer )
 	macDebianWin=( colorls CredentialStore docker firefox fzf GitKraken LinuxNetworkUtilities PackageManagement SevenZip skype tmux UnifiControllerPackage )
-
-	intel64=( "${macUbuntuWin[@]}" ) # so far all of the macUbuntuWin programs require an Intel or AMD 64 bit processor
+	x86=( "${macUbuntuWin[@]}" )
 
 	# commands
 	cp="FileCommand cp"
@@ -228,9 +227,9 @@ installExecutable()
 
 isInstallable()
 {
-	# check architecture
-	local architecture="$(PlatformArchitecture)"
-	IsInArray "$1" intel64 && [[ "$architecture" != "amd64" ]] && return 1
+	# check architecture - macOS ARM runs x64 using Rosetta 2
+	local architecture="$(os architecture)"
+	! IsPlatform mac && IsInArray "$1" x86 && [[ "$architecture" != "x86" ]] && return 1
 
 	# check platform
 	IsInArray "$1" win && { IsPlatform win; return; }
@@ -466,7 +465,7 @@ storeInstall()
 	fi
 
 	case "$PLATFORM" in
-		mac) mas open $id;;
+		mac) InPath mas && mas open $id;;
 		win) start RunProcess.exe ms-windows-store://pdp/?ProductId=$id;;
 	esac
 
@@ -768,6 +767,9 @@ bootstrap()
 
 bootstrapStart()
 {
+	# permissions
+	sudoc chown "$USER" "$HOME/.bash_history" || return
+
 	# files
 	printf "files..."
 
@@ -783,7 +785,7 @@ bootstrapStart()
 		printf "."; makeDir "$dir" || return
 	done
 
-	files=( "$PUB" )
+	files=( "/usr/local/bin" "$PUB" )
 	for dir in "${files[@]}"; do
 		printf "."; makeDirSudo "$dir" || return
 	done
@@ -821,7 +823,7 @@ bootstrapEnd()
 bootstrapDebianMac() # debian|mac
 {
 	header "Bootstrap Mac OS and Debian "
-	package git unzip zip curl htop less || return
+	package dialog git unzip zip curl htop less || return
 }
 
 bootstrapDebian()
@@ -833,8 +835,8 @@ bootstrapDebian()
 		IsVmwareVm && { i VmwareLinuxTools || return; }
 	fi
 
-	package dialog file libdbus-glib-1-dev man sharutils xz-utils || return				# other
-	package avahi-daemon dnsutils net-tools wakeonlan || return										# network
+	package file libdbus-glib-1-dev man sharutils xz-utils || return			# other
+	package avahi-daemon dnsutils net-tools wakeonlan || return						# network
 	package --no-prompt keyboard-configuration smbclient || return
 
 	i DebianSetup || return
@@ -854,7 +856,7 @@ bootstrapEntware()
 		package git git-http libcurl || return 																			# git - libcurl required for https origins
 		package file hdparm lsblk mount-utils ncdu || return												# file
 		package atop htop iperf3 lscpu nethogs pv || return													# monitoring
-		package etherwake ncat nmap openssh-client-utils sshfs || return						# network - fping is not functional
+		package etherwake ncat nmap openssh-client-utils || return									# network - fping is not functional
 		package daemonize || return																									# process
 		package screen || return																										# terminal
 		package elinks lynx || return																								# web
@@ -875,8 +877,13 @@ bootstrapMac()
 {
 	header "Bootstrap Mac"
 
-	package cask dockutil duti fontconfig mas pidof wakeonlan wget xz || return
+	package dockutil duti fontconfig pidof wakeonlan wget xz || return
+
 	! InPath gfind && { package findutils || return; }
+	! IsPlatform ARM && { package cask; }
+
+	InPath xcodebuild && { sudoc xcodebuild -license accept || return; }
+	! IsPlatform ARM && [[ -d "/Applications/Xcode.app" ]] && { package mas || return; }
 
 	if [[ ! -f "/etc/paths.d/wiggin" ]]; then
 		sudo bash -c 'echo "/usr/local/data/bin
@@ -2771,13 +2778,13 @@ MacConfigure()
 {
 	echo "Configuring dock..."
 
-	defaults write com.apple.dock orientation -string bottom || return 	# bottom|left|right
+	defaults write com.apple.dock orientation -string right || return 	# bottom|left|right
 	defaults write com.apple.dock mineffect -string scale || return 		# genie|scale
-	defaults write com.apple.dock tilesize -integer 40 || return
+	defaults write com.apple.dock tilesize -integer 50 || return
 	defaults write com.apple.dock magnification -bool FALSE || return		# largesize is magnification size
 	defaults write com.apple.dock minimize-to-application -bool TRUE || return
 	defaults write com.apple.dock launchanim -bool FALSE || return			# Animate opening applications
-	defaults write com.apple.dock autohide -bool FALSE || return
+	defaults write com.apple.dock autohide -bool TRUE || return
 	defaults write com.apple.dock show-process-indicators -bool TRUE || return
 	defaults write com.apple.dock show-recents -bool TRUE || return
 	defaults write com.apple.dock NSTableViewDefaultSizeMode -integer 3 || return # General, Sidebar icon size=Large
@@ -2817,9 +2824,10 @@ MacFonts()
 
 MacAppCleanup()
 {
-	#echo "Removing applications..."
-	#mas uninstall N
-	:
+	! InPath mas && return
+
+	echo "Removing applications..."
+	mas uninstall N || return
 }
 
 #################################################
@@ -4229,7 +4237,16 @@ BashInstall()
 {
 	header "Bourne Again Shell"
 
-	# profile
+	bashProfile || return
+
+	# login shell
+	IsPlatform entware && { AddLoginShell "/opt/bin/bash" || return; }
+
+	return 0
+}
+
+bashProfile()
+{
 	local file="/etc/bash.bashrc"
 	local line='[[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"'
 	local after="# this file has to be sourced in"
@@ -4252,18 +4269,6 @@ BashInstall()
 		pause
 		sudoedit "$file" || return
 	fi
-
-	# entware zsh does not source /opt/etc/profile so use /opt/etc/zprofile
-	file="/opt/etc/zprofile"
-	if IsPlatform entware && ! grep "$line" "$file" >& /dev/null; then
-		echo "$line" | sudo tee -a "$file" || return
-		sudo chmod +x "$file" || return
-	fi
-
-	# login shell
-	IsPlatform entware && { AddLoginShell "/opt/bin/bash" || return; }
-
-	return 0
 }
 
 ZshInstall()
@@ -4274,15 +4279,7 @@ ZshInstall()
 
 	package zsh || return
 
-	# zshenv
-	local file="/etc/zsh/zshenv"
-	IsPlatform mac && file="/etc/zshenv"
-	IsPlatform entware && file="/opt/etc/zshenv"
-	makeFileSudo "$file" || return
-
-	# profile
-	local line='[[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"'
-	! grep "$line" "$file" >& /dev/null && { echo "$line" | sudo tee -a "$file" || return; }
+	zshProfile || return
 
 	# permissions
 	local dir="/usr/local/share/zsh"
@@ -4291,6 +4288,18 @@ ZshInstall()
 
 	# login shell
 	IsPlatform entware && { AddLoginShell "/opt/bin/zsh" || return; }
+}
+
+zshProfile()
+{
+	local file="/etc/zsh/zshenv"
+	IsPlatform mac && file="/etc/zshenv"
+	IsPlatform entware && file="/opt/etc/zshenv"
+	makeFileSudo "$file" || return
+
+	local line='[[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"'
+	! grep "$line" "$file" >& /dev/null && { echo "$line" | sudo tee -a "$file" || return; }
+	sudoc chmod +x "$file" || return
 }
 
 ZplugInstall()
@@ -4471,6 +4480,8 @@ VeraCryptInstall()
 # SSH
 #################################################
 
+sshCore() { i ssh SshFs; }
+
 ssh()
 {
 	header "SSH"
@@ -4514,12 +4525,6 @@ SshWsl()
 	return 0
 }
 
-SshDebain()
-{
-	package sshfs || return
-	sudo sed -i 's/^#user_allow_other$/user_allow_other/' " /etc/fuse.conf" || return
-}
-
 SshMac()
 {
 	if ! grep "XAuthLocation /opt/X11/bin/xauth" /etc/ssh/ssh_config  >& /dev/null; then
@@ -4527,10 +4532,23 @@ SshMac()
 		echo "XAuthLocation /opt/X11/bin/xauth" | sudo tee -a /etc/ssh/ssh_config
 	fi
 
-	brew cask install osxfuse || return
-	package sshfs || return
-
 	return 0
+}
+
+SshFs()
+{
+	if IsPlatform debian; then
+		package sshfs || return
+		sudo sed -i 's/^#user_allow_other$/user_allow_other/' " /etc/fuse.conf" || return
+
+	elif IsPlatform entware; then
+		package sshfs || return
+
+	elif IsPlatform mac && ! IsPlatform ARM; then
+		brew cask install osxfuse || return
+		package sshfs || return
+
+	fi
 }
 
 WinScpInstall()
@@ -4622,7 +4640,7 @@ iTermInstall()
 	header "iTerm"
 
 	# https://iterm2.com/downloads.html
-	run "platform/mac/iTerm2/iTerm2-3_4_0beta9.zip" || return
+	run "platform/mac/iTerm2/iTerm2-3_4_2beta3.zip" || return
 
 	if ask "Do you want to install iTerm shell integration"; then # https://iterm2.com/documentation-shell-integration.html
 		curl -L https://iterm2.com/shell_integration/install_shell_integration_and_utilities.sh | bash

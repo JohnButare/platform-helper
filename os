@@ -24,7 +24,7 @@ args()
 	while [ "$1" != "" ]; do
 		case "$1" in
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
-	 		CodeName) command="codeName";; SystemProperties) command="systemProperties";; SetHostname) command="setHostname";;
+	 		CodeName) command="codeName";; FileArchitecture) command="fileArchitecture";; SystemProperties) command="systemProperties";; SetHostname) command="setHostname";;
 			*) 
 				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
 				[[ "$command" == @(CodeName|executable|hostname|path|update|SetHostName|SetWorkgroup) ]] && break
@@ -143,13 +143,23 @@ PathEditorCommand()
 # information
 #
 
-# architectureCommand - return the machine architecture, one of ARM, MIPS, or x86_64 (Intel/AMD)
 architectureCommand()
 {
 	case "$(hardwareCommand)" in
+		arm64|armv7l|aarch64) echo "ARM";;
+		mips|mip64) echo "MIPS";;
+		x86_64) echo "x86";;
+	esac
+}
+
+# fileArchitectureCommand - return the machine architecture used by the file command
+fileArchitectureCommand()
+{
+	case "$(hardwareCommand)" in
+		arm64) echo "arm64e";;
 		armv7l|aarch64) echo "ARM";;
 		mips|mip64) echo "MIPS";;
-		x86_64) echo "x86-64";;
+		x86_64) IsPlatform mac && echo "x86_64" || echo "x86-64";;
 	esac
 }
 
@@ -166,7 +176,8 @@ bitsCommand() # 32 or 64
 }
 
 # hardware - return the machine hardware, one of:
-# armv71|aarch64 	ARM, 32|64 bit
+# arm64						ARM, 64 bit, macOS
+# armv71|aarch64 	ARM, 32|64 bit, Raspberry Pi
 # mips|mip64			MIPS, 32|64 bit
 # x86_64 					x86_64 (Intel/AMD), 64 bit
 hardwareCommand() ( uname -m; )
@@ -185,8 +196,8 @@ executableInfoCommand()
 {
 	[[ $# != 0 ]] && UnknownOption "$1"
 
-	IsPlatform mac && { echo "Mach-O $(os bits)-bit $(architectureCommand)"; return; }
-	IsPlatform linux,win && { echo "ELF $(os bits)-bit LSB executable, $(architectureCommand)"; return; }
+	IsPlatform mac && { echo "Mach-O $(bitsCommand)-bit $(fileArchitectureCommand)"; return; }
+	IsPlatform linux,win && { echo "ELF $(bitsCommand)-bit LSB executable, $(fileArchitectureCommand)"; return; }
 	return 1
 }
 

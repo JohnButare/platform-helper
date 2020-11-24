@@ -20,7 +20,7 @@ IsInteractive() { [[ "$-" == *i* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
 
 # update - temporary file location
-UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; mkdir --parents "$updateDir"; }
+UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
 UpdateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
 UpdateDone() { touch "$updateDir/$1"; }
 UpdateGet() { cat "$updateDir/$1"; }
@@ -1056,9 +1056,8 @@ PackageWhich() # which package is an executable in
 # Platform
 # 
 
-PlatformSummary() { echo "$(PlatformArchitecture) $(PlatformDescription)"; }
+PlatformSummary() { echo "$(os architecture) $(PlatformDescription)"; }
 PlatformDescription() { echo "$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"; }
-PlatformArchitecture() { ! InPath dpkg && return; dpkg --print-architecture; } # amd64, armhf
 
 # IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
 function IsPlatform()
@@ -1066,16 +1065,23 @@ function IsPlatform()
 	local checkPlatforms="$1" platforms p
 	local platform="${2:-$PLATFORM}" platformLike="${3:-$PLATFORM_LIKE}" platformId="${4:-$PLATFORM_ID}" wsl="${5:-$WSL}"
 	local platforms=( ${checkPlatforms//,/ } ); IsZsh && platforms=( "${=platforms}" )
+	local architecture
 
 	for p in "${platforms[@]}"; do
+
 		case "$p" in 
+
+			# platform, platformLike, and platformId
 			win|mac|linux) [[ "$p" == "$platform" ]] && return;;
 			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return;; # Windows Subsystem for Linux
 			wsl1|wsl2) [[ "$p" == "wsl$wsl" ]] && return;;
 			debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return;;
 			dsm|qts|srm|pi|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return;;
 
-			# other
+			# architecture 
+			ARM|MIPS|x86) [[ "$p" == "$(os architecture)" ]] && return;;
+
+			# busybox and entware
 			busybox) InPath busybox && return;;
 			entware) IsPlatform qnap,synology && return;;
 
@@ -1132,9 +1138,9 @@ function RunPlatform()
 {
 	local function="$1"; shift
 
-	RunFunction $function $PLATFORM "$@" || return
-	RunFunction $function $PLATFORM_LIKE "$@" || return
-	RunFunction $function $PLATFORM_ID "$@" || return
+	[[ $PLATFORM ]] && { RunFunction $function $PLATFORM "$@" || return; }
+	[[ $PLATFORM_LIKE ]] && { RunFunction $function $PLATFORM_LIKE "$@" || return; }
+	[[ $PLATFORM_ID ]] && { RunFunction $function $PLATFORM_ID "$@" || return; }
 	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
 	IsPlatform wsl1 && { RunFunction $function wsl1 "$@" || return; }
 	IsPlatform wsl2 && { RunFunction $function wsl2 "$@" || return; }
@@ -1297,7 +1303,7 @@ start()
 	else open="NO_OPEN"; fi
 
 	# start Mac application
-	[[ "$file" =~ \.app$ ]] && { open -a "$file" --args "${args[@]}"; return; }
+	[[ "$file" =~ \.app$ ]] && { open -a "$file" "${args[@]}"; return; }
 
 	# start directories and URL's
 	{ [[ -d "$file" ]] || IsUrl "$file"; } && { start "${open[@]}" "$file" "${args[@]}"; return; }
@@ -1503,7 +1509,7 @@ GetTextEditor()
 		IsInstalled sublime && { echo "$(sublime program)"; return 0; }
 		IsPlatform win && InPath "$P/Notepad++/notepad++.exe" && { echo "$P/Notepad++/notepad++.exe"; return 0; }
 		InPath geany && { echo "geany"; return 0; }
-		IsPlatform mac && { echo "open -a TextEdit"; return 0; }
+		IsPlatform mac && { echo "TextEdit.app"; return 0; }
 		IsPlatform win && InPath notepad.exe && { echo "notepad.exe"; return 0; }
 		InPath gedit && { echo "gedit"; return 0; }
 	fi
