@@ -330,11 +330,11 @@ IsInArray()
 { 
 	local wild; [[ "$1" == @(-w|--wild) ]] && { wild="true"; shift; }						# value contain glob patterns
 	local awild; [[ "$1" == @(-aw|--array-wild) ]] && { awild="true"; shift; }	# array contains glob patterns
-	local s="$1" a=() value
+	local s="$1" tempA=() value
 
-	IsBash && { local -n isInArray="$2"; a=( "${isInArray[@]}" ); } || { isInArray="$2"; a=( "${${(P)isInArray}[@]}" ); }
-	
-	for value in "${a[@]}"; do
+	IsBash && { local -n isInArray="$2"; tempA=( "${isInArray[@]}" ); } || { isInArray="$2"; tempA=( "${${(P)isInArray}[@]}" ); }
+
+	for value in "${tempA[@]}"; do
 		if [[ $wild ]]; then [[ "$value" == $s ]] && return 0;
 		elif [[ $awild ]]; then [[ "$s" == $value ]] && return 0;
 		else [[ "$s" == "$value" ]] && return 0; fi
@@ -966,21 +966,21 @@ PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
 
 package() # package install
 {
-	local packages=() 
-	local mac=( atop hdparm inotify-tools squidclient virt-what )	
-	local force; [[ "$1" =~ (^--force$|^-f$) ]] && { force="true"; shift; }
-	local noPrompt; [[ "$1" =~ (^--no-prompt$|^-np$) ]] && { noPrompt="true"; shift; }
+	local force; [[ "$1" =~ ^(-f|--force|-f)$ ]] && { force="true"; shift; }
+	local noPrompt; [[ "$1" =~ ^(-np|--no-prompt)$ ]] && { noPrompt="true"; shift; }
+	local quiet; [[ "$1" =~ ^(-q|--quiet)$ ]] && { quiet="true"; shift; }
+	local packages=("$@"); IsPlatform mac && packages=( $(packageExclude "$@"))
 
-	# add non-excluded packages
-	for package in "$@"; do
-		if IsPlatform mac; then ! IsInArray "$package" mac && packages+=( $package )
-		else packages+=( $package )
-		fi
-	done
-	[[ "$@" == "" ]] && return 0
+	if [[ ! $packages ]]; then
+		[[ ! $quiet ]] && echo "all packages have been excluded"
+		return 0
+	fi
 
 	# just return if all of the packages are installed
-	[[ ! $force ]] && { PackageInstalled "$@" && return; }
+	if [[ ! $force ]] && PackageInstalled "${packages[@]}"; then
+		[[ ! $quiet ]] && echo "All packages have been installed"
+		return 0
+	fi
 
 	# disable prompting if possible
 	[[ $noPrompt ]] && IsPlatform debian && noPrompt="DEBIAN_FRONTEND=noninteractive"
@@ -991,6 +991,28 @@ package() # package install
 	IsPlatform mac && { HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"; return; }
 
 	return 0
+}
+
+packageExclude()
+{
+	local packages="$@" p r=()
+
+	# ncat - not present on older Ubuntu distributions
+	IsPlatform ubuntu && IsInArray "ncat" packages && [[ "$(os CodeName)" =~ ^(bionic|xenial)$ ]] && RemoveFromArray "ncat" packages
+
+	# macOS
+	! IsPlatform mac && { echo "$@"; return; }
+
+	local mac=( atop fortune-mod hdparm inotify-tools iotop ksystemlog squidclient virt-what )	
+	local macArm=( bat bonnie++ iproute2 pv rust traceroute )
+
+	for p in "$@"; do
+		IsPlatform mac && IsInArray "$p" mac && continue
+		IsPlatformAll mac,arm && IsInArray "$p" macArm && continue
+		r+=( "$p" )
+	done
+
+	echo "${r[@]}"
 }
 
 packageu() # package uninstall
@@ -1067,7 +1089,8 @@ function IsPlatform()
 	local platform="${2:-$PLATFORM}" platformLike="${3:-$PLATFORM_LIKE}" platformId="${4:-$PLATFORM_ID}" wsl="${5:-$WSL}"
 
 	for p in "${platforms[@]}"; do
-		
+		LowerCase "$p" p
+
 		case "$p" in 
 
 			# platform, platformLike, and platformId
@@ -1078,7 +1101,7 @@ function IsPlatform()
 			dsm|qts|srm|pi|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return;;
 
 			# processor architecture 
-			ARM|MIPS|x86) [[ "$p" == "$(os architecture)" ]] && return;;
+			arm|mips|x86) [[ "$p" == "$(os architecture | LowerCase)" ]] && return;;
 
 			# operating system bits
 			32|64) [[ "$p" == "$(os bits)" ]] && return;;
