@@ -126,6 +126,8 @@ configInstall()
 # Commands
 #
 
+statusCommand() { allStatusCommand; }
+
 lookupUsage() { echot "Usage: hashi lookup NAME[.service]
 Lookup a service in consul.   All service endpoints are returned."; }
 
@@ -1173,40 +1175,44 @@ configStatusCommand()
 	} | column -c $(tput cols) -t -s- -n
 }
 
-configShowCommand()
+configShowCommand() { allConfigCommand; }
+
+configShow()
 {
-	for name in "${products[@]}"; do
+	local name="$1"; [[ ! $name ]] && MissingOperand "name"
 
-		configCommon "$name" || return
-		configCert "$name" || return
+	# configuration variables
+	configCommon "$name" || return
+	configCert "$name" || return
 
-		local args="" 
-		local url="$(getUrl "$name")"
-		local http; httpVar "$name";
+	local args="" 
+	local url="$(getUrl "$name")"
+	local http; httpVar "$name";
 
-		[[ -f "$cert/$certCli" ]] && args+=" -ca-file=$cert/$ca -client-cert=$cert/$certCli -client-key=$cert/$certCliKey"
+	[[ -f "$cert/$certCli" ]] && args+=" -ca-file=$cert/$ca -client-cert=$cert/$certCli -client-key=$cert/$certCliKey"
 
+	# standard configuration
+	cat <<-EOF
+		export ${name^^}_${http}ADDR="$url"
+		export ${name^^}_ARGS="-http-addr=$url$args"
+	EOF
+
+	# certificate configuration
+	if [[ -f "$cert/$certCli" ]]; then
 		cat <<-EOF
-			export ${name^^}_${http}ADDR="$url"
-			export ${name^^}_ARGS="-http-addr=$url$args"
+			export ${name^^}_CACERT="$cert/$ca"
+			export ${name^^}_CLIENT_CERT="$cert/$certCli"
+			export ${name^^}_CLIENT_KEY="$cert/$certCliKey"
 		EOF
+	fi
 
-		[[ -f "$cert/$certCli" ]] &&
-			cat <<-EOF
-				export ${name^^}_CACERT="$cert/$ca"
-				export ${name^^}_CLIENT_CERT="$cert/$certCli"
-				export ${name^^}_CLIENT_KEY="$cert/$certCliKey"
-			EOF
+	# token configuration - set if not already set, i.e. nomad can set the VAULT_TOKEN
+	local token tokenVar tokenVal
+	tokenVar="${name^^}_${http}TOKEN"
+	tokenVal="$(eval echo "\$$tokenVar")"
+	[[ ! $tokenVal ]] && token="$(getToken "$name" 2>&1)" && echo "export $tokenVar=\"$token\""
 
-		# TOKEN - set the TOKEN variable if it is not already set, i.e. nomad can set the VAULT_TOKEN
-		local token tokenVar tokenVal
-		tokenVar="${name^^}_${http}TOKEN"
-		tokenVal="$(eval echo "\$$tokenVar")"
-		[[ ! $tokenVal ]] && token="$(getToken "$name" 2>&1)" && echo "export $tokenVar=\"$token\""
-
-		echo
-
-	done
+	return 0
 }
 
 #
@@ -1222,7 +1228,13 @@ Commands for all products."
 
 allCommand() { usage; }
 
-statusCommand() { allStatusCommand; }
+allConfigCommand()
+{
+	for name in "${products[@]}"; do
+		configShow "$name" || return
+		echo
+	done
+}
 
 allStatusCommand()
 {
@@ -1246,6 +1258,7 @@ Consul commands."
 }
 
 consulCommand() { usage; }
+consulConfigCommand() { configShow "consul"; }
 consulStatusCommand() { consul members; }
 
 #
@@ -1260,8 +1273,8 @@ Nomad commands."
 }
 
 nomadCommand() { usage; }
+nomadConfigCommand() { configShow "nomad"; }
 nomadStatusCommand() { nomad node status; }
-
 #
 # Nomad Job Commands
 #
@@ -1351,6 +1364,7 @@ Vault commands.
 }
 
 vaultCommand() { usage; }
+vaultConfigCommand() { configShow "vault"; }
 vaultStatusCommand() { vault status; }
 
 vaultUnsealCommand()
