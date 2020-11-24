@@ -1060,15 +1060,14 @@ PlatformSummary() { echo "$(os architecture) $(PlatformDescription)"; }
 PlatformDescription() { echo "$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"; }
 
 # IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
+# return true if the current or specified platform has one of the listed characteristics
 function IsPlatform()
 {
-	local checkPlatforms="$1" platforms p
+	local platforms=() p; StringToArray "$1" "," platforms
 	local platform="${2:-$PLATFORM}" platformLike="${3:-$PLATFORM_LIKE}" platformId="${4:-$PLATFORM_ID}" wsl="${5:-$WSL}"
-	local platforms=( ${checkPlatforms//,/ } ); IsZsh && platforms=( "${=platforms}" )
-	local architecture
 
 	for p in "${platforms[@]}"; do
-
+		
 		case "$p" in 
 
 			# platform, platformLike, and platformId
@@ -1078,8 +1077,11 @@ function IsPlatform()
 			debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return;;
 			dsm|qts|srm|pi|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return;;
 
-			# architecture 
+			# processor architecture 
 			ARM|MIPS|x86) [[ "$p" == "$(os architecture)" ]] && return;;
+
+			# operating system bits
+			32|64) [[ "$p" == "$(os bits)" ]] && return;;
 
 			# busybox and entware
 			busybox) InPath busybox && return;;
@@ -1108,6 +1110,19 @@ function IsPlatform()
 	done
 
 	return 1
+}
+
+# IsPlatformAll platform[,platform,...]
+# return true if the current platform has all of the listed characteristics
+IsPlatformAll()
+{
+	local platforms=() p; StringToArray "$1" "," platforms
+
+	for p in "${platforms[@]}"; do
+		! IsPlatform "$p" && return 1
+	done
+
+	return 0
 }
 
 function GetPlatformFiles() # GetPlatformFiles FILE_PREFIX FILE_SUFFIX
