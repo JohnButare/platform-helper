@@ -136,7 +136,8 @@ USER="${USERNAME:-$USER}" DOC="" UDATA="" UBIN=""
 G="" 
 
 case "$PLATFORM" in 
-	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support" BREW_DIR="/usr/local/bin"; [[ -d "/opt/homebrew/bin" ]] && BREW_DIR="/opt/homebrew/bin";;
+	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support" BREW_DIR="/usr/local/bin" BREW_SBIN="/usr/local/sbin"
+		[[ -d "/opt/homebrew/bin" ]] && { BREW_DIR="/opt/homebrew/bin" BREW_SBIN="/opt/homebrew/sbin"; };;
 	win) WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows" P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" WIN_HOME="$WIN_ROOT/Users/$USER" ADATA="$WIN_HOME/AppData/Local";;
 esac
 
@@ -168,7 +169,7 @@ kill -SIGWINCH $$	>& /dev/null 	# ensure LINES and COLUMNS is set for a new term
 ManPathAdd "/usr/local/man" "$DATA/man"
 
 case "$PLATFORM" in 
-	mac) PathAdd front "$BREW_DIR";; # use brew utilities before system utilities
+	mac) PathAdd front "$BREW_DIR" "$BREW_SBIN";; # use brew utilities before system utilities
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
 		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$ADATA/Microsoft/WindowsApps"
