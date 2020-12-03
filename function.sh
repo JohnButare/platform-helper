@@ -1520,7 +1520,7 @@ sudoc()  # use the credential store to get the password if available, --preserve
 		fi
 	fi
 
-	if credential -q exists secure default; then
+	if credential --quiet exists secure default; then
 		SUDO_ASKPASS="$BIN/SudoAskPass" "${p[@]}" --askpass "$@"; 
 	else
 		"${p[@]}" "$@"; 
