@@ -807,8 +807,8 @@ FileToDesc() # short description for the file, mounted volumes are converted to 
 
 	[[ ! -e "$file" ]] && { echo "$file"; return; }
 
-	# get the unc if file is mounted
-	file="$(unc get unc "$file")"
+	# if the file is a UNC mounted share get the UNC format
+	unc IsUnc "$file" && file="$(unc get unc "$file")"
 
 	# remove the server DNS suffix from UNC paths
 	IsUncPath "$file" && file="//$(GetUncServer "$file" | RemoveDnsSuffix)/$(GetUncShare "$file")/$(GetUncDirs "$file")"

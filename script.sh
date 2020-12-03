@@ -34,7 +34,7 @@ ScriptArg()
 	var="$value"
 }
 
-# GetArgs - get arguments for a command
+# GetArgs - get the non-options script arguments for commands
 ScriptArgs()
 {
 	local c finalShift=0; shift=0
@@ -57,13 +57,16 @@ ScriptCommand()
 		# option
 		IsOption "$arg" && { args+=("$arg"); continue; }
 
-		# get the possible command, i.e. dhcpCommand or dhcpStatusCommand
+		# if we do not have a command assume it is lower case, i.e. dhcp
+		# if we already have a command assume the next portion of the command starts with an upper case, i.e. dhcpStatus
 		[[ $command ]] && ProperCase "$arg" c || LowerCase "$arg" c;
-		c="${command}${c}"
+
+		# add the existing command to the next argument with the best guess at casing
+		c="${command}${c}Command"
 
 		# find the exact command or look for a case-insensitive match
-		if IsFunction "${c}Command" || s="$(FindFunction "${c}Command")"; then
-			command="$c" commands+=("$c") commandNames+=("${arg,,}")
+		if IsFunction "$c" || c="$(FindFunction "$c")"; then
+			command="${c%Command}" commands+=("$command") commandNames+=("${arg,,}")
 			IsFunction "${c}Init" && { "${c}Init" || return; }
 			continue
 		fi
