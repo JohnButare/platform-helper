@@ -1,6 +1,10 @@
 # common functions for scripts
 . function.sh
 
+#
+# arguments
+# 
+
 # ScriptArg VAR [DESC] OPTION VALUE - get an option argument.  Sets var to value and increments shift if needed.
 #   -o|--option -oVAL -o VAL -o=VAL --option=VAL --option VAL
 ScriptArg()
@@ -119,4 +123,22 @@ ScriptUsage()
 
 	echot "$2"
 	exit "${1:-1}"
+}
+
+#
+# callers
+#
+
+ScriptCallers()
+{
+	local scriptCallers=()
+	IFS=$'\n' scriptCallers=( $(pstree --show-parents --long --arguments $PPID -A | grep "$BIN" | head -n -3 | tac | awk -F'/' '{ print $NF; }' | cut -d" " -f1; ) )
+	CopyArray scriptCallers "$1"
+}
+
+ScriptCaller()
+{
+	ps --no-headers -o command $PPID | cut -d' ' -f2 | GetFileName
+	# ScriptCallers
+	# (( ${#callers[@]} > 0 )) && echo "${callers[0]}"
 }
