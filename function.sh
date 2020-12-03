@@ -997,10 +997,10 @@ packageExclude()
 {
 	local packages="$@" p r=()
 
-	# ncat - not present on older Ubuntu distributions
+	# Ubuntu excludes - ncat is not present on older distributions
 	IsPlatform ubuntu && IsInArray "ncat" packages && [[ "$(os CodeName)" =~ ^(bionic|xenial)$ ]] && RemoveFromArray "ncat" packages
 
-	# macOS
+	# macOS excludes
 	! IsPlatform mac && { echo "$@"; return; }
 
 	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog squidclient virt-what )	
