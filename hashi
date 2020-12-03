@@ -31,7 +31,7 @@ args()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-h|--help) usage 0;;
-			-H*|--host=*|--host) ScriptArg hostArg host "$@";;
+			-H|--host|-H*|--host=*) ScriptArg hostArg host "$@";;
 			*) ScriptOption "$@";;
 		esac
 		shift "$shift"; shift=1
@@ -50,7 +50,7 @@ args()
 
 init()
 {
-	products=( consul nomad vault )
+	products=( consul vault nomad )
 	datacenter="$workgroup"
 
 	# ports
@@ -208,8 +208,8 @@ specified	in bootstrap-config.sh.
 	-s, --server HOSTS		comma separated list of servers to install
 	-j, --join HOSTS			comma separated list of hosts to join to, defaults to servers
 	-e, --encrypt DIR			directory for PKI certificates, if specified TLS will be enabled
-	-f, --force				force installation
-	-t, --test				do not make changes"
+	-f, --force						force installation
+	-t, --test						do not make changes"
 }
 
 installOption()
@@ -305,7 +305,7 @@ installConsulCommand()
 	guiOptions=( [ui]="true" )
 
 	# install
-	installAll || return
+	installPerform || return
 }
 
 installConsulCommon()
@@ -514,7 +514,7 @@ installNomadCommand()
 	)
 
 	# install
-	installAll || return
+	installPerform || return
 }
 
 installNomadCommon()
@@ -551,6 +551,70 @@ installNomadClient()
 {
 	certClientCopy || return
 	AppendArray o clientOptions
+}
+
+installNomadInit()
+{
+	initNomadVaultIntegration || return
+}
+
+initNomadVaultIntegration()
+{
+	! InPath vault && { echo "Vault is not installed, skipping nomad vault integration"; return; }
+
+	vaultConfig || return
+
+	local tmpDir="$(tmpDirCreate)" || return
+	pushd "$tmpDir" >& /dev/null || return
+
+	# add the nomad-cluster policy to Vault
+	if ! vault policy list | grep "^nomad-server$" >& /dev/null; then
+		hilight "Adding the nomad-cluster policy to Vault..."
+		curl https://nomadproject.io/data/vault/nomad-server-policy.hcl -O -s -L || return
+		vault policy write nomad-server nomad-server-policy.hcl || return
+	fi
+
+	# add the nomad-cluster role to Vault
+	if ! vault list "/auth/token/roles" | grep "^nomad-cluster$" >& /dev/null; then
+		hilight "Adding the nomad-cluster role to Vault..."
+		curl https://nomadproject.io/data/vault/nomad-cluster-role.json -O -s -L || return
+		vault write /auth/token/roles/nomad-cluster @nomad-cluster-role.json || return
+	fi
+
+	popd >& /dev/null || return
+	rm -fr "$tmpDir"
+
+	# grant the nomad-cluster role permission to required secrets
+	if ! vault policy list | grep "^nomad-cluster$" >& /dev/null; then
+		hilight "Granting the nomad-cluster role permission in Vault..."
+		cat | vault policy write nomad-cluster - <<-EOF
+			path "secret/*" {
+			  capabilities = ["read"]
+			}
+		EOF
+	fi
+
+	# create a token for nomad to access vault
+	local token="$(vault token create -policy nomad-server -orphan -format=json | jq '.auth.client_token')" || return
+
+	# add vault integration configuration to nomad
+	local file="$tmpDir/02_vault.hcl"
+
+	configCert "consul" || return
+	cat > "$file" <<-EOF
+		vault {
+		  enabled          = true
+		  ca_file          = "$cert/$ca"
+		  cert_file        = "$cert/$certCli"
+		  key_file         = "$cert/$certCliKey"
+		  address          = "https://127.0.0.1:$vaultHttpsPort"
+		  token            = "$token"
+			create_from_role = "nomad-cluster"
+		}
+	EOF
+
+	#for host in "${servers[@]}" "${clients[@]}"; do
+	# here here
 }
 
 nomadCertInit()
@@ -680,9 +744,8 @@ installVaultCommand()
 
 	guiOptions=( [ui]="true" )
 
-	# install and initialize
-	installAll || return
-	installVaultInit || return
+	# install
+	installPerform || return
 }
 
 installVaultCommon()
@@ -707,8 +770,7 @@ installVaultServer() { AppendArray o guiOptions; }
 
 installVaultInit()
 {
-	# set the vault configuration variables
-	eval "$(hashi config --host "$(GetWord "$servers" 1)")"
+	vaultConfig || return
 
 	# generate the unseal keys, returning if already generated
 	local n key s seals; seals="$(vault operator init 2>&1)" || return 0
@@ -859,14 +921,14 @@ installCommon()
 	configCert "$name" || return
 	configInstall "$name" || return
 }
-
-installAll()
+	
+installPerform()
 {
 	local f hostFqdn hostIp type scriptFinal
 	local -A o
 	
 	# temporary files
-	local result tmpDir="$(mktemp -d -t "$tmpDirTemplate")" || return
+	local result tmpDir="$(tmpDirCreate)" || return
 
 	# certificate initialization
 	certInit || return
@@ -896,6 +958,9 @@ installAll()
 
 	# instal the access control list
 	installAcl || return
+
+	# perform final initialization
+	RunFunction "install$(ProperCase "$name")Init"
 
 	# cleanup
 	[[ ! $test ]] && { rm -fr "$tmpDir"; ssh "$host" rm -fr "$tmpDir"; }
@@ -1285,11 +1350,10 @@ nomadJobUsage()
 Usage: hashi nomad job NAME
 Nomad job commands.
 
-	force	NAME		force a job to start
-	log	NAME			show the log for a job
+	force	NAME		force a periodic job to start
+	log	NAME			show the log for a periodic job
 	status [NAME]	status of all running jobs or the specified job"
 }
-# NomadLog [-f|--follow] NAME - show the log for a periodic job optionally following the log output
 
 nomadJobArgs()
 {
@@ -1299,6 +1363,8 @@ nomadJobArgs()
 }
 
 nomadJobCommand() {	nomadJobStatusCommand; }
+
+# nomad job status 
 
 nomadJobStatusCommand() 
 {
@@ -1310,9 +1376,51 @@ nomadJobStatusCommand()
 	fi
 }
 
-nomadJobForceCommand() { nomad job periodic force "$job"; }
+# nomnd job force
+
+nomadJobForceInit() { log=""; }
+
+nomadJobForceUsage()
+{
+	echot "\
+Usage: hashi nomad job force NAME
+Force the the specified periodic job to start.
+
+	-l|--log 	follow the job log after starting it"
+}
+
+nomadJobForceOption() 
+{
+	case "$1" in
+		-l|--log) log="true";;
+		*) return 1
+	esac
+}
+
+nomadJobForceCommand()
+{
+	nomad job periodic force "$job" || return
+
+	if [[ $log ]]; then 
+		local follow="true"
+		nomadJobLogCommand || return
+	fi
+
+	return 0
+}
+
+# nomad job log
 
 nomadJobLogInit() { follow=""; }
+
+nomadJobLogUsage()
+{
+	echot "\
+Usage: hashi nomad job log NAME
+Show the log for the specified periodic job.
+
+	-f|--follow 	follow the log output"
+}
 
 nomadJobLogOption() 
 {
@@ -1334,6 +1442,8 @@ nomadJobLogCommand()
 		header "Standard Error"; nomad alloc logs -stderr "$allocId"
 	fi		
 }
+
+# nomad helper
 
 nomadGetJobId()
 { 
@@ -1484,5 +1594,10 @@ scriptRun()
 		DISPLAY="" ssh -X -t "$host" "$script"
 	fi
 }
+
+tmpDirCreate() { mktemp -d -t "$tmpDirTemplate"; }
+
+# vaultConfig - set the Vault configuration variables, enables use of the the vault command in this script
+vaultConfig() { eval "$(hashi config --host "$(GetWord "$servers" 1)")"; }
 
 run "$@"
