@@ -34,7 +34,7 @@ ScriptArg()
 	var="$value"
 }
 
-# GetArgs - get the non-options script arguments for commands
+# GetArgs - get the non-options script arguments for the commands
 ScriptArgs()
 {
 	local c finalShift=0; shift=0
@@ -84,8 +84,8 @@ ScriptGetArg()
 {
 	local varArg="$1"
 	local -n var="$varArg"
-	local desc="$varArg"; [[ $# == 3 ]] && { desc="$2"; shift; }
-	local value="$3"; [[ ! $value ]] && MissingOperand "$desc"
+	local desc="$varArg"; (( $# > 2 )) && { desc="$2"; shift; }
+	local value="$2"; [[ ! $value ]] && MissingOperand "$desc"
 	var="$value"; ((++shift))
 }
 

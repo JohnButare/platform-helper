@@ -1,80 +1,89 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. script.sh || exit
 . color.sh || return
+
+run() {	init && args "$@" && serviceInit && "${command}Command" "${args[@]}"; }
+
+init()
+{ 
+	scBufferSize=5000 sc="sc.exe" # sc - data area error - http://www.dostips.com/forum/viewtopic.php?f=3&t=3408
+}
 
 usage()
 {
-	echot "\
-usage: service [COMMAND](start) SERVICE [HOST]
-	Control system services
-	detail|exists|list|ListFile|log|StartType|show|state|status|running
-	continue|pause|reload|restart|start|stop				control service
-	auto|delete|demand|disable|manual		 						configure service
-	-f, 		--force 							force the service operation even if we the service shows to be in the correct state
-	-h, 		--host 								host to check
-	-nhc,		--no-host-check 			do not check for host availability
-	-nsc,		--no-service-check		do not check for service existence
-	-q, 		--quiet								minimize output
-	-w, 		--wait								wait for the service to change state"
+	ScriptUsage "$1" "\
+Usage: service [OPTION]... [COMMAND](start) 
+Control system services.
+
+	continue|pause|reload|restart|start|stop SERVICE					control service
+	auto|delete|demand|disable|manual SERVICE		 							configure service
+	detail|exists|log|StartType|state|status|running SERVICE	service information
+	list|ui
+
+	-f, 		--force 						force the service operation even if the 
+																service seems to be in the correct state
+	-H, 		--host=HOST					host to check
+					--no-host-check 		do not check for host availability
+					--no-service-check	do not check for service existence
+	-q, 		--quiet							minimize output
+	-w, 		--wait							wait for the service to change state"
 	exit $1
 }
 
 args()
 {
-	unset command force service host noHostCheck noServiceCheck quiet wait
+	unset force host hostArg noHostCheck noServiceCheck quiet wait
+	unset command service
 
-	[[ $# == 0 ]] && { command="show"; return; }
-	
-	while (( $# != 0 )); do
-		case "$1" in
-			--force|-f) force="true";;
-			--host|-h) host="$2"; shift;;
-			--no-host-check|-nhc) noHostCheck="--no-host-check";;
-			--no-service-check|-nsc) noServiceCheck="--no-service-check";;
-			--quiet|-q) quiet="--quiet";;
-			--wait|-w) wait="--wait";;
-			--help) help="--help";;
-			ListFile) command="listFile";; StartType) command="startType";;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				! IsOption "$1" && [[ "$command" != @(list|ListFile) && ! $service ]] && { service="$1"; shift; continue; }
-				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
-				UnknownOption "$1"
+	# commands
+	ScriptCommand "$@" || return
+
+	# options
+	set -- "${args[@]}"; args=()
+	while (( $# != 0 )); do		
+		case "$1" in "") : ;;
+			-f|--force|-f) force="--force";;
+			-h|--help) usage 0;;
+			-H|--host|-H*|--host=*) ScriptArg "host" "$@"; hostArg="--host=\"$host\"";;
+			--nhc|--no-host-check) noHostCheck="--no-host-check";;
+			--nsc|--no-service-check) noServiceCheck="--no-service-check";;
+			-q|--quiet) quiet="--quiet";;
+			-w|--wait) wait="--wait";;
+			-h|--help) help="--help";;
+			*) ScriptOption "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
+	set -- "${args[@]}"
 
-	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage || usage 0; }
-	
-	args=("$@")
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
+	[[ "$command" != @(list|ui) ]] && { ScriptGetArg "service" "$1"; shift; }
+	[[ $@ ]] && usage
+
+	return 0
 }
 
-init()
-{ 
+serviceInit()
+{
 	unset hostUnc hostDescription sudo type useSystemd
 
-	# Windows Service (sc.exe) - fix SC data area error - http://www.dostips.com/forum/viewtopic.php?f=3&t=3408
-	scBufferSize=5000 sc="sc.exe" # service command
-
-	# service argument
-	[[ ! $service && "$command" != @(list|ListFile|show) ]] && MissingOperand "service"
-
 	# check remote host
-	if [[ ! $noHostCheck && $host && "$host" != @(localhost|$HOSTNAME) ]]; then
-		! IsAvailable "$host" && { EchoErr "service: $host is not available"; return 1; }
+	if [[ ! $noHostCheck ]] && ! IsLocalHost "$host"; then
+		! IsAvailable "$host" && { ScriptErr "$host is not available"; return 1; }
 		hostUnc='\\'"$host"
 		hostDescription=" on $host"
 	fi
 		
 	# initialize service variables
-	[[ "$command" != @(exists|list|ListFile|show) ]] && { initService || return; }
+	[[ "$command" != @(exists|list|ui) ]] && { serviceCheck || return; }
 
 	# run with additional permissions if needed
-	if [[ "$command" == @(auto|delete|demand|disable|pause|stop) ]]; then
+	if IsPlatform win && [[ "$command" == @(auto|delete|demand|disable|pause|stop) ]]; then
 
 		# Windows elevation
-		if IsPlatform win && ! isLinuxService "$service" && ! IsElevated; then
-			elevate RunScript --pause-error service $command $wait $noServiceCheck $noHostCheck "$service" "$host"
+		if ! isLinuxService "$service" && ! IsElevated; then			
+			elevate RunScript --pause-error -- service $command "$service" $force $hostArg $noHostCheck $noServiceCheck $quiet $wait
 			exit $?
 		fi
 
@@ -83,11 +92,9 @@ init()
 	return 0
 }
 
-initService()
+serviceCheck()
 {
 	[[ $noServiceCheck ]] && return 0
-
-	type="${PLATFORM^}"
 
 	case $PLATFORM in
 		mac)
@@ -103,7 +110,7 @@ initService()
 
 		win)
 			checkSystemd || return
-			isLinuxService "$service" && { type="Linux"; return; }	
+			isLinuxService "$service" && { PLATFORM="Linux"; return; }	
 
 			local result="$(sc.exe $hostUnc query "$service" | RemoveCarriageReturn |& grep FAILED)"
 			resultCode="${result#*FAILED }"; resultCode="${resultCode%%:}"
@@ -128,8 +135,6 @@ unknownService()
 	[[ ! $quiet ]] && EchoErr "service: $service does not exist as an installed service$hostDescription"
 	return 1
 }
-
-run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
 
 #
 # Helper Functions
@@ -205,13 +210,13 @@ waitForStop()
 # Commands
 #
 
-existsCommand() { initService >& /dev/null; }
+existsCommand() { serviceCheck >& /dev/null; }
 runningCommand() { [[ "$(stateCommand)" == "RUNNING" ]]; }
-showCommand() { ! IsPlatform win && return; start services.msc; }
+uiCommand() { ! IsPlatform win && return; start services.msc; }
 
 demandCommand() 
 {	
-	[[ "$type" != "win" ]] && { disableCommand; return; }
+	! IsPlatform win && { disableCommand; return; }
 
 	[[ ! $force && "$(startTypeCommand)" == "DEMAND_START" ]] && return 
 	$sc config $hostUnc "$service" start= demand; 
@@ -219,7 +224,7 @@ demandCommand()
 
 continueCommand()
 {
-	[[ "$type" != "win" ]] && { startCommand; return; }
+	! IsPlatform win && { startCommand; return; }
 	
 	[[ ! $force && "$(stateCommand)" != "PAUSED" ]] && return 
 	
@@ -227,14 +232,6 @@ continueCommand()
 	result="$($sc $hostUnc continue "$service")" || { EchoErr "$result"; return 1; }
 	[[ ! $wait ]] && return
 	waitForState "RUNNING" "continue" "continued"
-}
-
-listFileCommand() 
-{ 
-	local file="$TMP/services.txt";
-	printf "" > "$file" || return
-	listCommand >> "$file" || return
-	TextEdit "$file"
 }
 
 manualCommand()
@@ -247,7 +244,7 @@ manualCommand()
 
 pauseCommand()
 {
-	[[ "$type" != "win" ]] && { stopCommand; return; }
+	! IsPlatform win && { stopCommand; return; }
 	
 	[[ ! $force && "$(stateCommand)" != "RUNNING" ]] && return 
 
@@ -287,17 +284,15 @@ statusCommand()
 # Auto Command
 #
 
-autoCommand() { [[ "$(startTypeCommand)" == "AUTO_START" ]] && return; auto$type; }
+autoCommand() { [[ ! $force && "$(startTypeCommand)" == "AUTO_START" ]] && return; RunPlatform "auto"; }
 autoLinux() { linuxService enable "$service"; }
-autoMac() { :; }
 autoWin() {	$sc config $hostUnc "$service" start= auto; }
 
 #
 # Delete Command
 #
 
-deleteCommand() { stopCommand || return; disableCommand || return; delete$type; }
-deleteMac() { :; }
+deleteCommand() { stopCommand || return; disableCommand || return; RunPlatform "delete"; }
 deleteWin() {	$sc delete $hostUnc "$service"; }
 
 deleteLinux()
@@ -311,7 +306,7 @@ deleteLinux()
 # Detail Command
 #
 
-detailCommand() { statusCommand && detail$type; }
+detailCommand() { statusCommand && RunPlatform "detail"; }
 detailLinux() { linuxService status "$service"; }
 
 detailMac()
@@ -334,7 +329,7 @@ detailWin()
 # Disable Command
 #
 
-disableCommand() { [[ "$(startTypeCommand)" == "DISABLED" ]] && return; disable$type; }
+disableCommand() { [[ ! $force && "$(startTypeCommand)" == "DISABLED" ]] && return; RunPlatform "disable"; }
 disableMac() { $sudo launchctl disable "$service"; }
 disableWin() { $sc config $hostUnc "$service" start= disabled; }
 disableLinux() { linuxService disable "$service"; }
@@ -343,7 +338,33 @@ disableLinux() { linuxService disable "$service"; }
 # List Command
 #
 
-listCommand() { list${PLATFORM^}; }
+listInit() { unset file; }
+
+listUsage()
+{
+	echo "\
+Usage: service list - list services
+	-F, --file			show the services in a file"
+}
+
+listOption()
+{
+	case "$1" in
+		-F|--file) file="true";;
+		*) return 1
+	esac
+}
+
+listCommand()
+{
+	[[ ! $file ]] && { RunPlatform "list"; return; }
+
+	local file="$TMP/services.txt";
+	printf "" > "$file" || return
+	RunPlatform "list" >> "$file" || return
+	TextEdit "$file"
+}
+
 listLinux() {	{ ls -1 "/etc/init.d/"; [[ -d "/etc/systemd/system/" ]] && ls -1 "/etc/systemd/system/" | grep ".service$" | cut -d. -f 1; } | sort | uniq; }
 listMac() { macGetServices | awk -F/ '{ print $(NF) }' | sed 's/.plist//' | sort; }
 listWin() { $sc $hostUnc queryex bufsize= $scBufferSize type= all state= all; /usr/sbin/service --status-all; ls -1 "/etc/init.d/"; }
@@ -352,10 +373,9 @@ listWin() { $sc $hostUnc queryex bufsize= $scBufferSize type= all state= all; /u
 # Log Command
 #
 
-logCommand() { log$type; }
+logCommand() { RunPlatform "log"; }
 logLinux() { sudoc journalctl -f -u "$service" -b; }
-logMac() { :; }
-logWin() { EventViewer; }
+logWin() { start eventvwr.msc; }
 
 #
 # Start Command
@@ -366,7 +386,7 @@ startCommand()
 	[[ ! $force && "$(stateCommand)" != @(FAILED|STOPPED) ]] && return 
 
 	checkWaiting; printf "Starting $service service$hostDescription...$waiting"
-	start$type || return
+	RunPlatform "start" || return
 	[[ ! $wait ]] && return
 	waitForState RUNNING start started || return
 }
@@ -379,7 +399,7 @@ startWin() { local result; result="$($sc $hostUnc start "$service")" || { EchoEr
 # State Command
 #
 
-stateCommand() { state$type; }
+stateCommand() { RunPlatform "state"; }
 
 stateLinux()
 {
@@ -392,15 +412,21 @@ stateLinux()
 	echo "STOPPED"; return; # Active: inactive	
 }
 
-stateMac() { { sudoc launchctl list; launchctl list; } | cut -f3 | grep "^${label}$" >& /dev/null && echo "RUNNING" || echo "STOPPED"; }
+stateMac()
+{ 
+	{ sudoc launchctl list; launchctl list; } | cut -f3 | grep "^${label}$" >& /dev/null && echo "RUNNING" || echo "STOPPED"
+}
 
-stateWin() { GetWord "$($sc $hostUnc query "$service" |& grep STATE)" 4; }
+stateWin()
+{
+	GetWord "$($sc $hostUnc query "$service" |& grep STATE)" 4
+}
 
 #
 # Start Type Command
 #
 
-startTypeCommand() { startType$type; }
+startTypeCommand() { RunPlatform "startType"; }
 
 startTypeLinux()
 {
@@ -416,7 +442,10 @@ startTypeMac()
 	fi
 }
 
-startTypeWin() { GetWord "$($sc $hostUnc qc "$service" $ScBufferSize |& RemoveCarriageReturn | grep START_TYPE)" 4; }
+startTypeWin()
+{
+	GetWord "$($sc $hostUnc qc "$service" $ScBufferSize |& RemoveCarriageReturn | grep START_TYPE)" 4
+}
 
 #
 # Stop Command
@@ -427,7 +456,7 @@ stopCommand()
 	[[ ! $force && "$(stateCommand)" != "RUNNING" ]] && return 
 
 	checkWaiting; printf "Stopping $service service$hostDescription..."$waiting
-	stop$type || return
+	RunPlatform "stop" || return
 	[[ ! $wait ]] && return
 	waitForStop
 }

@@ -3,10 +3,22 @@
 IsBash() { [[ $BASH_VERSION ]]; }
 IsZsh() { [[ $ZSH_VERSION ]]; }
 
-IsBash && { shopt -s nocasematch extglob expand_aliases;  PLATFORM_SHELL="bash"; whence() { type "$@"; }; }
-IsZsh && { setopt EXTENDED_GLOB KSH_GLOB NO_NO_MATCH; PLATFORM_SHELL="zsh"; }
+if IsBash; then
+	shopt -s extglob expand_aliases
+	shopt -u nocaseglob nocasematch
+	PLATFORM_SHELL="bash"
+	whence() { type "$@"; }
+fi
 
-[[ ! $BIN ]] && { BASHRC="${BASH_SOURCE[0]%/*}/bash.bashrc"; [[ -f "$BASHRC" ]] && . "$BASHRC"; }
+if IsZsh; then
+	setopt EXTENDED_GLOB KSH_GLOB NO_NO_MATCH
+	PLATFORM_SHELL="zsh"
+fi
+
+if [[ ! $BIN ]]; then
+	BASHRC="${BASH_SOURCE[0]%/*}/bash.bashrc"
+	[[ -f "$BASHRC" ]] && . "$BASHRC"
+fi
 
 #
 # Other
