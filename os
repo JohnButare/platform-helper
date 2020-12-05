@@ -1,147 +1,205 @@
 #!/usr/bin/env bash
-. function.sh
+. script.sh || exit
 
-run() {	args "$@"; ${command}Command "${args[@]}"; }
+run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
+
+init() { :; }
 
 usage()
 {
-	echot "\
-usage: os [environment|index|lock|store|SystemProperties]
-	hostname|SetHostname [NAME]
-	path [show|edit|editor|set [AllUsers]](editor)
-	index: index [options|start|stop|demand](options)
-	architecture|bits|hardware|version 			OS and machine information
-	executable															OS executable information
-		format 			returns the formmat of the executable (leading text returned by the \`find\` command
-		find DIR		return the executables for the current machine in the target directory"
-	exit $1
+	ScriptUsage "$1" "\
+Usage: os [OPTION]... [COMMAND]...
+Operating system commands
+
+	architecture|bits|CodeName|hardware|version 			OS information
+	environment|index|path|lock|preferences|store			OS control
+	executable		OS executable information
+	name					show or set the operating system name"
 }
 
 args()
 {
-	command=""
-	
-	while [ "$1" != "" ]; do
-		case "$1" in
-			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;
-	 		CodeName) command="codeName";; FileArchitecture) command="fileArchitecture";; SystemProperties) command="systemProperties";; SetHostname) command="setHostname";;
-			*) 
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(CodeName|executable|hostname|path|update|SetHostName|SetWorkgroup) ]] && break
-				UnknownOption "$1"
+	unset -v command
+
+	# commands
+	ScriptCommand "$@" || return
+
+	# options
+	set -- "${args[@]}"; args=()
+	while (( $# != 0 )); do		
+		case "$1" in "") : ;;
+			-h|--help) usage 0;;
+			*) ScriptOption "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
-	[[ ! $command ]] && usage 1
-	args=("$@")
-}
+	set -- "${args[@]}"
 
-codeNameCommand() { InPath lsb_release && lsb_release -a |& grep "Codename:" | cut -f 2-; }
-environmentCommand() { SystemPropertiesCommand 3; }
-
-indexCommand()
-{
-	case "$PLATFORM" in
-		win) rundll32.exe shell32.dll,Control_RunDLL srchadmin.dll,Indexing Options &;;
-	esac
-}
-
-lockCommand()
-{
-	case "$PLATFORM" in
-		mac) "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession" -suspend;;
-	esac
-}
-
-storeCommand()
-{ 
-	case "$PLATFORM" in
-		win) start "" "ms-windows-store://";;
-	esac
-}	
-
-systemPropertiesCommand()
-{
-	case "$PLATFORM" in
-		win)
-			local tab=; [[ $1 ]] && tab=",,$1"; 
-			rundll32.exe /d shell32.dll,Control_RunDLL SYSDM.CPL$tab
-			;;
-	esac
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
+	[[ $@ ]] && usage
+	return 0
 }
 
 #
-# hostname
+# Commands
 #
 
-hostnameCommand()
-{
-	local host="$1" name
+environmentCommand() { RunPlatform environment; }
+environmentWin() { systemProperties 3; }
 
-	# use HOSTNAME for localhost
-	IsLocalHost "$host" && host="$HOSTNAME"
+indexCommand() { RunPlatform index; }
+indexWin() { coproc rundll32.exe shell32.dll,Control_RunDLL srchadmin.dll,Indexing Options; }
 
-	# reverse DNS lookup for IP Address
-	if IsIpAddress "$host"; then
-		name="$(nslookup $host |& grep "name =" | cut -d" " -f 3)"
-		echo "${name:-$host}"; return
-	fi
-
-	# forward DNS lookup
-	if InPath host; then
-		name="$(host $host | grep " has address " | cut -d" " -f 1)"
-		echo "${name:-$host}"; return
-	fi
-
-	# fallback on the name passed
-	echo "$host"
-}
-
-setHostnameCommand() # 0=name changed, 1=name unchanged, 2=error
-{
-	local result
-
-	local newName="$1"; [[ $newName ]] && shift
-	[[ ! $newName ]] && { read -p "Enter new host name (current $HOSTNAME): " newName; }
-	[[ ! $newName || "$newName" == "$HOSTNAME" ]] && return 1
-	
-	if IsPlatform pi; then sudo raspi-config nonint do_hostname "$newName" && return 0
-	elif IsPlatform mac; then sudo scutil --set HostName "$newName" && return 0
-	elif IsPlatform win; then RunScript --elevate -- powershell.exe Rename-Computer -NewName "$newName" && return 0
-	elif IsPlatform linux; then
-		InPath hostnamectl && { sudo hostnamectl set-hostname "$newName" >& /dev/null && return 0; }
-		sudo hostname "$newName" && return 0
-	fi
-
-	return 2
-}
-
-#
-# path 
-#
+lockCommand() { RunPlatform lock; }
+lockMac() { pmset displaysleepnow; }
 
 pathCommand()
-{
-	command="show"
-	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Path${s}Command && { command="$s"; shift; }
-	[[ $command != @(editor) && $# != 0 ]] && UnknownOption "$1"
-	Path${command}Command "$@"
-}
-
-PathEditCommand() { SystemPropertiesCommand 3; }
-
-PathEditorCommand()
 { 
-	if IsPlatform win; then
+	if InPath "PathEditor.exe"; then
 		start --elevate PathEditor.exe
+	elif IsPlatform win; then
+		systemProperties 3
 	elif InPath vared; then
 		vared PATH
 	fi
 }
 
+preferencesCommand() { RunPlatform preferences; }
+preferencesMac() { open "/System/Applications/System Preferences.app"; }
+proferencesWin() { control.exe; }
+
+storeCommand() { RunPlatform store; }
+storeMac() { open "/System/Applications/App Store.app"; }
+storeWin() { start "" "ms-windows-store://"; }
+
 #
-# information
+# Executable Command
 #
+
+executableInit() { unset name; }
+
+executableUsage()
+{
+	echot "\
+Usage: os executable format|find
+OS executable information
+	format 			returns the executable formats supported by the system.  The text will match
+								the output of the \`file\` command.  Possible values are:
+									ELF 32|64-bit LSB executable
+									Mach-O 64-bit x86_64|arm64e
+	find DIR		return the executables for the current machine in the target directory"
+}
+
+executableCommand() { usage; }
+
+executableFormatCommand()
+{
+	IsPlatform mac && { echo "Mach-O $(bitsCommand)-bit executable $(fileArchitectureCommand)"; return; }
+	IsPlatform linux,win && { echo "ELF $(bitsCommand)-bit LSB executable, $(fileArchitectureCommand)"; return; }
+	return 1
+}
+
+alternateExecutableFormatCommand()
+{
+	IsPlatform mac,arm && { echo "Mach-O $(bitsCommand)-bit executable $(alternateFileArchitectureCommand)"; return; }
+	return 1
+}
+
+executableFindArgs() { ScriptGetDirArg "dir" "$1"; shift; }
+
+executableFindCommand()
+{
+	local arch file
+
+	# find an executable that supports the machines primary architecture
+	arch="$(executableFormatCommand)"
+	file="$(file "$dir"/* | grep "$arch" | tail -1 | cut -d: -f1)"
+	file="${file% (for architecture $(fileArchitectureCommand))}" # remove suffix for MacOS universal binaries
+	[[ $file ]] && { echo "$file"; return; }
+
+	# see if we can find an executable the supports an alternate architecture if the platform supports one
+	arch="$(alternateExecutableFormatCommand)"; [[ ! $arch ]] && return 1
+	file="$(file "$dir"/* | grep "$arch" | tail -1 | cut -d: -f1)"
+	file="${file% (for architecture $(fileArchitectureCommand))}" # remove suffix for MacOS universal binaries
+	[[ $file ]] && { echo "$file"; return; }
+
+	return 1
+}
+
+#
+# Name Commands
+#
+
+nameInit() { unset name; }
+
+nameUsage()
+{
+	echo "\
+Usage: os hostname [set HOST]
+	Show or set the operating system name"
+}
+
+nameArgs()
+{
+	(( $# == 0 )) && return
+	ScriptGetArg "name" "$1"; shift
+}
+
+nameCommand()
+{
+	local lookup
+
+	# use HOSTNAME for localhost
+	IsLocalHost "$name" && name="$HOSTNAME"
+
+	# reverse DNS lookup for IP Address
+	if IsIpAddress "$name"; then
+		lookup="$(nslookup $name |& grep "name =" | cut -d" " -f 3)"
+		lookup="${lookup%.}"
+		echo "${lookup:-$name}"; return
+	fi
+
+	# forward DNS lookup
+	if InPath host; then
+		lookup="$(host $name | grep " has address " | cut -d" " -f 1)"
+		echo "${lookup:-$name}"; return
+	fi
+
+	# fallback on the name passed
+	echo "$name"
+}
+
+nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
+{
+	[[ ! $name ]] && { read -p "Enter new operating system name (current $HOSTNAME): " name; }
+	[[ ! $name || "$name" == "$HOSTNAME" ]] && return 1
+	RunPlatform setHostname
+}
+
+setHostnamePi() { sudo raspi-config nonint do_hostname "$name" || return 2; }
+setHostnameWin() { RunScript --elevate -- powershell.exe Rename-Computer -NewName "$name" || return 2; }
+
+setHostnameLinux()
+{
+	IsPlatform pi && return
+	InPath hostnamectl && { sudo hostnamectl set-hostname "$name" >& /dev/null && return 0 || return 2; }
+	sudo hostname "$name" || return 2
+}
+
+setHostnameMac()
+{
+	sudo scutil --set HostName "$name" || return 2
+	sudo scutil --set LocalHostName "$name" || return 2
+	sudo scutil --set ComputerName "$name" || return 2
+	dscacheutil -flushcache
+}
+
+#
+# Information Commands
+#
+
+codeNameCommand() { InPath lsb_release && lsb_release -a |& grep "Codename:" | cut -f 2-; }
 
 architectureCommand()
 {
@@ -156,10 +214,17 @@ architectureCommand()
 fileArchitectureCommand()
 {
 	case "$(hardwareCommand)" in
-		arm64) echo "arm64e";;
+		arm64) echo "arm64e";; # MacOS M1 ARM Chip
 		armv7l|aarch64) echo "ARM";;
 		mips|mip64) echo "MIPS";;
 		x86_64) IsPlatform mac && echo "x86_64" || echo "x86-64";;
+	esac
+}
+
+alternateFileArchitectureCommand()
+{
+	case "$(hardwareCommand)" in
+		arm64) echo "x86_64";; # MacOS M1 ARM Chip supports x86_64 executables using Rosetta
 	esac
 }
 
@@ -183,36 +248,7 @@ bitsCommand() # 32 or 64
 hardwareCommand() ( uname -m; )
 
 #
-# executable
-#
-
-executableCommand()
-{
-	local command; CheckSubCommand executable "$1"; shift
-	$command "$@"
-}
-
-executableInfoCommand()
-{
-	[[ $# != 0 ]] && UnknownOption "$1"
-
-	IsPlatform mac && { echo "Mach-O $(bitsCommand)-bit $(fileArchitectureCommand)"; return; }
-	IsPlatform linux,win && { echo "ELF $(bitsCommand)-bit LSB executable, $(fileArchitectureCommand)"; return; }
-	return 1
-}
-
-executableFindCommand()
-{
-	local dir="$1"; shift; [[ ! $dir ]] && MissingOperand "dir"; 
-	[[ $# != 0 ]] && UnknownOption "$1"
-	[[ ! -d "$dir" ]] && { ScriptErr "Specified path \`$dir\` does not exit."; }
-
-	file "$dir"/* | grep "$(executableInfoCommand)" | tail -1 | cut -d: -f1
-	return "${PIPESTATUS[1]}"
-}
-
-#
-# version
+# Version Command
 #
 
 versionCommand()
@@ -305,6 +341,17 @@ versionPi()
 	cpu=$(</sys/class/thermal/thermal_zone0/temp)
 	echo "       model:$(cat /proc/cpuinfo | grep "^Model" | cut -d":" -f 2)"
 	echo "    CPU temp: $((cpu/1000))'C"
+}
+
+#
+# Helper
+#
+
+systemProperties()
+{
+	! IsPlatform win && return
+	local tab=; [[ $1 ]] && tab=",,$1"; 
+	rundll32.exe /d shell32.dll,Control_RunDLL SYSDM.CPL$tab
 }
 
 run "$@"
