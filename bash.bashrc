@@ -169,7 +169,9 @@ kill -SIGWINCH $$	>& /dev/null 	# ensure LINES and COLUMNS is set for a new term
 ManPathAdd "/usr/local/man" "$DATA/man"
 
 case "$PLATFORM" in 
-	mac) PathAdd front "$BREW_DIR" "$BREW_SBIN";; # use brew utilities before system utilities
+	mac)
+		PathAdd fron "/opt/local/bin" "/opt/local/sbin" # Mac Ports
+		PathAdd front "$BREW_DIR" "$BREW_SBIN";; # use brew utilities before system utilities
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
 		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$ADATA/Microsoft/WindowsApps"
