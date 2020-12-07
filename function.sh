@@ -890,8 +890,14 @@ SshHelper()
 	[[ ! $host ]] && MissingOperand "host" "SshHelper"
 	set -- "${args[@]}"
 
-	# fix SSH Agent if possible
+	# SSH Agent fix
 	SshAgentCheck 
+
+	# X Server check
+	if [[ ! $X_SERVER_CHECKED ]]; then
+		! xserver IsRunning && { xserver start || return; }
+		export X_SERVER_CHECKED="true"
+	fi
 
 	# port - get a port specified in the host and remove it from the name, format USER@HOST:PORT
 	port="$(GetSshPort "$host")" 
