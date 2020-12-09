@@ -1195,6 +1195,7 @@ PlatformTmp() { IsPlatform win && echo "$ADATA/Temp" || echo "$TMP"; }
 function RunPlatform()
 {
 	local function="$1"; shift
+	local platform="$PLATFORM"; [[ $ALT_PLATFORM ]] && platform="$ALT_PLATFORM"
 
 	[[ $PLATFORM ]] && { RunFunction $function $PLATFORM "$@" || return; }
 	[[ $PLATFORM_LIKE ]] && { RunFunction $function $PLATFORM_LIKE "$@" || return; }
