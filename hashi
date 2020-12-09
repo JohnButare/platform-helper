@@ -106,7 +106,7 @@ configInstall()
 
 	# general
 	tmpDirTemplate="hashi.XXXXXXXXXX"
-	executable="$(FindInPath "$name")" || return
+	program="$(FindInPath "$name")" || return
 	user="$name"
 	commonOptions=( [log_level]="Info" )
 
@@ -209,41 +209,58 @@ specified	in bootstrap-config.sh.
 	-j, --join HOSTS			comma separated list of hosts to join to, defaults to servers
 	-e, --encrypt DIR			directory for PKI certificates, if specified TLS will be enabled
 	-f, --force						force installation
-	-t, --test						do not make changes"
+	-t, --test						do not make changes
+	-w, --what=C1[,C2...] components to install, valid components are: acl certficate program service
+													Nomad: VaultIntegration
+													Vault: seals"
 }
 
 installOption()
 {
 	case "$1" in "") : ;;
-		-c|--clients) ScriptArg "clients" "$@"; StringToArray "$clients" "," clients;;
-		-s|--servers) ScriptArg "servers" "$@"; StringToArray "$1" "," servers;;
-		-j|--join) ScriptArg "join" "$@"; StringToArray "$1" "," join;;
-		-e*|--encrypt=*|--encrypt) ScriptArg encrypt certificates "$@";;
+		-c|--clients|-c*|--clients=*) ScriptArg "clients" "$@"; StringToArray "$clients" "," clients;;
+		-s|--servers|-s*|--servers=*) ScriptArg "servers" "$@"; StringToArray "$1" "," servers;;
+		-j|--join|-j*|--join=*) ScriptArg "join" "$@"; StringToArray "$1" "," join;;
+		-e|--encrypt|-e*|--encrypt=*) ScriptArg encrypt certificates "$@";;
 		-f|--force) force="--force";;
 		-t|--test) test="--test";;
+		-w|--what|-w*|--what=*) ScriptArg "what" "$@"; StringToArray "${what,,}" "," what;;
 		*) return 1;;
 	esac
 }
+
+installComponent() { [[ ! $what ]] && return 0; IsInArray "$1" what; }
+installCert() { [[ $cert ]] && installComponent "certificate"; }
 
 installCommand() { usage; }
 
 installCliCommand()
 {
 	for name in "${products[@]}"; do
-
-		{ [[ $force ]] || ! InPath "$name"; } && { inst $force "$name" || return; }
-
-		configCert "$name" || return
-		if [[ $encrypt ]] && { [[ $force || ! -f "$cert/$ca" ]]; }; then
-			printf "Installing $name certificates..."
-			sudoc mkdir --parents "$cert" || return
-			sudoc cp "$certDir/$ca" "$certDir/$name-cli"* "$cert" || return
-			echo "done"
-		fi
-
+		installCliProgram || return
+		installCliCert || return
 	done
 
 	return 0
+}
+
+installCliProgram()
+{
+	! installComponent "program" && return
+	[[ ! $force ]] && InPath "$name" && return # return if already installed
+	inst $force "$name" || return
+}
+
+installCliCert()
+{
+	configCert "$name" || return
+	! installCert && return
+	[[ ! $force && -f "$cert/$ca" ]] && return	# return if already installed
+
+	printf "Installing $name certificates..."
+	sudoc mkdir --parents "$cert" || return
+	sudoc cp "$certDir/$ca" "$certDir/$name-cli"* "$cert" || return
+	echo "done"
 }
 
 #
@@ -321,9 +338,9 @@ installConsulCommon()
 
 	serviceType="notify"
 	networkTarget="Requires=network-online.target"
-	execStart="$executable agent -config-dir=$config"
-	execReload="$executable reload $cliArgs"
-	execStop="$executable leave $cliArgs"
+	execStart="$program agent -config-dir=$config"
+	execReload="$program reload $cliArgs"
+	execStop="$program leave $cliArgs"
 }
 
 installConsulServer() 
@@ -371,7 +388,7 @@ consulCertCaMake()
 # which is needed by other clients like nomad
 consulCertClientCopy()
 {
-	[[ ! $encrypt ]] && return
+	! installCert && return
 
 	local f="$certDir/$certClient"
 
@@ -413,7 +430,7 @@ consulCertCliMake()
 
 consulCertServerCopy()
 {	
-	[[ ! $encrypt ]] && return
+	! installCert && return
 
 	local c="consul-server-$host.pem"
 	local k="consul-server-$host-key.pem"
@@ -519,7 +536,7 @@ installNomadCommand()
 
 installNomadCommon()
 { 
-	[[ ! $encrypt ]] && return
+	! installCert && return
 
 	# set the certificate configuration to consul
 	configCert "consul" || return
@@ -553,13 +570,14 @@ installNomadClient()
 	AppendArray o clientOptions
 }
 
-installNomadInit()
+installNomadFinal()
 {
 	initNomadVaultIntegration || return
 }
 
 initNomadVaultIntegration()
 {
+	! installComponent "vaultintegration" && return	
 	! InPath vault && { echo "Vault is not installed, skipping nomad vault integration"; return; }
 
 	vaultConfig || return
@@ -754,21 +772,23 @@ installVaultCommon()
 	o[api_addr]="https://$hostFqdn:8200"
 
 	# service
-	execStart="$executable server -config=$config"
+	execStart="$program server -config=$config"
 
 	# script
 	scriptFinal="$(cat <<-EOF
 		echo "Configuring vault..."
 
 		# allow memory locking without elevation (so don't need to run as root)
-		sudo setcap cap_ipc_lock=+ep "$executable" || return
+		sudo setcap cap_ipc_lock=+ep "$program" || return
 		EOF
 	)"
 }
 
 installVaultServer() { AppendArray o guiOptions; }
 
-installVaultInit()
+installVaultFinal() { installVaultSeals; }
+
+installVaultSeals()
 {
 	vaultConfig || return
 
@@ -866,7 +886,7 @@ removeCommon()
 		printf "data..."; 
 		sudo rm -fr "/opt/$name" || return
 
-		printf "executable..."; 
+		printf "program..."; 
 		sudo rm -f "/usr/local/bin/$name" || return
 
 		printf "temporary files..."; 
@@ -886,7 +906,7 @@ certExist() { [[ -f "$certDir/$1" && -f "$certDir/$2" ]]; }
 
 certInit()
 {
-	[[ ! $encrypt ]] && return
+	! installCert && return
 
 	# create the certificate directory
 	[[ ! -d "$certDir" ]] && { mkdir --parents "$certDir" || return; }
@@ -897,13 +917,13 @@ certInit()
 
 certClientCopy()
 {
-	[[ ! $encrypt ]] && return
+	! installCert && return
 	cp "$certDir/$certClient" "$certDir/$certClientKey" "$tmpDir/cert" || return
 }
 
 certServerCopy()
 {
-	[[ ! $encrypt ]] && return
+	! installCert && return
 	cp "$certDir/$certServer" "$certDir/$certServerKey" "$tmpDir/cert" || return
 }
 
@@ -930,37 +950,10 @@ installPerform()
 	# temporary files
 	local result tmpDir="$(tmpDirCreate)" || return
 
-	# certificate initialization
 	certInit || return
-
-	# service
-	local networkTarget="Wants=network-online.target"
-	local serviceType="simple"
-	local execStart="$executable agent -config=$config"
-	local execReload="/bin/kill -HUP"
-	local exectStop=""
-
-	# install servers
-	for host in "${servers[@]}"; do
-		type="server"
-		installHostInit || return
-		RunFunction "install$(ProperCase "$name")Server" || return
-		installHost || return
-	done
-
-	# install clients
-	for host in "${clients[@]}"; do
-		type="client"
-		installHostInit || return
-		RunFunction "install$(ProperCase "$name")Client" || return
-		installHost || return
-	done
-
-	# instal the access control list
+	installService || return
 	installAcl || return
-
-	# perform final initialization
-	RunFunction "install$(ProperCase "$name")Init"
+	installFinal || return
 
 	# cleanup
 	[[ ! $test ]] && { rm -fr "$tmpDir"; ssh "$host" rm -fr "$tmpDir"; }
@@ -968,7 +961,34 @@ installPerform()
 	return 0
 }
 
-installHostInit()
+installService()
+{
+	! installComponent "service" && return
+
+	local networkTarget="Wants=network-online.target"
+	local serviceType="simple"
+	local execStart="$program agent -config=$config"
+	local execReload="/bin/kill -HUP"
+	local exectStop=""
+
+	# servers
+	for host in "${servers[@]}"; do
+		type="server"
+		installServiceInit || return
+		RunFunction "install$(ProperCase "$name")Server" || return
+		installServiceDo || return
+	done
+
+	# clients
+	for host in "${clients[@]}"; do
+		type="client"
+		installServiceInit || return
+		RunFunction "install$(ProperCase "$name")Client" || return
+		installServiceDo || return
+	done
+}
+
+installServiceInit()
 {
 	scriptFinal=""
 
@@ -978,17 +998,17 @@ installHostInit()
 	hostIp="$(GetIpAddress "$hostFqdn")"
 
 	# header
-	header "Install $(ProperCase "$name") $(ProperCase "$type") ($host)"
+	header "Install $(ProperCase "$name") $(ProperCase "$type") Service ($host)"
 
 	# prepare temporary directory
 	DelDir --contents "$tmpDir" || return
 	mkdir --parents "$tmpDir/cert" "$tmpDir/data" "$tmpDir/config" || return		
 
-	# copy executable
-	! IsLocalHost "$host" && { installExecutable || return; }
+	# copy program
+	! IsLocalHost "$host" && { installProgram || return; }
 
 	# copy certificates
-	[[ $encrypt ]] && { FileCommand cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$tmpDir/cert" || return; }
+	installCert && { FileCommand cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$tmpDir/cert" || return; }
 
 	# service
 	printf "" > "$tmpDir/$name.env"
@@ -1001,7 +1021,7 @@ installHostInit()
 	RunFunction "install$(ProperCase "$name")Common"
 }
 
-installHost()
+installServiceDo()
 {
 	# create the configuration files
 	installConfigHcl o > "$tmpDir/config/$configFileBase" || return
@@ -1029,10 +1049,10 @@ installHost()
 			sudo systemctl stop "$name" || exit
 		fi
 
-		# executable
-		if [[ ! -f "$executable" || "$force" ]]; then
-		  echo "Copying executable..."
-		  sudo cp "$tmpDir/$name" "$executable" || exit
+		# program
+		if [[ ! -f "$program" || "$force" ]]; then
+		  echo "Copying program..."
+		  sudo cp "$tmpDir/$name" "$program" || exit
 		fi
 
 		# directories
@@ -1081,6 +1101,8 @@ installHost()
 
 installAcl()
 {
+	! installComponent "acl" && return
+
 	configHashi || return
 
 	# generate the bootstrap token
@@ -1176,14 +1198,18 @@ installConfigService()
 	EOF
 }
 
-installExecutable()
+installFinal() { RunFunction "install$(ProperCase "$name")Final"; }
+
+installProgram()
 {
+	! installComponent "program" && return
+
 	local file machine
 
-	# check if the executable is present on the host
-	[[ ! $force ]] && ssh "$host" "[[ -f \"$executable\" ]]" && return
+	# check if the program is present on the host
+	[[ ! $force ]] && ssh "$host" "[[ -f \"$program\" ]]" && return
 
-	printf "Executable..."	
+	printf "Program..."	
 
 	# find the installation directory
 	file="$(FindInstallFile "other/HashiCorp/$name")" || return;
@@ -1197,12 +1223,12 @@ installExecutable()
 		*) machine="amd64";; esac
 	printf "$machine..."
 
-	# find the executable
+	# find the program
 	file="$(find "$file" -name "$name_*_linux_$machine" | tail -1)"
-	[[ ! -f "$file" ]] && { ScriptErr "unable to find the $name executable file"; return 1; };
+	[[ ! -f "$file" ]] && { ScriptErr "unable to find the $name program"; return 1; };
 	printf "$(GetFileName "$file")..."
 
-	# copy the executable
+	# copy the program
 	cp "$file" "$tmpDir/$name" || return
 	echo "copied"
 }
