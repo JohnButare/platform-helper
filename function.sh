@@ -489,6 +489,24 @@ FileCommand()
 	esac
 }
 
+FileToDesc() # short description for the file, mounted volumes are converted to UNC,i.e. //server/share.
+{
+	local desc file="$1"; [[ ! $1 ]] && MissingOperand "FileToDesc" "file"
+
+	[[ ! -e "$file" ]] && { echo "$file"; return; }
+
+	# if the file is a UNC mounted share get the UNC format
+	unc IsUnc "$file" && file="$(unc get unc "$file")"
+
+	# remove the server DNS suffix from UNC paths
+	IsUncPath "$file" && file="//$(GetUncServer "$file" | RemoveDnsSuffix)/$(GetUncShare "$file")/$(GetUncDirs "$file")"
+
+	# replace $HOME with ~
+	file="${file/$USERS/~}"
+
+	 echo "$file"
+}
+
 FindInPath()
 {
 	local file="$1" 
@@ -628,22 +646,51 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 # Network
 #
 
-ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip r; }
-IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
-IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }
-GetInterface() { ifconfig | head -1 | cut -d: -f1; }
-GetDefaultGateway() { route -n | grep '^0.0.0.0' | awk '{ print $2; }'; }
-GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }
-HostNameCheck() { SshHelper "$@" hostname; }
-UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }
+IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }						# IsInDomain - true if the computer is in a network domain
+GetInterface() { ifconfig | head -1 | cut -d: -f1; } 													# GetInterface - name of the primary network interface
+GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }		# GetMacAddress - MAC address of the primary network interface
+GetDefaultGateway() { route -n | grep '^0.0.0.0' | awk '{ print $2; }'; }			# GetDefaultGateway - default gateway
+GetHostname() { SshHelper "$@" hostname; } 																		# GetHostname NAME - hosts configured name
+UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }					# UrlExists URL - true if the specified URL exists
 
-GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }
-HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }
-RemoveDnsSuffix() { GetArgs; printf "${@%%.*}"; }
+# DhcpRenew ADDRESS(primary) - renew the IP address of the specified adapter
+DhcpRenew()
+{
+	local adapter="$1";  [[ ! $adapter ]] && adapter="$(GetPrimaryAdapterName)"
+	local oldIp="$(GetAdapterIpAddress "$adapter")"
 
-# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already  present
-AddDnsSuffix() { HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; }
+	if IsPlatform win; then
+		ipconfig.exe /release "$adapter" || return
+		ipconfig.exe /renew "$adapter" || return
+		echo
 
+	elif IsPlatform debian && InPath dhclient; then
+		sudoc dhclient -r || return
+		sudoc dhclient || return
+	fi
+
+	echo "Adapter $adapter IP: $oldIp -> $(GetAdapterIpAddress "$adapter")" || return
+}
+
+# GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
+GetAdapterIpAddress() 
+{
+	local adapter="$1"
+
+	if IsPlatform win; then 
+		if [[ ! $adapter ]]; then
+			# default route (0.0.0.0 destination) with lowest metric
+			route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | tr -s " " | cut -d " " -f 5
+		else
+			ipconfig.exe | RemoveCarriageReturn | grep "Ethernet adapter $adapter:" -A 4 | grep "IPv4 Address" | cut -d: -f2 | RemoveSpace
+		fi
+	else
+		# returns IP Address of first adapter if one is not specified
+		ifconfig "$adapter" | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }'
+	fi
+}
+
+# GetBroadcastAddress - get the broadcast address for the first network adapter
 GetBroadcastAddress()
 {
 	if IsPlatform mac; then
@@ -653,36 +700,27 @@ GetBroadcastAddress()
 	fi
 }
 
-GetPrimaryAdapterName()
+GetEthernetAdapters()
 {
 	if IsPlatform win; then
-		ipconfig.exe | grep $(GetPrimaryIpAddress) -B 4 | grep "Ethernet adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
+		ipconfig.exe /all | grep -e "^Ethernet adapter" | cut -d" " -f3- | cut -d: -f1	
 	else
-		ifconfig | grep "UP,BROADCAST,RUNNING" | head -1 | cut -d":" -f1
+		ip -4 -oneline -br address | cut -d" " -f 1
 	fi
 }
 
-GetPrimaryIpAddress() # GetPrimaryIpAddres [INTERFACE] - get default network adapter
-{
-	if IsPlatform wsl1; then 
-		# default route (0.0.0.0 destination) with lowest metric
-		route.exe -4 print | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | tr -s " " | cut -d " " -f 5
-	else
-		ifconfig $1 | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }'
-	fi
-}
-
-GetIpAddress() # [HOST]
+# GetIpAddress [HOST] - get the IP address of the current or specified host
+GetIpAddress() 
 {
 	local host="$1" ip
 
-	[[ ! $host ]] && { GetPrimaryIpAddress; return; }
+	[[ ! $host ]] && { GetAdapterIpAddress; return; }
 
 	IsIpAddress "$host" && { echo "$host"; return; }
 
 	# Resolve mDNS (.local) addresses exclicitly as the name resolution commands below can fail on some hosts
 	# In Windows WSL the methods below never resolve mDNS addresses
-	IsLocalAddress "$host" && { MdnsResolve "$host" 2> /dev/null; return; }
+	IsMdnsName "$host" && { MdnsResolve "$host" 2> /dev/null; return; }
 
 	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
@@ -695,7 +733,46 @@ GetIpAddress() # [HOST]
 	[[ $ip ]] && { echo "$ip"; return ; }
 }
 
-IsIpAddress() # IP
+# GetPrimaryAdapterName - get the name of the primary network adapter used for communication
+GetPrimaryAdapterName()
+{
+	if IsPlatform win; then
+		ipconfig.exe | grep $(GetAdapterIpAddress) -B 4 | grep "Ethernet adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
+	else
+		ifconfig | grep "UP,BROADCAST,RUNNING" | head -1 | cut -d":" -f1
+	fi
+}
+
+# ipconfig [COMMAND] - show or configure network
+ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
+
+# ipinfo - show network configuration
+ipinfo()
+{
+	! IsPlatform win && { ip -4 -br address; return; }
+	
+	{
+		local adapter adapters
+
+		PrintErr "searching..."
+
+		hilight "Name:IP"
+		{
+			IFS=$'\n' adapters=( $(GetEthernetAdapters) )
+			for adapter in "${adapters[@]}"; do
+				local ip="$(GetAdapterIpAddress "$adapter")"
+				echo $adapter:$ip
+				PrintErr "."
+			done
+		} | sort
+
+		EchoErr "done"
+	} | column -c $(tput cols) -t -s: -n
+
+}
+
+# IsIpAddress IP - return true if the specified IP is an IP address
+IsIpAddress()
 {
   local ip="$1"
   [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && return 1
@@ -708,6 +785,13 @@ IsIpAddress() # IP
   	(( ${ip[1]}<255 && ${ip[2]}<255 && ${ip[3]}<255 && ${ip[4]}<255 ))
   fi
 }
+
+# IsLocalHost HOST - true if the specified host refers to the local host
+IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
+
+#
+# Network: Host Availability
+#
 
 IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
 { 
@@ -740,20 +824,6 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 	fi
 }
 
-WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS](200) [SECONDS](120)
-{
-	local host="$1" port="$2" timeout="${3-200}" seconds="${4-200}"
-
-	printf "Waiting for $host:$port..."
-	for (( i=1; i<=$seconds; ++i )); do
- 		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
-		printf "."
-		IsAvailablePort "$host" "$port" "$timeout" && { echo "found"; return; }
-	done
-
-	echo "not found"; return 1
-}
-
 PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
 { 
 	local host="$1" timeout="${2-200}"; host="$(GetIpAddress "$host")" || return
@@ -768,30 +838,65 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 
 }
 
-DhcpRenew()
+WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS](200) [SECONDS](120)
 {
-	echo "Old IP: $(GetPrimaryIpAddress)" || return
+	local host="$1" port="$2" timeout="${3-200}" seconds="${4-200}"
 
-	if IsPlatform win; then
-		local adapter="$(GetPrimaryAdapterName)"
-		echo "Old IP: $(GetPrimaryIpAddress)" || return
-		ipconfig.exe /release "$adapter" || return
-		ipconfig.exe /renew "$adapter" || return
-	elif IsPlatform debian && InPath dhclient; then
-		sudoc dhclient -r || return
-		sudoc dhclient || return
-	fi
+	printf "Waiting for $host:$port..."
+	for (( i=1; i<=$seconds; ++i )); do
+ 		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
+		printf "."
+		IsAvailablePort "$host" "$port" "$timeout" && { echo "found"; return; }
+	done
 
-	echo "New IP: $(GetPrimaryIpAddress)" || return
+	echo "not found"; return 1
 }
 
-IsLocalAddress() { IsBash && [[ "$1" =~ .*'.'local$ ]] || [[ "$1" =~ .*\\.local$ ]]; }
+#
+# Network: DNS Names
+#
+
+AddDnsSuffix() { HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 						# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already  present
+GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }	# GetDnsSuffix HOST - the DNS suffix of the HOST
+HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuffix HOST - true if the specified host includes a DNS suffix
+RemoveDnsSuffix() { GetArgs; printf "${@%%.*}"; }															# RemoveDnsSuffix HOST - remove the DNS suffix if present
+
+#
+# Network: Name Resolution
+#
+
+# IsMdnsName NAME - return true if NAME is a local address (ends in .local)
+IsMdnsName() { IsBash && [[ "$1" =~ .*'.'local$ ]] || [[ "$1" =~ .*\\.local$ ]]; }
+
+ConsulResolve() { hashi resolve "$@"; }
+
+DnsResolve()
+{
+	local name="$1"; [[ ! $name ]] && MissingOperand "host"
+
+	# reverse DNS lookup for IP Address
+	if IsIpAddress "$name"; then
+		lookup="$(nslookup $name |& grep "name =" | cut -d" " -f 3)"
+		lookup="${lookup%.}"
+		echo "${lookup:-$name}"; return
+	fi
+
+	# forward DNS lookup to get the fully qualified DNS address
+	if InPath host; then
+		lookup="$(host $name | grep " has address " | cut -d" " -f 1)"
+		echo "${lookup:-$name}"; return
+	fi
+
+	# fallback on the name passed
+	echo "$name"
+
+}
 
 MdnsResolve()
 {
-	local name="$1" result
+	local name="$1" result; [[ ! $name ]] && MissingOperand "host"
 
-	{ [[ ! $name ]] || ! IsLocalAddress "$name"; } && return 1
+	{ [[ ! $name ]] || ! IsMdnsName "$name"; } && return 1
 
 	# Currently WSL does not resolve mDns .local address but Windows does
 	if IsPlatform win; then
@@ -806,33 +911,9 @@ MdnsResolve()
 	echo "$result"
 }
 
-# UNC Shares - \\SERVER\SHARE\DIRS
-IsUncPath() { [[ "$1" =~ //.* ]]; }
-GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; } # //USER@SERVER/SHARE/DIRS
-GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
-GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
-GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
-
-FileToDesc() # short description for the file, mounted volumes are converted to UNC,i.e. //server/share.
-{
-	local desc file="$1"; [[ ! $1 ]] && MissingOperand "FileToDesc" "file"
-
-	[[ ! -e "$file" ]] && { echo "$file"; return; }
-
-	# if the file is a UNC mounted share get the UNC format
-	unc IsUnc "$file" && file="$(unc get unc "$file")"
-
-	# remove the server DNS suffix from UNC paths
-	IsUncPath "$file" && file="//$(GetUncServer "$file" | RemoveDnsSuffix)/$(GetUncShare "$file")/$(GetUncDirs "$file")"
-
-	# replace $HOME with ~
-	file="${file/$USERS/~}"
-
-	 echo "$file"
-}
-
-
-# SSH
+#
+# Network: SSH
+#
 
 GetSshUser() { echo "$1" | cut -s -d@ -f 1; } # USER@SERVER:PORT
 GetSshHost() { echo "$1" | cut -d@ -f 2 | cut -d: -f 1; }
@@ -914,7 +995,7 @@ SshHelper()
 		ip="$(GetIpAddress "$host")"
 
 		# if the DNS ip did not resolve or is not responding try mDNS (.local) name resolution
-		if ! IsLocalAddress "$host" && { [[ ! $ip ]] || ! IsAvailablePort "$ip" "$port"; }; then
+		if ! IsMdnsName "$host" && { [[ ! $ip ]] || ! IsAvailablePort "$ip" "$port"; }; then
 			mdnsIp="$(MdnsResolve "$host.local" 2> /dev/null)"
 			[[ $mdnsIp ]] && ip="$mdnsIp"
 		fi
@@ -972,6 +1053,16 @@ SshPermissionFix()
 	[[ -f "$USERS/$user/.ssh/id_ed25519" ]] && sudo chmod 700 "$USERS/$user/.ssh/id_ed25519" || exit
 EOF
 }
+
+#
+# Network: UNC Shares - \\SERVER\SHARE\DIRS
+#
+
+IsUncPath() { [[ "$1" =~ //.* ]]; }
+GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; } # //USER@SERVER/SHARE/DIRS
+GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
+GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
+GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 
 #
 # Package Manager

@@ -148,26 +148,8 @@ nameArgs()
 
 nameCommand()
 {
-	local lookup
-
-	# use HOSTNAME for localhost
-	IsLocalHost "$name" && name="$HOSTNAME"
-
-	# reverse DNS lookup for IP Address
-	if IsIpAddress "$name"; then
-		lookup="$(nslookup $name |& grep "name =" | cut -d" " -f 3)"
-		lookup="${lookup%.}"
-		echo "${lookup:-$name}"; return
-	fi
-
-	# forward DNS lookup
-	if InPath host; then
-		lookup="$(host $name | grep " has address " | cut -d" " -f 1)"
-		echo "${lookup:-$name}"; return
-	fi
-
-	# fallback on the name passed
-	echo "$name"
+	IsLocalHost "$name" && { echo "$HOSTNAME"; return; }
+	DnsResolve "$name"
 }
 
 nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
