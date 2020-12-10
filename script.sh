@@ -67,7 +67,7 @@ ScriptCommand()
 		# find the exact command or look for a case-insensitive match
 		if IsFunction "$c" || c="$(FindFunction "$c")"; then
 			command="${c%Command}" commands+=("$command") commandNames+=("${arg,,}")
-			IsFunction "${c}Init" && { "${c}Init" || return; }
+			IsFunction "${command}Init" && { "${command}Init" || return; }
 			continue
 		fi
 
