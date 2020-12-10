@@ -89,24 +89,20 @@ ScriptGetArg()
 	var="$value"; ((++shift))
 }
 
-# ScriptGetPathArg [VAR](file) [DESC](VAR) FILE - get a path argument
-ScriptGetPathArg()
+ScriptCheckPath()
 {
 	local checkFile; [[ "$1" == "--file" ]] && { checkFile="true"; shift; }
 	local checkDir; [[ "$1" == "--dir" ]] && { checkDir="true"; shift; }
-	local varArg="file"; (( $# > 1 )) && { varArg="$1"; shift; }
-	local -n var="$varArg"
-	local desc="$varArg"; (( $# > 1 )) && { desc="$2"; shift; }
-	local value="$1"; [[ ! $value ]] && MissingOperand "$desc"
 
-	[[ ! -e "$value" ]] && ScriptErr "cannot access \`$value\`: No such file or directory"
-	[[ $checkFile && -d "$value" ]] && ScriptErr "$value: Is a directory"
-	[[ $checkDir && -f "$value" ]] && ScriptErr "$value: Is a file"
-
-	var="$value"; ((++shift))
+	[[ ! -e "$1" ]] && { ScriptErr "cannot access \`$1\`: No such file or directory"; ScriptExit; }
+	[[ $checkFile && -d "$1" ]] && { ScriptErr "$1: Is a directory"; ScriptExit; }
+	[[ $checkDir && -f "$1" ]] && { ScriptErr "$1: Is a file"; ScriptExit; }
+	
+	return 0
 }
-ScriptGetFileArg() { ScriptGetPathArg --file "$@"; }
-ScriptGetDirArg() { ScriptGetPathArg --dir "$@"; }
+
+ScriptCheckFile() { ScriptCheckPath --file "$1"; }
+ScriptCheckDir() { ScriptCheckPath --dir "$1"; }
 
 # ScriptOption OPTION - get an option for the commands
 ScriptOption()

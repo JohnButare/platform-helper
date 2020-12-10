@@ -106,7 +106,7 @@ alternateExecutableFormatCommand()
 	return 1
 }
 
-executableFindArgs() { ScriptGetDirArg "dir" "$1"; shift; }
+executableFindArgs() { ScriptGetArg "dir" "$1"; ScriptCheckDir "$dir"; shift; }
 
 executableFindCommand()
 {
