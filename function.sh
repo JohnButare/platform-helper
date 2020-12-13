@@ -1400,10 +1400,12 @@ ProcessList() # PID,NAME - show operating system native process ID and executabl
 	esac
 }
 
-handle() { ProcessResource; }
+handle() { ProcessResource "$@"; }
+InUse() { ProcessResource "$@"; }
 ProcessResource()
 {
 	IsPlatform win && { start handle.exe "$@"; return; }
+	InPath lsof && { lsof "$@"; return; }
 	echo "Not Implemented"
 }
 
