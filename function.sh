@@ -262,6 +262,7 @@ SleepStatus()
 }
 
 EchoErr() { printf "$@\n" >&2; }
+HilightErr() { InitColor; printf "${GREEN}$1${RESET}\n" >&2; }
 PrintErr() { printf "$@" >&2; }
 
 # printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var

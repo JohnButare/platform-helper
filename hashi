@@ -96,9 +96,13 @@ configCert()
 {
 	local product="$1"; [[ "$product" == "vault" ]] && product="consul" # vault uses consul certificates
 
-	certDir="$encrypt/$product"	# source (private) certificate directory
-	cert="/opt/$product/cert" 		# public (program) certificate directory
+	# certDir - the source certificate directory including private certificates
+	if [[ $encrypt ]]; then
+		certDir="$encrypt/$product"	
+		[[ ! -d "$certDir" ]] && { mkdir "$certDir" || return; }
+	fi
 
+	cert="/opt/$product/cert" 		
 	ca="$product-ca.pem"
 	caKey="$product-ca-key.pem"
 	certCli=$product-cli.pem
@@ -187,7 +191,7 @@ uiCommand()
 	configCert "$product" || return
 	export CONSUL_ENABLE="true"
 	export CONSUL_ADDR="$(productGetUrl "$product")"
-	export CONSUL_ACL_TOKEN="$(credential get "$product" token)"
+	export CONSUL_ACL_TOKEN="$(credGet token)"
 	export CONSUL_HTTP_SSL="true"
 	export CONSUL_CACERT="$cert/$ca"
 	export CONSUL_CLIENT_CERT="$cert/$certCli"
@@ -198,7 +202,7 @@ uiCommand()
 	configCert "$product" || return
 	export NOMAD_ENABLE="true"
 	export NOMAD_ADDR="$(productGetUrl "$product")"
-	export NOMAD_ACL_TOKEN="$(credential get "$product" token)"
+	export NOMAD_ACL_TOKEN="$(credGet token)"
 	export NOMAD_HTTP_SSL="true"
 	export NOMAD_CACERT="$cert/$ca"
 	export NOMAD_CLIENT_CERT="$cert/$certCli"
@@ -247,31 +251,56 @@ installOption()
 
 installCommand() { usage; }
 
-installCliCommand()
+installCliUsage()
+{
+	echot "\
+Usage: hashi install cli all|consul|nomad|vault
+Install a HashiCorp product for command line access."
+}
+
+installCliCommand() { installCliAllCommand; }
+installCliConsulCommand() { installCli "consul"; }
+installCliNomadCommand() { installCli "nomad"; }
+installCliVaultCommand() { installCli "vault"; }
+
+installCliAllCommand()
 {
 	local product
 
 	for product in "${products[@]}"; do
-		header "$(ProperCase "$product")"
-		productInstall "$product" || return
-		installCliCert || return
+		installCli "$product"
 	done
-
-	return 0
 }
+
+installCli() { productInstall "$@" && installCliCert "$@"; }
 
 installCliCert()
 {
 	[[ ! $encrypt ]] && return
+
+	local product="$1"
+
 	configCert "$product" || return
 
 	# return if already installed
-	[[ ! $force && -f "$cert/$ca" ]] && return	
+	[[ ! $force && ! "$1" == @(-f|--force) && -f "$cert/$ca" ]] && return	
+
+	# if the certificates do not exist the product may not be install so return without error
+	checkCerts "$product" "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" || return 0
 
 	printf "Installing $product certificates..."
 	sudoc mkdir --parents "$cert" || return
 	sudoc cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$cert" || return
 	echo "done"
+}
+
+checkCerts()
+{
+	local product="$1" cert; shift
+
+	for cert in "$@"; do
+		[[ ! -f "$cert" ]] && { EchoErr "$(ProperCase "$product") certificate $(GetFileName "$cert") does not exist"; return 1; }
+	done
 }
 
 #
@@ -365,6 +394,48 @@ installConsulClient()
 	consulCertClientCopy || return
 }
 
+installConsulAcl() { installAclDo; }
+
+# consulCertClientCopy - get the auto generated consul client certficate authority
+# which is needed by other clients like nomad
+consulCertClientCopy()
+{
+	[[ ! $encrypt ]] && return
+
+	local f="$certDir/$certClient"
+
+	if [[ ! -f "$f" ]]; then
+
+		! InPath "consul-k8s" && { inst "consul-k8s" || return; }
+	
+		consul-k8s get-consul-client-ca \
+			--server-addr "$(productGetServer "consul")" \
+			--server-port "$consulHttpsPort" \
+			--ca-file="$certDir/$ca" \
+			--output-file "$f" || return
+
+	fi
+		
+	cp "$certDir/$certClient" "$tmpDir/cert" || return	
+}
+
+consulCertServerCopy()
+{	
+	[[ ! $encrypt ]] && return
+
+	local c="consul-server-$host.pem"
+	local k="consul-server-$host-key.pem"
+
+	consulCertServerMake "$c" "$k" || return
+
+	cp "$certDir/$c" "$tmpDir/cert/$certServer" || return
+	cp "$certDir/$k" "$tmpDir/cert/$certServerKey" || return
+}
+
+#
+# Consul Certificates
+#
+
 consulCertMake()
 {
 	# certificates are created using consul
@@ -395,29 +466,6 @@ consulCertCaMake()
 	mv "$baseDomain-agent-ca-key.pem" "$caKey" || return
 }
 
-# consulCertClientCopy - get the auto generated consul client certficate authority
-# which is needed by other clients like nomad
-consulCertClientCopy()
-{
-	[[ ! $encrypt ]] && return
-
-	local f="$certDir/$certClient"
-
-	if [[ ! -f "$f" ]]; then
-
-		! InPath "consul-k8s" && { inst "consul-k8s" || return; }
-	
-		consul-k8s get-consul-client-ca \
-			--server-addr "$(productGetServer "consul")" \
-			--server-port "$consulHttpsPort" \
-			--ca-file="$certDir/$ca" \
-			--output-file "$f" || return
-
-	fi
-		
-	cp "$certDir/$certClient" "$tmpDir/cert" || return
-}
-
 consulCertCliMake()
 {
 	certExist "$certCli" "$certCliKey" && return
@@ -437,19 +485,6 @@ consulCertCliMake()
 	# rename the temporary cert
 	mv "$datacenter-cli-$baseDomain-0.pem" "$certCli" || return
 	mv "$datacenter-cli-$baseDomain-0-key.pem" "$certCliKey" || return
-}
-
-consulCertServerCopy()
-{	
-	[[ ! $encrypt ]] && return
-
-	local c="consul-server-$host.pem"
-	local k="consul-server-$host-key.pem"
-
-	consulCertServerMake "$c" "$k" || return
-
-	cp "$certDir/$c" "$tmpDir/cert/$certServer" || return
-	cp "$certDir/$k" "$tmpDir/cert/$certServerKey" || return
 }
 
 consulCertServerMake()
@@ -582,10 +617,8 @@ installNomadClient()
 	AppendArray o clientOptions
 }
 
-installNomadFinal()
-{
-	initNomadVaultIntegration || return
-}
+installNomadAcl() { installAclDo; }
+installNomadFinal() { initNomadVaultIntegration; }
 
 initNomadVaultIntegration()
 {
@@ -642,6 +675,11 @@ initNomadVaultIntegration()
 		  token            = "$token"
 		}
 	EOF
+
+	if [[ $test ]]; then
+		header "$(ProperCase "$product") Configuration ($(GetFileName "$file"))"
+		cat "$file" || return
+	fi
 
 	for host in "${servers[@]}" "${clients[@]}"; do
 		hostCopy "$file" "$config" || return
@@ -806,35 +844,34 @@ installVaultCommon()
 
 installVaultServer() { AppendArray o guiOptions; }
 
-installVaultFinal() { installVaultSeals; }
-
-installVaultSeals()
+installVaultAcl()
 {
-	productConfig "vault" || return
+	local product="vault"
+	productConfig "$product" || return
 
 	# generate the unseal keys, returning if already generated
 	local n key s seals; seals="$(vault operator init 2>&1)" || return 0
 
+	# show the seal keys
+	header "$product Vault Unseal Keys"
+	hilight "Store the following vault unseal keys in a secure location:"
+	echo "$seals"
+
+	# store the seal keys
 	IFS=$'\n' seals=( $(echo "$seals" | grep "Unseal Key") )
 	for s in "${seals[@]}"; do
 		n="$(echo "$s" | cut -d: -f1 | cut -d" " -f 3)"
 		key="$(echo "$s" | cut -d: -f2 | RemoveSpace)"
-		credential set vault "key$n" "$key"
+		credSet "key$n" "$key" || return
 	done
 
-	declare token; token="$(cat "/tmp/a.txt" | grep "Initial Root Token" | cut -d: -f 2 | RemoveSpace)" || return 0
-	credential set vault token "$token"
+	# store the root token
+	declare token; token="$(echo "$seals" | grep "Initial Root Token" | cut -d: -f 2 | RemoveSpace)" || return 0
+	credSet "token" "$token" || return
+	export VAULT_TOKEN="$token"
 
-	# show the full seal text
-	header "Vault Seal"
-	hilight "Store the following Vault seals in a secure location:"
-	echo "$seals"
-
-	# check if the seals were stored correctly
-	if [[ "$(credential get vault token)" != "$token" ]]; then
-		EchoErr "unable to store the Vault root token and possibly the Vault seals in the credential store"
-		return 1
-	fi
+	# unseal the vault
+	vaultUnsealCommand || return
 
 	# enable the "secret" secret engine, the default path for the credential script
 	if ! vault secrets list | grep "^secret" > /dev/null; then
@@ -1008,7 +1045,7 @@ installServiceHost()
 	mkdir --parents "$tmpDir/cert" "$tmpDir/data" "$tmpDir/config" || return		
 
 	# copy certificates
-	[[ ! $encrypt ]] && { FileCommand cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$tmpDir/cert" || return; }
+	[[ $encrypt ]] && { FileCommand cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$tmpDir/cert" || return; }
 
 	# service
 	printf "" > "$tmpDir/$product.env"
@@ -1092,7 +1129,7 @@ installServiceHost()
 	)"
 
 	if [[ $test ]]; then
-		header "$(ProperCase "$product") Configuration"		
+		header "$(ProperCase "$product") Configuration ($(GetFileName "$configFileBase"))"
 		cat "$tmpDir/config/$configFileBase" || return
 
 		header "Service Configuration"
@@ -1103,29 +1140,28 @@ installServiceHost()
 }
 
 installAcl()
-{
+{	
 	! installComponentCheck "acl" && return
+	RunFunction "install$(ProperCase "$product")Acl";
+}
 
+installAclDo()
+{
+	installCli "$product" || return
 	productConfig "$product" || return
 
 	# generate the bootstrap token
 	local token; token="$($product acl bootstrap 2>&1)" || return 0
-	local secret="$(echo "$token" | grep "Secret ID" | cut -d= -f 2 | RemoveSpace)" 
-
-	# store the bootstrap token in the credential store
-	[[ $test ]] && return
-	[[ $secret ]] && credential set "$product" token "$secret"
 
 	# show the full bootstrap text
 	header "$product Bootstrap Token"
 	hilight "Store the following bootstrap token in a secure location:"
 	echo "$token"
 
-	# check if the bootstrap token was stored correctly
-	if [[ ! $secret || "$(credential get "$product" token)" != "$secret" ]]; then
-		EchoErr "unable to store the bootstrap token in the credential store"
-		return 1
-	fi
+	# store the bootstrap token
+	local secret="$(echo "$token" | grep "SecretID" | cut -d: -f 2 | RemoveSpace)"
+	[[ ! $secret ]] && { ScriptErr "unable to determine the bootstrap token"; return 1; }
+	credSet "token" "$secret" || return
 
 	return 0
 }
@@ -1216,9 +1252,11 @@ lookupArgs() { ScriptGetArg "name" "$1"; shift; }
 
 lookupCommand()
 {
+	local addr="$(productGetServer "consul")"
 	name+=".service.$domain"
 	configCommon "consul" || return
-	nslookup -port=8600 -type=a -norecurse "$name" "$(productGetServer "consul")"
+	[[ $verbose ]] && HilightErr "Using Consul server at $addr"
+	nslookup -port=8600 -type=a -norecurse "$name" "$addr"
 }
 
 #
@@ -1484,7 +1522,7 @@ vaultUnsealCommand()
 
 		for n in 1 2 3; do
 			hilight "Unsealing $host with key $n..."
-			key="$(credential get vault key$n)"
+			key="$(credGet "key$n")"
 			if [[ $key ]]; then
 				vault operator unseal "$key" || return
 			else
@@ -1494,6 +1532,21 @@ vaultUnsealCommand()
 
 	done
 }
+
+#
+# Credential Helper
+#
+
+credKey()
+{
+	local p="$hashiCredentialPrefix"
+
+	[[ "$p" == "none" ]] && { echo "$product"; return; }
+	[[ $p ]] && echo "$p-$product" || echo "$domain-$product"
+}
+
+credSet() { credential set "$(credKey)" "$1" "$2"; }
+credGet() { credential get "$(credKey)" "$1"; }
 
 #
 # Product Helper
@@ -1639,14 +1692,16 @@ productInstall()
 	if IsLocalHost "$host"; then
 		file="$(os executable find "$installDir")" || return
 		[[ ! $force ]] && InPath "$product" && [[ "$(productVersion "$product")" == "$(productVersion "$product" "$file")" ]] && return	
-		printf "installing program..."
-		sudoc cp "$file" "$binDir/$product"; echo "done"; return		
+		header "Install $(ProperCase "$product")"
+		sudoc cp "$file" "$binDir/$product"; return		
 	fi
 
 	local dest="$binDir/$product"
 
 	# version check
 	[[ ! $force ]] && ssh "$host" "[[ -f \"$dest\" ]]" && [[ "$(productVersion "$product")" == "$(productVersion "$product" "$host")" ]] && return
+
+	header "Install $(ProperCase "$product") ($host)"
 
 	# determine the host architecture
 	printf "architecture..."
@@ -1689,9 +1744,9 @@ productRemove()
 			echo "Deleting the service..."
 			sudo systemctl stop "$product" || exit
 			sudo systemctl disable "$product" || exit
-			sudo rm -f "$serviceFile" || return
-			sudo systemctl daemon-reload || return
-			sudo systemctl reset-failed || return
+			sudo rm -f "$serviceFile" || exit
+			sudo systemctl daemon-reload || exit
+			sudo systemctl reset-failed || exit
 		fi
 
 		printf "cleaning..."
@@ -1703,16 +1758,16 @@ productRemove()
 		sudo groupdel "$product" >& /dev/null
 
 		printf "configuration..."; 
-		sudo rm -fr "/etc/$product.d" || return
+		sudo rm -fr "/etc/$product.d" || exit
 
 		printf "data..."; 
-		sudo rm -fr "/opt/$product" || return
+		sudo rm -fr "/opt/$product" || exit
 
 		printf "program..."; 
-		sudo rm -f "$binDir/$product" || return
+		sudo rm -f "$binDir/$product" || exit
 
 		printf "temporary files..."; 
-		sudo rm -f "/tmp/$product."* || return
+		sudo rm -f "/tmp/$product."* || exit
 
 		echo "done"
 
@@ -1758,7 +1813,7 @@ getHosts()
 getConsulTokenConfig()
 {
 	local token; token="$(productGetToken "consul" 2>&1)" || return
-	echo $'\n'"  token = \"$token\""
+	echo $'\n'"	token = \"$token\""
 }
 
 hostCheck()
