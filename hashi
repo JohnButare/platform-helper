@@ -268,7 +268,7 @@ installCliAllCommand()
 	local product
 
 	for product in "${products[@]}"; do
-		installCli "$product"
+		installCli "$product" || return
 	done
 }
 
@@ -283,10 +283,10 @@ installCliCert()
 	configCert "$product" || return
 
 	# return if already installed
-	[[ ! $force && ! "$1" == @(-f|--force) && -f "$cert/$ca" ]] && return	
+	[[ ! $force && -f "$cert/$ca" ]] && return	
 
 	# if the certificates do not exist the product may not be install so return without error
-	checkCerts "$product" "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" || return 0
+	! checkCerts "$product" "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" && return
 
 	printf "Installing $product certificates..."
 	sudoc mkdir --parents "$cert" || return
@@ -299,8 +299,10 @@ checkCerts()
 	local product="$1" cert; shift
 
 	for cert in "$@"; do
-		[[ ! -f "$cert" ]] && { EchoErr "$(ProperCase "$product") certificate $(GetFileName "$cert") does not exist"; return 1; }
+		[[ ! -f "$cert" ]] && { echo 1; EchoErr "$(ProperCase "$product") certificate $(GetFileName "$cert") does not exist"; return 1; }
 	done
+
+	return 0
 }
 
 #
@@ -369,7 +371,7 @@ installConsulCommon()
 {
 	# service
 	local cliArgs="$(cat <<-EOF
-		-http-addr="https://127.0.0.1:8501" \
+		-http-addr="https://127.0.0.1:$consulHttpsPort" \
 		-ca-file="$cert/$ca" \
 		-client-cert="$cert/$certCli" \
 		-client-key="$cert/$certCliKey"
@@ -401,6 +403,8 @@ installConsulAcl() { installAclDo; }
 consulCertClientCopy()
 {
 	[[ ! $encrypt ]] && return
+
+	configCert "consul" || return
 
 	local f="$certDir/$certClient"
 
@@ -529,14 +533,16 @@ installNomadCommand()
 	# configuration
 	local -A options clientOptions serverOptions guiOptions
 	local -A commonEncryptOptions clientEncryptOptions serverEncryptOptions 
+	local token; token="$(productGetToken "consul")" || return
+	local port; port="$(productGetPort "consul")" || return
 
 	options=( 
 		[datacenter]="$datacenter"
 		[data_dir]="/opt/$product"
 		[acl]="{ enabled = true }"
 		[consul]="{
-	$(getConsulTokenConfig)
-	address = \"127.0.0.1:$(productGetPort "consul")\"
+	token = \"$token\"
+	address = \"127.0.0.1:$port\"
 }"
 	)
 
@@ -638,7 +644,7 @@ initNomadVaultIntegration()
 	fi
 
 	# add the nomad-cluster role to Vault
-	if ! vault list "/auth/token/roles" | grep "^nomad-cluster$" >& /dev/null; then
+	if ! vault list "/auth/token/roles" |& grep "^nomad-cluster$" >& /dev/null; then
 		hilight "Adding the nomad-cluster role to Vault..."
 		curl https://nomadproject.io/data/vault/nomad-cluster-role.json -O -s -L || return
 		vault write /auth/token/roles/nomad-cluster @nomad-cluster-role.json || return
@@ -681,12 +687,18 @@ initNomadVaultIntegration()
 		cat "$file" || return
 	fi
 
+	# copy the vault configuration files
 	for host in "${servers[@]}" "${clients[@]}"; do
 		hostCopy "$file" "$config" || return
+	done
+
+	# install vault client for nomad jobs
+	for host in "${servers[@]}" "${clients[@]}"; do
 		productInstall "vault" "$host" || return
 	done
 
 	# cleanup
+	configCommon "$product"
 	rm -fr rm -fr "$tmpDir"
 
 	return 0
@@ -781,12 +793,14 @@ installVaultCommand()
 
 	# configuration
 	local -A options clientOptions serverOptions guiOptions
+	local token; token="$(productGetToken "consul")" || return
+	local port; port="$(productGetPort "consul")" || return
 
 	# configuration
 	options=(
 		[listener]="\"tcp\" $(cat <<-EOF
 			{ 
-			  address = "0.0.0.0:8200"
+			  address = "0.0.0.0:$vaultHttpsPort"
 			  tls_cert_file = "$cert/$certServer"
 			  tls_key_file = "$cert/$certServerKey"
 			}
@@ -794,9 +808,10 @@ installVaultCommand()
 		)"
 
 		[storage]="\"consul\" $(cat <<-EOF
-			{$(getConsulTokenConfig)
+			{
+				token = "$token"
 			  path = "vault/"
-			  address = "127.0.0.1:8501"
+			  address = "127.0.0.1:$port"
 			  scheme = "https"
 			  tls_ca_file = "$cert/$ca"
 			  tls_cert_file = "$cert/$certCli"
@@ -806,8 +821,9 @@ installVaultCommand()
 		)"
 
 		[service_registration]="\"consul\" $(cat <<-EOF
-				{$token
-				  address="127.0.0.1:8501"
+				{
+					token = "$token"
+				  address="127.0.0.1:$port"
 				  scheme="https"
 				  tls_ca_file = "$cert/$ca"
 				  tls_cert_file = "$cert/$certCli"
@@ -826,7 +842,7 @@ installVaultCommand()
 installVaultCommon()
 {
 	# options
-	o[api_addr]="https://$hostFqdn:8200"
+	o[api_addr]="https://$hostFqdn:$vaultHttpsPort"
 
 	# service
 	execStart="$program server -config=$config"
@@ -1601,7 +1617,7 @@ productConfigShow()
 	local token tokenVar tokenVal
 	tokenVar="${product^^}_${http}TOKEN"
 	tokenVal="$(eval echo "\$$tokenVar")"
-	[[ ! $tokenVal ]] && token="$(productGetToken "$product" 2>&1)" && echo "export $tokenVar=\"$token\""
+	[[ $force || ! $tokenVal ]] && token="$(productGetToken "$product" 2>&1)" && echo "export $tokenVar=\"$token\""
 
 	return 0
 }
@@ -1650,15 +1666,8 @@ productGetServer()
 productGetPort()
 {
 	local p="$1"
-	declare -n port
-
-	if useHttps; then
-		port="${p}HttpsPort"
-		echo "$port"
-	else
-		port="${p}HttpPort"
-		echo "$port"
-	fi
+	declare -n port; useHttps && port="${p}HttpsPort" || port="${p}HttpPort"
+	echo "$port"
 }
 
 # productGetToken PRODUCT - get the authentication token for the product
@@ -1674,7 +1683,6 @@ productGetUrl()
 	local p="$1"
 	local server="$2"; [[ ! $server ]] && server="$(productGetServer "$p")"
 	local port="$3"; [[ ! $port ]] && port="$(productGetPort "$p")"
-
 	useHttps && echo "https://$server:$port" || echo "http://$server:$port"
 }
 
@@ -1691,7 +1699,7 @@ productInstall()
 	# local install
 	if IsLocalHost "$host"; then
 		file="$(os executable find "$installDir")" || return
-		[[ ! $force ]] && InPath "$product" && [[ "$(productVersion "$product")" == "$(productVersion "$product" "$file")" ]] && return	
+		InPath "$product" && [[ "$(productVersion "$product")" == "$(productVersion "$product" "$file")" ]] && return	
 		header "Install $(ProperCase "$product")"
 		sudoc cp "$file" "$binDir/$product"; return		
 	fi
@@ -1699,7 +1707,7 @@ productInstall()
 	local dest="$binDir/$product"
 
 	# version check
-	[[ ! $force ]] && ssh "$host" "[[ -f \"$dest\" ]]" && [[ "$(productVersion "$product")" == "$(productVersion "$product" "$host")" ]] && return
+	ssh "$host" "[[ -f \"$dest\" ]]" && [[ "$(productVersion "$product")" == "$(productVersion "$product" "$host")" ]] && return
 
 	header "Install $(ProperCase "$product") ($host)"
 
@@ -1807,13 +1815,6 @@ getHosts()
 	else
 		hosts=( "${@:-localhost}" )
 	fi
-}
-
-# getConsulTokenConfig - get the consul token configuration text
-getConsulTokenConfig()
-{
-	local token; token="$(productGetToken "consul" 2>&1)" || return
-	echo $'\n'"	token = \"$token\""
 }
 
 hostCheck()
