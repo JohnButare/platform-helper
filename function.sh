@@ -83,6 +83,7 @@ CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
 ActualUser() { echo "${SUDO_USER-$USER}"; }
 UserExists() { getent passwd "$1" >& /dev/null; }
+GroupExists() { getent group "$1" >& /dev/null; }
 
 FullName() 
 { 
