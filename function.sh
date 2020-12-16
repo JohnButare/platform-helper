@@ -1540,6 +1540,7 @@ GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}";
 IsOption() { [[ "$1" =~ ^-.* ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; ScriptExit; }
+MissingOption() { EchoErr "${2:-$(ScriptName)}: missing $1 option"; ScriptExit; }
 UnknownOption() {	EchoErr "${2:-$(ScriptName)}: unrecognized option \`$1\`"; EchoErr "Try \`${2:-$(ScriptName)} --help\` for more information.";	ScriptExit; }
 
 # CheckCommand - LEGACY
