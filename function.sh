@@ -493,20 +493,24 @@ FileCommand()
 
 FileToDesc() # short description for the file, mounted volumes are converted to UNC,i.e. //server/share.
 {
-	local desc file="$1"; [[ ! $1 ]] && MissingOperand "FileToDesc" "file"
-
-	[[ ! -e "$file" ]] && { echo "$file"; return; }
+	local file="$1"; [[ ! $1 ]] && MissingOperand "FileToDesc" "file"
 
 	# if the file is a UNC mounted share get the UNC format
-	unc IsUnc "$file" && file="$(unc get unc "$file")"
+	[[ -e "$file" ]] && unc IsUnc "$file" && file="$(unc get unc "$file")"
 
 	# remove the server DNS suffix from UNC paths
 	IsUncPath "$file" && file="//$(GetUncServer "$file" | RemoveDnsSuffix)/$(GetUncShare "$file")/$(GetUncDirs "$file")"
 
-	# replace $HOME with ~
-	file="${file/$USERS/~}"
+	# replace $HOME with ~, $USERS/ with ~
+	if IsBash; then
+		file="${file/#${HOME}/\~}"
+		file="${file/#$USERS\//\~}"
+	else
+		file="${file/#${HOME}/~}"
+		file="${file/#$USERS\//~}"
+	fi
 
-	 echo "$file"
+	echo "$file"
 }
 
 FindInPath()
