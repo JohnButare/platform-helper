@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-. function.sh
+. script.sh
 
-run() {	init || return; args "$@" || return; ${command}Command "${args[@]}"; }
+run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
 
 init()
 {
@@ -9,23 +9,24 @@ init()
 	driveLetters=( c d e f g h i j k l m n o p q r s t u v w x y z )
 	mountRoot="/mnt"; [[ -d "/media/$USER" ]] && mountRoot="/media/$USER" # Ubuntu
 	InPath lvm && lvm="true"
-	$lvm
 	return 0
 }
 
 usage()
 {
-	echot "\
-usage: drive COMMAND(detail)
-	DEVICE 	the drive device name to mount.  Ex: sdb1, d (Windows), or all (all available drives)
-	DIR			a directeory in the mounted drive
+	ScriptUsage "$1" "\
+Usage: drive COMMAND(detail)
+Manipulate system drives.
+
+	DEVICE 	the drive device name to mount or a file in the mounted drive.
+				  Ex: sdb1, d (Windows), or all (all available drives)
 
 	IsMounted|mount|unmount|remount DEVICE
 		IsMounted				if the specified device is mounted return the directory it is mounted to
 		mount						mount the specified device and return the directory it is mounted to
 
-	device|fs|format|IsDrive|IsWin|label|resize|SetLabel|size|type DEVICE|DIR
-		device					get the device name of the drive
+	device|fs|format|IsDrive|IsWin|label|resize|SetLabel|size|type DEVICE
+		device					get the device name of the specified mounted file
 		format FS				format the device
 		IsWin						return true if the drive is mounted using Windows drvfs
 		fs							get the file system of the drive
@@ -36,48 +37,81 @@ usage: drive COMMAND(detail)
 	detail						list detailed information of all drives
 	list [removable]	list device names of all or specified types of drives
 	mounts						list mount directory of all mounted drives
-
-	win exists|GetOffline|list|online|offline - windows drives
-		use \`wsl mount\` to mount a windows drive in WSL
+	win								manipulate windows drives
 
 	-q, 	--quiet					hide status messages
 	-v, 	--verbose				show verbose output"
-	exit ${1:-1}
 }
 
 args()
 {
 	unset -v all command device quiet verbose
 
-	while (( $# != 0 )); do
-		case "$1" in
+	# commands
+	ScriptCommand "$@" || return
+	quietCommand && quiet="--quiet"
+
+	# options
+	set -- "${args[@]}"; args=()
+	while (( $# != 0 )); do		
+		case "$1" in "") : ;;
 			-h|--help) usage 0;;
 			-q|--quiet) quiet="--quiet";;
 			-v|--verbose) verbose="--verbose";;
-			IsDrive) command="isDrive";; IsMounted) command="isMounted";; IsWin) command="isWin";;
-			SetLabel) command="setLabel";;
-			*)
-				[[ ! $device ]] && getDeviceArg "$1" && { shift; continue; }
-				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "$command" == @(device|fs|format|IsDrive|IsWin|label|list|resize|SetLabel|type|win) ]] && break
-				UnknownOption "$1"
+			*) ScriptOption "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
+	set -- "${args[@]}"
+	
+	# arguments	
+	getDeviceArg "$1" || return; shift "$shift"
+	ScriptArgs "$@" || return; shift "$shift"
+	[[ $@ ]] && usage
 
-	command="${command:-detail}"
-	[[ "$command" == @(IsMounted|mount|unmount|remount) && ! $device ]] && MissingOperand "device"
-	[[ "$device" == "all" ]] && all="true"
-
-	args=("$@")
+	return 0
 }
 
-# getDeviceArg DEVICE - get the device argument (either DEVICE or /dev/DEVICE)
+quietCommand() { [[ "$command" == @(isDrive|isWin) ]]; }
+needsDevice() { [[ "$command" == @(device|format|fs|label|isMounted|isWin|mount|unmount|remount|resize|setLabel|size|type) ]]; }
+
+# getDeviceArg DEVICE - get the device argument (all, DEVICE or /dev/DEVICE)
 getDeviceArg()
-{
-	local check="${1#/dev/}" # remove /dev/
-	! isDevice "$check" && return 1
-	device="$check"
+{	
+	shift=0; ! needsDevice && return
+	device="$1"; ((++shift))
+	[[ ! $device ]] && { [[ $quiet ]] && return 1 || MissingOperand "device"; }
+	
+	local check="$device"
+	check="${check#/dev/}" 	# remove /dev/
+	check="${check,,}" 			# lower case
+
+	# physical device 
+	isDevice "$check" && { [[ "$check" == "all" ]] && all="true"; device="$check"; return 0; }
+
+	# mounted file
+	local file="$device"
+	[[ ! -e "$file" ]] && { [[ ! $quiet ]] && ScriptErr "mount location \`$file\` does not exist"; return 1; }
+
+	# get the device for the mounted file
+	read device <<<$(findmnt --noheadings --output=SOURCE --target "$file")
+
+	# if the device (source) is drvfs, look in the mount OPTIONS for path=LETTER (Windows build 20221.1000)
+	if [[ "$device" == "drvfs" ]]; then
+		local options; IFS=';' o=( $(findmnt --noheadings --output=OPTIONS --target "$file") )
+		device="$(ListArray options | grep "^path=" | cut -d"=" -f2)"
+	fi
+
+	# change drive letters to a single lower case letter, i.e. C:\ -> c
+	[[ "$device" =~ : ]] && { device="${device:0:1}"; device="${device,,}"; return; }
+
+	# remove /dev from the device, i.e. /dev/sdb1 -> sdb1
+	[[ "$device" =~ ^/dev/ ]] && device="${device#/dev/}"
+
+	# ensure the device is a block device
+	[[ ! -b "/dev/$device" ]] && { [[ ! $quiet ]] && ScriptErr "$device is not a valid block device"; return 1; }
+
+	return 0	
 }
 
 #
@@ -89,13 +123,12 @@ mountCommand() { [[ $all ]] && { allMount; return; }; doMount && returnMountDir;
 unmountCommand() { [[ $all ]] && { allUnmount; return; }; doUnmount; }
 remountCommand() { [[ $all ]] && { allUnMount; allMount; return; }; doUnmount; doMount && returnMountDir; }
 
-deviceCommand() { getDevice "$@" || return; echo "$device"; }
-fsCommand() { getDevice "$@" || return; getFs; }
-isDriveCommand() { getDevice --quiet "$@"; }
-isWinCommand() { IsPlatform win && getDevice --quiet "$@" && [[ "$(typeCommand "$@")" == "9p" ]]; }
-labelCommand() { getDevice "$@" || return; getLabel; }
-sizeCommand() { getDevice "$@" || return; lsblk -b | grep "$device " | tr -s " " | cut -d" " -f4; }
-typeCommand() { getDevice "$@" || return; getType; }
+deviceCommand() { echo "$device"; }
+fsCommand() { getFs; }
+isDriveCommand() { :; }
+isWinCommand() { IsPlatform win && [[ "$(typeCommand "$device")" == "9p" ]]; }
+labelCommand() { getLabel; }
+typeCommand() { getType; }
 
 detailCommand()
 {
@@ -105,7 +138,6 @@ detailCommand()
 
 	local device fs label
 	{
-
 		PrintErr "searching..."
 
 		hilight "DEVICE:FS:LABEL"
@@ -120,54 +152,6 @@ detailCommand()
 		EchoErr "done"
 
 	} | column -c $(tput cols) -t -s: -n
-}
-
-formatCommand()
-{
-	# get device argument
-	getDevice || return
-
-	# get file system argument
-	local fs="$1"; shift; [[ $# != 0 ]] && usage
-	[[ ! $fs ]] && { isDriveLetter "$device" && fs="ntfs" || fs="ext4"; }
-		
-	# set label
-	if isDriveLetter "$device"; then
-		RunScript --elevate cmd.exe /c format "$device:" "/fs:$fs"
-	else
-		sudo mkfs.$fs "/dev/$device"
-	fi
-}
-
-listCommand()
-{
-	local d device devices type="$1" result=()
-
-	# arguments
-	[[ $type ]] && { shift; [[ "$type" != "removable" ]] && usage; }
-	[[ $# != 0 ]] && usage
-
-	# get devices
-	getAllDevices || return
-
-	# list devices and return if the type was not specified
-	[[ ! $type ]] && { [[ $devices ]] && ListArray devices; return; }
-
-	# filter by type, currently only removable
-	for device in "${devices[@]}"; do
-		isRemovable && d+=( "$device" )
-	done
-
-	[[ $d ]] && ListArray d
-	return 0
-}
-
-isRemovable()
-{
-	isDriveLetter "$device" && fsutil.exe fsinfo driveType "${drive}:\\" |& grep "Removable Drive" >& /dev/null && return
-	[[ "$(lsblk --nodeps --noheadings --output RM "/dev/$device")" == "1" ]] && return
-	udevadm info --query=property --export --name="/dev/$device" | grep "ID_BUS='usb'" >& /dev/null && return
-	return 1
 }
 
 mountsCommand()
@@ -193,15 +177,80 @@ mountsCommand()
 	ListArray d
 }
 
+sizeCommand()
+{
+	if isDriveLetter "$device"; then
+		diskpart "list volume" | grep "^[ ]* Volume [0-9][0-9]*[ ]*${device^^} " | tr -s " " | cut -d" " -f8
+	else	
+		lsblk -b | grep "$device " | tr -s " " | cut -d" " -f4
+	fi
+}
+
+#
+# Format Command
+#
+
+formatInit() { unset fs; }
+
+formatArgs()
+{
+	[[ $1 ]] && { ScriptGetArg "fs" "$1"; shift; } || { isDriveLetter "$device" && fs="ntfs" || fs="ext4"; }
+}
+
+formatCommand()
+{
+	if isDriveLetter "$device"; then
+		RunScript --elevate cmd.exe /c format "$device:" "/fs:$fs"
+	else
+		sudo mkfs.$fs "/dev/$device"
+	fi
+}
+
+#
+# List Command
+#
+
+listInit() { unset type; }
+
+listArgs()
+{
+	(( $# == 0 )) && return
+	ScriptGetArg "type" "${1,,}"; shift	
+	[[ "$type" != @(removable) ]] && usage
+}
+
+listCommand()
+{
+	local d device devices result=()
+
+	# get devices
+	getAllDevices || return
+
+	# list devices and return if the type was not specified
+	[[ ! $type ]] && { [[ $devices ]] && ListArray devices; return; }
+
+	# filter by type, currently only removable
+	for device in "${devices[@]}"; do
+		isRemovable && d+=( "$device" )
+	done
+
+	[[ $d ]] && ListArray d
+	return 0
+}
+
+#
+# Resize Command
+#
+
+resizeInit() { unset size; }
+
+resizeArgs()
+{
+	ScriptGetArg "size" "$1"; shift
+}
+
 resizeCommand()
 {
-	# get device argument
-	getDevice || return
-
-	# get size argument
-	local size="$1"; shift; [[ $# != 0 ]] && usage
-	[[ ! $size ]] && MissingOperand "size"
-		
 	# checks
 	isDriveLetter "$device" && { ScriptErr "cannot resize Windows mounted drives"; return 1; }
 	! isLvm && { ScriptErr "cannot resize a non-LVM drives"; return 1; }
@@ -221,18 +270,21 @@ resizeCommand()
 	echo
 }
 
+#
+# SetLabel Command
+#
+
+setLabelInit() { unset label; }
+
+setLabelArgs()
+{
+	ScriptGetArg "label" "$1"; shift
+}
+
 setLabelCommand()
 {
-	# get device argument
-	getDevice || return
-
-	# get label argument
-	local label="$1"; shift; [[ $# != 0 ]] && usage 
-	[[ ! $label ]] && MissingOperand "label"
-		
-	# set label
 	if isDriveLetter "$device"; then
-		RunScript --elevate cmd.exe /c label "$device:" system "$1"
+		RunScript --elevate cmd.exe /c label "$device:" "$1"
 	elif InPath e2label; then
 		sudo e2label "/dev/$device" "$label"
 	elif InPath tune2fs; then
@@ -241,21 +293,29 @@ setLabelCommand()
 		EchoErr "unable to set the label for $device"
 	fi
 }
+
 #
 # win commands
 #
 
-winCommand()
+winInit() { unset disk; }
+
+winUsage() { echo "\
+Usage: $(ScriptName) win exists|GetOffline|list|online|offline
+Manipulate windows drives.  Use \`wsl mount\` to mount a windows drive in WSL."; }
+
+winArgs()
 {
-	local command; CheckSubCommand win "$1"; shift
-	$command "$@"
+	[[ "${commandNames[1]}" == @(|getoffline|list) ]] && return
+	ScriptGetArg "disk" "$1"; shift
 }
 
+winCommand() { usage; }
 winListCommand() { diskpart "list disk" | grep -E 'Online|Offline|Status|---'; }
-winExistsCommand() { diskpart "select disk $1" | grep "Disk $1 is now the selected disk." >& /dev/null; }
-winGetofflineCommand() { drive win list | grep Offline | tr -s " " | cut -d" " -f3; }
-winOnlineCommand() { diskpart "select disk $1 \n online disk" | grep "DiskPart successfully onlined the selected disk" >& /dev/null; }
-winOfflineCommand() { diskpart "select disk $1 \n offline disk" | grep "DiskPart successfully offlined the selected disk" >& /dev/null; }
+winExistsCommand() { diskpart "select disk $disk" | grep "Disk $disk is now the selected disk." >& /dev/null; }
+winGetOfflineCommand() { drive win list | grep Offline | tr -s " " | cut -d" " -f3; }
+winOnlineCommand() { diskpart "select disk $disk \n online disk" | grep "DiskPart successfully onlined the selected disk" >& /dev/null; }
+winOfflineCommand() { diskpart "select disk $disk \n offline disk" | grep "DiskPart successfully offlined the selected disk" >& /dev/null; }
 
 #
 # helper
@@ -353,13 +413,6 @@ canUnmount()
 	return 0
 }
 
-isEfiDevice()
-{
-	IsPlatform win && return 1
-	[[ ! $efiDevice ]] && efiDevice="$(findmnt --noheadings --output=SOURCE --target "/boot/efi" | GetFileName)"
-	[[ "$device" == "$efiDevice" ]]
-}
-
 cleanupMountDir() 
 {
 	[[ ! -e "$mountDir" ]] && return
@@ -452,7 +505,24 @@ doUnmount()
 	[[ "$result" == "0" ]]	
 }
 
-getAllDevices() # sets devices array
+isEfiDevice()
+{
+	IsPlatform win && return 1
+	[[ ! $efiDevice ]] && efiDevice="$(findmnt --noheadings --output=SOURCE --target "/boot/efi" | GetFileName)"
+	[[ "$device" == "$efiDevice" ]]
+}
+
+isRemovable()
+{
+	isDriveLetter "$device" && { fsutil.exe fsinfo driveType "${drive}:\\" |& grep -q "Removable Drive"; return; }
+	[[ "$(lsblk --nodeps --noheadings --output RM "/dev/$device")" == "1" ]] && return
+	udevadm info --query=property --export --name="/dev/$device" | grep "ID_BUS='usb'" >& /dev/null && return
+	return 1
+}
+
+
+# getAllDevices - sets devices array
+getAllDevices() 
 {
 	[[ $devices ]] && return
 
@@ -471,41 +541,6 @@ getAllDevices() # sets devices array
 	[[ $lvm ]] && { d+=( $(sudoc lvdisplay -c |& cut -d: -f1 |& RemoveSpace) ) || return; }
 
 	devices+=( $(find "${d[@]}" |& grep -v "No such file" | sed 's/\/dev\///g') )
-
-	return 0
-}
-
-# getDevice FILE - ensure device is set from the passed mounted file or directory
-getDevice()
-{
-	# use the device if set
-	[[ $device ]] && return
-
-	# arguments
-	local quiet; [[ "$1" == @(-q|--quiet) ]] && { quiet="true"; shift; }
-
-	# get passed directory argument
-	local file="$1"; shift; [[ "$#" != "0" ]] && usage
-	[[ ! $file ]] && { [[ ! $quiet ]] && MissingOperand "file"; return 1; }
-	[[ ! -e "$file" ]] && { [[ ! $quiet ]] && ScriptErr "mount location \`$file\` does not exist"; return 1; }
-
-	# get device - the source for the mounted target file
-	read device <<<$(findmnt --noheadings --output=SOURCE --target "$file")
-
-	# if the device (source) is drvfs, look in the mount OPTIONS for path=LETTER (Windows build 20221.1000)
-	if [[ "$device" == "drvfs" ]]; then
-		local options; IFS=';' o=( $(findmnt --noheadings --output=OPTIONS --target "$file") )
-		device="$(ListArray options | grep "^path=" | cut -d"=" -f2)"
-	fi
-
-	# change drive letters to a single lower case letter, i.e. C:\ -> c
-	[[ "$device" =~ : ]] && { device="${device:0:1}"; device="${device,,}"; return; }
-
-	# remove /dev from the device, i.e. /dev/sdb1 -> sdb1
-	[[ "$device" =~ ^/dev/ ]] && device="${device#/dev/}"
-
-	# ensure the device is a block device
-	[[ ! -b "/dev/$device" ]] && { [[ ! $quiet ]] && ScriptErr "$device is not a valid block device"; return 1; }
 
 	return 0
 }

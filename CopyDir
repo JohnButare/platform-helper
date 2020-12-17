@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. script.sh || exit
 
-run() {	init && args "$@" && CopyDir "${args[@]}"; }
+run() {	init && args "$@" && doCopyDir "${args[@]}"; }
 
-init() { :; }
+init()
+{
+	# rsync options
+	o=(--info=progress2)
+	o+=(--times) 													# preserve times, required for incremental sync
+	o+=(--links --perms --group --owner) 	# preserve other metadata
+	#o+=(-@2)															# modify window in seconds to consider files the same, 2 seconds for FAT
+}
 
 usage()
 {
-	echot "usage: CopyDir SRC DEST
+	ScriptUsage "$1" "\
+Usage: CopyDir SRC DEST
+Copy a the directory.
 
 	SRC 		The source file or directory.  
 					  If SRC is a directory with a trailing / it's contents are put in the DEST directory.
@@ -15,48 +24,39 @@ usage()
 
 	DEST 		The destination directory.
 
-	-a, --archive			archive a directory
-	-d, --delete			delete files that do not exist in the target directory
-	-r, --recursive		copy directories recursively
-	-v, --verbose			maximize logging"; exit $1; 
+	-a, --archive				archive a directory
+	-d, --delete				delete files that do not exist in the target directory
+	-e, --exclude=list	comma separated list of files to exclude
+	-r, --recursive			copy directories recursively
+	-v, --verbose				maximize logging"
 }
 
 args()
 {
-	unset archive delete help recursive verbose
+	unset archive delete exclude help recursive verbose
+	exclude=".git" args=( ) shift="1"
 
-	exclude=".git" args=( ) o=(--info=progress2)
-	o+=(--times) # preserve times, required for incremental sync
-	o+=(--links --perms --group --owner) # preserve other metadata
-	#o+=(-@2) # modify window in seconds to consider files the same, 2 seconds needed for FAT file systems which use 1 second granularity
-
-	# arguments
-	for arg in "$@"; do
-		[[ ! $1 ]] && { shift; continue; } # ignore empty options
-		
-		# archive implies -rlptgoD, or --recursive --links --perms --times --group --owner --devices --specials
-		if [[ $1 == @(-a|--archive) ]]; then
-			o+=( --archive )
-			declare {archive,recursive}="true"
-			shift; continue
-		fi
-
-		[[ $1 == @(-d|--delete) ]] && { delete="true"; shift; o+=(--delete); continue; }
-		[[ $1 == @(-h|--help) ]] && usage 0
-		[[ $1 == @(-r|--recursive) ]] && { recursive="true"; shift; o+=(--recursive); continue; }
-		[[ $1 == @(-v|--verbose) ]] && { verbose="true"; shift; o+=(--verbose); continue; }
-
-		args+=("$1"); shift
+	# arguments	
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-a|--archive) archive="true" recursive="true"; o+=( --archive );; # archive implies -rlptgoD, or --recursive --links --perms --times --group --owner --devices --specials
+			-d|--delete) delete="true"; o+=(--delete);;
+			-e|--exclude|-e*|--exclude=*) ScriptArg "exclude" "$@"; shift; o+=(--exclude="$exclude");;
+			-h|--help) usage 0;;
+			-r|--recursive) recursive="true"; o+=(--recursive);;
+			-v|--verbose) verbose="true"; o+=(--verbose);;
+			*) ScriptOption "$@";;
+		esac
+		shift "$shift"; shift=1
 	done
+	set -- "${args[@]}"
 
-	o+=(--exclude="$exclude")
-
-	(( ${#args[@]} != 2 )) && usage 1
+	(( $# != 2 )) && usage 1
 
 	return 0
 }
 
-CopyDir()
+doCopyDir()
 {	
 	local src="$1" dest="$2"
 
@@ -73,6 +73,7 @@ CopyDir()
 
 	# if the src and dest end with the same directory, ensure src ends with a slash so the directory is not duplicated in the dest
 	local lastDirsMatch; [[ "$(GetLastDir "$src")" == "$(GetLastDir "$dest")" ]] && lastDirsMatch="true"
+
 	[[ $recursive && $lastDirsMatch ]] && src="$(RemoveTrailingSlash "$src")/"
 
 	if [[ $isSrcWin || $isDestWin ]]; then
