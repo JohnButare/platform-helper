@@ -77,7 +77,7 @@ storeWin() { start "" "ms-windows-store://"; }
 # Executable Command
 #
 
-executableInit() { unset name; }
+executableVars() { unset name; }
 
 executableUsage()
 {
@@ -131,7 +131,7 @@ executableFindCommand()
 # Name Commands
 #
 
-nameInit() { unset name; }
+nameVars() { unset name; }
 
 nameUsage()
 {
