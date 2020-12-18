@@ -83,85 +83,6 @@ initFinal()
 	return 0
 }
 
-configCommon()
-{
-	local product="$1"
-
-	# directories	
-	config="/etc/$product.d" 
-	data="/opt/$product"
-
-	# configuration files
-	configFileBase="01_$product.hcl"
-	configFile="$config/$configFileBase"
-	serviceFile="/etc/systemd/system/$product.service"
-	serviceEnvFile="/etc/systemd/system/$product.env"
-}
-
-configCert()
-{
-	local product="$1"; [[ "$product" == "vault" ]] && product="consul" # vault uses consul certificates
-
-	# certDir - the source certificate directory including private certificates
-	if [[ $encrypt ]]; then
-		certDir="$encrypt/$product"	
-		[[ ! -d "$certDir" ]] && { mkdir "$certDir" || return; }
-	fi
-
-	cert="/opt/$product/cert" 		
-	ca="$product-ca.pem"
-	caKey="$product-ca-key.pem"
-	certCli=$product-cli.pem
-	certCliKey=$product-cli-key.pem
-	certClient=$product-client.pem
-	certClientKey=$product-client-key.pem
-	certServer=$product-server.pem
-	certServerKey=$product-server-key.pem
-}
-
-configInstall()
-{
-	local product="$1"
-
-	# ensure the CLI program exists locally
-	! InPath "$product" && { inst "$product" || return; }
-
-	# general
-	tmpDirTemplate="hashi.XXXXXXXXXX"
-	program="$(FindInPath "$product")" || return
-	user="$product"
-	commonOptions=( [log_level]="Info" )
-
-	# add clients and servers from hostArg
-	local host hosts=(); StringToArray "$hostArg" "," hosts; 
-	for host in "${hosts[@]}"; do
-			IsInArray "$host" hashiServers && servers+=( "$host" ) || clients+=( "$host" )
-	done
-	unset hostArg
-
-	# set clients and servers defaults
-	if [[ ! $clients && ! $servers ]]; then
-		if [[ "$product" == "vault" ]]; then
-			servers=( "${vaultServers[@]}" ) 
-		else
-			clients=( "${hashiClients[@]}" ) 
-			servers=( "${hashiServers[@]}" )
-		fi
-	fi
-
-	# join servers	
-	[[ ! $join ]] && join=( "${hashiServers[@]}" )
-	joinFqdn=(); local h; for h in "${join[@]}"; do joinFqdn+=( "$(os name "$h")" ); done
-
-	if [[ $verbose ]]; then
-		printf "clients: "; ShowArray clients
-		printf "servers: "; ShowArray servers
-		printf "join: "; ShowArray join
-	fi
-	
-	return 0
-}
-
 #
 # Commands
 #
@@ -201,25 +122,23 @@ uiCommand()
 {
 	local product
 
-	product="consul"
-	configCommon "$product" || return
-	configCert "$product" || return
+	productInit "consult" || return
+	certInit "$product" || return	
 	export CONSUL_ENABLE="true"
 	export CONSUL_ADDR="$(productGetUrl "$product")"
 	export CONSUL_ACL_TOKEN="$(credGet token)"
 	export CONSUL_HTTP_SSL="true"
-	export CONSUL_CACERT="$cert/$ca"
+	export CONSUL_CACERT="$(certGetCa "$product")"
 	export CONSUL_CLIENT_CERT="$cert/$certCli"
 	export CONSUL_CLIENT_KEY="$cert/$certCliKey"
 
-	product="nomad"
-	configCommon "$product" || return
-	configCert "$product" || return
+	productInit "nomad" || return
+	certInit "$product" || return
 	export NOMAD_ENABLE="true"
 	export NOMAD_ADDR="$(productGetUrl "$product")"
 	export NOMAD_ACL_TOKEN="$(credGet token)"
 	export NOMAD_HTTP_SSL="true"
-	export NOMAD_CACERT="$cert/$ca"
+	export NOMAD_CACERT="$(certGetCa "$product")"
 	export NOMAD_CLIENT_CERT="$cert/$certCli"
 	export NOMAD_CLIENT_KEY="$cert/$certCliKey"
 
@@ -231,7 +150,7 @@ uiCommand()
 # Certificate Commands
 #
 
-certInit() { unset encrypt; }
+certVars() { unset encrypt; }
 
 certUsage() { echot "\
 Usage: hashi cert all|consul|nomad
@@ -261,24 +180,59 @@ Create certificates required for HashiCorp products.
 
 certConsulCommand() { certMake "consul"; }
 
-
 certExist() { [[ -f "$certDir/$1" && -f "$certDir/$2" ]]; }
+
+certInit()
+{
+	local product="$1"; [[ "$product" == "vault" ]] && product="consul" # vault uses consul certificates
+
+	# certDir - the source certificate directory including private certificates
+	if [[ $encrypt ]]; then
+		certDir="$encrypt/$product"	
+		[[ ! -d "$certDir" ]] && { mkdir "$certDir" || return; }
+	fi
+
+	cert="/opt/$product/cert" 		
+	ca="$product-ca.pem"
+	caAuto="$product-ca-auto.pem"
+	caKey="$product-ca-key.pem"
+	certCli=$product-cli.pem
+	certCliKey=$product-cli-key.pem
+	certClient=$product-client.pem
+	certClientKey=$product-client-key.pem
+	certServer=$product-server.pem
+	certServerKey=$product-server-key.pem
+
+	certStore="/usr/local/share/ca-certificates"
+	certStoreCa="$certStore/$(GetFileNameWithoutExtension "$caAuto").crt"
+}
 
 certCheck()
 {
 	local product="$1" cert; shift
 
 	for cert in "$@"; do
-		[[ ! -f "$cert" ]] && { echo 1; EchoErr "$(ProperCase "$product") certificate $(GetFileName "$cert") does not exist"; return 1; }
+		[[ ! -f "$cert" ]] && { EchoErr "$(ProperCase "$product") certificate $(GetFileName "$cert") does not exist"; return 1; }
 	done
 
 	return 0
 }
 
+certGetCa()
+{
+	local product="$1"
+
+	if [[ -f "$cert/$caAuto" && "$product" == "consul" ]] ; then
+		echo "$cert/$caAuto"
+	else
+		echo "$cert/$ca"
+	fi
+}
+
 certMake()
 {
 	local product="$1"
-	configCert "$product" || return
+	certInit "$product" || return
 	RunFunction "cert$(ProperCase $product)Make"
 }
 
@@ -347,11 +301,12 @@ certConsulCliMake()
 	mv "$datacenter-cli-$baseDomain-0-key.pem" "$certCliKey" || return
 }
 
-# certConsulClientMake - get the auto generated consul client certficate authority
-# which is needed by other clients like nomad
-certConsulClientMake()
+# certConsulGetAutoCa - get the auto generated Consul certficate authority.   This CA
+# is used on Consul clients and is needed on the Consul client to access the Consul API
+# from other programs like Nomad, curl, or wget.
+certConsulGetAutoCa()
 {
-	local f="$certDir/$certClient"
+	local f="$certDir/$caAuto"
 	[[ -f "$f" ]] && return
 
 	! InPath "consul-k8s" && { inst "consul-k8s" || return; }
@@ -479,7 +434,7 @@ certNomadServerMake()
 # Install Command
 #
 
-installInit() { clients=() servers=() join=() encrypt="" force=""; }
+installVars() { clients=() servers=() join=() encrypt="" force=""; }
 
 installUsage() { echot "\
 Usage: hashi install cli|$productUsage
@@ -509,6 +464,53 @@ installOption()
 
 installCommand() { usage; }
 
+installInit()
+{
+	local product="$1"
+
+	# ensure the CLI program exists locally
+	! InPath "$product" && { inst "$product" || return; }
+
+	# general
+	tmpDirTemplate="hashi.XXXXXXXXXX"
+	program="$(FindInPath "$product")" || return
+	user="$product"
+	commonOptions=( [log_level]="Info" )
+
+	# add clients and servers from hostArg
+	local host hosts=(); StringToArray "$hostArg" "," hosts; 
+	for host in "${hosts[@]}"; do
+			IsInArray "$host" hashiServers && servers+=( "$host" ) || clients+=( "$host" )
+	done
+	unset hostArg
+
+	# set clients and servers defaults
+	if [[ ! $clients && ! $servers ]]; then
+		if [[ "$product" == "vault" ]]; then
+			servers=( "${vaultServers[@]}" ) 
+		else
+			clients=( "${hashiClients[@]}" ) 
+			servers=( "${hashiServers[@]}" )
+		fi
+	fi
+
+	# join servers	
+	[[ ! $join ]] && join=( "${hashiServers[@]}" )
+	joinFqdn=(); local h; for h in "${join[@]}"; do joinFqdn+=( "$(os name "$h")" ); done
+
+	if [[ $verbose ]]; then
+		printf "clients: "; ShowArray clients
+		printf "servers: "; ShowArray servers
+		printf "join: "; ShowArray join
+	fi
+	
+	return 0
+}
+
+#
+# Install CLI COmmand
+#
+
 installCliUsage() {	echot "\
 Usage: hashi install cli all|$productUsage
 Install a HashiCorp product for command line access."; }
@@ -530,13 +532,10 @@ installCliAllCommand()
 installCliDo() 
 { 
 	[[ $hostArg || $servers || $clients ]] && { EchoErr "CLI can only be installed locally"; return 1; }
-	installCli || return
+	installCli "$@" || return
 }
 
-installCli()
-{
-	productInstall "$1" "localhost" && productInstallCert "$1"
-}
+installCli() { productInstall "$1" "localhost" && productInstallCert "$1"; }
 
 #
 # Install Consul Command
@@ -618,10 +617,7 @@ installConsulCommon()
 	execStop="$program leave $cliArgs"
 }
 
-installConsulClient()
-{
-	installConsulCertClient || return
-}
+installConsulClient() { installConsulAutoCa; }
 
 installConsulServer() 
 { 
@@ -629,10 +625,10 @@ installConsulServer()
 	AppendArray o serverOptions guiOptions
 }
 
-installConsulCertClient()
+installConsulAutoCa()
 {
 	[[ ! $encrypt ]] && return
-	cp "$certDir/$certClient" "$tmpDir/cert" || return	
+	cp "$certDir/$caAuto" "$tmpDir/cert" || return	
 }
 
 installConsulCertServer()
@@ -648,14 +644,14 @@ installConsulCertServer()
 	cp "$certDir/$key" "$tmpDir/cert/$certServerKey" || return
 }
 
-installConsulAcl() { installAclDo; }
-
-installConsulFinal()
+installConsulServerFinal()
 {
-	if [[ $servers && $encrypt && ! -f "$certDir/$certClient" ]] && installComponentCheck "cert"; then
-		header "Make Consul Client Certificate"
-		certConsulClientMake || return
+	if [[ $encrypt && ! -f "$certDir/$certClient" ]] && installComponentCheck "cert"; then
+		header "Automatic Certificate"
+		certConsulGetAutoCa || return
 	fi
+
+	installAcl || return
 }
 
 #
@@ -728,23 +724,18 @@ installNomadCommand()
 installNomadCommon()
 { 
 	[[ ! $encrypt ]] && return
-	configCert "consul" || return # nomad uses consul certificates
-
-	local caCert="$ca"
-
-	# get the auto generated consul client certificate
-	[[ "$type" == "client" ]] && caCert="$certClient"
+	certInit "consul" || return # nomad uses consul certificates
 	
 	# create the service environment file
 	cat > "$tmpDir/$product.env" <<-EOF
 		CONSUL_HTTP_SSL=true
-		CONSUL_CACERT=$cert/$caCert
+		CONSUL_CACERT=$(certGetCa "consul")
 		CONSUL_CLIENT_CERT=$cert/$certServer
 		CONSUL_CLIENT_KEY=$cert/$certServerKey
 	EOF
 
 	# return to the nomad certificate configuration
-	configCert "nomad" || return
+	certInit "nomad" || return
 }
 
 installNomadClient()
@@ -759,8 +750,7 @@ installNomadServer()
 	AppendArray o serverOptions clientOptions
 }
 
-installNomadAcl() { installAclDo; }
-
+installNomadServerFinal() { installAcl; }
 installNomadFinal() { initNomadVaultIntegration; }
 
 initNomadVaultIntegration()
@@ -805,7 +795,7 @@ initNomadVaultIntegration()
 	# add vault integration configuration to nomad
 	local file="$tmpDir/02_vault.hcl"
 
-	configCert "consul" || return
+	certInit "consul" || return
 
 	cat > "$file" <<-EOF
 		vault {
@@ -835,7 +825,6 @@ initNomadVaultIntegration()
 	done
 
 	# cleanup
-	configCommon "$product"
 	rm -fr rm -fr "$tmpDir"
 
 	return 0
@@ -918,17 +907,39 @@ installVaultCommon()
 
 installVaultServer() { AppendArray o guiOptions; }
 
+installVaultServerFinal()
+{
+	installVaultAcl || return; 
+
+	# enable the "secret" secret engine, the default path for the credential script
+	if ! vault secrets list | grep -q "^secret"; then
+		header "Vault Configuration"
+		vault secrets enable -path=secret kv-v2 || return
+	fi
+
+	return 0
+}
+
 installVaultAcl()
 {
+	! installComponentCheck "acl" && return
+	header "Install Vault ACL"
+	
 	local product="vault"; productConfig "$product" || return
 
-	# generate the unseal keys, returning if already generated
-	local n key s seals; seals="$(vault operator init 2>&1)" || return 0
+	# generate the unseal keys
+	local n key result s seals; seals="$(vault operator init 2>&1)"; result="$?"
+	echo "$seals" | grep -q "Vault is already initialized" && return
+	(( result != 0 )) && { EchoErr "$seals"; return 1; }
 
 	# show the seal keys
-	header "$product Vault Unseal Keys"
 	hilight "Store the following vault unseal keys in a secure location:"
 	echo "$seals"
+
+	# store the root token
+	declare token; token="$(echo "$seals" | grep "Initial Root Token" | cut -d: -f 2 | RemoveSpace)" || return 0
+	credSet "token" "$token" || return
+	export VAULT_TOKEN="$token"
 
 	# store the seal keys
 	IFS=$'\n' seals=( $(echo "$seals" | grep "Unseal Key") )
@@ -938,27 +949,15 @@ installVaultAcl()
 		credSet "key$n" "$key" || return
 	done
 
-	# store the root token
-	declare token; token="$(echo "$seals" | grep "Initial Root Token" | cut -d: -f 2 | RemoveSpace)" || return 0
-	credSet "token" "$token" || return
-	export VAULT_TOKEN="$token"
-
 	# unseal the vault
 	vaultUnsealCommand || return
-
-	# enable the "secret" secret engine, the default path for the credential script
-	if ! vault secrets list | grep -q "^secret"; then
-		vault secrets enable -path=secret kv-v2 || return
-	fi
-
-	return 0
 }
 
 #
 # Lookup Command
 #
 
-lookupInit() { name=""; }
+lookupVars() { name=""; }
 
 lookupUsage() { echot "Usage: hashi lookup NAME
 Lookup all information about consul service using nslookup.
@@ -970,7 +969,7 @@ lookupCommand()
 {
 	local addr="$(productGetServer "consul")"
 	name+=".service.$domain"
-	configCommon "consul" || return
+	productInit "consul" || return
 	[[ $verbose ]] && HilightErr "Using Consul server at $addr"
 	! IsAvailablePort "$addr" 8600 && { EchoErr "$name port 8600 is not available"; return 1; }
 	nslookup -port=8600 -type=a -norecurse "$name" "$addr"
@@ -980,7 +979,7 @@ lookupCommand()
 # Remove Command
 #
 
-removeInit() { program=""; }
+removeVars() { program=""; }
 
 removeUsage() { echot "\
 Usage: $(ScriptName) remove all|$productUsage
@@ -1016,7 +1015,7 @@ removeDo()
 # Resolve Command
 #
 
-resolveInit() { all=""; name=""; }
+resolveVars() { all=""; name=""; }
 
 resolveUsage() { echot "Usage: hashi resolve [-a|all] NAME[.service]
 Resolve a service in consul to an IP address or canonical name.
@@ -1081,9 +1080,9 @@ installCommon()
 	declare -g product="${commandNames[1]}"; [[ ! $product ]] && usage
 	declare -Ag commonOptions
 
-	configCommon "$product" || return
-	configCert "$product" || return
-	configInstall "$product" || return
+	productInit "$product" || return
+	certInit "$product" || return
+	installInit "$product" || return
 }
 	
 installDo()
@@ -1092,8 +1091,9 @@ installDo()
 
 	installCert || return
 	installProgram || return
-	installService || return
-	installAcl || return
+	installServiceServers || return
+	installServerFinal || return
+	installServiceClients || return
 	installFinal || return
 
 	# cleanup
@@ -1118,16 +1118,19 @@ installProgram()
 	done
 }
 
-installService()
+installServiceServers()
 {
 	! installComponentCheck "service" && return
 
-	# servers
 	for host in "${servers[@]}"; do
 		installServiceHost "server" "$host" || return
 	done
+}
 
-	# clients
+installServiceClients()
+{
+	! installComponentCheck "service" && return
+
 	for host in "${clients[@]}"; do
 		installServiceHost "client" "$host" || return
 	done
@@ -1214,6 +1217,12 @@ installServiceHost()
 		  sudo install -o "$user" -g "$user" -m 755 -t "$cert" "$tmpDir/cert/"* || exit
 		fi
 
+		if [[ -f "$cert/$caAuto" ]] && [[ ! -f "$certStoreCa" || "$force" ]]; then
+			echo "Installing automatic CA certificate..."
+			sudo cp "$cert/$caAuto" "$certStoreCa" || exit
+			sudo update-ca-certificates || return
+		fi
+
 		# service		
 
 		if [[ -f "$serviceFile" && "$force" ]]; then
@@ -1251,14 +1260,15 @@ installServiceHost()
 	return 0
 }
 
-installAcl()
+installServerFinal()
 {	
-	{ [[ ! $servers ]] || ! installComponentCheck "acl"; } && return
-	RunFunction "install$(ProperCase "$product")Acl";
+	[[ ! $servers ]] && return
+	RunFunction "install$(ProperCase "$product")ServerFinal"
 }
 
-installAclDo()
+installAcl()
 {
+	! installComponentCheck "acl" && return
 	header "Install $(ProperCase "$product") ACL"
 
 	installCli "$product" || return
@@ -1266,7 +1276,7 @@ installAclDo()
 
 	# generate the bootstrap token
 	local token header
-	local alreadyCreated="ACL bootstrap no longer allowed"
+	local alreadyCreated="ACL bootstrap already done"; [[ "$product" == "consul" ]] && alreadyCreated="ACL bootstrap no longer allowed"
 	local waitingForNodes="The ACL system is currently in legacy mode."
 	
 	for (( i = 0; i < 30; i++ )); do
@@ -1284,6 +1294,7 @@ installAclDo()
 	echo "$token"
 
 	# store the bootstrap token
+	local secretId="Secret ID"; [[ "$product" == "consul" ]] && secretId="SecretID"
 	local secret="$(echo "$token" | grep "SecretID" | cut -d: -f 2 | RemoveSpace)"
 	[[ ! $secret ]] && { ScriptErr "unable to determine the bootstrap token"; return 1; }
 	credSet "token" "$secret" || return
@@ -1455,7 +1466,7 @@ nomadJobStatusCommand()
 
 # nomnd job force
 
-nomadJobForceInit() { log=""; }
+nomadJobForceVars() { log=""; }
 
 nomadJobForceUsage() { echot "\
 Usage: hashi nomad job force NAME
@@ -1485,7 +1496,7 @@ nomadJobForceCommand()
 
 # nomad job log
 
-nomadJobLogInit() { follow=""; }
+nomadJobLogVars() { follow=""; }
 
 nomadJobLogUsage() { echot "\
 Usage: hashi nomad job log NAME
@@ -1589,10 +1600,10 @@ vaultUnsealCommand()
 
 credKey()
 {
-	local p="$hashiCredentialPrefix"
+	local prefix="$hashiCredentialPrefix"
 
-	[[ "$p" == "none" ]] && { echo "$product"; return; }
-	[[ $p ]] && echo "$p-$product" || echo "$domain-$product"
+	[[ "$prefix" == "none" ]] && { echo "$product"; return; }
+	[[ $prefix ]] && echo "$prefix-$product" || echo "$domain-$product"
 }
 
 credSet() { credential set "$(credKey)" "$1" "$2"; }
@@ -1646,6 +1657,21 @@ hostCopy()
 
 productIsInstalled() { [[ $(FindInPath "$1") ]]; }
 
+productInit()
+{
+	product="$1"
+
+	# directories	
+	config="/etc/$product.d" 
+	data="/opt/$product"
+
+	# configuration files
+	configFileBase="01_$product.hcl"
+	configFile="$config/$configFileBase"
+	serviceFile="/etc/systemd/system/$product.service"
+	serviceEnvFile="/etc/systemd/system/$product.env"
+}
+
 productCheck()
 {
 	local product="$1"; [[ ! $product ]] && MissingOperand "product"
@@ -1676,8 +1702,8 @@ productConfigShow()
 	local product="$1"; productCheck "$1" || return
 
 	# configuration variables
-	configCommon "$product" || return
-	configCert "$product" || return
+	productInit "$product" || return
+	certInit "$product" || return
 	
 	local args="" 
 	local server="$(productGetServer "$product")"
@@ -1696,7 +1722,7 @@ productConfigShow()
 	# certificate configuration
 	if [[ -f "$cert/$certCli" ]]; then
 		cat <<-EOF
-			export ${product^^}_CACERT="$cert/$ca"
+			export ${product^^}_CACERT="$(certGetCa "$product")"
 			export ${product^^}_CLIENT_CERT="$cert/$certCli"
 			export ${product^^}_CLIENT_KEY="$cert/$certCliKey"
 		EOF
@@ -1780,7 +1806,7 @@ productInstall()
 {
 	! installComponentCheck "program" && return
 
-	local product="$1"; configCommon "$product" || return
+	local product; productInit "$1" || return
 	local host="$2"; hostCheck "$host" || return
 	local installDir="$(FindInstallFile "other/HashiCorp/$product")" || return		
 
@@ -1832,8 +1858,8 @@ productInstallCert()
 {
 	local product="$1"; productCheck "$product" || return
 
-	# return if certificates are not configured
 	[[ ! $encrypt ]] && return
+	certInit "$product" || return
 
 	# return if already installed
 	[[ ! $force && -f "$cert/$ca" ]] && return	
@@ -1844,16 +1870,16 @@ productInstallCert()
 	printf "Installing $product certificates..."
 	sudoc mkdir --parents "$cert" || return
 	sudoc cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$cert" || return
+	sudoc chmod +r "$certDir/"* || return
+
 	echo "done"
 }
 
 productRemove()
 {
-	local product="$1" host="$2"
-
-	hostCheck "$host" || return 0
-	configCommon "$product" || return
-
+	local product="$1"; productInit "$1" || return
+	local host="$2"; hostCheck "$host" || return 0
+	
 	scriptRun "$(cat <<-EOF
 
 		# delete service
@@ -1864,6 +1890,13 @@ productRemove()
 			sudo rm -f "$serviceFile" || exit
 			sudo systemctl daemon-reload || exit
 			sudo systemctl reset-failed || exit
+		fi
+
+		# remove certificates
+		if [[ -f "$certStoreCa" ]]; then
+			echo "Removing automatic CA certificate..."
+			sudo rm "$certStoreCa" || exit
+			sudo update-ca-certificates || return
 		fi
 
 		printf "cleaning..."
