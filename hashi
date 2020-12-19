@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 . script.sh || exit
 . bootstrap-config.sh || exit
+. color.sh || exit
 
 run() {	init && args "$@" && initFinal && "${command}Command" "${args[@]}"; }
 
@@ -216,11 +217,26 @@ certCheck()
 	return 0
 }
 
+# certGetCaType - get the CA based on the type of service being installed
+certGetCaType()
+{
+	local product="$1"
+
+	# Consul clients use the automatic CA
+	if [[ "$product" == "consul" && "$type" == "client" ]]; then
+		echo "$cert/$caAuto"
+	else
+		echo "$cert/$ca"
+	fi
+}
+
+# certGetCa - get the CA based on the presense of the automatic certificate in the certificate directory (/opt/PRODUCT/cert)
 certGetCa()
 {
 	local product="$1"
 
-	if [[ -f "$cert/$caAuto" && "$product" == "consul" ]] ; then
+	# Consul clients use the automatic CA
+	if [[ "$product" == "consul" && -f "$cert/$caAuto" ]]; then
 		echo "$cert/$caAuto"
 	else
 		echo "$cert/$ca"
@@ -601,10 +617,7 @@ installConsulCommon()
 {
 	# service
 	local cliArgs="$(cat <<-EOF
-		-http-addr="https://127.0.0.1:$consulHttpsPort" \
-		-ca-file="$cert/$ca" \
-		-client-cert="$cert/$certCli" \
-		-client-key="$cert/$certCliKey"
+		-http-addr="https://127.0.0.1:$consulHttpsPort" -ca-file="$(certGetCaType "consul")" -client-cert="$cert/$certCli" -client-key="$cert/$certCliKey"
 	EOF
 	)"
 
@@ -650,6 +663,46 @@ installConsulServerFinal()
 	fi
 
 	installAcl || return
+}
+
+installConsulFinal()
+{
+	! installComponentCheck "acl" && return
+	header "Add Tokens"
+
+	productConfig "consul" || return
+
+	hilight "Adding agent tokens..."
+	for host in "${servers[@]}" "${clients[@]}"; do
+
+		# create the ACL policy
+		consulPolicyCreate "$host" <<-EOF || return
+			node "$host" {
+			  policy = "write"
+			}		
+		EOF
+
+		consulTokenCreate "$host" "$host" || return
+
+		# TODO: 
+		# consultTokenGet - consul acl token update -id b024f3fe-2104-89b7-231f-034af80937a2 , SecretID:
+		# consul acl set-agent-token agent, for clients use ssh pi5 "export CONSUL_HTTP_TOKEN=$CONSUL_HTTP_TOKEN; consul acl token update -id b024f3fe-2104-89b7-231f-034af80937a2 -http-addr=https://127.0.0.1:8501 -ca-file=/opt/consul/cert/consul-ca-auto.pem -client-cert=/opt/consul/cert/consul-cli.pem -client-key=/opt/consul/cert/consul-cli-key.pem"
+		# policy=deny, restart service
+	done
+
+	hilight "Adding DNS tokens..."
+
+	# create the ACL policy
+	consulPolicyCreate "dns-requests" <<-EOF || return
+		node_prefix "" {
+		  policy = "read"
+		}
+		service_prefix "" {
+		  policy = "read"
+		}
+	EOF
+
+	consulTokenCreate "dns-requests" "dns-requests" || return
 }
 
 #
@@ -727,7 +780,7 @@ installNomadCommon()
 	# create the service environment file
 	cat > "$tmpDir/$product.env" <<-EOF
 		CONSUL_HTTP_SSL=true
-		CONSUL_CACERT=$(certGetCa "consul")
+		CONSUL_CACERT=$(certGetCaType "consul")
 		CONSUL_CLIENT_CERT=$cert/$certServer
 		CONSUL_CLIENT_KEY=$cert/$certServerKey
 	EOF
@@ -1015,7 +1068,7 @@ removeDo()
 
 resolveVars() { all=""; name=""; }
 
-resolveUsage() { echot "Usage: hashi resolve [-a|all] NAME[.service]
+resolveUsage() { echot "Usage: hashi resolve [-a|--all] NAME[.service]
 Resolve a service in consul to an IP address or canonical name.
 If all is not specified the first IP address is returned.
 .service.<domain> is appended to the specified name."; }
@@ -1245,7 +1298,7 @@ installServiceHost()
 		exit 0
 
 		EOF
-	)"
+	)" || return
 
 	if [[ $test ]]; then
 		header "$(ProperCase "$product") Configuration ($(GetFileName "$configFileBase"))"
@@ -1480,6 +1533,49 @@ Consul commands."; }
 consulCommand() { usage; }
 consulConfigCommand() { productConfigShow "consul"; }
 consulStatusCommand() { consul members; }
+
+# Consul Policy
+
+consulPolicyExists() { [[ "$(consul acl policy list -format=json | jq ".[] | select(.Name == \"$1\").Name" | RemoveQuotes)" == "$1" ]]; }
+
+consulPolicyCreate()
+{
+	local policy="$1"
+	[[ ! $force ]] && consulPolicyExists "$policy" && return
+	consulPolicyDelete "$policy" || return
+	[[ $test ]] && { printf "${GREEN}create policy $policy:${RESET}\n%s\n" "$(cat)"; return; }
+	consul acl policy create -name "$1" -rules -
+}
+
+consulPolicyDelete()
+{
+	local policy="$1"
+	! consulPolicyExists "$policy" && return
+	[[ $test ]] && { hilight "delete policy $policy"; return; }
+	consul acl policy delete -name "$policy"
+}
+
+# Consul Token
+
+consulTokenExists() { [[ "$(consul acl token list -format=json | jq ".[] | select(.Description == \"$1\").Description" | RemoveQuotes)" == "$1" ]]; }
+consulTokenId() { consul acl token list -format=json | jq ".[] | select(.Description == \"$1\").AccessorID" | RemoveQuotes; }
+
+consulTokenCreate()
+{
+	local desc="$1" policy="$2"
+	[[ ! $force ]] && consulTokenExists "$desc" && return
+	consulTokenDelete "$desc" || return
+	[[ $test ]] && { hilight "create token $desc for policy $policy"; return; }
+	consul acl token create -description "$1" -policy-name "$policy"
+}
+
+consulTokenDelete()
+{
+	local desc="$1"
+	! consulTokenExists "$desc" && return
+	[[ $test ]] && { hilight "delete token $desc"; return; }
+	consul acl token delete -id "$(consulTokenId "$desc")"
+}
 
 #
 # Nomad Commands
@@ -1773,8 +1869,9 @@ productConfigShow()
 	local server="$(productGetServer "$product")"
 	local url="$(productGetUrl "$product" "$server")"
 	local http="$(httpVar "$product")";
+	local certCa="$(certGetCa "$product")"
 
-	[[ -f "$cert/$certCli" ]] && args+=" -ca-file=$cert/$ca -client-cert=$cert/$certCli -client-key=$cert/$certCliKey"
+	[[ -f "$cert/$certCli" ]] && args+=" -ca-file=$certCa -client-cert=$cert/$certCli -client-key=$cert/$certCliKey"
 
 	# standard configuration
 	cat <<-EOF
@@ -1786,7 +1883,7 @@ productConfigShow()
 	# certificate configuration
 	if [[ -f "$cert/$certCli" ]]; then
 		cat <<-EOF
-			export ${product^^}_CACERT="$(certGetCa "$product")"
+			export ${product^^}_CACERT="$certCa"
 			export ${product^^}_CLIENT_CERT="$cert/$certCli"
 			export ${product^^}_CLIENT_KEY="$cert/$certCliKey"
 		EOF
