@@ -13,7 +13,7 @@ Helper commands for HashiCorp consul, nomad, and vault products.
 Common commands:
 	cleanup|install|remove|update
 	cert							create certificates
-	config						show configure variables for all products
+	config						configure all products
 	lookup|resolve		lookup or resolve a service
 	PRODUCT|all				commands for a product or all products
 	status						show status for all products
@@ -77,7 +77,7 @@ initFinal()
 	# if the command is a product command then initialize
 	if IsInArray "${commandNames[0]}" products; then
 		product="${commandNames[0]}"
-		productConfig "$product"	 || return
+		productConfig "$product" || return
 	fi
 		
 	return 0
@@ -86,8 +86,6 @@ initFinal()
 #
 # Commands
 #
-
-configCommand() { allConfigCommand; }
 
 cleanupCommand()
 {
@@ -105,7 +103,7 @@ statusCommand()
 
 	{
 		hilight "product-ui-token"
-		for product in "${products[@]}"; do	
+		for product in "${products[@]}"; do
 
 			! productIsInstalled "$product" && continue
 
@@ -122,7 +120,7 @@ uiCommand()
 {
 	local product
 
-	productInit "consult" || return
+	productInit "consul" || return
 	certInit "$product" || return	
 	export CONSUL_ENABLE="true"
 	export CONSUL_ADDR="$(productGetUrl "$product")"
@@ -1408,6 +1406,70 @@ allStatusCommand()
 }
 
 #
+# Config Commands
+#
+
+configUsage() { echot "\
+Usage: hashi config [local|remote|show](show)
+Configure all products
+
+	local			set the local configuration
+	remote		set the remote configuration
+	show			show the confioguration"; }
+
+configCommand() { allConfigCommand; }
+configShowCommand() { allConfigCommand; }
+
+configLocalCommand()
+{
+	# get vault token using SSH
+	productConfig "vault" || return
+	if [[ ! $VAULT_TOKEN || $force ]]; then
+		local hosts; getHosts "${vaultServers[@]}"
+		local host="${hosts[0]}"
+		local token; token="$(ssh -q -t pi3 bash -i credential get vault token | RemoveCarriageReturn)" || return
+		export VAULT_TOKEN="$token"
+	fi
+
+	# save tokens
+	local product token
+
+	for product in "${products[@]}"; do
+		token="$(credGetV "token")" || return
+		[[ ! $token ]] && continue
+		credSet "token" "$token" || return
+	done
+
+	# save seals
+	product="vault"
+	for n in 1 2 3 4 5; do
+		key="$(credGetV "key$n")" || return
+		[[ ! $key ]] && continue
+		credSet "key$n" "$key" || return
+	done
+}
+
+configRemoteCommand()
+{
+	local product token
+
+	# save tokens
+	for product in "${products[@]}"; do
+		token="$(credGet "token")" || return
+		[[ ! $token ]] && continue
+		credSetV "token" "$token" || return
+	done
+
+	# save seals
+	product="vault"
+	for n in 1 2 3 4 5; do
+		key="$(credGet "key$n")" || return
+		[[ ! $key ]] && continue
+		credSetV "key$n" "$key" || return
+	done
+}
+
+#
 # Consul Commands
 #
 
@@ -1579,7 +1641,7 @@ vaultUnsealCommand()
 	# unseal each host
 	for host in "${hosts[@]}"; do
 		header "$host"
-		eval "$(hashi config --host "$host")"
+		eval "$(hashi vault config --host "$host")"
 
 		for n in 1 2 3; do
 			hilight "Unsealing $host with key $n..."
@@ -1600,14 +1662,16 @@ vaultUnsealCommand()
 
 credKey()
 {
-	local prefix="$hashiCredentialPrefix"
+	local prefix="$hashiCredentialPrefix" prod="${1:-$product}"
 
-	[[ "$prefix" == "none" ]] && { echo "$product"; return; }
-	[[ $prefix ]] && echo "$prefix-$product" || echo "$domain-$product"
+	[[ "$prefix" == "none" ]] && { echo "$prod"; return; }
+	[[ $prefix ]] && echo "$prefix-$prod" || echo "$domain-$prod"
 }
 
-credSet() { credential set "$(credKey)" "$1" "$2"; }
-credGet() { credential get "$(credKey)" "$1"; }
+credSet() { credential set "$(credKey)" "$1" "$2" --manager="local"; }
+credGet() { credential get "$(credKey)" "$1" --manager="local"; }
+credSetV() { credential set "$(credKey)" "$1" "$2" --manager="vault"; }
+credGetV() { credential get "$(credKey)" "$1" --manager="vault"; }
 
 #
 # Host Helper
@@ -1753,7 +1817,7 @@ productGetServer()
 		server="$serverVar"
 
 	# use the local host for the server if the product service is running
-	elif [[ -f $serviceFile ]] && IsProcessRunning "$product" && service running "$product"; then
+	elif [[ "$product" != @(nomad) ]] && [[ -f $serviceFile ]] && IsProcessRunning "$product" && service running "$product"; then
 		server="127.0.0.1"
 
 	# use consul to resolve the server for the product
