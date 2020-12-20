@@ -220,7 +220,7 @@ certCheck()
 # certGetCaType - get the CA based on the type of service being installed
 certGetCaType()
 {
-	local product="$1"
+	local product="$1" type="$2"
 
 	# Consul clients use the automatic CA
 	if [[ "$product" == "consul" && "$type" == "client" ]]; then
@@ -570,6 +570,8 @@ installConsulCommand()
 		[client_addr]="0.0.0.0"
 		[bind_addr]='{{ GetInterfaceIP \"eth0\" }}'
 		[retry_join]="[ $(ShowArray join ", ") ]"
+		[leave_on_terminate]="true"
+		[telemetry]="{ disable_compat_1.9 = true }"
 		[acl]="$(cat <<-EOF
 			{ 
 			  enabled = true
@@ -607,7 +609,7 @@ installConsulCommand()
 		[auto_encrypt]="{ allow_tls = true }"
 	)
 
-	guiOptions=( [ui]="true" )
+	guiOptions=( [ui_config]="{ enabled = true }" )
 
 	# install
 	installDo || return
@@ -616,16 +618,11 @@ installConsulCommand()
 installConsulCommon()
 {
 	# service
-	local cliArgs="$(cat <<-EOF
-		-http-addr="https://127.0.0.1:$consulHttpsPort" -ca-file="$(certGetCaType "consul")" -client-cert="$cert/$certCli" -client-key="$cert/$certCliKey"
-	EOF
-	)"
-
+	local cliArgs; cliArgs="$(productConfigArgs "127.0.0.1")" || return
 	serviceType="notify"
 	networkTarget="Requires=network-online.target"
 	execStart="$program agent -config-dir=$config"
-	execReload="$program reload $cliArgs"
-	execStop="$program leave $cliArgs"
+	serviceKillSignal="SIGTERM"
 }
 
 installConsulClient() { installConsulAutoCa; }
@@ -667,32 +664,16 @@ installConsulServerFinal()
 
 installConsulFinal()
 {
+	return
 	! installComponentCheck "acl" && return
 	header "Add Tokens"
 
 	productConfig "consul" || return
 
 	hilight "Adding agent tokens..."
-	for host in "${servers[@]}" "${clients[@]}"; do
+	local type="server"
 
-		# create the ACL policy
-		consulPolicyCreate "$host" <<-EOF || return
-			node "$host" {
-			  policy = "write"
-			}		
-		EOF
-
-		consulTokenCreate "$host" "$host" || return
-
-		# TODO: 
-		# consultTokenGet - consul acl token update -id b024f3fe-2104-89b7-231f-034af80937a2 , SecretID:
-		# consul acl set-agent-token agent, for clients use ssh pi5 "export CONSUL_HTTP_TOKEN=$CONSUL_HTTP_TOKEN; consul acl token update -id b024f3fe-2104-89b7-231f-034af80937a2 -http-addr=https://127.0.0.1:8501 -ca-file=/opt/consul/cert/consul-ca-auto.pem -client-cert=/opt/consul/cert/consul-cli.pem -client-key=/opt/consul/cert/consul-cli-key.pem"
-		# policy=deny, restart service
-	done
-
-	hilight "Adding DNS tokens..."
-
-	# create the ACL policy
+	# create the default policy and token (for DNS resolution)
 	consulPolicyCreate "dns-requests" <<-EOF || return
 		node_prefix "" {
 		  policy = "read"
@@ -701,9 +682,42 @@ installConsulFinal()
 		  policy = "read"
 		}
 	EOF
-
 	consulTokenCreate "dns-requests" "dns-requests" || return
+	local defaultToken="$(consulTokenGet "dns-requests")"
+
+	# create the host specific policy and configure the host 
+	for host in "${servers[@]}" client "${clients[@]}"; do
+
+		# determine if the remaining hosts are clients
+		[[ "$host" == "client" ]] && { type="client"; continue; }
+
+		# create the ACL policy
+		consulPolicyCreate "$host" <<-EOF || return
+			node "$host" {
+			  policy = "write"
+			}		
+		EOF
+
+		# create the token
+		consulTokenCreate "$host" "$host" || return
+
+		# update the token on the agent
+		hilight "Updating the ACL configuration on $host..."
+		local args; args="$(productConfigArgs "127.0.0.1")" || return
+		local token; token="$(consulTokenGet "$host")" || return
+
+		scriptRun "$(cat <<-EOF
+			export CONSUL_HTTP_TOKEN=$CONSUL_HTTP_TOKEN
+			consul acl set-agent-token $args agent "$token" || exit
+			consul acl set-agent-token $args default "$defaultToken" || exit
+			sudo sed -i 's/default_policy = "allow"/default_policy = "deny"/' "$configFile" || return
+			sudo systemctl restart "$product" || exit
+			EOF
+		)"
+
+	done
 }
+
 
 #
 # Install Nomad Command
@@ -780,7 +794,7 @@ installNomadCommon()
 	# create the service environment file
 	cat > "$tmpDir/$product.env" <<-EOF
 		CONSUL_HTTP_SSL=true
-		CONSUL_CACERT=$(certGetCaType "consul")
+		CONSUL_CACERT=$(certGetCaType "consul" "$type")
 		CONSUL_CLIENT_CERT=$cert/$certServer
 		CONSUL_CLIENT_KEY=$cert/$certServerKey
 	EOF
@@ -1147,10 +1161,7 @@ installDo()
 	installServiceClients || return
 	installFinal || return
 
-	# cleanup
 	rm -fr "$tmpDir"
-	ssh "$host" rm -fr "$tmpDir"
-
 	return 0
 }
 
@@ -1196,8 +1207,9 @@ installServiceHost()
 	local serviceType="simple"
 	local serviceLimit="LimitNOFILE=infinity"$'\n'"LimitNPROC=infinity"
 	local execStart="$program agent -config=$config"
-	local execReload="/bin/kill -HUP"
+	local execReload="/bin/kill --signal HUP $MAINPID"
 	local exectStop=""
+	local serviceKillSignal="SIGINT"
 
 	# host information
 	hostFqdn="$(os name "$host")" || return
@@ -1293,7 +1305,7 @@ installServiceHost()
 
 		# cleanup
 		echo "Cleaning up..."
-		rm -fr "/tmp/$product.tmp"
+		rm -fr "$tmpDir"
 
 		exit 0
 
@@ -1411,7 +1423,7 @@ installConfigService()
 		$exec
 		EnvironmentFile=$serviceEnvFile
 		KillMode=process
-		KillSignal=SIGINT
+		KillSignal=$serviceKillSignal
 		Restart=on-failure
 		RestartSec=2
 		TasksMax=infinity
@@ -1575,6 +1587,13 @@ consulTokenDelete()
 	! consulTokenExists "$desc" && return
 	[[ $test ]] && { hilight "delete token $desc"; return; }
 	consul acl token delete -id "$(consulTokenId "$desc")"
+}
+
+consulTokenGet()
+{
+	local desc="$1"
+	! consulTokenExists "$1" && { ScriptErr "token \`$desc\` does not exists"; return 1; }
+	consul acl token update -id "$(consulTokenId "$desc")" | grep "SecretID" | cut -d: -f 2 | RemoveSpace
 }
 
 #
@@ -1839,15 +1858,30 @@ productCheck()
 	return 0
 }
 
-# productConfig PRODUCT - set the configuration variables for the specified product, which enables use of
+# productConfig PRODUCT [HOST] - set the configuration variables for the specified product, which enables use of
 #   the the product in this script
 productConfig()
 {
-	local product="$1"; productCheck "$1" || return
+	local product="$1" host="$2"; productCheck "$1" || return
 	local -n addr="${product^^}_$(httpVar "$product")ADDR"
 
-	[[ $hostArg || ! $addr ]] && { eval "$(productConfigShow "$product")" || return; }
+	[[ $hostArg || ! $addr || $host ]] && { eval "$(productConfigShow "$product" "$host")" || return; }
 	productConfigStatus || return
+}
+
+# productConfigArgs [HOST] - return configuration arguments for the specified host and current product
+productConfigArgs()
+{
+	local host="$1"
+	local args=""
+	local server; server="$(productGetServer "$product" "$host")" || return
+	local url; url="$(productGetUrl "$product" "$server")" || return
+	local http; http="$(httpVar "$product")" || return
+	local certCa; certCa="$(certGetCaType "$product" "$type")" || return
+	local args="-http-addr=$url"
+
+	[[ -f "$cert/$certCli" ]] && args+=" -ca-file=$certCa -client-cert=$cert/$certCli -client-key=$cert/$certCliKey"
+	echo "$args"
 }
 
 productConfigStatus()
@@ -1856,20 +1890,20 @@ productConfigStatus()
 	hilight "Using $product server at $addr"
 }
 
-# productConfigShow PRODUCT - show the configuration variables for the specified product
+# productConfigShow PRODUCT [HOST] - show the configuration variables for the specified product
 productConfigShow()
 {
-	local product="$1"; productCheck "$1" || return
+	local product="$1" host="$2"; productCheck "$1" || return
 
 	# configuration variables
 	productInit "$product" || return
 	certInit "$product" || return
 	
 	local args="" 
-	local server="$(productGetServer "$product")"
-	local url="$(productGetUrl "$product" "$server")"
-	local http="$(httpVar "$product")";
-	local certCa="$(certGetCa "$product")"
+	local server; server="$(productGetServer "$product" "$host")" || return
+	local url; url="$(productGetUrl "$product" "$server")" || return
+	local http; http="$(httpVar "$product")" || return
+	local certCa; certCa="$(certGetCa "$product")" || return
 
 	[[ -f "$cert/$certCli" ]] && args+=" -ca-file=$certCa -client-cert=$cert/$certCli -client-key=$cert/$certCliKey"
 
@@ -1893,21 +1927,25 @@ productConfigShow()
 	local token tokenVar tokenVal
 	tokenVar="${product^^}_${http}TOKEN"
 	tokenVal="$(eval echo "\$$tokenVar")"
-	[[ $force || ! $tokenVal ]] && token="$(productGetToken "$product" 2>&1)" && echo "export $tokenVar=\"$token\""
+	[[ $force || ! $tokenVal ]] && { token="$(productGetToken "$product" 2>&1)" && echo "export $tokenVar=\"$token\"" || return; }
 
 	return 0
 }
 
-# productGetServer PRODUCT - get the server for the product
+# productGetServer PRODUCT [HOST] - get the server for the product
 productGetServer()
 {
-	local product="$1" server
+	local product="$1" host="$2" server
 	local -n serverVar="${product^^}_SERVER"
 
+	# use the passed host
+	if [[ $host ]]; then
+		server="$host"
+
 	# arguments: use the host specified by the --host, --servers, or -clients arguments
-	if [[ $hostArg || $servers || $clients ]]; then
-		local host hosts; getHosts "${servers[@]}" "${clients[@]}" || return; host="${hosts[0]}"
-		server="$(IsLocalHost "$host" && echo "127.0.0.1" || AddDnsSuffix "$host" "$domain")"
+	elif [[ $hostArg || $servers || $clients ]]; then
+		local hosts; getHosts "${servers[@]}" "${clients[@]}" || return
+		server="${hosts[0]}"
 
 	# use the <product>_SERVER environment variable
 	elif [[ ! $force && $serverVar ]]; then
@@ -1924,19 +1962,12 @@ productGetServer()
 	# use the first server specified in bootstrap-config.sh
 	else
 		local servers="$hashiServers"; [[ "$product" == "vault" ]] && servers="${vaultServers[@]}"
-		server="$(AddDnsSuffix "$(GetWord "$hashiServers" 1)" "$domain")"
+		server="$(GetWord "$hashiServers" 1)"
 
 	fi
 
-	# return server - use 127.0.0.1 or the DNS name to match the certificate
-	if IsLocalHost "$server"; then
-		echo "127.0.0.1"
-	elif IsIpAddress "$server"; then
-		DnsResolve "$server"
-	else
-		echo "$server"
-	fi
-
+	# return server - use 127.0.0.1 or the fully qualified DNS name to match the certificate
+	IsLocalHost "$server" && echo "127.0.0.1" || DnsResolve "$server"
 }
 
 # productGetPort PRODUCT - get the primary port for the specified product
@@ -2137,7 +2168,7 @@ scriptRun()
 		# DISPLAY="" - disable warning "Warning: No xauth data; using fake authentication data for X11 forwarding."
 		# -X - enable X11 forwardining for credential store access
 		# -t - allocate a pseudo-terminal to allow the sudo password to be entered on the terminal if needed
-		DISPLAY="" ssh -X -t "$host" "$script"
+		DISPLAY="" ssh -q -X -t "$host" "$script"
 	fi
 }
 
