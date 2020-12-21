@@ -16,7 +16,7 @@ fileServer="$host"
 hashiCredentialPrefix="none"
 hashiServers=( pi3 pi4 pi5 )
 hashiClients=( pi6 pi7 )
-vaultServers=( "${hashiServers[@]}" )
+vaultServers=( pi3 pi4 )
 
 #user=""
 #host="/mnt/d"

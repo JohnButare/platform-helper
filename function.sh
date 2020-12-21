@@ -517,7 +517,7 @@ FindInPath()
 {
 	local file="$1" 
 
-	[[ -f "$file" ]] && { echo "$file"; return; }
+	[[ -f "$file" ]] && { echo "$(GetFullPath "$file")"; return; }
 
 	if IsZsh; then
 		whence -p "${file}" && return

@@ -31,7 +31,7 @@ Common options:
 
 args()
 {
-	unset force hostArg productServer test verbose
+	unset force hostArg hostArgOrig productServer test verbose
 
 	# commands
 	ScriptCommand "$@" || return
@@ -42,7 +42,7 @@ args()
 		case "$1" in "") : ;;
 			-f|--force) force="--force";;
 			-h|--help) usage 0;;
-			-H|--host|-H*|--host=*) ScriptArg hostArg host "$@";;
+			-H|--host|-H*|--host=*) ScriptArg hostArg host "$@"; hostArgOrig="$hostArg";;
 			   --product-server|--product-server=*) ScriptArg productServer product-server "$@";;
 			-t|--test) test="--test";;
 			-v|--verbose) verbose="--verbose";;
@@ -454,7 +454,7 @@ certNomadServerMake()
 installVars() { clients=() servers=() join=() encrypt="" force=""; }
 
 installUsage() { echot "\
-Usage: hashi install cli|$productUsage
+Usage: hashi install all|cli|$productUsage
 Install a HashiCorp product.  If no hosts are specified use the hosts specified
 in bootstrap-config.sh.
 
@@ -480,49 +480,7 @@ installOption()
 }
 
 installCommand() { usage; }
-
-installInit()
-{
-	local product="$1"
-
-	# ensure the CLI program exists locally
-	! InPath "$product" && { inst "$product" || return; }
-
-	# general
-	tmpDirTemplate="hashi.XXXXXXXXXX"
-	program="$(FindInPath "$product")" || return
-	user="$product"
-	commonOptions=( [log_level]="Info" )
-
-	# add clients and servers from hostArg
-	local host hosts=(); StringToArray "$hostArg" "," hosts; 
-	for host in "${hosts[@]}"; do
-			IsInArray "$host" hashiServers && servers+=( "$host" ) || clients+=( "$host" )
-	done
-	unset hostArg
-
-	# set clients and servers defaults
-	if [[ ! $clients && ! $servers ]]; then
-		if [[ "$product" == "vault" ]]; then
-			servers=( "${vaultServers[@]}" ) 
-		else
-			clients=( "${hashiClients[@]}" ) 
-			servers=( "${hashiServers[@]}" )
-		fi
-	fi
-
-	# join servers	
-	[[ ! $join ]] && join=( "${hashiServers[@]}" )
-	joinFqdn=(); local h; for h in "${join[@]}"; do joinFqdn+=( "$(os name "$h")" ); done
-
-	if [[ $verbose ]]; then
-		printf "clients: "; ShowArray clients
-		printf "servers: "; ShowArray servers
-		printf "join: "; ShowArray join
-	fi
-	
-	return 0
-}
+installAllCommand() { installConsulCommand && installVaultCommand && installNomadCommand; }
 
 #
 # Install CLI COmmand
@@ -560,7 +518,7 @@ installCli() { productInstall "$1" "localhost" && productInstallCert "$1"; }
 
 installConsulCommand()
 { 
-	installCommon || return
+	installCommon "consul" || return
 
 	# configuration
 	local -A options serverOptions guiOptions 
@@ -727,7 +685,7 @@ installConsulAgentAcl()
 
 installNomadCommand()
 {
-	installCommon || return
+	installCommon "nomad" || return
 
 	# configuration
 	local -A options clientOptions serverOptions guiOptions
@@ -903,7 +861,7 @@ initNomadVaultIntegration()
 
 installVaultCommand()
 {
-	installCommon || return
+	installCommon "vault" || return
 
 	# configuration
 	local -A options clientOptions serverOptions guiOptions
@@ -961,15 +919,6 @@ installVaultCommon()
 	# service
 	execStart="$program server -config=$config"
 	serviceLimit+=$'\n'"LimitMEMLOCK=infinity"
-
-	# script
-	scriptFinal="$(cat <<-EOF
-		echo "Configuring vault..."
-
-		# allow memory locking without elevation (so don't need to run as root)
-		sudo setcap cap_ipc_lock=+ep "$program" || return
-		EOF
-	)"
 }
 
 installVaultServer() { AppendArray o guiOptions; }
@@ -1143,13 +1092,49 @@ installComponentCheck() { [[ ! $what ]] && return 0; IsInArray "$1" what; }
 
 installCommon()
 {
-	declare -g certDir 
-	declare -g product="${commandNames[1]}"; [[ ! $product ]] && usage
+	declare -g product="$1" certDir 
 	declare -Ag commonOptions
 
 	productInit "$product" || return
 	certInit "$product" || return
-	installInit "$product" || return
+	
+	# ensure the CLI program exists locally
+	productInstall "$product" "localhost" || return
+
+	# general
+	tmpDirTemplate="hashi.XXXXXXXXXX"
+	program="$(FindInPath "$product")" || return
+	user="$product"
+	commonOptions=( [log_level]="Info" )
+
+	# add clients and servers from hostArg
+	local host hosts=(); StringToArray "$hostArg" "," hosts; 
+	for host in "${hosts[@]}"; do
+			IsInArray "$host" hashiServers && servers+=( "$host" ) || clients+=( "$host" )
+	done
+	unset hostArg
+
+	# set clients and servers defaults
+	if [[ ! $clients && ! $servers ]]; then
+		if [[ "$product" == "vault" ]]; then
+			servers=( "${vaultServers[@]}" ) 
+		else
+			clients=( "${hashiClients[@]}" ) 
+			servers=( "${hashiServers[@]}" )
+		fi
+	fi
+
+	# join servers	
+	[[ ! $join ]] && join=( "${hashiServers[@]}" )
+	joinFqdn=(); local h; for h in "${join[@]}"; do joinFqdn+=( "$(os name "$h")" ); done
+
+	if [[ $verbose ]]; then
+		printf "clients: "; ShowArray clients
+		printf "servers: "; ShowArray servers
+		printf "join: "; ShowArray join
+	fi
+	
+	return 0
 }
 	
 installDo()
@@ -1165,6 +1150,8 @@ installDo()
 	installFinal || return
 
 	rm -fr "$tmpDir"
+	unset servers clients; hostArg="$hostArgOrig"
+
 	return 0
 }
 
@@ -1476,10 +1463,11 @@ allStatusCommand()
 #
 
 configUsage() { echot "\
-Usage: hashi config [local|remote|show](show)
+Usage: hashi config [local|nuke|remote|show](show)
 Configure products
 
 	local			set the local configuration
+	nuke			delete all local and remote configuration
 	remote		set the remote configuration
 	show			show the confioguration"; }
 
@@ -1532,6 +1520,29 @@ configRemoteCommand()
 		[[ ! $key ]] && continue
 		credSetV "key$n" "$key" || return
 	done
+}
+
+# Config Nuke Commands
+
+configShowUsage() { echot "\
+Usage: hashi config nuke all|$productUsage
+Delete all local and remote configuration"; }
+
+configNukeCommand() { usage; }
+configNukeAllCommand() { nukeDo "vault" && nukeDo "nomad" && nukeDo "consul"; }
+configNukeConsulCommand() { nukeDo "consul"; }
+configNukeNomadCommand() { nukeDo "nomad"; }
+configNukeVaultCommand() { nukeDo "vault"; }
+
+nukeDo()
+{
+	local product="$1"
+
+	[[ ! $force ]] && { ScriptErr "Nuke deletes all local and remote configuration, --force is required."; return 1; }
+
+	header "Remove $(ProperCase "$product") Configuration"
+	[[ "$product" == "vault" ]] && consul kv delete "vault/" >& /dev/null
+	credential delete "$product" token	
 }
 
 # Config Show Commands
@@ -2031,9 +2042,9 @@ productInstall()
 
 	# local install
 	if IsLocalHost "$host"; then
+		header "Install $(ProperCase "$product") (local)"
 		local file="$(os executable find "$installDir")" || return
 		InPath "$product" && [[ "$(productVersion "$product")" == "$(productVersion "$product" "$file")" ]] && return	
-		header "Install $(ProperCase "$product")"
 		sudoc cp "$file" "$binDir/$product"; return		
 	fi
 
@@ -2150,9 +2161,11 @@ productVersion()
 	if [[ -f "$what" ]]; then
 		version="$("$what" --version)"
 		desc="$(FileToDesc "$what")"
+
 	elif IsLocalHost "$what"; then
 		version="$($product --version)"
 		desc="local"
+
 	else
 		version="$(ssh $host -- $product --version)"
 		desc="$what"
