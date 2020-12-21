@@ -21,15 +21,17 @@ Common commands:
 	ui								start the hashi-ui server and launch it
 
 Common options:
-	-f, --force				force the operation
-	-H, --host HOST		host for the command
-	-t, --test				do not make changes
-	-v, --verbose			show additional status"
+	-f, --force						force the operation
+	-H, --host HOST				host for the command
+			--product-server	server for product communication.  If not specified 
+													the server is inferred if possible. 
+	-t, --test						do not make changes
+	-v, --verbose					show additional status"
 }
 
 args()
 {
-	unset force hostArg test verbose
+	unset force hostArg productServer test verbose
 
 	# commands
 	ScriptCommand "$@" || return
@@ -41,8 +43,9 @@ args()
 			-f|--force) force="--force";;
 			-h|--help) usage 0;;
 			-H|--host|-H*|--host=*) ScriptArg hostArg host "$@";;
+			   --product-server|--product-server=*) ScriptArg productServer product-server "$@";;
 			-t|--test) test="--test";;
-			-v|--verbose) verbose="true";;
+			-v|--verbose) verbose="--verbose";;
 			*) ScriptOption "$@";;
 		esac
 		shift "$shift"; shift=1
@@ -654,7 +657,7 @@ installConsulCertServer()
 
 installConsulServerFinal()
 {
-	if [[ $encrypt && ! -f "$certDir/$certClient" ]] && installComponentCheck "cert"; then
+	if [[ $encrypt && ! -f "$certDir/$caAuto" ]] && installComponentCheck "cert"; then
 		header "Automatic Certificate"
 		certConsulGetAutoCa || return
 	fi
@@ -662,16 +665,14 @@ installConsulServerFinal()
 	installAcl || return
 }
 
-installConsulFinal()
+installConsulFinal() { installConsulAgentAcl; }
+
+installConsulAgentAcl()
 {
-	return
 	! installComponentCheck "acl" && return
+
 	header "Add Tokens"
-
 	productConfig "consul" || return
-
-	hilight "Adding agent tokens..."
-	local type="server"
 
 	# create the default policy and token (for DNS resolution)
 	consulPolicyCreate "dns-requests" <<-EOF || return
@@ -686,10 +687,11 @@ installConsulFinal()
 	local defaultToken="$(consulTokenGet "dns-requests")"
 
 	# create the host specific policy and configure the host 
-	for host in "${servers[@]}" client "${clients[@]}"; do
+	local type
+	for host in server"${servers[@]}" client "${clients[@]}"; do
 
 		# determine if the remaining hosts are clients
-		[[ "$host" == "client" ]] && { type="client"; continue; }
+		[[ "$host" == @(client|server) ]] && { type="$host"; continue; }
 
 		# create the ACL policy
 		consulPolicyCreate "$host" <<-EOF || return
@@ -1157,6 +1159,7 @@ installDo()
 	installCert || return
 	installProgram || return
 	installServiceServers || return
+	installCli "$product" || return
 	installServerFinal || return
 	installServiceClients || return
 	installFinal || return
@@ -1283,7 +1286,7 @@ installServiceHost()
 		if [[ -f "$cert/$caAuto" ]] && [[ ! -f "$certStoreCa" || "$force" ]]; then
 			echo "Installing automatic CA certificate..."
 			sudo cp "$cert/$caAuto" "$certStoreCa" || exit
-			sudo update-ca-certificates || return
+			sudo update-ca-certificates || exit
 		fi
 
 		# service		
@@ -1304,8 +1307,7 @@ installServiceHost()
 		$scriptFinal
 
 		# cleanup
-		echo "Cleaning up..."
-		rm -fr "$tmpDir"
+		printf "Cleaning up..."; rm -fr "$tmpDir"; echo done
 
 		exit 0
 
@@ -1332,9 +1334,8 @@ installServerFinal()
 installAcl()
 {
 	! installComponentCheck "acl" && return
-	header "Install $(ProperCase "$product") ACL"
 
-	installCli "$product" || return
+	header "Install $(ProperCase "$product") ACL"
 	productConfig "$product" || return
 
 	# generate the bootstrap token
@@ -1476,14 +1477,13 @@ allStatusCommand()
 
 configUsage() { echot "\
 Usage: hashi config [local|remote|show](show)
-Configure all products
+Configure products
 
 	local			set the local configuration
 	remote		set the remote configuration
 	show			show the confioguration"; }
 
 configCommand() { allConfigCommand; }
-configShowCommand() { allConfigCommand; }
 
 configLocalCommand()
 {
@@ -1534,6 +1534,17 @@ configRemoteCommand()
 	done
 }
 
+# Config Show Commands
+
+configShowUsage() { echot "\
+Usage: hashi config show [all|$productUsage](all)
+Show configuration variables"; }
+
+configShowCommand() { allConfigCommand; }
+configShowConsulCommand() { productConfigShow "consul"; }
+configShowNomadCommand() { productConfigShow "nomad"; }
+configShowVaultCommand() { productConfigShow "vault"; }
+
 #
 # Consul Commands
 #
@@ -1555,14 +1566,18 @@ consulPolicyCreate()
 	local policy="$1"
 	[[ ! $force ]] && consulPolicyExists "$policy" && return
 	consulPolicyDelete "$policy" || return
+
+	hilight "Creatning ACL policy $policy..."
 	[[ $test ]] && { printf "${GREEN}create policy $policy:${RESET}\n%s\n" "$(cat)"; return; }
-	consul acl policy create -name "$1" -rules -
+	consul acl policy create -name "$policy" -rules -
 }
 
 consulPolicyDelete()
 {
 	local policy="$1"
 	! consulPolicyExists "$policy" && return
+
+	hilight "Deleting ACL policy $1..."
 	[[ $test ]] && { hilight "delete policy $policy"; return; }
 	consul acl policy delete -name "$policy"
 }
@@ -1575,8 +1590,10 @@ consulTokenId() { consul acl token list -format=json | jq ".[] | select(.Descrip
 consulTokenCreate()
 {
 	local desc="$1" policy="$2"
-	[[ ! $force ]] && consulTokenExists "$desc" && return
+	[[ ! $force ]] && consulTokenExists "$desc" && return	
 	consulTokenDelete "$desc" || return
+
+	hilight "Creating ACL token $desc for policy $policy..."
 	[[ $test ]] && { hilight "create token $desc for policy $policy"; return; }
 	consul acl token create -description "$1" -policy-name "$policy"
 }
@@ -1585,6 +1602,8 @@ consulTokenDelete()
 {
 	local desc="$1"
 	! consulTokenExists "$desc" && return
+
+	hilight "Deleting ACL token $desc..."
 	[[ $test ]] && { hilight "delete token $desc"; return; }
 	consul acl token delete -id "$(consulTokenId "$desc")"
 }
@@ -1593,7 +1612,7 @@ consulTokenGet()
 {
 	local desc="$1"
 	! consulTokenExists "$1" && { ScriptErr "token \`$desc\` does not exists"; return 1; }
-	consul acl token update -id "$(consulTokenId "$desc")" | grep "SecretID" | cut -d: -f 2 | RemoveSpace
+	consul acl token read -id "$(consulTokenId "$desc")" | grep "SecretID" | cut -d: -f 2 | RemoveSpace
 }
 
 #
@@ -1806,8 +1825,8 @@ hostCleanup()
 
 	scriptRun "$(cat <<-EOF
 			printf "cleaning..."
-			[[ \$(find /tmp -maxdepth 1 -name "hashi.*") ]] && sudo rm -fr "/tmp/hashi."*
-			[[ -d "/tmp/consul-test" ]] && rmdir "/tmp/consul-test"
+			[[ \$(find /tmp -maxdepth 1 -name "hashi.*") ]] && printf "." && sudo rm -fr "/tmp/hashi."*
+			[[ -d "/tmp/consul-test" ]] && printf "." && rmdir "/tmp/consul-test"
 			echo "done"
 			EOF
 	)"
@@ -1865,7 +1884,7 @@ productConfig()
 	local product="$1" host="$2"; productCheck "$1" || return
 	local -n addr="${product^^}_$(httpVar "$product")ADDR"
 
-	[[ $hostArg || ! $addr || $host ]] && { eval "$(productConfigShow "$product" "$host")" || return; }
+	eval "$(productConfigShow "$product" "$host")" || return
 	productConfigStatus || return
 }
 
@@ -1927,8 +1946,10 @@ productConfigShow()
 	local token tokenVar tokenVal
 	tokenVar="${product^^}_${http}TOKEN"
 	tokenVal="$(eval echo "\$$tokenVar")"
-	[[ $force || ! $tokenVal ]] && { token="$(productGetToken "$product" 2>&1)" && echo "export $tokenVar=\"$token\"" || return; }
-
+	if [[ $force || ! $tokenVal ]]; then
+		token="$(productGetToken "$product" 2>&1)" && echo "export $tokenVar=\"$token\""
+	fi
+	
 	return 0
 }
 
@@ -1942,9 +1963,13 @@ productGetServer()
 	if [[ $host ]]; then
 		server="$host"
 
+	# product-server argument
+	elif [[ $productServer ]]; then
+		server="$productServer"
+
 	# arguments: use the host specified by the --host, --servers, or -clients arguments
-	elif [[ $hostArg || $servers || $clients ]]; then
-		local hosts; getHosts "${servers[@]}" "${clients[@]}" || return
+	elif [[ $hostArg || $servers ]]; then
+		local hosts; getHosts "${servers[@]}" || return
 		server="${hosts[0]}"
 
 	# use the <product>_SERVER environment variable
@@ -1982,7 +2007,9 @@ productGetPort()
 productGetToken()
 {
 	local excludeVault; [[ "$1" == "vault" ]] && excludeVault="--exclude-vault"
-	credential "$excludeVault" get "$1" token	
+	local token="$(credential "$excludeVault" get "$1" token)"
+	[[ ! $token ]] && { ScriptErr "unable to get the $1 token"; return 1; }
+	echo "$token"
 }
 
 # productGetUrl PRODUCT [SERVER] [PORT] - get the communication URL for the product
@@ -2063,8 +2090,17 @@ productInstallCert()
 	sudoc mkdir --parents "$cert" || return
 	sudoc cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$cert" || return
 	sudoc chmod +r "$certDir/"* || return
-
 	echo "done"
+
+	if IsPlatform win; then
+		echo "Installing certificate authority..."
+		local file="$ADATA/Temp/$ca"
+		cp "$cert/$ca" "$file" || return
+		RunScript --elevate "$verbose" -- certutil.exe -addstore root "$(utw "$ADATA/Temp/$ca")" || return
+		rm "$file" || return
+	fi
+
+	return 0
 }
 
 productRemove()
