@@ -31,7 +31,7 @@ Common options:
 
 args()
 {
-	unset force hostArg hostArgOrig productServer test verbose
+	unset force hostArg hostArgOrig productServer test testEcho verbose
 
 	# commands
 	ScriptCommand "$@" || return
@@ -44,7 +44,7 @@ args()
 			-h|--help) usage 0;;
 			-H|--host|-H*|--host=*) ScriptArg hostArg host "$@"; hostArgOrig="$hostArg";;
 			   --product-server|--product-server=*) ScriptArg productServer product-server "$@";;
-			-t|--test) test="--test";;
+			-t|--test) test="--test"; testEcho="echo";;
 			-v|--verbose) verbose="--verbose";;
 			*) ScriptOption "$@";;
 		esac
@@ -748,19 +748,29 @@ installNomadCommand()
 
 installNomadCommon()
 { 
-	[[ ! $encrypt ]] && return
-	certInit "consul" || return # nomad uses consul certificates
-	
-	# create the service environment file
-	cat > "$tmpDir/$product.env" <<-EOF
-		CONSUL_HTTP_SSL=true
-		CONSUL_CACERT=$(certGetCaType "consul" "$type")
-		CONSUL_CLIENT_CERT=$cert/$certServer
-		CONSUL_CLIENT_KEY=$cert/$certServerKey
-	EOF
+	# service - many Nomad jobs require running as root
+	user="root"
 
-	# return to the nomad certificate configuration
-	certInit "nomad" || return
+	# encryption
+	if [[ $encrypt ]]; then
+
+		# nomad uses consul certificates
+		certInit "consul" || return 
+	
+		# create the service environment file
+		cat > "$tmpDir/$product.env" <<-EOF
+			CONSUL_HTTP_SSL=true
+			CONSUL_CACERT=$(certGetCaType "consul" "$type")
+			CONSUL_CLIENT_CERT=$cert/$certServer
+			CONSUL_CLIENT_KEY=$cert/$certServerKey
+		EOF
+
+		# return to the nomad certificate configuration
+		certInit "nomad" || return
+
+	fi
+
+	return 0
 }
 
 installNomadClient()
@@ -1197,7 +1207,7 @@ installServiceHost()
 	local serviceType="simple"
 	local serviceLimit="LimitNOFILE=infinity"$'\n'"LimitNPROC=infinity"
 	local execStart="$program agent -config=$config"
-	local execReload="/bin/kill --signal HUP $MAINPID"
+	local execReload="/bin/kill --signal HUP \$MAINPID"
 	local exectStop=""
 	local serviceKillSignal="SIGINT"
 
@@ -1346,7 +1356,8 @@ installAcl()
 
 	# store the bootstrap token
 	local secretId="Secret ID"; [[ "$product" == "consul" ]] && secretId="SecretID"
-	local secret="$(echo "$token" | grep "SecretID" | cut -d: -f 2 | RemoveSpace)"
+	local sep="="; [[ "$product" == "consul" ]] && sep=":"
+	local secret="$(echo "$token" | grep "$secretId" | cut -d$sep -f 2 | RemoveSpace)"
 	[[ ! $secret ]] && { ScriptErr "unable to determine the bootstrap token"; return 1; }
 	credSet "token" "$secret" || return
 
@@ -1485,40 +1496,32 @@ configLocalCommand()
 	fi
 
 	# save tokens
-	local product token
-
+	local product
 	for product in "${products[@]}"; do
-		token="$(credGetV "token")" || return
-		[[ ! $token ]] && continue
-		credSet "token" "$token" || return
+		credFromV "token" || return
 	done
 
 	# save seals
+	local n
 	product="vault"
 	for n in 1 2 3 4 5; do
-		key="$(credGetV "key$n")" || return
-		[[ ! $key ]] && continue
-		credSet "key$n" "$key" || return
+		credFromV "key$n" || return
 	done
 }
 
 configRemoteCommand()
 {
-	local product token
-
 	# save tokens
+	local product
 	for product in "${products[@]}"; do
-		token="$(credGet "token")" || return
-		[[ ! $token ]] && continue
-		credSetV "token" "$token" || return
+		credToV "token" || return
 	done
 
 	# save seals
+	local n
 	product="vault"
 	for n in 1 2 3 4 5; do
-		key="$(credGet "key$n")" || return
-		[[ ! $key ]] && continue
-		credSetV "key$n" "$key" || return
+		credToV "key$n" || return
 	done
 }
 
@@ -1813,10 +1816,47 @@ credKey()
 	[[ $prefix ]] && echo "$prefix-$prod" || echo "$domain-$prod"
 }
 
-credSet() { credential set "$(credKey)" "$1" "$2" --manager="local"; }
+credExists() { credential exists "$(credKey)" "$1" --manager="local"; }
+credSet() { $testEcho credential set "$(credKey)" "$1" "$2" --manager="local"; }
 credGet() { credential get "$(credKey)" "$1" --manager="local"; }
-credSetV() { credential set "$(credKey)" "$1" "$2" --manager="vault"; }
+
+credExistsV() { credential exists "$(credKey)" "$1" --manager="vault"; }
+credSetV() { $testEcho credential set "$(credKey)" "$1" "$2" --manager="vault"; }
 credGetV() { credential get "$(credKey)" "$1" --manager="vault"; }
+
+credToV()
+{
+	local key="$1" value valueV
+
+	value="$(credGet "$key")" || return
+	[[ ! $value ]] && { ScriptErr "$product $key does not exist in the local credential store"; return 1; }
+
+	hilight "Copying $product $key to Vault..."
+
+	valueV="$(credGetV "$key")"
+	[[ $verbose ]] && printf "local=$value\nvault=$valueV\n"
+	[[ "$value" == "$valueV" ]] && return
+
+	echo "Updating $product $key in Vault..."
+	credSetV "$key" "$value" || return
+}
+
+credFromV()
+{
+	local key="$1" value valueL
+
+	value="$(credGetV "$key")" || return
+	[[ ! $value ]] && { ScriptErr "$product $key does not exist in Vault"; return 1; }
+
+	hilight "Copying $product $key to the local credential store..."
+
+	valueL="$(credGet "$key")"
+	[[ $verbose ]] && printf "local=$valueL\nvault=$value\n"
+	[[ "$value" == "$valueL" ]] && return
+
+	echo "Updating $product $key in the local credential store..."
+	credSet "$key" "$value" || return
+}
 
 #
 # Host Helper
@@ -2100,7 +2140,7 @@ productInstallCert()
 	printf "Installing $product certificates..."
 	sudoc mkdir --parents "$cert" || return
 	sudoc cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$cert" || return
-	sudoc chmod +r "$certDir/"* || return
+	sudoc chmod +r "$cert/"* || return
 	echo "done"
 
 	if IsPlatform win; then
