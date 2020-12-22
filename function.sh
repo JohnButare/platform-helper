@@ -363,6 +363,16 @@ GetDateStamp() { ${G}date '+%Y%m%d'; }
 GetFileDateStamp() { ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
 GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
 
+GetDateStampNext()
+{
+	local prefix="$1" suffix="$2" stamp="$(GetDateStamp)"
+	local f="$prefix.$stamp.$suffix" i=1
+
+	[[ ! -f "$f" ]] && { echo "$f"; return;}
+	while [[ -f "$prefix.$stamp-$i.$suffix" ]]; do (( ++i )); done
+	echo "$prefix.$stamp-$i.$suffix"
+}
+
 GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 to specified time
 {
 	[[ $1 ]] && { ${G}date +%s.%N -d "$1"; return; }

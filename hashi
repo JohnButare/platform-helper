@@ -817,11 +817,13 @@ initNomadVaultIntegration()
 	# grant the nomad-cluster role permission to required secrets
 	if ! vault policy list | grep -q "^nomad-cluster$"; then
 		hilight "Granting the nomad-cluster role permission in Vault..."
-		cat | vault policy write nomad-cluster - <<-EOF
+		local policy="$(cat <<-EOF
 			path "secret/*" {
 			  capabilities = ["read"]
 			}
-		EOF
+			EOF
+		)"
+		echo "$policy" | vault policy write nomad-cluster - || return
 	fi
 
 	# create a token for nomad to access vault
@@ -1485,9 +1487,10 @@ Configure products
 configCommand() { allConfigCommand; }
 
 configLocalCommand()
-{
-	# get vault token using SSH
+{	
 	productConfig "vault" || return
+
+	# get vault token using SSH	
 	if [[ ! $VAULT_TOKEN || $force ]]; then
 		local hosts; getHosts "${vaultServers[@]}"
 		local host="${hosts[0]}"
@@ -1511,6 +1514,8 @@ configLocalCommand()
 
 configRemoteCommand()
 {
+	productConfig "vault" || return
+
 	# save tokens
 	local product
 	for product in "${products[@]}"; do
@@ -1527,7 +1532,7 @@ configRemoteCommand()
 
 # Config Nuke Commands
 
-configShowUsage() { echot "\
+configNukeUsage() { echot "\
 Usage: hashi config nuke all|$productUsage
 Delete all local and remote configuration"; }
 
@@ -1544,7 +1549,7 @@ nukeDo()
 	[[ ! $force ]] && { ScriptErr "Nuke deletes all local and remote configuration, --force is required."; return 1; }
 
 	header "Remove $(ProperCase "$product") Configuration"
-	[[ "$product" == "vault" ]] && consul kv delete "vault/" >& /dev/null
+	[[ "$product" == "vault" ]] && consul kv delete -recurse "vault/"
 	credential delete "$product" token	
 }
 
@@ -1563,13 +1568,16 @@ configShowVaultCommand() { productConfigShow "vault"; }
 # Consul Commands
 #
 
+consulInit() { productConfig "consul" || return; }
+
 consulUsage() { echot "\
-Usage: hashi consul config|status
+Usage: hashi consul config|status|backup|restore
 Consul commands."; }
 
 consulCommand() { usage; }
 consulConfigCommand() { productConfigShow "consul"; }
 consulStatusCommand() { consul members; }
+consulBackupCommand() { consul snapshot save "$(GetDateStampNext "consul.$domain" "snap")"; }
 
 # Consul Policy
 
@@ -1889,6 +1897,7 @@ hostCopy()
 	local file="$1" dest="$2"
 	local name="$(GetFileName "$file")"
 
+	hilight "Copying files to $host..."
 	scp "$file" "$host:/tmp" || return
 
 	scriptRun "$(cat <<-EOF
