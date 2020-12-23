@@ -630,19 +630,21 @@ installConsulAgentAcl()
 	! installComponentCheck "acl" && return
 
 	header "Add Tokens"
+
 	productConfig "consul" || return
 
-	# create the default policy and token (for DNS resolution)
-	consulPolicyCreate "dns-requests" <<-EOF || return
+
+	# create the default policy and token (for DNS resolution)	
+	local defaultToken policy="$(cat <<-EOF
 		node_prefix "" {
 		  policy = "read"
 		}
 		service_prefix "" {
 		  policy = "read"
 		}
-	EOF
-	consulTokenCreate "dns-requests" "dns-requests" || return
-	local defaultToken="$(consulTokenGet "dns-requests")"
+		EOF
+	)"
+	defaultToken="$(consulAclCreate "dns-requests" "$policy")" || return
 
 	# create the host specific policy and configure the host 
 	local type
@@ -652,19 +654,17 @@ installConsulAgentAcl()
 		[[ "$host" == @(client|server) ]] && { type="$host"; continue; }
 
 		# create the ACL policy
-		consulPolicyCreate "$host" <<-EOF || return
+		local token policy="$(cat <<-EOF
 			node "$host" {
 			  policy = "write"
 			}		
-		EOF
-
-		# create the token
-		consulTokenCreate "$host" "$host" || return
+			EOF
+		)"
+		token="$(consulAclCreate "agent-$host" "$policy")" || return
 
 		# update the token on the agent
 		hilight "Updating the ACL configuration on $host..."
 		local args; args="$(productConfigArgs "127.0.0.1")" || return
-		local token; token="$(consulTokenGet "$host")" || return
 
 		scriptRun "$(cat <<-EOF
 			export CONSUL_HTTP_TOKEN=$CONSUL_HTTP_TOKEN
@@ -862,7 +862,7 @@ initNomadVaultIntegration()
 	done
 
 	# cleanup
-	rm -fr rm -fr "$tmpDir"
+	rm -fr "$tmpDir"
 
 	return 0
 }
@@ -1571,7 +1571,7 @@ configShowVaultCommand() { productConfigShow "vault"; }
 consulInit() { productConfig "consul" || return; }
 
 consulUsage() { echot "\
-Usage: hashi consul config|status|backup|restore
+Usage: hashi consul config|status|backup|restore|service
 Consul commands."; }
 
 consulCommand() { usage; }
@@ -1579,63 +1579,59 @@ consulConfigCommand() { productConfigShow "consul"; }
 consulStatusCommand() { consul members; }
 consulBackupCommand() { consul snapshot save "$(GetDateStampNext "consul.$domain" "snap")"; }
 
-# Consul Policy
+#
+# Consul Service
+#
 
-consulPolicyExists() { [[ "$(consul acl policy list -format=json | jq ".[] | select(.Name == \"$1\").Name" | RemoveQuotes)" == "$1" ]]; }
+consulServiceInit() { unset file; }
 
-consulPolicyCreate()
+consulServiceUsage() { echot "\
+Usage: hashi consul service register|deregister FILE
+Consul service commands."; }
+
+consulServiceArgs() { ScriptGetArg "file" "$1"; ScriptCheckFile "$file"; shift; }
+
+consulServiceCommand() { usage; }
+
+consulServiceRegisterCommand()
 {
-	local policy="$1"
-	[[ ! $force ]] && consulPolicyExists "$policy" && return
-	consulPolicyDelete "$policy" || return
+	# get the service ID
+	local id type; type="$(validateConfigFile "$file")" || return
+	if [[ "$type" == "json" ]]; then
+		id="$(cat "$file" | jq ".service.name" | RemoveQuotes)"
+	else
+		id="$(cat "$file" | grep "name =" | head -1 | cut -d= -f2 | RemoveSpace | RemoveQuotes)"
+	fi
+	[[ ! $id ]] && { ScriptErr "Unable to determine the service id in \`$file\`"; return 1; }
 
-	hilight "Creatning ACL policy $policy..."
-	[[ $test ]] && { printf "${GREEN}create policy $policy:${RESET}\n%s\n" "$(cat)"; return; }
-	consul acl policy create -name "$policy" -rules -
+	# create the service ACL policy
+	local token policy="$(cat <<-EOF
+		service "$id" {
+		  policy = "write"
+		}
+		EOF
+	)"	
+	token="$(consulAclCreate "service-$id" "$policy")" || return
+
+	# register the service
+	local f; f="$(mktemp -t "hashi.service.XXXX.hcl")" || return
+	if [[ "$type" == "json" ]]; then
+		cat "$file" | sed "s/\"token\": \".*\"/\"token\" = \"$token\"/" > "$f" || return
+	else
+		cat "$file" | sed "s/token = \".*\"/token = \"$token\"/" > "$f" || return
+	fi
+	[[ $test ]] && { cat "$f"; return; }
+	consul services register "$f" || return
+
+	# cleanup
+	rm -f "$f"	
+
+	return 0
 }
 
-consulPolicyDelete()
-{
-	local policy="$1"
-	! consulPolicyExists "$policy" && return
 
-	hilight "Deleting ACL policy $1..."
-	[[ $test ]] && { hilight "delete policy $policy"; return; }
-	consul acl policy delete -name "$policy"
-}
-
-# Consul Token
-
-consulTokenExists() { [[ "$(consul acl token list -format=json | jq ".[] | select(.Description == \"$1\").Description" | RemoveQuotes)" == "$1" ]]; }
-consulTokenId() { consul acl token list -format=json | jq ".[] | select(.Description == \"$1\").AccessorID" | RemoveQuotes; }
-
-consulTokenCreate()
-{
-	local desc="$1" policy="$2"
-	[[ ! $force ]] && consulTokenExists "$desc" && return	
-	consulTokenDelete "$desc" || return
-
-	hilight "Creating ACL token $desc for policy $policy..."
-	[[ $test ]] && { hilight "create token $desc for policy $policy"; return; }
-	consul acl token create -description "$1" -policy-name "$policy"
-}
-
-consulTokenDelete()
-{
-	local desc="$1"
-	! consulTokenExists "$desc" && return
-
-	hilight "Deleting ACL token $desc..."
-	[[ $test ]] && { hilight "delete token $desc"; return; }
-	consul acl token delete -id "$(consulTokenId "$desc")"
-}
-
-consulTokenGet()
-{
-	local desc="$1"
-	! consulTokenExists "$1" && { ScriptErr "token \`$desc\` does not exists"; return 1; }
-	consul acl token read -id "$(consulTokenId "$desc")" | grep "SecretID" | cut -d: -f 2 | RemoveSpace
-}
+# -id|FILE
+consulServiceDeregister() { consul services deregister; }
 
 #
 # Nomad Commands
@@ -1884,8 +1880,9 @@ hostCleanup()
 
 	scriptRun "$(cat <<-EOF
 			printf "cleaning..."
-			[[ \$(find /tmp -maxdepth 1 -name "hashi.*") ]] && printf "." && sudo rm -fr "/tmp/hashi."*
-			[[ -d "/tmp/consul-test" ]] && printf "." && rmdir "/tmp/consul-test"
+			[[ \$(find "$TEMP" -maxdepth 1 -name "hashi.*") ]] && printf "." && sudo rm -fr "$TEMP/hashi."*
+			[[ -d "$TEMP/consul-test" ]] && printf "." && rmdir "$TEMP/consul-test"
+			printf "." && rm -f "$TEMP/hashi.service."*
 			echo "done"
 			EOF
 	)"
@@ -2230,6 +2227,8 @@ productVersion()
 #
 
 httpVar() { [[ "$1" != "consul" ]] && return; echo "HTTP_"; }
+tmpDirCreate() { mktemp -d -t "$tmpDirTemplate"; }
+useHttps() { [[ $encrypt || -d "$cert" ]]; } # use HTTPS during installation ($encrupt) and client configuration (cert directory exists)
 
 getHosts() 
 {
@@ -2271,7 +2270,108 @@ scriptRun()
 	fi
 }
 
-tmpDirCreate() { mktemp -d -t "$tmpDirTemplate"; }
-useHttps() { [[ $encrypt || -d "$cert" ]]; } # use HTTPS during installation ($encrupt) and client configuration (cert directory exists)
+# validateConfigFile FILE - return false if the specified file is not a valid HashiCorp configuration file.
+validateConfigFile()
+{
+	local type="$(GetFileExtension "$file")"
+	[[ ! "$type" == @(hcl|json) ]] && { ScriptErr "Specified file /`$file/` is not a valid HashiCorp configuration file"; return 1; }
+	echo "$type"
+}
+
+#
+# Consul ACL Helper
+#
+
+# consulAclCreate NAME DEF - create an ACL with the specified name and definition.   Return a token for the policy.
+consulAclCreate()
+{
+	local name="$1" def="$2"
+	consulPolicyCreate "$name" "$def" || return
+	consulTokenCreate "$name" || return
+	consulTokenGet "$name"
+}
+
+#
+# Consul Policy Helper
+#
+
+# consulPolicyExists NAME - return true if the specified policy exists
+consulPolicyExists()
+{
+	local name="$1"
+	[[ "$(consul acl policy list -format=json | jq ".[] | select(.Name == \"$1\").Name" | RemoveQuotes)" == "$name" ]]
+}
+
+# consulPolicyCreate NAME DEF - create a policy with the specified name and definition
+consulPolicyCreate()
+{
+	local name="$1" def="$2"
+	[[ ! $force ]] && consulPolicyExists "$name" && return
+	consulPolicyDelete "$name" || return
+
+	hilight "Creatning ACL policy $name..."
+	[[ $test ]] && { printf "${GREEN}create policy $name:${RESET}\n%s\n" "$(cat)"; return; }
+	echo "$def" | consul acl policy create -name "$name" -rules -
+}
+
+# consulPolicyDelete NAME - delete the specified policy
+consulPolicyDelete()
+{
+	local name="$1"
+	! consulPolicyExists "$name" && return
+
+	hilight "Deleting ACL policy $name..."
+	[[ $test ]] && { hilight "delete policy $name"; return; }
+	consul acl policy delete -name "$name"
+}
+
+#
+# Consul Token Helper
+#
+
+# cosulTokenExists DESC - return true if a token with description exists
+consulTokenExists()
+{
+	local desc="$1"
+	[[ "$(consul acl token list -format=json | jq ".[] | select(.Description == \"$desc\").Description" | RemoveQuotes)" == "$desc" ]]
+}
+
+# consulTokenId DESC - get the token ID for the specified token description
+consulTokenId()
+{
+	local desc="$1"
+	consul acl token list -format=json | jq ".[] | select(.Description == \"$desc\").AccessorID" | RemoveQuotes
+}
+
+# consulTokenCreate DESC POLICY - create a token with the specified description that has the permission to the specified policy
+consulTokenCreate()
+{
+	local desc="$1" policy="${2:-$1}"
+	[[ ! $force ]] && consulTokenExists "$desc" && return	
+	consulTokenDelete "$desc" || return
+
+	hilight "Creating ACL token $desc for policy $policy..."
+	[[ $test ]] && { hilight "create token $desc for policy $policy"; return; }
+	consul acl token create -description "$1" -policy-name "$policy"
+}
+
+# consulTokenDelete DESC - delete the token with the specified description
+consulTokenDelete()
+{
+	local desc="$1"
+	! consulTokenExists "$desc" && return
+
+	hilight "Deleting ACL token $desc..."
+	[[ $test ]] && { hilight "delete token $desc"; return; }
+	consul acl token delete -id "$(consulTokenId "$desc")"
+}
+
+# consulTokenGet DESC - get the token Secret ID with the specified description
+consulTokenGet()
+{
+	local desc="$1"
+	! consulTokenExists "$1" && { ScriptErr "token \`$desc\` does not exists"; return 1; }
+	consul acl token read -id "$(consulTokenId "$desc")" | grep "SecretID" | cut -d: -f 2 | RemoveSpace
+}
 
 run "$@"
