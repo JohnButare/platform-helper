@@ -1,5 +1,5 @@
 # common functions for application scripts
-. function.sh
+. script.sh
 . bootstrap-config.sh
 
 FunctionExists() { grep -q "$1"'()' "$2"; } # FunctionExists FUNCTION FILE - function exists in file
