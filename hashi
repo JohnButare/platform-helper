@@ -56,6 +56,9 @@ args()
 	ScriptArgs "$@" || return; shift "$shift"
 	[[ $@ ]] && usage
 
+	# logging
+	[[ $encrypt && $verbose ]] && echo "certificates: $(FileToDesc "$encrypt")"
+
 	return 0
 }
 
@@ -124,8 +127,7 @@ uiCommand()
 {
 	local product
 
-	productInit "consul" || return
-	certInit "$product" || return	
+	productInit "consul" || return; certInit || return	
 	export CONSUL_ENABLE="true"
 	export CONSUL_ADDR="$(productGetUrl "$product")"
 	export CONSUL_ACL_TOKEN="$(credGet token)"
@@ -134,8 +136,7 @@ uiCommand()
 	export CONSUL_CLIENT_CERT="$cert/$certCli"
 	export CONSUL_CLIENT_KEY="$cert/$certCliKey"
 
-	productInit "nomad" || return
-	certInit "$product" || return
+	productInit "nomad" || return; certInit || return
 	export NOMAD_ENABLE="true"
 	export NOMAD_ADDR="$(productGetUrl "$product")"
 	export NOMAD_ACL_TOKEN="$(credGet token)"
@@ -154,11 +155,7 @@ uiCommand()
 
 certVars() { unset encrypt; }
 
-certUsage() { echot "\
-Usage: hashi cert all|consul|nomad
-Create certificates required for HashiCorp products.
-
-	-e, --encrypt DIR			directory for PKI certificates"; }
+certUsage() { echot "Usage: hashi cert copy|make"; }
 
 certOption()
 {
@@ -166,27 +163,50 @@ certOption()
 		-e|--encrypt|-e*|--encrypt=*) ScriptArg "encrypt" "$@"; ScriptCheckDir "$encrypt";;
 		*) return 1;;
 	esac
-
-	[[ ! $encrypt ]] && MissingOption "encrypt"
 }
 
-certCommand() { usage; }
-certAllCommand() { certMake "consul" && certMake "nomad"; }
-certNomadCommand() { certMake "nomad"; }
+certCheckArgs() { [[ ! $encrypt ]] && MissingOption "encrypt"; return 0; }
 
-certUsage() { echot "\
-Usage: hashi cert consul client|server|
+certCommand() { usage; }
+
+#
+# Certificate Copy Command
+#
+
+certCopyUsage() { echot "\
+Usage: hashi cert copy [all|consul|nomad](all)
+
+	-e, --encrypt DIR			directory for PKI certificates"; }
+
+
+certCopyCommand() { certCopyAllCommand; }
+certCopyAllCommand() { certCopyConsulCommand && certCopyNomadCommand; }
+certCopyConsulCommand() { product="consul"; certInit || return; installPublicCerts; }
+certCopyNomadCommand() { product="nomad"; certInit || return; installPublicCerts; }
+
+#
+# Certificate Make Command
+#
+
+certMakeUsage() { echot "\
+Usage: hashi cert make all|consul|nomad
 Create certificates required for HashiCorp products.
 
 	-e, --encrypt DIR			directory for PKI certificates"; }
 
-certConsulCommand() { certMake "consul"; }
+certMakeCommand() { usage; }
+certMakeAllCommand() { certMake "consul" && certMake "nomad"; }
+certMakeNomadCommand() { certMake "nomad"; }
+certMakeConsulCommand() { certMake "consul"; }
 
 certExist() { [[ -f "$certDir/$1" && -f "$certDir/$2" ]]; }
 
 certInit()
 {
-	local product="$1"; [[ "$product" == "vault" ]] && product="consul" # vault uses consul certificates
+	local product="${1:-$product}"; [[ $verbose ]] && echo "Initializing $product certificates..."
+
+	# vault uses consul certificates
+	[[ "$product" == "vault" ]] && product="consul"
 
 	# certDir - the source certificate directory including private certificates
 	if [[ $encrypt ]]; then
@@ -209,7 +229,7 @@ certInit()
 	certStoreCa="$certStore/$(GetFileNameWithoutExtension "$caAuto").crt"
 }
 
-certCheck()
+certCheckFiles()
 {
 	local product="$1" cert; shift
 
@@ -246,10 +266,31 @@ certGetCa()
 	fi
 }
 
+# certPublicCopy FILE
+certPublicCopy()
+{
+	local file="$1"
+	local dir; dir="$(FindInstallFile "other/HashiCorp")" || return
+
+	# verify the certificate exists
+	[[ ! -f "$file" ]] && { ScriptErr "\`$file\` does not exist"; return 1; }
+
+	# create the certificate directory
+	dir="$dir/certificate/$baseDomain/$product"
+	[[ ! -d "$dir" ]] && { mkdir --parents "$dir" || return; }
+
+	# return if the certificate does not exist
+	local fileName="$(GetFileName "$file")"
+	[[ -f "$dir/$fileName" && ! $force ]] && return	
+
+	# copy the certificate does not exist
+	echo "Copying $fileName..."
+	$testEcho cp "$file" "$dir" || return
+}
+
 certMake()
 {
-	local product="$1"
-	certInit "$product" || return
+	local product="$1"; certInit || return
 	RunFunction "cert$(ProperCase $product)Make"
 }
 
@@ -1107,8 +1148,7 @@ installCommon()
 	declare -g product="$1" certDir 
 	declare -Ag commonOptions
 
-	productInit "$product" || return
-	certInit "$product" || return
+	productInit "$product" || return; certInit || return
 	
 	# ensure the CLI program exists locally
 	productInstall "$product" "localhost" || return
@@ -1160,6 +1200,7 @@ installDo()
 	installServerFinal || return
 	installServiceClients || return
 	installFinal || return
+	installPublicCerts || return
 
 	rm -fr "$tmpDir"
 	unset servers clients; hostArg="$hostArgOrig"
@@ -1180,6 +1221,17 @@ installProgram()
 	for host in "${servers[@]}" "${clients[@]}"; do
 		productInstall "$product" "$host" || return
 	done
+}
+
+installPublicCerts()
+{
+	[[ ! $encrypt ]] && return
+
+	certPublicCopy "$certDir/$ca" || return
+	[[ "$product" == @(consul) ]] && { certPublicCopy "$certDir/$caAuto" || return; }
+	certPublicCopy "$certDir/$certCli" || return
+	certPublicCopy "$certDir/$certCliKey" || return
+
 }
 
 installServiceServers()
@@ -1435,10 +1487,7 @@ installConfigService()
 	EOF
 }
 
-installFinal()
-{
-	RunFunction "install$(ProperCase "$product")Final" || return
-}
+installFinal() { RunFunction "install$(ProperCase "$product")Final" || return; }
 
 #
 # All Commands
@@ -1914,7 +1963,7 @@ productIsInstalled() { [[ $(FindInPath "$1") ]]; }
 
 productInit()
 {
-	product="$1"
+	product="$1"; [[ $verbose ]] && echo "Initializing $product..."
 
 	# directories	
 	config="/etc/$product.d" 
@@ -1972,8 +2021,7 @@ productConfigShow()
 	local product="$1" host="$2"; productCheck "$1" || return
 
 	# configuration variables
-	productInit "$product" || return
-	certInit "$product" || return
+	productInit "$product" || return; certInit || return
 	
 	local args="" 
 	local server; server="$(productGetServer "$product" "$host")" || return
@@ -2136,13 +2184,13 @@ productInstallCert()
 	local product="$1"; productCheck "$product" || return
 
 	[[ ! $encrypt ]] && return
-	certInit "$product" || return
+	certInit || return
 
 	# return if already installed
 	[[ ! $force && -f "$cert/$ca" ]] && return	
 
-	# if the certificates do not exist the product may not be install so return without error
-	! certCheck "$product" "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" && return
+	# ensure the certificates exist
+	certCheckFiles "$product" "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" || return
 
 	printf "Installing $product certificates..."
 	sudoc mkdir --parents "$cert" || return

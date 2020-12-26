@@ -37,12 +37,18 @@ ScriptArg()
 # GetArgs - get the non-options script arguments for the commands
 ScriptArgs()
 {
-	local c finalShift=0; shift=0
+	local c finalShift=0
+
 	for c in "${commands[@]}"; do
-		IsFunction "${c}Args" && { "${c}Args" "$@" || return; }
+		shift=0
+		RunFunction "${c}Args" -- "$@" || return
 		shift "$shift"; ((finalShift+=shift))
 	done
 	shift="$finalShift"
+
+	for c in "${commands[@]}"; do
+		RunFunction "${c}CheckArgs" -- "$@" || return
+	done
 }
 
 # ScriptCommand - get a command by looking for function in the format command1Command2Command

@@ -1594,8 +1594,9 @@ fi
 # RunFunction NAME [SUFFIX|--] [ARGS]- call a function if it exists, optionally with the specified suffix
 RunFunction()
 { 
-	local f="$1" suffix="$2"; shift 2
-	[[ $suffix && "$suffix" != "--" ]] && f+="${suffix^}"
+	local f="$1"; shift
+	local suffix="$1";  [[ $suffix && "$suffix" != "--" ]] && { f+="${suffix^}"; shift; }
+	[[ "$1" == "--" ]] && shift
 	! IsFunction "$f" && return
 	"$f" "$@"
 }
