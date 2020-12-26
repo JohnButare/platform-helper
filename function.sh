@@ -280,75 +280,80 @@ lesst() { less -x $TABS $*; } 										# LessTab
 #
 
 GetDef() { local gd="$(declare -p $1)"; gd="${gd#*\=}"; gd="${gd#\(}"; r "${gd%\)}" $2; } # get definition
-GetDefs() { for gda in "$@"; do printf "$(GetDef $gda)"; done; } # get all definitions
-
-# AppendArray VAR1 VAR2 ... - combine arrays into first array
-AppendArray()
-{
-	local car="$1"; shift # combine array result
-	for appendArray in "$@"; do eval "$car+=( $(GetDef $appendArray) )"; done
-} 
-
-# CopyArray SRC_VAR TARGET_VAR - copy source array variable to target array variable
-CopyArray() { declare -g $(GetType $1) $2; eval "$2=( $(GetDef $1) )"; }
-ReverseArray() { ListArray "$1" | tac; }
+IsVar() { declare -p "$1" >& /dev/null; }
 
 if IsBash; then
+	ArrayShowKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ArrayShow keys; }
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#declare }"; r "${gt%% *}" $2; } # get type
-	DelimitArray() { local -n delimitArray="$2"; IFS=$1; printf "${delimitArray[*]}"; } # DelimitArray DELIMITER ARRAY_VAR
 	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
-	ListArray() { local -n listArray="$1"; printf '%s\n' "${listArray[@]}"; }
-	ShowArrayKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ShowArray keys; }
 	StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
-
-	# ShowArray	ARRAY [DELIMITER]( )
-	ShowArray()
-	{
-		local result delimiter="${2:- }"
-		local -n showArray="$1"
-		printf -v result '"%s"'"$delimiter" "${showArray[@]}"
-		printf "%s\n" "${result%$delimiter}"
-	}
-
-	RemoveFromArray() # VALUE ARRAY_VAR
-	{
-		local i value="$1"; local -n removeFromArray="$2"; 
-
-		for i in "${!removeFromArray[@]}"; do
-			[[ "${removeFromArray[$i]}" == "$value" ]] && unset removeFromArray[$i]
-		done
-	}
-
 else
+	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; r "${gt%% *}" $2; } # get type
-	DelimitArray() { (local get="$2[*]"; IFS=$1; printf "${(P)get}")} # DelimitArray DELIMITER ARRAY_VAR
 	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "array" ]]; }
-	ListArray() { printf '%s\n' "${${(P)1}[@]}"; }
-	ShowArray() { local var showArray="$1"; printf -v var ' "%s"' "${${(P)showArray}[@]}"; printf "%s\n" "${var:1}"; }
-	ShowArrayKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ShowArray getKeys; }
 	StringToArray() { IFS=$2 read -A $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
-
-	RemoveFromArray() # VALUE ARRAY_VAR - remove all values from an array
-	{
-		local i value="$1" removeFromArray="$2"; 
-
-		for (( i=1; i<=${#${(P)removeFromArray}}; i++ )) do
-			[[ "${${(P)removeFromArray}[$i]}" == "$value" ]] && eval $removeFromArray'['$i']=()'
-		done
-	}
-
 fi
+
+# array
+ArrayCopy() { declare -g $(GetType $1) $2; eval "$2=( $(GetDef $1) )"; } # Array SRC DEST
+ArrayReverse() { ArrayDelimit "$1" $'\n' | tac; }
+
+# AppendArray DEST A1 A2 ... - combine specified arrays into first array
+ArrayAppend()
+{
+	local arrayAppendDest="$1"; shift
+	for arrayAppendName in "$@"; do eval "$arrayAppendDest+=( $(ArrayShow $arrayAppendName) )"; done
+}
+
+# ArrayDelimit NAME [DELIMITER](,) - show array with a delimiter, i.e. ArrayDelimit a $'\n'
+ArrayDelimit()
+{
+	local arrayDelimit=(); ArrayCopy "$1" arrayDelimit;
+	local result delimiter="${2:-,}"
+	printf -v result '%s'"$delimiter" "${arrayDelimit[@]}"
+	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
+}
+
+# ArrayDiff A1 A2 - return the items not in either array
+ArrayDiff()
+{
+	local arrayDiff1=(); ArrayCopy "$1" arrayDiff1;
+	local arrayDiff2=(); ArrayCopy "$2" arrayDiff2;
+	local result=() e
+
+	for e in "${arrayDiff1[@]}"; do ! IsInArray "$e" arrayDiff2 && result+=( "$e" ); done
+	for e in "${arrayDiff2[@]}"; do ! IsInArray "$e" arrayDiff1 && result+=( "$e" ); done
+
+	ArrayDelimit result $'\n'
+}
+
+# ArrayRemove ARRAY VALUES - remove items from the array except specified values.  If vaules is the name of a variable
+# the contents of the variable are used.
+ArrayRemove()
+{
+	local values="^$2$"; IsVar "$2" && values="$(ArrayShow $2 $'\n' '^' '$')"
+	eval "$1=( $(ArrayDelimit $1 $'\n' | grep -v "$values") )"
+}
+
+# ArrayShow	NAME [DELIMITER]( ) [begin](") [end](") - show array elements quoted. 
+#   If a delmiter is specified delimited the array is delmited by it, use $'\n' for newlines.
+#   Each array element begins and end with the specified characters, i.e. $'\n' "^" "$" allows the array to be passed to grep
+ArrayShow()
+{
+	local arrayShow=(); ArrayCopy "$1" arrayShow;
+	local result delimiter="${2:- }" begin="${3:-\"}" end="${4:-\"}"
+	printf -v result "$begin%s$end$delimiter" "${arrayShow[@]}"
+	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
+}
 
 # IsInArray [-w|--wild] [-aw|--awild] STRING ARRAY_VAR
 IsInArray() 
 { 
 	local wild; [[ "$1" == @(-w|--wild) ]] && { wild="true"; shift; }						# value contain glob patterns
 	local awild; [[ "$1" == @(-aw|--array-wild) ]] && { awild="true"; shift; }	# array contains glob patterns
-	local s="$1" tempA=() value
+	local s="$1" isInArray=() value; ArrayCopy "$2" isInArray;
 
-	IsBash && { local -n isInArray="$2"; tempA=( "${isInArray[@]}" ); } || { isInArray="$2"; tempA=( "${${(P)isInArray}[@]}" ); }
-
-	for value in "${tempA[@]}"; do
+	for value in "${isInArray[@]}"; do
 		if [[ $wild ]]; then [[ "$value" == $s ]] && return 0;
 		elif [[ $awild ]]; then [[ "$s" == $value ]] && return 0;
 		else [[ "$s" == "$value" ]] && return 0; fi
