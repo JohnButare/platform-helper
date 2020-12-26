@@ -39,7 +39,7 @@ ScriptArgs()
 {
 	local c finalShift=0; shift=0
 	for c in "${commands[@]}"; do
-		IsFunction "${c}Args" && "${c}Args" "$@" && return
+		IsFunction "${c}Args" && { "${c}Args" "$@" || return; }
 		shift "$shift"; ((finalShift+=shift))
 	done
 	shift="$finalShift"
@@ -89,6 +89,25 @@ ScriptGetArg()
 	var="$value"; ((++shift))
 }
 
+ScriptGetDriveLetterArg()
+{
+	ScriptGetArg "letter" "$1"
+
+	# change drive letters to a single lower case letter, i.e. C:\ -> c
+	letter="${letter,,}"
+	[[ "$letter" =~ ^.?:$ ]] && letter="${letter:0:1}"
+
+	! IsDriveLetter "$letter" && { ScriptErr "$letter is not a drive letter"; return 1; }
+
+	return 0
+}
+
+IsDriveLetter()
+{
+	local driveLetters=( c d e f g h i j k l m n o p q r s t u v w x y z )
+	IsInArray "$1" driveLetters
+}
+
 ScriptCheckPath()
 {
 	local checkFile; [[ "$1" == "--file" ]] && { checkFile="true"; shift; }
@@ -112,7 +131,7 @@ ScriptOption()
 
 	# see if a commmand takes the option
 	local c
-	for c in $(ReverseArray commands); do
+	for c in $(ArrayReverse commands); do
 		IsFunction "${c}Option" && "${c}Option" "$@" && return
 	done
 
@@ -124,7 +143,7 @@ ScriptOption()
 ScriptUsage()
 {
 	local c
-	for c in $(ReverseArray commands); do
+	for c in $(ArrayReverse commands); do
 		IsFunction "${c}Usage" && "${c}Usage" "$@" && exit "${1:-1}"
 	done
 
