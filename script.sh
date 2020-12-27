@@ -41,13 +41,15 @@ ScriptArgs()
 
 	for c in "${commands[@]}"; do
 		shift=0
-		RunFunction "${c}Args" -- "$@" || return
+		RunFunction "${c}GetArgs" -- "$@" || return # legacy
+		RunFunction "${c}Args" -- "$@" || return # legacy
 		shift "$shift"; ((finalShift+=shift))
 	done
 	shift="$finalShift"
 
 	for c in "${commands[@]}"; do
-		RunFunction "${c}CheckArgs" -- "$@" || return
+		RunFunction "${c}ArgEnd" -- "$@" || return
+		RunFunction "${c}CheckArgs" -- "$@" || return # legacy
 	done
 }
 
@@ -73,7 +75,8 @@ ScriptCommand()
 		# find the exact command or look for a case-insensitive match
 		if IsFunction "$c" || c="$(FindFunction "$c")"; then
 			command="${c%Command}" commands+=("$command") commandNames+=("${arg,,}")
-			IsFunction "${command}Vars" && { "${command}Vars" || return; }
+			IsFunction "${command}ArgStart" && { "${command}ArgStart" || return; }
+			IsFunction "${command}Vars" && { "${command}Vars" || return; } # legacy
 			continue
 		fi
 
@@ -138,7 +141,8 @@ ScriptOption()
 	# see if a commmand takes the option
 	local c
 	for c in $(ArrayReverse commands); do
-		IsFunction "${c}Option" && "${c}Option" "$@" && return
+		IsFunction "${c}GetOption" && "${c}GetOption" "$@" && return
+		IsFunction "${c}Option" && "${c}Option" "$@" && return # legacy
 	done
 
 	# not a valid option

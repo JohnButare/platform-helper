@@ -1,81 +1,72 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. script.sh || exit
 . app.sh || exit
 . color.sh || exit
 . bootstrap-config.sh || exit
 
-run() {	init && args "$@" && ${command}Command "${args[@]}"; }
+run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
 
-init()
-{
-	# devcices to turn on and off
-	devices=( rp1 pi5 pi4 pi3 pi2 pi1 )
-
-	# network configuration
-	network="wiggin"
-	domain="hagerman.butare.net"
-	externalDomain="butare.net"
-	subnetPi1="192.168.102.1 - 192.168.102.254"
-	subnetPi2="192.168.103.1 - 192.168.103.254"
-	subnetDefault="$subnetPi1"
-
-	# server file locations
-	dhcpDir="/etc/kea"
-	dnsDir="/etc/bind"
-
-	# cloud configuration location
-	nc="$CLOUD/network"
-	ncd="$nc/configuration"
-}
+init() { devices=( rp1 pi5 pi4 pi3 pi2 pi1 ); }
 
 usage()
 {
-	echot "\
-usage: wiggin off
-	backup web
-	create system
-	config backup|update|edit [host]
-	on|off - power on or off all devices in the Wiggin study network closet switch"
-	exit $1
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [COMMAND]...
+Wiggin network functionality
+
+	backup	backup data
+	install	install software
+	network	configure network	
+	on|off	turn devices on or off"
 }
 
 args()
 {
-	unset -v command
 
+	unset -v command
+	# commands
+	ScriptCommand "$@" || return
+
+	# options
+	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--help) usage 0;;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				[[ "$command" == @(backup|config|create) ]] && break # defer argument processing
-				UnknownOption "$1"
+			-h|--help) usage 0;;
+			--) shift; otherArgs+=("$@"); set --; break;;
+			*) ScriptOption "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
-
-	[[ ! $command ]] && { MissingOperand "command"; }
-	[[ "$comamnd" == @(edit) && ! $host ]] && MissingOperand "host"
-
+	set -- "${args[@]}"
+	
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
+	[[ $@ ]] && usage
 	args=("$@")
 }
 
 #
-# backup
+# Backup Commands
 #
 
-backupCommand()
-{
-	# parse arguments
-	local command; CheckSubCommand backup "$1"; shift
-	[[ $# != 0 ]] && UnknownOption "$1"
+backupCommands=( ContainerStation LastPass web qnap )
 
-	# run command
-	$command "$@"
-}
-
+backupUsage() { echo "Usage: $(ScriptName) backup all|$(ArrayDelimit backupCommands "|")"; }
+backupCommand() { usage; }
+backupAllCommand() { local c; for c in "${backupCommands[@]}"; do $(FindFunction "backup${c}Command") || return; done; }
 backupWebCommand() { AppBackup "$(RemoveDnsSuffix "$fileServer").web" "//$fileServer/root/share/CACHEDEV1_DATA/Web" || return; }
-backupContainerstationCommand() { AppBackup "$(RemoveDnsSuffix "$fileServer").ContainerStation" "//$fileServer/root/share/data/Container/container-station-data/application" || return; }
+backupContainerStationCommand() { AppBackup "$(RemoveDnsSuffix "$fileServer").ContainerStation" "//$fileServer/root/share/data/Container/container-station-data/application" || return; }
+
+backupLastPassCommand()
+{
+	local file="$CDATA/VeraCrypt/personal.hc"
+
+	LastPass login || return
+	VeraCrypt mount "$file" p || return
+
+
+	VeraCrypt unmount p || return
+}
 
 backupQnapCommand()
 {
@@ -97,32 +88,52 @@ backupQnapCommand()
 }
 
 #
-# configuration
+# Network Commands
 #
 
-configCommand()
-{
-	# parse arguments
-	local command; CheckSubCommand config "$1"; shift
-	[[ "$command" != "configEditCommand" ]] && { local host="$1"; shift; [[ ! $host ]] && MissingOperand "host"; }
-	[[ $# != 0 ]] && UnknownOption "$1"
+networkUsage() { echo "Usage: $(ScriptName) network backup|edit|update [host]"; }
 
-	# update host
-	if [[ "$command" != "edit" ]]; then
-		local hostName="$host" hostNameShort="$(RemoveDnsSuffix "$host")"
+networkArgStart()
+{
+	unset host hostName hostNameShort
+
+	# network configuration
+	network="wiggin"
+	subnetPi1="192.168.102.1 - 192.168.102.254"
+	subnetPi2="192.168.103.1 - 192.168.103.254"
+	subnetDefault="$subnetPi1"
+
+	# server file locations
+	dhcpDir="/etc/kea"
+	dnsDir="/etc/bind"
+
+	# cloud configuration location
+	nc="$CLOUD/network"
+	ncd="$nc/configuration"
+}
+
+networkGetArgs() { [[ $1 ]] && { ScriptGetArg "host" "$1"; shift; }; return 0; }
+
+networkArgEnd()
+{
+	[[ ! $host && "$command" != @(networkEdit) ]] && MissingOperand "host"
+
+	if [[ $host ]]; then
+		hostName="$host"
+		hostNameShort="$(RemoveDnsSuffix "$host")"
 		IsPlatform win && IsMdnsName "$host" && { host="$(MdnsResolve "$host")" || return; }
 	fi
 
-	# run command
-	$command "$@"
+	return 0
 }
 
-configEditCommand() { TextEdit "$DATA/setup/ports" "$ncd/dns/$externalDomain" "$ncd/dns/forward.txt" "$ncd/dhcp/wiggin/kea-dhcp4-wiggin-reservations.json"; }
-configBackupCommand() { configBackup; }
-configUpdateCommand() { configUpdate; }
+networkCommand() { usage; }
+networkEditCommand() { TextEdit "$DATA/setup/ports" "$ncd/dns/$baseDomain" "$ncd/dns/forward.txt" "$ncd/dhcp/wiggin/kea-dhcp4-wiggin-reservations.json"; }
+networkBackupCommand() { networkBackup; }
+networkUpdateCommand() { networkUpdate; }
 
-configBackup()
-{
+networkBackup()
+{	
 	local h="$hostNameShort" d="$ncd/backup" stamp="$(GetDateStamp)"
 
 	# DHCP
@@ -142,17 +153,19 @@ configBackup()
 	echo "${GREEN}Successfully backed up $h network configuration${RESET}"
 }
 
-configUpdate()
+# network helper
+
+networkUpdate()
 {
 	local r="$ncd/dhcp/$network/kea-dhcp4-$network-reservations.json"
-	configFileValidate "$r" || return
-	configBackup || return
-	configUpdateDhcp || return
-	configUpdateDns || return
+	networkConfigFileValidate "$r" || return
+	networkBackup || return
+	networkUpdateDhcp || return
+	networkUpdateDns || return
 	return 0
 }
 
-configUpdateDns()
+networkUpdateDns()
 {
 	local config="$ncd/dns"
 	local dir="$(mktemp -d -t 'dns.XXXXXXXXXX')" || return
@@ -160,7 +173,7 @@ configUpdateDns()
 	echo "Creating DNS configuration files..."
 	cp "$config/named.conf."* "$dir" || return
 
-	cp "$config/$externalDomain" "$dir" || return
+	cp "$config/$baseDomain" "$dir" || return
 	cp "$config/forward.txt" "$dir/$domain" || return
 	configFileToCommaDelimited "$r" | awk -F "," '{ print $1 ".'$domain'.	A	" $3 }' | column -t	>> "$dir/$domain" || return
 
@@ -190,7 +203,7 @@ configUpdateDns()
 	SshHelper $hostName service restart bind9 || return
 }
 
-configUpdateDhcp()
+networkUpdateDhcp()
 {
 	local config="$ncd/dhcp/$network"
 	local dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
@@ -232,7 +245,7 @@ configFileToJson() # configFileToJson FILE - convert a Kea configuration file to
 		sed '/<\?include/d'  	# remove <?include ?> directives
 }
 
-configFileValidate()
+networkConfigFileValidate()
 {
 	configFileToJson "$1" | jq > /dev/null && return
 
@@ -247,12 +260,8 @@ configFileValidate()
 # create
 #
 
-createCommand()
-{
-	local command; CheckSubCommand create "$1"; shift
-	[[ $# != 0 ]] && UnknownOption "$1"
-	$command "$@"
-}
+createUsage() { echo "Usage: $(ScriptName) create system"; }
+createCommand() { usate; }
 
 createSystemCommand()
 {
@@ -263,35 +272,31 @@ createSystemCommand()
 	fi
 
 	local file="/etc/sudoers.d/020_$user-nopasswd"
-	if ! sudo ls "$file" >& /dev/null; then 
+	if ! sudoc ls "$file" >& /dev/null; then 
 		echo "$user ALL=(ALL) NOPASSWD: ALL" | sudo tee "/etc/sudoers.d/020_$user-nopasswd" || return
 	fi
 	
 	if [[ ! -d "$USERS/$user/.ssh" ]]; then
-		sudo cp -r "$HOME/.ssh" "$USERS/$user/.ssh" || return
+		sudoc cp -r "$HOME/.ssh" "$USERS/$user/.ssh" || return
 		SshPermissionFix "wsystem" || return
 	fi
 }
 
 #
-# on/off
+# on/off commands
 #
 
 offCommand()
 {
-	ask "Are you sure you want to power off all Wiggin devices" -dr n || return
-
 	for device in "${devices[@]}"; do
-		power off "$device" --wait
+		power off "$device" --wait || return
 	done
 }
 
 onCommand()
 {
-	ask "Are you sure you want to power off all Wiggin devices" -dr n || return
-
 	for device in "${devices[@]}"; do
-		power on "$device"
+		power on "$device" || return
 	done
 }
 
