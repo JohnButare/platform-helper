@@ -1643,6 +1643,39 @@ ScriptReturn()
 # Security
 #
 
+
+# cred - manage credentials locally or remotely
+
+CredExists() { credential exists "$@" --quiet --manager="local" || credential exists "$@" --quiet --manager="remote"; } 
+
+CredGet()
+{
+	credential exists "$@" --quiet --manager="local" && { credential get "$@" --manager="local"; return; }
+	credential exists "$@" --quiet --manager="remote" && { credential get "$@" --manager="remote"; return; }
+	return 1
+}
+
+CredSet()
+{
+	local p="$1" key="$2" value="$3" m managers=( local remote )
+
+	for m in "${managers[@]}"; do
+
+		if ! credential exists "$p" "$key" --quiet --manager="$m"; then
+			echo "Creating \`$p $key\` ($m)..."
+			credential set "$@" --manager="$m" || return
+
+		elif [[ "$(credential get "$p" "$key" --manager="$m")" != "$value" ]]; then
+			echo "Updating \`$p $key\` ($m)..."
+			credential set "$@" --manager="$m" || return
+
+		fi
+
+	done
+}
+
+# sudo
+
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
 
 sudoc()  # use the credential store to get the password if available, --preserve|-p to preserve the existing path (less secure)
