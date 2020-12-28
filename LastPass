@@ -1,35 +1,75 @@
 #!/usr/bin/env bash
 . app.sh || exit
 
-usage() {	echot "usage: LastPass [start|startup|close|restart](start)"; exit $1; }
+run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
+
+init() { program="$P32/LastPass/lastapp_x64.exe"; }
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [COMMAND]...
+LastPass management
+
+	[start|startup|close|restart](start)"
+}
 
 args()
 {
-	unset -v command help
+	unset -v brief
+
+	# commands
+	ScriptCommand "$@" || return
+
+	# options
+	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
-		case "$1" in
-			--brief|-b) ;;
-			--help) help="--help";;
-			IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";; # case-insensitive aliases
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "${command}" == @(start|startup|profile|service) ]] && break
-				UnknownOption "$1"
+		case "$1" in "") : ;;
+			-b|--brief) brief="true";;
+			-h|--help) usage 0;;
+			--) shift; otherArgs+=("$@"); set --; break;;
+			*) ScriptOption "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
-	[[ ! $command ]] && command="start"
-	[[ $help ]] && IsFunction "${command}Usage" && { ${command}Usage 0 || usage 0; }
-	args=( "$@" )
+	set -- "${args[@]}"
+	
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
+	[[ $@ && "$command" != @(start|startup|profile) ]] && usage
+	[[ $@ ]] && usage
+	args=("$@")
+	return 0
 }
 
-init() { program="$P32/LastPass/lastapp_x64.exe"; }
-run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
 closeCommand() { ! IsRunningCommand && return 0; ProcessClose "$program"; } # task close|CloseKill [--wait] [--title "$title"] "$program"; ProcessKill "$program"; SendKeys "$title" "!FX"; 
 IsInstalledCommand() { [[ -f "$program" ]]; }
 IsRunningCommand() { IsTaskRunning "$program"; } # task IsRunning --title "$title" "$program"; WinExists "$title";
 restartCommand() { closeCommand && startCommand; }
 startupCommand() { startCommand; }
 startCommand() { ! IsInstalledCommand && return 1; IsRunningCommand && return 0; start "$program" "$@"; }
+
+loginCommand()
+{	
+	checkCli || return
+	loggedIn && return
+
+	local username="johns@butare.net"; [[ -f "$HOME/.lpass/username" ]] && username="$(cat "$HOME/.lpass/username")"
+
+	if CredExists LastPass master; then
+		export LPASS_DISABLE_PINENTRY=1; CredGet LastPass master | lpass login "$username" --trust
+	else
+		lpass login "$username" --trust
+	fi
+}
+
+logoutCommand() { ! loggedIn && return; lpass logout --force; }
+
+#
+# helper
+#
+
+checkCli() { InPath lpass && return; package lastpass-cli; }
+loggedIn() { lpass status -q; }
 
 run "$@"
