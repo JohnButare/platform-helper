@@ -667,12 +667,25 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 # Network
 #
 
-IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }						# IsInDomain - true if the computer is in a network domain
-GetInterface() { ifconfig | head -1 | cut -d: -f1; } 													# GetInterface - name of the primary network interface
-GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }		# GetMacAddress - MAC address of the primary network interface
-GetDefaultGateway() { route -n | grep '^0.0.0.0' | awk '{ print $2; }'; }			# GetDefaultGateway - default gateway
-GetHostname() { SshHelper "$@" hostname; } 																		# GetHostname NAME - hosts configured name
-UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }					# UrlExists URL - true if the specified URL exists
+GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
+GetInterface() { ifconfig | head -1 | cut -d: -f1; } 														# GetInterface - name of the primary network interface
+GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
+GetHostname() { SshHelper "$@" hostname; } 																			# GetHostname NAME - hosts configured name
+IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
+UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
+
+CacheDefaultGateway()
+{
+	[[ $NETWORK_DEFAULT_GATEWAY ]] && return
+
+	if IsPlatform win; then
+		local g="$(route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | head -1 | awk '{ print $3; }')" || return
+	else
+		local g="$(route -n | grep '^0.0.0.0' | head -1 | awk '{ print $2; }')" || return
+	fi
+
+	export NETWORK_DEFAULT_GATEWAY="$g"
+}			
 
 # DhcpRenew ADDRESS(primary) - renew the IP address of the specified adapter
 DhcpRenew()
@@ -701,7 +714,7 @@ GetAdapterIpAddress()
 	if IsPlatform win; then 
 		if [[ ! $adapter ]]; then
 			# default route (0.0.0.0 destination) with lowest metric
-			route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | tr -s " " | cut -d " " -f 5
+			route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | awk '{ print $4; }'
 		else
 			ipconfig.exe | RemoveCarriageReturn | grep "Ethernet adapter $adapter:" -A 4 | grep "IPv4 Address" | cut -d: -f2 | RemoveSpace
 		fi
@@ -806,6 +819,9 @@ IsIpAddress()
   	(( ${ip[1]}<255 && ${ip[2]}<255 && ${ip[3]}<255 && ${ip[4]}<255 ))
   fi
 }
+
+# IsIpLocal - return true if the specified IP is reachable on the local network (does not use the default gateway in 5 hops or less)
+IsIpLocal() { CacheDefaultGateway || return; ! traceroute "$1" -4 --max-hops=5 | grep --quiet "($(GetDefaultGateway))"; } 
 
 # IsLocalHost HOST - true if the specified host refers to the local host
 IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
@@ -1844,7 +1860,7 @@ InitializeXServer()
 	{ [[ "$DISPLAY" ]] || ! InPath xauth; } && return
 
 	if IsPlatform wsl2; then
-		export DISPLAY="$(GetDefaultGateway):0"
+		export DISPLAY="$(GetWslGateway):0"
 		export LIBGL_ALWAYS_INDIRECT=1
 	elif [[ $SSH_CONNECTION ]]; then
 		export DISPLAY="$(GetWord "$SSH_CONNECTION" 1):0"

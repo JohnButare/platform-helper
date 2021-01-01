@@ -33,6 +33,12 @@ MakeShortcut()
 RestartExplorer() { ProcessKill explorer && start explorer; }
 
 #
+# Network
+#
+
+GetWslGateway() { route -n | grep '^0.0.0.0' | awk '{ print $2; }'; } # GetWslGateway - default the gateway WSL is using
+
+#
 # Process
 #
 
