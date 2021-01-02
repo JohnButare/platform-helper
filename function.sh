@@ -1144,7 +1144,7 @@ packageExclude()
 	local packages="$@" p r=()
 
 	# Ubuntu excludes - ncat is not present on older distributions
-	IsPlatform ubuntu && IsInArray "ncat" packages && [[ "$(os CodeName)" =~ ^(bionic|xenial)$ ]] && RemoveFromArray "ncat" packages
+	IsPlatform ubuntu && IsInArray "ncat" packages && [[ "$(os CodeName)" =~ ^(bionic|xenial)$ ]] && ArrayRemove packages "ncat"
 
 	# macOS excludes
 	! IsPlatform mac && { echo "$@"; return; }
