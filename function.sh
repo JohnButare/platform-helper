@@ -215,6 +215,13 @@ store()
 }
 
 #
+# Config
+#
+
+ConfigGet() { (. "bootstrap-config.sh"; eval echo "\$$1"); }
+HashiConfigGet() { (. "bootstrap-config.sh"; eval echo "\$hashi$(UpperCaseFirst "$1")"); }
+
+#
 # Console
 #
 
@@ -410,6 +417,8 @@ RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
 if IsZsh; then
 	LowerCase() { GetArgs; r "${1:l}" $2; }
 	ProperCase() { GetArgs; r "${(C)1}" $2; }
+	UpperCase() { echo "${(U)1}"; }
+	UpperCaseFirst() { echo "${(U)1:0:1}${1:1}"; }
 
 	GetWord() 
 	{ 
@@ -420,6 +429,8 @@ if IsZsh; then
 else
 	LowerCase() { GetArgs; r "${1,,}" $2; }
 	ProperCase() { GetArgs; local arg="${1,,}"; r "${arg^}" $2; }
+	UpperCase() { echo "${1^^}"; }
+	UpperCaseFirst() { echo "${1^}"; }
 
 	GetWord() 
 	{ 

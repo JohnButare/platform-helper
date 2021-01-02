@@ -1,6 +1,5 @@
 # common functions for application scripts
 . script.sh
-. bootstrap-config.sh
 
 FunctionExists() { grep -q "$1"'()' "$2"; } # FunctionExists FUNCTION FILE - function exists in file
 CommandExists() { FunctionExists "${1}Command" "$2" ; } # CommandExists COMMAND APP - application supports command
@@ -37,7 +36,7 @@ AppCommand() # AppCommand COMMAND APP - execute COMMAND on APP if exists
 	return 0
 }
 
-AppGetBackupDir() { echo "$(unc mount //$fileServer/root$DATA/appdata/backup)"; }
+AppGetBackupDir() { echo "$(unc mount //$(ConfigGet "fs")/root$DATA/appdata/backup)"; }
 
 # AppBackup APP SRC...
 AppBackup()

@@ -7,7 +7,6 @@ main() { init && args "$@" && i "${apps[@]}"; }
 init()
 {
 	ScriptEval HostFindInfo --detail || return
-	. "$(ScriptDir)/bootstrap-config.sh" || return
 
 	# isInstallable
 	debian=( chrony chroot dnsServer dhcpServer geany gnupg kea mDns pass SaltMinion terminator )
@@ -792,11 +791,15 @@ bootstrapStart()
 		printf "."; makeLink --symbolic --hide "$UBIN/$file" "$HOME/$file" || return
 	done
 
-	for dir in $(ls $UBIN/.config); do
-		printf "."; makeLink --symbolic "$UBIN/.config/$dir" "$HOME/.config/$dir" || return
-	done
-
-	if [[ ! -f /etc/ethers ]]; then
+	if [[ -d "$HOME/.config" ]]; then
+		local dirs=(); IFS=$'\n' dirs=( $(find "$HOME/.config" -maxdepth 1 -mindepth 1 -type d -print) )
+		for dir in "$dirs[@]"; do
+			printf "."; makeLink --symbolic "$UBIN/.config/$dir" "$HOME/.config/$dir" || return
+		done
+	fi
+	
+	if [[ ! -L "/etc/ethers" ]]; then
+		[[ -f "/etc/ethers" ]] && { sudo rm "/etc/ethers" || return; }
 		printf "."; sudo ${G}ln --symbolic "$DATA/setup/ethers" "/etc/ethers" || return
 	fi
 
@@ -806,7 +809,7 @@ bootstrapStart()
 	! password CheckStore && { password store || return; }
 
 	# set the default WSL distribution user now to aid troubleshooting issues.
-	IsPlatform wsl && { wsl SetDefaultUser "$(wsl name)" "$user" || return; }
+	IsPlatform wsl && { wsl SetDefaultUser "$(wsl name)" "$(ConfigGet "user")" || return; }
 
 	return 0
 }
@@ -943,13 +946,15 @@ bootstrapPi()
 {
 	header "Bootstrap Raspberry Pi OS"
 
-	local timezone="US/Mountain"
-
 	sudo raspi-config nonint do_net_names 0 || return # enable predictable network names
 	sudo raspi-config nonint do_wifi_country US # fails in chroot
 
+	local timezone="$(ConfigGet "timezone")"
 	! cat /etc/timezone | grep "$timezone" >& /dev/null && { sudo raspi-config nonint do_change_timezone "$timezone" || return; }
+
+	local locale="$(ConfigGet "locale")"
 	! cat /etc/default/locale | grep "$locale" >& /dev/null && { sudo raspi-config nonint do_change_locale $locale || return; export LOCALE="$locale"; }
+
 	[[ -f /run/sshwarn ]] && { password linux -u pi || return; }
 
 	i RaspberryPiSetup || return
@@ -1129,6 +1134,7 @@ DebianDns()
 	{ IsPlatform chroot,win || ! InPath systemd-resolve; } && return 0
 
 	# return if the FQDN and the short non-qualified name resolves
+	local domain="$(ConfigGet "domain")"
 	IsAvailable "router.$domain" && IsAvailable "router" && return
 
 	sudo systemd-resolve -i eth0 --set-domain="$domain"
@@ -1143,6 +1149,7 @@ DebianFileSharing()
 	! InPath smbd && { pkg samba || return; } # service
 	! InPath smbclient && { pkg smbclient || return; }
 
+	local workgroup="$(ConfigGet "workgroup")"
 	if [[ "$(network workgroup name)" != "$workgroup" ]]; then
 		network workgroup set "$workgroup" || return
 		restart="true"
@@ -1180,6 +1187,7 @@ DebianFonts()
 
 DebianLocale()
 {
+	local local="$(ConfigGet "locale")"
 	[[ "$LANG" == "$locale" ]] && return
 
 	pkg locales || return
@@ -2927,7 +2935,7 @@ HashiInstall()
 { 
 	inst consulK8s || return
 	
-	findFile "other/HashiCorp/certificate/$baseDomain" || return
+	findFile "other/HashiCorp/certificate/$(ConfigGet "baseDomain")" || return
 	hashi install cli --encrypt "$file" $verbose $force || return
 }
 
@@ -5573,6 +5581,7 @@ WindowsConfigurationInstall()
 	network adapter name "Ethernet3" "wired4" >& /dev/null
 	network adapter name "Wi-Fi" "wifi" >& /dev/null
 
+	local workgroup="$(ConfigGet "workgroup")"
 	if [[ $workgroup ]] && askP "Configure network for $workgroup"; then
 		network workgroup set "$workgroup" || return
 		[[ $(network profile list | wc -l) == 1 ]] && { network profile set "$(ProperCase "$workgroup")" || return; }

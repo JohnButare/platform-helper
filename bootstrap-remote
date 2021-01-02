@@ -5,13 +5,15 @@
 
 init()
 {
-	. "${BASH_SOURCE[0]%/*}/bootstrap-config.sh" || return
-
-	remote="${1}"; [[ ! $remote ]] && MissingOperand "host"
+	host="$(GetSshHost "$1")"; [[ ! $host ]] && MissingOperand "host"
+	user="$(GetSshUser "$1")"; user="${user:-$USER}"
 	port="${2:-22}"
-	sshArgs=( $remote -p $port -oStrictHostKeyChecking=no )
+
+	sshArgs=( -p $port -oStrictHostKeyChecking=no )
 	scpArgs=( -P $port -oStrictHostKeyChecking=no )
 	coreFiles=( "$BIN/bootstrap-init" "$BIN/bootstrap-config.sh" )
+
+	bootstrapUser="$(ConfigGet "user")"
 }
 
 run()
@@ -30,7 +32,7 @@ run()
 
 bootstrapChroot()
 {
-	local dist="$remote" dir="$(ChrootHelper dir "$remote")"
+	local dist="$host" dir="$(ChrootHelper dir "$host")"
 
 	[[ ! -d "$dir" ]] && { EchoErr "$dist root directory "$dir" does not exist"; return 1; }
 
@@ -49,9 +51,7 @@ bootstrapChroot()
 
 bootstrapSsh()
 {
-	local host="$(GetSshHost "$remote")" remoteUser="$(GetSshUser "$remote")" result
-	
-	remoteUser="${remoteUser:-$USER}"
+	local result isHostLocal="$(IsIpLocal "$(GetIpAddress "$host")")" # host is local to the current network
 
 	sshBootHost || return
 	sshConfigure || return
@@ -59,11 +59,12 @@ bootstrapSsh()
 	while true; do 
 
 		hilight "Copying core files..."
-		scp "${scpArgs[@]}" "${coreFiles[@]}" "$remote:/tmp" # /tmp cleared on reboot
+		scp "${scpArgs[@]}" "${coreFiles[@]}" "$user@$host:/tmp" || return
 
 		sshCheckUser || return
 
-		ssh "${sshArgs[@]}" -Yt -- bash -l "/tmp/bootstrap-init --restart" # connect using X forwarding to allow use of the credential store
+		# connect using X forwarding to allow use of the credential store
+		sshDo -Yt -- bash -l "/tmp/bootstrap-init --restart"
 		result="$?"; [[ "$result" != "100" ]] && return "$result"
 
 		hilight "Reconnecting to $host..."
@@ -75,41 +76,45 @@ bootstrapSsh()
 
 sshBootHost() # wait for the host to become available (after initial boot or reboot)
 {
-	! IsAvailable "$host" && { power on "$host" || return; }
+	! IsAvailable "$host" && [[ $isHostLocal ]] && { power on "$host" || return; }
 
 	# resolve a .local address now in case mDNS resolution does not work using SSH
-	if IsMdnsName "$host"; then
-		host=$(MdnsResolve "$host") || return
-		remote="$(sshCheckUser "$remote"):$host"
-	fi
+	IsMdnsName "$host" && { host=$(MdnsResolve "$host") || return; }
 
 	sshWait || return
 }
 
 sshWait()
 {
-	IsAvailablePort "$host" $port && return	
-	WaitForPort "$host" $port || return
-}
+	IsAvailablePort "$host" $port && return
 
-sshConfigure()
-{
-	ssh "${sshArgs[@]}" 'bash -s' <<EOF && return
-[[ -f "\$HOME/.ssh/authorized_keys" ]] && exit 0
-[[ ! -d "\$HOME/.ssh" ]] && mkdir "\$HOME/.ssh"
-exit 1
-EOF
-
-	hilight "Configuring ssh..."
-	scp "${scpArgs[@]}" "$HOME/.ssh/"* ''$remote':~/.ssh' || return
+	if [[ $isHostLocal ]]; then
+		WaitForAvailable "$host" || return
+	else
+		WaitForPort "$host" $port || return
+	fi
 }
 
 # sshCheckUser - if the user specified in the configuration exists make sure we use it
 sshCheckUser() 
 { 
-	[[ "$user" == "$remoteUser" ]] && return
-	ssh "${sshArgs[@]}" -- getent passwd $user >& /dev/null && remote="$user@$host"
+	[[ "$bootstrapUser" == "$user" ]] && return
+	sshDo -- getent passwd "$bootstrapUser" >& /dev/null && user="$bootstrapUser"
 	return 0
 } 
+
+sshConfigure()
+{
+	sshDo 'bash -s' <<-EOF && return
+		[[ -f "\$HOME/.ssh/authorized_keys" ]] && exit 0
+		[[ ! -d "\$HOME/.ssh" ]] && mkdir "\$HOME/.ssh"
+		exit 1
+	EOF
+
+	hilight "Configuring ssh..."
+	scp "${scpArgs[@]}" "$HOME/.ssh/"* ''"$user@$host"':~/.ssh' || return
+}
+
+sshDo() { ssh "$user@$host" "${sshArgs[@]}" "$@"; }
 
 run "$@"

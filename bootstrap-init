@@ -20,8 +20,16 @@ configureProxyServer()
 {
 	[[ ! $proxy ]] && return
 
+	# return if the proxy server is not available
+	if ! IsAvailable "$proxyServer"; then
+		hilight "Skipping proxy server configuration ($proxyServer is not available)..."
+		return
+	fi
+
+	# set proxy variables
 	[[ ! $HTTP_PROXY ]] && export {HTTP_PROXY,HTTPS_PROXY}="$proxy"
 
+	# set package proxy configuration
 	if [[ -d /etc/apt/apt.conf.d && ! -f "/etc/apt/apt.conf.d/proxy" ]]; then
 		hilight "Setting proxy server to $proxy..."
 		printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$proxy" "$proxy" | $sudo tee "/etc/apt/apt.conf.d/proxy"
@@ -47,7 +55,7 @@ createUser()
 {
 	IsMac || [[ ! $user ]] || grep "$user" /etc/passwd >& /dev/null && return
 
-	hilight "Creating user $user"
+	hilight "Creating user $user..."
 	sudo adduser "$user" --gecos "" || return
 	sudo usermod -aG sudo $user || return
 }
@@ -80,8 +88,7 @@ runAsUser()
 
 runBootstrap()
 {
-	local desc=" from $host"; [[ ! $host ]] && desc="" 
-	hilight "Bootstraping$desc..."
+	hilight "Bootstraping from $host..."
 	export PATH=$bin:$PATH
 	bootstrap "$host" "$install"
 }
@@ -96,7 +103,7 @@ doReboot()
 	[[ $sudo ]] && $sudo -v 
 
 	# reboot with a delay to allow exit
-	{ nohup bash -c "sleep 1; sudo reboot now" & } >& /dev/null
+	nohup bash -c "sleep 1; sudo reboot now" &
 
 	# status 100 indicates a retry to bootstrap-init
 	exit 100 
@@ -150,11 +157,13 @@ init()
 	[[ "$1" == "--force" ]] && { force="true"; shift; }
 	[[ "$1" == "--restart" ]] && { restart="true"; shift; }
 
+	# mount location for public files
+	mount="$HOME/Volumes/public"
+	IsMountedDrive "$fs" && mount="$fs/public" # mounted directory or drive letter
+	[[ -d "/share/Public/documents/data/install" ]] && mount="/share/Public" # local install source
+
 	# platform variables
 	initPlatform || return
-	export G=""; IsMac && G="g"
-	mount="$HOME/Volumes/public"; IsMountedDrive && mount="$host/public"
-	[[ -d "/share/Public/documents/data/install" ]] && { host=""; mount="/share/Public"; } # local install source
 	bin="$mount/documents/data/bin"
 	install="$mount/Documents/data/install"
 
@@ -192,7 +201,10 @@ initPlatform()
 
 	# ID=ubuntu|raspbian|qts
 	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
-	
+
+	# GNU utilities	
+	export G=""; IsMac && G="g"
+
 	return 0
 }
 
@@ -204,12 +216,13 @@ mountPublic()
 { 
 	[[ -d "$bin" ]] && return
 
-	IsWin && IsMountedDrive && { mountWinDrive "$host" || return; }
+	hilight "Mounting public share..."
 
-	hilight "Mounting //$host/public..."
 	${G}mkdir --parents "$mount" || return
 
-	if [[ "$platform_kernel" == "wsl1" ]]; then mountPublic-win
+	if IsWin && IsMountedDrive "$mount"; then mountPublic-drive
+	elif ! IsAvailable "$fs"; then mountPublic-sshfs
+	elif [[ "$platform_kernel" == "wsl1" ]]; then mountPublic-win
 	elif [[ "$platform_kernel" == "wsl2" || "$platform" == "entware" ]]; then mountPublic-debian
 	else mountPublic-$platform
 	fi
@@ -217,21 +230,42 @@ mountPublic()
 
 mountPublic-debian()
 {
-	local line="//$host/public $HOME/Volumes/public cifs username=$USER,noauto,rw,users 0 0"
-	! grep "$line" /etc/fstab >& /dev/null && { echo "$line" | sudo tee -a /etc/fstab || return; }
-	mount.cifs "//$host/public" "$HOME/Volumes/public" -o user=$USER sec=ntlmsspi || return
+	# install
+	package cifs-utils || return	
+	! InPath mount-cifs && { sudo apt install -y cifs-utils || return; } # dpg --get-selections returns nothing in WSL Ubuntu-20.04
+
+	# configure
+	local line="$fsUnc $mount cifs username=$user,noauto,rw,users 0 0"
+	! grep -q "$line" "/etc/fstab" && { echo "$line" | sudo tee -a "/etc/fstab" || return; }
+
+	# mount
+	mount.cifs "$fsUnc" "$mount" -o user=$user sec=ntlmsspi || return
 }
 
-mountPublic-mac() { mount_smbfs -s "smb://$USER@$host/public" "$mount" || return; }
-mountPublic-win() { sudo mount -t drvfs "//$host/public" "$HOME/Volumes/public"; }
-
-mountWinDrive() # dir - mounted directory for the drive, must start with /mnt, i.e. /mnt/d
+mountPublic-drive() # mount a Windows drive letter, must start with /mnt, i.e. /mnt/d
 { 
-	local dir="$1" drive="${dir/\/mnt\//}"
+	local dir="$mount" drive="${dir/\/mnt\//}"
 	[[ ! -d "$dir" ]] && { sudo mkdir "$dir" || return 1; }
 	mount 2>&1 | grep "$drive: on $dir type drvfs" &> /dev/null && return 0;
 	sudo mount -t drvfs "$drive:" "$dir" &> /dev/null
 }
+
+mountPublic-mac() { mount_smbfs -s "smb://$user@$fs/$fsShare" "$mount" || return; }
+
+mountPublic-sshfs()
+{
+	# install
+	package sshfs || return
+
+	# configure
+	local file="/etc/fuse.conf"
+	grep -q "^#user_allow_other" "$file" && { sudo sed -i 's/^#user_allow_other$/user_allow_other/' "$file" || return; }
+
+	# mount
+	sshfs -o allow_other "$fsRemote:$fsRemoteShare" "$mount" -p "$fsRemotePort" || return
+}
+
+mountPublic-win() { sudo mount -t drvfs "//$fs/$fsShare" "$mount"; }
 
 #
 # Packages
@@ -254,19 +288,10 @@ installPackages-pre()
 	return 0
 }
 
-installPackages-debian() { package cgroup-tools cifs-utils iputils-ping net-tools openssh-server; }
+installPackages-debian() { package cgroup-tools iputils-ping net-tools openssh-server; }
 installPackages-entware() { package bash coreutils coreutils-ln coreutils-readlink mount-utils nano; }
 installPackages-mac() { package bash coreutils gnu-sed; }
-
-installPackages-win()
-{
-	package cgroup-tools cifs-utils iputils-ping || retgurn;
-
-	# using Ubuntu-20.04 WSL image dpg --get-selections returns nothing
-	! InPath mount-cifs && { sudo apt install -y cifs-utils || return; }
-
-	return 0
-}
+installPackages-win() {	package cgroup-tools iputils-ping || retgurn; }
 
 installPackages-post()
 {
@@ -378,6 +403,7 @@ debianFixMan()
 # helper
 #
 
+IsAvailable() { ping -c 2 -W 2 "$1" &> /dev/null; }
 IsChroot() { [[ $chroot ]]; }
 IsContainer() { [[ $container ]]; }
 IsDebian() { [[ "$platform" == "debian" ]]; }
@@ -390,7 +416,7 @@ IsQnap() { [[ "$platform_like" == "qnap" ]]; }
 
 hilight() { printf "${GREEN}$1${RESET}\n"; }
 InPath () { which "$1" &> /dev/null; }
-IsMountedDrive() { [[ -d "$host/public" ]] || [[ "$host" =~ ^/mnt ]]; }
+IsMountedDrive() { [[ -d "$1/public" ]] || [[ "$1" =~ ^/mnt ]]; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 
 UpdateInit() { updateDir="$1"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }

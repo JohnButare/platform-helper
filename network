@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 . function.sh || exit
-. bootstrap-config.sh || exit
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
 
@@ -8,15 +7,11 @@ init()
 {
 	command='network'
 
-	proxyNetwork="wiggin"
-	proxyServer="proxy.hagerman.butare.net" proxyPort="3128"
-	noProxy="localhost,127.0.0.1,.hagerman.butare.net,.releases.ubuntu.com"
-	wpadServer="$fileServer" wpadFile="/share/Web/autoproxy/wpad.dat"
+	noProxy="localhost,127.0.0.1,.$(ConfigGet "domain"),.releases.ubuntu.com"
+	wpadServer="$(ConfigGet "fs")" wpadFile="/share/Web/autoproxy/wpad.dat"
 
 	adapterKey='HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Network​'
 	profileKey='HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/NetworkList/Profiles/'
-	
-	declare -Ag networks=( [wiggin]=192.168.100.10 [foo]=192.168.1.5 )
 
 	UpdateInit || return
 }
@@ -116,6 +111,8 @@ CurrentNameCommand()
 {
 	network="external"
 
+	local -A networks=( $(ConfigGet "proxyNetworks") )
+
 	for i in "${!networks[@]}"
 	do
 		local name="$i" ip="${networks[$i]}"
@@ -150,7 +147,7 @@ CurrentUpdateCommand()
 	[[ ! -f "$file" ]] && { EchoErr "network: could not find a network configuration file for $network"; return 1; }
 	sudoc cp "$file" "/etc/resolv.conf"
 
-	local status="disable"; [[ "$network" == "$proxyNetwork" ]] && status="enable"
+	local status="disable"; [[ "$network" != "external" ]] && status="enable"
 	UpdateSet "proxy" "$status" || return
 	ScriptEval network proxy vars --$status || return
 	network proxy apt --$status || return
@@ -283,7 +280,7 @@ workgroupSetCommand()
 
 proxyCommand()
 {
-	local proxy="$proxyServer:$proxyPort"
+	local proxy="$(ConfigGet "proxy")"
 	local proxyVars="http_proxy,https_proxy,ftp_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY"
 	local noProxyVars="no_proxy,NO_PROXY"	
 	local allVars="$proxyVars,$noProxyVars"
@@ -315,15 +312,15 @@ proxyStatusCommand()
 	return 0
 }
 
-proxyVarsEnableCommand() { echo "export {$proxyVars}=\"http://$proxy/\"; eval export {$noProxyVars}=\"$noProxy\""; }
+proxyVarsEnableCommand() { echo "export {$proxyVars}=\"$proxy/\"; eval export {$noProxyVars}=\"$noProxy\""; }
 proxyVarsDisableCommand() {	echo "unset {$allVars}; unset {$allVars}"; }
 proxyVarsStatusCommand() { (( $(export | grep -i 'proxy=\"http' | wc -l) > 1 )) && echo "enabled" || echo "disabled"; }
 
 proxyAptEnableCommand()
 {
 	[[ ! -d "/etc/apt" || -f "$aptFile" ]] && return
-	echo "Acquire::http::Proxy \"http://$proxy\";
-Acquire::https::Proxy \"http://$proxy\";" | sudo tee "$aptFile"
+	echo "Acquire::http::Proxy \"$proxy\";
+Acquire::https::Proxy \"$proxy\";" | sudo tee "$aptFile"
 }
 
 proxyAptDisableCommand() { [[ ! -f "$aptFile" ]] && return; sudo rm "$aptFile"; }

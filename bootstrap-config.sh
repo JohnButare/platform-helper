@@ -1,24 +1,24 @@
-user="jjbutare" 									# user to run bootstrap as
-timezone="America/Denver"					# host timezone
-locale="en_US.UTF-8"							# host locale
+user="jjbutare"						# run the bootstrap as this user
+timezone="America/Denver"
+locale="en_US.UTF-8"
 
-baseDomain="butare.net"
 workgroup="hagerman"
+baseDomain="butare.net"
 domain="$workgroup.$baseDomain"
 systemUser="wsystem"
 
 dns1="192.168.100.10"
 dns2="192.168.100.11"
-host="nas3.$domain" port=608			# host or mounted drive to use for scripts and installers
-proxy="http://proxy.$domain:3128" # proxy server for package download
 
-fileServer="$host"
+proxyNetworks="[wiggin]=192.168.100.10" 
+proxyServer="proxy.$domain" proxyPort="3128"
+proxy="http://$proxyServer:$proxyPort"
+
 hashiCredentialPrefix="none"
-hashiServers=( pi3 pi4 pi5 )
-hashiClients=( pi6 pi7 )
-vaultServers=( pi3 pi4 )
+hashiServers="pi3,pi4,pi5"
+hashiClients="pi6,pi7"
+hashiVaultServers="pi3,pi4"
 
-#user=""
-#host="/mnt/d"
-#proxy=""
-#workgroup=""
+# host for scripts and installers - host, drive letter (/mnt/D), or local install directory
+fs="nas3.$domain" fsUnc="//$bootstrapHost/public"
+fsRemote="butare.net" fsRemoteShare="/share/CACHEDEV1_DATA/Public" fsRemotePort=608
