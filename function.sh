@@ -759,7 +759,7 @@ GetIpAddress()
 	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
-	if InPath getent; then ip="$(getent hosts "$host" |& cut -d" " -f 1)"
+	if InPath getent; then ip="$(getent ahostsv4 "$host" |& head -1 | cut -d" " -f 1)"
 	elif InPath host; then ip="$(host -t A "$host" |& grep -v "^ns." | head -1 | grep "has address" | cut -d" " -f 4)"
 	elif InPath nslookup; then ip="$(nslookup "$host" |& tail -3 | grep "Address:" | cut -d" " -f 2)"
 	fi
@@ -873,6 +873,20 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 		return ${PIPESTATUS[0]}
 	fi
 
+}
+
+WaitForAvailable() # WaitForAvailable HOST [TIMEOUT_MILLISECONDS](200) [SECONDS](120)
+{
+	local host="$1" timeout="${2-200}" seconds="${3-200}"
+
+	printf "Waiting for $host..."
+	for (( i=1; i<=$seconds; ++i )); do
+ 		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
+		printf "."
+		IsAvailable "$host" "$timeout" && { echo "found"; return; }
+	done
+
+	echo "not found"; return 1
 }
 
 WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS](200) [SECONDS](120)
