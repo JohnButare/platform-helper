@@ -1124,7 +1124,8 @@ IsUncPath() { [[ "$1" =~ //.* ]]; }
 GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; } # //USER@SERVER/SHARE/DIRS
 GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
 GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
-GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
+GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%%:*}" $2; }
+GetUncPort() { GetArgs; local gup; [[ "$1" =~ : ]] && gup="${1##*:}"; r "$gup" $2; }
 
 #
 # Package Manager
