@@ -36,7 +36,7 @@ UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; 
 UpdateCheck() { [[ $updateDir ]] && return; UpdateInit; }
 UpdateNeeded() { UpdateCheck || return; [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
 UpdateDone() { UpdateCheck && touch "$updateDir/$1"; }
-UpdateGet() { UpdateCheck && cat "$updateDir/$1"; }
+UpdateGet() { UpdateCheck && [[ ! -f "$updateDir/$1" ]] && return; cat "$updateDir/$1"; }
 UpdateSet() { UpdateCheck && printf "$2" > "$updateDir/$1"; }
 
 clipok()
@@ -219,8 +219,9 @@ store()
 # Config
 #
 
-ConfigGet() { (. "bootstrap-config.sh"; eval echo "\$$1"); }
-HashiConfigGet() { (. "bootstrap-config.sh"; eval echo "\$hashi$(UpperCaseFirst "$1")"); }
+ConfigInit() { [[ ! $configFile ]] && configFile="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$configFile" ]] && return; EchoErr "ConfigInit: configuration file \`$configFile\` does not exist"; return 1; }
+ConfigGet() { ConfigInit && (. "$configFile"; eval echo "\$$1"); }
+HashiConfigGet() { ConfigInit && (. "$configFile"; eval echo "\$hashi$(UpperCaseFirst "$1")"); }
 
 #
 # Console
@@ -866,7 +867,7 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 
 	if InPath ncat; then
 		ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" >& /dev/null
-	elif InPath Anmap; then
+	elif InPath nmap; then
 		nmap "$host" -p "$port" -Pn -T5 | grep -q "open"
 	elif IsPlatform win; then	
 		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null

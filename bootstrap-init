@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# bootstrap-init [CONFIG_FILE]- bootstrap a local system
+# bootstrap-init [CONFIG_FILE]- bootstrap a local system with no dependencies
 
 run()
 {
+	header "bootstrap-init"
 	init "$@" || return	
 	configureProxyServer || return
 	setupPackageManager || return
@@ -18,10 +19,11 @@ run()
 
 configureProxyServer()
 {
-	[[ ! $proxy ]] && return
+	local proxy="$(configGet "proxy")"; [[ ! $proxy ]] && return
+	local proxyServer="$(configGet "proxyServer")"
 
 	# return if the proxy server is not available
-	if ! IsAvailable "$proxyServer"; then
+	if ! isAvailable "$proxyServer"; then
 		hilight "Skipping proxy server configuration ($proxyServer is not available)..."
 		return
 	fi
@@ -40,8 +42,9 @@ configureProxyServer()
 
 setTimezone()
 {
-	! IsDebian && return
+	! isDebian && return
 
+	local timezone="$(configGet "timezone")"
 	( [[ ! $timezone ]] || cat "/etc/timezone" |& grep "$timezone" > /dev/null ) && return
 
 	$sudo DEBIAN_FRONTEND=noninteractive apt install -y tzdata || return
@@ -53,7 +56,7 @@ setTimezone()
 
 createUser()
 {
-	IsMac || [[ ! $user ]] || grep "$user" /etc/passwd >& /dev/null && return
+	isMac || [[ ! $user ]] || grep "$user" /etc/passwd >& /dev/null && return
 
 	hilight "Creating user $user..."
 	sudo adduser "$user" --gecos "" || return
@@ -62,7 +65,7 @@ createUser()
 
 createUserHome()
 {
-	IsMac || [[ ! $user ]] && return
+	isMac || [[ ! $user ]] && return
 
 	local dir="$(grep "$user" /etc/passwd | cut -d: -f 6)"
 	[[ -d "$dir" ]] && return
@@ -88,25 +91,32 @@ runAsUser()
 
 runBootstrap()
 {
-	hilight "Bootstraping from $host..."
+	hilight "Bootstrapping from $bootstrapHost..."
 	export PATH=$bin:$PATH
-	bootstrap "$host" "$install"
+	bootstrap "$bootstrapHost" "$install"
 }
 
 doReboot()
 {
 	hilight "Rebooting..."
 
-	IsWin && { sync; wsl.exe --shutdown; exit 100; }
+	isWin && { sync; wsl.exe --shutdown; exit 100; }
 
-	# cache sudo credentials
-	[[ $sudo ]] && $sudo -v 
+	# do not prompt for sudo password
+	fixReboot "+"
 
 	# reboot with a delay to allow exit
-	nohup bash -c "sleep 1; sudo reboot now" &
+	nohup bash -c "sleep 2; reboot now" &
 
 	# status 100 indicates a retry to bootstrap-init
+	sleep 1
 	exit 100 
+}
+
+fixReboot()
+{
+	local file; file="$(which reboot)" || return
+	[[ $sudo && -f "$file" ]] && { $sudo chmod ${1}s "$file" || return; }
 }
 
 #
@@ -115,11 +125,11 @@ doReboot()
 
 configureOs() 
 {
-	! UpdateNeeded "os" && return
+	! updateNeeded "os" && return
 
 	hilight "Configuring the operating system..."
 	configure-$platform || return
-	UpdateDone "os" || return
+	updateDone "os" || return
 }
 
 configure-debian() { :; }
@@ -127,7 +137,7 @@ configure-mac() { :; }
 
 configure-entware()
 {
-	if IsQnap; then
+	if isQnap; then
 		[[ ! -d "/usr/etc/sudoers.d" ]] && { mkdir /usr/etc/sudoers.d || return; }
 		[[ ! -f "/usr/etc/sudoers.d/$user" ]] && { echo "$user ALL=(ALL) ALL" > /usr/etc/sudoers.d/$user || return; }
 	fi
@@ -137,7 +147,7 @@ configure-entware()
 
 configure-win()
 {
-	InPath apt && { $sudo apt update || return; } # fix "Could not find command-not-found database" in WSL
+	inPath apt && { $sudo apt update || return; } # fix "Could not find command-not-found database" in WSL
 	return
 }
 
@@ -147,36 +157,38 @@ configure-win()
 
 init()
 {	
-	# bootstrap variables
-	local config="${1:-${BASH_SOURCE[0]%/*}/bootstrap-config.sh}"
-	. "$config" || return
-
 	# variables
-	GREEN=$(printf '\033[32m') RESET=$(printf '\033[m')
+	unset -v force restart verbose
+	export configFile="${BASH_SOURCE[0]%/*}/bootstrap-config.sh"
 
 	# arguments
-	[[ "$1" == "--force" ]] && { force="true"; shift; }
-	[[ "$1" == "--restart" ]] && { restart="true"; shift; }
+	[[ -f "$1" ]] && { configFile="$1"; shift; }
+	[[ "$1" == @(-f|--force) ]] && { force="true"; shift; }
+	[[ "$1" == @(-r|--restart) ]] && { restart="true"; shift; }
+	[[ "$1" == @(-v|--verbose) ]] && { verbose="--verbose"; shift; }
+
+	# variables
+	user="$(configGet "user")"
+	bootstrapHost="$(configGet "bootstrapHost")"
 
 	# mount location for public files
 	mount="$HOME/Volumes/public"
-	IsMountedDrive "$fs" && mount="$fs/public" # mounted directory or drive letter
-	[[ -d "/share/Public/documents/data/install" ]] && mount="/share/Public" # local install source
+	local target="$bootstrapHost"
+	{ [[ -d "$target/public" ]] || [[ "$target" =~ ^/mnt ]]; } && mount="$target/public" # mounted directory
+	[[ -d "/share/Public/documents/data/install" ]] && mount="/share/Public" # local directory
 
 	# platform variables
 	initPlatform || return
-	bin="$mount/documents/data/bin"
-	install="$mount/Documents/data/install"
 
 	# sudo
-	sudo="sudo"; ! InPath sudo && sudo=""
+	sudo="sudo"; ! inPath sudo && sudo=""
 	[[ ! $sudo && "$USER" != "root" ]] && { echo "bootstrap-init: sudo is not present and user is not root"; return 1; }
 
 	# debian only includes sbin directories in the root users path
 	PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" 
 
 	# update directory
-	UpdateInit "/tmp/bootstrap" || return
+	updateInit "/tmp/bootstrap" || return
 
 	return 0
 }
@@ -184,7 +196,7 @@ init()
 initPlatform()
 {
 	chroot=""; [[ -f /etc/debian_chroot ]] && chroot="$(cat "/etc/debian_chroot")"
-	container=""; InPath systemd-detect-virt && [[ "$(systemd-detect-virt --container)" != "none" ]] && container="true"
+	container=""; inPath systemd-detect-virt && [[ "$(systemd-detect-virt --container)" != "none" ]] && container="true"
 
 	platform_kernel="linux"
 	if [[ "$(uname -r)" =~ .*-Microsoft$ ]]; then platform_kernel="wsl1"
@@ -194,17 +206,17 @@ initPlatform()
 	# platform=debian|entware|mac|win
 	platform=debian
 	[[ "$(uname)" == "Darwin" ]] && platform=mac
-	! IsChroot && [[ "$platform_kernel" == @(wsl1|wsl2) ]] && platform=win
+	! isChroot && [[ "$platform_kernel" == @(wsl1|wsl2) ]] && platform=win
 
 	# platform_like=qnap|synology
-	! IsContainer && [[ $(uname -r) =~ .*-qnap ]] && { platform="entware" platform_like="qnap"; }
-	! IsContainer && [[ -f /proc/syno_platform ]] && { platform="entware" platform_like="synology"; }
+	! isContainer && [[ $(uname -r) =~ .*-qnap ]] && { platform="entware" platform_like="qnap"; }
+	! isContainer && [[ -f /proc/syno_platform ]] && { platform="entware" platform_like="synology"; }
 
 	# ID=ubuntu|raspbian|qts
 	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
 
 	# GNU utilities	
-	export G=""; IsMac && G="g"
+	export G=""; isMac && G="g"
 
 	return 0
 }
@@ -215,14 +227,17 @@ initPlatform()
 
 mountPublic() 
 { 
+	bin="$mount/documents/data/bin"
+	install="$mount/Documents/data/install"
+
 	[[ -d "$bin" ]] && return
 
 	hilight "Mounting public share..."
 
 	${G}mkdir --parents "$mount" || return
 
-	if IsWin && IsMountedDrive "$mount"; then mountPublic-drive
-	elif ! IsAvailable "$fs"; then mountPublic-sshfs
+	if isWin && [[ "$mount" =~ ^/mnt ]]; then mountPublic-win-drive
+	elif ! isAvailable "$bootstrapHost"; then mountPublic-sshfs
 	elif [[ "$platform_kernel" == "wsl1" ]]; then mountPublic-win
 	elif [[ "$platform_kernel" == "wsl2" || "$platform" == "entware" ]]; then mountPublic-debian
 	else mountPublic-$platform
@@ -233,17 +248,17 @@ mountPublic-debian()
 {
 	# install
 	package cifs-utils || return	
-	! InPath mount-cifs && { sudo apt install -y cifs-utils || return; } # dpg --get-selections returns nothing in WSL Ubuntu-20.04
+	! inPath mount-cifs && { sudo apt install -y cifs-utils || return; } # dpg --get-selections returns nothing in WSL Ubuntu-20.04
 
 	# configure
-	local line="$fsUnc $mount cifs username=$user,noauto,rw,users 0 0"
+	local line="$bootstrapUnc $mount cifs username=$user,noauto,rw,users 0 0"
 	! grep -q "$line" "/etc/fstab" && { echo "$line" | sudo tee -a "/etc/fstab" || return; }
 
 	# mount
-	mount.cifs "$fsUnc" "$mount" -o user=$user sec=ntlmsspi || return
+	mount.cifs "//$bootstrapHost/$bootstrapShare" "$mount" -o user=$user sec=ntlmsspi || return
 }
 
-mountPublic-drive() # mount a Windows drive letter, must start with /mnt, i.e. /mnt/d
+mountPublic-win-drive() # mount a Windows drive letter, must start with /mnt, i.e. /mnt/d
 { 
 	local dir="$mount" drive="${dir/\/mnt\//}"
 	[[ ! -d "$dir" ]] && { sudo mkdir "$dir" || return 1; }
@@ -251,7 +266,7 @@ mountPublic-drive() # mount a Windows drive letter, must start with /mnt, i.e. /
 	sudo mount -t drvfs "$drive:" "$dir" &> /dev/null
 }
 
-mountPublic-mac() { mount_smbfs -s "smb://$user@$fs/$fsShare" "$mount" || return; }
+mountPublic-mac() { mount_smbfs -s "smb://$user@$bootstrapHost/$bootstapShare" "$mount" || return; }
 
 mountPublic-sshfs()
 {
@@ -263,10 +278,10 @@ mountPublic-sshfs()
 	grep -q "^#user_allow_other" "$file" && { sudo sed -i 's/^#user_allow_other$/user_allow_other/' "$file" || return; }
 
 	# mount
-	sshfs -o allow_other "$fsRemote:$fsRemoteShare" "$mount" -p "$fsRemotePort" || return
+	sshfs -o allow_other -o follow_symlinks "$bootstrapHost:$(configGet "bootstrapDir")" "$mount" -p "$(configGet "bootstrapPort")" || return
 }
 
-mountPublic-win() { sudo mount -t drvfs "//$fs/$fsShare" "$mount"; }
+mountPublic-win() { sudo mount -t drvfs "//$bootstrapHost/$bootstrapShare" "$mount"; }
 
 #
 # Packages
@@ -274,30 +289,32 @@ mountPublic-win() { sudo mount -t drvfs "//$fs/$fsShare" "$mount"; }
 
 installPackages()
 {
-	! UpdateNeeded "packages" && return
+	! updateNeeded "packages" && return
 
 	hilight "Installing packages..."
 	installPackages-pre || return
 	installPackages-$platform || return
 	installPackages-post || return
-	UpdateDone "packages" || return
+	updateDone "packages" || return
 }
 
 installPackages-pre()
 {
-	IsUbuntu && IsWin && { package ubuntu-standard || return; }
+	isUbuntu && isWin && { package ubuntu-standard || return; }
 	return 0
 }
 
-installPackages-debian() { package cgroup-tools iputils-ping net-tools openssh-server; }
+debWin="cgroup-tools iputils-ping ncat"
+
+installPackages-debian() { package $debWin net-tools openssh-server; }
 installPackages-entware() { package bash coreutils coreutils-ln coreutils-readlink mount-utils nano; }
-installPackages-mac() { package bash coreutils gnu-sed; }
-installPackages-win() {	package cgroup-tools iputils-ping || retgurn; }
+installPackages-mac() { package bash coreutils gnu-sed ncat; }
+installPackages-win() {	package $debWin || return; }
 
 installPackages-post()
 {
-	IsWsl2 && { package cifs-utils || return; }
-	IsUbuntu && IsWin && { package ubuntu-wsl || return; }
+	isWsl2 && { package cifs-utils || return; }
+	isUbuntu && isWin && { package ubuntu-wsl || return; }
 	package findutils rsync || return
 }
 
@@ -314,7 +331,7 @@ package()
 
 packageInstalled() # return 0 if all passed packages are installed
 { 
-	! InPath dpkg && return 1
+	! inPath dpkg && return 1
 
 	# if any one of the packages passed returns "no packages found" then return 1
 	dpkg --get-selections "$@" |& grep "no packages found" > /dev/null && return 1
@@ -327,11 +344,11 @@ packageInstalled() # return 0 if all passed packages are installed
 
 setupPackageManager()
 {
-	! UpdateNeeded "PackageManager" && return
+	! updateNeeded "PackageManager" && return
 
 	hilight "Setting up the package manager..."
 	setupPackageManager-$platform || return
-	UpdateDone "PackageManager" || return
+	updateDone "PackageManager" || return
 }
 
 setupPackageManager-win() { setupPackageManager-debian; }
@@ -355,7 +372,7 @@ setupPackageManager-entware()
 
 debianPackageCore()
 {
-	InPath "sudo" && return
+	inPath "sudo" && return
 	apt install sudo -y || return
 }
 
@@ -366,7 +383,7 @@ debianPackageUpdate()
 	$sudo apt dist-upgrade -y || return
 	$sudo apt autoremove -y || return
 
-	[[ -f /var/run/reboot-required ]] && doReboot
+	[[ -f /var/run/reboot-required ]] && doReboot || fixReboot "-"
 
 	return 0
 }
@@ -404,32 +421,31 @@ debianFixMan()
 # helper
 #
 
-IsAvailable() { ping -c 2 -W 2 "$1" &> /dev/null; }
-IsChroot() { [[ $chroot ]]; }
-IsContainer() { [[ $container ]]; }
-IsDebian() { [[ "$platform" == "debian" ]]; }
-IsMac() { [[ "$platform" == "mac" ]]; }
-IsPi() { [[ "$ID" == "raspbian" ]]; }
-IsUbuntu() { [[ "$ID" == "ubuntu" ]]; }
-IsWin() { [[ "$platform" == "win" ]]; }
-IsWsl2() { [[ "$(uname -r)" =~ .*-microsoft-standard$ ]]; }
-IsQnap() { [[ "$platform_like" == "qnap" ]]; }
+configGet() { (. "$configFile"; eval echo "\$$1"); }
 
-hilight() { printf "${GREEN}$1${RESET}\n"; }
-InPath () { which "$1" &> /dev/null; }
-IsMountedDrive() { [[ -d "$1/public" ]] || [[ "$1" =~ ^/mnt ]]; }
+getDateStamp() { ${G}date '+%Y%m%d'; }
+getFileDateStamp() { stat |& grep "BusyBox" >& /dev/null && return; ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
+
+header() { initColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
+hilight() { initColor; printf "${GREEN}$1${RESET}\n"; }
+initColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
+inPath () { which "$1" &> /dev/null; }
+
+isAvailable() { ping -c 2 -W 2 "$1" &> /dev/null; }
+isChroot() { [[ $chroot ]]; }
+isContainer() { [[ $container ]]; }
+isDebian() { [[ "$platform" == "debian" ]]; }
+isMac() { [[ "$platform" == "mac" ]]; }
+isPi() { [[ "$ID" == "raspbian" ]]; }
+isUbuntu() { [[ "$ID" == "ubuntu" ]]; }
+isWin() { [[ "$platform" == "win" ]]; }
+isWsl2() { [[ "$(uname -r)" =~ .*-microsoft-standard$ ]]; }
+isQnap() { [[ "$platform_like" == "qnap" ]]; }
+
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 
-UpdateInit() { updateDir="$1"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
-UpdateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
-UpdateDone() { sudo touch "$updateDir/$1"; }
-
-GetDateStamp() { ${G}date '+%Y%m%d'; }
-
-GetFileDateStamp()
-{ 
-	stat |& grep "BusyBox" >& /dev/null && return # wait until better stat is installed
-	${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"
-}
+updateInit() { export updateDir="$1"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
+updateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(getDateStamp)" != "$(getFileDateStamp "$updateDir/$1")" ]]; }
+updateDone() { sudo touch "$updateDir/$1"; }
 
 run "$@"

@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 . function.sh
 
-# bootstrap-remote HOST|DIR [SSH_PORT](22) - bootstrap a remote system
+# bootstrap-remote HOST|DIR [SSH_PORT](22) [CONFIG_FILE] - bootstrap a remote system
 
 init()
 {
-	host="$(GetSshHost "$1")"; [[ ! $host ]] && MissingOperand "host"
-	user="$(GetSshUser "$1")"; user="${user:-$USER}"
-	port="${2:-22}"
+	host="$(GetSshHost "$1")"; shift; [[ ! $host ]] && MissingOperand "host"
+	port="22"; IsInteger "$2" && { port="$2"; shift; }
+	configFile="$BIN/bootstrap-config.sh"; [[ -f "$2" ]] && { configFile="$(GetFullPath "$2")"; shift; }
 
 	sshArgs=( -p $port -oStrictHostKeyChecking=no )
 	scpArgs=( -P $port -oStrictHostKeyChecking=no )
-	coreFiles=( "$BIN/bootstrap-init" "$BIN/bootstrap-config.sh" )
+	coreFiles=( "$BIN/bootstrap-init" "$configFile" )
 
-	bootstrapUser="$(ConfigGet "user")"
+	user="$(GetSshUser "$host")"; user="${user:-$USER}"
+	bootstrapUser="$(ConfigGet "user" "$configFile")"; bootstrapUser="${bootstrapUser:-$USER}"
 }
 
 run()
@@ -42,7 +43,7 @@ bootstrapChroot()
 	cp "${coreFiles[@]}" "$dir/tmp" || return 
 
 	# run bootstrap-init in the chroot
-	ChrootHelper run "$dist" -s /bin/bash -d /tmp "/tmp/bootstrap-init" # -u $USER
+	ChrootHelper run "$dist" -s /bin/bash -d /tmp "/tmp/bootstrap-init" "/tmp/$(GetFileName "$configFile")" # -u $USER
 }
 
 #
@@ -64,7 +65,7 @@ bootstrapSsh()
 		sshCheckUser || return
 
 		# connect using X forwarding to allow use of the credential store
-		sshDo -Yt -- bash -l "/tmp/bootstrap-init --restart"
+		sshDo -Yt -- bash -l "/tmp/bootstrap-init /tmp/$(GetFileName "$configFile") --restart"
 		result="$?"; [[ "$result" != "100" ]] && return "$result"
 
 		hilight "Reconnecting to $host..."
