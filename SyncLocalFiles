@@ -1,17 +1,7 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. script.sh || exit
 
-usage()
-{
-	echot "\
-usage: SyncLocalFiles [target]($fileServer)
-	Sync local files with the specified target.  If the target is \"host\", find
-	a mounted host, such as a virtual machine host of a guest virtual machine.
-	-do, --dest-older			assume target files are than the local source files
-	-so, --src-older			assume local files are older than the target files
-	-nb, --no-bak					do not backup files to the bak directory"
-	exit $1
-}
+run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
 
 init() 
 {
@@ -21,42 +11,167 @@ init()
 	srcId="${HOSTNAME,,}"	
 }
 
+usage()
+{
+	ScriptUsage "$1" "\
+usage: $(ScriptName) [sync|IsAvailable](sync)
+Sync local files.
+
+	-v, 	--verbose			show additional status"
+}
+
 args()
 {
-	unset target method NoBak
-	while [ "$1" != "" ]; do
-		case "$1" in
-			-do|--dest-older) method=(--dest-older);;
-			-so|--src-older) method=(--src-older);;
-			-nb|--no-bak) NoBak="--no-bak";;
+	unset -v verbose
+
+	# commands
+	ScriptCommand syncCommand "$@" || return
+
+	# options
+	set -- "${args[@]}"; args=()
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
 			-h|--help) usage 0;;
-			*) 
-				! IsOption "$1" && [[ ! $target ]] && { target="$1"; shift; continue; }
-				UnknownOption "$1"
+			-v|--verbose) verbose="--verbose";;
+			--) shift; otherArgs+=("$@"); set --; break;;
+			*) ScriptOption "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
-	args=("$@")
-	syncDirArgs=( $method $NoBak --srcid "$srcId" )
-}
-
-run() 
-{	
-	init; args "$@"
-	TimerOn
+	set -- "${args[@]}"
 	
-	CheckTarget || return
-	GetLastSync || return
-	ShowStatus || return
-	IdentifyDirectories || return
-	SyncShared || return
-	SyncUser || return
-
-	echo "$(TimerOff)"
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
+	return 0
 }
 
-SyncShared()
+#
+# IsAvailable Command
+#
+
+IsAvailableUsage() { echo "\
+Usage: $(ScriptName) IsAvailable
+Return true if the default host ($fileServer) is available for syncronization."; }
+
+IsAvailableCommand() { IsAvailablePort "$fileServer" 445 || IsAvailablePort "$fileServer" "$(ConfigGet "fsPort")"; }
+
+#
+# Sync Command
+#
+
+syncArgStart() { unset -v method noBak syncDirArgs target; }
+
+syncGetOption() 
 {
+	case "$1" in
+		-do|--dest-older) method="--dest-older";;
+		-nb|--no-bak) noBak="--no-bak";;
+		-so|--src-older) method="--src-older";;
+		*) return 1
+	esac
+}
+
+syncArgEnd() { syncDirArgs=( $verbose $method $noBak --srcid "$srcId" ); }
+
+syncUsage() { echo "\
+
+Usage: $(ScriptName) dhcp renew|status - dhcp commands
+	-t, --ttl SECONDS			time to live"; }
+
+syncUsage()
+{
+	echo "\
+usage: $(ScriptName) sync [target]($fileServer)
+Sync local files with the specified target.  
+
+Target can be one of HOST|UNC|DIR|host|public|home.
+- if the target is \"host\", find a mounted host (i.e. VM host).
+- if the target is public or home, find the public or home directories
+  specified in configuration
+
+	-do,	--dest-older	assume target files are than the local source files
+	-so,	--src-older		assume local files are older than the target files
+	-nb,	--no-bak			do not backup files to the bak directory"
+}
+
+syncCommand()
+{	
+	# default target
+	[[ ! $1 ]] && set -- "$fileServer"
+
+	# sync targets
+	local target
+	for target in "$@"; do	
+		TimerOn
+		checkTarget || return
+		showStatus || return
+		syncShared || return
+		syncUser || return
+		TimerOff
+	done
+}
+
+#
+# helper
+#
+
+checkTarget()
+{
+	# host
+	if [[ "$target" == "host" ]]; then
+		ScriptEval HostFindInfo host && target="$_root"
+		targetId="host"
+
+	# UNC|public|home
+	elif IsUncPath "$target" || [[ "$target" == @(public|home) ]]; then
+		target="$(unc mount "$target")" || return		
+		targetId="$(unc get unc "$target" | GetUncServer | RemoveDnsSuffix)"
+
+	# DIR
+	elif [[ -d "$target" ]]; then
+		local drive="$(drive device "$target")"
+		local driveLabel="$(drive label "$target")"
+		targetId="${driveLabel:-$drive}"
+
+	# HOST
+	else
+		targetId="$(os name "$target" | RemoveDnsSuffix)" # get the real (DNS) name of the target
+
+	fi
+
+	[[ "$target" == "/" ]] || IsLocalHost "$target" && { ScriptErr "cannot sync to the local computer"; return 1; }
+
+	# source directories
+	ScriptEval HostFindInfo || return
+	srcData="$_data" srcHome="$_home"
+
+	# destination directories
+	ScriptEval HostFindInfo "$target" || return
+	destData="$_data" destHome="$_home"
+
+	syncDirArgs+=( --destid "$targetId" )
+}
+
+showStatus()
+{
+	# source
+	printf "$(RemoveDnsSuffix "$HOSTNAME")"
+
+	# sync direction
+	case "$method" in
+		--dest-older) echo -n "->";;
+		--src-older) echo -n "<-";;
+		*) echo -n "<->";;
+	esac
+
+	# target
+	printf "$targetId..."
+}
+
+syncShared()
+{
+	[[ ! $destData ]] && return
+
 	local args=( "${syncDirArgs[@]}" "$srcData" "$destData" -x "${exclude[@]}" )
 
 	SyncDir -d "bin" "${args[@]}" || return
@@ -68,11 +183,12 @@ SyncShared()
 	SyncDir -d "setup" "${args[@]}" || return
 }
 	
-SyncUser()
+syncUser()
 {	
-	[[ "$user" == @(wsystem) ]] && return 0
-	
-	local args=( "${syncDirArgs[@]}" "$srcUserDocuments" "$destUserDocuments" -x "${exclude[@]}" )
+	[[ ! $destHome ]] && return
+
+	local args=( "${syncDirArgs[@]}" "$srcHome/Documents" "$destHome/Documents" -x "${exclude[@]}" )
+
 	SyncDir "${args[@]}" -d "data/bin" -r || return
 	SyncDir "${args[@]}" test-default.gpg -d "data/app/pass" -r || return
 	SyncDir "${args[@]}" "S.gpg-*" random_seed  -d "data/app/gpg" -r || return
@@ -82,80 +198,9 @@ SyncUser()
 	SyncDir "${args[@]}" -d "data/profile/default"  || return
 	SyncDir "${args[@]}" -d "data/replicate"  || return
 
-	# if [[ $srcApplicationData && $destApplicationData ]]; then
-	# 	args=( "${syncDirArgs[@]}" "$srcApplicationData" "$destApplicationData" -x "${exclude[@]}" )
-	# 	SyncDir "${args[@]}" -d "Sublime Text 3/Packages" -r -e -x "bz2" "*.cache" "*.last-run" || return
-	# fi
-
 	local args=( "${syncDirArgs[@]}" "$srcHome" "$destHome" -x "${exclude[@]}" )
 	SyncDir "${args[@]}" -d ".ssh" -x environment || return
 
-	#IsInstalled AutoHotKey && [[ "$method" != "--DestOlder" ]] && AutoHotKey restart
-
-	return 0
-}
-
-IdentifyDirectories()
-{
-	ScriptEval HostFindInfo || return
-	user="$_user"
-	srcHome="$_home"
-	srcData="$_data"
-	srcPublicDocuments="$_pub/Documents"
-	srcUserDocuments="$_home/Documents"
-	srcApplicationData="$_adata"
-	srcPlatform="$_platform"
-
-	ScriptEval HostFindInfo --no-target-check "$target" || return
-	destHome="$_home"
-	destData="$_data"
-	destPublicDocuments="$_pub/Documents"
-	destUserDocuments="$_home/Documents"
-	destApplicationData="$_adata"
-	destPlatform="$_platform"
-}
-
-CheckTarget()
-{
-	target="${target-"$fileServer"}"
-
-	[[ "$target" == "host" ]] && ScriptEval HostFindInfo host && target="$_root"
-
-	if [[ -d "$target" ]]; then
-		local drive="$(drive device "$target")"
-		local driveLabel="$(drive label "$target")"
-		targetId="${driveLabel:-$drive}"
-	else
-		[[ "${target%%\.*}" == "$HOSTNAME" ]] && { EchoErr "Cannot sync to the local computer"; return 1; }
-		IsAvailable "$target" || { EchoErr "$target is not available"; return 1; }
-		targetId="$(os name "$target" | RemoveDnsSuffix)" # get the real (DNS) name of the target
-	fi
-
-	syncDirArgs+=( --destid "$targetId" )
-
-	return 0
-}
-
-ShowStatus()
-{
-	local desc="$(RemoveDnsSuffix "$HOSTNAME")"
-
-	case "${method[0]##--}" in
-		dest-older) printf "$desc->";;
-		src-older) printf "$desc<-";;
-		*) printf "$desc<->";;
-	esac
-
-	desc="$(RemoveDnsSuffix "$target")"
-	[[ "$desc" != "$targetId" ]] && desc+=" ($targetId)"
-
-	printf "$desc..."
-}
-
-GetLastSync()
-{
-	local lastSyncFile="$DATA/bin/.${targetId}_sync.txt" lastSync="unknown"
-	[[ -f "$lastSyncFile" ]] && lastSync="$(${G}date "+%F %T" -d $(<"$lastSyncFile") 2> /dev/null)"
 	return 0
 }
 

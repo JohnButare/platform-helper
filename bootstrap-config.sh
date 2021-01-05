@@ -19,6 +19,15 @@ hashiServers="pi3,pi4,pi5"
 hashiClients="pi6,pi7"
 hashiVaultServers="pi3,pi4"
 
-# host for scripts and installers - host, drive letter (/mnt/D), or local install directory
-fs="nas3.$domain" fsUnc="//$bootstrapHost/public"
-fsRemote="butare.net" fsRemoteShare="/share/CACHEDEV1_DATA/Public" fsRemotePort=608
+# file server
+fs="nas3.$baseDomain" fsPort="608"
+homeUnc="//$fs/home" homeDir="/share/homes" homeRemoteUnc="//$fs$homeDir:$fsPort"
+mediaUnc="//$fs/data/media" mediaDir="/share/data/media" mediaRemoteUnc="//$fs$homeDir:$fsPort"
+publicUnc="//$fs/public" publicDir="/share/Public" publicRemoteUnc="//$fs$publicDir:$fsPort"
+
+# web server
+web="$fs" webUnc="//$web/web" webRemote=""
+
+# bootstrap
+bootstrapTarget="$publicUnc" # UNC, DIR, or Windows drive letter (/mnt/D) for access to scripts and installers
+bootstrapRemoteTarget="$publicRemoteUnc" # UNC for remote (Internet) access to scripts and installers

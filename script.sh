@@ -2,8 +2,108 @@
 . function.sh
 
 #
-# arguments
+# Script Arguments
 # 
+
+# GetArgs - get the non-option script arguments for the commands
+ScriptArgs()
+{
+	local c finalShift=0
+
+	for c in "${commands[@]}"; do
+		shift=0
+		RunFunction "${c}GetArgs" -- "$@" || return
+		RunFunction "${c}Args" -- "$@" || return # legacy
+		shift "$shift"; ((finalShift+=shift))
+	done
+	shift="$finalShift"
+
+	for c in "${commands[@]}"; do
+		RunFunction "${c}ArgEnd" -- "$@" || return
+		RunFunction "${c}CheckArgs" -- "$@" || return # legacy
+	done
+}
+
+# ScriptGetArg VAR [DESC](VAR) VALUE - get an argument.  Sets var to value and increments shift
+ScriptGetArg()
+{
+	local varArg="$1"
+	local -n var="$varArg"
+	local desc="$varArg"; (( $# > 2 )) && { desc="$2"; shift; }
+	local value="$2"; [[ ! $value ]] && MissingOperand "$desc"
+	var="$value"; ((++shift))
+}
+
+ScriptGetDriveLetterArg()
+{
+	ScriptGetArg "letter" "$1"
+
+	# change drive letters to a single lower case letter, i.e. C:\ -> c
+	letter="${letter,,}"
+	[[ "$letter" =~ ^.?:$ ]] && letter="${letter:0:1}"
+
+	! IsDriveLetter "$letter" && { ScriptErr "$letter is not a drive letter"; return 1; }
+
+	return 0
+}
+
+#
+# Script Callers - script and function call stacks
+#
+
+ScriptCallers()
+{
+	local scriptCallers=()
+	IFS=$'\n' scriptCallers=( $(pstree --show-parents --long --arguments $PPID -A | grep "$BIN" | head -n -3 | tac | awk -F'/' '{ print $NF; }' | cut -d" " -f1; ) )
+	CopyArray scriptCallers "$1"
+}
+
+ScriptCaller()
+{
+	ps --no-headers -o command $PPID | cut -d' ' -f2 | GetFileName
+	# ScriptCallers
+	# (( ${#callers[@]} > 0 )) && echo "${callers[0]}"
+}
+
+#
+# Script Checks
+#
+
+ScriptCheckFile() { ScriptCheckPath --file "$1"; }
+ScriptCheckDir() { ScriptCheckPath --dir "$1"; }
+
+ScriptCheckPath()
+{
+	local checkFile; [[ "$1" == "--file" ]] && { checkFile="true"; shift; }
+	local checkDir; [[ "$1" == "--dir" ]] && { checkDir="true"; shift; }
+
+	[[ ! -e "$1" ]] && { ScriptErr "cannot access \`$1\`: No such file or directory"; ScriptExit; }
+	[[ $checkFile && -d "$1" ]] && { ScriptErr "$1: Is a directory"; ScriptExit; }
+	[[ $checkDir && -f "$1" ]] && { ScriptErr "$1: Is a file"; ScriptExit; }
+	
+	return 0
+}
+
+#
+# Script Options
+# 
+
+# ScriptOption OPTION - get an option for the commands
+ScriptOption()
+{
+	# not an option, add it to args
+	! IsOption "$1" && { args+=("$1"); return; }
+
+	# see if a commmand takes the option
+	local c
+	for c in $(ArrayReverse commands); do
+		IsFunction "${c}GetOption" && "${c}GetOption" "$@" && return
+		IsFunction "${c}Option" && "${c}Option" "$@" && return # legacy
+	done
+
+	# not a valid option
+	UnknownOption "$1"
+}
 
 # ScriptArg VAR [DESC] OPTION VALUE - get an option argument.  Sets var to value and increments shift if needed.
 #   -o|--option -oVAL -o VAL -o=VAL --option=VAL --option VAL
@@ -34,33 +134,35 @@ ScriptArg()
 	var="$value"
 }
 
-# GetArgs - get the non-options script arguments for the commands
-ScriptArgs()
+ScriptGetNetworkProtocol()
 {
-	local c finalShift=0
-
-	for c in "${commands[@]}"; do
-		shift=0
-		RunFunction "${c}GetArgs" -- "$@" || return # legacy
-		RunFunction "${c}Args" -- "$@" || return # legacy
-		shift "$shift"; ((finalShift+=shift))
-	done
-	shift="$finalShift"
-
-	for c in "${commands[@]}"; do
-		RunFunction "${c}ArgEnd" -- "$@" || return
-		RunFunction "${c}CheckArgs" -- "$@" || return # legacy
-	done
+	ScriptArg "protocol" "$@" || return
+	protocol="${protocol,,}"
+	[[ "$protocol" == @(|nfs|smb|ssh) ]] && return
+	ScriptErr "\`$protocol\` is not a valid network protocol"
+	return 1
 }
+
+#
+# Script Other
+#
 
 # ScriptCommand - get a command by looking for function in the format command1Command2Command
 #   Sets args, command, and commands
 ScriptCommand()
 {
+	local defaultCommand; [[ "$1" =~ .*Command ]] && 	{ defaultCommand="${1%%Command}"; shift; }
 	local arg c test
-	args=() command="" commandNames=() commands=() help="" otherArgs=() shift="1"
+	unset -v command defaultCommandUsed help
+	args=() commandNames=() commands=() otherArgs=() shift="1" 
 
-	for arg in "$@"; do
+	while [[ $1 ]]; do
+
+		# done with arguments
+		[[ "$1" == "--" ]] && break
+
+		# save argument
+		arg="$1"; shift
 
 		# option
 		IsOption "$arg" && { args+=("$arg"); continue; }
@@ -85,96 +187,32 @@ ScriptCommand()
 
 	done
 
+	args+=( "$@" )
+
+	[[ ! $command ]] && { defaultCommandUsed="true" command="$defaultCommand" commands=("$command") commandNames=("$command"); }
 	[[ $command ]] && return || usage
-}
-
-# ScriptGetArg VAR [DESC](VAR) VALUE - get an argument.  Sets var to value and increments shift
-ScriptGetArg()
-{
-	local varArg="$1"
-	local -n var="$varArg"
-	local desc="$varArg"; (( $# > 2 )) && { desc="$2"; shift; }
-	local value="$2"; [[ ! $value ]] && MissingOperand "$desc"
-	var="$value"; ((++shift))
-}
-
-ScriptGetDriveLetterArg()
-{
-	ScriptGetArg "letter" "$1"
-
-	# change drive letters to a single lower case letter, i.e. C:\ -> c
-	letter="${letter,,}"
-	[[ "$letter" =~ ^.?:$ ]] && letter="${letter:0:1}"
-
-	! IsDriveLetter "$letter" && { ScriptErr "$letter is not a drive letter"; return 1; }
-
-	return 0
-}
-
-IsDriveLetter()
-{
-	local driveLetters=( c d e f g h i j k l m n o p q r s t u v w x y z )
-	IsInArray "$1" driveLetters
-}
-
-ScriptCheckPath()
-{
-	local checkFile; [[ "$1" == "--file" ]] && { checkFile="true"; shift; }
-	local checkDir; [[ "$1" == "--dir" ]] && { checkDir="true"; shift; }
-
-	[[ ! -e "$1" ]] && { ScriptErr "cannot access \`$1\`: No such file or directory"; ScriptExit; }
-	[[ $checkFile && -d "$1" ]] && { ScriptErr "$1: Is a directory"; ScriptExit; }
-	[[ $checkDir && -f "$1" ]] && { ScriptErr "$1: Is a file"; ScriptExit; }
-	
-	return 0
-}
-
-ScriptCheckFile() { ScriptCheckPath --file "$1"; }
-ScriptCheckDir() { ScriptCheckPath --dir "$1"; }
-
-# ScriptOption OPTION - get an option for the commands
-ScriptOption()
-{
-	# not an option, add it to args
-	! IsOption "$1" && { args+=("$1"); return; }
-
-	# see if a commmand takes the option
-	local c
-	for c in $(ArrayReverse commands); do
-		IsFunction "${c}GetOption" && "${c}GetOption" "$@" && return
-		IsFunction "${c}Option" && "${c}Option" "$@" && return # legacy
-	done
-
-	# not a valid option
-	UnknownOption "$1"
 }
 
 # ScriptUsage RESULT USAGE_TEXT
 ScriptUsage()
 {
-	local c
-	for c in $(ArrayReverse commands); do
-		IsFunction "${c}Usage" && "${c}Usage" "$@" && exit "${1:-1}"
-	done
-
+	if [[ ! $defaultCommandUsed ]]; then
+		local c
+		for c in $(ArrayReverse commands); do
+			IsFunction "${c}Usage" && "${c}Usage" "$@" && exit "${1:-1}"
+		done
+	fi
+	
 	echot "$2"
 	exit "${1:-1}"
 }
 
 #
-# callers
+# Helper Functions
 #
 
-ScriptCallers()
+IsDriveLetter()
 {
-	local scriptCallers=()
-	IFS=$'\n' scriptCallers=( $(pstree --show-parents --long --arguments $PPID -A | grep "$BIN" | head -n -3 | tac | awk -F'/' '{ print $NF; }' | cut -d" " -f1; ) )
-	CopyArray scriptCallers "$1"
-}
-
-ScriptCaller()
-{
-	ps --no-headers -o command $PPID | cut -d' ' -f2 | GetFileName
-	# ScriptCallers
-	# (( ${#callers[@]} > 0 )) && echo "${callers[0]}"
+	local driveLetters=( c d e f g h i j k l m n o p q r s t u v w x y z )
+	IsInArray "$1" driveLetters
 }

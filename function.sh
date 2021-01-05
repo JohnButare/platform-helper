@@ -33,10 +33,11 @@ r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VA
 
 # update - temporary file location
 UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
-UpdateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
-UpdateDone() { touch "$updateDir/$1"; }
-UpdateGet() { cat "$updateDir/$1"; }
-UpdateSet() { printf "$2" > "$updateDir/$1"; }
+UpdateCheck() { [[ $updateDir ]] && return; UpdateInit; }
+UpdateNeeded() { UpdateCheck || return; [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
+UpdateDone() { UpdateCheck && touch "$updateDir/$1"; }
+UpdateGet() { UpdateCheck && cat "$updateDir/$1"; }
+UpdateSet() { UpdateCheck && printf "$2" > "$updateDir/$1"; }
 
 clipok()
 { 
@@ -446,7 +447,7 @@ ShowTime() { ${G}date '+%F %T.%N %Z' -d "$1"; }
 ShowSimpleTime() { ${G}date '+%D %T' -d "$1"; }
 TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')"; }
 TimestampDiff () { ${G}printf '%s' $(( $(${G}date -u +%s) - $(${G}date -u -d"$1" +%s))); }
-TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
+TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
 
 #
 # File System
@@ -864,7 +865,9 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 	local host="$1" port="$2" timeout="${3-200}"; host="$(GetIpAddress "$host")" || return
 
 	if InPath ncat; then
-		echo | ncat -C -w ${timeout}ms "$host" "$port" >& /dev/null
+		ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" >& /dev/null
+	elif InPath Anmap; then
+		nmap "$host" -p "$port" -Pn -T5 | grep -q "open"
 	elif IsPlatform win; then	
 		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
 	else
@@ -1121,11 +1124,13 @@ EOF
 #
 
 IsUncPath() { [[ "$1" =~ //.* ]]; }
-GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; } # //USER@SERVER/SHARE/DIRS
-GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; } # //USER@SERVER/SHARE/DIRS
-GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; }
-GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%%:*}" $2; }
-GetUncPort() { GetArgs; local gup; [[ "$1" =~ : ]] && gup="${1##*:}"; r "$gup" $2; }
+
+# UNC format //[USER@]SERVER/SHARE[/DIRS][:PORT]
+GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }															# //SERVER/SHARE
+GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }									# SERVER
+GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; r "${gus%%:*}" $2; } 								# SHARE
+GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%%:*}" $2; } # DIRS
+GetUncPort() { GetArgs; local gup; [[ "$1" =~ : ]] && gup="${1##*:}"; r "$gup" $2; }											# PORT
 
 #
 # Package Manager
@@ -1309,6 +1314,8 @@ function IsPlatform()
 	return 1
 }
 
+IsHostPlatform() { [[ ! $_platform ]] && return 1; IsPlatform $1 $_platform $_platformLike $_platformId; }
+
 # IsPlatformAll platform[,platform,...]
 # return true if the current platform has all of the listed characteristics
 IsPlatformAll()
@@ -1351,7 +1358,7 @@ function RunPlatform()
 	local function="$1"; shift
 	local platform="$PLATFORM"; [[ $ALT_PLATFORM ]] && platform="$ALT_PLATFORM"
 
-	[[ $PLATFORM ]] && { RunFunction $function $PLATFORM "$@" || return; }
+	[[ $PLATFORM ]] && { RunFunction $function $platform "$@" || return; }
 	[[ $PLATFORM_LIKE ]] && { RunFunction $function $PLATFORM_LIKE "$@" || return; }
 	[[ $PLATFORM_ID ]] && { RunFunction $function $PLATFORM_ID "$@" || return; }
 	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
@@ -1655,7 +1662,7 @@ ScriptName() { IsBash && GetFileName "${BASH_SOURCE[-1]}" || GetFileName "$ZSH_S
 #    Typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
 ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } 
 
-# ScriptReturn [-s|--show] <var>... - return the specified variables as output from the script in a escaped format.
+# ScriptReturn [-v|--verbose] <var>... - return the specified variables as output from the script in a escaped format.
 #    The script should be called using ScriptEval.
 #   -e, --export		the returned variables should be exported
 #   -s, --show			show the variables in a human readable format instead of a escpaed format
@@ -1663,7 +1670,7 @@ ScriptReturn()
 {
 	local var avar fmt="%q" arrays export
 	[[ "$1" == @(-e|--export) ]] && { export="export "; shift; }
-	[[ "$1" == @(-s|--show) ]] && { fmt="\"%s\""; shift; }
+	[[ "$1" == @(-v|--verbose) ]] && { fmt="\"%s\""; shift; }
 
 	# cache array lookup for performance
 	arrays="$(declare -p "$@" |& grep "^declare -a" 2> /dev/null)"

@@ -23,11 +23,12 @@ echo kernel=\"$(uname -r)\";
 [[ -f /var/sysinfo/model ]] && echo ubiquiti=true;
 [[ -f /proc/syno_platform ]] && echo synology=true;
 [[ -f /bin/busybox ]] && echo busybox=true;
-[[ -f /usr/bin/systemd-detect-virt ]] && echo container=\"$(systemd-detect-virt --container)\";'
+[[ -f /usr/bin/systemd-detect-virt ]] && echo container=\"$(systemd-detect-virt --container)\";
+exit 0;'
 
 	if [[ $host ]]; then
-		#IsAvailable $host || { EchoErr "$host is not available"; return 1; } # adds .5s
-		results="$(ssh ${host,,} "$cmd")" ; (( $? > 1 )) && return 1
+		results="$(ssh $host "$cmd")" || return 1
+
 	else
 		results="$(eval $cmd)"
 	fi
@@ -139,11 +140,6 @@ case "$PLATFORM" in
 	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support" BREW_DIR="/usr/local/bin" BREW_SBIN="/usr/local/sbin"
 		[[ -d "/opt/homebrew/bin" ]] && { BREW_DIR="/opt/homebrew/bin" BREW_SBIN="/opt/homebrew/sbin"; };;
 	win) WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows" P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" WIN_HOME="$WIN_ROOT/Users/$USER" ADATA="$WIN_HOME/AppData/Local";;
-esac
-
-case "$PLATFORM_LIKE" in 	
-	qnap) PUB="/share/Public";;
-	synology) PUB="/volume1/public";;
 esac
 
 DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM"

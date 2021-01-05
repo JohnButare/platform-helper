@@ -1,86 +1,206 @@
 #!/usr/bin/env bash
-. function.sh || return
+. script.sh || return
 
-run()
-{
-	local local dirVars=() infoVars=()
+run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
 
-	args "$@" || return
-	CheckTarget || return
-	GetDirs || return
-	[[ $detail ]] && { FindDetail || return; }
- 	ScriptReturn $show "${dirVars[@]}" "${infoVars[@]}"
-}
+init() { unset -v protocol; }
 
 usage()
 {
-	echot "\
-usage: HostFindInfo [target](local)
-	Find information about the specified target (a host or directory).  
-	If the target is \"host\", find a mounted host, such as a virtual machine host of a guest virtual machine.
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [target](local)
+Find information about the specified target (a host or directory).  
+If the target is \"host\", find a mounted host, such as a virtual machine host of a guest virtual machine.
 
-	-d, 	--detail						include more detailed information
-  -ntc,	--no-target-check 	do not check if the target is available
-  -s, 	--show							show the variables in addition to setting them for debugging
-	-u, 	--user USER($USER)	the user to find directories for
-  "
-	exit $1
+	-d,	--detail						include more detailed information
+	-p, --protocol=[NFS|SMB|SSH](SMB)
+	-u,	--user USER($USER)	the user to find directories for
+	-v,	--verbose						display detailed output"
 }
 
 args()
 {
-	unset detail noTargetCheck show target 
+	unset -v detail protocol target verbose
 
-	while [ "$1" != "" ]; do
-		case "$1" in
+	# commands
+	ScriptCommand info "$@" || return
+
+	# options
+	set -- "${args[@]}"; args=()
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
 			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;		
 			-d|--detail) detail="true";;
-			-s|--show) show="--show";;
-			-ntc|--no-target-check) noTargetCheck="true";;
+			-p|--protocol|-p*|--protocol=*) ScriptGetNetworkProtocol "$@" || return;;
 			-u|--user) shift; user="$1";;
-			*) 
-				! IsOption "$1" && [[ ! $target ]] && { target="$1"; shift; continue; }
-				UnknownOption "$1"
+			-v|--verbose) verbose="--verbose";;
+			--) shift; otherArgs+=("$@"); set --; break;;
+			*) ScriptOption "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
+	set -- "${args[@]}"
+	
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
+	[[ $1 ]] && ScriptGetArg "target" "$1"; shift
+	[[ $@ ]] && usage
+	return 0
 }
 
-CheckTarget()
+infoCommand()
 {
-	[[ ! $target ]] && local="true"
+	local basicVars=() detailVars=()
 
-	# check for a host mounted on a directory hosts (such as a virtual machine host)
+	protocol="${protocol:-smb}"
+
+	getBasic || return
+	[[ $detail ]] && { getDetail || return; }
+
+ 	ScriptReturn $verbose "${basicVars[@]}" "${detailVars[@]}"
+}
+
+#
+# helper
+#
+
+getBasic()
+{	
+	# define GetPlatform function
+	. bash.bashrc || return 
+
+	# variables
+	local var
+	basicVars=(_platform _platformLike _platformId _data ) 		# platform
+	basicVars+=(_root _media _pub _users _user _home _adata)	# directory
+	basicVars+=(_protocol)																			# other
+	for var in "${basicVars[@]}"; do unset $var; done
+
+	# find target for a mounted host
 	if [[ "$target" == "host" ]]; then
-		local drive drives
 
-		IFS=$'\n' drives=( $(drive mounts) )
-		
-		for drive in "${drives[@]}"; do
-			[[ -d "$disk/usr/local" || -d "$disk/Applications" || -d "$disk/Users/Public" ]] && { target="$disk"; break; }
-		done
+			local drive drives; IFS=$'\n' drives=( $(drive mounts) ); unset target
+			for drive in "${drives[@]}"; do
+				[[ -d "$drive/usr/local" || -d "$drive/Users/Public" ]] && { target="$drive"; break; }
+			done
 
-		return 1
+			[[ ! $target ]] && { ScriptErr "unable to find information for host"; return 1; }
 	fi
 
-	# check if the host is available
-	if [[ "$target" && ! "$noTargetCheck" && ! -d "$target" ]] && ! IsAvailable "$target"; then
-		EchoErr "Host $target is not available"
-		return 1
-	fi
+	# local
+	if [[ "$target" == @(|/) ]]; then
+		_platform="$PLATFORM" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID"
+		_root="/" _users="$USERS" _pub="$PUB"	_data="$DATA"; [[ ! $_user ]] && _home="$HOME"
+
+	elif [[ -d "$target" ]]; then
+		getBasicDir || return
+
+	else
+		getBasicHost || return
+	fi	
 	
-	# get the name of the host
-	[[ $local ]] && name="$HOSTNAME" || name="$(RemoveDnsSuffix "$target")"
+	# standard shares - for QNAP and Synology SMB connections
+	if [[ "$protocol" == "smb" ]] && IsHostPlatform qnap,synology; then
+		_root="//$target" _users="$_root/homes" _pub="$_root/public" _data="$_pub/documents/data" _home="$_root/home" _media="$_root/data/media"
+	fi
+
+	# _users
+	[[ ! $_users && $_root ]] && IsHostPlatform mac,win && _users="$_root/Users"
+	[[ ! $_users && $_root ]] && IsHostPlatform linux && _users="$_root/home"
+
+	# _pub
+	[[ ! $_pub && $_users ]] && _pub="$_users/Shared"
+
+	# _data
+	[[ ! $_data && $_root ]] && _data="$_root/usr/local/data"
+
+	# _user
+	_user="${user:-$USER}"
+
+	# _home
+	[[ ! $_home && $_users ]] && _home="$_users/$_user"
+
+	# _adata
+	[[ ! $_adata && $_home ]] && IsHostPlatform mac && _adata="$_home/Library/Application Support"
+	[[ ! $_adata && $_root ]] && IsHostPlatform win && _adata="$_root/mnt/c/Users/$_user/AppData/Roaming"
 
 	return 0
 }
 
-FindDetail()
+getBasicDir()
 {
-	#
+	# dir - USB drive with a public and option home directory
+	if [[ -d "$target/public" ]]; then
+		_pub="$target/public" _data="$_pub/documents/data"
+		[[ -d "$target/home" ]] && _home="$target/home"
+
+	# dir -  public directory
+	elif [[ -d "$target/documents/data/platform" ]]; then
+		_pub="$target" _data="$_pub/documents/data"
+
+	# dir - home directory
+	elif [[ -d "$target/documents/data/bin" ]]; then
+		_home="$target"
+
+	# dir - host root directory
+	else
+
+		if [[ -d "$target/mnt/c" ]]; then
+			_platform="win"
+		elif [[ -d "$target/usr/local" ]]; then
+			_platform="linux"
+		elif [[ -d "$target/Applications" ]]; then
+			_platform="mac"; 
+		else
+			ScriptErr "unable to find host information in \`$target\` directory"
+			return 1
+		fi
+		_root="$target"
+
+	fi
+}
+
+getBasicHost()
+{
+	local host="$(RemoveDnsSuffix "$target")"
+	local network="$(UpdateGet "network")"
+
+	# Wiggin hosts - Synology 
+	if [[ "$network" == "wiggin" && "$host" == @(nas1) ]]; then
+		_platform="linux" _platformLike="synology" _platformId="dsm" _root="//$target/root"
+	
+	# Wiggin hosts - QNAP
+	elif [[ "$network" == "wiggin" && "$host" == @(nas3) ]]; then
+		_platform="linux" _platformLike="qnap" _platformId="qts" _root="//$target/root"
+	
+	# other host - determine platform using SSH
+	elif GetPlatform "$target" >& /dev/null; then
+		_platform="$platform" _platformLike="$platformLike"	_platformId="$platformId" _root="//$target/root"
+
+		# fall back to SSH if SMB is not available
+		[[ "$protocol" == "smb" ]] && ! IsAvailablePort "$target" "445" && protocol="ssh"
+	
+	else
+		ScriptErr "host $target is not available"
+		return 1
+
+	fi
+
+	# Synology does not support SMB connections
+	IsPlatform synology && protocol="--ssh"
+
+	_protocol="$protocol"
+
+	return 0
+}
+
+getDetail()
+{
+	# variables
+	local var; detailVars=( pd ud udoc uhome udata adata)
+	for var in "${detailVars[@]}"; do unset $var; done
+
 	# additional directory information
-	#
-	infoVars=( pd ud udoc uhome udata adata)
 	pd="$_pub/Desktop"
 	ud="$_home/Desktop"
 	udoc="$_home/Documents"
@@ -94,7 +214,7 @@ FindDetail()
 	case "$_platform" in
 
 		win)
-			infoVars+=( psm pp ao adata usm up )
+			detailVars+=( psm pp ao adata usm up )
 			psm="$_root/mnt/c/ProgramData/Microsoft/Windows/Start Menu"
 			pp="$psm/Programs"
 			ao="$pp/Applications/Other"
@@ -103,7 +223,7 @@ FindDetail()
 			;;
 
 		mac)
-			infoVars+=( si la ula )
+			detailVars+=( si la ula )
 			si="/Library/StartupItems"
 			la="/Library/LaunchAgents"
 			ula="$HOME/Library/LaunchAgents"
@@ -116,117 +236,13 @@ FindDetail()
 	#
 	local vars=( _minimalInstall )
 	unset "${vars[@]}"
-	infoVars+=( "${vars[@]}" )
+	detailVars+=( "${vars[@]}" )
 		
 	# limit what is installed on embedded systems such as Raspberry Pi, nas, and docker systems
-	IsPlat pi,pikernel && _minimalInstall="true" 
-	[[ $local ]] && IsPlatform docker && _minimalInstall="true"
-
-	# overrides for specific hosts
-	# case "$name" in		
-	# esac
-	
-	return 0
-}
-
-GetDirs()
-{	
-	. bash.bashrc || return # define GetPlatform function
-
-	dirVars=(_root _platform _platformLike _platformId _data  _pub _users _user _home _adata)
-	for var in "${dirVars[@]}"; do unset $var; done
-
-	_user="${user:-$USER}"
-
-	# local
-	if [[ ! "$target" ]]; then
-		_platform="$PLATFORM"
-		_platformLike="$PLATFORM_LIKE"
-		_platformId="$PLATFORM_ID"
-		_root="/"	
-		_users="$USERS" 
-		_pub="$PUB"
-		_data="$DATA"
-		[[ "$_user" == "$USER" ]] && _home="$HOME"
-
-	# directory - mounted USB drive
-	elif [[ -d "$target/public" ]]; then
-		_root="$target"
-		_pub="$_root/public"
-		_data="$_pub/documents/data"
-		[[ -d "$target/home" ]] && _home="$_root/home"
-
-	# directory - mounted host
-	elif [[ -d "$target" ]]; then
-
-		if [[ -d "$target/usr/local" ]]; then
-			_platform="linux"
-		elif [[ -d "$target/Applications" ]]; then
-			_platform="mac"; 
-		elif [[ -d "$target/Users/Public" ]]; then
-			_platform="win"
-		else
-			EchoErr "Unable to determine the platform of $targetDir"
-			return 1
-		fi
-		_root="$target"
-
-	# host nas1 - save ssh discovery time
-	elif [[ "$name" == @(nas1) ]]; then
-		_platform="linux" _platformLike="synology" _platformId="dsm"
-		GetNasDirs || return
-
-	# host nas3 - save ssh discovery time
-	elif [[ "$name" == @(nas3) ]]; then
-		_platform="linux" _platformLike="qnap" _platformId="qts"
-		GetNasDirs || return
-
-	# host UNC - get platform using SSH
-	elif GetPlatform "$target" >& /dev/null; then
-		_platform="$platform" _platformLike="$platformLike"	_platformId="$platformId"
-		_root="//$target/root"; IsPlat win && _root="//$target/c$"
-		IsPlat qnap,synology && { GetNasDirs || return; }
-
-	# host UNC - Windows c$ share
-	elif unc mount "//$target/c$" >& /dev/null; then 
-		_platform="win"
-		_root="//$target/c$"
-
-	else
-		EchoErr "Unable to find os directories on $target"
-		return 1
-
-	fi
-
-	[[ $_users ]] || { IsPlat mac,win && _users="$_root/Users"; IsPlat linux && _users="$_root/home"; };
-	[[ $_pub ]] || { IsPlat mac,win && _pub="$_users/Shared"; IsPlat win && _pub="$_users/Public"; };
-	[[ $_data ]] || { _data="$_root/usr/local/data"; IsPlat win && _data="$_pub/Documents/data"; }
-	[[ ! $_home && $_users ]] && _home="$_users/$_user"
-	[[ $_adata ]] || { IsPlat mac && _adata="$_home/Library/Application Support"; IsPlat win && _adata="$WIN_HOME/AppData/Roaming"; }
+	IsHostPlatform pi,pikernel && _minimalInstall="true" 
+	[[ ! $target ]] && IsPlatform docker && _minimalInstall="true"
 
 	return 0
 }
-
-# GetNasDirs() - assume a NAS exposes these shares
-GetNasDirs()
-{
-	# synology must sshfs which connects to the root of the file system on QNAP\
-	if IsPlatform synology && IsPlat qnap; then
-		_root="//$target/root"
-		_users="$_root/share/homes"
-		_pub="$_root/share/Public"
-		_data="$_pub/documents/data"
-		_home="$_users/$_user"	
-		return
-	fi
-
-	_root="//$target"
-	_users="$_root/homes"
-	_pub="$_root/public"
-	_data="$_pub/documents/data"
-	_home="$_root/home"
-}
-
-IsPlat() { [[ ! $_platform ]] && return 1; IsPlatform $1 $_platform $_platformLike $_platformId; }
 
 run "$@"
