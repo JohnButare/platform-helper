@@ -1,29 +1,66 @@
 #!/usr/bin/env bash
-. function.sh
+. script.sh
 
-# bootstrap-remote HOST|DIR [SSH_PORT](22) [CONFIG_FILE] - bootstrap a remote system
+run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
 
 init()
 {
-	host="$(GetSshHost "$1")"; shift; [[ ! $host ]] && MissingOperand "host"
-	port="22"; IsInteger "$2" && { port="$2"; shift; }
-	configFile="$BIN/bootstrap-config.sh"; [[ -f "$2" ]] && { configFile="$(GetFullPath "$2")"; shift; }
-
+	port=22
+	configFile="$BIN/bootstrap-config.sh"
+	coreFiles=( "$BIN/bootstrap-init" "$configFile" )
 	sshArgs=( -p $port -oStrictHostKeyChecking=no )
 	scpArgs=( -P $port -oStrictHostKeyChecking=no )
-	coreFiles=( "$BIN/bootstrap-init" "$configFile" )
 
-	user="$(GetSshUser "$host")"; user="${user:-$USER}"
 	bootstrapUser="$(ConfigGet "user" "$configFile")"; bootstrapUser="${bootstrapUser:-$USER}"
 }
 
-run()
+usage()
 {
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... TARGET [SSH_PORT](22)
+Bootstrap a remote system.
+Target is either [USER]@HOST (a remote host) or a the name of a chroot distribution.
+		
+	-cf,	--config-file=FILE	the configuration file to use
+	-v, 	--verbose						display detailed output"
+}
+
+args()
+{
+	unset -v verbose
+
+	# commands
+	ScriptCommand runCommand "$@" || return
+
+	# options
+	set -- "${args[@]}"; args=()
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-c|--config-file|-c*|--config-file=*) ScriptArg "configFile" "$@" && ScriptCheckFile "$configFile";;
+			-h|--help) usage 0;;
+			-v|--verbose) verbose="--verbose";;
+			--) shift; otherArgs+=("$@"); set --; break;;
+			*) ScriptOption "$@";;
+		esac
+		shift "$shift"; shift=1
+	done
+	set -- "${args[@]}"
+	
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
+	ScriptGetArg "target" "$1"; shift
+	IsInteger "$1" && { ScriptGetArg "port" "$1"; shift; }
+	[[ $@ ]] && usage; args=()
+}
+
+runCommand()
+{
+	header "bootstrap-remote"
 	init "$@" || return
-	if ChrootHelper installed && ChrootHelper exists "$1"; then
-		bootstrapChroot
+	if ChrootHelper installed && ChrootHelper exists "$target"; then
+		bootstrapChroot "$target"
 	else
-		bootstrapSsh
+		bootstrapSsh "$target"
 	fi
 }
 
@@ -33,8 +70,10 @@ run()
 
 bootstrapChroot()
 {
-	local dist="$host" dir="$(ChrootHelper dir "$host")"
+	local dist="$target"
+	local dir="$(ChrootHelper dir "$dist")"
 
+	[[ $verbose ]] && echo "chroot dir=$dir"
 	[[ ! -d "$dir" ]] && { EchoErr "$dist root directory "$dir" does not exist"; return 1; }
 
 	# copy core files
@@ -52,7 +91,9 @@ bootstrapChroot()
 
 bootstrapSsh()
 {
-	local result isHostLocal="$(IsIpLocal "$(GetIpAddress "$host")")" # host is local to the current network
+	local host="$1" result
+	local user="${(GetSshUser "$host"):-$USER}"
+	local isHostLocal="$(IsIpLocal "$(GetIpAddress "$host")")" # host is local to the current network
 
 	sshBootHost || return
 	sshConfigure || return
@@ -65,7 +106,7 @@ bootstrapSsh()
 		sshCheckUser || return
 
 		# connect using X forwarding to allow use of the credential store
-		sshDo -Yt -- bash -l "/tmp/bootstrap-init /tmp/$(GetFileName "$configFile") --restart"
+		sshDo -Yt -- bash -l "/tmp/bootstrap-init /tmp/$(GetFileName "$configFile") --restart $verbose"
 		result="$?"; [[ "$result" != "100" ]] && return "$result"
 
 		hilight "Reconnecting to $host..."
