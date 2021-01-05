@@ -7,7 +7,6 @@ init()
 {
 	exclude=("Document Themes" "*.bak" "desktop.ini" ".git" ".gitignore" ".DS_Store" "thumbs.db" "~\$*.docx" "~\$*.dot?" "*.TMP" "*.jcorig" )
 	platformExclude=( "cports.cfg" "ftp.cfg" "JkDefrag*.log" "Defraggler.ini" "gridy.ini" )
-	srcId="${HOSTNAME,,}"	
 }
 
 usage()
@@ -42,6 +41,7 @@ args()
 	# arguments
 	ScriptArgs "$@" || return; shift "$shift"
 	fileServer="$(ConfigGet "fs")" || return
+	fileServerPort="$(ConfigGet "fsPort")" || return
 	return 0
 }
 
@@ -49,17 +49,17 @@ args()
 # IsAvailable Command
 #
 
-IsAvailableUsage() { echo "\
+isAvailableUsage() { echo "\
 Usage: $(ScriptName) IsAvailable
 Return true if the default host ($fileServer) is available for syncronization."; }
 
-IsAvailableCommand() { IsAvailablePort "$fileServer" 445 || IsAvailablePort "$fileServer" "$(ConfigGet "fsPort")"; }
+isAvailableCommand() { IsAvailablePort "$fileServer" 445 || IsAvailablePort "$fileServer" "$fileServerPort"; }
 
 #
 # Sync Command
 #
 
-syncArgStart() { unset -v method noBak syncDirArgs target; }
+syncArgStart() { unset -v method noBak protocol syncDirArgs target uncArgs; }
 
 syncGetOption() 
 {
@@ -67,11 +67,12 @@ syncGetOption()
 		-do|--dest-older) method="--dest-older";;
 		-nb|--no-bak) noBak="--no-bak";;
 		-so|--src-older) method="--src-older";;
+		-p|--protocol|-p*|--protocol=*) ScriptGetNetworkProtocol "$@";;
 		*) return 1
 	esac
 }
 
-syncArgEnd() { syncDirArgs=( $verbose $method $noBak --srcid "$srcId" ); }
+syncArgEnd() { syncDirArgs=($verbose $method $noBak) uncArgs=($verbose); }
 
 syncUsage()
 {
@@ -86,7 +87,8 @@ Target can be one of HOST|UNC|DIR|host|public|home.
 
 	-do,	--dest-older	assume target files are than the local source files
 	-so,	--src-older		assume local files are older than the target files
-	-nb,	--no-bak			do not backup files to the bak directory"
+	-nb,	--no-bak			do not backup files to the bak directory
+	-p, --protocol=[NFS|SMB|SSH](SMB)"
 }
 
 syncCommand()
@@ -110,41 +112,63 @@ syncCommand()
 # helper
 #
 
+doMount() { ! IsUncPath "$1" && echo "$1" || unc mount "$1" "${uncArgs[@]}"; }
+
 checkTarget()
 {
+	local what
+
 	# host
 	if [[ "$target" == "host" ]]; then
-		ScriptEval HostFindInfo host && target="$_root"
-		targetId="host"
-
+		ScriptEval HostFindInfo host || return
+		what="host" target="$_root" targetId="host"
+		
 	# UNC|public|home
 	elif IsUncPath "$target" || [[ "$target" == @(public|home) ]]; then
+		what="UNC"
 		target="$(unc mount "$target")" || return		
 		targetId="$(unc get unc "$target" | GetUncServer | RemoveDnsSuffix)"
-
+		
 	# DIR
-	elif [[ -d "$target" ]]; then
-		local drive="$(drive device "$target")"
-		local driveLabel="$(drive label "$target")"
-		targetId="${driveLabel:-$drive}"
+	elif [[ -d "$target" ]]; then 
+		what="DIR" 
+		targetId="$(drive label "$target" --quiet)" ||
+			targetId="$(drive device "$target" --quiet)" ||
+			targetId="$(GetFileName "$target")"
 
 	# HOST
 	else
+		what="HOST"
 		targetId="$(os name "$target" | RemoveDnsSuffix)" # get the real (DNS) name of the target
-
+		
 	fi
 
-	[[ "$target" == "/" ]] || IsLocalHost "$target" && { ScriptErr "cannot sync to the local computer"; return 1; }
+	[[ $verbose ]] && hilight "SyncLocalFiles $what: target=$target targetId=$targetId"
 
-	# source directories
+	# prevent sync to ourself
+	{ IsLocalHost "$target" || [[ "$target" == "/" ]]; } && { ScriptErr "cannot sync to the local computer"; return 1; }
+
+	# add identifiers
+	syncDirArgs+=(--srcid "${HOSTNAME,,}"	--destid "$targetId")
+
+	# determine source directories
 	ScriptEval HostFindInfo || return
 	srcData="$_data" srcHome="$_home"
 
-	# destination directories
-	ScriptEval HostFindInfo "$target" || return
+	# determine destination directories
+	ScriptEval HostFindInfo "$target" "${protocolArg[@]}" || return
 	destData="$_data" destHome="$_home"
 
-	syncDirArgs+=(--destid "$targetId")
+	# file sharing network protocol
+	[[ $_protocol ]] && uncArgs+=(--protocol "$_protocol")
+
+	if [[ "$_protocol" == "ssh" ]]; then
+		local port="${_port:-22}"
+		[[ "$target" == "$fileServer" && $fileServerPort ]] && port="$fileServerPort"
+		uncArgs+=(--port "$port")
+	fi
+
+	return 0
 }
 
 showStatus()
@@ -166,6 +190,7 @@ showStatus()
 syncShared()
 {
 	[[ ! $destData ]] && return
+	destData="$(doMount "$destData")" || return
 
 	local args=( "${syncDirArgs[@]}" "$srcData" "$destData" -x "${exclude[@]}" )
 
@@ -177,10 +202,11 @@ syncShared()
 	SyncDir -d "man" -r "${args[@]}" || return
 	SyncDir -d "setup" "${args[@]}" || return
 }
-	
+
 syncUser()
 {	
 	[[ ! $destHome ]] && return
+	destHome="$(doMount "$destHome")" || return
 
 	local args=( "${syncDirArgs[@]}" "$srcHome/Documents" "$destHome/Documents" -x "${exclude[@]}" )
 
@@ -189,7 +215,7 @@ syncUser()
 	SyncDir "${args[@]}" "S.gpg-*" random_seed  -d "data/app/gpg" -r || return
 	SyncDir "${args[@]}" -d "data/certificate/public" || return
 	SyncDir "${args[@]}" -d "data/certificate/private" || return
-	SyncDir "${args[@]}" -d "data/certificate/hashi" -r || return
+	#SyncDir "${args[@]}" -d "data/certificate/hashi" -r || return
 	SyncDir "${args[@]}" -d "data/profile/default"  || return
 	SyncDir "${args[@]}" -d "data/replicate"  || return
 

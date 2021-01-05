@@ -30,26 +30,26 @@ init() { lastSyncSuffix="sync.txt"; }
 
 args()
 {
-	unset -v dest destId dir exist method noBak protocol recursive src srcId verbose x
+	unset -v dest destId dir exist method noBak protocol recursive src srcId uncArgs verbose x
 
 	# commands
-	ScriptCommand SyncDir "$@" || return
+	ScriptCommand syncCommand "$@" || return
 
 	# options
 	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-d|--dir|-d*|--dir=*) ScriptArg "dir" "$@";;
-			-di|--destid|-di*|--destid=*) ScriptArg "destId" "$@"; destId+="_";;
+			-di|--destid|-di*|--destid=*) ScriptArg "destId" "$@";;
 			-do|--dest-older) method="--dest-older";;
 			-e|--exist) exist="--exist";;
 			-h|--help) usage 0;;
 			-nb|--no-bak) noBak="--no-bak";;
-			-p|--protocol|-p*|--protocol=*) ScriptGetNetworkProtocol "$@" || return; [[ $protocol ]] && protocol="--protocol $protocol";;
+			-p|--protocol|-p*|--protocol=*) ScriptGetNetworkProtocol "$@"; [[ $protocol ]] && uncArgs+=(--protocol "$protocol");;
 			-r|--recursive) recursive="--recursive";;
-			-si|--srcid|-si*|--srcid=*)  ScriptArg "srcId" "$@"; srcId+="_";;
+			-si|--srcid|-si*|--srcid=*)  ScriptArg "srcId" "$@";;
 			-so|--src-older|-so*|--src-older=*) method="--src-older";;
-			-v|--verbose) verbose="--verbose";;
+			-v|--verbose) verbose="--verbose"; uncArgs+=("$verbose");;
 			-x|--exclude) while [[ $2 ]] && ! IsOption "$2"; do x+=("$2"); shift; done;;
 			--) shift; otherArgs+=("$@"); set --; break;;
 			*) ScriptOption "$@";;
@@ -70,17 +70,17 @@ args()
 	args=("$src" "$dest")
 }
 
-syncDirCommand()
+syncCommand()
 {
 	local src="$1" dest="$2"
 	local srcDesc="$(desc "$src")" destDesc="$(desc "$dest")"
-	
+
 	# src or dest directory is excluded
 	{ IsInArray --array-wild "${src##*/}" x || IsInArray --array-wild "${dest##*/}" x; } && return
 
-	[[ $verbose ]] && echo "src=$src dest=$dest srcId=$srcId destId=$destId"
-	IsUncPath "$src" && { src="$(unc mount "$src" "$protocol")" || { printf "\nUnable to mount $srcDesc\n"; return 1; }; }
-	IsUncPath "$dest" && { dest="$(unc mount "$dest" "$protocol")" || { printf "\nUnable to mount $destDesc\n"; return 1; }; }
+	[[ $verbose ]] && hilight "SyncDir: src=$src dest=$dest srcId=$srcId destId=$destId"
+	IsUncPath "$src" && { src="$(unc mount "$src" "${uncArgs[@]}")" || { printf "\nUnable to mount $srcDesc\n"; return 1; }; }
+	IsUncPath "$dest" && { dest="$(unc mount "$dest" "${uncArgs[@]}")" || { printf "\nUnable to mount $destDesc\n"; return 1; }; }
 	[[ $exist && (! -d "$src" && ! -d "$dest") ]] && return 0
 
 	if [[ ! -d "$src" && ! -d "$dest" ]]; then
@@ -89,8 +89,8 @@ syncDirCommand()
 		return 1
 	fi
 
-	local lastSyncSrcFile="$src/.$destId$lastSyncSuffix"
-	local lastSyncDestFile="$dest/.$srcId$lastSyncSuffix"
+	local lastSyncSrcFile="$src/.${destId}_${lastSyncSuffix}"
+	local lastSyncDestFile="$dest/.${srcId}_${lastSyncSuffix}"
 
 	getLastSync || return
 
@@ -170,13 +170,13 @@ sync()
 
 	getDirList srcDirs "$src"
 	for dir in "${srcDirs[@]}"; do
-		syncDirCommand "$src/$dir" "$dest/$dir" || return
+		syncCommand "$src/$dir" "$dest/$dir" || return
 	done
 
 	getDirList destDirs "$dest"
 	for dir in "${destDirs[@]}"; do
 		IsInArray "$dir" srcDirs && continue
-		syncDirCommand "$src/$dir" "$dest/$dir" || return
+		syncCommand "$src/$dir" "$dest/$dir" || return
 	done
 
 }
@@ -426,6 +426,7 @@ setLastSync()
 
 	# cleanup sync files older than 30 days
 	find "$src" -name ".*$lastSyncSuffix" -mtime +30 -type f -delete
+	find "$dest" -name ".*$lastSyncSuffix" -mtime +30 -type f -delete
 
 	return 0
 }

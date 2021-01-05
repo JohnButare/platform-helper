@@ -22,10 +22,6 @@ hashiVaultServers="pi3,pi4"
 # file server
 fs="nas3.$baseDomain" fsPort="608"
 
-homeUnc="//$fs/home" homeDir="/share/homes" homeRemoteUnc="//$fs$homeDir:$fsPort"
-mediaUnc="//$fs/data/media" mediaDir="/share/data/media" mediaRemoteUnc="//$fs$homeDir:$fsPort"
-publicUnc="//$fs/public" publicDir="/share/Public" publicRemoteUnc="//$fs$publicDir:$fsPort"
-
 # web server
 web="$fs" webUnc="//$web/web"
 

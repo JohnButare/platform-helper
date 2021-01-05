@@ -938,24 +938,24 @@ ConsulResolve() { hashi resolve "$@"; }
 
 DnsResolve()
 {
-	local name="$1"; [[ ! $name ]] && MissingOperand "host"
+	local lookup name="$1"; [[ ! $name ]] && MissingOperand "host"
 
 	# reverse DNS lookup for IP Address
 	if IsIpAddress "$name"; then
 		lookup="$(nslookup $name |& grep "name =" | cut -d" " -f 3)"
 		lookup="${lookup%.}"
-		echo "${lookup:-$name}"; return
 	fi
 
 	# forward DNS lookup to get the fully qualified DNS address
 	if InPath host; then
 		lookup="$(host $name | grep " has address " | cut -d" " -f 1)"
-		echo "${lookup:-$name}"; return
+
 	fi
 
-	# fallback on the name passed
-	echo "$name"
+	# if the lookup is empty or a superset of the DNS name use the full name
+	[[ "$name" =~ $lookup$ ]] && lookup="$name"
 
+	echo "$lookup"
 }
 
 MdnsResolve()
@@ -1121,17 +1121,14 @@ EOF
 }
 
 #
-# Network: UNC Shares - \\SERVER\SHARE\DIRS
+# Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS]
 #
 
+GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }												# //SERVER/SHARE
+GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }						# SERVER
+GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; } 														# SHARE
+GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; } # DIRS
 IsUncPath() { [[ "$1" =~ //.* ]]; }
-
-# UNC format //[USER@]SERVER/SHARE[/DIRS][:PORT]
-GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }															# //SERVER/SHARE
-GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }									# SERVER
-GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; r "${gus%%:*}" $2; } 								# SHARE
-GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%%:*}" $2; } # DIRS
-GetUncPort() { GetArgs; local gup; [[ "$1" =~ : ]] && gup="${1##*:}"; r "$gup" $2; }											# PORT
 
 #
 # Package Manager

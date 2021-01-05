@@ -134,13 +134,14 @@ ScriptArg()
 	var="$value"
 }
 
+# ScriptGetNetworkProtocol - sets protocol and protocolArg
 ScriptGetNetworkProtocol()
 {
-	ScriptArg "protocol" "$@" || return
+	ScriptArg "protocol" "$@"; 
 	protocol="${protocol,,}"
-	[[ "$protocol" == @(|nfs|smb|ssh) ]] && return
-	ScriptErr "\`$protocol\` is not a valid network protocol"
-	return 1
+	[[ "$protocol" != @(|nfs|smb|ssh) ]] && { ScriptErr "\`$protocol\` is not a valid network protocol"; ScriptExit; }
+	unset -v protocolArg; [[ $protocol ]] && protoclArg=(--protocol "$protocol")
+	return 0
 }
 
 #
@@ -174,8 +175,8 @@ ScriptCommand()
 		# add the existing command to the next argument with the best guess at casing
 		c="${command}${c}Command"
 
-		# find the exact command or look for a case-insensitive match
-		if IsFunction "$c" || c="$(FindFunction "$c")"; then
+		# find the exact command match - a case-insensitive match is slow
+		if IsFunction "$c"; then			
 			command="${c%Command}" commands+=("$command") commandNames+=("${arg,,}")
 			IsFunction "${command}ArgStart" && { "${command}ArgStart" || return; }
 			IsFunction "${command}Vars" && { "${command}Vars" || return; } # legacy
