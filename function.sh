@@ -1141,23 +1141,32 @@ PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
 
 package() # package install
 {
-	local force; [[ "$1" =~ ^(-f|--force|-f)$ ]] && { force="true"; shift; }
-	local noPrompt; [[ "$1" =~ ^(-np|--no-prompt)$ ]] && { noPrompt="true"; shift; }
-	local quiet; [[ "$1" =~ ^(-q|--quiet)$ ]] && { quiet="true"; shift; }
-	local packages=("$@"); IsPlatform mac && packages=( $(packageExclude "$@"))
+	local force noPrompt quiet packages
 
+	# arguments
+	local arg args=()
+	for arg in "$@"; do
+		[[ "$arg" =~ ^(-f|--force|-f)$ ]] && { force="true"; continue; }
+		[[ "$arg" =~ ^(-np|--no-prompt)$ ]] && { noPrompt="true"; continue; }
+		[[ "$arg" =~ ^(-q|--quiet)$ ]] && { quiet="true"; continue; }
+		args+=( "$arg" )
+	done
+	set -- "${args[@]}"
+
+	packages=("$@"); IsPlatform mac && packages=( $(packageExclude "$@"))
+	
 	if [[ ! $packages ]]; then
 		[[ ! $quiet ]] && echo "all packages have been excluded"
 		return 0
 	fi
 
-	# just return if all of the packages are installed
+	# return if all of the packages are installed
 	if [[ ! $force ]] && PackageInstalled "${packages[@]}"; then
 		[[ ! $quiet ]] && echo "All packages have been installed"
 		return 0
 	fi
 
-	# disable prompting if possible
+	# disable prompting
 	[[ $noPrompt ]] && IsPlatform debian && noPrompt="DEBIAN_FRONTEND=noninteractive"
 
 	# install the packages
