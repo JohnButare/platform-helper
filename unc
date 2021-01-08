@@ -63,29 +63,36 @@ args()
 # Get Commands
 #
 
-getVars() { file=""; }
+getArgsStart() { file=""; }
 
 getUsage()
 {
 	echot "\
-Usage: unc get root|share|unc FILE
+Usage: unc get port|root|share|unc FILE
 Get UNC information about the specified mounted directory.
 
 For the examples below assume //server/share is mounted at 
 ~/Volumes/server_share and file is ~/Volumes/server_share/dir1/dir2.
 
+	port		return the port for the specified protocol argument
 	root 		the root directory of the UNC, i.e. ~/Volumes/server_share
 	share		the name of the share, i.e. //server/share
-	unc			the full UNC associated with the file, i.e. //server/share/dir1/dir2"
+	unc			the full UNC associated with the file, i.e. //server/share/dir1/dir2
+
+	$protocolUsage"
 }
 
 getArgs()
 {
+	[[ "$command" == "getPort" ]] && return
 	IsUncPath "$1" && { file="$1"; ((++shift)); return; }
 	ScriptGetArg "file" "$1"; ScriptCheckPath "$file"
 }
 
 getCommand() { usage; }
+
+getPortOption() { getProtocolOption "$@"; }
+getPortCommand() { getPort; }
 
 getRootCommand()
 {
@@ -128,7 +135,7 @@ Return 0 if HOST is available using the specified protocol.
 }
 
 isAvailableArgStart() { unset -v host; }
-isAvailableGetOption() { getProtocol "$@"; }
+isAvailableGetOption() { getProtocolOption "$@"; }
 isAvailableGetArgs() { ScriptGetArg "host" "$1"; shift; }
 isAvailableCommand() { isAvailable "$host" "$protocol"; }
 
@@ -148,7 +155,7 @@ List UNC shares on the specified host.
 	-N, --no-host-check					do not check host availability"
 }
 
-listOption() { getProtocol "$@"; }
+listOption() { getProtocolOption "$@"; }
 
 listArgs()
 {
@@ -194,7 +201,7 @@ Mount a UNC share.
 
 mountOption() 
 {
-	getProtocol "$@" && return
+	getProtocolOption "$@" && return
 	case "$1" in
 		-N|--no-host-check) noHostCheck="true";;
 		*) return 1
@@ -324,19 +331,27 @@ findProtocol()
 # isAvailable HOST PROTOCOL - return true if the host is available on the ports required for the protcol
 isAvailable()
 {
-	local host="$1" protocol="$2"
+	local host="$1" protocol="$2" port="$(getPort)"
 
 	[[ $noHostCheck || "$host" == "wsl$" ]] && return
 
-	case "${protocol:-smb}" in
-		nfs) check="111";; # 111 and 2049 
-		smb) check="445";; # 135 and 445
-		ssh) check="22";;
-		*) check="$protocol"; protocol="ssh" 
-	esac
+	if [[ $verbose ]]; then
+		IsInteger "$protocol" && protocol="ssh"
+		PrintErr "checking $host $protocol protocol (port $check)..."
+		IsAvailablePort "$host" "$check" && EchoErr "available" || EchoErr "not available"
+	fi
 
-	[[ $verbose ]] && { PrintErr "checking $host $protocol protocol (port $check): "; IsAvailablePort "$host" "$check" && EchoErr "available" || EchoErr "not available"; }
 	IsAvailablePort "$host" "$check"
+}
+
+getPort()
+{
+	case "${protocol:-smb}" in
+		nfs) echo "111";; # 111 and 2049 
+		smb) echo "445";; # 135 and 445
+		ssh) echo "22";;
+		*) echo "$protocol"
+	esac
 }
 
 #
@@ -356,7 +371,7 @@ cleanupMountDir()
 	[[ ! -e "$mountDir" ]]
 }
 
-getProtocol()
+getProtocolOption()
 {
 	case "$1" in
 		-p|--protocol|-p*|--protocol=*) ScriptGetNetworkProtocol "$@";;
