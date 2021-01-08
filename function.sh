@@ -450,6 +450,14 @@ TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')"; }
 TimestampDiff () { ${G}printf '%s' $(( $(${G}date -u +%s) - $(${G}date -u -d"$1" +%s))); }
 TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
 
+# TimeCommand - return the time it takes to execute a command in milliseconds to three decimal places
+# Command output is supressed.  The status of the command is returned.
+if IsBash; then
+	TimeCommand() { { time command "$@"; } |& tail -3 | head -1 | cut -d$'\t' -f2 | sed 's/m/:/' | sed 's/s//' | awk -F: '{ print ($1 * 60) + $2 }'; return ${PIPESTATUS[0]}; }
+else
+	TimeCommand() { { time "$@"; } |& tail -1 | rev | cut -d" " -f2 | rev; return $pipestatus[1]; }
+fi
+
 #
 # File System
 #
@@ -872,11 +880,12 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 	elif IsPlatform win; then	
 		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
 	else
-		return 0 # assume the host is available if we cannot check
+		return 0 
 	fi
 }
 
-PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
+# PingResponse HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
+PingResponse() 
 { 
 	local host="$1" timeout="${2-200}"; host="$(GetIpAddress "$host")" || return
 
@@ -888,6 +897,25 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 		return ${PIPESTATUS[0]}
 	fi
 
+}
+
+# PortResponse HOST PORT [TIMEOUT](200) - return host port response time in milliseconds
+PortResponse() 
+{
+	local host="$1" local port="$2" timeout="${3-200}"; host="$(GetIpAddress "$host")" || return
+
+	if InPath ncat; then
+		TimeCommand ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port"
+	elif InPath nmap; then
+		local line="$(nmap "$host" -p "$port" -Pn -T5)"
+		echo "$line" | grep -q "open" || return
+		line="$(echo "$line" | grep "Host is up")"; (( ${PIPESTATUS[0]} != 0 )) && return # "Host is up (0.049s latency)."
+		line="${line##*\(}" # remove "Host is up ("
+		line="${line%%s*}" 	# remove "s latency"
+		printf "%.*f\n" 3 "$(echo "$line * 1000" | bc)" # seconds to milliseconds, round to 3 decimal places
+	else
+		echo "0"; return 0 
+	fi
 }
 
 WaitForAvailable() # WaitForAvailable HOST [TIMEOUT_MILLISECONDS](200) [SECONDS](120)
