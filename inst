@@ -504,7 +504,7 @@ appDebian()
 appPi()
 {
 	! InPath gpio && { pkg piclone wiringpi || return; }
-	! groups $USER | grep gpio >& /dev/null && { sudo adduser $USER gpio || return; }
+	! groups $USER | grep -q "gpio" && { sudo adduser $USER gpio || return; }
 	return 0
 }
 
@@ -747,14 +747,9 @@ KindleInstall()
 bootstrap()
 {
 	header "Bootstrap"
-
 	bootstrapStart || return
 	RunPlatform bootstrap || return
 	bootstrapEnd || return
-
-	i AppDir micro bash fzf ssh zsh zplug || return
-
-	return 0
 }
 
 bootstrapStart()
@@ -813,6 +808,7 @@ bootstrapStart()
 
 bootstrapEnd()
 {
+	i AppDir micro bash fzf ssh zsh zplug || return
 	SetLoginShell zsh || return
 }
 
@@ -947,10 +943,10 @@ bootstrapPi()
 	sudo raspi-config nonint do_wifi_country US # fails in chroot
 
 	local timezone="$(ConfigGet "timezone")"
-	! cat /etc/timezone | grep "$timezone" >& /dev/null && { sudo raspi-config nonint do_change_timezone "$timezone" || return; }
+	! cat /etc/timezone | grep -q "$timezone" && { sudo raspi-config nonint do_change_timezone "$timezone" || return; }
 
 	local locale="$(ConfigGet "locale")"
-	! cat /etc/default/locale | grep "$locale" >& /dev/null && { sudo raspi-config nonint do_change_locale $locale || return; export LOCALE="$locale"; }
+	! cat /etc/default/locale | grep -q "$locale" && { sudo raspi-config nonint do_change_locale $locale || return; export LOCALE="$locale"; }
 
 	[[ -f /run/sshwarn ]] && { password linux -u pi || return; }
 
@@ -1040,7 +1036,7 @@ firefoxInstall()
 	header "Firefox"
 
 	local isInstalled
-	IsPlatform debian && firefox IsInstalled && ! firefox program | grep "$P" >& /dev/null && isInstalled="true"
+	IsPlatform debian && firefox IsInstalled && ! firefox program | grep -q "$P" && isInstalled="true"
 
 	# https://www.mozilla.org/en-US/firefox/all/
 	local v="83.0"
@@ -1152,7 +1148,7 @@ DebianFileSharing()
 		restart="true"
 	fi
 
-	if ! grep -i "$USER" "/etc/samba/smb.conf" >& /dev/null; then
+	if ! grep -q -i "$USER" "/etc/samba/smb.conf"; then
 		echo "[root]
 path = /
 valid users = $USER
@@ -1184,7 +1180,7 @@ DebianFonts()
 
 DebianLocale()
 {
-	local local="$(ConfigGet "locale")"
+	local locale="$(ConfigGet "locale")"
 	[[ "$LANG" == "$locale" ]] && return
 
 	pkg locales || return
@@ -1218,20 +1214,20 @@ ResultAny=yes" | sudo tee "$file"
 
 DebianProxyServer()
 {
-	sudo grep "HTTP_PROXY" /etc/sudoers >& /dev/null && return
+	sudo grep -q "HTTP_PROXY" /etc/sudoers && return
 	echo 'Defaults env_keep += "ftp_proxy http_proxy https_proxy no_proxy FTP_PROXY HTTP_PROXY HTTPS_PROXY NO_PROXY"' | sudo tee -a /etc/sudoers || return
 }
 
 DebianSudoSecurePath() # add /usr/local/data/bin to the sudo secure path
 {
-	sudo grep "/usr/local/data/bin" "/etc/sudoers" >& /dev/null && return
+	sudo grep -q "/usr/local/data/bin" "/etc/sudoers" && return
 
 	local find="/usr/local/sbin"
 	local clip="/usr/local/data/bin:$PLATFORM_PATH:"
 
 	# try automatic change
 	sudo sed -i "s/$(echo "$find" | QuotePath)/$(echo "$clip$find:" | QuotePath)/" "/etc/sudoers" || return
-	sudo grep "/usr/local/data/bin" "/etc/sudoers" >& /dev/null && return
+	sudo grep -q "/usr/local/data/bin" "/etc/sudoers" && return
 
 	# manual change
 	echo "Paste the contents of the clipboard ($clip) at the beginning of the secure_path"
@@ -1242,7 +1238,7 @@ DebianSudoSecurePath() # add /usr/local/data/bin to the sudo secure path
 DebianSudoPasswordless()
 {
 	local line="$USER ALL=(ALL) NOPASSWD: ALL"
-	sudo grep "^$line$" /etc/sudoers >& /dev/null && return
+	sudo grep -q "^$line$" /etc/sudoers && return
 	echo "$line" | sudo tee -a "/etc/sudoers" || return
 }
 
@@ -1849,7 +1845,7 @@ chronyInstall() # time syncronization / NTP replacement
 
 chronyServerInstall()
 {
-	grep "^allow" "/etc/chrony/chrony.conf" > /dev/null && return
+	grep -q "^allow" "/etc/chrony/chrony.conf" && return
 	echo "allow" | sudo tee -a "/etc/chrony/chrony.conf" || return
 	service restart chrony || return
 }
@@ -1872,7 +1868,7 @@ cronLogInstall()
 {
 	local f="/etc/rsyslog.d/50-default.conf"
 
-	if [[ -f "$f" ]] && grep "#cron\.\*" "$f"; then
+	if [[ -f "$f" ]] && grep -q "#cron\.\*" "$f"; then
 		sudo sed -i "s/^#cron\.\**/cron\.\*/" "$f" || return
 		service stop rsyslogd
 	fi
@@ -2770,7 +2766,7 @@ homebridgePi()
 	# Configuring Wake On Lan plugin
 	InPath setcap && { sudo setcap cap_net_raw=pe /usr/bin/node || return; }
 
-	if ! grep "/usr/local/data/bin" "/etc/default/homebridge" >& /dev/null; then
+	if ! grep -q "/usr/local/data/bin" "/etc/default/homebridge"; then
 		printf "\n"'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/data/bin"'"\n" | sudo tee -a /etc/default/homebridge
 	fi
 
@@ -3195,7 +3191,7 @@ cloudInitLimitUser()
 	local line="$USER ALL=(ALL) NOPASSWD:ALL"
 
 	! sudoc ls "$file" >& /dev/null && return 						# no cloud-init sudo file
-	! sudoc grep "$line" "$file" >& /dev/null && return		# user is already limited
+	! sudoc grep -q "$line" "$file" && return		# user is already limited
 
 	# add the user to the sudo group as a fail-safe
 	sudoc usermod -aG sudo $USER || return
@@ -3815,7 +3811,7 @@ WindowsSubsystemForLinuxInstall()
 
 	# update the WSL 2 kernel
 	if wsl.exe --update --status >& /dev/null; then # check if the wsl.exe  --update --status option exists (newer versions of Windows)
-		if wsl.exe --update --status |& grep "kernel file is not found" >& /dev/null; then
+		if wsl.exe --update --status |& grep -q "kernel file is not found"; then
 			RunScript --elevate --no-hide -- wsl.exe --update
 		fi
 	fi
@@ -4212,7 +4208,7 @@ RaspberryPiSetup()
 
 RaspberryPiSwap()
 {
-	grep "CONF_SWAPSIZE=4096" "/etc/dphys-swapfile" >& /dev/null && return
+	grep -q "CONF_SWAPSIZE=4096" "/etc/dphys-swapfile" && return
 
 	local clip="CONF_SWAPSIZE=4096"
 	echo -e "- paste:\n$clip"; clipw "$clip" || pause
@@ -4284,7 +4280,7 @@ RubyInstall()
 	makeDir ~/.gem || return
 
 	# update ~/.gemrc
-	if IsPlatform mac && ! grep "/usr/local/bin" ~/.gemrc  >& /dev/null; then
+	if IsPlatform mac && ! grep -q "/usr/local/bin" ~/.gemrc; then
 		echo "gem: -n/usr/local/bin" >> ~/.gemrc
 	fi
 
@@ -4366,12 +4362,12 @@ bashProfile()
 	[[ ! -f "$file" ]] && { EchoErr "$file does not exist"; return 1; }
 
 	# try and add the line automatically
-	if ! grep "$line" "$file" >& /dev/null && [[ $after ]]; then
+	if ! grep -q "$line" "$file" && [[ $after ]]; then
 		sudo ${G}sed -ie '/^'"$after"'/a \\n'"$line"'' "$file" || return
 	fi
 
 	# add the line manually
-	if ! grep "$line" "$file" >& /dev/null; then
+	if ! grep -q "$line" "$file"; then
 		echo "$line"; clipw "$line"
 		echo "- paste above line before \"$before\""
 		pause
@@ -4396,6 +4392,8 @@ ZshInstall()
 
 	# login shell
 	IsPlatform entware && { AddLoginShell "/opt/bin/zsh" || return; }
+
+	return 0
 }
 
 zshProfile()
@@ -4405,8 +4403,8 @@ zshProfile()
 	IsPlatform entware && file="/opt/etc/zshenv"
 	makeFileSudo "$file" || return
 
-	local line=$'\n''[[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"'
-	! grep "$line" "$file" >& /dev/null && { echo "$line" | sudo tee -a "$file" || return; }
+	local line='[[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"'
+	! grep -q "$line" "$file" && { echo "$line" | sudo tee -a "$file" || return; }
 	sudoc chmod +x "$file" || return
 }
 
@@ -4594,7 +4592,7 @@ ssh()
 {
 	header "SSH"
 	makeDir ~/.ssh && $hide ~/.ssh || return
-	SshPermission || return
+	sshPermission || return
 	RunPlatform Ssh || return
 }
 
@@ -4873,7 +4871,7 @@ SublimeInstall()
 	# https://discord.com/channels/280102180189634562/650695903446827011 (beta)
 	local v=3211 vBeta=4094
 	local linux="sublime_text_3_build_${v}_x64.tar.bz2"
-	IsPlatform debian,arm && linux="sublime-text_build-${vBeta}_arm64.deb"
+	IsPlatformAll debian,arm && linux="sublime-text_build-${vBeta}_arm64.deb"
 	run "other/Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "$linux" "${args[@]}" || return
 
 	if IsPlatform win; then
