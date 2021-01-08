@@ -20,7 +20,7 @@ hashiClients="pi6,pi7"
 hashiVaultServers="pi3,pi4"
 
 # file server
-fs="nas3.$baseDomain" fsPort="608"
+fs="nas3.$baseDomain" fsProtocol="608"
 
 # web server
 web="$fs" webUnc="//$web/web"

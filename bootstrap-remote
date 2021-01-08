@@ -5,11 +5,8 @@ run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
 
 init()
 {
-	port=22
 	configFile="$BIN/bootstrap-config.sh"
 	coreFiles=( "$BIN/bootstrap-init" "$configFile" )
-	sshArgs=( -p $port -oStrictHostKeyChecking=no )
-	scpArgs=( -P $port -oStrictHostKeyChecking=no )
 
 	bootstrapUser="$(ConfigGet "user" "$configFile")"; bootstrapUser="${bootstrapUser:-$USER}"
 }
@@ -28,6 +25,7 @@ Target is either [USER]@HOST (a remote host) or a the name of a chroot distribut
 args()
 {
 	unset -v verbose
+	port="22"
 
 	# commands
 	ScriptCommand runCommand "$@" || return
@@ -56,7 +54,10 @@ args()
 runCommand()
 {
 	header "bootstrap-remote"
-	init "$@" || return
+	
+	sshArgs=( -p "$port" -oStrictHostKeyChecking=no )
+	scpArgs=( -P "$port" -oStrictHostKeyChecking=no )
+	
 	if ChrootHelper installed && ChrootHelper exists "$target"; then
 		bootstrapChroot "$target"
 	else
@@ -93,7 +94,7 @@ bootstrapSsh()
 {
 	local host="$1" result
 	local user="$(GetSshUser "$host")"; user="${user:-$USER}"
-	local isHostLocal="$(IsIpLocal "$(GetIpAddress "$host")")" # host is local to the current network
+	local isHostLocal; GetIpAddress "$host" | IsIpLocal && echo "true" # host is local to the current network
 
 	sshBootHost || return
 	sshConfigure || return
@@ -118,9 +119,10 @@ bootstrapSsh()
 
 sshBootHost() # wait for the host to become available (after initial boot or reboot)
 {
-	! IsAvailable "$host" && [[ $isHostLocal ]] && { power on "$host" || return; }
+	# power on local hosts
+	[[ $isHostLocal ]] && ! IsAvailablePort "$host" "$port" && { power on "$host" || return; }
 
-	# resolve a .local address now in case mDNS resolution does not work using SSH
+	# resolve .local address - mDNS resolution does not work using SSH in Windows
 	IsMdnsName "$host" && { host=$(MdnsResolve "$host") || return; }
 
 	sshWait || return
@@ -128,13 +130,8 @@ sshBootHost() # wait for the host to become available (after initial boot or reb
 
 sshWait()
 {
-	IsAvailablePort "$host" $port && return
-
-	if [[ $isHostLocal ]]; then
-		WaitForAvailable "$host" || return
-	else
-		WaitForPort "$host" $port || return
-	fi
+	IsAvailablePort "$host" "$port" && return
+	WaitForPort "$host" "$port" || return
 }
 
 # sshCheckUser - if the user specified in the configuration exists make sure we use it

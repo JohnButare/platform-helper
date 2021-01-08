@@ -12,12 +12,7 @@ init()
 		return 1
 	fi
 
-	protocolUsage="\
-	-p, --protocol=[NFS|SMB|SSH](SMB)
-			--port=PORT			port to use for SSH protocol
-	-n, --nfs						use NFS to mount the share
-	    --smb						use SMB to mount the share
-	-s, --ssh						use SSH to mount the share"
+	protocolUsage="-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)"
 }
 
 usage()
@@ -125,10 +120,17 @@ getUncCommand()
 # IsAvailable Command
 #
 
+isAvailableUsage() { echot "\
+Usage: unc IsAvailable HOST
+Return 0 if HOST is available using the specified protocol.
+
+	$protocolUsage"
+}
+
 isAvailableArgStart() { unset -v host; }
 isAvailableGetOption() { getProtocol "$@"; }
 isAvailableGetArgs() { ScriptGetArg "host" "$1"; shift; }
-isAvailableCommand() { isAvailable "$host" "$port" "$protocol"; }
+isAvailableCommand() { isAvailable "$host" "$protocol"; }
 
 #
 # List Command
@@ -142,7 +144,7 @@ listUsage()
 Usage: unc list HOST
 List UNC shares on the specified host.
 
-$protocolUsage
+	$protocolUsage
 	-N, --no-host-check					do not check host availability"
 }
 
@@ -186,7 +188,7 @@ mountUsage()
 Usage: unc mount UNC
 Mount a UNC share.
 
-$protocolUsage
+	$protocolUsage
 	-N, --no-host-check					do not check host availability"
 }
 
@@ -227,8 +229,8 @@ mountCommand()
 		local options=(); IsPlatform win && options+=( -o nolock )
 		sudo mount "${options[@]}" -t nfs "$server:/$share" "$mountDir"
 
-	elif [[ "$protocol" == "ssh" ]]; then
-		local portArg; [[ $port ]] && portArg=(-p "${port}")
+	elif [[ "$protocol" == "ssh" ]] || IsInteger "$protocol"; then
+		local portArg; IsInteger "$protocol" && portArg=(-p "${protocol}")
 		[[ "$share" == "root" ]] && share=""
 		sshfs -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountDir" "${portArg[@]}"
 
@@ -273,8 +275,8 @@ mountCommand()
 
 isMountedCommand() { isMounted; }
 
-isuncArgs() { getArgs "$@"; }
-isuncCommand() { [[ $(getRootCommand) ]]; }
+isUncArgs() { getArgs "$@"; }
+isUncCommand() { [[ $(getRootCommand) ]]; }
 
 mountsCommand() { findmnt --type=cifs,nfs,nfs4,sshfs,fuse.sshfs --noheadings --output=TARGET | grep "$volumeDir"; }
 
@@ -322,14 +324,15 @@ findProtocol()
 # isAvailable HOST PROTOCOL - return true if the host is available on the ports required for the protcol
 isAvailable()
 {
-	local host="$1" check="$port"; protocol="$2"
+	local host="$1" protocol="$2"
 
 	[[ $noHostCheck || "$host" == "wsl$" ]] && return
 
 	case "${protocol:-smb}" in
 		nfs) check="111";; # 111 and 2049 
 		smb) check="445";; # 135 and 445
-		ssh) check="${check:-22}";;
+		ssh) check="22";;
+		*) check="$protocol"; protocol="ssh" 
 	esac
 
 	[[ $verbose ]] && { PrintErr "checking $host $protocol protocol (port $check): "; IsAvailablePort "$host" "$check" && EchoErr "available" || EchoErr "not available"; }
@@ -356,11 +359,7 @@ cleanupMountDir()
 getProtocol()
 {
 	case "$1" in
-		   --port|--port=*) ScriptArg "port" "$@";;
 		-p|--protocol|-p*|--protocol=*) ScriptGetNetworkProtocol "$@";;
-		-n|--nfs) protocol="nfs";;
-	 	   --smb) protocol="smb";;
-		-s|--ssh) protocol="ssh";;
 		*) return 1
 	esac
 }
@@ -380,10 +379,12 @@ getUncArg()
 		ScriptEval HostFindInfo "$(ConfigGet "fs")" "$protocolArg" || return
 		noHostCheck="true" protocol="$_protocol" port="$_port"
 		eval target="\$_$target"
-	fi
-
+	
 	# mounted file or directory
-	[[ -e "$target" ]] && { file="$1"; target="$(getUncCommand)" || return; }
+	elif [[ -e "$target" ]]; then
+		file="$target"; target="$(getUncCommand)"
+
+	fi
 	
 	# unc
 	IsUncPath "$target" && { getUncInfo "$target"; return; }
@@ -398,7 +399,7 @@ getUncInfo() # GetUncInfo unc - sets server share dirs user shareId mountDir
 	GetUncServer "$unc" server
 	GetUncShare "$unc" share; [[ ! $share ]] && share="root" 
 	GetUncDirs "$unc" dirs
-	local p; GetUncProtocol "$unc" p; [[ $p ]] && protocol="$p"
+	local p; GetUncProtocol "$unc" p || return; [[ $p ]] && protocol="$p"
 
 	user="$USER"
 	shareId="${share%%\$}"
@@ -410,10 +411,7 @@ getUncInfo() # GetUncInfo unc - sets server share dirs user shareId mountDir
 	# MDSN name resolution - Windows does not resolve MDNS natively
 	IsPlatform win && IsMdnsName "$server" && { server="$(MdnsResolve "$server")" || return; }
 
-	# force ssh protocol if a port is specified
-	[[ $port ]] && protocol="ssh"
-
-	[[ $verbose ]] && HilightErr "unc $command: unc=$unc mountDir=$mountDir protocol=$protocol port=$port"
+	[[ $verbose ]] && HilightErr "unc $command: unc=$unc mountDir=$mountDir protocol=$protocol"
 
 	return 0
 }

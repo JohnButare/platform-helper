@@ -834,7 +834,7 @@ IsIpAddress()
 }
 
 # IsIpLocal - return true if the specified IP is reachable on the local network (does not use the default gateway in 5 hops or less)
-IsIpLocal() { CacheDefaultGateway || return; ! traceroute "$1" -4 --max-hops=5 | grep --quiet "($(GetDefaultGateway))"; } 
+IsIpLocal() { GetArgs; CacheDefaultGateway || return; ! traceroute "$1" -4 --max-hops=5 | grep --quiet "($(GetDefaultGateway))"; } 
 
 # IsLocalHost HOST - true if the specified host refers to the local host
 IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
@@ -892,7 +892,8 @@ PingResponse() # HOST [TIMEOUT](200ms) - returns ping response time in milliseco
 
 WaitForAvailable() # WaitForAvailable HOST [TIMEOUT_MILLISECONDS](200) [SECONDS](120)
 {
-	local host="$1" timeout="${2-200}" seconds="${3-200}"
+	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForAvailable"; return 1; }
+	local timeout="${2-200}" seconds="${3-200}"
 
 	printf "Waiting for $host..."
 	for (( i=1; i<=$seconds; ++i )); do
@@ -906,9 +907,11 @@ WaitForAvailable() # WaitForAvailable HOST [TIMEOUT_MILLISECONDS](200) [SECONDS]
 
 WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS](200) [SECONDS](120)
 {
-	local host="$1" port="$2" timeout="${3-200}" seconds="${4-200}"
-
-	printf "Waiting for $host:$port..."
+	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForPort"; return 1; }
+	local port="$2"; [[ ! $port ]] && { MissingOperand "port" "WaitForPort"; return 1; }
+	local timeout="${3-200}" seconds="${4-200}"
+	
+	printf "Waiting for $host port $port..."
 	for (( i=1; i<=$seconds; ++i )); do
  		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
 		printf "."
@@ -1124,14 +1127,14 @@ EOF
 # Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
 #
 
-CheckNetworkProtocol() { [[ "$1" == @(|nfs|smb|ssh) ]]; }
+CheckNetworkProtocol() { [[ "$1" == @(|nfs|smb|ssh) ]] || IsInteger "$1"; }
 GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }															# //SERVER/SHARE
 GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }									# SERVER
-GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; } 																	# SHARE
+GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; r "${gus%:*}" $2; }									# SHARE
 GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 	# DIRS
 IsUncPath() { [[ "$1" =~ //.* ]]; }
 
-# GetUncProtocol UNC - PROTOCOL=NFS|SMB|SSH
+# GetUncProtocol UNC - PROTOCOL=NFS|SMB|SSH|INTEGER - INTEGER is a custom SSH port
 GetUncProtocol()
 {
 	GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "$gup" $2

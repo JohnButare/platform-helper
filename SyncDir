@@ -16,10 +16,9 @@ Synchronize the source and destination directories.
 	-d, --dir 						directory suffix, added to src and dest
 	-e, --exist						source and destination directories must exist, otherwise exit silently
 	-nb, --no-bak					do not back up replaced files
-	-p, --protocol=[NFS|SMB|SSH](SMB)
+	-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)
 	-r, --recursive				synchronize subdirectories
 	-si, --src-id  				source unique identifier
-	-s,	 --ssh						use sshfs for network connections
 	-so, --src-older			assume the source files are older
 	-v, --verbose					show additional status
 	-x, --exclude	FILES 	one or more files or directories to skip"
@@ -73,19 +72,18 @@ args()
 syncCommand()
 {
 	local src="$1" dest="$2"
-	local srcDesc="$(desc "$src")" destDesc="$(desc "$dest")"
 
 	# src or dest directory is excluded
 	{ IsInArray --array-wild "${src##*/}" x || IsInArray --array-wild "${dest##*/}" x; } && return
 
-	[[ $verbose ]] && hilight "SyncDir: src=$src dest=$dest srcId=$srcId destId=$destId"
-	IsUncPath "$src" && { src="$(unc mount "$src" "${uncArgs[@]}")" || { printf "\nUnable to mount $srcDesc\n"; return 1; }; }
-	IsUncPath "$dest" && { dest="$(unc mount "$dest" "${uncArgs[@]}")" || { printf "\nUnable to mount $destDesc\n"; return 1; }; }
+	[[ $verbose ]] && printf "SyncDir: src=$(getSrcDesc) dest=$(getDestDesc) srcId=$srcId destId=$destId..."
+	IsUncPath "$src" && { src="$(unc mount "$src" "${uncArgs[@]}")" || { printf "\nUnable to mount $(getSrcDesc)\n"; return 1; }; }
+	IsUncPath "$dest" && { dest="$(unc mount "$dest" "${uncArgs[@]}")" || { printf "\nUnable to mount $(getDestDesc)\n"; return 1; }; }
 	[[ $exist && (! -d "$src" && ! -d "$dest") ]] && return 0
 
 	if [[ ! -d "$src" && ! -d "$dest" ]]; then
 		echo
-		EchoErr "Source ($srcDesc) and destination ($destDesc) directories do not exist"
+		EchoErr "Source ($(getSrcDesc)) and destination ($(getDestDesc)) directories do not exist"
 		return 1
 	fi
 
@@ -113,6 +111,14 @@ syncCommand()
 	setLastSync || return
 }
 
+#
+# helper
+#
+
+desc() { FileToDesc "$1"; }
+getSrcDesc() { desc "$src"; }
+getDestDesc() { desc "$dest"; }
+
 sync()
 {
 	local src="$1" dest="$2"
@@ -120,8 +126,9 @@ sync()
 	local ignoreMs convertTime srcLine destLine srcFile destFile srcOnlyFiles destOnlyFiles
 
 	#printf "\nSyncing %s\n" "$(GetFileName "$src")"
-	getFileList srcFiles "$src"; printf "."; getFileList destFiles "$dest"; printf "."; 
-	lastSrcIndex="${#srcFiles[@]}"; lastDestIndex="${#destFiles[@]}"; printf "."
+	getFileList srcFiles "$src"; [[ $verbose ]] && printf "src..." || printf "."
+	getFileList destFiles "$dest";  [[ $verbose ]] && echo "dest" || printf "."
+	lastSrcIndex="${#srcFiles[@]}"; lastDestIndex="${#destFiles[@]}"
 
 	while (( srcIndex<lastSrcIndex || destIndex<lastDestIndex )); do
 
@@ -287,8 +294,6 @@ deleteMissingDir()
 	DelDir $ask --verbose "$dir"
 }
 
-desc() { FileToDesc "$1"; }
-
 copyFile()
 {
 	local src="$1" dest="$2" desc="$3"
@@ -402,7 +407,7 @@ replaceFile()
 		bak --local --quiet "$dest" || return
 	fi
 
-	printf "$(GetFileName "$desc")..."
+	printf "$(GetFileName "$desc")..."; [[ $verbose ]] && echo
 	# ${G}cp --force --preserve=timestamps "$src" "$dest" || return
 	${G}cp --force "$src" "$dest" || return # --preserve=timestamps does not work reliably
 	${G}touch "$dest" --reference "$src" || return
