@@ -1121,14 +1121,22 @@ EOF
 }
 
 #
-# Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS]
+# Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
 #
 
-GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }												# //SERVER/SHARE
-GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }						# SERVER
-GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; } 														# SHARE
-GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; } # DIRS
+CheckNetworkProtocol() { [[ "$1" == @(|nfs|smb|ssh) ]]; }
+GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }															# //SERVER/SHARE
+GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }									# SERVER
+GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; r "${gus%%/*}" $2; } 																	# SHARE
+GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 	# DIRS
 IsUncPath() { [[ "$1" =~ //.* ]]; }
+
+# GetUncProtocol UNC - PROTOCOL=NFS|SMB|SSH
+GetUncProtocol()
+{
+	GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "$gup" $2
+	CheckNetworkProtocol "$gup" || { EchoErr "\`$gup\` is not a valid network protocol"; return 1; }
+}
 
 #
 # Package Manager

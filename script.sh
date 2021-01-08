@@ -139,8 +139,8 @@ ScriptGetNetworkProtocol()
 {
 	ScriptArg "protocol" "$@"; 
 	protocol="${protocol,,}"
-	[[ "$protocol" != @(|nfs|smb|ssh) ]] && { ScriptErr "\`$protocol\` is not a valid network protocol"; ScriptExit; }
-	unset -v protocolArg; [[ $protocol ]] && protoclArg=(--protocol "$protocol")
+	CheckNetworkProtocol "$protocol" || { ScriptErr "\`$protocol\` is not a valid network protocol"; ScriptExit; }
+	unset protocolArg; [[ $protocol ]] && protocolArg="--protocol=$protocol"
 	return 0
 }
 
@@ -170,13 +170,16 @@ ScriptCommand()
 
 		# if we do not have a command assume it is lower case, i.e. dhcp
 		# if we already have a command assume the next portion of the command starts with an upper case, i.e. dhcpStatus
+		local is; [[ $command ]] && is="Is"
 		[[ $command ]] && ProperCase "$arg" c || LowerCase "$arg" c;
 
-		# add the existing command to the next argument with the best guess at casing
+
+		# add the existing command to the next command (c) with the best guess at casing
+		[[ "$c" =~ ^is..* ]] && c="is$(ProperCase "${c#is}")" # i.e. isAvailable
 		c="${command}${c}Command"
 
 		# find the exact command match - a case-insensitive match is slow
-		if IsFunction "$c"; then			
+		if IsFunction "$c"; then
 			command="${c%Command}" commands+=("$command") commandNames+=("${arg,,}")
 			IsFunction "${command}ArgStart" && { "${command}ArgStart" || return; }
 			IsFunction "${command}Vars" && { "${command}Vars" || return; } # legacy
