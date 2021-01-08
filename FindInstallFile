@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-. function.sh || return
+. script.sh || exit
 
-run() {	init && args "$@" && ${command}Command "${args[@]}"; }
+run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
 
 init()
 {
@@ -11,10 +11,10 @@ init()
 
 usage()
 {
-	echot "\
-usage: FindInstallFile FILE
-	Find an installation file or directory from known locations.  Searches 
-	INSTALL_DIR if defined.  
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... FILE
+Find an installation file or directory from known locations.  
+Searches INSTALL_DIR if defined.  
 
 	-a, --all					return all found directories
 	-e, --eval				return variables to evaluate (installDir and file)
@@ -23,35 +23,42 @@ usage: FindInstallFile FILE
 	-q, --quiet				do not display status messages
 	-s, --select			select the install location
 			--suppress		suppress error messages
-			--help 				display this help and exit"
-	exit $1
+	-v, --verbose			display detailed output"
 }
 
 args()
 {
-	unset command fileSuffix
-	unset eval force hint quiet suppress # argumrnts
+	unset -v command eval file force hint quiet suppress verbose
 
-	command="closest"
+	# commands
+	ScriptCommand closestCommand "$@" || return
 
-	while [ "$1" != "" ]; do
-		case "$1" in
+	# options
+	set -- "${args[@]}"; args=()
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
 			-a|--all) command="all";;
 			-e|--eval) eval="true" quiet="--quiet";;
-			   --help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
 			-f|--force) force="true";;
+			   --help) usage 0;;
 			-h|--hint) hint="$2"; shift;;
 			-q|--quiet) quiet="--quiet";;
 			-s|--select) command="select";;
 			   --suppress) suppress="true";;
-			*)
-				! IsOption "$1" && [[ ! $fileSuffix ]] && { fileSuffix="$1"; shift; continue; }
-				UnknownOption "$1"
+			-v|--verbose) verbose="--verbose";;
+			--) shift; otherArgs+=("$@"); set --; break;;
+			*) ScriptOption "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
-
+	set -- "${args[@]}"
+	
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
+	[[ $1 ]] && ScriptGetArg "file" "$1"; shift
+	[[ $@ ]] && usage
 	args=("$@")
+	return 0
 }
 
 #
@@ -70,8 +77,8 @@ allCommand()
 	done
 }
 
-closestCommand() { local file; findClosest && returnData; }
-selectCommand() { local file; findSelect && returnData; }
+closestCommand() { findClosest && returnData; }
+selectCommand() { findSelect && returnData; }
 
 #
 # helper
@@ -89,10 +96,9 @@ addDirs()
 	addLocalDirs || return
 
 	# Wiggin
-	local d="butare.net" s="public/documents/data/install"
-	addDirHost "nas3.$d" "$s" && return										# nas3 local
-	addDirHost "nas3.$d" "root/share/$s" "608" && return	# nas3 remote
-	addDirHost "nas1.$d" "$s" && return										# nas1 local
+	addDirHost "nas3.butare.net" "public/documents/data/install" && return
+	addDirHost "nas3.butare.net" "root/share/Public/documents/data/install" "608" && return
+	addDirHost "nas1.butare.net" "public/documents/data/install" && return
 	
 	return 0
 }
@@ -105,7 +111,7 @@ addDirHost()
 	local protocolArg; [[ $protocol ]] && { protocolArg="--protocol=$protocol"; suffix="$suffix:$protocol"; }
 
 	# return if host is not available using the specified protocol
-	unc IsAvailable "$host" "$protocolArg" || return 1
+	unc IsAvailable "$host" "$protocolArg" "$verbose" || return 1
 
 	# get a host description if needed
 	local desc
@@ -157,11 +163,11 @@ checkDir()
 {
 	local dir="$1"
 
-	IsUncPath "$dir" && { dir="$(unc mount "$dir" --no-host-check)" || return; }
+	IsUncPath "$dir" && { dir="$(unc mount "$dir" --no-host-check "$verbose")" || return; }
 
-	if [[ -e "$dir/$fileSuffix" ]]; then
+	if [[ -e "$dir/$file" ]]; then
 		installDir="$dir"
-		file="$dir/$fileSuffix"
+		file="$dir/$file"
 		return 0
 	fi
 	return 1
@@ -169,15 +175,18 @@ checkDir()
 
 checkServerAvailability()
 {
-	local pingTime
-
 	printStatus "checking..." 
 
 	for key in "${!dirs[@]}"; do
-		local dir="${dirs["$key"]}" server
+		local dir="${dirs["$key"]}" server protocol
 		unset dirs["$key"]
-		GetUncServer "$dir" server; [[ ! $server || "$server" == "vmware-host" ]] && { addDir "0-$key" "$dir"; continue; }
-		pingTime="$(PingResponse "$server")" && { addDir "$pingTime-$key" "$dir" || return; }
+
+		GetUncServer "$dir" server
+		[[ ! $server || "$server" == "vmware-host" ]] && { addDir "0-$key" "$dir"; continue; }
+
+		local protocol="$(GetUncProtocol "$dir" protocol)"
+		local port; port="$(unc get port --protocol="$protocol")" || return
+		local responseTime="$(PortResponse "$server" "$port")" && { addDir "$responseTime-$key" "$dir" || return; }
 		printStatus "." 
 	done
 
@@ -185,7 +194,7 @@ checkServerAvailability()
 
 	shopt -s lastpipe
 
-	# sort the array by ping time
+	# sort the array by response time
 	printf '%s\0' "${!dirs[@]}" | sort --numeric --zero-terminated | xargs -0n1 | readarray -t closestKeys
 
 	return 0
@@ -203,7 +212,7 @@ findClosest()
 	# check local dirs	
 	for key in "${!dirs[@]}"; do
 		dir="${dirs["$key"]}"
-		GetUncServer "$dir" server; [[ $server ]] && continue
+		GetUncServer "$dir" server; [[ $server ]] && continue		
 		checkDir "$dir" && return
 		unset dirs["$key"]
 	done
@@ -226,7 +235,7 @@ findClosest()
 	done
 
 	status "not found"
-	[[ ! $suppress ]] && EchoErr "FindInstallFile: Could not locate ${fileSuffix:-the installation directory}"
+	[[ ! $suppress ]] && EchoErr "FindInstallFile: Could not locate ${file:-the installation directory}"
 	return 1
 }
 
@@ -250,15 +259,15 @@ findSelect()
 
 	while true; do
 		local result=$(dialog --stdout --backtitle "Select Installation Location" \
-	  	--menu "Choose the location to search for:\n$fileSuffix" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
+	  	--menu "Choose the location to search for:\n$file" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
 		[[ "$result" == "" ]] && return 1
 		[[ ! $quiet ]] && clear
-		printStatus "checking...$result ("${dirs[$result]}")..."
+		printStatus "checking...$result ("${dirs[$result]}")..."; [[ $verbose ]] && echo
 		checkDir "${dirs[$result]}" && { status "found"; return; }
 
 		status "not found"		
 		if [[ ! $suppress ]]; then			
-			EchoErr "FindInstallFile: ${fileSuffix:-the installation directory} is not located on $result"
+			EchoErr "FindInstallFile: ${file:-the installation directory} is not located on $result"
 			[[ ! $quiet ]] && pause
 		fi
 	done
