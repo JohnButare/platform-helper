@@ -9,31 +9,22 @@ usage()
 {
 	ScriptUsage "$1" "\
 Usage: $(ScriptName) [target](local)
-Find information about the specified target (a host or directory).  
-If the target is \"host\", find a mounted host, such as a virtual machine host of a guest virtual machine.
+Find host information.
 
-	-d,	--detail						include more detailed information
-	-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)
-	-u,	--user USER($USER)	the user to find directories for
-	-v,	--verbose						display detailed output"
+	vars		return host information in variables
+	show		show host information"
 }
 
 args()
 {
-	unset -v detail protocol target verbose
-
 	# commands
-	ScriptCommand info "$@" || return
+	ScriptCommand "varsCommand" "$@" || return
 
 	# options
 	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-h|--help) usage 0;;
-			-d|--detail) detail="true";;
-			-p|--protocol|-p*|--protocol=*) ScriptGetNetworkProtocol "$@";;
-			-u|--user) shift; user="$1";;
-			-v|--verbose) verbose="--verbose";;
 			--) shift; otherArgs+=("$@"); set --; break;;
 			*) ScriptOption "$@";;
 		esac
@@ -43,28 +34,79 @@ args()
 	
 	# arguments
 	ScriptArgs "$@" || return; shift "$shift"
-	[[ $1 ]] && ScriptGetArg "target" "$1"; shift
 	[[ $@ ]] && usage
-	return 0
+	args=("$@")
 }
 
-infoCommand()
+#
+# Show Command
+#
+
+showArgStart() { host="localhost"; }
+
+showUsage() { echot "\
+Usage: $(ScriptName) show [HOST](localhost)
+Show host information."; }
+
+showGetArgs() {	[[ ! $1 ]] && return; ScriptGetArg "host" "$1"; }
+
+showCommand()
+{
+	! IsAvailable "$host" && { ScriptErr "$host is not available"; return 1; }
+
+	# OS
+	os version "$host" || return
+
+	# power
+	local watts; watts="$(power status watts "$host")" && echo "       watts: $watts"
+
+	# File Sharing
+	echo "File Sharing: $(unc get protocols "$host")" || return
+}
+
+#
+# Vars Command
+#
+
+varsArgsStart() { unset -v detail protocol target verbose; }
+
+varsUsage() { echot "Usage: $(ScriptName) vars [TARGET|host](localhost)
+Return host information in variables.  Target can be a host, directory, or UNC.
+If the target is \"host\", find a mounted host such as a virtual machine host of 
+a guest virtual machine.
+
+	-d,	--detail						include more detailed information
+	-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)
+	-u,	--user USER($USER)	the user to find directories for
+	-v,	--verbose						display detailed output"
+}
+
+varsGetOption() 
+{
+	case "$1" in
+		-d|--detail) detail="true";;
+		-p|--protocol|-p*|--protocol=*) ScriptGetNetworkProtocol "$@";;
+		-u|--user) shift; user="$1";;
+		-v|--verbose) verbose="--verbose";;
+		*) return 1
+	esac
+}
+
+varsGetArgs() {	[[ ! $1 ]] && return; ScriptGetArg "target" "$1"; }
+
+varsCommand()
 {
 	local basicVars=() detailVars=()
 
 	protocol="${protocol:-smb}"
 
-	getBasic || return
-	[[ $detail ]] && { getDetail || return; }
+	varsBasic || return
+	[[ $detail ]] && { varsDetail || return; }
 
  	ScriptReturn $verbose "${basicVars[@]}" "${detailVars[@]}"
 }
 
-#
-# helper
-#
-
-getBasic()
+varsBasic()
 {	
 	# define GetPlatform function
 	. bash.bashrc || return 
@@ -88,15 +130,15 @@ getBasic()
 	fi
 
 	# local
-	if [[ "$target" == @(|/) ]]; then
+	if IsLocalHost "$target" || [[ "$target" == "/" ]]; then
 		_platform="$PLATFORM" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID"
 		_root="/" _users="$USERS" _public="$PUB"	_data="$DATA"; [[ ! $_user ]] && _home="$HOME"
 
 	elif [[ -d "$target" ]]; then
-		getBasicDir || return
+		varsBasicDir || return
 
 	else
-		getBasicHost || return
+		varsBasicHost || return
 	fi	
 	
 	# standard shares - for QNAP and Synology SMB connections
@@ -131,7 +173,7 @@ getBasic()
 	return 0
 }
 
-getBasicDir()
+varsBasicDir()
 {
 	# dir - USB drive with a public and option home directory
 	if [[ -d "$target/public" ]]; then
@@ -164,7 +206,7 @@ getBasicDir()
 	fi
 }
 
-getBasicHost()
+varsBasicHost()
 {
 	local host="$(RemoveDnsSuffix "$target")"
 	local network="$(UpdateGet "network")"
@@ -196,7 +238,7 @@ getBasicHost()
 	return 0
 }
 
-getDetail()
+varsDetail()
 {
 	# variables
 	local var; detailVars=( pd ud udoc uhome udata adata)

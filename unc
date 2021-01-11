@@ -18,14 +18,18 @@ init()
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: unc list|mount|unmount|IsAvailable|IsMounted UNC|all
+Usage: $(ScriptName) [OPTION]... [COMMAND]...
 Manipulate network volumes using the UNC (Universal Naming Convention) format.
 The UNC format is //[USER@]SERVER/SHARE[/DIRS].
 
-	browse									list UNC shares on the local network
-	get root|share|unc FILE	get information about the specified mounted location
-	IsUnc FILE							return true if the specified file is a mounted UNC
-	mounts									return all mounted shares
+	get 						get UNC information
+	browse					list UNC shares on the local network
+	IsAvailable 		return true if the host is available
+	IsMounted				return true if the target is mounted 
+	IsUnc FILE			return true if the specified file is a mounted UNC
+	list HOST				list UNC shares on the specified host
+	mount UNC				mount the specified UNC
+	unmount UNC|all	unmount the specified UNC
 
 	-q, --quiet						hide status messages
 	-v, --verbose					show additional status"
@@ -65,35 +69,55 @@ args()
 
 getArgsStart() { file=""; }
 
-getUsage()
-{
-	echot "\
-Usage: unc get port|root|share|unc FILE
-Get UNC information about the specified mounted directory.
+getUsage() { echot "\
+Usage: unc get [OPTION]... [COMMAND]...
+Get information.  TARGET is a UNC or mounted FILE.
 
-For the examples below assume //server/share is mounted at 
-~/Volumes/server_share and file is ~/Volumes/server_share/dir1/dir2.
-
-	port		return the port for the specified protocol argument
-	root 		the root directory of the UNC, i.e. ~/Volumes/server_share
-	share		the name of the share, i.e. //server/share
-	unc			the full UNC associated with the file, i.e. //server/share/dir1/dir2
+	mounts						return all mounted shares
+	port							return the port for the specified protocol argument	
+	protocols [HOST]	return the protocols supported by the host, or all valid protocols
+	root TARGET				the mounted root directory of the UNC, i.e. ~/Volumes/server_share
+	share	TARGET			the name of the share, i.e. //server/share
+	unc	TARGET				the full UNC associated with the file, i.e. //server/share/dir1/dir2
 
 	$protocolUsage"
 }
 
 getArgs()
 {
-	[[ "$command" == "getPort" ]] && return
+	[[ "$command" == @(getMounts|getPort|getProtocols) ]] && return
 	IsUncPath "$1" && { file="$1"; ((++shift)); return; }
+	[[ ! $1 ]] && MissingOperand "TARGET"
 	ScriptGetArg "file" "$1"; ScriptCheckPath "$file"
 }
 
 getCommand() { usage; }
 
+# mounts
+getMountsCommand() { findmnt --type=cifs,nfs,nfs4,sshfs,fuse.sshfs --noheadings --output=TARGET | grep "$volumeDir"; }
+
+# port
 getPortOption() { getProtocolOption "$@"; }
 getPortCommand() { getPort "$protocol"; }
 
+# protocols
+getProtocolsArgStart() { unset host; }
+getProtocolsGetArgs() { [[ ! $1 ]] && return; ScriptGetArg "host" "$1"; }
+
+getProtocolsCommand()
+{
+	[[ ! $host ]] && { echo "nfs smb ssh"; return; }
+	
+	local hostIp; hostIp="$(GetIpAddress "$host")" || { HostUnknown "$host"; return 1; }
+	local protocols=() 
+	IsAvailablePort "$hostIp" "$(getPort "nfs")" && protocols+=( "nfs" )
+	IsAvailablePort "$hostIp" "$(getPort "smb")" && protocols+=( "smb" )
+	SshIsAvailable "$host" && protocols+=( "ssh" )
+
+	[[ $protocols ]] && ArrayDelimit protocols " " || echo "none"
+}
+
+# root
 getRootCommand()
 {
 	IsUncPath "$file" && { echo "$(GetUncRoot "$file")"; return; }
@@ -103,6 +127,7 @@ getRootCommand()
 	return 1
 }
 
+# share
 getShareCommand()
 {
 	IsUncPath "$file" && { echo "$(GetUncShare "$file")"; return; }
@@ -112,6 +137,7 @@ getShareCommand()
 	return 1
 }
 
+# unc
 getUncCommand()
 {
 	IsUncPath "$file" && { echo "$file"; return; }
@@ -127,23 +153,26 @@ getUncCommand()
 # IsAvailable Command
 #
 
-isAvailableUsage() { echot "\
-Usage: unc IsAvailable HOST
-Return 0 if HOST is available using the specified protocol.
+isAvailableUsage() { echot "Usage: unc IsAvailable [HOST](localhost)
+Return true if the specified HOST is available using the specified protocols.
+If no protocols are specified search for a protocol to use.
 
 	$protocolUsage"
 }
 
 isAvailableArgStart() { unset -v host; }
+
 isAvailableGetOption() { getProtocolOption "$@"; }
+
 isAvailableGetArgs() { ScriptGetArg "host" "$1"; shift; }
+
 isAvailableCommand() { isAvailable "$host" "$protocol"; }
 
 #
 # List Command
 #
 
-listtVars() { unset -v port protocol; }
+listVars() { unset -v port protocol; }
 
 listUsage()
 {
@@ -184,6 +213,40 @@ listSmb()
 }
 
 #
+# Browse Command
+#
+
+browseUsage() { echot "Usage: unc browse
+List UNC shares on the local network."; }
+
+browseCommand()
+{
+	{ IsPlatform win || ! InPath "smbtree"; } && { ScriptErr "unable to browse the network"; return 1; }
+	sudoc smbtree
+}
+
+#
+# IsMounted Command
+#
+
+isMountedUsage() { echot "Usage: unc IsMounted TARGET
+List UNC shares on the local network.
+TARGET is a UNC or mounted FILE."; }
+
+isMountedCommand() { isMounted; }
+
+#
+# IsUnc Command
+#
+
+isUncUsage() { echot "Usage: unc IsUnc FILE
+Return true if the specified file is a mounted UNC."; }
+
+isUncArgs() { getArgs "$@"; }
+
+isUncCommand() { [[ $(getRootCommand) ]]; }
+
+#
 # Mount Command
 #
 
@@ -191,9 +254,8 @@ mountVars() { unset -v noHostCheck port protocol; }
 
 mountUsage()
 {
-	echot "\
-Usage: unc mount UNC
-Mount a UNC share.
+	echot "Usage: unc mount UNC
+Mount the specified UNC.
 
 	$protocolUsage
 	-N, --no-host-check					do not check host availability"
@@ -277,27 +339,17 @@ mountCommand()
 }
 
 #
-# commands
+# Unmount Command
 #
 
-isMountedCommand() { isMounted; }
-
-isUncArgs() { getArgs "$@"; }
-isUncCommand() { [[ $(getRootCommand) ]]; }
-
-mountsCommand() { findmnt --type=cifs,nfs,nfs4,sshfs,fuse.sshfs --noheadings --output=TARGET | grep "$volumeDir"; }
-
-browseCommand()
-{
-	{ IsPlatform win || ! InPath "smbtree"; } && { ScriptErr "unable to browse the network"; return 1; }
-	sudoc smbtree
-}
+unmountUsage() { echot "Usage: unc unmount UNC|all
+Unmount the specified or all mounted UNCs."; }
 
 unmountCommand()
 {
 	[[ "$unc" != "all" ]] && { doUnmount; return; }
 
-	IFS=$'\n' mountDirs=( $(unc mounts) )
+	IFS=$'\n' mountDirs=( $(unc get mounts) )
 	[[ ! $mountDirs ]] && return
 
 	log "unmounting..."
@@ -394,7 +446,7 @@ getUncArg()
 
 	# alias
 	if [[ "$target" == @(home|media|public) ]]; then
-		ScriptEval HostFindInfo "$(ConfigGet "fs")" "$protocolArg" || return
+		ScriptEval HostInfo "$(ConfigGet "fs")" "$protocolArg" || return
 		noHostCheck="true" protocol="$_protocol" port="$_port"
 		eval target="\$_$target"
 	

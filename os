@@ -233,7 +233,34 @@ hardwareCommand() ( uname -m; )
 # Version Command
 #
 
-versionCommand()
+versionArgStart() { host="localhost"; }
+
+versionUsage() { echot "\
+Usage: $(ScriptName) version [HOST](localhost)
+Show Operating System version information."; }
+
+versionGetArgs() { [[ ! $1 ]] && return; ScriptGetArg "host" "$1"; }
+
+versionCommand() { if IsLocalHost "$host"; then versionLocal; else versionRemote; fi; }
+
+versionRemote()
+{
+	# check for ssh
+	! SshIsAvailable "$host" && { echo "$host Operating System information is not available"; return; }
+
+	# destailed information - using the os command on the host
+	SshInPath "$host" "os" && { SshHelper "$host" os version; return; }
+	
+	# basic information - using HostInfo vars command locally
+	ScriptEval HostInfo vars "$host" || return
+	[[ $_platform ]] && 		echo "    platform: $_platform"
+	[[ $_platformLike ]] && echo "        like: $_platformLike"
+	[[ $_platformId ]] &&   echo "          id: $_platformId"
+
+	return 0
+}
+
+versionLocal()
 {
 	echo "    platform: $(PlatformDescription)"
 

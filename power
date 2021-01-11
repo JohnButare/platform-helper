@@ -3,53 +3,32 @@
 
 run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
 
-init() { switch="" waitDefault=120 poeSwitchDefault="StudyDeskSwitch"; }
-
-initHost()
+init()
 {
-	host="${host,,}"
+	switch="" waitDefault=120 poeSwitchDefault="StudyDeskSwitch"
 
-	# switch variables
-	local b="BackShedSwitch" c="StudyClosetSwitch" d="StudyDeskSwitch" g="GarageSwitch"
-	
-	# host aliases
-	case "$host" in
-		oversoul) host="oversoulw2";; # WOL only works on WiFi adapter
-		b) host="$b";; # Back shed switch
-		c) host="$c";; # study Closet switch, i.e. on c 4 to turn on study closet switch port 4
-		d) host="$d";; # study Desk switch
-		g) host="$g";; # Garage switch
-	esac
-
-	# parse host
-	port="$(GetWord "$host" 2 :)"
-	host="$(GetWord "$host" 1 :)"
-	sshHost="$host"
-	host="$(GetSshHost "$host")"
-	hostName="$(os name "$host" | RemoveDnsSuffix)"
+	hostArg="HOST format is HOST[:PORT] where PORT is an optional switch port number.
+		If the PORT is allthe command applies to all switch ports on the host."
 }
 
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: power on|off|reboot|sleep|firmware|hibernate [host]:[port|all]
-	Control host or PoE switch port power state.
+Usage: $(ScriptName) [OPTION]... [COMMAND]...
+Manage host or PoE switch port power state.
 
-  -e, --exit 					return the specified exit code after the power command
-  -f, --force 				force the power operation even if we believe the host 
-  											is in the correct state
-  -s, --ssh 					make an ssh connection
-	-t, --timeout [500]	milliseconds to wait for a response from the host.
-  -v, --verbose 			show verbose information where possible
-	-w, --wait [120]		seconds for the host to change state
-			--wait-ssh			wait for an ssh connection"
+	on|off|reboot|sleep|firmware|hibernate
+	fix				fix power issues
+	status		host power status
+
+	-t, --timeout=[500]		milliseconds to wait for a response from the host
+	-v, --verbose 				show verbose information where possible"
 	exit $1
 }
 
 args()
 {
-	unset -v exit force ssh vebose wait waitSsh
-	timeout=500
+	unset -v verbose timeout
 
 	# commands
 	ScriptCommand "$@" || return
@@ -58,14 +37,9 @@ args()
 	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do		
 		case "$1" in "") : ;;
-			-e*|--exit=*|--exit) ScriptArg "exit" "$@";;
-			-f|--force) force="true";;
 			-h|--help) usage 0;;
-			-s|--ssh) ssh="true"; waitSsh="true"; [[ ! $wait ]] && wait="$waitDefault";;
 			-t|--timeout) ScriptArg "timeout" "$@"; ! IsInteger "$timeout" && usage;;
-			-v|--verbose) verbose="true";;
-			-w|--wait) IsInteger "$2" && ScriptArg "wait" "$@" || wait="$waitDefault";; 
-			   --wait-ssh) waitSsh="true"; [[ ! $wait ]] && wait="$waitDefault";;
+			-v|--verbose) verbose="--verbose";;
 			*) ScriptOption "$@";;
 		esac
 		shift
@@ -81,61 +55,7 @@ args()
 needsHost() { [[ "${commands[0]}" != @(fix) ]]; }
 
 #
-# Status Command
-#
-
-statusUsage()
-{
-	echot "\
-Usage: power status host:[port|all]		
-Report the status of the host or PoE switch (on or off).  If port is all then
-the status of all switch ports is displayed.  Return 0 if the host (or host
-PoE port) is on, and 1 if off."
-}
-
-statusCommand()
-{
-	[[ ! $@ ]] && MissingOperand "host"
-	
-	local host
-	for host in "$@"; do
-		initHost || return
-		status || return
-	done
-}
-
-status()
-{
-	local result status="on"
-
-	if [[ $port ]]; then
-		if [[ "$port" == "all" ]]; then
-			SshHelper "admin@$host" swctrl poe show; return
-		else
-			switchPortStatus "$host" "$port"
-		fi
-	else
-		IsAvailable "$host" "$timeout"
-	fi	
-	result=$?
-
-	[[ "$result" != 0 ]] && status="off"
-
-	[[ ! $verbose ]] && { echo "$status"; return $result; }
-
-	if [[ $port ]]; then
-		echo "$hostName port $port is $status ($(switchWatts "$host" "$port")w)"
-	else
-		local switch port watts; switchGetPort "$host" || return
-		[[ $switch && $port ]] && watts=" ($(switchWatts "$switch" "$port")w)"
-		echo "$hostName is $status$watts"
-	fi
-	
-	return $result
-}
-
-#
-# Fix Commands
+# Fix Command
 #
 
 fixUsage()
@@ -191,19 +111,88 @@ powercfg.exe -RequestsOverride SERVICE "\Device\HarddiskVolume1\Windows\System32
 }
 
 #
-# Power Commands
+# Power Opertation Commands
 #
 
-firmwareCommand() { power "firmware" "$@"; }
-hibernateCommand() { power "hibernate" "$@"; }
+opUsage()
+{
+	echot "\
+Usage: power $command HOST
+Perform a power operation
+
+	$hostArg
+
+	-e, --exit 					return the specified exit code after the power command
+	-f, --force 				force the power operation even if we believe the host is in the correct state
+	-s, --ssh 					make an ssh connection after power operation
+	-w, --wait=[120]		seconds for the host to change state
+	-ws,--wait-ssh			wait for an ssh connection
+
+	-ie, --ignore-errors	ignore errors non-fatal errors
+	-q, --quiet 					minimize informational messages
+	-t, --test 						test the operation without making any changes"
+}
+
+opArgStart()
+{
+	unset -v exit force ssh quiet test wait powerSshWait
+	unset -v desc sshCommand
+	expectedState="off" ignoreErrors=1 timeout=500
+}
+
+opGetOption() 
+{
+	case "$1" in
+		-e*|--exit=*|--exit) ScriptArg "exit" "$@";;
+		-f|--force) force="true";;
+		-ie|--ignore-errors) ignoreErrors="0";;
+		-q|--quiet) quiet="--quiet";;
+		-s|--ssh) ssh="true"; powerSshWait="true"; [[ ! $wait ]] && wait="$waitDefault";;
+		   --test) test="--test";;
+		-w|--wait) IsInteger "$2" && ScriptArg "wait" "$@" || wait="$waitDefault";; 
+		-ws|--wait-ssh) waitSsh="true"; [[ ! $wait ]] && wait="$waitDefault";;
+
+		*) return 1
+	esac
+}
+
+offUsage() { opUsage; }
+offArgStart() { opArgStart; desc="Powering off"; sshCommand="shutdown now"; }
+offGetOption() { opGetOption "$@"; }
 offCommand() { power "off" "$@"; }
+
+onUsage() { opUsage; }
+onArgStart() { opArgStart; desc="Powering on"; expectedState="on"; }
+onGetOption() { opGetOption "$@"; }
 onCommand() { power "on" "$@"; }
+
+firmwareUsage() { opUsage; }
+firmwareArgStart() { opArgStart; desc="Entering firmware on"; }
+firmwareGetOption() { opGetOption "$@"; }
+firmwareCommand() { power "firmware" "$@"; }
+
+hibernateUsage() { opUsage; }
+hibernateArgStart() { opArgStart; desc="Hibernating"; }
+hibernateGetOption() { opGetOption "$@"; }
+hibernateCommand() { power "hibernate" "$@"; }
+
+rebootUsage() { opUsage; }
+rebootArgStart() { opArgStart; desc="Rebooting"; expectedState=""; sshCommand="shutdown -r now"; }
+rebootGetOption() { opGetOption "$@"; }
 rebootCommand() { power "reboot" "$@"; }
+
+sleepUsage() { opUsage; }
+sleepArgStart() { opArgStart; desc="Sleeping"; }
+sleepGetOption() { opGetOption "$@"; }
 sleepCommand() { power "sleep" "$@"; }
+
+powerOffCleanup() { [[ $switch && $force ]] && switchPortOff "$switch" "$switchPort"; return 0; }
+powerSshAvailable() { [[ $sshCommand ]] && SshHelper "$sshHost" "ls /" >& /dev/null; }
+powerSshWait() { printf "$hostDesc..."; powerWaitOn "${wait}" || return; }
 
 power()
 {
-	local host op="$1"; shift
+	local op="$1"; shift
 
 	# local
 	if [[ ! $@ ]]; then
@@ -212,9 +201,9 @@ power()
 	fi
 
 	# remote
+	local host
 	for host in "$@"; do
-		initHost || return
-		powerRemote "$op" || return
+		powerRemote "$host" "$op" || return
 	done
 }
 
@@ -233,7 +222,7 @@ powerExit()
 	exit $exit
 }
 
-powerLocal() # op
+powerLocal()
 {
 	local op="$1"
 
@@ -243,6 +232,7 @@ powerLocal() # op
 	esac
 
 	printf "$op..."
+	[[ $test ]] && return
 
 	# assumes policy is set so no password is required (for remote power operation)
 	case "$op" in
@@ -283,140 +273,130 @@ powerLocal() # op
 			fi;;
 
 	esac
-
-	EchoErr "$op is not supported"
-	return 1
 }
 
 powerRemote()
 {
-	local op="$1"
-	local opf="$(ProperCase "$op")" # op for function
+	local host="$1"; initHost "$host" || return
+	local op="$2"
 
-	# control switch port only
-	if [[ $port ]]; then
+	# if a switch port was specified control it
+	if [[ $switchPort ]]; then
 		[[ "$op" != @(on|off) ]] && { EchoErr "Switch ports can only be turned on or off"; return 1; }
-		switchPort$opf "$host" "$port" || return; 
+		RunFunction "switchPort" "$op" "$host" "$switchPort" || return; 
 		echo "done"; return
 	fi
 
-	# get switch port information
-	local switch port; switchGetPort "$host" || return
-	local power; [[ $host && $switch && $port ]] && power="true"
+	# determine host switch port to control it's power
+	local switch switchPort; switchLookup "$host" || return
+	local power; [[ $host && $switch && $switchPort ]] && power="true"
 
-	# ssh command to use to control host power
-	local basicSshCommand sshCommand="$BIN/power $op"
-	case "$op" in
-		off) basicSshCommand="shutdown now";;
-		reboot) basicSshCommand="shutdown -r now";;
-	esac
-	
-	# host specific power commands
-	case "$(RemoveDnsSuffix "$host")" in
-		airthingsbridge|*camera|garagewaterheater|huevridge|tvtuner) sshCommand="";;
-		*ap|*switch|unificontroller|verabridge) sshCommand="$basicSshCommand";;
-	esac
+	# determine host power command
+	if SshIsAvailable "$host"; then
+		SshInPath "$host" "power" && { sshCommand="$BIN/power $op"; }
+	else
+		sshCommand=""
+	fi
 
-	# force a wait if we need to change the power state of the switch port after the host turns off
-	[[ $switch && $op == @(off|hibernate) ]] && wait="$waitDefault"
+	# force a wait if needed (can turn the hosts switch port off after sending it a power off command)
+	[[ $sshCommand && $switch && $op == @(off|hibernate) ]] && wait="$waitDefault"
 
 	# determine the current status off the host
 	local initialState="off"; IsAvailable "$host" "$timeout" && initialState="on"
 
-	# description
-	local desc expectedState="off"
-	case "$op" in
-		firmware) desc="Entering firmware on";;
-		hibernate) desc="Hibernating";;
-		off) desc="Powering off";;
-		on) desc="Powering on"; expectedState="on";;
-		reboot) desc="Rebooting"; expectedState="";;
-		sleep) desc="Sleeping";;
-	esac
-
+	# description	
 	if [[ ! $force && "$initialState" == "$expectedState" ]]; then
-		[[ "$op" == "on" && $waitSsh ]] && ! checkSsh && { waitSsh; return; }
-		echo "$hostName is already $expectedState"
+		[[ "$op" == "on" && $waitSsh ]] && ! powerSshAvailable && { powerSshWait; return; }
+		[[ ! $quiet ]] && echo "$hostDesc is already $expectedState"
 		return 0
 	fi
 
-	printf "$desc $hostName..."
-
-	# perform operation
-	if [[ "$op" == @(firmware|sleep) ]]; then
-		SshHelper $sshHost "$sshCommand" || return
-		waitOff "$wait" || return
-	else
-		power$opf || return
-	fi
-	
+	printf "$desc $hostDesc..."
+	RunFunction "power" "$op" || return
 	echo "done"
 
 	[[ $ssh ]] && { SshHelper -x "$sshHost" || return; }
+
 	return 0
 }
 
+powersleep() { powerOp "sleep" && powerWaitOff "$wait"; }
+powerFirmware() { powerOp "firmware" && powerWaitOff "$wait"; }
 powerHibernate() { doOff; }
+
+powerOp()
+{
+	local op="$1"
+
+	# generic power operations require an sshCommand
+	if [[ ! $sshCommand ]]; then
+		[[ ! $quiet ]] && ScriptErr "$op operation is not available on $host"
+		return "$ignoreErrors"
+	fi
+
+	doSsh $sshHost "$sshCommand"
+}
 
 powerOff()
 {
 	if [[ $sshCommand && "$initialState" == "on" ]]; then
-		SshHelper $sshHost "$sshCommand" > /dev/null || { powerOffCleanup; return 1; }
-		waitOff "$wait" || return
+		doSsh $sshHost "$sshCommand" > /dev/null || { powerOffCleanup; return 1; }
+		powerWaitOff "$wait" || return
 	fi
 
 	if [[ $switch ]]; then
 		[[ $sshCommand && "$initialState" == "on" ]] && { sleep 1 || return; }
-		switchPortOff "$switch" "$port" || return
+		switchPortOff "$switch" "$switchPort" || return
 	fi
 
 	return 0
 }
 
-powerOffCleanup() { [[ $switch && $force ]] && switchPortOff "$switch" "$port"; return 0; }
-
 powerOn() 
 { 
-	[[ ! $force && "$initialState" == "on" ]] && { echo "$hostName is already on"; return 0; }
+	if [[ ! $force && "$initialState" == "on" ]]; then
+		[[ ! $quiet ]] && echo "$hostDesc is already on"
+		return 0
+	fi
 	
 	# power on associated switch port if specified
 	if [[ $power ]]; then
-		switchPortOn $switch $port || return
-		[[ ! $sshCommand ]] && { echo "done"; return; }
+		switchPortOn $switch $switchPort || return
+		[[ ! $sshCommand ]] && return
 
-	# Turn on host using Wake-on-LAN.  A MAC address must be specified in /etc/ethers
+	# turn on host using Wake-on-LAN.  A MAC address must be specified in /etc/ethers
 	elif grep "${host}$" "/etc/ethers" >& /dev/null; then
 		local broadcastAddress="$(GetBroadcastAddress)"; [[ $broadcastAddress ]] && broadcastAddress="-i $broadcastAddress"
 		printf "wol..."
-		wakeonlan $broadcastAddress "${host,,}" > /dev/null # host must be lower case to be found
+		[[ ! $test ]] && wakeonlan $broadcastAddress "${host,,}" > /dev/null # host must be lower case to be found
 	fi
 
 	# wait for the host to power up
-	waitOn "$wait" || return
+	powerWaitOn "$wait" || return
 } 
 
 powerReboot()
 {
 	if [[ "$initialState" == "off" ]]; then
-		[[ $switch ]] && { switchPortOff "$switch" "$port" || return; } # make sure the switch port if off
+		[[ $switch ]] && { switchPortOff "$switch" "$switchPort" || return; } # make sure the switch port if off
 		powerOn; return
 	fi
 	
-	SshHelper $sshHost "$sshCommand" >& /dev/null || return
-	waitOff "${wait:-$waitDefault}" || return
-	waitOn "${wait}" || return
+	doSsh "$sshHost" "$sshCommand" >& /dev/null || return
+	powerWaitOff "${wait:-$waitDefault}" || return
+	powerWaitOn "${wait}" || return
 }
 
-# waitOff SECONDS - wait for host to disconnect from the network
-waitOff()
+# powerWaitOff SECONDS - wait for host to disconnect from the network
+powerWaitOff()
 {
-	local s="$1"
+	local seconds="$1"
 
-	( [[ ! $s ]] || ! IsAvailable "$host" "$timeout") && return 0
+	( [[ ! $seconds ]] || ! IsAvailable "$host" "$timeout") && return 0
 
 	printf "waiting..."
 
-	for (( i=1; i<=$s; ++i )); do
+	for (( i=1; i<=$seconds; ++i )); do
  		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
 
 		if ! IsAvailable "$host" "$timeout"; then
@@ -424,6 +404,7 @@ waitOff()
 			return 0			
 		fi
 
+		[[ $test && "$i" == "4" ]] && return 0
 		printf "."
 	done
 
@@ -431,26 +412,27 @@ waitOff()
 	return 1
 }
 
-# waitOn SECONDS - wait for host to become available
-waitOn()
+# powerWaitOn SECONDS - wait for host to become available
+powerWaitOn()
 {
-	local found s="$1"
+	local found seconds="$1"
 
-	( [[ ! $s ]] || IsAvailable "$host" "$timeout") && return 0
+	( [[ ! $seconds ]] || IsAvailable "$host" "$timeout") && return 0
 
 	printf "waiting..."
 
-	for (( i=1; i<=$s; ++i )); do
+	for (( i=1; i<=$seconds; ++i )); do
  		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
 
 		if [[ $found ]]; then
-			checkSsh && { printf "ssh..."; return 0; }
+			powerSshAvailable && { printf "ssh..."; return 0; }
 
 		elif IsAvailable "$host" "$timeout"; then
 			found="true"; printf "found..."
 			[[ ! $waitSsh ]] && return 0
 		fi
 
+		[[ $test && "$i" == "4" ]] && return 0
 		printf "."
 	done
 
@@ -458,54 +440,151 @@ waitOn()
 	return 1
 }
 
-waitSsh() { printf "$hostName..."; waitOn "${wait}" || return; echo "done"; }
+#
+# Status Command
+#
+
+statusUsage()
+{
+	echot "\
+Usage: power status [watts] HOST
+Report the status of the host or PoE switch (on or off).  
+If port is all then the status of all switch ports is displayed.
+
+	$hostArg
+
+	-t, --timeout=[500]		milliseconds to wait for a response from the host
+	-v, --verbose 				show verbose status information"
+}
+
+statusArgEnd() { [[ ! $1 ]] && MissingOperand "host"; return 0; }
+
+statusCommand()
+{
+	local host command="doStatus"; [[ $verbose ]] && command="doStatusVerbose"
+	for host in "$@"; do "$command" "$host" || return; done; 
+}
+
+statusWattsCommand()
+{
+	local host="$1"; initHost "$host" || return
+
+	if [[ $switchPort ]]; then
+		switchWatts "$host" "$switchPort"
+	else
+		local switch switchPort; switchLookup "$host" || return
+		[[ $switch && $switchPort ]] && switchWatts "$switch" "$switchPort"
+	fi
+}
+
+doStatus()
+{
+	local host="$1"; initHost "$host" || return
+	local result
+
+	if [[ $switchPort ]]; then
+		if [[ "$switchPort" == "all" ]]; then
+			SshHelper "admin@$host" swctrl poe show; return
+		else
+			switchPortStatus "$host" "$switchPort"; result=$?
+		fi
+	else
+		IsAvailable "$host" "$timeout"; result=$?
+	fi	
+	
+	[[ "$result" == "0" ]] && echo "on" || echo "off"
+}
+
+doStatusVerbose()
+{
+	local host="$1"; initHost "$host" || return
+	local status="$(doStatus "$host")"
+
+	if [[ $switchPort ]]; then
+		echo "$hostDesc port $switchPort is $status ($(switchWatts "$host" "$switchPort")w)"
+	else
+		local switch switchPort; switchLookup "$host" || return
+
+		local power
+		[[ $switch && $switchPort ]] && power="$(switchWatts "$switch" "$switchPort")w"
+		[[ $power ]] && power=" ($power)"
+
+		echo "$hostDesc is $status$power"
+	fi
+}
 
 #
 # Switch Helper - assume UniFi Ubiquiti PoE switch
 #
 
-# switchGetPort HOST - set the switch and port that the specified host is connected to
-switchGetPort()
+# switchLookup HOST - set the switch and port that the specified host is connected to
+switchLookup()
 {
 	local hostShort="$(RemoveDnsSuffix "$1")"
 	local line=( $(grep -i "^$hostShort[ 	]" "$DATA/setup/ports") )
-	switch="${line[1]}" port="${line[2]}"
+	switch="${line[1]}" switchPort="${line[2]}"
 }
 
 # switchPortOn switch port - turn the power of a PoE port on
 switchPortOn()
 {
-	local switch="$1" port="$2"
-	printf "port $port..."
-	switchPortStatus $switch $port && { printf "already on..."; return; }
-	SshHelper admin@$switch swctrl poe set auto id $port || return
+	local switch="$1" switchPort="$2"
+	printf "port $switchPort..."
+	switchPortStatus $switch $switchPort && { [[ ! $quiet ]] && printf "already on..."; return; }
+	doSsh "admin@$switch" swctrl poe set auto id $switchPort || return
 	printf "on..."
 }
 
 # switchPortOff switch port - turn the power of a PoE port off
 switchPortOff()
 {
-	local switch="$1" port="$2"
+	local switch="$1" switchPort="$2"
 	printf "port..."
-	! switchPortStatus $switch $port && { printf "already off..."; return; }
-	SshHelper admin@$switch swctrl poe set off id $port || return
+	! switchPortStatus $switch $switchPort && { [[ ! $quiet ]] && printf "already off..."; return; }
+	doSsh "admin@$switch" swctrl poe set off id $switchPort || return
 	printf "off..."
 }
 
 # switchPortStatus switch port - get the power status of a PoE port
 switchPortStatus()
 { 
-	local switch="$1" port="$2"
-	SshHelper admin@$1 swctrl poe show id $2 |& cut -c7-13 | grep "Auto" >& /dev/null
+	local switch="$1" switchPort="$2"
+	SshHelper "admin@$switch" swctrl poe show id "$switchPort" |& cut -c7-13 | grep "Auto" >& /dev/null
 }
 
 # switchWatts SWITCH PORT - get the watts used by the specified switch and port
-switchWatts() { SshHelper admin@$1 swctrl poe show id $2 |& tail -1 | cut -c65-73 | tr -d "[:space:]"; }
+switchWatts() { SshHelper "admin@$1" swctrl poe show id $2 |& tail -1 | cut -c65-73 | tr -d "[:space:]"; }
 
 #
 # Helper
 #
 
-checkSsh() { SshHelper "$sshHost" "ls /" >& /dev/null; }
+initHost()
+{
+	# parse host - HOST:PORT
+	switchPort="$(GetWord "$host" 2 :)"
+	host="$(GetWord "$host" 1 :)"
+	hostOrig="${host,,}"
+	
+	# host aliases
+	case "$hostOrig" in
+		oversoul) host="oversoulw2";; # WOL only works on wired adapter
+		b) host="BackShedSwitch";;
+		c) host="StudyClosetSwitch";;
+		d) host="StudyDeskSwitch";;
+		g) host="GarageSwitch";;
+	esac
+
+	# validate host
+	hostIp="$(GetIpAddress "$host")" || { HostUnknown "$host"; return 1; }
+	hostDesc="$(os name "$host" | RemoveDnsSuffix)"
+}
+
+doSsh()
+{ 
+	[[ $verbose ]] && echo -n $'\n'"SshHelper $@"$'\n'
+	[[ $test ]] && return
+	SshHelper "$@"
+}
 
 run "$@"

@@ -692,6 +692,7 @@ GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	
 GetInterface() { ifconfig | head -1 | cut -d: -f1; } 														# GetInterface - name of the primary network interface
 GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper "$@" hostname; } 																			# GetHostname NAME - hosts configured name
+HostUnkown() { ScriptErr "$1: name or service not known"; }
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
 
@@ -769,7 +770,7 @@ GetIpAddress()
 {
 	local host="$1" ip
 
-	[[ ! $host ]] && { GetAdapterIpAddress; return; }
+	IsLocalHost "$host" && { GetAdapterIpAddress; return; }
 
 	IsIpAddress "$host" && { echo "$host"; return; }
 
@@ -853,7 +854,7 @@ IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" ==
 
 IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
 { 
-	local host="$1" timeout="${2-200}"
+	local host="$1" timeout="${2:-200}"
 
 	# resolve the IP address explicitly:
 	# - mDNS name resolution is intermitant (double check this on various platforms)
@@ -1049,6 +1050,10 @@ SshAgentCheck()
 	SshAgentHelper start --verbose --quiet
 }
 
+SshInPath() { SshHelper "$1" -- which "$2" >/dev/null; } # HOST FILE
+SshIsAvailable() { IsAvailablePort "$1" "$(SshGetPort "$1")"; } 											# HOST
+SshGetPort() { ssh -G "$1" | grep "^port " | cut -d" " -f2; }		 											# HOST
+
 SshHelper() 
 {
 	local args=() mosh host port x
@@ -1085,23 +1090,25 @@ SshHelper()
 	if ! IsInSshConfig "$host"; then
 		local hostFull="$host" ip mdnsIp; host="$(GetSshHost "$host")"
 
-		# assume port 22 if none was specified
-		[[ ! $port ]] && port="22"
-
+		# get the port from configuration if none was specified
+		[[ ! $port ]] && port="$(SshGetPort "$host")" || return
+		
 		# resolve the host using DNS first
-		ip="$(GetIpAddress "$host")"
+		ip="$(GetIpAddress "$host")" || { HostUnkown "$host"; return 1; }
 
-		# if the DNS ip did not resolve or is not responding try mDNS (.local) name resolution
-		if ! IsMdnsName "$host" && { [[ ! $ip ]] || ! IsAvailablePort "$ip" "$port"; }; then
-			mdnsIp="$(MdnsResolve "$host.local" 2> /dev/null)"
-			[[ $mdnsIp ]] && ip="$mdnsIp"
-		fi
+		# TODO: make this resolve faster using dns-sd from the Bonjour SDK
+		# if this works don't call HostUnknown above
+		# # if the DNS ip did not resolve or is not responding try mDNS (.local) name resolution
+		# if ! IsMdnsName "$host" && { [[ ! $ip ]] || ! IsAvailablePort "$ip" "$port"; }; then
+		# 	mdnsIp="$(MdnsResolve "$host.local" 2> /dev/null)"
+		# 	[[ $mdnsIp ]] && ip="$mdnsIp"
+		# fi
 
-		# unable to resolve the hostname
-		if [[ ! $ip ]]; then
-			EchoErr "ssh: Could not resolve $host : Name or service not known"
-			return 1
-		fi
+		# # unable to resolve the hostname
+		# if [[ ! $ip ]]; then
+		# 	EchoErr "ssh: $host : Name or service not known"
+		# 	return 1
+		# fi
 
 		# the host is not available on the specified port
 		if ! IsAvailablePort "$ip" "$port"; then
@@ -1700,9 +1707,15 @@ RunFunction()
 
 ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
-ScriptErr() { EchoErr "$(ScriptName): $1"; }
+ScriptErr() { local name="$(ScriptName)"; [[ $name ]] && name="$name: "; EchoErr "${name}$1"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
-ScriptName() { IsBash && GetFileName "${BASH_SOURCE[-1]}" || GetFileName "$ZSH_SCRIPT"; }
+
+ScriptName()
+{
+	local name
+	IsBash && name="$(GetFileName "${BASH_SOURCE[-1]}")" || name="$(GetFileName "$ZSH_SCRIPT")"
+	[[ $name && "$name" != "function.sh" ]] && echo "$name"
+}
 
 # ScriptEval <script> [<arguments>] - run a script and evaluate the output.
 #    Typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"

@@ -20,7 +20,7 @@ echo platform=$(uname);
 echo kernel=\"$(uname -r)\";
 [[ -f /etc/os-release ]] && cat /etc/os-release;
 [[ -f "/etc/debian_chroot" ]] && echo chroot=\""$(cat "/etc/debian_chroot")"\";
-[[ -f /var/sysinfo/model ]] && echo ubiquiti=true;
+[[ -f /usr/bin/ubntconf ]] && echo ubiquiti=true;
 [[ -f /proc/syno_platform ]] && echo synology=true;
 [[ -f /bin/busybox ]] && echo busybox=true;
 [[ -f /usr/bin/systemd-detect-virt ]] && echo container=\"$(systemd-detect-virt --container)\";
