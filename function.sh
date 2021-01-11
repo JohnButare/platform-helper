@@ -692,7 +692,7 @@ GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	
 GetInterface() { ifconfig | head -1 | cut -d: -f1; } 														# GetInterface - name of the primary network interface
 GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper "$@" hostname; } 																			# GetHostname NAME - hosts configured name
-HostUnkown() { ScriptErr "$1: name or service not known"; }
+HostUnknown() { ScriptErr "$1: name or service not known"; }
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
 
