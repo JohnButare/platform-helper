@@ -1051,10 +1051,13 @@ SshAgentHelper()
 	SshAgent "$@" && . "$HOME/.ssh/environment"
 }
 
+# SshAgentConfig - read the SSH Agent configuration into the current shell
+SshAgentConfig() { [[ ! -f "$HOME/.ssh/environment" ]] && return; . "$HOME/.ssh/environment"; }
+
 # SshAgentCheck - check and start the SSH Agent if needed
 SshAgentCheck()
 {
-	[[ -f "$HOME/.ssh/environment" ]] && . "$HOME/.ssh/environment"
+	
 	ssh-add -L >& /dev/null && return
 	SshAgentHelper start --verbose --quiet
 }
@@ -1110,7 +1113,7 @@ SshHelper()
 
 		# get the port from configuration if none was specified
 		[[ ! $port ]] && { port="$(SshGetPort "$host")" || return; }
-		
+
 		# resolve the host using DNS or mDNS
 		host="$(GetIpAddress --all "$host")" || { HostUnkown "$host"; return 1; }
 	fi
