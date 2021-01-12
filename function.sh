@@ -944,6 +944,8 @@ WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS](200) [SECONDS](120)
 	local port="$2"; [[ ! $port ]] && { MissingOperand "port" "WaitForPort"; return 1; }
 	local timeout="${3-200}" seconds="${4-200}"
 	
+	IsAvailablePort "$host" "$port" "$timeout" && return
+
 	printf "Waiting for $host port $port..."
 	for (( i=1; i<=$seconds; ++i )); do
  		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
@@ -1020,8 +1022,8 @@ MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';
 # Network: SSH
 #
 
-GetSshUser() { echo "$1" | cut -s -d@ -f 1; } # USER@SERVER:PORT
-GetSshHost() { echo "$1" | cut -d@ -f 2 | cut -d: -f 1; }
+GetSshUser() { echo "$1" | cut -s -d@ -f 1; } 							# USER@SERVER:PORT
+GetSshHost() { echo "$1" | cut -d@ -f 2 | cut -d: -f 1; }		
 GetSshPort() { echo "$1" | cut -s -d: -f 2; }
 
 IsSsh() { [[ "$SSH_TTY" ]]; }
@@ -1061,18 +1063,26 @@ SshInPath() { SshHelper "$1" -- which "$2" >/dev/null; } # HOST FILE
 SshIsAvailable() { IsAvailablePort "$1" "$(SshGetPort "$1")"; } 											# HOST
 SshGetPort() { ssh -G "$1" | grep "^port " | cut -d" " -f2; }		 											# HOST
 
+SshHelperUsage()
+{
+	echot "Usage: SshHelper HOST
+	-m, --mosh					connecting using mosh
+	-x, --x-forwarding  connect with X forwarding
+	-w, --wait					wait for SSH to become available"; return "${1:-1}"
+}
+
 SshHelper() 
 {
-	local args=() mosh host port x
+	local args=() mosh host x wait
 
-	[[ $# == 0 || $1 == @(--help) ]]	&& { echot "usage: SshHelper HOST
-	-m, --mosh					connecting using mosh
-	-x, --x-forwarding  connect with X forwarding"; return 1; }
+	[[ $# == 0 ]]	&& { SshHelperUsage; return; }
 
 	while (( $# != 0 )); do 
 		case "$1" in "") : ;;
+			-h|--help) SshHelperUsage 0; return;;
 			-m|--mosh) mosh="true";;
 			-x|--x-forwarding) x="true";;
+			-w|--wait) wait="--wait";;
 			*) { ! IsOption "$1" && [[ ! $host ]]; } && host="$1" || args+=( "$1" );;
 		esac
 		shift
@@ -1090,31 +1100,35 @@ SshHelper()
 	fi
 
 	# port - get a port specified in the host and remove it from the name, format USER@HOST:PORT
+	local port user
 	port="$(GetSshPort "$host")" 
-	host="${host/:$port/}"
+	user="$(GetSshUser "$host")"
+	host="$(GetSshHost "$host")"
 
-	# identify port and IP if the host is in ~/.ssh/config 	
+	# identify port and IP if the host is not in ~/.ssh/config 	
 	if ! IsInSshConfig "$host"; then
-		local hostFull="$host" ip mdnsIp; host="$(GetSshHost "$host")"
 
 		# get the port from configuration if none was specified
-		[[ ! $port ]] && port="$(SshGetPort "$host")" || return
+		[[ ! $port ]] && { port="$(SshGetPort "$host")" || return; }
 		
 		# resolve the host using DNS or mDNS
-		ip="$(GetIpAddress -all "$host")" || { HostUnkown "$host"; return 1; }
+		host="$(GetIpAddress --all "$host")" || { HostUnkown "$host"; return 1; }
+	fi
 
-		# the host is not available on the specified port
-		if ! IsAvailablePort "$ip" "$port"; then
-			EchoErr "ssh: $host ($ip) is not responding on port $port"
-			return 1
-		fi
+	# wait for SSH to become available if needed
+	if [[ $wait ]]; then
+		[[ ! $port ]] && { port="$(SshGetPort "$host")" || return; }
+		WaitForPort "$host" "$port" || return
 
-		# replace the hostname with the IP address that was resolved
-		host="${hostFull/$host/$ip}"
+	# the host is not available on the specified port
+	elif [[ $port ]] && ! IsAvailablePort "$host" "$port"; then
+		EchoErr "ssh: $host ($ip) is not responding on port $port"
+		return 1
 	fi
 
 	# arguments
-	args=($host)
+	args=()
+	[[ $user ]] && args+=("$user@$host") || args+="$host"
 	[[ $port ]] && args+=(-p "$port")
 	[[ ! $mosh ]] && args+=(-y) # send diagnostic messages to syslog to supresses "Warning: No xauth data; using fake authentication data for X11 forwarding." in Windows
 	set -- "${args[@]}" "$@"
