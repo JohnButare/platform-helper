@@ -765,9 +765,11 @@ GetEthernetAdapters()
 	fi
 }
 
-# GetIpAddress [HOST] - get the IP address of the current or specified host
+# GetIpAddress [-a|--all] [HOST] - get the IP address of the current or specified host
+# If all is specified try to resolve using DNS then MDNS (.local) name.
 GetIpAddress() 
 {
+	local all; [[ "$1" =~ ^(-a|--all)$ ]] && { all="true"; shift; }
 	local host="$1" ip
 
 	IsLocalHost "$host" && { GetAdapterIpAddress; return; }
@@ -776,7 +778,7 @@ GetIpAddress()
 
 	# Resolve mDNS (.local) addresses exclicitly as the name resolution commands below can fail on some hosts
 	# In Windows WSL the methods below never resolve mDNS addresses
-	IsMdnsName "$host" && { MdnsResolve "$host" 2> /dev/null; return; }
+	IsMdnsName "$host" && { ip="$(MdnsResolve "$host" 2> /dev/null)"; [[ $ip ]] && echo "$ip"; return; }
 
 	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
@@ -786,7 +788,9 @@ GetIpAddress()
 	elif InPath nslookup; then ip="$(nslookup "$host" |& tail -3 | grep "Address:" | cut -d" " -f 2)"
 	fi
 
-	[[ $ip ]] && { echo "$ip"; return ; }
+	[[ ! $ip && $all ]] && ip="$(MdnsResolve "${host}.local" 2> /dev/null)"
+
+	[[ $ip ]] && echo "$ip"
 }
 
 # GetPrimaryAdapterName - get the name of the primary network adapter used for communication
@@ -998,7 +1002,7 @@ MdnsResolve()
 
 	# Currently WSL does not resolve mDns .local address but Windows does
 	if IsPlatform win; then
-		result="$(ping.exe -4 -n 1 -w 200 "$name" |& grep "Pinging " | awk '{ print $3; }' | sed 's/\[//g' | sed 's/\]//g')"
+		result="$(dns-sd.exe -timeout 200 -Q "$name" |& grep "$name" | head -1 | rev | cut -d" " -f1 | rev)"
 	elif IsPlatform mac; then
 		result="$(ping -c 1 -W 200 "$name" |& grep "bytes from" | gcut -d" " -f 4 | sed s/://)"
 	else
@@ -1008,6 +1012,9 @@ MdnsResolve()
 	[[ ! $result ]] && { EchoErr "mDNS: Could not resolve hostname $host"; return 1; } 
 	echo "$result"
 }
+
+MdnsNames() { avahi-browse -all -c -r | grep hostname | sort | uniq | cut -d"=" -f2 | RemoveSpace | sed 's/\[//' | sed 's/\]//'; }
+MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';' -f5 | sort | uniq; }
 
 #
 # Network: SSH
@@ -1093,22 +1100,8 @@ SshHelper()
 		# get the port from configuration if none was specified
 		[[ ! $port ]] && port="$(SshGetPort "$host")" || return
 		
-		# resolve the host using DNS first
-		ip="$(GetIpAddress "$host")" || { HostUnkown "$host"; return 1; }
-
-		# TODO: make this resolve faster using dns-sd from the Bonjour SDK
-		# if this works don't call HostUnknown above
-		# # if the DNS ip did not resolve or is not responding try mDNS (.local) name resolution
-		# if ! IsMdnsName "$host" && { [[ ! $ip ]] || ! IsAvailablePort "$ip" "$port"; }; then
-		# 	mdnsIp="$(MdnsResolve "$host.local" 2> /dev/null)"
-		# 	[[ $mdnsIp ]] && ip="$mdnsIp"
-		# fi
-
-		# # unable to resolve the hostname
-		# if [[ ! $ip ]]; then
-		# 	EchoErr "ssh: $host : Name or service not known"
-		# 	return 1
-		# fi
+		# resolve the host using DNS or mDNS
+		ip="$(GetIpAddress -all "$host")" || { HostUnkown "$host"; return 1; }
 
 		# the host is not available on the specified port
 		if ! IsAvailablePort "$ip" "$port"; then
