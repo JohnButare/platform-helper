@@ -1104,7 +1104,7 @@ SshHelper()
 	fi
 
 	# port - get a port specified in the host and remove it from the name, format USER@HOST:PORT
-	local port user
+	local ip port user
 	port="$(GetSshPort "$host")" 
 	user="$(GetSshUser "$host")"
 	host="$(GetSshHost "$host")"
@@ -1116,7 +1116,7 @@ SshHelper()
 		[[ ! $port ]] && { port="$(SshGetPort "$host")" || return; }
 
 		# resolve the host using DNS or mDNS
-		host="$(GetIpAddress --all "$host")" || { HostUnknown "$host"; return 1; }
+		ip="$(GetIpAddress --all "$host")" || { HostUnknown "$host"; return 1; } && host="$ip"
 	fi
 
 	# wait for SSH to become available if needed
