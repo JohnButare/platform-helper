@@ -22,14 +22,14 @@ Usage: $(ScriptName) [OPTION]... [COMMAND]...
 Manipulate network volumes using the UNC (Universal Naming Convention) format.
 The UNC format is //[USER@]SERVER/SHARE[/DIRS].
 
-	get 						get UNC information
-	browse					list UNC shares on the local network
-	IsAvailable 		return true if the host is available
-	IsMounted				return true if the target is mounted 
-	IsUnc FILE			return true if the specified file is a mounted UNC
-	list HOST				list UNC shares on the specified host
-	mount UNC				mount the specified UNC
-	unmount UNC|all	unmount the specified UNC
+	get 							get UNC information
+	browse						list UNC shares on the local network
+	IsAvailable HOST	check if a host is available for UNC connections
+	IsMounted UNC			check if a UNC is mounted 
+	IsUnc FILE				check if a file is a mounted UNC
+	list HOST					list UNC shares on the specified host
+	mount UNC					mount the specified UNC
+	unmount UNC|all		unmount the specified UNC
 
 	-q, --quiet						hide status messages
 	-v, --verbose					show additional status"
@@ -166,7 +166,7 @@ isAvailableGetOption() { getProtocolOption "$@"; }
 
 isAvailableGetArgs() { ScriptGetArg "host" "$1"; shift; }
 
-isAvailableCommand() { isAvailable "$host" "$protocol"; }
+isAvailableCommand() { findProtocol "$host"; }
 
 #
 # List Command
@@ -301,7 +301,7 @@ mountCommand()
 	elif [[ "$protocol" == "ssh" ]] || IsInteger "$protocol"; then
 		local portArg; IsInteger "$protocol" && portArg=(-p "${protocol}")
 		[[ "$share" == "root" ]] && share=""
-		sshfs -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountDir" "${portArg[@]}"
+		sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountDir" "${portArg[@]}"
 
 	elif IsPlatform linux,wsl2; then
 		local sudo; IsPlatform qnap && sudo="sudoc"
@@ -365,6 +365,7 @@ unmountCommand()
 # Protocol Helper
 #
 
+# findProtocol HOST - find a file sharing protocol for HOST.   
 findProtocol()
 {
 	local host="$1"
@@ -380,14 +381,16 @@ findProtocol()
 	isAvailable "$host" "smb" || isAvailable "$host" "nfs" "mount.nfs" || isAvailable "$host" "ssh" "sshfs"
 }
 
-# isAvailable HOST PROTOCOL - return true if the host is available on the ports required for the protcol
+# isAvailable HOST PROTOCOL FILE - return true if the file sharing protocol FILE is available
+# and the host is available on the port required for the protcol.   Sets protocol on return.
 isAvailable()
 {
-	local host="$1" protocol="$2" file="$3"
-	local port="$(getPort "$protocol")"
+	protocol="$2"
+	local host="$1" file="$3"
+	local port="$(getPort "$protocol" "$host")"
 
-	if [[ $file && ! -f "$file" ]]; then
-		[[ $verbose ]] && PrintErr "$protocol protocol unavailable ($file missing)..."
+	if [[ $file ]] && ! InPath "$file"; then
+		[[ $verbose ]] && EchoErr "$protocol protocol unavailable ($file missing)"
 		return 1
 	fi
 
@@ -404,12 +407,12 @@ isAvailable()
 
 getPort()
 {
-	local protocol="$1"
+	local protocol="$1" host="$2"
 
 	case "${protocol:-smb}" in
 		nfs) echo "111";; # 111 and 2049 
 		smb) echo "445";; # 135 and 445
-		ssh) echo "22";;
+		ssh) SshGetPort "$host";;
 		*) echo "$protocol"
 	esac
 }

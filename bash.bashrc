@@ -7,11 +7,11 @@ set -a # export variables and functions to child processes
 #
 
 # GetPlatform [host](local) - get the platform for the specified host, sets platform, platformLike, platformId, and wsl
-# test:  sf; time GetPlatform nas? && echo "success: $platform-$platformLike-$platformId"
 # PLATFORM=linux|mac|win
 # PLATFORM_LIKE=debian|openwrt|qnap|synology
 # PLATFORM_ID=dsm|pixel|qts|raspian|rock|srm|ubiquiti|ubuntu
 # WSL=1|2 (Windows)
+# test:  sf; time GetPlatform nas3 && echo "success: $platform-$platformLike-$platformId"
 
 function GetPlatform() 
 {
@@ -27,8 +27,7 @@ echo kernel=\"$(uname -r)\";
 exit 0;'
 
 	if [[ $host ]]; then
-		results="$(ssh $host "$cmd")" || return 1
-
+		results="$(SshHelper $host "$cmd")" || return 1
 	else
 		results="$(eval $cmd)"
 	fi

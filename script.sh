@@ -144,6 +144,8 @@ ScriptGetNetworkProtocol()
 	return 0
 }
 
+ScriptNetworkProtocolUsage() { echo "use the specified protocol for file sharing (NFS|SMB|SSH|SSH_PORT)"; }
+
 #
 # Script Other
 #

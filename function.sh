@@ -1063,8 +1063,21 @@ SshAgentCheck()
 }
 
 SshInPath() { SshHelper "$1" -- which "$2" >/dev/null; } # HOST FILE
-SshIsAvailable() { IsAvailablePort "$1" "$(SshGetPort "$1")"; } 											# HOST
-SshGetPort() { ssh -G "$1" | grep "^port " | cut -d" " -f2; }		 											# HOST
+SshIsAvailable() { IsAvailablePort "$1" "$(SshGetPort "$1")"; }	# HOST
+
+SshGetPort()
+{
+	local host="$1"
+
+	# find the protocol in configuration in case it is not defined in ~/.ssh/config
+	if [[ "$host" == "$(ConfigGet "fs")" ]]; then
+		local protocol; protocol="$(ConfigGet "fsProtocol")" || return
+		IsInteger "$protocol" && { echo "$protocol"; return; }
+	fi
+
+	# get th protocol from ~/.ssh/config
+	ssh -G "$1" | grep "^port " | cut -d" " -f2
+}
 
 SshHelperUsage()
 {
