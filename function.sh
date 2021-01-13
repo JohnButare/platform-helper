@@ -1116,7 +1116,7 @@ SshHelper()
 		[[ ! $port ]] && { port="$(SshGetPort "$host")" || return; }
 
 		# resolve the host using DNS or mDNS
-		host="$(GetIpAddress --all "$host")" || { HostUnkown "$host"; return 1; }
+		host="$(GetIpAddress --all "$host")" || { HostUnknown "$host"; return 1; }
 	fi
 
 	# wait for SSH to become available if needed
