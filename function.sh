@@ -1086,6 +1086,7 @@ SshHelper()
 			-m|--mosh) mosh="true";;
 			-x|--x-forwarding) x="true";;
 			-w|--wait) wait="--wait";;
+			--) shift; args+=("$@"); break;;
 			*) { ! IsOption "$1" && [[ ! $host ]]; } && host="$1" || args+=( "$1" );;
 		esac
 		shift
@@ -1136,19 +1137,17 @@ SshHelper()
 	[[ ! $mosh ]] && args+=(-y) # send diagnostic messages to syslog to supresses "Warning: No xauth data; using fake authentication data for X11 forwarding." in Windows
 	set -- "${args[@]}" "$@"
 
-	local log="" # -y send output to syslog
-
 	# connect using ssh
 	if [[ $mosh ]]; then
 		mosh "$@"
 	elif [[ ! $x ]]; then
 		ssh "$@"
 	elif IsPlatform wsl1; then # WSL 1 does not support X sockets over ssh and requires localhost
-		DISPLAY=localhost:0 ssh -X $log "$@"
-	elif IsPlatform mac,wsl2; then # macOS XQuartz requires trusted X11 forwarding, where X programs are trusted to use all X features on the host
-		ssh -Y $log "$@"
+		DISPLAY=localhost:0 ssh -X "$@"
+	elif IsPlatform mac,wsl2; then # WSL2 and macOS XQuartz requires trusted X11 forwarding (X programs are trusted to use all X features on the host)
+		ssh -Y "$@"
 	else # for everything else, use untrusted X Forwarding, where X programs are not trusted to use all X features on the host
-		ssh -X $log "$@"
+		ssh -X "$@"
 	fi
 }
 
