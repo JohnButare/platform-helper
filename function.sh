@@ -1026,7 +1026,7 @@ GetSshUser() { echo "$1" | cut -s -d@ -f 1; } 							# USER@SERVER:PORT
 GetSshHost() { echo "$1" | cut -d@ -f 2 | cut -d: -f 1; }		
 GetSshPort() { echo "$1" | cut -s -d: -f 2; }
 
-IsSsh() { [[ "$SSH_TTY" ]]; }
+IsSsh() { [[ "$SSH_TTY" || "$XPRA_SERVER_SOCKET" ]]; }
 RemoteServer() { echo "${SSH_CONNECTION%% *}"; }
 RemoteServerName() { nslookup "$(RemoteServer)" | grep "name =" | cut -d" " -f3; }
 
