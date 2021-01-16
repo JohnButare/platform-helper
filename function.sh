@@ -1104,7 +1104,7 @@ SshHelper()
 		esac
 		shift
 	done
-	[[ ! $host ]] && MissingOperand "host" "SshHelper"
+	[[ ! $host ]] && { MissingOperand "host" "SshHelper"; return 1; }
 	set -- "${args[@]}"
 
 	# SSH Agent fix
