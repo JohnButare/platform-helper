@@ -1030,14 +1030,11 @@ IsSsh() { [[ "$SSH_TTY" || "$XPRA_SERVER_SOCKET" ]]; }
 RemoteServer() { echo "${SSH_CONNECTION%% *}"; }
 RemoteServerName() { nslookup "$(RemoteServer)" | grep "name =" | cut -d" " -f3; }
 
-IsInSshConfig() # IsInSshConfig HOST - return true if HOST matches an entry in ~/.ssh/config
+# IsInSshConfig HOST - return true if HOST matches an entry in ~/.ssh/config
+IsInSshConfig() 
 {
 	local hostFull="$1" host="$(GetSshHost "$1")" defaultFull default="DEFAULT_CONFIG"
 	defaultFull="${hostFull/$host/$default}"
-	# echo $defaultFull-$default-$hostFull-$host
-	# ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$" > /tmp/1.txt	
-	# ssh -G "$hostFull" | grep -i -v "^hostname ${host}$" > /tmp/2.txt
-	# colordiff /tmp/1.txt /tmp/2.txt && echo SAME
 
 	[[ "$(ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$")" != "$(ssh -G "$hostFull" | grep -i -v "^hostname ${host}$")" ]] && return 0; # something other than the host changed
 	ssh -G "$hostFull" | grep -i "^hostname ${host}$" >& /dev/null && return 1 # host is unchanged
@@ -1057,128 +1054,12 @@ SshAgentConfig() { [[ ! -f "$HOME/.ssh/environment" ]] && return; . "$HOME/.ssh/
 # SshAgentCheck - check and start the SSH Agent if needed
 SshAgentCheck()
 {
-	
 	ssh-add -L >& /dev/null && return
 	SshAgentHelper start --verbose --quiet
 }
 
 SshInPath() { SshHelper "$1" -- which "$2" >/dev/null; } # HOST FILE
-SshIsAvailable() { IsAvailablePort "$1" "$(SshGetPort "$1")"; }	# HOST
-
-SshGetPort()
-{
-	local host="$1"
-
-	# find the protocol in configuration in case it is not defined in ~/.ssh/config
-	if [[ "$host" == "$(ConfigGet "fs")" ]]; then
-		local protocol; protocol="$(ConfigGet "fsProtocol")" || return
-		IsInteger "$protocol" && { echo "$protocol"; return; }
-	fi
-
-	# get th protocol from ~/.ssh/config
-	ssh -G "$1" | grep "^port " | cut -d" " -f2
-}
-
-SshHelperUsage()
-{
-	echot "Usage: SshHelper HOST
-	-m, --mosh					connecting using mosh
-	-x, --x-forwarding  connect with X forwarding
-	-w, --wait					wait for SSH to become available"; return "${1:-1}"
-}
-
-SshHelper() 
-{
-	local args=() mosh host x wait
-
-	[[ $# == 0 ]]	&& { SshHelperUsage; return; }
-
-	while (( $# != 0 )); do 
-		case "$1" in "") : ;;
-			-h|--help) SshHelperUsage 0; return;;
-			-m|--mosh) mosh="true";;
-			-x|--x-forwarding) x="true";;
-			-w|--wait) wait="--wait";;
-			--) shift; args+=("$@"); break;;
-			*) { ! IsOption "$1" && [[ ! $host ]]; } && host="$1" || args+=( "$1" );;
-		esac
-		shift
-	done
-	[[ ! $host ]] && { MissingOperand "host" "SshHelper"; return 1; }
-	set -- "${args[@]}"
-
-	# SSH Agent fix
-	SshAgentCheck 
-
-	# X Server check
-	if [[ ! $X_SERVER_CHECKED ]]; then
-		! xserver IsRunning && { xserver start || return; }
-		export X_SERVER_CHECKED="true"
-	fi
-
-	# port - get a port specified in the host and remove it from the name, format USER@HOST:PORT
-	local ip port user
-	port="$(GetSshPort "$host")" 
-	user="$(GetSshUser "$host")"
-	host="$(GetSshHost "$host")"
-
-	# identify port and IP if the host is not in ~/.ssh/config 	
-	if ! IsInSshConfig "$host"; then
-
-		# get the port from configuration if none was specified
-		[[ ! $port ]] && { port="$(SshGetPort "$host")" || return; }
-
-		# resolve the host using DNS or mDNS
-		ip="$(GetIpAddress --all "$host")" || { HostUnknown "$host"; return 1; } && host="$ip"
-	fi
-
-	# wait for SSH to become available if needed
-	if [[ $wait ]]; then
-		[[ ! $port ]] && { port="$(SshGetPort "$host")" || return; }
-		WaitForPort "$host" "$port" || return
-
-	# the host is not available on the specified port
-	elif [[ $port ]] && ! IsAvailablePort "$host" "$port"; then
-		EchoErr "ssh: $host ($ip) is not responding on port $port"
-		return 1
-	fi
-
-	# arguments
-	args=()
-	[[ $user ]] && args+=("$user@$host") || args+="$host"
-	[[ $port ]] && args+=(-p "$port")
-	[[ ! $mosh ]] && args+=(-y) # send diagnostic messages to syslog to supresses "Warning: No xauth data; using fake authentication data for X11 forwarding." in Windows
-	set -- "${args[@]}" "$@"
-
-	# connect using ssh
-	if [[ $mosh ]]; then
-		mosh "$@"
-	elif [[ ! $x ]]; then
-		ssh "$@"
-	elif IsPlatform wsl1; then # WSL 1 does not support X sockets over ssh and requires localhost
-		DISPLAY=localhost:0 ssh -X "$@"
-	elif IsPlatform mac,wsl2; then # WSL2 and macOS XQuartz requires trusted X11 forwarding (X programs are trusted to use all X features on the host)
-		ssh -Y "$@"
-	else # for everything else, use untrusted X Forwarding, where X programs are not trusted to use all X features on the host
-		ssh -X "$@"
-	fi
-}
-
-SshPermissionFix()
-{
-	local user="$1"; [[ ! $user ]] && { MissingOperand "user"; return 1; }
-	
-	sudoc bash -l << EOF
-	find "$USERS/$user/.ssh" | xargs chown $user || exit
-	find "$USERS/$user/.ssh" | sudo xargs chgrp "$user" || exit
-	sudo chmod 700 "$USERS/$user/.ssh" || exit
-
-	[[ -f "$USERS/$user/.ssh/config" ]] && sudo chmod 700 "$USERS/$user/.ssh/config" || exit
-	[[ -f "$USERS/$user/.ssh/authorized_keys" ]] && sudo chmod 700 "$USERS/$user/.ssh/authorized_keys" || exit
-	[[ -f "$USERS/$user/.ssh/id_rsa" ]] && sudo chmod 700 "$USERS/$user/.ssh/id_rsa" || exit
-	[[ -f "$USERS/$user/.ssh/id_ed25519" ]] && sudo chmod 700 "$USERS/$user/.ssh/id_ed25519" || exit
-EOF
-}
+SshIsAvailable() { IsAvailablePort "$1" "$(SshHelper port "$1")"; }	# HOST
 
 #
 # Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
