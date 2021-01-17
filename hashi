@@ -2,7 +2,7 @@
 . script.sh || exit
 . color.sh || exit
 
-run() {	init && args "$@" && initFinal && "${command}Command" "${args[@]}"; }
+run() {	init && args "$@" && initFinal && "${command}Command"; }
 
 usage()
 {
@@ -38,7 +38,7 @@ args()
 	# options
 	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
-		case "$1" in "") : ;;
+		case "$1" in
 			-f|--force) force="--force";;
 			-h|--help) usage 0;;
 			-H|--host|-H*|--host=*) ScriptArg hostArg host "$@"; hostArgOrig="$hostArg";;
@@ -53,12 +53,11 @@ args()
 
 	# arguments
 	ScriptArgs "$@" || return; shift "$shift"
-	[[ $@ ]] && usage
-
-	# logging
+	
+	# initialize
 	[[ $encrypt && $verbose ]] && echo "certificates: $(FileToDesc "$encrypt")"
 
-	return 0
+	(( $# == 0 )) && return || usage
 }
 
 #
@@ -88,8 +87,8 @@ init()
 
 initFinal()
 {
-	# if the command is a product command then initialize
-	if IsInArray "${commandNames[0]}" products; then
+	# if the command is a product command then initialize the product
+	if IsInArray "${commandNames[0]}" products && [[ "${commandNames[1]}" != "config" ]]; then
 		product="${commandNames[0]}"
 		productConfig "$product" || return
 	fi
@@ -117,16 +116,14 @@ statusCommand()
 
 	{
 		hilight "product-ui-token"
-		for product in "${products[@]}"; do
 
+		for product in "${products[@]}"; do
 			! productIsInstalled "$product" && continue
 
-			local http="$(httpVar "$product")";
-			local -n addr="${product^^}_${http}ADDR"
-			local -n token="${product^^}_${http}TOKEN"; [[ $token ]] && token="true" || token="false"
-
-			echo "$product-${addr}-$token"
+			local token="false"; [[ $(productVarToken "$product") ]] && token="true"
+			echo "$product-$(productVarAddress "$product")-$token"
 		done
+
 	} | column -c $(tput cols) -t -s- -n
 }
 
@@ -136,7 +133,7 @@ uiCommand()
 
 	productInit "consul" || return; certInit || return	
 	export CONSUL_ENABLE="true"
-	export CONSUL_ADDR="$(productGetUrl "$product")"
+	export CONSUL_ADDR="$(productGetAddress "$product")"
 	export CONSUL_ACL_TOKEN="$(credGet token)"
 	export CONSUL_HTTP_SSL="true"
 	export CONSUL_CACERT="$(certGetCa "$product")"
@@ -145,7 +142,7 @@ uiCommand()
 
 	productInit "nomad" || return; certInit || return
 	export NOMAD_ENABLE="true"
-	export NOMAD_ADDR="$(productGetUrl "$product")"
+	export NOMAD_ADDR="$(productGetAddress "$product")"
 	export NOMAD_ACL_TOKEN="$(credGet token)"
 	export NOMAD_HTTP_SSL="true"
 	export NOMAD_CACERT="$(certGetCa "$product")"
@@ -1042,12 +1039,12 @@ lookupArgs() { ScriptGetArg "name" "$1"; shift; }
 
 lookupCommand()
 {
-	local addr="$(productGetServer "consul")"
+	local server="$(productGetServer "consul")"
 	name+=".service.$domain"
 	productInit "consul" || return
-	[[ $verbose ]] && HilightErr "Using Consul server at $addr"
-	! IsAvailablePort "$addr" 8600 && { EchoErr "$name port 8600 is not available"; return 1; }
-	nslookup -port=8600 -type=a -norecurse "$name" "$addr"
+	[[ $verbose ]] && HilightErr "Using Consul server at $server"
+	! IsAvailablePort "$server" 8600 && { EchoErr "$name port 8600 is not available"; return 1; }
+	nslookup -port=8600 -type=a -norecurse "$name" "$server"
 }
 
 #
@@ -1993,9 +1990,9 @@ productCheck()
 #   the the product in this script
 productConfig()
 {
-	local product="$1" host="$2"; productCheck "$1" || return
-	local -n addr="${product^^}_$(httpVar "$product")ADDR"
+	local product="$1" host="$2"
 
+	productCheck "$1" || return
 	eval "$(productConfigShow "$product" "$host")" || return
 	productConfigStatus || return
 }
@@ -2006,7 +2003,7 @@ productConfigArgs()
 	local host="$1"
 	local args=""
 	local server; server="$(productGetServer "$product" "$host")" || return
-	local url; url="$(productGetUrl "$product" "$server")" || return
+	local url; url="$(productGetAddress "$product" "$server")" || return
 	local http; http="$(httpVar "$product")" || return
 	local certCa; certCa="$(certGetCaType "$product" "$type")" || return
 	local args="-http-addr=$url"
@@ -2017,8 +2014,8 @@ productConfigArgs()
 
 productConfigStatus()
 { 
-	[[ ! $verbose ]] && return
-	hilight "Using $product server at $addr"
+	[[ ! $verbose ]] && return	
+	hilight "Using $product server at $(productVarAddress "$product")"
 }
 
 # productConfigShow PRODUCT [HOST] - show the configuration variables for the specified product
@@ -2031,7 +2028,7 @@ productConfigShow()
 	
 	local args="" 
 	local server; server="$(productGetServer "$product" "$host")" || return
-	local url; url="$(productGetUrl "$product" "$server")" || return
+	local url; url="$(productGetAddress "$product" "$server")" || return
 	local http; http="$(httpVar "$product")" || return
 	local certCa; certCa="$(certGetCa "$product")" || return
 
@@ -2061,6 +2058,23 @@ productConfigShow()
 	echo "export $tokenVar=\"$tokenVal\""
 
 	return 0
+}
+
+# productGetAddress PRODUCT [SERVER] [PORT] - get the communication URL for the product
+productGetAddress()
+{
+	local product="$1"
+	local server="$2"; [[ ! $server ]] && server="$(productGetServer "$product")"
+	local port="$3"; [[ ! $port ]] && port="$(productGetPort "$product")"
+	useHttps && echo "https://$server:$port" || echo "http://$server:$port"
+}
+
+# productGetPort PRODUCT - get the primary port for the specified product
+productGetPort()
+{
+	local p="$1"
+	declare -n port; useHttps && port="${p}HttpsPort" || port="${p}HttpPort"
+	echo "$port"
 }
 
 # productGetServer PRODUCT [HOST] - get the server for the product
@@ -2106,30 +2120,14 @@ productGetServer()
 	IsLocalHost "$server" && echo "127.0.0.1" || DnsResolve "$server"
 }
 
-# productGetPort PRODUCT - get the primary port for the specified product
-productGetPort()
-{
-	local p="$1"
-	declare -n port; useHttps && port="${p}HttpsPort" || port="${p}HttpPort"
-	echo "$port"
-}
-
 # productGetToken PRODUCT - get the authentication token for the product
 productGetToken()
 {
-	local exclude; [[ "$1" == "vault" ]] && exclude="--exclude-managers=vault" # prevent recursion
-	local token="$(credential "$exclude" get "$1" token)"
+	local exclude=(); [[ "$1" == "vault" ]] && exclude=( "--exclude-managers=vault" ) # prevent recursion
+	
+	local token="$(credential get "$1" token "${exclude[@]}")"
 	[[ ! $token ]] && { ScriptErr "unable to get the $1 token"; return 1; }
 	echo "$token"
-}
-
-# productGetUrl PRODUCT [SERVER] [PORT] - get the communication URL for the product
-productGetUrl()
-{
-	local p="$1"
-	local server="$2"; [[ ! $server ]] && server="$(productGetServer "$p")"
-	local port="$3"; [[ ! $port ]] && port="$(productGetPort "$p")"
-	useHttps && echo "https://$server:$port" || echo "http://$server:$port"
 }
 
 productInstall()
@@ -2252,6 +2250,22 @@ productRemove()
 
 		EOF
 	)"
+}
+
+# productVarAddress PRODUCT - get the communication address for the specified product from configuration variables
+productVarAddress()
+{
+	local product="$1"	
+	local -n address="${product^^}_$(httpVar "$product")ADDR"
+	echo "$address"
+}
+
+# productVarToken PRODUCT - get the authentication token for the specified product from configuration variables
+productVarToken()
+{
+	local product="$1"	
+	local -n token="${product^^}_$(httpVar "$product")TOKEN"
+	echo "$token"
 }
 
 productVersion()
