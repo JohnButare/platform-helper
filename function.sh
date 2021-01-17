@@ -24,12 +24,17 @@ fi
 # Other
 #
 
-alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"' # get arguments from standard input if not specified on command line
-
 EvalVar() { r "${!1}" $2; } # EvalVar <variable> <var> - return the contents of the variable in variable, or set it to var
 IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
 IsInteractive() { [[ "$-" == *i* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
+
+# arguments - get argument from standard input if not specified on command line
+# - must be an alias to set arguments
+# - GetArgsN will read the first argument from standard input if there are not at least N arguments present
+alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"' 
+alias GetArgs2='(( $# < 2 )) && set -- "$(cat)" "$@"'
+alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
 
 # update - temporary file location
 UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
@@ -38,6 +43,8 @@ UpdateNeeded() { UpdateCheck || return; [[ $force || ! -f "$updateDir/$1" || "$(
 UpdateDone() { UpdateCheck && touch "$updateDir/$1"; }
 UpdateGet() { UpdateCheck && [[ ! -f "$updateDir/$1" ]] && return; cat "$updateDir/$1"; }
 UpdateSet() { UpdateCheck && printf "$2" > "$updateDir/$1"; }
+
+# clipboard
 
 clipok()
 { 
@@ -49,18 +56,6 @@ clipok()
 	
 }
 
-# clipboard
-clipw() 
-{ 
-	! clipok && return 1;
-
-	case "$PLATFORM" in 
-		linux) printf "%s" "$@" | xclip -sel clip;;
-		mac) printf "%s" "$@" | pbcopy;; 
-		win) ( cd /; printf "%s" "$@" | clip.exe );; # cd / to fix WSL 2 error running from network share
-	esac
-}
-
 clipr() 
 { 
 	! clipok && return 1;
@@ -69,6 +64,17 @@ clipr()
 		linux) xclip -o -sel clip;;
 		mac) pbpaste;;
 		win) paste.exe | tail -n +2;;
+	esac
+}
+
+clipw() 
+{ 
+	! clipok && return 1;
+
+	case "$PLATFORM" in 
+		linux) printf "%s" "$@" | xclip -sel clip;;
+		mac) printf "%s" "$@" | pbcopy;; 
+		win) ( cd /; printf "%s" "$@" | clip.exe );; # cd / to fix WSL 2 error running from network share
 	esac
 }
 
@@ -295,12 +301,12 @@ if IsBash; then
 	ArrayShowKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ArrayShow keys; }
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#declare }"; r "${gt%% *}" $2; } # get type
 	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
-	StringToArray() { IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
+	StringToArray() { GetArgs3; IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
 else
 	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; r "${gt%% *}" $2; } # get type
 	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "array" ]]; }
-	StringToArray() { IFS=$2 read -A $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
+	StringToArray() { GetArgs3; IFS=$2 read -A $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
 fi
 
 # array
@@ -404,10 +410,18 @@ IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveEmptyLines() { ${G}sed -r '/^\s*$/d'; }
-RemoveSpace() { GetArgs; echo "${@// /}"; }
-RemoveSpaceEnd() { GetArgs; echo "${@%%*( )}"; }
-RemoveSpaceFront() { GetArgs; echo "${@##*( )}"; }
-RemoveSpaceTrim() { GetArgs; echo "$(RemoveSpaceFront "$(RemoveSpaceEnd "$@")")"; }
+
+CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; }
+
+RemoveChar() { GetArgs2; echo "${1//${2:- }/}"; }
+RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }
+RemoveFront() { GetArgs2; echo "${1##*(${2:- })}"; }
+RemoveTrim() { GetArgs2; echo "$1" | RemoveFront "${2:- }" | RemoveEnd "${2:- }"; }
+
+RemoveSpace() { GetArgs; RemoveChar "$1" " "; }
+RemoveSpaceEnd() { GetArgs; RemoveEnd "$1" " "; }
+RemoveSpaceFront() { GetArgs; RemoveFront "$1" " "; }
+RemoveSpaceTrim() { GetArgs; RemoveTrim "$1" " "; }
 
 QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
@@ -1666,25 +1680,6 @@ CredGet()
 	credential exists "$@" --quiet --manager="local" && { credential get "$@" --manager="local"; return; }
 	credential exists "$@" --quiet --manager="remote" && { credential get "$@" --manager="remote"; return; }
 	return 1
-}
-
-CredSet()
-{
-	local p="$1" key="$2" value="$3" m managers=( local remote )
-
-	for m in "${managers[@]}"; do
-
-		if ! credential exists "$p" "$key" --quiet --manager="$m"; then
-			echo "Creating \`$p $key\` ($m)..."
-			credential set "$@" --manager="$m" || return
-
-		elif [[ "$(credential get "$p" "$key" --manager="$m")" != "$value" ]]; then
-			echo "Updating \`$p $key\` ($m)..."
-			credential set "$@" --manager="$m" || return
-
-		fi
-
-	done
 }
 
 # sudo
