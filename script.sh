@@ -29,9 +29,9 @@ ScriptGetArg()
 {
 	local varArg="$1"
 	local -n var="$varArg"
-	local desc="$varArg"; (( $# > 2 )) && { desc="$2"; shift; }
-	local value="$2"; [[ ! $value ]] && MissingOperand "$desc"
-	var="$value"; ((++shift))
+	local scriptDesc="$varArg"; (( $# > 2 )) && { scriptDesc="$2"; shift; }
+	local scriptValue="$2"; (( $# < 2 )) && MissingOperand "$scriptDesc"
+	var="$scriptValue"; ((++shift))
 }
 
 ScriptGetDriveLetterArg()
