@@ -181,7 +181,7 @@ setHostnameMac()
 # Information Commands
 #
 
-codeNameCommand() { InPath lsb_release && lsb_release -a |& grep "Codename:" | cut -f 2-; }
+codenameCommand() { ! InPath lsb_release && return 1; lsb_release -a |& grep "Codename:" | cut -f 2-; }
 
 architectureCommand()
 {
