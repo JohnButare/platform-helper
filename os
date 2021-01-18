@@ -96,7 +96,7 @@ executableCommand() { usage; }
 executableFormatCommand()
 {
 	IsPlatform mac && { echo "Mach-O $(bitsCommand)-bit executable $(fileArchitectureCommand)"; return; }
-	IsPlatform linux,win && { echo "ELF $(bitsCommand)-bit LSB executable, $(fileArchitectureCommand)"; return; }
+	IsPlatform linux,win && { echo "ELF $(bitsCommand)-bit LSB .*, $(fileArchitectureCommand)"; return; }
 	return 1
 }
 
@@ -106,7 +106,7 @@ alternateExecutableFormatCommand()
 	return 1
 }
 
-executableFindArgs() { ScriptGetArg "dir" "$1"; ScriptCheckDir "$dir"; shift; }
+executableFindArgs() { ScriptGetArg "dir" -- "$@"; ScriptCheckDir "$dir"; shift; }
 
 executableFindCommand()
 {
@@ -143,7 +143,7 @@ Usage: os hostname [set HOST]
 nameArgs()
 {
 	(( $# == 0 )) && return
-	ScriptGetArg "name" "$1"; shift
+	ScriptGetArg "name" -- "$@"; shift
 }
 
 nameCommand()
@@ -239,7 +239,7 @@ versionUsage() { echot "\
 Usage: $(ScriptName) version [HOST](localhost)
 Show Operating System version information."; }
 
-versionGetArgs() { [[ ! $1 ]] && return; ScriptGetArg "host" "$1"; }
+versionGetArgs() { [[ ! $1 ]] && return; ScriptGetArg "host" -- "$@"; }
 
 versionCommand() { if IsLocalHost "$host"; then versionLocal; else versionRemote; fi; }
 

@@ -24,19 +24,22 @@ ScriptArgs()
 	done
 }
 
-# ScriptGetArg VAR [DESC](VAR) VALUE - get an argument.  Sets var to value and increments shift
+# ScriptGetArg VAR [DESC](VAR) -- VALUE - get an argument.  Sets var to value and increments shift
 ScriptGetArg()
 {
-	local varArg="$1"
-	local -n var="$varArg"
-	local scriptDesc="$varArg"; (( $# > 2 )) && { scriptDesc="$2"; shift; }
-	local scriptValue="$2"; (( $# < 2 )) && MissingOperand "$scriptDesc"
-	var="$scriptValue"; ((++shift))
+	# arguments
+	local scriptVar="$1"; shift
+	local scriptDesc="$scriptVar"; [[ "$1" != "--" ]] && { scriptDesc="$1"; shift; }
+	[[ "$1" == "--" ]] && shift
+	(( $# == 0 )) && MissingOperand "$scriptDesc"
+
+	# set the variable
+	local -n var="$scriptVar"; var="$1"; ((++shift))
 }
 
 ScriptGetDriveLetterArg()
 {
-	ScriptGetArg "letter" "$1"
+	ScriptGetArg "letter" -- "$@"
 
 	# change drive letters to a single lower case letter, i.e. C:\ -> c
 	letter="${letter,,}"
