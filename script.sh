@@ -12,20 +12,18 @@ ScriptArgs()
 
 	for c in "${commands[@]}"; do
 		shift=0
-		RunFunction "${c}GetArgs" -- "$@" || return
-		RunFunction "${c}Args" -- "$@" || return # legacy
+		RunFunction "${c}Args" -- "$@" || return
 		shift "$shift"; ((finalShift+=shift))
 	done
 	shift="$finalShift"
 
 	for c in "${commands[@]}"; do
 		RunFunction "${c}ArgEnd" -- "$@" || return
-		RunFunction "${c}CheckArgs" -- "$@" || return # legacy
 	done
 }
 
-# ScriptGetArg VAR [DESC](VAR) -- VALUE - get an argument.  Sets var to value and increments shift
-ScriptGetArg()
+# ScriptArgGet VAR [DESC](VAR) -- VALUE - get an argument.  Sets var to value and increments shift
+ScriptArgGet()
 {
 	# arguments
 	local scriptVar="$1"; shift
@@ -37,9 +35,9 @@ ScriptGetArg()
 	local -n var="$scriptVar"; var="$1"; ((++shift))
 }
 
-ScriptGetDriveLetterArg()
+ScriptArgDriveLetter()
 {
-	ScriptGetArg "letter" -- "$@"
+	ScriptArgGet "letter" -- "$@"
 
 	# change drive letters to a single lower case letter, i.e. C:\ -> c
 	letter="${letter,,}"
@@ -91,8 +89,8 @@ ScriptCheckPath()
 # Script Options
 # 
 
-# ScriptOption OPTION - get an option for the commands
-ScriptOption()
+# ScriptOpt OPTION - get an option for the commands
+ScriptOpt()
 {
 	# not an option, add it to args
 	! IsOption "$1" && { args+=("$1"); return; }
@@ -100,17 +98,16 @@ ScriptOption()
 	# see if a commmand takes the option
 	local c
 	for c in $(ArrayReverse commands); do
-		IsFunction "${c}GetOption" && "${c}GetOption" "$@" && return
-		IsFunction "${c}Option" && "${c}Option" "$@" && return # legacy
+		IsFunction "${c}Opt" && "${c}Opt" "$@" && return
 	done
 
 	# not a valid option
 	UnknownOption "$1"
 }
 
-# ScriptArg VAR [DESC] OPTION VALUE - get an option argument.  Sets var to value and increments shift if needed.
+# ScriptOptGet VAR [DESC] OPTION VALUE - get an option argument.  Sets var to value and increments shift if needed.
 #   -o|--option -oVAL -o VAL -o=VAL --option=VAL --option VAL
-ScriptArg()
+ScriptOptGet()
 {
 	local -n var="$1"
 	local desc="$1"; ! IsOption "$2" && { desc="$2"; shift; }
@@ -137,17 +134,17 @@ ScriptArg()
 	var="$value"
 }
 
-# ScriptGetNetworkProtocol - sets protocol and protocolArg
-ScriptGetNetworkProtocol()
+# ScriptOptNetworkProtocol - sets protocol and protocolArg
+ScriptOptNetworkProtocol()
 {
-	ScriptArg "protocol" "$@"; 
+	ScriptOptGet "protocol" "$@"; 
 	protocol="${protocol,,}"
 	CheckNetworkProtocol "$protocol" || { ScriptErr "\`$protocol\` is not a valid network protocol"; ScriptExit; }
 	unset protocolArg; [[ $protocol ]] && protocolArg=( "--protocol=$protocol" )
 	return 0
 }
 
-ScriptNetworkProtocolUsage() { echo "use the specified protocol for file sharing (NFS|SMB|SSH|SSH_PORT)"; }
+ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file sharing (NFS|SMB|SSH|SSH_PORT)"; }
 
 #
 # Script Other
@@ -187,7 +184,6 @@ ScriptCommand()
 		if IsFunction "$c"; then
 			command="${c%Command}" commands+=("$command") commandNames+=("${arg,,}")
 			IsFunction "${command}ArgStart" && { "${command}ArgStart" || return; }
-			IsFunction "${command}Vars" && { "${command}Vars" || return; } # legacy
 			continue
 		fi
 

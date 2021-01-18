@@ -30,7 +30,7 @@ args()
 	while (( $# != 0 )); do		
 		case "$1" in "") : ;;
 			-h|--help) usage 0;;
-			*) ScriptOption "$@";;
+			*) ScriptOpt "$@";;
 		esac
 		shift "$shift"; shift=1
 	done
@@ -78,8 +78,6 @@ storeWin() { start "" "ms-windows-store://"; }
 # Executable Command
 #
 
-executableVars() { unset name; }
-
 executableUsage()
 {
 	echot "\
@@ -91,6 +89,8 @@ OS executable information
 									Mach-O 64-bit x86_64|arm64e
 	find DIR		return the executables for the current machine in the target directory"
 }
+
+executableArgStart() { unset name; }
 
 executableCommand() { usage; }
 
@@ -107,7 +107,7 @@ alternateExecutableFormatCommand()
 	return 1
 }
 
-executableFindArgs() { ScriptGetArg "dir" -- "$@"; ScriptCheckDir "$dir"; shift; }
+executableFindArgs() { ScriptArgGet "dir" -- "$@"; ScriptCheckDir "$dir"; shift; }
 
 executableFindCommand()
 {
@@ -132,8 +132,6 @@ executableFindCommand()
 # Name Commands
 #
 
-nameVars() { unset name; }
-
 nameUsage()
 {
 	echo "\
@@ -141,10 +139,12 @@ Usage: os hostname [set HOST]
 	Show or set the operating system name"
 }
 
+nameArgStart() { unset name; }
+
 nameArgs()
 {
 	(( $# == 0 )) && return
-	ScriptGetArg "name" -- "$@"; shift
+	ScriptArgGet "name" -- "$@"; shift
 }
 
 nameCommand()
@@ -240,7 +240,7 @@ versionUsage() { echot "\
 Usage: $(ScriptName) version [HOST](localhost)
 Show Operating System version information."; }
 
-versionGetArgs() { (( $# == 0 )) && return; ScriptGetArg "host" -- "$@"; }
+versionArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
 versionCommand() { if IsLocalHost "$host"; then versionLocal; else versionRemote; fi; }
 
 versionRemote()
