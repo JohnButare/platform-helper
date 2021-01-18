@@ -1,5 +1,5 @@
 # common functions for application scripts
-. script.sh
+. script.sh || exit
 
 FunctionExists() { grep -q "$1"'()' "$2"; } # FunctionExists FUNCTION FILE - function exists in file
 CommandExists() { FunctionExists "${1}Command" "$2" ; } # CommandExists COMMAND APP - application supports command

@@ -143,7 +143,7 @@ ScriptGetNetworkProtocol()
 	ScriptArg "protocol" "$@"; 
 	protocol="${protocol,,}"
 	CheckNetworkProtocol "$protocol" || { ScriptErr "\`$protocol\` is not a valid network protocol"; ScriptExit; }
-	unset protocolArg; [[ $protocol ]] && protocolArg="--protocol=$protocol"
+	unset protocolArg; [[ $protocol ]] && protocolArg=( "--protocol=$protocol" )
 	return 0
 }
 

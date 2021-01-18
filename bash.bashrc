@@ -15,24 +15,28 @@ set -a # export variables and functions to child processes
 
 function GetPlatform() 
 {
-	local results host="$1" chroot ubiquiti synology busybox container cmd='
+	local host="$1" cmd
+
+	cmd='
 echo platform=$(uname);
 echo kernel=\"$(uname -r)\";
 [[ -f /etc/os-release ]] && cat /etc/os-release;
-[[ -f "/etc/debian_chroot" ]] && echo chroot=\""$(cat "/etc/debian_chroot")"\";
+[[ -f /etc/debian_chroot ]] && echo chroot=\"$(cat /etc/debian_chroot)\";
 [[ -f /usr/bin/ubntconf ]] && echo ubiquiti=true;
 [[ -f /proc/syno_platform ]] && echo synology=true;
 [[ -f /bin/busybox ]] && echo busybox=true;
 [[ -f /usr/bin/systemd-detect-virt ]] && echo container=\"$(systemd-detect-virt --container)\";
 exit 0;'
 
+	local results
 	if [[ $host ]]; then
-		results="$(SshHelper $host "$cmd")" || return 1
+		results="$(SshHelper "$host" -- "$cmd")" || return 1
 	else
 		results="$(eval $cmd)"
 	fi
 
-	# don't let all of the variables defined in results leak out of this function
+	# don't let all of the variables defined in results leak out of this function	
+	unset chroot platform platformLike platformId platformKernel wsl
 	results="$(
 		eval $results
 
@@ -72,15 +76,15 @@ exit 0;'
 			which raspi-config >& /dev/null && ID="pixel"
 		fi
 
+		echo chroot=\""$chroot"\"
 		echo platform="$platform"
 		echo platformLike="$ID_LIKE"
 		echo platformId="$ID"
 		echo platformKernel="$platformKernel"
 		echo wsl="$wsl"
-		echo chroot="\"$chroot\""
 	)"
 
-	eval $results
+	eval "$results"
 	return 0
 }
 

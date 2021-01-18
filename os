@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 . script.sh || exit
 
-run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
+run() {	init && args "$@" && "${command}Command"; }
 
 init() { :; }
 
@@ -19,6 +19,7 @@ Operating system commands
 
 args()
 {
+	local args=()
 	unset -v command
 
 	# commands
@@ -37,8 +38,8 @@ args()
 
 	# arguments
 	ScriptArgs "$@" || return; shift "$shift"
-	[[ $@ ]] && usage
-	return 0
+		
+	(( $# == 0 )) && return || usage
 }
 
 #
@@ -239,8 +240,7 @@ versionUsage() { echot "\
 Usage: $(ScriptName) version [HOST](localhost)
 Show Operating System version information."; }
 
-versionGetArgs() { [[ ! $1 ]] && return; ScriptGetArg "host" -- "$@"; }
-
+versionGetArgs() { (( $# == 0 )) && return; ScriptGetArg "host" -- "$@"; }
 versionCommand() { if IsLocalHost "$host"; then versionLocal; else versionRemote; fi; }
 
 versionRemote()
@@ -249,7 +249,7 @@ versionRemote()
 	! SshIsAvailable "$host" && { echo "$host Operating System information is not available"; return; }
 
 	# destailed information - using the os command on the host
-	SshInPath "$host" "os" && { SshHelper "$host" os version; return; }
+	SshInPath "$host" "os" && { SshHelper "$host" -- os version; return; }
 	
 	# basic information - using HostInfo vars command locally
 	ScriptEval HostInfo vars "$host" || return

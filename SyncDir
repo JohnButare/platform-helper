@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 . script.sh || exit
 
-run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
+run() {	init && args "$@" && "${command}Command"; }
 
 init() { :; }
 
@@ -29,6 +29,7 @@ init() { lastSyncSuffix="sync.txt"; }
 
 args()
 {
+	local args=()
 	unset -v dest destId dir exist method noBak protocol recursive src srcId uncArgs verbose x
 
 	# commands
@@ -59,20 +60,36 @@ args()
 	
 	# arguments
 	ScriptArgs "$@" || return; shift "$shift"
+
+	(( $# == 0 )) && return || usage
+}
+
+syncArgStart() { unset -v src dest; }
+
+syncArgs()
+{
 	ScriptGetArg "src" -- "$@"; shift
 	ScriptGetArg "dest" -- "$@"; shift
-	[[ $@ ]] && usage
-
-	x+=( ".*$lastSyncSuffix" )
-	src="$src/$dir"; RemoveTrailingSlash "$src" src
-	dest="$dest/$dir"; RemoveTrailingSlash "$dest" dest
-	args=("$src" "$dest")
 }
 
 syncCommand()
 {
-	local src="$1" dest="$2"
+	x+=( ".*$lastSyncSuffix" )
+	sync "$(RemoveTrailingSlash "$src/$dir")" "$(RemoveTrailingSlash "$dest/$dir")"
+}
 
+#
+# helper
+#
+
+desc() { FileToDesc "$1"; }
+getSrcDesc() { desc "$src"; }
+getDestDesc() { desc "$dest"; }
+
+sync()
+{
+	local src="$1" dest="$2"
+	
 	# src or dest directory is excluded
 	{ IsInArray --array-wild "${src##*/}" x || IsInArray --array-wild "${dest##*/}" x; } && return
 
@@ -105,21 +122,13 @@ syncCommand()
 				*) syncMissingDir "$src" "$dest";;
 			esac || return		
 	else
-		sync "$src" "$dest" || return
+		syncDo "$src" "$dest" || return
 	fi
 
 	setLastSync || return
 }
 
-#
-# helper
-#
-
-desc() { FileToDesc "$1"; }
-getSrcDesc() { desc "$src"; }
-getDestDesc() { desc "$dest"; }
-
-sync()
+syncDo()
 {
 	local src="$1" dest="$2"
 	local srcFiles destFiles srcIndex=0 destIndex=0 lastSrcIndex lastDestIndex
@@ -177,15 +186,14 @@ sync()
 
 	getDirList srcDirs "$src"
 	for dir in "${srcDirs[@]}"; do
-		syncCommand "$src/$dir" "$dest/$dir" || return
+		sync "$src/$dir" "$dest/$dir" || return
 	done
 
 	getDirList destDirs "$dest"
 	for dir in "${destDirs[@]}"; do
 		IsInArray "$dir" srcDirs && continue
-		syncCommand "$src/$dir" "$dest/$dir" || return
+		sync "$src/$dir" "$dest/$dir" || return
 	done
-
 }
 
 syncFile()
