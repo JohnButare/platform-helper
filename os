@@ -249,7 +249,7 @@ versionRemote()
 	! SshIsAvailable "$host" && { echo "$host Operating System information is not available"; return; }
 
 	# destailed information - using the os command on the host
-	SshInPath "$host" "os" && { SshHelper "$host" -- os version; return; }
+	SshInPath "$host" "os" && { SshHelper connect "$host" -- os version; return; }
 	
 	# basic information - using HostInfo vars command locally
 	ScriptEval HostInfo vars "$host" || return

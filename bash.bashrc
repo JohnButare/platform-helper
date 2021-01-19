@@ -30,7 +30,7 @@ exit 0;'
 
 	local results
 	if [[ $host ]]; then
-		results="$(SshHelper "$host" -- "$cmd")" || return 1
+		results="$(SshHelper connect "$host" -- "$cmd")" || return 1
 	else
 		results="$(eval $cmd)"
 	fi

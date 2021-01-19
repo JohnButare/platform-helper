@@ -711,7 +711,7 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
 GetInterface() { ifconfig | head -1 | cut -d: -f1; } 														# GetInterface - name of the primary network interface
 GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
-GetHostname() { SshHelper "$@" hostname; } 																			# GetHostname NAME - hosts configured name
+GetHostname() { SshHelper connect "$1" -- hostname; } 													# GetHostname NAME - hosts configured name
 HostUnknown() { ScriptErr "$1: name or service not known"; }
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
@@ -1078,7 +1078,7 @@ SshAgentCheck()
 	SshAgentHelper start --verbose --quiet
 }
 
-SshInPath() { SshHelper "$1" -- which "$2" >/dev/null; } # HOST FILE
+SshInPath() { SshHelper connect "$1" -- which "$2" >/dev/null; } # HOST FILE
 SshIsAvailable() { IsAvailablePort "$1" "$(SshHelper port "$1")"; }	# HOST
 
 #
