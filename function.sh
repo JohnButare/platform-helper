@@ -432,6 +432,8 @@ BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
 ForwardToBackSlash() { GetArgs; echo "${@////\\}"; }
 RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
 
+GetAfter() { GetArgs2; [[ "$1" =~ ^[^$2]*$2(.*)$ ]] && echo "${BASH_REMATCH[1]}"; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
+
 if IsZsh; then
 	LowerCase() { GetArgs; r "${1:l}" $2; }
 	ProperCase() { GetArgs; r "${(C)1}" $2; }
@@ -1577,7 +1579,7 @@ IsAlias() { type "-t $1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is a
 GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}"; }
 
 # arguments
-IsOption() { [[ "$1" =~ ^-.* ]]; }
+IsOption() { [[ "$1" =~ ^-.* && "$1" != "--" ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; ScriptExit; }
 MissingOption() { EchoErr "${2:-$(ScriptName)}: missing $1 option"; ScriptExit; }

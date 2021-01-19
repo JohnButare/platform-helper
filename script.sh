@@ -105,32 +105,29 @@ ScriptOpt()
 	UnknownOption "$1"
 }
 
-# ScriptOptGet VAR [DESC] OPTION VALUE - get an option argument.  Sets var to value and increments shift if needed.
-#   -o|--option -oVAL -o VAL -o=VAL --option=VAL --option VAL
+# ScriptOptGet VAR [DESC] OPTION VALUE - get an option argument.  
+# 	Sets var to value and increments shift if needed.
+#   Format: -o|--option[=| ]VAL
 ScriptOptGet()
 {
-	local -n var="$1"
-	local desc="$1"; ! IsOption "$2" && { desc="$2"; shift; }
-	local opt="$2" value="$3"
-	local longOpt; [[ "$opt" =~ ^-- ]] && longOpt="true"
+	local scriptVar="$1"; shift
+	local scriptDesc="$scriptVar"; ! IsOption "$1" && { scriptDesc="$1"; shift; }
+	local opt="$1"; shift
 
 	# -o=VAL --option=VAL
 	if [[ "$opt" =~ = ]]; then
-		[[ $longOpt ]] && value="$(GetWord "$opt" 2 "=")" || value="${opt:3}"
-
-	# -oVAL
-	elif [[ ! $longOpt ]] && (( ${#opt} > 2 )); then
-		value="${opt:2}"
+		value="$(GetAfter "$opt" =)"
 
 	# -o VAL --option VAL
-	elif [[ $value ]] && ! IsOption "$value"; then
-		((++shift))
+	elif (( $# > 0 )) && ! IsOption "$1"; then
+		value="$1"; ((++shift))
 		
 	else
-		MissingOperand "$desc"; return 1
+		MissingOperand "$scriptDesc"; return 1
 
 	fi
 
+	local -n var="$scriptVar"
 	var="$value"
 }
 
