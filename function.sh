@@ -397,6 +397,7 @@ GetDateStampNext()
 
 GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 to specified time
 {
+	[[ "$1" == "-" ]] && set -- "$(cat)"
 	[[ $1 ]] && { ${G}date +%s.%N -d "$1"; return; }
 	[[ $# == 0 ]] && ${G}date +%s.%N; # only return default date if no argument is specified
 }
@@ -409,6 +410,7 @@ HexToDecimal() { echo "$((16#${1#0x}))"; }
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 RemoveCarriageReturn()  { sed 's/\r//g'; }
+RemoveNewline()  { tr -d '\n'; }
 RemoveEmptyLines() { ${G}sed -r '/^\s*$/d'; }
 
 CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; }
