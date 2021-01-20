@@ -1,56 +1,100 @@
 #!/usr/bin/env bash
-. function.sh || exit
 . app.sh || exit
 
-run() { init && args "$@" && ${command}Command "${args[@]}"; }
+run() {	init && args "$@" && "${command}Command"; cleanup; }
 
-init()
-{
-  key="$(credential get domotz key)"
-  agent="$(credential get domotz agent)"
-  url="https://api-us-east-1-cell-1.domotz.com/public-api/v1"
-}
+init() { unset apiInitialized; }
+cleanup() { :; }
 
 usage()
 {
-echot "\
-usage: DomotzHelper backup
-	Access Domotz
-	-f, --file FILE             		the file for the command
-	-s, --show                      show results
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [COMMAND]...
+Manage the Domotz controller.
+
 	-v, --verbose                   display detailed output"
-	exit $1
 }
 
 args()
 {
-	unset command file
+	local args=()
+	unset -v verbose
 
+	# commands
+	ScriptCommand "apiCommand" "$@" || return
+
+	# options
+	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
-		case "$1" in "") : ;;
+		case "$1" in
 			-h|--help) usage 0;;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				break
+			-v|--verbose) verbose="--verbose";;
+			--) shift; otherArgs+=("$@"); set --; break;;
+			*) ScriptOpt "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
+	set -- "${args[@]}"
+	
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
 
-	command="${command:-api}"
-
-	args=("$@")
+	(( $# == 0 )) && return || usage
 }
 
 #
-# commands
+# API Command
 #
 
-devicesCommand() { api "agent/$agent/device"; }
+apiUsage()
+{
+	echot "Usage: $(ScriptName) api [URI](/device)
+Perform an API command.
+
+Examples:
+	/device - all devices"
+}
+
+apiArgStart() { uri="/device}"; }
+
+apiArgs()
+{
+	(( $# > 0 )) && { ScriptArgGet "uri" -- "$@"; shift; }
+	return 0
+}
+
+apiCommand() { api "$uri"; } 
 
 #
-# helper
+# Commands
 #
 
-api() { curl -s -X GET "$url/$1" -H "Accept: application/json" -H "X-Api-Key: $key"; }
+devicesCommand() { api "device"; }
+
+#
+# API Helper
+#
+
+api()
+{
+	local uri="$(echo "$1" | RemoveFront "/")"
+	apiInit || return
+	curl -s -X GET "$url/agent/$agent/$uri" -H "Accept: application/json" -H "X-Api-Key: $key"
+}
+
+apiInit()
+{
+	[[ $apiInitialized ]] && return
+
+  key="$(credential get domotz key)" || return
+  agent="$(credential get domotz agent)" || return
+  url="$(credential get domotz url | RemoveTrailingSlash)" || return
+
+	! [[ $key && $agent && $url ]] &&
+		{ EchoErr "$(ScriptName): Domotz configuration is missing from the credential store"; return 1; }
+
+  apiInitialized="true"
+}
+
 
 run "$@"

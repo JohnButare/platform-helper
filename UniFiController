@@ -1,69 +1,97 @@
 #!/usr/bin/env bash
-. function.sh || exit
 . app.sh || exit
 
-run() { init && args "$@" && ${command}Command "${args[@]}"; cleanup; }
+run() {	init && args "$@" && "${command}Command"; cleanup; }
 
 init()
 {
-  user="$(credential get unifi user)"
-  password="$(credential get unifi password)"
-  url="$(credential get unifi url)"
+	unset apiInitialized
 	site="default"
   cookie=$(mktemp)
 	curl="curl --tlsv1 --cookie $cookie --cookie-jar $cookie --insecure"
-
-	! [[ $user && $password && $url ]] && { EchoErr "UnifiController: unifi user, password, or url is not in the credential store"; return 1; }
-
-  $curl --silent --data '{"username":"'$user'", "password":"'$password'"}' "$url/api/login" > /dev/null || return
 }
 
 cleanup()
 {
-	$curl --silent "$url/logout" > /dev/null
-	rm -f "$cookie"
+	[[ $apiInitialized ]] && { apiCleanup || return; }
+	return 0
 }
 
 usage()
 {
-echot "\
-usage: UniFiController api|backup
-	Access the UnifiController"
-	exit $1
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [COMMAND]...
+Manage the UniFi controller.
+
+	-v, --verbose                   display detailed output"
 }
 
 args()
 {
-	unset command file
+	local args=()
+	unset -v verbose
 
+	# commands
+	ScriptCommand "apiCommand" "$@" || return
+
+	# options
+	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
-		case "$1" in "") : ;;
+		case "$1" in
 			-h|--help) usage 0;;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				break
+			-v|--verbose) verbose="--verbose";;
+			--) shift; otherArgs+=("$@"); set --; break;;
+			*) ScriptOpt "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
+	set -- "${args[@]}"
+	
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
 
-	command="${command:-api}"
+	(( $# == 0 )) && return || usage
+}
 
-	args=("$@")
+#
+# API Command
+#
+
+apiUsage()
+{
+	echot "Usage: $(ScriptName) api [URI](/stat/sta) [JSON]({})
+Perform an API command.
+
+Examples:
+	/stat/sta - all client status
+	/stat/health
+	/stat/device"
+}
+
+apiArgStart() { uri="/stat/sta}" json="{}"; }
+
+apiArgs()
+{
+	(( $# > 0 )) && { ScriptArgGet "uri" -- "$@"; shift; }
+	(( $# > 0 )) && { ScriptArgGet "json" -- "$@"; shift; }
+	return 0
 }
 
 apiCommand()
 {
-	# /stat/sta - all client status
-	# /stat/health
-	# /stat/device 
-  local uri="${1:-/stat/sta}" json="${2:-{}}"
-  [[ "${uri:0:1}" != "/" ]] && uri="/$uri"
-  $curl --silent --data "$json" "$url/api/s/$site$uri" | jq
+	apiInit || return
+	$curl --silent --data "$json" "$url/api/s/$site/$(echo "$uri" | RemoveFront "/")" | jq
 }
+
+#
+# Backup Command
+#
 
 backupCommand()
 {
 	local dest="$1" result; [[ ! $dest ]] && dest="$(AppGetBackupDir)/unifi.controller.unf"
+
+	apiInit || return
 
   # ask controller to do a backup, response contains the path to the backup file
   printf "backup..."
@@ -73,6 +101,32 @@ backupCommand()
   # download the backup to the destinated output file
   echo "download..."
   $curl "$url$path" -o "$dest"
+}
+
+#
+# API Helper
+#
+
+apiInit()
+{
+	[[ $apiInitialized ]] && return
+	
+  user="$(credential get unifi user)" || return
+  password="$(credential get unifi password)" || return
+  url="$(credential get unifi url | RemoveTrailingSlash)" || return
+
+	! [[ $user && $password && $url ]] &&
+		{ EchoErr "$(ScriptName): UniFi configuration is missing from the credential store"; return 1; }
+
+	suppress="> /dev/null"; [[ $verbose ]] && suppress=""
+  $curl --silent --data '{"username":"'$user'", "password":"'$password'"}' "$url/api/login" $suppress || return
+  apiInitialized="true"
+}
+
+apiCleanup()
+{
+	$curl --silent "$url/logout" > /dev/null
+	rm -f "$cookie"
 }
 
 run "$@"
