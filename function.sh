@@ -709,7 +709,7 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 #
 
 GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
-GetInterface() { ifconfig | head -1 | cut -d: -f1; } 														# GetInterface - name of the primary network interface
+GetInterface() { route | grep "^default" | tr -s " " | cut -d" " -f8; } 				# GetInterface - name of the primary network interface
 GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 													# GetHostname NAME - hosts configured name
 HostUnknown() { ScriptErr "$1: name or service not known"; }
@@ -753,26 +753,37 @@ GetAdapterIpAddress()
 {
 	local adapter="$1"
 
-	if IsPlatform win; then 
+	if IsPlatform win; then
+
 		if [[ ! $adapter ]]; then
 			# default route (0.0.0.0 destination) with lowest metric
 			route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | awk '{ print $4; }'
 		else
 			ipconfig.exe | RemoveCarriageReturn | grep "Ethernet adapter $adapter:" -A 4 | grep "IPv4 Address" | cut -d: -f2 | RemoveSpace
 		fi
+
+	elif InPath ifdata; then
+		ifdata -pa "$adapter"
+
+	elif IsPlatform entware; then
+		ifconfig "$adapter" | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }' | cut -d: -f2
+
 	else
 		# returns IP Address of first adapter if one is not specified
 		ifconfig "$adapter" | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }'
+
 	fi
 }
 
 # GetBroadcastAddress - get the broadcast address for the first network adapter
 GetBroadcastAddress()
 {
-	if IsPlatform mac; then
-		ifconfig | grep broadcast | head -1 |  awk '{ print $6; }'
+	if InPath ifdata; then
+		ifdata -pb "$(GetInterface)"
+	elif IsPlatform mac; then
+		ifconfig "$(GetInterface)" | grep broadcast | head -1 |  awk '{ print $6; }'
 	else
-		ifconfig | head -2 | tail -1 | awk '{ print $6; }'
+		ifconfig "$(GetInterface)" | head -2 | tail -1 | awk '{ print $6; }'
 	fi
 }
 
@@ -813,13 +824,13 @@ GetIpAddress()
 	[[ $ip ]] && echo "$ip"
 }
 
-# GetPrimaryAdapterName - get the name of the primary network adapter used for communication
+# GetPrimaryAdapterName - get the descriptive name of the primary network adapter used for communication
 GetPrimaryAdapterName()
 {
 	if IsPlatform win; then
-		ipconfig.exe | grep $(GetAdapterIpAddress) -B 4 | grep "Ethernet adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
+		ipconfig.exe | grep $(GetAdapterIpAddress) -B 8 | grep "Ethernet adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
 	else
-		ifconfig | grep "UP,BROADCAST,RUNNING" | head -1 | cut -d":" -f1
+		GetInterface
 	fi
 }
 
