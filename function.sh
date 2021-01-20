@@ -1720,6 +1720,7 @@ sudoe()  # sudoedit with credentials
 # Text Processing
 #
 
+tac() { InPath tac && command tac "$@" | cat "$@"; }
 Utf16toAnsi() { iconv -f utf-16 -t ISO-8859-1; }
 Utf16to8() { iconv -f utf-16 -t UTF-8; }
 
