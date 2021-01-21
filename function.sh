@@ -227,7 +227,6 @@ store()
 
 ConfigInit() { [[ ! $configFile ]] && configFile="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$configFile" ]] && return; EchoErr "ConfigInit: configuration file \`$configFile\` does not exist"; return 1; }
 ConfigGet() { ConfigInit && (. "$configFile"; eval echo "\$$1"); }
-HashiConfigGet() { ConfigInit && (. "$configFile"; eval echo "\$hashi$(UpperCaseFirst "$1")"); }
 
 #
 # Console

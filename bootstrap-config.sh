@@ -14,11 +14,6 @@ proxyNetworks="[wiggin]=192.168.100.10"
 proxyServer="proxy.$domain" proxyPort="3128"
 proxy="http://$proxyServer:$proxyPort"
 
-hashiCredentialPrefix="none"
-hashiServers="pi3,pi4,pi5"
-hashiClients="pi6,pi7"
-hashiVaultServers="pi3,pi4"
-
 # file server
 fs="nas3.$baseDomain" fsProtocol="608"
 
@@ -28,3 +23,15 @@ web="$fs" webUnc="//$web/web"
 # bootstrap
 bootstrapHost="$fs" # HOST, DIR, or Windows drive letter (/mnt/D) for access to scripts and installers
 bootstrapShare="public" bootstrapDir="/share/CACHEDEV1_DATA/Public" bootstrapPort="608"
+
+# HashiCorp
+hashiCredentialPrefix="none"
+hashiServers="pi1,pi2,pi3"
+hashiClients=""
+hashiVaultServers="pi1,pi2"
+
+# HashiCorp Testing
+hashiTestCertificateDir="$UDATA/certificate/hashi"
+hashiTestServers="pi3,pi4,pi5"
+hashiTestClients="pi6,pi7"
+hashiTestVaultServers="pi3,pi4"

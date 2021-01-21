@@ -20,18 +20,19 @@ Common commands:
 	ui								start the hashi-ui server and launch it
 
 Common options:
-	-f, --force						force the operation
-	-H, --host HOST				host for the command
-			--product-server	server for product communication.  If not specified 
-													the server is inferred if possible. 
-	-t, --test						do not make changes
-	-v, --verbose					show additional status"
+	-cf, --config-file			configuration file to use in place og bootstrap-config.sh
+	-cp, --config-prefix		configuration prefix to use, i.e. hashiPREFIXServers
+	-f,  --force						force the operation
+	-H,  --host HOST				host for the command
+			 --product-server	server for product communication
+	-t,  --test						do not make changes
+	-v,  --verbose					show additional status"
 }
 
 args()
 {
 	local args=()
-	unset force hostArg hostArgOrig productServer test testEcho verbose
+	unset configFile configPrefix force hostArg hostArgOrig productServer test testEcho verbose
 
 	# commands
 	ScriptCommand "$@" || return
@@ -40,10 +41,12 @@ args()
 	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
 		case "$1" in
+			-cf|--config-file|-cf=*|--config-file=*)  ScriptOptGet "configFile" "config-file" "$@"; ScriptCheckFile "$configFile";;
+			-cp|--config-prefix|-cp=*|--config-prefix=*)  ScriptOptGet "configPrefix" "config-prefix" "$@";;
 			-f|--force) force="--force";;
 			-h|--help) usage 0;;
 			-H|--host|-H=*|--host=*) ScriptOptGet hostArg host "$@"; hostArgOrig="$hostArg";;
-			   --product-server|--product-server=*) ScriptOptGet productServer product-server "$@";;
+				 --product-server|--product-server=*) ScriptOptGet productServer product-server "$@";;
 			-t|--test) test="--test"; testEcho="echo";;
 			-v|--verbose) verbose="--verbose";;
 			*) ScriptOpt "$@";;
@@ -69,31 +72,35 @@ init()
 {
 	products=( consul vault nomad )
 	productUsage="consul|nomad|vault"
-	datacenter="$(ConfigGet "workgroup")"
 	binDir="/usr/local/bin"
-
-	baseDomain="$(ConfigGet "baseDomain")"
-	domain="$(ConfigGet "domain")"
-
-	# default servers and clients
-	hashiServers=(); StringToArray "$(HashiConfigGet "servers")" "," servers
-	hashiClients=(); StringToArray "$(HashiConfigGet "clients")" "," clients
-	vaultServers=(); StringToArray "$(HashiConfigGet "VaultServers")" "," vaultServers
-
-	# ports
-	consulHttpPort="8500" consulHttpsPort="8501"
-	declare -g {nomadHttpPort,nomadHttpsPort}="4646"
-	declare -g {vaultHttpPort,vaultHttpsPort}="8200"
 }
 
 initFinal()
 {
+	# basic configuration
+	datacenter="$(ConfigGet "workgroup")"
+	baseDomain="$(ConfigGet "baseDomain")"
+	domain="$(ConfigGet "domain")"
+
+	# default servers and clients
+	hashiServers=(); StringToArray "$(configGet "servers")" "," servers
+	hashiClients=(); StringToArray "$(configGet "clients")" "," clients
+	vaultServers=(); StringToArray "$(configGet "vaultServers")" "," vaultServers
+
+	# default encryption directory
+	[[ ! $encrypt ]] && encrypt="$(configGet "certificateDir")"
+
+	# port configuration
+	consulHttpPort="8500" consulHttpsPort="8501"
+	declare -g {nomadHttpPort,nomadHttpsPort}="4646"
+	declare -g {vaultHttpPort,vaultHttpsPort}="8200"
+
 	# if the command is a product command then initialize the product
 	if IsInArray "${commandNames[0]}" products && [[ "${commandNames[1]}" != "config" ]]; then
 		product="${commandNames[0]}"
 		productConfig "$product" || return
 	fi
-		
+
 	return 0
 }
 
@@ -158,7 +165,9 @@ uiCommand()
 # Certificate Commands
 #
 
-certUsage() { echot "Usage: hashi cert copy|make"; }
+certUsage() { echot "Usage: hashi cert copy|make
+
+	-e, --encrypt DIR			directory for PKI certificates, if specified TLS will be enabled"; }
 
 certArgStart() { unset encrypt; }
 
@@ -530,7 +539,7 @@ installCommand() { usage; }
 installAllCommand() { installConsulCommand && installVaultCommand && installNomadCommand; }
 
 #
-# Install CLI COmmand
+# Install CLI Command
 #
 
 installCliUsage() {	echot "\
@@ -1123,6 +1132,31 @@ resolveCommand()
 }
 
 #
+# Test Command
+#
+
+testUsage() { echot "usage: $(ScriptName) test cleanup|install all|$productUsage"; }
+testArgStart() { what="all"; }
+testArgs() { [[ "$1" != @(all|$productUsage) ]] && return; what="$1"; (( ++shift )); }
+testArgEnd() { a=(--config-prefix=test $force $test $verbose); }
+testCommand() { usage; }
+
+testInstallCommand() { hashi install $what "${a[@]}"; }
+
+testCleanupCommand()
+{
+	configPrefix="test"; initFinal || return
+
+	hashi config nuke --force $what "${a[@]}" || return
+	hashi remove -H="$(ArrayDelimit servers),$(ArrayDelimit clients),localhost" "$what" "${a[@]}"
+	
+	[[ "$what" == @(|all) && -d "$encrypt" && "$(DirCount "$encrypt")" != 0 ]] && { header "Cleaning Certificates"; sudoc DelDir --contents "$encrypt"; }
+
+	header "Manual Environment Cleanup"
+	echo "unset CONSUL_HTTP_TOKEN VAULT_TOKEN NOMAD_TOKEN"
+}
+
+#
 # Update Command
 #
 
@@ -1556,6 +1590,18 @@ configLocalCommand()
 	configMirror "vault" "local" || return
 }
 
+configGet()
+{
+	ConfigInit "$configFile" || return
+
+	local var="hashi$(UpperCaseFirst "$1")"
+	local prefixVar="hashi$(UpperCaseFirst "$configPrefix")$(UpperCaseFirst "$1")"
+	(
+		. "$configFile"
+		[[ $(eval echo "\$$prefixVar") ]] && eval echo "\$$prefixVar" || eval echo "\$$var"
+	)
+}
+
 configRemoteCommand()
 {
 	productConfig "vault" || return
@@ -1855,7 +1901,7 @@ vaultUnsealCommand()
 
 credKey()
 {
-	local prefix="$(HashiConfigGet "CredentialPrefix")" prod="${1:-$product}"
+	local prefix="$(configGet "hashiCredentialPrefix")" prod="${1:-$product}"
 
 	[[ "$prefix" == "none" ]] && { echo "$prod"; return; }
 	[[ $prefix ]] && echo "$prefix-$prod" || echo "$domain-$prod"
