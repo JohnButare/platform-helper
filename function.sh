@@ -1694,18 +1694,6 @@ ScriptReturn()
 # Security
 #
 
-
-# cred - manage credentials locally or remotely
-
-CredExists() { credential exists "$@" --quiet --manager="local" || credential exists "$@" --quiet --manager="remote"; } 
-
-CredGet()
-{
-	credential exists "$@" --quiet --manager="local" && { credential get "$@" --manager="local"; return; }
-	credential exists "$@" --quiet --manager="remote" && { credential get "$@" --manager="remote"; return; }
-	return 1
-}
-
 # sudo
 
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
