@@ -16,6 +16,9 @@ init()
 	fileServer="$(ConfigGet "fs")" || return
 	domain="$(ConfigGet "domain")" || return
 	baseDomain="$(ConfigGet "baseDomain")" || return
+
+	networkConfig="$CLOUD/network"
+	hashiConfig="$networkConfig/hashi"
 }
 
 usage()
@@ -78,21 +81,17 @@ backupWebCommand() { AppBackup "$(RemoveDnsSuffix "$fileServer").web" "//$fileSe
 
 backupLastpassCommand()
 {
-	local dir file="$CDATA/VeraCrypt/personal.hc"
-	
 	header "LastPass Backup"
 
-	echo "Mounting encrypted volume..."
-	dir="$(VeraCrypt mount "$file" p)/backup/LastPass" || return
+	local dir; dir="$(mountVol "$CDATA/VeraCrypt/personal.hc")/backup/LastPass" || return
 
 	echo "Logging in to LastPass..."
 	LastPass login || return
 
 	echo "Exporting LastPass..."
 	lpass export > "$(GetDateStampNext "$dir/" "csv")" || return
-	
-	echo "Unmounting encrypted volume..."
-	VeraCrypt unmount p || return
+		
+	unmountVol || return
 }
 
 backupQnapCommand()
@@ -289,7 +288,7 @@ networkConfigFileValidate()
 setupUsage() { echo "Usage: $(ScriptName) setup all|SystemUser"; }
 setupCommand() { usage; }
 
-setupAllCommand() { setupSystemUserCommand; }
+setupAllCommand() { setupSystemUserCommand && setupHashiCommand; }
 
 setupSystemUserCommand()
 {
@@ -309,6 +308,23 @@ setupSystemUserCommand()
 		sudoc cp -r "$HOME/.ssh" "$USERS/$user/.ssh" || return
 		SshHelper permission "wsystem" || return
 	fi
+}
+
+setupHashiCommand()
+{
+	local dir; dir="$(mountVol "$CDATA/VeraCrypt/personal.hc")/data/certificate/hashi" || return
+	hashi install -encrypt "$dir" || return
+	unmountVol || return
+	setupHashiFinalCommand || return
+}
+
+setupHashiFinalCommand()
+{
+	hashi config remote || return
+
+	local dir="$hashiConfig/services"
+	hashi consul service register "$dir/dns1.hcl" -Hpi3 || return
+	hashi consul service register "$dir/dns2.hcl" -Hpi4 || return
 }
 
 #
@@ -407,6 +423,22 @@ deviceStatus()
 			echo "$device is $status"
 		fi
 	done
+}
+
+#
+# Helper
+#
+
+mountVol()
+{
+	EchoErr "Mounting encrypted volume..."
+	VeraCrypt mount "$file" p
+}
+
+unmountVol()
+{
+	echo "Unmounting encrypted volume..."
+	VeraCrypt unmount p
 }
 
 run "$@"
