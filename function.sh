@@ -225,8 +225,9 @@ store()
 # Config
 #
 
-ConfigInit() { [[ ! $configFile ]] && configFile="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$configFile" ]] && return; EchoErr "ConfigInit: configuration file \`$configFile\` does not exist"; return 1; }
-ConfigGet() { ConfigInit && (. "$configFile"; eval echo "\$$1"); }
+ConfigInit() { [[ ! $functionConfigFileCache ]] && functionConfigFileCache="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$functionConfigFileCache" ]] && return; EchoErr "ConfigInit: configuration file \`$functionConfigFileCache\` does not exist"; return 1; }
+ConfigGet() { ConfigInit && (. "$functionConfigFileCache"; eval echo "\$$1"); }
+ConfigFileGet() { echo "$functionConfigFileCache"; }
 
 #
 # Console
@@ -320,7 +321,7 @@ ArrayAppend()
 {
 	local arrayAppendDest="$1"; shift
 	
-	ArrayAnyCheck "arrayAppendDest" || return
+	ArrayAnyCheck "$arrayAppendDest" || return
 
 	for arrayAppendName in "$@"; do		
 		ArrayAnyCheck "$arrayAppendName" || return
