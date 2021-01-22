@@ -295,34 +295,51 @@ lesst() { less -x $TABS $*; } 										# LessTab
 
 GetDef() { local gd="$(declare -p $1)"; gd="${gd#*\=}"; gd="${gd#\(}"; r "${gd%\)}" $2; } # get definition
 IsVar() { declare -p "$1" >& /dev/null; }
+IsAnyArray() { IsArray "$1" || IsAssociativeArray "$1"; }
 
 if IsBash; then
 	ArrayShowKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ArrayShow keys; }
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#declare }"; r "${gt%% *}" $2; } # get type
 	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
+	IsAssociativeArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-A.* ]]; }
 	StringToArray() { GetArgs3; IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
 else
 	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; r "${gt%% *}" $2; } # get type
 	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "array" ]]; }
+	IsAssociativeArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "association" ]]; }
 	StringToArray() { GetArgs3; IFS=$2 read -A $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
 fi
 
 # array
-ArrayCopy() { declare -g $(GetType $1) $2; eval "$2=( $(GetDef $1) )"; } # Array SRC DEST
+ArrayAnyCheck() { IsAnyArray "$1" && return; ScriptErr "\`$1\` is not an array"; return 1; }
 ArrayReverse() { ArrayDelimit "$1" $'\n' | tac; }
 
 # AppendArray DEST A1 A2 ... - combine specified arrays into first array
 ArrayAppend()
 {
 	local arrayAppendDest="$1"; shift
-	for arrayAppendName in "$@"; do eval "$arrayAppendDest+=( $(ArrayShow $arrayAppendName) )"; done
+	
+	ArrayAnyCheck "arrayAppendDest" || return
+
+	for arrayAppendName in "$@"; do		
+		ArrayAnyCheck "$arrayAppendName" || return
+		eval "$arrayAppendDest+=( $(ArrayShow $arrayAppendName) )"
+	done
+}
+
+# ArrayCopy SRC DEST
+ArrayCopy()
+{
+	! IsAnyArray "$1" && { ScriptErr "\`$1\` is not an array"; return 1; }
+	declare -g $(GetType $1) $2
+	eval "$2=( $(GetDef $1) )"
 }
 
 # ArrayDelimit NAME [DELIMITER](,) - show array with a delimiter, i.e. ArrayDelimit a $'\n'
 ArrayDelimit()
 {
-	local arrayDelimit=(); ArrayCopy "$1" arrayDelimit;
+	local arrayDelimit=(); ArrayCopy "$1" arrayDelimit || return;
 	local result delimiter="${2:-,}"
 	printf -v result '%s'"$delimiter" "${arrayDelimit[@]}"
 	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
@@ -331,8 +348,8 @@ ArrayDelimit()
 # ArrayDiff A1 A2 - return the items not in either array
 ArrayDiff()
 {
-	local arrayDiff1=(); ArrayCopy "$1" arrayDiff1;
-	local arrayDiff2=(); ArrayCopy "$2" arrayDiff2;
+	local arrayDiff1=(); ArrayCopy "$1" arrayDiff1 || return;
+	local arrayDiff2=(); ArrayCopy "$2" arrayDiff2 || return;
 	local result=() e
 
 	for e in "${arrayDiff1[@]}"; do ! IsInArray "$e" arrayDiff2 && result+=( "$e" ); done
@@ -354,7 +371,9 @@ ArrayRemove()
 #   Each array element begins and end with the specified characters, i.e. $'\n' "^" "$" allows the array to be passed to grep
 ArrayShow()
 {
-	local arrayShow=(); ArrayCopy "$1" arrayShow;
+	IsAssociativeArray "$1" && { GetDef "$1"; return; }
+
+	local arrayShow=(); ArrayCopy "$1" arrayShow || return;
 	local result delimiter="${2:- }" begin="${3:-\"}" end="${4:-\"}"
 	printf -v result "$begin%s$end$delimiter" "${arrayShow[@]}"
 	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
@@ -365,7 +384,7 @@ IsInArray()
 { 
 	local wild; [[ "$1" == @(-w|--wild) ]] && { wild="true"; shift; }						# value contain glob patterns
 	local awild; [[ "$1" == @(-aw|--array-wild) ]] && { awild="true"; shift; }	# array contains glob patterns
-	local s="$1" isInArray=() value; ArrayCopy "$2" isInArray;
+	local s="$1" isInArray=() value; ArrayCopy "$2" isInArray || return;
 
 	for value in "${isInArray[@]}"; do
 		if [[ $wild ]]; then [[ "$value" == $s ]] && return 0;
