@@ -49,6 +49,7 @@ args()
 				 --product-server|--product-server=*) ScriptOptGet productServer product-server "$@";;
 			-t|--test) test="--test"; testEcho="echo";;
 			-v|--verbose) verbose="--verbose";;
+			--) shift; otherArgs+=("$@"); set --; break;;
 			*) ScriptOpt "$@";;
 		esac
 		shift "$shift"; shift=1
@@ -57,9 +58,6 @@ args()
 
 	# arguments
 	ScriptArgs "$@" || return; shift "$shift"
-	
-	# initialize
-	[[ $encrypt && $verbose ]] && echo "certificates: $(FileToDesc "$encrypt")"
 
 	(( $# == 0 )) && return || usage
 }
@@ -83,10 +81,11 @@ initFinal()
 	domain="$(ConfigGet "domain")"
 
 	# default servers and clients
-	hashiServers=(); StringToArray "$(configGet "servers")" "," servers
-	hashiClients=(); StringToArray "$(configGet "clients")" "," clients
+	hashiServers=(); StringToArray "$(configGet "servers")" "," hashiServers
+	hashiClients=(); StringToArray "$(configGet "clients")" "," hashiClients
 	vaultServers=(); StringToArray "$(configGet "vaultServers")" "," vaultServers
-
+	hashiHosts=(); ArrayAppend --remove-dups hashiHosts hashiServers hashiClients vaultServers
+	
 	# default encryption directory
 	[[ ! $encrypt ]] && encrypt="$(configGet "certificateDir")"
 
@@ -100,6 +99,9 @@ initFinal()
 		product="${commandNames[0]}"
 		productConfig "$product" || return
 	fi
+
+	# logging
+	[[ $encrypt && $verbose ]] && echo "Certificates are in $(FileToDesc "$encrypt")"
 
 	return 0
 }
@@ -128,8 +130,8 @@ statusCommand()
 		for product in "${products[@]}"; do
 			! productIsInstalled "$product" && continue
 
-			local token="false"; [[ $(productVarToken "$product") ]] && token="true"
-			echo "$product-$(productVarAddress "$product")-$token"
+			local token="false"; [[ $(productVarGet "TOKEN") ]] && token="true"
+			echo "$product-$(productVarGet "ADDR")-$token"
 		done
 
 	} | column -c $(tput cols) -t -s- -n
@@ -217,7 +219,7 @@ certExist() { [[ -f "$certDir/$1" && -f "$certDir/$2" ]]; }
 
 certInit()
 {
-	local product="${1:-$product}"; [[ $verbose ]] && echo "Initializing $product certificates..."
+	local product="${1:-$product}"; [[ $verbose ]] && EchoErr "Initializing $product certificates..."
 
 	# vault uses consul certificates
 	[[ "$product" == "vault" ]] && product="consul"
@@ -635,10 +637,9 @@ installConsulCommand()
 installConsulCommon()
 {
 	# service
-	local cliArgs; cliArgs="$(productConfigArgs "127.0.0.1")" || return
 	serviceType="notify"
 	networkTarget="Requires=network-online.target"
-	execStart="$program agent -config-dir=$config"
+	execStart="$program agent -config-dir=$productConfigDir"
 	serviceKillSignal="SIGTERM"
 }
 
@@ -689,8 +690,8 @@ installConsulAgentAcl()
 
 	productConfig "consul" || return
 
-
 	# create the default policy and token (for DNS resolution)	
+	local name="dns-requests"
 	local defaultToken policy="$(cat <<-EOF
 		node_prefix "" {
 		  policy = "read"
@@ -700,23 +701,28 @@ installConsulAgentAcl()
 		}
 		EOF
 	)"
-	defaultToken="$(consulAclCreate "dns-requests" "$policy")" || return
+	consulAclCreate "dns-requests" "$policy" || return
+	defaultToken="$(consulAclTokenGet "$name")" || return
 
-	# create the host specific policy and configure the host 
-	local type
-	for host in server"${servers[@]}" client "${clients[@]}"; do
+	# create the host specific policies
+	for host in server "${servers[@]}" client "${clients[@]}"; do
 
-		# determine if the remaining hosts are clients
+		# set type for productConfigArgs
 		[[ "$host" == @(client|server) ]] && { type="$host"; continue; }
 
-		# create the ACL policy
+		# continue if the default policy is already deny
+		[[ "$(consulConfigGet "default_policy")" == "deny" ]] && continue
+		
+		# create the ACL policy for the host
 		local token policy="$(cat <<-EOF
 			node "$host" {
 			  policy = "write"
 			}		
 			EOF
 		)"
-		token="$(consulAclCreate "agent-$host" "$policy")" || return
+		name="agent-$host"
+		consulAclCreate "$name" "$policy" || return
+		token="$(consulAclTokenGet "$name")" || return
 
 		# update the token on the agent
 		hilight "Updating the ACL configuration on $host..."
@@ -726,14 +732,34 @@ installConsulAgentAcl()
 			export CONSUL_HTTP_TOKEN=$CONSUL_HTTP_TOKEN
 			consul acl set-agent-token $args agent "$token" || exit
 			consul acl set-agent-token $args default "$defaultToken" || exit
-			sudo sed -i 's/default_policy = "allow"/default_policy = "deny"/' "$configFile" || return
-			sudo systemctl restart "$product" || exit
 			EOF
 		)"
 
 	done
+
+	# update default ACL policy
+	for host in "${servers[@]}" "${clients[@]}"; do
+		
+		# continue if the default policy is already deny
+		[[ "$(consulConfigGet "default_policy")" == "deny" ]] && continue
+
+		hilight "Updating the default ACL policy on $host..."
+
+		scriptRun "$(cat <<-EOF
+			sudo sed -i 's/default_policy = "allow"/default_policy = "deny"/' "$productConfigFile" || return
+			sudo systemctl restart "$product" --no-block || exit
+			EOF
+		)"
+
+	done
+
 }
 
+# consulConfigGet VAR - get a variable from the Consul configuration file
+consulConfigGet() 
+{
+	scriptRun "grep \"$1[ ]*=[ ]*\" \"$productConfigFile\"" | tr -s " " | cut -d"=" -f2 | RemoveCarriageReturn | RemoveSpace | RemoveQuotes
+}
 
 #
 # Install Nomad Command
@@ -908,8 +934,9 @@ initNomadVaultIntegration()
 	fi
 
 	# copy the vault configuration files
+	productInit "nomad" || return
 	for host in "${servers[@]}" "${clients[@]}"; do
-		hostCopy "$file" "$config" || return
+		hostCopy "$file" "$productConfigDir" || return
 	done
 
 	# install vault client for nomad jobs
@@ -985,7 +1012,7 @@ installVaultCommon()
 	o[api_addr]="https://$hostFqdn:$vaultHttpsPort"
 
 	# service
-	execStart="$program server -config=$config"
+	execStart="$program server -config=$productConfigDir"
 	serviceLimit+=$'\n'"LimitMEMLOCK=infinity"
 }
 
@@ -1118,14 +1145,14 @@ resolveArgs() { ScriptArgGet "name" -- "$@"; shift; }
 
 resolveCommand()
 {
-	local filter="head -1"; [[ $all ]] && { filter="cat"; }
+	local filter=(head -1); [[ $all ]] && { filter=(cat); }
 
 	local result; result="$(lookupCommand)" || return
 
 	if [[ "$result" =~ .*canonical\ name.* ]]; then
-		printf "$result" | tail +4 | grep "canonical name =" | cut -d= -f2 | RemoveSpace | sed 's/.$//' | $filter
+		printf "$result" | tail +4 | grep "canonical name =" | cut -d= -f2 | RemoveSpace | sed 's/.$//' | "${filter[@]}"
 	else
-		printf "$result" | tail +4 | grep "^Address:" | cut -d: -f2 | RemoveSpace | $filter
+		printf "$result" | tail +4 | grep "^Address:" | cut -d: -f2 | RemoveSpace | "${filter[@]}"
 	fi
 
 	return "${PIPESTATUS[0]}"
@@ -1135,20 +1162,20 @@ resolveCommand()
 # Test Command
 #
 
-testUsage() { echot "usage: $(ScriptName) test cleanup|install all|$productUsage"; }
+testUsage() { echot "usage: $(ScriptName) test clean|install all|$productUsage"; }
 testArgStart() { what="all"; }
 testArgs() { [[ "$1" != @(all|$productUsage) ]] && return; what="$1"; (( ++shift )); }
-testArgEnd() { a=(--config-prefix=test $force $test $verbose); }
-testCommand() { usage; }
+testCommand() { testHashi; }
 
-testInstallCommand() { hashi install $what "${a[@]}"; }
+testInstallCommand() { testHashi install $what; }
+testHashi() { hashi "$@" --config-prefix=test $force $test $verbose "${otherArgs[@]}"; }
 
-testCleanupCommand()
+testCleanCommand()
 {
 	configPrefix="test"; initFinal || return
 
-	hashi config nuke --force $what "${a[@]}" || return
-	hashi remove -H="$(ArrayDelimit servers),$(ArrayDelimit clients),localhost" "$what" "${a[@]}"
+	testHashi config nuke $what --force || return
+	testHashi remove $what -H="$(ArrayDelimit hashiHosts),localhost" || return
 	
 	[[ "$what" == @(|all) && -d "$encrypt" && "$(DirCount "$encrypt")" != 0 ]] && { header "Cleaning Certificates"; sudoc DelDir --contents "$encrypt"; }
 
@@ -1169,7 +1196,7 @@ updateVaultCommand() { updateDo "vault"; }
 
 updateDo()
 {
-	local product="$1" host hosts; getHosts "${hashiServers[@]}" "${hashiClients[@]}" || return
+	local product="$1" host hosts; getHosts "${hashiHosts[@]}" || return
 	
 	for host in "${hosts[@]}"; do
 		header "Update $(ProperCase "$product") ($host)"
@@ -1189,9 +1216,6 @@ installCommon()
 	declare -Ag commonOptions
 
 	productInit "$product" || return; certInit || return
-	
-	# ensure the CLI program exists locally
-	productInstall "$product" "localhost" || return
 
 	# general
 	tmpDirTemplate="hashi.XXXXXXXXXX"
@@ -1209,6 +1233,7 @@ installCommon()
 	# set clients and servers defaults
 	if [[ ! $clients && ! $servers ]]; then
 		if [[ "$product" == "vault" ]]; then
+			clients=( )
 			servers=( "${vaultServers[@]}" ) 
 		else
 			clients=( "${hashiClients[@]}" ) 
@@ -1236,7 +1261,7 @@ installDo()
 	installCert || return
 	installProgram || return
 	installServiceServers || return
-	installCli "$product" || return
+	productInstallCert "$product" || return
 	installServerFinal || return
 	installServiceClients || return
 	installFinal || return
@@ -1258,7 +1283,7 @@ installProgram()
 {
 	! installComponentCheck "program" && return
 
-	for host in "${servers[@]}" "${clients[@]}"; do
+	for host in localhost "${servers[@]}" "${clients[@]}"; do
 		productInstall "$product" "$host" || return
 	done
 }
@@ -1300,7 +1325,7 @@ installServiceHost()
 	local networkTarget="Wants=network-online.target"
 	local serviceType="simple"
 	local serviceLimit="LimitNOFILE=infinity"$'\n'"LimitNPROC=infinity"
-	local execStart="$program agent -config=$config"
+	local execStart="$program agent -config=$productConfigDir"
 	local execReload="/bin/kill --signal HUP \$MAINPID"
 	local exectStop=""
 	local serviceKillSignal="SIGINT"
@@ -1332,7 +1357,7 @@ installServiceHost()
 	RunFunction "install" "${product}$(ProperCase "$type")" || return
 
 	# create the configuration files
-	installConfigHcl o > "$tmpDir/config/$configFileBase" || return
+	installConfigHcl o > "$tmpDir/config/$productConfigFileBase" || return
 	installConfigService > "$tmpDir/$product.service" || return
 
 	# copy the files to the remote host
@@ -1348,13 +1373,13 @@ installServiceHost()
 		# user
 		if ! getent passwd "$user" >& /dev/null; then
 		  echo "Creating user $user..."
-		  sudo useradd -r -d "$config" -s "/bin/false" "$user" || exit
+		  sudo useradd -r -d "$productConfigDir" -s "/bin/false" "$user" || exit
 		fi
 
 		# directories
-		if ! [[ -d "$cert" && -d "$config" && -d "$data" ]] || [[ "$force" ]]; then
+		if ! [[ -d "$cert" && -d "$productConfigDir" && -d "$data" ]] || [[ "$force" ]]; then
 		  echo "Creating directories..."
-		  sudo install -o "$user" -g "$user" -m 755 -d "$cert" "$config" "$data" || exit
+		  sudo install -o "$user" -g "$user" -m 755 -d "$cert" "$productConfigDir" "$data" || exit
 		fi
 
 		# files
@@ -1364,9 +1389,9 @@ installServiceHost()
 		  sudo install -o "$user" -g "$user" -m 755 -t "$data" "$tmpDir/data/"* || exit
 		fi
 
-		if [[ \$(sudo ls -A "$tmpDir/config") ]] && [[ ! -f "$config/$configFileBase" || "$force" ]]; then
+		if [[ \$(sudo ls -A "$tmpDir/config") ]] && [[ ! -f "$productConfigDir/$productConfigFileBase" || "$force" ]]; then
 		  echo "Copying configuration files..."
-		  sudo install -o "$user" -g "$user" -m 755 -t "$config" "$tmpDir/config/"* || exit
+		  sudo install -o "$user" -g "$user" -m 755 -t "$productConfigDir" "$tmpDir/config/"* || exit
 		fi
 
 		if [[ \$(sudo ls -A "$tmpDir/cert") ]] && [[ ! \$(sudo ls -A "$cert") || "$force" ]]; then
@@ -1382,17 +1407,17 @@ installServiceHost()
 
 		# service		
 
-		if [[ -f "$serviceFile" && "$force" ]]; then
+		if [[ -f "$productServiceFile" && "$force" ]]; then
 			echo "Stopping the service..."
 			sudo systemctl stop "$product" || exit
 		fi
 
-		if [[ ! -f "$serviceFile" || "$force" ]]; then
+		if [[ ! -f "$productServiceFile" || "$force" ]]; then
 			echo "Creating service files..."
 			sudo cp "$tmpDir/$product.service" "$tmpDir/$product.env" "/etc/systemd/system" || exit
 			sudo systemctl daemon-reload || exit
 			sudo systemctl enable "$product" || exit
-			sudo systemctl start "$product" || exit
+			sudo systemctl start "$product" --no-block || exit
 		fi
 
 		$scriptFinal
@@ -1406,8 +1431,8 @@ installServiceHost()
 	)" || return
 
 	if [[ $test ]]; then
-		header "$(ProperCase "$product") Configuration ($(GetFileName "$configFileBase"))"
-		cat "$tmpDir/config/$configFileBase" || return
+		header "$(ProperCase "$product") Configuration ($(GetFileName "$productConfigFileBase"))"
+		cat "$tmpDir/config/$productConfigFileBase" || return
 
 		header "Service Configuration"
 		cat "$tmpDir/$product.service" || return
@@ -1430,30 +1455,34 @@ installAcl()
 	productConfig "$product" || return
 
 	# generate the bootstrap token
-	local token header
+	local header text
 	local alreadyCreated="ACL bootstrap already done"; [[ "$product" == "consul" ]] && alreadyCreated="ACL bootstrap no longer allowed"
 	local waitingForNodes="The ACL system is currently in legacy mode."
 	
+	# try up to 30 times to get the bootstrap text
 	for (( i = 0; i < 30; i++ )); do
-		token="$($product acl bootstrap 2>&1)" && break
-		echo "$token" | grep -q "$alreadyCreated" && return
-		echo "$token" | grep -q "$waitingForNodes" &&
+		text="$($product acl bootstrap 2>&1)" && break
+		echo "$text" | grep -q "$alreadyCreated" && return
+		echo "$text" | grep -q "$waitingForNodes" &&
 			{ [[ $header ]] && printf "." || printf "bootstrap..."; header="true"; sleep 1; continue; }
-		EchoErr "$token"; return 1
+		EchoErr "$text"; return 1
 	done
 	[[ $header ]] && echo
-	echo "$token" | grep -q "$waitingForNodes" && { EchoErr "$token"; return 1; }
+	echo "$text" | grep -q "$waitingForNodes" && { EchoErr "$text"; return 1; }
 	
 	# show the full bootstrap text
 	hilight "Store the following bootstrap token in a secure location:"
-	echo "$token"
+	echo "$text"
 
-	# store the bootstrap token
+	# get and store the token
 	local secretId="Secret ID"; [[ "$product" == "consul" ]] && secretId="SecretID"
 	local sep="="; [[ "$product" == "consul" ]] && sep=":"
-	local secret="$(echo "$token" | grep "$secretId" | cut -d$sep -f 2 | RemoveSpace)"
-	[[ ! $secret ]] && { ScriptErr "unable to determine the bootstrap token"; return 1; }
-	credSet "token" "$secret" || return
+	local token="$(echo "$text" | grep "$secretId" | cut -d$sep -f 2 | RemoveSpace)"
+	[[ ! $token ]] && { ScriptErr "unable to determine the bootstrap token"; return 1; }
+	credSet "token" "$token" || return
+
+	productVarSet "TOKEN" "$token" || return
+	[[ $verbose ]] && { echo "Updated environment variable $(productVar "TOKEN") to $(productVarGet "TOKEN")..."; }
 
 	return 0
 }
@@ -1505,7 +1534,7 @@ installConfigService()
 		Documentation=https://www.hashicorp.com/products/$product
 		$networkTarget
 		After=network-online.target
-		ConditionFileNotEmpty=$configFile
+		ConditionFileNotEmpty=$productConfigFile
 		StartLimitIntervalSec=10
 		StartLimitBurst=3
 
@@ -1514,7 +1543,7 @@ installConfigService()
 		User=$user
 		Group=$user
 		$exec
-		EnvironmentFile=$serviceEnvFile
+		EnvironmentFile=$productServiceEnvFile
 		KillMode=process
 		KillSignal=$serviceKillSignal
 		Restart=on-failure
@@ -1548,6 +1577,7 @@ allConfigCommand()
 		productConfigShow "$product" || return
 		echo
 	done
+
 }
 
 allStatusCommand()
@@ -1590,16 +1620,11 @@ configLocalCommand()
 	configMirror "vault" "local" || return
 }
 
+# configGet VAR
 configGet()
 {
 	ConfigInit "$configFile" || return
-
-	local var="hashi$(UpperCaseFirst "$1")"
-	local prefixVar="hashi$(UpperCaseFirst "$configPrefix")$(UpperCaseFirst "$1")"
-	(
-		. "$configFile"
-		[[ $(eval echo "\$$prefixVar") ]] && eval echo "\$$prefixVar" || eval echo "\$$var"
-	)
+	ConfigGet "hashi$(UpperCaseFirst "$configPrefix")$(UpperCaseFirst "$1")"
 }
 
 configRemoteCommand()
@@ -1613,7 +1638,7 @@ configMirror()
 	local from="$1" to="$2" product
 
 	for product in "${products[@]}"; do
-		credential mirror --from="$from" --to="$to" "$(credKey "$product")" $force || return
+		credential mirror --from="$from" --to="$to" "$(credPath "$product")" $force || return
 	done
 }
 
@@ -1652,19 +1677,110 @@ configShowNomadCommand() { productConfigShow "nomad"; }
 configShowVaultCommand() { productConfigShow "vault"; }
 
 #
-# Consul Commands
+# Consul Command
 #
 
 consulInit() { productConfig "consul" || return; }
 
 consulUsage() { echot "\
-Usage: hashi consul config|status|backup|restore|service
+Usage: hashi consul acl|config|status|backup|restore|service
 Consul commands."; }
 
 consulCommand() { usage; }
 consulConfigCommand() { productConfigShow "consul"; }
 consulStatusCommand() { consul members; }
 consulBackupCommand() { consul snapshot save "$(GetDateStampNext "consul.$domain" "snap")"; }
+
+# Consul ACL Command
+
+consulAclUsage() { echot "\
+Usage: hashi consul acl create
+Consul ACL commands."; }
+
+consulAclCommand() { usage; }
+
+# Consul ACL Create Command
+
+consulAclCreateUsage() { echot "\
+Usage: hashi consul acl create [NAME] [DEFINITION]
+Create a Consul ACL."; }
+
+consulAclCreateArgStart() { unset name def; }
+
+consulAclCreateArgs()
+{
+	ScriptArgGet "name" -- "$@"; shift
+	ScriptArgGet "def" -- "$@"; shift
+}
+
+consulAclCreateCommand() { consulAclCreate "$name" "$def"; }
+
+# Consul ACL Token Command
+
+consulAclTokenUsage() { echot "\
+Usage: hashi consul acl token [get|delete] [NAME]
+Manage Consul ACL tokens."; }
+
+consulAclTokenArgStart() { unset name; }
+consulAclTokenArgs() { ScriptArgGet "name" -- "$@"; shift; }
+consulAclTokenCommand() { consulAclTokenGetCommand; }
+consulAclTokenGetCommand() { consulAclTokenGet "$name"; }
+consulAclTokenDeleteCommand() { consulAclTokenGet "$name"; }
+
+# Consul ACL Helper
+
+# consulAclCreate NAME DEF - create an ACL with the specified name and definition.   Return a token for the policy.
+consulAclCreate()
+{
+	local name="$1" def="$2"
+	consulAclPolicyCreate "$name" "$def" || return
+	consulAclTokenCreate "$name" || return
+}
+
+# consulAclTokenGet DESC - get the token Secret ID with the specified description
+consulAclTokenGet()
+{
+	local desc="$1"
+	! consulAclTokenExists "$1" && { ScriptErr "token \`$desc\` does not exists"; return 1; }
+	consul acl token read -id "$(consulAclTokenId "$desc")" | grep "SecretID" | cut -d: -f 2 | RemoveSpace
+}
+
+# cosulTokenExists NAME - return true if the tokenexists
+consulAclTokenExists()
+{
+	local name="$1"
+	[[ "$(consul acl token list -format=json | jq ".[] | select(.Description == \"$name\").Description" | RemoveQuotes)" == "$desc" ]]
+}
+
+# consulAclTokenId NAME - get the token ID
+consulAclTokenId()
+{
+	local name="$1"
+	consul acl token list -format=json | jq ".[] | select(.Description == \"$name\").AccessorID" | RemoveQuotes
+}
+
+# consulAclTokenCreate DESC POLICY - create a token with the specified description that has the permission to the specified policy
+consulAclTokenCreate()
+{
+	local desc="$1" policy="${2:-$1}"
+	[[ ! $force ]] && consulAclTokenExists "$desc" && return	
+	consulAclTokenDelete "$desc" || return
+
+	hilight "Creating ACL token $desc for policy $policy..."
+	[[ $test ]] && { hilight "create token $desc for policy $policy"; return; }
+	consul acl token create -description "$1" -policy-name "$policy"
+}
+
+# consulAclTokenDelete DESC - delete the token with the specified description
+consulAclTokenDelete()
+{
+	local desc="$1"
+	! consulAclTokenExists "$desc" && return
+
+	hilight "Deleting ACL token $desc..."
+	[[ $test ]] && { hilight "delete token $desc"; return; }
+	consul acl token delete -id "$(consulAclTokenId "$desc")"
+}
 
 #
 # Consul Service
@@ -1692,15 +1808,17 @@ consulServiceRegisterCommand()
 	[[ ! $id ]] && { ScriptErr "Unable to determine the service id in \`$file\`"; return 1; }
 
 	# create the service ACL policy
-	local token policy="$(cat <<-EOF
+	local name="service-$id"
+	local policy="$(cat <<-EOF
 		service "$id" {
 		  policy = "write"
 		}
 		EOF
 	)"	
-	token="$(consulAclCreate "service-$id" "$policy")" || return
+	consulAclCreate "$name" "$policy" || return
 
 	# register the service
+	local token="$(consulAclTokenGet "$name")" || return
 	local f; f="$(mktemp -t "hashi.service.XXXX.hcl")" || return
 	if [[ "$type" == "json" ]]; then
 		cat "$file" | sed "s/\"token\": \".*\"/\"token\" = \"$token\"/" > "$f" || return
@@ -1899,17 +2017,23 @@ vaultUnsealCommand()
 # Credential Helper
 #
 
-credKey()
+credPath()
 {
-	local prefix="$(configGet "hashiCredentialPrefix")" prod="${1:-$product}"
+	local path="$(configGet "credentialPath")" product="${1:-$product}"
 
-	[[ "$prefix" == "none" ]] && { echo "$prod"; return; }
-	[[ $prefix ]] && echo "$prefix-$prod" || echo "$domain-$prod"
+	[[ "$path" == "none" ]] && { echo "$product"; return; }
+	[[ $path ]] && echo "$path/$product" || echo "$domain/$product"
 }
 
-credExists() { credential exists "$(credKey)" "$1" --manager="local"; }
-credSet() { $testEcho credential set "$(credKey)" "$1" "$2" --manager="local"; }
-credGet() { credential get "$(credKey)" "$1" --manager="local"; }
+credExists() { credential exists "$(credPath)" "$1" --manager="local"; }
+credGet() { credential get "$(credPath)" "$1" --manager="local"; }
+
+credSet()
+{
+	[[ $verbose ]] && echo "Setting $(credPath) $1 credential to $2..."
+	$testEcho credential set "$(credPath)" "$1" "$2" --manager="local"
+}
+
 
 #
 # Host Helper
@@ -1963,17 +2087,17 @@ productIsInstalled() { [[ $(FindInPath "$1") ]]; }
 
 productInit()
 {
-	product="$1"; [[ $verbose ]] && echo "Initializing $product..."
+	product="$1"; [[ $verbose ]] && EchoErr "Initializing $product..."
 
 	# directories	
-	config="/etc/$product.d" 
+	productConfigDir="/etc/$product.d" 
 	data="/opt/$product"
 
 	# configuration files
-	configFileBase="01_$product.hcl"
-	configFile="$config/$configFileBase"
-	serviceFile="/etc/systemd/system/$product.service"
-	serviceEnvFile="/etc/systemd/system/$product.env"
+	productConfigFileBase="01_$product.hcl"
+	productConfigFile="$productConfigDir/$productConfigFileBase"
+	productServiceFile="/etc/systemd/system/$product.service"
+	productServiceEnvFile="/etc/systemd/system/$product.env"
 }
 
 productCheck()
@@ -1989,30 +2113,43 @@ productConfig()
 {
 	local product="$1" host="$2"
 
+	# validate product
 	productCheck "$1" || return
+
+	# logging
+	if [[ $verbose ]]; then
+		local desc; [[ $host ]] && desc=" for $host"
+		hilight "Getting $product configuration$desc..."
+		productConfigShow "$product" "$host" || return
+	fi
+
+	# set product configuration variables
 	eval "$(productConfigShow "$product" "$host")" || return
-	productConfigStatus || return
+
+	# logging
+	if [[ $verbose ]]; then
+		local token="$(productVarGet "TOKEN")" desc="no token"; [[ $token ]] && desc="token $token"
+		hilight "Using $product server at $(productVarGet "ADDR") with $desc"
+	fi
+
 }
 
 # productConfigArgs [HOST] - return configuration arguments for the specified host and current product
 productConfigArgs()
 {
-	local host="$1"
-	local args=""
+	local args host="$1"
+
+	# add the HTTP address
 	local server; server="$(productGetServer "$product" "$host")" || return
 	local url; url="$(productGetAddress "$product" "$server")" || return
-	local http; http="$(httpVar "$product")" || return
+	args="-http-addr=$url"
+
+	# add certificate configuration
 	local certCa; certCa="$(certGetCaType "$product" "$type")" || return
-	local args="-http-addr=$url"
-
 	[[ -f "$cert/$certCli" ]] && args+=" -ca-file=$certCa -client-cert=$cert/$certCli -client-key=$cert/$certCliKey"
-	echo "$args"
-}
 
-productConfigStatus()
-{ 
-	[[ ! $verbose ]] && return	
-	hilight "Using $product server at $(productVarAddress "$product")"
+	# return configuration arguments
+	echo "$args"
 }
 
 # productConfigShow PRODUCT [HOST] - show the configuration variables for the specified product
@@ -2026,33 +2163,32 @@ productConfigShow()
 	local args="" 
 	local server; server="$(productGetServer "$product" "$host")" || return
 	local url; url="$(productGetAddress "$product" "$server")" || return
-	local http; http="$(httpVar "$product")" || return
 	local certCa; certCa="$(certGetCa "$product")" || return
 
 	[[ -f "$cert/$certCli" ]] && args+=" -ca-file=$certCa -client-cert=$cert/$certCli -client-key=$cert/$certCliKey"
 
 	# standard configuration
 	cat <<-EOF
-		export ${product^^}_SERVER="$server"
-		export ${product^^}_${http}ADDR="$url"
-		export ${product^^}_ARGS="-http-addr=$url$args"
+		export $(productVar "SERVER")="$server"
+		export $(productVar "ADDR")="$url"
+		export $(productVar "ARGS")="-http-addr=$url$args"
 	EOF
 
 	# certificate configuration
 	if [[ -f "$cert/$certCli" ]]; then
 		cat <<-EOF
-			export ${product^^}_CACERT="$certCa"
-			export ${product^^}_CLIENT_CERT="$cert/$certCli"
-			export ${product^^}_CLIENT_KEY="$cert/$certCliKey"
+			export $(productVar "CACERT")="$certCa"
+			export $(productVar "CLIENT_CERT")="$cert/$certCli"
+			export $(productVar "CLIENT_KEY")="$cert/$certCliKey"
 		EOF
 	fi
 
 	# token configuration - set if not already set, i.e. nomad can set the VAULT_TOKEN
 	local token tokenVar tokenVal
-	tokenVar="${product^^}_${http}TOKEN"
-	tokenVal="$(eval echo "\$$tokenVar")"
-	[[ $force || ! $tokenVal ]] && { tokenVal="$(productGetToken "$product" 2>&1)" || return; }
-	echo "export $tokenVar=\"$tokenVal\""
+	tokenVar="$(productVar "TOKEN")"
+	tokenVal="$(productVarGet "TOKEN")"
+	[[ $force || ! $tokenVal ]] && { tokenVal="$(productGetToken "$product")" || tokenVal=""; }
+	[[ $tokenVal ]] && echo "export $tokenVar=\"$tokenVal\""
 
 	return 0
 }
@@ -2078,7 +2214,6 @@ productGetPort()
 productGetServer()
 {
 	local product="$1" host="$2" server
-	local -n serverVar="${product^^}_SERVER"
 	local resolve="$product"; [[ "$product" == "vault" ]] && resolve="active.vault"
 
 	# use the passed host
@@ -2095,15 +2230,15 @@ productGetServer()
 		server="${hosts[0]}"
 
 	# use the <product>_SERVER environment variable
-	elif [[ ! $force && $serverVar ]]; then
-		server="$serverVar"
+	elif [[ ! $force && $(productVarGet "SERVER") ]]; then
+		server="$(productVarGet "SERVER")"
 
 	# use the local host for the server if the product service is running
-	elif [[ "$product" != @(nomad) ]] && [[ -f $serviceFile ]] && IsProcessRunning "$product" && service running "$product"; then
+	elif [[ "$product" != @(nomad) ]] && [[ -f $productServiceFile ]] && IsProcessRunning "$product" && service running "$product"; then
 		server="127.0.0.1"
 
 	# use consul to resolve the server for the product
-	elif [[ "$product" != "consul" ]] && server="$(hashi resolve "$resolve")"; then		
+	elif [[ "$product" != "consul" ]] && server="$(hashi resolve "$resolve" 2>&1)"; then		
 		:
 
 	# use the first server specified in bootstrap-config.sh
@@ -2120,11 +2255,13 @@ productGetServer()
 # productGetToken PRODUCT - get the authentication token for the product
 productGetToken()
 {
-	local exclude=(); [[ "$1" == "vault" ]] && exclude=( "--exclude-managers=vault" ) # prevent recursion
-	
-	local token="$(credential get "$1" token "${exclude[@]}")"
-	[[ ! $token ]] && { ScriptErr "unable to get the $1 token"; return 1; }
-	echo "$token"
+	local product="$1"
+	local exclude=(); [[ "$product" == "vault" ]] && exclude=( "--exclude-managers=vault" ) # prevent recursion
+
+	credential exists "$(credPath "$product")" "token" "${exclude[@]}" || return
+
+	[[ $verbose ]] && EchoErr "Getting product token (credential get \"$(credPath "$product")\" token ${exclude[@]})..."
+	credential get "$(credPath "$product")" token "${exclude[@]}"
 }
 
 productInstall()
@@ -2137,7 +2274,7 @@ productInstall()
 
 	# local install
 	if IsLocalHost "$host"; then
-		header "Install $(ProperCase "$product") (local)"
+		header "Install $(ProperCase "$product") Program (local)"
 		local file="$(os executable find "$installDir")" || return
 		InPath "$product" && [[ "$(productVersion "$product")" == "$(productVersion "$product" "$file")" ]] && return	
 		sudoc cp "$file" "$binDir/$product"; return		
@@ -2146,7 +2283,7 @@ productInstall()
 	local dest="$binDir/$product"
 
 	# header
-	header "Install $(ProperCase "$product") ($host)"
+	header "Install $(ProperCase "$product") Program ($host)"
 
 	# version check
 	ssh "$host" "[[ -f \"$dest\" ]]" && [[ "$(productVersion "$product")" == "$(productVersion "$product" "$host")" ]] && return
@@ -2171,9 +2308,9 @@ productInstall()
 	scp "$file" "$host:/tmp/$product" || return
 
 	scriptRun "$(cat <<-EOF
-		[[ -f "$serviceFile" ]] && { printf "stopping service..."; sudo systemctl stop "$product" || exit; echo "done"; }
+		[[ -f "$productServiceFile" ]] && { printf "stopping service..."; sudo systemctl stop "$product" || exit; echo "done"; }
 		sudo cp "/tmp/$product" "$binDir" || exit
-		[[ -f "$serviceFile" ]] && { printf "starting service..."; sudo systemctl start "$product" || exit; echo "done";  }
+		[[ -f "$productServiceFile" ]] && { printf "starting service..."; sudo systemctl start "$product" --no-block || exit; echo "done";  }
 		exit 0
 		EOF
 	)"
@@ -2217,11 +2354,11 @@ productRemove()
 	scriptRun "$(cat <<-EOF
 
 		# delete service
-		if [[ -f "$serviceFile" ]]; then
+		if [[ -f "$productServiceFile" ]]; then
 			echo "Deleting the service..."
 			sudo systemctl stop "$product" || exit
 			sudo systemctl disable "$product" || exit
-			sudo rm -f "$serviceFile" || exit
+			sudo rm -f "$productServiceFile" || exit
 			sudo systemctl daemon-reload || exit
 			sudo systemctl reset-failed || exit
 		fi
@@ -2249,22 +2386,31 @@ productRemove()
 	)"
 }
 
-# productVarAddress PRODUCT - get the communication address for the specified product from configuration variables
-productVarAddress()
+# productVar VAR - get the environment variable name
+productVar()
 {
-	local product="$1"	
-	local -n address="${product^^}_$(httpVar "$product")ADDR"
-	echo "$address"
+	local var="${1^^}"
+	local http; [[ "$product" == "consul" && "$var" == @(ADDR|TOKEN) ]] && http="HTTP_";
+	echo "${product^^}_${http}${var}"; 
 }
 
-# productVarToken PRODUCT - get the authentication token for the specified product from configuration variables
-productVarToken()
+# productVarGet VAR - get a product variable from the environment
+productVarGet()
 {
-	local product="$1"	
-	local -n token="${product^^}_$(httpVar "$product")TOKEN"
-	echo "$token"
+	local var="$1"
+	local -n v="$(productVar "$var")"
+	echo "$v"
 }
 
+# productVarSet VAR VALUE - set a product environent variable 
+productVarSet()
+{
+	local var="$1" value="$2"
+	local -n v="$(productVar "$var")"
+	v="$value"
+}
+
+# productVersion - show the versionof the specified product
 productVersion()
 {
 	local product="$1" what="${2:-$HOSTNAME}" desc version
@@ -2290,7 +2436,6 @@ productVersion()
 # helper
 #
 
-httpVar() { [[ "$1" != "consul" ]] && return; echo "HTTP_"; }
 tmpDirCreate() { mktemp -d -t "$tmpDirTemplate"; }
 useHttps() { [[ $encrypt || -d "$cert" ]]; } # use HTTPS during installation ($encrupt) and client configuration (cert directory exists)
 
@@ -2343,99 +2488,37 @@ validateConfigFile()
 }
 
 #
-# Consul ACL Helper
-#
-
-# consulAclCreate NAME DEF - create an ACL with the specified name and definition.   Return a token for the policy.
-consulAclCreate()
-{
-	local name="$1" def="$2"
-	consulPolicyCreate "$name" "$def" || return
-	consulTokenCreate "$name" || return
-	consulTokenGet "$name"
-}
-
-#
 # Consul Policy Helper
 #
 
-# consulPolicyExists NAME - return true if the specified policy exists
-consulPolicyExists()
+# consulAclPolicyExists NAME - return true if the specified policy exists
+consulAclPolicyExists()
 {
 	local name="$1"
 	[[ "$(consul acl policy list -format=json | jq ".[] | select(.Name == \"$1\").Name" | RemoveQuotes)" == "$name" ]]
 }
 
-# consulPolicyCreate NAME DEF - create a policy with the specified name and definition
-consulPolicyCreate()
+# consulAclPolicyCreate NAME DEF - create a policy with the specified name and definition
+consulAclPolicyCreate()
 {
 	local name="$1" def="$2"
-	[[ ! $force ]] && consulPolicyExists "$name" && return
-	consulPolicyDelete "$name" || return
+	[[ ! $force ]] && consulAclPolicyExists "$name" && return
+	consulAclPolicyDelete "$name" || return
 
 	hilight "Creatning ACL policy $name..."
 	[[ $test ]] && { printf "${GREEN}create policy $name:${RESET}\n%s\n" "$(cat)"; return; }
 	echo "$def" | consul acl policy create -name "$name" -rules -
 }
 
-# consulPolicyDelete NAME - delete the specified policy
-consulPolicyDelete()
+# consulAclPolicyDelete NAME - delete the specified policy
+consulAclPolicyDelete()
 {
 	local name="$1"
-	! consulPolicyExists "$name" && return
+	! consulAclPolicyExists "$name" && return
 
 	hilight "Deleting ACL policy $name..."
 	[[ $test ]] && { hilight "delete policy $name"; return; }
 	consul acl policy delete -name "$name"
-}
-
-#
-# Consul Token Helper
-#
-
-# cosulTokenExists DESC - return true if a token with description exists
-consulTokenExists()
-{
-	local desc="$1"
-	[[ "$(consul acl token list -format=json | jq ".[] | select(.Description == \"$desc\").Description" | RemoveQuotes)" == "$desc" ]]
-}
-
-# consulTokenId DESC - get the token ID for the specified token description
-consulTokenId()
-{
-	local desc="$1"
-	consul acl token list -format=json | jq ".[] | select(.Description == \"$desc\").AccessorID" | RemoveQuotes
-}
-
-# consulTokenCreate DESC POLICY - create a token with the specified description that has the permission to the specified policy
-consulTokenCreate()
-{
-	local desc="$1" policy="${2:-$1}"
-	[[ ! $force ]] && consulTokenExists "$desc" && return	
-	consulTokenDelete "$desc" || return
-
-	hilight "Creating ACL token $desc for policy $policy..."
-	[[ $test ]] && { hilight "create token $desc for policy $policy"; return; }
-	consul acl token create -description "$1" -policy-name "$policy"
-}
-
-# consulTokenDelete DESC - delete the token with the specified description
-consulTokenDelete()
-{
-	local desc="$1"
-	! consulTokenExists "$desc" && return
-
-	hilight "Deleting ACL token $desc..."
-	[[ $test ]] && { hilight "delete token $desc"; return; }
-	consul acl token delete -id "$(consulTokenId "$desc")"
-}
-
-# consulTokenGet DESC - get the token Secret ID with the specified description
-consulTokenGet()
-{
-	local desc="$1"
-	! consulTokenExists "$1" && { ScriptErr "token \`$desc\` does not exists"; return 1; }
-	consul acl token read -id "$(consulTokenId "$desc")" | grep "SecretID" | cut -d: -f 2 | RemoveSpace
 }
 
 run "$@"

@@ -25,13 +25,18 @@ bootstrapHost="$fs" # HOST, DIR, or Windows drive letter (/mnt/D) for access to 
 bootstrapShare="public" bootstrapDir="/share/CACHEDEV1_DATA/Public" bootstrapPort="608"
 
 # HashiCorp
-hashiCredentialPrefix="none"
+hashiCredentialPath="none"
 hashiServers="pi1,pi2,pi3"
 hashiClients=""
 hashiVaultServers="pi1,pi2"
 
 # HashiCorp Testing
+hashiTestCredentialPath="test"
 hashiTestCertificateDir="$UDATA/certificate/hashi"
 hashiTestServers="pi3,pi4,pi5"
 hashiTestClients="pi6,pi7"
 hashiTestVaultServers="pi3,pi4"
+
+# hashiTestServers="pi3"
+# hashiTestClients=""
+# hashiTestVaultServers=""

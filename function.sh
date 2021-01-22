@@ -315,18 +315,24 @@ fi
 # array
 ArrayAnyCheck() { IsAnyArray "$1" && return; ScriptErr "\`$1\` is not an array"; return 1; }
 ArrayReverse() { ArrayDelimit "$1" $'\n' | tac; }
+ArraySize() { eval "echo \${#$1[@]}"; }
 
-# AppendArray DEST A1 A2 ... - combine specified arrays into first array
+# AppendArray [-rd|--remove-dups|--remove-duplicates] DEST A1 A2 ... - combine specified arrays into first array
 ArrayAppend()
 {
+	local removeDups; [[ "$1" == @(-rd|--remove-dups|--remove-duplicates) ]] && { removeDups="true"; shift; }
 	local arrayAppendDest="$1"; shift
 	
 	ArrayAnyCheck "$arrayAppendDest" || return
 
 	for arrayAppendName in "$@"; do		
-		ArrayAnyCheck "$arrayAppendName" || return
+		ArrayAnyCheck "$arrayAppendName" || return		
+		(( $(ArraySize "$arrayAppendName") == 0 )) && continue
 		eval "$arrayAppendDest+=( $(ArrayShow $arrayAppendName) )"
 	done
+
+	[[ ! $removeDups ]] && return
+	eval "IFS=$'\n' $arrayAppendDest=( $(ArrayDelimit "$arrayAppendDest" $'\n' | sort | uniq) )"
 }
 
 # ArrayCopy SRC DEST
