@@ -33,10 +33,6 @@ hashiVaultServers="pi1,pi2"
 # HashiCorp Testing
 hashiTestCredentialPath="test"
 hashiTestCertificateDir="$UDATA/certificate/hashi"
-hashiTestServers="pi3,pi4,pi5"
-hashiTestClients="pi6,pi7"
-hashiTestVaultServers="pi3,pi4"
-
-# hashiTestServers="pi3"
-# hashiTestClients=""
-# hashiTestVaultServers=""
+hashiTestServers="pi4,pi5,pi6"
+hashiTestClients="pi7"
+hashiTestVaultServers="pi4,pi5"
