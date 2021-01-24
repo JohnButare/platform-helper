@@ -7,8 +7,8 @@ init()
 {
 	unset device devices efiDevice lvm
 	driveLetters=( c d e f g h i j k l m n o p q r s t u v w x y z )
-	mountRoot="/mnt"; [[ -d "/media/$USER" ]] && mountRoot="/media/$USER" # Ubuntu
 	InPath lvm && lvm="true"
+	mountRoot="/mnt"; [[ -d "/media/$USER" ]] && mountRoot="/media/$USER" # Ubuntu
 	return 0
 }
 
@@ -64,7 +64,7 @@ args()
 		shift "$shift"; shift=1
 	done
 	set -- "${args[@]}"
-	
+
 	# arguments	
 	getDeviceArg "$1" || return; shift "$shift"
 	ScriptArgs "$@" || return; shift "$shift"
@@ -81,7 +81,7 @@ getDeviceArg()
 	shift=0; ! needsDevice && return
 	device="$1"; ((++shift))
 	[[ ! $device ]] && { [[ $quiet ]] && return 1 || MissingOperand "device"; }
-	
+
 	local check="$device"
 	check="${check#/dev/}" 	# remove /dev/
 	check="${check,,}" 			# lower case
@@ -94,7 +94,7 @@ getDeviceArg()
 	[[ ! -e "$file" ]] && { [[ ! $quiet ]] && ScriptErr "mount location \`$file\` does not exist"; return 1; }
 
 	# get the device for the mounted file
-	read device <<<$(findmnt --noheadings --output=SOURCE --target "$file")
+	device="$(getDevice "$file")"
 
 	# if the device (source) is drvfs, look in the mount OPTIONS for path=LETTER (Windows build 20221.1000)
 	if [[ "$device" == "drvfs" ]]; then
@@ -408,7 +408,7 @@ canUnmount()
 cleanupMountDir() 
 {
 	[[ ! -e "$mountDir" ]] && return
-	findmnt "$mountDir" >& /dev/null && platformUnmount >& /dev/null
+	getDevice "$mountDir" >& /dev/null && platformUnmount >& /dev/null
 	sudoc rmdir "$mountDir" || return
 	sudo rmdir "${mountRoot}/"* >& /dev/null # cleanup empty mount directories
 	[[ ! -e "$mountDir" ]]
@@ -500,22 +500,6 @@ doUnmount()
 	[[ "$result" == "0" ]]	
 }
 
-isEfiDevice()
-{
-	IsPlatform win && return 1
-	[[ ! $efiDevice ]] && efiDevice="$(findmnt --noheadings --output=SOURCE --target "/boot/efi" | GetFileName)"
-	[[ "$device" == "$efiDevice" ]]
-}
-
-isRemovable()
-{
-	isDriveLetter "$device" && { fsutil.exe fsinfo driveType "${drive}:\\" |& grep -q "Removable Drive"; return; }
-	[[ "$(lsblk --nodeps --noheadings --output RM "/dev/$device")" == "1" ]] && return
-	udevadm info --query=property --export --name="/dev/$device" | grep "ID_BUS='usb'" >& /dev/null && return
-	return 1
-}
-
-
 # getAllDevices - sets devices array
 getAllDevices() 
 {
@@ -538,6 +522,14 @@ getAllDevices()
 	devices+=( $(find "${d[@]}" |& grep -v "No such file" | sed 's/\/dev\///g') )
 
 	return 0
+}
+
+# getDevice FILE - get the device the specified file is mounted on
+getDevice()
+{
+	InPath findmnt && { findmnt --noheadings --output=SOURCE --target "$file"; return; }
+	InPath df && { df -P "$file" | awk 'END{print $1}'; return; }
+	return 1
 }
 
 getFs()
@@ -572,8 +564,16 @@ getMountDir()
 
 	if isDriveLetter "$device"; then
 		dir="$(findmnt --list --output=TARGET,OPTIONS | grep -iE "path=$device"':?\\?' | cut -d" " -f1)"
-	else
+
+	elif InPath findmnt; then
 		dir="$(findmnt --noheadings --output=TARGET --source "/dev/$device")"
+
+	elif InPath df; then
+		dir="$(df -P "$file" | awk 'END{print $NF}')"
+
+	else
+		return 1
+		
 	fi
 
 	[[ $dir ]] && echo "$dir"
@@ -582,18 +582,44 @@ getMountDir()
 
 getType()
 {
-	# use findmnt to get the type if we have the mount directory
-	[[ -d "$mountDir" ]] && { findmnt --noheadings --output=FSTYPE --target "$mountDir"; return; }
+	# get the type if we have the mount directory
+	if [[ -d "$mountDir" ]]; then
+		InPath findmnt && { findmnt --noheadings --output=FSTYPE --target "$mountDir"; return; }
+		IsPlatfor mac && { mount | grep "on $mountDir " | cut -d'(' -f2 | cut -d, -f1; return; }
+		return 1
+	fi
 
 	# Windows drive letters - the type must be 9p
 	isDriveLetter "$device" && { echo "9p"; return; }
 
 	# lsblk, except in Windows where the file system is empty
-	! IsPlatform win && { lsblk --nodeps --noheadings --output FSTYPE "/dev/$device"; return; }
+	InPath lsblk && ! IsPlatform win && { lsblk --nodeps --noheadings --output FSTYPE "/dev/$device"; return; }
 
 	# blkid
-	local type="$(eval $(sudoc blkid "/dev/$device" -o export); echo $TYPE)" || return
-	echo "$type"
+	if InPath blkid; then
+		local type="$(eval $(sudoc blkid "/dev/$device" -o export); echo $TYPE)" || return
+		echo "$type"
+	fi
+
+	# MacOS
+	IsPlatform mac && { mount | grep "/dev/$device " | cut -d'(' -f2 | cut -d, -f1; }
+
+	return 1
+}
+
+isEfiDevice()
+{
+	IsPlatform win && return 1
+	[[ ! $efiDevice ]] && efiDevice="$(getDevice "/boot/efi" | GetFileName)"
+	[[ "$device" == "$efiDevice" ]]
+}
+
+isRemovable()
+{
+	isDriveLetter "$device" && { fsutil.exe fsinfo driveType "${drive}:\\" |& grep -q "Removable Drive"; return; }
+	[[ "$(lsblk --nodeps --noheadings --output RM "/dev/$device")" == "1" ]] && return
+	udevadm info --query=property --export --name="/dev/$device" | grep "ID_BUS='usb'" >& /dev/null && return
+	return 1
 }
 
 run "$@"
