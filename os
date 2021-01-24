@@ -251,8 +251,8 @@ versionRemote()
 	# destailed information - using the os command on the host
 	SshInPath "$host" "os" && { SshHelper connect "$host" -- os version; return; }
 	
-	# basic information - using HostInfo vars command locally
-	ScriptEval HostInfo vars "$host" || return
+	# basic information - using HostGetInfo vars command locally
+	ScriptEval HostGetInfo vars "$host" || return
 	[[ $_platform ]] && 		echo "    platform: $_platform"
 	[[ $_platformLike ]] && echo "        like: $_platformLike"
 	[[ $_platformId ]] &&   echo "          id: $_platformId"
