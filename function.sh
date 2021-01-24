@@ -307,7 +307,7 @@ if IsBash; then
 else
 	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; r "${gt%% *}" $2; } # get type
-	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "array" ]]; }
+	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == @(array|array-local) ]]; }
 	IsAssociativeArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "association" ]]; }
 	StringToArray() { GetArgs3; IFS=$2 read -A $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
 fi
@@ -840,7 +840,7 @@ GetIpAddress()
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
 	if InPath getent; then ip="$(getent ahostsv4 "$host" |& head -1 | cut -d" " -f 1)"
-	elif InPath host; then ip="$(host -t A "$host" |& grep -v "^ns." | head -1 | grep "has address" | cut -d" " -f 4)"
+	elif InPath host; then ip="$(host -t A "$host" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 4)"
 	elif InPath nslookup; then ip="$(nslookup "$host" |& tail -3 | grep "Address:" | cut -d" " -f 2)"
 	fi
 
@@ -1167,8 +1167,8 @@ package() # package install
 	done
 	set -- "${args[@]}"
 
-	packages=("$@"); IsPlatform mac && packages=( $(packageExclude "$@"))
-	
+	packages=( $(packageExclude "$@") )
+
 	if [[ ! $packages ]]; then
 		[[ ! $quiet ]] && echo "all packages have been excluded"
 		return 0
