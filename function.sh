@@ -165,10 +165,10 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 
 i() # invoke the installer script (inst) saving the INSTALL_DIR
 { 
-	local find force noRun select
+	local check find force noRun select
 
 	if [[ "$1" == "--help" ]]; then echot "\
-usage: i [APP*|bak|cd|dir|force|info|select]
+usage: i [APP*|bak|cd|check|dir|force|info|select]
   Install applications
 	-f,  --force		force installation even if a minimal install is selected
   -nr, --no-run 	do not find or run the installation program
@@ -182,6 +182,7 @@ usage: i [APP*|bak|cd|dir|force|info|select]
 	[[ "$1" == @(--select|-s) ]] && { select="--select"; shift; }
 	[[ "$1" == @(select) ]] && { select="--select"; }
 	[[ "$1" == @(force) ]] && { force="true"; }
+	[[ "$1" == @(check) ]] && { check="true"; }
 
 	if [[ ! $noRun && ($force || $select || ! $INSTALL_DIR || ! -d "$INSTALL_DIR") ]]; then
 		ScriptEval FindInstallFile --eval $select || return
@@ -191,6 +192,7 @@ usage: i [APP*|bak|cd|dir|force|info|select]
 
 	case "${1:-cd}" in
 		bak) InstBak;;
+		check) return;;
 		cd) cd "$INSTALL_DIR";;
 		dir) echo "$INSTALL_DIR";;
 		force|select) return 0;;
@@ -914,6 +916,8 @@ IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" ==
 IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
 { 
 	local host="$1" timeout="${2:-200}"
+
+	IsLocalHost "$host" && return 0
 
 	# resolve the IP address explicitly:
 	# - mDNS name resolution is intermitant (double check this on various platforms)

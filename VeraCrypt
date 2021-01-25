@@ -23,12 +23,13 @@ $(ScriptName) commands.
   profile save|restore|dir|SaveDir [<profile name>|default](latest) [--global]
 
   -b, --brief					brief status messages
-  -np, --no-prompt   suppress interactive prompts"
+  -np, --no-prompt   suppress interactive prompts
+  -q, --quiet				minimize informational messages"
 }
 
 args()
 {
-	unset -v brief noPrompt
+	unset -v brief noPrompt quiet
 
 	# commands
 	ScriptCommand "$@" || return
@@ -40,6 +41,7 @@ args()
 			-b|--brief) brief="--brief";;	
 			-h|--help) usage 0;;
 			-np|--no-prompt) noPrompt="--no-prompt";;
+			-q|--quiet) quiet="true";;
 			--) shift; otherArgs+=("$@"); set --; break;;
 			*) ScriptOpt "$@";;
 		esac
@@ -76,7 +78,11 @@ profileCommand()
 
 mountUsage() { echo "\
 Usage: $(ScriptName) mount FILE [LETTER]
-	-p, --password PASSWORD			password for the file"; }
+
+	-d, --dir DIRECTORY					return the directory in the mounted volume, or return it
+															if present in existing mounted drives.
+	-p, --password PASSWORD			password for the file
+	"; }
 
 mountArgStart() { unset file letter password; }
 
@@ -84,6 +90,7 @@ mountOpt()
 {
 	case "$1" in
 		-p|--password|-p=*|--password=*) ScriptOptGet password "$@" || return;;
+		-d|--dir|-d=*|--dir=*) ScriptOptGet dir "$@" || return;;
 		*) return 1
 	esac
 }
@@ -97,21 +104,27 @@ mountArgs()
 
 mountCommand()
 {
-	local letterArg="/auto"; [[ $letter ]] && letterArg="/letter $letter"
-	local passwordArg
-
-	if [[ $password ]]; then 
-		passwordArg="/password $password"
-	elif credential exists secure strong --fallback; then
-		passwordArg="/password $(credential get secure strong --fallback)" || return
+	# check if the directory is already mounted
+	if [[ $dir ]]; then
+		local drive drives; IFS=$'\n' drives=( $(drive mounts) )
+		for drive in "${drives[@]}"; do 
+			[[ -d "$drive/$dir" ]] && { echo "$drive/$dir"; return; }
+		done
 	fi
 
+	local args=( /cache yes /quit /nowaitdlg yes /volume "$(utw "$file")" )
+	
+	[[ $letter ]] && args+=( /letter "$letter" ) || args+=( /auto )
+
+	credential exists secure strong --fallback && { password="$(credential get secure strong --fallback)" || return; }
+	[[ $password ]] && args+=( /silent /password "$password" )
+
 	# get the currently mounted drives
-	#local drives; [[ ! $letter ]] && { IFS=$'\n' drives=( $(drive list) ) || return; }
 	local drives; [[ ! $letter ]] && { drives="$(drive list)" || return; }
 
 	# mount the volume
-	"$program" /cache yes /quit /silent /nowaitdlg yes $letterArg $passwordArg /volume "$(utw "$file")" || return
+	[[ ! $quiet ]] && EchoErr "Mounting encrypted volume \`$(FileToDesc "$file")\`..."
+	"$program" "${args[@]}" || return
 
 	# get the new first new drive letter if needed
 	if [[ ! $letter ]]; then
@@ -121,7 +134,8 @@ mountCommand()
 	fi
 
 	# mount the new drive
-	[[ $letter ]] && drive mount "$letter" || return
+	[[ $dir ]] && dir="/$dir"
+	[[ $letter ]] && echo "$(drive mount "$letter")$dir" || return
 
 	return 0
 }
@@ -133,7 +147,12 @@ mountCommand()
 unmountUsage() { echo "Usage: $(ScriptName) unmount LETTER"; }
 unmountArgStart() { unset letter; }
 unmountArgs() { ScriptArgDriveLetter "$1" || return; shift; }
-unmountCommand() { drive unmount "$letter" && "$program" /quit /silent /dismount "$letter"; }
+
+unmountCommand()
+{
+	[[ ! $quiet ]] && echo "Unmounting encrypted volume..."
+	drive unmount "$letter" && "$program" /quit /silent /dismount "$letter"
+}
 
 #
 # helper

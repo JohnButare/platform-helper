@@ -7,18 +7,26 @@ run() {	init && args "$@" && "${command}Command"; }
 
 init()
 {
+	# credentials
 	credentialPaths=( domotz LastPass secure ssh system unifi )
 
+	# devices
 	camDevices=(BackShed BackYardEast ChickenYardNorth ChickenYardSouth FrontPatio FrontYardEast FrontYardWest LivingRoom)
 	coreDevices=( pi1 pi2 pi3 )
 	testDevices=( pi4 pi5 pi6 pi7 pi8 rp1 )
 
+	# file server
 	fileServer="$(ConfigGet "fs")" || return
 	domain="$(ConfigGet "domain")" || return
 	baseDomain="$(ConfigGet "baseDomain")" || return
 
-	networkConfig="$CLOUD/network"
-	hashiConfig="$networkConfig/hashi"
+	# Hashi
+	hashiCertificateVolume="$CDATA/VeraCrypt/personal.hc"		# VeraCrypt encrypted volume
+	hashiCertificateDir="data/certificate/hashi"						# directory in the volume
+	hashiConfig="$CLOUD/network/hashi"
+
+	# network configuration
+	networkConfig="$CLOUD/network"	
 }
 
 usage()
@@ -288,7 +296,7 @@ networkConfigFileValidate()
 setupUsage() { echo "Usage: $(ScriptName) setup all|hashi|SystemUser"; }
 setupCommand() { usage; }
 
-setupAllCommand() { setupSystemUserCommand && setupHashiCommand; }
+setupAllCommand() {	setupSystemUserCommand && setupHashiCommand && syncCredentialCommand; }
 
 setupSystemUserCommand()
 {
@@ -313,10 +321,10 @@ setupSystemUserCommand()
 setupHashiCommand()
 {
 	if [[ $test ]]; then
-		hashi test install || return
+		hashiRun test install || return
 	else
-		local dir; dir="$(mountVol "$CDATA/VeraCrypt/personal.hc")/data/certificate/hashi" || return
-		hashi install --encrypt "$dir" "$(otherArgs[@])" || return
+		local dir; dir="$(mountVol "$hashiCertificateVolume" --dir "$hashiCertificateDir")" || return
+		hashiRun install all --encrypt "$dir" || return
 		unmountVol || return
 	fi
 
@@ -325,15 +333,18 @@ setupHashiCommand()
 
 setupHashiFinalCommand()
 {
-	local args=( "${otherArgs[@]}" ); [[ $test ]] && args+=( --config-prefix=test )
-	hashi config set remote "${args[@]}" "${otherArgs[@]}" || return
+	local args=(); [[ $test ]] && args+=( --config-prefix=test )
 
-	local dir="$hashiConfig/services"
-	hashi consul service register "$dir/dns1.hcl" --host=first "${args[@]}" || return
-	hashi consul service register "$dir/dns2.hcl" --host=second "${args[@]}" || return
-	hashi consul service register "$dir/domotz-agent.hcl" --host=second "${args[@]}" || return
-	hashi consul service register "$dir/unifi-controller.hcl" --host=second "${args[@]}" || return
+	hashiRun config set remote "${args[@]}" || return
+
+	hashiService "dns1" --host=first "${args[@]}" || return
+	hashiService "dns2" --host=second "${args[@]}" || return
+	hashiService "domotz-agent" --host=second "${args[@]}" || return
+	hashiService "unifi-controller" --host=second "${args[@]}" || return
 }
+
+hashiRun() { hashi "$@" "${otherArgs[@]}" $force $test $verbose; }
+hashiService() { local service="$1"; shift; hashiRun consul service register "$hashiConfig/services/$service.hcl" "$@"; }
 
 #
 # Syncronize Commands
@@ -437,16 +448,7 @@ deviceStatus()
 # Helper
 #
 
-mountVol()
-{
-	EchoErr "Mounting encrypted volume..."
-	VeraCrypt mount "$file" p
-}
-
-unmountVol()
-{
-	echo "Unmounting encrypted volume..."
-	VeraCrypt unmount p
-}
+mountVol() { VeraCrypt mount "$@" p; }
+unmountVol() { VeraCrypt unmount p; }
 
 run "$@"
