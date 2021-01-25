@@ -776,12 +776,12 @@ DhcpRenew()
 # GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
 GetAdapterIpAddress() 
 {
-	local adapter="$1"
+	local adapter="$1"; [[ ! $adapter ]] && adapter="$(GetInterface)" || return
 
 	if IsPlatform win; then
 
 		if [[ ! $adapter ]]; then
-			# default route (0.0.0.0 destination) with lowest metric
+			# use default route (0.0.0.0 destination) with lowest metric
 			route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | awk '{ print $4; }'
 		else
 			ipconfig.exe | RemoveCarriageReturn | grep "Ethernet adapter $adapter:" -A 4 | grep "IPv4 Address" | cut -d: -f2 | RemoveSpace
@@ -794,7 +794,6 @@ GetAdapterIpAddress()
 		ifconfig "$adapter" | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }' | cut -d: -f2
 
 	else
-		# returns IP Address of first adapter if one is not specified
 		ifconfig "$adapter" | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }'
 
 	fi
