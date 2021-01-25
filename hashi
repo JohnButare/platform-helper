@@ -85,6 +85,11 @@ initFinal()
 	hashiClients=(); StringToArray "$(configGet "clients")" "," hashiClients
 	vaultServers=(); StringToArray "$(configGet "vaultServers")" "," vaultServers
 	hashiHosts=(); ArrayAppend --remove-dups hashiHosts hashiServers hashiClients vaultServers
+
+	# host aliases
+	[[ "${hostArg,,}" == "first" ]] && hostArg="${hashiServers[0]}"
+	[[ "${hostArg,,}" == "second" ]] && hostArg="${hashiServers[1]}"
+	[[ "${hostArg,,}" == "third" ]] && hostArg="${hashiServers[2]}"
 	
 	# default encryption directory
 	[[ ! $encrypt ]] && encrypt="$(configGet "certificateDir")"
@@ -1594,51 +1599,31 @@ allStatusCommand()
 #
 
 configUsage() { echot "\
-Usage: hashi config [local|nuke|remote|show](show)
-Configure products
+Usage: hashi config [get|set|nuke|show](show)
+Configure products.
 
-	local			set the local configuration
+	get VAR		get configuration variable
 	nuke			delete all local and remote configuration
-	remote		set the remote configuration
-	show			show the confioguration"; }
+	set 			set configuration
+	show			show the configuration"; }
 
 configCommand() { allConfigCommand; }
 
-configLocalCommand()
-{	
-	productConfig "vault" || return
+# Config Get Command
 
-	# get vault token using SSH
-	if [[ ! $VAULT_TOKEN || $force ]]; then
-		local hosts; getHosts "${vaultServers[@]}"
-		local host="${hosts[0]}"
-		local token; token="$(ssh -q -t "$host" bash -i credential get vault token | RemoveCarriageReturn)" || return
-		export VAULT_TOKEN="$token"
-	fi
+configGetUsage() { echot "\
+Usage: hashi config get VAR
+Get a configuration variable."; }
 
-	configMirror "vault" "local" || return
-}
+configGetArgStart() { unset varName; }
+configGetArgs() { ScriptArgGet "varName" "var" -- "$@"; shift; }
+configGetCommand() { configGet "$varName"; }
 
 # configGet VAR
 configGet()
 {
 	ConfigInit "$configFile" || return
 	ConfigGet "hashi$(UpperCaseFirst "$configPrefix")$(UpperCaseFirst "$1")"
-}
-
-configRemoteCommand()
-{
-	productConfig "vault" || return
-	configMirror "local" "vault" || return
-}
-
-configMirror()
-{
-	local from="$1" to="$2" product
-
-	for product in "${products[@]}"; do
-		credential mirror --from="$from" --to="$to" "$(credPath "$product")" $force || return
-	done
 }
 
 # Config Nuke Commands
@@ -1662,6 +1647,49 @@ nukeDo()
 	header "Remove $(ProperCase "$product") Configuration"
 	[[ "$product" == "vault" ]] && consul kv delete -recurse "vault/"
 	credential delete "$product" token	
+}
+
+# Config Set Command
+
+configSetUsage() { echot "\
+Usage: hashi config local|remote
+Set configuration.
+
+	local			set the local configuration
+	remote		set the remote configuration"; }
+
+configSetCommand() { usage; }
+
+configSetLocalCommand()
+{	
+	productConfig "vault" || return
+
+	# get vault token using SSH
+	if [[ ! $VAULT_TOKEN || $force ]]; then
+		local hosts; getHosts "${vaultServers[@]}"
+		local host="${hosts[0]}"
+		local token; token="$(ssh -q -t "$host" bash -i credential get vault token | RemoveCarriageReturn)" || return
+		export VAULT_TOKEN="$token"
+	fi
+
+	[[ ! $force ]] && credential --manager=local exists consul token && return
+	configMirror "vault" "local" || return
+}
+
+configSetRemoteCommand()
+{
+	productConfig "vault" || return
+	[[ ! $force ]] && credential --manager=vault exists consul token && return
+	configMirror "local" "vault" || return
+}
+
+configMirror()
+{
+	local from="$1" to="$2" product
+
+	for product in "${products[@]}"; do
+		credential mirror --from="$from" --to="$to" "$(credPath "$product")" --force || return
+	done
 }
 
 # Config Show Commands
