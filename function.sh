@@ -1038,10 +1038,9 @@ DnsResolve()
 	if IsIpAddress "$name"; then
 		lookup="$(nslookup $name |& grep "name =" | cut -d" " -f 3)"
 		lookup="${lookup%.}"
-	fi
 
 	# forward DNS lookup to get the fully qualified DNS address
-	if InPath host; then
+	elif InPath host; then
 		lookup="$(host $name | grep " has address " | cut -d" " -f 1)"
 
 	fi
