@@ -79,22 +79,25 @@ needsDevice() { [[ "$command" == @(device|format|fs|label|isMounted|isWin|mount|
 getDeviceArg()
 {	
 	shift=0; ! needsDevice && return
-	device="$1"; ((++shift))
-	[[ ! $device ]] && { [[ $quiet ]] && return 1 || MissingOperand "device"; }
+	local deviceArg="$1"; ((++shift))
+	[[ ! $deviceArg ]] && { [[ $quiet ]] && return 1 || MissingOperand "device"; }
 
-	local check="$device"
-	check="${check#/dev/}" 	# remove /dev/
-	check="${check,,}" 			# lower case
+	device="$deviceArg"
+	device="${device#/dev/}" 	# remove /dev/
+	device="${device,,}" 			# lower case
 
 	# physical device 
-	isDevice "$check" && { [[ "$check" == "all" ]] && all="true"; device="$check"; return 0; }
+	[[ "$device" == "all" ]] && { all="true"; return; }
+	[[ -b "/dev/$device" ]] && return
+	[[ "$(GetFileExtension "$1")" == "hc" ]] && return
+	isDriveLetter "$device" && ! getDevice "$device" >& /dev/null && return # mounted file or directories are not drive letters
 
 	# mounted file
-	local file="$device"
+	local file="$deviceArg"
 	[[ ! -e "$file" ]] && { [[ ! $quiet ]] && ScriptErr "mount location \`$file\` does not exist"; return 1; }
 
 	# get the device for the mounted file
-	device="$(getDevice "$file")"
+	device="$(getDevice "$file")" || return
 
 	# if the device (source) is drvfs, look in the mount OPTIONS for path=LETTER (Windows build 20221.1000)
 	if [[ "$device" == "drvfs" ]]; then
@@ -313,8 +316,7 @@ winOfflineCommand() { diskpart "select disk $disk \n offline disk" | grep "DiskP
 # helper
 #
 
-isDevice() { [[ "$1" == @("all") || -b "/dev/$1" ]] || isDriveLetter "$1" || [[ "$(GetFileExtension "$1")" == "hc" ]]; }
-isDriveLetter() { IsPlatform win && IsInArray "$1" driveLetters && [[ ! -e "$1" ]]; } # not a drive letter if we are passed a mounted file or directory
+isDriveLetter() { IsPlatform win && IsInArray "$1" driveLetters; }
 isLvm() { sudo lvdisplay -c | cut -d: -f1 | RemoveSpace | grep "^/dev/${device}$" >& /dev/null; }
 isMounted() { getMountDir >& /dev/null; }
 log() { [[ $quiet ]] && return; printf "$@"; }
@@ -485,9 +487,9 @@ doMountOther()
 }
 
 doUnmount()
-{
+{	
 	mountDir="$(getMountDir)" || return 0
-	
+
 	# return if we cannot unmount this drive
 	! canUnmount && { ScriptErr "cannot unmount $device ($reason)"; return 1; }
 
@@ -527,8 +529,9 @@ getAllDevices()
 # getDevice FILE - get the device the specified file is mounted on
 getDevice()
 {
+	local file="$1"; [[ ! -e "$file" ]] && return 1
 	InPath findmnt && { findmnt --noheadings --output=SOURCE --target "$file"; return; }
-	InPath df && { df -P "$file" | awk 'END{print $1}'; return; }
+	InPath df && { local d="$(df -P "$file" | awk 'END{print $1}')"; [[ $d ]] && echo "$d"; }	
 	return 1
 }
 
