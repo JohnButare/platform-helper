@@ -7,7 +7,7 @@ run() {	init && args "$@" && initFinal && "${command}Command"; }
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: hashi [OPTION]... [COMMAND]...
+Usage: $(ScriptName) [OPTION]... [COMMAND]...
 Helper commands for HashiCorp consul, nomad, and vault products.
 
 Common commands:
@@ -172,7 +172,7 @@ uiCommand()
 # Certificate Commands
 #
 
-certUsage() { echot "Usage: hashi cert copy|make
+certUsage() { echot "Usage: $(ScriptName) cert copy|make
 
 	-e, --encrypt DIR			directory for PKI certificates, if specified TLS will be enabled"; }
 
@@ -195,7 +195,7 @@ certCommand() { usage; }
 #
 
 certCopyUsage() { echot "\
-Usage: hashi cert copy [all|consul|nomad](all)
+Usage: $(ScriptName) cert copy [all|consul|nomad](all)
 
 	-e, --encrypt DIR			directory for PKI certificates"; }
 
@@ -209,7 +209,7 @@ certCopyNomadCommand() { product="nomad"; certInit || return; installPublicCerts
 #
 
 certMakeUsage() { echot "\
-Usage: hashi cert make all|consul|nomad
+Usage: $(ScriptName) cert make all|consul|nomad
 Create certificates required for HashiCorp products.
 
 	-e, --encrypt DIR			directory for PKI certificates"; }
@@ -513,7 +513,7 @@ certNomadServerMake()
 #
 
 installUsage() { echot "\
-Usage: hashi install all|cli|$productUsage
+Usage: $(ScriptName) install all|cli|$productUsage
 Install a HashiCorp product.
 
 	-c, --clients	HOSTS		comma separated list of clients to install
@@ -549,7 +549,7 @@ installAllCommand() { installConsulCommand && installVaultCommand && installNoma
 #
 
 installCliUsage() {	echot "\
-Usage: hashi install cli all|$productUsage
+Usage: $(ScriptName) install cli all|$productUsage
 Install a HashiCorp product for command line access."; }
 
 installCliCommand() { installCliAllCommand; }
@@ -1072,7 +1072,7 @@ installVaultAcl()
 # Lookup Command
 #
 
-lookupUsage() { echot "Usage: hashi lookup NAME
+lookupUsage() { echot "Usage: $(ScriptName) lookup NAME
 Lookup all information about consul service using nslookup.
 .service.<domain> is appended to the specified name."; }
 
@@ -1130,7 +1130,7 @@ removeDo()
 # Resolve Command
 #
 
-resolveUsage() { echot "Usage: hashi resolve [-a|--all] NAME[.service]
+resolveUsage() { echot "Usage: $(ScriptName) resolve [-a|--all] NAME[.service]
 Resolve a service in consul to an IP address or canonical name.
 If all is not specified the first IP address is returned.
 .service.<domain> is appended to the specified name."; }
@@ -1166,25 +1166,22 @@ resolveCommand()
 # Test Command
 #
 
-testUsage() { echot "usage: $(ScriptName) test clean|install all|$productUsage"; }
-testArgStart() { what="all"; }
+testUsage() { echot "usage: $(ScriptName) test clean|environment|install all|$productUsage"; }
+testArgStart() { what="all"; configPrefix="test"; }
 testArgs() { [[ "$1" != @(all|$productUsage) ]] && return; what="$1"; (( ++shift )); }
 testCommand() { testHashi; }
 
+testEnvironmentCommand() { configEnvironmentCommand; }
 testInstallCommand() { testHashi install $what; }
-testHashi() { hashi "$@" --config-prefix=test $force $test $verbose "${otherArgs[@]}"; }
 
 testCleanCommand()
 {
-	configPrefix="test"; initFinal || return
-
 	testHashi config nuke $what --force || return
 	testHashi remove $what -H="$(ArrayDelimit hashiHosts),localhost" || return
 	
 	[[ "$what" == @(|all) && -d "$encrypt" && "$(DirCount "$encrypt")" != 0 ]] && { header "Cleaning Certificates"; sudoc DelDir --contents "$encrypt"; }
 
-	header "Manual Environment Cleanup"
-	echo "unset CONSUL_HTTP_TOKEN VAULT_TOKEN NOMAD_TOKEN"
+	return 0
 }
 
 #
@@ -1567,21 +1564,21 @@ installFinal() { RunFunction "install" "${product}Final" || return; }
 #
 
 allUsage() { echot "\
-Usage: hashi all config|status
+Usage: $(ScriptName) all environment|status
 Commands for all products."; }
 
 allCommand() { usage; }
 
-allConfigCommand()
+allEnvironmentCommand()
 {
+	# initialize consul for product lookups
+	productConfig "consul" || return
+
 	local product
-
-	for product in "${products[@]}"; do
+	for product in "${products[@]}"; do		
 		! productIsInstalled "$product" && continue
-		productConfigShow "$product" || return
-		echo
+		productEnvironment "$product" || return; echo
 	done
-
 }
 
 allStatusCommand()
@@ -1599,20 +1596,36 @@ allStatusCommand()
 #
 
 configUsage() { echot "\
-Usage: hashi config [get|set|nuke|show](show)
+Usage: $(ScriptName) config [get|set|nuke|show](show)
 Configure products.
 
-	get VAR		get configuration variable
-	nuke			delete all local and remote configuration
-	set 			set configuration
-	show			show the configuration"; }
+	get VAR			get configuration variable
+	nuke				delete all local and remote configuration
+	set 				set configuration
+	environment	set environment variables"; }
 
-configCommand() { allConfigCommand; }
+configCommand() { allEnvironmentCommand; }
+
+# Config Environment Commands
+
+configEnvironmentUsage() { echot "\
+Usage: $(ScriptName) config environment [all|$productUsage|test|reset](all)
+Set environment variables.   These commands should be called with ScriptEval
+so the current environmnet is updated."; }
+
+configEnvironmentCommand() { allEnvironmentCommand; }
+
+configEnvironmentConsulCommand() { productEnvironment "consul"; }
+configEnvironmentNomadCommand() { productEnvironment "nomad"; }
+configEnvironmentVaultCommand() { productEnvironment "vault"; }
+
+configEnvironmentResetCommand() { echo "unset CONSUL_HTTP_TOKEN VAULT_TOKEN NOMAD_TOKEN"; }
+configEnvironmentTestCommand() { doHashi test environment; }
 
 # Config Get Command
 
 configGetUsage() { echot "\
-Usage: hashi config get VAR
+Usage: $(ScriptName) config get VAR
 Get a configuration variable."; }
 
 configGetArgStart() { unset varName; }
@@ -1629,7 +1642,7 @@ configGet()
 # Config Nuke Commands
 
 configNukeUsage() { echot "\
-Usage: hashi config nuke all|$productUsage
+Usage: $(ScriptName) config nuke all|$productUsage
 Delete all local and remote configuration"; }
 
 configNukeCommand() { usage; }
@@ -1652,7 +1665,7 @@ nukeDo()
 # Config Set Command
 
 configSetUsage() { echot "\
-Usage: hashi config local|remote
+Usage: $(ScriptName) config local|remote
 Set configuration.
 
 	local			set the local configuration
@@ -1692,17 +1705,6 @@ configMirror()
 	done
 }
 
-# Config Show Commands
-
-configShowUsage() { echot "\
-Usage: hashi config show [all|$productUsage](all)
-Show configuration variables"; }
-
-configShowCommand() { allConfigCommand; }
-configShowConsulCommand() { productConfigShow "consul"; }
-configShowNomadCommand() { productConfigShow "nomad"; }
-configShowVaultCommand() { productConfigShow "vault"; }
-
 #
 # Consul Command
 #
@@ -1710,18 +1712,18 @@ configShowVaultCommand() { productConfigShow "vault"; }
 consulInit() { productConfig "consul" || return; }
 
 consulUsage() { echot "\
-Usage: hashi consul acl|config|status|backup|restore|service
+Usage: $(ScriptName) consul acl|backup|environment|restore|service|status
 Consul commands."; }
 
 consulCommand() { usage; }
-consulConfigCommand() { productConfigShow "consul"; }
-consulStatusCommand() { consul members; }
 consulBackupCommand() { consul snapshot save "$(GetDateStampNext "consul.$domain" "snap")"; }
+consulEnvironmentCommand() { productEnvironment "$product"; }
+consulStatusCommand() { consul members; }
 
 # Consul ACL Command
 
 consulAclUsage() { echot "\
-Usage: hashi consul acl create
+Usage: $(ScriptName) consul acl create
 Consul ACL commands."; }
 
 consulAclCommand() { usage; }
@@ -1729,7 +1731,7 @@ consulAclCommand() { usage; }
 # Consul ACL Create Command
 
 consulAclCreateUsage() { echot "\
-Usage: hashi consul acl create [NAME] [DEFINITION]
+Usage: $(ScriptName) consul acl create [NAME] [DEFINITION]
 Create a Consul ACL."; }
 
 consulAclCreateArgStart() { unset name def; }
@@ -1745,7 +1747,7 @@ consulAclCreateCommand() { consulAclCreate "$name" "$def"; }
 # Consul ACL Token Command
 
 consulAclTokenUsage() { echot "\
-Usage: hashi consul acl token [get|delete] [NAME]
+Usage: $(ScriptName) consul acl token [get|delete] [NAME]
 Manage Consul ACL tokens."; }
 
 consulAclTokenArgStart() { unset name; }
@@ -1762,6 +1764,36 @@ consulAclCreate()
 	local name="$1" def="$2"
 	consulAclPolicyCreate "$name" "$def" || return
 	consulAclTokenCreate "$name" || return
+}
+
+# consulAclPolicyExists NAME - return true if the specified policy exists
+consulAclPolicyExists()
+{
+	local name="$1"
+	[[ "$(consul acl policy list -format=json | jq ".[] | select(.Name == \"$1\").Name" | RemoveQuotes)" == "$name" ]]
+}
+
+# consulAclPolicyCreate NAME DEF - create a policy with the specified name and definition
+consulAclPolicyCreate()
+{
+	local name="$1" def="$2"
+	[[ ! $force ]] && consulAclPolicyExists "$name" && return
+	consulAclPolicyDelete "$name" || return
+
+	hilight "Creatning ACL policy $name..."
+	[[ $test ]] && { printf "${GREEN}create policy $name:${RESET}\n%s\n" "$(cat)"; return; }
+	echo "$def" | consul acl policy create -name "$name" -rules -
+}
+
+# consulAclPolicyDelete NAME - delete the specified policy
+consulAclPolicyDelete()
+{
+	local name="$1"
+	! consulAclPolicyExists "$name" && return
+
+	hilight "Deleting ACL policy $name..."
+	[[ $test ]] && { hilight "delete policy $name"; return; }
+	consul acl policy delete -name "$name"
 }
 
 # consulAclTokenGet DESC - get the token Secret ID with the specified description
@@ -1816,7 +1848,7 @@ consulAclTokenDelete()
 consulServiceInit() { unset file; }
 
 consulServiceUsage() { echot "\
-Usage: hashi consul service register|deregister FILE
+Usage: $(ScriptName) consul service register|deregister FILE
 Consul service commands."; }
 
 consulServiceArgs() { ScriptArgGet "file" -- "$@"; ScriptCheckFile "$file"; shift; }
@@ -1870,11 +1902,11 @@ consulServiceDeregister() { consul services deregister; }
 #
 
 nomadUsage() { echot "\
-Usage: hashi nomad config|job|status
+Usage: $(ScriptName) nomad environment|job|status
 Nomad commands."; }
 
 nomadCommand() { usage; }
-nomadConfigCommand() { productConfigShow "nomad"; }
+nomadEnvironmentCommand() { productEnvironment "$product"; }
 nomadStatusCommand() { nomad node status; }
 
 #
@@ -1882,7 +1914,7 @@ nomadStatusCommand() { nomad node status; }
 #
 
 nomadJobUsage() { echot "\
-Usage: hashi nomad job NAME
+Usage: $(ScriptName) nomad job NAME
 Nomad job commands.
 
 	force	NAME		force a periodic job to start
@@ -1913,7 +1945,7 @@ nomadJobStatusCommand()
 # nomnd job force
 
 nomadJobForceUsage() { echot "\
-Usage: hashi nomad job force NAME
+Usage: $(ScriptName) nomad job force NAME
 Force the the specified periodic job to start.
 
 	-l|--log 	follow the job log after starting it"; }
@@ -1943,7 +1975,7 @@ nomadJobForceCommand()
 # nomad job log
 
 nomadJobLogUsage() { echot "\
-Usage: hashi nomad job log NAME
+Usage: $(ScriptName) nomad job log NAME
 Show the log for the specified periodic job.
 
 	-f|--follow 	follow the log output"; }
@@ -1993,13 +2025,13 @@ nomadGetAllocId()
 #
 
 vaultUsage() { echot "\
-Usage: hashi vault config|status|unseal
+Usage: $(ScriptName) vault environment|status|unseal
 Vault commands.
 
 	unseal			unseal the vault using keys from the credential store"; }
 
 vaultCommand() { usage; }
-vaultConfigCommand() { productConfigShow "vault" "" "2"; }
+vaultEnvironmentCommand() { productEnvironment "$product"; }
 vaultSealCommand() { vault operator seal; }
 
 vaultStatusCommand()
@@ -2025,7 +2057,7 @@ vaultUnsealCommand()
 	# unseal each host
 	for host in "${hosts[@]}"; do
 		header "$host"
-		eval "$(hashi vault config --host "$host")"
+		productConfig vault "$host" || return
 
 		for n in 1 2 3; do
 			hilight "Unsealing $host with key $n..."
@@ -2135,7 +2167,7 @@ productCheck()
 }
 
 # productConfig PRODUCT [HOST] - set the configuration variables for the specified product, which enables use of
-#   the the product in this script
+# the the product in this script
 productConfig()
 {
 	local product="$1" host="$2"
@@ -2147,11 +2179,11 @@ productConfig()
 	if [[ $verbose ]]; then
 		local desc; [[ $host ]] && desc=" for $host"
 		hilight "Getting $product configuration$desc..."
-		productConfigShow "$product" "$host" || return
+		productEnvironment "$product" "$host" || return
 	fi
 
 	# set product configuration variables
-	eval "$(productConfigShow "$product" "$host")" || return
+	ScriptEval productEnvironment "$product" "$host" || return
 
 	# logging
 	if [[ $verbose ]]; then
@@ -2179,8 +2211,8 @@ productConfigArgs()
 	echo "$args"
 }
 
-# productConfigShow PRODUCT [HOST] - show the configuration variables for the specified product
-productConfigShow()
+# productEnvironment PRODUCT [HOST] - show the environment variables for the specified product
+productEnvironment()
 {
 	local product="$1" host="$2"; productCheck "$1" || return
 
@@ -2306,6 +2338,7 @@ productInstall()
 		local file="$(os executable find "$installDir")" || return
 		InPath "$product" && [[ "$(productVersion "$product")" == "$(productVersion "$product" "$file")" ]] && return	
 		sudoc cp "$file" "$binDir/$product"; return		
+		return 0
 	fi
 
 	local dest="$binDir/$product"
@@ -2464,6 +2497,8 @@ productVersion()
 # helper
 #
 
+doHashi() { hashi "$@" $force $test $verbose "${otherArgs[@]}"; }
+testHashi() { doHashi "$@" --config-prefix=test; }
 tmpDirCreate() { mktemp -d -t "$tmpDirTemplate"; }
 useHttps() { [[ $encrypt || -d "$cert" ]]; } # use HTTPS during installation ($encrupt) and client configuration (cert directory exists)
 
@@ -2513,40 +2548,6 @@ validateConfigFile()
 	local type="$(GetFileExtension "$file")"
 	[[ ! "$type" == @(hcl|json) ]] && { ScriptErr "Specified file /`$file/` is not a valid HashiCorp configuration file"; return 1; }
 	echo "$type"
-}
-
-#
-# Consul Policy Helper
-#
-
-# consulAclPolicyExists NAME - return true if the specified policy exists
-consulAclPolicyExists()
-{
-	local name="$1"
-	[[ "$(consul acl policy list -format=json | jq ".[] | select(.Name == \"$1\").Name" | RemoveQuotes)" == "$name" ]]
-}
-
-# consulAclPolicyCreate NAME DEF - create a policy with the specified name and definition
-consulAclPolicyCreate()
-{
-	local name="$1" def="$2"
-	[[ ! $force ]] && consulAclPolicyExists "$name" && return
-	consulAclPolicyDelete "$name" || return
-
-	hilight "Creatning ACL policy $name..."
-	[[ $test ]] && { printf "${GREEN}create policy $name:${RESET}\n%s\n" "$(cat)"; return; }
-	echo "$def" | consul acl policy create -name "$name" -rules -
-}
-
-# consulAclPolicyDelete NAME - delete the specified policy
-consulAclPolicyDelete()
-{
-	local name="$1"
-	! consulAclPolicyExists "$name" && return
-
-	hilight "Deleting ACL policy $name..."
-	[[ $test ]] && { hilight "delete policy $name"; return; }
-	consul acl policy delete -name "$name"
 }
 
 run "$@"
