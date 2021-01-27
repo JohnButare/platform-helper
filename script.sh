@@ -177,7 +177,7 @@ ScriptCommand()
 		[[ "$c" =~ ^is..* ]] && c="is$(ProperCase "${c#is}")" # i.e. isAvailable
 		c="${command}${c}Command"
 
-		# find the exact command match - a case-insensitive match is slow
+		# find the exact command match - a case-insensitive match is too slow
 		if IsFunction "$c"; then
 			command="${c%Command}" commands+=("$command") commandNames+=("${arg,,}")
 			IsFunction "${command}ArgStart" && { "${command}ArgStart" || return; }
