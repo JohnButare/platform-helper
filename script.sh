@@ -105,11 +105,12 @@ ScriptOpt()
 	UnknownOption "$1"
 }
 
-# ScriptOptGet VAR [DESC] OPTION VALUE - get an option argument.  
-# 	Sets var to value and increments shift if needed.
-#   Format: -o|--option[=| ]VAL
+# ScriptOptGet [--check]] VAR [DESC] OPTION VALUE - get an option argument.  
+#   Sets var to value and increments shift if needed.  Format: -o|--option[=| ]VAL
+#		If --check is specified the option is not required.
 ScriptOptGet()
 {
+	local require="true"; [[ "$1" == "--check" ]] && { shift; unset require; }
 	local scriptVar="$1"; shift
 	local scriptDesc="$scriptVar"; ! IsOption "$1" && { scriptDesc="$1"; shift; }
 	local opt="$1"; shift
@@ -123,7 +124,8 @@ ScriptOptGet()
 		value="$1"; ((++shift))
 		
 	else
-		MissingOperand "$scriptDesc"; return 1
+		[[ $require ]] && MissingOperand "$scriptDesc"
+		return 1
 
 	fi
 
