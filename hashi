@@ -71,6 +71,8 @@ init()
 	products=( consul vault nomad )
 	productUsage="consul|nomad|vault"
 	binDir="/usr/local/bin"
+
+	certOptUsage="-e, --encrypt DIR			directory for PKI certificates, if specified TLS will be enabled"
 }
 
 initFinal()
@@ -91,8 +93,8 @@ initFinal()
 	[[ "${hostArg,,}" == "second" ]] && hostArg="${hashiServers[1]}"
 	[[ "${hostArg,,}" == "third" ]] && hostArg="${hashiServers[2]}"
 	
-	# default encryption directory
-	[[ ! $encrypt ]] && encrypt="$(configGet "certificateDir")"
+	# encryption
+	[[ "$encrypt" == "find" ]] && { encrypt="$(certFindDir)" || return; }
 
 	# port configuration
 	consulHttpPort="8500" consulHttpsPort="8501"
@@ -172,23 +174,56 @@ uiCommand()
 # Certificate Commands
 #
 
-certUsage() { echot "Usage: $(ScriptName) cert copy|make
+certUsage()
+{
+	echot "Usage: $(ScriptName) cert copy|dir|make
 
-	-e, --encrypt DIR			directory for PKI certificates, if specified TLS will be enabled"; }
+	copy	copy public certificates
+	dir		public certificate directory
+	make	make certificates
+
+	$certOptUsage"
+}
 
 certArgStart() { unset encrypt; }
 
 certOpt()
 {
 	case "$1" in
-		-e|--encrypt|-e=*|--encrypt=*) ScriptOptGet "encrypt" "$@"; ScriptCheckDir "$encrypt";;
+		-e|--encrypt|-e=*|--encrypt=*) encryptOptGet "$@";;
 		*) return 1;;
 	esac
 }
 
-certArgEnd() { [[ ! $encrypt ]] && MissingOption "encrypt"; return 0; }
-
 certCommand() { usage; }
+
+certDirCommand() { certFindDir; }
+
+# certFindDir - find the certificate directory in an installation location.
+# 	Path format is other/HashiCorp/certificate/BASE_DOMAIN/CONFIG_PREFIX/PRODUCT, 
+# 	i.e. other/HashiCorp/certificate/butare.net/test/consul
+certFindDir() 
+{
+	local dir
+
+	# encypt option
+	[[ -d "$encrypt" ]] && dir="$encrypt"
+
+	# check configuration
+	[[ ! $dir ]] && dir="$(configGet "certificateDir")"
+
+	# check installation source
+	if [[ ! $dir ]]; then
+		dir="$(FindInstallFile "other/HashiCorp")" || return
+		dir+="/certificate/$baseDomain"
+		[[ $configPrefix ]] && dir+="/$configPrefix"
+		[[ $protudct ]] && dir+="/$product"
+	fi
+
+	[[ ! -d "$dir" ]] && { mkdir --parents "$dir" || return; }
+
+	echo "$dir"
+}
 
 #
 # Certificate Copy Command
@@ -199,6 +234,7 @@ Usage: $(ScriptName) cert copy [all|consul|nomad](all)
 
 	-e, --encrypt DIR			directory for PKI certificates"; }
 
+certCopyArgEnd() { [[ ! $encrypt ]] && MissingOption "encrypt"; return 0; }
 certCopyCommand() { certCopyAllCommand; }
 certCopyAllCommand() { certCopyConsulCommand && certCopyNomadCommand; }
 certCopyConsulCommand() { product="consul"; certInit || return; installPublicCerts; }
@@ -214,6 +250,7 @@ Create certificates required for HashiCorp products.
 
 	-e, --encrypt DIR			directory for PKI certificates"; }
 
+certMakeArgEnd() { [[ ! $encrypt ]] && MissingOption "encrypt"; return 0; }
 certMakeCommand() { usage; }
 certMakeAllCommand() { certMake "consul" && certMake "nomad"; }
 certMakeNomadCommand() { certMake "nomad"; }
@@ -289,16 +326,11 @@ certGetCa()
 # certPublicCopy FILE
 certPublicCopy()
 {
-	local file="$1"
-	local dir; dir="$(FindInstallFile "other/HashiCorp")" || return
+	local file="$1"; [[ ! -f "$file" ]] && { ScriptErr "\`$file\` does not exist"; return 1; }
 
-	# verify the certificate exists
-	[[ ! -f "$file" ]] && { ScriptErr "\`$file\` does not exist"; return 1; }
-
-	# create the certificate directory
-	dir="$dir/certificate/$baseDomain/$product"
-	[[ ! -d "$dir" ]] && { mkdir --parents "$dir" || return; }
-
+	# find destination certificate directory in installation location
+	local dir; dir="$(certFindDir)" || return
+	
 	# return if the certificate does not exist
 	local fileName="$(GetFileName "$file")"
 	[[ -f "$dir/$fileName" && ! $force ]] && return	
@@ -519,7 +551,7 @@ Install a HashiCorp product.
 	-c, --clients	HOSTS		comma separated list of clients to install
 	-s, --server HOSTS		comma separated list of servers to install
 	-j, --join HOSTS			comma separated list of hosts to join to, defaults to servers
-	-e, --encrypt DIR			directory for PKI certificates, if specified TLS will be enabled
+	$certOptUsage
 	-w, --what=C1[,C2...] components to install
 													components: acl cert program service
 													Nomad: VaultIntegration
@@ -534,14 +566,13 @@ installOpt()
 		-c|--clients|-c=*|--clients=*) ScriptOptGet "clients" "$@"; StringToArray "$clients" "," clients;;
 		-s|--servers|-s=*|--servers=*) ScriptOptGet "servers" "$@"; StringToArray "$1" "," servers;;
 		-j|--join|-j=*|--join=*) ScriptOptGet "join" "$@"; StringToArray "$1" "," join;;
-		-e|--encrypt|-e=*|--encrypt=*) ScriptOptGet "encrypt" "$@"; ScriptCheckDir "$encrypt";;
+		-e|--encrypt|-e=*|--encrypt=*) encryptOptGet "$@";;
 		-w|--what|-w=*|--what=*) ScriptOptGet "what" "$@"; StringToArray "${what,,}" "," what;;
 		*) return 1;;
 	esac
 }
 
 installCommand() { usage; }
-
 installAllCommand() { installConsulCommand && installVaultCommand && installNomadCommand; }
 
 #
@@ -1604,7 +1635,7 @@ Configure products.
 	set 				set configuration
 	environment	set environment variables"; }
 
-configCommand() { allEnvironmentCommand; }
+configCommand() { usage; }
 
 # Config Environment Commands
 
@@ -2498,6 +2529,12 @@ doHashi() { hashi "$@" $force $test $verbose "${otherArgs[@]}"; }
 testHashi() { doHashi "$@" --config-prefix=test; }
 tmpDirCreate() { mktemp -d -t "$tmpDirTemplate"; }
 useHttps() { [[ $encrypt || -d "$cert" ]]; } # use HTTPS during installation ($encrupt) and client configuration (cert directory exists)
+
+encryptOptGet()
+{
+	ScriptOptGet --check "encrypt" "$@" && { ScriptCheckDir "$encrypt"; return; }
+	encrypt="find" # find later to ensure configPrefix is defined if needed	
+}
 
 getHosts() 
 {
