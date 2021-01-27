@@ -581,6 +581,9 @@ FileToDesc() # short description for the file, mounted volumes are converted to 
 	# if the file is a UNC mounted share get the UNC format
 	[[ -e "$file" ]] && unc IsUnc "$file" && file="$(unc get unc "$file")"
 
+	# mounted device
+	local desc; desc="$(drive desc --quiet "$file")" && file="$desc"
+
 	# remove the server DNS suffix from UNC paths
 	IsUncPath "$file" && file="//$(GetUncServer "$file" | RemoveDnsSuffix)/$(GetUncShare "$file")/$(GetUncDirs "$file")"
 
