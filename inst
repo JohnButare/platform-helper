@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. script.sh || exit
 . color.sh || exit
 
-main() { init && args "$@" && i "${apps[@]}"; }
+main() { init && args "$@" && initFinal && "${command}Command"; cleanup; }
 
 init()
 {
@@ -39,48 +39,89 @@ init()
 	export PLATFORM_PATH="$DATA/platform/$PLATFORM"
 }
 
+initFinal() { :; }
+cleanup() { :; }
+
 usage()
 {
-	echot "\
-usage: install cd|install APP*
-	Install programs
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [COMMAND]...
+Programs installation.
+
+	install	[APP]...		install programs
+
 	-f,  --force					force installation even if a minimal install is selected
-	-h,  --hint DIR				first directory to search for installation files
-	-nr, --no-run					do not find or run the installation program
-	-np, --no-prompt	   	suppress interactive prompts
-	-p,	 --prompt 				force prompts
 	-q,  --quiet					minimize informational messages
-	-s,  --select					select the install location
 	-v,  --verbose				verbose logging"
-	exit $1
 }
 
 args()
 {
-	unset -v apps force forcePrompt hint noPrompt noRun quiet select verbose verboseInstaller
+	unset -v force otherArgs quiet verbose
 
+	# commands
+	ScriptCommand "installCommand" "$@" || return
+
+	# options
+	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			--force|-f) force="--force";;
-			--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
-			--hint|-h) hint=( --hint "$2" ); export INSTALL_DIR="$2"; shift;;
-			--no-prompt|-np) noPrompt="--no-prompt";;
-			--no-run|-nr) noRun="--no-run";;
-			--prompt|-p) forcePrompt="--prompt";;
-			--quiet|-q) quiet="--quiet";;
-			--select|-s) select="--select";;
-			--verbose|-v) verbose="--verbose" verboseInstaller="-verbose";;
-			*) IsOption "$1" && UnknownOption "$1" || apps+=( "$1" );;
+		case "$1" in
+			-f|--force) force="--force";;
+			-h|--help) usage 0;;
+			-q|--quiet) quiet="--quiet";;
+			-v|--verbose) verbose="--verbose";;
+			--) shift; otherArgs+=("$@"); set --; break;;
+			*) ScriptOpt "$@";;
 		esac
-		shift
+		shift "$shift"; shift=1
 	done
+	set -- "${args[@]}"
+	
+	# arguments
+	ScriptArgs "$@" || return; shift "$shift"
 
-	options=( $force $forcePrompt $noPrompt $noRun $quiet $verbose )
-
-	return 0
+	(( $# == 0 )) && return || usage
 }
 
-FinalInstall() { inst --no-prompt BeyondCompareFinal ccFinal cleanMyFinal dropboxFinal firefoxFinal forkFinal logitechFinal notepadPpFinal sonosFinal thunderbirdFinal zoomFinal; }
+#################################################
+# Commands
+#################################################
+
+installUsage()
+{
+	echot "\
+Usage: $(ScriptName) [OPTION]... [APP]...
+Install programs.
+
+	-h,  --hint DIR				first directory to search for installation files
+	-nr, --no-run					do not find or run the installation program
+	-np, --no-prompt	   	suppress interactive prompts
+	-s,  --select					select the install location"
+}
+
+installArgStart() { unset -v apps hint noPrompt noRun select; }
+
+installOpt() 
+{
+	case "$1" in
+		-H|--hint) ScriptOptGet "hint" "$@"; export INSTALL_DIR="$hint"; hint=( --hint "$hint" );;
+		-np|--no-prompt) noPrompt="--no-prompt";;
+		-nr|--no-run) noRun="--no-run";;
+		-s|--select) select="--select";;
+		*) return 1
+	esac
+}
+
+installArgs() { apps=( "$@" ); shift="$#"; }
+
+installArgEnd()
+{
+	unset verboseInstaller
+	[[ $verbose ]] && verboseInstaller="-verbose"
+	options=( $force $noPrompt $noRun $quiet $verbose "${hint[@]}" )
+}
+
+installCommand() { i "${apps[@]}"; }
 
 #################################################
 # Aliases
@@ -180,8 +221,7 @@ i()
 	local prompt
 
 	[[ "$1" == "--no-header" ]] && { noHeader="true"; shift; }
-	( [[ $forcePrompt ]] || (( $# > 1 )) ) && prompt="true"
-	[[ $noPrompt ]] && prompt=
+	[[ ! $noPrompt ]] && (( $# > 1 )) && prompt="true"
 
 	while (($# != 0 )); do
 		app="$1"; shift
@@ -599,6 +639,12 @@ AppDir()
 }
 
 AppDirQnap() { appDataDir="/share/data"; } # locate data on large physical drive
+
+#################################################
+# Installs
+#################################################
+
+FinalInstall() { inst --no-prompt BeyondCompareFinal ccFinal cleanMyFinal dropboxFinal firefoxFinal forkFinal logitechFinal notepadPpFinal sonosFinal thunderbirdFinal zoomFinal; }
 
 #################################################
 # Adobe
@@ -2946,9 +2992,7 @@ ItManagementAll() { i SaltMinion Hashi HashiUp; }
 HashiInstall()
 { 
 	inst consulK8s || return
-	
-	findFile "other/HashiCorp/certificate/$(ConfigGet "baseDomain")" || return
-	hashi install cli --encrypt "$file" $verbose $force || return
+	hashi install cli --encrypt "$(hashi config dir ${otherArgs[@]})" $verbose $force || return
 }
 
 HashiUpInstall()
