@@ -24,8 +24,8 @@ Common options:
 	-cp, --config-prefix		configuration prefix to use, i.e. hashiPREFIXServers
 	-f,  --force						force the operation
 	-H,  --host HOST				host for the command
-			 --product-server	server for product communication
-	-t,  --test						do not make changes
+			 --product-server		server for product communication
+	-t,  --test							do not make changes
 	-v,  --verbose					show additional status"
 }
 
@@ -776,7 +776,7 @@ installNomadCommand()
 	# configuration
 	local -A options clientOptions serverOptions guiOptions
 	local -A commonEncryptOptions clientEncryptOptions serverEncryptOptions 
-	local token; token="$(productGetToken "consul")" || return
+	local token; token="$(product="consul" credGetIfExists "token")"; [[ ! $token ]] && { ScriptErr "unable to get a Consul token for Nomad"; return 1; }
 	local port; port="$(productGetPort "consul")" || return
 
 	options=( 
@@ -964,7 +964,7 @@ installVaultCommand()
 
 	# configuration
 	local -A options clientOptions serverOptions guiOptions
-	local token; token="$(productGetToken "consul")" || return
+	local token; token="$(product="consul" credGetIfExists "token")" || return; [[ ! $token ]] && { ScriptErr "unable to get a Consul token for Vault"; return 1; }
 	local port; port="$(productGetPort "consul")" || return
 
 	# configuration
@@ -1615,12 +1615,13 @@ so the current environmnet is updated."; }
 
 configEnvironmentCommand() { allEnvironmentCommand; }
 
+configEnvironmentAllCommand() { allEnvironmentCommand; }
+configEnvironmentResetCommand() { echo "unset CONSUL_HTTP_TOKEN VAULT_TOKEN NOMAD_TOKEN"; }
+configEnvironmentTestCommand() { doHashi test environment; }
+
 configEnvironmentConsulCommand() { productEnvironment "consul"; }
 configEnvironmentNomadCommand() { productEnvironment "nomad"; }
 configEnvironmentVaultCommand() { productEnvironment "vault"; }
-
-configEnvironmentResetCommand() { echo "unset CONSUL_HTTP_TOKEN VAULT_TOKEN NOMAD_TOKEN"; }
-configEnvironmentTestCommand() { doHashi test environment; }
 
 # Config Get Command
 
@@ -1659,7 +1660,7 @@ nukeDo()
 
 	header "Remove $(ProperCase "$product") Configuration"
 	[[ "$product" == "vault" ]] && consul kv delete -recurse "vault/"
-	credential delete "$product" token	
+	credDelete "token" || return
 }
 
 # Config Set Command
@@ -1681,18 +1682,18 @@ configSetLocalCommand()
 	if [[ ! $VAULT_TOKEN || $force ]]; then
 		local hosts; getHosts "${vaultServers[@]}"
 		local host="${hosts[0]}"
-		local token; token="$(ssh -q -t "$host" bash -i credential get vault token | RemoveCarriageReturn)" || return
+		local token; token="$(ssh -q -t "$host" bash -i credential get vault token $verbose | RemoveCarriageReturn)" || return
 		export VAULT_TOKEN="$token"
 	fi
 
-	[[ ! $force ]] && credential --manager=local exists consul token && return
+	[[ ! $force ]] && credential exists consul token $verbose && return
 	configMirror "vault" "local" || return
 }
 
 configSetRemoteCommand()
 {
 	productConfig "vault" || return
-	[[ ! $force ]] && credential --manager=vault exists consul token && return
+	[[ ! $force ]] && credential --manager=vault exists consul token $verbose && return
 	configMirror "local" "vault" || return
 }
 
@@ -1701,7 +1702,7 @@ configMirror()
 	local from="$1" to="$2" product
 
 	for product in "${products[@]}"; do
-		credential mirror --from="$from" --to="$to" "$(credPath "$product")" --force || return
+		credential mirror --from="$from" --to="$to" "$(credPath "$product")" --force $verbose || return
 	done
 }
 
@@ -2084,15 +2085,17 @@ credPath()
 	[[ $path ]] && echo "$path/$product" || echo "$domain/$product"
 }
 
-credExists() { credential exists "$(credPath)" "$1" --manager="local"; }
-credGet() { credential get "$(credPath)" "$1" --manager="local"; }
+credDelete() { credential delete "$(credPath)" "$@" $verbose; }
+credExists() { credential exists "$(credPath)" "$@" $verbose; }
+credGet() { credential get "$(credPath)" "$@" $verbose; }
+credGets() { credential gets "$(credPath)" "$@" $verbose; }
+credGetIfExists() { credExists "$@" --quiet && credGet "$@" --quiet; }
 
 credSet()
 {
 	[[ $verbose ]] && echo "Setting $(credPath) $1 credential to $2..."
-	$testEcho credential set "$(credPath)" "$1" "$2" --manager="local"
+	$testEcho credential set "$(credPath)" "$@" $verbose || return
 }
-
 
 #
 # Host Helper
@@ -2178,7 +2181,7 @@ productConfig()
 	# logging
 	if [[ $verbose ]]; then
 		local desc; [[ $host ]] && desc=" for $host"
-		hilight "Getting $product configuration$desc..."
+		HilightErr "Getting $product configuration$desc..."
 		productEnvironment "$product" "$host" || return
 	fi
 
@@ -2188,7 +2191,7 @@ productConfig()
 	# logging
 	if [[ $verbose ]]; then
 		local token="$(productVarGet "TOKEN")" desc="no token"; [[ $token ]] && desc="token $token"
-		hilight "Using $product server at $(productVarGet "ADDR") with $desc"
+		HilightErr "Using $product server at $(productVarGet "ADDR") with $desc"
 	fi
 
 }
@@ -2246,7 +2249,11 @@ productEnvironment()
 	local token tokenVar tokenVal
 	tokenVar="$(productVar "TOKEN")"
 	tokenVal="$(productVarGet "TOKEN")"
-	[[ $force || ! $tokenVal ]] && { tokenVal="$(productGetToken "$product")" || tokenVal=""; }
+	if [[ $force || ! $tokenVal ]]; then
+		local exclude=(); [[ "$product" == "vault" ]] && exclude=( "--exclude-managers=vault" ) # prevent recursion	
+		[[ "$CREDENTIAL_MANAGER" == @(remote|v|vault) ]] && export CREDENTIAL_MANAGER="local"
+		tokenVal="$(credGets "token" "${exclude[@]}" --quiet)" || tokenVal=""
+	fi
 	[[ $tokenVal ]] && echo "export $tokenVar=\"$tokenVal\""
 
 	return 0
@@ -2309,18 +2316,6 @@ productGetServer()
 
 	# return server - use 127.0.0.1 or the fully qualified DNS name to match the certificate
 	IsLocalHost "$server" && echo "127.0.0.1" || DnsResolve "$server"
-}
-
-# productGetToken PRODUCT - get the authentication token for the product
-productGetToken()
-{
-	local product="$1"
-	local exclude=(); [[ "$product" == "vault" ]] && exclude=( "--exclude-managers=vault" ) # prevent recursion
-
-	credential --quiet exists "$(credPath "$product")" "token" "${exclude[@]}" || return
-
-	[[ $verbose ]] && EchoErr "Getting product token (credential get \"$(credPath "$product")\" token ${exclude[@]})..."
-	credential --quiet get "$(credPath "$product")" token "${exclude[@]}"
 }
 
 productInstall()
