@@ -32,7 +32,7 @@ Common options:
 args()
 {
 	local args=()
-	unset configFile configPrefix force hostArg hostArgOrig productServer test testEcho verbose
+	unset configFile configFileArg configPrefix configPrefixArg force hostArg hostArgOrig productServer test testEcho verbose
 
 	# commands
 	ScriptCommand "$@" || return
@@ -41,8 +41,10 @@ args()
 	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
 		case "$1" in
-			-cf|--config-file|-cf=*|--config-file=*)  ScriptOptGet "configFile" "config-file" "$@"; ScriptCheckFile "$configFile";;
-			-cp|--config-prefix|-cp=*|--config-prefix=*) ScriptOptGet "configPrefix" "config-prefix" "$@";;
+			-cf|--config-file|-cf=*|--config-file=*) 
+				ScriptOptGet "configFile" "config-file" "$@"; ScriptCheckFile "$configFile"; configFileArg=(--config-file "$configFile");;
+			-cp|--config-prefix|-cp=*|--config-prefix=*) 
+				ScriptOptGet "configPrefix" "config-prefix" "$@"; configPrefixArg=(--config-prefix "$configPrefix");;
 			-f|--force) force="--force";;
 			-h|--help) usage 0;;
 			-H|--host|-H=*|--host=*) ScriptOptGet hostArg host "$@"; hostArgOrig="$hostArg";;
@@ -81,6 +83,7 @@ initFinal()
 	datacenter="$(ConfigGet "workgroup")"
 	baseDomain="$(ConfigGet "baseDomain")"
 	domain="$(ConfigGet "domain")"
+	configDesc="${configPrefix:-prod}"
 
 	# default servers and clients
 	hashiServers=(); StringToArray "$(configGet "servers")" "," hashiServers
@@ -201,7 +204,7 @@ certCommand() { usage; }
 
 certDirCommand() { certDirFind; }
 
-# certDirFind - find the certificate directory in an installation location.
+# certDirFind - find the certificate directory
 # 	Path format is other/HashiCorp/certificate/BASE_DOMAIN/CONFIG_PREFIX/PRODUCT, 
 # 	i.e. other/HashiCorp/certificate/butare.net/test/consul
 certDirFind() 
@@ -215,7 +218,7 @@ certDirFind()
 	[[ ! $dir ]] && dir="$(configGet "certificateDir")"
 
 	# check installation source
-	[[ ! $dir ]] && { dir="$(certDirInstallFind)" || return; }
+	[[ ! $dir ]] && { dir="$(certDirInstallFindHelper)" || return; }
 
 	certDirInit "$dir" || return
 }
@@ -236,7 +239,9 @@ certDirInit()
 	echo "$dir"
 }
 
-certDirInstallFind()
+certDirInstallFind() { certDirInstallFindHelper | certDirInit; }
+
+certDirInstallFindHelper()
 {
 	local dir="$(FindInstallFile --quiet "other/HashiCorp")" || return
 	dir+="/certificate/$baseDomain"
@@ -363,7 +368,7 @@ certPublicCopy()
 	local file="$1"; [[ ! -f "$file" ]] && { ScriptErr "\`$file\` does not exist"; return 1; }
 
 	# find destination certificate directory in installation location
-	local dir; dir="$(certDirInstallFind | certDirInit)" || return
+	local dir; dir="$(certDirInstallFind)" || return
 
 	# return if the certificate exists
 	local fileName="$(GetFileName "$file")"
@@ -631,6 +636,8 @@ installCliAllCommand()
 	for product in "${products[@]}"; do
 		installCliDo "$product" || return
 	done
+
+	configSetLocalCommand || return
 }
 
 installCliDo() 
@@ -1131,6 +1138,9 @@ installVaultAcl()
 		credSet "key$n" "$key" || return
 	done
 
+	# store the initial vault key on the first vault servers local credential manager
+	vaultTokenSetRemote || return
+
 	# unseal the vault
 	vaultUnsealCommand || return
 }
@@ -1167,12 +1177,13 @@ Remove a HashiCorp product configuration and data.
 
 	-p, --program		also remove the HashiCorp program"; }
 
-removeArgStart() { program=""; }
+removeArgStart() { unset program yes; }
 
 removeOpt()
 {
 	case "$1" in
 		-p|--program) program="true";;
+		-y|--yes) yes="true";;
 		*) return 1;;
 	esac
 }
@@ -1186,6 +1197,11 @@ removeVaultCommand() { removeDo "vault"; }
 removeDo()
 {
 	local product="$1" host hosts; getHosts || return
+
+	if [[ ! $force || ! $yes ]]; then
+	 ScriptErr "To permanently remove all $product configuration, data, and programs on $baseDomain $configDesc\n       hosts $(ArrayDelimit hosts " "), --force and --yes are required"
+	 return 1
+	fi
 
 	for host in "${hosts[@]}"; do
 		header "Remove $(ProperCase "$product") ($host)"
@@ -1243,12 +1259,8 @@ testInstallCommand() { testHashi install $what; }
 
 testCleanCommand()
 {
-	testHashi config nuke $what --force || return
-	testHashi remove $what -H="$(ArrayDelimit hashiHosts),localhost" || return
-	
-	[[ "$what" == @(|all) && -d "$encrypt" && "$(DirCount "$encrypt")" != 0 ]] && { header "Cleaning Certificates"; sudoc DelDir --contents "$encrypt"; }
-
-	return 0
+	testHashi config nuke $what --force --yes || return
+	testHashi remove $what -H="$(ArrayDelimit hashiHosts),localhost" --force --yes || return
 }
 
 #
@@ -1636,17 +1648,7 @@ Commands for all products."; }
 
 allCommand() { usage; }
 
-allEnvironmentCommand()
-{
-	# initialize consul for product lookups
-	productConfig "consul" || return
-
-	local product
-	for product in "${products[@]}"; do		
-		! productIsInstalled "$product" && continue
-		productEnvironment "$product" || return; echo
-	done
-}
+allEnvironmentCommand() { configEnvironmentAll; }
 
 allStatusCommand()
 {
@@ -1680,15 +1682,36 @@ Usage: $(ScriptName) config environment [all|$productUsage|test|reset](all)
 Set environment variables.   These commands should be called with ScriptEval
 so the current environmnet is updated."; }
 
-configEnvironmentCommand() { allEnvironmentCommand; }
-
-configEnvironmentAllCommand() { allEnvironmentCommand; }
+configEnvironmentCommand() { configEnvironmentAll; }
+configEnvironmentAllCommand() { configEnvironmentAll; }
 configEnvironmentResetCommand() { echo "unset CONSUL_HTTP_TOKEN VAULT_TOKEN NOMAD_TOKEN"; }
 configEnvironmentTestCommand() { doHashi test environment; }
 
-configEnvironmentConsulCommand() { productEnvironment "consul"; }
-configEnvironmentNomadCommand() { productEnvironment "nomad"; }
-configEnvironmentVaultCommand() { productEnvironment "vault"; }
+configEnvironmentConsulCommand() { configEnvironmentDo "consul"; }
+configEnvironmentNomadCommand() { configEnvironmentDo "nomad"; }
+configEnvironmentVaultCommand() { configEnvironmentDo "vault"; }
+
+configEnvironmentAll()
+{
+	# initialize consul for product lookups
+	productIsInstalled "consul" && { configEnvironmentCheckForce; productConfig "consul" || return; }
+
+	local product
+	for product in "${products[@]}"; do		
+		! productIsInstalled "$product" && continue
+		configEnvironmentDo "$product" || return; echo
+	done
+}
+
+configEnvironmentDo() { configEnvironmentCheckForce "$1" && productEnvironment "$1"; }
+
+configEnvironmentCheckForce() 
+{
+	local product="$1"
+	[[ $force ]] && return
+	[[ "$configPrefix" == "$(productVarGet "CONFIG")" && "$baseDomain" == "$(productVarGet "DOMAIN")" ]] && return; 
+	force="--force"
+}
 
 # Config Get Command
 
@@ -1713,6 +1736,16 @@ configNukeUsage() { echot "\
 Usage: $(ScriptName) config nuke all|$productUsage
 Delete all local and remote configuration"; }
 
+configNukeArgStart() { unset yes; }
+
+configNukeOpt() 
+{
+	case "$1" in
+		-y|--yes) yes="true";;
+		*) return 1
+	esac
+}
+
 configNukeCommand() { usage; }
 configNukeAllCommand() { nukeDo "vault" && nukeDo "nomad" && nukeDo "consul"; }
 configNukeConsulCommand() { nukeDo "consul"; }
@@ -1723,11 +1756,31 @@ nukeDo()
 {
 	local product="$1"
 
-	[[ ! $force ]] && { ScriptErr "Nuke deletes all local and remote configuration, --force is required."; return 1; }
+	if [[ ! $force || ! $yes ]]; then
+	 ScriptErr "To permanently deletes all local and remote configuration and certificates\n       for $baseDomain $configDesc, --force and --yes are required"
+	 return 1
+	fi
 
-	header "Remove $(ProperCase "$product") Configuration"
-	[[ "$product" == "vault" ]] && consul kv delete -recurse "vault/"
-	credDelete "token" || return
+	header "Nuke $(ProperCase "$product") Configuration"
+
+	if [[ "$product" == "vault" ]]; then
+		echo "Removing Vault data from Consul..."
+	  $testEcho consul kv delete -recurse "vault/"
+	fi
+
+	credDelete "all" || return
+
+	nukeDir "$(certDirFind)" || return
+	nukeDir "$(certDirInstallFind)" || return
+	nukeDir "$(certDirLocalFind)" || return
+}
+
+nukeDir()
+{
+	local dir="$1"
+	[[ ! $dir || ! -d "$dir" || "$(DirCount "$dir")" == 0 ]] && return
+	echo "Deleting \`$(FileToDesc "$dir")\`..."
+	$testEcho sudo DelDir --contents "$dir"
 }
 
 # Config Set Command
@@ -1744,15 +1797,8 @@ configSetCommand() { usage; }
 configSetLocalCommand()
 {	
 	productConfig "vault" || return
-
-	# get vault token using SSH
-	if [[ ! $VAULT_TOKEN || $force ]]; then
-		local hosts; getHosts "${vaultServers[@]}"
-		local host="${hosts[0]}"
-		local token; token="$(ssh -q -t "$host" bash -i credential get vault token $verbose | RemoveCarriageReturn)" || return
-		export VAULT_TOKEN="$token"
-	fi
-
+	vaultTokenCheck || return
+	
 	[[ ! $force ]] && credential exists consul token $verbose && return
 	configMirror "vault" "local" || return
 }
@@ -2140,6 +2186,11 @@ vaultUnsealCommand()
 	done
 }
 
+vaultTokenCheck() { [[ $VAULT_TOKEN && ! $force ]] && return; export VAULT_TOKEN="$(vaultTokenGetRemote)"; }
+vaultTokenHost() { local hosts; getHosts "${vaultServers[@]}"; echo "${hosts[0]}"; }
+vaultTokenGetRemote() { ssh -q -t "$(vaultTokenHost)" bash -i credential get "$(credPath vault)" token $verbose; }
+vaultTokenSetRemote() { ssh -q -t "$(vaultTokenHost)" bash -i credential set "$(credPath vault)" token "$1" $verbose; }
+
 #
 # Credential Helper
 #
@@ -2152,7 +2203,7 @@ credPath()
 	[[ $path ]] && echo "$path/$product" || echo "$domain/$product"
 }
 
-credDelete() { credential delete "$(credPath)" "$@" $verbose; }
+credDelete() { $testEcho credential delete "$(credPath)" "$@" $verbose; }
 credExists() { credential exists "$(credPath)" "$@" $verbose; }
 credGet() { credential get "$(credPath)" "$@" $verbose; }
 credGets() { credential gets "$(credPath)" "$@" $verbose; }
@@ -2284,13 +2335,10 @@ productConfigArgs()
 # productEnvironment PRODUCT [HOST] - show the environment variables for the specified product
 productEnvironment()
 {
-	local product="$1" host="$2"; productCheck "$1" || return
+	local product="$1" host="$2"; productCheck "$product" || return
 
-	# configuration variables
+	# configuration variables	
 	productInit "$product" || return
-
-	# force an environment change if the configuration prefix or domain has changed
-	[[ "$configPrefix" != "$(productVarGet "CONFIG")" || "$baseDomain" != "$(productVarGet "DOMAIN")" ]] && force="--force"
 
 	# certificate initialization
 	certInit || return
@@ -2575,8 +2623,8 @@ productVersion()
 # helper
 #
 
-doHashi() { hashi "$@" $force $test $verbose "${otherArgs[@]}"; }
-testHashi() { doHashi "$@" --config-prefix=test; }
+doHashi() { hashi "$@" $force $test $verbose "${configFileArg[@]}" "${configPrefixArg[@]}" "${otherArgs[@]}"; }
+testHashi() { doHashi "$@" --config-prefix=test "${configFileArg[@]}"; }
 tmpDirCreate() { mktemp -d -t "$tmpDirTemplate"; }
 useHttps() { [[ $encrypt || -d "$cert" ]]; } # use HTTPS during installation ($encrupt) and client configuration (cert directory exists)
 
