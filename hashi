@@ -627,7 +627,7 @@ Install a HashiCorp product for command line access."; }
 installCliCommand() { installCliAllCommand; }
 installCliConsulCommand() { installCli "consul"; }
 installCliNomadCommand() { installCli "nomad"; }
-installCliVaultCommand() { installCli "vault"; }
+installCliVaultCommand() { installCli "vault" && vaultTokenCheck; }
 
 installCliAllCommand()
 {
@@ -636,8 +636,6 @@ installCliAllCommand()
 	for product in "${products[@]}"; do
 		installCliDo "$product" || return
 	done
-
-	configSetLocalCommand || return
 }
 
 installCliDo() 
@@ -1797,9 +1795,8 @@ configSetCommand() { usage; }
 configSetLocalCommand()
 {	
 	productConfig "vault" || return
-	vaultTokenCheck || return
-	
 	[[ ! $force ]] && credential exists consul token $verbose && return
+	vaultTokenCheck || return
 	configMirror "vault" "local" || return
 }
 
@@ -1808,6 +1805,7 @@ configSetRemoteCommand()
 	productConfig "vault" || return
 	[[ ! $force ]] && credential --manager=vault exists consul token $verbose && return
 	configMirror "local" "vault" || return
+	vaultTokenSetRemote || return
 }
 
 configMirror()
@@ -2186,10 +2184,18 @@ vaultUnsealCommand()
 	done
 }
 
-vaultTokenCheck() { [[ $VAULT_TOKEN && ! $force ]] && return; export VAULT_TOKEN="$(vaultTokenGetRemote)"; }
 vaultTokenHost() { local hosts; getHosts "${vaultServers[@]}"; echo "${hosts[0]}"; }
-vaultTokenGetRemote() { ssh -q -t "$(vaultTokenHost)" bash -i credential get "$(credPath vault)" token $verbose; }
 vaultTokenSetRemote() { ssh -q -t "$(vaultTokenHost)" bash -i credential set "$(credPath vault)" token "$1" $verbose; }
+
+vaultTokenCheck()
+{
+	[[ $VAULT_TOKEN && ! $force ]] && return
+
+	[[ $verbose ]] && EchoErr "Getting Vault token from $(vaultTokenHost)..."
+	local token; token="$(ssh -q -t "$(vaultTokenHost)" bash -i credential get "$(credPath vault)" token $verbose)"
+	[[ ! $token ]] && { ScriptErr "The Vault token does not exist in the local credential manager on $(vaultTokenHost) at path $(credPath vault)"; return 1; }
+	export VAULT_TOKEN="$token"
+}
 
 #
 # Credential Helper
@@ -2514,14 +2520,20 @@ productInstallClientCerts()
 	# ensure the certificates exist
 	certCheckFiles "$product" "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" || return
 
-	printf "Installing $product certificates..."
+	printf "${GREEN}Installing $product certificates...${RESET}"
 	sudoc mkdir --parents "$cert" || return
 	sudoc cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$cert" || return
 	sudoc chmod +r "$cert/"* || return
-	echo "done"
+	hilight "done"
+
+	if [[ -d "$certStore" ]]; then
+		hilight "Installing the CA certificate in the certificate store..."
+		sudo cp "$cert/$ca" "$certStore/$domain-$configDesc-$(GetFileNameWithoutExtension "$ca").crt" || exit		
+		sudo update-ca-certificates || exit
+	fi
 
 	if IsPlatform win; then
-		echo "Installing certificate authority..."
+		hilight "Installing the CA certificate in the Windows certificate store..."
 		local file="$ADATA/Temp/$ca"
 		cp "$cert/$ca" "$file" || return
 		RunScript --elevate "$verbose" -- certutil.exe -addstore root "$(utw "$ADATA/Temp/$ca")" || return
