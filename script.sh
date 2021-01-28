@@ -158,9 +158,9 @@ ScriptCommand()
 	unset -v command defaultCommandUsed help
 	args=() commandNames=() commands=() otherArgs=() shift="1" 
 
-	while [[ $1 ]]; do
+	while (( $# )); do
 
-		# done with arguments
+		# done with argument processing
 		[[ "$1" == "--" ]] && break
 
 		# save argument
@@ -171,9 +171,7 @@ ScriptCommand()
 
 		# if we do not have a command assume it is lower case, i.e. dhcp
 		# if we already have a command assume the next portion of the command starts with an upper case, i.e. dhcpStatus
-		local is; [[ $command ]] && is="Is"
 		[[ $command ]] && ProperCase "$arg" c || LowerCase "$arg" c;
-
 
 		# add the existing command to the next command (c) with the best guess at casing
 		[[ "$c" =~ ^is..* ]] && c="is$(ProperCase "${c#is}")" # i.e. isAvailable
