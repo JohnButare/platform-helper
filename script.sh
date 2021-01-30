@@ -78,7 +78,7 @@ ScriptCheckPath()
 	local checkFile; [[ "$1" == "--file" ]] && { checkFile="true"; shift; }
 	local checkDir; [[ "$1" == "--dir" ]] && { checkDir="true"; shift; }
 
-	[[ ! -e "$1" ]] && { ScriptErr "cannot access \'$1\': No such file or directory"; ScriptExit; }
+	[[ ! -e "$1" ]] && { ScriptErr "cannot access '$1': No such file or directory"; ScriptExit; }
 	[[ $checkFile && -d "$1" ]] && { ScriptErr "$1: Is a directory"; ScriptExit; }
 	[[ $checkDir && -f "$1" ]] && { ScriptErr "$1: Is a file"; ScriptExit; }
 	
@@ -138,7 +138,7 @@ ScriptOptNetworkProtocol()
 {
 	ScriptOptGet "protocol" "$@"; 
 	protocol="${protocol,,}"
-	CheckNetworkProtocol "$protocol" || { ScriptErr "\'$protocol\' is not a valid network protocol"; ScriptExit; }
+	CheckNetworkProtocol "$protocol" || { ScriptErr "'$protocol' is not a valid network protocol"; ScriptExit; }
 	unset protocolArg; [[ $protocol ]] && protocolArg=( "--protocol=$protocol" )
 	return 0
 }

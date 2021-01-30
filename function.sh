@@ -227,7 +227,7 @@ store()
 # Config
 #
 
-ConfigInit() { [[ ! $functionConfigFileCache ]] && functionConfigFileCache="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$functionConfigFileCache" ]] && return; EchoErr "ConfigInit: configuration file \'$functionConfigFileCache\' does not exist"; return 1; }
+ConfigInit() { [[ ! $functionConfigFileCache ]] && functionConfigFileCache="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$functionConfigFileCache" ]] && return; EchoErr "ConfigInit: configuration file '$functionConfigFileCache' does not exist"; return 1; }
 ConfigGet() { ConfigInit && (. "$functionConfigFileCache"; eval echo "\$$1"); }
 ConfigFileGet() { echo "$functionConfigFileCache"; }
 
@@ -315,7 +315,7 @@ else
 fi
 
 # array
-ArrayAnyCheck() { IsAnyArray "$1" && return; ScriptErr "\'$1\' is not an array"; return 1; }
+ArrayAnyCheck() { IsAnyArray "$1" && return; ScriptErr "'$1' is not an array"; return 1; }
 ArrayReverse() { ArrayDelimit "$1" $'\n' | tac; }
 ArraySize() { eval "echo \${#$1[@]}"; }
 
@@ -340,7 +340,7 @@ ArrayAppend()
 # ArrayCopy SRC DEST
 ArrayCopy()
 {
-	! IsAnyArray "$1" && { ScriptErr "\'$1\' is not an array"; return 1; }
+	! IsAnyArray "$1" && { ScriptErr "'$1' is not an array"; return 1; }
 	declare -g $(GetType $1) $2
 	eval "$2=( $(GetDef $1) )"
 }
@@ -568,7 +568,7 @@ FileCommand()
 	case "$command" in
 		ren) 'mv' "${args[@]}" "$dir";;
 		cp|mv)
-			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing \'$dir\': No such directory"; return 1; }
+			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing '$dir': No such directory"; return 1; }
 			"$command" -t "$dir" "${args[@]}";;
 		*) EchoErr "FileCommand: unknown command $command"; return 1;;
 	esac
@@ -1138,7 +1138,7 @@ IsUncPath() { [[ "$1" =~ ^\ *//.* ]]; }
 GetUncProtocol()
 {
 	GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "$gup" $2
-	CheckNetworkProtocol "$gup" || { EchoErr "\'$gup\' is not a valid network protocol"; return 1; }
+	CheckNetworkProtocol "$gup" || { EchoErr "'$gup' is not a valid network protocol"; return 1; }
 }
 
 #
@@ -1636,15 +1636,15 @@ IsOption() { [[ "$1" =~ ^-.* && "$1" != "--" ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; ScriptExit; }
 MissingOption() { EchoErr "${2:-$(ScriptName)}: missing $1 option"; ScriptExit; }
-UnknownOption() { EchoErr "${2:-$(ScriptName)}: unrecognized option \'$1\'"; EchoErr "Try \'${2:-$(ScriptName)} --help\' for more information.";	ScriptExit; }
-ExtraOperand() { EchoErr "${2:-$(ScriptName)}: extra operand \'$1\'"; EchoErr "Try \'${2:-$(ScriptName)} --help\' for more information.";	ScriptExit; }
+UnknownOption() { EchoErr "${2:-$(ScriptName)}: unrecognized option '$1'"; EchoErr "Try '${2:-$(ScriptName)} --help' for more information.";	ScriptExit; }
+ExtraOperand() { EchoErr "${2:-$(ScriptName)}: extra operand '$1'"; EchoErr "Try '${2:-$(ScriptName)} --help' for more information.";	ScriptExit; }
 
 # CheckCommand - LEGACY
 CheckCommand() 
 {	
 	[[ ! $1 ]]  && MissingOperand "command"
 	IsFunction "${1,,}Command" && { command="${1,,}"; return 0; } ; 
-	EchoErr "$(ScriptName): unknown command \'$1\'"
+	EchoErr "$(ScriptName): unknown command '$1'"
 	exit 1
 } 
 
@@ -1655,7 +1655,7 @@ CheckSubCommand()
 	[[ ! $2 ]] && MissingOperand "$sub command"
 	command="$sub$(ProperCase "$2")Command"; 
 	IsFunction "$command" && return 0
-	EchoErr "$(ScriptName): unknown $sub command \'$2\'"; exit 1
+	EchoErr "$(ScriptName): unknown $sub command '$2'"; exit 1
 } 
 
 # functions
