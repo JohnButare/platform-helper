@@ -228,6 +228,7 @@ store()
 #
 
 ConfigInit() { [[ ! $functionConfigFileCache ]] && functionConfigFileCache="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$functionConfigFileCache" ]] && return; EchoErr "ConfigInit: configuration file '$functionConfigFileCache' does not exist"; return 1; }
+ConfigExists() { ConfigInit && (. "$functionConfigFileCache"; IsVar "$1"); }
 ConfigGet() { ConfigInit && (. "$functionConfigFileCache"; eval echo "\$$1"); }
 ConfigFileGet() { echo "$functionConfigFileCache"; }
 
@@ -279,8 +280,9 @@ SleepStatus()
 	echo "done"
 }
 
-EchoErr() { printf "$@\n" >&2; }
-HilightErr() { InitColor; printf "${GREEN}$1${RESET}\n" >&2; }
+EchoWrap() {  printf "$@" | fold --space --width=$COLUMNS; }
+EchoErr() { EchoWrap "$@\n" >&2; }
+HilightErr() { InitColor; EchoWrap "${GREEN}$1${RESET}" >&2; }
 PrintErr() { printf "$@" >&2; }
 
 # printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var
@@ -1145,7 +1147,7 @@ GetUncProtocol()
 # Network: URI - PROTOCOL://SERVER:PORT[/DIRS]
 #
 
-GetUriProtocol() { GetArgs; r "${1%%\:*}" $2; }
+GetUriProtocol() { GetArgs; local gup="${1%%\:*}"; r "$(LowerCase "$gup")" $2; }
 GetUriServer() { GetArgs; local gus="${1#*//}"; r "${gus%%:*}" $2; }
 GetUriPort() { GetArgs; local gup="${1##*:}"; r "${gup%%/*}" $2; }
 GetUriDirs() { GetArgs; local gud="${1#*//*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
@@ -1682,7 +1684,7 @@ RunFunction()
 
 ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; cd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
-ScriptErr() { local name="$(ScriptName)"; [[ $name ]] && name="$name: "; EchoErr "${name}$1"; }
+ScriptErr() { GetArgs; local name="$(ScriptName)"; [[ $name ]] && name="$name: "; EchoErr "${name}$1"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
 
 ScriptName()
