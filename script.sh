@@ -95,6 +95,9 @@ ScriptOpt()
 	# not an option, add it to args
 	! IsOption "$1" && { args+=("$1"); return; }
 
+	# global options
+	ScriptOptGlobal "$@" && return
+
 	# see if a commmand takes the option
 	local c
 	for c in $(ArrayReverse commands); do
@@ -133,6 +136,21 @@ ScriptOptGet()
 	var="$value"
 }
 
+ScriptOptGlobal()
+{
+	case "$1" in
+		-f|--force) force="--force";;
+		-h|--help) usage 0;;
+		-q|--quiet) quiet="--quiet";;
+		-t|--test) test="--test"; testEcho="echo";;
+		-v|--verbose) verbose="-v"; verboseLevel=1;;
+		-vv) verbose="-vv"; verboseLevel=2;;
+		-vvv) verbose="-vvv"; verboseLevel=3;;
+		--) shift; otherArgs+=("$@"); set --; break;;
+		*) return 1
+	esac
+}
+
 # ScriptOptNetworkProtocol - sets protocol and protocolArg
 ScriptOptNetworkProtocol()
 {
@@ -155,9 +173,20 @@ ScriptCommand()
 {
 	local defaultCommand; [[ "$1" =~ .*Command ]] && 	{ defaultCommand="${1%%Command}"; shift; }
 	local arg c test
-	unset -v command defaultCommandUsed help
-	args=() commandNames=() commands=() otherArgs=() shift="1" 
+	
+	# variables
+	unset -v command defaultCommandUsed 
+	unset -v force quiet set test testEcho verbose verboseLevel
 
+	args=() commandNames=() commands=() otherArgs=() shift="1" 
+	
+	globalOptionUsage="Global options:
+	-f,  --force			force the operation
+	-t,  --test				test mode, do not make changes
+	-q, --quiet 			minimize informational messages
+	-v,  --verbose		verbose mode, multiple -vv or -vvv for additional logging"
+
+	# find commands
 	while (( $# )); do
 
 		# done with argument processing
@@ -192,7 +221,9 @@ ScriptCommand()
 	args+=( "$@" )
 
 	[[ ! $command ]] && { defaultCommandUsed="true" command="$defaultCommand" commands=("$command") commandNames=("$command"); }
-	[[ $command ]] && return || usage
+	[[ ! $command ]] && usage
+
+	return 0
 }
 
 # ScriptUsage RESULT USAGE_TEXT
