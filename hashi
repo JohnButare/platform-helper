@@ -542,7 +542,7 @@ installCliDo()
 installCli()
 { 
 	installComponentCheck "program" && { productInstall "$1" "localhost" || return; }
-	installComponentCheck "cert" && { [[ "$encrypt" == "private" ]] && encrypt="any"; productInstallCerts "$1" || return; }
+	installComponentCheck "cert" && { productInstallCerts "$1" || return; }
 	return 0
 }
 
@@ -2124,7 +2124,12 @@ vaultUnsealCommand()
 vaultTokenHost() { local hosts; getHosts "VaultServers"; echo "${hosts[0]}"; }
 
 # vaultTokenSetRemote - set the Vault token in the remote credential store 
-vaultTokenSetRemote() { ssh -q -t "$(vaultTokenHost)" bash -i credential set "$(credPath vault)" token "$1" $verbose; }
+vaultTokenSetRemote()
+{
+	local token="$(product="vault" productVarGet "token")"
+	[[ ! $token ]] && { ScriptErr "unable to get the Vault token from the environment to set on remote host '$(vaultTokenHost)'"; return; }
+	ssh -q -t "$(vaultTokenHost)" bash -i credential set "$(credPath vault)" token "$token" $verbose
+}
 
 # vaultTokenSetLocal - set the Vault token in the local credential store.  
 vaultTokenSetLocal()
@@ -2204,12 +2209,31 @@ certInit()
 	return 0
 }
 
-certDirLocal() { [[ -d "$certDirLocal" ]] && echo "$certDirLocal"; [[ -d "$certDirService" ]] && echo "$certDirService"; }
-certDirPrivate() { [[ -d "$encrypt" ]] && echo "$encrypt" || configGet "certificateDir"; }
-certDirPublic() { findInstallFile --quiet "other/HashiCorp"; }
+certDirLocal()
+{
+	if [[ -d "$certDirLocal" ]]; then echo "$certDirLocal"
+	elif [[ -d "$certDirService" ]]; then echo "$certDirService"
+	else return 1;
+	fi
+}
+
+certDirPrivate()
+{
+	[[ -d "$encrypt" ]] && echo "$encrypt" || configGet "certificateDir"
+}
+
+certDirPublic()
+{ 
+	findInstallFile --quiet "other/HashiCorp" && return
+	ScriptErr "unable to locate the public certificate directory"; return 1
+}
 
 # certDirSuffix DIR - add certificate suffix to DIR: DIR/certificate/DOMAIN[/CONFIG_PREFIX]/PRODUCT
-certDirSuffix() { GetArgs; echo "$(RemoveTrailingSlash "$1")/certificate/$baseDomain$(RemoveTrailingSlash "/$configPrefix")/$product"; }
+certDirSuffix()
+{ 
+	GetArgs; [[ ! $1 ]] && return 1
+	echo "$(RemoveTrailingSlash "$1")/certificate/$baseDomain$(RemoveTrailingSlash "/$configPrefix")/$product"
+}
 
 certDirValidate()
 {
@@ -2563,7 +2587,7 @@ productInstallCerts()
 	[[ ! $encrypt ]] && return
 
 	# certification source - use the public certifcate directory if the private certificate directory is not available
-	certInit || return; [[ ! $certDir ]] && certDir="$(certDirPublic | certDirSuffix)"
+	certInit || return;	[[ ! $certDir ]] && { certDir="$(certDirPublic | certDirSuffix)" || return; }
 	certValidate "$ca" "$certCli" "$certCliKey" || return
 
 	# return if already installed
@@ -2576,9 +2600,9 @@ productInstallCerts()
 	hilight "done"
 
 	certStoreWinInstall "$ca" || return
-	certStoreInstall "$ca" "$certStoreCaAuto" || return
-	certStoreInstall "$caAuto" "$certStoreCaAuto" || return
-
+	certStoreInstall "$ca" "$certStoreCa" || return
+	[[ -f "$certDir/$caAuto" ]] && { certStoreInstall "$caAuto" "$certStoreCaAuto" || return; }
+		
 	return 0
 }
 
