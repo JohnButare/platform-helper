@@ -1590,35 +1590,25 @@ with ScriptEval update current environment."; }
 configEnvironmentCommand() { configEnvironmentAll; }
 configEnvironmentAllCommand() { configEnvironmentAll; }
 configEnvironmentResetCommand() { echo "unset CONSUL_HTTP_TOKEN VAULT_TOKEN NOMAD_TOKEN"; }
-configEnvironmentTestCommand() { doHashi test environment; }
 
-configEnvironmentConsulCommand() { configEnvironmentDo "consul"; }
-configEnvironmentNomadCommand() { configEnvironmentDo "nomad"; }
-configEnvironmentVaultCommand() { configEnvironmentDo "vault"; }
+configEnvironmentConsulCommand() { productEnvironment "consul"; }
+configEnvironmentNomadCommand() { productEnvironment "nomad"; }
+configEnvironmentVaultCommand() { productEnvironment "vault"; }
+
+# environment aliases commands
+configEnvironmentProdCommand() { configPrefix="" configEnvironmentCommand; }
+configEnvironmentTestCommand() { doHashi test environment; }
 
 configEnvironmentAll()
 {
 	# initialize consul for product lookups
-	productIsInstalled "consul" && { configEnvironmentDo "consul" || return; }
+	productIsInstalled "consul" && { productInit "consul" || return; }
 
 	local product
 	for product in "${products[@]}"; do		
 		! productIsInstalled && continue
-		configEnvironmentDo || return; echo
+		productEnvironment || return; echo
 	done
-}
-
-configEnvironmentDo()
-{
-	local product="${1:-$product}"
-
-	# force the environment update if the configuration has changed	
-	if [[ $force || "$configPrefix" != "$(productVarGet "CONFIG")" || "$baseDomain" != "$(productVarGet "DOMAIN")" ]]; then
-		[[ $verbose ]] && EchoErr "$product environment check fill be forced (configPrefix=$configPrefix $(productVar "CONFIG")=$(productVarGet "CONFIG")  baseDomain=$baseDomain $(productVar "DOMAIN")=$(productVarGet "DOMAIN")"
-		force="--force"
-	fi
-
-	productEnvironment || return
 }
 
 # Config Get Command
@@ -1741,7 +1731,7 @@ configSetLocalCommand()
 	[[ ! $force ]] && credential exists consul token $verbose && return
 
 	# set local configuration
-	vaultTokenSetLocal || return
+	vaultTokenSetLocal || return	
 	configMirror "vault" "local" || return
 }
 
@@ -2388,15 +2378,21 @@ productConfig()
 # productEnvironment [PRODUCT] [HOST] - show the environment variables for the specified product
 productEnvironment()
 {
-	local product="${1:-$product}" host="$2"
-	
+	local product="${1:-$product}" host="$2" force="$force"
+
+	# force the environment change if the configuration has changed
+	if [[ ! $force ]] && [[ "$configPrefix" != "$(productVarGet "CONFIG")" || "$baseDomain" != "$(productVarGet "DOMAIN")" ]]; then
+		[[ $verbose ]] && EchoErr "$product environment check fill be forced (configPrefix=$configPrefix $(productVar "CONFIG")=$(productVarGet "CONFIG")  baseDomain=$baseDomain $(productVar "DOMAIN")=$(productVarGet "DOMAIN")"
+		force="--force"
+	fi
+
 	# certificate initialization - use the service certificate directory if the local directory is not present
 	certInit || return; certDir="$(certDirLocal)"
 
 	# variables
 	local server; server="$(productGetServer "$product" "$server")" || return
 	local url; url="$(productGetAddress "$product" "$server")" || return	
-
+	
 	# local hosts use the automatic certificate authority
 	IsLocalHost "$server" && [[ -f "$certDirService/$caAuto" ]] && ca="$caAuto"
 	
@@ -2423,6 +2419,12 @@ productEnvironment()
 			export $(productVar "CACERT")="$certDir/$ca"
 			export $(productVar "CLIENT_CERT")="$certDir/$certCli"
 			export $(productVar "CLIENT_KEY")="$certDir/$certCliKey"
+		EOF
+	else
+		cat <<-EOF
+			export $(productVar "CACERT")=""
+			export $(productVar "CLIENT_CERT")=""
+			export $(productVar "CLIENT_KEY")=""
 		EOF
 	fi
 
@@ -2485,7 +2487,7 @@ productGetServer()
 		server="127.0.0.1"
 
 	# use consul to resolve the server for the product
-	elif [[ "$product" != "consul" ]] && server="$(hashi resolve "$resolve" 2>&1)"; then		
+	elif [[ "$product" != "consul" ]] && server="$(hashi resolve "$resolve" 2>&1)"; then
 		:
 
 	# use the first server specified in bootstrap-config.sh
@@ -2493,6 +2495,8 @@ productGetServer()
 		server="$(configServer)"
 
 	fi
+
+	[[ ! $server ]] && { ScriptErr "unable to find a $product server for the '$configDesc' configuration"; return 1; }
 
 	# return server - use 127.0.0.1 or the fully qualified DNS name to match the certificate
 	IsLocalHost "$server" && echo "127.0.0.1" || DnsResolve "$server"
