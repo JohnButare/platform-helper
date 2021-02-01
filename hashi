@@ -107,17 +107,6 @@ initConfig()
 	# set configuration description
 	configDesc="${configPrefix:-prod}"
 
-	# update default servers and clients, which depend on the configuration prefix being set
-	hashiServers=(); StringToArray "$(configGet "servers")" "," hashiServers
-	hashiClients=(); StringToArray "$(configGet "clients")" "," hashiClients
-	vaultServers=(); StringToArray "$(configGet "vaultServers")" "," vaultServers
-	hashiHosts=(); ArrayAppend --remove-dups hashiHosts hashiServers hashiClients vaultServers
-
-	# set host aliases
-	[[ "${hostArg,,}" == "first" ]] && hostArg="${hashiServers[0]}"
-	[[ "${hostArg,,}" == "second" ]] && hostArg="${hashiServers[1]}"
-	[[ "${hostArg,,}" == "third" ]] && hostArg="${hashiServers[2]}"
-
 	return 0
 }
 
@@ -1176,7 +1165,7 @@ testInstallCommand() { testHashi install $what; }
 testCleanCommand()
 {
 	testHashi config nuke $what --force --yes || return
-	testHashi remove $what -H="$(ArrayDelimit hashiHosts),localhost" --force --yes || return
+	testHashi remove $what --host="$(configServers),localhost" --force --yes || return
 }
 
 testHashi() { doHashi "$@" --config-prefix=test "${configFileArg[@]}"; }
@@ -1194,7 +1183,7 @@ updateVaultCommand() { updateDo "vault"; }
 
 updateDo()
 {
-	local product="$1" host hosts; getHosts "${hashiHosts[@]}" || return
+	local product="$1" host hosts; getHosts "all" || return
 	
 	for host in "${hosts[@]}"; do
 		header "Update $(ProperCase "$product") ($host)"
@@ -1228,25 +1217,28 @@ installCommon()
 	productServiceEnvFile="/etc/systemd/system/$product.env"
 
 	# add clients and servers from hostArg
-	local host hosts=(); StringToArray "$hostArg" "," hosts; 
-	for host in "${hosts[@]}"; do
-			IsInArray "$host" hashiServers && servers+=( "$host" ) || clients+=( "$host" )
-	done
-	unset hostArg
+	if [[ $hostArg ]]; then
+		local host hosts; StringToArray "$hostArg" "," hosts
+		local defaultServers; configGetArray "servers" "defaultServers"
+		for host in "${hosts[@]}"; do
+				IsInArray "$host" defaultServers && servers+=( "$host" ) || clients+=( "$host" )
+		done
+		unset hostArg
+	fi
 
 	# use default clients and servers if needed
 	if [[ ! $clients && ! $servers ]]; then
 		if [[ "$product" == "vault" ]]; then
 			clients=( )
-			servers=( "${vaultServers[@]}" ) 
+			configGetArray "servers"
 		else
-			clients=( "${hashiClients[@]}" ) 
-			servers=( "${hashiServers[@]}" )
+			configGetArray "clients"
+			configGetArray "servers"
 		fi
 	fi
 
 	# set join servers	
-	[[ ! $join ]] && join=( "${hashiServers[@]}" )
+	[[ ! $join ]] && configGetArray "servers" "join"
 	joinFqdn=(); local h; for h in "${join[@]}"; do joinFqdn+=( "$(os name "$h")" ); done
 
 	if [[ $verbose ]]; then
@@ -1644,6 +1636,38 @@ configGet()
 {
 	local var="hashi$(UpperCaseFirst "$configPrefix")$(UpperCaseFirst "$1")"
 	ConfigInit "$configFile" && ConfigExists "$var" && ConfigGet "$var"
+}
+
+# configGetArray VAR [ARRAY_NAME](VAR)
+configGetArray()
+{
+	local var="$1" 
+	local arrayName="${2:-$var}"
+	StringToArray "$(configGet "$var")" "," "$arrayName"
+}
+
+# configGetList VAR
+configGetList()
+{
+	local var="$1" a
+	StringToArray "$(configGet "$var")" "," "a"
+}
+
+# configServer - return the first server for the current product
+configServer()
+{
+	local var="servers"; [[ "$product" == "vault" ]] && var="VaultServers"
+	configGet "$var" | GetWord - "1" ","
+}
+
+# configServers - return a comma separated list of all of the servers in the configuration
+configServers()
+{
+	local server; configArray "servers"
+	local client; configArray "clients"
+	local vaultServers; configArray "VaultServers"
+	local hosts; ArrayAppend --remove-dups hosts servers clients vaultServers
+	ArrayDelimit hosts
 }
 
 # Config Nuke Commands
@@ -2087,7 +2111,7 @@ vaultStatusCommand()
 
 vaultUnsealCommand()
 {
-	local host hosts key; getHosts "${vaultServers[@]}" || return
+	local host hosts key; getHosts "VaultServers" || return
 
 	# unseal each host
 	for host in "${hosts[@]}"; do
@@ -2096,18 +2120,15 @@ vaultUnsealCommand()
 
 		for n in 1 2 3; do
 			hilight "Unsealing $host with key $n..."
-			key="$(credGet "key$n")"
-			if [[ $key ]]; then
-				vault operator unseal "$key" || return
-			else
-				echo "key $n does not exist in the credential store"
-			fi
+			key="$(credGet "key$n")" || return
+			$testEcho vault operator unseal "$key" || return
 		done
 
 	done
 }
 
-vaultTokenHost() { local hosts; getHosts "${vaultServers[@]}"; echo "${hosts[0]}"; }
+# vaultTokenHost - return the first vault server used to store the vault token
+vaultTokenHost() { local hosts; getHosts "VaultServers"; echo "${hosts[0]}"; }
 
 # vaultTokenSetRemote - set the Vault token in the remote credential store 
 vaultTokenSetRemote() { ssh -q -t "$(vaultTokenHost)" bash -i credential set "$(credPath vault)" token "$1" $verbose; }
@@ -2343,37 +2364,37 @@ productInit()
 {
 	local product="${1:-$product}"
 	initConfig || return
-	productConfig "$product" || return
+	productConfig || return
 }
 
-# productConfig PRODUCT - enable use of the product in this script
+# productConfig [PRODUCT] [HOST] - enable use of the product in this script
 productConfig()
 {
-	local product="${1:-$product}"
+	local product="${1:-$product}" host="$2"
 
 	! productIsInstalled "$1" && { EchoErr "$product is not installed"; return 1; }
 
-	ScriptEval productEnvironment "$product" || return
+	ScriptEval productEnvironment "$product" "$host" || return
 
 	if [[ $verbose ]]; then
 		local token="$(productVarGet "TOKEN")" desc="no token"; [[ $token ]] && desc="token $token"
 		HilightErr "Using $product server at $(productVarGet "ADDR") with $desc"
-		(( $verboseLevel > 1 )) && productEnvironment "$product"
+		(( $verboseLevel > 1 )) && productEnvironment "$product" "$host"
 	fi
 
 	return 0
 }
 
-# productEnvironment [PRODUCT] - show the environment variables for the specified product
+# productEnvironment [PRODUCT] [HOST] - show the environment variables for the specified product
 productEnvironment()
 {
-	local product="${1:-$product}"
+	local product="${1:-$product}" host="$2"
 	
 	# certificate initialization - use the service certificate directory if the local directory is not present
 	certInit || return; certDir="$(certDirLocal)"
 
 	# variables
-	local server="$host"; [[ ! $server ]] && { server="$(productGetServer)" || return; }
+	local server; server="$(productGetServer "$product" "$server")" || return
 	local url; url="$(productGetAddress "$product" "$server")" || return	
 
 	# local hosts use the automatic certificate authority
@@ -2439,11 +2460,15 @@ productGetPort()
 # productGetServer [PRODUCT] - get the server for the product
 productGetServer()
 {
-	local product="${1:-$product}"
+	local product="${1:-$product}" host="$2"
 	local server resolve="$product"; [[ "$product" == "vault" ]] && resolve="active.vault"
 
+	# use the passed host
+	if [[ $host ]]; then
+		server="$host"
+
 	# use the --product-server argument
-	if [[ $productServer ]]; then
+	elif [[ $productServer ]]; then
 		server="$productServer"
 
 	# use the first host specified by the --host or --servers arguments
@@ -2465,7 +2490,7 @@ productGetServer()
 
 	# use the first server specified in bootstrap-config.sh
 	else
-		server="${hashiServers[0]}"; [[ "$product" == "vault" ]] && server="${vaultServers[0]}"
+		server="$(configServer)"
 
 	fi
 
@@ -2676,13 +2701,36 @@ findInstallFile()
 
 getHosts() 
 {
-	if [[ $hostArg ]]; then
-		StringToArray "$hostArg" "," hosts
+	local h="${hostArg,,}"
+
+	# use the hostArg if specified
+	if [[ $h ]]; then
+		
+		if [[ "$h" == @(first|second|third|fourth) ]]; then # aliases
+			configGetArray "servers" "hosts"
+			[[ "$h" == "first" ]] && hosts=( "${hosts[0]}" )
+			[[ "$h" == "second" ]] && hosts=( "${hosts[1]}" )
+			[[ "$h" == "third" ]] && hosts=( "${hosts[2]}" )
+			[[ "$h" == "fourth" ]] && hosts=( "${hosts[3]}" )
+		else # comma separated lists of hosts
+			StringToArray "$hostArg" "," hosts
+		fi
+
+	# use all hosts from configuration
+	elif [[ $# == 1 && "$1" == "all" ]]; then
+		StringToArray "$(configServers)" "," "hosts"
+		
+	# use the configuration variable
+	elif [[ $# == 1 ]] && configGet "$1"; then
+		configGetArray "$1" "hosts"
+	
+	# use the passed servers	
 	else
 		hosts=( "${@}" )
 	fi
 
 	[[ ! $hosts ]] && MissingOperand "host"
+
 	return 0
 }
 
