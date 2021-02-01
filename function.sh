@@ -281,10 +281,10 @@ SleepStatus()
 	echo "done"
 }
 
-EchoWrap() {  printf "$@\n" | fold --space --width=$COLUMNS; }
-EchoErr() { EchoWrap "$@\n" >&2; }
+EchoWrap() {  echo -e "$@" | fold --space --width=$COLUMNS; }
+EchoErr() { EchoWrap "$@" >&2; }
 HilightErr() { InitColor; EchoWrap "${GREEN}$1${RESET}" >&2; }
-PrintErr() { printf "$@" >&2; }
+PrintErr() { echo -n -e "$@" >&2; }
 
 # printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var
 printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; }
@@ -585,7 +585,7 @@ FileCommand()
 FileToDesc() # short description for the file, mounted volumes are converted to UNC,i.e. //server/share.
 {
 	GetArgs
-	local file="$1"; [[ ! $1 ]] && MissingOperand "FileToDesc" "file"
+	local file="$1"; [[ ! $1 ]] && return
 
 	# if the file is a UNC mounted share get the UNC format
 	[[ -e "$file" ]] && unc IsUnc "$file" && file="$(unc get unc "$file")"
