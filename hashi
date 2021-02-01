@@ -14,7 +14,7 @@ Common commands:
 	cleanup|install|remove|update
 	cert							create certificates
 	config						configure all products
-	lookup|resolve		lookup or resolve a service
+	resolve						resolve a service
 	PRODUCT|all				commands for a product or all products
 	status						show status for all products
 	ui								start the hashi-ui server and launch it
@@ -1051,28 +1051,6 @@ installVaultAcl()
 }
 
 #
-# Lookup Command
-#
-
-lookupUsage() { echot "Usage: $(ScriptName) lookup NAME
-Lookup all information about consul service using nslookup.
-.service.<domain> is appended to the specified name."; }
-
-lookupArgStart() { unset -v name; }
-
-lookupArgs() { ScriptArgGet "name" -- "$@"; shift; }
-
-lookupCommand()
-{
-	local server="$(productGetServer "consul")"
-
-	[[ $verbose ]] && HilightErr "Using Consul server at $server"
-	! IsAvailablePort "$server" 8600 && { EchoErr "$server port 8600 is not available"; return 1; }
-
-	nslookup -port=8600 -type=a -norecurse "$name.service.$domain" "$server"
-}
-
-#
 # Remove Command
 #
 
@@ -1118,17 +1096,23 @@ removeDo()
 # Resolve Command
 #
 
-resolveUsage() { echot "Usage: $(ScriptName) resolve [-a|--all] NAME[.service]
+resolveUsage() { echot "Usage: $(ScriptName) resolve [-a|--all] NAME[.service.<domain>]
 Resolve a service in consul to an IP address or canonical name.
-If all is not specified the first IP address is returned.
-.service.<domain> is appended to the specified name."; }
 
-resolveArgStart() { all=""; name=""; }
+	-a, --all				first all IP addresses instead of the first
+	-j, --json			return service information in JSON
+	-d, --dns				return all DNS information using nslookup,
+	-D, --dig				return all DNS information using DIG"; }
+
+resolveArgStart() { unset -v all dns json name; }
 
 resolveOpt()
 {
 	case "$1" in
 		-a|--all) all="true";;
+		-d|--dns) dns="true";;
+		-D|--dig) dig="true";;
+		-j|--json) json="true";;
 		*) return 1;;
 	esac
 }
@@ -1137,17 +1121,52 @@ resolveArgs() { ScriptArgGet "name" -- "$@"; shift; }
 
 resolveCommand()
 {
-	local filter=(head -1); [[ $all ]] && { filter=(cat); }
+	if [[ $dns ]]; then resolveDns
+	elif [[ $dig ]]; then resolveDig
+	elif [[ $json ]]; then resolveJson
+	else resolveAddress
+	fi
+}
 
-	local result; result="$(lookupCommand)" || return
+resolveAddress()
+{
+	local filter=(head -1); [[ $all ]] && { filter=(cat); }
+	local result; result="$(resolveDns)" || return
 
 	if [[ "$result" =~ .*canonical\ name.* ]]; then
 		printf "$result" | tail +4 | grep "canonical name =" | cut -d= -f2 | RemoveSpace | sed 's/.$//' | "${filter[@]}"
 	else
 		printf "$result" | tail +4 | grep "^Address:" | cut -d: -f2 | RemoveSpace | "${filter[@]}"
 	fi
-
+	
 	return "${PIPESTATUS[0]}"
+}
+
+resolveDns()
+{
+	local server="$(productGetServer "consul")"
+
+	[[ $verbose ]] && HilightErr "Using Consul server at $server"
+	! IsAvailablePort "$server" 8600 && { ScriptErr "$server port 8600 is not available"; return 1; }
+
+	name+=".service.$domain"
+	nslookup -port=8600 -type=a -norecurse "$name" "$server"
+}
+
+resolveDig()
+{
+	local server="$(productGetServer "consul")"
+
+	[[ $verbose ]] && HilightErr "Using Consul server at $server"
+	! IsAvailablePort "$server" 8600 && { ScriptErr "$server port 8600 is not available"; return 1; }
+
+	name+=".service.$domain"
+	dig @"$server" -p 8600 "$name" SRV
+}
+
+resolveJson()
+{
+	curl --silent "$(product="consul" productVarGet "ADDR")/v1/catalog/service/$name"
 }
 
 #
@@ -2419,7 +2438,7 @@ productEnvironment()
 	# variables
 	local server; server="$(productGetServer "$product" "$server")" || return
 	local url; url="$(productGetAddress "$product" "$server")" || return	
-	
+
 	# local hosts use the automatic certificate authority
 	IsLocalHost "$server" && [[ -f "$certDirService/$caAuto" ]] && ca="$caAuto"
 	
