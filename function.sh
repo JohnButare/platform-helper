@@ -32,6 +32,7 @@ r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VA
 # arguments - get argument from standard input if not specified on command line
 # - must be an alias to set arguments
 # - GetArgsN will read the first argument from standard input if there are not at least N arguments present
+alias GetArgDash='[[ "$1" == "-" ]] && shift && set -- "$(cat)" "$@"' 
 alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"' 
 alias GetArgs2='(( $# < 2 )) && set -- "$(cat)" "$@"'
 alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
@@ -280,7 +281,7 @@ SleepStatus()
 	echo "done"
 }
 
-EchoWrap() {  printf "$@" | fold --space --width=$COLUMNS; }
+EchoWrap() {  printf "$@\n" | fold --space --width=$COLUMNS; }
 EchoErr() { EchoWrap "$@\n" >&2; }
 HilightErr() { InitColor; EchoWrap "${GREEN}$1${RESET}" >&2; }
 PrintErr() { printf "$@" >&2; }
@@ -368,6 +369,9 @@ ArrayDiff()
 
 	ArrayDelimit result $'\n'
 }
+
+# ArrayIndex NAME VALUE - return the 1 based index of the value in the array
+ArrayIndex() { ArrayDelimit "$1" '\n' | RemoveEnd '\n' | grep --line-number "^${2}$" | cut -d: -f1; }
 
 # ArrayRemove ARRAY VALUES - remove items from the array except specified values.  If vaules is the name of a variable
 # the contents of the variable are used.
@@ -465,16 +469,18 @@ RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
 
 GetAfter() { GetArgs2; [[ "$1" =~ ^[^$2]*$2(.*)$ ]] && echo "${BASH_REMATCH[1]}"; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
 
+GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoErr "usage: GetWord STRING|- WORD [DELIMITER]( ) - 1 based"; return 1; }
+
 if IsZsh; then
 	LowerCase() { GetArgs; r "${1:l}" $2; }
 	ProperCase() { GetArgs; r "${(C)1}" $2; }
 	UpperCase() { echo "${(U)1}"; }
 	UpperCaseFirst() { echo "${(U)1:0:1}${1:1}"; }
 
-	GetWord() 
-	{ 
-		(( $# < 2 || $# > 3 )) && { EchoErr "usage: GetWord STRING WORD [DELIMITER] - 1 based"; return 1; }
-		local s="$1" delimiter="${3:- }" word="$2"; echo "${${(@ps/$delimiter/)s}[$word]}"
+	GetWord()
+	{
+		GetArgDash; GetWordUsage "$@" || return
+		local gwa gw="$1" word="$2" delimiter="${3:- }"; gwa=( "${(@ps/$delimiter/)gw}" ); printf "${gwa[$word]}"
 	}
 
 else
@@ -485,9 +491,9 @@ else
 
 	GetWord() 
 	{ 
-		(( $# < 2 || $# > 3 )) && { EchoErr "usage: GetWord STRING WORD [DELIMITER] - 1 based"; return 1; }
+		GetArgDash; GetWordUsage "$@" || return; 
 		local word=$(( $2 + 1 )); IFS=${3:- }; set -- $1; 
-		((word=word-1)); (( word < 1 || word > $# )) && echo "" || echo "${!word}"
+		((word-=1)); (( word < 1 || word > $# )) && printf "" || printf "${!word}"
 	}
 
 fi
