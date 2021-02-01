@@ -2103,7 +2103,6 @@ Vault commands.
 
 vaultCommand() { usage; }
 vaultEnvironmentCommand() { productEnvironment "$product"; }
-vaultSealCommand() { vault operator seal; }
 
 vaultStatusCommand()
 {
@@ -2121,14 +2120,34 @@ vaultStatusCommand()
 
 }
 
+vaultSealCommand()
+{
+	productInit "consul" || return
+	local active="$(name="active.vault" resolveAddress)"
+	local standby="$(name="standby.vault" resolveAddress)"
+	
+	vaultSeal "$active" && vaultSeal "$standby"
+}
+
+vaultSeal()
+{
+	local host="$1"
+
+	[[ ! $host ]] && return
+	echo "Sealing Vault host $host..."
+	productConfig "vault" "$host" || return
+	$testEcho vault operator seal || return
+}
+
 vaultUnsealCommand()
 {
-	local host hosts key; getHosts "VaultServers" || return
+	local host hosts key; vaultHostsGet || return
 
-	# unseal each host
 	for host in "${hosts[@]}"; do
 		header "$host"
 		productConfig "vault" "$host" || return
+
+		vaultIsUnsealed && { echo "Vault on $host is already unsealed"; continue; }
 
 		for n in 1 2 3; do
 			hilight "Unsealing $host with key $n..."
@@ -2138,6 +2157,26 @@ vaultUnsealCommand()
 
 	done
 }
+
+vaultHostsGet()
+{
+	# get the hosts from Consul if possible
+	if productIsInstalled "consul"; then
+		productInit "consul" || return
+		IFS=$'\n' hosts=( $(name="vault" resolveJson | jq -r '.[].ServiceAddress') )
+	
+	# get the hosts from configuration 
+	else
+		getHosts "VaultServers" || return
+	fi
+
+	# no hosts found
+	[[ "${#hosts[@]}" == "0" ]] && { ScriptErr "no Vault hosts found"; return 1; }
+
+	return 0
+}
+
+vaultIsUnsealed() { vault status | grep -q '^Sealed[ ]*false$'; }
 
 # vaultTokenHost - return the first vault server used to store the vault token
 vaultTokenHost() { local hosts; getHosts "VaultServers"; echo "${hosts[0]}"; }
@@ -2436,7 +2475,7 @@ productEnvironment()
 	certInit || return; certDir="$(certDirLocal)"
 
 	# variables
-	local server; server="$(productGetServer "$product" "$server")" || return
+	local server; server="$(productGetServer "$product" "$host")" || return
 	local url; url="$(productGetAddress "$product" "$server")" || return	
 
 	# local hosts use the automatic certificate authority
