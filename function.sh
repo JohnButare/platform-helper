@@ -281,7 +281,12 @@ SleepStatus()
 	echo "done"
 }
 
-EchoWrap() {  echo -e "$@" | fold --space --width=$COLUMNS; }
+EchoWrap()
+{
+	! IsInteger "$COLUMNS" || (( COLUMNS < 20 )) && { echo -e "$@"; return; }
+	echo -e "$@" | fold --space --width=$COLUMNS
+}
+
 EchoErr() { EchoWrap "$@" >&2; }
 HilightErr() { InitColor; EchoWrap "${GREEN}$1${RESET}" >&2; }
 PrintErr() { echo -n -e "$@" >&2; }
