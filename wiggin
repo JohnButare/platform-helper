@@ -21,8 +21,6 @@ init()
 	baseDomain="$(ConfigGet "baseDomain")" || return
 
 	# Hashi
-	hashiCertificateVolume="$CDATA/VeraCrypt/personal.hc"		# VeraCrypt encrypted volume
-	hashiCertificateDir="data/hashi"												# directory in the volume
 	hashiConfig="$CLOUD/network/hashi"
 
 	# network configuration
@@ -37,6 +35,7 @@ Manage the Wiggin network.
 
 	backup	backup data
 	device	control devices
+	remove	remove applications from the environment
 	setup		setup the environment
 	network	configure network	
 	sync		syncronize items
@@ -49,7 +48,7 @@ Manage the Wiggin network.
 args()
 {
 	local args=()
-	unset -v command force test testOperand verbose
+	unset -v command force test verbose
 
 	# commands
 	ScriptCommand "$@" || return
@@ -60,7 +59,7 @@ args()
 		case "$1" in "") : ;;
 			-f|--force) force="--force";;
 			-h|--help) usage 0;;
-			-t|--test) test="--test" testOperand="test";;
+			-t|--test) test="--test";;
 			-v|--verbose) verbose="--verbose";;
 			--) shift; otherArgs+=("$@"); set --; break;;
 			*) ScriptOpt "$@";;
@@ -120,6 +119,19 @@ backupQnapCommand()
 
 	rm "$file.tgz" || return
 }
+
+#
+# Remove Command
+#
+
+removeUsage() { echo "Usage: $(ScriptName) remove hashi [test]
+Remove applications from the environment."; }
+
+removeCommand() { usage; }
+
+removeHashiArgStart() { unset -v configPrefixArg; }
+removeHashiCommand() { hashiRun remove --what=program,service,consul-vault-data,local-certs,local-credentials,private-certs,public-certs; }
+removeHashiTestCommand() { configPrefixArg=( --config-prefix=test ); removeHashiCommand; }
 
 #
 # Network Commands
@@ -318,30 +330,28 @@ setupSystemUserCommand()
 	fi
 }
 
-setupHashiCommand()
-{
-	# install
-	local dir; dir="$(mountVol "$hashiCertificateVolume" --dir "$hashiCertificateDir")" || return
-	hashiRun $testOperand install --encrypt "$dir" || return
-	unmountVol || return
+#
+# Setup Hashi Command
+#
 
-	# final setup	
-	setupHashiFinalCommand || return
-}
+setupHashiUsage() { echot "\
+Usage: $(ScriptName) setup hashi [test]
+Setup HashiCorp programs."; }
+
+setupHashiArgStart() { unset -v configPrefixArg; }
+setupHashiCommand() {	hashiRun install --encrypt && setupHashiFinalCommand; }
+setupHashiTestCommand() { configPrefixArg=( --config-prefix=test ); setupHashiCommand; }
 
 setupHashiFinalCommand()
 {
-	local args=(); [[ $test ]] && args+=( --config-prefix=test )
-
-	hashiRun config set remote "${args[@]}" || return
-
-	hashiService "dns1" --host=first "${args[@]}" || return
-	hashiService "dns2" --host=second "${args[@]}" || return
-	hashiService "domotz-agent" --host=second "${args[@]}" || return
-	hashiService "unifi-controller" --host=second "${args[@]}" || return
+	hashiRun config set remote || return
+	hashiService "dns1" --host=first || return
+	hashiService "dns2" --host=second || return
+	hashiService "domotz-agent" --host=second || return
+	hashiService "unifi-controller" --host=second || return
 }
 
-hashiRun() { hashi "$@" "${otherArgs[@]}" $force $test $verbose; }
+hashiRun() { hashi "$@" $force $test $verbose $yes "${configPrefixArg[@]}" "${otherArgs[@]}"; }
 hashiService() { local service="$1"; shift; hashiRun consul service register "$hashiConfig/services/$service.hcl" "$@"; }
 
 #

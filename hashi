@@ -31,7 +31,7 @@ $globalOptionUsage"
 args()
 {
 	local args=()
-	unset configFile configFileArg configPrefix configPrefixArg hostArg hostArgOrig productServer
+	unset -v configFile configFileArg configPrefix configPrefixArg hostArg hostArgOrig productServer
 
 	# commands
 	ScriptCommand "$@" || return
@@ -40,8 +40,8 @@ args()
 	set -- "${args[@]}"; args=()
 	while (( $# != 0 )); do
 		case "$1" in
-			-cf|--config-file|-cf=*|--config-file=*) ScriptOptGet "configFile" "config-file" "$@"; ScriptCheckFile "$configFile"; configFileArg=(--config-file "$configFile");;
-			-cp|--config-prefix|-cp=*|--config-prefix=*) ScriptOptGet "configPrefix" "config-prefix" "$@"; configPrefixArg=(--config-prefix "$configPrefix");;
+			-cf|--config-file|-cf=*|--config-file=*) ScriptOptGet "configFile" "config-file" "$@" && ScriptCheckFile "$configFile" && configFileArg=(--config-file "$configFile");;
+			-cp|--config-prefix|-cp=*|--config-prefix=*) ScriptOptGet "configPrefix" "config-prefix" "$@" && configPrefixArg=(--config-prefix "$configPrefix");;
 			-H|--host|-H=*|--host=*) ScriptOptGet hostArg host "$@"; hostArgOrig="$hostArg";;
 			--product-server|--product-server=*) ScriptOptGet productServer product-server "$@";;
 			*) ScriptOpt "$@";;
@@ -66,7 +66,11 @@ init()
 	products=( consul nomad vault )
 	productUsage="consul|nomad|vault"
 	binDir="/usr/local/bin"
+
+	certVolume=""
 	certOptUsage="-e, --encrypt DIR			directory for PKI certificates, if specified TLS will be enabled"
+
+	configWhat="consul-vault-data local-certs local-credentials private-certs public-certs"
 }
 
 initFinal()
@@ -89,11 +93,6 @@ initFinal()
 	else
 		initConfig || return
 	fi
-
-	# logging
-	[[ $encrypt && $verbose ]] && echo "Certificates are in $(FileToDesc "$encrypt")"
-
-	return 0
 }
 
 initConfig()
@@ -132,10 +131,9 @@ statusCommand()
 		hilight "product-ui-token-config-domain-certificates"
 
 		for product in "${products[@]}"; do			
+			! productIsInstalled && continue
 
-			! productIsInstalled "$product" && continue
-
-			productInit "$product" || return
+			productInit || return
 			local ui="$(productVarGet "ADDR")"
 			local token="false"; [[ $(productVarGet "TOKEN") ]] && token="true"
 			local prefix="$(productVarGet "CONFIG")"; prefix="${prefix:-prod}"
@@ -153,7 +151,7 @@ uiCommand()
 	local product
 
 	for product in "consul" "nomad"; do
-		productInit "$product" || return
+		productInit || return
 		export ${product}_ENABLE="true"
 		export ${product}_ADDR="$(productVarGet "ADDR")"
 		export ${product}_ACL_TOKEN="$(productVarGet "TOKEN")"	
@@ -253,12 +251,16 @@ certMake()
 
 	# certificate initialization - validate the root private certifcate directory exists then create subfolders
 	certInit || return
+	certDirMount || return
 	certDirValidate "$(certDirPrivate)" || return	
 	certDir="$(certDirPrivate | certDirSuffix)" || return
 	sudoc mkdir --parents "$certDir" || return
 
 	# create the certificates
-	RunFunction "cert" "${product}Make"
+	RunFunction "cert" "${product}Make" || return
+
+	# cleanup
+	certDirUnmount || return
 }
 
 certMakeStart() { hilight "$1"; cd "$certDir"; }
@@ -295,6 +297,8 @@ certMakeConsulCa()
 # from other programs like Nomad, curl, or wget.
 certMakeConsulCaAuto()
 {
+	! installCertCheck || [[ -f "$certDir/$caAuto" ]] && return
+
 	certValidate "$ca" || return
 	certExist "$caAuto" && return
 	certMakeStart "Getting the automatic certificate authority..."
@@ -506,7 +510,7 @@ installOpt()
 	esac
 }
 
-installCommand() { usage; }
+installCommand() { installAllCommand; }
 installAllCommand() { installConsulCommand && installVaultCommand && installNomadCommand; }
 
 #
@@ -519,30 +523,16 @@ Install a HashiCorp program and certificates for command line access.
 
 -w, --what=C1[,C2...] components to install: cert program"; }
 
-installCliCommand() { installCliAllCommand; }
+installCliCommand() { local product; for product in "${products[@]}"; do installCli "$product" || return; done; }
 installCliConsulCommand() { installCli "consul"; }
 installCliNomadCommand() { installCli "nomad"; }
 installCliVaultCommand() { installCli "vault" && vaultTokenSetLocal; }
 
-installCliAllCommand()
-{
-	local product
-
-	for product in "${products[@]}"; do
-		installCliDo "$product" || return
-	done
-}
-
-installCliDo() 
+installCli() 
 { 
-	[[ $hostArg || $servers || $clients ]] && { EchoErr "CLI can only be installed locally"; return 1; }
-	installCli "$@" || return
-}
-
-installCli()
-{ 
-	installComponentCheck "program" && { productInstall "$1" "localhost" || return; }
-	installComponentCheck "cert" && { productInstallCerts "$1" || return; }
+	[[ $hostArg || $servers || $clients ]] && { EchoErr "$product CLI can only be installed locally"; return 1; }
+	whatCheck "program" && { productInstall "$1" "localhost" || return; }
+	whatCheck "cert" && { productInstallCerts "$1" || return; }
 	return 0
 }
 
@@ -627,13 +617,13 @@ installConsulServer()
 
 installConsulAutoCa()
 {
-	[[ ! $encrypt ]] && return
+	! installCertCheck && return
 	cp "$certDir/$caAuto" "$tmpDir/cert" || return	
 }
 
 installConsulCertServer()
 {	
-	[[ ! $encrypt ]] && return
+	! installCertCheck && return
 
 	local cert="consul-server-$host.pem"
 	local key="consul-server-$host-key.pem"
@@ -646,11 +636,7 @@ installConsulCertServer()
 
 installConsulServerFinal()
 {
-	if [[ $encrypt && ! -f "$certDir/$caAuto" ]] && installComponentCheck "cert"; then
-		header "Automatic Certificate"
-		certMakeConsulCaAuto || return
-	fi
-
+	installCertCheck && { certMakeConsulCaAuto || return; }
 	installAcl || return
 }
 
@@ -658,10 +644,10 @@ installConsulFinal() { installConsulAgentAcl; }
 
 installConsulAgentAcl()
 {
-	! installComponentCheck "acl" && return
+	! whatCheck "acl" && return
 
 	header "Add Tokens"
-	productConfig "consul" || return
+	productInit "consul" || return
 
 	# create the default policy and token (for DNS resolution)	
 	local name="dns-requests"
@@ -701,7 +687,7 @@ installConsulAgentAcl()
 		hilight "Updating the ACL configuration on $host..."
 
 		local args; args="-http-addr=$(productGetAddress "$product" "127.0.0.1")" || return	
-		[[ $encrypt ]] && args+=" -ca-file=\"$certDirService/$caLocal\" -client-cert=\"$certDirService/$certCli\" -client-key=\"$certDirService/$certCliKey\""
+		installCertCheck && args+=" -ca-file=\"$certDirService/$caLocal\" -client-cert=\"$certDirService/$certCli\" -client-key=\"$certDirService/$certCliKey\""
 
 		scriptRun "$(cat <<-EOF
 			export CONSUL_HTTP_TOKEN=$CONSUL_HTTP_TOKEN
@@ -807,7 +793,7 @@ installNomadCommon()
 	user="root"
 
 	# encryption
-	if [[ $encrypt ]]; then
+	if installCertCheck; then
 
 		# nomad uses consul certificates
 		certInit "consul" || return 
@@ -836,7 +822,7 @@ installNomadClient()
 
 installNomadCertClient()
 {
-	[[ ! $encrypt ]] && return
+	! installCertCheck && return
 	cp "$certDir/$ca" "$certDir/$certClient" "$certDir/$certClientKey" "$tmpDir/cert" || return
 }
 
@@ -848,7 +834,7 @@ installNomadServer()
 
 installNomadCertServer()
 {
-	[[ ! $encrypt ]] && return
+	! installCertCheck && return
 	cp "$certDir/$ca" "$certDir/$certServer" "$certDir/$certServerKey" "$tmpDir/cert" || return
 }
 
@@ -858,10 +844,10 @@ installNomadFinal() { initNomadVaultIntegration; }
 
 initNomadVaultIntegration()
 {
-	! installComponentCheck "vaultintegration" && return	
+	! whatCheck "vaultintegration" && return	
 	! InPath vault && { echo "Vault is not installed, skipping nomad vault integration"; return; }
 
-	productConfig "vault" || return
+	productInit "vault" || return
 
 	local tmpDir="$(tmpDirCreate)" || return
 	pushd "$tmpDir" >& /dev/null || return
@@ -1016,10 +1002,10 @@ installVaultServerFinal()
 
 installVaultAcl()
 {
-	! installComponentCheck "acl" && return
+	! whatCheck "acl" && return
 
 	header "Install Vault ACL"
-	productConfig "vault" || return
+	productInit "vault" || return
 
 	# generate the unseal keys
 	local n key result s seals; seals="$(vault operator init 2>&1)"; result="$?"
@@ -1055,23 +1041,33 @@ installVaultAcl()
 #
 
 removeUsage() { echot "\
-Usage: $(ScriptName) remove all|$productUsage
+Usage: $(ScriptName) remove all|cli|$productUsage
 Remove a HashiCorp product configuration and data.
 
-	-p, --program		also remove the HashiCorp program"; }
+	-w, --what=C1[,C2...] components to remove: program service
+		$configWhat"; }
 
-removeArgStart() { unset program yes; }
+removeArgStart() { unset what; }
 
 removeOpt()
 {
 	case "$1" in
-		-p|--program) program="true";;
-		-y|--yes) yes="true";;
+		-w|--what|-w=*|--what=*) ScriptOptGet "what" "$@"; StringToArray "${what,,}" "," what;;
 		*) return 1;;
 	esac
 }
 
-removeCommand() { usage; }
+removeOptArgEnd()
+{
+	[[ ! $what ]] && MissingOption "what"
+
+	if [[ ! $force || ! $yes ]]; then
+	 ScriptErr "To remove '$what' from $baseDomain $configDesc, --force and --yes are required"
+	 return 1
+	fi
+}
+
+removeCommand() { removeAllCommand; }
 removeAllCommand() { removeDo "vault" && removeDo "nomad" && removeDo "consul"; }
 removeConsulCommand() { removeDo "consul"; }
 removeNomadCommand() { removeDo "nomad"; }
@@ -1079,17 +1075,42 @@ removeVaultCommand() { removeDo "vault"; }
 
 removeDo()
 {
-	local product="$1" host hosts; getHosts || return
+	local product="$1"
+	whatCheckConfig && { removeConfig "$product" || return; }
+	whatCheck "service" && { removeService || return; }
+	return 0
+}
 
-	if [[ ! $force || ! $yes ]]; then
-	 ScriptErr "To permanently remove all $product configuration, data, and programs on $baseDomain $configDesc\n       hosts $(ArrayDelimit hosts " "), --force and --yes are required"
-	 return 1
-	fi
+removeService()
+{
+	local removeProgram; whatCheck "program" && removeProgram="true"
 
+	local host hosts; getHosts "all" || return
 	for host in "${hosts[@]}"; do
-		header "Remove $(ProperCase "$product") ($host)"
-		productRemove "$product" "$host" || return
+		header "Remove $(ProperCase "$product") Service ($host)"
+		productServiceRemove "$product" "$host" || return
 	done
+}
+
+#
+# Remove CLI Command
+#
+
+removeCliUsage() { echot "\
+Usage: $(ScriptName) remove cli all|$productUsage
+Remove a HashiCorp program and certificates used for command line access."; }
+
+removeCliCommand() { local product; for product in "${products[@]}"; do removeCli "$product" || return; done; }
+removeCliConsulCommand() { removeCli "consul"; }
+removeCliNomadCommand() { removeCli "nomad"; }
+removeCliVaultCommand() { removeCli "vault"; }
+
+removeCli() 
+{ 
+	[[ $hostArg || $servers || $clients ]] && { EchoErr "$product CLI can only be removed locally"; return 1; }
+	whatCheck "config" && { certInit "$1" && removeDir "$certDirLocal"; }
+	whatCheck "program" && { $testEcho sudo rm -f "/usr/local/bin/$1" || return; }
+	return 0
 }
 
 #
@@ -1121,12 +1142,16 @@ resolveArgs() { ScriptArgGet "name" -- "$@"; shift; }
 
 resolveCommand()
 {
-	if [[ $dns ]]; then resolveDns
-	elif [[ $dig ]]; then resolveDig
-	elif [[ $json ]]; then resolveJson
-	else resolveAddress
+	productInit "consul" || return
+
+	if [[ $dns ]]; then resolveDns "$name"
+	elif [[ $dig ]]; then resolveDig "$name"
+	elif [[ $json ]]; then resolveJson "$name"
+	else resolveAddress "$name"
 	fi
 }
+
+resolve() { resolveAddress "$1"; }
 
 resolveAddress()
 {
@@ -1144,9 +1169,10 @@ resolveAddress()
 
 resolveDns()
 {
+	local product="consul"; productInit || return
 	local server="$(productGetServer "consul")"
 
-	[[ $verbose ]] && HilightErr "Using Consul server at $server"
+	[[ $verbose ]] && HilightErr "Resolving DNS information for '$name' using Consul server $server"
 	! IsAvailablePort "$server" 8600 && { ScriptErr "$server port 8600 is not available"; return 1; }
 
 	name+=".service.$domain"
@@ -1155,9 +1181,10 @@ resolveDns()
 
 resolveDig()
 {
+	local product="consul"; productInit || return
 	local server="$(productGetServer "consul")"
 
-	[[ $verbose ]] && HilightErr "Using Consul server at $server"
+	[[ $verbose ]] && HilightErr "Resolving DNS server information for '$name' using Consul at $server"
 	! IsAvailablePort "$server" 8600 && { ScriptErr "$server port 8600 is not available"; return 1; }
 
 	name+=".service.$domain"
@@ -1166,28 +1193,10 @@ resolveDig()
 
 resolveJson()
 {
-	curl --silent "$(product="consul" productVarGet "ADDR")/v1/catalog/service/$name"
+	local product="consul"; productInit || return
+	[[ $verbose ]] && HilightErr "Resolving service information for '$name' using Consul at $server"
+	curl --silent "$(productVarGet "ADDR")/v1/catalog/service/$name"
 }
-
-#
-# Test Command
-#
-
-testUsage() { echot "usage: $(ScriptName) test clean|environment|install all|$productUsage"; }
-testArgStart() { what="all"; configPrefix="test"; }
-testArgs() { [[ "$1" != @(all|$productUsage) ]] && return; what="$1"; (( ++shift )); }
-testCommand() { testHashi; }
-
-testEnvironmentCommand() { configEnvironmentCommand; }
-testInstallCommand() { testHashi install $what; }
-
-testCleanCommand()
-{
-	testHashi config nuke $what --force --yes || return
-	testHashi remove $what --host="$(configServers),localhost" --force --yes || return
-}
-
-testHashi() { doHashi "$@" --config-prefix=test "${configFileArg[@]}"; }
 
 #
 # Update Command
@@ -1216,24 +1225,11 @@ updateDo()
 
 installCommon()
 {
-	# initialize
-	certInit || return
+	productServiceVars || return
 
 	# variables
 	declare -Ag commonOptions=( [log_level]="Info" )
 	tmpDirTemplate="hashi.XXXXXXXXXX"
-	program="$(FindInPath "$product")" || return
-	user="$product"
-
-	# directories	
-	productConfigDir="/etc/$product.d" 
-	productDataDir="/opt/$product"
-
-	# configuration files
-	productConfigFileBase="01_$product.hcl"
-	productConfigFile="$productConfigDir/$productConfigFileBase"
-	productServiceFile="/etc/systemd/system/$product.service"
-	productServiceEnvFile="/etc/systemd/system/$product.env"
 
 	# add clients and servers from hostArg
 	if [[ $hostArg ]]; then
@@ -1276,32 +1272,31 @@ installDo()
 	installCertMake || return
 	installProgram || return
 	installServiceServers || return
-	installClientCerts || return
+	installCertClients || return
 	installServerFinal || return
 	installServiceClients || return
 	installFinal || return
 	installCertPublic || return
 
-	rm -fr "$tmpDir"
+	# cleanup
 	unset servers clients; hostArg="$hostArgOrig"
-
-	return 0
+	rm -fr "$tmpDir"
+	certDirUnmount
 }
 
-installCertCheck() { [[ $encrypt ]] && installComponentCheck "cert"; }
-installCertMake() { { ! installCertCheck || [[ ! $encrypt ]] ; } && return; certMake "$product"; }
+installCertCheck() { [[ $encrypt ]] && whatCheck "cert"; }
+installCertClients() { ! installCertCheck && return; productInstallCerts "$product"; }
+installCertMake() { ! installCertCheck && return; certMake "$product"; }
 installCertPublic() { ! installCertCheck && return; certCopyPublic "$product"; }
-installClientCerts() { ! installCertCheck && return; productInstallCerts "$product"; }
-installComponentCheck() { [[ ! $what ]] && return 0; IsInArray "$1" what; }
 installFinal() { RunFunction "install" "${product}Final" || return; }
 installServerFinal() { RunFunction "install" "${product}ServerFinal"; }
 
 installAcl()
 {
-	! installComponentCheck "acl" && return
+	! whatCheck "acl" && return
 
 	header "Install $(ProperCase "$product") ACL"
-	productConfig "$product" || return
+	productInit || return
 
 	# generate the bootstrap token
 	local header text
@@ -1338,7 +1333,7 @@ installAcl()
 
 installProgram()
 {
-	! installComponentCheck "program" && return
+	! whatCheck "program" && return
 
 	for host in localhost "${servers[@]}" "${clients[@]}"; do
 		productInstall "$product" "$host" || return
@@ -1405,7 +1400,7 @@ installService()
 	mkdir --parents "$tmpDir/cert" "$tmpDir/data" "$tmpDir/config" || return		
 
 	# copy certificates
-	[[ $encrypt ]] && { FileCommand cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$tmpDir/cert" || return; }
+	installCertCheck && { FileCommand cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$tmpDir/cert" || return; }
 
 	# service
 	printf "" > "$tmpDir/$product.env"
@@ -1413,8 +1408,8 @@ installService()
 	# options - other options added in installPRODUCTServer or installPRODUCTClient
 	o=( ); ArrayAppend o commonOptions options || return
 
-	[[ "$encrypt" ]] && IsDeclared commonEncryptOptions && { ArrayAppend o "commonEncryptOptions" || return; }
-	[[ "$encrypt" ]] && IsDeclared ${type}EncryptOptions && { ArrayAppend o "${type}EncryptOptions" || return; }
+	installCertCheck && IsDeclared commonEncryptOptions && { ArrayAppend o "commonEncryptOptions" || return; }
+	installCertCheck && IsDeclared ${type}EncryptOptions && { ArrayAppend o "${type}EncryptOptions" || return; }
 
 	RunFunction "install" "${product}Common"
 	RunFunction "install" "${product}$(ProperCase "$type")" || return
@@ -1512,7 +1507,7 @@ installService()
 
 installServiceClients()
 {
-	! installComponentCheck "service" && return
+	! whatCheck "service" && return
 
 	for host in "${clients[@]}"; do
 		installService "client" "$host" || return
@@ -1555,7 +1550,7 @@ installServiceConfig()
 
 installServiceServers()
 {
-	! installComponentCheck "service" && return
+	! whatCheck "service" && return
 
 	for host in "${servers[@]}"; do
 		installService "server" "$host" || return
@@ -1589,11 +1584,11 @@ allStatusCommand()
 #
 
 configUsage() { echot "\
-Usage: $(ScriptName) config [get|set|nuke|show](show)
+Usage: $(ScriptName) config [get|remove|set|show](show)
 Configure products.
 
 	get VAR			get configuration variable
-	nuke				delete all local and remote configuration
+	remove			remove all local and remote configuration
 	set 				set configuration
 	environment	set environment variables"; }
 
@@ -1616,7 +1611,7 @@ configEnvironmentVaultCommand() { productEnvironment "vault"; }
 
 # environment aliases commands
 configEnvironmentProdCommand() { configPrefix="" configEnvironmentCommand; }
-configEnvironmentTestCommand() { doHashi test environment; }
+configEnvironmentTestCommand() { configPrefix="test" configEnvironmentCommand; }
 
 configEnvironmentAll()
 {
@@ -1675,36 +1670,48 @@ configServer()
 # configServers - return a comma separated list of all of the servers in the configuration
 configServers()
 {
-	local server; configArray "servers"
-	local client; configArray "clients"
-	local vaultServers; configArray "VaultServers"
-	local hosts; ArrayAppend --remove-dups hosts servers clients vaultServers
-	ArrayDelimit hosts
+	local server; configGetArray "servers"
+	local client; configGetArray "clients"
+	local vaultServers; configGetArray "VaultServers" "vaultServers"
+	local hosts=(); ArrayAppend --remove-dups hosts servers clients vaultServers
+	ArrayDelimit hosts	
 }
 
-# Config Nuke Commands
+# Config Remove Commands
 
-configNukeUsage() { echot "\
-Usage: $(ScriptName) config nuke all|$productUsage
-Delete all local and remote configuration"; }
+configRemoveUsage() { echot "\
+Usage: $(ScriptName) config remove all|$productUsage
+Delete configuration.
 
-configNukeArgStart() { unset yes; }
+	-w, --what=C1[,C2...] configuration to remove: $configWhat"; }
 
-configNukeOpt() 
+configRemoveArgStart() { unset what; }
+
+configRemoveOpt()
 {
 	case "$1" in
-		-y|--yes) yes="true";;
-		*) return 1
+		-w|--what|-w=*|--what=*) ScriptOptGet "what" "$@"; StringToArray "${what,,}" "," what;;
+		*) return 1;;
 	esac
 }
 
-configNukeCommand() { usage; }
-configNukeAllCommand() { nukeDo "vault" && nukeDo "nomad" && nukeDo "consul"; }
-configNukeConsulCommand() { nukeDo "consul"; }
-configNukeNomadCommand() { nukeDo "nomad"; }
-configNukeVaultCommand() { nukeDo "vault"; }
+configRemoveOptArgEnd()
+{
+	[[ ! $what ]] && MissingOption "what"
 
-nukeDo()
+	if [[ ! $force || ! $yes ]]; then
+	 ScriptErr "To remove '$what' configuration from $baseDomain $configDesc, --force and --yes are required"
+	 return 1
+	fi
+}
+
+configRemoveCommand() { usage; }
+configRemoveAllCommand() { removeConfig "vault" && removeConfig "nomad" && removeConfig "consul"; }
+configRemoveConsulCommand() { removeConfig "consul"; }
+configRemoveNomadCommand() { removeConfig "nomad"; }
+configRemoveVaultCommand() { removeConfig "vault"; }
+
+removeConfig()
 {
 	local product="$1"; certInit || return
 
@@ -1713,25 +1720,20 @@ nukeDo()
 		return 1
 	fi
 
-	header "Nuke $(ProperCase "$product") Configuration"
+	header "Remove $(ProperCase "$product") Configuration"
 
-	if [[ "$product" == "vault" ]]; then
+	if [[ "$product" == "vault" ]] && whatCheck "consul-vault-data" && quiet="--quiet" productInit "consul"; then
 		echo "Removing Vault data from Consul..."
-	  $testEcho consul kv delete -recurse "vault/"
+		$testEcho consul kv delete -recurse "vault/"
 	fi
 
-	credDelete "all" || return
-	nukeDir "$certDirLocal" || return
-	nukeDir "$(certDirPublic | certDirSuffix)" || return
-	nukeDir "$(certDirPrivate | certDirSuffix)" || return
-}
+	# delete credentials and certificates
+	whatCheck "local-certs" && { removeDir "$certDirLocal" || return; }
+	whatCheck "local-credentials" && { credDelete "all" || return; }
+	whatCheck "private-certs" && { certDirMount && { removeDir "$(certDirPrivate | certDirSuffix)"; } || return; }
+	whatCheck "public-certs" && { removeDir "$(certDirPublic | certDirSuffix)" || return; }
 
-nukeDir()
-{
-	local dir="$1"
-	[[ ! $dir || ! -d "$dir" || "$(DirCount "$dir")" == 0 ]] && return
-	echo "Deleting '$(FileToDesc "$dir")'..."
-	$testEcho sudo DelDir --contents "$dir"
+	return 0
 }
 
 # Config Set Command
@@ -2110,8 +2112,8 @@ vaultStatusCommand()
 
 	vault status; status="$?"
 
-	echo "Active Node            $(hashi resolve active.vault)"
-	echo "Standby Node           $(hashi resolve standby.vault)"
+	echo "Active Node            $(resolve active.vault)"
+	echo "Standby Node           $(resolve standby.vault)"
 
 	case "$status" in
 		2) hilight "The vault is sealed";;
@@ -2122,9 +2124,8 @@ vaultStatusCommand()
 
 vaultSealCommand()
 {
-	productInit "consul" || return
-	local active="$(name="active.vault" resolveAddress)"
-	local standby="$(name="standby.vault" resolveAddress)"
+	local active="$(resolve active.vault)"
+	local standby="$(resolve standby.vault)"
 	
 	vaultSeal "$active" && vaultSeal "$standby"
 }
@@ -2135,7 +2136,7 @@ vaultSeal()
 
 	[[ ! $host ]] && return
 	echo "Sealing Vault host $host..."
-	productConfig "vault" "$host" || return
+	productInit "vault" "$host" || return
 	$testEcho vault operator seal || return
 }
 
@@ -2145,7 +2146,7 @@ vaultUnsealCommand()
 
 	for host in "${hosts[@]}"; do
 		header "$host"
-		productConfig "vault" "$host" || return
+		productInit "vault" "$host" || return
 
 		vaultIsUnsealed && { echo "Vault on $host is already unsealed"; continue; }
 
@@ -2162,8 +2163,7 @@ vaultHostsGet()
 {
 	# get the hosts from Consul if possible
 	if productIsInstalled "consul"; then
-		productInit "consul" || return
-		IFS=$'\n' hosts=( $(name="vault" resolveJson | jq -r '.[].ServiceAddress') )
+		IFS=$'\n' hosts=( $(resolveJson "vault" | jq -r '.[].ServiceAddress') )
 	
 	# get the hosts from configuration 
 	else
@@ -2231,7 +2231,7 @@ certInit()
 {
 	local product="${1:-$product}"
 
-	[[ $verbose ]] && EchoErr "Initializing $product certificates..."
+	(( verboseLevel > 1 )) && EchoErr "Initializing $product certificates..."
 
 	# vault uses consul certificates
 	local product="$product"; [[ "$product" == "vault" ]] && product="consul"
@@ -2275,9 +2275,26 @@ certDirLocal()
 	fi
 }
 
-certDirPrivate()
+certDirMount()
 {
-	[[ -d "$encrypt" ]] && echo "$encrypt" || configGet "certificateDir"
+	local device="$(configGet "CertificateDevice")"
+	local dir="$(configGet "CertificateDir")"
+
+	[[ ! $device ]] && return
+
+	case "$(GetFileExtension "$device")" in
+		hc) certDirVolume="$(VeraCrypt mount "$device" p --dir "$dir")";;
+		*) ScriptErr "unable to mount certificate device '$device'"; return 1;;
+	esac
+}
+
+certDirPrivate()
+{	
+	if [[ -d "$encrypt" ]]; then echo "$encrypt"
+	elif [[ -d "$certDirVolume" ]]; then echo "$certDirVolume"
+	elif [[ ! $(configGet "certificateDevice") && $(configGet "certificateDir") ]]; then configGet "certificateDir"
+	else return 1;
+	fi 
 }
 
 certDirPublic()
@@ -2291,6 +2308,13 @@ certDirSuffix()
 { 
 	GetArgs; [[ ! $1 ]] && return 1
 	echo "$(RemoveTrailingSlash "$1")/certificate/$baseDomain$(RemoveTrailingSlash "/$configPrefix")/$product"
+}
+
+certDirUnmount()
+{
+	[[ ! $certDirVolume ]] && return
+	unset -v certDirVolume
+	VeraCrypt unmount p
 }
 
 certDirValidate()
@@ -2339,7 +2363,7 @@ certValidate()
 	local file
 	for file in "$@"; do 
 		if [[ ! -f "$certDir/$file" ]]; then
-			EchoErr "$(ProperCase "$product") certificate $file does not exist in '$(FileToDesc "$certDir")'"
+			[[ ! $quiet ]] && EchoErr "$(ProperCase "$product") certificate $file does not exist in '$(FileToDesc "$certDir")'"
 			return 1
 		fi
 	done
@@ -2434,27 +2458,21 @@ hostCopy()
 # Product Helper
 #
 
-# productInit [PRODUCT] - update configuration based on the product and enable it for use
+# productInit [PRODUCT] [HOST] - enable product for use  on host in this script
 productInit()
-{
-	local product="${1:-$product}"
-	initConfig || return
-	productConfig || return
-}
-
-# productConfig [PRODUCT] [HOST] - enable use of the product in this script
-productConfig()
 {
 	local product="${1:-$product}" host="$2"
 
 	! productIsInstalled "$1" && { EchoErr "$product is not installed"; return 1; }
+
+	initConfig || return 
 
 	ScriptEval productEnvironment "$product" "$host" || return
 
 	if [[ $verbose ]]; then
 		local token="$(productVarGet "TOKEN")" desc="no token"; [[ $token ]] && desc="token $token"
 		HilightErr "Using $product server at $(productVarGet "ADDR") with $desc"
-		(( $verboseLevel > 1 )) && productEnvironment "$product" "$host"
+		(( verboseLevel > 1 )) && productEnvironment "$product" "$host"
 	fi
 
 	return 0
@@ -2548,7 +2566,7 @@ productGetPort()
 productGetServer()
 {
 	local product="${1:-$product}" host="$2"
-	local server resolve="$product"; [[ "$product" == "vault" ]] && resolve="active.vault"
+	local server
 
 	# use the passed host
 	if [[ $host ]]; then
@@ -2572,7 +2590,7 @@ productGetServer()
 		server="127.0.0.1"
 
 	# use consul to resolve the server for the product
-	elif [[ "$product" != "consul" ]] && server="$(hashi resolve "$resolve" 2>&1)"; then
+	elif [[ "$product" != "consul" ]] && server="$(productResolve)"; then
 		:
 
 	# use the first server specified in bootstrap-config.sh
@@ -2642,10 +2660,8 @@ productInstallCerts()
 {
 	local product="$1"
 
-	[[ ! $encrypt ]] && return
-
 	# certification source - use the public certifcate directory if the private certificate directory is not available
-	certInit || return;	[[ ! $certDir ]] && { certDir="$(certDirPublic | certDirSuffix)" || return; }
+	certInit || return;	[[ ! $certDir ]] && { certDir="$(certDirPublic | certDirSuffix)" || return 0; }
 	certValidate "$ca" "$certCli" "$certCliKey" || return
 
 	# return if already installed
@@ -2666,9 +2682,17 @@ productInstallCerts()
 
 productIsInstalled() { [[ $(FindInPath "${1:-$product}") ]]; }
 
-productRemove()
+# productResolve PRODUCT - resolve the host name for the specified product
+productResolve()
 {
-	local product="$1"
+	local product="${1:-$product}"
+	local name="$product"; [[ "$product" == "vault" ]] && name="active.vault"
+	resolve "$name"
+}
+
+productServiceRemove()
+{
+	local product="$1"; productServiceVars || return
 	local host="$2"; hostCheck "$host" || return 0
 	
 	scriptRun "$(cat <<-EOF
@@ -2695,7 +2719,7 @@ productRemove()
 		getent group "$product" >&/dev/null && { printf "group..."; sudo groupdel "$product" >& /dev/null; }
 		[[ -d "/etc/$product.d" ]] && { printf "configuration..."; sudo rm -fr "/etc/$product.d"; }
 		[[ -d "/opt/$product" ]] && { printf "data..."; sudo rm -fr "/opt/$product"; }
-		[[ "$program" && -f "$binDir/$product" ]] && { printf "program..."; sudo rm -f "$binDir/$product"; }
+		[[ "$removeProgram" && -f "$binDir/$product" ]] && { printf "program..."; sudo rm -f "$binDir/$product"; }
 
 		[[ \$(find /tmp -maxdepth 1 -name "hashi.*") ]] && { printf "tempory files..."; sudo rm -fr "/tmp/hashi."*; }
 		[[ -d "/tmp/consul-test" ]] && sudo rmdir "/tmp/consul-test"
@@ -2704,6 +2728,28 @@ productRemove()
 
 		EOF
 	)"
+}
+
+productServiceVars()
+{
+	local product="${1:-$product}"; 
+
+	# certificates
+	certInit || return
+	
+	# variables
+	program="$(FindInPath "$product")" || return
+	user="$product"
+
+	# directories	
+	productConfigDir="/etc/$product.d" 
+	productDataDir="/opt/$product"
+
+	# configuration
+	productConfigFileBase="01_$product.hcl"
+	productConfigFile="$productConfigDir/$productConfigFileBase"
+	productServiceFile="/etc/systemd/system/$product.service"
+	productServiceEnvFile="/etc/systemd/system/$product.env"
 }
 
 # productVar VAR - get the environment variable name
@@ -2763,6 +2809,8 @@ productVersionFilter() { head -1 | cut -d" " -f 2 | RemoveFront v; }
 doHashi() { hashi "$@" $force $test $verbose "${configFileArg[@]}" "${configPrefixArg[@]}" "${otherArgs[@]}"; }
 tmpDirCreate() { mktemp -d -t "$tmpDirTemplate"; }
 useHttps() { [[ $encrypt || -d "$certDir" ]]; } # use HTTPS during installation ($encrypt) and client configuration (cert directory exists)
+whatCheck() { [[ ! $what ]] && return 0; IsInArray "$1" what; }
+whatCheckConfig() { local c; for c in $configWhat; do whatCheck "$c" && return; done; return 1; }
 
 copyFile()
 {
@@ -2779,7 +2827,7 @@ copyFile()
 encryptOptGet()
 {
 	ScriptOptGet --check "encrypt" "$@" && { ScriptCheckDir "$encrypt"; return; }
-	encrypt="find" # find directory later using configuration
+	encrypt="find" # find the encryption directory later
 }
 
 findInstallFile()
@@ -2823,6 +2871,14 @@ getHosts()
 	return 0
 }
 
+removeDir()
+{
+	local dir="$1"
+	[[ ! $dir || ! -d "$dir" || "$(DirCount "$dir")" == 0 ]] && return
+	echo "Deleting '$(FileToDesc "$dir")'..."
+	$testEcho sudo DelDir --contents "$dir"
+}
+
 # scriptRun SCRIPT - run the specified script locally over over ssh
 scriptRun()
 {
@@ -2839,7 +2895,8 @@ scriptRun()
 		EOF
 	)"
 
-	[[ $test ]] && { printf "%s\n" "$script"; return; }
+	{ [[ $test ]] || (( verboseLevel > 1 )); } && { printf "%s\n" "$script"; }
+	[[ $test ]] && return
 
 	if IsLocalHost "$host"; then
 		bash -c "$script"

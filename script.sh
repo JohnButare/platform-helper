@@ -146,6 +146,7 @@ ScriptOptGlobal()
 		-v|--verbose) verbose="-v"; verboseLevel=1;;
 		-vv) verbose="-vv"; verboseLevel=2;;
 		-vvv) verbose="-vvv"; verboseLevel=3;;
+		-y|--yes) yes="--yes";;
 		--) shift; otherArgs+=("$@"); set --; break;;
 		*) return 1
 	esac
@@ -176,7 +177,7 @@ ScriptCommand()
 	
 	# variables
 	unset -v command defaultCommandUsed 
-	unset -v force quiet set test testEcho verbose verboseLevel
+	unset -v force quiet set test testEcho verbose verboseLevel yes
 
 	args=() commandNames=() commands=() otherArgs=() shift="1" 
 	

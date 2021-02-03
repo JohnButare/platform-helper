@@ -26,14 +26,15 @@ bootstrapShare="public" bootstrapDir="/share/CACHEDEV1_DATA/Public" bootstrapPor
 
 # HashiCorp
 hashiCredentialPath=""
-hashiCertificateDir=""
+hashiCertificateDevice="$CDATA/VeraCrypt/personal.hc" hashiCertificateDir="data/hashi"
 hashiServers="pi1,pi2,pi3"
 hashiClients=""
 hashiVaultServers="pi1,pi2"
 
 # HashiCorp Testing
 hashiTestCredentialPath=""
-hashiTestCertificateDir=""
+#hashiCertificateDevice="" hashiTestCertificateDir="$UDATA/app/hashi"
+hashiTestCertificateDevice="$CDATA/VeraCrypt/personal.hc" hashiTestCertificateDir="data/hashi"
 hashiTestServers="pi4,pi5,pi6"
 hashiTestClients="pi7"
 hashiTestVaultServers="pi4,pi5"
