@@ -279,7 +279,7 @@ certMakeConsul()
 certMakeConsulCa()
 {
 	certExist "$ca" "$caKey" && return
-	certMakeStart "Creating the certificate authority for $baseDomain..."
+	certMakeStart "Creating the certificate authority for $baseDomain..." || return
 
 	# create the cert
 	consul tls ca create \
@@ -296,11 +296,9 @@ certMakeConsulCa()
 # from other programs like Nomad, curl, or wget.
 certMakeConsulCaAuto()
 {
-	! installCertCheck || [[ -f "$certDir/$caAuto" ]] && return
-
 	certValidate "$ca" || return
 	certExist "$caAuto" && return
-	certMakeStart "Getting the automatic certificate authority..."
+	certMakeStart "Getting the automatic certificate authority..." || return
 
 	! InPath "consul-k8s" && { inst "consul-k8s" || return; }
 
@@ -313,9 +311,9 @@ certMakeConsulCaAuto()
 
 certMakeConsulCli()
 {
-	certValidate "$ca" "$caKey" && return
+	certValidate "$ca" "$caKey" || return
 	certExist "$certCli" "$certCliKey" && return
-	certMakeStart "Creating the CLI certificates..."
+	certMakeStart "Creating the CLI certificates..." || return
 
 	# remove any existing temporary certs
 	rm -f "$datacenter-cli-$baseDomain-"?".pem" "$datacenter-cli-$baseDomain-"?"-key.pem" || return
@@ -330,17 +328,15 @@ certMakeConsulCli()
 	# rename the temporary cert
 	mv "$datacenter-cli-$baseDomain-0.pem" "$certCli" || return
 	mv "$datacenter-cli-$baseDomain-0-key.pem" "$certCliKey" || return
-
-	popd > /dev/null || return
 }
 
 certMakeConsulServer()
 {
 	local cert="$1" key="$2" host="$3"
 
-	certValidate "$ca" "$caKey" && return
+	certValidate "$ca" "$caKey" || return
 	certExist "$cert" "$key" && return
-	certMakeStart "Creating the $host server certificate..."
+	certMakeStart "Creating the $host server certificate..." || return
 
 	# remove any existing temporary certs
 	rm -f "$datacenter-server-$baseDomain-?.pem" "$datacenter-server-$baseDomain-?-key.pem" || return
@@ -377,31 +373,31 @@ certMakeNomad()
 certMakeNomadCa()
 {
 	certExist "$ca" "$caKey" && return
-	certMakeStart "Creating the Nomad certificate authority..."
+	certMakeStart "Creating the Nomad certificate authority..." || return
 	cfssl print-defaults csr | cfssl gencert -initca - | cfssljson -bare nomad-ca
 }
 
 certMakeNomadCli()
 {
-	certValidate "$ca" "$caKey" && return
+	certValidate "$ca" "$caKey" || return
 	certExist "$certCli" "$certCliKey" && return
-	certMakeStart "Creating the Nomad CLI certificate..."
+	certMakeStart "Creating the Nomad CLI certificate..." || return
 	echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -profile=client - | cfssljson -bare nomad-cli
 }
 
 certMakeNomadClient()
 {
-	certValidate "$ca" "$caKey" && return
+	certValidate "$ca" "$caKey" || return
 	certExist "$certClient" "$certClientKey" && return
-	certMakeStart "Creating the Nomad client certificate..."
+	certMakeStart "Creating the Nomad client certificate..." || return
 	echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -profile=client - | cfssljson -bare nomad-client
 }
 
 certMakeNomadServer()
 {
-	certValidate "$ca" "$caKey" && return
+	certValidate "$ca" "$caKey" || return
 	certExist "$certServer" "$certServerKey" && return
-	certMakeStart "Creating the Nomad server certificate..."
+	certMakeStart "Creating the Nomad server certificate..." || return
 
 	# create the cfssl configuration file
 	[[ ! -f "cfssl.json" ]] && { cat <<-EOF > "cfssl.json" || return; }
@@ -510,7 +506,7 @@ installOpt()
 }
 
 installCommand() { installAllCommand; }
-installAllCommand() { installConsulCommand && installVaultCommand && installNomadCommand; }
+installAllCommand() { installConsulDo && installVaultDo && installNomadDo && certMakeCleanup; }
 
 #
 # Install CLI Command
@@ -539,7 +535,9 @@ installCli()
 # Install Consul Command
 #
 
-installConsulCommand()
+installConsulCommand() { installConsulDo && certMakeCleanup; }
+
+installConsulDo()
 { 
 	local product="consul"; installCommon || return
 	local -A options serverOptions guiOptions 
@@ -725,7 +723,9 @@ installConsulConfigGet()
 # Install Nomad Command
 #
 
-installNomadCommand()
+installNomadCommand() { installNomadDo && certMakeCleanup; }
+
+installNomadDo()
 {
 	local product="nomad"; installCommon || return
 	local -A options clientOptions serverOptions guiOptions
@@ -849,7 +849,7 @@ initNomadVaultIntegration()
 	productInit "vault" || return
 
 	local tmpDir="$(tmpDirCreate)" || return
-	pushd "$tmpDir" >& /dev/null || return
+	cd "$tmpDir" || return
 
 	# add the nomad-cluster policy to Vault
 	if ! vault policy list | grep -q "^nomad-server$"; then
@@ -865,8 +865,6 @@ initNomadVaultIntegration()
 		vault write /auth/token/roles/nomad-cluster @nomad-cluster-role.json || return
 	fi
 
-	popd >& /dev/null || return
-	
 	# grant the nomad-cluster role permission to required secrets
 	if ! vault policy list | grep -q "^nomad-cluster$"; then
 		hilight "Granting the nomad-cluster role permission in Vault..."
@@ -924,7 +922,9 @@ initNomadVaultIntegration()
 # Install Vault Command
 #
 
-installVaultCommand()
+installVaultCommand() { installVaultDo && certMakeCleanup; }
+
+installVaultDo()
 {
 	local product="vault"; installCommon || return
 	local -A options clientOptions serverOptions guiOptions
@@ -1280,7 +1280,6 @@ installDo()
 	# cleanup
 	unset servers clients; hostArg="$hostArgOrig"
 	rm -fr "$tmpDir"
-	certMakeCleanup
 }
 
 installCertCheck() { [[ $encrypt ]] && whatCheck "cert"; }
@@ -1434,9 +1433,9 @@ installService()
 		fi
 
 		# directories
-		if ! [[ -d "$cert" && -d "$productConfigDir" && -d "$productDataDir" ]] || [[ "$force" ]]; then
+		if ! [[ -d "$certDirService" && -d "$productConfigDir" && -d "$productDataDir" ]] || [[ "$force" ]]; then
 		  echo "Creating directories..."
-		  sudo install -o "$user" -g "$user" -m 755 -d "$cert" "$productConfigDir" "$productDataDir" || exit
+		  sudo install -o "$user" -g "$user" -m 755 -d "$certDirService" "$productConfigDir" "$productDataDir" || exit
 		fi
 
 		# files
@@ -1451,9 +1450,9 @@ installService()
 		  sudo install -o "$user" -g "$user" -m 755 -t "$productConfigDir" "$tmpDir/config/"* || exit
 		fi
 
-		if [[ \$(sudo ls -A "$tmpDir/cert") ]] && [[ ! \$(sudo ls -A "$cert") || "$force" ]]; then
+		if [[ \$(sudo ls -A "$tmpDir/cert") ]] && [[ ! \$(sudo ls -A "$certDirService") || "$force" ]]; then
 		  echo "Copying certificate files..."
-		  sudo install -o "$user" -g "$user" -m 755 -t "$cert" "$tmpDir/cert/"* || exit
+		  sudo install -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/cert/"* || exit
 		fi
 
 		if [[ -f "$certDirService/$ca" ]] && [[ ! -f "$certStoreCa" || "$force" ]]; then
@@ -2330,6 +2329,7 @@ certExist()
 	for file in "$@"; do
 		[[ ! -f "$certDir/$file" ]] && return 1
 	done
+	return 0
 }
 
 certStoreInstall()
@@ -2366,6 +2366,7 @@ certValidate()
 			return 1
 		fi
 	done
+	return 0
 }
 
 #
@@ -2516,7 +2517,6 @@ productEnvironment()
 
 	# certificate configuration
 	if [[ -f "$certDir/$certCli" ]]; then
-		certValidate "$certCli"
 		cat <<-EOF
 			export $(productVar "CACERT")="$certDir/$ca"
 			export $(productVar "CLIENT_CERT")="$certDir/$certCli"
@@ -2791,7 +2791,7 @@ productVersion()
 		desc="local"
 
 	else
-		version="$(ssh $host -- $product --version) | productVersionFilter"
+		version="$(ssh $host -- $product --version | productVersionFilter)"
 		desc="$what"
 	fi
 	
