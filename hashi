@@ -516,7 +516,7 @@ installCliUsage() {	echot "\
 Usage: $(ScriptName) install cli all|$productUsage
 Install a HashiCorp program and certificates for command line access.
 
--w, --what=C1[,C2...] components to install: cert program"; }
+-w, --what=C1[,C2...] components to install: cert cred program"; }
 
 installCliCommand() { local product; for product in "${products[@]}"; do installCli "$product" || return; done; }
 installCliConsulCommand() { installCli "consul"; }
@@ -528,6 +528,7 @@ installCli()
 	[[ $hostArg || $servers || $clients ]] && { EchoErr "$product CLI can only be installed locally"; return 1; }
 	whatCheck "program" && { productInstall "$1" "localhost" || return; }
 	installCerts && { productInstallCerts "$1" || return; }
+	whatCheck "cred" && { configSetLocal "$1" || return; }
 	return 0
 }
 
@@ -1766,55 +1767,69 @@ removeConfig()
 	whatCheck "local-certs" && { removeDir "$(certDirLocal)" || return; }
 	whatCheck "local-credentials" && { credDelete "all" || return; }
 	whatCheck "private-certs" && { dir="$(certDirMountPrivate)" || return; removeDir "$dir" && certDirUnmountPrivate; }
-	whatCheck "public-certs" && { dir="$(certDirMountPublic)" || return; removeDir "$dir"; }
+	whatCheck "public-certs" && { dir="$(certDirPublic)" || return; removeDir "$dir"; }
 
 	return 0
 }
 
-# Config Set Command
+# config set command
 
 configSetUsage() { echot "\
 Usage: $(ScriptName) config local|remote
 Set configuration.
 
-	local			set the local configuration
-	remote		set the remote configuration"; }
+	local			set the local configuration in the local credential store
+	remote		set the remote configuration in Vault"; }
 
 configSetCommand() { usage; }
 
-configSetLocalCommand()
+# config set local command
+
+configSetLocalUsage() { echot "\
+Usage: $(ScriptName) config set local [all|$productUsage](all)
+Set the local configuration in the local credential store."; }
+
+configSetLocalCommand() { configSetLocalAllCommand; }
+
+configSetLocalAllCommand() { configSetLocalConsulCommand && configSetLocalNomadCommand && configSetLocalVaultCommand; }
+configSetLocalConsulCommand() { configSetLocal "consul"; }
+configSetLocalNomadCommand() { configSetLocal "nomad"; }
+configSetLocalVaultCommand() { configSetLocal "vault"; }
+
+configSetLocal()
 {	
-	local product="vault"; productInit || return; credManagerCheck "local" || return
-
-	# return if configuration is set
-	[[ ! $force ]] && credential exists consul token --manager=local --quiet $verbose && return
-
-	# set local configuration
+	local p="${1:-$product}" product="vault"; productInit || return; credManagerCheck "local" || return
 	vaultTokenSetLocal || return	
-	configMirror "vault" "local" || return
+	configMirror "vault" "local" "$p" || return
 }
 
-configSetRemoteCommand()
+# config set remote command
+
+configSetRemoteUsage() { echot "\
+Usage: $(ScriptName) config set remote [all|$productUsage](all)
+Set the remote configuration in Vault."; }
+
+configSetRemoteCommand() { configSetRemoteAllCommand; }
+
+configSetRemoteAllCommand() { configSetRemoteConsulCommand && configSetRemoteNomadCommand && configSetRemoteVaultCommand; }
+configSetRemoteConsulCommand() { configSetRemote "consul"; }
+configSetRemoteNomadCommand() { configSetRemote "nomad"; }
+configSetRemoteVaultCommand() { configSetRemote "vault" && vaultTokenSetRemote; }
+
+configSetRemote()
 {
-	local product="vault"; productInit || return; credManagerCheck "local" "vault" || return
-
-	# return if configuration is set
-	[[ ! $force ]] && credential --manager=vault exists consul token $verbose && return
-
-	# set remote configuration
-	configMirror "local" "vault" || return
-	vaultTokenSetRemote || return
+	local p="${1:-$product}" product="vault"; productInit || return; credManagerCheck "local" "vault" || return
+	configMirror "local" "vault" "$p" || return
 }
+
+# config helper
 
 configMirror()
 {
-	local from="$1" to="$2" product
-
-	for product in "${products[@]}"; do
-		! credential exists "$(credPath)" token --manager="$from" && continue
-		hilight "Mirroring ${product^} certificates to ${to^}..."
-		credential mirror --from="$from" --to="$to" "$(credPath)" --force $verbose || return
-	done
+	local from="$1" to="$2" product="${3:-$product}"
+	[[ ! $force ]] && ! credential exists "$(credPath)" token --manager="$from" && return
+	hilight "Mirroring ${product^} certificates to ${to^}..."
+	credential mirror --from="$from" --to="$to" "$(credPath)" --force $verbose || return
 }
 
 #
@@ -2226,6 +2241,8 @@ vaultTokenSetRemote()
 	local token="$(productVarGet "token")"
 
 	[[ ! $token ]] && { ScriptErr "unable to get the Vault token from the environment to set on remote host '$(vaultTokenHost)'"; return; }
+
+	[[ ! $force && "$(credGets "token" --quiet)" == "$VAULT_TOKEN" ]] && return
 
 	ssh -q -t "$(vaultTokenHost)" bash -i credential set "$(credPath)" token "$token" $verbose
 }
