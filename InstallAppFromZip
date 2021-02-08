@@ -46,7 +46,7 @@ args()
 
 install() { RunPlatform install; }
 
-installLinux() { runCommon; }
+installLinux() { checkExists "$dest" && runCommon; }
 
 installMac()
 {
@@ -68,7 +68,7 @@ installWin()
 	if [[ "$elevate" ]] && ! IsElevated; then
 		RunScript --elevate $verbose -- InstallAppFromZip $verbose --no-prompt "$zip" "$dest" || return
 	else
-		runCommon
+		runCommon || return
 	fi
 }
 
@@ -89,21 +89,36 @@ checkExists()
 		RunScript --elevate -- rm -fr "\"$dir\"" || return
 		echo "done"
 	else
-		${G}rm -fr "$dir"
+		sudo ${G}rm -fr "$dir"
 	fi
 }
 
 runCommon()
 {
-	${G}mkdir --parents "$dest" || return
+	sudoc ${G}mkdir --parents "$dest" || return
 
 	[[ $verbose ]] && hilight "Unzipping \"$(GetFileName "$zip")\" to \"$dest\"..." || hilight "Inflating..."
 
-	# unzip the archive
-	if IsPlatform linux; then
-		sudo tar --extract --verbose --auto-compress --file="$zip" -C "$dest"
+	# use 7z.exe to unzip on Windows drives
+	drive IsWin "$dest" && { UnzipPlatform "$zip" "$dest" --sudo || return; }
+
+	# determine if the archive contains a single driectory assume it is the destination directory
+	local dir dirCount="$(zipinfo -1 "$zip" | cut -d"/" -f1 | sort | uniq | wc -l)"
+
+	if [[ "$dirCount" == "1" ]]; then
+		dir="$(zipinfo -1 "$zip" | head -1 | GetFilePath)"
+	fi
+
+	# unzip the archive	
+	if [[ "$(GetFileExtension "$dest")" == @(gz|tar) ]]; then
+		sudo tar --extract --verbose --auto-compress --file="$zip" -C "$dest"; return
 	else
-		UnzipPlatform "$zip" "$dest" || return
+		sudo unzip -o "$zip" -d "$dest" || return
+	fi
+
+	if [[ $dir ]]; then
+		sudo mv "$dest/$dir/"* "$dest" || return
+		sudo rmdir "$dest/$dir" || return
 	fi
 
 	return 0

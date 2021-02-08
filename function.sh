@@ -679,12 +679,27 @@ SelectFile() # DIR PATTERN MESSAGE
 # UnzipPlatform - use platform specific unzip to fix unzip errors syncing metadata on Windows drives
 UnzipPlatform()
 {
-	local zip="$1" dest="$2"
+	local sudo zip dest
 
+	# arguments
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-s|--sudo) sudo="sudoc";;
+			*)
+				! IsOption "$1" && [[ ! $zip ]] && { zip="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
+				UnknownOption "$1" "UnzipPlatform"; return
+		esac
+		shift
+	done
+	[[ ! "$zip" ]] && { MissingOperand "zip" "UnzipPlatform"; return; }
+	[[ ! "$dest" ]] && { MissingOperand "dest" "UnzipPlatform"; return; }
+
+	# unzip
 	if IsPlatform win; then
 		7z.exe x "$(utw "$zip")" -o"$(utw "$dest")" -y -bb3 || return
 	else
-		unzip -o "$zip" -d "$dest" || return
+		$sudo unzip -o "$zip" -d "$dest" || return
 	fi
 
 	return 0
