@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 . script.sh || exit
 
-run() {	init && args "$@" && "${command}Command" "${args[@]}"; }
-
-init()
-{
-	switch="" waitDefault=120 poeSwitchDefault="StudyDeskSwitch"
-
-	hostArg="HOST format is HOST[:PORT] where PORT is an optional switch port number.
-		If the PORT is allthe command applies to all switch ports on the host."
-}
-
 usage()
 {
 	ScriptUsage "$1" "\
@@ -21,38 +11,33 @@ Manage host or PoE switch port power state.
 	fix				fix power issues
 	status		host power status
 
-	-t, --timeout=[500]		milliseconds to wait for a response from the host
-	-v, --verbose 				show verbose information where possible"
+	-t, --timeout=[500]		milliseconds to wait for a response from the host"
 	exit $1
+}
+
+init()
+{
+	switch="" waitDefault=120 poeSwitchDefault="StudyDeskSwitch"
+
+	hostArg="HOST format is HOST[:PORT] where PORT is an optional switch port number.
+		If the PORT is allthe command applies to all switch ports on the host."
+}
+
+argStart() { unset -v hosts timeout; }
+
+opt()
+{
+	case "$1" in
+		-t|--timeout|-t=*|--timeout=*) ScriptOptGet "timeout" "$@"; ! IsInteger "$timeout" && usage;;
+		*) return 1;;
+	esac
 }
 
 args()
 {
-	unset -v verbose timeout
-
-	# commands
-	ScriptCommand "$@" || return
-
-	# options
-	set -- "${args[@]}"; args=()
-	while (( $# != 0 )); do		
-		case "$1" in "") : ;;
-			-h|--help) usage 0;;
-			-t|--timeout|-t=*|--timeout=*) ScriptOptGet "timeout" "$@"; ! IsInteger "$timeout" && usage;;
-			-v|--verbose) verbose="--verbose";;
-			*) ScriptOpt "$@";;
-		esac
-		shift
-	done
-	set -- "${args[@]}"
-
-	# arguments
-	ScriptArgs "$@" || return; shift "$shift"
-	! needsHost && [[ $@ ]] && usage
-	args=("$@")
+	[[ "${commands[0]}" == @(fix) ]] && return
+	hosts=( "$@" ); (( shift+=$# )); true
 }
-
-needsHost() { [[ "${commands[0]}" != @(fix) ]]; }
 
 #
 # Fix Command
@@ -144,14 +129,10 @@ opOpt()
 {
 	case "$1" in
 		-e|--exit|-e=*|--exit=*) ScriptOptGet "exit" "$@";;
-		-f|--force) force="true";;
 		-ie|--ignore-errors) ignoreErrors="0";;
-		-q|--quiet) quiet="--quiet";;
-		-s|--ssh) ssh="true"; powerSshWait="true"; [[ ! $wait ]] && wait="$waitDefault";;
-		   --test) test="--test";;
+		-s|--ssh) ssh="true"; powerSshWait="true"; [[ ! $wait ]] && wait="$waitDefault"; true;;
 		-w|--wait|-w=*|--wait=*) IsInteger "$2" && ScriptOptGet "wait" "$@" || wait="$waitDefault";; 
-		-ws|--wait-ssh) waitSsh="true"; [[ ! $wait ]] && wait="$waitDefault";;
-
+		-ws|--wait-ssh) waitSsh="--wait"; [[ ! $wait ]] && wait="$waitDefault";;
 		*) return 1
 	esac
 }
@@ -159,32 +140,32 @@ opOpt()
 offUsage() { opUsage; }
 offArgStart() { opArgStart; desc="Powering off"; sshCommand="shutdown now"; }
 offOpt() { opOpt "$@"; }
-offCommand() { power "off" "$@"; }
+offCommand() { power "off"; }
 
 onUsage() { opUsage; }
 onArgStart() { opArgStart; desc="Powering on"; expectedState="on"; }
 onOpt() { opOpt "$@"; }
-onCommand() { power "on" "$@"; }
+onCommand() { power "on"; }
 
 firmwareUsage() { opUsage; }
 firmwareArgStart() { opArgStart; desc="Entering firmware on"; }
 firmwareOpt() { opOpt "$@"; }
-firmwareCommand() { power "firmware" "$@"; }
+firmwareCommand() { power "firmware"; }
 
 hibernateUsage() { opUsage; }
 hibernateArgStart() { opArgStart; desc="Hibernating"; }
 hibernateOpt() { opOpt "$@"; }
-hibernateCommand() { power "hibernate" "$@"; }
+hibernateCommand() { power "hibernate"; }
 
 rebootUsage() { opUsage; }
 rebootArgStart() { opArgStart; desc="Rebooting"; expectedState=""; sshCommand="shutdown -r now"; }
 rebootOpt() { opOpt "$@"; }
-rebootCommand() { power "reboot" "$@"; }
+rebootCommand() { power "reboot"; }
 
 sleepUsage() { opUsage; }
 sleepArgStart() { opArgStart; desc="Sleeping"; }
 sleepOpt() { opOpt "$@"; }
-sleepCommand() { power "sleep" "$@"; }
+sleepCommand() { power "sleep"; }
 
 powerOffCleanup() { [[ $switch && $force ]] && switchPortOff "$switch" "$switchPort"; return 0; }
 powerSshAvailable() { [[ $sshCommand ]] && SshHelper connect "$host" -- "ls /" >& /dev/null; }
@@ -195,14 +176,14 @@ power()
 	local op="$1"; shift
 
 	# local
-	if [[ ! $@ ]]; then
+	if [[ ! ${hosts[@]} ]]; then
 		[[ $exit ]] && { powerExit "$op"; return; }
 		powerLocal "$op"; return
 	fi
 
 	# remote
 	local host
-	for host in "$@"; do
+	for host in "${hosts[@]}"; do
 		powerRemote "$host" "$op" || return
 	done
 }
@@ -308,16 +289,14 @@ powerRemote()
 	if [[ ! $force && "$initialState" == "$expectedState" ]]; then
 		[[ "$op" == "on" && $waitSsh ]] && ! powerSshAvailable && { powerSshWait; return; }
 		[[ ! $quiet ]] && echo "$hostDesc is already $expectedState"
-		return 0
+		doSshConnect; return
 	fi
 
 	printf "$desc $hostDesc..."
 	RunFunction "power" "$op" || return
 	echo "done"
 
-	[[ $ssh ]] && { SshHelper connect -x "$host" || return; }
-
-	return 0
+	doSshConnect
 }
 
 powersleep() { powerOp "sleep" && powerWaitOff "$wait"; }
@@ -453,8 +432,7 @@ If port is all then the status of all switch ports is displayed.
 
 	$hostArg
 
-	-t, --timeout=[500]		milliseconds to wait for a response from the host
-	-v, --verbose 				show verbose status information"
+	-t, --timeout=[500]		milliseconds to wait for a response from the host"
 }
 
 statusArgEnd() { [[ ! $1 ]] && MissingOperand "host"; return 0; }
@@ -587,4 +565,6 @@ doSsh()
 	SshHelper connect "$@"
 }
 
-run "$@"
+doSshConnect() { [[ ! $ssh ]] && return; SshHelper connect -x "$host" $waitSsh; }
+
+ScriptRun "$@"

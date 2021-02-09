@@ -5,23 +5,6 @@
 # Script Arguments
 # 
 
-# GetArgs - get the non-option script arguments for the commands
-ScriptArgs()
-{
-	local c finalShift=0
-
-	for c in "${commands[@]}"; do
-		shift=0
-		RunFunction "${c}Args" -- "$@" || return
-		shift "$shift"; ((finalShift+=shift))
-	done
-	shift="$finalShift"
-
-	for c in "${commands[@]}"; do
-		RunFunction "${c}ArgEnd" -- "$@" || return
-	done
-}
-
 # ScriptArgGet VAR [DESC](VAR) -- VALUE - get an argument.  Sets var to value and increments shift
 ScriptArgGet()
 {
@@ -89,55 +72,21 @@ ScriptCheckPath()
 # Script Options
 # 
 
-# ScriptOpt OPTION - get an option for the commands
+# ScriptOpt OPTION - process an option
+# - sets shift variable to number of arguments processed
 ScriptOpt()
 {
-	# not an option, add it to args
-	! IsOption "$1" && { args+=("$1"); return; }
-
-	# global options
-	ScriptOptGlobal "$@" && return
-
-	# see if a commmand takes the option
-	local c
+	shift=0; ! IsOption "$1" && return; shift=1
+	
+	# command option - start with the last command
 	for c in $(ArrayReverse commands); do
 		IsFunction "${c}Opt" && "${c}Opt" "$@" && return
 	done
 
-	# not a valid option
-	UnknownOption "$1"
-}
+	# script option
+	IsFunction "opt" && { opt "$@" && return; }
 
-# ScriptOptGet [--check]] VAR [DESC] OPTION VALUE - get an option argument.  
-#   Sets var to value and increments shift if needed.  Format: -o|--option[=| ]VAL
-#		If --check is specified the option is not required.
-ScriptOptGet()
-{
-	local require="true"; [[ "$1" == "--check" ]] && { shift; unset require; }
-	local scriptVar="$1"; shift
-	local scriptDesc="$scriptVar"; ! IsOption "$1" && { scriptDesc="$1"; shift; }
-	local opt="$1"; shift
-
-	# -o=VAL --option=VAL
-	if [[ "$opt" =~ = ]]; then
-		value="$(GetAfter "$opt" =)"
-
-	# -o VAL --option VAL
-	elif (( $# > 0 )) && ! IsOption "$1"; then
-		value="$1"; ((++shift))
-		
-	else
-		[[ $require ]] && MissingOperand "$scriptDesc"
-		return 1
-
-	fi
-
-	local -n var="$scriptVar"
-	var="$value"
-}
-
-ScriptOptGlobal()
-{
+	# global option
 	case "$1" in
 		-f|--force) force="--force";;
 		-h|--help) usage 0;;
@@ -146,10 +95,39 @@ ScriptOptGlobal()
 		-v|--verbose) verbose="-v"; verboseLevel=1;;
 		-vv) verbose="-vv"; verboseLevel=2;;
 		-vvv) verbose="-vvv"; verboseLevel=3;;
-		-y|--yes) yes="--yes";;
-		--) shift; otherArgs+=("$@"); set --; break;;
-		*) return 1
+		*) UnknownOption "$1";;
 	esac
+}
+
+# ScriptOptGet [--check]] VAR [DESC] OPTION VALUE
+#
+# Set option VAR from OPTION and VALUE
+# - DESC defaults to VAR and is used in the missing option error message
+#	- if --check is specified the option is not required.
+# - OPTION VALUE format is one of: -o|--option[=| ]VAL
+# - sets var to value and increments shift if needed.  
+ScriptOptGet()
+{
+	local require="true"; [[ "$1" == "--check" ]] && { shift; unset require; }
+	local scriptVar="$1"; shift
+	local scriptDesc="$scriptVar"; ! IsOption "$1" && { scriptDesc="$1"; shift; }
+	local opt="$1"; shift
+
+	# format: -o=VAL --option=VAL
+	if [[ "$opt" =~ = ]]; then
+		value="$(GetAfter "$opt" =)"
+
+	# format: -o VAL --option VAL
+	elif (( $# > 0 )) && ! IsOption "$1"; then
+		value="$1"; ((++shift))
+		
+	elif [[ $require ]]; then
+		MissingOperand "$scriptDesc"
+
+	fi
+
+	local -n var="$scriptVar"
+	var="$value"
 }
 
 # ScriptOptNetworkProtocol - sets protocol and protocolArg
@@ -168,76 +146,106 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 # Script Other
 #
 
-# ScriptCommand - get a command by looking for function in the format command1Command2Command
-#   Sets args, command, and commands
-ScriptCommand()
+# ScriptRun [defaultCommand]: init->opt->args->initFinal->command->cleanup
+ScriptRun()
 {
-	local defaultCommand; [[ "$1" =~ .*Command ]] && 	{ defaultCommand="${1%%Command}"; shift; }
-	local arg c test
+	local defaultCommand defaultCommandUsed; RunFunction "init" || return
 	
-	# variables
-	unset -v command defaultCommandUsed 
-	unset -v force quiet set test testEcho verbose verboseLevel yes
+	# commands - format command1Command2Command
+	local args=() c shift="1"
+	local command commandNames=() commands=() otherArgs=() # public
 
-	args=() commandNames=() commands=() otherArgs=() shift="1" 
-	
-	globalOptionUsage="Global options:
-	-f,  --force			force the operation
-	-t,  --test				test mode, do not make changes
-	-q, --quiet 			minimize informational messages
-	-v,  --verbose		verbose mode, multiple -vv or -vvv for additional logging"
-
-	# find commands
 	while (( $# )); do
 
-		# done with argument processing
-		[[ "$1" == "--" ]] && break
+		# -- indicates end of arguments
+		[[ "$1" == "--" ]] && { otherArgs+=( "$@" ); break; }
 
-		# save argument
-		arg="$1"; shift
+		# option or empty operand - continue with next argument
+		{ [[ ! $1 ]] || IsOption "$1"; } && { args+=("$1"); shift; continue; }
 
-		# option
-		{ [[ ! $arg ]] || IsOption "$arg"; } && { args+=("$arg"); continue; }
+		# first command is lower case (i.e. dhcp), second command is upper case (i.e. dhcpStatus)
+		[[ $command ]] && ProperCase "$1" c || LowerCase "$1" c;
 
-		# if we do not have a command assume it is lower case, i.e. dhcp
-		# if we already have a command assume the next portion of the command starts with an upper case, i.e. dhcpStatus
-		[[ $command ]] && ProperCase "$arg" c || LowerCase "$arg" c;
+		# commands that start with is are proper cased after is, i.e. isAvailable
+		[[ "$c" =~ ^is..* ]] && c="is$(ProperCase "${c#is}")"
 
-		# add the existing command to the next command (c) with the best guess at casing
-		[[ "$c" =~ ^is..* ]] && c="is$(ProperCase "${c#is}")" # i.e. isAvailable
+		# the argument is a command if there is a function for it
 		c="${command}${c}Command"
-
-		# find the exact command match - a case-insensitive match is too slow
 		if IsFunction "$c"; then
-			command="${c%Command}" commands+=("$command") commandNames+=("${arg,,}")
-			IsFunction "${command}ArgStart" && { "${command}ArgStart" || return; }
-			continue
+			command="${c%Command}" commands+=("$command") commandNames+=("${1,,}")			
+		else
+			args+=("$1")		
 		fi
 
-		# not a command
-		args+=("$arg")		
+		shift
+	done	
 
+	# default command
+	[[ ! $command ]] && { defaultCommandUsed="true" command="$defaultCommand" commands=("$command") commandNames=("$command"); }
+
+	# arg start
+	RunFunction "argStart" || return
+	for c in "${commands[@]}"; do
+		RunFunction "${c}ArgStart" || return
 	done
 
-	args+=( "$@" )
+	# options
+	unset -v force quiet test testEcho verbose verboseLevel
+	set -- "${args[@]}"; args=()
+	while (( $# )); do
+		! IsOption "$1" && { args+=("$1"); shift; continue; }
+		ScriptOpt "$@" || return; shift "$shift"
+	done
 
-	[[ ! $command ]] && { defaultCommandUsed="true" command="$defaultCommand" commands=("$command") commandNames=("$command"); }
+	# operands
+	set -- "${args[@]}"
+	shift=0; RunFunction "args" -- "$@" || return; shift "$shift"
+	for c in "${commands[@]}"; do
+		shift=0; RunFunction "${c}Args" -- "$@" || return; shift "$shift"
+	done
+	(( $# != 0 )) && { ExtraOperand "$@"; return 1; }
+
+	# arg end
+	for c in "${commands[@]}"; do
+		RunFunction "${c}ArgEnd" || return
+	done
+	RunFunction "argEnd" || return
+
+	# cleanup
+	unset args c shift
+	
+	# run command
 	[[ ! $command ]] && usage
+	local result; "${command}Command"; result="$?"
 
-	return 0
+	# cleanup
+	RunFunction cleanup || return
+
+	return "$result"
 }
 
 # ScriptUsage RESULT USAGE_TEXT
 ScriptUsage()
 {
+	local foundUsage
+
 	if [[ ! $defaultCommandUsed ]]; then
 		local c
 		for c in $(ArrayReverse commands); do
-			IsFunction "${c}Usage" && "${c}Usage" "$@" && exit "${1:-1}"
+			IsFunction "${c}Usage" && "${c}Usage" "$@" && { foundUsage="true"; break; }
 		done
 	fi
 	
-	echot "$2"
+	[[ ! $foundUsage ]] && echot "$2"
+	
+	[[ $verbose ]] && echot "\nGlobal options:
+	-f, --force			force the operation
+	-h, --help			display command usage
+	-q, --quiet 		minimize informational messages
+	-t, --test			test mode, do not make changes
+	-v, --verbose		verbose mode, multiple -vv or -vvv for additional logging
+	--     					signal the end of arguments"
+
 	exit "${1:-1}"
 }
 

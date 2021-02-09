@@ -1,14 +1,10 @@
 #!/usr/bin/env bash
 . script.sh || exit
 
-run() {	init && args "$@" && "${command}Command"; }
-
-init() { :; }
-
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: os [OPTION]... [COMMAND]...
+Usage: os [COMMAND]... [OPTION]...
 Operating system commands
 
 	architecture|bits|CodeName|hardware|version 			OS information
@@ -17,33 +13,8 @@ Operating system commands
 	name					show or set the operating system name"
 }
 
-args()
-{
-	local args=()
-	unset -v command
-
-	# commands
-	ScriptCommand "$@" || return
-
-	# options
-	set -- "${args[@]}"; args=()
-	while (( $# != 0 )); do		
-		case "$1" in "") : ;;
-			-h|--help) usage 0;;
-			*) ScriptOpt "$@";;
-		esac
-		shift "$shift"; shift=1
-	done
-	set -- "${args[@]}"
-
-	# arguments
-	ScriptArgs "$@" || return; shift "$shift"
-		
-	(( $# == 0 )) && return || usage
-}
-
 #
-# Commands
+# commands
 #
 
 environmentCommand() { RunPlatform environment; }
@@ -68,14 +39,14 @@ pathCommand()
 
 preferencesCommand() { RunPlatform preferences; }
 preferencesMac() { open "/System/Applications/System Preferences.app"; }
-proferencesWin() { control.exe; }
+preferencesWin() { control.exe; }
 
 storeCommand() { RunPlatform store; }
 storeMac() { open "/System/Applications/App Store.app"; }
 storeWin() { start "" "ms-windows-store://"; }
 
 #
-# Executable Command
+# executable command
 #
 
 executableUsage()
@@ -129,7 +100,7 @@ executableFindCommand()
 }
 
 #
-# Name Commands
+# name commands
 #
 
 nameUsage()
@@ -179,7 +150,7 @@ setHostnameMac()
 }
 
 #
-# Information Commands
+# information commands
 #
 
 codenameCommand() { ! InPath lsb_release && return 1; lsb_release -a |& grep "Codename:" | cut -f 2-; }
@@ -231,7 +202,7 @@ bitsCommand() # 32 or 64
 hardwareCommand() ( uname -m; )
 
 #
-# Version Command
+# version command
 #
 
 versionArgStart() { host="localhost"; }
@@ -353,7 +324,7 @@ versionPi()
 }
 
 #
-# Helper
+# helper
 #
 
 systemProperties()
@@ -363,4 +334,4 @@ systemProperties()
 	rundll32.exe /d shell32.dll,Control_RunDLL SYSDM.CPL$tab
 }
 
-run "$@"
+ScriptRun "$@"

@@ -2,7 +2,14 @@
 . script.sh || exit
 . color.sh || exit
 
-main() { init && args "$@" && initFinal && "${command}Command"; cleanup; }
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [COMMAND]...
+Programs installation.
+
+	install	[APP]...		install programs"
+}
 
 init()
 {
@@ -17,6 +24,7 @@ init()
 	macDebianWin=( colorls CredentialStore docker firefox fzf GitKraken LinuxNetworkUtilities PackageManagement SevenZip skype tmux UnifiControllerPackage xpra )
 
 	# commands
+	defaultCommand="install"	
 	cp="FileCommand cp"
 	cpDir="CopyDir --recursive"
 	firewall="firewall --suppress"
@@ -37,50 +45,6 @@ init()
 
 	# export variables
 	export PLATFORM_PATH="$DATA/platform/$PLATFORM"
-}
-
-initFinal() { :; }
-cleanup() { :; }
-
-usage()
-{
-	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [COMMAND]...
-Programs installation.
-
-	install	[APP]...		install programs
-
-	-f,  --force					force installation even if a minimal install is selected
-	-q,  --quiet					minimize informational messages
-	-v,  --verbose				verbose logging"
-}
-
-args()
-{
-	unset -v force otherArgs quiet verbose
-
-	# commands
-	ScriptCommand "installCommand" "$@" || return
-
-	# options
-	set -- "${args[@]}"; args=()
-	while (( $# != 0 )); do
-		case "$1" in
-			-f|--force) force="--force";;
-			-h|--help) usage 0;;
-			-q|--quiet) quiet="--quiet";;
-			-v|--verbose) verbose="--verbose";;
-			--) shift; otherArgs+=("$@"); set --; break;;
-			*) ScriptOpt "$@";;
-		esac
-		shift "$shift"; shift=1
-	done
-	set -- "${args[@]}"
-	
-	# arguments
-	ScriptArgs "$@" || return; shift "$shift"
-
-	(( $# == 0 )) && return || usage
 }
 
 #################################################
@@ -242,7 +206,7 @@ i()
 }
 
 # installExecutable DIR NAME- find an executable for the current platform in the passed directory
-# If found, the the executable is copied to /usr/local/bin as NAME
+# If found, the executable is copied to /usr/local/bin as NAME
 installExecutable()
 {
 	local dir="$1" name="$2" file; [[ ! $name ]] && name="$(GetFileName "$dir")"
@@ -267,7 +231,9 @@ installExecutable()
 	[[ ! $file ]] && { ScriptErr "could not find an executable for $name"; return 1; }
 
 	# copy the file to /usr/local/bin
-	sudoc cp "$file" "/usr/local/bin/$name" || return
+	local dest="/usr/local/bin/$name"
+	sudoc cp "$file" "$dest" || return
+	sudo chmod +x "$dest" || return
 }
 
 isInstallable()
@@ -515,12 +481,7 @@ storeInstall()
 # applications
 #################################################
 
-appCore()
-{
-	RunPlatform app || return
-	i AppHostname AppHost || return
-}
-
+appCore() { RunPlatform app && appHost; }
 appMac() { i iTerm karabiner rectangle LinuxUtilities SevenZip xpra xServer || return; }
 appWin() { i WindowsStore WindowsTerminal AutoHotKey AquaSnap EdgeDeflector winget xpra xServer || return; }
 appPhysical() { i chrony JumpCloud LogitechOptions ninite nVidiaGeForceExperience zoom || return; }
@@ -548,23 +509,6 @@ appPi()
 	! InPath gpio && { pkg piclone wiringpi || return; }
 	! groups $USER | grep -q "gpio" && { sudo adduser $USER gpio || return; }
 	return 0
-}
-
-appHostname()
-{
-	IsDocker && return # Docker hostname must be set in the containers config.vs.json
-
-	! UpdateNeeded "HostnameChanged" && return
-
-	os name set
-	case $? in
-		0) # name changed
-			UpdateDone "HostnameChanged" || return
-			SleepStatus "Rebooting in 5 seconds" 5 || return
-			power reboot --exit 100; return;; # return 100 for bootstrap-init to retry
-		1) UpdateDone "HostnameChanged"; return;; # name unchanged
-		2) return 1;; # error
-	esac
 }
 
 appHost()
@@ -859,7 +803,7 @@ bootstrapStart()
 	! password CheckStore && { password store || return; }
 
 	# set the default WSL distribution user now to aid troubleshooting issues.
-	IsPlatform wsl && { wsl SetDefaultUser "$(wsl name)" "$(ConfigGet)" || return; }
+	IsPlatform wsl && { wsl SetDefaultUser "$(wsl name)" "$(ConfigGet user)" || return; }
 
 	return 0
 }
@@ -868,6 +812,7 @@ bootstrapEnd()
 {
 	i AppDir micro bash fzf sshCore zsh zplug || return
 	SetLoginShell zsh || return
+	i hostname || return
 }
 
 bootstrapDebianMac() # debian|mac
@@ -885,7 +830,7 @@ bootstrapDebian()
 		IsVmwareVm && { i VmwareLinuxTools || return; }
 	fi
 
-	pkg file libdbus-glib-1-dev man sharutils xz-utils || return				# other
+	pkg file libdbus-glib-1-dev man-db sharutils xz-utils || return				# other
 	pkg avahi-daemon dnsutils net-tools wakeonlan || return							# network
 	pkg --no-prompt keyboard-configuration smbclient || return
 
@@ -5039,9 +4984,9 @@ SublimeInstall()
 	# https://discord.com/channels/280102180189634562/650695903446827011
 
 	local v=3211 vBeta=4097 architecture="amd64"; IsPlatform arm && architecture="arm64"
-	{ IsPlatformAll debian,arm || ask "Install beta version $vBeta"; } && v="$vBeta"
+	{ IsPlatformAll debian,arm || [[ $beta ]]; } && v="$vBeta"
 
-	local linux="sublime_text_3_build_${v}_${architecture}.tar.bz2"
+	local linux="sublime_text_3_build_${v}_x64.tar.bz2"
 	(( v == vBeta )) && linux="sublime-text_build-${v}_${architecture}.deb"
 
 	run "other/Sublime/setup/" -p "Sublime Text Build $v x64 Setup.exe" "Sublime Text Build $v.dmg" "$linux" "${args[@]}" || return
@@ -6020,6 +5965,23 @@ DiscordInstall()
 	registry delete "urun/Discord" # C:\Users\jjbutare\AppData\Local\Discord\app-0.0.305\Discord.exe --start-minimized
 }
 
+HostnameInstall()
+{
+	IsDocker && return # Docker hostname must be set in the containers config.vs.json
+
+	! UpdateNeeded "HostnameChanged" && return
+
+	os name set
+	case $? in
+		0) # name changed
+			UpdateDone "HostnameChanged" || return
+			SleepStatus "Rebooting in 5 seconds" 5 || return
+			power reboot --exit 100; return;; # return 100 for bootstrap-init to retry
+		1) UpdateDone "HostnameChanged"; return;; # name unchanged
+		2) return 1;; # error
+	esac
+}
+
 StampsInstall()
 {
 	header "Stamps.com"
@@ -6035,4 +5997,4 @@ StampsInstall()
 	return 0
 }
 
-main "$@"
+ScriptRun "$@"

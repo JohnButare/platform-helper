@@ -309,12 +309,14 @@ IsVar() { declare -p "$1" >& /dev/null; }
 IsAnyArray() { IsArray "$1" || IsAssociativeArray "$1"; }
 
 if IsBash; then
+	ArrayShift() { local -n arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${arrayShiftVar[@]}"; shift "$arrayShiftNum"; arrayShiftVar=( "$@" ); }
 	ArrayShowKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ArrayShow keys; }
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#declare }"; r "${gt%% *}" $2; } # get type
 	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
 	IsAssociativeArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-A.* ]]; }
 	StringToArray() { GetArgs3; IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
 else
+	ArrayShift() { local arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${${(P)arrayShiftVar}[@]}"; shift "$arrayShiftNum"; local arrayShiftArray=( "$@" ); ArrayCopy arrayShiftArray "$arrayShiftVar"; }
 	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; r "${gt%% *}" $2; } # get type
 	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == @(array|array-local) ]]; }
@@ -1201,7 +1203,7 @@ package() # package install
 	done
 	set -- "${args[@]}"
 
-	packages=( $(packageExclude "$@") )
+	local packages=( "$@" ); packageExclude || return
 
 	if [[ ! $packages ]]; then
 		[[ ! $quiet ]] && echo "all packages have been excluded"
@@ -1226,27 +1228,25 @@ package() # package install
 }
 
 packageExclude()
-{
-	local packages=( "$@" ) p r=()
-
+{	
 	# Ubuntu excludes - ncat is not present on older distributions
 	IsPlatform ubuntu && IsInArray "ncat" packages && [[ "$(os CodeName)" =~ ^(bionic|xenial)$ ]] && ArrayRemove packages "ncat"
 
 	# macOS excludes
-	! IsPlatform mac && { echo "$@"; return; }
+	! IsPlatform mac && return
 
 	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog squidclient virt-what )	
 	local macArm=( bat bonnie++ pv rust traceroute )
 	local macx86=( ncat traceroute )
 
+	local p
 	for p in "$@"; do
-		IsPlatform mac && IsInArray "$p" mac && continue
-		IsPlatformAll mac,arm && IsInArray "$p" macArm && continue
-		IsPlatformAll mac,x86 && IsInArray "$p" macx86 && continue
-		r+=( "$p" )
+		IsPlatform mac && IsInArray "$p" mac && ArrayRemove packages "$p"
+		IsPlatformAll mac,arm && IsInArray "$p" macArm && ArrayRemove packages "$p"
+		IsPlatformAll mac,x86 && IsInArray "$p" macx86 && ArrayRemove packages "$p"
 	done
 
-	echo "${r[@]}"
+	return 0
 }
 
 packageu() # package uninstall
