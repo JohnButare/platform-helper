@@ -228,7 +228,7 @@ store()
 # Config
 #
 
-ConfigInit() { [[ ! $functionConfigFileCache ]] && functionConfigFileCache="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$functionConfigFileCache" ]] && return; EchoErr "ConfigInit: configuration file '$functionConfigFileCache' does not exist"; return 1; }
+ConfigInit() { [[ ! $functionConfigFileCache ]] && export functionConfigFileCache="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$functionConfigFileCache" ]] && return; EchoErr "ConfigInit: configuration file '$functionConfigFileCache' does not exist"; return 1; }
 ConfigExists() { ConfigInit && (. "$functionConfigFileCache"; IsVar "$1"); }
 ConfigGet() { ConfigInit && (. "$functionConfigFileCache"; eval echo "\$$1"); }
 ConfigFileGet() { echo "$functionConfigFileCache"; }
@@ -859,7 +859,7 @@ GetEthernetAdapters()
 GetIpAddress() 
 {
 	local all; [[ "$1" =~ ^(-a|--all)$ ]] && { all="true"; shift; }
-	local host="$1" ip
+	local host="$(GetSshHost "$1")" ip
 
 	IsLocalHost "$host" && { GetAdapterIpAddress; return; }
 
