@@ -5,7 +5,7 @@ WordFastStartTitle="wfs.* - Word"
 OfficeArchitecture="x86"
 OfficeBits="32"
 Office365=""
-OfficeTemplates="$UDATA/app/office/templates"; IsPlatform win && OfficeTemplates="$WIN_HOME/Documents/data/app/office/templates"
+OfficeTemplates="$UDATA/app/office/templates"; IsPlatform win && OfficeTemplates="$WIN_HOME/data/app/office/templates"
 
 if [[ -d "$P/Microsoft Word.app" ]]; then
 	WordProgram="$P/Microsoft Word.app"
