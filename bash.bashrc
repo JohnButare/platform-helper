@@ -146,7 +146,7 @@ case "$PLATFORM" in
 esac
 
 DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM"
-DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" UDATA="$DOC/data" UBIN="$UDATA/bin"
+DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" UDATA="$HOME/data" UBIN="$UDATA/bin"
 CODE="$HOME/code"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
 PUB="${PUB:-$USERS/Shared}"
