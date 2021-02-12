@@ -5,37 +5,64 @@
 usage()
 {
 	echot "\
-Usage: $(ScriptName) [OPTION]... [COMMAND](all)
+Usage: $(ScriptName) [OPTION]... [HOST]...
 
-	motd|file|os
-	adobe|intel|micro|node|python|ruby|windows|zsh
-
-	-H,	--host HOST	comma separated list of hosts to update
 	-p, --prompt		prompt for what to update
 	-P,	--protocol	$(ScriptOptNetworkProtocolUsage)
 	-f, --force			update the host even if it might be up to date
-	-s, --skip LIST	comma seperated list of items to skip"
+	-s, --skip LIST	comma seperated list of items to skip
+	-w, --what LIST	comma seperated list of items to update
+
+Items: adobe|file|intel|micro|motd|node|os|python|ruby|windows|zsh"
 	exit $1
 }
 
-init() { defaultCommand="all"; ohMyZsh="$HOME/.oh-my-zsh"; }
-argStart() { unset -v host prompt protocol; skip=(); }
+init()
+{	
+	defaultCommand="update"	
+	what=( file os store adobe motd node python ruby zsh )
+	all=( "${what[@]}" brew debian intel mac micro windows wsl )
+	ohMyZsh="$HOME/.oh-my-zsh"
+}
+
+argStart() { unset -v prompt protocol skipArg whatArg; skip=(); }
 
 opt()
 {
 	case "$1" in
-		-H|--host|-H=*|--host=*) ScriptOptGet "host" "$@";;
 		-p|--prompt) prompt="--prompt";;		
 		-P|--protocol|-P=*|--protocol=*) ScriptOptNetworkProtocol "$@";;
-		-s|--skip|-s=*|--skip=*) ScriptOptGet "skip" "$@"; StringToArray "${skip,,}" "," skip;;
+		-s|--skip|-s=*|--skip=*) getItem "skip" "$@" || return;;
+		-w|--what|-w=*|--what=*) getItem "what" "$@" || return;;
 		*) return 1;;
 	esac
 }
 
+args() { hosts=( "$@" ); (( shift+=$# )); true; }
+
 argEnd() 
 {
-	[[ $host ]] && { updateHost; exit; }	
+	[[ $hosts ]] && { updateHosts; exit; }	
 	[[ ! $prompt ]] && function ask { printf "${BLUE}%s${RESET}\n" "Updating $1..."; }
+	return 0
+}
+
+getItem()
+{
+	local var="$1" value; shift
+	local -n varArg="${var}Arg"
+
+	# get the item argument
+	ScriptOptGet "value" "$var" "$@" || return
+	varArg="--$var=$value"
+	StringToArray "${value,,}" "," "$var"
+
+	# check for valid items
+	local i items; StringToArray "${value,,}" "," items
+	for i in "${items[@]}"; do
+		! IsInArray "$i" all && { ScriptErr "'$i' is not a valid item"; exit 1; }
+	done
+
 	return 0
 }
 
@@ -43,28 +70,72 @@ argEnd()
 # commands
 #
 
-allCommand()
+updateCommand()
 {
-	local c components=( motd file os micro zsh adobe node python ruby )
+	local i
 
-	for c in "${components[@]}"; do
-		IsInArray "$c" skip && continue
-		${c}Installed && ask "$c" && { ${c}Command || return; }
+	for i in "${what[@]}"; do
+		IsInArray "$i" skip && continue
+		${i}Installed && ask "$i" && { "${i}Update" || return; }
 	done
 }
 
-windowsCommand() {  FindInPath "wuapp.exe" > /dev/null && start "wuapp.exe" || cmd.exe /c start ms-settings:windowsupdate >& /dev/null; }
-
 #
-# OS Command
+# OS Update
 #
 
-osInstalled() { return 0; }
-osCommand() { RunPlatform "os"; }
+osInstalled() { true; }
 
-# debian
+osUpdate()
+{
+	! UpdateNeeded "os" && return
+	RunPlatform "os" || return
+	UpdateDone "os" || return
+}
 
-osDebian()
+# Debian Update
+
+osDebian() { debianUpdate; }
+
+osMac()
+{
+	ask "Brew update" && { brewUpdate || return; }
+	ask "Mac update" && { macUpdate || return; }	
+	return 0;
+}
+
+osQnap()
+{
+	! UpdateNeeded "qnap" && return
+	sudo opkg update || return
+	sudo opkg upgrade || return
+	UpdateDone "qnap" || return
+}
+
+osWin()
+{
+	! UpdateNeeded "win" && return
+	IsSsh && return 0 # these update requires a GUI
+	ask "Windows update" && { windowsUpdate || return; }
+	ask "WSL update" && { wslUpdate || return; }
+	intelInstalled && ask "Intel update" && { intelUpdate || return; }
+	UpdateDone "win"
+}
+
+#
+# Adobe Update
+#
+
+adobeInstalled() { [[ -f "$P32\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe" ]]; }
+adobeUpdate() { start "$P32\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe"; }
+
+#
+# Debian Update
+#
+
+debianInstalled() { IsPlatform "debian"; }
+
+debianUpdate()
 { 
 	! UpdateNeeded "debian" && return
 
@@ -85,17 +156,32 @@ osDebian()
 	UpdateDone "debian" || return
 }
 
-# mac
+#
+# File Update
+#
 
-osMac()
+fileInstalled() { return 0; }
+
+fileUpdate()
 {
-	ask "Brew update" && { osMacBrew || return; }
-	ask "App Store update" && { osMacStore || return; }
-	ask "Software update" && { osMacSoftware || return; }
-	return 0;
+	IsLocalHost "$(ConfigGet fs)" && return
+	! SyncLocalFiles IsAvailable "${protocolArg[@]}" && return
+	SyncLocalFiles "${protocolArg[@]}"
 }
 
-osMacBrew()
+#
+# Intel Update
+#
+
+intelInstalled() { [[ -d "$P32/Intel/Driver and Support Assistant" ]]; }
+intelUpdate() {  start "https://www.intel.com/content/www/us/en/support/intel-driver-support-assistant.html"; }
+
+#
+# MacOS Update
+#
+
+brewInstalled() { InPath brew; }
+brewUpdate()
 {
 	! UpdateNeeded "brew" && return
 	brew doctor; # brew doctor on arm always returns failure on Big Sur and ARM
@@ -105,79 +191,22 @@ osMacBrew()
 	UpdateDone "brew" || return
 }
 
-osMacSoftware()
+macInstalled() { IsPlatform mac; }
+
+macUpdate()
 {
-	! UpdateNeeded "SoftwareUpdate" && return
+	! UpdateNeeded "mac" && return
 	sudoc softwareupdate --install --all
-	UpdateDone "SoftwareUpdate" || return
-}
-
-osMacStore()
-{
-	! UpdateNeeded "AppStore" && return
-	InPath mas && { mas upgrade || return; }
-	UpdateDone "AppStore" || return;
-}
-
-# QNAP
-
-osQnap()
-{
-	! UpdateNeeded "qnap" && return
-	sudo opkg update || return
-	sudo opkg upgrade || return
-	UpdateDone "qnap" || return
-}
-
-# Windows
-
-osWin()
-{
-	! UpdateNeeded "win" && return
-	IsSsh && return 0 # these update requires a GUI
-	ask "Windows update" && { windowsCommand || return; }
-	ask "WSL update" && { osWinWsl || return; }
-	ask "Store update" && { store || return; }
-	osIntelInstalled && ask "Intel update" && { osIntel || return; }
-	UpdateDone "win"
-}
-
-osWinWsl()
-{
-	! UpdateNeeded "WSL" && return
-	wsl update
-	UpdateDone "WSL"
-}
-
-osIntelInstalled() { [[ -d "$P32/Intel/Driver and Support Assistant" ]]; }
-osIntel() {  start "https://www.intel.com/content/www/us/en/support/intel-driver-support-assistant.html"; }
-
-#
-# Adobe Command
-#
-
-adobeInstalled() { [[ -f "$P32\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe" ]]; }
-adobeCommand() { adobeInstalled || return 0; start "$P32\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe"; }
-
-#
-# File Command
-#
-
-fileInstalled() { return 0; }
-
-fileCommand()
-{
-	! IsLocalHost "$(ConfigGet fs)" && SyncLocalFiles IsAvailable "${protocolArg[@]}" && { SyncLocalFiles "${protocolArg[@]}" || return; }
-	return 0
+	UpdateDone "mac" || return
 }
 
 #
-# Micro Command
+# Micro Update
 #
 
 microInstalled() { return 0; }
 
-microCommand()
+microUpdate()
 {
 	! UpdateNeeded "micro" && return
 	MicroHelper update || return
@@ -185,12 +214,12 @@ microCommand()
 }
 
 #
-# motd Command
+# motd Update
 #
 
 motdInstalled() { return 0; }
 
-motdCommand()
+motdUpdate()
 {
 	local file="/var/run/motd.dynamic"
 	{ [[ ! -f "$file" ]] || cmp -s "$HOME/.hushlogin" "$file"; } && return
@@ -198,12 +227,12 @@ motdCommand()
 }
 
 #
-# Node.js Command
+# Node.js Update
 #
 
 nodeInstalled() { which node >& /dev/null; }
 
-nodeCommand()
+nodeUpdate()
 {
 	{ ! nodeInstalled || ! UpdateNeeded "node"; } && return
 	nodeInstalled || return 0
@@ -213,12 +242,12 @@ nodeCommand()
 }
 
 #
-# Zsh Command
+# Zsh Update
 #
 
 zshInstalled() { InPath zsh && [[ -d "$ohMyZsh/.git" ]]; }
 
-zshCommand() 
+zshUpdate() 
 { 
 	{ ! zshInstalled || ! UpdateNeeded "zsh"; } && return
 	ZshHelper update || return
@@ -226,12 +255,12 @@ zshCommand()
 }
 
 #
-# Python Command
+# Python Update
 #
 
 pythonInstalled() { which pip3 >& /dev/null; }
 
-pythonCommand()
+pythonUpdate()
 {
 	{ ! pythonInstalled || ! UpdateNeeded "python"; } && return
 	
@@ -244,12 +273,12 @@ pythonCommand()
 }
 
 #
-# Ruby Command
+# Ruby Update
 #
 
 rubyInstalled() { which gem >& /dev/null; }
 
-rubyCommand()
+rubyUpdate()
 {	
 	{ ! rubyInstalled || IsPlatformAll mac,arm; } && return # gem is not functional on mac ARM
 
@@ -264,13 +293,44 @@ rubyCommand()
 }
 
 #
+# Store Update
+#
+
+storeInstalled() { IsPlatform win || { IsPlatform mac && InPath mas; }; }
+
+storeUpdate()
+{
+	! UpdateNeeded "store" && return
+	RunPlatform "store" || return
+	UpdateDone "store" || return
+}
+
+storeWin() { store; }
+storeMac() { mas upgrade; }
+
+#
+# Windows Update
+#
+
+windowsInstalled() { IsPlatform win; }
+windows() { FindInPath "wuapp.exe" > /dev/null && start "wuapp.exe" || cmd.exe /c start ms-settings:windowsupdate >& /dev/null; }
+
+wslInstall() { IsPlatform win; }
+
+wslUpdate()
+{
+	! UpdateNeeded "WSL" && return
+	wsl update
+	UpdateDone "WSL"
+}
+
+#
 # helper
 #
 
-updateHost()
+updateHosts()
 {
-	local h hosts=(); StringToArray "$host" "," hosts
-
+	local h
 	for h in "${hosts[@]}"; do
 		SshHelper connect -x -t "$h" -- HostUpdate --protocol=smb || return
 	done
