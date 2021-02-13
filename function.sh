@@ -283,8 +283,8 @@ SleepStatus()
 
 EchoWrap()
 {
-	! InPath fold || ! IsInteger "$COLUMNS" || (( COLUMNS < 20 )) && { echo -e "$@"; return; }
-	echo -e "$@" | fold --space --width=$COLUMNS
+	! InPath ${G}fold || ! IsInteger "$COLUMNS" || (( COLUMNS < 20 )) && { echo -e "$@"; return; }
+	echo -e "$@" | ${G}fold --space --width=$COLUMNS
 }
 
 EchoErr() { EchoWrap "$@" >&2; }

@@ -182,7 +182,7 @@ certCopyPublic()
 
 	# destination directory (public certificates)
 	local dest; dest="$(certDirPublic)" || return
-	mkdir --parents "$dest" || return
+	${G}mkdir --parents "$dest" || return
 
 	# return if the source and destination locations are the same
 	[[ "$src" == "$dest" ]] && return
@@ -220,7 +220,7 @@ certMake()
 	# certificate initialization - mount the private certifcate directory and create subfolders
 	certInit || return
 	certDir="$(certDirMountPrivate)" || return
-	sudoc mkdir --parents "$certDir" || return
+	sudoc ${G}mkdir --parents "$certDir" || return
 	useHttps="true"
 
 	# create the certificates
@@ -487,7 +487,7 @@ Install a HashiCorp program and certificates for command line access.
 
 -w, --what=C1[,C2...] components to install: cert cred program"; }
 
-installCliCommand() { local product; for product in "${products[@]}"; do installCli "$product" || return; done; }
+installCliCommand() { local product; for product in vault consul nomad; do installCli "$product" || return; done; }
 installCliConsulCommand() { installCli "consul"; }
 installCliNomadCommand() { installCli "nomad"; }
 installCliVaultCommand() { installCli "vault" && vaultTokenSetLocal; }
@@ -500,7 +500,7 @@ installCli()
 	
 	whatCheck "program" && { productInstall "$product" "localhost" || return; }
 	whatCheck "cert" && certPublicExists && { productInstallCerts "$product" || return; }
-	whatCheck "cred" && { configSetLocal "$product" || return; }
+	whatCheck "cred" && InPath vault && { configSetLocal "$product" || return; }
 	return 0
 }
 
@@ -1395,7 +1395,7 @@ installService()
 
 	# prepare temporary directory
 	DelDir --contents "$tmpDir" || return
-	mkdir --parents "$tmpDir/cert" "$tmpDir/data" "$tmpDir/config" || return		
+	${G}mkdir --parents "$tmpDir/cert" "$tmpDir/data" "$tmpDir/config" || return		
 
 	# copy certificates
 	certs && { FileCommand cp "$certDir/$ca" "$certDir/$certCli" "$certDir/$certCliKey" "$tmpDir/cert" || return; }
@@ -2274,7 +2274,7 @@ vaultTokenSetLocal()
 # - certDirPublic() - public certificate directory on the installation share
 # - certDirPrivate() - the root private certificate directory from the --encrypt option or certificateDir configuration
 # - certDirService() - certificate directory for services (i.e. /opt/PRODUCT/cert/)
-# - certDirMountPrivate() - mount the private certificate directory and return it
+# - certDirMountPrivate() - mount the root private certificate directory and return it
 # - certDirUnmountPrivate() - unmount the private certificate directory
 #
 # usages:
@@ -2413,7 +2413,7 @@ certPublicFind()
 {
 	local product="${1:-$product}"; certInit || return
 
-	local dir="$(certDirPrivate)"
+	local dir="$(certDirPrivate | certDirSuffix)"
 	[[ ! -d "$dir" ]] && { dir="$(certDirPublic)" || return; }
 	certValidate "$dir" "$ca" "$certCli" "$certCliKey" || return
 	echo "$dir"
@@ -2704,10 +2704,15 @@ productInstall()
 
 	# local install
 	if IsLocalHost "$host"; then
+
 		header "Install $(ProperCase "$product") Program (local)"
+
 		local file="$(os executable find "$installDir")" || return
 		InPath "$product" && [[ ! $force && "$(productVersion "$product")" == "$(productVersion "$product" "$file")" ]] && return	
-		sudoc cp "$file" "$binDir/$product"; return		
+		
+		local user="root" group="root"; IsPlatform mac && group="wheel"
+		sudoc ${G}install -o "$user" -g "$group" -m 755 -T "$file" "$binDir/$product" || exit
+ 
 		return 0
 	fi
 
@@ -2754,13 +2759,13 @@ productInstall()
 productInstallCerts()
 {
 	local product="${1:-$product}"; certInit || return
-	local src; src="$certDir"; [[ ! -d "$src" ]] && { src="$(certPublicFind | certDirSuffix)" || return; }
-	local dest="$(certDirLocal)"
+	local src; src="$certDir"; [[ ! -d "$src" ]] && { src="$(certPublicFind)" || return; }
+	local dest="$(certDirSuffix "/opt/hashi")" # always install certificates to /opt/hashi 
 
 	[[ -f "$dest/$ca" && ! $force ]] && return	
 
 	printf "${GREEN}Installing $product certificates...${RESET}"
-	sudoc mkdir --parents "$dest" || return
+	sudoc ${G}mkdir --parents "$dest" || return
 	sudo cp "$src/$ca" "$src/$certCli" "$src/$certCliKey" "$dest" || return
 	sudo chmod +r "$dest/"* || return
 	hilight "done"
