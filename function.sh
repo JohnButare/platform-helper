@@ -1185,10 +1185,14 @@ GetUriDirs() { GetArgs; local gud="${1#*//*/}"; [[ "$gud" == "$1" ]] && gud=""; 
 #
 
 HasPackageManger() { IsPlatform debian,mac,dsm,qnap; }
+PackageFileInfo() { dpkg -I "$1"; } # information about a DEB package
+PackageFileInstall() { sudo gdebi -n "$@"; } # install a DEB package with dependencies
+PackageFileVersion() { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -d: -f2; }
 PackageListInstalled() { InPath dpkg && dpkg --get-selections "$@"; }
 PackagePurge() { InPath wajig && wajig purgeremoved; }
 PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
 
+# package PACKAGE - install the specified package
 package() # package install
 {
 	local force noPrompt quiet packages
@@ -1227,6 +1231,7 @@ package() # package install
 	return 0
 }
 
+# packageExclude - remove excludes packages fromthe packages array
 packageExclude()
 {	
 	# Ubuntu excludes - ncat is not present on older distributions
@@ -1249,6 +1254,8 @@ packageExclude()
 	return 0
 }
 
+
+# pakcageu PACKAGE - remove the specified package exists
 packageu() # package uninstall
 { 
 	IsPlatform debian && { sudo apt remove -y "$@"; return; }
@@ -1257,7 +1264,8 @@ packageu() # package uninstall
 	return 0
 }
 
-PackageExist()  # return true if the specified package exists
+# PackageExist PACKAGE - return true if the specified package exists
+PackageExist()
 { 
 	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
 	IsPlatform mac && { brew search "/^$@$/" | grep -v "No formula or cask found for" >& /dev/null; return; }	
@@ -1265,7 +1273,8 @@ PackageExist()  # return true if the specified package exists
 	return 0
 }
 
-PackageInfo() # shows files installed by a package
+# PackageInfo PACKAGE - show information about the specified package
+PackageInfo()
 {
 	! IsPlatform debian && return
 	
@@ -1275,7 +1284,8 @@ PackageInfo() # shows files installed by a package
 	dpkg -L "$1" | grep 'bin/'
 }
 
-PackageInstalled() # return true if a package is installed
+# PackageInstalled PACKAGE [PACKAGE]... - return true if all packages are installed
+PackageInstalled() 
 { 
 	[[ "$@" == "" ]] && return 0
 
@@ -1287,7 +1297,8 @@ PackageInstalled() # return true if a package is installed
 	fi
 }
 
-PackageList() # package list - search for a package
+# PackageList PATTERN - search for a package
+PackageList() 
 { 
 	IsPlatform debian && { apt-cache search  "$@"; return; }
 	IsPlatform dsm,qnap && { sudo opkg list "$@"; return; }
@@ -1295,7 +1306,8 @@ PackageList() # package list - search for a package
 	return 0
 }
 
-PackageUpdate() # update packages
+# PackageUpdate - update packages
+PackageUpdate() 
 {
 	IsPlatform debian && { sudo apt update || return; sudo apt dist-upgrade -y; return; }
 	IsPlatform mac && { brew update || return; brew upgrade; return; }
@@ -1303,7 +1315,8 @@ PackageUpdate() # update packages
 	return 0
 }
 
-PackageWhich() # which package is an executable in
+# PackageWhich PACKAGE - show which package is an executable in
+PackageWhich() 
 {
 	IsPlatform debian && { dpkg -S "$(which "$1")"; return; }
 }
