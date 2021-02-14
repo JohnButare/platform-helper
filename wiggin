@@ -99,7 +99,7 @@ removeHashiTestCommand() { configPrefixArg=( --config-prefix=test ); removeHashi
 # Network Commands
 #
 
-networkUsage() { echo "Usage: $(ScriptName) network backup|edit|update"; }
+networkUsage() { echo "Usage: $(ScriptName) network backup|edit|update|validate"; }
 
 networkArgStart()
 {
@@ -149,13 +149,13 @@ networkBackupDhcpCommand()
 	local hosts host; getHosts "dhcpServers" || return
 
 	for host in "${hosts[@]}"; do
-		networkBackupDhcp || return
+		networkBackupDhcp "$host" || return
 	done
 }
 
 networkBackupDhcp()
 {
-	local host="$1" hostShort hostIp stamp="$(GetDateStamp)"; getHost "$host" || return
+	local host="$1" hostShort hostIp stamp="$(GetDateStamp)"; getHost || return
 
 	hilight "Backing up DHCP configuration from $hostShort..."
 
@@ -175,13 +175,13 @@ networkBackupDnsCommand()
 	local hosts host; getHosts "dnsServers" || return
 
 	for host in "${hosts[@]}"; do
-		networkBackupDns || return
+		networkBackupDns "$host" || return
 	done
 }
 
 networkBackupDns()
 {
-	local host="$1" hostShort hostIp stamp="$(GetDateStamp)"; getHost "$host" || return
+	local host="$1" hostShort hostIp stamp="$(GetDateStamp)"; getHost || return
 
 	hilight "Backing up DNS configuration from $hostShort..."
 
@@ -220,13 +220,13 @@ networkUpdateDhcpCommand()
 	local hosts host; getHosts "dhcpServers" || return
 
 	for host in "${hosts[@]}"; do
-		networkUpdateDhcp || return
+		networkUpdateDhcp "$host" || return
 	done
 }
 
 networkUpdateDhcp()
 {
-	local host="$1" hostShort hostIp reservations; networkUpdateCommon || return
+	local host="$1" hostShort hostIp reservations; networkUpdateCommon "DHCP" || return
 	local config="$dhcpConfig/$network"
 	local dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
 	local subnetVar="subnet$(ProperCase "$hostShort")"
@@ -252,7 +252,8 @@ networkUpdateDhcp()
 	SshHelper connect "$hostIp" -- service restart kea-dhcp4-server || return
 
 	# validate
-	# TODO: dhcptest.exe in a while sleeping loop, see power
+	printf "Waiting for DHCP on $hostShort..."
+	networkValidateWait "$host" 5 DHCP && echo "${GREEN}available${RESET}"
 }
 
 #
@@ -264,13 +265,13 @@ networkUpdateDnsCommand()
 	local hosts host; getHosts "dnsServers" || return
 
 	for host in "${hosts[@]}"; do
-		networkUpdateDns || return
+		networkUpdateDns "$host" || return
 	done
 }
 
 networkUpdateDns()
 {
-	local host="$1" hostShort hostIp reservations; networkUpdateCommon || return
+	local host="$1" hostShort hostIp reservations; networkUpdateCommon "DNS" || return
 	local config="$dnsConfig"
 	local dir="$(mktemp -d -t 'dns.XXXXXXXXXX')" || return
 
@@ -297,7 +298,7 @@ networkUpdateDns()
 	done
 
 	echo "Updating DNS configuration files on $host..."
-	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" "$dir/"* "$hostUp:$dnsDir" --info=progress2 || return
+	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" "$dir/"* "$hostIp:$dnsDir" --info=progress2 || return
 
 	# cleanup
 	rm -fr "$dir" || return
@@ -306,7 +307,82 @@ networkUpdateDns()
 	SshHelper connect "$hostIp" -- service restart bind9 || return
 
 	# validate
-	# TODO: nslookup in a while sleeping loop, see power
+	printf "Waiting for DNS on $hostShort..."
+	networkValidateWait "$host" 5 DNS && echo "${GREEN}available${RESET}"
+}
+
+#
+# Network Validate Command
+#
+
+networkValidateUsage() { echo "Usage: $(ScriptName) network validate [dns|dhcp|all](all) [HOST|all]...
+Validate the DHCP or DNC operation of HOST."; }
+
+networkValidateCommand() { networkValidateAllCommand; }
+networkValidateAllCommand() { networkValidateDhcpCommand && networkValidateDnsCommand; }
+
+#
+# Network Validate DHCP Command
+#
+
+networkValidateDhcpCommand()
+{	
+	local hosts host; getHosts "dhcpServers" || return
+
+	printf "Validating DHCP..."
+	for host in "${hosts[@]}"; do
+		printf "$host..."
+		networkValidateWait "$host" 5 DHCP && printf "ok..."
+	done
+	echo "done"
+}
+
+networkValidateDhcp()
+{
+	local host="$1" hostShort hostIp; getHost || return
+	dhcptest.exe --bind "$(GetAdapterIpAddress)" --query --wait --timeout 1 |& grep -q "$hostIp"
+}
+
+#
+# Network Validate DNS Command
+#
+
+networkValidateDnsCommand()
+{	
+	local hosts host; getHosts "dnsServers" || return
+
+	printf "Validating DNS..."
+	for host in "${hosts[@]}"; do
+		printf "$host..."
+		networkValidateWait "$host" 5 DNS && printf "ok..."
+	done
+	echo "done"
+}
+
+networkValidateDns()
+{
+	local host="$1" hostShort hostIp; getHost || return
+	IsAvailablePort "$hostIp" 53 || return
+	nslookup router "$hostIp" >& /dev/null || return
+}
+
+# networkValidateWait HOST SECONDS dns|dhcp - wait SECONDS to validate DNS or DHCP on HOST
+networkValidateWait()
+{
+	local host="$1" hostShort hostIp; getHost || return
+	local seconds="$2" function="networkValidate$(ProperCase "$3")"
+
+	$function "$hostIp" && return
+
+	for (( i=1; i<=$seconds; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled"; exit 1; }
+		$function "$host" && return
+		[[ $test && "$i" == "2" ]] && break
+		printf "."
+	done
+
+	echo "${RED}failed${RESET}"
+	return 1
 }
 
 #
@@ -315,10 +391,10 @@ networkUpdateDns()
 
 networkUpdateCommon()
 {
-	getHost "$host" || return
-	rervations="$dhcpConfig/$network/kea-dhcp4-$network-reservations.json"
+	getHost || return
+	reservations="$dhcpConfig/$network/kea-dhcp4-$network-reservations.json"
 	networkConfigFileValidate "$reservations" || return
-	networkBackup || return
+	networkBackup$(ProperCase "$1") "$host" || return
 }
 
 configFileToCommaDelimited() # configFileToCommaDelimited FILE - convert a Kea configuration file to comma delimited
@@ -523,13 +599,13 @@ getHosts()
 	[[ "$hostsArg" != "all" ]] && { ArrayCopy hostsArg hosts; return; }
 	StringToArray "$(ConfigGet "$1")" "," hosts
 	[[ ! $hosts ]] && MissingOperand "hosts"
-	teturn 0
+	return 0
 }
 
 getHost()
 {
 	hostShort="$(RemoveDnsSuffix "$host")"
-	hostsIp="$(GetUpAddress "$host")" || return
+	hostIp="$(GetIpAddress "$host")" || return
 }
 
 ScriptRun "$@"
