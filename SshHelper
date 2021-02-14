@@ -24,16 +24,20 @@ connectUsage()
 	echot "Usage: $(ScriptName) connect HOST
 Connect to a HOST using SSH.
 
+	-c, --commands CMDS	bash commands to run
+	-i, --interactive		start an interactive shell
 	-m, --mosh					connecting using mosh
 	-x, --x-forwarding  connect with X forwarding
 	-w, --wait					wait for SSH to become available"
 }
 
-connectArgStart() { unset -v host mosh pseudoTerminal x wait; }
+connectArgStart() { unset -v commandsArg interactive mosh pseudoTerminal x wait; unset host; }
 
 connectOpt() 
 {
 	case "$1" in
+		-c|--commands) ScriptOptGet "commandsArg" "commands" "$@";;
+		-i|--interactive) interactive="-i";;
 		-m|--mosh) mosh="true";;
 		-t|--pseudo-terminal) pseudoTerminal="-t";;
 		-x|--x-forwarding) x="true";;
@@ -49,9 +53,7 @@ connectArgs()
 }
 
 connectCommand()
-{
-	set -- "${otherArgs[@]}"
-
+{	
 	# SSH Agent
 	SshAgentCheck || return
 
@@ -86,9 +88,17 @@ connectCommand()
 	args=()
 	[[ $user ]] && args+=("$user@$host") || args+="$host"
 	[[ $port ]] && args+=(-p "$port")
-	#[[ ! $mosh ]] && args+=(-y) # send diagnostic messages to syslog to supresses "Warning: No xauth data; using fake authentication data for X11 forwarding." in Windows
 	[[ ! $mosh ]] && args+=(-q) # supresses warnings
-	set -- "${args[@]}" "$@"
+
+	if [[ $commandsArg ]]; then
+		args+=(-- bash $interactive -c "\"$commandsArg\"" "${otherArgs[@]}")
+	elif [[ $interactive && $otherArgs ]]; then
+		args+=(-- bash -i "${otherArgs[@]}")
+	else
+		args+=("${otherArgs[@]}")
+	fi
+
+	set -- "${args[@]}"
 
 	# connect using ssh
 	if [[ $mosh ]]; then
@@ -98,7 +108,7 @@ connectCommand()
 	elif IsPlatform wsl1; then # WSL 1 does not support X sockets over ssh and requires localhost
 		DISPLAY=localhost:0 ssh -X $pseudoTerminal "$@"
 	elif IsPlatform mac,wsl2; then # WSL2 and macOS XQuartz requires trusted X11 forwarding (X programs are trusted to use all X features on the host)
-		ssh -Y $pseudoTerminal "$@"
+		ssh -Y $pseudoTerminal "${args[@]}"
 	else # for everything else, use untrusted X Forwarding, where X programs are not trusted to use all X features on the host
 		ssh -X $pseudoTerminal "$@"
 	fi
