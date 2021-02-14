@@ -99,14 +99,14 @@ removeHashiTestCommand() { configPrefixArg=( --config-prefix=test ); removeHashi
 # Network Commands
 #
 
-networkUsage() { echo "Usage: $(ScriptName) network backup|edit|update [host]"; }
+networkUsage() { echo "Usage: $(ScriptName) network backup|edit|update"; }
 
 networkArgStart()
 {
-	unset host hostName hostNameShort
+	unset hostsArg
 
 	# network configuration
-	network="wiggin"
+	network="$(ConfigGet "network")"
 	subnetPi1="192.168.102.1 - 192.168.102.254"
 	subnetPi2="192.168.103.1 - 192.168.103.254"
 	subnetDefault="$subnetPi1"
@@ -119,63 +119,158 @@ networkArgStart()
 	dnsConfig="$ncd/system/dns"
 }
 
-networkArgs() { [[ $1 ]] && { ScriptArgGet "host" -- "$@"; shift; }; return 0; }
+networkArgs() { hostsArg=( "$@" ); (( shift+=$# )); true; }
 
 networkArgEnd()
 {
-	[[ ! $host && "$command" != @(networkEdit) ]] && MissingOperand "host"
-
-	if [[ $host ]]; then
-		hostName="$host"
-		hostNameShort="$(RemoveDnsSuffix "$host")"
-		IsPlatform win && IsMdnsName "$host" && { host="$(MdnsResolve "$host")" || return; }
-	fi
-
+	[[ "$command" == @(networkEdit) ]] && return
+	[[ ! $hostsArg && "$command" != @(networkEdit) ]] && MissingOperand "host"
 	return 0
 }
 
 networkCommand() { usage; }
-networkEditCommand() { TextEdit "$DATA/setup/ports" "$dnsConfig/$baseDomain" "$dnsConfig/forward.txt" "$dhcpConfig/wiggin/kea-dhcp4-wiggin-reservations.json"; }
-networkBackupCommand() { networkBackup; }
-networkUpdateCommand() { networkUpdate; }
 
-networkBackup()
+#
+# Network Backup Command
+#
+
+networkBackupUsage() { echo "Usage: $(ScriptName) network backup [dns|dhcp|all](all) [HOST|all]...
+Backup the DHCP or DNC configuration of HOST."; }
+
+networkBackupCommand() { networkBackupAllCommand; }
+networkBackupAllCommand() { networkBackupDhcpCommand && networkBackupDnsCommand; }
+
+#
+# Network Backup DHCP Command
+#
+
+networkBackupDhcpCommand()
 {	
-	local h="$hostNameShort" stamp="$(GetDateStamp)"
+	local hosts host; getHosts "dhcpServers" || return
 
-	# DHCP
-	echo "${BLUE}Backing up DHCP configuration from $h...${RESET}"
-	local f="$h.dhcpd.zip" i=1
-	local d="$dhcpConfig/backup"
-	while [[ -f "$d/$stamp.$i.$f" ]]; do (( ++i )); done
-	ssh $host "rm -f $f; zip -r $f $dhcpDir" || return
-	scp $host:~/$f "$d/$stamp.$i.$f" || return
-
-	# DNS
-	echo "${BLUE}Backing up DNS configuration from $h...${RESET}"
-	f="$h.dns.zip" i="1"
-	d="$dnsConfig/backup"
-	while [[ -f "$d/$stamp.$i.$f" ]]; do (( ++i )); done
-	ssh $host "rm -f $f; zip -r $f $dnsDir --exclude \*.key \*.zip" || return
-	scp $host:~/$f "$d/$stamp.$i.$f" || return
-
-	echo "${GREEN}Successfully backed up $h network configuration${RESET}"
+	for host in "${hosts[@]}"; do
+		networkBackupDhcp || return
+	done
 }
 
-# network helper
-
-networkUpdate()
+networkBackupDhcp()
 {
-	local r="$dhcpConfig/$network/kea-dhcp4-$network-reservations.json"
-	networkConfigFileValidate "$r" || return
-	networkBackup || return
-	networkUpdateDhcp || return
-	networkUpdateDns || return
-	return 0
+	local host="$1" hostShort hostIp stamp="$(GetDateStamp)"; getHost "$host" || return
+
+	hilight "Backing up DHCP configuration from $hostShort..."
+
+	local f="$hostShort.dhcpd.zip" i=1
+	local d="$dhcpConfig/backup"
+	while [[ -f "$d/$stamp.$i.$f" ]]; do (( ++i )); done
+	ssh $hostIp "rm -f $f; zip -r $f $dhcpDir" || return
+	scp $hostIp:~/$f "$d/$stamp.$i.$f" || return
+}
+
+#
+# Network Backup DNS Command
+#
+
+networkBackupDnsCommand()
+{	
+	local hosts host; getHosts "dnsServers" || return
+
+	for host in "${hosts[@]}"; do
+		networkBackupDns || return
+	done
+}
+
+networkBackupDns()
+{
+	local host="$1" hostShort hostIp stamp="$(GetDateStamp)"; getHost "$host" || return
+
+	hilight "Backing up DNS configuration from $hostShort..."
+
+	f="$hostShort.dns.zip" i="1"
+	d="$dnsConfig/backup"
+	while [[ -f "$d/$stamp.$i.$f" ]]; do (( ++i )); done
+	ssh $hostIp "rm -f $f; zip -r $f $dnsDir --exclude \*.key \*.zip" || return
+	scp $hostIp:~/$f "$d/$stamp.$i.$f" || return
+}
+
+#
+# Network Edit Command
+#
+
+networkEditUsage() { echo "Usage: $(ScriptName) network edit
+Edit the DHCP and DNC configuration files."; }
+
+networkEditCommand() { TextEdit "$DATA/setup/ports" "$dnsConfig/$baseDomain" "$dnsConfig/forward.txt" "$dhcpConfig/wiggin/kea-dhcp4-wiggin-reservations.json"; }
+
+#
+# Network Update Command
+#
+
+networkUpdateUsage() { echo "Usage: $(ScriptName) network update [dns|dhcp|all](all) [HOST|all]...
+Update the DHCP or DNS configuration of HOST."; }
+
+networkUpdateCommand() { networkUpdateAllCommand; }
+networkUpdateAllCommand() { networkUpdateDhcpCommand && networkUpdateDnsCommand; }
+
+#
+# Network Update DHCP Command
+#
+
+networkUpdateDhcpCommand()
+{	
+	local hosts host; getHosts "dhcpServers" || return
+
+	for host in "${hosts[@]}"; do
+		networkUpdateDhcp || return
+	done
+}
+
+networkUpdateDhcp()
+{
+	local host="$1" hostShort hostIp reservations; networkUpdateCommon || return
+	local config="$dhcpConfig/$network"
+	local dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
+	local subnetVar="subnet$(ProperCase "$hostShort")"
+	local subnet="${!subnetVar:-$subnetDefault}"
+
+	echo "Updating DHCP configuration for $hostShort..."
+	cp "$config/"* "$dir" || return
+	sed -i "s/SUBNET4_POOL/$subnet/" "$dir/kea-dhcp4-$network.json" || return
+
+	echo "Updating the ethers configuration file..." # downcase to make etherwake case agnostic
+	configFileToCommaDelimited "$reservations" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
+
+	echo "Updating the hosts configuration file..."
+	configFileToCommaDelimited "$reservations" |  awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return
+
+	echo "Updating DHCP configuration on $hostShort..."
+	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" --info=progress2 "$dir/"* "$host:$dhcpDir" || return
+
+	# cleanup
+	rm -fr "$dir" || return
+
+	# restart the service
+	SshHelper connect "$hostIp" -- service restart kea-dhcp4-server || return
+
+	# validate
+	# TODO: dhcptest.exe in a while sleeping loop, see power
+}
+
+#
+# Network Update DNS Command
+#
+
+networkUpdateDnsCommand()
+{	
+	local hosts host; getHosts "dnsServers" || return
+
+	for host in "${hosts[@]}"; do
+		networkUpdateDns || return
+	done
 }
 
 networkUpdateDns()
 {
+	local host="$1" hostShort hostIp reservations; networkUpdateCommon || return
 	local config="$dnsConfig"
 	local dir="$(mktemp -d -t 'dns.XXXXXXXXXX')" || return
 
@@ -183,7 +278,7 @@ networkUpdateDns()
 	cp "$config/named.conf."* "$dir" || return
 	cp "$config/$baseDomain" "$dir" || return
 	cp "$config/forward.txt" "$dir/$domain" || return
-	configFileToCommaDelimited "$r" | awk -F "," '{ print $1 ".'$domain'.	A	" $3 }' | column -t	>> "$dir/$domain" || return
+	configFileToCommaDelimited "$reservations" | awk -F "," '{ print $1 ".'$domain'.	A	" $3 }' | column -t	>> "$dir/$domain" || return
 
 	for zone in 100 101 102; do
 		local z="$dir/$zone.168.192.in-addr.arpa"
@@ -193,7 +288,7 @@ networkUpdateDns()
 		{ printf "\n; static\n"; cat "$config/reverse.txt" | grep "^[0-10]*.$zone.168.192"; } >> "$z"
 
 		{ printf "\n; dynamic\n"
-			configFileToCommaDelimited "$r" |
+			configFileToCommaDelimited "$reservations" |
 				grep ",192.168.$zone." |
 				sed "s/192.168.$zone.//" |
 				awk -F "," '{ print $3 ".'$zone'.168.192.in-addr.arpa. PTR " $1 ".'$domain'." }' |
@@ -202,40 +297,28 @@ networkUpdateDns()
 	done
 
 	echo "Updating DNS configuration files on $host..."
-	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" "$dir/"* "$host:$dnsDir" --info=progress2 || return
+	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" "$dir/"* "$hostUp:$dnsDir" --info=progress2 || return
 
 	# cleanup
 	rm -fr "$dir" || return
 
 	# restart the service
-	SshHelper connect "$hostName" -- service restart bind9 || return
+	SshHelper connect "$hostIp" -- service restart bind9 || return
+
+	# validate
+	# TODO: nslookup in a while sleeping loop, see power
 }
 
-networkUpdateDhcp()
+#
+# Network Update Common
+#
+
+networkUpdateCommon()
 {
-	local config="$dhcpConfig/$network"
-	local dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
-	local subnetVar="subnet$(ProperCase "$hostNameShort")"
-	local subnet="${!subnetVar:-$subnetDefault}"
-
-	echo "Updating DHCP configuration for $hostNameShort..."
-	cp "$config/"* "$dir" || return
-	sed -i "s/SUBNET4_POOL/$subnet/" "$dir/kea-dhcp4-$network.json" || return
-
-	echo "Updating the ethers configuration..." # downcase to make etherwake case agnostic
-	configFileToCommaDelimited "$r" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
-
-	echo "Updating the host configuration data..."
-	configFileToCommaDelimited "$r" |  awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return
-
-	echo "Updating DHCP configuration on $host..."
-	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" --info=progress2 "$dir/"* "$host:$dhcpDir" || return
-
-	# cleanup
-	rm -fr "$dir" || return
-
-	# restart the service
-	SshHelper connect "$hostName" -- service restart kea-dhcp4-server || return
+	getHost "$host" || return
+	rervations="$dhcpConfig/$network/kea-dhcp4-$network-reservations.json"
+	networkConfigFileValidate "$reservations" || return
+	networkBackup || return
 }
 
 configFileToCommaDelimited() # configFileToCommaDelimited FILE - convert a Kea configuration file to comma delimited
@@ -434,5 +517,19 @@ deviceStatus()
 
 mountVol() { VeraCrypt mount "$@" p; }
 unmountVol() { VeraCrypt unmount p; }
+
+getHosts() 
+{
+	[[ "$hostsArg" != "all" ]] && { ArrayCopy hostsArg hosts; return; }
+	StringToArray "$(ConfigGet "$1")" "," hosts
+	[[ ! $hosts ]] && MissingOperand "hosts"
+	teturn 0
+}
+
+getHost()
+{
+	hostShort="$(RemoveDnsSuffix "$host")"
+	hostsIp="$(GetUpAddress "$host")" || return
+}
 
 ScriptRun "$@"
