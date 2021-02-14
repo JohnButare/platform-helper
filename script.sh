@@ -158,10 +158,10 @@ ScriptRun()
 	while (( $# )); do
 
 		# -- indicates end of arguments
-		[[ "$1" == "--" ]] && { otherArgs+=( "$@" ); break; }
+		[[ "$1" == "--" ]] && { shift; otherArgs+=( "$@" ); break; }
 
-		# option or empty operand - continue with next argument
-		{ [[ ! $1 ]] || IsOption "$1"; } && { args+=("$1"); shift; continue; }
+		# continue with next argument if not a valid command name
+		! IsValidCommandName "$1" && { args+=("$1"); shift; continue; }
 
 		# first command is lower case (i.e. dhcp), second command is upper case (i.e. dhcpStatus)
 		[[ $command ]] && ProperCase "$1" c || LowerCase "$1" c;
@@ -258,3 +258,6 @@ IsDriveLetter()
 	local driveLetters=( c d e f g h i j k l m n o p q r s t u v w x y z )
 	IsInArray "$1" driveLetters
 }
+
+# IsValidCommandName NAME - NAME is valid name for script commands
+IsValidCommandName() { [[ $1 && ! "$1" =~ [\ \'\"] ]] && ! IsOption "$1"; }	
