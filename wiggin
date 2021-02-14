@@ -208,6 +208,15 @@ networkEditCommand() { TextEdit "$DATA/setup/ports" "$dnsConfig/$baseDomain" "$d
 networkUpdateUsage() { echo "Usage: $(ScriptName) network update [dns|dhcp|all](all) [HOST|all]...
 Update the DHCP or DNS configuration of HOST."; }
 
+networkUpdateArgStart() { unset -v noBackup; }
+networkUpdateOpt() 
+{
+	case "$1" in
+		-nb|--no-backup) noBackup="true";;
+		*) return 1
+	esac
+}
+
 networkUpdateCommand() { networkUpdateAllCommand; }
 networkUpdateAllCommand() { networkUpdateDhcpCommand && networkUpdateDnsCommand; }
 
@@ -220,6 +229,7 @@ networkUpdateDhcpCommand()
 	local hosts host; getHosts "dhcpServers" || return
 
 	for host in "${hosts[@]}"; do
+		(( ${#hosts[@]} > 1 )) && header "Update DHCP ($host)"
 		networkUpdateDhcp "$host" || return
 	done
 }
@@ -249,11 +259,10 @@ networkUpdateDhcp()
 	rm -fr "$dir" || return
 
 	# restart the service
-	SshHelper connect "$hostIp" -- service restart kea-dhcp4-server || return
+	SshHelper --x-forwarding connect "$hostIp" -- service restart kea-dhcp4-server || return
 
 	# validate
-	printf "Waiting for DHCP on $hostShort..."
-	networkValidateWait "$host" 5 DHCP && echo "${GREEN}available${RESET}"
+	networkValidateHost "$host" DHCP || return
 }
 
 #
@@ -265,6 +274,7 @@ networkUpdateDnsCommand()
 	local hosts host; getHosts "dnsServers" || return
 
 	for host in "${hosts[@]}"; do
+		(( ${#hosts[@]} > 1 )) && header "Update DNS ($host)"
 		networkUpdateDns "$host" || return
 	done
 }
@@ -303,90 +313,15 @@ networkUpdateDns()
 	# cleanup
 	rm -fr "$dir" || return
 
-	# restart the service
-	SshHelper connect "$hostIp" -- service restart bind9 || return
+	# restart the service - use X Forwarding to enable local credential manager
+	SshHelper --x-forwarding connect "$hostIp" -- service restart bind9 || return
 
 	# validate
-	printf "Waiting for DNS on $hostShort..."
-	networkValidateWait "$host" 5 DNS && echo "${GREEN}available${RESET}"
+	networkValidateHost "$host" DNS || return
 }
 
 #
-# Network Validate Command
-#
-
-networkValidateUsage() { echo "Usage: $(ScriptName) network validate [dns|dhcp|all](all) [HOST|all]...
-Validate the DHCP or DNC operation of HOST."; }
-
-networkValidateCommand() { networkValidateAllCommand; }
-networkValidateAllCommand() { networkValidateDhcpCommand && networkValidateDnsCommand; }
-
-#
-# Network Validate DHCP Command
-#
-
-networkValidateDhcpCommand()
-{	
-	local hosts host; getHosts "dhcpServers" || return
-
-	printf "Validating DHCP..."
-	for host in "${hosts[@]}"; do
-		printf "$host..."
-		networkValidateWait "$host" 5 DHCP && printf "ok..."
-	done
-	echo "done"
-}
-
-networkValidateDhcp()
-{
-	local host="$1" hostShort hostIp; getHost || return
-	dhcptest.exe --bind "$(GetAdapterIpAddress)" --query --wait --timeout 1 |& grep -q "$hostIp"
-}
-
-#
-# Network Validate DNS Command
-#
-
-networkValidateDnsCommand()
-{	
-	local hosts host; getHosts "dnsServers" || return
-
-	printf "Validating DNS..."
-	for host in "${hosts[@]}"; do
-		printf "$host..."
-		networkValidateWait "$host" 5 DNS && printf "ok..."
-	done
-	echo "done"
-}
-
-networkValidateDns()
-{
-	local host="$1" hostShort hostIp; getHost || return
-	IsAvailablePort "$hostIp" 53 || return
-	nslookup router "$hostIp" >& /dev/null || return
-}
-
-# networkValidateWait HOST SECONDS dns|dhcp - wait SECONDS to validate DNS or DHCP on HOST
-networkValidateWait()
-{
-	local host="$1" hostShort hostIp; getHost || return
-	local seconds="$2" function="networkValidate$(ProperCase "$3")"
-
-	$function "$hostIp" && return
-
-	for (( i=1; i<=$seconds; ++i )); do
- 		read -n 1 -t 1 -s && { echo "cancelled"; exit 1; }
-		$function "$host" && return
-		[[ $test && "$i" == "2" ]] && break
-		printf "."
-	done
-
-	echo "${RED}failed${RESET}"
-	return 1
-}
-
-#
-# Network Update Common
+# Network Update Helper
 #
 
 networkUpdateCommon()
@@ -394,7 +329,8 @@ networkUpdateCommon()
 	getHost || return
 	reservations="$dhcpConfig/$network/kea-dhcp4-$network-reservations.json"
 	networkConfigFileValidate "$reservations" || return
-	networkBackup$(ProperCase "$1") "$host" || return
+	[[ ! $noBackup ]] && { networkBackup$(ProperCase "$1") "$host" || return; }
+	return 0
 }
 
 configFileToCommaDelimited() # configFileToCommaDelimited FILE - convert a Kea configuration file to comma delimited
@@ -420,6 +356,75 @@ networkConfigFileValidate()
 	local file="$(mktemp)" || return
 	configFileToJson "$1" > "$file" 2> /dev/null
 	TextEdit "$1" "$file" || return
+	return 1
+}
+
+#
+# Network Validate Command
+#
+
+networkValidateUsage() { echo "Usage: $(ScriptName) network validate [dns|dhcp|all](all) [HOST|all]...
+Validate the DHCP or DNC operation of HOST."; }
+
+networkValidateCommand() { networkValidateAllCommand; }
+networkValidateAllCommand() { networkValidateDhcpCommand && networkValidateDnsCommand; }
+networkValidateDhcpCommand() { networkValidateHosts "DHCP"; }
+networkValidateDnsCommand() { networkValidateHosts "DNS"; }
+
+networkValidateDhcp()
+{
+	local host="$1" hostShort hostIp; getHost || return
+	dhcptest.exe --bind "$(GetAdapterIpAddress)" --query --wait --timeout 1 |& grep -q "^Received packet from $hostIp"
+}
+
+networkValidateDns()
+{
+	local host="$1" hostShort hostIp; getHost || return
+	IsAvailablePort "$hostIp" 53 || return
+	nslookup router "$hostIp" >& /dev/null || return
+}
+
+# networkValidateHost HOST dhcp|dns - validate DHCP or DNS for the specified host
+networkValidateHost()
+{
+	local host="$1" what="${2^^}" hostShort hostIp; getHost || return	
+	printf "Waiting for $what on $hostShort..."
+
+	if networkValidateWait "$what" 10; then
+		echo "${GREEN}available${RESET}"
+	else
+		echo "${RED}failed${RESET}"
+		return 1
+	fi
+}
+
+# networkValidateHosts dhcp|dns - validate DHCP or DNS for the hosts
+networkValidateHosts()
+{
+	local what="$1" hosts host hostShort hostIp; getHosts "${what,,}Servers" || return
+
+	printf "Validating ${what^^}..."
+	for host in "${hosts[@]}"; do
+		getHost || return	
+		printf "$hostShort..."
+		networkValidateWait "$what" 5 && printf "ok..." || printf "${RED}failed${RESET}..."
+	done
+	echo "done"
+}
+
+# networkValidateWait dns|dhcp SECONDS - wait SECONDS to validate DNS or DHCP
+networkValidateWait()
+{	
+	local function="networkValidate$(ProperCase "$1")" seconds="$2" 
+
+	$function "$hostIp" && return
+
+	for (( i=1; i<=$seconds; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled"; exit 1; }
+ 		$function "$hostIp" && return
+		[[ ! $quiet ]] && printf "."
+	done
+
 	return 1
 }
 
@@ -604,7 +609,8 @@ getHosts()
 
 getHost()
 {
-	hostShort="$(RemoveDnsSuffix "$host")"
+	! IsAvailable "$host" && { ScriptErr "host '$host' is not available"; return 1; }
+	hostShort="$(RemoveDnsSuffix "$host")"	
 	hostIp="$(GetIpAddress "$host")" || return
 }
 
