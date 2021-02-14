@@ -812,7 +812,7 @@ DhcpRenew()
 # GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
 GetAdapterIpAddress() 
 {
-	local adapter="$1"; [[ ! $adapter ]] && adapter="$(GetInterface)" || return
+	local adapter="$1"; [[ ! $adapter ]] && ! IsPlatform win && { adapter="$(GetInterface)" || return; }
 
 	if IsPlatform win; then
 
@@ -820,7 +820,7 @@ GetAdapterIpAddress()
 			# use default route (0.0.0.0 destination) with lowest metric
 			route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | awk '{ print $4; }'
 		else
-			ipconfig.exe | RemoveCarriageReturn | grep "Ethernet adapter $adapter:" -A 4 | grep "IPv4 Address" | cut -d: -f2 | RemoveSpace
+			ipconfig.exe | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | grep "IPv4 Address" | head -1 | cut -d: -f2 | RemoveSpace
 		fi
 
 	elif InPath ifdata; then
