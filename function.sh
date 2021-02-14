@@ -164,7 +164,11 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 # Applications
 #
 
-i() # invoke the installer script (inst) saving the INSTALL_DIR
+# HashiConfig [prod|reset|test]
+HashiConfig() { ScriptEval hashi config environment --suppress-errors "$@"; }
+
+# i: invoke the installer script (inst) saving the INSTALL_DIR
+i() 
 { 
 	local check find force noRun select
 
@@ -1700,7 +1704,7 @@ CheckSubCommand()
 } 
 
 # functions
-IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
+IsFunction() { declare -f "$1" >& /dev/null; }	# IsFunction NAME - NAME is a function
 
 # FindFunction NAME - find a function NAME case-insensitive
 if IsBash; then
