@@ -124,6 +124,9 @@ ScriptOptGet()
 	elif [[ $require ]]; then
 		MissingOperand "$scriptDesc"
 
+	else
+		return 1
+
 	fi
 
 	local -n var="$scriptVar"
