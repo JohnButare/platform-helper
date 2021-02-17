@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 . app.sh || exit
 
-run() {	init && args "$@" && "${command}Command"; cleanup; }
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [COMMAND]... [OPTION]...
+Manage the UniFi controller."
+}
+
 
 init()
 {
 	unset apiInitialized
+	defaultCommand="api"	
 	site="default"
   cookie=$(mktemp)
 	curl="curl --tlsv1 --cookie $cookie --cookie-jar $cookie --insecure"
@@ -15,42 +22,6 @@ cleanup()
 {
 	[[ $apiInitialized ]] && { apiCleanup || return; }
 	return 0
-}
-
-usage()
-{
-	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [COMMAND]...
-Manage the UniFi controller.
-
-	-v, --verbose                   display detailed output"
-}
-
-args()
-{
-	local args=()
-	unset -v verbose
-
-	# commands
-	ScriptCommand "apiCommand" "$@" || return
-
-	# options
-	set -- "${args[@]}"; args=()
-	while (( $# != 0 )); do
-		case "$1" in
-			-h|--help) usage 0;;
-			-v|--verbose) verbose="--verbose";;
-			--) shift; otherArgs+=("$@"); set --; break;;
-			*) ScriptOpt "$@";;
-		esac
-		shift "$shift"; shift=1
-	done
-	set -- "${args[@]}"
-	
-	# arguments
-	ScriptArgs "$@" || return; shift "$shift"
-
-	(( $# == 0 )) && return || usage
 }
 
 #
@@ -95,12 +66,19 @@ backupCommand()
 
   # ask controller to do a backup, response contains the path to the backup file
   printf "backup..."
-  result="$($curl --silent --data '{"cmd":"backup"}' "$url/api/s/$site/cmd/backup")"
+  result="$($curl --silent --data '{"cmd":"backup", "days": 0}' "$url/api/s/$site/cmd/backup")"
   path="$(echo $result | sed -n 's/.*\(\/dl.*unf\).*/\1/p')"
 
   # download the backup to the destinated output file
   echo "download..."
   $curl "$url$path" -o "$dest"
+  echo "Backup completed to $(FileToDesc "$dest")"
+}
+
+backupListCommand()
+{
+	apiInit || return
+  result="$($curl --silent --data '{"cmd":"list-backups"}' "$url/api/s/$site/cmd/backup")"
 }
 
 #
@@ -118,8 +96,11 @@ apiInit()
 	! [[ $user && $password && $url ]] &&
 		{ EchoErr "$(ScriptName): UniFi configuration is missing from the credential store"; return 1; }
 
-	suppress="> /dev/null"; [[ $verbose ]] && suppress=""
-  $curl --silent --data '{"username":"'$user'", "password":"'$password'"}' "$url/api/login" $suppress || return
+	if [[ $verbose ]]; then
+  	$curl --silent --data '{"username":"'$user'", "password":"'$password'"}' "$url/api/login" || return
+  else
+  	$curl --silent --data '{"username":"'$user'", "password":"'$password'"}' "$url/api/login" > /dev/null || return
+  fi
   apiInitialized="true"
 }
 
@@ -129,4 +110,4 @@ apiCleanup()
 	rm -f "$cookie"
 }
 
-run "$@"
+ScriptRun "$@"
