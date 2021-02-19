@@ -178,6 +178,7 @@ certCopyPublic()
 	# source directory (private certificates)
 	local src; src="$(certDirMountPrivate)" || return
 	local cert certs=( "$ca" "$certCli" "$certCliKey" ); [[ $caAuto ]] && certs+=( "$caAuto" )
+
 	certValidate "$src" "${certs[@]}" || return
 
 	# destination directory (public certificates)
@@ -630,13 +631,14 @@ installConsulAgentAcl()
 
 	# create the host specific policies
 	for host in server "${servers[@]}" client "${clients[@]}"; do
-
-		# set server type
 		[[ "$host" == @(client|server) ]] && { type="$host"; continue; }
 
 		# continue if the default policy is already deny
 		[[ "$(installConsulConfigGet "default_policy")" == "deny" ]] && continue
-		
+
+		# initialize certificates - updates caLocal based on type
+		certInit || return
+
 		# create the ACL policy for the host
 		local token policy="$(cat <<-EOF
 			node "$host" {
@@ -653,13 +655,13 @@ installConsulAgentAcl()
 
 		local args; args="-http-addr=$(productGetAddress "$product" "127.0.0.1")" || return	
 		certs && args+=" -ca-file=\"$certDirService/$caLocal\" -client-cert=\"$certDirService/$certCli\" -client-key=\"$certDirService/$certCliKey\""
-
+		
 		scriptRun "$(cat <<-EOF
 			export CONSUL_HTTP_TOKEN=$CONSUL_HTTP_TOKEN
 			consul acl set-agent-token $args agent "$token" || exit
 			consul acl set-agent-token $args default "$defaultToken" || exit
 			EOF
-		)"
+		)" || return
 
 	done
 
@@ -814,7 +816,7 @@ initNomadVaultIntegration()
 
 	# add the nomad-cluster policy to Vault
 	if ! vault policy list | grep -q "^nomad-server$"; then
-		hilight "Adding the nomad-cluster policy to Vault..."
+		hilight "Adding the nomad-server policy to Vault..."
 		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-server-policy.hcl")" || return
 		vault policy write nomad-server "$policy" || return
 	fi
@@ -841,39 +843,43 @@ initNomadVaultIntegration()
 	# create a token for nomad to access vault
 	local token="$(vault token create -policy nomad-server -orphan -format=json | jq '.auth.client_token' | RemoveQuotes)" || return
 
-	# certificate configuration
-	local certConfig
-	if certs; then
-		certInit "consul" || return
-		certConfig="$(cat <<-EOF
+	# create and copy the vault configuration files
+	for host in server "${servers[@]}" client "${clients[@]}"; do
+		[[ "$host" == @(client|server) ]] && { type="$host"; continue; }
 
-		  ca_file          = "$certDirService/$caLocal"
-		  cert_file        = "$certDirService/$certCli"
-		  key_file         = "$certDirService/$certCliKey"
+		# certificate configuration
+		local certConfig
+		if certs; then
+			certInit "consul" || return
+			certConfig="$(cat <<-EOF
+
+			  ca_file          = "$certDirService/$caLocal"
+			  cert_file        = "$certDirService/$certCli"
+			  key_file         = "$certDirService/$certCliKey"
+				EOF
+			)"
+			certInit "nomad" || return
+		fi
+
+		# configuration	
+		local file="$tmpDir/02_vault.hcl"
+		cat > "$file" <<-EOF
+			vault {
+			  enabled          = true
+			  address          = "$(productGetAddress vault $(vaultHostGetLocal "$host"))"
+			  create_from_role = "nomad-cluster"
+			  token            = "$token"$certConfig
+			}
 			EOF
-		)"
-		certInit "nomad" || return
-	fi
 
-	# configuration	
-	local file="$tmpDir/02_vault.hcl"
-	cat > "$file" <<-EOF
-		vault {
-		  enabled          = true
-		  address          = "$(productGetAddress consul 127.0.0.1)"
-		  create_from_role = "nomad-cluster"
-		  token            = "$token"$certConfig
-		}
-		EOF
+		if [[ $test ]]; then
+			header "$(ProperCase "$product") Configuration ($(GetFileName "$file"))"
+			cat "$file" || return
+		else
+			hostCopy "$file" "$productConfigDir" || return
+			productServiceRestart || return
+		fi
 
-	if [[ $test ]]; then
-		header "$(ProperCase "$product") Configuration ($(GetFileName "$file"))"
-		cat "$file" || return
-	fi
-
-	# copy the vault configuration files
-	for host in "${servers[@]}" "${clients[@]}"; do
-		hostCopy "$file" "$productConfigDir" || return
 	done
 
 	# install vault client for nomad jobs
@@ -1585,7 +1591,7 @@ allStatusCommand()
 #
 
 configUsage() { echot "\
-Usage: $(ScriptName) config [get|remove|set|show](show)
+Usage: $(ScriptName) config [deploy|get|remove|set|show](show)
 Configure products.
 
 	get VAR			get configuration variable
@@ -1594,6 +1600,34 @@ Configure products.
 	environment	set environment variables"; }
 
 configCommand() { usage; }
+
+# Config Deploy Command
+
+configDeployUsage() { echot "\
+Usage: $(ScriptName) config deploy $productUsage FILE
+Deploy a configuration variable."; }
+
+configDeployArgStart() { unset file; }
+configDeployArgs() { ScriptArgGet "file" -- "$@"; ScriptCheckFile "$file"; shift; }
+
+configDeployCommand() { usage; }
+configDeployConsulCommand() { configDeploy "consul" "$file"; }
+configDeployNomadCommand() { configDeploy "nomad" "$file"; }
+configDeployVaultCommand() { configDeploy "vault" "$file"; }
+
+configDeploy()
+{
+	local product="$1" file="$2"; productServiceVars || return
+
+	# copy the vault configuration files
+	local host hosts; getHosts || return
+	for host in "${hosts[@]}"; do
+		header "Config Deploy $(GetFileName "$file") ($host)"
+		hostCopy "$file" "$productConfigDir" || return
+		productServiceRestart || return
+	done
+
+}
 
 # Config Environment Commands
 
@@ -1736,17 +1770,25 @@ removeConfig()
 
 	header "Remove $(ProperCase "$product") Configuration"
 
+	# Vault data
 	if [[ "$product" == "vault" ]] && whatCheck "consul-vault-data" && quiet="--quiet" productInit "consul"; then
-		echo "Removing Vault data from Consul..."
+		hilight "Removing Vault data from Consul..."
 		$testEcho consul kv delete -recurse "vault/"
 	fi
 
-	# delete credentials and certificates
+	# delete certificates (local, private, and public) and local credentials
 	local dir
-	whatCheck "local-certs" && { removeLocalCerts || return; }
-	whatCheck "local-credentials" && { credDelete "all" || return; }
-	whatCheck "private-certs" && { dir="$(certDirMountPrivate)" || return; removeDir "$dir" && certDirUnmountPrivate; }
-	whatCheck "public-certs" && { dir="$(certDirPublic)" || return; removeDir "$dir"; }
+	whatCheck "local-certs" && { 		hilight "Removing local certificates..."; removeLocalCerts || return; }
+	whatCheck "local-credentials" && { hilight "Removing local credentials..."; credDelete "all" || return; }
+	whatCheck "private-certs" && { hilight "Removing private credentials..."; dir="$(certDirMountPrivate)" || return; removeDir "$dir" && certDirUnmountPrivate; }
+	whatCheck "public-certs" && { hilight "Removing public credentials..."; dir="$(certDirPublic)" || return; removeDir "$dir"; }
+
+	# delete host certificates
+	local host hosts; getHosts "all" || return
+	for host in "${hosts[@]}"; do
+		hilight "Removing $host certificates and credentials..."
+		ssh -q -t "$host" bash -i "credential delete \"$(credPath)\" all $verbose && rm -fr \"$(certDirSuffix "/opt/hashi")\"" || return
+	done
 
 	return 0
 }
@@ -1758,8 +1800,8 @@ removeLocalCerts()
 	removeDir "$(certDirLocal)" || return
 
 	if [[ -f "$certStoreCa" || -f "$certStoreCaAuto" ]]; then
-		sudoc rm -f "$certStoreCa" "$certStoreCaAuto" || return
-		sudo update-ca-certificates || return
+		$testEcho sudoc rm -f "$certStoreCa" "$certStoreCaAuto" || return
+		$testEcho sudo update-ca-certificates || return
 	fi
 
 	return 0
@@ -2206,6 +2248,19 @@ vaultUnsealCommand()
 	done
 }
 
+# vaultHostsGetLocal - return the first Vault host, or 127.0.0.1 if Vault is running locally
+vaultHostGetLocal()
+{
+	local localHost="$1" host hosts; getHosts "VaultServers" || return	
+
+	for host in "${hosts[@]}"; do
+		[[ "${host,,}" == "${localHost,,}" ]] && { echo "127.0.0.1"; return; }
+	done
+
+	echo "$(DnsResolve "${hosts[0]}")"
+}
+
+# vaultHostsGet - set the hosts array to all the Vault hosts
 vaultHostsGet()
 {
 	local json
@@ -2226,20 +2281,17 @@ vaultHostsGet()
 
 vaultIsUnsealed() { vault status | grep -q '^Sealed[ ]*false$'; }
 
-# vaultTokenHost - return the first vault server used to store the vault token
-vaultTokenHost() { local hosts; getHosts "VaultServers"; echo "${hosts[0]}"; }
-
 # vaultTokenSetRemote - set the Vault token in the remote credential store 
 vaultTokenSetRemote()
 {
 	local product="vault"
 	local token="$(productVarGet "token")"
 
-	[[ ! $token ]] && { ScriptErr "unable to get the Vault token from the environment to set on remote host '$(vaultTokenHost)'"; return; }
+	[[ ! $token ]] && { ScriptErr "unable to get the Vault token from the environment to set on remote host '$(configServer)'"; return; }
 
 	[[ ! $force && "$(credGets "token" --quiet)" == "$VAULT_TOKEN" ]] && return
 
-	ssh -q -t "$(vaultTokenHost)" bash -i credential set "$(credPath)" token "$token" $verbose
+	ssh -q -t "$(configServer)" bash -i credential set "$(credPath)" token "$token" $verbose
 }
 
 # vaultTokenSetLocal - set the Vault token in the local credential store.  
@@ -2249,13 +2301,13 @@ vaultTokenSetLocal()
 
 	[[ $VAULT_TOKEN && ! $force && "$(credGets "token" --quiet)" == "$VAULT_TOKEN" ]] && return
 
-	local host="$(vaultTokenHost)"; IsLocalHost "$host" && return
+	local host="$(configServer)"; IsLocalHost "$host" && return
 
 	[[ $verbose ]] && EchoErr "Getting Vault token from $host..."
 
 	local token; token="$(ssh -q -t "$host" bash -i credential get "$(credPath)" token $verbose)"
 	if [[ ! $token ]]; then
-		ScriptErr "The Vault token does not exist in the local credential manager on $(vaultTokenHost) at path $(credPath)"
+		ScriptErr "The Vault token does not exist in the local credential manager on $(configServer) at path $(credPath)"
 		return 1
 	fi
 
@@ -2527,7 +2579,7 @@ hostCleanup()
 # hostCopy "FILE" "DEST" - copy file to the host destination directory withthe correct permissions
 hostCopy()
 {
-	local file="$1" dest="$2"; productServiceVars || return
+	local file="$1" dest="$2"
 	local name="$(GetFileName "$file")"
 
 	hilight "Copying files to $host..."
@@ -2594,7 +2646,7 @@ productEnvironment()
 
 	# arguments
 	local args="-http-addr=$url"
-	[[ $useHttps ]] && args+=" -ca-file=$ca -client-cert=$certDir/$certCli -client-key=$certDir/$certCliKey"
+	[[ $useHttps ]] && args+=" -ca-file=$certDir/$ca -client-cert=$certDir/$certCli -client-key=$certDir/$certCliKey"
 
 	# standard configuration
 	cat <<-EOF
@@ -2677,7 +2729,7 @@ productGetServer()
 		server="$(productVarGet "SERVER")"
 
 	# use the local host for the server if the product service is running
-	elif [[ "$product" != @(nomad) ]] && [[ -f $productServiceFile ]] && IsProcessRunning "$product" && service running "$product"; then
+	elif [[ "$product" != @(nomad) ]] && [[ -f "/etc/systemd/system/$product.service" ]] && IsProcessRunning "$product" && service running "$product"; then
 		server="127.0.0.1"
 
 	# use consul to resolve the server for the product
@@ -2767,6 +2819,7 @@ productInstallCerts()
 	printf "${GREEN}Installing $product certificates...${RESET}"
 	sudoc ${G}mkdir --parents "$dest" || return
 	sudo cp "$src/$ca" "$src/$certCli" "$src/$certCliKey" "$dest" || return
+	[[ -f "$src/$caAuto" ]] && { sudo cp "$src/$caAuto" "$dest" || return; }
 	sudo chmod +r "$dest/"* || return
 	hilight "done"
 
@@ -2826,6 +2879,8 @@ productServiceRemove()
 		EOF
 	)"
 }
+
+productServiceRestart() { scriptRun "sudo systemctl restart "$product" --no-block || exit"; }
 
 productServiceVars()
 {
@@ -2931,8 +2986,10 @@ getHosts()
 
 	# use the hostArg if specified
 	if [[ $h ]]; then
-		
-		if [[ "$h" == @(first|second|third|fourth) ]]; then # aliases
+
+		if [[ "$h" == "all" ]]; then # all hosts
+			StringToArray "$(configServers)" "," "hosts"
+		elif [[ "$h" == @(first|second|third|fourth) ]]; then # aliases
 			configGetArray "servers" "hosts"
 			[[ "$h" == "first" ]] && hosts=( "${hosts[0]}" )
 			[[ "$h" == "second" ]] && hosts=( "${hosts[1]}" )
@@ -2946,7 +3003,7 @@ getHosts()
 	elif [[ $# == 1 && "$1" == "all" ]]; then
 		StringToArray "$(configServers)" "," "hosts"
 		
-	# use the configuration variable
+	# use the specicified configuration variable
 	elif [[ $# == 1 && $(configGet "$1") ]] ; then
 		configGetArray "$1" "hosts"
 	
