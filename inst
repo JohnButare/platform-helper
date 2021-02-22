@@ -5815,20 +5815,11 @@ WindowsDirectoriesInstall()
 
 WindowsFontsInstall()
 {
-	! IsElevated && { RunScript --elevate --no-hide $verbose -- inst WindowsFonts "${options[@]}"; return; }
-
 	header "Windows Fonts"
 
-	# copy fonts
-	findFile "fonts/MesloLGS NF" || return
-	CopyDir "$file" "/tmp/fonts" || return # fontreg.exe fails on network share in wsl 2
+	WindowsFontInstall "MesloLGS NF" || return
 
-	# install fonts
-	pushd "/tmp/fonts" > /dev/null || return
-	FontReg.exe /copy || return # requires elevation
-	popd  >& /dev/null || return
-	rm -fr "/tmp/fonts" >& /dev/null
-
+	# Add Windows fonts to Ubuntu configuration
 	local file="/etc/fonts/local.conf"
 	if [[ ! -f "$file" ]]; then
 		cat <<-EOF | sudo tee -a "$file"
@@ -5839,6 +5830,24 @@ WindowsFontsInstall()
 			</fontconfig>
 		EOF
 	fi
+
+	return 0
+}
+
+WindowsFontInstall()
+{
+	! IsElevated && { RunScript --elevate --no-hide $verbose -- inst WindowsFont "${options[@]}" -- "$@"; return; }
+
+	for file in "$@" "${otherArgs[@]}"; do
+		findFile "fonts/$file" || return
+		CopyDir "$file" "/tmp/fonts/" || return # fontreg.exe fails on network share in wsl 2
+	done
+exit
+	# install font
+	pushd "/tmp/fonts" > /dev/null || return
+	FontReg.exe /copy || return # requires elevation
+	popd  >& /dev/null || return
+	rm -fr "/tmp/fonts" >& /dev/null
 
 	return 0
 }
@@ -5962,7 +5971,18 @@ xpraInstall()
 	if IsPlatform mac,win; then
 		run "platform/linux/X Windows/Xpra/" -p "Xpra-x86_64_Setup.exe" "Xpra-x86_64.pkg" || return
 	fi
-	
+
+	if IsPlatformAll win; then
+
+		# install fonts
+		WindowsFontInstall "other/urw-bookman-l-light.ttf" "DejaVu Serif/DejaVuSerif.ttf" || return
+
+		# disable sound forwarding -  https://www.xpra.org/trac/wiki/Sound
+		local file="$ADATA/../Roaming/Xpra/xpra.conf" line="speaker = off"
+		! grep -q "$line" "$file" && { echo "$line" >> "$file" || return; }
+		
+	fi
+
 	# http://www.xpra.org/trac/wiki/Download#Linux
 	if IsPlatform debian,ubuntu && ! InPath xpra; then
 		pkg apt-transport-https || return
@@ -5975,6 +5995,10 @@ xpraInstall()
 	# enable D-BUS
 	local file="/etc/xpra/conf.d/60_server.conf" line="start = \/etc\/X11\/Xsession true"
 	[[ -f "$file" ]] && { sudoc sed -i "s/^#${line}\$/${line}/" "$file" || return; }
+
+	# disable sound forwarding - https://www.xpra.org/trac/wiki/Sound
+	local file="/etc/xpra/conf.d/20_sound.conf"
+	[[ -f "$file" ]] && { sudoc sed -i "s/^speaker = on\$/speaker = off/" "$file" || return; }
 
 	# icons
 	IsPlatform win && { mergeDir "$pp/Xpra" "$oo" || return; }
