@@ -882,10 +882,10 @@ GetIpAddress()
 	elif InPath host; then ip="$(host -t A "$host" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 4)"
 	elif InPath nslookup; then ip="$(nslookup "$host" |& tail -3 | grep "Address:" | cut -d" " -f 2)"
 	fi
-
+	
 	[[ ! $ip && $all ]] && ip="$(MdnsResolve "${host}.local" 2> /dev/null)"
 
-	[[ $ip ]] && echo "$ip"
+	[[ $ip ]] && echo "$(echo "$ip" | RemoveCarriageReturn)"
 }
 
 # GetPrimaryAdapterName - get the descriptive name of the primary network adapter used for communication
