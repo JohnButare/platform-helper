@@ -976,6 +976,12 @@ installVaultServerFinal()
 {
 	installVaultAcl || return; 
 
+	# store the initial vault key on the first vault servers local credential manager
+	vaultTokenSetRemote || return
+
+	# unseal the vault
+	vaultUnsealCommand || return
+
 	# enable the "secret" secret engine, the default path for the credential script
 	if ! vault secrets list | grep -q "^secret"; then
 		header "Vault Configuration"
@@ -1013,12 +1019,6 @@ installVaultAcl()
 		key="$(echo "$s" | cut -d: -f2 | RemoveSpace)"
 		credSet "key$n" "$key" || return
 	done
-
-	# store the initial vault key on the first vault servers local credential manager
-	vaultTokenSetRemote || return
-
-	# unseal the vault
-	vaultUnsealCommand || return
 }
 
 #
@@ -2287,15 +2287,15 @@ vaultIsUnsealed() { vault status | grep -q '^Sealed[ ]*false$'; }
 
 # vaultTokenSetRemote - set the Vault token in the remote credential store 
 vaultTokenSetRemote()
-{
+{	
 	local product="vault"
-	local token="$(productVarGet "token")"
+	local token="$(productVarGet "token")"; [[ ! $token ]] && { ScriptErr "unable to get the Vault token from the environment"; return 1; }
+	local server="$(configServer)"; [[ ! $server ]] && { ScriptErr "unable to get the Vault configuration server"; return 1; }
+	local serverToken="$(ssh -q -t "$server" bash -i credential gets "$(credPath)" token $verbose)"
 
-	[[ ! $token ]] && { ScriptErr "unable to get the Vault token from the environment to set on remote host '$(configServer)'"; return; }
+	[[ ! $force && "$token" == "$serverToken" ]] && return
 
-	[[ ! $force && "$(credGets "token" --quiet)" == "$VAULT_TOKEN" ]] && return
-
-	ssh -q -t "$(configServer)" bash -i credential set "$(credPath)" token "$token" $verbose
+	ssh -q -t "$server" bash -i credential set "$(credPath)" token "$token" $verbose
 }
 
 # vaultTokenSetLocal - set the Vault token in the local credential store.  
