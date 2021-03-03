@@ -1296,7 +1296,7 @@ PackageInstalled()
 
 	if InPath dpkg; then
 		# ensure the package counts match, i.e. dpkg --get-selectations samba will not return anything if samba-common is installed
-		[[ "$(dpkg --get-selections "$@" |& grep -v "no packages found" | wc -l)" == "$#" ]]
+		[[ "$(dpkg --get-selections "$@" |& grep -v "no packages found" | wc -l)" == "$#" ]] && ! dpkg --get-selections "$@" | grep -q "deinstall$"
 	else
 		InPath "$@" # assumes each package name is in the path
 	fi
