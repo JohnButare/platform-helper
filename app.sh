@@ -38,20 +38,38 @@ AppCommand() # AppCommand COMMAND APP - execute COMMAND on APP if exists
 
 AppGetBackupDir() { echo "$(unc mount //$(ConfigGet "fs")/root$DATA/appdata/backup)"; }
 
-# AppBackup APP SRC...
+# AppBackup APP SRC... -- [ZIP_OPTION]...
 AppBackup()
 {
-	local app="$1" dest src; shift
-	 
-	dest="$(AppGetBackupDir)/$app.zip" || return
-	bak --move "$dest" || return
+	# arguments
+	local app="$1"; shift
 
-	# backup using zip
-	hilight "Backing up $app..."
+	local src sources=()
 	for src in "$@"; do
-		IsUncPath "$src" && { src="$(unc mount "$src")" || return; }
-		[[ ! -e "$src" ]] && continue
-		zip -r --symlinks "$dest" "$src" || return
-		echo "Backup completed to $(FileToDesc "$dest")"
+		[[ "$src" == "--" ]] && { shift; break; }
+		sources+="$1"; shift
 	done
+
+	# initialize	 
+	local dest; dest="$(AppGetBackupDir)/$app.zip" || return
+	[[ -f "$dest" ]] && { bak --move "$dest" || return; }
+
+	# backup
+	hilight "Backing up $app..."
+
+	# add each source directory to the zip file
+	for src in "${sources[@]}"; do
+		echo "Backing up $(FileToDesc "$src")..."
+
+		# mount the directory if needed
+		IsUncPath "$src" && { src="$(unc mount "$src")" || return; }		
+
+		# backup
+		local base="$(GetFilePath "$src")"; src="$(GetFileName "$src")"
+		cd "$base" || return
+		zip -r --symlinks "$dest" "$src" "$@" || return
+
+	done
+
+	echo "Backup completed to $(FileToDesc "$dest")"
 }
