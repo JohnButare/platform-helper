@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 . app.sh || exit
 
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+usage() {	ScriptUsage "$1" "usage: netbootxyz backup|web
+	docker 		control the docker image
+	web				update the netboot.xyz web site
+  profile 	netboot.xyz configuration"; }
 
 init() 
 { 
@@ -10,91 +13,82 @@ init()
 	config="/opt/netboot.xyz/user_overrides.yml"
 }
 
-usage() {	echot "usage: netbootxyz backup
-	IsInstalled|IsRunning|shell|start|stop 		control the docker image
-	WebConfig|WebDeploy|WebUpdate 						update the netboot.xyz web site
-  profile dir|SaveDir|save|restore [<profile name>|default](latest)"; exit $1; }
-
-args()
-{
-	unset -v noPrompt 
-
-	while (( $# != 0 )); do
-		case "$1" in
-			--help|-h) usage 0;;
-			--no-prompt|-np) noPrompt="--no-prompt";;
-			IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";;
-			WebConfig) command="WebConfig";; WebDeploy) command="WebDeploy";; WebUpdate) command="WebUpdate";; 
-			*)
-				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(start|profile) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	
-	[[ ! $command ]] && { MissingOperand "command"; }
-	args=( "$@" )
-}
-
 #
 # Commands
 #
 
 backupCommand() { AppBackup "netboot.xyz.config" "//$(ConfigGet "fs")/root$DATA/appconfig/netbootxyz" || return; }
 
-profileCommand()
-{
-	if [[ -f "$profileDir" ]]; then
-		profile $noPrompt --app "$image" --method "$profileDir" --files "nginx menus" "$@" || return
-	fi
-
-	if [[ -f "$config" ]]; then
-		profile $noPrompt --app "$image-config" --method "$(GetFilePath "$config")" --files "$(GetFileName "$config")" "$@" || return
-	fi
-
-	return 0
-}
-
 #
 # Docker Image Commands
 #
 
-IsInstalledCommand() { ! InPath docker && return 1; docker image list |& grep "$image" >& /dev/null; }
-IsRunningCommand() { docker ps | grep "$image" >& /dev/null; }
-shellCommand() { docker exec -it "$image" /bin/bash; } 
-startCommand() { docker start "$(getContainerId)"; } 
-stopCommand() { docker stop "$(getContainerId)"; } 
+dockerUsage() { echot "Usage: $(ScriptName) docker IsInstalled|IsRunning|shell|start|stop
+Control the docker image."; }
+
+dockerCommand() { usage; }
+dockerIsInstalledCommand() { ! InPath docker && return 1; docker image list |& grep "$image" >& /dev/null; }
+dockerIsRunningCommand() { docker ps | grep "$image" >& /dev/null; }
+dockerShellCommand() { docker exec -it "$image" /bin/bash; } 
+dockertStartCommand() { docker start "$(getContainerId)"; } 
+dockerStopCommand() { docker stop "$(getContainerId)"; } 
 
 #
-# web commands
+# Profile Command
 #
 
-WebConfigCommand() { sudoe "$config"; }
+profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)
+netboot.xyz configuration."; }
 
-WebUpdateCommand()
+profileArgStart() { profileArgs=(); }
+profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); }
+
+profileCommand()
+{
+	profile $noPrompt --app "$image" --method "$profileDir" --files "nginx menus" "${profileArgs[@]}" || return
+	profile $noPrompt --sudo --app "$image-config" --method "$(GetFilePath "$config")" --files "$(GetFileName "$config")" "${profileArgs[@]}" || return
+}
+
+#
+# Web Commands
+#
+
+webUsage()
+{
+	echot "Usage: $(ScriptName) web config|deploy|update
+Update the netboot.xyz web site.
+
+	config		edit the web site configuration
+	deploy		deploy the web site
+	update		update the web site"
+}
+
+webCommand() { usage; }
+webConfigCommand() { sudoe "$config"; }
+
+webDeployCommand()
+{
+	# local Hyper-V virtual machines
+	CopyDir "/var/www/html/ipxe" "$DATA/appdata/netboot.xyz" || return 
+
+	# netboot
+	local dest="$(unc mount "$(ConfigGet "webUnc")")" || return
+	merge "/var/www/html" "$dest/netboot.xyz" || return
+	unc unmount "$dest" || return
+}
+
+webUpdateCommand()
 {
 	# install netboot.xyz
-	if [[ ! -d "/opt/netboot.xyz" ]] && ask "Install netboot.xyz web site"; then
+	if [[ ! -d "/opt/netboot.xyz" ]]; then
 		package ansible git apache2 || return
-		sudo git clone "https://github.com/netbootxyz/netboot.xyz.git /opt/netboot.xyz" || return
+		sudo git clone "https://github.com/netbootxyz/netboot.xyz.git" "/opt/netboot.xyz" || return
 		netbootxyz profile restore default || return
 	fi
 
 	# update the web site
 	cd /opt/netboot.xyz || return
 	sudo ansible-playbook -i inventory site.yml || return
-
-	# copy the web site
-	WebDeployCommand || return
-}
-
-WebDeployCommand()
-{
-	local dest="$(unc mount "$(ConfigGet "webUnc")" || return
-	CopyDir "/var/www/html/ipxe" "$DATA/appdata/netboot.xyz" || return # local, for use with Hyper-V virtual machines
-	merge "/var/www/html" "$dest/netboot.xyz" || return
-	unc unmount "$dest" || return
 }
 
 #
@@ -103,4 +97,4 @@ WebDeployCommand()
 
 getContainerId() { docker ps --all | grep "$image" | cut -d" " -f1; }
 
-run "$@"
+ScriptRun "$@"

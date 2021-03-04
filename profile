@@ -57,13 +57,14 @@ usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
 	-np, --no-prompt	   		suppress interactive prompts
 	-p,  --platform 				use platform specific unzip
 	-se, --save-extension  	for program profiles, the profile extension used by the program
+	-s,  --sudo  						restore the profile as the root user
 	-v,  --verbose  				show verbose output"
 	exit $1 
 }
 
 args()
 {
-	unset app files global method noPrompt platform profile saveExtension
+	unset app files global method noPrompt platform profile saveExtension sudo
 
 	while (( $# != 0 )); do
 		case "$1" in
@@ -75,6 +76,7 @@ args()
 			-np|--no-prompt) noPrompt="--no-prompt";;
 			-p|--platform) platform="true";;
 			-se|--save-extension) saveExtension="$2"; shift;;
+			-s|--sudo) sudo="sudo";;
 			-v|--verbose) verbose="--verbose";;
 			CopyGlobal) command="copyGlobal";; SaveDir) command="saveDir";;
 			*)
@@ -135,9 +137,9 @@ restoreCommand()
 	if [[ "$method" == "file" ]]; then
 		AppCloseSave "$app" || return
 		if [[ $platform ]]; then
-			UnzipPlatform "$profile" "$profileDir" || return
+			$sudo UnzipPlatform "$profile" "$profileDir" || return
 		else
-			unzip  -o "$profile" -d "$profileDir" || return
+			$sudo unzip  -o "$profile" -d "$profileDir" || return
 		fi
 		AppStartRestore "$app" || return
 		

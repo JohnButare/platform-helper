@@ -90,6 +90,7 @@ ScriptOpt()
 	case "$1" in
 		-f|--force) force="--force";;
 		-h|--help) usage 0;;
+		-np|--no-prompt) noPrompt="--no-prompt";;
 		-q|--quiet) quiet="--quiet";;
 		-t|--test) test="--test"; testEcho="echo";;
 		-v|--verbose) verbose="-v"; verboseLevel=1;;
@@ -193,7 +194,7 @@ ScriptRun()
 	done
 
 	# options
-	unset -v force quiet test testEcho verbose verboseLevel
+	unset -v force noPrompt quiet test testEcho verbose verboseLevel
 	set -- "${args[@]}"; args=()
 	while (( $# )); do
 		! IsOption "$1" && { args+=("$1"); shift; continue; }
@@ -242,12 +243,13 @@ ScriptUsage()
 	[[ ! $foundUsage ]] && echot "$2"
 	
 	[[ $verbose ]] && echot "\nGlobal options:
-	-f, --force			force the operation
-	-h, --help			display command usage
-	-q, --quiet 		minimize informational messages
-	-t, --test			test mode, do not make changes
-	-v, --verbose		verbose mode, multiple -vv or -vvv for additional logging
-	--     					signal the end of arguments"
+	-f, --force				force the operation
+	-h, --help				display command usage
+	-np, --no-prompt  suppress interactive prompts
+	-q, --quiet 			minimize informational messages
+	-t, --test				test mode, do not make changes
+	-v, --verbose			verbose mode, multiple -vv or -vvv for additional logging
+	--     						signal the end of arguments"
 
 	exit "${1:-1}"
 }
