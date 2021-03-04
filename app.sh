@@ -44,12 +44,14 @@ AppBackup()
 	local app="$1" dest src; shift
 	 
 	dest="$(AppGetBackupDir)/$app.zip" || return
-	[[ -f "$dest" ]] && { rm "$dest" || return; }
+	bak --move "$dest" || return
 
 	# backup using zip
 	hilight "Backing up $app..."
 	for src in "$@"; do
 		IsUncPath "$src" && { src="$(unc mount "$src")" || return; }
-		[[ -e "$src" ]] && { zip -r --symlinks "$dest" "$src" || return; }
+		[[ ! -e "$src" ]] && continue
+		zip -r --symlinks "$dest" "$src" || return
+		echo "Backup completed to $(FileToDesc "$dest")"
 	done
 }
