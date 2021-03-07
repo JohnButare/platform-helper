@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. script.sh || exit
 
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+usage()
+{
+	ScriptUsage "$1" "\
+usage: network adapter|current|cache|center|dns|name|profile|proxy|run|workgroup"
+	exit $1
+}
 
 init() 
 {
-	command='network'
+	defaultCommand="center"
 
 	noProxy="localhost,127.0.0.1,.$(ConfigGet "domain"),.releases.ubuntu.com"
 	wpadServer="$(ConfigGet "web")" wpadFile="/share/Web/autoproxy/wpad.dat"
@@ -14,47 +19,6 @@ init()
 	profileKey='HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/NetworkList/Profiles/'
 }
 
-usage()
-{
-	echot "\
-usage: network cache center dns name proxy run
-
-	adapter edit|list|name 	network adapter commands
-	dns flush 							dns commands
-	profile edit|list|set 	network profile commands
-	proxy [apt|wpad|vars] 
-		-e, --enable
-		-d, --disable
-		-s, --status
-	current name|update     current network commands
-		update 								update network settings for the current network
-	workgroup name|set 			SAMBA workgroup commands
-
-	-f,  --force						force the change
-	-q,  --quiet						minimize informational messages"
-	exit $1
-}
-
-args()
-{
-	unset command force quiet
-
-	while [ "$1" != "" ]; do
-		case "$1" in
-			-f|--force) force="true";;
-			-h|--help) usage 0;;
-			-q|--quiet) quiet="--quiet";;
-			*) 
-				[[ "$command" == @(adapter|cache|check|current|dns|profile|proxy|run|workgroup) ]] && break
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
-
-	[[ ! $command ]] && { command="center"; }
-	args=( "$@" )
-}
 
 #
 # commands
@@ -66,15 +30,13 @@ cacheCommand() { IsAvailable "$1" || return; net use '\\'$1'\ipc$' >& /dev/null;
 nameCommand() { registry edit 'HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/NetworkList/Profiles'; }
 
 #
-# adapter commands
+# Adapter Commands
 #
 
-adapterCommand()
-{
-	command="List"
-	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction adapter${s}Command && { command="$s"; shift; }
-	adapter${command}Command "$@"
-}
+adapterUsage() { echot "Usage: $(ScriptName) adapter edit|list|name
+Network adapter commands."; }
+
+adapterCommand() { usage; }
 
 adapterEditCommand() { registry edit "$adapterKey"; }
 
@@ -84,28 +46,34 @@ adapterListCommand()
 	powershell.exe Get-NetAdapter | RemoveCarriageReturn | RemoveEmptyLines | tail -n +3
 }
 
-adapterNameCommand() # OLD NEW
-{ 
-	local old="$1"; [[ ! $old ]] && { MissingOperand "old name"; }
-	local new="$2"; [[ ! $new ]] && { MissingOperand "new name"; }
+adapterNameArgs()
+{
+	ScriptArgGet "old" -- "$@"; shift
+	ScriptArgGet "new" -- "$@"; shift
+}
 
-	! IsElevated && { RunScript --elevate -- network adapter name "$@"; return; }
+adapterNameCommand()
+{ 
+	! IsElevated && { RunScript --elevate -- network adapter name "$old" "$new"; return; }
 	powershell.exe Rename-NetAdapter -Name \"$old\" -NewName \"$new\"
 }
 
 #
-# current network commands
+# Current Commands
 #
 
-currentCommand()
+currentUsage()
 {
-	command="Name"
-	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Current${s}Command && { command="$s"; shift; }
-	[[ $# != 0 ]] && usage
-	Current${command}Command "$@"
+	echot "Usage: $(ScriptName) current name|update
+Current network commands.
+
+	name			name of the current network
+	update		update network settings for the current network"
 }
 
-CurrentNameCommand()
+currentCommand() { currentNameCommand; }
+
+currentNameCommand()
 {
 	network="external"
 
@@ -129,13 +97,13 @@ CurrentNameCommand()
 	[[ $quiet ]] && echo "$network" || echo "The current network is $network"
 }
 
-CurrentUpdateCommand()
+currentUpdateCommand()
 {
 	local network existing="$(UpdateGet "network")"
 
 	hilight "Determining network..."
 	echo "Existing network is ${existing:-unknown}"
-	! CurrentNameCommand && return
+	! currentNameCommand && return
 
 	hilight "Setting the network to $network..."
 
@@ -156,15 +124,12 @@ CurrentUpdateCommand()
 # DNS commands
 #
 
-dnsCommand()
-{
-	command="Flush"
-	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction Dns${s}Command && { command="$s"; shift; }
-	[[ $# != 0 ]] && usage
-	Dns${command}Command "$@"
-}
+dnsUsage() { echot "Usage: $(ScriptName) adapter edit|list|name
+Network adapter commands."; }
 
-DnsFlushCommand() 
+dnsCommand() { dnsFlushCommand; }
+
+dnsFlushCommand() 
 { 
 	case "$PLATFORM" in
 		win) ipconfig /flushdns;;
@@ -173,17 +138,14 @@ DnsFlushCommand()
 }
 
 #
-# profile commands -  - Windows network profiles
+# Profile Commands
 #
 
-profileCommand()
-{
-	! IsPlatform win && { EchoErr "network: profile is only implemented for Windows"; return 1; }
-	
-	command="List"
-	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction profile${s}Command && { command="$s"; shift; }
-	profile${command}Command "$@"
-}
+profileUsage() { echot "Usage: $(ScriptName) profile edit|list|set
+Network profile commands."; }
+
+profileArgStart() { IsPlatform win && return; EchoErr "network: profile is only implemented for Windows"; return 1; }
+profileCommand() { profileListCommand; }
 
 profileEditCommand() { registry edit "$profileKey"; }
 
@@ -215,12 +177,13 @@ profileListCommand()
 	done
 }
 
-# profile set NAME - if there is only one network profile, set it's name and make it a private network
+profileSetArgs() { ScriptArgGet "name" -- "$@"; shift; }
+
+# profile set - if there is only one network profile, set it's name and make it a private network
 profileSetCommand()
 {
-	! IsElevated && { RunScript --elevate network profile set "$@"; pause; return; }
+	! IsElevated && { RunScript --elevate network profile set "$name"; pause; return; }
 
-	local name="$1"; [[ ! $name ]] && { MissingOperand "name"; }
 	local numProfiles="$(registry get "$profileKey" | RemoveEmptyLines | wc -l)"
 
 	(( $numProfiles > 1 )) && { EchoErr "Cannot set the profile if more than one exists"; return 1; }
@@ -234,12 +197,10 @@ profileSetCommand()
 # workgroup commands
 #
 
-workgroupCommand()
-{
-	command="Name"
-	[[ $# > 0 ]] && ProperCase "$1" s; IsFunction workgroup${s}Command && { command="$s"; shift; }
-	workgroup${command}Command "$@"
-}
+workgroupUsage() { echot "Usage: $(ScriptName) workgroup name|set
+SAMBA workgroup commands."; }
+
+workgroupCommand() { workgroupNameCommand; }
 
 workgroupNameCommand()
 { 
@@ -252,9 +213,11 @@ workgroupNameCommand()
 	fi 
 }
 
+workgroupSetArgs() { [[ $1 ]] && ScriptArgGet "new" -- "$@"; return 0; }
+
 workgroupSetCommand()
 {
-	local new="$1" current="$(network workgroup name)"
+	local current="$(network workgroup name)"
 	[[ ! $new ]] && { read -p "Enter new workgroup: " new; echo; }
 
 	[[ ! $force && "$current" == "$new" ]] && return
@@ -276,56 +239,68 @@ workgroupSetCommand()
 # proxy commands
 #
 
-proxyCommand()
-{
-	local proxy="$(ConfigGet "proxy")"
-	local proxyVars="http_proxy,https_proxy,ftp_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY"
-	local noProxyVars="no_proxy,NO_PROXY"	
-	local allVars="$proxyVars,$noProxyVars"
-	local aptFile="/etc/apt/apt.conf.d/proxy"
+proxyUsage()
+{ 
+	echot "Usage: $(ScriptName) proxy [apt|wpad|vars]
+Network proxy server commands.
 
-	# status
-	[[ "$#" == "0" || "$1" == @(status|--status|-s) ]] && { proxyStatusCommand; return; }
-
-	# vars command
-	local command="Vars"
-	[[ "$1" =~ ^(apt|wpad|vars)$ ]] && { command="$(ProperCase "$1")"; shift; }
-
-	local subCommand
-	case "$1" in
-		-d|--disable) subCommand="Disable"; shift;;
-		-e|--enable) subCommand="Enable"; shift;;
-		-s|--status) subCommand="Status"; shift;;
-	esac
-
-	[[ $# != 0 ]] && UnknownOption "$1"
-
-	proxy${command}${subCommand}Command "$@"
+	-e, --enable
+	-d, --disable
+	-s, --status"
 }
 
-proxyStatusCommand()
+proxyArgStart()
 {
-	echo "proxy=$(proxyVarsStatusCommand)"
-	[[ -d "/etc/apt" ]] && echo "apt proxy=$(proxyAptStatusCommand)"
+	action="status"
+	proxy="$(ConfigGet "proxy")"
+	proxyVars="http_proxy,https_proxy,ftp_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY"
+	noProxyVars="no_proxy,NO_PROXY"	
+	allVars="$proxyVars,$noProxyVars"
+	aptFile="/etc/apt/apt.conf.d/proxy"	
+}
+
+proxyOpt() 
+{
+	case "$1" in
+		-d|--disable) action="disable";;
+		-e|--enable) action="enable";;
+		-s|--status) action="status";;
+		*) return 1
+	esac
+}
+
+proxyArgs()
+{
+	[[ "$action" == "status" ]] && what="all" || what="vars"
+	[[ "$1" =~ ^(apt|wpad|vars)$ ]] && { what="$1"; ((++shift)); }
 	return 0
 }
 
-proxyVarsEnableCommand() { echo "export {$proxyVars}=\"$proxy/\"; eval export {$noProxyVars}=\"$noProxy\""; }
-proxyVarsDisableCommand() {	echo "unset {$allVars}; unset {$allVars}"; }
-proxyVarsStatusCommand() { (( $(export | grep -i 'proxy=\"http' | wc -l) > 1 )) && echo "enabled" || echo "disabled"; }
+proxyCommand() { proxy${what^}${action^}; }
 
-proxyAptEnableCommand()
+proxyAllStatus()
+{
+	echo "proxy=$(proxyVarsStatus)"
+	[[ -d "/etc/apt" ]] && echo "apt proxy=$(proxyAptStatus)"
+	return 0
+}
+
+proxyVarsEnable() { echo "export {$proxyVars}=\"$proxy/\"; eval export {$noProxyVars}=\"$noProxy\""; }
+proxyVarsDisable() {	echo "unset {$allVars}; unset {$allVars}"; }
+proxyVarsStatus() { (( $(export | grep -i 'proxy=\"http' | wc -l) > 1 )) && echo "enabled" || echo "disabled"; }
+
+proxyAptEnable()
 {
 	[[ ! -d "/etc/apt" || -f "$aptFile" ]] && return
 	echo "Acquire::http::Proxy \"$proxy\";
 Acquire::https::Proxy \"$proxy\";" | sudo tee "$aptFile"
 }
 
-proxyAptDisableCommand() { [[ ! -f "$aptFile" ]] && return; sudo rm "$aptFile"; }
-proxyAptStatusCommand() { [[ -f "$aptFile" ]] && echo "enabled" || echo "disabled"; }
+proxyAptDisable() { [[ ! -f "$aptFile" ]] && return; sudo rm "$aptFile"; }
+proxyAptStatus() { [[ -f "$aptFile" ]] && echo "enabled" || echo "disabled"; }
 
-proxyWpadEnableCommand() { scp "$CLOUD/network/system/proxy/wpad.dat.enable" "$wpadServer:$wpadFile"; }
-proxyWpadDisableCommand() { scp "$CLOUD/network/system/proxy/wpad.dat.disable" "$wpadServer:$wpadFile"; }
-proxyWpadStatusCommand() { ssh $wpadServer cat "$wpadFile" | grep "PROXY" > /dev/null && echo "enabled" || echo "disabled"; }
+proxyWpadEnable() { scp "$CLOUD/network/system/proxy/wpad.dat.enable" "$wpadServer:$wpadFile"; }
+proxyWpadDisable() { scp "$CLOUD/network/system/proxy/wpad.dat.disable" "$wpadServer:$wpadFile"; }
+proxyWpadStatus() { ssh $wpadServer cat "$wpadFile" | grep "PROXY" > /dev/null && echo "enabled" || echo "disabled"; }
 
-run "$@"
+ScriptRun "$@"
