@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-usage: network adapter|current|cache|center|dns|name|profile|proxy|run|workgroup"
+usage: network adapter|current|cache|center|dns|internet|name|profile|proxy|run|workgroup"
 	exit $1
 }
 
@@ -117,11 +117,11 @@ currentUpdateCommand()
 	UpdateSet "proxy" "$status" || return
 	ScriptEval network proxy vars --$status || return
 	network proxy apt --$status || return
-	network proxy status || return
+	network proxy || return
 }
 
 #
-# DNS commands
+# DNS Commands
 #
 
 dnsUsage() { echot "Usage: $(ScriptName) adapter edit|list|name
@@ -136,6 +136,56 @@ dnsFlushCommand()
 		mac) sudo killall -HUP mDNSResponder;;
 	esac
 }
+
+#
+# Internet Commands
+#
+
+internetUsage() { echot "Usage: $(ScriptName) internet address|provider [GATEWAY]
+Internet commands.
+
+	address						get the public internet address with the default or specified gateway
+	provider [short]	get the internet provider name"
+}
+
+internetArgs()
+{
+	[[ $1 ]] && ScriptArgGet "gateway" -- "$@"
+	return 0
+}
+
+internetCommand() { internetProviderCommand; }
+
+internetAddressCommand() 
+{
+	if [[ ! $gateway ]]; then 
+		nslookup myip.opendns.com resolver1.opendns.com | grep Address | grep -v 53 | cut -d: -f2 | RemoveSpace
+		return
+	fi
+
+	# find the internet address for ther specified gateway
+	# assumes the default gateway is a UniFi gateway named "router" 
+	gateway="$(GetIpAddress "$gateway")"
+	local dns; dns="$(GetIpAddress "resolver1.opendns.com")" || return
+
+	! IsAvailablePort router 22 && { ScriptErr "the router is not available"; return 1; }
+	
+	credential get unifi admin | sshpass ssh router "$(cat <<-EOF
+			sudo ip route add "$dns" via "$gateway"
+			nslookup myip.opendns.com resolver1.opendns.com
+			sudo ip route delete "$dns"
+		EOF
+	)" |& grep Address | grep -v 53 | cut -d: -f2 | RemoveSpace
+
+}
+
+internetProviderCommand()
+{
+	local address; address="$(internetAddressCommand)" || return
+	whois "$address" | grep "OrgTechName" | head -1 | cut -d: -f2 | RemoveSpaceFront
+}
+
+internetProviderShortCommand() { internetProviderCommand | GetWord - 1 | LowerCase; }
 
 #
 # Profile Commands
