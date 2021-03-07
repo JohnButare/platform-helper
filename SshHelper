@@ -27,11 +27,12 @@ Connect to a HOST using SSH.
 	-c, --commands CMDS	bash commands to run
 	-i, --interactive		start an interactive shell
 	-m, --mosh					connecting using mosh
+	-p, --password			supply password if needed
 	-x, --x-forwarding  connect with X forwarding
 	-w, --wait					wait for SSH to become available"
 }
 
-connectArgStart() { unset -v commandsArg interactive mosh pseudoTerminal x wait; unset host; }
+connectArgStart() { unset -v commandsArg interactive mosh password pseudoTerminal x wait; unset host; }
 
 connectOpt() 
 {
@@ -39,6 +40,7 @@ connectOpt()
 		-c|--commands) ScriptOptGet "commandsArg" "commands" "$@";;
 		-i|--interactive) interactive="-i";;
 		-m|--mosh) mosh="true";;
+		-p|--password) ScriptOptGet "password" "$@";;
 		-t|--pseudo-terminal) pseudoTerminal="-t";;
 		-x|--x-forwarding) x="true";;
 		-w|--wait) wait="--wait";;
@@ -102,17 +104,26 @@ connectCommand()
 
 	set -- "${args[@]}"
 
-	# connect using ssh
+	# WSL 1 does not support X sockets over ssh and requires localhost
+	IsPlatform wsl1 && export DISPLAY="localhost:0"
+	
+	# get the SSH command
+	local command
 	if [[ $mosh ]]; then
-		mosh "$@"
+		command="mosh"
 	elif [[ ! $x ]]; then
-		ssh $pseudoTerminal "$@"
-	elif IsPlatform wsl1; then # WSL 1 does not support X sockets over ssh and requires localhost
-		DISPLAY=localhost:0 ssh -X $pseudoTerminal "$@"
+		command="ssh $pseudoTerminal"
 	elif IsPlatform mac,wsl2; then # WSL2 and macOS XQuartz requires trusted X11 forwarding (X programs are trusted to use all X features on the host)
-		ssh -Y $pseudoTerminal "$@"
+		command="ssh -Y $pseudoTerminal"
 	else # for everything else, use untrusted X Forwarding, where X programs are not trusted to use all X features on the host
-		ssh -X $pseudoTerminal "$@"
+		command="ssh -X $pseudoTerminal"
+	fi
+
+	if [[ "$password" ]]; then
+		command="spawn -noecho $command $@; expect \"password:\"; send \"DpqZ9qa3p6Z19G92\r\"; interact"
+		expect -c "$command"
+	else
+		$command "$@"
 	fi
 }
 
