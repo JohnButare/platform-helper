@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+. app.sh || exit
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [COMMAND]... [OPTION]...
+Manage namecheap DNS.
+
+	domains				list all domains
+	hosts	DOMAIN	list hosts for specified domain
+	update				update a host record"
+}
+
+#
+# Update Command
+#
+
+updateUsage()
+{
+	echot "Usage: $(ScriptName) update HOST IP
+Update HOST to IP."
+}
+
+updateArgs()
+{
+	ScriptArgGet "host" -- "$@"; shift
+	ScriptArgGet "ip" -- "$@"; shift
+}
+
+updateCommand()
+{
+	local currentIp="$(UpdateGet "ip_$host")"
+
+	[[ ! $force && "$currentIp" == "$ip" ]] && return
+
+	local domain; domain="$(ConfigGet "baseDomain")" || return
+	local password; password="$(credential get namecheap ddns_password)" || return
+	curl "https://dynamicdns.park-your-domain.com/update?host=$host&domain=$domain&password=$password&ip=$ip" || return
+	UpdateSet "ip_$host" "$ip" || return
+}
+
+#
+# API Helper
+#
+
+api()
+{
+	local user; user="$(credential get namecheap user)" || return
+	local key; key="$(credential get namecheap key)" || return
+	local ip; ip="$(network internet get address)" || return
+	curl "https://api.namecheap.com/xml.response?ApiUser=$user&ApiKey=$key&UserName=$user&ClientIp=$ip&Command=$1"	
+}
+
+domainsCommand() { api "namecheap.domains.getList"; }
+
+hostsArgs() 
+{ 
+	[[ $# == 0 ]] && { domain="$(ConfigGet "baseDomain")"; return; }
+	ScriptArgGet "domain" -- "$@"; shift
+}
+
+hostsCommand()
+{
+	local sld="$(GetWord "$domain" 1 .)"
+	local tld="$(GetWord "$domain" 2 .)"
+	api "namecheap.domains.dns.getHosts&SLD=$sld&TLD=$tld" || return
+}
+
+ScriptRun "$@"
