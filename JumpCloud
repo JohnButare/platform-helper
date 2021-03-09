@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+. app.sh || exit
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [COMMAND]... [OPTION]...
+Manage JumpCloud.
+
+	api		perform an API command"
+}
+
+init() { defaultCommand="api"; }
+
+#
+# API Command
+#
+
+apiUsage()
+{
+	echot "Usage: $(ScriptName) api [URI](users) [JSON]
+Perform an API command.
+
+Examples:
+	v2/directories
+	users
+	radiusservers"
+}
+
+apiArgStart() { uri="users" json=""; }
+
+apiArgs() 
+{
+	(( $# > 0 )) && { ScriptArgGet "uri" -- "$@"; shift; }
+	(( $# > 0 )) && { ScriptArgGet "json" -- "$@"; shift; }
+	return 0
+}
+
+apiCommand() { api "$uri" "$json" | jq; }
+
+api()
+{
+	local uri="${1:-users}" json="$2"
+
+	if [[ $json ]]; then
+		curl -X PUT "https://console.jumpcloud.com/api/$uri" \
+		  -H "Accept: application/json" \
+		  -H "Content-Type: application/json" \
+		  -H "x-api-key: $(credential get JumpCloud key)" \
+		  --data "$json"
+		return
+	fi
+
+	curl --silent "https://console.jumpcloud.com/api/$uri" \
+	  -H "Accept: application/json" \
+	  -H "Content-Type: application/json" \
+	  -H "x-api-key: $(credential get JumpCloud key)"
+}
+
+#
+# Backup Command
+#
+
+backupCommand()
+{
+	# initialize
+	apiInit || return
+	local dest="$1" result; [[ ! $dest ]] && { dest="$(AppGetBackupDir)/unifi.controller.unf" || return; }
+	[[ -f "$dest" ]] && { bak --move "$dest" || return; }
+
+  # ask controller to do a backup, response contains the path to the backup file
+  printf "backup..."
+  result="$($curl --silent --data '{"cmd":"backup", "days": 0}' "$url/api/s/$site/cmd/backup")"
+  path="$(echo $result | sed -n 's/.*\(\/dl.*unf\).*/\1/p')"
+
+  # download the backup to the destinated output file
+  echo "download..."
+  $curl "$url$path" -o "$dest"
+  echo "UnifiController backup of $(GetUriServer "$url") completed to $(FileToDesc "$dest")"
+}
+
+backupListCommand()
+{
+	apiInit || return
+  result="$($curl --silent --data '{"cmd":"list-backups"}' "$url/api/s/$site/cmd/backup")"
+}
+
+#
+# RADIUS Command
+#
+
+radiusUsage()
+{
+	echot "Usage: $(ScriptName) radius id|update
+Manipulate RADIUS servers.
+
+	id NAME			get the ID for the specified RADIUS server"
+}
+
+radiusArgs() { ScriptArgGet "name" -- "$@"; shift; }
+radiusCommand() { usage; }
+
+# RADIUS ID Command
+
+radiusIdUsage() { echot "Usage: $(ScriptName) radius id NAME
+Get the ID for the specified RADIUS server"; }
+
+radiusIdCommand() { api "radiusservers" | jq ".results[] | select(.name == \"$name\").id" | RemoveQuotes; }
+
+# RADIUS Update Command
+
+radiusUpdateUsage() { echot "Usage: $(ScriptName) radius update NAME IP
+Update the specified RADIUS server with the specified source IP"; }
+
+radiusUpdateArgs() { ScriptArgGet "ip" -- "$@"; shift; }
+
+radiusUpdateCommand()
+{
+	local data="$(cat <<-EOF
+		{ 
+	  	"name": "$name",
+	  	"mfa": "DISABLED",
+	    "networkSourceIp": "$ip",
+	    "sharedSecret": "$(credential get JumpCloud sharedSecret)",
+			"userLockoutAction": "REMOVE",
+	    "userPasswordExpirationAction": "REMOVE"
+		}
+		EOF
+	)"
+
+	api "radiusservers/$(radiusIdCommand)" "$data" || return
+}
+
+ScriptRun "$@"
