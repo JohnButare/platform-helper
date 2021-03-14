@@ -25,7 +25,7 @@ init()
 {
 	volumeDir=~/"Volumes"; initVolumeDir || return
 	protocolUsage="-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)"
-	uncTypes="cifs,nfs,nfs4,sshfs"; IsPlatform mac && uncTypes="fuse.sshfs,nfs,nfs4,smbfs"
+	uncTypes="9p,cifs,nfs,nfs4,sshfs"; IsPlatform mac && uncTypes="fuse.sshfs,nfs,nfs4,smbfs"
 	return 0
 }
 
@@ -260,8 +260,8 @@ mountCommand()
 	! ${G}mkdir --parents "$mountDir" && { ScriptErr "could not create the mount directory '$mountDir'"; return 1; }
 
 	# mount
-	if [[ "$PLATFORM_KERNEL" == "wsl1" || "$server" == "wsl$" ]]; then
-		sudoc mount -t drvfs "//$server/$share" "$mountDir" 
+	if [[ "$PLATFORM_KERNEL" == "wsl1" ]] || isWslshare; then
+		sudoc mount -t drvfs "//$server/$share" "$mountDir"
 
 	elif [[ "$protocol" == "nfs" ]]; then
 		local options=(); IsPlatform win && options+=( -o nolock )
@@ -337,9 +337,7 @@ unmountCommand()
 # findProtocol HOST - find a file sharing protocol for HOST.   
 findProtocol()
 {
-	local host="$1"
-
-	[[ $noHostCheck || "$server" == "wsl$" ]] && return
+	local host="$1"; noHostCheck && return
 
 	# Synology SMB mount.cifs does not work
   IsPlatform synology && [[ "$protocol" == @(|smb) ]] && protocol="ssh"
@@ -363,7 +361,7 @@ isAvailable()
 		return 1
 	fi
 
-	[[ $noHostCheck || "$host" == "wsl$" ]] && return
+	noHostCheck && return
 
 	if [[ $verbose ]]; then
 		IsInteger "$protocol" && protocol="ssh"
@@ -393,7 +391,9 @@ getPort()
 doUnmount() { platformUnmount; cleanupMountDir; }
 log() { [[ $quiet ]] && return; printf "$@"; }
 needsUnc() { [[ "$command" == @(isMounted|mount|unmount) ]]; }
+noHostCheck() { [[ $noHostCheck ]] || isWslshare; }
 showResult() { [[ $1 && ! $quiet ]] && echo "$1"; [[ $1 ]]; }
+isWslshare() { [[ "$server" == @(wsl$|wsl) ]]; }
 
 cleanupMountDir()
 {
@@ -477,13 +477,14 @@ isMounted()
 	# server is local and we can determine the full path to the locaL directory
 	IsLocalHost "$server" && [[ "$share" == "root" ]] && { showResult "/$dirs"; return; }
 
+	# check for a WSL share	
+	[[ ! $unc ]] && unc="$(mount | grep "^drvfs on $mountDir" | head -n 1 | cut -d" " -f 3)"
+
 	# check for an SMB share
-	unc="$(mount | grep "^//$prefix${server%%.*}.*/$shareId\\\$* on " | head -n 1 | cut -d" " -f 3)"
+	[[ ! $unc ]] && unc="$(mount | grep "^//$prefix${server%%.*}.*/$shareId\\\$* on " | head -n 1 | cut -d" " -f 3)"
 
 	# check for an NFS share
-	if [[ ! $unc ]]; then
-		unc="$(mount | grep "^${server%%.*}.*:/$shareId$* on " | head -n 1 | cut -d" " -f 3)"
-	fi
+	[[ ! $unc ]] && unc="$(mount | grep "^${server%%.*}.*:/$shareId$* on " | head -n 1 | cut -d" " -f 3)"
 
 	# check for an ssh share
 	if [[ ! $unc ]]; then
