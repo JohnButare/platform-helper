@@ -1,197 +1,175 @@
 #!/usr/bin/env bash
-. function.sh
-
-run() {	init && args "$@" && ${command}Command "${args[@]}"; }
-
-init()
-{ 
-	wslDir="$DATA/appdataw/wsl"
-	shortcutDir="$PROGRAMDATA/Microsoft/Windows/Start Menu/Programs/Operating System/Other/WSL/"
-	defaultDistro="ubuntu-focal" defaultVersion="2"
-}
+. script.sh
 
 usage()
 {
-	echot "\
-usage: wsl dir|exists|IsRunning|name|summary|version [DIST](current)
-	First letter of commands can be used, i.e. wsl v
-
-	kill DIST - kill the distribution
-	list|ListPlain - list distributions, plain to remove formatting
-	run|run1|run2 [-u|--user] - run a distribtion, specify a number to run the first WSL distribution listed
-
-	backup DIST - backup the distribution
-	copy DIST NEW - copy the distribution
-	delete DIST - delete the distribution
-	init DIST - run bootstrap-init
-	restore DIST [SRC](ubuntu-focal) [VERSION](2) - restore distribution, SRC is a file or distribution (ubuntu-disco)
-
-	GetDefaultUser DIST - get the default user sid of the specified distribution 
-	SetDefaultUser [DIST](current) [USER]($USER) - set the default user of the distribution 
-
-	FixDnsNameLookup - fix DNS name lookup in WSL 2
-	mount|unmount DISK_NUMBER - mount or unmount a Windows drive in WSL
-	SetVersion DIST VERSION - set the version of a distribtuin
-	shortcut DIST [NAME](DIST) - create a shortcut for the distribution
-	systemd - install support for systemd
-	update - update WSL
-	help - show wsl.exe and LxRunOffline.exe help
-
-	-np, --no-prompt	   	suppress prompts
-	-v|--verbose			show verbose output
-
-examples:
-
-wsl restore Ubuntu-20.04 ubuntu-focal 2"
-
-	exit $1
+	ScriptUsage "$1" "\
+usage: wsl disk|dist|fix|get|help|install|list|update
+Windows Subsystem for Linux (WSL) commands."
 }
 
-args()
-{
-	unset command noPrompt args verbose
-	
-	while [ "$1" != "" ]; do
-		case "$1" in
-			--help|-h) usage 0;;
-			--no-prompt|-np) noPrompt="true"; ask() { :; };;
-			--verbose|-v) verbose="--verbose";;
-			backup|b) command="backup";;
-			FixDnsNameLookup) command="fixDnsNameLookup";;
-			GetDefaultUser|gdu) command="getDefaultUser";;
-			help|h) command="help";;
-			IsRunning|ir) command="isRunning";;
-			kill|k) command="kill";;
-			list|l) command="list";;
-			name|n) command="name";;
-			ListPlain|lp) command="listPlain";;
-			run|r) command="run";;
-			SetDefaultUser|sdu) command="setDefaultUser";;
-			SetVersion|sv) command="setVersion";;
-			summary|s) command="summary";;
-			version|v) command="version";;
-			*) 
-				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				args+=("$1")
-		esac
-		shift
-	done
-
-	[[ "$command" == @(backup|copy|restore) ]] && { validateWslDir || return; }
-
-	[[ ! $command ]] && usage 1
-	return 0
+init()
+{ 
+	wslDir="$DATA/appdataw/wsl"; [[ ! -d "$wslDir/image" ]] && { mkdir --parents "$wslDir/image" || return; }
+	shortcutDir="$PROGRAMDATA/Microsoft/Windows/Start Menu/Programs/Operating System/Other/WSL/"
 }
 
 #
-# helper functions
+# commands
 #
 
-distFirst() { listPlainCommand "$1" | head -1 | awk '{ print $1; }'; }
-distExists() { [[ $1 && "$(listPlainCommand "$1" | cut -d" " -f1 | grep "^${1}$")" ]]; }
-distArg() {	dist="$1"; [[ ! $dist ]] && MissingOperand "dist"; ! distExists "$dist" && { EchoErr "Distribution $dist does not exist"; exit 1; }; return 0; }
-supports() { wsl.exe --help | Utf16to8 | grep '\-\-'"$1" >& /dev/null; }
-
-distDefaultArg() # return 0 (true) if an arg is used
-{
-	[[ $1 ]] && { distArg "$1"; return 0; } # arg was used
-
-	dist="$(nameCommand)"
-	[[ ! $dist ]] && { EchoErr "Could not find the default WSL distribution"; exit 1; }
-
-	return 1 # arg was not used
-}
-
-validateWslDir() { [[ -d "$wslDir/image" ]] && return; mkdir --parents "$wslDir/image"; }
-
-# cd to local directory to fix invalid argument error running programs from SMB mounted shares
-w() { ( cd /; wsl.exe "$@"; ); }
-lxr() { ( cd /; LxRunOffline.exe "$@"; ); }
-
-#
-# Commands
-#
-
-dirCommand() { wtu "$(wsl summary ${1:-$(nameCommand)} | grep "Installation directory" | cut -d: -f 2- | cut -d" " -f 2)"; }
-existsCommand() { distArg "$1"; }
-helpCommand() { w --help | Utf16to8; lxr |& Utf16to8; }
-isRunningCommand() { distDefaultArg "$1" && shift; [[ "$(wsl ListPlain | grep "$dist" | awk '{ print $2; }')" == "Running" ]]; }
-killCommand() { w --terminate "$1"; }
 listCommand() { w --list --verbose | Utf16toAnsi | RemoveCarriageReturn; }
-listPlainCommand() { listCommand | cut -b 3- | tail +2 ; } # remove header and default distribution *
-runCommand() { w --distribution "$@"; }
-run1Command() { runCommand "$(listPlainCommand | grep 1$ | head -1 | awk '{ print $1; }')" "$@"; }
-run2Command() { runCommand "$(listPlainCommand | grep 2$ | head -1 | awk '{ print $1; }')" "$@"; }
-summaryCommand() { lxr summary -n "${1:-$(nameCommand)}" | Utf16toAnsi | RemoveCarriageReturn; }
-setVersionCommand() { w --set-version "$1" "$2"; }
 updateCommand() { ! supports "update" && return; w --update; }
 
-backupCommand()
+#
+# Disk Command
+#
+
+diskUsage() { echot "Usage: $(ScriptName) disk mount|unmount
+Disk commands."; }
+
+diskArgStart() { unset -v disk; }
+
+diskArgs() { (( $# == 0 )) && return; ScriptArgGet "disk" -- "$@"; }
+
+diskCommand() { usage; }
+
+diskMountUsage() { echot "Usage: $(ScriptName) disk mount [NUMBER](first offline)
+Mount the specified Windows disk number in WSL."; }
+
+diskMountCommand()
 {
-	local dist; distArg "$1"
+	supportsMount || return
+
+	# get the disk to mount
+	[[ ! $disk ]] && disk="$(drive win GetOffline | head -1)"
+	
+	if [[ ! $disk ]]; then
+		EchoErr "wsl: there are no offline disks to mount.  Use \`drive win offline NUM\` to offline a disk for use in WSL"
+		drive win list
+		return 1
+	fi
+
+	# run elevated
+	! IsElevated && { RunScript $verbose --elevate -- wsl mount "$disk"; return; }
+
+	# get the existing block devices
+	local devices; IFS=$'/n' devices=( $(lsblk -no NAME) )
+
+	# mount the disk
+	w --mount '\\.\PHYSICALDRIVE'$disk'' --bare || return
+
+	# start LVM service and scan for volumes - systemd run the udev service which creates LVM devices automatically
+	if InPath vgscan && ! IsSystemd ; then
+		service start lvm2 || return
+		sudo vgscan --mknodes || return
+	fi
+
+	# wait for the block device to be mounted and return it
+	sleep 2
+	lsblk -no NAME | grep -v "$(ArrayDelimit devices $'\n')"
+}
+
+diskUnmountUsage() { echot "Usage: $(ScriptName) disk unmount [NUMBER]
+Unmount the specified Windows disk number."; }
+
+diskUnmountCommand()
+{
+	supportsMount || return
+
+	if IsElevated; then
+		wsl.exe --unmount '\\.\PHYSICALDRIVE'$disk'' || return
+	else
+		RunScript $verbose --elevate -- wsl disk unmount "$disk" || return
+	fi
+}
+
+#
+# Distribution Commands
+#
+
+distUsage() { echot "Usage: $(ScriptName) dist backup|bootstrap|copy|delete|kill|restore|run|shortcut|summary|user [NAME](current)"; }
+distArgs() { distArgGetDefault "$@" || return; }
+distCommand() { usage; }
+distKillCommand() { w --terminate "$dist"; }
+distRunCommand() { w --distribution "$dist"; }
+distSummaryCommand() { lxr summary -n "$dist" | Utf16toAnsi | RemoveCarriageReturn; }
+
+# backup
+
+distBackupCommand()
+{
 	local file="$(utw "$wslDir/image/$dist-$(GetTimeStamp).tar.gz")"
 
-	isRunningCommand "$dist" && { EchoErr "The $dist distribution must be stopped to be backed up"; return 1; }
+	distIsRunning && { ScriptErr "the '$dist' distribution must be stopped to be backed up"; return 1; }
 	w --export "$dist" "$file" || return
-	BACKUP_FILE="$(wtu "$file")"
+	src="$(wtu "$file")" # for restore
+
+	echo "'$dist' backed up to '$src'"
 }
 
-copyCommand()
+# bootstrap
+distBootstrapCommand()
+{
+	cmd.exe /c 'copy '$(utw $BIN/bootstrap-init)' \\$(wslShare)\'$dist'\tmp' || return
+	cmd.exe /c 'copy '$(utw $BIN/bootstrap-config.sh)' \\$(wslShare)\'$dist'\tmp' || return
+	lxr run -n "$dist" -w -c "bash -c \". /tmp/bootstrap-init\"" || return
+}
+
+# copy
+
+distCopyUsage() { echot "Usage: $(ScriptName) copy SRC DEST
+Copy a distribution."; }
+
+distCopyArgs() { ScriptArgGet "dest" -- "$@"; }
+
+distCopyCommand()
 { 
-	local dist; distArg "$1" || return
-	local src="$dist" dest="$2" destDir="$(utw "$wslDir/$2")" 
-	local version="$(versionCommand $src)" uid="$(getDefaultUserCommand "$src")"
+	local user; user="$(userGetCommandCommand "$src")" || return
+	backupCommand || return
 
-	distExists "$dest" && { echo "The distribution $dest already exists"; wsl delete "$dest" || return; }
-	backupCommand "$src" || return
-	restoreCommand "$dest" "$BACKUP_FILE" "$version" || return
-	lxr set-uid -n "$dest" -v "$uid" || return
+	dist="$dest"
+	distExists && { echo "The distribution '$dist' already exists"; deleteCommand || return; }
+	restoreCommand || return
+	userSetCommand  || return
 }
 
-deleteCommand()
+# delete
+
+distDeleteCommand()
 {
-	local dist; distArg "$1" || return
-	local dir="$(dirCommand "$dist")"
+	# checks
+	[[ "$dist" == "$(distName)" ]] && { ScriptErr "cannot delete the current distribution"; return 1; }
 
-	[[ ! -d "$dir" ]] && { EchoErr "The $dist distribution directory was not found"; return 1; }
+	# distribution directory
+	local dir="$(distDir)"
+	[[ ! -d "$dir" ]] && { ScriptErr "the '$dist' distribution directory was not found"; return 1; }
 
-	! ask -dr n "Delete the $dist distribution" && return
+	# ask to delete
+	[[ ! $noPrompt ]] && ! ask -dr n "Delete the '$dist' distribution" && return 1
 
-	killCommand "$dist" || return
-	w --unregister "$dist" || return
-	rm -fr "$dir" || return
+	# delete
+	[[ $test ]] && return
+	exit; distKillCommand && w --unregister "$dist" && rm -fr "$dir"
 }
 
-initCommand()
-{
-	local dist; distArg "$1" || return
-	cmd.exe /c 'copy '$(utw $BIN/bootstrap-init)' \\wsl$\'$dist'\tmp' || return
-	cmd.exe /c 'copy '$(utw $BIN/bootstrap-config.sh)' \\wsl$\'$dist'\tmp' || return
-	lxr run -n "$dist" -w -c "bash -c \". /tmp/bootstrap-init\""
-}
+# restore
 
-nameCommand()
-{
-	# WSL_DISTRO_NAME is not passed by default when using su/sudo/login
-	[[ $WSL_DISTRO_NAME ]] && echo "$WSL_DISTRO_NAME" || utw / | cut -d'\' -f4
-} 
+distRestoreUsage() { echot "Usage: $(ScriptName) dist restore DIST [SRC](ubuntu-focal)
+Restore restore a WSL image commands.  SRC is a file or the name of a distribution image."; }
 
-restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](2)
+distRestoreArgs() { (( $# == 0 )) && src="ubuntu-focal" || ScriptArgGet "src" -- "$@"; }
+
+distRestoreCommand()
 {
 	local cachedFile dist src version i="$(i dir)"
 	local image="$i/platform/LINUX/wsl/image"
 
-	while [ "$1" != "" ]; do		
-		[[ "$1" == @(1|2) ]] && { version="$1"; shift; continue; }
-		[[ ! $dist && ! -f "$1" ]] && { dist="$1"; shift; continue; }
-		[[ ! $src ]] && { src="$1"; shift; continue; }
-		UnknownOption "$1"
-	done
-	[[ ! $dist ]] && { EchoErr "A distribution name was not specified"; exit 1; }
-	src="${src:-$defaultDistro}" wslVersion="${version:-$defaultVersion}"
+	# checks
+	[[ "$dist" == "$(distName)" ]] && { ScriptErr "cannot restore to the current distribution"; return 1; }
 
-	# full path to the source was specified
-	file="${src}"
+	# src argument
+	file="$src"
 
 	# check if src is a cached file
 	[[ ! -f "$file" ]] && file="$wslDir/image/$src.tar.gz" 
@@ -218,130 +196,163 @@ restoreCommand() # DIST [SRC](ubuntu-focal) [VERSION](2)
 	fi
 
 	if [[ ! -f "$file" ]]; then
-		EchoErr "Could not find the installation for $src"
+		ScriptErr "could not find the installation for '$src'"
 		return 1
 	fi
 
 	echo "Importing $(GetFileName "$file") as $dist..."
- 	wsl.exe --import "$dist" "$(utw "$wslDir/$dist")" "$(utw "$file")" --version "$wslVersion" || return
+ 	wsl.exe --import "$dist" "$(utw "$wslDir/$dist")" "$(utw "$file")" --version 2 || return
 	shortcutCommand "$dist" || return
 }
 
-getDefaultUserCommand() 
+# shortcut
+
+distShortcutCommand()
 { 
-	local dist; distDefaultArg "$1" && shift
-	lxr get-uid -n "$dist" | Utf16toAnsi | RemoveCarriageReturn
+	[[ ! -d "$shortcutDir" ]] && { mkdir --parents "$shortcutDir" || return; }
+	MakeShortcut "wsl.exe" "$shortcutDir/$dist" "-d $dist" "$(utw $(FindInPath wsl.exe))" || return
 }
 
-setDefaultUserCommand()
+# user
+ 
+distUserUsage()
+{ 
+	echot "Usage: $(ScriptName) user get|set [DIST](current)
+Get or set the default user for the specified distribution.
+
+	-u,	--user=[UID|NAME]($USER)		the name or uid to set as the default user"; 
+}
+
+distUserArgStart() { user="$USER"; }
+
+distUserOpt() 
 {
-	local dist; distDefaultArg "$1" && shift
-	local uid="${1:-$USER}"
+	case "$1" in
+		-u|--user) ScriptOptGet user "$@" || return;;
+		*) return 1
+	esac
+}
 
-	! IsInteger "$uid" && uid="$(grep -i "$uid" "/etc/passwd" | head -1 | cut -d: -f3)"
-	[[ ! $uid ]] && { EchoErr "Could not find user $USER"; return 1; }
+distUserCommand() { distUserGetCommand; }
 
-	local currentUid="$(getDefaultUserCommand "$dist")" || return
-	[[ "$uid" == "$currentUid" ]] && return
+distUserGetCommand() { distUserGetCommand; }
+
+distUserSetCommand()
+{
+	local dir; dir="$(unc mount --no-host-check "//$(wslShare)/$dist")" || return
+	local uid="$user"
+
+	! IsInteger "$uid" && uid="$(grep -i "^$user:" "$dir/etc/passwd" | head -1 | cut -d: -f3)"
+	[[ ! $uid ]] && { ScriptErr "could not find uid for user '$user' in distribution '$dist'"; return 1; }
+
+	local currentUid="$(getDefaultUser)" || return
+	[[ "$uid" == "$currentUid" ]] && { echo "Distribution '$dist' default user is already $uid"; return; }
 
 	echo "Chaning the default used from UID $currentUid to UID $uid..."
 	lxr set-uid -n "$dist" -v "$uid"
 }
 
-shortcutCommand()
-{ 
-	local dist="$1" name="${2:-$dist}"; [[ ! $dist ]] && usage;
-	[[ ! -d "$shortcutDir" ]] && { mkdir --parents "$shortcutDir" || return; }
-	MakeShortcut "wsl.exe" "$shortcutDir/$name" "-d $dist" "$(utw $(FindInPath wsl.exe))" || return
-}
+#
+# Get Command
+#
 
-systemdCommand()
+getUsage() { echot "Usage: $(ScriptName) get share
+Get WSL configuration"; }
+
+getCommand() { usage; }
+getShareCommand() { wslShare; }
+
+#
+# Fix Commands
+#
+
+fixUsage() { echot "Usage: $(ScriptName) fix dns
+Fix WSL behavior."; }
+
+fixCommand() { usage; }
+
+fixDnsUsage() { echot "Usage: $(ScriptName) fix dns
+Manually specify DNS configuration for WSL."; }
+
+fixDnsCommand()
 {
-	ghq get https://github.com/DamionGans/ubuntu-wsl2-systemd-script.git || return
-	"$HOME/ghq/github.com/DamionGans/ubuntu-wsl2-systemd-script/ubuntu-wsl2-systemd-script.sh" || return
-}
+	! IsPlatform wsl2 && { ScriptErr "name resolution only needs to be fixed in WSL 2"; return 1; }
 
-versionCommand()
-{
-	[[ $# == 0 ]] && { IsPlatform wsl1 && echo 1 || echo 2; return; }
-
-	local dist; distArg "$1" || return	
-	listPlainCommand | grep ^test1 | awk '{ print $3; }'
-}
-
-fixDnsNameLookupCommand()
-{
-	! IsPlatform wsl2 && { EchoErr "Name resolution only needs to be fixed in WSL 2"; return 1; }
-
-	if ! grep "generateResolvConf = false" "/etc/wsl.conf" >& /dev/null; then
+	if ! grep -q "generateResolvConf = false" "/etc/wsl.conf"; then
 		printf "[network]\ngenerateResolvConf = false\n" | sudo tee -a "/etc/wsl.conf"
-		clipw "wsl.exe -d $(wsl name) -e bash -l wsl FixDnsNameLookup"
+		clipw "wsl.exe -d $(distName) -e bash -l wsl FixDnsNameLookup"
 		pause "When WSL is terminated execute the contents of the clipboard..."
-		killCommand "$(nameCommand)" || return
+		killCommand "$(distName)" || return
 		exit
 	fi
 
 	# fix /etc/resolv.conf which is a link to a missing file after the restart
-	if ! grep "nameserver 192.168.100.10" "/etc/resolv.conf" >& /dev/null; then
-		. "$(ScriptDir)/bootstrap-config.sh" || return
+	local dns1="$(ConfigGet "dns1")" dns2="$(ConfigGet "dns2")" domain="$(ConfigGet "domain")"
+	if ! grep -q "nameserver $dns1" "/etc/resolv.conf"; then
 		sudo rm -f "/etc/resolv.conf" || return
 		sudo touch "/etc/resolv.conf" || return
-		printf "nameserver $(ConfigGet "dns1")\nameserver $(ConfigGet "dns2")\nsearch $(ConfigGet "domain")\n" | sudo tee "/etc/resolv.conf" || return
+		printf "nameserver $dns1\nameserver $dns2\nsearch $domain\n" | sudo tee "/etc/resolv.conf" || return
 	fi
 
 	return 0
 }
 
 #
-# mount/unmount disks
+# Help Commands
 #
 
-mountCommand()
+helpUsage() { echot "Usage: $(ScriptName) help lxr|wsl"; }
+helpCommand() { helpLxrCommand; helpWslCommand; }
+helpLxrCommand() { lxr |& Utf16to8; }
+helpWslCommand() { w --help | Utf16to8; }
+
+#
+# Install Commands
+#
+
+installUsage() { echot "Usage: $(ScriptName) install systemd"; }
+installCommand() { usage; }
+
+installSystemdCommand()
 {
-	! supports "mount" && { ScriptErr "mounting is not implemented in this version of WSL"; return 1; }
-
-	# get the disk to mount
-	local disk="${1:-$(drive win GetOffline | head -1)}"
-	
-	if [[ ! $disk ]]; then
-		EchoErr "wsl: there are no offline disks to mount
-  use \`drive win offline NUM\` to offline a disk for use in WSL
-"
-		drive win list
-		return 1
-	fi
-
-	# run elevated
-	! IsElevated && { RunScript $verbose --elevate -- wsl mount "$disk"; return; }
-
-	# get the existing block devices
-	local devices; IFS=$'/n' devices=( $(lsblk -no NAME) )
-
-	# mount the disk
-	wsl.exe --mount '\\.\PHYSICALDRIVE'$disk'' --bare || return
-
-	# start LVM service and scan for volumes - systemd run the udev service which creates LVM devices automatically
-	if InPath vgscan && ! IsSystemd ; then
-		service start lvm2 || return
-		sudo vgscan --mknodes || return
-	fi
-
-	# wait for the block device to be mounted and return it
-	sleep 2
-	lsblk -no NAME | grep -v "$(ArrayDelimit devices $'\n')"
+	ghq get https://github.com/DamionGans/ubuntu-wsl2-systemd-script.git || return
+	"$HOME/ghq/github.com/DamionGans/ubuntu-wsl2-systemd-script/ubuntu-wsl2-systemd-script.sh" || return
 }
 
-unmountCommand()
-{
-	! supports "unmount" && { ScriptErr "mounting is not implemented in this version of WSL"; return 1; }
+#
+# helper
+#
 
-	local disk="${1}"; [[ ! $disk ]] && MissingOperand "disk"
-	
-	if IsElevated; then
-		wsl.exe --unmount '\\.\PHYSICALDRIVE'$disk'' || return
-	else
-		RunScript $verbose --elevate -- wsl unmount "$disk" || return
-	fi
+distDir() { wtu "$(wsl dist summary "$dist" | grep "Installation directory" | cut -d: -f 2- | cut -d" " -f 2)"; }
+distExists() { [[ $1 && "$(list "$1" | cut -d" " -f1 | grep "^${1}$")" ]]; }
+distFirst() { list "$1" | head -1 | awk '{ print $1; }'; }
+distIsRunning() { [[ "$(list | grep "^$dist" | awk '{ print $2; }')" == "Running" ]]; }
+distValidate() { distExists && return; [[ ! $quiet ]] && EchoErr "Distribution '$dist' does not exist"; return 1; }
+distVersion() { list | grep "^$dist" | awk '{ print $3; }'; }
+
+distArgGetDefault()
+{ 
+	(( $# == 0 )) && { dist="$(distName)"; return; }
+	dist="$1"; ((++shift)); distValidate
 }
 
-run "$@"
+distName()
+{ 
+	[[ $WSL_DISTRO_NAME ]] && { echo "$WSL_DISTRO_NAME"; return; }
+
+	# WSL_DISTRO_NAME is not passed by default when using su/sudo/login
+	local name="$(utw / | cut -d'\' -f4)"
+	[[ $name ]] && { ScriptErr "unable to find the default WSL distribution"; return 1; }
+
+	return 0
+}
+
+getDefaultUser() { lxr get-uid -n "$dist" | Utf16toAnsi | RemoveCarriageReturn; }
+list() { listCommand | cut -b 3- | tail +2 ; } # remove header and default distribution * }
+lxr() { ( cd /; LxRunOffline.exe "$@"; ); }
+wslShare() { supportsMount && printf "wsl" || printf "wsl$"; }
+supports() { wsl.exe --help | Utf16to8 | grep '\-\-'"$1" >& /dev/null; }
+supportsMount() { supports "mount" && return; ScriptErr "mounting drives is not implemented in this version of WSL"; return 1; }
+w() { ( cd /; wsl.exe "$@"; ); } # cd to local directory to fix invalid argument error running programs from SMB mounted shares
+
+ScriptRun "$@"
