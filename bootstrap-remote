@@ -6,7 +6,7 @@ usage()
 	ScriptUsage "$1" "\
 Usage: $(ScriptName) [OPTION]... TARGET [SSH_PORT](22)
 Bootstrap a remote system.
-Target is either [USER]@HOST (a remote host) or a the name of a chroot distribution.
+Target is a remote host ([USER]@HOST), a chroot, or a WSL distribution.
 		
 	-cf,	--config-file=FILE	the configuration file to use
 	-v, 	--verbose						display detailed output"
@@ -43,13 +43,15 @@ runCommand()
 	
 	if ChrootHelper installed && ChrootHelper exists "$target"; then
 		bootstrapChroot "$target"
+	elif wsl dist exists "$target"; then
+		bootstrapWsl "$target"
 	else
 		bootstrapSsh "$target"
 	fi
 }
 
 #
-# chroot - bootstrap a chroot host
+# chroot - bootstrap a chroot
 #
 
 bootstrapChroot()
@@ -66,6 +68,7 @@ bootstrapChroot()
 	cp "${coreFiles[@]}" "$dir/tmp" || return 
 
 	# run bootstrap-init in the chroot
+	hilight "Running bootstrap on $dist..."
 	ChrootHelper run "$dist" -s /bin/bash -d /tmp "/tmp/bootstrap-init" "/tmp/$(GetFileName "$configFile")" # -u $USER
 }
 
@@ -96,6 +99,7 @@ bootstrapSsh()
 		sshCheckUser || return
 
 		# connect using X forwarding to allow use of the credential store
+		hilight "Running bootstrap on $host..."
 		sshDo -Yt -- bash -l "/tmp/bootstrap-init /tmp/$(GetFileName "$configFile") --restart $verbose"
 		result="$?"; [[ "$result" != "100" ]] && return "$result"
 
@@ -144,5 +148,27 @@ sshConfigure()
 }
 
 sshDo() { ssh "$user@$host" "${sshArgs[@]}" "$@"; }
+
+#
+# WSL - bootstrap a WSL distribution
+#
+
+bootstrapWsl()
+{
+	local dist="$target" dir="/tmp"
+
+	if [[ "$(wsl get name)" != "$dist" ]]; then
+		hilight "Mounting share..."
+		dir="$(unc mount "//$(wsl get share)/$dist/tmp")" || return
+	fi
+
+	# copy core files
+	hilight "Copying core files..."
+	cp "${coreFiles[@]}" "$dir" || return
+
+	# run bootstrap-init in WSL distribution
+	hilight "Running bootstrap on $dist..."
+	LxRunOffline.exe run -n "$dist" -w -c "bash -c \". /tmp/bootstrap-init\"" || return
+}
 
 ScriptRun "$@"
