@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-usage: wsl disk|dist|fix|get|help|install|list|update
+usage: wsl disk|dist|get|help|install|list|shutdown|update
 Windows Subsystem for Linux (WSL) commands."
 }
 
@@ -20,6 +20,7 @@ init()
 
 listCommand() { w --list --verbose | Utf16toAnsi | RemoveCarriageReturn; }
 updateCommand() { ! supports "update" && return; w --update; }
+shutdownCommand() { sync; wsl.exe --shutdown; } # sync prevents file corruption, ~/.zsh_history is likely to corrupt
 
 #
 # Disk Command
@@ -88,11 +89,13 @@ diskUnmountCommand()
 # Distribution Commands
 #
 
-distUsage() { echot "Usage: $(ScriptName) dist backup|bootstrap|copy|delete|kill|restore|run|shortcut|summary|user [NAME](current)"; }
+distUsage() { echot "Usage: $(ScriptName) dist backup|copy|delete|exists|kill|restore|run|shortcut|summary|user [NAME](current)"; }
 distArgs() { distArgGetDefault "$@" || return; }
 distCommand() { usage; }
-distKillCommand() { w --terminate "$dist"; }
+distExistsCommand() { distExists; }
+distKillCommand() { wsl.exe -d test1 sync; w --terminate "$dist"; } # sync prevents file corruption, ~/.zsh_history is likely to corrupt
 distRunCommand() { w --distribution "$dist"; }
+distShortcutCommand() { distShortcut; }
 distSummaryCommand() { lxr summary -n "$dist" | Utf16toAnsi | RemoveCarriageReturn; }
 
 # backup
@@ -106,14 +109,6 @@ distBackupCommand()
 	src="$(wtu "$file")" # for restore
 
 	echo "'$dist' backed up to '$src'"
-}
-
-# bootstrap
-distBootstrapCommand()
-{
-	cmd.exe /c 'copy '$(utw $BIN/bootstrap-init)' \\$(wslShare)\'$dist'\tmp' || return
-	cmd.exe /c 'copy '$(utw $BIN/bootstrap-config.sh)' \\$(wslShare)\'$dist'\tmp' || return
-	lxr run -n "$dist" -w -c "bash -c \". /tmp/bootstrap-init\"" || return
 }
 
 # copy
@@ -146,53 +141,64 @@ distDeleteCommand()
 	[[ ! -d "$dir" ]] && { ScriptErr "the '$dist' distribution directory was not found"; return 1; }
 
 	# ask to delete
-	[[ ! $noPrompt ]] && ! ask -dr n "Delete the '$dist' distribution" && return 1
+	[[ $noPrompt ]] && hilight "Deleting the '$dist' distribution..." || { ask -dr n "Delete the '$dist' distribution" || return; }
 
 	# delete
 	[[ $test ]] && return
-	exit; distKillCommand && w --unregister "$dist" && rm -fr "$dir"
+	distKillCommand && w --unregister "$dist" && rm -fr "$dir"
 }
 
 # restore
 
-distRestoreUsage() { echot "Usage: $(ScriptName) dist restore DIST [SRC](ubuntu-focal)
-Restore restore a WSL image commands.  SRC is a file or the name of a distribution image."; }
+distRestoreUsage()
+{
+	echot "Usage: $(ScriptName) dist restore DIST [SRC](ubuntu-focal)
+Restore restore a WSL image commands."
+
+EchoWrap "\nSRC is an image file, or the name of a image in $wslDir, \
+$(distImageDir | FileToDesc), or https://github.com/DDoSolitary/LxRunOffline/wiki."
+}
 
 distRestoreArgs() { (( $# == 0 )) && src="ubuntu-focal" || ScriptArgGet "src" -- "$@"; }
 
 distRestoreCommand()
 {
-	local cachedFile dist src version i="$(i dir)"
-	local image="$i/platform/LINUX/wsl/image"
+	local image; image="$(distImageDir)" || return
 
 	# checks
 	[[ "$dist" == "$(distName)" ]] && { ScriptErr "cannot restore to the current distribution"; return 1; }
+
+	# delete an existing distribution
+	distExists && { distDeleteCommand || return; }
 
 	# src argument
 	file="$src"
 
 	# check if src is a cached file
-	[[ ! -f "$file" ]] && file="$wslDir/image/$src.tar.gz" 
+	[[ ! -f "$file" ]] && file="$wslDir/image/$src.tar.gz"
 
 	# check for src in each distribution in the image directory
-	if [[ ! -f "$file" ]]; then
-		for dir in "$image/"*; do
-			file="$dir/$src.tar.gz"
-			[[ -f "$file" ]] && break
-		done
-	fi
+	[[ ! -f "$file" ]] && file="$(find "$image" -iname "$src.tar.gz" | head -1)"
 
-	# find src from install directory - assume src is in the format distribution-version, i.e. ubuntu-focal
+	# find src from install directory - 
 	if [[ ! -f "$file" ]]; then
-		local i d v; IFS='-' read d v <<<"$src"
 		file="$(ls "$image/$d/$d-$v-"* |& head -1)"
 	fi
 
-	# find src from LxRunOffline download site - https://github.com/DDoSolitary/LxRunOffline/wiki
+	# check for an LxRunoffline distribution - https://github.com/DDoSolitary/LxRunOffline/wiki
 	if [[ ! -f "$file" ]]; then
+		local d v; IFS='-' read d v <<<"$src" # assume src is in the format distribution-version, i.e. ubuntu-focal
 		file="$wslDir/image/$src.tar.gz"
-		curl -L "http://lxrunoffline.apphb.com/download/$d/$v" -o "$file"
-		! tar -tzf "$file" >& /dev/null && rm -f "$file" >& /dev/null
+		hilight "Downloading $src..."
+		curl --location "http://lxrunoffline.apphb.com/download/$d/$v" -o "$file"
+
+		# validate - Fedora-rawhide is not gzipped and import fails with "Unspecified error"
+		if ! tar --list --gunzip --file "$file" >& /dev/null; then
+			EchoErr "'$(GetFileName "$file")' is not a valid WSL image"
+			rm -f "$file" || return
+			return 1
+		fi
+
 	fi
 
 	if [[ ! -f "$file" ]]; then
@@ -200,17 +206,13 @@ distRestoreCommand()
 		return 1
 	fi
 
-	echo "Importing $(GetFileName "$file") as $dist..."
+	hilight "Restoring $(GetFileName "$file") as $dist..."
+
+	printf "importing..."
  	wsl.exe --import "$dist" "$(utw "$wslDir/$dist")" "$(utw "$file")" --version 2 || return
-	shortcutCommand "$dist" || return
-}
+ 	echo "done"
 
-# shortcut
-
-distShortcutCommand()
-{ 
-	[[ ! -d "$shortcutDir" ]] && { mkdir --parents "$shortcutDir" || return; }
-	MakeShortcut "wsl.exe" "$shortcutDir/$dist" "-d $dist" "$(utw $(FindInPath wsl.exe))" || return
+	distShortcut "$dist" || return
 }
 
 # user
@@ -256,25 +258,44 @@ distUserSetCommand()
 # Get Command
 #
 
-getUsage() { echot "Usage: $(ScriptName) get share
+getUsage() { echot "Usage: $(ScriptName) get name|share
 Get WSL configuration"; }
 
 getCommand() { usage; }
+getNameCommand() { distName; }
 getShareCommand() { wslShare; }
 
 #
-# Fix Commands
+# Help Commands
 #
 
-fixUsage() { echot "Usage: $(ScriptName) fix dns
-Fix WSL behavior."; }
+helpUsage() { echot "Usage: $(ScriptName) help lxr|wsl"; }
+helpCommand() { helpLxrCommand; helpWslCommand; }
+helpLxrCommand() { lxr |& Utf16to8; }
+helpWslCommand() { w --help | Utf16to8; }
 
-fixCommand() { usage; }
+#
+# Install Commands
+#
 
-fixDnsUsage() { echot "Usage: $(ScriptName) fix dns
+installUsage() { echot "Usage: $(ScriptName) install [bootstrap|dns|systemd](bootstrap)"; }
+installCommand() { usage; }
+
+# Install Bootstrap
+
+installBootstrapUsage() { echot "Usage: $(ScriptName) install bootstrap [DIST](current)
+Bootstrap the WSL distribution."; }
+
+installBootstrapArgs() { distArgGetDefault "$@" || return; }
+
+installBootstrapCommand() {	bootstrap-remote "$dist"; }
+
+# Install DNS
+
+installDnsUsage() { echot "Usage: $(ScriptName) install dns
 Manually specify DNS configuration for WSL."; }
 
-fixDnsCommand()
+installDnsCommand()
 {
 	! IsPlatform wsl2 && { ScriptErr "name resolution only needs to be fixed in WSL 2"; return 1; }
 
@@ -297,21 +318,7 @@ fixDnsCommand()
 	return 0
 }
 
-#
-# Help Commands
-#
-
-helpUsage() { echot "Usage: $(ScriptName) help lxr|wsl"; }
-helpCommand() { helpLxrCommand; helpWslCommand; }
-helpLxrCommand() { lxr |& Utf16to8; }
-helpWslCommand() { w --help | Utf16to8; }
-
-#
-# Install Commands
-#
-
-installUsage() { echot "Usage: $(ScriptName) install systemd"; }
-installCommand() { usage; }
+# Install systemd
 
 installSystemdCommand()
 {
@@ -324,8 +331,9 @@ installSystemdCommand()
 #
 
 distDir() { wtu "$(wsl dist summary "$dist" | grep "Installation directory" | cut -d: -f 2- | cut -d" " -f 2)"; }
-distExists() { [[ $1 && "$(list "$1" | cut -d" " -f1 | grep "^${1}$")" ]]; }
+distExists() { list | cut -d" " -f1 | grep -q "^${dist}$"; }
 distFirst() { list "$1" | head -1 | awk '{ print $1; }'; }
+distImageDir() { FindInstallFile "platform/linux/wsl/image"; }
 distIsRunning() { [[ "$(list | grep "^$dist" | awk '{ print $2; }')" == "Running" ]]; }
 distValidate() { distExists && return; [[ ! $quiet ]] && EchoErr "Distribution '$dist' does not exist"; return 1; }
 distVersion() { list | grep "^$dist" | awk '{ print $3; }'; }
@@ -333,7 +341,8 @@ distVersion() { list | grep "^$dist" | awk '{ print $3; }'; }
 distArgGetDefault()
 { 
 	(( $# == 0 )) && { dist="$(distName)"; return; }
-	dist="$1"; ((++shift)); distValidate
+	dist="$1"; ((++shift)); 
+	[[ "$command" == @(distExits|distRestore) ]] && return || distValidate
 }
 
 distName()
@@ -345,6 +354,12 @@ distName()
 	[[ $name ]] && { ScriptErr "unable to find the default WSL distribution"; return 1; }
 
 	return 0
+}
+
+distShortcut()
+{
+	[[ ! -d "$shortcutDir" ]] && { mkdir --parents "$shortcutDir" || return; }
+	MakeShortcut "wsl.exe" "$shortcutDir/$dist" "-d $dist" "$(utw $(FindInPath wsl.exe))" || return
 }
 
 getDefaultUser() { lxr get-uid -n "$dist" | Utf16toAnsi | RemoveCarriageReturn; }
