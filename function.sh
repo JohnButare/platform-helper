@@ -1917,7 +1917,7 @@ GetVmType() # vmware|hyperv
 
 	# In wsl2, Hyper-V is detected on the physical host and the virtual machine as "microsoft" so check the product
 	if IsPlatform wsl2 && [[ "$result" == "hyperv" ]]; then
-		local product="$(RemoveSpaceTrim $(wmic.exe baseboard get product | RemoveCarriageReturn | tail -2 | head -1))"
+		local product="$(wmic.exe baseboard get product | RemoveCarriageReturn | tail -1 | head -1 | RemoveSpaceTrim)"
 		if [[ "$product" == "440BX Desktop Reference Platform" ]]; then result="vmware"
 		elif [[ "$product" == "Virtual Machine" ]]; then result="hyperv"
 		else result=""
