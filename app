@@ -1,48 +1,48 @@
 #!/usr/bin/env bash
 . app.sh
 
-init()
-{
-	unset brief
-	localApps=(cpu7icon gridy hp SideBar SpeedFan ThinkPadFanControl ZoomIt ShairPort4W)
-}
-
 usage()
 {
-	echot "\
-usage: app [startup|close|restart](startup) <apps>
+	ScriptUsage "$1" "\
+usage: app [startup|close|restart](startup) [APP]...
 	-b, --brief 				brief status messages"
-	exit $1
 }
 
-args()
+init() { defaultCommand="startup"; localApps=(cpu7icon gridy hp SideBar SpeedFan ThinkPadFanControl ZoomIt ShairPort4W); }
+
+argStart() { unset -v brief; }
+
+opt()
 {
-	unset -v brief
-	command='startup'
-
-	while [ "$1" != "" ]; do
-		case $1 in
-			-h|--help) usage 0;;
-			-b|--brief) brief="--brief";;
-			startup|close) command=$1;;
-			*)
-				args=( "${@:1}" )
-				break;;
-		esac
-		shift
-	done
-	[[ "$command" == "startup" ]] && status="Starting" || status="Closing"
+	case "$1" in
+		-b|--brief) brief="true";;
+		*) return 1;;
+	esac
 }
+
+args() { apps=( "$@" ); shift="$#"; }
+
+argEnd() { [[ "$command" == "startup" ]] && status="Starting" || status="Closing"; }
+
+#
+# Commands
+#
+
+closeCommand() { run; }
+restartCommand() { run; }
+startupCommand() { run; }
+
+#
+# helper
+#
 
 run()
 {	
-	init
-	args "$@"
-	
-	for app in "${args[@]}"
+	for app in "${apps[@]}"
 	do
 		MapApp || return
 		[[ $brief ]] && printf "."
+
 		if f="$(FindFunction "$app")"; then
 			"$f"
 		elif IsInArray "$app" localApps; then
@@ -200,6 +200,7 @@ MapApp()
 		ProcExp|pe) app="ProcessExplorer";;
 		tc) app="TrueCrypt";;
 		keys) app="AutoHotKey";;
+		network) app="NetworkUpdate";;
 		PuttyAgent) app="pu";;
 		terminator) app="TerminatorHelper";;
 		wmc) app="WindowsMediaCenter";;
@@ -224,6 +225,7 @@ incron() { RunService "incron"; }
 IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 IntelRapidStorage() { IsTaskRunning "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
 LogitechOptions() { [[ ! -f "$P/Logitech/LogiOptions/LogiOptions.exe" ]] && return; IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
+NetworkUpdate() { network current update --brief $force; }
 PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.exe"; [[ ! -f "$p" ]] && return; IsTaskRunning "$p" || start "$p"; }
 SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
 sshd() { RunService "ssh"; }
@@ -253,4 +255,4 @@ ProcessExplorer()
 	fi;
 }
 
-run "$@"
+ScriptRun "$@"

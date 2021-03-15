@@ -68,7 +68,9 @@ currentUsage()
 Current network commands.
 
 	name			name of the current network
-	update		update network settings for the current network"
+	update		update network settings for the current network
+
+	-b,	--brief		show brief status messages"
 }
 
 currentCommand() { currentNameCommand; }
@@ -84,40 +86,61 @@ currentNameCommand()
 		local name="$i" ip="${networks[$i]}"
 
 		# check if the IP is available, if it is see if the DNS server can resolve names 
-		[[ ! $quiet ]] && printf "Checking $name ($ip)..."
+		[[ ! $brief && ! $quiet ]] && PrintErr "Checking $name ($ip)..."
 		if IsAvailable "$ip" && dig @$ip bogus +time=1 +tries=1 >& /dev/null; then
-			[[ ! $quiet ]] && echo "found"
+			[[ ! $brief && ! $quiet ]] && EchoErr "found"
 			network="$name"
 			break
 		fi
 
 	done
-	[[ "$network" == "external" && ! $quiet ]] && echo "done"
 
-	[[ $quiet ]] && echo "$network" || echo "The current network is $network"
+	echo "$network"
+}
+
+currentArgStart() { unset -v brief; }
+
+currentOpt()
+{
+	case "$1" in
+		-b|--brief) brief="true";;
+		*) return 1;;
+	esac
 }
 
 currentUpdateCommand()
 {
-	local network existing="$(UpdateGet "network")"
+	# get existing configuration
+	local existingNetwork="$(UpdateGet "network")" existingProxy="$(UpdateGet "proxy")"
+	
+	# determine current configuration
+	local currentDns currentNetwork currentProxy
+	[[ ! $brief && ! $quiet ]] && { hilight "Determining network..."; echo "Existing network is ${existingNetwork:-unknown}"; }
+	currentNetwork="$(currentNameCommand)" || return
+	currentProxy="disable"; [[ "$currentNetwork" != "external" ]] && currentProxy="enable"
+	currentDns="$DATA/setup/resolv.conf.$currentNetwork"
+	[[ ! -f "$currentDns" ]] && { EchoErr "network: could not find resolve.conf for $currentNetwork"; return 1; }
 
-	hilight "Determining network..."
-	echo "Existing network is ${existing:-unknown}"
-	! currentNameCommand && return
+	# return if no changes are required
+	[[ ! $force && \
+		"$currentNetwork" == "$existingNetwork" && \
+		"$currentProxy" == "$existingProxy" ]] && \
+		diff -q "$currentDns" "/etc/resolv.conf" >& /dev/null && return
 
-	hilight "Setting the network to $network..."
+	# update network configuration
+	[[ ! $brief && ! $quiet ]] && hilight "Setting the network to $currentNetwork..."
+	[[ $brief ]] && printf "network..."
+	
+	# update resolv.conf
+	sudoc cp "$currentDns" "/etc/resolv.conf" || return
 
-	UpdateSet "network" "$network" || return
+	# update proxy	
+	UpdateSet "proxy" "$currentProxy" || return
+	ScriptEval network proxy vars --$currentProxy || return
+	network proxy apt --$currentProxy || return
+	[[ ! $brief && ! $quiet ]] && { network proxy || return; }
 
-	local file="$DATA/setup/resolv.conf.$network"
-	[[ ! -f "$file" ]] && { EchoErr "network: could not find a network configuration file for $network"; return 1; }
-	sudoc cp "$file" "/etc/resolv.conf"
-
-	local status="disable"; [[ "$network" != "external" ]] && status="enable"
-	UpdateSet "proxy" "$status" || return
-	ScriptEval network proxy vars --$status || return
-	network proxy apt --$status || return
-	network proxy || return
+	UpdateSet "network" "$currentNetwork" || return
 }
 
 #
