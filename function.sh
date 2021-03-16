@@ -1641,7 +1641,7 @@ start()
 		fi
 
 		if IsShellScript "$fullFile"; then
-			local p="wsl.exe"; [[ "$terminal" == "wt" ]] && InPath wt.exe && p="wt.exe -d "$PWD" wsl.exe"
+			local p="wsl.exe -d $(wsl get name)"; [[ "$terminal" == "wt" ]] && InPath wt.exe && p="wt.exe -d \"$PWD\" wsl.exe -d $(wsl get name)"
 			if IsSystemd; then
 				RunProcess.exe $wait $elevate "${windowStyle[@]}" bash.exe -c \""$(FindInPath "$fullFile") "${args[@]}""\"
 			else

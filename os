@@ -313,7 +313,7 @@ versionDistributionWin()
 	local ubr="$(HexToDecimal "$(registry get "$r/UBR" | RemoveCarriageReturn)")"
 	local build="$(registry get "$r/CurrentBuild" | RemoveCarriageReturn)"
 
-	echo "     windows: $releaseId (build $build.$ubr, WSL $(IsPlatform wsl1 && echo 1 || echo 2))"
+	echo "     windows: $releaseId (build $build.$ubr, WSL $(wsl get name))"
 }
 
 versionPi()

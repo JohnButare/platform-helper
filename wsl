@@ -10,6 +10,7 @@ Windows Subsystem for Linux (WSL) commands."
 
 init()
 { 
+	[[ ! -d "$DATA/appdataw/" ]] && { inst AppDir || return; }
 	wslDir="$DATA/appdataw/wsl"; [[ ! -d "$wslDir/image" ]] && { mkdir --parents "$wslDir/image" || return; }
 	shortcutDir="$PROGRAMDATA/Microsoft/Windows/Start Menu/Programs/Operating System/Other/WSL/"
 }
@@ -89,11 +90,12 @@ diskUnmountCommand()
 # Distribution Commands
 #
 
-distUsage() { echot "Usage: $(ScriptName) dist backup|copy|delete|exists|kill|restore|run|shortcut|summary|user [NAME](current)"; }
+distUsage() { echot "Usage: $(ScriptName) dist backup|copy|default|delete|exists|kill|restore|run|shortcut|summary|user [NAME](current)"; }
 distArgs() { distArgGetDefault "$@" || return; }
 distCommand() { usage; }
+distDefaultCommand() { w --set-default "$dist"; }
 distExistsCommand() { distExists; }
-distKillCommand() { wsl.exe -d test1 sync; w --terminate "$dist"; } # sync prevents file corruption, ~/.zsh_history is likely to corrupt
+distKillCommand() { w -d "$dist" sync; w --terminate "$dist"; } # sync prevents file corruption, ~/.zsh_history is likely to corrupt
 distShortcutCommand() { distShortcut; }
 distSummaryCommand() { lxr summary -n "$dist" | Utf16toAnsi | RemoveCarriageReturn; }
 
@@ -103,10 +105,18 @@ distBackupCommand()
 {
 	local file="$(utw "$wslDir/image/$dist-$(GetTimeStamp).tar.gz")"
 
-	distIsRunning && { ScriptErr "the '$dist' distribution must be stopped to be backed up"; return 1; }
-	w --export "$dist" "$file" || return
-	src="$(wtu "$file")" # for restore
+	# checks
+	[[ "$dist" == "$(distName)" ]] && { ScriptErr "cannot backup the current distribution"; return 1; }
 
+	# stop the distribution
+	if distIsRunning; then
+		[[ $noPrompt ]] && hilight "Stopping the '$dist' distribution..." || { ask -dr n "Stop the '$dist' distribution" || return; }
+		distKillCommand || return
+	fi
+
+	# backup
+	w --export "$dist" "$file" || return
+	src="$(wtu "$file")" # src variable for restore
 	echo "'$dist' backed up to '$src'"
 }
 
@@ -211,26 +221,16 @@ distRestoreCommand()
  	wsl.exe --import "$dist" "$(utw "$wslDir/$dist")" "$(utw "$file")" --version 2 || return
  	echo "done"
 
-	distShortcut "$dist" || return
+	distShortcut || return
+	user="$USER" distUserSetCommand || return
 }
 
 # run
 
-distRunUsage() { echot "Usage: $(ScriptName) dist run [NAME](current)
-
-	-r,	--run=USER		run as the specified user"; }
-
-distRunArgStart() { unset -v user; }
-
-distRunOpt() 
-{
-	case "$1" in
-		-u*|--user=*|--user) ScriptOptGet user "$@" || return; user=(--user "$user");;
-		*) return 1
-	esac
-}
-
-distRunCommand() { w --distribution "$dist" "${user[@]}" "${otherArgs[@]}"; }
+distRunUsage() { echot "Usage: $(ScriptName) dist run [NAME](current)\n\n	-r,	--run=USER		run as the specified user"; }
+distRunArgStart() { unset -v user userArg; }
+distRunOpt() { getUserArg "$@"; }
+distRunCommand() { w --distribution "$dist" "${userArg[@]}" "${otherArgs[@]}"; }
 
 # user
  
@@ -243,17 +243,8 @@ Get or set the default user for the specified distribution.
 }
 
 distUserArgStart() { user="$USER"; }
-
-distUserOpt() 
-{
-	case "$1" in
-		-u|--user) ScriptOptGet user "$@" || return;;
-		*) return 1
-	esac
-}
-
+distUserOpt() { getUserArg "$@"; }
 distUserCommand() { distUserGetCommand; }
-
 distUserGetCommand() { distUserGetCommand; }
 
 distUserSetCommand()
@@ -275,12 +266,14 @@ distUserSetCommand()
 # Get Command
 #
 
-getUsage() { echot "Usage: $(ScriptName) get name|share
+getUsage() { echot "Usage: $(ScriptName) get dir|name|share|ImageDir
 Get WSL configuration"; }
 
 getCommand() { usage; }
+getDirCommand() { printf "$wslDir"; }
 getNameCommand() { distName; }
 getShareCommand() { wslShare; }
+getImagedirCommand() { distImageDir; }
 
 #
 # Help Commands
@@ -314,24 +307,14 @@ Manually specify DNS configuration for WSL."; }
 installDnsCommand()
 {
 	! IsPlatform wsl2 && { ScriptErr "name resolution only needs to be fixed in WSL 2"; return 1; }
+	grep -q "generateResolvConf = false" "/etc/wsl.conf" && return
 
-	if ! grep -q "generateResolvConf = false" "/etc/wsl.conf"; then
-		printf "[network]\ngenerateResolvConf = false\n" | sudo tee -a "/etc/wsl.conf"
-		clipw "wsl.exe -d $(distName) -e bash -l wsl FixDnsNameLookup"
-		pause "When WSL is terminated execute the contents of the clipboard..."
-		killCommand "$(distName)" || return
-		exit
-	fi
+	# disable resolv.conf generation in wsl.conf
+	printf "[network]\ngenerateResolvConf = false\n" | sudo tee -a "/etc/wsl.conf"
 
-	# fix /etc/resolv.conf which is a link to a missing file after the restart
-	local dns1="$(ConfigGet "dns1")" dns2="$(ConfigGet "dns2")" domain="$(ConfigGet "domain")"
-	if ! grep -q "nameserver $dns1" "/etc/resolv.conf"; then
-		sudo rm -f "/etc/resolv.conf" || return
-		sudo touch "/etc/resolv.conf" || return
-		printf "nameserver $dns1\nameserver $dns2\nsearch $domain\n" | sudo tee "/etc/resolv.conf" || return
-	fi
-
-	return 0
+	# update resolve.conf - must be done while the distribution is not running
+	RunProcess.exe cmd /c "pause && wsl -d $(distName) network current update && wt.exe"
+	dist="$(distName)" distKillCommand || return
 }
 
 # Install systemd
@@ -381,9 +364,17 @@ distShortcut()
 getDefaultUser() { lxr get-uid -n "$dist" | Utf16toAnsi | RemoveCarriageReturn; }
 list() { listCommand | cut -b 3- | tail +2 ; } # remove header and default distribution * }
 lxr() { ( cd /; LxRunOffline.exe "$@"; ); }
-wslShare() { supportsMount && printf "wsl" || printf "wsl$"; }
+wslShare() { supports "mount" && printf "wsl" || printf "wsl$"; }
 supports() { wsl.exe --help | Utf16to8 | grep '\-\-'"$1" >& /dev/null; }
 supportsMount() { supports "mount" && return; ScriptErr "mounting drives is not implemented in this version of WSL"; return 1; }
 w() { ( cd /; wsl.exe "$@"; ); } # cd to local directory to fix invalid argument error running programs from SMB mounted shares
+
+getUserArg() 
+{
+	case "$1" in
+		-u*|--user=*|--user) ScriptOptGet user "$@" || return; userArg=(--user "$user");;
+		*) return 1
+	esac
+}
 
 ScriptRun "$@"
