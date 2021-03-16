@@ -115,8 +115,9 @@ RunService()
 	! service exists "$1" && return
 
 	if [[ "$command" != "startup" ]]; then
+		! service running "$service" && return
 		printf "$service."
-		service stop $service # >& /dev/null
+		service stop $service >& /dev/null
 		return
 	fi
 
@@ -203,6 +204,7 @@ MapApp()
 		network) app="NetworkUpdate";;
 		PuttyAgent) app="pu";;
 		terminator) app="TerminatorHelper";;
+		time) app="FixTime";;
 		wmc) app="WindowsMediaCenter";;
 		wmp) app="WindowsMediaPlayer";;
 		X|XWindows) app="xserver";;
@@ -231,12 +233,11 @@ SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR
 sshd() { RunService "ssh"; }
 SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
 
-OneDrive()
+FixTime() 
 {
-	IsTaskRunning OneDrive.exe && return
-
-	local file="$P32/Microsoft OneDrive/OneDrive.exe"; [[ ! -f "$file" ]] && file="$ADATA/Microsoft/OneDrive/OneDrive.exe"
-	start "$file" /background; 
+	local skew="$(chronyc tracking | grep "^System time" | cut -d" " -f8)"
+  (( $(echo "$skew < 10" | bc -l) )) && return
+  printf "time." && sudoc chronyc makestep > /dev/null
 }
 
 IntelDesktopControlCenter() 
@@ -244,6 +245,14 @@ IntelDesktopControlCenter()
 	program="$P32/Intel/Intel(R) Desktop Control Center/idcc.exe"
 	{ [[ "$command" == "startup" && -f "$program" ]] && IsTaskRunning idcc; } && 
 		start --directory="$(GetFilePath "$program")" "$program"
+}
+
+OneDrive()
+{
+	IsTaskRunning OneDrive.exe && return
+
+	local file="$P32/Microsoft OneDrive/OneDrive.exe"; [[ ! -f "$file" ]] && file="$ADATA/Microsoft/OneDrive/OneDrive.exe"
+	start "$file" /background; 
 }
 
 ProcessExplorer()
