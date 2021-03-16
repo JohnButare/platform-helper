@@ -1142,7 +1142,9 @@ IsInSshConfig()
 SshAgentHelper()
 { 
 	[[ -f "$HOME/.ssh/environment" ]] && . "$HOME/.ssh/environment"
-	SshAgent "$@" && . "$HOME/.ssh/environment"
+	SshAgent "$@" || return
+	[[ -f "$HOME/.ssh/environment" ]] && . "$HOME/.ssh/environment"
+	return 0
 }
 
 # SshAgentConfig - read the SSH Agent configuration into the current shell

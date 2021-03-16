@@ -157,7 +157,7 @@ ScriptRun()
 	
 	# commands - format command1Command2Command
 	local args=() c shift="1"
-	local command commandNames=() commands=() otherArgs=() # public
+	local command commandNames=() commands=() globalArgs=() otherArgs=() # public
 
 	while (( $# )); do
 
@@ -214,6 +214,8 @@ ScriptRun()
 		RunFunction "${c}ArgEnd" || return
 	done
 	RunFunction "argEnd" || return
+
+	globalArgs=($force $noPrompt $quiet $verbose)
 
 	# cleanup
 	unset args c shift

@@ -3,7 +3,7 @@
 
 run()
 {
-	header "bootstrap-init"
+	header "bootstrap-init ($USER)"
 	init "$@" || return	
 	configureProxyServer || return
 	setupPackageManager || return
@@ -88,7 +88,10 @@ runAsUser()
 
 	hilight "Running $script as $user..."
 	cd /tmp || return
-	sudo --preserve-env --user=$user --set-home "$script" # preserve entire environment so wslpath works properly and WSL_ environment variables are passed
+
+	# preserve entire environment so wslpath works properly and WSL_ environment variables are passed
+	sudo --preserve-env --user=$user --set-home "$script" "${globalArgs[@]}" 
+	
 	exit
 }
 
@@ -161,18 +164,29 @@ configure-win()
 init()
 {	
 	# variables
-	unset -v force restart verbose
 	export functionConfigFileCache="${BASH_SOURCE[0]%/*}/bootstrap-config.sh"
 
 	# arguments
-	[[ -f "$1" ]] && { export functionConfigFileCache="$1"; shift; }
-	[[ "$1" == @(-f|--force) ]] && { force="true"; shift; }
-	[[ "$1" == @(-r|--restart) ]] && { restart="true"; shift; }
-	[[ "$1" == @(-v|--verbose) ]] && { verbose="--verbose"; shift; }
+	unset -v force noPrompt quiet restart verbose
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-f|--force) force="--force";;
+			-q|--force) quiet="--quiet";;
+			-np|--no-prompt) noPrompt="--no-prompt";;
+			-r|--restart) restart="--restart";;
+			-v|--verbose) verbose="--verbose";;
+			*) 
+				[[ -f "$1" ]] && { export functionConfigFileCache="$1"; shift; continue; }
+				echo "bootstrap-init: invalid argument '$1'"; return 1;
+		esac
+		shift
+	done
+	globalArgs=($force $noPrompt $quiet $verbose)
 
 	# variables
 	user="$(configGet "user")"
 	bootstrapHost="$(configGet "bootstrapHost")"
+	bootstrapShare="$(configGet "bootstrapShare")"
 
 	# mount location for public files
 	mount="$HOME/Volumes/public"
@@ -251,15 +265,15 @@ mountPublic-debian()
 {
 	# install
 	package cifs-utils || return	
-	! inPath mount-cifs && { sudo apt install -y cifs-utils || return; } # dpg --get-selections returns nothing in WSL Ubuntu-20.04
 
 	# configure
-	local line="$bootstrapUnc $mount cifs username=$user,noauto,rw,users 0 0"
+	local unc="//$bootstrapHost/$bootstrapShare"
+	local line="$unc $mount cifs username=$user,noauto,rw,users 0 0"	
 	! grep -q "$line" "/etc/fstab" && { echo "$line" | sudo tee -a "/etc/fstab" || return; }
 
 	# mount
-	[[ $verbose ]] && echo "mounting SMB drive: mount.cifs //$bootstrapHost/$bootstrapShare $mount -o user=$user sec=ntlmsspi"
-	mount.cifs "//$bootstrapHost/$bootstrapShare" "$mount" -o user=$user sec=ntlmsspi || return
+	[[ $verbose ]] && echo "mounting SMB drive: mount.cifs $unc $mount -o user=$user sec=ntlmsspi"
+	mount.cifs "$unc" "$mount" -o user=$user sec=ntlmsspi || return
 }
 
 mountPublic-win-drive() # mount a Windows drive letter, must start with /mnt, i.e. /mnt/d
@@ -344,12 +358,16 @@ package()
 	esac
 }
 
-packageInstalled() # return 0 if all passed packages are installed
+packageInstalled()
 { 
-	! inPath dpkg && return 1
+	if inPath dpkg; then
+		# if any one of the packages passed returns "no packages found" then return 1
+		dpkg --get-selections "$@" |& grep -q "no packages found" && return 1
+	else
+		# assumes each package name is in the path
+		inPath "$@" 
+	fi
 
-	# if any one of the packages passed returns "no packages found" then return 1
-	dpkg --get-selections "$@" |& grep "no packages found" > /dev/null && return 1
 	return 0
 }
 
@@ -437,15 +455,12 @@ debianFixMan()
 #
 
 configGet() { (. "$functionConfigFileCache"; eval echo "\$$1"); }
-
 getDateStamp() { ${G}date '+%Y%m%d'; }
 getFileDateStamp() { stat |& grep "BusyBox" >& /dev/null && return; ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
-
 header() { initColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
 hilight() { initColor; printf "${GREEN}$1${RESET}\n"; }
 initColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
-inPath () { which "$1" &> /dev/null; }
-
+inPath() { local f; for f in "$@"; do ! which "$f" >& /dev/null && return 1; done; return 0; }
 isAvailable() { ping -c 2 -W 2 "$1" &> /dev/null; }
 isChroot() { [[ $chroot ]]; }
 isContainer() { [[ $container ]]; }
@@ -456,9 +471,7 @@ isUbuntu() { [[ "$ID" == "ubuntu" ]]; }
 isWin() { [[ "$platform" == "win" ]]; }
 isWsl2() { [[ "$(uname -r)" =~ .*-microsoft-standard$ ]]; }
 isQnap() { [[ "$platform_like" == "qnap" ]]; }
-
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
-
 updateInit() { export updateDir="$1"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
 updateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(getDateStamp)" != "$(getFileDateStamp "$updateDir/$1")" ]]; }
 updateDone() { sudo touch "$updateDir/$1"; }

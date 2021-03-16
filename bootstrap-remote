@@ -8,8 +8,7 @@ Usage: $(ScriptName) [OPTION]... TARGET [SSH_PORT](22)
 Bootstrap a remote system.
 Target is a remote host ([USER]@HOST), a chroot, or a WSL distribution.
 		
-	-cf,	--config-file=FILE	the configuration file to use
-	-v, 	--verbose						display detailed output"
+	-cf,	--config-file=FILE	the configuration file to use"
 }
 
 init()
@@ -42,12 +41,14 @@ runCommand()
 	header "bootstrap-remote"
 	
 	if ChrootHelper installed && ChrootHelper exists "$target"; then
-		bootstrapChroot "$target"
+		type="chroot"
 	elif wsl dist exists "$target"; then
-		bootstrapWsl "$target"
+		type="wsl"
 	else
-		bootstrapSsh "$target"
+		type="ssh"
 	fi
+
+	RunFunction bootstrap "${type^}"
 }
 
 #
@@ -63,13 +64,11 @@ bootstrapChroot()
 	[[ ! -d "$dir" ]] && { EchoErr "$dist root directory "$dir" does not exist"; return 1; }
 
 	# copy core files
-	hilight "Copying core files..."
-	cp "${coreFiles[@]}" "/tmp" || return # some chroots mount our tmp directory
-	cp "${coreFiles[@]}" "$dir/tmp" || return 
+	copyCoreFiles "$dir/tmp" || return
+	copyCoreFiles "tmp" || return # some chroots mount our tmp directory
 
-	# run bootstrap-init in the chroot
-	hilight "Running bootstrap on $dist..."
-	ChrootHelper run "$dist" -s /bin/bash -d /tmp "/tmp/bootstrap-init" "/tmp/$(GetFileName "$configFile")" # -u $USER
+	# run bootstrap-init
+	runBootstrap || return
 }
 
 #
@@ -98,10 +97,7 @@ bootstrapSsh()
 
 		sshCheckUser || return
 
-		# connect using X forwarding to allow use of the credential store
-		hilight "Running bootstrap on $host..."
-		sshDo -Yt -- bash -l "/tmp/bootstrap-init /tmp/$(GetFileName "$configFile") --restart $verbose"
-		result="$?"; [[ "$result" != "100" ]] && return "$result"
+		runBootstrap; result="$?"; [[ "$result" != "100" ]] && return "$result"
 
 		hilight "Reconnecting to $host..."
 		sleep 2
@@ -131,13 +127,13 @@ sshWait()
 sshCheckUser() 
 { 
 	[[ "$bootstrapUser" == "$user" ]] && return
-	sshDo -- getent passwd "$bootstrapUser" >& /dev/null && user="$bootstrapUser"
+	run getent passwd "$bootstrapUser" >& /dev/null && user="$bootstrapUser"
 	return 0
 } 
 
 sshConfigure()
 {
-	sshDo 'bash -s' <<-EOF && return
+	run 'bash -s' <<-EOF && return
 		[[ -f "\$HOME/.ssh/authorized_keys" ]] && exit 0
 		[[ ! -d "\$HOME/.ssh" ]] && mkdir "\$HOME/.ssh"
 		exit 1
@@ -146,8 +142,6 @@ sshConfigure()
 	hilight "Configuring ssh..."
 	scp "${scpArgs[@]}" "$HOME/.ssh/"* ''"$user@$host"':~/.ssh' || return
 }
-
-sshDo() { ssh "$user@$host" "${sshArgs[@]}" "$@"; }
 
 #
 # WSL - bootstrap a WSL distribution
@@ -163,12 +157,48 @@ bootstrapWsl()
 	fi
 
 	# copy core files
-	hilight "Copying core files..."
-	cp "${coreFiles[@]}" "$dir" || return
+	copyCoreFiles "$dir" || return
 
-	# run bootstrap-init in WSL distribution
-	hilight "Running bootstrap on $dist..."
-	LxRunOffline.exe run -n "$dist" -w -c "bash -c \". /tmp/bootstrap-init\"" || return
+	# run bootstrap-init
+	runBootstrap || return
 }
+
+#
+# helper
+#
+
+copyCoreFiles()
+{
+	local dir="$1"
+
+	hilight "Copying core files..."
+
+	cp "${coreFiles[@]}" "$dir" || return 
+	run chmod +x "/tmp/bootstrap-*" || return
+}
+
+runBootstrap()
+{
+	local restart; [[ "$type" == "ssh" ]] && restart="--restart"
+
+	hilight "Running bootstrap on $dist..."
+	runi "/tmp/bootstrap-init" "/tmp/$(GetFileName "$configFile")" "${globalArgs[@]}" $restart
+}
+
+# run
+
+run() { RunFunction run "${type^}" -- "$@"; }
+
+runChroot() { ChrootHelper run "$dist" -s /bin/bash -d /tmp "$@"; }
+runSsh() { ssh -- "$user@$host" "${sshArgs[@]}" "$@"; }
+runWsl() { wsl.exe -d "$dist" "$@"; }
+
+# run interactive
+
+runi() { RunFunction run "${type^}" -- "$@"; }
+
+runiChroot() { ChrootHelper run "$dist" -s /bin/bash -d /tmp bash -l "$@"; }
+runiSsh() { ssh -Yt -- "$user@$host" "${sshArgs[@]}" -- bash -l "$@"; }
+runiWsl() { wsl.exe -d "$dist" bash -l "$@"; }
 
 ScriptRun "$@"
