@@ -6,22 +6,19 @@ usage()
 	echot "
 usage: code changes|checkout|clone|commit|log|status|update PROJECTS
 	changes         exit status is 0 if there are changes
-  log FILE				display the SVN log for the specified file
   switch PROJECTS [-v|--version VERSION](master)
-  -g, --gui		use the GUI command
-	-s, --svn		use SVN instead of GIT"
+  -g, --gui		use the GUI command"
 	exit $1
 }
 
 args()
 {
-	unset -v command gui projects svn 
+	unset -v command gui projects 
 	version="master"
 
 	while (( $# != 0 )); do
 		case "$1" in
 			-g|--gui) gui="true";;
-			-s|--svn) svn="true";;
 			-v|--version) version="$2"; shift;;
 			-h|--help) usage 0;;
 			IsInstalled) command="IsInstalled";;
@@ -48,7 +45,6 @@ args()
 init()
 { 
 	gitRepository="github.intel.com/csis"
-	svnRepository="azscsistfs001.amr.corp.intel.com:8443"
 }
 
 run() 
@@ -62,52 +58,35 @@ run()
 	[[ ! $projects ]] && MissingOperand "PROJECTS"; shift
 	for project in "${projects[@]}"; do
 		projectDir="$CODE/$project"
-		[[ "$command" != "clone" && ! -e "$projectDir/.git" ]] && svn="true"
 		${command}Command "${args[@]}" || return
 	done
 }
 
-svn() { builtin cd "$projectDir" || return; TortoiseSVN svn "$@"; }
-svng() { builtin cd "$projectDir" || return; TortoiseSVN gui /path:"$projectDir" "$@"; }
 gitc() { builtin cd "$projectDir" || return; git "$@"; }
-gitg() { builtin cd "$projectDir" || return; command GitHelper gui "$@"; }
-gittg() { builtin cd "$projectDir" || return; command GitHelper tgui "$@"; }
+gitg() { builtin cd "$projectDir" || return; GitHelper gui "$@"; }
 
-logCommand() 
-{ 
-	[[ $svn ]] && { TortoiseSVN gui /command:log /path:"$file"; return; }
-}
+checkoutCommand() { gitc checkout "$version"; }
 
 statusCommand() 
 { 
 	echo "************ $project Status ************"
-	[[ $svn ]] && { svn status; return; }
 	gitc status
 }
 
 revertCommand()
 { 
 	echo "************ Reverting $project ************"
-	[[ $svn ]] && { svng /command:revert; return; }
 	[[ $gui ]] && { gitg commit; return; } 
 	gitc reset --hard;
 }
 
-changesCommand() 
-{ 
-	if [[ $svn ]]; then
-		[[ "$(svn status)" != "" ]]
-	else
-		[[ "$(gitc status --porcelain)" != "" ]]
-	fi
-}
+changesCommand() {  [[ "$(gitc status --porcelain)" != "" ]]; }
 
 commitCommand() 
 { 
 	echo "************ Committing $project ************"
 	! code changes "$project" && { echo "no changes"; return 0; }
 	echo "changes present..."
-	[[ $svn ]] && { svng /command:commit; return; }
 	gitg
 }
 
@@ -115,23 +94,14 @@ cloneCommand()
 { 
 	echo "************ Cloning $project ************"
 
-	if [[ $svn && $gui ]]; then
-		TortoiseSVN gui /command:checkout /url:"https://$svnRepository/svn/$project/trunk/" /path:"$projectDir"
-	elif [[ $svn ]]; then
-		svn co "https://$svnRepository/svn/$project/trunk/" "$projectDir"
-	else
-		[[ ! -d "$projectDir/.git" ]] && { gitc clone "https://$gitRepository/$project" "$projectDir" || return; }
-		GitHelper hide "$projectDir" || return
-	fi
-	return 0
+	[[ ! -d "$projectDir/.git" ]] && { gitc clone "https://$gitRepository/$project" "$projectDir" || return; }
+	cd "$projectDir" && { GitHelper hide || return; }
 }
 
 updateCommand()
 { 
 	echo "************ Updating $project ************"
-	[[ $svn ]] && { svn update | grep -v "Updating '.':" ; return; }
 	integrationResetAll || return
-
 	gitc up || return
 }
 
@@ -162,23 +132,6 @@ integrationReset()
 	[[ "$currentBranch" != "$branch" ]] && { gitc checkout $branch || return; }
 	gitc reset --hard origin/$branch || return
 	[[ "$currentBranch" != "$branch" ]] && { gitc checkout $currentBranch || return; }
-}
-
-checkoutCommand()
-{
-	[[ $svn ]] && { svnCheckoutCommand; return; }
-	gitc checkout "$version"
-}
-
-svnCheckoutCommand()
-{
-	if [[ "$version" == @(trunk|master) ]]; then
-		echo "Switching $project to trunk..."
-		TortoiseSVN svn switch "^/trunk" "$projectDir"
-	else
-		echo "Switching $project to branch $version..."
-		TortoiseSVN svn switch "^/branches/$version" "$projectDir"
-	fi
 }
 
 run "$@"

@@ -170,7 +170,7 @@ ScriptRun()
 		# first command is lower case (i.e. dhcp), second command is upper case (i.e. dhcpStatus)
 		[[ $command ]] && ProperCase "$1" c || LowerCase "$1" c;
 
-		# commands that start with is are proper cased after is, i.e. isAvailable
+		# commands that start with is/to are proper cased after is, i.e. isAvailable
 		[[ "$c" =~ ^is..* ]] && c="is$(ProperCase "${c#is}")"
 
 		# the argument is a command if there is a function for it

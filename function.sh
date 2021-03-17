@@ -288,7 +288,7 @@ SleepStatus()
 EchoWrap()
 {
 	! InPath ${G}fold || ! IsInteger "$COLUMNS" || (( COLUMNS < 20 )) && { echo -e "$@"; return; }
-	echo -e "$@" | ${G}fold --space --width=$COLUMNS
+	echo -e "$@" | expand -t $TABS | ${G}fold --space --width=$COLUMNS
 }
 
 EchoErr() { EchoWrap "$@" >&2; }

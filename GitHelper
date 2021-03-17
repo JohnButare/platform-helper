@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. script.sh || exit
 
-run() {	init || return; args "$@" || return; ${command}Command "${args[@]}"; }
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) browse|clone|github|gui|hide|hub|IsInstalled|profile|size|to [OPTION]...
+Additional Git functionality."
+	exit $1
+}
 
 init()
 { 
@@ -15,75 +21,24 @@ init()
 	gitx="$P/GitX.app/Contents/Resources/gitx"
 }
 
-usage()
-{
-	echot "\
-usage: GitHelper ge|gb|gui|hub|tgui|changes|save|down|commit|commitg|browse|diff|status|size|ToHttp|ToSsh
-	Additional Git functionality
-	bin				Setup bin folders for git
-	clone 		clone a repository
-	gui				run GUI git program
-	hide 			hide Git files in repository
-	options 	Git Extensions options
-	ToGitHub REPO 			add a repository to GitHub
-	CloneExisting	REPO	re-create repository that exists in the current directory
-	profile save|restore|dir|SaveDir [<profile name>|default](latest) [--global]
-	-w, --wait		wait for the operation to complete"
-	exit $1
-}
+#
+# commands
+#
 
-args()
-{
-	unset command help dest exclude file show arg1 arg2
-	versions=( 2013 2012 )
-	while (( $# != 0 )); do
-		case "$1" in
-			--help) help="--help";;
-			--wait|-w) wait="--wait";;
-			IsInstalled) command="IsInstalled";; ToGitHub) command="ToGitHub";; ToHttp) command="ToHttp";; ToSsh) command="ToSsh";; CloneExisting) command="CloneExisting";;
-			*)
-				! IsOption "$1" && IsInArray "$1" versions && { version="$1"; shift; continue; }
-				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "$command" == @(clone|profile|ge|gfw|gui|tgui|up|down|browse|CloneExisting|commit|commitg|diff|status|ToGitHub|hide|changes) ]] && break # defer argument processing
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	[[ $help ]] && { IsFunction "${command}Usage" 0 && ${command}Usage || usage 0; }
-	[[ ! $command ]] && { MissingOperand "command"; }
-	args=("$@")
-}
-
-guiUsage() { "$gui" --help; exit $1; }
-IsInstalledCommand() { InPath git; }
+browseCommand() { guiCommand browse "$@"; }
+isInstalledCommand() { InPath git; }
+profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."; }
 profileCommand() {	profile --app "GitExtensions" --method "$ADATA/../Roaming/GitExtensions/GitExtensions" --files "GitExtensions.settings" "$@"; }
-
-optionsCommand()
-{
-	[[ "$PLATFORM" != "win" ]] && { guiCommand; return; }
-
-	# When setting options in GitExtensions .gitconfig cannot be a link
-	[[ ! -f ~/.gitconfig.hold ]] && { mv ~/.gitconfig ~/.gitconfig.hold || return; }
-	cp ~/.gitconfig.hold ~/.gitconfig || return
-	GitHelper gui --wait || return
-	mv ~/.gitconfig.hold ~/.gitconfig || rreturn
-}
-
-changesCommand()
-{
-	(( $# != 0 )) && [[ -d "$1" ]] && { pushd "$1" > /dev/null || return; shift; };
-	[[ "$(git status --porcelain)" != "" ]]
-}
 
 hideCommand()
 {
-	IsPlatform win || return 0
-
-	(( $# == 1 )) && { pushd "$1" > /dev/null || return; shift; }
-
+	! IsPlatform win && return
+	checkRepo || return
+	
 	FileHide ".git" || return
 	FileTouchAndHide ".gitignore" || return
-	attrib .gitkeep +h /s >& /dev/null || return
+
+	[[ -f ".gitkeep" ]] && { attrib .gitkeep +h /s || return; }
 
 	if git config --local core.filemode >& /dev/null; then
 		git config --local --unset core.filemode || return
@@ -92,126 +47,10 @@ hideCommand()
 	return 0
 }
 
-saveCommand()
-{
-	(( $# == 2 )) && { pushd "$1" > /dev/null || return; echo "Uploading $1..."; shift; }
-	changesCommand || return 0
-	git status
-	git add --all || return
-	git commit -m "$1" || return
-	git push || return
-}
-
-downCommand()
-{
-	(( $# == 1 )) && { pushd "$1" > /dev/null || return; echo "Downloading $1..."; shift; };
-	git pull
-}
-
-statusCommand()
-{
-	(( $# == 1 )) && [[ -d "$1" ]] && { pushd "$1" > /dev/null || return; shift; };
-	git status --short --branch
-}
-
-diffCommand()
-{
-	(( $# == 1 )) && { pushd "$1" > /dev/null || return; shift; };
-	git diff
-}
-
-commitCommand() 
-{ 
-	#(( $# != 0 )) && [[ -d "$1" ]] && { pushd "$1" > /dev/null || return; shift; };
-	guiCommand commit "$@"
-}
-
-commitgCommand() 
-{
-	changesCommand "$@" && guiCommand browse "$@"
-}
-
-guiCommand()
-{
-	local result pop guiTitle
-
-	WinSetState "$forkTitle" --activate >& /dev/null && return
-
-	[[ -d "$1" ]] && { pushd "$1" >& /dev/null; shift; pop="$true"; }
-
-	if [[ -f "$fork" ]]; then IsPlatform win && start "$fork" "$PWD" || "$fork" "$@"; guiTitle="$forkTitle"
-	elif InPath gitkraken; then start gitkraken -p "$PWD"
-	elif [[ -f "$GitExtensions" ]]; then [[ "$@" == "" ]] && start $wait "$GitExtensions" browse . || start $wait "$gitE" "$@";
-	elif [[ -f "$gitx" ]]; then [[ "$@" == "" ]] && start $wait "$gitx" --git-dir=. || start $wait "$gitx" "$@";
-	elif InPath "gitg"; then start $wait gitg "$@"	
-	else EchoErr "Could not find a git gui application"; return 1; fi
-	result="$?"
-
-	[[ $pop ]] && popd
-
-	return $result
-}
-
-browseCommand() { guiCommand browse "$@"; }
-
-CloneExistingCommand()
-{
-	local repo="$1"
-
-	echo "Cloning $1..."
-	[[ ! -d .git && ! -d hold/.git ]] && { git clone "$repo" hold || return; }	
-	[[ -f hold/.gitignore ]] && { mv hold/.gitignore . || return; }
-	[[ -d hold/.git ]] && { mv hold/.git . || return; }
-	hideCommand || return
-
-	[[ -d hold ]] && { rm -fr hold || return; }
-
-	echo "Updating remote to $repo..."
-	git remote set-url origin "$repo" || return
-	
-	return 0
-}
-
-binCommand()
-{
-	local binRepo ubinRepo
-
-	if [[ -d "/volume1/Git" ]]; then
-		binRepo="/volume1/Git/public-bin"
-		ubinRepo="/volume1/Git/jjbutare-bin"
-	elif IsAvailable nas3; then
-		binRepo="ssh://git@gitlab.butare.net:10022/jjbutare/public-bin.git"
-		ubinRepo="ssh://git@gitlab.butare.net:10022/jjbutare/jjbutare-bin.git"
-	elif IsAvailable nas1; then
-		binRepo="ssh://admin@nas1.hagerman.butare.net:608/git/public-bin"
-		ubinRepo="ssh://admin@nas1.hagerman.butare.net:608/git/jjbutare-bin"
-	else
-		return 0
-	fi
-
-	cd "$BIN" || return
-	GitHelper CloneExisting "$binRepo" || return
-	
-	cd "$UBIN" || return
-	GitHelper CloneExisting "$ubinRepo" || return
-	
-	# Windows plink requires accepting the key manually
-	if IsPlatform win && IsAvailable nas1; then
-		echo "Testing ssh connection to nas1..."
-		start plink.exe -v -P 608 root@nas1.hagerman.butare.net git --version
-	fi
-
-	if [[ -d "$BIN/.git" && -d "$UBIN/.git" ]]; then
-		echo "Git is setup for the the bin directories"
-		return 0
-	fi
-
-}
-
+# sizeCommand - from # http://stubbisms.wordpress.com/2009/07/10/git-script-to-show-largest-pack-objects-and-trim-your-waist-line/
 sizeCommand()
 {
-	# @see http://stubbisms.wordpress.com/2009/07/10/git-script-to-show-largest-pack-objects-and-trim-your-waist-line/
-	# @author Antony Stubbs
+	checkRepo || return
 
 	# set the internal field spereator to line break, so that we can iterate easily over the verify-pack output
 	IFS=$'\n';
@@ -240,72 +79,154 @@ sizeCommand()
 	echo -e $output | column -t -s ', '
 }
 
-ToHttpCommand()
+#
+# Clone Commands
+#
+
+cloneUsage()
 {
-	git remote set-url origin "https://$(getBaseUrl)/"
-	git remote --verbose
+	echot "Usage: $(ScriptName) clone [bin|existing|list] SERVER REPO
+Clone repositories."
 }
 
-ToSshCommand()
+cloneArgs()
 {
-	local url="$(getBaseUrl)" port
-	local server="${url%%/*}"
-	local suffix="${url#*( )*/}"
+	[[ "$command" == @(clone|cloneExisting|cloneList) ]] && { ScriptArgGet "server" -- "$@"; shift; }
+	[[ "$command" == @(clone|cloneExisting) ]] && { ScriptArgGet "repo" -- "$@"; shift; }
+	return 0
+}
 
-	case "$server" in
-		gitlab.devtools.intel.com) port=":29418";;
+cloneListCommand() { hilight "$server repostiories: "; ssh "$server" ls "/$(serverToDir "$server")" | grep -Ev "eaDir"; }	
+
+cloneCommand()
+{
+	local repo="$(serverToRepo "$server" "$repo")"
+
+	echo "Cloning $repo..."
+	cd "$CODE" || return
+	git clone "$repo" || return
+}
+
+cloneBinCommand()
+{
+	local server; server="$(findServer)" || { ScriptErr "unable to find a Git server"; return 1; }
+
+	cd "$BIN" && { repo="public-bin" cloneExistingCommand || return; }
+	cd "$UBIN" && { repo="$USER-bin" cloneExistingCommand || return; }
+	
+	# Windows plink requires accepting the key manually
+	local port="$(serverToPort "$server")"
+	if IsPlatform win && IsAvailablePort "$server" "$port"; then
+		echo "Testing SSH connection to $server..."
+		start plink.exe -v -P "$port" "$(serverToUser "$server")$server" git --version
+	fi
+
+	if [[ -d "$BIN/.git" && -d "$UBIN/.git" ]]; then
+		echo "Git is setup for the the bin directories"
+		return 0
+	fi
+
+	return 0
+}
+
+cloneExistingUsage()
+{
+	EchoWrap "Usage: $(ScriptName) clone existing SERVER
+Clone into the current existing directory.  This is useful if the content from the cloned repositry already exists."
+}
+
+cloneExistingCommand()
+{
+	repo="$(serverToRepo "$server" "$repo")"
+
+	echo "Cloning $repo..."
+	[[ ! -d .git && ! -d hold/.git ]] && { git clone "$repo" hold || return; }	
+	[[ -f hold/.gitignore ]] && { mv hold/.gitignore . || return; }
+	[[ -d hold/.git ]] && { mv hold/.git . || return; }
+	hideCommand || return
+
+	[[ -d hold ]] && { rm -fr hold || return; }
+
+	echo "Updating remote to $repo..."
+	git remote set-url origin "$repo" || return # in case the repository existed
+	
+	return 0
+}
+
+#
+# GUI Command
+#
+
+guiUsage() { echot "Usage: $(ScriptName) gui\nRun GUI git program.\n\n	-w, --wait		wait for the operation to complete"; }
+
+guiArgStart() { unset -v wait; }
+
+guiOpt()
+{
+	case "$1" in
+		-w|--wait) wait="true";;
+		*) return 1
 	esac
-
-	git remote set-url origin "ssh://git@${server}${port}/${suffix}"
-	git remote --verbose
 }
 
-getBaseUrl()
+guiCommand()
 {
-	# ssh://git@gitlab.devtools.intel.com:29418/csis/ics/ScadaPortal.git
-	# https://gitlab.devtools.intel.com/csis/ics/ScadaPortal.git/
+	local result pop guiTitle
 
-	local url="$(git remote --verbose | grep origin | cut -f2 | cut -d" " -f1 | head -1 | sed 's/\r//g')"
-	url="$(echo "$url" | sed 's/https:\/\///')" # remove https://
-	url="$(echo "$url" | sed 's/ssh:\/\///' | sed 's/git@//' | sed 's/:[0-9]*\//\//')" # remove ssh://, git@, and :NNN
-	url="${url%%/}" # remove trailing /
-	echo "${url}"
+	WinSetState "$forkTitle" --activate >& /dev/null && return
+
+	[[ -d "$1" ]] && { pushd "$1" >& /dev/null; shift; pop="$true"; }
+
+	if [[ -f "$fork" ]]; then IsPlatform win && start "$fork" "$PWD" || "$fork" "$@"; guiTitle="$forkTitle"
+	elif InPath gitkraken; then start gitkraken -p "$PWD"
+	elif [[ -f "$GitExtensions" ]]; then [[ "$@" == "" ]] && start $wait "$GitExtensions" browse . || start $wait "$gitE" "$@";
+	elif [[ -f "$gitx" ]]; then [[ "$@" == "" ]] && start $wait "$gitx" --git-dir=. || start $wait "$gitx" "$@";
+	elif InPath "gitg"; then start $wait gitg "$@"	
+	else EchoErr "Could not find a git gui application"; return 1; fi
+	result="$?"
+
+	[[ $pop ]] && popd
+
+	return $result
 }
 
-
 #
-# ToGitHub
+# GitHub Commands
 #
 
-ToGitHubCommand()
+githubCommand(){ usage; }
+
+githubCreateUsage()
 {
-	local org="CSIS"
-	local dir="/cygdrive/d/Archive"
+	echot "Usage: $(ScriptName) GitHut create [REPO]
+Create a GitHub repository from an existing repository."
+}
 
-	[[ $# != 1 ]] && { EchoErr "usage: togithub REPO"; return 1; }
-	repo="$1"
+githubCreateArgs() { ScriptArgGet "repo" -- "$@"; shift; }
+
+githubCreateCommand()
+{
+	local org="$USERNAME"
+	local dir="$CODE"
+
 	[[ ! -d "$dir/$repo" ]] && { EchoErr "$repo is not a valid repository"; return 1; }
 	cd "$dir/$repo"
 
-	echo '**********' "$repo" '**********'
+	header "$repo"
 
-	[[ ! -f .gitignore ]] && { AddDefaultGitIgnore || return 1; }
-	[[ ! -f README.md ]] && { AddDefaultReadMe || return 1; }
-	git remote | grep origin > /dev/null || { CreateGitHubRepository || return 1; } 
-	[[ -d .git/svn ]] && { echo "Getting changes from the SVN repository..."; "$P32/Git/bin/git" svn fetch || return 1; }
-	#git merge trunk
-	#ge svn dcommit
-	#git push --force
+	[[ ! -f .gitignore ]] && { addDefaultGitIgnore || return 1; }
+	[[ ! -f README.md ]] && { addDefaultReadMe || return 1; }
+	git remote | grep origin > /dev/null || { createGitHubRepository || return 1; } 
 	echo "Pushing repository to GitHub..."; git push || return 1
 	} 
 
-CreateGitHubRepository()
+createGitHubRepository()
 { 
 	echo "Creating GitHub repository...."
 	hub create $org/$repo -p -d "$repo project (converted from CSIS SVN repository)" || return 1
 }
 
-AddDefaultGitIgnore()
+addDefaultGitIgnore()
 {
 	echo "Adding default C# .gitignore...."
 	cp ../.gitignore . || return 1
@@ -313,34 +234,114 @@ AddDefaultGitIgnore()
 	git commit -m "Add default C# .gitignore" || return 1
 }
 
-AddDefaultReadMe()
+addDefaultReadMe()
 {
 	echo "Adding default README.md...."
-	echo "$repo" > README.md
-	eval printf '=%.0s' {1..${#n}} >> README.md
-	echo "" >> README.md
-	echo "$repo project (converted from a CSIS SVN repository)." >> README.md
-	echo "" >> README.md
-	echo "External Dependencies" >> README.md
-	echo "---------------------" >> README.md
-	echo "Install external dependencies listed here from \\\\\\\\CsisBuild.intel.com\d$\install" >> README.md
+	cat <<-EOF > "README.md"
+		$repo
+		$(eval printf '=%.0s' {1..${#n}})
+		
+		$repo project (converted from a CSIS SVN repository).
+		
+		External Dependencies
+		---------------------
+	EOF
+	
 	git add README.md || return 1
 	git commit -m "Add default README.md" || return 1
 }
 
-cloneCommand()
+#
+# To Commands
+#
+
+toUsage() { echot "Usage: $(ScriptName) git to http|ssh\nConvert the current repository to HTTP or SSH."; }
+toCommand() { usage; }
+
+toHttpCommand()
 {
-	local repo="$1"
-
-	if [[ "$repo" == "nas1" ]]; then
-		[[ ! $2 ]] && { echo "nas1 repostiories: "; ssh nas1 ls /git | grep -Ev "eaDir|-bin"; return 0; }
-		repo="ssh://admin@nas1.hagerman.butare.net:608/git/$2"
-	fi
-
-	echo "Cloning $repo..."
-	pushd "$CODE"	>& /dev/null || return
-	git clone "$repo" || return
-	popd || return
+	git remote set-url origin "https://$(getBaseUrl)/"
+	git remote --verbose
 }
 
-run "$@"
+toSshCommand()
+{
+	local url="$(getBaseUrl)"
+	local server="${url%%/*}"
+	local suffix="${url#*( )*/}"
+
+	git remote set-url origin "$(serverToRepo "$server" "${suffix}")" || return
+	git remote --verbose
+}
+
+#
+# helper
+#
+
+checkRepo() { [[ -d ".git" ]] && return; ScriptErr "not a git repository"; return; }
+
+# findServer - find a Git server
+findServer()
+{
+	# local repositories
+	local dir dirs=("/usr/local/data/appdata2/git" "/usr/local/data/appdata2/git")
+	for dir in "${dirs[@]}"; do
+		[[ -d "$dir" ]] && { echo "$dir"; return; }
+	done
+
+	# remote servers
+	local server servers=(nas3.butare.net nas1.butare.net)
+	for server in "${servers[@]}"; do
+		local port="$(serverToPort "$server")"
+		IsAvailablePort "$server" "${port:-22}" && { echo "$server"; return; }
+	done
+
+	return 1
+}
+
+# getBaseUrl - get repository base URL, i.e. https://server/path/ ssh://user@server:port/path/ -> server/path
+getBaseUrl() 
+{
+	local url="$(git remote --verbose | grep origin | cut -f2 | cut -d" " -f1 | head -1 | sed 's/\r//g')"
+	url="$(echo "$url" | sed 's/https:\/\///')" # remove https://
+	url="$(echo "$url" | sed 's/ssh:\/\///' | sed 's/git@//' | sed 's/:[0-9]*\//\//')" # remove ssh://, user@, and :port
+	url="${url%%/}" # remove trailing /
+	echo "${url}"
+}
+
+# serverToRepo server name -> ssh://user@server:port/dir/name
+serverToRepo() 
+{
+	local server="$1" name="$2"
+	[[ -d "$server" ]] && { echo "$server/$name"; return; }
+	local port="$(serverToPort "$server")"; [[ $port ]] && port=":$port"
+	echo "ssh://$(serverToUser "$1")$server$port/$(serverToDir "$1")/$name"; 
+}
+
+serverToDir()
+{
+	case "$1" in
+		gitlab|gitlab.butare.net) echo "$USERNAME";;
+		nas1|nas1.butare.net|nas1.hagerman.butare.net) echo "git";;
+		nas3|nas3.butare.net|nas3.hagerman.butare.net) echo "usr/local/data/appdata2/git";;
+	esac
+}
+
+serverToPort()
+{
+	case "$1" in
+		gitlab|gitlab.butare.net) echo "10022";;
+		nas1|nas1.butare.net|nas1.hagerman.butare.net) echo "608";;
+		nas3|nas3.butare.net|nas3.hagerman.butare.net) echo "608";;
+	esac
+}
+
+serverToUser()
+{
+	case "$1" in
+		gitlab|gitlab.butare.net) echo "git@";;
+		nas1|nas1.butare.net|nas1.hagerman.butare.net) echo "admin@";;
+	esac
+}
+
+ScriptRun "$@"
