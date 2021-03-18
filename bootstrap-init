@@ -11,8 +11,9 @@ run()
 	installPackages || return
 	configureOs || return
 	createUser || return
-	createUserHome || return
+	createUserHome || return	
 	runAsUser || return
+	fixPermissions || return
 	mountPublic || return
 	runBootstrap || return
 }
@@ -40,20 +41,6 @@ configureProxyServer()
 	return 0
 }
 
-setTimezone()
-{
-	! isDebian && return
-
-	local timezone="$(configGet "timezone")"
-	( [[ ! $timezone ]] || cat "/etc/timezone" |& grep "$timezone" > /dev/null ) && return
-
-	DEBIAN_FRONTEND=noninteractive $sudo apt install -y tzdata || return
-	[[ ! -f "/usr/share/zoneinfo/$timezone" ]] && return
-	$sudo ln -snf "/usr/share/zoneinfo/$timezone" "/etc/localtime" || return
-	echo "$timezone" | sudo tee "/etc/timezone" || return
-	$sudo dpkg-reconfigure -f noninteractive tzdata || return
-}
-
 createUser()
 {
 	isMac || [[ ! $user ]] || grep "$user" /etc/passwd >& /dev/null && return
@@ -72,27 +59,6 @@ createUserHome()
 
 	hilight "Creating user $user home directory..."
 	sudo mkhomedir_helper $user || return
-}
-
-runAsUser()
-{
-	[[ $user && "$USER" == "$user" ]] && return
-
-	[[ $restart ]] && { hilight "Restarting to run as $user..."; return 100; }
-	
-	local script="${BASH_SOURCE[0]}"
-
-	# allow user to update bootstrap files
-	sudo chown "$user" "/tmp/bootstrap/"* || return
-	sudo chmod ugo+rwx "/tmp/bootstrap/"* || return
-
-	hilight "Running $script as $user..."
-	cd /tmp || return
-
-	# preserve entire environment so wslpath works properly and WSL_ environment variables are passed
-	sudo --preserve-env --user=$user --set-home "$script" "${globalArgs[@]}" 
-	
-	exit
 }
 
 runBootstrap()
@@ -119,10 +85,54 @@ doReboot()
 	exit 100 
 }
 
+fixPermissions()
+{
+	# allow user to update bootstrap files
+	
+	sudo chown "$user" "/tmp/bootstrap/"* || return
+	sudo chgrp "$user" "/tmp/bootstrap/"* || return
+	sudo chmod ugo+rwx "/tmp/bootstrap/"* || return
+
+	sudo chown "$user" "/tmp/bootstrap-"* || return
+	sudo chgrp "$user" "/tmp/bootstrap-"* || return
+	sudo chmod ugo+rwx "/tmp/bootstrap-"* || return
+}
+
 fixReboot()
 {
 	local file; file="$(which reboot)" || return
 	[[ $sudo && -f "$file" ]] && { $sudo chmod ${1}s "$file" || return; }
+}
+
+runAsUser()
+{
+	[[ $user && "$USER" == "$user" ]] && return
+
+	[[ $restart ]] && { hilight "Restarting to run as $user..."; return 100; }
+	
+	local script="${BASH_SOURCE[0]}"
+
+	hilight "Running $script as $user..."
+	cd /tmp || return
+
+	# preserve entire environment so wslpath works properly and WSL_ environment variables are passed
+	sudo --preserve-env --user=$user --set-home "$script" "${globalArgs[@]}" 
+	
+	exit
+}
+
+setTimezone()
+{
+	! isDebian && return
+
+	local timezone="$(configGet "timezone")"
+	( [[ ! $timezone ]] || cat "/etc/timezone" |& grep "$timezone" > /dev/null ) && return
+
+	DEBIAN_FRONTEND=noninteractive $sudo apt install -y tzdata || return
+	[[ ! -f "/usr/share/zoneinfo/$timezone" ]] && return
+	$sudo ln -snf "/usr/share/zoneinfo/$timezone" "/etc/localtime" || return
+	echo "$timezone" | sudo tee "/etc/timezone" || return
+	$sudo dpkg-reconfigure -f noninteractive tzdata || return
 }
 
 #

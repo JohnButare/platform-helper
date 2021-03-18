@@ -112,7 +112,7 @@ RunService()
 
 	local service="$1"
 	
-	! service exists "$1" && return
+	! service exists "$1" --quiet && return
 
 	if [[ "$command" != "startup" ]]; then
 		! service running "$service" && return
@@ -235,6 +235,7 @@ SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
 
 FixTime() 
 {
+	! InPath chronyc && return
 	local skew="$(chronyc tracking | grep "^System time" | cut -d" " -f8)"
   (( $(echo "$skew < 10" | bc -l) )) && return
   printf "time." && sudoc chronyc makestep > /dev/null
