@@ -1,24 +1,9 @@
 #!/usr/bin/env bash
-. function.sh
-
-run() {	 init || return; args "$@" || return; ${command}Command "${args[@]}"; }
-
-init() 
-{
-	unset key value data dataType
-	bits="64"
-	title="Registry Editor"
-
-	program32="$WINDIR/syswow64/RegEdit.exe"
-	program64="$WINDIR/RegEdit.exe"
-
-	reg32="$WINDIR/syswow64/reg.exe"
-	reg64="$WINDIR/system32/reg.exe"
-}
+. script.sh
 
 usage()
 {
-	echot "\
+	ScriptUsage "$1" "\
 usage: registry [32|64] COMMAND
 	KEY 						KEY/
 	VALUE						KEY/VALUE
@@ -36,42 +21,47 @@ usage: registry [32|64] COMMAND
 	exit $1
 }
 
-args()
+init() 
 {
-	declare -g args=() originalArgs=( "$@" ); unset -v file verbose
-	
-	while [ "$1" != "" ]; do
-		case "${1,,}" in
-			32|64) bits="$1";;
-			-h|--help) usage 0;;
-			-v|--verbose) verbose="--verbose";;
-			IsKey) command="IsKey";;
-			*)
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				if ! IsOption "$1" ]]; then
-					[[ ! $key && "$command" == @(delete|exist|get|set|IsKey) ]] && { GetKeyValueArg "$@" || return; shift; continue; }
-					[[ ! $key && "$command" == @(edit|export) ]] && { GetKeyArg "$@" || return; shift; continue; }
-					[[ ! $key && "$command" == @(register|unregister) ]] && { GetFileArg "$@" || return; shift; continue; }
-					[[ "$command" == "set" ]] && { { GetDataType "$@" || GetData "$@"; } && { shift; continue; }; }
-				fi
-				[[ "$command" == @(export|import|reg) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
+	[[ "$PLATFORM" != "win" ]] && exit 0
 
-	[[ ! $command ]] && { MissingOperand "command"; }
+	unset key value data dataType
+	bits="64"
+	title="Registry Editor"
 
-	args=( "$@" )	
+	program32="$WINDIR/syswow64/RegEdit.exe"
+	program64="$WINDIR/RegEdit.exe"
+
+	reg32="$WINDIR/syswow64/reg.exe"
+	reg64="$WINDIR/system32/reg.exe"
+}
+
+args()
+{ 
+	[[ "$1" == @(32|64) ]] && { bits="$1"; ((++shift)); }
+	return 0
+}
+
+argEnd()
+{
 	EvalVar program$bits program
 	EvalVar reg$bits reg
 }
 
-closeCommand()
-{
-	! IsTaskRunning $program && return 0
-	WinSetState --close "$title"
-}
+#
+# commands
+#
+
+regArgs() { regArgs="$@"; ((shift+=$#)); }
+regCommand() { "$reg" "${regArgs[@]}"; }
+
+registerArgs() { ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+registerCommand() { RunScript --elevate $verbose -- regsvr32.exe /s \"$(utw "$file")\"; }
+
+unregisterArgs() { ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+unregisterCommand() { RunScript --elevate $verbose -- regsvr32.exe /s /u \"$(utw "$file")\"; }
+
+deleteArgs() { getKeyValueArg "$@"; }
 
 deleteCommand()
 {
@@ -80,25 +70,22 @@ deleteCommand()
 	"$reg" delete "$wkey" "${value[@]}" /f >& /dev/null
 }
 
+editArgs() { getKeyArg; }
+
 editCommand()
 {
-	[[ ! $key ]] && { start --elevate "$program"; return; }
-	
 	# Start the registry program manually so the correct key is opened (x64 key or x86 virtual key)
 	start --elevate "$program" || return
 	start --elevate regjump.exe "$wkey"
 }
 
+existsArgs() { getKeyValueArg "$@"; }
 existCommand() { "$reg" query "$wkey" "${value[@]}" >& /dev/null; }
 
-exportCommand()
-{
-	local file="$1"; shift
-	[[ ! $key ]] && { MissingOperand "KEY"; }
-	[[ ! file ]] && { MissingOperand "FILE"; }
-	[[ $# != 0 ]]	&& usage 1
-	RunScript --elevate $verbose -- "\"$program\" /e \"$(utw "$file")\" '$wkey'"
-}
+exportArgs() { getKeyArg && ScriptArgGet "file" -- "$@"; }
+exportCommand() {	RunScript --elevate $verbose -- "\"$program\" /e \"$(utw "$file")\" '$wkey'"; }
+
+getArgs() { getKeyValueArg "$@"; }
 
 getCommand()
 {
@@ -110,12 +97,19 @@ getCommand()
 	fi
 }
 
+isKeyArgs() { ScriptArgGet "key" -- "$@"; }
+
+isKeyCommand()
+{
+	local validPrefixes=( HKCR HKCU HKLM HKU HKCC HKEY_CLASSES_ROOT HKEY_CURRENT_USER HKEY_LOCAL_MACHINE HKEY_USERS HKEY_CURRENT_CONFIG )
+	prefix="${key%%/*}"
+	IsInArray "$prefix" validPrefixes
+}
+
+importArgs() { ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+
 importCommand()
 {	
-	local file="$1"; shift; [[ ! file ]] && { MissingOperand "FILE"; }
-	[[ ! -f "$file" ]] && { EchoErr "registry: cannot access \"$file\": No such file or directory"; return 1; }
-	[[ $# != 0 ]]	&& usage 1
-
 	# import from a temporary file on a Windows drive - in Windows build 20201.1000 elevated program cannot access WSL files
 	local tmpFile="$(mktemp --tmpdir="$ADATA/Temp")" || return
 	cp "$file" "$tmpFile" || return
@@ -128,9 +122,22 @@ importCommand()
 	return "$result"
 }
 
-regCommand() { "$reg" "$@"; }
-registerCommand() { RunScript --elevate $verbose -- regsvr32.exe /s \"$(utw "$file")\"; }
-unregisterCommand() { RunScript --elevate $verbose -- regsvr32.exe /s /u \"$(utw "$file")\"; }
+setArgStart() { unset -v dataType; data=(); }
+setArgs()
+{
+	# key
+	getKeyValueArg "$@"; shift;
+
+	# dataType
+	if [[ "$1" == +(REG_SZ|REG_MULTI_SZ|REG_EXPAND_SZ|REG_DWORD|REG_QWORD|REG_BINARY|REG_NONE) ]]; then
+		dataType=( /t "$1" ); ((++shift)); shift
+	fi
+
+	# data
+	[[ $1 ]] && { data=(/d "$1"); ((++shift)); shift; }
+
+	return 0
+}
 
 setCommand()
 {
@@ -139,42 +146,26 @@ setCommand()
 }
 
 #
-# Helper Functions
+# helper
 #
 
-GetData()
-{
-	[[ $data ]] && return 1
-	data=(/d "$1") || data=()
-}
-
-GetDataType()
-{
-	[[ $dataType || "$1" != +(REG_SZ|REG_MULTI_SZ|REG_EXPAND_SZ|REG_DWORD|REG_QWORD|REG_BINARY|REG_NONE) ]] && return 1
-	dataType=( /t "$1" )
-}
-
-GetFileArg()
-{
-	[[ $# == 0 ]] && MissingOperand "file"
-	file="$1"
-	[[ ! -f "$file" ]] && { EchoErr "$file does not exist"; return 1; }
-	return 0
-}
-
-GetKeyArg()
+getKeyArg()
 {
 	[[ $# == 0 ]] && MissingOperand "key"
 	key="$(BackToForwardSlash "$1")" # make sure arguments are in POSIX (forward slash) format (/)
-	MapKeyAlias "$key"
+	mapKeyAlias "$key"
+	((++shift))
 }
 
-GetKeyValueArg()
+getKeyValueArg()
 {
 	[[ $# == 0 ]] && MissingOperand "key"
-	local keyValue="$(BackToForwardSlash "$1")" # make sure arguments are in POSIX format (forward slash) format (/)
 
-	MapKeyAlias "${keyValue%*/*}" # remove value - text after last forward slash
+	# make sure arguments are in POSIX format (forward slash) format (/)
+	local keyValue="$(BackToForwardSlash "$1")"
+
+	# remove value - text after last forward slash
+	mapKeyAlias "${keyValue%*/*}"
 
 	# get the value after the last /
 	value="${keyValue##*/}" # get value - text before last forward slash
@@ -186,16 +177,11 @@ GetKeyValueArg()
 	else
 		unset value
 	fi
+
+	((++shift))
 }
 
-IsKeyCommand()
-{
-	local validPrefixes=( HKCR HKCU HKLM HKU HKCC HKEY_CLASSES_ROOT HKEY_CURRENT_USER HKEY_LOCAL_MACHINE HKEY_USERS HKEY_CURRENT_CONFIG )
-	prefix="${key%%/*}"
-	IsInArray "$prefix" validPrefixes
-}
-
-MapKeyAlias()
+mapKeyAlias()
 {
 	key="$1"
 
@@ -215,5 +201,4 @@ MapKeyAlias()
 	wkey="${key////\\}" # key in Windows format (\)
 }
 
-[[ "$PLATFORM" != "win" ]] && exit 0
-run "$@"
+ScriptRun "$@"

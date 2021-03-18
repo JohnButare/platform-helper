@@ -157,7 +157,7 @@ ScriptRun()
 	
 	# commands - format command1Command2Command
 	local args=() c shift="1"
-	local command commandNames=() commands=() globalArgs=() otherArgs=() # public
+	local command commandNames=() commands=() globalArgs=() originalArgs=("$@") otherArgs=() # public
 
 	while (( $# )); do
 
