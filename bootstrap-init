@@ -5,6 +5,7 @@ run()
 {
 	header "bootstrap-init ($USER)"
 	init "$@" || return	
+	configureNetwork || return
 	configureProxyServer || return
 	setupPackageManager || return
 	setTimezone || return
@@ -16,6 +17,17 @@ run()
 	fixPermissions || return
 	mountPublic || return
 	runBootstrap || return
+}
+
+configureNetwork()
+{
+	# WSL - update /etc/resolv.conf if needed
+	if isWin && [[ ! -f "/etc/resolv.conf" ]]; then
+		[[ -L "/etc/resolv.conf" ]] && { sudo rm "/etc/resolv.conf" || return; }
+		printf "nameserver $(configGet "dns1")\nnameserver $(configGet "dns2")\nsearch $(configGet "domain")\n" | sudo tee -a "/etc/resolv.conf" || return
+	fi
+
+	return 0
 }
 
 configureProxyServer()
@@ -71,18 +83,8 @@ runBootstrap()
 doReboot()
 {
 	hilight "Rebooting..."
-
-	isWin && { sync; wsl.exe --shutdown; exit 100; }
-
-	# do not prompt for sudo password
-	fixReboot "+"
-
-	# reboot with a delay to allow exit
-	nohup bash -c "sleep 2; reboot now" &
-
-	# status 100 indicates a retry to bootstrap-init
-	sleep 1
-	exit 100 
+	isWin && { sync; wsl.exe --shutdown; } || { fixReboot "+"; reboot now; }
+	sleep 1; exit 1;
 }
 
 fixPermissions()
@@ -102,13 +104,14 @@ fixReboot()
 {
 	local file; file="$(which reboot)" || return
 	[[ $sudo && -f "$file" ]] && { $sudo chmod ${1}s "$file" || return; }
+	return 0
 }
 
 runAsUser()
 {
 	[[ $user && "$USER" == "$user" ]] && return
 
-	[[ $restart ]] && { hilight "Restarting to run as $user..."; return 100; }
+	[[ $restart ]] && { hilight "Restarting to run as $user..."; return 1; }
 	
 	local script="${BASH_SOURCE[0]}"
 
@@ -455,7 +458,8 @@ debianUnminimizeDoc()
 		rm -f "$configTmp" "$motd" || return
 	else
 		dpkg --verify | grep '^..5......   /usr/share/doc'
-		echo "bootstrap-init: unable to unminimize the listed documentation"; return 1; }
+		echo "bootstrap-init: unable to unminimize the listed documentation"
+		return 1
 	fi
 
   return 0
