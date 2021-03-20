@@ -209,7 +209,7 @@ init()
 
 	# sudo
 	sudo="sudo"; ! inPath sudo && sudo=""
-	[[ ! $sudo && "$USER" != "root" ]] && { echo "bootstrap-init: sudo is not present and user is not root"; return 1; }
+	[[ ! $sudo && "$USER" != "root" ]] && { echo "bootstrap-init: sudo is not installed and user is not root"; return 1; }
 
 	# debian only includes sbin directories in the root users path
 	PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" 
@@ -431,23 +431,32 @@ debianPackageUpdate()
 	return 0
 }
 
-debianUnminimizeDoc() # from /usr/local/sbin/unminimize
+# debianUnminimizeDoc - restore documents by removing documentation excludes and re-installing packages
+# from /usr/local/sbin/unminimize
+debianUnminimizeDoc() 
 {
+	# assume unminimize is done if sudo is installed
+	[[ $sudo ]] && return 
+
 	local config="/etc/dpkg/dpkg.cfg.d/excludes" configTmp="/etc/dpkg/dpkg.cfg.d/excludes.dpkg-tmp" motd="/etc/update-motd.d/60-unminimize"
 
 	[[ ! -f "$config" && ! -f "$configTmp" && ! -f "$motd" ]] && return
 	[[ -f "$config" ]] && { $sudo mv "$config" "$configTmp" || return; }
 
 	hilight "Restoring documentation..."
-  $sudo apt-get update || return
-  $sudo apt-get upgrade -y || return
-  dpkg -S /usr/share/man/ |sed 's|, |\n|g;s|: [^:]*$||' | DEBIAN_FRONTEND=noninteractive xargs $sudo apt-get install --reinstall -y || return
-  dpkg --verif y--verify-format rpm | awk '/..5......   \/usr\/share\/doc/ {print $2}' | sed 's|/[^/]*$||' | sort |uniq | xargs dpkg -S | sed 's|, |\n|g;s|: [^:]*$||' | uniq | DEBIAN_FRONTEND=noninteractive xargs $sudo apt-get install --reinstall -y || return
-  dpkg --verify --verify-format rpm | awk '/..5......   \/usr\/share\/locale/ {print $2}' | sed 's|/[^/]*$||' | sort |uniq | xargs dpkg -S | sed 's|, |\n|g;s|: [^:]*$||' | uniq | DEBIAN_FRONTEND=noninteractive xargs $sudo apt-get install --reinstall -y || return
+	apt-get update || return
+	DEBIAN_FRONTEND=noninteractive apt-get upgrade -y || return
+	dpkg -S /usr/share/man/ | sed 's|, |\n|g;s|: [^:]*$||' | DEBIAN_FRONTEND=noninteractive xargs apt-get install --reinstall -y || return
+	dpkg --verify --verify-format rpm | awk '/..5......   \/usr\/share\/doc/ {print $2}' | sed 's|/[^/]*$||' | sort |uniq | xargs dpkg -S | sed 's|, |\n|g;s|: [^:]*$||' | uniq | DEBIAN_FRONTEND=noninteractive xargs apt-get install --reinstall -y || return
+	dpkg --verify --verify-format rpm | awk '/..5......   \/usr\/share\/locale/ {print $2}' | sed 's|/[^/]*$||' | sort |uniq | xargs dpkg -S | sed 's|, |\n|g;s|: [^:]*$||' | uniq | DEBIAN_FRONTEND=noninteractive xargs apt-get install --reinstall -y || return
 
-  if $sudo dpkg --verify --verify-format rpm | awk '/..5......   \/usr\/share\/doc/ {exit 1}'; then
-  	$sudo rm -f "$configTmp" "$motd" || return
-  fi
+	# return 1 if there are any unminimized documents  
+	if dpkg --verify --verify-format rpm | awk '/..5......   \/usr\/share\/doc/ {exit 1}'; then
+		rm -f "$configTmp" "$motd" || return
+	else
+		dpkg --verify | grep '^..5......   /usr/share/doc'
+		echo "bootstrap-init: unable to unminimize the listed documentation"; return 1; }
+	fi
 
   return 0
 }
