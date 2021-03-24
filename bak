@@ -1,92 +1,70 @@
 #!/usr/bin/env bash
-. function.sh
+. script.sh
 
 usage()
 {
-	echot "\
-usage: bak [/dest <destination dir>] <file> [<file>]...
-	Backup files specified by pattern to the bak directory
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [FILE]...
+Backup specified files to the .bak directory.
 	
-	-d, --dest <dir>				backup directory location
-	-l, --local							backup locally to the public data backup directory 
-	-m, --move							move the file instead of copying it
-	-q, --quiet							hide status messages"
-	exit $1
+	-d, --dest DIR		backup to the specified directory
+	-l, --local				backup to $DATA/.bak
+	-m, --move				move the file instead of copying it"
 }
 
-init() { stamp="$(GetDateStamp)"; }
+init() { defaultCommand="backup"; stamp="$(GetDateStamp)"; }
+argStart() { unset -v destination local move files; }
 
-args()
+opt()
 {
-	unset destination local move quiet files
-	while [ "$1" != "" ]; do
-		case "$1" in
-			-d|--dest) dest="$2"; shift;;
-			-l|--local) local="--local";;
-			-m|--move) move="--move";;
-			-q|--quiet) quiet="--quiet";;
-			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
-			*)
-				! IsOption "$1" && { files+=( "$1" ); shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	[[ ! $files ]] && MissingOperand "file"
-	args=("$@")
+	case "$1" in
+		-d|--dest) ScriptOptGet "destDir" "$@" && ScriptCheckDir "$destDir"; destDir="$(RemoveTrailingSlash "$destDir")";;
+		-l|--local) local="--local";;
+		-m|--move) move="--move";;
+		*) return 1;;
+	esac
 }
 
-run() 
-{	
-	init; args "$@"; 
-	for file in "${files[@]}"; do BakFile "$file" || return; done
-}
+args() { files=( "$@" ); shift="$#"; }
+backupCommand() {	for file in "${files[@]}"; do backupFile "$file" || return; done; }
 
-BakFile()
+backupFile()
 {
-	local file="$1" fileName bakDir
-	GetFileName "$file" fileName
+	local file="$1"
+	local fileName="$(GetFileName "$file")" bakDir
+	local dir="$(GetFilePath "$file")"
 
 	[[ -d "$file" ]] && return 0;
 	[[ ! -f "$file" ]] && { EchoErr "$fileName does not exist"; return 1; }
 
-	GetBakDir "$file" "$fileName" || return
+	# determine the backup directory
+	bakDir="$dir/.bak"; [[ ! $dir ]] && bakDir=".bak"
 
+	if [[ $local ]]; then 
+		bakDir="$DATA/.bak"
+	elif [[ $destDir ]]; then 
+		bakDir="$destDir"
+	fi
+
+	[[ ! -d "$bakDir" ]] && { mkdir "$bakDir" || return; }
+
+	# find a unique filename
+	local i=1 dest
+	while dest="$bakDir/$(GetFileNameWithoutExtension "$file").$stamp.$i.$(GetFileExtension "$file")" && [[ -f "$dest" ]]; do (( ++i )); done
+
+	# move file
 	if [[ $move ]]; then
-		[[ ! $quiet ]] && printf "Removing $fileName to $bakDir..."
-		mv "$file" "$bakDir" || return
+		[[ ! $quiet ]] && printf "Moving $fileName to $(FileToDesc "$dest")..."
+		mv "$file" "$dest" || return
 		[[ ! $quiet ]] && printf "done\n"
 		return 0
 	fi
 
-	[[ ! $quiet ]] && printf "Backing up $fileName to $bakDir..."
-	cp -r "$file" "$bakDir" || return
+	# copy file
+	[[ ! $quiet ]] && printf "Backing up $fileName to $(FileToDesc "$dest")..."
+	cp -r "$file" "$dest" || return
 	[[ ! $quiet ]] && printf "done\n"
 	return 0
 }
 
-GetBakDir()
-{
-	local file="$1" fileName="$2" dir
-
-	GetFilePath "$file" dir
-	[[ ! $dir ]] && dir="."
-
-	bakDir="$dir/.bak"
-
-	if [[ $local ]]; then 
-		bakDir="$DATA/.bak"
-	elif [[ $dest ]]; then 
-		bakDir="$dest/.bak"
-	fi
-
-	[[ ! -d "$bakDir" ]] && { mkdir "$bakDir" || return; }
-
-	local i=1
-	while [[ -f "$bakDir/$stamp.$i/$fileName" ]]; do (( ++i )); done
-	bakDir="$bakDir/$stamp.$i"
-	[[ ! -d "$bakDir" ]] && { mkdir "$bakDir" || return; }
-	return 0
-}
-
-run "$@"
+ScriptRun "$@"
