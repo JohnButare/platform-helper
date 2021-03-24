@@ -38,8 +38,8 @@ init()
 	profileSaveDir="$UDATA/profile"
 	appProfileSaveDir="$profileSaveDir/$app"
 	userProfileSaveDir="$profileSaveDir/default"
-	userProfile="$userProfileSaveDir/$app Profile.$saveExtension"
-
+	userProfile="$userProfileSaveDir/$app Profile.$saveExtension"	
+	cloudProfileSaveDir="$CLOUD/network/profile/"
 	return 0
 }
 
@@ -238,13 +238,25 @@ askP()
 
 copyDefaultProfile()
 {
-	local src="$1" dest="$2" destDir
+	local src="$1" dest="$2"
 
-	GetFilePath "$dest" destDir || return
-	[[ ! -d "$destDir" ]] && { ${G}mkdir --parents "$destDir" || return; }
+	# backup
+	if [[ -d "$cloudProfileSaveDir" ]]; then
+		bak "$dest" --dest "$cloudProfileSaveDir" || return
+		copyProfile "$src" "$cloudProfileSaveDir/$(GetFileName "$dest")" || return
+	fi
 
-	printf "Copying profile to $destDir..."
-	cp "$src" "$dest" || return
+	# copy
+	copyProfile "$src" "$dest" || return
+}
+
+copyProfile()
+{
+	local srcFile="$1" destFile="$2"
+	local destDir="$(GetFilePath "$destFile")"; [[ ! -d "$destDir" ]] && { ${G}mkdir --parents "$destDir" || return; }
+
+	printf "Copying profile to $(FileToDesc "$destDir")..."
+	cp "$srcFile" "$destFile" || return
 	echo "done"
 }
 
