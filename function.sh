@@ -599,10 +599,9 @@ FileToDesc() # short description for the file, mounted volumes are converted to 
 	local file="$1"; [[ ! $1 ]] && return
 
 	# if the file is a UNC mounted share get the UNC format
-	[[ -e "$file" ]] && unc IsUnc "$file" && file="$(unc get unc "$file")"
-
-	# mounted device
-	local desc; [[ "$file" =~ ^/mnt ]] && desc="$(drive desc --quiet "$file")" && file="$desc"
+	if ! drive IsWin "$file" && [[ -e "$file" ]] && unc IsUnc "$file"; then
+		file="$(unc get unc "$file")"
+	fi
 
 	# remove the server DNS suffix from UNC paths
 	IsUncPath "$file" && file="//$(GetUncServer "$file" | RemoveDnsSuffix)/$(GetUncShare "$file")/$(GetUncDirs "$file")"
@@ -616,7 +615,7 @@ FileToDesc() # short description for the file, mounted volumes are converted to 
 		file="${file/#$USERS\//~}"
 	fi
 
-	echo "$file"
+	echo "$(RemoveTrailingSlash "$file")"
 }
 
 FindInPath()
