@@ -142,14 +142,17 @@ G=""
 case "$PLATFORM" in 
 	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support" BREW_DIR="/usr/local/bin" BREW_SBIN="/usr/local/sbin"
 		[[ -d "/opt/homebrew/bin" ]] && { BREW_DIR="/opt/homebrew/bin" BREW_SBIN="/opt/homebrew/sbin"; };;
-	win) WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows" P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" WIN_HOME="$WIN_ROOT/Users/$USER" ADATA="$WIN_HOME/AppData/Local";;
+	win) 
+		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows"
+		WIN_HOME="$WIN_ROOT/Users/$USER" ADATA="$WIN_HOME/AppData/Local"
+		WIN_CODE="$WIN_HOME/code"
+		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" 
+		;;
 esac
 
-DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM"
-DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" UDATA="$HOME/data" UBIN="$UDATA/bin"
-CODE="$HOME/code"
+DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM" PUB="${PUB:-$USERS/Shared}"
+DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
-PUB="${PUB:-$USERS/Shared}"
 declare {TMPDIR,TMP,TEMP}="${TMPDIR:-/tmp}"
 
 set +a
