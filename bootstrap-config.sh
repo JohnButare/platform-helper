@@ -1,5 +1,6 @@
 user="jjbutare"						# run the bootstrap as this user
 timezone="America/Denver"
+timeServer="time.hagerman.butare.net"
 locale="en_US.UTF-8"
 
 network="wiggin"
