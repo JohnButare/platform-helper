@@ -1,69 +1,62 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. script.sh || exit
 
 usage()
 {
-	echot "\
-MakeLink SRC LINK
-	Create links to files and directories
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... create|list
+Manipulate links to files and directories."
+}
+
+init() { defaultCommand="create"; }
+
+#
+# Create Command
+#
+
+createArgStart() { unset -v src link absolute hideLink hideTarget type merge windows symbolic suppress; }
+
+createOpt()
+{
+	case "$1" in
+		-a|--absolute) absolute="--absolute";;
+		-hl|--hide|--hide-link) hideLink="true";;
+		-ht|--hide-target) hideTarget="true";;
+		-H|--hard) type="hard";;
+		-j|--junction) type="junction";;
+		-m|--merge) merge="true";;
+		-s|--symbolic) type="symbolic";;
+		-u|--suppress) suppress="true";;
+		-w|--windows) windows="true";;
+		*) return 1;
+	esac
+}
+
+createArgs()
+{
+	ScriptArgGet "src" -- "$@"; shift
+	ScriptArgGet "link" -- "$@"; shift
+}
+
+createUsage()
+{
+	echot "Usage: $(ScriptName) create SRC LINK
+Create a link to a file or directory.
+
 	-a,  --absolute			symbolic link is created as an absolute path
   -hl, --hide, --hide-link	hide the LINK after creating it
   -ht, --hide-target	hide the TARGET after creating it
   -h,  --hard					create a hard link to a file
   -j,  --junction			create a junction, the default if SRC is a directory, implies --windows
-  -l,  --list 					list links to SRC
-  -m,  --merge					merge contents of LINK to SRC before creating the link
-  -np, --no-prompt		suppress prompts
-	-q,  --quiet				minimize informational messages
+  -m,  --merge				merge contents of LINK to SRC before creating the link
   -s,  --symbolic			create a symbolic link, the default if SRC is a file
   -u,  --suppress			suppress error message if SRC does not exist
   -w,  --windows				create a link that is visable in Windows"
-	exit $1
 }
 
-args()
-{
-	unset ask src link absolute hideLink hideTarget type list merge noPrompt windows symbolic suppress
-
-	while (( $# != 0 )); do
-		case "$1" in
-			-a|--absolute) absolute="--absolute";;
-			-hl|--hide|--hide-link) hideLink="true";;
-			-ht|--hide-target) hideTarget="true";;
-			-h|--hard) type="hard";;
-			-j|--junction) type="junction";;
-			-l|--list) list="true";;
-			-m|--merge) merge="true";;
-			-np|--no-prompt) noPrompt="true";;
-			-q|--quiet) quiet="true";;
-			-s|--symbolic) type="symbolic";;
-			-u|--suppress) suppress="true";;
-			-w|--windows) windows="true";;
-			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
-			*)
-				! IsOption "$1" && [[ ! $src ]] && { src="$1"; shift; continue; }
-				! IsOption "$1" && [[ ! $link ]] && { link="$1"; shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
-
-	ask="--ask"; [[ $noPrompt ]] && ask=""
-	[[ ! $src ]] && MissingOperand "SRC"
-	[[ ! "$list" && ! $link ]] && MissingOperand "LINK"
-	args=("$@")
-}
-
-init() { :; }
-
-run() 
+createCommand() 
 {	
-	args "$@"; init; 
-	
-	if [[ "$list" ]]; then
-		[[ "$PLATFORM" != "win" || -d "$src" || (-f "$src" && -L "$src") ]] && { ls -al "$src"; return; }
-		lnWin --list "$src"; return;
-	fi
+	local ask="--ask"; [[ $noPrompt ]] && ask=""
 
 	# set absolute link path (needed for POSIX link)
 	[[ ! $windows && $absolute ]] && link="$(GetFullPath "$link")"
@@ -90,13 +83,13 @@ run()
 	[[ -L "$link" && ! -f "$link" ]] && { rm "$link" || return; }
 
 	# LINK target exists
-	[[ -h "$link" ]] && { HideLink || return; HideTarget || return; return; }
+	[[ -h "$link" ]] && { hideLink && hideTarget; return; }
 	[[ -d "$link" ]] && { [[ ! $quiet ]] && echo "MakeLink: \"$link\" already exists"; DelDir $ask "$link" || return; }
 	[[ -f "$link" ]] && { [[ ! $quiet ]] && echo "MakeLink: \"$link\" already exists"; DelFile $ask "$link" || return; }
 
 	# determine if the windows path is a remote UNC
 	if [[ "$PLATFORM" == "win" ]]; then
-		local winLink="$(utw "$link")"
+		local winLink="$(utw "$(GetFullPath "$link")")"
 		local winSrc="$(utw "$src")"
 		local unc=""; [[ $winLink =~ .*\\\\.* || $winSrc =~ .*\\\\.* ]] && unc="true"
 	fi
@@ -118,17 +111,16 @@ run()
 		${G}ln $symbolic "$src" "$link" || return
 	fi
 
-	HideLink || return
-	HideTarget || return
+	hideLink && hideTarget
 }
 
-HideTarget()
+hideTarget()
 {
 	[[ ! $hideTarget || "$PLATFORM" != "win" ]] && return 0
 	attrib "$link" /L +s +h +r || return
 }
 
-HideLink()
+hideLink()
 {
 	[[ ! $hideLink || "$PLATFORM" != "win" ]] && return 0
 
@@ -138,4 +130,12 @@ HideLink()
 	attrib "$link" /L +h $system || return 
 }
 
-run "$@"
+#
+# List Command
+#
+
+listUsage() { echot "Usage: $(ScriptName) list LINK"; }
+listArgs() { ScriptArgGet "link" -- "$@"; }
+listCommand() { ls -al "$link"; }
+
+ScriptRun "$@"
