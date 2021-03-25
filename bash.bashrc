@@ -172,7 +172,7 @@ ManPathAdd "/usr/local/man" "$DATA/man"
 
 case "$PLATFORM" in 
 	mac)
-		PathAdd fron "/opt/local/bin" "/opt/local/sbin" # Mac Ports
+		PathAdd front "/opt/local/bin" "/opt/local/sbin" # Mac Ports
 		PathAdd front "$BREW_DIR" "$BREW_SBIN";; # use brew utilities before system utilities
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
