@@ -540,6 +540,8 @@ GetFileExtension() { GetArgs; local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" 
 GetFullPath() { GetArgs; local gfp="$(GetRealPath "${@/#\~/$HOME}")"; r "$gfp" $2; } # replace ~ with $HOME so we don't lose spaces in expansion
 GetLastDir() { GetArgs; echo "$@" | RemoveTrailingSlash | GetFileName; }
 GetParentDir() { GetArgs; echo "$@" | GetFilePath | GetFilePath; }
+FileExists() { local f; for f in "$@"; do [[ ! -f "$f" ]] && return 1; done; return 0; }
+FileExistsAny() { local f; for f in "$@"; do [[ -f "$f" ]] && return 0; done; return 1; }
 IsDirEmpty() { GetArgs; [[ "$(find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
 InPath() { local f option; IsZsh && option="-p"; for f in "$@"; do ! which $option "$f" >& /dev/null && return 1; done; return 0; }
 InPathAny() { local f option; IsZsh && option="-p"; for f in "$@"; do which $option "$f" >& /dev/null && return; done; return 1; }
@@ -658,6 +660,12 @@ MoveAll()
 	[[ ! $1 || ! $2 ]] && { EchoErr "usage: MoveAll SRC DEST"; return 1; }
 	shopt -s dotglob nullglob
 	mv "$1/"* "$2" && rmdir "$1"
+}
+
+rsync()
+{
+	IsPlatform mac && { "$HOMEBREW_PREFIX/bin/rsync" "$@"; return; }
+	command rsync "$@"
 }
 
 SelectFile() # DIR PATTERN MESSAGE
@@ -1141,20 +1149,19 @@ IsInSshConfig()
 # SshAgentHelper - wrapper for SshAgent which ensures the correct variables are set in the calling shell
 SshAgentHelper()
 { 
-	[[ -f "$HOME/.ssh/environment" ]] && . "$HOME/.ssh/environment"
-	SshAgent "$@" || return
-	[[ -f "$HOME/.ssh/environment" ]] && . "$HOME/.ssh/environment"
 	return 0
 }
 
-# SshAgentConfig - read the SSH Agent configuration into the current shell
+# SshAgentConfig - if the SSH Agent is started, add the configuration variables to the shell
 SshAgentConfig() { [[ ! -f "$HOME/.ssh/environment" ]] && return; . "$HOME/.ssh/environment"; }
 
-# SshAgentCheck - check and start the SSH Agent if needed
-SshAgentCheck()
+# SshAgentStart - start the SSH Agent if needed and add the configuration variables to the shell
+SshAgentStart()
 {
 	ssh-add -L >& /dev/null && return
-	SshAgentHelper start --verbose --quiet
+	SshAgentConfig
+	SshAgent start --quiet --verbose || return
+	SshAgentConfig
 }
 
 SshInPath() { SshHelper connect "$1" -- which "$2" >/dev/null; } # HOST FILE
@@ -1283,12 +1290,20 @@ PackageExist()
 # PackageInfo PACKAGE - show information about the specified package
 PackageInfo()
 {
-	! IsPlatform debian && return
-	
-	apt show "$1" || return
-	! PackageInstalled "$1" && return
-	dpkg -L "$1"; echo
-	dpkg -L "$1" | grep 'bin/'
+	if IsPlatform mac; then
+		brew info "$1" || return
+		! PackageInstalled "$1" && return
+		brew list "$1"; echo
+		brew list "$1" | grep 'bin/'
+
+	elif IsPlatform debian; then
+		apt show "$1" || return
+		! PackageInstalled "$1" && return
+		dpkg -L "$1"; echo
+		dpkg -L "$1" | grep 'bin/'
+	fi
+
+	return
 }
 
 # PackageInstalled PACKAGE [PACKAGE]... - return true if all packages are installed
@@ -1299,6 +1314,11 @@ PackageInstalled()
 	if InPath dpkg; then
 		# ensure the package counts match, i.e. dpkg --get-selectations samba will not return anything if samba-common is installed
 		[[ "$(dpkg --get-selections "$@" |& grep -v "no packages found" | wc -l)" == "$#" ]] && ! dpkg --get-selections "$@" | grep -q "deinstall$"
+	
+	elif IsPlatform mac; then
+		InPath "$@" && return # faster if all packages are in the path
+		brew list "$@" >& /dev/null
+
 	else
 		InPath "$@" # assumes each package name is in the path
 	fi
@@ -1797,10 +1817,12 @@ sudoc()  # use the credential store to get the password if available, --preserve
 
 sudoe()  # sudoedit with credentials
 { 
-	if credential -q exists secure default; then
-		SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$1";
+	if InPath sudoedit && credential -q exists secure default; then
+		SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$1"
+	elif InPath sudoedit; then
+		sudoedit "$1"
 	else
-		sudoedit "$1"; 
+		sudo nano "$1" 
 	fi
 } 
 

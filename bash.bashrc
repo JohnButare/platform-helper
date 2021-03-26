@@ -96,6 +96,9 @@ CheckPlatform() # ensure PLATFORM, PLATFORM_LIKE, and PLATFORM_ID are set
 	unset chroot platform platformId platformLike platformKernel wsl
 }
 
+InfoPathAdd() { for f in "$@"; do [[ -d "$f" && ! $INFOPATH =~ (^|:)$f(:|$) ]] && INFOPATH="${INFOPATH+$INFOPATH:}$f"; done; }
+ManPathAdd() { for f in "$@"; do [[ -d "$f" && ! $MANPATH =~ (^|:)$f(:|$) ]] && MANPATH="${MANPATH+$MANPATH:}$f"; done; }	
+
 PathAdd() # PathAdd [front] DIR...
 {
 	local front; [[ "$1" == "front" ]] && front="true"
@@ -106,17 +109,6 @@ PathAdd() # PathAdd [front] DIR...
 		[[ ! $PATH =~ (^|:)$f(:|$) ]] && PATH+=":$f" # add to back if not present
 	done
 }
-
-ManPathAdd()
-{ 
-	local front; [[ "$1" == "front" ]] && front="true"
-
-	for f in "$@"; do
-		[[ ! -d "$f" ]] && continue
-		[[ $front ]] && { MANPATH="$f:${MANPATH//:$f:/:}"; continue; }
-		[[ ! $MANPATH =~ (^|:)$f(:|$) ]] && MANPATH+=":$f"
-	done
-}	
 
 #
 # Platform
@@ -140,8 +132,13 @@ USER="${USERNAME:-$USER}" DOC="" UDATA="" UBIN=""
 G="" 
 
 case "$PLATFORM" in 
-	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support" BREW_DIR="/usr/local/bin" BREW_SBIN="/usr/local/sbin"
-		[[ -d "/opt/homebrew/bin" ]] && { BREW_DIR="/opt/homebrew/bin" BREW_SBIN="/opt/homebrew/sbin"; };;
+	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support" 
+		# Homebrew
+		unset -v HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY
+		if [[ -f "/usr/local/bin/brew" ]]; then export HOMEBREW_PREFIX="/usr/local" HOMEBREW_CELLAR="$HOMEBREW_PREFIX/Cellar" HOMEBREW_REPOSITORY="/usr/local/Homebrew"
+		elif [[ -f "/opt/homebrew/bin/brew" ]]; then export HOMEBREW_PREFIX="/opt/homebrew" HOMEBREW_CELLAR="$HOMEBREW_PREFIX/Cellar" HOMEBREW_REPOSITORY="$HOMEBREW_PREFIX"	
+		fi
+		;;
 	win) 
 		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows"
 		WIN_HOME="$WIN_ROOT/Users/$USER" ADATA="$WIN_HOME/AppData/Local"
@@ -168,12 +165,18 @@ kill -SIGWINCH $$	>& /dev/null 	# ensure LINES and COLUMNS is set for a new term
 # paths
 #
 
-ManPathAdd "/usr/local/man" "$DATA/man"
+InfoPathAdd "/usr/local/share/info"
+ManPathAdd "/usr/local/man" "/usr/local/share/man" "$DATA/man"
 
 case "$PLATFORM" in 
 	mac)
 		PathAdd front "/opt/local/bin" "/opt/local/sbin" # Mac Ports
-		PathAdd front "$BREW_DIR" "$BREW_SBIN";; # use brew utilities before system utilities
+		if [[ $HOMEBREW_PREFIX ]]; then
+			PathAdd front "$HOMEBREW_PREFIX/bin" "$HOMEBREW_PREFIX/sbin" # use Homebrew utilities before system utilities
+			InfoPathAdd "$HOMEBREW_PREFIX/share/info"
+			ManPathAdd "$HOMEBREW_PREFIX/share/man"
+		fi
+		;;
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
 		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$ADATA/Microsoft/WindowsApps"

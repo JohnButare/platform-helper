@@ -1,58 +1,27 @@
 #!/usr/bin/env bash
-. function.sh
-
-run() {	init && args "$@" && ${command}Command "${args[@]}"; }
-
-init()
-{
-	f="$HOME/.ssh/environment"
-	[[ ! -d "$HOME/.ssh" ]] && exit 0
-	return 0
-}
+. script.sh || exit
 
 usage()
 {
-	echot "\
-usage: SshAgent [check|cleanup|environment|show|start](show)
-	Control the SSH Agent.
-
-	check					check for proper operation of the SSH Agent 
-	cleanup				cleanup the SSH Agent processes and files
-	environment		return the SSH Agent environment in a format suitable for sourcing
-	show					show the keys in the SSH Agent
-	start					start the SSH Agent						
-
-	-f, --force				force initialization even if we beliece the SSH Agent is setup properly
-	-q, --quiet				show less output
-	-v, --verbose			display detailed output"
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [check|cleanup|environment|show|start](show)
+Control the SSH Agent."
 	exit $1
 }
 
-args()
+init()
 {
-	declare -g quit verbose
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			-f|--force) force="true";;
-			-h|--help) usage 0;;
-			-q|--quiet) quiet="true";;
-			-v|--verbose) verbose="true";;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
-
-	[[ ! $command ]] && { command="check"; verbose="true"; }
-	args=("$@")
+	defaultCommand="check"
+	sshDir="$HOME/.ssh"
+	environmentFile="$sshDir/environment"
 }
+
+checkUsage() { echot "Usage: $(ScriptName) cleanup\nCheck for proper operation of the SSH Agent."; }
 
 checkCommand()
 {
-	if [[ ! -f "$f" ]]; then
-		[[ $verbose ]] && EchoErr "SshAgent: the environment file $f does not exist on $HOSTNAME"
+	if [[ ! -f "$environmentFile" ]]; then
+		[[ $verbose ]] && EchoErr "SshAgent: the environment file '$environmentFile' does not exist on $HOSTNAME"
 		return 1
 	fi
 
@@ -62,7 +31,7 @@ checkCommand()
 	
 	local oldAuthSock="$SSH_AUTH_SOCK" oldAgentPid="$SSH_AGENT_PID"
 
-	if ! . "$f"; then
+	if ! . "$environmentFile"; then
 		[[ $verbose ]] && EchoErr "SshAgent: unable to read the SSH Agent configuration file $f on $HOSTNAME"
 		return 1
 	fi
@@ -86,38 +55,50 @@ checkCommand()
 		return 1
 	fi
 
-	[[ $verbose && ! $quiet ]] && echo "The SSH Agent is working properly on $HOSTNAME and contains $(ssh-add -L | wc -l) identities"
+	[[ ! $quiet ]] && echo "The SSH Agent is working properly on $HOSTNAME and contains $(ssh-add -L | wc -l) identities"
 
 	return 0
 }
 
+checkKeysUsage() { echot "Usage: $(ScriptName) check keys\nCheck for existense of a valid identiy key file."; }
+checkKeysCommand() { local d="$sshDir"; FileExistsAny "$d/id_rsa" "$d/id_dsa" "$d/id_ecdsa" "$d/id_ed25519"; }
+
+cleanupUsage() { echot "Usage: $(ScriptName) cleanup\nCleanup the SSH Agent processes and files."; }
 cleanupCommand()
 {
 	ProcessKill ssh-agent &> /dev/null
 	rm -fr "/tmp/ssh-"*
-	rm -f "$f"
+	rm -f "$environmentFile"
 }
 
-environmentCommand() { [[ -f "$f" ]] && cat "$f"; }
+environmentUsage() { echot "Usage: $(ScriptName) environment\n.Return the SSH Agent environment in a format suitable for sourcing."; }
+environmentCommand() { [[ -f "$environmentFile" ]] && cat "$environmentFile"; }
 
+showUsage() { echot "Usage: $(ScriptName) show\n.Show the keys in the SSH Agent."; }
 showCommand() 
 {	
 	verbose="true" checkCommand || return
 	ssh-add -L
 }
 
+startUsage() { echot "Usage: $(ScriptName) show\n.Start the SSH Agent."; }
 startCommand()
 {
 	local result output="/dev/null"; [[ $verbose ]] && output="/dev/stdout"
+
+	if ! checkKeysCommand; then
+		EchoErr "SshAgent: no identities exist on $HOSTNAME"
+		return 1
+	fi
 
 	[[ ! $force ]] && { checkCommand && return; }
 	cleanupCommand || return
 
 	# start the SSH Agent
-	ssh-agent | grep -Ev "^(echo|#echo)" > "$f"
-	[[ ! -f "$f" ]] && { EchoErr "SshAgent: unable to run the SSH Agent"; return 1; }
-	chmod 600 "$f" || return
-	. "$f" || { EchoErr "SshAgent: unable to read the SSH Agent configuration file $f"; return 1; }
+	ssh-agent | grep -Ev "^(echo|#echo)" > "$environmentFile"
+	[[ ! -f "$environmentFile" ]] && { EchoErr "SshAgent: unable to run the SSH Agent"; return 1; }
+	chmod 600 "$environmentFile" || return
+	. "$environmentFile" || { EchoErr "SshAgent: unable to read the SSH Agent configuration file $f"; return 1; }
 
 	# add the keys to the SSH Agent
 	if credential -q exists ssh default; then
@@ -138,4 +119,4 @@ startCommand()
 	return $result
 }
 
-run "$@"
+ScriptRun "$@"
