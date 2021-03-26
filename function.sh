@@ -978,7 +978,7 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 	if InPath ncat; then
 		ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" >& /dev/null
 	elif InPath nmap; then
-		nmap "$host" -p "$port" -Pn -T5 | grep -q "open"
+		nmap "$host" -p "$port" -Pn -T5 |& grep -q "open" >& /dev/null
 	elif IsPlatform win; then	
 		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
 	else
@@ -1247,7 +1247,7 @@ packageExclude()
 	# macOS excludes
 	! IsPlatform mac && return
 
-	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog squidclient virt-what )	
+	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ntpdate squidclient virt-what )	
 	local macArm=( bat bonnie++ pv rust traceroute )
 	local macx86=( ncat traceroute )
 
