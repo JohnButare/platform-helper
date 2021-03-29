@@ -1254,12 +1254,12 @@ packageExclude()
 	# macOS excludes
 	! IsPlatform mac && return
 
-	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ntpdate squidclient virt-what )	
+	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate squidclient virt-what )	
 	local macArm=( bat bonnie++ pv rust traceroute )
 	local macx86=( ncat traceroute )
 
 	local p
-	for p in "$@"; do
+	for p in "${packages[@]}"; do
 		IsPlatform mac && IsInArray "$p" mac && ArrayRemove packages "$p"
 		IsPlatformAll mac,arm && IsInArray "$p" macArm && ArrayRemove packages "$p"
 		IsPlatformAll mac,x86 && IsInArray "$p" macx86 && ArrayRemove packages "$p"

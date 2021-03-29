@@ -170,7 +170,10 @@ ManPathAdd "/usr/local/man" "/usr/local/share/man" "$DATA/man"
 
 case "$PLATFORM" in 
 	mac)
-		PathAdd front "/opt/local/bin" "/opt/local/sbin" # Mac Ports
+		PathAdd front "/opt/local/bin" "/opt/local/sbin" 	# Mac Ports
+		PathAdd "/opt/X11/bin" 														# XQuartz
+
+		# Homebrew
 		if [[ $HOMEBREW_PREFIX ]]; then
 			PathAdd front "$HOMEBREW_PREFIX/bin" "$HOMEBREW_PREFIX/sbin" # use Homebrew utilities before system utilities
 			InfoPathAdd "$HOMEBREW_PREFIX/share/info"
