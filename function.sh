@@ -782,12 +782,19 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 #
 
 GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
-GetInterface() { route | grep "^default" | tr -s " " | cut -d" " -f8; } 				# GetInterface - name of the primary network interface
 GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 													# GetHostname NAME - hosts configured name
 HostUnknown() { ScriptErr "$1: name or service not known"; }
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
+
+# GetInterface - name of the primary network interface
+GetInterface()
+{
+	if IsPlatform mac; then netstat -rn | grep '^default' | head -1 | awk '{ print $4; }'
+	else route | grep "^default" | tr -s " " | cut -d" " -f8
+	fi
+}
 
 CacheDefaultGateway()
 {
@@ -795,6 +802,8 @@ CacheDefaultGateway()
 
 	if IsPlatform win; then
 		local g="$(route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | head -1 | awk '{ print $3; }')" || return
+	elif IsPlatform mac; then
+		local g="$(netstat -rnl | grep '^default' | head -1 | awk '{ print $3; }')" || return
 	else
 		local g="$(route -n | grep '^0.0.0.0' | head -1 | awk '{ print $2; }')" || return
 	fi
@@ -863,6 +872,8 @@ GetEthernetAdapters()
 {
 	if IsPlatform win; then
 		ipconfig.exe /all | grep -e "^Ethernet adapter" | cut -d" " -f3- | cut -d: -f1	
+	elif IsPlatform mac; then 
+		netstat -rn | grep '^default' | awk '{ print $4; }' | grep -v '^utun' # utunN - IPv6 adapters
 	else
 		ip -4 -oneline -br address | cut -d" " -f 1
 	fi
