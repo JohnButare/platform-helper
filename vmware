@@ -1,43 +1,104 @@
 #!/usr/bin/env bash
-. app.sh
+. app.sh || exit
+
+usage() 
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [close|dhcp|IsInstalled|IsRunning|program|restart|run|start|startup|SuspendAll](start)
+$(ScriptName) commands."
+}
 
 init()
-{ 
+{
+	defaultCommand="start"
 	command="start"
 	program="$P32/VMware/VMware Workstation/vmware.exe"
 	vmrun="$P32/VMware/VMware Workstation/vmrun.exe"
 }
 
-usage()
-{	
-		echot "\
-usage: vmware 
-	-n, --name NAME			name of the Virtual Machine
-	dhcp edit|restart		configure the VMware DHCP Server
-	run COMMAND 				run a vmrun command"
-	exit $1
-}
+closeCommand() { suspendAllCommand || return; ! isRunningCommand && return 0; ProcessClose "$program"; } 
+isInstalledCommand() { [[ -e "$program" ]]; }
+isRunningCommand() { IsTaskRunning "$program"; }
+profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."; }
+profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); }
+profileCommand() { profile $noPrompt --app "$profileName" --method "$profileDir" --files "$profileMask" "${profileArgs[@]}"; }
+programCommand() { echo "$program"; }
+restartCommand() { closeCommand && startCommand; }
+startArgs() { startArgs=( "$@" ); shift="$#"; }
+startCommand() { isInstalledCommand && start $wait "$program" "${startArgs[@]}"; }
+startupCommand() { isRunningCommand && return 0; isInstalledCommand && start --window-style minimized "$program" "${startArgs[@]}"; }
 
-args()
+suspendAllCommand()
 {
-	unset -v brief command name
+	getRunning || return
+	[[ ${#running[@]} == 0 ]] && return
 
-	while [[ "$1" != "" ]]; do
-		[[ "$command" == @(dhcp|run) ]] && break
-		case "$1" in
-			--brief|-b) brief="--brief";;
-			--name|-n) name="$2"; shift;;
-			--help) usage 0;;
-			SuspendAll) command="suspendAll";; IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";;
-			*)
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	[[ ! $command ]] && usage
-	args=( "$@" )
+	printf "Suspending "
+	for vm in "${running[@]}"; do
+		printf "$(GetFileNameWithoutExtension "$(wtu "$vm")")..."
+		"$vmrun" suspend "$vm"
+	done	
+	echo "done"
 }
+
+#
+# DHCP Commands
+#
+
+dhcpUsage()
+{
+	echot "Usage: $(ScriptName) dhcp edit|restart
+DHCP commands."
+}
+
+dhcpCommand() { usage; }
+
+dhcpRestartCommand() { service restart "VMnetDHCP"; }
+
+dhcpEditCommand()
+{
+	TextEdit "$ALLUSERSPROFILE\Application Data\VMware\vmnetdhcp.conf" || return
+	pause "Press any key to restart the VMware DHCP service..."
+	DhcpRestartCommand || return
+}
+
+#
+# Run Command
+#
+
+runUsage()
+{
+	echot "Usage: $(ScriptName) run [COMMAND]...
+Run a vmrun command.
+
+	-n,	--name=NAME		name of the Virtual Machine"
+}
+
+runArgStart() { unset -v name; }
+
+runOpt() 
+{
+	case "$1" in
+		-n*|--name=*|--name) ScriptOptGet name "$@" || return;;
+		*) return 1
+	esac
+}
+
+runArgs() { runArgs=( "$@" ); shift="$#"; }
+
+runCommand()
+{	
+	local vm
+
+	[[ ! -f "$vmrun" ]] && { EchoErr "vmrun is not installed"; return 1; }
+
+	[[ $name ]] && { findVm || return; vm="$(utw "$vm")"; }
+	"$vmrun" "$name" "$vm" "${runArgs[@]}"
+}
+
+#
+# helper
+#
 
 findVm()
 {
@@ -58,72 +119,4 @@ findVm()
 
 getRunning() { running=( $("$vmrun" list | tail -n +2 | sed 's/\r//') ); }
 
-suspendAllCommand()
-{
-	getRunning || return
-	[[ ${#running[@]} == 0 ]] && return
-
-	printf "Suspending "
-	for vm in "${running[@]}"; do
-		printf "$(GetFileNameWithoutExtension "$(wtu "$vm")")..."
-		"$vmrun" suspend "$vm"
-	done	
-	echo "done"
-}
-
-runCommand()
-{	
-	local vm
-
-	[[ ! -f "$vmrun" ]] && { EchoErr "VMware is not installed"; return 1; }
-
-	[[ $name ]] && { findVm || return; vm="$(utw "$vm")"; }
-	"$vmrun" "$1" "$vm" "${@:2}"
-}
-
-findVmConfig()
-{
-	echo "Not Implemented"
-}
-
-dhcpCommand()
-{
-	local command; CheckSubCommand dhcp "$1"; shift
-	[[ $# != 0 ]] && UnknownOption "$1"
-	$command "$@"
-}
-
-dhcpRestartCommand() { service restart VMnetDHCP; }
-
-dhcpEditCommand()
-{
-	TextEdit "$ALLUSERSPROFILE\Application Data\VMware\vmnetdhcp.conf"
-	pause "Press any key to restart the VMware DHCP service..."
-	DhcpRestartCommand
-}
-
-startCommand()
-{
-	! IsInstalledCommand && return 1; IsRunningCommand && return 0
-	start "$program" "$@"
-}
-
-startupCommand()
-{
-	! IsInstalledCommand && return 1; IsRunningCommand && return 0
-	start --window-style minimized "$program" "$@"
-}
-
-closeCommand() 
-{ 
-	suspendAllCommand || return
-	! IsRunningCommand && return 0; ProcessClose "$program" 2; 
-}
-
-IsInstalledCommand() { [[ -f "$program" ]]; }
-IsRunningCommand() { IsTaskRunning "$program"; }
-restartCommand() { closeCommand && startCommand; }
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
-
-
-run "$@"
+ScriptRun "$@"

@@ -1,71 +1,65 @@
 #!/usr/bin/env bash
 . app.sh || exit
 
-usage() {	echot "usage: firefox [start](start)
-  profile dir|SaveDir|save|restore [<profile name>|default](latest)
-  -b, --brief		brief status messages"; exit $1; }
-
-args()
+usage() 
 {
-	unset -v brief command help noPrompt
-	
-	while (( $# != 0 )); do
-		case "$1" in
-			--brief|-b) brief="--brief";;	
-			--help) help="--help";;
-			--no-prompt|-np) noPrompt="--no-prompt";;
-			IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "${command}" == @(start|startup|profile|service) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	[[ ! $command ]] && command="start"
-	[[ ! $command ]] && MissingOperand "command"
-	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage 0 || usage 0; }
-	args=( "$@" )
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [close|IsInstalled|IsRunning|profile|program|restart|start|startup](start)
+$(ScriptName) commands."
 }
 
 init()
-{ 
-	# ESR=Extended Support Release
+{
+	defaultCommand="start"
+	program="$P/Rectangle.app"
+	profileName="rectangle"
+	profileDir="$HOME/Library/Preferences"; [[ ! -d "$profileDir" ]] && { ${G}mkdir --parents "$profileDir" || return; }
+	profileMask="com.knollsoft.Rectangle.plist"
+
+	# find program and profile
 	case "$PLATFORM" in
 		linux) 
 			program="$P/firefox/firefox"
-			[[ ! -f "$program" ]] && program="/opt/firefox/firefox"
-			[[ ! -f "$program" ]] && program="/usr/lib/firefox/firefox"
-			[[ ! -f "$program" ]] && program="/usr/lib/firefox-esr/firefox-esr"
-			[[ ! -f "$program" ]] && program="/snap/firefox/current/firefox"
+			if [[ ! -f "$program" ]]; then program="/opt/firefox/firefox"
+			elif [[ ! -f "$program" ]]; then program="/usr/lib/firefox/firefox"
+			elif [[ ! -f "$program" ]]; then program="/usr/lib/firefox-esr/firefox-esr"
+			elif [[ ! -f "$program" ]]; then program="/snap/firefox/current/firefox"
+			fi
 			;;
 		mac) program="$P/Firefox.app";;
 		win) program="$P/Mozilla Firefox/firefox.exe";;
+		*) unset program;;
 	esac
+	[[ ! -e "$program" ]] && { ScriptErr "$(ScriptName) is not installed"; return 1; }
+	[[ ! -d "$profileDir" ]] && { ${G}mkdir --parents "$profileDir" || return; }
 
 	return 0
 }
 
-run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
-
-IsInstalledCommand() { [[ -e "$program" ]]; }
+closeCommand() { ! isRunningCommand && return 0; ProcessClose "$program"; } 
+isInstalledCommand() { [[ -e "$program" ]]; }
+isRunningCommand() { IsTaskRunning "$program"; }
 programCommand() { echo "$program"; }
+restartCommand() { closeCommand && startCommand; }
+startArgs() { startArgs=( "$@" ); shift="$#"; }
+startCommand() { isInstalledCommand && start $wait "$program" "${startArgs[@]}"; }
+startupCommand() { startCommand; }
+									 
+#
+# Profile Command
+#
 
-startCommand()
-{
-	! IsInstalledCommand && return 1
-	start "$program" "$@"
-}
+profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."; }
+profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); }
 
 profileCommand()
 {
-	[[ "$1" == "backup" ]] && 
-		echo "- Simple Tab Groups, gear, Backup, check Include tab fav-icons in backup, Create backup"
+	case "${profileArgs[0]}" in
+		backup) echo "- Simple Tab Groups, gear, Backup, check Include tab fav-icons in backup, Create backup";;
+		restore) echo "- Simple Tab Groups, gear, Backup, Restore backup";;
+	esac
 
-	[[ "$1" == "restore" ]] && 
-		echo "- Simple Tab Groups, gear, Backup, Restore backup"
-
-	profile $noPrompt --app "SimpleTabGroups" --method "firefox" --save-extension "json" "$@" || usage 1
+	profile $noPrompt --app "SimpleTabGroups" --method "firefox" --save-extension "json" "${profileArgs[@]}" || return
 }
 
-run "$@"
+ScriptRun "$@"

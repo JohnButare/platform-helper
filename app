@@ -4,11 +4,17 @@
 usage()
 {
 	ScriptUsage "$1" "\
-usage: app [startup|close|restart](startup) [APP]...
+Usage: $(ScriptName) [OPTION]... [startup|close|restart](startup) [APP]...
+Run applications.
+	
 	-b, --brief 				brief status messages"
 }
 
-init() { defaultCommand="startup"; localApps=(cpu7icon gridy hp SideBar SpeedFan ThinkPadFanControl ZoomIt ShairPort4W); }
+init()
+{
+	defaultCommand="startup"
+	localApps=(cpu7icon gridy hp SideBar SpeedFan ThinkPadFanControl ZoomIt ShairPort4W)
+}
 
 argStart() { unset -v brief; }
 
@@ -21,16 +27,68 @@ opt()
 }
 
 args() { apps=( "$@" ); shift="$#"; }
-
 argEnd() { [[ "$command" == "startup" ]] && status="Starting" || status="Closing"; }
+closeCommand() { run "close"; }
+restartCommand() { run "restart"; }
+startupCommand() { run "startup"; }
 
 #
-# Commands
+# applications
 #
 
-closeCommand() { run; }
-restartCommand() { run; }
-startupCommand() { run; }
+AltTabTerminator() { IsTaskRunning "AltTabTer.exe" || taskStart "$P/Alt-Tab Terminator/AltTabTer.exe" "" /startup; }
+AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && taskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
+chrony() { runService "chrony"; }
+cron() { runService "cron"; }
+cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE.exe" || taskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
+dbus() { runService "dbus"; }
+discord() { IsTaskRunning Discord.exe || taskStart "$ADATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }
+docker() { runService "docker"; }
+duet() { taskStart "$P/Kairos/Duet Display/duet.exe"; }
+Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer.exe && start explorer; }
+GlassWire() { IsTaskRunning "GlassWire.exe" || taskStart "$P32/GlassWire/glasswire.exe" "" -hide; }
+Greenshot() { IsTaskRunning "Greenshot.exe" || taskStart "$P/Greenshot/Greenshot.exe" "" ; }
+incron() { runService "incron"; }
+IntelActiveMonitor() { taskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
+IntelRapidStorage() { IsTaskRunning "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
+LogitechOptions() { [[ ! -f "$P/Logitech/LogiOptions/LogiOptions.exe" ]] && return; IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
+NetworkUpdate() { network current update --brief $force; }
+PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.exe"; [[ ! -f "$p" ]] && return; IsTaskRunning "$p" || start "$p"; }
+SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
+sshd() { runService "ssh"; }
+SyncPlicity() { taskStart "$P/Syncplicity/Syncplicity.exe"; }
+
+FixTime() 
+{
+	! InPath chronyc && return
+	local skew="$(chronyc tracking | grep "^System time" | cut -d" " -f8)"
+  (( $(echo "$skew < 10" | bc -l) )) && return
+  printf "time." && sudoc chronyc makestep > /dev/null
+}
+
+IntelDesktopControlCenter() 
+{ 
+	program="$P32/Intel/Intel(R) Desktop Control Center/idcc.exe"
+	{ [[ "$command" == "startup" && -f "$program" ]] && IsTaskRunning idcc; } && 
+		start --directory="$(GetFilePath "$program")" "$program"
+}
+
+OneDrive()
+{
+	IsTaskRunning OneDrive.exe && return
+
+	local file="$P32/Microsoft OneDrive/OneDrive.exe"; [[ ! -f "$file" ]] && file="$ADATA/Microsoft/OneDrive/OneDrive.exe"
+	start "$file" /background; 
+}
+
+processExplorer()
+{
+	if [[ "$command" == "startup" ]]; then
+		taskStart "$DATA/platform/win/ProcExp.exe" "Process Explorer*" /t /p:l
+	elif IsTaskRunning "procexp"; then
+		SendKeys "Process Explorer.*" "!Fx"
+	fi;
+}
 
 #
 # helper
@@ -38,17 +96,19 @@ startupCommand() { run; }
 
 run()
 {	
+	local command="$1"
+
 	for app in "${apps[@]}"
 	do
-		MapApp || return
+		mapApp || return
 		[[ $brief ]] && printf "."
 
 		if f="$(FindFunction "$app")"; then
 			"$f"
 		elif IsInArray "$app" localApps; then
-			RunInternalApp
+			runInternalApp
 		else
-			RunExternalApp
+			runExternalApp
 		fi
 		(( $? != 0 )) && { EchoErr "app: unable to run $app"; return 1; }
 	done
@@ -56,7 +116,24 @@ run()
 	return 0
 }
 
-RunInternalApp()
+runExternalApp()
+{
+	getAppFile || return 0
+	isAppInstalled || return 0
+
+	if [[ "$command" == "startup" ]]; then
+		isAppRunning && return
+	else
+		! isAppRunning && return
+	fi;
+
+	showStatus
+	"$app" "${command}" || return
+	[[ ! $brief ]] && echo done
+	return 0
+}
+
+runInternalApp()
 {
 	local program="${app}.exe" close="ProcessClose" args=""
 
@@ -80,33 +157,16 @@ RunInternalApp()
 
 	if [[ "$command" == "startup" ]]; then
 		IsTaskRunning "$program" && return
-		ShowStatus
+		showStatus
 		start "$program" $args
 	else
 		IsTaskRunning "$program" || return
-		ShowStatus
+		showStatus
 		$close "$(GetFileName "$program")"
 	fi
 }
 
-RunExternalApp()
-{
-	GetAppFile || return 0
-	IsAppInstalled || return 0
-
-	if [[ "$command" == "startup" ]]; then
-		IsAppRunning && return
-	else
-		! IsAppRunning && return
-	fi;
-
-	ShowStatus
-	"$app" "${command}" || return
-	[[ ! $brief ]] && echo done
-	return 0
-}
-
-RunService()
+runService()
 { 
 	! IsPlatform wsl && return
 
@@ -137,62 +197,31 @@ RunService()
 	return 0
 }
 
-TaskStart()
-{
-	local program="$1"
-	local title="$2"
-	local args=( "${@:2}" )
-	
-	[[ ! -f "$program" ]] && program="$(FindInPath "$program")"
-	[[ ! -f "$program" ]] && return
-
-	if [[ "$command" == "startup" ]]; then
-		IsTaskRunning "$program" && return
-		ShowStatus || return
-		task start --brief --title "$title" "$program" "${args[@]}"
-		[[ ! $brief ]] && echo done
-	else
-		IsTaskRunning "$program" || return
-		ShowStatus || return
-		task close --brief --title "$title" "$program" || return
-		[[ ! $brief ]] && echo done
-	fi
-
-	return 0
-}
-
-ShowStatus()
-{
-	[[ $brief ]] && printf "$appDesc..." || printf "$status $appDesc..."
-}
-
-GetAppFile()
+getAppFile()
 {
 	appFile="$(FindInPath "$app")"
 	[[ -f "$appFile" ]]
 }
 
-IsAppInstalled()
+isAppInstalled()
 {
-	if ! CommandExists IsInstalled "$appFile"; then
-		echo "app: $app does not have an IsInstalled command"
-		return 1
+	if ! CommandExists isInstalled "$appFile"; then
+		echo "\n"; ScriptErr "'$app' does not have an IsInstalled command"; return 1
 	fi
 
 	"$appFile" IsInstalled
 }
 
-IsAppRunning()
+isAppRunning()
 {
-	if ! CommandExists IsRunning "$appFile"; then
-		echo "App $app does not have an IsRunning command"
-		return 1
+	if ! CommandExists isRunning "$appFile"; then
+		echo "\n"; ScriptErr "'$app' does not have an IsRunning command"; return 1
 	fi
 
 	"$appFile" IsRunning
 }
 
-MapApp()
+mapApp()
 {
 	appDesc="$app"
 
@@ -211,58 +240,33 @@ MapApp()
 	esac
 }
 
-AltTabTerminator() { IsTaskRunning "AltTabTer.exe" || TaskStart "$P/Alt-Tab Terminator/AltTabTer.exe" "" /startup; }
-AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && TaskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
-chrony() { RunService "chrony"; }
-cron() { RunService "cron"; }
-cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE.exe" || TaskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
-dbus() { RunService "dbus"; }
-discord() { IsTaskRunning Discord.exe || TaskStart "$ADATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }
-docker() { RunService "docker"; }
-duet() { TaskStart "$P/Kairos/Duet Display/duet.exe"; }
-Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer.exe && start explorer; }
-GlassWire() { IsTaskRunning "GlassWire.exe" || TaskStart "$P32/GlassWire/glasswire.exe" "" -hide; }
-Greenshot() { IsTaskRunning "Greenshot.exe" || TaskStart "$P/Greenshot/Greenshot.exe" "" ; }
-incron() { RunService "incron"; }
-IntelActiveMonitor() { TaskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
-IntelRapidStorage() { IsTaskRunning "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
-LogitechOptions() { [[ ! -f "$P/Logitech/LogiOptions/LogiOptions.exe" ]] && return; IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
-NetworkUpdate() { network current update --brief $force; }
-PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.exe"; [[ ! -f "$p" ]] && return; IsTaskRunning "$p" || start "$p"; }
-SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
-sshd() { RunService "ssh"; }
-SyncPlicity() { TaskStart "$P/Syncplicity/Syncplicity.exe"; }
-
-FixTime() 
+showStatus()
 {
-	! InPath chronyc && return
-	local skew="$(chronyc tracking | grep "^System time" | cut -d" " -f8)"
-  (( $(echo "$skew < 10" | bc -l) )) && return
-  printf "time." && sudoc chronyc makestep > /dev/null
+	[[ $brief ]] && printf "$appDesc..." || printf "$status $appDesc..."
 }
 
-IntelDesktopControlCenter() 
-{ 
-	program="$P32/Intel/Intel(R) Desktop Control Center/idcc.exe"
-	{ [[ "$command" == "startup" && -f "$program" ]] && IsTaskRunning idcc; } && 
-		start --directory="$(GetFilePath "$program")" "$program"
-}
-
-OneDrive()
+taskStart()
 {
-	IsTaskRunning OneDrive.exe && return
+	local program="$1"
+	local title="$2"
+	local args=( "${@:2}" )
+	
+	[[ ! -f "$program" ]] && program="$(FindInPath "$program")"
+	[[ ! -f "$program" ]] && return
 
-	local file="$P32/Microsoft OneDrive/OneDrive.exe"; [[ ! -f "$file" ]] && file="$ADATA/Microsoft/OneDrive/OneDrive.exe"
-	start "$file" /background; 
-}
-
-ProcessExplorer()
-{
 	if [[ "$command" == "startup" ]]; then
-		TaskStart "$DATA/platform/win/ProcExp.exe" "Process Explorer*" /t /p:l
-	elif IsTaskRunning "procexp"; then
-		SendKeys "Process Explorer.*" "!Fx"
-	fi;
+		IsTaskRunning "$program" && return
+		showStatus || return
+		task start --brief --title "$title" "$program" "${args[@]}"
+		[[ ! $brief ]] && echo done
+	else
+		IsTaskRunning "$program" || return
+		showStatus || return
+		task close --brief --title "$title" "$program" || return
+		[[ ! $brief ]] && echo done
+	fi
+
+	return 0
 }
 
 ScriptRun "$@"

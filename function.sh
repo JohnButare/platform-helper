@@ -1528,14 +1528,18 @@ IsExecutable()
 
 IsTaskRunning() 
 {
-	local file="$1" 
+	local file="$1"
 
-	# If the file has a path component convert file to Windows format since
-	# ProcesList returns paths in Windows format
-	[[ "$(GetFilePath "$file")" ]] && file="$(utwq "$file")"
+	! IsPlatform win && { IsTaskRunningDo ",$file$"; return; }
 
-	ProcessList | grep -v ",grep" | grep -i  ",$file" >& /dev/null
+	# Windows - convert path component to windows format
+	[[ "$(GetFilePath "$file")" ]] && { IsTaskRunningDo ",$(utwq "$file")$"; return; }
+
+	# Windows - search with and without a path
+	IsTaskRunningDo	",$file$" || IsTaskRunningDo ",.*\\\\$file$"
 }
+
+IsTaskRunningDo() { ProcessList | grep -v ",grep" | grep -iq  "$1"; }
 
 # IsProcessRunning PROCESS - faster, no Windows processes
 IsProcessRunning()
@@ -1550,22 +1554,24 @@ IsWindowsProces()
 	if IsPlatform win; then
 		file "$file" | grep PE32 > /dev/null; return;
 	else
-			return 0
+		return 0
 	fi
 }
 
 ProcessClose() 
 { 
-	local p="${1/.exe/}.exe"; GetFileName "$p" p
+	case "$PLATFORM" in
 
-	if [[ "$PLATFORM" == "win" ]]; then
-		# Process.exe only runs from the current directory in wsl
-		pushd "$PBIN" >& /dev/null || return
-		./Process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null
-		popd >& /dev/null || return
-	else
-		pkill "$p" > /dev/null
-	fi
+		win)		
+			local p="${1/.exe/}.exe"; GetFileName "$p" p # ensure .exe extension
+			cd "$PBIN" || return # process.exe only runs from the current directory in wsl
+			./Process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null
+			;;
+
+		mac) osascript -e "quit app \"$1\"";;
+
+		*) pkill "$p" > /dev/null;;
+	esac
 }
 
 ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check

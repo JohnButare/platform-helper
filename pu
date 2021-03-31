@@ -1,49 +1,40 @@
 #!/usr/bin/env bash
-. app.sh
+. app.sh || exit
+
+usage() 
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [close|IsInstalled|IsRunning|program|restart|start|startup](start)
+$(ScriptName) commands.  PuTTY tools include: putty plink pscp psftp puttytel pageant PuttyGen"
+}
 
 init()
-{ 
-	command="start"
+{
+	defaultCommand="start"
 	program="$(FindInPath "pageant")"
 	programPassword="$(FindInPath "pageant_twee")"
 	certificate="$UDATA/certificate/private/id_rsa.ppk"
 }
 
-usage() 
-{	
-	echot "usage: pu [start|startup|close|restart](start)
-  PuTTY tools: putty, plink, pscp, psftp, puttytel, pageant, PuttyGen
+closeCommand() { ! isRunningCommand && return 0; ProcessClose "$program"; } 
+isInstalledCommand() { [[ -f "$program" ]]; }
+isRunningCommand() { ( IsTaskRunning "$program" || IsTaskRunning "$programPassword" ); }
+programCommand() { echo "$program"; }
+restartCommand() { closeCommand && startCommand; }
+startupCommand() { startCommand; }
 
-  run [user@]host command|file - run the command on the specified host
-  shell [user@]host - run a shell on the specified host
-  startup  - start the PuTTY Authentication Agent for SSO to PU tools";
-  exit $1; 
-}
+#
+# Start Command
+#
 
-args()
+startArgs() { startArgs=( "$@" ); shift="$#"; }
+
+startCommand()
 {
-	command='start'
+	! isInstalledCommand && return 1; 
+	isRunningCommand && return 0
 
-	while [[ "$1" != "" ]]; do
-		case "$1" in
-			--brief|-b) ;;
-			--help) usage 0;;
-			IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";;
-			*)
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "$command" == @(start|startup|run|shell) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	args=( "$@" )
-}
-
-startupCommand()
-{
-	! IsInstalledCommand && return 1; 
-	[[ ! -f "$certificate" ]] && { EchoErr "Could not find the SSH2 Certificate"; return 1; }
-	IsRunningCommand && return 0
+	[[ ! -f "$certificate" ]] && { ScriptErr "SSH2 certificate '$certificate' is not available"; return 1; }
 
 	local password="$(credential get ssh default)"
 	if [[ $password ]]; then
@@ -53,58 +44,4 @@ startupCommand()
 	fi
 }
 
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
-startCommand() { startupCommand; }
-IsInstalledCommand() { [[ -f "$program" ]]; }
-IsRunningCommand() { 	( IsTaskRunning "$program" || IsTaskRunning "$programPassword" ); }
-closeCommand() { ! IsRunningCommand && return 0; ProcessClose "$program"; } # task CloseKill --title "$title" "$program"; ProcessKill "$program"; SendKeys "!FX"; 
-restartCommand() { closeCommand && startCommand; }
-
-# StartShell() - start a shell on $host, host assumptions:
-# 1) ssh is installed and enabled 
-# 2) host ~$user/.ssh/authorized_keys contains a public key that is in our keyring
-StartShell() { start putty $user@$host; }
-
-shellCommand()
-{
-	GetUserHostArgument "$@"; shift;
-	[[ $# != 0 ]] && usage 1
-	StartShell
-}
-
-runCommand()
-{
-	local file cleanup result
-
-	GetUserHostArgument "$@"; shift;
-	[[ $# == 0 ]] && { StartShell; return; }
-	[[ -f "$1" && $# != 1 ]] && usage 1
-
-	# Put commands into a temporary file so plink is not confused by quotes in the command
-	if [[ -f "$1" ]]; then
-		file="$1"
-		shift
-	else
-		cleanup="true"
-		file=$(mktemp)
-		echo "$@" > "$file"
-	fi
-
-	plink $user@$host -m "$(utw $file)"
-	result=$?
-
-	[[ $cleanup ]] && rm "$file"
-	return $result
-}
-
-GetUserHostArgument()
-{
-	IFS="@"; set -- $1
-	case $# in
-		1) user="$USER"; host="$1";;
-		2) user="${1:-$USER}"; host="$2";;
-		*) usage 1;;
-	esac
-}
-
-run "$@"
+ScriptRun "$@"

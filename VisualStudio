@@ -1,54 +1,37 @@
 #!/usr/bin/env bash
 . app.sh || exit
 
-usage() {	echot "usage: VisualStudio [cd|help|init|start [new]](start)
-  profile dir|SaveDir|backup|restore [<profile name>|default](latest)"; exit $1; }
-
-args()
+usage() 
 {
-	unset var
-	versions=( 2019 2017 2015 2013 2012 )
-	while (( $# != 0 )); do
-		case "$1" in
-			-h|--help) usage 0;;
-			IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";; # case-insensitive aliases
-			*)
-				! IsOption "$1" && IsInArray "$1" versions && { version="$1"; shift; continue; }
-				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				[[ "${command:-start}" == @(start|profile) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	command="${command:-start}"
-	args=( "$@" )
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [cd|close|init|IsInstalled|IsRunning|profile|program|restart|start|startup](start)
+$(ScriptName) commands."
 }
 
 init()
 {
-	[[ ! $version && -d "$P32/Microsoft Visual Studio/2019" ]] && version="2019"
-	[[ ! $version && -d "$P32/Microsoft Visual Studio/2017" ]] && version="2017"
-	[[ ! $version && -d "$P32/Microsoft Visual Studio 14.0" ]] && version="2015"
-	[[ ! $version && -d "$P32/Microsoft Visual Studio 12.0" ]] && version="2013"
-	[[ ! $version && -d "$P32/Microsoft Visual Studio 11.0" ]] && version="2012"
+	defaultCommand="start"
+	versions=( 2019 2017 2015 2013 2012 )
+
+	if [[ -d "$P32/Microsoft Visual Studio/2019" ]]; then version="2019"
+	elif [[ -d "$P32/Microsoft Visual Studio/2017" ]]; then version="2017"
+	elif [[ -d "$P32/Microsoft Visual Studio 14.0" ]]; then version="2015"
+	elif [[ -d "$P32/Microsoft Visual Studio 12.0" ]]; then version="2013"
+	elif [[ -d "$P32/Microsoft Visual Studio 11.0" ]]; then version="2012"
+	fi
 
 	vsName=$version
 	case "$vsName" in
-		2012) vsVersion="11.0";;
-		2013) vsVersion="12.0";;
-		2015) vsVersion="14.0";;
-		2017) vsVersion="15.0";;
 		2019) vsVersion="16.0";;
+		2017) vsVersion="15.0";;
+		2015) vsVersion="14.0";;
+		2013) vsVersion="12.0";;
+		2012) vsVersion="11.0";;
 	esac
 
 	vsBaseDir="$P32/Microsoft Visual Studio/$version"
-
-	[[ -d "$vsBaseDir/Community" ]] && vsEdition="Community"
-	[[ -d "$vsBaseDir/Enterprise" ]] && vsEdition="Enterprise"
-
-	vsDir="$P32/Microsoft Visual Studio/$version/$vsEdition"
-	[[ ! -d $vsDir ]] && vsDir="$P32/Microsoft Visual Studio $vsVersion"
-
+	vsEdition="Community"; [[ -d "$vsBaseDir/Enterprise" ]] && vsEdition="Enterprise"
+	vsDir="$P32/Microsoft Visual Studio/$version/$vsEdition"; [[ ! -d $vsDir ]] && vsDir="$P32/Microsoft Visual Studio $vsVersion"
 	vsPath="$vsDir/Common7/IDE:$vsDir/Team Tools/Performance Tools"
 	vsIde="$vsDir/Common7/IDE/devenv.exe"
 	vsRegistryKey='HKCU\Software\Microsoft\VisualStudio\'"$vsVersion"
@@ -58,35 +41,30 @@ init()
 	program="$vsIde"
 	cd="$vsDir"
 
-	[[ ! -d "$vsDir" ]] && { EchoErr "VisualStudio $vsName is not installed"; return 1; }
+	[[ ! -d "$vsDir" ]] && { ScriptErr "VisualStudio $vsName is not installed"; return 1; }
 	return 0
 }
 
-run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
-
 cdCommand() { echo "$vsDir"; }
-closeCommand() { ! IsRunningCommand && return 0; ProcessClose "$program"; }
-IsInstalledCommand() { [[ -f "$program" ]]; }
-IsRunningCommand() { IsTaskRunning "$program"; }
+closeCommand() { ! isRunningCommand && return 0; ProcessClose "$program"; } 
+isInstalledCommand() { [[ -e "$program" ]]; }
+isRunningCommand() { IsTaskRunning "$program"; }
+programCommand() { echo "$program"; }
 restartCommand() { closeCommand && startCommand; }
-
-startCommand()
-{
-	! IsInstalledCommand && return 1
-	local new; [[ $# == 1 && "$1" == "new" ]] && { new="true"; shift; }
-
-	if [[ $# != 0 || $new ]] || ! IsRunningCommand; then
-		start "$program" "$@"
-	else
-		WinSetState "$title" maximize
-	fi
-}
+startupCommand() { startCommand; }
 
 initCommand()
 {
 	vars=( vsName vsVersion vsDir vsPath vsIde vsRegistryKey vsVars vsData ) 
 	ScriptReturn "${vars[@]}"
 }
+
+#
+# Profile Command
+#
+
+profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."; }
+profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); }
 
 profileCommand() 
 {	
@@ -96,8 +74,36 @@ profileCommand()
 	[[ "$1" == "restore" ]] && 
 		echo "- Tools, Import and Export Settings..., No, just import new settings, overwriting my existing settings, Browse..., check All Settings"
 
-	profile --app "VisualStudio$vsVersion" --method "$vsIde" --save-extension "vssettings" "$@" || return
+	profile --app "VisualStudio$vsVersion" --method "$vsIde" --save-extension "vssettings" "${profileArgs[@]}" || return
 }
 
+#
+# Start Command
+#
 
-run "$@"
+startArgStart() { unset -v new; }
+
+startOpt()
+{
+	case "$1" in
+		-n|--new) new="true";;
+		*) return 1
+	esac
+}
+
+startArgs() { startArgs=( "$@" ); shift="$#"; }
+
+startCommand() { isInstalledCommand && start $wait "$program" "${startArgs[@]}"; }
+
+startCommand()
+{
+	! IsInstalledCommand && return 1
+
+	if [[ $new ]] || ! IsRunningCommand; then
+		start "$program" "${startArgs[@]}"
+	else
+		WinSetState "$title" maximize
+	fi
+}
+
+ScriptRun "$@"

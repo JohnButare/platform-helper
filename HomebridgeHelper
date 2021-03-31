@@ -1,54 +1,36 @@
 #!/usr/bin/env bash
-. app.sh || exit
+. script.sh || exit
 
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+usage() 
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... backup|restore
+$(ScriptName) commands."
+}
 
 init() 
 { 
 	homebridgeDir="$HOME/.homebridge"
 	[[ ! -d ~/.homebridge || -L ~/.homebridge ]] && homebridgeDir="/var/lib/homebridge"
-}
-
-usage()
-{
-	echot "\
-usage: HomebridgeHelper
-	backup [HOST]				backup homebridge configuration
-	restore HOST FILE		restore homebridge configuration"
-	exit ${1:-1}
-}
-
-args()
-{
-	unset -v noPrompt 
-
-	while (( $# != 0 )); do
-		case "$1" in
-			--help|-h) usage 0;;
-			--no-prompt|-np) noPrompt="--no-prompt";;
-			*)
-				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				! IsOption "$1" && [[ "$command" == @(backup|restore) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	
-	[[ ! $command ]] && { MissingOperand "command"; }
-	args=( "$@" )
+	return 0
 }
 
 #
-# Commands
+# Backup Command
 #
+
+backupUsage() { echot "Usage: $(ScriptName) backup [HOST]
+Backup Homebridge configuration."}
+
+backupArgs() { backupArgs=( "$@" ); shift="$#"; }
 
 backupCommand()
 {
-	if (( $# == 0 )); then
+	if [[ $backupArgs ]]; then
+		backupRemote "${backupArgs[@]}"
+	else
 		[[ ! -d "$homebridgeDir" ]] && { ScriptErr "unable to locate the homebridge directory"; return 1; }
 		AppBackup "$HOSTNAME.homebridge" "$homebridgeDir" || return
-	else
-		backupRemote "$@"
 	fi
 }
 
@@ -73,15 +55,21 @@ backupRemote()
 	echo "Homebridge backup of $host completed to $(FileToDesc "$dest")"
 }
 
+#
+# Restore Command
+#
+
+restoreUsage() { echot "Usage: $(ScriptName) HOST FILE
+Restore Homebridge configuration."}
+
+restoreArgs()
+{
+	ScriptArgGet "host" -- "$@"
+	ScriptArgGet "file" -- "$@" && { file="$file.homebridge.zip"; ScriptCheckFile "$file"; }
+}
+
 restoreCommand()
 {
-	local host="$1"; shift; [[ ! $host ]] && { MissingOperand "host" || return 1; }	
-	local file="$2.homebridge.zip"; shift; [[ ! $host ]] && { MissingOperand "file" || return 1; }	
-	
-	(( $# != 0 )) && usage
-
-	[[ ! -f "$f" ]] && { ScriptErr "file `$f` does not exist"; return 1; }
-
 	ask -dr n "Are you sure you want to restore "$f" to $h" || return
 
 	hilight "Restoring $host Homebridge configuration..."
@@ -89,4 +77,4 @@ restoreCommand()
 	ssh -t $h "sudo hb-service stop && sudo find ~/.homebridge -mindepth 1 -maxdepth 1 -exec rm -fr {} + && sudo unzip -o $f -d ~" || return
 }
 
-run "$@"
+ScriptRun "$@"

@@ -1,47 +1,6 @@
 #!/usr/bin/env bash
-. app.sh || exit
+. script.sh || exit
 . color.sh || return
-
-run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
-
-init()
-{
-	local methodType
-	
-	# Profile files - profile contains ZIP of specified files
-	if [[ -d "$method" ]]; then
-		methodType="file"
-		profileDir="$method"
-		saveExtension="zip"
-
-	# ProfileFiles program - program it will be used to import and export the profile  
-	# IN: profileDir, profileSaveExtension -  the profile file extension used by the program must be specified
-	elif which "$method" > /dev/null ; then
-		methodType="program"
-		profileProgram="$method"
-		
-		[[ ! $saveExtension ]] && { EchoErr "The profile save extension was not specified"; return 1; }
-		
-	# Registry profile - profile contains registry entries
-	elif registry IsKey "$method";  then
-		methodType="registry"
-		profileKey="$method"
-		saveExtension=reg
-
-	else
-		echo "Unknown profile method $method"
-		return 1
-		
-	fi
-
-	method="$methodType"
-	profileSaveDir="$UDATA/profile"
-	appProfileSaveDir="$profileSaveDir/$app"
-	userProfileSaveDir="$profileSaveDir/default"
-	userProfile="$userProfileSaveDir/$app Profile.$saveExtension"	
-	cloudProfileSaveDir="$CLOUD/network/profile/"
-	return 0
-}
 
 usage()
 {
@@ -54,52 +13,71 @@ usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
 	-f,  --files FILE...		for directory profiles, file patterns in the profile
 	-g,  --global 					use the global profile in install/bootstrap/profile
 	-m,  --method	<dir>|<program>|<key>
-	-np, --no-prompt	   		suppress interactive prompts
 	-p,  --platform 				use platform specific unzip
 	-se, --save-extension  	for program profiles, the profile extension used by the program
-	-s,  --sudo  						restore the profile as the root user
-	-v,  --verbose  				show verbose output"
+	-s,  --sudo  						restore the profile as the root user"
 	exit $1 
 }
 
-args()
-{
-	unset app files global method noPrompt platform profile saveExtension sudo
+init() { defaultCommand="dir"; }
+argStart() { unset -v app files global method platform profile saveExtension sudo; }
 
-	while (( $# != 0 )); do
-		case "$1" in
-			-h|--help) IsFunction "${command}Usage" && ${command}Usage || usage 0;;
-			-a|--app) app="$2"; shift;;
-			-f|--files) files="$2"; shift;;
-			-g|--global) global="--global";;
-			-m|--method) method="$2"; shift;;
-			-np|--no-prompt) noPrompt="--no-prompt";;
-			-p|--platform) platform="true";;
-			-se|--save-extension) saveExtension="$2"; shift;;
-			-s|--sudo) sudo="sudo";;
-			-v|--verbose) verbose="--verbose";;
-			CopyGlobal) command="copyGlobal";; SaveDir) command="saveDir";;
-			*)
-				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				! IsOption "$1" && [[ ! $profile &&  "${command}" == @(save|restore) ]] && { profile="$1"; shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	[[ ! $command ]] && command='dir'
-	[[ ! $app ]] && MissingOperand "app"
-	args=("$@")
+argEnd()
+{
+	[[ ! $method ]] && MissingOption "method"
+
+	# Profile files - profile contains ZIP of specified files
+	if [[ -d "$method" ]]; then
+		methodType="file"
+		profileDir="$method"
+		saveExtension="zip"
+
+	# ProfileFiles program - program it will be used to import and export the profile  
+	# IN: profileDir, profileSaveExtension -  the profile file extension used by the program must be specified
+	elif which "$method" > /dev/null ; then
+		methodType="program"
+		profileProgram="$method"
+		
+		[[ ! $saveExtension ]] && { ScriptErr "the profile save extension was not specified"; return 1; }
+		
+	# Registry profile - profile contains registry entries
+	elif registry IsKey "$method";  then
+		methodType="registry"
+		profileKey="$method"
+		saveExtension=reg
+
+	else
+		ScriptErr "unknown profile method '$method'"
+		return 1
+		
+	fi
+
+	method="$methodType"
+	profileSaveDir="$UDATA/profile"
+	appProfileSaveDir="$profileSaveDir/$app"
+	userProfileSaveDir="$profileSaveDir/default"
+	userProfile="$userProfileSaveDir/$app Profile.$saveExtension"	
+	cloudProfileSaveDir="$CLOUD/network/profile/"
 }
 
-#
-# Commands
-#
+opt()
+{
+	case "$1" in
+		-a|--app) ScriptOptGet "app" "$@";;
+		-F|--files|-F=*|--files=*) ScriptOptGet "files" "$@";;
+		-g|--global) global="--global";;
+		-m|--method) ScriptOptGet "method" "$@";;
+		-p|--platform) platform="--platform";;
+		-se|--save-extension|-se=*|--save-extension=*) ScriptOptGet "saveExtension" "$@";;
+		-s|--sudo) sudo="--sudo";;
+		*) return 1;;
+	esac
+}
 
-CopyGlobalCommand()
+copyGlobalCommand()
 {
 	findGlobalProfile || return
-
-	[[ ! -f "$userProfile" ]] && { EchoErr "profile: cannot access user profile \`$userProfile\`: No such file"; return 1; }
+	[[ ! -f "$userProfile" ]] && { ScriptErr " cannot access user profile \`$userProfile\`: No such file"; return 1; }
 	cp "$userProfile" "$globalProfile" || return
 }
 
@@ -112,9 +90,12 @@ dirCommand()
 	esac
 }
 
+restoreArgs() { ScriptArgGet "profile" -- "$@"; shift; }
+
 restoreCommand()
 {
 	local globalDescription
+
 	if [[ ! $profile || "$profile" == "default" ]]; then
 
 		if [[ $global || ! -f "$userProfile" ]]; then
@@ -132,9 +113,9 @@ restoreCommand()
 	[[ "$(GetFilePath "$profile")" == "" ]] && profile="$appProfileSaveDir/$profile"
 	local filename; GetFileName "$profile" filename
 	
-	[[ ! -f "$profile" ]] && { EchoErr "profile: cannot access profile \`$filename\`: No such file"; return 1; }
+	[[ ! -f "$profile" ]] && { ScriptErr "cannot access profile \`$filename\`: No such file"; return 1; }
 
-	! askP "Restore $app$globalDescription profile \"$filename\"" -dr n && return 0
+	! askp "Restore $app$globalDescription profile \"$filename\"" -dr n && return 0
 
 	if [[ "$method" == "file" ]]; then
 		AppCloseSave "$app" || return
@@ -148,7 +129,7 @@ restoreCommand()
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$profile")"
 		echo "Import the profile using the filemame contained in the clipboard"
-		askP "Start $(GetFileName "$profileProgram")" && { start --wait "$profileProgram" || return; }
+		askp "Start $(GetFileName "$profileProgram")" && { start --wait "$profileProgram" || return; }
 
 	elif [[ "$method" == "registry" ]]; then
 		AppCloseSave "$app" || return
@@ -161,6 +142,8 @@ restoreCommand()
 
 	return 0
 }
+
+saveArgs() { ! [[ $@ ]] && return; ScriptArgGet "profile" -- "$@"; }
 
 saveCommand()
 {
@@ -188,7 +171,7 @@ saveCommand()
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$dest/$file")"
 		echo "Export the profile to the filename contained in the clipboard"
-		askP "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
+		askp "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
 		pause
 		
 	# save the registry
@@ -229,7 +212,7 @@ saveDirCommand()
 # helper
 #
 
-askP()
+askp()
 {
 	if [[ $noPrompt ]]; then
 		echo "${GREEN}$1...${RESET}"
@@ -268,4 +251,4 @@ findGlobalProfile()
 	 globalProfile="$globalProfileSaveDir/$app Profile.$saveExtension"
 }
 
-run "$@"
+ScriptRun "$@"

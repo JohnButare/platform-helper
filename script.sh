@@ -96,6 +96,7 @@ ScriptOpt()
 		-v|--verbose) verbose="-v"; verboseLevel=1;;
 		-vv) verbose="-vv"; verboseLevel=2;;
 		-vvv) verbose="-vvv"; verboseLevel=3;;
+		-w|--wait) wait="--wait";;
 		*) UnknownOption "$1";;
 	esac
 }
@@ -194,7 +195,7 @@ ScriptRun()
 	done
 
 	# options
-	unset -v force noPrompt quiet test testEcho verbose verboseLevel
+	unset -v force noPrompt quiet test testEcho verbose verboseLevel wait
 	set -- "${args[@]}"; args=()
 	while (( $# )); do
 		! IsOption "$1" && { args+=("$1"); shift; continue; }
@@ -251,6 +252,7 @@ ScriptUsage()
 	-q, --quiet 			minimize informational messages
 	-t, --test				test mode, do not make changes
 	-v, --verbose			verbose mode, multiple -vv or -vvv for additional logging
+	-w, --wait				wait for the operation to complete
 	--     						signal the end of arguments"
 
 	exit "${1:-1}"
