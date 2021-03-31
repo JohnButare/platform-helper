@@ -408,11 +408,27 @@ ArrayShow()
 # IsInArray [-w|--wild] [-aw|--awild] STRING ARRAY_VAR
 IsInArray() 
 { 
-	local wild; [[ "$1" == @(-w|--wild) ]] && { wild="true"; shift; }						# value contain glob patterns
-	local awild; [[ "$1" == @(-aw|--array-wild) ]] && { awild="true"; shift; }	# array contains glob patterns
-	local s="$1" isInArray=() value; ArrayCopy "$2" isInArray || return;
+	local wild awild caseInsensitive
+	local s isInArray=()
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-ci|--case-insensitive) caseInsensitive="true";;
+			-a|--array-wild) awild="true";; 	# array contains glob patterns
+			-w|--wild) wild="true";; 		# value contain glob patterns
+			*)
+				if ! IsOption "$1" && [[ ! $s ]]; then s="$1"
+				elif ! IsOption "$1" && [[ ! $isInArray ]]; then ArrayCopy "$1" isInArray
+				else UnknownOption "$1" IsInArray; return
+				fi
+		esac
+		shift
+	done
+
+	[[ $caseInsensitive ]] && LowerCase "$s" s;
 
 	for value in "${isInArray[@]}"; do
+		[[ $caseInsensitive ]] && LowerCase "$value" value
 		if [[ $wild ]]; then [[ "$value" == $s ]] && return 0;
 		elif [[ $awild ]]; then [[ "$s" == $value ]] && return 0;
 		else [[ "$s" == "$value" ]] && return 0; fi

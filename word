@@ -2,7 +2,12 @@
 . app.sh || exit
 . office.sh || exit
 
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]...  [close|configure|hide|info|restart|restore|show|start|startup](start)
+Word commands."
+}
 
 init()
 {
@@ -16,83 +21,43 @@ init()
 	templateFile="$replicate/$normalTemplate"
 }
 
-usage()
-{
-	echot "\
-usage: word [close|configure|info|restart|show|start|startup](start)
-	hide|restore											hide or restore the FastStart document
-	normal backup|restore|IsChanged		backup or restore the normal template
+#
+# commands
+#
 
-	-b, --brief		brief status messages"
-	exit $1
-}
-
-args()
-{
-	unset -v command brief
-
-	while [[ "$1" != "" ]]; do
-		case "$1" in
-			--brief|-b) brief="--brief";;
-			--help) usage 0;;
-			IsRunning) command="IsRunning";; IsInstalled) command="IsInstalled";;
-			*) 
-				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				[[ "$command" == @(normal|profile|start|) ]] && break;
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	args=( "$@" )
-}
+closeCommand() { ! IsRunningCommand && return 0; ProcessClose "$program"; } 
+hideCommand() { WinSetState "$WordFastStartTitle" hide; }
+isInstalledCommand() { [[ -e "$program" ]]; }
+isRunningCommand() { IsTaskRunning "$program"; }
+restartCommand() { closeCommand && startCommand; }
+restoreCommand() { WinSetState "$WordFastStartTitle" restore; }
 
 configureCommand()
 {
 	local options="$DATA/setup/Set Options $(ProperCase "$PLATFORM").docm"
-	[[ ! -f "$options" ]] && { ScriptErr "the configuration file \`$options\` does not exist"; return 1; }
+	[[ ! -f "$options" ]] && { ScriptErr "the configuration file '$options' does not exist"; return 1; }
 	start "$options"
 }
 
-startCommand()
-{
-	! IsInstalledCommand && return 1
-	start "$program" "$@"
-}
+startArgStart() { startArgs=(); }
+startArgs() { startArgs=( "$@" ); (( shift+=$# )); }
+startCommand() { IsInstalledCommand && start "$program" "${startArgs[@]}"; }
+startupCommand() { ! IsInstalledCommand && return 1; IsRunningCommand && return 0; start --window-style minimized "$program" /w /q "$fastStart"; }
 
-startupCommand()
-{
-	! IsInstalledCommand && return 1; IsRunningCommand && return 0
-	start --window-style minimized "$program" /w /q "$fastStart"
-}
-
-closeCommand() { ! IsRunningCommand && return 0; ProcessClose "$program"; } 
-hideCommand() { WinSetState "$WordFastStartTitle" hide; }
-IsInstalledCommand() { [[ -e "$program" ]]; }
-IsRunningCommand() { IsTaskRunning "$program"; }
-profileCommand() {	tc profile.btm "$@" || usage; }
-restartCommand() { closeCommand && startCommand; }
-restoreCommand() { WinSetState "$WordFastStartTitle" restore; }
 
 #
 # Normal Commands
 #
 
-normalIschangedCommand() { normalIsChanged; }
-
-normalIsChanged()
-{ 
-	if cmp -s "$normalFile" "$templateFile"; then
-		echo "The normal template is unchanged."
-		return 1
-	else
-		echo "The normal template has been changed."
-		return 0
-	fi
+normalUsage()
+{
+	echot "Usage: $(ScriptName) normal backup|restore|IsChanged
+Normal template commands."
 }
 
 normalCommand()
 {	
-	[[ ! -f "$templateFile" ]] && { ScriptErr "the template file \`$templateFile\` does not exist"; return 1; }
+	[[ ! -f "$templateFile" ]] && { ScriptErr "the template file '$templateFile' does not exist"; return 1; }
 	[[ ! -d "$OfficeTemplates" ]] && { mkdir --parents "$OfficeTemplates" || return; }
 	[[ ! -f "$normalFile" ]] && { cp "$templateFile" "$normalFile"; return; }
 
@@ -101,16 +66,7 @@ normalCommand()
 	$command "$@"
 }
 
-normalRestoreCommand()
-{
-	! normalIsChanged && return
-
-  printf "Restoring the normal template..."
-  cp "$templateFile" "$normalFile" || return
-  echo "done" 
-
-	return 0
-}
+normalIsChangedCommand() { normalIsChanged; }
 
 normalBackupCommand()
 {
@@ -129,8 +85,26 @@ normalBackupCommand()
 	fi
 
 	echo "done"
-
-	return 0
 }
 
-run "$@"
+normalRestoreCommand()
+{
+	! normalIsChanged && return
+
+  printf "Restoring the normal template..."
+  cp "$templateFile" "$normalFile" || return
+  echo "done" 
+}
+
+normalIsChanged()
+{ 
+	if cmp -s "$normalFile" "$templateFile"; then
+		echo "The normal template is unchanged."
+		return 1
+	else
+		echo "The normal template has been changed."
+		return 0
+	fi
+}
+
+ScriptRun "$@"

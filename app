@@ -101,7 +101,7 @@ RunExternalApp()
 	fi;
 
 	ShowStatus
-	"$app" --brief "${command}" || return
+	"$app" "${command}" || return
 	[[ ! $brief ]] && echo done
 	return 0
 }

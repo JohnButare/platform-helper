@@ -116,6 +116,7 @@ restoreCommand()
 {
 	local globalDescription
 	if [[ ! $profile || "$profile" == "default" ]]; then
+
 		if [[ $global || ! -f "$userProfile" ]]; then
 			findGlobalProfile || return
 			profile="$globalProfile"
@@ -124,6 +125,7 @@ restoreCommand()
 			profile="$userProfile"
 		fi
 		[[ ! -f "$profile" ]] && { echo "profile: no default $app profile found"; return 0; }
+		
 	fi
 
 	[[ "$(GetFileExtension "$profile")" == "" ]] && profile+=".$saveExtension"
