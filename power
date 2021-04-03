@@ -11,7 +11,7 @@ Manage host or PoE switch port power state.
 	fix				fix power issues
 	status		host power status
 
-	-t, --timeout=[500]		milliseconds to wait for a response from the host"
+	-t, --timeout=[$timeout]		milliseconds to wait for a response from the host"
 	exit $1
 }
 
@@ -23,7 +23,7 @@ init()
 		If the PORT is allthe command applies to all switch ports on the host."
 }
 
-argStart() { unset -v hosts timeout; }
+argStart() { unset -v hosts; timeout="$(ConfigGet "hostTimeout")"; }
 
 opt()
 {
@@ -122,7 +122,7 @@ opArgStart()
 {
 	unset -v exit force ssh quiet test wait powerSshWait
 	unset -v desc sshCommand
-	expectedState="off" ignoreErrors=1 timeout=500
+	expectedState="off" ignoreErrors=1
 }
 
 opOpt() 
@@ -272,24 +272,25 @@ powerRemote()
 	local switch switchPort; switchLookup "$host" || return
 	local power; [[ $host && $switch && $switchPort ]] && power="true"
 
-	# determine host power command
-	if [[ "$host" != @(VeraBridge) ]] && SshIsAvailable "$host"; then
+	# determine the current status off the host
+	local initialState="off"; IsAvailable "$host" "$timeout" && initialState="on"
+
+	# determine host power command if it is on
+	if [[ "$initialState" == "on" && "$host" != @(VeraBridge) ]] && SshIsAvailable "$host"; then
 		SshInPath "$host" "power" && { sshCommand="$BIN/power $op"; }
 	else
 		sshCommand=""
 	fi
 
-	# force a wait if needed (can turn the hosts switch port off after sending it a power off command)
+	# force a wait if we can turn the hosts switch port off after sending it a power off command
 	[[ $sshCommand && $switch && $op == @(off|hibernate) ]] && wait="$waitDefault"
-
-	# determine the current status off the host
-	local initialState="off"; IsAvailable "$host" "$timeout" && initialState="on"
 
 	# description	
 	if [[ ! $force && "$initialState" == "$expectedState" ]]; then
-		[[ "$op" == "on" && $waitSsh ]] && ! powerSshAvailable && { powerSshWait; return; }
 		[[ ! $quiet ]] && echo "$hostDesc is already $expectedState"
-		doSshConnect; return
+		[[ "$op" == "on" && $waitSsh ]] && ! powerSshAvailable && { powerSshWait; return; }
+		[[ "$op" == "on" && $ssh ]] && { doSshConnect || return; }
+		return 0
 	fi
 
 	printf "$desc $hostDesc..."
@@ -444,7 +445,7 @@ If port is all then the status of all switch ports is displayed.
 
 	$hostArg
 
-	-t, --timeout=[500]		milliseconds to wait for a response from the host"
+	-t, --timeout=[$timeout]		milliseconds to wait for a response from the host"
 }
 
 statusArgEnd() { [[ ! $hosts ]] && MissingOperand "host"; return 0; }

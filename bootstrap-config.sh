@@ -15,6 +15,9 @@ dns2="192.168.100.11"
 
 dhcpServers="pi1,pi2"
 
+hostTimeout="200" # host discovery timeout in milliseconds
+hostWaitTimeout="200" # seconds to wait for host to be available
+
 proxyNetworks="[wiggin]=192.168.100.10" 
 proxyServer="proxy.$domain" proxyPort="3128"
 proxy="http://$proxyServer:$proxyPort"
@@ -38,7 +41,7 @@ hashiVaultServers="pi1,pi2"
 
 # HashiCorp Testing
 hashiTestCredentialPath=""
-#hashiCertificateDevice="" hashiTestCertificateDir="$UDATA/app/hashi"
+#hashiTestCertificateDevice="" hashiTestCertificateDir="$UDATA/app/hashi"
 hashiTestCertificateDevice="$CDATA/VeraCrypt/personal.hc" hashiTestCertificateDir="data/hashi"
 hashiTestServers="pi4,pi5,pi6"
 hashiTestClients="pi7"

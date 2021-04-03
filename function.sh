@@ -913,11 +913,12 @@ GetIpAddress()
 	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
+	# - nslookup is slow on macOS if a name server is not specified
 	if InPath getent; then ip="$(getent ahostsv4 "$host" |& head -1 | cut -d" " -f 1)"
-	elif InPath host; then ip="$(host -t A "$host" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 4)"
+	elif InPath host; then ip="$(host -t A -4 "$host" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 4)"
 	elif InPath nslookup; then ip="$(nslookup "$host" |& tail -3 | grep "Address:" | cut -d" " -f 2)"
 	fi
-	
+
 	[[ ! $ip && $all ]] && ip="$(MdnsResolve "${host}.local" 2> /dev/null)"
 
 	[[ $ip ]] && echo "$(echo "$ip" | RemoveCarriageReturn)"
@@ -986,9 +987,9 @@ IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" ==
 # Network: Host Availability
 #
 
-IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
+IsAvailable() # HOST [TIMEOUT_MILLISECONDS] - returns true if the host is available
 { 
-	local host="$1" timeout="${2:-200}"
+	local host="$1" timeout="${2:-$(ConfigGet "hostTimeout")}"
 
 	IsLocalHost "$host" && return 0
 
@@ -1006,9 +1007,9 @@ IsAvailable() # HOST [TIMEOUT](200ms) - returns ping response time in millisecon
 	fi
 }
 
-IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
+IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT_MILLISECONDS]
 {
-	local host="$1" port="$2" timeout="${3-200}"; host="$(GetIpAddress "$host")" || return
+	local host="$1" port="$2" timeout="${3-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host")" || return
 
 	if InPath ncat; then
 		ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" >& /dev/null
@@ -1021,10 +1022,10 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT](200)
 	fi
 }
 
-# PingResponse HOST [TIMEOUT](200ms) - returns ping response time in milliseconds
+# PingResponse HOST [TIMEOUT_MILLISECONDS] - returns ping response time in milliseconds
 PingResponse() 
 { 
-	local host="$1" timeout="${2-200}"; host="$(GetIpAddress "$host")" || return
+	local host="$1" timeout="${2-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host")" || return
 
 	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
@@ -1036,10 +1037,10 @@ PingResponse()
 
 }
 
-# PortResponse HOST PORT [TIMEOUT](200) - return host port response time in milliseconds
+# PortResponse HOST PORT [TIMEOUT_MILLISECONDS] - return host port response time in milliseconds
 PortResponse() 
 {
-	local host="$1" local port="$2" timeout="${3-200}"; host="$(GetIpAddress "$host")" || return
+	local host="$1" local port="$2" timeout="${3-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host")" || return
 
 	if InPath ncat; then
 		TimeCommand ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port"
@@ -1055,10 +1056,10 @@ PortResponse()
 	fi
 }
 
-WaitForAvailable() # WaitForAvailable HOST [TIMEOUT_MILLISECONDS](200) [SECONDS](120)
+WaitForAvailable() # WaitForAvailable HOST [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 {
 	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForAvailable"; return 1; }
-	local timeout="${2-200}" seconds="${3-200}"
+	local timeout="${2-$(ConfigGet "hostTimeout")}" seconds="${3-$(ConfigGet "hostTimeout")}"
 
 	printf "Waiting for $host..."
 	for (( i=1; i<=$seconds; ++i )); do
@@ -1070,11 +1071,11 @@ WaitForAvailable() # WaitForAvailable HOST [TIMEOUT_MILLISECONDS](200) [SECONDS]
 	echo "not found"; return 1
 }
 
-WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS](200) [SECONDS](120)
+WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 {
 	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForPort"; return 1; }
 	local port="$2"; [[ ! $port ]] && { MissingOperand "port" "WaitForPort"; return 1; }
-	local timeout="${3-200}" seconds="${4-200}"
+	local timeout="${3-$(ConfigGet "hostTimeout")}" seconds="${4-$(ConfigGet "hostTimeout")}"
 	
 	IsAvailablePort "$host" "$port" "$timeout" && return
 
@@ -1106,19 +1107,28 @@ IsMdnsName() { IsBash && [[ "$1" =~ .*'.'local$ ]] || [[ "$1" =~ .*\\.local$ ]];
 
 ConsulResolve() { hashi resolve "$@"; }
 
+# DnsResolve NAME|IP - resolve NAME or IP address to a fully qualified domain name
 DnsResolve()
 {
 	local lookup name="$1"; [[ ! $name ]] && MissingOperand "host"
 
 	# reverse DNS lookup for IP Address
 	if IsIpAddress "$name"; then
-		lookup="$(nslookup $name |& grep "name =" | cut -d" " -f 3)"
-		lookup="${lookup%.}"
+
+		if InPath host; then
+			lookup="$(host -t A -4 "$name" |& cut -d" " -f 5 | RemoveTrim ".")"
+		else		
+			lookup="$(nslookup $name |& grep "name =" | cut -d" " -f 3 | RemoveTrim ".")"
+		fi
 
 	# forward DNS lookup to get the fully qualified DNS address
-	elif InPath host; then
-		lookup="$(host $name | grep " has address " | cut -d" " -f 1)"
+	else
 
+		if InPath getent; then lookup="$(getent ahostsv4 "$name" |& head -1 | tr -s " " | cut -d" " -f 1)"
+		elif InPath host; then lookup="$(host -t A -4 "$name" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 1)"
+		elif InPath nslookup; then lookup="$(nslookup "$name" |& tail -3 | grep "Name:" | cut -d$'\t' -f 2)"
+		fi
+		
 	fi
 
 	# if the lookup is empty or a superset of the DNS name use the full name
