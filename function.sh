@@ -1124,7 +1124,7 @@ DnsResolve()
 	# forward DNS lookup to get the fully qualified DNS address
 	else
 
-		if InPath getent; then lookup="$(getent ahostsv4 "$name" |& head -1 | tr -s " " | cut -d" " -f 1)"
+		if InPath getent; then lookup="$(getent ahostsv4 "$name" |& head -1 | tr -s " " | cut -d" " -f 3)"
 		elif InPath host; then lookup="$(host -t A -4 "$name" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 1)"
 		elif InPath nslookup; then lookup="$(nslookup "$name" |& tail -3 | grep "Name:" | cut -d$'\t' -f 2)"
 		fi
