@@ -1,111 +1,50 @@
 #!/usr/bin/env bash
-. app.sh
+. script.sh
 
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... hypervisor|list|start
+Hyper-V commands.
+	
+	checkpoint|connect|create|delete|drive|exists|power		VM commands"
+}
 
 init()
 { 
+	defaultCommand="gui"
 	gui="virtmgmt.msc"
 	disks="$DATA/appdataw/Hyper-V/Virtual Hard Disks"
 	controller="2" # assume controller location 2, 0 is usually a DVD drive and 1 is usually the system hard drive
+	allHelp="-a, 	--all				operate on all virtual machines"
 }
 
-usage()
-{	
-		echot "\
-usage: hyperv IsInstalled|IsEnabled|start
-
-	list|ListPlain|status 							list virtual machines
-
-	console|ssh VM        							connect to a vm
-	checkpoint [VM] [CHECKPOINT](image)	checkpoint a vm
-	delete VM														delete a vm
-	exists VM														return 0 if the vm exists
-	mount|unmount VM										mount the first offline drive to VM
-	switch VM [NAME](Default Adapter) 	set the network switch
-	guest vm [linux|win](win)						configure the guest services for the vm
-
-	create 
-		-t, 	--type linux|pxe|win 		type of VM defaults to use, defaults to pxe
-		-f, 	--force									force creation or deletion even if the VM already exists
-
-	on|off|reboot|sleep|status VM
-		-h, 	--hard			perform a hard reboot or power off
-
-	-a, 	--all				operate on all VM's
-	-v, 	--verbose		show verbose output"
-	exit $1
-}
-
-args()
-{
-	unset -v all brief command force hard type verbose vm
-
-	while [[ "$1" != "" ]]; do
-		case "$1" in
-			-a|--all) all="true";;
-			-f|--force) force="true";;
-			-h|--hard) hard="true";;
-			-t|--type) type="$2"; shift; ! IsFunction "CreateBefore$(ProperCase "$type")" && usage 1;;
-			-v|--verbose) verbose="--verbose";;
-			--help) usage 0;;
-			ConsoleEdit) command="consoleEdit";; IsEnabled) command="isEnabled";; ListPlain) command="listPlain";;
-			*)
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				needsVmName "$command" && [[ ! $vm ]] && { vm="$1"; shift; continue; }
-				! IsOption "$1" && [[ "$command" == @(guest|switch) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
-
-	[[ ! $command ]] && command="gui"
-	needsVmName "$command" && [[ ! $all && ! $vm ]] && MissingOperand "VM"
-
-	# assume vm names are prefixed with HOSTNAME, i.e. oversoul-ud1 (Ubuntu Desktop 1 on oversoul)
-	[[ ! "$vm" =~ - ]] && vm="$HOSTNAME-$vm"
-
-	type="${type:-pxe}"
-	args=( "$@" )
-}
-
-#
-# helper
-#
-
-needsVmName() { [[ "$1" == @(checkpoint|console|consoleEdit|create|delete|exists|guest|mount|unmount|on|off|reboot|ssh|sleep|shutdown|switch) ]]; }
-checkInstalled () { ! isInstalled && { EchoErr "Hyper-V is not installed"; exit 1; } }
-deleteVmDiskFiles() { rm -f "$disks/${vm}.vhdx" "$disks/${vm}_"*".avhdx"; }
-isEnabled() { bcdedit.exe | grep -i hypervisorlaunchtype | grep -i Auto >& /dev/null; }
-isInstalled() { service exist hvservice; }
-isServiceRunning() { service running hvservice; }
-listSwitch() { ps 'Get-VMSwitch' | tail +3 | cut -d" " -f 1; }
-ps() { RunScript $verbose --elevate -- powershell "$@"; }
-psRaw() { RunScript --elevate -- powershell "$@"; }
-
-#
-# commands
-#
-
+existsUsage() { echot "Usage: $(ScriptName) exists VM\nReturn true if the virtual machine exists."; }
+existsArgs() { getVmArg "$@"; }
 existsCommand() { psRaw 'Get-VM | where {\$_.Name -eq \"'$vm'\"}' | grep "$vm" >& /dev/null; }
-isEnabledCommand() { isEnabled; }
-listCommand() { RunScript --elevate -- powershell Get-VM | RemoveCarriageReturn; }
-listPlainCommand() { RunScript --elevate -- powershell Get-VM | RemoveCarriageReturn | tail +4 | cut -d" " -f 1 | grep -v '^$'; }
-statusCommand() { listCommand; }
+
+listUsage() { echot "Usage: $(ScriptName) list [plain]\nList all virtual machines."; }
+listCommand() { RunScript --elevate -- powershell Get-VM; }
+listPlainCommand() { listCommand | RemoveCarriageReturn | tail +4 | cut -d" " -f 1 | grep -v '^$'; }
+
+checkpointUsage() { echot "Usage: $(ScriptName) checkpoint VM|all \nCheckpoint the virtual machines."; }
+checkpointArgs() { getVmArg "$@"; }
 
 checkpointCommand()
 { 
-	if [[ $all ]]; then
+	if [[ "$vm" == "all" ]]; then
 		ps 'Get-VM \| Checkpoint-VM'
 	else
 		ps 'Checkpoint-VM -Name \"'$vm'\"'
 	fi
 }
 
+deleteUsage() { echot "Usage: $(ScriptName) delete VM \nDelete the virtual machines."; }
+deleteArgs() { getVmArg "$@"; }
+
 deleteCommand()
 {
-	[[ ! $vm ]] && { MissingOperand "vm"; }
-	[[ ! $force ]] && { ask "Are you sure you want to delete the $vm vm and all of it's disk files" -dr n || return; }
+	[[ ! $force ]] && { ask "Are you sure you want to delete the '$vm' vm completely" -dr n || return; }
 
 	printf "deleting $vm..."
 	ps 'Remove-VM -name \"'$vm'\" -force' >& /dev/null
@@ -113,44 +52,53 @@ deleteCommand()
 	echo "done"
 }
 
-disableCommand()
-{
-	checkInstalled
-	! IsElevated && { RunScript --elevate -- hyperv disable; return; }
-	isEnabled && { bcdedit.exe /set hypervisorlaunchtype off || return; }
-	isServiceRunning && ask "Restart computer to finish disabling Hyper-V" && { power reboot || return; }
-	return 0
-}
-
-enableCommand()
-{
-	checkInstalled
-	! IsElevated && { RunScript --elevate -- hyperv enable; return; }
-	! isEnabled && { bcdedit.exe /set hypervisorlaunchtype auto || return; }
-	! isServiceRunning && ask "Restart computer to enable Hyper-V" && { power reboot || return; }
-	return 0
-}
-
-guestCommand()
-{
-	local os="${1:-win}" transport="VMBus"
-
-	[[ "$os" != @(linux|win) ]] && usage
-
-	[[ "$os" == "linux" ]] && transport="HvSocket"
-	ps 'Set-VM -VMName \"'$vm'\" -EnhancedSessionTransportType '$transport'' || return
-}
-
 guiCommand()
 {
 	! InPath "$gui" && { EchoErr "The Hyper-V management GUI is not installed"; }
 	WinList | grep "Hyper-V Manager" >& /dev/null && return 0
-	start "$gui" "$@"
+	cd "/mnt/c"; start "$gui" "$@"
 }
 
-switchCommand()
+#
+# Config Commands
+#
+
+configUsage() { echot "Usage: $(ScriptName) guest|switch"; }
+
+configGuestUsage()
 {
-	local switch="${1:-Default Switch}"
+	echot "Usage: $(ScriptName) guest VM [linux|win](win)
+Configure guest services for a Linux or Windows guest." 
+}
+
+configureGuestArgs()
+{
+	getVmArg "$@"; shift
+	os="win"; [[ "$1" == @(linux|win) ]] && { ((++shift)); os="$1"; }
+	return 0
+}
+
+configGuestCommand()
+{
+	local transport="VMBus"; [[ "$os" == "linux" ]] && transport="HvSocket"
+	ps 'Set-VM -VMName \"'$vm'\" -EnhancedSessionTransportType '$transport'' || return
+}
+
+configSwitchUsage()
+{
+	echot "Usage: $(ScriptName) switch switch VM [SWITCH](Default Switch)
+Set the network switch for the virtual machine." 
+}
+
+configureSwitchArgs()
+{
+	getVmArg "$@"; shift
+	switch="Default Switch"; [[ $1 ]] && { ((++shift)); os="$1"; }
+	return 0
+}
+
+configSwitchCommand()
+{
 	ps 'Get-VM | Get-VMNetworkAdapter | Connect-VMNetworkAdapter -SwitchName \""'"$switch"'"\"'
 }
 
@@ -158,33 +106,65 @@ switchCommand()
 # Connect Commands
 #
 
-consoleCommand() { elevate VmConnect.exe "$HOSTNAME" "$vm"; }
-consoleEditCommand() { elevate VmConnect.exe "$HOSTNAME" "$vm" /edit; }
-sshCommand() { SshHelper connect -x "$vm" -- "$@"; }
+connectUsage() { echot "Usage: $(ScriptName) [gui|edit|ssh](gui) VM\nConnect to the virtual machine."; }
+connectArgs() { getVmArg "$@"; }
+connectCommand() { connectGuiCommand; }
+
+connectGuiUsage() { echot "Usage: $(ScriptName) gui VM\nConnect to the graphical GUI of the virtual machine."; }
+connectGuiCommand() { elevate VmConnect.exe "$HOSTNAME" "$vm"; }
+
+connectEditUsage() { echot "Usage: $(ScriptName) edit VM\nEdit the GUI connection configuration."; }
+connectEditCommand() { elevate VmConnect.exe "$HOSTNAME" "$vm" /edit; }
+
+connectSshUsage() { echot "Usage: $(ScriptName) edit VM\nConnect to the command line of the virtual machine using SSH."; }
+connectSshCommand() { SshHelper connect -x "$vm" -- "$@"; }
 
 #
-# Create Commands
+# Create Command
 #
+
+createUsage() { echot "Usage: $(ScriptName) create VM
+Create a virtual machine.
+
+	-t, --type linux|pxe|win			type of VM defaults to configure, defaults to pxe"
+	}
+
+createArgStart() { type="pxe"; }
+
+createOpt() 
+{
+	case "$1" in
+		-t*|--type=*|--type)
+			ScriptOptGet type "$@" && IsFunction "createBefore$(ProperCase "$type")" && return
+			ScriptErr "'$type' is not a valid type"
+			;;
+		*) return 1
+	esac
+}
+
+createArgs() { getVmArg "$@"; }
 
 createCommand() 
 {
-	if [[ $force ]]; then
-		deleteCommand >& /dev/null
-	elif existsCommand; then
-		ask "hyperv: $vm already exists.  Delete it" -dr n || return
-		deleteCommand || return
+	# remove existing VM
+	echo "Checking for existing virtual machine..."
+	if existsCommand; then
+		[[ ! $force ]] && { ask "Virtual Machine '$vm' already exists.  Delete it completely" -dr n || return; }
+		force="true" deleteCommand || return
+	else # cleanup
+		deleteVmDiskFiles || return
 	fi
-	deleteVmDiskFiles || return
 
 	local disk="$(utw "$disks/$vm.vhdx")"
 	local f="$(mktemp --suffix=.ps1 -p "$WINDIR/Temp")"
-
 	local hdGb="20" memoryGb="2" processors="2" secureBoot="Off" switch="Default Switch"
 	local nestedVirtualization="False"
 
+	echo "Checking switch configurating..."
 	listSwitch | grep "^external$" >& /dev/null && switch="external"
-	
-	CreateBefore$(ProperCase "$type") "$@" || return
+
+	echo "Creating virtual machine..."	
+	createBefore$(ProperCase "$type") "$@" || return
 
 	cat << EOF > "$f"
 New-VM -Name "$vm" -MemoryStartupBytes ${memoryGb}GB -Generation 2 -BootDevice CD -SwitchName "$switch" -ErrorAction Stop
@@ -200,44 +180,78 @@ EOF
 	ps "$(utw "$f")" || return
 	rm -f "$f" || return
 
-	CreateAfter$(ProperCase "$type") "$@" || return
+	createAfter$(ProperCase "$type") "$@" || return
 
 	hilight "$type virtual machine $vm created"
 }
 
-CreateBeforeLinux() { :; }
-CreateAfterLinux() { guestCommand "linux"; }
+createBeforeLinux() { :; }
+createAfterLinux() { guestCommand "linux"; }
 
-CreateBeforePxe() { :; }
-CreateAfterPxe() { :; }
+createBeforePxe() { :; }
+createAfterPxe() { :; }
 
-CreateBeforeWin() { hdGb="50" memoryGb="4" nestedVirtualization="True" processors="4"; }
-CreateAfterWin() { :; }
+createBeforeWin() { hdGb="50" memoryGb="4" nestedVirtualization="True" processors="4"; }
+createAfterWin() { :; }
 
 #
-# Drive Commands
+# Hypervisor Commands
 #
 
-mountCommand()
-{
-	local drive="$(drive win GetOffline)"
-	[[ ! $drive ]] && { ScriptErr "there are no offline drives to mount"; return 1; }
+hypervisorUsage() { echot "Usage: $(ScriptName) hypervisor IsEnabled|IsInstalled|disable|enable
+Hypervisor commands."; }
 
-	ps 'Add-VMHardDiskDrive -VMname \"'$vm'\" -ControllerType SCSI -ControllerNumber 0 -ControllerLocation '$controller' -DiskNumber '$drive || return
+hypervisorCommand() { usage; }
+hypervisorIsenabledCommand() { isEnabled; }
+hypervisorIsinstalledCommand() { isInstalled; }
+
+hypervisorDisableCommand()
+{
+	checkInstalled
+	! IsElevated && { RunScript --elevate -- hyperv disable; return; }
+	isEnabled && { bcdedit.exe /set hypervisorlaunchtype off || return; }
+	isServiceRunning && ask "Restart computer to finish disabling Hyper-V" && { power reboot || return; }
+	return 0
 }
 
-unmountCommand()
+hypervisorEnableCommand()
 {
-	ps 'Remove-VMHardDiskDrive -VMname \"'$vm'\" -ControllerType SCSI -ControllerNumber 0 -ControllerLocation '$controller || return
+	checkInstalled
+	! IsElevated && { RunScript --elevate -- hyperv enable; return; }
+	! isEnabled && { bcdedit.exe /set hypervisorlaunchtype auto || return; }
+	! isServiceRunning && ask "Restart computer to enable Hyper-V" && { power reboot || return; }
+	return 0
 }
+
+isEnabled() { RunScript --elevate bcdedit.exe | grep -i hypervisorlaunchtype | grep -i Auto >& /dev/null; }
+isInstalled() { service exist hvservice; }
+isServiceRunning() { service running hvservice; }
 
 #
 # Power Commands
 #
 
-onCommand()
+powerUsage() { echot "Usage: $(ScriptName) power off|on|reboot|sleep
+Virtual Machine power commands.
+
+	-h, 	--hard			perform a hard reboot or power off"; }
+
+powerArgStart() { unset -v hard; }
+powerArgs() { getVmArg "$@"; }
+
+powerOpt()
+{
+	case "$1" in
+		-H|--hard) hard="true";;
+		*) return 1
+	esac
+}
+
+powerCommand() { usage; }
+
+powerOnCommand()
 { 
-	if [[ $all ]]; then
+	if [[ "$vm" == "all" ]]; then
 		RunScript --elevate -- powershell 'Get-VM \| where {\$_.State -eq \"Paused\"} \| Resume-VM' || return
 		RunScript --elevate -- powershell 'Get-VM \| where {\$_.State -eq \"Off\"} \| Start-VM' || return
 	else
@@ -245,30 +259,21 @@ onCommand()
 	fi
 }
 
-sleepCommand()
-{ 
-	if [[ $all ]]; then
-		ps 'Get-VM | where {\$_.State -eq \"Running\"} | Save-VM'
-	else
-		RunScript --elevate -- powershell Save-VM -Name "$vm"
-	fi
-}
-
-offCommand()
+powerOffCommand()
 {
 	local arg; [[ $hard ]] && arg="-TurnOff"
 
-	if [[ $all ]]; then
+	if [[ "$vm" == "all" ]]; then
 		RunScript --elevate -- powershell 'Get-VM \| where {\$_.State -eq \"Running\"} \| Stop-VM '$arg
 	else
 		RunScript --elevate -- powershell Stop-VM -Name "$vm" $arg
 	fi
 }
 
-rebootCommand() 
+powerRebootCommand() 
 { 
 	if [[ $hard ]]; then
-		if [[ $all ]]; then
+		if [[ "$vm" == "all" ]]; then
 			RunScript --elevate -- powershell 'Get-VM \| where {\$_.State -eq \"Running\"} \| Restart-VM -Type Reset -Force'
 		else
 			RunScript --elevate -- powershell Restart-VM -Name "$vm" -Type Reset -Force
@@ -279,4 +284,52 @@ rebootCommand()
 	printf "rebooting..."; offCommand && printf "off..."; onCommand && printf "on..."; echo "done"
 }
 
-run "$@"
+powerSleepCommand()
+{ 
+	if [[ "$vm" == "all" ]]; then
+		ps 'Get-VM | where {\$_.State -eq \"Running\"} | Save-VM'
+	else
+		RunScript --elevate -- powershell Save-VM -Name "$vm"
+	fi
+}
+
+#
+# Drive Commands
+#
+
+driveUsage() { echot "Usage: $(ScriptName) drive mount|unmount VM\nVirtual Machine drive commands."; }
+driveArgs() { getVmArg "$@"; }
+driveCommand() { usage; }
+
+driveMountCommand()
+{
+	local drive="$(drive win GetOffline)"
+	[[ ! $drive ]] && { ScriptErr "there are no offline drives to mount"; return 1; }
+
+	ps 'Add-VMHardDiskDrive -VMname \"'$vm'\" -ControllerType SCSI -ControllerNumber 0 -ControllerLocation '$controller' -DiskNumber '$drive || return
+}
+
+driveUnmountCommand()
+{
+	ps 'Remove-VMHardDiskDrive -VMname \"'$vm'\" -ControllerType SCSI -ControllerNumber 0 -ControllerLocation '$controller || return
+}
+
+#
+# helper
+#
+
+checkInstalled () { ! isInstalled && { EchoErr "Hyper-V is not installed"; exit 1; } }
+deleteVmDiskFiles() { rm -f "$disks/${vm}.vhdx" "$disks/${vm}_"*".avhdx"; }
+listSwitch() { ps 'Get-VMSwitch' | tail +3 | cut -d" " -f 1; }
+ps() { RunScript $verbose --elevate -- powershell "$@"; }
+psRaw() { RunScript --elevate -- powershell "$@"; }
+
+getVmArg()
+{
+	ScriptArgGet "vm" -- "$@"
+	[[ "${vm,,}" == "all" ]] && vm="all"
+	[[ "$vm" != "all" && ! "$vm" =~ - ]] && vm="$HOSTNAME-$vm" # assume vm names are prefixed with HOSTNAME, i.e. oversoul-ud1 (Ubuntu Desktop 1 on oversoul)
+	return 0
+}
+
+ScriptRun "$@"
