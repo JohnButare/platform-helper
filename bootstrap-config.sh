@@ -9,11 +9,11 @@ baseDomain="butare.net"
 domain="$workgroup.$baseDomain"
 systemUser="wsystem"
 
-dnsServers="pi1,pi2"
+dnsServers="pi2,pi1" # update pi2 first
 dns1="192.168.100.10"
 dns2="192.168.100.11"
 
-dhcpServers="pi1,pi2"
+dhcpServers="pi2,pi1" # update pi2 first
 
 hostTimeout="200" # host discovery timeout in milliseconds
 hostWaitTimeout="200" # seconds to wait for host to be available
