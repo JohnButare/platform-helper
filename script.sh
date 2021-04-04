@@ -154,7 +154,7 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 # ScriptRun [defaultCommand]: init->opt->args->initFinal->command->cleanup
 ScriptRun()
 {
-	local defaultCommand defaultCommandUsed; RunFunction "init" || return
+	local defaultCommand defaultCommandUsed; RunFunction "init" -- "$@" || return
 	
 	# commands - format command1Command2Command
 	local args=() c shift="1"
