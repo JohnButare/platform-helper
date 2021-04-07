@@ -896,7 +896,7 @@ GetEthernetAdapters()
 }
 
 # GetIpAddress [-a|--all] [HOST] - get the IP address of the current or specified host
-# If all is specified try to resolve using DNS then MDNS (.local) name.
+# --all 	resolve host using all methods (DNS, MDNS)
 GetIpAddress() 
 {
 	local all; [[ "$1" =~ ^(-a|--all)$ ]] && { all="true"; shift; }
