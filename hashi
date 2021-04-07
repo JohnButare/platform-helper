@@ -814,23 +814,9 @@ initNomadVaultIntegration()
 
 	local policy; productInit "vault" || return
 
-	# add the nomad-cluster policy to Vault
-	if ! vault policy list | grep -q "^nomad-server$"; then
-		hilight "Adding the nomad-server policy to Vault..."
-		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-server-policy.hcl")" || return
-		vault policy write nomad-server "$policy" || return
-	fi
-
-	# add the nomad-cluster role to Vault
-	if ! vault list "/auth/token/roles" |& grep -q "^nomad-cluster$"; then
-		hilight "Adding the nomad-cluster role to Vault..."
-		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-cluster-role.json")" || return
-		vault write /auth/token/roles/nomad-cluster @"$policy" || return
-	fi
-
-	# grant the nomad-cluster role permission to required secrets
+	# nomad-cluster policy - policy for jobs (specifiy in job configuration)
 	if ! vault policy list | grep -q "^nomad-cluster$"; then
-		hilight "Granting the nomad-cluster role permission in Vault..."
+		hilight "Adding the nomad-cluster policy to Vault..."
 		local policy="$(cat <<-EOF
 			path "secret/*" {
 			  capabilities = ["read"]
@@ -840,8 +826,22 @@ initNomadVaultIntegration()
 		echo "$policy" | vault policy write nomad-cluster - || return
 	fi
 
-	# create a token for nomad to access vault
-	local token="$(vault token create -policy nomad-server -orphan -format=json | jq '.auth.client_token' | RemoveQuotes)" || return
+	# nomad-cluster role - role Nomad uses to create tokens for jobs (specifies which policies jobs can request)
+	if ! vault list "/auth/token/roles" |& grep -q "^nomad-cluster$"; then
+		hilight "Adding the nomad-cluster role to Vault..."
+		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-cluster-role.json")" || return
+		vault write /auth/token/roles/nomad-cluster @"$policy" || return
+	fi
+
+	# nomad-server policy - policy for the token Nomad uses to access Vault
+	if ! vault policy list | grep -q "^nomad-server$"; then
+		hilight "Adding the nomad-server policy to Vault..."
+		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-server-policy.hcl")" || return
+		vault policy write nomad-server "$policy" || return
+	fi
+
+	# create token for Nomad to access vault - Nomad will renew the token every 72h
+	local token="$(vault token create -display-name nomad-server -policy nomad-server -period 72h -orphan -format=json | jq '.auth.client_token' | RemoveQuotes)" || return
 
 	# create and copy the vault configuration files
 	for host in server "${servers[@]}" client "${clients[@]}"; do
@@ -2198,7 +2198,7 @@ nomadGetAllocId()
 #
 
 vaultUsage() { echot "\
-Usage: $(ScriptName) vault environment|status|unseal
+Usage: $(ScriptName) vault environment|status|token|unseal
 Vault commands.
 
 	unseal			unseal the vault using keys from the credential store"; }
@@ -2239,6 +2239,14 @@ vaultSeal()
 	echo "Sealing Vault host $host..."
 	productInit "vault" "$host" || return
 	$testEcho vault operator seal || return
+}
+
+vaultTokenCommand()
+{
+	for accessor in $(vault list auth/token/accessors | tail +3); do
+		header "$accessor"
+		vault token lookup -accessor "$accessor"
+	done
 }
 
 vaultUnsealCommand()
@@ -2317,7 +2325,7 @@ vaultTokenSetLocal()
 
 	[[ $verbose ]] && EchoErr "Getting Vault token from $host..."
 
-	local token; token="$(ssh -q -t "$host" bash -i credential get "$(credPath)" token $verbose)"
+	local token; token="$(ssh -4 -q -t "$host" bash -i credential get "$(credPath)" token $verbose)"
 	if [[ ! $token ]]; then
 		ScriptErr "The Vault token does not exist in the local credential manager on $(configServer) at path $(credPath)"
 		return 1
