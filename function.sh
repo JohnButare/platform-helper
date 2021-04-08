@@ -419,7 +419,7 @@ IsInArray()
 			*)
 				if ! IsOption "$1" && [[ ! $s ]]; then s="$1"
 				elif ! IsOption "$1" && [[ ! $isInArray ]]; then ArrayCopy "$1" isInArray
-				else UnknownOption "$1" IsInArray; return
+				else UnknownOption "$1" "IsInArray"; return
 				fi
 		esac
 		shift
@@ -1183,12 +1183,6 @@ IsInSshConfig()
 	return 0
 }
 
-# SshAgentHelper - wrapper for SshAgent which ensures the correct variables are set in the calling shell
-SshAgentHelper()
-{ 
-	return 0
-}
-
 # SshAgentConfig - if the SSH Agent is started, add the configuration variables to the shell
 SshAgentConfig() { [[ ! -f "$HOME/.ssh/environment" ]] && return; . "$HOME/.ssh/environment"; }
 
@@ -1197,7 +1191,7 @@ SshAgentStart()
 {
 	ssh-add -L >& /dev/null && return
 	SshAgentConfig
-	SshAgent start --quiet --verbose || return
+	SshAgent start --quiet --verbose "$@" || return
 	SshAgentConfig
 }
 
@@ -1586,15 +1580,33 @@ ProcessClose()
 
 ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
 
+# ProcessKill NAME - kill the specified process
+# -a|--all 		kill all processes with NAME, not just the user process
+# -w|--win		kill the Windows process with NAME
 ProcessKill()
 {
-	local p="$1"
+	local p all win; 
 
-	if [[ "$PLATFORM" == "win" ]]; then
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-a|--all) all="true";;
+			-w|--win) win="true";;
+			*)
+				if ! IsOption "$1" && [[ ! $p ]]; then p="$1"
+				else UnknownOption "$1" "ProcessKill"; return
+				fi
+		esac
+		shift
+	done
+
+	[[ "$(GetFileExtension "$p")" == "exe" ]] && win="true"
+
+	if [[ $win ]]; then
 		start pskill "$p" > /dev/null
+	elif [[ $all ]]; then
+		pkill "$p" > "/dev/null"
 	else
-		GetFileNameWithoutExtension "$p" p
-		pkill "$p" > /dev/null
+		pkill "$p" -U "$UID"  > "/dev/null"
 	fi
 }
 
