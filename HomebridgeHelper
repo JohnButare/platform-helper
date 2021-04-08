@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-. script.sh || exit
+. app.sh || exit
 
 usage() 
 {
@@ -19,38 +19,53 @@ init()
 # Backup Command
 #
 
-backupUsage() { echot "Usage: $(ScriptName) backup [HOST]
-Backup Homebridge configuration."}
+backupUsage() { echot "Usage: $(ScriptName) backup [HOST]...
+Backup Homebridge configuration."; }
 
-backupArgs() { backupArgs=( "$@" ); shift="$#"; }
+backupArgStart() { unset -v hosts; }
+backupArgs() { hosts=( "$@" ); shift="$#"; }
 
 backupCommand()
 {
-	if [[ $backupArgs ]]; then
-		backupRemote "${backupArgs[@]}"
+	# backup hosts
+	if [[ $hosts ]]; then
+		backupHosts "${hosts[@]}"
+
+	# backup local Homebridge directory
+	elif [[ -d "$homebridgeDir" ]]; then
+		AppBackup "$HOSTNAME.homebridge" "$homebridgeDir"
+
+	# nothing found
 	else
-		[[ ! -d "$homebridgeDir" ]] && { ScriptErr "unable to locate the homebridge directory"; return 1; }
-		AppBackup "$HOSTNAME.homebridge" "$homebridgeDir" || return
+		ScriptErr "no hosts specified and no Homebridge directory found"; return 1
+
 	fi
 }
 
-# /var/lib/homebridge
-backupRemote()
-{
-	local host="$1"; shift; [[ ! $host ]] && { MissingOperand "host" || return 1; }	
-	local file="$host.homebridge.zip"
-	local dest="$(AppGetBackupDir)/$file" || return
+backupHosts() { local host; for host in "$@"; do backupHost "$host" || return; done; }
 
-	(( $# != 0 )) && usage
+backupHost()
+{
+	local host="$1" file="$host.homebridge.zip"
+
+	hilight "Backing up $host Homebridge configuration..."
+	
+	# mount backup directory
+	local dest; dest="$(AppGetBackupDir)/$file" || return
 
 	# initialize
-	bak --move "$dest" || return
+	[[ -f "$dest" ]] && { bak --move "$dest" "${globalArgs[@]}" || return; }
 
 	# backup
-	hilight "Backing up $host Homebridge configuration..."
-	ssh $host "rm -f $file; zip -r $file .homebridge" || return
-	scp $host:~/$file "$dest" || return
-	ssh $host "rm -f $file"
+
+	echo  "Creating backup from $host..."
+	ssh -4 $verbose $host "rm -f $file; zip -r $file .homebridge" || return
+
+	echo "Copying backup file to $dest..."
+	scp -4 $verbose $host:~/$file "$dest" || return
+
+	echo "Removing backup file from $host..."
+	ssh -4 $verbose $host "rm -f $file"
 
 	echo "Homebridge backup of $host completed to $(FileToDesc "$dest")"
 }
@@ -60,7 +75,7 @@ backupRemote()
 #
 
 restoreUsage() { echot "Usage: $(ScriptName) HOST FILE
-Restore Homebridge configuration."}
+Restore Homebridge configuration."; }
 
 restoreArgs()
 {

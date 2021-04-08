@@ -1211,6 +1211,12 @@ GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; r "${gus%:
 GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 	# DIRS
 IsUncPath() { [[ "$1" =~ ^\ *//.* ]]; }
 
+GetUncUser()
+{
+	GetArgs; ! [[ "$1" =~ .*\@.* ]] && { r "$USER" $2; return; }
+	local guu="${1#*( )//}"; guu="${guu%%@*}" || guu="$USER"; r "$guu" $2
+}
+
 # GetUncProtocol UNC - PROTOCOL=NFS|SMB|SSH|INTEGER - INTEGER is a custom SSH port
 GetUncProtocol()
 {

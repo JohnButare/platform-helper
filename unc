@@ -22,7 +22,7 @@ init()
 {
 	volumeDir=~/"Volumes"; initVolumeDir || return
 	protocolUsage="-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)"
-	uncTypes="9p,cifs,nfs,nfs4,sshfs"; IsPlatform mac && uncTypes="fuse.sshfs,nfs,nfs4,smbfs"
+	uncTypes="9p,cifs,nfs,nfs4,fuse.sshfs"; IsPlatform mac && uncTypes="nfs,nfs4,smbfs,fuse.sshfs"
 	return 0
 }
 
@@ -277,8 +277,9 @@ mountCommand()
 			sudoc bash -c "echo \"$line\" >> /etc/fstab" || return
 		fi
 
-		local password="$(credential -q get secure default)"
 		local sudo; IsPlatform qnap && sudo="sudoc"
+		local password="$(credential -q get secure default)"
+		[[ $verbose && $password ]] && EchoErr "password found in the credential store"
 
 		[[ $password ]] && export PASSWD="$password"
 		$sudo mount.cifs "//$server/$share" "$mountDir" -o user=$user sec=ntlmsspi
@@ -286,6 +287,7 @@ mountCommand()
 
 	elif IsPlatform mac; then
 		local password="$(credential -q get secure default)"
+		[[ $verbose && $password ]] && EchoErr "password found in the credential store"
 
 		if [[ $password ]]; then
 			mount_smbfs "smb://$user:$password@$server/$share" "$mountDir"
@@ -447,12 +449,12 @@ getUncInfo() # GetUncInfo unc - sets server share dirs user shareId mountDir
 {	
 	unc="$1"; [[ ! $unc ]] && return 1
 
+	GetUncUser "$unc" user
 	GetUncServer "$unc" server || return; [[ ! $server ]] && { ScriptErr "UNC '$unc' does not include a server"; return 1; }
 	GetUncShare "$unc" share || return; [[ ! $share ]] && share="root" 
 	GetUncDirs "$unc" dirs
 	local p; GetUncProtocol "$unc" p || return; [[ $p ]] && protocol="$p"
 
-	user="$USER"
 	shareId="${share%%\$}"
 	mountDir="$volumeDir/${server}_${shareId}"
 
@@ -462,7 +464,7 @@ getUncInfo() # GetUncInfo unc - sets server share dirs user shareId mountDir
 	# MDSN name resolution - Windows does not resolve MDNS natively
 	IsPlatform win && IsMdnsName "$server" && { server="$(MdnsResolve "$server")" || return; }
 
-	[[ $verbose ]] && HilightErr "unc $command: unc=$unc mountDir=$mountDir protocol=$protocol"
+	[[ $verbose ]] && HilightErr "unc $command: protocol=$protocol user=$user\n	unc=$unc\n	mountDir=$mountDir\n"
 
 	return 0
 }

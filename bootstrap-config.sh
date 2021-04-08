@@ -23,7 +23,7 @@ proxyServer="proxy.$domain" proxyPort="3128"
 proxy="http://$proxyServer:$proxyPort"
 
 # file server
-fs="nas3.$baseDomain" fsProtocol="608"
+fs="nas3.$baseDomain" fsProtocol="608" fsUser="jjbutare"
 
 # web server
 web="$fs" webUnc="//$web/web"

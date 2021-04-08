@@ -36,7 +36,17 @@ AppCommand() # AppCommand COMMAND APP - execute COMMAND on APP if exists
 	return 0
 }
 
-AppGetBackupDir() { echo "$(unc mount //$(ConfigGet "fs")/root$DATA/appdata/backup)"; }
+AppGetBackupDir()
+{
+	local dir unc="//$(ConfigGet "fsUser")@$(ConfigGet "fs")/root$DATA/appdata/backup" # //user@server/share/dirs:protocol
+
+	if ! dir="$(unc mount "$unc" "${globalArgs[@]}")"; then
+		EchoErr "AppGetBackupDir: unable to mount '$unc'"
+		return 1
+	fi
+
+	echo "$dir"
+}
 
 # AppBackup APP SRC... -- [ZIP_OPTION]...
 AppBackup()
