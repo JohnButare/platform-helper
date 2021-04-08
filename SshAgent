@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [check|cleanup|environment|show|start](show)
+Usage: $(ScriptName) [OPTION]... [check|cleanup|environment|start|status](show)
 Control the SSH Agent."
 	exit $1
 }
@@ -16,52 +16,70 @@ init()
 	environmentFile="$sshDir/environment"
 }
 
+argStart() { unset -v log; }
+
+opt()
+{
+	case "$1" in
+		-l|--log) log="--log";;
+		*) return 1;;
+	esac
+}
+
+#
+# Check Command
+#
+
 checkUsage() { echot "Usage: $(ScriptName) cleanup\nCheck for proper operation of the SSH Agent."; }
 
 checkCommand()
 {
 	if [[ ! -f "$environmentFile" ]]; then
-		[[ $verbose ]] && EchoErr "SshAgent: the environment file '$environmentFile' does not exist on $HOSTNAME"
+		[[ $verbose ]] && log "the environment file '$environmentFile' does not exist on $HOSTNAME"
 		return 1
 	fi
 
 	if [[ ! $SSH_AUTH_SOCK || ! $SSH_AGENT_PID ]]; then
-		[[ $verbose ]] && EchoErr "SshAgent: the environment was not loaded on $HOSTNAME"
+		[[ $verbose ]] && log "the environment was not loaded on $HOSTNAME"
 	fi
 	
 	local oldAuthSock="$SSH_AUTH_SOCK" oldAgentPid="$SSH_AGENT_PID"
 
 	if ! . "$environmentFile"; then
-		[[ $verbose ]] && EchoErr "SshAgent: unable to read the SSH Agent configuration file $f on $HOSTNAME"
+		[[ $verbose ]] && log "unable to read the SSH Agent configuration file $f on $HOSTNAME"
 		return 1
 	fi
 
 	if [[ "$SSH_AUTH_SOCK" != "${oldAuthSock:-$SSH_AUTH_SOCK}" || "$SSH_AGENT_PID" != "${sshAgentPid:-$SSH_AGENT_PID}" ]]; then
-		[[ $verbose ]] && EchoErr "SshAgent: the environment was not correct on $HOSTNAME"
+		[[ $verbose ]] && log "the environment was not correct on $HOSTNAME"
 	fi
 
 	if [[ ! -S "$SSH_AUTH_SOCK" ]]; then
-		[[ $verbose ]] && EchoErr "SshAgent: the ssh agent socket ($SSH_AUTH_SOCK) is not valid on $HOSTNAME"
+		[[ $verbose ]] && log "the ssh agent socket ($SSH_AUTH_SOCK) is not valid on $HOSTNAME"
 		return 1
 	fi
 
 	if ! ProcessIdExists "$SSH_AGENT_PID"; then
-		[[ $verbose ]] && EchoErr "SshAgent: the ssh agent socket process ($SSH_AGENT_PID) is not running on $HOSTNAME"
+		[[ $verbose ]] && log "the ssh agent socket process ($SSH_AGENT_PID) is not running on $HOSTNAME"
 		return 1
 	fi
 
 	if ! ssh-add -L >& /dev/null; then
-		[[ $verbose ]] && EchoErr "SshAgent: no identities are loaded in the SSH Agent on $HOSTNAME"
+		[[ $verbose ]] && log "no identities are loaded in the SSH Agent on $HOSTNAME"
 		return 1
 	fi
 
-	[[ ! $quiet ]] && echo "The SSH Agent is working properly on $HOSTNAME and contains $(ssh-add -L | wc -l) identities"
+	[[ ! $quiet ]] && echo "The SSH Agent is working properly on $HOSTNAME and contains $(ssh-add -L | wc -l | RemoveSpace) identities"
 
 	return 0
 }
 
 checkKeysUsage() { echot "Usage: $(ScriptName) check keys\nCheck for existense of a valid identiy key file."; }
 checkKeysCommand() { local d="$sshDir"; FileExistsAny "$d/id_rsa" "$d/id_dsa" "$d/id_ecdsa" "$d/id_ed25519"; }
+
+#
+# Cleanup Command
+#
 
 cleanupUsage() { echot "Usage: $(ScriptName) cleanup\nCleanup the SSH Agent processes and files."; }
 cleanupCommand()
@@ -79,15 +97,16 @@ cleanupCommand()
 	return 0
 }
 
+#
+# Environment Command
+#
+
 environmentUsage() { echot "Usage: $(ScriptName) environment\nReturn the SSH Agent environment in a format suitable for sourcing."; }
 environmentCommand() { [[ -f "$environmentFile" ]] && cat "$environmentFile"; }
 
-showUsage() { echot "Usage: $(ScriptName) show\n.Show the keys in the SSH Agent."; }
-showCommand() 
-{	
-	verbose="true" checkCommand || return
-	ssh-add -L
-}
+#
+# Start Command
+#
 
 startUsage() { echot "Usage: $(ScriptName) show\n.Start the SSH Agent."; }
 startCommand()
@@ -125,6 +144,30 @@ startCommand()
 	fi
 
 	return $result
+}
+
+#
+# Status Command
+#
+
+statusUsage() { echot "Usage: $(ScriptName) show\n.Show the status of the the SSH Agent."; }
+statusCommand() 
+{	
+	verbose="true" checkCommand || return
+	ssh-add -L
+}
+
+#
+# helper
+#
+
+function log()
+{
+	if [[ $log ]]; then
+		echo "$(GetTimeStamp): SshAgent: $1" >> "$HOME/.ssh/log"
+	else
+		echo "$1"
+	fi
 }
 
 ScriptRun "$@"

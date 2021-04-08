@@ -244,6 +244,8 @@ ConfigFileGet() { echo "$functionConfigFileCache"; }
 clear() { echo -en $'\e[H\e[2J'; }
 pause() { local response m="${@:-Press any key when ready...}"; ReadChars "" "" "$m"; }
 
+LineWrap() { ! InPath setterm && return; setterm --linewrap "$1"; }
+
 # ReadChars N [SECONDS] [MESSAGE] - silently read N characters into the response variable optionally waiting SECONDS
 # - mask the differences between the read commands in bash and zsh
 ReadChars() 
@@ -1191,7 +1193,7 @@ SshAgentStart()
 {
 	ssh-add -L >& /dev/null && return
 	SshAgentConfig
-	SshAgent start --quiet --verbose "$@" || return
+	SshAgent start "$@" || return
 	SshAgentConfig
 }
 
