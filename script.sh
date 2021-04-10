@@ -161,6 +161,7 @@ ScriptRun()
 	local command commandNames=() commands=() globalArgs=() originalArgs=("$@") otherArgs=() # public
 
 	while (( $# )); do
+		local firstCommand="true"; [[ $command ]] && unset firstCommand
 
 		# -- indicates end of arguments
 		[[ "$1" == "--" ]] && { shift; otherArgs+=( "$@" ); break; }
@@ -169,10 +170,14 @@ ScriptRun()
 		! IsValidCommandName "$1" && { args+=("$1"); shift; continue; }
 
 		# first command is lower case (i.e. dhcp), second command is upper case (i.e. dhcpStatus)
-		[[ $command ]] && ProperCase "$1" c || LowerCase "$1" c;
+		[[ $firstCommand ]] && c="${1,,}" || c="$(ProperCase "$1")"
 
-		# commands that start with is/to are proper cased after is, i.e. isAvailable
-		[[ "$c" =~ ^is..* ]] && c="is$(ProperCase "${c#is}")"
+		# commands that start with is are proper cased after is, i.e. isAvailable
+		if [[ "${c,,}" =~ ^is..* ]]; then
+			local prefix="${c:0:2}" suffix="${c#??}"
+			[[ $firstCommand ]] && prefix="${prefix,,}" || prefix="$(ProperCase "$prefix")"
+			c="${prefix}$(ProperCase "${suffix}")"
+		fi
 
 		# the argument is a command if there is a function for it
 		c="${command}${c}Command"
@@ -268,5 +273,5 @@ IsDriveLetter()
 	IsInArray "$1" driveLetters
 }
 
-# IsValidCommandName NAME - NAME is valid name for script commands
+# IsValidCommandName NAME - NAME is valid name for script commands (not empty, no spaces, single quotes, or double quotes, not an option)
 IsValidCommandName() { [[ $1 && ! "$1" =~ [\ \'\"] ]] && ! IsOption "$1"; }	
