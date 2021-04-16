@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) browse|changes|clone|github|gui|hide|hub|IsInstalled|profile|size|to [OPTION]...
+Usage: $(ScriptName) changes|clone|github|gui|hide|hub|IsInstalled|profile|size|to [OPTION]...
 Additional Git functionality."
 	exit $1
 }
@@ -25,7 +25,6 @@ init()
 # commands
 #
 
-browseCommand() { guiCommand browse "$@"; }
 isInstalledCommand() { InPath git; }
 profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."; }
 profileCommand() {	profile --app "GitExtensions" --method "$ADATA/../Roaming/GitExtensions/GitExtensions" --files "GitExtensions.settings" "$@"; }
@@ -181,9 +180,16 @@ cloneExistingCommand()
 # GUI Command
 #
 
-guiUsage() { echot "Usage: $(ScriptName) gui\nRun GUI git program.\n\n	-w, --wait		wait for the operation to complete"; }
+guiUsage()
+{
+	echot "Usage: $(ScriptName) gui [PATH]
+Open the repository in the current or specified directory in a Git GUI program.
 
-guiArgStart() { unset -v wait; }
+	-w, --wait		wait for the operation to complete"
+}
+
+guiArgStart() { unset -v path wait; }
+guiArgs() { [[ ! $1 ]] && return; ScriptArgGet "path" -- "$@"; ScriptCheckDir "$dir"; }
 
 guiOpt()
 {
@@ -195,23 +201,48 @@ guiOpt()
 
 guiCommand()
 {
-	local result pop guiTitle
+	path="${path:-$PWD}"; ! git rev-parse --git-dir >& /dev/null && unset path
 
-	WinSetState "$forkTitle" --activate >& /dev/null && return
+	if InPath "gitkraken" && ! drive IsWin "$path"; then guiGitKraken
+	elif [[ -f "$fork" ]]; then guiFork
+	elif InPath "gitkraken"; then guiGitKraken
+	elif [[ -f "$GitExtensions" ]]; then guiGitExtensions
+	elif [[ -f "$gitx" ]]; then guiGitx
+	elif InPath "gitg"; then guiGitg
+	else ScriptErr "Could not find a Git GUI applicationinstalled"; return 1
+	fi
+}
 
-	[[ -d "$1" ]] && { pushd "$1" >& /dev/null; shift; pop="$true"; }
+guiFork()
+{
+	local args=(); [[ $path ]] && args+=( "$path" )
+	local start; IsPlatform win && start="start"
+	$start "$fork" "${args[@]}"
+}
 
-	if [[ -f "$fork" ]]; then IsPlatform win && start "$fork" "$PWD" || "$fork" "$@"; guiTitle="$forkTitle"
-	elif InPath gitkraken; then start gitkraken -p "$PWD"
-	elif [[ -f "$GitExtensions" ]]; then [[ "$@" == "" ]] && start $wait "$GitExtensions" browse . || start $wait "$gitE" "$@";
-	elif [[ -f "$gitx" ]]; then [[ "$@" == "" ]] && start $wait "$gitx" --git-dir=. || start $wait "$gitx" "$@";
-	elif InPath "gitg"; then start $wait gitg "$@"	
-	else EchoErr "Could not find a git gui application"; return 1; fi
-	result="$?"
+guiGitExtensions()
+{
+	local args=( "${otherArgs[@]}" ); [[ $path ]] && args+=( browse "$path" )
+	start $wait "$GitExtensions" "${args[@]}" || return
+}
 
-	[[ $pop ]] && popd
+guiGitg()
+{
+	[[ $path ]] && { command cd "$path" || return; }
+	start $wait gitg "${otherArgs[@]}"
+}
 
-	return $result
+guiGitKraken()
+{
+	local args=( --new-window "${otherArgs[@]}" ); [[ $path ]] && args+=( -p "$path" )
+	start $wait gitkraken "${args[@]}"
+	WinSetState "GitKraken" --activate >& /dev/null
+}
+
+guiGitx()
+{
+	local args=( "${otherArgs[@]}" ); [[ $path ]] && args+=( -git-dir="$path" )
+	start $wait "$gitx" "${args[@]}"
 }
 
 #
