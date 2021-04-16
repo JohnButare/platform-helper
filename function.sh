@@ -2063,12 +2063,12 @@ WinSetState()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-a|--activate) wargs=( /res /act ); args=( -a );;
+			-a|--activate) wargs=( front ); args=( -a );;
 			-c|--close) wargs=( /res /act ); args=( -c );;
-			-max|--maximize) wargs=( /res /act /max ) args=( -a );;
-			-min|--minimize) wargs=( /min );;
-			-h|--hide) wargs=( /hid );;
-			-uh|--unhide) wargs=( /vis );;
+			-max|--maximize) wargs=( maximized ) args=( -a );;
+			-min|--minimize) wargs=( minimized );;
+			-H|--hide) wargs=( hidden );;
+			-uh|--unhide) wargs=( show_default );;
 			-h|--help) WinSetStateUsage; return 0;;
 			*)
 				if [[ ! $title ]]; then title="$1"
@@ -2076,6 +2076,12 @@ WinSetState()
 		esac
 		shift
 	done
+
+	# Windows - see if the title matches a windows running in Windows
+	if IsPlatform win; then
+		WindowMode.exe -title "$title" -mode "${wargs[@]}"
+		return
+	fi
 
 	# X Windows - see if title matches a windows running on the X server
 	if [[ $DISPLAY ]] && InPath wmctrl; then
@@ -2085,12 +2091,6 @@ WinSetState()
 			[[ $args ]] && { wmctrl -i "${args[@]}" "$id"; return; }
 			return 0
 		fi
-	fi
-
-	# Windows - see if the title matches a windows running in Windows
-	if IsPlatform win; then
-		cmdow.exe "$title" "${wargs[@]}" >& /dev/null
-		return
 	fi
 
 	return 1
