@@ -46,10 +46,20 @@ args()
 
 install() { RunPlatform install; }
 
-installLinux() { checkExists "$dest" && runCommon; }
+installLinux()
+{
+	# firefox
+	if [[ "$dest" =~ /firefox$ ]]; then
+		checkExists "$dest" && extract "$zip" "$(EnsureDir "$dest" | GetParentDir)"; return
+	fi
+
+	# other
+	checkExists "$dest" && runCommon; 
+}
 
 installMac()
 {
+	# .app directories
 	local dir="$(zipinfo -1 "$zip" | head -1)"
 	if [[ "$dir" =~ ^.*app/$ ]]; then
 		checkExists "$dest/$dir" || return
@@ -57,8 +67,8 @@ installMac()
 		return
 	fi
 
-	checkExists "$dest" || return
-	runCommon
+	# other
+	checkExists "$dest" && runCommon
 }
 
 installWin()
@@ -81,50 +91,65 @@ checkExists()
 	local dir="$1"
 
 	[[ ! -d "$dir" ]] && return
+
+	# ensure the full path to the program is specified
+	[[ "$(RemoveTrailingSlash "$dir")" == "$P" ]] && { ScriptErr "cannot install to '$P' directly"; return 1; }
 		
+	# prompt to delete an existing installation
 	[[ ! $noPrompt ]] && { ask "Do you want to delete the existing installation in \"$dir\"" -dr n || return; }
 
-	if IsPlatform win && ! IsElevated; then
-		printf "cleaning..."
+	printf "cleaning..."
+	if IsPlatform win && drive IsWin "$dest" && ! IsElevated; then
 		RunScript --elevate -- rm -fr "\"$dir\"" || return
-		echo "done"
 	else
-		sudoc ${G}rm -fr "$dir"
+		sudoc ${G}rm -fr "$dir" || return
 	fi
+	echo "done"
+
+	return 0
 }
 
 runCommon()
 {
-	local ext="$(GetFileExtension "$zip")"
-
 	sudoc ${G}mkdir --parents "$dest" || return
 
-	[[ $verbose ]] && hilight "Unzipping \"$(GetFileName "$zip")\" to \"$dest\"..." || hilight "Inflating..."
-
-	# use 7z.exe to unzip on Windows drives
-	drive IsWin "$dest" && { UnzipPlatform "$zip" "$dest" --sudo || return; }
-
 	# determine if the archive contains a single driectory assume it is the destination directory
-	local dir dirCount;
-	[[ "$ext" == "zip" ]] && dirCount="$(zipinfo -1 "$zip" | cut -d"/" -f1 | sort | uniq | wc -l)"
+	local dirs=()
 
-	if [[ "$dirCount" == "1" ]]; then
-		dir="$(zipinfo -1 "$zip" | head -1 | GetFilePath)"
-	fi
+	if [[ "$zip" =~ .zip$ ]]; then
+		dirs=( $(zipinfo -1 "$zip" | cut -d"/" -f1 | sort | uniq) )
+	elif [[ "$zip" =~ [.](tar[.]bz2|tar[.]gz)$ ]]; then
+		dirs=( $(tar --list --auto-compress --file="$zip" | cut -d"/" -f1 | sort | uniq) )
+	fi	
 
-	# unzip the archive
-	if [[ "$ext" == @(bz2|gz|tar) ]]; then
-		sudoc tar --extract --verbose --auto-compress --file="$zip" -C "$dest"; return
-	else
-		sudoc unzip -o "$zip" -d "$dest" || return
-	fi
+	extract "$zip" "$dest" || return
 
-	if [[ $dir ]]; then
+	if (( ${#dirs[@]} == 1 )); then
+		local dir="${dirs[0]}"
 		sudoc mv "$dest/$dir/"* "$dest" || return
 		sudoc rmdir "$dest/$dir" || return
 	fi
 
 	return 0
+}
+
+# extract ZIP DEST
+extract()
+{
+	local zip="$1" dest="$2"
+
+	[[ $verbose ]] && hilight "Installing '$(GetFileName "$zip")'' to '$dest'..." || hilight "Installing..."
+
+	# use 7z.exe to unzip on Windows drives
+	if drive IsWin "$dest"; then
+		UnzipPlatform "$zip" "$dest" --sudo
+
+	elif [[ "$zip" =~ [.](bz2|gz|tar)$ ]]; then
+		sudoc tar --extract --verbose --auto-compress --file="$zip" -C "$dest"
+
+	else
+		sudoc unzip -o "$zip" -d "$dest"
+	fi
 }
 
 run "$@"
