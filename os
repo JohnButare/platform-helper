@@ -205,14 +205,21 @@ hardwareCommand() ( uname -m; )
 # version command
 #
 
-versionArgStart() { host="localhost"; }
+versionArgStart()
+{
+	host="localhost"
+	r="HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion"
+}
 
 versionUsage() { echot "\
-Usage: $(ScriptName) version [HOST](localhost)
+Usage: $(ScriptName) version [win build] [HOST](localhost)
 Show Operating System version information."; }
 
 versionArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
 versionCommand() { if IsLocalHost "$host"; then versionLocal; else versionRemote; fi; }
+
+versionBuildCommand() { RunPlatform "build"; } 
+buildWin() { registry get "$r/CurrentBuild" | RemoveCarriageReturn; }
 
 versionRemote()
 {
@@ -307,11 +314,10 @@ versionDistributionMac()
 }
 
 versionDistributionWin()
-{
-	local r="HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion"
+{	
 	local releaseId="$(registry get "$r/ReleaseID" | RemoveCarriageReturn)"
 	local ubr="$(HexToDecimal "$(registry get "$r/UBR" | RemoveCarriageReturn)")"
-	local build="$(registry get "$r/CurrentBuild" | RemoveCarriageReturn)"
+	local build="$(versionWinBuildCommand)"
 
 	echo "     windows: $releaseId (build $build.$ubr, WSL $(wsl get name))"
 }
