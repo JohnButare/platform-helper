@@ -1801,9 +1801,9 @@ fi
 
 # RunFunction NAME [SUFFIX|--] [ARGS]- call a function if it exists, optionally with the specified suffix
 RunFunction()
-{ 
+{
 	local f="$1"; shift
-	local suffix="$1";  [[ $suffix && "$suffix" != "--" ]] && { f+="${suffix^}"; shift; }
+	local suffix="$1";  [[ $suffix && "$suffix" != "--" ]] && { f+="$(ProperCase "$suffix")"; shift; }
 	[[ "$1" == "--" ]] && shift
 	! IsFunction "$f" && return
 	"$f" "$@"
