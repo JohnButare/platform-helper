@@ -92,6 +92,34 @@ CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 ActualUser() { echo "${SUDO_USER-$USER}"; }
 UserExists() { getent passwd "$1" >& /dev/null; }
 GroupExists() { getent group "$1" >& /dev/null; }
+UserInGroup() { id "$1" | grep -q "($2)"; } # UserInGroup USER GROUP
+
+UserCreate()
+{
+	local user="$1"; [[ ! $user ]] && { MissingOperand "user" "UserCreate"; return; }
+	local password="$2"; [[ ! $password ]] && { password="$(pwgen 14 1)" || return; }
+
+	# create user
+	if ! UserExists "$1"; then
+		sudoc adduser $user --disabled-password --gecos "" || return
+		echo "$user:$password" | sudoc chpasswd || return
+		echo "User password is $password"
+	fi
+
+	# make root
+	! UserInGroup "$user" "sudo" && ask "Make user root" && { sudo usermod -aG sudo $user || return; }
+
+	# create private key
+	[[ ! -d ~$user/.ssh ]] && { sudo install -o "$user" -g "$user" -m 700 -d ~$user/.ssh || exit || return; }
+	if ! sudo ls ~$user/.ssh/id_ed25519 >& /dev/null && ask "Create private key"; then
+		sudo ssh-keygen -t ed25519 -C "$user" -f ~$user/.ssh/id_ed25519 -P "$password" || return
+		sudo chown $user ~$user/.ssh/id_ed25519 ~$user/.ssh/id_ed25519.pub || return
+		sudo chgrp $user ~$user/.ssh/id_ed25519 ~$user/.ssh/id_ed25519.pub || return
+		echo "Private key passphrase is password is $password"
+	fi
+
+	return 0	
+}
 
 FullName() 
 { 
