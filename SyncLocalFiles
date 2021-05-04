@@ -95,7 +95,44 @@ syncCommand()
 	done
 }
 
-syncDir() { SyncDir -d "$1" "${args[@]}" "${@:2}"; }
+syncDir()
+{
+	local suffix="$1"; shift
+	syncGit "${args[0]}/$suffix" || return
+	SyncDir -d "$suffix" "${args[@]}" "$@" || return
+}
+
+syncGit()
+{
+	local dir="$1"
+
+	# return if not a git directory
+	[[ ! -d "$dir/.git" ]] && return
+	cd "$dir" || return
+
+	# fetch upstream updates
+	git fetch --quiet || return
+
+	local status="$(GitHelper upstream)"
+	local changes; [[ "$(git status --porcelain)" != "" ]] && changes="true"
+
+	# check upstream status
+	case "$status" in
+		ahead|up-to-date) return 0;;
+		diverged) ScriptErr "'$dir' has diverged from the upstream branch"; return 1;;
+	esac
+
+	# stash local changes
+	[[ $changes ]] && { git stash push --include-untracked || return; }
+
+	# pull changes from upstream
+	git pull --quiet || return
+
+	# restore local changes
+	[[ $changes ]] && { git stash pop || return; }
+	
+	return 0
+}
 
 syncInitDest()
 {
@@ -153,8 +190,7 @@ syncShared()
 {
 	[[ ! $destData ]] && return
 
-	local args=( "${syncDirArgs[@]}" "$srcData" "$destData" -x "${exclude[@]}" )
-
+	local args=( "$srcData" "$destData" "${syncDirArgs[@]}" -x "${exclude[@]}" )
 	syncDir "bin" || return
 	syncDir "platform" -r -x "${platformExclude[@]}" || return
 	syncDir "doc" || return
@@ -186,7 +222,7 @@ syncUser()
 {	
 	[[ ! $destHome ]] && return
 
-	local args=( "${syncDirArgs[@]}" "$srcHome/data" "$destHome/data" -x "${exclude[@]}" )
+	local args=( "$srcHome/data" "$destHome/data" "${syncDirArgs[@]}" -x "${exclude[@]}" )
 	syncDir "bin" -r || return
 	syncDir "app/pass" -r -x "test-default.gpg"  || return
 	syncDir "certificate/public" || return
@@ -197,7 +233,7 @@ syncUser()
 	# syncDir "app/gpg" -r -x "S.gpg-*" "random_seed" || return
 	# syncDir "certificate/hashi" -r || return
 
-	local args=( "${syncDirArgs[@]}" "$srcHome" "$destHome" -x "${exclude[@]}" )
+	local args=( "$srcHome" "$destHome" "${syncDirArgs[@]}" -x "${exclude[@]}" )
 	syncDir ".ssh" -x "environment" "log" || return
 }
 
