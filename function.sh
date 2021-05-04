@@ -1831,7 +1831,7 @@ fi
 RunFunction()
 {
 	local f="$1"; shift
-	local suffix="$1";  [[ $suffix && "$suffix" != "--" ]] && { f+="$(ProperCase "$suffix")"; shift; }
+	local suffix="$1";  [[ $suffix && "$suffix" != "--" ]] && { f+="$(UpperCaseFirst "$suffix")"; shift; }
 	[[ "$1" == "--" ]] && shift
 	! IsFunction "$f" && return
 	"$f" "$@"
