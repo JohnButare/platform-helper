@@ -153,8 +153,8 @@ networkArgStart()
 
 	# network configuration
 	network="$(ConfigGet "network")"
-	subnetPi1="192.168.102.1 - 192.168.102.254"
-	subnetPi2="192.168.103.1 - 192.168.103.254"
+	subnetPi1="10.10.102.1 - 10.10.102.254"
+	subnetPi2="10.10.103.1 - 10.10.103.254"
 	subnetDefault="$subnetPi1"
 
 	# server file locations
@@ -261,13 +261,18 @@ networkEditCommand()
 #
 
 networkUpdateUsage() { echo "Usage: $(ScriptName) network update [dns|dhcp|all](all) [HOST|all]...
-Update the DHCP or DNS configuration of HOST."; }
+Update the DHCP or DNS configuration of HOST.
 
-networkUpdateArgStart() { unset -v noBackup; }
+	-nb,	--no-backup			do not backup the existing configuration before updating
+	-nv,	--no-validate		do not validate the service after updating"; }
+
+networkUpdateArgStart() { unset -v noBackup noValidate; }
+
 networkUpdateOpt() 
 {
 	case "$1" in
 		-nb|--no-backup) noBackup="true";;
+		-nv|--no-validate) noValidate="true";;
 		*) return 1
 	esac
 }
@@ -317,7 +322,9 @@ networkUpdateDhcp()
 	SshHelper --x-forwarding connect "$hostIp" -- service restart kea-dhcp4-server || return
 
 	# validate
-	networkValidateHost "$host" DHCP || return
+	[[ ! $noValidate ]] && { networkValidateHost "$host" DHCP || return; }
+
+	return 0
 }
 
 #
@@ -347,17 +354,17 @@ networkUpdateDns()
 	configFileToCommaDelimited "$reservations" | awk -F "," '{ print $1 ".'$domain'.	A	" $3 }' | column -t	>> "$dir/$domain" || return
 
 	for zone in 100 101 102; do
-		local z="$dir/$zone.168.192.in-addr.arpa"
+		local z="$dir/$zone.10.10.in-addr.arpa"
 
 		cat "$config/$zone.txt" > "$z"
 
-		{ printf "\n; static\n"; cat "$config/reverse.txt" | grep "^[0-10]*.$zone.168.192"; } >> "$z"
+		{ printf "\n; static\n"; cat "$config/reverse.txt" | grep "^[0-10]*.$zone.10.10"; } >> "$z"
 
 		{ printf "\n; dynamic\n"
 			configFileToCommaDelimited "$reservations" |
-				grep ",192.168.$zone." |
-				sed "s/192.168.$zone.//" |
-				awk -F "," '{ print $3 ".'$zone'.168.192.in-addr.arpa. PTR " $1 ".'$domain'." }' |
+				grep ",10.10.$zone." |
+				sed "s/10.10.$zone.//" |
+				awk -F "," '{ print $3 ".'$zone'.10.10.in-addr.arpa. PTR " $1 ".'$domain'." }' |
 				column -t; } >> "$z"
 
 	done
@@ -372,7 +379,9 @@ networkUpdateDns()
 	SshHelper --x-forwarding connect "$hostIp" -- service restart bind9 || return
 
 	# validate
-	networkValidateHost "$host" DNS || return
+	[[ ! $noValidate ]] && { networkValidateHost "$host" DNS || return; }
+
+	return 0
 }
 
 #
@@ -437,7 +446,7 @@ networkValidateDns()
 	local host="$1" hostShort hostIp; getHost || return
 	IsAvailablePort "$hostIp" 53 || return
 	nslookup router "$hostIp" >& /dev/null || return
-	nslookup 192.168.100.1 "$hostIp" >& /dev/null || return
+	nslookup 10.10.100.1 "$hostIp" >& /dev/null || return
 }
 
 # networkValidateHost HOST dhcp|dns - validate DHCP or DNS for the specified host
