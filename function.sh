@@ -1807,16 +1807,6 @@ CheckCommand()
 	exit 1
 } 
 
-# CheckSubCommand - LEGACY
-CheckSubCommand() 
-{	
-	local sub="$1"
-	[[ ! $2 ]] && MissingOperand "$sub command"
-	command="$sub$(ProperCase "$2")Command"; 
-	IsFunction "$command" && return 0
-	EchoErr "$(ScriptName): unknown $sub command '$2'"; exit 1
-} 
-
 # functions
 IsFunction() { declare -f "$1" >& /dev/null; }	# IsFunction NAME - NAME is a function
 

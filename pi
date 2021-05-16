@@ -1,60 +1,19 @@
 #!/usr/bin/env bash
-. function.sh
+. script.sh
 . color.sh
 
-run() {	init && args "$@" && ${command}Command "${args[@]}"; }
+usage()
+{
+	ScriptUsage "$1" "\
+usage: pi balena|firmware|image|power
+	Raspberry Pi helper commands"
+}
 
 init()
 {
 	piImage="platform/linux/Raspberry Pi/image"
 	piOs="platform/linux/Raspberry Pi/Raspberry Pi OS"
 	ubuntuImage="platform/linux/Ubuntu/image"
-}
-
-usage()
-{
-	echot "\
-usage: pi balena|power
-	Raspberry Pi helper commands
-
-	image
-		clone  					create an image using Pi Clone (faster file copy)
-		backup					create an image from this Raspberry Pi
-		restore	[IMAGE]	restore an image to a connected drive
-		configure				enable ssh for images on all drives
-
-	firmware channel|dir|info apply|configure|edit|update
-		dir				return the firmware directory
-		channel		edit the firmware channel (beta, stable, or critical)
-
-		apply			apply firmware changes from a file
-		configure	configure the firmware
-		edit			configure and apply the firmware
-		update		update the Raspberry Pi with the latests firmware
-
-	-n, --name NAME		the name of the host to restore for cloud-init images"
-	exit $1
-}
-
-args()
-{
-	unset file host
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			--help|-h) usage 0;;
-			--name|-n) host="$2"; [[ ! $host ]] && MissingOperand "host"; shift; continue;;
-			EnableSsh) command="enableSsh";;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				[[ "$command" == @(firmware|image) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
-
-	[[ ! $command ]] && { MissingOperand "command"; }
-	args=("$@")
 }
 
 #
@@ -68,16 +27,28 @@ powerCommand() { ! dmesg --time-format ctime | grep -i volt; } # check for under
 # Firmware Commands
 #
 
-firmwareCommand()
+firmwareUsage()
 {
-	local channel="/etc/default/rpi-eeprom-update"
-	local dir="/lib/firmware/raspberrypi/bootloader"
+	echot "\
+usage: pi firmware apply|channel|configure|dir|edit|update
+	Raspberry Pi firmware commands.
 
-	local command; CheckSubCommand firmware "$1"; shift
-	[[ $# != 0 ]] && UnknownOption "$1"
-	$command "$@"
+	apply			apply firmware changes from a file
+	channel		edit the firmware channel (beta, stable, or critical)
+	configure	configure the firmware
+	dir				return the firmware directory
+	edit			configure and apply the firmware
+	update		update the Raspberry Pi with the latests firmware"
 }
 
+firmwareArgStart()
+{
+	onlyPi || return
+	channel="/etc/default/rpi-eeprom-update"
+	dir="/lib/firmware/raspberrypi/bootloader"
+}
+
+firmwareCommand() { usage; }
 firmwareDirCommand() { echo "$dir"; }
 firmwareChannelCommand() { sudoedit "$channel"; }
 firmwareUpdateCommand() { sudo rpi-eeprom-update -a && { ask "Reboot" && power reboot || return 0; }; }
@@ -152,15 +123,35 @@ firmwareGetFile() # sets file, dir, and config
 # Image Commands
 #
 
-imageCommand()
+imageUsage()
 {
-	local command; CheckSubCommand image "${1:-clone}"; shift
-	[[ $# != 0 && "$command" != @(restore) ]] && UnknownOption "$1"
-	$command "$@"
+	echot "\
+usage: pi image backup|clone|configure|restore
+	Raspberry Pi image commands.
+
+	backup					create an image from this Raspberry Pi
+	clone  					create an image using Pi Clone (faster file copy)
+	configure				enable ssh for images on all drives
+	restore	[IMAGE]	restore an image to a connected drive
+
+	-n, --name NAME		the name of the host to restore for cloud-init images"
 }
+
+imageArgStart() { unset -v host; }
+
+imageOpt() 
+{
+	case "$1" in
+		-n*|--name=*|--name) ScriptOptGet host "$@" || return;;
+		*) return 1
+	esac
+}
+
+imageCommand() { usage; }
 
 imageCloneCommand() 
 { 
+	onlyPi || return;
 	! InPath piclone && { package piclone || return; }
 	coproc sudox dbus-launch piclone
 }
@@ -172,12 +163,12 @@ imageCloneCommand()
 # On Windows, much faster to backup to c$ share than /root/tmp share over ssh.
 imageBackupCommand()
 {
+	onlyPi || return
+	! IsAvailable "$host" && { ScriptErr: "host '$host' is not available"; return 1; }
+
 	local device="mmcblk0" fileName="$HOSTNAME.$(GetDateStamp).img" 
 	local host="oversoul" hostUnc="/root/tmp" win
-	local dir file size="$(drive size $device)"; [[ $size ]] && size="--size ${size,,}"
-
-	! IsPlatform PiKernel && { ScriptErr "can only backup a Raspbery Pi"; }
-	! IsAvailable "$host" && { ScriptErr: "host '$host' is not available"; return 1; }
+	local size; size="$(drive size $device)" || return; [[ $size ]] && size="--size ${size,,}"
 
 	# get compression host information
 	eval "$(HostGetInfo "$host")" || return
@@ -185,8 +176,8 @@ imageBackupCommand()
 
 	# backup
 	hilight "Backing up $HOSTNAME..."
-	dir="$(unc mount //$host/$hostUnc)" || return	
-	file="$dir/$fileName"
+	local dir; dir="$(unc mount //$host/$hostUnc)" || return	
+	local file="$dir/$fileName"
 	sudo pv $size -tpreb "/dev/$device" | dd bs=4M > "$file" || return
 
 	# copy
@@ -209,12 +200,12 @@ imageBackupCommand()
  	ssh "$host" -t -- rm -f "/tmp/$fileName" "/tmp/$fileName.xz" "/mnt/c/temp/$fileName" || return
 }
 
+imageRestoreArgStart() { unset -v image; }
+imageRestoreArgs() { ScriptArgGet "image" -- "$@"; shift; }
+
 imageRestoreCommand()
 {
-	IsPlatform win && ! IsElevated && { elevate RunScript --pause pi image restore "$@"; return; }
-
-	# arguments
-	local image="$1"; [[ $image ]] && shift
+	IsPlatform win && ! IsElevated && { elevate RunScript --pause pi image restore "${originalArgs[@]}"; return; }
 
 	# image aliases
 	local selectDir="$piOs"
@@ -262,7 +253,6 @@ imageConfigureCommand()
 	IFS=$'\n' drives=( $(drive mounts) )
 
 	printf "configuring..."
-	
 	for drive in "${drives[@]}"; do
 		[[ ! -f "$drive/start.elf" ]] && continue
 		printf "$(GetFileName "$drive")..."
@@ -296,5 +286,6 @@ imageConfigureCommand()
 #
 
 installFile() { FindInstallFile --quiet "$1"; }
+onlyPi() { IsPlatform PiKernel && return; ScriptErr "command can only run on a Raspbery Pi"; return 1; }
 
-run "$@"
+ScriptRun "$@"

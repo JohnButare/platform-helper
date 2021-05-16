@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. script.sh || exit
 
-run() {	init && args "$@" && ${command}Command "${args[@]}"; }
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... configure|pe
+Windows Application and Development Kit utilities"
+}
 
 init() 
 {
+	onlyWin || return
+
 	winVersion="20201"
 	adkDir="$P32/Windows Kits/10/Assessment and Deployment Kit"
 	cloudDir="$CLOUD/network/system/WinPE"
@@ -22,57 +29,15 @@ init()
 	return 0
 }
 
-usage()
+#
+# Configure Command
+#
+
+configureUsage()
 {
-	echot "\
-usage: adk configure|pe
-	Windows Application and Development Kit utilities
-
-	configure 	configure the unattended Windows installation file
-
-	pe [make|bak|commit|discard|mount|iso|copy|nbcopy](make)
-		make 			perform all the steps to make and deploy the WinPE image
-		copy 			Copy and extract the WinPE ISO to the appdata directory for better disk performance
-		nbcopy 		Copy the extracted the WinPE ISO to the netboot.xyz asset directory"
-
-	exit $1
+	echot "Usage: $(ScriptName) configure
+Configure the unattended Windows installation file"
 }
-
-args()
-{
-	declare -g args=() windowStyle="hidden"; unset -v command file # clears the variable
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			-h|--help) usage 0;;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { CheckCommand "$1"; command="${1,,}"; shift; continue; }
-				! IsOption "$1" && [[ "$command" == @(pe) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
-
-	command="${command:-pe}"
-	args=("$@")
-}
-
-#
-# helper
-#
-
-checkCloudDir() 
-{ 
-	[[ -d "$cloudDir" ]] && return 0
-	EchoErr "adk: cloud backup directory ($cloudDir) does not exist"
-	return 1
-}
-
-getNetBootPeDir() { nbDir="$(unc mount //$(ConfigGet "fs")/root/usr/local/data)"; }
-
-#
-# commands
-#
 
 configureCommand()
 {
@@ -95,15 +60,24 @@ configureCommand()
 }
 
 #
-# pe command
+# PE Command
 #
 
-peCommand()
+peCommitCommand() { pe commit; }
+peDiscardCommand() { pe discard; }
+peIsoCommand() { pe iso; }
+peMountCommand() { pe mount; }
+
+peUsage()
 {
-	local command; CheckSubCommand pe "$1"; shift
-	[[ $# != 0 ]] && UnknownOption "$1"
-	$command "$@"
+	echot "Usage: $(ScriptName) pe [make|bak|commit|discard|mount|iso|copy|nbcopy](make)
+
+	make 			perform all the steps to make and deploy the WinPE image
+	copy 			Copy and extract the WinPE ISO to the appdata directory for better disk performance
+	nbcopy 		Copy the extracted the WinPE ISO to the netboot.xyz asset directory"
 }
+
+peCommand() { peMakeCommand; }
 
 peMakeCommand()
 {
@@ -142,19 +116,19 @@ peMakeCommand()
 	PeNbcopyCommand || return
 }
 
-PeBakCommand()
+peBakCommand()
 {	
 	checkCloudDir || return
 	CopyFileProgress "$winPeDir/media/sources/boot.wim" "$cloudDir" || return
 }
 
-PeCopyCommand()
+peCopyCommand()
 {
 	CopyFileProgress "$winPeDir/WinPE_amd64.iso" "$peDir" || return
 	7z x "$peDir/WinPE_amd64.iso" -o"$peDir/WinPE_amd64" -y || return
 }
 
-PeNbcopyCommand()
+peNbcopyCommand()
 {
 	getNetBootPeDir || return
 
@@ -171,14 +145,18 @@ PeNbcopyCommand()
 	CopyFileProgress "$peDir/WinPE_amd64.iso" "$nbIsoDir" || return
 }
 
-PeCommitCommand() { pe commit; }
-PeDiscardCommand() { pe discard; }
-PeMountCommand() { pe mount; }
-PeIsoCommand() { pe iso; }
-
 #
 # helper
 #
+
+checkCloudDir() 
+{ 
+	[[ -d "$cloudDir" ]] && return 0
+	EchoErr "adk: cloud backup directory ($cloudDir) does not exist"
+	return 1
+}
+
+getNetBootPeDir() { nbDir="$(unc mount //$(ConfigGet "fs")/root/usr/local/data)"; }
 
 pe()
 {
@@ -186,4 +164,7 @@ pe()
 	$prefix cmd.exe /c WinPe.cmd "$1"
 }
 
-run "$@"
+onlyWin() { IsPlatform win && return; ScriptErr "command can only run on Windows"; return 1; }
+
+ScriptRun "$@"
+

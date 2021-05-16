@@ -1,86 +1,48 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. script.sh || exit
 
 usage()
 {
-	echot "\
-usage: firewall [console|disable|enable|enabled|log|panel|rule|status](console)
- Manipulate the Windows firewall
- 	group enable|disable
- 	rule add|delete|enable|disable|exists|status
- 	-h, --host HOST			the host to use
+	ScriptUsage "$1" "\
+usage: firewall [console|disable|enable|enabled|group|log|panel|rule|status](console)
+Firewall commands.
+
  	-s, --suppress			suppress errors if the firewall service is not running"
  	exit $1
 }
 
-ruleUsage() 
-{ 
-	echot "\
-usage: firewall COMMAND NAME
-	add NAME RULES 	add a rule
-	enable|disable|delete|exist|status manipulate a rule"
-	exit $1
-}
+init() { defaultCommand="console"; }
+argStart() { unset -v suppress; }
 
-args()
+opt()
 {
-	unset command host suppress
-
-	originalArgs=( "$@" ) 
-	
-	while (( $# != 0 )); do
-		case "$1" in
-			-h|--host) host="$2"; shift;;
-			-s|--suppress) suppress="--suppress";;
-			--help) help="--help";;
-			*)
-				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "$command" == @(group|rule) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	[[ ! $command ]] && { command="console"; }
-	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage || usage 0; }
-	args=("$@")
+	case "$1" in
+		-s|--suppress) suppress="true";;
+		*) return 1;;
+	esac
 }
 
-init() { :; }
-run() {	args "$@"; init || return; ${command}Command "${args[@]}"; }
-panelCommand() { start firewall.cpl; }
+panelCommand() { rundll32.exe shell32.dll,Control_RunDLL "$WINDIR/System32/Firewall.cpl"; }
 consoleCommand() { start wf.msc; }
-enableCommand() { netsh.exe advfirewall set currentprofile state on; }
-disableCommand() { netsh.exe advfirewall set currentprofile state off; }
+enableCommand() { checkElevated || return; netsh.exe advfirewall set currentprofile state on; }
+disableCommand() { checkElevated || return; netsh.exe advfirewall set currentprofile state off; }
 statusCommand() { netsh.exe advfirewall show currentprofile; }
 enabledCommand() { netsh.exe firewall show state | grep -i "Operational Mode" | grep Enable > /dev/null; }
 
-logCommand()
+#
+# Group Command
+#
+
+groupUsage()
 {
-	local p; [[ $host ]] && p="//$host/admin\$" || p="$WINDIR"
-	local file="$p/system32/LogFiles/Firewall/pfirewall.log"
-	[[ ! -f "$p" ]] && { EchoErr "firewall: cannot access \`$file\`: No such file"; return 1; }
-	TextEdit "$file"
+	echot "Usage: $(ScriptName) group enable|disable NAME
+Firewall group commands."
 }
 
-ServiceRunning() { [[ "$(service state MpsSvc)" == "RUNNING" ]]; }
-
-checkServiceRunning()
-{
-	( ServiceRunning || [[ $suppress ]] ) && return 0
-	echo "firewall: service is not running"
-	return 1
-}
-
-groupCommand()
-{
-	checkServiceRunning || return
-	! IsElevated && { elevate RunScript --pause-error firewall "${originalArgs[@]}"; return; }
-
-	local command; CheckSubCommand group "$1"; shift
-	local name="$1"; shift; [[ ! $name ]] && MissingOperand "name"; 
-	[[ "$command" != "add" && $# != 0 ]] && UnknownOption "$1"
-	$command "$@"
-}
+groupArgStart() { unset -v name; }
+groupArgs() { ScriptArgGet "name" -- "$@"; shift; }
+groupArgEnd() { checkElevated || return; }
+groupCommand() { usage; }
 
 # Get-NetFirewallRule -DisplayGroup "File and Printer Sharing" -Direction Inbound | Where { $_.Profile -like "Private" } | Set-NetFirewallRule -Profile Private -Enable True
 groupEnableCommand() 
@@ -95,40 +57,93 @@ groupDisableCommand()
 	# netsh.exe advfirewall firewall set rule group="$name" new enable=no # sets for all profiles
 }
 
-ruleCommand()
+#
+# Log Command
+#
+
+logUsage()
 {
-	checkServiceRunning || return
-	! IsElevated && { elevate RunScript --pause-error firewall "${originalArgs[@]}"; return; }
-
-	local command; CheckSubCommand rule "$1"; shift
-	local name="$1"; shift; [[ ! $name ]] && MissingOperand "name"; 
-	[[ "$command" != "add" && $# != 0 ]] && UnknownOption "$1"
-	$command "$@"
+	echot "Usage: $(ScriptName) log [HOST]
+Show the firewall log."
 }
 
-RuleAddCommand()  
+logArgStart() { unset -v host; }
+logArgs() { [[ ! $0 ]] && return; ScriptArgGet "host" -- "$@"; }
+
+logCommand()
+{
+	local p; [[ $host ]] && p="//$host/admin\$" || { checkElevated || return; p="$WINDIR"; }
+	local file="$p/system32/LogFiles/Firewall/pfirewall.log"
+	[[ ! -f "$p" ]] && { ScriptErr "cannot access `$file`: No such file"; return 1; }
+	TextEdit "$file" || return
+}
+
+#
+# Rule Command
+#
+
+ruleUsage() 
 { 
-	local command="add" new; RuleExistCommand && { command="set"; new="new"; }
+	echot "Usage: $(ScriptName) rule add|disable|delete|enable|exist|status NAME
+Firewall rule commands."
+}
+
+ruleArgStart() { unset -v name; checkElevated; }
+ruleArgs() { ScriptArgGet "name" -- "$@"; shift; }
+ruleCommand() { usage; }
+ruleDeleteCommand() { ! ruleExistCommand && return; netsh.exe advfirewall firewall delete rule name="$name"; }
+ruleExistCommand() { ruleStatusCommand > /dev/null;}
+ruleStatusCommand() { netsh.exe advfirewall firewall show rule name="$name"; }
+
+ruleAddArgStart() { unset -v rules; }
+ruleAddArgs() { [[ ! $0 ]] && usage; rules="$@"; }
+
+ruleAddUsage() 
+{ 
+	echot "Usage: $(ScriptName) rule add NAME RULES
+Add a firewall rule."
+}
+
+ruleAddCommand()
+{ 
+	local command="add" new; ruleExistCommand && { command="set"; new="new"; }
 	printf "firewall: adding rule $name..."	
-	netsh.exe advfirewall firewall $command rule name="$name" $new "$@"
+	netsh.exe advfirewall firewall $command rule name="$name" $new "${rules[@]}"
 }
 
-RuleDeleteCommand() { ! RuleExistCommand && return; netsh.exe advfirewall firewall delete rule name="$name"; }
-RuleExistCommand() { RuleStatusCommand > /dev/null;}
-RuleStatusCommand() { netsh.exe advfirewall firewall show rule name="$name"; }
-
-RuleEnableCommand()
+ruleEnableCommand()
 { 
-	! RuleExistCommand && return
+	! ruleExistCommand && return
 	powershell.exe 'Get-NetFirewallRule -DisplayName "'$name'" -Direction Inbound | Where { $_.Profile -like "*Private*" } | Set-NetFirewallRule -Profile Private -Enable True'
 	# netsh.exe advfirewall firewall set rule name="$name" new enable=yes # sets for all profiles
 }
 
-RuleDisableCommand()
+ruleDisableCommand()
 {
-	! RuleExistCommand && return
+	! ruleExistCommand && return
 	powershell.exe 'Get-NetFirewallRule -DisplayName "'$name'" -Direction Inbound | Where { $_.Profile -like "*Private*" } | Set-NetFirewallRule -Profile Private -Enable False'
 	# netsh.exe advfirewall firewall set rule name="$name" new enable=no # sets for all profiles
 }
 
-run "$@"
+#
+# helper
+#
+
+onlyWin() { IsPlatform win && return; ScriptErr "command can only run on Windows"; return 1; }
+serviceRunning() { [[ "$(service state MpsSvc)" == "RUNNING" ]]; }
+
+checkElevated()
+{
+	checkServiceRunning || return
+	IsElevated && return
+	elevate RunScript --pause-error firewall "${originalArgs[@]}"; exit
+}
+
+checkServiceRunning()
+{
+	( serviceRunning || [[ $suppress ]] ) && return 0
+	echo "firewall: service is not running"
+	return 1
+}
+
+ScriptRun "$@"
