@@ -1,84 +1,11 @@
 #!/usr/bin/env bash
-#-x (debug) -v (verbose)
-. function.sh || exit
+. script.sh || exit
 
 usage()
 {
-	# collect
-	# local [NUM](100)		copy NUM random picutres to the local computer
-	# frame 			 				copy media to a picture frame 
-	echot "\
-usage: media COMMAND
-	backup					backup media
-	date FILES			add DateTimeOriginal to the specified files
-	get							get pictures from a device
-	info FILES 			display metadata
-	rename FILES		rename using the date taken  
-
-  -t, --test 			test the operation without making any changes
-	-v, --verbose		verbose output"
-	exit $1
-}
-
-getUsage() { echot "\
-usage: media get
-	Get media from a device
-	-c, --copy				copy media 
-	-d, --dest DEST 	destination directory
-	-m, --move				move media
-	-p, --person NAME person's name used in the destination folder
-	-s, --source DIR	media source directory
-	-t, --test 				test the operation without making any changes
-	-v, --verbose			verbose output"; exit $1; }
-
-args()
-{
-	unset -v command files help test verbose
-
-	while (( $# != 0 )); do
-		case "$1" in
-			--help) help="--help";;
-			--test|-t) test="--test";;
-			--verbose|-v) verbose="--verbose";;
-			AddDate) command="AddDate";; SyncBooks) command="SyncBooks";;
-			*)
-				[[ ! $command ]] && { CheckCommand "$1"; shift; continue; }
-				[[ "$command" == @(AddDate|info|rename) ]] && { files+=( "$1" ); shift; continue; }
-				[[ "$command" == @(get) ]] && break
-				UnknownOption "$1"
-		esac
-		shift
-	done
-
-	[[ $help ]] && { IsFunction "${command}Usage" && ${command}Usage 0 || usage 0; }
-	[[ ! $command ]] && { MissingOperand "command"; }
-	if [[ "$command" == @(AddDate|info|rename) ]]; then 
-		[[ ! $files ]] && MissingOperand "file"
-		for file in "${files[@]}"; do [[ ! -f "$file" ]] && { EchoErr "media $command: cannot access \`$file\`: No such file"; return 1; }; done
-	fi;
-	args=("$@")
-}
-
-Args() 
-{
-	unset dest person
-	operation="move"
-
-	while (( $# != 0 )); do
-		case "$1" in
-			--copy|-c) operation="copy";;
-			--dest|-d) dest="$2"; shift;;
-			--move|-m) operation="move";;
-			--person|-p) person="$2"; shift;;
-			--source|-s) source="$2"; shift;;
-			--test|-t) test="--test";;
-			--verbose|-v) verbose="--verbose";;
-			*) getUsage 1;;
-		esac
-		shift
-	done
-
-	return 0
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... backup|date|get|info|rename
+media commands."
 }
 
 init() 
@@ -91,105 +18,100 @@ init()
 	videoExtensions=( 3gp avi mpg mp4 mts m2ts moff modd mov 3gp )
 }
 
-run() {	args "$@" || return; init || return; ${command}Command "${args[@]}"; }
+argStart() { unset -v operation dest person source; }
+
+opt() 
+{
+	case "$1" in
+		-c|--copy) operation="copy";;
+		-d|--dest|-d=*|--dest=*) ScriptOptGet "dest";;
+		-m|--move) operation="move";;
+		-p|--person|-p=*|--person=*) ScriptOptGet "person";;
+		-s|--source|-s=*|--source=*) ScriptOptGet "source";;
+		*) return 1;;
+	esac
+}
+
+argEnd() { operation="${operation:-move}"; }
 
 #
-# Helper Functions
-# 
+# Backup Command
+#
 
-GetNewName() { r "$(${G}date "+%Y_%m_%d %H_%M_%S" -d "$1")" $2; }
-NormalizeDate() {	r "$(${G}date "+%Y-%m-%d %H:%M:%S" -d "$1")" $2; }
-ExifDate() {	r "$(${G}date "+%Y:%m:%d %H:%M:%S" -d "$1")" $2; }
-
-GetMediaType()
+backupUsage()
 {
-	local ext="$1" result
-
-	if IsInArray "$ext" pictureExtensions; then
-		result="picture"
-	elif IsInArray "$ext" videoExtensions; then
-	 result="video"
-	else
-		return 1
-	fi 
-
-	r "$result" $2
+	echot "Usage: $(ScriptName) backup
+Backup media."
 }
 
-GetDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
+backupCommand()
 {
-	local file="$1" metadataVar="$2" returnVar="$3" s
-	local -A md; ArrayCopy $metadataVar md
-	local mm="${md[Make]}-${md[Model]}" dto="${md[DateTimeOriginal]}" isUtc
+	printf "backup..."
+
+	printf "data..."
+	local dir1="$(unc mount public)/media" || return
+	local dir2="$(unc mount media)" || return
+	BeyondCompare "$dir1" "$dir2" &
+
+	local drives; IFS=$'\n' drives=( $(drive mounts) )
+
+	for drive in "${drives[@]}"; do
+		[[ ! "$(drive label "$drive")" =~ backup ]] && continue
+		local dir="$(drive mount "$drive")" || continue
+		[[ ! -d "$dir/media" ]] && continue
+
+		printf "$(drive label "$drive")..."
+		BeyondCompare "$dir" "/mnt/$drive/media" &
+	done
+
+	echo "done"
+}
+
+#
+# Date Command
+#
+
+dateUsage()
+{
+	echot "Usage: $(ScriptName) date FILES
+Add DateTimeOriginal to the specified files."
+}
+
+dateCommand() { for file in "${files[@]}"; do addDate "$file" || return; done; }
+
+addDate()
+{
+	local file="$1"
+	local fileName; GetFileName "$file" fileName || return; printf "$fileName..."
 	local ext; GetFileExtension "$file" ext || return
-	local mediaType; GetMediaType "$ext" mediaType || return
-
-	# Apple
-	if [[ "$mm" ==  @(Apple-iPad|Apple-iPhone*) || "${md[HandlerVendorID]}" == "Apple" ]]; then
-		s="$dto"
-		[[ "$mediaType" == "video" ]] && { s="${md[MediaCreateDate]}"; isUtc=true; }
-
-	# Use DateTimeOriginal if present - Windows shows this as Date taken
-	elif [[ $dto ]]; then
-		s="$dto"
-
-	# no metadata - file modification date
-	elif (( ${#md[@]} == 0 )); then
-		printf "no metadata (using file modification date)..."
-		s="$(${G}stat -c%y "$file")" || return;
-		additionalMetadata+=( "-DateTimeOriginal=$(ExifDate "$s")" )
-
-	# metadata is preset, but could not determine the original datetime
-	else
-		return 1
-
-	fi
-
-	[[ ! $s ]] && return 1
-	[[ $isUtc ]] && s="$(${G}date -d "${md[CreateDate]} UTC")";
-	NormalizeDate "$s" $returnVar
-}
-
-PrintMetadata()
-{
-	local file="$1" metadataVar="$2"
-	local -A md; ArrayCopy $metadataVar md
-
-	printf "%s:\n" "$(GetFileName "$file")"
-	for var in "${!md[@]}"; do printf "	$var=${md[$var]}\n"; done
-	echo ""
-}
-
-AddMetadata()
-{
-	local file="$1" metadata=( "${@:2}" )
-	printf "metadata..."
-	[[ $verbose ]] && { echo "(exiftool \"$file\" ${metadata[@]})"; }
-	[[ $test ]] && return
-	if ! exiftool -preserve "$(utw "$file")" "${metadata[@]}" >& /dev/null; then
-		EchoErr -e "\nmedia get: unable to add metadata to \`$file\`"; return 1
-	fi
-}
-
-GetMetadata() # GetMetadata FILE ARRAY [METADATA...](dateTakenMetadata) - put file metadata into an associate array
-{
-	local file="$1" array="$2" metadata=( "${@:3}" ) result
-
-	[[ ! $metadata ]] && metadata=( "${dateTakenMetadata[@]}" )
-
-	result="$(exiftool -fast2 -s2 "$file" "${metadata[@]}" 2> /dev/null | sed -e 's/: /]="/' -e 's/^/[/' -e 's/$/"/' -e 's/:/-/' -e 's/:/-/' )"
-	eval "$array=( $result )"
+	local mediaType; getMediaType "$ext" mediaType || { echo "unknown media type"; return 0; }
+	local -A fileMetadata; metadataGet "$file" fileMetadata || return
+	local dateTaken; getDateTaken "$file" fileMetadata dateTaken && { echo "date already present"; return 0; }
+	local modificationDate="$(${G}stat -c%y "$file")" || return;
+	local additionalMetadata=( "-DateTimeOriginal=$(exifDate "$modificationDate")" )
+	printf "adding date..."; metadataAdd "$file" "${additionalMetadata[@]}"; echo "done"
 }
 
 #
 # Get Command
 #
 
+getUsage()
+{
+	echot "Usage: $(ScriptName) get
+Get media from a device.
+
+	-c, --copy				copy media 
+	-d, --dest DEST 	destination directory
+	-m, --move				move media
+	-p, --person NAME person's name used in the destination folder
+	-s, --source DIR	media source directory"
+}
+
 getCommand()
 {
 	local disks drives importLocation
 
-	getArgs "${args[@]}" || return
 	getInit || return
 	
 	if [[ $source ]]; then
@@ -204,8 +126,7 @@ getCommand()
 			processDrive "$drive"
 		done
 
-		#drive unmount all || return
-
+		drive unmount all || return
 	fi
 }
 
@@ -253,15 +174,6 @@ getInit()
 	return 0
 }
 
-processDrive()
-{
-	local drive="$1" dir
-
-	for dir in "${mediaDirs[@]}"; do
-		processDir "$drive$dir" || return
-	done
-}
-
 processDir()
 { 
 	local dir="$1"
@@ -272,22 +184,31 @@ processDir()
 
 	shopt -s nullglob
 	for file in "$dir/"*; do
-		ProcessFile "$file" || return
+		processFile "$file" || return
 	done
 
 	echo "done"
 }
 
-ProcessFile()
+processDrive()
+{
+	local drive="$1" dir
+
+	for dir in "${mediaDirs[@]}"; do
+		processDir "$drive$dir" || return
+	done
+}
+
+processFile()
 {
 	local src="$1" additionalMetadata
 	local srcName; GetFileName "$src" srcName || return
 	local ext; GetFileExtension "$src" ext || return
 	local srcDesc; GetFileNameWithoutExtension "$src" srcDesc || return
-	local mediaType; GetMediaType "$ext" mediaType || return 0
-	local -A srcMetadata; GetMetadata "$src" srcMetadata || return
-	local dateTaken; GetDateTaken "$src" srcMetadata dateTaken || { echo "no DateTaken"; return 0; }
-	local srcNamePrefix; GetNewName "$dateTaken" srcNamePrefix || return
+	local mediaType; getMediaType "$ext" mediaType || return 0
+	local -A srcMetadata; metadataGet "$src" srcMetadata || return
+	local dateTaken; getDateTaken "$src" srcMetadata dateTaken || { echo "no DateTaken"; return 0; }
+	local srcNamePrefix; getNewName "$dateTaken" srcNamePrefix || return
 	local destDir="$dest"
 	
 	if [[ $useSuffix ]]; then
@@ -298,7 +219,7 @@ ProcessFile()
 	
 	local dest="$destDir/$srcNamePrefix.$ext"
 
-	[[ $verbose ]] && PrintMetadata "(metadata)" srcMetadata
+	[[ $verbose ]] && metadataPrint "(metadata)" srcMetadata
 
 	local suffix alreadyProcessed # add a suffix for media taken in the same second
 	while [[ -f "$dest" ]]; do
@@ -326,55 +247,35 @@ ProcessFile()
 }
 
 #
-# Other Commands
+# Info Command
 #
 
-dateCommand() { for file in "${files[@]}"; do addDate "$file" || return; done; }
+infoUsage()
+{
+	echot "Usage: $(ScriptName) info FILES
+Display media metadata for the specified files."
+}
+
 infoCommand() { for file in "${files[@]}"; do info "$file" || return; done; }
-renameCommand() { for file in "${files[@]}"; do rename "$file" || return; done; }
-
-backupCommand()
-{
-	printf "backup..."
-
-	printf "data..."
-	local dir1="$(unc mount public)/media" || return
-	local dir2="$(unc mount media)" || return
-	BeyondCompare "$dir1" "$dir2" &
-
-	local drives; IFS=$'\n' drives=( $(drive mounts) )
-
-	for drive in "${drives[@]}"; do
-		[[ ! "$(drive label "$drive")" =~ backup ]] && continue
-		local dir="$(drive mount "$drive")" || continue
-		[[ ! -d "$dir/media" ]] && continue
-
-		printf "$(drive label "$drive")..."
-		BeyondCompare "$dir" "/mnt/$drive/media" &
-	done
-
-	echo "done"
-}
-
-addDate()
-{
-	local file="$1"
-	local fileName; GetFileName "$file" fileName || return; printf "$fileName..."
-	local ext; GetFileExtension "$file" ext || return
-	local mediaType; GetMediaType "$ext" mediaType || { echo "unknown media type"; return 0; }
-	local -A fileMetadata; GetMetadata "$file" fileMetadata || return
-	local dateTaken; GetDateTaken "$file" fileMetadata dateTaken && { echo "date already present"; return 0; }
-	local modificationDate="$(${G}stat -c%y "$file")" || return;
-	local additionalMetadata=( "-DateTimeOriginal=$(ExifDate "$modificationDate")" )
-	printf "adding date..."; AddMetadata "$file" "${additionalMetadata[@]}"; echo "done"
-}
 
 info()
 {
 	local file="$1"
-	declare -A fileMetadata; GetMetadata "$file" fileMetadata || return
-	PrintMetadata "$file" fileMetadata
+	declare -A fileMetadata; metadataGet "$file" fileMetadata || return
+	metadataPrint "$file" fileMetadata
 }
+
+#
+# Rename Command
+#
+
+renameUsage()
+{
+	echot "Usage: $(ScriptName) rename FILES
+Rename specified files using the date taken."
+}
+
+renameCommand() { for file in "${files[@]}"; do rename "$file" || return; done; }
 
 rename()
 {
@@ -384,9 +285,9 @@ rename()
 	local name; GetFileNameWithoutExtension "$file" name || return
 	local ext; GetFileExtension "$file" ext || return
 	local suffix; [[ "$name" =~ .*-[0-9]+ ]] && suffix="-${name##*-}"
-	local -A fileMetadata; GetMetadata "$file" fileMetadata || return
-	local dateTaken; GetDateTaken "$file" fileMetadata dateTaken || { echo "no DateTaken"; return 0; }
-	local newName; GetNewName "$dateTaken" newName || return
+	local -A fileMetadata; metadataGet "$file" fileMetadata || return
+	local dateTaken; getDateTaken "$file" fileMetadata dateTaken || { echo "no DateTaken"; return 0; }
+	local newName; getNewName "$dateTaken" newName || return
 	local expected="$newName$suffix" 
 	local newFile="${path:+$path/}$expected.$ext"
 
@@ -398,9 +299,97 @@ rename()
 		[[ ! $test ]] && { mv "$file" "$newFile" || return; }
 	fi
 
-	[[ $additionalMetadata ]] && AddMetadata "$newFile" "${additionalMetadata[@]}"
+	[[ $additionalMetadata ]] && metadataAdd "$newFile" "${additionalMetadata[@]}"
 
 	[[ ! $verbose ]] && echo "done"
 }
 
-run "$@"
+#
+# helper
+# 
+
+exifDate() {	r "$(${G}date "+%Y:%m:%d %H:%M:%S" -d "$1")" $2; }
+getNewName() { r "$(${G}date "+%Y_%m_%d %H_%M_%S" -d "$1")" $2; }
+normalizeDate() {	r "$(${G}date "+%Y-%m-%d %H:%M:%S" -d "$1")" $2; }
+
+getDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
+{
+	local file="$1" metadataVar="$2" returnVar="$3" s
+	local -A md; ArrayCopy $metadataVar md
+	local mm="${md[Make]}-${md[Model]}" dto="${md[DateTimeOriginal]}" isUtc
+	local ext; GetFileExtension "$file" ext || return
+	local mediaType; getMediaType "$ext" mediaType || return
+
+	# Apple
+	if [[ "$mm" ==  @(Apple-iPad|Apple-iPhone*) || "${md[HandlerVendorID]}" == "Apple" ]]; then
+		s="$dto"
+		[[ "$mediaType" == "video" ]] && { s="${md[MediaCreateDate]}"; isUtc=true; }
+
+	# Use DateTimeOriginal if present - Windows shows this as Date taken
+	elif [[ $dto ]]; then
+		s="$dto"
+
+	# no metadata - file modification date
+	elif (( ${#md[@]} == 0 )); then
+		printf "no metadata (using file modification date)..."
+		s="$(${G}stat -c%y "$file")" || return;
+		additionalMetadata+=( "-DateTimeOriginal=$(exifDate "$s")" )
+
+	# metadata is preset, but could not determine the original datetime
+	else
+		return 1
+
+	fi
+
+	[[ ! $s ]] && return 1
+	[[ $isUtc ]] && s="$(${G}date -d "${md[CreateDate]} UTC")";
+	normalizeDate "$s" $returnVar
+}
+
+getMediaType()
+{
+	local ext="$1" result
+
+	if IsInArray "$ext" pictureExtensions; then
+		result="picture"
+	elif IsInArray "$ext" videoExtensions; then
+	 result="video"
+	else
+		return 1
+	fi 
+
+	r "$result" $2
+}
+
+metadataAdd()
+{
+	local file="$1" metadata=( "${@:2}" )
+	printf "metadata..."
+	[[ $verbose ]] && { echo "(exiftool \"$file\" ${metadata[@]})"; }
+	[[ $test ]] && return
+	if ! exiftool -preserve "$(utw "$file")" "${metadata[@]}" >& /dev/null; then
+		EchoErr -e "\nmedia get: unable to add metadata to \`$file\`"; return 1
+	fi
+}
+
+metadataGet() # metadataGet FILE ARRAY [METADATA...](dateTakenMetadata) - put file metadata into an associate array
+{
+	local file="$1" array="$2" metadata=( "${@:3}" ) result
+
+	[[ ! $metadata ]] && metadata=( "${dateTakenMetadata[@]}" )
+
+	result="$(exiftool -fast2 -s2 "$file" "${metadata[@]}" 2> /dev/null | sed -e 's/: /]="/' -e 's/^/[/' -e 's/$/"/' -e 's/:/-/' -e 's/:/-/' )"
+	eval "$array=( $result )"
+}
+
+metadataPrint()
+{
+	local file="$1" metadataVar="$2"
+	local -A md; ArrayCopy $metadataVar md
+
+	printf "%s:\n" "$(GetFileName "$file")"
+	for var in "${!md[@]}"; do printf "	$var=${md[$var]}\n"; done
+	echo ""
+}
+
+ScriptRun "$@"

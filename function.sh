@@ -1798,15 +1798,6 @@ MissingOption() { EchoErr "${2:-$(ScriptName)}: missing $1 option"; ScriptExit; 
 UnknownOption() { EchoErr "${2:-$(ScriptName)}: unrecognized option '$1'"; EchoErr "Try '${2:-$(ScriptName)} --help' for more information.";	ScriptExit; }
 ExtraOperand() { EchoErr "${2:-$(ScriptName)}: extra operand '$1'"; EchoErr "Try '${2:-$(ScriptName)} --help' for more information.";	ScriptExit; }
 
-# CheckCommand - LEGACY
-CheckCommand() 
-{	
-	[[ ! $1 ]]  && MissingOperand "command"
-	IsFunction "${1,,}Command" && { command="${1,,}"; return 0; } ; 
-	EchoErr "$(ScriptName): unknown command '$1'"
-	exit 1
-} 
-
 # functions
 IsFunction() { declare -f "$1" >& /dev/null; }	# IsFunction NAME - NAME is a function
 
