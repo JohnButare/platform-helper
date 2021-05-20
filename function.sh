@@ -828,7 +828,7 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 #
 
 GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
-GetMacAddress() { grep " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
+GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 													# GetHostname NAME - hosts configured name
 HostUnknown() { ScriptErr "$1: name or service not known"; }
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
