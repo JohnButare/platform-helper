@@ -184,6 +184,7 @@ case "$PLATFORM" in
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
 		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$ADATA/Microsoft/WindowsApps"
 		PathAdd front "$DATA/platform/linux"
+		[[ -d "$ADATA/Programs/Microsoft VS Code/bin" ]] && PathAdd "$ADATA/Programs/Microsoft VS Code/bin"
 		;;
 esac
 
