@@ -322,6 +322,7 @@ EchoWrap()
 }
 
 EchoErr() { EchoWrap "$@" >&2; }
+#EchoErr() { [[ "$USER" == "homebridge" ]] && { EchoWrap "$@"; return; }; EchoWrap "$@" >&2; } # for testing homebridge which does not output stderr to the log
 HilightErr() { InitColor; EchoWrap "${GREEN}$1${RESET}" >&2; }
 PrintErr() { echo -n -e "$@" >&2; }
 

@@ -11,8 +11,8 @@ Manage host or PoE switch port power state.
 	fix				fix power issues
 	status		host power status
 
-	-t, --timeout=[$timeout]		milliseconds to wait for a response from the host"
-	exit $1
+	-t, --timeout=[$timeout]		milliseconds to wait for a response from the host
+	-u, --user USER							SSH user"
 }
 
 init()
@@ -21,6 +21,10 @@ init()
 
 	hostArg="HOST format is HOST[:PORT] where PORT is an optional switch port number.
 		If the PORT is allthe command applies to all switch ports on the host."
+
+	unset user; [[ "$USER" == "homebridge" ]] && user="$(ConfigGet "user")@"
+
+	return 0
 }
 
 argStart() { unset -v hosts; timeout="$(ConfigGet "hostTimeout")"; }
@@ -29,6 +33,7 @@ opt()
 {
 	case "$1" in
 		-t|--timeout|-t=*|--timeout=*) ScriptOptGet "timeout" "$@"; ! IsInteger "$timeout" && usage;;
+		-u|--user|-u=*|--user=*) ScriptOptGet "user" "$@"; user=$user@;;
 		*) return 1;;
 	esac
 }
@@ -140,38 +145,38 @@ opOpt()
 offUsage() { opUsage; }
 offArgStart() { opArgStart; desc="Powering off"; sshCommand="shutdown now"; }
 offOpt() { opOpt "$@"; }
-offCommand() { power "off"; }
+offCommand() { doPower "off"; }
 
 onUsage() { opUsage; }
 onArgStart() { opArgStart; desc="Powering on"; expectedState="on"; }
 onOpt() { opOpt "$@"; }
-onCommand() { power "on"; }
+onCommand() { doPower "on"; }
 
 firmwareUsage() { opUsage; }
 firmwareArgStart() { opArgStart; desc="Entering firmware on"; }
 firmwareOpt() { opOpt "$@"; }
-firmwareCommand() { power "firmware"; }
+firmwareCommand() { doPower "firmware"; }
 
 hibernateUsage() { opUsage; }
 hibernateArgStart() { opArgStart; desc="Hibernating"; }
 hibernateOpt() { opOpt "$@"; }
-hibernateCommand() { power "hibernate"; }
+hibernateCommand() { doPower "hibernate"; }
 
 rebootUsage() { opUsage; }
 rebootArgStart() { opArgStart; desc="Rebooting"; expectedState=""; sshCommand="shutdown -r now"; }
 rebootOpt() { opOpt "$@"; }
-rebootCommand() { power "reboot"; }
+rebootCommand() { doPower "reboot"; }
 
 sleepUsage() { opUsage; }
 sleepArgStart() { opArgStart; desc="Sleeping"; }
 sleepOpt() { opOpt "$@"; }
-sleepCommand() { power "sleep"; }
+sleepCommand() { doPower "sleep"; }
 
 powerOffCleanup() { [[ $switch && $force ]] && switchPortOff "$switch" "$switchPort"; return 0; }
 powerSshAvailable() { [[ $sshCommand ]] && SshHelper connect "$host" -- "ls /" >& /dev/null; }
 powerSshWait() { printf "$hostDesc..."; powerWaitOn "${wait}" || return; }
 
-power()
+doPower()
 {
 	local op="$1"; shift
 
@@ -274,24 +279,32 @@ powerRemote()
 
 	# determine the current status off the host
 	local initialState="off"; IsAvailable "$host" "$timeout" && initialState="on"
+	
+	# determine the current status off the switch port
+	local initialSwitchState="$expectedState"
+	if [[ $power ]]; then
+		initialSwitchState="off"
+		switchPortStatus $switch $switchPort && initialSwitchState="on"
+	fi
 
-	# determine host power command if it is on
-	if [[ "$initialState" == "on" && "$host" != @(VeraBridge) ]] && SshIsAvailable "$host"; then
-		SshInPath "$host" "power" && { sshCommand="$BIN/power $op"; }
-	else
-		sshCommand=""
+	# determine host information if it is on
+	_platform="linux"
+	if [[ "$host" != @(VeraBridge) && "$initialState" == "on" ]] && SshIsAvailable "$host"; then
+		SshInPath "$user$host" "power" && { sshCommand="$BIN/power $op"; }
+		ScriptEval HostGetInfo vars "$host" >& /dev/null
 	fi
 
 	# force a wait if we can turn the hosts switch port off after sending it a power off command
 	[[ $sshCommand && $switch && $op == @(off|hibernate) ]] && wait="$waitDefault"
 
 	# description	
-	if [[ ! $force && "$initialState" == "$expectedState" ]]; then
+	if [[ ! $force && "$initialState" == "$expectedState" && "$initialState" == "$initialSwitchState" ]]; then
 		[[ ! $quiet ]] && echo "$hostDesc is already $expectedState"
 		[[ "$op" == "on" && $waitSsh ]] && ! powerSshAvailable && { powerSshWait; return; }
 		[[ "$op" == "on" && $ssh ]] && { doSshConnect || return; }
 		return 0
 	fi
+
 	printf "$desc $hostDesc..."
 	RunFunction "power" "$op" || return
 	echo "done"
@@ -313,13 +326,13 @@ powerOp()
 		return "$ignoreErrors"
 	fi
 
-	doSsh "$host" -- "$sshCommand" > /dev/null
+	printf "command..."; doSsh "$user$host" "$sshCommand"
 }
 
 powerOff()
 {
 	if [[ $sshCommand && "$initialState" == "on" ]]; then
-		doSsh "$host" -- "$sshCommand" > /dev/null || { powerOffCleanup; return 1; }
+		printf "command..."; doSsh "$user$host" "$sshCommand" || { powerOffCleanup; return 1; }
 		powerWaitOff "$wait" || return
 	fi
 
@@ -346,7 +359,7 @@ powerOn()
 	elif grep " ${host}$" "/etc/ethers" >& /dev/null; then
 		local mac="$(GetMacAddress "$host")"
 		local broadcastAddress="$(GetBroadcastAddress)"; [[ $broadcastAddress ]] && broadcastAddress="-i $broadcastAddress"
-		printf "wol ($mac)..."
+		[[ $verbose ]] && printf "wol ($mac)..." || printf "wol..."
 		[[ ! $test ]] && wakeonlan $broadcastAddress "${host,,}" > /dev/null # host must be lower case to be found
 	fi
 
@@ -362,7 +375,7 @@ powerReboot()
 	fi
 	
 	if [[ $sshCommand ]]; then
-		doSsh "$host" -- "$sshCommand" >& /dev/null || return
+		printf "command..."; doSsh "$user$host" "$sshCommand" || return
 		powerWaitOff "${wait:-$waitDefault}" || return
 		powerWaitOn "${wait}" || return
 
@@ -524,7 +537,7 @@ switchPortOn()
 	local switch="$1" switchPort="$2"
 	printf "port $switchPort..."
 	switchPortStatus $switch $switchPort && { [[ ! $quiet ]] && printf "already on..."; return; }
-	doSsh "admin@$switch" -- swctrl poe set auto id $switchPort || return
+	doSsh "admin@$switch" swctrl poe set auto id $switchPort || return
 	printf "on..."
 }
 
@@ -534,7 +547,7 @@ switchPortOff()
 	local switch="$1" switchPort="$2"
 	printf "port..."
 	! switchPortStatus $switch $switchPort && { [[ ! $quiet ]] && printf "already off..."; return; }
-	doSsh "admin@$switch" -- swctrl poe set off id $switchPort || return
+	doSsh "admin@$switch" swctrl poe set off id $switchPort || return
 	printf "off..."
 }
 
@@ -581,11 +594,19 @@ initHost()
 
 doSsh()
 { 
+	local result redirect=">"; [[ "$_platform" == "win" ]] && redirect=">&" # suppress Windows psshutdown header
+
 	[[ $verbose ]] && echo -n $'\n'"SshHelper $@"$'\n'
 	[[ $test ]] && return
-	SshHelper connect "$@"
+
+	# perform ssh - ServerAliveInterval and ServerAliveCountMax prevent ssh hang (seen in Windows)
+	SshHelper connect "$1" -- -o ServerAliveInterval=1 -o ServerAliveCountMax=1 "${@:2}" $redirect /dev/null
+	result="$?"
+
+	# Windows psshutdown hangs and always returns an error
+	[[ "$_platform" == "win" ]] && return 0 || return "$result"
 }
 
-doSshConnect() { [[ ! $ssh ]] && return; SshHelper connect -x "$host" $waitSsh; }
+doSshConnect() { [[ ! $ssh ]] && return 0; SshHelper connect -x "$host" $waitSsh; }
 
 ScriptRun "$@"
