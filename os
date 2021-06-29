@@ -218,8 +218,8 @@ Show Operating System version information."; }
 versionArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
 versionCommand() { if IsLocalHost "$host"; then versionLocal; else versionRemote; fi; }
 
-versionBuildCommand() { RunPlatform "build"; } 
-buildWin() { registry get "$r/CurrentBuild" | RemoveCarriageReturn; }
+versionBuildCommand() { RunPlatform "versionBuild"; } 
+versionBuildWin() { registry get "$r/CurrentBuild" | RemoveCarriageReturn; }
 
 versionRemote()
 {
@@ -317,7 +317,7 @@ versionDistributionWin()
 {	
 	local releaseId="$(registry get "$r/ReleaseID" | RemoveCarriageReturn)"
 	local ubr="$(HexToDecimal "$(registry get "$r/UBR" | RemoveCarriageReturn)")"
-	local build="$(versionWinBuildCommand)"
+	local build="$(versionBuildCommand)"
 
 	echo "     windows: $releaseId (build $build.$ubr, WSL $(wsl get name))"
 }
