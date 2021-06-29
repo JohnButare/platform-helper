@@ -240,7 +240,7 @@ powershell()
 
 	[[ "$1" == @(--version|-v) ]] && { powershell -Command '$PSVersionTable'; return; }
 	
-	FindInPath powershell.exe && { powershell.exe "$@"; }
+	FindInPath powershell.exe && { powershell.exe "$@"; return; }
 	for f in "${files[@]}"; do
 		[[ -f "$f" ]] && { "$f" "$@"; return; }
 	done
