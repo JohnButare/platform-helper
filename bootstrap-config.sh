@@ -18,7 +18,7 @@ dhcpServers="pi2,pi1" # update pi2 first
 hostTimeout="200" # host discovery timeout in milliseconds
 hostWaitTimeout="200" # seconds to wait for host to be available
 
-proxyNetworks="[wiggin]=10.10.100.10" 
+proxyNetworks="[wiggin]=10.10.100.10 [wiggin]=10.10.100.11" 
 proxyServer="proxy.$domain" proxyPort="3128"
 proxy="http://$proxyServer:$proxyPort"
 
