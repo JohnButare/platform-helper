@@ -168,7 +168,7 @@ architectureCommand()
 fileArchitectureCommand()
 {
 	case "$(hardwareCommand)" in
-		arm64) echo "arm64e";; # MacOS M1 ARM Chip
+		arm64) echo "arm64";; # MacOS M1 ARM Chip, from: file vault|...
 		armv7l|aarch64) echo "ARM";;
 		mips|mip64) echo "MIPS";;
 		x86_64) IsPlatform mac && echo "x86_64" || echo "x86-64";;
