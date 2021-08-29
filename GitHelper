@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) changes|clone|github|gui|hide|hub|IsInstalled|profile|size|to|upstream [OPTION]...
+Usage: $(ScriptName) changes|clone|github|gui|hide|hub|IsInstalled|profile|remote|size|to|upstream [OPTION]...
 Additional Git functionality."
 	exit $1
 }
@@ -107,18 +107,18 @@ upstreamCommand()
 
 cloneUsage()
 {
-	echot "Usage: $(ScriptName) clone [bin|existing|list] SERVER REPO
+	echot "Usage: $(ScriptName) clone [bin|existing] SERVER REPO
 Clone repositories.
 
 	-d, --dest DIR		repository destination directory, defaults to \$CODE
 	-w, --win					clone to the Windows code directory (\$WCODE)"
 }
 
-cloneArgStart() { unset -v dest win; }
+cloneArgStart() { unset -v dest repo server win; }
 
 cloneArgs()
 {
-	[[ "$command" == @(clone|cloneExisting|cloneList) ]] && { ScriptArgGet "server" -- "$@"; shift; }
+	[[ "$command" == @(clone|cloneExisting) ]] && { ScriptArgGet "server" -- "$@"; shift; }
 	[[ "$command" == @(clone|cloneExisting) ]] && { ScriptArgGet "repo" -- "$@"; shift; }
 	return 0
 }
@@ -131,8 +131,6 @@ cloneOpt()
 		*) return 1;;
 	esac
 }
-
-cloneListCommand() { hilight "$server repostiories: "; ssh "$server" ls "/$(serverToDir "$server")" | grep -Ev "eaDir"; }	
 
 cloneCommand()
 {
@@ -175,7 +173,7 @@ cloneBinCommand()
 cloneExistingUsage()
 {
 	EchoWrap "Usage: $(ScriptName) clone existing SERVER
-Clone into the current existing directory.  This is useful if the content from the cloned repositry already exists."
+Clone into the current directory.  This is useful if the content from the cloned repositry already exists."
 }
 
 cloneExistingCommand()
@@ -327,19 +325,63 @@ addDefaultReadMe()
 }
 
 #
-# To Commands
+# Remote Commands
 #
 
-toUsage() { echot "Usage: $(ScriptName) git to http|ssh\nConvert the current repository to HTTP or SSH."; }
-toCommand() { usage; }
+remoteUsage() { echot "Usage: $(ScriptName) remote [add|dir|init|list|to](list)\nManipulate remote repositories."; }
+remoteCommand() { remoteListCommand; }
+remoteArgStart() { unset -v repo server; }
 
-toHttpCommand()
+remoteArgs()
+{
+	[[ "$command" == @(remoteAdd|remoteDir|remoteInit|remoteList) ]] && { ScriptArgGet "server" -- "$@"; shift; }
+	
+	if [[ "$command" == @(remoteAdd|remoteDir|remoteInit) ]]; then
+		if (( $# > 0 )); then
+			ScriptArgGet "repo" -- "$@"; shift;
+		elif [[ "$command" != @(remoteDir) ]]; then
+			local url; url="$(git remote get-url origin)" || return
+			repo="$(echo "$url" | GetLastDir)"
+		fi
+	fi
+
+	return 0
+}
+
+remoteAddUsage() { echot "Usage: $(ScriptName) git remote add SERVER REPO\nAdd the repository as a remote."; }
+remoteAddCommand() { git remote add "$server" "$(serverToRepo "$server" "$repo")" || return; git remote -v; }
+
+remoteDirUsage() { echot "Usage: $(ScriptName) remote dir SERVER\nReturn the git directory for the specified server."; }
+remoteDirCommand() { echo "$(serverToShare "$server")/$repo"; }
+
+remoteListUsage() { echot "Usage: $(ScriptName) remote dir SERVER\nList git repositories on the specified server."; }
+remoteListCommand() { hilight "$server repostiories: "; ssh "$server" ls "/$(serverToDir "$server")" | grep -Ev "eaDir"; }	
+
+remoteToUsage() { echot "Usage: $(ScriptName) git remote to http|ssh\nConvert the current repository to HTTP or SSH."; }
+remoteToCommand() { usage; }
+
+remoteInitUsage() { echot "Usage: $(ScriptName) git remote init SERVER REPO\nInitialize an empty repository on the specified server."; }
+
+remoteInitCommand()
+{
+	# change to server Git directory
+	local dir; dir="$(unc mount "$(serverToShare "$server")")" || return
+	cd "$dir" || return
+	[[ -e "$repo" ]] && { ScriptErr "repository $repo already exists on $server"; return 1; }
+
+	# create respository
+	${G}mkdir --parents "$repo" || return
+	cd "$repo" || return
+	git init --bare || return
+}
+
+remoteToHttpCommand()
 {
 	git remote set-url origin "https://$(getBaseUrl)/"
 	git remote --verbose
 }
 
-toSshCommand()
+remoteToSshCommand()
 {
 	local url="$(getBaseUrl)"
 	local server="${url%%/*}"
@@ -408,6 +450,14 @@ serverToPort()
 		gitlab|gitlab.butare.net) echo "10022";;
 		nas1|nas1.butare.net|nas1.hagerman.butare.net) echo "608";;
 		nas3|nas3.butare.net|nas3.hagerman.butare.net) echo "608";;
+	esac
+}
+
+serverToShare()
+{
+	case "$1" in
+		nas1|nas1.butare.net|nas1.hagerman.butare.net) echo "//$server/git";;
+		*) echo "//$server/root/$(serverToDir "$server")"
 	esac
 }
 
