@@ -7,9 +7,9 @@ usage()
 Usage: os [COMMAND]... [OPTION]...
 Operating system commands
 
-	architecture|bits|CodeName|hardware|version 			OS information
-	environment|index|path|lock|preferences|store			OS control
-	executable		OS executable information
+	architecture|bits|CodeName|hardware|memory|version 			information
+	environment|index|path|lock|preferences|store						control
+	executable		executable information
 	name					show or set the operating system name"
 }
 
@@ -25,6 +25,21 @@ indexWin() { coproc rundll32.exe shell32.dll,Control_RunDLL srchadmin.dll,Indexi
 
 lockCommand() { RunPlatform lock; }
 lockMac() { pmset displaysleepnow; }
+
+
+memoryUsage() 
+{
+	echot "Usage: os memory
+Return the total amount of system memory rounded up or down to the nearest gibibyte."
+}
+
+memoryCommand() 
+{ 
+	local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f2)"
+	local gbRoundedTwo="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
+	local gbRounded="$(echo "($gbRoundedTwo + .5)/1" | bc)"
+	echo "$gbRounded"
+}
 
 pathCommand()
 { 
