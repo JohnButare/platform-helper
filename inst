@@ -17,7 +17,7 @@ init()
 
 	# isInstallable
 	all=( AppDir bash BashProfile bootstrap CredentialStore final gitClient gitServer zsh ZshProfile )
-	debian=( apt AptUtilities cfssl chroot cups dbus dnsServer dhcpServer geany kea KeaService mDns OpenJdk pass SaltMinion SecretTool terminator tomcat )
+	debian=( apt AptUtilities cfssl chroot cups dbus DnsServer DhcpServer geany kea KeaService mDns NodeRed OpenJdk pass SaltMinion SecretTool terminator tomcat )
 	mac=( apptivate bartender CarrotWeather DayOne gitx iTerm karabiner LiveDesktop MacPorts Magnet MakrdownView pcalc rectagle spark speedtest WallpaperWizard xcode XQuartz yoink )
 	pi=( PiI2c PiOneWire PiSetup PiSpi PiWifi)
 	win=( ahk AutoHotKey AltTabTerminator AquaSnap bonjourSdk chocolatey CloseAllWindows CoreTemp ddm DellDisplayManager DiskImager DreamAquarium EdgeDeflector FileLocatorPro GitExtensions HiddenStart HiddenStartConfigure IntelDrivers IntelDriverUpdate Ninite npp Notepadpp RightClickEnhancer TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager IntelExtremeTuning LgMonitor MarkdownView MozillaVpn MsiMotherboard NitroPdf nVidiaGeForceExperience oculus PartitionAssistant pGina PowerPanel PowerrToys QuickBooks stamps TaskLayout TemperatureLogger Todoist VisualStudio vs Wallpaper4k WindowsAssessmentAndDeploymentKit x410 xMing wsl )
@@ -39,7 +39,6 @@ init()
 	ren="FileCommand ren"
 	rm="${G}rm -f"
 	rmd="${G}rm -fr"
-	sudo="sudo"
 
 	# variables
 	oo="$pp/Operating System/Other"
@@ -125,6 +124,8 @@ wtInstall() { i WindowsTerminal; }
 #################################################
 
 askp() { [[ $noPrompt ]] && { echo "$1..."; return; }; ask "$1"; }
+getFile() { curl --silent --location --output "$@"; }
+getFileSudo() { sudo curl --silent --location --output "$@"; }
 isMacStoreId() { IsPlatform mac && IsInteger "$1"; }
 macAppConfigure() { askp "Configure $1" && { macAppOpen "$1" || return; }; return 0; }
 macAppOpen() { open -a "$1" || return; pause; }
@@ -608,7 +609,7 @@ appHost()
 		# server
 		pi1) i $homeServer || return;;
 		pi2) i $homeServer DomotzAgent || return;;
-		pi3) i cups || return;;
+		pi3) i cups NodeRed || return;;
 		pi7) i PiI2c PiOneWire PiSpi;; # development
 		pi8) i PiI2c PiOneWire PiSpi PiWifi;; # pool
 
@@ -1393,8 +1394,7 @@ devCore()
 webCore()
 {
 	header "Web Development Core"
-	nodeCheck || return
-	npm install -g yo bower grunt grunt-cli || return
+	npmInstall yo bower grunt grunt-cli || return
 }
 
 CruiseControlTrayInstall()
@@ -3024,10 +3024,9 @@ TemperatureLoggerInstall()
 homebridge()
 {
 	header "Homebridge"
-	nodeCheck || return
 
 	if ! InPath homebridge; then
-		sudo npm install -g --unsafe-perm homebridge homebridge-config-ui-x || return
+		npmInstall --unsafe-perm homebridge homebridge-config-ui-x || return
 	fi
 
 	RunPlatform homebridge || return
@@ -3084,13 +3083,13 @@ homebridgePi()
 homebridgeWiggin()
 {
 	header "Homebridge Wiggin"
-	sudo npm install -g homebridge-chamberlain homebridge-neato homebridge-script2 homebridge-vera homebridge-webos-tv homebridge-wol homebridge-zp || return
+	npmInstall homebridge-chamberlain homebridge-neato homebridge-script2 homebridge-vera homebridge-webos-tv homebridge-wol homebridge-zp || return
 	homebridgeRing || return	
 }
 
 homebridgeRing()
 {
-	sudo npm install -g --unsafe-perm homebridge-ring || return
+	npmInstall --unsafe-perm homebridge-ring || return
 	homebridgeFfmpeg || return	
 }
 
@@ -3400,14 +3399,20 @@ WindowsMediaPlayerInstall()
 # Node.js
 #
 
-nodeCheck() { InPath node npm && return; i --no-header nodejs || return; }
+npmInstall() # Node Package Manager install
+{
+	nodeJsCheck || return
+	sudo npm install -g "$@" || return
+}
+
+nodeJsCheck() { InPath node npm && return; i --no-header nodejs || return; }
 
 NodeJsInstall()
 {
 	header "Node.js"
 	local v="14" # LTS
 
-	# https://nodejs.org/en/download/
+	# Node.js - https://nodejs.org/en/download/
 	if IsPlatform debian && ! InPath node; then
 		curl -sL https://deb.nodesource.com/setup_$v.x | sudo -E bash || return
 		pkg nodejs || return
@@ -3417,21 +3422,87 @@ NodeJsInstall()
 
 	[[ ! -f ~/.npmrc ]] && { touch ~/.npmrc || return; }
 
-	echo "Installing core node packages..."
-	! InPath nodemon && { $sudo npm install -g nodemon || return; }
-	! InPath n && { $sudo npm install -g n || return; }
+	# core packages
+	! InPath nodemon && { sudo npm install -g nodemon || return; }
+	! InPath n && { sudo npm install -g n || return; }
+
+	# other Node.js versions
 	sudo n latest || return
 	sudo n lts || return
 
-	echo "Updating npm..."
+	# update
 	sudo npm install -g npm@latest || return
 	sudo npm update -g || return
 
-	echo "Rebuilding packages..."
+	# rebuild
+	hilight "Rebuilding packages..."
 	cd "$(sudo npm -g prefix)/lib/node_modules" || return
 	sudo npm rebuild --unsafe-perm || return
 
 	return 0
+}
+
+nodeRedInstall()
+{
+	local piNodes="node-red-node-pi-gpio@latest node-red-node-random@latest node-red-node-ping@latest node-red-contrib-play-audio@latest node-red-node-smooth@latest node-red-node-serialport@latest"
+	
+	# initialize
+	header "Node-RED"
+	InPath node-red && ! [[ $force ]] && return
+	service exists nodered --quiet && { service stop nodered || return; }
+
+	# Node-RED - from https://nodered.org/docs/getting-started/raspberrypi - not used because it removes node from /usr/local/bin
+	#sudo npm install -g --unsafe-perm --no-progress --no-update-notifier --no-audit --no-fund node-red@latest || return
+	#local version="$(npm --no-progress --no-update-notifier --no-audit --no-fund -g ls node-red | grep node-red | cut -d '@' -f 2)" || return
+
+	# nodes
+	local dir="$HOME/.node-red"
+	makeDir "$dir/node_modules" || return
+	cd "$dir" || return
+
+	local file="$dir/package.json"
+	if [[ ! -f "$file" ]]; then
+		cat <<-EOF > "$file" || return
+			{
+			  "name": "node-red-project",
+			  "description": "initially created for you by Node-RED $version",
+			  "version": "0.0.1",
+			  "private": true,
+			  "dependencies": {
+			  }
+			}
+		EOF
+	fi
+
+	#IsPlatform pi && { npm i --unsafe-perm --save --no-progress --no-update-notifier --no-audit --no-fund $piNodes || return; }
+
+	# programs
+	local prefix="https://raw.githubusercontent.com/node-red/linux-installers/master/resources"
+	getFileSudo "/etc/logrotate.d/nodered" "$prefix/nodered.rotate" || return
+	getFileSudo "/usr/share/icons/hicolor/scalable/apps/node-red-icon.svg" "$prefix/node-red-icon.svg" || return
+	getFileSudo "/usr/share/applications/Node-RED.desktop" "$prefix/Node-RED.desktop" || return
+	getFileSudo "/usr/bin/node-red-start" "$prefix/node-red-start" || return
+	getFileSudo "/usr/bin/node-red-stop" "$prefix/node-red-stop" || return
+	getFileSudo "/usr/bin/node-red-restart" "$prefix/node-red-restart" || return
+	getFileSudo "/usr/bin/node-red-reload" "$prefix/node-red-reload" || return
+	getFileSudo "/usr/bin/node-red-log" "$prefix/node-red-log" || return
+	sudo chmod +x "/usr/bin/node-red-"* || return
+
+	# service
+	local file="/lib/systemd/system/nodered.service"
+	getFileSudo "$file" "$prefix/nodered.service" || return
+	local osMemoryGb="$(os memory)"
+	local serviceMemoryMb=256
+	(( $osMemoryGb >= 1 )) && serviceMemoryMb="512"
+	(( $osMemoryGb >= 2 )) && serviceMemoryMb="1024"
+	(( $osMemoryGb >= 4 )) && serviceMemoryMb="2048"
+	sudo sed -i 's#=512#='$serviceMemoryMb'#;' "$file" || return
+	sudo sed -i 's#^User=pi#User='$USER'#;s#^Group=pi#Group='$USER'#;s#^WorkingDirectory=/home/pi#WorkingDirectory='$HOME'#;' "$file" || return
+	service refresh || return
+	service auto nodered || return
+	service restart nodered || return
+
+	echo "Node-RED is available at ${BLUE}http://$(os name):1880${RESET}"
 }
 
 #################################################
@@ -4567,20 +4638,20 @@ GeekbenchInstall()
 	return 0
 }
 
-GlancesInstall() {  header "glances"; PipInstall glances; }
+GlancesInstall() {  header "glances"; pipInstall glances; }
 
 #
 # Python
 #
 
-PipInstall() # Python package install
+pipInstall() # Python package install
 {
 	pythonCheck || return
 	InPath "$@" && return
 	sudo pip3 install "$@" || return
 }
 
-pythonCheck() { InPath pip,python && return 0; i --no-header python; }
+pythonCheck() { InPath pip,python && return; i --no-header python; }
 
 PythonInstall() # 180MB
 {
@@ -4726,7 +4797,7 @@ TigerVnc()
 # Ruby
 #################################################
 
-GemInstall() # Ruby gem install
+gemInstall() # Ruby gem install
 {
 	rubyCheck || return
 	InPath "$@" && return
@@ -5491,8 +5562,8 @@ senaInstall()
 #################################################
 
 utilityCore() { i AltTabTerminator aptivate AutoHotKey bartender BetterTouuchTool CloseAllWIndows DreamAquarium EdgeDeflector flux greenshot karabiner Lingon LinkShellExtension fuse RightClickEnhancer SevenZip TaskLayout TidyTabs; }
-colorlsInstall() {  header "colorls"; GemInstall colorls; }
-lolcatInstall() {  header "lolcat"; GemInstall lolcat; }
+colorlsInstall() {  header "colorls"; gemInstall colorls; }
+lolcatInstall() {  header "lolcat"; gemInstall lolcat; }
 
 AutoHotKeyInstall()
 {
