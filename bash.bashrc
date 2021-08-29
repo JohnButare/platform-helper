@@ -158,8 +158,10 @@ set +a
 # configuration
 # 
 
-export LINES COLUMNS 						# make available for dialogs in executable scripts
-kill -SIGWINCH $$	>& /dev/null 	# ensure LINES and COLUMNS is set for a new termnal before it is resized
+if [[ "$COLUMNS" != "0" ]]; then
+	export LINES COLUMNS 						# make available for dialogs in executable scripts
+	kill -SIGWINCH $$	>& /dev/null 	# ensure LINES and COLUMNS is set for a new termnal before it is resized
+fi
 
 #
 # paths
