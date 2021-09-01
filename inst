@@ -17,7 +17,7 @@ init()
 
 	# isInstallable
 	all=( AppDir bash BashProfile bootstrap CredentialStore final gitClient gitServer zsh ZshProfile )
-	debian=( apt AptUtilities cfssl chroot cups hass HomeAssistant dbus DnsServer DhcpServer geany HomeAssistant kea KeaService mDns NodeRed OpenJdk pass SaltMinion SecretTool terminator tomcat )
+	debian=( apt AptUtilities cfssl chroot cups dbus DnsServer DhcpServer geany HomeAssistant kea KeaService mDns NodeRed OpenJdk pass SaltMinion SecretTool terminator tomcat )
 	mac=( apptivate bartender CarrotWeather DayOne gitx iTerm karabiner LiveDesktop MacPorts Magnet MakrdownView pcalc rectagle spark speedtest WallpaperWizard xcode XQuartz yoink )
 	pi=( PiI2c PiOneWire PiSetup PiSpi PiWifi)
 	win=( ahk AutoHotKey AltTabTerminator AquaSnap bonjourSdk chocolatey CloseAllWindows CoreTemp ddm DellDisplayManager DiskImager DreamAquarium EdgeDeflector FileLocatorPro GitExtensions HiddenStart HiddenStartConfigure IntelDrivers IntelDriverUpdate Ninite npp Notepadpp RightClickEnhancer TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager IntelExtremeTuning LgMonitor MarkdownView MozillaVpn MsiMotherboard NitroPdf nVidiaGeForceExperience oculus PartitionAssistant pGina PowerPanel PowerrToys QuickBooks stamps TaskLayout TemperatureLogger Todoist VisualStudio vs Wallpaper4k WindowsAssessmentAndDeploymentKit x410 xMing wsl )
@@ -26,6 +26,7 @@ init()
 	notArm=( BeyondCompare GitKraken )
 	notMacArm=( chrony )
 	notPi=( sublime )
+	homeAssistant=( hassCore hassCli hassIntegrations HomeAssistantCore HomeAssistantCli HomeAssistantIntegrations )
 
 	# commands
 	defaultCommand="install"	
@@ -109,7 +110,9 @@ nodeInstall() { i NodeJs; }
 etcherInstall() { BalenaEtcher; }
 ffInstall() { i firefox; }
 ghubInstall() { i LogitechGhub; }
-hassInstall() { i HomeAssistant; }
+hassCliInstall() { i HomeAssistantCli; }
+hassCoreInstall() { i HomeAssistantCore; }
+hassIntegrationsInstall() { i HomeAssistantIntegrations; }
 paInstall() { i PartitionAssistant; }
 SsInstall() { i SqlServer; }
 SsmsInstall() { i SqlServerManagementStudio; }
@@ -280,7 +283,8 @@ isInstallable()
 
 	# platform list checks
 	IsInArray -ci "$check" all && return
-	IsInArray -ci "$check" debian && return
+	IsInArray -ci "$check" debian && IsPlatform debian && return
+	IsInArray -ci "$check" homeAssistant && IsPlatform debian && return	
 	IsInArray -ci "$check" mac && IsPlatform mac && return
 	IsInArray -ci "$check" macDebian && IsPlatform mac,debian && return
 	IsInArray -ci "$check" macWin && IsPlatform mac,win && return
@@ -3024,7 +3028,7 @@ TemperatureLoggerInstall()
 
 homeAutomationAll() { i HomeAssistant homebridge homebridgePi homebridgeWiggin homebridgeRing homebridgeFfmpeg; }
 
-HomeAssistantInstall()
+HomeAssistantCoreInstall()
 {
 	header "Home Assistant"	# https://www.home-assistant.io/installation/raspberrypi#install-home-assistant-core 
 
@@ -3080,14 +3084,56 @@ HomeAssistantInstall()
 	service auto home-assistant@homeassistant || return
 	service start home-assistant@homeassistant || return
 
-	echo "Home Assistant will be available at ${BLUE}http://$(os name):8123${RESET}"
+	# wait for Home Assistant
+	local url="http://$(os name):8123"
+	printf "Waiting for Home Assistant at ${BLUE}$url${RESET}..."
+	while ! curl "$url" >& /dev/null; do
+		sleep 1; printf "."
+	done
+	echo "found"
 
-	# # first run - finishes install - HomeAssistant run|shell
-	# sudo --user=homeassistant --set-home --shell <<-EOF
-	# 	cd /srv/homeassistant || exit 1
-	# 	source bin/activate || exit 1
-	# 	hass || exit 1
-	# EOF
+	# Home Assistant Community Store (HACS)
+	if [[ ! -d ~homeassistant/.homeassistant/custom_components/hacs || $force ]]; then
+		sudo --user=homeassistant --set-home --shell <<-EOF || return
+			wget -q -O - https://install.hacs.xyz | bash – || exit 1
+		EOF
+	fi
+	
+	# cli
+	i --no-header HomeAssistantCli || return
+}
+
+HomeAssistantCliInstall()
+{
+	header "Home Assistant CLI"
+	InPath hass-cli && [[ ! $force ]] && return
+	pipInstall homeassistant-cli || return; 
+}
+
+HomeAssistantIntegrationsInstall()
+{
+	header "Home Assistant Integrations"
+	haIntegrations "hacs" "sonos" || return
+}
+
+haIntegrations()
+{
+	local toInstall=()
+
+	# see which integrations are not installed
+	while (( $# > 0 )); do
+		! HomeAssistant integration IsInstalled "$1" && toInstall+=( "$1" )
+		shift
+	done
+
+	# install integrations
+	set -- "${toInstall[@]}"
+	while (( $# > 0 )); do
+		askp "Install the $1 integration" && { HomeAssistant integration install "$1" || return; }
+		shift
+	done
+
+	return 0
 }
 
 homebridge()
@@ -4724,7 +4770,7 @@ pipInstall() # Python package install
 {
 	pythonCheck || return
 	InPath "$@" && return
-	sudo pip3 install "$@" || return
+	pip3 install "$@" || return
 }
 
 pythonCheck() { InPath pip3,python3 && return; i --no-header python; }
@@ -4761,8 +4807,8 @@ PythonInstall() # 180MB
 PythonFinal()
 {
 	! IsPlatform win && return
-	$mv "$pp/Python 3.7" "$up/Development/other" || return
-	$mv "$pp/Python 3.9" "$up/Development/other" || return
+	mergeDir "$pp/Python 3.7" "$up/Development/other" || return
+	mergeDir "$pp/Python 3.9" "$up/Development/other" || return
 }
 
 #################################################
