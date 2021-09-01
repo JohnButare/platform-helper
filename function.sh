@@ -1530,6 +1530,7 @@ function RunPlatform()
 	IsPlatform wsl2 && { RunFunction $function wsl2 "$@" || return; }
 	IsPlatform entware && { RunFunction $function entware "$@" || return; }
 	IsPlatform debian,mac && { RunFunction $function DebianMac "$@" || return; }
+	IsPlatform pikernel && { RunFunction $function PiKernel "$@" || return; }
 	IsPlatform vm && { RunFunction $function vm "$@" || return; }
 	IsPlatform physical && { RunFunction $function physical "$@" || return; }
 	return 0

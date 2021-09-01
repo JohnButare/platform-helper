@@ -17,9 +17,10 @@ init()
 
 	# isInstallable
 	all=( AppDir bash BashProfile bootstrap CredentialStore final gitClient gitServer zsh ZshProfile )
-	debian=( apt AptUtilities cfssl chroot cups dbus DnsServer DhcpServer geany HomeAssistant kea KeaService mDns NodeRed OpenJdk pass SaltMinion SecretTool terminator tomcat )
+	debian=( apt AptUtilities cfssl chroot cups dbus DnsServer DhcpServer geany HomeAssistant kea KeaService mDns mosquitto NodeRed OpenJdk pass SaltMinion SecretTool terminator tomcat )
 	mac=( apptivate bartender CarrotWeather DayOne gitx iTerm karabiner LiveDesktop MacPorts Magnet MakrdownView pcalc rectagle spark speedtest WallpaperWizard xcode XQuartz yoink )
-	pi=( PiI2c PiOneWire PiSetup PiSpi PiWifi)
+	pi=( PiI2c PiOneWire PiReporter PiSetup PiSpi PiWifi)
+	piKernel=( PiReporter )
 	win=( ahk AutoHotKey AltTabTerminator AquaSnap bonjourSdk chocolatey CloseAllWindows CoreTemp ddm DellDisplayManager DiskImager DreamAquarium EdgeDeflector FileLocatorPro GitExtensions HiddenStart HiddenStartConfigure IntelDrivers IntelDriverUpdate Ninite npp Notepadpp RightClickEnhancer TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager IntelExtremeTuning LgMonitor MarkdownView MozillaVpn MsiMotherboard NitroPdf nVidiaGeForceExperience oculus PartitionAssistant pGina PowerPanel PowerrToys QuickBooks stamps TaskLayout TemperatureLogger Todoist VisualStudio vs Wallpaper4k WindowsAssessmentAndDeploymentKit x410 xMing wsl )
 	macDebian=( asdf BalenaEtcher BeyondCompare chrony colorls consul CredentialStore DotNet Dropbox docker etcher mysql python firefox fuse fzf ghq GitKraken hashi glances gnupg JumpCloud lolcat node NodeJs nomad PiDiskImager ruby RubyAsdf RubyPackage RubyRvm SevenZip skype StandardNotes steam tmux sublime SublimeBeta SublimeMerge TeamViewer thunderbird UnifiController UnifiControllerPackage vagrant vault VisualStudioCode vscode xClient xServer xpra )
 	macWin=( BlueSherpa CanonCamera CleanMy cc CrealitySlicer CreativeCloud Cricut deezer Domotz DuetDisplay dymo fork GreenShot iExplorer JumpDesktop keybase LastPass lazygit LogitechGhub LogitechOptions notion nVidia office origin PdfElement QnapExternalRaidManager qvr sonos SurveillanceStation VisualStudio VisualStudioCode xpra xServer zoom )
@@ -289,6 +290,7 @@ isInstallable()
 	IsInArray -ci "$check" macDebian && IsPlatform mac,debian && return
 	IsInArray -ci "$check" macWin && IsPlatform mac,win && return
 	IsInArray -ci "$check" pi && IsPlatform pi && return
+	IsInArray -ci "$check" piKernel && IsPlatform PiKernel && return
 	IsInArray -ci "$check" win && IsPlatform win && return
 
 	return 1
@@ -597,6 +599,7 @@ appHost()
 	local common="CleanMy dropbox notion office"
 	local commonMac="$common bartender pcalc rectangle spark"
 	local commonPc="$common"
+	local commonPi="PiReporter"
 	local homeServer="ChronyServer cron DnsServer DhcpServer HomeAssistant homebridge HomebridgeWiggin UnifiController"
 
 	case "$HOSTNAME" in
@@ -612,11 +615,11 @@ appHost()
 		rosie) i $commonPc MsiMotherboard BrotherPrinter DellDisplayManager thunderbird VeraCrypt DevCore || return;;
 
 		# server
-		pi1) i $homeServer || return;;
-		pi2) i $homeServer DomotzAgent || return;;
-		pi3) i cups NodeRed || return;;
-		pi7) i PiI2c PiOneWire PiSpi;; # development
-		pi8) i PiI2c PiOneWire PiSpi PiWifi;; # pool
+		pi1) i $commonPi $homeServer || return;;
+		pi2) i $commonPi $homeServer DomotzAgent mosquitto || return;;
+		pi3) i $commonPi cups NodeRed || return;;
+		pi7) i $commonPi PiI2c PiOneWire PiSpi;; # development
+		pi8) i $commonPi PiI2c PiOneWire PiSpi PiWifi;; # pool
 
 	esac
 
@@ -1086,6 +1089,12 @@ bootstrapPi()
 	[[ -f /run/sshwarn ]] && { password linux -u pi || return; }
 
 	i PiSetup || return
+}
+
+bootstrapPiKernel()
+{
+	header "Bootstrap Raspberry Pi Kernel"
+ 	package libraspberrypi-bin || return # vcgencmd
 }
 
 bootstrapUbuntu()
@@ -3222,6 +3231,19 @@ homebridgeFfmpeg()
 	fi
 }
 
+mosquittoInstall()
+{
+	package mosquitto mosquitto-clients || return
+	service auto mosquitto || return
+	service start mosquitto || return
+
+	hilight "Testing:"
+
+	echot "\
+mosquitto_sub -v -t test/message -h $HOSTNAME
+mosquitto_pub -t test/message -m 'Hello World!' -h $HOSTNAME"
+}
+
 #################################################
 # Mac Setup
 #################################################
@@ -4773,6 +4795,13 @@ pipInstall() # Python package install
 	pip3 install "$@" || return
 }
 
+pipGlobalInstall() # Python package install for all users
+{
+	pythonCheck || return
+	InPath "$@" && return
+	sudo pip3 install "$@" || return
+}
+
 pythonCheck() { InPath pip3,python3 && return; i --no-header python; }
 
 PythonInstall() # 180MB
@@ -4815,7 +4844,7 @@ PythonFinal()
 # Raspberry Pi
 #################################################
 
-piAll() { i BalenaEtcher PiDiskImager PiI2c PiOneWire PiSetup PiSpi PiWifi; }
+piAll() { i BalenaEtcher PiDiskImager PiI2c PiOneWire PiReporter PiSetup PiSpi PiWifi; }
 
 piCore()
 {
@@ -4843,6 +4872,38 @@ PiOneWireInstall()
 {
 	header "1-Wire  Interface"
 	sudo raspi-config nonint do_onewire 0 # enable 1-Wire
+}
+
+PiReporter()
+{
+	header "RPi Reporter MQTT2HA Daemon" # https://github.com/ironsheep/RPi-Reporter-MQTT2HA-Daemon
+
+	# install dependencies
+	pythonCheck || return
+	package libraspberrypi-bin || return # vcgencmd
+	package python3-tzlocal python3-sdnotify python3-colorama python3-unidecode python3-paho-mqtt || return
+
+	# install image 
+	local dir="/opt/RPi-Reporter-MQTT2HA-Daemon"
+	[[ ! -d "$dir" ]] && { sudo git clone "https://github.com/ironsheep/RPi-Reporter-MQTT2HA-Daemon.git" "$dir" || return; }
+	cd "$dir" || return
+	sudo git pull || return
+	sudo pip3 install -r "requirements.txt" || return
+
+	# configure
+	local host="$(ConfigGet "mqttServer").$(ConfigGet "domain")"
+	local config="/opt/RPi-Reporter-MQTT2HA-Daemon/config.ini"
+	[[ ! -f "$config" ]] && { sudo cp "/opt/RPi-Reporter-MQTT2HA-Daemon/config.ini.dist" "$config" || return; }
+	sudo sed -i "s/^#hostname = localhost$/hostname = $host/" "/opt/RPi-Reporter-MQTT2HA-Daemon/config.ini" || return
+	sudo usermod "daemon" -a -G "video" || return
+
+	# service
+	if ! service exists "isp-rpi-reporter.service"; then
+		sudo ln -s "/opt/RPi-Reporter-MQTT2HA-Daemon/isp-rpi-reporter.service" "/etc/systemd/system/isp-rpi-reporter.service" || return
+		service refresh || return
+	fi
+	service auto "isp-rpi-reporter" || return
+	service start "isp-rpi-reporter" || return
 }
 
 PiSetupInstall()
@@ -6344,7 +6405,7 @@ WindowsConfiguration()
 	fi
 
 	echo "Coniguring network settings..."
-	IsHypervVm && { powershell.exe Set-DnsClientGlobalSetting -SuffixSearchList "$(ConfigGet domain)" || return; } # Hyper-V clients do not get the DNS suffix from the DHCP server
+	IsHypervVm && { powershell.exe Set-DnsClientGlobalSetting -SuffixSearchList "$(ConfigGet "domain")" || return; } # Hyper-V clients do not get the DNS suffix from the DHCP server
 
 	echo "Coniguring network adapters..."
 	network adapter name "Bluetooth Network Connection" "bluetooth" >& /dev/null

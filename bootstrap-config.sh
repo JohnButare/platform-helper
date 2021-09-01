@@ -14,6 +14,7 @@ dns1="10.10.100.10"
 dns2="10.10.100.11"
 
 dhcpServers="pi2,pi1" # update pi2 first
+mqttServer="mosquitto"
 
 hostTimeout="200" # host discovery timeout in milliseconds
 hostWaitTimeout="200" # seconds to wait for host to be available
