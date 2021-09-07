@@ -19,7 +19,7 @@ mqttServer="mosquitto"
 hostTimeout="200" # host discovery timeout in milliseconds
 hostWaitTimeout="200" # seconds to wait for host to be available
 
-proxyNetworks="[wiggin]=10.10.100.10 [wiggin]=10.10.100.11" 
+proxyNetworks="[wiggin]=10.10.100.10,10.10.100.11" # [foo]=192.168.100.2,192.168.100.1 
 proxyServer="proxy.$domain" proxyPort="3128"
 proxy="http://$proxyServer:$proxyPort"
 
