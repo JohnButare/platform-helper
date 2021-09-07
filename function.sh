@@ -511,6 +511,9 @@ RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }
 RemoveFront() { GetArgs2; echo "${1##*(${2:- })}"; }
 RemoveTrim() { GetArgs2; echo "$1" | RemoveFront "${2:- }" | RemoveEnd "${2:- }"; }
 
+RemoveAfter() { GetArgs2; echo "${1%%$2*}"; }
+RemoveBefore() { GetArgs2; echo "${1##*$2}"; }
+
 RemoveSpace() { GetArgs; RemoveChar "$1" " "; }
 RemoveSpaceEnd() { GetArgs; RemoveEnd "$1" " "; }
 RemoveSpaceFront() { GetArgs; RemoveFront "$1" " "; }
