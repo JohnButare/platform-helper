@@ -790,8 +790,7 @@ utw() # UnixToWin
 
 	# network shares do not translate properly in WSL 2
 	if IsPlatform wsl2; then 
-		read wsl win <<<$(findmnt --types=cifs --noheadings --output=TARGET,SOURCE --target "$file")
-		[[ $wsl && $win ]] && { ptw "${file/$wsl/$win}"; return; } # network share	
+		local unc; unc="$(unc get unc "$file")" && { ptw "$unc"; return; }
 	fi
 
 	# utw requires the file exist in newer versions of wsl

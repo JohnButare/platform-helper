@@ -37,12 +37,14 @@ getUsage() { echot "\
 Usage: unc get [OPTION]... [COMMAND]...
 Get information.  TARGET is a UNC or mounted FILE.
 
+	detail						return detailed information for all mounted shares
 	mounts						return all mounted shares
 	port							return the port for the specified protocol argument	
+	protocol TARGET		the type of used for the target share
 	protocols [HOST]	return the protocols supported by the host, or all valid protocols
 	root TARGET				the mounted root directory of the UNC, i.e. ~/Volumes/server_share
-	share	TARGET			the name of the share, i.e. //server/share
-	unc	TARGET				the full UNC associated with the file, i.e. //server/share/dir1/dir2
+	share	TARGET			the name of the target share, i.e. //server/share
+	unc	TARGET				the UNC associated with the target share, i.e. //server/share/dir1/dir2
 
 	$protocolUsage"
 }
@@ -51,13 +53,20 @@ getArgStart() { file=""; }
 
 getArgs() 
 {
-	[[ "$command" == @(getMounts|getPort|getProtocols) ]] && return
+	[[ "$command" == @(getDetail|getMounts|getPort|getProtocols) ]] && return
 	IsUncPath "$1" && { file="$1"; ((++shift)); return; }
 	[[ ! $1 ]] && MissingOperand "TARGET"
 	ScriptArgGet "file" -- "$@"; ScriptCheckPath "$file"
 }
 
 getCommand() { usage; }
+
+getDetailCommand()
+{
+	InPath findmnt && { findmnt --types=$uncTypes --output=TARGET,SOURCE,FSTYPE | grep -e "^TARGET\|$volumeDir"; return; }
+	IsPlatform mac && { df -T $uncTypes; }
+	return 1
+}
 
 # mounts
 getMountsCommand()
@@ -70,6 +79,18 @@ getMountsCommand()
 # port
 getPortOpt() { protocolOpt "$@"; }
 getPortCommand() { getPort "$protocol"; }
+
+# protocol
+getProtocolCommand()
+{
+	local fstype="$(findmnt --noheadings --output=FSTYPE --target "$file")"
+
+	case "$fstype" in
+		cifs) echo "smb";;
+		fuse.sshfs) echo "ssh";;
+		*) echo "$fstype";;
+	esac
+}
 
 # protocols
 getProtocolsArgStart() { unset host; }
@@ -101,9 +122,20 @@ getShareCommand()
 {
 	IsUncPath "$file" && { echo "$(GetUncShare "$file")"; return; }
 
-	InPath findmnt && { findmnt --types=$uncTypes --noheadings --output=SOURCE --target "$file"; return; }
-	InPath df && { df -P "$file" | awk 'END{print $1}'; return; }
-	return 1
+	# get the share
+	local share
+	if InPath findmnt; then share="$(findmnt --types=$uncTypes --noheadings --output=SOURCE --target "$file")"
+	elif InPath df; then share="$(df -P "$file" | awk 'END{print $1}')"
+	else return 1
+	fi
+
+	# cifs: //nas3/public->no change
+	[[ "$share" =~ //.* ]] && { echo "$share"; return; } 
+
+	# sshfs: jjbutare@nas3:/tmp->//nas3/tmp jjbutare@nas3:/->//nas3/root
+	share="//$(RemoveBefore $share @ | RemoveChar :)"
+	[[ "$(GetUncShare "$share")" == "" ]] && share="${share}root"
+	echo $share
 }
 
 # unc
