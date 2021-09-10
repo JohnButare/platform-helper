@@ -22,7 +22,7 @@ init()
 {
 	volumeDir=~/"Volumes"; initVolumeDir || return
 	protocolUsage="-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)"
-	uncTypes="9p,cifs,nfs,nfs4,fuse.sshfs"; IsPlatform mac && uncTypes="nfs,nfs4,smbfs,fuse.sshfs"
+	uncTypes="cifs,nfs,nfs4,fuse.sshfs"; IsPlatform mac && uncTypes="nfs,nfs4,smbfs,fuse.sshfs"
 	return 0
 }
 
@@ -37,14 +37,14 @@ getUsage() { echot "\
 Usage: unc get [OPTION]... [COMMAND]...
 Get information.  TARGET is a UNC or mounted FILE.
 
-	detail						return detailed information for all mounted shares
-	mounts						return all mounted shares
-	port							return the port for the specified protocol argument	
-	protocol TARGET		the type of used for the target share
-	protocols [HOST]	return the protocols supported by the host, or all valid protocols
-	root TARGET				the mounted root directory of the UNC, i.e. ~/Volumes/server_share
-	share	TARGET			the name of the target share, i.e. //server/share
-	unc	TARGET				the UNC associated with the target share, i.e. //server/share/dir1/dir2
+	detail						return detailed information for shares mounted in ~/Volumes
+	mounts						return all mounted shares in ~/Volumes
+	port							return the port for the protocol specified by the protocol argument	
+	protocol TARGET		the protocol used for the target
+	protocols [HOST]	return the protocols supported by specified host, or all valid protocols
+	root TARGET				the mounted root directory of the targer, i.e. ~/Volumes/server_share
+	share	TARGET			the UNC server and share of the target, i.e. //server/share
+	unc	TARGET				the UNC of the target, i.e. //server/share/dir1/dir2
 
 	$protocolUsage"
 }
@@ -63,17 +63,19 @@ getCommand() { usage; }
 
 getDetailCommand()
 {
-	InPath findmnt && { findmnt --types=$uncTypes --output=TARGET,SOURCE,FSTYPE | grep -e "^TARGET\|$volumeDir"; return; }
-	IsPlatform mac && { df -T $uncTypes; }
-	return 1
+	if InPath findmnt; then findmnt --types=$uncTypes --output=TARGET,SOURCE,FSTYPE | grep -e "^TARGET\|$volumeDir"
+	elif InPath df; then df -T $uncTypes
+	else noUncCommand
+	fi
 }
 
 # mounts
 getMountsCommand()
 {
-	InPath findmnt && { findmnt --types=$uncTypes --noheadings --output=TARGET | grep "$volumeDir"; return; }
-	IsPlatform mac && { df -T $uncTypes | ${G}tail -n +2 | tr -s " " | cut -d" " -f9-; }
-	return 1
+	if InPath findmnt; then findmnt --types=$uncTypes --noheadings --output=TARGET | grep "$volumeDir"
+	elif InPath df; then df -T $uncTypes | ${G}tail -n +2 | tr -s " " | cut -d" " -f9-
+	else noUncCommand
+	fi
 }
 
 # port
@@ -83,6 +85,8 @@ getPortCommand() { getPort "$protocol"; }
 # protocol
 getProtocolCommand()
 {
+	! InPath findmnt && { noUncCommand; return; }
+
 	local fstype="$(findmnt --noheadings --output=FSTYPE --target "$file")"
 
 	case "$fstype" in
@@ -113,9 +117,21 @@ getRootCommand()
 {
 	IsUncPath "$file" && { echo "$(GetUncRoot "$file")"; return; }
 
-	InPath findmnt && { findmnt --types=$uncTypes --noheadings --output=TARGET --target "$file"; return; }
-	InPath df && { df -P "$file" | awk 'END{print $NF}'; return; }
-	return 1
+	local root result;
+	if InPath findmnt; then
+		root="$(findmnt --types=$uncTypes --noheadings --output=TARGET --target "$file")" || { notAUncShare; return; }
+
+	elif InPath df; then
+		local line; line="$(df -P "$file" | tail -1)" || { notAUncShare; return; };
+		! [[ "$line" =~ //.* ]] && { notAUncShare; return; } # UNC shares must start with //
+		root="$(echo "$line" | awk '{print $NF}')"
+
+	else
+		noUncCommand; return
+
+	fi
+
+	echo "$root"
 }
 
 getShareCommand()
@@ -124,9 +140,16 @@ getShareCommand()
 
 	# get the share
 	local share
-	if InPath findmnt; then share="$(findmnt --types=$uncTypes --noheadings --output=SOURCE --target "$file")"
-	elif InPath df; then share="$(df -P "$file" | awk 'END{print $1}')"
-	else return 1
+	if InPath findmnt; then 
+		share="$(findmnt --types=$uncTypes --noheadings --output=SOURCE --target "$file")" || { notAUncShare; return; }
+
+	elif InPath df; then
+		local share; share="$(df -P "$file" | awk 'END{print $1}')" || { notAUncShare; return; }
+		! [[ "$share" =~ //.* ]] && { notAUncShare; return; } # UNC shares must start with //
+
+	else 
+		noUncCommand; return
+
 	fi
 
 	# cifs: //nas3/public->no change
@@ -198,15 +221,9 @@ listSsh() { echo "root"; }
 
 listSmb()
 {
-	if InPath smbutil; then
-		smbutil view "//$host" | grep "Disk"
-
-	elif InPath smbclient; then
-		sudoc smbclient -L $host -U$USER%$(credential -q get secure default) |& grep -v "tdb_new_database" |& grep -v "option is deprecated"
-
-	else
-		EchoErr "unc: unable to list shares for $host"
-		return 1
+	if InPath smbutil; then smbutil view "//$host" | grep "Disk"
+	elif InPath smbclient; then sudoc smbclient -L $host -U$USER%$(credential -q get secure default) |& grep -v "tdb_new_database" |& grep -v "option is deprecated"
+	else EchoErr "unc: unable to list shares for $host"; return 1
 	fi
 }
 
@@ -242,7 +259,7 @@ Return true if the specified file is a mounted UNC."; }
 
 isUncArgs() { getArgs "$@"; }
 
-isUncCommand() { [[ $(getRootCommand) ]]; }
+isUncCommand() { quiet="--quiet"; [[ $(getRootCommand) ]]; }
 
 #
 # Mount Command
@@ -526,6 +543,18 @@ isMounted()
 	[[ $unc && $dirs ]] && unc="$unc/$dirs"
 
 	showResult "$unc"
+}
+
+notAUncShare()
+{
+	[[ ! "$quiet" ]] && ScriptErr "'$file' is not on a UNC share"
+	return 1
+}
+
+noUncCommand()
+{
+	[[ ! "$quiet" ]] && ScriptErr "No UNC commands available (findmnt or df)"
+	return 1
 }
 
 platformUnmount()

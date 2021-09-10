@@ -790,7 +790,7 @@ utw() # UnixToWin
 
 	# network shares do not translate properly in WSL 2
 	if IsPlatform wsl2; then 
-		local unc; unc="$(unc get unc "$file")" && { ptw "$unc"; return; }
+		local unc; unc="$(unc get unc "$file" --quiet)" && { ptw "$unc"; return; }
 	fi
 
 	# utw requires the file exist in newer versions of wsl
