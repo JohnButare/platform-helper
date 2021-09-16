@@ -24,7 +24,7 @@ existsArgs() { getVmArg "$@"; }
 existsCommand() { psRaw 'Get-VM | where {\$_.Name -eq \"'$vm'\"}' | grep "$vm" >& /dev/null; }
 
 listUsage() { echot "Usage: $(ScriptName) list [plain]\nList all virtual machines."; }
-listCommand() { RunScript --elevate -- powershell Get-VM; }
+listCommand() { RunScript --elevate "${globalArgs[@]}" -- powershell Get-VM; }
 listPlainCommand() { listCommand | RemoveCarriageReturn | tail +4 | cut -d" " -f 1 | grep -v '^$'; }
 
 checkpointUsage() { echot "Usage: $(ScriptName) checkpoint VM|all \nCheckpoint the virtual machines."; }
@@ -198,17 +198,18 @@ createAfterWin() { :; }
 # Hypervisor Commands
 #
 
-hypervisorUsage() { echot "Usage: $(ScriptName) hypervisor IsEnabled|IsInstalled|disable|enable
+hypervisorUsage() { echot "Usage: $(ScriptName) hypervisor IsEnabled|IsInstalled|IsServiceRunning|disable|enable
 Hypervisor commands."; }
 
 hypervisorCommand() { usage; }
-hypervisorIsenabledCommand() { isEnabled; }
-hypervisorIsinstalledCommand() { isInstalled; }
+hypervisorIsEnabledCommand() { isEnabled; }
+hypervisorIsInstalledCommand() { isInstalled; }
+hypervisorIsServicerunningCommand() { isServiceRunning; }
 
 hypervisorDisableCommand()
 {
 	checkInstalled
-	! IsElevated && { RunScript --elevate -- hyperv disable; return; }
+	! IsElevated && { RunScript --elevate "${globalArgs[@]}" -- hyperv disable; return; }
 	isEnabled && { bcdedit.exe /set hypervisorlaunchtype off || return; }
 	isServiceRunning && ask "Restart computer to finish disabling Hyper-V" && { power reboot || return; }
 	return 0
@@ -217,7 +218,7 @@ hypervisorDisableCommand()
 hypervisorEnableCommand()
 {
 	checkInstalled
-	! IsElevated && { RunScript --elevate -- hyperv enable; return; }
+	! IsElevated && { RunScript --elevate "${globalArgs[@]}" -- hyperv enable; return; }
 	! isEnabled && { bcdedit.exe /set hypervisorlaunchtype auto || return; }
 	! isServiceRunning && ask "Restart computer to enable Hyper-V" && { power reboot || return; }
 	return 0
@@ -252,10 +253,10 @@ powerCommand() { usage; }
 powerOnCommand()
 { 
 	if [[ "$vm" == "all" ]]; then
-		RunScript --elevate -- powershell 'Get-VM \| where {\$_.State -eq \"Paused\"} \| Resume-VM' || return
-		RunScript --elevate -- powershell 'Get-VM \| where {\$_.State -eq \"Off\"} \| Start-VM' || return
+		RunScript --elevate "${globalArgs[@]}" -- powershell 'Get-VM \| where {\$_.State -eq \"Paused\"} \| Resume-VM' || return
+		RunScript --elevate "${globalArgs[@]}" -- powershell 'Get-VM \| where {\$_.State -eq \"Off\"} \| Start-VM' || return
 	else
-		RunScript --elevate -- powershell Start-VM -Name "$vm"
+		RunScript --elevate "${globalArgs[@]}" -- powershell Start-VM -Name "$vm"
 	fi
 }
 
@@ -264,24 +265,24 @@ powerOffCommand()
 	local arg; [[ $hard ]] && arg="-TurnOff"
 
 	if [[ "$vm" == "all" ]]; then
-		RunScript --elevate -- powershell 'Get-VM \| where {\$_.State -eq \"Running\"} \| Stop-VM '$arg
+		RunScript --elevate "${globalArgs[@]}" -- powershell 'Get-VM \| where {\$_.State -eq \"Running\"} \| Stop-VM '$arg
 	else
-		RunScript --elevate -- powershell Stop-VM -Name "$vm" $arg
+		RunScript --elevate "${globalArgs[@]}" -- powershell Stop-VM -Name "$vm" $arg
 	fi
 }
 
 powerRebootCommand() 
 { 
-	if [[ $hard ]]; then
+	if [[ $force || $hard ]]; then
 		if [[ "$vm" == "all" ]]; then
-			RunScript --elevate -- powershell 'Get-VM \| where {\$_.State -eq \"Running\"} \| Restart-VM -Type Reset -Force'
+			RunScript --elevate "${globalArgs[@]}" -- powershell 'Get-VM \| where {\$_.State -eq \"Running\"} \| Restart-VM -Type Reset -Force'
 		else
-			RunScript --elevate -- powershell Restart-VM -Name "$vm" -Type Reset -Force
+			RunScript --elevate "${globalArgs[@]}" -- powershell Restart-VM -Name "$vm" -Type Reset -Force
 		fi
 		return
 	fi
 
-	printf "rebooting..."; offCommand && printf "off..."; onCommand && printf "on..."; echo "done"
+	printf "rebooting..."; powerOffCommand && printf "off..."; powerOnCommand && printf "on..."; echo "done"
 }
 
 powerSleepCommand()
@@ -289,7 +290,7 @@ powerSleepCommand()
 	if [[ "$vm" == "all" ]]; then
 		ps 'Get-VM | where {\$_.State -eq \"Running\"} | Save-VM'
 	else
-		RunScript --elevate -- powershell Save-VM -Name "$vm"
+		RunScript --elevate "${globalArgs[@]}" -- powershell Save-VM -Name "$vm"
 	fi
 }
 
@@ -321,8 +322,8 @@ driveUnmountCommand()
 checkInstalled () { ! isInstalled && { EchoErr "Hyper-V is not installed"; exit 1; } }
 deleteVmDiskFiles() { rm -f "$disks/${vm}.vhdx" "$disks/${vm}_"*".avhdx"; }
 listSwitch() { ps 'Get-VMSwitch' | tail +3 | cut -d" " -f 1; }
-ps() { RunScript $verbose --elevate -- powershell "$@"; }
-psRaw() { RunScript --elevate -- powershell "$@"; }
+ps() { RunScript --elevate "${globalArgs[@]}" -- powershell "$@"; }
+psRaw() { RunScript --elevate "${globalArgs[@]}" -- powershell "$@"; }
 
 getVmArg()
 {
