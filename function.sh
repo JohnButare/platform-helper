@@ -834,6 +834,7 @@ GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	
 GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 													# GetHostname NAME - hosts configured name
 HostUnknown() { ScriptErr "$1: name or service not known"; }
+IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
 
@@ -928,21 +929,35 @@ GetEthernetAdapters()
 	fi
 }
 
-# GetIpAddress [-a|--all] [HOST] - get the IP address of the current or specified host
-# --all 	resolve host using all methods (DNS, MDNS)
+# GetIpAddress [HOST] - get the IP address of the current or specified host
+# -a|--all 	resolve host using all methods (DNS, MDNS, and local virtual machine names)
+# -m|--mdns	resolve host using MDNS
+# -v|--vm 	resolve host using local virtual machine names (check $HOSTNAME-HOST)
 GetIpAddress() 
 {
-	local all; [[ "$1" =~ ^(-a|--all)$ ]] && { all="true"; shift; }
-	local host="$(GetSshHost "$1")" ip
+	local host mdns vm; 
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-a|--all) mdsn="true" vm="true";;
+			-m|--mdns) mdns="true";;
+			-v|--vm) vm="true";;
+			*)
+				if ! IsOption "$1" && [[ ! $host ]]; then host="$(GetSshHost "$1")"
+				else UnknownOption "$1" "GetIpAddress"; return
+				fi
+		esac
+		shift
+	done
 
 	IsLocalHost "$host" && { GetAdapterIpAddress; return; }
-
 	IsIpAddress "$host" && { echo "$host"; return; }
 
-	# Resolve mDNS (.local) addresses exclicitly as the name resolution commands below can fail on some hosts
+	# Resolve mDNS (.local) names exclicitly as the name resolution commands below can fail on some hosts
 	# In Windows WSL the methods below never resolve mDNS addresses
 	IsMdnsName "$host" && { ip="$(MdnsResolve "$host" 2> /dev/null)"; [[ $ip ]] && echo "$ip"; return; }
 
+	# lookup IP address using various commands
 	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
@@ -952,8 +967,13 @@ GetIpAddress()
 	elif InPath nslookup; then ip="$(nslookup "$host" |& tail -3 | grep "Address:" | cut -d" " -f 2)"
 	fi
 
-	[[ ! $ip && $all ]] && ip="$(MdnsResolve "${host}.local" 2> /dev/null)"
+	# if an IP address was not found, check for a local virtual hostname
+	[[ ! $ip && $vm ]] && ip="$(GetIpAddress "$HOSTNAME-$host")"
 
+	# resolve using .local only if --all is specified to avoid delays
+	[[ ! $ip && $mdns ]] && ip="$(MdnsResolve "${host}.local" 2> /dev/null)"
+
+	# return the IP if found
 	[[ $ip ]] && echo "$(echo "$ip" | RemoveCarriageReturn)"
 }
 
@@ -1029,14 +1049,14 @@ IsAvailable() # HOST [TIMEOUT_MILLISECONDS] - returns true if the host is availa
 	# resolve the IP address explicitly:
 	# - mDNS name resolution is intermitant (double check this on various platforms)
 	# - Windows ping.exe name resolution is slow for non-existent hosts
-	host="$(GetIpAddress "$host")" || return 
+	local ip; ip="$(GetIpAddress "$host")" || return
 	
 	if IsPlatform wsl1; then # WSL 1 ping and fping do not timeout quickly for unresponsive hosts so use ping.exe
-		ping.exe -n 1 -w "$timeout" "$host" |& grep "bytes=" &> /dev/null 
+		ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes=" &> /dev/null 
 	elif InPath fping; then
-		fping -r 1 -t "$timeout" -e "$host" &> /dev/null
+		fping -r 1 -t "$timeout" -e "$ip" &> /dev/null
 	else
-		ping -c 1 -W 1 "$host" &> /dev/null # -W timeoutSeconds
+		ping -c 1 -W 1 "$ip" &> /dev/null # -W timeoutSeconds
 	fi
 }
 
@@ -1164,10 +1184,7 @@ DnsResolve()
 		
 	fi
 
-	# if the lookup is empty or a superset of the DNS name use the full name
-	[[ "$name" =~ $lookup$ ]] && lookup="$name"
-
-	echo "$lookup"
+	[[ "$lookup" ]] && echo "$lookup" || return 1
 }
 
 MdnsResolve()

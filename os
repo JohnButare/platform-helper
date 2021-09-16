@@ -136,7 +136,16 @@ nameArgs()
 nameCommand()
 {
 	IsLocalHost "$name" && { echo "$HOSTNAME"; return; }
-	DnsResolve "$name"
+	local resolvedName="$(DnsResolve "$name")"
+
+	# check for virtual host
+	! [[ "$resolvedName" ]] && resolvedName="$(DnsResolve "$HOSTNAME-$name")"
+
+	# if the resolved name is empty or a superset of the DNS name use the full name
+	[[ "$name" =~ $resolvedName$ ]] && resolvedName="$name"
+
+	echo "$resolvedName"
+
 }
 
 nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
