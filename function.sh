@@ -1830,7 +1830,7 @@ else
 	FindFunction() { print -l ${(ok)functions} | grep -iE "^${1}$" ; }
 fi
 
-# RunFunction NAME [SUFFIX|--] [ARGS]- call a function if it exists, optionally with the specified suffix
+# RunFunction NAME [SUFFIX|--] [ARGS]- call a function if it exists, optionally with the specified suffix (i.e. nameSuffix)
 RunFunction()
 {
 	local f="$1"; shift
