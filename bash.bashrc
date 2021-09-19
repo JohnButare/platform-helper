@@ -120,9 +120,9 @@ CheckPlatform || return
 # Environment Variables
 #
 
-# P=applications, BIN=programs, PBIN=platform programs, DATA=common data, ADATA=application data
-# PUB=public documents, USERS=users home directory, VOLUMES=mounted system volumes
-P="/opt" BIN="" DATA="" PUB="" USERS="/home" VOLUMES="/mnt" ADATA="$HOME/.config"
+# P=apps, SRV=server apps, BIN=programs, PBIN=platform programs, DATA=common data, ADATA=application data
+# PUB=public documents USERS=users home directory VOLUMES=mounted system volumes
+P="/opt" SRV="/srv" BIN="" DATA="" PUB="" USERS="/home" VOLUMES="/mnt" ADATA="$HOME/.config"
 
 # USER=logged on user, SUDO_USER, HOME=home directory, DOC=user documents, UDATA=user data, UBIN=user programs
 # UDATA=user data, CODE=source code
