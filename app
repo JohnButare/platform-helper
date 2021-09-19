@@ -81,6 +81,17 @@ OneDrive()
 	start "$file" /background; 
 }
 
+ports()
+{
+	{ ! IsPlatform wsl || IsAvailablePort localhost 22; } && return
+
+	showStatus
+	RunScript --elevate -- powershell.exe WslPortForward.ps1 > /dev/null
+	[[ ! $brief ]] && echo done
+	return 0
+}
+
+
 processExplorer()
 {
 	if [[ "$command" == "startup" ]]; then
@@ -184,14 +195,7 @@ runService()
 	if ! service running $service; then
 		printf "$service."
 		service start $service > /dev/null
-		IsPlatform wsl2 && [[ "$service" == "ssh" ]] && { RunScript --elevate -- powershell.exe WslPortForward.ps1 > /dev/null; }
 		return 0
-	fi
-
-	# For wsl2 running systemd the ssh service will already be running, so just forward the ssh ports
-	if IsPlatform wsl2 && IsSystemd && [[ "$service" == "ssh" ]] && service running $service; then
-		printf "$service ports."
-		RunScript --elevate -- powershell.exe WslPortForward.ps1 > /dev/null
 	fi
 
 	return 0
