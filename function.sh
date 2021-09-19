@@ -192,6 +192,18 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 # Applications
 #
 
+browser()
+{
+	if InPath sensible-broswer; then sensible-broswer "$@"
+	elif firefox Installed; then firefox "$@"
+	elif InPath w3m; then w3m "$@"
+	elif InPath lynx; then lynx "$@"
+	elif InPath elinks; then elinks "$@"
+	elif InPath links; then links "$@"
+	else EchoErr "no browser found"; return 1
+	fi
+}
+
 # HashiConfig [prod|reset|test]
 HashiConfig() { ScriptEval hashi config environment --suppress-errors "$@"; }
 
