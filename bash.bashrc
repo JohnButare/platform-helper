@@ -210,6 +210,9 @@ PathAdd "$UBIN"
 
 [[ ! $FUNCTIONS && -f "$BIN/function.sh" ]] && . "$BIN/function.sh"
 
+# have root use the the bootstrap users aliases
+[[ "$USER" == "root" ]] && . "$USERS/$(ConfigGet "user")/.bashrc"
+
 # warning message for interactive shells if the configuration was not set properly
 if [[ $BASHRC ]]; then
 	echo "System configuration was not set in /etc/bash.bashrc" >&2
