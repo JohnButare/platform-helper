@@ -881,11 +881,28 @@ DhcpRenew()
 }
 
 # GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
+# -w|--wsl	get the IP address used by WSL (Windows only)
 GetAdapterIpAddress() 
 {
-	local adapter="$1"; [[ ! $adapter ]] && ! IsPlatform win && { adapter="$(GetInterface)" || return; }
+	local adapter wsl; 
 
-	if IsPlatform win; then
+	# options
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-w|--wsl) wsl="--wsl";;
+			*)
+				if ! IsOption "$1" && [[ ! $adapter ]]; then adapter="$1"
+				else UnknownOption "$1" "GetAdapterIpAddress"; return
+				fi
+		esac
+		shift
+	done
+
+	local isWin; IsPlatform win && [[ ! $wsl ]] && isWin="true"
+	[[ ! $adapter && ! $isWin ]] && { adapter="$(GetInterface)" || return; }
+
+	# get IP address for the specified adapter
+	if [[ $isWin ]]; then
 
 		if [[ ! $adapter ]]; then
 			# use default route (0.0.0.0 destination) with lowest metric
@@ -933,15 +950,17 @@ GetEthernetAdapters()
 # -a|--all 	resolve host using all methods (DNS, MDNS, and local virtual machine names)
 # -m|--mdns	resolve host using MDNS
 # -v|--vm 	resolve host using local virtual machine names (check $HOSTNAME-HOST)
+# -w|--wsl	get the IP address used by WSL (Windows only)
 GetIpAddress() 
 {
-	local host mdns vm; 
+	local host mdns vm wsl; 
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-a|--all) mdsn="true" vm="true";;
 			-m|--mdns) mdns="true";;
 			-v|--vm) vm="true";;
+			-w|--wsl) wsl="--wsl";;
 			*)
 				if ! IsOption "$1" && [[ ! $host ]]; then host="$(GetSshHost "$1")"
 				else UnknownOption "$1" "GetIpAddress"; return
@@ -950,7 +969,7 @@ GetIpAddress()
 		shift
 	done
 
-	IsLocalHost "$host" && { GetAdapterIpAddress; return; }
+	IsLocalHost "$host" && { GetAdapterIpAddress $wsl; return; }
 	IsIpAddress "$host" && { echo "$host"; return; }
 
 	# Resolve mDNS (.local) names exclicitly as the name resolution commands below can fail on some hosts
