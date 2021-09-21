@@ -23,6 +23,10 @@ proxyNetworks="[wiggin]=10.10.100.10,10.10.100.11" # [foo]=192.168.100.2,192.168
 proxyServer="proxy.$domain" proxyPort="3128"
 proxy="http://$proxyServer:$proxyPort"
 
+# Dropbox
+dropboxCompany="Juntos Holdings"
+dropboxUser="John Butare"
+
 # file server
 fs="nas3.$baseDomain" fsProtocol="608" fsUser="jjbutare"
 

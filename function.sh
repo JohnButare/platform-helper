@@ -37,7 +37,7 @@ alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"'
 alias GetArgs2='(( $# < 2 )) && set -- "$(cat)" "$@"'
 alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
 
-# update - temporary file location
+# update - manage update state in a temporary file location
 UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
 UpdateCheck() { [[ $updateDir ]] && return; UpdateInit; }
 UpdateNeeded() { UpdateCheck || return; [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
@@ -213,7 +213,7 @@ i()
 	local check find force noRun select
 
 	if [[ "$1" == "--help" ]]; then echot "\
-usage: i [APP*|bak|cd|check|dir|force|info|select]
+usage: i [APP*|bak|cd|check|dir|info|select]
   Install applications
 	-f,  --force		force installation even if a minimal install is selected
   -nr, --no-run 	do not find or run the installation program
@@ -229,21 +229,23 @@ usage: i [APP*|bak|cd|check|dir|force|info|select]
 	[[ "$1" == @(force) ]] && { force="true"; }
 	[[ "$1" == @(check) ]] && { check="true"; }
 
-	if [[ ! $noRun && ($force || $select || ! $INSTALL_DIR || ! -d "$INSTALL_DIR") ]]; then
-		ScriptEval FindInstallFile --eval $select || return
-		export INSTALL_DIR="$installDir"
-		unset installDir file
-	fi
 
 	case "${1:-cd}" in
 		bak) InstBak;;
-		check) return;;
-		cd) cd "$INSTALL_DIR";;
-		dir) echo "$INSTALL_DIR";;
-		force|select) return 0;;
-		info) echo "The installation directory is $INSTALL_DIR";;
+		cd) InstFind && cd "$INSTALL_DIR";;
+		check|select) InstFind;;
+		dir) InstFind && echo "$INSTALL_DIR";;
+		info) InstFind && echo "The installation directory is $INSTALL_DIR";;
 		*) inst --hint "$INSTALL_DIR" $noRun $force "$@";;
 	esac
+}
+
+InstFind()
+{
+	[[ ! $force && ! $select && $INSTALL_DIR && -d "$INSTALL_DIR" ]] && return
+	ScriptEval FindInstallFile --eval $select || return
+	export INSTALL_DIR="$installDir"
+	unset installDir file
 }
 
 powershell() 
