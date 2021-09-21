@@ -28,7 +28,7 @@ dropboxCompany="Juntos Holdings"
 dropboxUser="John Butare"
 
 # file server
-fs="pi1.$baseDomain" fsProtocol="smb" fsUser="jjbutare"
+fs="files.$baseDomain" fsProtocol="smb" fsUser="jjbutare"
 
 # web server
 web="$fs" webUnc="//$web/web"
