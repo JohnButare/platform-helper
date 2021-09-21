@@ -52,7 +52,7 @@ incron() { runService "incron"; }
 IntelActiveMonitor() { taskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 IntelRapidStorage() { IsTaskRunning "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
 LogitechOptions() { [[ ! -f "$P/Logitech/LogiOptions/LogiOptions.exe" ]] && return; IsTaskRunning LogiOptions.exe || start "$P/Logitech/LogiOptions/LogiOptions.exe" "/noui"; }
-NetworkUpdate() { network current update --brief $force; }
+NetworkUpdate() { return; network current update --brief $force; }
 PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.exe"; [[ ! -f "$p" ]] && return; IsTaskRunning "$p" || start "$p"; }
 SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
 sshd() { runService "ssh"; }
@@ -83,7 +83,8 @@ OneDrive()
 
 ports()
 {
-	{ ! IsPlatform wsl || IsAvailablePort localhost 22; } && return
+	! IsPlatform wsl && return # only need to open ports for Windows WSL
+	ssh -o ConnectTimeout=1 "$(GetIpAddress)" "true" >& /dev/null && return # try SSH connection as port 22 may show available even if SSH port is not open
 
 	showStatus
 	RunScript --elevate -- powershell.exe WslPortForward.ps1 > /dev/null

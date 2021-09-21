@@ -59,46 +59,15 @@ adapterNameCommand()
 
 currentUsage()
 {
-	echot "Usage: $(ScriptName) current name|update
+	echot "Usage: $(ScriptName) current find|proxy|update
 Current network commands.
 
-	name			name of the current network
-	update		update network settings for the current network
+	find			find the network we are currently on
+	name			stored name of the current network
+	proxy			name of the current proxy server
+	update		update network settings for the network we are currently on
 
 	-b,	--brief		show brief status messages"
-}
-
-currentCommand() { currentNameCommand; }
-
-currentNameCommand()
-{
-	network="external"
-
-	local -A networks; eval networks=( $(ConfigGet "proxyNetworks") )
-
-	for i in "${!networks[@]}"
-	do
-		local name="$i" ip ips=(); StringToArray "${networks[$i]}" "," ips
-
-		for ip in "${ips[@]}"; do
-
-			# check if the IP is available, if it is see if the DNS server can resolve names 
-			[[ ! $brief && ! $quiet ]] && PrintErr "Checking $name ($ip)..."
-			if IsAvailable "$ip"; then
-				[[ $verbose ]] && PrintErr "ip..."
-				if dig @$ip bogus +time=1 +tries=1 >& /dev/null; then			
-					[[ $verbose ]] && PrintErr "dns..."
-					network="$name"
-					break
-				fi
-			fi
-
-		done
-		
-	done
-
-	[[ ! $brief && ! $quiet ]] && EchoErr "$network"
-	echo "$network"
 }
 
 currentArgStart() { unset -v brief; }
@@ -111,39 +80,119 @@ currentOpt()
 	esac
 }
 
+currentCommand() { currentNameCommand; }
+
+currentFindCommand() { findNetwork; }
+
+findNetwork()
+{
+	local network="external"
+
+	local -A networks; eval networks=( $(ConfigGet "networks") )
+
+	[[ ! $brief && ! $quiet ]] && PrintErr "checking..."
+
+	for i in "${!networks[@]}"
+	do
+		local name="$i" ip ips=(); StringToArray "${networks[$i]}" "," ips
+		[[ ! $brief && ! $quiet ]] && PrintErr "$name..."
+
+		for ip in "${ips[@]}"; do
+			[[ $verbose ]] && PrintErr "$ip..."
+
+			# check if the IP is available, if it is see if the DNS server can resolve names 			
+			if IsAvailable "$ip"; then
+				[[ $verbose ]] && PrintErr "ip..."
+				if dig @$ip bogus +time=1 +tries=1 >& /dev/null; then			
+					[[ $verbose ]] && PrintErr "dns..."
+					network="$name"
+					break
+				fi
+			fi
+
+		done
+		[[ $network ]] && break
+						
+	done
+
+	[[ ! $brief && ! $quiet ]] && EchoErr "found $network"
+	echo "$network"
+}
+
+currentNameCommand() { ConfigGet "network"; }
+currentProxyCommand() { findProxyServer; }
+
+findProxyServer()
+{
+	local proxy
+
+	local -A proxyServers; eval proxyServers=( $(ConfigGet "proxyServers") )
+
+	[[ ! $brief && ! $quiet ]] && PrintErr "checking..."
+
+	for i in "${!proxyServers[@]}"
+	do		
+		local name="$i" host hosts=(); StringToArray "${proxyServers[$i]}" "," hosts
+		[[ ! $brief && ! $quiet ]] && PrintErr "$name..."
+
+		for host in "${hosts[@]}"; do
+			local hostName="$(GetWord "$host" 1 ":")" hostPort="$(GetWord "$host" 2 ":")"
+			[[ $verbose ]] && PrintErr "$host..."
+
+			# check if the proxy server is available
+			if IsAvailable "$hostName"; then
+				[[ $verbose ]] && PrintErr "host..."
+				if IsAvailablePort "$hostName" "$hostPort" ; then			
+					[[ $verbose ]] && PrintErr "port..."
+					proxy="$name"
+					break
+				fi
+			fi
+		done
+		[[ $proxy ]] && break
+		
+	done
+ 
+	[[ ! $brief && ! $quiet ]] && { [[ $proxy ]] && EchoErr "found" || EchoErr "none"; }
+	echo "$proxy"
+
+}
+
 currentUpdateCommand()
 {
 	# get existing configuration
-	local existingNetwork="$(UpdateGet "network")" existingProxy="$(UpdateGet "proxy")"
+	local existingNetwork="$(UpdateGet "network")" existingProxy="$(UpdateGet "ProxyServer")"
 	
 	# determine current configuration
-	local currentDns currentNetwork currentProxy
+	local network proxyServer resolveConfFile
 	[[ ! $brief && ! $quiet ]] && { hilight "Determining network..."; echo "Existing network is ${existingNetwork:-unknown}"; }
-	currentNetwork="$(currentNameCommand)" || return
-	currentProxy="disable"; [[ "$currentNetwork" != "external" ]] && currentProxy="enable"
-	currentDns="$DATA/setup/resolv.conf.$currentNetwork"
-	[[ ! -f "$currentDns" ]] && { EchoErr "network: could not find resolve.conf for $currentNetwork"; return 1; }
+	network="$(findNetwork)" || return
+	proxyServer="$(findProxyServer)"
+	resolveConfFile="$DATA/setup/resolv.conf.$network"
+	[[ ! -f "$resolveConfFile" ]] && { EchoErr "network: could not find resolve.conf for $currentNetwork"; return 1; }
 
 	# return if no changes are required
 	[[ ! $force && \
-		"$currentNetwork" == "$existingNetwork" && \
-		"$currentProxy" == "$existingProxy" ]] && \
-		diff -q "$currentDns" "/etc/resolv.conf" >& /dev/null && return
+		"$network" == "$existingNetwork" && \
+		"$proxyServer" == "$existingProxy" ]] && \
+		diff -q "$resolveConfFile" "/etc/resolv.conf" >& /dev/null && return
 
 	# update network configuration
-	[[ ! $brief && ! $quiet ]] && hilight "Setting the network to $currentNetwork..."
+	[[ ! $brief && ! $quiet ]] && hilight "Setting the network to $network..."
 	[[ $brief ]] && printf "network..."
 	
 	# update resolv.conf
-	sudoc cp "$currentDns" "/etc/resolv.conf" || return
+	sudoc cp "$resolveConfFile" "/etc/resolv.conf" || return
 
-	# update proxy	
-	UpdateSet "proxy" "$currentProxy" || return
-	ScriptEval network proxy vars --$currentProxy || return
-	network proxy apt --$currentProxy || return
+	# save proxy server
+	UpdateSet "ProxyServer" "$proxyServer" || return
+	local action="--enable"; [[ ! $proxyServer ]] && action="--disable"
+	ScriptEval network proxy vars "$action" || return
+	network proxy apt "$action" || return
 	[[ ! $brief && ! $quiet ]] && { network proxy || return; }
 
-	UpdateSet "network" "$currentNetwork" || return
+	# save network
+	UpdateSet "network" "$network" || return
 }
 
 #
@@ -361,7 +410,7 @@ Network proxy server commands.
 proxyArgStart()
 {
 	action="status"
-	proxy="$(ConfigGet "proxy")"
+	proxy="http://$(ConfigGet "proxy")"
 	proxyVars="http_proxy,https_proxy,ftp_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY"
 	noProxyVars="no_proxy,NO_PROXY"	
 	allVars="$proxyVars,$noProxyVars"
