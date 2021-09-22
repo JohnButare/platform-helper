@@ -852,14 +852,6 @@ IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHos
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
 
-# GetInterface - name of the primary network interface
-GetInterface()
-{
-	if IsPlatform mac; then netstat -rn | grep '^default' | head -1 | awk '{ print $4; }'
-	else route | grep "^default" | tr -s " " | cut -d" " -f8
-	fi
-}
-
 CacheDefaultGateway()
 {
 	[[ $NETWORK_DEFAULT_GATEWAY ]] && return
@@ -873,7 +865,7 @@ CacheDefaultGateway()
 	fi
 
 	export NETWORK_DEFAULT_GATEWAY="$g"
-}			
+}
 
 # DhcpRenew ADDRESS(primary) - renew the IP address of the specified adapter
 DhcpRenew()
@@ -957,6 +949,14 @@ GetEthernetAdapters()
 		netstat -rn | grep '^default' | awk '{ print $4; }' | grep -v '^utun' # utunN - IPv6 adapters
 	else
 		ip -4 -oneline -br address | cut -d" " -f 1
+	fi
+}
+
+# GetInterface - name of the primary network interface
+GetInterface()
+{
+	if IsPlatform mac; then netstat -rn | grep '^default' | head -1 | awk '{ print $4; }'
+	else route | grep "^default" | tr -s " " | cut -d" " -f8
 	fi
 }
 

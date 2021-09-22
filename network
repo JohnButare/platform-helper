@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 . script.sh || exit
 
-usage() {	ScriptUsage "$1" "Usage: network adapter|current|cache|center|dns|internet|name|profile|proxy|run|vpn|workgroup"; exit $1; }
+usage() {	ScriptUsage "$1" "Usage: network adapter|current|cache|center|dns|find|internet|name|profile|proxy|run|vpn|workgroup"; exit $1; }
 
 init() 
 {
@@ -59,13 +59,12 @@ adapterNameCommand()
 
 currentUsage()
 {
-	echot "Usage: $(ScriptName) current find|proxy|update
+	echot "Usage: $(ScriptName) current [find|proxy|update](status)
 Current network commands.
 
 	find			find the network we are currently on
-	name			stored name of the current network
-	proxy			name of the current proxy server
 	update		update network settings for the network we are currently on
+	status		status of the current network
 
 	-b,	--brief		show brief status messages"
 }
@@ -75,99 +74,48 @@ currentArgStart() { unset -v brief; }
 currentOpt()
 {
 	case "$1" in
-		-b|--brief) brief="true";;
+		-b|--brief) brief="--brief";;
 		*) return 1;;
 	esac
 }
 
-currentCommand() { currentNameCommand; }
+currentCommand() { currentStatusCommand; }
+currentStatusCommand() { printf "network=$(ConfigGet "network")\nproxy=$(ConfigGet "ProxyServer")\n"; }
 
-currentFindCommand() { findNetwork; }
+currentFindCommand()
+{
+	local network; printf "network..."; network="$(findNetwork)" || return 
+	local proxyServer; printf "proxy..."; proxyServer="$(findProxyServer "$network")" || return
+	printf "found network=$network\nfound proxy=$proxyServer\n";
+}
 
 findNetwork()
 {
-	local network="external"
-
-	local -A networks; eval networks=( $(ConfigGet "networks") )
-
-	[[ ! $brief && ! $quiet ]] && PrintErr "checking..."
-
-	for i in "${!networks[@]}"
-	do
-		local name="$i" ip ips=(); StringToArray "${networks[$i]}" "," ips
-		[[ ! $brief && ! $quiet ]] && PrintErr "$name..."
-
-		for ip in "${ips[@]}"; do
-			[[ $verbose ]] && PrintErr "$ip..."
-
-			# check if the IP is available, if it is see if the DNS server can resolve names 			
-			if IsAvailable "$ip"; then
-				[[ $verbose ]] && PrintErr "ip..."
-				if dig @$ip bogus +time=1 +tries=1 >& /dev/null; then			
-					[[ $verbose ]] && PrintErr "dns..."
-					network="$name"
-					break
-				fi
-			fi
-
-		done
-		[[ $network ]] && break
-						
-	done
-
-	[[ ! $brief && ! $quiet ]] && EchoErr "found $network"
-	echo "$network"
+	local networkIndex networks=(); StringToArray "$(ConfigGet "networks")" "," networks
+	networkIndex="$(network find --service=dns "${networks[@]}" "${globalArgs[@]}" $brief)" || { echo "external"; return; }
+	GetSshUser "${networks[$networkIndex]}" # return the name of the network (before @)
 }
-
-currentNameCommand() { ConfigGet "network"; }
-currentProxyCommand() { findProxyServer; }
 
 findProxyServer()
 {
-	local proxy
-
-	local -A proxyServers; eval proxyServers=( $(ConfigGet "proxyServers") )
-
-	[[ ! $brief && ! $quiet ]] && PrintErr "checking..."
-
-	for i in "${!proxyServers[@]}"
-	do		
-		local name="$i" host hosts=(); StringToArray "${proxyServers[$i]}" "," hosts
-		[[ ! $brief && ! $quiet ]] && PrintErr "$name..."
-
-		for host in "${hosts[@]}"; do
-			local hostName="$(GetWord "$host" 1 ":")" hostPort="$(GetWord "$host" 2 ":")"
-			[[ $verbose ]] && PrintErr "$host..."
-
-			# check if the proxy server is available
-			if IsAvailable "$hostName"; then
-				[[ $verbose ]] && PrintErr "host..."
-				if IsAvailablePort "$hostName" "$hostPort" ; then			
-					[[ $verbose ]] && PrintErr "port..."
-					proxy="$name"
-					break
-				fi
-			fi
-		done
-		[[ $proxy ]] && break
-		
-	done
- 
-	[[ ! $brief && ! $quiet ]] && { [[ $proxy ]] && EchoErr "found" || EchoErr "none"; }
-	echo "$proxy"
-
+	local network="$1" serverIndex servers=(); StringToArray "$(ConfigGet "${network}ProxyServers")" "," servers
+	[[ ! $servers ]] && { EchoErr "none specified"; return 0; }
+	serverIndex="$(network find "${servers[@]}" "${globalArgs[@]}" $brief)" || return 0
+	RemoveBefore "${servers[$serverIndex]}" "@" # return HOST:PORT of the proxy server (DESCRIPTION@HOST:PORT)
 }
+
+doLog() { [[ ! $brief && ! $quiet ]]; }
 
 currentUpdateCommand()
 {
 	# get existing configuration
 	local existingNetwork="$(UpdateGet "network")" existingProxy="$(UpdateGet "ProxyServer")"
-	
+
 	# determine current configuration
 	local network proxyServer resolveConfFile
-	[[ ! $brief && ! $quiet ]] && { hilight "Determining network..."; echo "Existing network is ${existingNetwork:-unknown}"; }
-	network="$(findNetwork)" || return
-	proxyServer="$(findProxyServer)"
+	doLog && { hilight "Determining network..."; echo "Existing network is ${existingNetwork:-unknown}"; }
+	doLog && printf "network..."; network="$(findNetwork $brief)" || return
+	doLog && printf "proxy..."; proxyServer="$(findProxyServer "$network" $brief)"
 	resolveConfFile="$DATA/setup/resolv.conf.$network"
 	[[ ! -f "$resolveConfFile" ]] && { EchoErr "network: could not find resolve.conf for $currentNetwork"; return 1; }
 
@@ -178,7 +126,7 @@ currentUpdateCommand()
 		diff -q "$resolveConfFile" "/etc/resolv.conf" >& /dev/null && return
 
 	# update network configuration
-	[[ ! $brief && ! $quiet ]] && hilight "Setting the network to $network..."
+	doLog && hilight "Setting the network to $network..."
 	[[ $brief ]] && printf "network..."
 	
 	# update resolv.conf
@@ -189,10 +137,105 @@ currentUpdateCommand()
 	local action="--enable"; [[ ! $proxyServer ]] && action="--disable"
 	ScriptEval network proxy vars "$action" || return
 	network proxy apt "$action" || return
-	[[ ! $brief && ! $quiet ]] && { network proxy || return; }
+	doLog && { network proxy --status "${globalArgs[@]}" || return; }
 
 	# save network
 	UpdateSet "network" "$network" || return
+}
+
+#
+# find commands
+#
+
+findUsage()
+{
+	echot "Usage: $(ScriptName) find SERVER [SERVER...]
+Find the first server that exposes a specific service.  Returns the zero based index of the found server.
+
+- SERVER format is [DESCRIPTION@]HOST_OR_IP[:SERVICE], i.e. wiggin:10.10.10:DNS
+- DESCRIPTION is used for information messages while checking
+- SERVICE is a numeric port or one of
+		PING - performs a UDP ping
+		DNS - checks port 53 and performs a DNS lookup
+  	NFS - checks port 111
+  	SMB - checks port 445
+  	SSH - checks port 22, or the port the port defined in the SSH configuration for the host
+
+	-b,	--brief		show brief status messages
+	-s, --service	the service to use if one is not specified, defaults to PING"
+}
+
+findArgStart() { unset -v brief; defaultService="PING"; }
+
+findOpt()
+{
+	case "$1" in
+		-b|--brief) brief="--brief";;
+		-s|--service|-s=*|--service=*) ScriptOptGet "defaultService" "service" "$@";;
+		*) return 1;;
+	esac
+}
+
+findArgs()
+{
+	(( $# == 0 )) && { MissingOperand "server"; return 1; }
+	servers=( "$@" ); (( shift+=$# ))
+}
+
+findCommand()
+{
+	[[ ! $brief && ! $quiet ]] && PrintErr "checking..."
+
+	local server i="0"
+	for server in "${servers[@]}"
+	do
+		# parse the server: DESCRIPTION@HOST_OR_IP:SERVICE
+		local host="$(GetSshHost "$server")"
+		local service="$(GetSshPort "$server")"; service="${service:-$defaultService}"; service="${service,,}"
+		local description="$(GetSshUser "$server")"; description="${description:-$host}"; [[ "$description" != "$host" ]] && description="$description ($host)"
+
+		# check for a valid service
+		! IsInteger "$service" && [[ "$service" != @(dns|ping|nfs|smb|ssh) ]] && { ScriptErr "'$service' is not a valid service"; return 1; }
+
+		# logging
+		if [[ $verbose ]]; then
+			PrintErr "$description..."
+			IsAvailable "$host" && PrintErr "available..."
+			PrintErr "$service..."
+		elif [[ ! $brief && ! $quiet ]]; then
+			PrintErr "$description..."
+		fi
+
+		# check the service
+		if findCheck "$host" "$service" "$description"; then
+			[[ ! $brief && ! $quiet ]] && EchoErr "found"
+			echo "$i"
+			return 0
+		fi
+		
+		(( ++i ))
+	done
+ 
+	[[ ! $brief && ! $quiet ]] && EchoErr "none"
+	return 1
+}
+
+findCheck()
+{
+	local host="$1" service="$2" description="$3"
+
+	# port number aliases
+	case "$service" in
+		nfs) service="111";;
+		smb) service="445";;
+		ssh) service="$(SshHelper port "$host")";;
+	esac
+
+	case "$service" in
+		dns) IsAvailablePort "$host" 53 && dig @$host bogus +time=1 +tries=1 >& /dev/null;;
+		ping) IsAvailable "$host";;
+		*) IsAvailablePort "$host" "$service";;
+	esac
 }
 
 #
@@ -438,25 +481,60 @@ proxyCommand() { proxy${what^}${action^}; }
 
 proxyAllStatus()
 {
-	echo "proxy=$(proxyVarsStatus)"
-	[[ -d "/etc/apt" ]] && echo "apt proxy=$(proxyAptStatus)"
+	if [[ $verbose ]]; then
+		header "Proxy Variables"; proxyVarsStatus
+		header "APT Proxy"; proxyAptStatus
+	else
+		echo "proxy variables=$(proxyVarsStatus)"
+		[[ -d "/etc/apt" ]] && echo "apt proxy=$(proxyAptStatus)"
+	fi
+
 	return 0
 }
 
-proxyVarsEnable() { echo "export {$proxyVars}=\"$proxy/\"; eval export {$noProxyVars}=\"$noProxy\""; }
+proxyVarsEnable()
+{
+	local proxyServer="$(UpdateGet "ProxyServer")"
+	[[ ! $proxyServer ]] && return
+	echo "export {$proxyVars}=\"http://$proxyServer\"; eval export {$noProxyVars}=\"$noProxy\""
+}
+
 proxyVarsDisable() {	echo "unset {$allVars}; unset {$allVars}"; }
-proxyVarsStatus() { (( $(export | grep -i 'proxy=\"http' | wc -l) > 1 )) && echo "enabled" || echo "disabled"; }
+
+proxyVarsStatus()
+{
+	if (( $(export | grep -i 'proxy=\"http' | wc -l) > 1 )); then
+		if [[ $verbose ]]; then
+			export | grep "$(echo "$allVars=" | sed 's/,/=\\|/g')"
+		else
+			echo "enabled"
+		fi
+	else
+		echo "disabled"
+	fi
+}
 
 proxyAptEnable()
 {
+	local proxyServer="$(UpdateGet "ProxyServer")"
+
 	[[ ! -d "/etc/apt" ]] && return
-	[[ ! $force ]] && [[ -f "$aptFile" ]] && return
-	echo "Acquire::http::Proxy \"$proxy\";
-Acquire::https::Proxy \"$proxy\";" | sudo tee "$aptFile"
+	[[ ! $force ]] && [[ -f "$aptFile" ]] && grep -q "$proxyServer" "$aptFile" && return
+
+	echo "Acquire::http::Proxy \"$proxyServer\";
+Acquire::https::Proxy \"$proxyServer\";" | sudo tee "$aptFile"
 }
 
 proxyAptDisable() { [[ ! -f "$aptFile" ]] && return; sudo rm "$aptFile"; }
-proxyAptStatus() { [[ -f "$aptFile" ]] && echo "enabled" || echo "disabled"; }
+
+proxyAptStatus()
+{
+	if [[ -f "$aptFile" ]]; then
+		[[ $verbose ]] && cat "$aptFile" || echo "enabled"
+	else
+		echo "disabled"
+	fi
+}
 
 proxyWpadEnable() { scp "$CLOUD/network/system/proxy/wpad.dat.enable" "$wpadServer:$wpadFile"; }
 proxyWpadDisable() { scp "$CLOUD/network/system/proxy/wpad.dat.disable" "$wpadServer:$wpadFile"; }
