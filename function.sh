@@ -219,7 +219,7 @@ usage: i [APP*|bak|cd|check|dir|info|select]
   -nr, --no-run 	do not find or run the installation program
   -f,  --force		check for a new installation location
   -s,  --select		select the install location"
-	return 0
+		return 0
 	fi
 
 	[[ "$1" == @(--force|-f) ]] && { force="--force"; shift; }
