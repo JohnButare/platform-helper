@@ -119,15 +119,18 @@ currentUpdateCommand()
 	doLog && printf "network..."; network="$(findNetwork $brief)" || return
 	doLog && printf "file..."; fileServer="$(findServer "$network" "file" $brief --service="smb")"
 	doLog && printf "proxy..."; proxyServer="$(findServer "$network" "proxy" $brief)"
-	resolveConfFile="$DATA/setup/resolv.conf.$network"
-	[[ ! -f "$resolveConfFile" ]] && { EchoErr "network: could not find resolve.conf for $currentNetwork"; return 1; }
+
+	if IsPlatform wsl; then
+		resolveConfFile="$DATA/setup/resolv.conf.$network"
+		[[ ! -f "$resolveConfFile" ]] && { EchoErr "network: could not find resolve.conf for $currentNetwork"; return 1; }
+	fi
 
 	# return if no changes are required
 	[[ ! $force && \
 		"$network" == "$existingNetwork" && \
 		"$fileServer" == "$existingFileServer" && \
 		"$proxyServer" == "$existingProxyServer" ]] && \
-		diff -q "$resolveConfFile" "/etc/resolv.conf" >& /dev/null && return
+		( [[ ! $resolveConfFile ]] || diff -q "$resolveConfFile" "/etc/resolv.conf" >& /dev/null; ) && return
 
 	# update network configuration
 	doLog && hilight "Setting the network to $network..."
@@ -135,7 +138,7 @@ currentUpdateCommand()
 
 	# save network
 	UpdateSet "network" "$network" || return
-	sudoc cp "$resolveConfFile" "/etc/resolv.conf" || return
+	[[ $resolveConfFile ]] && { sudoc cp "$resolveConfFile" "/etc/resolv.conf" || return; }
 
 	# save file server
 	UpdateSet "FileServer" "$fileServer" || return
@@ -147,9 +150,10 @@ currentUpdateCommand()
 	network proxy apt "$action" || return
 
 	# status
-	doLog && printf "network=$network\nFileServer=$fileServer\nProxyServer=$proxyServer\n"
+	doLog && currentStatusCommand
 	doLog && { network proxy --status "${globalArgs[@]}" || return; }
 
+	return 0
 }
 
 #
@@ -491,10 +495,10 @@ proxyAllStatus()
 {
 	if [[ $verbose ]]; then
 		header "Proxy Variables"; proxyVarsStatus
-		header "APT Proxy"; proxyAptStatus
+		isAptInstalled && return { header "APT Proxy"; proxyAptStatus; }
 	else
 		echo "proxy variables=$(proxyVarsStatus)"
-		[[ -d "/etc/apt" ]] && echo "apt proxy=$(proxyAptStatus)"
+		isAptInstalled && echo "apt proxy=$(proxyAptStatus)"
 	fi
 
 	return 0
@@ -524,9 +528,10 @@ proxyVarsStatus()
 
 proxyAptEnable()
 {
-	local proxyServer="$(UpdateGet "ProxyServer")"
+	 ! isAptInstalled && return
 
-	[[ ! -d "/etc/apt" ]] && return
+	local proxyServer="$(UpdateGet "ProxyServer")"
+	
 	[[ ! $force ]] && [[ -f "$aptFile" ]] && grep -q "$proxyServer" "$aptFile" && return
 
 	echo "Acquire::http::Proxy \"$proxyServer\";
@@ -537,6 +542,8 @@ proxyAptDisable() { [[ ! -f "$aptFile" ]] && return; sudo rm "$aptFile"; }
 
 proxyAptStatus()
 {
+	! isAptInstalled && return
+
 	if [[ -f "$aptFile" ]]; then
 		[[ $verbose ]] && cat "$aptFile" || echo "enabled"
 	else
@@ -547,5 +554,11 @@ proxyAptStatus()
 proxyWpadEnable() { scp "$CLOUD/network/system/proxy/wpad.dat.enable" "$wpadServer:$wpadFile"; }
 proxyWpadDisable() { scp "$CLOUD/network/system/proxy/wpad.dat.disable" "$wpadServer:$wpadFile"; }
 proxyWpadStatus() { ssh $wpadServer cat "$wpadFile" | grep "PROXY" > /dev/null && echo "enabled" || echo "disabled"; }
+
+#
+# helper
+#
+
+isAptInstalled() { [[ -d "/etc/apt" ]]; }
 
 ScriptRun "$@"
