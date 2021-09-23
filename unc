@@ -303,21 +303,27 @@ mountCommand()
 	cleanupMountDir "$mountDir" || return
 
 	# create the mount directory
+	[[ $verbose && ! -d "$mountDir" ]] && { EchoErr "creating mount directory '$mountDir'"; }
 	! ${G}mkdir --parents "$mountDir" && { ScriptErr "could not create the mount directory '$mountDir'"; return 1; }
 
 	# mount
+
+	# WSL 1
 	if [[ "$PLATFORM_KERNEL" == "wsl1" ]] || isWslshare; then
 		sudoc mount -t drvfs "//$server/$share" "$mountDir"
 
+	# NFS
 	elif [[ "$protocol" == "nfs" ]]; then
 		local options=(); IsPlatform win && options+=( -o nolock )
 		sudoc mount "${options[@]}" -t nfs "$server:/$share" "$mountDir"
 
+	# SSH
 	elif [[ "$protocol" == "ssh" ]] || IsInteger "$protocol"; then
 		local portArg; IsInteger "$protocol" && portArg=(-p "${protocol}")
 		[[ "$share" == "root" ]] && share=""
 		sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountDir" "${portArg[@]}"
 
+	# linux and WSL 2
 	elif IsPlatform linux,wsl2; then		
 
 		# add an entry to /etc/fstab so sudo is not required to write to the share		
@@ -334,13 +340,16 @@ mountCommand()
 		$sudo mount.cifs "//$server/$share" "$mountDir" -o user=$user sec=ntlmsspi
 		[[ $password ]] && unset PASSWD
 
+	# macOS
 	elif IsPlatform mac; then
 		local password="$(credential -q get secure default)"
 		[[ $verbose && $password ]] && EchoErr "password found in the credential store"
 
 		if [[ $password ]]; then
+			[[ $verbose ]] && { EchoErr "mounting using: mount_smbfs \"smb://$user:XXX@$server/$share\" \"$mountDir\""; }
 			mount_smbfs "smb://$user:$password@$server/$share" "$mountDir"
 		else
+			[[ $verbose ]] && { EchoErr "mounting using: mount_smbfs \"smb://$user@$server/$share\" \"$mountDir\""; }
 			mount_smbfs "smb://$user@$server/$share" "$mountDir"
 		fi
 
@@ -447,6 +456,7 @@ cleanupMountDir()
 {
 	[[ ! -e "$mountDir" ]] && return
 	findmnt "$mountDir" >& /dev/null && platformUnmount >& /dev/null
+	[[ $verbose && -d "$moundDir" ]] && { EchoErr "removing mount directory '$mountDir'"; }
 	rmdir "$mountDir" >& /dev/null
 	[[ ! -e "$mountDir" ]]
 }
@@ -560,8 +570,14 @@ noUncCommand()
 platformUnmount()
 {
 	case "$PLATFORM" in
-		mac) osascript -e "tell application \"Finder\"" -e "eject \"$(GetFileName "$mountDir")\"" -e "end tell";;
-		linux|win) sudoc umount "$mountDir";;
+		mac) 
+			[[ $verbose ]] && EchoErr "unmounting with: osascript -e \"tell application Finder -e "eject $(GetFileName "$mountDir") -e "end tell"
+			osascript -e "tell application \"Finder\"" -e "eject \"$(GetFileName "$mountDir")\"" -e "end tell"
+			;;
+		linux|win) 
+			[[ $verbose ]] && EchoErr "unmounting with: sudoc umount \"$mountDir\""
+			sudoc umount "$mountDir"
+			;;
 	esac
 }
 
