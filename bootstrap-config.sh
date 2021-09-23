@@ -19,9 +19,10 @@ mqttServer="mosquitto"
 hostTimeout="200" # host discovery timeout in milliseconds
 hostWaitTimeout="200" # seconds to wait for host to be available
 
-# wiggin:10.10.10:DNS
+# networks
 networks="wiggin@10.10.100.10,wiggin@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
-wigginProxyServers="wiggin@proxy.hagerman.butare.net:3128" # list of proxy servers in the format NETWORK@HOST:PORT
+wigginFileServers="file2.$baseDomain,file1.$baseDomain" # list of file servers in the format HOST
+wigginProxyServers="proxy.$baseDomain:3128" # list of proxy servers in the format HOST:PORT
 
 # Dropbox
 dropboxCompany="Juntos Holdings"

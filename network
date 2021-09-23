@@ -85,8 +85,9 @@ currentStatusCommand() { printf "network=$(ConfigGet "network")\nproxy=$(ConfigG
 currentFindCommand()
 {
 	local network; printf "network..."; network="$(findNetwork)" || return 
-	local proxyServer; printf "proxy..."; proxyServer="$(findProxyServer "$network")" || return
-	printf "found network=$network\nfound proxy=$proxyServer\n";
+	local fileServer; printf "proxy..."; fileServer="$(findServer "$network" "file" --service="smb" $brief "${globalArgs[@]}")" || return
+	local proxyServer; printf "proxy..."; proxyServer="$(findServer "$network" "proxy" $brief "${globalArgs[@]}")" || return
+	printf "found network=$network\nfound file server=$fileServer\nfound proxy server=$proxyServer\n";
 }
 
 findNetwork()
@@ -96,12 +97,13 @@ findNetwork()
 	GetSshUser "${networks[$networkIndex]}" # return the name of the network (before @)
 }
 
-findProxyServer()
+findServer()
 {
-	local network="$1" serverIndex servers=(); StringToArray "$(ConfigGet "${network}ProxyServers")" "," servers
+	local network="$1" type="$2" service="$3"
+	local serverIndex servers=(); StringToArray "$(ConfigGet "${network}$(UpperCaseFirst "$type")Servers")" "," servers
 	[[ ! $servers ]] && { EchoErr "none specified"; return 0; }
-	serverIndex="$(network find "${servers[@]}" "${globalArgs[@]}" $brief)" || return 0
-	RemoveBefore "${servers[$serverIndex]}" "@" # return HOST:PORT of the proxy server (DESCRIPTION@HOST:PORT)
+	serverIndex="$(network find "${servers[@]}" $service $brief "${globalArgs[@]}")" || return 0
+	RemoveBefore "${servers[$serverIndex]}" "@" # return HOST:SERVICE of the server (DESCRIPTION@HOST:SERVICE)
 }
 
 doLog() { [[ ! $brief && ! $quiet ]]; }
@@ -109,38 +111,45 @@ doLog() { [[ ! $brief && ! $quiet ]]; }
 currentUpdateCommand()
 {
 	# get existing configuration
-	local existingNetwork="$(UpdateGet "network")" existingProxy="$(UpdateGet "ProxyServer")"
+	local existingNetwork="$(UpdateGet "network")"  existingFileServer="$(UpdateGet "FileServer")" existingProxyServer="$(UpdateGet "ProxyServer")"
 
 	# determine current configuration
-	local network proxyServer resolveConfFile
+	local network fileServer proxyServer resolveConfFile
 	doLog && { hilight "Determining network..."; echo "Existing network is ${existingNetwork:-unknown}"; }
 	doLog && printf "network..."; network="$(findNetwork $brief)" || return
-	doLog && printf "proxy..."; proxyServer="$(findProxyServer "$network" $brief)"
+	doLog && printf "file..."; fileServer="$(findServer "$network" "file" $brief --service="smb")"
+	doLog && printf "proxy..."; proxyServer="$(findServer "$network" "proxy" $brief)"
 	resolveConfFile="$DATA/setup/resolv.conf.$network"
 	[[ ! -f "$resolveConfFile" ]] && { EchoErr "network: could not find resolve.conf for $currentNetwork"; return 1; }
 
 	# return if no changes are required
 	[[ ! $force && \
 		"$network" == "$existingNetwork" && \
-		"$proxyServer" == "$existingProxy" ]] && \
+		"$fileServer" == "$existingFileServer" && \
+		"$proxyServer" == "$existingProxyServer" ]] && \
 		diff -q "$resolveConfFile" "/etc/resolv.conf" >& /dev/null && return
 
 	# update network configuration
 	doLog && hilight "Setting the network to $network..."
 	[[ $brief ]] && printf "network..."
-	
-	# update resolv.conf
+
+	# save network
+	UpdateSet "network" "$network" || return
 	sudoc cp "$resolveConfFile" "/etc/resolv.conf" || return
+
+	# save file server
+	UpdateSet "FileServer" "$fileServer" || return
 
 	# save proxy server
 	UpdateSet "ProxyServer" "$proxyServer" || return
 	local action="--enable"; [[ ! $proxyServer ]] && action="--disable"
 	ScriptEval network proxy vars "$action" || return
 	network proxy apt "$action" || return
+
+	# status
+	doLog && printf "network=$network\nFileServer=$fileServer\nProxyServer=$proxyServer\n"
 	doLog && { network proxy --status "${globalArgs[@]}" || return; }
 
-	# save network
-	UpdateSet "network" "$network" || return
 }
 
 #
@@ -453,7 +462,6 @@ Network proxy server commands.
 proxyArgStart()
 {
 	action="status"
-	proxy="http://$(ConfigGet "proxy")"
 	proxyVars="http_proxy,https_proxy,ftp_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY"
 	noProxyVars="no_proxy,NO_PROXY"	
 	allVars="$proxyVars,$noProxyVars"
