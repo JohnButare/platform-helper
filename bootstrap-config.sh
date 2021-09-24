@@ -22,7 +22,7 @@ hostWaitTimeout="200" # seconds to wait for host to be available
 # networks
 networks="wiggin@10.10.100.10,wiggin@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
 wigginFileServers="file2.$baseDomain,file1.$baseDomain" # list of file servers in the format HOST
-wigginProxyServers="proxy.$baseDomain:3128" # list of proxy servers in the format HOST:PORT
+wigginProxyServers="proxy.$domain:3128" # list of proxy servers in the format HOST:PORT
 
 # Dropbox
 dropboxCompany="Juntos Holdings"
