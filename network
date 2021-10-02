@@ -59,12 +59,14 @@ adapterNameCommand()
 
 currentUsage()
 {
-	echot "Usage: $(ScriptName) current [find|proxy|update](status)
+	echot "Usage: $(ScriptName) current [find|status|servers|update](status)
 Current network commands.
 
 	find			find the network we are currently on
-	update		update network settings for the network we are currently on
+	server		find the first active server
+	servers		find servers for the current network
 	status		status of the current network
+	update		update network settings for the network we are currently on
 
 	-b,	--brief		show brief status messages"
 }
@@ -82,6 +84,10 @@ currentOpt()
 currentCommand() { currentStatusCommand; }
 currentStatusCommand() { printf "network=$(UpdateGet "network")\nfile=$(UpdateGet "FileServer")\nproxy=$(UpdateGet "ProxyServer")\n"; }
 
+#
+# Current Find Command
+#
+
 currentFindCommand()
 {
 	local network; printf "network..."; network="$(findNetwork)" || return 
@@ -90,23 +96,48 @@ currentFindCommand()
 	printf "found network=$network\nfound file server=$fileServer\nfound proxy server=$proxyServer\n";
 }
 
-findNetwork()
-{
-	local networkIndex networks=(); StringToArray "$(ConfigGet "networks")" "," networks
-	networkIndex="$(network find --service=dns "${networks[@]}" "${globalArgs[@]}" $brief)" || { echo "external"; return; }
-	GetSshUser "${networks[$networkIndex]}" # return the name of the network (before @)
+#
+# Current Server Command
+#
+
+currentServerUsage()
+{ 
+	echot "Usage: $(ScriptName) current server TYPE
+Return the first server of the specified type for the current network.
+
+	-s, --service	the service to check if one is not specified, see 'network find --help'"
 }
 
-findServer()
+currentServerArgStart() { unset -v service type; }
+
+currentServerOpt()
 {
-	local network="$1" type="$2" service="$3"
-	local serverIndex servers=(); StringToArray "$(ConfigGet "${network}$(UpperCaseFirst "$type")Servers")" "," servers
-	[[ ! $servers ]] && { EchoErr "none specified"; return 0; }
-	serverIndex="$(network find "${servers[@]}" $service $brief "${globalArgs[@]}")" || return 0
-	RemoveBefore "${servers[$serverIndex]}" "@" # return HOST:SERVICE of the server (DESCRIPTION@HOST:SERVICE)
+	case "$1" in
+		-s|--service|-s=*|--service=*) ScriptOptGet "service" "$@"; service="--service=$service";;
+		*) return 1;;
+	esac
 }
 
-doLog() { [[ ! $brief && ! $quiet ]]; }
+currentServerArgs() { ScriptArgGet "type" -- "$@"; shift; }
+currentServerCommand() { findServer "$(UpdateGet "network")" "$type" "$service"; }
+
+#
+# Current Servers Command
+#
+
+currentServersUsage()
+{
+	echot "Usage: $(ScriptName) current servers TYPE
+Return servers of the specified type for the current network."
+}
+
+currentServersArgStart() { unset -v type; }
+currentServersArgs() { ScriptArgGet "type" -- "$@"; shift; }
+currentServersCommand() { getServers "$(UpdateGet "network")" "$type"; }
+
+#
+# Current Update Command
+#
 
 currentUpdateCommand()
 {
@@ -154,6 +185,24 @@ currentUpdateCommand()
 	doLog && { network proxy --status "${globalArgs[@]}" || return; }
 
 	return 0
+}
+
+# findNetwork - find the first active network from the networks specified in the networks configuration variabke 
+findNetwork()
+{
+	local networkIndex networks=(); StringToArray "$(ConfigGet "networks")" "," networks
+	networkIndex="$(network find --service=dns "${networks[@]}" "${globalArgs[@]}" $brief)" || { echo "external"; return; }
+	GetSshUser "${networks[$networkIndex]}" # return the name of the network (before @)
+}
+
+# findServer NETWORK TYPE SERVICE - find the first server of the specified type for the specified network  
+findServer()
+{
+	local network="$1" type="$2" service="$3"
+	local serverIndex servers=(); StringToArray "$(getServers "$network" "$type")" "," servers
+	[[ ! $servers ]] && { EchoErr "none specified"; return 0; }
+	serverIndex="$(network find "${servers[@]}" $service $brief "${globalArgs[@]}")" || return
+	RemoveBefore "${servers[$serverIndex]}" "@" # return HOST:SERVICE of the server (DESCRIPTION@HOST:SERVICE)
 }
 
 #
@@ -558,6 +607,17 @@ proxyWpadStatus() { ssh $wpadServer cat "$wpadFile" | grep "PROXY" > /dev/null &
 #
 # helper
 #
+
+# doLog - return true if output should be logged
+doLog() { [[ ! $brief && ! $quiet ]]; }
+
+# getServers NETWORK TYPE - get servers of the specified type for the specified network from configuration, 
+# i.e getServers wiggin file would look for the wigginFileServers configuration variable
+getServers()
+{
+	local network="$1" type="$2"
+	ConfigGet "${network}$(UpperCaseFirst "$type")Servers"
+}
 
 isAptInstalled() { [[ -d "/etc/apt" ]]; }
 
