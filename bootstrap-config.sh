@@ -21,7 +21,8 @@ hostWaitTimeout="200" # seconds to wait for host to be available
 
 # networks
 networks="wiggin@10.10.100.10,wiggin@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
-wigginFileServers="file2.$baseDomain,file1.$baseDomain" # list of file servers in the format HOST
+wigginBackupServers="backup3.$baseDomain,backup2.$baseDomain,backup3.$baseDomain" # list of backup servers in the format HOST1 [,HOST2]...
+wigginFileServers="file2.$baseDomain,file1.$baseDomain" # list of file servers in the format HOST1 [,HOST2]...
 wigginProxyServers="proxy.$domain:3128" # list of proxy servers in the format HOST:PORT
 
 # Dropbox

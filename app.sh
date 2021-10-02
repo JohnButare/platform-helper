@@ -38,12 +38,15 @@ AppCommand() # AppCommand COMMAND APP - execute COMMAND on APP if exists
 
 AppGetBackupDir()
 {
-	local dir unc="//$(ConfigGet "fsUser")@$(UpdateGet "FileServer")/root$DATA/appdata/backup" # //user@server/share/dirs:protocol
+	local server; server="$(network current server backup --service=smb)" || return
+	local dir unc="//$(ConfigGet "fsUser")@$server/root$DATA/appdata/backup" # //user@server/share/dirs:protocol
 
 	if ! dir="$(unc mount "$unc" "${globalArgs[@]}")"; then
 		EchoErr "AppGetBackupDir: unable to mount '$unc'"
 		return 1
 	fi
+
+	[[ ! -d "$dir" ]] && { ${G}mkdir --parents "$dir" || return; }
 
 	echo "$dir"
 }
