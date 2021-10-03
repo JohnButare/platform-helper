@@ -204,6 +204,10 @@ getDeb()
 	echo "$deb"
 }
 
+# getInstallFunction APP - find the function used to install the specified application
+# - The function will have the name appInstall
+# - A case insensitive search of all functions is performed, i.e. the app xming will match the function xMingInstall
+# - the actual install function name is returned, i.e. xMingInstall
 getInstallFunction()
 {
 	local app="${1,,}"
@@ -230,23 +234,29 @@ i()
 	[[ "$1" == "--no-header" ]] && { noHeader="true"; shift; }
 	[[ ! $noPrompt ]] && (( $# > 1 )) && prompt="true"
 
-	while (($# != 0 )); do
-		app="$1"; shift
+	while (($# != 0 )); do		
+		local app="$1"; shift
 
-		# run install final 
-		if [[ "${app,,}" =~ final$ && "${app,,}" != "final" ]] ; then
-			! checkInstallable "$app" && continue
-			RunPlatform "${app}" || return
+		# If the application to install ends in Final, the user only wants to perform the final part of the application installation.
+		# In this case, final will be set to true and appCheck will be the name of the application without final at the end
+		local appCheck="${app,,}"
+		local final=; [[ "$appCheck" =~ final$ && "$appCheck" != "final" ]] && { final="true"; appCheck="$(RemoveEnd "$appCheck" "final")"; }
 
-		# run install
-		else
-			local f; f="$(getInstallFunction "$app")" || { ScriptErr "'$app' installation does not exist"; return 1; }
-			! checkInstallable "$f" && continue
+		# find the name of the function used to install the application without the Install suffix, i.e. xMing
+		local appFunction; appFunction="$(getInstallFunction "$appCheck")" || { ScriptErr "'$app' installation does not exist"; return 1; }
+		appFunction="$(RemoveEnd "$appFunction" "Install")"
 
-			if [[ ! $prompt ]] || ask "\nInstall $app"; then
-				$f || return
-				RunPlatform "${f%Install}Final" || return
-			fi
+		# ensure the application is installable for the current platform
+		! checkInstallable "$appFunction" && continue
+
+		# run final portation of the install only
+		if [[ $final ]] ; then
+			RunPlatform "${appFunction}Final" || return
+
+		# run the app install
+		elif [[ ! $prompt ]] || ask "\nInstall $appFunction"; then
+			"${appFunction}Install" || return
+			RunPlatform "${appFunction}Final" || return
 
 		fi
 
@@ -298,7 +308,7 @@ installExecutable()
 
 isInstallable()
 {
-	local check="$1"; [[ "${check,,}" != "final" ]] && check="$(RemoveEnd "${check,,}" "final")"
+	local check="$1"
 
 	# process exclusions first
 	IsInArray -ci "$check" notArm && IsPlatform arm && ! IsPlatform mac && return 1
