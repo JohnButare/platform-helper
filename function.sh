@@ -194,8 +194,9 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 
 browser()
 {
-	if InPath sensible-broswer; then sensible-broswer "$@"
-	elif firefox Installed; then firefox "$@"
+	echo "Opening $@..."
+	if InPath sensible-browser; then sensible-browser "$@"
+	elif firefox IsInstalled; then firefox "$@"
 	elif InPath w3m; then w3m "$@"
 	elif InPath lynx; then lynx "$@"
 	elif InPath elinks; then elinks "$@"
