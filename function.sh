@@ -984,8 +984,8 @@ GetIpAddress()
 		shift
 	done
 
-	IsLocalHost "$host" && { GetAdapterIpAddress $wsl; return; }
 	IsIpAddress "$host" && { echo "$host"; return; }
+	IsLocalHost "$host" && { GetAdapterIpAddress $wsl; return; }
 
 	# Resolve mDNS (.local) names exclicitly as the name resolution commands below can fail on some hosts
 	# In Windows WSL the methods below never resolve mDNS addresses
