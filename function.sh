@@ -957,7 +957,7 @@ GetEthernetAdapters()
 GetInterface()
 {
 	if IsPlatform mac; then netstat -rn | grep '^default' | head -1 | awk '{ print $4; }'
-	else route | grep "^default" | tr -s " " | cut -d" " -f8
+	else route | grep "^default" | head -1 | tr -s " " | cut -d" " -f8
 	fi
 }
 
