@@ -211,7 +211,9 @@ PathAdd "$UBIN"
 [[ ! $FUNCTIONS && -f "$BIN/function.sh" ]] && . "$BIN/function.sh"
 
 # have root use the the bootstrap users aliases
-[[ "$USER" == "root" ]] && . "$USERS/$(ConfigGet "user")/.bashrc"
+if [[ "$USER" == "root" ]] && ! grep -q "ConfigGet" "$HOME/.bashrc"; then
+	echo ". \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.bashrc"
+fi
 
 # warning message for interactive shells if the configuration was not set properly
 if [[ $BASHRC ]]; then
