@@ -1,17 +1,26 @@
-user="jjbutare"						# run the bootstrap as this user
-timezone="America/Denver"
-timeServer="time.hagerman.butare.net"
+
+systemUser="wsystem"
 locale="en_US.UTF-8"
 
+# user
+user="jjbutare"
+dropboxCompany="Juntos Holdings"
+dropboxUser="John Butare"
+
+# system network
 network="wiggin"
 workgroup="hagerman"
 baseDomain="butare.net"
 domain="$workgroup.$baseDomain"
-systemUser="wsystem"
 
+# DNS
 dnsServers="pi2,pi1" # update pi2 first
 dns1="10.10.100.10"
 dns2="10.10.100.11"
+
+# time
+timezone="America/Denver"
+timeServer="time.butare.net"
 
 dhcpServers="pi2,pi1" # update pi2 first
 mqttServer="mosquitto"
@@ -19,16 +28,19 @@ mqttServer="mosquitto"
 hostTimeout="200" # host discovery timeout in milliseconds
 hostWaitTimeout="200" # seconds to wait for host to be available
 
-# networks
+# networks - list of available networks that the system can be connected to
 networks="wiggin@10.10.100.10,wiggin@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
-wigginBackupServers="backup3.$baseDomain,backup2.$baseDomain,backup1.$baseDomain" # list of backup servers in the format HOST1 [,HOST2]...
-wigginFileServers="file2.$baseDomain,file1.$baseDomain" # list of file servers in the format HOST1 [,HOST2]...
-wigginProxyServers="proxy.$domain:3128" # list of proxy servers in the format HOST:PORT
-wigginWebServers="web3.$baseDomain,web2.$baseDomain,web3.$baseDomain" # list of web servers in the format HOST1 [,HOST2]...
+wigginBaseDomain="butare.net"
+wigginBackupServers="backup3.$wigginBaseDomain,backup2.$wigginBaseDomain,backup1.$wigginBaseDomain" # list of backup servers in the format HOST1 [,HOST2]...
+wigginFileServers="file2.$wigginBaseDomain,file1.$wigginBaseDomain" # list of file servers in the format HOST1 [,HOST2]...
+wigginProxyServers="proxy.$wigginBaseDomain:3128" # list of proxy servers in the format HOST:PORT
+wigginWebServers="web3.$wigginBaseDomain,web2.$wigginBaseDomain,web3.$wigginBaseDomain" # list of web servers in the format HOST1 [,HOST2]...
 
-# Dropbox
-dropboxCompany="Juntos Holdings"
-dropboxUser="John Butare"
+# bootstrap
+bootstrapHost="$fs" # HOST, DIR, or Windows drive letter (/mnt/D) for access to scripts and installers
+bootstrapProxyServer="proxy.$domain" proxyPort="3128"
+bootstrapProxy="http://$proxyServer:$proxyPort"
+bootstrapShare="public" bootstrapDir="/share/CACHEDEV1_DATA/Public" bootstrapPort="608"
 
 # file server
 fs="file.$baseDomain" fsProtocol="smb" fsUser="jjbutare"
@@ -36,11 +48,6 @@ fs="file.$baseDomain" fsProtocol="smb" fsUser="jjbutare"
 # web server
 web="$fs" webUnc="//$web/web"
 
-# bootstrap
-bootstrapHost="$fs" # HOST, DIR, or Windows drive letter (/mnt/D) for access to scripts and installers
-bootstrapProxyServer="proxy.$domain" proxyPort="3128"
-bootstrapProxy="http://$proxyServer:$proxyPort"
-bootstrapShare="public" bootstrapDir="/share/CACHEDEV1_DATA/Public" bootstrapPort="608"
 
 # HashiCorp
 hashiCredentialPath=""
