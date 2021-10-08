@@ -41,7 +41,7 @@ AppGetBackupDir()
 	local server; server="$(network current server backup --service=smb)" || return
 	local dir unc="//$(ConfigGet "fsUser")@$server/root$DATA/appdata/backup" # //user@server/share/dirs:protocol
 
-	if ! dir="$(unc mount "$unc" "${globalArgs[@]}")"; then
+	if ! dir="$(unc mount "$unc" ${globalArgs[@]})"; then # globalArgs not quoted in case not set
 		EchoErr "AppGetBackupDir: unable to mount '$unc'"
 		return 1
 	fi
