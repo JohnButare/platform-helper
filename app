@@ -83,15 +83,19 @@ OneDrive()
 
 ports()
 {
-	! IsPlatform wsl && return # only need to open ports for Windows WSL
-	ssh -o ConnectTimeout=1 "$(GetIpAddress)" "true" >& /dev/null && return # try SSH connection as port 22 may show available even if SSH port is not open
+	# only need to open ports for Windows WSL
+	! IsPlatform wsl && return
+
+	# check if SSH port 22 is being forwarded  
+	# - in Windows the port may show as open even if the port is not being forwarded
+	# - turn off host key checking to avoid prompting (we trust ourself)
+	ssh -o "ConnectTimeout=1" -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no" "$(GetIpAddress)" -p 22 "true" >& /dev/null && return 
 
 	showStatus
 	RunScript --elevate -- powershell.exe WslPortForward.ps1 > /dev/null
 	[[ ! $brief ]] && echo done
 	return 0
 }
-
 
 processExplorer()
 {
