@@ -210,9 +210,15 @@ PathAdd "$UBIN"
 
 [[ ! $FUNCTIONS && -f "$BIN/function.sh" ]] && . "$BIN/function.sh"
 
-# have root use the the bootstrap users aliases
-if [[ "$USER" == "root" ]] && ! grep -q "ConfigGet" "$HOME/.bashrc"; then
-	echo ". \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.bashrc"
+# root user setup
+if [[ "$USER" == "root" ]]; then
+
+	# use this users aliases
+	! grep -q "ConfigGet" "$HOME/.bashrc" && echo ". \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.bashrc"
+
+	# do not execute .bashrc for non-interactive shells (Raspberry Pi OS does not check this)
+	! grep -q '\[ -z "$PS1" \]' "$HOME/.bashrc" && sed -i '1s/^/[ -z "$PS1" ] \&\& return\n/' "$HOME/.bashrc"
+
 fi
 
 # warning message for interactive shells if the configuration was not set properly
