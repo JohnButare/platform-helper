@@ -392,22 +392,144 @@ run()
 
 	# return if not running installations
 	[[ $noRun ]] && return;
-
-	# copy files locally
-	[[ $copyLocal ]] && { runCopyLocal || return; }
-
+	
 	# prompt to run the installation
 	runPrompt "$p" "$name" || return 0
 
 	# run specified installation type
-	RunFunction "run" "$type" -- "$p" "$name" "$dest" "${otherArgs[@]}" || return
+	RunFunction "runType" "$type" -- "$p" "$name" "$dest" "${otherArgs[@]}" || return
 
 	# cleanup
-	[[ $copyLocal ]] && rm "$p" >& /dev/null
 	[[ $pause ]] && pause "When the installation has finished press any key..."
 
 	return 0
 }
+
+# runType: supported types or docker, extension, package, python, pythonGlobal, ruby, and store
+
+runTypeDocker()
+{
+	local p="$1" name="$2" dest="${3:-$SRV}"; shift 3
+
+	dockerCheck || return
+
+	# locate the docker compose YAML file
+
+	if ! [[ -f "$p" ]]; then
+		local file="$CLOUD/network/system/docker/$p.yml"
+		[[ ! -f "$file" ]] && findFile "shareware/Docker/image/$p.yml"
+		[[ ! -f "$file" ]] && { ScriptErr "unable to locate '$(GetFileName "$p")' Docker compose YAML file"; return 1; }
+		p="$file"
+	fi
+
+	# create the application directory
+	local app="$(GetFileNameWithoutExtension "$p")"
+	local appDir="$dest/$app"
+	makeDirSudo "$appDir" || return
+
+	# copy the Docker compose YAML file to the application directory
+	local composeFile="$appDir/docker-compose.yml"
+	[[ ! -f "$composeFile" || $force ]] && { sudoc cp "$p" "$composeFile" || return; }
+	
+	# pull the service images
+	cd "$appDir" || return
+	docker-compose pull || return
+
+	# create and start the containers
+	docker-compose up -d || return
+}
+
+runTypeExtension()
+{
+	local p="$1" name="$2" dest="$3"; shift 3
+	local ext="$(GetFileExtension "$p")"
+
+	# pause for installations which return without waiting
+	[[ "$pxt" == @(air|iso|msu|vsix|xpi) ]] && pause="--pause"
+
+	# elevate for installations which require it
+	[[ "$pxt" == @(msi) ]] && elevate="--elevate"
+
+	# find the installation file
+	findFile "$p" || { ask "Continue the installation"; return; }
+	p="$file"
+
+	# copy the installation file to the local computer if needed
+	[[ $copyLocal ]] && { runCopyLocal || return; }
+	
+	# mount installation elevated if required - WSL 2 mounted network shares are not present when elevating
+	if IsPlatform win && ! IsElevated && [[ $elevate && ! $copyLocal ]] && IsPlatform wsl2; then
+		local installUnc="$(unc get share "$INSTALL_DIR")"
+		[[ $verbose ]] && echo "installUnc=$installUnc"
+		local newInstallDir="$(RunScript $verbose --elevate -- unc mount "$installUnc")/documents/data/install" || return
+		p="${p/$INSTALL_DIR/$newInstallDir}"
+	fi
+
+	# disable Open File Secirity Warning
+ 	[[ "$PLATFORM" == "win" ]] && export SEE_MASK_NOZONECHECKS=1
+
+ 	# run the installation based off the program extension
+	case "$ext" in
+		app) start "$p" "$@";;
+		AppImage) runAppImage "$p" "$@";;
+		appx|bat|cmd) cmd.exe /c "$(utw "$p")" "$@";;
+		bundle) sudo sh "$p";;
+		deb) runDeb "$p" "$@";;
+		dmg) runDmg "$p" "$@";;
+		inf) elevate --wait pnputil.exe -i -a "$p" "$@";;
+		iso|img) runIso "$p" "$@";;
+		msi) RunMsi $elevate $verbose "$p" -- "$@";;
+		pkg) sudo installer $verboseInstaller -pkg "$p" -target /Applications;;
+		7z|bz2|gz|tar|xpi|zip|ear|jar|war|xz) InstallAppFromZip $elevate $noPrompt $verbose "$p" "$dest" "$@";;
+		xip) runXip "$p" "$dest";;
+		*) RunExecutable $elevate $verbose "$p" -- "$@";;
+	esac
+	local result="$?"
+
+	# cleanup
+	[[ $copyLocal ]] && rm "$p" >& /dev/null
+
+	return "$result"
+}
+
+runTypePackage() { pkg "$1"; }
+
+runTypePython() # Python package install
+{
+	local p="$1" name="$2" dest="$3"; shift 3
+	pythonCheck || return
+	InPath "$1" && [[ ! $force ]] && return
+	python3 -m pip install "$p" "$@" || return
+}
+
+runTypePythonGlobal() # Python package install for all users
+{
+	local p="$1" name="$2" dest="$3"; shift 3
+	pythonCheck || return
+	InPath "$1" && return
+	sudo python3 -m pip install "$p" "$@" || return
+}
+
+runTypeRuby()
+{
+	local p="$1" name="$2" dest="$3"; shift 3
+	rubyCheck || return
+	InPath "$p" && return
+	gem install "$p" "$@" || return
+}
+
+runTypeStore()
+{
+	local id="$1" name="$2" dest="$3"; shift 3
+
+	case "$PLATFORM" in
+		mac) InPath mas && mas install "$id"; [[ $name ]] && macAppOpen "$name";;
+		win) start RunProcess.exe "ms-windows-store://pdp/?ProductId=$id";;
+		*) ScriptErr "unable to run store installations for $PLATFORM"; return 1;;
+	esac
+}
+
+# run helpers
 
 runAppImage()
 {
@@ -508,82 +630,6 @@ runDmgWorker()
 	mdimport "/Applications/$dir" || return
 }
 
-runDocker()
-{
-	local p="$1" name="$2" dest="${3:-$SRV}"; shift 3
-
-	dockerCheck || return
-
-	# locate the docker compose YAML file
-
-	if ! [[ -f "$p" ]]; then
-		local file="$CLOUD/network/system/docker/$p.yml"
-		[[ ! -f "$file" ]] && findFile "shareware/Docker/image/$p.yml"
-		[[ ! -f "$file" ]] && { ScriptErr "unable to locate '$(GetFileName "$p")' Docker compose YAML file"; return 1; }
-		p="$file"
-	fi
-
-	# create the application directory
-	local app="$(GetFileNameWithoutExtension "$p")"
-	local appDir="$dest/$app"
-	makeDirSudo "$appDir" || return
-
-	# copy the Docker compose YAML file to the application directory
-	local composeFile="$appDir/docker-compose.yml"
-	[[ ! -f "$composeFile" || $force ]] && { sudoc cp "$p" "$composeFile" || return; }
-	
-	# pull the service images
-	cd "$appDir" || return
-	docker-compose pull || return
-
-	# create and start the containers
-	docker-compose up -d || return
-}
-
-runExtension()
-{
-	local p="$1" name="$2" dest="$3"; shift 3
-	local ext="$(GetFileExtension "$p")"
-
-	# pause for installations which return without waiting
-	[[ "$pxt" == @(air|iso|msu|vsix|xpi) ]] && pause="--pause"
-
-	# elevate for installations which require it
-	[[ "$pxt" == @(msi) ]] && elevate="--elevate"
-
-	# find the installation file
-	findFile "$p" || { ask "Continue the installation"; return; }
-	p="$file"
-
-	# mount installation elevated if required - WSL 2 mounted network shares are not present when elevating
-	if IsPlatform win && ! IsElevated && [[ $elevate ]] && IsPlatform wsl2; then
-		local installUnc="$(unc get share "$INSTALL_DIR")"
-		[[ $verbose ]] && echo "installUnc=$installUnc"
-		local newInstallDir="$(RunScript $verbose --elevate -- unc mount "$installUnc")/documents/data/install" || return
-		p="${p/$INSTALL_DIR/$newInstallDir}"
-	fi
-
-	# disable Open File Secirity Warning
- 	[[ "$PLATFORM" == "win" ]] && export SEE_MASK_NOZONECHECKS=1
-
- 	# run the installation based off the program extension
-	case "$ext" in
-		app) start "$p" "$@";;
-		AppImage) runAppImage "$p" "$@";;
-		appx|bat|cmd) cmd.exe /c "$(utw "$p")" "$@";;
-		bundle) sudo sh "$p";;
-		deb) runDeb "$p" "$@";;
-		dmg) runDmg "$p" "$@";;
-		inf) elevate --wait pnputil.exe -i -a "$p" "$@";;
-		iso|img) runIso "$p" "$@";;
-		msi) RunMsi $elevate $verbose "$p" -- "$@";;
-		pkg) sudo installer $verboseInstaller -pkg "$p" -target /Applications;;
-		7z|bz2|gz|tar|xpi|zip|ear|jar|war|xz) InstallAppFromZip $elevate $noPrompt $verbose "$p" "$dest" "$@";;
-		xip) runXip "$p" "$dest";;
-		*) RunExecutable $elevate $verbose "$p" -- "$@";;
-	esac
-}
-
 runIso()
 {
 	local p="$1"
@@ -592,8 +638,6 @@ runIso()
 	pause "Run the setup program from '$(utw "$p")'..."
 	iso dismount "$p" || return
 }
-
-runPackage() { pkg "$1"; }
 
 # runProgramDescription PROGRAM [NAME] - get program description
 runProgramDescription()
@@ -621,41 +665,6 @@ runPrompt()
 	else
 		ask "Do you want to run $name"
 	fi
-}
-
-runPython() # Python package install
-{
-	local p="$1" name="$2" dest="$3"; shift 3
-	pythonCheck || return
-	InPath "$1" && [[ ! $force ]] && return
-	python3 -m pip install "$p" "$@" || return
-}
-
-runPythonGlobal() # Python package install for all users
-{
-	local p="$1" name="$2" dest="$3"; shift 3
-	pythonCheck || return
-	InPath "$1" && return
-	sudo python3 -m pip install "$p" "$@" || return
-}
-
-runRuby()
-{
-	local p="$1" name="$2" dest="$3"; shift 3
-	rubyCheck || return
-	InPath "$p" && return
-	gem install "$p" "$@" || return
-}
-
-runStore()
-{
-	local id="$1" name="$2" dest="$3"; shift 3
-
-	case "$PLATFORM" in
-		mac) InPath mas && mas install "$id"; [[ $name ]] && macAppOpen "$name";;
-		win) start RunProcess.exe "ms-windows-store://pdp/?ProductId=$id";;
-		*) ScriptErr "unable to run store installations for $PLATFORM"; return 1;;
-	esac
 }
 
 runXip()
@@ -2508,7 +2517,8 @@ GitKrakenFinalWin() { mergeDir "$up/Axosoft, LLC" "$up/Development/Other"; }
 
 GitHubInstall()
 {
-	run --name "GitHub" "git/GitHub/setup/GitHubSetup.exe" --pause || return # https://github-windows.s3.amazonaws.com/GitHubSetup.exe
+	header "GitHub" # https://github-windows.s3.amazonaws.com/GitHubSetup.exe
+	run "git/GitHub/setup/GitHubSetup.exe" --pause || return
 
 	echot "\
 - GITHUB ENTERPRISE, GitHub Username or Email=IDSID
@@ -3020,6 +3030,7 @@ LogitechFinalWin()
 {
 	registry delete "run/LogiOptions" || return # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
 	registry delete "run/Logitech Download Assistant" || return # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch
+	registry delete "urun/LGHUB" || return # "C:\Program Files\LGHUB\lghub.exe" --background
 	$mv "$pp/Logitech/Logitech Options.lnk" "$pp/Operating System" || return
 	$mv "$pd/Logitech G HUB.lnk" "$pp/Operating System" || return
 	$rmd "$pp/Logi" "$pp/Logitech" || return
@@ -3028,7 +3039,9 @@ LogitechFinalWin()
 LogitechGhubInstall()
 {
 	header "Logitech G HUB" # https://support.logi.com/hc/en-us/articles/360024696774--Downloads-PRO-Wireless-Gaming-Mouse
-	run "hardware/Logitech/G HUB/lghub_installer.exe" --copy-local || return	
+	run "hardware/Logitech/G HUB/lghub_installer.exe" --copy-local --elevate || return	
+	service demand "LGHUBUpdaterService" || return
+	service stop "LGHUBUpdaterService" || return
 	i LogitechFinal || return
 }
 
