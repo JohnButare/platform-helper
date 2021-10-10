@@ -139,11 +139,13 @@ case "$PLATFORM" in
 		elif [[ -f "/opt/homebrew/bin/brew" ]]; then export HOMEBREW_PREFIX="/opt/homebrew" HOMEBREW_CELLAR="$HOMEBREW_PREFIX/Cellar" HOMEBREW_REPOSITORY="$HOMEBREW_PREFIX"	
 		fi
 		;;
-	win) 
+	win)
 		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows"
-		WIN_HOME="$WIN_ROOT/Users/$USER" ADATA="$WIN_HOME/AppData/Local"
+		WIN_HOME="$WIN_ROOT/Users/$USER" 
 		WIN_CODE="$WIN_HOME/code"
-		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" 
+		WIN_DOC="$WIN_HOME/Documents"
+		WIN_UDATA="$WIN_HOME/data"	
+		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" ADATA="$WIN_HOME/AppData/Local"
 		;;
 esac
 

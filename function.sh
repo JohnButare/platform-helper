@@ -1479,6 +1479,11 @@ PackageWhich()
 PlatformSummary() { echo "$(os architecture) $(PlatformDescription)"; }
 PlatformDescription() { echo "$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"; }
 
+# GetPlatformVar VAR - return PLATFORM_VAR variable if defined, otherewise return VAR
+if IsBash; then GetPlatformVar() { local v="$1" pv="${PLATFORM^^}_$1"; [[ ${!pv} ]] && echo "${!pv}" || echo "${!v}"; }
+else GetPlatformVar() { local v="$1" pv="${(U)PLATFORM}_$1"; [[ ${(P)pv} ]] && echo "${(P)pv}" || echo "${(P)v}"; }
+fi
+
 # IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
 # return true if the current or specified platform has one of the listed characteristics
 function IsPlatform()
