@@ -1405,6 +1405,14 @@ packageu() # package uninstall
 	return 0
 }
 
+PackageCleanup()
+{
+	ask "Clean packages"	&& { sudoc apt-get clean -y || return; } # cleanup downloaded package files in /var/cache/apt/archives
+	ask "Remove packages" && { sudoc apt autoremove -y || return; }
+	ask "Purge packages" && { PackagePurge || return; }
+	return 0
+}
+
 # PackageExist PACKAGE - return true if the specified package exists
 PackageExist()
 { 
@@ -1957,7 +1965,7 @@ sudoc()  # use the credential store to get the password if available, --preserve
 sudoe()  # sudoedit with credentials
 { 
 	if InPath sudoedit && credential -q exists secure default; then
-		SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$1"
+		echo SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$1"
 	elif InPath sudoedit; then
 		sudoedit "$1"
 	else
