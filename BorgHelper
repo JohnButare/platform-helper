@@ -15,6 +15,7 @@ Additional BorgBackup functionality.
 	passphrase	return the passphrase used to encrypt backups
 	repo				return the repository URL
 	run					run borg as $backupUser
+	status			show borg configuration status
 	umount			unmount a backup
 
 	-H,	--host=HOST		the borg backup host
@@ -51,6 +52,14 @@ listCommand() { setEnvironment && borg list; }
 passphraseCommand() { getPassphrase; }
 repoCommand() { getRepo; }
 
+statusCommand()
+{
+	setEnvironment || return
+	echo "host=$BORG_HOST"
+	echo "directory=$BORG_DIR"
+	echo "repo=$BORG_REPO"
+}
+
 #
 # Backup Command
 #
@@ -59,11 +68,29 @@ backupUsage()
 {
 		echot "\
 Usage: $(ScriptName) backup [PATH [PATH ...]]
-Backup files"
+Backup files
+
+	-n,	--name=NAME		name of the backup"
+}
+
+backupArgStart() { name="files"; }
+
+backupOpt()
+{
+	case "$1" in
+		-n|--name|-n=*|--name=*) ScriptOptGet "name" "$@";;
+		*) return 1;;
+	esac
 }
 
 backupArgs() { backupArgs=( "$@" ); shift="$#"; }
-backupCommand() { repoValidate && runBorg create ::'{hostname}-{now:%Y-%m-%d_%H:%M:%S}' "${backupArgs[@]}"; }
+
+backupCommand()
+{
+	setEnvironment || return
+	hilight "Backing up $name to $BORG_REPO..."
+	repoValidate && runBorg create ::$name'-{now:%Y-%m-%d_%H:%M:%S}' "${backupArgs[@]}" --stats --progress
+}
 
 #
 # Mount/Unmount Command
@@ -112,10 +139,18 @@ runCommand() { runBorg "${runArgs[@]}"; }
 # helper
 #
 
+checkRepo()
+{
+	# check if the backupHost is correect
+	[[ $backupHost && "$backupHost" != "$(GetSshHost "$BORG_REPO")" ]] && return 1
+
+	[[ $BORG_REPO ]]
+}
+
 getBackupDir()
 {
 	local host; host="$(getBackupHost)" || return
-	IsLocalHost "$host" && echo "$backupDir" || echo "//$host/root$backupDir"
+	IsLocalHostIp "$host" && echo "$backupDir" || echo "//$host/root$backupDir"
 }
 
 getBackupHost()
@@ -134,7 +169,7 @@ getPassphrase()
 
 getRepo()
 {
-	[[ $BORG_REPO && ! $force ]] && { echo "$BORG_REPO"; return; }
+	checkRepo && [[ ! $force ]] && { echo "$BORG_REPO"; return; }
 	echo "$backupUser@${backupHost:-$(getBackupHost)}:$backupDir/$HOSTNAME"
 }
 
@@ -160,8 +195,8 @@ runBorg()
 
 setEnvironment()
 {
-	local passphrase; passphrase="$(passphraseCommand)" || return
-	local repo; repo="$(repoCommand)" || return
+	local passphrase; passphrase="$(getPassphrase)" || return
+	local repo; repo="$(getRepo)" || return
 	export BORG_DIR="$(GetSshPort "$repo")"
 	export BORG_HOST="$(GetSshHost "$repo")"
 	export BORG_PASSPHRASE="$passphrase"
