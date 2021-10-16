@@ -1329,7 +1329,6 @@ HasPackageManger() { IsPlatform debian,mac,dsm,qnap; }
 PackageFileInfo() { dpkg -I "$1"; } # information about a DEB package
 PackageFileInstall() { sudo gdebi -n "$@"; } # install a DEB package with dependencies
 PackageFileVersion() { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -d: -f2; }
-PackageListInstalled() { InPath dpkg && dpkg --get-selections "$@"; }
 PackagePurge() { InPath wajig && wajig purgeremoved; }
 PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
 
@@ -1466,6 +1465,14 @@ PackageList()
 	IsPlatform dsm,qnap && { sudo opkg list "$@"; return; }
 	IsPlatform mac && { brew search "$@"; return; }	
 	return 0
+}
+
+PackageListInstalled()
+{
+	local full; [[ "$1" == @(--full|-f) ]] && { full="true"; shift; }
+	IsPlatform debian && InPath dpkg && { dpkg --get-selections "$@"; return; }
+	IsPlatform mac && [[ $full ]] && { brew info --installed --json; return; }
+	IsPlatform mac && [[ ! $full ]] && { brew info --installed --json | jq -r '.[].name' ; return; }
 }
 
 # PackageUpdate - update packages
