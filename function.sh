@@ -1965,7 +1965,7 @@ sudoc()  # use the credential store to get the password if available, --preserve
 sudoe()  # sudoedit with credentials
 { 
 	if InPath sudoedit && credential -q exists secure default; then
-		echo SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$1"
+		SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$1"
 	elif InPath sudoedit; then
 		sudoedit "$1"
 	else
