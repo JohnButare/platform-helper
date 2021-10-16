@@ -1480,7 +1480,8 @@ PackageUpdate()
 # PackageWhich PACKAGE - show which package is an executable in
 PackageWhich() 
 {
-	IsPlatform debian && { dpkg -S "$(which "$1")"; return; }
+	local p="$1"; InPath "$p" && p="$(which "$p")"
+	IsPlatform debian && { dpkg -S "$p"; return; }
 }
 
 #
