@@ -194,7 +194,7 @@ saveCommand()
 
 }
 
-saveDirCommand()
+savedirCommand()
 {
 	if [[ $global ]]; then
 		findGlobalProfile || return
