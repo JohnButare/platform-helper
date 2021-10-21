@@ -104,7 +104,7 @@ setBorgRepo()
 #
 
 environmentCommand() { ScriptReturn --export $verbose "${vars[@]}"; }
-initCommand() { runBorg init --encryption=repokey-blake2 "${otherArgs}"; }
+initCommand() { hilight "Creating '$BORG_REPO'..."; runBorg init --encryption=repokey-blake2 "${otherArgs}"; }
 listCommand() { runBorg list "${otherArgs}"; }
 
 #
@@ -120,12 +120,13 @@ Backup files
 	-a,	--archive=NAME		name of the archive, defaults to archive (see 'borg help placeholders')"
 }
 
-backupArgStart() { archive="archive"; }
+backupArgStart() { archive="archive"; unset -v noCheck; }
 
 backupOpt()
 {
 	case "$1" in
 		-a|--archive|-a=*|--archive=*) ScriptOptGet "archive" "$@";;
+		-nc|--no-check|-nc=*|--no-check=*) noCheck="--no-check";;
 		*) return 1;;
 	esac
 }
@@ -134,8 +135,9 @@ backupArgs() { backupArgs=( "$@" ); shift="$#"; }
 
 backupCommand()
 {
+	repoCheck || return
 	hilight "Backing up '$archive' to '$BORG_REPO'..."
-	repoValidate && runBorg create ::$archive'-{now:%Y-%m-%d_%H:%M:%S}' "${backupArgs[@]}" "${otherArgs[@]}" --stats --progress
+	runBorg create ::$archive'-{now:%Y-%m-%d_%H:%M:%S}' "${backupArgs[@]}" "${otherArgs[@]}" --stats --progress
 }
 
 #
@@ -206,15 +208,14 @@ vortaCommand()
 #
 
 isBorgBaseHost() { [[ "$backupHost" =~ borgbase\.com$ ]]; }
+repoCheck() { [[ $noCheck ]] || repoExists || initCommand; }
 
-repoValidate()
+repoExists()
 {
-	[[ $test || ! $backupDir ]] && return 0
+	[[ ! "$backupDir" || $test ]] && return 0
 
-	local dir="$backupDir$backupRepo"
 	ssh -T "$backupHost" "$(cat <<-EOF
-		export BORG_PASSPHRASE="$BORG_PASSPHRASE"
-		[[ -d "$dir" ]] || "$borgPath" init --encryption=repokey-blake2 --make-parent-dirs "$dir"
+		[[ -d "$backupDir$backupRepo" ]]
 		EOF
 	)"
 }
