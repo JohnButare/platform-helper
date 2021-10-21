@@ -1903,7 +1903,7 @@ RunFunction()
 
 # scripts
 
-ScriptCd() { local dir; dir="$("$@" | ${G}head --lines=1)" && { echo "cd $dir"; DoCd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
+ScriptCd() { local dir; dir="$("$@")" || return; dir="$(echo "$dir" | ${G}head --lines=1)" && { echo "cd $dir"; DoCd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
 ScriptErr() { GetArgs; local name="$(ScriptName)"; [[ $name ]] && name="$name: "; EchoErr "${name}$1"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 

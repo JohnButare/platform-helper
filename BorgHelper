@@ -8,58 +8,104 @@ Usage: $(ScriptName) [COMMAND]... [OPTION]...
 Additional BorgBackup functionality.
 	
 	backup			backup files
-	dir					return the backup directory
 	environment	return environment variables
+	init				initialize the repository
 	list				list backups
 	mount				mount a backup
-	passphrase	return the passphrase used to encrypt backups
-	repo				return the repository URL
-	run					run borg as $backupUser
-	status			show borg configuration status
-	umount			unmount a backup
-	vorta				run vorta as $backupUser
+	run					run borg
+	unmount			unmount a backup
+	vorta				run vorta
 
-	-H,	--host=HOST		the borg backup host
-	-u,	--user=USER		the borg backup user"
+	-d, --dir=DIR					backup directory, defaults to '$backupDirDefault'
+	-H,	--host=HOST				backup host
+	-r, --repository=NAME	backup repository name, defaults to '$backupRepoDefault'
+	-u,	--user=USER				backup user, defaults to '$backupUserDefault'"
 }
 
 init()
 {
+	backupDirDefault="$DATA/appdata/borg"
+	backupUserDefault="root"
+	backupRepoDefault="$HOSTNAME"
 	borgArgs=( ); [[ $verbose ]] && borgArgs+=( "--verbose" )
-	backupDir="$DATA/appdata/borg"
-	backupUser="root"
+	borgPath="$BIN/borg"
 	mountDir="$HOME/Volumes/backup"
 	vars=( BORG_PASSPHRASE BORG_REPO )
 }
 
-argStart() { unset -v host; }
+argStart() { unset -v backupDir backupHost backupUser repoName; }
 
 opt()
 {
 	case "$1" in
-		-H|--host|-H=*|--host=*) ScriptOptGet "backupHost" "host" "$@";;
+		-d|--dir|-d=*|--dir=*) ScriptOptGet "backupDir" "dir" "$@";;
+		-H|--host|-H=*|--host=*) unset BORG_REPO; ScriptOptGet "backupHost" "host" "$@";;
+		-r|--repo|-r=*|--repo=*) ScriptOptGet "backupRepo" "repo" "$@";;
 		-u|--user|-u=*|--user=*) ScriptOptGet "backupUser" "user" "$@";;
 		*) return 1;;
 	esac
+}
+
+argEnd() { setBorgPassphrase && setBorgRepo; }
+
+setBorgPassphrase()
+{
+	local passphrase="$BORG_PASSPHRASE"
+	[[ $force || ! $passphrase ]] && { passphrase="$(credential get borg passphrase --fallback)" || return; }
+	export BORG_PASSPHRASE="$passphrase"
+}
+
+setBorgRepo()
+{
+	# do not use environment variables if forcing 
+	[[ $force ]] && unset BORG_REPO
+
+	# backup host alias
+	case "${backupHost,,}" in
+		bb|borgbase) backupRepo="${backupRepo:-$backupRepoDefault}"
+			case "${backupRepo,,}" in
+				pi4) backupHost="k8m5zx77.repo.borgbase.com";;
+				oversoul) backupHost="p5vcjk7h.repo.borgbase.com";;
+				*) ScriptErr "No backup host specified for repository '$backupRepo'"; return 1;;
+			esac;;
+		db|dropbox) backupHost="ender.hagerman.butare.net" backupDir="${backupDir:-/Users/jjbutare/Juntos Holdings Dropbox/John Butare/apps/BorgBackup}" backupUser="jjbutare"
+	esac
+
+	# get the backup host from BORG_REPO if needed
+	[[ ! $backupHost && $BORG_REPO ]] && backupHost="$(GetSshHost "$BORG_REPO")"
+
+	# discover the backup host if needed
+	[[ ! $backupHost ]] && { backupHost="$(network current server backup --quiet)" || return; }
+
+	# get the backup dir from BORG_REPO if needed or use the default
+	[[ ! $backupDir && $BORG_REPO ]] && backupDir="$(GetSshPort "$BORG_REPO" | RemoveTrailingSlash | GetFilePath)"	
+	backupDir="$(EnsureDir "${backupDir:-$backupDirDefault}")"
+
+	# get the backup repo from BORG_REPO if needed or use the default
+	[[ ! $backupRepo && $BORG_REPO ]] && backupRepo="$(GetSshPort "$BORG_REPO" | RemoveTrailingSlash | GetFileName)"	
+	backupRepo="${backupRepo:-$backupRepoDefault}"
+
+	# get the backup user from BORG_REPO if needed or use the default
+	[[ ! $backupUser && $BORG_REPO ]] && backupUser="$(GetSshUser "$BORG_REPO")"	
+	backupUser="${backupUser:-$backupUserDefault}"
+		
+	# BorgBase special handling: u578g3w0@u578g3w0.repo.borgbase.com:repo
+	if isBorgBaseHost; then
+		backupUser="$(RemoveDnsSuffix "$backupHost")"
+		backupDir="" backupRepo="repo"
+	fi
+
+	# set the BORG_REPO environment variable
+	export BORG_REPO="$backupUser@$backupHost:$backupDir$backupRepo"
 }
 
 #
 # Other Commands
 #
 
-environmentCommand() { setEnvironment && ScriptReturn --export $verbose "${vars[@]}"; }
-dirCommand() { getBackupDir; }
-listCommand() { setEnvironment && runBorg list; }
-passphraseCommand() { getPassphrase; }
-repoCommand() { getRepo; }
-
-statusCommand()
-{
-	setEnvironment || return
-	echo "host=$BORG_HOST"
-	echo "directory=$BORG_DIR"
-	echo "repo=$BORG_REPO"
-}
+environmentCommand() { ScriptReturn --export $verbose "${vars[@]}"; }
+initCommand() { runBorg init --encryption=repokey-blake2 "${otherArgs}"; }
+listCommand() { runBorg list "${otherArgs}"; }
 
 #
 # Backup Command
@@ -71,15 +117,15 @@ backupUsage()
 Usage: $(ScriptName) backup [PATH [PATH ...]]
 Backup files
 
-	-n,	--name=NAME		name of the backup"
+	-a,	--archive=NAME		name of the archive, defaults to archive (see 'borg help placeholders')"
 }
 
-backupArgStart() { name="files"; }
+backupArgStart() { archive="archive"; }
 
 backupOpt()
 {
 	case "$1" in
-		-n|--name|-n=*|--name=*) ScriptOptGet "name" "$@";;
+		-a|--archive|-a=*|--archive=*) ScriptOptGet "archive" "$@";;
 		*) return 1;;
 	esac
 }
@@ -88,9 +134,8 @@ backupArgs() { backupArgs=( "$@" ); shift="$#"; }
 
 backupCommand()
 {
-	setEnvironment || return
-	hilight "Backing up $name to $BORG_REPO..."
-	repoValidate && runBorg create ::$name'-{now:%Y-%m-%d_%H:%M:%S}' "${backupArgs[@]}" --stats --progress
+	hilight "Backing up '$archive' to '$BORG_REPO'..."
+	repoValidate && runBorg create ::$archive'-{now:%Y-%m-%d_%H:%M:%S}' "${backupArgs[@]}" "${otherArgs[@]}" --stats --progress
 }
 
 #
@@ -109,18 +154,26 @@ mountArgs() { [[ $# == 0 ]] && return; ScriptArgGet "archive" -- "$@"; shift; }
 
 mountCommand()
 {
-	setEnvironment || return
+	# create the mount directory
 	[[ ! -d "$mountDir" ]] && { mkdir --parents "$mountDir" || return; }
-	borg mount "$archive" "$mountDir" 
+
+	# unmount existing borg backup
+	isMounted && [[ $force ]] && { unmountCommand || return; }
+
+	# mount the borg backup
+	! isMounted && { borg mount "$archive" "$mountDir" || return; }
+
+	# return the mounted directory
+	echo "$mountDir"
 }
 
-umountCommand()
+unmountCommand()
 {
-	setEnvironment || return
-	[[ ! -d "$mountDir" ]] && return
-	borg umount "$mountDir" 
+	{ [[ ! -d "$mountDir" ]] || ! isMounted; } && return
+	borg umount "$mountDir" || return
 }
 
+isMounted() { findmnt --list --source=borgfs --target="$mountDir" >& /dev/null; }
 
 #
 # Run Command
@@ -142,7 +195,6 @@ runCommand() { runBorg "${runArgs[@]}"; }
 
 vortaCommand()
 {
-	setEnvironment || return
 	[[ $verbose ]] && EchoErr "borg $@ ${borgArgs[@]} ${otherArgs[@]}"
 	sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" \
 		SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" \
@@ -153,68 +205,28 @@ vortaCommand()
 # helper
 #
 
-checkRepo()
-{
-	# check if the backupHost is correect
-	[[ $backupHost && "$backupHost" != "$(GetSshHost "$BORG_REPO")" ]] && return 1
-
-	[[ $BORG_REPO ]]
-}
-
-getBackupDir()
-{
-	local host; host="$(getBackupHost)" || return
-	IsLocalHostIp "$host" && echo "$backupDir" || echo "//$host/root$backupDir"
-}
-
-getBackupHost()
-{
-	[[ $backupHost ]] && { echo $backupHost; return; }
-	network current server backup --quiet
-}
-
-getBackupHosts() {	network current servers backup --quiet; }
-
-getPassphrase()
-{
-	[[ $BORG_PASSPHRASE && ! $force ]] && { echo "$BORG_PASSPHRASE"; return; }
-	credential get borg passphrase --fallback
-}
-
-getRepo()
-{
-	checkRepo && [[ ! $force ]] && { echo "$BORG_REPO"; return; }
-	echo "$backupUser@${backupHost:-$(getBackupHost)}:$backupDir/$HOSTNAME"
-}
+isBorgBaseHost() { [[ "$backupHost" =~ borgbase\.com$ ]]; }
 
 repoValidate()
 {
-	setEnvironment || return
+	[[ $test || ! $backupDir ]] && return 0
 
-	ssh -T "$backupUser@$BORG_HOST" "$(cat <<-EOF
+	local dir="$backupDir$backupRepo"
+	ssh -T "$backupHost" "$(cat <<-EOF
 		export BORG_PASSPHRASE="$BORG_PASSPHRASE"
-		[[ -d "$BORG_DIR" ]] || borg init --encryption=repokey --make-parent-dirs "$BORG_DIR"
+		[[ -d "$dir" ]] || "$borgPath" init --encryption=repokey-blake2 --make-parent-dirs "$dir"
 		EOF
 	)"
 }
 
 runBorg()
 {
-	setEnvironment || return
-	[[ $verbose ]] && EchoErr "borg $@ ${borgArgs[@]} ${otherArgs[@]}"
-	sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" \
+	[[ $test || $verbose ]] && EchoErr "borg $@ ${borgArgs[@]} ${otherArgs[@]}"
+	[[ $test ]] && return
+
+	sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" BORG_REMOTE_PATH="$borgPath" \
 		SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" \
 		borg "$@" "${borgArgs[@]}" "${otherArgs[@]}"
-}
-
-setEnvironment()
-{
-	local passphrase; passphrase="$(getPassphrase)" || return
-	local repo; repo="$(getRepo)" || return
-	export BORG_DIR="$(GetSshPort "$repo")"
-	export BORG_HOST="$(GetSshHost "$repo")"
-	export BORG_PASSPHRASE="$passphrase"
-	export BORG_REPO="$repo"
 }
 
 ScriptRun "$@"
