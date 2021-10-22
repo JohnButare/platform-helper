@@ -80,7 +80,7 @@ clipw()
 }
 
 # logging
-InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
+InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); }
 header() { InitColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
 hilight() { InitColor; EchoWrap "${GREEN}$1${RESET}"; }
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
@@ -339,10 +339,10 @@ EchoWrap()
 	echo -e "$@" | expand -t $TABS | ${G}fold --space --width=$COLUMNS
 }
 
-EchoErr() { EchoWrap "$@" >&2; }
+EchoErr() { InitColor; EchoWrap "$@" >&2; }
 #EchoErr() { [[ "$USER" == "homebridge" ]] && { EchoWrap "$@"; return; }; EchoWrap "$@" >&2; } # for testing homebridge which does not output stderr to the log
-HilightErr() { InitColor; EchoWrap "${GREEN}$1${RESET}" >&2; }
-PrintErr() { echo -n -e "$@" >&2; }
+HilightErr() { InitColor; EchoWrap "${RED}$1${RESET}" >&2; }
+PrintErr() { printf "$@" >&2; }
 
 # printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var
 printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; }
@@ -351,6 +351,7 @@ printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; }
 [[ "$TABS" == "" ]] && TABS=2
 catt() { cat $* | expand -t $TABS; } 							# CatTab
 echot() { echo -e "$*" | expand -t $TABS; } 			# EchoTab
+echote() { echo -e "$*" | expand -t $TABS >&2; } 	# EchoTabError
 lesst() { less -x $TABS $*; } 										# LessTab
 
 #
@@ -1268,8 +1269,13 @@ IsInSshConfig()
 	local hostFull="$1" host="$(GetSshHost "$1")" defaultFull default="DEFAULT_CONFIG"
 	defaultFull="${hostFull/$host/$default}"
 
-	[[ "$(ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$")" != "$(ssh -G "$hostFull" | grep -i -v "^hostname ${host}$")" ]] && return 0; # something other than the host changed
-	ssh -G "$hostFull" | grep -i "^hostname ${host}$" >& /dev/null && return 1 # host is unchanged
+	# if the SSH configuration changes a value other than the host, return 0 (host in SSH config)
+	[[ "$(ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$")" != "$(ssh -G "$hostFull" | grep -i -v "^hostname ${host}$")" ]] && return 0
+
+	 # if the host is unchanged return 1 (host not in SSH config)
+	ssh -G "$hostFull" | grep -i "^hostname ${host}$" >& /dev/null && return 1
+
+	# the host is changed, return 0 (host is in SSH config)
 	return 0
 }
 
@@ -1286,7 +1292,7 @@ SshAgentStart()
 }
 
 SshInPath() { SshHelper connect "$1" -- which "$2" >/dev/null; } # HOST FILE
-SshIsAvailable() { IsAvailablePort "$1" "$(SshHelper port "$1")"; }	# HOST
+SshIsAvailable() { local port="$(SshHelper config "$1" port)"; IsAvailablePort "$1" "${port:-22}"; } # HOST
 
 #
 # Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
@@ -1905,7 +1911,7 @@ RunFunction()
 
 ScriptCd() { local dir; dir="$("$@")" || return; dir="$(echo "$dir" | ${G}head --lines=1)" && { echo "cd $dir"; DoCd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
-ScriptErr() { GetArgs; local name="$(ScriptName)"; [[ $name ]] && name="$name: "; EchoErr "${name}$1"; }
+ScriptErr() { GetArgs; local name="$(ScriptName)"; [[ $name ]] && name="$name: "; EchoErr "${RED}${name}$1${RESET}"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
 
 ScriptName()
@@ -1917,7 +1923,7 @@ ScriptName()
 
 # ScriptEval <script> [<arguments>] - run a script and evaluate the output.
 #    Typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
-ScriptEval() { local result; result="$("$@")" || return; eval "$result"; } 
+ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || return; eval "$result"; } 
 
 # ScriptReturn [-v|--verbose] <var>... - return the specified variables as output from the script in a escaped format.
 #    The script should be called using ScriptEval.
@@ -1953,8 +1959,11 @@ ScriptReturn()
 
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
 
-sudoc()  # use the credential store to get the password if available, --preserve|-p to preserve the existing path (less secure)
+# sudoc COMMANDS - use the credential store to get the password if available, --preserve|-p to preserve the existing path (less secure)
+sudoc()
 { 
+	IsRoot && { "$@"; return; }
+
 	local p=( "$(FindInPath "sudo")" ) preserve; [[ "$1" == @(-p|--preserve) ]] && { preserve="true"; shift; }
 
 	if [[ $preserve ]]; then
@@ -1970,8 +1979,11 @@ sudoc()  # use the credential store to get the password if available, --preserve
 	fi
 } 
 
-sudoe()  # sudoedit with credentials
+# sudoe FILE - sudoedit with credentials
+sudoe()  
 { 
+	IsRoot && { sudoedit "$@"; return; }
+
 	if InPath sudoedit && credential -q exists secure default; then
 		SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$1"
 	elif InPath sudoedit; then

@@ -1,33 +1,106 @@
 #!/usr/bin/env bash
 . function.sh || exit
 
-header "Test Job"
+# Assumes:
+# 1) the SSH agent is configured (SshAgentStart --quiet)
+# 2) Hashi tools are configured (ScriptEval hashi config environment)
+# This can be accomplished by tunning the script with with 'RunScript --ssh-agent --hashi'
 
-hilight "Configuration..."
-echo "HOSTNAME=$HOSTNAME"
-echo "USER=$USER"
-echo "PATH=$PATH"
-echo
+run()
+{
+	local destHost="pi1" countTo="4" result
 
-hilight "Configuring vault..."
-eval "$(hashi config environment)" || exit
-echo
+	header "Test Job"
+	configuration && testCredential && testScp && testSsh && testBackupLocal && testBackupRemote && count
+	result="$?"
+	
+	(( $result == 0 )) && hilight "success" || echo "${RED}fail${reset}"
+	return "$result"
+}
 
-hilight "Testing credentials..."
-echo "credential type=$(credential type)"
-echo "test/key1=$(credential get test key1)"
-echo
+configuration()
+{
+	hilight "Configuration..."
+	echo "HOSTNAME=$HOSTNAME"
+	echo "USER=$USER"
+	echo "PATH=$PATH"
+	echo
 
-hilight "SSH Agent status..."
-SshAgent status || exit
+	hilight "SSH Agent status..."
+	SshAgent status || return
+	echo
 
-hilight "Testing scp..."
-file="/tmp/now.txt"
-GetTimeStamp > "$file" || exit
-scp -P 608 "$file" "admin@nas3:$file" || exit
+	hilight "Hashi status..."
+	hashi status || return
+	echo
+}
 
-hilight "Counting up..."
-for (( i = 0; i < 5; i++ )); do
-	echo "$i"
-	sleep 1
-done
+count()
+{
+	hilight "Counting up to $countTo..."
+	for (( i = 0; i <= $countTo; i++ )); do
+		echo "$i"
+		sleep 1
+	done
+	echo
+}
+
+testCredential()
+{
+	hilight "Testing credentials..."
+	echo "credential type=$(credential type)" || return
+	echo "test/key1=$(credential get test key1)"
+	echo
+}
+
+testScp()
+{
+	hilight "Testing scp to $destHost..."
+	srcFile="/tmp/now_src.txt"
+	destFile="/tmp/now_dest.txt"
+	GetTimeStamp > "$srcFile" || return
+	scp "$srcFile" "$destHost:$destFile" || return
+	echo
+}
+
+testSsh()
+{
+	hilight "Testing ssh to $destHost..."
+	ssh "$destHost" cat "$destFile" || return
+	echo
+}
+
+testBackupLocal()
+{
+	hilight "Testing local backup..."
+	local archive="TestJobLocal"
+	BorgHelper backup "/tmp" --archive="$archive" || return
+	backupFinish "$archive" || return
+}
+
+testBackupRemote()
+{
+	hilight "Testing remote backup..."
+	local archive="TestJobRemote"
+	SshHelper "$destHost" --interactive --pseudo-terminal -- BorgHelper backup "/tmp" --archive "$archive" || return
+	backupFinish "$archive" --repository "$destHost" || return
+}
+
+backupFinish()
+{
+	local archive="$1"; shift; ScriptEval BorgHelper environment "$@" || return
+	echo
+
+	# prune
+	echo "Pruning $archive..."
+	borg prune --keep-last 2 --prefix "$archive-" || return
+	echo
+
+	# status
+	echo "Backup status..."
+	echo "BORG_REPO=$BORG_REPO"
+	borg list --prefix "$archive-" || return
+	echo
+}
+
+run "$@"

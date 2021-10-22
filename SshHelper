@@ -7,13 +7,27 @@ usage()
 Usage: $(ScriptName) [OPTION]... [COMMAND]...
 Additional SSH commands.
 	
-	connect HOST				connect to a HOST using SSH
-	permission USER			fix SSH permissions for USER
-	port HOST						return the SSH port to connect to a HOST"
+	config HOST VALUE		return SSH configuration value for HOST
+	connect HOST				connect to a host using SSH
+	permission USER			fix SSH permissions for user"
 }
 
 init() { defaultCommand="connect"; }
 argStart() { unset -v file force; }
+
+#
+# Config Command
+#
+
+configUsage()
+{
+	echot "Usage: $(ScriptName) config HOST VALUE
+Return the SSH configuration value for HOST from the SSH configuration."
+}
+
+configArgStart() { host="" value=""; }
+configArgs() { ScriptArgGet "host" -- "$@"; shift; ScriptArgGet "value" -- "$@"; shift; }
+configCommand() { getConfig "$host" "$value"; }
 
 #
 # Connect Command
@@ -63,22 +77,26 @@ connectCommand()
 		SshAgent check keys && { SshAgentStart --quiet --verbose --log || return; }
 	fi
 
-	# port - get a port specified in the host and remove it from the name, format USER@HOST:PORT
-	local ip port user hostOrig
+	# parse host, format USER@HOST:PORT
+	local port user
 	port="$(GetSshPort "$host")" 
 	user="$(GetSshUser "$host")"
 	host="$(GetSshHost "$host")"
-	hostOrig="$host"
 
-	# identify port and IP if the host is not in ~/.ssh/config 	
+	# connect to the IP unless the host is in ~/.ssh/config to use additional name resolution methods such as MDNS
+	local hostOrig="$host" inSshConfig="yes" ip
 	if ! IsInSshConfig "$host"; then
-
-		# get the port from configuration if none was specified
-		[[ ! $port ]] && { port="$(portCommand)" || return; }
-
-		# resolve the host
-		ip="$(GetIpAddress $all --vm "$host")" || { HostUnknown "$host"; return 1; } && host="$ip"
+		ip="$(GetIpAddress $all --vm "$host")" || { HostUnknown "$host"; return 1; }
+		host="$ip" inSshConfig="no"
 	fi
+	
+	# get the port from configuration if none was specified so we can check if host is available
+	[[ ! $port ]] && { port="$(getConfig "$host" "port")" || return; }
+
+	# logging
+	[[ $verbose ]] && PrintErr "inSshConfig=$inSshConfig host=%s hostOrig=$hostOrig port=$port user=%s\n" \
+		"${ip:-$(getConfig "$host" "hostname")}" \
+		"${user:-$(getConfig "$host" "user")}"
 
 	# wait for SSH to become available if needed
 	if [[ $wait ]]; then
@@ -123,6 +141,9 @@ connectCommand()
 		command="ssh -X $pseudoTerminal"
 	fi
 
+	[[ $verbose ]] && { EchoErr "$command $@"; }
+	[[ $test ]] && return
+
 	if [[ "$password" ]]; then
 		command="spawn -noecho $command $@; expect \"password:\"; send \"DpqZ9qa3p6Z19G92\r\"; interact"
 		expect -c "$command"
@@ -130,14 +151,6 @@ connectCommand()
 		$command "$@"
 	fi
 }
-
-#
-# Port Command
-#
-
-portArgStart() { host=""; }
-portArgs() { ScriptArgGet "host" -- "$@"; shift; }
-portCommand() { ssh -G "$host" | grep "^port " | head -1 | cut -d" " -f2; }
 
 #
 # Permission Command
@@ -163,5 +176,7 @@ permissionCommand()
 #
 # helper
 #
+
+getConfig() { local host="$1" value="$2"; ssh -G "$host" | grep "^$value " | head -1 | cut -d" " -f2; }
 
 ScriptRun "$@"

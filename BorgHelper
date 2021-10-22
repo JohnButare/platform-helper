@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 . script.sh || exit
+. color.sh || exit
 
 usage()
 {
@@ -13,6 +14,7 @@ Additional BorgBackup functionality.
 	list				list backups
 	mount				mount a backup
 	run					run borg
+	status			show status
 	unmount			unmount a backup
 	vorta				run vorta
 
@@ -33,14 +35,14 @@ init()
 	vars=( BORG_PASSPHRASE BORG_REPO )
 }
 
-argStart() { unset -v backupDir backupHost backupUser repoName; }
+argStart() { unset -v backupDir backupHost backupRepo backupUser; }
 
 opt()
 {
 	case "$1" in
 		-d|--dir|-d=*|--dir=*) ScriptOptGet "backupDir" "dir" "$@";;
-		-H|--host|-H=*|--host=*) unset BORG_REPO; ScriptOptGet "backupHost" "host" "$@";;
-		-r|--repo|-r=*|--repo=*) ScriptOptGet "backupRepo" "repo" "$@";;
+		-H|--host|-H=*|--host=*) ScriptOptGet "backupHost" "host" "$@";;
+		-r|--repository|-r=*|--repository=*) ScriptOptGet "backupRepo" "repo" "$@";;
 		-u|--user|-u=*|--user=*) ScriptOptGet "backupUser" "user" "$@";;
 		*) return 1;;
 	esac
@@ -57,8 +59,9 @@ setBorgPassphrase()
 
 setBorgRepo()
 {
-	# do not use environment variables if forcing 
+	# do not use BORG_REPO for configuration if forcing or if configuration has been supplied from options
 	[[ $force ]] && unset BORG_REPO
+	[[ $backupDir || $backupHost || $backupUser || $backupRepo ]] && unset BORG_REPO
 
 	# backup host alias
 	case "${backupHost,,}" in
@@ -113,6 +116,13 @@ environmentCommand() { ScriptReturn --export $verbose "${vars[@]}"; }
 initCommand() { hilight "Creating '$BORG_REPO'..."; runBorg init --encryption=repokey-blake2 "${otherArgs}"; }
 listCommand() { runBorg list "${otherArgs}"; }
 
+statusCommand()
+{
+	echo "borg will use the ${GREEN}$backupRepo${RESET} repository on ${GREEN}$backupHost${RESET}"
+	[[ $verbose ]] && printf "user=$backupUser dir=$backupDir\nBORG_REPO=$BORG_REPO\n"
+	return 0
+}
+
 #
 # Backup Command
 #
@@ -144,7 +154,7 @@ backupArgs() { backupArgs=( "$@" ); shift="$#"; }
 backupCommand()
 {
 	repoCheck || return
-	hilight "Backing up '$archive' to '$BORG_REPO'..."
+	echo "Backing up the ${GREEN}$archive${RESET} archive to the ${GREEN}$backupRepo${RESET} repository on ${GREEN}$(GetHostname "$backupHost")${RESET}..."
 	runBorg create ::$archive'-{now:%Y-%m-%d_%H:%M:%S}' "${backupArgs[@]}" "${otherArgs[@]}" --stats --progress
 }
 
@@ -193,7 +203,7 @@ runUsage()
 {
 		echot "\
 Usage: $(ScriptName) [COMMAND]... [OPTION]...
-Run borg as $backupUser."
+Run borg as root."
 }
 
 runArgs() { runArgs=( "$@" ); shift="$#"; }
@@ -221,17 +231,15 @@ repoCheck() { [[ $noCheck ]] || repoExists || initCommand; }
 repoExists()
 {
 	[[ ! "$backupDir" || $test ]] && return 0
-
-	ssh -T "$backupHost" "$(cat <<-EOF
-		[[ -d "$backupDir$backupRepo" ]]
-		EOF
-	)"
+	ssh "$backupHost" "[[ -d \"$backupDir$backupRepo\" ]]"
 }
 
 runBorg()
 {
 	[[ $test || $verbose ]] && EchoErr "borg $@ ${borgArgs[@]} ${otherArgs[@]}"
 	[[ $test ]] && return
+
+	IsRoot && { borg "$@" "${borgArgs[@]}" "${otherArgs[@]}"; return; }
 
 	sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" BORG_REMOTE_PATH="$borgPath" \
 		SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" \

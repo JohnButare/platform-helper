@@ -1,4 +1,3 @@
-
 systemUser="wsystem"
 locale="en_US.UTF-8"
 
@@ -34,7 +33,7 @@ wigginBaseDomain="butare.net"
 wigginBackupServers="backup3.$wigginBaseDomain,backup2.$wigginBaseDomain,backup1.$wigginBaseDomain" # list of backup servers in the format HOST1 [,HOST2]...
 wigginFileServers="file2.$wigginBaseDomain,file1.$wigginBaseDomain" # list of file servers in the format HOST1 [,HOST2]...
 wigginProxyServers="proxy.$wigginBaseDomain:3128" # list of proxy servers in the format HOST:PORT
-wigginWebServers="web3.$wigginBaseDomain,web2.$wigginBaseDomain,web3.$wigginBaseDomain" # list of web servers in the format HOST1 [,HOST2]...
+wigginWebServers="web2.$wigginBaseDomain,web1.$wigginBaseDomain" # list of web servers in the format HOST1 [,HOST2]...
 
 # bootstrap
 bootstrapHost="$fs" # HOST, DIR, or Windows drive letter (/mnt/D) for access to scripts and installers

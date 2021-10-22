@@ -247,8 +247,8 @@ ScriptUsage()
 			IsFunction "${c}Usage" && "${c}Usage" "$@" && { foundUsage="true"; break; }
 		done
 	fi
-	
-	[[ ! $foundUsage ]] && echot "$2"
+
+	[[ ! $foundUsage ]] && ScriptUsageEcho "$2"
 	
 	[[ $verbose ]] && echot "\nGlobal options:
 	-f, --force				force the operation
@@ -261,6 +261,18 @@ ScriptUsage()
 	--     						signal the end of arguments"
 
 	exit "${1:-1}"
+}
+
+# ScriptUsageEcho MESSAGE - show usage message with tabs.   
+ScriptUsageEcho()
+{
+	# output to standard error if we are being called from ScriptEval (which sets SCRIPT_EVAL), otherwise
+	# the help text will be evaluated.
+	if [[ $SCRIPT_EVAL ]]; then
+		echote "$@"
+	else
+		echot "$@"
+	fi
 }
 
 #

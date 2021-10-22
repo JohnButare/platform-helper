@@ -90,9 +90,24 @@ backupLastpassCommand()
 
 backupProxymanagerCommand()
 { 
-	local server="ProxyManager.butare.net"
-	! unc IsAvailable "$server" && { ScriptErr "'$server' is not available"; return 1; }
-	AppBackup "$(RemoveDnsSuffix "$server").ProxyManager" "//$server/admin$SRV/nginx-proxy-manager"
+	local archive="ProxyManager" server="ProxyManager.butare.net"
+
+	! SshIsAvailable "$server" && { ScriptErr "'$server' is not available"; return 1; }
+	
+	SshHelper "$(ConfigGet "user")@$server" --interactive --pseudo-terminal "${globalArgs[@]}" -- BorgHelper backup "/srv/nginx-proxy-manager" --archive "$archive" "${globalArgs[@]}" || return
+	echo
+
+	# prune
+	hilight "Pruning $archive..."
+	ScriptEval BorgHelper environment --repository "$(GetHostname "$server")" "${globalArgs[@]}" || return
+	borg prune --keep-last 2 --prefix "$archive-" || return
+	echo
+
+	# status
+	hilight "$archive backups..."
+	borg list --prefix "$archive-" || return
+	echo
+
 }
 
 backupQnapCommand()
@@ -122,9 +137,12 @@ backupWebCommand()
 
 	# Debian Apache Servers
 	for server in "${servers[@]}"; do
-		! unc IsAvailable "$server" && { ScriptErr "'$server' is not available"; status=1; continue; }
-		AppBackup "$(RemoveDnsSuffix "$server").web" "//$server/admin/var/www/html" -- -x "Web/netboot.xyz/*" || return	
-		AppBackup "$(RemoveDnsSuffix "$server").web.config" "//$server/admin/etc/apache2" || return	
+
+		! SshIsAvailable "$server" && { ScriptErr "'$server' is not available"; status=1; continue; }
+
+		SshHelper "$(ConfigGet "user")@$server" --interactive --pseudo-terminal "${globalArgs[@]}" -- \
+			BorgHelper backup "/var/www/html" "/etc/apache2" --archive "web" "${globalArgs[@]}" || return
+
 	done
 
 	# nas3 - QNAP Apache Server
@@ -132,6 +150,7 @@ backupWebCommand()
 		AppBackup "nas3.web" "//nas3/root/share/CACHEDEV1_DATA/Web" -- -x "Web/@Recycle/*" -x "Web/netboot.xyz/*" -x "Web/ProxyServer/*" || return
 	fi
 
+	(( $status != 0 )) && ScriptErr "backup of one or more web servers failed"
 	return $status
 }
 
@@ -157,8 +176,15 @@ backupJobCommand()
 	hilight "SSH Agent status..."
 	SshAgent status || exit
 
-	#backupDomains && backupDomotz && backupHomebridge && backupProxyManager && backupUniFi && backupWeb
-	backupDomains && backupDomotz && backupHomebridge && backupProxyManager && backupUniFi
+	# backup 
+	local result
+	backupDomains && backupDomotz && backupHomebridge && backupProxyManager && backupUniFi && backupWeb
+	result="$?"
+	echo
+
+	# result
+	(( $result == 0 )) && hilight "success" || echo "${RED}fail${reset}"
+	return "$result"
 }
 
 backupDo()
@@ -747,8 +773,8 @@ deviceStatus()
 # Helper
 #
 
-mountVol() { VeraCrypt mount "$@" p; }
-unmountVol() { VeraCrypt unmount p; }
+mountVol() { VeraCrypt mount "$@" p "${globalArgs[@]}"; }
+unmountVol() { VeraCrypt unmount p "${globalArgs[@]}"; }
 
 getHosts() 
 {
