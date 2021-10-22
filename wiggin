@@ -88,27 +88,7 @@ backupLastpassCommand()
 	unmountVol || return
 }
 
-backupProxymanagerCommand()
-{ 
-	local archive="ProxyManager" server="ProxyManager.butare.net"
-
-	! SshIsAvailable "$server" && { ScriptErr "'$server' is not available"; return 1; }
-	
-	SshHelper "$(ConfigGet "user")@$server" --interactive --pseudo-terminal "${globalArgs[@]}" -- BorgHelper backup "/srv/nginx-proxy-manager" --archive "$archive" "${globalArgs[@]}" || return
-	echo
-
-	# prune
-	hilight "Pruning $archive..."
-	ScriptEval BorgHelper environment --repository "$(GetHostname "$server")" "${globalArgs[@]}" || return
-	borg prune --keep-last 2 --prefix "$archive-" || return
-	echo
-
-	# status
-	hilight "$archive backups..."
-	borg list --prefix "$archive-" || return
-	echo
-
-}
+backupProxymanagerCommand() { borgBackup "ProxyManager" "ProxyManager.butare.net" "/srv/nginx-proxy-manager"; }
 
 backupQnapCommand()
 {
@@ -133,25 +113,11 @@ backupQnapCommand()
 
 backupWebCommand()
 {
-	local status=0 server servers=(); StringToArray "$(network current servers "web")" "," servers
+	local server servers=(); StringToArray "$(network current servers "web")" "," servers
 
-	# Debian Apache Servers
 	for server in "${servers[@]}"; do
-
-		! SshIsAvailable "$server" && { ScriptErr "'$server' is not available"; status=1; continue; }
-
-		SshHelper "$(ConfigGet "user")@$server" --interactive --pseudo-terminal "${globalArgs[@]}" -- \
-			BorgHelper backup "/var/www/html" "/etc/apache2" --archive "web" "${globalArgs[@]}" || return
-
+		borgBackup "web" "$server" "/var/www/html" "/etc/apache2" || return
 	done
-
-	# nas3 - QNAP Apache Server
-	if unc IsAvailable "nas3"; then
-		AppBackup "nas3.web" "//nas3/root/share/CACHEDEV1_DATA/Web" -- -x "Web/@Recycle/*" -x "Web/netboot.xyz/*" -x "Web/ProxyServer/*" || return
-	fi
-
-	(( $status != 0 )) && ScriptErr "backup of one or more web servers failed"
-	return $status
 }
 
 #
@@ -775,6 +741,17 @@ deviceStatus()
 
 mountVol() { VeraCrypt mount "$@" p "${globalArgs[@]}"; }
 unmountVol() { VeraCrypt unmount p "${globalArgs[@]}"; }
+
+# backupDo ARCHIVE SERVER [PATHS]
+borgBackup()
+{
+	local archive="$1" server="$2"; shift 2
+
+	! SshIsAvailable "$server" && { ScriptErr "'$server' is not available"; return 1; }
+
+	SshHelper "$(ConfigGet "user")@$server" --interactive --pseudo-terminal "${globalArgs[@]}" -- \
+		BorgHelper backup "$@" --archive "$archive" --prune 2 "${globalArgs[@]}" || return
+}
 
 getHosts() 
 {

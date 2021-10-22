@@ -48,65 +48,7 @@ opt()
 	esac
 }
 
-argEnd() { setBorgPassphrase && setBorgRepo; }
-
-setBorgPassphrase()
-{
-	local passphrase="$BORG_PASSPHRASE"
-	[[ $force || ! $passphrase ]] && { passphrase="$(credential get borg passphrase --fallback)" || return; }
-	export BORG_PASSPHRASE="$passphrase"
-}
-
-setBorgRepo()
-{
-	# do not use BORG_REPO for configuration if forcing or if configuration has been supplied from options
-	[[ $force ]] && unset BORG_REPO
-	[[ $backupDir || $backupHost || $backupUser || $backupRepo ]] && unset BORG_REPO
-
-	# backup host alias
-	case "${backupHost,,}" in
-		bb|borgbase) backupRepo="${backupRepo:-$backupRepoDefault}"
-			case "${backupRepo,,}" in
-				oversoul) backupHost="mk099950.repo.borgbase.com";;
-				pi1) backupHost="h7gnr153.repo.borgbase.com";;
-				pi2) backupHost="q3d82g14.repo.borgbase.com";;
-				pi3) backupHost="gw3jk69x.repo.borgbase.com";;
-				rosie) backupHost="kx172994.repo.borgbase.com";;
-				*) ScriptErr "No backup host specified for repository '$backupRepo'"; return 1;;
-			esac;;
-		db|dropbox) backupHost="ender.hagerman.butare.net" backupDir="${backupDir:-/Users/jjbutare/Juntos Holdings Dropbox/John Butare/apps/BorgBackup}" backupUser="jjbutare"
-	esac
-
-	# get the backup host from BORG_REPO if needed
-	[[ ! $backupHost && $BORG_REPO ]] && backupHost="$(GetSshHost "$BORG_REPO")"
-
-	# discover the backup host if needed
-	[[ ! $backupHost ]] && { backupHost="$(network current server backup --quiet)" || return; }
-
-	# ensure the backupHost is a fully qualified domain name (prevents extra borg prompting)
-	! HasDnsSuffix "$backupHost" && { backupHost="$(DnsResolve "$backupHost")" || return; }
-
-	# get the backup dir from BORG_REPO if needed or use the default
-	[[ ! $backupDir && $BORG_REPO ]] && backupDir="$(GetSshPort "$BORG_REPO" | RemoveTrailingSlash | GetFilePath)"	
-	backupDir="$(EnsureDir "${backupDir:-$backupDirDefault}")"
-
-	# get the backup repo from BORG_REPO if needed or use the default
-	[[ ! $backupRepo && $BORG_REPO ]] && backupRepo="$(GetSshPort "$BORG_REPO" | RemoveTrailingSlash | GetFileName)"	
-	backupRepo="${backupRepo:-$backupRepoDefault}"
-
-	# get the backup user from BORG_REPO if needed or use the default
-	[[ ! $backupUser && $BORG_REPO ]] && backupUser="$(GetSshUser "$BORG_REPO")"	
-	backupUser="${backupUser:-$backupUserDefault}"
-		
-	# BorgBase special handling: u578g3w0@u578g3w0.repo.borgbase.com:repo
-	if isBorgBaseHost; then
-		backupUser="$(RemoveDnsSuffix "$backupHost")"
-		backupDir="" backupRepo="repo"
-	fi
-
-	# set the BORG_REPO environment variable
-	export BORG_REPO="$backupUser@$backupHost:$backupDir$backupRepo"
-}
+argEnd() { setBorgEnvironment; }
 
 #
 # Other Commands
@@ -135,16 +77,18 @@ Backup files
 
 	-a,	 --archive=NAME			name of the archive, defaults to archive (see 'borg help placeholders')
 	     --hosts=HOSTS			comma separated list of hosts to backup to
-	-nc, --no-check					do not check if the repository is initialized"
+	-nc, --no-check					do not check if the repository is initialized
+	-p,	 --prune=N					prune backups leaving the last N backups"
 }
 
-backupArgStart() { archive="archive"; unset -v hosts noCheck; }
+backupArgStart() { archive="archive"; unset -v hosts noCheck prune; }
 
 backupOpt()
 {
 	case "$1" in
 		-a|--archive|-a=*|--archive=*) ScriptOptGet "archive" "$@";;
-		-nc|--no-check|-nc=*|--no-check=*) noCheck="--no-check";;
+		-nc|--no-check) noCheck="--no-check";;
+		-p|--prune|-p=*|--prune=*) ScriptOptGet "prune" "$@" && IsInteger "$prune";;
 		*) return 1;;
 	esac
 }
@@ -153,9 +97,23 @@ backupArgs() { backupArgs=( "$@" ); shift="$#"; }
 
 backupCommand()
 {
+	# backup
+	hilight "Backing up the $archive archive to the $backupRepo repository on $(GetHostname "$backupHost")..."
 	repoCheck || return
-	echo "Backing up the ${GREEN}$archive${RESET} archive to the ${GREEN}$backupRepo${RESET} repository on ${GREEN}$(GetHostname "$backupHost")${RESET}..."
-	runBorg create ::$archive'-{now:%Y-%m-%d_%H:%M:%S}' "${backupArgs[@]}" "${otherArgs[@]}" --stats --progress
+	runBorg create ::$archive'-{now:%Y-%m-%d_%H:%M:%S}' "${backupArgs[@]}" "${otherArgs[@]}" --stats --progress || return
+	echo
+	
+	# prune
+	if [[ $prune ]]; then
+		hilight "Pruning $archive to $prune backups..."
+		borg prune --keep-last $prune --prefix "$archive-" || return
+		echo
+	fi
+
+	# status
+	hilight "$archive backups..."
+	borg list --prefix "$archive-" || return
+	echo
 }
 
 #
@@ -244,6 +202,70 @@ runBorg()
 	sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" BORG_REMOTE_PATH="$borgPath" \
 		SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" \
 		borg "$@" "${borgArgs[@]}" "${otherArgs[@]}"
+}
+
+setBorgEnvironment()
+{
+	export BORG_RELOCATED_REPO_ACCESS_IS_OK="yes"
+	setBorgPassphrase && setBorgRepo 
+}
+
+setBorgPassphrase()
+{
+	local passphrase="$BORG_PASSPHRASE"
+	[[ $force || ! $passphrase ]] && { passphrase="$(credential get borg passphrase --fallback)" || return; }
+	export BORG_PASSPHRASE="$passphrase"
+}
+
+setBorgRepo()
+{
+	# do not use BORG_REPO for configuration if forcing or if configuration has been supplied from options
+	[[ $force ]] && unset BORG_REPO
+	[[ $backupDir || $backupHost || $backupUser || $backupRepo ]] && unset BORG_REPO
+
+	# backup host alias
+	case "${backupHost,,}" in
+		bb|borgbase) backupRepo="${backupRepo:-$backupRepoDefault}"
+			case "${backupRepo,,}" in
+				oversoul) backupHost="mk099950.repo.borgbase.com";;
+				pi1) backupHost="h7gnr153.repo.borgbase.com";;
+				pi2) backupHost="q3d82g14.repo.borgbase.com";;
+				pi3) backupHost="gw3jk69x.repo.borgbase.com";;
+				rosie) backupHost="kx172994.repo.borgbase.com";;
+				*) ScriptErr "No backup host specified for repository '$backupRepo'"; return 1;;
+			esac;;
+		db|dropbox) backupHost="ender.hagerman.butare.net" backupDir="${backupDir:-/Users/jjbutare/Juntos Holdings Dropbox/John Butare/apps/BorgBackup}" backupUser="jjbutare"
+	esac
+
+	# get the backup host from BORG_REPO if needed
+	[[ ! $backupHost && $BORG_REPO ]] && backupHost="$(GetSshHost "$BORG_REPO")"
+
+	# discover the backup host if needed
+	[[ ! $backupHost ]] && { backupHost="$(network current server backup --quiet)" || return; }
+
+	# ensure the backupHost is a fully qualified domain name (prevents extra borg prompting)
+	! HasDnsSuffix "$backupHost" && { backupHost="$(DnsResolve "$backupHost")" || return; }
+
+	# get the backup dir from BORG_REPO if needed or use the default
+	[[ ! $backupDir && $BORG_REPO ]] && backupDir="$(GetSshPort "$BORG_REPO" | RemoveTrailingSlash | GetFilePath)"	
+	backupDir="$(EnsureDir "${backupDir:-$backupDirDefault}")"
+
+	# get the backup repo from BORG_REPO if needed or use the default
+	[[ ! $backupRepo && $BORG_REPO ]] && backupRepo="$(GetSshPort "$BORG_REPO" | RemoveTrailingSlash | GetFileName)"	
+	backupRepo="${backupRepo:-$backupRepoDefault}"
+
+	# get the backup user from BORG_REPO if needed or use the default
+	[[ ! $backupUser && $BORG_REPO ]] && backupUser="$(GetSshUser "$BORG_REPO")"	
+	backupUser="${backupUser:-$backupUserDefault}"
+		
+	# BorgBase special handling: u578g3w0@u578g3w0.repo.borgbase.com:repo
+	if isBorgBaseHost; then
+		backupUser="$(RemoveDnsSuffix "$backupHost")"
+		backupDir="" backupRepo="repo"
+	fi
+
+	# set the BORG_REPO environment variable
+	export BORG_REPO="$backupUser@$backupHost:$backupDir$backupRepo"
 }
 
 ScriptRun "$@"
