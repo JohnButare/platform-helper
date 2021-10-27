@@ -31,9 +31,10 @@ hostWaitTimeout="200" # seconds to wait for host to be available
 networks="wiggin@10.10.100.10,wiggin@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
 wigginBaseDomain="butare.net"
 wigginBackupServers="backup3.$wigginBaseDomain,backup2.$wigginBaseDomain,backup1.$wigginBaseDomain" # list of backup servers in the format HOST1 [,HOST2]...
-wigginFileServers="file2.$wigginBaseDomain,file1.$wigginBaseDomain" # list of file servers in the format HOST1 [,HOST2]...
-wigginProxyServers="proxy.$wigginBaseDomain:3128" # list of proxy servers in the format HOST:PORT
-wigginWebServers="web2.$wigginBaseDomain,web1.$wigginBaseDomain" # list of web servers in the format HOST1 [,HOST2]...
+wigginFileServers="file2.$wigginBaseDomain,file1.$wigginBaseDomain" # list of file server
+wigginProxyServers="proxy.$wigginBaseDomain:3128" # list of proxy servers
+wigginWebServers="web2.$wigginBaseDomain,web1.$wigginBaseDomain" # list of web servers
+wigginDockerServers="pi1.$wigginBaseDomain,pi2.$wigginBaseDomain" # list of Docker Swarm managers
 
 # bootstrap
 bootstrapHost="$fs" # HOST, DIR, or Windows drive letter (/mnt/D) for access to scripts and installers
