@@ -7,10 +7,10 @@ dropboxCompany="Juntos Holdings"
 dropboxUser="John Butare"
 
 # system network
-network="wiggin"
-workgroup="hagerman"
+network="hagerman"
+workgroup="$network"
 baseDomain="butare.net"
-domain="$workgroup.$baseDomain"
+domain="$network.$baseDomain"
 
 # DNS
 dnsServers="pi2,pi1" # update pi2 first
@@ -28,13 +28,13 @@ hostTimeout="200" # host discovery timeout in milliseconds
 hostWaitTimeout="200" # seconds to wait for host to be available
 
 # networks - list of available networks that the system can be connected to
-networks="wiggin@10.10.100.10,wiggin@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
-wigginBaseDomain="butare.net"
-wigginBackupServers="backup3.$wigginBaseDomain,backup2.$wigginBaseDomain,backup1.$wigginBaseDomain" # list of backup servers in the format HOST1 [,HOST2]...
-wigginFileServers="file2.$wigginBaseDomain,file1.$wigginBaseDomain" # list of file server
-wigginProxyServers="proxy.$wigginBaseDomain:3128" # list of proxy servers
-wigginWebServers="web2.$wigginBaseDomain,web1.$wigginBaseDomain" # list of web servers
-wigginDockerServers="pi1.$wigginBaseDomain,pi2.$wigginBaseDomain" # list of Docker Swarm managers
+networks="hagerman@10.10.100.10,hagerman@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
+hagermanBaseDomain="butare.net"
+hagermanBackupServers="backup3.$hagermanBaseDomain,backup2.$hagermanBaseDomain,backup1.$hagermanBaseDomain" # list of backup servers in the format HOST1 [,HOST2]...
+hagermanFileServers="file2.$hagermanBaseDomain,file1.$hagermanBaseDomain" # list of file server
+hagermanProxyServers="proxy.$hagermanBaseDomain:3128" # list of proxy servers
+hagermanWebServers="web2.$hagermanBaseDomain,web1.$hagermanBaseDomain" # list of web servers
+hagermanDockerServers="pi1.$hagermanBaseDomain,pi2.$hagermanBaseDomain" # list of Docker Swarm managers
 
 # bootstrap
 bootstrapHost="$fs" # HOST, DIR, or Windows drive letter (/mnt/D) for access to scripts and installers
