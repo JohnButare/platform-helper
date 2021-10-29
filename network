@@ -144,23 +144,24 @@ currentUpdateCommand()
 	# get existing configuration
 	local existingNetwork="$(UpdateGet "network")"  existingFileServer="$(UpdateGet "FileServer")" existingProxyServer="$(UpdateGet "ProxyServer")"
 
-	# determine current configuration
-	local network fileServer proxyServer
+	# determine current network configuration
+	local network
 	doLog && { hilight "Determining network..."; echo "Existing network is ${existingNetwork:-unknown}"; }
 	doLog && printf "network..."; network="$(findNetwork $brief)" || return
-	doLog && printf "file..."; fileServer="$(findServer "$network" "file" $brief --service="smb")"
-	doLog && printf "proxy..."; proxyServer="$(findServer "$network" "proxy" $brief)"
 
-	# determine resolv.conf file for the new network
-	local resolvConfFile
-	IsPlatform wsl && [[ -f "$DATA/setup/resolv.conf.$network" ]]  && resolvConfFile="$DATA/setup/resolv.conf.$network"
+	# update resolv.conf - ensures name resolution is working to find other servers
+	local resolvConf="$DATA/setup/resolv.conf.$network"
+	{ ! IsPlatform wsl || [[ ! -f "$resolvConf" ]]; } && unset resolvConf
+	if [[ $resolvConfFile ]] && ! cmp --quiet "$resolvConf" "/etc/resolv.conf"; then
+		sudoc cp "$resolvConfFile" "/etc/resolv.conf" || return
+	fi
+
+	# find servers
+	local fileServer; doLog && printf "file..."; fileServer="$(findServer "$network" "file" --service="smb" $brief "${globalArgs[@]}")" || { EchoErr "none"; }
+	local proxyServer; doLog && printf "proxy..."; proxyServer="$(findServer "$network" "proxy" $brief "${globalArgs[@]}")" || { EchoErr "none"; }
 
 	# return if no changes are required
-	[[ ! $force && \
-		"$network" == "$existingNetwork" && \
-		"$fileServer" == "$existingFileServer" && \
-		"$proxyServer" == "$existingProxyServer" ]] && \
-		( [[ ! $resolvConfFile ]] || diff -q "$resolvConfFile" "/etc/resolv.conf" >& /dev/null; ) && return
+	[[ ! $force && "$network" == "$existingNetwork" && "$fileServer" == "$existingFileServer" && "$proxyServer" == "$existingProxyServer" ]] && return
 
 	# update network configuration
 	doLog && hilight "Setting the network to $network..."
@@ -168,7 +169,6 @@ currentUpdateCommand()
 
 	# save network
 	UpdateSet "network" "$network" || return
-	[[ $resolvConfFile ]] && { sudoc cp "$resolvConfFile" "/etc/resolv.conf" || return; }
 
 	# save file server
 	UpdateSet "FileServer" "$fileServer" || return
