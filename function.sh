@@ -211,6 +211,17 @@ HashiConfigConsul() { [[ $CONSUL_HTTP_ADDR ]] || HashiConfig "$@"; }
 HashiConfigNomad() { [[ $NOMAD_ADDR ]] || HashiConfig "$@"; }
 HashiConfigVault() { [[ $VAULT_ADDR ]] || HashiConfig "$@"; }
 
+# HashiServiceRegister SERVICE HOST_NUMS - register consul service SERVICE<n> for all specified hosts, i.e. HashiServiceRegister web 1,2
+HashiServiceRegister()
+{
+	local service="$1" hostNum hostNums; StringToArray "$2" "," hostNums; shift 2
+
+	HashiConfig || return
+	for hostNum in "${hostNums[@]}"; do
+		hashi consul service register "$CLOUD/network/system/hashi/services/$service$hostNum.hcl" --host="$hostNum" "$@" 
+	done
+}
+
 # i: invoke the installer script (inst) saving the INSTALL_DIR
 i() 
 { 
