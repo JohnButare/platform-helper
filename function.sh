@@ -966,17 +966,19 @@ GetInterface()
 }
 
 # GetIpAddress [HOST] - get the IP address of the current or specified host
-# -a|--all 	resolve host using all methods (DNS, MDNS, and local virtual machine names)
-# -m|--mdns	resolve host using MDNS
-# -v|--vm 	resolve host using local virtual machine names (check $HOSTNAME-HOST)
-# -w|--wsl	get the IP address used by WSL (Windows only)
+# -a|--all 						resolve all hosts not just the first
+# -ra|--resolve-all 	resolve host using all methods (DNS, MDNS, and local virtual machine names)
+# -m|--mdns						resolve host using MDNS
+# -v|--vm 						resolve host using local virtual machine names (check $HOSTNAME-HOST)
+# -w|--wsl						get the IP address used by WSL (Windows only)
 GetIpAddress() 
 {
-	local host mdns vm wsl; 
+	local host mdns vm wsl all="head -1"; 
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-a|--all) mdsn="true" vm="true";;
+			-a|--all) all="cat";;
+			-ra|--resolve-all) mdsn="true" vm="true";;
 			-m|--mdns) mdns="true";;
 			-v|--vm) vm="true";;
 			-w|--wsl) wsl="--wsl";;
@@ -1000,9 +1002,9 @@ GetIpAddress()
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
 	# - nslookup is slow on macOS if a name server is not specified
-	if InPath getent; then ip="$(getent ahostsv4 "$host" |& head -1 | cut -d" " -f 1)"
-	elif InPath host; then ip="$(host -t A -4 "$host" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 4)"
-	elif InPath nslookup; then ip="$(nslookup "$host" |& tail -3 | grep "Address:" | cut -d" " -f 2)"
+	if InPath getent; then ip="$(getent ahostsv4 "$host" |& grep "STREAM" | $all | cut -d" " -f 1)"
+	elif InPath host; then ip="$(host -N 3 -t A -4 "$host" |& ${G}grep -v "^ns." | grep "has address" | $all | cut -d" " -f 4)"
+	elif InPath nslookup; then ip="$(nslookup -ndots=3 -type=A "$host" |& tail +4 | grep "^Address:" | $all | cut -d" " -f 2)"
 	fi
 
 	# if an IP address was not found, check for a local virtual hostname
