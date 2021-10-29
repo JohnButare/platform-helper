@@ -45,10 +45,6 @@ bootstrapShare="public" bootstrapDir="/share/CACHEDEV1_DATA/Public" bootstrapPor
 # file server
 fs="file.$baseDomain" fsProtocol="smb" fsUser="jjbutare"
 
-# web server
-web="$fs" webUnc="//$web/web"
-
-
 # HashiCorp
 hashiCredentialPath=""
 hashiCertificateDevice="$CDATA/VeraCrypt/personal.hc" hashiCertificateDir="data/hashi"

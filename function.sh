@@ -846,12 +846,28 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 }
 
 #
+# Monitoring
+#
+
+# LogShow FILE [PATTERN]
+LogShow()
+{ 
+	local sudo file="$1" pattern="$2"; [[ $pattern ]] && pattern=" $pattern"
+
+	LineWrap "off"
+	SudoCheck "$1"; $sudo tail -f "$1" | grep "$pattern"
+	LineWrap "on"
+}
+
+#
 # Network
 #
 
 GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
 GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 													# GetHostname NAME - hosts configured name
+GetServer() { DnsResolve "$(GetIpAddress "$1.service")"; }
+GetServers() { GetIpAddress --all "$1.service" | xargs -n 1 RunScript DnsResolve; }
 HostUnknown() { ScriptErr "$1: name or service not known"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
@@ -973,11 +989,11 @@ GetInterface()
 # -w|--wsl						get the IP address used by WSL (Windows only)
 GetIpAddress() 
 {
-	local host mdns vm wsl all="head -1"; 
+	local host mdns vm wsl all=(head -1); 
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-a|--all) all="cat";;
+			-a|--all) all=(cat);;
 			-ra|--resolve-all) mdsn="true" vm="true";;
 			-m|--mdns) mdns="true";;
 			-v|--vm) vm="true";;
@@ -1002,9 +1018,9 @@ GetIpAddress()
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
 	# - nslookup is slow on macOS if a name server is not specified
-	if InPath getent; then ip="$(getent ahostsv4 "$host" |& grep "STREAM" | $all | cut -d" " -f 1)"
-	elif InPath host; then ip="$(host -N 3 -t A -4 "$host" |& ${G}grep -v "^ns." | grep "has address" | $all | cut -d" " -f 4)"
-	elif InPath nslookup; then ip="$(nslookup -ndots=3 -type=A "$host" |& tail +4 | grep "^Address:" | $all | cut -d" " -f 2)"
+	if InPath getent; then ip="$(getent ahostsv4 "$host" |& grep "STREAM" | "${all[@]}" | cut -d" " -f 1)"
+	elif InPath host; then ip="$(host -N 3 -t A -4 "$host" |& ${G}grep -v "^ns." | grep "has address" | "${all[@]}" | cut -d" " -f 4)"
+	elif InPath nslookup; then ip="$(nslookup -ndots=3 -type=A "$host" |& tail +4 | grep "^Address:" | "${all[@]}" | cut -d" " -f 2)"
 	fi
 
 	# if an IP address was not found, check for a local virtual hostname
@@ -1959,6 +1975,7 @@ ScriptReturn()
 
 # sudo
 
+SudoCheck() { [[ ! -r "$1" ]] && sudo="sudoc"; } # SudoCheck FILE - set sudo variable to sudoc if user does not have read permissiont to the file
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
 
 # sudoc COMMANDS - use the credential store to get the password if available, --preserve|-p to preserve the existing path (less secure)
