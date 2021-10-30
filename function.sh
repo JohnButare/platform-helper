@@ -96,7 +96,7 @@ UserInGroup() { id "$1" | grep -q "($2)"; } # UserInGroup USER GROUP
 
 UserCreate()
 {
-	local user="$1"; [[ ! $user ]] && { MissingOperand "user" "UserCreate"; return; }
+	local user="$1"; [[ ! $user ]] && { MissingOperand "user" "UserCreate"; return 1; }
 	local password="$2"; [[ ! $password ]] && { password="$(pwgen 14 1)" || return; }
 
 	# create user
@@ -176,7 +176,7 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 {
 	local shell shells="/etc/shells";  IsPlatform entware && shells="/opt/etc/shells"
 
-	[[ ! $1 ]] && { MissingOperand "shell" "FindLoginShell"; return; }
+	[[ ! $1 ]] && { MissingOperand "shell" "FindLoginShell"; return 1; }
 
 	if [[ -f "$shells" ]]; then
 		shell="$(grep "/$1" "$shells" | tail -1)" # assume the last shell is the newest
@@ -786,8 +786,8 @@ UnzipPlatform()
 		esac
 		shift
 	done
-	[[ ! "$zip" ]] && { MissingOperand "zip" "UnzipPlatform"; return; }
-	[[ ! "$dest" ]] && { MissingOperand "dest" "UnzipPlatform"; return; }
+	[[ ! "$zip" ]] && { MissingOperand "zip" "UnzipPlatform"; return 1; }
+	[[ ! "$dest" ]] && { MissingOperand "dest" "UnzipPlatform"; return 1; }
 
 	# unzip
 	if IsPlatform win; then
@@ -877,9 +877,8 @@ LogShow()
 GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
 GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 													# GetHostname NAME - hosts configured name
-GetServer() { DnsResolve "$(GetIpAddress "$1.service")"; }
-GetServers() { GetIpAddress --all "$1.service" | xargs -n 1 RunScript DnsResolve; }
-HostUnknown() { ScriptErr "$1: name or service not known"; }
+HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
+HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
@@ -1000,13 +999,14 @@ GetInterface()
 # -w|--wsl						get the IP address used by WSL (Windows only)
 GetIpAddress() 
 {
-	local host mdns vm wsl all=(head -1); 
+	local host mdns quiet vm wsl all=(head -1); 
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-a|--all) all=(cat);;
 			-ra|--resolve-all) mdsn="true" vm="true";;
 			-m|--mdns) mdns="true";;
+			-q|--quiet) quiet="true";;
 			-v|--vm) vm="true";;
 			-w|--wsl) wsl="--wsl";;
 			*)
@@ -1035,13 +1035,14 @@ GetIpAddress()
 	fi
 
 	# if an IP address was not found, check for a local virtual hostname
-	[[ ! $ip && $vm ]] && ip="$(GetIpAddress "$HOSTNAME-$host")"
+	[[ ! $ip && $vm ]] && ip="$(GetIpAddress --quiet "$HOSTNAME-$host")"
 
 	# resolve using .local only if --all is specified to avoid delays
 	[[ ! $ip && $mdns ]] && ip="$(MdnsResolve "${host}.local" 2> /dev/null)"
 
-	# return the IP if found
-	[[ $ip ]] && echo "$(echo "$ip" | RemoveCarriageReturn)"
+	# return
+	[[ ! $ip ]] && { [[ ! $quiet ]] && HostUnresolved "$host"; return 1; }
+	echo "$(echo "$ip" | RemoveCarriageReturn)"
 }
 
 # GetPrimaryAdapterName - get the descriptive name of the primary network adapter used for communication
@@ -1053,6 +1054,15 @@ GetPrimaryAdapterName()
 		GetInterface
 	fi
 }
+
+GetServer()
+{
+	local server="$1"; [[ ! $server ]] && { MissingOperand "server" "GetServer"; return 1; }
+	local ip; ip="$(GetIpAddress "$1.service")" || return
+	DnsResolve "$ip" 
+}
+
+GetServers() { GetIpAddress --all "$1.service" | xargs -n 1 RunScript DnsResolve; }
 
 # ipconfig [COMMAND] - show or configure network
 ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
@@ -1233,7 +1243,7 @@ ConsulResolve() { hashi resolve "$@"; }
 # DnsResolve NAME|IP - resolve NAME or IP address to a fully qualified domain name
 DnsResolve()
 {
-	local lookup name="$1"; [[ ! $name ]] && MissingOperand "host"
+	local lookup name="$1"; [[ ! $name ]] && { MissingOperand "host" "DnsResolve"; return 1; } 
 
 	# reverse DNS lookup for IP Address
 	if IsIpAddress "$name"; then
@@ -1259,7 +1269,7 @@ DnsResolve()
 
 MdnsResolve()
 {
-	local name="$1" result; [[ ! $name ]] && MissingOperand "host"
+	local name="$1" result; [[ ! $name ]] && MissingOperand "host" "MdnsResolve"
 
 	{ [[ ! $name ]] || ! IsMdnsName "$name"; } && return 1
 
@@ -1911,10 +1921,10 @@ GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}";
 # arguments
 IsOption() { [[ "$1" =~ ^-.* && "$1" != "--" ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
-MissingOperand() { EchoErr "${2:-$(ScriptName)}: missing $1 operand"; ScriptExit; }
-MissingOption() { EchoErr "${2:-$(ScriptName)}: missing $1 option"; ScriptExit; }
-UnknownOption() { EchoErr "${2:-$(ScriptName)}: unrecognized option '$1'"; EchoErr "Try '${2:-$(ScriptName)} --help' for more information.";	ScriptExit; }
-ExtraOperand() { EchoErr "${2:-$(ScriptName)}: extra operand '$1'"; EchoErr "Try '${2:-$(ScriptName)} --help' for more information.";	ScriptExit; }
+MissingOperand() { ScriptErr "missing $1 operand" "$2"; ScriptTry "$2"; ScriptExit; }
+MissingOption() { ScriptErr "missing $1 option" "$2"; ScriptExit; }
+UnknownOption() { ScriptErr "unrecognized option '$1'" "$2"; EchoErr "Try '${2:-$(ScriptName)} --help' for more information.";	ScriptExit; }
+ExtraOperand() { ScriptErr "extra operand '$1'" "$2"; ScriptTry "$2";	ScriptExit; }
 
 # functions
 IsFunction() { declare -f "$1" >& /dev/null; }	# IsFunction NAME - NAME is a function
@@ -1940,14 +1950,17 @@ RunFunction()
 
 ScriptCd() { local dir; dir="$("$@")" || return; dir="$(echo "$dir" | ${G}head --lines=1)" && { echo "cd $dir"; DoCd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
-ScriptErr() { GetArgs; local name="$(ScriptName)"; [[ $name ]] && name="$name: "; EchoErr "${RED}${name}$1${RESET}"; }
+ScriptErr() { InitColor; EchoErr "${RED}$(ScriptPrefix "$2")$1${RESET}"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
+ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "$name: "; }
+ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; }
 
 ScriptName()
 {
-	local name
+	local name; func="$1"; [[ $func ]] && { printf "$func"; return; }
 	IsBash && name="$(GetFileName "${BASH_SOURCE[-1]}")" || name="$(GetFileName "$ZSH_SCRIPT")"
-	[[ $name && "$name" != "function.sh" ]] && echo "$name"
+	[[ "$name" == "function.sh" ]] && unset name
+	printf "$name" 
 }
 
 # ScriptEval <script> [<arguments>] - run a script and evaluate the output.
