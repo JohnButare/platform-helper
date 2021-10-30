@@ -152,13 +152,13 @@ currentUpdateCommand()
 	# update resolv.conf - ensures name resolution is working to find other servers
 	local resolvConf="$DATA/setup/resolv.conf.$network"
 	{ ! IsPlatform wsl || [[ ! -f "$resolvConf" ]]; } && unset resolvConf
-	if [[ $resolvConfFile ]] && ! cmp --quiet "$resolvConf" "/etc/resolv.conf"; then
-		sudoc cp "$resolvConfFile" "/etc/resolv.conf" || return
+	if [[ $resolvConf ]] && ! cmp --quiet "$resolvConf" "/etc/resolv.conf"; then
+		sudoc cp "$resolvConf" "/etc/resolv.conf" || return
 	fi
 
 	# find servers
-	local fileServer; doLog && printf "file..."; fileServer="$(findServer "$network" "file" --service="smb" $brief "${globalArgs[@]}")" || { EchoErr "none"; }
-	local proxyServer; doLog && printf "proxy..."; proxyServer="$(findServer "$network" "proxy" $brief "${globalArgs[@]}")" || { EchoErr "none"; }
+	local fileServer; doLog && printf "file..."; fileServer="$(findServer "$network" file --service=smb $brief "${globalArgs[@]}")"
+	local proxyServer; doLog && printf "proxy..."; proxyServer="$(findServer "$network" proxy $brief "${globalArgs[@]}")"
 
 	# return if no changes are required
 	[[ ! $force && "$network" == "$existingNetwork" && "$fileServer" == "$existingFileServer" && "$proxyServer" == "$existingProxyServer" ]] && return
@@ -199,7 +199,12 @@ findServer()
 {
 	local network="$1" type="$2" service="$3"
 	local serverIndex servers=(); StringToArray "$(getServers "$network" "$type")" "," servers
-	[[ ! $servers ]] && return 1
+
+	if [[ ! $servers ]]; then
+		doLog && EchoErr "no $type services defined for '$network' network"
+		return 1
+	fi
+
 	serverIndex="$(network find "${servers[@]}" $service $brief "${globalArgs[@]}")" || return
 	RemoveBefore "${servers[$serverIndex]}" "@" # return HOST:SERVICE of the server (DESCRIPTION@HOST:SERVICE)
 }
@@ -253,7 +258,7 @@ findCommand()
 		# parse the server: DESCRIPTION@HOST_OR_IP:SERVICE
 		local host="$(GetSshHost "$server")"
 		local service="$(GetSshPort "$server")"; service="${service:-$defaultService}"; service="${service,,}"
-		local description="$(GetSshUser "$server")"; description="${description:-$host}"; [[ "$description" != "$host" ]] && description="$description ($host)"
+		local description="$(GetSshUser "$server")"; description="${description:-$host}"; [[ "$description" != "$host" && $verbose ]] && description="$description ($host)"
 
 		# check for a valid service
 		! IsInteger "$service" && [[ "$service" != @(dns|ping|nfs|smb|ssh) ]] && { ScriptErr "'$service' is not a valid service"; return 1; }
@@ -277,7 +282,7 @@ findCommand()
 		(( ++i ))
 	done
  
-	[[ ! $brief && ! $quiet ]] && EchoErr "none"
+	[[ ! $brief && ! $quiet ]] && EchoErr "none available"
 	return 1
 }
 
@@ -599,16 +604,16 @@ proxyAptStatus()
 	fi
 }
 
-proxyWpadEnable() { scp "$CLOUD/network/system/proxy/wpad.dat.enable" "$(GetServer "web"):$wpadFile"; }
-proxyWpadDisable() { scp "$CLOUD/network/system/proxy/wpad.dat.disable" "$(GetServer "web"):$wpadFile"; }
-proxyWpadStatus() { ssh $(GetServer "web") cat "$wpadFile" | grep "PROXY" > /dev/null && echo "enabled" || echo "disabled"; }
+proxyWpadEnable() { scp "$CLOUD/network/system/proxy/wpad.dat.enable" "$(getWeb):$wpadFile"; }
+proxyWpadDisable() { scp "$CLOUD/network/system/proxy/wpad.dat.disable" "$(getWeb):$wpadFile"; }
+proxyWpadStatus() { ssh $(getWeb) cat "$wpadFile" | grep "PROXY" > /dev/null && echo "enabled" || echo "disabled"; }
 
 #
 # helper
 #
 
-# doLog - return true if output should be logged
-doLog() { [[ ! $brief && ! $quiet ]]; }
+doLog() { [[ ! $brief && ! $quiet ]]; } # return true if output should be logged
+getWeb() { GetServer "web" || ScriptExit; }
 
 # getServers NETWORK TYPE - get servers of the specified type for the specified network from configuration, 
 # i.e "getServers hagerman file" would look for the hagermanFileServers configuration variable
