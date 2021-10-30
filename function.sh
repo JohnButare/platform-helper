@@ -1,5 +1,7 @@
 # function.sh: common functions for non-interactive scripts
 
+set -o pipefail # pipes return first non-zero result
+
 IsBash() { [[ $BASH_VERSION ]]; }
 IsZsh() { [[ $ZSH_VERSION ]]; }
 
@@ -1114,7 +1116,7 @@ IsIpLocal() { GetArgs; CacheDefaultGateway || return; ! traceroute "$1" -4 --max
 IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
 
 # IsLocalHostIp HOST - true if the specified host refers to the local host.  Also check the IP address of the host.
-IsLocalHostIp() { IsLocalHost "$1" || [[ "$(GetIpAddress "$1")" == "$(GetIpAddress)" ]] ; }
+IsLocalHostIp() { IsLocalHost "$1" || [[ "$(GetIpAddress "$1" --quiet)" == "$(GetIpAddress)" ]] ; }
 
 #
 # Network: Host Availability
