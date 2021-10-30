@@ -1131,7 +1131,7 @@ IsAvailable() # HOST [TIMEOUT_MILLISECONDS] - returns true if the host is availa
 	# resolve the IP address explicitly:
 	# - mDNS name resolution is intermitant (double check this on various platforms)
 	# - Windows ping.exe name resolution is slow for non-existent hosts
-	local ip; ip="$(GetIpAddress "$host")" || return
+	local ip; ip="$(GetIpAddress --quiet "$host")" || return
 	
 	if IsPlatform wsl1; then # WSL 1 ping and fping do not timeout quickly for unresponsive hosts so use ping.exe
 		ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes=" &> /dev/null 
@@ -1144,7 +1144,7 @@ IsAvailable() # HOST [TIMEOUT_MILLISECONDS] - returns true if the host is availa
 
 IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT_MILLISECONDS]
 {
-	local host="$1" port="$2" timeout="${3-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host")" || return
+	local host="$1" port="$2" timeout="${3-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host" --quiet)" || return
 
 	if InPath ncat; then
 		ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" >& /dev/null
