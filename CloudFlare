@@ -33,45 +33,24 @@ zoneListCommand() { api "zones"; }
 zoneIdArgs() { getZoneArg "$@"; }
 zoneIdCommand() { getZoneId "$zone"; }
 
-getZoneArg() { ScriptArgGet "zone" -- "$@"; }
-
-getZoneId()
-{
-	local zone="$1"
-	local id; id="$(api "zones" | jq ".result[] | select(.name == \"$zone\").id" | RemoveQuotes)" || return
-	[[ ! $quiet && ! $id ]] && EchoErr "zone '$zone' not found"
-	echo "$id"; [[ $id ]]
-}
-
 #
 # DNS Commands
 #
 
 dnsUsage()
 {
-	echot "Usage: $(ScriptName) dns [list](list)
+	echot "Usage: $(ScriptName) dns id|list
 Zone commands.
 
-	id ZONE NAME	return the DNS ID
+	id ZONE HOST	return the hosts DNS ID
 	list ZONE			list all zones"
 }
 
 dnsCommand() { dnsListCommand; }
 dnsListArgs() { getZoneArg "$@"; }
 dnsListCommand() { getDnsRecords "$zone"; }
-
-getDnsRecords() { local zone="$1" id; id="$(getZoneId "$zone")" && api "zones/$id/dns_records"; }
-
-getDnsRecordId()
-{
-	local zone="$1" name="$2"
-	local id; id="$(getDnsRecords "$1" | jq ".result[] | select(.name == \"$name.$zone\").id" | RemoveQuotes)" || return
-	[[ ! $quiet && ! $id ]] && EchoErr "DNS record '$name' in zone '$zone' not found"
-	echo "$id"; [[ $id ]]
-}
-
-# https://api.cloudflare.com/#dns-records-for-a-zone-update-dns-record
-#{"type":"A","name":"example.com","content":"127.0.0.1","ttl":3600,"proxied":false}
+dnsIdArgs() { getZoneArg "$@" && shift && getHostArg "$@"; }
+dnsIdCommand() { getDnsRecordId "$zone" "$host"; }
 
 #
 # Update Command
@@ -79,28 +58,29 @@ getDnsRecordId()
 
 updateUsage()
 {
-	echot "Usage: $(ScriptName) update HOST IP
+	echot "Usage: $(ScriptName) update ZONE HOST IP
 Update a DNS HOST record to IP."
 }
 
 updateArgs()
 {
-	ScriptArgGet "host" -- "$@"; shift
+	getZoneArg "$@"; shift
+	getHostArg "$@"; shift
 	ScriptArgGet "ip" -- "$@"; shift
 }
 
 updateCommand()
 {
-	local currentIp="$(UpdateGet "ip_$host")"
+	local name="$host.$zone"
+	local currentIp; currentIp="$(dig "$name" @1.1.1.1 +short)" || return
 
+	# only update if it changed
 	[[ ! $force && "$currentIp" == "$ip" ]] && return
 
-	local domain; domain="$(ConfigGet "baseDomain")" || return
-	local password; password="$(credential get namecheap ddns_password)" || return
-	curl "https://dynamicdns.park-your-domain.com/update?host=$host&domain=$domain&password=$password&ip=$ip" || return
-	UpdateSet "ip_$host" "$ip" || return
+	# https://api.cloudflare.com/#dns-records-for-a-zone-update-dns-record
+	local id; id="$(getDnsRecordId "$zone" "$host")" || return
+	apiPut "$id" '{"type":"A","name":"'$name'","content":"'$ip'","ttl":1,"proxied":false}'
 }
-
 	
 #
 # API Helper
@@ -112,7 +92,6 @@ api()
 	local key; key="$(credential get CloudFlare key)" || return
 	local url="https://api.cloudflare.com/client/v4/$command"
 
-	[[ $verbose ]] && printf 'curl "%s"' "$url"
 	[[ $test ]] && return
 
 	curl --silent -X GET "$url" \
@@ -127,14 +106,36 @@ apiPut()
 	local key; key="$(credential get CloudFlare key)" || return
 	local url="https://api.cloudflare.com/client/v4/$command"
 
-	[[ $verbose ]] && printf 'curl "%s"' "$url"
 	[[ $test ]] && return
 
-	curl --silent -X GET "$url" \
+	curl -X PUT "$url" \
 		-H "Authorization: Bearer $key" \
 		-H "X-Auth-Email:johns@butare.net" \
-		-H "Content-Type:application/json"
+		-H "Content-Type:application/json" \
 		--data "$data"
+}
+
+getHostArg() { ScriptArgGet "host" -- "$@"; }
+getZoneArg() { ScriptArgGet "zone" -- "$@"; }
+
+getZoneId()
+{
+	local zone="$1"
+	local id; id="$(api "zones" | jq ".result[] | select(.name == \"$zone\").id" | RemoveQuotes)" || return
+	[[ ! $quiet && ! $id ]] && EchoErr "zone '$zone' not found"
+	[[ $id ]] && echo "$id"
+}
+
+getDnsRecords() { local zone="$1" id; id="$(getZoneId "$zone")" && api "zones/$id/dns_records"; }
+
+getDnsRecordId()
+{
+	local zone="$1" name="$2"
+	local dnsRecords; dnsRecords="$(getDnsRecords "$zone")" || return
+	local zoneId="$(echo "$dnsRecords" | jq ".result[] | select(.name == \"$name.$zone\").zone_id" | RemoveQuotes)" || return
+	local dnsId="$(echo "$dnsRecords" | jq ".result[] | select(.name == \"$name.$zone\").id" | RemoveQuotes)" || return
+	[[ ! $dnsId ]] && { [[ ! $quiet ]] && EchoErr "DNS record '$name' in zone '$zone' not found"; return 1; }	
+	echo "zones/$zoneId/dns_records/$dnsId"
 }
 
 ScriptRun "$@"
