@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+. script.sh || exit
+
+usage() 
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... zone|test|update
+Manage CloudFlare DNS."
+}						 
+
+#
+# Commands
+#
+
+testCommand() { api "user/tokens/verify" | jq; }
+
+#
+# Zones Command
+#
+
+zonesUsage()
+{
+	echot "Usage: $(ScriptName) zone list
+Zone commands.
+
+	id ZONE		return the zone ID
+	list			list all zones"
+}
+
+zoneCommand() { usage; }
+zoneListCommand() { api "zones"; }
+
+zoneIdArgs() { getZoneArg "$@"; }
+zoneIdCommand() { getZoneId "$zone"; }
+
+getZoneArg() { ScriptArgGet "zone" -- "$@"; }
+
+getZoneId()
+{
+	local zone="$1"
+	local id; id="$(api "zones" | jq ".result[] | select(.name == \"$zone\").id" | RemoveQuotes)" || return
+	[[ ! $quiet && ! $id ]] && EchoErr "zone '$zone' not found"
+	echo "$id"; [[ $id ]]
+}
+
+#
+# DNS Commands
+#
+
+dnsUsage()
+{
+	echot "Usage: $(ScriptName) dns [list](list)
+Zone commands.
+
+	id ZONE NAME	return the DNS ID
+	list ZONE			list all zones"
+}
+
+dnsCommand() { dnsListCommand; }
+dnsListArgs() { getZoneArg "$@"; }
+dnsListCommand() { getDnsRecords "$zone"; }
+
+getDnsRecords() { local zone="$1" id; id="$(getZoneId "$zone")" && api "zones/$id/dns_records"; }
+
+getDnsRecordId()
+{
+	local zone="$1" name="$2"
+	local id; id="$(getDnsRecords "$1" | jq ".result[] | select(.name == \"$name.$zone\").id" | RemoveQuotes)" || return
+	[[ ! $quiet && ! $id ]] && EchoErr "DNS record '$name' in zone '$zone' not found"
+	echo "$id"; [[ $id ]]
+}
+
+# https://api.cloudflare.com/#dns-records-for-a-zone-update-dns-record
+#{"type":"A","name":"example.com","content":"127.0.0.1","ttl":3600,"proxied":false}
+
+#
+# Update Command
+#
+
+updateUsage()
+{
+	echot "Usage: $(ScriptName) update HOST IP
+Update a DNS HOST record to IP."
+}
+
+updateArgs()
+{
+	ScriptArgGet "host" -- "$@"; shift
+	ScriptArgGet "ip" -- "$@"; shift
+}
+
+updateCommand()
+{
+	local currentIp="$(UpdateGet "ip_$host")"
+
+	[[ ! $force && "$currentIp" == "$ip" ]] && return
+
+	local domain; domain="$(ConfigGet "baseDomain")" || return
+	local password; password="$(credential get namecheap ddns_password)" || return
+	curl "https://dynamicdns.park-your-domain.com/update?host=$host&domain=$domain&password=$password&ip=$ip" || return
+	UpdateSet "ip_$host" "$ip" || return
+}
+
+	
+#
+# API Helper
+#
+
+api()
+{
+	local command="$1"
+	local key; key="$(credential get CloudFlare key)" || return
+	local url="https://api.cloudflare.com/client/v4/$command"
+
+	[[ $verbose ]] && printf 'curl "%s"' "$url"
+	[[ $test ]] && return
+
+	curl --silent -X GET "$url" \
+		-H "Authorization: Bearer $key" \
+		-H "X-Auth-Email:johns@butare.net" \
+	  -H "Content-Type:application/json"
+}
+
+apiPut()
+{
+	local command="$1" data="$2"
+	local key; key="$(credential get CloudFlare key)" || return
+	local url="https://api.cloudflare.com/client/v4/$command"
+
+	[[ $verbose ]] && printf 'curl "%s"' "$url"
+	[[ $test ]] && return
+
+	curl --silent -X GET "$url" \
+		-H "Authorization: Bearer $key" \
+		-H "X-Auth-Email:johns@butare.net" \
+		-H "Content-Type:application/json"
+		--data "$data"
+}
+
+ScriptRun "$@"
