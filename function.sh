@@ -1020,7 +1020,7 @@ GetIpAddress()
 			-w|--wsl) wsl="--wsl";;
 			*)
 				if ! IsOption "$1" && [[ ! $host ]]; then host="$(GetSshHost "$1")"
-				else UnknownOption "$1" "GetIpAddress"; return
+				else UnknownOption "$1" "GetIpAddress"; return 1
 				fi
 		esac
 		shift
@@ -1034,6 +1034,7 @@ GetIpAddress()
 	IsMdnsName "$host" && { ip="$(MdnsResolve "$host" 2> /dev/null)"; [[ $ip ]] && echo "$ip"; return; }
 
 	# lookup IP address using various commands
+	# - -N 3 and -ndotes=3 allow the default domain names for partial names like consul.service
 	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
@@ -1252,27 +1253,45 @@ ConsulResolve() { hashi resolve "$@"; }
 # DnsResolve NAME|IP - resolve NAME or IP address to a fully qualified domain name
 DnsResolve()
 {
-	local lookup name="$1"; [[ ! $name ]] && { MissingOperand "host" "DnsResolve"; return 1; } 
+	local name quiet
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-q|--quiet) quiet="true";;
+			*)
+				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
+				else UnknownOption "$1" "DnsResolve"; return 1
+				fi
+		esac
+		shift
+	done
+
+	[[ ! $name ]] && { MissingOperand "host" "DnsResolve"; return 1; } 
+
+	# Resolve name using various commands
+	# - -N 3 and -ndotes=3 allow the default domain names for partial names like consul.service
 
 	# reverse DNS lookup for IP Address
+	local lookup 
 	if IsIpAddress "$name"; then
 
 		if InPath host; then
-			lookup="$(host -t A -4 "$name" |& cut -d" " -f 5 | RemoveTrim ".")"
+			lookup="$(host -N 3 -t A -4 "$name" |& cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
 		else		
-			lookup="$(nslookup $name |& grep "name =" | cut -d" " -f 3 | RemoveTrim ".")"
+			lookup="$(nslookup -ndots=3 $name |& grep "name =" | cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
 		fi
 
 	# forward DNS lookup to get the fully qualified DNS address
 	else
 
-		if InPath getent; then lookup="$(getent ahostsv4 "$name" |& head -1 | tr -s " " | cut -d" " -f 3)"
-		elif InPath host; then lookup="$(host -t A -4 "$name" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 1)"
-		elif InPath nslookup; then lookup="$(nslookup "$name" |& tail -3 | grep "Name:" | cut -d$'\t' -f 2)"
+		if InPath getent; then lookup="$(getent ahostsv4 "$name" |& head -1 | tr -s " " | cut -d" " -f 3)" || unset lookup
+		elif InPath host; then lookup="$(host -N 3 -t A -4 "$name" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 1)" || unset lookup
+		elif InPath nslookup; then lookup="$(nslookup -ndots=3 "$name" |& tail -3 | grep "Name:" | cut -d$'\t' -f 2)" || unset lookup
 		fi
 		
 	fi
 
+	[[ ! $lookup ]] && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
 	[[ "$lookup" ]] && echo "$lookup" || return 1
 }
 
