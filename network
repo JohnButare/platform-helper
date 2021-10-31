@@ -326,16 +326,18 @@ dnsFlushCommand()
 # Internet Commands
 #
 
-internetUsage() { echot "Usage: $(ScriptName) internet address|provider [GATEWAY]
-Internet commands.
+internetUsage() { echot "Usage: $(ScriptName) internet [address|detail|host|provider](provider) [PORT|active]
+Internet commands.  If no port is specified lookup our current active internet address.
+If a numeric port is specified, lookup the internet address for the specified WAN port (usually 1 or 2).
 
-	address						get the public internet address with the default or specified gateway
-	provider [short]	get the internet provider name"
+	address						get the internet address
+	host							get the hostname
+	provider [short]	get the provider name"
 }
 
 internetArgs()
 {
-	[[ $1 ]] && ScriptArgGet "gateway" -- "$@"
+	[[ $1 ]] && { ScriptArgGet "port" -- "$@"; ! IsInteger "$port" && usage; }
 	return 0
 }
 
@@ -343,34 +345,36 @@ internetCommand() { internetProviderCommand; }
 
 internetAddressCommand() 
 {
-	if [[ ! $gateway ]]; then 
-		nslookup myip.opendns.com resolver1.opendns.com | grep Address | grep -v 53 | cut -d: -f2 | RemoveSpace
-		return
-	fi
+	[[ ! $port ]] && { getActiveIp; return; }
+	local devices; getDevices && getIp
+}
 
-	# find the internet address for ther specified gateway
-	# assumes the default gateway is a UniFi gateway named "router" 
-	gateway="$(GetIpAddress "$gateway")" || return
-	local dns; dns="$(GetIpAddress "resolver1.opendns.com")" || return
+internetDetailCommand()
+{
+	[[ ! $port ]] && port="1"
 
-	# router password
-	local password; password="$(credential get unifi admin)" || return
+	local devices; getDevices || return
+	local isActive; [[ "$(getIp)" == "$(getActiveIp)" ]] && isActive="true"
 
-	# validation
-	! IsAvailablePort router 22 && { ScriptErr "the router is not available"; return 1; }
-	! InPath && { package sshpass || return; }
+	echo "hostname="$(DnsResolve "$(getIp)")
+	echo "address="$(getIp)
+	echo "active=$([[ $isActive ]] && echo "true" || echo "false")"
 
-	# logging
-	[[ $verbose ]] && ScriptErr "dns=$dns gateway=$gateway"
+	header "Geographic Information"
+	local geoPort; [[ "$port" == "2" ]] && geoPort="2"
+	echo "$devices" | jq '.data[] | select(.name == "router").geo_info.WAN'$geoPort''
 
-	# get the IP address for the specified gateway from the router by adding a static route
-	echo "$password" | sshpass ssh router "$(cat <<-EOF
-			sudo ip route add "$dns" via "$gateway"
-			nslookup myip.opendns.com resolver1.opendns.com
-			sudo ip route delete "$dns"
-		EOF
-	)" |& grep Address | grep -v 53 | cut -d: -f2 | RemoveSpace
+	if [[ $isActive ]]; then
+		header "Speedtest Status"
+	 	cat device.json | jq '.data[] | select(.name == "router")."speedtest-status"'
+	 fi
+}
 
+
+internetHostCommand()
+{
+	local address; address="$(internetAddressCommand)" || return
+	DnsResolve "$address"
 }
 
 internetProviderCommand()
@@ -380,6 +384,10 @@ internetProviderCommand()
 }
 
 internetProviderShortCommand() { internetProviderCommand | GetWord - 1 | LowerCase; }
+
+getActiveIp() { nslookup myip.opendns.com resolver1.opendns.com | grep Address | grep -v 53 | cut -d: -f2 | RemoveSpace; }
+getDevices() { devices="$(UniFiController api "/stat/device")"; }
+getIp() { echo "$devices" | jq '.data[] | select(.name == "router").wan'$port'.ip' | RemoveQuotes; }
 
 #
 # Profile Commands

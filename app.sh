@@ -86,3 +86,12 @@ AppBackup()
 
 	echo "Backup completed to $(FileToDesc "$dest")"
 }
+
+# AppBackup FILE - prepare to backup to FILE, returns complete path to backup file
+AppBackupFile()
+{
+	local file="$1"
+	local dest; dest="$(AppGetBackupDir)/$file" || return
+	[[ -f "$dest" ]] && { bak --move "$dest" || return; }
+	echo "$dest"
+}

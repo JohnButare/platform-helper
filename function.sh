@@ -772,35 +772,6 @@ SelectFile() # DIR PATTERN MESSAGE
 	popd > /dev/null
 }
 
-# UnzipPlatform - use platform specific unzip to fix unzip errors syncing metadata on Windows drives
-UnzipPlatform()
-{
-	local sudo zip dest
-
-	# arguments
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			-s|--sudo) sudo="sudoc";;
-			*)
-				! IsOption "$1" && [[ ! $zip ]] && { zip="$1"; shift; continue; }
-				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
-				UnknownOption "$1" "UnzipPlatform"; return
-		esac
-		shift
-	done
-	[[ ! "$zip" ]] && { MissingOperand "zip" "UnzipPlatform"; return 1; }
-	[[ ! "$dest" ]] && { MissingOperand "dest" "UnzipPlatform"; return 1; }
-
-	# unzip
-	if IsPlatform win; then
-		7z.exe x "$(utw "$zip")" -o"$(utw "$dest")" -y -bb3 || return
-	else
-		$sudo unzip -o "$zip" -d "$dest" || return
-	fi
-
-	return 0
-}
-
 # Path Conversion
 
 utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
@@ -856,6 +827,42 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 	
 	# /L flag does not work (target changed not link) from WSL when full path specified, i.e. attrib.exe /l +h 'C:\Users\jjbutare\Documents\data\app\Audacity'
 	( cd "$(GetFilePath "$f")"; attrib.exe "$@" "$(GetFileName "$f")" );
+}
+
+#
+# File - Compression
+#
+
+UnzipStdin() { unzip -q -c "$1"; }
+ZipStdin() { cat | zip "$1" -; } 		# echo "Test Text" | ZipStdin "test.txt"
+
+# UnzipPlatform - use platform specific unzip to fix unzip errors syncing metadata on Windows drives
+UnzipPlatform()
+{
+	local sudo zip dest
+
+	# arguments
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-s|--sudo) sudo="sudoc";;
+			*)
+				! IsOption "$1" && [[ ! $zip ]] && { zip="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
+				UnknownOption "$1" "UnzipPlatform"; return
+		esac
+		shift
+	done
+	[[ ! "$zip" ]] && { MissingOperand "zip" "UnzipPlatform"; return 1; }
+	[[ ! "$dest" ]] && { MissingOperand "dest" "UnzipPlatform"; return 1; }
+
+	# unzip
+	if IsPlatform win; then
+		7z.exe x "$(utw "$zip")" -o"$(utw "$dest")" -y -bb3 || return
+	else
+		$sudo unzip -o "$zip" -d "$dest" || return
+	fi
+
+	return 0
 }
 
 #
