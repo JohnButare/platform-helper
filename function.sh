@@ -2043,6 +2043,7 @@ sudoe()
 #
 
 tac() { InPath tac && command tac "$@" | cat "$@"; }
+tgrep() { grep "$@"; true; } # true grep, always returns true, useful in pipelines if pipefail is set and grep returns to lines
 Utf16toAnsi() { iconv -f utf-16 -t ISO-8859-1; }
 Utf16to8() { iconv -f utf-16 -t UTF-8; }
 
