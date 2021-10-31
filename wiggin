@@ -75,7 +75,7 @@ backupDomain()
 
 	hilight "Backup up domain $domain..."
 	local dest; dest="$(AppBackupFile "$domain.zip")" || return
-	CloudFlare dns list "$domain" | jq | ZipStdin "$dest" || return
+	CloudFlare dns list "$domain" | ZipStdin "$dest" || return
 
   echo "Domain backup completed to '$dest'"
 }
@@ -149,33 +149,55 @@ backupJobCommand()
 	SshAgent status || exit
 
 	# backup 
-	local result
-	backupConsul && backupDomains && backupDomotz && backupHomebridge && backupProxyManager && backupUniFi && backupWeb
-	result="$?"
+	local fail=0 success=0
 	echo
+	runAll "sync" internet JumpCloud || return
+	runAll "backup" consul domains domotz homebridge ProxyManager UniFi web || return
 
 	# result
-	(( $result == 0 )) && hilight "success" || echo "${RED}fail${reset}"
-	return "$result"
+	header "Wiggin Backup Complete"
+	(( fail > 0 )) && { HilightRed "$success succeeded, $fail failed"; return 1; }
+	hilight "$success succeeded"
 }
 
-backupDo()
+HilightRed() { echo "${RED}$1${reset}"; }
+
+runAll()
 {
-	local name="$1"; shift
-	header "Backup $name"
-
-	! UpdateNeeded "Backup$name" && { echo "$name backup already done today."; return; }
-	"$@" "${globalArgs[@]}" || return
-	UpdateDone "Backup$name"
+	local type="$1" w; shift
+	for w in "$@"; do $type$(UpperCaseFirst "$w") || return; done
 }
 
-backupConsul() { backupDo "Consul" "wiggin" "backup" "consul"; }
-backupDomains() { backupDo "Domains" "wiggin" "backup" "domains"; }
-backupDomotz() { backupDo "Domotz" "DomotzHelper" "backup"; }
-backupHomebridge() { backupDo "Homebridge" "HomebridgeHelper" "backup" "pi1" "pi2"; }
-backupProxyManager() { backupDo "ProxyManager" "wiggin" "backup" "ProxyManager"; }
-backupUniFi() { backupDo "UniFi" "UniFiController" "backup"; }
-backupWeb() { backupDo "Web" "wiggin" "backup" "web"; }
+runApp()
+{
+	local type="$1" name="$(UpperCaseFirst "$2")"; shift 2
+	local desc="$(UpperCaseFirst "$type")"
+	local cache="$desc$name"
+
+	header "$desc $name"
+
+	! UpdateNeeded "$cache" && { echo "$name $type already done today."; runAppSuccess; return; }
+
+	if "$@" "${globalArgs[@]}"; then
+		runAppSuccess
+		UpdateDone "$cache"
+	else
+		HilightRed "failed"; echo
+		(( fail+=1 ))
+	fi
+}
+
+runAppSuccess() { hilight "succeeded"; echo; (( success+=1 )); }
+
+backupConsul() { runApp "backup" "consul" wiggin backup consul; }
+backupDomains() { runApp "backup" "domains" wiggin backup domains; }
+backupDomotz() { runApp "backup" "domotz" DomotzHelper backup; }
+backupHomebridge() { runApp "backup" "homebridge" HomebridgeHelper backup pi1 pi2; }
+backupProxyManager() { runApp "backup" "ProxyManager" wiggin backup ProxyManager; }
+backupUniFi() { runApp "backup" "UniFi" UniFiController backup; }
+backupWeb() { runApp "backup" "web" wiggin backup web; }
+syncInternet() { runApp "sync" "internet" wiggin sync internet; }
+syncJumpCloud() { runApp "sync" "JumpCloud" wiggin sync JumpCloud; }
 
 #
 # Remove Command
@@ -668,13 +690,13 @@ updateIp()
 
 syncJumpcloudCommand()
 {
-	local ip; ip="$(network internet address)" || return
+	local ip; ip="$(network internet address 1)" || return
 	hilight "Updating JumpCloud wiggin-cable RADIUS Server to $ip..."
-	JumpCloud radius update wiggin-cable "$ip" || return
+	JumpCloud radius update wiggin-cable "$ip" > /dev/null || return; echo
 
-	ip="$(network internet address DslModem)" || return
+	ip="$(network internet address 2)" || return
 	hilight "Updating JumpCloud wiggin-dsl RADIUS Server to $ip..."
-	JumpCloud radius update wiggin-dsl "$ip" || return 
+	JumpCloud radius update wiggin-dsl "$ip" > /dev/null || return; echo
 }
 
 #
@@ -766,7 +788,7 @@ deviceStatus()
 mountVol() { VeraCrypt mount "$@" p "${globalArgs[@]}"; }
 unmountVol() { VeraCrypt unmount p "${globalArgs[@]}"; }
 
-# backupDo ARCHIVE SERVER [PATHS]
+# backupApp ARCHIVE SERVER [PATHS]
 borgBackup()
 {
 	local archive="$1" server="$2"; shift 2

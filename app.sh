@@ -92,6 +92,6 @@ AppBackupFile()
 {
 	local file="$1"
 	local dest; dest="$(AppGetBackupDir)/$file" || return
-	[[ -f "$dest" ]] && { bak --move "$dest" || return; }
+	[[ -f "$dest" ]] && { bak --move "$dest" >& /dev/stderr || return; }
 	echo "$dest"
 }
