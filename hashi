@@ -1157,25 +1157,28 @@ resolveAddress()
 	else
 		printf "$result" | tail +4 | grep "^Address:" | cut -d: -f2 | RemoveSpace | "${filter[@]}"
 	fi
-	
-	return "${PIPESTATUS[0]}"
 }
 
 resolveDns()
 {
-	local name="$1"
+	local name="$1"; name+=".service.$domain"
+
+	# logging
+	[[ $verbose ]] && HilightErr "Resolving DNS information for '$name'"
+
+	# get a consul server to resolve the name
 	local server="$(productGetServer "consul")"
 
-	[[ ! $server ]] && { ScriptErr "a consul server is not available"; return 1; }
-	[[ $verbose ]] && HilightErr "Resolving DNS information for '$name' using Consul server $server"
-	! IsAvailablePort "$server" 8600 && { [[ ! $quiet ]] && ScriptErr "$server port 8600 is not available"; return 1; }
+	[[ ! $server ]] && { [[ ! $quiet ]] && ScriptErr "no consul server found"; return 1; }
+	! IsAvailablePort "$server" 8600 && { [[ ! $quiet ]] && ScriptErr "consul server $server port 8600 is not available"; return 1; }
 
-	name+=".service.$domain"
-
+	# logging
 	[[ $verbose ]] && EchoErr "Resolving DNS name '$name' using server $server"
 	(( verboseLevel > 1 )) && EchoErr "command: nslookup -port=8600 -type=a -norecurse $name $server"
 
-	nslookup -port=8600 -type=a -norecurse "$name" "$server"
+	# resolve the name using nslookup
+	local result; result="$(nslookup -port=8600 -type=a -norecurse "$name" "$server")" || { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
+	echo "$result"
 }
 
 resolveDig()
@@ -2752,43 +2755,46 @@ productGetProtocol() { [[ $useHttps ]] && echo "https" || echo "http"; }
 productGetServer()
 {
 	local product="${1:-$product}" host="$2"
-	local server
-
-	# use the passed host
-	if [[ $host ]]; then
-		server="$host"
-
-	# use the --product-server argument
-	elif [[ $productServer ]]; then
-		server="$productServer"
-
-	# use the first host specified by the --host or --servers arguments
-	elif [[ $hostArg || $servers ]]; then
-		local hosts; getHosts "${servers[@]}" || return
-		server="${hosts[0]}"
-
-	# use the <product>_SERVER environment variable
-	elif [[ ! $force && $(productVarGet "SERVER") ]]; then
-		server="$(productVarGet "SERVER")"
-
-	# use the local host for the server if the product service is running
-	elif [[ "$product" != @(nomad) ]] && [[ -f "/etc/systemd/system/$product.service" ]] && IsProcessRunning "$product" && service running "$product"; then
-		server="127.0.0.1"
-
-	# use consul to resolve the server for the product
-	elif [[ "$product" != "consul" ]] && server="$(productResolve)"; then
-		:
-
-	# use the first server specified in bootstrap-config.sh
-	else
-		server="$(configServer)"
-
-	fi
+	local server; server="$(productGetServerDo)" || return
 
 	[[ ! $server ]] && { ScriptErr "unable to find a $product server for the '$configDesc' configuration"; return 1; }
 
-	# return server - use 127.0.0.1 or the fully qualified DNS name to match the certificate
+	# return server - use 127.0.0.1 or the fully qualified DNS name (to match the certificate)
 	IsLocalHost "$server" && echo "127.0.0.1" || DnsResolve "$server"
+}
+
+productGetServerDo()
+{
+	# use the passed host
+	[[ $host ]] && { echo "$host"; return; }
+
+	# use the --product-server argument
+	[[ $productServer ]] && { echo "$productServer"; return; }
+
+	# use the first host specified by the --host or --servers arguments
+	if [[ $hostArg || $servers ]]; then
+		local hosts; getHosts "${servers[@]}" || return
+		echo "${hosts[0]}"; return
+	fi
+
+	# use the <product>_SERVER environment variable if it is valid
+	if [[ ! $force && $(productVarGet "SERVER") ]]; then
+		server="$(productVarGet "SERVER")"
+		DnsResolve --quiet "$server" >& /dev/null && { echo "$server"; return; }
+	fi
+
+	# use the local host for the server if the product service is running
+	if [[ "$product" != @(nomad) ]] && [[ -f "/etc/systemd/system/$product.service" ]] && IsProcessRunning "$product" && service running "$product"; then
+		echo "127.0.0.1"; return
+	fi
+
+	# use consul to resolve the server for the product
+	if [[ "$product" != "consul" ]] && server="$(productResolve)"; then
+		echo $server; return
+	fi
+
+	# use the first server specified in bootstrap-config.sh
+	server="$(configServer)"
 }
 
 productInstall()
