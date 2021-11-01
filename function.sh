@@ -1346,6 +1346,18 @@ IsInSshConfig()
 	return 0
 }
 
+# SshConfigDiff HOST - show the changes for the host in ~/.ssh/config
+SshConfigDiff() 
+{
+	local hostFull="$1" host="$(GetSshHost "$1")" defaultFull default="DEFAULT_CONFIG"
+	defaultFull="${hostFull/$host/$default}"
+
+	ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$" > "/tmp/default.txt"
+	ssh -G "$hostFull" | grep -i -v "^hostname ${host}$" > "/tmp/$host.txt"
+
+	merge "/tmp/default.txt" "/tmp/$host.txt"
+}
+
 # SshAgentConfig - if the SSH Agent is started, add the configuration variables to the shell
 SshAgentConfig() { [[ ! -f "$HOME/.ssh/environment" ]] && return; . "$HOME/.ssh/environment"; }
 
