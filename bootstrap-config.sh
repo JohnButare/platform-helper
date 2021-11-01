@@ -31,10 +31,11 @@ hostWaitTimeout="200" # seconds to wait for host to be available
 networks="hagerman@10.10.100.10,hagerman@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
 hagermanBaseDomain="butare.net"
 hagermanBackupServers="backup3.$hagermanBaseDomain,backup2.$hagermanBaseDomain,backup1.$hagermanBaseDomain" # list of backup servers in the format HOST1 [,HOST2]...
-hagermanFileServers="file2.$hagermanBaseDomain,file1.$hagermanBaseDomain" # list of file server
-hagermanProxyServers="proxy.$hagermanBaseDomain:3128" # list of proxy servers
-hagermanWebServers="web2.$hagermanBaseDomain,web1.$hagermanBaseDomain" # list of web servers
-hagermanDockerServers="pi1.$hagermanBaseDomain,pi2.$hagermanBaseDomain" # list of Docker Swarm managers
+hagermanDockerServers="pi1.$hagermanBaseDomain,pi2.$hagermanBaseDomain" # Docker Swarm managers
+hagermanFileServers="file2.$hagermanBaseDomain,file1.$hagermanBaseDomain"
+hagermanProxyServers="proxy.$hagermanBaseDomain:3128"
+hagermanWebServers="web2.$hagermanBaseDomain,web1.$hagermanBaseDomain"
+hagermanWireguardServers="pi1.$hagermanBaseDomain,pi2.$hagermanBaseDomain"
 
 # bootstrap
 bootstrapHost="$fs" # HOST, DIR, or Windows drive letter (/mnt/D) for access to scripts and installers
