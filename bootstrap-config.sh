@@ -35,7 +35,7 @@ hagermanDockerServers="pi1.$hagermanBaseDomain,pi2.$hagermanBaseDomain" # Docker
 hagermanFileServers="file2.$hagermanBaseDomain,file1.$hagermanBaseDomain"
 hagermanProxyServers="proxy.$hagermanBaseDomain:3128"
 hagermanWebServers="web2.$hagermanBaseDomain,web1.$hagermanBaseDomain"
-hagermanWireguardServers="pi1.$hagermanBaseDomain,pi2.$hagermanBaseDomain"
+hagermanWireguardServers="pi2.$hagermanBaseDomain,pi1.$hagermanBaseDomain"
 
 # bootstrap
 bootstrapHost="$fs" # HOST, DIR, or Windows drive letter (/mnt/D) for access to scripts and installers

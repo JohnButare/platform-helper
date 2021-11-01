@@ -163,7 +163,7 @@ backupJobCommand()
 	# backup 
 	local fail=0 success=0
 	echo
-	runAll "sync" internet JumpCloud || return
+	runAll "sync" internet JumpCloud WireGuard || return
 	runAll "backup" consul domains domotz homebridge ProxyManager UniFi web WireGuard || return
 
 	# result
@@ -211,6 +211,7 @@ backupWeb() { runApp "backup" "web" wiggin backup web; }
 backupWireGuard() { runApp "backup" "WireGuard" wiggin backup WireGuard; }
 syncInternet() { runApp "sync" "internet" wiggin sync internet; }
 syncJumpCloud() { runApp "sync" "JumpCloud" wiggin sync JumpCloud; }
+syncWireGuard() { runApp "sync" "WireGuard" wiggin sync WireGuard; }
 
 #
 # Remove Command
@@ -719,6 +720,39 @@ syncJumpcloudCommand()
 	ip="$(network internet address 2)" || return
 	hilight "Updating JumpCloud wiggin-dsl RADIUS Server to $ip..."
 	JumpCloud radius update wiggin-dsl "$ip" > /dev/null || return; echo
+}
+
+syncWireguardCommand()
+{
+	local port="51820"
+
+	# get an available WireGuard server
+	local servers=(); StringToArray "$(network current servers wireguard)" "," servers
+	local newIndex newName; 
+	newIndex="$(network find "${servers[@]}" --service "$port" --udp)" || return
+	newName="${servers[$newIndex]}"
+	
+	# return if the WireGuard server has not changed
+	local currentName="$(UpdateGet "WireGuardServer")"
+	[[ "$currentName" == "$newName" ]] && { echo "The WireGuard server ($currentName) has not changed."; return; }
+
+	# enable port forwarding for the selected WireGuard server
+	echo "Enabling WireGuard port forwarding for $newName..."
+	UniFiController port enable "WireGuard ($(RemoveDnsSuffix "$newName"))" || return
+
+	# disable port forwarding for other WireGuard servers
+	local i
+	for (( i = 0; i < ${#servers[@]}; i++ )); do
+
+		(( i == newIndex )) && continue
+
+		local server="${servers[$i]}"
+		echo "Disabling WireGuard port forwarding for $server..."
+		UniFiController port disable "WireGuard ($(RemoveDnsSuffix "$server"))" || return
+		
+	done
+
+	UpdateSet "WireGuardServer" "$newName"
 }
 
 #

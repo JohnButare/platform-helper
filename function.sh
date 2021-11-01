@@ -1130,7 +1130,8 @@ IsLocalHostIp() { IsLocalHost "$1" || [[ "$(GetIpAddress "$1" --quiet)" == "$(Ge
 # Network: Host Availability
 #
 
-IsAvailable() # HOST [TIMEOUT_MILLISECONDS] - returns true if the host is available
+# IsAvailable HOST [TIMEOUT_MILLISECONDS] - returns true if the host is available
+IsAvailable() 
 { 
 	local host="$1" timeout="${2:-$(ConfigGet "hostTimeout")}"
 
@@ -1150,7 +1151,8 @@ IsAvailable() # HOST [TIMEOUT_MILLISECONDS] - returns true if the host is availa
 	fi
 }
 
-IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT_MILLISECONDS]
+# IsPortAvailable HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified TCP port
+IsAvailablePort()
 {
 	local host="$1" port="$2" timeout="${3-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host" --quiet)" || return
 
@@ -1160,6 +1162,18 @@ IsAvailablePort() # ConnectToPort HOST PORT [TIMEOUT_MILLISECONDS]
 		nmap "$host" -p "$port" -Pn -T5 |& grep -q "open" >& /dev/null
 	elif IsPlatform win; then	
 		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
+	else
+		return 0 
+	fi
+}
+
+# IsPortAvailableUdp HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified UDP port
+IsAvailablePortUdp()
+{
+	local host="$1" port="$2" timeout="${3-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host" --quiet)" || return
+
+	if InPath nmap; then
+		sudoc nmap "$host" -p "$port" -Pn -T5 -sU |& grep -q "open" >& /dev/null
 	else
 		return 0 
 	fi

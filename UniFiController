@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [api|backup](api)
+Usage: $(ScriptName) [OPTION]... [api|backup|port](api)
 Manage the UniFi controller."
 }
 
@@ -48,11 +48,8 @@ apiArgs()
 	return 0
 }
 
-apiCommand()
-{
-	apiInit || return
-	$curl --silent --data "$json" "$url/api/s/$site/$(echo "$uri" | RemoveFront "/")"
-}
+apiCommand() { api "$uri" "$json"; }
+apiPutCommand() { apiPut "$uri" "$json"; }
 
 #
 # Backup Command
@@ -79,8 +76,65 @@ backupCommand()
 }
 
 #
+# Port Commands
+#
+
+apiUsage()
+{
+	echot "Usage: $(ScriptName) port [list|enable|disable](list)
+Perform an API command.
+
+	list					list all port forwarding rules
+	enable PORT		enable specified port forwarding rule
+	disable PORT		disable specified port forwarding rule"
+}
+
+portCommand() { portListCommand; }
+portListCommand() { getPorts; }
+
+portDisableArgs() { ScriptArgGet "port" -- "$@"; shift; }
+portDisableCommand() { portEnable "$port" "false"; }
+portEnableArgs() { ScriptArgGet "port" -- "$@"; shift; }
+portEnableCommand() { portEnable "$port" "true"; }
+
+# portEnable PORT true|false
+portEnable()
+{
+	local port="$1" status="$2"
+	local id; id="$(getPortId "$port")" || return
+	apiPut "/rest/portforward/$id" '{ "enabled": '$status' }' | jq
+}
+
+# getPortId NAME - get the ID of the specified port forwarding rule
+getPortId()
+{
+	local name="$1"
+	local id; id="$(getPorts | jq ".data[] | select(.name == \"$name\")._id" | RemoveQuotes)" || return
+	[[ "$id" == "null" ]] && unset id
+	[[ ! $quiet && ! $id ]] && EchoErr "port forwarding rule '$name' not found"
+	[[ $id ]] && echo "$id"
+}
+
+getPorts() { api "/list/portforward"; }
+
+
+#
 # API Helper
 #
+
+api()
+{
+	local uri="$1" json="$2"
+	apiInit || return
+	$curl --silent --data "$json" "$url/api/s/$site/$(echo "$uri" | RemoveFront "/")"
+}
+
+apiPut()
+{
+	local uri="$1" json="$2"
+	apiInit || return
+	$curl -X PUT --silent --data "$json" "$url/api/s/$site/$(echo "$uri" | RemoveFront "/")"
+}
 
 apiInit()
 {
