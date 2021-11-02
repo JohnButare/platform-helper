@@ -1067,9 +1067,9 @@ GetPrimaryAdapterName()
 
 GetServer()
 {
-	local server="$1"; [[ ! $server ]] && { MissingOperand "server" "GetServer"; return 1; }
-	local ip; ip="$(GetIpAddress "$1.service")" || return
-	DnsResolve "$ip" 
+	local server="$1"; shift; [[ ! $server ]] && { MissingOperand "server" "GetServer"; return 1; }
+	local ip; ip="$(GetIpAddress "$server.service" "$@")" || return
+	DnsResolve "$ip" "$@"
 }
 
 GetServers() { GetIpAddress --all "$1.service" | xargs -n 1 RunScript DnsResolve; }
