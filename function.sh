@@ -2083,11 +2083,11 @@ sudoe()
 	IsRoot && { sudoedit "$@"; return; }
 
 	if InPath sudoedit && credential -q exists secure default; then
-		SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$1"
+		SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$@"
 	elif InPath sudoedit; then
-		sudoedit "$1"
+		sudoedit "$@"
 	else
-		sudo nano "$1" 
+		sudo nano "$@" 
 	fi
 } 
 
