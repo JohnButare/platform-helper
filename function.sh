@@ -1495,9 +1495,10 @@ packageExclude()
 
 
 # pakcageu PACKAGE - remove the specified package exists
+# - allow removal prompt to view dependant programs being uninstalled, i.e. uninstall of mysql-common will remove kea
 packageu() # package uninstall
 { 
-	IsPlatform debian && { sudo apt remove -y "$@"; return; }
+	IsPlatform debian && { sudo apt remove "$@"; return; }
 	IsPlatform dsm,qnap && { sudo opkg remove "$@"; return; }
 	IsPlatform mac && { brew remove "$@"; return; }	
 	return 0
