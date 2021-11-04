@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+. script.sh || exit
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [COMMAND]... [OPTION]...
+Additional Kea functionality.
+	
+	config			edit configuration
+	log					show server logs
+	service			control the DHCP service
+	test				test the DHCP server
+	version			show version information"
+}
+
+init()
+{
+	service="kea-dhcp4-server"
+	sourceProgram="/usr/local/sbin/kea-dhcp4"
+	sourceLog="/usr/local/var/log/kea-dhcp4.log"
+	packageProgram="/usr/sbin/kea-dhcp4"
+	packageLog="/var/log/kea-dhcp4.log"
+}
+
+#
+# commands
+#
+
+configCommand() { sudoe "/etc/kea/kea-dhcp4"* && serviceRestartCommand; }
+
+#
+# Log Commands
+#
+
+logUsage()
+{
+		echot "\
+Usage: $(ScriptName) log [service]
+Service log commands.
+
+	log						show the main application log
+	log service		show the service log"
+}
+
+logCommand() { LogShow "$(getLog)"; }
+logServiceCommand() { service log "$service"; }
+
+#
+# service Commands
+#
+
+serviceUsage()
+{
+		echot "\
+Usage: $(ScriptName) service restart|start|status|stop
+Service commands."
+}
+
+serviceCommand() { usage; }
+serviceRestartCommand() { service restart "$service"; }
+serviceStartCommand() { service start "$service"; }
+serviceStatusCommand() { service status "$service"; }
+serviceStopCommand() { service stop "$service"; }
+
+#
+# Test Command
+#
+
+testUsage() { echot "Usage: $(ScriptName) test HOST\nTest DHCP server by renewing the DHCP address of the specified host."; }
+testArgs() { ScriptArgGet "host" -- "$@"; }
+testCommand() { SshHelper connect "$host.local" -- 'sudo dhclient -r; sudo dhclient'; ping "$host.local"; }
+
+#
+# Version Commands
+#
+
+versionUsage()
+{
+		echot "\
+Usage: $(ScriptName) version [detail]
+Service Kea version.
+
+	detail		show detailed version information"
+}
+
+versionCommand()
+{
+	if [[ $verbose ]]; then
+		versionDetailCommand
+	else
+		"$(getProgram)" -v
+	fi
+}
+
+versionDetailCommand()
+{
+	local activeProgram="$(getProgram)"
+	local activeLog="$(getLog)"
+	local activeInstallationType="Source"; [[ "$activeProgram" == "$packageProgram" ]] && activeDescription="Package"
+
+	header "$activeInstallationType Installation (active)"
+	echo "$(cat <<-EOF
+		version="$("$activeProgram" -v)"
+		program="$activeProgram"
+		log="$activeLog"
+		EOF
+	)"
+
+	if [[ -f "$packageProgram" && "$activeProgram" != "$packageProgram" ]]; then
+		echo; header "Package Installation"
+		echo "$(cat <<-EOF
+			version="$("$packageProgram" -v)"
+			program="$packageProgram"
+			log="$packageLog"
+			EOF
+		)"
+	fi
+
+	if [[ -f "$sourceProgram" && "$activeProgram" != "$sourceProgram" ]]; then
+		echo; header "Source Installation"; echo 
+		echo "$(cat <<-EOF
+			version="$("$sourceProgram" -v)"
+			program="$sourceProgram"
+			log="$sourceLog"
+			EOF
+		)"
+	fi
+}
+
+#
+# helper
+#
+
+getLog() { [[ "$(getProgram)" == "$sourceProgram" ]] && echo "$sourceLog" || echo "$packageLog"; }
+getProgram() { cat "/lib/systemd/system/kea-dhcp4-server.service" | grep ExecStart | cut -d" " -f 1 | cut -d"=" -f 2; }
+
+ScriptRun "$@"
