@@ -1762,7 +1762,7 @@ IsTaskRunning()
 	IsTaskRunningDo	",$file$" || IsTaskRunningDo ",.*\\\\$file$"
 }
 
-IsTaskRunningDo() { ProcessList | grep -v ",grep" | grep -iq  "$1"; }
+IsTaskRunningDo() { ProcessList | tgrep -v ",grep" | grep -iq  "$1"; }
 
 # IsProcessRunning PROCESS - faster, no Windows processes
 IsProcessRunning()
