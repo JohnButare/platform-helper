@@ -1006,6 +1006,7 @@ GetInterface()
 # -m|--mdns						resolve host using MDNS
 # -v|--vm 						resolve host using local virtual machine names (check $HOSTNAME-HOST)
 # -w|--wsl						get the IP address used by WSL (Windows only)
+# test cases: 10.10.100.10 web.service pi1 pi1.butare.net pi1.hagerman.butare.net
 GetIpAddress() 
 {
 	local host mdns quiet vm wsl all=(head -1); 
@@ -1034,14 +1035,14 @@ GetIpAddress()
 	IsMdnsName "$host" && { ip="$(MdnsResolve "$host" 2> /dev/null)"; [[ $ip ]] && echo "$ip"; return; }
 
 	# lookup IP address using various commands
-	# - -N 3 and -ndotes=3 allow the default domain names for partial names like consul.service
+	# - -N 3 and -ndots=2 allow the default domain names for partial names like consul.service
 	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
 	# - nslookup is slow on macOS if a name server is not specified
 	if InPath getent; then ip="$(getent ahostsv4 "$host" |& grep "STREAM" | "${all[@]}" | cut -d" " -f 1)"
-	elif InPath host; then ip="$(host -N 3 -t A -4 "$host" |& ${G}grep -v "^ns." | grep "has address" | "${all[@]}" | cut -d" " -f 4)"
-	elif InPath nslookup; then ip="$(nslookup -ndots=3 -type=A "$host" |& tail +4 | grep "^Address:" | "${all[@]}" | cut -d" " -f 2)"
+	elif InPath host; then ip="$(host -N 2 -t A -4 "$host" |& ${G}grep -v "^ns." | grep "has address" | "${all[@]}" | cut -d" " -f 4)"
+	elif InPath nslookup; then ip="$(nslookup -ndots=2 -type=A "$host" |& tail +4 | grep "^Address:" | "${all[@]}" | cut -d" " -f 2)"
 	fi
 
 	# if an IP address was not found, check for a local virtual hostname
@@ -1265,6 +1266,7 @@ IsMdnsName() { IsBash && [[ "$1" =~ .*'.'local$ ]] || [[ "$1" =~ .*\\.local$ ]];
 ConsulResolve() { hashi resolve "$@"; }
 
 # DnsResolve NAME|IP - resolve NAME or IP address to a fully qualified domain name
+# test cases: 10.10.100.10 web.service pi1 pi1.butare.net pi1.hagerman.butare.net
 DnsResolve()
 {
 	local name quiet
@@ -1290,17 +1292,17 @@ DnsResolve()
 	if IsIpAddress "$name"; then
 
 		if InPath host; then
-			lookup="$(host -N 3 -t A -4 "$name" |& cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
+			lookup="$(host -t A -4 "$name" |& cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
 		else		
-			lookup="$(nslookup -ndots=3 $name |& grep "name =" | cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
+			lookup="$(nslookup -type=A $name |& grep "name =" | cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
 		fi
 
 	# forward DNS lookup to get the fully qualified DNS address
 	else
 
 		if InPath getent; then lookup="$(getent ahostsv4 "$name" |& head -1 | tr -s " " | cut -d" " -f 3)" || unset lookup
-		elif InPath host; then lookup="$(host -N 3 -t A -4 "$name" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 1)" || unset lookup
-		elif InPath nslookup; then lookup="$(nslookup -ndots=3 "$name" |& tail -3 | grep "Name:" | cut -d$'\t' -f 2)" || unset lookup
+		elif InPath host; then lookup="$(host -N 2 -t A -4 "$name" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 1)" || unset lookup
+		elif InPath nslookup; then lookup="$(nslookup -ndots=2 -type=A "$name" |& tail -3 | grep "Name:" | cut -d$'\t' -f 2)" || unset lookup
 		fi
 		
 	fi
