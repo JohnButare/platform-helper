@@ -890,6 +890,7 @@ HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
+RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
 
 CacheDefaultGateway()
@@ -1338,7 +1339,7 @@ MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';
 #
 
 GetSshUser() { echo "$1" | cut -s -d@ -f 1; } 							# USER@SERVER:PORT
-GetSshHost() { echo "$1" | cut -d@ -f 2 | cut -d: -f 1; }		
+GetSshHost() { echo "$1" | cut -d@ -f 2 | RemovePort; }		
 GetSshPort() { echo "$1" | cut -s -d: -f 2; }
 
 IsSsh() { [[ "$SSH_TTY" || "$XPRA_SERVER_SOCKET" ]]; }
