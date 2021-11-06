@@ -154,8 +154,11 @@ makeLinkSudo() { sudoc MakeLink --suppress $quiet $noPrompt "$@"; }
 mergeDir() { MergeDir --parents --suppress "$@"; }
 minimalInstall() { [[ $_minimalInstall ]]; }
 mvSudo() { [[ ! -e "$1" ]] && return; sudoc mv "$1" "$2"; }
+openHttp() { local url="$1"; IsInteger "$url" && url="http://$(GetIpAddress --wsl):$url"; browser "$url"; }
+openHttps() { local url="$1"; IsInteger "$url" && url="https://$(GetIpAddress --wsl):$url"; browser "$url"; }
 pkg() { package -q "$@"; }
 rmSudo() { [[ ! -f "$1" ]] && return; sudoc ${G}rm -f "$1"; }
+serviceDemandStop() { 	service demand "$1" && service stop "$1"; }
 verifyStaticIpAddress() { [[ -f /etc/dhcpcd.conf ]] && grep "^static ip_address=" /etc/dhcpcd.conf >& /dev/null; }
 
 findCompareProgram()
@@ -419,9 +422,8 @@ runTypeDocker()
 
 	dockerCheck || return
 
-	# locate the docker compose YAML file
-
-	if ! [[ -f "$p" ]]; then
+	# locate the compose file
+	if ! IsUrl "$p" && ! [[ -f "$p" ]]; then
 		local file="$CLOUD/network/system/docker/$p.yml"
 		[[ ! -f "$file" ]] && findFile "shareware/Docker/image/$p.yml"
 		[[ ! -f "$file" ]] && { ScriptErr "unable to locate '$(GetFileName "$p")' Docker compose YAML file"; return 1; }
@@ -429,20 +431,22 @@ runTypeDocker()
 	fi
 
 	# create the application directory
-	local app="$name"; [[ ! $app ]] && app="$(GetFileNameWithoutExtension "$p")"
+	local app="$name"; [[ ! $app ]] && app="$(GetFileNameWithoutExtension "$p" | RemovePort)"
 	local appDir="$dest/$app"
 	makeDirSudo "$appDir" || return
 
-	# copy the Docker compose YAML file to the application directory
+	# copy the compose file to the application directory
 	local composeFile="$appDir/docker-compose.yml"
-	[[ ! -f "$composeFile" || $force ]] && { sudoc cp "$p" "$composeFile" || return; }
+	if [[ ! -f "$composeFile" || $force ]]; then
+		if IsUrl "$p"; then
+			sudoc curl -L "$p" -o "$composeFile" || return
+		else
+	 		sudoc cp "$p" "$composeFile" || return
+	 	fi
+	fi
 	
-	# pull the service images
-	cd "$appDir" || return
-	docker-compose pull || return
-
-	# create and start the containers
-	docker-compose up -d || return
+	# deploy the stack
+	docker stack deploy -c "$composeFile" "${app,,}" || return
 }
 
 runTypeExtension()
@@ -749,7 +753,7 @@ appHost()
 		# server
 		pi1) i $commonPi $homeServer apache portainer || return;;
 		pi2) i $commonPi $homeServer apache DomotzAgent mosquitto || return;;
-		pi3) i $commonPi certbot cups NodeRed NginxProxyManager || return;;
+		pi3) i $commonPi certbot cups NginxProxyManager || return;;
 		pi7) i $commonPi $commonPiHw;; # development
 		pi8) i $commonPi $commonPiHw PiWifi;; # pool
 
@@ -2248,7 +2252,7 @@ NginxProxyManagerInstall()
 	run --docker "nginx-proxy-manager" || return
 
 	# open the configuration page
-	browser "http://$(GetIpAddress --wsl):81"
+	openHttp "81"
 }
 
 #################################################
@@ -2711,7 +2715,7 @@ CorsairUtilityEngineInstall()
 CorsairUtilityEngineFinalWin()
 {
 	registry 32 delete "run/CORSAIR iCUE Software" # "C:\Program Files (x86)\Corsair\iCUE\iCUE Launcher.exe" --autorun
-	service stop CorsairService || return # high CPU
+	serviceDemandStop "CorsairService" || return # high CPU
 }
 
 CrealitySlicerInstall()
@@ -3061,8 +3065,7 @@ LogitechGhubInstall()
 {
 	header "Logitech G HUB" # https://support.logi.com/hc/en-us/articles/360024696774--Downloads-PRO-Wireless-Gaming-Mouse
 	run "hardware/Logitech/G HUB/lghub_installer.exe" --copy-local --elevate || return	
-	service demand "LGHUBUpdaterService" || return
-	service stop "LGHUBUpdaterService" || return
+	serviceDemandStop "LGHUBUpdaterService" || return
 	i LogitechFinal || return
 }
 
@@ -6378,12 +6381,10 @@ ParallelsDesktopInstall()
 	- Security, check Do not back up virtual machine"
 }
 
-portainer() # install or update Portainer on a Docker Swarm
+portainerInstall() # install or update Portainer on a Docker Swarm
 {
-	header "Portainer Agent" # https://docs.portainer.io/v/ce-2.9/start/install/server/swarm/linux
-	curl -L "https://downloads.portainer.io/portainer-agent-stack.yml" -o "/tmp/portainer-agent-stack.yml" || return
-	docker stack deploy -c "/tmp/portainer-agent-stack.yml" portainer || return
-	browser "http://$(GetIpAddress --wsl):"
+	run --name "portainer" --docker "https://downloads.portainer.io/portainer-agent-stack.yml" || return
+	openHttps "9443" || return
 } 
 
 VirtualBoxInstall()
