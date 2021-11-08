@@ -7,9 +7,10 @@ usage()
 Usage: os [COMMAND]... [OPTION]...
 Operating system commands
 
-	architecture|bits|CodeName|hardware|memory|version 			information
+	architecture|bits|CodeName|hardware|version 			information
 	environment|index|path|lock|preferences|store						control
 	executable		executable information
+	memory				[available|total](total)
 	name					show or set the operating system name"
 }
 
@@ -25,21 +26,6 @@ indexWin() { coproc rundll32.exe shell32.dll,Control_RunDLL srchadmin.dll,Indexi
 
 lockCommand() { RunPlatform lock; }
 lockMac() { pmset displaysleepnow; }
-
-
-memoryUsage() 
-{
-	echot "Usage: os memory
-Return the total amount of system memory rounded up or down to the nearest gibibyte."
-}
-
-memoryCommand() 
-{ 
-	local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f2)"
-	local gbRoundedTwo="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
-	local gbRounded="$(echo "($gbRoundedTwo + .5)/1" | bc)"
-	echo "$gbRounded"
-}
 
 pathCommand()
 { 
@@ -61,7 +47,7 @@ storeMac() { open "/System/Applications/App Store.app"; }
 storeWin() { start "" "ms-windows-store://"; }
 
 #
-# executable command
+# Executable Command
 #
 
 executableUsage()
@@ -115,7 +101,34 @@ executableFindCommand()
 }
 
 #
-# name commands
+# Memory Command
+#
+
+memoryUsage() 
+{
+	echot "Usage: os [available|total](total)
+Return the total or available amount of system memory rounded up or down to the nearest gigabyte."
+}
+
+memoryCommand() { memoryTotalCommand; }
+
+memoryAvailableCommand()
+{
+	local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f7)"
+	local gbRounded="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
+	echo "$gbRounded"
+}
+
+memoryTotalCommand()
+{ 
+	local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f2)"
+	local gbRoundedTwo="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
+	local gbRounded="$(echo "($gbRoundedTwo + .5)/1" | bc)"
+	echo "$gbRounded"
+}
+
+#
+# Name Commands
 #
 
 nameUsage()
@@ -174,7 +187,7 @@ setHostnameMac()
 }
 
 #
-# information commands
+# Information Commands
 #
 
 codenameCommand() { ! InPath lsb_release && return 1; lsb_release -a |& grep "Codename:" | cut -f 2-; }
@@ -267,8 +280,6 @@ versionLocal()
 	echo "    platform: $(PlatformDescription)"
 
 	versionDistribution	|| return
-	IsPlatform mac && { versionDistributionMac || return; }
-	IsPlatform win && { versionDistributionWin || return; }
 
 	# Linux Kernel
 	local bits="$(bitsCommand)"; [[ $bits ]] && bits=" ($bits bit)"
@@ -276,9 +287,12 @@ versionLocal()
 
 	# hardware
 	versionCpu || return
-	local hardware="$(architectureCommand)"
-	[[ "$hardware" != "$(hardwareCommand)" ]] && hardware+=" ($(hardwareCommand))"
-	echo "    hardware: $hardware" 
+	local architecture="$(architectureCommand)"
+	[[ "$architecture" != "$(hardwareCommand)" ]] && architecture+=" ($(hardwareCommand))"
+	echo "architecture: $hardware" 
+
+	# memory
+	echo "      memory: $(memoryAvailableCommand) GB available / $(memoryTotalCommand) GB total" 
 
 	# chroot
 	[[ -f "/etc/debian_chroot" ]] && echo "      chroot: $(cat "/etc/debian_chroot")"
@@ -287,6 +301,13 @@ versionLocal()
 	IsVm && echo "          vm: $(VmType)"
 
 	RunPlatform version || return
+}
+
+versionPi()
+{
+	cpu=$(</sys/class/thermal/thermal_zone0/temp)
+	echo "       model:$(cat /proc/cpuinfo | grep "^Model" | cut -d":" -f 2)"
+	echo "    CPU temp: $((cpu/1000))'C"
 }
 
 versionCpu()
@@ -320,6 +341,7 @@ versionDistribution()
 	codename="$(lsb_release -cs)"
 
 	echo "distribution: $distributor $version ($codename)"
+	RunPlatform "versionDistribution"
 }
 
 versionDistributionMac()
@@ -344,13 +366,6 @@ versionDistributionWin()
 	local build="$(versionBuildCommand)"
 
 	echo "     windows: $releaseId (build $build.$ubr, WSL $(wsl get name))"
-}
-
-versionPi()
-{
-	cpu=$(</sys/class/thermal/thermal_zone0/temp)
-	echo "       model:$(cat /proc/cpuinfo | grep "^Model" | cut -d":" -f 2)"
-	echo "    CPU temp: $((cpu/1000))'C"
 }
 
 #
