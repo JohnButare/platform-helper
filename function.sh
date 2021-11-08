@@ -1524,6 +1524,12 @@ PackageExist()
 	return 0
 }
 
+# PackageFiles PACKAGE - show files in the specified package
+PackageFiles()
+{
+	InPath "apt-file" && apt-file list "$@"
+}
+
 # PackageInfo PACKAGE - show information about the specified package
 PackageInfo()
 {
@@ -1561,13 +1567,19 @@ PackageInstalled()
 	fi
 }
 
-# PackageList PATTERN - search for a package
-PackageList() 
+# PackageSearch PATTERN - search for a package
+PackageSearch() 
 { 
 	IsPlatform debian && { apt-cache search  "$@"; return; }
 	IsPlatform dsm,qnap && { sudo opkg list "$@"; return; }
 	IsPlatform mac && { brew search "$@"; return; }	
 	return 0
+}
+
+# PackageSearchDetail PATTERN - search for a package showing installed and uninstalled matches
+PackageSearchDetail() 
+{ 
+	IsPlatform debian && InPath wajig && InPath apt-file && wajig whichpkg "$@"
 }
 
 PackageListInstalled()
@@ -1587,10 +1599,10 @@ PackageUpdate()
 	return 0
 }
 
-# PackageWhich PACKAGE - show which package is an executable in
+# PackageWhich FILE - show which package an installed file is located in
 PackageWhich() 
 {
-	local p="$1"; InPath "$p" && p="$(which "$p")"
+	local f="$(GetFullPath "$1")"; [[ ! -f "$f" ]] && InPath "$f" && f="$(FindInPath "$f")"
 	IsPlatform debian && { dpkg -S "$p"; return; }
 }
 
