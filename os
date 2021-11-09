@@ -289,7 +289,7 @@ versionLocal()
 	versionCpu || return
 	local architecture="$(architectureCommand)"
 	[[ "$architecture" != "$(hardwareCommand)" ]] && architecture+=" ($(hardwareCommand))"
-	echo "architecture: $hardware" 
+	echo "architecture: $architecture" 
 
 	# memory
 	echo "      memory: $(memoryAvailableCommand) GB available / $(memoryTotalCommand) GB total" 
