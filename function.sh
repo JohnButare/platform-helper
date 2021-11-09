@@ -1746,8 +1746,12 @@ IsServer() { ! IsDesktop; }
 
 console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternatively run in a regular Windows console (Start, Run, bash --login)
 CoprocCat() { cat 0<&${COPROC[0]}; } # read output from a process started with coproc
+handle() { ProcessResource "$@"; }
+InUse() { ProcessResource "$@"; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
+RunQuiet() { "$@" > /dev/null; }
+RunSilent() { "$@" >& /dev/null; }
 
 IsExecutable()
 {
@@ -1853,8 +1857,6 @@ ProcessList() # PID,NAME - show operating system native process ID and executabl
 	esac
 }
 
-handle() { ProcessResource "$@"; }
-InUse() { ProcessResource "$@"; }
 ProcessResource()
 {
 	IsPlatform win && { start handle.exe "$@"; return; }
@@ -1863,7 +1865,6 @@ ProcessResource()
 }
 
 # start a program converting file arguments for the platform as needed
-
 startUsage()
 {
 	echot "\
@@ -1881,14 +1882,19 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 
 start() 
 {
-	local elevate file sudo terminal wait windowStyle
+	local elevate file force noPrompt sudo terminal test testEcho verbose wait windowStyle
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-e|--elevate) ! IsElevated && IsPlatform win && elevate="--elevate";;
+			-f|--force) force="--force";;
 			-h|--help) startUsage; return 0;;
+			-np|--no-prompt) noPrompt="--no-prompt";;
+			-q|--quiet) quiet="--quiet";;
 			-s|--sudo) sudo="sudoc";;
-			-t|--terminal) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
+			-T|--terminal) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
+			-t|--test) test="--test"; testEcho="echo -E";;
+			-v|-vv|-vvv|--verbose) verbose="$1";;
 			-w|--wait) wait="--wait";;
 			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "--window-style" "$2" ); shift;;
 			*)
@@ -1941,7 +1947,8 @@ start()
 		fi
 
 		# start Windows console process
-		[[ ! $elevate ]] && IsConsoleProgram "$file" && { $sudo "$fullFile" "${args[@]}"; return; }
+
+		[[ ! $elevate ]] && IsConsoleProgram "$file" && { $testEcho $sudo "$fullFile" "${args[@]}"; return; }
 
 		# escape spaces for shell scripts so arguments are preserved when elevating - we must be elevating scripts here
 		if IsShellScript "$fullFile"; then	
@@ -1949,15 +1956,18 @@ start()
 			IsZsh && for (( i=1 ; i <= ${#args[@]} ; ++i )); do args[$i]="${args[$i]// /\\ }"; done	
 		fi
 
+		# start the program
 		if IsShellScript "$fullFile"; then
 			local p="wsl.exe -d $(wsl get name)"; [[ "$terminal" == "wt" ]] && InPath wt.exe && p="wt.exe -d \"$PWD\" wsl.exe -d $(wsl get name)"
 			if IsSystemd; then
-				RunProcess.exe $wait $elevate "${windowStyle[@]}" bash.exe -c \""$(FindInPath "$fullFile") "${args[@]}""\"
+				$testEcho RunProcess.exe $wait $elevate "${windowStyle[@]}" bash.exe -c \""$(FindInPath "$fullFile") "${args[@]}""\"
 			else
-				RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
+				[[ $verbose ]] && echo -E "Running: " RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
+				$testEcho RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
 			fi
 		else
-			RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
+			echo -E "Running:" RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
+			$testEcho RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
 		fi
 		result=$?
 
@@ -1967,11 +1977,11 @@ start()
  	# run a non-Windows program
 	if [[ $wait ]]; then
 		(
-			nohup $sudo "$file" "${args[@]}" >& /dev/null &
-			wait $!
+			$testEcho nohup $sudo "$file" "${args[@]}" >& /dev/null &
+			$testEcho wait $!
 		)
 	else
-		(nohup $sudo "$file" "${args[@]}" >& /dev/null &)		
+		($testEcho nohup $sudo "$file" "${args[@]}" >& /dev/null &)		
 	fi
 } 
 

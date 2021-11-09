@@ -92,7 +92,7 @@ ScriptOpt()
 		-h|--help) usage 0;;
 		-np|--no-prompt) noPrompt="--no-prompt";;
 		-q|--quiet) quiet="--quiet";;
-		-t|--test) test="--test"; testEcho="echo";;
+		-t|--test) test="--test"; testEcho="echo -E";;
 		-v|--verbose) verbose="-v"; verboseLevel=1;;
 		-vv) verbose="-vv"; verboseLevel=2;;
 		-vvv) verbose="-vvv"; verboseLevel=3;;

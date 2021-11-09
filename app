@@ -51,7 +51,7 @@ Greenshot() { IsTaskRunning "Greenshot.exe" || taskStart "$P/Greenshot/Greenshot
 incron() { runService "incron"; }
 IntelActiveMonitor() { taskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 IntelRapidStorage() { IsTaskRunning "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
-NetworkUpdate() { return; network current update --brief $force; }
+NetworkUpdate() { network current update --brief $force; }
 PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.exe"; [[ ! -f "$p" ]] && return; IsTaskRunning "$p" || start "$p"; }
 SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
 sshd() { runService "ssh"; }
@@ -91,7 +91,8 @@ ports()
 	ssh -o "ConnectTimeout=1" -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no" "$(GetIpAddress)" -p 22 "true" >& /dev/null && return 
 
 	showStatus
-	RunScript --elevate -- powershell.exe WslPortForward.ps1 > /dev/null
+	local r; [[ $brief && ! $verbose ]] && r="RunQuiet"; [[ $verbose ]] && echo
+	$r RunScript --elevate "${globalArgs[@]}" -- powershell.exe WslPortForward.ps1
 	[[ ! $brief ]] && echo done
 	return 0
 }
