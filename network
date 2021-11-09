@@ -522,7 +522,7 @@ workgroupSetCommand()
 
 proxyUsage()
 { 
-	echot "Usage: $(ScriptName) proxy [apt|wpad|vars]
+	echot "Usage: $(ScriptName) proxy [all|apt|wpad|vars]
 Network proxy server commands.
 
 	-e, --enable
@@ -532,7 +532,7 @@ Network proxy server commands.
 
 proxyArgStart()
 {
-	action="status"
+	unset action
 	proxyVars="http_proxy,https_proxy,ftp_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY"
 	noProxyVars="no_proxy,NO_PROXY"	
 	allVars="$proxyVars,$noProxyVars"
@@ -549,14 +549,12 @@ proxyOpt()
 	esac
 }
 
-proxyArgs()
-{
-	[[ "$action" == "status" ]] && what="all" || what="vars"
-	[[ "$1" =~ ^(apt|wpad|vars)$ ]] && { what="$1"; ((++shift)); }
-	return 0
-}
+proxyCommand() { usage; }
 
-proxyCommand() { proxy${what^}${action^}; }
+# all
+proxyAllCommand() { [[ ! $action ]] && action="status"; proxyAll${action^}; }
+proxyAllDisable() { proxyAptDisable && proxyWpadDisable && proxyVarsDisable; }
+proxyAllEnable() { proxyAptEnable && proxyWpadEnable && proxyVarsEnable; }
 
 proxyAllStatus()
 {
@@ -571,14 +569,55 @@ proxyAllStatus()
 	return 0
 }
 
-proxyVarsEnable()
+# apt
+proxyAptCommand() { [[ ! $action ]] && action="status"; proxyApt${action^}; }
+proxyAptDisable() { [[ ! -f "$aptFile" ]] && return; sudo rm "$aptFile"; }
+
+proxyAptStatus()
 {
-	local proxyServer="$(UpdateGet "ProxyServer")"
-	[[ ! $proxyServer ]] && return
-	echo "export {$proxyVars}=\"http://$proxyServer\"; eval export {$noProxyVars}=\"$noProxy\""
+	! isAptInstalled && return
+
+	if [[ -f "$aptFile" ]]; then
+		[[ $verbose ]] && cat "$aptFile" || echo "enabled"
+	else
+		echo "disabled"
+	fi
 }
 
-proxyVarsDisable() {	echo "unset {$allVars}; unset {$allVars}"; }
+proxyAptEnable()
+{
+	 ! isAptInstalled && return
+
+	local proxyServer="$(UpdateGet "ProxyServer")"
+	
+	[[ ! $force ]] && [[ -f "$aptFile" ]] && grep -q "$proxyServer" "$aptFile" && return
+
+	local r; [[ $brief || $quiet ]] && r="RunQuiet"
+	echo "Acquire::http::Proxy \"http://$proxyServer\";
+Acquire::https::Proxy \"http://$proxyServer\";" | $r sudo tee "$aptFile"
+}
+
+# wpad
+proxyWpadCommand() { [[ ! $action ]] && action="status"; proxyWpad${action^}; }
+proxyWpadEnable() { scp "$CLOUD/network/system/proxy/wpad.dat.enable" "$(getWeb):$wpadFile"; }
+proxyWpadDisable() { scp "$CLOUD/network/system/proxy/wpad.dat.disable" "$(getWeb):$wpadFile"; }
+proxyWpadStatus() { ssh $(getWeb) cat "$wpadFile" | grep "PROXY" > /dev/null && echo "enabled" || echo "disabled"; }
+
+# vars
+proxyVarsCommand() { [[ ! $action ]] && action="enable"; proxyVars${action^}; }
+proxyVarsDisable() { proxyVarsShow; }
+proxyVarsEnable() { proxyVarsShow "$(UpdateGet "ProxyServer")"; }
+
+proxyVarsShow()
+{
+	local proxyServer="$1"
+
+	if [[ $proxyServer ]]; then
+		echo "export {$proxyVars}=\"http://$proxyServer\"; eval export {$noProxyVars}=\"$noProxy\""
+	else
+		echo "unset {$allVars}; unset {$allVars}"
+	fi
+}
 
 proxyVarsStatus()
 {
@@ -593,35 +632,7 @@ proxyVarsStatus()
 	fi
 }
 
-proxyAptEnable()
-{
-	 ! isAptInstalled && return
 
-	local proxyServer="$(UpdateGet "ProxyServer")"
-	
-	[[ ! $force ]] && [[ -f "$aptFile" ]] && grep -q "$proxyServer" "$aptFile" && return
-
-	local r; [[ $brief ]] && r="RunQuiet"
-	echo "Acquire::http::Proxy \"http://$proxyServer\";
-Acquire::https::Proxy \"http://$proxyServer\";" | $r sudo tee "$aptFile"
-}
-
-proxyAptDisable() { [[ ! -f "$aptFile" ]] && return; sudo rm "$aptFile"; }
-
-proxyAptStatus()
-{
-	! isAptInstalled && return
-
-	if [[ -f "$aptFile" ]]; then
-		[[ $verbose ]] && cat "$aptFile" || echo "enabled"
-	else
-		echo "disabled"
-	fi
-}
-
-proxyWpadEnable() { scp "$CLOUD/network/system/proxy/wpad.dat.enable" "$(getWeb):$wpadFile"; }
-proxyWpadDisable() { scp "$CLOUD/network/system/proxy/wpad.dat.disable" "$(getWeb):$wpadFile"; }
-proxyWpadStatus() { ssh $(getWeb) cat "$wpadFile" | grep "PROXY" > /dev/null && echo "enabled" || echo "disabled"; }
 
 #
 # helper
