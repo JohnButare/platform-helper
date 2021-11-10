@@ -360,12 +360,14 @@ PrintErr() { printf "$@" >&2; }
 # printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var
 printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; }
 
-# display tabs
+# change tab to $TABS spaces
 [[ "$TABS" == "" ]] && TABS=2
 catt() { cat $* | expand -t $TABS; } 							# CatTab
 echot() { echo -e "$*" | expand -t $TABS; } 			# EchoTab
 echote() { echo -e "$*" | expand -t $TABS >&2; } 	# EchoTabError
 lesst() { less -x $TABS $*; } 										# LessTab
+
+AddTab() { sed "s/^/$(StringRepeat " " 2)/"; } # AddTab - add $TABS spaces to the pipeline 
 
 #
 # Data Types
@@ -530,13 +532,14 @@ IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
 HexToDecimal() { echo "$((16#${1#0x}))"; }
 
 # string
+CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; }
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
+StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } 			# StringRepeat S N - repeat the specified string N times
+
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveNewline()  { tr -d '\n'; }
 RemoveEmptyLines() { ${G}sed -r '/^\s*$/d'; }
-
-CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; }
 
 RemoveChar() { GetArgs2; echo "${1//${2:- }/}"; }
 RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }

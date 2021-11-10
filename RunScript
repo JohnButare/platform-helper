@@ -10,10 +10,6 @@ usage()
 	echot "\
 usage: RunScript [OPTION]... [--] SCRIPT
 	Run a shell script, executable, or a series of commands.	
-	- finds function.sh even if it is not in the PATH.  This is useful for initial startup, non-login shells,
-	  or running as root.
-	- simplifies pausing the script.  This is useful when running elevated in Windows, 
-	  i.e. elevate RunScript --pause-error service start WpnUserService_5f5dbe
 
 	-e, --elevate				in Windows run the script with an elevated (Administrator) token
 	-H, --hashi					configure Hashi tools
@@ -27,7 +23,15 @@ usage: RunScript [OPTION]... [--] SCRIPT
 	-x									force initialization of the X server
 	--     							Signal the end of options. This is useful to allow further arguments to the script
 											program itself to start with a  “-”.  This provides consistency with the 
-											argument parsing convention used by most other POSIX programs."
+											argument parsing convention used by most other POSIX programs.
+
+	Notes:
+	- finds function.sh even if it is not in the PATH.  This is useful for initial startup, non-login shells,
+	  or running as root.
+	- simplifies pausing the script.  This is useful when running elevated in Windows, 
+	  i.e. elevate RunScript --pause-error service start WpnUserService_5f5dbe
+	- all diagnostic (verbose) output is sent to the standard error so RunScript can be called from 
+	  a subshell, i.e. dir=\"\$(RunScript --elevate --verbose -- unc mount "//pi1/root")\""
 	exit $1
 }
 
@@ -102,13 +106,13 @@ runScriptElevated() # run commands elevated that has quoted arguments
 
 	# create the script and run it elevated.  ArrayShow is used to quote each argument of the script.
 	# This ensure script arguments with spaces are preserved as a single argument.
-	cat > "$scriptFile" <<DONE
-#!/usr/bin/env bash
-$(ArrayShow script) |& tee $scriptLog
-echo \${PIPESTATUS[0]} > $scriptResult
-DONE
+	cat > "$scriptFile" <<-EOF
+		#!/usr/bin/env bash
+		$(ArrayShow script) |& tee $scriptLog
+		echo \${PIPESTATUS[0]} > $scriptResult
+		EOF
 
-	[[ $verbose ]] && { hilight "Elevating using script file '$scriptFile':"; cat "$scriptFile"; unset windowStyle; }
+	[[ $verbose ]] && { HilightErr "Elevating the following script using '$scriptFile':"; cat "$scriptFile" | AddTab >& /dev/stderr; unset windowStyle; }
 
 	# ensure the user with an elevated token can run the script
 	chmod ugo+x "$scriptFile" || return
@@ -117,16 +121,17 @@ DONE
 	start --elevate $windowStyle "${globalArgs[@]}" RunScript "${scriptFile}" || return
 
 	# wait for the creation of the script result file
-	hilight "Waiting for log file in '$dir'..."
+	[[ $verbose ]] && PrintErr "Waiting for log file in '$dir'..."
 	inotifywait -e create --quiet --quiet "$dir/"
+	[[ $verbose ]] && EchoErr "found"
 
 	# show the script log if it was created
-	[[ $verbose ]] && { hilight "Script file output:"; }
+	[[ $verbose ]] && { EchoErr "Script file output:"; cat "$scriptLog" | sed 's/^/  /' >& /dev/stderr; }
 	[[ -f "$scriptLog" ]] && cat "$scriptLog"
 	
 	# get the script result (return code) if it was created (if the script was killed, cancelled, or interrupted it will not have a result)
 	[[ -f "$scriptResult" ]] && scriptResult="$(cat "$scriptResult")"
-	[[ $verbose ]] && { hilight "Script result: ${RESET}${scriptResult}"; }
+	[[ $verbose ]] && { HilightErr "Script result: ${RESET}${scriptResult}"; }
 
 	# cleanup
 	rm -fr "$dir"
