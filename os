@@ -7,7 +7,7 @@ usage()
 Usage: os [COMMAND]... [OPTION]...
 Operating system commands
 
-	architecture|bits|CodeName|hardware|version 			information
+	architecture|bits|CodeName|hardware|mhz|version 				information
 	environment|index|path|lock|preferences|store						control
 	executable		executable information
 	memory				[available|total](total)
@@ -231,6 +231,12 @@ bitsCommand() # 32 or 64
 	echo "$bits"
 }
 
+mhzCommand()
+{
+	! InPath lscpu && return
+	lscpu | grep "^CPU MHz:" | tr -s " " | cut -d" " -f3
+}
+
 # hardware - return the machine hardware, one of:
 # arm64						ARM, 64 bit, macOS
 # armv71|aarch64 	ARM, 32|64 bit, Raspberry Pi
@@ -287,12 +293,11 @@ versionLocal()
 
 	# hardware
 	versionCpu || return
+	echo "         mhz: $(mhzCommand)" 
+	echo "      memory: $(memoryAvailableCommand) GB available / $(memoryTotalCommand) GB total" 
 	local architecture="$(architectureCommand)"
 	[[ "$architecture" != "$(hardwareCommand)" ]] && architecture+=" ($(hardwareCommand))"
 	echo "architecture: $architecture" 
-
-	# memory
-	echo "      memory: $(memoryAvailableCommand) GB available / $(memoryTotalCommand) GB total" 
 
 	# chroot
 	[[ -f "/etc/debian_chroot" ]] && echo "      chroot: $(cat "/etc/debian_chroot")"

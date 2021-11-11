@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# bootstrap-remote -> bootstrap-init -> bootstrap -> inst
 . script.sh
 
 usage()
@@ -89,17 +90,10 @@ bootstrapSsh()
 	sshConfigure || return
 
 	while true; do 
-
-		hilight "Copying core files..."
-		scp "${scpArgs[@]}" "${coreFiles[@]}" "$user@$host:/tmp" || return
-
-		sshCheckUser || return
+		sshCheckBootstrapUser || return
+		sshCopyCoreFiles || return
 		runBootstrap && return
-
-		hilight "Reconnecting to $host..."
-		sleep 2
-		sshWait || return 
-		
+		sshReconnect || return		
 	done
 }
 
@@ -114,30 +108,62 @@ sshBootHost() # wait for the host to become available (after initial boot or reb
 	sshWait || return
 }
 
-sshWait()
-{
-	IsAvailablePort "$host" "$port" && return
-	WaitForPort "$host" "$port" || return
-}
-
-# sshCheckUser - if the user specified in the configuration exists make sure we use it
-sshCheckUser() 
+# sshCheckUser - if the bootstrap user exists use it
+sshCheckBootstrapUser() 
 { 
+	# bootstrap user already being used
 	[[ "$bootstrapUser" == "$user" ]] && return
-	run getent passwd "$bootstrapUser" >& /dev/null && user="$bootstrapUser"
-	return 0
+
+	# check if the bootstrap user exists
+	hilight "${GREEN}Checking for bootstrap user $bootstrapUser..."
+	! run getent passwd "$bootstrapUser" >& /dev/null && { echo "Bootstrp user $bootstrapUser does not exist"; return; }
+
+	# the bootstrap user exists
+	user="$bootstrapUser"
+	echo "Bootstrap user $bootstrapUser exists and will be used for further configuration"
+	sshConfigure || return
 } 
 
 sshConfigure()
 {
-	run 'bash -s' <<-EOF && return
-		[[ -f "\$HOME/.ssh/authorized_keys" ]] && exit 0
+	hilight "Checking SSH configuration for $user..."
+	run 'bash -s' <<-EOF && { echo "SSH is configured for $user"; return; }
+		[[ -f "\$HOME/.ssh/authorized_keys" && -f "\$HOME/.ssh/known_hosts" ]] && exit 0
 		[[ ! -d "\$HOME/.ssh" ]] && mkdir "\$HOME/.ssh"
 		exit 1
 	EOF
 
-	hilight "Configuring ssh..."
+	echo "Configuring ssh for $user..."
 	scp "${scpArgs[@]}" "$HOME/.ssh/"* ''"$user@$host"':~/.ssh' || return
+}
+
+sshCopyCoreFiles()
+{
+	hilight "Copying core files..."
+	scp "${scpArgs[@]}" "${coreFiles[@]}" "$user@$host:/tmp" || return
+
+	# ensure bootstrap user can update core files
+	# - on Ubuntu, other users cannot modify files if ubuntu owns them, even if the file has other write permissions
+	# - ignore errors, the bootstrap user can't change the file permissions and that is OK
+	run 'bash -s' <<-EOF && return
+		chmod ugo+rwx "/tmp/bootstrap-*" >& /dev/null
+		chown root "/tmp/bootstrap-*" >& /dev/null
+	EOF
+
+	return 0
+}
+
+sshReconnect()
+{
+	hilight "Reconnecting to $host..."
+	sleep 4
+	sshWait || return 
+}
+
+sshWait()
+{
+	IsAvailablePort "$host" "$port" && return
+	WaitForPort "$host" "$port" || return
 }
 
 #
@@ -171,7 +197,7 @@ copyCoreFiles()
 	hilight "Copying core files..."
 
 	cp "${coreFiles[@]}" "$dir" || return 
-	run chmod +x "/tmp/bootstrap-*" || return
+	run chmod ugo+rwx "/tmp/bootstrap-*" || return
 }
 
 runBootstrap()
@@ -182,18 +208,14 @@ runBootstrap()
 	runi "/tmp/bootstrap-init" "/tmp/$(GetFileName "$configFile")" "${globalArgs[@]}" $restart
 }
 
-# run
-
+# run command on host
 run() { RunFunction run "${type^}" -- "$@"; }
-
 runChroot() { ChrootHelper run "$dist" -s /bin/bash -d /tmp "$@"; }
 runSsh() { ssh "$user@$host" "${sshArgs[@]}" -- "$@"; }
 runWsl() { wsl.exe -d "$dist" "$@"; }
 
-# run interactive
-
+# run command on host interactively
 runi() { RunFunction runi "${type^}" -- "$@"; }
-
 runiChroot() { ChrootHelper run "$dist" -s /bin/bash -d /tmp bash -l "$@"; }
 runiSsh() { ssh -Yt "$user@$host" "${sshArgs[@]}" -- bash -l "$@"; }
 runiWsl() { wsl.exe -d "$dist" bash -l "$@"; }

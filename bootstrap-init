@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # bootstrap-init [CONFIG_FILE]- bootstrap a local system with no dependencies
+# bootstrap-remote -> bootstrap-init -> bootstrap -> inst
 
 run()
 {
@@ -77,6 +78,7 @@ runBootstrap()
 {
 	hilight "Bootstrapping from $bootstrapHost..."
 	export PATH=$bin:$PATH
+	[[ $verbose ]] && echo "PATH=$PATH"
 	bootstrap "$bootstrapHost" "$install" "$verbose"
 }
 
@@ -91,17 +93,22 @@ doReboot()
 fixPermissions()
 {
 	local group="$user"; isMac && group="wheel"
-	
-	if [[ -d "/tmp/bootstrap" ]]; then
-		sudo chown "$user" "/tmp/bootstrap/"* || return
-		sudo chgrp "$group" "/tmp/bootstrap/"* || return
-		sudo chmod ugo+rwx "/tmp/bootstrap/"* || return
-	fi
 
-	if [[ -f "/tmp/bootstrap-remote" ]]; then
+	if [[ -f "/tmp/bootstrap-init" && "$(stat -c %U /tmp/bootstrap-init)" != "$user" ]]; then
+		hilight "Updating bootstrap file permissions..."
 		sudo chown "$user" "/tmp/bootstrap-"* || return
 		sudo chgrp "$group" "/tmp/bootstrap-"* || return
 		sudo chmod ugo+rwx "/tmp/bootstrap-"* || return
+	fi
+	
+	if [[ -d "/tmp/bootstrap" && "$(stat -c %U /tmp/bootstrap)" != "$user" ]]; then
+		hilight "Updating bootstrap directory permissions..."
+		sudo chown "$user" "/tmp/bootstrap/"* || return
+		sudo chgrp "$group" "/tmp/bootstrap/"* || return
+		sudo chmod ugo+rwx "/tmp/bootstrap/"* || return
+		sudo chown "$user" "/tmp/bootstrap/" || return
+		sudo chgrp "$group" "/tmp/bootstrap/" || return
+		sudo chmod ugo+rwx "/tmp/bootstrap/" || return		
 	fi
 
 	return 0
@@ -183,18 +190,24 @@ configure-win()
 
 init()
 {	
+	initColor || return
+
 	# variables
 	export functionConfigFileCache="${BASH_SOURCE[0]%/*}/bootstrap-config.sh"
 
 	# arguments
-	unset -v force noPrompt quiet restart verbose
+	unset -v force noPrompt quiet restart test verbose verboseLevel wait
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-f|--force) force="--force";;
-			-q|--force) quiet="--quiet";;
 			-np|--no-prompt) noPrompt="--no-prompt";;
+			-q|--quiet) quiet="--quiet";;
 			-r|--restart) restart="--restart";;
-			-v|--verbose) verbose="--verbose";;
+			-t|--test) test="--test"; testEcho="echo -E";;
+			-v|--verbose) verbose="-v"; verboseLevel=1;;
+			-vv) verbose="-vv"; verboseLevel=2;;
+			-vvv) verbose="-vvv"; verboseLevel=3;;
+			-w|--wait) wait="--wait";;
 			*) 
 				[[ -f "$1" ]] && { export functionConfigFileCache="$1"; shift; continue; }
 				echo "bootstrap-init: invalid argument '$1'"; return 1;
@@ -267,18 +280,34 @@ mountPublic()
 	bin="$mount/documents/data/bin"
 	install="$mount/Documents/data/install"
 
-	[[ -d "$bin" ]] && return
+	# return if mounted
+	[[ -d "$bin" && -d "$install" ]] && return
 
 	hilight "Mounting public share..."
 
+	# cleanup existing mount
+	[[ -d "$mount" ]] && { umount "$mount" >& /dev/null; rmdir "$mount" || return; }
+
+	# prepare mount point
 	${G}mkdir --parents "$mount" || return
 
+	# show status
+	local desc="$bootstrapHost" mountDrive; isWin && [[ "$mount" =~ ^/mnt ]] && { mountDrive="true"; desc="$mount"; }
+	echo "Mounting public directories from $desc..."
+
+	# mount public directory
 	if isWin && [[ "$mount" =~ ^/mnt ]]; then mountPublic-win-drive
 	elif ! isAvailable "$bootstrapHost"; then mountPublic-sshfs
 	elif [[ "$platform_kernel" == "wsl1" ]]; then mountPublic-win
 	elif [[ "$platform_kernel" == "wsl2" || "$platform" == "entware" ]]; then mountPublic-debian
 	else mountPublic-$platform
 	fi
+
+	# validate public directories
+	[[ ! -d "$bin" ]] && { echo "bin directory does not exist on '$desc'"; return 1; }
+	[[ ! -d "$public" ]] && { echo "public directory does not exist on '$desc'"; return 1; }
+
+	return 0
 }
 
 mountPublic-debian()
@@ -487,8 +516,8 @@ debianFixMan()
 configGet() { (. "$functionConfigFileCache"; eval echo "\$$1"); }
 getDateStamp() { ${G}date '+%Y%m%d'; }
 getFileDateStamp() { ${G}stat |& grep "BusyBox" >& /dev/null && return; ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
-header() { initColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
-hilight() { initColor; printf "${GREEN}$1${RESET}\n"; }
+header() { printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
+hilight() { printf "${GREEN}$1${RESET}\n"; }
 initColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
 inPath() { local f; for f in "$@"; do ! which "$f" >& /dev/null && return 1; done; return 0; }
 isAvailable() { ping -c 2 -W 2 "$1" &> /dev/null; }

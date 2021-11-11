@@ -1,16 +1,22 @@
-systemUser="wsystem"
 locale="en_US.UTF-8"
+
+# bootstrap
+bootstrapHost="ender.butare.net" # host with scripts and installers.  A host, directory, or Windows drive letter (/mnt/D).
+bootstrapShare="public" bootstrapDir="/share/CACHEDEV1_DATA/Public" bootstrapPort="608"
+bootstrapProxyServer="proxy.butare.net" boostrapProxyPort="3128"
+bootstrapProxy="http://$bootstrapProxyServer:$boostrapProxyPort"
 
 # user
 user="jjbutare"
 dropboxCompany="Juntos Holdings"
 dropboxUser="John Butare"
 
-# system network
+# system
 network="hagerman"
 workgroup="$network"
 baseDomain="butare.net"
 domain="$network.$baseDomain"
+systemUser="wsystem"
 
 # DNS
 dnsServers="pi2,pi1" # update pi2 first
@@ -30,21 +36,13 @@ hostWaitTimeout="200" # seconds to wait for host to be available
 # networks - list of available networks that the system can be connected to
 networks="hagerman@10.10.100.10,hagerman@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
 hagermanBaseDomain="butare.net"
+hagermanBackupUser="$user"
 hagermanBackupServers="backup3.$hagermanBaseDomain,backup2.$hagermanBaseDomain,backup1.$hagermanBaseDomain" # list of backup servers in the format HOST1 [,HOST2]...
 hagermanDockerServers="pi1.$hagermanBaseDomain,pi2.$hagermanBaseDomain" # Docker Swarm managers
 hagermanFileServers="file2.$hagermanBaseDomain,file1.$hagermanBaseDomain"
 hagermanProxyServers="proxy.$hagermanBaseDomain:3128"
 hagermanWebServers="web2.$hagermanBaseDomain,web1.$hagermanBaseDomain"
 hagermanWireguardServers="pi2.$hagermanBaseDomain,pi1.$hagermanBaseDomain"
-
-# bootstrap
-bootstrapHost="$fs" # HOST, DIR, or Windows drive letter (/mnt/D) for access to scripts and installers
-bootstrapProxyServer="proxy.$domain" proxyPort="3128"
-bootstrapProxy="http://$proxyServer:$proxyPort"
-bootstrapShare="public" bootstrapDir="/share/CACHEDEV1_DATA/Public" bootstrapPort="608"
-
-# file server
-fs="file.$baseDomain" fsProtocol="smb" fsUser="jjbutare"
 
 # HashiCorp
 hashiCredentialPath=""
