@@ -1621,31 +1621,39 @@ if IsBash; then GetPlatformVar() { local v="$1" pv="${PLATFORM^^}_$1"; [[ ${!pv}
 else GetPlatformVar() { local v="$1" pv="${(U)PLATFORM}_$1"; [[ ${(P)pv} ]] && echo "${(P)pv}" || echo "${(P)v}"; }
 fi
 
-# IsPlatform platform[,platform,...] [platform platformLike PlatformId wsl](PLATFORM PLATFORM_LIKE PLATFORM_ID)
-# return true if the current or specified platform has one of the listed characteristics
+# IsPlatform platform[,platform,...] [--host [HOST]] - return true if the host has one of the specified characteristics
+# - if --host is specified, check the specified host instead of localhost.   If --host is specified but the HOST argument 
+#   is not, use the host from the last call to GetHostInfo
 function IsPlatform()
 {
-	local platforms=() p; StringToArray "$1" "," platforms
-	local platform="${2:-$PLATFORM}" platformLike="${3:-$PLATFORM_LIKE}" platformId="${4:-$PLATFORM_ID}" wsl="${5:-$WSL}"
+	local platforms=() p; StringToArray "$1" "," platforms; shift
+	
+	# set _platform variables
+	if [[ "$1" == @(-h|--host) ]]; then		
+		shift; [[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; }
+	else
+		local _platform="$PLATFORM" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _machine="$MACHINE" _wsl="$WSL"
+	fi
 
+	# check if the host matches the specified platforms
 	for p in "${platforms[@]}"; do
 		LowerCase "$p" p
 
 		case "$p" in 
 
 			# platform, platformLike, and platformId
-			win|mac|linux) [[ "$p" == "$platform" ]] && return;;
+			win|mac|linux) [[ "$p" == "$_platform" ]] && return;;
 			win11) IsPlatform win && (( $(os version build) >= 22000 )) && return;;
-			wsl) [[ "$platform" == "win" && "$platformLike" == "debian" ]] && return;; # Windows Subsystem for Linux
-			wsl1|wsl2) [[ "$p" == "wsl$wsl" ]] && return;;
-			debian|mingw|openwrt|qnap|synology) [[ "$p" == "$platformLike" ]] && return;;
-			dsm|qts|srm|pi|rock|ubiquiti|ubuntu) [[ "$p" == "$platformId" ]] && return;;
+			wsl) [[ "$_platform" == "win" && "$_platformLike" == "debian" ]] && return;; # Windows Subsystem for Linux
+			wsl1|wsl2) [[ "$p" == "wsl$_wsl" ]] && return;;
+			debian|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]] && return;;
+			dsm|qts|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]] && return;;
 
 			# processor architecture 
-			arm|mips|x86) [[ "$p" == "$(os architecture | LowerCase)" ]] && return;;
+			arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]] && return;;
 
 			# operating system bits
-			32|64) [[ "$p" == "$(os bits)" ]] && return;;
+			32|64) [[ "$p" == "$(os bits "$_machine" )" ]] && return;;
 
 			# busybox and entware
 			busybox) InPath busybox && return;;
@@ -1676,16 +1684,14 @@ function IsPlatform()
 	return 1
 }
 
-IsHostPlatform() { [[ ! $_platform ]] && return 1; IsPlatform $1 $_platform $_platformLike $_platformId; }
-
 # IsPlatformAll platform[,platform,...]
 # return true if the current platform has all of the listed characteristics
 IsPlatformAll()
 {
-	local platforms=() p; StringToArray "$1" "," platforms
+	local platforms=() p; StringToArray "$1" "," platforms; shift
 
 	for p in "${platforms[@]}"; do
-		! IsPlatform "$p" && return 1
+		! IsPlatform "$p" "$@" && return 1
 	done
 
 	return 0

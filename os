@@ -68,8 +68,8 @@ executableCommand() { usage; }
 
 executableFormatCommand()
 {
-	IsPlatform mac && { echo "Mach-O $(bitsCommand)-bit executable $(fileArchitectureCommand)"; return; }
-	IsPlatform linux,win && { echo "ELF $(bitsCommand)-bit LSB .*, $(fileArchitectureCommand)"; return; }
+	IsPlatform mac && { echo "Mach-O $(bitsCommand)-bit executable $(architectureFileCommand)"; return; }
+	IsPlatform linux,win && { echo "ELF $(bitsCommand)-bit LSB .*, $(architectureFileCommand)"; return; }
 	return 1
 }
 
@@ -88,13 +88,13 @@ executableFindCommand()
 	# find an executable that supports the machines primary architecture
 	arch="$(executableFormatCommand)"
 	file="$(file "$dir"/* | grep "$arch" | tail -1 | cut -d: -f1)"
-	file="${file% (for architecture $(fileArchitectureCommand))}" # remove suffix for MacOS universal binaries
+	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for MacOS universal binaries
 	[[ $file ]] && { echo "$file"; return; }
 
 	# see if we can find an executable the supports an alternate architecture if the platform supports one
 	arch="$(alternateExecutableFormatCommand)"; [[ ! $arch ]] && return 1
 	file="$(file "$dir"/* | grep "$arch" | tail -1 | cut -d: -f1)"
-	file="${file% (for architecture $(fileArchitectureCommand))}" # remove suffix for MacOS universal binaries
+	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for MacOS universal binaries
 	[[ $file ]] && { echo "$file"; return; }
 
 	return 1
@@ -133,7 +133,7 @@ memoryTotalCommand()
 
 nameUsage()
 {
-	echo "\
+	echot "\
 Usage: os hostname [set HOST]
 	Show or set the operating system name"
 }
@@ -192,24 +192,41 @@ setHostnameMac()
 
 codenameCommand() { ! InPath lsb_release && return 1; lsb_release -a |& grep "Codename:" | cut -f 2-; }
 
+architectureUsage() { echot "Usage: os architecture [MACHINE]\n	Show the architecture of the current machine or the specified machine."; }
+architectureArgStart() { unset -v machine; }
+architectureArgs() { (( $# == 0 )) && return; ScriptArgGet "machine" -- "$@"; }
+
 architectureCommand()
 {
-	case "$(hardwareCommand)" in
-		arm64|armv7l|aarch64) echo "ARM";;
-		mips|mip64) echo "MIPS";;
-		x86_64) echo "x86";;
+	local m; m=${machine:-$(hardwareCommand)} || return
+
+	case "$m" in
+		arm64|armv7l|aarch64) echo "arm"; return;;
+		mips|mips64) echo "mips"; return;;
+		x86_64) echo "x86"; return;;
 	esac
+
+	[[ ! $quiet ]] && EchoErr "The architecture for machine '$m' is unknown"
+	return 1
 }
 
-# fileArchitectureCommand - return the machine architecture used by the file command
-fileArchitectureCommand()
+architectureFileUsage() { echot "Usage: os architecture file [MACHINE]\n	Show the architecture of the current machine or the specified machine returned by the file command."; }
+architectureFileArgStart() { unset -v machine; }
+architectureFileArgs() { (( $# == 0 )) && return; ScriptArgGet "machine" -- "$@"; }
+
+architectureFileCommand()
 {
-	case "$(hardwareCommand)" in
-		arm64) echo "arm64";; # MacOS M1 ARM Chip, from: file vault|...
-		armv7l|aarch64) echo "ARM";;
-		mips|mip64) echo "MIPS";;
-		x86_64) IsPlatform mac && echo "x86_64" || echo "x86-64";;
+	local m; m=${machine:-$(hardwareCommand)} || return
+
+	case "$m" in
+		arm64) echo "arm64"; return;; # MacOS M1 ARM Chip, from: file vault|...
+		armv7l|aarch64) echo "ARM"; return;;
+		mips|mip64) echo "MIPS"; return;;
+		x86_64) IsPlatform mac && echo "x86_64" || echo "x86-64"; return;;
 	esac
+
+	[[ ! $quiet ]] && EchoErr "The architecture for machine '$m' is unknown"
+	return 1
 }
 
 alternateFileArchitectureCommand()
@@ -219,16 +236,30 @@ alternateFileArchitectureCommand()
 	esac
 }
 
-bitsCommand() # 32 or 64
-{
-	local bits="32" # assume 32 bit operating system
+bitsUsage() { echot "Usage: os bits [MACHINE]\n	Show the operating system bits of the current machine or the specified machine."; }
+bitsArgStart() { unset -v machine; }
+bitsArgs() { (( $# == 0 )) && return; ScriptArgGet "machine" -- "$@"; }
 
-	if InPath getconf; then bits="$(getconf LONG_BIT)"
-	elif InPath lscpu; then lscpu | grep "CPU op-mode(s): 32-bit, 64-bit" >& /dev/null && bits="64"
-	else return
+bitsCommand() # 32 or 64
+{	
+	# assume the OS bits from the specified machine
+	if [[ $machine ]]; then
+		case "$machine" in
+			aarch64|arm64|mip64|x86_64) echo "64"; return;;
+			armv7l|mips) echo "32"; return;;
+		esac
+
+		[[ ! $quiet ]] && EchoErr "The operating system bits for machine '$machine' is unknown"
+		return 1
 	fi
 
-	echo "$bits"
+	# determine the current host oeprating system bits
+	if InPath getconf; then { echo "$(getconf LONG_BIT)"; return; }
+	elif InPath lscpu; then { lscpu | grep "CPU op-mode(s): 32-bit, 64-bit" >& /dev/null && echo "64" || echo "32"; return; }
+	fi
+
+	[[ ! $quiet ]] && EchoErr "Unable to determine the operating systems bits."
+	return 1
 }
 
 mhzCommand()

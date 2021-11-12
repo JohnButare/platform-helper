@@ -1,37 +1,64 @@
 #!/usr/bin/env bash
 # bootstrap-remote -> bootstrap-init -> bootstrap -> inst
-. script.sh
-. bash.bashrc
+. script.sh || exit
 
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... TARGET
+Usage: $(ScriptName) prepare|run
 Bootstrap a remote system.
-Target is a remote host ([USER]@HOST[:PORT]), a chroot, or a WSL distribution.
-		
+
 	-cf,	--config-file=FILE	the configuration file to use"
 }
-
-init()
-{
-	bash="bash"
-	defaultCommand="run"
-	bootstrapUser="$(ConfigGet "user" "$configFile")"; bootstrapUser="${bootstrapUser:-$USER}"
-	configFile="$BIN/bootstrap-config.sh"
-	coreFiles=( "$BIN/bootstrap-init" "$configFile" )
-	userDefault="$USER"
-}
+		
+init() { 	defaultCommand="run" configFile="$BIN/bootstrap-config.sh"; }
 
 opt()
 {
-	case "$1" in "") : ;;
+	case "$1" in
 		-c|--config-file|-c=*|--config-file=*) ScriptOptGet "configFile" "$@" && ScriptCheckFile "$configFile";;
 		*) return 1;;
 	esac
 }
 
-args() { ScriptArgGet "target" -- "$@"; shift; }
+#
+# Prepare Command
+#
+
+prepareCommand()
+{
+	. "$configFile" || return
+
+	cat <<-EOF
+		Preparation:
+		- docker
+			apt-get update && apt install -y sudo apt-utils curl dialog openssh-client openssh-server
+			adduser $user --gecos "" && sudo usermod -aG sudo $user && login $user
+			mkdir ~/.ssh && scp -P $bootstrapProtocol $bootstrapHost:~/.ssh/"*" ~/.ssh && chown $user ~/.ssh/*; chmod 700 ~/.ssh/*
+			[[ -f /assets/sshd_config ]] && sudo sed -i 's/^AllowUsers .*/AllowUsers git '"$user"'/' /assets/sshd_config && sudo /etc/init.d/ssh restart
+	EOF
+}
+
+#
+# Run Command
+#
+
+runUsage()
+{
+	echot "Usage: $(ScriptName) run TARGET
+Run bootstrap on target.  Target is a remote host ([USER]@HOST[:PORT]), a chroot, or a WSL distribution."
+}
+
+runArgStart() { unset -v configFile; }
+runArgs() { ScriptArgGet "target" -- "$@"; shift; }
+
+runArgEnd()
+{
+	bash="bash"
+	bootstrapUser="$(ConfigGet "user" "$configFile")"; bootstrapUser="${bootstrapUser:-$USER}"
+	coreFiles=( "$BIN/bootstrap-init" "$configFile" )
+	userDefault="$USER"
+}
 
 runCommand()
 {
@@ -82,11 +109,11 @@ bootstrapSsh()
 	local sshArgs=( -p "$port" -oStrictHostKeyChecking=no )
 	local scpArgs=( -P "$port" -oStrictHostKeyChecking=no )
 
-	sshBootHost || return
+	sshBootHost || return	
 	sshConfigure || return
-	GetPlatform "$target" || return
-	RunFunction init "${platformLike^}" || return
-
+	runInit || return
+	IsPlatform openwrt,ubiquiti --host && return
+	
 	while true; do 
 		sshCheckBootstrapUser || return
 		sshCopyCoreFiles || return
@@ -104,6 +131,7 @@ sshBootHost() # wait for the host to become available (after initial boot or reb
 	IsMdnsName "$host" && { host=$(MdnsResolve "$host") || return; }
 
 	sshWait || return
+	ScriptEval HostGetInfo "$target" || return
 }
 
 # sshCheckUser - if the bootstrap user exists use it
@@ -124,6 +152,8 @@ sshCheckBootstrapUser()
 
 sshConfigure()
 {
+	IsPlatform openwrt,ubiquiti --host && return
+
 	hilight "Checking SSH configuration for $user..."
 	run 'bash -s' <<-EOF && { echo "SSH is configured for $user"; return; }
 		[[ -f "\$HOME/.ssh/authorized_keys" && -f "\$HOME/.ssh/known_hosts" ]] && exit 0
@@ -198,7 +228,34 @@ copyCoreFiles()
 	run chmod ugo+rwx "/tmp/bootstrap-*" || return
 }
 
-initQnap()
+installMicro()
+{
+	IsPlatform mips --host && return
+	MicroHelper install "$host" || return
+}
+
+runInit()
+{
+	RunFunction runInit "${_platformLike^}" || return
+}
+
+runInitOpenwrt() { installMicro; }
+runInitUbiquiti() { installMicro; }
+
+runInitMac()
+{
+	local brew="/usr/local/bin/brew"; IsPlatform arm --host && brew="/opt/homebrew/bin/brew"
+
+	run 'bash -s' <<-EOF
+		[[ ! -f "$brew" ]] && /bin/bash -c "\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || exit
+		eval "\$($brew shellenv)"
+		! brew list bash >& /dev/null && { brew install bash || exit; }
+		! InPath gmkdir && { brew install coreutils || exit; }
+		exit 0
+	EOF
+}
+
+runInitQnap()
 {
 	bash="/opt/bin/bash"
 

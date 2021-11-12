@@ -6,23 +6,26 @@ set -a # export variables and functions to child processes
 # functions
 #
 
-# GetPlatform [host](local) - get the platform for the specified host, sets platform, platformLike, platformId, and wsl
-# PLATFORM=linux|mac|win
-# PLATFORM_LIKE=debian|openwrt|qnap|synology
-# PLATFORM_ID=dsm|pixel|qts|raspian|rock|srm|ubiquiti|ubuntu
-# WSL=1|2 (Windows)
+# GetPlatform [host](local) - get the platform for the specified host, sets:
+# platform=linux|mac|win
+# platformLike=debian|mac|openwrt|qnap|synology|ubiquiti
+# platformId=dsm|pi|pixel|qts|rock|srm|ubuntu
+# wsl=1|2 (Windows)
+# machine=aarch64|armv7l|mips|x86_64
 # test:  sf; time GetPlatform nas3 && echo "success: $platform-$platformLike-$platformId"
 
 function GetPlatform() 
 {
 	local host="$1" cmd
 
+	# /etc/os-release sets ID, ID_LIKE
 	cmd='
 echo platform=$(uname);
 echo kernel=\"$(uname -r)\";
+echo machine=\"$(uname -m)\";
 [[ -f /etc/os-release ]] && cat /etc/os-release;
 [[ -f /etc/debian_chroot ]] && echo chroot=\"$(cat /etc/debian_chroot)\";
-[[ -f /usr/bin/ubntconf ]] && echo ubiquiti=true;
+[[ -f /usr/bin/ubntconf || -f /usr/bin/ubnt-ipcalc ]] && echo ubiquiti=true;
 [[ -f /proc/syno_platform ]] && echo synology=true;
 [[ -f /bin/busybox ]] && echo busybox=true;
 [[ -f /usr/bin/systemd-detect-virt ]] && echo container=\"$(systemd-detect-virt --container)\";
@@ -48,7 +51,7 @@ exit 0;'
 		fi
 
 		case "$platform" in
-			Darwin)	platform="mac";;
+			Darwin)	platform="mac"  ID_LIKE="mac";;
 			Linux) platform="linux";;
 			MinGw*) platform="win"; ID_LIKE=mingw;;
 		esac
@@ -61,11 +64,11 @@ exit 0;'
 		if [[ ! $chroot && ! $container ]]; then
 			if [[ "$platformKernel" == "wsl1" ]]; then platform="win" wsl=1
 			elif [[ "$platformKernel" == "wsl2" ]]; then platform="win" wsl=2
-			elif [[ $ID_LIKE =~ openwrt ]]; then ID_LIKE="openwrt"
+			elif [[ $ID_LIKE =~ .*openwrt ]]; then ID_LIKE="openwrt"
 			elif [[ $kernel =~ .*-rock ]]; then ID="rock"
 			elif [[ $kernel =~ .*-qnap ]]; then ID_LIKE="qnap"
 			elif [[ $synology ]]; then ID_LIKE="synology" ID="dsm"; [[ $busybox ]] && ID="srm"
-			elif [[ $ubiquiti ]]; then ID="ubiquiti"
+			elif [[ $ubiquiti ]]; then ID_LIKE="ubiquiti"
 			fi
 		fi
 
@@ -81,6 +84,7 @@ exit 0;'
 		echo platformLike="$ID_LIKE"
 		echo platformId="$ID"
 		echo platformKernel="$platformKernel"
+		echo machine="$machine"
 		echo wsl="$wsl"
 	)"
 
@@ -92,7 +96,7 @@ CheckPlatform() # ensure PLATFORM, PLATFORM_LIKE, and PLATFORM_ID are set
 { 
 	[[ "$PLATFORM" && "$PLATFORM_LIKE" && "$PLATFORM_ID" ]] && return
 	GetPlatform || return
-	export CHROOT="$chroot" PLATFORM="$platform" PLATFORM_ID="$platformId" PLATFORM_LIKE="$platformLike" PLATFORM_KERNEL="$platformKernel" WSL="$wsl"
+	export CHROOT="$chroot" PLATFORM="$platform" PLATFORM_ID="$platformId" PLATFORM_LIKE="$platformLike" PLATFORM_KERNEL="$platformKernel" MACHINE="$machine" WSL="$wsl"
 	unset chroot platform platformId platformLike platformKernel wsl
 }
 

@@ -4,7 +4,7 @@
 usage() 
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [close|IsInstalled|IsRunning|profile|program|restart|start|startup|update](start)
+Usage: $(ScriptName) [OPTION]... [close|download|install|IsInstalled|IsRunning|profile|program|restart|start|startup](start)
 $(ScriptName) commands."
 }
 
@@ -28,6 +28,56 @@ restartCommand() { closeCommand && startCommand; }
 startArgs() { startArgs=( "$@" ); shift="$#"; }
 startCommand() { isInstalledCommand && start $wait "$program" "${startArgs[@]}"; }
 startupCommand() { startCommand; }								 
-updateCommand() { RunInDir "/usr/local/bin" "curl https://getmic.ro | sudoc bash" || return; }
+
+downloadCommand()
+{
+	# find the install location
+	local dir; dir="$(FindInstallFile "shareware/micro")" || return
+
+	# download the executables
+	cd "$dir" || return
+	local platform platforms=( linux64 linux-arm linux-arm64 osx )
+	for platform in "${platforms[@]}"; do
+		header "Downloading micro for $platform..."
+		export GETMICRO_PLATFORM="$platform"
+		curl https://getmic.ro | bash || return
+		mv "micro" "micro_$platform" || return
+	done
+}
+
+installUsage() { echot "Usage: micro install [HOST]\n	Install micro locally or on the specified host."; }
+installArgStart() { unset -v host; }
+installArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
+
+installCommand()
+{
+	# get the host platform information
+	ScriptEval HostGetInfo $host || return
+
+	# determine the executable to use
+	local suffix
+	if IsPlatformAll arm,64 --host; then suffix="linux-arm64"
+	elif IsPlatformAll arm,32 --host; then suffix="linux-arm"
+	elif IsPlatform mac --host; then suffix="osx"
+	elif IsPlatform linux,win --host && ! IsPlatform mips --host; then suffix="linux64"
+	else
+		[[ ! $quiet ]] && EchoErr "micro is not available on '$_machine'"
+		return 1
+	fi
+
+	# determine the destination directory
+	local destDir="/usr/local/bin"
+	IsPlatform openwrt,ubiquiti --host && destDir="/usr/bin"
+
+	# find the executable
+	local file="$(FindInstallFile "shareware/micro/micro_$suffix")" || return
+
+	# copy the executable
+	if [[ $host ]]; then
+		scp "$file" "$host:$destDir/micro" || return
+	else
+		sudo cp "$file" "/usr/local/bin/micro" || return
+	fi
+}
 
 ScriptRun "$@"
