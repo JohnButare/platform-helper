@@ -1341,14 +1341,14 @@ MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';
 # Network: SSH
 #
 
-GetSshUser() { echo "$1" | cut -s -d@ -f 1; } 							# USER@SERVER:PORT
-GetSshHost() { echo "$1" | cut -d@ -f 2 | RemovePort; }		
-GetSshPort() { echo "$1" | cut -s -d: -f 2; }
+GetSshUser() { echo "$1" | cut -s -d@ -f 1; } 							# GetSshUser USER@HOST:PORT -> USER
+GetSshHost() { echo "$1" | cut -d@ -f 2 | RemovePort; }			# GetSshHost USER@HOST:PORT -> HOST
+GetSshPort() { echo "$1" | cut -s -d: -f 2; }								# GetSshPort USER@HOST:PORT -> PORT
 
-IsSsh() { [[ "$SSH_TTY" || "$XPRA_SERVER_SOCKET" ]]; }
-IsXpra() { [[ "$XPRA_SERVER_SOCKET" ]]; }
-RemoteServer() { echo "${SSH_CONNECTION%% *}"; }
-RemoteServerName() { nslookup "$(RemoteServer)" | grep "name =" | cut -d" " -f3; }
+IsSsh() { [[ "$SSH_TTY" || "$XPRA_SERVER_SOCKET" ]]; }			# IsSsh - return true if connected over SSH
+IsXpra() { [[ "$XPRA_SERVER_SOCKET" ]]; }										# IsXpra - return true if connected using XPRA
+RemoteServer() { echo "${SSH_CONNECTION%% *}"; }						# RemoveServer - return the IP addres of the remote server that the SSH session is connected from
+RemoteServerName() { DnsResolve "$(RemoteServer)"; }				# RemoveServerName - return the DNS name remote server that the SSH session is connected from
 
 # IsInSshConfig HOST - return true if HOST matches an entry in ~/.ssh/config
 IsInSshConfig() 

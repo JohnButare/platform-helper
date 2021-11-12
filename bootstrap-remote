@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
 # bootstrap-remote -> bootstrap-init -> bootstrap -> inst
 . script.sh
+. bash.bashrc
 
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... TARGET [SSH_PORT](22)
+Usage: $(ScriptName) [OPTION]... TARGET
 Bootstrap a remote system.
-Target is a remote host ([USER]@HOST), a chroot, or a WSL distribution.
+Target is a remote host ([USER]@HOST[:PORT]), a chroot, or a WSL distribution.
 		
 	-cf,	--config-file=FILE	the configuration file to use"
 }
 
 init()
 {
+	bash="bash"
 	defaultCommand="run"
 	bootstrapUser="$(ConfigGet "user" "$configFile")"; bootstrapUser="${bootstrapUser:-$USER}"
 	configFile="$BIN/bootstrap-config.sh"
 	coreFiles=( "$BIN/bootstrap-init" "$configFile" )
-	portDefault="22"
 	userDefault="$USER"
 }
 
@@ -30,12 +31,7 @@ opt()
 	esac
 }
 
-args()
-{
-	ScriptArgGet "target" -- "$@"; shift
-	IsInteger "$1" && { ScriptArgGet "portDefault" -- "$@"; shift; }
-	return 0
-}
+args() { ScriptArgGet "target" -- "$@"; shift; }
 
 runCommand()
 {
@@ -79,7 +75,7 @@ bootstrapChroot()
 bootstrapSsh()
 {
 	local host="$(GetSshHost "$target")"
-	local port="$(GetSshPort "$target")"; port="${user:-$portDefault}"
+	local port="$(GetSshPort "$target")"; port="${port:-$(SshHelper config "$host" port)}"
 	local user="$(GetSshUser "$target")"; user="${user:-$userDefault}"
 
 	local isHostLocal; GetIpAddress --quiet "$host" | IsIpLocal && isHostLocal="true"
@@ -88,6 +84,8 @@ bootstrapSsh()
 
 	sshBootHost || return
 	sshConfigure || return
+	GetPlatform "$target" || return
+	RunFunction init "${platformLike^}" || return
 
 	while true; do 
 		sshCheckBootstrapUser || return
@@ -200,6 +198,19 @@ copyCoreFiles()
 	run chmod ugo+rwx "/tmp/bootstrap-*" || return
 }
 
+initQnap()
+{
+	bash="/opt/bin/bash"
+
+	run 'bash -s' <<-EOF
+		export PATH=/opt/bin:\$PATH
+		[[ ! -d "/opt/bin" ]] && { wget -O - "http://bin.entware.net/x64-k3.2/installer/generic.sh" | sudo /bin/sh || exit; }
+		[[ ! -f "/opt/bin/stat" ]] && { sudo opkg install bash coreutils-stat || exit; }
+		grep -q "$user" /etc/passwd | grep "/opt/bin/bash" && { sudo usermod --shell "/opt/bin/bash" "$user" || exit; }
+		exit 0
+	EOF
+}
+
 runBootstrap()
 {
 	local restart; [[ "$type" == "ssh" ]] && restart="--restart"
@@ -210,14 +221,14 @@ runBootstrap()
 
 # run command on host
 run() { RunFunction run "${type^}" -- "$@"; }
-runChroot() { ChrootHelper run "$dist" -s /bin/bash -d /tmp "$@"; }
+runChroot() { ChrootHelper run "$dist" -s "/bin/bash" -d /tmp "$@"; }
 runSsh() { ssh "$user@$host" "${sshArgs[@]}" -- "$@"; }
 runWsl() { wsl.exe -d "$dist" "$@"; }
 
 # run command on host interactively
 runi() { RunFunction runi "${type^}" -- "$@"; }
-runiChroot() { ChrootHelper run "$dist" -s /bin/bash -d /tmp bash -l "$@"; }
-runiSsh() { ssh -Yt "$user@$host" "${sshArgs[@]}" -- bash -l "$@"; }
-runiWsl() { wsl.exe -d "$dist" bash -l "$@"; }
+runiChroot() { ChrootHelper run "$dist" -s /bin/bash -d /tmp "$bash" -l "$@"; }
+runiSsh() { ssh -Yt "$user@$host" "${sshArgs[@]}" -- "$bash" -l "$@"; }
+runiWsl() { wsl.exe -d "$dist" "$bash" -l "$@"; }
 
 ScriptRun "$@"
