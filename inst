@@ -102,6 +102,7 @@ declare -A aliases=(
 	[adk]="WindowsAssessmentAndDeploymentKit"
 	[ahk]="AutoHotKey"
 	[bb]="BorgBackup"
+	[borg]="BorgBackup"
 	[btt]="BetterTouchTool"
 	[bc]="BeyondCompare"
 	[cc]="CreativeCloud"
@@ -524,10 +525,20 @@ runTypePythonGlobal() # Python package install for all users
 
 	InPath "$p" && [[ ! $force ]] && return
 
-	! InPath python3 pip3 pipx && { i --no-header python || return; }
-	# [[ ! $PIPX_HOME ]] && export PIPX_HOME="$DATA"
-	# [[ ! $PIPX_BIN_DIR ]] && export PIPX_BIN_DIR="$BIN"
-	pipx install "$p" "$@" || return
+	# install python
+	! InPath python3 && { i --no-header python || return; }
+
+	# install pip and pipx for root
+	local dir="/root/.local/bin/"
+	sudo PATH="$PATH:$dir" bash -c "$(cat <<-EOF
+		[[ ! -f "$dir/pip" ]] && { echo inst pip || exit; }
+		[[ ! -f "$dir/pipx" ]] && { echo inst pipx || exit; }	
+		exit 0
+		EOF
+	)"
+
+	# install
+	sudo PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" "/root/.local/bin/pipx" install $force "$p" "$@" || return
 }
 
 runTypeRuby()
@@ -4935,20 +4946,23 @@ PipInstall()
 	# validate
 	! InPath python3 && { ScriptErr "python3 is not installed"; return 1; }
 
-	# remove package manager pip if installed -  
+	# remove package manager pip if installed
 	IsPlatform debian && PackageInstalled "python3-pip" && { packageu python3-pip || return; } 
 
 	# try ensurepip on macOS - ensurepip is not available on Debian package installed python3
 	IsPlatform mac && ! InPath pip3 && { python3 -m ensurepip --user --default-pip || return; }
-	
+
 	# try get-pip	
 	! InPath pip3 && { curl -s "https://bootstrap.pypa.io/get-pip.py" | python3 - --user || return; }
 
 	# ensure pip is installed locally so we can upgrade it without impacting global packages
-	! python3 -m pip list --user | grep -q '^pip ' && { python3 -m pip install pip --user --force || return; }
+	# - using jq since the following command gives a broken pipe error
+	# ! python3 -m pip list --user | grep -q '^pip '
+	if [[ "$(pip list --user --format=json | jq '.[] | select(.name == "pip")')" == "" ]]; then
+		python3 -m pip install pip --user --force || return
+	fi
 
 	return 0
-
 }
 
 PipxInstall()
@@ -4970,9 +4984,6 @@ PipxInstall()
 
 	# pipx
 	run --python "pipx" || return
-
-	# test and spin up the initial shared environment by installing pycowsay
-	run --python-global "pycowsay" || return 
 }
 
 #################################################
