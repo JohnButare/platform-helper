@@ -1720,7 +1720,7 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 	for file in "${files[@]}"; do . "$file" || return; done
 }
 
-PlatformTmp() { IsPlatform win && echo "$ADATA/Temp" || echo "$TMP"; }
+PlatformTmp() { IsPlatform win && echo "$UADATA/Temp" || echo "$TMP"; }
 
 # RunPlatform PREFIX - call platrform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
 function RunPlatform()
@@ -1769,7 +1769,7 @@ IsExecutable()
 	local p="$@"; [[ ! $p ]] && { EchoErr "usage: IsExecutable PROGRAM"; return 1; }
 	local ext="$(GetFileExtension "$p")"
 
-	# file $ADATA/Microsoft/WindowsApps/*.exe returns empty, so assume files that end in exe are executable
+	# file $UADATA/Microsoft/WindowsApps/*.exe returns empty, so assume files that end in exe are executable
 	[[ -f "$p" && "$ext" =~ (^exe$|^com$) ]] && return 0
 
 	# executable file

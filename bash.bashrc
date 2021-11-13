@@ -124,19 +124,19 @@ CheckPlatform || return
 # Environment Variables
 #
 
-# P=apps, SRV=server apps, BIN=programs, PBIN=platform programs, DATA=common data, ADATA=application data
-# PUB=public documents USERS=users home directory VOLUMES=mounted system volumes
-P="/opt" SRV="/srv" BIN="" DATA="" PUB="" USERS="/home" VOLUMES="/mnt" ADATA="$HOME/.config"
+# P=apps, SRV=server apps, BIN=programs, PBIN=platform programs, DATA=common data, ADATA=application data, ACONFIG=application configuration
+# PUB=public documents, USERS=users home directory, VOLUMES=mounted system volumes
+P="/opt" SRV="/srv" BIN="" DATA="" ADATA="" ACONFIG="" PUB="" USERS="/home" VOLUMES="/mnt"
 
 # USER=logged on user, SUDO_USER, HOME=home directory, DOC=user documents, UDATA=user data, UBIN=user programs
-# UDATA=user data, CODE=source code
-USER="${USERNAME:-$USER}" DOC="" UDATA="" UBIN=""
+# UDATA=user data, UADATA=user application data, CODE=source code
+USER="${USERNAME:-$USER}" DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
 
 # G=GNU program prefix (i.e. gls)
 G="" 
 
 case "$PLATFORM" in 
-	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" ADATA="$HOME/Library/Application Support" 
+	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" UADATA="$HOME/Library/Application Support" 
 		# Homebrew
 		unset -v HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY
 		if [[ -f "/usr/local/bin/brew" ]]; then export HOMEBREW_PREFIX="/usr/local" HOMEBREW_CELLAR="$HOMEBREW_PREFIX/Cellar" HOMEBREW_REPOSITORY="/usr/local/Homebrew"
@@ -149,11 +149,11 @@ case "$PLATFORM" in
 		WIN_CODE="$WIN_HOME/code"
 		WIN_DOC="$WIN_HOME/Documents"
 		WIN_UDATA="$WIN_HOME/data"	
-		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" ADATA="$WIN_HOME/AppData/Local"
+		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" UADATA="$WIN_HOME/AppData/Local"
 		;;
 esac
 
-DATA="/usr/local/data" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM" PUB="${PUB:-$USERS/Shared}"
+DATA="/usr/local/data" ADATA="$DATA/appdata" ADATA="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM" PUB="${PUB:-$USERS/Shared}"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
 declare {TMPDIR,TMP,TEMP}="${TMPDIR:-/tmp}"
@@ -190,9 +190,9 @@ case "$PLATFORM" in
 		;;
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
-		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$ADATA/Microsoft/WindowsApps"
+		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$UADATA/Microsoft/WindowsApps"
 		PathAdd front "$DATA/platform/linux"
-		[[ -d "$ADATA/Programs/Microsoft VS Code/bin" ]] && PathAdd "$ADATA/Programs/Microsoft VS Code/bin"
+		[[ -d "$UADATA/Programs/Microsoft VS Code/bin" ]] && PathAdd "$UADATA/Programs/Microsoft VS Code/bin"
 		;;
 esac
 

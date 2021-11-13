@@ -39,7 +39,7 @@ AppCommand() # AppCommand COMMAND APP - execute COMMAND on APP if exists
 AppGetBackupDir()
 {
 	local server; server="$(network current server backup --service=smb)" || return
-	local dir unc="//$(ConfigGet "$(network current)BackupUser")@$server/root$DATA/appdata/backup" # //user@server/share/dirs:protocol
+	local dir unc="//$(ConfigGet "$(network current)BackupUser")@$server/root$ADATA/backup" # //user@server/share/dirs:protocol
 
 	if ! dir="$(unc mount "$unc" ${globalArgs[@]})"; then # globalArgs not quoted in case not set
 		EchoErr "AppGetBackupDir: unable to mount '$unc'"

@@ -52,7 +52,7 @@ IsWindowsProgram()
 
 	if IsPlatform win; then
 		file "$file" | grep PE32 > /dev/null && return;
-		echo $file | grep "WindowsApps" > /dev/null && return; # the file command does not work properly for Windows Apps (file "$ADATA/Microsoft/WindowsApps/wt.exe")
+		echo $file | grep "WindowsApps" > /dev/null && return; # the file command does not work properly for Windows Apps (file "$UADATA/Microsoft/WindowsApps/wt.exe")
 		return
 	else
 			return 0
