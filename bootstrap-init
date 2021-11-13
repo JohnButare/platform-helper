@@ -4,7 +4,6 @@
 
 run()
 {
-	header "bootstrap-init ($USER)"
 	init "$@" || return	
 	configureNetwork || return
 	configureProxyServer || return
@@ -42,12 +41,14 @@ configureProxyServer()
 		return
 	fi
 
+	# header
+	hilight "Setting the proxy server to $proxy..."
+
 	# set proxy variables
 	[[ ! $HTTP_PROXY ]] && export {HTTP_PROXY,HTTPS_PROXY}="$proxy"
 
 	# set package proxy configuration
 	if [[ -d /etc/apt/apt.conf.d && ! -f "/etc/apt/apt.conf.d/proxy" ]]; then
-		hilight "Setting proxy server to $proxy..."
 		printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$proxy" "$proxy" | $sudo tee "/etc/apt/apt.conf.d/proxy"
 	fi
 
@@ -145,6 +146,7 @@ setTimezone()
 	local timezone="$(configGet "timezone")"
 	( [[ ! $timezone ]] || cat "/etc/timezone" |& grep "$timezone" > /dev/null ) && return
 
+	hilight "Setting the timezone to $timezone..."
 	DEBIAN_FRONTEND=noninteractive $sudo apt install -y tzdata || return
 	[[ ! -f "/usr/share/zoneinfo/$timezone" ]] && return
 	$sudo ln -snf "/usr/share/zoneinfo/$timezone" "/etc/localtime" || return
@@ -170,12 +172,12 @@ configure-mac() { :; }
 
 configure-entware()
 {
-	if isQnap; then
-		[[ ! -d "/usr/etc/sudoers.d" ]] && { mkdir /usr/etc/sudoers.d || return; }
-		[[ ! -f "/usr/etc/sudoers.d/$user" ]] && { echo "$user ALL=(ALL) ALL" > /usr/etc/sudoers.d/$user || return; }
-	fi
+	sudo chmod u+s "/usr/bin/mount.cifs" || return	# allow mount.cifs without sudo
 
-	return 0	
+	# mute mount.cifs "sh: /bin/systemd-ask-password: No such file or directory" error
+	local file="/bin/systemd-ask-password"
+	sudo touch "$file" || return
+	sudo chmod +x "$file" || return
 }
 
 configure-win()
@@ -191,6 +193,7 @@ configure-win()
 init()
 {	
 	initColor || return
+	header "bootstrap-init ($USER)"
 
 	# variables
 	export functionConfigFileCache="${BASH_SOURCE[0]%/*}/bootstrap-config.sh"
@@ -233,6 +236,10 @@ init()
 	# sudo
 	sudo="sudo"; ! inPath sudo && sudo=""
 	[[ ! $sudo && "$USER" != "root" ]] && { echo "bootstrap-init: sudo is not installed and user is not root"; return 1; }
+
+	# ping
+	ping="ping"
+	isQnap && ping="/opt/bin/ping"
 
 	# debian only includes sbin directories in the root users path
 	PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" 
@@ -278,7 +285,7 @@ initPlatform()
 mountPublic() 
 { 
 	bin="$mount/documents/data/bin"
-	install="$mount/Documents/data/install"
+	install="$mount/documents/data/install"
 
 	# return if mounted
 	[[ -d "$bin" && -d "$install" ]] && return
@@ -317,7 +324,7 @@ mountPublic-debian()
 
 	# configure
 	local unc="//$bootstrapHost/$bootstrapShare"
-	local line="$unc $mount cifs username=$user,noauto,rw,users 0 0"	
+	local line="$unc $(readlink -f "$mount") cifs username=$user,noauto,rw,users 0 0"	
 	! grep -q "$line" "/etc/fstab" && { echo "$line" | sudo tee -a "/etc/fstab" || return; }
 
 	# mount
@@ -385,7 +392,7 @@ installPackages-pre()
 debWin="cgroup-tools inotify-tools iputils-ping ncat"
 
 installPackages-debian() { package $debWin net-tools openssh-server; }
-installPackages-entware() { package bash coreutils coreutils-ln coreutils-readlink coreutils-tac mount-utils nano rsync; }
+installPackages-entware() { package bash coreutils coreutils-ln coreutils-readlink coreutils-tac mount-utils nano openssh-client-utils rsync; }
 installPackages-mac() { package bash coreutils gsed grep ncat; }
 installPackages-win() {	package $debWin || return; }
 
@@ -410,14 +417,12 @@ package()
 packageInstalled()
 { 
 	if inPath dpkg; then
-		# if any one of the packages passed returns "no packages found" then return 1
-		dpkg --get-selections "$@" |& grep -q "no packages found" && return 1
+		# if any one of the packages passed returns "no packages found" then return error 1
+		dpkg --get-selections "$@" |& grep -q "no packages found" && return 1 || return 0
 	else
 		# assumes each package name is in the path
-		inPath "$@" 
+		inPath "$@"; return
 	fi
-
-	return 0
 }
 
 #
@@ -449,7 +454,8 @@ setupPackageManager-entware()
 {
 	export PATH=/opt/bin:$PATH
 	[[ ! -d "/opt/bin" ]] && { wget -O - "http://bin.entware.net/x64-k3.2/installer/generic.sh" | sudo /bin/sh || return; }
-	[[ ! -f "/opt/bin/stat" ]] && { sudo opkg install coreutils-stat || return; } # we need stat now
+	[[ ! -f "/opt/bin/stat" ]] && { sudo opkg install coreutils-stat || return; }
+	return 0
 }
 
 debianPackageCore()
@@ -520,7 +526,7 @@ header() { printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} **********
 hilight() { printf "${GREEN}$1${RESET}\n"; }
 initColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
 inPath() { local f; for f in "$@"; do ! which "$f" >& /dev/null && return 1; done; return 0; }
-isAvailable() { ping -c 2 -W 2 "$1" &> /dev/null; }
+isAvailable() { "$ping" -c 2 -W 2 "$1" &> /dev/null; }
 isChroot() { [[ $chroot ]]; }
 isContainer() { [[ $container ]]; }
 isDebian() { [[ "$platform" == "debian" ]]; }
@@ -533,6 +539,6 @@ isQnap() { [[ "$platform_like" == "qnap" ]]; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 updateInit() { export updateDir="$1"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
 updateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(getDateStamp)" != "$(getFileDateStamp "$updateDir/$1")" ]]; }
-updateDone() { sudo touch "$updateDir/$1"; }
+updateDone() { touch "$updateDir/$1"; }
 
 run "$@"

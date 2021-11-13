@@ -1605,11 +1605,13 @@ PackageUpdate()
 # PackageWhich FILE - show which package an installed file is located in
 PackageWhich() 
 {
-	local f="$(GetFullPath "$1")"; [[ ! -f "$f" ]] && InPath "$f" && f="$(FindInPath "$f")"
-	IsPlatform debian && { dpkg -S "$p"; return; }
+	local file="$1"
+	[[ -f "$file" ]] && file="$(GetFullPath "$1")"
+	[[ ! -f "$file" ]] && InPath "$file" && file="$(FindInPath "$file")"
+	IsPlatform debian && { dpkg -S "$file"; return; }
 }
 
-#
+
 # Platform
 # 
 
