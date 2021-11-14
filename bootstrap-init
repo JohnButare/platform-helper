@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# bootstrap-init [CONFIG_FILE]- bootstrap a local system with no dependencies
+# bootstrap-init [CONFIG_FILE] [BIN] - bootstrap a local system with no dependencies, mounts bin
 # bootstrap-remote -> bootstrap-init -> bootstrap -> inst
+shopt -s extglob expand_aliases
+shopt -u nocaseglob nocasematch
 
 run()
 {
@@ -15,7 +17,7 @@ run()
 	createUserHome || return	
 	runAsUser || return
 	fixPermissions || return
-	mountPublic || return
+	mountBin || return
 	runBootstrap || return
 }
 
@@ -77,10 +79,10 @@ createUserHome()
 
 runBootstrap()
 {
-	hilight "Bootstrapping from $bootstrapHost..."
-	export PATH=$bin:$PATH
-	[[ $verbose ]] && echo "PATH=$PATH"
-	bootstrap "$bootstrapHost" "$install" "$verbose"
+	local hostArg=(); [[ $host ]] && hostArg=(--sync-host "$host")
+
+	hilight "Running bootstrap..."
+	bootstrap "${hostArg[@]}" "${globalArgs[@]}" || return
 }
 
 doReboot()
@@ -134,7 +136,7 @@ runAsUser()
 	cd /tmp || return
 
 	# preserve entire environment so wslpath works properly and WSL_ environment variables are passed
-	sudo --preserve-env --user=$user --set-home "$script" "${globalArgs[@]}" 
+	sudo --preserve-env --user=$user --set-home "$script" "${globalArgs[@]}"
 	
 	exit
 }
@@ -191,7 +193,8 @@ configure-win()
 #
 
 init()
-{	
+{
+	unset -v uncUser server share dirs
 	initColor || return
 	header "bootstrap-init ($USER)"
 
@@ -199,7 +202,7 @@ init()
 	export functionConfigFileCache="${BASH_SOURCE[0]%/*}/bootstrap-config.sh"
 
 	# arguments
-	unset -v force noPrompt quiet restart test verbose verboseLevel wait
+	unset -v bin force noPrompt quiet restart test verbose verboseLevel wait
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-f|--force) force="--force";;
@@ -213,25 +216,16 @@ init()
 			-w|--wait) wait="--wait";;
 			*) 
 				[[ -f "$1" ]] && { export functionConfigFileCache="$1"; shift; continue; }
+				[[ $bin ]] && { bin="$1"; shift; continue; }
 				echo "bootstrap-init: invalid argument '$1'"; return 1;
 		esac
 		shift
 	done
 	globalArgs=($force $noPrompt $quiet $verbose)
+	[[ ! $bin ]] && bin="$(configGet "bootstrapBin")"
 
 	# variables
-	user="$(configGet "user")"
-	bootstrapHost="$(configGet "bootstrapHost")"
-	bootstrapShare="$(configGet "bootstrapShare")"
-
-	# mount location for public files
-	mount="$HOME/Volumes/public"
-	local target="$bootstrapHost"
-	{ [[ -d "$target/public" ]] || [[ "$target" =~ ^/mnt ]]; } && mount="$target/public" # mounted directory
-	[[ -d "/share/Public/documents/data/install" ]] && mount="/share/Public" # local directory
-
-	# platform variables
-	initPlatform || return
+	initVariables || return
 
 	# sudo
 	sudo="sudo"; ! inPath sudo && sudo=""
@@ -241,17 +235,18 @@ init()
 	ping="ping"
 	isQnap && ping="/opt/bin/ping"
 
-	# debian only includes sbin directories in the root users path
-	PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" 
+	# path - debian only includes sbin directories in the root users path
+	isDebian && PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" 
 
-	# update directory
+	# create update directory
 	updateInit "/tmp/bootstrap" || return
 
 	return 0
 }
 
-initPlatform()
+initVariables()
 {
+	user="$(configGet "user")"
 	chroot=""; [[ -f /etc/debian_chroot ]] && chroot="$(cat "/etc/debian_chroot")"
 	container=""; inPath systemd-detect-virt && [[ "$(systemd-detect-virt --container)" != "none" ]] && container="true"
 
@@ -279,41 +274,53 @@ initPlatform()
 }
 
 #
-# Mount Public
+# mount
 #
 
-mountPublic() 
-{ 
-	bin="$mount/documents/data/bin"
-	install="$mount/documents/data/install"
+mountBin()
+{
+	[[ -d "$bin" ]] && { echo "$bin"; return; }
+	mountUnc "$bin" || return
+
+	local dir="$mountDir/$dirs"
+	export PATH="$dir:$PATH"
+	[[ $verbose ]] && echo "PATH=$PATH"
+}
+
+# mountUnc UNC - from unc script
+mountUnc() 
+{
+	local unc="$1"
+
+	GetUncUser "$unc" uncUser; [[ ! $uncUser ]] && uncUser="$user"
+	GetUncServer "$unc" server || return; [[ ! $server ]] && { echo "UNC '$unc' does not include a server"; return 1; }
+	GetUncShare "$unc" share || return; [[ ! $share ]] && share="root" 
+	GetUncDirs "$unc" dirs
+	local p; GetUncProtocol "$unc" p || return; [[ $p ]] && protocol="$p"
+
+	local shareId="${share%%\$}"
+	mountDir="$HOME/Volumes/${server}_${shareId}"
 
 	# return if mounted
-	[[ -d "$bin" && -d "$install" ]] && return
+	[[ -d "$mountDir/$dirs" ]] && return
 
-	hilight "Mounting public share..."
+	hilight "Mounting $unc..."
 
-	# cleanup existing mount
-	[[ -d "$mount" ]] && { umount "$mount" >& /dev/null; rmdir "$mount" || return; }
+	# cleanup existing mount directory
+	[[ -d "$mountDir" ]] && { umount "$mountDir" >& /dev/null; rmdir "$mountDir" || return; }
 
-	# prepare mount point
-	${G}mkdir --parents "$mount" || return
+	# prepare mount directory
+	${G}mkdir --parents "$mountDir" || return
 
-	# show status
-	local desc="$bootstrapHost" mountDrive; isWin && [[ "$mount" =~ ^/mnt ]] && { mountDrive="true"; desc="$mount"; }
-	echo "Mounting public directories from $desc..."
-
-	# mount public directory
-	if isWin && [[ "$mount" =~ ^/mnt ]]; then mountPublic-win-drive || return
-	elif ! isAvailable "$bootstrapHost"; then mountPublic-sshfs || return
+	# mount 
+	if [[ "$protocol" == "ssh" ]] || IsInteger "$protocol" || ! isAvailable "$server"; then mountPublic-sshfs || return
 	elif [[ "$platform_kernel" == "wsl1" ]]; then mountPublic-win || return
 	elif [[ "$platform_kernel" == "wsl2" || "$platform" == "entware" ]]; then mountPublic-debian || return
 	else mountPublic-$platform || return
 	fi
 
-	# validate public directories
-	[[ ! -d "$bin" ]] && { echo "bin directory does not exist on '$desc'"; return 1; }
-	[[ ! -d "$install" ]] && { echo "install directory does not exist on '$desc'"; return 1; }
-
+	# validate directory
+	[[ ! -d "$mountDir/$dirs" ]] && { echo "$dirs directory does not exist on '//$server/$share'"; return 1; }
 	return 0
 }
 
@@ -322,29 +329,23 @@ mountPublic-debian()
 	# install
 	! isQnap && { package cifs-utils || return; }
 
-	# configure
-	local unc="//$bootstrapHost/$bootstrapShare"
-	local line="$unc $(readlink -f "$mount") cifs username=$user,noauto,rw,users 0 0"	
-	! grep -q "$line" "/etc/fstab" && { echo "$line" | sudo tee -a "/etc/fstab" || return; }
+	# configure fstab - allows writing without sudo
+	local unc="//$server/$share"
+	local line="$unc $(readlink -f "$mountDir") cifs username=$uncUser,noauto,rw,users 0 0"	
+	if ! grep -q "$line" "/etc/fstab"; then
+		echo "Updating /etc/fstab..."
+		echo "$line" | sudo tee -a "/etc/fstab" || return
+	fi
 
 	# mount
-	[[ $verbose ]] && echo "mounting SMB drive: mount.cifs $unc $mount -o user=$user sec=ntlmsspi"
-	mount.cifs "$unc" "$mount" -o user=$user sec=ntlmsspi || return
-}
-
-mountPublic-win-drive() # mount a Windows drive letter, must start with /mnt, i.e. /mnt/d
-{ 
-	local dir="$mount" drive="${dir/\/mnt\//}"
-	[[ ! -d "$dir" ]] && { sudo mkdir "$dir" || return 1; }
-	mount 2>&1 | grep "$drive: on $dir type drvfs" &> /dev/null && return 0;
-	[[ $verbose ]] && echo "mounting windows drive: sudo mount -t drvfs $drive: $dir"
-	sudo mount -t drvfs "$drive:" "$dir" &> /dev/null
+	[[ $verbose ]] && echo "mounting SMB drive: mount.cifs $unc $mount -o user=$uncUser sec=ntlmsspi"
+	mount.cifs "$unc" "$mountDir" -o user=$uncUser sec=ntlmsspi || return
 }
 
 mountPublic-mac()
 {
-	[[ $verbose ]] && echo "mounting SMB drive: mount_smbfs -s smb://$user@$bootstrapHost/$bootstapShare $mount"
-	mount_smbfs -s "smb://$user@$bootstrapHost/$bootstrapShare" "$mount" || return
+	[[ $verbose ]] && echo "mounting SMB drive: mount_smbfs -s smb://$uncUser@$server/$share $mountDir"
+	mount_smbfs -s "smb://$uncUser@$server/$share" "$mountDir" || return
 }
 
 mountPublic-sshfs()
@@ -357,15 +358,15 @@ mountPublic-sshfs()
 	grep -q "^#user_allow_other" "$file" && { sudo sed -i 's/^#user_allow_other$/user_allow_other/' "$file" || return; }
 
 	# mount
-	local share="$bootstrapHost:$(configGet "bootstrapDir")" port="$(configGet "bootstrapPort")" 
-	[[ $verbose ]] && echo "mounting SSH drive: sshfs -o allow_other -o follow_symlinks $share $mount -p $port"
-	sshfs -o allow_other -o follow_symlinks "$share" "$mount" -p "$port" || return
+	local share="$server:$dirs" port="22"; IsInteger "$protocol" && port="$protocol"
+	[[ $verbose ]] && echo "mounting SSH drive: sshfs -o allow_other -o follow_symlinks $share $mountDir -p $port"
+	sshfs -o allow_other -o follow_symlinks "$share" "$mountDir" -p "$port" || return
 }
 
 mountPublic-win()
 {
-	[[ $verbose ]] && echo "mounting SMB drive: sudo mount -t drvfs //$bootstrapHost/$bootstrapShare $mount"
-	sudo mount -t drvfs "//$bootstrapHost/$bootstrapShare" "$mount"
+	[[ $verbose ]] && echo "mounting SMB drive: sudo mount -t drvfs //$server/$share $mountDir"
+	sudo mount -t drvfs "//$server/$share" "$mountDir"
 }
 
 #
@@ -540,5 +541,33 @@ pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; ec
 updateInit() { export updateDir="$1"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
 updateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(getDateStamp)" != "$(getFileDateStamp "$updateDir/$1")" ]]; }
 updateDone() { touch "$updateDir/$1"; }
+
+#
+# from function.sh
+#
+
+alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"'
+IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
+r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
+
+# Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
+CheckNetworkProtocol() { [[ "$1" == @(|nfs|smb|ssh) ]] || IsInteger "$1"; }
+GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }															# //SERVER/SHARE
+GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }									# SERVER
+GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; r "${gus%:*}" $2; }									# SHARE
+GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 	# DIRS
+
+GetUncUser()
+{
+	GetArgs; ! [[ "$1" =~ .*\@.* ]] && { r "$USER" $2; return; }
+	local guu="${1#*( )//}"; guu="${guu%%@*}" || guu="$USER"; r "$guu" $2
+}
+
+# GetUncProtocol UNC - PROTOCOL=NFS|SMB|SSH|INTEGER - INTEGER is a custom SSH port
+GetUncProtocol()
+{
+	GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "$gup" $2
+	CheckNetworkProtocol "$gup" || { EchoErr "'$gup' is not a valid network protocol"; return 1; }
+}
 
 run "$@"

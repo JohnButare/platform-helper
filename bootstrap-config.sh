@@ -1,8 +1,7 @@
 locale="en_US.UTF-8"
 
 # bootstrap
-bootstrapHost="ender.butare.net" # host with scripts and installers.  A host, directory, or Windows drive letter (/mnt/D).
-bootstrapShare="public" bootstrapDir="/share/CACHEDEV1_DATA/Public" bootstrapPort="608"
+bootstrapBin="//ender.butare.net/system/usr/local/data/bin" # initial bin directory UNC (//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL])
 bootstrapProxyServer="proxy.butare.net" boostrapProxyPort="3128"
 bootstrapProxy="http://$bootstrapProxyServer:$boostrapProxyPort"
 

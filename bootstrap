@@ -1,56 +1,48 @@
 #!/usr/bin/env bash
-# bootstrap-remote -> bootstrap-init -> bootstrap -> inst
-. function.sh
+. script.sh || exit
 
-run()
+usage()
 {
-	header "bootstrap"
-	init "$@" || return
-	cleanup || return
-	bootstrap || return
-	setupDataDir || return
-	syncFiles || return
-	setupSsh || return
-	runInstall || return
-	echo "bootstrap completed successfully"
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [COMMAND]... [OPTION]...
+Bootstrap a local system by syncing local files and running install bootstrap.
+Flow: bootstrap-remote -> bootstrap-init -> bootstrap -> inst"
 }
 
 init()
 {
-	# arguments
-	host="$1"; shift
-	install="$1"; shift
-	[[ "$1" == @(-v|--verbose) ]] && { verbose="--verbose"; shift; }
-
-	# validation
-	[[ ! $DATA || ! $host || ! $install || ! -d /tmp/bootstrap ]] &&
-		{ EchoErr "bootstrap: must be run from bootstrap-init"; return 1; }
-	
-	# permissions
-	sudo chmod ugo+rw /tmp/bootstrap || return 
+	defaultCommand="run"
 }
 
-cleanup()
-{
-	hilight "Cleanup..."
-	
-	# remove old links
-	if IsPlatform wsl; then
-		[[ -L "$DATA" ]] && sudo rm "$DATA"
-		[[ -L "$CODE" ]] && sudo rm "$CODE"
-		[[ -L "/etc/ethers" ]] && sudo rm "/etc/ethers"
-		[[ -L "$HOME/.config/terminator" ]] && rm "$HOME/.config/terminator"
-		ls -al "$HOME" | grep "/mnt" | grep -v -E 'Desktop|Downloads|Dropbox' | cut -c50- | awk '{ print "'$HOME'/" $1; }' | xargs rm >& /dev/null
-		ls -al "$HOME" | grep "/mnt" | grep -v -E 'Desktop|Downloads|Dropbox' >& /dev/null && { EchoErr "unable to remove legacy links"; return 1; }
-	fi
+#
+# Run Command
+#
 
-	return 0
+runArgStart() { unset -v installDir; }
+
+opt()
+{
+	case "$1" in
+		-id|-id=*|--install-dir|--install-dir=*) ScriptOptGet "installDir" "install-dir" "$@" && ScriptCheckDir "$installDir";;
+		-sh|-sh=*|--sync-host|--sync-host=*) ScriptOptGet "syncHost" "sync-host" "$@";;
+		*) return 1;;
+	esac
+}
+
+runCommand()
+{
+	header "bootstrap"
+	setupPlatform || return
+	setupDataDir || return
+	syncFiles || return
+	runInstall || return
+	echo "bootstrap completed successfully"
 }
 
 runInstall()
 {
 	local args=(--quiet --no-prompt $verbose)
-	[[ $install ]] && args+=(--hint "$install")
+	[[ $installDir ]] && args+=(--hint "$installDir")
 
 	# ensure path is set properly now that all directories are present
 	. bash.bashrc || return 
@@ -79,22 +71,13 @@ setupDataDir()
 	sudo chown $USER "$DATA" || return
 }
 
-setupSsh()
+setupPlatform()
 {
-	inst SshClientPermission || return
+	hilight "Platform setup..."
+	RunPlatform setup || return
 }
 
-#
-# bootstrap
-#
-
-bootstrap()
-{
-	hilight "Bootstrap platform..."
-	RunPlatform bootstrap || return
-}
-
-bootstrapQnap()
+setuoQnap()
 {
 	sudo chmod u+s /usr/bin/mount.cifs || return	# allow mount.cifs without sudo
 	makeLink "/share/Public/documents/data" "/usr/local/data" || return
@@ -102,22 +85,16 @@ bootstrapQnap()
 	makeLink "/share/homes/$USER" "$USERS/$USER" || return
 }
 
-bootstrapSynology() { makeLink "/volume1/public" "$USERS/Shared" || return; }
+setupSynology() { makeLink "/volume1/public" "$USERS/Shared" || return; }
 
-bootstrapWin()
+setupWin()
 {	
 	makeLink "$WIN_ROOT/Users/Public" "$PUB" || return
 	mkdir --parents "$HOME/Documents" || return
 }
 
-#
-# sync files
-#
-
 syncFiles()
 {
-	[[ ! $host ]] && return
-
 	if SshAgent check keys; then
 		hilight "Initializing the SSH agent..."
 		SshAgentStart || return
@@ -125,12 +102,13 @@ syncFiles()
 
 	hilight "File syncronization..."
 	local args=("$verbose"); [[ ! -d "$DATA/bin" ]] && args+=("--src-older")
-	SyncLocalFiles "${args[@]}" "$host" || return	
+	SyncLocalFiles "${args[@]}" $syncHost || return	
 	RunPlatform syncFiles || return
 }
 
 syncFilesWin()
 {
+	# move win directory to Windows file system for performance
 	local src="$WIN_ROOT/Users/Public/data/appdata" link="$DATA/platform/win"
 	[[ -L "$link" ]] && return
 
@@ -152,4 +130,4 @@ makeLink() # SRC LINK
 	sudo ln -s "$src" "$link" || return
 }
 
-run "$@"
+ScriptRun "$@"
