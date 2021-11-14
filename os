@@ -114,17 +114,30 @@ memoryCommand() { memoryTotalCommand; }
 
 memoryAvailableCommand()
 {
-	local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f7)"
+	if IsPlatform mac; then
+		local pages="$(vm_stat | grep "^Pages free:" | tr -s " " | cut -d" " -f 3 | cut -d. -f 1)"
+		local bytes="$(echo "$pages * 4 * 1024 * 1024 / 10" | bc)"
+	elif InPath free; then
+		local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f7)"
+	else 
+		return
+	fi
+
 	local gbRounded="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
 	echo "$gbRounded"
 }
 
 memoryTotalCommand()
 { 
-	local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f2)"
-	local gbRoundedTwo="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
-	local gbRounded="$(echo "($gbRoundedTwo + .5)/1" | bc)"
-	echo "$gbRounded"
+	if IsPlatform mac; then
+		system_profiler SPHardwareDataType | grep "Memory:" | tr -s " " | cut -d" " -f 3
+	else
+		! InPath free && return
+		local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f2)"
+		local gbRoundedTwo="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
+		local gbRounded="$(echo "($gbRoundedTwo + .5)/1" | bc)"
+		echo "$gbRounded"
+	fi
 }
 
 #
@@ -149,10 +162,10 @@ nameArgs()
 nameCommand()
 {
 	IsLocalHost "$name" && { echo "$HOSTNAME"; return; }
-	local resolvedName="$(DnsResolve "$name")"
+	local resolvedName="$(DnsResolve "$name" --quiet)"
 
 	# check for virtual host
-	! [[ "$resolvedName" ]] && resolvedName="$(DnsResolve "$HOSTNAME-$name")"
+	! [[ "$resolvedName" ]] && resolvedName="$(DnsResolve "$HOSTNAME-$name"  --quiet)"
 
 	# if the resolved name is empty or a superset of the DNS name use the full name
 	[[ "$name" =~ $resolvedName$ ]] && resolvedName="$name"
