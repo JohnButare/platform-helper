@@ -22,6 +22,15 @@ if [[ ! $BIN ]]; then
 	[[ -f "$BASHRC" ]] && . "$BASHRC"
 fi
 
+# arguments - get argument from standard input if not specified on command line
+# - must be an alias to set arguments
+# - GetArgsN will read the first argument from standard input if there are not at least N arguments present
+# - aliases must be defiend before used in a function
+alias GetArgDash='[[ "$1" == "-" ]] && shift && set -- "$(cat)" "$@"' 
+alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"' 
+alias GetArgs2='(( $# < 2 )) && set -- "$(cat)" "$@"'
+alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
+
 #
 # Other
 #
@@ -31,13 +40,16 @@ IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
 IsInteractive() { [[ "$-" == *i* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
 
-# arguments - get argument from standard input if not specified on command line
-# - must be an alias to set arguments
-# - GetArgsN will read the first argument from standard input if there are not at least N arguments present
-alias GetArgDash='[[ "$1" == "-" ]] && shift && set -- "$(cat)" "$@"' 
-alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"' 
-alias GetArgs2='(( $# < 2 )) && set -- "$(cat)" "$@"'
-alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
+urlencode()
+{
+	GetArgs
+	echo "$1" | sed '
+		s / %2f g
+		s : %3a g
+		s \$ %24 g
+		s/ /%20/g 
+  '
+}
 
 # update - manage update state in a temporary file location
 UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
