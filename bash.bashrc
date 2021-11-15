@@ -17,6 +17,7 @@ set -a # export variables and functions to child processes
 function GetPlatform() 
 {
 	local host="$1" cmd
+	local quiet; [[ "$2" == @(-q|--quiet) ]] && quiet="--quiet"
 
 	# /etc/os-release sets ID, ID_LIKE
 	cmd='
@@ -33,7 +34,7 @@ exit 0;'
 
 	local results
 	if [[ $host ]]; then
-		results="$(SshHelper connect "$host" -- "$cmd")" || return 1
+		results="$(SshHelper connect "$host" $quiet -- "$cmd")" || return 1
 	else
 		results="$(eval $cmd)"
 	fi
