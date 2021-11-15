@@ -93,6 +93,15 @@ clipw()
 	esac
 }
 
+# languages
+
+# pipxg - pipx global, run pipx for all users
+pipxg()
+{
+	local dir; IsPlatform debian && dir="/root/.local/bin/"
+	sudo PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" "${dir}pipx" "$@"
+}
+
 # logging
 InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); }
 header() { InitColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
