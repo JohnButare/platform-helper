@@ -174,7 +174,7 @@ AddLoginShell()
 	local shell="$1" shells="/etc/shells";  IsPlatform entware && shells="/opt/etc/shells"
 	[[ ! -f "$shell" ]] && { EchoErr "AddLoginShell: $shell is not a valid shell"; return 1; }
 	grep "$shell" "$shells" >& /dev/null && return
-	echo "$shell" | sudo tee "$shells" || return
+	echo "$shell" | sudo tee -a "$shells" || return
 }
 
 SetLoginShell() # SetCurrentShell SHELL
@@ -744,10 +744,16 @@ FindInPath()
 	return 1
 }
 
-GetRealPath()  # resolve symbolic links
+# GetRealPath - resolve symbolic links in path, the full path need not exist
+GetRealPath()
 {
 	# use -m so directory existence is not checked (which can error out for mounted network volumes)
-	InPath ${G}realpath && { ${G}realpath -m "$@"; return; }
+	InPath ${G}realpath && { ${G}realpath -m "$1"; return; }
+
+	# readlink returns nothing if the path does not exist, 
+	# so don't resolve symbolic links in this case
+	[[ ! -e "$1" ]] && { echo "$1"; return; }
+	
 	${G}readlink -f "$@"
 }
 

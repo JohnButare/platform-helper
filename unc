@@ -320,8 +320,9 @@ mountCommand()
 	# SSH
 	elif [[ "$protocol" == "ssh" ]] || IsInteger "$protocol"; then
 		local portArg; IsInteger "$protocol" && portArg=(-p "${protocol}")
+		local sudo; IsPlatform qnap && sudo="sudo"
 		[[ "$share" == "root" ]] && share=""
-		sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountDir" "${portArg[@]}"
+		$sudo sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountDir" "${portArg[@]}"
 
 	# linux and WSL 2
 	elif IsPlatform linux,wsl2; then		
@@ -451,12 +452,30 @@ noHostCheck() { [[ $noHostCheck ]] || isWslshare; }
 showResult() { [[ $1 && ! $quiet ]] && echo "$1"; [[ $1 ]]; }
 isWslshare() { [[ "$server" == @(wsl$|wsl) ]]; }
 
+# cleanupMountDir - remove an existing mounted directory
+#
+# The mounted directory may be in an invalid state and normal file operations on
+# it will fail.  For example, even though the mounted directory exists
+# - GetRealPath may return nothing 
+# - -e may return return false
+# To test an invalid state, mount an SSHFS share, logout and reconnect.  ls "$mountDir" will error with:
+# "ls: cannot access rosie.hagerman.butare.net_root: Input/output error"
 cleanupMountDir()
 {
-	[[ ! -e "$mountDir" ]] && return
-	findmnt "$mountDir" >& /dev/null && platformUnmount >& /dev/null
-	[[ $verbose && -d "$moundDir" ]] && { EchoErr "removing mount directory '$mountDir'"; }
+	local id="$(GetFileName "$mountDir")"
+	local dir="$(GetRealPath "$volumeDir")/$id"
+
+	# return if cleanup not needed
+	[[ ! -e "$dir" ]] && ! ls -1 "$volumeDir" |& grep -q "^${id}$" && return
+
+	# unmount
+	findmnt "$dir" >& /dev/null && platformUnmount >& /dev/null
+
+	# remove directory
+	[[ $verbose && -d "$mountDir" ]] && { EchoErr "removing mount directory '$mountDir'"; }
 	rmdir "$mountDir" >& /dev/null
+
+	# validate
 	[[ ! -e "$mountDir" ]] && return 0
 	[[ ! $quiet ]] && { EchoErr "unable to remove mount directory '$mountDir', try --force"; }
 	return 1
@@ -536,6 +555,9 @@ getUncInfo() # GetUncInfo unc - sets server share dirs user shareId mountDir
 isMounted()
 {
 	local unc prefix; IsPlatform mac && prefix="$user@"
+
+	# check if mountDir is a directory
+	[[ ! -d "$mountDir" ]] && return 1
 
 	# server is local and we can determine the full path to the locaL directory
 	IsLocalHost "$server" && [[ "$share" == "root" ]] && { showResult "/$dirs"; return; }

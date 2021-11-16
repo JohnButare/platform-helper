@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bootstrap-init [CONFIG_FILE] [BIN] - bootstrap a local system with no dependencies, mounts bin
+# bootstrap-init [CONFIG_FILE] [BIN_UNC] [INSTALL_DIR] - bootstrap a local system with no dependencies, mounts bin
 # bootstrap-remote -> bootstrap-init -> bootstrap -> inst
 shopt -s extglob expand_aliases
 shopt -u nocaseglob nocasematch
@@ -79,10 +79,13 @@ createUserHome()
 
 runBootstrap()
 {
-	local hostArg=(); [[ $host ]] && hostArg=(--sync-host "$host")
+	local args=()
+	[[ $host ]] && args+=(--host "$host")
+	[[ $install ]] && args+=(--install "$install")
 
 	hilight "Running bootstrap..."
-	bootstrap "${hostArg[@]}" "${globalArgs[@]}" || return
+	[[ $verbose ]] && echo "bootstrap ${args[@]} ${globalArgs[@]}"
+	bootstrap "${args[@]}" "${globalArgs[@]}" || return
 }
 
 doReboot()
@@ -202,7 +205,8 @@ init()
 	export functionConfigFileCache="${BASH_SOURCE[0]%/*}/bootstrap-config.sh"
 
 	# arguments
-	unset -v bin force noPrompt quiet restart test verbose verboseLevel wait
+	unset -v force noPrompt quiet restart test verbose verboseLevel wait
+	unset -v bin install
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-f|--force) force="--force";;
@@ -216,13 +220,15 @@ init()
 			-w|--wait) wait="--wait";;
 			*) 
 				[[ -f "$1" ]] && { export functionConfigFileCache="$1"; shift; continue; }
-				[[ $bin ]] && { bin="$1"; shift; continue; }
+				[[ ! $bin ]] && { bin="$1"; shift; continue; }
+				[[ ! $install ]] && { install="$1"; shift; continue; }
 				echo "bootstrap-init: invalid argument '$1'"; return 1;
 		esac
 		shift
 	done
 	globalArgs=($force $noPrompt $quiet $verbose)
 	[[ ! $bin ]] && bin="$(configGet "bootstrapBin")"
+	GetUncServer "$bin" host || return
 
 	# variables
 	initVariables || return
@@ -279,12 +285,18 @@ initVariables()
 
 mountBin()
 {
-	[[ -d "$bin" ]] && { echo "$bin"; return; }
-	mountUnc "$bin" || return
+	local dir
 
-	local dir="$mountDir/$dirs"
+	if [[ ! -d "/usr/local/data/bin" ]]; then
+		mountUnc "$bin" || return
+		dir="$mountDir/$dirs"
+	else
+ 		dir="/usr/local/data/bin"
+ 	fi
+
 	export PATH="$dir:$PATH"
 	[[ $verbose ]] && echo "PATH=$PATH"
+	return 0
 }
 
 # mountUnc UNC - from unc script
@@ -355,12 +367,14 @@ mountPublic-sshfs()
 
 	# configure
 	local file="/etc/fuse.conf"
+	[[ ! "$file" ]] && { echo "user_allow_other" | sudo tee "$file" || return; }
 	grep -q "^#user_allow_other" "$file" && { sudo sed -i 's/^#user_allow_other$/user_allow_other/' "$file" || return; }
 
 	# mount
-	local share="$server:$dirs" port="22"; IsInteger "$protocol" && port="$protocol"
-	[[ $verbose ]] && echo "mounting SSH drive: sshfs -o allow_other -o follow_symlinks $share $mountDir -p $port"
-	sshfs -o allow_other -o follow_symlinks "$share" "$mountDir" -p "$port" || return
+	local port="22"; IsInteger "$protocol" && port="$protocol"
+	local sudo; isQnap && sudo="sudo"
+	[[ $verbose ]] && echo "mounting SSH drive: $sudo sshfs -o allow_other -o follow_symlinks $uncUser@$server:/ $mountDir -p $port"
+	$sudo sshfs -o allow_other -o follow_symlinks "$uncUser@$server:/" "$mountDir" -p "$port" || return
 }
 
 mountPublic-win()
@@ -393,7 +407,7 @@ installPackages-pre()
 debWin="cgroup-tools inotify-tools iputils-ping ncat"
 
 installPackages-debian() { package $debWin net-tools openssh-server; }
-installPackages-entware() { package bash coreutils coreutils-ln coreutils-readlink coreutils-tac mount-utils nano openssh-client-utils rsync; }
+installPackages-entware() { package bash coreutils coreutils-ln coreutils-readlink coreutils-realpath coreutils-tac mount-utils nano openssh-client-utils rsync; }
 installPackages-mac() { package bash coreutils gsed grep ncat; }
 installPackages-win() {	package $debWin || return; }
 
