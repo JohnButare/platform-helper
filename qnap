@@ -1,34 +1,24 @@
 #!/usr/bin/env bash
 . function.sh
 
-init() 
-{
-	command='autorun'
-}
+#!/usr/bin/env bash
+. script.sh || exit
 
 usage()
 {
-	echot "\
-usage: autorun"
-	exit $1
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... autorun|cli
+QNAP helper commands.
+	
+	autorun		edit the autorun script
+	cli				cli commands"
 }
 
-args()
-{
-	unset command
-	while [ "$1" != "" ]; do
-		case "$1" in
-			-h|--help) usage 0;;
-			*) 
-				IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	args=( "$@" )
-}
+init() { defaultCommand="cli"; }
 
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
+#
+# Autorun Command
+#
 
 autorunCommand()
 { 
@@ -44,4 +34,96 @@ autorunCommand()
 	rmdir "$d"
 }
 
-run "$@"
+#
+# CLI Commands
+#
+
+cliUsage()
+{
+	echot "Usage: $(ScriptName) cli login|run [HOST](current)
+qcli helper commands.
+
+	login			login to the specified QNAP nas
+	run				run a cli command"
+}
+
+cliCommand() { usage; }
+cliArgStart() { unset -v host; }
+
+cliLoginArgs() { [[ $# == 0 ]] && return; ScriptArgGet "hostArg" "host" -- "$@"; }
+
+cliRunUsage()
+{
+	echot "Usage: $(ScriptName) cli run -- [COMMAND]
+Run a qcli command, setting the sid."
+}
+
+cliRunCommand()
+{
+	local sid; sid="$(getSid)" || return
+
+	if IsPlatform qnap; then
+		qcli_"${otherArgs[@]}" sid="$sid"
+	else
+		ssh "$(getHost)" qcli_"${otherArgs[@]}" sid="$sid"
+	fi
+}
+
+getHost()
+{
+	# host from arguments
+	[[ $hostArg ]] && { echo "$hostArg"; return; }
+
+	# get host from configuration
+	local configHost="$(ConfigGet "$(network current)Nas")"
+	[[ $configHost ]] && { echo "$configHost"; return; }
+
+	MissingOperand "host"
+}
+
+#
+# CLI Login
+#
+
+cliLoginUsage()
+{
+	echot "Usage: $(ScriptName) cli login [sid|vars](sid)
+qcli login commands.  With no command, performs a login to HOST.
+
+	sid				display the login sid
+	vars			return cli variables for evaluation"
+}
+
+cliLoginCommand() { cliLoginSidCommand; }
+cliLoginSidCommand() { getSid; }
+cliLoginVarsCommand() { local sid; sid="$(getSid)" || return; export QCLI_SID="$sid"; ScriptReturn --export "QCLI_SID"; }
+
+#
+# helper
+#
+
+getSid()
+{
+	# on QNAP devices use QCLI_SID environment variable
+	if IsPlatform qnap; then
+		[[ $QCLI_SID ]] && { echo "$QCLI_SID"; return; }
+		ScriptErr "QCLI_SID is not set"; return 1
+	fi
+
+	# get the host
+	local host="$(getHost)"
+
+	# get the sid from the credential store if possible
+	if [[ ! $force ]] && credential exists qnap/sid "$host" "${globalArgs[@]}"; then
+		credential get qnap/sid "$host"; return
+	fi
+
+	# login to get a new sid
+	local sid; sid="$(ssh "$host" -- qcli --login user="$USER" pw="$(credential get secure default)" | grep "sid is" | cut -d" " -f3)" || return
+	[[ ! $sid ]] && { ScriptErr "unable to login to $host"; return 1; }
+
+	credential set qnap/sid "$host" "$sid" --quiet "${globalArgs[@]}" || return
+	echo "$sid"
+}
+
+ScriptRun "$@"

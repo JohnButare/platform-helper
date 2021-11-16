@@ -35,10 +35,12 @@ hostWaitTimeout="200" # seconds to wait for host to be available
 # networks - list of available networks that the system can be connected to
 networks="hagerman@10.10.100.10,hagerman@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
 hagermanBaseDomain="butare.net"
+hagermanDomain="hagerman.$hagermanBaseDomain"
 hagermanBackupUser="$user"
 hagermanBackupServers="backup3.$hagermanBaseDomain,backup2.$hagermanBaseDomain,backup1.$hagermanBaseDomain" # list of backup servers in the format HOST1 [,HOST2]...
 hagermanDockerServers="pi1.$hagermanBaseDomain,pi2.$hagermanBaseDomain" # Docker Swarm managers
 hagermanFileServers="file2.$hagermanBaseDomain,file1.$hagermanBaseDomain"
+hagermanNas="nas3.$hagermanDomain"
 hagermanProxyServers="proxy.$hagermanBaseDomain:3128"
 hagermanWebServers="web2.$hagermanBaseDomain,web1.$hagermanBaseDomain"
 hagermanWireguardServers="pi2.$hagermanBaseDomain,pi1.$hagermanBaseDomain"
