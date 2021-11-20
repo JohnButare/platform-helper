@@ -154,6 +154,10 @@ case "$PLATFORM" in
 		;;
 esac
 
+case "$PLATFORM_LIKE" in 
+	qnap) USERS="/share/home";;
+esac
+
 DATA="/usr/local/data" ADATA="$DATA/appdata" ACONFIG="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM" PUB="${PUB:-$USERS/Shared}"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"

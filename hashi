@@ -29,8 +29,7 @@ init()
 {
 	products=( consul nomad vault )
 	productUsage="consul|nomad|vault"
-	binDir="/usr/local/bin"
-
+	binDir="/usr/local/bin"; IsPlatform entware && binDir="/opt/bin"
 	certVolume=""
 	certOptUsage="-e, --encrypt [DIR]		directory for PKI certificates, if specified TLS will be enabled"
 
@@ -1107,25 +1106,27 @@ removeCli()
 # Resolve Command
 #
 
-resolveUsage() { echot "Usage: $(ScriptName) resolve [-a|--all] NAME[.service.<domain>]
-Resolve a service in consul to an IP address or canonical name.
+resolveUsage()
+{
+	echot "Usage: $(ScriptName) resolve SERVICE
+Return the first available server for the specified service.
 
-	-a, --all				find all available addresses instead of the first available
-	-l, --list			list all services
-	-j, --json			return service information in JSON
-	-d, --dns				return all DNS information using nslookup,
-	-D, --dig				return all DNS information using DIG"; }
+	-a, --all							return all available servers instead of the just the first
+	-m, --method=api|dig|dns|list|nslookup
+		api					use the API to return available servers as JSON
+		dig					use dig to return available servers
+		dns					use DNS to return available servers
+		nslookup		use nslookup to return available servers
+		list				use the API to return a list of available servers"
+}
 
-resolveArgStart() { unset -v all dns json list name; }
+resolveArgStart() { unset -v all method name; }
 
 resolveOpt()
 {
 	case "$1" in
 		-a|--all) all="true";;
-		-l|--list) list="true";;
-		-d|--dns) dns="true";;
-		-D|--dig) dig="true";;
-		-j|--json) json="true";;
+		-m|--method|-m=*|--method=*) ScriptOptGet "method" "$@";;
 		*) return 1;;
 	esac
 }
@@ -1136,12 +1137,15 @@ resolveCommand()
 {
 	productInit "consul" || return
 
-	if [[ $list ]]; then resolveJson "$name" | jq ".[].Node" | RemoveQuotes
-	elif [[ $dns ]]; then resolveDns "$name"
-	elif [[ $dig ]]; then resolveDig "$name"
-	elif [[ $json ]]; then resolveJson "$name"
-	else resolveAddress "$name"
-	fi
+	case "$method" in
+		"") resolveAddress "$name";;
+		api) resolveApi "$name";;
+		dig) resolveDig "$name";;
+		dns) resolveDns "$name";;
+		nslookup) resolveNslookup "$name";;
+		list) resolveApi "$name" | jq ".[].Node" | RemoveQuotes | sort | uniq;;
+		*) ScriptErr "unknown method '$method'"; return 1;;
+	esac
 }
 
 resolve() { resolveAddress "$1"; }
@@ -1150,62 +1154,83 @@ resolveAddress()
 {
 	local name="$1"
 	local filter=(head -1); [[ $all ]] && { filter=(cat); }
-	local result; result="$(resolveDns "$name")" || return
 
-	if [[ "$result" =~ .*canonical\ name.* ]]; then
-		printf "$result" | tail +4 | grep "canonical name =" | cut -d= -f2 | RemoveSpace | sed 's/.$//' | "${filter[@]}"
+	# dig
+	if InPath dig; then
+		resolveDig --short "$name" | "${filter[@]}"
+
+	# nslookup - busybox nslookup does not support options
+	elif ! IsBusyBox "nslookup"; then
+		local result; result="$(resolveNslookup "$name")" || return
+
+		if [[ "$result" =~ .*canonical\ name.* ]]; then
+			printf "$result" | tail +4 | grep "canonical name =" | cut -d= -f2 | RemoveSpace | sed 's/.$//' | "${filter[@]}"
+		else
+			printf "$result" | tail +4 | grep "^Address:" | cut -d: -f2 | RemoveSpace | "${filter[@]}"
+		fi
+
 	else
-		printf "$result" | tail +4 | grep "^Address:" | cut -d: -f2 | RemoveSpace | "${filter[@]}"
+		EchoErr "unable to resolve '$name'"
 	fi
 }
 
-resolveDns()
+resolveApi()
 {
-	local name="$1"; name+=".service.$domain"
+	local name="$1"
+	[[ $verbose ]] && HilightErr "Using API to resolve service '$name'"
+	local product="consul"; productInit --no-token || return
 
-	# logging
-	[[ $verbose ]] && HilightErr "Resolving DNS information for '$name'"
+	(( verboseLevel > 1 )) && EchoErr "command: curl --silent --show-error "$(productVarGet "ADDR")/v1/catalog/service/$name""
 
-	# get a consul server to resolve the name
-	local server="$(productGetServer "consul")"
-
-	[[ ! $server ]] && { [[ ! $quiet ]] && ScriptErr "no consul server found"; return 1; }
-	! IsAvailablePort "$server" 8600 && { [[ ! $quiet ]] && ScriptErr "consul server $server port 8600 is not available"; return 1; }
-
-	# logging
-	[[ $verbose ]] && EchoErr "Resolving DNS name '$name' using server $server"
-	(( verboseLevel > 1 )) && EchoErr "command: nslookup -port=8600 -type=a -norecurse $name $server"
-
-	# resolve the name using nslookup
-	local result; result="$(nslookup -port=8600 -type=a -norecurse "$name" "$server")" || { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
-	echo "$result"
+	curl --silent --show-error "$(productVarGet "ADDR")/v1/catalog/service/$name"
 }
 
 resolveDig()
 {
-	local name="$1"
-	local server="$(productGetServer "consul")"
+	local args=(SRV); [[ "$1" == @(-s|--short) ]] && { shift; args=(A +short); }
+	local name="$1" name+=".service.$domain"
+	[[ $verbose ]] && HilightErr "Using dig to resolve '$name'"
+	local server; server="$(getConsulServer)" || return
 
-	[[ $verbose ]] && HilightErr "Resolving DNS server information for '$name' using Consul at $server"
-	! IsAvailablePort "$server" 8600 && { [[ ! $quiet ]] && ScriptErr "$server port 8600 is not available"; return 1; }
-
-	name+=".service.$domain"
-
-	[[ $verbose ]] && EchoErr "Using dig to resolve '$name' using server $server"
-	(( verboseLevel > 1 )) && EchoErr "command: dig @"$server" -p 8600 "$name" SRV"
-
-	dig @"$server" -p 8600 "$name" SRV
+	# resolve
+	(( verboseLevel > 1 )) && EchoErr "command: dig @"$server" -p 8600 "$name" ${args[@]}"
+	dig "@$server" -p 8600 "$name" "${args[@]}"
 }
 
-resolveJson()
+resolveDns()
 {
 	local name="$1"
-	local product="consul"; productInit --no-token || return
 
-	[[ $verbose ]] && EchoErr "Using curl to resolve '$name' using server $server"
-	(( verboseLevel > 1 )) && EchoErr "command: curl --silent --show-error "$(productVarGet "ADDR")/v1/catalog/service/$name""
+	# busybox nslookup does not support options
+	if InPath "dig"; then
+		resolveDig "$name"
+	elif ! IsBusyBox "nslookup"; then
+		resolveNslookup "$name"
+	else
+		EchoErr "unable to resolve '$name'"
+	fi
+}
 
-	curl --silent --show-error "$(productVarGet "ADDR")/v1/catalog/service/$name"
+resolveNslookup()
+{
+	local name="$1"; name+=".service.$domain"
+	[[ $verbose ]] && HilightErr "Using nslookup to resolve '$name'"
+	local server; server="$(getConsulServer)" || return
+
+	# resolve
+	(( verboseLevel > 1 )) && EchoErr "command: nslookup -port=8600 -type=a -norecurse $name $server"
+	local result; result="$(nslookup -port=8600 -type=a -norecurse "$name" "$server")" || { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
+	echo "$result"
+}
+
+# getConsulServer - get a consul server that is available for DNS queries on port 8600
+getConsulServer()
+{
+	local server="$(productGetServer "consul")"
+	[[ $verbose ]] && EchoErr "Found consul consul server '$server'"
+	[[ ! $server ]] && { [[ ! $quiet ]] && ScriptErr "no consul server found"; return 1; }
+	! IsAvailablePort "$server" 8600 && { [[ ! $quiet ]] && ScriptErr "consul server $server port 8600 is not available"; return 1; }
+	echo "$server"
 }
 
 #
@@ -2297,7 +2322,7 @@ vaultHostsGet()
 	local json
 
 	# get the hosts from Consul if possible
-	if productIsInstalled "consul" && json="$(resolveJson "vault")"; then
+	if productIsInstalled "consul" && json="$(resolveApi "vault")"; then
 		IFS=$'\n' hosts=( $( echo "$json" | jq -r '.[].ServiceAddress') )
 	fi
 	
@@ -2813,10 +2838,14 @@ productInstall()
 
 		header "Install $(ProperCase "$product") Program (local)"
 
+		# return if up to date
 		local file="$(os executable find "$installDir")" || return
 		InPath "$product" && [[ ! $force && "$(productVersion "$product")" == "$(productVersion "$product" "$file")" ]] && return	
 		
-		local user="root" group="root"; IsPlatform mac && group="wheel"
+		# install
+		local user="root" group="root"
+		IsPlatform mac && group="wheel"
+		IsPlatform qnap && { user="admin"; group="administrators"; }
 		sudoc ${G}install -o "$user" -g "$group" -m 755 -T "$file" "$binDir/$product" || exit
  
 		return 0

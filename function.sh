@@ -658,8 +658,8 @@ RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
 GetFiles() { find "${2:-.}" -maxdepth 1 -name "$1" -type f -print0; } # for while loop
 ReadFile() { read -d $'\0' file; }
 
-fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath -m "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
-pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath -m "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
+fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
+pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 
 explore() # explorer DIR - explorer DIR in GUI program
 {
@@ -1497,7 +1497,7 @@ package() # package install
 
 	# install the packages
 	IsPlatform debian && { sudoc $noPrompt apt install -y "${packages[@]}"; return; }
-	IsPlatform dsm,qnap && { sudoc opkg install "${packages[@]}"; return; }
+	IsPlatform entware && { sudoc opkg install "${packages[@]}"; return; }
 	IsPlatform mac && { HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"; return; }
 
 	return 0
@@ -1531,10 +1531,10 @@ packageExclude()
 # - allow removal prompt to view dependant programs being uninstalled, i.e. uninstall of mysql-common will remove kea
 packageu() # package uninstall
 { 
-	IsPlatform debian && { sudo apt remove "$@"; return; }
-	IsPlatform dsm,qnap && { sudo opkg remove "$@"; return; }
-	IsPlatform mac && { brew remove "$@"; return; }	
-	return 0
+	if IsPlatform debian; then sudo apt remove "$@"
+	elif IsPlatform entware; then sudo opkg remove "$@"
+	elif IsPlatform mac; then brew remove "$@"
+	fi
 }
 
 PackageCleanup()
@@ -1563,20 +1563,22 @@ PackageFiles()
 # PackageInfo PACKAGE - show information about the specified package
 PackageInfo()
 {
-	if IsPlatform mac; then
+	if IsPlatform debian; then
+		apt show "$1" || return
+		! PackageInstalled "$1" && return
+		dpkg -L "$1"; echo
+		dpkg -L "$1" | grep 'bin/'
+
+	elif IsPlatform entware; then
+		opkg files "$@"
+	
+	elif IsPlatform mac; then
 		brew info "$1" || return
 		! PackageInstalled "$1" && return
 		brew list "$1"; echo
 		brew list "$1" | grep 'bin/'
 
-	elif IsPlatform debian; then
-		apt show "$1" || return
-		! PackageInstalled "$1" && return
-		dpkg -L "$1"; echo
-		dpkg -L "$1" | grep 'bin/'
 	fi
-
-	return
 }
 
 # PackageInstalled PACKAGE [PACKAGE]... - return true if all packages are installed
@@ -1600,24 +1602,28 @@ PackageInstalled()
 # PackageSearch PATTERN - search for a package
 PackageSearch() 
 { 
-	IsPlatform debian && { apt-cache search  "$@"; return; }
-	IsPlatform dsm,qnap && { sudo opkg list "$@"; return; }
-	IsPlatform mac && { brew search "$@"; return; }	
-	return 0
+	if IsPlatform debian; then apt-cache search  "$@"
+	elif IsPlatform entware; then opkg find "*$@*"
+	elif IsPlatform mac; then brew search "$@"
+	fi
 }
 
 # PackageSearchDetail PATTERN - search for a package showing installed and uninstalled matches
 PackageSearchDetail() 
 { 
-	IsPlatform debian && InPath wajig && InPath apt-file && wajig whichpkg "$@"
+	if IsPlatform debian && InPath wajig && InPath apt-file; then wajig whichpkg "$@"
+	elif IsPlatform entware; then opkg whatprovides "$@"
+	fi
 }
 
 PackageListInstalled()
 {
 	local full; [[ "$1" == @(--full|-f) ]] && { full="true"; shift; }
-	IsPlatform debian && InPath dpkg && { dpkg --get-selections "$@"; return; }
-	IsPlatform mac && [[ $full ]] && { brew info --installed --json; return; }
-	IsPlatform mac && [[ ! $full ]] && { brew info --installed --json | jq -r '.[].name' ; return; }
+	if IsPlatform debian && InPath dpkg; then dpkg --get-selections "$@"
+	elif IsPlatform mac && [[ $full ]]; then brew info --installed --json
+	elif IsPlatform mac && [[ ! $full ]]; then brew info --installed --json | jq -r '.[].name'
+	elif IsPlatform entware; then opkg list-installed
+	fi
 }
 
 # PackageUpdate - update packages
@@ -1635,7 +1641,9 @@ PackageWhich()
 	local file="$1"
 	[[ -f "$file" ]] && file="$(GetFullPath "$1")"
 	[[ ! -f "$file" ]] && InPath "$file" && file="$(FindInPath "$file")"
-	IsPlatform debian && { dpkg -S "$file"; return; }
+	if IsPlatform debian; then dpkg -S "$file"
+	elif IsPlatform entware; then	opkg search "$file"
+	fi
 }
 
 
@@ -1712,6 +1720,9 @@ function IsPlatform()
 
 	return 1
 }
+
+# IsBusyBox FILE - return true if the specified file is using BusyBox
+IsBusyBox() { [[ "$(readlink -f "$(which nslookup)")" == "$(which "busybox")" ]]; }
 
 # IsPlatformAll platform[,platform,...]
 # return true if the current platform has all of the listed characteristics

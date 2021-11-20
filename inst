@@ -16,15 +16,14 @@ init()
 	ScriptEval HostGetInfo --detail || return
 
 	# isInstallable
-	all=( AppDir bash BashProfile bootstrap CredentialStore final gitClient gitServer zsh zplug ZshProfile )
+	all=( AppDir bash BashProfile bootstrap CredentialStore final gitClient gitServer hashi zsh zplug ZshProfile )	
 	debian=( apache apt AptUtilities audacity cfssl chroot ChronyServer cups dbus DnsServer DhcpServer geany gpg HomeAssistantCore HomeAssistantCli HypervLinuxTools kea KeaService LastPass mDns mosquitto NodeRed OpenJdk pass pivpn SaltMinion SecretTool terminator tomcat UncomplicatedFirewall VmwareLinuxTools )
 	mac=( amphetamine AppleConfigurator apptivate bartender bear BetterTouchTool btt CanaryMail CarrotWeather DayOne DiskInventortyX gitx HomeAssistant iTerm karabiner LiveDesktop Magnet MakrdownView MicrosoftRemoteDesktop pcalc rectagle RemoteDesktop spark speedtest WallpaperWizard xcode XcodeCli XQuartz yoink )
 	pi=( DomotzAgent PiI2c PiOneWire PiReporter PiSetup PiSpi PiWifi)
 	piKernel=( PiReporter )
 	qnap=( qcli )
 	win=( ahk AjaSystemTest AutoHotKey AltTabTerminator AquaSnap bonjourSdk chocolatey CloseAllWindows CoreTemp cpuz DiskImager DreamAquarium EdgeDeflector FileLocatorPro game GitExtensions HiddenStart HiddenStartConfigure iCloud IntelDrivers IntelDriverUpdate kindle KindleDrm MaxTo Ninite npp Notepadpp RightClickEnhancer TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager HiddenStart intel IntelExtremeTuning IntelStorageManagement IntelThunderboltControlCenter java LgMonitor MarkdownView MicrosoftTeams MozillaVpn MsiMotherboard NitroPdf nVidiaDriver nVidiaGeForceExperience OneDrive oculus pa PartitionAssistant pGina PowerPanel PowerrToys QuickBooks stamps SystemInternals TaskLayout TemperatureLogger Todoist VisualStudio vs Wallpaper4k WindowsAssessmentAndDeploymentKit x410 xMing wsl )
-	macDebian=( asdf BalenaEtcher BorgBackup bc BeyondCompare certbot chrony colorls consul CredentialStore DotNet Dropbox docker etcher go JetBrains mysql firefox fuse fzf ghq GitKraken hashi glances gnupg JumpCloud lolcat NodeJs nomad PiDiskImager ruby RubyAsdf RubyPackage RubyRvm SevenZip skype StandardNotes steam tmux sublime SublimeBeta SublimeMerge thunderbird UnifiController UnifiControllerPackage vagrant vault VisualStudioCode vscode WireGuard xClient xServer xpra )
-	macDebian+=( pip pipx python PythonAsdf ) 				# Python
+	macDebian=( asdf BalenaEtcher bc BeyondCompare certbot chrony colorls consul CredentialStore DotNet Dropbox docker etcher go JetBrains mysql firefox fuse fzf ghq GitKraken gnupg JumpCloud NodeJs nomad PiDiskImager ruby RubyAsdf RubyPackage RubyRvm SevenZip skype StandardNotes steam tmux sublime SublimeBeta SublimeMerge thunderbird UnifiController UnifiControllerPackage vagrant vault VisualStudioCode vscode WireGuard xClient xServer xpra )
 	macDebian+=( docker NginxProxyManager portainer ) # virtual
 	macDebian+=( TeamViewer TigerVNC TurboVNC )				# screen sharing
 	macWin=( BlueSherpa BrotherPrinter calibre CanonCamera CleanMy CrealitySlicer CreativeCloud cricut deezer DellDisplayManager domotz DuetDisplay dymo fork GreenShot iExplorer JumpDesktop keybase lazygit logitech LogitechGhub LogitechOptions notion nVidia office origin PdfElement plex qvr sonos SurveillanceStation VisualStudio VisualStudioCode WireShark xpra xServer zoom )
@@ -33,6 +32,11 @@ init()
 	notMacArm=( chrony )
 	notPi=( sublime )
 	homeAssistant=( HomeAssistantCore HomeAssistantCli HomeAssistantIntegrations )
+
+	# Python
+	all+=( pip python )
+	macDebian+=( pipx PythonAsdf ) # pipx fails in entware
+	macDebian+=( BorgBackup certbot GitUp glances lolcat )
 
 	# commands
 	defaultCommand="install"	
@@ -239,12 +243,13 @@ header()
 	printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$installDesc${RB_BLUE}\n**************************************************${RESET}\n"
 }
 
+# i [--no-header] [--no-prompt] APPS - install applications
 i()
 {
-	local prompt
+	local noHeaderArg noPromptArg prompt
 
-	[[ "$1" == "--no-header" ]] && { noHeader="--no-header"; shift; }
-	[[ "$1" == "--no-prompt" ]] && { noPrompt="--no-prompt"; shift; }
+	[[ "$1" == "--no-header" ]] && { noHeaderArg="--no-header"; shift; }
+	[[ "$1" == "--no-prompt" ]] && { noPromptArg="--no-prompt"; shift; }
 	[[ ! $noPrompt ]] && (( $# > 1 )) && prompt="true"
 
 	while (($# != 0 )); do		
@@ -262,21 +267,27 @@ i()
 		# ensure the application is installable for the current platform
 		! checkInstallable "$appFunction" && continue
 
-		# run final portation of the install only
+		# run final portion of the install only
 		if [[ $final ]] ; then
-			RunPlatform "${appFunction}Final" || return
+			noHeader="$noHeaderArg" noPrompt="$noPromptArg" RunPlatform "${appFunction}Final" || return
 
 		# run the app install
 		elif [[ ! $prompt ]] || ask "\nInstall $appFunction"; then
 			"${appFunction}Install" || return
-			RunPlatform "${appFunction}Final" || return
+			noHeader="$noHeaderArg" noPrompt="$noPromptArg" RunPlatform "${appFunction}Final" || return
 
 		fi
 
 	done
+}
 
-	unset noHeader
-	return 0
+# iStore APPS - install store applications
+iStore()
+{
+	while (($# != 0 )); do		
+		local app="$1"; shift
+		run --store "$app" || return
+	done
 }
 
 checkInstallable()
@@ -314,7 +325,7 @@ installExecutable()
 	[[ ! $file ]] && { ScriptErr "could not find an executable for $name"; return 1; }
 
 	# copy the file to /usr/local/bin
-	local dest="/usr/local/bin/$name"
+	local dest="/usr/local/bin/$name"; IsPlatform entware && dest="/opt/bin/$name"
 	sudoc cp "$file" "$dest" || return
 	sudo chmod +x "$dest" || return
 }
@@ -531,9 +542,9 @@ runTypePythonGlobal() # Python package install for all users
 	! InPath python3 && { i --no-header python || return; }
 
 	# install pip and pipx for root
-	local dir
-	if IsPlatform debian; then
-		dir="/root/.local/bin/"
+	if ! IsPlatform mac; then
+		local dir="/root/.local/bin/"
+		IsPlatform qnap && dir="$_users/admin/.local/bin"
 
 		sudo bash -c "$(cat <<-EOF
 			export PATH="\$PATH:$BIN:$dir"
@@ -556,16 +567,10 @@ runTypeRuby()
 	gem install "$p" "$@" || return
 }
 
-runTypeStore()
-{
-	local id="$1" name="$2" dest="$3"; shift 3
-
-	case "$PLATFORM" in
-		mac) InPath mas && mas install "$id"; [[ $name ]] && macAppOpen "$name";;
-		win) start RunProcess.exe "ms-windows-store://pdp/?ProductId=$id";;
-		*) ScriptErr "unable to run store installations for $PLATFORM"; return 1;;
-	esac
-}
+runTypeStore() { RunPlatform runStore "$@"; }
+runStoreMac() { InPath mas && mas install "$1"; [[ $2 ]] && macAppOpen "$2"; }
+runStoreQnap() { qnap package install "$1"; }
+runStoreWin() { start RunProcess.exe "ms-windows-store://pdp/?ProductId=$1"; }
 
 # run helpers
 
@@ -717,9 +722,8 @@ runXip()
 #################################################
 
 AppCoreInstall() { RunPlatform app && appHost; }
-
 appMac() { i CompareCore iTerm karabiner rectangle LinuxUtilities SevenZip xServer || return; }
-appQnap() { i qcli; }
+appQnap() { i qcli; iStore MalwareRemover NotificationCenter Qboost QuLog SSDLaboratory SecurityCounselor; }
 appWin() { i WindowsStore WindowsTerminal AutoHotKey EdgeDeflector MaxTo winget xServer || return; }
 appPhysical() { i chrony JumpCloud LogitechOptions ninite nVidiaGeForceExperience zoom || return; }
 
@@ -774,6 +778,7 @@ appHost()
 		rosie) i $commonPc $commonLaptop MsiMotherboard BrotherPrinter DellDisplayManager LogitechGhub thunderbird VeraCrypt DevCore || return;;
 
 		# server
+		nas3) iStore Firefox HybridBackup MultimediaConsole Terminology || return;;
 		pi1) i $commonPi $homeServer apache portainer || return;;
 		pi2) i $commonPi $homeServer apache DomotzAgent mosquitto || return;;
 		pi3) i $commonPi certbot cups NginxProxyManager || return;;
@@ -841,7 +846,7 @@ AppDirInstall()
 	return 0
 }
 
-AppDirQnap() { appDataDir="/share/data"; } # locate data on large physical drive
+AppDirQnap() { appDataDir="$DATA"; } # locate data on large physical drive, i.e. /share/CACHEDEV2_DATA
 
 #################################################
 # Installs
@@ -1068,6 +1073,9 @@ bootstrapStart()
 
 	echo "done"
 
+	# compile the magic file
+	file -C -m "$HOME/.magic" || return
+
 	# add passwords to the credential store now to minimize prompting
 	! password CheckStore && { password store || return; }
 
@@ -1116,13 +1124,13 @@ bootstrapEntware()
 		! IsPlatform qnap && { pkg man-pages || return; } # QNAP error: "mandb: the setuid man user "root" does not exist"
 		pkg bc dialog moreutils tmux || return																	# other
 		pkg unzip xz-utils zip																									# compression
-		pkg $c-chroot $c-expand $c-head $c-sort $c-stat || return 							# coreutils
+		pkg $c-chroot $c-expand $c-head $c-install $c-sort $c-stat || return 		# coreutils
 		pkg git git-http libcurl || return 																			# git - libcurl required for https origins
 		pkg file hdparm lsblk mount-utils ncdu || return												# file
 		pkg atop htop iperf3 lscpu nethogs pv || return													# monitoring
 		pkg etherwake ncat nmap openssh-client-utils || return									# network - fping is not functional
 		pkg daemonize || return																									# process
-		pkg screen || return																										# terminal
+		pkg column ncurses-bin screen || return																	# terminal
 		pkg chrony ntpdate || return																						# time
 		pkg elinks lynx || return																								# web
 	fi
@@ -3156,7 +3164,7 @@ QcliInstall()
 	# qcli permissions
 	local dir="/mnt/HDA_ROOT/.logs/qcli"
 	sudo chgrp qcli "$dir" || return
-	sudo g+w "$dir" || return
+	sudo chmod g+w "$dir" || return
 }
 
 QnapExternalRaidManagerInstall()
@@ -4782,10 +4790,9 @@ PackageManagementAllInstall() { i apt AptUtilities asdf chocolatey WinGet; }
 AptInstall()
 {
 	local codeName; codeName="$(os CodeName)" || return
-	package unattended-upgrades || return
 
 	# add universe sources
-	if ! grep "$codeName universe" "/etc/apt/sources.list" |& grep -v "^#" >& /dev/null; then
+	if IsPlatform ubuntu && ! grep "$codeName universe" "/etc/apt/sources.list" |& grep -v "^#" >& /dev/null; then
 		echo "deb http://us.archive.ubuntu.com/ubuntu/ $codeName universe" | sudo tee -a "/etc/apt/sources.list" || return
 		sudo apt-get update || return
 	fi
@@ -5548,6 +5555,14 @@ SshServerInstall()
 {
 	header "SSH Server"
 	RunPlatform sshServer || return
+}
+
+sshServerEntware()
+{
+	package openssh-server || return
+	sudo adduser sshd --disabled-password || return
+	sudo /opt/bin/ssh-keygen -A || return
+	sudo /opt/etc/init.d/S40sshd start || return
 }
 
 sshServerUbuntu()

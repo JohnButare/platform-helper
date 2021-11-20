@@ -11,7 +11,8 @@ Usage: $(ScriptName) [OPTION]... autorun|cli
 QNAP helper commands.
 	
 	autorun		edit the autorun script
-	cli				cli commands"
+	cli				cli commands
+	package		package commands"
 }
 
 init() { defaultCommand="cli"; }
@@ -50,8 +51,6 @@ qcli helper commands.
 cliCommand() { usage; }
 cliArgStart() { unset -v host; }
 
-cliLoginArgs() { [[ $# == 0 ]] && return; ScriptArgGet "hostArg" "host" -- "$@"; }
-
 cliRunUsage()
 {
 	echot "Usage: $(ScriptName) cli run -- [COMMAND]
@@ -63,6 +62,7 @@ cliRunCommand()
 	local sid; sid="$(getSid)" || return
 
 	if IsPlatform qnap; then
+		[[ $verbose ]] && echo "running: qcli_${otherArgs[@]} sid=$sid"
 		qcli_"${otherArgs[@]}" sid="$sid"
 	else
 		ssh "$(getHost)" qcli_"${otherArgs[@]}" sid="$sid"
@@ -94,9 +94,43 @@ qcli login commands.  With no command, performs a login to HOST.
 	vars			return cli variables for evaluation"
 }
 
+cliLoginArgs() { [[ $# == 0 ]] && return; ScriptArgGet "hostArg" "host" -- "$@"; }
 cliLoginCommand() { cliLoginSidCommand; }
 cliLoginSidCommand() { getSid; }
 cliLoginVarsCommand() { local sid; sid="$(getSid)" || return; export QCLI_SID="$sid"; ScriptReturn --export "QCLI_SID"; }
+
+#
+# Package Commands
+#
+
+packageUsage()
+{
+	echot "Usage: $(ScriptName) package [list|install|IsInstalled|uninstall](list)
+Package commands.
+
+	list				list installed packages
+	install			install a package
+	IsInstalled	return true if a package is installed
+	status			package status
+	uninstall		uninstall a package"
+}
+
+packageArgStart() { conf="/etc/config/qpkg.conf"; [[ -f "$conf" ]] && return; ScriptErr "package configuration file '$conf' not found"; return 0; }
+packageCommand() { packageListCommand; }
+packageArgs() { [[ "$command" == @(package|packageList) ]] && return; ScriptArgGet "name" -- "$@"; shift; }
+packageListCommand() { cat "/etc/config/qpkg.conf" | grep "^Name =" | cut -d" " -f 3 | sort; }
+packageIsInstalledCommand() { packageIsInstalled "$name"; }
+packageStatusCommand() { qpkg_cli --status "$name"; }
+packageUninstallCommand() { ! packageIsInstalled "$name" && return; sudoc qpkg_cli --remove "$name"; }
+
+packageInstallCommand()
+{
+	packageIsInstalled "$name" && return
+	local result="$(sudoc qpkg_cli --add "$name")"; echo "$result"
+	[[ ! "$result" =~ "invalid QPKG" ]]
+}
+
+packageIsInstalled() { qpkg_cli --status "$1" | grep -q "is installed$"; }
 
 #
 # helper
@@ -114,7 +148,7 @@ getSid()
 	local host="$(getHost)"
 
 	# get the sid from the credential store if possible
-	if [[ ! $force ]] && credential exists qnap/sid "$host" "${globalArgs[@]}"; then
+	if [[ ! $force ]] && ! UpdateNeeded qcli && credential exists qnap/sid "$host" "${globalArgs[@]}"; then
 		credential get qnap/sid "$host"; return
 	fi
 
@@ -123,6 +157,7 @@ getSid()
 	[[ ! $sid ]] && { ScriptErr "unable to login to $host"; return 1; }
 
 	credential set qnap/sid "$host" "$sid" --quiet "${globalArgs[@]}" || return
+	UpdateSet qcli || return # only cache the SID for the current day 
 	echo "$sid"
 }
 
