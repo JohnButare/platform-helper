@@ -161,7 +161,7 @@ esac
 DATA="/usr/local/data" ADATA="$DATA/appdata" ACONFIG="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM" PUB="${PUB:-$USERS/Shared}"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
-declare {TMPDIR,TMP,TEMP}="${TMPDIR:-/tmp}"
+declare {TMPDIR,TMP,TEMP}="${TMPDIR:-$HOME/tmp}"
 
 set +a
 
