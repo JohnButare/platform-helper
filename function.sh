@@ -1461,7 +1461,7 @@ GetUriDirs() { GetArgs; local gud="${1#*//*/}"; [[ "$gud" == "$1" ]] && gud=""; 
 # Package Manager
 #
 
-HasPackageManger() { IsPlatform debian,mac,dsm,qnap; }
+HasPackageManger() { IsPlatform debian,entware,mac; }
 PackageFileInfo() { dpkg -I "$1"; } # information about a DEB package
 PackageFileInstall() { sudo gdebi -n "$@"; } # install a DEB package with dependencies
 PackageFileVersion() { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -d: -f2; }
@@ -1552,16 +1552,18 @@ PackageCleanup()
 # PackageExist PACKAGE - return true if the specified package exists
 PackageExist()
 { 
-	IsPlatform debian && { [[ "$(apt-cache search "^$@$")" ]] ; return; }
-	IsPlatform mac && { brew search "/^$@$/" | grep -v "No formula or cask found for" >& /dev/null; return; }	
-	IsPlatform dsm,qnap && { [[ "$(packagel "$1")" ]]; return; }
-	return 0
+	if IsPlatform debian; then [[ "$(apt-cache search "^$@$")" ]]
+	elif IsPlatform mac; then brew search "/^$@$/" | grep -v "No formula or cask found for" >& /dev/null
+	elif IsPlatform entware; then [[ "$(packagel "$1")" ]]
+	fi
 }
 
 # PackageFiles PACKAGE - show files in the specified package
 PackageFiles()
 {
-	InPath "apt-file" && apt-file list "$@"
+	if InPath "apt-file"; then apt-file list "$@"
+	elif IsPlatform entware; then opkg files "$@"
+	fi
 }
 
 # PackageInfo PACKAGE - show information about the specified package
@@ -1574,7 +1576,7 @@ PackageInfo()
 		dpkg -L "$1" | grep 'bin/'
 
 	elif IsPlatform entware; then
-		opkg files "$@"
+		opkg info "$@"
 	
 	elif IsPlatform mac; then
 		brew info "$1" || return
