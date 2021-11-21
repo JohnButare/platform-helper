@@ -1478,7 +1478,7 @@ package() # package install
 	for arg in "$@"; do
 		[[ "$arg" == @(-f|--force) ]] && { force="true"; continue; }
 		[[ "$arg" == @(-np|--no-prompt) ]] && { noPrompt="true"; continue; }
-		[[ "$arg" =~ @(-q|--quiet) ]] && { quiet="true"; continue; }
+		[[ "$arg" == @(-q|--quiet) ]] && { quiet="true"; continue; }
 		args+=( "$arg" )
 	done
 	set -- "${args[@]}"
