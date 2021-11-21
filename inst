@@ -16,7 +16,7 @@ init()
 	ScriptEval HostGetInfo --detail || return
 
 	# isInstallable
-	all=( AppDir bash BashProfile bootstrap CredentialStore final gitClient gitServer hashi zsh zplug ZshProfile )	
+	all=( AppDir bash BashProfile bootstrap CredentialStore final gitClient gitServer hashi hostname zsh zplug ZshProfile )	
 	debian=( apache apt AptUtilities audacity cfssl chroot ChronyServer cups dbus DnsServer DhcpServer geany gpg HomeAssistantCore HomeAssistantCli HypervLinuxTools kea KeaService LastPass mDns mosquitto NodeRed OpenJdk pass pivpn SaltMinion SecretTool terminator tomcat UncomplicatedFirewall VmwareLinuxTools )
 	mac=( amphetamine AppleConfigurator apptivate bartender bear BetterTouchTool btt CanaryMail CarrotWeather DayOne DiskInventortyX gitx HomeAssistant iTerm karabiner LiveDesktop Magnet MakrdownView MicrosoftRemoteDesktop pcalc rectagle RemoteDesktop spark speedtest WallpaperWizard xcode XcodeCli XQuartz yoink )
 	pi=( DomotzAgent PiI2c PiOneWire PiReporter PiSetup PiSpi PiWifi)
@@ -721,7 +721,7 @@ runXip()
 # applications
 #################################################
 
-AppCoreInstall() { RunPlatform app && appHost; }
+AppCoreInstall() { RunPlatform app && i hostname && appHost; }
 appMac() { i LinuxUtilities PythonUtilities && i CompareCore iTerm karabiner rectangle SevenZip xServer || return; }
 appQnap() { i PythonUtilities qcli; iStore MalwareRemover NotificationCenter Qboost QuLog SSDLaboratory SecurityCounselor; }
 appWin() { i WindowsStore WindowsTerminal AutoHotKey EdgeDeflector MaxTo winget xServer || return; }
@@ -1030,6 +1030,9 @@ BootstrapInstall()
 
 bootstrapStart()
 {
+
+	[[ ! $force ]] && ! UpdateNeeded "bootstrapStart" && return
+
 	# permissions
 	[[ -f "$HOME/.bash_history" ]] && { sudoc chown "$USER" "$HOME/.bash_history" || return; }
 
@@ -1077,6 +1080,7 @@ bootstrapStart()
 	echo "done"
 
 	# compile the magic file
+	cd "$HOME" || return
 	file -C -m "$HOME/.magic" || return
 
 	# add passwords to the credential store now to minimize prompting
@@ -1085,25 +1089,27 @@ bootstrapStart()
 	# set the default WSL distribution user now to aid troubleshooting issues.
 	IsPlatform wsl && { wsl dist user set --user="$(ConfigGet "user")" || return; }
 
-	return 0
+	UpdateDone "bootstrapStart" || return
 }
 
 bootstrapEnd()
 {
 	i AppDir bash fzf sshCore zsh zplug || return
 	SetLoginShell zsh || return
-	i hostname $PLATFORM || return
+	i "$PLATFORM" || return
 }
 
 bootstrapDebianMac() # debian|mac
 {
-	header "Bootstrap Mac OS and Debian "
+	header "Bootstrap Mac OS and Debian"
 	pkg dialog git moreutils unzip zip curl htop less || return
 }
 
 bootstrapDebian()
 {
 	header "Bootstrap Debian"
+
+	[[ ! $force ]] && ! UpdateNeeded "bootstrapDebian" && return
 
 	if ! IsPlatform win; then
 		IsHypervVm && { i HypervLinuxTools || return; }
@@ -1115,6 +1121,8 @@ bootstrapDebian()
 	pkg --no-prompt keyboard-configuration smbclient || return
 
 	i DebianSetup || return
+
+	UpdateDone "bootstrapDebian" || return
 }
 
 bootstrapEntware()
@@ -1126,7 +1134,7 @@ bootstrapEntware()
 		printf "\nInstalling core packages..."
 		! IsPlatform qnap && { pkg man-pages || return; } # QNAP error: "mandb: the setuid man user "root" does not exist"
 		pkg bc dialog moreutils tmux || return																	# other
-		pkg unzip xz-utils zip																									# compression
+		pkg unzip xz-utils																											# compression
 		pkg $c-chroot $c-expand $c-head $c-install $c-sort $c-stat || return 		# coreutils
 		pkg git git-http libcurl || return 																			# git - libcurl required for https origins
 		pkg diffutils file hdparm lsblk mount-utils ncdu || return							# file
@@ -1135,7 +1143,7 @@ bootstrapEntware()
 		pkg daemonize || return																									# process
 		pkg column ncurses-bin screen || return																	# terminal
 		pkg chrony ntpdate || return																						# time
-		pkg elinks lynx || return																								# web
+		pkg curl elinks lynx || return																					# web
 	fi
 
 	[[ -f "/opt/etc/man_db.conf" ]] && { sudo chmod ugo+r "/opt/etc/man_db.conf" || return; }
@@ -1477,7 +1485,11 @@ DebianFileSharingInstall()
 		restart="true"
 	fi
 
+	# restart smbd service to configuration changes take effect
 	[[ $restart ]] && { service restart smbd || return; }
+
+	# add SMB password for the current user
+	! sudo pdbedit -L -u $USER >& /dev/null  && { sudo smbpasswd -a $USER || return; }
 
 	return 0
 }
@@ -2183,7 +2195,7 @@ PicasaFinalWin()
 #################################################
 
 LinuxAllInstall() {  i LinuxUtilities LinuxNetworkUtilities chroot cups dbus fzf gpg NginxProxyManager; }
-LinuxInstall() { :; }
+LinuxInstall() { header "Linux Setup"; }
 
 LinuxUtilitiesInstall()
 {
@@ -6863,13 +6875,13 @@ WinPermissionsInstall()
 # X Windows
 #################################################
 
-xClient() # 140MB
+xClientInstall() # 140MB
 {
 	header "X Client"
 	pkg xauth dbus-x11 wmctrl x11-utils xclip || return # xauth enables ssh X11 forwarding
 }
 
-xServer()
+xServerInstall()
 {
 	header "X Server"
 	RunPlatform xServer || return
@@ -7004,7 +7016,7 @@ HostnameInstall()
 {
 	IsDocker && return # Docker hostname must be set in the containers config.vs.json
 
-	! UpdateNeeded "HostnameChanged" && return
+	[[ ! $force ]] && ! UpdateNeeded "HostnameChanged" && return
 
 	os name set
 	case $? in
