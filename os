@@ -278,7 +278,7 @@ bitsCommand() # 32 or 64
 mhzCommand()
 {
 	! InPath lscpu && return
-	lscpu | grep "^CPU MHz:" | tr -s " " | cut -d" " -f3
+	lscpu | grep "^CPU .* MHz:" | head -1 | awk '{print $NF}' # CPU [max|min] MHZ:
 }
 
 # hardware - return the machine hardware, one of:
