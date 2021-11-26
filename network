@@ -12,6 +12,11 @@ init()
 	
 	adapterKey='HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Network​'
 	profileKey='HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/NetworkList/Profiles/'
+
+	proxyVars="http_proxy,https_proxy,ftp_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY"
+	noProxyVars="no_proxy,NO_PROXY"	
+	allProxyVars="$proxyVars,$noProxyVars"
+	aptFile="/etc/apt/apt.conf.d/proxy"	
 }
 
 
@@ -177,16 +182,18 @@ currentUpdateCommand()
 	# save proxy server
 	UpdateSet "ProxyServer" "$proxyServer" || return
 	if [[ $proxyServer ]]; then
-		proxyAptEnable || return
+		network proxy apt --enable "${globalArgs[@]}" || return
 		ScriptEval network proxy vars --enable || return
 	else
-		proxyAptDisable || return
+		network proxy apt --disable "${globalArgs[@]}" || return
 		ScriptEval network proxy vars --disable || return
 	fi
 
 	# status
-	doLog && currentStatusCommand
-	doLog && { network proxy --status "${globalArgs[@]}" || return; }
+	if doLog; then
+		network current status "${globalArgs[@]}" || return
+		network proxy --status "${globalArgs[@]}" || return
+	fi
 
 	return 0
 }
@@ -523,7 +530,7 @@ workgroupSetCommand()
 
 proxyUsage()
 { 
-	echot "Usage: $(ScriptName) proxy [all|apt|wpad|vars]
+	echot "Usage: $(ScriptName) proxy [all|apt|wpad|vars](all)
 Network proxy server commands.
 
 	-e, --enable
@@ -531,14 +538,7 @@ Network proxy server commands.
 	-s, --status"
 }
 
-proxyArgStart()
-{
-	unset action
-	proxyVars="http_proxy,https_proxy,ftp_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY"
-	noProxyVars="no_proxy,NO_PROXY"	
-	allVars="$proxyVars,$noProxyVars"
-	aptFile="/etc/apt/apt.conf.d/proxy"	
-}
+proxyArgStart() { unset action; }
 
 proxyOpt() 
 {
@@ -550,7 +550,7 @@ proxyOpt()
 	esac
 }
 
-proxyCommand() { usage; }
+proxyCommand() { proxyAllCommand; }
 
 # all
 proxyAllCommand() { [[ ! $action ]] && action="status"; proxyAll${action^}; }
@@ -587,7 +587,7 @@ proxyAptStatus()
 
 proxyAptEnable()
 {
-	 ! isAptInstalled && return
+	! isAptInstalled && return
 
 	local proxyServer="$(UpdateGet "ProxyServer")"
 	
@@ -616,7 +616,7 @@ proxyVarsShow()
 	if [[ $proxyServer ]]; then
 		echo "export {$proxyVars}=\"http://$proxyServer\"; eval export {$noProxyVars}=\"$noProxy\""
 	else
-		echo "unset {$allVars}; unset {$allVars}"
+		echo "unset {$allProxyVars}"
 	fi
 }
 
@@ -624,7 +624,7 @@ proxyVarsStatus()
 {
 	if (( $(export | grep -i 'proxy=\"http' | wc -l) > 1 )); then
 		if [[ $verbose ]]; then
-			export | grep "$(echo "$allVars=" | sed 's/,/=\\|/g')"
+			export | grep "$(echo "$allProxyVars=" | sed 's/,/=\\|/g')"
 		else
 			echo "enabled"
 		fi
@@ -632,8 +632,6 @@ proxyVarsStatus()
 		echo "disabled"
 	fi
 }
-
-
 
 #
 # helper
