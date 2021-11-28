@@ -1775,9 +1775,13 @@ function RunPlatform()
 	[[ $PLATFORM ]] && { RunFunction $function $platform "$@" || return; }
 	[[ $PLATFORM_LIKE ]] && { RunFunction $function $PLATFORM_LIKE "$@" || return; }
 	[[ $PLATFORM_ID ]] && { RunFunction $function $PLATFORM_ID "$@" || return; }
-	IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
-	IsPlatform wsl1 && { RunFunction $function wsl1 "$@" || return; }
-	IsPlatform wsl2 && { RunFunction $function wsl2 "$@" || return; }
+
+	if [[ "$PLATFORM" == "win" ]]; then
+		IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
+		IsPlatform wsl1 && { RunFunction $function wsl1 "$@" || return; }
+		IsPlatform wsl2 && { RunFunction $function wsl2 "$@" || return; }
+	fi
+
 	IsPlatform entware && { RunFunction $function entware "$@" || return; }
 	IsPlatform debian,mac && { RunFunction $function DebianMac "$@" || return; }
 	IsPlatform pikernel && { RunFunction $function PiKernel "$@" || return; }
@@ -2246,6 +2250,7 @@ GetChrootName()
 	CHROOT_CHECKED="true"
 }
 
+# GetVmType - cached to avoid multiple sudo calls
 GetVmType() # vmware|hyperv
 {	
 	[[ $VM_TYPE_CHECKED ]] && return
@@ -2272,7 +2277,7 @@ GetVmType() # vmware|hyperv
 		fi
 	fi
 
-	VM_TYPE_CHECKED="true" VM_TYPE="$result"
+	export VM_TYPE_CHECKED="true" VM_TYPE="$result"
 }
 
 #
