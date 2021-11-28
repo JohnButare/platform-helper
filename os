@@ -7,8 +7,8 @@ usage()
 Usage: os [COMMAND]... [OPTION]...
 Operating system commands
 
-	architecture|bits|CodeName|hardware|mhz|version 				information
-	environment|index|path|lock|preferences|store						control
+	info|architecture|bits|build|CodeName|hardware|mhz|version		information
+	environment|index|path|lock|preferences|store									control
 	executable		executable information
 	memory				[available|total](total)
 	name					show or set the operating system name"
@@ -275,10 +275,13 @@ bitsCommand() # 32 or 64
 	return 1
 }
 
+buildCommand() { RunPlatform "build"; } 
+buildWin() { registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/CurrentBuild" | RemoveCarriageReturn; }
+
 mhzCommand()
 {
 	! InPath lscpu && return
-	lscpu | grep "^CPU .* MHz:" | head -1 | awk '{print $NF}' # CPU [max|min] MHZ:
+	lscpu | grep "^CPU .* MHz:" | head -1 | awk '{print $NF}' | cut -d. -f 1 # CPU [max|min] MHZ:
 }
 
 # hardware - return the machine hardware, one of:
@@ -289,32 +292,47 @@ mhzCommand()
 hardwareCommand() ( uname -m; )
 
 #
-# version command
+# info command
 #
 
-versionArgStart()
+infoUsage()
 {
-	host="localhost"
-	r="HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion"
+	echot "\
+Usage: $(ScriptName) info [HOST](localhost)
+Show Operating System information.
+
+	-d|--detail		show detailed information
+	-m|--monitor	monitor information"
 }
 
-versionUsage() { echot "\
-Usage: $(ScriptName) version [win build] [HOST](localhost)
-Show Operating System version information."; }
+infoArgStart() { unset -v detail monitor; host="localhost"; }
+infoArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
 
-versionArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
-versionCommand() { if IsLocalHost "$host"; then versionLocal; else versionRemote; fi; }
+infoOpt()
+{
+	case "$1" in
+		-d|--detail) detail="--detail";;
+		-m|--monitor) monitor="true";;
+		*) return 1;;
+	esac
+}
 
-versionBuildCommand() { RunPlatform "versionBuild"; } 
-versionBuildWin() { registry get "$r/CurrentBuild" | RemoveCarriageReturn; }
+infoCommand() 
+{
+	if [[ $monitor ]]; then 
+		watch -n 1 os info $host $detail "${globalArgs[@]}"
+	else
+		if IsLocalHost "$host"; then infoLocal; else infoRemote; fi
+	fi
+}
 
-versionRemote()
+infoRemote()
 {
 	# check for ssh
 	! SshIsAvailable "$host" && { echo "$host Operating System information is not available"; return; }
 
 	# destailed information - using the os command on the host
-	SshInPath "$host" "os" && { SshHelper connect "$host" -- os version; return; }
+	SshInPath "$host" "os" && { SshHelper connect "$host" -- os info; return; }
 	
 	# basic information - using HostGetInfo vars command locally
 	ScriptEval HostGetInfo vars "$host" || return
@@ -325,41 +343,27 @@ versionRemote()
 	return 0
 }
 
-versionLocal()
+infoLocal()
 {
-	echo "    platform: $(PlatformDescription)"
+	local w what=( model platform distribution kernel cpu mhz architecture memory chroot vm file switch other )
+	for w in "${what[@]}"; do info${w^} || return; done
+	
+}
 
-	versionDistribution	|| return
-
-	# Linux Kernel
-	local bits="$(bitsCommand)"; [[ $bits ]] && bits=" ($bits bit)"
-	echo "      kernel: $(uname -r)$bits"
-
-	# hardware
-	versionCpu || return
-	echo "         mhz: $(mhzCommand)" 
-	echo "      memory: $(memoryAvailableCommand) GB available / $(memoryTotalCommand) GB total" 
+infoArchitecture()
+{
 	local architecture="$(architectureCommand)"
 	[[ "$architecture" != "$(hardwareCommand)" ]] && architecture+=" ($(hardwareCommand))"
 	echo "architecture: $architecture" 
-
-	# chroot
-	[[ -f "/etc/debian_chroot" ]] && echo "      chroot: $(cat "/etc/debian_chroot")"
-
-	# Virtual Machine
-	IsVm && echo "          vm: $(VmType)"
-
-	RunPlatform version || return
 }
 
-versionPiKernel()
+infoChroot()
 {
-	cpu=$(</sys/class/thermal/thermal_zone0/temp)
-	echo "       model:$(cat /proc/cpuinfo | grep "^Model" | cut -d":" -f 2)"
-	echo "    CPU temp: $((cpu/1000))'C"
+	[[ ! -f "/etc/debian_chroot" ]] && return
+	echo "      chroot: $(cat "/etc/debian_chroot")"
 }
 
-versionCpu()
+infoCpu()
 {
 	! InPath lscpu && return
 
@@ -370,30 +374,97 @@ versionCpu()
 	echo "         cpu: $(RemoveSpace "$model") ($(RemoveSpace "$count") CPU)"
 }
 
-versionDistribution()
+infoFile()
+{
+	[[ ! $detail ]] && return
+	echo "file sharing: $(unc get protocols "$HOSTNAME")" || return
+}
+
+infoKernel()
+{
+	local bits="$(bitsCommand)"; [[ $bits ]] && bits=" ($bits bit)"
+	echo "      kernel: $(uname -r)$bits"
+}
+
+infoMemory()
+{
+	echo "      memory: $(memoryAvailableCommand) GB available / $(memoryTotalCommand) GB total" 
+}
+
+infoMhz()
+{
+	local mhz; mhz="$(mhzCommand)"
+	[[ ! $mhz ]] && return
+
+	if [[ $detail ]] && IsPlatform PiKernel; then
+		mhz+=" max / $(pi info mhz) current"
+	fi
+
+	echo "         mhz: $mhz" 
+}
+
+infoModel() 
+{
+	local model; model="$(RunPlatform infoModel)"; 
+	[[ ! $model ]] && return
+	echo "       model: $model"
+}
+infoModelPiKernel() { pi info model; }
+
+infoOther() { RunPlatform infoOther; }
+infoOtherPiKernel() { echo "    CPU temp: $(pi info temp)"; }
+
+infoPlatform()
+{
+	echo "    platform: $(PlatformDescription)"
+}
+
+infoSwitch()
+{
+	local switch; switch="$(power status switch "$HOSTNAME")"
+	[[ ! $switch ]] && return
+
+	if [[ $detail ]]; then
+		local watts; watts="$(power status watts "$HOSTNAME")"
+		[[ $watts ]] && switch+=" ($watts watts)"
+	fi
+
+	echo "      switch: $switch" 
+}
+
+infoVm()
+{
+	! IsVm && return
+	echo "          vm: $(VmType)"
+}
+
+# infoDistribution
+
+infoDistribution()
 {
 	! InPath lsb_release && return
 
 	local distributor version codename
+	local release; release="$(lsb_release -a 2>1)" || return
 
 	# Distributor - Debian|Raspbian|Ubuntu
-	distributor="$(lsb_release -a |& grep "Distributor ID:" | cut -f 2-)"
+	distributor="$(echo "$release" |& grep "Distributor ID:" | cut -f 2-)"
 	IsPlatform pi && distributor+="/Debian"
 
 	# Version - 10.4|20.04.1 LTS
-	version="$(lsb_release -a |& grep "Release:" | cut -f 2-)"
-	if IsPlatform ubuntu; then version="$(lsb_release -a |& grep "Description:" | cut -f 2- | sed 's/'$distributor' //')"
+	version="$(echo "$release" |& grep "Release:" | cut -f 2-)"
+	if IsPlatform ubuntu; then version="$(echo "$release" |& grep "Description:" | cut -f 2- | sed 's/'$distributor' //')"
 	elif [[ -f /etc/debian_version ]]; then version="$(cat /etc/debian_version)"
 	fi
 
 	# Code Name - buster|focal
-	codename="$(lsb_release -cs)"
+	codename="$(echo "$release" | grep "Codename:" | cut -f 2- )"
 
 	echo "distribution: $distributor $version ($codename)"
-	RunPlatform "versionDistribution"
+	RunPlatform "infoDistribution"
 }
 
-versionDistributionMac()
+infoDistributionMac()
 {
 	local version="$(system_profiler SPSoftwareDataType | grep "System Version" | cut -f 10 -d" ")"
 	local build="$(system_profiler SPSoftwareDataType | grep "System Version" | cut -f 11 -d" " | sed 's/(//' | sed 's/)//' )"
@@ -408,11 +479,12 @@ versionDistributionMac()
 	echo "distribution: macOS $version ($codeName build $build)"
 }
 
-versionDistributionWin()
+infoDistributionWin()
 {	
+	local r="HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion"
 	local releaseId="$(registry get "$r/ReleaseID" | RemoveCarriageReturn)"
 	local ubr="$(HexToDecimal "$(registry get "$r/UBR" | RemoveCarriageReturn)")"
-	local build="$(versionBuildCommand)"
+	local build="$(buildCommand)"
 
 	echo "     windows: $releaseId (build $build.$ubr, WSL $(wsl get name))"
 }

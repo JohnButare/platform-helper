@@ -1686,7 +1686,7 @@ function IsPlatform()
 
 			# platform, platformLike, and platformId
 			win|mac|linux) [[ "$p" == "$_platform" ]] && return;;
-			win11) IsPlatform win && (( $(os version build) >= 22000 )) && return;;
+			win11) IsPlatform win && (( $(os build) >= 22000 )) && return;;
 			wsl) [[ "$_platform" == "win" && "$_platformLike" == "debian" ]] && return;; # Windows Subsystem for Linux
 			wsl1|wsl2) [[ "$p" == "wsl$_wsl" ]] && return;;
 			debian|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]] && return;;
