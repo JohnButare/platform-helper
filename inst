@@ -777,7 +777,7 @@ AppHostInstall()
 	local commonLaptop="WireGuard"
 	local commonMac="$common bartender HomeAssistant magnet pcalc rectangle RemoteDesktop spark"
 	local commonPc="$common"
-	local commonPi="docker DockerCompose PiReporter"
+	local commonPi="docker DockerCompose PiFirmware PiReporter"
 	local commonPiHw="PiI2c PiOneWire PiSpi thonny" # thonny (Python development)
 	local homeServer="ChronyServer cron DnsServer DhcpServer HomeAssistant homebridge HomebridgeWiggin PiVPN UnifiController"
 	
@@ -802,7 +802,7 @@ AppHostInstall()
 		pi3) i $commonPi certbot cups NginxProxyManager || return;;
 		pi7) i $commonPi $commonPiHw;; # development
 		pi8) i $commonPi $commonPiHw PiWifi;; # pool
-		pi9) i $commonPi;;
+		pi9) i $commonPi PiOverclock;;
 		
 	esac
 }
@@ -5104,7 +5104,7 @@ PipxInstall()
 # Raspberry Pi
 #################################################
 
-PiAllInstall() { i BalenaEtcher PiDiskImager PiI2c PiOneWire PiReporter PiSetup PiSpi PiWifi; }
+PiAllInstall() { i BalenaEtcher PiDiskImager PiFirmware PiI2c PiOneWire PiOverclock PiReporter PiSetup PiSpi PiWifi; }
 
 PiCoreInstall()
 {
@@ -5123,6 +5123,35 @@ PiDiskImagerFinalWin()
 	mergeDir "$up/Raspberry Pi" "$up/Applications/Other" || return
 }
 
+PiFirmwareInstall()
+{
+	header "Raspberry Pi Firmware"
+
+	# base firmware package
+	package rpi-eeprom || return
+
+	# firmware repository
+	local programDir="/opt/rpi-eeprom"
+	[[ ! -d "$programDir" ]] && { sudo git clone "https://github.com/raspberrypi/rpi-eeprom" "$programDir" || return; }
+	cd "$programDir" || return
+	sudo git pull || return
+
+	# link firmware directory to repository firmware
+	local firmwareDir; firmwareDir="$(pi firmware dir)" || return
+	if [[ ! -L "$firmwareDir" ]]; then
+		sudo mv "$firmwareDir" "$firmwareDir.hold" || return
+		ln -s "$programDir/firmware" "$firmwareDir"
+	fi
+
+	# change from ciritical to stable firmware channel
+	local file="/etc/default/rpi-eeprom-update"
+	if grep -q "FIRMWARE_RELEASE_STATUS=\"critical\"" "$file"; then
+		sudo sed -i "s/^FIRMWARE_RELEASE_STATUS=.*/FIRMWARE_RELEASE_STATUS=\"stable\"/" "$file" || return
+	fi
+
+	return 0
+}
+
 PiI2cInstall()
 {
 	header "I2C Interface"
@@ -5133,8 +5162,29 @@ PiI2cInstall()
 
 PiOneWireInstall()
 {
-	header "1-Wire  Interface"
+	header "Raspberry Pi 1-Wire  Interface"
 	sudo raspi-config nonint do_onewire 0 # enable 1-Wire
+}
+
+PiOverclockInstall()
+{
+	local file="/boot/firmware/config.txt"
+	
+	! IsPlatform ubuntu && return
+
+	# return if overclocked already	
+	grep -q "# overclocking" "$file" && return
+
+	# backup
+	sudoc bak "$file" || return
+
+	# update
+	cat <<-EOF | sudo tee -a "$file"
+	
+		# overclocking
+		over_voltage=4
+		arm_freq=1800
+	EOF
 }
 
 PiReporterInstall()
@@ -5177,14 +5227,14 @@ PiSetupInstall()
 
 PiSpiInstall()
 {
-	header "SPI Interface"
+	header "Raspberry Pi SPI Interface"
 	sudo raspi-config nonint do_spi 0 || return # enable SPI
 	groupAddUser "spi" || return
 }
 
 PiSwapInstall()
 {
-	header "Swap Space"
+	header "Raspberry Pi Swap Space"
 	grep -q "CONF_SWAPSIZE=4096" "/etc/dphys-swapfile" && return
 
 	local clip; clip="CONF_SWAPSIZE=4096"
@@ -5198,7 +5248,7 @@ PiSwapInstall()
 
 PiWifiInstall()
 {
-	header "WiFi"
+	header "Raspberry Pi WiFi"
 
 	if (( ${#otherArgs[@]} > 0 )); then
 		sudo raspi-config nonint do_wifi_ssid_passphrase "${otherArgs[@]}"
