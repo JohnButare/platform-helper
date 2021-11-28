@@ -352,7 +352,7 @@ versionLocal()
 	RunPlatform version || return
 }
 
-versionPi()
+versionPiKernel()
 {
 	cpu=$(</sys/class/thermal/thermal_zone0/temp)
 	echo "       model:$(cat /proc/cpuinfo | grep "^Model" | cut -d":" -f 2)"
