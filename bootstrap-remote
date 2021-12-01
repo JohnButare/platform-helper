@@ -118,6 +118,8 @@ bootstrapSsh()
 	local rsyncArgs=( --rsh "ssh -oStrictHostKeyChecking=no" )
 
 	sshBootHost || return	
+	sshCheckUserPassword || return
+	sshGetHostInfo || return
 	sshConfigure || return
 	runInit || return
 	IsPlatform openwrt,ubiquiti --host && return
@@ -139,7 +141,6 @@ sshBootHost() # wait for the host to become available (after initial boot or reb
 	IsMdnsName "$host" && { host=$(MdnsResolve "$host") || return; }
 
 	sshWait || return
-	ScriptEval HostGetInfo "$target" || return
 }
 
 # sshCheckUser - if the bootstrap user exists use it
@@ -149,14 +150,30 @@ sshCheckBootstrapUser()
 	[[ "$bootstrapUser" == "$user" ]] && return
 
 	# check if the bootstrap user exists
-	hilight "${GREEN}Checking for bootstrap user $bootstrapUser..."
+	hilight "Checking for bootstrap user $bootstrapUser..."
 	! run getent passwd "$bootstrapUser" >& /dev/null && { echo "Bootstrap user $bootstrapUser does not exist"; return; }
 
 	# the bootstrap user exists
 	user="$bootstrapUser"
 	echo "Bootstrap user $bootstrapUser exists and will be used for further configuration"
 	sshConfigure || return
-} 
+}
+
+# sshCheckUserPassword - check if user password is expired
+sshCheckUserPassword()
+{
+	# ubuntu user password is initially expired 
+	[[ "$user" != "ubuntu" ]] && return
+
+	# check for password expiration message when running a command
+	hilight "Checking user '$user' password..."
+	run ls |& grep -q "password has expired"
+	(( ${PIPESTATUS[1]} != 0 )) && return
+
+	# change the password
+	echo "Changing user '$user' password..."
+	runSsh
+}
 
 sshConfigure()
 {
@@ -179,8 +196,10 @@ sshCopyCoreFiles()
 	hilight "Copying core files..."
 
 	# copy core files - allow updates by other users
-	rsync "${rsyncArgs[@]}" --perms --chmod=ugo+w --recursive "${coreFiles[@]}" "$user@$host:$port/tmp/bootstrap/" || return
+	rsync "${rsyncArgs[@]}" --port=$port --perms --chmod=ugo+w --recursive "${coreFiles[@]}" "$user@$host:/tmp/bootstrap/" || return
 }
+
+sshGetHostInfo() { ScriptEval HostGetInfo "$target"; }
 
 sshReconnect()
 {
