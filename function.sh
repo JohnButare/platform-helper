@@ -1899,7 +1899,7 @@ ProcessKill()
 	[[ "$(GetFileExtension "$p")" == "exe" ]] && win="true"
 
 	if [[ $win ]]; then
-		start pskill "$p" > /dev/null
+		start pskill.exe "$p" > /dev/null
 	elif [[ $all ]]; then
 		pkill "$p" > "/dev/null"
 	else

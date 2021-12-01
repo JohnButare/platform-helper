@@ -30,7 +30,7 @@ MakeShortcut()
 # Explorer
 #
 
-RestartExplorer() { ProcessKill explorer && start explorer; }
+RestartExplorer() { ProcessKill --win explorer && start explorer; }
 
 #
 # Network
