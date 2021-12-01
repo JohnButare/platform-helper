@@ -95,8 +95,8 @@ bootstrapChroot()
 	[[ ! -d "$dir" ]] && { EchoErr "$dist root directory "$dir" does not exist"; return 1; }
 
 	# copy core files
-	copyCoreFiles "$dir/tmp" || return
-	copyCoreFiles "tmp" || return # some chroots mount our tmp directory
+	copyCoreFiles "$dir/tmp/bootstrap/" || return
+	copyCoreFiles "/tmp/bootstrap/" || return # some chroots mount our tmp directory
 
 	# run bootstrap-init
 	runBootstrap || return
@@ -115,6 +115,7 @@ bootstrapSsh()
 	local isHostLocal; GetIpAddress --quiet "$host" | IsIpLocal && isHostLocal="true"
 	local sshArgs=( -p "$port" -oStrictHostKeyChecking=no )
 	local scpArgs=( -P "$port" -oStrictHostKeyChecking=no )
+	local rsyncArgs=( --rsh "ssh -oStrictHostKeyChecking=no" )
 
 	sshBootHost || return	
 	sshConfigure || return
@@ -172,20 +173,13 @@ sshConfigure()
 	scp "${scpArgs[@]}" "$HOME/.ssh/"* ''"$user@$host"':~/.ssh' || return
 }
 
+# sshCopyCoreFiles - copy core files into /tmp/bootstrap
 sshCopyCoreFiles()
 {
 	hilight "Copying core files..."
-	scp "${scpArgs[@]}" "${coreFiles[@]}" "$user@$host:/tmp" || return
 
-	# ensure bootstrap user can update core files
-	# - on Ubuntu, other users cannot modify files if ubuntu owns them, even if the file has other write permissions
-	# - ignore errors, the bootstrap user can't change the file permissions and that is OK
-	run 'bash -s' <<-EOF && return
-		chmod ugo+rwx "/tmp/bootstrap-*" >& /dev/null
-		chown root "/tmp/bootstrap-*" >& /dev/null
-	EOF
-
-	return 0
+	# copy core files - allow updates by other users
+	rsync "${rsyncArgs[@]}" --perms --chmod=ugo+w --recursive "${coreFiles[@]}" "$user@$host:$port/tmp/bootstrap/" || return
 }
 
 sshReconnect()
@@ -231,8 +225,13 @@ copyCoreFiles()
 
 	hilight "Copying core files..."
 
+	# create destination directory
+	[[ ! -d "$dir" ]] && { mkdir "$dir" || return; }
+
+	# copy core files - allow updates by other users
+	local umask="$(umask)"; umask 0
 	cp "${coreFiles[@]}" "$dir" || return 
-	run chmod ugo+rwx "/tmp/bootstrap-*" || return
+	umask "$umask" || return
 }
 
 installMicro()
@@ -280,7 +279,7 @@ runBootstrap()
 	local restart; [[ "$type" == "ssh" ]] && restart="--restart"
 
 	hilight "Running bootstrap on $host..."
-	runi "/tmp/bootstrap-init" "/tmp/$(GetFileName "$config")" "$bin" "${globalArgs[@]}" $restart
+	runi "/tmp/bootstrap/bootstrap-init" "/tmp/$(GetFileName "$config")" "$bin" "${globalArgs[@]}" $restart
 }
 
 # run command on host
