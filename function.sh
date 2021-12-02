@@ -1457,6 +1457,17 @@ GetUriServer() { GetArgs; local gus="${1#*//}"; r "${gus%%:*}" $2; }
 GetUriPort() { GetArgs; local gup="${1##*:}"; r "${gup%%/*}" $2; }
 GetUriDirs() { GetArgs; local gud="${1#*//*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 
+GetUrlPort()
+{
+	local gup="$(GetUriPort "$1")"
+	[[ $gup ]] && { r "$gup" $2; return; }
+	case "$(GetUriProtocol "$1")" in
+		http) gup="80";;
+		https) gup="443";;
+	esac
+	r "$gup" $2
+}
+
 #
 # Package Manager
 #
