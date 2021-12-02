@@ -16,13 +16,24 @@ set -a # export variables and functions to child processes
 
 function GetPlatform() 
 {
-	local host="$1" cmd; shift
-	local quiet; [[ "$1" == @(-q|--quiet) ]] && { quiet="--quiet"; shift; }
-	local trust; [[ "$1" == @(-T|--trust) ]] && { trust="--trust"; shift; }
-	local verbose; [[ "$" == @(-v|--verbose) ]] && { trust="--VERBOSE"; shift; }
+	# arguments
+	local host quiet trust verbose
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-q|--quiet) quiet="--quiet";;
+			-T|--trust) trust="--trust";;
+			-v|--verbose) verbose="--verbose";;
+			*) 
+				if [[ ! $host ]]; then host="$1"
+				else echo "GetPlatform: unknow option '$1'"; return 1;
+				fi
+		esac
+		shift
+	done
 
 	# /etc/os-release sets ID, ID_LIKE
-	cmd='
+	local cmd='
 echo platform=$(uname);
 echo kernel=\"$(uname -r)\";
 echo machine=\"$(uname -m)\";
