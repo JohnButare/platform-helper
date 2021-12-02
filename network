@@ -19,7 +19,6 @@ init()
 	aptFile="/etc/apt/apt.conf.d/proxy"	
 }
 
-
 #
 # commands
 #
@@ -544,7 +543,7 @@ workgroupSetCommand()
 
 proxyUsage()
 { 
-	echot "Usage: $(ScriptName) proxy [all|apt|wpad|vars](all)
+	echot "Usage: $(ScriptName) proxy [all|apt|vars](all)
 Network proxy server commands.
 
 	-e, --enable
@@ -568,8 +567,8 @@ proxyCommand() { proxyAllCommand; }
 
 # all
 proxyAllCommand() { [[ ! $action ]] && action="status"; proxyAll${action^}; }
-proxyAllDisable() { proxyAptDisable && proxyWpadDisable && proxyVarsDisable; }
-proxyAllEnable() { proxyAptEnable && proxyWpadEnable && proxyVarsEnable; }
+proxyAllDisable() { proxyAptDisable && proxyVarsDisable; }
+proxyAllEnable() { proxyAptEnable && proxyVarsEnable; }
 
 proxyAllStatus()
 {
@@ -614,9 +613,37 @@ Acquire::https::Proxy \"http://$proxyServer\";" | $r sudo tee "$aptFile"
 
 # wpad
 proxyWpadCommand() { [[ ! $action ]] && action="status"; proxyWpad${action^}; }
-proxyWpadEnable() { scp "$CLOUD/network/system/proxy/wpad.dat.enable" "$(getWeb):$wpadFile"; }
-proxyWpadDisable() { scp "$CLOUD/network/system/proxy/wpad.dat.disable" "$(getWeb):$wpadFile"; }
-proxyWpadStatus() { ssh $(getWeb) cat "$wpadFile" | grep "PROXY" > /dev/null && echo "enabled" || echo "disabled"; }
+proxyWpadEnable() { proxyWpadConfigure "enable"; }
+proxyWpadDisable() { proxyWpadConfigure "disable"; }
+
+proxyWpadStatus()
+{
+	local server; IFS=$'\n' servers=( $(GetServers "web") ) || return
+	for server in "${servers[@]}"; do
+		printf "$server: "
+		ssh "$server" cat "$wpadFile" | grep "PROXY" > /dev/null && echo "enabled" || echo "disabled"; 
+	done
+}
+
+proxyWpadConfigure()
+{
+	local operation="$1"
+	local src="$CLOUD/network/system/proxy/wpad.dat.$operation"
+
+	# check for configuration file
+	[[ ! -f "$src" ]] && { ScriptErr "WPAD configuration file '$src' does not exist"; return 1; }
+
+	# copy the configuration file to each web server
+	local server; IFS=$'\n' servers=( $(GetServers "web") ) || return
+	for server in "${servers[@]}"; do
+		printf "$server: "
+		local dest="//$server/admin$wpadFile"
+		local dir; dir="$(unc mount "$(GetFilePath "$dest")")" || return
+		cp "$src" "$dir/"$(GetFileName "$dest") || return
+		unc unmount "$dest" || return
+		echo "${operation}d"
+	done
+}
 
 # vars
 proxyVarsCommand() { [[ ! $action ]] && action="enable"; proxyVars${action^}; }
@@ -652,7 +679,6 @@ proxyVarsStatus()
 #
 
 doLog() { [[ ! $brief && ! $quiet ]]; } # return true if output should be logged
-getWeb() { GetServer "web" || ScriptExit; }
 name() { UpdateGet "network"; }
 
 # getServers NETWORK TYPE - get servers of the specified type for the specified network from configuration, 
