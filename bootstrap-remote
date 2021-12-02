@@ -113,9 +113,11 @@ bootstrapSsh()
 	local sshUser="$(GetSshUser "$target")"; user="${sshUser:-$bootstrapUser}"
 
 	local isHostLocal; GetIpAddress --quiet "$host" | IsIpLocal && isHostLocal="true"
-	local sshArgs=( -p "$port" -oStrictHostKeyChecking=no )
-	local scpArgs=( -P "$port" -oStrictHostKeyChecking=no )
-	local rsyncArgs=( --rsh "ssh -oStrictHostKeyChecking=no" )
+	local sshCommonArgs=( -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ) # trust new hosts, don't modify known_hosts
+	local sshArgs=( -p "$port" "${sshCommonArgs[@]}" )
+	local scpArgs=( -P "$port" "${sshCommonArgs[@]}" )
+	local rsyncSshArgs="ssh ${sshCommonArgs[@]}"
+	local rsyncArgs=( --rsh "$rsyncSshArgs" )
 
 	sshBootHost || return	
 	sshCheckUserPassword || return
@@ -195,11 +197,17 @@ sshCopyCoreFiles()
 {
 	hilight "Copying core files..."
 
+	run 'bash -s' <<-EOF || return
+		[[ -d "/tmp/bootstrap" ]] && exit
+		mkdir "/tmp/bootstrap" || exit
+		chmod o+w /tmp/bootstrap" || exit
+	EOF
+
 	# copy core files - allow updates by other users
 	rsync "${rsyncArgs[@]}" --port=$port --perms --chmod=ugo+w --recursive "${coreFiles[@]}" "$user@$host:/tmp/bootstrap/" || return
 }
 
-sshGetHostInfo() { ScriptEval HostGetInfo "$target"; }
+sshGetHostInfo() { ScriptEval HostGetInfo --trust $verbose "$target"; }
 
 sshReconnect()
 {
