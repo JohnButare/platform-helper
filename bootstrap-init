@@ -190,12 +190,15 @@ init()
 				[[ -f "$1" ]] && { export functionConfigFileCache="$1"; shift; continue; }
 				[[ ! $bin ]] && { bin="$1"; shift; continue; }
 				[[ ! $install ]] && { install="$1"; shift; continue; }
-				echo "bootstrap-init: invalid argument '$1'"; return 1;
+				echoErr "bootstrap-init: invalid argument '$1'"; return 1;
 		esac
 		shift
 	done
 	globalArgs=($force $noPrompt $quiet $verbose)
+
+	# bin
 	[[ ! $bin ]] && bin="$(configGet "bootstrapBin")"
+	! IsUncPath "$bin" && { echoErr "'$bin' is not a UNC path"; return 1; }
 	GetUncServer "$bin" host || return
 
 	# variables
@@ -203,7 +206,7 @@ init()
 
 	# sudo
 	sudo="sudo"; ! inPath sudo && sudo=""
-	[[ ! $sudo && "$USER" != "root" ]] && { echo "bootstrap-init: sudo is not installed and user is not root"; return 1; }
+	[[ ! $sudo && "$USER" != "root" ]] && { echoErr "bootstrap-init: sudo is not installed and user is not root"; return 1; }
 
 	# ping
 	ping="ping"
@@ -270,7 +273,7 @@ mountUnc()
 	local unc="$1"
 
 	GetUncUser "$unc" uncUser; [[ ! $uncUser ]] && uncUser="$user"
-	GetUncServer "$unc" server || return; [[ ! $server ]] && { echo "UNC '$unc' does not include a server"; return 1; }
+	GetUncServer "$unc" server || return; [[ ! $server ]] && { echoErr "UNC '$unc' does not include a server"; return 1; }
 	GetUncShare "$unc" share || return; [[ ! $share ]] && share="root" 
 	GetUncDirs "$unc" dirs
 	local p; GetUncProtocol "$unc" p || return; [[ $p ]] && protocol="$p"
@@ -297,15 +300,12 @@ mountUnc()
 	fi
 
 	# validate directory
-	[[ ! -d "$mountDir/$dirs" ]] && { echo "$dirs directory does not exist on '//$server/$share'"; return 1; }
+	[[ ! -d "$mountDir/$dirs" ]] && { echoErr "$dirs directory does not exist on '//$server/$share'"; return 1; }
 	return 0
 }
 
 mountPublic-debian()
 {
-	# install
-	! isQnap && { package cifs-utils || return; }
-
 	# configure fstab - allows writing without sudo
 	local unc="//$server/$share"
 	local line="$unc $(readlink -f "$mountDir") cifs username=$uncUser,noauto,rw,users 0 0"	
@@ -371,7 +371,7 @@ installPackages-pre()
 
 debWin="cgroup-tools inotify-tools iputils-ping ncat"
 
-installPackages-debian() { package $debWin net-tools openssh-server; }
+installPackages-debian() { package $debWin cifs-utils net-tools openssh-server; }
 installPackages-entware() { package bash coreutils coreutils-ln coreutils-readlink coreutils-realpath coreutils-tac mount-utils nano openssh-client-utils rsync; }
 installPackages-mac() { package bash coreutils gsed grep ncat; }
 installPackages-win() {	package $debWin || return; }
@@ -489,7 +489,7 @@ debianUnminimizeDoc()
 		rm -f "$configTmp" "$motd" || return
 	else
 		dpkg --verify | grep '^..5......   /usr/share/doc'
-		echo "bootstrap-init: unable to unminimize the listed documentation"
+		echoErr "bootstrap-init: unable to unminimize the listed documentation"
 		return 1
 	fi
 
@@ -511,6 +511,7 @@ debianFixMan()
 configGet() { (. "$functionConfigFileCache"; eval echo "\$$1"); }
 getDateStamp() { ${G}date '+%Y%m%d'; }
 getFileDateStamp() { ${G}stat |& grep "BusyBox" >& /dev/null && return; ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
+echoErr() { echo "$@" >&2; }
 header() { printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
 hilight() { printf "${GREEN}$1${RESET}\n"; }
 initColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
@@ -543,6 +544,7 @@ GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }				
 GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }									# SERVER
 GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; r "${gus%:*}" $2; }									# SHARE
 GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 	# DIRS
+IsUncPath() { [[ "$1" =~ ^\ *//.* ]]; }
 
 GetUncUser()
 {
@@ -554,7 +556,7 @@ GetUncUser()
 GetUncProtocol()
 {
 	GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "$gup" $2
-	CheckNetworkProtocol "$gup" || { EchoErr "'$gup' is not a valid network protocol"; return 1; }
+	CheckNetworkProtocol "$gup" || { echoErr "'$gup' is not a valid network protocol"; return 1; }
 }
 
 run "$@"
