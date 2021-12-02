@@ -1686,7 +1686,8 @@ function IsPlatform()
 	if [[ "$1" == @(-h|--host) ]]; then		
 		shift; [[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; }
 	else
-		local _platform="$PLATFORM" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _machine="$MACHINE" _wsl="$WSL"
+		local _platform="$PLATFORM" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" \
+			_machine="$MACHINE" _wsl="$WSL"
 	fi
 
 	# check if the host matches the specified platforms
@@ -1719,9 +1720,9 @@ function IsPlatform()
 			opkg) InPath opkg && return;;
 
 			# kernel
-			winkernel) [[ "$PLATFORM_KERNEL" == @(wsl1|wsl2) ]] && return;;
-			linuxkernel) [[ "$PLATFORM_KERNEL" == "linux" ]] && return;;
-			pikernel) [[ "$PLATFORM_KERNEL" == "pi" ]] && return;;
+			winkernel) [[ "$_platformKernel" == @(wsl1|wsl2) ]] && return;;
+			linuxkernel) [[ "$_platformKernel" == "linux" ]] && return;;
+			pikernel) [[ "$_platformKernel" == "pi" ]] && return;;
 
 			# virtual machine
 			container) IsContainer && return;;
@@ -2155,7 +2156,7 @@ sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
 # sudoc COMMANDS - use the credential store to get the password if available, --preserve|-p to preserve the existing path (less secure)
 sudoc()
 { 
-	IsRoot && { "$@"; return; }
+	IsRoot && { env "$@"; return; } # use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
 
 	local p=( "$(FindInPath "sudo")" ) preserve; [[ "$1" == @(-p|--preserve) ]] && { preserve="true"; shift; }
 
@@ -2238,9 +2239,8 @@ IsChroot() { GetChrootName; [[ $CHROOT_NAME ]]; }
 ChrootName() { GetChrootName; echo "$CHROOT_NAME"; }
 ChrootPlatform() { ! IsChroot && return; [[ $(uname -r) =~ [Mm]icrosoft ]] && echo "win" || echo "linux"; }
 
-IsContainer() { ! InPath systemd-detect-virt && return 1; [[ "$(systemd-detect-virt --container)" != "none" ]]; }
+IsContainer() { ! InPath systemd-detect-virt && return 1; [[ "$(systemd-detect-virt --container)" != @(none|wsl) ]]; }
 IsDocker() { ! InPath systemd-detect-virt && return 1; [[ "$(systemd-detect-virt --container)" == "docker" ]]; }
-
 IsVm() { GetVmType; [[ $VM_TYPE ]]; }
 IsVmwareVm() { GetVmType; [[ "$VM_TYPE" == "vmware" ]]; }
 IsHypervVm() { GetVmType; [[ "$VM_TYPE" == "hyperv" ]]; }
