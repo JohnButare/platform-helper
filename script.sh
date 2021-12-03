@@ -282,7 +282,7 @@ ScriptUsage()
 
 	[[ ! $foundUsage ]] && ScriptUsageEcho "$2"
 	
-	log1t "\nGlobal options:
+	[[ $verbose ]] && ScriptUsageEcho "\nGlobal options:
 	-f, --force				force the operation
 	-h, --help				display command usage
 	-np, --no-prompt  suppress interactive prompts

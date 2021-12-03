@@ -2129,7 +2129,7 @@ ScriptReturn()
 {
 	local var avar fmt="%q" arrays export
 	[[ "$1" == @(-e|--export) ]] && { export="export "; shift; }
-	[[ "$1" == @(-v|--verbose) ]] && { fmt="\"%s\""; shift; }
+	[[ "$1" == @(-v|-vv|-vvv|--verbose) ]] && { fmt="\"%s\""; shift; }
 
 	# cache array lookup for performance
 	arrays="$(declare -p "$@" |& grep "^declare -a" 2> /dev/null)"
