@@ -109,6 +109,7 @@ pipxg()
 # logging
 InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); }
 header() { InitColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
+HeaderBig() { InitColor; printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n**************************************************${RESET}\n"; }
 hilight() { InitColor; EchoWrap "${GREEN}$1${RESET}"; }
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
