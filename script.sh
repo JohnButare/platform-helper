@@ -69,6 +69,34 @@ ScriptCheckPath()
 }
 
 #
+# Script Logging
+#
+
+# logN - log an error message only at the specified verbosity level or higher.  Output is sent to the standard error
+# to avoid interference with commands whose output is consumed, such as to set a variable.
+log1() { ! (( verboseLevel >= 1 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; }
+log2() { ! (( verboseLevel >= 2 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; }
+log3() { ! (( verboseLevel >= 3 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; }
+
+# RunLog - log a command if verbose logging is specified, then run it if not testing
+RunLog()
+{
+	if [[ $verbose ]]; then
+		local arg result
+
+		for arg in "$@"; do
+			[[ "$arg" =~ " "|"	" || ! $arg ]] && result+="\"$arg\" " || result+="$arg "
+		done
+
+		log1 "command: $result"
+	fi
+
+	[[ $test ]] && return
+
+	"$@"
+}
+
+#
 # Script Options
 # 
 
@@ -148,7 +176,7 @@ ScriptOptNetworkProtocol()
 ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file sharing (NFS|SMB|SSH|SSH_PORT)"; }
 
 #
-# Script Other
+# Script Run
 #
 
 # ScriptRun [defaultCommand]: init->opt->args->initFinal->command->cleanup
@@ -236,6 +264,10 @@ ScriptRun()
 	return "$result"
 }
 
+#
+# Script Usage
+#
+
 # ScriptUsage RESULT USAGE_TEXT
 ScriptUsage()
 {
@@ -250,7 +282,7 @@ ScriptUsage()
 
 	[[ ! $foundUsage ]] && ScriptUsageEcho "$2"
 	
-	[[ $verbose ]] && echot "\nGlobal options:
+	log1t "\nGlobal options:
 	-f, --force				force the operation
 	-h, --help				display command usage
 	-np, --no-prompt  suppress interactive prompts

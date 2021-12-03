@@ -372,16 +372,17 @@ SleepStatus()
 	echo "done"
 }
 
+EchoErr() { EchoWrap "$@" >&2; }
+HilightErr() { InitColor; EchoWrap "${RED}$1${RESET}" >&2; }
+PrintErr() { printf "$@" >&2; }
+
 EchoWrap()
 {
 	! InPath ${G}fold || ! IsInteger "$COLUMNS" || (( COLUMNS < 20 )) && { echo -e "$@"; return; }
 	echo -e "$@" | expand -t $TABS | ${G}fold --space --width=$COLUMNS
 }
 
-EchoErr() { InitColor; EchoWrap "$@" >&2; }
-#EchoErr() { [[ "$USER" == "homebridge" ]] && { EchoWrap "$@"; return; }; EchoWrap "$@" >&2; } # for testing homebridge which does not output stderr to the log
-HilightErr() { InitColor; EchoWrap "${RED}$1${RESET}" >&2; }
-PrintErr() { printf "$@" >&2; }
+EchoWrapErr() { EchoWrap "$@" >&2; }
 
 # printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var
 printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; }
@@ -561,6 +562,7 @@ HexToDecimal() { echo "$((16#${1#0x}))"; }
 CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; }
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
+NewlineToSpace()  { tr '\n' ' '; }
 StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } 			# StringRepeat S N - repeat the specified string N times
 
 RemoveCarriageReturn()  { sed 's/\r//g'; }

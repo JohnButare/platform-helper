@@ -91,7 +91,7 @@ ports()
 	ssh -o "ConnectTimeout=1" -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no" "$(GetIpAddress)" -p 22 "true" >& /dev/null && return 
 
 	showStatus
-	local r; [[ $brief && ! $verbose ]] && r="RunQuiet"; [[ $verbose ]] && echo
+	local r; [[ $brief && ! $verbose ]] && r="RunQuiet"; [[ $verbose ]] && EchoErr
 	$r RunScript --elevate "${globalArgs[@]}" -- powershell.exe WslPortForward.ps1
 	[[ ! $brief ]] && echo done
 	return 0
