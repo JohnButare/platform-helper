@@ -191,8 +191,8 @@ certCopyPublic()
 	# return if the certificates exist in the destination location
 	[[ ! $force ]] && certExists "$dest" "${certs[@]}" && return
 
-	[[ $verbose ]] && EchoWrap "Copying $product public certificates to '$(FileToDesc "$dest")'..."
 	# copy the certificates
+	log1 "copying $product public certificates to '$(FileToDesc "$dest")'..."
 	for cert in "${certs[@]}"; do
 		copyFile "$src/$cert" "$dest" || return
 	done
@@ -1138,7 +1138,7 @@ resolveCommand()
 	productInit "consul" || return
 
 	case "$method" in
-		"") resolveAddress "$name";;
+		"") short="true" resolveDns "$name";;
 		api) resolveApi "$name";;
 		dig) resolveDig "$name";;
 		dns) resolveDns "$name";;
@@ -1148,64 +1148,43 @@ resolveCommand()
 	esac
 }
 
-resolve() { resolveAddress "$1"; }
-
-resolveAddress()
-{
-	local name="$1"
-	local filter=(head -1); [[ $all ]] && { filter=(cat); }
-
-	# dig
-	if InPath dig; then
-		resolveDig --short "$name" | "${filter[@]}"
-
-	# nslookup - busybox nslookup does not support options
-	elif ! IsBusyBox "nslookup"; then
-		local result; result="$(resolveNslookup "$name")" || return
-
-		if [[ "$result" =~ .*canonical\ name.* ]]; then
-			printf "$result" | tail +4 | grep "canonical name =" | cut -d= -f2 | RemoveSpace | sed 's/.$//' | "${filter[@]}"
-		else
-			printf "$result" | tail +4 | grep "^Address:" | cut -d: -f2 | RemoveSpace | "${filter[@]}"
-		fi
-
-	else
-		EchoErr "unable to resolve '$name'"
-	fi
-}
+resolve() { all="" short="true" resolveAddress "$1"; }
 
 resolveApi()
 {
 	local name="$1"
-	[[ $verbose ]] && HilightErr "Using API to resolve service '$name'"
+	log1 "using API to resolve service '$name'"
 	local product="consul"; productInit --no-token || return
 
-	(( verboseLevel > 1 )) && EchoErr "command: curl --silent --show-error "$(productVarGet "ADDR")/v1/catalog/service/$name""
-
-	curl --silent --show-error "$(productVarGet "ADDR")/v1/catalog/service/$name"
+	RunLog curl --silent --show-error "$(productVarGet "ADDR")/v1/catalog/service/$name"
 }
 
 resolveDig()
 {
-	local args=(SRV); [[ "$1" == @(-s|--short) ]] && { shift; args=(A +short); }
 	local name="$1" name+=".service.$domain"
-	[[ $verbose ]] && HilightErr "Using dig to resolve '$name'"
+
+	log1 "using dig to resolve '$name'"
 	local server; server="$(getConsulServer)" || return
 
 	# resolve
-	(( verboseLevel > 1 )) && EchoErr "command: dig @"$server" -p 8600 "$name" ${args[@]}"
-	dig "@$server" -p 8600 "$name" "${args[@]}"
+	[[ ! $short ]] && { RunLog dig "@$server" -p 8600 "$name" SRV; return; }
+
+	# resolve short - only return IP
+	local ip; ip="$(RunLog dig "@$server" -p 8600 "$name" A +short)"
+	[[ ! $ip ]] && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
+	log1 "dig resolved '$name' to '$(echo "$ip" | NewlineToSpace | RemoveSpaceTrim)'"
+	echo "$ip"
 }
 
 resolveDns()
 {
 	local name="$1"
+	local filter=(head -1); [[ $all ]] && { filter=(cat); }
 
-	# busybox nslookup does not support options
-	if InPath "dig"; then
-		resolveDig "$name"
+	if InPath dig; then
+		resolveDig "$name" | "${filter[@]}"
 	elif ! IsBusyBox "nslookup"; then
-		resolveNslookup "$name"
+		resolveNslookup "$name" | "${filter[@]}"
 	else
 		EchoErr "unable to resolve '$name'"
 	fi
@@ -1214,20 +1193,33 @@ resolveDns()
 resolveNslookup()
 {
 	local name="$1"; name+=".service.$domain"
-	[[ $verbose ]] && HilightErr "Using nslookup to resolve '$name'"
+
+	log1 "using nslookup to resolve '$name'"
 	local server; server="$(getConsulServer)" || return
 
 	# resolve
-	(( verboseLevel > 1 )) && EchoErr "command: nslookup -port=8600 -type=a -norecurse $name $server"
-	local result; result="$(nslookup -port=8600 -type=a -norecurse "$name" "$server")" || { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
-	echo "$result"
+	[[ ! $short ]] && { RunLog nslookup -port=8600 -type=a -norecurse "$name" "$server"; return; }
+
+	# resolve short - only return IP
+	local result; result="$(RunLog nslookup -port=8600 -type=a -norecurse "$name" "$server")"
+	(( $? != 0 )) && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
+
+	local ip
+	if [[ "$result" =~ .*canonical\ name.* ]]; then
+		ip="$(printf "$result" | tail +4 | grep "canonical name =" | cut -d= -f2 | RemoveSpace | sed 's/.$//')"
+	else
+		ip="$(printf "$result" | tail +4 | grep "^Address:" | cut -d: -f2 | RemoveSpace)"
+	fi
+	
+	log1 "nslooklup resolved '$name' to '$(echo "$ip" | NewlineToSpace | RemoveSpaceTrim)'"
+	echo "$ip"
 }
 
 # getConsulServer - get a consul server that is available for DNS queries on port 8600
 getConsulServer()
 {
 	local server="$(productGetServer "consul")"
-	[[ $verbose ]] && EchoErr "Found consul consul server '$server'"
+	log1 "found consul consul server '$server'"
 	[[ ! $server ]] && { [[ ! $quiet ]] && ScriptErr "no consul server found"; return 1; }
 	! IsAvailablePort "$server" 8600 && { [[ ! $quiet ]] && ScriptErr "consul server $server port 8600 is not available"; return 1; }
 	echo "$server"
@@ -1295,9 +1287,9 @@ installCommon()
 	joinFqdn=(); local h; for h in "${join[@]}"; do joinFqdn+=( "$(os name "$h")" ); done
 
 	if [[ $verbose ]]; then
-		printf "clients: "; ArrayShow clients
-		printf "servers: "; ArrayShow servers
-		printf "join: "; ArrayShow join
+		PrintErr "clients: "; ArrayShow clients
+		PrintErr "servers: "; ArrayShow servers
+		PrintErr "join: "; ArrayShow join
 	fi
 	
 	return 0
@@ -1364,7 +1356,7 @@ installAcl()
 	credSet "token" "$token" || return
 
 	productVarSet "TOKEN" "$token" || return
-	[[ $verbose ]] && { echo "Updated environment variable $(productVar "TOKEN") to $(productVarGet "TOKEN")..."; }
+	log1 "updated environment variable $(productVar "TOKEN") to $(productVarGet "TOKEN")..."
 
 	return 0
 }
@@ -2606,7 +2598,7 @@ credGetIfExists() { credExists "$@" --quiet && credGet "$@" --quiet; }
 # credSet KEY VALUE
 credSet()
 {
-	[[ $verbose ]] && echo "Setting $(credPath) $1 credential to $2..."
+	log1 "Setting $(credPath) $1 credential to $2..."
 	$testEcho credential set "$(credPath)" "$@" $verbose || return
 }
 
@@ -2616,7 +2608,7 @@ credManagerCheck()
 	local manager
 
 	for manager in "$@"; do
-		[[ $verbose ]] && hilight "Checking the '$manager' credential manager..."
+		log1 "checking the '$manager' credential manager..."
 		credential --manager="$manager" check $verbose && continue
 		EchoErr "The '$manager' credential manager is not available"
 		return 1
@@ -2685,8 +2677,8 @@ productInit()
 	ScriptEval productEnvironment $noToken "$product" "$host" || return
 
 	if [[ $verbose ]]; then
-		local token="$(productVarGet "TOKEN")" desc="no token"; [[ $token ]] && desc="token $token"
-		HilightErr "Using $product server at $(productVarGet "ADDR") with $desc"
+		local token="$(productVarGet "TOKEN")" desc="no token"; [[ $token ]] && desc="token"
+		log1 "using $product server at $(productVarGet "ADDR") with $desc"
 		(( verboseLevel > 1 )) && productEnvironment "$product" "$host"
 	fi
 
@@ -2701,7 +2693,7 @@ productEnvironment()
 
 	# force the environment change if the configuration has changed
 	if [[ "$configPrefix" != "$(productVarGet "CONFIG")" || "$baseDomain" != "$(productVarGet "DOMAIN")" ]] && [[ ! $force ]]; then
-		[[ $verbose ]] && EchoErr "$product environment check will be forced (configPrefix=$configPrefix $(productVar "CONFIG")=$(productVarGet "CONFIG")  baseDomain=$baseDomain $(productVar "DOMAIN")=$(productVarGet "DOMAIN")"
+		log1 "$product environment check will be forced (configPrefix=$configPrefix $(productVar "CONFIG")=$(productVarGet "CONFIG")  baseDomain=$baseDomain $(productVar "DOMAIN")=$(productVarGet "DOMAIN")"
 		force="--force"
 	fi
 
@@ -2714,9 +2706,9 @@ productEnvironment()
 	# logging
 	if [[ $verbose ]]; then
 		if [[ $useHttps ]]; then
-			EchoErr "certificate directory '$certDir' exists, HTTPS will be used"
+			log1 "certificate directory '$certDir' exists, HTTPS will be used"
 		else
-			EchoErr "certificate directory no present, HTTP will be used"
+			log1 "certificate directory no present, HTTP will be used"
 		fi
 	fi
 
@@ -3041,7 +3033,7 @@ productVersion()
 		desc="$what"
 	fi
 	
-	[[ $verbose ]] && EchoErr "$product version ($desc) is $version"
+	log1 "$product version ($desc) is $version"
 	echo "$version"
 }
 
