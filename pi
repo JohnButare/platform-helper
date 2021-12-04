@@ -5,8 +5,8 @@
 usage()
 {
 	ScriptUsage "$1" "\
-usage: pi balena|firmware|image|info|power
-	Raspberry Pi helper commands"
+Usage: $(ScriptName) balena|firmware|image|info|power
+Raspberry Pi helper commands"
 }
 
 init()
@@ -172,20 +172,19 @@ imageUsage()
 usage: pi image backup|clone|configure|restore
 	Raspberry Pi image commands.
 
-	backup					create an image from this Raspberry Pi
-	clone  					create an image using Pi Clone (faster file copy)
-	configure				enable ssh for images on all drives
-	restore	[IMAGE]	restore an image to a connected drive
-
-	-n, --name NAME		the name of the host to restore for cloud-init images"
+	backup					create an image from this host
+	clone  					create an image on a Rapsberry Pi using the Pi Clone GUI tool.
+									This has a faster file copy.
+	configure				configure a newly created operating system image
+	restore	[IMAGE]	restore an image to a connected drive"
 }
 
 imageArgStart() { unset -v host; }
 
-imageOpt() 
+hostOpt() 
 {
 	case "$1" in
-		-n*|--name=*|--name) ScriptOptGet host "$@" || return;;
+		-h*|--host=*|--host) ScriptOptGet host "$@" || return;;
 		*) return 1
 	esac
 }
@@ -199,38 +198,46 @@ imageCloneCommand()
 	coproc sudox dbus-launch piclone
 }
 
-# ImageBackupCommand - backup the host to an img file.   The backup is done to a remote host to
-# - cannot back up to the drive we are backing up
-# - faster access than Micro-SD card
-# - faster compression (utilize 36 cores)
-# On Windows, much faster to backup to c$ share than /root/tmp share over ssh.
+#
+# Image Backup Command
+#
+
+imageBackupUsage()
+{
+	echot "\
+Usage: $(ScriptName) image backup HOST
+Create an OS image on the specified host.
+- faster than using a local Micro-SD card
+- faster compression (utilizes hosts processors)"
+}
+
+imageBackupArgs() { ScriptArgGet "host" -- "$@"; shift; }
+
 imageBackupCommand()
 {
 	onlyPi || return
+
+	# install required utilities
+	! InPath pv && { package pv || return; }
+	# check if host is available	
 	! IsAvailable "$host" && { ScriptErr: "host '$host' is not available"; return 1; }
 
+	# calculate backup drive size
 	local device="mmcblk0" fileName="$HOSTNAME.$(GetDateStamp).img" 
-	local host="oversoul" hostUnc="/root/tmp" win
 	local size; size="$(drive size $device)" || return; [[ $size ]] && size="--size ${size,,}"
 
-	# get compression host information
-	eval "$(HostGetInfo "$host")" || return
-	IsPlatformHost win && { win="true" hostUnc="c\$/temp"; }
+	# mount host directory
+	hilight "Mounting $host directory..."
+	ScriptEval HostGetInfo "$host" || return
+	local dir; dir="$(unc mount "$_root/tmp" --protocol "$_protocol")" || return
+	local file="$dir/$fileName"
 
 	# backup
 	hilight "Backing up $HOSTNAME..."
-	local dir; dir="$(unc mount //$host/$hostUnc)" || return	
-	local file="$dir/$fileName"
 	sudo pv $size -tpreb "/dev/$device" | dd bs=4M > "$file" || return
 
-	# copy
-	if [[ $win ]]; then
-		hilight "Copying $fileName on $host..."
-		ssh "$host" -t -- CopyDir "/mnt/c/temp/$fileName" "/tmp" || return
-	fi
-
 	# compress
-	hilight "Compressing $fileName..."
+	hilight "Compressing backup file..."
 	file="/tmp/$fileName"
  	ssh "$host" -t -- pv $size -tpreb "$file" \| xz -1 -z -T 0 - \> "$file.xz" || return
 
@@ -241,6 +248,61 @@ imageBackupCommand()
 
  	# cleanup
  	ssh "$host" -t -- rm -f "/tmp/$fileName" "/tmp/$fileName.xz" "/mnt/c/temp/$fileName" || return
+}
+
+#
+# Image Configure Command
+#
+
+imageConfigureUsage()
+{
+	echot "\
+Usage: $(ScriptName) image configure
+Configure a newly created operating system image.
+Currently, Raspberry Pi OS and Ubuntu are supported.
+
+	-H, --host HOST		the name of the host"
+}
+
+imageConfigureOpt() { hostOpt; }
+
+imageConfigureCommand()
+{
+	local drive drives found
+
+	drive mount all || return
+	IFS=$'\n' drives=( $(drive mounts) )
+
+	printf "configuring..."
+	for drive in "${drives[@]}"; do
+		[[ ! -f "$drive/start.elf" ]] && continue
+		printf "$(GetFileName "$drive")..."
+
+		# cloud-init image - deploy user-data
+		if [[ -f "$drive/user-data" ]]; then
+			[[ ! $host ]] && MissingOperand "host"
+
+			printf "${RB_BLUE}cloud-init${RESET}..."
+			cp "$DATA/setup/user-data" "$drive" || return
+			sed -i "s/^#hostname: HOST$/hostname: $host/" "/etc/default/locale" "$drive/user-data" || return
+
+		# Raspberry Pi OS image - enable SSH			
+		else
+			printf "${RB_BLUE}Raspberry Pi OS${RESET}..."
+			touch "$drive/ssh" || return
+		fi
+		
+		found="true"
+		break
+	done
+
+	echo "done" 
+
+	drive unmount all || return
+
+	[[ ! $found ]] && { ScriptErr "no boot images found"; return 1; }
+
+	return 0
 }
 
 imageRestoreArgStart() { unset -v image; }
@@ -284,42 +346,6 @@ imageRestoreCommand()
 		ImageConfigureCommand && return
 		sleep 1
 	done
-
-	return 0
-}
-
-imageConfigureCommand()
-{
-	local drive drives found
-
-	drive mount all || return
-	IFS=$'\n' drives=( $(drive mounts) )
-
-	printf "configuring..."
-	for drive in "${drives[@]}"; do
-		[[ ! -f "$drive/start.elf" ]] && continue
-		printf "$(GetFileName "$drive")..."
-
-		if [[ -f "$drive/user-data" ]]; then
-			[[ ! $host ]] && MissingOperand "host"
-
-			printf "${RB_BLUE}cloud-init${RESET}..."
-			cp "$DATA/setup/user-data" "$drive" || return
-			sed -i "s/^#hostname: HOST$/hostname: $host/" "/etc/default/locale" "$drive/user-data" || return
-		else
-			printf "${RB_BLUE}ssh${RESET}..."
-			touch "$drive/ssh" || return
-		fi
-		
-		found="true"
-		break
-	done
-
-	echo "done" 
-
-	drive unmount all || return
-
-	[[ ! $found ]] && { ScriptErr "no boot images found"; return 1; }
 
 	return 0
 }
