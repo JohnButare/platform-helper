@@ -22,6 +22,9 @@ dnsServers="pi2,pi1" # update pi2 first
 dns1="10.10.100.10"
 dns2="10.10.100.11"
 
+# proxy
+noProxy="localhost,127.0.0.1,.$baseDomain,.$domain,.releases.ubuntu.com"
+
 # time
 timezone="America/Denver"
 timeServer="time.butare.net"
