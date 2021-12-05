@@ -8,6 +8,7 @@ Usage: os [COMMAND]... [OPTION]...
 Operating system commands
 
 	info|architecture|bits|build|CodeName|hardware|mhz|version		information
+	disk					[available|total](total)
 	environment|index|path|lock|preferences|store									control
 	executable		executable information
 	memory				[available|total](total)
@@ -45,6 +46,43 @@ preferencesWin() { control.exe; }
 storeCommand() { RunPlatform store; }
 storeMac() { open "/System/Applications/App Store.app"; }
 storeWin() { start "" "ms-windows-store://"; }
+
+#
+# Disk Command
+#
+
+diskUsage() 
+{
+	echot "Usage: os disk [available|total](total)
+Return the total or available amount of system disk."
+}
+
+diskCommand() { diskTotalCommand; }
+
+diskAvailableCommand()
+{
+	! InPath di && return
+	di -d g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 5
+}
+
+diskTotalCommand()
+{
+	! InPath di && return
+	di -d g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 3
+}
+
+memoryTotalCommand()
+{ 
+	if IsPlatform mac; then
+		system_profiler SPHardwareDataType | grep "Memory:" | tr -s " " | cut -d" " -f 3
+	else
+		! InPath free && return
+		local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f2)"
+		local gbRoundedTwo="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
+		local gbRounded="$(echo "($gbRoundedTwo + .5)/1" | bc)"
+		echo "$gbRounded"
+	fi
+}
 
 #
 # Executable Command
@@ -106,7 +144,7 @@ executableFindCommand()
 
 memoryUsage() 
 {
-	echot "Usage: os [available|total](total)
+	echot "Usage: os memory [available|total](total)
 Return the total or available amount of system memory rounded up or down to the nearest gigabyte."
 }
 
@@ -345,7 +383,7 @@ infoRemote()
 
 infoLocal()
 {
-	local w what=( model platform distribution kernel cpu mhz architecture memory chroot vm file switch other )
+	local w what=( model platform distribution kernel chroot vm file cpu architecture mhz memory disk switch other )
 	for w in "${what[@]}"; do info${w^} || return; done
 	
 }
@@ -372,6 +410,12 @@ infoCpu()
 	model="$(lscpu | grep "^Model name:" | cut -d: -f 2)"
 	count="$(lscpu | grep "^CPU(s):" | cut -d: -f 2)"
 	echo "         cpu: $(RemoveSpace "$model") ($(RemoveSpace "$count") CPU)"
+}
+
+infoDisk()
+{
+	! InPath di && return
+	echo "        disk: $(diskAvailableCommand) GB available / $(diskTotalCommand) GB total" 
 }
 
 infoFile()
