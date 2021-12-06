@@ -1730,6 +1730,7 @@ function IsPlatform()
 			# virtual machine
 			container) IsContainer && return;;
 			docker) IsDocker && return;;
+			swarm) InPath docker && docker info |& grep -q "^ *Swarm: active$" && return;;
 			chroot) IsChroot && return;;
 			host|physical) ! IsChroot && ! IsContainer && ! IsVm && return;;
 			guest|vm|virtual) IsVm && return;;
