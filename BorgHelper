@@ -19,10 +19,11 @@ Additional BorgBackup functionality.
 	unmount			unmount a backup
 	vorta				run vorta
 
-	-d, --dir=DIR					backup directory, defaults to '$backupDirDefault'
-	-H,	--host=HOST				backup host
-	-r, --repository=NAME	backup repository name, defaults to '$backupRepoDefault'
-	-u,	--user=USER				backup user, defaults to '$backupUserDefault'"
+	-d, --dir=DIR						backup directory, defaults to '$backupDirDefault'
+	-H,	--host=HOST					backup host
+	-P,	--passphrase=HOST	backup passphrase
+	-r, --repository=NAME		backup repository name, defaults to '$backupRepoDefault'
+	-u,	--user=USER					backup user, defaults to '$backupUserDefault'"
 }
 
 init()
@@ -36,13 +37,14 @@ init()
 	vars=( BORG_PASSPHRASE BORG_REPO )
 }
 
-argStart() { unset -v backupDir backupHost backupRepo backupUser; }
+argStart() { unset -v backupDir backupHost backupPassphrase backupRepo backupUser; }
 
 opt()
 {
 	case "$1" in
 		-d|--dir|-d=*|--dir=*) ScriptOptGet "backupDir" "dir" "$@";;
 		-H|--host|-H=*|--host=*) ScriptOptGet "backupHost" "host" "$@";;
+		-P|--passphrase|-P=*|--passphrase=*) ScriptOptGet "backupPassphrase" "passphrase" "$@";;
 		-r|--repository|-r=*|--repository=*) ScriptOptGet "backupRepo" "repo" "$@";;
 		-u|--user|-u=*|--user=*) ScriptOptGet "backupUser" "user" "$@";;
 		*) return 1;;
@@ -64,7 +66,7 @@ listCommand() { runBorg list; }
 statusCommand()
 {
 	echo "borg will use the ${GREEN}$backupRepo${RESET} repository on ${GREEN}$backupHost${RESET}"
-	[[ $verbose ]] && printf "user=$backupUser dir=$backupDir\nBORG_REPO=$BORG_REPO\n"
+	log1 "user=$backupUser dir=$backupDir\nBORG_REPO=$BORG_REPO"
 	return 0
 }
 
@@ -91,7 +93,7 @@ backupOpt()
 	case "$1" in
 		-a|--archive|-a=*|--archive=*) ScriptOptGet "archive" "$@";;
 		-nc|--no-check) noCheck="--no-check";;
-		-p|--prune|-p=*|--prune=*) ScriptOptGet "prune" "$@" && IsInteger "$prune";;
+		-p|--prune|-p=*|--prune=*) ScriptOptGet --integer "prune" "$@";;
 		*) return 1;;
 	esac
 }
@@ -197,12 +199,9 @@ repoExists()
 
 runBorg()
 {
-	[[ $test || $verbose ]] && EchoErr "borg $@ ${borgArgs[@]} ${otherArgs[@]}"
-	[[ $test ]] && return
+	IsRoot && { RunLog borg "$@" "${borgArgs[@]}" "${otherArgs[@]}"; return; }
 
-	IsRoot && { borg "$@" "${borgArgs[@]}" "${otherArgs[@]}"; return; }
-
-	sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" BORG_REMOTE_PATH="$borgPath" BORG_RELOCATED_REPO_ACCESS_IS_OK="$BORG_RELOCATED_REPO_ACCESS_IS_OK" \
+	RunLog sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" BORG_REMOTE_PATH="$borgPath" BORG_RELOCATED_REPO_ACCESS_IS_OK="$BORG_RELOCATED_REPO_ACCESS_IS_OK" \
 		SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" \
 		borg "$@" "${borgArgs[@]}" "${otherArgs[@]}"
 }
@@ -215,7 +214,7 @@ setBorgEnvironment()
 
 setBorgPassphrase()
 {
-	local passphrase="$BORG_PASSPHRASE"
+	local passphrase="${backupPassphrase:-$BORG_PASSPHRASE}"
 	[[ $force || ! $passphrase ]] && { passphrase="$(credential get borg passphrase --fallback)" || return; }
 	export BORG_PASSPHRASE="$passphrase"
 }
