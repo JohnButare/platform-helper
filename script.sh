@@ -57,8 +57,9 @@ ScriptCaller()
 # Script Checks
 #
 
-ScriptCheckFile() { ScriptCheckPath --file "$1"; }
 ScriptCheckDir() { ScriptCheckPath --dir "$1"; }
+ScriptCheckFile() { ScriptCheckPath --file "$1"; }
+ScriptCheckUnc() {	IsUncPath "$1" && return; ScripdtErr "'$1' is not a UNC"; ScriptExit; }
 
 ScriptCheckPath()
 {
@@ -66,8 +67,8 @@ ScriptCheckPath()
 	local checkDir; [[ "$1" == "--dir" ]] && { checkDir="true"; shift; }
 
 	[[ ! -e "$1" ]] && { [[ ! $quiet ]] && ScriptErr "cannot access '$1': No such file or directory"; ScriptExit; }
-	[[ $checkFile && -d "$1" ]] && { ScriptErr "$1: Is a directory"; ScriptExit; }
-	[[ $checkDir && -f "$1" ]] && { ScriptErr "$1: Is a file"; ScriptExit; }
+	[[ $checkFile && -d "$1" ]] && { ScriptErr "'$1' is a directory, not a file"; ScriptExit; }
+	[[ $checkDir && -f "$1" ]] && { ScriptErr "'$1' is a file, not a directory"; ScriptExit; }
 	
 	return 0
 }

@@ -8,14 +8,13 @@ Usage: $(ScriptName) [OPTION]... [COMMAND]...
 Manipulate network volumes using the UNC (Universal Naming Convention) format.
 The UNC format is //[USER@]SERVER/SHARE[/DIRS].
 
-	get 							get UNC information
-	browse						list UNC shares on the local network
-	IsAvailable HOST	check if a host is available for UNC connections
-	IsMounted UNC			check if a UNC is mounted 
-	IsUnc FILE				check if a file is a mounted UNC
-	list HOST					list UNC shares on the specified host
-	mount UNC					mount the specified UNC
-	unmount UNC|all		unmount the specified UNC"
+	get 								get UNC information
+	browse							list UNC shares on the local network
+	IsAvailable HOST		return true if a host is available for UNC connections
+	IsMounted TARGET		return true if the target UNC or path is mounted 
+	list HOST						list UNC shares on the specified host
+	mount UNC						mount the specified UNC
+	unmount TARGET|all	unmount the specified target UNC or path"
 }
 
 init()
@@ -29,7 +28,6 @@ init()
 }
 
 argStart() { unset -v protocol unc; }
-args() { getUncArg "$1"; }
 
 #
 # Get Commands
@@ -37,144 +35,64 @@ args() { getUncArg "$1"; }
 
 getUsage() { echot "\
 Usage: unc get [OPTION]... [COMMAND]...
-Get information.  TARGET is a UNC or mounted FILE.
+Get information.
 
-	detail						return detailed information for shares mounted in ~/Volumes
-	mounts						return all mounted shares in ~/Volumes
-	port							return the port for the protocol specified by the protocol argument	
-	protocol TARGET		the protocol used for the target
-	protocols [HOST]	return the protocols supported by specified host, or all valid protocols
-	root TARGET				the mounted root directory of the targer, i.e. ~/Volumes/server_share
-	share	TARGET			the UNC server and share of the target, i.e. //server/share
-	unc	TARGET				the UNC of the target, i.e. //server/share/dir1/dir2
+	detail								return detailed information for shares mounted in ~/Volumes
+	dir UNC	[--root]			return the mounted path of the UNC, i.e. ~/Volumes/server_share/dir1/dir2.
+												If --root is specified omit the subdirectories, i.e. ~/Volumes/server_share
+	mounts								return all mounted shares in ~/Volumes
+	port [-p|--protocol]	return the port for the specified protocol	
+	protocol PATH					the protocol used for the mounted path
+	protocols [HOST]			return the protocols supported by specified host, or all valid protocols
+	unc PATH [--root]			return the UNC of a mounted path, i.e. //server/share/dir1/dir2.
+												If --root is specified omit the subdirectories, i.e. //server/share
 
 	$protocolUsage"
-}
-
-getArgStart() { file=""; }
-
-getArgs() 
-{
-	[[ "$command" == @(getDetail|getMounts|getPort|getProtocols) ]] && return
-	IsUncPath "$1" && { file="$1"; ((++shift)); return; }
-	[[ ! $1 ]] && MissingOperand "TARGET"
-	ScriptArgGet "file" -- "$@"; ScriptCheckPath "$file"
 }
 
 getCommand() { usage; }
 
 getDetailCommand()
 {
-	if InPath findmnt; then findmnt --types=$uncTypes --output=TARGET,SOURCE,FSTYPE | grep -e "^TARGET\|$volumeDir"
+	if InPath findmnt; then findmnt --output=TARGET,SOURCE,FSTYPE --types=$uncTypes | grep -e "^TARGET\|$volumeDir"
 	elif InPath df; then df $uncTypesDf
 	else noUncCommand
 	fi
 }
 
-# mounts
 getMountsCommand()
 {
-	if InPath findmnt; then findmnt --types=$uncTypes --noheadings --output=TARGET | grep "$volumeDir"
+	if InPath findmnt; then findmnt --output=TARGET --types=$uncTypes --noheadings | grep "^$volumeDir"
 	elif InPath df; then df $uncTypesDf | ${G}tail -n +2 | awk '{ print $NF }'
 	elif InPath mount; then mount | grep -E "type ($uncTypesGrep) " | cut -d" " -f3
 	else noUncCommand
 	fi
 }
 
+# dir
+getDirArgStart() { unset -v root unc; }
+getDirArgs() { getUncArg "$@"; }
+getDirOpt() { getRootOpt "$@"; }
+getDirCommand() { getDir$root "$unc"; }
+
 # port
 getPortOpt() { protocolOpt "$@"; }
 getPortCommand() { getPort "$protocol"; }
 
 # protocol
-getProtocolCommand()
-{
-	! InPath findmnt && { noUncCommand; return; }
-
-	local fstype="$(findmnt --noheadings --output=FSTYPE --target "$file")"
-
-	case "$fstype" in
-		cifs) echo "smb";;
-		fuse.sshfs) echo "ssh";;
-		*) echo "$fstype";;
-	esac
-}
+getProtocolArgs() { getPathArg "$@"; }
+getProtocolCommand() { getProtocol "$path"; }
 
 # protocols
 getProtocolsArgStart() { unset host; }
 getProtocolsArgs() { [[ ! $1 ]] && return; ScriptArgGet "host" -- "$@"; }
+getProtocolsCommand() { getProtocols "$host"; }
 
-getProtocolsCommand()
-{
-	[[ ! $host ]] && { echo "nfs smb ssh"; return; }
-	
-	local hostIp; hostIp="$(GetIpAddress "$host")" || return
-	local protocols=() 
-	IsAvailablePort "$hostIp" "$(getPort "nfs")" && protocols+=( "nfs" )
-	IsAvailablePort "$hostIp" "$(getPort "smb")" && protocols+=( "smb" )
-	SshIsAvailable "$host" && protocols+=( "ssh" )
-
-	[[ $protocols ]] && ArrayDelimit protocols " " || echo "none"
-}
-
-getRootCommand()
-{
-	IsUncPath "$file" && { echo "$(GetUncRoot "$file")"; return; }
-
-	local root result;
-	if InPath findmnt; then
-		root="$(findmnt --types=$uncTypes --noheadings --output=TARGET --target "$file")" || { notAUncShare; return; }
-
-	elif InPath df; then
-		local line; line="$(df -P "$file" | tail -1)" || { notAUncShare; return; };
-		! [[ "$line" =~ //.* ]] && { notAUncShare; return; } # UNC shares must start with //
-		root="$(echo "$line" | awk '{print $NF}')"
-
-	else
-		noUncCommand; return
-
-	fi
-
-	echo "$root"
-}
-
-getShareCommand()
-{
-	IsUncPath "$file" && { echo "$(GetUncShare "$file")"; return; }
-
-	# get the share
-	local share
-	if InPath findmnt; then 
-		share="$(findmnt --types=$uncTypes --noheadings --output=SOURCE --target "$file")" || { notAUncShare; return; }
-
-	elif InPath df; then
-		local share; share="$(df -P "$file" | awk 'END{print $1}')" || { notAUncShare; return; }
-		! [[ "$share" =~ //.* ]] && { notAUncShare; return; } # UNC shares must start with //
-
-	else 
-		noUncCommand; return
-
-	fi
-
-	# cifs: //nas3/public->no change
-	[[ "$share" =~ //.* ]] && { echo "$share"; return; } 
-
-	# sshfs: jjbutare@nas3:/tmp->//nas3/tmp jjbutare@nas3:/->//nas3/root
-	share="//$(RemoveBefore $share @ | RemoveChar :)"
-	[[ "$(GetUncShare "$share")" == "" ]] && share="${share}root"
-	echo $share
-}
-
-# unc
-getUncCommand()
-{
-	IsUncPath "$file" && { echo "$file"; return; }
-
-	file="$(GetFullPath "$file")" || return
-	local root; root="$(getRootCommand)" || return
-	
-	local share; share="$(getShareCommand)" || return
-	echo "${file/$root/$share}"
-}
+# UNC
+getUncArgStart() { unset -v root; }
+getUncArgs() { getPathArg "$@"; }
+getUncOpt() { getRootOpt "$@"; }
+getUncCommand() {	getUnc$root "$path"; }
 
 #
 # IsAvailable Command
@@ -191,6 +109,28 @@ isAvailableArgStart() { unset -v host; }
 isAvailableOpt() { protocolOpt "$@"; }
 isAvailableArgs() { ScriptArgGet "host" -- "$@"; shift; }
 isAvailableCommand() { findProtocol "$host"; }
+
+#
+# IsMounted Command
+#
+
+isMountedArgs() { ScriptArgGet "target" -- "$@"; shift; }
+
+isMountedCommand()
+{
+	# UNC
+	if IsUncPath "$target"; then
+		getDir "$target" >& /dev/null
+
+	# path
+	elif [[ -e "$target" ]]; then
+		getUncRoot "$target" >& /dev/null
+
+	# something else
+	else
+		false
+	fi
+}
 
 #
 # List Command
@@ -218,7 +158,6 @@ listArgs()
 }
 
 listCommand() { protocol="${protocol:-smb}"; RunFunction "list${protocol^}"; }
-
 listNfs() { ssh -t "$host" sudoc exportfs; }
 listSsh() { echo "root"; }
 
@@ -244,27 +183,6 @@ browseCommand()
 }
 
 #
-# IsMounted Command
-#
-
-isMountedUsage() { echot "Usage: unc IsMounted TARGET
-List UNC shares on the local network.
-TARGET is a UNC or mounted FILE."; }
-
-isMountedCommand() { quiet="true" isMounted; }
-
-#
-# IsUnc Command
-#
-
-isUncUsage() { echot "Usage: unc IsUnc FILE
-Return true if the specified file is a mounted UNC."; }
-
-isUncArgs() { getArgs "$@"; }
-
-isUncCommand() { quiet="--quiet"; [[ $(getRootCommand) ]]; }
-
-#
 # Mount Command
 #
 
@@ -278,6 +196,7 @@ Mount the specified UNC.
 }
 
 mountArgStart() { unset -v noHostCheck port protocol; }
+mountArgs() { getTargetArg "$@"; }
 
 mountOpt() 
 {
@@ -292,8 +211,7 @@ mountCommand()
 {
 	local result
 
-	# return if the directory is already mounted
-	unc="$(isMounted)" && { showResult "$unc"; return; }
+	isMountedCheck "$unc" && return
 
 	# ensure server is available
 	if ! findProtocol "$server"; then
@@ -302,37 +220,39 @@ mountCommand()
 	fi
 	log1 "connection will use $protocol"
 
-	# remove an existing share in the mountDir
-	cleanupMountDir "$mountDir" || return
+	# remove an existing share in the mountRoot
+	unmount || return
 
 	# create the mount directory
-	[[ ! -d "$mountDir" ]] && { log1 "creating mount directory '$mountDir'"; }
-	! ${G}mkdir --parents "$mountDir" && { ScriptErr "could not create the mount directory '$mountDir'"; return 1; }
+	if [[ ! -d "$mountRoot" ]]; then
+		log1 "creating mount root directory '$mountRoot'"
+		! ${G}mkdir "$mountRoot" --parents && { ScriptErr "could not create the mount root directory '$mountRoot'"; return 1; }
+	fi
 
 	# mount
 
 	# WSL 1
 	if [[ "$PLATFORM_KERNEL" == "wsl1" ]] || isWslshare; then
-		sudoc mount -t drvfs "//$server/$share" "$mountDir"
+		sudoc mount -t drvfs "//$server/$share" "$mountRoot"
 
 	# NFS
 	elif [[ "$protocol" == "nfs" ]]; then
 		local options=(); IsPlatform win && options+=( -o nolock )
-		sudoc mount "${options[@]}" -t nfs "$server:/$share" "$mountDir"
+		sudoc mount "${options[@]}" -t nfs "$server:/$share" "$mountRoot"
 
 	# SSH
 	elif [[ "$protocol" == "ssh" ]] || IsInteger "$protocol"; then
 		local portArg; IsInteger "$protocol" && portArg=(-p "${protocol}")
 		local sudo; IsPlatform qnap && sudo="sudo"
 		[[ "$share" == "root" ]] && share=""
-		$sudo sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountDir" "${portArg[@]}"
+		$sudo sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountRoot" "${portArg[@]}"
 
 	# linux and WSL 2
 	elif IsPlatform linux,wsl2; then		
 
 		# add an entry to /etc/fstab so sudo is not required to write to the share		
-		if ! grep -i "//$server/$shareId\\\$* $mountDir cifs username=$user,noauto,rw,users 0 0" /etc/fstab >& /dev/null; then
-			local line="//$server/$share $(GetRealPath "$mountDir") cifs username=$user,noauto,rw,users 0 0"
+		if ! grep -i "//$server/$shareId\\\$* $mountRoot cifs username=$user,noauto,rw,users 0 0" /etc/fstab >& /dev/null; then
+			local line="//$server/$share $(GetRealPath "$mountRoot") cifs username=$user,noauto,rw,users 0 0"
 			sudoc bash -c "echo \"$line\" >> /etc/fstab" || return
 		fi
 
@@ -340,7 +260,7 @@ mountCommand()
 		[[ $password ]] && log1 "password found in the credential store"
 
 		[[ $password ]] && export PASSWD="$password"
-		$sudo mount.cifs "//$server/$share" "$mountDir" -o user=$user sec=ntlmsspi
+		$sudo mount.cifs "//$server/$share" "$mountRoot" -o user=$user sec=ntlmsspi
 		[[ $password ]] && unset PASSWD
 
 	# macOS
@@ -349,21 +269,19 @@ mountCommand()
 		[[ $password ]] && log1 "password found in the credential store"
 
 		if [[ $password ]]; then
-			log1 "mounting using: mount_smbfs \"smb://$user:XXX@$server/$share\" \"$mountDir\""
-			mount_smbfs "smb://$user:$password@$server/$share" "$mountDir"
+			log1 "mounting using: mount_smbfs \"smb://$user:XXX@$server/$share\" \"$mountRoot\""
+			mount_smbfs "smb://$user:$password@$server/$share" "$mountRoot"
 		else
-			RunLog mount_smbfs "smb://$user@$server/$share" "$mountDir"
+			RunLog mount_smbfs "smb://$user@$server/$share" "$mountRoot"
 		fi
 
 	fi
 
-	# return the mounted directory
-	if isMounted; then
-		return 0
-	else
-		cleanupMountDir
-		return 1
-	fi
+	# return the mounted directory	
+	isMountedCheck "$unc" && return
+
+	# mount failed, cleanup 
+	unmount; return 1
 }
 
 #
@@ -373,20 +291,129 @@ mountCommand()
 unmountUsage() { echot "Usage: unc unmount UNC|all
 Unmount the specified or all mounted UNCs."; }
 
+unmountArgs()
+{ 
+	[[ "$1" == "all" ]] && { shift=1; unc="all"; return; }
+	getTargetArg "$@"
+}
+
 unmountCommand()
 {
-	[[ "$unc" != "all" ]] && { doUnmount; return; }
+	[[ "$unc" != "all" ]] && { unmount; return; }
 
-	IFS=$'\n' mountDirs=( $(unc get mounts) )
-	[[ ! $mountDirs ]] && return
+	local dirs
+	IFS=$'\n' dirs=( $(unc get mounts) )
+	[[ ! $dirs ]] && return
 
 	log "unmounting..."
-	for mountDir in "${mountDirs[@]}"; do
-		log "$(GetFileName "$mountDir")..."; doUnmount || return
+	for mountRoot in "${dirs[@]}"; do
+		log "$(GetFileName "$mountRoot")..."; unmount || return
 	done
 	log "done\n"
 	
 	return 0
+}
+
+#
+# Mount/Unmount Helper
+#
+
+# assumes the following functions were called: 
+# - getTargetArg sets: target unc 
+# - getUncInfo sets: unc user server share dirs shareId mountRoot mountDir
+
+# unmount - unmount a share and remove the mount directory
+#   The mounted directory may be in an invalid state, and normal file operations on it will fail.
+#   To test an invalid state, mount an SSHFS share, logout and reconnect.  ls "$mountRoot" will error with:
+#   "ls: cannot access rosie.hagerman.butare.net_root: Input/output error"
+unmount()
+{
+	local dir="$mountRoot"
+
+	# cannot unmount local directories
+	isUncLocal "$unc" && return
+
+	# return if the mount directory does not exist
+	! mountDirExists "$dir" && return
+
+	# unmount - ignore errors
+	case "$PLATFORM" in
+		mac)
+			local args=(); [[ $force ]] && args+=(force)
+			log1 "unmounting with: diskutil unmount ${args[@]} $dir"
+			diskutil unmount "${args[@]}" "$dir" >& /dev/null
+			;;
+		linux|win) 
+			log1 "unmounting with: sudoc umount \"$dir\""
+			sudoc umount "$dir"
+			;;
+	esac
+	
+	# remove directory - ignore errors
+	if [[ -d "$dir" ]]; then
+		log1 "removing mount directory '$dir'"
+		rmdir "$dir" >& /dev/null
+	fi
+
+	# validate removal
+	! mountDirExists "$dir" && return
+
+	# unable to remove
+	[[ ! $quiet ]] && { EchoErr "unable to remove mount directory '$dir', try --force"; }
+	return 1
+}
+
+# mountDirExists DIR - return true if the specified mounted directory exists
+mountDirExists()
+{
+	local dir="$1"
+
+	# remove directories, i.e. /home/jjbutare/Volumes/server_share/dir1/dir2 -> /home/jjbutare/Volumes/server_share	
+	dir="$(pathRoot "$1")" || return 
+
+	# return if the directory exists
+	[[ -e "$dir" ]] && return
+
+	# remove volumeDir path, i.e. /home/jjbutare/Volumes/server_share -> server_share
+	local mountDir=
+
+	# check if the mount directory does not exist by looking at the files in the directory
+	# as ls "$dir" and "-e $dir" may return return false if the share is in an invalid state
+	command ls -1 "$volumeDir" |& grep -q "^"$(GetFileName "$dir")"$"
+}
+
+#
+# Argument Helpers
+#
+
+getPathArg() { ScriptArgGet "path" -- "$@" && ScriptCheckPath "$path"; }
+getUncArg() { ScriptArgGet "unc" -- "$@" && ScriptCheckUnc "$unc"; }
+
+getRootOpt() { [[ "$1" == @(-r|--root) ]] && root="Root"; }
+
+# getTargetArg - get target that is either a UNC or a path that is a mounted UNC.  Sets target and unc on return.
+getTargetArg()
+{
+	ScriptArgGet "target" -- "$@"
+
+	# target is a mounted file or directory
+	[[ -e "$target" ]] && { unc="$(getUnc "$target")" && getUncInfo "$unc"; return; }
+	
+	# target is a UNC
+	validateUnc "$target" || return
+
+	# unc
+	getUncInfo "$target" || return
+
+	# file server aliases
+	if [[ "$server" == @(home|media|public) ]]; then
+		server="$(UpdateGet "FileServer")"; server="$(DnsResolve "$server")" || return
+		ScriptEval HostGetInfo "$server" "${protocolArg[@]}" || return
+		unc="$(UncMake "$user" "$(GetUncServer "$_root")" "$(GetUncShare "$_root")" "$dirs" "$_protocol")" || return
+		noHostCheck="true"
+	fi
+	
+	return 0	
 }
 
 #
@@ -398,6 +425,8 @@ findProtocol()
 {
 	local host="$1"; noHostCheck && return
 
+	log1 "findProtocol: host='$host'"
+
 	# Synology SMB mount.cifs does not work, use sshfs
   IsPlatform synology && [[ "$protocol" == @(|smb) ]] && protocol="ssh"
 
@@ -405,6 +434,184 @@ findProtocol()
 	[[ $protocol ]] && { isAvailable "$host" "$protocol"; return; }
 
 	isAvailable "$host" "smb" || isAvailable "$host" "nfs" "mount.nfs" || isAvailable "$host" "ssh" "sshfs"
+}
+
+getPort()
+{
+	local protocol="$1" host="$2"
+
+	case "${protocol:-smb}" in
+		nfs) echo "111";; # 111 and 2049 
+		smb) echo "445";; # 135 and 445
+		ssh) SshHelper config "$host" port;;
+		*) echo "$protocol"
+	esac
+}
+
+#
+# helper
+#
+
+log() { [[ $quiet ]] && return; printf "$@"; }
+noHostCheck() { [[ $noHostCheck ]] || isWslshare; }
+protocolOpt() { [[ "$1" == @(-p|--protocol|-p*|--protocol=*) ]] && ScriptOptNetworkProtocol "$@"; }
+showResult() { [[ $1 && ! $quiet ]] && echo "$1"; [[ $1 ]]; }
+isWslshare() { [[ "$server" == @(wsl$|wsl) ]]; }
+validateUnc() { IsUncPath "$1" && return; [[ ! $quiet ]] && ScriptErr "'$1' is not a UNC"; ScriptExit; }
+
+initVolumeDir()
+{
+	[[ -d "$volumeDir" ]] && return
+	! ${G}mkdir "$volumeDir" && { ScriptErr "Could not create the volume directory $volumeDir"; return 1; }
+	return 0
+}
+
+# getDir UNC - return the mounted path of the UNC, i.e. ~/Volumes/server_share/dir1/dir2
+getDir()
+{
+	local unc="$1"; validateUnc "$unc"
+	local dirs="$(GetUncDirs "$unc")"
+
+	# unc is local to this system
+	isUncLocal "$unc" && { echo "/$dirs"; return; }
+
+	# get the mounted root directory of the unc	
+	local mountRoot; mountRoot="$(getDirRoot "$unc")" || { notAUncShare "$unc"; return; }
+
+	echo "$mountRoot/$dirs"
+}
+
+# getDirRoot UNC - return the root mounted path of the UNC, i.e. ~/Volumes/server_share
+getDirRoot()
+{
+	local root unc="$1"; validateUnc "$unc"
+	unc="$(GetFullUnc "$unc")" || return
+	unc="$(UncMake "" "$(GetUncServer "$unc")" "$(GetUncShare "$unc")")"
+
+	# get UNC information
+	local user server share dirs shareId mountRoot mountDir
+	getUncInfo "$unc" || return
+
+	# use findmnt
+	if InPath findmnt; then
+		root="$(findmnt --source "$unc" --target="$mountRoot" --output=TARGET --types=$uncTypes --noheadings)" || { notAUncShare "$unc"; return; }
+
+	# use df
+	elif InPath df; then
+		root="$(df -P | grep "^$unc " | grep " ${mountRoot}$" | awk '{print $NF}')" || { notAUncShare "$unc"; return; };
+
+	else
+		noUncCommand; return
+
+	fi
+
+	echo "$root"
+}
+
+# getProtocol PATH - the protocol used for the mounted path
+getProtocol() 
+{
+	local path="$1"
+
+	! InPath findmnt && { noUncCommand; return; }
+
+	local type="$(findmnt --target "$path" --output=FSTYPE --noheadings)"
+
+	case "$type" in
+		cifs) echo "smb";;
+		fuse.sshfs) echo "ssh";;
+		*) echo "$type";;
+	esac
+}
+
+# getProtocols [HOST] - return the protocols supported by specified host, or all valid protocols
+getProtocols()
+{
+	[[ ! $host ]] && { echo "nfs smb ssh"; return; }
+	
+	local hostIp; hostIp="$(GetIpAddress "$host")" || return
+	local protocols=() 
+	IsAvailablePort "$hostIp" "$(getPort "nfs")" && protocols+=( "nfs" )
+	IsAvailablePort "$hostIp" "$(getPort "smb")" && protocols+=( "smb" )
+	SshIsAvailable "$host" && protocols+=( "ssh" )
+
+	[[ $protocols ]] && ArrayDelimit protocols " " || echo "none"
+}
+
+# getUnc PATH - return the UNC of a mounted path, i.e. //server/share/dir1/dir2
+getUnc()
+{
+	local path; path="$(GetFullPath "$1")" || return
+
+	local uncRoot; uncRoot="$(getUncRoot "$path")" || return
+	local mountRoot; mountRoot="$(getDirRoot "$uncRoot")" || return
+	echo "${path/$mountRoot/$uncRoot}"
+}
+
+# getUncRoot PATH - return the root UNC of a mounted path, i.e. //server/share
+getUncRoot()
+{
+	local uncRoot path="$1"; path="$(GetFullPath "$1")" || return
+
+	# use findmnt
+	if InPath findmnt; then 
+		uncRoot="$(findmnt --target "$path" --output=SOURCE --types=$uncTypes --noheadings)" || { notAUncShare "$path"; return; }
+
+	# use df
+	elif InPath df; then
+		local check; check="$(pathRoot "$path")" || return
+		uncRoot="$(df -P | grep " ${check}$" | awk '{print $1}')" || { notAUncShare "$path"; return; }
+
+	else 
+		noUncCommand; return
+
+	fi
+
+	# no changes for cifs, i.e. //nas3/public->no change
+	[[ "$uncRoot" =~ //.* ]] && { echo "$uncRoot"; return; } 
+
+	# update unc for sshfs, i.e. jjbutare@nas3:/tmp->//nas3/tmp jjbutare@nas3:/->//nas3/root
+	uncRoot="//$(RemoveBefore $uncRoot @ | RemoveChar :)"
+	[[ "$(GetUncShare "$uncRoot")" == "" ]] && uncRoot="${uncRoot}root"
+	echo "$uncRoot"
+}
+
+# getUncInfo UNC - UNC format is //[USER@]SERVER/SHARE[/DIRS]
+# sets variables: unc user server share dirs shareId mountRoot mountDir
+# - unc user server share dirs (parsed from UNC)
+# - shareId: santized share name (with dollar signs removed)
+# - mountRoot: the root directory for the mounted volume, i.e. ~/Volumes/$server_$shareId.  
+#   In Windows shares created when elevated will end in _elevated.
+# - mountDir: the full path to the mounted directory, i.e. $mountRoot/$dirs
+getUncInfo()
+{	
+	unc="$1"; validateUnc "$unc" || return
+
+	GetUncUser "$unc" user; [[ ! $user ]] && user="$USER"
+	GetUncServer "$unc" server || return; [[ ! $server ]] && { ScriptErr "UNC '$unc' does not include a server"; return 1; }
+	GetUncShare "$unc" share || return; [[ ! $share ]] && share="root" 
+	GetUncDirs "$unc" dirs
+	local p; GetUncProtocol "$unc" p || return; [[ $p ]] && protocol="$p"
+
+	# resolve aliass such as web->pi3.hagerman.butare.net
+	# this ensures we can mount the same share under a different alias
+	server="$(os name "$server")"
+
+	shareId="${share%%\$}"
+	mountRoot="$volumeDir/${server}_${shareId}"
+	mountDir="$mountRoot";  [[ $dirs ]] && mountDir="$mountDir/$dirs"
+
+	# WSL 2 elevation - mounted network shares are not visible when not elevated, must mount them to a distinct location
+	IsPlatform wsl2 && IsElevated && mountRoot="${mountRoot}_elevated" 
+
+	# MDNS name resolution - Windows does not resolve MDNS natively
+	IsPlatform win && IsMdnsName "$server" && { server="$(MdnsResolve "$server")" || return; }
+
+	# log
+	[[ ! $getUncInfoLogged ]] && log1 "unc $command: unc='$unc'\n	user=$user protocol=$protocol server=$server share='$share' shareId=$shareId dirs='$dirs'\n	mountRoot='$mountRoot'\n	mountDir='$mountDir'"
+	getUncInfoLogged="true"
+
+	return 0
 }
 
 # isAvailable HOST PROTOCOL PROGRAM - return true if the file sharing PROGRAM is installed
@@ -431,166 +638,23 @@ isAvailable()
 	IsAvailablePort "$host" "$port"
 }
 
-getPort()
+# isMountedCheck UNC - if the UNC is mounted show it's path and return true
+isMountedCheck()
 {
-	local protocol="$1" host="$2"
-
-	case "${protocol:-smb}" in
-		nfs) echo "111";; # 111 and 2049 
-		smb) echo "445";; # 135 and 445
-		ssh) SshHelper config "$host" port;;
-		*) echo "$protocol"
-	esac
+	local path; path="$(quiet="true" getDir "$1")" && showResult "$path"
 }
 
-#
-# helper
-#
-
-doUnmount() { platformUnmount; cleanupMountDir; }
-log() { [[ $quiet ]] && return; printf "$@"; }
-needsUnc() { [[ "$command" == @(isMounted|mount|unmount) ]]; }
-noHostCheck() { [[ $noHostCheck ]] || isWslshare; }
-showResult() { [[ $1 && ! $quiet ]] && echo "$1"; [[ $1 ]]; }
-isWslshare() { [[ "$server" == @(wsl$|wsl) ]]; }
-
-# cleanupMountDir - remove an existing mounted directory
-#
-# The mounted directory may be in an invalid state and normal file operations on
-# it will fail.  For example, even though the mounted directory exists
-# - GetRealPath may return nothing 
-# - -e may return return false
-# To test an invalid state, mount an SSHFS share, logout and reconnect.  ls "$mountDir" will error with:
-# "ls: cannot access rosie.hagerman.butare.net_root: Input/output error"
-cleanupMountDir()
+# isUncLocal UNC - the UNC specifies a location and this machine, and we can determine the full path to the directory (the share is root)
+isUncLocal()
 {
-	local id="$(GetFileName "$mountDir")"
-	local dir="$(GetRealPath "$volumeDir")/$id"
-
-	# return if cleanup not needed
-	[[ ! -e "$dir" ]] && ! ls -1 "$volumeDir" |& grep -q "^${id}$" && return
-
-	# unmount
-	findmnt "$dir" >& /dev/null && platformUnmount >& /dev/null
-
-	# remove directory
-	[[ -d "$mountDir" ]] && { log1 "removing mount directory '$mountDir'"; }
-	rmdir "$mountDir" >& /dev/null
-
-	# validate
-	[[ ! -e "$mountDir" ]] && return 0
-	[[ ! $quiet ]] && { EchoErr "unable to remove mount directory '$mountDir', try --force"; }
-	return 1
-}
-
-initVolumeDir()
-{
-	[[ -d "$volumeDir" ]] && return
-	! ${G}mkdir "$volumeDir" && { ScriptErr "Could not create the volume directory $volumeDir"; return 1; }
-	return 0
-}
-
-protocolOpt()
-{
-	case "$1" in
-		-p|--protocol|-p*|--protocol=*) ScriptOptNetworkProtocol "$@";;
-		*) return 1
-	esac
-}
-
-getUncArg()
-{
-	shift=0; ! needsUnc && return
-
-	local target="$1"; ((++shift))
-	unset alias
-
-	# all - valid for unmount command
-	[[ "$command" == "unmount" && "$target" == "all" ]] && { unc="all"; return; }
-
-	# alias
-	if [[ "$target" == @(home|media|public) ]]; then
-		ScriptEval HostGetInfo "$(UpdateGet "FileServer")" "${protocolArg[@]}" || return
-		noHostCheck="true" protocol="$_protocol" port="$_port"
-		eval target="\$_$target"
-	
-	# mounted file or directory
-	elif [[ -e "$target" ]]; then
-		file="$target"; target="$(getUncCommand)"
-
-	fi
-	
-	# unc
-	IsUncPath "$target" && { getUncInfo "$target"; return; }
-
-	MissingOperand "unc"
-}
-
-getUncInfo() # GetUncInfo unc - sets server share dirs user shareId mountDir
-{	
-	unc="$1"; [[ ! $unc ]] && return 1
-
-	GetUncUser "$unc" user
-	GetUncServer "$unc" server || return; [[ ! $server ]] && { ScriptErr "UNC '$unc' does not include a server"; return 1; }
-	GetUncShare "$unc" share || return; [[ ! $share ]] && share="root" 
-	GetUncDirs "$unc" dirs
-	local p; GetUncProtocol "$unc" p || return; [[ $p ]] && protocol="$p"
-
-	# resolve aliass such as web->pi3.hagerman.butare.net
-	# this ensures we can mount the same share under a different alias
-	server="$(os name "$server")"
-
-	shareId="${share%%\$}"
-	mountDir="$volumeDir/${server}_${shareId}"
-
-	# WSL 2 elevation - mounted network shares are not visible, must mount them to a distinct location
-	IsPlatform wsl2 && IsElevated && mountDir="${mountDir}_elevated" 
-
-	# MDSN name resolution - Windows does not resolve MDNS natively
-	IsPlatform win && IsMdnsName "$server" && { server="$(MdnsResolve "$server")" || return; }
-
-	log1 "unc $command: protocol=$protocol user=$user\n	unc=$unc\n	mountDir=$mountDir\n"
-
-	return 0
-}
-
-isMounted()
-{
-	local unc prefix; IsPlatform mac && prefix="$user@"
-
-	# check if mountDir is a directory
-	[[ ! -d "$mountDir" ]] && return 1
-
-	# server is local and we can determine the full path to the locaL directory
-	IsLocalHost "$server" && [[ "$share" == "root" ]] && { showResult "/$dirs"; return; }
-
-	# check for a WSL share	
-	[[ ! $unc ]] && unc="$(mount | grep "^drvfs on $mountDir" | head -n 1 | cut -d" " -f 3)"
-
-	# check for an SMB share
-	local smbShare="$share"; IsPlatform mac && smbShare="$(urlencode "$share")"
-	local on="on "; IsPlatform mac && on=""
-	local check="^//$prefix${server%%.*}.*/$smbShare $on"
-	log1 "checking '$check'"
-	[[ ! $unc ]] && unc="$(mount | grep "$check" | head -n 1 | cut -d" " -f 3)"
-
-	# check for an NFS share
-	[[ ! $unc ]] && unc="$(mount | grep "^${server%%.*}.*:/$shareId$* on " | head -n 1 | cut -d" " -f 3)"
-
-	# check for an ssh share
-	if [[ ! $unc ]]; then
-		[[ "$shareId" == "root" ]] && shareId=
-		unc="$(mount | grep "^$user@$server:/$shareId on " | head -n 1 | cut -d" " -f 3)"
-	fi		
-	
-	[[ $unc && $dirs ]] && unc="$unc/$dirs"
-
-	showResult "$unc"
+	local unc="$1"
+	! IsUncPath "$1" && return 1
+	IsLocalHost "$(GetUncServer "$unc")" && [[ "$(GetUncShare "$unc")" == "root" ]]
 }
 
 notAUncShare()
 {
-	[[ ! "$quiet" ]] && ScriptErr "'$file' is not on a UNC share"
+	[[ ! "$quiet" ]] && ScriptErr "'$1' is not on a UNC share"
 	return 1
 }
 
@@ -600,19 +664,13 @@ noUncCommand()
 	return 1
 }
 
-platformUnmount()
+# pathRoot PATH - return the root of specified path, i.e. /home/jjbutare/Volumes/pi1_root/tmp -> /home/jjbutare/Volumes/pi1_root
+pathRoot()
 {
-	case "$PLATFORM" in
-		mac)
-			local args=(); [[ $force ]] && args+=(force)
-			log1 "unmounting with: diskutil unmount ${args[@]} $mountDir"
-			diskutil unmount "${args[@]}" "$mountDir" >& /dev/null
-			;;
-		linux|win) 
-			log1 "unmounting with: sudoc umount \"$mountDir\""
-			sudoc umount "$mountDir"
-			;;
-	esac
+	local check
+	check="$(GetFullPath "$1")" || return
+	check="$(RemoveFront "$check" "$volumeDir/")"
+	echo "$volumeDir/${check%%/*}"
 }
 
 ScriptRun "$@"

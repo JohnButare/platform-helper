@@ -715,7 +715,7 @@ FileToDesc() # short description for the file, mounted volumes are converted to 
 	local file="$1"; [[ ! $1 ]] && return
 
 	# if the file is a UNC mounted share get the UNC format
-	if ! drive IsWin "$file" && [[ -e "$file" ]] && unc IsUnc "$file"; then
+	if [[ -e "$file" ]] && unc IsMounted "$file"; then
 		file="$(unc get unc "$file")"
 	fi
 
@@ -731,7 +731,9 @@ FileToDesc() # short description for the file, mounted volumes are converted to 
 		file="${file/#$USERS\//~}"
 	fi
 
-	echo "$(RemoveTrailingSlash "$file")"
+	[[ "$file" != "/" ]] && file="$(RemoveTrailingSlash "$file")"
+
+	echo "$file"
 }
 
 FindInPath()
@@ -1438,10 +1440,23 @@ GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; r "${gus%:
 GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 	# DIRS
 IsUncPath() { [[ "$1" =~ ^\ *//.* ]]; }
 
+# GetFullUnc UNC: return the UNC with server fully qualified domain name
+GetFullUnc()
+{
+	local user="$(GetUncUser "$1")"
+	local server="$(GetUncServer "$1")"
+	local share="$(GetUncShare "$1")"
+	local dirs="$(GetUncDirs "$1")"
+	local protocol="$(GetUncProtocol "$1")"
+
+	server="$(DnsResolve "$server")" || return
+	UncMake "$user" "$server" "$share" "$dirs" "$protocol"
+}
+
 GetUncUser()
 {
-	GetArgs; ! [[ "$1" =~ .*\@.* ]] && { r "$USER" $2; return; }
-	local guu="${1#*( )//}"; guu="${guu%%@*}" || guu="$USER"; r "$guu" $2
+	GetArgs; ! [[ "$1" =~ .*\@.* ]] && { r "" $2; return; }
+	local guu="${1#*( )//}"; guu="${guu%%@*}"; r "$guu" $2
 }
 
 # GetUncProtocol UNC - PROTOCOL=NFS|SMB|SSH|INTEGER - INTEGER is a custom SSH port
@@ -1449,6 +1464,18 @@ GetUncProtocol()
 {
 	GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "$gup" $2
 	CheckNetworkProtocol "$gup" || { EchoErr "'$gup' is not a valid network protocol"; return 1; }
+}
+
+# UncMake user server share dirs protocol
+UncMake()
+{
+	local user="$1" server="$2" share="$3" dirs="$4" protocol="$5"
+	local result="//"
+	[[ $user ]] && result+="$user@"
+	result+="$server/$share"
+	[[ $dirs ]] && result+="/$(RemoveTrim "$dirs" "/")"
+	[[ $protocol ]] && result+=":$protocol"
+	echo "$result"
 }
 
 #
