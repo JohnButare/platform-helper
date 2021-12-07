@@ -9,10 +9,14 @@
 ScriptArgGet()
 {
 	# arguments
+	local integer; [[ "$1" == "--integer" ]] && { integer="true"; shift; }
 	local scriptVar="$1"; shift
 	local scriptDesc="$scriptVar"; [[ "$1" != "--" ]] && { scriptDesc="$1"; shift; }
 	[[ "$1" == "--" ]] && shift
 	(( $# == 0 )) && MissingOperand "$scriptDesc"
+
+	# check data type
+	[[ $integer ]] && ! IsInteger "$value" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
 
 	# set the variable
 	local -n var="$scriptVar"; var="$1"; ((++shift))
@@ -138,7 +142,8 @@ ScriptOpt()
 # - sets var to value and increments shift if needed.  
 ScriptOptGet()
 {
-	local require="true"; [[ "$1" == "--check" ]] && { shift; unset require; }
+	local require="true"; [[ "$1" == "--check" ]] && { unset require; shift; }
+	local integer; [[ "$1" == "--integer" ]] && { integer="true"; shift; }
 	local scriptVar="$1"; shift
 	local scriptDesc="$scriptVar"; ! IsOption "$1" && { scriptDesc="$1"; shift; }
 	local opt="$1"; shift
@@ -159,6 +164,10 @@ ScriptOptGet()
 
 	fi
 
+	# check data type
+	[[ $integer ]] && ! IsInteger "$value" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
+
+	# set variable
 	local -n var="$scriptVar"
 	var="$value"
 }
