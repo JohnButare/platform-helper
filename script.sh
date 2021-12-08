@@ -16,7 +16,7 @@ ScriptArgGet()
 	(( $# == 0 )) && MissingOperand "$scriptDesc"
 
 	# check data type
-	[[ $integer ]] && ! IsInteger "$value" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
+	[[ $integer ]] && ! IsInteger "$1" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
 
 	# set the variable
 	local -n var="$scriptVar"; var="$1"; ((++shift))
