@@ -123,7 +123,7 @@ currentServerOpt()
 }
 
 currentServerArgs() { ScriptArgGet "type" -- "$@"; shift; }
-currentServerCommand() { findServer "$(name)" "$type" "$service"; }
+currentServerCommand() { local name; name="$(name)" || return; findServer "$name" "$type" "$service"; }
 
 #
 # Current Servers Command
@@ -137,7 +137,7 @@ Return all servers of the specified type for the current network."
 
 currentServersArgStart() { unset -v type; }
 currentServersArgs() { ScriptArgGet "type" -- "$@"; shift; }
-currentServersCommand() { getServers "$(name)" "$type"; }
+currentServersCommand() { local name; name="$(name)" || return; getServers "$name" "$type"; }
 
 #
 # Current Update Command
@@ -146,7 +146,7 @@ currentServersCommand() { getServers "$(name)" "$type"; }
 currentUpdateCommand()
 {
 	# get existing configuration
-	local existingNetwork="$(name)"  existingFileServer="$(UpdateGet "FileServer")" existingProxyServer="$(UpdateGet "ProxyServer")"
+	local existingNetwork="$(UpdateGet "network")"  existingFileServer="$(UpdateGet "FileServer")" existingProxyServer="$(UpdateGet "ProxyServer")"
 
 	# determine current network configuration
 	local network
@@ -208,15 +208,21 @@ findNetwork()
 findServer()
 {
 	local network="$1" type="$2" service="$3"
+
+	# get servers of the specified type
 	local serverIndex servers=(); StringToArray "$(getServers "$network" "$type")" "," servers
 
+	# no servers defined
 	if [[ ! $servers ]]; then
 		doLog && EchoErr "no $type services defined for '$network' network"
 		return 1
 	fi
 
+	# find an active server
 	serverIndex="$(network find "${servers[@]}" $service $brief "${globalArgs[@]}")" || return
-	RemoveBefore "${servers[$serverIndex]}" "@" # return HOST:SERVICE of the server (DESCRIPTION@HOST:SERVICE)
+
+	# return HOST:SERVICE of the server (DESCRIPTION@HOST:SERVICE)
+	RemoveBefore "${servers[$serverIndex]}" "@" 
 }
 
 #
@@ -690,7 +696,23 @@ proxyVarsStatus()
 #
 
 doLog() { [[ ! $brief && ! $quiet ]]; } # return true if output should be logged
-name() { UpdateGet "network"; }
+
+# name - return the current network name
+name()
+{ 
+	# return the cached network name if exists
+	local name; name="$(UpdateGet "network")" || return; 
+	[[ $name ]] && { echo "$name"; return; }
+
+	# no network name identified, try and update it
+	network current update --quiet || return
+	name="$(UpdateGet "network")" || return; 
+	[[ $name ]] && { echo "$name"; return; }
+
+	# unable to identify the network
+	ScriptErr "unable to identify the current network"
+	return 1
+}
 
 # getServers NETWORK TYPE - get servers of the specified type for the specified network from configuration, 
 # i.e "getServers hagerman file" would look for the hagermanFileServers configuration variable
