@@ -1757,7 +1757,7 @@ function IsPlatform()
 			# virtual machine
 			container) IsContainer && return;;
 			docker) IsDocker && return;;
-			swarm) InPath docker && docker info |& grep -q "^ *Swarm: active$" && return;;
+			swarm) InPath docker && docker info |& command grep "^ *Swarm: active$" >& /dev/null && return;; # -q does not work reliably on pi2
 			chroot) IsChroot && return;;
 			host|physical) ! IsChroot && ! IsContainer && ! IsVm && return;;
 			guest|vm|virtual) IsVm && return;;
