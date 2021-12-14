@@ -655,6 +655,7 @@ GetLastDir() { GetArgs; echo "$@" | RemoveTrailingSlash | GetFileName; }
 GetParentDir() { GetArgs; echo "$@" | GetFilePath | GetFilePath; }
 FileExists() { local f; for f in "$@"; do [[ ! -f "$f" ]] && return 1; done; return 0; }
 FileExistsAny() { local f; for f in "$@"; do [[ -f "$f" ]] && return 0; done; return 1; }
+HasFilePath() { GetArgs; [[ $(GetFilePath "$1") ]]; }
 IsDirEmpty() { GetArgs; [[ "$(find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
 InPath() { local f option; IsZsh && option="-p"; for f in "$@"; do ! which $option "$f" >& /dev/null && return 1; done; return 0; }
 InPathAny() { local f option; IsZsh && option="-p"; for f in "$@"; do which $option "$f" >& /dev/null && return; done; return 1; }
@@ -1874,10 +1875,10 @@ IsTaskRunning()
 {
 	local file="$1"
 
-	! IsPlatform win && { IsTaskRunningDo ",$file$"; return; }
+	IsPlatform win && { IsTaskRunningDo ",$file$"; return; }
 
-	# Windows - convert path component to windows format
-	[[ "$(GetFilePath "$file")" ]] && { IsTaskRunningDo ",$(utwq "$file")$"; return; }
+	# Windows - search with path onlt
+	HasFilePath "$file" && { IsTaskRunningDo ",$(utwq "$file")$"; return; }
 
 	# Windows - search with and without a path
 	IsTaskRunningDo	",$file$" || IsTaskRunningDo ",.*\\\\$file$"
