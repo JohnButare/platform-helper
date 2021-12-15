@@ -21,8 +21,8 @@ init()
 {
 	volumeDir="$(GetRealPath "$HOME/Volumes")"; initVolumeDir || return
 	protocolUsage="-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)"
-	uncTypes="cifs,nfs,nfs4,fuse.sshfs"; IsPlatform mac && uncTypes="nfs,nfs4,smbfs,fuse.sshfs"
-	uncTypesDf=" -t ${uncTypes//,/ -t }"
+	uncTypes="cifs,nfs,nfs4,fuse.sshfs"
+	uncTypesDf="-t nfs -t nfs4 -t smbfs -t fuse.sshfs"
 	uncTypesGrep="${uncTypes//,/|}"
 	return 0
 }
@@ -55,7 +55,7 @@ getCommand() { usage; }
 getDetailCommand()
 {
 	if InPath findmnt; then findmnt --output=TARGET,SOURCE,FSTYPE --types=$uncTypes | grep -e "^TARGET\|$volumeDir"
-	elif InPath df; then df $uncTypesDf
+	elif InPath ${G}df; then ${G}df $uncTypesDf
 	else noUncCommand
 	fi
 }
@@ -63,7 +63,7 @@ getDetailCommand()
 getMountsCommand()
 {
 	if InPath findmnt; then findmnt --output=TARGET --types=$uncTypes --noheadings | grep "^$volumeDir"
-	elif InPath df; then df $uncTypesDf | ${G}tail -n +2 | awk '{ print $NF }'
+	elif InPath ${G}df; then ${G}df $uncTypesDf |& ${G}tail -n +2 | awk '{ print $NF }'
 	elif InPath mount; then mount | grep -E "type ($uncTypesGrep) " | cut -d" " -f3
 	else noUncCommand
 	fi
@@ -118,18 +118,27 @@ isMountedArgs() { ScriptArgGet "target" -- "$@"; shift; }
 
 isMountedCommand()
 {
-	# UNC
+	# check UNC
 	if IsUncPath "$target"; then
 		getDir "$target" >& /dev/null
 
-	# path
+	# check path
 	elif [[ -e "$target" ]]; then
 		getUncRoot "$target" >& /dev/null
 
 	# something else
 	else
 		false
+
 	fi
+
+	local result="$?"
+
+	# logging
+	logMounted "$result" "$target"
+
+	# return result
+	return "$result"
 }
 
 #
@@ -455,7 +464,6 @@ getPort()
 log() { [[ $quiet ]] && return; printf "$@"; }
 noHostCheck() { [[ $noHostCheck ]] || isWslshare; }
 protocolOpt() { [[ "$1" == @(-p|--protocol|-p*|--protocol=*) ]] && ScriptOptNetworkProtocol "$@"; }
-showResult() { [[ $1 && ! $quiet ]] && echo "$1"; [[ $1 ]]; }
 isWslshare() { [[ "$server" == @(wsl$|wsl) ]]; }
 validateUnc() { IsUncPath "$1" && return; [[ ! $quiet ]] && ScriptErr "'$1' is not a UNC"; ScriptExit; }
 
@@ -476,8 +484,9 @@ getDir()
 	isUncLocal "$unc" && { echo "/$dirs"; return; }
 
 	# get the mounted root directory of the unc	
-	local mountRoot; mountRoot="$(getDirRoot "$unc")" || { notAUncShare "$unc"; return; }
+	local mountRoot; mountRoot="$(getDirRoot "$unc")" || return
 
+	# return the directory
 	echo "$mountRoot/$dirs"
 }
 
@@ -485,20 +494,26 @@ getDir()
 getDirRoot()
 {
 	local root unc="$1"; validateUnc "$unc"
-	unc="$(GetFullUnc "$unc")" || return
-	unc="$(UncMake "" "$(GetUncServer "$unc")" "$(GetUncShare "$unc")")"
 
-	# get UNC information
+	# ensure the UNC has the fully qualified server name
+	unc="$(GetFullUnc "$unc")" || return
+
+	# get the mountDir from the UNC
 	local user server share dirs shareId mountRoot mountDir
 	getUncInfo "$unc" || return
 
-	# use findmnt
-	if InPath findmnt; then
-		root="$(findmnt --source "$unc" --target="$mountRoot" --output=TARGET --types=$uncTypes --noheadings)" || { notAUncShare "$unc"; return; }
+	# find the mounted directory
+	# - search for mounted UNC types where the destination is the specified mountRoot
+	# - do not search for the UNC source as it is different for each protocol and platform.
+	#   For example macOS includes the username in in the SMB source.
 
-	# use df
+	# findmnt
+	if InPath findmnt; then
+		root="$(findmnt --target="$mountRoot" --output=TARGET --types=$uncTypes --noheadings)" || { notAUncShare "$unc"; return; }
+
+	# df
 	elif InPath df; then
-		root="$(df -P | grep "^$unc " | grep " ${mountRoot}$" | awk '{print $NF}')" || { notAUncShare "$unc"; return; };
+		root="$(${G}df -P $uncTypesDf |& grep " ${mountRoot}$" | awk '{print $NF}')" || { notAUncShare "$unc"; return; };
 
 	else
 		noUncCommand; return
@@ -558,9 +573,9 @@ getUncRoot()
 		uncRoot="$(findmnt --target "$path" --output=SOURCE --types=$uncTypes --noheadings)" || { notAUncShare "$path"; return; }
 
 	# use df
-	elif InPath df; then
+	elif InPath ${G}df; then
 		local check; check="$(pathRoot "$path")" || return
-		uncRoot="$(df -P | grep " ${check}$" | awk '{print $1}')" || { notAUncShare "$path"; return; }
+		uncRoot="$(${G}df -P |& grep " ${check}$" | awk '{print $1}')" || { notAUncShare "$path"; return; }
 
 	else 
 		noUncCommand; return
@@ -641,7 +656,13 @@ isAvailable()
 # isMountedCheck UNC - if the UNC is mounted show it's path and return true
 isMountedCheck()
 {
-	local path; path="$(quiet="true" getDir "$1")" && showResult "$path"
+	local unc="$1"
+	local dir; dir="$(quiet="true" getDir "$unc")"
+	local result="$?"
+
+	logMounted "$result" "$unc"
+	(( $result == 0 )) && [[ ! $quiet ]] && echo "$dir"
+	(( $result == 0 ))
 }
 
 # isUncLocal UNC - the UNC specifies a location and this machine, and we can determine the full path to the directory (the share is root)
@@ -650,6 +671,14 @@ isUncLocal()
 	local unc="$1"
 	! IsUncPath "$1" && return 1
 	IsLocalHost "$(GetUncServer "$unc")" && [[ "$(GetUncShare "$unc")" == "root" ]]
+}
+
+logMounted()
+{
+	local result="$1" target="$2"
+	[[ ! $verbose ]] && return
+	local not; [[ "$result" != "0" ]] && not=" not"
+	log1 "'$target' is$not mounted"
 }
 
 notAUncShare()
