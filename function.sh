@@ -1877,9 +1877,9 @@ IsTaskRunning()
 {
 	local file="$1"
 
-	IsPlatform win && { IsTaskRunningDo ",$file$"; return; }
+	! IsPlatform win && { IsTaskRunningDo ",$file$"; return; }
 
-	# Windows - search with path onlt
+	# Windows - search with path only
 	HasFilePath "$file" && { IsTaskRunningDo ",$(utwq "$file")$"; return; }
 
 	# Windows - search with and without a path
