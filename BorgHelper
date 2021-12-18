@@ -20,8 +20,8 @@ Additional BorgBackup functionality.
 	vorta				run vorta
 
 	-d, --dir=DIR						backup directory, defaults to '$backupDirDefault'
-	-H,	--host=HOST					backup host
-	-P,	--passphrase=HOST	backup passphrase
+	-H,	--backup-host=HOST		backup host
+	-P,	--passphrase=HOST		backup passphrase
 	-r, --repository=NAME		backup repository name, defaults to '$backupRepoDefault'
 	-u,	--user=USER					backup user, defaults to '$backupUserDefault'"
 }
@@ -43,15 +43,13 @@ opt()
 {
 	case "$1" in
 		-d|--dir|-d=*|--dir=*) ScriptOptGet "backupDir" "dir" "$@";;
-		-H|--host|-H=*|--host=*) ScriptOptGet "backupHost" "host" "$@";;
+		-H|--backup-host|-H=*|--backup-host=*) ScriptOptGet "backupHost" "host" "$@";;
 		-P|--passphrase|-P=*|--passphrase=*) ScriptOptGet "backupPassphrase" "passphrase" "$@";;
 		-r|--repository|-r=*|--repository=*) ScriptOptGet "backupRepo" "repo" "$@";;
 		-u|--user|-u=*|--user=*) ScriptOptGet "backupUser" "user" "$@";;
 		*) return 1;;
 	esac
 }
-
-argEnd() { setBorgEnvironment; }
 
 #
 # Other Commands
@@ -65,6 +63,7 @@ listCommand() { runBorg list; }
 
 statusCommand()
 {
+	setBorgEnvironment || return
 	echo "borg will use the ${GREEN}$backupRepo${RESET} repository on ${GREEN}$backupHost${RESET}"
 	log1 "user=$backupUser dir=$backupDir\nBORG_REPO=$BORG_REPO"
 	return 0
@@ -80,18 +79,19 @@ backupUsage()
 Usage: $(ScriptName) backup [PATH [PATH ...]]
 Backup files
 
-	-a,	 --archive=NAME			name of the archive, defaults to archive (see 'borg help placeholders')
-	     --hosts=HOSTS			comma separated list of hosts to backup to
-	-nc, --no-check					do not check if the repository is initialized
-	-p,	 --prune=N					prune backups leaving the last N backups"
+	-a,	 --archive=NAME				name of the archive, defaults to archive (see 'borg help placeholders')
+	-bh, --backup-hosts=HOSTS	comma separated list of hosts to backup to
+	-nc, --no-check						do not check if the repository is initialized
+	-p,	 --prune=N						prune backups leaving the last N backups"
 }
 
-backupArgStart() { archive="archive"; unset -v hosts noCheck prune; }
+backupArgStart() { archive="archive"; unset -v backupHostsArg noCheck prune; }
 
 backupOpt()
 {
 	case "$1" in
 		-a|--archive|-a=*|--archive=*) ScriptOptGet "archive" "$@";;
+		-bh|--backup-hosts|-bh=*|--backup-hosts=*) ScriptOptGet "backupHostsArg" "$@";;
 		-nc|--no-check) noCheck="--no-check";;
 		-p|--prune|-p=*|--prune=*) ScriptOptGet --integer "prune" "$@";;
 		*) return 1;;
@@ -102,21 +102,31 @@ backupArgs() { backupArgs=( "$@" ); shift="$#"; }
 
 backupCommand()
 {
+	[[ ! $backupHostsArg ]] && { doBackup; return; }
+
+	[[ "${backupHostsArg,,}" == "all" ]] && backupHostsArg="$(network current servers backup)"
+	local backupHost backupHosts=(); StringToArray "$backupHostsArg" "," backupHosts
+	for backupHost in "${backupHosts[@]}"; do doBackup || return; done
+}
+
+doBackup()
+{
+	setBorgEnvironment || return
+	
 	# backup
-	hilight "Backing up the $archive archive to the $backupRepo repository on $(GetHostname "$backupHost")..."
+	hilight "Backing up the $backupRepo $archive archive to $(GetHostname "$backupHost")..."
 	repoCheck || return
 	runBorg create ::$archive'-{now:%Y-%m-%d_%H:%M:%S}' "${backupArgs[@]}" --stats --progress || return
 	echo
 	
 	# prune
 	if [[ $prune ]]; then
-		hilight "Pruning $archive to $prune backups..."
+		echo "Pruning to $prune backups..."
 		borg prune --keep-last $prune --prefix "$archive-" || return
-		echo
 	fi
 
 	# status
-	hilight "$archive backups..."
+	[[ ! $prune ]] && echo "Backups..."
 	borg list --prefix "$archive-" || return
 	echo
 }
@@ -199,6 +209,8 @@ repoExists()
 
 runBorg()
 {
+	setBorgEnvironment || return
+
 	IsRoot && { RunLog borg "$@" "${borgArgs[@]}" "${otherArgs[@]}"; return; }
 
 	RunLog sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" BORG_REMOTE_PATH="$borgPath" BORG_RELOCATED_REPO_ACCESS_IS_OK="$BORG_RELOCATED_REPO_ACCESS_IS_OK" \
