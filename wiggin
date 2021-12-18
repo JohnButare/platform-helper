@@ -34,6 +34,9 @@ init()
 	# configuration
 	ncd="$CLOUD/network"
 	hashiConfig="$ncd/system/hashi"
+
+	# borgBackup cache variables
+	unset backupHosts
 }
 
 #
@@ -95,7 +98,14 @@ backupLastpassCommand()
 	unmountVol || return
 }
 
-backupProxymanagerCommand() { borgBackup "ProxyManager" "ProxyManager.butare.net" "/srv/nginx-proxy-manager"; }
+backupProxymanagerCommand()
+{
+	local ip
+	for ip in $(hashi resolve nginx-proxy-manager --all); do
+		borgBackup "ProxyManager" "$(DnsResolve "$ip")" "/srv/nginx-proxy-manager" || return
+	done
+}
+
 
 backupQnapCommand()
 {
@@ -121,8 +131,8 @@ backupQnapCommand()
 backupWebCommand()
 {
 	local ip
-	for ip in $(hashi resolve web --list); do
-		borgBackup "web" "$(DnsResolve "$ip")" "/var/www/html" "/etc/apache2" || return
+	for ip in $(hashi resolve web --all); do
+		borgBackup "web" "$(DnsResolve "$ip")" "/srv/apache-web" || return
 	done
 }
 
@@ -853,10 +863,10 @@ borgBackup()
 
 	! SshIsAvailable "$server" && { ScriptErr "'$server' is not available"; return 1; }
 
-	log1 "running BorgHelper backup on $server..."
+	[[ ! $backupHosts ]] && { backupHosts="$(network current servers backup)" || return; }
 
-	SshHelper "$(ConfigGet "user")@$server" --interactive --pseudo-terminal "${globalArgs[@]}" -- \
-		BorgHelper backup "$@" --archive "$archive" --prune 2 "${globalArgs[@]}" || return
+	RunLog SshHelper "$(ConfigGet "user")@$server" --interactive --pseudo-terminal "${globalArgs[@]}" -- \
+		BorgHelper backup "$@" --archive "$archive" --backup-hosts="$backupHosts" --prune 5 "${globalArgs[@]}" || return
 }
 
 getHosts() 
