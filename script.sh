@@ -90,7 +90,8 @@ RunLog()
 		local arg result
 
 		for arg in "$@"; do
-			[[ "$arg" =~ " "|"	" || ! $arg ]] && result+="\"$arg\" " || result+="$arg "
+			local pattern=" |	" # assign pattern to variable to maintain Bash and ZSH compatibility
+			[[ "$arg" =~  $pattern || ! $arg ]] && result+="\"$arg\" " || result+="$arg "
 		done
 
 		log1 "command: $result"
