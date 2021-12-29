@@ -62,13 +62,13 @@ diskCommand() { diskTotalCommand; }
 diskAvailableCommand()
 {
 	! InPath di && return
-	di -d g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 5
+	di --type ext4 --display-size g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 5
 }
 
 diskTotalCommand()
 {
 	! InPath di && return
-	di -d g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 3
+	di --type ext4 --display-size g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 3
 }
 
 memoryTotalCommand()
@@ -384,8 +384,7 @@ infoRemote()
 infoLocal()
 {
 	local w what=( model platform distribution kernel chroot vm file cpu architecture mhz memory disk switch other )
-	for w in "${what[@]}"; do info${w^} || return; done
-	
+	for w in "${what[@]}"; do info${w^} || return; done	
 }
 
 infoArchitecture()
