@@ -994,8 +994,9 @@ GetAdapterIpAddress()
 	if [[ $isWin ]]; then
 
 		if [[ ! $adapter ]]; then
-			# use default route (0.0.0.0 destination) with lowest metric
-			route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | sort -k5 --numeric-sort | head -1 | awk '{ print $4; }'
+			# - use default route (0.0.0.0 destination) with lowest metric
+			# - Windows build 22000.376 adds "Default " route
+			route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | grep -v "Default[ ]*$" | sort -k5 --numeric-sort | head -1 | awk '{ print $4; }'
 		else
 			ipconfig.exe | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | grep "IPv4 Address" | head -1 | cut -d: -f2 | RemoveSpace
 		fi
