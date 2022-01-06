@@ -295,17 +295,20 @@ InstFind()
 
 powershell() 
 { 
-	local files=( "A$P/PowerShell/7/pwsh.exe" "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" )
+	local files=( "$P/PowerShell/7/pwsh.exe" "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" )
 
 	[[ "$1" == @(--version|-v) ]] && { powershell -Command '$PSVersionTable'; return; }
 	
-	FindInPath powershell.exe && { powershell.exe "$@"; return; }
 	for f in "${files[@]}"; do
 		[[ -f "$f" ]] && { "$f" "$@"; return; }
 	done
+
+	FindInPath powershell.exe && { powershell.exe "$@"; return; }
 	
 	EchoErr "Could not find powershell"; return 1;
 }
+
+PowerShellVersion() { powershell --version | grep PSVersion | tr -s " " | cut -d" " -f2; }
 
 store()
 {
