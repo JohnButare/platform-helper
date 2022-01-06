@@ -1960,7 +1960,13 @@ ProcessKill()
 ProcessList() # PID,NAME - show operating system native process ID and executable name with a full path
 { 
 	case $PLATFORM in
-		win) wmic.exe process get Name,ExecutablePath,ProcessID /format:csv | RemoveCarriageReturn | awk -F"," '{ print $4 "," ($2 == "" ? $3 : $2) }';;
+		win) 
+			if InPath wmic.exe; then
+				wmic.exe process get Name,ExecutablePath,ProcessID /format:csv | RemoveCarriageReturn | tail +3 | awk -F"," '{ print $4 "," ($2 == "" ? $3 : $2) }'
+			else
+				powershell --command 'Get-Process | select Name,Path,ID | ConvertTo-Csv' | RemoveCarriageReturn | awk -F"," '{ print $3 "," ($2 == "" ? $1 ".exe" : $2) }' | RemoveQuotes
+			fi
+			;;
 		linux) ps -ef | awk '{ print $2 "," substr($0,index($0,$8)) }';;
 		mac) ps -ef | ${G}cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
 	esac
@@ -2319,7 +2325,18 @@ GetVmType() # vmware|hyperv
 
 	# In wsl2, Hyper-V is detected on the physical host and the virtual machine as "microsoft" so check the product
 	if IsPlatform wsl2 && [[ "$result" == "hyperv" ]]; then
-		local product="$(wmic.exe baseboard get product | RemoveCarriageReturn | tail -1 | head -1 | RemoveSpaceTrim)"
+		local product
+
+		if InPath wmic.exe; then
+			procuct="$(wmic.exe baseboard get product | RemoveCarriageReturn | head -2 | tail -1 | RemoveSpaceTrim)"
+
+		# wmic.exe is removed from Windows build  >= 22000.376
+		# - PowerShell 5 (powershell.exe) is ~6X faster than PowerShell 7
+		# - PowerShell 7 - use powershell without the .exe
+		else
+			product="$(powershell.exe 'Get-WmiObject -Class Win32_BaseBoard | Format-List Product' | RemoveCarriageReturn | grep Product | tr -s ' ' | cut -d: -f2 | RemoveSpaceTrim)"
+		fi
+
 		if [[ "$product" == "440BX Desktop Reference Platform" ]]; then result="vmware"
 		elif [[ "$product" == "Virtual Machine" ]]; then result="hyperv"
 		else result=""
