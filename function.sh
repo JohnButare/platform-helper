@@ -1490,7 +1490,7 @@ UncMake()
 #
 
 GetUriProtocol() { GetArgs; local gup="${1%%\:*}"; r "$(LowerCase "$gup")" $2; }
-GetUriServer() { GetArgs; local gus="${1#*//}"; r "${gus%%:*}" $2; }
+GetUriServer() { GetArgs; local gus="${1#*//}"; gus="${gus%%:*}"; r "${gus%%/*}" $2; }
 GetUriPort() { GetArgs; local gup="${1##*:}"; r "${gup%%/*}" $2; }
 GetUriDirs() { GetArgs; local gud="${1#*//*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 

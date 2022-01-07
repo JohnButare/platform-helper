@@ -328,7 +328,7 @@ addDefaultReadMe()
 # Remote Commands
 #
 
-remoteUsage() { echot "Usage: $(ScriptName) remote [add|dir|init|list|to](list)\nManipulate remote repositories."; }
+remoteUsage() { echot "Usage: $(ScriptName) remote [add|dir|init|list|swap|to](list)\nManipulate remote repositories."; }
 remoteCommand() { remoteListCommand; }
 remoteArgStart() { unset -v repo server; }
 
@@ -349,7 +349,7 @@ remoteArgs()
 }
 
 remoteAddUsage() { echot "Usage: $(ScriptName) git remote add SERVER REPO\nAdd the repository as a remote."; }
-remoteAddCommand() { git remote add "$server" "$(serverToRepo "$server" "$repo")" || return; git remote -v; }
+remoteAddCommand() { git remote add "$server" "$(serverToRepo "$server" "$repo")" && git push --set-upstream "$server" master && git remote -v; }
 
 remoteDirUsage() { echot "Usage: $(ScriptName) remote dir SERVER\nReturn the git directory for the specified server."; }
 remoteDirCommand() { echo "$(serverToShare "$server")/$repo"; }
@@ -375,15 +375,57 @@ remoteInitCommand()
 	git init --bare || return
 }
 
+remoteSwapUsage() { echot "Usage: $(ScriptName) git remote swap [remote1] [remote2](origin)\nSwap remote names."; }
+remoteSwapArgStart() { unset -v remote1; remote2="origin"; }
+
+remoteSwapArgs()
+{
+	ScriptArgGet "remote1" -- "$@"; shift;
+	(( $# > 0 )) && { ScriptArgGet "remote2" -- "$@"; shift; }
+	return 0
+}
+
+remoteSwapCommand()
+{
+	# validate
+	[[ "$remote1" == "$remote2" ]] && { ScriptErr "remote1 and remote2 must be different"; return 1; }
+
+	local remote1Url; remote1Url="$(git remote get-url "$remote1")" || return
+	local remote2Url; remote2Url="$(git remote get-url "$remote2")" || return
+	local remote1NewName="$remote2" remote2NewName="$remote1"
+	[[ "$remote1" == "origin" ]] && { remote1NewName="$(GetUriServer "$remote1Url")"; }
+	[[ "$remote2" == "origin" ]] && { remote2NewName="$(GetUriServer "$remote2Url")"; }
+
+	# original configuration
+	header "Original Configuration"
+	git remote -v || return
+	echo
+
+	# swap
+	header "Swapping $remote1 and $remote2"
+	log1 "$remote1 ($remote1Url)->$remote1NewName"
+	log1 "$remote2 ($remote2Url)->$remote2NewName"
+	RunLog git remote rename "$remote1" "$remote1.hold" || return
+	RunLog git remote rename "$remote2" "$remote2NewName" || return
+	RunLog git remote rename "$remote1.hold" "$remote1NewName" || return
+	RunLog git push --set-upstream "$remote1NewName" master || return
+	RunLog git push --set-upstream "$remote2NewName" master || return
+	echo
+
+	# new configuration
+	header "New Configuration"
+	git remote -v || return
+}
+
 remoteToHttpCommand()
 {
-	git remote set-url origin "https://$(getBaseUrl)/"
+	git remote set-url origin "https://$(getBaseUrl "origin")/"
 	git remote --verbose
 }
 
 remoteToSshCommand()
 {
-	local url="$(getBaseUrl)"
+	local url="$(getBaseUrl "origin")"
 	local server="${url%%/*}"
 	local suffix="${url#*( )*/}"
 
@@ -416,10 +458,10 @@ findServer()
 	return 1
 }
 
-# getBaseUrl - get repository base URL, i.e. https://server/path/ ssh://user@server:port/path/ -> server/path
+# getBaseUrl REMOTE - get repository base URL, i.e. https://server/path/ ssh://user@server:port/path/ -> server/path
 getBaseUrl() 
 {
-	local url="$(git remote --verbose | grep origin | cut -f2 | cut -d" " -f1 | head -1 | sed 's/\r//g')"
+	local url; url="$(git remote get-url "$1")" || return
 	url="$(echo "$url" | sed 's/https:\/\///')" # remove https://
 	url="$(echo "$url" | sed 's/ssh:\/\///' | sed 's/git@//' | sed 's/:[0-9]*\//\//')" # remove ssh://, user@, and :port
 	url="${url%%/}" # remove trailing /
