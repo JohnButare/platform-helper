@@ -1713,18 +1713,18 @@ else GetPlatformVar() { local v="$1" pv="${(U)PLATFORM}_$1"; [[ ${(P)pv} ]] && e
 fi
 
 # IsPlatform platform[,platform,...] [--host [HOST]] - return true if the host has one of the specified characteristics
-# - if --host is specified, check the specified host instead of localhost.   If --host is specified but the HOST argument 
-#   is not, use the host from the last call to GetHostInfo
+# - if --host is specified, check the specified host instead of localhost.   If the HOST argument is not specified,
+#   use the host from the last call to HostGetInfo.
 function IsPlatform()
 {
 	local platforms=() p; StringToArray "$1" "," platforms; shift
 	
 	# set _platform variables
 	if [[ "$1" == @(-h|--host) ]]; then		
-		shift; [[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; }
+		shift
+		[[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; }
 	else
-		local _platform="$PLATFORM" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" \
-			_machine="$MACHINE" _wsl="$WSL"
+		local _platform="$PLATFORM" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
 
 	# check if the host matches the specified platforms
@@ -1816,27 +1816,39 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 
 PlatformTmp() { IsPlatform win && echo "$UADATA/Temp" || echo "$TMP"; }
 
-# RunPlatform PREFIX - call platrform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
+# RunPlatform PREFIX [--host [HOST]] - call platrform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
 function RunPlatform()
 {
 	local function="$1"; shift
 	local platform="$PLATFORM"; [[ $ALT_PLATFORM ]] && platform="$ALT_PLATFORM"
 
-	[[ $PLATFORM ]] && { RunFunction $function $platform "$@" || return; }
-	[[ $PLATFORM_LIKE ]] && { RunFunction $function $PLATFORM_LIKE "$@" || return; }
-	[[ $PLATFORM_ID ]] && { RunFunction $function $PLATFORM_ID "$@" || return; }
-
-	if [[ "$PLATFORM" == "win" ]]; then
-		IsPlatform wsl && { RunFunction $function wsl "$@" || return; }
-		IsPlatform wsl1 && { RunFunction $function wsl1 "$@" || return; }
-		IsPlatform wsl2 && { RunFunction $function wsl2 "$@" || return; }
+	# set _platform variables
+	if [[ "$1" == @(-h|--host) ]]; then		
+		shift
+		[[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; }
+	else
+		local _platform="$PLATFORM" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
 
-	IsPlatform entware && { RunFunction $function entware "$@" || return; }
-	IsPlatform debian,mac && { RunFunction $function DebianMac "$@" || return; }
-	IsPlatform pikernel && { RunFunction $function PiKernel "$@" || return; }
-	IsPlatform vm && { RunFunction $function vm "$@" || return; }
-	IsPlatform physical && { RunFunction $function physical "$@" || return; }
+	# run platform function
+	[[ $_platform ]] && { RunFunction $function $_platform "$@" || return; }
+	[[ $_platformLike ]] && { RunFunction $function $_platformLike "$@" || return; }
+	[[ $_platformId ]] && { RunFunction $function $_platformId "$@" || return; }
+
+	# run windows WSL functions
+	if [[ "$PLATFORM" == "win" ]]; then
+		IsPlatform wsl --host && { RunFunction $function wsl "$@" || return; }
+		IsPlatform wsl1 --host && { RunFunction $function wsl1 "$@" || return; }
+		IsPlatform wsl2 --host && { RunFunction $function wsl2 "$@" || return; }
+	fi
+
+	# run other functions
+	IsPlatform entware --host && { RunFunction $function entware "$@" || return; }
+	IsPlatform debian,mac --host && { RunFunction $function DebianMac "$@" || return; }
+	IsPlatform pikernel --host && { RunFunction $function PiKernel "$@" || return; }
+	IsPlatform vm --host && { RunFunction $function vm "$@" || return; }
+	IsPlatform physical --host && { RunFunction $function physical "$@" || return; }
+
 	return 0
 }
 

@@ -8,7 +8,7 @@ set -a # export variables and functions to child processes
 
 # GetPlatform [host](local) - get the platform for the specified host, sets:
 # platform=linux|mac|win
-# platformLike=debian|mac|openwrt|qnap|synology|ubiquiti
+# platformLike=debian|openwrt|qnap|synology|ubiquiti
 # platformId=dsm|pi|pixel|qts|rock|srm|ubuntu
 # wsl=1|2 (Windows)
 # machine=aarch64|armv7l|mips|x86_64
@@ -65,7 +65,7 @@ exit 0;'
 		fi
 
 		case "$platform" in
-			Darwin)	platform="mac"  ID_LIKE="mac";;
+			Darwin)	platform="mac";;
 			Linux) platform="linux";;
 			MinGw*) platform="win"; ID_LIKE=mingw;;
 		esac
