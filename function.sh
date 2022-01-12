@@ -1974,7 +1974,7 @@ ProcessList() # PID,NAME - show operating system native process ID and executabl
 	case $PLATFORM in
 		win) 
 			if InPath ProcessList.exe; then
-				ProcessList.exe
+				ProcessList.exe | RemoveCarriageReturn
 			elif InPath wmic.exe; then
 				wmic.exe process get Name,ExecutablePath,ProcessID /format:csv | RemoveCarriageReturn | tail +3 | awk -F"," '{ print $4 "," ($2 == "" ? $3 : $2) }'
 			else
