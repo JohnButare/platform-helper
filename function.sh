@@ -1820,7 +1820,6 @@ PlatformTmp() { IsPlatform win && echo "$UADATA/Temp" || echo "$TMP"; }
 function RunPlatform()
 {
 	local function="$1"; shift
-	local platform="$PLATFORM"; [[ $ALT_PLATFORM ]] && platform="$ALT_PLATFORM"
 
 	# set _platform variables
 	if [[ "$1" == @(-h|--host) ]]; then		
