@@ -123,7 +123,7 @@ executableFindCommand()
 {
 	local arch file
 
-	# find an executable that supports the machines primary architecture
+	# find an executable that supports the primary architecture
 	arch="$(executableFormatCommand)"
 	file="$(file "$dir"/* | grep "$arch" | tail -1 | cut -d: -f1)"
 	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for MacOS universal binaries

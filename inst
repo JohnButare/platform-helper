@@ -45,6 +45,7 @@ initInstallable()
 
 	# exclude
 	notArm=( BeyondCompare GitKraken )
+	notArm32=( 1Password )
 	notMacArm=( chrony )
 	notPi=( sublime )
 }
@@ -334,10 +335,11 @@ checkInstallable()
 }
 
 # installExecutable DIR NAME- find an executable for the current platform in the passed directory
-# If found, the executable is copied to /usr/local/bin as NAME
+# if found, the executable is copied to /usr/local/bin as NAME
 installExecutable()
 {
-	local dir="$1" name="$2" file; [[ ! $name ]] && name="$(GetFileName "$dir")"
+	local dir="$1" name="$2" zipName="$3" file
+	[[ ! $name ]] && name="$(GetFileName "$dir")"
 
 	# find the executable location
 	findFile "$dir" || return
@@ -348,7 +350,7 @@ installExecutable()
 
 	GetFiles '*.zip' | while ReadFile; do
 		echo "Extracting $file..."
-		unzip -p "$file" \* > "$(GetFileNameWithoutExtension "$file")" || return
+		unzip -p "$file" \* -x '*.sig' > "$(GetFileNameWithoutExtension "$file")" || return
 		rm "$file" || return
 	done
 
@@ -360,7 +362,7 @@ installExecutable()
 
 	# copy the file to /usr/local/bin
 	local dest="/usr/local/bin/$name"; IsPlatform entware && dest="/opt/bin/$name"
-	if ! diff "$file" "$dest" || [[ $force ]]; then
+	if [[ ! -e "$dest" ]] || ! diff "$file" "$dest" || [[ $force ]]; then
 		sudoc cp "$file" "$dest" || return
 		sudo chmod +x "$dest" || return
 	fi
@@ -372,6 +374,7 @@ isInstallable()
 
 	# process exclusions first
 	IsInArray -ci "$check" notArm && IsPlatform arm && ! IsPlatform mac && return 1
+	IsInArray -ci "$check" notArm32 && IsPlatformAll arm,32 && return 1
 	IsInArray -ci "$check" notMacArm && IsPlatformAll mac,arm && return 1
 	IsInArray -ci "$check" notPi && IsPlatform pi && return 1
 
@@ -669,7 +672,7 @@ runDeb()
 
 	hilight "Installing $(GetFileName "$p") version $(PackageFileVersion "$p")..."
 	! InPath gdebi && pkg gdebi || return
-	sudo gdebi -n "$p" "$@" # install with gdebi for dependencies
+	sudo gdebi "$p" "$@" # install with gdebi for dependencies
 }
 
 runDmg()
@@ -4737,7 +4740,7 @@ DotNetInstall()
 	header ".NET"; local v="6.0.101" # https://dotnet.microsoft.com/download
 	if IsPlatform mac,win; then
 		local f="dotnet-sdk-$v"
-		run "other/Microsoft/DOT.NET/setup/v5.0/$f-win-x64.exe" "${f}osx-x64.pkg" || return
+		run "other/Microsoft/DOT.NET/setup/$f-win-x64.exe" "${f}osx-x64.pkg" || return
 	else
 		curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel Current
 	fi
@@ -5632,8 +5635,15 @@ SecurityCoreInstall() { i 1Password AxCrypt certbot cfssl CredentialStore Dashla
 
 1PasswordInstall()
 {
-	run --name "1Password" "other/1Password/setup/1PasswordSetup-latest.exe|1Password-7.9.2.pkg|1password-latest.deb" || return # https://1password.com/downloads/
-	#installExecutable "other/1Password/cli" "op" || return # https://app-updates.agilebits.com/product_history/CLI
+	# gui - https://1password.com/downloads/
+	if IsPlatform mac,win || IsPlatformAll linux,x86,64; then
+		run --name "1Password" "other/1Password/setup/1PasswordSetup-latest.exe|1Password-7.9.2.pkg|1password-latest.deb" || return
+	fi
+
+	# cli - https://app-updates.agilebits.com/product_history/CLI	
+	if ! IsPlatformAll arm,32; then
+		installExecutable "other/1Password/cli" "op" || return
+	fi
 }
 
 1PasswordFinalWin()

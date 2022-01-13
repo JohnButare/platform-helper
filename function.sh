@@ -1704,7 +1704,7 @@ PackageWhich()
 # Platform
 # 
 
-PlatformSummary() { echo "$(os architecture) $(PlatformDescription)"; }
+PlatformSummary() { echo "$(os architecture) $(PlatformDescription) $(os bits)"; }
 PlatformDescription() { echo "$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"; }
 
 # GetPlatformVar VAR - return PLATFORM_VAR variable if defined, otherewise return VAR
