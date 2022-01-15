@@ -1816,7 +1816,7 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 
 PlatformTmp() { IsPlatform win && echo "$UADATA/Temp" || echo "$TMP"; }
 
-# RunPlatform PREFIX [--host [HOST]] - call platrform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
+# RunPlatform PREFIX [--host [HOST]] - call platform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
 function RunPlatform()
 {
 	local function="$1"; shift
