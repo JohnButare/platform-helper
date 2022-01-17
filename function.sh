@@ -1561,6 +1561,9 @@ packageExclude()
 	# Ubuntu excludes - ncat is not present on older distributions
 	IsPlatform ubuntu && IsInArray "ncat" packages && [[ "$(os CodeName)" =~ ^(bionic|xenial)$ ]] && ArrayRemove packages "ncat"
 
+	# Ubuntu - libturbojpeg0 is libturbojpeg in Ubuntu
+	IsPlatform ubuntu && IsInArray "libturbojpeg0" packages && { ArrayRemove packages "libturbojpeg0"; packages+=( libturbojpeg ); }
+
 	# macOS excludes
 	! IsPlatform mac && return
 
