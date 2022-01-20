@@ -120,7 +120,7 @@ CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 ActualUser() { echo "${SUDO_USER-$USER}"; }
 UserExists() { getent passwd "$1" >& /dev/null; }
 GroupAdd() { local group="$1"; GroupExists "$group" && return; sudoc groupadd "$group"; }
-GroupAddUser() { local group="$1" user="${2:-$USER}"; groupAdd "$group" || return; UserInGroup "$user" "$group" && return; sudo adduser "$user" "$group"; }
+GroupAddUser() { local group="$1" user="${2:-$USER}"; GroupAdd "$group" || return; UserInGroup "$user" "$group" && return; sudo adduser "$user" "$group"; }
 GroupExists() { getent group "$1" >& /dev/null; }
 UserInGroup() { id "$1" | grep -q "($2)"; } # UserInGroup USER GROUP
 
