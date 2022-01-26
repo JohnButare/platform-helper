@@ -1519,10 +1519,8 @@ PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
 # package PACKAGE - install the specified package
 package() # package install
 {
-	local force noPrompt quiet packages
-
 	# arguments
-	local arg args=()
+	local arg args=() force noPrompt quiet packages
 	for arg in "$@"; do
 		[[ "$arg" == @(-f|--force) ]] && { force="true"; continue; }
 		[[ "$arg" == @(-np|--no-prompt) ]] && { noPrompt="true"; continue; }
