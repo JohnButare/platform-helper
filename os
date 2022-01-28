@@ -488,7 +488,7 @@ infoDistribution()
 	! InPath lsb_release && return
 
 	local distributor version codename
-	local release; release="$(lsb_release -a 2>1)" || return
+	local release; release="$(lsb_release -a 2>&1)" || return
 
 	# Distributor - Debian|Raspbian|Ubuntu
 	distributor="$(echo "$release" |& grep "Distributor ID:" | cut -f 2-)"
