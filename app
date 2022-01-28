@@ -144,7 +144,7 @@ runExternalApp()
 	fi;
 
 	showStatus
-	"$app" "${command}" || return
+	"$app" --quiet "${command}" || return
 	[[ ! $brief ]] && echo done
 	return 0
 }
@@ -218,7 +218,7 @@ isAppInstalled()
 		echo "\n"; ScriptErr "'$app' does not have an IsInstalled command"; return 1
 	fi
 
-	"$appFile" IsInstalled
+	"$appFile" --quiet IsInstalled
 }
 
 isAppRunning()
@@ -227,7 +227,7 @@ isAppRunning()
 		echo "\n"; ScriptErr "'$app' does not have an IsRunning command"; return 1
 	fi
 
-	"$appFile" IsRunning
+	"$appFile" --quiet IsRunning
 }
 
 mapApp()
