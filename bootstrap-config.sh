@@ -23,7 +23,7 @@ dns1="10.10.100.10"
 dns2="10.10.100.11"
 
 # proxy
-noProxy="localhost,127.0.0.1,.$baseDomain,.$domain,.releases.ubuntu.com"
+noProxy="localhost,127.0.0.1,.$baseDomain,.$domain,web,www,autoproxy,.releases.ubuntu.com"
 
 # time
 timezone="America/Denver"
@@ -52,7 +52,7 @@ hagermanWireguardServers="pi2.$hagermanBaseDomain,pi1.$hagermanBaseDomain"
 hashiCredentialPath=""
 hashiCertificateDevice="$CDATA/VeraCrypt/personal.hc" hashiCertificateDir="data/hashi"
 hashiServers="pi1,pi2,pi3"
-hashiClients=""
+hashiClients="pi4"
 hashiVaultServers="pi1,pi2"
 
 # HashiCorp Testing
