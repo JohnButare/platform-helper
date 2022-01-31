@@ -18,7 +18,7 @@ initInstallable()
 	debian=( apache ApacheDocker apt AptUtilities audacity bind cfssl chroot ChronyServer CloudInit cups dbus DnsServer DhcpServer geany gpg HomeAssistantCore HomeAssistantCli HypervLinuxTools kea KeaService LastPass mDns mosquitto NodeRed OpenJdk pass pivpn SaltMinion SecretTool terminator tomcat UncomplicatedFirewall VmwareLinuxTools )
 	debian64=()
 	mac=( amphetamine AppleConfigurator apptivate bartender bear BetterTouchTool btt CanaryMail CarrotWeather DayOne DiskInventortyX gitx HomeAssistant homie iTerm karabiner LiveDesktop Magnet MakrdownView MicrosoftRemoteDesktop pcalc rectagle RemoteDesktop spark speedtest WallpaperWizard xcode XcodeCli XQuartz yoink )
-	macDebian=( 1Password 7Zip asdf BalenaEtcher bc BeyondCompare certbot chrony colorls consul ConsulK8s DotNet Dropbox docker etcher go homebridge JetBrains mysql firefox fuse fzf ghq GitKraken gnupg JumpCloud MozillaVpn NodeJs nomad PiDiskImager ruby RubyAsdf RubyPackage RubyRvm skype StandardNotes steam tmux sublime SublimeBeta SublimeMerge thunderbird UnifiController UnifiControllerPackage vagrant vault VisualStudioCode vscode WireGuard xClient xServer xpra )
+	macDebian=( 1Password 7Zip asdf BalenaEtcher bc BeyondCompare certbot chrony colorls consul ConsulK8s DotNet Dropbox docker etcher go homebridge JetBrains mysql firefox fuse fzf ghq GitKraken gnupg JumpCloud MozillaVpn NodeJs nomad PiDiskImager ruby RubyAsdf RubyPackage RubyRvm skype sockaddr StandardNotes steam sublime SublimeBeta SublimeMerge tmux thunderbird UnifiController UnifiControllerPackage vagrant vault VisualStudioCode vscode WireGuard xClient xServer xpra )
 	macWin=( BlueSherpa BrotherPrinter calibre CanonCamera CleanMy CrealitySlicer CreativeCloud cricut deezer DellDisplayManager domotz DreamAquarium DuetDisplay dymo fork garmin GreenShot iExplorer JumpDesktop keybase lazygit logitech LogitechGhub LogitechOptions notion nVidia office origin PdfElement plex PowerShell qvr sonos spotify SurveillanceStation VisualStudio VisualStudioCode WireShark xpra xServer zoom )
 	win=( ahk AjaSystemTest AutoHotKey AltTabTerminator AquaSnap backupper bonjourSdk chocolatey CloseAllWindows CoreTemp cpuz DiskImager EdgeDeflector FileLocatorPro game GitExtensions HiddenStart HiddenStartConfigure iCloud IntelDrivers IntelDriverUpdate kindle KindleDrm MaxTo NordVPN Ninite Notepadpp npp RightClickEnhancer TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager HiddenStart intel IntelExtremeTuning IntelStorageManagement IntelThunderboltControlCenter java LgMonitor MarkdownView MicrosoftTeams MsiMotherboard NitroPdf nVidiaDriver nVidiaGeForceExperience OneDrive oculus pa PartitionAssistant pGina PowerPanel PowerrToys QuickBooks stamps SystemInternals TaskLayout TemperatureLogger Todoist VisualStudio vs Wallpaper4k WindowsAssessmentAndDeploymentKit x410 xMing wsl )
 
@@ -341,42 +341,6 @@ checkInstallable()
 	return 1
 }
 
-# installExecutable DIR NAME- find an executable for the current platform in the passed directory
-# if found, the executable is copied to /usr/local/bin as NAME
-installExecutable()
-{
-	local dir="$1" name="$2" zipName="$3" file
-	[[ ! $name ]] && name="$(GetFileName "$dir")"
-
-	# find the executable location
-	findFile "$dir" || return
-	dir="$file"
-
-	# extract the executable from compressed files so we can analyze them
-	pushd "$dir" >& /dev/null || return
-
-	GetFiles '*.zip' | while ReadFile; do
-		echo "Extracting $file..."
-		unzip -p "$file" \* -x '*.sig' > "$(GetFileNameWithoutExtension "$file")" || return
-		rm "$file" || return
-	done
-
-	popd >& /dev/null
-
-	# find the correct file for this machine
-	file="$(os executable find "$dir")"
-	[[ ! $file ]] && { ScriptErr "could not find an executable for $name"; return 1; }
-
-	# copy the file to /usr/local/bin
-	local dest="/usr/local/bin/$name"; IsPlatform entware && dest="/opt/bin/$name"
-	if [[ ! -e "$dest" ]] || ! diff "$file" "$dest" || [[ $force ]]; then
-		printf "Installing $name to $(GetFilePath "$dest")..."
-		sudoc cp "$file" "$dest" || return
-		sudo chmod +x "$dest" || return
-		echo "done"
-	fi
-}
-
 isInstallable()
 {
 	local check="${1,,}"
@@ -448,6 +412,7 @@ run()
 			--) shift; otherArgs+=( "$@" ); shift "$#"; break;;
 
 			--docker) type="docker"; [[ ! "$dest" ]] && dest="$SRV";;
+			--executable) type="executable";;
 			--node) type="node";;
 			--package) type="package";;
 			--python) type="python";;
@@ -460,6 +425,7 @@ run()
 			--dest|-d=*|--dest=*) ScriptOptGet "dest" "$@";;
 			--elevate) IsPlatform win && elevate="--elevate";;
 			-n|--name|-n=*|--name=*) ScriptOptGet name "$@" || return;;
+			-nh|--no-header) local noHeader="--no-header";;
 			--no-pause) unset pause;;
 			--pause) pause="--pause";;
 			--rename) rename="--rename" copyLocal="--copy-local";; # must copy for rename so we do not impact the original file
@@ -502,7 +468,7 @@ run()
 	runPrompt "$p" "$name" || return 0
 
 	# run specified installation type
-	RunFunction "runType" "$type" -- "$p" "$name" "$dest" "${otherArgs[@]}" || return
+	RunFunction "runType" "$type" -- "$p" "$name" "$dest" "${args[@]}" || return
 
 	# cleanup
 	[[ $pause ]] && pause "When the installation has finished press any key..."
@@ -559,6 +525,46 @@ runTypeDocker()
 		docker-compose up -d || return
 
 	fi
+}
+
+# runTypeExecutable DIR NAME- find an executable for the current platform in the passed directory
+# if found, the executable is copied to /usr/local/bin as NAME
+runTypeExecutable()
+{
+	# arguments
+	local dir="$1" name="$2" dest="$3" zipName="$4" file; shift 4
+	[[ ! $name ]] && name="$(GetFileName "$dir")"
+
+	# find the executable location
+	findFile "$dir" || return
+	dir="$file"
+
+	# extract the executable from compressed files so we can analyze them
+	pushd "$dir" >& /dev/null || return
+
+	GetFiles '*.zip' | while ReadFile; do
+		echo "Extracting $file..."
+		unzip -p "$file" \* -x '*.sig' > "$(GetFileNameWithoutExtension "$file")" || return
+		rm "$file" || return
+	done
+
+	popd >& /dev/null
+
+	# find the correct file for this machine
+	file="$(os executable find "$dir")"
+	[[ ! $file ]] && { ScriptErr "could not find an executable for $name"; return 1; }
+
+	# copy the file to /usr/local/bin
+	local dest="/usr/local/bin/$name"; IsPlatform entware && dest="/opt/bin/$name"
+
+	if [[ ! -e "$dest" ]] || ! diff "$file" "$dest" || [[ $force ]]; then
+		printf "Installing $name to $(GetFilePath "$dest")..."
+		sudoc cp "$file" "$dest" || return
+		sudo chmod +x "$dest" || return
+		echo "done"
+	fi
+
+	return 0
 }
 
 runTypeExtension()
@@ -1000,7 +1006,6 @@ CreativeCloudFinalWin()
 #
 
 AppleAllInstall() { i AppleConfigurator bonjourSdk QuickTime xcode; }
-
 AppleConfiguratorInstall() { run --name "Apple Configurator" "1037126344"; }
 
 BonjourSdkInstall()
@@ -1740,13 +1745,15 @@ CruiseControlTrayFinalWin()
 	$rm "$up/Startup/CCTray.lnk" || return
 }
 
-gccCheck() { InPath gcc make && return 0; i --no-header gcc || return; }
+gccCheck() { InPath gcc make && return; i --no-header gcc; }
 
 GccInstall()
 {
 	header "gcc"
 	pkg gcc make || return
 }
+
+goCheck() { InPath go && return; i --no-header go; }
 
 GoInstall()
 {
@@ -2655,12 +2662,7 @@ GitExtensionsFinalWin()
 	registry unregister "$P32/GitExtensions/GitExtensionsShellEx64.dll" || return
 }
 
-GhqInstall()
-{
-	IsPlatform mac,arm && return
-	header "ghq"
-	installExecutable "git/ghq" || return # https://github.com/x-motemen/ghq - requires Go to compile
-}
+GhqInstall() {	run --name "ghq" --executable "git/ghq"; } # https://github.com/x-motemen/ghq/releases
 
 GitForWindowsInstall()
 {
@@ -3662,12 +3664,7 @@ YoinkInstall() { run --name "Yoink" "457622435"; }
 #################################################
 
 ItManagementAllInstall() { i Envoy HashiAll SaltMinion; }
-
-EnvoyInstall()
-{
-	header "Envoy" # curl -LO https://archive.tetratelabs.io/envoy/download/v1.21.0/envoy-v1.21.0-darwin-amd64.tar.xzy # darwin|linux arm64|amd64
-	installExecutable "other/Cloud Native Computing Foundation/envoy" || return
-}
+EnvoyInstall() { run --name "envoy" --executable "other/Cloud Native Computing Foundation/envoy"; } # curl -LO https://archive.tetratelabs.io/envoy/download/v1.21.0/envoy-v1.21.0-darwin-amd64.tar.xzy # darwin|linux arm64|amd64
 
 SaltMinionInstall()
 {
@@ -3680,8 +3677,14 @@ SaltMinionInstall()
 # IT Management - HashiCorp
 #
 
-HashiAllInstall() { i Hashi HashiClusterInstall HashiClusterUpdate HashiUp Consul ConsulK8s Nomad Vagrant Vault; }
+HashiAllInstall() { i Hashi HashiClusterInstall HashiClusterUpdate HashiUp Consul ConsulK8s Nomad sockaddr Vagrant Vault; }
 HashiInstall() { hashi install cli --encrypt $verbose $force "${globalArgs[@]}" "${otherArgs[@]}"; }
+HashiUpInstall() { run --name "hashi-up" --executable "shareware/hashi-up"; } # https://github.com/jsiebens/hashi-up
+ConsulInstall() { run --name "consul" --executable "other/HashiCorp/consul"; } # https://www.consul.io/downloads.html
+ConsulK8sInstall() { run --name "consul-k8s" --executable "other/HashiCorp/consul-k8s"; } # https://releases.hashicorp.com/consul-k8s/
+NomadInstall() { run --name "nomad" --executable "other/HashiCorp/nomad"; } # https://www.nomadproject.io/downloads
+SockaddrInstall() { goCheck && go install "github.com/hashicorp/go-sockaddr/cmd/sockaddr@latest"; }
+VaultInstall() { run --name "vault" --executable "other/HashiCorp/vault"; } # https://www.vaultproject.io/downloads
 
 HashiClusterInstall()
 {
@@ -3707,42 +3710,12 @@ HashiClusterUpdateInstall()
 	hashi update all || return
 }
 
-HashiUpInstall()
-{
-	header "hashi-up"
-	installExecutable "shareware/hashi-up" || return # https://github.com/jsiebens/hashi-up - requires Go compile
-}
-
-ConsulInstall()
-{
-	header "Consul" # https://www.consul.io/downloads.html
-	installExecutable "other/HashiCorp/consul" || return
-}
-
-ConsulK8sInstall()
-{
-	header "consul-k8s" # https://releases.hashicorp.com/consul-k8s/
-	installExecutable "other/HashiCorp/consul-k8s" || return
-}
-
-NomadInstall()
-{
-	header "Nomad" # https://www.nomadproject.io/downloads
-	installExecutable "other/HashiCorp/nomad" || return
-}
-
 VagrantInstall()
 {
 	header "Vagrant" # https://www.vagrantup.com/downloads
 	local file="vagrant_2.2.16_x86_64" 
 	run "other/HashiCorp/vagrant/$file.msi|$file.dmg|$file.deb" || return
 	makeDir "$(platformAppData)/app/vagrant" || return
-}
-
-VaultInstall()
-{
-	header "Vault" # https://www.vaultproject.io/downloads
-	installExecutable "other/HashiCorp/vault" || return
 }
 
 #################################################
@@ -5804,28 +5777,24 @@ SecurityCoreInstall() { i 1Password AxCrypt certbot cfssl CredentialStore Dashla
 
 1PasswordInstall()
 {
+	header "1Password"
+
 	# gui - https://1password.com/downloads/
 	if IsPlatform mac,win || IsPlatformAll linux,x86,64; then
-		run --name "1Password" "other/1Password/setup/1PasswordSetup-latest.exe|1Password-7.9.2.pkg|1password-latest.deb" || return
+		run "other/1Password/setup/1PasswordSetup-latest.exe|1Password-7.9.2.pkg|1password-latest.deb" || return
 	fi
 
 	# cli - https://app-updates.agilebits.com/product_history/CLI	
 	if IsPlatform mac; then
 		run "other/1Password/cli/|op_apple_universal_v1.12.3.pkg" || return
 	elif ! IsPlatformAll arm,32; then
-		installExecutable "other/1Password/cli" "op" || return
+		run --name "op" --executable "other/1Password/cli" --no-header || return
 	fi
 }
 
-1PasswordFinalWin()
-{
-	$mv "$up/1Password.lnk" "$up/Applications" || return	
-}
+1PasswordFinalWin() { $mv "$up/1Password.lnk" "$up/Applications"; }
 
-AxCryptInstall()
-{
-	run --name "AxCrypt" "AxCrypt/setup/AxCrypt-2.1.1573.0-Setup.exe|AxCrypt-Mac-2.2.578.0.pkg" || return # https://www.axcrypt.net/download/
-}
+AxCryptInstall() { run --name "AxCrypt" "AxCrypt/setup/AxCrypt-2.1.1573.0-Setup.exe|AxCrypt-Mac-2.2.578.0.pkg"; } # https://www.axcrypt.net/download/
 
 AxCryptFinalWin()
 {
@@ -5835,7 +5804,7 @@ AxCryptFinalWin()
 	makeLink --merge --hide "$uhome/OneDrive/data/AxCrypt" "$uhome/OneDrive/My AxCrypt" || return
 }
 
-CertbotInstall() { run --python-global certbot || return; }
+CertbotInstall() { run --name "certbot" --python-global certbot; }
 
 CfsslInstall()
 {
