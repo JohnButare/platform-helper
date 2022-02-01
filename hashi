@@ -527,6 +527,8 @@ installConsulDo()
 		[data_dir]="/opt/$product"
 		[client_addr]="0.0.0.0"
 		[bind_addr]='{{ GetInterfaceIP \"eth0\" }}'
+		[advertise_addr]='{{ GetInterfaceIP \"eth0\" }}'
+		[advertise_addr_ipv6]='{{ GetAllInterfaces | include \"name\" \"eth0\" | include \"type\" \"IPv6\" | sort \"address\" | limit 1 | join \"address\" \" \" }}'
 		[retry_join]="[ $(ArrayShow join ", ") ]"
 		[leave_on_terminate]="true"
 		[telemetry]="{ disable_compat_1.9 = true }"
@@ -544,7 +546,6 @@ installConsulDo()
 	serverOptions=(
 		[server]="true"
 		[bootstrap_expect]="${#join[@]}"
-		[advertise_addr]='{{ GetInterfaceIP \"eth0\" }}'
 	)
 
 	commonEncryptOptions=(
@@ -1891,7 +1892,6 @@ Set the remote configuration in Vault."
 }
 
 configSetRemoteCommand() { configSetRemoteAllCommand; }
-
 configSetRemoteAllCommand() { configSetRemoteConsulCommand && configSetRemoteNomadCommand && configSetRemoteVaultCommand; }
 configSetRemoteConsulCommand() { configSetRemote "consul"; }
 configSetRemoteNomadCommand() { configSetRemote "nomad"; }
@@ -1918,7 +1918,7 @@ configMirror()
 #
 
 consulUsage() { echot "\
-Usage: $(ScriptName) consul acl|backup|environment|restore|service|status
+Usage: $(ScriptName) consul acl|agent|api|backup|environment|restore|service|status
 Consul commands."; }
 
 consulCommand() { usage; }
@@ -1926,15 +1926,19 @@ consulBackupCommand() { consul snapshot save "$(GetDateStampNext "consul.$domain
 consulEnvironmentCommand() { productEnvironment "$product"; }
 consulStatusCommand() { consul members; }
 
+#
 # Consul ACL Command
+#
 
 consulAclUsage() { echot "\
-Usage: $(ScriptName) consul acl create
+Usage: $(ScriptName) consul acl create|policy|token
 Consul ACL commands."; }
 
 consulAclCommand() { usage; }
 
+#
 # Consul ACL Create Command
+#
 
 consulAclCreateUsage() { echot "\
 Usage: $(ScriptName) consul acl create [NAME] [DEFINITION]
@@ -1950,17 +1954,45 @@ consulAclCreateArgs()
 
 consulAclCreateCommand() { consulAclCreate "$name" "$def"; }
 
+#
+# Consul ACL Policy Command
+#
+
+consulAclPolicyUsage() { echot "\
+Usage: $(ScriptName) consul acl policy [list|get|delete](list) [NAME]
+Manage Consul ACL policies."; }
+
+consulAclPolicyArgStart() { unset name; }
+consulAclPolicyCommand() { consulAclPolicyListCommand; }
+
+consulAclPolicyGetArgs() { ScriptArgGet "name" -- "$@"; shift; }
+consulAclPolicyGetCommand() { consulAclPolicyGet "$name"; }
+
+consulAclPolicyListUsage() { echot "Usage: $(ScriptName) consul acl list\nList all Consul ACL policy names."; }
+consulAclPolicyListCommand() { consul acl policy list -format=json | jq '.[].Name' | RemoveQuotes | sort; }
+
+consulAclPolicyDeleteArgs() { ScriptArgGet "name" -- "$@"; shift; }
+consulAclPolicyDeleteCommand() { consulAclPolicyDelete "$name"; }
+
+#
 # Consul ACL Token Command
+#
 
 consulAclTokenUsage() { echot "\
-Usage: $(ScriptName) consul acl token [get|delete] [NAME]
+Usage: $(ScriptName) consul acl token [list|get|delete](list) [NAME]
 Manage Consul ACL tokens."; }
 
 consulAclTokenArgStart() { unset name; }
-consulAclTokenArgs() { ScriptArgGet "name" -- "$@"; shift; }
-consulAclTokenCommand() { consulAclTokenGetCommand; }
+consulAclTokenCommand() { consulAclTokenListCommand; }
+
+consulAclTokenGetArgs() { ScriptArgGet "name" -- "$@"; shift; }
 consulAclTokenGetCommand() { consulAclTokenGet "$name"; }
-consulAclTokenDeleteCommand() { consulAclTokenGet "$name"; }
+
+consulAclTokenListUsage() { echot "Usage: $(ScriptName) consul acl list\nList all Consul ACL token descriptions."; }
+consulAclTokenListCommand() { consul acl token list | grep "^Description:" | cut -d: -f2 | tr -s " " | cut -d" " -f2 | sort; }
+
+consulAclTokenDeleteArgs() { ScriptArgGet "name" -- "$@"; shift; }
+consulAclTokenDeleteCommand() { consulAclTokenDelete "$name"; }
 
 # Consul ACL Helper
 
@@ -1998,8 +2030,7 @@ consulAclPolicyDelete()
 	! consulAclPolicyExists "$name" && return
 
 	hilight "Deleting ACL policy $name..."
-	[[ $test ]] && { hilight "delete policy $name"; return; }
-	consul acl policy delete -name "$name"
+	RunLog consul acl policy delete -name "$name"
 }
 
 # consulAclTokenGet DESC - get the token Secret ID with the specified description
@@ -2043,9 +2074,29 @@ consulAclTokenDelete()
 	! consulAclTokenExists "$desc" && return
 
 	hilight "Deleting ACL token $desc..."
-	[[ $test ]] && { hilight "delete token $desc"; return; }
-	consul acl token delete -id "$(consulAclTokenId "$desc")"
+	RunLog consul acl token delete -id "$(consulAclTokenId "$desc")"
 }
+
+#
+# Consul API Command
+#
+
+consulApiUsage() { echot "Usage: $(ScriptName) consul api [put] PATH -- [curl arguments]\nCall the Consul API."; }
+consulApiArgStart() { unset path; }
+consulApiArgs() { ScriptArgGet "path" -- "$@"; }
+consulApiCommand() { consulApi "$path" "${otherArgs[@]}"; }
+consulApiPutCommand() { consulApiPut "$path" "${otherArgs[@]}"; }
+
+consulApi() { RunLog curl --header "X-Consul-Token: $CONSUL_HTTP_TOKEN" "$CONSUL_HTTP_ADDR/v1/$(RemoveTrim "$1" "/")" "${@:2}"; }
+consulApiPut() { consulApi "$@" --request PUT; }
+
+#
+# Consul Agent Command
+#
+
+consulAgentUsage() { echot "Usage: $(ScriptName) consul agent [checks](checks)"; }
+consulAgentCommand() { ConsulAgentChecksCommand; }
+consulAgentChecksCommand() { consulApi "/agent/checks" | jq '.[].CheckID' | RemoveQuotes | sort; }
 
 #
 # Consul Service
@@ -2061,16 +2112,33 @@ consulServiceArgs() { ScriptArgGet "file" -- "$@"; ScriptCheckFile "$file"; shif
 
 consulServiceCommand() { usage; }
 
+consulServiceRegisterUsage() { echot "\
+Usage: $(ScriptName) consul service register FILE
+Register a Consul service using the service definition in FILE.
+
+- FILE must be JSON or HCL
+- if FILE is HCL, the CLI is used to perform the registeration, which allows HCL but does not allow script checks
+- if FILE is JSON
+  - curl is used to perform the registeration, which allows script checks
+  - the JSON must contain a service attribute to provide future compatibility with CLI registration"; }
+
 consulServiceRegisterCommand()
 {
+	# validate the configuration file
+	local type; type="$(validateConfigFile "$file")" || return
+	if [[ "$type" == "json" && "$(cat "$file" | jq ".service")" == "null" ]]; then
+		ScriptErr "service attribute is required"
+		return 1
+	fi
+
 	# get the service ID
-	local id type; type="$(validateConfigFile "$file")" || return
+	local id
 	if [[ "$type" == "json" ]]; then
 		id="$(cat "$file" | jq ".service.name" | RemoveQuotes)"
 	else
 		id="$(cat "$file" | grep "name =" | head -1 | cut -d= -f2 | RemoveSpace | RemoveQuotes)"
 	fi
-	[[ ! $id ]] && { ScriptErr "Unable to determine the service id in '$file'"; return 1; }
+	[[ ! $id || "$id" == "null" ]] && { ScriptErr "unable to determine the service name in '$file'"; return 1; }
 
 	# create the service ACL policy
 	local name="service-$id"
@@ -2082,16 +2150,28 @@ consulServiceRegisterCommand()
 	)"	
 	consulAclCreate "$name" "$policy" || return
 
-	# register the service
+	# add the ACL token
 	local token="$(consulAclTokenGet "$name")" || return
 	local f; f="$(${G}mktemp -t "hashi.service.XXXX.hcl")" || return
 	if [[ "$type" == "json" ]]; then
-		cat "$file" | sed "s/\"token\": \".*\"/\"token\" = \"$token\"/" > "$f" || return
+		cat "$file" | jq '.[]' | sed "s/\"token\": \".*\"/\"token\": \"$token\"/" > "$f" || return
 	else
 		cat "$file" | sed "s/token = \".*\"/token = \"$token\"/" > "$f" || return
 	fi
-	[[ $test ]] && { cat "$f"; return; }
-	consul services register "$f" || return
+
+	# ensure the ACL token was added
+	if ! grep --quiet "\"$token\"" "$f"; then
+		ScriptErr "the token parameter was not found in the service file"
+		return 1
+	fi
+
+	# register the service using curl for JSON as the CLI does not allow script checks
+	[[ $verbose ]] && cat "$f"
+	if [[ "$type" == "json" ]]; then
+		consulApiPut "/agent/service/register?replace-existing-checks=true" --data @"$f" || return
+	else
+		RunLog consul services register "$f" || return
+	fi
 
 	# cleanup
 	rm -f "$f"	
