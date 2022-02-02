@@ -427,7 +427,9 @@ infoKernel()
 {
 	local bits="$(bitsCommand)"; [[ $bits ]] && bits=" ($bits bit)"
 	echo "      kernel: $(uname -r)$bits"
+	RunPlatform infoKernel;
 }
+infoKernelPiKernel() { echo "    firmware: $(pi info firmware)"; }
 
 infoMemory()
 {
@@ -455,7 +457,7 @@ infoModel()
 infoModelPiKernel() { pi info model; }
 
 infoOther() { RunPlatform infoOther; }
-infoOtherPiKernel() { echo "    CPU temp: $(pi info temp)"; }
+infoOtherPiKernel() {	echo "    CPU temp: $(pi info temp)"; }
 
 infoPlatform()
 {
