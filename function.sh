@@ -1742,27 +1742,30 @@ function IsPlatform()
 			debian|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]] && return;;
 			dsm|qts|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]] && return;;
 
-			# processor architecture 
-			arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]] && return;;
-
-			# operating system bits
-			32|64) [[ "$p" == "$(os bits "$_machine" )" ]] && return;;
-
-			# busybox and entware
-			busybox) InPath busybox && return;;
-			entware) IsPlatform qnap,synology && return;;
-
-			# package management
-			apt) InPath apt && return;;
-			ipkg) InPath ipkg && return;;
-			opkg) InPath opkg && return;;
+			# hardware
+			cm4) grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo" && return;;
 
 			# kernel
 			winkernel) [[ "$_platformKernel" == @(wsl1|wsl2) ]] && return;;
 			linuxkernel) [[ "$_platformKernel" == "linux" ]] && return;;
 			pikernel) [[ "$_platformKernel" == "pi" ]] && return;;
 
-			# virtual machine
+			# operating system
+			32|64) [[ "$p" == "$(os bits "$_machine" )" ]] && return;;
+
+			# package management
+			apt) InPath apt && return;;
+			entware) IsPlatform qnap,synology && return;;
+			ipkg) InPath ipkg && return;;
+			opkg) InPath opkg && return;;
+
+			# processor
+			arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]] && return;;
+
+			# software
+			busybox) InPath busybox && return;;
+
+			# virtualization
 			container) IsContainer && return;;
 			docker) IsDocker && return;;
 			swarm) InPath docker && docker info |& command grep "^ *Swarm: active$" >& /dev/null && return;; # -q does not work reliably on pi2
