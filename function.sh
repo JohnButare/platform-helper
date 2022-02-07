@@ -466,14 +466,14 @@ ArrayDelimit()
 }
 
 # ArrayDiff A1 A2 - return the items not in either array
-ArrayDiff()
+ArrayIntersection()
 {
-	local arrayDiff1=(); ArrayCopy "$1" arrayDiff1 || return;
-	local arrayDiff2=(); ArrayCopy "$2" arrayDiff2 || return;
+	local arrayIntersection1=(); ArrayCopy "$1" arrayIntersection1 || return;
+	local arrayIntersection2=(); ArrayCopy "$2" arrayIntersection2 || return;
 	local result=() e
 
-	for e in "${arrayDiff1[@]}"; do ! IsInArray "$e" arrayDiff2 && result+=( "$e" ); done
-	for e in "${arrayDiff2[@]}"; do ! IsInArray "$e" arrayDiff1 && result+=( "$e" ); done
+	for e in "${arrayIntersection1[@]}"; do ! IsInArray "$e" arrayIntersection2 && result+=( "$e" ); done
+	for e in "${arrayIntersection2[@]}"; do ! IsInArray "$e" arrayIntersection1 && result+=( "$e" ); done
 
 	ArrayDelimit result $'\n'
 }
@@ -686,6 +686,11 @@ explore() # explorer DIR - explorer DIR in GUI program
 
 	EchoErr "The $PLATFORM_ID platform does not have a file explorer"; return 1
 }
+
+# File<Life|Right|Intersect> FILE1 FILE2 - return the lines only in the left file, right file, or not in either file
+FileIntersect() { awk '{NR==FNR?a[$0]++:a[$0]--} END{for(k in a)if(a[k])print k}' "$1" "$2"; }
+FileLeft() { comm -23 <(sort "$1") <(sort "$2"); }
+FileRight() { comm -13 <(sort "$1") <(sort "$2"); }
 
 # FileCacheFlush - flush cached files. Lots of file copying, such as for a file backup, can fill up the file cache and consume available memory.
 FileCacheFlush()
