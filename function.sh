@@ -108,10 +108,26 @@ pipxg()
 
 # logging
 InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); }
-header() { InitColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
+header() { InitColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; headerDone="$((32 + ${#1}))"; }
 HeaderBig() { InitColor; printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n**************************************************${RESET}\n"; }
+HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RB_BLUE}\n"; }
 hilight() { InitColor; EchoWrap "${GREEN}$1${RESET}"; }
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
+
+if IsBash; then
+	CurrentColumn() # https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
+	{
+		exec < /dev/tty
+		oldstty=$(stty -g)
+		stty raw -echo min 0
+		echo -en "\033[6n" > /dev/tty
+		IFS=';' read -r -d R -a pos
+		stty $oldstty
+		echo $((${pos[1]} - 1))
+	}
+else
+	CurrentColumn() { echo "0"; }
+fi
 
 #
 # Account
@@ -377,7 +393,7 @@ SleepStatus()
 	echo "done"
 }
 
-EchoErr() { EchoWrap "$@" >&2; }
+EchoErr() { (( $(CurrentColumn) != 0 )) && echo; EchoWrap "$@" >&2; }
 HilightErr() { InitColor; EchoWrap "${RED}$1${RESET}" >&2; }
 PrintErr() { printf "$@" >&2; }
 
@@ -568,7 +584,7 @@ CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; }
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 NewlineToSpace()  { tr '\n' ' '; }
-StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } 			# StringRepeat S N - repeat the specified string N times
+StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } # StringRepeat S N - repeat the specified string N times
 
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveNewline()  { tr -d '\n'; }
