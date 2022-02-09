@@ -474,7 +474,7 @@ certStatusPrivate()
 #
 
 installUsage() { echot "\
-Usage: $(ScriptName) install all|cli|$productUsage
+Usage: $(ScriptName) install [all|cli|$productUsage](all)
 Install a HashiCorp product.
 
 	-c, --clients	HOSTS		comma separated list of clients to install
@@ -607,7 +607,7 @@ installConsulAgentAcl()
 
 	# deploy agent ACL's
 	for host in "${hosts[@]}"; do
-		 consulAclAgentDeployNoRestart "$host" || return
+		 consulAclAgentDeploy "$host" || return
 	done
 
 	# change the ACL policy to deny
@@ -888,14 +888,13 @@ installVaultAcl()
 
 installDo()
 {
+	# initialize
 	productServiceVars || return
-
-	# certificates
 	certs && useHttps="true"
-
-	# variables
-	declare -Ag commonOptions=( [log_level]="Info" )
 	tmpDirTemplate="hashi.XXXXXXXXXX"
+
+	# common service options
+	declare -Ag commonOptions=( [log_level]="info" )
 
 	# add clients and servers from hostArg if specified
 	if [[ $hostArg ]]; then
@@ -1044,7 +1043,7 @@ installService()
 {
 	local type="$1" host="$2"; productServiceVars || return
 	local f hostFqdn hostIp scriptFinal
-	local -A o; o=( )
+	local -A o; o=( ); ArrayAppend o commonOptions || return
 	local networkTarget="Wants=network-online.target"
 	local serviceType="simple"
 	local serviceLimit="LimitNOFILE=infinity"$'\n'"LimitNPROC=infinity"
@@ -1510,12 +1509,6 @@ configDeployHost()
 	productServiceVars "$product" && hostCopy "$file" "$productConfigDir" && productServiceRestart
 }
 
-configDeployHostNoRestart()
-{
-	local product="$1" file="$2" host="$3"; 
-	productServiceVars "$product" && hostCopy "$file" "$productConfigDir"
-}
-
 # config environment commands
 
 configEnvironmentUsage() { echot "\
@@ -1772,10 +1765,7 @@ configMirror()
 # Consul Command
 #
 
-consulUsage() { echot "\
-Usage: $(ScriptName) consul acl|agent|api|backup|environment|restore|service|status
-Consul commands."; }
-
+consulUsage() { EchoWrap "Usage: $(ScriptName) consul acl|agent|api|backup|environment|restore|service|status\nConsul commands."; }
 consulCommand() { usage; }
 consulBackupCommand() { consul snapshot save "$(GetDateStampNext "consul.$domain" "snap")"; }
 consulEnvironmentCommand() { productEnvironment "$product"; }
@@ -1785,29 +1775,28 @@ consulStatusCommand() { consul members; }
 # consul acl command
 #
 
-consulAclUsage() { echot "\
-Usage: $(ScriptName) consul acl agent|create|policy|token
-Consul ACL commands."; }
-
+consulAclUsage() { EchoWrap "Usage: $(ScriptName) consul acl agent|create|policy|token\nConsul ACL commands."; }
 consulAclCommand() { usage; }
 
 #
 # consul acl agent command
 #
 
-consulAclAgentUsage() { echot "Usage: $(ScriptName) consul acl agent allow|create|deny|deploy\nConfigure the agent ACL system."; }
+consulAclAgentUsage() { EchoWrap "Usage: $(ScriptName) consul acl agent allow|create|deny|deploy\nConfigure the agent ACL system."; }
 consulAclAgentCommand() { usage; }
 
-consulAclAgentAllowUsage() { echot "Usage: $(ScriptName) consul acl agent allow\nChange the default ACL policy to allow."; }
+consulAclAgentAllowUsage() { EchoWrap "Usage: $(ScriptName) consul acl agent allow\nChange the default ACL policy to allow."; }
 consulAclAgentAllowCommand() { forAllHosts consulAclAgentAllow; }
 
-consulAclAgentCreateUsage() { echot "Usage: $(ScriptName) consul acl agent create\nCreate agent ACL policies and tokens."; }
+consulAclAgentCreateUsage() { EchoWrap "Usage: $(ScriptName) consul acl agent create\nCreate agent ACL policies and tokens.  \
+If this is a new agent, use --api to specify the API server.  For example:\n
+hashi consul acl agent create --api=pi1 -H=pi5"; }
 consulAclAgentCreateCommand() { consulApiCheck && forAllHosts consulAclAgentCreate; }
 
-consulAclAgentDenyUsage() { echot "Usage: $(ScriptName) consul acl agent allow\nChange the default ACL policy to deny."; }
+consulAclAgentDenyUsage() { EchoWrap "Usage: $(ScriptName) consul acl agent deny\nChange the default ACL policy to deny."; }
 consulAclAgentDenyCommand() { forAllHosts consulAclAgentDeny; }
 
-consulAclAgentDeployUsage() { echot "Usage: $(ScriptName) consul acl agent allow\nDeploy the agent ACL tokens to 02_acl_tokens.hcl."; }
+consulAclAgentDeployUsage() { EchoWrap "Usage: $(ScriptName) consul acl agent deploy\nDeploy the agent ACL tokens to the 02_acl_tokens.hcl configuration file."; }
 consulAclAgentDeployCommand() { forAllHosts consulAclAgentDeploy; }
 
 # consul acl agent helper
@@ -2603,13 +2592,19 @@ certDirMountPrivate()
 	# mount the device
 	if [[ $device ]]; then
 		case "$(GetFileExtension "$device")" in
-			hc) certDirVolume="$(VeraCrypt mount "$device" p --dir "$dir")";;
+
+			hc)
+				certDirVolumeWasMounted=""; [[ -d "/mnt/p/$dir" ]] && certDirVolumeWasMounted="true"
+				certDirVolume="$(RunLog VeraCrypt mount "$device" p --dir "$dir")" || { ScriptErr "unable to mount the private certificate directory from '$(FileToDesc "$device")'"; return 1; }
+				;;
+
 			*) ScriptErr "unable to mount certificate device '$device'"; return 1;;
 		esac
 	fi
 
-	# validate the private certificate directory and set certDir
-	certDirValidate "$(certDirPrivate)"
+	[[ ! -d "$certDirVolume" ]] && { ScriptErr "certificate directory '$(FileToDesc "$certDirVolume")' is missing on '$(FileToDesc "$device")'"; return 1; }
+
+	return 0
 }
 
 certDirPrivate()
@@ -2643,16 +2638,9 @@ certDirSuffix()
 
 certDirUnmountPrivate()
 {
-	[[ ! $certDirVolume ]] && return
+	[[ ! $certDirVolume || $certDirVolumeWasMounted ]] && return
 	unset -v certDirVolume
 	VeraCrypt unmount p
-}
-
-certDirValidate()
-{
-	[[ ! $1 ]] && { MissingOperand "encrypt"; return 1; }
-	[[ ! -d "$1" ]] && { EchoErr "Certificate directory '$1' does not exist"; return 1; }
-	return 0
 }
 
 # certExists DIR FILES - return 0 if all certificate files exist in the certificate directory
