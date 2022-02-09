@@ -82,6 +82,18 @@ ScriptCheckPath()
 log1() { ! (( verboseLevel >= 1 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; }
 log2() { ! (( verboseLevel >= 2 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; }
 log3() { ! (( verboseLevel >= 3 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; }
+LogFile1() { ! (( verboseLevel >= 1 )) && return; LogFile "$1"; }
+LogFile2() { ! (( verboseLevel >= 2 )) && return; LogFile "$1"; }
+LogFile3() { ! (( verboseLevel >= 3 )) && return; LogFile "$1"; }
+
+# LogFile - log a file
+LogFile()
+{
+	local file="$1"
+	header "$(ScriptPrefix)$(GetFileName "$file")" >& /dev/stderr
+	cat "$file" >& /dev/stderr
+	HeaderDone >& /dev/stderr
+}
 
 # RunLog - log a command if verbose logging is specified, then run it if not testing
 RunLog()
@@ -126,7 +138,7 @@ ScriptOpt()
 		-h|--help) usage 0;;
 		-np|--no-prompt) noPrompt="--no-prompt";;
 		-q|--quiet) quiet="--quiet";;
-		-t|--test) test="--test"; testEcho="echo -E";;
+		-t|--test) test="--test";;
 		-v|--verbose) verbose="-v"; verboseLevel=1;;
 		-vv) verbose="-vv"; verboseLevel=2;;
 		-vvv) verbose="-vvv"; verboseLevel=3;;
@@ -239,7 +251,7 @@ ScriptRun()
 	done
 
 	# options
-	unset -v force noPrompt quiet test testEcho verbose verboseLevel wait
+	unset -v force noPrompt quiet test verbose verboseLevel wait
 	set -- "${args[@]}"; args=()
 	while (( $# )); do
 		! IsOption "$1" && { args+=("$1"); shift; continue; }

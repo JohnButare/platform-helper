@@ -2019,7 +2019,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 
 start() 
 {
-	local elevate file force noPrompt sudo terminal test testEcho verbose wait windowStyle
+	local elevate file force noPrompt sudo terminal test run verbose wait windowStyle
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2030,7 +2030,7 @@ start()
 			-q|--quiet) quiet="--quiet";;
 			-s|--sudo) sudo="sudoc";;
 			-T|--terminal) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
-			-t|--test) test="--test"; testEcho="echo -E";;
+			-t|--test) test="--test"; $run="echo -E";;
 			-v|-vv|-vvv|--verbose) verbose="$1";;
 			-w|--wait) wait="--wait";;
 			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "--window-style" "$2" ); shift;;
@@ -2085,7 +2085,7 @@ start()
 
 		# start Windows console process
 
-		[[ ! $elevate ]] && IsConsoleProgram "$file" && { $testEcho $sudo "$fullFile" "${args[@]}"; return; }
+		[[ ! $elevate ]] && IsConsoleProgram "$file" && { $run $sudo "$fullFile" "${args[@]}"; return; }
 
 		# escape spaces for shell scripts so arguments are preserved when elevating - we must be elevating scripts here
 		if IsShellScript "$fullFile"; then	
@@ -2097,14 +2097,14 @@ start()
 		if IsShellScript "$fullFile"; then
 			local p="wsl.exe -d $(wsl get name)"; [[ "$terminal" == "wt" ]] && InPath wt.exe && p="wt.exe -d \"$PWD\" wsl.exe -d $(wsl get name)"
 			if IsSystemd; then
-				$testEcho RunProcess.exe $wait $elevate "${windowStyle[@]}" bash.exe -c \""$(FindInPath "$fullFile") "${args[@]}""\"
+				$run RunProcess.exe $wait $elevate "${windowStyle[@]}" bash.exe -c \""$(FindInPath "$fullFile") "${args[@]}""\"
 			else
 				[[ $verbose ]] && echo -E "Running: " RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
-				$testEcho RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
+				$run RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
 			fi
 		else
 			[[ $verbose ]] && echo -E "Running:" RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
-			$testEcho RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
+			$run RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
 		fi
 		result=$?
 
@@ -2114,11 +2114,11 @@ start()
  	# run a non-Windows program
 	if [[ $wait ]]; then
 		(
-			$testEcho nohup $sudo "$file" "${args[@]}" >& /dev/null &
-			$testEcho wait $!
+			$run nohup $sudo "$file" "${args[@]}" >& /dev/null &
+			$run wait $!
 		)
 	else
-		($testEcho nohup $sudo "$file" "${args[@]}" >& /dev/null &)		
+		($run nohup $sudo "$file" "${args[@]}" >& /dev/null &)		
 	fi
 } 
 
