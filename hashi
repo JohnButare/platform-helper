@@ -18,11 +18,12 @@ Common commands:
 	ui								start the hashi-ui server and launch it
 
 Common options:
-	-a,	 --api							server for API communication
-	-cf, --config-file			configuration file to use in place og bootstrap-config.sh
-	-cp, --config-prefix		configuration prefix to use, i.e. test
-	-H,  --host HOST				comma separated list of hosts for the command, or one of the
-													following aliases: all|clients|servers|1|2|3|4|5|6|first|second|third|fourth|fifth|sixth"
+	-a,	 --api						server for API communication
+	-cf, --config-file		configuration file to use in place og bootstrap-config.sh
+	-cp, --config-prefix	configuration prefix to use, i.e. test
+	-H,  --host HOST			comma separated list of hosts for the command, or one of the
+												following aliases: all|clients|servers|1|2|3|4|5|6|first|second|third|fourth|fifth|sixth
+	-is, --is-server			assume the hosts are servers"
 }
 
 init()
@@ -36,7 +37,7 @@ init()
 	configWhat="consul-vault-data local-certs local-credentials private-certs public-certs"
 }
 
-argStart() { unset -v api configFile configFileArg configPrefix configPrefixArg hostArg hostArgOrig; }
+argStart() { unset -v api assumeServer configFile configFileArg configPrefix configPrefixArg hostArg hostArgOrig; }
 
 opt()
 {
@@ -45,6 +46,7 @@ opt()
 		-cp|--config-prefix|-cp=*|--config-prefix=*) ScriptOptGet "configPrefix" "config-prefix" "$@" && configPrefixArg=(--config-prefix "$configPrefix");;
 		-H|--host|-H=*|--host=*) ScriptOptGet hostArg host "$@"; hostArgOrig="$hostArg";;
 		-a|--api|-a=*|--api=*) ScriptOptGet api "$@";;
+		-is|--is-server) assumeServer="true";;
 		*) return 1;;
 	esac
 }
@@ -2677,7 +2679,7 @@ certInit()
 	if [[ "$product" == "consul" ]]; then
 		caAuto="$product-ca-auto.pem"
 		certStoreCaAuto="$certDirStore/$domain-$configDesc-$(GetFileNameWithoutExtension "$caAuto").crt"
-		[[ "$type" == "client" ]] && caLocal="$caAuto"
+		isClient && caLocal="$caAuto"
 	fi
 
 	return 0
@@ -2701,7 +2703,7 @@ certPublicFind()
 
 certStoreInstall()
 {
-	hilight "Installing $(FileToDesc "$src") in the certificate store..."
+	hilight "Installing $(FileToDesc "$1") in the certificate store..."
 	RunPlatform certStoreInstall "$1" "$2";
 }
 
@@ -2855,7 +2857,7 @@ productConfigGet()
 productEnvironment()
 {
 	local noToken; [[ "$1" == "--no-token" ]] && { shift; noToken="--no-token"; }
-	local product="${1:-$product}" host="$2" force="$force"; certInit || return; 	
+	local product="${1:-$product}" host="$2" force="$force"; certInit || return
 
 	# force the environment change if the configuration has changed
 	if [[ "$configPrefix" != "$(productVarGet "CONFIG")" || "$baseDomain" != "$(productVarGet "DOMAIN")" ]] && [[ ! $force ]]; then
@@ -2864,23 +2866,23 @@ productEnvironment()
 	fi
 
 	# variables
-	local certDir="$(certDirLocal)"
 	local server; server="$(productGetServer "$product" "$host")" || return
+	local certDir; certDir="$(certDirLocal)" || return
 	local useHttps; [[ -d "$certDir" ]] && useHttps="true"
 	local url; url="$(productGetAddress "$product" "$server")" || return	
 
-	# logging
-	if [[ $verbose ]]; then
-		if [[ $useHttps ]]; then
-			log1 "certificate directory '$certDir' exists, HTTPS will be used"
-		else
-			log1 "certificate directory no present, HTTP will be used"
-		fi
-	fi
+	# use the automatic certificate authority if connecting to a consul client
+	if [[ "$product" == "consul" ]]; then
 
-	# local hosts use the automatic certificate authority
-	IsLocalHost "$server" && [[ -f "$certDirService/$caAuto" ]] && ca="$caAuto"
-	
+		# if we are connecting to the local host and that host has an automatic certificate in the consul service certificate directory, it must be a consul client
+		if IsLocalHost "$server" && [[ -f "$certDirService/$caAuto" ]]; then 
+			ca="$caAuto"
+		elif [[ "$(typeCheck "$server")" == "client" ]]; then
+			ca="$caAuto"
+		fi
+
+	fi
+		
 	# validate certificates
 	[[ $useHttps && ! $suppressErrors ]] && { certValidate "$certDir" "$ca" "$certCli" "$certCliKey" || return; }
 
@@ -3014,7 +3016,7 @@ productInit()
 	if [[ $verbose ]]; then
 		local token="$(productVarGet "TOKEN")" desc="no token"; [[ $token ]] && desc="token"
 		log1 "using $product server at $(productVarGet "ADDR") with $desc"
-		(( verboseLevel > 1 )) && productEnvironment "$product" "$host"
+		(( verboseLevel > 1 )) && productEnvironment "$product" "$host" >& /dev/stderr
 	fi
 
 	return 0
@@ -3294,7 +3296,10 @@ getHosts()
 		
 		# ordered server
 		elif [[ "$h" == @(1|2|3|4|5|6|first|second|third|fourth|fifth|sixth) ]]; then
-			configGetArray "servers" "hosts"
+			local servers; configGetArray "servers"
+			local clients; configGetArray "clients"
+			local hosts=(); ArrayAppend hosts servers clients
+
 			[[ "$h" == @(1|first) ]] && hosts=( "${hosts[0]}" )
 			[[ "$h" == @(2|second) ]] && hosts=( "${hosts[1]}" )
 			[[ "$h" == @(3|third) ]] && hosts=( "${hosts[2]}" )
@@ -3381,6 +3386,29 @@ scriptRun()
 		# -t - allocate a pseudo-terminal to allow the sudo password to be entered on the terminal if needed
 		DISPLAY="" ssh -q -X -t "$host" "$script"
 	fi
+}
+
+typeCheck()
+{
+	local host="$(RemoveDnsSuffix "$1")" type="client"
+
+	# --assume-server was specified
+	if [[ $assumeServer ]]; then
+		type="server"
+
+	# host is in the --servers argument
+	elif IsArray servers && IsInArray "$host" servers; then
+		type="server"
+
+	# host is in the servers configuration
+	else
+		local servers; ! IsArray servers && configGetArray "servers"
+		IsInArray "$host" servers && type="server"
+
+	fi
+
+	log1 "$host type is a $type"
+	echo "$type"
 }
 
 ScriptRun "$@"
