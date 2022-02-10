@@ -1828,8 +1828,9 @@ installProgram()
 
 	local hosts=("${servers[@]}" "${clients[@]}")
 	! InPath "$product" && other+="localhost"
-	
+
 	for host in "${hosts[@]}"; do
+		header "Install $product Program ($host)"
 		productInstall "$product" "$host" || return
 	done
 }
@@ -2070,7 +2071,7 @@ installCli()
 #
 
 nomadUsage() { echot "\
-Usage: $(ScriptName) nomad config|environment|job|status
+Usage: $(ScriptName) nomad config|environment|node|job|status
 Nomad commands."; }
 
 nomadCommand() { usage; }
@@ -2121,6 +2122,79 @@ nomadConfigEnableRawExec()
 		}
 		EOF
 	)"
+}
+
+#
+# nomad node commands
+#
+
+nomadNodeUsage() { echot "Usage: $(ScriptName) nomad node drain|id\nNomad node commands."; }
+nomadNodeCommand() { usage; }
+nomadNodeIdCommand() { forAllHosts nomadGetNodeId; }
+
+# nomadGetNodeId HOST
+nomadGetNodeId()
+{
+	local host="$1"
+	local id; id="$(nomad node status -json | jq '.[] | select(.Name == "'"$host"'").ID' | RemoveQuotes)" || return
+	echo "$id"; [[ $id ]]
+}
+
+#
+# nomad node drain commands
+#
+
+nomadNodeDrainUsage() { echot "Usage: $(ScriptName) nomad node drain enable|disable|id\nNomad node drain commands."; }
+
+nomadNodeDrainCommand() { usage; }
+nomadNodeDrainEnableCommand() { forAllHosts nomadNodeDrainEnable; }
+nomadNodeDrainDisableCommand() { forAllHosts nomadNodeDrainDisable; }
+
+# nomadNodeDrainEnable HOST
+nomadNodeDrainEnable()
+{
+	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
+	local forceArg; [[ $force ]] && forceArg="-deadline 1m"
+
+	hilight "Draining Nomad on node $host..."
+	RunLog nomad node drain -enable -yes $forceArg "$id" && echo
+}
+
+# nomadNodeDrainDisable HOST
+nomadNodeDrainDisable()
+{
+	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
+
+	hilight "Bringing Nomad node $host back online..."
+	RunLog nomad node drain -disable -yes "$id" && echo
+}
+
+#
+# nomad node eligibility commands
+#
+
+nomadNodeEligibilityUsage() { echot "Usage: $(ScriptName) nomad node eligibility enable|disable|id\nNomad node eligibility commands."; }
+
+nomadNodeEligibilityCommand() { usage; }
+nomadNodeEligibilityEnableCommand() { forAllHosts nomadNodeEligibilityEnable; }
+nomadNodeEligibilityDisableCommand() { forAllHosts nomadNodeEligibilityDisable; }
+
+# nomadNodeEligibilityEnable HOST
+nomadNodeEligibilityEnable()
+{
+	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
+
+	hilight "Making Nomad node $host eligible..."
+	RunLog nomad node eligibility -enable "$id"
+}
+
+# nomadNodeEligibilityDisable HOST
+nomadNodeEligibilityDisable()
+{
+	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
+
+	hilight "Making Nomad node $host ineligible..."
+	RunLog nomad node eligibility -disable "$id"
 }
 
 #
@@ -2447,22 +2521,29 @@ getConsulServer()
 # update command
 #
 
-updateUsage() { echot "usage: $(ScriptName) program all|$productUsage"; }
+updateUsage() { echot "usage: $(ScriptName) program $productUsage"; }
 updateCommand() { usage; }
-updateAllCommand() { updateDo "vault" && updateDo "nomad" && updateDo "consul"; }
-updateConsulCommand() { updateDo "consul"; }
-updateNomadCommand() { updateDo "nomad"; }
-updateVaultCommand() { updateDo "vault"; }
+updateConsulCommand() { forAllHosts update "consul"; }
+updateNomadCommand() { forAllHosts update "nomad"; }
+updateVaultCommand() { forAllHosts update "vault"; }
 
-updateDo()
+# update PRODUCT HOST
+update()
 {
-	local product="$1" host hosts; getHosts "all" || return
+	local product="$1" host="$2"
 	
-	for host in "${hosts[@]}"; do
-		header "Update $(ProperCase "$product") ($host)"
-		productInstall "$product" "$host" || return
-	done
+	header "Update $(ProperCase "$product") ($host)"
+
+	# return if the product installation is not needed
+	productInstallCheck "$product" "$host" || return
+	[[ ! $installNeeded ]] && return
+
+	# install the product
+	RunFunction "updateStart" "$product" && productInstallDo "$product" "$host" && RunFunction "updateEnd" "$product"
 }
+
+updateStartNomad() { nomadNodeDrainEnable "$host"; }
+updateEndNomad() { nomadNodeDrainDisable "$host"; }
 
 #
 # service commands
@@ -3090,39 +3171,67 @@ productInit()
 	return 0
 }
 
+# productInstall PRODUCT HOST
 productInstall()
 {
+	local product="$1" host="$2"
+
+	# return if the product installation is not needed
+	productInstallCheck "$product" "$host" || return
+	[[ ! $installNeeded ]] && return
+
+	# install the product
+	productInstallDo "$product" "$host"
+}
+
+# productInstallCheck PRODUCT HOST - exports installDir, installFile, and installNeeded
+productInstallCheck()
+{
 	local product="$1" host="$2"; hostCheck "$host" || return
-	local installDir="$(findInstallFile "other/HashiCorp/$product")" || return		
+	local fileExists currentVersion newVersion
+
+	installNeeded="true"
+
+	# location the installation directory
+	installDir="$(findInstallFile "other/HashiCorp/$product")" || return
+
+	# determine if the product is installed
+	if IsLocalHost "$host"; then
+		installFile="$(os executable find "$installDir")" || return
+		! $force && InPath "$product" && fileExists="true"
+		what="$installFile"
+	else
+		[[ ! $force ]] && ssh "$host" "[[ -f \"$binDir/$product\" ]]" && fileExists="true"
+		what="$host"
+	fi
+
+	# check the versions
+	if [[ ! $force && $fileExists ]]; then
+		currentVersion="$(productVersion "$product")" || return
+		newVersion="$(productVersion "$product" "$what")" || return
+		[[ "$currentVersion" == "$newVersion" ]] && installNeeded=""
+	fi
+
+	return 0
+}
+
+# productInstallDo PRODUCT HOST - requires that productInstallCheck is called first
+productInstallDo()
+{
+	local product="$1" host="$2"
+	
+	hilight "Installing $product ($host)..."
 
 	# local install
 	if IsLocalHost "$host"; then
-
-		header "Install $(ProperCase "$product") Program (local)"
-
-		# return if up to date
-		local file="$(os executable find "$installDir")" || return
-		InPath "$product" && [[ ! $force && "$(productVersion "$product")" == "$(productVersion "$product" "$file")" ]] && return	
-		
-		# install
-		hilight "Installing $product..."
 		local user="root" group="root"
 		IsPlatform mac && group="wheel"
 		IsPlatform qnap && { user="admin"; group="administrators"; }
-		sudoc ${G}install -o "$user" -g "$group" -m 755 -T "$file" "$binDir/$product" || exit
- 
-		return 0
+		sudoc ${G}install -o "$user" -g "$group" -m 755 -T "$installFile" "$binDir/$product" || return
+		return
 	fi
 
-	local dest="$binDir/$product"
-
-	# header
-	header "Install $(ProperCase "$product") Program ($host)"
-
-	# version check
-	[[ ! $force ]] && ssh "$host" "[[ -f \"$dest\" ]]" && [[ "$(productVersion "$product")" == "$(productVersion "$product" "$host")" ]] && return
-
-	# determine the host architecture
+	# determine the host architecture	
 	printf "$host architecture..."
 	local machine="$(ssh "$host" "uname -m")" || return
 	case "$machine" in
@@ -3133,7 +3242,6 @@ productInstall()
 	printf "$machine..."
 
 	# find the program
-	printf "program..."
 	local file="$(find "$installDir" -maxdepth 1 -type f  -name "$product*_linux_$machine" | sort --numeric-sort | tail -1)"
 	[[ ! -f "$file" ]] && { echo; ScriptErr "unable to find the $product program"; return 1; };
 	echo "$(GetFileName "$file")"
