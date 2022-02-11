@@ -114,7 +114,7 @@ HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RB_
 hilight() { InitColor; EchoWrap "${GREEN}$1${RESET}"; }
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
-if IsBash; then
+if IsBash && IsInteractive; then
 	CurrentColumn() # https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
 	{
 		exec < /dev/tty
@@ -1359,7 +1359,9 @@ DnsResolve()
 	local lookup 
 	if IsIpAddress "$name"; then
 
-		if InPath host; then
+		if IsLocalHost "$name"; then
+			lookup="localhost"
+		elif InPath host; then
 			lookup="$(host -t A -4 "$name" |& cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
 		else		
 			lookup="$(nslookup -type=A $name |& grep "name =" | cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
