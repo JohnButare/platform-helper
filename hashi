@@ -98,11 +98,15 @@ statusCommand()
 			! productIsInstalled && continue
 
 			suppressErrors="true" productInit || return
-			local ui="$(productVarGet "ADDR")"
+
+			local ui="$(productVarGet "ADDR")"			
 			local cert="false"; [[ -f "$(productVarGet "CACERT")" ]] && cert="true"
 			local token="false"; [[ $(productVarGet "TOKEN") ]] && token="true"
 			local prefix="$(productVarGet "CONFIG")"; prefix="${prefix:-prod}"
 			local domain="$(productVarGet "DOMAIN")"
+
+			[[ "$cert" == "true" && "$product" == "consul" ]] && { productVarGet "CACERT" | grep -q "auto" && cert="client" || cert="server"; }
+
 			echo "${RESET}${RESET}$product-$ui-$cert-$token-$prefix-$domain" # add resets to line up the columns
 
 		done
@@ -622,12 +626,12 @@ Remove all local and remote configuration.
 
 	-w, --what=C1[,C2...] configuration to remove: $configWhat"; }
 
-configRemoveArgStart() { unset what yes; }
+configRemoveArgStart() { unset whatArg yes; }
 
 configRemoveOpt()
 {
 	case "$1" in
-		-w|--what|-w=*|--what=*) ScriptOptGet "what" "$@"; StringToArray "${what,,}" "," what;;
+		-w|--what|-w=*|--what=*) whatArgGet "$@";;
 		-y|--yes) yes="--yes";;
 		*) return 1;;
 	esac
@@ -1304,7 +1308,7 @@ Install a HashiCorp product.
 	$certOptUsage
 	-w, --what=C1[,C2...] components to install: acl cert program service config"; }
 
-installArgStart() { clients=() servers=() join=() encrypt="true" force=""; }
+installArgStart() { unset force whatArg; clients=() servers=() join=() encrypt="true"; }
 
 installOpt()
 {
@@ -1314,7 +1318,7 @@ installOpt()
 		-j|--join|-j=*|--join=*) ScriptOptGet "join" "$@"; StringToArray "$1" "," join;;
 		-e|--encrypt|-e=*|--encrypt=*) encryptOptGet "$@";;
 		-ne|--no-encrypt) unset encrypt;;
-		-w|--what|-w=*|--what=*) ScriptOptGet "what" "$@"; StringToArray "${what,,}" "," what;;
+		-w|--what|-w=*|--what=*) whatArgGet "$@";;
 		*) return 1;;
 	esac
 }
@@ -2063,6 +2067,7 @@ installCli()
 	whatCheck "program" && { productInstall "$product" "localhost" || return; }
 	whatCheck "cert" && certPublicExists && { productInstallCerts "$product" || return; }
 	whatCheck "cred" && InPath vault && { configSetLocal "$product" || return; }
+
 	return 0
 }
 
@@ -2327,12 +2332,12 @@ Remove a HashiCorp product configuration and data.
 	-w, --what=C1[,C2...] components to remove: program service
 		$configWhat"; }
 
-removeArgStart() { unset what yes; }
+removeArgStart() { unset whatArg yes; }
 
 removeOpt()
 {
 	case "$1" in
-		-w|--what|-w=*|--what=*) ScriptOptGet "what" "$@"; StringToArray "${what,,}" "," what;;
+		-w|--what|-w=*|--what=*) whatArgGet "$@";;
 		-y|--yes) yes="--yes";;
 		*) return 1;;
 	esac
@@ -3023,9 +3028,9 @@ productEnvironment()
 	# use the automatic certificate authority if connecting to a consul client
 	if [[ "$product" == "consul" ]]; then
 
-		# if we are connecting to the local host and that host has an automatic certificate in the consul service certificate directory, it must be a consul client
-		if IsLocalHost "$server" && [[ -f "$certDirService/$caAuto" ]]; then 
-			ca="$caAuto"
+		# connecting to the local host
+		if IsLocalHost "$server"; then
+			[[ -f "$certDirService/$caAuto" ]] && ca="$caAuto" # only clients have the automatic certificate present
 		elif [[ "$(typeCheck "$server")" == "client" ]]; then
 			ca="$caAuto"
 		fi
@@ -3498,7 +3503,8 @@ doHashi() { hashi "$@" $force $test $verbose "${configFileArg[@]}" "${configPref
 isClient() { [[ "$type" == "client" ]]; }
 isServer() { [[ "$type" == "server" ]]; }
 tmpDirCreate() { ${G}mktemp -d -t "$tmpDirTemplate"; }
-whatCheck() { [[ ! $what ]] && return 0; IsInArray "$1" what; }
+whatArgGet() { ScriptOptGet "whatArg" "what" "$@"; StringToArray "${whatArg,,}" "," whatArg; }
+whatCheck() { [[ ! $whatArg ]] && return 0; IsInArray "$1" whatArg; }
 whatCheckConfig() { local c; for c in $configWhat; do whatCheck "$c" && return; done; return 1; }
 
 # configFileValidate FILE - return true and the type of the file if thefile is a valid HashiCorp configuration file
@@ -3649,9 +3655,19 @@ scriptRun()
 	fi
 }
 
+# typeCheck HOST
 typeCheck()
 {
-	local host="$(RemoveDnsSuffix "$1")" type="client"
+	local host="$1" type="client"
+
+	# resolve IP address to a hostname
+	IsIpAddress "$host" && { host="$(DnsResolve "$host")" || return; }
+
+	# check the HOSTNAME for the local host
+	IsLocalHost "$host" && host="$HOSTNAME"
+
+	# remove the DNS suffix from the hostname
+	host="$(RemoveDnsSuffix "$1")" 
 
 	# --assume-server was specified
 	if [[ $assumeServer ]]; then
