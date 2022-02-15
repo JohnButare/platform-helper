@@ -520,7 +520,7 @@ configDeployVaultCommand() { forAllHosts configDeploy "vault" "$file"; }
 configDeploy()
 {
 	local product="$1" file="$2" host="$3"
-	productServiceConfigCopy "$product" "$host" "$file" && productServiceRestart "$product" "$host"
+	serviceConfigCopy "$product" "$host" "$file" && serviceRestart "$product" "$host"
 }
 
 # config environment commands
@@ -827,8 +827,8 @@ consulAclAgentDeny() { local host="$1"; consulAclAgentDefaultPolicy "deny"; }
 
 consulAclAgentDefaultPolicy()
 {
-	local newPolicy="$1"; productServiceVars "consul" || return
-	local currentPolicy; currentPolicy="$(productConfigGet "default_policy")" || return
+	local newPolicy="$1"; serviceVars "consul" || return
+	local currentPolicy; currentPolicy="$(serviceConfigVarGet "default_policy" "$product" "$host")" || return
 
 	# return if we don't need to change the default ACL policy
 	[[ ! $force && "$currentPolicy" == "$newPolicy" ]] && return
@@ -882,7 +882,7 @@ consulAclAgentDeploy()
 	local agentToken; agentToken="$(consulAclTokenGetSecret "agent-$host")" || return
 	
 	# deploy the configuration file
-	productServiceConfigCopyText "consul" "$host" "02_acl_tokens.hcl" "$(cat <<-EOF
+	serviceConfigCopyText "consul" "$host" "02_acl_tokens.hcl" "$(cat <<-EOF
 		acl {
 		  tokens {
 		    default = "$defaultToken"
@@ -1343,7 +1343,7 @@ install()
 	local product="$1" isInstall="true"
 
 	# initialize
-	productServiceVars "$product" || return
+	serviceVars "$product" || return
 	certs && useHttps="true"
 	tmpDirTemplate="hashi.XXXXXXXXXX"
 
@@ -1509,14 +1509,18 @@ installConsulAgentAcl()
 	done
 }
 
-installNomadServerFinal() { installAcl; }
+installNomadServerFinal() { installAcl && installNomadVaultIntegration; }
 
 installNomadFinal() 
 {
 	! whatCheck "config" && return
 
 	header "Nomad Configuration"
-	installNomadVaultIntegration && nomadConfigEnableDocker "$host" && nomadConfigEnableRawExec "$host" && productServiceRestart "nomad" "$host"
+	forAllHosts "productInstall" "vault" && \
+		forAllHosts "nomadConfigEnableVault" && \
+		forAllHosts "nomadConfigEnableDocker" && \
+		forAllHosts "nomadConfigEnableRawExec" && \
+		forAllHosts "serviceRestart" "nomad"
 }
 
 installNomadService()
@@ -1601,12 +1605,7 @@ installNomadService()
 
 installNomadVaultIntegration()
 {	
-	local configName="02_vault.hcl"
-
 	header "Install Nomad Vault Integration"
-
-	! InPath vault && { echo "Vault is not installed, skipping nomad vault integration"; return; }
-	[[ ! $force ]] && hostFileExists "$host" "$productConfigDir/$configName" && return
 
 	local policy; productInit "vault" || return
 
@@ -1635,48 +1634,6 @@ installNomadVaultIntegration()
 		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-server-policy.hcl")" || return
 		vault policy write nomad-server "$policy" || return
 	fi
-
-	# create token for Nomad to access vault - Nomad will renew the token every 72h
-	local token="$(vault token create -display-name nomad-server -policy nomad-server -period 72h -orphan -format=json | jq '.auth.client_token' | RemoveQuotes)" || return
-
-	# create and copy the vault configuration files
-	for host in server "${servers[@]}" client "${clients[@]}"; do
-
-		# determine server type, required for certInit
-		[[ "$host" == @(client|server) ]] && { type="$host"; continue; }
-
-		# certificate configuration
-		local certConfig
-		if certs; then
-			certInit "consul" || return
-			certConfig="$(cat <<-EOF
-
-			  ca_file          = "$certDirService/$caLocal"
-			  cert_file        = "$certDirService/$certCli"
-			  key_file         = "$certDirService/$certCliKey"
-				EOF
-			)"
-			certInit "nomad" || return
-		fi
-
-		# configuration	
-		productServiceConfigCopyText "nomad" "$host" "$configName" "$(cat <<-EOF
-			vault {
-			  enabled          = true
-			  address          = "$(productGetAddress vault $(vaultHostGetLocal "$host"))"
-			  create_from_role = "nomad-cluster"
-			  token            = "$token"$certConfig
-			}
-			EOF
-		)"
-
-		productServiceRestart "$product" "$host" || return
-	done
-
-	# install vault client for nomad jobs
-	for host in "${hosts[@]}"; do
-		productInstall "vault" "$host" || return
-	done
 }
 
 installVaultServerFinal()
@@ -1876,7 +1833,7 @@ installProductConfig()
 
 installService()
 {
-	local type="$1" host="$2"; productServiceVars "$product" || return
+	local type="$1" host="$2"; serviceVars "$product" || return
 	local f hostFqdn hostIp scriptFinal
 	local -A o; o=( ); ArrayAppend o commonOptions || return
 	local networkTarget="Wants=network-online.target"
@@ -2088,7 +2045,7 @@ nomadStatusCommand() { nomad node status; }
 #
 
 nomadConfigUsage() { echot "\
-Usage: $(ScriptName) nomad config enable|disable docker|RawExec
+Usage: $(ScriptName) nomad config enable|disable docker|RawExec|vault
 Enable or disable Nomad functionality."; }
 
 nomadConfigCommand() { usage; }
@@ -2096,15 +2053,18 @@ nomadConfigEnableCommand() { usage; }
 nomadConfigDisableCommand() { usage; }
 
 nomadConfigEnableDockerCommand() { forAllHosts nomadConfigEnableDocker; }
-nomadConfigDisableDockerCommand() { forAllHosts productServiceConfigDelete "nomad" "10_docker.hcl"; }
+nomadConfigDisableDockerCommand() { forAllHosts serviceConfigDelete "nomad" "10_docker.hcl"; }
 
-nomadConfigEnableRawexecCommand() { forAllHosts nomadConfigRawExecDocker; }
-nomadConfigDisableRawexecCommand() { forAllHosts productServiceConfigDelete "nomad" "10_raw_exec.hcl"; }
+nomadConfigEnableRawexecCommand() { forAllHosts nomadConfigEnableRawExec; }
+nomadConfigDisableRawexecCommand() { forAllHosts serviceConfigDelete "nomad" "10_raw_exec.hcl"; }
+
+nomadConfigEnableVaultCommand() { forAllHosts nomadConfigEnableVault; }
+nomadConfigDisableVaultCommand() { forAllHosts serviceConfigDelete "nomad" "20_vault.hcl"; }
 
 # nomadConfigEnablDocker HOST
 nomadConfigEnableDocker()
 {
-	productServiceConfigCopyText "nomad" "$1" "10_docker.hcl" "$(cat <<-EOF
+	serviceConfigCopyText "nomad" "$1" "10_docker.hcl" "$(cat <<-EOF
 		plugin "docker" {
 		  config {
 		    volumes {
@@ -2119,7 +2079,7 @@ nomadConfigEnableDocker()
 # nomadConfigEnableRawExec HOST
 nomadConfigEnableRawExec()
 {
-	productServiceConfigCopyText "nomad" "$1" "10_raw_exec.hcl" "$(cat <<-EOF
+	serviceConfigCopyText "nomad" "$1" "10_raw_exec.hcl" "$(cat <<-EOF
 		plugin "raw_exec" {
 		  config {
 		    enabled = true
@@ -2128,6 +2088,52 @@ nomadConfigEnableRawExec()
 		EOF
 	)"
 }
+
+# nomadConfigEnableVault HOST
+nomadConfigEnableVault()
+{
+	local host="$1"
+	local server; server="$(serviceIsServer "nomad" "$host")" || return
+
+	# certificate configuration
+	local certConfig
+	if certs; then
+		certInit "consul" || return
+		certConfig="$(cat <<-EOF
+
+		  ca_file = "$certDirService/$caLocal"
+		  cert_file = "$certDirService/$certCli"
+		  key_file = "$certDirService/$certCliKey"
+			EOF
+		)"
+		certInit "nomad" || return
+	fi
+
+	# server configuration
+	local serverConfig
+	if [[ "$server" == "true" ]]; then
+
+		# create token for Nomad to access vault - Nomad will renew the token every 72h
+		local token; token="$(vault token create -display-name nomad-server -policy nomad-server -period 72h -orphan -format=json | jq '.auth.client_token' | RemoveQuotes)" || return
+
+		serverConfig="$(cat <<-EOF
+
+		  create_from_role = "nomad-cluster"
+		  token = "$token"
+			EOF
+		)"
+	fi
+
+	# configuration	
+	serviceConfigCopyText "nomad" "$host" "02_vault.hcl" "$(cat <<-EOF
+		vault {
+		  enabled = true
+		  address = "vault.active.service.$domain"$certConfig$serverConfig
+		}
+		EOF
+	)"
+}
+
 
 #
 # nomad node commands
@@ -2374,7 +2380,7 @@ removeService()
 	local host hosts; getHosts "all" || return
 	for host in "${hosts[@]}"; do
 		header "Remove $(ProperCase "$product") Service ($host)"
-		productServiceRemove "$product" "$host" || return
+		serviceRemove "$product" "$host" || return
 	done
 }
 
@@ -2554,9 +2560,21 @@ updateEndNomad() { nomadNodeDrainDisable "$host"; }
 # service commands
 #
 
-serviceUsage() { echot "Usage: $(ScriptName) service monitor|restart|start|stop $productUsage\nControl Hashi product services."; }
+serviceUsage() { echot "Usage: $(ScriptName) service config|IsServer|monitor|restart|start|stop $productUsage\nControl Hashi product services."; }
 
 serviceCommand() { usage; }
+
+serviceConfigUsage() { echot "Usage: $(ScriptName) service config $productUsage VAR\nReturn a service configuration variable."; }
+serviceConfigCommand() { usage; }
+serviceConfigArgs() { ScriptArgGet "varArg" "var" -- "$@"; }
+serviceConfigConsulCommand() { forAllHosts "serviceConfigVarGet" "$varArg" "consul"; }
+serviceConfigNomadCommand() { forAllHosts "serviceConfigVarGet" "$varArg" "nomad"; }
+serviceConfigVaultCommand() { forAllHosts "serviceConfigVarGet" "$varArg" "vault"; }
+
+serviceIsServerCommand() { usage; }
+serviceIsServerConsulCommand() { forAllHosts "serviceIsServer" "consul"; }
+serviceIsServerNomadCommand() { forAllHosts "serviceIsServer" "nomad"; }
+serviceIsServerVaultCommand() { forAllHosts "serviceIsServer" "vault"; }
 
 serviceMonitorCommand() { usage; }
 serviceMonitorConsulCommand() { serviceMonitorDo "consul"; }
@@ -2565,19 +2583,178 @@ serviceMonitorVaultCommand() { serviceMonitorDo "vault"; }
 serviceMonitorDo() { productInit "$1" && "$1" monitor; }
 
 serviceRestartCommand() { usage; }
-serviceRestartConsulCommand() { forAllHosts productServiceRestart "consul"; }
-serviceRestartNomadCommand() { forAllHosts productServiceRestart "nomad"; }
-serviceRestartVaultCommand() { forAllHosts productServiceRestart "vault"; }
+serviceRestartConsulCommand() { forAllHosts serviceRestart "consul"; }
+serviceRestartNomadCommand() { forAllHosts serviceRestart "nomad"; }
+serviceRestartVaultCommand() { forAllHosts serviceRestart "vault"; }
 
 serviceStartCommand() { usage; }
-serviceStartConsulCommand() { forAllHosts productServiceStart "consul"; }
-serviceStartNomadCommand() { forAllHosts productServiceStart "nomad"; }
-serviceStartVaultCommand() { forAllHosts productServiceStart "vault"; }
+serviceStartConsulCommand() { forAllHosts serviceStart "consul"; }
+serviceStartNomadCommand() { forAllHosts serviceStart "nomad"; }
+serviceStartVaultCommand() { forAllHosts serviceStart "vault"; }
 
 serviceStopCommand() { usage; }
-serviceStopConsulCommand() { forAllHosts productServiceStop "consul"; }
-serviceStopNomadCommand() { forAllHosts productServiceStop "nomad"; }
-serviceStopVaultCommand() { forAllHosts productServiceStop "vault"; }
+serviceStopConsulCommand() { forAllHosts serviceStop "consul"; }
+serviceStopNomadCommand() { forAllHosts serviceStop "nomad"; }
+serviceStopVaultCommand() { forAllHosts serviceStop "vault"; }
+
+# service helper
+
+# hostCopy PRODUCT HOST FILE - copy a service configuration file to the host destination directory with the correct permissions
+serviceConfigCopy()
+{
+	local product="$1" host="$2" file="$3"; serviceVars "$product" || return
+	local name="$(GetFileName "$file")" exists; productServiceConfigReturn && return
+
+	serviceConfigCopyStart && LogFile2 "$file" && RunLog scp "$file" "$host:/tmp" && serviceConfigCopyEnd 
+}
+
+# serviceConfigCopyText PRODUCT HOST NAME TEXT - copy text to a service configuration file on the host
+serviceConfigCopyText()
+{
+	local product="$1" host="$2" name="$3" text="$4"; serviceVars "$product" || return
+	local exists; productServiceConfigReturn && return
+
+	serviceConfigCopyStart && ssh "$host" "cat <<-EOF > /tmp/$name
+		$text
+		EOF" && serviceConfigCopyEnd
+}
+
+productServiceConfigReturn()
+{
+	hostFileExists "$host" "$productConfigDir/$name" && exists="true"
+	[[ $isInstall && ! $force && $exists ]]
+}
+
+# serviceConfigCopyStart - start copying a service configuration file
+serviceConfigCopyStart()
+{
+	# check if the configuration file alreadys exists
+	[[ ! $force && $exists ]] && { ScriptErr "configuration file '$name' already exists, use --force to overwrite"; return 1; }
+	
+	# logging
+	hilight "Copying '$name' to $host:$productConfigDir..."
+}
+
+# serviceConfigCopyEnd - finish copying a service configuration file
+serviceConfigCopyEnd()
+{
+	local dest="$productConfigDir/$name"
+
+	# move and set permissions on the configuration file
+	RunLog scriptRun "$host" "$(cat <<-EOF
+		sudo mv "/tmp/$name" "$dest" || exit
+		sudo chmod 600 "$dest" || exit
+		sudo chown "$user" "$dest" || exit
+		sudo chgrp "$user" "$dest" || exit
+		EOF
+	)"
+}
+
+# serviceConfigDelete PRODUCT FILE HOST - delete a service configuration file on the host
+serviceConfigDelete()
+{
+	local product="$1" file="$2" host="$3"; serviceVars "$product" || return
+	local dest="$productConfigDir/$file"
+
+	RunLog scriptRun "$host" "$(cat <<-EOF
+		[[ ! -f "$dest" ]] && exit 0
+		sudo rm "$dest"
+		EOF
+	)"
+}
+
+# serviceConfigVarGet VAR PRODUCT HOST - get a variable from the product configuration file, return error if the variable does not exist
+serviceConfigVarGet() 
+{
+	local var="$1" product="$2" host="$3"; serviceVars "$product" || return;
+	scriptRun "$host" "grep \"[ ]*$var[ ]*=[ ]*\" \"$productConfigFile\"" | tr -s " " | cut -d"=" -f2 | RemoveCarriageReturn | RemoveSpace | RemoveQuotes
+}
+
+# serviceIsServer PRODUCT HOST - return 0 if HOST is a PRODUCT server
+serviceIsServer()
+{
+	local product="$1" host="$2"; hostCheck "$host" || return
+	local check="bootstrap_expect"; [[ "$product" == "vault" ]] && check="ui"
+	serviceConfigVarGet "$check" "$product" "$host" > /dev/null && echo "true" || echo "false"
+}
+
+# serviceRemove PRODUCT HOST - remove the service from the host
+serviceRemove()
+{
+	local product="$1"; serviceVars "$product" || return
+	local host="$2"; hostCheck "$host" || return 0
+	
+	scriptRun "$host" "$(cat <<-EOF
+
+		# delete service
+		if [[ -f "$productServiceFile" ]]; then
+			echo "Deleting the service..."
+			sudo systemctl stop "$product" || exit
+			sudo systemctl disable "$product" || exit
+			sudo rm -f "$productServiceFile" || exit
+			sudo systemctl daemon-reload || exit
+			sudo systemctl reset-failed || exit
+		fi
+
+		# remove certificates
+		if [[ -f "$certStoreCa" || -f "$certStoreCaAuto" ]]; then
+			echo "Removing automatic CA certificate..."
+			sudo rm -f "$certStoreCa" "$certStoreCaAuto" || exit
+			sudo update-ca-certificates || return
+		fi
+
+		printf "cleaning..."
+		getent passwd "$product" >&/dev/null && { printf "user..."; sudo userdel "$product" >& /dev/null; }
+		getent group "$product" >&/dev/null && { printf "group..."; sudo groupdel "$product" >& /dev/null; }
+		[[ -d "/etc/$product.d" ]] && { printf "configuration..."; sudo rm -fr "/etc/$product.d"; }
+		[[ -d "/opt/$product" ]] && { printf "data..."; sudo rm -fr "/opt/$product"; }
+		[[ "$removeProgram" && -f "$binDir/$product" ]] && { printf "program..."; sudo rm -f "$binDir/$product"; }
+
+		[[ \$(find /tmp -maxdepth 1 -name "hashi.*") ]] && { printf "tempory files..."; sudo rm -fr "/tmp/hashi."*; }
+		[[ -d "/tmp/consul-test" ]] && sudo rmdir "/tmp/consul-test"
+
+		echo "done"
+
+		EOF
+	)"
+}
+
+serviceRestart() 
+{
+	local product="$1" host="$2"
+	RunLog scriptRun "$host" "sudo systemctl restart "$product" --no-block || exit"; 
+}
+
+serviceStart() 
+{
+	local product="$1" host="$2"
+	RunLog scriptRun "$host" "sudo systemctl start "$product" --no-block || exit"; 
+}
+
+serviceStop() 
+{
+	local product="$1" host="$2"
+	RunLog scriptRun "$host" "sudo systemctl stop "$product" --no-block || exit"; 
+}
+
+serviceVars()
+{
+	local product="$1"; certInit || return
+	
+	# variables
+	program="$(FindInPath "$product")" || return
+	user="$product"; [[ "$product" == "nomad" ]] && user="root"; # many Nomad jobs require running as root
+
+	# directories	
+	productConfigDir="/etc/$product.d" 
+	productDataDir="/opt/$product"
+
+	# configuration
+	productConfigFileBase="01_$product.hcl"
+	productConfigFile="$productConfigDir/$productConfigFileBase"
+	productServiceFile="/etc/systemd/system/$product.service"
+	productServiceEnvFile="/etc/systemd/system/$product.env"
+}
 
 #
 # vault commands
@@ -2655,18 +2832,6 @@ vaultUnsealCommand()
 }
 
 # vault helper
-
-# vaultHostsGetLocal - return the first Vault host, or 127.0.0.1 if Vault is running locally
-vaultHostGetLocal()
-{
-	local localHost="$1" host hosts; getHosts "VaultServers" || return	
-
-	for host in "${hosts[@]}"; do
-		[[ "${host,,}" == "${localHost,,}" ]] && { echo "127.0.0.1"; return; }
-	done
-
-	DnsResolve "${hosts[0]}" || echo "${hosts[0]}"
-}
 
 # vaultHostsGet - set the hosts array to all the Vault hosts
 vaultHostsGet()
@@ -3001,12 +3166,6 @@ hostFileExists()
 # product helper
 #
 
-# productConfigGet VAR - get a variable from the product configuration file
-productConfigGet() 
-{
-	scriptRun "$host" "grep \"$1[ ]*=[ ]*\" \"$productConfigFile\"" | tr -s " " | cut -d"=" -f2 | RemoveCarriageReturn | RemoveSpace | RemoveQuotes
-}
-
 # productEnvironment [PRODUCT] [HOST] - show the environment variables for the specified product
 productEnvironment()
 {
@@ -3296,153 +3455,6 @@ productResolve()
 	local product="$1"
 	local name="$product"; [[ "$product" == "vault" ]] && name="active.vault"
 	resolve "$name"
-}
-
-# hostCopy PRODUCT HOST FILE - copy file to the host destination directory withthe correct permissions
-productServiceConfigCopy()
-{
-	local product="$1" host="$2" file="$3"; productServiceVars "$product" || return
-	local name="$(GetFileName "$file")" exists; productServiceConfigReturn && return
-
-	productServiceConfigCopyStart && LogFile2 "$file" && RunLog scp "$file" "$host:/tmp" && productServiceConfigCopyEnd 
-}
-
-# productServiceConfigCopyText PRODUCT HOST NAME TEXT - copy text to the named configuration file on the host
-productServiceConfigCopyText()
-{
-	local product="$1" host="$2" name="$3" text="$4"; productServiceVars "$product" || return
-	local exists; productServiceConfigReturn && return
-
-	productServiceConfigCopyStart && ssh "$host" "cat <<-EOF > /tmp/$name
-		$text
-		EOF" && productServiceConfigCopyEnd
-}
-
-productServiceConfigReturn()
-{
-	hostFileExists "$host" "$productConfigDir/$name" && exists="true"
-	[[ $isInstall && ! $force && $exists ]]
-}
-
-# productServiceConfigFileCopyStart - start copying a product configuration file
-productServiceConfigCopyStart()
-{
-	# check if the configuration file alreadys exists
-	[[ ! $force && $exists ]] && { ScriptErr "configuration file '$name' already exists, use --force to overwrite"; return 1; }
-	
-	# logging
-	hilight "Copying '$name' to $host:$productConfigDir..."
-}
-
-# productServiceConfigCopyEnd - finish copying a product configuration file
-productServiceConfigCopyEnd()
-{
-	local dest="$productConfigDir/$name"
-
-	# move and set permissions on the configuration file
-	RunLog scriptRun "$host" "$(cat <<-EOF
-		sudo mv "/tmp/$name" "$dest" || exit
-		sudo chmod 600 "$dest" || exit
-		sudo chown "$user" "$dest" || exit
-		sudo chgrp "$user" "$dest" || exit
-		EOF
-	)"
-}
-
-# productServiceConfigDelete PRODUCT FILE HOST - delete a configuration file on the host
-productServiceConfigDelete()
-{
-	local product="$1" file="$2" host="$3"; productServiceVars "$product" || return
-	local dest="$productConfigDir/$file"
-
-	RunLog scriptRun "$host" "$(cat <<-EOF
-		[[ ! -f "$dest" ]] && exit 0
-		sudo rm "$dest"
-		EOF
-	)"
-}
-
-productServiceRemove()
-{
-	local product="$1"; productServiceVars "$product" || return
-	local host="$2"; hostCheck "$host" || return 0
-	
-	scriptRun "$host" "$(cat <<-EOF
-
-		# delete service
-		if [[ -f "$productServiceFile" ]]; then
-			echo "Deleting the service..."
-			sudo systemctl stop "$product" || exit
-			sudo systemctl disable "$product" || exit
-			sudo rm -f "$productServiceFile" || exit
-			sudo systemctl daemon-reload || exit
-			sudo systemctl reset-failed || exit
-		fi
-
-		# remove certificates
-		if [[ -f "$certStoreCa" || -f "$certStoreCaAuto" ]]; then
-			echo "Removing automatic CA certificate..."
-			sudo rm -f "$certStoreCa" "$certStoreCaAuto" || exit
-			sudo update-ca-certificates || return
-		fi
-
-		printf "cleaning..."
-		getent passwd "$product" >&/dev/null && { printf "user..."; sudo userdel "$product" >& /dev/null; }
-		getent group "$product" >&/dev/null && { printf "group..."; sudo groupdel "$product" >& /dev/null; }
-		[[ -d "/etc/$product.d" ]] && { printf "configuration..."; sudo rm -fr "/etc/$product.d"; }
-		[[ -d "/opt/$product" ]] && { printf "data..."; sudo rm -fr "/opt/$product"; }
-		[[ "$removeProgram" && -f "$binDir/$product" ]] && { printf "program..."; sudo rm -f "$binDir/$product"; }
-
-		[[ \$(find /tmp -maxdepth 1 -name "hashi.*") ]] && { printf "tempory files..."; sudo rm -fr "/tmp/hashi."*; }
-		[[ -d "/tmp/consul-test" ]] && sudo rmdir "/tmp/consul-test"
-
-		echo "done"
-
-		EOF
-	)"
-}
-
-productServiceRestart() 
-{
-	local product="$1" host="$2"
-	RunLog scriptRun "$host" "sudo systemctl restart "$product" --no-block || exit"; 
-}
-
-productServiceStart() 
-{
-	local product="$1" host="$2"
-	RunLog scriptRun "$host" "sudo systemctl start "$product" --no-block || exit"; 
-}
-
-productServiceStop() 
-{
-	local product="$1" host="$2"
-	RunLog scriptRun "$host" "sudo systemctl stop "$product" --no-block || exit"; 
-}
-
-productServiceStop() 
-{
-	local product="$1" host="$2"
-	RunLog scriptRun "$host" "sudo systemctl stop "$product" --no-block || exit"; 
-}
-
-productServiceVars()
-{
-	local product="$1"; certInit || return
-	
-	# variables
-	program="$(FindInPath "$product")" || return
-	user="$product"; [[ "$product" == "nomad" ]] && user="root"; # many Nomad jobs require running as root
-
-	# directories	
-	productConfigDir="/etc/$product.d" 
-	productDataDir="/opt/$product"
-
-	# configuration
-	productConfigFileBase="01_$product.hcl"
-	productConfigFile="$productConfigDir/$productConfigFileBase"
-	productServiceFile="/etc/systemd/system/$product.service"
-	productServiceEnvFile="/etc/systemd/system/$product.env"
 }
 
 # productVar VAR - get the environment variable name
