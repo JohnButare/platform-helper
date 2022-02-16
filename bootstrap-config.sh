@@ -49,6 +49,7 @@ hagermanWebServers="web2.$hagermanBaseDomain,web1.$hagermanBaseDomain"
 hagermanWireguardServers="pi2.$hagermanBaseDomain,pi1.$hagermanBaseDomain"
 
 # HashiCorp
+hashiDnsDomain="service"
 hashiCredentialPath=""
 hashiCertificateDevice="$CDATA/VeraCrypt/personal.hc" hashiCertificateDir="data/hashi"
 hashiServers="pi1,pi2,pi3"
