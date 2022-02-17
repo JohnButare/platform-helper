@@ -201,7 +201,7 @@ certCopyPublic()
 	certValidate "$src" "${certs[@]}" || return
 
 	# destination directory (public certificates)
-	local dest; dest="$(certDirPublic "$product")" || return
+	local dest; dest="$(certDirPublic | certDirSuffix "$product")" || return
 	${G}mkdir --parents "$dest" || return
 
 	# return if the source (private) and destination (public) locations are the same
@@ -239,7 +239,6 @@ certMakeCd()
 {
 	local product="$1"; certInit "$product" || return
 	local dir; dir="$(certDirPrivate | certDirSuffix "$product")" && sudoc ${G}mkdir --parents "$dir" && command cd "$dir"
-	log1 "certMakeCd: using directory '$PWD' for ${product^} certificates"
 }
 
 # certMakeDnsArgs NAMES - return additional DNS name arguments for the comma separated list of names
@@ -528,7 +527,7 @@ certStatusProduct()
 certStatusPublic()
 {
 	[[ ! $public ]] && return
-	local dir; dir="$(certDirPublic "")" && certStatusShow "Public" "$dir"
+	local dir; dir="$(certDirPublic)" && certStatusShow "Public" "$dir"
 }
 
 # certStatusPrivate - show status for the private certificate directory on the encrypted volume
@@ -722,7 +721,7 @@ removeConfig()
 		local dir
 		whatCheck "local-certs" && { hilight "Removing local certificates..."; removeLocalCerts || return; }
 		whatCheck "private-certs" && { hilight "Removing private credentials..."; dir="$(certDirPrivate | certDirSuffix "$product")" || return; removeDir "$dir"; }
-		whatCheck "public-certs" && { hilight "Removing public credentials..."; dir="$(certDirPublic "$product")" || return; removeDir "$dir"; }
+		whatCheck "public-certs" && { hilight "Removing public credentials..."; dir="$(certDirPublic | certDirSuffix "$product")" || return; removeDir "$dir"; }
 	fi
 
 	# credentials (local)
@@ -2099,7 +2098,7 @@ installCli()
 	[[ $hostArg || $servers || $clients ]] && { EchoErr "$product CLI can only be installed locally"; return 1; }
 	
 	whatCheck "program" && { productInstall "$product" "localhost" || return; }
-	whatCheck "cert" && certPublicExists "$product" && { productInstallCerts "$product" || return; }
+	whatCheck "cert" && { productInstallCerts "$product" || return; }
 	whatCheck "cred" && InPath vault && { configSetLocal "$product" || return; }
 
 	return 0
@@ -3075,7 +3074,6 @@ certDirLocal()
 # certDirPrivate - the root private certificate directory from the --encrypt option or certificateDir configuration
 certDirPrivate()
 {	
-
 	# private encryption directory specified on command line
 	[[ -d "$encrypt" ]] && { echo "$encrypt"; return; }
 
@@ -3097,33 +3095,36 @@ certDirPrivate()
 	fi
 
 	# mount
-	case "$(GetFileExtension "$device")" in
-		hc) fullDir="$(RunLog VeraCrypt mount "$device" p --dir "$dir")" || { ScriptErr "unable to mount the private certificate directory from '$(FileToDesc "$device")'"; return 1; }				;;
-		*) ScriptErr "unable to mount certificate device '$device'"; return 1;;
+	local ext="$(GetFileExtension "$device")"
+	case "$ext" in
+
+		hc) 
+			! VeraCrypt IsInstalled && { [[ ! $quiet ]] && ScriptErr "unable to mount certificate device '$device' (VeraCrypt not installed)"; return 1; }
+			fullDir="$(RunLog VeraCrypt mount "$device" p --dir "$dir")" || return 1
+			;;
+
+		*)
+			[[ ! $quiet ]] && ScriptErr "unable to mount certificate device '$device' (type $ext not supported)"
+			return 1
+			;;
+
 	esac
 
-	[[ ! -d "$fullDir" ]] && { ScriptErr "certificate directory '$dir' is missing on '$(FileToDesc "$device")'"; return 1; }
+	[[ ! -d "$fullDir" ]] && { [[ ! $quiet ]] && ScriptErr "certificate directory '$dir' is missing on '$(FileToDesc "$device")'"; return 1; }
 
 	echo "$fullDir"
 }
 
-
-# certDirPublic PRODUCT - return the public certificate directory from an installation file server
-certDirPublic()
-{ 
-	local product="$1"
-	findInstallFile --quiet "other/HashiCorp" | certDirSuffix "$product" && return "${PIPESTATUS[0]}"
-	[[ ! $quiet ]] && ScriptErr "unable to locate the public certificate directory"
-	return 1
-}
+# certDirPublic - return the public certificate directory from an installation file server
+certDirPublic() { findInstallFile --quiet "other/HashiCorp" && return "${PIPESTATUS[0]}"; }
 
 # certDirService PRODUCT - return the product service certificate directory
 certDirService() { echo "/opt/$1/cert"; }
 
-# certDirSuffix PRODUCT [DIR] - add certificate suffix to DIR: DIR/certificate/DOMAIN[/CONFIG_PREFIX]/PRODUCT
+# certDirSuffix PRODUCT DIR - add certificate suffix to DIR: DIR/certificate/DOMAIN[/CONFIG_PREFIX]/PRODUCT
 certDirSuffix()
 { 
-	local product="$1"; shift; 	GetArgs; [[ ! $1 ]] && { MissingOperand "dir"; return 1; }
+	local product="$1"; shift; 	GetArgs; [[ ! $1 ]] && return 1
 	echo "$(RemoveTrailingSlash "$1")/certificate/$baseDomain$(RemoveTrailingSlash "/$configPrefix")/$product"
 }
 
@@ -3186,13 +3187,13 @@ certPublicExists() { quiet="true" certPublicFind "$1" > /dev/null; }
 # certPublicFind PRODUCT - find public certificates
 certPublicFind()
 {
-	local product="$1"; certInit "$product" || return
-
-	local dir="$(certDirPrivate | certDirSuffix "$product")"
-	[[ ! -d "$dir" ]] && { dir="$(certDirPublic "$product")" || return; }
-	certValidate "$dir" "$ca" "$certCli" "$certCliKey" || return
-	echo "$dir"
+	local dir product="$1"; certInit "$product" || return
+	quiet="true" certPublicCheck "$PWD" && return 																					# check current directory (makeCertCd was called)
+	dir="$(certDirPublic | certDirSuffix "$product")" && certPublicCheck "$dir" && return 	# check public directory
+	dir="$(certDirPrivate | certDirSuffix "$product")" && certPublicCheck "$dir" && return 	# check private certificate directory
 }
+
+certPublicCheck() { [[ -d "$1" ]] || return; certValidate "$1" "$ca" "$certCli" "$certCliKey" && echo "$dir"; }
 
 certStoreInstall()
 {
@@ -3588,7 +3589,7 @@ productInstallDo()
 productInstallCerts()
 {
 	local product="$1"; certInit "$product" || return
-	local src; src="$certDir"; [[ ! -d "$src" ]] && { src="$(certPublicFind "$product")" || return; }
+	local src; src="$(certPublicFind "$product")" || return
 	local dest="$(certDirSuffix "$product" "/opt/hashi")" # always install certificates to /opt/hashi 
 
 	[[ -f "$dest/$ca" && ! $force ]] && return	
