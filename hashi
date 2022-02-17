@@ -1601,7 +1601,9 @@ installServiceDo()
 	# run the installation script - do notuse only standard commands
 	hilight "Running installation..."
 	scriptRun "$host" "$(cat <<-EOF
+
 		$(installServiceDoUser)
+
 		$(installServiceDoDirectories)
 
 		# files
@@ -1621,17 +1623,7 @@ installServiceDo()
 		  sudo install -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/cert/"* || exit
 		fi
 
-		if [[ -f "$certDirService/$ca" ]] && [[ ! -f "$certStoreCa" || "$force" ]]; then
-			echo "Installing CA certificate..."
-			sudo cp "$certDirService/$ca" "$certStoreCa" || exit
-			sudo update-ca-certificates || exit
-		fi
-
-		if [[ "$caAuto" && -f "$certDirService/$caAuto" ]] && [[ ! -f "$certStoreCaAuto" || "$force" ]]; then
-			echo "Installing automatic CA certificate..."
-			sudo cp "$certDirService/$caAuto" "$certStoreCaAuto" || exit
-			sudo update-ca-certificates || exit
-		fi
+		$(scriptCertStore "$certDirService")
 
 		# service		
 
@@ -1648,18 +1640,11 @@ installServiceDo()
 			sudo systemctl start "$product" --no-block || exit
 		fi
 
-		$(installServiceDoCleanup)
+		$(scriptCleanup)
 		EOF
 	)" || return
 
 }
-
-installServiceDoCleanup() 
-{
-	cat <<-EOF
-		printf "Cleaning up..."; rm -fr "$tmpDir"; echo done
-	EOF
-}	
 
 installServiceDoDirectories()
 {
@@ -2632,6 +2617,48 @@ updateUsage() { echot "usage: $(ScriptName) update cli|service"; }
 updateCommand() { usage; }
 
 # update cli command
+updateCliUsage() { echot "usage: $(ScriptName) update cli cert|program"; }
+updateCliCommand() { usage; }
+
+# update cli cert command
+updateCliCertUsage() { echot "usage: $(ScriptName) update cli cert all|$productUsage"; }
+updateCliCertCommand() { usage; }
+updateCliCertAllCommand() { updateCliCertConsulCommand && updateCliCertNomadCommand && updateCliCertVaultCommand; }
+updateCliCertConsulCommand() { forAllHosts updateCliCert "consul"; }
+updateCliCertNomadCommand() { forAllHosts updateCliCert "nomad"; }
+updateCliCertVaultCommand() { forAllHosts updateCliCert "vault"; }
+
+# updateCliCert PRODUCT HOST
+updateCliCert()
+{
+	local product="$1" host="$2"; certInit "$product" || return
+	local src; src="$(certPublicFind "$product")" || return
+	local dest="$(certDirSuffix "$product" "/opt/hashi")" # always install certificates to /opt/hashi 
+
+	# copy certificates to a temporary directory
+	local tmpDir; tmpDir="$(tmpDirCreate)" || return
+	FileCommand cp "$src/$ca" "$src/$certCli" "$src/$certCliKey" "$tmpDir" || return
+	[[ -f "$src/$caAuto" ]] && { FileCommand cp "$src/$caAuto" "$tmpDir" || return; }
+
+	# copy certificates to the host
+	copyDirRemote "$tmpDir" "$host" || return
+
+	# install the new certificates on the host
+	scriptRun "$host" "$(cat <<-EOF
+		
+		echo "Installing ${product^} certificates..."
+		sudo install --backup=numbered -m 644 -t "$dest" "$tmpDir/"* || exit
+
+		$(scriptCertStore "$dest")
+		$(scriptCleanup)
+		EOF
+	)" || return
+
+	# cleanup
+	rm -fr "$tmpDir"
+}
+
+# update cli program command
 updateCliProgramUsage() { echot "usage: $(ScriptName) update cli program all|$productUsage"; }
 updateCliProgramAllCommand() { updateCliProgramConsulCommand && updateCliProgramNomadCommand && updateCliProgramVaultCommand; }
 updateCliProgramConsulCommand() { forAllHosts updateCliProgram "consul"; }
@@ -2685,7 +2712,7 @@ updateServiceCert()
 		$(installServiceDoUser)
 		$(installServiceDoDirectories)
 		sudo install --backup=numbered -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/"* || exit
-		$(installServiceDoCleanup)
+		$(scriptCleanup)
 		EOF
 	)" || return
 
@@ -3806,6 +3833,32 @@ removeDir()
 	echo "Deleting '$(FileToDesc "$dir")'..."
 	RunLog sudoc DelDir --contents "$dir"
 }
+
+scriptCertStore()
+{
+	local dest="$1"
+
+	cat <<-EOF
+		if [[ -f "$dest/$ca" ]] && [[ ! -f "$certStoreCa" || "$force" ]]; then
+			echo "Installing CA certificate..."
+			sudo cp "$dest/$ca" "$certStoreCa" || exit
+			sudo update-ca-certificates || exit
+		fi
+
+		if [[ "$caAuto" && -f "$dest/$caAuto" ]] && [[ ! -f "$certStoreCaAuto" || "$force" ]]; then
+			echo "Installing automatic CA certificate..."
+			sudo cp "$destDirService/$caAuto" "$certStoreCaAuto" || exit
+			sudo update-ca-certificates || exit
+		fi
+	EOF
+}
+
+scriptCleanup() 
+{
+	cat <<-EOF
+		printf "Cleaning up..."; rm -fr "$tmpDir"; echo done
+	EOF
+}	
 
 # scriptRun "$host" SCRIPT - run the specified script locally over over ssh
 scriptRun()
