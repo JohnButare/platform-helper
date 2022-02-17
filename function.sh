@@ -1589,7 +1589,7 @@ packageExclude()
 	# macOS excludes
 	! IsPlatform mac && return
 
-	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate squidclient virt-what )	
+	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate squidclient unison-gtk virt-what )	
 	local macArm=( bat bonnie++ pv rust traceroute )
 	local macx86=( ncat traceroute )
 
