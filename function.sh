@@ -2233,6 +2233,9 @@ ScriptReturn()
 # Security
 #
 
+# certificates
+CertView() { local c; for c in "$@"; do openssl x509 -in "$c" -text; done; }
+
 # sudo
 
 SudoCheck() { [[ ! -r "$1" ]] && sudo="sudoc"; } # SudoCheck FILE - set sudo variable to sudoc if user does not have read permissiont to the file
