@@ -33,18 +33,18 @@ initInstallable()
 	debian+=(OpenJdk tomcat)
 
 	# Python
-	all+=( pip python PythonLocal PythonGlobal PythonTextUtilities cowsay figlet fortune lolcat )
+	all+=( pip pipx python PythonLocal PythonGlobal PythonTextUtilities cowsay figlet fortune lolcat )
 	debian+=( Python3.9 Python3.10 )
 	debian64+=( PythonDeadsnakes )
-	macDebian+=( pipx PythonAsdf )
-	macDebian+=( BorgBackup certbot DockerCompose GitUp glances vorta )
+	macDebian+=( PythonAsdf )
+	macDebianQnap+=( BorgBackup certbot DockerCompose GitUp glances vorta )
 
 	# Raspberry Pi
 	pi=( DomotzAgent PiI2c PiOneWire PiSetup PiSpi PiWifi)
 	piKernel=( PiFirmware PiOverclock PiReporter )
 
 	# QNAP
-	qnap=( qcli )
+	qnap=( asdf qcli )
 	macWin+=( qnap Qfinder QnapExternalRaidManager ) 
 
 	# Screen Sharing
@@ -372,6 +372,7 @@ isInstallable()
 	IsInArray -ci "$check" homeAssistant && IsPlatform debian && return	
 	IsInArray -ci "$check" mac && IsPlatform mac && return
 	IsInArray -ci "$check" macDebian && IsPlatform mac,debian && return
+	IsInArray -ci "$check" macDebianQnap && IsPlatform mac,debian,qnap && return
 	IsInArray -ci "$check" macWin && IsPlatform mac,win && return
 	IsInArray -ci "$check" pi && IsPlatform pi && return
 	IsInArray -ci "$check" piKernel && IsPlatform PiKernel && return
@@ -643,11 +644,7 @@ runTypePython()
 	local p="$1" name="$2" dest="$3"; shift 3
 	InPath "$p" && [[ ! $force ]] && return
 	pythonCheckLocal || return
-	if IsPlatform qnap; then
-		RunLog python3 -m pip install --user "$p" "$@" || return
-	else
-		RunLog python3 -m pipx install "$p" "$@" || return
-	fi
+	RunLog python3 -m pipx install "$p" "$@" || return
 }
 
 # runTypePythonGlobal - Python package install for all users
@@ -656,11 +653,7 @@ runTypePythonGlobal()
 	local p="$1" name="$2" dest="$3"; shift 3
 	InPath "$p" && [[ ! $force ]] && return
 	pythonCheckGlobal || return
-	if IsPlatform qnap; then
-		RunLog python3 -m pip install "$p" "$@" || return
-	else
-		RunLog pipxg install $force "$p" "$@" || return
-	fi
+	RunLog pipxg install $force "$p" "$@" || return
 }
 
 runTypeRuby()
@@ -1976,8 +1969,11 @@ BackupperFinalWin()
 
 BorgBackupInstall()
 {
-	# prerequisites - Rasperry Pi Ubuntu x64: g++ gcc sip-dev (vorta)
-	IsPlatform debian && { pkg g++ gcc python3-dev libacl1-dev libfuse-dev libssl-dev || return; }
+	# QNAP
+	IsPlatform qnap && { run --store "BorgBackup"; return; }
+
+	# prerequisites
+	IsPlatformAll debian && { pkg g++ gcc python3-dev libacl1-dev libfuse-dev libssl-dev || return; }
 
 	# install
 	{ ! InPath borg || [[ $force ]]; } && { run --python-global borgbackup || return; }
@@ -5191,6 +5187,7 @@ Python3.10Install() { pythonInstallVersion "3.10" "3.10.2"; }
 PythonInstall()
 {
 	header "Python 3"
+	IsPlatform qnap && { run --store "QPython39"; return; }
 	pkg python3 || return
 }
 
@@ -5243,8 +5240,8 @@ PythonGlobalInstall()
 	local dir; dir="$(pythonGetGlobalBin)" || return
 	sudo bash -c "$(cat <<-EOF
 		export PATH="$BIN:$dir:\$PATH"
-		[[ ! -f "$dir/pip" || ! "$force" ]] && { inst --no-prompt --no-header pip ${globalArgs[@]} || exit; }
-		[[ ! -f "$dir/pipx" || ! "$force" ]] && { inst --no-prompt --no-header pipx ${globalArgs[@]} || exit; }	
+		[[ ! -f "$dir/pip" || "$force" ]] && { inst --force --no-prompt --no-header pip ${globalArgs[@]} || exit; }
+		[[ ! -f "$dir/pipx" || "$force" ]] && { inst --force --no-prompt --no-header pipx ${globalArgs[@]} || exit; }	
 		exit 0
 		EOF
 	)"
@@ -5264,11 +5261,17 @@ PipInstall()
 	# validate
 	! InPath python3 && { ScriptErr "python3 is not installed"; return 1; }
 
-	# remove package manager pip if installed
+	# cleanup - remove Debian package manager pip if installed
 	IsPlatform debian && PackageInstalled "python3-pip" && { packageu python3-pip || return; } 
 
-	# try ensurepip on macOS - ensurepip is not available on Debian's python3 package
-	IsPlatform mac && ! pythonCheckLocalPip && { python3 -m ensurepip --user --default-pip || return; }
+	# return if a local pip is isntalled
+	pythonCheckLocalPip && return
+
+	# use ensurepip on macOS - ensurepip is not available on Debian's python3 package
+	IsPlatform mac && { python3 -m ensurepip --user --default-pip || return; }
+
+	# try installing local pip from the global version
+	InPath pip && { pip3 install pip --upgrade --user || return; }
 
 	# try get-pip	
 	! pythonCheckLocalPip && { curl -s "https://bootstrap.pypa.io/get-pip.py" | python3 - --user || return; }
@@ -5318,27 +5321,27 @@ PythonBuild()
 # pythonCheckGlobal - return true if python is installed in the root home directory
 pythonCheckGlobal()
 {
-	# MacOS uses pip and pipx from user directory
-	IsPlatform mac && { pythonCheckLocal; return; }
-
-	# return if pip and pipx are installed in the root home directory
-	if InPath python3; then
-		local dir; dir="$(pythonGetGlobalBin)" || return
-		sudoc bash -c "[[ -f "$dir/pip3" && -f "$dir/pipx" ]]" && return
-	fi
-
+	IsPlatform mac && { pythonCheckLocal; return; } # MacOS uses pip and pipx from user directory
+	InPath python3 && pythonCheckGlobalPip && pythonCheckGlobalPipx && return
 	i --no-header PythonGlobal
+}
+
+pythonCheckGlobalPip()
+{
+	local bin; bin="$(pythonGetGlobalBin)" || return
+	[[ -f "$bin/pip3" ]]
+}
+
+pythonCheckGlobalPipx()
+{
+	local bin; bin="$(pythonGetGlobalBin)" || return
+	[[ -f "$bin/pipx" ]]
 }
 
 # pythonCheckLocal - return true if python is installed in the users home directory
 pythonCheckLocal()
 {
-	# return if pip and pipx are installed in the user home directory
-	if InPath python3; then
-		local dir; dir="$(pythonGetLocalBin)" || return
-		[[ -f "$dir/pip3" && -f "$dir/pipx" ]] && return
-	fi
-
+	InPath python3 && pythonCheckLocalPip && pythonCheckLocalPipx && return
 	i --no-header PythonLocal
 }
 
@@ -5346,6 +5349,12 @@ pythonCheckLocalPip()
 {
 	local bin; bin="$(pythonGetLocalBin)" || return
 	[[ -f "$bin/pip3" ]]
+}
+
+pythonCheckLocalPipx()
+{
+	local bin; bin="$(pythonGetLocalBin)" || return
+	[[ -f "$bin/pipx" ]]
 }
 
 pythonGetGlobalBin()

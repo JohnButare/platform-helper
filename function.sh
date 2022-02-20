@@ -98,8 +98,11 @@ clipw()
 # pipxg - pipx global, run pipx for all users
 pipxg()
 {
-	if IsPlatform debian,mac; then
-		local dir; IsPlatform debian && dir="/root/.local/bin/"
+	if IsPlatform debian,mac,qnap; then
+		local dir
+		if IsPlatform debian; then dir="/root/.local/bin/"
+		elif IsPlatform qnap; then dir="/share/homes/admin/.local/bin/"
+		fi
 		sudo PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" "${dir}pipx" "$@"
 	elif [[ "$1" == "install" ]]; then
 		sudo python3 -m pip "$@"
