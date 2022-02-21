@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-usage: netbootxyz backup|docker|profile|test|web
+usage: netbootxyz backup|docker|IsInstalled|profile|test|web
 	docker 		control the docker image
 	web				update the netboot.xyz web site
   profile 	netboot.xyz configuration
@@ -14,7 +14,7 @@ usage: netbootxyz backup|docker|profile|test|web
 init() 
 { 
 	image="netbootxyz"
-	profileDir="$ACONFIG/netboot.xyz"
+	profileDir="${ACONFIG}/netboot.xyz"
 	config="/opt/netboot.xyz/user_overrides.yml"
 }
 
@@ -22,7 +22,14 @@ init()
 # Commands
 #
 
-backupCommand() { AppBackup "netboot.xyz.config" "//$(UpdateGet "FileServer")/root$ACONFIG/netbootxyz" || return; }
+IsInstalledCommand() { [[ "${ACONFIG}2/netbootxyz" ]]; }
+
+backupCommand()
+{ 
+	! IsInstalledCommand && return
+	local backupHosts; backupHosts="$(network current servers backup)" || return
+	BorgHelper backup "${ACONFIG}2/netbootxyz" --archive "netboot.xyz" --backup-hosts="$backupHosts" --prune 5
+}
 
 testCommand()
 {
@@ -55,6 +62,7 @@ profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); }
 
 profileCommand()
 {
+	[[ ! -d "$profileDir" ]] && { ${G}mkdir --parents "$profileDir" || return; }
 	profile $noPrompt --app "$image" --method "$profileDir" --files "nginx menus" "${profileArgs[@]}" || return
 	profile $noPrompt --sudo --app "$image-config" --method "$(GetFilePath "$config")" --files "$(GetFileName "$config")" "${profileArgs[@]}" || return
 }
@@ -74,11 +82,11 @@ Update the netboot.xyz web site.
 }
 
 webCommand() { usage; }
-webConfigCommand() { sudoe "$config"; }
+webConfigCommand() { TextEdit "$config"; }
 
 webDeployCommand()
 {
-	# local Hyper-V virtual machines
+	# bootloaders for local Hyper-V virtual machines
 	CopyDir "/var/www/html/ipxe" "$ADATA/netboot.xyz" || return 
 
 	# netboot
@@ -89,15 +97,19 @@ webDeployCommand()
 
 webUpdateCommand()
 {
+	local dir="/opt/netboot.xyz"
+
 	# install netboot.xyz
-	if [[ ! -d "/opt/netboot.xyz" ]]; then
+	if [[ ! -d "$dir" ]]; then
 		package ansible git apache2 || return
-		sudo git clone "https://github.com/netbootxyz/netboot.xyz.git" "/opt/netboot.xyz" || return
+		sudo git clone "https://github.com/netbootxyz/netboot.xyz.git" "$dir" || return
+		sudo chown -R "$USER" "$dir" || return
+		sudo chgrp -R "$USER" "$dir" || return
 		netbootxyz profile restore default || return
 	fi
 
 	# update the web site
-	cd /opt/netboot.xyz || return
+	cd "$dir" || return
 	sudo ansible-playbook -i inventory site.yml || return
 }
 
