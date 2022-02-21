@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # test: RunScript -v -nh --elevate -- touch /mnt/c/hi.txt \; sleep 2 \; echo \"all done\"
+# no dependencies: do not source other scripts here as we do not assume other scripts are in the path
 
 run() {	init && args "$@" && runScript; }
 
@@ -13,12 +14,13 @@ usage: RunScript [OPTION]... [--] SCRIPT
 
 	-e, --elevate				in Windows run the script with an elevated (Administrator) token
 	-H, --hashi					configure Hashi tools
-	-m, --multiple			allow multiple commands, i.e. \"sudo RunScript 'ls; pause'\"
+	-m, --multiple			allow multiple commands, i.e. \"sudo RunScript --multiple 'ls; pause'\"
 											Useful in cases where bash -c cannot be used.
 	-nh, --no-hide			do not hide the elevated script window
 	-p, --pause					pause after the command is run, useful for transitory windows
 	-pe, --pause-error	pause after the command is run with an error, useful for transitory windows
 	-sa, --ssh-agent		configure the SSH agent
+	-s, --ssh HOST			run the script on the host using SSH
 	-v, --verbose				display detailed output
 	-x									force initialization of the X server
 	--     							Signal the end of options. This is useful to allow further arguments to the script
@@ -38,7 +40,7 @@ usage: RunScript [OPTION]... [--] SCRIPT
 args()
 {
 	declare -g script=() windowStyle="--window-style hidden"
-	unset -v elevate hashi hashiService multiple pause pauseError sshAgent verbose 
+	unset -v elevate hashi hashiService multiple pause pauseError ssh sshAgent verbose
 			
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -52,6 +54,7 @@ args()
 			-p|--pause) pause="true";;
 			-pe|--pause-error) pauseError="true";;
 			-sa|--ssh-agent) sshAgent="true";;
+			-s|--ssh) ssh="$2"; shift;;
 			-v|--verbose) verbose="--verbose";;
 			-x) InitializeXServer || return;;
 			*)
@@ -79,7 +82,11 @@ runScript()
 	[[ $sshAgent ]] && { SshAgentStart --quiet $verbose || return; }
 
 	# run the script
-	$multiple "${script[@]}"
+	if [[ $ssh ]]; then
+		runScriptSsh "$ssh" "${script[@]}"
+	else
+		$multiple "${script[@]}"
+	fi
 	local result="$?"
 
 	# pause
@@ -94,6 +101,25 @@ runScript()
 	[[ $hashiService ]] && (( result > 0 )) && (( result+=1 ))
 
 	return $result
+}
+
+runScriptSsh()
+{
+	local host="$1"; shift
+	local script="$(cat <<-EOF
+		[[ -f "$f" ]] && { . "$f" || exit; }
+		$@
+		EOF
+	)"
+
+	if IsLocalHost "$host"; then
+		bash -c "$script"
+	else
+		# DISPLAY="" - disable warning "Warning: No xauth data; using fake authentication data for X11 forwarding."
+		# -X - enable X11 forwardining for credential store access
+		# -t - allocate a pseudo-terminal to allow the sudo password to be entered on the terminal if needed
+		DISPLAY="" ssh -q -X -t "$host" "$script"
+	fi
 }
 
 runScriptElevated() # run commands elevated that has quoted arguments
@@ -147,15 +173,18 @@ runScriptElevated() # run commands elevated that has quoted arguments
 EchoErr() { echo "$@" > /dev/stderr; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 
-# Load functions from function.sh - look in the path, the current directory, the script directory, and /usr/local/bin
+# LoadFunctions - load functions from function.sh
+# - look in the path, the current directory, the script directory, and /usr/local/bin
+# - sets f to the function file found
 LoadFunctions() 
 {
 	f="$(type -P "function.sh")"
-	if [[ "$?" != "0" ]]; then
+	if (( $? != 0 )); then
 		f="$PWD/function.sh"
-		[[ ! -f "$f" ]] && f="${BASH_SOURCE[0]%/*}/function.sh"
-		[[ ! -f "$f" ]] && f="/usr/local/data/bin/function.sh"
-		[[ ! -f "$f" ]] && { EchoErr "Unable to find function.sh"; pause; return 1; }
+		if [[ ! -f "$f" ]]; then f="${BASH_SOURCE[0]%/*}/function.sh"
+		elif [[ ! -f "$f" ]]; then f="/usr/local/data/bin/function.sh"
+		elif [[ ! -f "$f" ]]; then EchoErr "Unable to find function.sh"; pause; return 1
+		fi
 	fi
 	. "$f" || { EchoErr "Unexpected error sourcing function.sh"; pause; return 1; }
 }
