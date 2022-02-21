@@ -69,7 +69,7 @@ opt()
 		-m|--method) ScriptOptGet "method" "$@";;
 		-p|--platform) platform="--platform";;
 		-se|--save-extension|-se=*|--save-extension=*) ScriptOptGet "saveExtension" "$@";;
-		-s|--sudo) sudo="--sudo";;
+		-s|--sudo) sudo="sudo";;
 		*) return 1;;
 	esac
 }
