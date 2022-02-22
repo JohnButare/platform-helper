@@ -265,11 +265,7 @@ getHosts()
 	[[ $hostArg ]] && { StringToArray "${hostArg,,}" "," hosts; return; }
 
 	# use Nomad clients
-	local ip ips; ips="$(hashi resolve nomad-client --all | sort --numeric)" || return
-	for ip in ${ips[@]}; do
-		local host; host="$(DnsResolve "$ip")" || return
-		hosts+=("$host")
-	done
+	IFS=$'\n' hosts=( $(GetServers nomad-client) )
 }
 
 # forAllHosts COMMAND [ARGS...] - run a command for all hosts
@@ -277,7 +273,7 @@ forAllHosts()
 {
 	local host hosts; getHosts || return
 
-	for host in ${hosts[@]}; do
+	for host in "${hosts[@]}"; do
 		"$@" "$host" || return
 	done
 }
@@ -5799,24 +5795,25 @@ ServerAllInstall() { i apache ApacheDeploy ApacheDocker ApacheNomad ApacheSync; 
 
 ApacheInstall() { header "Apache Web Server" && package apache2 && apacheDeploy; }
 ApacheDockerInstall() {	header "Apache Web Server (Docker Container)" && apacheDeploy && run --docker "apache-web.yml" --name "apache-web" && httpShow "180"; }
-ApacheNomadInstall() { header "Apache Web Server (Nomad Job)" && ApacheDeployInstall && ApacheSyncInstall && run --nomad "apache-web.yml" nomadHttpShow "web" "180"; }
+ApacheNomadInstall() { header "Apache Web Server (Nomad Job)" && ApacheDeployInstall && ApacheSyncInstall && run --nomad "apache-web.hcl" && nomadHttpShow "web" "180"; }
 
-ApacheDeployInstall() {	forAllHosts apacheDeploy; }
-ApacheSyncInstall() {	forAllHosts apacheSync; }
+ApacheDeployInstall() {	runPrompt "Apache Web Deploy" || return 0; forAllHosts apacheDeploy; }
+ApacheSyncInstall() {	runPrompt "Apache Web Sync" || return 0; forAllHosts apacheSync; }
 
 # apacheDeploy HOST - deploy Apache web directories
 apacheDeploy()
 {
 	local host="${1:-localhost}" dir="$SRV/apache-web" group="apache-web"
 
-	hilight "Deploying Apache web to $host..."
+	hilight "Deploying Apache web to $(RemoveDnsSuffix "$host")..."
 	RunLog RunScript "${globalArgs[@]}" --ssh "$host" "$(cat <<-EOF
 		[[ -d "$dir" && ! "$force" ]] && exit
 		GroupAddUser "$group" || exit
 		sudoc mkdir --parents "$dir" || exit
+		sudo chown -R "jjbutare" "$dir" || exit
 		sudo chgrp -R "$group" "$dir" || exit
-		sudo find "$dir" -type d | xargs -r sudo chmod 774 || exit
-		sudo find "$dir" -type f | xargs -r sudo chmod 664 || exit
+		sudo find "$dir" -type d | xargs --no-run-if-empty -r echo sudo chmod 775 || exit
+		sudo find "$dir" -type f | xargs --no-run-if-empty -r echo sudo chmod 664 || exit
 		EOF
 	)" || return
 	echo
@@ -5826,8 +5823,11 @@ apacheDeploy()
 apacheSync()
 {
 	local host="$1" dir="$SRV/apache-web"; IsLocalHost "$host" && return
+
 	hilight "Synronizing Apache directories with $(RemoveDnsSuffix "$host")..."
-	RunLog unison -batch -ignore 'Path logs' "$dir" "ssh://$host/$dir" || return
+	RunLog unison -batch -ignore 'Path logs' -owner=false -dontchmod -perms=0 \
+		"$dir" "ssh://$host/$dir" || return
+	echo
 }
 
 #################################################
