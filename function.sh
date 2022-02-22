@@ -1147,7 +1147,7 @@ GetServer()
 	DnsResolve "$ip" "$@"
 }
 
-GetServers() { GetIpAddress --all "$1.service" | xargs -n 1 RunScript DnsResolve; }
+GetServers() { GetIpAddress --all "$1.service" | sort --numeric | xargs -n 1 RunScript DnsResolve; }
 
 # ipconfig [COMMAND] - show or configure network
 ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
