@@ -1116,10 +1116,12 @@ consulAclTokenRm()
 # Consul API Command
 #
 
-consulApiUsage() { echot "Usage: $(ScriptName) consul api [put] PATH -- [curl arguments]\nCall the Consul API."; }
+consulApiUsage() { echot "Usage: $(ScriptName) consul api [check|put] PATH -- [curl arguments]\nCall the Consul API.  For example:\n
+hashi consul api /stauts/leader"; }
 consulApiArgStart() { unset path; }
-consulApiArgs() { ScriptArgGet "path" -- "$@"; }
+consulApiArgs() { [[ "$command" == "consulApiCheck" ]] && return; ScriptArgGet "path" -- "$@"; }
 consulApiCommand() { consulApi "$path" "${otherArgs[@]}"; }
+consulApiCheckCommand() { consulApiCheck; }
 consulApiPutCommand() { consulApiPut "$path" "${otherArgs[@]}"; }
 
 consulApi() { RunLog curl --silent --show-error --header "X-Consul-Token: $CONSUL_HTTP_TOKEN" "$CONSUL_HTTP_ADDR/v1/$(RemoveTrim "$1" "/")" "${@:2}"; }
@@ -1136,8 +1138,10 @@ consulApiCheck()
 	! IsAvailablePort "$host" "$port" && { [[ ! $quiet ]] && ScriptErr "consul server $host is not available on port $port"; return 1; }	
 
 	# check api
-	consulApi "/agent/leader" >&/dev/null && return
-	[[ ! $quiet ]] && { ScriptErr "the consul API at $(productVarGet "ADDR") is not available"; consulApi "/agent/leader"; return 1; }
+	consulApi "/status/leader" 2> /dev/null | RemoveQuotes | RemovePort | IsIpAddress && return
+
+	# API is not available
+	[[ ! $quiet ]] && { ScriptErr "the consul API at $(productVarGet "ADDR") is not available"; consulApi "/status/leader"; return 1; }
 
 	return 0
 }
@@ -2505,99 +2509,99 @@ removeCli()
 
 resolveUsage()
 {
-	echot "Usage: $(ScriptName) resolve SERVICE
-Return the first available server for the specified service.
+	echot "Usage: $(ScriptName) resolve [api|dig|names|nslookup|passing|list](passing) SERVICE
+Resolve the nodes of a service.
 
-	-a, --all							return all available servers instead of the just the first
-	-m, --method=api|dig|dns|list|nslookup
-		api					use the API to return available servers as JSON
-		dig					use dig to return available servers
-		dns					use DNS to return available servers
-		nslookup		use nslookup to return available servers
-		list				use the API to return a list of available servers"
+	api					use the API to return all service nodes as JSON
+	dig					use dig to return passing service nodes
+	list				list of service nodes
+	name				return one passing service node DNS name
+	nslookup		use nslookup to return passing servers
+	passing			return one passing service node IP address
+
+  -a, --all		return all passing service nodes"
 }
 
-resolveArgStart() { unset -v all method name; }
+resolveArgStart() { unset -v all name; }
+resolveArgs() { ScriptArgGet "name" -- "$@"; shift; }
 
 resolveOpt()
 {
 	case "$1" in
 		-a|--all) all="true";;
-		-m|--method|-m=*|--method=*) ScriptOptGet "method" "$@";;
 		*) return 1;;
 	esac
 }
 
-resolveArgs() { ScriptArgGet "name" -- "$@"; shift; }
+resolveCommand() { resolvePassingCommand; }
+resolvePassingCommand() { resolve "$name" "$all"; }
 
-resolveCommand()
+resolveApiCommand()
 {
-	productInit "consul" || return
-
-	case "$method" in
-		"") short="true" resolveDns "$name";;
-		api) resolveApi "$name";;
-		dig) resolveDig "$name";;
-		dns) resolveDns "$name";;
-		nslookup) resolveNslookup "$name";;
-		list) resolveApi "$name" | jq ".[].Node" | RemoveQuotes | sort | uniq;;
-		*) ScriptErr "unknown method '$method'"; return 1;;
-	esac
-}
-
-resolve() { all="" short="true" resolveDns "$1"; }
-
-resolveApi()
-{
-	local name="$1"
-	log1 "using API to resolve service '$name'"
+	log1 "using API to resolve the '$name' service"
 	local product="consul"; productInit --no-token "$product" || return
-
 	test="" RunLog curl --silent --show-error "$(productVarGet "ADDR")/v1/catalog/service/$name"
 }
 
-resolveDig()
+resolveDigCommand()
 {
-	local name="$(serviceDnsName "$1")"
-
-	log1 "using dig to resolve '$name'"
-	local server; server="$(getConsulServer)" || return
-
-	# resolve
-	[[ ! $short ]] && { test="" RunLog dig "@$server" -p 8600 "$name" SRV; return; }
-
-	# resolve short - only return IP
-	local ip; ip="$(test="" RunLog dig "@$server" -p 8600 "$name" A +short)"
-	[[ ! $ip ]] && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
-	log1 "dig resolved '$name' to '$(echo "$ip" | NewlineToSpace | RemoveSpaceTrim)'"
-	echo "$ip"
+	log1 "using dig to resolve the '$name' service"
+	name="$(serviceDnsName "$name")" || return
+	local server; server="$(getDnsServer)" || return
+	test="" RunLog dig "@$server" -p 8600 "$name" SRV
 }
 
-resolveDns()
+resolveListCommand()
 {
-	local name="$1"
+	log1 "using API to resolve the '$name' service to a list of available nodes"
+	test="" resolveApiCommand | jq ".[].Node" | RemoveQuotes | sort | uniq; 
+}
+
+resolveNameCommand()
+{
+	local ip ips; ips="$(resolvePassingCommand | sort --numeric)" || return
+	for ip in ${ips[@]}; do
+		DnsResolve "$ip" || return
+	done
+}
+
+resolveNslookupCommand()
+{
+	log1 "using nslookup to resolve the '$name' service"
+	name="$(serviceDnsName "$name")" || return
+	local server; server="$(getDnsServer)" || return
+	test="" RunLog nslookup -port=8600 -type=a -norecurse "$name" "$server"
+}
+
+resolve()
+{
+	local name="$1" all="$2"
 	local filter=(head -1); [[ $all ]] && { filter=(cat); }
 
 	if InPath dig; then
 		resolveDig "$name" | "${filter[@]}" || return
-	elif ! IsBusyBox "nslookup"; then
+	elif InPath "nslookup" && ! IsBusyBox; then # nslookup does not work properly on BusyBox
 		resolveNslookup "$name" | "${filter[@]}" || return
 	else
 		[[ ! $quiet ]] && HostUnresolved "$name"; return 1
 	fi
 }
 
+resolveDig()
+{
+	local name; name="$(serviceDnsName "$1")" || return
+	local server; server="$(getDnsServer)" || return
+	local ip; ip="$(test="" RunLog dig "@$server" -p 8600 "$name" A +short)"
+	[[ ! $ip ]] && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
+	log1 "dig resolved '$name' to '$(echo "$ip" | NewlineToSpace | RemoveSpaceTrim)'"
+	echo "$ip"
+}
+
 resolveNslookup()
 {
-	local name="$(serviceDnsName "$1")"
+	local name; name="$(serviceDnsName "$1")" || return
+	local server; server="$(getDnsServer)" || return
 
-	log1 "using nslookup to resolve '$name'"
-	local server; server="$(getConsulServer)" || return
-
-	# resolve
-	[[ ! $short ]] && { test="" RunLog nslookup -port=8600 -type=a -norecurse "$name" "$server"; return; }
-
-	# resolve short - only return IP
 	local result; result="$(test="" RunLog nslookup -port=8600 -type=a -norecurse "$name" "$server")"
 	(( $? != 0 )) && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
 
@@ -2610,16 +2614,6 @@ resolveNslookup()
 	
 	log1 "nslooklup resolved '$name' to '$(echo "$ip" | NewlineToSpace | RemoveSpaceTrim)'"
 	echo "$ip"
-}
-
-# getConsulServer - get a consul server that is available for DNS queries on port 8600
-getConsulServer()
-{
-	local server="$(productGetServer "consul")"
-	log1 "found consul consul server '$server'"
-	[[ ! $server ]] && { [[ ! $quiet ]] && ScriptErr "no consul server found"; return 1; }
-	! IsAvailablePort "$server" 8600 && { [[ ! $quiet ]] && ScriptErr "consul server $server port 8600 is not available"; return 1; }
-	echo "$server"
 }
 
 #
@@ -3757,6 +3751,16 @@ forAllHosts()
 	for host in "${hosts[@]}"; do
 		"$@" "$host" || return
 	done
+}
+
+# getDnsServer - get an available consul server for DNS queries on port 8600
+getDnsServer()
+{
+	local server="$(productGetServer "consul")"
+	log1 "found consul consul server '$server'"
+	[[ ! $server ]] && { [[ ! $quiet ]] && ScriptErr "no consul server found"; return 1; }
+	! IsAvailablePort "$server" 8600 && { [[ ! $quiet ]] && ScriptErr "consul server $server port 8600 is not available"; return 1; }
+	echo "$server"
 }
 
 # getHosts [HOSTS]
