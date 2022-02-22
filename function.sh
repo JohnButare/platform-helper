@@ -140,7 +140,9 @@ ActualUser() { echo "${SUDO_USER-$USER}"; }
 UserExists() { getent passwd "$1" >& /dev/null; }
 GroupAdd() { local group="$1"; GroupExists "$group" && return; sudoc groupadd "$group"; }
 GroupAddUser() { local group="$1" user="${2:-$USER}"; GroupAdd "$group" || return; UserInGroup "$user" "$group" && return; sudo adduser "$user" "$group"; }
+GroupDelete() { local group="$1"; ! GroupExists "$group" && return; sudoc groupdel "$group"; }
 GroupExists() { getent group "$1" >& /dev/null; }
+GroupList() { getent group; }
 UserInGroup() { id "$1" | grep -q "($2)"; } # UserInGroup USER GROUP
 
 UserCreate()
