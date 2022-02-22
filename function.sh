@@ -667,6 +667,7 @@ fi
 # File System
 #
 
+CloudGet() { IsPlatform win && [[ -f "$1" ]] && ( cd "$(GetFilePath "$1")"; cmd.exe /c type "$(GetFileName "$1")"; ) >& /dev/null; echo "$1"; } # force the file to be downloaded from the cloud, as WSL reads of the file do not trigger online-only file download in Dropbox
 CopyFileProgress() { rsync --info=progress2 "$@"; }
 DirCount() { RemoveSpace "$(command ls "$1" | wc -l)"; return "${PIPESTATUS[0]}"; }
 EnsureDir() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
@@ -1179,6 +1180,7 @@ ipinfo()
 # IsIpAddress IP - return true if the specified IP is an IP address
 IsIpAddress()
 {
+	GetArgs
   local ip="$1"
   [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && return 1
 	

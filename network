@@ -7,7 +7,7 @@ init()
 {
 	defaultCommand="center"
 
-	wpadFile="/srv/apache/htdocs/autoproxy/wpad.dat"
+	wpadFile="/srv/apache-web/htdocs/autoproxy/wpad.dat"
 	
 	adapterKey='HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Network​'
 	profileKey='HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/NetworkList/Profiles/'
@@ -631,31 +631,32 @@ proxyWpadDisable() { proxyWpadConfigure "disable"; }
 
 proxyWpadStatus()
 {
-	local server; IFS=$'\n' servers=( $(GetServers "web") ) || return
-	for server in "${servers[@]}"; do
-		printf "$server: "
-		ssh "$server" cat "$wpadFile" | grep "PROXY" > /dev/null && echo "enabled" || echo "disabled"; 
+	local host hosts; IFS=$'\n' hosts=( $(GetServers nomad-client) ) || return
+
+	for host in localhost ${hosts[@]}; do
+		printf "$(GetHostname "$host"): "
+		RunLog RunScript "${globalArgs[@]}" --ssh "$host" "$(cat <<-EOF
+			if [[ ! -f "$wpadFile" ]]; then echo "missing"
+			elif grep --quiet "PROXY" "$wpadFile"; then echo "enabled"
+			elif grep --quiet "DIRECT" "$wpadFile"; then echo "disabled"
+			else echo "invalid"
+			fi
+				EOF
+			)" || return
 	done
 }
 
 proxyWpadConfigure()
 {
 	local operation="$1"
-	local src="$CLOUD/network/system/proxy/wpad.dat.$operation"
+	local src="$(CloudGet "$CLOUD/network/system/proxy/wpad.dat.$operation")"
 
-	# check for configuration file
+	# validate
 	[[ ! -f "$src" ]] && { ScriptErr "WPAD configuration file '$src' does not exist"; return 1; }
+	[[ ! -f "$wpadFile" ]] && { ScriptErr "local web deployment directory does not exist"; return 1; }
 
-	# copy the configuration file to each web server
-	local server; IFS=$'\n' servers=( $(GetServers "web") ) || return
-	for server in "${servers[@]}"; do
-		printf "$server: "
-		local dest="//$server/admin$wpadFile"
-		local dir; dir="$(unc mount "$(GetFilePath "$dest")")" || return
-		cp "$src" "$dir/"$(GetFileName "$dest") || return
-		unc unmount "$dest" || return
-		echo "${operation}d"
-	done
+	# deploy
+	cp "$src" "$wpadFile" && inst ApacheSync
 }
 
 # vars
