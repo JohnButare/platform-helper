@@ -687,6 +687,7 @@ IsDirEmpty() { GetArgs; [[ "$(find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
 InPath() { local f option; IsZsh && option="-p"; for f in "$@"; do ! which $option "$f" >& /dev/null && return 1; done; return 0; }
 InPathAny() { local f option; IsZsh && option="-p"; for f in "$@"; do which $option "$f" >& /dev/null && return; done; return 1; }
 IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff "$1" "$2" >& /dev/null; }
+IsWindowsFile() { drive IsWin "$1"; }
 IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
 
@@ -1147,7 +1148,7 @@ GetServer()
 	DnsResolve "$ip" "$@"
 }
 
-GetServers() { GetIpAddress --all "$1.service" | sort --numeric | xargs -n 1 RunScript DnsResolve; }
+GetServers() { hashi resolve name --all "$@"; }
 
 # ipconfig [COMMAND] - show or configure network
 ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
@@ -1946,7 +1947,7 @@ IsProcessRunning()
 }
 
 # IsWindowsProces: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
-IsWindowsProces() 
+IsWindowsProcess() 
 {
 	if IsPlatform win; then
 		file "$file" | grep PE32 > /dev/null; return;
@@ -2248,7 +2249,8 @@ CertView() { local c; for c in "$@"; do openssl x509 -in "$c" -text; done; }
 SudoCheck() { [[ ! -r "$1" ]] && sudo="sudoc"; } # SudoCheck FILE - set sudo variable to sudoc if user does not have read permissiont to the file
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
 
-# sudoc COMMANDS - use the credential store to get the password if available, --preserve|-p to preserve the existing path (less secure)
+# sudoc COMMANDS - run COMMANDS using sudo and use the credential store to get the password if available
+#   --preserve|-p   preserve the existing path (less secure)
 sudoc()
 { 
 	IsRoot && { env "$@"; return; } # use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
@@ -2271,8 +2273,25 @@ sudoc()
 # sudoe FILE - sudoedit with credentials
 sudoe()  
 { 
+	local file="$1"
+
+	# validation
+	[[ ! -f "$file" ]] && { ScriptErr "file '$file' does not exist"; return 1; }
+
+	# edit Windows files
+	if IsPlatform win && IsWindowsFile "$1"; then
+		if sublime IsRunning; then # sublime will not run elevated if it is already running
+			echo "Running Notepad elevates since Sublime is already running..."
+			elevate notepad.exe "$@"; return
+		else
+			elevate sublime start "$@"; return;
+		fi
+	fi
+
+	# edit file directly if we are root
 	IsRoot && { sudoedit "$@"; return; }
 
+	# edit the file
 	if InPath sudoedit && credential -q exists secure default; then
 		SUDO_ASKPASS="$BIN/SudoAskPass" sudoedit --askpass "$@"
 	elif InPath sudoedit; then
@@ -2280,6 +2299,13 @@ sudoe()
 	else
 		sudo nano "$@" 
 	fi
+} 
+
+# sudo root [COMMAND] - run commands or a shell as root with access to the users SSH Agent and credential manager
+sudor()
+{
+	(( $# == 0 )) && set -- bash -i
+	sudox SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" CREDENTIAL_MANAGER_CHECKED="true" "$@"
 } 
 
 #
