@@ -66,8 +66,8 @@ serviceInit()
 	if IsPlatform win && [[ "$command" == @(auto|delete|demand|disable|pause|stop) ]]; then
 
 		# Windows elevation
-		if ! isLinuxService "$service" && ! IsElevated; then			
-			elevate RunScript --pause-error -- service $command "$service" $force $hostArg $noHostCheck $noServiceCheck $quiet $wait
+		if ! isLinuxService "$service" && ! IsElevated; then
+			RunLog elevate RunScript --pause-error -- service $command "$service" $force $hostArg $noHostCheck $noServiceCheck $quiet $wait
 			exit $?
 		fi
 
@@ -94,7 +94,12 @@ serviceCheck()
 
 		win)
 			checkSystemd || return
-			isLinuxService "$service" && { _platform="linux"; return; }
+			
+			if isLinuxService "$service"; then
+				log1 "service '$service' is a linux service"
+				_platform="linux"
+				return
+			fi
 
 			local result="$(sc.exe $hostUnc query "$service" | RemoveCarriageReturn |& grep FAILED)"
 			resultCode="${result#*FAILED }"; resultCode="${resultCode%%:}"
@@ -162,9 +167,9 @@ linuxService() # Linux Service Command - COMMAND SERVICE
 	local sudo="sudoc"; [[ "$1" == @(status) ]] && sudo=""
 	if IsPlatform wsl; then 
 		[[ $1 == "auto" ]] && return
-		$sudo "/usr/sbin/service" "$2" "$1"
+		RunLog $sudo "/usr/sbin/service" "$2" "$1"
 	elif [[ $useSystemd ]]; then $sudo systemctl "$1" "$2"
-	else $sudo "/etc/init.d/$2" "$1"
+	else RunLog $sudo "/etc/init.d/$2" "$1"
 	fi
 }
 
@@ -318,7 +323,18 @@ deleteLinux()
 #
 
 detailCommand() { statusCommand && RunPlatform "detail" --host; }
-detailLinux() { linuxService status "$service"; }
+
+detailLinux()
+{
+	if [[ ! $useSystemd ]]; then
+		if [[ -f "/etc/init.d/$service" ]]; then echo "init.d service: /etc/init.d/$service"
+		elif [[ -f "/etc/systemd/system/$service.service" ]]; then echo "systmd service: /etc/systemd/system/$service.service"
+		elif [[ -f "/lib/systemd/system/$service.service" ]]; then echo "systemd service: /lib/systemd/system/$service.service"
+		fi
+	fi
+
+	linuxService status "$service"; 
+}
 
 detailMac()
 {
@@ -411,7 +427,7 @@ logOpt()
 	esac
 }
 
-logCommand() { RunPlatform "log"; }
+logCommand() { RunPlatform "log" --host; }
 logWin() { start eventvwr.msc; }
 
 logLinux()
