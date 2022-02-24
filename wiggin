@@ -11,7 +11,7 @@ Manage the Wiggin network.
 	backup	backup wiggin data
 	device	control devices
 	remove	remove applications from the environment
-	setup		setup the environment
+	setup		setup the network
 	network	configure network	
 	sync		syncronize items"
 }
@@ -606,30 +606,14 @@ networkValidateWait()
 # Setup Command
 #
 
-setupUsage() { echo "Usage: $(ScriptName) setup all|hashi|SystemUser"; }
+setupUsage() { echo "Usage: $(ScriptName) setup all|hashi"; }
 setupCommand() { usage; }
 
-setupAllCommand() {	setupSystemUserCommand && setupHashiCommand && syncCredentialCommand; }
+setupAllCommand() {	setupHashiCommand && setupHashiFinalCommand; }
 
-setupSystemUserCommand()
-{
-	local user="$systemUser"
-
-	if ! grep "^$user" "/etc/passwd" >& /dev/null; then
-		sudoc adduser "$user" --gecos "" --disabled-login || return
-		password linux --user "$user" --password "$(credential gets system default --fallback)" || return
-	fi
-
-	local file="/etc/sudoers.d/020_$user-nopasswd"
-	if ! sudoc ls "$file" >& /dev/null; then 
-		echo "$user ALL=(ALL) NOPASSWD: ALL" | sudo tee "/etc/sudoers.d/020_$user-nopasswd" || return
-	fi
-	
-	if [[ ! -d "$USERS/$user/.ssh" ]]; then
-		sudoc cp -r "$HOME/.ssh" "$USERS/$user/.ssh" || return
-		SshHelper permission "wsystem" || return
-	fi
-}
+# TODO: here
+# web profile restore
+# ApacheNomad NginxProxyManagerNomad
 
 #
 # Setup Hashi Command
@@ -639,48 +623,32 @@ setupHashiUsage() { echot "\
 Usage: $(ScriptName) setup hashi [final|service|test]
 Setup HashiCorp programs."; }
 
-setupHashiArgStart()
-{
-	unset -v configPrefixArg
-}
-
-setupHashiCommand() 
-{	
-	hashiRun install --encrypt || return
-	[[ ! $otherArgs ]] && { setupHashiFinalCommand || return; }
-	return 0
-}
-
-setupHashiTestCommand() { configPrefixArg=( --config-prefix=test ); setupHashiCommand; }
+setupHashiArgStart() { unset -v configPrefixArg; }
+setupHashiCommand() {	inst HashiCluster; }
+setupHashiTestCommand() { inst HashiCluster --test; }
 
 setupHashiFinalCommand()
 {
-	header "Remote Configuration"
+	hilight  "Copying local credentials to the remote Vault server..."
 	hashiRun config set remote || return
-
-	header "Nomad Configuration"
-	hashiRun config deploy nomad "$hashiConfig/config/nomad/03_raw_exec.hcl" --host=all
-
-	header "Service"
-	setupHashiServiceCommand || return
-
-	header "Jobs"
-	hashiJob "backup" || return
-	hashiJob "apache-web" || return
 }
 
 setupHashiServiceCommand()
 {
+	header "Installing Hashi jobs..."
+	hashiJob "backup" || return
+	inst "ApacheNomad" || return
+	inst "NginxProxyManagerNomad" || return
+
+	header "Installing Hashi services..."
 	hashiService "cups" 3 || return
 	hashiService "dns" 1,2 || return
 	hashiService "domotz-agent" 2 || return
 	hashiService "hass" 3 || return
 	hashiService "node-red" 3 || return
 	hashiService "nomad-web" 1,23 || return
-	hashiService "proxy-manager" 3 || return
 	hashiService "squid-proxy" 3 || return
 	hashiService "unifi-controller" 2 || return
-	hashiService "web" 1,2 || return
 }
 
 hashiRun() { hashi "$@" $force $test $verbose "${configPrefixArg[@]}" "${otherArgs[@]}"; }
