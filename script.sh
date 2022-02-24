@@ -147,7 +147,7 @@ ScriptOpt()
 	esac
 }
 
-# ScriptOptGet [--check]] VAR [DESC] OPTION VALUE
+# ScriptOptGet [--check|--integer] VAR [DESC] --OPTION VALUE
 #
 # Set option VAR from OPTION and VALUE
 # - DESC defaults to VAR and is used in the missing option error message
