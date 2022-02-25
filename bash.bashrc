@@ -150,7 +150,7 @@ USER="${USERNAME:-$USER}" DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
 G="" 
 
 case "$PLATFORM" in 
-	mac) USERS="/Users" P="/Applications" G="g" VOLUMES="/Volumes" UADATA="$HOME/Library/Application Support" 
+	mac) USERS="/Users" P="/Applications" G="g" SRV="/opt" VOLUMES="/Volumes" UADATA="$HOME/Library/Application Support" 
 		# Homebrew
 		unset -v HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY
 		if [[ -f "/usr/local/bin/brew" ]]; then export HOMEBREW_PREFIX="/usr/local" HOMEBREW_CELLAR="$HOMEBREW_PREFIX/Cellar" HOMEBREW_REPOSITORY="/usr/local/Homebrew"
