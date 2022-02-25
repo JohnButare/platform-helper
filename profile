@@ -162,7 +162,7 @@ saveCommand()
 		printf 'Backing up to "%s"...\n' "$file"
 		
 		pushd "$src" > /dev/null || return
-		zip -r "$dest/$file" $files -x "*.*_sync.txt*" -x Cache/\* # Cache (Sublime )
+		zip -r "$dest/$file" $files -x "*.*_sync.txt*" -x Cache/\* -x htdocs/netboot.xyz/\* # Cache (Sublime Cache)
 		status="$?"
 		popd > /dev/null || return
 		[[ "$status" != "0" ]] && return "$status"
