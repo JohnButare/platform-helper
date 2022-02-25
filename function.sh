@@ -2079,7 +2079,7 @@ start()
 	else open="NO_OPEN"; fi
 
 	# start Mac application
-	[[ "$file" =~ \.app$ ]] && { open -a "$file" "${args[@]}"; return; }
+	[[ "$file" =~ \.app$ ]] && { echo open -a "$(GetFileNameWithoutExtension "$file")" "${args[@]}"; return; }
 
 	# start directories and URL's
 	{ [[ -d "$file" ]] || IsUrl "$file"; } && { start "${open[@]}" "$file" "${args[@]}"; return; }
