@@ -1,0 +1,579 @@
+#!/bin/bash
+
+trap '{ stty sane; echo ""; errexit "Aborted"; }' SIGINT SIGTERM
+
+FWDIR="/lib/firmware/raspberrypi/bootloader"
+
+MNTPATH="/tmp/rpi-eeprom-mgr-mnt"
+
+errexit()
+{
+  echo ""
+  echo "$1"
+  echo ""
+  if [ "${MNTED}" = "TRUE" ]; then
+    umount "${MNTPATH}/boot/" &> /dev/null
+    umount "${MNTPATH}/" &> /dev/null
+    rm -rf "${MNTPATH}/" &> /dev/null
+  fi
+  exit 1
+}
+
+mntpart()
+{
+  MNTED=TRUE
+  if [ ! -d "${MNTPATH}/" ]; then
+    mkdir "${MNTPATH}/"
+    if [ $? -ne 0 ]; then
+      errexit "Unable to make partition mount point"
+    fi
+  fi
+  mount "$1" "${MNTPATH}/"
+  if [ $? -ne 0 ]; then
+    errexit "Unable to mount $1"
+  fi
+}
+
+umntpart()
+{
+  umount "${MNTPATH}/"
+  if [ $? -ne 0 ]; then
+    errexit "Unable to unmount partition"
+  fi
+  rm -r "${MNTPATH}/"
+  MNTED=FALSE
+}
+
+ckdrvs()
+{
+  local TITLE
+  local DEVICE
+  local BOOTDEVS
+
+  CKDRVS=0
+  TITLE="$1"
+  BOOTDEVS=($(ls /dev/mmcblk0p1 /dev/sd?1 2> /dev/null | sed -n 's|^.*\(/dev/.*\)|\1|p'))
+  if [ ${#BOOTDEVS[@]} -ne 0 ]; then
+    for i in ${!BOOTDEVS[@]}; do
+      DEVICE="${BOOTDEVS[i]}"
+      if [ "$(blkid ${DEVICE} | sed -n 's|^.* TYPE="\(\S\+\)".*|\1|p')" = "vfat" ]; then
+        mntpart "${DEVICE}"
+        if [ "$(ls ${MNTPATH}/pieeprom.bin ${MNTPATH}/pieeprom.sig ${MNTPATH}/pieeprom.upd ${MNTPATH}/recovery.bin ${MNTPATH}/recovery.000 \
+${MNTPATH}/vl805.bin ${MNTPATH}/vl805.sig 2> /dev/null)" != "" ]; then
+          whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "${TITLE}" --yesno "Ok to remove the pending update on ${DEVICE}?" 8 60
+          if [ $? -eq 0 ]; then
+             rm -f "${MNTPATH}"/pieeprom.bin "${MNTPATH}"/pieeprom.sig "${MNTPATH}"/pieeprom.upd
+             rm -f "${MNTPATH}"/recovery.bin "${MNTPATH}"/recovery.000
+             rm -f "${MNTPATH}"/vl805.bin "${MNTPATH}"/vl805.sig
+          else
+            CKDRVS=1
+          fi
+        fi
+        umntpart
+        if [ ${CKDRVS} -ne 0 ]; then
+          break
+        fi
+      fi
+    done
+  fi
+  if [ ${CKDRVS} -eq 0 ]; then
+    whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "${TITLE}" --msgbox "WARNING: Do NOT insert or remove the SD card or \
+power any USB storage devices on or off between now and the completion of the reboot which applies this update!" 10 60
+    CKDRVS=$?
+  fi
+}
+
+dispst()
+{
+  local INFO
+  local LINECNT
+
+  INFO="$(rpi-eeprom-update)"
+  if [ $? -eq 127 ]; then
+    errexit "Error running rpi-eeprom-update"
+  fi
+  INFO="$(echo "${INFO}" | sed '/Use raspi-config/d')"
+  LINECNT=$(echo -ne "${INFO}" | wc -l)
+  whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Display EEPROM Status" --msgbox "${INFO}" $((8 + ${LINECNT})) 74
+}
+
+updble()
+{
+  local RS
+  local FN
+  local RSFN
+  local FILES
+  local INDEX
+  local RESULT
+  local FWFILE
+  local FWFILES
+  local DEFAULTS
+  local MENU_LIST
+
+  ckdrvs "Update Bootloader EEPROM"
+  if [ ${CKDRVS} -eq 0 ]; then
+    FWFILES=()
+    FILES=($(ls -l "${FWDIR}/beta/pieeprom-"* 2> /dev/null | sed -n "s|^.*\(${FWDIR}.*\)$|\1|p"))
+    INDEX=0
+    if [ ${#FILES[@]} -gt 10 ]; then
+      INDEX=$((${#FILES[@]} - 10))
+    fi
+    FWFILES+=(${FILES[@]:${INDEX}})
+    FILES=($(ls -l "${FWDIR}/stable/pieeprom-"* 2> /dev/null | sed -n "s|^.*\(${FWDIR}.*\)$|\1|p"))
+    INDEX=0
+    if [ ${#FILES[@]} -gt 10 ]; then
+      INDEX=$((${#FILES[@]} - 10))
+    fi
+    FWFILES+=(${FILES[@]:${INDEX}})
+    FILES=($(ls -l "${FWDIR}/critical/pieeprom-"* 2> /dev/null | sed -n "s|^.*\(${FWDIR}.*\)$|\1|p"))
+    INDEX=0
+    if [ ${#FILES[@]} -gt 10 ]; then
+      INDEX=$((${#FILES[@]} - 10))
+    fi
+    FWFILES+=(${FILES[@]:${INDEX}})
+    if [ ${#FWFILES[@]} -eq 0 ]; then
+      errexit "No bootloader eeprom files found"
+    fi
+    MENU_LIST=()
+    for i in ${!FWFILES[@]}; do
+      RS="$(sed -n "s|^${FWDIR}/\(.*\)/.*$|\1|p" <<< "${FWFILES[i]}")"
+      RS="$(tr '[:lower:]' '[:upper:]' <<< ${RS:0:1})${RS:1}"
+      if [ "${RS}" = "Beta" ]; then
+        RS="Beta    "
+      elif [ "${RS}" = "Stable" ]; then
+        RS="Stable  "
+      fi
+      FN="$(sed -n "s|^.*pieeprom-\(.*\)$|\1|p" <<< "${FWFILES[i]}")"
+      RSFN="${RS} : ${FN}"
+      MENU_LIST+=("${FWFILES[i]}" "${RSFN}")
+    done
+    FWFILE="$(whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Update Bootloader EEPROM" --notags --menu \
+"\nSelect the bootloader EEPROM file to install" $((9 + ${#FWFILES[@]})) 50 ${#FWFILES[@]} "${MENU_LIST[@]}" 3>&1 1>&2 2>&3)"
+    if [[ $? -eq 0 && "${FWFILE}" != "" ]]; then
+      whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Update Bootloader EEPROM" --yesno --defaultno "Reset bootloader configuration to defaults?" 8 50
+      RESULT=$?
+      if [ ${RESULT} -ne 255 ]; then
+        if [ ${RESULT} -eq 0 ]; then
+          DEFAULTS=TRUE
+        else
+          DEFAULTS="FALSE"
+        fi
+        whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Update Bootloader EEPROM" --yesno "Ok to update bootloader EEPROM?" 8 50
+        if [ $? -eq 0 ]; then
+          if [ "${DEFAULTS}" = "TRUE" ]; then
+            rpi-eeprom-update -d -f "${FWFILE}"
+          else
+            rpi-eeprom-update -f "${FWFILE}"
+          fi
+          if [ $? -ne 0 ]; then
+            errexit "rpi-eeprom-update failed"
+          fi
+          whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Update Bootloader EEPROM" --yesno "Reboot required, Ok to reboot now?" 8 50
+          if [ $? -eq 0 ]; then
+            shutdown -r now
+          fi
+        fi
+      fi
+    fi
+  fi
+}
+
+editcf()
+{
+  local INFO1
+  local INFO2
+  local FWFILE
+  local FWPATH
+  local LINECNT
+  local FILETIME
+
+  ckdrvs "Edit Bootloader Configuration"
+  if [ ${CKDRVS} -eq 0 ]; then
+    INFO1="$(vcgencmd bootloader_config)"
+    if [ $? -ne 0 ]; then
+      errexit "Error running 'vcgencmd bootloader_config'"
+    fi
+    INFO2="Current bootloader configuration:\n\n${INFO1}"
+    LINECNT=$(echo -ne "${INFO2}" | wc -l)
+    whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Edit Bootloader Configuration" --yesno --yes-button Edit --no-button Cancel "${INFO2}" $((8 + ${LINECNT})) 50
+    if [ $? -eq 0 ]; then
+      echo "${INFO1}" > /tmp/bootconf.txt
+      nano /tmp/bootconf.txt
+      INFO2="$(cat /tmp/bootconf.txt)"
+      if [ "${INFO1}" = "${INFO2}" ]; then
+        INFO2="No changes made:\n\n${INFO2}"
+        LINECNT=$(echo -ne "${INFO2}" | wc -l)
+        whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Edit Bootloader Configuration" --msgbox "${INFO2}" $((8 + ${LINECNT})) 50
+      else
+        INFO2="Ok to update bootloader configuration?:\n\n${INFO2}"
+        LINECNT=$(echo -ne "${INFO2}" | wc -l)
+        whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Edit Bootloader Configuration" --yesno "${INFO2}" $((8 + ${LINECNT})) 50
+        if [ $? -eq 0 ]; then
+          INFO1="$(vcgencmd bootloader_version)"
+          if [ $? -ne 0 ]; then
+            errexit "Error running 'vcgencmd bootloader_version'"
+          fi
+          FILETIME=$(sed -n "s|^timestamp\s*\(.*\)$|\1|p" <<< "${INFO1}")
+          FWFILE="pieeprom-$(date -I -u --date="@${FILETIME}").bin"
+          FWPATH=("$(find "${FWDIR}" -name "${FWFILE}")")
+          FWPATH=($(printf '%s\n' ${FWPATH[@]}))
+          cp "${FWPATH[0]}" /tmp/pieeprom.bin
+          rpi-eeprom-config /tmp/pieeprom.bin --config /tmp/bootconf.txt --out /tmp/pieeprom-new.bin
+          if [ $? -ne 0 ]; then
+            errexit "rpi-eeprom-config failed"
+          fi
+          rpi-eeprom-update -d -f /tmp/pieeprom-new.bin
+          if [ $? -ne 0 ]; then
+            errexit "rpi-eeprom-update failed"
+          fi
+          rm /tmp/bootconf.txt /tmp/pieeprom.bin /tmp/pieeprom-new.bin
+          whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Edit Bootloader Configuration" --yesno "Reboot required, Ok to reboot now?" 8 50
+          if [ $? -eq 0 ]; then
+            shutdown -r now
+          fi
+        fi
+      fi
+    fi
+  fi
+}
+
+updvle()
+{
+  local RS
+  local FN
+  local RSFN
+  local FILES
+  local INDEX
+  local FWFILE
+  local FWFILES
+  local MENU_LIST
+
+  ckdrvs "Update VL805 (USB) EEPROM"
+  if [ ${CKDRVS} -eq 0 ]; then
+    FWFILES=()
+    FILES=($(ls -l "${FWDIR}/beta/vl805-"* 2> /dev/null | sed -n "s|^.*\(${FWDIR}.*\)$|\1|p"))
+    INDEX=0
+    if [ ${#FILES[@]} -gt 10 ]; then
+      INDEX=$((${#FILES[@]} - 10))
+    fi
+    FWFILES+=(${FILES[@]:${INDEX}})
+    FILES=($(ls -l "${FWDIR}/stable/vl805-"* 2> /dev/null | sed -n "s|^.*\(${FWDIR}.*\)$|\1|p"))
+    INDEX=0
+    if [ ${#FILES[@]} -gt 10 ]; then
+      INDEX=$((${#FILES[@]} - 10))
+    fi
+    FWFILES+=(${FILES[@]:${INDEX}})
+    FILES=($(ls -l "${FWDIR}/critical/vl805-"* 2> /dev/null | sed -n "s|^.*\(${FWDIR}.*\)$|\1|p"))
+    INDEX=0
+    if [ ${#FILES[@]} -gt 10 ]; then
+      INDEX=$((${#FILES[@]} - 10))
+    fi
+    FWFILES+=(${FILES[@]:${INDEX}})
+    if [ ${#FWFILES[@]} -eq 0 ]; then
+      errexit "No VL805 firmware files found"
+    fi
+    MENU_LIST=()
+    for i in ${!FWFILES[@]}; do
+      RS="$(sed -n "s|^${FWDIR}/\(.*\)/.*$|\1|p" <<< "${FWFILES[i]}")"
+      RS="$(tr '[:lower:]' '[:upper:]' <<< ${RS:0:1})${RS:1}"
+      if [ "${RS}" = "Beta" ]; then
+        RS="Beta    "
+      elif [ "${RS}" = "Stable" ]; then
+        RS="Stable  "
+      fi
+      FN="$(sed -n "s|^.*vl805-\(.*\)$|\1|p" <<< "${FWFILES[i]}")"
+      RSFN="${RS} : ${FN}"
+      MENU_LIST+=("${FWFILES[i]}" "${RSFN}")
+    done
+    FWFILE="$(whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Update VL805 (USB) EEPROM" --notags --menu \
+"\nSelect the VK805 (USB) EEPROM file to install" $((9 + ${#FWFILES[@]})) 50 ${#FWFILES[@]} "${MENU_LIST[@]}" 3>&1 1>&2 2>&3)"
+    if [[ $? -eq 0 && "${FWFILE}" != "" ]]; then
+      whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Update VL805 (USB) EEPROM" --yesno "Ok to update VL805 (USB) EEPROM?" 8 50
+      if [ $? -eq 0 ]; then
+        rpi-eeprom-update -u "${FWFILE}"
+        if [ $? -ne 0 ]; then
+          errexit "rpi-eeprom-update failed"
+        fi
+        whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Update VL805 (USB) EEPROM" --yesno "Reboot required, Ok to reboot now?" 8 50
+        if [ $? -eq 0 ]; then
+          shutdown -r now
+        fi
+      fi
+    fi
+  fi
+}
+
+rmpend()
+{
+  whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Remove Pending Update" --yesno "Ok to remove pending EEPROM update?" 8 50
+  if [ $? -eq 0 ]; then
+    rpi-eeprom-update -r
+    if [ $? -ne 0 ]; then
+      errexit "rpi-eeprom-update failed"
+    fi
+  fi
+}
+
+chgfwd()
+{
+  local FWDIR
+
+  FWDIR="$(whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Change Firmware Directory" --notags --menu "\nSelect the firmware directory to use" 12 50 3 \
+"beta" "Beta" "stable" "Stable" "critical" "Critical" 3>&1 1>&2 2>&3)"
+  if [[ $? -eq 0 && "${FWDIR}" != "" ]]; then
+    whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Change Firmware Directory" --yesno "Ok to change firmware directory to "${FWDIR}"?" 8 50
+    if [ $? -eq 0 ]; then
+      sed -i "s|FIRMWARE_RELEASE_STATUS=.*|FIRMWARE_RELEASE_STATUS=\"${FWDIR}\"|" /etc/default/rpi-eeprom-update
+      dispst
+    fi
+  fi
+}
+
+daeupd()
+{
+  whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Disable Automatic EEPROM Updates" --yesno "Ok to disable automatic EEPROM updates?" 8 50
+  if [ $? -eq 0 ]; then
+    systemctl stop rpi-eeprom-update
+    systemctl disable rpi-eeprom-update
+    systemctl mask rpi-eeprom-update
+    cat <<EOF > /lib/systemd/system/rpi-eeprom-cleanup.service
+[Unit]
+Description=Cleanup for Raspberry Pi EEPROM updates
+After=boot.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+ExecStart=/usr/bin/rpi-eeprom-update -r
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl enable rpi-eeprom-cleanup
+    systemctl restart rpi-eeprom-cleanup
+    daeups
+  fi
+}
+
+eaeupd()
+{
+  whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Enable Automatic EEPROM Updates" --yesno "Ok to enable automatic EEPROM updates?" 8 50
+  if [ $? -eq 0 ]; then
+    systemctl stop rpi-eeprom-cleanup
+    systemctl disable rpi-eeprom-cleanup
+    rm /lib/systemd/system/rpi-eeprom-cleanup.service
+    systemctl unmask rpi-eeprom-update
+    systemctl enable rpi-eeprom-update
+    systemctl restart rpi-eeprom-update
+    daeups
+  fi
+}
+
+daeups()
+{
+  local STATUS
+
+  if [ $(systemctl status rpi-eeprom-update | grep -c "rpi-eeprom-update.service is masked") -eq 0 ]; then
+    STATUS="enabled"
+  else
+    STATUS="disabled"
+  fi
+  whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Automatic EEPROM Update Status" --msgbox "Automatic EEPROM updates are ${STATUS}" 8 50
+}
+
+dacebo()
+{
+  local i
+  local INFO
+  local ABORT
+  local BOOT_1
+  local BOOT_2
+  local BOOT_3
+  local LINECNT
+  local BOOT_DEV
+  local BOOT_DEVS
+  local CUR_ORDER
+  local NEW_ORDER
+  local MENU_LIST
+
+  BOOT_DEVS=("Deprecated" "SD CARD" "NETWORK" "RPIBOOT" "USB-MSD")
+  ckdrvs "Display/Change Boot Order"
+  if [ ${CKDRVS} -eq 0 ]; then
+    INFO="$(vcgencmd bootloader_config)"
+    if [ $? -ne 0 ]; then
+      errexit "Error running 'vcgencmd bootloader_config'"
+    fi
+    CUR_ORDER=$(sed -n "s|^BOOT_ORDER=0x\(.*\)$|\1|p" <<< "${INFO}")
+    if [ "${CUR_ORDER}" = "" ]; then
+      CUR_ORDER="f41"
+    fi
+    INFO="Current boot order:\n\n"
+    for (( i = ((${#CUR_ORDER}-1)); i >= 0; i-- ))
+    do
+      BOOT_DEV="${CUR_ORDER:$i:1}"
+      if [ "${BOOT_DEV}" = "f" ]; then
+        break
+      fi
+      INFO="${INFO}${BOOT_DEVS[${BOOT_DEV}]}\n"
+    done
+    LINECNT=$(echo -ne "${INFO}" | wc -l)
+    whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Display/Change Boot Order" --yesno --yes-button Change --no-button Cancel "${INFO}" $((7 + ${LINECNT})) 50
+    if [ $? -eq 0 ]; then
+      BOOT_1="$(whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Display/Change Boot Order" --notags --menu \
+"\nSelect the first device to boot" 12 50 3 "1" "${BOOT_DEVS[1]}" "2" "${BOOT_DEVS[2]}" "4" "${BOOT_DEVS[4]}" 3>&1 1>&2 2>&3)"
+      if [[ $? -eq 0 && "${BOOT_1}" != "" ]]; then
+        MENU_LIST=()
+        for (( i = 1; i <= 4; i++ ))
+        do
+          if [[ "$i" != "3" && "$i" != "${BOOT_1}" ]]; then
+            MENU_LIST+=("$i" "${BOOT_DEVS[$i]}")
+          fi        
+        done
+        MENU_LIST+=("0" "None")
+        BOOT_2="$(whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Display/Change Boot Order" --notags --menu \
+"\nSelect the second device to boot" 12 50 3 "${MENU_LIST[@]}" 3>&1 1>&2 2>&3)"
+        ABORT=TRUE
+        if [[ $? -eq 0 && "${BOOT_2}" != "" ]]; then
+          ABORT=FALSE
+          BOOT_3="0"
+          if [ "${BOOT_2}" != "0" ]; then
+            MENU_LIST=()
+            for (( i = 1; i <= 4; i++ ))
+            do
+            if [[ "$i" != "3" && "$i" != "${BOOT_1}" && "$i" != "${BOOT_2}" ]]; then
+              MENU_LIST+=("$i" "${BOOT_DEVS[$i]}")
+            fi        
+            done
+            MENU_LIST+=("0" "None")
+            BOOT_3="$(whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Display/Change Boot Order" --notags --menu \
+"\nSelect the third device to boot" 11 50 2 "${MENU_LIST[@]}" 3>&1 1>&2 2>&3)"
+            if [[ $? -ne 0 || "${BOOT_3}" = "" ]]; then
+              ABORT=TRUE
+            fi
+          fi
+        fi
+        if [ "${ABORT}" = "FALSE" ]; then
+          NEW_ORDER="${BOOT_1}"
+          if [ "${BOOT_2}" != "0" ]; then
+            NEW_ORDER="${BOOT_2}${NEW_ORDER}"
+          fi
+          if [ "${BOOT_3}" != "0" ]; then
+            NEW_ORDER="${BOOT_3}${NEW_ORDER}"
+          fi
+          NEW_ORDER="0xf${NEW_ORDER}"
+          if [ "${NEW_ORDER}" = "0x${CUR_ORDER}" ]; then
+            whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Display/Change Boot Order" --msgbox "Boot order unchanged" 8 50
+          else
+            INFO="New boot order:\n\n"
+            for (( i = ((${#NEW_ORDER}-1)); i >= 0; i-- ))
+            do
+              BOOT_DEV="${NEW_ORDER:$i:1}"
+              if [ "${BOOT_DEV}" = "f" ]; then
+                break
+              fi
+              INFO="${INFO}${BOOT_DEVS[${BOOT_DEV}]}\n"
+            done
+            LINECNT=$(echo -ne "${INFO}" | wc -l)
+            whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Display/Change Boot Order" --yesno --yes-button Apply --no-button Cancel "${INFO}" $((7 + ${LINECNT})) 50
+            if [ $? -eq 0 ]; then
+              INFO="$(vcgencmd bootloader_config)"
+              if [ $? -ne 0 ]; then
+                errexit "Error running 'vcgencmd bootloader_config'"
+              fi
+              echo "${INFO}" > /tmp/bootconf.txt
+              sed -i '/BOOT_ORDER/d' /tmp/bootconf.txt
+              echo "BOOT_ORDER=${NEW_ORDER}" >> /tmp/bootconf.txt
+              INFO="$(vcgencmd bootloader_version)"
+              if [ $? -ne 0 ]; then
+                errexit "Error running 'vcgencmd bootloader_version'"
+              fi
+              FILETIME=$(sed -n "s|^timestamp\s*\(.*\)$|\1|p" <<< "${INFO}")
+              FWFILE="pieeprom-$(date -I -u --date="@${FILETIME}").bin"
+              FWPATH=("$(find "${FWDIR}" -name "${FWFILE}")")
+              FWPATH=($(printf '%s\n' ${FWPATH[@]}))
+              cp "${FWPATH[0]}" /tmp/pieeprom.bin
+              rpi-eeprom-config /tmp/pieeprom.bin --config /tmp/bootconf.txt --out /tmp/pieeprom-new.bin
+              if [ $? -ne 0 ]; then
+                errexit "rpi-eeprom-config failed"
+              fi
+              rpi-eeprom-update -d -f /tmp/pieeprom-new.bin
+              if [ $? -ne 0 ]; then
+                errexit "rpi-eeprom-update failed"
+              fi
+              rm /tmp/bootconf.txt /tmp/pieeprom.bin /tmp/pieeprom-new.bin
+              whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Display/Change Boot Order" --yesno "Reboot required, Ok to reboot now?" 8 50
+              if [ $? -eq 0 ]; then
+                shutdown -r now
+              fi
+            fi
+          fi
+        fi
+      fi
+    fi
+  fi
+}
+
+if [ $(id -u) -ne 0 ]; then
+  errexit "Must be run as root user: sudo $0"
+fi
+PGMNAME="$(basename $0)"
+for PID in $(pidof -x -o %PPID "${PGMNAME}"); do
+  if [ ${PID} -ne $$ ]; then
+    errexit "${PGMNAME} is already running"
+  fi
+done
+if [[ $(cat /proc/cpuinfo | grep -c "^Revision\s\+:\s\+[abcd]0311[124]$") -eq 0 && $(cat /proc/cpuinfo | grep -c "^Revision\s\+:\s\+c03130$") -eq 0 ]]; then
+  errexit "$0 must be run on a Raspberry Pi 4/400"
+fi
+while :
+do
+  ACTION="$(whiptail --backtitle "Raspberry Pi EEPROM Manager" --title "Available Actions" --notags --menu "" 17 50 10 \
+"DISPST" "Display EEPROM Status" "UPDBLE" "Update Bootloader EEPROM" "EDITCF" "Edit Bootloader Configuration" "UPDVLE" "Update VL805 (USB) EEPROM" \
+"RMPEND" "Remove Pending Update" "CHGFWD" "Change Firmware Directory" "DAEUPD" "Disable Automatic EEPROM Updates" "EAEUPD" "Enable Automatic EEPROM Updates" \
+"DAEUPS" "Automatic EEPROM Update Status" "DACEBO" "Display/Change Boot Order" 3>&1 1>&2 2>&3)"
+  if [[ $? -ne 0 || "${ACTION}" = "" ]]; then
+    break
+  else   
+    case "${ACTION}" in
+      DISPST)
+        dispst
+        ;;
+
+      UPDBLE)
+        updble
+        ;;
+
+      EDITCF)
+        editcf
+        ;;
+
+      UPDVLE)
+        updvle
+        ;;
+
+      RMPEND)
+        rmpend
+        ;;
+
+      CHGFWD)
+        chgfwd
+        ;;
+
+      DAEUPD)
+        daeupd
+        ;;
+
+      EAEUPD)
+        eaeupd
+        ;;
+
+      DAEUPS)
+        daeups
+        ;;
+
+      DACEBO)
+        dacebo
+        ;;
+    esac
+  fi
+done

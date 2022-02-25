@@ -44,43 +44,17 @@ usage: pi firmware apply|channel|configure|dir|edit|info|update
 
 firmwareArgStart()
 {
+	unset -v file;
 	onlyPi || return
 	channel="/etc/default/rpi-eeprom-update"
 	dir="/lib/firmware/raspberrypi/bootloader"
 }
 
 firmwareCommand() { usage; }
-firmwareDirCommand() { echo "$dir"; }
+firmwareApplyCommand() { firmwareGetFile "$@" && sudo rpi-eeprom-update -i -d -f "$file"; }
 firmwareChannelCommand() { sudoedit "$channel"; }
-
-firmwareInfoCommand()
-{
-	header "Update Status"
-	sudo CM4_ENABLE_RPI_EEPROM_UPDATE=1 rpi-eeprom-update
-	echo
-
-	[[ -f "$channel" ]] && { header "Update Channel"; cat "$channel"; }
-	echo
-
-	header "Bootloader Version"
-	sudoc vcgencmd bootloader_version || return
-	
-
-	header "Bootloader Configurationn"
-	sudo vcgencmd bootloader_config | RemoveEmptyLines || return
-}
-
-firmwareApplyCommand()
-{
-	firmwareGetFile "$@" || return
-	sudo rpi-eeprom-update -d -f "$dir/new-config.bin" || return
-}
-
-firmwareEditCommand()
-{
-	firmwareConfigureCommand "$@" || return
-	firmwareApplyCommand || return
-}
+firmwareDirCommand() { echo "$dir"; }
+firmwareEditCommand() { firmwareConfigureCommand "$@" && firmwareApplyCommand; }
 
 firmwareConfigureCommand()
 {
@@ -99,13 +73,31 @@ firmwareConfigureCommand()
 	sudoedit "$config" || return
 
 	# add the configuration to the firmware file
-	if ! diff "$config" "$config.orig" >& /dev/null; then
-		printf "Adding the configuration changes to the firmware file..."
-		sudo rpi-eeprom-config --out "$dir/new-config.bin" --config "$config" "$dir/current.bin" || return
-		echo "done"
-	fi
+	diff "$config" "$config.orig" >& /dev/null && { ScriptErr "the configuration was not changed"; return 1; }
+
+	printf "Adding the configuration changes to the firmware file..."
+	file="$dir/new-config.bin"
+	sudo rpi-eeprom-config --out "$file" --config "$config" "$dir/current.bin" || return
+	echo "done"
 
 	return 0
+}
+
+firmwareInfoCommand()
+{
+	header "Update Status"
+	sudo CM4_ENABLE_RPI_EEPROM_UPDATE=1 rpi-eeprom-update
+	echo
+
+	[[ -f "$channel" ]] && { header "Update Channel"; cat "$channel"; }
+	echo
+
+	header "Bootloader Version"
+	sudoc vcgencmd bootloader_version || return
+	
+
+	header "Bootloader Configurationn"
+	sudo vcgencmd bootloader_config | RemoveEmptyLines || return
 }
 
 firmwareUpdateCommand()
@@ -117,7 +109,8 @@ firmwareUpdateCommand()
 	sudo rpi-eeprom-update -a -i && { ask "Reboot" && power reboot || return 0; }; 
 }
 
-firmwareGetFile() # sets file, dir, and config
+# firmwareGetFile - return if file already set, sets file, dir, and config
+firmwareGetFile()
 {
 	local FIRMWARE_RELEASE_STATUS; . "$channel" || return
 	
