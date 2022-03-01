@@ -256,7 +256,10 @@ browser()
 	fi
 }
 
-# HashiConfig [prod|reset|test]
+# Borg Backup
+BorgConfig() { ScriptEval BorgHelper environment "$@"; }
+
+# HashiCorp
 HashiConfig() { ScriptEval hashi config environment --suppress-errors "$@"; }
 HashiConfigConsul() { [[ $CONSUL_HTTP_ADDR ]] || HashiConfig "$@"; }
 HashiConfigNomad() { [[ $NOMAD_ADDR ]] || HashiConfig "$@"; }
@@ -1753,6 +1756,7 @@ PackageWhich()
 # Platform
 # 
 
+IsPlatformAll() { IsPlatform --all "$@"; }
 PlatformSummary() { echo "$(os architecture) $(PlatformDescription) $(os bits)"; }
 PlatformDescription() { echo "$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"; }
 
@@ -1761,89 +1765,101 @@ if IsBash; then GetPlatformVar() { local v="$1" pv="${PLATFORM^^}_$1"; [[ ${!pv}
 else GetPlatformVar() { local v="$1" pv="${(U)PLATFORM}_$1"; [[ ${(P)pv} ]] && echo "${(P)pv}" || echo "${(P)v}"; }
 fi
 
-# IsPlatform platform[,platform,...] [--host [HOST]] - return true if the host has one of the specified characteristics
-# - if --host is specified, check the specified host instead of localhost.   If the HOST argument is not specified,
-#   use the host from the last call to HostGetInfo.
-function IsPlatform()
+# IsPlatform  platform[,platform,...] [--host [HOST]] - return true if the host matches any of the listed characteristics
+# --all - return true if the host match all of the listed characteristics
+# --host - check the specified host instead of localhost.   If the HOST argument is not specified,
+#          use the _platform host variables set from the last call to HostGetInfo.
+IsPlatform()
 {
-	local platforms=() p; StringToArray "$1" "," platforms; shift
-	
-	# set _platform variables
-	if [[ "$1" == @(-h|--host) ]]; then		
+	local all host platforms=() useHost
+
+	# arguments
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-a|--all) all="true";;
+			-h|--host) useHost="true"; shift; ! IsOption "$1" && { host="$1"; shift; };;
+			*)
+				if ! IsOption "$1" && [[ ! $platforms ]]; then StringToArray "$1" "," platforms
+				else UnknownOption "$1" "IsPlatform"; return
+				fi
+		esac
 		shift
-		[[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; }
-	else
+	done
+
+	# set _platform variables
+	if [[ $useHost && $host ]]; then		
+		ScriptEval HostGetInfo "$host" || return
+	elif [[ ! $useHost ]]; then
 		local _platform="$PLATFORM" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
 
 	# check if the host matches the specified platforms
 	for p in "${platforms[@]}"; do
-		LowerCase "$p" p
-
-		case "$p" in 
-
-			# platform, platformLike, and platformId
-			win|mac|linux) [[ "$p" == "$_platform" ]] && return;;
-			win11) IsPlatform win && (( $(os build) >= 22000 )) && return;;
-			wsl) [[ "$_platform" == "win" && "$_platformLike" == "debian" ]] && return;; # Windows Subsystem for Linux
-			wsl1|wsl2) [[ "$p" == "wsl$_wsl" ]] && return;;
-			debian|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]] && return;;
-			dsm|qts|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]] && return;;
-
-			# hardware
-			cm4) grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo" && return;;
-
-			# kernel
-			winkernel) [[ "$_platformKernel" == @(wsl1|wsl2) ]] && return;;
-			linuxkernel) [[ "$_platformKernel" == "linux" ]] && return;;
-			pikernel) [[ "$_platformKernel" == "pi" ]] && return;;
-
-			# operating system
-			32|64) [[ "$p" == "$(os bits "$_machine" )" ]] && return;;
-
-			# package management
-			apt) InPath apt && return;;
-			entware) IsPlatform qnap,synology && return;;
-			ipkg) InPath ipkg && return;;
-			opkg) InPath opkg && return;;
-
-			# processor
-			arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]] && return;;
-
-			# software
-			busybox) InPath busybox && return;;
-
-			# virtualization
-			container) IsContainer && return;;
-			docker) IsDocker && return;;
-			swarm) InPath docker && docker info |& command grep "^ *Swarm: active$" >& /dev/null && return;; # -q does not work reliably on pi2
-			chroot) IsChroot && return;;
-			host|physical) ! IsChroot && ! IsContainer && ! IsVm && return;;
-			guest|vm|virtual) IsVm && return;;
-
-		esac
-
-		[[ "$p" == "${platform}${platformId}" ]] && return 0 # i.e. LinuxUbuntu WinUbuntu
+		if [[ $all ]]; then
+			! IsPlatform "$p" "$@" && return 1			
+		else
+			isPlatformDo "$p" && return
+		fi
 	done
 
-	return 1
+	[[ $all ]]
+}
+	
+isPlatformDo()
+{
+	local p="$1"; LowerCase "$p" p
+
+	case "$p" in 
+
+		# platform, platformLike, and platformId
+		win|mac|linux) [[ "$p" == "$_platform" ]];;
+		win11) IsPlatform win && (( $(os build) >= 22000 ));;
+		wsl) [[ "$_platform" == "win" && "$_platformLike" == "debian" ]];; # Windows Subsystem for Linux
+		wsl1|wsl2) [[ "$p" == "wsl$_wsl" ]];;
+		debian|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]];;
+		dsm|qts|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]];;
+
+		# hardware
+		cm4) grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo";;
+
+		# hashi
+		consul|nomad|vault) service running "$p";;
+
+		# kernel
+		winkernel) [[ "$_platformKernel" == @(wsl1|wsl2) ]];;
+		linuxkernel) [[ "$_platformKernel" == "linux" ]];;
+		pikernel) [[ "$_platformKernel" == "pi" ]];;
+
+		# operating system
+		32|64) [[ "$p" == "$(os bits "$_machine" )" ]];;
+
+		# package management
+		apt) InPath apt;;
+		entware) IsPlatform qnap,synology;;
+		ipkg) InPath ipkg;;
+		opkg) InPath opkg;;
+
+		# processor
+		arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]];;
+
+		# software
+		busybox) InPath busybox;;
+
+		# virtualization
+		container) IsContainer;;
+		docker) IsDocker;;
+		swarm) InPath docker && docker info |& command grep "^ *Swarm: active$" >& /dev/null;; # -q does not work reliably on pi2
+		chroot) IsChroot && return;;
+		host|physical) ! IsChroot && ! IsContainer && ! IsVm;;
+		guest|vm|virtual) IsVm;;
+		*) return 1;;
+
+	esac
+
 }
 
 # IsBusyBox FILE - return true if the specified file is using BusyBox
 IsBusyBox() { [[ "$(readlink -f "$(which nslookup)")" == "$(which "busybox")" ]]; }
-
-# IsPlatformAll platform[,platform,...]
-# return true if the current platform has all of the listed characteristics
-IsPlatformAll()
-{
-	local platforms=() p; StringToArray "$1" "," platforms; shift
-
-	for p in "${platforms[@]}"; do
-		! IsPlatform "$p" "$@" && return 1
-	done
-
-	return 0
-}
 
 function GetPlatformFiles() # GetPlatformFiles FILE_PREFIX FILE_SUFFIX
 {
