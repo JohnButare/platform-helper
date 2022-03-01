@@ -100,9 +100,7 @@ connectCommand()
 	[[ ! $port ]] && { port="$(getConfig "$host" "port")" || return; }
 
 	# logging
-	[[ $verbose ]] && PrintErr "$(ScriptPrefix)inSshConfig=$inSshConfig host=%s hostOrig=$hostOrig port=$port user=%s\n" \
-		"${ip:-$(getConfig "$host" "hostname")}" \
-		"${user:-$(getConfig "$host" "user")}"
+	[[ $verbose ]] && log1 "inSshConfig=$inSshConfig host=${ip:-$(getConfig "$host" "hostname")} hostOrig=$hostOrig port=$port user=${user:-$(getConfig "$host" "user")}"
 
 	# wait for SSH to become available if needed
 	if [[ $wait ]]; then
@@ -120,8 +118,7 @@ connectCommand()
 	local args=() quietArg
 	[[ $user ]] && args+=("$user@$host") || args+="$host"
 	[[ $port ]] && args+=(-p "$port")
-	[[ ! $mosh && ! $verbose ]] && quietArg="-q" # supresses warnings first time through
-
+	
 	if [[ $commandsArg ]]; then
 		args+=(-- bash $interactive -c "\"$commandsArg\"" "${otherArgs[@]}")
 	elif [[ $interactive && $otherArgs ]]; then
@@ -137,29 +134,37 @@ connectCommand()
 	# WSL 1 does not support X sockets over ssh and requires localhost
 	IsPlatform wsl1 && export DISPLAY="localhost:0"
 	
-	# get the SSH command
+	# get the command
 	local command
 	if [[ $mosh ]]; then
 		command="mosh"
 	elif [[ ! $x ]]; then
-		command="ssh $pseudoTerminal"
+		command="ssh"
 	elif IsPlatform mac,wsl2; then # WSL2 and macOS XQuartz requires trusted X11 forwarding (X programs are trusted to use all X features on the host)
-		command="ssh -Y $pseudoTerminal"
+		command="ssh -Y"
 	else # for everything else, use untrusted X Forwarding, where X programs are not trusted to use all X features on the host
-		command="ssh -X $pseudoTerminal"
+		command="ssh -X"
 	fi
 
-	[[ $trust ]] && command+=" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-	[[ $verbose ]] && { EchoErr "command=$command $@"; }
+	# add SSH arguments
+	if [[ "$command" != "mosh" ]]; then
+		[[ ! $verbose ]] && command+=" -q" 																									# supress warnings
+		(( verboseLevel > 1 )) && command+=" -$(StringRepeat v $((verboseLevel - 1)))"			# SSH verbosity is 1 less that what is called for to reduce noise
+		[[ $pseudoTerminal ]] && command+=" $pseudoTerminal"
+		[[ $trust ]] && command+=" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+	fi
+
+	# logging
+	log1 "command: $command $@"
 	[[ $test ]] && return
 
 	# connect
 	local result
 	if [[ "$password" ]]; then
-		command="spawn -noecho $command $verbose $quietArg "$@"; expect \"password:\"; send \"$password\r\"; interact"
+		command="spawn -noecho $command "$@"; expect \"password:\"; send \"$password\r\"; interact"
 		expect -c "$command"
 	else
-		$command $verbose $quietArg "$@"
+		$command "$@"
 	fi
 	result="$?"
 	
