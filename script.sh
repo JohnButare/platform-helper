@@ -135,16 +135,25 @@ ScriptOpt()
 	# global option
 	case "$1" in
 		-f|--force) force="--force";;
-		-h|--help) usage 0;;
+		-h|--help) scriptOptVerbose "$@"; usage 0;;
 		-np|--no-prompt) noPrompt="--no-prompt";;
 		-q|--quiet) quiet="--quiet";;
 		-t|--test) test="--test";;
 		-v|--verbose) verbose="-v"; verboseLevel=1;;
 		-vv) verbose="-vv"; verboseLevel=2;;
 		-vvv) verbose="-vvv"; verboseLevel=3;;
+		-vvvv) verbose="-vvvv"; verboseLevel=4;;
 		-w|--wait) wait="--wait";;
 		*) UnknownOption "$1";;
 	esac
+}
+
+scriptOptVerbose()
+{
+	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
+		[[ "$1" == @(--verbose|-v|-vv|-vvv|-vvvv) ]] && { verbose="$1"; return; }
+		shift; 
+	done
 }
 
 # ScriptOptGet [--check|--integer] VAR [DESC] --OPTION VALUE
@@ -315,10 +324,12 @@ ScriptUsage()
 	-w, --wait				wait for the operation to complete
 	--     						signal the end of arguments"
 
+	[[ $verbose ]] && IsFunction usageVerbose && usageVerbose
+
 	exit "${1:-1}"
 }
 
-# ScriptUsageEcho MESSAGE - show usage message with tabs.   
+# ScriptUsageEcho MESSAGE - show usage message with tabs
 ScriptUsageEcho()
 {
 	# output to standard error if we are being called from ScriptEval (which sets SCRIPT_EVAL), otherwise
