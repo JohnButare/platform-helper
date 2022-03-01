@@ -40,7 +40,7 @@ usage: RunScript [OPTION]... [--] SCRIPT
 args()
 {
 	declare -g script=() windowStyle="--window-style hidden"
-	unset -v elevate hashi hashiService multiple pause pauseError ssh sshAgent verbose
+	unset -v elevate hashi hashiService multiple pause pauseError ssh sshAgent verbose verboseLevel
 			
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -55,7 +55,10 @@ args()
 			-pe|--pause-error) pauseError="true";;
 			-sa|--ssh-agent) sshAgent="true";;
 			-s|--ssh) ssh="$2"; shift;;
-			-v|--verbose) verbose="--verbose";;
+			-v|--verbose) verbose="-v"; verboseLevel=1;;
+			-vv) verbose="-vv"; verboseLevel=2;;
+			-vvv) verbose="-vvv"; verboseLevel=3;;
+			-vvvv) verbose="-vvvv"; verboseLevel=4;;
 			-x) InitializeXServer || return;;
 			*)
 				[[ "$1" == "--" ]] && { shift; script+=( "$@" ); break; }
@@ -79,19 +82,21 @@ runScript()
 	[[ $hashi ]] && { ScriptEval hashi config environment --suppress-errors $verbose || return; }
 
 	# configure the SSH agent
-	[[ $sshAgent ]] && { SshAgentStart --quiet $verbose || return; }
+	[[ $sshAgent ]] && { SshAgentStart "$verbose" || return; }
 
 	# run the script
 	if [[ $ssh ]]; then
 		runScriptSsh "$ssh" "${script[@]}"
 	else
+		[[ $verbose ]] && { ScriptErr "running the following script locally:"; echo "$multiple \"${script[@]}\"" | AddTab >& /dev/stderr; }
 		$multiple "${script[@]}"
 	fi
 	local result="$?"
+	[[ $verbose ]] && ScriptErr "the script returned $result"
 
 	# pause
 	if [[ "$result" != "0" && $pauseError ]]; then
-		EchoErr "RunScript: the script returned error $result"
+		EchoErr "The script returned error $result."
 		pause
 	elif [[ $pause ]]; then
 		pause
@@ -113,12 +118,16 @@ runScriptSsh()
 	)"
 
 	if IsLocalHost "$host"; then
+		[[ $verbose ]] && { ScriptErr "running the following script locally:"; echo "$script" | AddTab >& /dev/stderr; }
 		bash -c "$script"
 	else
 		# DISPLAY="" - disable warning "Warning: No xauth data; using fake authentication data for X11 forwarding."
 		# -X - enable X11 forwardining for credential store access
 		# -t - allocate a pseudo-terminal to allow the sudo password to be entered on the terminal if needed
-		DISPLAY="" ssh -q -X -t "$host" "$script"
+		local args=(-q -X -t)
+
+		[[ $verbose ]] && { ScriptErr "running the following script on '$host':"; echo "$script" | AddTab >& /dev/stderr; }
+		DISPLAY="" ssh "${args[@]}" "$host" "$script"
 	fi
 }
 
@@ -142,7 +151,7 @@ runScriptElevated() # run commands elevated that has quoted arguments
 		echo \${PIPESTATUS[0]} > $scriptResult
 		EOF
 
-	[[ $verbose ]] && { HilightErr "Elevating the following script using '$scriptFile':"; cat "$scriptFile" | AddTab >& /dev/stderr; unset windowStyle; }
+	[[ $verbose ]] && { ScriptErr "elevating the following script using '$scriptFile':"; cat "$scriptFile" | AddTab >& /dev/stderr; unset windowStyle; }
 
 	# ensure the user with an elevated token can run the script
 	chmod ugo+x "$scriptFile" || return
@@ -161,7 +170,7 @@ runScriptElevated() # run commands elevated that has quoted arguments
 	
 	# get the script result (return code) if it was created (if the script was killed, cancelled, or interrupted it will not have a result)
 	[[ -f "$scriptResult" ]] && scriptResult="$(cat "$scriptResult")"
-	[[ $verbose ]] && { HilightErr "Script result: ${RESET}${scriptResult}"; }
+	[[ $verbose ]] && ScriptErr "script result: ${RESET}${scriptResult}"
 
 	# cleanup
 	rm -fr "$dir"
@@ -186,7 +195,7 @@ LoadFunctions()
 		elif [[ ! -f "$f" ]]; then EchoErr "Unable to find function.sh"; pause; return 1
 		fi
 	fi
-	. "$f" || { EchoErr "Unexpected error sourcing function.sh"; pause; return 1; }
+	. "$f" || { EchoErr "RunScript: unexpected error sourcing function.sh"; pause; return 1; }
 }
 
 run "$@"
