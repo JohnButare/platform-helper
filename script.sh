@@ -114,6 +114,9 @@ RunLog()
 	"$@"
 }
 
+RunLogQuiet() { RunLog RunQuiet "$@"; }
+RunLogSilent() { RunLog RunSilent "$@"; }
+
 #
 # Script Options
 # 
@@ -148,6 +151,7 @@ ScriptOpt()
 	esac
 }
 
+# scriptOptVerbose - find a verbose option and set the verbose variable to it
 scriptOptVerbose()
 {
 	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
@@ -170,6 +174,7 @@ ScriptOptGet()
 	local scriptVar="$1"; shift
 	local scriptDesc="$scriptVar"; ! IsOption "$1" && { scriptDesc="$1"; shift; }
 	local opt="$1"; shift
+	local value
 
 	# format: -o=VAL --option=VAL
 	if [[ "$opt" =~ = ]]; then
@@ -273,7 +278,8 @@ ScriptRun()
 	for c in "${commands[@]}"; do
 		shift=0; RunFunction "${c}Args" -- "$@" || return; shift "$shift"
 	done
-	(( $# != 0 )) && { ExtraOperand "$@"; return 1; }
+
+	(( $# != 0 )) && { ExtraOperand "$1"; return 1; }
 
 	# arg end
 	for c in "${commands[@]}"; do

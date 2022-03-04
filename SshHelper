@@ -1,17 +1,9 @@
 #!/usr/bin/env bash
 . script.sh || exit
 
-usage()
-{
-	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [COMMAND]...
-Additional SSH commands.
-	
-	config HOST VALUE		return SSH configuration value for HOST
-	connect HOST				connect to a host using SSH
-	permission USER			fix SSH permissions for user
-	regenerate					regenerate host keys"
-}
+usage() {	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... config|connect|regenerate
+Additional SSH commands."; }
 
 init() { defaultCommand="connect"; }
 argStart() { unset -v file force; }
@@ -20,15 +12,106 @@ argStart() { unset -v file force; }
 # Config Command
 #
 
-configUsage()
+configUsage() {	echot "Usage: $(ScriptName) config check|diff|edit|get|sync\nSSH configuration configuration."; }
+configCommand() { usage; }
+configEditCommand() { TextEdit ~/.ssh/config; }
+
+#
+# config check command
+#
+
+configCheckUsage() {	echot "Usage: $(ScriptName) config check HOST\n.Return true if HOST matches an entry in ~/.ssh/config."; }
+configCheckArgs() { ScriptArgGet "host" -- "$@"; }
+configCheckCommand() { configCheck "$host"; }
+
+configCheck() 
 {
-	echot "Usage: $(ScriptName) config HOST VALUE
-Return the SSH configuration value for HOST from the SSH configuration."
+	local hostFull="$1" host="$(GetSshHost "$1")" defaultFull default="DEFAULT_CONFIG"
+	defaultFull="${hostFull/$host/$default}"
+
+	# if the SSH configuration changes a value other than the host, return 0 (host in SSH config)
+	[[ "$(ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$")" != "$(ssh -G "$hostFull" | grep -i -v "^hostname ${host}$")" ]] && return 0
+
+	 # if the host is unchanged return 1 (host not in SSH config)
+	ssh -G "$hostFull" | grep -i "^hostname ${host}$" >& /dev/null && return 1
+
+	# the host is changed, return 0 (host is in SSH config)
+	return 0
 }
 
-configArgStart() { host="" value=""; }
-configArgs() { ScriptArgGet "host" -- "$@"; shift; ScriptArgGet "value" -- "$@"; shift; }
-configCommand() { getConfig "$host" "$value"; }
+#
+# config diff command
+#
+
+configDiffUsage() {	echot "Usage: $(ScriptName) config diff HOST\n.Show the changes for the host in ~/.ssh/config."; }
+configDiffArgs() { ScriptArgGet "host" -- "$@"; }
+configDiffCommand() { configDiff "$host"; }
+
+configDiff() 
+{
+	local hostFull="$1" host="$(GetSshHost "$1")" defaultFull default="DEFAULT_CONFIG"
+	defaultFull="${hostFull/$host/$default}"
+
+	ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$" > "/tmp/default.txt"
+	ssh -G "$hostFull" | grep -i -v "^hostname ${host}$" > "/tmp/$host.txt"
+
+	merge "/tmp/default.txt" "/tmp/$host.txt"
+}
+
+#
+# config get command
+#
+
+configGetUsage() {	echot "Usage: $(ScriptName) config get HOST VALUE\nReturn the SSH configuration value for HOST from the SSH configuration."; }
+configGetArgStart() { host="" value=""; }
+configGetArgs() { ScriptArgGet "host" -- "$@"; shift; ScriptArgGet "value" -- "$@"; shift; }
+configGetCommand() { configGet "$host" "$value"; }
+
+configGet() { local host="$1" value="$2"; ssh -G "$host" | grep "^$value " | head -1 | cut -d" " -f2; }
+
+#
+# config sync command
+#
+
+configSyncUsage() {	echot "Usage: $(ScriptName) config sync HOST...
+Synronize SSH configuration with the specified host.
+
+	-do,	--dest-older	assume destination configuration is older than the source configuration
+	-so,	--src-older		assume local configuration is older than the destination configuration"; }
+
+configSyncArgStart() { unset -v hosts method; }
+
+configSyncOpt() 
+{
+	case "$1" in
+		-do|--dest-older|--destination-older) method="--dest-older";;
+		-so|--src-older|--source-older) method="--src-older";;
+		*) return 1
+	esac
+}
+
+configSyncArgs() {  hosts=( "$@" ); shift="$#"; }
+
+configSyncCommand() { local host; for host in "${hosts[@]}"; do configSyncHost "$host" || return; done; }
+
+configSyncHost()
+{
+	local host="$1"
+	local args=(-confirmbigdel -ignore 'Name .*_sync.txt' -ignore 'Name environment'); [[ $noPrompt ]] && args+=(-batch)
+	
+	# do not sync the source
+	IsLocalHost "$host" && return 
+
+	# initialize
+	SshAgentConf || return
+
+	# sync
+	local src="$HOME/.ssh"
+	local dest=""ssh://$host/.ssh""
+	[[ "$method" == "--src-older" ]] && args+=(-force "$dest")
+	[[ "$method" == "--dest-older" ]] && args+=(-force "$src")
+	RunLog unison "${args[@]}" "$src" "$dest"  || return
+}
 
 #
 # Connect Command
@@ -79,9 +162,7 @@ connectArgs()
 connectCommand()
 {	
 	# SSH Agent
-	if [[ "$USER" != "homebridge" ]]; then
-		SshAgent check keys && { SshAgentStart --quiet --verbose --log || return; }
-	fi
+	SshAgentConf || return
 
 	# parse host, format USER@HOST:PORT
 	local port user
@@ -91,16 +172,16 @@ connectCommand()
 
 	# connect to the IP unless the host is in ~/.ssh/config to use additional name resolution methods such as MDNS
 	local hostOrig="$host" inSshConfig="yes" ip
-	if ! IsInSshConfig "$host"; then
+	if ! configCheck "$host"; then
 		ip="$(GetIpAddress $all --vm "$host" $quiet)" || return
 		host="$ip" inSshConfig="no"
 	fi
 	
 	# get the port from configuration if none was specified so we can check if host is available
-	[[ ! $port ]] && { port="$(getConfig "$host" "port")" || return; }
+	[[ ! $port ]] && { port="$(configGet "$host" "port")" || return; }
 
 	# logging
-	[[ $verbose ]] && log1 "inSshConfig=$inSshConfig host=${ip:-$(getConfig "$host" "hostname")} hostOrig=$hostOrig port=$port user=${user:-$(getConfig "$host" "user")}"
+	[[ $verbose ]] && log1 "inSshConfig=$inSshConfig host=${ip:-$(configGet "$host" "hostname")} hostOrig=$hostOrig port=$port user=${user:-$(configGet "$host" "user")}"
 
 	# wait for SSH to become available if needed
 	if [[ $wait ]]; then
@@ -179,6 +260,7 @@ connectCommand()
 # Permission Command
 #
 
+permissionUsage() {	echot "Usage: $(ScriptName) permission USER\nFix SSH permissions for user."; }
 permissionArgStart() { user=""; }
 permissionArgs() { ScriptArgGet "user" -- "$@"; shift; }
 
@@ -202,6 +284,8 @@ permissionCommand()
 # Regenerate Command
 #
 
+regenerateUsage() { echot "Usage: $(ScriptName) regenerate\nregenerate SSH host keys."; }
+
 regenerateCommand()
 {
 	# check if user really wants to regeneraste host keys
@@ -212,11 +296,5 @@ regenerateCommand()
 	sudo rm /etc/ssh/ssh_host_* || return
 	sudo ssh-keygen -A || return
 }
-
-#
-# helper
-#
-
-getConfig() { local host="$1" value="$2"; ssh -G "$host" | grep "^$value " | head -1 | cut -d" " -f2; }
 
 ScriptRun "$@"

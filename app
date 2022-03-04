@@ -88,11 +88,11 @@ ports()
 	# check if SSH port 22 is being forwarded  
 	# - in Windows the port may show as open even if the port is not being forwarded
 	# - turn off host key checking to avoid prompting (we trust ourself)
-	ssh -o "ConnectTimeout=1" -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no" "$(GetIpAddress)" -p 22 "true" >& /dev/null && return 
+	[[ ! $force ]] && ssh -o "ConnectTimeout=1" -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no" "$(GetIpAddress)" -p 22 "true" >& /dev/null && return 
 
 	showStatus
-	local r; [[ $brief && ! $verbose ]] && r="RunQuiet"; [[ $verbose ]] && EchoErr
-	$r RunScript --elevate "${globalArgs[@]}" -- powershell.exe WslPortForward.ps1
+	local r; [[ $brief && ! $verbose ]] && r="RunSilent"; [[ $verbose ]] && EchoErr
+	RunScript --elevate "${globalArgs[@]}" -- RunScript $r powershell.exe WslPortForward.ps1
 	[[ ! $brief ]] && echo done
 	return 0
 }

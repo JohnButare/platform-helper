@@ -32,6 +32,7 @@ init()
 	certVolume="/mnt/p"; certVolumeWasMounted=""; [[ -e "$certVolume" ]] && certVolumeWasMount="true"
 	certOptUsage="-e, --encrypt [DIR]		directory for PKI certificates\n	-ne, --no-encrypt		disable TLS encryption"
 	configWhat="consul-vault-data local-certs local-credentials private-certs public-certs"
+	SshAgentConf --quiet || return
 }
 
 argStart() { unset -v api assumeServer configFile configFileArg configPrefix configPrefixArg hostArg hostArgOrig; }
@@ -731,7 +732,7 @@ removeConfig()
 	local host hosts; getHosts "all" || return
 	for host in "${hosts[@]}"; do
 		hilight "Removing $host certificates and credentials..."
-		ssh -q -t "$host" bash -i "credential delete \"$(credPath)\" all $verbose && rm -fr \"$(certDirSuffix "$product" "/opt/hashi")\"" || return
+		ssh -q -t "$host" bash -i "credential rm \"$(credPath)\" all $verbose && rm -fr \"$(certDirSuffix "$product" "/opt/hashi")\"" || return
 	done
 
 	return 0
@@ -816,7 +817,8 @@ configSetRemote()
 configMirror()
 {
 	local from="$1" to="$2" product="${3:-$product}"
-	[[ ! $force ]] && credential exists "$(credPath)" token --manager="$to" && return
+	local check="token"; [[ "$product" == "vault" ]] && check="key5"
+	[[ ! $force ]] && credential exists "$(credPath)" "$check" --manager="$to" && return
 	hilight "Mirroring ${product^} credentials to ${to^}..."
 	credential mirror --from="$from" --to="$to" "$(credPath)" --force $verbose || return
 }
@@ -3316,7 +3318,7 @@ certValidate()
 # credential helper
 #
 
-credDelete() { RunLog credential delete "$(credPath)" "$@" $verbose; }
+credDelete() { RunLog credential rm "$(credPath)" "$@" $verbose; }
 credExists() { credential exists "$(credPath)" "$@" $verbose; }
 credGet() { credential get "$(credPath)" "$@" $verbose; }
 credGets() { credential gets "$(credPath)" "$@" $verbose; }
@@ -3329,7 +3331,7 @@ credManagerCheck()
 
 	for manager in "$@"; do
 		log1 "checking the '$manager' credential manager..."
-		credential --manager="$manager" check $verbose && continue
+		credential --manager="$manager" manager test $verbose && continue
 		EchoErr "The '$manager' credential manager is not available"
 		return 1
 	done
@@ -3473,8 +3475,7 @@ productEnvironment()
 	tokenVar="$(productVar "TOKEN")"
 	tokenVal="$(productVarGet "TOKEN")"
 	if [[ $force || ! $tokenVal ]] && [[ ! $noToken ]]; then
-		local exclude=(); [[ "$product" == "vault" ]] && exclude=( "--exclude-managers=vault" ) # prevent recursion	
-		[[ "$CREDENTIAL_MANAGER" == @(remote|v|vault) ]] && export CREDENTIAL_MANAGER="local"
+		local exclude=(); [[ ! $VAULT_TOKEN ]] && exclude=( "--exclude-managers=vault" ) # prevent recursion	
 		tokenVal="$(credGets "token" "${exclude[@]}" --quiet)" || tokenVal=""
 	fi
 	[[ $tokenVal ]] && echo "export $tokenVar=\"$tokenVal\""

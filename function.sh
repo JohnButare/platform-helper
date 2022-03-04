@@ -264,17 +264,17 @@ browser()
 BorgConfig() { ScriptEval BorgHelper environment "$@"; }
 
 # HashiCorp
-HashiConfig() { ScriptEval hashi config environment --suppress-errors "$@"; }
-HashiConfigConsul() { [[ $CONSUL_HTTP_ADDR ]] || HashiConfig "$@"; }
-HashiConfigNomad() { [[ $NOMAD_ADDR ]] || HashiConfig "$@"; }
-HashiConfigVault() { [[ $VAULT_ADDR ]] || HashiConfig "$@"; }
+HashiConf() { ScriptEval hashi config environment --suppress-errors "$@"; }
+HashiConfConsul() { [[ $CONSUL_HTTP_ADDR || $CONSUL_HTTP_TOKEN ]] || HashiConf "$@"; }
+HashiConfNomad() { [[ $NOMAD_ADDR || $NOMAD_TOKEN ]] || HashiConf "$@"; }
+HashiConfVault() { [[ $VAULT_ADDR || $VAULT_TOKEN ]] || HashiConf "$@"; }
 
 # HashiServiceRegister SERVICE HOST_NUMS - register consul service SERVICE<n> for all specified hosts, i.e. HashiServiceRegister web 1,2
 HashiServiceRegister()
 {
 	local service="$1" hostNum hostNums; StringToArray "$2" "," hostNums; shift 2
 
-	HashiConfig || return
+	HashiConf || return
 	for hostNum in "${hostNums[@]}"; do
 		hashi consul service register "$CLOUD/network/system/hashi/services/$service$hostNum.hcl" --host="$hostNum" "$@" 
 	done
@@ -540,7 +540,7 @@ IsInArray()
 		case "$1" in "") : ;;
 			-ci|--case-insensitive) caseInsensitive="true";;
 			-a|--array-wild) awild="true";; 	# array contains glob patterns
-			-w|--wild) wild="true";; 		# value contain glob patterns
+			-w|--wild) wild="true";; 					# value contain glob patterns
 			*)
 				if ! IsOption "$1" && [[ ! $s ]]; then s="$1"
 				elif ! IsOption "$1" && [[ ! $isInArray ]]; then ArrayCopy "$1" isInArray
@@ -552,6 +552,7 @@ IsInArray()
 
 	[[ $caseInsensitive ]] && LowerCase "$s" s;
 
+	local value
 	for value in "${isInArray[@]}"; do
 		[[ $caseInsensitive ]] && LowerCase "$value" value
 		if [[ $wild ]]; then [[ "$value" == $s ]] && return 0;
@@ -1448,48 +1449,15 @@ IsXpra() { [[ $XPRA_SERVER_SOCKET ]]; }											# IsXpra - return true if conn
 RemoteServer() { echo "${SSH_CONNECTION%% *}"; }						# RemoveServer - return the IP addres of the remote server that the SSH session is connected from
 RemoteServerName() { DnsResolve "$(RemoteServer)"; }				# RemoveServerName - return the DNS name remote server that the SSH session is connected from
 
-# IsInSshConfig HOST - return true if HOST matches an entry in ~/.ssh/config
-IsInSshConfig() 
-{
-	local hostFull="$1" host="$(GetSshHost "$1")" defaultFull default="DEFAULT_CONFIG"
-	defaultFull="${hostFull/$host/$default}"
-
-	# if the SSH configuration changes a value other than the host, return 0 (host in SSH config)
-	[[ "$(ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$")" != "$(ssh -G "$hostFull" | grep -i -v "^hostname ${host}$")" ]] && return 0
-
-	 # if the host is unchanged return 1 (host not in SSH config)
-	ssh -G "$hostFull" | grep -i "^hostname ${host}$" >& /dev/null && return 1
-
-	# the host is changed, return 0 (host is in SSH config)
-	return 0
-}
-
-# SshConfigDiff HOST - show the changes for the host in ~/.ssh/config
-SshConfigDiff() 
-{
-	local hostFull="$1" host="$(GetSshHost "$1")" defaultFull default="DEFAULT_CONFIG"
-	defaultFull="${hostFull/$host/$default}"
-
-	ssh -G "$defaultFull" | grep -i -v "^hostname ${default}$" > "/tmp/default.txt"
-	ssh -G "$hostFull" | grep -i -v "^hostname ${host}$" > "/tmp/$host.txt"
-
-	merge "/tmp/default.txt" "/tmp/$host.txt"
-}
-
-# SshAgentConfig - if the SSH Agent is started, add the configuration variables to the shell
-SshAgentConfig() { [[ ! -f "$HOME/.ssh/environment" ]] && return; . "$HOME/.ssh/environment"; }
-
-# SshAgentStart - start the SSH Agent if needed and add the configuration variables to the shell
-SshAgentStart()
-{
-	ssh-add -L >& /dev/null && return
-	SshAgentConfig
-	SshAgent start "$@" || return
-	SshAgentConfig
-}
-
 SshInPath() { SshHelper connect "$1" -- which "$2" >/dev/null; } # HOST FILE
 SshIsAvailable() { local port="$(SshHelper config "$1" port)"; IsAvailablePort "$1" "${port:-22}"; } # HOST
+
+SshAgentConf()
+{ 
+	[[ ! $force ]] && { ssh-add -L >& /dev/null && return; }
+	! SshAgent check keys && return # just return without error if no SSH keys are available
+	ScriptEval SshAgent environment && SshAgent start "$@" && ScriptEval SshAgent environment
+}
 
 #
 # Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
@@ -1943,8 +1911,9 @@ handle() { ProcessResource "$@"; }
 InUse() { ProcessResource "$@"; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
-RunQuiet() { "$@" > /dev/null; }
-RunSilent() { "$@" >& /dev/null; }
+pstree() { ps axjf; }
+RunQuiet() { if [[ $verbose ]]; then "$@"; else "$@" 2> /dev/null; fi; }
+RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }
 
 IsExecutable()
 {
@@ -1963,18 +1932,17 @@ IsExecutable()
 
 IsTaskRunning() 
 {
-	local file="$1"
+	local file="$1"; shift
 
-	! IsPlatform win && { IsTaskRunningDo ",$file$"; return; }
+	# get processes - grep fails if ProcessList call in the same pipline on Windows
+	local processes; processes="$(ProcessList "$@" | tgrep -v ",grep$")" || return
 
-	# Windows - search with path only
-	HasFilePath "$file" && { IsTaskRunningDo ",$(utwq "$file")$"; return; }
+	# convert windows programs to a quoted Windows path format
+	IsWindowsProcess "$file" && file="$(utwq "$file")"
 
-	# Windows - search with and without a path
-	IsTaskRunningDo	",$file$" || IsTaskRunningDo ",.*\\\\$file$"
+	# search for an exact match, a match without the Unix path, and a match without the Windows path
+	echo "$processes" | grep --extended-regexp --ignore-case --quiet "(,$file$|,.*//$file$|,.*\\$file$)"
 }
-
-IsTaskRunningDo() { ProcessList | tgrep -v ",grep" | grep -iq  "$1"; }
 
 # IsProcessRunning PROCESS - faster, no Windows processes
 IsProcessRunning()
@@ -1984,14 +1952,7 @@ IsProcessRunning()
 }
 
 # IsWindowsProces: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
-IsWindowsProcess() 
-{
-	if IsPlatform win; then
-		file "$file" | grep PE32 > /dev/null; return;
-	else
-		return 0
-	fi
-}
+IsWindowsProcess() { IsPlatform win && file "$1" | grep --quiet "PE32"; }
 
 ProcessClose() 
 { 
@@ -2041,21 +2002,49 @@ ProcessKill()
 	fi
 }
 
-ProcessList() # PID,NAME - show operating system native process ID and executable name with a full path
+# ProcessList - show process ID and executable name with a full path in format PID,NAME
+ProcessList() 
 { 
-	case $PLATFORM in
-		win) 
-			if InPath ProcessList.exe; then
-				ProcessList.exe | RemoveCarriageReturn
-			elif InPath wmic.exe; then
-				wmic.exe process get Name,ExecutablePath,ProcessID /format:csv | RemoveCarriageReturn | tail +3 | awk -F"," '{ print $4 "," ($2 == "" ? $3 : $2) }'
-			else
-				powershell --command 'Get-Process | select Name,Path,ID | ConvertTo-Csv' | RemoveCarriageReturn | awk -F"," '{ print $3 "," ($2 == "" ? $1 ".exe" : $2) }' | RemoveQuotes
-			fi
-			;;
-		linux) ps -ef | awk '{ print $2 "," substr($0,index($0,$8)) }';;
-		mac) ps -ef | ${G}cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND";;
-	esac
+	# arguments
+	local args="-e" unix="true" win="true"
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-u|--user) args="-f";;
+			-U|--unix) unset win;;
+			-w|--win) unset unix;;
+			*) UnknownOption "$1" "ProcessList"; return 1
+		esac
+		shift
+	done
+
+	# mac proceses
+	IsPlatform mac && { ps h "$args" | ${G}cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND"; return; }
+
+	# unix processes
+	[[ $unix ]] && IsPlatform linux,win && { ps $args -o pid= -o command= | awk '{ print $1 "," $2 }' || return; }
+
+	# windows processes
+	if [[ $win ]] && IsPlatform win; then
+		if InPath ProcessList.exe; then
+			ProcessList.exe | RemoveCarriageReturn
+		elif InPath wmic.exe; then
+			wmic.exe process get Name,ExecutablePath,ProcessID /format:csv | RemoveCarriageReturn | tail +3 | awk -F"," '{ print $4 "," ($2 == "" ? $3 : $2) }'
+		else
+			powershell --command 'Get-Process | select Name,Path,ID | ConvertTo-Csv' | RemoveCarriageReturn | awk -F"," '{ print $3 "," ($2 == "" ? $1 ".exe" : $2) }' | RemoveQuotes
+		fi
+	fi
+}
+
+ProcessParents()
+{
+	local ppid; 
+
+	{ 
+		for ((ppid=$PPID; ppid > 1; ppid=$(ps ho %P -p $ppid))); do
+			 ps ho %c -p $ppid
+		done
+	} | NewlineToSpace | RemoveTrim
 }
 
 ProcessResource()
@@ -2083,6 +2072,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 
 start() 
 {
+	# arguments
 	local elevate file force noPrompt sudo terminal test run verbose wait windowStyle
 
 	while (( $# != 0 )); do
@@ -2227,6 +2217,14 @@ RunFunction()
 	"$f" "$@"
 }
 
+# RunFunctionExists NAME [SUFFIX|--] - return true if the run function exists
+RunFunctionExists()
+{
+	local f="$1"; shift
+	local suffix="$1";  [[ $suffix && "$suffix" != "--" ]] && f+="$(UpperCaseFirst "$suffix")"
+	IsFunction "$f"
+}
+
 # scripts
 
 ScriptCd() { local dir; dir="$("$@")" || return; dir="$(echo "$dir" | ${G}head --lines=1)" && { echo "cd $dir"; DoCd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
@@ -2278,7 +2276,7 @@ ScriptReturn()
 # Security
 #
 
-# certificates
+CredentialConf() { ScriptEval credential environment "$@" && return; export CREDENTIAL_MANAGER="None" CREDENTIAL_MANAGER_CHECKED="true"; return 1; }
 CertView() { local c; for c in "$@"; do openssl x509 -in "$c" -text; done; }
 
 # sudo
