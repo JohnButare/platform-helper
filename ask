@@ -1,57 +1,55 @@
 #!/usr/bin/env bash
-. function.sh
-. color.sh || return
+. script.sh || exit
+. color.sh || exit
 
 usage()
 {
-	echot "\
-usage: ask [OPTION]... <message>
-Prompt the user with messageAsk the user for a response from a list of valid
-options.  Exit status is a zero based index into the valid responses.
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [keypress|password|text](keypress) MESSAGE [OPTION]...
+Prompts the user to enter a single keypress, a password, or text."
+}
+
+init() { defaultCommand="keypress"; }
+argStart() { unset -v message; }
+args() { ScriptArgGet "message" -- "$@"; shift; }
+
+#
+# keypress command
+#
+
+keypressUsage()
+{
+	EchoWrap "Usage: $(ScriptName) keypress MESSAGE
+Prompt the user with message with a list of valid responses.
+Exit status is a zero based index into the valid responses.
 
 	-vr, --valid-responses [<valid>](yn)			allowed responses
 	-dr, --default-response [<default>](y)		default response or empty string
 	-d, --delay [delay](infinite)							seconds to wait for a response"
-	exit $1
 }
 
-init() 
+keypressArgStart() { unset delay; valid='yn' default='y'; }
+
+keypressOpt()
 {
-	unset message delay
-	valid='yn'
-	default='y'
+	case "$1" in
+		-d|--delay|-d=*|--delay=*) ScriptOptGet "delay" "$@"; delay="-t $delay";;
+		-vr|--valid-responses-d|-vr=*|--valid-responses-d=*) ScriptOptGet "valid" "valid-responses" "$@";;
+		-dr|--default-response|-dr=*|--default-response=*) ScriptOptGet "default" "default-responses" "$@"; [[ "${#default}" == "1" ]] && return; ScriptErr "default response must be a single character"; return 1;;
+		*) return 1;;
+	esac
 }
 
-args()
+keypressCommand() 
 {
-	while [ "$1" != "" ]; do
-		case "$1" in
-			-d|--delay) shift; delay="-t $1";;
-			-vr|--valid-responses) shift; valid="$1";;
-			-dr|--default-response) shift; default="$1";;
-			-h|--help) usage 0;;
-			*) 
-				! IsOption "$1" && [[ ! $message ]] && { message="$1"; shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
-	[[ ! $message ]] && MissingOperand "message"
-	[[ $default && ${#default} != 1 ]] && { EchoErr "Default response must be a single character"; return 1; }
-	args=("$@")
-}
-
-run() 
-{
-	init || return
-	args "$@" || return
-
+	# message
 	if [[ $default ]]; then
 		printf "${GREEN}$message ($default)? ${RESET}"
 	else
 		printf "${GREEN}$message? ${RESET}"
 	fi
 
+	# read response
 	while true; do
 		read -n 1 $delay -s response
 		[[ ! $response ]] && response="$default"
@@ -59,8 +57,72 @@ run()
 	done
 	echo "${response,,}"
 
+	# return response index
 	(( index=$(${G}expr index "${valid,,}" "${response,,}") - 1 ))
 	exit $index
 }
 
-run "$@"
+#
+# password command
+#
+
+passwordCommand()
+{
+	# message
+	printf "${GREEN}$message: ${RESET}" >&2
+
+	# password
+	local character characters="0" password="" prompt=""
+
+	while IFS='' read -n 1 -r -s "character"; do
+
+		case "$character" in
+
+    	$'\000') break;; # NULL
+
+			$'\010'|$'\177') # BACKSPACE and DELETE
+				if (( characters > 0 )); then
+					prompt=$'\b \b'
+					password="${password%?}"
+					(( characters-- ))
+				else
+					prompt=''
+				fi
+        ;;
+
+			*)
+				prompt="*"
+				password+="${character}"
+				(( characters++ ))
+				;;
+
+		esac
+
+		printf "$prompt" >&2
+
+	done
+
+	echo >&2
+
+	# result
+	echo -n "$password"
+}
+
+#
+# text command
+#
+
+textCommand()
+{
+	# message
+	printf "${GREEN}$message: ${RESET}" >&2
+
+	# text
+	local text
+	read text
+
+	# result
+	echo -n "$text"
+}
+
+ScriptRun "$@"
