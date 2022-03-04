@@ -36,8 +36,12 @@ alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
 #
 
 EvalVar() { r "${!1}" $2; } # EvalVar <var> <variable> - return the contents of the variable in variable, or set it to var
+IsInteractiveShell() { [[ "$-" == *i* ]]; } # true if we are running at the command prompt
+IsTty() { tty --silent;  }
+IsStdIn() { [[ -t 0 ]];  } # 0 if STDIN refers to a terminal, i.e. "echo | IsStdIn" is 1
+IsStdOut() { [[ -t 1 ]];  } # 0 if STDOUT refers to a terminal, i.e. "IsStdOut | cat" is 1
+IsStdErr() { [[ -t 2 ]];  } # 0 if STDERR refers to a terminal, i.e. "IsStdErr |& cat" is 1
 IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
-IsInteractive() { [[ "$-" == *i* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
 
 urlencode()
@@ -117,7 +121,7 @@ HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RB_
 hilight() { InitColor; EchoWrap "${GREEN}$1${RESET}"; }
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
-if IsBash && IsInteractive; then
+if IsBash && IsInteractiveShell; then
 	CurrentColumn() # https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
 	{
 		exec < /dev/tty
@@ -1438,8 +1442,9 @@ GetSshUser() { echo "$1" | cut -s -d@ -f 1; } 							# GetSshUser USER@HOST:PORT
 GetSshHost() { echo "$1" | cut -d@ -f 2 | RemovePort; }			# GetSshHost USER@HOST:PORT -> HOST
 GetSshPort() { echo "$1" | cut -s -d: -f 2; }								# GetSshPort USER@HOST:PORT -> PORT
 
-IsSsh() { [[ "$SSH_TTY" || "$XPRA_SERVER_SOCKET" ]]; }			# IsSsh - return true if connected over SSH
-IsXpra() { [[ "$XPRA_SERVER_SOCKET" ]]; }										# IsXpra - return true if connected using XPRA
+IsSsh() { [[ $SSH_CONNECTION || $XPRA_SERVER_SOCKET ]]; }		# IsSsh - return true if connected over SSH
+IsSshTty() { [[ $SSH_TTY ]]; }															# IsSsh - return true if connected over SSH with a TTY
+IsXpra() { [[ $XPRA_SERVER_SOCKET ]]; }											# IsXpra - return true if connected using XPRA
 RemoteServer() { echo "${SSH_CONNECTION%% *}"; }						# RemoveServer - return the IP addres of the remote server that the SSH session is connected from
 RemoteServerName() { DnsResolve "$(RemoteServer)"; }				# RemoveServerName - return the DNS name remote server that the SSH session is connected from
 
@@ -1771,7 +1776,7 @@ fi
 #          use the _platform host variables set from the last call to HostGetInfo.
 IsPlatform()
 {
-	local all host platforms=() useHost
+	local all host p platforms=() useHost
 
 	# arguments
 	while (( $# != 0 )); do
@@ -1839,11 +1844,11 @@ isPlatformDo()
 		ipkg) InPath ipkg;;
 		opkg) InPath opkg;;
 
+		# path
+		busybox|gnome-keyring) InPath "$p";;
+
 		# processor
 		arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]];;
-
-		# software
-		busybox) InPath busybox;;
 
 		# virtualization
 		container) IsContainer;;
@@ -2243,8 +2248,8 @@ ScriptName()
 #    Typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
 ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || return; eval "$result"; } 
 
-# ScriptReturn [-v|--verbose] <var>... - return the specified variables as output from the script in a escaped format.
-#    The script should be called using ScriptEval.
+# ScriptReturn [-v|--verbose] <var>... - return the specified variables as output from the script in an escaped format
+#   The script should be called using ScriptEval.
 #   -e, --export		the returned variables should be exported
 #   -s, --show			show the variables in a human readable format instead of a escpaed format
 ScriptReturn() 
@@ -2468,18 +2473,44 @@ WinList() { ! IsPlatform win && return; start cmdow /f | RemoveCarriageReturn; }
 
 InitializeXServer()
 {
-	{ [[ "$DISPLAY" ]] || ! InPath xauth; } && return
+	# return if X is not installed
+	! InPath xauth && return
 
-	if IsPlatform wsl2; then
-		export DISPLAY="$(GetWslGateway):0"
-		export LIBGL_ALWAYS_INDIRECT=1
-	elif [[ $SSH_CONNECTION ]]; then
-		export DISPLAY="$(GetWord "$SSH_CONNECTION" 1):0"
-	else
-		export DISPLAY=:0
+	# arguments
+	local quiet 
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-q|--quiet) quiet="true";;
+			*) UnknownOption "$1" "InitializeXServer"; return 1;;
+		esac
+		shift
+	done
+
+	# display
+	if [[ ! $DISPLAY ]]; then
+		if IsPlatform wsl2; then
+			export DISPLAY="$(GetWslGateway):0"
+			export LIBGL_ALWAYS_INDIRECT=1
+		elif [[ $SSH_CONNECTION ]]; then
+			export DISPLAY="$(GetWord "$SSH_CONNECTION" 1):0"
+		else
+			export DISPLAY=:0
+		fi
 	fi
 
-	return 0
+	# add DISPLAY to the D-Bus activation environment
+	if IsSsh && InPath dbus-launch dbus-update-activation-environment; then
+		( # do not show job messages
+			{ # run un background to allow login even if this hangs (if D-Bus is in a bad state)
+				local result; result="$(dbus-update-activation-environment --systemd DISPLAY 2>&1)"
+				if [[ "$result" != "" ]]; then
+					[[ ! $quiet ]] && ScriptErr "unable to initialize D-Bus: $result" "InitializeXServer"
+					return 1
+				fi
+			} &
+		)
+	fi
 }
 
 WinSetStateUsage()
