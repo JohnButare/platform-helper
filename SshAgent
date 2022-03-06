@@ -28,7 +28,17 @@ opt()
 }
 
 #
-# Check Command
+# commands
+#
+
+environmentUsage() { echot "Usage: $(ScriptName) environment\nReturn the SSH Agent environment in a format suitable for sourcing."; }
+environmentCommand() { ! [[ -f "$environmentFile" ]] && return; cat "$environmentFile"; }
+
+statusUsage() { echot "Usage: $(ScriptName) show\n.Show the status of the the SSH Agent."; }
+statusCommand() {	verbose="true" checkCommand; }
+
+#
+# check command
 #
 
 checkUsage()
@@ -40,41 +50,41 @@ Check for proper operation of the SSH Agent."
 checkCommand()
 {
 	if [[ ! -f "$environmentFile" ]]; then
-		[[ $verbose ]] && log "the environment file '$environmentFile' does not exist on $HOSTNAME"
+		log1 "the environment file '$environmentFile' does not exist on $HOSTNAME"
 		return 1
 	fi
 
 	if [[ ! $SSH_AUTH_SOCK || ! $SSH_AGENT_PID ]]; then
-		[[ $verbose ]] && log "the environment was not loaded on $HOSTNAME"
+		log1 "the environment was not loaded on $HOSTNAME"
 	fi
 	
 	local oldAuthSock="$SSH_AUTH_SOCK" oldAgentPid="$SSH_AGENT_PID"
 
 	if ! . "$environmentFile"; then
-		[[ $verbose ]] && log "unable to read the SSH Agent configuration file $f on $HOSTNAME"
+		log1 "unable to read the SSH Agent configuration file $f on $HOSTNAME"
 		return 1
 	fi
 
 	if [[ "$SSH_AUTH_SOCK" != "${oldAuthSock:-$SSH_AUTH_SOCK}" || "$SSH_AGENT_PID" != "${sshAgentPid:-$SSH_AGENT_PID}" ]]; then
-		[[ $verbose ]] && log "the environment was not correct on $HOSTNAME"
+		log1 "the environment was not correct on $HOSTNAME"
 	fi
 
 	if [[ ! -S "$SSH_AUTH_SOCK" ]]; then
-		[[ $verbose ]] && log "the ssh agent socket ($SSH_AUTH_SOCK) is not valid on $HOSTNAME"
+		log1 "the ssh agent socket ($SSH_AUTH_SOCK) is not valid on $HOSTNAME"
 		return 1
 	fi
 
 	if ! ProcessIdExists "$SSH_AGENT_PID"; then
-		[[ $verbose ]] && log "the ssh agent socket process ($SSH_AGENT_PID) is not running on $HOSTNAME"
+		log1 "the ssh agent socket process ($SSH_AGENT_PID) is not running on $HOSTNAME"
 		return 1
 	fi
 
 	if ! ssh-add -L >& /dev/null; then
-		[[ $verbose ]] && log "no identities are loaded in the SSH Agent on $HOSTNAME"
+		log1 "no identities are loaded in the SSH Agent on $HOSTNAME"
 		return 1
 	fi
 
-	[[ ! $quiet ]] && echo "The SSH Agent is working properly on $HOSTNAME and contains $(ssh-add -L | wc -l | RemoveSpace) identities"
+	[[ ! $quiet ]] && status
 
 	return 0
 }
@@ -83,7 +93,7 @@ checkKeysUsage() { echot "Usage: $(ScriptName) check keys\nCheck for existense o
 checkKeysCommand() { local d="$sshDir"; FileExistsAny "$d/id_rsa" "$d/id_dsa" "$d/id_ecdsa" "$d/id_ed25519"; }
 
 #
-# Cleanup Command
+# cleanup command
 #
 
 cleanupUsage() { echot "Usage: $(ScriptName) cleanup\nCleanup the SSH Agent processes and files."; }
@@ -103,14 +113,7 @@ cleanupCommand()
 }
 
 #
-# Environment Command
-#
-
-environmentUsage() { echot "Usage: $(ScriptName) environment\nReturn the SSH Agent environment in a format suitable for sourcing."; }
-environmentCommand() { [[ -f "$environmentFile" ]] && cat "$environmentFile"; }
-
-#
-# Start Command
+# start command
 #
 
 startUsage() { echot "Usage: $(ScriptName) show\n.Start the SSH Agent."; }
@@ -119,12 +122,17 @@ startCommand()
 {
 	local result output="/dev/null"; [[ ! $quiet ]] && output="/dev/stdout"
 
+	# check for SSH agent keys
 	if ! checkKeysCommand; then
 		[[ ! $quiet ]] && EchoErr "SshAgent: no identities exist on $HOSTNAME for $USER"
 		return 1
 	fi
 
+	# assume the SSH agent is good if we can add the keys
+	[[ ! $force ]] && { ssh-add -L >& /dev/null && return; }
+	# check the SSH agent
 	[[ ! $force ]] && { checkCommand && return; }
+	# there is an issue, so cleanup the SSH agent
 	cleanupCommand || return
 
 	# start the SSH Agent
@@ -153,21 +161,12 @@ startCommand()
 }
 
 #
-# Status Command
-#
-
-statusUsage() { echot "Usage: $(ScriptName) show\n.Show the status of the the SSH Agent."; }
-statusCommand() 
-{	
-	verbose="true" checkCommand || return
-	ssh-add -L
-}
-
-#
 # helper
 #
 
-function log()
+status() { echo "The SSH Agent is working properly on $HOSTNAME and contains $(ssh-add -L | wc -l | RemoveSpace) identities"; }
+
+log()
 {
 	if [[ $log ]]; then
 		echo "$(GetTimeStamp): SshAgent: $1" >> "$HOME/.ssh/log"

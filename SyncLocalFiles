@@ -14,8 +14,9 @@ init()
 {
 	defaultCommand="sync"
 	fileServer="$(UpdateGet "FileServer")" || return; [[ ! $fileServer ]] && fileServer="file.$(ConfigGet "baseDomain")"
-	exclude=("Document Themes" "*.bak" "desktop.ini" ".git" ".gitignore" ".DS_Store" "@eaDir" "thumbs.db" "~\$*.docx" "~\$*.dot?" "*.TMP" "*.jcorig" )
-	platformExclude=( "cports.cfg" "ftp.cfg" "JkDefrag*.log" "Defraggler.ini" "gridy.ini" )
+	excludeDir=("Document Themes")
+	exclude=(".*_sync.txt" "desktop.ini" ".git" ".gitignore" ".DS_Store" "@eaDir" "thumbs.db" "*.TMP" "*.jcorig" )
+	#SshAgentConf "${globalArgs[@]}" || return
 }
 
 argStart() { unset -v protocol; }
@@ -54,11 +55,12 @@ Destination can be one of HOST|UNC|DIR|host|public|home.
   specified in configuration
 
 	-do,	--dest-older	assume destination files are than the local source files
-	-so,	--src-older		assume local files are older than the destination files
-	-nb,	--no-bak			do not backup files to the bak directory"
+	-so,	--src-older	assume local files are older than the destination files
+	-nb,	--no-bak	do not backup files to the bak directory
+	-u,	--unison	perform synronization using Unison"
 }
 
-syncArgStart() { unset -v hosts method noBak; }
+syncArgStart() { unset -v hosts method noBak unison; syncProgram="SyncDir";}
 
 syncOpt() 
 {
@@ -66,6 +68,7 @@ syncOpt()
 		-do|--dest-older|--destination-older) method="--dest-older";;
 		-nb|--no-bak) noBak="--no-bak";;
 		-so|--src-older|--source-older) method="--src-older";;
+		-u|--unison) unison="--unison" syncProgram="Unison";;
 		*) return 1
 	esac
 }
@@ -74,7 +77,8 @@ syncArgs() { hosts=( "$@" ); (( shift+=$# )); true; }
 
 syncCommand()
 {	
-	local src; syncInitSrc || return
+	# initialize the source host
+	local srcHost srcId; syncInitSrc || return
 
 	# arguments
 	set -- "${hosts[@]}"
@@ -83,23 +87,49 @@ syncCommand()
 	[[ ! $1 ]] && set -- "$fileServer"
 
 	# sync destinations
-	local dest
-	for dest in "$@"; do	
-		local syncDirArgs=($verbose $method $noBak --srcid "$src")
+	local destHost destId
+	for destHost in "$@"; do			
 		TimerOn
 		syncInitDest || return		
-		syncStatus || return
+		syncStart || return
 		syncShared || return
-		syncUser || return
-		TimerOff
+		syncUser || return	
+		syncFinish || return
 	done
 }
 
-syncDir()
+sync()
 {
 	local suffix="$1"; shift
-	syncGit "${args[0]}/$suffix" || return
-	SyncDir --dir "$suffix" "${args[@]}" "$@" || return
+	syncGit "$srcDir/$suffix" && sync$syncProgram "$srcDir/$suffix" "$destDir/$suffix" "$@" 
+}
+
+syncSyncDir()
+{
+	local srcDir="$1" destDir="$2"; shift 2
+	local args=($method $noBak --srcid "$srcId" --destid "$destId" -x "${exclude[@]}" "${excludeDir[@]}" "${globalArgs[@]}")
+	RunLog SyncDir "$srcDir" "$destDir" "${args[@]}" "$@" || return
+}
+
+syncUnison()
+{
+	local srcDir="$1" destDir="ssh://$destHost/$2"; shift 2
+	local args=(-confirmbigdel); [[ $noPrompt ]] && args+=(-batch)
+
+	# ignore
+	args+=( -ignore "Name {$(ArrayDelimit exclude ",")}")
+	args+=( -ignore "Path {$(ArrayDelimit excludeDir ",")}")
+
+	# symbolic links
+	args+=( -follow "Path {win}")
+
+	# force
+	[[ "$method" == "--src-older" ]] && args+=(-force "$destDir")
+	[[ "$method" == "--dest-older" ]] && args+=(-force "$srcDir")
+
+	# sync
+	echo; hilight "Synronizing $srcDir..."
+	RunLog unison "$srcDir" "$destDir" "${args[@]}" || return
 }
 
 syncGit()
@@ -108,11 +138,16 @@ syncGit()
 
 	# return if not a git directory
 	[[ ! -d "$dir/.git" ]] && return
+	# setup
+	log1 "git: sync git for '$dir'"
+	[[ $unison ]] && { echo; hilight "Synronizing $srcDir repository..."; }
 	cd "$dir" || return
 
 	# fetch upstream updates
+	log1 "git: fetching"
 	git fetch --quiet || return
 
+	log1 "git: upstream status"
 	local status="$(GitHelper upstream)"
 	local changes; [[ "$(git status --porcelain)" != "" ]] && changes="true"
 
@@ -137,54 +172,56 @@ syncGit()
 syncInitDest()
 {
 	local what
-	unset destData destHome destId
+	unset destData destHome
 
+	# Unison
+	if [[ "$syncProgram" == "Unison" ]]; then
+		destId="$(os name "$destHost" | RemoveDnsSuffix)"
+		hostGetInfo "$destHost" || return
+		destData="/$(GetUncDirs "$_data")" destHome="/$(GetUncDirs "$_home")"
+		
 	# host
-	if [[ "$dest" == "host" ]]; then
-		what="host" 
+	elif [[ "$destHost" == "host" ]]; then
 		ScriptEval HostGetInfo host || return
-		dest="$_root" destId="host" destData="$_data" destHome="$_home"
+		destHost="$_root" destId="host" destData="$_data" destHome="$_home"
 		
 	# UNC|public|home
-	elif IsUncPath "$dest" || [[ "$dest" == @(public|home) ]]; then
-		what="UNC"
-		dest="$(unc mount "$dest" "${globalArgs[@]}")" || return		
-		destId="$(unc get unc "$dest" "${globalArgs[@]}" | GetUncServer | RemoveDnsSuffix)"
+	elif IsUncPath "$destHost" || [[ "$destHost" == @(public|home) ]]; then
+		destHost="$(unc mount "$destHost" "${globalArgs[@]}")" || return		
+		destId="$(unc get unc "$destHost" "${globalArgs[@]}" | GetUncServer | RemoveDnsSuffix)"
 
 	# DIR
-	elif [[ -d "$dest" ]]; then 
-		what="DIR" 
-		destId="$(drive label "$dest" --quiet)" || destId="$(drive device "$dest" --quiet)" || destId="$(GetFileName "$dest")"
+	elif [[ -d "$destHost" ]]; then 
+		destId="$(drive label "$destHost" --quiet)" || destId="$(drive device "$destHost" --quiet)" || destId="$(GetFileName "$destHost")"
 
 	# HOST
 	else
-		what="HOST"
-		destId="$(os name "$dest" | RemoveDnsSuffix)"
+		destId="$(os name "$destHost" | RemoveDnsSuffix)"
 
 	fi
 
-	[[ $verbose ]] && { hilight "SyncLocalFiles $what: src=$src dest=$dest destId=$destId"; }
-
-	# prevent sync to ourself
-	if IsLocalHostIp "$dest" || [[ "$dest" == "/" ]]; then
-		ScriptErr "cannot sync to the local computer"
+	# do not sync to ourself
+	if IsLocalHostIp "$destHost" || [[ "$destHost" == "/" ]]; then
+		[[ ! $quiet ]] && ScriptErr "cannot sync to the local computer"
 		return 1
 	fi
 
-	# add identifier
-	syncDirArgs+=(--destid "$destId")
+	# logging
+	log1 "syncInitDest: destHost=$destHost destId=$destId"
 
-	# find destData and destHome
+	# return if destData and destHome are set
 	[[ $destData && $destHome ]] && return
 
-	ScriptEval HostGetInfo "$dest" "${protocolArg[@]}" --quiet || { [[ ! $quiet ]] && ScriptErr "unable to get '$dest' information"; return 1; }
+	# mount destData and destHome
+	hostGetInfo "$destHost" || return
 	destData="$(unc mount "$_data" --protocol=$_protocol "${globalArgs[@]}")" || return
 	destHome="$(unc mount "$_home" --protocol=$_protocol "${globalArgs[@]}")" || return
 }
 
 syncInitSrc()
 {
-	src="${HOSTNAME,,}"
+	srcHost="${HOSTNAME,,}"
+	srcId="$srcHost"
 	ScriptEval HostGetInfo || return
 	srcData="$_data" srcHome="$_home"
 }
@@ -193,51 +230,71 @@ syncShared()
 {
 	[[ ! $destData ]] && return
 
-	local args=( "$srcData" "$destData" "${syncDirArgs[@]}" -x "${exclude[@]}" )
-	syncDir "bin" || return 
-	syncDir "platform" -r -x "${platformExclude[@]}" || return
-	syncDir "doc" || return
-	syncDir "icons" || return
-	syncDir "lib" || return
-	syncDir "man" -r || return
-	syncDir "setup" || return
+	local srcDir="$srcData" destDir="$destData"
+	sync "bin" || return 
+	sync "platform" -r || return
+	sync "doc" || return
+	sync "icons" || return
+	sync "lib" || return
+	sync "man" -r || return
+	sync "setup" || return
 }
 
-syncStatus()
+syncStart()
 {
 	[[ $verbose ]] && return
 
 	# source
-	printf "$(RemoveDnsSuffix "$HOSTNAME")"
+	local message="$(RemoveDnsSuffix "$srcId")"
 
 	# sync direction
 	case "$method" in
-		--dest-older) echo -n "->";;
-		--src-older) echo -n "<-";;
-		*) echo -n "<->";;
+		--dest-older) message+="->";;
+		--src-older) message+="<-";;
+		*) message+="<->";;
 	esac
 
-	# dest
-	printf "$destId..."
+	# destination
+	message+="$destId"
+
+	# show the message
+	[[ $unison ]] && header "$message" || printf "$message..."
+}
+
+syncFinish()
+{
+	[[ ! $unison ]] && { TimerOff; return; }
+	hilight "\nSynronization finished in $(TimerOff)"
 }
 
 syncUser()
 {	
 	[[ ! $destHome ]] && return
 
-	local args=( "$srcHome/data" "$destHome/data" "${syncDirArgs[@]}" -x "${exclude[@]}" )
-	syncDir "bin" -r || return
-	syncDir "app/pass" -r -x "test-default.gpg"  || return
-	syncDir "certificate/public" || return
-	syncDir "certificate/private" || return
-	syncDir "profile/default" || return
-	syncDir "replicate" || return
+	local srcDir="$srcHome/data" destDir="$destHome/data"
+	sync "bin" -r || return
+	sync "app/pass" -r -x "test-default.gpg"  || return
+	sync "certificate/public" || return
+	sync "certificate/private" || return
+	sync "profile/default" || return
+	sync "replicate" || return
+	#sync "app/gpg" -r -x "S.gpg-*" "random_seed" || return
+	#sync "certificate/hashi" -r || return
 
-	# syncDir "app/gpg" -r -x "S.gpg-*" "random_seed" || return
-	# syncDir "certificate/hashi" -r || return
+	srcDir="$srcHome" destDir="$destHome"
+	sync ".ssh" -x "environment" "log" || return
+}
 
-	local args=( "$srcHome" "$destHome" "${syncDirArgs[@]}" -x "${exclude[@]}" )
-	syncDir ".ssh" -x "environment" "log" || return
+#
+# helper
+#
+
+# hostGetInfo HOST
+hostGetInfo()
+{
+	local host="$1"
+	ScriptEval HostGetInfo "$1" "${protocolArg[@]}" --quiet && return
+	[[ ! $quiet ]] && ScriptErr "unable to get '$host' information"; return 1
 }
 
 ScriptRun "$@"
