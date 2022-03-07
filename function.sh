@@ -1911,7 +1911,11 @@ handle() { ProcessResource "$@"; }
 InUse() { ProcessResource "$@"; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
-pstree() { ps axjf; }
+pkillchildren() { pkill -P "$1"; } # pkillchildren PID - kill process and children
+pschildren() { ps --forest $(ps -e --no-header -o pid,ppid|awk -vp=$1 'function r(s){print s;s=a[s];while(s){sub(",","",s);t=s;sub(",.*","",t);sub("[0-9]+","",
+s);r(t)}}{a[$2]=a[$2]","$1}END{r(p)}'); } # pschildren PPID - list process with children
+pschildrenc() { local n="$(pschildren "$1" | wc -l)"; (( n == 1 )) && return 1 || echo $(( n - 2 )); } # pschildrenc PPID - list count of process children
+pstree() { InPath pstree && { command pstree "$@"; return; }; ps -axj --forest "$@"; }
 RunQuiet() { if [[ $verbose ]]; then "$@"; else "$@" 2> /dev/null; fi; }
 RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }
 
