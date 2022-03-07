@@ -1769,7 +1769,7 @@ IsPlatform()
 	# check if the host matches the specified platforms
 	for p in "${platforms[@]}"; do
 		if [[ $all ]]; then
-			! isPlatformDo "$p" "$@" && return 1			
+			! IsPlatform "$p" "$@" && return 1			
 		else
 			isPlatformDo "$p" && return
 		fi
