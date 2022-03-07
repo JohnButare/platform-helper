@@ -85,6 +85,9 @@ ports()
 	# only need to open ports for Windows WSL
 	! IsPlatform wsl && return
 
+	# initialize
+	SshAgentConf --quiet || return
+
 	# check if SSH port 22 is being forwarded  
 	# - in Windows the port may show as open even if the port is not being forwarded
 	# - turn off host key checking to avoid prompting (we trust ourself)
@@ -117,6 +120,7 @@ run()
 	for app in "${apps[@]}"
 	do
 		mapApp || return
+		[[ $verbose ]] && printf "$app.."
 		[[ $brief ]] && printf "."
 
 		if f="$(FindFunction "$app")"; then
