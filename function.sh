@@ -1450,7 +1450,7 @@ RemoteServer() { echo "${SSH_CONNECTION%% *}"; }						# RemoveServer - return th
 RemoteServerName() { DnsResolve "$(RemoteServer)"; }				# RemoveServerName - return the DNS name remote server that the SSH session is connected from
 
 SshInPath() { SshHelper connect "$1" -- which "$2" >/dev/null; } # HOST FILE
-SshIsAvailable() { local port="$(SshHelper config "$1" port)"; IsAvailablePort "$1" "${port:-22}"; } # HOST
+SshIsAvailable() { local port="$(SshHelper config get "$1" port)"; IsAvailablePort "$1" "${port:-22}"; } # HOST
 
 SshAgentConf()
 { 
