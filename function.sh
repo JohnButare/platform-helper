@@ -405,14 +405,14 @@ SleepStatus()
 	echo "done"
 }
 
-EchoErr() { (( $(CurrentColumn) != 0 )) && echo; EchoWrap "$@" >&2; }
-HilightErr() { InitColor; EchoWrap "${RED}$1${RESET}" >&2; }
-PrintErr() { printf "$@" >&2; }
+EchoErr() { (( $(CurrentColumn) != 0 )) && echo; EchoWrap "$@" >&2; return 0; }
+HilightErr() { InitColor; EchoWrap "${RED}$1${RESET}" >&2; return 0; }
+PrintErr() { printf "$@" >&2; return 0; }
 
 EchoWrap()
 {
-	! InPath ${G}fold || ! IsInteger "$COLUMNS" || (( COLUMNS < 20 )) && { echo -e "$@"; return; }
-	echo -e "$@" | expand -t $TABS | ${G}fold --space --width=$COLUMNS
+	! InPath ${G}fold || ! IsInteger "$COLUMNS" || (( COLUMNS < 20 )) && { echo -e "$@"; return 0; }
+	echo -e "$@" | expand -t $TABS | ${G}fold --space --width=$COLUMNS; return 0
 }
 
 EchoWrapErr() { EchoWrap "$@" >&2; }
@@ -1454,9 +1454,21 @@ SshIsAvailable() { local port="$(SshHelper config get "$1" port)"; IsAvailablePo
 
 SshAgentConf()
 { 
-	[[ ! $force ]] && { ssh-add -L >& /dev/null && return; }
-	! SshAgent check keys && return # just return without error if no SSH keys are available
-	ScriptEval SshAgent environment && SshAgent start "$@" && ScriptEval SshAgent environment
+	local verbose verboseLevel; ScriptOptVerbose "$@"
+
+	# return if the ssh-agent has some keys
+	if [[ ! $force ]] && ssh-add -L >& /dev/null; then
+		[[ $verbose ]] && SshAgent status "$@"
+		return 0
+	fi
+
+	# return if no SSH keys are available
+	if ! SshAgent check keys; then
+		[[ $verbose ]] && EchoErr "no valid SSH keys found in $HOME/.ssh"
+		return
+	fi
+
+	ScriptEval SshAgent environment "$@" && SshAgent start "$@" && ScriptEval SshAgent environment "$@"
 }
 
 #
@@ -1916,8 +1928,8 @@ pschildren() { ps --forest $(ps -e --no-header -o pid,ppid|awk -vp=$1 'function 
 s);r(t)}}{a[$2]=a[$2]","$1}END{r(p)}'); } # pschildren PPID - list process with children
 pschildrenc() { local n="$(pschildren "$1" | wc -l)"; (( n == 1 )) && return 1 || echo $(( n - 2 )); } # pschildrenc PPID - list count of process children
 pstree() { InPath pstree && { command pstree "$@"; return; }; ps -axj --forest "$@"; }
-RunQuiet() { if [[ $verbose ]]; then "$@"; else "$@" 2> /dev/null; fi; }
-RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }
+RunQuiet() { if [[ $verbose ]]; then "$@"; else "$@" 2> /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout unless verbose logging
+RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout and stderr unless verbose logging
 
 IsExecutable()
 {
@@ -2238,6 +2250,10 @@ ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; };
 ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "$name: "; }
 ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; }
 
+# ScriptEval <script> [<arguments>] - run a script and evaluate the output.
+#    Typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
+ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || return; eval "$result"; } 
+
 ScriptName()
 {
 	local name; func="$1"; [[ $func ]] && { printf "$func"; return; }
@@ -2246,9 +2262,19 @@ ScriptName()
 	printf "$name" 
 }
 
-# ScriptEval <script> [<arguments>] - run a script and evaluate the output.
-#    Typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
-ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || return; eval "$result"; } 
+# ScriptOptVerbose - find a verbose option
+ScriptOptVerbose()
+{
+	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
+		case "$1" in
+			-v|--verbose) verbose="-v"; verboseLevel=1;;
+			-vv) verbose="-vv"; verboseLevel=2;;
+			-vvv) verbose="-vvv"; verboseLevel=3;;
+			-vvvv) verbose="-vvvv"; verboseLevel=4;;
+		esac
+		shift; 
+	done
+}
 
 # ScriptReturn [-v|--verbose] <var>... - return the specified variables as output from the script in an escaped format
 #   The script should be called using ScriptEval.

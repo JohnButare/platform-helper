@@ -77,14 +77,16 @@ ScriptCheckPath()
 # Script Logging
 #
 
+ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$@"; }
+
 # logN - log an error message only at the specified verbosity level or higher.  Output is sent to the standard error
 # to avoid interference with commands whose output is consumed, such as to set a variable.
-log1() { ! (( verboseLevel >= 1 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; }
-log2() { ! (( verboseLevel >= 2 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; }
-log3() { ! (( verboseLevel >= 3 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; }
-LogFile1() { ! (( verboseLevel >= 1 )) && return; LogFile "$1"; }
-LogFile2() { ! (( verboseLevel >= 2 )) && return; LogFile "$1"; }
-LogFile3() { ! (( verboseLevel >= 3 )) && return; LogFile "$1"; }
+log1() { ! (( verboseLevel >= 1 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; return 0; }
+log2() { ! (( verboseLevel >= 2 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; return 0; }
+log3() { ! (( verboseLevel >= 3 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; return 0; }
+LogFile1() { ! (( verboseLevel >= 1 )) && return; LogFile "$1"; return 0; }
+LogFile2() { ! (( verboseLevel >= 2 )) && return; LogFile "$1"; return 0; }
+LogFile3() { ! (( verboseLevel >= 3 )) && return; LogFile "$1"; return 0; }
 
 # LogFile - log a file
 LogFile()
@@ -138,26 +140,14 @@ ScriptOpt()
 	# global option
 	case "$1" in
 		-f|--force) force="--force";;
-		-h|--help) scriptOptVerbose "$@"; usage 0;;
+		-h|--help) ScriptOptVerbose "$@"; usage 0;;
 		-np|--no-prompt) noPrompt="--no-prompt";;
 		-q|--quiet) quiet="--quiet";;
 		-t|--test) test="--test";;
-		-v|--verbose) verbose="-v"; verboseLevel=1;;
-		-vv) verbose="-vv"; verboseLevel=2;;
-		-vvv) verbose="-vvv"; verboseLevel=3;;
-		-vvvv) verbose="-vvvv"; verboseLevel=4;;
+		-v|--verbose|-vv|-vvv|-vvv) ScriptOptVerbose "$1";;
 		-w|--wait) wait="--wait";;
 		*) UnknownOption "$1";;
 	esac
-}
-
-# scriptOptVerbose - find a verbose option and set the verbose variable to it
-scriptOptVerbose()
-{
-	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
-		[[ "$1" == @(--verbose|-v|-vv|-vvv|-vvvv) ]] && { verbose="$1"; return; }
-		shift; 
-	done
 }
 
 # ScriptOptGet [--check|--integer] VAR [DESC] --OPTION VALUE
@@ -220,7 +210,7 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 ScriptRun()
 {
 	local defaultCommand defaultCommandUsed; RunFunction "init" -- "$@" || return
-	
+		
 	# commands - format command1Command2Command
 	local args=() c shift="1"
 	local command commandNames=() commands=() globalArgs=() originalArgs=("$@") otherArgs=() # public

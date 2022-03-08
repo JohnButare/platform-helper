@@ -3,8 +3,7 @@
 # no dependencies: do not source other scripts here as we do not assume other scripts are in the path
 
 run() {	init && args "$@" && runScript; }
-
-init() { LoadFunctions; }
+init() { LoadFunctions && . "$scriptDir/script.sh"; }
 
 usage()
 {
@@ -57,10 +56,7 @@ args()
 			-pe|--pause-error) pauseError="true";;
 			-sa|--ssh-agent) sshAgent="true";;
 			-s|--ssh) ssh="$2"; shift;;
-			-v|--verbose) verbose="-v"; verboseLevel=1;;
-			-vv) verbose="-vv"; verboseLevel=2;;
-			-vvv) verbose="-vvv"; verboseLevel=3;;
-			-vvvv) verbose="-vvvv"; verboseLevel=4;;
+			-v|--verbose|-vv|-vvv|-vvv) ScriptOptVerbose "$1";;
 			-x) InitializeXServer || return;;
 			*)
 				[[ "$1" == "--" ]] && { shift; script+=( "$@" ); break; }
@@ -81,13 +77,13 @@ runScript()
 	[[ $elevate ]] && IsPlatform win && ! IsElevated && { runScriptElevated; return; }
 
 	# configure Hashi tools
-	[[ $hashi ]] && { HashiConf $verbose || return; }
+	[[ $hashi ]] && { RunLog HashiConf $verbose || return; }
 
 	# configure credential manager
-	[[ $credential ]] && { CredentialConf --unlock $verbose || return; }
+	[[ $credential ]] && { RunLog CredentialConf --unlock $verbose || return; }
 
 	# configure the SSH agent
-	[[ $sshAgent ]] && { SshAgentConf "$verbose" || return; }
+	[[ $sshAgent ]] && { RunLog SshAgentConf "$verbose" || return; }
 
 	# run the script
 	if [[ $ssh ]]; then
@@ -117,7 +113,7 @@ runScriptSsh()
 {
 	local host="$1"; shift
 	local script="$(cat <<-EOF
-		[[ -f "$f" ]] && { . "$f" || exit; }
+		[[ -f "$functionFile" ]] && { . "$functionFile" || exit; }
 		$@
 		EOF
 	)"
@@ -189,18 +185,23 @@ pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; ec
 
 # LoadFunctions - load functions from function.sh
 # - look in the path, the current directory, the script directory, and /usr/local/bin
-# - sets f to the function file found
+# - sets functionFile to the function file
+# - sets scriptDir to the script directory
 LoadFunctions() 
 {
-	f="$(type -P "function.sh")"
+	local file="function.sh" # for debugging
+	functionFile="$(type -P "$file")"
 	if (( $? != 0 )); then
-		f="$PWD/function.sh"
-		if [[ ! -f "$f" ]]; then f="${BASH_SOURCE[0]%/*}/function.sh"
-		elif [[ ! -f "$f" ]]; then f="/usr/local/data/bin/function.sh"
-		elif [[ ! -f "$f" ]]; then EchoErr "Unable to find function.sh"; pause; return 1
+		functionFile="$PWD/function.sh"
+		if [[ ! -f "$functionFile" ]]; then functionFile="${BASH_SOURCE[0]%/*}/$file"
+		elif [[ ! -f "$functionFile" ]]; then functionFile="/usr/local/data/bin/$file"
+		elif [[ ! -f "$functionFile" ]]; then EchoErr "Unable to find $file"; pause; return 1
 		fi
 	fi
-	. "$f" || { EchoErr "RunScript: unexpected error sourcing function.sh"; pause; return 1; }
+
+	[[ ! $functionFile ]] && { EchoErr "RunScript: unable to find the '$file' script"; return 1; }
+	. "$functionFile" || { EchoErr "RunScript: unable to run the '$file' script"; pause; return 1; }
+	scriptDir="$(GetFilePath "$functionFile")"
 }
 
 run "$@"
