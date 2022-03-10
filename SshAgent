@@ -23,6 +23,7 @@ opt()
 {
 	case "$1" in
 		-l|--log) log="--log";;
+
 		*) return 1;;
 	esac
 }
@@ -124,7 +125,20 @@ cleanupCommand()
 # start command
 #
 
-startUsage() { echot "Usage: $(ScriptName) show\n.Start the SSH Agent."; }
+startUsage() { echot "Usage: $(ScriptName) show
+Start the SSH Agent
+
+	-p, --password=PASSWORD 	password to unlock SSH keys."; }
+
+startArgStart() { unset -v password; }
+
+startOpt()
+{
+	case "$1" in
+		-p|--password|-p=*|--password=*) ScriptOptGet password "$@";;
+		*) return 1;;
+	esac
+}
 
 startCommand()
 {
@@ -152,22 +166,53 @@ startCommand()
 	. "$environmentFile" || { EchoErr "SshAgent: unable to read the SSH Agent configuration file $f"; return 1; }
 
 	# add the keys to the SSH Agent
-	if credential --quiet exists ssh default; then
-		# pass prompts for the GPP key and does not work properly if called from ssh-add, so call it outside of ssh-add first
-		[[ "$CREDENTIAL_MANAGER" == "Pass" ]] && { credential get ssh default >& /dev/null || return; }
+	if ! sshAdd; then
+		[[ ! $quiet ]] && EchoErr "SshAgent: unable to add identity for $USER to the SSH agent"
+		return 1
+	fi
+
+	[[ ! $quiet ]] && echo "$(ssh-add -L | wc -l) identities have been added to the SSH agent"
+	return 0
+}
+
+# sshAdd PASSWORD - add all keys to the ssh-agent using the password
+sshAdd()
+{
+	# get the password from the credential store if possible
+	if [[ ! $password ]] && credential --quiet exists ssh default; then
+		password="$(RunLog credential get ssh default)" || return
+	fi
+
+	# use passh to supply the password
+	if [[ $password ]] && InPath passh; then
+		log1 "running ssh-add with passh"
+		passh -p "$password" -P "Enter passphrase for" ssh-add >& "$output"
+
+	# use expect to supply the password
+	elif [[ $password ]] && InPath expect; then
+		log1 "running ssh-add with expect"
+		expect <<-EOF >& "$output"
+			spawn ssh-add
+ 			expect "Enter passphrase"
+ 			send "$password\r"
+  		expect eof
+		EOF
+
+	# uses SSH_ASKPASS - fails when called as root using sudor
+	elif [[ $password ]]; then
+		log1 "running ssh-add with SSH_ASKPASS=SshCredential"
 		DISPLAY=1 SSH_ASKPASS="SshCredential" ssh-add < /dev/null >& "$output"
-	else
+
+	# password from prompt
+	elif IsStdIn; then
+		log1 "running ssh-add"
 		ssh-add >& "$output"
-	fi
-	result="$?"
 
-	if [[ $result == 0 ]]; then
-		[[ ! $quiet ]] && echo "$(ssh-add -L | wc -l) identities have been added to the SSH agent"
+	# failure - no password and no way to prompt
 	else
-		EchoErr "SshAgent: unable to add identity for $USER to the SSH agent"
+		[[ ! $quiet ]] && ScriptErr "a terminal is required to read the password."
+		return 1
 	fi
-
-	return $result
 }
 
 #
