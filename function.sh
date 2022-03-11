@@ -261,7 +261,7 @@ browser()
 }
 
 # Borg Backup
-BorgConfig() { ScriptEval BorgHelper environment "$@"; }
+BorgConf() { ScriptEval BorgHelper environment "$@"; }
 
 # HashiCorp
 HashiConf() { ScriptEval hashi config environment --suppress-errors "$@"; }
