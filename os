@@ -340,17 +340,19 @@ Usage: $(ScriptName) info [HOST](localhost)
 Show Operating System information.
 
 	-d|--detail		show detailed information
-	-m|--monitor	monitor information"
+	   --dynamic	show dynamic information
+	-m|--monitor	monitor dynamic information"
 }
 
-infoArgStart() { unset -v detail monitor; host="localhost"; }
+infoArgStart() { unset -v detail host monitor; }
 infoArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
 
 infoOpt()
 {
 	case "$1" in
 		-d|--detail) detail="--detail";;
-		-m|--monitor) monitor="true";;
+		--dynamic) dynamic="--dynamic";;
+		-m|--monitor) monitor="--monitor";;
 		*) return 1;;
 	esac
 }
@@ -358,7 +360,7 @@ infoOpt()
 infoCommand() 
 {
 	if [[ $monitor ]]; then 
-		watch -n 1 os info $host $detail "${globalArgs[@]}"
+		watch -n 1 os info $host $detail --dynamic "${globalArgs[@]}"
 	else
 		if IsLocalHost "$host"; then infoLocal; else infoRemote; fi
 	fi
@@ -369,7 +371,7 @@ infoRemote()
 	# check for ssh
 	! SshIsAvailable "$host" && { echo "$host Operating System information is not available"; return; }
 
-	# destailed information - using the os command on the host
+	# detailed information - using the os command on the host
 	SshInPath "$host" "os" && { SshHelper connect "$host" -- os info; return; }
 	
 	# basic information - using HostGetInfo vars command locally
@@ -383,7 +385,11 @@ infoRemote()
 
 infoLocal()
 {
-	local w what=( model platform distribution kernel chroot vm file cpu architecture mhz memory disk switch other )
+	local w what=()
+
+ 	[[ ! $dynamic ]] && what+=(model platform distribution kernel chroot vm cpu architecture mhz file switch other)
+ 	[[ $detail || $dynamic ]] && what+=(mhz memory process disk switch)
+
 	for w in "${what[@]}"; do info${w^} || return; done	
 }
 
@@ -417,9 +423,13 @@ infoDisk()
 	echo "        disk: $(diskAvailableCommand) GB available / $(diskTotalCommand) GB total" 
 }
 
+infoProcess()
+{
+	echo "   processes: $(pscount)" || return
+}
+
 infoFile()
 {
-	[[ ! $detail ]] && return
 	echo "file sharing: $(unc get protocols "$HOSTNAME")" || return
 }
 
@@ -441,7 +451,7 @@ infoMhz()
 	local mhz; mhz="$(mhzCommand)"
 	[[ ! $mhz ]] && return
 
-	if [[ $detail ]] && IsPlatform PiKernel; then
+	if IsPlatform PiKernel; then
 		mhz+=" max / $(pi info mhz) current"
 	fi
 
@@ -469,7 +479,7 @@ infoSwitch()
 	local switch; switch="$(power status switch "$HOSTNAME")"
 	[[ ! $switch ]] && return
 
-	if [[ $detail ]]; then
+	if [[ $detail || $dynamic ]]; then
 		local watts; watts="$(power status watts "$HOSTNAME")"
 		[[ $watts ]] && switch+=" ($watts watts)"
 	fi
