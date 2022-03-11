@@ -356,7 +356,7 @@ ConfigGet() { ConfigInit && (. "$functionConfigFileCache"; eval echo "\$$1"); }
 ConfigFileGet() { echo "$functionConfigFileCache"; }
 
 #
-# Console
+# console
 #
 
 clear() { echo -en $'\e[H\e[2J'; }
@@ -981,8 +981,9 @@ LogShow()
 #
 
 GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
-GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }			# GetMacAddress - MAC address of the primary network interface
+GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }	# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 													# GetHostname NAME - hosts configured name
+HostAvailable() { local host="$1"; IsAvailable "$host" && return; ScriptErr "host '$host' is not available"; return 1; }
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
@@ -1436,7 +1437,7 @@ MdnsNames() { avahi-browse -all -c -r | grep hostname | sort | uniq | cut -d"=" 
 MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';' -f5 | sort | uniq; }
 
 #
-# Network: SSH
+# network: SSH
 #
 
 GetSshUser() { echo "$1" | cut -s -d@ -f 1; } 							# GetSshUser USER@HOST:PORT -> USER
