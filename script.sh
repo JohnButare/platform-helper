@@ -101,14 +101,14 @@ LogFile()
 RunLog()
 {
 	if [[ $verbose ]]; then
-		local arg result
+		local arg message
 
 		for arg in "$@"; do
 			local pattern=" |	" # assign pattern to variable to maintain Bash and ZSH compatibility
-			[[ "$arg" =~  $pattern || ! $arg ]] && result+="\"$arg\" " || result+="$arg "
+			[[ "$arg" =~  $pattern || ! $arg ]] && message+="\"$arg\" " || message+="$arg "
 		done
 
-		log1 "command: $result"
+		log1 "command: $message"
 	fi
 
 	[[ $test ]] && return
