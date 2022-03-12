@@ -86,7 +86,7 @@ ports()
 	! IsPlatform wsl && return
 
 	# initialize
-	SshAgentConf --quiet || return
+	SshAgentConf --quiet "${globalArgs[@]}" || return
 
 	# check if SSH port 22 is being forwarded  
 	# - in Windows the port may show as open even if the port is not being forwarded

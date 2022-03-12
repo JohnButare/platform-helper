@@ -269,15 +269,17 @@ ScriptRun()
 		shift=0; RunFunction "${c}Args" -- "$@" || return; shift "$shift"
 	done
 
+	# extra operand
 	(( $# != 0 )) && { ExtraOperand "$1"; return 1; }
+
+	# set global arguments
+	globalArgs=($force $noPrompt $quiet $verbose)
 
 	# arg end
 	for c in "${commands[@]}"; do
 		RunFunction "${c}ArgEnd" || return
 	done
 	RunFunction "argEnd" || return
-
-	globalArgs=($force $noPrompt $quiet $verbose)
 
 	# cleanup
 	unset args c shift
