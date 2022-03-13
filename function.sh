@@ -1925,6 +1925,7 @@ InUse() { ProcessResource "$@"; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
 pkillchildren() { pkill -P "$1"; } # pkillchildren PID - kill process and children
+ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
 pschildren() { ps --forest $(ps -e --no-header -o pid,ppid|awk -vp=$1 'function r(s){print s;s=a[s];while(s){sub(",","",s);t=s;sub(",.*","",t);sub("[0-9]+","",
 s);r(t)}}{a[$2]=a[$2]","$1}END{r(p)}'); } # pschildren PPID - list process with children
 pschildrenc() { local n="$(pschildren "$1" | wc -l)"; (( n == 1 )) && return 1 || echo $(( n - 2 )); } # pschildrenc PPID - list count of process children
@@ -1962,61 +1963,144 @@ IsTaskRunning()
 	echo "$processes" | grep --extended-regexp --ignore-case --quiet "(,$file$|,.*//$file$|,.*\\$file$)"
 }
 
-# IsProcessRunning PROCESS - faster, no Windows processes
+# IsProcessRunning NAME
+# -f|--full 	match the full command line argument not just the process name
+# -r|--root 	return root processes as well
 IsProcessRunning()
 {
-	local o="-snq"; IsPlatform mac && unset o; 
-	pidof $o "$1"
-}
+	local full name root win
 
-# IsWindowsProces: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
-IsWindowsProcess() { IsPlatform win && file "$1" | grep --quiet "PE32"; }
-
-ProcessClose() 
-{ 
-	case "$PLATFORM" in
-
-		win)		
-			local p="${1/.exe/}.exe"; GetFileName "$p" p # ensure .exe extension
-			cd "$PBIN" || return # process.exe only runs from the current directory in wsl
-			./Process.exe -q "$p" $2 | grep "has been closed successfully." > /dev/null
-			;;
-
-		mac) osascript -e "quit app \"$1\"";;
-
-		*) pkill "$p" > /dev/null;;
-	esac
-}
-
-ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
-
-# ProcessKill NAME - kill the specified process
-# -a|--all 		kill all processes with NAME, not just the user process
-# -w|--win		kill the Windows process with NAME
-ProcessKill()
-{
-	local p all win; 
-
+	# options
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-a|--all) all="true";;
-			-w|--win) win="true";;
+			-f|--full) full="--full";;
+			-r|--root) root="sudoc";;
 			*)
-				if ! IsOption "$1" && [[ ! $p ]]; then p="$1"
+				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
 				else UnknownOption "$1" "ProcessKill"; return
 				fi
 		esac
 		shift
 	done
+	[[ ! "$name" ]] && { MissingOperand "name" "ProcessClose"; return; }
 
-	[[ "$(GetFileExtension "$p")" == "exe" ]] && win="true"
+	# check for process using pidof - slightly faster but pickier than pgrep
+	if [[ ! $full && $root ]]; then
+		local o="-snq"; IsPlatform mac && unset o; 
+		pidof $o "$1"; return
+	fi
 
+	# check for proces using pgrep
+	local args=(); [[ ! $root ]] && args+=("--uid" "$USER")
+	pgrep $full "$name" "${args[@]}" > /dev/null
+}
+
+# IsWindowsProces: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
+IsWindowsProcess() { IsPlatform win && file "$1" | grep --quiet "PE32"; }
+
+# ProcessClose|ProcessCloseWait|ProcessKill NAME - close or kill the specified process
+# -f|--full 	match the full command line argument not just the process name
+# -r|--root 	kill processes as root
+ProcessClose() 
+{ 
+	local args=() name root win
+
+	# options
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-f|--full) args+=("--full");;
+			-r|--root) root="sudoc";;
+			*)
+				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
+				else UnknownOption "$1" "ProcessKill"; return
+				fi
+		esac
+		shift
+	done
+	[[ ! "$name" ]] && { MissingOperand "name" "ProcessClose"; return; }
+
+	# check for Windows process
+	{ [[ "$(GetFileExtension "$name")" == "exe" ]] || IsWindowsProcess "$name"; } && win="true"
+
+	# close
 	if [[ $win ]]; then
-		start pskill.exe "$p" > /dev/null
-	elif [[ $all ]]; then
-		pkill "$p" > "/dev/null"
+		name="${name/.exe/}.exe"; GetFileName "$name" name # ensure process has an .exe extension
+		cd "$PBIN" || return # process.exe only runs from the current directory in WSL
+		./Process.exe -q "$name" $2 | grep "has been closed successfully." > /dev/null
+	
+	elif IsPlatform mac; then
+		osascript -e "quit app \"$1\""
+
 	else
-		pkill "$p" -U "$UID"  > "/dev/null"
+		[[ ! $root ]] && args+=("--uid" "$USER")
+		$root pkill "$name" "${args[@]}"
+
+	fi
+}
+
+ProcessCloseWait()
+{
+	local full name root seconds=10
+
+	# options
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-f|--full) full="--full";;
+			-r|--root) root="--root";;
+			*)
+				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
+				else UnknownOption "$1" "ProcessCloseWait"; return
+				fi
+		esac
+		shift
+	done
+	[[ ! "$name" ]] && { MissingOperand "name" "ProcessCloseWait"; return; }
+
+	# return if not running
+	! IsProcessRunning $root $full "$name" && return
+
+	# close the process
+	printf "Closing process $name..."; ProcessClose $root $full "$name"
+
+	# wait for process to close
+	local description="closed"
+	for (( i=1; i<=$seconds; ++i )); do
+ 		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
+		printf "."
+		! IsProcessRunning $root $full "$name" && { echo "$description"; return; }
+		sleep 1; description="killed"; ProcessKill $root $full "$name"
+	done
+
+	echo "not found"; return 1
+}
+
+ProcessKill()
+{
+	local args=() name root win
+
+	# options
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-f|--full) args+=("--full");;
+			-r|--root) root="sudoc";;
+			*)
+				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
+				else UnknownOption "$1" "ProcessKill"; return
+				fi
+		esac
+		shift
+	done
+	[[ ! "$name" ]] && { MissingOperand "name" "ProcessKill"; return; }
+
+	# check for Windows process
+	{ [[ "$(GetFileExtension "$name")" == "exe" ]] || IsWindowsProcess "$name"; } && win="true"
+
+	# kill the process
+	if [[ $win ]]; then
+		start pskill.exe "$name"
+	else
+		[[ ! $root ]] && args+=("--uid" "$USER")
+		$root pkill -9 "$name" "${args[@]}"
 	fi
 }
 
