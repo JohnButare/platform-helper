@@ -23,7 +23,7 @@ function GetPlatform()
 		case "$1" in "") : ;;
 			-q|--quiet) quiet="--quiet";;
 			-T|--trust) trust="--trust";;
-			-v|-vv|-vvv|--verbose) verbose="$1";;
+			-v|-vv|-vvv|-vvvv|-vvvvv|--verbose) verbose="$1";;
 			*) 
 				if [[ ! $host ]]; then host="$1"
 				else echo "GetPlatform: unknow option '$1'"; return 1;

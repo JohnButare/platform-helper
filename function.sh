@@ -2103,7 +2103,7 @@ start()
 			-s|--sudo) sudo="sudoc";;
 			-T|--terminal) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
 			-t|--test) test="--test"; $run="echo -E";;
-			-v|-vv|-vvv|--verbose) verbose="$1";;
+			-v|-vv|-vvv|-vvvv|-vvvvv|--verbose) ScriptOptVerbose "$1";;
 			-w|--wait) wait="--wait";;
 			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "--window-style" "$2" ); shift;;
 			*)
@@ -2273,20 +2273,19 @@ ScriptOptVerbose()
 			-vv) verbose="-vv"; verboseLevel=2;;
 			-vvv) verbose="-vvv"; verboseLevel=3;;
 			-vvvv) verbose="-vvvv"; verboseLevel=4;;
+			-vvvvv) verbose="-vvvvv"; verboseLevel=5;;
 		esac
 		shift; 
 	done
 }
 
-# ScriptReturn [-v|--verbose] <var>... - return the specified variables as output from the script in an escaped format
+# ScriptReturn <var>... - return the specified variables as output from the script in an escaped format
 #   The script should be called using ScriptEval.
 #   -e, --export		the returned variables should be exported
-#   -s, --show			show the variables in a human readable format instead of a escpaed format
 ScriptReturn() 
 {
-	local var avar fmt="%q" arrays export
+	local var avar fmt="%q" arrays export # fmt="\"%s\"" # for testing
 	[[ "$1" == @(-e|--export) ]] && { export="export "; shift; }
-	[[ "$1" == @(-v|-vv|-vvv|--verbose) ]] && { fmt="\"%s\""; shift; }
 
 	# cache array lookup for performance
 	arrays="$(declare -p "$@" |& grep "^declare -a" 2> /dev/null)"

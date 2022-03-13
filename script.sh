@@ -77,8 +77,6 @@ ScriptCheckPath()
 # Script Logging
 #
 
-ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$@"; }
-
 # logN - log an error message only at the specified verbosity level or higher.  Output is sent to the standard error
 # to avoid interference with commands whose output is consumed, such as to set a variable.
 log1() { ! (( verboseLevel >= 1 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; return 0; }
@@ -144,7 +142,7 @@ ScriptOpt()
 		-np|--no-prompt) noPrompt="--no-prompt";;
 		-q|--quiet) quiet="--quiet";;
 		-t|--test) test="--test";;
-		-v|--verbose|-vv|-vvv|-vvv) ScriptOptVerbose "$1";;
+		-v|--verbose|-vv|-vvv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 		-w|--wait) wait="--wait";;
 		*) UnknownOption "$1";;
 	esac
@@ -203,7 +201,7 @@ ScriptOptNetworkProtocol()
 ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file sharing (NFS|SMB|SSH|SSH_PORT)"; }
 
 #
-# Script Run
+# ScriptRun
 #
 
 # ScriptRun [defaultCommand]: init->opt->args->initFinal->command->cleanup
@@ -213,7 +211,7 @@ ScriptRun()
 		
 	# commands - format command1Command2Command
 	local args=() c shift="1"
-	local command commandNames=() commands=() globalArgs=() originalArgs=("$@") otherArgs=() # public
+	local command commandNames=() commands=() globalArgs=() globalArgsLessVerbose=() originalArgs=("$@") otherArgs=() # public
 
 	while (( $# )); do
 		local firstCommand="true"; [[ $command ]] && unset firstCommand
@@ -274,6 +272,8 @@ ScriptRun()
 
 	# set global arguments
 	globalArgs=($force $noPrompt $quiet $verbose)
+	local lessVerbose; (( verboseLevel > 1 )) && lessVerbose="-$(StringRepeat "v" "$(( verboseLevel - 1 ))")"
+	globalArgsLessVerbose=($force $noPrompt $quiet $lessVerbose)
 
 	# arg end
 	for c in "${commands[@]}"; do
@@ -295,7 +295,7 @@ ScriptRun()
 }
 
 #
-# Script Usage
+# ScriptUsage
 #
 
 # ScriptUsage RESULT USAGE_TEXT
@@ -318,7 +318,7 @@ ScriptUsage()
 	-np, --no-prompt  suppress interactive prompts
 	-q, --quiet 			minimize informational messages
 	-t, --test				test mode, do not make changes
-	-v, --verbose			verbose mode, multiple -vv or -vvv for additional logging
+	-v, --verbose			verbose mode, multiple -v increase verbosity (max 5)
 	-w, --wait				wait for the operation to complete
 	--     						signal the end of arguments"
 
@@ -340,7 +340,13 @@ ScriptUsageEcho()
 }
 
 #
-# Helper Functions
+# other
+#
+
+ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$@"; }
+
+#
+# helper
 #
 
 IsDriveLetter()
