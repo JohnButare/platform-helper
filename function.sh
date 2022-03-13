@@ -2091,7 +2091,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 start() 
 {
 	# arguments
-	local elevate file force noPrompt sudo terminal test run verbose wait windowStyle
+	local elevate file force noPrompt sudo terminal test run verbose verboseLevel wait windowStyle
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
