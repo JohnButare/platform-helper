@@ -1122,17 +1122,17 @@ consulAclTokenRm()
 # consul api Command
 #
 
-consulApiUsage() { echot "Usage: $(ScriptName) consul api [check|put] PATH -- [curl arguments]\nCall the Consul API.  For example:\n
-hashi consul api /status/leader"; }
+consulApiUsage() { echot "Usage: $(ScriptName) consul api [check|put] PATH -- [curl arguments]\nCall the Consul API.  For example:\nhashi consul api /status/leader"; }
 consulApiArgStart() { unset path; }
 consulApiArgs() { [[ "$command" == "consulApiCheck" ]] && return; ScriptArgGet "path" -- "$@"; }
-consulApiCommand() { consulApi "$path" "${otherArgs[@]}"; }
-consulApiCheckCommand() { consulApiCheck; }
-consulApiPutCommand() { consulApiPut "$path" "${otherArgs[@]}"; }
 
 consulApi() { RunLog curl --silent --show-error --header "X-Consul-Token: $CONSUL_HTTP_TOKEN" "$CONSUL_HTTP_ADDR/v1/$(RemoveTrim "$1" "/")" "${@:2}"; }
+consulApiCommand() { consulApi "$path" "${otherArgs[@]}"; }
+
+consulApiPutCommand() { consulApiPut "$path" "${otherArgs[@]}"; }
 consulApiPut() { consulApi "$@" --request PUT; }
 
+consulApiCheckCommand() { consulApiCheck; }
 consulApiCheck()
 {
 	# check host
@@ -2125,17 +2125,17 @@ nomadStatusCommand() { nomad node status; }
 # nomad api command
 #
 
-nomadApiUsage() { echot "Usage: $(ScriptName) nomad api [check|put] PATH -- [curl arguments]\nCall the Consul API.  For example:\n
-hashi nomad api /nodes?resources=true"; }
+nomadApiUsage() { echot "Usage: $(ScriptName) nomad api [check|put] PATH -- [curl arguments]\nCall the Nomad API.  For example:\nhashi nomad api /nodes?resources=true"; }
 nomadApiArgStart() { unset path; }
 nomadApiArgs() { [[ "$command" == "nomadApiCheck" ]] && return; ScriptArgGet "path" -- "$@"; }
-nomadApiCommand() { nomadApi "$path" "${otherArgs[@]}"; }
-nomadApiCheckCommand() { nomadApiCheck; }
-nomadApiPutCommand() { nomadApiPut "$path" "${otherArgs[@]}"; }
 
+nomadApiCommand() { nomadApi "$path" "${otherArgs[@]}"; }
 nomadApi() { RunLog curl --silent --show-error --header "X-Nomad-Token: $NOMAD_TOKEN" "$NOMAD_ADDR/v1/$(RemoveTrim "$1" "/")" "${@:2}"; }
+
+nomadApiPutCommand() { nomadApiPut "$path" "${otherArgs[@]}"; }
 nomadApiPut() { nomadApi "$@" --request PUT; }
 
+nomadApiCheckCommand() { nomadApiCheck; }
 nomadApiCheck()
 {
 	# check host
@@ -3000,7 +3000,7 @@ serviceVars()
 #
 
 vaultUsage() { echot "\
-Usage: $(ScriptName) vault environment|status|token|unseal
+Usage: $(ScriptName) vault api|environment|status|token|unseal
 Vault commands.
 
 	unseal			unseal the vault using keys from the credential store"; }
@@ -3008,21 +3008,46 @@ Vault commands.
 vaultCommand() { usage; }
 vaultEnvironmentCommand() { productEnvironment "$product"; }
 
-vaultStatusCommand()
+#
+# vault api command
+#
+
+vaultApiUsage() { echot "Usage: $(ScriptName) vault api [check|list|put] PATH -- [curl arguments]\nCall the Consul API.  For example:\nhashi vault api /sys/health"; }
+vaultApiArgStart() { unset path; }
+vaultApiArgs() { [[ "$command" == "vaultApiCheck" ]] && return; ScriptArgGet "path" -- "$@"; }
+
+vaultApiCommand() { vaultApi "$path" "${otherArgs[@]}"; }
+vaultApi() { RunLog curl --silent --show-error --header "X-Vault-Token: $VAULT_TOKEN" "$VAULT_ADDR/v1/$(RemoveTrim "$1" "/")" "${@:2}"; }
+
+vaultApiListCommand() { vaultApiList "$path" "${otherArgs[@]}"; }
+vaultApiList() { vaultApi "$@" --request LIST; }
+
+vaultApiPutCommand() { vaultApiPut "$path" "${otherArgs[@]}"; }
+vaultApiPut() { vaultApi "$@" --request PUT; }
+
+vaultApiCheckCommand() { vaultApiCheck; }
+vaultApiCheck()
 {
-	local result
+	# check host
+	local host="$(productVarGet "SERVER")"
+	! IsAvailable "$host" && { [[ ! $quiet ]] && ScriptErr "vault server $host is not available"; return 1; }
 
-	vault status; status="$?"
+	# check port
+	local port="$(GetUriPort "$(productVarGet "ADDR")")"
+	! IsAvailablePort "$host" "$port" && { [[ ! $quiet ]] && ScriptErr "vault server $host is not available on port $port"; return 1; }	
 
-	echo "Active Node            $(resolve active.vault)"
-	echo "Standby Node           $(resolve standby.vault)"
+	# check api
+	[[ "$(vaultApi "/sys/health" 2> /dev/null | jq '.initialized')" == "true" ]]  && return
 
-	case "$status" in
-		2) hilight "The vault is sealed";;
-		*) return "$status";;
-	esac
+	# API is not available
+	[[ ! $quiet ]] && { ScriptErr "the vault API at $(productVarGet "ADDR") is not available"; vaultApi "/sys/health"; return 1; }
 
+	return 0
 }
+
+#
+# vault seal command
+#
 
 vaultSealCommand()
 {
@@ -3043,6 +3068,30 @@ vaultSeal()
 	RunLog vault operator seal || return
 }
 
+#
+# vault status command
+#
+
+vaultStatusCommand()
+{
+	local result
+
+	vault status; status="$?"
+
+	echo "Active Node            $(resolve active.vault)"
+	echo "Standby Node           $(resolve standby.vault)"
+
+	case "$status" in
+		2) hilight "The vault is sealed";;
+		*) return "$status";;
+	esac
+
+}
+
+#
+# vault token command
+#
+
 vaultTokenCommand()
 {
 	for accessor in $(vault list auth/token/accessors | tail +3); do
@@ -3050,6 +3099,10 @@ vaultTokenCommand()
 		vault token lookup -accessor "$accessor"
 	done
 }
+
+#
+# vault unseal command
+#
 
 vaultUnsealCommand()
 {
@@ -3550,7 +3603,7 @@ productInit()
 {
 	local product="$1" host="$2"; [[ ! $product ]] && MissingOperand "product"
 
-	log1 "productInit: initializing $product"
+	log2 "productInit: initializing $product"
 
 	! productIsInstalled "$1" && { EchoErr "$product is not installed"; return 1; }
 
