@@ -253,7 +253,7 @@ ScriptRun()
 	done
 
 	# options
-	unset -v force noPrompt quiet test verbose verboseLevel wait
+	unset -v force noPrompt quiet test verbose verboseLevel verboseLess wait
 	set -- "${args[@]}"; args=()
 	while (( $# )); do
 		! IsOption "$1" && { args+=("$1"); shift; continue; }
@@ -272,7 +272,7 @@ ScriptRun()
 
 	# set global arguments
 	globalArgs=($force $noPrompt $quiet $verbose)
-	local lessVerbose; (( verboseLevel > 1 )) && lessVerbose="-$(StringRepeat "v" "$(( verboseLevel - 1 ))")"
+	(( verboseLevel > 1 )) && verboseLess="-$(StringRepeat "v" "$(( verboseLevel - 1 ))")"
 	globalArgsLessVerbose=($force $noPrompt $quiet $lessVerbose)
 
 	# arg end
