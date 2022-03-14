@@ -761,47 +761,31 @@ removeLocalCerts()
 #
 
 configSetUsage() { echot "\
-Usage: $(ScriptName) config local|remote
-Set configuration.
+Usage: $(ScriptName) config local|remote [all|$productUsage](all)
+Set local or remote credential configuration.
 
-	local			set the local configuration in the local credential store
-	remote		set the remote configuration in Vault"; }
+	-F,	--from MANAGER	first credential manager, defaults to local or remote
+	-T,	--to MANAGER		second credential manager, defaults to local or remote"; }
+
+configSetLocalArgStart() { from="remote" to="local"; }
+configSetRemoveArgStart() { from="local" to="remote"; }
+
+configSetOpt() 
+{
+	case "$1" in
+		-F|--from|-F=*|--from=*) ScriptOptGet from "$@";;
+		-T|--to|-T=*|--to=*) ScriptOptGet to "$@";;
+		*) return 1
+	esac
+}
 
 configSetCommand() { usage; }
 
-# config set local command
-
-configSetLocalUsage()
-{
-	echot "\
-Usage: $(ScriptName) config set local [all|$productUsage](all)
-Set the local configuration in the local credential store."
-}
-
 configSetLocalCommand() { configSetLocalAllCommand; }
-
 configSetLocalAllCommand() { configSetLocalConsulCommand && configSetLocalNomadCommand && configSetLocalVaultCommand; }
 configSetLocalConsulCommand() { configSetLocal "consul"; }
 configSetLocalNomadCommand() { configSetLocal "nomad"; }
 configSetLocalVaultCommand() { configSetLocal "vault"; }
-
-# configSetLocal PRODUCT - copy the product configuration from Vault to the local credential store
-configSetLocal()
-{	
-	local p="$1" product="vault"
-	vaultTokenSetLocal && productInit "$product" && credManagerVerify "local" && configMirror "vault" "local" "$p"
-}
-
-#
-# config set remote commands
-#
-
-configSetRemoteUsage()
-{
-	echot "\
-Usage: $(ScriptName) config set remote [all|$productUsage](all)
-Set the remote configuration in Vault."
-}
 
 configSetRemoteCommand() { configSetRemoteAllCommand; }
 configSetRemoteAllCommand() { configSetRemoteConsulCommand && configSetRemoteNomadCommand && configSetRemoteVaultCommand; }
@@ -809,25 +793,30 @@ configSetRemoteConsulCommand() { configSetRemote "consul"; }
 configSetRemoteNomadCommand() { configSetRemote "nomad"; }
 configSetRemoteVaultCommand() { configSetRemote "vault" && vaultTokenSetRemote; }
 
-# configSetRemote PRODUCT - copy the product configuration from the local credential store to Vault
-configSetRemote()
-{
-	local p="$1" product="vault"
-	productInit "$product" && credManagerVerify "local" "vault" && configMirror "local" "vault" "$p"
-}
+configSetLocal() { vaultTokenGetRemote && configMirror "$from" "$to" "$1"; }
+configSetRemote() { configMirror "$from" "$to" "$1"; }
 
-# config helper
-
+# configMirror FROM TO PRODUCT - mirror configuration credentials for a product
 configMirror()
 {
-	local from="$1" to="$2" product="${3:-$product}"
+	local from="$1" to="$2" product="$3"
+
+	# check if the configuration already exists in the TO credential store
 	local check="token"; [[ "$product" == "vault" ]] && check="key5"
-	[[ ! $force ]] && credential exists "$(credPath)" "$check" --manager="$to" && return
-	hilight "Mirroring ${product^} credentials to ${to^}..."
-	credential mirror --from="$from" --to="$to" "$(credPath)" --force "${globalArgs[@]}" || return
+	[[ ! $force ]] && test="" RunLog credential exists "$(credPath)" "$check" --manager="$to" && return
+
+	# get descriptions
+	local fromDesc; fromDesc="$(credential manager name --manager="$from")"
+	local toDesc; toDesc="$(credential manager name --manager="$to")"
+
+	# mirror the credentials
+	hilight "Mirroring ${product^} credentials from '$fromDesc' to '$toDesc'..."
+	RunLog credential mirror --from="$from" --to="$to" "$(credPath)" --force $verbose || return
 }
 
+#
 # config status command
+#
 
 configStatusCommand()
 {
@@ -3146,40 +3135,41 @@ vaultHostsGet()
 
 vaultIsUnsealed() { vault status | grep -q '^Sealed[ ]*false$'; }
 
-# vaultTokenSetRemote - set the Vault token in the first Vault servers credential store 
+# vaultTokenSetRemote - set the Vault token on a remote host
 vaultTokenSetRemote()
 {	
-	local product="vault"
-	local token="$(productVarGet "token")"; [[ ! $token ]] && { ScriptErr "unable to get the Vault token from the environment"; return 1; }
-	local server="$(configServer)"; [[ ! $server ]] && { ScriptErr "unable to get the Vault configuration server"; return 1; }
-	local serverToken; serverToken="$(sshRun -q -t "$server" bash -i credential get "$(credPath)" token --queit "${globalArgs[@]}")"
+	local product="vault"; productInit "$product" || return
 
-	[[ ! $force && "$token" == "$serverToken" ]] && return
+	# return if the Vault token is already set on the remote host
+	local host; host="$(configServer)" || return
+	local token; token="$(sshRunInteractive "$host" credential get "$(credPath)" token --queit "${globalArgs[@]}")" || return
+	[[ "$token" == "$VAULT_TOKEN" ]] && return
 
-	sshRun -q -t "$server" bash -i credential set "$(credPath)" token "$token" "${globalArgs[@]}"
+	sshRunInteractive "$host" credential set "$(credPath)" token "$VAULT_TOKEN" "${globalArgs[@]}" || return
 }
 
-# vaultTokenSetLocal - set the Vault token in the local credential store.  
-vaultTokenSetLocal()
+# vaultTokenGetRemote - get the Vault token from a remote host if needed
+vaultTokenGetRemote()
 {
-	local product="vault"
+	# initialize Vault
+	productInit "vault" || return
 
-	[[ $VAULT_TOKEN && ! $force && "$(credGet "token" --quiet)" == "$VAULT_TOKEN" ]] && return
+	# return if we have a Vault token
+	[[ $VAULT_TOKEN ]] && return
 
-	local host="$(configServer)"; IsLocalHost "$host" && return
-
+	# get the token from the host
+	local host token; host="$(configServer)" || return
 	echo "Getting the Vault token from $host..."
-
-	local token; token="$(sshRun -4 -q -t "$host" bash -i credential get "$(credPath)" token "${globalArgs[@]}")"
+	! IsLocalHost "$host" && token="$(sshRunInteractive "$host" credential get "$(credPath)" token "${globalArgs[@]}")"
+	
+	# unable to get the token
 	if [[ ! $token ]]; then
 		ScriptErr "The Vault token does not exist in the local credential manager on $(configServer) at path $(credPath)"
 		return 1
 	fi
 
-	echo "Updating the Vault token in the local credential store..."
+	# got a token
 	export VAULT_TOKEN="$token"
-	credSet "token" "$token" || return
-	exit
 }
 
 #
@@ -3378,19 +3368,6 @@ credDelete() { RunLog credential rm "$(credPath)" "$@" "${globalArgs[@]}"; }
 credExists() { test="" RunLog credential exists "$(credPath)" "$@" "${globalArgs[@]}"; }
 credGet() { test="" RunLog credential get "$(credPath)" "$@" "${globalArgs[@]}"; }
 
-# credManagerVerify MANAGER...  - check if the credential managers are available
-credManagerVerify()
-{
-	local manager
-
-	for manager in "$@"; do
-		log1 "checking the '$manager' credential manager..."
-		credential test all --manager="$manager" "${globalArgs[@]}" && continue
-		EchoErr "The '$manager' credential manager is not available"
-		return 1
-	done
-}
-
 credPath()
 {
 	local path="$(configGet "credentialPath")" product="${1:-$product}"
@@ -3467,13 +3444,7 @@ productTokenStatus() { local token="${1:-$(productVarGet "TOKEN")}"; [[ $token ]
 # productEnvironment [PRODUCT] [HOST] - show the environment variables for the specified product
 productEnvironment()
 {
-	local product="${1:-$product}" host="$2" force="$force"; certInit "$product" || return
-
-	# force the environment change if the configuration has changed
-	if [[ "$configPrefix" != "$(productVarGet "CONFIG")" || "$baseDomain" != "$(productVarGet "DOMAIN")" ]] && [[ ! $force ]]; then
-		log1 "$product environment check will be forced (configPrefix=$configPrefix $(productVar "CONFIG")=$(productVarGet "CONFIG")  baseDomain=$baseDomain $(productVar "DOMAIN")=$(productVarGet "DOMAIN"))"
-		force="--force"
-	fi
+	local product="${1:-$product}" host="$2" certInit "$product" || return
 
 	# variables
 	local certDir; certDir="$(quiet="true" certDirLocal "$product")"
@@ -3525,10 +3496,11 @@ productEnvironment()
 		EOF
 	fi
 
-	# token configuration - set if not already set, i.e. nomad can set the VAULT_TOKEN
+	# get the token if not already set, i.e. if Nomad sets the VAULT_TOKEN use it
 	local token tokenVar tokenVal
 	tokenVar="$(productVar "TOKEN")"
 	tokenVal="$(productVarGet "TOKEN")"
+
 	if [[ $force || ! $tokenVal ]] && [[ ! $noToken ]]; then
 		local exclude=(); [[ ! $VAULT_TOKEN ]] && exclude=( "--exclude-managers=vault" ) # prevent recursion	
 		tokenVal="$(credGet "token" "${exclude[@]}")" || return
@@ -3792,7 +3764,8 @@ certs() { [[ $encrypt ]]; } # true if certificates are being used
 doHashi() { hashi "$@" $force $test "${configFileArg[@]}" "${configPrefixArg[@]}" "${otherArgs[@]}" "${globalArgs[@]}"; }
 isClient() { [[ "$type" == "client" ]]; }
 isServer() { [[ "$type" == "server" ]]; }
-sshRun() { SshAgentConf "${globalArgs[@]}" && ssh "$@"; }
+sshRun() { SshAgentConf --quiet "${globalArgs[@]}" && RunLog ssh "$@"; }
+sshRunInteractive() { SshAgentConf --quiet "${globalArgs[@]}" && RunLog SshHelper "$1" --interactive --pseudo-terminal "${globalArgs[@]}" -- "${@:2}"; }
 protocol() { certs && echo "https" || echo "http"; }
 whatArgGet() { ScriptOptGet "whatArg" "what" "$@"; StringToArray "${whatArg,,}" "," whatArg; }
 whatCheck() { [[ ! $whatArg ]] && return 0; local w; for w in "$@"; do IsInArray "$w" whatArg && return; done; return 1; }
