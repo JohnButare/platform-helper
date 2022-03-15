@@ -43,13 +43,26 @@ init()
 	backupDirDefault="$ADATA/borg"
 	backupUserDefault="root"
 	backupRepoDefault="$HOSTNAME"
-	borgVerbose=( ); [[ $verbose ]] && borgVerbose+=( "--verbose" )
 	borgPath="/usr/local/bin/borg"
 	mountDir="$HOME/Volumes/backup"
 	vars=( BORG_PASSPHRASE BORG_REPO )
 }
 
 argStart() { unset -v backupDir backupHost backupPassphrase backupRepo backupUser; }
+
+argEnd()
+{
+	borgVerboseArg=( ); [[ $verbose ]] && borgVerboseArg+=( "--verbose" )
+
+	# set command specific forces
+	unset forceEnvironment
+	if [[ $force ]]; then
+		if [[ "$command" == @(environment) ]]; then forceEnvironment="true"
+		fi
+	fi
+
+	return 0
+}
 
 opt()
 {
@@ -118,8 +131,12 @@ backupArgs() { backupArgs=( "$@" ); shift="$#"; }
 
 backupCommand()
 {	
+	log1 "backup"
+	
+	# backup local hosts
 	[[ ! $backupHostsArg ]] && { backupDo; return; }
 
+	# backup multiple hosts
 	[[ "${backupHostsArg,,}" == "all" ]] && backupHostsArg="$(network current servers backup)"
 	local backupHost backupHosts=(); StringToArray "$backupHostsArg" "," backupHosts
 	for backupHost in "${backupHosts[@]}"; do backupDo || return; done
@@ -286,7 +303,7 @@ runCommand() { runBorg "${runArgs[@]}"; }
 
 vortaCommand()
 {
-	log1 "borg $@ ${borgVerbose[@]} ${otherArgs[@]}"
+	log1 "borg $@ ${borgVerboseArg[@]} ${otherArgs[@]}"
 	sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" \
 		SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" \
 		vorta "${otherArgs[@]}" &
@@ -319,30 +336,31 @@ runBorg()
 {	
 	{ SshAgentConf "${globalArgs[@]}" && setBorgEnvironment; } || return
 
-	IsRoot && { RunLog borg "$@" "${borgVerbose[@]}" "${otherArgs[@]}"; return; }
+	IsRoot && { RunLog borg "$@" "${borgVerboseArg[@]}" "${otherArgs[@]}"; return; }
 
 	RunLog sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" BORG_REMOTE_PATH="$borgPath" BORG_RELOCATED_REPO_ACCESS_IS_OK="$BORG_RELOCATED_REPO_ACCESS_IS_OK" \
 		SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" \
-		borg "$@" "${borgVerbose[@]}" "${otherArgs[@]}"
+		borg "$@" "${borgVerboseArg[@]}" "${otherArgs[@]}"
 }
 
 setBorgEnvironment()
 {
+	log2 "setting the environment"
 	export BORG_RELOCATED_REPO_ACCESS_IS_OK="yes"
-	setBorgPassphrase && setBorgRepo
+	setBorgPassphrase && setBorgRepo && log2 "envionment set: BORG_REPO='$BORG_REPO'"
 }
 
 setBorgPassphrase()
 {
 	local passphrase="${backupPassphrase:-$BORG_PASSPHRASE}"
-	[[ $force || ! $passphrase ]] && { passphrase="$(credential get borg passphrase --fallback "${globalArgs[@]}")" || return; }
+	[[ $forceEnvironment || ! $passphrase ]] && { passphrase="$(credential get borg passphrase --fallback "${globalArgs[@]}")" || return; }
 	export BORG_PASSPHRASE="$passphrase"
 }
 
 setBorgRepo()
 {
 	# do not use BORG_REPO for configuration if forcing or if configuration has been supplied from options
-	[[ $force ]] && unset BORG_REPO
+	[[ $forceEnvironment ]] && unset BORG_REPO
 	[[ $backupDir || $backupHost || $backupUser || $backupRepo ]] && unset BORG_REPO
 
 	# backup host alias
