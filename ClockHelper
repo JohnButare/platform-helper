@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+. script.sh || exit
+
+usage() { ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... check|compare|start|terminal
+$(ScriptName) commands."; }
+
+checkCommand()
+{
+  local service="chrony"; IsPlatform mac && service="org.tuxfamily.chronyc"
+  if InPath chronyc && service running "$service"; then
+    header "Chrony Sources"; chronyc sources || return
+    header "Chrony Client"; chronyc tracking || return
+  fi
+
+  local timeServer="$(ConfigGet "timeServer")"
+  if [[ $timeServer ]] && compareInstalled && IsAvailable "$timeServer"; then
+    header "Time Server Comparison ($timeServer)"
+    compare "$timeServer" || return;
+  fi
+
+  if [[ -f "/etc/chrony/chrony.conf" ]] && grep "^allow" "/etc/chrony/chrony.conf" >& /dev/null; then
+    header "Chrony Server"
+    sudoc chronyc serverstats || return
+  fi
+}
+
+startCommand()
+{
+  if [[ $DISPLAY ]] && InPath xclock; then coproc xclock -title $HOSTNAME -digital -update 1
+  elif InPath tty-clock; then clockt
+  else date
+  fi
+}
+
+terminalCommand()
+{
+  if InPath tty-clock; then tty-clock -s -c; 
+  else date;
+  fi
+}
+
+#
+# compare command
+#
+
+compareUsage() { EchoWrap "$1" "Usage: $(ScriptName) compare [HOST](time.apple.com)\nCompare system time against another host."; }
+compareArgStart() { host="time.apple.com"; }
+compareArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
+compareCommand() { compare "$host"; }
+
+compare()
+{
+  local host="$1"
+  if IsPlatform mac; then sudoc sntp -sS "$host"
+  elif InPath ntpdate; then ntpdate -q "$host"
+  fi
+}
+
+#
+# helper
+#
+
+compareInstalled() { IsPlatform mac || InPath ntpdate; }
+
+ScriptRun "$@"
