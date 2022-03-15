@@ -319,9 +319,17 @@ ScriptUsage()
 	-q, --quiet 			minimize informational messages
 	-t, --test				test mode, do not make changes
 	-v, --verbose			verbose mode, multiple -v increase verbosity (max 5)
-	-w, --wait				wait for the operation to complete
-	--     						signal the end of arguments"
+	-w, --wait				wait for the operation to complete"
 
+	if (( verboseLevel == 1 )); then
+		ScriptUsageEcho "	--     						signal the end of arguments"
+	elif (( verboseLevel > 1 )); then
+		ScriptUsageEcho "\
+	--     						signal the end of arguments.  This is useful to allow further arguments to the script
+										program itself to start with a  “-”.  This provides consistency with the argument
+										parsing convention used by most other POSIX programs."
+	fi
+	
 	[[ $verbose ]] && IsFunction usageVerbose && usageVerbose
 
 	exit "${1:-1}"

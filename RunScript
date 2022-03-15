@@ -2,95 +2,100 @@
 # test: RunScript -v -nh --elevate -- touch /mnt/c/hi.txt \; sleep 2 \; echo \"all done\"
 # no dependencies: do not source other scripts here as we do not assume other scripts are in the path
 
-run() {	init && args "$@" && runScript; }
-init() { LoadFunctions && . "$scriptDir/script.sh"; }
-
 usage()
 {
-	echot "\
+	ScriptUsage "$1" "\
 usage: RunScript [OPTION]... [--] SCRIPT
 	Run a shell script, executable, or a series of commands.	
 
-	-c, --credential		configure a credential manager
-	-e, --elevate				in Windows run the script with an elevated (Administrator) token
-	-H, --hashi					configure Hashi tools
-	-m, --multiple			allow multiple commands, i.e. \"sudo RunScript --multiple 'ls; pause'\"
-											Useful in cases where bash -c cannot be used.
-	-nh, --no-hide			do not hide the elevated script window
-	-p, --pause					pause after the command is run, useful for transitory windows
-	-pe, --pause-error	pause after the command is run with an error, useful for transitory windows
-	-sa, --ssh-agent		configure the SSH agent
-	-s, --ssh HOST			run the script on the host using SSH
-	-v, --verbose				display detailed output
-	-x									force initialization of the X server
-	--     							Signal the end of options. This is useful to allow further arguments to the script
-											program itself to start with a  “-”.  This provides consistency with the 
-											argument parsing convention used by most other POSIX programs.
+	-c,  --credential				configure a credential manager
+	-cm, --manager=MANAGER	use a specific credential manager
+	-H,  --hashi						configure Hashi tools
+	-sa, --ssh-agent				configure the SSH agent
+	-s,  --ssh HOST					run the script on the host using SSH
+	-x											force initialization of the X server"
+	exit $1
+}
 
-	Notes:
+usageVerbose()
+{ 
+	ScriptUsageEcho "
+Other options:
+	-e,  --elevate					in Windows run the script with an elevated (Administrator) token
+	-nh, --no-hide					do not hide the elevated script window
+	-m,  --multiple					allow multiple commands, i.e. \"sudo RunScript --multiple 'ls; pause'\"
+													Useful in cases where bash -c cannot be used
+	-p,  --pause						pause after the command is run, useful for transitory windows
+	-pe, --pause-error			pause after the command is run with an error, useful for transitory windows
+
+Notes:
 	- finds function.sh even if it is not in the PATH.  This is useful for initial startup, non-login shells,
 	  or running as root.
 	- simplifies pausing the script.  This is useful when running elevated in Windows, 
 	  i.e. elevate RunScript --pause-error service start WpnUserService_5f5dbe
 	- all diagnostic (verbose) output is sent to the standard error so RunScript can be called from 
 	  a subshell, i.e. dir=\"\$(RunScript --elevate --verbose -- unc mount "//pi1/root")\""
-	exit $1
 }
 
-args()
-{
-	declare -g script=() windowStyle="--window-style hidden"
-	unset -v credential elevate hashi hashiService multiple pause pauseError ssh sshAgent verbose verboseLevel
-			
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			-c|--credential) credential="true";;
-			-e|--elevate) elevate="true";;
-			-f|--force) ;; # not used, allows other scripts to pass globalArgs
-			-h|--help) usage 0;;
-			-hs|--hashi-service) hashiService="true";;
-			-H|--hashi) hashi="true";;
-			-nh|--no-hide) windowStyle="";;
-			-m|--multiple) multiple="eval";;
-			-p|--pause) pause="true";;
-			-pe|--pause-error) pauseError="true";;
-			-sa|--ssh-agent) sshAgent="true";;
-			-s|--ssh) ssh="$2"; shift;;
-			-v|-vv|-vvv|-vvv|-vvvv|-vvvvv|--verbose) ScriptOptVerbose "$1";;
-			-x) InitializeXServer || return;;
-			*)
-				[[ "$1" == "--" ]] && { shift; script+=( "$@" ); break; }
-				! IsOption "$1" &&  { script+=( "$1" ); shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
+init() { defaultCommand="run"; }
 
-	[[ ! $script ]] && MissingOperand "script"
-	
-	return 0
+#
+# run command
+#
+
+runArgStart()
+{
+	unset -v credential credentialManager elevate hashi hashiService multiple pause pauseError ssh sshAgent verbose verboseLevel
+	credentialManager=() windowStyle="--window-style hidden"
 }
 
-runScript()
+runArgEnd() { [[ $otherArgs ]] && return; MissingOperand "script"; }
+
+runOpt()
 {
+	case "$1" in
+		-c|--credential) credential="true";;
+		-cm|--credential-manager|-cm=*|--credential-manager=*) ScriptOptGet "credentialManager" "credential-manager" "$@"; credentialManagerArg=(--manager "$credentialManager");;
+		-e|--elevate) elevate="true";;
+		-hs|--hashi-service) hashiService="true";;
+		-H|--hashi) hashi="true";;
+		-nh|--no-hide) windowStyle="";;
+		-m|--multiple) multiple="eval";;
+		-p|--pause) pause="true";;
+		-pe|--pause-error) pauseError="true";;
+		-sa|--ssh-agent) sshAgent="true";;
+		-s|--ssh) ssh="$2"; shift;;
+		-x) InitializeXServer || return;;
+		*) return 1;;
+	esac
+}
+
+#
+# run command
+#
+
+runCommand()
+{
+	set -- "${otherArgs[@]}"
+
 	# elevate	
-	[[ $elevate ]] && IsPlatform win && ! IsElevated && { runScriptElevated; return; }
+	[[ $elevate ]] && IsPlatform win && ! IsElevated && { runElevated; return; }
+
+	# configure credential manager
+	[[ $credential ]] && { RunLog CredentialConf --unlock "${credentialManagerArg[@]}" "${globalArgs[@]}" || return; }
 
 	# configure Hashi tools
 	[[ $hashi ]] && { RunLog HashiConf $verbose || return; }
-
-	# configure credential manager
-	[[ $credential ]] && { RunLog CredentialConf --unlock $verbose || return; }
 
 	# configure the SSH agent
 	[[ $sshAgent ]] && { RunLog SshAgentConf "$verbose" || return; }
 
 	# run the script
 	if [[ $ssh ]]; then
-		runScriptSsh "$ssh" "${script[@]}"
+		runSsh "$ssh" "$@"
 	else
-		[[ $verbose ]] && { ScriptErr "running the following script locally:"; echo "$multiple \"${script[@]}\"" | AddTab >& /dev/stderr; }
-		$multiple "${script[@]}"
+		[[ $verbose ]] && { ScriptErr "running the following script locally:"; echo "$multiple \"$@\"" | AddTab >& /dev/stderr; }
+		$multiple "$@"
 	fi
 	local result="$?"
 	[[ $verbose ]] && ScriptErr "the script returned $result"
@@ -109,7 +114,7 @@ runScript()
 	return $result
 }
 
-runScriptSsh()
+runSsh()
 {
 	local host="$1"; shift
 	local script="$(cat <<-EOF
@@ -132,7 +137,7 @@ runScriptSsh()
 	fi
 }
 
-runScriptElevated() # run commands elevated that has quoted arguments
+runElevated() # run commands elevated that has quoted arguments
 {
 	local dir="$(mktemp -d -t 'RunScript.XXXXXXXXXX')" || return
 
@@ -179,15 +184,19 @@ runScriptElevated() # run commands elevated that has quoted arguments
 	return "$scriptResult"
 }
 
+#
+# helper
+#
+
 # functions which may be used before we load function.sh
 EchoErr() { echo "$@" > /dev/stderr; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 
-# LoadFunctions - load functions from function.sh
+# loadFunctions - load functions from function.sh
 # - look in the path, the current directory, the script directory, and /usr/local/bin
 # - sets functionFile to the function file
 # - sets scriptDir to the script directory
-LoadFunctions() 
+loadFunctions() 
 {
 	local file="function.sh" # for debugging
 	functionFile="$(type -P "$file")"
@@ -204,4 +213,4 @@ LoadFunctions()
 	scriptDir="$(GetFilePath "$functionFile")"
 }
 
-run "$@"
+loadFunctions && . "$scriptDir/script.sh" && ScriptRun "$@"
