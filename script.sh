@@ -351,6 +351,7 @@ ScriptUsageEcho()
 # other
 #
 
+ScriptEchoQuiet() { [[ $quiet ]] && return; EchoWrap "$@"; }
 ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$@"; }
 
 #
