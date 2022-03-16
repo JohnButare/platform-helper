@@ -2349,7 +2349,18 @@ ScriptName()
 	printf "$name" 
 }
 
-# ScriptOptVerbose - find a verbose option
+# ScriptOptForce - find force option
+ScriptOptForce()
+{
+	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
+		case "$1" in
+			-f|--force) force="--force";;
+		esac
+		shift; 
+	done
+}
+
+# ScriptOptVerbose - find verbose option
 ScriptOptVerbose()
 {
 	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
