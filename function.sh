@@ -1456,21 +1456,27 @@ SshIsAvailable() { local port="$(SshHelper config get "$1" port)"; IsAvailablePo
 
 SshAgentConf()
 { 
+	# arguments
+	local force; ScriptOptForce "$@"
 	local verbose verboseLevel; ScriptOptVerbose "$@"
 
-	# return if the ssh-agent has some keys
+	# set the environment if it exists
+	SshAgent environment exists "$@" && ScriptEval SshAgent environment "$@"
+
+	# return if the ssh-agent has keys already loaded
 	if [[ ! $force ]] && ssh-add -L >& /dev/null; then
 		[[ $verbose ]] && SshAgent status "$@"
 		return 0
 	fi
 
-	# return if no SSH keys are available
+	# return without error if no SSH keys are available
 	if ! SshAgent check keys; then
-		[[ $verbose ]] && EchoErr "no valid SSH keys found in $HOME/.ssh"
-		return
+		[[ $verbose && ! $quiet ]] && ScriptErr "no SSH keys found in $HOME/.ssh", "SshAgentConf"
+		return 0
 	fi
 
-	ScriptEval SshAgent environment "$@" && SshAgent start "$@" && ScriptEval SshAgent environment "$@"
+	# start the ssh-agent and set the environment
+	SshAgent start "$@" && ScriptEval SshAgent environment "$@"
 }
 
 #

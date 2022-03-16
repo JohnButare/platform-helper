@@ -4,8 +4,8 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [check|cleanup|environment|start|status](show)
-Control the SSH Agent."
+Usage: $(ScriptName) [OPTION]... [add|check|cleanup|environment|start|status](show)
+Control the SSH agent."
 	exit $1
 }
 
@@ -15,187 +15,59 @@ init()
 	defaultCommand="check"
 	sshDir="$HOME/.ssh"
 	environmentFile="$sshDir/environment"
-}
-
-argStart() { unset -v log; }
-
-opt()
-{
-	case "$1" in
-		-l|--log) log="--log";;
-
-		*) return 1;;
-	esac
+	passwordUsage="	-p, --password=PASSWORD 	password to unlock SSH keys"
 }
 
 #
 # commands
 #
 
-environmentUsage() { echot "Usage: $(ScriptName) environment\nReturn the SSH Agent environment in a format suitable for sourcing."; }
-environmentCommand() { ! [[ -f "$environmentFile" ]] && return; cat "$environmentFile"; }
+environmentUsage() { echot "Usage: $(ScriptName) environment [exists]\nReturn the SSH agent environment in a format suitable for sourcing."; }
+environmentCommand() { environment; }
+environmentExistsCommand() { environmentExists; }
 
-statusUsage() { echot "Usage: $(ScriptName) show\n.Show the status of the the SSH Agent."; }
-statusCommand() {	verbose="true" checkCommand; }
+environmentExists() { [[ -f "$environmentFile" ]]; }
 
-#
-# check command
-#
-
-checkUsage()
+environment()
 {
-	echot "Usage: $(ScriptName) check [keys]
-Check for proper operation of the SSH Agent." 
-}
-
-checkCommand()
-{
-	# check if the environment file exists
-	if [[ ! -f "$environmentFile" ]]; then
-		log1 "the environment file '$environmentFile' does not exist on $HOSTNAME"
-		return 1
-	fi
-
-	# check if the environment variables were loaded - not an error
-	if [[ ! $SSH_AUTH_SOCK || ! $SSH_AGENT_PID ]]; then
-		log1 "the environment was not loaded on $HOSTNAME"
-	fi
-	
-	# save the existing environment variables
-	local oldAuthSock="$SSH_AUTH_SOCK" oldAgentPid="$SSH_AGENT_PID"
-	if [[ ! $SSH_AUTH_SOCK || ! $SSH_AGENT_PID ]]; then
-		log1 "the environment was missing on $HOSTNAME (SSH_AUTH_SOCK='$SSH_AUTH_SOCK' SSH_AGENT_PID='$SSH_AGENT_PID')"
-	fi
-
-	# load the environment variables
-	if ! . "$environmentFile"; then
-		log1 "unable to read the SSH Agent configuration file $f on $HOSTNAME"
-		return 1
-	fi
-
-	# check if the environment variables match the file - not an error
-	if [[ "$SSH_AUTH_SOCK" != "$oldAuthSock" || "$SSH_AGENT_PID" != "$oldAgentPid" ]]; then
-		log1 "the environment variables do not match the environment file on $HOSTNAME\n" \
-			"	SSH_AUTH_SOCK='$oldAuthSock' SSH_AGENT_PID='$oldAgentPid' (environment)\n" \
-			"	SSH_AUTH_SOCK='$SSH_AUTH_SOCK' SSH_AGENT_PID='$SSH_AGENT_PID' ($environmentFile)"
-	fi
-	
-	# check if the socket exists
-	if [[ ! -S "$SSH_AUTH_SOCK" ]]; then
-		log1 "the ssh agent socket ($SSH_AUTH_SOCK) is not valid on $HOSTNAME"
-		return 1
-	fi
-
-	# check if the agent is running
-	if ! ProcessIdExists "$SSH_AGENT_PID"; then
-		log1 "the ssh agent socket process ($SSH_AGENT_PID) is not running on $HOSTNAME"
-		return 1
-	fi
-
-	# check if there are identies loaded
-	if ! ssh-add -L >& /dev/null; then
-		log1 "no identities are loaded in the SSH Agent on $HOSTNAME"
-		return 1
-	fi
-
-	[[ ! $quiet ]] && status
-
-	return 0
-}
-
-checkKeysUsage() { echot "Usage: $(ScriptName) check keys\nCheck for existense of a valid identiy key file."; }
-checkKeysCommand() { local d="$sshDir"; FileExistsAny "$d/id_rsa" "$d/id_dsa" "$d/id_ecdsa" "$d/id_ed25519"; }
-
-#
-# cleanup command
-#
-
-cleanupUsage() { echot "Usage: $(ScriptName) cleanup\nCleanup the SSH Agent processes and files."; }
-cleanupCommand()
-{
-	# ssh-agent process
-	ProcessKill ssh-agent &> /dev/null
-
-	# SSH socket directory - the socket file must be in a directory that begins with ssh- to prevent accidental deletion
-	local dir="$(GetFilePath "$SSH_AUTH_SOCK")"
-	[[ "$(GetFileName "$dir")" =~ ^ssh- && -d "$dir" ]] && rm -fr "$dir"
-
-	# environment file
-	[[ -f "$environmentFile" ]] && rm -f "$environmentFile"
-
-	return 0
+	! environmentExists && { ScriptErr "the ssh-agent environment file '$environmentFile' does not exist"; return 1; }
+	cat "$environmentFile"
 }
 
 #
-# start command
+# add command
 #
 
-startUsage() { echot "Usage: $(ScriptName) show
-Start the SSH Agent
+addUsage() { echot "Usage: $(ScriptName) add\nAdd keys to the SSH agent.\n\n$passwordUsage"; }
+addArgStart() { passwordArgStart; }
+addOpt() { passwordOpt; }
+addCommand() { checkAgent && addKeys "$password"; }
 
-	-p, --password=PASSWORD 	password to unlock SSH keys."; }
-
-startArgStart() { unset -v password; }
-
-startOpt()
+# addKeys PASSWORD - add all keys to the ssh-agent using the password
+addKeys()
 {
-	case "$1" in
-		-p|--password|-p=*|--password=*) ScriptOptGet password "$@";;
-		*) return 1;;
-	esac
-}
+	local password="$1" 
+	local output="/dev/null"; [[ ! $quiet ]] && output="/dev/stdout"
 
-startCommand()
-{
-	local result output="/dev/null"; [[ ! $quiet ]] && output="/dev/stdout"
+	log1 "add: adding keys to the SSH agent"
 
-	# check for SSH agent keys
-	if ! checkKeysCommand; then
-		[[ ! $quiet ]] && EchoErr "SshAgent: no identities exist on $HOSTNAME for $USER"
-		return 1
-	fi
+	# return if there are already keys loaded
+	(( $(keyCount) > 0 )) && [[ ! $force ]] && { log1 "add: the SSH agent already has $(keyCount) keys"; return 0; }
 
-	# assume the SSH agent is good if we can add the keys
-	[[ ! $force ]] && { ssh-add -L >& /dev/null && return; }
-
-	# check the SSH agent
-	[[ ! $force ]] && { checkCommand && return; }
-
-	# there is an issue, so cleanup the SSH agent
-	cleanupCommand || return
-
-	# start the SSH Agent
-	ssh-agent | grep -Ev "^(echo|#echo)" > "$environmentFile"
-	[[ ! -f "$environmentFile" ]] && { EchoErr "SshAgent: unable to run the SSH Agent"; return 1; }
-	chmod 600 "$environmentFile" || return
-	. "$environmentFile" || { EchoErr "SshAgent: unable to read the SSH Agent configuration file $f"; return 1; }
-
-	# add the keys to the SSH Agent
-	if ! sshAdd; then
-		[[ ! $quiet ]] && EchoErr "SshAgent: unable to add identity for $USER to the SSH agent"
-		return 1
-	fi
-
-	[[ ! $quiet ]] && echo "$(ssh-add -L | wc -l) identities have been added to the SSH agent"
-	return 0
-}
-
-# sshAdd PASSWORD - add all keys to the ssh-agent using the password
-sshAdd()
-{
 	# get the password from the credential store if possible
-	if [[ ! $password ]] && credential --quiet exists ssh default; then
-		password="$(RunLog credential get ssh default)" || return
+	if [[ ! $password ]] && credential --quiet exists ssh default "${globalArgs[@]}"; then
+		log1 "add: getting the password from the credential store"
+		password="$(RunLog credential get ssh default "${globalArgs[@]}")" || return
 	fi
 
 	# use passh to supply the password
 	if [[ $password ]] && InPath passh; then
-		log1 "running ssh-add with passh"
+		log1 "add: running ssh-add with passh"
 		passh -p "$password" -P "Enter passphrase for" ssh-add >& "$output"
 
 	# use expect to supply the password
 	elif [[ $password ]] && InPath expect; then
-		log1 "running ssh-add with expect"
+		log1 "add: running ssh-add with expect"
 		expect <<-EOF >& "$output"
 			spawn ssh-add
  			expect "Enter passphrase"
@@ -205,34 +77,196 @@ sshAdd()
 
 	# uses SSH_ASKPASS - fails when called as root using sudor
 	elif [[ $password ]]; then
-		log1 "running ssh-add with SSH_ASKPASS=SshCredential"
+		log1 "add: running ssh-add with SSH_ASKPASS=SshCredential"
 		DISPLAY=1 SSH_ASKPASS="SshCredential" ssh-add < /dev/null >& "$output"
 
 	# password from prompt
 	elif IsStdIn; then
-		log1 "running ssh-add"
+		log1 "add: running ssh-add"
 		ssh-add >& "$output"
 
 	# failure - no password and no way to prompt
 	else
-		[[ ! $quiet ]] && ScriptErr "a terminal is required to read the password."
+		ScriptErrQuiet "a terminal is required to read the password"
 		return 1
 	fi
+
+	local result="$?"
+	(( result != 0 )) && { ScriptErrQuiet "unable to add identities for '$USER' to the SSH agent"; return 1; }
+	
+	ScriptEchoQuiet "$(keyCount) identities were added to the SSH agent"
+}
+
+#
+# check command
+#
+
+checkUsage() { echot "Usage: $(ScriptName) check [keys]\nCheck for proper operation of the SSH agent."; }
+checkCommand() { checkAgent && status; }
+
+checkKeysUsage() { echot "Usage: $(ScriptName) check keys\nCheck for existense of a valid identiy key file."; }
+checkKeysCommand() { local d="$sshDir"; FileExistsAny "$d/id_rsa" "$d/id_dsa" "$d/id_ecdsa" "$d/id_ed25519"; }
+
+checkAgent()
+{
+	log1 "check: checking the SSH agent $(description)"
+
+	# save the existing environment variables
+	local oldAuthSock="$SSH_AUTH_SOCK" oldAgentPid="$SSH_AGENT_PID"
+
+	# check if the environment variables were set - not an error
+	if [[ ! $SSH_AUTH_SOCK || ! $SSH_AGENT_PID ]]; then
+		log1 "check: the environment variables are not set (SSH_AUTH_SOCK='$SSH_AUTH_SOCK' SSH_AGENT_PID='$SSH_AGENT_PID')"
+	fi
+
+	# check if the environment file exists
+	if ! environmentExists; then
+		log1 "check: the environment file '$environmentFile' does not exist"
+		return 1
+	fi
+
+	# load the environment variables
+	if ! . "$environmentFile"; then
+		log1 "check: error sourcing the SSH agent environment file '$environmentFile'"
+		return 1
+	fi
+
+	# check if the environment variables match the file - not an error
+	if [[ $oldAuthSock && $oldAgentPid ]] && [[ "$SSH_AUTH_SOCK" != "$oldAuthSock" || "$SSH_AGENT_PID" != "$oldAgentPid" ]]; then
+		log1 "check: the environment variables do not match the environment file '$environmentFile'\n" \
+			"	environment: SSH_AUTH_SOCK='$oldAuthSock' SSH_AGENT_PID='$oldAgentPid'\n" \
+			"	       file: SSH_AUTH_SOCK='$SSH_AUTH_SOCK' SSH_AGENT_PID='$SSH_AGENT_PID'"
+	fi
+
+	# check if the socket exists
+	if [[ ! -S "$SSH_AUTH_SOCK" ]]; then
+		log1 "the SSH agent socket ($SSH_AUTH_SOCK) is not valid"
+		return 1
+	fi
+
+	# check if the agent is running
+	if ! ProcessIdExists "$SSH_AGENT_PID"; then
+		log1 "the SSH agent socket process ($SSH_AGENT_PID) is not running"
+		return 1
+	fi
+
+	# check if there are identies loaded
+	if (( $(keyCount) == 0 )); then
+		log1 "no identities are loaded in the SSH agent"
+		return 1
+	fi
+
+	log1 "check: the SSH agent has $(keyCount) identities loaded $(description)"
+}
+
+#
+# cleanup command
+#
+
+cleanupUsage() { echot "Usage: $(ScriptName) cleanup\nCleanup the SSH agent processes and files."; }
+cleanupCommand() { cleanupAgent; }
+
+cleanupAgent()
+{
+	log1 "cleaning up the SSH agent"
+
+	# kill ssh-agent process	
+	ProcessKill ssh-agent &> /dev/null
+
+	# clenup SSH socket directory - the socket file must be in a directory that begins with ssh- to prevent accidental deletion
+	local dir="$(GetFilePath "$SSH_AUTH_SOCK")"
+	[[ "$(GetFileName "$dir")" =~ ^ssh- && -d "$dir" ]] && rm -fr "$dir"
+
+	# cleanup environment file
+	[[ -f "$environmentFile" ]] && rm -f "$environmentFile"
+
+	return 0
+}
+
+#
+# start command
+#
+
+startUsage() { echot "Usage: $(ScriptName) start\nStart the SSH agent.\n\n$passwordUsage"; }
+startArgStart() { passwordArgStart; }
+startOpt() { passwordOpt; }
+startCommand() { startAgent "$password"; }
+
+startAgent()
+{
+	local password="$1"
+
+	# check for SSH agent keys
+	! checkKeysCommand && { ScriptErrQuiet "no SSH keys found in '$HOME/.ssh'"; return 1; }
+
+	# check the SSH agent and add keys if it is OK
+	[[ ! $force ]] && { checkAgent && addKeys && return; }
+
+	# there is an issue, so cleanup the SSH agent
+	cleanupAgent || return
+
+	# start the SSH Agent
+	startDo || return
+
+	# add the keys to the SSH Agent
+	! addKeys && { ScriptErrQuiet "unable to add identities for '$USER' to the SSH agent"; return 1; }
+
+	return 0
+}
+
+startDo()
+{
+	# start the ssh-agent
+	local return; ssh-agent | tgrep -Ev "^(echo|#echo)" > "$environmentFile"; return="$?"
+	(( return != 0 )) && { ScriptErr "unable to start the ssh-agent (error $returned)"; return 1; }
+	
+	# validate the environment file
+	[[ ! -f "$environmentFile" ]] && { ScriptErr "unable to create the SSH sgent environment file '$environmentFile'"; return 1; }
+	chmod 600 "$environmentFile" || return
+
+	# source the environment file
+	! . "$environmentFile" && { ScriptErr "unable to source the SSH sgent environment file '$environmentFile'"; return 1; }
+
+	return 0
+}
+
+#
+# status command
+#
+
+statusUsage() { echot "Usage: $(ScriptName) show\n.Show the status of the the SSH agent."; }
+
+statusCommand()
+{
+	! checkAgent && { ScriptErrQuiet "The SSH agent $(description) is not working properly"; return 1; }
+
+	EchoWrap "The SSH agent $(description) is working properly and contains $(ssh-add -L | wc -l | RemoveSpace) identities"
+	[[ ! $verbose ]] && return
+
+	hilight "\nsshagent ..."
+	echo "$SSH_AGENT_PID='$SSH_AGENT_PID'"
+	echo "$SSH_AUTH_SOCK='$SSH_AUTH_SOCK'"
+	find "$SSH_AUTH_SOCK" -type s | sudo xargs fuser
+
+	hilight "\nssh-agent processes..."
+	ps -aux | grep "ssh-agent" | grep -v "grep"
 }
 
 #
 # helper
 #
 
-status() { echo "The SSH Agent is working properly on $HOSTNAME and contains $(ssh-add -L | wc -l | RemoveSpace) identities"; }
+description() { echo "for '$USER' on '$HOSTNAME'"; }
+keyCount() { local count; count="$(ssh-add -L |& wc -l)" && echo "$count" || echo "0"; }
 
-log()
+passwordArgStart() { unset -v password; }
+
+passwordOpt()
 {
-	if [[ $log ]]; then
-		echo "$(GetTimeStamp): SshAgent: $1" >> "$HOME/.ssh/log"
-	else
-		echo "$1"
-	fi
+	case "$1" in
+		-p|--password|-p=*|--password=*) ScriptOptGet password "$@";;
+		*) return 1;;
+	esac
 }
 
 ScriptRun "$@"
