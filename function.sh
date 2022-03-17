@@ -2310,13 +2310,18 @@ else
 	FindFunction() { print -l ${(ok)functions} | grep -iE "^${1}$" ; }
 fi
 
-# RunFunction NAME [SUFFIX|--] [ARGS]- call a function if it exists, optionally with the specified suffix (i.e. nameSuffix)
+# RunFunction NAME [SUFFIX] -- [ARGS]- call a function if it exists, optionally with the specified suffix (i.e. nameSuffix)
 RunFunction()
 {
+	# arguments
 	local f="$1"; shift
-	local suffix="$1";  [[ $suffix && "$suffix" != "--" ]] && { f+="$(UpperCaseFirst "$suffix")"; shift; }
+	local suffix; [[ $1 && "$1" != "--" ]] && { suffix="$1"; shift; f+="$(UpperCaseFirst "$suffix")"; }
 	[[ "$1" == "--" ]] && shift
+
+	# if the function does not exist return without error
 	! IsFunction "$f" && return
+
+	# run the function
 	"$f" "$@"
 }
 
@@ -2324,7 +2329,7 @@ RunFunction()
 RunFunctionExists()
 {
 	local f="$1"; shift
-	local suffix="$1";  [[ $suffix && "$suffix" != "--" ]] && f+="$(UpperCaseFirst "$suffix")"
+	local suffix="$1"; [[ $suffix && "$suffix" != "--" ]] && f+="$(UpperCaseFirst "$suffix")"
 	IsFunction "$f"
 }
 
@@ -2467,8 +2472,14 @@ sudoe()
 sudor()
 {
 	(( $# == 0 )) && set -- bash -i
-	sudox CREDENTIAL_MANAGER="$CREDENTIAL_MANAGER" CREDENTIAL_MANAGER_CHECKED="$CREDENTIAL_MANAGER_CHECKED" VAULT_TOKEN="$VAULT_TOKEN" "$@"
-} 
+
+	# let the root command use our credential manager, ssh-agent, and Vault token
+	sudox \
+		CREDENTIAL_MANAGER="$CREDENTIAL_MANAGER" CREDENTIAL_MANAGER_CHECKED="$CREDENTIAL_MANAGER_CHECKED" \
+		SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" \
+		VAULT_TOKEN="$VAULT_TOKEN" \
+		"$@"
+}
 
 #
 # Text Processing

@@ -77,14 +77,15 @@ ScriptCheckPath()
 # Script Logging
 #
 
+log() { EchoWrapErr "$(ScriptPrefix)$@"; }
+
 # logN - log an error message only at the specified verbosity level or higher.  Output is sent to the standard error
 # to avoid interference with commands whose output is consumed, such as to set a variable.
-log1() { ! (( verboseLevel >= 1 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; return 0; }
-log2() { ! (( verboseLevel >= 2 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; return 0; }
-log3() { ! (( verboseLevel >= 3 )) && return; EchoWrapErr "$(ScriptPrefix)$@"; return 0; }
-LogFile1() { ! (( verboseLevel >= 1 )) && return; LogFile "$1"; return 0; }
-LogFile2() { ! (( verboseLevel >= 2 )) && return; LogFile "$1"; return 0; }
-LogFile3() { ! (( verboseLevel >= 3 )) && return; LogFile "$1"; return 0; }
+logLevel() { level="$1"; shift; (( verboseLevel >= level )) && log "$@"; return 0; }
+log1() { logLevel 1 "$@"; }; log2() { logLevel 2 "$@"; }; log3() { logLevel 3 "$@"; }; log4() { logLevel 4 "$@"; }; log5() { logLevel 5 "$@"; }
+
+logFileLevel() { level="$1"; shift; (( verboseLevel >= level )) && LogFile "$1"; return 0; }
+LogFile1() { logFileLevel 1 "$1"; }; LogFile2() { logFileLevel 2 "$1"; }; LogFile3() { logFileLevel 3 "$1"; }; LogFile4() { logFileLevel 4 "$1"; }; LogFile5() { logFileLevel 5 "$1"; }
 
 # LogFile - log a file
 LogFile()
@@ -95,9 +96,44 @@ LogFile()
 	HeaderDone >& /dev/stderr
 }
 
+# LogScript LEVEL SCRIPT - log a script we are going to run.  Indent it if it is on more than one line
+LogScript()
+{
+	local level="$1"; shift
+	! (( verboseLevel >= level )) && return
+
+	if [[ "$(echo "$@" | wc -l)" == "1" ]]; then
+		log "running: $@"
+	else
+		log "running:"; echo "$@" | AddTab >& /dev/stderr; 
+	fi
+}
+
+# RunFunction FUNCTION SUFFIX LEVEL MESSAGE FAIL -- [ARGS]- call a function with the specified suffix if it exists
+# - level: the numeric logging level at which to log a message
+# - message: contains a message to log, the $not variable is substituted for "$FAIL" if the function fails
+RunFunctionLog()
+{
+	# arguments
+	local f="$1" suffix="$2" level="$3" message="$4" fail="$5"; shift 4
+	[[ "$1" == "--" ]] && shift
+
+	# return if the run function does not exist
+	! RunFunctionExists "$f" "$suffix" && return
+
+	# run the function
+	local return; RunFunction "$f" "$suffix" -- "$@"; return="$?"
+
+	# log
+	(( return == 0 )) && unset fail
+	log$level "$(eval echo "$message")"
+	return "$return"
+}
+
 # RunLog - log a command if verbose logging is specified, then run it if not testing
 RunLog()
 {
+	# log command and arguments
 	if [[ $verbose ]]; then
 		local arg message
 
@@ -358,8 +394,8 @@ ScriptUsageEcho()
 # other
 #
 
-ScriptEchoQuiet() { [[ $quiet ]] && return; EchoWrap "$@"; }
-ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$@"; }
+ScriptEchoQuiet() { log1 "$1"; [[ $quiet ]] && return; EchoWrap "$1"; }
+ScriptErrQuiet() { log1 "$1"; [[ $quiet ]] && return; ScriptErr "$1"; }
 
 #
 # helper

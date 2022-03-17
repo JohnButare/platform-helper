@@ -13,14 +13,15 @@ Common commands:
 	restore			restore files
 	init				initialize the repository
 	ls					list backup archives
+	remote			run BorgHelper on a remote host
 	repo				repository commands
 	rm					remove a backup
 	run					run borg
 	status			show status
 
 Common options:
-	-bh, --backup-host=HOST		host which contains the backup archive
-	-r, --repository=NAME			name of the backup repository, defaults to '$backupRepoDefault'"
+	-bh, --backup-host=HOST			host to backup to
+	-r,  --repository=NAME			name of the backup repository, defaults to '$backupRepoDefault'"
 }
 
 usageVerbose()
@@ -33,9 +34,9 @@ Other commands:
 	vorta				run vorta
 
 Other options:
-	-bd, --backup-dir=DIR		location of the backup archive on the backup host, defaults to '$backupDirDefault'
-	-P,	--passphrase=HOST		repository passphrase
-	-u,	--user=USER					backup user, defaults to '$backupUserDefault'"
+	-bd, --backup-dir=DIR			location of the backup archive on the backup host, defaults to '$backupDirDefault'
+	-P,	 --passphrase=HOST		repository passphrase
+	-u,	 --user=USER					backup user, defaults to '$backupUserDefault'"
 }
 
 init()
@@ -90,7 +91,7 @@ rmCommand() { runBorg delete; }
 statusCommand()
 {
 	setBorgEnvironment || return
-	echo "borg will use the ${GREEN}$backupRepo${RESET} repository on ${GREEN}$backupHost${RESET}"
+	echo "borg will use the '${GREEN}$backupRepo${RESET}'' repository on '${GREEN}$backupHost${RESET}'"
 	log1 "user=$backupUser dir=$backupDir\nBORG_REPO=$BORG_REPO"
 	return 0
 }
@@ -106,20 +107,17 @@ Usage: $(ScriptName) backup [PATH [PATH ...]]
 Backup files.
 
 	-a,	 --archive=NAME				name of the archive, defaults to archive (see 'borg help placeholders')
-	-bh, --backup-hosts=HOSTS	comma separated list of hosts to backup to
-	-h,  --host=HOST					host to backup, defaults to localhost
+	-bh, --backup-host=HOSTS	comma separated list of hosts to backup to
 	-nc, --no-check						do not check if the repository is initialized
 	-p,	 --prune=N						prune backups leaving the last N backups"
 }
 
-backupArgStart() { archive="archive" archiveSuffix="-{now:%Y-%m-%d_%H:%M:%S}"; unset -v backupHostsArg host noCheck noSuffix prune pruneArg; }
+backupArgStart() { archive="archive" archiveSuffix="-{now:%Y-%m-%d_%H:%M:%S}"; unset -v host noCheck noSuffix prune pruneArg; }
 
 backupOpt()
 {
 	case "$1" in
 		-a|--archive|-a=*|--archive=*) ScriptOptGet "archive" "$@";;
-		-bh|--backup-hosts|-bh=*|--backup-hosts=*) ScriptOptGet "backupHostsArg" "$@";;
-		-H|--host|-H=*|--host=*) ScriptOptGet "host" "$@";;
 		-nc|--no-check) noCheck="--no-check";;
 		-ns|--no-suffix) noSuffix="--no-suffix" archiveSuffix="";;
 		-p|--prune|-p=*|--prune=*) ScriptOptGet --integer "prune" "$@"; pruneArg="--prune=$prune";;
@@ -131,32 +129,24 @@ backupArgs() { backupArgs=( "$@" ); shift="$#"; }
 
 backupCommand()
 {	
-	log1 "backup"
+	log1 "backup $(description)"; setBorgEnvironment || return
 	
-	# backup local hosts
-	[[ ! $backupHostsArg ]] && { backupDo; return; }
+	# get hosts to backup to
+	local backupHostArg="$backupHost"
+	[[ "${backupHostArg,,}" == "all" ]] && { backupHost="$(network current servers backup)" || return; }
+	log2 "backup $(description): backup hosts: $backupHostArg"
 
-	# backup multiple hosts
-	[[ "${backupHostsArg,,}" == "all" ]] && backupHostsArg="$(network current servers backup)"
-	local backupHost backupHosts=(); StringToArray "$backupHostsArg" "," backupHosts
+	# backup to each host
+	local backupHost backupHost=(); StringToArray "$backupHostArg" "," backupHosts
 	for backupHost in "${backupHosts[@]}"; do backupDo || return; done
 }
 
 backupDo()
 {
-	{ SshAgentConf "${globalArgs[@]}" && setBorgEnvironment; } || return
-
-	if IsLocalHost "$host"; then
-		backupLocal || return
-	else 
-		backupRemote || return
-	fi
-}
-
-backupLocal()
-{
 	# status
-	[[ ! $quiet ]] && hilight "Backing up the $backupRepo $archive archive to $(GetHostname "$backupHost")..."
+	local message="backing up the '$archive' archive to the '$backupRepo' repository on '$(GetHostname "$backupHost")' (${backupArgs[@]})"
+	log1 "backup $(description): $message"
+	[[ ! $quiet ]] && hilight "${message^}..."
 
 	# ensure the repository exists
 	repoCheck || return
@@ -184,12 +174,6 @@ backupLocal()
 	borg list --prefix "$archive-" || return
 	echo
 	
-}
-
-backupRemote()
-{
-	RunLog SshHelper "$(ConfigGet "user")@$host" --borg --interactive --pseudo-terminal "${globalArgs[@]}" -- \
-		BorgHelper backup "${backupArgs[@]}" --archive "$archive" --repository="$backupRepo" --backup-hosts="$backupHost" $noCheck $noSuffix $prune "${globalArgs[@]}"
 }
 
 #
@@ -230,10 +214,31 @@ unmountCommand()
 isMounted() { findmnt --list --source=borgfs --target="$mountDir" >& /dev/null; }
 
 #
+# remote command
+#
+
+remoteUsage() { EchoWrap "Usage: $(ScriptName) remote HOST -- ARGUMENTS...\nrun BorgHelper on a remote host."; }
+remoteArgs() { ScriptArgGet "host" -- "$@"; }
+
+remoteCommand()
+{
+	log1 "remote $(description)"; setBorgEnvironment || return
+
+	# validate the host
+	! SshIsAvailable "$host" && { ScriptErr "'$host' is not available"; return 1; }
+
+	# set passphrase
+	BorgConf "${globalArgs[@]}" || return
+
+	# run the remote command
+	RunLog SshHelper "$host" --borg --credential "${globalArgs[@]}" -- BorgHelper "${otherArgs[@]}" "${globalArgs[@]}"
+}
+
+#
 # repo command
+#
 
 repoUsage() { echot "Usage: $(ScriptName) repo ls\nBorg repository commands."; }
-
 repoCommand() { usage; }
 repoLsCommand() { setBorgRepo && sshRun "$backupHost" ls -1 "$backupDir"; }
 
@@ -247,7 +252,6 @@ Extract files, for example:
 Options:
 	-a,	 --archive=NAME		name of the archive, defaults to archive
 	-d,	 --dir=DIRECTORY	directory to restore to, defaults to current directory	
-	-H,  --host=HOST			host to restore to, defaults to localhost
 
 Examples:
 	BorgHelper extract -- ::ProxyManager-2021-11-03_23:14:58"; }
@@ -260,27 +264,16 @@ restoreOpt()
 	case "$1" in
 		-a|--archive|-a=*|--archive=*) ScriptOptGet "archive" "$@";;
 		-d|--dir|-d=*|--dir=*) ScriptOptGet "dir" "$@";;
-		-H|--host|-H=*|--host=*) ScriptOptGet "host" "$@";;
 		*) return 1;;
 	esac
 }
 restoreCommand()
 {
-	setBorgEnvironment || return
-	local args=(); [[ $archive ]] && args+=("::$archive")
-	if IsLocalHost "$host"; then restoreLocal; else restoreRemote; fi
-}
+	log1 "restore $(description)"; setBorgEnvironment || return
 
-restoreLocal()
-{
+	local args=(); [[ $archive ]] && args+=("::$archive")
 	[[ $dir ]] && { cd "$dir" || return; }
 	runBorg extract "${args[@]}"
-}
-
-restoreRemote()
-{
-	RunLog SshHelper "$(ConfigGet "user")@$host" --interactive --pseudo-terminal "${globalArgs[@]}" -- \
-		BorgHelper restore "${backupArgs[@]}" --dir="$dir" --archive "$archive" --repository="$backupRepo" --backup-host="$backupHost" "${globalArgs[@]}"
 }
 
 #
@@ -302,11 +295,9 @@ runCommand() { runBorg "${runArgs[@]}"; }
 #
 
 vortaCommand()
-{
-	log1 "borg $@ ${borgVerboseArg[@]} ${otherArgs[@]}"
-	sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" \
-		SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" \
-		vorta "${otherArgs[@]}" &
+{	
+	log1 "vorta: ${borgVerboseArg[@]} ${otherArgs[@]}"
+	SshAgentConf "${globalArgs[@]}" && setBorgEnvironment && runRoot vorta "${otherArgs[@]}"
 }
 
 #
@@ -315,6 +306,7 @@ vortaCommand()
 
 archiveDelete() { runBorg delete ::"$1"; }
 archiveDeleteIfExists() { ! archiveExists "$1" && return; archiveDelete "$1"; }
+description() { echo "on '$HOSTNAME' as '$USER'"; }
 isBorgBaseHost() { [[ "$backupHost" =~ borgbase\.com$ ]]; }
 repoCheck() { [[ $noCheck ]] || repoExists || initCommand; }
 sshRun() { SshAgentConf "${globalArgs[@]}" && ssh "$@"; }
@@ -334,20 +326,29 @@ repoExists()
 
 runBorg()
 {	
-	{ SshAgentConf "${globalArgs[@]}" && setBorgEnvironment; } || return
+	SshAgentConf "${globalArgs[@]}" && setBorgEnvironment && runRoot borg "$@" "${borgVerboseArg[@]}" "${otherArgs[@]}"
+}
 
-	IsRoot && { RunLog borg "$@" "${borgVerboseArg[@]}" "${otherArgs[@]}"; return; }
+runRoot()
+{
+	# run directly if already root
+	IsRoot && { "$@"; return; }
 
-	RunLog sudoc BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" BORG_REMOTE_PATH="$borgPath" BORG_RELOCATED_REPO_ACCESS_IS_OK="$BORG_RELOCATED_REPO_ACCESS_IS_OK" \
+	# run using:
+	# - sudoc: to elevate using credential manager
+	# - BORG variables: borg configuration
+	# - SSH variables: allows borg to use the current users ssh-agent SSH keys
+	sudoc \
+		BORG_PASSPHRASE="$BORG_PASSPHRASE" BORG_REPO="$BORG_REPO" BORG_REMOTE_PATH="$borgPath" BORG_RELOCATED_REPO_ACCESS_IS_OK="$BORG_RELOCATED_REPO_ACCESS_IS_OK" \
 		SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" \
-		borg "$@" "${borgVerboseArg[@]}" "${otherArgs[@]}"
+		"$@"
 }
 
 setBorgEnvironment()
 {
 	log2 "setting the environment"
 	export BORG_RELOCATED_REPO_ACCESS_IS_OK="yes"
-	setBorgPassphrase && setBorgRepo && log2 "envionment set: BORG_REPO='$BORG_REPO'"
+	setBorgPassphrase && setBorgRepo && log2 "setBorgEnvironment: BORG_REPO='$BORG_REPO'"
 }
 
 setBorgPassphrase()
