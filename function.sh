@@ -1464,16 +1464,10 @@ SshAgentConf()
 	SshAgent environment exists "$@" && ScriptEval SshAgent environment "$@"
 
 	# return if the ssh-agent has keys already loaded
-	if [[ ! $force ]] && ssh-add -L >& /dev/null; then
-		[[ $verbose ]] && SshAgent status "$@"
-		return 0
-	fi
+	[[ ! $force ]] && ssh-add -L >& /dev/null && { [[ $verbose ]] && SshAgent status; return 0; }
 
 	# return without error if no SSH keys are available
-	if ! SshAgent check keys; then
-		[[ $verbose && ! $quiet ]] && ScriptErr "no SSH keys found in $HOME/.ssh", "SshAgentConf"
-		return 0
-	fi
+	! SshAgent check keys && { [[ $verbose ]] && ScriptErr "no SSH keys found in $HOME/.ssh", "SshAgentConf"; return 0; }
 
 	# start the ssh-agent and set the environment
 	SshAgent start "$@" && ScriptEval SshAgent environment "$@"

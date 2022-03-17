@@ -303,6 +303,7 @@ ScriptUsage()
 {
 	local foundUsage
 
+	# find usage for the command 
 	if [[ ! $defaultCommandUsed ]]; then
 		local c
 		for c in $(ArrayReverse commands); do
@@ -310,8 +311,10 @@ ScriptUsage()
 		done
 	fi
 
+	# show passed usage
 	[[ ! $foundUsage ]] && ScriptUsageEcho "$2"
 	
+		# global option usage
 	[[ $verbose ]] && ScriptUsageEcho "\nGlobal options:
 	-f, --force				force the operation
 	-h, --help				display command usage
@@ -321,16 +324,20 @@ ScriptUsage()
 	-v, --verbose			verbose mode, multiple -v increase verbosity (max 5)
 	-w, --wait				wait for the operation to complete"
 
+	# end of argument (--) usage
 	if (( verboseLevel == 1 )); then
 		ScriptUsageEcho "	--     						signal the end of arguments"
 	elif (( verboseLevel > 1 )); then
 		ScriptUsageEcho "\
-	--     						signal the end of arguments.  This is useful to allow further arguments to the script
-										program itself to start with a  “-”.  This provides consistency with the argument
-										parsing convention used by most other POSIX programs."
+	--     						signal the end of arguments.  This is useful to allow further arguments to
+					 					the script program itself to start with a  “-”.  This provides consistency 
+					 					with the argument parsing convention used by most other POSIX programs."
 	fi
-	
-	[[ $verbose ]] && IsFunction usageVerbose && usageVerbose
+
+	# verbose usage
+	if [[ $verbose ]]; then
+		[[ $c ]] && RunFunction "${c}UsageVerbose" || RunFunction "usageVerbose"
+	fi
 
 	exit "${1:-1}"
 }
