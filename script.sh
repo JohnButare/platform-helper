@@ -198,15 +198,15 @@ ScriptOptGet()
 	local scriptVar="$1"; shift
 	local scriptDesc="$scriptVar"; ! IsOption "$1" && { scriptDesc="$1"; shift; }
 	local opt="$1"; shift
-	local value
+	local scriptOptValue
 
 	# format: -o=VAL --option=VAL
 	if [[ "$opt" =~ = ]]; then
-		value="$(GetAfter "$opt" =)"
+		scriptOptValue="$(GetAfter "$opt" =)"
 
 	# format: -o VAL --option VAL
 	elif (( $# > 0 )) && ! IsOption "$1"; then
-		value="$1"; ((++shift))
+		scriptOptValue="$1"; ((++shift))
 		
 	elif [[ $require ]]; then
 		MissingOperand "$scriptDesc"
@@ -217,11 +217,11 @@ ScriptOptGet()
 	fi
 
 	# check data type
-	[[ $integer ]] && ! IsInteger "$value" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
+	[[ $integer ]] && ! IsInteger "$scriptOptValue" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
 
 	# set variable
 	local -n var="$scriptVar"
-	var="$value"
+	var="$scriptOptValue"
 }
 
 # ScriptOptNetworkProtocol - sets protocol and protocolArg
