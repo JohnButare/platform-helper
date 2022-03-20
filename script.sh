@@ -77,11 +77,11 @@ ScriptCheckPath()
 # Script Logging
 #
 
-log() { EchoWrapErr "$(ScriptPrefix)$@"; }
+logDo() { EchoWrapErr "$(ScriptPrefix)$@"; }
 
 # logN - log an error message only at the specified verbosity level or higher.  Output is sent to the standard error
 # to avoid interference with commands whose output is consumed, such as to set a variable.
-logLevel() { level="$1"; shift; (( verboseLevel >= level )) && log "$@"; return 0; }
+logLevel() { level="$1"; shift; (( verboseLevel >= level )) && logDo "$@"; return 0; }
 log1() { logLevel 1 "$@"; }; log2() { logLevel 2 "$@"; }; log3() { logLevel 3 "$@"; }; log4() { logLevel 4 "$@"; }; log5() { logLevel 5 "$@"; }
 
 logFileLevel() { level="$1"; shift; (( verboseLevel >= level )) && LogFile "$1"; return 0; }
@@ -103,9 +103,9 @@ LogScript()
 	! (( verboseLevel >= level )) && return
 
 	if [[ "$(echo "$@" | wc -l)" == "1" ]]; then
-		log "running: $@"
+		logDo "running: $@"
 	else
-		log "running:"; echo "$@" | AddTab >& /dev/stderr; 
+		logDo "running:"; echo "$@" | AddTab >& /dev/stderr; 
 	fi
 }
 
