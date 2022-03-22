@@ -2084,6 +2084,7 @@ ProcessKill()
 		case "$1" in "") : ;;
 			-f|--full) args+=("--full");;
 			-r|--root) root="sudoc";;
+			-w|--win) win="--win";;
 			*)
 				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
 				else UnknownOption "$1" "ProcessKill"; return
