@@ -100,7 +100,7 @@ LogFile()
 LogScript()
 {
 	local level="$1"; shift
-	! (( verboseLevel >= level )) && return
+	[[ ! $verboseLevel || ! $level ]] || (( verboseLevel < level )) && return
 
 	if [[ "$(echo "$@" | wc -l)" == "1" ]]; then
 		logDo "running: $@"
