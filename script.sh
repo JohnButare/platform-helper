@@ -77,15 +77,16 @@ ScriptCheckPath()
 # Script Logging
 #
 
-logDo() { EchoWrapErr "$(ScriptPrefix)$@"; }
+# LogMessage MESSAGE - log a script message, not named log to avoid name conflict
+# - output is sent to the standard error to avoid interference with commands whose output is consumed using a subshell, i.e. var="$(command)"
+LogMessage() { EchoWrapErr "$(ScriptPrefix)$@"; }
+LogPrint() { PrintErr "$(ScriptPrefix)$@"; }
 
-# logN - log an error message only at the specified verbosity level or higher.  Output is sent to the standard error
-# to avoid interference with commands whose output is consumed, such as to set a variable.
-logLevel() { level="$1"; shift; (( verboseLevel >= level )) && logDo "$@"; return 0; }
-log1() { logLevel 1 "$@"; }; log2() { logLevel 2 "$@"; }; log3() { logLevel 3 "$@"; }; log4() { logLevel 4 "$@"; }; log5() { logLevel 5 "$@"; }
+# LogLevel LEVEL MESSAGE - log a message if the logging verbosity level is at least LEVEL
+LogLevel() { level="$1"; shift; (( verboseLevel >= level )) && LogMessage "$@"; return 0; }
 
-logFileLevel() { level="$1"; shift; (( verboseLevel >= level )) && LogFile "$1"; return 0; }
-LogFile1() { logFileLevel 1 "$1"; }; LogFile2() { logFileLevel 2 "$1"; }; LogFile3() { logFileLevel 3 "$1"; }; LogFile4() { logFileLevel 4 "$1"; }; LogFile5() { logFileLevel 5 "$1"; }
+# logN MESSAGE - log a message if the logging verbosity level is a least N
+log1() { LogLevel 1 "$@"; }; log2() { LogLevel 2 "$@"; }; log3() { LogLevel 3 "$@"; }; log4() { LogLevel 4 "$@"; }; log5() { LogLevel 5 "$@"; }
 
 # LogFile - log a file
 LogFile()
@@ -96,6 +97,12 @@ LogFile()
 	HeaderDone >& /dev/stderr
 }
 
+# LogFileLevel N FILE - log the contents of file if the logging verbosity level is at least LEVEL
+LogFileLevel() { level="$1"; shift; (( verboseLevel >= level )) && LogFile "$1"; return 0; }
+
+# logFileN FILE - log the contents of file if the logging verbosity level is at least N
+LogFile1() { LogFileLevel 1 "$1"; }; LogFile2() { LogFileLevel 2 "$1"; }; LogFile3() { LogFileLevel 3 "$1"; }; LogFile4() { LogFileLevel 4 "$1"; }; LogFile5() { LogFileLevel 5 "$1"; }
+
 # LogScript LEVEL SCRIPT - log a script we are going to run.  Indent it if it is on more than one line
 LogScript()
 {
@@ -103,9 +110,9 @@ LogScript()
 	[[ ! $verboseLevel || ! $level ]] || (( verboseLevel < level )) && return
 
 	if [[ "$(echo "$@" | wc -l)" == "1" ]]; then
-		logDo "running: $@"
+		LogMessage "running: $@"
 	else
-		logDo "running:"; echo "$@" | AddTab >& /dev/stderr; 
+		LogMessage "running:"; echo "$@" | AddTab >& /dev/stderr; 
 	fi
 }
 

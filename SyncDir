@@ -73,10 +73,13 @@ sync()
 	# src or dest directory is excluded
 	{ IsInArray --array-wild "${src##*/}" x || IsInArray --array-wild "${dest##*/}" x; } && return
 
-	[[ $verbose ]] && printf "SyncDir: src=$(getSrcDesc) dest=$(getDestDesc) srcId=$srcId destId=$destId"
+	# logging
+	log1 "sync: src=$(getSrcDesc) dest=$(getDestDesc) srcId=$srcId destId=$destId"
 
-	IsUncPath "$src" && { src="$(unc mount "$src" "${uncArgs[@]}")" || { printf "\nUnable to mount $(getSrcDesc)\n"; return 1; }; }
-	IsUncPath "$dest" && { dest="$(unc mount "$dest" "${uncArgs[@]}")" || { printf "\nUnable to mount $(getDestDesc)\n"; return 1; }; }
+	# mount and validate src and dest directories
+	IsUncPath "$src" && { src="$(unc mount "$src" "${uncArgs[@]}")" || { EchoErr "Unable to mount $(getSrcDesc)"; return 1; }; }
+	IsUncPath "$dest" && { dest="$(unc mount "$dest" "${uncArgs[@]}")" || { EchoErr "Unable to mount $(getDestDesc)"; return 1; }; }
+
 	[[ $exist && (! -d "$src" && ! -d "$dest") ]] && return 0
 
 	if [[ ! -d "$src" && ! -d "$dest" ]]; then
@@ -85,11 +88,13 @@ sync()
 		return 1
 	fi
 
+	# determine last sync times
 	local lastSyncSrcFile="$src/.${destId}_${lastSyncSuffix}"
 	local lastSyncDestFile="$dest/.${srcId}_${lastSyncSuffix}"
 
 	getLastSync || return
 
+	# sync
 	if [[ ! -d "$src" ]]; then
 			case "${method##--}" in
 				dest-older) deleteMissingDir --quiet "$dest";;
@@ -115,9 +120,9 @@ syncDo()
 	local srcFiles destFiles srcIndex=0 destIndex=0 lastSrcIndex lastDestIndex
 	local ignoreMs convertTime srcLine destLine srcFile destFile srcOnlyFiles destOnlyFiles
 
-	#printf "\nSyncing %s\n" "$(GetFileName "$src")"
-	getFileList srcFiles "$src"; [[ $verbose ]] && printf "src..." || printf "."
-	getFileList destFiles "$dest";  [[ $verbose ]] && echo "dest" || printf "."
+	(( verboseLevel > 1 )) && LogPrint "syndDo: "
+	getFileList srcFiles "$src"; (( verboseLevel > 1 )) && PrintErr "src times..."; [[ ! $verbose ]] && printf "."
+	getFileList destFiles "$dest";  (( verboseLevel > 1 )) && EchoErr "dest times"; [[ ! $verbose ]] && printf "."
 	lastSrcIndex="${#srcFiles[@]}"; lastDestIndex="${#destFiles[@]}"
 
 	while (( srcIndex<lastSrcIndex || destIndex<lastDestIndex )); do
@@ -133,6 +138,7 @@ syncDo()
 		fi
 
 		srcFile="${srcLine%	*	*}"; destFile="${destLine%	*	*}"
+
 		if (( verboseLevel > 1 )); then
 			printf 'sync: difference in file "%s"' "$srcFile"
 			IsInArray --array-wild "$srcFile" x && echo " (excluded)" || echo
@@ -249,8 +255,9 @@ syncFile()
 		ask ' (1) Edit (2) Delete (3) Replace older (4) Replace newer' -vr 1234 -dr $defaultChoice
 
 		case $(( $?+1 )) in
-		  1)  # edit
-				[[ $verbose ]] && printf "olderPath=$olderPath newerPath=$newerPath"
+
+		  1) # edit
+				log1 "syncDo edit: olderPath=$olderPath newerPath=$newerPath"
 				merge --wait "$olderPath" "$newerPath" #  merge return values vary, Beyond Compare return 1 for "Binary Same" on all platforms except macOS
 		    if ! cmp --quiet "$olderPath" "$newerPath"; then
 		    	echo "$srcFile is still diferent"
@@ -258,8 +265,9 @@ syncFile()
 	  		fi
 	  		setFileTimes "$srcPath" "$destPath" || return
 	  		;;
-		  2) # delete
 
+		  2) # delete
+				log1 "syncDo delete: srcPath=$srcPath destPath=$destPath"
 				if [[ $noBak ]]; then
 					rm -f "$srcPath" "$destPath" || return
 				else
@@ -400,13 +408,17 @@ replaceFile()
 {
 	local src="$1" dest="$2" desc="$3"
 
+	# logging
+	log1 "replaceFile: src='$src' dest='$dest' desc='$desc'"
+	[[ ! $verbose ]] && printf "$(GetFileName "$desc")..."; 
+
+	# backup file
 	if [[ ! "$noBak" ]]; then
 		bak --local --quiet "$dest" || return
 	fi
 
-	printf "$(GetFileName "$desc")..."; [[ $verbose ]] && echo
-	# ${G}cp --force --preserve=timestamps "$src" "$dest" || return
-	${G}cp --force "$src" "$dest" || return # --preserve=timestamps does not work reliably
+	# replace file - cp --preserve=timestamps does not work reliably so use touch
+	${G}cp --force "$src" "$dest" || return
 	${G}touch "$dest" --reference "$src" || return
 }
 
@@ -438,22 +450,25 @@ syncFileTimes()
 {
 	local f1="$1" f1Age="$2" f2="$3" f2Age="$4"
 
-	#stat $f1; stat $f2
+	# logging
+	log1 "syncFileTimes: f1='$f1' f1Age='$f1Age' f2='$f2' f2Age='$f2Age'"
+	(( verboseLevel > 1 )) && { stat $f1; stat $f2; }
+	[[ ! $verbose ]] && printf "."
+
+	# sync
 	if CompareSeconds "$f1Age" '>' "$f2Age"; then
 		${G}touch "$f2" --reference "$f1"  
-		#stat "$f2"; pause
 	else
 		${G}touch "$f1" --reference "$f2"
-		#stat "$f1"; pause
 	fi
 }
 
 setFileTimes()
 {
 	local now="$(GetSeconds)"
+
 	for file in "$@"; do
 		${G}touch "$file" -d "@$now"
-		#stat "$file"
 	done
 }
 
