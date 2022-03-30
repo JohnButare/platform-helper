@@ -1822,6 +1822,7 @@ isPlatformDo()
 
 		# package management
 		apt) InPath apt;;
+		brew|homebrew) InPath brew;;
 		entware) IsPlatform qnap,synology;;
 		ipkg) InPath ipkg;;
 		opkg) InPath opkg;;
