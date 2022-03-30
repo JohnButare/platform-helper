@@ -33,7 +33,10 @@ initInstallable()
 	macDebian+=( BeyondCompare delta )
 
 	# Go
-	macDebian+=( go cheat )
+	macDebian+=( go cheat curlie )
+
+	# Haskell
+	macDebian+=( haskell bench )
 
 	# HashiCorp
 	macDebian+=( hashi HashiAll HashiClusterUpdate HashiUp consul ConsulDocker ConsulK8s ConsulTemplate nomad NomadClient sockaddr vault )
@@ -53,7 +56,7 @@ initInstallable()
 	macDebian+=(node gtop)
 
 	# Python
-	all+=( pip pipx python PythonLocal PythonGlobal PythonTextUtilities cowsay figlet fortune lolcat )
+	all+=( pip pipx python PythonLocal PythonGlobal PythonTextUtilities cowsay figlet fortune lolcat httpie )
 	debian+=( Python3.9 Python3.10 )
 	debian64+=( PythonDeadsnakes )
 	macDebian+=( PythonAsdf )
@@ -68,7 +71,7 @@ initInstallable()
 	macWin+=( qnap Qfinder QnapExternalRaidManager ) 
 
 	# Rust
-	macDebian+=( rust broot choose dog dust fd gping mcfly ripgrep )
+	macDebian+=( rust broot choose dog dust fd gping just mcfly procs ripgrep )
 
 	# Screen Sharing
 	macDebian+=( TeamViewer TigerVNC TurboVNC )
@@ -470,6 +473,8 @@ run()
 			--docker) type="docker"; [[ ! "$dest" ]] && dest="$SRV";;
 			--executable) type="executable";;
 			--homebrew) type="homebrew";;
+			--go) type="go";;
+			--haskell) type="haskell";;
 			--node) type="node";;
 			--nomad) type="nomad";;
 			--package) type="package";;
@@ -589,6 +594,18 @@ runTypeDocker()
 	fi
 }
 
+runTypeGo()
+{
+	local p="$1" name="$2" dest="$3"; shift 3
+	goCheck && go install "$p" "$@" || return
+}
+
+runTypeHaskell()
+{
+	local p="$1" name="$2" dest="$3"; shift 3
+	haskellCheck && stack install "$p" "$@" || return
+}
+
 # runTypeExecutable DIR NAME- find an executable for the current platform in the passed directory.
 # The executable is copied to /usr/local/bin/NAME.
 runTypeExecutable()
@@ -608,10 +625,13 @@ runTypeExecutable()
 	for file in "${files[@]}"; do
 
 		# rename .tar.gz files to tgz for easier handling
-		[[ "$file" =~ (.tar.gz$) ]] && mv "$file" "$(GetFileNameWithoutExtension "$file" | GetFileNameWithoutExtension).tgz"
-
-		echo "Extracting $file..."
+		if [[ "$file" =~ (.tar.gz$) ]]; then
+			local fileNew="$(GetFileNameWithoutExtension "$file" | GetFileNameWithoutExtension).tgz"
+			mv "$file" "$fileNew" || return; file="$fileNew"
+		fi
 		
+		# extract
+		echo "Extracting $file..."		
 		case "$(GetFileExtension "$file")" in
 			gz) gunzip "$file" --to-stdout > "$(GetFileNameWithoutExtension "$file")" || return;;
 			tar) tar --file "$file" --extract --to-stdout > "$(GetFileNameWithoutExtension "$file")" || return;;
@@ -758,8 +778,7 @@ runTypeRuby()
 runTypeRust()
 {
 	local p="$1" name="$2" dest="$3"; shift 3
-	rustCheck || return
-	cargo install "$p" "$@" || return
+	rustCheck && cargo install "$p" "$@"
 }
 
 runTypeStore() { RunPlatform runStore "$@"; }
@@ -1836,17 +1855,17 @@ DebianSudoPasswordlessInstall()
 # development
 #################################################
 
-DevAllInstall()
-{
-	i DotNetCore JavaCore SqlCore WebCore || return
-	i GitCore gcc go JetBrains LinqPad MarkdownView VisualStudioCode || return
-	i CruiseControlTray SqlPrompt || return
-}
+DevCoreAllInstall() { i DotNetCore GitCore JavaCore SqlCore WebCore; }
+DevLanguageAllInstall() { i gcc go haskell python ruby rust; }
+
+gccCheck() { InPath gcc make && return; i --no-header gcc; }
+GccInstall() {	run --package --header "gcc" gcc make; }
 
 DevCoreInstall()
 {
 	header "Development Core"
-	pipxg install rich-cli && i GitCore gcc go MarkdownView VisualStudioCode
+	i GitCore gcc go MarkdownView VisualStudioCode || return
+	pipxg install rich-cli || return
 }
 
 WebCoreInstall()
@@ -1854,6 +1873,49 @@ WebCoreInstall()
 	header "Web Development Core"
 	run --node yo bower grunt grunt-cli || return
 }
+
+goCheck() { InPath go && return; i --no-header go; }
+
+GoInstall()
+{
+	header "Go" # https://golang.org/dl/ - *.tar.gz
+
+	# dependencies
+	gccCheck || return
+
+	# platform
+	local version="1.18" dest="/usr/local" platform 
+	case "$(uname -m)" in "") : ;;
+		armv7l) platform="linux-armv6l";;
+		aarch64) platform="linux-arm64";;
+		x86_64) platform="linux-amd64";;
+	esac
+	IsPlatform mac && platform="darwin-amd64"
+	IsPlatformAll mac,arm && platform="darwin-arm64"
+	[[ ! $platform ]] && { ScriptErr "unknown platform"; return 1; }
+
+	# install
+	findFile "other/Go/image/go$version.$platform.tar.gz" || return
+	sudoc tar -C "$dest" -xzf "$file" || return
+
+	makeLinkSudo --symbolic "$dest/go/bin/go" "$dest/bin/go" || return
+	makeLinkSudo --symbolic "$dest/go/bin/gofmt" "$dest/bin/gofmt" || return
+}
+
+haskellCheck() { InPath stack && return; i --no-header "haskell"; }
+
+HaskellInstall()
+{
+	IsPlatform debian && { package build-essential curl libffi-dev libffi7 libgmp-dev libgmp10 libncurses-dev libncurses5 libtinfo5 || return; }
+	curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh && source "$HOME/.ghcup/env" && stack setup
+}
+
+#################################################
+# development - tools
+#################################################
+
+DevToolAllInstall() { i CruiseControlTray JetBrains just LinqPad MarkdownView SqlPrompt VisualStudioCode; }
+MarkdownViewInstall() { run --name "Markdown View" --store "9PJ021LR0M3G"; }
 
 CruiseControlTrayInstall()
 {
@@ -1883,42 +1945,6 @@ CruiseControlTrayFinalWin()
 	mergeDir "$up/CCTray" "$pp/Development/Other" || return
 	$rm "$ud/CCTray.lnk" || return
 	$rm "$up/Startup/CCTray.lnk" || return
-}
-
-gccCheck() { InPath gcc make && return; i --no-header gcc; }
-
-GccInstall()
-{
-	header "gcc"
-	pkg gcc make || return
-}
-
-goCheck() { InPath go && return; i --no-header go; }
-
-GoInstall()
-{
-	header "Go" # https://golang.org/dl/ - *.tar.gz
-
-	# dependencies
-	gccCheck || return
-
-	# platform
-	local version="1.18" dest="/usr/local" platform 
-	case "$(uname -m)" in "") : ;;
-		armv7l) platform="linux-armv6l";;
-		aarch64) platform="linux-arm64";;
-		x86_64) platform="linux-amd64";;
-	esac
-	IsPlatform mac && platform="darwin-amd64"
-	IsPlatformAll mac,arm && platform="darwin-arm64"
-	[[ ! $platform ]] && { ScriptErr "unknown platform"; return 1; }
-
-	# install
-	findFile "other/Go/image/go$version.$platform.tar.gz" || return
-	sudoc tar -C "$dest" -xzf "$file" || return
-
-	makeLinkSudo --symbolic "$dest/go/bin/go" "$dest/bin/go" || return
-	makeLinkSudo --symbolic "$dest/go/bin/gofmt" "$dest/bin/gofmt" || return
 }
 
 JetBrainsInstall()
@@ -1964,6 +1990,15 @@ JetBrainsFinalWin()
 {
 	mergeDir "$up/JetBrains Toolbox" "$up/Development/other" || return
 	mergeDir "$up/JetBrains" "$up/Development/other" || return
+}
+
+JustInstall()
+{
+	header "just" # https://github.com/casey/just
+
+	if IsPlatform debian,mac && [[ ! $force ]]; then run --executable "shareware/just" # https://github.com/casey/just/releases
+	else run --rust "just"
+	fi
 }
 
 LinqPadInstall()
@@ -2476,12 +2511,14 @@ LinuxMinimalUtilitiesInstall()
 	pkg nethogs pv || return																				# monitoring
 	pkg fail2ban fping mosh ncat nmap traceroute whois || return		# network
 	pkg jq || return																								# text
+	i fd || return
 }
 
 LinuxUtilitiesInstall()
 {
-	header "Linux Utilities" # 90MB
-	pkg di lsof ncdu tree || return										# file
+	header "Linux Utilities"
+
+	pkg di lsof namei ncdu tree || return							# file
 	pkg atop iotop iperf3 || return										# monitoring
 	pkg iproute2 || return														# network, iproute2 (ip command)
 	run --python s-tui || return											# performance
@@ -2489,7 +2526,8 @@ LinuxUtilitiesInstall()
 	pkg shellcheck || return													# script
 	pkg sox || return																	# sound (play)
 	pkg colordiff fortune fortune-mod || return				# text
-	i bat cheat choose dog duf dust exa mcfly || return
+	
+	i bat cheat choose curlie dog duf dust exa gping httpie gtop mcfly procs || return
 }
 
 LinuxNetworkUtilitiesInstall()
@@ -3776,7 +3814,6 @@ LiveDesktopInstall() { run --name "LiveDesktop" "846060286"; }
 MagnetInstall() { run --name "Magnet" "441258766"; }
 PcalcInstall() { run --name "PCalc" "403504866"; }
 SpeedTestInstall() { run --name "Speedtest" "1153157709"; }
-WallpaperWizardInstall() { run --name "Wallpaper Wizard" "1266674560"; }
 YoinkInstall() { run --name "Yoink" "457622435"; }
 
 #################################################
@@ -3806,7 +3843,7 @@ HashiInstall() { header "Hashi Tools"; hashi install cli all --encrypt "${global
 HashiUpInstall() { run --name "hashi-up" --executable "shareware/hashi-up"; } # https://github.com/jsiebens/hashi-up
 NomadInstall() { run --name "Nomad" --executable "other/HashiCorp/nomad"; } # https://www.nomadproject.io/downloads
 NomadClientInstall() { i docker DockerCompose envoy jre; }
-SockaddrInstall() { goCheck && header "sockaddr" && go install "github.com/hashicorp/go-sockaddr/cmd/sockaddr@latest"; }
+SockaddrInstall() { run --go --header "sockaddr" "github.com/hashicorp/go-sockaddr/cmd/sockaddr@latest"; }
 VaultInstall() { run --name "Vault" --executable "other/HashiCorp/vault"; } # https://www.vaultproject.io/downloads
 
 ConsulDockerInstall()
@@ -4145,11 +4182,9 @@ nodeRedPermissions() { makeDir --sudo --owner "$user" "$home/.config" "$home/.no
 # Network
 #################################################
 
-NetworkAllInstall()
-{
-	i CloudInit domotz domotzAgent fiddler GlassWire gping JumpCloud JumpDesktop mDns MozillaVpn netboot.xyz \
-		Ninite NordVpn pivpn Proxifier TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall UnifiController WireGuard Wireshark
-}
+NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler GlassWire gping httpie JumpCloud JumpDesktop mDns MozillaVpn netboot.xyz Ninite NordVpn pivpn Proxifier TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall UnifiController WireGuard Wireshark; }
+CurlieInstall() { run --go --header "curlie" "github.com/rs/curlie@latest"; }
+HttpieInstall() { run --python-global "httpie"; }
 
 BindInstall()
 {
@@ -4246,10 +4281,9 @@ GpingInstall()
 {
 	header "gping"
 
-run --executable "shareware/gping"; exit
-	if IsPlatform mac; then package gping
-	elif IsPlatform arm; then run --executable "shareware/gping" # https://github.com/orf/gping/releases
-	elif IsPlatform debian && InPath brew; then brew install "orf/brew/gping"
+	if IsPlatform mac && [[ ! $force ]]; then package gping
+	elif IsPlatform arm && [[ ! $force ]]; then run --executable "shareware/gping" # https://github.com/orf/gping/releases
+	elif IsPlatformAll debian,brew && [[ ! $force ]]; then brew install "orf/brew/gping"
 	else run --rust "gping"
 	fi
 }
@@ -5325,7 +5359,18 @@ PdfElementFinalWin()
 # performance
 #################################################
 
-PerformanceAllInstall() { i Geekbench glances || return; pkg bonnie++ hardinfo || return; }
+PerformanceAllInstall() { i bench Geekbench glances || return; pkg bonnie++ hardinfo || return; }
+
+BenchInstall()
+{
+	header "bench" # https://github.com/Gabriel439/bench
+
+	if IsPlatform mac && [[ ! $force ]]; then package bench
+	elif IsPlatform arm && [[ ! $force ]]; then run --executable "shareware/bench" # compiled from source
+	elif IsPlatformAll debian,brew && [[ ! $force ]]; then brew install bench
+	else run --haskell "bench"
+	fi
+}
 
 GeekbenchInstall()
 {
@@ -6757,14 +6802,14 @@ SenaFinalWin()
 # utility - CLI
 #################################################
 
-UtilityCliInstall() { i bat broot cheat choose colorls cowsay duf dust exa fd figlet fortune fzf lolcat mcfly ripgrep unison; }
-cheatInstall() { run --name "cheat" --executable "shareware/cheat" && cheat; } # https://github.com/cheat/cheat/releases
-colorlsInstall() {  run --name "colorls" --ruby "colorls"; }
-cowsayInstall() { run --python-global "cowsay"; }
-exaInstall() { run --name "exa" --executable "shareware/exa/image"; } # https://github.com/ogham/exa/releases
-figletInstall() { run --python-global "pyfiglet"; }
-fortuneInstall() { run --python-global "fortune"; }
-lolcatInstall() { run --python-global "lolcat"; }
+UtilityCliInstall() { i bat broot cheat choose colorls cowsay duf dust exa fd figlet fortune fzf gping gtop lolcat mcfly procs ripgrep unison; }
+CheatInstall() { run --name "cheat" --executable "shareware/cheat" && cheat; } # https://github.com/cheat/cheat/releases
+ColorlsInstall() {  run --name "colorls" --ruby "colorls"; }
+CowsayInstall() { run --python-global "cowsay"; }
+ExaInstall() { run --name "exa" --executable "shareware/exa/image"; } # https://github.com/ogham/exa/releases
+FigletInstall() { run --python-global "pyfiglet"; }
+FortuneInstall() { run --python-global "fortune"; }
+LolcatInstall() { run --python-global "lolcat"; }
 
 BatInstall()
 {
@@ -6777,8 +6822,8 @@ BrootInstall()
 {
 	header "broot"
 
-	if IsPlatform mac; then brew install broot
-	elif IsPlatformAll arm,32 || IsPlatform x86; then run --executable "shareware/broot" # https://dystroy.org/broot/install/#from-precompiled-binaries
+	if IsPlatform mac && [[ ! $force ]]; then brew install broot
+	elif { IsPlatformAll arm,32 || IsPlatform x86; } && [[ ! $force ]]; then run --executable "shareware/broot" # https://dystroy.org/broot/install/#from-precompiled-binaries
 	else run --rust "broot"
 	fi
 	
@@ -6789,8 +6834,8 @@ ChooseInstall()
 {
 	header "choose" # https://github.com/theryangeary/choose
 
-	if IsPlatform mac; then brew install choose-rust
-	elif IsPlatform debian; then run --executable "shareware/choose" # built from source
+	if IsPlatform mac && [[ ! $force ]]; then brew install choose-rust
+	elif IsPlatform debian && [[ ! $force ]]; then run --executable "shareware/choose" # built from source
 	else run --rust "choose"
 	fi
 }
@@ -6809,7 +6854,7 @@ DufInstall()
 {
 	header "duf"
 
-	if IsPlatform mac; then package duf
+	if IsPlatform mac && [[ ! $force ]]; then package duf
 	else run --executable "shareware/duf" # https://github.com/muesli/duf/releases
 	fi
 }
@@ -6818,9 +6863,9 @@ DustInstall()
 {
 	header "dust (du + rust)"
 
-	if IsPlatform mac; then package dust
-	elif IsPlatform arm; then run --executable "shareware/dust" # https://github.com/bootandy/dust/releases
-	elif IsPlatform debian && InPath brew; then brew tap tgotwig/linux-dust && brew install dust
+	if IsPlatform mac && [[ ! $force ]]; then package dust
+	elif IsPlatform arm && [[ ! $force ]]; then run --executable "shareware/dust" # https://github.com/bootandy/dust/releases
+	elif IsPlatformAll debian,brew && [[ ! $force ]]; then brew tap tgotwig/linux-dust && brew install dust
 	else run --rust "du-dust"
 	fi
 }
@@ -6830,8 +6875,8 @@ FdInstall()
 	header "fd"
 
 	local v="8.3.2" # https://github.com/sharkdp/fd/releases
-	if IsPlatform mac; then brew install fd
-	elif IsPlatform debian; then run "shareware/fd/fd_${v}_$(getDeb "amd64" "arm64" "armhf").deb" # https://github.com/sharkdp/fd/releases
+	if IsPlatform mac && [[ ! $force ]]; then brew install fd
+	elif IsPlatform debian && [[ ! $force ]]; then run "shareware/fd/fd_${v}_$(getDeb "amd64" "arm64" "armhf").deb" # https://github.com/sharkdp/fd/releases
 	else run --rust "fd-find"
 	fi
 }
@@ -6864,8 +6909,8 @@ McFlyInstall()
 {
 	header "McFly" # https://github.com/cantino/mcfly
 
-	if IsPlatform mac; then package mcfly || return
-	elif IsPlatform debian; then run --executable "shareware/mcfly" || return # compiled from source
+	if IsPlatform mac && [[ ! $force ]]; then package mcfly || return
+	elif IsPlatform debian && [[ ! $force ]]; then run --executable "shareware/mcfly" || return # compiled from source
 	else run --rust "mcfly" || return
 	fi
 
@@ -6873,13 +6918,23 @@ McFlyInstall()
 	{ mcfly init bash && mcfly init zsh; } > /dev/null
 }
 
+ProcsInstall()
+{
+	header "procs" # https://github.com/dalance/procs
+
+	if IsPlatform mac && [[ ! $force ]]; then brew install procs
+	elif IsPlatform debian && [[ ! $force ]]; then run --executable "shareware/procs" # built from source
+	else run --rust "procs"
+	fi
+}
+
 RipgrepInstall()
 {
 	header "ripgrep (rg)"
 
-	if IsPlatform mac; then brew install ripgrep
-	elif IsPlatform arm; then run --name="rg" --executable "shareware/ripgrep" --no-header # compiled from source
-	elif IsPlatformAll debian,64; then run "shareware/ripgrep/ripgrep_13.0.0_amd64.deb" # https://github.com/BurntSushi/ripgrep/releases
+	if IsPlatform mac && [[ ! $force ]]; then brew install ripgrep
+	elif IsPlatform arm && [[ ! $force ]]; then run --name="rg" --executable "shareware/ripgrep" --no-header # compiled from source
+	elif IsPlatformAll debian,64 && [[ ! $force ]]; then run "shareware/ripgrep/ripgrep_13.0.0_amd64.deb" # https://github.com/BurntSushi/ripgrep/releases
 	else run --rust "ripgrep"
 	fi
 }
@@ -7172,6 +7227,9 @@ TidyTabsFinalWin()
 wallpaperInstall() { RunPlatform wallpaper; }
 wallpaperWin() { i Wallpaper4k; }
 wallpaperMac() { i WallpaperWizard; }
+
+Wallpaper4kInstall() { run --name "Wallpaper 4K" --store "9PMS2CJBHCKJ"; }
+WallpaperWizardInstall() { run --name "Wallpaper Wizard" "1266674560"; }
 
 #################################################
 # video
@@ -7796,10 +7854,6 @@ WinPermissionsInstall()
 	GrantFullPermission "$psm" || return
 	GrantFullPermission "$pd" || return
 }
-
-# Windows Store applications
-MarkdownViewInstall() { run --name "Markdown View" --store "9PJ021LR0M3G"; }
-Wallpaper4kInstall() { run --name "Wallpaper 4K" --store "9PMS2CJBHCKJ"; }
 
 #################################################
 # X Windows
