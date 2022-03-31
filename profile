@@ -120,6 +120,7 @@ restoreCommand()
 
 	if [[ "$method" == "file" ]]; then
 		AppCloseSave "$app" || return
+
 		if [[ $platform ]]; then
 			$sudo UnzipPlatform "$profile" "$profileDir" || return
 		else
