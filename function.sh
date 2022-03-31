@@ -281,6 +281,7 @@ HashiServiceRegister()
 }
 
 # git
+GitRoot() { git rev-parse --show-toplevel; }
 GitHubClone() { GitHelper GitHub clone "$@"; cd "$CODE/$(GetUriDirs "$1" | RemoveTrailingSlash | GetFileName)"; }
 
 # i: invoke the installer script (inst) saving the INSTALL_DIR
