@@ -27,7 +27,7 @@ argEnd()
 	[[ ! $method ]] && MissingOption "method"
 
 	# Profile files - profile contains ZIP of specified files
-	if [[ -d "$(GetParentDir "$method")" ]]; then
+	if [[ -d "$(GetParentDir "$(EnsureDir "$method")")" ]]; then
 		[[ ! -d "$method" ]] && { mkdir "$method" || return; }
 		methodType="file"
 		profileDir="$method"
