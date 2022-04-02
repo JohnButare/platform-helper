@@ -3,12 +3,24 @@
 
 usage()
 {
-	ScriptUsage "$1" "\
+	init; ScriptUsage "$1" "\
 usage: netbootxyz backup|docker|IsInstalled|profile|setup|test|web
 	docker 		control the docker dockerImageName
 	web				update the netboot.xyz web site
   profile 	netboot.xyz configuration
   test			test the configuration"
+}
+
+usageVerbose()
+{
+
+	ScriptUsageEcho "
+Locations:
+      application: $appDir
+     custom menus: $menuDir
+      web staging: $webStageDir
+   web deployment: $webDir
+    configuration: $config"
 }
 
 init() 
@@ -68,7 +80,7 @@ profileUsage() { echot "Usage: $(ScriptName) profile [all|app|menus|web](all) di
 profileArgStart() { profileArgs=(); }
 profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); }
 profileCommand() { profileAllCommand; }
-profileAllCommand() { profileApp && profileMenus && profileWeb; }
+profileAllCommand() { profileAppCommand && profileMenusCommand && profileWebCommand; }
 profileAppCommand() { profile $noPrompt --sudo --app "$app-config" --method "$(GetFilePath "$config")" --files "$(GetFileName "$config")" "${profileArgs[@]}"; }
 profileMenusCommand() { profile $noPrompt --app "$app-menus" --method "$menuDir" --files "*" "${profileArgs[@]}"; }
 profileWebCommand() { profile $noPrompt --app "$app-web" --method "$webStageDir" --files ".htaccess *.png" "${profileArgs[@]}"; }
@@ -111,7 +123,7 @@ setupStageCommand()
 setupWebCommand()
 {
 	[[ -d "$webDir" && ! $force ]] && return
-	inst ApacheSync || return
+	apache sync all || return
 	sudo mkdir --parents "$webDir" || return
 }
 
@@ -131,8 +143,23 @@ Update the netboot.xyz web site.
 
 webCommand() { usage; }
 webConfigCommand() { TextEdit "$config"; }
-webDeployCommand() { sudo CopyDir --recursive --delete "$webAppDir" "$webDir" && sudo CopyDir --recursive "$webStageDir/" "$webDir"  && inst ApacheSync; }
 webUpdateCommand() { setupAll && cd "$appDir" && sudo ansible-playbook -i "inventory site.yml"; }
+
+webDeployCommand()
+{
+	echo "Updating netboot.xyz application files..."
+	sudo CopyDir --recursive --delete "$webAppDir" "$webDir" "${globalArgs[@]}" || return
+
+	echo "Updating netboot.xyz custom files..."
+	sudo CopyDir --recursive "$webStageDir/" "$webDir" "${globalArgs[@]}" || return
+
+	echo "Updating netboot.xyz custom menus..."
+	sudo cp "$menuDir/custom.ipxe.j2" "$webDir/custom/custom.ipxe"  || return # assumes Jinja2 template not used (no {{ }})
+
+	echo "Synrnozing web sites..."	
+	apache deploy localhost "${globalArgs[@]}" && apache sync all "${globalArgs[@]}"
+}
+
 
 #
 # helper functions
@@ -141,3 +168,4 @@ webUpdateCommand() { setupAll && cd "$appDir" && sudo ansible-playbook -i "inven
 getContainerId() { docker ps --all | grep "$dockerImageName" | cut -d" " -f1; }
 
 ScriptRun "$@"
+
