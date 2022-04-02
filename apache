@@ -4,12 +4,8 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [COMMAND]... [OPTION]...
-Additional Apache web server functionality.
-	
-	log			show the log file
-	dir			return directories
-  profile web configuration"
+Usage: $(ScriptName) deploy|dir|log|profile|sync
+Additional Apache web server functionality."
 }
 
 init()
@@ -53,8 +49,35 @@ argEnd()
 # commands
 #
 
+logUsage() { echot "Usage: $(ScriptName) log\nShow the log file."; }
 logCommand() { LogShow "$logDir/access.log"; } 
+
 restartCommand() { service restart apache2; }
+
+#
+# deploy command
+#
+
+deployUsage() { echot "Usage: $(ScriptName) deploy all|HOST...\nDeploy web site directories by setting ownership and permissions."; }
+deployArgs() { getHostsArg "$@"; }
+deployCommand() { forAllHosts deploy; }
+ 
+# deploy HOST
+deploy()
+{
+	local host="${1:-localhost}" dir="$baseDir" group="apache-web"
+	
+	hilight "Deploying Apache web directories to $(RemoveDnsSuffix "$host")..." 
+	RunLog RunScript --ssh "$host" "$(cat <<-EOF
+		GroupAddUser "$group" || exit
+		sudoc mkdir --parents "$dir" || exit
+		sudo chown -R "root" "$dir" || exit
+		sudo chgrp -R "$group" "$dir" || exit
+		sudo find "$dir" -type d | xargs --no-run-if-empty -r sudo chmod 775 || exit
+		sudo find "$dir" -type f | xargs --no-run-if-empty -r sudo chmod 664 || exit
+		EOF
+	)"
+}
 
 #
 # dir command
@@ -72,12 +95,57 @@ dirLogCommand() { echo "$logDir"; }
 dirWebCommand() { echo "$webDir"; }
 
 #
-# Profile Command
+# profile command
 #
 
-profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\nnetboot.xyz configuration."; }
+profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\nWeb site configuration."; }
 profileArgStart() { profileArgs=(); }
 profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); }
 profileCommand() { profile $noPrompt --sudo --app "apache-web" --method "$profileDir" --files "$profileFiles" "${profileArgs[@]}"; }
+
+#
+# sync command
+#
+
+syncUsage() { echot "Usage: $(ScriptName) sync all|HOST...\nSyncronize web site files."; }
+syncArgs() { getHostsArg "$@"; }
+syncCommand() { forAllHosts sync; }
+
+# sync HOST
+sync()
+{
+	local host="$1"; IsLocalHost "$host" && return # do not sync the source	
+
+	# unison arguments
+	local src="$baseDir" dest="ssh://root@$host/$baseDir" args=(-ignore 'Path logs')
+	[[ $noPrompt ]] && args+=(-batch)
+	[[ $force ]] && args+=(-force "$src")
+
+	# syncronize
+	hilight "Synchronizing Apache web directories with $(RemoveDnsSuffix "$host")..."	
+	RunLog sudor unison "${args[@]}" "$src" "$dest"
+}
+
+#
+# helper
+#
+
+# getHostsArg all|HOST - get the hosts argument, sets hosts
+getHostsArg() 
+{
+	(( $# == 0 )) && MissingOperand "HOST"
+	hosts=("$@"); shift="$#"; [[ "$hosts" != "all" ]] && return
+	IFS=$'\n' hosts=( $(GetServers "nomad-client") ) # assume all Nomad clients are web possible hosts
+}
+
+# forAllHosts COMMAND [ARGS...] - run a command for all hosts
+forAllHosts()
+{
+	local host
+	for host in "${hosts[@]}"; do
+		RunLog "$@" "$host" || return
+		echo
+	done
+}
 
 ScriptRun "$@"
