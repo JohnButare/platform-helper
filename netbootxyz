@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-usage: netbootxyz backup|docker|IsInstalled|profile|test|web
+usage: netbootxyz backup|docker|IsInstalled|profile|setup|test|web
 	docker 		control the docker dockerImageName
 	web				update the netboot.xyz web site
   profile 	netboot.xyz configuration
@@ -13,10 +13,16 @@ usage: netbootxyz backup|docker|IsInstalled|profile|test|web
 
 init() 
 { 
-	dockerImageName="netbootxyz"
-	config="/opt/netboot.xyz/user_overrides.yml"
+	app="netbootxyz"
+	dockerImageName="$app"
+
+	appDir="/opt/netboot.xyz"
 	menuDir="/etc/netbootxyz/custom"
-	webDir="/var/www/html/"
+	webStageDir="/etc/netbootxyz/staging"
+	webAppDir="/var/www/html/"
+	webDir="$(apache dir web)/netboot.xyz" || return
+
+	config="/opt/netboot.xyz/user_overrides.yml"
 }
 
 #
@@ -58,20 +64,55 @@ dockerStopCommand() { docker stop "$(getContainerId)"; }
 # Profile Command
 #
 
-profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\nnetboot.xyz configuration."; }
+profileUsage() { echot "Usage: $(ScriptName) profile [all|app|menus|web](all) dir|SaveDir|save|restore [<profile name>|default](latest)\nnetboot.xyz configuration."; }
 profileArgStart() { profileArgs=(); }
 profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); }
+profileCommand() { profileAllCommand; }
+profileAllCommand() { profileApp && profileMenus && profileWeb; }
+profileAppCommand() { profile $noPrompt --sudo --app "$app-config" --method "$(GetFilePath "$config")" --files "$(GetFileName "$config")" "${profileArgs[@]}"; }
+profileMenusCommand() { profile $noPrompt --app "$app-menus" --method "$menuDir" --files "*" "${profileArgs[@]}"; }
+profileWebCommand() { profile $noPrompt --app "$app-web" --method "$webStageDir" --files ".htaccess *.png" "${profileArgs[@]}"; }
 
-profileCommand()
+#
+# Setup Command
+#
+
+setupUsage() { echot "Usage: $(ScriptName) setup [menus|stage|web](all)\nSetup netboot.xyz web deployment."; }
+setupCommand() { setupAll; }
+setupAllCommand() { setupAll; }
+setupAll() { setupMenusCommand && setupStageCommand && setupWebCommand && setupAppCommand; }
+
+setupAppCommand()
 {
-	hilight "configuration..."
-	profile $noPrompt --sudo --app "$dockerImageName-config" --method "$(GetFilePath "$config")" --files "$(GetFileName "$config")" "${profileArgs[@]}" || return
+	[[ -d "$appDir" && ! $force ]] && return
+	package ansible git apache2 || return
+	sudo git clone "https://github.com/netbootxyz/netboot.xyz.git" "$appDir" || return
+	sudo chown -R "$USER" "$appDir" || return
+	! IsPlatform mac && { sudo chgrp -R "$USER" "$appDir" || return; }
+	netbootxyz profile app restore default || return
+}
 
-	hilight "custom menus..."
-	profile $noPrompt --app "$dockerImageName-menus" --method "$menuDir" --files "*" "${profileArgs[@]}" || return
+setupMenusCommand()
+{
+	[[ -d "$menuDir" && ! $force ]] && return
+	sudo mkdir --parents "$menuDir" || return
+	sudo chown --recursive "$USER" "$menuDir" || return
+	netbootxyz profile menus restore default || return
+}
 
-	hilight "web assets..."
-	profile $noPrompt --app "$dockerImageName-web" --method "$webDir" --files ".htaccess *.png" "${profileArgs[@]}" || return
+setupStageCommand()
+{
+	[[ -d "$webStageDir" && ! $force ]] && return
+	sudo mkdir --parents "$webStageDir" || return
+	sudo chown --recursive "$USER" "$webStageDir" || return
+	netbootxyz profile web restore default || return
+}
+
+setupWebCommand()
+{
+	[[ -d "$webDir" && ! $force ]] && return
+	inst ApacheSync || return
+	sudo mkdir --parents "$webDir" || return
 }
 
 #
@@ -90,35 +131,8 @@ Update the netboot.xyz web site.
 
 webCommand() { usage; }
 webConfigCommand() { TextEdit "$config"; }
-webDeployCommand() { sudo CopyDir --recursive --delete "$webDir" "$SRV/apache-web/htdocs/netboot.xyz" && inst ApacheSync; }
-
-webUpdateCommand()
-{
-	local dir="/opt/netboot.xyz"
-	
-	# custom menus location
-	if [[ ! -d "$menuDir" ]]; then
-		sudoc mkdir --parents "$menuDir" || return
-		sudo chown --recursive "$USER" "$menuDir" || return
-	fi
-
-	# ensure the local web directory exists
-	local webDir; webDir="$(apache dir web)" || return
-	[[ ! -d "$webDir" ]] && { inst ApacheWeb || return; }
-
-	# install netboot.xyz
-	if [[ ! -d "$dir" ]]; then
-		package ansible git apache2 || return
-		sudo git clone "https://github.com/netbootxyz/netboot.xyz.git" "$dir" || return
-		sudo chown -R "$USER" "$dir" || return
-		! IsPlatform mac && { sudo chgrp -R "$USER" "$dir" || return; }
-		netbootxyz profile restore default || return
-	fi
-
-	# update the web site	
-	cd "$dir" || return
-	sudo ansible-playbook -i inventory site.yml || return
-}
+webDeployCommand() { sudo CopyDir --recursive --delete "$webAppDir" "$webDir" && sudo CopyDir --recursive "$webStageDir/" "$webDir"  && inst ApacheSync; }
+webUpdateCommand() { setupAll && cd "$appDir" && sudo ansible-playbook -i "inventory site.yml"; }
 
 #
 # helper functions
