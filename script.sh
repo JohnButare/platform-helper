@@ -183,7 +183,7 @@ ScriptOpt()
 		-f|--force) force="--force";;
 		-h|--help) ScriptOptVerbose "$@"; usage 0;;
 		-np|--no-prompt) noPrompt="--no-prompt";;
-		-q|--quiet) quiet="--quiet";;
+		-q|--quiet) quiet="--quiet" quietOutput="/dev/null";;
 		-t|--test) test="--test";;
 		-v|--verbose|-vv|-vvv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 		-w|--wait) wait="--wait";;
@@ -297,6 +297,8 @@ ScriptRun()
 
 	# options
 	unset -v force noPrompt quiet test verbose verboseLevel verboseLess wait
+	quietOutput="/dev/stdout"
+
 	set -- "${args[@]}"; args=()
 	while (( $# )); do
 		! IsOption "$1" && { args+=("$1"); shift; continue; }
