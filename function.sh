@@ -1833,6 +1833,7 @@ isPlatformDo()
 
 		# processor
 		arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]];;
+		x64) IsPlatformAll x86,64;;
 
 		# virtualization
 		container) IsContainer;;
