@@ -107,7 +107,8 @@ pipxg()
 		if IsPlatform debian; then dir="/root/.local/bin/"
 		elif IsPlatform qnap; then dir="/share/homes/admin/.local/bin/"
 		fi
-		sudo PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" "${dir}pipx" "$@"
+		local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="/opt/homebrew/opt/openssl@3/"
+		sudo PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "${dir}pipx" "$@"
 	elif [[ "$1" == "install" ]]; then
 		sudo python3 -m pip "$@"
 	fi
@@ -1604,7 +1605,7 @@ packageExclude()
 	# macOS excludes
 	! IsPlatform mac && return
 
-	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate squidclient unison-gtk virt-what )	
+	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate squidclient unison-gtk util-linux virt-what )	
 	local macArm=( bonnie++ pv rust traceroute )
 	local macx86=( ncat traceroute )
 

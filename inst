@@ -178,7 +178,7 @@ installInit()
 	macDebian+=(node gtop)
 
 	# Python
-	all+=( pip pipx python PythonLocal PythonGlobal PythonTextUtilities cowsay figlet fortune lolcat httpie )
+	all+=( pip pipx python PythonLocal PythonGlobal PythonTextUtilities cowsay figlet fortune httpie lolcat stui )
 	debian+=( Python3.9 Python3.10 )
 	debian64+=( PythonDeadsnakes )
 	macDebian+=( PythonAsdf )
@@ -526,6 +526,9 @@ run()
 	# return if not running installations
 	[[ $noRun ]] && return;
 	
+	# return if the program is installed
+	[[ "$type" == @(python|pythonGlobal|ruby) ]] && InPath "$p" && [[ ! $force ]] && return
+
 	# prompt to run the installation
 	runPrompt "$p" "$name" || return 0
 
@@ -751,7 +754,6 @@ runTypePackage() { pkg "$1"; }
 runTypePython() 
 {
 	local p="$1" name="$2" dest="$3"; shift 3
-	InPath "$p" && [[ ! $force ]] && return
 	pythonCheckLocal || return
 	RunLog python3 -m pipx install "$p" "$@" || return
 }
@@ -760,7 +762,6 @@ runTypePython()
 runTypePythonGlobal()
 {
 	local p="$1" name="$2" dest="$3"; shift 3
-	InPath "$p" && [[ ! $force ]] && return
 	pythonCheckGlobal || return
 	RunLog pipxg install $force "$p" "$@" || return
 }
@@ -769,7 +770,6 @@ runTypeRuby()
 {
 	local p="$1" name="$2" dest="$3"; shift 3
 	rubyCheck || return
-	InPath "$p" && return
 	gem install "$p" "$@" || return
 }
 
@@ -951,9 +951,9 @@ appDebian()
 {
 	i xClient CloudInit dbus || return
 	{ [[ ! $force ]] && minimalInstall; } && return
-	i AptUtilities gnome-system-monitor hardinfo || return
+	i AptUtilities || return
 	
-	! IsPlatform win && { pkg nautilus terminator || return; }
+	! IsPlatform win && { pkg gnome-system-monitor hardinfo nautilus terminator || return; }
 	! IsPlatform pi,win && { pkg gnome-software || return; }
 
 	return 0
@@ -1014,7 +1014,7 @@ AppHostInstall()
 
 AppNetworkInstall()
 {
-	network current update || return
+	network current update --quiet || return
 	local network; network="$(network current name)" || return
 	header "${network^} Applications"
 
@@ -1252,9 +1252,7 @@ KindleDrmInstallFinalWin() { mergeDir "$pp/eBook Converter" "$ao"; }
 BootstrapInstall()
 {
 	header "Bootstrap"
-	bootstrapStart || return
-	RunPlatform bootstrap || return
-	bootstrapEnd || return
+	bootstrapStart && bootstrap && bootstrapEnd
 }
 
 bootstrapStart()
@@ -1312,13 +1310,21 @@ bootstrapStart()
 	cd "$HOME" || return
 	file -C -m "$HOME/.magic" || return
 
-	# critical installs, install credential now to minimize prompting
-	i fd CredentialStore || return
+	# critical installs
+	i fd CredentialStore || return # credential now to minimize prompting, fd for credential
+	RunPlatform bootstrapStart || return
 
 	# set the default WSL distribution user now to aid troubleshooting issues.
 	IsPlatform wsl && { wsl dist user set --user="$(ConfigGet "user")" || return; }
 
 	UpdateDone "bootstrapStart" || return
+}
+	
+bootstrap()	
+{	
+	[[ ! $force ]] && ! UpdateNeeded "bootstrap" && return
+	RunPlatform bootstrap || return
+	UpdateDone "bootstrap" || return
 }
 
 bootstrapEnd()
@@ -1328,17 +1334,15 @@ bootstrapEnd()
 	i "$PLATFORM" || return
 }
 
-bootstrapDebianMac() # debian|mac
+bootstrapStartDebianMac()
 {
-	header "Bootstrap Mac OS and Debian"
+	header "Bootstrap Start Mac OS and Debian"
 	pkg bc curl dialog expect git htop jq less moreutils unzip virt-what zip || return
 }
 
 bootstrapDebian()
 {
 	header "Bootstrap Debian"
-
-	[[ ! $force ]] && ! UpdateNeeded "bootstrapDebian" && return
 
 	if ! IsPlatform win; then
 		IsHypervVm && { i HypervLinuxTools || return; }
@@ -1350,8 +1354,6 @@ bootstrapDebian()
 	pkg --no-prompt keyboard-configuration smbclient || return
 
 	i DebianSetup || return
-
-	UpdateDone "bootstrapDebian" || return
 }
 
 bootstrapEntware()
@@ -1497,11 +1499,13 @@ bootstrapUbuntu()
 	# remaining setup is not applicable for Windows
 	IsPlatform win && return
 
-	[[ -f gsettings ]] && { gsettings set org.gnome.desktop.session idle-delay 0 || return; } # do not blank screen
+ 	# do not blank screen
+	[[ -f gsettings ]] && { gsettings set org.gnome.desktop.session idle-delay 0 || return; }
 
-	echo "Updating file permissions..."
+	# permissions
 	chmod ugo+x "$BIN/"* || return
 
+	# timezone
 	if [[ ! -L "/etc/localtime" ]]; then
 		echo "Updating timezone..."
 		sudo mv "/etc/localtime" "/etc/localtime.old" || return
@@ -1564,22 +1568,18 @@ ChromeFinalWin()
 
 FirefoxInstall()
 {
-	header "Firefox"
+	header "Firefox"; local v="98.0.2" # https://www.mozilla.org/en-US/firefox/all/
 
-	# check if installed
-	local isInstalled; 
-	IsPlatform debian && firefox IsInstalled && ! firefox program | grep -q "$P" && isInstalled="true"
-	
+	# return if installed
+	firefox IsInstalled && [[ "$(firefox version)" == "Mozilla Firefox $v" && ! $force ]] && return
+
 	# install
-	local v="94.0.2" # https://www.mozilla.org/en-US/firefox/all/
-	if IsPlatform pixel,pi; then
-		pkg firefox-esr || return
-	elif IsPlatform arm && ! IsPlatform mac; then
-		pkg firefox || return
-	elif [[ ! $isInstalled ]]; then
-		run "other/Mozilla/Firefox/Firefox Setup $v.msi|Firefox $v.dmg|firefox-$v.tar.bz2" --dest="firefox" || return
+	if IsPlatform pixel,pi; then pkg firefox-esr || return
+	elif IsPlatform arm && ! IsPlatform mac; then pkg firefox || return
+	else run "other/Mozilla/Firefox/Firefox Setup $v.msi|Firefox $v.dmg|firefox-$v.tar.bz2" --dest="firefox" || return
 	fi
 
+	# configure
 	echo; firefox $noPrompt profile restore default || return
 
 	echot "\
@@ -1650,8 +1650,14 @@ CompareCoreInstall()
 BeyondCompareInstall()
 {
 	header "BeyondCompare"; local v=4.4.1.26165 # http://www.scootersoftware.com/download.php
+
+	# return if installed
+	BeyondCompare IsInstalled && [[ ! $force ]] && return
+
+	# install
 	run "other/Scooter Software/Beyond Compare/setup/BCompare-${v}_x64.msi|BCompareOSX-${v}.zip|bcompare-${v}_amd64.deb" || return
 
+	# configure
 	echo "- Help|Preferences, Enter Key..."
 	IsPlatform mac && echo "- Beyond Compare, Install Command Line Tools…"
 	BeyondCompare $noPrompt profile restore default || return
@@ -1667,14 +1673,15 @@ BeyondCompareFinalWin()
 
 DeltaInstall()
 {
-	header "delta"
-	
-	local v="0.12.1"
+	header "delta"; local v="0.12.1" # https://dandavison.github.io/delta/installation.html 
 
-	if IsPlatform mac; then
-		package git-delta
-	elif IsPlatform apt; then # Ubuntu - eventually in package managers
-		run "shareware/delta/git-delta_${v}_$(getDeb "amd64" "arm64" "armhf").deb" # https://dandavison.github.io/delta/installation.html 
+	# return if installed
+	InPath delta && [[ "$(delta --version | head -1 | cut -d" " -f2)" == "$v" && ! $force ]] && return
+
+	# install
+	if IsPlatform mac; then package git-delta
+	elif IsPlatform apt; then run "shareware/delta/git-delta_${v}_$(getDeb "amd64" "arm64" "armhf").deb"
+	else couldNotLocate
 	fi
 }
 
@@ -2144,11 +2151,23 @@ BackupperFinalWin()
 
 BorgBackupInstall()
 {
+	header "Borg Backup"; local v="1.2.0" # https://borgbackup.readthedocs.io/en/stable/installation.html#from-source
+
+	# return if installed
+	InPath borg && [[ "$(borg --version)" == "borg $v" && ! $force ]] && return
+
 	# QNAP
 	IsPlatform qnap && { run --store "BorgBackup"; return; }
 
 	# prerequisites
-	IsPlatformAll debian && { pkg g++ gcc python3-dev libacl1-dev libfuse-dev libssl-dev || return; }
+	if IsPlatform debian; then
+		pkg g++ gcc libfuse-dev || return
+		pkg python3 python3-dev python3-virtualenv libacl1-dev libacl1 libssl-dev liblz4-dev libzstd-dev libxxhash-dev build-essential || return		
+		pkg-config python3-pkgconfig || return
+	elif IsPlatform mac; then
+		pkg python3 openssl zstd lz4 xxhash || return
+		pkg-config python3-pkgconfig # returns an error on macOS
+	fi
 
 	# install
 	{ ! InPath borg || [[ $force ]]; } && { run --python-global borgbackup || return; }
@@ -2519,17 +2538,15 @@ LinuxUtilitiesInstall()
 {
 	header "Linux Utilities"
 
-	pkg di lsof namei ncdu tree || return							# file
+	pkg di lsof ncdu tree || return										# file
 	pkg atop iotop iperf3 || return										# monitoring
 	pkg iproute2 || return														# network, iproute2 (ip command)
-	run --python s-tui || return											# performance
 	pkg daemonize psmisc || return										# process
 	pkg shellcheck || return													# script
 	pkg sox || return																	# sound (play)
-	pkg colordiff fortune fortune-mod || return				# text
-	pkg direnv timewarrior || return									# other
+	pkg direnv timewarrior util-linux || return				# other
 	
-	i bat cheat choose curlie dog duf dust exa gping httpie gtop mcfly procs || return
+	i bat cheat choose curlie dog duf dust exa httpie mcfly procs || return
 }
 
 LinuxNetworkUtilitiesInstall()
@@ -2568,7 +2585,7 @@ CupsInstall()
 DbusInstall()
 {
 	# shared D-Bus
-	IsPlatform debian && { package dbus-user-session || return; }
+	IsPlatform debian && ! PackageInstalled dbus-user-session && { package dbus-user-session || return; }
 
 	# fix WSL error message
 	local file="/usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf"
@@ -4200,7 +4217,7 @@ BindInstall()
 	i DebianSudoPasswordless || return # for remote updates
 }
 
-CloudInitInstall() { 	header "cloud-init"; cloudInitLimitUser; }
+CloudInitInstall() { header "cloud-init"; cloudInitLimitUser; }
 
 # limit the users sudo rights if they are too broad (cloud-init adds NOPASSWD:ALL)
 cloudInitLimitUser()
@@ -5252,8 +5269,15 @@ AptInstall()
 AptUtilitiesInstall() # 70MB
 {
 	header "APT Utilities"
+
+	# return if installed
+	InPath wajig && [[ ! $force ]] && return
+
+	# install
 	pkg apt-transport-https ca-certificates curl gnupg-agent || return
 	pkg apt-file apt-show-versions deborphan debsums software-properties-common wajig || return
+
+	# configure
 	sudoc apt-file update || return
 }
 
@@ -5291,7 +5315,8 @@ homebrewCheck() { InPath brew && return 0; i --no-header homebrew || return; }
 
 HomebrewInstall()
 {
-	/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+	InPath brew && return 0
+	curl -fsSL "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh" | bash
 }
 
 WinGetInstall() { run --name "winget" --store "9nblggh4nns1"; }
@@ -5354,7 +5379,7 @@ PdfElementFinalWin()
 # performance
 #################################################
 
-PerformanceAllInstall() { i bench Geekbench glances SystemToolkit || return; pkg bonnie++ hardinfo || return; }
+PerformanceAllInstall() { i bench Geekbench glances stui SystemToolkit || return; pkg bonnie++ hardinfo || return; }
 GlancesInstall() { run --python-global "glances"; }
 SystemtoolkitInstall() { run --name "System Toolkit" --store "1234854699" && run "platform/mac/System Toolkit/|Helper.dmg"; }
 
@@ -5380,6 +5405,17 @@ GeekbenchFinalWin()
 {
 	$ren "$up/Geekbench 5/Geekbench 5.lnk" "$pp/Applications/Geekbench.lnk" || return
 	$rmd "$up/Geekbench 5" || return
+}
+
+StuiInstall()
+{
+	local v="1.1.3"
+
+	# return if installed
+	InPath s-tui && [[ "$(s-tui --version | head -1 | cut -d" " -f2)" == "$v" && ! $force ]] && return
+
+	# install
+	run --python-global s-tui || return
 }
 
 #
@@ -5921,7 +5957,7 @@ rustCheck() { InPath cargo && return 0; i --no-header rust || return; }
 RustInstall()
 {
 	header "Rust"
-	curl --proto '=https' --tlsv1.2 -sSf "https://sh.rustup.rs" | sh || return
+	curl --proto '=https' --tlsv1.2 -sSf "https://sh.rustup.rs" | bash -s -- --no-modify-path -y || return
 	SourceIfExists "$HOME/.cargo/env" || return
 }
 
@@ -6625,28 +6661,25 @@ NotepadPpFinalWin()
 
 SublimeInstall()
 {
-	header "Sublime Text Editor" 
+	header "Sublime Text Editor"
+	local v="4126" 			# https://www.sublimetext.com/download
+	local versionBeta="4131" 	# https://www.sublimetext.com/dev
+	local architecture="amd64"; IsPlatform arm && architecture="arm64" 
+	local alternate; [[ "$installType" == "alternate" ]] && alternate="--alternate"
 
-	# install based on type
-	local what="local"
-	[[ "$installType" == "beta" ]] && what="beta"
-	IsPlatform wsl && [[ "$installType" == @(alternate) ]] && what="package"
-	sublime${what^} || return
+	# return if installed
+	[[ "$installType" == "beta" ]] && v="$versionBeta"
+	sublime IsInstalled && [[ "$(sublime $alternete version)" == "Sublime Text Build $v" && ! $force ]] && return
+
+	# install
+	IsPlatform linux && [[ ! $installType ]] && installType="package" # Linux defaults to package
+	if [[ "$installType" == @(|beta|local) ]]; then run "other/Sublime/setup/sublime_text_build_${v}_x64_setup.exe|sublime_text_build_${v}_mac.zip|sublime-text_build-${v}_${architecture}.deb" || return
+	elif IsPlatform debian && [[ "$installType" == @(|alternate|package) ]]; then sublimePackage || return
+	else couldNotLocate
+	fi
 
 	# profile
 	sublime $noPrompt profile restore default && SetTextEditor
-}
-
-sublimeBeta()
-{
-	local v="4107" architecture="amd64"; IsPlatform arm && architecture="arm64" # https://discord.com/channels/280102180189634562/650695903446827011
-	run "other/Sublime/setup/sublime_text_build_${v}_x64_setup.exe|sublime_text_build_${v}_mac.zip|sublime-text_build-${v}_${architecture}.deb" || return
-}
-
-sublimeLocal()
-{
-	local v="4126" # https://www.sublimetext.com/download
-	run "other/Sublime/setup/sublime_text_build_${v}_x64_setup.exe|sublime_text_build_${v}_mac.zip|sublimePackage" || return
 }
 
 sublimePackage()
@@ -6758,18 +6791,24 @@ SenaFinalWin()
 #################################################
 
 UtilityCliInstall() { i bat broot cheat choose colorls cowsay duf dust exa fd figlet fortune fzf gping gtop lolcat mcfly procs ripgrep unison; }
-CheatInstall() { run --name "cheat" --executable "shareware/cheat" && cheat; } # https://github.com/cheat/cheat/releases
 ColorlsInstall() {  run --name "colorls" --ruby "colorls"; }
-CowsayInstall() { run --python-global "cowsay"; }
+CowsayInstall() {  InPath cowsay && return; run --python-global "cowsay"; }
 ExaInstall() { run --name "exa" --executable "shareware/exa/image"; } # https://github.com/ogham/exa/releases
-FigletInstall() { run --python-global "pyfiglet"; }
-FortuneInstall() { run --python-global "fortune"; }
-LolcatInstall() { run --python-global "lolcat"; }
+FigletInstall() {  InPath pyfiglet && return; run --python-global "pyfiglet"; }
+FortuneInstall() { InPath fortune && return; run --python-global "fortune-lite"; }
+LolcatInstall() {  InPath lolcat && return; run --python-global "lolcat"; }
 
 BatInstall()
 {
-	run --header "bat" --package bat || return # https://github.com/sharkdp/bat
+	header "bat"; local v="0.12.1"
+
+	# return if installed
+	InPath bat && [[ "$(bat --version)" == "bat $v" && ! $force ]] && return
+
+	# install
+	run --package bat || return # https://github.com/sharkdp/bat
 	IsPlatform debian && ! InPath bat && { sudo ln -s "/usr/bin/batcat" "/usr/local/bin/bat" || return; }
+
 	return 0
 }
 
@@ -6788,6 +6827,20 @@ BrootInstall()
 	fi
 }
 
+CheatInstall()
+{
+	local v="4.2.3" # https://github.com/cheat/cheat/releases
+
+	# return if installed
+	InPath cheat && [[ "$(cheat --version)" == "$v" && ! $force ]] && return
+
+	# install
+	run --name "cheat" --executable "shareware/cheat" || return
+
+	# configure
+	profile --app cheat --method "$HOME/.config/cheat" --files '*' restore default $noPrompt
+} 
+
 ChooseInstall()
 {
 	header "choose"; local v="1.3.3" # https://github.com/theryangeary/choose
@@ -6805,10 +6858,10 @@ ChooseInstall()
 
 DogInstall()
 {
-	header "dog"; local version="v0.2.0-pre [721440b] built on 2022-03-30 (pre-release!)" # https://github.com/ogham/dog
+	header "dog"; local v='v0.2.0-pre [721440b] built on 2022-03-30 (pre-release!)' # https://github.com/ogham/dog
 
 	# return if installed
-	InPath dog && [[ "$(dog --version)" == "$v" && ! $force ]] && return
+	InPath dog && [[ "$(dog --version | head -2 | tail -1)" == "$v" && ! $force ]] && return
 
 	# install
 	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then brew install dog
@@ -6820,7 +6873,7 @@ DogInstall()
 
 DufInstall()
 {
-	header "duf"; local version="duf 0.8.1 (3c55411)"
+	header "duf"; local v="duf 0.8.1 (3c55411)"
 
 	# return if installed
 	InPath duf && [[ "$(duf --version)" == "$v" && ! $force ]] && return
@@ -7385,12 +7438,17 @@ exec /etc/xrdp/startwm.sh" | sudo ${G}tee /etc/xrdp/startubuntu.sh || return; }
 	[[ ! -e /etc/modules-load.d/hv_sock.conf ]] && echo "hv_sock" | sudo ${G}tee "/etc/modules-load.d/hv_sock.conf"
 
 	# Configure the policy xrdp session
-	echo "[Allow Colord all Users]
-Identity=unix-user:*
-Action=org.freedesktop.color-manager.create-device;org.freedesktop.color-manager.create-profile;org.freedesktop.color-manager.delete-device;org.freedesktop.color-manager.delete-profile;org.freedesktop.color-manager.modify-device;org.freedesktop.color-manager.modify-profile
-ResultAny=no
-ResultInactive=no
-ResultActive=yes" | sudo ${G}tee "/etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla" || return
+	local file="/etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla"
+	if [[ ! -f "$file" || $force ]]; then
+		cat <<-EOF | sudo ${G}tee -a "$file" > /dev/null || return
+			[Allow Colord all Users]
+			Identity=unix-user:*
+			Action=org.freedesktop.color-manager.create-device;org.freedesktop.color-manager.create-profile;org.freedesktop.color-manager.delete-device;org.freedesktop.color-manager.delete-profile;org.freedesktop.color-manager.modify-device;org.freedesktop.color-manager.modify-profile
+			ResultAny=no
+			ResultInactive=no
+			ResultActive=yes
+		EOF
+	fi
 
 	# reconfigure the service
 	sudo systemctl daemon-reload || return
