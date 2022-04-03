@@ -305,20 +305,54 @@ permissionCommand()
 }
 
 #
-# Regenerate Command
+# regenerate command
 #
 
-regenerateUsage() { echot "Usage: $(ScriptName) regenerate\nregenerate SSH host keys."; }
+regenerateUsage() { echot "Usage: $(ScriptName) regenerate [check|duplicate]\nRegenerate SSH host keys."; }
+
+regenerateCheckUsage() { echot "Usage: $(ScriptName) regenerate \nCheck which hosts use SSH host keys."; }
+regenerateCheckCommand() { regenerateCheck; }
+regenerateCheck() { grep "$(sudo cat "/etc/ssh/ssh_host_ecdsa_key.pub" | cut -d" " -f2)" "$HOME/.ssh/known_hosts"; }
 
 regenerateCommand()
 {
-	# check if user really wants to regeneraste host keys
+	# check if another hosts uses the SSH host key in ~/.ssh/known_hosts
+	local duplicate; duplicate="$(regenerateDuplicate)" || return
+	[[ "$duplicate" == "false" && ! $force ]] && return 0
+
+	# check if user really wants to regenerate the SSH host keys
 	if [[ ! $noPrompt ]]; then
 		! ask 'Regenerate SSH host keys' --default-response n && return
 	fi
 
+	# regenerate the SSH host keys
 	sudo rm /etc/ssh/ssh_host_* || return
 	sudo ssh-keygen -A || return
+}
+
+#
+# regenerate duplicate command
+#
+
+regenerateDuplicateUsage() { echot "Usage: $(ScriptName) regenerate \nReturn true if the SSH host key is used by another host and false if not."; }
+regenerateDuplicateCommand() { regenerateDuplicate; }
+
+regenerateDuplicate()
+{
+	# get the number of hosts using this hosts SSH host key from the ~/.ssh/known_hosts file
+	local count; count="$(regenerateCheck | wc -l)"
+	! IsInteger "$count" && return 1
+
+	# more than one hosts are using this hosts SSH host key
+	(( count > 1 )) && { echo "true"; return; }
+
+	# no hosts are using the SSH host key
+	(( count == 0 )) && { echo "false"; return; }
+
+	# check if the one host using 
+	local host; host="$(regenerateCheck | cut -d" " -f1 | cut -d"," -f1)" || return 2
+	[[ ! $host ]] && return 1
+	IsLocalHost "$host" && echo "false" || echo "true"
 }
 
 ScriptRun "$@"
