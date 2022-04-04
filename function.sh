@@ -107,7 +107,7 @@ pipxg()
 		if IsPlatform debian; then dir="/root/.local/bin/"
 		elif IsPlatform qnap; then dir="/share/homes/admin/.local/bin/"
 		fi
-		local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="/opt/homebrew/opt/openssl@3/"
+		local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="$HOMEBREW_PREFIX/opt/openssl@3/"
 		sudo PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "${dir}pipx" "$@"
 	elif [[ "$1" == "install" ]]; then
 		sudo python3 -m pip "$@"

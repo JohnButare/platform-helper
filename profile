@@ -26,12 +26,11 @@ argEnd()
 {
 	[[ ! $method ]] && MissingOption "method"
 
-	# Profile files - profile contains ZIP of specified files
-	if [[ -d "$(GetParentDir "$(EnsureDir "$method")")" ]]; then
-		[[ ! -d "$method" ]] && { mkdir "$method" || return; }
-		methodType="file"
-		profileDir="$method"
-		saveExtension="zip"
+	# Registry profile - profile contains registry entries
+	if IsPlatform win && registry IsKey "$method";  then
+		methodType="registry"
+		profileKey="$method"
+		saveExtension=reg
 
 	# ProfileFiles program - program it will be used to import and export the profile  
 	# IN: profileDir, profileSaveExtension -  the profile file extension used by the program must be specified
@@ -40,12 +39,13 @@ argEnd()
 		profileProgram="$method"
 		
 		[[ ! $saveExtension ]] && { ScriptErr "the profile save extension was not specified"; return 1; }
-		
-	# Registry profile - profile contains registry entries
-	elif registry IsKey "$method";  then
-		methodType="registry"
-		profileKey="$method"
-		saveExtension=reg
+
+	# Profile files - profile contains ZIP of specified files
+	elif [[ ! -f "$method" && -d "$(GetParentDir "$(EnsureDir "$method")")" ]]; then
+		[[ ! -d "$method" ]] && { mkdir "$method" || return; }
+		methodType="file"
+		profileDir="$method"
+		saveExtension="zip"
 
 	else
 		ScriptErr "unknown profile method '$method'"
