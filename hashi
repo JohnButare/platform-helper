@@ -42,7 +42,7 @@ init()
 	configWhat="consul-vault-data local-certs local-credentials private-certs public-certs"
 }
 
-argStart() { unset -v api assumeServer configFile configFileArg configPrefix configPrefixArg hostArg hostArgOrig; }
+argStart() { unset -v api assumeServer configFile configFileArg configPrefix configPrefixArg hostArg; }
 
 opt()
 {
@@ -50,7 +50,7 @@ opt()
 		-a|--api|-a=*|--api=*) ScriptOptGet api "$@";;
 		-cf|--config-file|-cf=*|--config-file=*) ScriptOptGet "configFile" "config-file" "$@" && ScriptCheckFile "$configFile" && configFileArg=(--config-file "$configFile");;
 		-cp|--config-prefix|-cp=*|--config-prefix=*) ScriptOptGet "configPrefix" "config-prefix" "$@" && configPrefixArg=(--config-prefix "$configPrefix");;
-		-H|--host|-H=*|--host=*) ScriptOptGet hostArg host "$@"; hostArgOrig="$hostArg";;
+		-H|--host|-H=*|--host=*) ScriptOptGet hostArg host "$@";;
 		-nt|--no-token) noToken="--no-token";;
 		-is|--is-server) assumeServer="true";;
 		*) return 1;;
@@ -260,6 +260,15 @@ certMakeCd()
 	local dir; dir="$(certDirPrivate | certDirSuffix "$product")" && sudoc ${G}mkdir --parents "$dir" && command cd "$dir"
 }
 
+# certMakeCp CERT... DEST - copy certificates to the destination directory
+# - the certificates files are assumed to be relative, so change in to the private certifcate directory first
+# - if a certificate file does not exist it is silently skipped
+certMakeCp()
+{
+	! certs && return
+	certMakeCd "$product" && FileCommand cp "$@"
+}
+
 # certMakeDnsArgs NAMES - return additional DNS name arguments for the comma separated list of names
 certMakeDnsArgs()
 {
@@ -359,7 +368,6 @@ certMakeNomadServer()
 		cp "$certServerKey" "$dest/$certServerKey" || return
 	fi
 }
-
 
 # certMake PRODUCT - make certificates for the product.  All of the following certMake functions are should only be called from certMake.
 certMake()
@@ -1466,21 +1474,21 @@ installService()
 	local certDir tmpDir; tmpDir="$(tmpDirCreate)" || return	
 	installServiceCertMake || return # current directory will be the private certificate directory
 	installServiceProgram || return
-	installServiceServers || return
+	installServiceHosts "server" "${servers[@]}" || return
 	installServiceCertLocal || return
 	installServiceServerFinal || return
-	installServiceClients || return
+	installServiceHosts "client" "${clients[@]}" || return
 	installServiceFinal || return
 	installServiceCertPublic || return
 
 	# cleanup
-	unset servers clients; hostArg="$hostArgOrig"
+	unset servers clients
 	rm -fr "$tmpDir"
 }
 
-installServiceCertLocal() { header "Install Local Certificates" && certs && whatCheck "cert" "cert-local" && productInstallCerts "$product"; }
-installServiceCertMake() { header "Create Certificates" && certMakeCd "$product" && certs && whatCheck "cert" "cert-make" && certMake "$product"; }
-installServiceCertPublic() { header "Copy Public Certificates" && certs && whatCheck "cert" "cert-public" && certCopyPublic "$product"; }
+installServiceCertLocal() { ! whatCheck "cert" "cert-local" && return; header "Install Local Certificates" && certs && productInstallCerts "$product"; }
+installServiceCertMake() { ! whatCheck "cert" "cert-make" && return; header "Create Certificates" && certMakeCd "$product" && certs && certMake "$product"; }
+installServiceCertPublic() { ! whatCheck "cert" "cert-public" && return; header "Copy Public Certificates" && certs && certCopyPublic "$product"; }
 
 installServiceAcl()
 {
@@ -1520,15 +1528,6 @@ installServiceAcl()
 	log1 "updated environment variable $(productVar "TOKEN") to $(productVarGet "TOKEN")..."
 }
 
-installServiceClients()
-{
-	! whatCheck "service" && return
-
-	for host in "${clients[@]}"; do
-		installServiceDo "client" "$host" || return
-	done
-}
-
 installServiceConfig()
 {
 	local exec="ExecStart=$execStart"
@@ -1563,7 +1562,8 @@ installServiceConfig()
 	EOF
 }
 
-installServiceDo()
+# installServiceHost client|server host - install the client or server version of the service 
+installServiceHost()
 {
 	local type="$1" host="$2"
 	local f hostFqdn hostIp
@@ -1588,7 +1588,7 @@ installServiceDo()
 	${G}mkdir --parents "$tmpDir/cert" "$tmpDir/data" "$tmpDir/config" || return		
 
 	# copy certificates
-	certs && { FileCommand cp "$ca" "$certCli" "$certCliKey" "$tmpDir/cert" || return; }
+	certMakeCp "$ca" "$certCli" "$certCliKey" "$tmpDir/cert" || return
 
 	# environment
 	printf "" > "$tmpDir/$product.env"
@@ -1600,16 +1600,16 @@ installServiceDo()
 	installServiceProductConfig o > "$tmpDir/config/$productConfigFileBase" || return
 	installServiceConfig > "$tmpDir/$product.service" || return
 
-	# copy the files to the remote host
+	# copy the files to the remote host	
 	copyDirRemote "$tmpDir" "$host" || return
 
 	# run the installation script - do notuse only standard commands
 	hilight "Running installation..."
 	scriptRun "$host" "$(cat <<-EOF
 
-		$(installServiceDoUser)
+		$(installServiceTextUser)
 
-		$(installServiceDoDirectories)
+		$(installServiceTextDirectories)
 
 		# files
 
@@ -1651,24 +1651,18 @@ installServiceDo()
 
 }
 
-installServiceDoDirectories()
+# installServiceHosts client|server [HOST...]- install the service as a client or server version of the program on the specified hosts.
+# - in Consul, use 'consul members' to view the servers and clients.
+# - in Nomad, the clients are known as nodes, use 'nomad server members' to view the servers in the cluster, use 'nomad node status' to view the nodes in the cluster.
+installServiceHosts()
 {
-	cat <<-EOF
-		if ! [[ -d "$certDirService" && -d "$productConfigDir" && -d "$productDataDir" ]] || [[ "$force" ]]; then
-		  echo "Creating directories..."
-		  sudo install -o "$user" -g "$user" -m 755 -d "$certDirService" "$productConfigDir" "$productDataDir" || exit
-		fi
-	EOF
-}
+	local type="$1"; shift
 
-installServiceDoUser()
-{
-	cat <<-EOF
-		if ! getent passwd "$user" >& /dev/null; then
-		  echo "Creating user $user..."
-		  sudo useradd --system --home-dir "$productConfigDir" --shell "/bin/false" "$user" || exit
-		fi
-	EOF
+	! whatCheck "service" && return
+
+	for host in "$@"; do
+		installServiceHost "$type" "$host" || return
+	done
 }
 
 installServiceProgram()
@@ -1712,10 +1706,18 @@ installServiceFinalNomad()
 	! whatCheck "config" && return
 
 	header "Nomad Configuration"
-	forAllHosts "nomadConfigEnableVault" && \
-		forAllHosts "nomadConfigEnableDocker" && \
-		forAllHosts "nomadConfigEnableRawExec" && \
-		forAllHosts "serviceRestart" "nomad"
+	installServiceForAllHosts "nomadConfigEnableVault" && \
+		installServiceForAllHosts "nomadConfigEnableDocker" && \
+		installServiceForAllHosts "nomadConfigEnableRawExec" && \
+		installServiceForAllHosts "serviceRestart" "nomad"
+}
+
+installServiceForAllHosts()
+{
+	local host
+	for host in "${hosts[@]}"; do
+		"$@" "$host" || return
+	done
 }
 
 installServicePrepConsul()
@@ -1853,8 +1855,8 @@ installServicePrepNomad()
 		)"		
 	)
 
-	# certificates
-	certs && isClient && { cp "$$ca" "$certClient" "$certClientKey" "$tmpDir/cert" || return; }
+	# certificates 
+	certs && isClient && { cp "$ca" "$certClient" "$certClientKey" "$tmpDir/cert" || return; }
 	certs && isServer && { cp "$ca" "$certServer" "$certServerKey" "$tmpDir/cert" || return; }
 
 	# consul encryption environment variables
@@ -1986,6 +1988,8 @@ installServiceServerFinalNomad() { installServiceAcl && installServiceServerFina
 
 installServiceServerFinalNomadVaultIntegration()
 {	
+	! whatCheck "config" && return
+
 	header "Install Nomad Vault Integration"
 
 	local policy; productInit "vault" || return
@@ -2055,13 +2059,24 @@ installServiceServerFinalVault()
 	fi
 }
 
-installServiceServers()
+installServiceTextDirectories()
 {
-	! whatCheck "service" && return
+	cat <<-EOF
+		if ! [[ -d "$certDirService" && -d "$productConfigDir" && -d "$productDataDir" ]] || [[ "$force" ]]; then
+		  echo "Creating directories..."
+		  sudo install -o "$user" -g "$user" -m 755 -d "$certDirService" "$productConfigDir" "$productDataDir" || exit
+		fi
+	EOF
+}
 
-	for host in "${servers[@]}"; do
-		installServiceDo "server" "$host" || return
-	done
+installServiceTextUser()
+{
+	cat <<-EOF
+		if ! getent passwd "$user" >& /dev/null; then
+		  echo "Creating user $user..."
+		  sudo useradd --system --home-dir "$productConfigDir" --shell "/bin/false" "$user" || exit
+		fi
+	EOF
 }
 
 #
@@ -2205,7 +2220,7 @@ nomadConfigEnableRawExec()
 nomadConfigEnableVault()
 {
 	local host="$1"
-	
+
 	# Vault integration requires vault executable and service certificates
 	productInstall "vault" "$host" || return
 	updateServiceCert "vault" "$host" || return
@@ -2572,9 +2587,11 @@ resolveOpt()
 
 resolveCommand() { resolvePassingCommand; }
 resolvePassingCommand() { resolve "$name" "$all"; }
+resolveApiCommand() { resolveApi "$name"; }
 
-resolveApiCommand()
+resolveApi()
 {
+	local name="$1"
 	log1 "using API to resolve the '$name' service"
 	local product="consul"; noToken="true" productInit "$product" || return
 	test="" RunLog curl --silent --show-error "$(productVarGet "ADDR")/v1/catalog/service/$name"
@@ -2591,7 +2608,7 @@ resolveDigCommand()
 resolveListCommand()
 {
 	log1 "using API to resolve the '$name' service to a list of available nodes from the API"
-	test="" resolveApiCommand | jq ".[].Node" | RemoveQuotes
+	test="" resolveApi "$name" | jq ".[].Node" | RemoveQuotes
 }
 
 resolveNameCommand()
@@ -2681,8 +2698,8 @@ updateCliCert()
 
 	# copy certificates to a temporary directory
 	local tmpDir; tmpDir="$(tmpDirCreate)" || return
-	FileCommand cp "$src/$ca" "$src/$certCli" "$src/$certCliKey" "$tmpDir" || return
-	[[ -f "$src/$caAuto" ]] && { FileCommand cp "$src/$caAuto" "$tmpDir" || return; }
+	certMakeCp "$src/$ca" "$src/$certCli" "$src/$certCliKey" "$tmpDir" || return
+	[[ -f "$src/$caAuto" ]] && { certMakeCp "$src/$caAuto" "$tmpDir" || return; }
 
 	# copy certificates to the host
 	copyDirRemote "$tmpDir" "$host" || return
@@ -2743,7 +2760,7 @@ updateServiceCert()
 	
 	# copy certificates to a temporary directory
 	local tmpDir; tmpDir="$(tmpDirCreate)" || return
-	FileCommand cp "$ca" "$certCli" "$certCliKey" "$tmpDir" || return
+	certMakeCp "$ca" "$certCli" "$certCliKey" "$tmpDir" || return
 
 	# only copy the server certifcates for servers
 	local server; server="$(serviceIsServer "$product" "$host")" || return
@@ -2754,8 +2771,8 @@ updateServiceCert()
 
 	# install the new certificates on the host
 	scriptRun "$host" "$(cat <<-EOF
-		$(installServiceDoUser)
-		$(installServiceDoDirectories)
+		$(installServiceTextUser)
+		$(installServiceTextDirectories)
 		sudo install --backup=numbered -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/"* || exit
 		$(scriptCleanup)
 		EOF
@@ -3796,6 +3813,7 @@ copyDirRemote()
 	hilight "Copying files to $host..."
 	scp -r "$dir" "$host:/$dir"
 }
+
 copyFile()
 {
 	local file="$1" dest="$2"
@@ -3980,7 +3998,7 @@ serviceDnsNameShort() { echo "$1.$(configGet "DnsDomain").$baseDomain"; }
 tmpDirCreate()
 {
 	local dir; dir="$(${G}mktemp -d -t "hashi.XXXXXXXXXX")" || return
-	(( verboseLevel > 2 )) && EchoWrap "Using temporary directory $(FileToDesc "$dir")"
+	(( verboseLevel > 2 )) && EchoWrapErr "Using temporary directory $(FileToDesc "$dir")"
 	echo "$dir"
 }
 

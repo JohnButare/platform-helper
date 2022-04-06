@@ -753,7 +753,7 @@ FileCacheFlush()
 # FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
 FileCommand() 
 { 
-	local args command="$1" dir="${@: -1}" file files=0 n=$(($#-2))
+	local args=() command="$1" dir="${@: -1}" file files=0 n=$(($#-2))
 
 	for arg in "${@:2:$n}"; do
 		IsOption "$arg" && args+=( "$arg" )
