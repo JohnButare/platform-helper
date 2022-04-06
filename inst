@@ -109,6 +109,9 @@ installInit()
 		[etcher]="BalenaEtcher"
 		[ff]="firefox"
 		[ghub]="LogitechGhub"
+		[consul]="ConsulCli"
+		[nomad]="NomadCli"
+		[vault]="VaultCli"
 		[hasscli]="HomeAssistantCli"
 		[hasscore]="HomeAssistantCore"
 		[hassintegrations]="HomeAssistantIntegrations"	
@@ -161,7 +164,10 @@ installInit()
 	macDebian+=( haskell bench )
 
 	# HashiCorp
-	macDebian+=( hashi HashiAll HashiClusterUpdate HashiUp consul ConsulDocker ConsulK8s ConsulTemplate nomad NomadClient sockaddr vault )
+	macDebian+=( HashiProgram ConsulProgram VaultProgram NomadProgram )
+	macDebian+=( HashiCli ConsulCli NomadCli VaultCli )
+	macDebian+=( HashiServer ConsulServer NomadServerNomad VaultServerVault HashiServerUpdate )
+	macDebian+=( HashiUp ConsulDocker ConsulK8s ConsulTemplate NomadServerTools sockaddr )
 
 	# Home Assistant
 	homeAssistant=( HomeAssistantCore HomeAssistantCli HomeAssistantIntegrations )
@@ -193,7 +199,8 @@ installInit()
 	macWin+=( qnap Qfinder QnapExternalRaidManager ) 
 
 	# Rust
-	macDebian+=( rust broot choose dog dust fd gping just mcfly procs ripgrep )
+	all+=(fd)
+	macDebian+=( rust broot choose dog dust gping just mcfly procs ripgrep )
 
 	# Screen Sharing
 	macDebian+=( TeamViewer TigerVNC TurboVNC )
@@ -230,6 +237,7 @@ rmSudo() { [[ ! -f "$1" ]] && return; sudoc ${G}rm -f "$1"; }
 serviceAutoStart() { service auto "$1" && service start "$1"; }
 serviceDemandStop() { service demand "$1" && service stop "$1"; }
 serviceDisableStop() { service disable "$1" && service stop "$1"; }
+sshRun() { SshAgentConf --quiet "${globalArgs[@]}" && RunLog ssh "$@"; }
 verifyStaticIpAddress() { [[ -f /etc/dhcpcd.conf ]] && grep "^static ip_address=" /etc/dhcpcd.conf >& /dev/null; }
 
 checkInstallable()
@@ -1021,7 +1029,7 @@ AppNetworkInstall()
 	case "$network" in
 		hagerman) 
 			IsPlatform mac,win && IsPlatform physical && { JumpCloud || return; }
-			i borgbackup glances hashi unison || return
+			i borgbackup glances HashiCli unison || return
 			;;
 	esac
 }
@@ -3849,17 +3857,63 @@ SaltMinionInstall()
 # IT Management - HashiCorp
 #
 
-HashiAllInstall() { i Hashi HashiClusterInstall HashiClusterUpdate HashiUp Consul ConsulK8s ConsulTemplate Nomad NomadClient sockaddr Vagrant Vault; }
-ConsulInstall() { run --name "Consul" --executable "other/HashiCorp/consul" && i ConsulDocker; } # https://www.consul.io/downloads.html
+HashiAll() { i HashiOtherInstall HashiCliInstall HashiProgramInstall HashiServerInstall; }
+
+# Hashi Programs program only
+HashiProgramInstall() { i ConsulProgram NomadProgram VaultProgram; }
+ConsulProgramInstall() { run --name "Consul Program" --executable "other/HashiCorp/consul"; } # https://www.consul.io/downloads.html
+NomadProgramInstall() { run --name "Nomad Program" --executable "other/HashiCorp/nomad"; } # https://www.nomadproject.io/downloads
+VaultProgramInstall() { run --name "Vault Program" --executable "other/HashiCorp/vault"; } # https://www.vaultproject.io/downloads
+
+# Hashi CLI - programs, certificates, and other setup necessary to run Hashi tools on the command line as clients
+HashiCliInstall() { i ConsulCli NomadCli VaultCli; }
+ConsulCliInstall() { hashiCli "consul" && i ConsulDocker; }
+NomadCliInstall() { hashiCli "nomad"; }
+VaultCliInstall() { hashiCli "vault"; }
+hashiCli() { local what="$1"; header "${what^} CLI"; hashi install cli "$what" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
+
+# Hashi Server - install Hashi server on the specified servers
+HashiServerInstall() { i ConsulServer NomadServer VaultServer; }
+ConsulServerInstall() { hashiGetHosts && forAllHosts hashiServer "consul"; }
+NomadServerInstall() { hashiGetHosts && forAllHosts hashiServerNomad; }
+VaultServerInstall() { hashiGetHosts && forAllHosts hashiServer "vault"; }
+
+hashiServer() { local what="$1" host="$2"; header "${what^} Server ($host)"; hashi install service "$what" -H="$host" --config-prefix="$config" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
+hashiServerNomad() { local host="$1"; hashiServer "nomad" "$host" && sshRun "$host" "inst NomadServerTools"; }
+
+hashiGetHosts() 
+{
+	local description="${1:-install}"
+
+	# return if hosts are already specified
+	[[ $hostArg ]] && return; 
+
+	# get servers
+	local config="prod" servers="hashiServers"; [[ $test ]] && { config="test"; servers="hashiTestServers"; }
+	local servers; servers="$(ConfigGet "$servers")" || return
+
+	# prompt to install
+	askp "Do you want to $description Hashi software to the following servers: $servers" || return
+
+	# validate servers
+	[[ ! $servers ]] && { ScriptErr "no Hashi servers defined for '$config'"; return 1; }
+
+	return 0
+}
+
+# Hashi Server Update - extract new executables and install them on the specified servers
+HashiServerUpdateInstall() { i ConsulProgram NomadProgram VaultProgram envoy && hashiGetHosts "update" && forAllHosts hashiServerUpdate; }
+hashiServerUpdate() { local host="$1"; hashi update cli program all -H="$host" --config-prefix="$config" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
+
+# other
+HashiOtherAll() { i ConsulK8s ConsulTemplate HashiUp sockaddr vagrant; }
 ConsulK8sInstall() { run --name "consul-k8s" --executable "other/HashiCorp/consul-k8s"; } # https://releases.hashicorp.com/consul-k8s/
 ConsulTemplateInstall() { run --name "consul-template" --executable "other/HashiCorp/consul-template"; } # https://releases.hashicorp.com/consul-template/
-HashiInstall() { header "Hashi Tools"; hashi install cli all --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 HashiUpInstall() { run --name "hashi-up" --executable "shareware/hashi-up"; } # https://github.com/jsiebens/hashi-up
-NomadInstall() { run --name "Nomad" --executable "other/HashiCorp/nomad"; } # https://www.nomadproject.io/downloads
-NomadClientInstall() { i docker DockerCompose envoy jre; }
+NomadServerToolsInstall() { inst docker DockerCompose envoy jre; }
 SockaddrInstall() { run --go --header "sockaddr" "github.com/hashicorp/go-sockaddr/cmd/sockaddr@latest"; }
-VaultInstall() { run --name "Vault" --executable "other/HashiCorp/vault"; } # https://www.vaultproject.io/downloads
 
+# ConsulDockerInstall - allows consul user to use docker
 ConsulDockerInstall()
 {
 	IsPlatform mac && return
@@ -3867,42 +3921,14 @@ ConsulDockerInstall()
 	GroupAddUser "docker" "consul" && service restart consul --no-service-check
 }
 
-HashiClusterInstall()
-{
-	header "Hashi Cluster"
-	
-	local config="prod" servers="hashiServers"; [[ $test ]] && { config="test"; servers="hashiTestServers"; }
-	local servers; servers="$(ConfigGet "$servers")" || return
-
-	# no servers defined
-	[[ ! $servers ]] && { ScriptErr "no cluster servers defined for $config"; return 1; }
-
-	# prompt to install
-	! askp "Do you want to install Hashi software to the following servers: $servers" && return
-
-	# install
-	hashi install service all --encrypt --config-prefix="$config";
-}
-
-HashiClusterUpdateInstall()
-{
-	# extract executables, updates local programs
-	i vault consul nomad envoy || return
-
-	# update cluster
-	hashi update cli program all || return
-}
-
 VagrantInstall()
 {
-	header "Vagrant" # https://www.vagrantup.com/downloads
-	local file="vagrant_2.2.16_x86_64" 
-	run "other/HashiCorp/vagrant/$file.msi|$file.dmg|$file.deb" || return
+	local file="vagrant_2.2.16_x86_64" # https://www.vagrantup.com/downloads
+	run --header "Vagrant" "other/HashiCorp/vagrant/$file.msi|$file.dmg|$file.deb" || return
 	makeDir "$(platformAppData)/app/vagrant" || return
 }
 
-# Nomad helper
-
+# Hashi Helper
 nomadCheck() { InPath nomad && return 0; header "Nomad"; hashi install cli nomad --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 nomadHttpShow() { local service="$1" port="$2"; local url; url="http://$(hashi resolve "$service"):$port" && echo "URL: $url"; } # SERVICE PORT
 
@@ -3911,9 +3937,7 @@ nomadHttpShow() { local service="$1" port="$2"; local url; url="http://$(hashi r
 #################################################
 
 MailCoreInstall() { i CanaryMail spark thunderbird; }
-
 CanaryMailInstall() { run --name "Canary Mail" "1236045954"; }
-
 SparkInstall() { run --name "Spark" "1176895641"; }
 
 ThunderbirdInstall()
