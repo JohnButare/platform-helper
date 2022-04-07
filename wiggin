@@ -22,9 +22,7 @@ init()
 	credentialPaths=( CloudFlare domotz JumpCloud LastPass namecheap ssh system unifi )
 
 	# devices
-	camDevices=(BackShed BackYardEast ChickenYardNorth ChickenYardSouth FrontPatio FrontYardEast FrontYardWest LivingRoom)
-	coreDevices=( pi1 pi2 pi3 )
-	testDevices=( pi4 pi5 pi6 pi7 ) # pi8 rp1
+	camDevices=(BackShedCamera BackYardEastCamera ChickenYardNorthCamera ChickenYardSouthCamera FrontPatioCamera FrontYardEastCamera FrontYardWestCamera LivingRoomCamera)
 
 	# file server
 	fileServer="$(UpdateGet "FileServer")" || return
@@ -759,86 +757,81 @@ syncWireguardCommand()
 }
 
 #
-# Device Commands
+# device commands
 #
 
-deviceUsage() { echo "Usage: $(ScriptName) info|list|on|off|status|update cam|core|test"; }
+deviceUsage() { echo "Usage: $(ScriptName) info|list|on|off|status|sync|update [cam|prod|test|SERVICE](nomad-client)"; }
 deviceCommand() { usage; }
 
-deviceInfoUsage() { deviceUsage; }
-deviceInfoCommand() { usage; }
-deviceInfoCamCommand() { deviceInfo "${camDevices[@]}"; }
-deviceInfoCoreCommand() { deviceInfo "${coreDevices[@]}"; }
-deviceInfoTestCommand() { deviceInfo "${testDevices[@]}"; }
-
-deviceListUsage() { deviceUsage; }
-deviceListCommand() { usage; }
-deviceListCamCommand() { deviceList "${camDevices[@]}"; }
-deviceListCoreCommand() { deviceList "${coreDevices[@]}"; }
-deviceListTestCommand() { deviceList "${testDevices[@]}"; }
-
-deviceOffUsage() { deviceUsage; }
-deviceOffCommand() { usage; }
-deviceOffCamCommand() { suffix="Camera"; deviceOff "${camDevices[@]}"; }
-deviceOffCoreCommand() { deviceOff "${coreDevices[@]}"; }
-deviceOffTestCommand() { deviceOff "${testDevices[@]}"; }
-
-deviceOnUsage() { deviceUsage; }
-deviceOnCommand() { usage; }
-deviceOnCamCommand() { suffix="Camera"; deviceOn "${camDevices[@]}"; }
-deviceOnCoreCommand() { deviceOn "${coreDevices[@]}"; }
-deviceOnTestCommand() { deviceOn "${testDevices[@]}"; }
-
-deviceStatusUsage() { deviceUsage; }
-deviceStatusCommand() { usage; }
-deviceStatusCamCommand() { suffix="Camera"; deviceStatus "${camDevices[@]}"; }
-deviceStatusCoreCommand() { deviceStatus "${coreDevices[@]}"; }
-deviceStatusTestCommand() { deviceStatus "${testDevices[@]}"; }
-
-deviceUpdateUsage() { deviceUsage; }
-deviceUpdateCommand() { usage; }
-deviceUpdateCoreCommand() { deviceUpdate "${coreDevices[@]}"; }
-deviceUpdateTestCommand() { deviceUpdate "${testDevices[@]}"; }
-
-deviceList() { local devices="$@"; ArrayDelimit devices; }
-deviceOff() { local d; for d in "$@"; do d+="${suffix^}"; power off "$d" $force $test $verbose || return; done; }
-deviceOn() { local d; for d in "$@"; do d+="${suffix^}"; power on "$d" $force $test $verbose || return; done; }
-
-deviceInfo()
+deviceArgs()
 {
-	local device
-	for device in "$@"; do
-		! IsAvailable "$device" && continue
-		header "$device"
-		device+="${suffix^}"
-		os info "$device" --detail || return
+	service="nomad-client"; [[ $1 ]] && ScriptArgGet "service" -- "$@"
+	case "${service,,}" in
+		cam) ArrayCopy camDevices devices;;
+		prod|test) devices=( $(hashi config hosts --config-prefix="${service,,}") ) || return;;
+		*) devices=( $(GetServers "$service") ) || return;;
+	esac
+}
+
+deviceListCommand() { deviceList "${devices[@]}"; }
+deviceOffCommand() { deviceOff "${devices[@]}"; }
+deviceOnCommand() { deviceOn "${devices[@]}"; }
+deviceStatusCommand() { deviceStatus "${devices[@]}"; }
+deviceSyncCommand() { deviceSync "${devices[@]}"; }
+deviceUpdateCommand() { deviceUpdate "${devices[@]}"; }
+
+deviceList() { local devices=("$@"); ArrayDelimit devices $'\n'; }
+deviceOff() { local h; for h in "$@"; do power off "$h" "${globalArgs[@]}" || return; done; }
+deviceOn() { local h; for h in "$@"; do power on "$h" "${globalArgs[@]}" || return; done; }
+
+deviceSync()
+{
+	local host args; [[ $noPrompt ]] && args+=("--dest-older" "${globalArgs[@]}")
+	for host in "$@"; do
+		HostAvailable "$host" || continue
+		SyncLocalFiles "$host" "${args[@]}" || return
 	done
 }
 
 deviceUpdate()
 {
-	local device
-	for device in "$@"; do
-		! IsAvailable "$device" && continue
-		header "$device"
-		device+="${suffix^}"
-		HostUpdate "$device" || return
+	local host args; [[ $noPrompt ]] && args+=("--dest-older" "${globalArgs[@]}")
+	for host in "$@"; do
+		HostAvailable "$host" || continue
+		HostUpdate "$host" "${args[@]}" || return
 	done
 }
 
 deviceStatus()
 {
-	local device
-	for device in "$@"; do
-		device+="${suffix^}"
+	local host
+	for host in "$@"; do
 		if [[ $verbose ]]; then
-			power status "$device" --verbose || return
+			power status "$host" --verbose || return
 		else
-			local status; status="$(power status "$device")" || return
-			echo "$device is $status"
+			local status; status="$(power status "$host")" || return
+			echo "$host is $status"
 		fi
 	done
 }
+
+#
+# device info command
+#
+
+deviceInfoUsage() { echo "Usage: $(ScriptName) info [-d|--detail]"; }
+deviceInfoArgStart() { unset -v detail; }
+
+deviceInfoOpt()
+{
+	case "$1" in
+		-d|--detail) detail="--detail";;
+		*) return 1;;
+	esac
+}
+
+deviceInfoCommand() { deviceInfo "${devices[@]}"; }
+deviceInfo() { local h; for h in "$@"; do header "$h"; os info "$h" $detail || return; done; }
 
 #
 # Helper

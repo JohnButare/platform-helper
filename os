@@ -372,7 +372,7 @@ infoRemote()
 	! SshIsAvailable "$host" && { echo "$host Operating System information is not available"; return; }
 
 	# detailed information - using the os command on the host
-	SshInPath "$host" "os" && { SshHelper connect "$host" --pseudo-terminal -- os info; return; }
+	SshInPath "$host" "os" && { SshHelper connect "$host" --pseudo-terminal -- os info $detail; return; }
 	
 	# basic information - using HostGetInfo vars command locally
 	ScriptEval HostGetInfo vars "$host" || return
