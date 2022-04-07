@@ -405,6 +405,7 @@ ScriptUsageEcho()
 
 ScriptEchoQuiet() { log1 "$1"; [[ $quiet ]] && return; EchoWrap "$1"; }
 ScriptErrQuiet() { log1 "$1"; [[ $quiet ]] && return; ScriptErr "$1"; }
+ScriptOnlyWin() { IsPlatform win && return; ScriptErr "command can only run on Windows"; return 1; }
 
 #
 # helper
