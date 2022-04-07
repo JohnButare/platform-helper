@@ -707,21 +707,37 @@ RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 
-# CloudGet [--quiet] FILE - force the file to be downloaded from the cloud, 
+# CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
 # - macOS: if the file is moved outside of Dropvox the file it is not automatically downloaded
 # - WSL:  reads of the file do not trigger online-only file download in Dropbox
 CloudGet()
 {
 	local quiet; [[ "$1" == @(-q|--quiet) ]] && { quiet="true"; shift; }
-	local file="$1"; [[ ! -f "$1" ]] && { [[ ! $quiet ]] && ScriptErr "'$file' does not exist"; return 1; }
 
-	if IsPlatform win; then
-		( cd "$(GetFilePath "$1")"; cmd.exe /c type "$(GetFileName "$1")"; ) >& /dev/null || return
-	elif IsPlatform mac; then
-		cat "$file" >& /dev/null || return
-	fi
+	local file
+	for file in "$@"; do
+		[[ -d "$1" ]] && return # skip directories
+		[[ ! -f "$1" ]] && { [[ ! $quiet ]] && ScriptErr "'$file' does not exist"; return 1; }
+
+		if IsPlatform win; then
+			( cd "$(GetFilePath "$1")"; cmd.exe /c type "$(GetFileName "$1")"; ) >& /dev/null || return
+		elif IsPlatform mac; then
+			cat "$file" >& /dev/null || return
+		fi
+	done
 
 	echo "$1"
+}
+
+# CloudGetAll FILE... - download all specified files from the cloud, ignore directories
+CloudGetAll()
+{
+	local file
+	for file in "$@"; do
+		[[ -d "$1" ]] && return # skip directories
+		[[ ! -f "$1" ]] && { [[ ! $quiet ]] && ScriptErr "'$file' does not exist"; return 1; }
+		CloudGet "$file" > /dev/null || return
+	done
 }
 
 explore() # explorer DIR - explorer DIR in GUI program
