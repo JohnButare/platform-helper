@@ -148,11 +148,12 @@ Create a virtual machine.
 	-t, --type linux|pxe|win			type of VM defaults to configure, defaults to pxe"
 	}
 
-createArgStart() { type="pxe"; }
+createArgStart() { unset -v iso; type="pxe"; }
 
 createOpt() 
 {
 	case "$1" in
+		-i|--iso|-i=*|--iso=*) ScriptOptGet "iso" "$@" && ScriptCheckFile "$iso";;
 		-t*|--type=*|--type)
 			ScriptOptGet type "$@" && IsFunction "createBefore$(ProperCase "$type")" && return
 			ScriptErr "'$type' is not a valid type"
@@ -176,7 +177,7 @@ createCommand()
 
 	local disk="$(utw "$disks/$vm.vhdx")"
 	local f="$(mktemp --suffix=.ps1 -p "$WINDIR/Temp")"
-	local hdGb="50" memoryGb="2" processors="2" secureBoot="Off" switch="Default Switch"
+	local hdGb="50" memoryGb="2" processors="2" secureBoot="Off" tpm switch="Default Switch"
 	local nestedVirtualization="False"
 
 	echo "Checking switch configurating..."
@@ -185,18 +186,35 @@ createCommand()
 	echo "Creating virtual machine..."	
 	createBefore$(ProperCase "$type") "$@" || return
 
-	cat << EOF > "$f"
-New-VM -Name "$vm" -MemoryStartupBytes ${memoryGb}GB -Generation 2 -BootDevice CD -SwitchName "$switch" -ErrorAction Stop
-New-VHD -Path "$disk" -SizeBytes ${hdGb}GB -Dynamic -ErrorAction Stop
-Add-VMHardDiskDrive -VMName "$vm" -Path "$disk" -ErrorAction Stop
-Set-VMProcessor -VMName "$vm" -Count $processors -ExposeVirtualizationExtensions \$${nestedVirtualization} -ErrorAction Stop
-Enable-VMIntegrationService -VMName "$vm" -Name "Guest Service Interface" -ErrorAction Stop
-Set-VMFirmware -VMName "$vm" -EnableSecureBoot "$secureBoot" -ErrorAction Stop
-EOF
+	# create script
+	cat <<-EOF > "$f"
+		New-VM -Name "$vm" -MemoryStartupBytes ${memoryGb}GB -Generation 2 -BootDevice CD -SwitchName "$switch" -ErrorAction Stop
+		New-VHD -Path "$disk" -SizeBytes ${hdGb}GB -Dynamic -ErrorAction Stop
+		Add-VMHardDiskDrive -VMName "$vm" -Path "$disk" -ErrorAction Stop
+		Set-VMProcessor -VMName "$vm" -Count $processors -ExposeVirtualizationExtensions \$${nestedVirtualization} -ErrorAction Stop
+		Enable-VMIntegrationService -VMName "$vm" -Name "Guest Service Interface" -ErrorAction Stop
+		Set-VMFirmware -VMName "$vm" -EnableSecureBoot "$secureBoot" -ErrorAction Stop
+	EOF
 
+	#	TPM
+	[[ $tpm ]] && cat <<-EOF >> "$f"
+		Set-VMKeyProtector -VMName "$vm" -NewLocalKeyProtector
+		Enable-VMTPM -VMName "$vm"
+	EOF
+
+	# ISO
+	if [[ $iso ]]; then
+		local file; file="$(isoPrep "$iso")" || return		
+		cat <<-EOF >> "$f"
+			Set-VMDvdDrive -VMName "$vm" -Path "$file"
+		EOF
+	fi
+
+	# logging
 	[[ $verbose ]] && { cat "$f"; }
 	
-	ps "$(utw "$f")" || return
+	# run script
+	RunLog ps "$(utw "$f")" || return
 	rm -f "$f" || return
 
 	createAfter$(ProperCase "$type") "$@" || return
@@ -210,8 +228,31 @@ createAfterLinux() { configGuest "$vm" "linux"; }
 createBeforePxe() { :; }
 createAfterPxe() { :; }
 
-createBeforeWin() { hdGb="100" memoryGb="4" nestedVirtualization="True" processors="4"; }
+createBeforeWin() { hdGb="100" memoryGb="4" nestedVirtualization="True" processors="4" secureBoot="On" tpm="true"; }
 createAfterWin() { :; }
+
+# isoPrep ISO - ensure ISO is mounted in a location Hyper-V can access
+isoPrep()
+{
+	local file="$1"
+
+	# return if the file is on a Windows drive
+	drive IsWin "$file" && { utw "$file"; return; }
+
+	# create a local Windows directory for the ISO file
+	local dir="$DATA/appdataw/iso" 
+	mkdir --parents "$dir" || return
+
+	# return if the ISO file already exists in the local ISO directory
+	local newFile="$dir/$(GetFileName "$file")"
+	[[ -f "$newFile" ]] && { utw "$newFile"; return; }
+
+	# copy the ISO file to the local ISO directory
+	EchoErr "Copying $(GetFileName "$file") to the local ISO directory..."
+	CopyFileProgress "$file" "$dir" 1>&2 || return
+
+	utw "$newFile"
+}
 
 #
 # Hypervisor Commands
