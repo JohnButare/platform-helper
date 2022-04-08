@@ -14,6 +14,7 @@ init()
 { 
 	defaultCommand="gui"
 	gui="virtmgmt.msc"
+	isoDir="$DATA/appdataw/iso" 
 	disks="$DATA/appdataw/Hyper-V/Virtual Hard Disks"
 	controller="2" # assume controller location 2, 0 is usually a DVD drive and 1 is usually the system hard drive
 	allHelp="-a, 	--all				operate on all virtual machines"
@@ -145,45 +146,59 @@ connectSshCommand() { SshHelper connect -x "$vm" -- "$@"; }
 createUsage() { echot "Usage: $(ScriptName) create VM
 Create a virtual machine.
 
-	-t, --type linux|pxe|win			type of VM defaults to configure, defaults to pxe"
+	-i, --iso [FILE]						connect an ISO file.  If the file is not specified an installation 
+															ISO is determined.  The file is copied to a local directory if required.
+	-s, --start									power on and connect to the the virtual machine
+	-t, --type linux|pxe|win		type of VM defaults to configure, defaults to pxe
+	"
 	}
 
-createArgStart() { unset -v iso; type="pxe"; }
+createArgStart() { unset -v iso vm; type="pxe"; }
 
+#powerOnCommand && connectGuiCommand
 createOpt() 
 {
 	case "$1" in
-		-i|--iso|-i=*|--iso=*) ScriptOptGet "iso" "$@" && ScriptCheckFile "$iso";;
-		-t*|--type=*|--type)
-			ScriptOptGet type "$@" && IsFunction "createBefore$(ProperCase "$type")" && return
-			ScriptErr "'$type' is not a valid type"
-			;;
+		-i|--iso|-i=*|--iso=*) ScriptOptGet --optional "iso" "$@" && ScriptCheckFile "$iso" || iso="find";;
+		-s|--start) start="--start";;
+		-t*|--type=*|--type) ScriptOptGet type "$@" && IsFunction "createBefore$(ProperCase "$type")" && return; ScriptErr "'$type' is not a valid type";;
 		*) return 1
 	esac
 }
 
-createArgs() { getVmArg "$@"; }
+createArgs() { [[ ! $1 ]] && return; getVmArg "$@"; }
 
 createCommand() 
-{
+{	
+	# find virtual machine name
+	if [[ ! $vm ]]; then
+		printf "Finding virtual machine name..."
+		local i="1" prefix; prefix="$HOSTNAME-$(createNamePrefix${type^})" || return
+		while true; do vm="$prefix$i"; log1 "checking name $vm"; ! existsCommand && break; (( ++i )); done
+		echo "$vm"
+
 	# remove existing VM
-	echo "Checking for existing virtual machine..."
-	if existsCommand; then
+	elif existsCommand; then
 		[[ ! $force ]] && { ask "Virtual Machine '$vm' already exists.  Delete it completely" -dr n || return; }
 		force="true" deleteCommand || return
-	else # cleanup
-		deleteVmDiskFiles || return
+
 	fi
 
+	# cleanup
+	deleteVmDiskFiles || return
+
+	# variables
 	local disk="$(utw "$disks/$vm.vhdx")"
 	local f="$(mktemp --suffix=.ps1 -p "$WINDIR/Temp")"
 	local hdGb="50" memoryGb="2" processors="2" secureBoot="Off" tpm switch="Default Switch"
 	local nestedVirtualization="False"
 
-	echo "Checking switch configurating..."
+	# switch configuration
+	printf "Checking switch configurating..."
 	listSwitch | grep "^external$" >& /dev/null && switch="external"
+	echo "$switch"
 
-	echo "Creating virtual machine..."	
+	# type specific configuration
 	createBefore$(ProperCase "$type") "$@" || return
 
 	# create script
@@ -204,7 +219,7 @@ createCommand()
 
 	# ISO
 	if [[ $iso ]]; then
-		local file; file="$(isoPrep "$iso")" || return		
+		local file; file="$(isoPrep "$iso" | utw)" || return		
 		cat <<-EOF >> "$f"
 			Set-VMDvdDrive -VMName "$vm" -Path "$file"
 		EOF
@@ -214,12 +229,17 @@ createCommand()
 	[[ $verbose ]] && { cat "$f"; }
 	
 	# run script
+	echo "Creating virtual machine..."	
 	RunLog ps "$(utw "$f")" || return
 	rm -f "$f" || return
 
 	createAfter$(ProperCase "$type") "$@" || return
 
-	hilight "$type virtual machine $vm created"
+	hilight "$type virtual machine '$vm' created"
+
+	# start
+	[[ ! $start ]] && return
+	powerOnCommand && connectGuiCommand
 }
 
 createBeforeLinux() { :; }
@@ -231,29 +251,54 @@ createAfterPxe() { :; }
 createBeforeWin() { hdGb="100" memoryGb="4" nestedVirtualization="True" processors="4" secureBoot="On" tpm="true"; }
 createAfterWin() { :; }
 
+createNamePrefixPxe() { echo "pxe"; }
+createNamePrefixLinux() { echo "lvm"; }
+createNamePrefixWin() { echo "wvm"; }
+
 # isoPrep ISO - ensure ISO is mounted in a location Hyper-V can access
 isoPrep()
 {
 	local file="$1"
 
-	# return if the file is on a Windows drive
-	drive IsWin "$file" && { utw "$file"; return; }
-
 	# create a local Windows directory for the ISO file
-	local dir="$DATA/appdataw/iso" 
-	mkdir --parents "$dir" || return
+	[[ ! -d "$isoDir" ]] && { mkdir --parents "$isoDir" || return; }
+
+	# find an ISO image for the appropriate type
+	[[ "$file" == "find" ]] && { file="$(isoFind)" || return; }
 
 	# return if the ISO file already exists in the local ISO directory
-	local newFile="$dir/$(GetFileName "$file")"
-	[[ -f "$newFile" ]] && { utw "$newFile"; return; }
+	isoCheck "$file" && return
 
 	# copy the ISO file to the local ISO directory
-	EchoErr "Copying $(GetFileName "$file") to the local ISO directory..."
-	CopyFileProgress "$file" "$dir" 1>&2 || return
+	EchoErr "Copying '$(GetFileName "$file")' to the local ISO directory..."
+	CopyFileProgress "$file" "$isoDir" 1>&2 || return
 
-	utw "$newFile"
+	# return the ISO file in the local ISO directory
+	isoCheck "$file"
 }
 
+# isoCheck FILE - return true if the ISO file exists on a Windows drive or in local the ISO directory
+isoCheck()
+{
+	drive IsWin "$file" && { echo "$file"; return; }
+	local file="$isoDir/$(GetFileName "$1")"
+	[[ -f "$file" ]] && echo "$file"
+}
+
+# createIsoFind - find an installation ISO for the virtual machine type
+isoFind()
+{
+	# determine the installation ISO file for the virtual machine type
+	file="$(isoFind${type^})"; [[ ! $file ]] && { ScriptErr "'$type' virtual machines do not have an installation ISO"; return 1; }
+
+	# return if the ISO already exists or we can find it
+	isoCheck "$file" || FindInstallFile "$file"
+}
+
+isoFindLinux() { echo "platform/linux/Ubuntu/image/ubuntu-21.04-desktop-amd64.iso"; }
+isoFindPxe() { echo "shareware/netboot.xyz/netboot.xyz-efi.iso"; }
+isoFindWin() { echo "other/Microsoft/Windows/setup/22593/image/22593.1_MULTI_X64_EN-US.ISO"; }
+ 
 #
 # Hypervisor Commands
 #
@@ -309,6 +354,7 @@ powerOpt()
 }
 
 powerCommand() { usage; }
+powerOncUsage() { echot "Usage: $(ScriptName) power onc\nPower on and connect."; }
 powerOncCommand() { powerOnCommand && connectGuiCommand; }
 
 powerOnCommand()
