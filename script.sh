@@ -193,14 +193,13 @@ ScriptOpt()
 
 # ScriptOptGet [--check|--integer] VAR [DESC] --OPTION VALUE
 #
-# Set option VAR from OPTION and VALUE
+# Set option VAR from OPTION and VALUE.  Increments shift if needed.  
+#	- --optional - if specified, the value is optional
 # - DESC defaults to VAR and is used in the missing option error message
-#	- if --check is specified the option is not required.
 # - OPTION VALUE format is one of: -o|--option[=| ]VAL
-# - sets var to value and increments shift if needed.  
 ScriptOptGet()
 {
-	local require="true"; [[ "$1" == "--check" ]] && { unset require; shift; }
+	local require="true"; [[ "$1" == "--optional" ]] && { unset require; shift; }
 	local integer; [[ "$1" == "--integer" ]] && { integer="true"; shift; }
 	local scriptVar="$1"; shift
 	local scriptDesc="$scriptVar"; ! IsOption "$1" && { scriptDesc="$1"; shift; }
