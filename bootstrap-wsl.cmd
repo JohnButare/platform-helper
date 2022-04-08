@@ -4,16 +4,16 @@ REM dist - name of the distribution to install
 set dist=Ubuntu
 
 REM if set, the distribution image to import, otherwise a fresh image is downloaded
-rem set distImage=
 set distUnc=\\ender.hagerman.butare.net\public
 set distImage=documents\data\install\platform\linux\wsl\image\ubuntu\default.tar.gz
 
 REM bin - the location of the bin directory, if unset find it
-rem set bin=//ender.hagerman.butare.net/root/usr/local/data/bin
-set bin=//rosie.hagerman.butare.net/root/usr/local/data/bin:22
+set bin=//ender.hagerman.butare.net/system/usr/local/data/bin
+rem set bin=//pi2.hagerman.butare.net/root/usr/local/data/bin
+rem set bin=//StudyMonitor.hagerman.butare.net/root/usr/local/data/bin:22
 
 REM install - installation directory, if unset find it
-set install=//ender.hagerman.butare.net.hagerman.butare.net/public/documents/data/install
+set install=//ender.hagerman.butare.net/public/documents/data/install
 
 REM variables
 set pwd=%~dp0%
@@ -53,7 +53,7 @@ REM run the bootstrap
 echo Running bootstrap...
 copy %pwd%bootstrap-init \\wsl.localhost\%dist%\tmp
 copy %pwd%bootstrap-config.sh \\wsl.localhost\%dist%\tmp
-wsl -- chmod ugo+rwx /tmp/bootstrap-init /tmp/bootstrap-config.sh
+wsl --user root -- sudo chmod ugo+rwx /tmp/bootstrap-init /tmp/bootstrap-config.sh
 wsl --user %USERNAME% /tmp/bootstrap-init %bin% %install% %*
 if errorlevel 1 goto bootstrap
 
