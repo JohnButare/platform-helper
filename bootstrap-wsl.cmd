@@ -1,0 +1,61 @@
+@echo off
+
+REM dist - name of the distribution to install
+set dist=Ubuntu
+
+REM if set, the distribution image to import, otherwise a fresh image is downloaded
+rem set distImage=
+set distUnc=\\ender.hagerman.butare.net\public
+set distImage=documents\data\install\platform\linux\wsl\image\ubuntu\default.tar.gz
+
+REM bin - the location of the bin directory, if unset find it
+rem set bin=//ender.hagerman.butare.net/root/usr/local/data/bin
+set bin=//rosie.hagerman.butare.net/root/usr/local/data/bin:22
+
+REM install - installation directory, if unset find it
+set install=//ender.hagerman.butare.net.hagerman.butare.net/public/documents/data/install
+
+REM variables
+set pwd=%~dp0%
+set wsl=C:\Users\Public\data\appdata\wsl
+
+REM create directories
+if not exist "%wsl%" mkdir "%wsl%"
+
+REM if the distribution exists then bootstrap
+if exist "\\wsl.localhost\%dist%\home" goto bootstrap
+
+REM download WSL and the distribution
+if not defined distImage (
+	wsl --install --distribution %dist%	--web-download
+	goto check
+)
+
+REM connect to the distUnc network share
+if defined distUnc net (
+	net use z: %distUnc%
+	echo net use z: %distUnc%
+	set distImage=z:\%distImage%
+)
+
+REM install the image, --no-distribution option is present if wsl is not installed
+wsl --install --no-distribution & wsl --import %dist% %wsl% %distImage%
+
+REM check the distribution
+:check
+if not exist "\\wsl.localhost\%dist%\home" (
+	echo Press any key to reboot and finish the installation...
+	pause & shutdown /r /t 0 & exit
+)
+
+REM run the bootstrap
+:bootstrap
+echo Running bootstrap...
+copy %pwd%bootstrap-init \\wsl.localhost\%dist%\tmp
+copy %pwd%bootstrap-config.sh \\wsl.localhost\%dist%\tmp
+wsl -- chmod ugo+rwx /tmp/bootstrap-init /tmp/bootstrap-config.sh
+wsl --user %USERNAME% /tmp/bootstrap-init %bin% %install% %*
+if errorlevel 1 goto bootstrap
+
+pause
+
