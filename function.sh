@@ -2432,8 +2432,17 @@ ScriptReturn()
 CredentialConf() { ScriptEval credential environment "$@" && return; export CREDENTIAL_MANAGER="None" CREDENTIAL_MANAGER_CHECKED="true"; return 1; }
 CertView() { local c; for c in "$@"; do openssl x509 -in "$c" -text; done; }
 
-# sudo
+# IsElevated - return true if the user has an Administrator token, always true if not on Windows
+IsElevated() 
+{ 
+	! IsPlatform win && return 0
 
+	# if the user is in the Administrators group they have the Windows Administrator token
+	# cd / to fix WSL 2 error running from network share
+	( cd /; whoami.exe /groups ) | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; 
+} 
+
+# sudo
 SudoCheck() { [[ ! -r "$1" ]] && sudo="sudoc"; } # SudoCheck FILE - set sudo variable to sudoc if user does not have read permissiont to the file
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
 

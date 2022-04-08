@@ -72,11 +72,4 @@ elevate()
 	start --elevate "$@"
 }
 
-IsElevated() # return true if the user has an Admministrator token
-{ 
-	# if the user is in the Administrators group they have the Windows Administrator token
-	# cd / to fix WSL 2 error running from network share
-	( cd /; whoami.exe /groups ) | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; 
-} 
-
 return 0
