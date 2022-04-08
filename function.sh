@@ -901,11 +901,11 @@ wtu() # WinToUnix
 
 utw() # UnixToWin
 { 
-	local clean="" file="$@"
+	GetArgs; local clean="" file="$1"
 
-	[[ ! "$file" || "$PLATFORM" != "win" ]] && { echo "$@"; return 1; }
+	[[ ! "$file" || "$PLATFORM" != "win" ]] && { echo "$file"; return 1; }
 
-	file="$(GetRealPath "$@")" || return
+	file="$(GetRealPath "$file")" || return
 
 	# network shares do not translate properly in WSL 2
 	if IsPlatform wsl2; then 
@@ -913,16 +913,16 @@ utw() # UnixToWin
 	fi
 
 	# utw requires the file exist in newer versions of wsl
-	if [[ ! -e "$@" ]]; then
-		local filePath="$(GetFilePath "$@")"
+	if [[ ! -e "$file" ]]; then
+		local filePath="$(GetFilePath "$file")"
 		[[ ! -d "$filePath" ]] && { ${G}mkdir --parents "$filePath" >& /dev/null || return; }
-		touch "$@" || return
+		touch "$file" || return
 		clean="true"
 	fi
 
 	wslpath -w "$file"
 
-	[[ $clean ]] && { rm "$@" || return; }
+	[[ $clean ]] && { rm "$file" || return; }
 	return 0
 } 
 
