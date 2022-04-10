@@ -541,7 +541,11 @@ infoDistributionWin()
 	local ubr="$(HexToDecimal "$(registry get "$r/UBR" | RemoveCarriageReturn)")"
 	local build="$(buildCommand)"
 
-	echo "     windows: $releaseId (build $build.$ubr, WSL $(wsl get name))"
+	local wslVersion="$(wsl get version)"
+	local wslgVersion="$(wsl get version wslg)"
+	local wslExtra; [[ $wslVersion ]] && wslExtra+=" v$wslVersion WSLg v$wslgVersion"
+
+	echo "     windows: $releaseId (build $build.$ubr, WSL$wslExtra $(wsl get name))"
 }
 
 #
