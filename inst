@@ -149,7 +149,7 @@ installInit()
 	)
 
 	# isInstallable	
-	all=( AppDir bash BashProfile bootstrap CredentialStore duf envoy final gitClient gitServer hostname NetbootxyzTftpServer PartitionManagement wallpaper zsh ZshProfile )	
+	all=( AppDir bash BashProfile bootstrap CredentialStore duf envoy final gitClient gitServer hostname magic NetbootxyzTftpServer PartitionManagement wallpaper zsh ZshProfile )	
 	debian=( apt AptUtilities audacity bind cfssl chroot ChronyServer CloudInit cron CronLog cups dbus DnsServer DhcpServer flatpak geany HomeAssistantCore HomeAssistantCli HypervLinuxTools kea KeaService LastPass mDns mosquitto NodeRed pass pivpn SaltMinion GnomeKeyring SnapStore SystemUser terminator TftpClient TftpServer UncomplicatedFirewall VmwareLinuxTools )
 	debian64=()
 	mac=( amphetamine AppleConfigurator apptivate bartender bear BetterTouchTool btt CanaryMail CarrotWeather DayOne DiskInventortyX gitx HomeAssistant homie iTerm karabiner LiveDesktop Magnet MakrdownView MicrosoftRemoteDesktop pcalc rectagle RemoteDesktop spark speedtest SystemToolkit VmwareFusion WallpaperWizard xcode XcodeCli XQuartz yoink )
@@ -1268,41 +1268,53 @@ KindleDrmInstall()
 KindleDrmInstallFinalWin() { mergeDir "$pp/eBook Converter" "$ao"; }
 
 #################################################
-# bootstrap - initial setup on a fresh operating system
+# bootstrap - fresh operating system install
 #################################################
 
 BootstrapInstall()
 {
 	header "Bootstrap"
-	bootstrapStart && bootstrap && bootstrapEnd
+	[[ ! $force ]] && ! UpdateNeeded "bootstrap" && return
+	
+	bootstrapFiles || return
+
+	# dependencies - credential now to minimize prompting, fd for credential
+	i SshClientPermission fd CredentialStore || return 
+	RunPlatform bootstrapStart || return
+
+	# platform specific
+	RunPlatform bootstrap || return
+
+	# applications
+	i AppDir bash sshCore SystemUser zsh "$PLATFORM" || return
+
+	# cleanup
+	UpdateDone "bootstrap"
 }
 
-bootstrapStart()
+bootstrapFiles()
 {
-	[[ ! $force ]] && ! UpdateNeeded "bootstrapStart" && return
+	local file files
 
-	# permissions
-	[[ -f "$HOME/.bash_history" ]] && { sudoc chown "$USER" "$HOME/.bash_history" || return; }
-
-	# directories
-	makeDir "$HOME/tmp" || return
-	
-	# files
-	printf "files..."
-
-	files=( .bash_history .hushlogin .lesshst .z )
+	printf "permissions..."
+	files=("$HOME/.bash_history")
 	for file in "${files[@]}"; do
-		printf "."
-		touch "$HOME/$file" || return
+		printf "."; [[ -f "$file" ]] && { sudoc chown "$USER" "$file" || return; }
+	done
+
+	printf "files..."
+	files=(.bash_history .hushlogin .lesshst .z)
+	for file in "${files[@]}"; do
+		printf "."; touch "$HOME/$file" || return
 	done
 
 	printf "directories..."
-	files=( $HOME/.config  $CODE/test )
-	for dir in "${files[@]}"; do
-		printf "."; makeDir "$dir" || return
+	files=("$HOME/.config" "$CODE/test" "$HOME/tmp")
+	for file in "${files[@]}"; do
+		printf "."; makeDir "$file" || return
 	done
 
-	files=( "/usr/local/bin" "$PUB" )
+	files=("/usr/local/bin" "$PUB")
 	for dir in "${files[@]}"; do
 		printf "."; makeDir --sudo "$dir" || return
 	done
@@ -1326,39 +1338,15 @@ bootstrapStart()
 	fi
 
 	echo "done"
-
-	# compile the magic file
-	cd "$HOME" || return
-	file -C -m "$HOME/.magic" || return
-
-	# critical installs
-	i SshClientPermission fd CredentialStore || return # credential now to minimize prompting, fd for credential
-	RunPlatform bootstrapStart || return
-
-	# set the default WSL distribution user now to aid troubleshooting issues.
-	IsPlatform wsl && { wsl dist user set --user="$(ConfigGet "user")" || return; }
-
-	UpdateDone "bootstrapStart" || return
 }
-	
+
 bootstrapStartWin()
 {
 	# ensure hstart64.exe is in the path for elevate until we update the Windows path
 	export PATH="/mnt/c/Users/Public/data/appdata/win:$PATH" WSLENV="PATH/l"
-}
 
-bootstrap()	
-{	
-	[[ ! $force ]] && ! UpdateNeeded "bootstrap" && return
-	RunPlatform bootstrap || return
-	UpdateDone "bootstrap" || return
-}
-
-bootstrapEnd()
-{
-	i AppDir bash sshCore SystemUser zsh || return
-	SetLoginShell zsh || return
-	i "$PLATFORM" || return
+	# set the default WSL distribution user
+	IsPlatform wsl && { wsl dist user set --user="$(ConfigGet "user")" || return; }
 }
 
 bootstrapStartDebianMac()
@@ -2555,7 +2543,7 @@ LinuxMinimalUtilitiesInstall()
 	pkg nethogs pv || return																				# monitoring
 	pkg fail2ban fping mosh ncat nmap traceroute whois || return		# network
 	pkg jq || return																								# text
-	i fd || return
+	i fd magic || return
 }
 
 LinuxUtilitiesInstall()
@@ -6178,7 +6166,8 @@ ZshInstall()
 	# login shell
 	IsPlatform entware && { AddLoginShell "/opt/bin/zsh" || return; }
 
-	return 0
+	# set ZSH to the login shell
+	SetLoginShell zsh
 }
 
 ZshProfileInstall()
@@ -6840,13 +6829,14 @@ SenaFinalWin()
 # utility - CLI
 #################################################
 
-UtilityCliInstall() { i bat broot cheat choose colorls cowsay duf dust exa fd figlet fortune fzf gping gtop lolcat mcfly procs ripgrep unison UupDump; }
+UtilityCliInstall() { i bat broot cheat choose colorls cowsay duf dust exa fd figlet fortune fzf gping gtop lolcat magic mcfly procs ripgrep unison UupDump; }
 ColorlsInstall() {  run --name "colorls" --ruby "colorls"; }
 CowsayInstall() {  InPath cowsay && return; run --python-global "cowsay"; }
 ExaInstall() { run --name "exa" --executable "shareware/exa/image"; } # https://github.com/ogham/exa/releases
 FigletInstall() {  InPath pyfiglet && return; run --python-global "pyfiglet"; }
 FortuneInstall() { InPath fortune && return; run --python-global "fortune-lite"; }
 LolcatInstall() {  InPath lolcat && return; run --python-global "lolcat"; }
+MagicInstall() { cd "$HOME" && file -C -m "$HOME/.magic"; } # compile the magic file
 UupDumpInstall() { sudo apt-get install aria2 cabextract wimtools chntpw genisoimage; }
 
 BatInstall()
