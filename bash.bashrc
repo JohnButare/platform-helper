@@ -196,27 +196,11 @@ InfoPathAdd "/usr/local/share/info"
 ManPathAdd "/usr/local/man" "/usr/local/share/man" "$DATA/man"
 
 case "$PLATFORM" in 
-	mac)
-		PathAdd front "/opt/local/bin" "/opt/local/sbin" 	# Mac Ports
-		PathAdd "/opt/X11/bin" 														# XQuartz
-
-		# Homebrew
-		if [[ $HOMEBREW_PREFIX ]]; then
-			PathAdd front "$HOMEBREW_PREFIX/bin" "$HOMEBREW_PREFIX/sbin" # use Homebrew utilities before system utilities
-			InfoPathAdd "$HOMEBREW_PREFIX/share/info"
-			ManPathAdd "$HOMEBREW_PREFIX/share/man"
-		fi
-		;;
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
 		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$UADATA/Microsoft/WindowsApps"
 		PathAdd front "$DATA/platform/linux"
-		[[ -d "$UADATA/Programs/Microsoft VS Code/bin" ]] && PathAdd "$UADATA/Programs/Microsoft VS Code/bin"
 		;;
-esac
-
-case "$PLATFORM_ID" in	
-	ubuntu) PathAdd "/usr/games";; # cowsay, lolcat, ... on Ubuntu 19.04+
 esac
 
 case "$PLATFORM_LIKE" in	
