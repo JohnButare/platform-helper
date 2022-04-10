@@ -535,7 +535,7 @@ ArrayShow()
 	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
 }
 
-# IsInArray [-w|--wild] [-aw|--awild] STRING ARRAY_VAR
+# IsInArray [-ci|--case-insensitive] [-w|--wild] [-aw|--awild] STRING ARRAY_VAR
 IsInArray() 
 { 
 	local wild awild caseInsensitive
@@ -928,10 +928,10 @@ utw() # UnixToWin
 
 # File Attributes
 
-FileHide() { for f in "$@"; do [[ -f "$f" ]] && { attrib "$f" +h || return; }; done; return 0; }
-FileTouchAndHide() { [[ ! -f "$1" ]] && { touch "$1" || return; }; FileHide "$1"; return 0; }
-FileShow() { for f in "$@"; do [[ -f "$f" ]] && { attrib "$f" -h || return; }; done; return 0; }
-FileHideAndSystem() { for f in "$@"; do [[ -f "$f" ]] && { attrib "$f" +h +s || return; }; done; return 0; }
+FileHide() { for f in "$@"; do [[ -e "$f" ]] && { attrib "$f" +h || return; }; done; return 0; }
+FileTouchAndHide() { [[ ! -e "$1" ]] && { touch "$1" || return; }; FileHide "$1"; return 0; }
+FileShow() { for f in "$@"; do [[ -e "$f" ]] && { attrib "$f" -h || return; }; done; return 0; }
+FileHideAndSystem() { for f in "$@"; do [[ -e "$f" ]] && { attrib "$f" +h +s || return; }; done; return 0; }
 
 attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe options must come after the file
 { 

@@ -148,6 +148,9 @@ installInit()
 		[wt]="WindowsTerminal"
 	)
 
+	# elevation
+	elevate=(GitForWindows win WinFonts WinPermissions)
+
 	# isInstallable	
 	all=( AppDir bash BashProfile bootstrap CredentialStore duf envoy final gitClient gitServer hostname magic NetbootxyzTftpServer PartitionManagement wallpaper zsh ZshProfile )	
 	debian=( apt AptUtilities audacity bind cfssl chroot ChronyServer CloudInit cron CronLog cups dbus DnsServer DhcpServer flatpak geany HomeAssistantCore HomeAssistantCli HypervLinuxTools kea KeaService LastPass mDns mosquitto NodeRed pass pivpn SaltMinion GnomeKeyring SnapStore SystemUser terminator TftpClient TftpServer UncomplicatedFirewall VmwareLinuxTools )
@@ -242,7 +245,7 @@ mergeDir() { MergeDir --parents --suppress "$@"; }
 minimalInstall() { [[ $_minimalInstall ]]; }
 mvSudo() { [[ ! -e "$1" ]] && return; sudoc mv "$1" "$2"; }
 pkg() { package -q "$@"; }
-platformAppData() { local d; d="$(GetPlatformVar "UDATA")/app" && makeDir "$d" && echo "$d"; }
+platformUserAppData() { local d; d="$(GetPlatformVar "UDATA")/app" && makeDir "$d" && echo "$d"; }
 rmSudo() { [[ ! -f "$1" ]] && return; sudoc ${G}rm -f "$1"; }
 serviceAutoStart() { service auto "$1" && service start "$1"; }
 serviceDemandStop() { service demand "$1" && service stop "$1"; }
@@ -388,6 +391,12 @@ i()
 
 		# ensure the application is installable for the current platform
 		! checkInstallable "$appFunction" && continue
+
+		# elevate install
+		if IsInArray --case-insensitive "${appFunction}" elevate && ! IsElevated; then
+			RunScript --elevate --no-hide "${globalArgs[@]}" -- inst "$appFunction" "${options[@]}" || return
+			continue
+		fi
 
 		# run final portion of the install only
 		if [[ $final ]] ; then
@@ -1132,7 +1141,7 @@ CreativeCloudFinalFinalMac()
 
 CreativeCloudFinalWin()
 {
-	makeLink --merge "$(platformAppData)/Creative Cloud Files" "$WIN_HOME/Creative Cloud Files" || return
+	makeLink --merge "$(platformUserAppData)/Creative Cloud Files" "$WIN_HOME/Creative Cloud Files" || return
 
 	makeDir "$pp/Media/Other/Adobe" || return
 	$mv "$pp/Adobe"*".lnk" "$pp/Media/Other/Adobe" >& /dev/null
@@ -1197,7 +1206,7 @@ AudacityInstall()
 
 AudacityFinalWin()
 {
-	makeLink --merge --hide "$(platformAppData)/Audacity" "$WIN_DOC/Audacity" || return
+	makeLink --merge --hide "$(platformUserAppData)/Audacity" "$WIN_DOC/Audacity" || return
 	rmSudo "$pd/Audacity.lnk" || return
 	$mv "$pp/Audacity.lnk" "$pp/Media" || return
 }
@@ -1250,7 +1259,7 @@ KindleInstall()
 
 KindleFinalWin()
 {
-	makeLink --merge --hide "$(platformAppData)/Kindle" "$WIN_DOC/My Kindle Content" || return
+	makeLink --merge --hide "$(platformUserAppData)/Kindle" "$WIN_DOC/My Kindle Content" || return
 	mergeDir "$up/Amazon" "$up/Applications/Other" || return
 	$rm "$ud/Kindle.lnk" || return
 }
@@ -1260,7 +1269,7 @@ KindleDrmInstall()
 	run --name "Kindle DRM" "other/Amazon/Kindle/converter/kindledrmsetup.exe" || return # http://www.ebook-converter.com/kindle-drm-removal.htm
 
 	echot "\
-- Output Option, Set Output Folder, $WIN_HOME/data/Kindle DRM
+- Output Option, Set Output Folder, $(platformUserAppData)/Kindle DRM
 - Kindle, Kindle Serial Number=NNN"
 	start "https://www.amazon.com/gp/digital/fiona/manage?ie=UTF8&ref_=sv_kinc_7&signInRedirect=1&#manageDevices"
 }
@@ -1342,11 +1351,11 @@ bootstrapFiles()
 
 bootstrapStartWin()
 {
-	# ensure hstart64.exe is in the path for elevate until we update the Windows path
+	# ensure hstart64.exe is in the path for elevate until we update the Windows path and reboot
 	export PATH="/mnt/c/Users/Public/data/appdata/win:$PATH" WSLENV="PATH/l"
 
-	# set the default WSL distribution user
-	IsPlatform wsl && { wsl dist user set --user="$(ConfigGet "user")" || return; }
+	# install HiddenStart early to prevent excessive dialogs
+	i HiddenStartConfigure || return
 }
 
 bootstrapStartDebianMac()
@@ -1535,7 +1544,6 @@ bootstrapWin()
 	header "Bootstrap Windows"
 
 	# directories
-	makeDir "$WIN_DOC/data" || return
 	makeLink --symbolic "$WIN_HOME/Desktop" "$HOME/Desktop" || return
 	makeLink --symbolic "$WIN_HOME/Documents" "$HOME/Documents" || return
   makeLink --symbolic "$WIN_HOME/Downloads" "$HOME/Downloads" || return
@@ -2120,7 +2128,7 @@ MySqlWorkbenchInstall()
 
 MySqlWorkbenchFinalWin()
 {
-	makeLink --merge --hide "$(platformAppData)/MySQL/dumps" "$WIN_DOC/dumps" || return
+	makeLink --merge --hide "$(platformUserAppData)/MySQL/dumps" "$WIN_DOC/dumps" || return
 	mergeDir "$pp/MySQL" "$pp/Development/Other" || return
 }
 
@@ -2402,14 +2410,9 @@ iCloud Control Panel
 OneDriveInstall()
 {
 	SetVar --delete OneDrive || return
-	SetVar --delete OneDriveConsumer || return
-
 	registry delete "urun/OneDrive" # "C:\Users\jjbutare\AppData\Local\Microsoft\OneDrive\OneDrive.exe" /background
 	registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/" # Desktop One Drive icon
-	registry set "HKCR/CLSID/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return # Desktop One Drive icon
-
-	$mv "$pp/OneDrive"*".lnk" "$pp/Applications/Accessories" || return
-	$mv "$up/OneDrive"*".lnk" "$pp/Applications/Accessories" || return
+	registry set "HKCR/CLSID/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return
 }
 
 #
@@ -2628,11 +2631,11 @@ GameIconInstall() { :; }
 
 GameIconFinalWin()
 {
-	makeLink --merge --hide "$(platformAppData)/Oculus" "$WIN_DOC/Oculus Home" || return
-	makeLink --merge --hide "$(platformAppData)/Steam VR" "$WIN_DOC/steamvr" || return
+	makeLink --merge --hide "$(platformUserAppData)/Oculus" "$WIN_DOC/Oculus Home" || return
+	makeLink --merge --hide "$(platformUserAppData)/Steam VR" "$WIN_DOC/steamvr" || return
 	mergeDir "$up/Steam" "$pp/Game/Other" || return
 
-	makeLink --merge --hide "$(platformAppData)/Shadow of the Tomb Raider" "$WIN_DOC/Shadow of the Tomb Raider" || return
+	makeLink --merge --hide "$(platformUserAppData)/Shadow of the Tomb Raider" "$WIN_DOC/Shadow of the Tomb Raider" || return
 	mergeDir "$pp/Call of Duty Modern Warfare" "$pp/Game/Other" || return
 	mergeDir "$pp/Battle.net" "$pp/Game/Other" || return
 
@@ -2693,7 +2696,7 @@ OculusFinalWin()
 {
 	$mv "$pd/Oculus.lnk" "$pp/Game" || return
 	mergeDir "$psm/Oculus" "$pp/Game/Other" || return
-	makeLink --merge --hide "$(platformAppData)/Oculus" "$WIN_DOC/Oculus Home" || return
+	makeLink --merge --hide "$(platformUserAppData)/Oculus" "$WIN_DOC/Oculus Home" || return
 }
 
 OriginInstall()
@@ -2719,7 +2722,7 @@ SteamFinalWin()
 	mergeDir "$up/Steam" "$pp/Game/Other" || return
 	mergeDir "$pp/Steam" "$pp/Game/Other" || return
 	$rm "$pd/Steam.lnk" || return
-	makeLink --merge --hide "$(platformAppData)/Steam VR" "$WIN_DOC/steamvr" || return
+	makeLink --merge --hide "$(platformUserAppData)/Steam VR" "$WIN_DOC/steamvr" || return
 	i GameIcon || return
 }
 
@@ -2730,7 +2733,7 @@ UplayInstall()
 
 UplayFinalWin()
 {
-	makeLink --merge --hide "$(platformAppData)/Uplay" "$WIN_DOC/My Games" || return
+	makeLink --merge --hide "$(platformUserAppData)/Uplay" "$WIN_DOC/My Games" || return
 	mergeDir "$up/Ubisoft" "$pp/Game/Other" || return
 	$rm "$ud/Uplay.lnk" || return
 }
@@ -2871,8 +2874,6 @@ GitForWindowsFinalWin()
 
 GitForWindowsConfigure()
 {
-	! IsElevated && { RunScript --elevate $verbose -- inst GitForWindowsConfigure "${options[@]}"; return; }
-
 	local gw="$P/Git/cmd/git.exe"
 
 	echo "Configuring git for windows..."
@@ -3263,7 +3264,7 @@ GigabyteMotherboardInstall()
 	rm -fr "$d/SIV" || return
 
 	# EasyTune
-	makeLink --merge --hide "$(platformAppData)/EasyTune" "$WIN_DOC/EasyTune" || return
+	makeLink --merge --hide "$(platformUserAppData)/EasyTune" "$WIN_DOC/EasyTune" || return
 	mv "$d/EasyTune/"* "$d" >& /dev/null
 	rm -fr "$d/EasyTune" || return
 
@@ -3930,7 +3931,7 @@ VagrantInstall()
 {
 	local file="vagrant_2.2.16_x86_64" # https://www.vagrantup.com/downloads
 	run --header "Vagrant" "other/HashiCorp/vagrant/$file.msi|$file.dmg|$file.deb" || return
-	makeDir "$(platformAppData)/app/vagrant" || return
+	makeDir "$(platformUserAppData)/app/vagrant" || return
 }
 
 # Hashi Helper
@@ -4803,7 +4804,7 @@ OfficeInstall()
 	askp "Restore normal templates" && { word normal restore || return; }
 	askp "Configure Word" && { word configure || return; }
 
-	makeLink --merge --hide "$(platformAppData)/office/templates" "$WIN_DOC/Custom Office Templates" || return
+	makeLink --merge --hide "$(platformUserAppData)/office/templates" "$WIN_DOC/Custom Office Templates" || return
 }
 
 OfficeFinalMac()
@@ -4906,7 +4907,7 @@ SqlServerManagementStudioInstall()
 	run "$base/studio/SSMS-Setup-ENU.exe" || return # https://docs.microsoft.com/en-us/sql/ssms/download-sql-server-management-studio-ssms
 	run "$base/studio/plugins/SSMSBoostInstaller_3.4.6796.msi" || return # http://www.ssmsboost.com
 
-	local dir="$(platformAppData)/SQL Server Management Studio"; makeDir "$dir" || return
+	local dir="$(platformUserAppData)/SQL Server Management Studio"; makeDir "$dir" || return
 	makeLink --merge --hide "$app" "$WIN_DOC/SQL Server Management Studio" || return
 	$makeShortcut "$CLOUD/data/sql" "$dir/Personal.lnk" || return
 
@@ -5020,9 +5021,12 @@ WindowsDownloadInstall()
 
 WindowsStoreInstall()
 {
-	echo "Configuring Windows Store..."
+	header "Windows Store"
+	[[ ! $force ]] && ! UpdateNeeded "WindowsStore" && return
+	UpdateDone "bootstrapStart" || return
+
 	echo "Log in to the Windows Store"
-	store || return
+	store && UpdateDone "WindowsStore"
 }
 
 WindowsSubsystemForLinuxInstall()
@@ -5073,7 +5077,13 @@ WindowsSubsystemForLinuxInstall()
 
 WslFinal()
 {
+	# set the default WSL distribution user
+	wsl dist user set --user="$(ConfigGet "user")" || return
+
+ 	# startup script
 	registry set "run/startup" REG_SZ 'c:\\Windows\\System32\\bash.exe -c \"/usr/local/data/bin/RunScript startup\"' || return
+
+	# icons
 	$makeShortcut "wsl.exe" "$pp/Operating System/bash" || return
 } 
 
@@ -5129,7 +5139,7 @@ VisualStudioFinalWin()
 
 	$makeShortcut "$WIN_ROOT/Windows/assembly" "$base/GAC.lnk" || return
 	$hide ~/.dnx ~/.nuget || return
-	makeLink --merge --hide "$(platformAppData)/Visual Studio $vsName" "$WIN_DOC/Visual Studio $vsName" || return
+	makeLink --merge --hide "$(platformUserAppData)/Visual Studio $vsName" "$WIN_DOC/Visual Studio $vsName" || return
 	mergeDir --rename "$pp/Visual Studio $vsName" "$other/Visual Studio $vsName" || return
 	mergeDir "$pp/Windows Kits" "$pp/Development/Other" || return
 	$mv "$pp/Visual Studio Installer.lnk" "$vs" || return
@@ -5254,8 +5264,8 @@ StandardNotesFinalWin()
 {
 	$mv "$ud/Standard Notes.lnk" "$up/Applications" || return
 	$rm "$up/Standard Notes.lnk" || return
-	makeDir "$(platformAppData)/Standard Notes/backups" || return
-	makeLink --merge --hide "$(platformAppData)/Standard Notes/backups" "$WIN_HOME/Standard Notes Backups" || return
+	makeDir "$(platformUserAppData)/Standard Notes/backups" || return
+	makeLink --merge --hide "$(platformUserAppData)/Standard Notes/backups" "$WIN_HOME/Standard Notes Backups" || return
 }
 
 TodoistInstall()
@@ -6407,7 +6417,7 @@ SshCoreInstall()
 SshServerInstall()
 {
 	header "SSH Server"
-	RunPlatform sshServer && i SshServerBorg SshServerCredential SshServerHashi SshServerHostKeys
+	i SshServerHostKeys && RunPlatform sshServer && i SshServerBorg SshServerCredential SshServerHashi
 }
 
 SshServerBorgInstall() { echo 'AcceptEnv BORG_*' | sudo ${G}tee "/etc/ssh/sshd_config.d/borg.conf" > /dev/null; }
@@ -6806,7 +6816,7 @@ GarminInstall()
 
 GarminFinalWin()
 {
-	makeLink --merge --hide "$(platformAppData)/Garmin" "$WIN_DOC/My Garmin" || return
+	makeLink --merge --hide "$(platformUserAppData)/Garmin" "$WIN_DOC/My Garmin" || return
 	mergeDir "$pp/Garmin" "$pp/Travel/Other" || return
 	$rm "$pd/Garmin Express.lnk"
 	$rm "$pd/inReach Sync.lnk"
@@ -7072,8 +7082,8 @@ AutoHotKeyInstall()
 
 	AutoHotKey close || return
 
-	# https://www.autohotkey.com/ https://autohotkey.com/download/2.0/
-	run "shareware/AutoHotKey/image/AutoHotkey_2.0-beta.1.zip" --dest "AutoHotKey" --elevate || return
+	# https://www.autohotkey.com/ https://www.autohotkey.com/download/2.0/?C=M;O=D
+	run "shareware/AutoHotKey/image/AutoHotkey_2.0-beta.3.zip" --dest "AutoHotKey" --elevate || return
 
 	echo -n "${GREEN}Starting AutoHotKey...${RESET}"
 	AutoHotKey startup || return
@@ -7237,13 +7247,13 @@ HiddenStartConfigureInstall()
 {
 	header "Hidden Start Configuration"
 
-	if [[ $force || ! "$(registry 32 get "HKLM/SOFTWARE/Alexander Avdonin/Hidden Start/RegName")" ]]; then
-		registry import "$setupFiles/HiddenStart.reg" || return
-	fi
-
 	if [[ $force ]] || ! isHiddenStartConfigued; then
 		start --wait hstart64.exe /nouac /wait ""cmd" /c echo Hidden Start 64 scheduled task is setup"
 		! isHiddenStartConfigued && { EchoErr "inst: unable to add the Hidden Start scheduled task"; return 1; }
+	fi
+
+	if [[ $force || ! "$(registry 32 get "HKLM/SOFTWARE/Alexander Avdonin/Hidden Start/RegName")" ]]; then
+		registry import "$setupFiles/HiddenStart.reg" || return
 	fi
 
 	return 0
@@ -7683,16 +7693,9 @@ WinSplitInstall()
 #################################################
 
 WinInstall()
-{
+{	
 	header "Windows Setup"
-
-	if ! IsElevated; then
-		RunScript --elevate --no-hide $verbose -- inst win "${options[@]}"
-		pause
-		return
-	fi
-
-	i WinPath HiddenStartConfigure SystemInternals || return # run first to minimize prompts
+	i WinPath SystemInternals || return # run first to minimize prompts
 	i WinPermissions WinDirectories WinFonts WinConsole WinConfiguration WslFinal OneDrive || return
 }
 
@@ -7702,6 +7705,7 @@ WinConfigurationInstall()
 {
 	header "Windows Configuration"
 
+	echo "Cleanup files..."
 	$hide "$WIN_ROOT/PerfLogs" || return
 	$hide "$WIN_ROOT/Windows.old" || return
 	$rm "$WIN_HOME\Documents\My Music" || return
@@ -7725,17 +7729,9 @@ WinConfigurationInstall()
 	echo "Configuring the desktop..."
  	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/HideDesktopIcons/NewStartPanel/{645FF040-5081-101B-9F08-00AA002F954E}" REG_DWORD 1 || return # hide recycle bin
 
-	echo "Configuring Explorer..."
- 	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ShowFrequent" REG_DWORD 0 || return
- 	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/ShowRecent" REG_DWORD 0 || return
-
 	echo "Configure file sharing..."
 	$firewall group enable "File and Printer Sharing" || return
  	registry set "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Policies/system/LocalAccountTokenFilterPolicy" REG_DWORD 1 || return # Enable remote administrator access to protected file shares (admin$, c$...)
-
-	echo "Configuring taskbar..."
-	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/StuckRects3/Settings' REG_BINARY 30000000FEFFFFFF02000000000000004E0000003200000000000000000000004E000000380400007800000001000000 # left side of screen
- 	registry set "HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/MMTaskbarEnabled" REG_DWORD 0 || return # show on main display only
 
 	echo "Configure remote desktop..."
  	registry set "HKLM/SYSTEM/CurrentControlSet/Control/Terminal Server/fDenyTSConnections" REG_DWORD 0 || return
@@ -7747,14 +7743,11 @@ WinConfigurationInstall()
 	echo 'Configuring the theme...'
 	registry set 'HKCU/SOFTWARE/Microsoft/Windows/DWM/ColorPrevalence' REG_DWORD 1 || return # Show Accent Color on Title Bars and Window Borders
 
-	echo "Configure VPN..."
- 	registry set "HKLM/SYSTEM/CurrentControlSet/Services/PolicyAgent/AssumeUDPEncapsulationContextOnSendRule" REG_DWORD 2 || return # allow VPN to a server behind NAT
-
  	echo "Configuring Windows Update..."
-	registry set "HKLM/SOFTWARE/Policies/Microsoft/Windows/WindowsUpdate/AU/AllowMUUpdateService" REG_DWORD 1 || return
+	registry set "HKLM/SOFTWARE/Policies/Microsoft/Windows/WindowsUpdate/AU/AllowMUUpdateService" REG_DWORD 1 || return # enable Microsoft update
 
-	echo "Disable snap assist..."
- 	registry set "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Advanced/SnapAssist" REG_DWORD 0 || return
+	echo "Configure snap assist..."
+ 	registry set "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Advanced/SnapAssist" REG_DWORD 0 || return # When I snap a Window, show what I can snap next to it
 
 	echo "Disabling AutoPlay..."
 	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/AutoplayHandlers/DisableAutoplay' REG_DWORD 1 || return
@@ -7763,11 +7756,11 @@ WinConfigurationInstall()
 	registry set 'HKCU/SOFTWARE/Policies/Microsoft/Windows/Explorer/DisableSearchBoxSuggestions' REG_DWORD 1 || return
 
 	echo "Configuring printers..."
-	local p='cscript.exe C:\Windows\System32\Printing_Admin_Scripts\en-US\prnmngr.vbs'
- 	$p -d -p Fax >& /dev/null
- 	$p -d -p "Microsoft XPS Document Writer" >& /dev/null
- 	$p -d -p "OneNote (Desktop)" >& /dev/null
- 	$p -d -p "OneNote for Windows 10" >& /dev/null
+	local printer='cscript.exe C:\Windows\System32\Printing_Admin_Scripts\en-US\prnmngr.vbs'
+ 	$printer -d -p Fax >& /dev/null
+ 	$printer -d -p "Microsoft XPS Document Writer" >& /dev/null
+ 	$printer -d -p "OneNote (Desktop)" >& /dev/null
+ 	$printer -d -p "OneNote for Windows 10" >& /dev/null
 
 	if IsVm; then
 		echo "Configuring power settings for a virtual machine..."
@@ -7793,14 +7786,12 @@ WinConfigurationInstall()
 	fi
 	
  	if askp "Configure taskbar icons"; then
+ 		registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/TaskbarMn' REG_DWORD 0 || return # chat
 	 	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/ShowCortanaButton' REG_DWORD 0 || return
 	 	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/ShowTaskViewButton' REG_DWORD 0 || return
 	 	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Search/SearchboxTaskbarMode' REG_DWORD 0 || return
-	 	taskbar reset --no-prompt --no-restart || return
+	 	taskbar reset --no-prompt || return
 	fi
-
-	# enable change - move taskbar to left side
-	ProcessKill explorer && start explorer
 
 	# host specific
 	case "$HOSTNAME" in
@@ -7836,16 +7827,14 @@ WinDirectoriesInstall()
 	makeDir "$WIN_ROOT/temp" || return
 
 	makeDir "$pp/Applications/Other" || return
+	makeDir "$up/Applications/Other" || return
 	makeDir "$pp/Development/Other" || return
+	makeDir "$pp/Development/DotNet/Other" || return
 	makeDir "$pp/Game/Other" || return
 	makeDir "$pp/Media/Other" || return
 	makeDir "$pp/Operating System/Other" || return
 	makeDir "$pp/Surveillance/Other" || return
 
-	makeDir "$up/Applications/Other" || return
-	makeDir "$pp/Development/DotNet/Other" || return
-
-	makeDir "$udata/app" || return
 	makeDir "$WIN_HOME/$(GetFileName "$CODE")" || return
 }
 
@@ -7872,8 +7861,7 @@ WinFontsInstall()
 
 windowsFont()
 {
-	! IsElevated && { RunScript --elevate --no-hide $verbose -- inst WindowsFont "${options[@]}" -- "$@"; return; }
-
+	# copy font
 	for file in "$@" "${otherArgs[@]}"; do
 		findFile "fonts/$file" || return
 		CopyDir "$file" "/tmp/fonts/" || return # fontreg.exe fails on network share in wsl 2
@@ -7892,9 +7880,6 @@ WinIconsInstall()
 {
 	header "Windows Icons"
 
-	makeLink --merge --hide "$(platformAppData)/Fax" "$WIN_DOC/Fax" || return
-	makeLink --merge --hide "$(platformAppData)/Scanned Documents" "$WIN_DOC/Scanned Documents" || return
-
 	mergeDir "$up/Accessibility" "$pp/Applications/Accessories" || return
 	mergeDir "$pp/Accessibility" "$pp/Applications/Accessories" || return
 	mergeDir "$up/Accessories" "$pp/Applications" || return
@@ -7902,57 +7887,37 @@ WinIconsInstall()
 	mergeDir "$pp/Administrative Tools" "$pp/Operating System" || return
 	mergeDir "$up/Administrative Tools" "$pp/Operating System" || return
 	mergeDir "$pp/IIS" "$pp/Development/Other/IIS" || return
+	mergeDir "$pp/Windows PowerShell" "$oo/PowerShell" --rename || return
 	mergeDir "$up/System Tools" "$pp/Operating System" || return
 	mergeDir "$pp/System Tools" "$pp/Operating System" || return
 	mergeDir "$pp/Applications/Accessories/System Tools" "$pp/Operating System" || return
-	mergeDir --rename "$pp/Microsoft Silverlight" "$oo/Silverlight" || return
 
-	mvSudo "$pd/Mac Files.lnk" "$pp/Operating System" >& /dev/null
-	$mv "$up/Administrative Tools.lnk" "$pp/Operating System" || return
-	$mv "$up/File Explorer.lnk" "$pp/Operating System" || return
-	$mv "$pp/Immersive Control Panel.lnk" "$pp/Applications/Accessories" || return
 	$mv "$pp/Microsoft Edge.lnk" "$pp/Applications" || return
 	$mv "$pp/OneDrive.lnk" "$up/Applications" || return
-	$mv "$up/PC Health Check.lnk" "$pp/Operating System" || return
-	$mv "$up/Administrative Tools.lnk" "$pp/Operating System" || return
-	
+	$mv "$up/File Explorer.lnk" "$pp/Operating System" || return
+
+	$rm "$up/Administrative Tools.lnk" || return
 	$rm "$pd/Microsoft Edge.lnk" || return
 	$rm "$ud/Microsoft Edge.lnk" || return
 	$rm "$up/Microsoft Edge.lnk" || return
 	$rm "$up/OneDrive.lnk" || return
 
-	$rmd "$pp/Bluetooth Devices" || return
+	$rmd "$pp/Maintenance" || return
 	$rmd "$up/Maintenance" || return
-	$rmd "$WIN_HOME/3D Objects" || return
+	$rmd "$up/Windows PowerShell" || return
 
 	$hideAndSystem "$pp/Applications/Accessories/Desktop.ini" || return
 	$hideAndSystem "$pp/Applications/Accessories/Accessibility/Desktop.ini" || return
-
-	# PowerShell
-	mergeDir --rename "$up/Windows PowerShell" "$oo/PowerShell" || return
-	mergeDir --rename "$pp/Windows PowerShell" "$oo/PowerShell" || return
-	$hideAndSystem "$oo/PowerShell/desktop.ini" || return
-
-	# 3rd party
-	mergeDir "$pp/ICEpower" "$oo" || return	# Asus ZenBook laptop
-	mergeDir "$pp/WizTree" "$oo" || return
-	mergeDir "$pp/core Temp" "$oo" || return
-	$rm "$ud/Core Temp.lnk" || return
-	$rm "$ud/WizTree.lnk" || return
-	$rm "$ud/bootstrap-"*".lnk" || return
 }
 
 WinPathInstall()
 {
 	header "Windows Path"
-	SetVar --system --path PATH "$PLATFORM_PATH" || return
-	export WSLENV=""
+	SetVar --system --path PATH "$PLATFORM_PATH"
 }
 
 WinPermissionsInstall()
 {
-	! IsElevated && { RunScript --elevate --no-hide $verbose -- inst WinPermissions "${options[@]}"; return; }
-
 	header "Windows Permissions"
 	GrantFullPermission "$psm" || return
 	GrantFullPermission "$pd" || return
