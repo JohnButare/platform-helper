@@ -717,7 +717,7 @@ CloudGet()
 	local file
 	for file in "$@"; do
 		[[ -d "$1" ]] && return # skip directories
-		[[ ! -f "$1" ]] && { [[ ! $quiet ]] && ScriptErr "'$file' does not exist"; return 1; }
+		ScriptFileCheck "$1" || return
 
 		if IsPlatform win; then
 			( cd "$(GetFilePath "$1")"; cmd.exe /c type "$(GetFileName "$1")"; ) >& /dev/null || return
@@ -735,7 +735,7 @@ CloudGetAll()
 	local file
 	for file in "$@"; do
 		[[ -d "$1" ]] && return # skip directories
-		[[ ! -f "$1" ]] && { [[ ! $quiet ]] && ScriptErr "'$file' does not exist"; return 1; }
+		ScriptFileCheck "$1" || return
 		CloudGet "$file" > /dev/null || return
 	done
 }
@@ -889,7 +889,6 @@ SelectFile() # DIR PATTERN MESSAGE
 }
 
 # Path Conversion
-
 utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
 ptw() { printf "%s\n" "${1//\//"\\"}"; } # PathToWin - use printf so zsh does not interpret back slashes (\)
 
@@ -943,6 +942,16 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 	
 	# /L flag does not work (target changed not link) from WSL when full path specified, i.e. attrib.exe /l +h 'C:\Users\jjbutare\Documents\data\app\Audacity'
 	( cd "$(GetFilePath "$f")"; attrib.exe "$@" "$(GetFileName "$f")" );
+}
+
+FileVersion()
+{
+	local file="$1"; ScriptFileCheck "$file" || return
+	if IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
+		powershell "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn
+	else
+		"$file" --version
+	fi
 }
 
 #
@@ -2360,6 +2369,7 @@ ScriptCd() { local dir; dir="$("$@")" || return; dir="$(echo "$dir" | ${G}head -
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
 ScriptErr() { InitColor; EchoErr "${RED}$(ScriptPrefix "$2")$1${RESET}"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
+ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
 ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "$name: "; }
 ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; }
 
@@ -2470,10 +2480,7 @@ sudoc()
 # sudoe FILE - sudoedit with credentials
 sudoe()  
 { 
-	local file="$1"
-
-	# validation
-	[[ ! -f "$file" ]] && { ScriptErr "file '$file' does not exist"; return 1; }
+	local file="$1"; ScriptFileCheck "$file" || return
 
 	# edit Windows files
 	if IsPlatform win && IsWindowsFile "$1"; then

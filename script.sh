@@ -250,7 +250,7 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 ScriptRun()
 {
 	local defaultCommand defaultCommandUsed; RunFunction "init" -- "$@" || return
-		
+
 	# commands - format command1Command2Command
 	local args=() c shift="1"
 	local command commandNames=() commands=() globalArgs=() globalArgsLessVerbose=() originalArgs=("$@") otherArgs=() # public
