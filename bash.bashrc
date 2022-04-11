@@ -196,6 +196,7 @@ InfoPathAdd "/usr/local/share/info"
 ManPathAdd "/usr/local/man" "/usr/local/share/man" "$DATA/man"
 
 case "$PLATFORM" in 
+	mac) [[ $HOMEBREW_PREFIX ]] && PathAdd front "$HOMEBREW_PREFIX/bin" "$HOMEBREW_PREFIX/sbin";; # use Homebrew utilities before system utilities
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
 		PathAdd "$WINDIR" "$WINDIR/system32" "$WINDIR/System32/Wbem" "$WINDIR/System32/WindowsPowerShell/v1.0/" "$WINDIR/System32/OpenSSH/" "$UADATA/Microsoft/WindowsApps"
