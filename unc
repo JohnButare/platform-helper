@@ -233,20 +233,20 @@ mountCommand()
 	# mount
 
 	# WSL 1
-	if [[ "$PLATFORM_KERNEL" == "wsl1" ]] || isWslshare; then
-		sudoc mount -t drvfs "//$server/$share" "$mountRoot"
+	if isWslshare || [[ "$PLATFORM_KERNEL" == "wsl1" ]]; then
+		RunLog sudoc mount -t drvfs "//$server/$share" "$mountRoot"
 
 	# NFS
 	elif [[ "$protocol" == "nfs" ]]; then
 		local options=(); IsPlatform win && options+=( -o nolock )
-		sudoc mount "${options[@]}" -t nfs "$server:/$share" "$mountRoot"
+		RunLog sudoc mount "${options[@]}" -t nfs "$server:/$share" "$mountRoot"
 
 	# SSH
 	elif [[ "$protocol" == "ssh" ]] || IsInteger "$protocol"; then
 		local portArg; IsInteger "$protocol" && portArg=(-p "${protocol}")
 		local sudo; IsPlatform qnap && sudo="sudo"
 		[[ "$share" == "root" ]] && share=""
-		$sudo sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountRoot" "${portArg[@]}"
+		RunLog $sudo sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountRoot" "${portArg[@]}"
 
 	# linux and WSL 2
 	elif IsPlatform linux,wsl2; then		
@@ -261,7 +261,7 @@ mountCommand()
 		[[ $password ]] && log1 "password found in the credential store"
 
 		[[ $password ]] && export PASSWD="$password"
-		$sudo mount.cifs "//$server/$share" "$mountRoot" -o user=$user sec=ntlmsspi
+		RunLog $sudo mount.cifs "//$server/$share" "$mountRoot" -o user=$user sec=ntlmsspi
 		[[ $password ]] && unset PASSWD
 
 	# macOS
@@ -282,6 +282,7 @@ mountCommand()
 	isMountedCheck "$unc" && return
 
 	# mount failed, cleanup 
+	[[ ! $quiet ]] && { ScriptErr "unable to mount UNC '$unc'"; }
 	unmount; return 1
 }
 
@@ -464,7 +465,7 @@ validateUnc() { IsUncPath "$1" && return; [[ ! $quiet ]] && ScriptErr "'$1' is n
 initVolumeDir()
 {
 	[[ -d "$volumeDir" ]] && return
-	! ${G}mkdir "$volumeDir" && { ScriptErr "Could not create the volume directory $volumeDir"; return 1; }
+	! ${G}mkdir "$volumeDir" && { ScriptErr "could not create the volume directory $volumeDir"; return 1; }
 	return 0
 }
 
@@ -479,7 +480,7 @@ getDir()
 
 	# WSL shares
 	if isWslshare; then
-		[[ -d "$mountDir/tmp" ]] && { echo "$mountRoot/$dirs"; return; }
+		[[ -d "$mountRoot/tmp" ]] && { echo "$mountRoot/$dirs"; return; }
 		return 1
 	fi
 
@@ -612,12 +613,17 @@ getUncInfo()
 	# this ensures we can mount the same share under a different alias
 	server="$(os name "$server")"
 
+	# sharedId - remove $
 	shareId="${share%%\$}"
-	mountRoot="$volumeDir/${server}_${shareId}"
-	mountDir="$mountRoot";  [[ $dirs ]] && mountDir="$mountDir/$dirs"
 
+	# mountRoot - the root directory for the mounted volume
+	mountRoot="$volumeDir/${server}_${shareId}"
+	
 	# WSL 2 elevation - mounted network shares are not visible when not elevated, must mount them to a distinct location
 	IsPlatform wsl2 && IsElevated && mountRoot="${mountRoot}_elevated" 
+
+	# mountDir is the full path to the mounted directory
+	mountDir="$mountRoot";  [[ $dirs ]] && mountDir="$mountDir/$dirs"
 
 	# MDNS name resolution - Windows does not resolve MDNS natively
 	IsPlatform win && IsMdnsName "$server" && { server="$(MdnsResolve "$server")" || return; }
@@ -689,7 +695,7 @@ notAUncShare()
 
 noUncCommand()
 {
-	[[ ! "$quiet" ]] && ScriptErr "No UNC commands available (findmnt or df)"
+	[[ ! "$quiet" ]] && ScriptErr "no UNC commands available (findmnt or df)"
 	return 1
 }
 
