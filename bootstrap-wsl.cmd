@@ -58,4 +58,3 @@ wsl --user %USERNAME% /tmp/bootstrap-init %bin% %install% %*
 if errorlevel 1 goto bootstrap
 
 pause
-

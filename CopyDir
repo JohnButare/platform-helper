@@ -16,7 +16,9 @@ Copy the SRC directory to DEST.
 	-a, --archive				archive a directory
 	-d, --delete				delete files that do not exist in the target directory
 	-e, --exclude=list	comma separated list of files to exclude
-	-r, --recursive			copy directories recursively"
+	-nm, --no-metadata	do not transfer any file metadata
+	-r, --recursive			copy directories recursively
+			--rsync					force use of rsync"
 }
 
 init() { defaultCommand="copy"; }
@@ -27,9 +29,9 @@ init() { defaultCommand="copy"; }
 
 copyArgStart()
 {
-	unset -v archive delete exclude recursive
+	unset -v archive delete exclude recursive rsync
 	unset -v src dest
-	exclude=".git"
+	exclude=".git" metadata="true"
 }
 
 copyOpt() 
@@ -38,7 +40,9 @@ copyOpt()
 		-a|--archive) archive="true" recursive="true";; 
 		-d|--delete) delete="true";;
 		-e|--exclude|-e=*|--exclude=*) ScriptOptGet "exclude" "$@"; shift;;
+		-nm|--no-metadata) unset metadata;;
 		-r|--recursive) recursive="true";;
+		   --rsync) rsync="true";;
 		*) return 1
 	esac
 }
@@ -67,9 +71,11 @@ copy()
 	[[ $parent && ! -d "$parent" ]] && { ${G}mkdir --parents "$parent" || return; }
 
 	# Windows drives copy much more quickly with robocopy
-	local isSrcWin; drive IsWin "$src" && isSrcWin="true"
-	local isDestWin; [[ $parent ]] && drive IsWin "$parent" && isDestWin="true"
-
+	if [[ ! $rsync ]]; then
+		local isSrcWin; drive IsWin "$src" && isSrcWin="true"
+		local isDestWin; [[ $parent ]] && drive IsWin "$parent" && isDestWin="true"
+	fi
+	
 	# if the src and dest end with the same directory, ensure src ends with a slash so the directory is not duplicated in the dest
 	local lastDirsMatch; [[ "$(GetLastDir "$src")" == "$(GetLastDir "$dest")" ]] && lastDirsMatch="true"
 
@@ -86,8 +92,10 @@ CopyDirRsync()
 {
 	# rsync options
 	o=(--info=progress2)
-	o+=(--times) 													# preserve times, required for incremental sync
-	o+=(--links --perms --group --owner) 	# preserve other metadata
+	if [[ $metadata ]]; then
+		o+=(--times) 													# preserve times, required for incremental sync
+		o+=(--links --perms --group --owner) 	# preserve other metadata
+	fi
 	#o+=(-@2)															# modify window in seconds to consider files the same, 2 seconds for FAT
 	[[ $archive ]] && o+=( --archive ) 		# archive implies -rlptgoD, i.e. --recursive --links --perms --times --group --owner --devices --specials
 	[[ $delete ]] && o+=(--delete)
@@ -138,7 +146,7 @@ CopyDirWin()
 	[[ $delete ]] && o+=(/PURGE)
 	[[ $exclude ]] && o+=(/XD $exclude )
 	[[ $verbose ]] && o+=(/V)
-	[[ $(drive type "$src") =~ FAT || $(drive type "$dest") =~ FAT ]] && o+=(/FFT) # 2 second window to compensate for FAT file system
+	[[ $(drive type --quiet "$src") =~ FAT || $(drive type "$dest") =~ FAT ]] && o+=(/FFT) # 2 second window to compensate for FAT file system
 
 	src="$(GetFullPath "$src")" || return
 
