@@ -769,19 +769,24 @@ FileCacheFlush()
 # FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
 FileCommand() 
 { 
-	local args=() command="$1" dir="${@: -1}" file files=0 n=$(($#-2))
+	local command="$1"; shift
+	local args=() files=() dir
 
-	for arg in "${@:2:$n}"; do
-		IsOption "$arg" && args+=( "$arg" )
-		[[ -e "$arg" ]] && { args+=( "$arg" ); (( ++files )); }
+	# arguments - ignore files that do not exist
+	while (( $# != 1 )); do
+		IsOption "$1" && args+=("$arg")
+		[[ -e "$1" ]] && files+=("$1")
+		shift
 	done
-	(( files == 0 )) && return 0
+	dir="$1"
+	[[ ! $files ]] && return 0
 
+	# command
 	case "$command" in
-		ren) 'mv' "${args[@]}" "$dir";;
+		ren) 'mv' "${args[@]}" "${files[@]}" "$dir";;
 		cp|mv)
 			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing '$dir': No such directory"; return 1; }
-			"$command" -t "$dir" "${args[@]}";;
+			"$command" -t "$dir" "${args[@]}" "${files[@]}";;
 		*) EchoErr "FileCommand: unknown command $command"; return 1;;
 	esac
 }
