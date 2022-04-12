@@ -169,7 +169,7 @@ RunLogSilent() { RunLog RunSilent "$@"; }
 ScriptOpt()
 {
 	shift=0; ! IsOption "$1" && return; shift=1
-	
+
 	# command option - start with the last command
 	for c in $(ArrayReverse commands); do
 		IsFunction "${c}Opt" && "${c}Opt" "$@" && return
@@ -179,6 +179,14 @@ ScriptOpt()
 	IsFunction "opt" && { opt "$@" && return; }
 
 	# global option
+	ScriptOptGlobal "$1" && return
+
+	# unknown option
+	UnknownOption "$1"
+}
+
+ScriptOptGlobal()
+{
 	case "$1" in
 		-f|--force) force="--force";;
 		-h|--help) ScriptOptVerbose "$@"; usage 0;;
@@ -187,7 +195,7 @@ ScriptOpt()
 		-t|--test) test="--test";;
 		-v|--verbose|-vv|-vvv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 		-w|--wait) wait="--wait";;
-		*) UnknownOption "$1";;
+		*) return 1;;
 	esac
 }
 
