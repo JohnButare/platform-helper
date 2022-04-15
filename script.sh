@@ -179,7 +179,7 @@ ScriptOpt()
 	IsFunction "opt" && { opt "$@" && return; }
 
 	# global option
-	ScriptOptGlobal "$1" && return
+	ScriptOptGlobal "$@" && return
 
 	# unknown option
 	UnknownOption "$1"
