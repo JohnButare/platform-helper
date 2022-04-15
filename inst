@@ -37,7 +37,7 @@ Install programs.
 	-s,  --select					select the install location"
 }
 
-installArgStart() { unset -v apps hint hostArg installType noHeader noPrompt noRun select; }
+installArgStart() { unset -v apps hint hostArg hostOpt hosts installType noHeader noPrompt noRun select; }
 
 installOpt() 
 {
@@ -139,6 +139,8 @@ installInit()
 		[ssms]="SqlServerManagementStudio"
 		[teams]="MicrosoftTeams"
 		[textutilities]="PythonTextUtilities"
+		[tftpc]="TftpClient"
+		[tftps]="TftpServer"
 		[ufw]="UncomplicatedFirewall"
 		[unif]="UnifiController"
 		[vmw]="VmwareWorkstation"
@@ -180,7 +182,7 @@ installInit()
 	# HashiCorp
 	macDebian+=( HashiProgram ConsulProgram VaultProgram NomadProgram )
 	macDebian+=( HashiCli ConsulCli NomadCli VaultCli )
-	macDebian+=( HashiServer ConsulServer NomadServer VaultServerVault HashiServerUpdate )
+	macDebian+=( HashiServer ConsulServer NomadServer VaultServer HashiServerUpdate )
 	macDebian+=( HashiUp ConsulDocker ConsulK8s ConsulTemplate NomadServerTools sockaddr )
 
 	# Home Assistant
@@ -301,16 +303,6 @@ findFile()
 	return 0
 }
 
-# forAllHosts COMMAND [ARGS...] - run a command for all hosts
-forAllHosts()
-{
-	local host hosts; getHosts || return
-
-	for host in "${hosts[@]}"; do
-		"$@" "$host" || return
-	done
-}
-
 # getDeb IA64 ARM64 ARM32
 getDeb()
 {
@@ -322,16 +314,6 @@ getDeb()
 	IsPlatformAll arm,64 && deb="$arm64"
 	IsPlatformAll arm,32 && deb="$arm32"
 	echo "$deb"
-}
-
-# getHosts - get hosts from hostArg variable or all Nomad clients.  Sets hosts array.
-getHosts() 
-{
-	# use the hostArg if specified
-	[[ $hostArg ]] && { StringToArray "${hostArg,,}" "," hosts; return; }
-
-	# use Nomad clients
-	IFS=$'\n' hosts=( $(GetServers nomad-client) )
 }
 
 # getInstallFunction APP - find the function used to install the specified application
@@ -3886,9 +3868,9 @@ hashiCli() { local what="$1"; header "${what^} CLI"; hashi install cli "$what" -
 
 # Hashi Server - install Hashi server on the specified servers
 HashiServerInstall() { i ConsulServer NomadServer VaultServer; }
-ConsulServerInstall() { hashiGetHosts && forAllHosts hashiServer "consul"; }
-NomadServerInstall() { hashiGetHosts && forAllHosts hashiServerNomad; }
-VaultServerInstall() { hashiGetHosts && forAllHosts hashiServer "vault"; }
+ConsulServerInstall() { hashiGetHosts && ForAllHosts echo hashiServer "consul"; }
+NomadServerInstall() { hashiGetHosts && ForAllHosts echo hashiServerNomad; }
+VaultServerInstall() { hashiGetHosts && ForAllHosts echo hashiServer "vault"; }
 
 hashiServer() { local what="$1" host="$2"; header "${what^} Server ($host)"; hashi install service "$what" -H="$host" --config-prefix="$config" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 hashiServerNomad() { local host="$1"; hashiServer "nomad" "$host" && sshRun "$host" "inst NomadServerTools"; }
@@ -3902,19 +3884,19 @@ hashiGetHosts()
 
 	# get servers
 	local config="prod" servers="hashiServers"; [[ $test ]] && { config="test"; servers="hashiTestServers"; }
-	local servers; servers="$(ConfigGet "$servers")" || return
+	hostArg="$(ConfigGet "$servers")" || return
 
 	# prompt to install
-	askp "Do you want to $description Hashi software to the following servers: $servers" || return
+	askp "Do you want to $description Hashi software on: $hostArg" || return
 
 	# validate servers
-	[[ ! $servers ]] && { ScriptErr "no Hashi servers defined for '$config'"; return 1; }
+	[[ ! $hostArg ]] && { ScriptErr "no Hashi servers defined for '$config'"; return 1; }
 
 	return 0
 }
 
 # Hashi Server Update - extract new executables and install them on the specified servers
-HashiServerUpdateInstall() { i ConsulProgram NomadProgram VaultProgram envoy && hashiGetHosts "update" && forAllHosts hashiServerUpdate; }
+HashiServerUpdateInstall() { i ConsulProgram NomadProgram VaultProgram envoy && hashiGetHosts "update" && ForAllHosts hashiServerUpdate; }
 hashiServerUpdate() { local host="$1"; hashi update cli program all -H="$host" --config-prefix="$config" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 
 # other
@@ -4432,7 +4414,7 @@ NetbootxyzDockerInstall()
 	run --header "netboot.xyz (Docker Container)" --docker "netboot-xyz.yml" --name "netboot-xyz" && httpShow "10180"
 }
 
-NetbootxyzTftpServerInstall() { forAllHosts netbootxyzTftpServerDeploy; }
+NetbootxyzTftpServerInstall() { ForAllHosts netbootxyzTftpServerDeploy; }
 
 # netbootxyzDeploy HOST
 netbootxyzTftpServerDeploy()
@@ -6067,8 +6049,8 @@ ServerAllInstall() { i ApacheAll NginxAll; }
 #
 
 ApacheAllInstall() { i ApacheDocker ApacheNomad; }
-ApacheDockerInstall() {	header "Apache Web Server (Docker Container)" && apache deploy localhost && run --no-header --docker "apache-web.yml" --name "apache-web" && httpShow "180"; }
-ApacheNomadInstall() { header "Apache Web Server (Nomad Job)" && apache deploy all && apache sync all && run --nomad "apache-web.hcl" && nomadHttpShow "web" "180"; }
+ApacheDockerInstall() {	header "Apache Web Server (Docker Container)" && apache deploy --host=localhost && run --no-header --docker "apache-web.yml" --name "apache-web" && httpShow "180"; }
+ApacheNomadInstall() { header "Apache Web Server (Nomad Job)" && apache deploy "${hostOpt[@]}" && apache sync "${hostOpt[@]}" && run --nomad "apache-web.hcl" && nomadHttpShow "web" "180"; }
 
 #
 # Nginx
@@ -6106,7 +6088,7 @@ NginxProxyManagerSyncInstall()
 	echo
 	
 	# restore the image
-	forAllHosts nginxProxyManagerSync || return
+	ForAllHosts nginxProxyManagerSync || return
 }
 
 # nginxProxyManagerSync HOST - sync Apache web directories from the ProxyManagerConfig server

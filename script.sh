@@ -251,13 +251,54 @@ ScriptOptNetworkProtocol()
 ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file sharing (NFS|SMB|SSH|SSH_PORT)"; }
 
 #
-# ScriptRun
+# Script Host Option
+#
+
+# forAllHosts COMMAND [ARGS...] - run a command for all hosts
+ForAllHosts()
+{
+	local host hosts; getHosts || return
+
+	for host in "${hosts[@]}"; do
+		"$@" "$host" || return
+	done
+}
+
+ScriptOptHost() 
+{
+	case "$1" in
+		-H|--host|-H=*|--host=*) ScriptOptGet hostArg host "$@"; hostOpt=(--host="$hostArg");;
+		*) return 1
+	esac
+}
+
+# getHosts - get hosts from hostArg variable or all Nomad clients.  Sets hosts array.
+getHosts() 
+{
+	# return if hosts is already specified
+	[[ $hosts ]] && return
+
+	# hostArg is a comma separate list of hosts
+	[[ "$hostArg" != @(|all|web) ]] && { StringToArray "${hostArg,,}" "," hosts; return; }
+
+	# hostArg is a service name
+	[[ "$hostArg" == @(|all) ]] && hostArg="nomad-client"
+	IFS=$'\n' hosts=( $(GetServers "$hostArg") )
+}
+
+#
+# Script Run
 #
 
 # ScriptRun [defaultCommand]: init->opt->args->initFinal->command->cleanup
 ScriptRun()
 {
-	local defaultCommand defaultCommandUsed; RunFunction "init" -- "$@" || return
+	# variables	
+	local defaultCommand defaultCommandUsed
+	local hostUsage="	-H,  --host [all|web|HOST](all)		comma separated list of hosts"
+
+	# initialize
+	RunFunction "init" -- "$@" || return
 
 	# commands - format command1Command2Command
 	local args=() c shift="1"
