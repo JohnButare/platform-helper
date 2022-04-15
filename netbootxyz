@@ -4,22 +4,18 @@
 usage()
 {
 	init; ScriptUsage "$1" "\
-usage: netbootxyz backup|docker|IsInstalled|profile|setup|test|web
-	docker 		control the docker dockerImageName
-	web				update the netboot.xyz web site
-  profile 	netboot.xyz configuration
-  test			test the configuration"
+usage: netbootxyz app|docker|profile|setup|test|web"
 }
 
 usageVerbose()
 {
 	ScriptUsageEcho "\
 Locations:
-	    application: $appDir
-	   custom menus: $menuDir
-	    web staging: $webStageDir
-	 web deployment: $webDir
-	  configuration: $config"
+	    application: $appDir (netboot.xyz git repository)
+	  configuration: $configDir
+	  	custom host: $customHost
+	 			web (app): $webDirApp
+	 		web (final): $webDirFinal"
 }
 
 init() 
@@ -28,26 +24,18 @@ init()
 	dockerImageName="$app"
 
 	appDir="/opt/netboot.xyz"
-	menuDir="/etc/netbootxyz/custom"
-	webStageDir="/etc/netbootxyz/staging"
-	webAppDir="/var/www/html/"
-	webDir="$(apache dir web)/netboot.xyz" || return
-
-	config="/opt/netboot.xyz/user_overrides.yml"
+	appConfig="$appDir/user_overrides.yml"
+	configDir="/etc/netbootxyz"
+	customHost="ender"
+	webDirApp="/var/www/html/"
+	webDirFinal="$(apache dir web)/netboot.xyz" || return
 }
 
 #
-# Commands
+# commands
 #
 
-IsInstalledCommand() { [[ "${ACONFIG}2/netbootxyz" ]]; }
-
-backupCommand()
-{ 
-	! IsInstalledCommand && return
-	local backupHosts; backupHosts="$(network current servers backup)" || return
-	BorgHelper backup "${ACONFIG}2/netbootxyz" --archive "netboot.xyz" --backup-host="$backupHosts" --prune 5
-}
+testUsage() { echot "Usage: $(ScriptName) test\nTest the netboot.xyz configuration."; }
 
 testCommand()
 {
@@ -58,13 +46,52 @@ testCommand()
 }
 
 #
-# Docker dockerImageName Commands
+# app commands
 #
 
-dockerUsage() { echot "Usage: $(ScriptName) docker IsInstalled|IsRunning|shell|start|stop
-Control the docker dockerImageName."; }
+appUsage() { echot "Usage: $(ScriptName) app config|update\nMaintain the netboot.xyz application."; }
+appCommand() { usage; }
+appConfigUsage() { echot "Usage: $(ScriptName) app config\nEdit the application configuration file."; }
+appConfigCommand() { TextEdit "$appConfig"; }
+appUpdateUsage() { echot "Usage: $(ScriptName) app update\nUpdate the netboot.xyz application by running the Ansible playbook."; }
+appUpdateCommand() { setupAll && cd "$appDir" && sudo ansible-playbook -i "inventory site.yml"; }
 
+#
+# deploy commands
+#
+
+deployUsage() { echot "Usage: $(ScriptName) deploy app|custom\nDeploy netboot.xyz components."; }
+deployCommand() { usage; }
+
+deployWebUsage() { echot "Usage: $(ScriptName) deploy web\nDeploy the web site.\n\n$hostUsage"; }
+deployWebArgStart() { unset hostArg hostOpt hosts; }
+deployWebOpt() { ScriptOptHost "$@"; }
+
+deployWebCommand()
+{
+	echo "Updating web files..."
+	sudo CopyDir --recursive --delete "$webDirApp" "$webDirFinal" "${globalArgs[@]}" || return
+
+	echo "Updating web custom files..."
+	sudo CopyDir --recursive "$configDir/web/netboot.xyz/" "$webDirFinal" "${globalArgs[@]}" || return
+
+	echo "Updating custom menus..."
+	sudo cp "$configDir/menu/custom.ipxe.j2" "$webDirFinal/custom/custom.ipxe"  || return # assumes Jinja2 template not used (no {{ }})
+
+	echo "Synrnozing web sites..."	
+	apache deploy --host=localhost "${globalArgs[@]}" && apache sync "${hostOpt[@]}" "${globalArgs[@]}"
+}
+
+deployCustomUsage() { echot "Usage: $(ScriptName) deploy web\nDeploy custom installation files."; }
+deployCustomCommand() { scp -r "$configDir/web/custom" $customHost:/tmp && SshHelper connect "$customHost" -- /usr/local/bin/docker cp "/tmp/custom" "$dockerImageName:/assets"; }
+
+#
+# docker commands
+#
+
+dockerUsage() { echot "Usage: $(ScriptName) docker cp|IsInstalled|IsRunning|shell|start|stop\nControl the '$dockerImageName' Docker image."; }
 dockerCommand() { usage; }
+dockerCpCommand() { docker cp "/tmp/assets"/* "$dockerImageName:/assets/custom"; } 
 dockerIsInstalledCommand() { ! InPath docker && return 1; docker dockerImageName list |& grep "$dockerImageName" >& /dev/null; }
 dockerIsRunningCommand() { docker ps | grep --quiet "$dockerImageName"; }
 dockerShellCommand() { docker exec -it "$dockerImageName" /bin/bash; } 
@@ -72,26 +99,25 @@ dockertStartCommand() { docker start "$(getContainerId)"; }
 dockerStopCommand() { docker stop "$(getContainerId)"; } 
 
 #
-# Profile Command
+# profile command
 #
 
-profileUsage() { echot "Usage: $(ScriptName) profile [all|app|menus|web](all) dir|SaveDir|save|restore [<profile name>|default](latest)\nnetboot.xyz configuration."; }
+profileUsage() { echot "Usage: $(ScriptName) profile [all|app|config](all) dir|SaveDir|save|restore [<profile name>|default](latest)\nnetboot.xyz configuration."; }
 profileArgStart() { profileArgs=(); }
 profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); }
 profileCommand() { profileAllCommand; }
-profileAllCommand() { profileAppCommand && profileMenusCommand && profileWebCommand; }
-profileAppCommand() { profile $noPrompt --sudo --app "$app-config" --method "$(GetFilePath "$config")" --files "$(GetFileName "$config")" "${profileArgs[@]}"; }
-profileMenusCommand() { profile $noPrompt --app "$app-menus" --method "$menuDir" --files "*" "${profileArgs[@]}"; }
-profileWebCommand() { profile $noPrompt --app "$app-web" --method "$webStageDir" --files ".htaccess *.png" "${profileArgs[@]}"; }
+profileAllCommand() { profileAppCommand && profileConfigCommand; }
+profileAppCommand() { profile $noPrompt --sudo --app "$app-app-config" --method "$(GetFilePath "$appConfig")" --files "$(GetFileName "$appConfig")" "${profileArgs[@]}"; }
+profileConfigCommand() { profile $noPrompt --app "$app-config" --method "$configDir" --files "*" "${profileArgs[@]}"; }
 
 #
-# Setup Command
+# setup command
 #
 
-setupUsage() { echot "Usage: $(ScriptName) setup [menus|stage|web](all)\nSetup netboot.xyz web deployment."; }
+setupUsage() { echot "Usage: $(ScriptName) setup [app|config|web](all)\nSetup netboot.xyz web deployment."; }
 setupCommand() { setupAll; }
 setupAllCommand() { setupAll; }
-setupAll() { setupMenusCommand && setupStageCommand && setupWebCommand && setupAppCommand; }
+setupAll() { setupConfigCommand && setupWebCommand && setupAppCommand; }
 
 setupAppCommand()
 {
@@ -103,63 +129,18 @@ setupAppCommand()
 	netbootxyz profile app restore default || return
 }
 
-setupMenusCommand()
+setupConfigDirCommand()
 {
-	[[ -d "$menuDir" && ! $force ]] && return
-	sudo mkdir --parents "$menuDir" || return
-	sudo chown --recursive "$USER" "$menuDir" || return
-	netbootxyz profile menus restore default || return
-}
-
-setupStageCommand()
-{
-	[[ -d "$webStageDir" && ! $force ]] && return
-	sudo mkdir --parents "$webStageDir" || return
-	sudo chown --recursive "$USER" "$webStageDir" || return
-	netbootxyz profile web restore default || return
+	[[ -d "$configDir" && ! $force ]] && return
+	sudo mkdir --parents "$configDir" || return
+	sudo chown --recursive "$USER" "$configDir" || return
+	netbootxyz profile config restore default || return
 }
 
 setupWebCommand()
 {
-	[[ -d "$webDir" && ! $force ]] && return
-	apache sync --host="$(GetServer "web")" && sudo mkdir --parents "$webDir"
-}
-
-#
-# Web Commands
-#
-
-webUsage()
-{
-	echot "Usage: $(ScriptName) web config|deploy|update
-Maintain the netboot.xyz web site."
-}
-
-webCommand() { usage; }
-
-webConfigUsage() { echot "Usage: $(ScriptName) web config\nEdit the web site configuration file."; }
-webConfigCommand() { TextEdit "$config"; }
-
-webUpdateUsage() { echot "Usage: $(ScriptName) web update\nUpdate the netboot.xyz web site by running the Ansible playbook."; }
-webUpdateCommand() { setupAll && cd "$appDir" && sudo ansible-playbook -i "inventory site.yml"; }
-
-webDeployUsage() { echot "Usage: $(ScriptName) web deploy\nDeploy the web site.\n\n$hostUsage"; }
-webDeployArgStart() { unset hostArg hostOpt hosts; }
-webDeployOpt() { ScriptOptHost "$@"; }
-
-webDeployCommand()
-{
-	echo "Updating netboot.xyz application files..."
-	sudo CopyDir --recursive --delete "$webAppDir" "$webDir" "${globalArgs[@]}" || return
-
-	echo "Updating netboot.xyz custom files..."
-	sudo CopyDir --recursive "$webStageDir/" "$webDir" "${globalArgs[@]}" || return
-
-	echo "Updating netboot.xyz custom menus..."
-	sudo cp "$menuDir/custom.ipxe.j2" "$webDir/custom/custom.ipxe"  || return # assumes Jinja2 template not used (no {{ }})
-
-	echo "Synrnozing web sites..."	
-	apache deploy --host=localhost "${globalArgs[@]}" && apache sync "${hostOpt[@]}" "${globalArgs[@]}"
+	[[ -d "$webDirFinal" && ! $force ]] && return
+	apache sync --host="$(GetServer "web")" && sudo mkdir --parents "$webDirFinal"
 }
 
 #
@@ -169,4 +150,3 @@ webDeployCommand()
 getContainerId() { docker ps --all | grep "$dockerImageName" | cut -d" " -f1; }
 
 ScriptRun "$@"
-
