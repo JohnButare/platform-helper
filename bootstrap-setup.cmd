@@ -3,7 +3,7 @@ REM bootstrap-setup.cmd - create and run bootstrap.cmd on the users Desktop to r
 REM bootstrap-setup.cmd -> bootstrap-wsl.cmd -> bootstrap-init -> bootstrap -> inst
 
 REM create bootstrap.cmd on the users Desktop
-set file=%HOMEPATH%\bootstrap.cmd
+set file=%HOMEPATH%\Desktop\bootstrap.cmd
 set unc=%~dp0
 echo @echo off > %file%
 echo net use %unc% >> %file%
