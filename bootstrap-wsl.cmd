@@ -1,4 +1,6 @@
 @echo off
+REM bootstrap-wsl.cmd - bootstrap a Windows sytem
+REM bootstrap-setup.cmd -> bootstrap-wsl.cmd -> bootstrap-init -> bootstrap -> inst
 
 REM dist - name of the distribution to install
 set dist=Ubuntu
