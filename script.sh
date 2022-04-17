@@ -429,7 +429,7 @@ ScriptUsage()
 
 	# verbose usage
 	if [[ $verbose ]]; then
-		[[ $c ]] && RunFunction "${c}UsageVerbose" || RunFunction "usageVerbose"
+		[[ $c && ! $defaultCommandUsed ]] && RunFunction "${c}UsageVerbose" || RunFunction "usageVerbose"
 	fi
 
 	exit "${1:-1}"
