@@ -2139,7 +2139,7 @@ ProcessClose()
 ProcessCloseWait()
 {
 	# arguments
-	local full name names=() quiet root seconds=10 verbose verboseLevel
+	local full names=() quiet root seconds=10 verbose verboseLevel
 
 	# options
 	while (( $# != 0 )); do
@@ -2154,7 +2154,7 @@ ProcessCloseWait()
 		esac
 		shift
 	done
-	[[ ! "$name" ]] && { MissingOperand "name" "ProcessCloseWait"; return; }
+	[[ ! $names ]] && { MissingOperand "name" "ProcessCloseWait"; return; }
 
 	# close
 	local name
@@ -2162,7 +2162,6 @@ ProcessCloseWait()
 
 		# continue if not running
 		[[ ! $force ]] && ! IsProcessRunning $root $full "$name" && continue
-
 		# close the process
 		[[ ! $quiet ]] && printf "Closing process $name..."
 		ProcessClose $root $full "$name"
