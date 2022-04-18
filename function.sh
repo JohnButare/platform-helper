@@ -906,7 +906,7 @@ ptw() { printf "%s\n" "${1//\//"\\"}"; } # PathToWin - use printf so zsh does no
 wtu() # WinToUnix
 {
 	GetArgs; local file="$1"; [[ ! $file ]] && { MissingOperand "FILE" "wtu"; return 1; }
-	{ ! IsPlatform win || [[ ! "$file" ]] || IsLinuxPath "$file"; } && { echo -E "$file"; return; }
+	{ ! IsPlatform win || [[ ! "$file" ]] || IsUnixPath "$file"; } && { echo -E "$file"; return; }
   wslpath -u "$*"
 }
 
