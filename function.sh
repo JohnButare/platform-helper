@@ -10,11 +10,13 @@ if IsBash; then
 	shopt -u nocaseglob nocasematch
 	PLATFORM_SHELL="bash"
 	whence() { type "$@"; }
+	PipeStatus() { return ${PIPESTATUS[$1]}; } # PipeStatus N - return the status of the 0 based Nth command in the pipe
 fi
 
 if IsZsh; then
 	setopt EXTENDED_GLOB KSH_GLOB NO_NO_MATCH
 	PLATFORM_SHELL="zsh"
+	PipeStatus() { echo "${pipestatus[$(($1+1))]}"; }
 fi
 
 if [[ ! $BIN ]]; then
@@ -595,6 +597,7 @@ GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 
 
 # integer
 IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
+IsNumeric() { [[ "$1" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; }
 HexToDecimal() { echo "$((16#${1#0x}))"; }
 
 # string
@@ -669,12 +672,12 @@ TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')"; }
 TimestampDiff () { ${G}printf '%s' $(( $(${G}date -u +%s) - $(${G}date -u -d"$1" +%s))); }
 TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
 
-# TimeCommand - return the time it takes to execute a command in milliseconds to three decimal places
+# TimeCommand - return the time it takes to execute a command in seconds to three decimal places
 # Command output is supressed.  The status of the command is returned.
 if IsBash; then
-	TimeCommand() { { time command "$@"; } |& tail -3 | head -1 | cut -d$'\t' -f2 | sed 's/m/:/' | sed 's/s//' | awk -F: '{ print ($1 * 60) + $2 }'; return ${PIPESTATUS[0]}; }
+	TimeCommand() { TIMEFORMAT="%3R"; time (command "$@" >& /dev/null); }
 else
-	TimeCommand() { { time "$@"; } |& tail -1 | rev | cut -d" " -f2 | rev; return $pipestatus[1]; }
+	TimeCommand() { { time (command "$@" >& /dev/null); } |& cut -d" " -f9; return $pipestatus[1]; }
 fi
 
 #
@@ -682,7 +685,7 @@ fi
 #
 
 CopyFileProgress() { rsync --info=progress2 "$@"; }
-DirCount() { RemoveSpace "$(command ls "$1" | wc -l)"; return "${PIPESTATUS[0]}"; }
+DirCount() { local result; result="$(command ls "${1:-.}" |& wc -l)" || return; RemoveSpace "$result"; }
 EnsureDir() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
 GetBatchDir() { GetFilePath "$0"; }
 GetFileSize() { GetArgs; [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
@@ -895,20 +898,22 @@ SelectFile() # DIR PATTERN MESSAGE
 }
 
 # Path Conversion
+IsUnixPath() { [[ "$1" =~ '/' ]]; }
+IsBash && IsWindowsPath() { [[ "$1" =~ '\' ]]; } || IsWindowsPath() { [[ "$1" =~ '\\' ]]; }
 utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
 ptw() { printf "%s\n" "${1//\//"\\"}"; } # PathToWin - use printf so zsh does not interpret back slashes (\)
 
 wtu() # WinToUnix
 {
-	[[ ! "$@" || "$PLATFORM" != "win" ]] && { echo "$@"; return 1; }
+	GetArgs; local file="$1"; [[ ! $file ]] && { MissingOperand "FILE" "wtu"; return 1; }
+	{ ! IsPlatform win || [[ ! "$file" ]] || IsLinuxPath "$file"; } && { echo -E "$file"; return; }
   wslpath -u "$*"
 }
 
 utw() # UnixToWin
-{ 
-	GetArgs; local clean="" file="$1"
-
-	[[ ! "$file" || "$PLATFORM" != "win" ]] && { echo "$file"; return 1; }
+{	
+	GetArgs; local clean="" file="$1"; [[ ! $file ]] && { MissingOperand "FILE" "utw"; return 1; } 
+	{ ! IsPlatform win || [[ ! "$file" ]] || IsWindowsPath "$file"; } && { echo -E "$file"; return; }
 
 	file="$(GetRealPath "$file")" || return
 
@@ -1145,6 +1150,7 @@ GetIpAddress()
 {
 	local host mdns quiet vm wsl all=(head -1); 
 
+	# arguments
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-a|--all) all=(cat);;
@@ -1322,31 +1328,56 @@ PingResponse()
 
 	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
-		return ${PIPESTATUS[0]}
 	else
 		ping -c 1 -W 1 "$host" |& grep "time=" | cut -d" " -f 7 | tr -d 'time=' # -W timeoutSeconds
-		return ${PIPESTATUS[0]}
 	fi
-
 }
 
-# PortResponse HOST PORT [TIMEOUT_MILLISECONDS] - return host port response time in milliseconds
+# PortResponse [--verbose] HOST PORT [TIMEOUT_MILLISECONDS] - return host port response time in milliseconds
 PortResponse() 
 {
-	local host="$1" local port="$2" timeout="${3-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host")" || return
+	# arguments
+	local host port timeout quiet verbose verboseLevel
 
-	if InPath ncat; then
-		TimeCommand ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port"
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-q|--quiet) quiet="--quiet";;
+			-v|-vv|-vvv|-vvvv|-vvvvv|--verbose) ScriptOptVerbose "$1";;
+			*)
+				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $timeout ]] && { timeout="$1"; shift; continue; }
+				UnknownOption "$1" start; return
+		esac
+		shift
+	done
+	[[ ! $host ]] && { MissingOperand "host" "PortResponse"; return 1; }
+	[[ ! $port ]] && { MissingOperand "port" "PortResponse"; return 1; }
+	[[ ! $timeout ]] && { timeout="$(ConfigGet "hostTimeout")"; }
+
+	# test port
+	local result host="$(GetIpAddress $quiet "$host")" || return
+
+	if InPath ncat && [[ ! $verbose ]]; then
+		result="$(TimeCommand ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port")" || return
+
 	elif InPath nmap; then
-		local line="$(nmap "$host" -p "$port" -Pn -T5)"
-		echo "$line" | grep -q "open" || return
-		line="$(echo "$line" | grep "Host is up")"; (( ${PIPESTATUS[0]} != 0 )) && return # "Host is up (0.049s latency)."
-		line="${line##*\(}" # remove "Host is up ("
-		line="${line%%s*}" 	# remove "s latency"
-		printf "%.*f\n" 3 "$(echo "$line * 1000" | bc)" # seconds to milliseconds, round to 3 decimal places
+		local result="$(nmap "$host" -p "$port" -Pn -T5)" || return
+		! echo "$result" | grep --quiet "open" && { [[ ! $quiet ]] && ScriptErr "host '$host' port '$port' is not open" "PortResponse"; return 1; }
+
+		# "Host is up (0.049s latency)."
+		result="$(echo "$result" | grep "Host is up")" || { [[ ! $quiet ]] && ScriptErr "host '$host' is not up" "PortResponse"; return 1; }
+		result="$(echo "$result" | RemoveBefore \( | cut -d"s" -f1)"
 	else
 		echo "0"; return 0 
 	fi
+
+	# validate
+	! IsNumeric "$result" && { [[ ! $quiet ]] && ScriptErr "received an invalid response '$result'" "PortResponse"; return 1; }
+
+	# return
+	echo $result
+	echo "$result * 1000" | bc	
 }
 
 WaitForAvailable() # WaitForAvailable HOST [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
@@ -1985,40 +2016,28 @@ IsExecutable()
 	type -a "$p" >& /dev/null
 }
 
-IsTaskRunning() 
-{
-	local file="$1"; shift
-
-	# get processes - grep fails if ProcessList call in the same pipline on Windows
-	local processes; processes="$(ProcessList "$@" | tgrep -v ",grep$")" || return
-
-	# convert windows programs to a quoted Windows path format
-	IsWindowsProcess "$file" && file="$(utwq "$file")"
-
-	# search for an exact match, a match without the Unix path, and a match without the Windows path
-	echo "$processes" | grep --extended-regexp --ignore-case --quiet "(,$file$|,.*//$file$|,.*\\$file$)"
-}
-
 # IsProcessRunning NAME
 # -f|--full 	match the full command line argument not just the process name
 # -r|--root 	return root processes as well
 IsProcessRunning()
 {
+	# options
 	local full name root win
 
-	# options
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-f|--full) full="--full";;
 			-r|--root) root="sudoc";;
 			*)
-				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
-				else UnknownOption "$1" "ProcessKill"; return
-				fi
+				! IsOption "$1" && [[ ! $name ]] && { name="$1"; shift; continue; }
+				UnknownOption "$1" "IsProcessRunning"; return 1
 		esac
 		shift
 	done
 	[[ ! "$name" ]] && { MissingOperand "name" "ProcessClose"; return; }
+
+	# check Windows process
+	IsWindowsProcess "$name" && { IsProcessRunningList "$name" --win; return; }
 
 	# check for process using pidof - slightly faster but pickier than pgrep
 	if [[ ! $full && $root ]]; then
@@ -2031,117 +2050,193 @@ IsProcessRunning()
 	pgrep $full "$name" "${args[@]}" > /dev/null
 }
 
-# IsWindowsProces: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
-IsWindowsProcess() { IsPlatform win && file "$1" | grep --quiet "PE32"; }
+# IsProcessRunningList [--user|--unix|--win] NAME - check if NAME is in the list of running processes.  Slower than IsProcessRunning.
+IsProcessRunningList() 
+{
+	local name="$1"; shift
 
-# ProcessClose|ProcessCloseWait|ProcessKill NAME - close or kill the specified process
+	# get processes - grep fails if ProcessList call in the same pipline on Windows
+	local processes; processes="$(ProcessList "$@" | tgrep --invert-match ",grep$")" || return
+
+	# convert windows programs to a quoted Windows path format
+	HasFilePath "$name" && IsWindowsProcess "$name" && name="$(utw "$name")"	
+	IsWindowsPath "$name" && name="$(echo -E "$name" | QuoteBackslashes)"
+
+	# search for an exact match, a match without the Unix path, and a match without the Windows path
+	echo -E "$processes" | grep --extended-regexp --ignore-case --quiet "(,$name$|,.*/$name$|,.*\\\\$name$)"
+}
+
+# IsWindowsProces NAME: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
+IsWindowsProcess()
+{
+	local name="$1"; [[ ! $1 ]] && { MissingOperand "name" "IsWindowsProcess"; return 1; }
+	! IsPlatform win && return 1
+	[[ "$(GetFileExtension "$name")" == "exe" ]] && return 0
+	[[ ! -f "$name" ]] && { name="$(FindInPath "$name")" || return; }
+	[[ "$(GetFileExtension "$name")" == "exe" ]] && return 0
+	file "$name" | grep --quiet "PE32"
+}
+
+# ProcessClose|ProcessCloseWait|ProcessKill NAME... - close or kill the specified process
 # -f|--full 	match the full command line argument not just the process name
 # -r|--root 	kill processes as root
 ProcessClose() 
 { 
-	local args=() name root win
+	# arguments
+	local args=() force names=() quiet root verbose verboseLevel
 
-	# options
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-f|--full) args+=("--full");;
+			--full) args+=("--full");;
+			-f|--force) force="--force";;
+			-q|--quiet) quiet="--quiet";;
 			-r|--root) root="sudoc";;
+			-v|-vv|-vvv|-vvvv|-vvvvv|--verbose) ScriptOptVerbose "$1";;
 			*)
-				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
-				else UnknownOption "$1" "ProcessKill"; return
-				fi
+				! IsOption "$1" && { names+=("$1"); shift; continue; }
+				UnknownOption "$1" "ProcessClose"; return 1
 		esac
 		shift
 	done
-	[[ ! "$name" ]] && { MissingOperand "name" "ProcessClose"; return; }
-
-	# check for Windows process
-	{ [[ "$(GetFileExtension "$name")" == "exe" ]] || IsWindowsProcess "$name"; } && win="true"
+	[[ ! $names ]] && { MissingOperand "name" "ProcessClose"; return; }
 
 	# close
-	if [[ $win ]]; then
-		name="${name/.exe/}.exe"; GetFileName "$name" name # ensure process has an .exe extension
-		cd "$PBIN" || return # process.exe only runs from the current directory in WSL
-		./Process.exe -q "$name" $2 | grep "has been closed successfully." > /dev/null
-	
-	elif IsPlatform mac; then
-		osascript -e "quit app \"$1\""
+	local finalResult="0" name result win
+	for name in "${names[@]}"; do
 
-	else
-		[[ ! $root ]] && args+=("--uid" "$USER")
-		$root pkill "$name" "${args[@]}"
+		# continue if the process is not running
+		[[ ! $force ]] && ! IsProcessRunning $root $full "$name" && continue
 
-	fi
+		# check for Windows process
+		IsWindowsProcess "$name" && win="true"
+
+		# close
+		if [[ $win ]]; then
+			name="${name/.exe/}.exe"; GetFileName "$name" name # ensure process has an .exe extension
+			cd "$PBIN" || return # process.exe only runs from the current directory in WSL
+			./Process.exe -q "$name" $2 |& grep --quiet "has been closed successfully."; result="$(PipeStatus 1)"
+
+		elif IsPlatform mac; then
+			osascript -e "quit app \"$1\""; result="$?"
+
+		else
+			[[ ! $root ]] && args+=("--uid" "$USER")
+			$root pkill "$name" "${args[@]}"; result="$?"
+
+		fi
+
+		if (( $result != 0 )); then
+			[[ ! $quiet ]] && ScriptErr "unable to close '$name'"; finalResult="1"
+		elif [[ $verbose ]]; then
+			ScriptErr "closed process '$name'"
+		fi
+
+	done
+
+	return "$finalResult"
 }
 
 ProcessCloseWait()
 {
-	local full name root seconds=10
+	# arguments
+	local full name names=() quiet root seconds=10 verbose verboseLevel
 
 	# options
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-f|--full) full="--full";;
+			-q|--quiet) quiet="true";;
 			-r|--root) root="--root";;
+			-v|-vv|-vvv|-vvvv|-vvvvv|--verbose) ScriptOptVerbose "$1";;
 			*)
-				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
-				else UnknownOption "$1" "ProcessCloseWait"; return
-				fi
+				! IsOption "$1" && { names+=("$1"); shift; continue; }
+				UnknownOption "$1" "ProcessCloseWait"; return 1
 		esac
 		shift
 	done
 	[[ ! "$name" ]] && { MissingOperand "name" "ProcessCloseWait"; return; }
 
-	# return if not running
-	! IsProcessRunning $root $full "$name" && return
+	# close
+	local name
+	for name in "${names[@]}"; do
 
-	# close the process
-	printf "Closing process $name..."; ProcessClose $root $full "$name"
+		# continue if not running
+		[[ ! $force ]] && ! IsProcessRunning $root $full "$name" && continue
 
-	# wait for process to close
-	local description="closed"
-	for (( i=1; i<=$seconds; ++i )); do
- 		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
-		printf "."
-		! IsProcessRunning $root $full "$name" && { echo "$description"; return; }
-		sleep 1; description="killed"; ProcessKill $root $full "$name"
+		# close the process
+		[[ ! $quiet ]] && printf "Closing process $name..."
+		ProcessClose $root $full "$name"
+
+		# wait for process to close
+		local description="closed"
+		for (( i=1; i<=$seconds; ++i )); do
+	 		ReadChars 1 1 && { [[ ! $quiet ]] && echo "cancelled after $i seconds"; return 1; }
+			[[ ! $quiet ]] && printf "."
+			! IsProcessRunning $root $full "$name" && { [[ ! $quiet ]] && echo "$description"; return; }
+			sleep 1; description="killed"; ProcessKill $root $full "$name"
+		done
+
+		[[ ! $quiet ]] && echo "failed"; return 1
+
 	done
-
-	echo "not found"; return 1
 }
 
 ProcessKill()
 {
-	local args=() name root win
+	# arguments
+	local args=() force names=() quiet root win
 
-	# options
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-f|--full) args+=("--full");;
+			--full) args+=("--full");;
+			-f|--force) force="--force";;
+			-q|--quiet) quiet="true";;
 			-r|--root) root="sudoc";;
 			-w|--win) win="--win";;
 			*)
-				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
-				else UnknownOption "$1" "ProcessKill"; return
-				fi
+				! IsOption "$1" && { names+=("$1"); shift; continue; }
+				UnknownOption "$1" "ProcessKill"; return 1
 		esac
 		shift
 	done
-	[[ ! "$name" ]] && { MissingOperand "name" "ProcessKill"; return; }
+	[[ ! $names ]] && { MissingOperand "name" "ProcessKill"; return; }
 
-	# check for Windows process
-	{ [[ "$(GetFileExtension "$name")" == "exe" ]] || IsWindowsProcess "$name"; } && win="true"
+	# kill
+	local name output result resultFinal="0"
+	for name in "${names[@]}"; do
 
-	# kill the process
-	if [[ $win ]]; then
-		start pskill.exe "$name"
-	else
-		[[ ! $root ]] && args+=("--uid" "$USER")
-		$root pkill -9 "$name" "${args[@]}"
-	fi
+		# continue if not running
+		[[ ! $force ]] && ! IsProcessRunning $root $full "$name" && continue
+
+		# check for Windows process
+		[[ ! $win ]] && IsWindowsProcess "$name" && win="true"
+
+		# kill the process
+		if [[ $win ]]; then
+			output="$(start pskill.exe -nobanner "$name" |& grep "unable to kill process" | grep "^Process .* killed$")"
+		else
+			[[ ! $root ]] && args+=("--uid" "$USER")
+			output="$($root pkill -9 "$name" "${args[@]}")"
+		fi
+		result="$?"
+
+		# process result
+		[[ ! $quiet && $output ]] && echo "$output"
+		if (( $result != 0 )); then
+			[[ ! $quiet ]] && ScriptErr "unable to kill '$name'"; resultFinal="1"
+		elif [[ $verbose ]]; then
+			ScriptErr "killed process '$name'"
+		fi
+
+	done
+
+	return "$resultFinal"
 }
 
-# ProcessList - show process ID and executable name with a full path in format PID,NAME
+# ProcessList [--user|--unix|--win] - show process ID and executable name with a full path in format PID,NAME
+# -u|--user - only user processes
+# -U|--unix - only UNIX processes
+# -w|--win - only Windows processes
 ProcessList() 
 { 
 	# arguments

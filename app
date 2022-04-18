@@ -36,24 +36,24 @@ startupCommand() { run "startup"; }
 # applications
 #
 
-AltTabTerminator() { IsTaskRunning "AltTabTer.exe" || taskStart "$P/Alt-Tab Terminator/AltTabTer.exe" "" /startup; }
+AltTabTerminator() { IsProcessRunning "AltTabTer.exe" || taskStart "$P/Alt-Tab Terminator/AltTabTer.exe" "" /startup; }
 AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && taskStart "$P/ASPNETVersionSwitcher/ASPNETVersionSwitcher.exe"; }
 chrony() { runService "chrony"; }
 cron() { runService "cron"; }
-cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsTaskRunning "iCUE.exe" || taskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
+cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsProcessRunning "iCUE.exe" || taskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
 dbus() { runService "dbus"; }
-discord() { IsTaskRunning Discord.exe || taskStart "$UADATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }
+discord() { IsProcessRunning Discord.exe || taskStart "$UADATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }
 docker() { runService "docker"; }
 duet() { taskStart "$P/Kairos/Duet Display/duet.exe"; }
-Explorer() { [[ "$command" == "startup" ]] && ! IsTaskRunning explorer.exe && start explorer; }
-GlassWire() { IsTaskRunning "GlassWire.exe" || taskStart "$P32/GlassWire/glasswire.exe" "" -hide; }
-Greenshot() { IsTaskRunning "Greenshot.exe" || taskStart "$P/Greenshot/Greenshot.exe" "" ; }
+Explorer() { [[ "$command" == "startup" ]] && ! IsProcessRunning explorer.exe && start explorer; }
+GlassWire() { IsProcessRunning "GlassWire.exe" || taskStart "$P32/GlassWire/glasswire.exe" "" -hide; }
+Greenshot() { IsProcessRunning "Greenshot.exe" || taskStart "$P/Greenshot/Greenshot.exe" "" ; }
 incron() { runService "incron"; }
 IntelActiveMonitor() { taskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
-IntelRapidStorage() { IsTaskRunning "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
+IntelRapidStorage() { IsProcessRunning "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
 NetworkUpdate() { network current update --brief $force; }
-PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.exe"; [[ ! -f "$p" ]] && return; IsTaskRunning "$p" || start "$p"; }
-SecurityHealthTray() { IsTaskRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
+PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.exe"; [[ ! -f "$p" ]] && return; IsProcessRunning "$p" || start "$p"; }
+SecurityHealthTray() { IsProcessRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
 sshd() { runService "ssh"; }
 SyncPlicity() { taskStart "$P/Syncplicity/Syncplicity.exe"; }
 
@@ -68,13 +68,13 @@ FixTime()
 IntelDesktopControlCenter() 
 { 
 	program="$P32/Intel/Intel(R) Desktop Control Center/idcc.exe"
-	{ [[ "$command" == "startup" && -f "$program" ]] && IsTaskRunning idcc; } && 
+	{ [[ "$command" == "startup" && -f "$program" ]] && IsProcessRunning idcc; } && 
 		start --directory="$(GetFilePath "$program")" "$program"
 }
 
 OneDrive()
 {
-	IsTaskRunning OneDrive.exe && return
+	IsProcessRunning OneDrive.exe && return
 
 	local file="$P32/Microsoft OneDrive/OneDrive.exe"; [[ ! -f "$file" ]] && file="$UADATA/Microsoft/OneDrive/OneDrive.exe"
 	start "$file" /background; 
@@ -104,7 +104,7 @@ processExplorer()
 {
 	if [[ "$command" == "startup" ]]; then
 		taskStart "$DATA/platform/win/ProcExp.exe" "Process Explorer*" /t /p:l
-	elif IsTaskRunning "procexp"; then
+	elif IsProcessRunning "procexp"; then
 		SendKeys "Process Explorer.*" "!Fx"
 	fi;
 }
@@ -176,11 +176,11 @@ runInternalApp()
 	[[ ! -f "$program" ]] && return
 
 	if [[ "$command" == "startup" ]]; then
-		IsTaskRunning "$program" && return
+		IsProcessRunning "$program" && return
 		showStatus
 		start "$program" $args
 	else
-		IsTaskRunning "$program" || return
+		IsProcessRunning "$program" || return
 		showStatus
 		$close "$(GetFileName "$program")"
 	fi
@@ -268,12 +268,12 @@ taskStart()
 	[[ ! -f "$program" ]] && return
 
 	if [[ "$command" == "startup" ]]; then
-		IsTaskRunning "$program" && return
+		IsProcessRunning "$program" && return
 		showStatus || return
 		task start --brief --title "$title" "$program" "${args[@]}"
 		[[ ! $brief ]] && echo done
 	else
-		IsTaskRunning "$program" || return
+		IsProcessRunning "$program" || return
 		showStatus || return
 		task close --brief --title "$title" "$program" || return
 		[[ ! $brief ]] && echo done
