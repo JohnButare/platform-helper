@@ -597,7 +597,7 @@ GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 
 
 # integer
 IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
-IsNumeric() { [[ "$1" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; }
+IsNumeric() { [[ "$1" =~ ^-?[0-9.]+([.][0-9]+)?$ ]]; }
 HexToDecimal() { echo "$((16#${1#0x}))"; }
 
 # string
@@ -675,7 +675,7 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d\n" $(( $s/6
 # TimeCommand - return the time it takes to execute a command in seconds to three decimal places
 # Command output is supressed.  The status of the command is returned.
 if IsBash; then
-	TimeCommand() { TIMEFORMAT="%3R"; time (command "$@" >& /dev/null); }
+	TimeCommand() { TIMEFORMAT="%3R"; time (command "$@" >& /dev/null) 2>&1; }
 else
 	TimeCommand() { { time (command "$@" >& /dev/null); } |& cut -d" " -f9; return $pipestatus[1]; }
 fi
@@ -1368,15 +1368,15 @@ PortResponse()
 		# "Host is up (0.049s latency)."
 		result="$(echo "$result" | grep "Host is up")" || { [[ ! $quiet ]] && ScriptErr "host '$host' is not up" "PortResponse"; return 1; }
 		result="$(echo "$result" | RemoveBefore \( | cut -d"s" -f1)"
+	
 	else
 		echo "0"; return 0 
 	fi
 
 	# validate
-	! IsNumeric "$result" && { [[ ! $quiet ]] && ScriptErr "received an invalid response '$result'" "PortResponse"; return 1; }
+	! IsNumeric "$result" && { [[ ! $quiet ]] && ScriptErr "received an invalid response '$result' contacting host '$host' port '$port'" "PortResponse"; return 1; }
 
 	# return
-	echo $result
 	echo "$result * 1000" | bc	
 }
 
