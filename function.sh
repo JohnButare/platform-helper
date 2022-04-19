@@ -57,6 +57,8 @@ urlencode()
   '
 }
 
+urldecode() { GetArgs; : "${*//+/ }"; echo -e "${_//%/\\x}"; }
+
 # update - manage update state in a temporary file location
 UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
 UpdateCheck() { [[ $updateDir ]] && return; UpdateInit; }
