@@ -255,6 +255,7 @@ serviceDemandStop() { service demand "$1" && service stop "$1"; }
 serviceDisableStop() { service disable "$1" && service stop "$1"; }
 sshRun() { SshAgentConf --quiet "${globalArgs[@]}" && RunLog ssh "$@"; }
 verifyStaticIpAddress() { [[ -f /etc/dhcpcd.conf ]] && grep "^static ip_address=" /etc/dhcpcd.conf >& /dev/null; }
+waitForInstall() { local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
 
 checkInstallable()
 {
@@ -467,7 +468,8 @@ makeDir()
 # run [PROGRAM] - run an installation program
 run() 
 {
-	local args=() copyLocal dest header elevate name otherArgs=() p pause platform rename type="extension"
+	# arguments
+	local args=() copyLocal dest header elevate name p pause rename type="extension"
 
 	while (( $# != 0 )); do
 		local shift=1
@@ -512,6 +514,9 @@ run()
 	(( $# != 0 )) && { ExtraOperand "$@"; return 1; }
 	[[ ! "$dest" ]] && dest="$P"
 
+	# variables
+	local platform; unset ran
+
 	# get file for platform if p is in the format PATH/WIN_FILE|MAC_FILE|LINUX_FILE
 	local file="$(GetFileName "$p")"
 	local files=(); StringToArray "$file" "|" files; set -- "${files[@]}"
@@ -543,6 +548,7 @@ run()
 
 	# run specified installation type
 	RunFunction "runType" "$type" -- "$p" "$name" "$dest" "${args[@]}" || return
+	ran="true"
 
 	# cleanup
 	[[ $pause ]] && pause "When the installation has finished press any key..."
@@ -3354,14 +3360,10 @@ LogitechInstall() { i LogitechGhub LogitechOptions; }
 
 LogitechFinalWin()
 {
-	#registry delete "run/LogiOptions" || return # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
-	registry delete "run/Logitech Download Assistant" || return # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch
+	registry delete "run/LogiOptions" || return # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
 	registry delete "urun/LGHUB" || return # "C:\Program Files\LGHUB\lghub.exe" --background
-	mergeDir "$up/Logitech" "$oo" || return
-	$mv "$pp/Logitech/Logitech Options.lnk" "$pp/Operating System" || return
-	$mv "$pd/Logi Options+.lnk" "$pp/Operating System" || return
-	$mv "$pd/Logitech G HUB.lnk" "$pp/Operating System" || return
-	$rmd "$pp/Logi" "$pp/Logitech" || return
+	mergeDir "$pp/Logitech" "$oo" || return
+	mergeDir --rename "$pp/Logi" "$oo/Logitech" || return
 }
 
 LogitechGhubInstall()
@@ -3374,9 +3376,23 @@ LogitechGhubInstall()
 
 LogitechOptionsInstall()
 {
-	header "Logitech Options" # http://support.logitech.com/en_us/software/options
-	run "hardware/Logitech/options/options_installer.exe|LogiMgr Installer 9.60.122.app" --elevate || return
-	run "hardware/Logitech/options/logioptionsplus_installer.exe|logioptionsplus_installer.app" --elevate || return
+	header "Logitech Options" 
+	local v="9.60.87" 		    # http://support.logitech.com/en_us/software/options
+	local versionBeta="4131" 	# https://www.logitech.com/en-ca/software/logi-options-plus.html
+	local args=(); IsPlatform win && args+=('/quiet:1')
+
+	# return if installed
+	[[ "$installType" == "beta" ]] && v="$versionBeta"
+	LogitechOptions IsInstalled && [[ ! $force && "$(LogitechOptions version)" == "$v" ]] && return
+
+	# install
+	if [[ "$installType" == "beta" ]]; then run "hardware/Logitech/options/logioptionsplus_installer.exe|logioptionsplus_installer.app" --elevate || return
+	else
+		run "hardware/Logitech/options/options_installer.exe|LogiMgr Installer 9.60.122.app" --elevate -- "${args[@]}" || return
+		[[ $ran ]] && IsPlatform win && { waitForInstall "$pp/Logitech" || return; }
+	fi
+	
+	# configure	
 	LogitechOptions $noPrompt profile restore default || return
 	i LogitechFinal || return
 }
@@ -6745,7 +6761,7 @@ SublimeInstall()
 
 	# return if installed
 	[[ "$installType" == "beta" ]] && v="$versionBeta"
-	sublime IsInstalled && [[ "$(sublime $alternete version)" == "Sublime Text Build $v" && ! $force ]] && return
+	sublime IsInstalled && [[ ! $force && "$(sublime $alternete version)" == "Sublime Text Build $v" ]] && return
 
 	# install
 	IsPlatform linux && [[ ! $installType ]] && installType="package" # Linux defaults to package
