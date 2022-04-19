@@ -375,17 +375,21 @@ LineWrap() { ! InPath setterm && return; setterm --linewrap "$1"; }
 # - mask the differences between the read commands in bash and zsh
 ReadChars() 
 { 
-	local result n="${1:-1}" t m="$3"; [[ $2 ]] && t=( -t $2 ) # must be an array in zsh
+	local n="${1:-1}" timeoutSeconds="$2" message="$3"
+	local args result; [[ $timeoutSeconds ]] && args=(-t "$timeoutSeconds")
 
-	[[ $m ]] && printf "%s" "$m"
+	# message
+	[[ $message ]] && echo -n "$m"
 
+	# read
 	if IsZsh; then # single line statement fails in zsh
-		read -s -k $n ${t[@]} "response"
+		read -s -k $n "${args[@]}" "response"
 	else
-		read -n $n -s ${t[@]} response
+		read -n $n -s "${args[@]}" "response"
 	fi
 	result="$?"
 
+	# message
 	[[ $m ]] && echo
 
 	return "$result"
@@ -822,6 +826,46 @@ FileToDesc() # short description for the file, mounted volumes are converted to 
 	echo "$file"
 }
 
+# FileWait [-q|--quiet] FILE [SECONDS](60) - wait for a file or directory to exist
+FileWait()
+{
+	# arguments
+	local file noCancel quiet timeoutSeconds
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-nc|--no-cancel) noCancel="true";;
+			-q|--quiet) quiet="true";;
+			*)
+				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $timeoutSeconds ]] && { timeoutSeconds="$1"; shift; continue; }
+				UnknownOption "$1" "FileWait"; return 1
+		esac
+		shift
+	done
+	[[ ! $file ]] && { MissingOperand "file" "FileWait"; return 1; }
+	timeoutSeconds="${timeoutSeconds:-60}"
+	! IsInteger "$timeoutSeconds" && { ScriptErr "seconds '$timeoutSeconds' is not an integer"; return 1; }
+
+	# variables
+	local dir="$(GetFilePath "$file")" fileName="$(GetFullPath "$file")"
+
+	# wait
+	[[ ! $quiet ]] && printf "Waiting $timeoutSeconds seconds for '$fileName'..."
+	for (( i=1; i<=$timeoutSeconds; ++i )); do
+		[[ -e "$file" ]] && { [[ ! $quiet ]] && echo "found"; return 0; }
+		if [[ $noCancel ]]; then
+			sleep 1
+		else
+			ReadChars 1 1 && { [[ ! $quiet ]] && echo "cancelled after $i seconds"; return 1; }
+		fi
+		[[ ! $quiet ]] && printf "."
+	done
+
+	[[ ! $quiet ]] && echo "not found"; return 1
+
+}
+
 FindInPath()
 {
 	local file="$1" 
@@ -1148,9 +1192,9 @@ GetInterface()
 # test cases: 10.10.100.10 web.service pi1 pi1.butare.net pi1.hagerman.butare.net
 GetIpAddress() 
 {
+	# arguments
 	local host mdns quiet vm wsl all=(head -1); 
 
-	# arguments
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-a|--all) all=(cat);;
@@ -1160,9 +1204,8 @@ GetIpAddress()
 			-v|--vm) vm="true";;
 			-w|--wsl) wsl="--wsl";;
 			*)
-				if ! IsOption "$1" && [[ ! $host ]]; then host="$(GetSshHost "$1")"
-				else UnknownOption "$1" "GetIpAddress"; return 1
-				fi
+				! IsOption "$1" && [[ ! $host ]] && { host="$(GetSshHost "$1")"; shift; continue; }
+				UnknownOption "$1" "GetIpAddress"; return 1
 		esac
 		shift
 	done
@@ -1380,12 +1423,12 @@ PortResponse()
 	echo "$result * 1000" | bc	
 }
 
-WaitForAvailable() # WaitForAvailable HOST [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
+WaitForAvailable() # WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 {
 	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForAvailable"; return 1; }
 	local timeout="${2-$(ConfigGet "hostTimeout")}" seconds="${3-$(ConfigGet "hostTimeout")}"
 
-	printf "Waiting for $host..."
+	printf "Waiting $seconds seconds for $host..."
 	for (( i=1; i<=$seconds; ++i )); do
  		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
 		printf "."
