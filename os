@@ -7,9 +7,9 @@ usage()
 Usage: os [COMMAND]... [OPTION]...
 Operating system commands
 
-	info|architecture|bits|build|CodeName|hardware|mhz|version		information
+	info|architecture|bits|build|CodeName|hardware|mhz|release|version		information
 	disk					[available|total](total)
-	environment|index|path|lock|preferences|store									control
+	environment|index|path|lock|preferences|store													control
 	executable		executable information
 	memory				[available|total](total)
 	name					show or set the operating system name"
@@ -314,7 +314,6 @@ bitsCommand() # 32 or 64
 }
 
 buildCommand() { RunPlatform "build"; } 
-buildUbuntu() { lsb_release -rs; }
 buildWin() { registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/CurrentBuild" | RemoveCarriageReturn; }
 
 mhzCommand()
@@ -329,6 +328,10 @@ mhzCommand()
 # mips|mip64			MIPS, 32|64 bit
 # x86_64 					x86_64 (Intel/AMD), 64 bit
 hardwareCommand() ( uname -m; )
+
+releaseCommand() { RunPlatform "release"; }
+releaseUbuntu() { lsb_release -rs; }
+
 
 #
 # info command
