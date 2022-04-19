@@ -314,6 +314,7 @@ bitsCommand() # 32 or 64
 }
 
 buildCommand() { RunPlatform "build"; } 
+buildUbuntu() { lsb_release -rs; }
 buildWin() { registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/CurrentBuild" | RemoveCarriageReturn; }
 
 mhzCommand()
@@ -468,11 +469,7 @@ infoModelPiKernel() { pi info model; }
 
 infoOther() { RunPlatform infoOther; }
 infoOtherPiKernel() {	echo "    CPU temp: $(pi info temp)"; }
-
-infoPlatform()
-{
-	echo "    platform: $(PlatformDescription)"
-}
+infoPlatform() {	echo "    platform: $(PlatformDescription)"; }
 
 infoSwitch()
 {
