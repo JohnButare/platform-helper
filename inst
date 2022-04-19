@@ -37,17 +37,19 @@ Install programs.
 	-s,  --select					select the install location"
 }
 
-installArgStart() { unset -v apps hint hostArg hostOpt hosts installType noHeader noPrompt noRun select; }
+installArgStart() { unset -v apps hint hostArg hostOpt hosts installType noHeader noHelp npProfile noPrompt noRun select; }
 
 installOpt() 
 {
 	case "$1" in
 		--hint) ScriptOptGet "hint" "$@"; export INSTALL_DIR="$hint"; hint=( --hint "$hint" );;
-		-H|--host|-H=*|--host=*) ScriptOptGet hostArg host "$@";;
-		-nh|--no-header) noHeader="--no-header";;
-		-np|--no-prompt) noPrompt="--no-prompt";;
-		-nr|--no-run) noRun="--no-run";;
-		-s|--select) select="--select";;
+		--host|--host=*|-H|-H=*) ScriptOptGet hostArg host "$@";;
+		--no-header|-nh) noHeader="--no-header";;
+		--no-help) noHelp="--no-help";;
+		--no-profile) noProfile="--no-profile";;
+		--no-prompt|-np) noPrompt="--no-prompt";;
+		--no-run|-nr) noRun="--no-run";;
+		--select|-s) select="--select";;
 		*) return 1
 	esac
 }
@@ -159,7 +161,7 @@ installInit()
 	debian=( apt AptUtilities audacity bind cfssl chroot ChronyServer CloudInit cron CronLog cups dbus DnsServer DhcpServer flatpak geany HomeAssistantCore HomeAssistantCli HypervLinuxTools kea KeaService LastPass mDns mosquitto NodeRed pass pivpn SaltMinion GnomeKeyring SnapStore SystemUser terminator TftpClient TftpServer UncomplicatedFirewall VmwareLinuxTools )
 	debian64=()
 	mac=( amphetamine AppleConfigurator apptivate bartender bear BetterTouchTool btt CanaryMail CarrotWeather DayOne DiskInventortyX gitx HomeAssistant homie iTerm karabiner LiveDesktop Magnet MakrdownView MicrosoftRemoteDesktop pcalc rectagle RemoteDesktop spark speedtest SystemToolkit VmwareFusion WallpaperWizard xcode XcodeCli XQuartz yoink )
-	macDebian=( 1Password 1PasswordCli 7Zip asdf BalenaEtcher bat bc certbot chrony colorls DotNet Dropbox docker etcher exa fuse fzf ghq GitKraken gnupg gpg homebrew homebridge JetBrains JumpCloud MozillaVpn mysql NetbootxyzDocker pass passh PiDiskImager RpiBoot ruby RubyAsdf RubyPackage RubyRvm skype StandardNotes steam sublime SublimeMerge tmux thunderbird UnifiController unison VisualStudioCode vscode WireGuard xClient xServer xpra )
+	macDebian=( 1Password 1PasswordCli 7Zip asdf BalenaEtcher bat bc certbot chrony colorls DotNet Dropbox DropboxDownload docker etcher exa fuse fzf ghq GitKraken gnupg gpg homebrew homebridge JetBrains JumpCloud MozillaVpn mysql NetbootxyzDocker pass passh PiDiskImager RpiBoot ruby RubyAsdf RubyPackage RubyRvm skype StandardNotes steam sublime SublimeMerge tmux thunderbird UnifiController unison VisualStudioCode vscode WireGuard xClient xServer xpra )
 	macWin=( BlueSherpa BrotherPrinter calibre CanonCamera CleanMy CrealitySlicer CreativeCloud cricut deezer DellDisplayManager domotz DreamAquarium DuetDisplay dymo fork garmin GreenShot iExplorer JumpDesktop keybase lazygit logitech LogitechGhub LogitechOptions notion nVidia office origin PdfElement plex PowerShell qvr sonos spotify SurveillanceStation VisualStudio VisualStudioCode WireShark xpra xServer zoom )
 	win=( ahk AjaSystemTest AutoHotKey AltTabTerminator AquaSnap backupper bonjourSdk chocolatey CloseAllWindows CoreTemp cpuz DiskImager EdgeDeflector FileLocatorPro game GigabyteMotherboard GitExtensions HiddenStart HiddenStartConfigure iCloud IntelDrivers IntelDriverUpdate kindle KindleDrm MaxTo NordVPN Ninite Notepadpp npp RightClickEnhancer TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager hyperv HiddenStart intel IntelExtremeTuning IntelStorageManagement IntelThunderboltDriver IntelThunderboltControlCenter java LgMonitor MarkdownView MicrosoftTeams MsiMotherboard NitroPdf nVidiaDriver nVidiaGeForceExperience OneDrive oculus pa PartitionAssistant pGina PowerPanel PowerrToys QuickBooks stamps SystemInternals TaskLayout TemperatureLogger Todoist UupDump VisualStudio vs Wallpaper4k WindowsAssessmentAndDeploymentKit wsl WslConfig x410 xMing )
 
@@ -363,11 +365,13 @@ i()
 		local app="$1"; shift
 
 		[[ ! $app ]] && { ScriptErr "application not specified"; return 1; }
+		local appCheck="${app,,}" suffix
 
-		# If the application to install ends in Final, the user only wants to perform the final part of the application installation.
-		# In this case, final will be set to true and appCheck will be the name of the application without final at the end
-		local appCheck="${app,,}"
-		local final=; [[ "$appCheck" =~ final$ && "$appCheck" != "final" ]] && { final="true"; appCheck="$(RemoveEnd "$appCheck" "final")"; }
+		# check for help or final install
+		[[ "$appCheck" =~ help$ ]] && { suffix="Help"; }
+		[[ "$appCheck" =~ final$ && "$appCheck" != "final" ]] && { suffix="Final"; }
+		[[ "$appCheck" =~ profile$ ]] && { suffix="Profile"; }
+		[[ $suffix ]] && appCheck="$(RemoveEnd "$appCheck" "${suffix,,}")"
 
 		# find the name of the function used to install the application without the Install suffix, i.e. xMing
 		local appFunction; appFunction="$(getInstallFunction "$appCheck")" || { ScriptErr "'$app' installation does not exist"; return 1; }
@@ -382,18 +386,25 @@ i()
 			continue
 		fi
 
-		# run final portion of the install only
-		if [[ $final ]] ; then
-			noHeader="$noHeaderArg" noPrompt="$noPromptArg" RunPlatform "${appFunction}Final" || return
+		# run a portion of the install
+		if [[ $suffix ]] ; then
+			iPortion "${suffix}" || return
 
 		# run the app install
 		elif [[ ! $prompt ]] || ask "\nInstall $appFunction"; then
-			noHeader="$noHeaderArg" noPrompt="$noPromptArg" "${appFunction}Install" || return
-			noHeader="$noHeaderArg" noPrompt="$noPromptArg" RunPlatform "${appFunction}Final" || return
+			{ iPortion "Install" && iPortion "Final" && iPortion "Profile" && iPortion "Help"; } || return
 
 		fi
 
 	done
+}
+
+# iPortion PORTION - run a portion of the application install
+iPortion()
+{
+	local portion="$1"
+	local -n no="no${portion^}"; [[ $no ]] && return # return if the --no-PORTION option was used
+	noHeader="$noHeaderArg" noPrompt="$noPromptArg" RunFunction "${appFunction}${portion}" && noHeader="$noHeaderArg" noPrompt="$noPromptArg" RunPlatform "${appFunction}${portion}"; 
 }
 
 isInstallable()
@@ -616,8 +627,7 @@ runTypeExecutable()
 	[[ ! $name ]] && name="$(GetFileName "$dir")"
 
 	# find the executable location
-	findFile "$dir" || return
-	dir="$file"
+	findFile "$dir" || return; dir="$file"
 
 	# extract the executable from compressed files so we can analyze them
 	pushd "$dir" >& /dev/null || return
@@ -1208,6 +1218,10 @@ AudacityFinalWin()
 #
 
 BookAllInstall() { i calibre calibre2opds kindle KindleDrm; }
+Calibre2opdsInstall() { run --name "calibre2opds" "shareware/Calibre/calibre2opds/setup/calibre2opds-3.3-253.zip" --dest "$P/calibre2opds" --elevate; } # http://calibre2opds.com/downloads/
+Calibre2opdsFinalWin() { $makeShortcut "$P/calibre2opds/rungui.cmd" "$pp/Media/calibre2opds - OPDS Catalog Generator" "-" "" "" min; }
+KindleDrmInstall() { run --name "Kindle DRM" "other/Amazon/Kindle/converter/kindledrmsetup.exe"; } # http://www.ebook-converter.com/kindle-drm-removal.htm
+KindleDrmInstallFinalWin() { mergeDir "$pp/eBook Converter" "$ao"; }
 
 CalibreInstall()
 {
@@ -1216,7 +1230,10 @@ CalibreInstall()
 
 	local v=2.57.1 # http://calibre-ebook.com/download
 	run "shareware/Calibre/setup/calibre-64bit-$v.msi|calibre-$v.dmg" || return
+}
 
+CalibreHelp()
+{
 	echot "\
 	- choose a location for your books=\\nas\home\documents\data\books
 	- Manufacturers=Amazon, Devices=Kindle PaperWhite
@@ -1234,20 +1251,7 @@ CalibreFinalWin()
 	$rm "$pd/calibre 64bit - E-book management.lnk" || return
 }
 
-Calibre2opdsInstall()
-{
-	run --name "calibre2opds" "shareware/Calibre/calibre2opds/setup/calibre2opds-3.3-253.zip" --dest "$P/calibre2opds" --elevate || return # http://calibre2opds.com/downloads/
-}
-
-Calibre2opdsFinalWin()
-{
-	$makeShortcut "$P/calibre2opds/rungui.cmd" "$pp/Media/calibre2opds - OPDS Catalog Generator" "-" "" "" min || return
-}
-
-KindleInstall()
-{
-	run --name "Kindle" "other/Amazon/Kindle/setup/KindleForPC-installer-1.29.58059.exe" || return # https://www.amazon.com/kindle-dbs/fd/kcp
-}
+KindleInstall() { run --name "Kindle" "other/Amazon/Kindle/setup/KindleForPC-installer-1.29.58059.exe"; } # https://www.amazon.com/kindle-dbs/fd/kcp
 
 KindleFinalWin()
 {
@@ -1256,17 +1260,14 @@ KindleFinalWin()
 	$rm "$ud/Kindle.lnk" || return
 }
 
-KindleDrmInstall()
+KindleHelp()
 {
-	run --name "Kindle DRM" "other/Amazon/Kindle/converter/kindledrmsetup.exe" || return # http://www.ebook-converter.com/kindle-drm-removal.htm
-
 	echot "\
 - Output Option, Set Output Folder, $(platformUserAppData)/Kindle DRM
 - Kindle, Kindle Serial Number=NNN"
-	start "https://www.amazon.com/gp/digital/fiona/manage?ie=UTF8&ref_=sv_kinc_7&signInRedirect=1&#manageDevices"
 }
 
-KindleDrmInstallFinalWin() { mergeDir "$pp/eBook Converter" "$ao"; }
+KindleProfile() { start "https://www.amazon.com/gp/digital/fiona/manage?ie=UTF8&ref_=sv_kinc_7&signInRedirect=1&#manageDevices"; }
 
 #################################################
 # bootstrap - fresh operating system install
@@ -1565,14 +1566,11 @@ ChromeInstall()
 	# https://www.google.com/chrome/?platform=mac
 	# https://www.google.com/chrome/?platform=linux
 	run "other/Google/Chrome/setup/ChromeStandaloneSetup64.exe|googlechrome.dmg|google-chrome-stable_current_amd64.deb" --elevate || return
-
-	echot "- Settings, uncheck Continue running background apps when Google Chrome is closed"
 }
 
-ChromeFinalMac()
-{
-	$rm "$la\com.google.keystone.agent.plist" || return
-}
+ChromeHelp() { echot "- Settings, uncheck Continue running background apps when Google Chrome is closed"; }
+
+ChromeFinalMac() { $rm "$la\com.google.keystone.agent.plist"; }
 
 ChromeFinalWin()
 {
@@ -1601,10 +1599,10 @@ FirefoxInstall()
 	elif IsPlatform arm && ! IsPlatform mac; then pkg firefox || return
 	else run "other/Mozilla/Firefox/Firefox Setup $v.msi|Firefox $v.dmg|firefox-$v.tar.bz2" --dest="firefox" || return
 	fi
+}
 
-	# configure
-	echo; firefox $noPrompt profile restore default || return
-
+FirefoxHelp()
+{
 	echot "\
 - Options
 	- Sign in to Firefox, Sign In...
@@ -1620,17 +1618,9 @@ FirefoxInstall()
 - https://duckduckgo.com/, settings, Other Settings, Load Settings, DuckDuckButare"
 }
 
-FirefoxFinalMac()
-{
-	! dockutil --find "Firefox" >& /dev/null && { dockutil --add "/Applications/Firefox.app" || return; }
-	return 0
-}
-
-FirefoxFinalWin()
-{
-	$mv "$pp/Firefox.lnk" "$pp/Applications" || return
-	$rm "$pd/Firefox.lnk" || return
-}
+FirefoxFinalMac() { dockutil --find "Firefox" >& /dev/null && return; dockutil --add "/Applications/Firefox.app"; }
+FirefoxFinalWin() { $mv "$pp/Firefox.lnk" "$pp/Applications" && $rm "$pd/Firefox.lnk"; }
+FirefoxProfile() { firefox $noPrompt profile restore default; }
 
 TorInstall()
 {
@@ -1645,11 +1635,7 @@ TorInstall()
 	run "shareware/Tor Browser/torbrowser-install-win64-${v}_en-US.exe|TorBrowser-$v-osx64_en-US.dmg|tor-browser-linux64-$v_en-US.tar.xz" || return # https://www.torproject.org/download/
 }
 
-TorFinalWin()
-{
-	$mv "$up/Start Tor Browser.lnk" "$up/Applications" || return
-	$mv "$ud/Start Tor Browser.lnk" "$up/Applications" || return
-}
+TorFinalWin() { $mv "$up/Start Tor Browser.lnk" "$up/Applications" && $mv "$ud/Start Tor Browser.lnk" "$up/Applications"; }
 
 #################################################
 # File Comparison
@@ -1958,11 +1944,12 @@ CruiseControlTrayInstall()
 	echo "Installing plugins..."
 	findFile "shareware/CruiseControl/plugins/CCTray" || return
 	$cp	"$file"/* "$P32/CCTray" || return
+} 
 
-	CruiseControlTray profile restore default || return
+CruiseControlTrayHelp()
+{
 	CruiseControlTray startup || return
-
- 	wincred get CCTray:$USER >& /dev/null || echot "\
+ 	echot "\
 - File, Settings, Build Projects, Add..., select a secure Build Server,
   check Server is secure, Authorisation Mode=Secure user name/password authentication,
   Configure, Username=%USERNAME%"
@@ -1976,6 +1963,8 @@ CruiseControlTrayFinalWin()
 	$rm "$up/Startup/CCTray.lnk" || return
 }
 
+CruiseControlTrayProfile() { CruiseControlTray profile restore default; }
+
 JetBrainsInstall()
 {
 	header "JetBrains"
@@ -1983,11 +1972,11 @@ JetBrainsInstall()
 	local v="1.16.6067" # https://www.jetbrains.com/toolbox-app/
 	local p="jetbrains-toolbox-$v."
 	run "other/JetBrains/toolbox/$p.exe|$p.dmg|$p.tar.gz" || return
+}
 
-	if ask "Restore ReSharper profile"; then
-		ReSharper profile restore default || return
-	elif ask 'Configure ReSharper manually'; then
-		echot "\
+JetBrainsHelp()
+{
+	echot "\
 - ReSharper, Options
 	- Keyboards & Menus, ReSharper keyboard scheme=ReSharper 2.x or IntelliJ IDEA, Apply Scheme
 	- Environment, Editor, Editor Behavior, uncheck Use CamelHumps
@@ -2010,10 +1999,9 @@ JetBrainsInstall()
 	- ReSharper.ReShartper_DuplicateText, Remove, Remove (free ctrl-d)
 - notes: ctrl-n, <class>, click object, ctrl-b, Navigate to Decompiled Sources"
 		VisualStudio start
-	fi
-
-	return 0
 }
+
+JetBrainsProfile() { ReSharper profile restore default; }
 
 JetBrainsFinalWin()
 {
@@ -2132,23 +2120,18 @@ MySqlWorkbenchFinalWin()
 	mergeDir "$pp/MySQL" "$pp/Development/Other" || return
 }
 
-SqlPromptInstall()
-{
-	header "SQL Prompt"
-	run "platform/win/RedGate/SQLPromptDownload.exe" || return # downloads to $tmp/Red Gate http://www.red-gate.com/products/sql-development/sql-prompt
+SqlPromptInstall() { run --header "SQL Prompt" "platform/win/RedGate/SQLPromptDownload.exe"; } # downloads to $tmp/Red Gate http://www.red-gate.com/products/sql-development/sql-prompt
 
+SqlPromptHelp()
+{
 	echot "\
 - SQL Prompt
 	- Help, Enter Serial Number...
 	- Tabs, History, uncheck Restore open tabs"
 	 SqlServerManagementStudio || return
-	 pause
 }
 
-SqlPromptFinalWin()
-{
-	mergeDir "$pp/Red Gate" "$pp/Development/Other"
-}
+SqlPromptFinalWin() { mergeDir "$pp/Red Gate" "$pp/Development/Other"; }
 
 #################################################
 # disk
@@ -2270,7 +2253,10 @@ TrueImageInstall()
 	header "True Image" # https://www.acronis.com/en-us/support/updates/index.html
 	local f="AcronisTrueImage2019."
 	run "acronis/True Image/setup/$f.exe|$f.dmg." || return
+}
 
+TrueImageHelp()
+{
 	echot "\
 - Active Protection, off
 - settings, Mobile backup location=d:\backup"
@@ -2377,10 +2363,10 @@ QuickenFinalWin() { mergeDir --rename "$pp/Quicken" "$ao/Quicken" && $rm "$pd/Qu
 
 GraphicsCoreInstall() { i picasa FastStoneImageViewer IrfanView PaintNet; }
 
-FastStoneImageViewerInstall()
-{
-	run -- name "FastStone Image Viewer" "shareware/FastStoneImageViewer/setup/FSViewerSetup53.exe" || return
+FastStoneImageViewerInstall() { run -- name "FastStone Image Viewer" "shareware/FastStoneImageViewer/setup/FSViewerSetup53.exe"; }
 
+FastStoneImageViewerHelp()
+{
 	echot "Settings, Settings (F12)
 	- Viewer
 		- uncheck Confirm on ESC exit
@@ -2390,14 +2376,11 @@ FastStoneImageViewerInstall()
 	- Dual Monitor, check "Preview" on the secodary monitor
 	- Associations, Select All
 	- Favorites, Add, P:(\\NAS\Photo), Display Name=NAS"
-	fsview start || return
 }
 
-FastStoneImageViewerFinalWin()
-{
-	$rmd "$pp/FastStone Image Viewer" || return
-	$mv "$pd/FastStone Image Viewer.lnk" "$pp/Media" || return
-}
+FastStoneImageViewerProfile() { fsview start; }
+
+FastStoneImageViewerFinalWin() { $rmd "$pp/FastStone Image Viewer" && $mv "$pd/FastStone Image Viewer.lnk" "$pp/Media"; }
 
 IrfanViewInstall()
 {
@@ -2438,7 +2421,10 @@ PicasaInstall()
 
 	run "other/Google/Picasa/setup/Picasa Setup v3.9.139.161.exe" || return
 	run "other/Google/Picasa/starter/image v2.0.zip" --dest "$P32/PicasaStarter" --elevate || return
+}
 
+PicassaHelp()
+{	
 	echot "Tools, Options
 - General
 	- Check Single-click to exit Edit View
@@ -2447,9 +2433,9 @@ PicasaInstall()
 - E-Mail, E-mail program=Use my Google account
 - File Types, select .PNG
 - Name Tags, check Store name tags in photo"
-	picasa || return
-	pause
 }
+
+PicassaProfile() { picasa start; }
 
 PicasaFinalWin()
 {
@@ -2541,7 +2527,7 @@ GpgInstall()
 	pkg gpg || return
 
 	if [[ ! -d "$HOME/.gnupg" ]]; then
-			echot "Accept defaults except for:\
+			echot "Accept defaults except for:\n
 - "
 		gpg --full-generate-key || return
 	fi
@@ -2729,13 +2715,10 @@ GitServerInstall()
 	return 0
 }
 
-ForkInstall()
-{
-	header "Fork" # https://git-fork.com/
-	run "git/Fork/ForkInstaller.exe|Fork-2.16.dmg" --pause || return
-	IsPlatform mac && echot "- Preferences, Integration, Install Command Line Tools"
-	ForkHelper $noPrompt profile restore default || return
-}
+ForkInstall() { run --header "Fork" "git/Fork/ForkInstaller.exe|Fork-2.16.dmg" --pause; } # https://git-fork.com/
+ForkHelpMax() { echot "- Preferences, Integration, Install Command Line Tools"; }
+ForkProfile() { ForkHelper $noPrompt profile restore default; }
+GitUpInstall() { run --python-global git-up && git config --global git-up.rebase.auto false; }
 
 ForkFinalWin()
 {
@@ -2817,16 +2800,12 @@ GitKrakenInstall()
 	run "git/Git Kraken/setup/$win|installGitKraken_$(os architecture).dmg|GitKraken-amd64.deb"
 }
 
-GitKrakenFinalWin()
-{
-	mergeDir "$up/GitKraken" "$up/Development/Other"
-}
+GitKrakenFinalWin() { mergeDir "$up/GitKraken" "$up/Development/Other"; }
 
-GitHubInstall()
-{
-	header "GitHub" # https://github-windows.s3.amazonaws.com/GitHubSetup.exe
-	run "git/GitHub/setup/GitHubSetup.exe" --pause || return
+GitHubInstall() { run --header "GitHub" "git/GitHub/setup/GitHubSetup.exe" --pause; } # https://github-windows.s3.amazonaws.com/GitHubSetup.exe
 
+GitHubHelp()
+{
 	echot "\
 - GITHUB ENTERPRISE, GitHub Username or Email=IDSID
 - Password=NNN
@@ -2845,12 +2824,6 @@ GitHubFinalWin()
 	mergeDir --rename "$up/GitHub, Inc" "$up/Development/Other/GitHub" || return
 	$rm "$ud/GitHub.appref-ms" || return
 	$rm "$ud/Git Shell.lnk" || return
-}
-
-GitUpInstall()
-{
-	run --python-global git-up || return;
-	git config --global git-up.rebase.auto false || return
 }
 
 GitXInstall()
@@ -2887,7 +2860,10 @@ TortoiseGitInstall()
 
 	echot "- (optional) Check Registrer link handlers"
 	run "shareware/TortoiseGit/setup/TortoiseGit-1.8.7.0-64bit.msi" || return # https://code.google.com/p/tortoisegit/wiki/Download?tm=2
+}
 
+TortoiseGitHelp()
+{
 	local clip; clip="$(utw "$program")"; clipw "$clip"
 	findCompareProgram || return
 	echot "\
@@ -2900,10 +2876,7 @@ TortoiseGitInstall()
 	- Icon Set, Icon Set=Straight"
 }
 
-TortoiseGitFinalWin()
-{
-	mergeDir "$pp/TortoiseGit" "$pp/Development/Other" || return
-}
+TortoiseGitFinalWin() { mergeDir "$pp/TortoiseGit" "$pp/Development/Other"; }
 
 #################################################
 # hardware
@@ -3103,10 +3076,10 @@ DuetDisplayFinalWin()
 	registry 32 delete "run/Duet Display" # C:\Program Files\Kairos\Duet Display\duet.exe
 }
 
-DymoInstall()
-{
-	run --name "Dymo Label" "hardware/DYMO/DCDSetup1.3.2.exe|DLS8Setup.8.7.5.dmg" --elevate || return # http://www.dymo.com/en-US/dymo-user-guides
+DymoInstall() { run --name "Dymo Label" "hardware/DYMO/DCDSetup1.3.2.exe|DLS8Setup.8.7.5.dmg" --elevate; } # http://www.dymo.com/en-US/dymo-user-guides
 
+DymoHelp()
+{
 	echot "\
 - Preferences, Printers & Scanners, +, Windows (last icon on right), wiggin, pi4, Study_Color_Printer
 	- name=Study Label Printer
@@ -3213,14 +3186,18 @@ GigabyteMotherboardInstall()
 	$makeShortcut "$P32/GIGABYTE/BIOS Setup/BiosSetupConsole.exe" "$d/BIOS Setup" || return
 	$makeShortcut "$P32/GIGABYTE/FastBoot/FastBoot.exe" "$d/Fast Boot.lnk" || return
 	$makeShortcut "$P32/GIGABYTE/VTuner/vTuner.exe" "$d/VTuner.lnk" || return
+}
 
+GigabyteMotherboardHelp()
+{
 	echot "\
 Do not update APP Center
 - Preferences
 	- Update Schedule=Turn off
 	- Uncheck Always run on next reboot"
-	elevate "$P32/GIGABYTE/AppCenter/RunUpd.exe" || return
 }
+
+GigabyteMotherboardProfile() { elevate "$P32/GIGABYTE/AppCenter/RunUpd.exe"; }
 
 GoProInstall()
 {
@@ -3907,10 +3884,19 @@ ThunderbirdFinalWin()
 #################################################
 
 MusicCoreInstall() { i deezer iTunes MusicBee plex tidal sonos WinAmp; }
+MusicBeeInstall() { run -- name "MusicBee" "shareware/MusicBee/setup/MusicBeeSetup_3_0_Update1.exe"; } # http://getmusicbee.com/download.html
+MusicBeeFinalWin() { mergeDir "$up/MusicBee" "$pp/Media/Other" $rm "$ud/MusicBee.lnk"; }
+TidalInstall() { run --name "TIDAL" "TIDAL/TIDALSetup.exe|TIDALSetup.dmg" || return; }
+TidalFinalWin() { mergeDir "$up/TIDAL" "$up/Media/Other" && $rm "$ud/TIDAL.lnk"; }
+SpotifyInstall() { run --header "Spotify" run "other/Spotify/SpotifySetup.exe|Install Spotify.app"; } # https://www.spotify.com/us/download/
+SpotifyFinalWin() { $rm "$ud/Spotify.lnk" && $mv "$up/Spotify.lnk" "$pp/Media/Other"; }
+WinAmpInstall() { run --name "Winamp" "Nullsoft/WinAmp/setup/winamp565_pro_all.exe"; }
+WinAmpHelp() { echot "- WiFi Sync - disable addition network interfaces (i.e. VMware networks), run WinAmp as Administrator"; }
+WinAmpFinalWin() { mergeDir "$pp/Winamp" "$ao" && mergeDir --rename "$up/Winamp Detector Plug-in" "$ao/Winamp" && $rm "$pd/Winamp.lnk"; }
 
 DeezerInstall()
 {
-	header "Deezer"
+	header "Deezer"	
 	IsPlatform win && run --store "9NBLGGH6J7VV" || run "other/Deezer/DeezerDesktop_4.18.60.dmg"
 }
 
@@ -3918,7 +3904,10 @@ iTunesInstall()
 {
 	run --name "iTunes" "other/Apple/iTunes/setup/iTunes64Setup.exe" || return # http://itunes.com
 	quickTimePost || return
+}
 
+iTunesHelp()
+{
 	echot "\
 - iTunes Store, Sign In
 - Store, Authorize Computer...
@@ -3931,17 +3920,6 @@ iTunesFinalWin()
 	mergeDir "$pp/iTunes" "$ao" || return
 }
 
-MusicBeeInstall()
-{
-	run -- name "MusicBee" "shareware/MusicBee/setup/MusicBeeSetup_3_0_Update1.exe" || return # http://getmusicbee.com/download.html
-}
-
-MusicBeeFinalWin()
-{
-	mergeDir "$up/MusicBee" "$pp/Media/Other" || return
-	$rm "$ud/MusicBee.lnk" || return
-}
-
 plexInstall()
 {
 	header "PLEX" # https://www.plex.tv/media-server-downloads/
@@ -3950,10 +3928,7 @@ plexInstall()
 	PlexFinal || return
 }
 
-PlexFinalWin()
-{
-	mergeDir "$pp/Plex" "$pp/Media/Other"
-}
+PlexFinalWin() { mergeDir "$pp/Plex" "$pp/Media/Other"; }
 
 SonosInstall()
 {
@@ -3970,51 +3945,16 @@ SonosFinalWin()
 	mergeDir "$pp/Sonos" "$pp/Media/Other" || return
 }
 
-SpotifyInstall()
+WindowsMediaPlayerInstall() { header "Windows Media Player"; }
+
+WindowsMediaPlayerHelp()
 {
-	header "Spotify" # https://www.spotify.com/us/download/
-	run "other/Spotify/SpotifySetup.exe|Install Spotify.app" || return
-}
-
-SpotifyFinalWin()
-{
-	$rm "$ud/Spotify.lnk" || return
-	$mv "$up/Spotify.lnk" "$pp/Media/Other" || return
-}
-
-TidalInstall() { run --name "TIDAL" "TIDAL/TIDALSetup.exe|TIDALSetup.dmg" || return; }
-
-TidalFinalWin()
-{
-	mergeDir "$up/TIDAL" "$up/Media/Other" || return
-	$rm "$ud/TIDAL.lnk" || return
-}
-
-WinAmpInstall()
-{
-	run --name "Winamp" "Nullsoft/WinAmp/setup/winamp565_pro_all.exe" || return
-}
-
-WinAmpFinalWin()
-{
-	mergeDir "$pp/Winamp" "$ao" || return
-	mergeDir --rename "$up/Winamp Detector Plug-in" "$ao/Winamp" || return
-	$rm "$pd/Winamp.lnk" || return
-
-	echot "Note
-- WiFi Sync - disable addition network interfaces (i.e. VMware networks), run WinAmp as Administrator"
-}
-
-WindowsMediaPlayerInstall()
-{
-	header "Windows Media Player"
-
- 	start "$P32\Windows Media Player\wmplayer.exe" || return
-
 	echot "\
 - Recommended settings
 - Organize, Manage Libraries, Music, Add..., This PC, portable4"
 }
+
+WindowsMediaPlayerProfile() { start "$P32\Windows Media Player\wmplayer.exe"; }
 
 #
 # Node.js
@@ -4172,6 +4112,9 @@ nodeRedPermissions() { makeDir --sudo --owner "$user" "$home/.config" "$home/.no
 NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler GlassWire gping httpie JumpCloud JumpDesktop mDns MozillaVpn netboot.xyz Ninite NordVpn pivpn Proxifier TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall UnifiController WireGuard Wireshark; }
 CurlieInstall() { run --go --header "curlie" "github.com/rs/curlie@latest"; }
 HttpieInstall() { run --python-global "httpie"; }
+NiniteInstall() { run --name "Ninite" "network/Ninite/Ninite Agent Installer.exe" --elevate -- /silent; } # https://ninite.com/agent.exe
+TftpclientInstall() { run --name "TFTP Client" --package "tftp-hpa"; }
+TftpserverInstall() { run --name "TFTP Server" --package "tftpd-hpa" && serviceAutoStart "tftpd-hpa"; }
 
 BindInstall()
 {
@@ -4248,10 +4191,10 @@ FiddlerFinalWin()
 	$rm "$ud/Fiddler Everywhere.lnk" || return
 }
 
-GlassWireInstall()
-{
-	run --name "GlassWire" "network/GlassWire/GlassWireSetup.exe" --elevate || return # https://www.glasswire.com/download/
+GlassWireInstall() { run --name "GlassWire" "network/GlassWire/GlassWireSetup.exe" --elevate; } # https://www.glasswire.com/download/
 
+GlassWireHelp()
+{
 	echot "\
 - Show Mini Viewer
 - Activate GlassWire"
@@ -4385,8 +4328,6 @@ netbootxyzTftpServerDeploy()
 
 }
 
-NiniteInstall() { run --name "Ninite" "network/Ninite/Ninite Agent Installer.exe" --elevate -- /silent; } # https://ninite.com/agent.exe
-
 NordVpnInstall() { run --name "NordVPN" "network/NordVPN/NordVPNSetup.exe"; } # https://nordvpn.com/download/
 
 NordVpnFinalWin()
@@ -4414,25 +4355,14 @@ ProxifierInstall()
 
 	findFile "Proxifier/profiles/Intel Custom.ppx" || return
 	local clip; clip="$(utw "$file")"; clipw "$clip"
-	echot "\
-- File, Import, <paste> ($clip)"
 }
 
-TftpclientInstall()
-{
-	run --name "TFTP Client" --package "tftp-hpa" || return
-}
+ProxifierHelp() { echot "\n- File, Import, <paste> ($clip)"; }
 
-TftpserverInstall()
-{
-	run --name "TFTP Server" --package "tftpd-hpa" || return
-	serviceAutoStart "tftpd-hpa" || return
-}
+TriblerInstall() { run --name "Tribler" "shareware/tribler/Tribler_7.2.2_x64.exe"; } # https://www.tribler.org/
 
-TriblerInstall()
+TriblerHelp()
 {
-	run --name "Tribler" "shareware/tribler/Tribler_7.2.2_x64.exe" || return https://www.tribler.org/
-
 	echot "\
 - settings
 	- Save files to=C:\Users\jjbutare\Downloads
@@ -4821,7 +4751,7 @@ SqlServerInstall()
 {
 	local base="other/Microsoft/SQL Server"
 	local setup="en_sql_server_2017_enterprise_x64_dvd_11293666"; [[ $client ]] && setup="en_sql_server_2017_developer_x64_dvd_11296168"
-	header "SQL Server "
+	header "SQL Server"
 
 	echot "\
 Setup logs are in \"$P/Microsoft SQL Server/130/Setup Bootstrap/Log\"
@@ -6609,15 +6539,21 @@ WindowsTerminalInstall()
 	else
 		run --store "9N8G5RFZ9XK3" || return
 	fi
+}
 
-	# profile
-	WindowsTerminal $noPrompt profile restore default
-
-	# configure - start with specific path as wt.exe in the path may point to a different version
-	"$UADATA/Microsoft/WindowsApps/Microsoft.WindowsTerminalPreview_$suffix/wt.exe"
+WindowsTerminalHelp()
+{
 	echot "- Settings, Startup
 	- Default profile=$(wsl get name)
 	- Startup, Default terminal application=Windows Terminal Preview"
+}
+
+WindowsTerminalProfile()
+{
+	# configure - start with specific path as wt.exe in the path may point to a different version
+	"$UADATA/Microsoft/WindowsApps/Microsoft.WindowsTerminalPreview_$suffix/wt.exe"
+
+	WindowsTerminal $noPrompt profile restore default; 
 }
 
 #################################################
@@ -7066,17 +7002,10 @@ AutoHotKeyInstall()
 	AutoHotKey startup || return
 }
 
-AltTabTerminatorInstall()
+AltTabTerminatorInstall() { run --header "Alt-Tab Terminator" "platform/win/NTwind/AltTabTer_4.8-setup.exe" --elevate; } # https://www.ntwind.com/software/alttabter.html
+
+AltTabTerminatorHelp()
 {
-	header "Alt-Tab Terminator"
-
-	# https://www.ntwind.com/software/alttabter.html
-	run "platform/win/NTwind/AltTabTer_4.8-setup.exe" --elevate || return
-
-	mergeDir "$pp/Alt-Tab Terminator" "$oo" || return
-	$rm "$pd/Alt-Tab Terminator.lnk" || return
-	registry delete "urun/Alt-Tab Terminator" # "C:\Program Files\Alt-Tab Terminator\AltTabTer64.exe" /startup
-
 	echot "\
 Settings...
 - Uncheck Autostart on Windows startup
@@ -7084,25 +7013,26 @@ Settings...
 	app AltTabTerminator || return
 }
 
-apptivate() # MacOS keyboard shortcuts, simpler than Karabiner
+AltTabTerminatorFinalWin()
 {
-	header "Apptivate"
+	mergeDir "$pp/Alt-Tab Terminator" "$oo" || return
+	$rm "$pd/Alt-Tab Terminator.lnk" || return
+	registry delete "urun/Alt-Tab Terminator" # "C:\Program Files\Alt-Tab Terminator\AltTabTer64.exe" /startup
+}
 
-	# http://www.apptivateapp.com
-	run "platform/mac/Apptivate/Apptivate.app.zip" || return
+ApptivateInstall() { run --header "Apptivate" run "platform/mac/Apptivate/Apptivate.app.zip"; } # http://www.apptivateapp.com
 
-	if askp "Configure apptivate"; then
-		echot "Add Item...
+ApptivateHelp()
+{
+	echot "Add Item...
 - iTerm, ctrl-cmd-3
 - Firefox, ctrl-cmd-a
 - Standard Notes, ctrl-cmd-n
 - Sublime Text, ctrl-cmd-t"
-		macAppOpen Apptivate || return
-	fi
-
-	return 0
 }
 
+AptivateProfile() { macAppOpen Apptivate; }
+	
 BartenderInstall()
 {
 	header "Bartender"
@@ -7111,20 +7041,16 @@ BartenderInstall()
 	sleep 1; macAppOpen "Bartender 4" || return
 }
 
-BetterTouchToolInstall()
+BetterTouchToolInstall() { run --header "BetterTouchTool" "platform/mac/BetterTouchTool/setup/BetterTouchTool.zip"; } # https://folivora.ai/
+
+BetterTouchToolHelp()
 {
-	header "BetterTouchTool" # https://folivora.ai/
-	run "platform/mac/BetterTouchTool/setup/BetterTouchTool.zip" || return
-	BetterTouchTool profile restore default || return
-
-	# license	 
-	if findFile "platform/mac/BetterTouchTool/other/$USER.bettertouchtool"; then
-		clipw "$file" || return
-		echot "- BetterTouchTool, Import License, cmd-shift-g, cmd-v, Open" || return
-	fi
-
-	sleep 1; macAppOpen "BetterTouchTool" || return
+	! findFile "platform/mac/BetterTouchTool/other/$USER.bettertouchtool" && return
+	clipw "$file" || return
+	echot "- BetterTouchTool, Import License, cmd-shift-g, cmd-v, Open" || return
 }
+
+BetterTouchToolProfile() { BetterTouchTool profile restore default && 	sleep 1; macAppOpen "BetterTouchTool"; }
 
 CloseAllWindowsInstall()
 {
@@ -7148,20 +7074,17 @@ EdgeDeflectorInstall() # redirect Windows Start menu to browser of choice
 	run "shareware/other/EdgeDeflector_install.exe" --elevate --copy-local || return # copy local to avoid the unknown zone prompt
 }
 
-FluxInstall()
-{
-	run --name "f.lux" "shareware/f.lux/flux-setup.exe|Flux.zip" || return # http://justgetflux.com/
+FluxInstall() { run --name "f.lux" "shareware/f.lux/flux-setup.exe|Flux.zip"; } # http://justgetflux.com/
 
+FluxHelp()
+{
 	echot "\
 - Location: Search
 - Transition: Slow
 - check Start F.lux at Login"
 }
 
-FluxFinalMac()
-{
-	start "/Applications/Flux.app" || return
-}
+FluxFinalMac() { start "/Applications/Flux.app"; }
 
 FluxFinalWin()
 {
@@ -7258,16 +7181,10 @@ fuseInstall()
 	fi
 }
 
-RightClickEnhancer()
+RightClickEnhancerInstall() { run --header "Right Click Enhancer" "platform/win/RBSoft/Right Click Enhancer/Right.Click.Enhancer.Professional.Setup.exe" --elevate; } # https://rbsoft.org/downloads/right-click-enhancer/
+
+RightClickEnhancerHelp()
 {
-	header "Right Click Enhancer"
-
-	# https://rbsoft.org/downloads/right-click-enhancer/
-	run "platform/win/RBSoft/Right Click Enhancer/Right.Click.Enhancer.Professional.Setup.exe" --elevate || return
-
-	mergeDir "$up/Right Click Enhancer Professional" "$oo" || return
-	$rm "$ud/Right Click Enhancer Professional.lnk" || return
-
 	echot "\
 Setup
 - Registration, Registration
@@ -7282,6 +7199,8 @@ Instructions
 - Right Click Editor, click top-left picture to toggle between normal entries and shell extensions
 - EPP is Windows Defender, mscore (.NET programs)"
 }
+
+RightClickEnhancerFinalWin() { mergeDir "$up/Right Click Enhancer Professional" "$oo" && $rm "$ud/Right Click Enhancer Professional.lnk"; }
 
 TaskLayoutInstall()
 {
@@ -7338,6 +7257,8 @@ VmCoreInstall() { RunPlatform vm || return; }
 vmWin() { i VmwareWorkstation || return; }
 vmMac() { i ParallelsDesktop || return; }
 
+portainerInstall() { run --name "Portainer" --docker "https://downloads.portainer.io/portainer-agent-stack.yml" && httpsShow "9443"; }
+
 dockerCheck() { InPath docker && return 0; i --no-header docker || return; }
 
 DockerInstall()
@@ -7385,13 +7306,14 @@ DockerInstall()
 	# network
 	! docker network ls | grep --quiet user-network && { docker network create "user-network" || return; }
 
-	# instructions
-	if IsPlatform mac && [[ -d "$DATA/appdata2" ]]; then
-			local clip; clip="$DATA/appdata2"; clipw "$clip"
-			echot "- Settings, Resources, Advanced, Disk image location, Browse, ctrl-shift-g, paste ($clip), Apply & Restart"
-	fi
-
 	return 0
+}
+
+DockerHelpMac()
+{
+	[[ -d "$DATA/appdata2" ]] && return
+	local clip; clip="$DATA/appdata2"; clipw "$clip"
+	echot "- Settings, Resources, Advanced, Disk image location, Browse, ctrl-shift-g, paste ($clip), Apply & Restart"
 }
 
 DockerComposeInstall() 
@@ -7418,15 +7340,18 @@ HypervInstall()
 
 	local data="$DATA/appdataw/Hyper-V"; makeDir "$data" || return
 	RunScript --elevate --no-hide "${globalArgs[@]}" -- cmd.exe /c DISM /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V
+}
 
-	mergeDir "$pp/Administrative Tools" "$pp/Operating System" || return
-
+HypervHelp()
+{
 	local clip; clip="$(utw "$data")"; clipw "$clip"
 	echot "- Hyper-V Manager, $HOSTNAME, Hyper-V Settings...
 	- Virtual Hard Disks=<paste> ($clip\Virtual Hard Disks
 	- Virtual Machines=<paste> ($clip)"
 	hyperv gui || return
 }
+
+HypervFinalWin() { mergeDir "$pp/Administrative Tools" "$pp/Operating System"; }
 
 HypervLinuxToolsInstall()
 {
@@ -7491,7 +7416,10 @@ ParallelsDesktopInstall()
 	run "platform/mac/Parallels Desktop/setup/$file" || return
 	$rm "$la\com.parallels.mobile.prl_deskctl_agent.launchagent.plist" || return
 	$rm "$ula\com.parallels.mobile.startgui.launchagent.plist" || return
+}
 
+ParallelsDesktopHelp()
+{
 	echot "\
 - Preferences
 	- Shortcuts
@@ -7511,11 +7439,6 @@ ParallelsDesktopInstall()
 		- Network 1, Type=Bridge, Default adapter
 	- Security, check Do not back up virtual machine"
 }
-
-portainerInstall()
-{
-	run --name "Portainer" --docker "https://downloads.portainer.io/portainer-agent-stack.yml" && httpsShow "9443"
-} 
 
 VirtualBoxInstall()
 {
@@ -8048,11 +7971,10 @@ xpraInstall() # 332MB (Linux)
 	return 0
 }
 
-xQuartzInstall()
-{
-	# https://www.xquartz.org/releases/index.html
-	run "platform/linux/X Windows/XQuartz/XQuartz-2.8.1.dmg" || return	
+xQuartzInstall() { run "platform/linux/X Windows/XQuartz/XQuartz-2.8.1.dmg"; } # https://www.xquartz.org/releases/index.html
 
+xQuartzHelp()
+{
 	echot "\
 - Preferences, Security, check Allow connections from network clients"
 	xserver start || return
