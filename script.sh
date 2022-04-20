@@ -42,8 +42,7 @@ ScriptArgDriveLetter()
 ScriptCallers()
 {
 	local scriptCallers=()
-	IFS=$'\n' scriptCallers=( $(pstree --show-parents --long --arguments $PPID -A | grep "$BIN" | head -n -3 | tac | awk -F'/' '{ print $NF; }' | cut -d" " -f1; ) )
-	CopyArray scriptCallers "$1"
+	IFS=$'\n' ArrayMake "$1" "$(pstree --show-parents --long --arguments $PPID -A | grep "$BIN" | head -n -3 | tac | awk -F'/' '{ print $NF; }' | cut -d" " -f1)"
 }
 
 ScriptCaller()
@@ -283,7 +282,7 @@ getHosts()
 
 	# hostArg is a service name
 	[[ "$hostArg" == @(|all) ]] && hostArg="nomad-client"
-	IFS=$'\n' hosts=( $(GetServers "$hostArg") )
+	IFS=$'\n' ArrayMakeC hosts GetServers "$hostArg"
 }
 
 #

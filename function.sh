@@ -25,13 +25,15 @@ if [[ ! $BIN ]]; then
 fi
 
 # arguments - get argument from standard input if not specified on command line
-# - must be an alias to set arguments
+# - must be an alias in order to set the arguments of the caller
 # - GetArgsN will read the first argument from standard input if there are not at least N arguments present
 # - aliases must be defiend before used in a function
 alias GetArgDash='[[ "$1" == "-" ]] && shift && set -- "$(cat)" "$@"' 
 alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"' 
 alias GetArgs2='(( $# < 2 )) && set -- "$(cat)" "$@"'
 alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
+ShowArgs() { local args=( "$@" ); ArrayShow args; } 	# ShowArgs [ARGS...] - show arguments from command line
+SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - split arguments using to IFS from command line
 
 #
 # Other
@@ -486,7 +488,8 @@ ArrayAppend()
 	done
 
 	[[ ! $removeDups ]] && return
-	eval "IFS=$'\n' $arrayAppendDest=( $(ArrayDelimit "$arrayAppendDest" $'\n' | sort | uniq) )"
+	local IFS=$'\n'
+	eval "$arrayAppendDest=( $(ArrayDelimit "$arrayAppendDest" $'\n' | sort | uniq) )"
 }
 
 # ArrayCopy SRC DEST
@@ -521,6 +524,12 @@ ArrayIntersection()
 
 # ArrayIndex NAME VALUE - return the 1 based index of the value in the array
 ArrayIndex() { ArrayDelimit "$1" '\n' | RemoveEnd '\n' | grep --line-number "^${2}$" | cut -d: -f1; }
+
+# ArrayMake VAR ARG... - make an array by splitting passed arguments using IFS
+ArrayMake() { local -n arrayMake="$1"; shift; arrayMake=( $@ ); }
+
+# ArrayMakeC CMD ARG... - make an array from the output of a command if the command succeeds
+ArrayMakeC() { local -n arrayMakeC="$1"; shift; arrayMakeC=( $($@) ); }
 
 # ArrayRemove ARRAY VALUES - remove items from the array except specified values.  If vaules is the name of a variable
 # the contents of the variable are used.
@@ -613,6 +622,10 @@ IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 NewlineToSpace()  { tr '\n' ' '; }
 StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } # StringRepeat S N - repeat the specified string N times
 
+ShowChars() { GetArgs; echo -n -e "$@" | od --address-radix=d -t x1 -t a; } # Show
+ShowIfs() { echo -n "$IFS" | ShowChars; }
+ResetIfs() { IFS=$' \t\n\0'; }
+
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveNewline()  { tr -d '\n'; }
 RemoveEmptyLines() { ${G}sed -r '/^\s*$/d'; }
@@ -665,7 +678,7 @@ else
 	GetWord() 
 	{ 
 		GetArgDash; GetWordUsage "$@" || return; 
-		local word=$(( $2 + 1 )); IFS=${3:- }; set -- $1; 
+		local word=$(( $2 + 1 )); local IFS=${3:- }; set -- $1; 
 		((word-=1)); (( word < 1 || word > $# )) && printf "" || printf "${!word}"
 	}
 
@@ -783,12 +796,15 @@ FileCommand()
 	local args=() files=() dir
 
 	# arguments - ignore files that do not exist
-	while (( $# != 1 )); do
+	while (( $# > 1 )); do
 		IsOption "$1" && args+=("$arg")
 		[[ -e "$1" ]] && files+=("$1")
 		shift
 	done
-	dir="$1"
+	dir="$1" # last argument
+	[[ ! $command ]] && { MissingOperand "command" "FileCommand"; return 1; }
+	[[ ! $dir ]] && { MissingOperand "dir" "FileCommand"; return 1; }
+	[[ ! "$command" =~ ^(cp|mv|ren)$ ]] && { ScriptErr "unknown command '$command'" "FileCommand"; return 1; }
 	[[ ! $files ]] && return 0
 
 	# command
@@ -796,8 +812,8 @@ FileCommand()
 		ren) 'mv' "${args[@]}" "${files[@]}" "$dir";;
 		cp|mv)
 			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing '$dir': No such directory"; return 1; }
-			"$command" -t "$dir" "${args[@]}" "${files[@]}";;
-		*) EchoErr "FileCommand: unknown command $command"; return 1;;
+			"$command" -t "$dir" "${args[@]}" "${files[@]}"
+			;;		
 	esac
 }
 
@@ -1275,10 +1291,10 @@ ipinfo()
 
 		hilight "Name:IP"
 		{
-			IFS=$'\n' adapters=( $(GetEthernetAdapters) )
+			local IFS=$'\n' adapters=( $(GetEthernetAdapters) )
 			for adapter in "${adapters[@]}"; do
 				local ip="$(GetAdapterIpAddress "$adapter")"
-				echo $adapter:$ip
+				echo "$adapter:$ip"
 				PrintErr "."
 			done
 		} | sort
