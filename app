@@ -30,6 +30,7 @@ args() { apps=( "$@" ); shift="$#"; }
 argEnd() { [[ "$command" == "startup" ]] && status="Starting" || status="Closing"; }
 closeCommand() { run "close"; }
 restartCommand() { run "restart"; }
+startCommand() { run "start"; }
 startupCommand() { run "startup"; }
 
 #
@@ -141,7 +142,7 @@ runExternalApp()
 	getAppFile || return 0
 	isAppInstalled || return 0
 
-	if [[ "$command" == "startup" ]]; then
+	if [[ "$command" == @(start|startup) ]]; then
 		isAppRunning && return
 	else
 		! isAppRunning && return
