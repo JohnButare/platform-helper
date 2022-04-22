@@ -380,7 +380,7 @@ LineWrap() { ! InPath setterm && return; setterm --linewrap "$1"; }
 ReadChars() 
 { 
 	local n="${1:-1}" timeoutSeconds="$2" message="$3"
-	local args result; [[ $timeoutSeconds ]] && args=(-t "$timeoutSeconds")
+	local args=() result; [[ $timeoutSeconds ]] && args=(-t "$timeoutSeconds")
 
 	# message
 	[[ $message ]] && echo -n "$m"
