@@ -2657,7 +2657,7 @@ sudoc()
 		fi
 	fi
 
-	if credential --quiet exists Asecure default; then
+	if credential --quiet exists secure default; then
 		SUDO_ASKPASS="$BIN/SudoAskPass" "${command[@]}" --askpass "${args[@]}"
 	else
 		[[ $noPrompt ]] && command+=(--non-interactive)

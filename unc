@@ -159,13 +159,13 @@ listArgStart() { unset -v port protocol; }
 listOpt() { protocolOpt "$@"; }
 listArgs() { ScriptArgGet "host" -- "$@" && HostAvailable "$host"; }
 listCommand() { protocol="${protocol:-smb}"; RunFunction "list${protocol^}"; }
-listNfs() { ssh -t "$host" sudoc exportfs; }
+listNfs() { ssh -t "$host" $sudoc exportfs; }
 listSsh() { echo "root"; }
 
 listSmb()
 {
 	if InPath smbutil; then smbutil view "//$host" | grep "Disk"
-	elif InPath smbclient; then sudoc smbclient -L $host -U$USER%$(credential -q get secure default) |& grep -v "tdb_new_database" |& grep -v "option is deprecated"
+	elif InPath smbclient; then $sudoc smbclient -L $host -U$USER%$(credential -q get secure default) |& grep -v "tdb_new_database" |& grep -v "option is deprecated"
 	else EchoErr "unc: unable to list shares for $host"; return 1
 	fi
 }
@@ -180,7 +180,7 @@ List UNC shares on the local network."; }
 browseCommand()
 {
 	{ IsPlatform win || ! InPath "smbtree"; } && { ScriptErr "unable to browse the network"; return 1; }
-	sudoc smbtree
+	$sudoc smbtree
 }
 
 #
@@ -234,19 +234,19 @@ mountCommand()
 
 	# WSL 1
 	if isWslshare || [[ "$PLATFORM_KERNEL" == "wsl1" ]]; then
-		RunLog sudoc mount -t drvfs "//$server/$share" "$mountRoot"
+		RunLog $sudoc mount -t drvfs "//$server/$share" "$mountRoot"
 
 	# NFS
 	elif [[ "$protocol" == "nfs" ]]; then
 		local options=(); IsPlatform win && options+=( -o nolock )
-		RunLog sudoc mount "${options[@]}" -t nfs "$server:/$share" "$mountRoot"
+		RunLog $sudoc mount "${options[@]}" -t nfs "$server:/$share" "$mountRoot"
 
 	# SSH
 	elif [[ "$protocol" == "ssh" ]] || IsInteger "$protocol"; then
 		local portArg; IsInteger "$protocol" && portArg=(-p "${protocol}")
-		local sudo; IsPlatform qnap && sudo="sudo"
+		local prefix; IsPlatform qnap && prefix="$sudo"
 		[[ "$share" == "root" ]] && share=""
-		RunLog $sudo sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountRoot" "${portArg[@]}"
+		RunLog $prefix sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountRoot" "${portArg[@]}"
 
 	# linux and WSL 2
 	elif IsPlatform linux,wsl2; then		
@@ -254,14 +254,17 @@ mountCommand()
 		# add an entry to /etc/fstab so sudo is not required to write to the share		
 		if ! grep -i "//$server/$shareId\\\$* $mountRoot cifs username=$user,noauto,rw,users 0 0" /etc/fstab >& /dev/null; then
 			local line="//$server/$share $(GetRealPath "$mountRoot") cifs username=$user,noauto,rw,users 0 0"
-			sudoc bash -c "echo \"$line\" >> /etc/fstab" || return
+			$sudoc bash -c "echo \"$line\" >> /etc/fstab" || return
 		fi
 
-		local password="$(credential -q get secure default)"
+		# password
+		local password="$(credential --quiet get secure default)"
 		[[ $password ]] && log1 "password found in the credential store"
+		[[ ! $password && $noPrompt ]] && { ScriptErr "no password found for '$unc'"; return 1; }
 
-		[[ $password ]] && export PASSWD="$password"
-		RunLog $sudo mount.cifs "//$server/$share" "$mountRoot" -o user=$user sec=ntlmsspi
+		# mount
+		[[ $password ]] && export PASSWD="$password"		
+		RunLog mount.cifs "//$server/$share" "$mountRoot" -o user=$user sec=ntlmsspi
 		[[ $password ]] && unset PASSWD
 
 	# macOS
@@ -346,7 +349,7 @@ unmount()
 			;;
 		linux|win) 
 			log1 "unmounting with: sudoc umount \"$dir\""
-			sudoc umount "$dir" >& /dev/null
+			$sudoc umount "$dir" >& /dev/null
 			;;
 	esac
 	
