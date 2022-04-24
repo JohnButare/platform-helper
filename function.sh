@@ -2585,11 +2585,15 @@ ScriptReturn()
 
 	for var in "$@"; do
 		check=".*declare -a ${var}=.*"
+
+		# array
 		if [[ "$arrays" =~ $check ]]; then
 			avar="$var[@]"
 			printf "$var=("
 			for value in "${!avar}"; do printf "$fmt " "$value"; done; 
 			echo ") "
+
+		# other variable
 		else
 			printf "$export$var=$fmt\n" "${!var}"
 		fi

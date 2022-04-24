@@ -22,7 +22,7 @@ else
 	return 1
 fi
 
-[[ ! $WordProgram ]] && WordProgram="$OfficeDir/WinWord.exe"
+[[ ! $WordProgram ]] && WordProgram="$OfficeDir/WINWORD.EXE"
 
 # x64 Office if we are running under x64 OS and Office is installs to $P
 if [[ "$OfficeDir" =~ ^$P/ ]]; then

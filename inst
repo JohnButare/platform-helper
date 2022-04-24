@@ -12,7 +12,7 @@ Programs installation.
 	list								list all applications"
 }
 
-init() { defaultCommand="install"; }
+init() { defaultCommand="install" hostname="$HOSTNAME"; }
 
 #
 # commands
@@ -99,6 +99,7 @@ installInit()
 		[ahk]="AutoHotKey"
 		[avahi]="mDns"
 		[bb]="BorgBackup"
+		[be]="BalenaEtcher"
 		[borg]="BorgBackup"
 		[brew]="HomeBrew"
 		[btt]="BetterTouchTool"
@@ -164,7 +165,7 @@ installInit()
 	mac=( amphetamine AppleConfigurator apptivate bartender bear BetterTouchTool btt CanaryMail CarrotWeather DayOne DiskInventortyX gitx HomeAssistant homie iTerm karabiner LiveDesktop Magnet MakrdownView MicrosoftRemoteDesktop pcalc rectagle RemoteDesktop spark speedtest SystemToolkit VmwareFusion WallpaperWizard xcode XcodeCli XQuartz yoink )
 	macDebian=( 1Password 1PasswordCli 7Zip asdf BalenaEtcher bat bc certbot chrony colorls DotNet Dropbox DropboxDownload docker etcher exa fuse fzf ghq GitKraken gnupg gpg homebrew homebridge JetBrains JumpCloud MozillaVpn mysql NetbootxyzDocker pass passh PiDiskImager RpiBoot ruby RubyAsdf RubyPackage RubyRvm skype StandardNotes steam sublime SublimeMerge tmux thunderbird UnifiController unison VisualStudioCode vscode WireGuard xClient xServer xpra )
 	macWin=( BlueSherpa BrotherPrinter calibre CanonCamera CleanMy CrealitySlicer CreativeCloud cricut deezer DellDisplayManager domotz DreamAquarium DuetDisplay dymo fork garmin GreenShot iExplorer JumpDesktop keybase lazygit logitech LogitechGhub LogitechOptions notion nVidia office origin PdfElement plex PowerShell qvr sonos spotify SurveillanceStation VisualStudio VisualStudioCode WireShark xpra xServer zoom )
-	win=( ahk AjaSystemTest AutoHotKey AltTabTerminator AquaSnap backupper bonjourSdk chocolatey CloseAllWindows CoreTemp cpuz DiskImager EdgeDeflector FileLocatorPro game GigabyteMotherboard GitExtensions HiddenStart HiddenStartConfigure iCloud kindle KindleDrm MaxTo NordVPN Ninite Notepadpp npp RightClickEnhancer TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager hyperv HiddenStart java LgMonitor MarkdownView MicrosoftTeams MsiMotherboard NitroPdf nVidiaDriver nVidiaGeForceExperience OneDrive oculus pa PartitionAssistant pGina PowerPanel PowerrToys QuickBooks stamps SystemInternals TaskLayout TemperatureLogger Todoist UupDump VisualStudio vs Wallpaper4k WindowsAssessmentAndDeploymentKit wsl WslConfig x410 xMing )
+	win=( ahk AjaSystemTest AutoHotKey AltTabTerminator AquaSnap backupper bonjourSdk chocolatey CloseAllWindows CoreTemp cpuz DiskImager EdgeDeflector FileLocatorPro game GigabyteMotherboard GitExtensions HiddenStart HiddenStartConfigure iCloud kindle KindleDrm MaxTo NordVPN Ninite Notepadpp npp RightClickEnhancer TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager hyperv HiddenStart java LgMonitor MarkdownView MicrosoftTeams MsiCreatorCenter NitroPdf nVidiaDriver nVidiaGeForceExperience OneDrive oculus pa PartitionAssistant pGina PowerPanel PowerrToys QuickBooks stamps SystemInternals TaskLayout TemperatureLogger Todoist UupDump VisualStudio vs Wallpaper4k WindowsAssessmentAndDeploymentKit wsl WslConfig x410 xMing )
 
 	# Apache
 	all+=( ApacheNomad )
@@ -254,15 +255,18 @@ mergeDir() { MergeDir --parents --suppress "$@"; }
 minimalInstall() { [[ $_minimalInstall ]]; }
 mvSudo() { [[ ! -e "$1" ]] && return; sudoc mv "$1" "$2"; }
 pausep() { [[ $noPrompt ]] && return; pause; } # pausep - pause if prompting
-pkg() { package -q "$@"; }
+pkg() { package --quiet "$@"; }
 platformUserAppData() { local d; d="$(GetPlatformVar "UDATA")/app" && makeDir "$d" && echo "$d"; }
+rebootIfNeeded() { [[ ! $rebootNeeded ]] && return; SleepStatus "Rebooting in 10 seconds" 10 && power reboot; }
 rmSudo() { [[ ! -f "$1" ]] && return; sudoc ${G}rm -f "$1"; }
 serviceAutoStart() { service auto "$1" && service start "$1"; }
 serviceDemandStop() { service demand "$1" && service stop "$1"; }
 serviceDisableStop() { service disable "$1" && service stop "$1"; }
+setRan() { runCheck="true" ran="true"; }
 sshRun() { SshAgentConf --quiet "${globalArgs[@]}" && RunLog ssh "$@"; }
 verifyStaticIpAddress() { [[ -f /etc/dhcpcd.conf ]] && grep "^static ip_address=" /etc/dhcpcd.conf >& /dev/null; }
-waitForInstall() { local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
+waitForInstall() { [[ ! $ran ]] && return; local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
+waitForInstallWin() { ! IsPlatform win && return; waitForInstall "$1"; }
 
 checkInstallable()
 {
@@ -404,7 +408,7 @@ i()
 		! checkInstallable "$appFunction" && continue
 
 		# variables
-		unset ran runCheck
+		unset ran runCheck rebootNeeded
 
 		# elevate install
 		if IsInArray --case-insensitive "${appFunction}" elevateInstall && ! IsElevated; then
@@ -508,7 +512,7 @@ makeDir()
 run() 
 {
 	# arguments
-	local args=() copyLocal dest header elevate name p pause rename type="extension"
+	local args=() copyLocal dest header elevate name noInstallCheck p pause rename type="extension"
 
 	while (( $# != 0 )); do
 		local shift=1
@@ -532,11 +536,12 @@ run()
 
 			--copy-local) copyLocal="--copy-local";;
 			--copy-local-win) IsPlatform win && copyLocal="--copy-local";;
-			-d|--dest|-d=*|--dest=*) ScriptOptGet "dest" "$@";;
-			-h|--header|-h=*|--header=*) ScriptOptGet "header" "$@";;
+			--dest|--dest=*|-d|-d=*) ScriptOptGet "dest" "$@";;
+			--header|--header=*|-h|-h=*) ScriptOptGet "header" "$@";;
 			--elevate) IsPlatform win && elevate="--elevate";;
-			-n|--name|-n=*|--name=*) ScriptOptGet name "$@" || return;;
-			-nh|--no-header) local noHeader="--no-header";;
+			--name|--name=*|-n|-n=*) ScriptOptGet name "$@" || return;;
+			--no-header|-nh) local noHeader="--no-header";;
+			--no-install-check) noInstallCheck="--no-install-check";;
 			--no-pause) unset pause;;
 			--pause) pause="--pause";;
 			--rename) rename="--rename" copyLocal="--copy-local";; # must copy for rename so we do not impact the original file
@@ -566,7 +571,10 @@ run()
 	fi
 
 	# infer name
-	[[ ! $name && "$type" == @(python|pythonGlobal|ruby|store) ]] && name="$p"
+	if [[ ! $name ]]; then 
+		[[ "$type" == @(executable) ]] && name="$(GetFileName "$p")"
+		[[ "$type" == @(package|python|pythonGlobal|ruby|store) ]] && name="$p"
+	fi
 
 	# infer macOS store install
 	isMacStoreId "$p" && storeInstall="--store"
@@ -580,7 +588,11 @@ run()
 	[[ $noRun ]] && return;
 	
 	# return if the program is installed
-	[[ "$type" == @(python|pythonGlobal|ruby) ]] && InPath "$p" && [[ ! $force ]] && return
+	if [[ ! $force && ! $noInstallCheck ]]; then
+		[[ "$type" == @(go|python|pythonGlobal|ruby) ]] && InPath "$p" && return
+		[[ "$type" == @(executable) ]] && InPath "$name" && return	
+		[[ "$type" == @(package) ]] && PackageInstalled "$p" && return	
+	fi
 
 	# prompt to run the installation
 	runPrompt "$p" "$name" || return 0
@@ -652,7 +664,6 @@ runTypeExecutable()
 {
 	# arguments
 	local dir="$1" name="${2,,}" dest="$3" zipName="$4" file; shift 4
-	[[ ! $name ]] && name="$(GetFileName "$dir")"
 
 	# find the executable location
 	findFile "$dir" || return; dir="$file"
@@ -690,7 +701,7 @@ runTypeExecutable()
 	# copy the file to /usr/local/bin
 	local dest="/usr/local/bin/$name"; IsPlatform entware && dest="/opt/bin/$name"
 
-	if [[ ! -e "$dest" ]] || ! diff "$file" "$dest" || [[ $force ]]; then
+	if [[ ! -e "$dest" ]] || ! diff "$file" "$dest"; then
 		printf "Installing $name to $(GetFilePath "$dest")..."
 		RunLog sudoc cp "$file" "$dest" || return
 		sudo chmod +x "$dest" || return
@@ -803,7 +814,7 @@ runTypeNomad()
 	hashi nomad job run "$p" || return
 }
 
-runTypePackage() { pkg "$1"; }
+runTypePackage() { package --quiet "$1"; }
 
 # runTypePython - Python package install
 runTypePython() 
@@ -985,7 +996,7 @@ runXip()
 # applications
 #################################################
 
-AppCoreInstall() { winPathFix && i AppPlatform AppNetwork AppHost registration; }
+AppCoreInstall() { winPathFix && i AppPlatform AppNetwork AppHost registration && rebootIfNeeded; }
 AppPlatformInstall() { RunPlatform app; }
 appMac() { i  && i iTerm karabiner rectangle; }
 appQnap() { i qcli && iStore MalwareRemover NotificationCenter Qboost QuLog SSDLaboratory SecurityCounselor; }
@@ -1035,8 +1046,11 @@ AppHostInstall()
 	local commonPiHw="PiI2c PiOneWire PiSpi"
 	local homeServer="ChronyServer cron cups DnsServer DhcpServer HomeAssistant homebridge HomebridgeWiggin PiVPN UnifiController"
 
+	# get the desired hostname
 	i hostname || return
-	case "$HOSTNAME" in
+
+	# install
+	case "$hostname" in
 
 		# Mac
 		ender) i $commonMac $commonLaptop amphetamine dymo NetbootxyzDocker;;
@@ -1046,7 +1060,7 @@ AppHostInstall()
 		# PC
 		micro|ultron) i $commonPc;;
 		oversoul) i $commonPc IntelChipset IntelThunderboltDriver iCloud DellDisplayManager Quicken VeraCrypt;;
-		rosie) i $commonPc $commonLaptop MsiMotherboard DellDisplayManager LogitechGhub thunderbird VeraCrypt DevCore;;
+		rosie) i $commonPc $commonLaptop IntelThunderboltDriver DellDisplayManager LogitechGhub MsiCreatorCenter thunderbird VeraCrypt DevCore;;
 
 		# server
 		nas3) iStore Firefox HybridBackup MultimediaConsole NetbootxyzDocker Terminology;;
@@ -1133,7 +1147,8 @@ RegistrationInstall()
 	local app final=(1Password BeyondCompare MaxTo sublime)
 
 	for app in "${final[@]}"; do
-		hilight "Register '$app' with the contents of the clipboard..."
+		message="Register '$app' with the contents of the clipboard"
+		[[ $noPrompt ]] && { hilight "$message..."; } || { ask "$message" || continue; }
 		local registration; registration="$(credential get --fallback $app registration)" || return
 		clipw "$registration" || return
 		app "$app" || return
@@ -1143,7 +1158,7 @@ RegistrationInstall()
 
 FinalInstall()
 {
-	local app final=( bootstrap 1Password BeyondCompare CreativeCloud Dropbox Firefox Fork Intel Java JetBrains Logitech MsiMotherboard NotepadPp nVidia Plex Python Sonos Sublime Thunderbird VisualStudio Zoom )
+	local app final=( bootstrap 1Password BeyondCompare CreativeCloud Dropbox Firefox Fork Intel Java JetBrains Logitech NotepadPp nVidia Plex Python Sonos Sublime Thunderbird VisualStudio Zoom )
 	printf "final..."
 	for app in "${final[@]}"; do
 		printf "$app..."
@@ -1615,7 +1630,7 @@ ChromeFinalWin()
 
 FirefoxInstall()
 {
-	header "Firefox"; local v="99.0" # https://www.mozilla.org/en-US/firefox/all/
+	header "Firefox"; local v="99.0.1" # https://www.mozilla.org/en-US/firefox/all/
 
 	# version check
 	[[ "$(firefox version)" == "Mozilla Firefox $v" && ! $force ]] && return
@@ -2143,7 +2158,7 @@ MySqlWorkbenchFinalWin()
 	mergeDir "$pp/MySQL" "$pp/Development/Other" || return
 }
 
-SqlPromptInstall() { run --header "SQL Prompt" "platform/win/RedGate/SQLPromptDownload.exe"; } # downloads to $tmp/Red Gate http://www.red-gate.com/products/sql-development/sql-prompt
+SqlPromptInstall() { run --name "SQL Prompt" "platform/win/RedGate/SQLPromptDownload.exe"; } # downloads to $tmp/Red Gate http://www.red-gate.com/products/sql-development/sql-prompt
 
 SqlPromptHelp()
 {
@@ -2170,7 +2185,7 @@ DiskImagerFinalWin() { mergeDir "$pp/Image Writer" "$oo"; }
 DiskInventortyXInstall() { run --name "Disk Inventory X" "shareware/Disk Inventory X/DIX1.0Universal.dmg"; } # http://www.derlien.com/downloads/index.html
 ToDoBackupInstall() { run --name "ToDo Backup" "platform/win/EaseUS/ToDo Backup Home/tbh_trial.exe"; } # https://www.easeus.com/backup-software/personal.html
 ToDoBackupFinalWin() { mergeDir --rename "$pp/EaseUS Todo Backup 11.5" "$oo/ToDo Backup" && $rm "$pd/EaseUS Todo Backup Home 11.5.lnk"; }
-TeraCopyInstall() { run --header "TeraCopy" "platform/win/TeraCopy/teracopy3.5b2.exe"; } # https://codesector.com/teracopy
+TeraCopyInstall() { run --name "TeraCopy" "platform/win/TeraCopy/teracopy3.5b2.exe"; } # https://codesector.com/teracopy
 VortaInstall() { run --python-global vorta; }
 
 BorgBackupInstall()
@@ -2304,7 +2319,7 @@ FileHostingCoreInstall() { i Dropbox iCloud OneDrive; }
 DropboxInstall()
 {
 	header "DropBox"
-	local v="146.4.4836" # inst DropboxDownload; start https://www.dropbox.com/install-linux
+	local v="147.3.4786" # i DropboxDownload; start https://www.dropbox.com/install-linux
 
 	# check if installed
 	dropbox IsInstalled && [[ ! $force && "$(dropbox version)" == "$v" ]] && return
@@ -2561,7 +2576,7 @@ DbusInstall()
 
 	# fix WSL error message
 	local file="/usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf"
-	IsPlatform wsl && [[ -f "$file" ]] && grep -q "whoopsie" "$file" && { echo "Remove whoopsie policy"; sudoe "$file"; }
+	IsPlatform wsl && [[ -f "$file" ]] && grep -q "whoopsie" "$file" && { echo "Remove whoopsie policy..."; sudoe "$file"; }
 	
 	return 0
 }
@@ -2683,10 +2698,7 @@ SteamFinalWin()
 	i GameIcon || return
 }
 
-UplayInstall()
-{
-	run --name "UPlay (UbiSoft)" "game/Ubisoft/UplayInstaller.exe" || return
-}
+UplayInstall() { run --name "UPlay (UbiSoft)" "game/Ubisoft/UplayInstaller.exe"; }
 
 UplayFinalWin()
 {
@@ -2719,7 +2731,7 @@ GitCoreInstall()
 gitCorePi() { pkg kompare || return; }
 
 GitClientInstall() { RunPlatform gitClient || return; }
-gitClientMac() { i fork GitKraken; }
+gitClientMac() { i GitKraken; }
 gitClientPi() { pkg gitg || return; }
 gitClientUbuntu() { i GitKraken; }
 
@@ -2728,11 +2740,8 @@ gitClientWin()
  	# posix permissions do not work well on windows file systems
 	if IsPlatform wsl1; then
 		sudo git config --system core.filemode false || return
-	else
-		sudo git config --unset --system core.filemode
 	fi
-
-	i fork || return
+	return 0
 }
 
 GitServerInstall()
@@ -2753,7 +2762,7 @@ GitServerInstall()
 	return 0
 }
 
-ForkInstall() { run --header "Fork" "git/Fork/ForkInstaller.exe|Fork-2.16.dmg" --pause; } # https://git-fork.com/
+ForkInstall() { run --name "Fork" "git/Fork/ForkInstaller.exe|Fork-2.16.dmg" --pause; } # https://git-fork.com/
 ForkHelpMac() { echot "- Preferences, Integration, Install Command Line Tools"; }
 ForkProfile() { ForkHelper $noPrompt profile restore default; }
 GitUpInstall() { run --python-global git-up && git config --global git-up.rebase.auto false; }
@@ -2840,7 +2849,7 @@ GitKrakenInstall()
 
 GitKrakenFinalWin() { mergeDir "$up/GitKraken" "$up/Development/Other"; }
 
-GitHubInstall() { run --header "GitHub" "git/GitHub/setup/GitHubSetup.exe" --pause; } # https://github-windows.s3.amazonaws.com/GitHubSetup.exe
+GitHubInstall() { run --name "GitHub" "git/GitHub/setup/GitHubSetup.exe" --pause; } # https://github-windows.s3.amazonaws.com/GitHubSetup.exe
 
 GitHubHelp()
 {
@@ -2934,7 +2943,7 @@ PowerCoreInstall()
 BalenaEtcherInstall() # disc image burner
 {
 	header "Balena Etcher" # https://www.balena.io/etcher/
-	local v="1.7.7" dir="hardware/Balena/Etcher"
+	local v="1.7.9" dir="hardware/Balena/Etcher"
 	run "$dir/balenaEtcher-Setup-$v.exe|balenaEtcher-$v.dmg|balena-etcher-electron-$v-linux-x64.zip" || return
 
 	v="v12.25.1" 
@@ -3309,6 +3318,7 @@ LogitechInstall() { i LogitechGhub LogitechOptions; }
 LogitechFinalWin()
 {
 	registry delete "run/LogiOptions" || return # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
+	registry delete "run/Logitech Download Assistant" || return # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch
 	registry delete "urun/LGHUB" || return # "C:\Program Files\LGHUB\lghub.exe" --background
 	mergeDir "$pp/Logitech" "$oo" || return
 	mergeDir --rename "$pp/Logi" "$oo/Logitech" || return
@@ -3338,30 +3348,24 @@ LogitechOptionsInstall()
 	LogitechOptions IsInstalled && [[ ! $force && "$(LogitechOptions version)" == "$v" ]] && return
 
 	# install
-	if [[ "$installType" == "beta" ]]; then run "hardware/Logitech/options/logioptionsplus_installer.exe|logioptionsplus_installer.app" --elevate || return
+	if [[ "$installType" == "beta" ]]; then
+		run "hardware/Logitech/options/logioptionsplus_installer.exe|logioptionsplus_installer.app" --elevate || return
 	else
 		run "hardware/Logitech/options/options_installer.exe|LogiMgr Installer 9.60.122.app" --elevate -- "${args[@]}" || return
-		[[ $ran ]] && IsPlatform win && { waitForInstall "$pp/Logitech" || return; }
 	fi
-	
-	# configure	
-	
+	waitForInstallWin "$pp/Logitech"
 }
 
 LogitechOptionsProfile() { LogitechOptions $noPrompt profile restore default; }
 LogitechOptionsFinal() { i LogitechFinal; }
 
-MsiMotherboardInstall()
+MsiCreatorCenterInstall()
 {
-	run --name "MSI Motherboard" "hardware/MSI/MSI PRESTIGE 15 A10SC-011/Creator Center/v1.1.1911.0501_1.1.1911.0501/Setup.exe" || return
-	serviceDemandStop NahimicService || return
-}
+	run --name "MSI Creator Center" "hardware/MSI/Creator Center/Creator Center_2.0.126.0.exe" || return # https://www.msi.com/Landing/creator-center-download
+	service disable EneTechIo || return # light control, ene.sys causes blue screens and Windows prevents loading, https://forum-en.msi.com/index.php?threads/mystic-light-driver-ene-sys-flagged-as-a-vulnerable-driver.373963/
+} 
 
-MsiMotherboardFinalWin()
-{
-	$mv "$up/Nahimic Companion.lnk" "$up/Applications" || return
-	mergeDir "$pp/MSI" "$oo" || return
-}
+MsiCreatorCenterFinalWin() { mergeDir "$pp/MSI" "$oo"; }
 
 nVidiaInstall() { i nVidiaGeForceExperience nVidiaDriver; }
 
@@ -3840,16 +3844,23 @@ HashiAll() { i HashiOtherInstall HashiCliInstall HashiProgramInstall HashiServer
 
 # Hashi Programs program only
 HashiProgramInstall() { i ConsulProgram NomadProgram VaultProgram; }
-ConsulProgramInstall() { run --header "Consul Program" --executable "other/HashiCorp/consul"; } # https://www.consul.io/downloads.html
-NomadProgramInstall() { run --header "Nomad Program" --executable "other/HashiCorp/nomad"; } # https://www.nomadproject.io/downloads
-VaultProgramInstall() { run --header "Vault Program" --executable "other/HashiCorp/vault"; } # https://www.vaultproject.io/downloads
+ConsulProgramInstall() { hashiProgram "consul"; } # https://www.consul.io/downloads.html
+NomadProgramInstall() { hashiProgram "nomad"; } # https://www.nomadproject.io/downloads
+VaultProgramInstall() { hashiProgram "vault"; } # https://www.vaultproject.io/downloads
+hashiProgram() { run --header "${1^} Program" --executable --no-install-check "other/HashiCorp/$1"; }
 
 # Hashi CLI - programs, certificates, and other setup necessary to run Hashi tools on the command line as clients
 HashiCliInstall() { i VaultCli ConsulCli NomadCli; }
 ConsulCliInstall() { hashiCli "consul" && i ConsulDocker; }
 NomadCliInstall() { hashiCli "nomad"; }
 VaultCliInstall() { hashiCli "vault"; }
-hashiCli() { local what="$1"; header "${what^} CLI"; hashi install cli "$what" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
+
+hashiCli()
+{	
+	local what="$1"; header "${what^} CLI"
+	[[ ! $force ]] && ! UpdateNeeded "$what-cli" && return
+	hashi install cli "$what" --encrypt "${globalArgs[@]}" "${otherArgs[@]}" && UpdateDone "$what-cli"
+}
 
 # Hashi Server - install Hashi server on the specified servers
 HashiServerInstall() { i ConsulServer NomadServer VaultServer; }
@@ -4166,9 +4177,7 @@ nodeRedPermissions() { makeDir --sudo --owner "$user" "$home/.config" "$home/.no
 #################################################
 
 NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler GlassWire gping httpie JumpCloud JumpDesktop mDns MozillaVpn netboot.xyz Ninite NordVpn pivpn Proxifier TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall UnifiController WireGuard Wireshark; }
-CurlieInstall() { run --go --header "curlie" "github.com/rs/curlie@latest"; }
 HttpieInstall() { run --python-global "httpie"; }
-NiniteInstall() { run --name "Ninite" "network/Ninite/Ninite Agent Installer.exe" --elevate -- /silent; } # https://ninite.com/agent.exe
 TftpclientInstall() { run --name "TFTP Client" --package "tftp-hpa"; }
 TftpserverInstall() { run --name "TFTP Server" --package "tftpd-hpa" && serviceAutoStart "tftpd-hpa"; }
 
@@ -4207,6 +4216,17 @@ cloudInitLimitUser()
 
 	# remove NOPASSWD:ALL from the user in the sudo cloud-init settings	
 	sudoc sed -i "s/^$line/$USER ALL=(ALL) ALL/" "$file" || return
+}
+
+CurlieInstall()
+{
+	local v="7.68.0"
+
+	# check if installed
+	InPath curlie && [[ ! $force && "$(curlie --version | head -1 | cut -d" " -f2)" == "$v" ]] && return
+
+	# install	
+	run --go --header "curlie" "github.com/rs/curlie@latest"
 }
 
 DomotzInstall()
@@ -4277,9 +4297,12 @@ GpingInstall()
 JumpCloudInstall()
 {
 	header "JumpCloud" # https://console.jumpcloud.com/#/devices/new
-
 	local key="d55d2d17f6fdc877905cf7dd798e7c910948eff3"
 
+	# check if installed
+	[[ ! $force && -d "$P/JumpCloud" ]] && return
+
+	# install
 	if IsPlatform mac,win; then
 		echo "connect key=<paste> ($key)"; clipw "$key"
 		run "network/JumpCloud/setup/JumpCloudInstaller.exe|jumpcloud-agent.pkg" || return
@@ -4355,16 +4378,9 @@ MozillaVpnInstall()
 	fi
 }
 
-MozillaVpnFinalWin()
-{
-	$mv "$pp/Mozilla VPN.lnk" "$pp/Operating System" || return
-}
+MozillaVpnFinalWin() { $mv "$pp/Mozilla VPN.lnk" "$pp/Operating System"; }
 
-NetbootxyzDockerInstall()
-{
-	run --header "netboot.xyz (Docker Container)" --docker "netboot-xyz.yml" --name "netboot-xyz" && httpShow "10180"
-}
-
+NetbootxyzDockerInstall() { run --header "netboot.xyz (Docker Container)" --docker "netboot-xyz.yml" --name "netboot-xyz" && httpShow "10180"; }
 NetbootxyzTftpServerInstall() { ForAllHosts netbootxyzTftpServerDeploy; }
 
 # netbootxyzDeploy HOST
@@ -4380,6 +4396,13 @@ netbootxyzTftpServerDeploy()
 	)" || return
 
 }
+
+NiniteInstall()
+{
+	local v="0,1,1,1382" # https://ninite.com/agent.exe
+	local p="$P32/Ninite Agent/NiniteAgent.exe"; [[ ! $force && -f "$p" && "$(FileVersion "$p")" == "$v" ]] && return
+	run --name "Ninite" "network/Ninite/Ninite Agent Installer.exe" --elevate -- /silent
+} 
 
 NordVpnInstall() { run --name "NordVPN" "network/NordVPN/NordVPNSetup.exe"; } # https://nordvpn.com/download/
 
@@ -4715,10 +4738,15 @@ MicrosoftTeamsFinalWin()
 
 OfficeInstall()
 {
-	header "Office 365" # https://stores.office.com/myaccount/advancedinstalls.aspx
-	run "other/Microsoft/office/Microsoft_Office_16.47.21031401_Installer.pkg|OfficeSetup.exe" || return
-	IsPlatform win && { FileWait "$pp/Word.lnk" || return; }
-	return 0
+	header "Office 365"
+	local v="16.0.15028.20204" # https://stores.office.com/myaccount/advancedinstalls.aspx
+
+	# check if installed
+	dropbox IsInstalled && [[ ! $force && "$(word version)" == "$v" ]] && return
+
+	# install	
+	run "other/Microsoft/office/OfficeSetup.exe|Microsoft_Office_16.47.21031401_Installer.pkg" || return
+	WaitForInstallWin "$pp/Word.lnk"
 }
 
 OfficeFinalMac() { sudoc rm -fr "$P/Microsoft OneDrive.app" "$P/Microsoft OneNote.app" "$P/Microsoft Outlook.app"; }
@@ -4735,10 +4763,8 @@ OfficeProfile()
 {
 	. "office.sh" || return
 	makeDir "$OfficeTemplates" || return
-
-	askp "Restore normal templates" && { word normal restore || return; }
 	askp "Configure Word" && { word configure || return; }
-
+	askp "Restore normal templates" && { word normal restore || return; }
 	return 0
 }
 
@@ -4985,7 +5011,7 @@ WslConfigInstall()
 	$makeShortcut "wsl.exe" "$pp/Operating System/bash" || return
 
 	# startup script
-	registry set "run/startup" REG_SZ "$(utw "$(FindInPath "wsl.exe")")"' --exec "/usr/local/data/bin/RunScript\ startup"'
+	registry set "run/startup" REG_SZ "$(utw "$(FindInPath "wsl.exe")") /usr/local/data/bin/RunScript startup"
 }
 
 wslSetUser() { wsl dist user set --user="$(ConfigGet "user")"; }
@@ -6042,20 +6068,14 @@ nginxProxyManagerSyncInit()
 # Shell
 #################################################
 
-BashInstall()
-{
-	header "Bourne Again Shell"
-
-	i BashProfile || return
-
-	# login shell
-	IsPlatform entware && { AddLoginShell "/opt/bin/bash" || return; }
-
-	return 0
-}
+BashInstall() { run --name="Bourne Again Shell" --package bash; }
 
 BashProfile()
 {
+	# login shell
+	IsPlatform entware && { AddLoginShell "/opt/bin/bash" || return; }
+
+	# profile
 	local file="/etc/bash.bashrc"
 	local line='[[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"'
 	local after="# this file has to be sourced in"
@@ -6080,30 +6100,19 @@ BashProfile()
 	fi
 }
 
-ZshInstall()
-{
-	header "Z shell"
+ZshInstall() { run --name="Z shell" --package zsh; }
 
+ZshProfile()
+{
 	# .oh-my-zsh profile
 	[[ $force || ! -d "$HOME/.oh-my-zsh" ]] && { ZshHelper $noPrompt profile restore default || return; }
-
-	# install Zsh
-	pkg zsh || return
 
 	# permissions
 	local dir="/usr/local/share/zsh"
 	[[ -d "$dir" ]] && { sudo chmod go-w "$dir" || return; }
 	[[ -d "$dir/site-functions" ]] && { sudo chmod go-w "$dir/site-functions" || return; }
 
-	# login shell
-	IsPlatform entware && { AddLoginShell "/opt/bin/zsh" || return; }
-
-	# set ZSH to the login shell
-	SetLoginShell zsh
-}
-
-ZshProfile()
-{
+	# profile
 	local file="/etc/zsh/zshenv"
 	IsPlatform mac && file="/etc/zprofile"
 	IsPlatform entware && file="/opt/etc/zshenv"
@@ -6112,6 +6121,10 @@ ZshProfile()
 	local line='[[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"'
 	! grep --quiet "$line" "$file" && { echo "$line" | sudo ${G}tee --append "$file" || return; }
 	sudoc chmod +x "$file" || return
+
+	# login shell
+	IsPlatform entware && { AddLoginShell "/opt/bin/zsh" || return; }
+	SetLoginShell zsh || return
 }
 
 #################################################
@@ -6141,12 +6154,6 @@ SecurityCoreInstall()
 	fi
 
 	i --no-prompt 1PasswordCli || return
-}
-
-1PasswordProfile()
-{
-	clipw "$(cred get 1Password SecretKey --fallback)"; 
-	echo "Paste the contents of the clipboard into the secret key..."
 }
 
 1PasswordCliInstall()
@@ -6733,7 +6740,7 @@ VisualStudioCodeFinalWin() { mergeDir "$up/Visual Studio Code" "$up/Development/
 #################################################
 
 TimeAllInstall() { i chrony chronyServer && pkg ntpdate tty-clock; }
-TimeCoreInstall() { i chrony && package ntpdate tty-clock; }
+TimeCoreInstall() { i chrony && pkg ntpdate tty-clock; }
 
 ChronyInstall() # time syncronization / NTP replacement
 {
@@ -6886,7 +6893,7 @@ DufInstall()
 	InPath duf && [[ "$(duf --version)" == "$v" && ! $force ]] && return
 
 	# install
-	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then package duf
+	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then pkg package duf
 	elif [[ "$installType" == @(|local) ]]; then run --executable "shareware/duf" # https://github.com/muesli/duf/releases
 	else couldNotLocate
 	fi
@@ -6900,7 +6907,7 @@ DustInstall()
 	InPath dust && [[ "$(dust --version)" == "Dust $v" && ! $force ]] && return
 
 	# install
-	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then package dust
+	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then pkg dust
 	elif IsPlatform arm,x86 && [[ "$installType" == @(|local) ]]; then run --executable "shareware/dust"		
 	elif IsPlatformAll debian,brew && [[ "$installType" == @(|package) ]]; then brew tap tgotwig/linux-dust && brew install dust
 	elif IsPlatformAll debian,x64 && [[ "$installType" == @(|package) ]]; then run "shareware/fd/fd_${v}_amd64.deb"
@@ -6917,7 +6924,7 @@ FdInstall()
 	InPath fd && [[ "$(fd --version)" == "fd $v" && ! $force ]] && return
 
 	# install
-	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then package fd
+	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then pkg fd
 	elif IsPlatform arm,x86 && [[ "$installType" == @(|local) ]]; then run --executable "shareware/fd"
 	elif IsPlatform debian && [[ "$installType" == @(|package) ]]; then run "shareware/fd/fd_${v}_$(getDeb "amd64" "arm64" "armhf").deb" # has superfluous package dependencies
 	elif [[ "$installType" == @(|compile) ]]; then run --rust "fd-find"
@@ -6957,7 +6964,7 @@ McFlyInstall()
 	InPath mcfly && [[ "$(mcfly --version)" == "McFly $v" && ! $force ]] && return
 
 	# install
-	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then package mcfly || return
+	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then pkg mcfly || return
 	elif IsPlatform debian && [[ "$installType" == @(|local) ]]; then run --executable "shareware/mcfly" || return # compiled from source
 	elif [[ "$installType" == @(|compile) ]]; then run --rust "mcfly" || return
 	else couldNotLocate
@@ -6985,11 +6992,11 @@ RipgrepInstall()
 
 UnisonInstall()
 {
-	# remove old version - v2.52.0+ required for oCaml version independence - https://github.com/bcpierce00/unison/wiki/ocaml-version-interoperability	
+	# remove package (older) version - v2.52.0+ required for oCaml version independence - https://github.com/bcpierce00/unison/wiki/ocaml-version-interoperability	
 	PackageInstalled unison && { packageu unison || return; }
 
 	# install new version
-	run --name "Unison" --executable "shareware/unison/bin/" || return # https://github.com/bcpierce00/unison/releases
+	run --name "unison" --executable "shareware/unison/bin/" || return # https://github.com/bcpierce00/unison/releases
 }
 
 #################################################
@@ -7010,7 +7017,7 @@ JqInstall() { run --header "jq" --package "jq"; }
 
 UtilityGuiAllInstall() { i 7Zip AltTabTerminator aptivate AutoHotKey bartender BetterTouuchTool CloseAllWIndows DreamAquarium EdgeDeflector flux greenshot karabiner Lingon LinkShellExtension fuse RightClickEnhancer SnapStore TaskLayout TidyTabs wallpaper; }
 AmphetamineInstall() {  run --name "Amphetamine" "937984704"; }
-SnapStore() { package snapd && sudo snap install snap-store; }
+SnapStore() { pkg snapd && sudo snap install snap-store; }
 
 7ZipInstall() # 6MB
 {
@@ -7222,7 +7229,7 @@ fuseInstall()
 	header "FUSE"
 
 	if IsPlatform debian; then
-		package fuse || return # https://www.kernel.org/doc/html/latest/filesystems/fuse.html
+		pkg fuse || return # https://www.kernel.org/doc/html/latest/filesystems/fuse.html
 	elif IsPlatform mac; then	 # requires GUI installer to properly install system extensions
 		useGui="true" run "shareware/Fuse/macfuse-4.2.1.dmg" || return # https://osxfuse.github.io/
 	fi
@@ -7365,7 +7372,7 @@ DockerHelpMac()
 
 DockerComposeInstall() 
 {
-	IsPlatformAll PiKernel,ubuntu && { package make; }
+	IsPlatformAll PiKernel,ubuntu && { pkg make; }
 	run --python-global "docker-compose"
 }
 
@@ -7588,7 +7595,7 @@ MaxToInstall()
 
 	# install
 	run "platform/win/Digital Creations AS/Maxto/MaxToSetup-$(echo "$v" | cut -d. -f1-3).exe" --elevate || return
-	[[ $ran ]] && FileWait "$up/Digital Creations AS"
+	waitForInstallWin "$up/Digital Creations AS"
 }
 
 MaxToProfile() { MaxTo $noPrompt profile restore default; }
@@ -8026,7 +8033,15 @@ xQuartzHelp()
 	xserver start || return
 }
 
-xWslInstall() { elevate wsl update; }
+xWslInstall()
+{ 
+	if [[ ! $force ]] && UpdateNeeded "WslUpdate"; then
+		elevate wsl update || return
+		UpdateDone "WslUpdate" || return
+	fi
+
+	return 0
+}
 
 #################################################
 # other
@@ -8053,14 +8068,22 @@ HostnameInstall()
 
 	[[ ! $force ]] && ! UpdateNeeded "HostnameChanged" && return
 
-	os name set
+	os name set || return
 	case $? in
-		0) # name changed
+
+		# name changed
+		0) 
 			UpdateDone "HostnameChanged" || return
-			SleepStatus "Rebooting in 10 seconds" 10 || return
-			power reboot; return;;
-		1) UpdateDone "HostnameChanged"; return;; # name unchanged
-		2) return 1;; # error
+			rebootNeeded="true"
+			hostname="$(UpdateGet "hostname")" || return
+			;;
+
+		# name unchanged
+		1) UpdateDone "HostnameChanged"; return;;
+
+		# error
+		*) return 1;;
+
 	esac
 }
 
