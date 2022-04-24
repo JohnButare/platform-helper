@@ -691,7 +691,7 @@ TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')"; }
 TimestampDiff () { ${G}printf '%s' $(( $(${G}date -u +%s) - $(${G}date -u -d"$1" +%s))); }
 TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
 
-# TimeCommand - return the time it takes to execute a command in seconds to three decimal places
+# TimeCommand - return the time it takes to execute a command in seconds to three decimal places.
 # Command output is supressed.  The status of the command is returned.
 if IsBash; then
 	TimeCommand() { TIMEFORMAT="%3R"; time (command "$@" >& /dev/null) 2>&1; }
@@ -1680,20 +1680,27 @@ PackagePurge() { InPath wajig && wajig purgeremoved; }
 PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
 
 # package PACKAGE - install the specified package
+#   --no-prompt|-np   do not prompt for input
+#   --force|-f   			force the install even if the package is installed
+#   --quiet|-q   			minimize informational messages
 package() # package install
 {
 	# arguments
-	local arg args=() force noPrompt quiet packages
-	for arg in "$@"; do
-		[[ "$arg" == @(-f|--force) ]] && { force="true"; continue; }
-		[[ "$arg" == @(-np|--no-prompt) ]] && { noPrompt="true"; continue; }
-		[[ "$arg" == @(-q|--quiet) ]] && { quiet="true"; continue; }
-		args+=( "$arg" )
+	local packages=() force noPrompt quiet
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--force|-f) force="--force";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			*) packages+=("$1");;
+		esac
+		shift
 	done
-	set -- "${args[@]}"
 
-	local packages=( "$@" ); packageExclude || return
+	# exclude packages
+	packageExclude || return
 
+	# return if all packages have been excluded
 	if [[ ! $packages ]]; then
 		[[ ! $quiet ]] && echo "all packages have been excluded"
 		return 0
@@ -1708,7 +1715,7 @@ package() # package install
 	# disable prompting
 	[[ $noPrompt ]] && IsPlatform debian && noPrompt="DEBIAN_FRONTEND=noninteractive"
 
-	# install the packages
+	# install
 	IsPlatform debian && { sudoc $noPrompt apt install -y "${packages[@]}"; return; }
 	IsPlatform entware && { sudoc opkg install "${packages[@]}"; return; }
 	IsPlatform mac && { HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"; return; }
@@ -2355,13 +2362,14 @@ startUsage()
 Usage: start [OPTION]... FILE [ARGUMENTS]...
 	Start a program converting file arguments for the platform as needed
 
-	-e, --elevate 					run the program with an elevated administrator token (Windows)
-	-o, --open							open the the file using the associated program
-	-s, --sudo							run the program as root
-	-t, --terminal 					the terminal used to elevate programs, valid values are wsl|wt
+	--elevate, -e 					run the program with an elevated administrator token (Windows)
+	--open, -o							open the the file using the associated program
+	--sudo, -2							run the program as root
+	--terminal, -T 					the terminal used to elevate programs, valid values are wsl|wt
 													wt does not preserve the current working directory
-	-w, --wait							wait for the program to run before returning
-	-ws, --window-style 		hidden|maximized|minimized|normal"
+	--test, -t 							test mode, the program is not started
+	--wait, -w							wait for the program to run before returning
+	--window-style, -ws 		hidden|maximized|minimized|normal"
 }
 
 start() 
@@ -2371,17 +2379,17 @@ start()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-e|--elevate) ! IsElevated && IsPlatform win && elevate="--elevate";;
-			-f|--force) force="--force";;
-			-h|--help) startUsage; return 0;;
-			-np|--no-prompt) noPrompt="--no-prompt";;
-			-q|--quiet) quiet="--quiet";;
-			-s|--sudo) sudo="sudoc";;
-			-T|--terminal) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
-			-t|--test) test="--test"; $run="echo -E";;
-			-v|-vv|-vvv|-vvvv|-vvvvv|--verbose) ScriptOptVerbose "$1";;
-			-w|--wait) wait="--wait";;
-			-ws|--window-style) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "--window-style" "$2" ); shift;;
+			--elevate|-e) ! IsElevated && IsPlatform win && elevate="--elevate";;
+			--force|-f) force="--force";;
+			--help|-h) startUsage; return 0;;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--sudo|-s) sudo="sudoc";;
+			--terminal|-T) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
+			--test|-t) test="--test"; $run="echo -E";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			--wait|-2) wait="--wait";;
+			--window-style|-ws) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "--window-style" "$2" ); shift;;
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; break; }
 				UnknownOption "$1" start; return
@@ -2622,23 +2630,38 @@ SudoCheck() { [[ ! -r "$1" ]] && sudo="sudoc"; } # SudoCheck FILE - set sudo var
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
 
 # sudoc COMMANDS - run COMMANDS using sudo and use the credential store to get the password if available
-#   --preserve|-p   preserve the existing path (less secure)
+#   --no-prompt|-np   do not prompt for a password
+#   --preserve|-p   	preserve the existing path (less secure)
 sudoc()
 { 
-	IsRoot && { env "$@"; return; } # use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
+	# if root already return - use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
+	IsRoot && { env "$@"; return; } 
 
-	local p=( "$(FindInPath "sudo")" ) preserve; [[ "$1" == @(-p|--preserve) ]] && { preserve="true"; shift; }
+	# arguments
+	local args=() noPrompt preserve 
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--preserve|-p) preserve="--preserve";;
+			*) args+=("$1");;
+		esac
+		shift
+	done
+
+	# command
+	local command=( "$(FindInPath "sudo")" )
 
 	if [[ $preserve ]]; then
-		if IsPlatform pi; then p+=( --preserve-env )
-		elif ! IsPlatform mac; then p+=( --preserve-env=PATH )
+		if IsPlatform pi; then command+=(--preserve-env)
+		elif ! IsPlatform mac; then command+=(--preserve-env=PATH)
 		fi
 	fi
 
-	if credential --quiet exists secure default; then
-		SUDO_ASKPASS="$BIN/SudoAskPass" "${p[@]}" --askpass "$@"; 
+	if credential --quiet exists Asecure default; then
+		SUDO_ASKPASS="$BIN/SudoAskPass" "${command[@]}" --askpass "${args[@]}"
 	else
-		"${p[@]}" "$@"; 
+		[[ $noPrompt ]] && command+=(--non-interactive)
+		"${command[@]}" "${args[@]}"
 	fi
 } 
 
