@@ -256,11 +256,8 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 # forAllHosts COMMAND [ARGS...] - run a command for all hosts
 ForAllHosts()
 {
-	local host hosts; getHosts || return
-
-	for host in "${hosts[@]}"; do
-		"$@" "$host" || return
-	done
+	local host; getHosts || return
+	for host in "${hosts[@]}"; do "$@" "$host" || return; done
 }
 
 ScriptOptHost() 
@@ -271,17 +268,20 @@ ScriptOptHost()
 	esac
 }
 
-# getHosts - get hosts from hostArg variable or all Nomad clients.  Sets hosts array.
+# getHosts [HOSTS] - get hosts from hostArg variable, passed list of comma serpated hosts, or all Nomad clients.  Sets hosts array.
 getHosts() 
 {
 	# return if hosts is already specified
 	[[ $hosts ]] && return
 
-	# hostArg is a comma separate list of hosts
-	[[ "$hostArg" != @(|all|web) ]] && { StringToArray "${hostArg,,}" "," hosts; return; }
+	# use hostArg, then passed list of comma separated hosts
+	local h="${hostArg:-$1}"
 
-	# hostArg is a service name
-	[[ "$hostArg" == @(|all) ]] && hostArg="nomad-client"
+	# comma separate list of hosts
+	[[ "$h" != @(|all|web) ]] && { StringToArray "${h,,}" "," hosts; return; }
+
+	# service name
+	[[ "$h" == @(|all) ]] && hostArg="nomad-client"
 	IFS=$'\n' ArrayMakeC hosts GetServers "$hostArg"
 }
 

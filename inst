@@ -187,7 +187,7 @@ installInit()
 	# HashiCorp
 	macDebian+=(HashiProgram ConsulProgram VaultProgram NomadProgram)
 	macDebian+=(HashiCli ConsulCli NomadCli VaultCli)
-	macDebian+=(HashiServer ConsulServer NomadServer VaultServer HashiServerUpdate)
+	macDebian+=(HashiServer ConsulServer NomadServer VaultServer HashiServerUpdate ConsulServerUpdate NomadServerUpdate VaultServerUpdate)
 	macDebian+=(HashiUp ConsulDocker ConsulK8s ConsulTemplate NomadServerTools sockaddr)
 
 	# Home Automation
@@ -329,7 +329,7 @@ findFile()
 		return 1
 	fi
 
-	hint=(--hint="$installDir"); export INSTALL_DIR="$installDir"
+	hint=(--hint "$installDir"); export INSTALL_DIR="$installDir"
 	[[ $pattern ]] && { SelectFile "$file" "$pattern" || return; }
 	return 0
 }
@@ -3860,13 +3860,15 @@ SaltMinionInstall()
 # IT Management - HashiCorp
 #
 
-HashiAll() { i HashiOtherInstall HashiCliInstall HashiProgramInstall HashiServerInstall; }
+HashiAll() { i HashiOtherInstall HashiCliInstall HashiProgramInstall HashiServerInstall HashiServerUpdate; }
+HashiOtherAll() { i ConsulK8s ConsulTemplate HashiUp sockaddr vagrant; }
 
 # Hashi Programs program only
 HashiProgramInstall() { i ConsulProgram NomadProgram VaultProgram; }
 ConsulProgramInstall() { hashiProgram "consul"; } # https://www.consul.io/downloads.html
 NomadProgramInstall() { hashiProgram "nomad"; } # https://www.nomadproject.io/downloads
 VaultProgramInstall() { hashiProgram "vault"; } # https://www.vaultproject.io/downloads
+
 hashiProgram() { run --header "${1^} Program" --executable --no-install-check "other/HashiCorp/$1"; }
 
 # Hashi CLI - programs, certificates, and other setup necessary to run Hashi tools on the command line as clients
@@ -3884,39 +3886,22 @@ hashiCli()
 
 # Hashi Server - install Hashi server on the specified servers
 HashiServerInstall() { i ConsulServer NomadServer VaultServer; }
-ConsulServerInstall() { hashiGetHosts && ForAllHosts echo hashiServer "consul"; }
-NomadServerInstall() { hashiGetHosts && ForAllHosts echo hashiServerNomad; }
-VaultServerInstall() { hashiGetHosts && ForAllHosts echo hashiServer "vault"; }
+ConsulServerInstall() { hashiGetHosts && ForAllHosts hashiServer "consul"; }
+NomadServerInstall() { hashiGetHosts && ForAllHosts hashiServerNomad; }
+VaultServerInstall() { hashiGetHosts && ForAllHosts hashiServer "vault"; }
 
 hashiServer() { local what="$1" host="$2"; header "${what^} Server ($host)"; hashi install service "$what" -H="$host" --config-prefix="$config" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 hashiServerNomad() { local host="$1"; hashiServer "nomad" "$host" && sshRun "$host" "inst NomadServerTools"; }
 
-hashiGetHosts() 
-{
-	local description="${1:-install}"
-
-	# return if hosts are already specified
-	[[ $hostArg ]] && return; 
-
-	# get servers
-	local config="prod" servers="hashiServers"; [[ $test ]] && { config="test"; servers="hashiTestServers"; }
-	hostArg="$(ConfigGet "$servers")" || return
-
-	# prompt to install
-	askp "Do you want to $description Hashi software on: $hostArg" || return
-
-	# validate servers
-	[[ ! $hostArg ]] && { ScriptErr "no Hashi servers defined for '$config'"; return 1; }
-
-	return 0
-}
-
 # Hashi Server Update - extract new executables and install them on the specified servers
-HashiServerUpdateInstall() { i ConsulProgram NomadProgram VaultProgram envoy && hashiGetHosts "update" && ForAllHosts hashiServerUpdate; }
-hashiServerUpdate() { local host="$1"; hashi update cli program all -H="$host" --config-prefix="$config" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
+HashiServerUpdateInstall() { getHosts "all" && ForAllHosts hashiServerUpdate all; }
+ConsulServerUpdateInstall() { getHosts "all" && ForAllHosts hashiServerUpdate consul; }
+NomadServerUpdateInstall() { getHosts "all" && ForAllHosts hashiServerUpdate nomad; }
+VaultServerUpdateInstall() { getHosts "all" && ForAllHosts hashiServerUpdate vault; }
+
+hashiServerUpdate() { local what="$1" host="$2"; hashi update cli program $what -H="$host" --config-prefix="$config" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 
 # other
-HashiOtherAll() { i ConsulK8s ConsulTemplate HashiUp sockaddr vagrant; }
 ConsulK8sInstall() { run --name "consul-k8s" --executable "other/HashiCorp/consul-k8s"; } # https://releases.hashicorp.com/consul-k8s/
 ConsulTemplateInstall() { run --name "consul-template" --executable "other/HashiCorp/consul-template"; } # https://releases.hashicorp.com/consul-template/
 HashiUpInstall() { run --name "hashi-up" --executable "shareware/hashi-up"; } # https://github.com/jsiebens/hashi-up
@@ -3941,6 +3926,26 @@ VagrantInstall()
 # Hashi Helper
 nomadCheck() { InPath nomad && return 0; header "Nomad"; hashi install cli nomad --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 nomadHttpShow() { local service="$1" port="$2"; local url; url="http://$(hashi resolve "$service"):$port" && echo "URL: $url"; } # SERVICE PORT
+
+hashiGetHosts() 
+{
+	local description="${1:-install}"
+
+	# return if hosts are already specified
+	[[ $hostArg ]] && return; 
+
+	# get servers
+	local config="prod" servers="hashiServers"; [[ $test ]] && { config="test"; servers="hashiTestServers"; }
+	hostArg="$(ConfigGet "$servers")" || return
+
+	# prompt to install
+	askp "Do you want to $description Hashi software on: $hostArg" || return
+
+	# validate servers
+	[[ ! $hostArg ]] && { ScriptErr "no Hashi servers defined for '$config'"; return 1; }
+
+	return 0
+}
 
 #################################################
 # Mail
