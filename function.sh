@@ -334,16 +334,19 @@ InstFind()
 
 powershell() 
 { 
-	local files=( "$P/PowerShell/7/pwsh.exe" "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" )
-
+	# return version
 	[[ "$1" == @(--version|-v) ]] && { powershell -Command '$PSVersionTable'; return; }
 	
+	# find powershell in a specific location
+	local files=( "$P/PowerShell/7/pwsh.exe" "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" )
 	for f in "${files[@]}"; do
 		[[ -f "$f" ]] && { "$f" "$@"; return; }
 	done
 
+	# find in path
 	FindInPath powershell.exe && { powershell.exe "$@"; return; }
 	
+	# could not find
 	EchoErr "Could not find powershell"; return 1;
 }
 
@@ -1376,7 +1379,7 @@ IsAvailablePortUdp()
 	local host="$1" port="$2" timeout="${3-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host" --quiet)" || return
 
 	if InPath nmap; then
-		sudoc nmap "$host" -p "$port" -Pn -T5 -sU |& grep -q "open" >& /dev/null
+		sudoc -- nmap "$host" -p "$port" -Pn -T5 -sU |& grep -q "open" >& /dev/null
 	else
 		return 0 
 	fi
@@ -2643,6 +2646,7 @@ sudoc()
 		case "$1" in "") : ;;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--preserve|-p) preserve="--preserve";;
+			--) shift; args+=("$@"); break;;
 			*) args+=("$1");;
 		esac
 		shift
