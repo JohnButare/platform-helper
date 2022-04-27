@@ -307,7 +307,7 @@ ScriptRun()
 		local firstCommand="true"; [[ $command ]] && unset firstCommand
 
 		# -- indicates end of arguments
-		[[ "$1" == "--" ]] && { shift; otherArgs+=( "$@" ); break; }
+		[[ "$1" == "--" ]] && { shift; otherArgs+=("$@"); break; }
 
 		# continue with next argument if not a valid command name
 		! IsValidCommandName "$1" && { args+=("$1"); shift; continue; }
