@@ -42,17 +42,43 @@ testCommand()
 	printf "TFTP: " && IsAvailablePortUdp "web.service.butare.net" 69 && echo "OK" || EchoErr "FAIL"
 	printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "Legacy and EFI Combined iPXE Bootloaders" && echo "OK" || EchoErr "FAIL"
 	printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || EchoErr "FAIL"
-	printf "assets: " && curl -s "http://ender.butare.net:10181/" | grep -q "Index of /" && echo "OK" || EchoErr "FAIL"
+
+	# ender
+	testWeb "ender-docker-live" "http://ender.butare.net:10181"
+	testWeb "ender-docker-assets" "http://10.10.101.67:10181/custom/"
+	testWeb "ender-apache-assets" "http://10.10.101.67:8080/assets/custom"
+
+	# nas3
+	if IsAvailable nas3.butare.net; then
+		testWeb "nas3-docker-live" "http://nas3.butare.net:10181"
+		testWeb "nas3-docker-assets" "http://10.10.100.4:10181/custom"
+		testWeb "nas3-apache-assets" "http://10.10.100.4/assets/custom"
+	fi
+
+	return 0
+}
+
+# testWeb DESCRIPTION URL
+testWeb()
+{
+	local description="$1" url="$2"
+	local server="$(GetUriServer "$url")" port="$(GetUriPort "$url")"
+	printf "$description: "
+	IsAvailable "$server" || { EchoErr "$server not available"; return; }
+	IsAvailablePort "$server" "$port" || { EchoErr "port $port not responding"; return; }
+	curl -sL "$url" | grep -q "Index of /" && printf "OK" || PrintErr "FAIL"	
+	echo " ($url)"
 }
 
 #
 # app commands
 #
 
-appUsage() { echot "Usage: $(ScriptName) app config|update\nMaintain the netboot.xyz application."; }
+appUsage() { echot "Usage: $(ScriptName) app config|menu|update\nMaintain the netboot.xyz application."; }
 appCommand() { usage; }
 appConfigUsage() { echot "Usage: $(ScriptName) app config\nEdit the application configuration file."; }
 appConfigCommand() { TextEdit "$appConfig"; }
+appMenuCommand() { TextEdit "$configDir/menu/custom.ipxe.j2"; }
 appUpdateUsage() { echot "Usage: $(ScriptName) app update\nUpdate the netboot.xyz application by running the Ansible playbook."; }
 appUpdateCommand() { setupAll && cd "$appDir" && sudo ansible-playbook -i "inventory site.yml"; }
 
@@ -78,7 +104,7 @@ deployWebCommand()
 	echo "Updating custom menus..."
 	sudo cp "$configDir/menu/custom.ipxe.j2" "$webDirFinal/custom/custom.ipxe"  || return # assumes Jinja2 template not used (no {{ }})
 
-	echo "Synrnozing web sites..."	
+	echo "Syncronizing web sites..."	
 	apache deploy --host=localhost "${globalArgs[@]}" && apache sync "${hostOpt[@]}" "${globalArgs[@]}"
 }
 
@@ -139,14 +165,27 @@ setupAll() { setupConfigCommand && setupWebCommand && setupAppCommand; }
 setupAppCommand()
 {
 	[[ -d "$appDir" && ! $force ]] && return
-	package ansible git apache2 || return
-	sudo git clone "https://github.com/netbootxyz/netboot.xyz.git" "$appDir" || return
-	sudo chown -R "$USER" "$appDir" || return
-	! IsPlatform mac && { sudo chgrp -R "$USER" "$appDir" || return; }
-	netbootxyz profile app restore default || return
+
+	# packages
+	RunLog package ansible git apache2 || return
+
+	# application
+	[[ -d "$appDir" ]] && { RunLog sudo rm -fr "$appDir" || return; }
+	RunLog sudo git clone "https://github.com/netbootxyz/netboot.xyz.git" "$appDir" || return
+	RunLog sudo chown --recursive "$USER" "$appDir" || return
+	! IsPlatform mac && { RunLog sudo chgrp -R "$USER" "$appDir" || return; }
+
+	# profile
+	RunLog netbootxyz profile app restore default || return
+
+	# web - use existing web site, it will be updated when the application is deployed
+	local webDirAppParent="$(GetParentDir "$webDirApp")"
+	RunLog sudoc CopyDir --recursive --delete "$webDirFinal" "$webDirAppParent"  "${globalArgs[@]}" || return
+	[[ -d "$webDirApp" ]] && { RunLog sudo rm -fr "$webDirApp" || return; }
+	RunLog sudo mv "$webDirAppParent/$(GetFileName "$webDirFinal")" "$webDirApp" || return
 }
 
-setupConfigDirCommand()
+setupConfigCommand()
 {
 	[[ -d "$configDir" && ! $force ]] && return
 	sudo mkdir --parents "$configDir" || return
