@@ -1722,6 +1722,7 @@ package() # package install
 	IsPlatform debian && { sudoc $noPrompt apt install -y "${packages[@]}"; return; }
 	IsPlatform entware && { sudoc opkg install "${packages[@]}"; return; }
 	IsPlatform mac && { HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"; return; }
+	IsPlatform dnf && { sudo dnf install -assumeyes "${packages[@]}"; }
 
 	return 0
 }
@@ -1822,6 +1823,9 @@ PackageInstalled()
 		InPath "$@" && return # faster if all packages are in the path
 		brew list "$@" >& /dev/null
 
+	elif IsPlatform dnf,rpm,yum; then
+		[[ "$(rpm --query --all "${packages[@]}" | wc -l)" == "$#" ]]
+
 	else
 		InPath "$@" # assumes each package name is in the path
 	fi
@@ -1830,9 +1834,11 @@ PackageInstalled()
 # PackageSearch PATTERN - search for a package
 PackageSearch() 
 { 
-	if IsPlatform debian; then apt-cache search  "$@"
+	if IsPlatform apt; then apt-cache search  "$@"
+	elif IsPlatform dnf; then dnf search "$@"
 	elif IsPlatform entware; then opkg find "*$@*"
 	elif IsPlatform mac; then brew search "$@"
+	elif IsPlatform yum; then yum search "$@"
 	fi
 }
 
@@ -1851,6 +1857,7 @@ PackageListInstalled()
 	elif IsPlatform mac && [[ $full ]]; then brew info --installed --json
 	elif IsPlatform mac && [[ ! $full ]]; then brew info --installed --json | jq -r '.[].name'
 	elif IsPlatform entware; then opkg list-installed
+	elif IsPlatform rpm; then rpm --query --all
 	fi
 }
 
@@ -1935,11 +1942,17 @@ isPlatformDo()
 
 		# platform, platformLike, and platformId
 		win|mac|linux) [[ "$p" == "$_platform" ]];;
+		debian|fedora|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]];;
+		dsm|qts|rhel|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]];;
+
+		# aliases
+		rh) IsPlatform rhel;; # Red Hat
+
+		# windows
 		win11) IsPlatform win && (( $(os build) >= 22000 ));;
 		wsl) [[ "$_platform" == "win" && "$_platformLike" == "debian" ]];; # Windows Subsystem for Linux
 		wsl1|wsl2) [[ "$p" == "wsl$_wsl" ]];;
-		debian|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]];;
-		dsm|qts|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]];;
+
 
 		# hardware
 		cm4) grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo";;
@@ -1959,10 +1972,9 @@ isPlatformDo()
 		apt) InPath apt;;
 		brew|homebrew) InPath brew;;
 		entware) IsPlatform qnap,synology;;
-		ipkg) InPath ipkg;;
-		opkg) InPath opkg;;
+		dnf|yum|rpm|ipkg|opkg|rpm) InPath "$p";;
 
-		# path
+		# other
 		busybox|gnome-keyring) InPath "$p";;
 
 		# processor
