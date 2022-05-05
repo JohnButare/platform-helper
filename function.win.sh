@@ -30,7 +30,7 @@ MakeShortcut()
 # Explorer
 #
 
-RestartExplorer() { ProcessKill --win explorer && start explorer; }
+RestartExplorer() { taskkill.exe /f /im explorer.exe  && start explorer; }
 
 #
 # Network
