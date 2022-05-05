@@ -67,6 +67,8 @@ UpdateCheck() { [[ $updateDir ]] && return; UpdateInit; }
 UpdateNeeded() { UpdateCheck || return; [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
 UpdateDone() { UpdateCheck && touch "$updateDir/$1"; }
 UpdateGet() { UpdateCheck && [[ ! -f "$updateDir/$1" ]] && return; cat "$updateDir/$1"; }
+UpdateExists() { UpdateCheck && [[ -f "$updateDir/$1" ]]; }
+UpdateRm() { UpdateCheck && rm -f "$updateDir/$1"; }
 UpdateSet() { UpdateCheck && printf "$2" > "$updateDir/$1"; }
 
 # clipboard
@@ -1094,7 +1096,7 @@ LogShow()
 GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
 GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }	# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 													# GetHostname NAME - hosts configured name
-HostAvailable() { local host="$1"; IsAvailable "$host" && return; ScriptErr "host '$host' is not available"; return 1; }
+HostAvailable() { IsAvailable "$@" && return; ScriptErr "host '$1' is not available"; return 1; }
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
@@ -1343,10 +1345,19 @@ IsLocalHostIp() { IsLocalHost "$1" || [[ "$(GetIpAddress "$1" --quiet)" == "$(Ge
 # Network: Host Availability
 #
 
+AvailableTimeoutGet() { local t="$(UpdateGet "hostTimeout")"; echo "${t:-$(ConfigGet "hostTimeout")}"; }
+
+AvailableTimeoutSet()
+{
+	[[ ! $1 ]] && { UpdateRm "hostTimeout"; return; }
+	! IsInteger "$1" && { ScriptErr "'$1' is not an integer"; return 1; }
+ 	UpdateSet "hostTimeout" "$1" 
+}
+
 # IsAvailable HOST [TIMEOUT_MILLISECONDS] - returns true if the host is available
 IsAvailable() 
 { 
-	local host="$1" timeout="${2:-$(ConfigGet "hostTimeout")}"
+	local host="$1" timeout="${2:-$(AvailableTimeoutGet)}"
 
 	IsLocalHost "$host" && return 0
 
@@ -1367,7 +1378,7 @@ IsAvailable()
 # IsPortAvailable HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified TCP port
 IsAvailablePort()
 {
-	local host="$1" port="$2" timeout="${3-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host" --quiet)" || return
+	local host="$1" port="$2" timeout="${3-$(AvailableTimeoutGet)}"; host="$(GetIpAddress "$host" --quiet)" || return
 
 	if InPath ncat; then
 		ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" >& /dev/null
@@ -1383,7 +1394,7 @@ IsAvailablePort()
 # IsPortAvailableUdp HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified UDP port
 IsAvailablePortUdp()
 {
-	local host="$1" port="$2" timeout="${3-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host" --quiet)" || return
+	local host="$1" port="$2" timeout="${3-$(AvailableTimeoutGet)}"; host="$(GetIpAddress "$host" --quiet)" || return
 
 	if InPath nmap; then
 		sudoc -- nmap "$host" -p "$port" -Pn -T5 -sU |& grep -q "open" >& /dev/null
@@ -1395,7 +1406,7 @@ IsAvailablePortUdp()
 # PingResponse HOST [TIMEOUT_MILLISECONDS] - returns ping response time in milliseconds
 PingResponse() 
 { 
-	local host="$1" timeout="${2-$(ConfigGet "hostTimeout")}"; host="$(GetIpAddress "$host")" || return
+	local host="$1" timeout="${2-$(AvailableTimeoutGet)}"; host="$(GetIpAddress "$host")" || return
 
 	if InPath fping; then
 		fping -r 1 -t "$timeout" -e "$host" |& grep " is alive " | cut -d" " -f 4 | tr -d '('
@@ -1424,7 +1435,7 @@ PortResponse()
 	done
 	[[ ! $host ]] && { MissingOperand "host" "PortResponse"; return 1; }
 	[[ ! $port ]] && { MissingOperand "port" "PortResponse"; return 1; }
-	[[ ! $timeout ]] && { timeout="$(ConfigGet "hostTimeout")"; }
+	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
 
 	# test port
 	local result host="$(GetIpAddress $quiet "$host")" || return
@@ -1454,7 +1465,7 @@ PortResponse()
 WaitForAvailable() # WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 {
 	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForAvailable"; return 1; }
-	local timeout="${2-$(ConfigGet "hostTimeout")}" seconds="${3-$(ConfigGet "hostTimeout")}"
+	local timeout="${2-$(AvailableTimeoutGet)}" seconds="${3-$(AvailableTimeoutGet)}"
 
 	printf "Waiting $seconds seconds for $host..."
 	for (( i=1; i<=$seconds; ++i )); do
@@ -1470,7 +1481,7 @@ WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 {
 	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForPort"; return 1; }
 	local port="$2"; [[ ! $port ]] && { MissingOperand "port" "WaitForPort"; return 1; }
-	local timeout="${3-$(ConfigGet "hostTimeout")}" seconds="${4-$(ConfigGet "hostTimeout")}"
+	local timeout="${3-$(AvailableTimeoutGet)}" seconds="${4-$(AvailableTimeoutGet)}"
 	
 	IsAvailablePort "$host" "$port" "$timeout" && return
 
