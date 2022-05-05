@@ -271,7 +271,15 @@ browser()
 BorgConf() { ScriptEval BorgHelper environment "$@"; }
 
 # HashiCorp
-HashiConf() { ScriptEval hashi config environment --suppress-errors "$@"; }
+
+HashiConf()
+{
+	local force; ScriptOptForce "$@"
+	[[ $HASHI_CHECKED && ! $force ]] && return
+	ScriptEval hashi config environment all --suppress-errors "$@" || return
+	HASHI_CHECKED="true"
+}
+
 HashiConfConsul() { [[ $CONSUL_HTTP_ADDR || $CONSUL_HTTP_TOKEN ]] || HashiConf "$@"; }
 HashiConfNomad() { [[ $NOMAD_ADDR || $NOMAD_TOKEN ]] || HashiConf "$@"; }
 HashiConfVault() { [[ $VAULT_ADDR || $VAULT_TOKEN ]] || HashiConf "$@"; }
@@ -312,7 +320,6 @@ usage: i [APP*|bak|cd|check|dir|info|select]
 	[[ "$1" == @(select) ]] && { select="--select"; }
 	[[ "$1" == @(force) ]] && { force="true"; }
 	[[ "$1" == @(check) ]] && { check="true"; }
-
 
 	case "${1:-cd}" in
 		bak) InstBak;;
@@ -2595,6 +2602,17 @@ ScriptOptVerbose()
 	done
 }
 
+# ScriptOptQuiet - find quiet option
+ScriptOptQuiet()
+{
+	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
+		case "$1" in
+			-q|--quiet) quiet="--quiet";;
+		esac
+		shift; 
+	done
+}
+
 # ScriptReturn <var>... - return the specified variables as output from the script in an escaped format
 #   The script should be called using ScriptEval.
 #   -e, --export		the returned variables should be exported
@@ -2627,8 +2645,14 @@ ScriptReturn()
 # Security
 #
 
-CredentialConf() { ScriptEval credential environment "$@" && return; export CREDENTIAL_MANAGER="None" CREDENTIAL_MANAGER_CHECKED="true"; return 1; }
 CertView() { local c; for c in "$@"; do openssl x509 -in "$c" -text; done; }
+
+CredentialConf()
+{
+	local force; ScriptOptForce "$@"
+	[[ $CREDENTIAL_MANAGER_CHECKED && ! $force ]] && return
+	ScriptEval credential environment "$@" || { export CREDENTIAL_MANAGER="None" CREDENTIAL_MANAGER_CHECKED="true"; return 1; }
+}
 
 # IsElevated - return true if the user has an Administrator token, always true if not on Windows
 IsElevated() 
