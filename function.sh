@@ -1697,8 +1697,10 @@ HasPackageManger() { IsPlatform debian,entware,mac; }
 PackageFileInfo() { dpkg -I "$1"; } # information about a DEB package
 PackageFileInstall() { sudo gdebi -n "$@"; } # install a DEB package with dependencies
 PackageFileVersion() { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -d: -f2; }
+PackageLog() { LogShow "/var/log/unattended-upgrades/unattended-upgrades-dpkg.log"; }
 PackagePurge() { InPath wajig && wajig purgeremoved; }
 PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
+PackageUpgradable() { ! IsPlatform apt && return; (apt list --upgradeable | wc -l;) 2> /dev/null; }
 
 # package PACKAGE - install the specified package
 #   --no-prompt|-np   do not prompt for input
@@ -1737,10 +1739,10 @@ package() # package install
 	[[ $noPrompt ]] && IsPlatform debian && noPrompt="DEBIAN_FRONTEND=noninteractive"
 
 	# install
-	IsPlatform debian && { sudoc $noPrompt apt install -y "${packages[@]}"; return; }
-	IsPlatform entware && { sudoc opkg install "${packages[@]}"; return; }
-	IsPlatform mac && { HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"; return; }
+	IsPlatform apt && { sudoc $noPrompt apt install -y "${packages[@]}"; return; }
+	IsPlatform brew && { HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"; return; }
 	IsPlatform dnf && { sudo dnf install -assumeyes "${packages[@]}"; }
+	IsPlatform opkg && { sudoc opkg install "${packages[@]}"; return; }
 
 	return 0
 }
@@ -1776,9 +1778,9 @@ packageExclude()
 # - allow removal prompt to view dependant programs being uninstalled, i.e. uninstall of mysql-common will remove kea
 packageu() # package uninstall
 { 
-	if IsPlatform debian; then sudo apt remove "$@"
-	elif IsPlatform entware; then sudo opkg remove "$@"
-	elif IsPlatform mac; then brew remove "$@"
+	if IsPlatform apt; then sudo apt remove "$@"
+	elif IsPlatform brew; then brew remove "$@"
+	elif IsPlatform opkg; then sudo opkg remove "$@"
 	fi
 }
 
@@ -1793,9 +1795,9 @@ PackageCleanup()
 # PackageExist PACKAGE - return true if the specified package exists
 PackageExist()
 { 
-	if IsPlatform debian; then [[ "$(apt-cache search "^$@$")" ]]
-	elif IsPlatform mac; then brew search "/^$@$/" | grep -v "No formula or cask found for" >& /dev/null
-	elif IsPlatform entware; then [[ "$(packagel "$1")" ]]
+	if IsPlatform apt; then [[ "$(apt-cache search "^$@$")" ]]
+	elif IsPlatform brew; then brew search "/^$@$/" | grep -v "No formula or cask found for" >& /dev/null
+	elif IsPlatform opkg; then [[ "$(packagel "$1")" ]]
 	fi
 }
 
@@ -1803,28 +1805,25 @@ PackageExist()
 PackageFiles()
 {
 	if InPath "apt-file"; then apt-file list "$@"
-	elif IsPlatform entware; then opkg files "$@"
+	elif IsPlatform opkg; then opkg files "$@"
 	fi
 }
 
 # PackageInfo PACKAGE - show information about the specified package
 PackageInfo()
 {
-	if IsPlatform debian; then
+	if IsPlatform apt; then
 		apt show "$1" || return
 		! PackageInstalled "$1" && return
 		dpkg -L "$1"; echo
 		dpkg -L "$1" | grep 'bin/'
-
-	elif IsPlatform entware; then
-		opkg info "$@"
-	
-	elif IsPlatform mac; then
+	elif IsPlatform brew; then
 		brew info "$1" || return
 		! PackageInstalled "$1" && return
 		brew list "$1"; echo
 		brew list "$1" | grep 'bin/'
-
+	elif IsPlatform opkg; then
+		opkg info "$@"
 	fi
 }
 
@@ -1833,11 +1832,11 @@ PackageInstalled()
 { 
 	[[ "$@" == "" ]] && return 0
 
-	if InPath dpkg; then
+	if IsPlatform apt; then
 		# ensure the package counts match, i.e. dpkg --get-selectations samba will not return anything if samba-common is installed
 		[[ "$(dpkg --get-selections "$@" |& grep -v "no packages found" | wc -l)" == "$#" ]] && ! dpkg --get-selections "$@" | grep -q "deinstall$"
 	
-	elif IsPlatform mac; then
+	elif IsPlatform brew; then
 		InPath "$@" && return # faster if all packages are in the path
 		brew list "$@" >& /dev/null
 
@@ -1846,6 +1845,18 @@ PackageInstalled()
 
 	else
 		InPath "$@" # assumes each package name is in the path
+	fi
+}
+
+PackageManager()
+{
+	if IsPlatform apt; then echo "apt"
+	elif IsPlatform brew; then echo "brew"
+	elif IsPlatform dnf; then echo "dnf"
+	elif IsPlatform opkg; then echo "opkg"
+	elif IsPlatform rpm; then echo "rpm"
+	elif IsPlatform yum; then echo "yum"
+	else echo "none"
 	fi
 }
 
@@ -1989,11 +2000,11 @@ isPlatformDo()
 		# package management
 		apt) InPath apt;;
 		brew|homebrew) InPath brew;;
-		entware) IsPlatform qnap,synology;;
-		dnf|yum|rpm|ipkg|opkg|rpm) InPath "$p";;
+		dnf|opkg|rpm|yum) InPath "$p";;
 
 		# other
 		busybox|gnome-keyring) InPath "$p";;
+		entware) IsPlatform qnap,synology;;
 
 		# processor
 		arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]];;

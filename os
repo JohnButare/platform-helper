@@ -391,8 +391,8 @@ infoLocal()
 {
 	local w what=()
 
- 	[[ ! $dynamic ]] && what+=(model platform distribution kernel chroot vm cpu architecture mhz file switch other)
- 	[[ $detail || $dynamic ]] && what+=(mhz memory process disk switch)
+ 	[[ ! $dynamic ]] && what+=(model platform distribution kernel chroot vm cpu architecture mhz file package switch other)
+ 	[[ $detail || $dynamic ]] && what+=(mhz memory process disk package switch)
 
 	for w in "${what[@]}"; do info${w^} || return; done	
 }
@@ -427,6 +427,20 @@ infoDisk()
 	echo "        disk: $(diskAvailableCommand) GB available / $(diskTotalCommand) GB total" 
 }
 
+infoPackage()
+{
+	echo -n "     package: $(PackageManager)" || return
+	RunFunction infoPackage "$(PackageManager)"
+	echo
+}
+
+infoPackageApt()
+{
+	local upgradeable="$(PackageUpgradable)"
+	! IsInteger "$upgradeable" && return
+	echo -n " ($upgradeable upgradeable)" || return
+}
+
 infoProcess()
 {
 	echo "   processes: $(pscount)" || return
@@ -443,7 +457,7 @@ infoKernel()
 	echo "      kernel: $(uname -r)$bits"
 	RunPlatform infoKernel;
 }
-infoKernelPiKernel() { echo "    firmware: $(pi info firmware)"; }
+infoKernelPi() { echo "    firmware: $(pi info firmware)"; }
 
 infoMemory()
 {
