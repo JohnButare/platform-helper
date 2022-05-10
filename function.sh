@@ -1700,7 +1700,7 @@ PackageFileVersion() { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -
 PackageLog() { LogShow "/var/log/unattended-upgrades/unattended-upgrades-dpkg.log"; }
 PackagePurge() { InPath wajig && wajig purgeremoved; }
 PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
-PackageUpgradable() { ! IsPlatform apt && return; (apt list --upgradeable | wc -l;) 2> /dev/null; }
+PackageUpgradable() { ! IsPlatform apt && return; (apt list --upgradeable | grep -v "^Listing..." | wc -l;) 2> /dev/null; }
 
 # package PACKAGE - install the specified package
 #   --no-prompt|-np   do not prompt for input

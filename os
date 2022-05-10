@@ -437,7 +437,7 @@ infoPackage()
 infoPackageApt()
 {
 	local upgradeable="$(PackageUpgradable)"
-	! IsInteger "$upgradeable" && return
+	{ ! IsInteger "$upgradeable" || (( upgradeable == 0 )); } && return
 	echo -n " ($upgradeable upgradeable)" || return
 }
 
