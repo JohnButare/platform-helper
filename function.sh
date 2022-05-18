@@ -1287,6 +1287,7 @@ GetServer()
 }
 
 GetServers() { hashi resolve name --all "$@"; }
+GetAllServers() { GetServers "nomad-client"; } # assume all servers have the nomad-client service
 
 # ipconfig [COMMAND] - show or configure network
 ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
