@@ -1999,7 +1999,7 @@ isPlatformDo()
 		32|64) [[ "$p" == "$(os bits "$_machine" )" ]];;
 
 		# package management
-		apt) InPath apt;;
+		apt) ! IsPlatform mac && InPath apt;;
 		brew|homebrew) InPath brew;;
 		dnf|opkg|rpm|yum) InPath "$p";;
 
