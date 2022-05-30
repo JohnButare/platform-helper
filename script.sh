@@ -5,7 +5,7 @@
 # Script Arguments
 # 
 
-# ScriptArgGet VAR [DESC](VAR) -- VALUE - get an argument.  Sets var to value and increments shift
+# ScriptArgGet VAR [DESC](VAR) [--] VALUE - get an argument.  Sets var to value and increments shift.
 ScriptArgGet()
 {
 	# arguments
@@ -31,6 +31,29 @@ ScriptArgDriveLetter()
 	[[ "$letter" =~ ^.?:$ ]] && letter="${letter:0:1}"
 
 	! IsDriveLetter "$letter" && { ScriptErr "$letter is not a drive letter"; return 1; }
+
+	return 0
+}
+
+# ScriptArgItems VAR ITEMS_VAR VALUE - get a comma delimited list of items in an argument.
+# - sets var to an array of values, ${var}Arg to --$var==$value, and increments shift.  
+# - ARRAY_VAR is a list of valid items.
+ScriptArgItems()
+{
+	local var="$1" itemsVar="$2"; shift 2
+	local -n varArg="${var}Arg"
+
+	# get the item argument
+	local value
+	ScriptOptGet "value" "$var" "$@" || return
+	varArg="--$var=$value"
+	StringToArray "${value,,}" "," "$var"
+
+	# check for valid items
+	local i items; StringToArray "${value,,}" "," "items"
+	for i in "${items[@]}"; do
+		! IsInArray "$i" "$itemsVar" && { ScriptErr "'$i' is not a valid item for the '$var' option"; exit 1; }
+	done
 
 	return 0
 }

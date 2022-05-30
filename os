@@ -53,13 +53,13 @@ storeWin() { start "" "ms-windows-store://"; }
 
 diskUsage() 
 {
-	echot "Usage: os disk [available|total](total)
+	echot "Usage: os disk [free|total|used](total)
 Return the total or available amount of system disk."
 }
 
 diskCommand() { diskTotalCommand; }
 
-diskAvailableCommand()
+diskFreeCommand()
 {
 	! InPath di && return
 	di --type ext4 --display-size g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 5
@@ -69,6 +69,12 @@ diskTotalCommand()
 {
 	! InPath di && return
 	di --type ext4 --display-size g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 3
+}
+
+diskUsedCommand()
+{
+	! InPath di && return
+	di --type ext4 --display-size g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 4
 }
 
 memoryTotalCommand()
@@ -144,7 +150,7 @@ executableFindCommand()
 
 memoryUsage() 
 {
-	echot "Usage: os memory [available|total](total)
+	echot "Usage: os memory [available|total|used](total)
 Return the total or available amount of system memory rounded up or down to the nearest gigabyte."
 }
 
@@ -176,6 +182,21 @@ memoryTotalCommand()
 		local gbRounded="$(echo "($gbRoundedTwo + .5)/1" | bc)"
 		echo "$gbRounded"
 	fi
+}
+
+memoryUsedCommand()
+{ 
+	if IsPlatform mac; then
+		local pages="$(vm_stat | grep "^Pages active:" | tr -s " " | cut -d" " -f 3 | cut -d. -f 1)"
+		local bytes="$(echo "$pages * 4 * 1024 * 1024 / 10" | bc)"
+	elif InPath free; then
+		local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f3)"
+	else 
+		return
+	fi
+
+	local gbRounded="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
+	echo "$gbRounded"
 }
 
 #
@@ -339,17 +360,38 @@ releaseUbuntu() { lsb_release -rs; }
 
 infoUsage()
 {
-	echot "\
-Usage: $(ScriptName) info [HOST](localhost)
+	EchoWrap "\
+Usage: $(ScriptName) info [HOSTS|all](localhost)
 Show Operating System information.
 
-	-d|--detail		show detailed information
-	   --dynamic	show dynamic information
-	-m|--monitor	monitor dynamic information"
+	-d|--detail			show detailed information
+	   --dynamic		show dynamic information
+	-m|--monitor		monitor dynamic information
+	-p|--prefix			prefix each line with the hostname
+	-s|--skip LIST	comma separated list of items to skip
+	-w|--what LIST	comma separated list of items to show
+
+Items (basic): ${infoBasic[@]}
+     (detail): ${infoDetail[@]}
+     (other): ${infoOther[@]}
+
+Examples:
+os info -w=disk_free pi11,pi2		# free disk space for specified hosts
+os info -w=disk_free all				# free disk space for all hosts"
 }
 
-infoArgStart() { unset -v detail host monitor; }
-infoArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
+infoArgStart() 
+{ 
+	unset -v detail monitor prefix
+	hostArg="localhost" what=() skip=()
+	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz file package switch other)
+	infoDetail=(mhz memory process disk package switch)
+	infoOther=( disk_free disk_total disk_used memory_total )
+	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
+}
+
+infoArgs() { (( $# == 0 )) && return; ScriptArgGet "hostArg" -- "$@"; }
+infoArgEnd() { infoSetRemoteArgs; }
 
 infoOpt()
 {
@@ -357,57 +399,82 @@ infoOpt()
 		-d|--detail) detail="--detail";;
 		--dynamic) dynamic="--dynamic";;
 		-m|--monitor) monitor="--monitor";;
+		-p|--prefix) prefix="--prefix";;
+		-s|--skip|-s=*|--skip=*) ScriptArgItems "skip" "infoAll" "$@" || return;;
+		-w|--what|-w=*|--what=*) ScriptArgItems "what" "infoAll" "$@" || return;;
 		*) return 1;;
 	esac
 }
 
-infoCommand() 
+infoCommand() { [[ $monitor ]] && { infoMonitor; return; } || infoHosts; }
+infoHost() { if IsLocalHost "$host"; then infoLocal; else infoRemote; fi; }
+infoMonitor() { watch -n 1 os info $hostArg --dynamic "${remoteArgs[@]}"; }
+infoSetRemoteArgs() { remoteArgs=( $detail $prefix "${skipArg[@]}" "${whatArg[@]}" "${globalArgs[@]}" ); }
+
+infoHosts()
 {
-	if [[ $monitor ]]; then 
-		watch -n 1 os info $host $detail --dynamic "${globalArgs[@]}"
-	else
-		if IsLocalHost "$host"; then infoLocal; else infoRemote; fi
-	fi
+	local host hosts; getHosts || return
+	(( ${#hosts[@]} > 1 )) && { prefix="--prefix"; infoSetRemoteArgs; }
+	for host in "${hosts[@]}"; do infoHost || return; done
+}
+
+infoEcho()
+{
+	[[ $prefix ]] && printf "$HOSTNAME "
+	echo "$1"
+}
+
+infoPrint()
+{
+	[[ $prefix ]] && printf "$HOSTNAME "
+	printf "$1"
 }
 
 infoRemote()
 {
 	# check for ssh
-	! SshIsAvailable "$host" && { echo "$host Operating System information is not available"; return; }
+	! SshIsAvailable "$host" && { infoEcho "$host Operating System information is not available"; return; }
 
-	# detailed information - using the os command on the host
-	SshInPath "$host" "os" && { SshHelper connect "$host" --pseudo-terminal -- os info $detail; return; }
+	# get detailed information using the os command on the host if possible
+	SshInPath "$host" "os" && { SshHelper connect "$host" --pseudo-terminal -- os info "${remoteArgs[@]}"; return; }
 	
-	# basic information - using HostGetInfo vars command locally
+	# othereise, get basic information using HostGetInfo vars command locally
 	ScriptEval HostGetInfo vars "$host" || return
-	[[ $_platform ]] && 		echo "    platform: $_platform"
-	[[ $_platformLike ]] && echo "        like: $_platformLike"
-	[[ $_platformId ]] &&   echo "          id: $_platformId"
+	[[ $_platform ]] && 		infoEcho "    platform: $_platform"
+	[[ $_platformLike ]] && infoEcho "        like: $_platformLike"
+	[[ $_platformId ]] &&   infoEcho "          id: $_platformId"
 
 	return 0
 }
 
 infoLocal()
 {
-	local w what=()
+	# what default
+	if [[ ! $what ]]; then
+		what=()
+  	[[ ! $dynamic ]] && what+=( "${infoBasic[@]}" )
+ 		[[ $detail || $dynamic ]] && what+=( "${infoDetail[@]}" )
+ 	fi
 
- 	[[ ! $dynamic ]] && what+=(model platform distribution kernel chroot vm cpu architecture mhz file package switch other)
- 	[[ $detail || $dynamic ]] && what+=(mhz memory process disk package switch)
-
-	for w in "${what[@]}"; do info${w^} || return; done	
+ 	# show information
+ 	local w
+	for w in "${what[@]}"; do
+		IsInArray "$w" skip && continue
+		info${w^} || return
+	done	
 }
 
 infoArchitecture()
 {
 	local architecture="$(architectureCommand)"
 	[[ "$architecture" != "$(hardwareCommand)" ]] && architecture+=" ($(hardwareCommand))"
-	echo "architecture: $architecture" 
+	infoEcho "architecture: $architecture" 
 }
 
 infoChroot()
 {
 	[[ ! -f "/etc/debian_chroot" ]] && return
-	echo "      chroot: $(cat "/etc/debian_chroot")"
+	infoEcho "      chroot: $(cat "/etc/debian_chroot")"
 }
 
 infoCpu()
@@ -418,51 +485,52 @@ infoCpu()
 
 	model="$(lscpu | grep "^Model name:" | cut -d: -f 2)"
 	count="$(lscpu | grep "^CPU(s):" | cut -d: -f 2)"
-	echo "         cpu: $(RemoveSpace "$model") ($(RemoveSpace "$count") CPU)"
+	infoEcho "         cpu: $(RemoveSpace "$model") ($(RemoveSpace "$count") CPU)"
 }
 
 infoDisk()
 {
 	! InPath di && return
-	echo "        disk: $(diskAvailableCommand) GB available / $(diskTotalCommand) GB total" 
+	infoEcho "        disk: $(diskUsedCommand)/$(diskAvailableCommand)/$(diskTotalCommand) GB used/available/total" 
 }
+
+infoDisk_free() { ! InPath di && return; infoEcho "   disk free: $(diskFreeCommand) GB"; }
+infoDisk_total() { ! InPath di && return; infoEcho "  disk total: $(diskTotalCommand) GB"; }
+infoDisk_used() { ! InPath di && return; infoEcho "   disk used: $(diskUsedCommand) GB"; }
 
 infoPackage()
 {
-	echo -n "     package: $(PackageManager)" || return
+	infoPrint "     package: $(PackageManager)" || return
 	RunFunction infoPackage "$(PackageManager)"
-	echo
 }
 
 infoPackageApt()
 {
 	local upgradeable="$(PackageUpgradable)"
-	{ ! IsInteger "$upgradeable" || (( upgradeable == 0 )); } && return
-	echo -n " ($upgradeable upgradeable)" || return
+	{ ! IsInteger "$upgradeable" || (( upgradeable == 0 )); } && { echo; return; }
+	echo " ($upgradeable upgradeable)" || return
 }
 
 infoProcess()
 {
-	echo "   processes: $(pscount)" || return
+	infoEcho "   processes: $(pscount)" || return
 }
 
 infoFile()
 {
-	echo "file sharing: $(unc get protocols "$HOSTNAME")" || return
+	infoEcho "file sharing: $(unc get protocols "$HOSTNAME")" || return
 }
 
 infoKernel()
 {
 	local bits="$(bitsCommand)"; [[ $bits ]] && bits=" ($bits bit)"
-	echo "      kernel: $(uname -r)$bits"
+	infoEcho "      kernel: $(uname -r)$bits"
 	RunPlatform infoKernel;
 }
-infoKernelPi() { echo "    firmware: $(pi info firmware)"; }
+infoKernelPi() { infoEcho "    firmware: $(pi info firmware)"; }
 
-infoMemory()
-{
-	echo "      memory: $(memoryAvailableCommand) GB available / $(memoryTotalCommand) GB total" 
-}
+infoMemory() { infoEcho "      memory: $(memoryUsedCommand)/$(memoryAvailableCommand)/$(memoryTotalCommand) GB used/available/total"; }
+infoMemory_total() { infoEcho "memory total: $(memoryTotalCommand) GB"; }
 
 infoMhz()
 {
@@ -473,20 +541,20 @@ infoMhz()
 		mhz+=" max / $(pi info mhz) current"
 	fi
 
-	echo "         mhz: $mhz" 
+	infoEcho "         mhz: $mhz" 
 }
 
 infoModel() 
 {
 	local model; model="$(RunPlatform infoModel)"; 
 	[[ ! $model ]] && return
-	echo "       model: $model"
+	infoEcho "       model: $model"
 }
 infoModelPiKernel() { pi info model; }
 
 infoOther() { RunPlatform infoOther; }
-infoOtherPiKernel() {	echo "    CPU temp: $(pi info temp)"; }
-infoPlatform() {	echo "    platform: $(PlatformDescription)"; }
+infoOtherPiKernel() {	infoEcho "    CPU temp: $(pi info temp)"; }
+infoPlatform() {	infoEcho "    platform: $(PlatformDescription)"; }
 
 infoSwitch()
 {
@@ -498,13 +566,13 @@ infoSwitch()
 		[[ $watts ]] && switch+=" ($watts watts)"
 	fi
 
-	echo "      switch: $switch" 
+	infoEcho "      switch: $switch" 
 }
 
 infoVm()
 {
 	! IsVm && return
-	echo "          vm: $(VmType)"
+	infoEcho "          vm: $(VmType)"
 }
 
 # infoDistribution
@@ -517,19 +585,19 @@ infoDistribution()
 	local release; release="$(lsb_release -a 2>&1)" || return
 
 	# Distributor - Debian|Raspbian|Ubuntu
-	distributor="$(echo "$release" |& grep "Distributor ID:" | cut -f 2-)"
+	distributor="$(infoEcho "$release" |& grep "Distributor ID:" | cut -f 2-)"
 	IsPlatform pi && distributor+="/Debian"
 
 	# Version - 10.4|20.04.1 LTS
-	version="$(echo "$release" |& grep "Release:" | cut -f 2-)"
-	if IsPlatform ubuntu; then version="$(echo "$release" |& grep "Description:" | cut -f 2- | sed 's/'$distributor' //')"
+	version="$(infoEcho "$release" |& grep "Release:" | cut -f 2-)"
+	if IsPlatform ubuntu; then version="$(infoEcho "$release" |& grep "Description:" | cut -f 2- | sed 's/'$distributor' //')"
 	elif [[ -f /etc/debian_version ]]; then version="$(cat /etc/debian_version)"
 	fi
 
 	# Code Name - buster|focal
-	codename="$(echo "$release" | grep "Codename:" | cut -f 2- )"
+	codename="$(infoEcho "$release" | grep "Codename:" | cut -f 2- )"
 
-	echo "distribution: $distributor $version ($codename)"
+	infoEcho "distribution: $distributor $version ($codename)"
 	RunPlatform "infoDistribution"
 }
 
@@ -545,7 +613,7 @@ infoDistributionMac()
 		*) codeName="unknown";;
 	esac
 
-	echo "distribution: macOS $version ($codeName build $build)"
+	infoEcho "distribution: macOS $version ($codeName build $build)"
 }
 
 infoDistributionWin()
@@ -559,7 +627,7 @@ infoDistributionWin()
 	local wslgVersion="$(wsl get version wslg)"
 	local wslExtra; [[ $wslVersion ]] && wslExtra+=" v$wslVersion WSLg v$wslgVersion"
 
-	echo "     windows: $releaseId (build $build.$ubr, WSL$wslExtra $(wsl get name))"
+	infoEcho "     windows: $releaseId (build $build.$ubr, WSL$wslExtra $(wsl get name))"
 }
 
 #
