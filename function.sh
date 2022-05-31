@@ -1336,7 +1336,7 @@ IsIpAddress()
 # IsIpLocal - return true if the specified IP is reachable on the local network (does not use the default gateway in 5 hops or less)
 IsIpLocal() { GetArgs; CacheDefaultGateway || return; ! traceroute "$1" -4 --max-hops=5 | grep --quiet "($(GetDefaultGateway))"; } 
 
-# IsLocalHost HOST - true if the specified host refers to the local host
+# IsLocalHost HOST - true if the specified host refers to the local host, assume unique host names across domains
 IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
 
 # IsLocalHostIp HOST - true if the specified host refers to the local host.  Also check the IP address of the host.
@@ -2006,6 +2006,7 @@ isPlatformDo()
 		# other
 		busybox|gnome-keyring) InPath "$p";;
 		entware) IsPlatform qnap,synology;;
+		systemd) IsSystemd;;
 
 		# processor
 		arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]];;
