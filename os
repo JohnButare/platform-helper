@@ -150,13 +150,13 @@ executableFindCommand()
 
 memoryUsage() 
 {
-	echot "Usage: os memory [available|total|used](total)
-Return the total or available amount of system memory rounded up or down to the nearest gigabyte."
+	echot "Usage: os memory [free|total|used](total)
+Return system memory information rounded up or down to the nearest gigabyte."
 }
 
 memoryCommand() { memoryTotalCommand; }
 
-memoryAvailableCommand()
+memoryFreeCommand()
 {
 	if IsPlatform mac; then
 		local pages="$(vm_stat | grep "^Pages free:" | tr -s " " | cut -d" " -f 3 | cut -d. -f 1)"
@@ -386,7 +386,7 @@ infoArgStart()
 	hostArg="localhost" what=() skip=()
 	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz file package switch other)
 	infoDetail=(mhz memory process disk package switch)
-	infoOther=( disk_free disk_total disk_used memory_total )
+	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used )
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
 }
 
@@ -488,12 +488,7 @@ infoCpu()
 	infoEcho "         cpu: $(RemoveSpace "$model") ($(RemoveSpace "$count") CPU)"
 }
 
-infoDisk()
-{
-	! InPath di && return
-	infoEcho "        disk: $(diskUsedCommand)/$(diskAvailableCommand)/$(diskTotalCommand) GB used/available/total" 
-}
-
+infoDisk() { ! InPath di && return; infoEcho "        disk: $(diskUsedCommand)/$(diskAvailableCommand)/$(diskTotalCommand) GB used/available/total"; }
 infoDisk_free() { ! InPath di && return; infoEcho "   disk free: $(diskFreeCommand) GB"; }
 infoDisk_total() { ! InPath di && return; infoEcho "  disk total: $(diskTotalCommand) GB"; }
 infoDisk_used() { ! InPath di && return; infoEcho "   disk used: $(diskUsedCommand) GB"; }
@@ -529,8 +524,10 @@ infoKernel()
 }
 infoKernelPi() { infoEcho "    firmware: $(pi info firmware)"; }
 
-infoMemory() { infoEcho "      memory: $(memoryUsedCommand)/$(memoryAvailableCommand)/$(memoryTotalCommand) GB used/available/total"; }
+infoMemory() { infoEcho "      memory: $(memoryUsedCommand)/$(memoryFreeCommand)/$(memoryTotalCommand) GB used/available/total"; }
+infoMemory_free() { infoEcho "memory free: $(memoryFreeCommand) GB"; }
 infoMemory_total() { infoEcho "memory total: $(memoryTotalCommand) GB"; }
+infoMemory_used() { infoEcho "memory used: $(memoryUsedCommand) GB"; }
 
 infoMhz()
 {
