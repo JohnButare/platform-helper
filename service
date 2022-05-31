@@ -51,26 +51,26 @@ argEnd() { serviceInit; }
 serviceInit()
 {
 	unset hostUnc hostDescription sudo type useSystemd
-		
+
 	# check remote host
-	if [[ ! $noHostCheck ]] && ! IsLocalHost "$host"; then
-		HostAvailable "$host" || return
+	if IsLocalHost "$host"; then
+		unset host
+	else
+		[[ ! $noHostCheck ]] && { HostAvailable "$host" || return; }
 		hostUnc='\\'"$host"
 		hostDescription=" on $host"
+		ssh="SshHelper $host --interactive --pseudo-terminal ${globalArgs} --"
 	fi
+
+	# run on host - assumes service command exists on remote host
+	[[ $host ]] && { RunLog $ssh -- service "${originalArgs[@]}"; exit $?; }
 
 	# initialize service variables
 	[[ $service ]] && { serviceCheck || return; }
 
 	# run with additional permissions if needed
-	if IsPlatform win && [[ "$command" == @(auto|delete|demand|disable|pause|stop) ]]; then
-
-		# Windows elevation
-		if ! isLinuxService "$service" && ! IsElevated; then
-			RunLog elevate RunScript --pause-error -- service $command "$service" $force $hostArg $noHostCheck $noServiceCheck $quiet $wait
-			exit $?
-		fi
-
+	if IsPlatform win && [[ "$command" == @(auto|delete|demand|disable|pause|stop) ]] && ! isLinuxService "$service" && ! IsElevated; then
+		RunLog elevate RunScript --pause-error -- service "${originalArgs[@]}"; exit $?
 	fi
 
 	return 0
@@ -78,8 +78,6 @@ serviceInit()
 
 serviceCheck()
 {
-	ScriptEval HostGetInfo || return
-
 	case $PLATFORM in
 		mac)
 			config="$(macGetServices | grep "\/${service}\.plist$")" || { unknownService; return; }
@@ -435,7 +433,7 @@ logLinux()
 	local args=( )
 
 	[[ ! $all ]] && args+=( "--follow" )
-	sudoc journalctl -u "$service" "${args[@]}"; 
+	RunLog $ssh sudoc journalctl -u "$service" "${args[@]}"; 
 }
 
 logClearCommand() { RunPlatform "logClear"; }
