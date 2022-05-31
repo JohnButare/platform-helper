@@ -1500,7 +1500,7 @@ WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 # Network: DNS Names
 #
 
-AddDnsSuffix() { HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 						# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already present
+AddDnsSuffix() { GetArgs2; HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 						# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already present
 GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }	# GetDnsSuffix HOST - the DNS suffix of the HOST
 HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuffix HOST - true if the specified host includes a DNS suffix
 RemoveDnsSuffix() { GetArgs; [[ ! $@ ]] && return; printf "${@%%.*}"; }				# RemoveDnsSuffix HOST - remove the DNS suffix if present
@@ -1514,8 +1514,8 @@ IsMdnsName() { IsBash && [[ "$1" =~ .*'.'local$ ]] || [[ "$1" =~ .*\\.local$ ]];
 
 ConsulResolve() { hashi resolve "$@"; }
 
-# DnsResolve NAME|IP - resolve NAME or IP address to a fully qualified domain name
-# test cases: 10.10.100.10 web.service pi1 pi1.butare.net pi1.hagerman.butare.net
+# DnsResolve NAME|IP - resolve NAME or IP address to a unique fully qualified domain name
+# test cases: $HOSTNAME 10.10.100.10 web.service pi1 pi1.butare.net pi1.hagerman.butare.net
 DnsResolve()
 {
 	local name quiet
@@ -1532,6 +1532,9 @@ DnsResolve()
 	done
 
 	[[ ! $name ]] && { MissingOperand "host" "DnsResolve"; return 1; } 
+
+	# localhost - use the domain in the configuration
+	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(ConfigGet "domain")")
 
 	# Resolve name using various commands
 	# - -N 3 and -ndotes=3 allow the default domain names for partial names like consul.service
@@ -1550,7 +1553,6 @@ DnsResolve()
 
 	# forward DNS lookup to get the fully qualified DNS address
 	else
-
 		if InPath getent; then lookup="$(getent ahostsv4 "$name" |& head -1 | tr -s " " | cut -d" " -f 3)" || unset lookup
 		elif InPath host; then lookup="$(host -N 2 -t A -4 "$name" |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 1)" || unset lookup
 		elif InPath nslookup; then lookup="$(nslookup -ndots=2 -type=A "$name" |& tail -3 | grep "Name:" | cut -d$'\t' -f 2)" || unset lookup
