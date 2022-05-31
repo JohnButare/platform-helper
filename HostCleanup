@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-. function.sh
+. function.sh || return
+. color.sh || return
 
 run() {	init; args "$@"; ${command}Command "${args[@]}"; }
 
@@ -39,49 +40,7 @@ guiCommand()
 	return 0
 }
 
-cleanupCommand()
-{
-	cleanupFiles || return
-	cleanupPrograms || return
-	RunPlatform cleanup || return
-}
-
-cleanupFiles()
-{
-	echo -n "cleaning files..."
-
-	! IsPlatform mac && [[ -d "$TMP" ]] && { rm -fr "$TMP/"*; echo -n "."; }
-
-	[[ -d "$HOME/Volumes" ]] && { rmdir "$HOME/Volumes/"* >& /dev/null; echo -n "."; }
-
-	if IsPlatform win; then
-		[[ -d "$UADATA/temp" ]] && { rm -fr "$UADATA/temp/"* >& /dev/null; echo -n "."; }
-		[[ -d "$WIN_ROOT/temp" ]] && { rm -fr "$WIN_ROOT/temp/"* >& /dev/null; echo -n "."; }
-		[[ -d "$WINDIR/Temp" ]] && { rm -fr "$WINDIR/Temp/"* >& /dev/null; echo -n "."; }
-	fi
-
-	echo "done"
-
-	return 0
-}
-
-cleanupPrograms()
-{
-	local sudo; IsPlatform mac && sudo="sudo"
-	which gem >& /dev/null && ask "Cleanup gem" && { $sudo gem cleanup || return; }
-
-	which brew >& /dev/null && ask "Cleanup brew" && { brew cleanup || return; }
-
-	return 0
-}
-
-cleanupDebian()
-{
-	sudoc apt-get clean -y || return 	# cleanup downloaded package files in /var/cache/apt/archives
-	sudoc apt autoremove -y || return
-	InPath wajig && { wajig purgeremoved || return; }
-	return 0
-}
+cleanupCommand() { cleanupFiles && cleanupPrograms && RunPlatform cleanup; }
 
 cleanupWin()
 {
@@ -91,6 +50,46 @@ cleanupWin()
 	ask 'Cleanup scheduled tasks' && { start --elevate task scheduler || return; }
 	ask 'Cleanup remaining files' && { elevate CleanMgr.exe /VERYLOWDISK || return; }
 	return 0
+}
+
+cleanupFiles()
+{
+	echo -n "${GREEN}cleaning files...${RESET}"
+	cleanupTmp && cleanupVolumes && RunPlatform cleanupFiles
+	echo "done"
+}
+
+cleanupFilesWin()
+{
+	[[ -d "$UADATA/temp" ]] && { rm -fr "$UADATA/temp/"* >& /dev/null; echo -n "."; }
+	[[ -d "$WIN_ROOT/temp" ]] && { rm -fr "$WIN_ROOT/temp/"* >& /dev/null; echo -n "."; }
+	[[ -d "$WINDIR/Temp" ]] && { rm -fr "$WINDIR/Temp/"* >& /dev/null; echo -n "."; }
+	return 0
+}
+
+cleanupTmp() { ! IsPlatform mac && [[ -d "$TMP" ]] && rm -fr "$TMP/"*; echo -n "."; }
+cleanupVolumes() { [[ -d "$HOME/Volumes" ]] && rmdir "$HOME/Volumes/"* >& /dev/null; echo -n "."; }
+
+cleanupPrograms() { cleanupApt && cleanupBrew && cleanupRuby && cleanupJournal; }
+cleanupBrew() { IsPlatform brew && hilight "cleaning Homebrew..." && brew cleanup; return 0; }
+cleanupRuby() { which gem >& /dev/null && hilight "cleaning Ruby..." && sudo gem cleanup; return 0; }
+
+cleanupApt()
+{
+	! IsPlatform apt && return
+	hilight "Cleanup apt..."
+	sudoc apt-get clean -y || return 	# cleanup downloaded package files in /var/cache/apt/archives
+	sudoc apt autoremove -y || return
+	InPath wajig && { wajig purgeremoved || return; }
+	return 0
+}
+
+cleanupJournal()
+{
+	! IsPlatform systemd && return
+	hilight "cleaning systemd journal..."
+	sudo journalctl --rotate
+	sudo journalctl --vacuum-time=2d
 }
 
 run "$@"
