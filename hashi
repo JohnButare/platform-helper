@@ -284,30 +284,33 @@ certMakeServer()
 
 	# initialzie
 	certValidate "$ca" "$caKey" || return
-	certExists "$cert" "$key" && return
-	hilight "Creating a ${product^} server certificate for $host..."
 
-	# remove any existing temporary certs
-	rm -f "$datacenter-server-$baseDomain-?.pem" "$datacenter-server-$baseDomain-?-key.pem" || return
+	# create the certificate
+	if ! certExists "$cert" "$key"; then
+		hilight "Creating a ${product^} server certificate for $host..."
 
-	# create the cert
-	local ip; ip="$(GetIpAddress "$host")" || return
-	local fqdn; fqdn="$(hostFqdn "$host")" || return
+		# remove any existing temporary certs
+		rm -f "$datacenter-server-$baseDomain-?.pem" "$datacenter-server-$baseDomain-?-key.pem" || return
 
-	RunLog consul tls cert create -server \
-		-dc="$datacenter" \
-		-domain="$baseDomain" \
-		-ca="$ca" \
-		-key="$caKey" \
-		-additional-ipaddress="$ip" \
-		-additional-dnsname="$fqdn" \
-		$@ \
-		-node="$host" \
-		-days="3650" || return
+		# create the cert
+		local ip; ip="$(GetIpAddress "$host")" || return
+		local fqdn; fqdn="$(hostFqdn "$host")" || return
 
-	# rename the temporary cert
-	mv "$datacenter-server-$baseDomain-0.pem" "$cert" || return
-	mv "$datacenter-server-$baseDomain-0-key.pem" "$key" || return
+		RunLog consul tls cert create -server \
+			-dc="$datacenter" \
+			-domain="$baseDomain" \
+			-ca="$ca" \
+			-key="$caKey" \
+			-additional-ipaddress="$ip" \
+			-additional-dnsname="$fqdn" \
+			$@ \
+			-node="$host" \
+			-days="3650" || return
+
+		# rename the temporary cert
+		mv "$datacenter-server-$baseDomain-0.pem" "$cert" || return
+		mv "$datacenter-server-$baseDomain-0-key.pem" "$key" || return
+	fi
 
 	# copy the certificates
 	if [[ $dest ]]; then
@@ -1583,7 +1586,7 @@ installServiceHost()
 	printf "" > "$tmpDir/$product.env"
 
 	# product specifics
-	RunFunction "installServicePrep" "${product}"
+	RunFunction "installServicePrep" "${product}" || return
 
 	# create the configuration files
 	installServiceProductConfig o > "$tmpDir/config/$productConfigFileBase" || return
@@ -1640,7 +1643,7 @@ installServiceHost()
 
 }
 
-# installServiceHosts client|server [HOST...]- install the service as a client or server version of the program on the specified hosts.
+# installServiceHosts client|server [HOST...]- install the service on the specified hosts.
 # - in Consul, use 'consul members' to view the servers and clients.
 # - in Nomad, the clients are known as nodes, use 'nomad server members' to view the servers in the cluster, use 'nomad node status' to view the nodes in the cluster.
 installServiceHosts()
@@ -1869,6 +1872,7 @@ installServicePrepVault()
 	local certListenerConfig certConsulConfig
 	if certs; then
 
+		# vault certificates
 		certListenerConfig="$(cat <<-EOF
 
 			tls_client_ca_file = "$certDirService/$ca"
@@ -1878,6 +1882,7 @@ installServicePrepVault()
 		)"
 		certMakeVaultServer "$host" "$tmpDir/cert" || return
 
+		# consul certificates
 		certInit "consul" || return
 		certConsulConfig="$(cat <<-EOF
 
@@ -3619,7 +3624,7 @@ productInstallCheck()
 	# determine if the product is installed
 	if IsLocalHost "$host"; then
 		installFile="$(os executable find "$installDir")" || return
-		! $force && InPath "$product" && fileExists="true"
+		[[ ! $force ]] && InPath "$product" && fileExists="true"
 		what="$installFile"
 	else
 		[[ ! $force ]] && sshRun "$host" "[[ -f \"$binDir/$product\" ]]" && fileExists="true"
