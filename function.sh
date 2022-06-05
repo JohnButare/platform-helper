@@ -701,7 +701,7 @@ ShowTime() { ${G}date '+%F %T.%N %Z' -d "$1"; }
 ShowSimpleTime() { ${G}date '+%D %T' -d "$1"; }
 TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')"; }
 TimestampDiff () { ${G}printf '%s' $(( $(${G}date -u +%s) - $(${G}date -u -d"$1" +%s))); }
-TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02d:%02d:%02d\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
+TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02dh:%02dm:%02ds\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
 
 # TimeCommand - return the time it takes to execute a command in seconds to three decimal places.
 # Command output is supressed.  The status of the command is returned.
