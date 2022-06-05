@@ -488,7 +488,7 @@ infoCpu()
 	infoEcho "         cpu: $(RemoveSpace "$model") ($(RemoveSpace "$count") CPU)"
 }
 
-infoDisk() { ! InPath di && return; infoEcho "        disk: $(diskUsedCommand)/$(diskAvailableCommand)/$(diskTotalCommand) GB used/available/total"; }
+infoDisk() { ! InPath di && return; infoEcho "        disk: $(diskUsedCommand)/$(diskFreeCommand)/$(diskTotalCommand) GB used/free/total"; }
 infoDisk_free() { ! InPath di && return; infoEcho "   disk free: $(diskFreeCommand) GB"; }
 infoDisk_total() { ! InPath di && return; infoEcho "  disk total: $(diskTotalCommand) GB"; }
 infoDisk_used() { ! InPath di && return; infoEcho "   disk used: $(diskUsedCommand) GB"; }
@@ -524,7 +524,7 @@ infoKernel()
 }
 infoKernelPi() { infoEcho "    firmware: $(pi info firmware)"; }
 
-infoMemory() { infoEcho "      memory: $(memoryUsedCommand)/$(memoryFreeCommand)/$(memoryTotalCommand) GB used/available/total"; }
+infoMemory() { infoEcho "      memory: $(memoryUsedCommand)/$(memoryFreeCommand)/$(memoryTotalCommand) GB used/free/total"; }
 infoMemory_free() { infoEcho "memory free: $(memoryFreeCommand) GB"; }
 infoMemory_total() { infoEcho "memory total: $(memoryTotalCommand) GB"; }
 infoMemory_used() { infoEcho "memory used: $(memoryUsedCommand) GB"; }
