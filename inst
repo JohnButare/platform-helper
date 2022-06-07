@@ -161,7 +161,7 @@ installInit()
 	# isInstallable	
 	all=(final register)
 	all+=(AppDir bash BashProfile CredentialStore duf envoy gitClient gitServer hostname jq magic NetbootxyzTftpServer PartitionManagement wallpaper zsh ZshProfile)	
-	debian=(apt AptUtilities audacity bind cfssl chroot ChronyServer CloudInit cron CronLog cups dbus DnsServer DhcpServer flatpak geany HomeAssistantCore HomeAssistantCli HypervLinuxTools kea KeaService LastPass mDns mosquitto NodeRed pass pivpn SaltMinion GnomeKeyring SnapStore SystemUser terminator TftpClient TftpServer UncomplicatedFirewall VmwareLinuxTools)
+	debian=(apt AptUtilities audacity bind cfssl chroot ChronyServer CloudInit cron CronLog cups dbus DnsServer DhcpServer flatpak geany HomeAssistantCore HomeAssistantCli HypervLinuxTools kea KeaService LastPass mDns NodeRed pass pivpn SaltMinion GnomeKeyring SnapStore SystemUser terminator TftpClient TftpServer UncomplicatedFirewall VmwareLinuxTools)
 	debian64=()
 	mac=(amphetamine AppleConfigurator apptivate bartender bear BetterTouchTool btt CanaryMail CarrotWeather DayOne DiskInventortyX gitx HomeAssistant homie iTerm karabiner LiveDesktop Magnet MakrdownView MicrosoftRemoteDesktop pcalc rectagle RemoteDesktop spark speedtest SystemToolkit VmwareFusion WallpaperWizard xcode XcodeCli XQuartz yoink)
 	macDebian=(1Password 1PasswordCli 7Zip asdf BalenaEtcher bat bc certbot chrony colorls DotNet Dropbox DropboxDownload docker etcher exa fuse fzf ghq GitKraken gnupg gpg homebrew JetBrains JumpCloud MozillaVpn mysql NetbootxyzDocker pass passh PiDiskImager RpiBoot ruby RubyAsdf RubyPackage RubyRvm skype StandardNotes steam sublime SublimeMerge tmux thunderbird UnifiController unison VeraCrypt VisualStudioCode vscode WireGuard xClient xServer xpra)
@@ -195,7 +195,9 @@ installInit()
 	macDebian+=(HashiUp ConsulDocker ConsulK8s ConsulTemplate NomadServerTools sockaddr)
 
 	# Home Automation
-	debian+=(HomeAssistantCore HomeAssistantCli HomeAssistantIntegrations HomeAssistantNomad homebridge HomebridgeWiggin)
+	debian+=(HomeAssistant HomeAssistantCore HomeAssistantCli HomeAssistantNomad)
+	debian+=(homebridge HomebridgeFfmpeg HomebridgePi HomebridgeRing HomebridgeWiggin)
+	debian+=(mosquitto PoolTemperature)
 
 	# Intel
 	win+=(intel IntelChipset IntelDrivers IntelDriverUpdate IntelExtremeTuning IntelStorageManagement IntelThunderboltDriver IntelThunderboltControlCenter)
@@ -1096,7 +1098,7 @@ AppHostSoftwareInstall()
 		pi1) i $homeServer;;
 		pi2) i $homeServer DomotzAgent mosquitto;;
 		pi3) i certbot cups;;
-		pi7) i PiWiFi;; 				# pool
+		pi7) i PiWiFi PoolTemperature;; # pool
 		pi9) i PiOverclock;;
 		
 	esac
@@ -3512,7 +3514,13 @@ IntelFinalWin()
 # Home Automation
 #################################################
 
-HomeAutomationAllInstall() { i HomeAssistant HomeAssistantCore HomeAssistantCli HomeAssistantNomad homebridge HomebridgePi HomebridgeWiggin HomebridgeRing HomebridgeFfmpeg mosquitto; }
+HomeAutomationAllInstall() { i HomeAssistantAll HomebridgeAll HomeOtherAll; }
+
+HomeAssistantAllInstall() { i HomeAssistant HomeAssistantCore HomeAssistantCli HomeAssistantNomad; }
+HomebridgeAllInstall() { i homebridge HomebridgeFfmpeg HomebridgePi HomebridgeRing HomebridgeWiggin; }
+HomeOtherAllInstall() { i mosquitto PoolTemperature; }
+
+# Home Assistant
 
 HomeAssistantInstall() { run --name "Home Assistant" "1099568401"; }
 HomeAssistantNomadInstall() { run --header "Home Assistant (Nomad Job)" --nomad "home-assistant.hcl" && nomadHttpShow "home-assistant" "8123"; }
@@ -3629,6 +3637,10 @@ haIntegrations()
 	return 0
 }
 
+# Homebridge
+
+HomebridgeRingInstall() { run --node homebridge-ring -- --unsafe-perm && i HomebridgeFfmpeg; }
+
 HomebridgeInstall()
 {
 	header "Homebridge"
@@ -3688,20 +3700,6 @@ homebridgePi()
 	return 0
 }
 
-HomebridgeWigginInstall()
-{
-	header "Homebridge Wiggin"
-	local plugin plugins; plugins=(broadlink-rm-pro dyson-pure-cool http-temperature-sensor myq nest purpleair-sensor rachio-platform script2 vera weather-plus zp)
-	for plugin in "${plugins[@]}"; do run --node homebridge-$plugin || return; done
-	i HomebridgeRing || return
-}
-
-HomebridgeRingInstall()
-{
-	run --node homebridge-ring -- --unsafe-perm || return
-	homebridgeFfmpeg || return	
-}
-
 HomebridgeFfmpegInstall()
 {
 	header "Homebridge ffmpeg"
@@ -3716,6 +3714,16 @@ HomebridgeFfmpegInstall()
 	fi
 }
 
+HomebridgeWigginInstall()
+{
+	header "Homebridge Wiggin"
+	local plugin plugins; plugins=(broadlink-rm-pro dyson-pure-cool http-temperature-sensor myq nest purpleair-sensor rachio-platform script2 vera weather-plus zp)
+	for plugin in "${plugins[@]}"; do run --node homebridge-$plugin || return; done
+	i HomebridgeRing || return
+}
+
+# Home Other
+
 MosquittoInstall()
 {
 	package mosquitto mosquitto-clients || return
@@ -3726,6 +3734,36 @@ MosquittoInstall()
 	echot "\
 mosquitto_sub -v -t test/message -h $HOSTNAME
 mosquitto_pub -t test/message -m 'Hello World!' -h $HOSTNAME"
+}
+
+PoolTemperatureInstall()
+{
+	header "Pool Temperature"
+
+	sudo GitHelper clone pi2 pool --dest "/opt/pool-temperature" || return
+
+	# service
+	hilight "Creating service..."
+	local file="/etc/systemd/system/pool-temperature.service"
+		
+	if [[ ! -f "$file" || $force ]]; then
+		cat <<-EOF | sudo ${G}tee "$file" > /dev/null || return
+			[Unit]
+			Description=Pool Temperature
+
+			[Service]
+			ExecStart=/usr/bin/python3 /opt/pool-temperature/pool.py
+			Restart=on-failure
+			RestartSec=5s
+
+			[Install]
+			WantedBy=multi-user.target
+		EOF
+	fi
+
+	sudo systemctl daemon-reload || return
+	serviceAutoStart pool-temperature || return
+	WaitForPort localhost 5002 || return
 }
 
 #################################################
