@@ -377,14 +377,14 @@ Items (basic): ${infoBasic[@]}
 
 Examples:
 os info -w=disk_free pi11,pi2		# free disk space for specified hosts
-os info -w=disk_free all				# free disk space for all hosts"
+os info -w=disk_free all			# free disk space for all hosts"
 }
 
 infoArgStart() 
 { 
 	unset -v detail monitor prefix
 	hostArg="localhost" what=() skip=()
-	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz file package switch other)
+	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz file other)
 	infoDetail=(mhz memory process disk package switch)
 	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used )
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
