@@ -329,7 +329,7 @@ usage: i [APP*|bak|cd|check|dir|info|select]
 		check|select) InstFind;;
 		dir) InstFind && echo "$INSTALL_DIR";;
 		info) InstFind && echo "The installation directory is $INSTALL_DIR";;
-		*) inst install "$@" --hint "$INSTALL_DIR" $noRun $force;;
+		*) inst install --hint "$INSTALL_DIR" $noRun $force "$@";;
 	esac
 }
 
