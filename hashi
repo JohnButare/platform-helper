@@ -736,12 +736,10 @@ removeConfig()
 	fi
 
 	# certificates (local, private, and public)	
-	if [[ "$product" != "vault" ]]; then # Vault uses Consul certificates
-		local dir
-		whatCheck "local-certs" && { hilight "Removing local certificates..."; removeLocalCerts || return; }
-		whatCheck "private-certs" && { hilight "Removing private credentials..."; dir="$(certDirPrivate | certDirSuffix "$product")" || return; removeDir "$dir"; }
-		whatCheck "public-certs" && { hilight "Removing public credentials..."; dir="$(certDirPublic | certDirSuffix "$product")" || return; removeDir "$dir"; }
-	fi
+	local dir
+	whatCheck "local-certs" && { hilight "Removing local certificates..."; removeLocalCerts || return; }
+	whatCheck "private-certs" && { hilight "Removing private credentials..."; dir="$(certDirPrivate | certDirSuffix "$product")" || return; removeDir "$dir"; }
+	whatCheck "public-certs" && { hilight "Removing public credentials..."; dir="$(certDirPublic | certDirSuffix "$product")" || return; removeDir "$dir"; }
 
 	# credentials (local)
 	whatCheck "local-credentials" && { hilight "Removing local credentials..."; credDelete "all" || return; }
@@ -1394,22 +1392,24 @@ installServiceUsage() { echot "\
 Usage: $(ScriptName) install service all|cli|$productUsage
 Install a HashiCorp product.
 
-	-c, --clients	HOSTS		comma separated list of clients to install
-	-s, --server HOSTS		comma separated list of servers to install
-	-j, --join HOSTS			comma separated list of hosts to join to, defaults to servers
+	-c, --clients	HOSTS						comma separated list of clients to install
+	-if, --interface	INTERFACE		host interface adapter name, i.e. wlan0, defaults to eth0
+	-s, --server HOSTS						comma separated list of servers to install
+	-j, --join HOSTS							comma separated list of hosts to join to, defaults to servers
 	$certOptUsage
 	-w, --what=C1[,C2...] components to install: acl program service config
 	                        cert (cert-local cert-make cert-public cert-service)"; }
 
-installServiceArgStart() { unset force whatArg; clients=() servers=() join=(); encrypt="true"; }
+installServiceArgStart() { unset force whatArg; clients=() servers=() join=(); encrypt="true" interface="eth0"; }
 
 installServiceOpt()
 {
 	encryptCliOpt "$@" && return
 	case "$1" in
-		-c|--clients|-c=*|--clients=*) ScriptOptGet "clients" "$@"; StringToArray "$clients" "," clients;;
-		-s|--servers|-s=*|--servers=*) ScriptOptGet "servers" "$@"; StringToArray "$1" "," servers;;
-		-j|--join|-j=*|--join=*) ScriptOptGet "join" "$@"; StringToArray "$1" "," join;;
+		--clients|-c|--clients=*|-c=*) ScriptOptGet "clients" "$@"; StringToArray "$clients" "," clients;;
+		--interface|-if|--interface=*|-if=*) ScriptOptGet "interface" "$@";;
+		--servers|-s|--servers=*|-s=*) ScriptOptGet "servers" "$@"; StringToArray "$1" "," servers;;
+		--join|-j|--join=*|-j=*) ScriptOptGet "join" "$@"; StringToArray "$1" "," join;;
 		*) return 1;;
 	esac
 }
@@ -1427,8 +1427,11 @@ installService()
 	local product="$1" isServiceInstall="true"; serviceVars "$product" || return
 
 	# common service options
-	declare -Ag commonOptions=( [log_level]="info" )
-
+	local commonOptions="$(cat <<-EOF
+		log_level = "info"\n
+		EOF
+	)"
+	
 	# add clients and servers from hostArg if specified
 	if [[ $hostArg ]]; then
 		local host hosts; StringToArray "$hostArg" "," hosts
@@ -1559,7 +1562,7 @@ installServiceHost()
 {
 	local type="$1" host="$2"
 	local f hostFqdn hostIp
-	local -A o; o=( ); ArrayAppend o commonOptions || return
+	local o="$commonOptions"
 	local networkTarget="Wants=network-online.target"
 	local serviceType="simple"
 	local serviceLimit="LimitNOFILE=infinity"$'\n'"LimitNPROC=infinity"
@@ -1589,13 +1592,13 @@ installServiceHost()
 	RunFunction "installServicePrep" "${product}" || return
 
 	# create the configuration files
-	installServiceProductConfig o > "$tmpDir/config/$productConfigFileBase" || return
+	echo -e "$o" > "$tmpDir/config/$productConfigFileBase" || return
 	installServiceConfig > "$tmpDir/$product.service" || return
 
 	# copy the files to the remote host	
 	copyDirRemote "$tmpDir" "$host" || return
 
-	# run the installation script - do notuse only standard commands
+	# run the installation script - do not assume /usr/local/data/bin scripts are present, use only standard commands
 	hilight "Running installation..."
 	scriptRun "$host" "$(cat <<-EOF
 
@@ -1640,7 +1643,6 @@ installServiceHost()
 		$(scriptCleanup)
 		EOF
 	)" || return
-
 }
 
 # installServiceHosts client|server [HOST...]- install the service on the specified hosts.
@@ -1715,68 +1717,87 @@ installServiceForAllHosts()
 installServicePrepConsul()
 { 
 	# options
+	o+="$(cat <<-EOF
+		datacenter = "$datacenter"
+		data_dir = "/opt/$product"
+		domain = "$baseDomain"
+		enable_script_checks = true
+		leave_on_terminate = true
+		retry_join = [ $(ArrayShow join ", ") ]
+		telemetry = { disable_compat_1.9 = true }
 
-	o+=(
-		[domain]="$baseDomain"
-		[datacenter]="$datacenter"
-		[data_dir]="/opt/$product"
-		[client_addr]="0.0.0.0"
-		[bind_addr]='{{ GetInterfaceIP \"eth0\" }}'
-		[advertise_addr]='{{ GetInterfaceIP \"eth0\" }}'
-		[advertise_addr_ipv6]='{{ GetAllInterfaces | include \"name\" \"eth0\" | include \"type\" \"IPv6\" | sort \"address\" | limit 1 | join \"address\" \" \" }}'
-		[retry_join]="[ $(ArrayShow join ", ") ]"
-		[leave_on_terminate]="true"
-		[telemetry]="{ disable_compat_1.9 = true }"
-		[acl]="$(cat <<-EOF
-			{ 
-			  enabled = true
-			  default_policy = "allow"
-			  enable_token_persistence=true
-			}
+		# network
+		advertise_addr = "{{ GetInterfaceIP \"$interface\" }}"
+		advertise_addr_ipv6 = "{{ GetAllInterfaces | include \"name\" \"$interface\" | include \"type\" \"IPv6\" | sort \"address\" | limit 1 | join \"address\" \" \" }}"
+		bind_addr = "{{ GetInterfaceIP \"$interface\" }}"
+		client_addr = "0.0.0.0"
+
+		# access control
+		acl {
+		  enabled = true
+		  default_policy = "allow"
+		  enable_token_persistence=true
+		}\n
+		EOF
+	)"
+
+	# server
+	isServer && o+="$(cat <<-EOF
+
+		# server
+		server = true
+		bootstrap_expect = ${#join[@]}
+		ui_config { enabled = true }\n
+		EOF
+	)"
+
+	# certificates
+	if certs; then
+
+		local serverDefaults; isServer && serverDefaults="$(cat <<-EOF
+
+			    cert_file = "$certDirService/$certServer"
+			    key_file = "$certDirService/$certServerKey"
 			EOF
 		)"
-		[enable_script_checks]="true"
-	)
 
-	isServer && o+=(
-		[server]="true"
-		[bootstrap_expect]="${#join[@]}"
-		[ui_config]="{ enabled = true }"
-	)
+		o+="$(cat <<-EOF
 
-	certs && o+=(
-		[addresses]='{ https = "0.0.0.0" }'
-		[ports]="{ http = -1, https = $consulHttpsPort }"
-		[verify_incoming]="false"
-		[verify_incoming_rpc]="true"
-		[verify_outgoing]="true"
-		[verify_server_hostname]="true"
-	)
-
-	certs && isClient && o+=(
-		[ca_file]="$certDirService/$ca"
-		[auto_encrypt]="$(cat <<-EOF
-			{
-			  tls = true
-			  dns_san = [ "$hostFqdn" ]
-			  ip_san = [ "$hostIp" ]
-			}
+			# encryption
+			addresses { https = "0.0.0.0" }
+			ports { http = -1, https = $consulHttpsPort }
+			tls {
+			  defaults {
+			    ca_file = "$certDirService/$ca"$serverDefaults
+			    verify_incoming = false
+			    verify_outgoing = true
+			  }
+			  internal_rpc {
+			    verify_server_hostname = true 
+			  }
+			}\n
 			EOF
 		)"		
-	)
 
-	# client certificates
-	isClient && certs && { cp "$caAuto" "$tmpDir/cert" || return; }
+		# client certificates
+		if isClient; then
+			o+="$(cat <<-EOF
+				auto_encrypt = {
+				  tls = true
+				  dns_san = [ "$hostFqdn" ]
+				  ip_san = [ "$hostIp" ]
+				}\n
+				EOF
+			)"		
+			cp "$caAuto" "$tmpDir/cert" || return
+		fi
 	
-	# server certificates
-	if certs && isServer; then
-		o+=(
-			[ca_file]="$certDirService/$ca"
-			[cert_file]="$certDirService/$certServer"
-			[key_file]="$certDirService/$certServerKey"
-			[auto_encrypt]="{ allow_tls = true }"
-		)
-		certMakeConsulServer "$host" "$tmpDir/cert" || return
+		# server certificates
+		if isServer; then
+			o+="auto_encrypt = { allow_tls = true }"
+			certMakeConsulServer "$host" "$tmpDir/cert" || return
+		fi
+
 	fi
 
 	# service options
@@ -1792,64 +1813,50 @@ installServicePrepNomad()
 	local token; token="$(product="consul" credGet "token" --quiet)"; [[ ! $token ]] && { ScriptErr "unable to get a Consul token for Nomad"; return 1; }
 	local port; port="$(productGetPort "consul" "$(protocol)")" || return
 
-	o+=( 
-		[datacenter]="$datacenter"
-		[data_dir]="/opt/$product"
-		[acl]="{ enabled = true }"
-		[client]="{ enabled = true }"
-		[consul]="$(cat <<-EOF
-			{
-			  token = "$token"
-			  address = "127.0.0.1:$port"
-			}
-			EOF
-		)"
-	)
+	o+="$(cat <<-EOF
+		datacenter = "$datacenter"
+		data_dir = "/opt/$product"
+		acl { enabled = true }
+		client { enabled = true }
+		consul {
+		  token = "$token"
+		  address = "127.0.0.1:$port"
+		}\n
+		EOF
+	)"
 	
-	isServer && o+=(
-		[server]="$(cat <<-EOF
-			{
-			  enabled = true
-			  bootstrap_expect = "${#join[@]}"
-			  raft_protocol = 3
-			}
-			EOF
-		)"
-	)
+	# server
+	isServer && o+="$(cat <<-EOF
 
-	certs && isClient && o+=(
-		[tls]="$(cat <<-EOF
-			{ 
-			  http = true
-			  rpc = true
-			  ca_file = "$certDirService/$ca"
-			  cert_file = "$certDirService/$certClient"
-			  key_file = "$certDirService/$certClientKey"
-			  verify_server_hostname = false
-			  verify_https_client = false
-			}
-			EOF
-		)"
-	)
-
-	certs && isServer && o+=(
-		[tls]="$(cat <<-EOF
-			{
-			  http = true
-			  rpc = true
-			  ca_file = "$certDirService/$ca"
-			  cert_file = "$certDirService/$certServer"
-			  key_file = "$certDirService/$certServerKey"
-			  verify_server_hostname = false
-			  verify_https_client = false
-			}
-			EOF
-		)"		
-	)
+		# server
+		server {
+		  enabled = true
+		  bootstrap_expect = "${#join[@]}"
+		  raft_protocol = 3
+		}\n
+		EOF
+	)"
 
 	# certificates 
-	certs && isClient && { cp "$ca" "$certClient" "$certClientKey" "$tmpDir/cert" || return; }
-	certs && isServer && { cp "$ca" "$certServer" "$certServerKey" "$tmpDir/cert" || return; }
+	if certs; then		
+		local certFile="$(eval echo "\$cert${type^}")"		# certClient or certServer
+		local keyFile="$(eval echo "\$cert${type^}Key")"	# certClientKey or certServerKey
+		o+="$(cat <<-EOF
+
+			# encryption
+			tls { 
+			  http = true
+			  rpc = true
+			  ca_file = "$certDirService/$ca"
+			  cert_file = "$certDirService/$certFile"
+			  key_file = "$certDirService/$keyFile"
+			  verify_server_hostname = false
+			  verify_https_client = false
+			}\n
+			EOF
+		)"
+		cp "$ca" "$certFile" "$keyFile" "$tmpDir/cert" || return
+	fi
 
 	# consul encryption environment variables
 	if certs; then
@@ -1875,7 +1882,7 @@ installServicePrepVault()
 		# vault certificates
 		certListenerConfig="$(cat <<-EOF
 
-			tls_client_ca_file = "$certDirService/$ca"
+		  tls_client_ca_file = "$certDirService/$ca"
 		  tls_cert_file = "$certDirService/$certServer"
 		  tls_key_file = "$certDirService/$certServerKey"
 			EOF
@@ -1898,76 +1905,33 @@ installServicePrepVault()
 	# options
 	local token; token="$(product="consul" credGet "token")" || return
 	
-	o+=(
-		[listener]="\"tcp\" $(cat <<-EOF
-			{
-			  address = "0.0.0.0:$(productGetPort "$product" "$(protocol)")"$certListenerConfig
-			}
-			EOF
-		)"
+	o+="$(cat <<-EOF
+		listener "tcp" {
+		  address = "0.0.0.0:$(productGetPort "$product" "$(protocol)")"$certListenerConfig
+		}
+		storage "consul" {
+		  token = "$token"
+		  path = "vault/"
+		  address = "127.0.0.1:$(productGetPort "consul" "$(protocol)")"
+		  scheme = "$(protocol)"$certConsulConfig
+		}
+		service_registration "consul" {
+		  token = "$token"
+		  address = "127.0.0.1:$(productGetPort "consul" "$(protocol)")"
+		  scheme = "$(protocol)"$certConsulConfig
+		}
+		api_addr = "https://$hostFqdn:$vaultHttpsPort"\n
+		EOF
+	)"
 
-		[storage]="\"consul\" $(cat <<-EOF
-			{
-			  token = "$token"
-			  path = "vault/"
-			  address = "127.0.0.1:$(productGetPort "consul" "$(protocol)")"
-			  scheme = "$(protocol)"$certConsulConfig
-			}
-			EOF
-		)"
-
-		[service_registration]="\"consul\" $(cat <<-EOF
-				{
-				  token = "$token"
-				  address="127.0.0.1:$(productGetPort "consul" "$(protocol)")"
-				  scheme="$(protocol)"$certConsulConfig
-				}
-			EOF
-		)"
-
-		[api_addr]="https://$hostFqdn:$vaultHttpsPort"
-	)
-
-	isServer && o+=( [ui]="true" )
+	isServer && o+="$(cat <<-EOF
+		ui = "true"\n
+		EOF
+	)"
 
 	# service options
 	execStart="$program server -config=$productConfigDir"
 	serviceLimit+=$'\n'"LimitMEMLOCK=infinity"
-}
-
-# installServiceProductConfig VAR... - turn the passed array variables into an HCL script
-installServiceProductConfig()
-{
-	local key var
-
-	for var in "$@"; do
-		local -n config="$var"
-
-		for key in "${!config[@]}"; do
-
-			local equal=" =" quote="true" v="${config[$key]}"
-			local fc="${v:0:1}" sc="${v:1:1}" # first and second characters
-
-			# example: addresses { https = "0.0.0.0" }
-			[[ "$fc" == "{" && "$sc" != "{" ]] && quote="" equal=""
-
-			# example: retry_join = [ "pi3", "pi4" ]
-			[[ "$fc" == "[" ]] && quote=""
-
-			# listener "tcp" { address = "0.0.0.0:8200", tls_disable = 1 }
-			[[ "$fc" == "\"" ]] && quote="" equal=""
-
-			# boolean, example: server = true			
-			[[ "$v" == @(true|false) ]] && quote=""
-
-			# integer, example: bootstrap_expect = 2
-			IsInteger "$v" && quote=""
-
-			[[ $quote ]] && echo "$key$equal \"${config[$key]}\"" || echo "$key$equal ${config[$key]}"
-
-		done
-
-	done
 }
 
 installServiceServerFinal() { RunFunction "installServiceServerFinal" "${product}"; }
