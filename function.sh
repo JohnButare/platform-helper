@@ -1031,9 +1031,23 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 
 FileVersion()
 {
+	# macOS application
+	if IsPlatform mac; then
+		local app="$(command ls "/Applications" | grep -i "^$1.app$")"
+		if [[ -f "/Applications/$app/Contents/Info.plist" ]]; then
+			defaults read "/Applications/$1.app/Contents/Info.plist" CFBundleShortVersionString
+			return
+		fi
+	fi
+
+	# file
 	local file="$1"; ScriptFileCheck "$file" || return
+
+	# Windows file version
 	if IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
 		powershell "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn
+
+	# --version argument
 	else
 		"$file" --version
 	fi
