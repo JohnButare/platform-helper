@@ -121,6 +121,7 @@ installInit()
 		[hstart]="HiddenStart"
 		[hv]="hyperv"
 		[icue]="CorsairUtilityEngine"
+		[karabiner]="KarabinerElements"
 		[lo]="LogitechOptions"
 		[etcher]="BalenaEtcher"
 		[ff]="firefox"
@@ -163,7 +164,7 @@ installInit()
 	all+=(AppDir bash BashProfile CredentialStore duf envoy gitClient gitServer hostname jq magic NetbootxyzTftpServer PartitionManagement wallpaper zsh ZshProfile)	
 	debian=(apt AptUtilities audacity bind cfssl chroot ChronyServer cron CronLog cups dbus DnsServer DhcpServer flatpak geany HomeAssistantCore HomeAssistantCli HypervLinuxTools kea KeaService LastPass mDns NodeRed pass SaltMinion GnomeKeyring SnapStore SystemUser terminator VmwareLinuxTools)
 	debian64=()
-	mac=(amphetamine AppleConfigurator apptivate bartender bear BetterTouchTool btt CanaryMail CarrotWeather DayOne DiskInventortyX gitx HomeAssistant homie iTerm karabiner LiveDesktop Magnet MakrdownView MicrosoftRemoteDesktop pcalc rectagle RemoteDesktop spark speedtest SystemToolkit VmwareFusion WallpaperWizard xcode XcodeCli XQuartz yoink)
+	mac=(amphetamine AppleConfigurator apptivate bartender bear BetterTouchTool btt CanaryMail CarrotWeather DayOne DiskInventortyX gitx HomeAssistant homie iTerm KarabinerElements LiveDesktop Magnet MakrdownView MicrosoftRemoteDesktop pcalc rectagle RemoteDesktop spark speedtest SystemToolkit VmwareFusion WallpaperWizard xcode XcodeCli XQuartz yoink)
 	macDebian=(1Password 1PasswordCli 7Zip asdf BalenaEtcher bat bc certbot chrony colorls DotNet Dropbox DropboxDownload docker etcher exa fuse fzf ghq GitKraken gnupg gpg homebrew JetBrains mysql NetbootxyzDocker pass passh PiDiskImager RpiBoot ruby RubyAsdf RubyPackage RubyRvm skype StandardNotes steam sublime SublimeMerge tmux thunderbird unison VeraCrypt VisualStudioCode vscode xClient xServer xpra)
 	macWin=(BlueSherpa BrotherPrinter calibre CleanMy  CreativeCloud cricut deezer  DreamAquarium DuetDisplay dymo fork garmin GreenShot iExplorer keybase lazygit logitech LogitechGhub LogitechOptions notion nVidia office origin PdfElement plex PowerShell quicken qvr sonos spotify SurveillanceStation VisualStudio VisualStudioExtensions VisualStudioCode xpra xServer zoom)
 	win=(ahk AjaSystemTest AutoHotKey AltTabTerminator AquaSnap backupper bonjourSdk chocolatey CloseAllWindows CoreTemp cpuz DiskImager EdgeDeflector FileLocatorPro game GigabyteMotherboard GitExtensions HardwareMonitor HiddenStart HiddenStartConfigure Hp9020 iCloud kindle KindleDrm MaxTo Notepadpp npp RightClickEnhancer TidyTabs UltraMon vcxsrv WinScp xMing AjaSystemTest BlueStacks CPUZ DiskImager hyperv HiddenStart java LgMonitor MarkdownView MicrosoftTeams NitroPdf nVidiaDriver nVidiaGeForceExperience OneDrive oculus pa PartitionAssistant pGina PowerPanel PowerrToys QuickBooks RealtekCardReader stamps SystemInternals TaskLayout TemperatureLogger Todoist UupDump VisualStudio vs Wallpaper4k WindowsAssessmentAndDeploymentKit wsl WslConfig x410 xMing)
@@ -278,7 +279,6 @@ serviceAutoStart() { service auto "$1" && service start "$1"; }
 serviceDemandStop() { service demand "$1" && service stop "$1"; }
 servicesDemandStop() { local s; for s in "$@"; do serviceDemandStop "$s" || return; done; }
 serviceDisableStop() { service disable "$1" && service stop "$1"; }
-setRan() { runCheck="true" ran="true"; }
 sshRun() { SshAgentConf --quiet "${globalArgs[@]}" && RunLog ssh "$@"; }
 verifyStaticIpAddress() { [[ -f /etc/dhcpcd.conf ]] && grep "^static ip_address=" /etc/dhcpcd.conf >& /dev/null; }
 waitForInstall() { [[ ! $ran ]] && return; local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
@@ -441,7 +441,7 @@ i()
 		elif [[ ! $prompt ]] || ask "\nInstall $appFunction"; then
 			iPortion "Install" || return
 			[[ ! $force && ! $runCheck ]] && continue # return if we did not try and run an install 
-			{ iPortion "Final" && iPortion "Profile" && iPortion "Help"; } || return
+			{ iPortion "Final" && iPortion "Profile" && iPortion "Register" && iPortion "Help"; } || return
 		fi
 
 	done
@@ -527,11 +527,19 @@ makeDir()
 # register APP - enter the registration information for an application
 register()
 {
+	# skip registration if a remote credential manager is not installed
+	credential manager status --manager=remote --quiet || return
+
+	# message
 	local app="$1"
 	message="Register '$app' with the contents of the clipboard"
 	[[ $noPrompt ]] && { hilight "$message..."; } || { ask "$message" || continue; }
+
+	# get registration
 	local registration; registration="$(credential get --fallback $app registration)" || return
 	clipw "$registration" || return
+
+	# start the application
 	app "$app" || return
 }
 
@@ -586,7 +594,14 @@ run()
 	[[ ! "$dest" ]] && dest="$P"
 
 	# version check
-	[[ $version && ! $force && "$("$name" version)" == "$version" ]] && return
+	if [[ $version && ! $force ]]; then
+
+		# helper script
+		InPath "$name" && "$name" IsInstalled && [[ "$("$name" version)" == "$version" ]] && return
+
+		# macOS application
+		[[ -d "/Applications/$name.app" && "$(FileVersion "$name")" == "$v" ]] && return
+	fi
 
 	# variables
 	local platform; unset ran
@@ -611,7 +626,7 @@ run()
 
 	# show header
 	if [[ $header ]]; then header "$header"
-	elif [[ $name ]]; then header "$name"
+	elif [[ $name ]]; then header "${name^}"
 	fi
 
 	# return if not running installations
@@ -620,8 +635,8 @@ run()
 	# return if the program is installed
 	if [[ ! $force && ! $noInstallCheck ]]; then
 		[[ "$type" == @(go|python|pythonGlobal|ruby) ]] && InPath "$p" && return
-		[[ "$type" == @(executable) ]] && InPath "$name" && return	
-		[[ "$type" == @(package) ]] && PackageInstalled "$p" && return	
+		[[ "$type" == @(executable) ]] && InPath "$name" && return
+		[[ "$type" == @(package) ]] && PackageInstalled "$p" && return
 	fi
 
 	# prompt to run the installation
@@ -1029,7 +1044,7 @@ runXip()
 
 AppCoreInstall() { winPathFix && i AppPlatform AppNetwork AppHost register && rebootIfNeeded; }
 AppPlatformInstall() { RunPlatform app; }
-appMac() { i  && i iTerm karabiner rectangle; }
+appMac() { i  && i iTerm KarabinerElements; }
 appQnap() { i qcli && iStore MalwareRemover NotificationCenter Qboost QuLog SSDLaboratory SecurityCounselor; }
 appWin() { i WindowsTerminal AutoHotKey; }
 appPhysical() { i LogitechOptions MaxTo ninite TimeCore PowerCore; }
@@ -1488,10 +1503,13 @@ bootstrapMac()
 	header "Bootstrap Mac"
 
 	# packages
-	pkg dockutil duti findutils fontconfig pidof wakeonlan wget xz || return
+	pkg duti findutils fontconfig pidof wakeonlan wget xz || return
+
+	# dockutil - https://github.com/kcrawford/dockutil/issues/127
+	! InPath dockutil && [[ ! $force ]] && { brew install --cask hpedrorodrigues/tools/dockutil || return; }
 
 	# Rosetta - x86_64 emulation
-	sudoc softwareupdate --install-rosetta || return	
+	IsPlatform arm && { sudoc softwareupdate --install-rosetta || return; }
 
 	if [[ ! -f "/etc/paths.d/wiggin" ]]; then
 		echo "/usr/local/data/bin
@@ -1506,6 +1524,8 @@ $PLATFORM_PATH
 	# startup
 	local file="$HOME/Library/LaunchAgents/startup.plist"
 	[[ ! -f "$file" ]] && { cp "$setupFiles/startup.plist" "$file" || return; }
+
+	return 0
 }
 
 bootstrapQnap()
@@ -1731,9 +1751,9 @@ CompareCoreInstall()
 
 BeyondCompareInstall()
 {
-	header "BeyondCompare"; local v=4.4.2.26348 # http://www.scootersoftware.com/download.php
-	BeyondCompare IsInstalled && [[ ! $force ]] && return
-	run "other/Scooter Software/Beyond Compare/setup/BCompare-${v}_x64.msi|BCompareOSX-${v}.zip|bcompare-${v}_amd64.deb" || return
+	local v=4.4.2.26348 vCheck="$v" # http://www.scootersoftware.com/download.php
+	IsPlatform win && vCheck="NA"
+	run --name "BeyondCompare" --header "Beyond Compare" "other/Scooter Software/Beyond Compare/setup/BCompare-${v}_x64.msi|BCompareOSX-${v}.zip|bcompare-${v}_amd64.deb" --version=$vCheck || return
 }
 
 BeyondCompareProfile()
@@ -2355,15 +2375,9 @@ FileHostingCoreInstall() { i Dropbox iCloud OneDrive; }
 
 DropboxInstall()
 {
-	header "DropBox"
 	local v="147.3.4786" # i DropboxDownload; start https://www.dropbox.com/install-linux
-
-	# check if installed
-	dropbox IsInstalled && [[ ! $force && "$(dropbox version)" == "$v" ]] && return
-
-	# install	
-	run "other/Dropbox/Dropbox $v Offline Installer.exe|Dropbox $v.dmg|dropbox_2020.03.04_amd64.deb" --elevate -- /S
-}
+	run --name "dropbox" "other/Dropbox/Dropbox $v Offline Installer.exe|Dropbox $v.dmg|dropbox_2020.03.04_amd64.deb" --version=$v --elevate -- /S || return
+} 
 
 DropboxHelp()
 {
@@ -3332,14 +3346,9 @@ LogitechFinalWin()
 
 LogitechGhubInstall()
 {
-	header "Logitech G HUB"
 	local v="2021.11.8744" # https://support.logi.com/hc/en-us/articles/360024696774--Downloads-PRO-Wireless-Gaming-Mouse
-	
-	# check if installed
-	ghub IsInstalled && [[ ! $force && "$(ghub version)" == "$v" ]] && return
-
-	# install
-	run "hardware/Logitech/G HUB/lghub_installer.exe|lghub_installer.app" --copy-local --elevate && serviceDemandStop "LGHUBUpdaterService"
+	run --header="Logitech G HUB" --name="ghub" "hardware/Logitech/G HUB/lghub_installer.exe|lghub_installer.app" --version=$v --copy-local --elevate || return
+	serviceDemandStop "LGHUBUpdaterService" || return
 }
 
 LogitechOptionsInstall()
@@ -3855,7 +3864,7 @@ PoolTemperatureInstall()
 MacInstall()
 {
 	header "Mac Setup"
-	i MacAppCleanup MacAppStore MacConfigure MacDockOrder MacDockCleanup MacFonts MacPorts || return
+	i MacAppCleanup MacAppStore MacConfigure MacDockCleanup MacDockOrder MacFonts MacShortcuts || return
 }
 
 MacAppCleanupInstall()
@@ -3877,12 +3886,12 @@ MacConfigureInstall()
 {
 	echo "Configuring dock..."
 
-	defaults write com.apple.dock orientation -string left || return 	# bottom|left|right
-	defaults write com.apple.dock mineffect -string scale || return 		# genie|scale
+	defaults write com.apple.dock orientation -string left || return							# bottom|left|right
+	defaults write com.apple.dock mineffect -string scale || return 							# genie|scale
 	defaults write com.apple.dock tilesize -integer 30 || return
-	defaults write com.apple.dock magnification -bool FALSE || return		# largesize is magnification size
+	defaults write com.apple.dock magnification -bool FALSE || return							# largesize is magnification size
 	defaults write com.apple.dock minimize-to-application -bool TRUE || return
-	defaults write com.apple.dock launchanim -bool FALSE || return			# Animate opening applications
+	defaults write com.apple.dock launchanim -bool FALSE || return								# Animate opening applications
 	defaults write com.apple.dock autohide -bool FALSE || return
 	defaults write com.apple.dock show-process-indicators -bool TRUE || return
 	defaults write com.apple.dock show-recents -bool TRUE || return
@@ -3896,18 +3905,12 @@ MacConfigureInstall()
 
 MacDockCleanupInstall()
 {
-	local args=() apps=(Launchpad Mail FaceTime Maps Photos Contacts Calendar Reminders Notes Music Podcasts TV News "App Store" "System Preferences")
+	local args=() apps=("App Store" Contacts Calendar FaceTime Launchpad Mail Maps Messages Music News Notes Photos Podcasts Reminders Safari "System Preferences" TV )
 	for app in "${apps[@]}"; do args+=(--remove "$app"); done
 	dockutil "${args[@]}" || return
 }
 
-MacDockOrderInstall()
-{
-	dockutil --move "iTerm" --after "Finder" || return
-	dockutil --move "Notion" --after "iTerm" || return
-	dockutil --move "Firefox" --after "Safari" || return
-	dockutil --move "Messages" --after "Firefox" || return
-}
+MacDockOrderInstall() { macDockOrder Finder iTerm Notion Firefox Work Spark Sublime; }
 
 MacFontsInstall()
 {
@@ -3921,6 +3924,17 @@ MacPortsInstall()
 	run "platform/mac/Mac Ports/MacPorts-2.6.4_1-11-BigSur.pkg" || return
 }
 
+MacShortcutsInstall()
+{
+	# disable Mission Control Move left a space
+	defaults write com.apple.symbolichotkeys.plist AppleSymbolicHotKeys -dict-add 79 "<dict><key>enabled</key><false/><key>value</key><dict><key>type</key><string>standard</string><key>parameters</key><array><integer>65535</integer><integer>123</integer><integer>8650752</integer></array></dict></dict>"
+	defaults write com.apple.symbolichotkeys.plist AppleSymbolicHotKeys -dict-add 80 "<dict><key>enabled</key><false/><key>value</key><dict><key>type</key><string>standard</string><key>parameters</key><array><integer>65535</integer><integer>123</integer><integer>8781824</integer></array></dict></dict>"
+
+	# disable Mission Control Move right a space
+	defaults write com.apple.symbolichotkeys.plist AppleSymbolicHotKeys -dict-add 81 "<dict><key>enabled</key><false/><key>value</key><dict><key>type</key><string>standard</string><key>parameters</key><array><integer>65535</integer><integer>124</integer><integer>8650752</integer></array></dict></dict>"
+	defaults write com.apple.symbolichotkeys.plist AppleSymbolicHotKeys -dict-add 82 "<dict><key>enabled</key><false/><key>value</key><dict><key>type</key><string>standard</string><key>parameters</key><array><integer>65535</integer><integer>124</integer><integer>8781824</integer></array></dict></dict>"
+}
+
 macUninstall()
 {
 	local app="/Applications/$1.app"
@@ -3928,6 +3942,18 @@ macUninstall()
 	[[ ! -d "$app" ]] && return
 	echo "Removing $1..."
 	sudoc rm -fr "$app"
+}
+
+# macDockOrder item... - set the order of items in the dock FOO
+macDockOrder()
+{
+	local item after
+
+	for item in "$@"; do
+		[[ "${item,,}" != "finder" ]] && ! dockutil --find "$item" >& /dev/null && continue # check if the item is in the dock (Finder is always first in the dock)
+		[[ $after ]] && { dockutil --move "$item" --after "$after" || return; }							# move the item
+		after="$item"
+	done
 }
 
 # Mac Store applications
@@ -4053,7 +4079,7 @@ hashiGetHosts()
 MailCoreInstall() { i CanaryMail spark thunderbird; }
 CanaryMailInstall() { run --name "Canary Mail" "1236045954"; }
 SparkInstall() { run --name "Spark" "1176895641"; }
-ThunderbirdInstall() { local v="91.8.1"; run --name "thunderbird" --header "Thunderbird" "other/Mozilla/Thunderbird/Thunderbird Setup $v.msi|Thunderbird $v.dmg|thunderbird-$v.tar" --version "$v"; } # https://www.thunderbird.net/en-US/thunderbird/all/#E
+ThunderbirdInstall() { local v="91.8.1"; run --name "thunderbird" "other/Mozilla/Thunderbird/Thunderbird Setup $v.msi|Thunderbird $v.dmg|thunderbird-$v.tar" --version=$v; } # https://www.thunderbird.net/en-US/thunderbird/all/#E
 ThunderbirdHelp() { echot "- see Mozilla Notes, ThunderBird"; }
 ThunderbirdProfile() { thunderbird $noPrompt profile restore default; }
 ThunderbirdFinalWin() { $ren "$pp/Mozilla Thunderbird.lnk" "$pp/Applications/Thunderbird.lnk" && $rm "$pd/Mozilla Thunderbird.lnk"; }
@@ -4871,7 +4897,7 @@ OfficeInstall()
 	local v="16.0.15028.20204" # https://stores.office.com/myaccount/advancedinstalls.aspx
 
 	# check if installed
-	dropbox IsInstalled && [[ ! $force && "$(word version)" == "$v" ]] && return
+	office IsInstalled && [[ ! $force && "$(word version)" == "$v" ]] && return
 
 	# install	
 	run "other/Microsoft/office/OfficeSetup.exe|Microsoft_Office_16.47.21031401_Installer.pkg" || return
@@ -5287,18 +5313,19 @@ NotesAllInstall() { i notion StandardNotes Todoist; }
 
 NotionInstall()
 {
-	header "Notion"	# https://www.notion.so/desktop
-	local v="2.0.23" suffix
-	IsPlatformAll mac,arm && { v="2.0.20" suffix="-arm64"; }
-	IsPlatformAll mac,x86 && v="2.0.21"
+	header "Notion" # https://www.notion.so/desktop
+	local v="2.0.28" suffix
+	IsPlatformAll mac,arm && { v="2.1.0" suffix="-arm64"; }
+	IsPlatformAll mac,x86 && v="2.0.23"
+	local vCheck="$v"; IsPlatform win && vCheck+=".0"
 
 	# check if installed
-	notion IsInstalled && [[ ! $force && "$(notion version)" == "${v}.0" ]] && return
+	notion IsInstalled && [[ ! $force && "$(notion version)" == "$vCheck" ]] && return
 
 	# install
 	run "other/notion/Notion Setup $v.exe|Notion-$v$suffix.dmg" || return
 
-	# change ownership to curren user or get "Invalid Install" message when open application
+	# change ownership to current user - prevents "Invalid Install" message
 	IsPlatform mac && { sudoc chown -R "$USER" "$P/Notion.app" || return; }
 
 	return 0
@@ -6259,8 +6286,8 @@ ZshProfile()
 
 	# permissions
 	local dir="/usr/local/share/zsh"
-	[[ -d "$dir" ]] && { sudo chmod go-w "$dir" || return; }
-	[[ -d "$dir/site-functions" ]] && { sudo chmod go-w "$dir/site-functions" || return; }
+	[[ -d "$dir" ]] && { sudoc chmod go-w "$dir" || return; }
+	[[ -d "$dir/site-functions" ]] && { sudoc chmod go-w "$dir/site-functions" || return; }
 
 	# profile
 	local file="/etc/zsh/zshenv"
@@ -6269,7 +6296,7 @@ ZshProfile()
 	makeFileSudo "$file" || return
 
 	local line='[[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"'
-	! grep --quiet "$line" "$file" && { echo "$line" | sudo ${G}tee --append "$file" || return; }
+	! grep --quiet "$line" "$file" && { echo "$line" | sudoc ${G}tee --append "$file" || return; }
 	sudoc chmod +x "$file" || return
 
 	# login shell
@@ -6296,7 +6323,7 @@ SecurityCoreInstall()
 	local v="8.6.1.105726" # https://1password.com/downloads/
 
 	# check if installed
-	1PasswordHelper IsInstalled && [[ ! $force && "$(1PasswordHelper $alternete version)" == "$v" ]] && return
+	1PasswordHelper IsInstalled && [[ ! $force && "$(1PasswordHelper version)" == "$v" ]] && return
 
 	# install
 	if IsPlatform mac,win || IsPlatformAll linux,x86,64; then
@@ -6674,14 +6701,23 @@ TerminalAllInstall() { i iTerm terminator tmux WindowsTerminal; }
 iTermInstall()
 {
 	header "iTerm" # https://iterm2.com/downloads.html
-	run "platform/mac/iTerm2/iTerm2-3_4_15.zip" || return
+	local v="3.4.15"
 
+	# check if installed
+	[[ -d "/Applications/iTerm.app" && ! $force && "$(FileVersion iTerm)" == "$v" ]] && return
+
+	# install
+	run "platform/mac/iTerm2/iTerm2-${v//./_}.zip" || return
+
+	# shell intergration
 	if ask "Do you want to install iTerm shell integration"; then # https://iterm2.com/documentation-shell-integration.html
 		curl -L https://iterm2.com/shell_integration/install_shell_integration_and_utilities.sh | bash
 	fi
 
+	# dock
 	! dockutil --find "iTerm" >& /dev/null && { dockutil --add "/Applications/iTerm.app" || return; }
 
+	# preferences
 	local clip; clip="$udata/profile/default"; clipw "$clip"
 	echo "- Preferences, General, Preferences, check Load preferences from a custom folder, Browse, $clip"
 	macAppOpen iTerm || return
@@ -6789,7 +6825,7 @@ SublimeInstall()
 
 	# check if installed
 	[[ "$installType" == "beta" ]] && v="$versionBeta"
-	sublime IsInstalled && [[ ! $force && "$(sublime $alternete version)" == "Sublime Text Build $v" ]] && return
+	sublime IsInstalled && [[ ! $force && "$(sublime $alternate version)" == "Sublime Text Build $v" ]] && return
 
 	# install
 	IsPlatform linux && [[ ! $installType ]] && installType="package" # Linux defaults to package
@@ -6809,8 +6845,7 @@ sublimePackage()
 	fi
 
 	# install package
-	pkg sublime-text || return
-	setRan || return
+	run --package sublime-text || return
 }
 
 SublimeProfile() { sublime $noPrompt profile restore default && SetTextEditor; }
@@ -7119,7 +7154,7 @@ JqInstall() { run --header "jq" --package "jq"; }
 # utility - GUI
 #################################################
 
-UtilityGuiAllInstall() { i 7Zip AltTabTerminator aptivate AutoHotKey bartender BetterTouuchTool CloseAllWIndows DreamAquarium EdgeDeflector flux greenshot karabiner Lingon LinkShellExtension fuse RightClickEnhancer SnapStore TaskLayout TidyTabs wallpaper; }
+UtilityGuiAllInstall() { i 7Zip AltTabTerminator aptivate AutoHotKey bartender BetterTouuchTool CloseAllWIndows DreamAquarium EdgeDeflector flux greenshot KarabinerElements Lingon LinkShellExtension fuse RightClickEnhancer SnapStore TaskLayout TidyTabs wallpaper; }
 AmphetamineInstall() {  run --name "Amphetamine" "937984704"; }
 SnapStoreInstall() { pkg snapd && sudo snap install snap-store; }
 
@@ -7156,7 +7191,7 @@ AutoHotKeyInstall()
 
 	# install
 	AutoHotKey close || return
-	run "shareware/AutoHotKey/image/AutoHotkey_2.0-beta.3.zip" --dest "AutoHotKey" --elevate || return
+	run "shareware/AutoHotKey/image/AutoHotkey_$v.zip" --dest "AutoHotKey" --elevate || return
 	AutoHotKey startup || return
 }
 
@@ -7255,8 +7290,19 @@ GreenshotFinalWin()
 	registry delete "run/Greenshot" # C:\Program Files\Greenshot\Greenshot.exe
 }
 
-KarabinerInstall() { run --header "Karabiner-Elements" "platform/mac/Karabiner-Elements/Karabiner-Elements-14.2.0.dmg"; } # https://pqrs.org/osx/karabiner/
-KarabinerProfile() { KarabinerHelper profile restore default && macAppOpen Karabiner-Elements; }
+KarabinerElementsInstall()
+{
+	local v="14.4.0" # https://pqrs.org/osx/karabiner/
+	run --name "Karabiner-Elements" "platform/mac/Karabiner-Elements/Karabiner-Elements-$v.dmg" --version=$v || return
+}
+
+KarabinerElementsHelp()
+{
+	echot "\
+- Preferences..., Function keys, check Use all F1, F2, etc. keys as standard function keys"
+}
+
+KarabinerElementsProfile() { KarabinerHelper profile restore default && macAppOpen Karabiner-Elements; }
 
 HiddenStartInstall() { run --header "Hidden Start" "platform/win/NTwind/Hstart_4.9-setup.exe" --elevate; } # https://www.ntwind.com/software/hstart.html
 
@@ -7341,14 +7387,8 @@ TaskLayoutInstall()
 
 TidyTabsInstall()
 {
-	header "TidyTabs"
-	v="1.18.5.0" # https://www.nurgo-software.com/pricing/tidytabs
-
-	# check if installed
-	TidyTabs IsInstalled && [[ ! $force && "$(TidyTabs version)" == "$v" ]] && return
-
-	# install	
-	run "platform/win/NURGO/TidyTabs.msi" --elevate
+	local v="1.18.5.0" # https://www.nurgo-software.com/pricing/tidytabs
+	run --name "TidyTabs" "platform/win/NURGO/TidyTabs.msi" --version=$v --elevate
 }
 
 TidyTabsRegister() { register "TidyTabs"; }
@@ -7671,7 +7711,7 @@ AquaSnapFinalWin()
 MaxToInstall()
 {
 	local v="2.2.1.772" # https://maxto.net/
-	run --name="MaxTo" "platform/win/Digital Creations AS/Maxto/MaxToSetup-$(echo "$v" | cut -d. -f1-3).exe" --elevate --version "$v" || return
+	run --name="MaxTo" "platform/win/Digital Creations AS/Maxto/MaxToSetup-$(echo "$v" | cut -d. -f1-3).exe" --elevate --version=$v || return
 	waitForInstallWin "$up/Digital Creations AS"
 }
 
