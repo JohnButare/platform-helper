@@ -25,7 +25,7 @@ argStart() { unset -v app files global method platform profile saveExtension sud
 
 argEnd()
 {
-	[[ ! $force ]] && { AppInstallCheck "$app" || return; }
+	[[ ! $force ]] && AppExists "$app" && { AppInstallCheck "$app" || return; }
 	[[ ! $method ]] && MissingOption "method"
 
 	# Registry profile - profile contains registry entries

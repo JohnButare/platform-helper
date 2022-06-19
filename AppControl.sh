@@ -2,10 +2,10 @@
 
 AppClose() { AppCommand close "$1"; }
 AppCommandExists() { AppFunctionExists "${1}Command" "$2" ; } # AppCommandExists COMMAND APP - application supports command
-AppExists() { FindInPath "$1" > /dev/null; }
+AppExists() { FindInPath "$1" > /dev/null && AppCommandExists isInstalled "$(FindInPath "$1")"; }
 AppFunctionExists() { grep -q "$1"'()' "$2"; } # AppFunctionExists FUNCTION FILE - function exists in file
 AppIsInstalled() { AppCommand IsInstalled "$1"; }
-AppInstallCheck() { AppIsInstalled "$app" && return; [[ ! $quiet ]] && ScriptErr "application is not installed" "$1"; return 1; }
+AppInstallCheck() { AppIsInstalled "$1" && return; [[ ! $quiet ]] && ScriptErr "application is not installed" "$1"; return 1; }
 AppIsRunning() { AppCommand IsRunning "$1"; }
 AppStart() { AppCommand start "$1"; }
 AppStartRestore() { [[ ! $wasRunning ]] && return 0; AppStart "$1"; }
