@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-. app.sh
+. script.sh || exit
+. AppControl.sh || exit
 
 usage()
 {
@@ -219,7 +220,7 @@ getAppFile()
 
 isAppInstalled()
 {
-	if ! CommandExists isInstalled "$appFile"; then
+	if ! AppCommandExists isInstalled "$appFile"; then
 		echo "\n"; ScriptErr "'$app' does not have an IsInstalled command"; return 1
 	fi
 
@@ -228,7 +229,7 @@ isAppInstalled()
 
 isAppRunning()
 {
-	if ! CommandExists isRunning "$appFile"; then
+	if ! AppCommandExists isRunning "$appFile"; then
 		echo "\n"; ScriptErr "'$app' does not have an IsRunning command"; return 1
 	fi
 

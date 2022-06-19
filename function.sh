@@ -256,6 +256,30 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 # Applications
 #
 
+AppVersion() # AppVersion file - return the version of the specified application
+{
+	local app="$1" version
+
+	# macOS application
+	local dir
+	if IsPlatform mac && dir="$(command ls "/Applications" | grep -i "^$app.app$")" && [[ -f "/Applications/$dir/Contents/Info.plist" ]]; then
+		defaults read "/Applications/$dir/Contents/Info.plist" CFBundleShortVersionString; return
+	fi
+
+	# file
+	local file="$app"; InPath "$file" && file="$(FindInPath "$file")"	
+	[[ ! -f "$file" ]] && { [[ ! $quiet ]] && ScriptErr "application is not installed" "$app"; return 1; }
+
+	# Windows file version
+	if IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
+		powershell "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn; return
+	fi
+
+	# --version option, where the version number is the last word of the first line
+	version="$("$file" --version | head -1 | awk '{print $NF}')" || return
+	IsNumeric "$version" && echo "$version"
+}
+
 browser()
 {
 	echo "Opening $@..."
@@ -1029,30 +1053,6 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 	( cd "$(GetFilePath "$f")"; attrib.exe "$@" "$(GetFileName "$f")" );
 }
 
-FileVersion()
-{
-	# macOS application
-	if IsPlatform mac; then
-		local app="$(command ls "/Applications" | grep -i "^$1.app$")"
-		if [[ -f "/Applications/$app/Contents/Info.plist" ]]; then
-			defaults read "/Applications/$1.app/Contents/Info.plist" CFBundleShortVersionString
-			return
-		fi
-	fi
-
-	# file
-	local file="$1"; ScriptFileCheck "$file" || return
-
-	# Windows file version
-	if IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
-		powershell "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn
-
-	# --version argument
-	else
-		"$file" --version
-	fi
-}
-
 #
 # File - Compression
 #
@@ -1776,7 +1776,7 @@ packageExclude()
 	# macOS excludes
 	! IsPlatform mac && return
 
-	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate squidclient unison-gtk util-linux virt-what )	
+	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk util-linux virt-what )	
 	local macArm=( bonnie++ pv rust traceroute )
 	local macx86=( ncat traceroute )
 
@@ -2186,7 +2186,12 @@ IsProcessRunningList()
 	local name="$1"; shift
 
 	# get processes - grep fails if ProcessList call in the same pipline on Windows
-	local processes; processes="$(ProcessList "$@" | tgrep --invert-match ",grep$")" || return
+	local processes; 
+	if [[ $CACHED_PROCESSES ]]; then
+		processes="$CACHED_PROCESSES"
+	else
+		processes="$(ProcessList "$@")" || return
+	fi
 
 	# convert windows programs to a quoted Windows path format
 	HasFilePath "$name" && IsWindowsProcess "$name" && name="$(utw "$name")"	

@@ -210,13 +210,14 @@ ScriptOpt()
 ScriptOptGlobal()
 {
 	case "$1" in
-		-f|--force) force="--force";;
-		-h|--help) ScriptOptVerbose "$@"; usage 0;;
-		-np|--no-prompt) noPrompt="--no-prompt" sudo+=" --no-prompt" sudoc+=" --no-prompt";;
-		-q|--quiet) quiet="--quiet" quietOutput="/dev/null";;
-		-t|--test) test="--test";;
-		-v|--verbose|-vv|-vvv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
-		-w|--wait) wait="--wait";;
+		--force|-f) force="--force";;
+		--help|-h) ScriptOptVerbose "$@"; usage 0;;
+		--no-prompt|-np) noPrompt="--no-prompt" sudo+=" --no-prompt" sudoc+=" --no-prompt";;
+		--quiet|-q) quiet="--quiet" quietOutput="/dev/null";;
+		--test|-t) test="--test";;
+		--verbose|-v|-vv|-vvv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+		--version) IsFunction versionCommand || return; showVersion="true";;
+		--wait|-w) wait="--wait";;
 		*) return 1;;
 	esac
 }
@@ -366,7 +367,7 @@ ScriptRun()
 	done
 
 	# options
-	unset -v force noPrompt quiet test verbose verboseLevel verboseLess wait
+	unset -v force noPrompt quiet test showVersion verbose verboseLevel verboseLess wait
 	quietOutput="/dev/stdout"
 
 	set -- "${args[@]}"; args=()
@@ -400,6 +401,7 @@ ScriptRun()
 	unset args c shift
 	
 	# run command
+	[[ $showVersion ]] && command="version"
 	[[ ! $command ]] && usage
 	local result; "${command}Command"; result="$?"
 
@@ -429,14 +431,15 @@ ScriptUsage()
 	# show passed usage
 	[[ ! $foundUsage ]] && ScriptUsageEcho "$2"
 	
-		# global option usage
+	# global option usage
+	local version; IsFunction versionCommand && version="\n	    --version			output version information and exit"
 	[[ $verbose ]] && ScriptUsageEcho "\nGlobal options:
 	-f, --force				force the operation
-	-h, --help				display command usage
+	-h, --help				display this help and exit
 	-np, --no-prompt  suppress interactive prompts
 	-q, --quiet 			minimize informational messages
 	-t, --test				test mode, do not make changes
-	-v, --verbose			verbose mode, multiple -v increase verbosity (max 5)
+	-v, --verbose			verbose mode, multiple -v increase verbosity (max 5)$version
 	-w, --wait				wait for the operation to complete"
 
 	# end of argument (--) usage
