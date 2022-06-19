@@ -1015,10 +1015,8 @@ utw() # UnixToWin
 
 	file="$(GetRealPath "$file")" || return
 
-	# network shares do not translate properly in WSL 2
-	if IsPlatform wsl2; then 
-		local unc; unc="$(unc get unc "$file" --quiet)" && { ptw "$unc"; return; }
-	fi
+	# network shares do not translate properly in WSL 2.  Use findmnt directly for performance (instead of unc get unc "$file" --quiet)
+	local unc; IsPlatform wsl2 && unc="$(findmnt --target "$file" --output=SOURCE --types=cifs,nfs,nfs4,fuse.sshfs --noheadings 2>&1)" && { ptw "$unc"; return; }
 
 	# utw requires the file exist in newer versions of wsl
 	if [[ ! -e "$file" ]]; then
@@ -2189,6 +2187,7 @@ IsProcessRunningList()
 	local processes; 
 	if [[ $CACHED_PROCESSES ]]; then
 		processes="$CACHED_PROCESSES"
+		(( verboseLevel > 2 )) && ScriptErr "IsProcessRunningList: using cached processes to lookup '$name'"
 	else
 		processes="$(ProcessList "$@")" || return
 	fi

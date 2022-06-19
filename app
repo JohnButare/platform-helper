@@ -117,20 +117,24 @@ processExplorer()
 
 run()
 {	
-	local command="$1"
+	local command="$1" time
+	TIMEFORMAT='%R seconds'
 
 	for app in "${apps[@]}"
 	do
 		mapApp || return
-		[[ $verbose ]] && printf "$app.."
-		[[ $brief ]] && printf "."
+
+		if (( verboseLevel == 1 )); then printf "$app.."
+		elif (( verboseLevel > 1 )); then echo; header "$app"; time="time"
+		elif [[ $brief ]]; then printf "."
+		fi
 
 		if f="$(FindFunction "$app")"; then
-			"$f"
+			eval $time "$f"
 		elif IsInArray "$app" localApps; then
-			runInternalApp
+			eval $time runInternalApp
 		else
-			runExternalApp
+			eval $time runExternalApp
 		fi
 		(( $? != 0 )) && { EchoErr "app: unable to run $app"; return 1; }
 	done
@@ -150,7 +154,7 @@ runExternalApp()
 	fi;
 
 	showStatus
-	"$app" --quiet "${command}" || return
+	"$app" --quiet "${command}" "${globalArgs[@]}" || return
 	[[ ! $brief ]] && echo done
 	return 0
 }
@@ -194,22 +198,18 @@ runService()
 
 	local service="$1"
 	
-	! service exists "$1" --quiet && return
+	! service exists "$1" --quiet "${globalArgs[@]}" && return
 
 	if [[ "$command" != "startup" ]]; then
 		! service running "$service" && return
 		printf "$service."
-		service stop $service >& /dev/null
+		service stop $service --quiet "${globalArgs[@]}"
 		return
 	fi
 
-	if ! service running $service; then
-		printf "$service."
-		service start $service > /dev/null
-		return 0
-	fi
-
-	return 0
+	service running $service && return
+	printf "$service."
+	service start $service --quiet "${globalArgs[@]}"
 }
 
 getAppFile()
@@ -224,7 +224,7 @@ isAppInstalled()
 		echo "\n"; ScriptErr "'$app' does not have an IsInstalled command"; return 1
 	fi
 
-	"$appFile" --quiet IsInstalled
+	"$appFile" --quiet IsInstalled "${globalArgs[@]}"
 }
 
 isAppRunning()
@@ -233,7 +233,7 @@ isAppRunning()
 		echo "\n"; ScriptErr "'$app' does not have an IsRunning command"; return 1
 	fi
 
-	"$appFile" --quiet IsRunning
+	"$appFile" --quiet IsRunning "${globalArgs[@]}"
 }
 
 mapApp()

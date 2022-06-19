@@ -80,7 +80,7 @@ serviceInit()
 serviceCheck()
 {
 	# initialize - set _platform for subsequent commands
-	ScriptEval HostGetInfo || return
+	_platform="$PLATFORM"
 
 	# check
 	case $PLATFORM in
@@ -97,7 +97,7 @@ serviceCheck()
 
 		win)
 			checkSystemd || return
-			
+
 			if isLinuxService "$service"; then
 				log1 "service '$service' is a linux service"
 				_platform="linux"
@@ -121,7 +121,7 @@ serviceCheck()
 }
 
 checkSystemd() { IsSystemd && useSystemd="true"; return 0; }
-isMacSystemService() { find "${macDaemons[@]}" "${macSystemAgents[@]}" -type f | grep "\/${1}\.plist$" >& /dev/null; }
+isMacSystemService() { find "${macDaemons[@]}" "${macSystemAgents[@]}" -type f | ${G}grep --quiet "\/${1}\.plist$"; }
 getMacServicePrefix() { isMacSystemService "$1" && echo "system/";  return 0; }
 
 unknownService() 
@@ -163,14 +163,15 @@ checkWaiting()
 
 isLinuxService() { isInitdService "$1" || isSystemdService "$1"; }
 isInitdService() { [[ -f "/etc/init.d/$1" ]] ; }
-isSystemdService() { IsSystemd || return ; [[ -f "/etc/systemd/system/$1.service" || -f "/lib/systemd/system/$1.service" ]]; }
+isSystemdService() { [[ $useSystemd ]] || return ; [[ -f "/etc/systemd/system/$1.service" || -f "/lib/systemd/system/$1.service" ]]; }
 
 linuxService() # Linux Service Command - COMMAND SERVICE
 {
 	local sudo="sudoc"; [[ "$1" == @(status) ]] && sudo=""
+
 	if IsPlatform wsl; then 
 		[[ $1 == "auto" ]] && return
-		RunLog $sudo "/usr/sbin/service" "$2" "$1"
+		RunLog $sudo "/usr/sbin/service" "$2" "$1" > "$quietOutput"
 	elif [[ $useSystemd ]]; then $sudo systemctl "$1" "$2"
 	else RunLog $sudo "/etc/init.d/$2" "$1"
 	fi
@@ -240,14 +241,14 @@ continueCommand()
 	
 	[[ ! $force && "$(stateCommand)" != "PAUSED" ]] && return 
 	
-	checkWaiting; printf "Continuing $service service$hostDescription..."$waiting
+	checkWaiting; [[ ! $quiet ]] && printf "Continuing $service service$hostDescription..."$waiting
 	result="$($sc $hostUnc continue "$service")" || { EchoErr "$result"; return 1; }
 	waitForState "RUNNING" "continue" "continued"
 }
 
 manualCommand()
 {
-	echo "Stopping $service service and setting it to demand start$hostDescription..."
+	[[ ! $quiet ]] && echo "Stopping $service service and setting it to demand start$hostDescription..."
 	demandCommand || return
 	stopCommand || return
 	return 0
@@ -259,7 +260,7 @@ pauseCommand()
 	
 	[[ ! $force && "$(stateCommand)" != "RUNNING" ]] && return 
 
-	checkWaiting; printf "Pausing $service service$hostDescription..."$waiting
+	checkWaiting; [[ ! $quiet ]] && printf "Pausing $service service$hostDescription..."$waiting
 	result="$($sc $hostUnc pause "$service")" || { EchoErr "$result"; return 1; }
 	waitForState "PAUSED" "pause" "paused"
 }
@@ -329,11 +330,12 @@ detailCommand() { statusCommand && RunPlatform "detail" --host; }
 
 detailLinux()
 {
-	if [[ ! $useSystemd ]]; then
-		if [[ -f "/etc/init.d/$service" ]]; then echo "init.d service: /etc/init.d/$service"
-		elif [[ -f "/etc/systemd/system/$service.service" ]]; then echo "systmd service: /etc/systemd/system/$service.service"
-		elif [[ -f "/lib/systemd/system/$service.service" ]]; then echo "systemd service: /lib/systemd/system/$service.service"
+	if [[ $useSystemd ]]; then
+		if [[ -f "/lib/systemd/system/$service.service" ]]; then echo "systemd service: /lib/systemd/system/$service.service"
+		elif [[ -f "/etc/systemd/system/$service.service" ]]; then echo "systemd service: /etc/systemd/system/$service.service"
 		fi
+	else
+		[[ -f "/etc/init.d/$service" ]] && echo "init.d service: /etc/init.d/$service"
 	fi
 
 	linuxService status "$service"; 
@@ -400,9 +402,10 @@ listWin() { $sc $hostUnc queryex bufsize= $scBufferSize type= all state= all; /u
 
 listLinux()
 {
+	local isSystemd; IsSystemd && isSystemd="true"
 	{ [[ -d "/etc/init.d" ]] && ls -1 "/etc/init.d";
-		[[ -d "/etc/systemd/system" ]] && ls -1 "/etc/systemd/system/" | grep ".service$" | cut -d. -f 1; 
-		[[ -d "/lib/systemd/system" ]] && ls -1 "/lib/systemd/system/" | grep ".service$" | cut -d. -f 1;
+		[[ $isSystemd && -d "/etc/systemd/system" ]] && ls -1 "/etc/systemd/system/" | grep ".service$" | cut -d. -f 1; 
+		[[ $isSystemd && -d "/lib/systemd/system" ]] && ls -1 "/lib/systemd/system/" | grep ".service$" | cut -d. -f 1;
 	} | sort | uniq; 
 }
 
@@ -497,7 +500,7 @@ startCommand()
 {
 	[[ ! $force && "$(stateCommand)" != @(FAILED|STOPPED) ]] && return 
 
-	checkWaiting; printf "Starting $service service$hostDescription...$waiting"
+	checkWaiting; [[ ! $quiet ]] && printf "Starting $service service$hostDescription...$waiting"
 	RunPlatform "start" --host || return
 	waitForState RUNNING start started || return
 }
@@ -514,10 +517,9 @@ stateCommand() { RunPlatform "state" --host; }
 
 stateLinux()
 {
-	[[ ! $useSystemd ]] && { linuxService status "$service" | grep "is running" > /dev/null && echo "RUNNING" || echo "STOPPED"; return; }
+	[[ ! $useSystemd ]] && { linuxService status "$service" | grep --quiet "is running" && echo "RUNNING" || echo "STOPPED"; return; }
 
 	local status="$(linuxService status "$service" | head -3 | grep "^[ ]*Active:" | sed 's/^[ ]*//' | cut -d" " -f2-3)"
-
 	[[ "$status" = "active (running)" ]] && { echo "RUNNING"; return; }
 	[[ "$status" =~ ^failed.* ]] && { echo "FAILED"; return; }
 	echo "STOPPED"; return; # Active: inactive	
@@ -525,7 +527,7 @@ stateLinux()
 
 stateMac()
 { 
-	{ sudoc launchctl list; launchctl list; } | cut -f3 | grep "^${label}$" >& /dev/null && echo "RUNNING" || echo "STOPPED"
+	{ sudoc launchctl list; launchctl list; } | cut -f3 | ${G}grep --quiet "^${label}$" && echo "RUNNING" || echo "STOPPED"
 }
 
 stateWin()
@@ -548,8 +550,8 @@ startTypeLinux()
 
 startTypeMac()
 {
-	if sudoc launchctl print-disabled system | grep "\"$service\" => true" >& /dev/null; then echo "DISABLED"
-	elif sudoc launchctl print-disabled system | grep "\"$service\" => false"  >& /dev/null; then echo "AUTO_START"
+	if sudoc launchctl print-disabled system | ${G}grep --quiet "\"$service\" => true"; then echo "DISABLED"
+	elif sudoc launchctl print-disabled system | ${G}grep --quiet "\"$service\" => false"; then echo "AUTO_START"
 	else echo "DEMAND"
 	fi
 }
@@ -567,7 +569,7 @@ stopCommand()
 {
 	[[ ! $force && "$(stateCommand)" != "RUNNING" ]] && return 
 
-	checkWaiting; printf "Stopping $service service$hostDescription..."$waiting
+	checkWaiting; [[ ! $quiet ]] && printf "Stopping $service service$hostDescription..."$waiting
 	RunPlatform "stop" --host || return
 	[[ ! $wait ]] && return
 	waitForStop
