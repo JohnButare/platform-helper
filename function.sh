@@ -775,27 +775,16 @@ CloudGet()
 
 	local file
 	for file in "$@"; do
-		[[ -d "$1" ]] && return # skip directories
-		ScriptFileCheck "$1" || return
+		[[ -d "$file" ]] && continue 										# skip directories
+		ScriptFileCheck "$file" || return 							# validate file
+		(( $(GetFileSize "$file") != 0 )) && continue		# skip if already downloaded
 
 		if IsPlatform win; then
-			( cd "$(GetFilePath "$1")"; cmd.exe /c type "$(GetFileName "$1")"; ) >& /dev/null || return
+			( cd "$(GetFilePath "$file")"; cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
 		elif IsPlatform mac; then
-			cat "$file" >& /dev/null || return
+			start "/System/Applications/TextEdit.app" "$file" && sleep 1 && ProcessClose TextEdit
+			#cat "$file" >& /dev/null || return
 		fi
-	done
-
-	echo "$1"
-}
-
-# CloudGetAll FILE... - download all specified files from the cloud, ignore directories
-CloudGetAll()
-{
-	local file
-	for file in "$@"; do
-		[[ -d "$1" ]] && return # skip directories
-		ScriptFileCheck "$1" || return
-		CloudGet "$file" > /dev/null || return
 	done
 }
 
@@ -2251,7 +2240,7 @@ ProcessClose()
 			./Process.exe -q "$name" $2 |& grep --quiet "has been closed successfully."; result="$(PipeStatus 1)"
 
 		elif IsPlatform mac; then
-			osascript -e "quit app \"$1\""; result="$?"
+			osascript -e "quit app \"$name\""; result="$?"
 
 		else
 			[[ ! $root ]] && args+=("--uid" "$USER")
@@ -2377,7 +2366,7 @@ ProcessList()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-u|--user) args="-f";;
+			-u|--user) unset args;;
 			-U|--unix) unset win;;
 			-w|--win) unset unix;;
 			*) UnknownOption "$1" "ProcessList"; return 1
@@ -2386,7 +2375,7 @@ ProcessList()
 	done
 
 	# mac proceses
-	IsPlatform mac && { ps h "$args" | ${G}cut -c7-11,50- --output-delimiter="," | sed -e 's/^[ \t]*//' | grep -v "NPID,COMMAND"; return; }
+	IsPlatform mac && { ps -c "$args" | sed 's/^[[:space:]]*//' | tr -s ' ' | ${G}cut -d" " -f1,4 --output-delimiter=,; return; }
 
 	# unix processes
 	[[ $unix ]] && IsPlatform linux,win && { ps $args -o pid= -o command= | awk '{ print $1 "," $2 }' || return; }
