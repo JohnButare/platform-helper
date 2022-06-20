@@ -3,31 +3,20 @@ OfficeTitle=".* - "
 WordProgram=""
 WordFastStartTitle="wfs.* - Word"
 OfficeArchitecture="x86"
-OfficeBits="32"
-Office365=""
+OfficeDir=""
 OfficeTemplates="$UDATA/app/office/templates"; IsPlatform win && OfficeTemplates="$WIN_HOME/data/app/office/templates"
 
-if [[ -d "$P/Microsoft Word.app" ]]; then
+if IsPlatform mac; then
 	WordProgram="$P/Microsoft Word.app"
+	return
+fi
 
-elif [[ -f "$P/Microsoft Office/root/Office16/winword.exe" ]]; then
+if [[ -f "$P/Microsoft Office/root/Office16/winword.exe" ]]; then
 	OfficeDir="$P/Microsoft Office/root/Office16"
-	Office365="true"
-
 elif [[ -f "$P32/Microsoft Office/root/Office16/WinWord.exe" ]]; then
 	OfficeDir="$P32/Microsoft Office/root/Office16"
-	
 else
-	OfficeDir=""
-	return 1
+	return
 fi
 
-[[ ! $WordProgram ]] && WordProgram="$OfficeDir/WINWORD.EXE"
-
-# x64 Office if we are running under x64 OS and Office is installs to $P
-if [[ "$OfficeDir" =~ ^$P/ ]]; then
-	OfficeArchitecture=x64
-	OfficeBits=64
-fi
-
-return 0
+WordProgram="$OfficeDir/WINWORD.EXE"

@@ -2474,7 +2474,10 @@ start()
 	else open="NO_OPEN"; fi
 
 	# start Mac application
-	[[ "$file" =~ \.app$ ]] && { open -a "$(GetFileNameWithoutExtension "$file")" "${args[@]}"; return; }
+	if [[ "$file" =~ \.app$ ]]; then
+		[[ ! -d "$file" ]] && file="$(GetFileNameWithoutExtension "$file")" || file="$(GetFullPath "$file")"
+		open -a "$file" "${args[@]}"; return; 
+	fi
 
 	# start directories and URL's
 	{ [[ -d "$file" ]] || IsUrl "$file"; } && { start "${open[@]}" "$file" "${args[@]}"; return; }
