@@ -1005,7 +1005,7 @@ utw() # UnixToWin
 	file="$(GetRealPath "$file")" || return
 
 	# network shares do not translate properly in WSL 2.  Use findmnt directly for performance (instead of unc get unc "$file" --quiet)
-	local unc; IsPlatform wsl2 && unc="$(findmnt --target "$file" --output=SOURCE --types=cifs,nfs,nfs4,fuse.sshfs --noheadings 2>&1)" && { ptw "$unc"; return; }
+	IsPlatform wsl2 && findmnt --target "$file" --output=SOURCE --types=cifs,nfs,nfs4,fuse.sshfs --noheadings >& /dev/null && { ptw "$(unc get unc "$file" --quiet)"; return; }
 
 	# utw requires the file exist in newer versions of wsl
 	if [[ ! -e "$file" ]]; then
