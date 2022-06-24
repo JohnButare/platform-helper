@@ -126,7 +126,7 @@ pipxg()
 InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); }
 header() { InitColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; headerDone="$((32 + ${#1}))"; }
 HeaderBig() { InitColor; printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n**************************************************${RESET}\n"; }
-HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RB_BLUE}\n"; }
+HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
 hilight() { InitColor; EchoWrap "${GREEN}$1${RESET}"; }
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
@@ -488,20 +488,24 @@ GetDef() { local gd="$(declare -p $1)"; gd="${gd#*\=}"; gd="${gd#\(}"; r "${gd%\
 IsVar() { declare -p "$1" >& /dev/null; }
 IsAnyArray() { IsArray "$1" || IsAssociativeArray "$1"; }
 
+# ArrayMakeC CMD ARG... - make an array from the output of a command if the command succeeds
+# StringToArray STRING DELIMITER ARRAY_VAR
 if IsBash; then
+	ArrayMakeC() { local -n arrayMakeC="$1"; shift; arrayMakeC=( $($@) ); }
 	ArrayShift() { local -n arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${arrayShiftVar[@]}"; shift "$arrayShiftNum"; arrayShiftVar=( "$@" ); }
 	ArrayShowKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ArrayShow keys; }
-	GetType() { local gt="$(declare -p $1)"; gt="${gt#declare }"; r "${gt%% *}" $2; } # get type
+	GetType() { local gt="$(declare -p $1)"; gt="${gt#declare }"; r "${gt%% *}" $2; }
 	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
 	IsAssociativeArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-A.* ]]; }
-	StringToArray() { GetArgs3; IFS=$2 read -a $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
+	StringToArray() { GetArgs3; IFS=$2 read -a $3 <<< "$1"; } 
 else
+	ArrayMakeC() { local arrayMakeC=() arrayName="$1"; shift; arrayMakeC=( $($@) ) || return; ArrayCopy "arrayMakeC" "$arrayName"; }
 	ArrayShift() { local arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${${(P)arrayShiftVar}[@]}"; shift "$arrayShiftNum"; local arrayShiftArray=( "$@" ); ArrayCopy arrayShiftArray "$arrayShiftVar"; }
 	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
-	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; r "${gt%% *}" $2; } # get type
+	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; r "${gt%% *}" $2; }
 	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == @(array|array-local) ]]; }
 	IsAssociativeArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "association" ]]; }
-	StringToArray() { GetArgs3; IFS=$2 read -A $3 <<< "$1"; } # StringToArray STRING DELIMITER ARRAY_VAR
+	StringToArray() { GetArgs3; IFS=$2 read -A $3 <<< "$1"; }
 fi
 
 # array
@@ -563,9 +567,6 @@ ArrayIndex() { ArrayDelimit "$1" '\n' | RemoveEnd '\n' | grep --line-number "^${
 
 # ArrayMake VAR ARG... - make an array by splitting passed arguments using IFS
 ArrayMake() { local -n arrayMake="$1"; shift; arrayMake=( $@ ); }
-
-# ArrayMakeC CMD ARG... - make an array from the output of a command if the command succeeds
-ArrayMakeC() { local -n arrayMakeC="$1"; shift; arrayMakeC=( $($@) ); }
 
 # ArrayRemove ARRAY VALUES - remove items from the array except specified values.  If vaules is the name of a variable
 # the contents of the variable are used.
@@ -1280,15 +1281,19 @@ GetPrimaryAdapterName()
 	fi
 }
 
+# GetServer SERVICE - get an active host for the specified service
 GetServer()
 {
-	local server="$1"; shift; [[ ! $server ]] && { MissingOperand "server" "GetServer"; return 1; }
-	local ip; ip="$(GetIpAddress "$server.service" "$@")" || return
+	local service="$1"; shift; [[ ! $service ]] && { MissingOperand "service" "GetServer"; return 1; }
+	local ip; ip="$(GetIpAddress "$service.service" "$@")" || return
 	DnsResolve "$ip" "$@"
 }
 
+# GetServers SERVICE - get all active hosts for the specified service
 GetServers() { hashi resolve name --all "$@"; }
-GetAllServers() { GetServers "nomad-client"; } # assume all servers have the nomad-client service
+
+# GetAllServers - get all active servers
+GetAllServers() { GetServers "nomad-client" | sort; } # assume all servers have the nomad-client service
 
 # ipconfig [COMMAND] - show or configure network
 ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
