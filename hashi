@@ -40,6 +40,7 @@ init()
 	certVolume="/mnt/p"; certVolumeWasMounted=""; [[ -e "$certVolume" ]] && certVolumeWasMount="true"
 	certOptUsage="-e, --encrypt [DIR]		directory for PKI certificates\n	-ne, --no-encrypt		disable TLS encryption"
 	configWhat="consul-vault-data local-certs local-credentials private-certs public-certs"
+	unset sshAgentChecked
 }
 
 argStart() { unset -v api assumeServer configFile configFileArg configPrefix configPrefixArg hostArg; }
@@ -1393,14 +1394,14 @@ Usage: $(ScriptName) install service all|cli|$productUsage
 Install a HashiCorp product.
 
 	-c, --clients	HOSTS						comma separated list of clients to install
-	-if, --interface	INTERFACE		host interface adapter name, i.e. wlan0, defaults to eth0
+	-if, --interface	INTERFACE		host interface adapter name, i.e. wlan0, defaults to hosts default interface
 	-s, --server HOSTS						comma separated list of servers to install
 	-j, --join HOSTS							comma separated list of hosts to join to, defaults to servers
 	$certOptUsage
 	-w, --what=C1[,C2...] components to install: acl program service config
 	                        cert (cert-local cert-make cert-public cert-service)"; }
 
-installServiceArgStart() { unset force whatArg; clients=() servers=() join=(); encrypt="true" interface="eth0"; }
+installServiceArgStart() { unset force interface whatArg; clients=() servers=() join=(); encrypt="true"; }
 
 installServiceOpt()
 {
@@ -1466,7 +1467,8 @@ installService()
 	fi
 
 	# install
-	local certDir tmpDir; tmpDir="$(tmpDirCreate)" || return	
+	local certDir; certs && { certMakeCd "$product" || return; }
+	local tmpDir; tmpDir="$(tmpDirCreate)" || return	
 	installServiceCertMake || return # current directory will be the private certificate directory
 	installServiceProgram || return
 	installServiceHosts "server" "${servers[@]}" || return
@@ -1580,7 +1582,7 @@ installServiceHost()
 	header "Install $(ProperCase "$product") $(ProperCase "$type") Service ($host)"
 
 	# prepare temporary directory
-	${G}mkdir --parents "$tmpDir/cert" "$tmpDir/data" "$tmpDir/config" || return		
+	${G}mkdir --parents "$tmpDir/cert" "$tmpDir/data" "$tmpDir/config" || return
 
 	# copy certificates
 	certMakeCp "$ca" "$certCli" "$certCliKey" "$tmpDir/cert" || return
@@ -1588,12 +1590,19 @@ installServiceHost()
 	# environment
 	printf "" > "$tmpDir/$product.env"
 
+	# interface
+	if [[ ! $interface ]]; then
+		interface="$(sshRun "$host" "route | grep \"^default\" | head -1 | tr -s \" \" | cut -d\" \" -f8")" || return
+		log1 "installServiceHost: using default host interface '$interface'"
+	fi
+
 	# product specifics
 	RunFunction "installServicePrep" "${product}" || return
 
 	# create the configuration files
 	echo -e "$o" > "$tmpDir/config/$productConfigFileBase" || return
 	installServiceConfig > "$tmpDir/$product.service" || return
+	LogFile3 "$tmpDir/$product.service"
 
 	# copy the files to the remote host	
 	copyDirRemote "$tmpDir" "$host" || return
@@ -3745,8 +3754,9 @@ certs() { [[ $encrypt ]]; } # true if certificates are being used
 doHashi() { hashi "$@" $force $test "${configFileArg[@]}" "${configPrefixArg[@]}" "${otherArgs[@]}" "${globalArgs[@]}"; }
 isClient() { [[ "$type" == "client" ]]; }
 isServer() { [[ "$type" == "server" ]]; }
-sshRun() { SshAgentConf --quiet "${globalArgs[@]}" && RunLog ssh "$@"; }
-sshRunInteractive() { SshAgentConf --quiet "${globalArgs[@]}" && RunLog SshHelper "$1" --interactive --pseudo-terminal "${globalArgs[@]}" -- "${@:2}"; }
+sshAgentCheck() { [[ $sshAgentChecked ]] && return; SshAgentConf $verbose && sshAgentChecked="true"; }
+sshRun() { sshAgentCheck && RunLog ssh "$@"; }
+sshRunInteractive() { sshAgentCheck && RunLog SshHelper "$1" --interactive --pseudo-terminal "${globalArgs[@]}" -- "${@:2}"; }
 protocol() { certs && echo "https" || echo "http"; }
 whatArgGet() { ScriptOptGet "whatArg" "what" "$@"; StringToArray "${whatArg,,}" "," whatArg; }
 whatCheck() { [[ ! $whatArg ]] && return 0; local w; for w in "$@"; do IsInArray "$w" whatArg && return; done; return 1; }
@@ -3920,7 +3930,7 @@ scriptCertStore()
 
 		if [[ "$caAuto" && -f "$dest/$caAuto" ]] && [[ ! -f "$certStoreCaAuto" || "$force" ]]; then
 			echo "Installing automatic CA certificate..."
-			sudo cp "$destDirService/$caAuto" "$certStoreCaAuto" || exit
+			sudo cp "$dest/$caAuto" "$certStoreCaAuto" || exit
 			sudo update-ca-certificates || exit
 		fi
 	EOF
@@ -3949,13 +3959,21 @@ scriptRun()
 		EOF
 	)"
 
+	# logging
+	if [[ $verbose ]]; then
+		header "$(ScriptPrefix)Running Script on $host" >& /dev/stderr; 
+		log1 "$@"
+		HeaderDone >& /dev/stderr
+	fi
+
+	# run
 	if IsLocalHost "$host"; then
 		bash -c "$script"
 	else
 		# DISPLAY="" - disable warning "Warning: No xauth data; using fake authentication data for X11 forwarding."
 		# -X - enable X11 forwardining for credential store access
 		# -t - allocate a pseudo-terminal to allow the sudo password to be entered on the terminal if needed
-		DISPLAY="" sshRun -q -X -t "$host" "$script"
+		sshAgentCheck && DISPLAY="" ssh -q -X -t "$host" "$script"	
 	fi
 }
 
