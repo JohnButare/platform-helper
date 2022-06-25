@@ -216,7 +216,7 @@ installInit()
 	macDebian+=(NginxProxyManagerDocker)
 
 	# network
-	debian+=(CloudInit mDNS mtr NetbootxyzDocker NetbootxyzTftpServer pivpn TftpClient TftpServer UncomplicatedFirewall)
+	debian+=(CloudInit keepalived mDNS mtr NetbootxyzDocker NetbootxyzTftpServer pivpn TftpClient TftpServer UncomplicatedFirewall)
 	mac+=(proxifier)
 	macDebian+=(fiddler JumpCloud MozillaVpn UnifiController)
 	macWin+=(domotz JumpDesktop WireGuard WireShark)
@@ -1104,7 +1104,7 @@ AppHostSoftwareInstall()
 	local common="1Password 1PasswordCli dropbox notion office GitCore JumpCloud"
 	local commonLaptop="WireGuard"
 	local commonMac="$common bartender moom spark"
-	local homeServer="ChronyServer cron cups DnsServer DhcpServer homebridge HomebridgeWiggin PiVPN UnifiController"
+	local coreServer="ChronyServer cron cups DnsServer DhcpServer homebridge HomebridgeWiggin keepalived PiVPN UnifiController"
 
 	# software
 	case "$hostname" in
@@ -1121,8 +1121,8 @@ AppHostSoftwareInstall()
 
 		# server
 		nas3) iStore Firefox HybridBackup MultimediaConsole NetbootxyzDocker Terminology;;
-		pi1) i $homeServer;;
-		pi2) i $homeServer DomotzAgent mosquitto;;
+		pi1) i $coreServer;;
+		pi2) i $coreServer DomotzAgent mosquitto;;
 		pi3) i certbot cups;;
 		pi7) i PiWiFi PoolTemperature PoolController;; # pool
 		pi9) i PiOverclock HomeAssistant NodeRed;;
@@ -3605,7 +3605,7 @@ HomeAssistantCoreInstall()
 		EOF
 	fi
 
-	sudo systemctl daemon-reload || return
+	service refresh || return
 	serviceAutoStart home-assistant@homeassistant || return
 	WaitForPort localhost 8123 || return
 
@@ -3786,7 +3786,7 @@ PoolControllerInstall()
 		EOF
 	fi
 
-	sudo systemctl daemon-reload || return
+	service refresh || return
 	serviceAutoStart pool-controller || return
 	WaitForPort localhost 4200 || return # http://$HOST:4200/config
 	serviceDemandStop "pool-controller " || return # managed by Nomad
@@ -3823,7 +3823,7 @@ PoolDashPanelInstall()
 		EOF
 	fi
 
-	sudo systemctl daemon-reload || return
+	service refresh || return
 	serviceAutoStart pool-dash-panel || return
 	WaitForPort localhost 5150 || return # http://$HOST:5150/
 	serviceDemandStop "pool-dash-panel" || return # managed by Nomad
@@ -3854,7 +3854,7 @@ PoolTemperatureInstall()
 		EOF
 	fi
 
-	sudo systemctl daemon-reload || return
+	service refresh || return
 	serviceAutoStart pool-temperature || return
 	WaitForPort localhost 5002 || return # http://$HOST:5002/AnalogTemperature/1
 }
@@ -4317,7 +4317,7 @@ nodeRedPermissions() { makeDir --sudo --owner "$user" "$home/.config" "$home/.no
 # Network
 #################################################
 
-NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler GlassWire gping httpie JumpCloud JumpDesktop mDns mtr MozillaVpn NetbootxyzDocker NetbootxyzTftpServer NicUsb Ninite NordVpn pivpn Proxifier TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall UnifiController WireGuard Wireshark; }
+NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler GlassWire gping httpie JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn NetbootxyzDocker NetbootxyzTftpServer NicUsb Ninite NordVpn pivpn Proxifier TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall UnifiController WireGuard Wireshark; }
 HttpieInstall() { run --python-global "httpie"; }
 MtrInstall() { run --type package "mtr"; }
 TftpclientInstall() { run --name "TFTP Client" --package "tftp-hpa"; }
@@ -4498,8 +4498,52 @@ KeaServiceInstall() # separate service installation - use when installing from s
 	fi
 
 	# start service
-	sudo systemctl daemon-reload || return
+	service refresh || return
 	serviceAutoStart kea-dhcp4-server || return
+}
+
+KeepalivedInstall()
+{
+	header "keepalived"
+	local interface; interface="$(GetInterface)" || return
+	local priority="${HOSTNAME//[!0-9]/}"; ! IsNumeric "$priority" && { ScriptErr "unable to determine VIP priority from hostname"; return 1; }
+	local password; password="$(credential get --fallback keepalived password)" || { ScriptErr "unable to get the keepalived password"; return 1; }
+	local network="$(ConfigGet "network")"
+	local vip="$(ConfigGet "${network}Vip")"; ! IsIpAddress "$vip" && { ScriptErr "unable to determine VIP for '$network' network"; return 1; }
+
+	# status
+	EchoWrap "Installing keepalived on interface '$interface' with priority '$priority' for vip '$vip'..."
+
+	# install
+	run --package --no-header "keepalived" || return
+
+	# create configuration
+	local file="/etc/keepalived/keepalived.conf"
+	if [[ ! -f "$file" || $force ]]; then
+		cat <<-EOF | sudo ${G}tee "$file" > /dev/null || return
+			vrrp_instance VI_1 {
+			    state MASTER
+			    interface $interface
+			    virtual_router_id 100
+			    priority $priority
+			    advert_int 1
+			    authentication {
+			        auth_type PASS
+			        auth_pass $password
+			    }
+			    virtual_ipaddress {
+			        $vip
+			    }
+			}
+		EOF
+	fi
+
+	# start service
+	service refresh || return
+	serviceAutoStart keepalived || return
+
+	# test	
+	WaitForAvailable "$vip" "" 10 || return
 }
 
 mDnsInstall()
@@ -4831,7 +4875,7 @@ TomcatInstall()
 			EOF
 		fi
 
-		sudo systemctl daemon-reload || return
+		service refresh || return
 		serviceAutoStart tomcat || return
 	fi
 
@@ -7547,8 +7591,8 @@ exec /etc/xrdp/startwm.sh" | sudo ${G}tee /etc/xrdp/startubuntu.sh || return; }
 	fi
 
 	# reconfigure the service
-	sudo systemctl daemon-reload || return
-	sudo systemctl start xrdp || return
+	service refresh || return
+	service start xrdp || return
 }
 
 ParallelsDesktopInstall()

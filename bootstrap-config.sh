@@ -45,6 +45,7 @@ hagermanDockerServers="pi1.$hagermanBaseDomain,pi2.$hagermanBaseDomain" # Docker
 hagermanFileServers="file2.$hagermanBaseDomain,file1.$hagermanBaseDomain"
 hagermanNas="nas3.$hagermanDomain"
 hagermanProxyServers="proxy.$hagermanBaseDomain:3128"
+hagermanVip="10.10.100.3"
 hagermanWireguardServers="pi2.$hagermanBaseDomain,pi1.$hagermanBaseDomain"
 
 # HashiCorp

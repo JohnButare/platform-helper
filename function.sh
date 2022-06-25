@@ -1323,7 +1323,7 @@ ipinfo()
 
 }
 
-# IsIpAddress IP - return true if the specified IP is an IP address
+# IsIpAddress IP - return true if the IP is a valid IPv4 address
 IsIpAddress()
 {
 	GetArgs
@@ -1347,6 +1347,39 @@ IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" ==
 
 # IsLocalHostIp HOST - true if the specified host refers to the local host.  Also check the IP address of the host.
 IsLocalHostIp() { IsLocalHost "$1" || [[ "$(GetIpAddress "$1" --quiet)" == "$(GetIpAddress)" ]] ; }
+
+# IsMacAddress MAC - return true if the MAC is a valid MAC address
+IsMacAddress()
+{
+	local mac="$(UpperCase "$1")"; [[ ! $mac ]] && { MissingOperand "mac" "IsMacAddress"; return 1; }
+	echo "$mac" | ${G}grep --extended-regexp --quiet '^([0-9A-F]{1,2}:){5}[0-9A-F]{1,2}$'
+}
+
+# MacLookup MAC - return the hosts associated with the specified MAC address, >1 if host has a virtual IP address
+MacLookup()
+{
+	local mac="$1"; [[ ! $mac ]] && { MissingOperand "mac" "MacLookup"; return 1; }
+	! IsMacAddress "$mac" && { ScriptErr "invalid MAC address '$1'" "MacLookup"; return 1; }
+	arp -a | command ${G}grep " $mac " | cut -d" " -f1 | sort | uniq
+}
+
+# MacResolve HOST [--quiet] - resolve a MAC address for the host using ping
+MacResolve() 
+{
+	local quiet opts; ScriptOptQuiet "$@"; set -- "${opts[@]}"
+	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "MacResolve"; return 1; }
+
+	# populate the arp cache with the MAC address
+	ping -c 1 "$host" >& /dev/null || { [[ ! $quiet ]] && ScriptErr "unable to lookup the MAC address for '$host'" "MacResolve"; return 1; }
+
+	# get the MAC address
+	local mac; mac="$(arp "$host")" || return
+	echo "$mac" | ${G}grep --quiet "no entry$" && { ScriptErr "no MAC address for '$host'"; return 1; }
+
+	# return the MAC address
+	local column=3; IsPlatform mac && column=4
+	echo "$mac" | tr -s " " | tail -1 | cut -d" " -f${column}
+} 
 
 #
 # Network: Host Availability
@@ -2646,9 +2679,11 @@ ScriptOptVerbose()
 # ScriptOptQuiet - find quiet option
 ScriptOptQuiet()
 {
+	opts=()
 	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
 		case "$1" in
 			-q|--quiet) quiet="--quiet";;
+			*) opts+=("$1")
 		esac
 		shift; 
 	done
