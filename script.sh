@@ -160,10 +160,12 @@ RunFunctionLog()
 }
 
 # RunLog - log a command if verbose logging is specified, then run it if not testing
-RunLog()
+RunLogLevel()
 {
+	local level="$1"; shift
+
 	# log command and arguments
-	if [[ $verbose ]]; then
+	if [[ $verbose ]] && (( verboseLevel >= level )); then
 		local arg message
 
 		for arg in "$@"; do
@@ -179,6 +181,8 @@ RunLog()
 	"$@"
 }
 
+# logFileN FILE - log the contents of file if the logging verbosity level is at least N
+RunLog() { RunLog1 "$@"; }; RunLog1() { RunLogLevel 1 "$@"; }; RunLog2() { RunLogLevel 2 "$@"; }; RunLog3() { RunLogLevel 3 "$@"; }; RunLog4() { RunLogLevel 4 "$@"; }; RunLog5() { RunLogLevel 5 "$@"; }; 
 RunLogQuiet() { RunLog RunQuiet "$@"; }
 RunLogSilent() { RunLog RunSilent "$@"; }
 
