@@ -2194,11 +2194,11 @@ IsProcessRunning()
 	# check Windows process
 	IsWindowsProcess "$name" && { IsProcessRunningList "$name" --win; return; }
 
+	# mac
+	IsPlatform mac && { pidof -l "$name" | ${G}grep --quiet "^PID for $name is"; return; }
+
 	# check for process using pidof - slightly faster but pickier than pgrep
-	if [[ ! $full && $root ]]; then
-		local o="-snq"; IsPlatform mac && unset o; 
-		pidof $o "$1"; return
-	fi
+	[[ ! $full && $root ]] && { pidof -snq "$name" > /dev/null; return; }
 
 	# check for proces using pgrep
 	local args=(); [[ ! $root ]] && args+=("--uid" "$USER")
@@ -2344,14 +2344,14 @@ ProcessCloseWait()
 ProcessKill()
 {
 	# arguments
-	local args=() force names=() quiet root win
+	local args=() force names=() quiet root rootArg win
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--full) args+=("--full");;
 			-f|--force) force="--force";;
 			-q|--quiet) quiet="true";;
-			-r|--root) root="sudoc";;
+			-r|--root) rootArg="--root" root="sudoc";;
 			-w|--win) win="--win";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
@@ -2366,7 +2366,7 @@ ProcessKill()
 	for name in "${names[@]}"; do
 
 		# continue if not running
-		[[ ! $force ]] && ! IsProcessRunning $root $full "$name" && continue
+		[[ ! $force ]] && ! IsProcessRunning $rootArg $full "$name" && continue
 
 		# check for Windows process
 		[[ ! $win ]] && IsWindowsProcess "$name" && win="true"
@@ -2413,7 +2413,7 @@ ProcessList()
 	done
 
 	# mac proceses
-	IsPlatform mac && { ps -c "$args" | sed 's/^[[:space:]]*//' | tr -s ' ' | ${G}cut -d" " -f1,4 --output-delimiter=,; return; }
+	IsPlatform mac && { ps -c $args | sed 's/^[[:space:]]*//' | tr -s ' ' | ${G}cut -d" " -f1,4 --output-delimiter=,; return; }
 
 	# unix processes
 	[[ $unix ]] && IsPlatform linux,win && { ps $args -o pid= -o command= | awk '{ print $1 "," $2 }' || return; }
