@@ -309,13 +309,16 @@ unmountCommand()
 	local dirs; IFS=$'\n' ArrayMakeC dirs unc get mounts || return
 	[[ ! $dirs ]] && return
 
+	local fail=0 message
 	log "unmounting..."
 	for mountRoot in "${dirs[@]}"; do
-		log "$(GetFileName "$mountRoot")..."; unmount || return
+		log "$(GetFileName "$mountRoot")..."; [[ $verbose ]] && echo
+		message="$(unmount 2>&1)" || { (( ++fail )); echo; EchoErr "$message"; }
 	done
 	log "done\n"
 	
-	return 0
+
+	return $fail
 }
 
 #
@@ -342,25 +345,30 @@ unmount()
 	! mountDirExists "$dir" && return
 
 	# unmount - ignore errors
-	[[ $verbose ]] && echo
 	case "$PLATFORM" in
 		mac)
 			local args=(); [[ $force ]] && args+=(force)
 			RunLog diskutil unmount "${args[@]}" "$dir" >& "$output"
 			;;
-		linux|win) 
-			RunLog $sudoc umount "$dir" >& "$output"
+		linux|win)
+			local args=(); [[ $force ]] && args+=(-f)
+			RunLog $sudoc umount "${args[@]}" "$dir" >& "$output"
 			;;
 	esac
 	
 	# remove directory - ignore errors
-	[[ -d "$dir" ]] && RunLog rmdir "$dir" >& "$output"
+	[[ -d "$dir" ]] && RunLog2 rmdir "$dir" >& "$output"
 
 	# validate removal
 	! mountDirExists "$dir" && return
 
 	# unable to remove
-	[[ ! $quiet ]] && { EchoErr "unable to remove mount directory '$dir', try --force"; }
+	if [[ ! $quiet ]]; then
+		ScriptErr "unable to unmount '$dir', try --force"
+		local processes; processes="$($sudoc fuser -c "$dir" |& cut -d" " -f 2- | sed "s/c//g" | tr -s " " | RemoveSpaceFront)" && [[ $processes ]] && \
+			{ log1 "blocking processes: $processes"; EchoErr "The following processes are preventing '$dir' from being unmounted:"; ps -p $processes; }
+	fi
+
 	return 1
 }
 
@@ -628,7 +636,7 @@ getUncInfo()
 	IsPlatform win && IsMdnsName "$server" && { server="$(MdnsResolve "$server")" || return; }
 
 	# log
-	[[ ! $getUncInfoLogged ]] && log1 "unc $command: unc='$unc'\n	user=$user protocol=$protocol server=$server share='$share' shareId=$shareId dirs='$dirs'\n	mountRoot='$mountRoot'\n	mountDir='$mountDir'"
+	[[ ! $getUncInfoLogged ]] && log2 "unc $command: unc='$unc'\n	user=$user protocol=$protocol server=$server share='$share' shareId=$shareId dirs='$dirs'\n	mountRoot='$mountRoot'\n	mountDir='$mountDir'"
 	getUncInfoLogged="true"
 
 	return 0
