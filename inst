@@ -213,10 +213,10 @@ installInit()
 
 	# Nginx
 	all+=(NginxProxyManagerNomad NginxProxyManagerSync)
-	macDebian+=(NginxProxyManagerDocker)
+	macDebian+=(nginx NginxProxyManagerDocker)
 
 	# network
-	debian+=(CloudInit keepalived mDNS mtr NetbootxyzDocker NetbootxyzTftpServer nginx pivpn TftpClient TftpServer UncomplicatedFirewall)
+	debian+=(CloudInit keepalived mDNS mtr NetbootxyzDocker NetbootxyzTftpServer pivpn TftpClient TftpServer UncomplicatedFirewall)
 	mac+=(proxifier)
 	macDebian+=(fiddler JumpCloud MozillaVpn UnifiController)
 	macWin+=(domotz JumpDesktop WireGuard WireShark)
@@ -288,7 +288,6 @@ serviceDemandStop() { service demand "$1" && service stop "$1"; }
 servicesDemandStop() { local s; for s in "$@"; do serviceDemandStop "$s" || return; done; }
 serviceDisableStop() { service disable "$1" && service stop "$1"; }
 sshRun() { SshAgentConf --quiet "${globalArgs[@]}" && RunLog ssh "$@"; }
-verifyStaticIpAddress() { [[ -f /etc/dhcpcd.conf ]] && grep "^static ip_address=" /etc/dhcpcd.conf >& /dev/null; }
 waitForInstall() { [[ ! $ran ]] && return; local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
 waitForInstallWin() { ! IsPlatform win && return; waitForInstall "$1"; }
 
@@ -478,6 +477,7 @@ isInstallable()
 	[[ "$check" =~ ^(debian.*)$ ]] && IsPlatform debian && return
 	[[ "$check" =~ ^(linux.*)$ ]] && IsPlatform debian,linux,mac && return
 	[[ "$check" =~ ^(mac.*)$ ]] && IsPlatform mac && return
+	[[ "$check" =~ ^(ubuntu.*)$ ]] && IsPlatform ubuntu && return
 	[[ "$check" =~ ^(win.*)$ ]] && IsPlatform win && return
 
 	# platform list checks
@@ -492,7 +492,7 @@ isInstallable()
 	IsInArray -ci "$check" piKernel && IsPlatform PiKernel && return
 	IsInArray -ci "$check" qnap && IsPlatform qnap && return
 	IsInArray -ci "$check" ubuntu && IsPlatform ubuntu && return
-		IsInArray -ci "$check" win && IsPlatform win && return
+	IsInArray -ci "$check" win && IsPlatform win && return
 
 	return 1
 }
@@ -1104,7 +1104,7 @@ AppHostSoftwareInstall()
 	local common="1Password 1PasswordCli dropbox notion office GitCore JumpCloud"
 	local commonLaptop="WireGuard"
 	local commonMac="$common bartender moom spark"
-	local coreServer="ChronyServer cron cups DnsServer DhcpServer keepalived nginx PiVPN"
+	local coreServer="UbuntuStaticIp ChronyServer cron cups DnsServer DhcpServer keepalived nginx PiVPN"
 	local homebridge="homebridge HomebridgeWiggin"
 
 	# software
@@ -1124,7 +1124,8 @@ AppHostSoftwareInstall()
 		nas3) iStore Firefox HybridBackup MultimediaConsole NetbootxyzDocker Terminology;;
 		pi1) i $coreServer $homebridge UnifiController;;
 		pi2) i $coreServer $homebridge DomotzAgent mosquitto UnifiController;;
-		pi3) i certbot cups;;
+		pi3) i $coreServer certbot;;
+		pi4) i $coreServer certbot;;
 		pi7) i PiWiFi PoolTemperature PoolController;; # pool
 		pi9) i PiOverclock HomeAssistant NodeRed;;
 		pi11) i HomeAssistant NodeRed;;
@@ -1790,8 +1791,10 @@ DeltaInstall()
 }
 
 #################################################
-# Debian Setup
+# Debian
 #################################################
+
+DebianAllInstall() { i DebianSetup DebianSudoPasswordless; }
 
 DebianSetupInstall()
 {
@@ -2583,7 +2586,7 @@ LinuxUtilitiesInstall()
 
 	pkg di lsof ncdu tree || return										# file
 	pkg atop iotop iperf3 || return										# monitoring
-	pkg iproute2 || return														# network, iproute2 (ip command)
+	pkg ipcalc iproute2 || return											# network, iproute2 (ip command)
 	pkg daemonize psmisc || return										# process
 	pkg shellcheck || return													# script
 	pkg sox || return																	# sound (play)
@@ -4327,7 +4330,7 @@ TftpserverInstall() { run --name "TFTP Server" --package "tftpd-hpa" && serviceA
 BindInstall()
 {
 	header "ISC BIND9 DNS Server"
-	! verifyStaticIpAddress && { EchoErr "DHCP Server requires a static IP address"; return 1; }
+	! IsStaticIp && { EchoErr "DNS Server requires a static IP address"; return 1; }
 
 	# https://www.isc.org/download/
 	if IsPlatform pi; then
@@ -4459,11 +4462,12 @@ JumpCloudFinalWin() { $mv "$pp/JumpCloud Agent App.lnk" "$pp/Operating System"; 
 KeaInstall()
 {
 	header "ISC Kea DHCP Server"
-	! verifyStaticIpAddress && { EchoErr "DHCP Server requires a static IP address"; return 1; }
+	! IsStaticIp && { EchoErr "DHCP Server requires a static IP address"; return 1; }
 
 	pkg kea-dhcp4-server kea-admin kea-dhcp-ddns-server kea-dev kea-doc || return # kea-ctrl-agent kea-dhcp6-server
 
 	makeDir --sudo "/var/run/kea" || return
+	makeDir --sudo "/var/log/kea" || return
 	sudo update-rc.d kea-dhcp4-server defaults || return
 	service auto kea-dhcp4-server || return
 	i DebianSudoPasswordless || return # for remote updates
@@ -6977,6 +6981,65 @@ SenaFinalWin()
 {
 	mergeDir "$up/Sena Technologies" "$pp/Travel/Other" || return
 	$rm "$ud/SenaBluetoothDeviceManager.lnk"
+}
+
+#################################################
+# Ubuntu
+#################################################
+
+UbuntuAllInstall() { i UbuntuSetup UbuntuStaticIp; }
+
+DebianSetupInstall()
+{
+	header "Ubuntu Setup"
+}
+
+UbuntuStaticIpInstall()
+{
+	header "Ubuntu Static IP Address"
+
+	# configure static IP address using the existing IP configuration
+	local file="/etc/netplan/01-network-manage-all.yaml"
+	if [[ ! -f "$file" || $force ]]; then
+		local defaultGatway; defaultGatway="$(GetDefaultGateway)" || return
+		local dnsSearch; dnsSearch="$(GetDnsSearch | sed "s/ /,/g")" || return
+		local dnsServers; dnsServers="$(GetDnsServers | sed "s/ /,/g")" || return
+		local interface; interface="$(GetInterface)" || return
+		local ipAddress; ipAddress="$(GetIpAddress)" || return
+		local subnetNumber; subnetNumber="$(GetSubnetNumber)" || return
+		
+		# validate
+		! IsIpAddress "$defaultGatway" && { ScriptErr "the default gateway '$defaultGatway' is not a valid IPv4 address"; return 1; }
+		! IsIpAddress "$ipAddress" && { ScriptErr "the IP address '$defaultGatway' is not a valid IPv4 address"; return 1; }
+		! IsNumeric "$subnetNumber" && { ScriptErr "the subnet number '$subnetNumber' is not a valid IPv4 subnet number"; return 1; }
+
+		# update
+		cat <<-EOF | sudo ${G}tee "$file" > /dev/null || return
+			network:
+			  version: 2
+			  renderer: networkd
+			  ethernets:
+			    $interface:
+			      dhcp4: no
+			      addresses:
+			        - $ipAddress/$subnetNumber
+			      gateway4: $defaultGatway
+			      nameservers:
+			          addresses: [$dnsServers]
+			          search: [$dnsSearch]
+		EOF
+
+	fi
+
+	# disable DHCP
+	local file="/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg"
+	[[ ! -f "$file" || $force ]] && { echo "network: {config: disabled}" | sudo tee "$file" > /dev/null || return; }
+	
+	file="/etc/netplan/50-cloud-init.yaml"
+	[[ -f "$file" ]] && sudo rm "/etc/netplan/50-cloud-init.yaml"
+
+	sudo netplan apply || return
+	IsStaticIp
 }
 
 #################################################
