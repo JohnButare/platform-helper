@@ -16,6 +16,7 @@ workgroup="$network"
 baseDomain="butare.net"
 domain="$network.$baseDomain"
 systemUser="wsystem"
+confDir="$CLOUD/network/system"
 
 # DNS
 dnsServers="pi2,pi1" # update pi2 first

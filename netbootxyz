@@ -4,18 +4,18 @@
 usage()
 {
 	init; ScriptUsage "$1" "\
-usage: netbootxyz app|deploy|docker|profile|setup|test"
+usage: netbootxyz deploy|docker|edit|setup|test|update"
 }
 
 usageVerbose()
 {
 	ScriptUsageEcho "\
 Locations:
-	    application: $appDir (netboot.xyz git repository)
-	  configuration: $configDir
-	  	custom host: $customHost
-	 			web (app): $webDirApp
-	 		web (final): $webDirFinal"
+- application - netboot.xyz Git repository  : $appDir 
+- configuration - custom configuration      : $confDir
+- hosts - custom deployment scripts					: $customHost 
+- web app - netboot.xyz website             : $webDirApp
+- web final - local website source          : $webDirFinal" 
 }
 
 init() 
@@ -23,12 +23,13 @@ init()
 	app="netbootxyz"
 	dockerImageName="$app"
 
+	confDir="$(ConfigGet confDir)/netbootxyz" || return
+	webDirFinal="$(apache dir web)/netboot.xyz" || return
+
 	appDir="/opt/netboot.xyz"
-	appConfig="$appDir/user_overrides.yml"
-	configDir="/etc/netbootxyz"
+	appConfig="$confDir/user_overrides.yml"
 	customHost="ender,nas3"
 	webDirApp="/var/www/html/"
-	webDirFinal="$(apache dir web)/netboot.xyz" || return
 }
 
 #
@@ -71,25 +72,12 @@ testWeb()
 }
 
 #
-# app commands
-#
-
-appUsage() { echot "Usage: $(ScriptName) app config|menu|update\nMaintain the netboot.xyz application."; }
-appCommand() { usage; }
-appConfigUsage() { echot "Usage: $(ScriptName) app config\nEdit the application configuration file."; }
-appConfigCommand() { TextEdit "$appConfig"; }
-appMenuCommand() { TextEdit "$configDir/menu/custom.ipxe.j2"; }
-appUpdateUsage() { echot "Usage: $(ScriptName) app update\nUpdate the netboot.xyz application by running the Ansible playbook."; }
-appUpdateCommand() { setupAll && cd "$appDir" && sudo ansible-playbook -i "inventory site.yml"; }
-
-#
 # deploy commands
 #
 
-deployUsage() { echot "Usage: $(ScriptName) deploy app|custom\nDeploy netboot.xyz components."; }
+deployUsage() { echot "Usage: $(ScriptName) deploy scripts|web\nDeploy netboot.xyz web site or custom deployment scripts."; }
 deployCommand() { usage; }
 
-deployWebUsage() { echot "Usage: $(ScriptName) deploy web\nDeploy the web site.\n\n$hostUsage"; }
 deployWebArgStart() { unset hostArg hostOpt hosts; }
 deployWebOpt() { ScriptOptHost "$@"; }
 
@@ -99,31 +87,29 @@ deployWebCommand()
 	sudoc CopyDir --recursive --delete "$webDirApp" "$webDirFinal" "${globalArgs[@]}" || return
 
 	echo "Updating web custom files..."
-	sudo CopyDir --recursive "$configDir/web/netboot.xyz/" "$webDirFinal" "${globalArgs[@]}" || return
+	sudo CopyDir --recursive "$confDir/web/netboot.xyz/" "$webDirFinal" "${globalArgs[@]}" || return
 
 	echo "Updating custom menus..."
-	sudo cp "$configDir/menu/custom.ipxe.j2" "$webDirFinal/custom/custom.ipxe"  || return # assumes Jinja2 template not used (no {{ }})
+	sudo cp "$confDir/menu/custom.ipxe.j2" "$webDirFinal/custom/custom.ipxe"  || return # assumes Jinja2 template not used (no {{ }})
 
 	echo "Syncronizing web sites..."	
 	apache deploy --host=localhost "${globalArgs[@]}" && apache sync "${hostOpt[@]}" "${globalArgs[@]}"
 }
 
-deployCustomUsage() { echot "Usage: $(ScriptName) deploy web\nDeploy custom installation files."; }
-
-deployCustomCommand()
+deployScriptsCommand()
 {
 	# ender
 	if IsAvailable ender; then
 		hilight "Updating ender..."
 		local dir="/opt/homebrew/var/www/assets"
-		scp -r "$configDir/web/custom" "ender:$dir" || return
+		scp -r "$confDir/web/custom" "ender:$dir" || return
 		SshHelper connect "ender" -- "/usr/local/bin/docker" cp "$dir/custom/windows/scripts" "$dockerImageName:/assets/custom/windows"
 	fi
 
 	# nas3
 	if IsAvailable nas3; then
 		hilight "Updating nas3..."
-		scp -r "$configDir/web/custom" "nas3:/share/Web/assets" || return
+		scp -r "$confDir/web/custom" "nas3:/share/Web/assets" || return
 	fi
 
 	return 0
@@ -142,25 +128,22 @@ dockertStartCommand() { docker start "$(getContainerId)"; }
 dockerStopCommand() { docker stop "$(getContainerId)"; } 
 
 #
-# profile command
+# edit commands
 #
 
-profileUsage() { echot "Usage: $(ScriptName) profile [all|app|config](all) dir|SaveDir|save|restore [<profile name>|default](latest)\nnetboot.xyz configuration."; }
-profileArgStart() { profileArgs=(); }
-profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); }
-profileCommand() { profileAllCommand; }
-profileAllCommand() { profileAppCommand && profileConfigCommand; }
-profileAppCommand() { profile $noPrompt --sudo --app "$app-app-config" --method "$(GetFilePath "$appConfig")" --files "$(GetFileName "$appConfig")" "${profileArgs[@]}"; }
-profileConfigCommand() { profile $noPrompt --app "$app-config" --method "$configDir" --files "*" "${profileArgs[@]}"; }
+editUsage() { echot "Usage: $(ScriptName) edit config|menu\nEdit the netboot.xyz configuration or menus."; }
+editCommand() { usage; }
+editConfigCommand() { TextEdit "$appConfig"; }
+editMenuCommand() { TextEdit "$confDir/menu/custom.ipxe.j2"; }
 
 #
 # setup command
 #
 
-setupUsage() { echot "Usage: $(ScriptName) setup [app|config|web](all)\nSetup netboot.xyz web deployment."; }
+setupUsage() { echot "Usage: $(ScriptName) setup [app|web](all)\nSetup the netboot.xyz build environment including the application and web source files."; }
 setupCommand() { setupAll; }
 setupAllCommand() { setupAll; }
-setupAll() { setupConfigCommand && setupWebCommand && setupAppCommand; }
+setupAll() { setupWebCommand && setupAppCommand; }
 
 setupAppCommand()
 {
@@ -175,9 +158,6 @@ setupAppCommand()
 	RunLog sudo chown --recursive "$USER" "$appDir" || return
 	! IsPlatform mac && { RunLog sudo chgrp -R "$USER" "$appDir" || return; }
 
-	# profile
-	RunLog netbootxyz profile app restore default || return
-
 	# web - use existing web site, it will be updated when the application is deployed
 	local webDirAppParent="$(GetParentDir "$webDirApp")"
 	RunLog sudoc CopyDir --recursive --delete "$webDirFinal" "$webDirAppParent"  "${globalArgs[@]}" || return
@@ -185,19 +165,18 @@ setupAppCommand()
 	RunLog sudo mv "$webDirAppParent/$(GetFileName "$webDirFinal")" "$webDirApp" || return
 }
 
-setupConfigCommand()
-{
-	[[ -d "$configDir" && ! $force ]] && return
-	sudo mkdir --parents "$configDir" || return
-	sudo chown --recursive "$USER" "$configDir" || return
-	netbootxyz profile config restore default || return
-}
-
 setupWebCommand()
 {
 	[[ -d "$webDirFinal" && ! $force ]] && return
 	apache sync --host="$(GetServer "web")" && sudo mkdir --parents "$webDirFinal"
 }
+
+#
+# update commands
+#
+
+updateUsage() { echot "Usage: $(ScriptName) app update\nUpdate the netboot.xyz application by running the Ansible playbook."; }
+updateCommand() { cp "$confDir/user_overrides.yml" "$appDir" && setupAll && cd "$appDir" && sudo ansible-playbook -i "inventory site.yml"; }
 
 #
 # helper functions

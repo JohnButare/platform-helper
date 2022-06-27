@@ -317,7 +317,7 @@ HashiServiceRegister()
 
 	HashiConf || return
 	for hostNum in "${hostNums[@]}"; do
-		hashi consul service register "$CLOUD/network/system/hashi/services/$service$hostNum.hcl" --host="$hostNum" "$@" 
+		hashi consul service register "$(ConfigGet confDir)/hashi/services/$service$hostNum.hcl" --host="$hostNum" "$@" 
 	done
 }
 

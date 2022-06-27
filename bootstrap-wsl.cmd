@@ -24,23 +24,23 @@ set wsl=C:\Users\Public\data\appdata\wsl
 REM create directories
 if not exist "%wsl%" mkdir "%wsl%"
 
-REM if the distribution exists then bootstrap
+REM if the distribution exists then run the bootstrap
 if exist "\\wsl.localhost\%dist%\home" goto bootstrap
 
-REM download WSL and the distribution
+REM download WSL and a distribution if a distribution image was not specified
 if not defined distImage (
 	wsl --install --distribution %dist%	--web-download
 	goto check
 )
 
-REM connect to the distUnc network share
+REM connect to the distribution network share
 if defined distUnc net (
 	net use z: %distUnc%
 	echo net use z: %distUnc%
 	set distImage=z:\%distImage%
 )
 
-REM install the image, --no-distribution option is present if wsl is not installed
+REM install WSL and import the distribution image, use --no-distribution option to prevent installing a distribution automatically
 wsl --install --no-distribution & wsl --import %dist% %wsl% %distImage%
 
 REM check the distribution
