@@ -1271,6 +1271,9 @@ GetIpAddress()
 	echo "$(echo "$ip" | RemoveCarriageReturn)"
 }
 
+GetSubnetMask() { ifconfig "$(GetInterface)" | grep "netmask" | tr -s " " | cut -d" " -f 5; }
+GetSubnetNumber() { ip -4 -oneline -br address show "$(GetInterface)" | cut -d/ -f2; }
+
 # GetPrimaryAdapterName - get the descriptive name of the primary network adapter used for communication
 GetPrimaryAdapterName()
 {
@@ -1354,6 +1357,8 @@ IsMacAddress()
 	local mac="$(UpperCase "$1")"; [[ ! $mac ]] && { MissingOperand "mac" "IsMacAddress"; return 1; }
 	echo "$mac" | ${G}grep --extended-regexp --quiet '^([0-9A-F]{1,2}:){5}[0-9A-F]{1,2}$'
 }
+
+IsStaticIp() { ! ip address show "$(GetInterface)" | grep "inet " | grep --quiet "dynamic"; }
 
 # MacLookup MAC - return the hosts associated with the specified MAC address, >1 if host has a virtual IP address
 MacLookup()
@@ -1540,6 +1545,8 @@ WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 #
 
 AddDnsSuffix() { GetArgs2; HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 						# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already present
+GetDnsSearch() { cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2-; }
+GetDnsServers() { resolvectl status | grep -1 'DNS Servers' | tail -2 | sed "s/DNS Servers://" | RemoveNewline | tr -s " " | RemoveSpaceTrim; }
 GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }	# GetDnsSuffix HOST - the DNS suffix of the HOST
 HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuffix HOST - true if the specified host includes a DNS suffix
 RemoveDnsSuffix() { GetArgs; [[ ! $@ ]] && return; printf "${@%%.*}"; }				# RemoveDnsSuffix HOST - remove the DNS suffix if present
