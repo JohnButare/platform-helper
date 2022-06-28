@@ -11,7 +11,7 @@ echo @echo off > %file%
 echo %pwd%bootstrap-wsl.cmd >> %file%
 
 REM run bootstrap.cmd after reboot
-copy %file% "%PROGRAMDATA%\Microsoft\Windows\Start Menu\Startup"
+copy %file% "%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 
 REM run bootstrap.cmd
 %file%

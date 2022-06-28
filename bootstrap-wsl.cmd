@@ -34,20 +34,23 @@ if not defined distImage (
 )
 
 REM connect to the distribution network share
-if defined distUnc net (
-	net use z: %distUnc%
-	echo net use z: %distUnc%
+if defined distUnc (
+	if not exist z:\ net use z: %distUnc%
 	set distImage=z:\%distImage%
 )
 
-REM install WSL and import the distribution image, use --no-distribution option to prevent installing a distribution automatically
-wsl --install --no-distribution & wsl --import %dist% %wsl% %distImage%
+REM install WSL 
+wsl --status > nul
+if not %ErrorLevel% == 0 wsl --install --no-distribution
+
+REM import the distribution image, use --no-distribution option to prevent installing a distribution automatically
+wsl --import %dist% %wsl% %distImage%
 
 REM check the distribution
 :check
 if not exist "\\wsl.localhost\%dist%\home" (
 	echo Press any key to reboot and finish the installation...
-	pause & shutdown /r /t 0 & exit
+	shutdown /r /t 0 & exit
 )
 
 REM run the bootstrap
