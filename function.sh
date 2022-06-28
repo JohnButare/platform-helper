@@ -371,7 +371,7 @@ powershell()
 	[[ "$1" == @(--version|-v) ]] && { powershell -Command '$PSVersionTable'; return; }
 	
 	# find powershell in a specific location
-	local files=( "$P/PowerShell/7/pwsh.exe" "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" )
+	local f files=( "$P/PowerShell/7/pwsh.exe" "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" )
 	for f in "${files[@]}"; do
 		[[ -f "$f" ]] && { "$f" "$@"; return; }
 	done
@@ -2543,7 +2543,6 @@ start()
 		fi
 
 		# start Windows console process
-
 		[[ ! $elevate ]] && IsConsoleProgram "$file" && { $run $sudo "$fullFile" "${args[@]}"; return; }
 
 		# escape spaces for shell scripts so arguments are preserved when elevating - we must be elevating scripts here
