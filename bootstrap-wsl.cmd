@@ -50,6 +50,7 @@ REM check the distribution
 :check
 if not exist "\\wsl.localhost\%dist%\home" (
 	echo Press any key to reboot and finish the installation...
+	pause
 	shutdown /r /t 0 & exit
 )
 
