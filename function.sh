@@ -124,7 +124,7 @@ pipxg()
 
 # logging
 InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); }
-header() { InitColor; printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; headerDone="$((32 + ${#1}))"; }
+header() { InitColor; printf "${RB_BLUE}************************* ${RB_INDIGO}$1${RB_BLUE} *************************${RESET}\n"; headerDone="$((52 + ${#1}))"; }
 HeaderBig() { InitColor; printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n**************************************************${RESET}\n"; }
 HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
 hilight() { InitColor; EchoWrap "${GREEN}$1${RESET}"; }
@@ -2475,7 +2475,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 start() 
 {
 	# arguments
-	local elevate file force noPrompt sudo terminal test run verbose verboseLevel wait windowStyle
+	local elevate file force noPrompt sudo terminal verbose verboseLevel wait windowStyle
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2486,7 +2486,6 @@ start()
 			--quiet|-q) quiet="--quiet";;
 			--sudo|-s) sudo="sudoc";;
 			--terminal|-T) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
-			--test|-t) test="--test"; $run="echo -E";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--wait|-2) wait="--wait";;
 			--window-style|-ws) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "--window-style" "$2" ); shift;;
@@ -2543,7 +2542,7 @@ start()
 		fi
 
 		# start Windows console process
-		[[ ! $elevate ]] && IsConsoleProgram "$file" && { $run $sudo "$fullFile" "${args[@]}"; return; }
+		[[ ! $elevate ]] && IsConsoleProgram "$file" && { $sudo "$fullFile" "${args[@]}"; return; }
 
 		# escape spaces for shell scripts so arguments are preserved when elevating - we must be elevating scripts here
 		if IsShellScript "$fullFile"; then	
@@ -2555,14 +2554,14 @@ start()
 		if IsShellScript "$fullFile"; then
 			local p="wsl.exe -d $(wsl get name)"; [[ "$terminal" == "wt" ]] && InPath wt.exe && p="wt.exe -d \"$PWD\" wsl.exe -d $(wsl get name)"
 			if IsSystemd; then
-				$run RunProcess.exe $wait $elevate "${windowStyle[@]}" bash.exe -c \""$(FindInPath "$fullFile") "${args[@]}""\"
+				RunProcess.exe $wait $elevate "${windowStyle[@]}" bash.exe -c \""$(FindInPath "$fullFile") "${args[@]}""\"
 			else
-				[[ $verbose ]] && echo -E "running: " RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
-				$run RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
+				(( verboseLevel > 1 )) && ScriptArgs "start" RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
+				RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
 			fi
 		else
-			[[ $verbose ]] && echo -E "running:" RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
-			$run RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
+			(( verboseLevel > 1 )) && ScriptArgs "start" RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
+			RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
 		fi
 		result=$?
 
@@ -2572,11 +2571,11 @@ start()
  	# run a non-Windows program
 	if [[ $wait ]]; then
 		(
-			$run nohup $sudo "$file" "${args[@]}" >& /dev/null &
-			$run wait $!
+			nohup $sudo "$file" "${args[@]}" >& /dev/null &
+			wait $!
 		)
 	else
-		($run nohup $sudo "$file" "${args[@]}" >& /dev/null &)		
+		(nohup $sudo "$file" "${args[@]}" >& /dev/null &)		
 	fi
 } 
 
@@ -2636,6 +2635,7 @@ RunFunctionExists()
 
 # scripts
 
+ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } # ScriptArgs: SCRIPT_NAME ARGS...
 ScriptCd() { local dir; dir="$("$@")" || return; dir="$(echo "$dir" | ${G}head --lines=1)" && { echo "cd $dir"; DoCd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
 ScriptErr() { InitColor; EchoErr "${RED}$(ScriptPrefix "$2")$1${RESET}"; }

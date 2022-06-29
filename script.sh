@@ -159,7 +159,7 @@ RunFunctionLog()
 	return "$return"
 }
 
-# RunLog - log a command if verbose logging is specified, then run it if not testing
+# RunLog LEVEL COMMAND - log and run a command if the logging verbosist level is at least at the specified leave
 RunLogLevel()
 {
 	local level="$1"; shift
@@ -173,7 +173,7 @@ RunLogLevel()
 			[[ "$arg" =~  $pattern || ! $arg ]] && message+="\"$arg\" " || message+="$arg "
 		done
 
-		log1 "command: $message"
+		LogMessage "command: $message"
 	fi
 
 	[[ $test ]] && return
@@ -181,7 +181,7 @@ RunLogLevel()
 	"$@"
 }
 
-# logFileN FILE - log the contents of file if the logging verbosity level is at least N
+# logFileN COMMAND - log and run a command if the logging verbosity level is at least N
 RunLog() { RunLog1 "$@"; }; RunLog1() { RunLogLevel 1 "$@"; }; RunLog2() { RunLogLevel 2 "$@"; }; RunLog3() { RunLogLevel 3 "$@"; }; RunLog4() { RunLogLevel 4 "$@"; }; RunLog5() { RunLogLevel 5 "$@"; }; 
 RunLogQuiet() { RunLog RunQuiet "$@"; }
 RunLogSilent() { RunLog RunSilent "$@"; }
@@ -380,6 +380,11 @@ ScriptRun()
 		ScriptOpt "$@" || return; shift "$shift"
 	done
 
+	# set global options
+	globalArgs=($force $noPrompt $quiet $verbose)
+	(( verboseLevel > 1 )) && verboseLess="-$(StringRepeat "v" "$(( verboseLevel - 1 ))")"
+	globalArgsLessVerbose=($force $noPrompt $quiet $lessVerbose)
+
 	# operands
 	set -- "${args[@]}"
 	shift=0; RunFunction "args" -- "$@" || return; shift "$shift"
@@ -389,11 +394,6 @@ ScriptRun()
 
 	# extra operand
 	(( $# != 0 )) && { ExtraOperand "$1"; return 1; }
-
-	# set global arguments
-	globalArgs=($force $noPrompt $quiet $verbose)
-	(( verboseLevel > 1 )) && verboseLess="-$(StringRepeat "v" "$(( verboseLevel - 1 ))")"
-	globalArgsLessVerbose=($force $noPrompt $quiet $lessVerbose)
 
 	# arg end
 	for c in "${commands[@]}"; do

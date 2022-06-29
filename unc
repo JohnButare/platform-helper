@@ -114,32 +114,8 @@ isAvailableCommand() { findProtocol "$host"; }
 # IsMounted Command
 #
 
-isMountedArgs() { ScriptArgGet "target" -- "$@"; shift; }
-
-isMountedCommand()
-{
-	# check UNC
-	if IsUncPath "$target"; then
-		getDir "$target" >& /dev/null
-
-	# check path
-	elif [[ -e "$target" ]]; then
-		getUncRoot "$target" >& /dev/null
-
-	# something else
-	else
-		false
-
-	fi
-
-	local result="$?"
-
-	# logging
-	logMounted "$result" "$target"
-
-	# return result
-	return "$result"
-}
+isMountedArgs() { quiet="true" getTargetArg "$@"; }
+isMountedCommand() { quiet="true" isMountedCheck "$unc"; }
 
 #
 # List Command
@@ -159,15 +135,27 @@ listArgStart() { unset -v port protocol; }
 listOpt() { protocolOpt "$@"; }
 listArgs() { ScriptArgGet "host" -- "$@" && HostAvailable "$host"; }
 listCommand() { protocol="${protocol:-smb}"; RunFunction "list${protocol^}"; }
-listNfs() { ssh -t "$host" $sudoc exportfs; }
+listNfs() { ssh -t "$host" exportfs; }
 listSsh() { echo "root"; }
 
 listSmb()
 {
 	if InPath smbutil; then smbutil view "//$host" | grep "Disk"
-	elif InPath smbclient; then $sudoc smbclient -L $host -U$USER%$(credential -q get secure default) |& grep -v "tdb_new_database" |& grep -v "option is deprecated"
+	elif InPath smbclient; then listSmbClient
 	else EchoErr "unc: unable to list shares for $host"; return 1
 	fi
+}
+
+listSmbClient()
+{	
+	local password; password="$(getPassword)" || return
+
+	# smbclient password prompt will be hidden if output is sent to a pipe
+	if [[ $password ]]; then
+		smbclient -L $host -U$USER%$password | grep -v "tdb_new_database" | grep -v "option is deprecated"
+	else
+		smbclient -L $host -U$USER
+	fi		
 }
 
 #
@@ -180,7 +168,7 @@ List UNC shares on the local network."; }
 browseCommand()
 {
 	{ IsPlatform win || ! InPath "smbtree"; } && { ScriptErr "unable to browse the network"; return 1; }
-	$sudoc smbtree
+	smbtree
 }
 
 #
@@ -192,17 +180,19 @@ mountUsage()
 	echot "Usage: unc mount UNC
 Mount the specified UNC.
 
+	-E,  --elevate							in Windows create the share with an elevated (Administrator) token
 	$protocolUsage
 	-N, --no-host-check					do not check host availability"
 }
 
-mountArgStart() { unset -v noHostCheck port protocol; }
+mountArgStart() { unset -v elevate elevateArg noHostCheck port protocol; }
 mountArgs() { getTargetArg "$@"; }
 
 mountOpt() 
 {
 	protocolOpt "$@" && return
 	case "$1" in
+		-E|--elevate) IsPlatform win && elevateArg="--elevate";;
 		-N|--no-host-check) noHostCheck="true";;
 		*) return 1
 	esac
@@ -234,12 +224,12 @@ mountCommand()
 
 	# WSL 1
 	if isWslshare || [[ "$PLATFORM_KERNEL" == "wsl1" ]]; then
-		RunLog $sudoc mount -t drvfs "//$server/$share" "$mountRoot"
+		RunLog mount -t drvfs "//$server/$share" "$mountRoot"
 
 	# NFS
 	elif [[ "$protocol" == "nfs" ]]; then
 		local options=(); IsPlatform win && options+=( -o nolock )
-		RunLog $sudoc mount "${options[@]}" -t nfs "$server:/$share" "$mountRoot"
+		RunLog mount "${options[@]}" -t nfs "$server:/$share" "$mountRoot"
 
 	# SSH
 	elif [[ "$protocol" == "ssh" ]] || IsInteger "$protocol"; then
@@ -252,26 +242,24 @@ mountCommand()
 	elif IsPlatform linux,wsl2; then		
 
 		# add an entry to /etc/fstab so sudo is not required to write to the share		
-		if ! grep -i "//$server/$shareId\\\$* $mountRoot cifs username=$user,noauto,rw,users 0 0" /etc/fstab >& /dev/null; then
+		if ! grep -i "//$server/$share\\\$* $mountRoot cifs username=$user,noauto,rw,users 0 0" /etc/fstab >& /dev/null; then
 			local line="//$server/$share $(GetRealPath "$mountRoot") cifs username=$user,noauto,rw,users 0 0"
 			$sudoc bash -c "echo \"$line\" >> /etc/fstab" || return
 		fi
 
 		# password
-		local password="$(credential --quiet get secure default)"
-		[[ $password ]] && log1 "password found in the credential store"
-		[[ ! $password && $noPrompt ]] && { ScriptErr "no password found for '$unc'"; return 1; }
+		local password; password="$(getPassword)" || return
 
 		# mount
-		[[ $password ]] && export PASSWD="$password"		
-		RunLog mount.cifs "//$server/$share" "$mountRoot" -o user=$user sec=ntlmsspi
+		[[ $password ]] && export PASSWD="$password" || setElevation --no-hide
+
+		RunLog $elevate mount.cifs "//$server/$share" "$mountRoot" -o user=$user sec=ntlmsspi
 		[[ $password ]] && unset PASSWD
 
 	# macOS
 	elif IsPlatform mac; then
-		local password="$(credential -q get secure default)"
-		[[ $password ]] && log1 "password found in the credential store"
-
+		local password; password="$(getPassword)" || return
+		
 		if [[ $password ]]; then
 			log1 "mounting using: mount_smbfs \"smb://$user:XXX@$server/$share\" \"$mountRoot\""
 			mount_smbfs "smb://$user:$password@$server/$share" "$mountRoot"
@@ -327,7 +315,7 @@ unmountCommand()
 
 # assumes the following functions were called: 
 # - getTargetArg sets: target unc 
-# - getUncInfo sets: unc user server share dirs shareId mountRoot mountDir
+# - getUncInfo sets: unc user server share dirs mountRoot mountDir
 
 # unmount - unmount a share and remove the mount directory
 #   The mounted directory may be in an invalid state, and normal file operations on it will fail.
@@ -336,7 +324,7 @@ unmountCommand()
 unmount()
 {
 	local dir="$mountRoot"
-	local output="/dev/null"; [[ $verbose ]] && output="/dev/stdout"
+	local output="/dev/null"; [[ $verbose ]] && output="/dev/stderr"
 
 	# cannot unmount local directories
 	isUncLocal "$unc" && return
@@ -346,21 +334,11 @@ unmount()
 
 	# unmount - ignore errors
 	case "$PLATFORM" in
-		mac)
-			local args=(); [[ $force ]] && args+=(force)
-			RunLog diskutil unmount "${args[@]}" "$dir" >& "$output"
-			;;
-		linux|win)
-			local args=(); [[ $force ]] && args+=(-f)
-			RunLog $sudoc umount "${args[@]}" "$dir" >& "$output"
-			;;
+		mac) unmountMac "$dir" >& "$output";;
+		linux|win) unmountLinux "$dir" >& "$output";;
 	esac
 	
-	# remove directory - ignore errors
-	[[ -d "$dir" ]] && RunLog2 rmdir "$dir" >& "$output"
-
-	# validate removal
-	! mountDirExists "$dir" && return
+	mountDirCleanup "$dir" >& "$output" && return
 
 	# unable to remove
 	if [[ ! $quiet ]]; then
@@ -372,13 +350,41 @@ unmount()
 	return 1
 }
 
+unmountMac()
+{
+	local dir="$1" args=(); [[ $force ]] && args+=(force)
+	RunLog diskutil unmount "${args[@]}" "$dir"
+}
+
+unmountLinux()
+{
+	local dir="$1" args=(); [[ $force ]] && args+=(-f)	
+	RunLog $elevate umount "${args[@]}" "$dir"
+
+	# shares mounted as root can only be removed by root
+	if ! mountDirCleanup "$dir"; then
+		RunLog $sudo umount "${args[@]}" "$dir"
+	fi
+}
+
+mountDirCleanup()
+{
+	local dir="$1"
+
+	# remove directory - ignore errors
+	[[ -d "$dir" ]] && RunLog2 rmdir "$dir"
+
+	# validate removal
+	! mountDirExists "$dir"
+}
+
 # mountDirExists DIR - return true if the specified mounted directory exists
 mountDirExists()
 {
 	local dir="$1"
 
 	# remove directories, i.e. /home/jjbutare/Volumes/server_share/dir1/dir2 -> /home/jjbutare/Volumes/server_share	
-	dir="$(pathRoot "$1")" || return 
+	dir="$(pathRoot "$dir")" || return 
 
 	# return if the directory exists
 	[[ -e "$dir" ]] && return
@@ -408,8 +414,11 @@ getTargetArg()
 	[[ "$target" == "//nas3/root" ]] && target="//nas3/homes/admin/root"
 
 	# target is a mounted file or directory
-	[[ -e "$target" ]] && { unc="$(getUnc "$target")" && getUncInfo "$unc"; return; }
-	
+	if [[ -e "$target" ]]; then		
+		[[ "$target" =~ _elevated ]] && elevateArg="--elevated" && setElevation
+		unc="$(getUnc "$target")" && getUncInfo "$unc"; return; 
+	fi
+
 	# target is a UNC
 	validateUnc "$target" || return
 
@@ -469,11 +478,38 @@ protocolOpt() { [[ "$1" == @(-p|--protocol|-p*|--protocol=*) ]] && ScriptOptNetw
 isWslshare() { [[ "$server" == @(wsl|wsl.localhost) ]]; }
 validateUnc() { IsUncPath "$1" && return; [[ ! $quiet ]] && ScriptErr "'$1' is not a UNC"; ScriptExit; }
 
-initVolumeDir()
+# checkElevation - check if the mountRoot directory requires elevation
+# - in WSL 2 mounted network shares are not visible when  not elevated, so
+#   must mount them to a distinct location
+checkElevation()
 {
-	[[ -d "$volumeDir" ]] && return
-	! ${G}mkdir "$volumeDir" && { ScriptErr "could not create the volume directory $volumeDir"; return 1; }
-	return 0
+	# only wsl2 SMB needs elevation
+	{ ! IsPlatform wsl2 || [[ "$protocol" != @(|smb) ]]; } && return
+
+	# assume elevation if the root UNC ends in _elevated or if we are elevated
+	{ [[ "$mountRoot" =~ _elevated$ ]] || IsElevated; } && elevateArg="--elevate"
+
+	# return if not elevating
+	[[ ! $elevateArg ]] && return
+
+	# mountRoot - append _elevated if needed
+	[[ ! "$mountRoot" =~ _elevated$ ]] && mountRoot="${mountRoot}_elevated" 
+
+	# share - remove _elevated
+	share="$(RemoveEnd "$share" "_elevated")"
+
+	# set elevation command
+	setElevation || return
+
+	# logging
+	log2 "UNC share will be mounted using an elevated administrator token"			
+}
+
+# setElevation [--no-hide] - if we need to elevate set the elevate variable
+setElevation()
+{
+	{ IsElevated || [[ ! $elevatedArg ]]; } && return
+	elevate="RunScript --elevate ${globalArgs[@]} $@ --"
 }
 
 # getDir UNC - return the mounted path of the UNC, i.e. ~/Volumes/server_share/dir1/dir2
@@ -507,7 +543,7 @@ getDirRoot()
 	unc="$(GetFullUnc "$unc")" || return
 
 	# get the mountDir from the UNC
-	local user server share dirs shareId mountRoot mountDir
+	local user server share dirs mountRoot mountDir
 	getUncInfo "$unc" || return
 
 	# find the mounted directory
@@ -517,11 +553,11 @@ getDirRoot()
 
 	# findmnt
 	if InPath findmnt; then
-		root="$(findmnt --target="$mountRoot" --output=TARGET --types=$uncTypes --noheadings)" || { notAUncShare "$unc"; return; }
+		root="$($elevate findmnt --target="$mountRoot" --output=TARGET --types=$uncTypes --noheadings)" || { notAUncShare "$unc"; return; }
 
 	# df
 	elif InPath ${G}df; then
-		root="$(${G}df -P $uncTypesDf |& ${G}grep " ${mountRoot}$" | awk '{print $NF}')" || { notAUncShare "$unc"; return; };
+		root="$($elevate ${G}df -P $uncTypesDf |& ${G}grep " ${mountRoot}$" | awk '{print $NF}')" || { notAUncShare "$unc"; return; };
 
 	else
 		noUncCommand; return
@@ -529,6 +565,26 @@ getDirRoot()
 	fi
 
 	echo "$root"
+}
+
+# getPassword - get the password to connect to a share if possible
+getPassword()
+{
+	# try and get the share password
+	password="$(credential --quiet get secure default)"
+
+	# password found
+	if [[ $password ]]; then
+		log1 "password found in the credential store"; 
+		echo "$password"; return
+	fi
+
+	# return success - we can prompt for the password when connecting to the share
+	[[ ! $noPrompt ]] && return
+
+	# return an error - we are not allowed to prompt for the password when connecting to the share
+	[[ ! $quiet ]] && ScriptErr "no password found for '$unc'"
+	return 1
 }
 
 # getProtocol PATH - the protocol used for the mounted path
@@ -578,12 +634,12 @@ getUncRoot()
 
 	# use findmnt
 	if InPath findmnt; then 
-		uncRoot="$(findmnt --target "$path" --output=SOURCE --types=$uncTypes --noheadings)" || { notAUncShare "$path"; return; }
+		uncRoot="$($elevate findmnt --target "$path" --output=SOURCE --types=$uncTypes --noheadings)" || { notAUncShare "$path"; return; }
 
 	# use df
 	elif InPath ${G}df; then
 		local check; check="$(pathRoot "$path")" || return
-		uncRoot="$(${G}df -P |& grep " ${check}$" | awk '{print $1}')" || { notAUncShare "$path"; return; }
+		uncRoot="$($elevate ${G}df -P |& grep " ${check}$" | awk '{print $1}')" || { notAUncShare "$path"; return; }
 
 	else 
 		noUncCommand; return
@@ -596,14 +652,14 @@ getUncRoot()
 	# update unc for sshfs, i.e. jjbutare@nas3:/tmp->//nas3/tmp jjbutare@nas3:/->//nas3/root
 	uncRoot="//$(RemoveBefore $uncRoot @ | RemoveChar :)"
 	[[ "$(GetUncShare "$uncRoot")" == "" ]] && uncRoot="${uncRoot}root"
+
 	echo "$uncRoot"
 }
 
 # getUncInfo UNC - UNC format is //[USER@]SERVER/SHARE[/DIRS]
-# sets variables: unc user server share dirs shareId mountRoot mountDir
+# sets variables: unc user server share dirs mountRoot mountDir
 # - unc user server share dirs (parsed from UNC)
-# - shareId: santized share name (with dollar signs removed)
-# - mountRoot: the root directory for the mounted volume, i.e. ~/Volumes/$server_$shareId.  
+# - mountRoot: the root directory for the mounted volume, i.e. ~/Volumes/$server_$share
 #   In Windows shares created when elevated will end in _elevated.
 # - mountDir: the full path to the mounted directory, i.e. $mountRoot/$dirs
 getUncInfo()
@@ -619,31 +675,35 @@ getUncInfo()
 	# resolve aliass such as web->pi3.hagerman.butare.net
 	# this ensures we can mount the same share under a different alias
 	server="$(os name "$server")"
-
-	# sharedId - remove $
-	shareId="${share%%\$}"
-
-	# mountRoot - the root directory for the mounted volume
-	mountRoot="$volumeDir/${server}_${shareId}"
 	
-	# WSL 2 elevation - mounted network shares are not visible when not elevated, must mount them to a distinct location
-	IsPlatform wsl2 && IsElevated && mountRoot="${mountRoot}_elevated" 
+	# mountRoot - the root directory for the mounted volume without problematic directory characters
+	mountRoot="$(echo "$volumeDir/${server}_${share}" | RemoveChar '$')"
+	
+	# determine if using elevation
+	checkElevation || return
 
 	# mountDir is the full path to the mounted directory
 	mountDir="$mountRoot";  [[ $dirs ]] && mountDir="$mountDir/$dirs"
 
-	# MDNS name resolution - Windows does not resolve MDNS natively
+	# MDNS name resolution - Windows does not resolve MDNS natively	
 	IsPlatform win && IsMdnsName "$server" && { server="$(MdnsResolve "$server")" || return; }
 
 	# log
-	[[ ! $getUncInfoLogged ]] && log2 "unc $command: unc='$unc'\n	user=$user protocol=$protocol server=$server share='$share' shareId=$shareId dirs='$dirs'\n	mountRoot='$mountRoot'\n	mountDir='$mountDir'"
+	[[ ! $getUncInfoLogged ]] && log2 "unc $command: unc='$unc'\n	user=$user protocol=$protocol server=$server share='$share' dirs='$dirs'\n	mountRoot='$mountRoot'\n	mountDir='$mountDir'"
 	getUncInfoLogged="true"
 
 	return 0
 }
 
+initVolumeDir()
+{
+	[[ -d "$volumeDir" ]] && return
+	! ${G}mkdir "$volumeDir" && { ScriptErr "could not create the volume directory $volumeDir"; return 1; }
+	return 0
+}
+
 # isAvailable HOST PROTOCOL PROGRAM - return true if the file sharing PROGRAM is installed
-# and the host is available on the port required for the protcol.   Sets protocol on return.
+# and the host is available on the port required for the protocol.   Sets protocol on return.
 isAvailable()
 {
 	protocol="$2"

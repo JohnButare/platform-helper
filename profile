@@ -14,6 +14,7 @@ usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
 	-f,  --files FILE...		for directory profiles, file patterns in the profile
 	-g,  --global 					use the global profile in install/bootstrap/profile
 	-m,  --method	<dir>|<program>|<key>
+	-nc, --no-control				do not control the applciation
 	-p,  --platform 				use platform specific unzip
 	-se, --save-extension  	for program profiles, the profile extension used by the program
 	-s,  --sudo  						restore the profile as the root user"
@@ -21,11 +22,11 @@ usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
 }
 
 init() { defaultCommand="dir"; }
-argStart() { unset -v app files global method platform profile saveExtension sudo; }
+argStart() { unset -v app files global method noControl platform profile saveExtension sudo; }
 
 argEnd()
 {
-	[[ ! $force ]] && AppExists "$app" && { AppInstallCheck "$app" || return; }
+	[[ ! $force && ! $noControl ]] && AppExists "$app" && { AppInstallCheck "$app" || return; }
 	[[ ! $method ]] && MissingOption "method"
 
 	# Registry profile - profile contains registry entries
@@ -70,6 +71,7 @@ opt()
 		-F|--files|-F=*|--files=*) ScriptOptGet "files" "$@";;
 		-g|--global) global="--global";;
 		-m|--method) ScriptOptGet "method" "$@";;
+		-nc|--no-control) noControl="--no-control";;
 		-p|--platform) platform="--platform";;
 		-se|--save-extension|-se=*|--save-extension=*) ScriptOptGet "saveExtension" "$@";;
 		-s|--sudo) sudo="sudo";;
@@ -121,14 +123,14 @@ restoreCommand()
 	! askp "Restore $app$globalDescription profile \"$filename\"" -dr n && return 0
 
 	if [[ "$method" == "file" ]]; then
-		AppCloseSave "$app" || return
+		[[ ! $noControl ]] && { AppCloseSave "$app" || return; }
 
 		if [[ $platform ]]; then
 			$sudo UnzipPlatform "$profile" "$profileDir" || return
 		else
 			$sudo unzip  -o "$profile" -d "$profileDir" || return
 		fi
-		AppStartRestore "$app" || return
+		[[ ! $noControl ]] && { AppStartRestore "$app" || return; }
 		
 	elif [[ "$method" == "program" ]]; then
 		clipw "$(utw "$profile")"
@@ -136,9 +138,9 @@ restoreCommand()
 		askp "Start $(GetFileName "$profileProgram")" && { start --wait "$profileProgram" || return; }
 
 	elif [[ "$method" == "registry" ]]; then
-		AppCloseSave "$app" || return
+		[[ ! $noControl ]] && AppCloseSave "$app" || return
 		registry import $verbose "$profile" || return
-		AppStartRestore "$app" || return
+		[[ ! $noControl ]] && AppStartRestore "$app" || return
 
 	fi
 

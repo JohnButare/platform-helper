@@ -49,8 +49,8 @@ init() { defaultCommand="run"; }
 
 runArgStart()
 {
-	unset -v credential credentialManager elevate exec functions hashi hashiService multiple pause pauseError ssh sshAgent verbose verboseLevel
-	credentialManager=() script=() windowStyle="--window-style hidden"
+	unset -v credential credentialManager elevate exec hashi hashiService multiple pause pauseError ssh sshAgent verbose verboseLevel
+	credentialManager=() script=() windowStyle="--window-style hidden" functions="# no functions loaded"
 }
 
 runArgs() {  (( $# == 0 )) && return; script=( "$@" ); (( shift+=$# )); }
@@ -63,7 +63,7 @@ runOpt()
 		--credential-manager|--credential-manager=*|-cm|-cm=*) ScriptOptGet "credentialManager" "credential-manager" "$@"; credentialManagerArg=(--manager "$credentialManager");;
 		--exec|-e) exec="--exec";;
 		--elevate|-E) elevate="--elevate";;
-		--functions) functions=(". function.sh || return");;
+		--functions) functions=". function.sh || return";;
 		--hashi-service|-hs) hashiService="--hashi-service";;
 		--hashi|-H) hashi="--hashi";;
 		--no-hide|-nh) windowStyle="";;
@@ -164,21 +164,21 @@ runElevated()
 
 	# create the script and run it elevated
 	# - use the same CREDENTIAL_MANAGER as we have now
-	# - ScriptReturn sets script to an array of quoted arguments so spaces, single, and double quotes are preserved
-	# - use cases
-	# 1) RunScript --elevate powershell 'Get-VM | where {\$_.Name -eq \"oversoul-wvm1\"}'
+	# - ScriptReturn sets the script variable to an array of quoted arguments so spaces, single, and double quotes are preserved
+	# - example: RunScript --elevate powershell 'Get-VM | where {\$_.Name -eq \"oversoul-wvm1\"}'
 	local script=("$@")
 	cat > "$scriptFile" <<-EOF
 		#!/usr/bin/env bash
 		export CREDENTIAL_MANAGER="$CREDENTIAL_MANAGER"
 		$functions
 		$(ScriptReturn script)
-		#"\${script[@]}" |& tee $scriptLog
-		$(ArrayShow script)  |& tee $scriptLog
-		echo \${PIPESTATUS[0]} > $scriptResult
-		EOF
+		$(ArrayShow script)  |& tee "$scriptLog"
+		echo \${PIPESTATUS[0]} > "$scriptResult"
+	EOF
 
-	[[ $verbose ]] && { ScriptErr "elevating the following script using '$scriptFile':"; cat "$scriptFile" | AddTab >& /dev/stderr; unset windowStyle; }
+	# logging
+	LogFile2 "$scriptFile"
+	[[ $verbose ]] && unset windowStyle
 
 	# ensure the user with an elevated token can run the script
 	chmod ugo+x "$scriptFile" || return
@@ -191,13 +191,12 @@ runElevated()
 	inotifywait --event create --quiet --quiet "$dir/" # two quiets for very silent (no output)
 	[[ $verbose ]] && EchoErr "found"
 
-	# show the script log if it was created
-	[[ $verbose ]] && { EchoErr "Script file output:"; }
-	[[ -f "$scriptLog" ]] && cat "$scriptLog"
+	# show the script log if it was created	
+	[[ -f "$scriptLog" ]] && { LogFile2 "$scriptLog"; cat "$scriptLog"; }
 	
 	# get the script result (return code) if it was created (if the script was killed, cancelled, or interrupted it will not have a result)
 	[[ -f "$scriptResult" ]] && scriptResult="$(cat "$scriptResult")"
-	log1 "script result: ${RESET}${scriptResult}"
+	log1 "script result=${RESET}${scriptResult}"
 
 	# cleanup
 	rm -fr "$dir"
