@@ -163,7 +163,7 @@ installInit()
 
 	# isInstallable	
 	all=(final register)
-	all+=(AppDir bash BashProfile CredentialStore duf envoy gitClient gitServer hostname jq magic NetbootxyzTftpServer PartitionManagement wallpaper zsh ZshProfile)	
+	all+=(AppDir bash BashProfile CredentialStore duf envoy gitClient gitServer hostname jq magic NetbootxyzTftpServer PartitionManagement timezone wallpaper zsh ZshProfile)
 	debian=(apt AptUtilities audacity bind cfssl chroot ChronyServer cron CronLog cups dbus DnsServer DhcpServer flatpak geany HomeAssistantCore HomeAssistantCli HypervLinuxTools kea KeaService LastPass mDns NodeRed pass SaltMinion GnomeKeyring SnapStore SystemUser terminator VmwareLinuxTools)
 	debian64=()
 	mac=(amphetamine AppleConfigurator AppleRemoteDesktop apptivate bartender bear BetterTouchTool btt CanaryMail CarrotWeather DayOne DiskInventortyX gitx HomeAssistant iTerm KarabinerElements LiveDesktop Magnet MakrdownView MicrosoftRemoteDesktop pcalc rectagle spark speedtest SystemToolkit VmwareFusion WallpaperWizard xcode XcodeCli XQuartz yoink)
@@ -1368,7 +1368,7 @@ BootstrapInstall()
 	bootstrapFiles || return
 	
 	# dependencies - credential now to minimize prompting, fd for credential
-	i SshClientPermission fd CredentialStore || return 
+	i SshClientPermission fd CredentialStore timezone || return 
 	RunPlatform bootstrapStart || return
 
 	# platform specific
@@ -1593,17 +1593,16 @@ bootstrapPi()
 
 	piConfigCheck || return
 
+	# other
 	sudo raspi-config nonint do_net_names 0 || return # enable predictable network names
-	sudo raspi-config nonint do_wifi_country US # fails in chroot
+	sudo raspi-config nonint do_wifi_country US || return
+	[[ -f /run/sshwarn ]] && { password linux -u pi || return; } # if needed change pi password
 
-	local timezone="$(ConfigGet "timezone")"
-	! cat /etc/timezone | grep -q "$timezone" && { sudo raspi-config nonint do_change_timezone "$timezone" || return; }
-
+	# locale
 	local locale="$(ConfigGet "locale")"
 	! cat /etc/default/locale | grep -q "$locale" && { sudo raspi-config nonint do_change_locale $locale || return; export LOCALE="$locale"; }
 
-	[[ -f /run/sshwarn ]] && { password linux -u pi || return; }
-
+	# other setup
 	i PiSetup || return
 }
 
@@ -1625,15 +1624,6 @@ bootstrapUbuntu()
 
 	# permissions
 	chmod ugo+x "$BIN/"* || return
-
-	# timezone
-	if [[ ! -L "/etc/localtime" ]]; then
-		echo "Updating timezone..."
-		sudo mv "/etc/localtime" "/etc/localtime.old" || return
-		sudo ln -s "/usr/share/zoneinfo/$timezone" "/etc/localtime" || return
-	fi
-
-	return 0
 }
 
 bootstrapWin()
@@ -6922,7 +6912,7 @@ VisualStudioCodeFinalWin() { mergeDir "$up/Visual Studio Code" "$up/Development/
 # Time
 #################################################
 
-TimeAllInstall() { i chrony chronyServer && pkg ntpdate tty-clock; }
+TimeAllInstall() { i chrony chronyServer timezone && pkg ntpdate tty-clock; }
 TimeCoreInstall() { i chrony && pkg ntpdate tty-clock; }
 
 ChronyInstall() # time syncronization / NTP replacement
@@ -6943,6 +6933,38 @@ ChronyServerInstall()
 	grep -q "^allow" "/etc/chrony/chrony.conf" && return
 	echo "allow" | sudo ${G}tee -a "/etc/chrony/chrony.conf" || return
 	service restart chrony || return
+}
+
+TimezoneInstall() { local timezone="$(ConfigGet "timezone")"; RunPlatform timezone; }
+timezoneMessage() { hilight "Setting the timezone to '$timezone'..."; }
+
+timezoneDebian()
+{
+	{ [[ ! $timezone ]] || IsPlatform win; } && return
+	[[ ! $force ]] && cat "/etc/timezone" |& grep "$timezone" > /dev/null && return
+
+	timezoneMessage
+	DEBIAN_FRONTEND=noninteractive sudoc apt install -y tzdata || return
+	[[ ! -f "/usr/share/zoneinfo/$timezone" ]] && return
+	sudo ln -snf "/usr/share/zoneinfo/$timezone" "/etc/localtime" || return
+	echo "$timezone" | sudo tee "/etc/timezone" || return
+	sudo dpkg-reconfigure -f noninteractive tzdata || return
+}
+
+timezonePi()
+{
+	[[ ! $timezone ]] && return
+	[[ ! $force ]] && cat /etc/timezone | grep -q "$timezone" && return
+
+	timezoneMessage; sudo raspi-config nonint do_change_timezone "$timezone"
+}
+
+timezoneWin()
+{
+ 	timezone="$(ConfigGet "timezoneWin")"; [[ ! $timezone ]] && return
+ 	[[ ! $force ]] && [[ $(tzutil.exe /g) == "$timezone" ]] && return
+ 	
+  timezoneMessage; tzutil.exe /s "$timezone"
 }
 
 #################################################

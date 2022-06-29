@@ -1,4 +1,7 @@
 locale="en_US.UTF-8"
+timezone="America/Denver"
+timezoneWin="Mountain Standard Time" # tzutil.exe /l
+timeServer="time.butare.net"
 
 # bootstrap
 bootstrapBin="//ender.hagerman.butare.net/system/usr/local/data/bin" # initial bin directory UNC (//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL])
