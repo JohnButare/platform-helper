@@ -17,6 +17,23 @@ The UNC format is //[USER@]SERVER/SHARE[/DIRS].
 	unmount TARGET|all	unmount the specified target UNC or path"
 }
 
+argStart() { unset -v elevate elevateArg; }
+
+opt() 
+{
+	case "$1" in
+		-e|--elevate) IsPlatform win && elevateArg="--elevate";;
+		*) return 1
+	esac
+}
+
+usageVerbose()
+{ 
+	ScriptUsageEcho "
+Other options:
+	-e,  --elevate							in Windows, use an elevated administrator token"
+}
+
 init()
 {
 	volumeDir="$(GetRealPath "$HOME/Volumes")"; initVolumeDir || return
@@ -62,9 +79,10 @@ getDetailCommand()
 
 getMountsCommand()
 {
-	if InPath findmnt; then findmnt --output=TARGET --types=$uncTypes --noheadings | grep "^$volumeDir"
-	elif InPath ${G}df; then ${G}df $uncTypesDf |& ${G}tail -n +2 | awk '{ print $NF }'
-	elif InPath mount; then mount | grep -E "type ($uncTypesGrep) " | cut -d" " -f3
+	elevateSet
+	if InPath findmnt; then $elevate findmnt --output=TARGET --types=$uncTypes --noheadings | grep "^$volumeDir"
+	elif InPath ${G}df; then $elevate ${G}df $uncTypesDf |& ${G}tail -n +2 | awk '{ print $NF }'
+	elif InPath mount; then $elevate mount | grep -E "type ($uncTypesGrep) " | cut -d" " -f3
 	else noUncCommand
 	fi
 }
@@ -180,19 +198,17 @@ mountUsage()
 	echot "Usage: unc mount UNC
 Mount the specified UNC.
 
-	-E,  --elevate							in Windows create the share with an elevated (Administrator) token
 	$protocolUsage
 	-N, --no-host-check					do not check host availability"
 }
 
-mountArgStart() { unset -v elevate elevateArg noHostCheck port protocol; }
+mountArgStart() { unset -v noHostCheck port protocol; }
 mountArgs() { getTargetArg "$@"; }
 
 mountOpt() 
 {
 	protocolOpt "$@" && return
 	case "$1" in
-		-E|--elevate) IsPlatform win && elevateArg="--elevate";;
 		-N|--no-host-check) noHostCheck="true";;
 		*) return 1
 	esac
@@ -224,7 +240,7 @@ mountCommand()
 
 	# WSL 1
 	if isWslshare || [[ "$PLATFORM_KERNEL" == "wsl1" ]]; then
-		RunLog mount -t drvfs "//$server/$share" "$mountRoot"
+		RunLog sudoc mount -t drvfs "//$server/$share" "$mountRoot"
 
 	# NFS
 	elif [[ "$protocol" == "nfs" ]]; then
@@ -247,21 +263,27 @@ mountCommand()
 			$sudoc bash -c "echo \"$line\" >> /etc/fstab" || return
 		fi
 
-		# password
+		# mount - don't log password, mount.cifs password option does not work (WSL2)
 		local password; password="$(getPassword)" || return
+		local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
+		local options="user=$user sec=ntlmsspi"
 
-		# mount
-		[[ $password ]] && export PASSWD="$password" || setElevation --no-hide
-
-		RunLog $elevate mount.cifs "//$server/$share" "$mountRoot" -o user=$user sec=ntlmsspi
-		[[ $password ]] && unset PASSWD
+		if ! elevateCheck; then	
+			log1 "mount: PASSWD="$passwordHidden" mount.cifs //$server/$share $mountRoot -o $options"
+			PASSWD="$password" mount.cifs "//$server/$share" "$mountRoot" -o $options
+		else
+			[[ $password ]] && elevateSet --sensitive --no-quote || elevateSet "--no-hide"
+			log1 "mount: $elevate PASSWD="$passwordHidden" mount.cifs //$server/$share $mountRoot -o $options"
+			$elevate $passwordVar mount.cifs "//$server/$share" "$mountRoot" $options
+		fi		
 
 	# macOS
 	elif IsPlatform mac; then
 		local password; password="$(getPassword)" || return
 		
+		# mount - don't log passwords
 		if [[ $password ]]; then
-			log1 "mounting using: mount_smbfs \"smb://$user:XXX@$server/$share\" \"$mountRoot\""
+			log1 "mount: mount_smbfs \"smb://$user:HIDDEN@$server/$share\" \"$mountRoot\""
 			mount_smbfs "smb://$user:$password@$server/$share" "$mountRoot"
 		else
 			RunLog mount_smbfs "smb://$user@$server/$share" "$mountRoot"
@@ -294,9 +316,11 @@ unmountCommand()
 {
 	[[ "$unc" != "all" ]] && { unmount; return; }
 
-	local dirs; IFS=$'\n' ArrayMakeC dirs unc get mounts || return
+	# find mounted directories - direct call to getUncMounts does not work with --elevate
+	local dirs; IFS=$'\n' dirs=( $(unc get mounts $elevateArg "${globalArgs[@]}") ) || return
 	[[ ! $dirs ]] && return
 
+	# unmount
 	local fail=0 message
 	log "unmounting..."
 	for mountRoot in "${dirs[@]}"; do
@@ -329,9 +353,9 @@ unmount()
 	# cannot unmount local directories
 	isUncLocal "$unc" && return
 
-	# return if the mount directory does not exist
-	! mountDirExists "$dir" && return
-
+	# return if the mount directory does not exist or is empty
+	mountDirCleanup "$dir" >& "$output" && return
+	
 	# unmount - ignore errors
 	case "$PLATFORM" in
 		mac) unmountMac "$dir" >& "$output";;
@@ -415,7 +439,7 @@ getTargetArg()
 
 	# target is a mounted file or directory
 	if [[ -e "$target" ]]; then		
-		[[ "$target" =~ _elevated ]] && elevateArg="--elevated" && setElevation
+		[[ "$target" =~ _elevated ]] && elevateArg="--elevated" && elevateSet
 		unc="$(getUnc "$target")" && getUncInfo "$unc"; return; 
 	fi
 
@@ -499,18 +523,14 @@ checkElevation()
 	share="$(RemoveEnd "$share" "_elevated")"
 
 	# set elevation command
-	setElevation || return
+	elevateSet || return
 
 	# logging
-	log2 "UNC share will be mounted using an elevated administrator token"			
+	log2 "UNC share '$mountRoot' uses an elevated administrator token"			
 }
 
-# setElevation [--no-hide] - if we need to elevate set the elevate variable
-setElevation()
-{
-	{ IsElevated || [[ ! $elevatedArg ]]; } && return
-	elevate="RunScript --elevate ${globalArgs[@]} $@ --"
-}
+elevateCheck() { [[ $elevateArg ]] && ! IsElevated ; }
+elevateSet() { ! elevateCheck && return; elevate="RunScript --elevate ${globalArgs[@]} $@ --"; }
 
 # getDir UNC - return the mounted path of the UNC, i.e. ~/Volumes/server_share/dir1/dir2
 getDir()

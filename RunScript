@@ -27,10 +27,12 @@ Other options:
 	-e,  --exec							exec the script so it retains this process ID
 			 --functions				use functions in the script
 	-nh, --no-hide					do not hide the elevated script window
+	-nq, --no-quote					do not hide quote script arguments
 	-m,  --multiple					allow multiple commands, i.e. \"sudo RunScript --multiple 'ls; pause'\"
 													Useful in cases where bash -c cannot be used
 	-p,  --pause						pause after the command is run, useful for transitory windows
 	-pe, --pause-error			pause after the command is run with an error, useful for transitory windows
+	-s,  --sensitive				do not log script which contains sensitive information
 
 Notes:
 	- finds function.sh even if it is not in the PATH.  This is useful for initial startup, non-login shells,
@@ -49,7 +51,7 @@ init() { defaultCommand="run"; }
 
 runArgStart()
 {
-	unset -v credential credentialManager elevate exec hashi hashiService multiple pause pauseError ssh sshAgent verbose verboseLevel
+	unset -v credential credentialManager elevate exec hashi hashiService multiple noQuote pause pauseError sensitive ssh sshAgent verbose verboseLevel
 	credentialManager=() script=() windowStyle="--window-style hidden" functions="# no functions loaded"
 }
 
@@ -67,9 +69,11 @@ runOpt()
 		--hashi-service|-hs) hashiService="--hashi-service";;
 		--hashi|-H) hashi="--hashi";;
 		--no-hide|-nh) windowStyle="";;
+		--no-quote|-nq) noQuote="--no-quote";;
 		--multiple|-m) multiple="eval";;
 		--pause|-p) pause="--pause";;
 		--pause-error|-pe) pauseError="--pause-error";;
+		--sensitive|-s) sensitive="--sensitive";;
 		--ssh-agent|-sa) sshAgent="--ssh-agent";;
 		--ssh|-s) ScriptOptGet "ssh" -- "$@";;
 		--x-server|-x) InitializeXServer || return;;
@@ -104,7 +108,7 @@ runCommand()
 	elif [[ $ssh ]]; then
 		runSsh "$ssh" "$@"
 	else
-		[[ $verbose || ! $quiet ]] && LogScript 2 "$@"
+		[[ $verbose || ! $quiet ]] && [[ ! $sensitive ]] && LogScript 2 "$@"
 		$multiple "$@"
 	fi
 
@@ -166,18 +170,30 @@ runElevated()
 	# - use the same CREDENTIAL_MANAGER as we have now
 	# - ScriptReturn sets the script variable to an array of quoted arguments so spaces, single, and double quotes are preserved
 	# - example: RunScript --elevate powershell 'Get-VM | where {\$_.Name -eq \"oversoul-wvm1\"}'
-	local script=("$@")
 	cat > "$scriptFile" <<-EOF
 		#!/usr/bin/env bash
 		export CREDENTIAL_MANAGER="$CREDENTIAL_MANAGER"
 		$functions
-		$(ScriptReturn script)
-		$(ArrayShow script)  |& tee "$scriptLog"
+	EOF
+
+	if [[ $noQuote ]]; then
+		cat >> "$scriptFile" <<-EOF
+			$@ |& tee "$scriptLog"
+		EOF
+	else
+		local script=("$@")
+		cat >> "$scriptFile" <<-EOF
+			$(ScriptReturn script)
+			$(ArrayShow script) |& tee "$scriptLog"
+		EOF
+	fi
+
+	cat >> "$scriptFile" <<-EOF
 		echo \${PIPESTATUS[0]} > "$scriptResult"
 	EOF
 
 	# logging
-	LogFile2 "$scriptFile"
+	[[ $sensitive ]] && log2 "script: hidden" || LogFile2 "$scriptFile"
 	[[ $verbose ]] && unset windowStyle
 
 	# ensure the user with an elevated token can run the script
@@ -187,13 +203,19 @@ runElevated()
 	start --elevate $windowStyle $verbose RunScript "${scriptFile}" || return
 
 	# wait for the creation of the script result file
-	[[ $verbose ]] && PrintErr "Waiting for log file in '$dir'..."
+	[[ $verbose ]] && LogPrint "waiting for log file in '$dir'..."
 	inotifywait --event create --quiet --quiet "$dir/" # two quiets for very silent (no output)
 	[[ $verbose ]] && EchoErr "found"
 
-	# show the script log if it was created	
-	[[ -f "$scriptLog" ]] && { LogFile2 "$scriptLog"; cat "$scriptLog"; }
-	
+	# return the script log to standard output
+	if [[ -f "$scriptLog" ]]; then
+	 	if (( $(GetFileSize "$scriptLog") > 0 )); then
+	 		LogFile2 "$scriptLog"; cat "$scriptLog"
+	 	else
+	 		log2 "script output: none"
+	 	fi
+	fi
+
 	# get the script result (return code) if it was created (if the script was killed, cancelled, or interrupted it will not have a result)
 	[[ -f "$scriptResult" ]] && scriptResult="$(cat "$scriptResult")"
 	log1 "script result=${RESET}${scriptResult}"
