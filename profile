@@ -133,6 +133,7 @@ restoreCommand()
 		[[ ! $noControl ]] && { AppStartRestore "$app" || return; }
 		
 	elif [[ "$method" == "program" ]]; then
+		[[ $noPrompt ]] && return
 		clipw "$(utw "$profile")"
 		echo "Import the profile using the filemame contained in the clipboard"
 		askp "Start $(GetFileName "$profileProgram")" && { start --wait "$profileProgram" || return; }

@@ -216,7 +216,7 @@ ScriptOptGlobal()
 	case "$1" in
 		--force|-f) force="--force";;
 		--help|-h) ScriptOptVerbose "$@"; usage 0;;
-		--no-prompt|-np) noPrompt="--no-prompt" sudo+=" --no-prompt" sudoc+=" --no-prompt";;
+		--no-prompt|-np) noPrompt="--no-prompt";;
 		--quiet|-q) quiet="--quiet" quietOutput="/dev/null";;
 		--test|-t) test="--test";;
 		--verbose|-v|-vv|-vvv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
@@ -329,7 +329,7 @@ ScriptRun()
 
 	# commands - format command1Command2Command
 	local args=() c shift="1"
-	local command commandNames=() commands=() globalArgs=() globalArgsLessVerbose=() originalArgs=("$@") otherArgs=() sudo="$(FindInPath "sudo")" sudoc="sudoc" # public
+	local command commandNames=() commands=() globalArgs=() globalArgsLessVerbose=() originalArgs=("$@") otherArgs=() # public
 
 	while (( $# )); do
 		local firstCommand="true"; [[ $command ]] && unset firstCommand
@@ -377,7 +377,7 @@ ScriptRun()
 	set -- "${args[@]}"; args=()
 	while (( $# )); do
 		! IsOption "$1" && { args+=("$1"); shift; continue; }
-		ScriptOpt "$@" || return; shift "$shift"
+		ScriptOpt "$@" || return; shift "$shift"		
 	done
 
 	# set global options

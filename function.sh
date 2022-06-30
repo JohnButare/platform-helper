@@ -166,7 +166,7 @@ UserCreate()
 	# create user
 	if ! UserExists "$1"; then
 		sudoc adduser $user --disabled-password --gecos "" || return
-		echo "$user:$password" | sudoc chpasswd || return
+		echo "$user:$password" | sudo chpasswd || return
 		echo "User password is $password"
 	fi
 
@@ -2749,6 +2749,7 @@ IsElevated()
 # sudo
 SudoCheck() { [[ ! -r "$1" ]] && sudo="sudoc"; } # SudoCheck FILE - set sudo variable to sudoc if user does not have read permissiont to the file
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
+sudov() { sudoc --validate; } # update the cached credentials
 
 # sudoc COMMANDS - run COMMANDS using sudo and use the credential store to get the password if available
 #   --no-prompt|-np   do not prompt for a password
