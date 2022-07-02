@@ -48,7 +48,7 @@ hashiCredentialPath=""
 hashiCertificateDevice="$CDATA/VeraCrypt/personal.hc" hashiCertificateDir="data/hashi"
 hashiServers="pi1,pi2,pi3"
 hashiClients="pi4"
-hashiVaultServers="pi1,pi2"
+hashiVaultServers="pi2,pi1"
 
 # HashiCorp Testing
 hashiTestCredentialPath=""
