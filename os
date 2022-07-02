@@ -415,7 +415,9 @@ infoHosts()
 {
 	local host hosts; getHosts || return
 	(( ${#hosts[@]} > 1 )) && { prefix="--prefix"; infoSetRemoteArgs; }
-	for host in "${hosts[@]}"; do infoHost || return; done
+	local errors=0
+	for host in "${hosts[@]}"; do infoHost || (( ++errors )); done
+	return $errors
 }
 
 infoEcho()
