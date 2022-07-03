@@ -778,7 +778,7 @@ CloudGet()
 	for file in "$@"; do
 		[[ -d "$file" ]] && continue 										# skip directories
 		ScriptFileCheck "$file" || return 							# validate file
-		(( $(GetFileSize "$file") > 1 )) && continue		# skip if already downloaded, 1 in Windows 0 in macOS
+		(( $(GetFileSize "$file" B) > 1 )) && continue		# skip if already downloaded, 1 in Windows 0 in macOS
 
 		if IsPlatform win; then
 			( cd "$(GetFilePath "$file")"; cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
