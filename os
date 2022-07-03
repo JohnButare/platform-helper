@@ -575,8 +575,9 @@ infoVm()
 }
 
 # infoDistribution
+infoDistribution() { infoDistributionLsb && RunPlatform "infoDistribution"; }
 
-infoDistribution()
+infoDistributionLsb()
 {
 	! InPath lsb_release && return
 
@@ -597,7 +598,6 @@ infoDistribution()
 	codename="$(infoEcho "$release" | grep "Codename:" | cut -f 2- )"
 
 	infoEcho "distribution: $distributor $version ($codename)"
-	RunPlatform "infoDistribution"
 }
 
 infoDistributionMac()
@@ -606,9 +606,13 @@ infoDistributionMac()
 	local build="$(system_profiler SPSoftwareDataType | grep "System Version" | cut -f 11 -d" " | sed 's/(//' | sed 's/)//' )"
 	local codeName
 
+	# https://www.macworld.com/article/672681/list-of-all-macos-versions-including-the-latest-macos.html
 	case "$version" in
 		10.15*) codeName="Mojave";;
 		10.16*) codeName="Catalina";;
+		11.*) codeName="Big Sur";;
+		12.*) codeName="Monterey";;
+		13.*) codeName="Ventura";;
 		*) codeName="unknown";;
 	esac
 
