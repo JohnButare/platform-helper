@@ -1,37 +1,41 @@
 #!/usr/bin/env bash
-. function.sh || return
+. script.sh || return
 . color.sh || return
-
-run() {	init; args "$@"; ${command}Command "${args[@]}"; }
-
-init() { :; }
 
 usage()
 {
-	echot "\
-usage: HostCleanup [gui]
-	Cleanup extraneous files and configuration on the host
-		-np, --no-prompt		do not prompt for what to cleanup"
+	ScriptUsage "$1" "Usage: $(ScriptName) [cleanup|gui](cleanup)
+Cleanup files and configuration on the host.
+
+	-w, --what LIST	comma seperated list of items to update
+	-s, --skip LIST	comma seperated list of items to skip
+
+items: $(echo "${defaultItems[@]}")"
 	exit $1
 }
 
-args()
-{
-	unset command
-
-	while [ "$1" != "" ]; do
-		case "$1" in
-			-h|--help) IsFunction "${command}Usage" && ${command}Usage 0 || usage 0;;		
-			-np|--no-prompt) function ask { :; };;		
-			*) 
-				[[ ! $command ]] && IsFunction "${1,,}Command" && { command="${1,,}"; shift; continue; }
-				UnknownOption "$1"
-		esac
-		shift
-	done
-
-	command="${command:-cleanup}"
+init()
+{	
+	defaultCommand="cleanup"	
+	defaultItems=( apt brew docker files journal ruby volumes )
+	otherItems=( interactive )
+	allItems=( "${defaultItems[@]}" "${otherItems[@]}" )
 }
+
+argStart() { unset -v skipArg whatArg; skip=() what=() ; }
+
+opt()
+{
+	case "$1" in
+		-s|--skip|-s=*|--skip=*) ScriptArgItems "skip" "allItems" "$@" || return;;
+		-w|--what|-w=*|--what=*) ScriptArgItems "what" "allItems" "$@" || return;;
+		*) return 1;;
+	esac
+}
+
+#
+# commands
+#
 
 guiCommand()
 {
@@ -40,44 +44,32 @@ guiCommand()
 	return 0
 }
 
-cleanupCommand() { cleanupFiles && cleanupPrograms && RunPlatform cleanup; }
+#
+# cleanup command
+#
 
-cleanupWin()
+cleanupCommand()
 {
-	ask 'Cleanup old windows versions' && { elevate CleanMgr.exe /AUTOCLEAN || return; }
-	ask 'Cleanup path' && { os path; }
-	ask 'Cleanup startup programs' && { start --elevate autoruns || return; }
-	ask 'Cleanup scheduled tasks' && { start --elevate task scheduler || return; }
-	ask 'Cleanup remaining files' && { elevate CleanMgr.exe /VERYLOWDISK || return; }
-	return 0
+	local errors=0 item
+
+	[[ ! $what ]] && what=( "${defaultItems[@]}" )
+
+	for item in "${what[@]}"; do
+		IsInArray "$item" skip && continue
+		"cleanup${item^}" || (( ++errors ))
+	done
+
+	return "$errors"
 }
 
-cleanupFiles()
-{
-	echo -n "${GREEN}cleaning files...${RESET}"
-	cleanupTmp && cleanupVolumes && RunPlatform cleanupFiles
-	echo "done"
-}
-
-cleanupFilesWin()
-{
-	[[ -d "$UADATA/temp" ]] && { rm -fr "$UADATA/temp/"* >& /dev/null; echo -n "."; }
-	[[ -d "$WIN_ROOT/temp" ]] && { rm -fr "$WIN_ROOT/temp/"* >& /dev/null; echo -n "."; }
-	[[ -d "$WINDIR/Temp" ]] && { rm -fr "$WINDIR/Temp/"* >& /dev/null; echo -n "."; }
-	return 0
-}
-
-cleanupTmp() { ! IsPlatform mac && [[ -d "$TMP" ]] && rm -fr "$TMP/"*; echo -n "."; }
-cleanupVolumes() { [[ -d "$HOME/Volumes" ]] && rmdir "$HOME/Volumes/"* >& /dev/null; echo -n "."; }
-
-cleanupPrograms() { cleanupApt && cleanupBrew && cleanupDocker && cleanupRuby && cleanupJournal; }
-cleanupBrew() { IsPlatform brew && hilight "cleaning Homebrew..." && brew cleanup; return 0; }
-cleanupRuby() { which gem >& /dev/null && hilight "cleaning Ruby..." && sudo gem cleanup; return 0; }
+cleanupBrew() { ! IsPlatform brew && return; hilight "cleaning Homebrew..." && brew cleanup; }
+cleanupRuby() { ! which gem >& /dev/null && return; hilight "cleaning Ruby..." && sudo gem cleanup; }
+cleanupVolumes() { hilight "cleaning volumes..."; unc unmount all || return;  [[ -d "$HOME/Volumes" ]] && rmdir "$HOME/Volumes/"* >& /dev/null; return 0; }
 
 cleanupApt()
 {
 	! IsPlatform apt && return
-	hilight "Cleanup apt..."
+	hilight "cleaning apt..."
 	sudoc apt-get clean -y || return 	# cleanup downloaded package files in /var/cache/apt/archives
 	sudoc apt autoremove -y || return
 	InPath wajig && { wajig purgeremoved || return; }
@@ -93,7 +85,7 @@ cleanupDocker()
 	[[ ! $images ]] && return
 
 	# cleanup dangling images	
-	hilight "Cleanup dangling Docker images..."
+	hilight "cleaning Docker..."
 	docker rmi "$images"
 }
 
@@ -101,8 +93,32 @@ cleanupJournal()
 {
 	! IsPlatform systemd && return
 	hilight "cleaning systemd journal..."
-	sudo journalctl --rotate
-	sudo journalctl --vacuum-time=2d
+	sudo journalctl --rotate && sudo journalctl --vacuum-time=2d
 }
 
-run "$@"
+# files
+cleanupFiles() { echo -n "${GREEN}cleaning files...${RESET}" && cleanupFilesTmp && RunPlatform cleanupFiles && echo "done"; }
+cleanupFilesTmp() { ! IsPlatform mac && [[ -d "$TMP" ]] && rm -fr "$TMP/"*; echo -n "."; }
+
+cleanupFilesWin()
+{
+	[[ -d "$UADATA/Temp" ]] && { log1 "$UADATA/Temp..."; rm -fr "$UADATA/Temp/"* >& /dev/null; echo -n "."; }
+	[[ -d "$WIN_ROOT/temp" ]] && { log1 "$WIN_ROOT/temp..."; rm -fr "$WIN_ROOT/temp/"* >& /dev/null; echo -n "."; }
+	[[ -d "$WINDIR/Temp" ]] && { log1 "$WINDIR/Temp"; rm -fr "$WINDIR/Temp/"* >& /dev/null; echo -n "."; }
+	return 0
+}
+
+# interactive
+cleanupInteractive() { RunPlatform cleanupInteractive; }
+
+cleanupInteractiveWin()
+{
+	ask 'Cleanup old windows versions' && { elevate CleanMgr.exe /AUTOCLEAN || return; }
+	ask 'Cleanup path' && { os path || return; }
+	ask 'Cleanup startup programs' && { start --elevate autoruns || return; }
+	ask 'Cleanup scheduled tasks' && { start --elevate task scheduler || return; }
+	ask 'Cleanup remaining files' && { elevate CleanMgr.exe /VERYLOWDISK || return; }
+	return 0
+}
+
+ScriptRun "$@"
