@@ -253,8 +253,6 @@ networkUsage() { echo "Usage: $(ScriptName) network backup|edit|update|validate"
 
 networkArgStart()
 {
-	unset hostsArg
-
 	# network configuration
 	network="$(ConfigGet "network")"
 	subnetPi1="10.10.102.1 - 10.10.102.99"
@@ -272,39 +270,18 @@ networkArgStart()
 	dnsConfig="$ncd/system/dns"
 }
 
-networkArgs() { hostsArg=( "$@" ); (( shift+=$# )); true; }
-
-networkArgEnd()
-{
-	[[ "$command" == @(networkEdit) ]] && return
-	[[ ! $hostsArg && "$command" != @(networkEdit) ]] && MissingOperand "host"
-	return 0
-}
-
+networkArgStart() { unset -v hostArg hostOpt hosts; }
 networkCommand() { usage; }
 
 #
 # Network Backup Command
 #
 
-networkBackupUsage() { echo "Usage: $(ScriptName) network backup [dns|dhcp|all](all) [HOST|all]...
-Backup the DHCP or DNC configuration of HOST."; }
-
+networkBackupUsage() { echo "Usage: $(ScriptName) network backup [dns|dhcp|all](all)\nBackup the DHCP or DNC configuration of HOST.\n\n$hostUsage"; }
 networkBackupCommand() { networkBackupAllCommand; }
 networkBackupAllCommand() { networkBackupDhcpCommand && networkBackupDnsCommand; }
-
-#
-# Network Backup DHCP Command
-#
-
-networkBackupDhcpCommand()
-{	
-	local hosts host; getHosts "dhcpServers" || return
-
-	for host in "${hosts[@]}"; do
-		networkBackupDhcp "$host" || return
-	done
-}
+networkBackupDhcpCommand() { GetHostsConfig "dhcp" && ForAllHosts networkBackupDhcp; }
+networkBackupDnsCommand() { GetHostsConfig "dns" && ForAllHosts networkBackupDns; }
 
 networkBackupDhcp()
 {
@@ -322,19 +299,6 @@ networkBackupDhcp()
 
 	# copy the backup to the backup directory
 	scp "$hostIp:~/tmp/$file" "$backupDir/$stamp.$i.$file" || return
-}
-
-#
-# Network Backup DNS Command
-#
-
-networkBackupDnsCommand()
-{	
-	local hosts host; getHosts "dnsServers" || return
-
-	for host in "${hosts[@]}"; do
-		networkBackupDns "$host" || return
-	done
 }
 
 networkBackupDns()
@@ -359,8 +323,7 @@ networkBackupDns()
 # Network Edit Command
 #
 
-networkEditUsage() { echo "Usage: $(ScriptName) network edit
-Edit the DHCP and DNC configuration files."; }
+networkEditUsage() { EchoWrap "Usage: $(ScriptName) network edit\nEdit the DHCP and DNC configuration files."; }
 
 networkEditCommand()
 {
@@ -379,16 +342,22 @@ networkEditCommand()
 # Network Update Command
 #
 
-networkUpdateUsage() { echot "Usage: $(ScriptName) network update [dns|dhcp|all](all) [HOST|all]...
+networkUpdateUsage()
+{
+	EchoWrap "Usage: $(ScriptName) network update [dns|dhcp|all](all)
 Update the DHCP or DNS configuration of HOST.
 
+	$hostUsage
 	-nb,	--no-backup			do not backup the existing configuration before updating
-	-nv,	--no-validate		do not validate the service after updating"; }
+	-nv,	--no-validate		do not validate the service after updating"
+}
 
 networkUpdateArgStart() { unset -v noBackup noValidate; }
 
 networkUpdateOpt() 
 {
+	ScriptOptHost "$@" && return
+
 	case "$1" in
 		-nb|--no-backup) noBackup="true";;
 		-nv|--no-validate) noValidate="true";;
@@ -398,20 +367,12 @@ networkUpdateOpt()
 
 networkUpdateCommand() { networkUpdateAllCommand; }
 networkUpdateAllCommand() { networkUpdateDhcpCommand && networkUpdateDnsCommand; }
+networkUpdateDhcpCommand() { local forAllHeader="Update DHCP" && GetHostsConfig "dhcp" && ForAllHosts networkUpdateDhcp; }
+networkUpdateDnsCommand() {	local forAllHeader="Update DNS" && GetHostsConfig "dns" && ForAllHosts networkUpdateDns; }
 
 #
 # Network Update DHCP Command
 #
-
-networkUpdateDhcpCommand()
-{	
-	local hosts host; getHosts "dhcpServers" || return
-
-	for host in "${hosts[@]}"; do
-		(( ${#hosts[@]} > 1 )) && header "Update DHCP ($host)"
-		networkUpdateDhcp "$host" || return
-	done
-}
 
 networkUpdateDhcp()
 {
@@ -452,16 +413,6 @@ networkUpdateDhcp()
 #
 # Network Update DNS Command
 #
-
-networkUpdateDnsCommand()
-{	
-	local hosts host; getHosts "dnsServers" || return
-
-	for host in "${hosts[@]}"; do
-		(( ${#hosts[@]} > 1 )) && header "Update DNS ($host)"
-		networkUpdateDns "$host" || return
-	done
-}
 
 networkUpdateDns()
 {
@@ -550,9 +501,7 @@ networkConfigFileValidate()
 # Network Validate Command
 #
 
-networkValidateUsage() { echo "Usage: $(ScriptName) network validate [dns|dhcp|all](all) [HOST|all]...
-Validate the DHCP or DNC operation of HOST."; }
-
+networkValidateUsage() { echo "Usage: $(ScriptName) network validate [dns|dhcp|all](all)\nValidate the DHCP or DNC operation of HOST.\n\n$hostUsage"; }
 networkValidateCommand() { networkValidateAllCommand; }
 networkValidateAllCommand() { networkValidateDhcpCommand && networkValidateDnsCommand; }
 networkValidateDhcpCommand() { networkValidateHosts "DHCP"; }
@@ -593,7 +542,7 @@ networkValidateHost()
 # networkValidateHosts dhcp|dns - validate DHCP or DNS for the hosts
 networkValidateHosts()
 {
-	local what="$1" hosts host hostShort hostIp; getHosts "${what,,}Servers" || return
+	local what="$1" hosts host hostShort hostIp; GetHostsConfig "${what,,}" || return
 
 	printf "Validating ${what^^}..."
 	for host in "${hosts[@]}"; do
@@ -624,9 +573,8 @@ networkValidateWait()
 # Setup Command
 #
 
-setupUsage() { echo "Usage: $(ScriptName) setup all|hashi"; }
+setupUsage() { EchoWrap "Usage: $(ScriptName) setup all|hashi"; }
 setupCommand() { usage; }
-
 setupAllCommand() {	setupHashiCommand && setupHashiFinalCommand; }
 
 #
@@ -681,12 +629,9 @@ hashiService()
 # Syncronize Commands
 #
 
-syncUsage() { EchoWrap "Usage: $(ScriptName) sync cert|credential|internet|JumpCloud|lb|web|WireGuard\nSynronize Wiggin data."; }
+syncUsage() { EchoWrap "Usage: $(ScriptName) sync credential|internet|JumpCloud|lb|web|WireGuard\nSynronize Wiggin data."; }
+syncArgStart() { unset hostArg hostOpt hosts ; }
 syncCommand() { usage; }
-syncCertUsage() { EchoWrap "Usage: $(ScriptName) sync lb\nSynronize Wiggin SSL certificates."; }
-syncCertCommand() { syncDir "lb" "/etc/letsencrypt" "nginx"; }
-syncLbUsage() { EchoWrap "Usage: $(ScriptName) sync lb\nSynronize Wiggin load balancers (NGINX rever proxy servers)."; }
-syncLbCommand() { syncDir "lb" "/etc/nginx" "nginx"; }
 
 syncCredentialCommand()
 {
@@ -731,6 +676,15 @@ syncJumpcloudCommand()
 	hilight "Updating JumpCloud wiggin-dsl RADIUS Server to $ip..."
 	JumpCloud radius update wiggin-dsl "$ip" > /dev/null || return; echo
 }
+
+syncLbUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize load balancer configuration (NGINX rever proxy servers).\n\n$hostUsage"; }
+syncLbOpt() { ScriptOptHost "$@"; }
+syncLbCommand() { local forAllHeader="Sync Load Balancer"; GetHostsConfigNetwork "lb" && ForAllHosts syncLb; }
+syncLb() { syncDir "$1" "/etc/nginx" "nginx"; }
+
+syncLbCertUsage() { EchoWrap "Usage: $(ScriptName) sync lb cert\nSyncronize load balancer SSL certificates.\n\n$hostUsage"; }
+syncLbCertCommand() { local forAllHeader="Sync Certificates"; GetHostsConfigNetwork "lb" && ForAllHosts syncLbCert; }
+syncLbCert() { syncDir "$1" "/etc/letsencrypt"; }
 
 syncWireguardCommand()
 {
@@ -860,14 +814,6 @@ borgBackup()
 	BorgHelper remote "$server" "${globalArgs[@]}" -- backup "$@" --archive="$archive" --repository="$server" --backup-host="$backupHosts" --prune 5
 }
 
-getHosts() 
-{
-	[[ "$hostsArg" != "all" ]] && { ArrayCopy hostsArg hosts; return; }
-	StringToArray "$(ConfigGet "$1")" "," hosts
-	[[ ! $hosts ]] && MissingOperand "hosts"
-	return 0
-}
-
 getHost()
 {
 	! IsAvailable "$host" && { ScriptErr "host '$host' is not available"; return 1; }
@@ -877,19 +823,16 @@ getHost()
 	hostIp="$(GetIpAddress "$host")" || return	
 }
 
-# syncDir NAME DIR [SERVICE] - synronize NAME servers from the local DIR and reload SERVICE
+# syncDir HOST DIR [SERVICE] - synronize NAME servers from the local DIR and reload SERVICE
 syncDir()
 {
-	local name="$1" dir="$2" service="$3"
+	local host="$1" dir="$2" service="$3"
 
-	header "Syncronizing ${name^}"
-	local host hosts=(); StringToArray "$(network current servers "$name")" "," hosts
-	for host in "${hosts[@]}"; do
-		! IsAvailable "$host" && continue
-		hilight "Synronizing $host..."
-		sudor -- UnisonHelper sync "$dir" "$host" "$dir" "${globalArgs[@]}" || return
-		[[ $service ]] && { service reload "$service" --host="$host" || return; }
-	done
+	! IsAvailable "$host" && continue
+	RunLog sudor -- UnisonHelper sync "$dir" "$host" "$dir" "${globalArgs[@]}" || return
+	[[ $service ]] && { RunLog service reload "$service" --host="$host" || return; }
+
+	return 0
 }
 
 ScriptRun "$@"

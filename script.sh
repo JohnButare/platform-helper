@@ -281,11 +281,14 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 # Script Host Option
 #
 
-# forAllHosts COMMAND [ARGS...] - run a command for all hosts
+# ForAllHosts COMMAND [ARGS...] - run a command for all hosts.  If forAllHeader is set and there is more than one host display it as a header.
 ForAllHosts()
 {
-	local host; getHosts || return
-	for host in "${hosts[@]}"; do "$@" "$host" || return; done
+	local host; GetHosts || return
+	for host in "${hosts[@]}"; do
+		[[ $forAllHeader ]] && (( ${#hosts[@]} > 1 )) && header "$forAllHeader ($host)"
+		"$@" "$host" || return
+	done
 }
 
 ScriptOptHost() 
@@ -296,13 +299,13 @@ ScriptOptHost()
 	esac
 }
 
-# getHosts [HOSTS] - get hosts from hostArg variable, passed list of comma serpated hosts, or all Nomad clients.  Sets hosts array.
-getHosts() 
+# GetHosts [HOSTS] - set hosts array from --host argument, the passed list, or all Nomad clients.
+GetHosts() 
 {
 	# return if hosts is already specified
 	[[ $hosts ]] && return
 
-	# use hostArg, then passed list of comma separated hosts
+	# use hostArg, then passed list
 	local h="${hostArg:-$1}"
 
 	# comma separate list of hosts
@@ -311,6 +314,37 @@ getHosts()
 	# service name
 	[[ "$h" == @(|all) ]] && hostArg="nomad-client"
 	IFS=$'\n' ArrayMakeC hosts GetServers "$hostArg"
+}
+
+# GetHostsConfig CONFIG - set hosts array from --host argument or from the passed configuration entry.
+GetHostsConfig() 
+{
+	local config="$1"
+
+	# use hostArg if specified
+	[[ "$hostArg" != @(|all) ]] && { StringToArray "${hostArg,,}" "," hosts; return; }
+
+	# used the passed configuration entry
+	StringToArray "$(ConfigGet "${config}Servers")" "," hosts  # i.e. dnsServers
+	[[ ! $hosts ]] && MissingOperand "hosts"
+
+	return 0
+}
+
+# GetHostsConfigNetwork CONFIG - set hosts array from --host argument or from the passed configuration entry for the current network.
+GetHostsConfigNetwork() 
+{
+	local config="$1"
+
+	# use hostArg if specified
+	[[ "$hostArg" != @(|all) ]] && { StringToArray "${hostArg,,}" "," hosts; return; }
+
+	# used the passed configuration entry
+	local network; network="$(network current name)" || return
+	StringToArray "$(ConfigGet "${network}$(UpperCaseFirst "$config")Servers")" "," hosts # i.e. hagermanLbServers
+	[[ ! $hosts ]] && MissingOperand "hosts"
+
+	return 0
 }
 
 #
