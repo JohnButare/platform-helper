@@ -685,6 +685,7 @@ QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
 QuoteSpaces() { GetArgs; echo "$@" | sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
 RemoveQuotes() { sed 's/"//g'; }
+RemoveParens() { tr -d '()'; }
 
 BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
 ForwardToBackSlash() { GetArgs; echo "${@////\\}"; }
@@ -1207,6 +1208,21 @@ GetEthernetAdapters()
 	fi
 }
 
+GetEthernetAdapterInfo()
+{
+	local adapter adapters dns ip; adapters=( $(GetEthernetAdapters | sort) ) || return
+
+	{
+		hilight "adapter-IP Address-DNS Name"
+
+		for adapter in "${adapters[@]}"; do
+			ip="$(GetAdapterIpAddress "$adapter")" || return
+			dns="$(DnsResolve "$ip")" || return
+			echo "${RESET}${RESET}$adapter-$ip-$dns" # add resets to line up the columns
+		done
+	} | column -c $(tput cols -T "$term") -t -s-
+}
+
 # GetInterface - name of the primary network interface
 GetInterface()
 {
@@ -1360,22 +1376,46 @@ IsMacAddress()
 
 IsStaticIp() { ! ip address show "$(GetInterface)" | grep "inet " | grep --quiet "dynamic"; }
 
-# MacLookup MAC - return the hosts associated with the specified MAC address, >1 if host has a virtual IP address
+# MacLookup MAC|DNS - return the IP addresses associated with the specified MAC address or DNS name
 MacLookup()
 {
 	local mac="$1"; [[ ! $mac ]] && { MissingOperand "mac" "MacLookup"; return 1; }
-	! IsMacAddress "$mac" && { ScriptErr "invalid MAC address '$1'" "MacLookup"; return 1; }
-	arp -a | command ${G}grep " $mac " | cut -d" " -f1 | sort | uniq
+	! IsMacAddress "$mac" && { mac="$(MacResolve "$mac")" || return; }
+	! IsMacAddress "$mac" && { ScriptErr "invalid MAC address '$mac'" "MacLookup"; return 1; }
+	arp -a -n | command ${G}grep " $mac " | cut -d" " -f2 | RemoveParens | sort | uniq
 }
 
-# MacResolve HOST [--quiet] - resolve a MAC address for the host using ping
+# MacLookupInfo MAC - return the IP addresses and DNS names associated with the specified MAC address
+MacLookupInfo()
+{
+	local mac="$1" dns ip ips; ips=( $(MacLookup "$mac") ) || return
+	! IsMacAddress "$mac" && { mac="$(MacResolve "$mac")" || return; }
+
+	{
+		hilight "mac-IP Address-DNS Name"
+
+		for ip in "${ips[@]}"; do
+			dns="$(DnsResolve "$ip")"
+			echo "${RESET}${RESET}$mac-$ip-$dns" # add resets to line up the columns
+		done
+	} | column -c $(tput cols -T "$term") -t -s-
+}
+
+# MacLookupName MAC - return the DNS names associated with the specified MAC address
+MacLookupName()
+{
+	local ip ips; ips=( $(MacLookup "$1") ) || return
+	for ip in "${ips[@]}"; do echo "$(DnsResolve "$ip")"; done
+}
+
+# MacResolve HOST [--quiet] - get the MAC address for the host
 MacResolve() 
 {
 	local quiet opts; ScriptOptQuiet "$@"; set -- "${opts[@]}"
 	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "MacResolve"; return 1; }
 
 	# populate the arp cache with the MAC address
-	ping -c 1 "$host" >& /dev/null || { [[ ! $quiet ]] && ScriptErr "unable to lookup the MAC address for '$host'" "MacResolve"; return 1; }
+	ping -c 1 "$host" >& /dev/null || { [[ ! $quiet ]] && ScriptErr "unable to resolve the MAC address for '$host'" "MacResolve"; return 1; }
 
 	# get the MAC address
 	local mac; mac="$(arp "$host")" || return
