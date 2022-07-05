@@ -220,14 +220,14 @@ PathAdd "$UBIN"
 
 [[ ! $FUNCTIONS && -f "$BIN/function.sh" ]] && . "$BIN/function.sh"
 
-# root user setup
-if [[ "$USER" == "root" ]]; then
+# root user setup - not required for macOS since HOME is not updated
+if [[ "$USER" == "root" ]] && ! IsPlatform mac; then
 
-	# use this users aliases
+	# use aliases from the configuration user
 	! grep -q "ConfigGet" "$HOME/.bashrc" && echo ". \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.bashrc"
 
 	# do not execute .bashrc for non-interactive shells (Raspberry Pi OS does not check this)
-	! grep -q '\[ -z "$PS1" \]' "$HOME/.bashrc" && sed -i '1s/^/[ -z "$PS1" ] \&\& return\n/' "$HOME/.bashrc"
+	! grep -q '\[ -z "$PS1" \]' "$HOME/.bashrc" && ${G}sed -i '1s/^/[ -z "$PS1" ] \&\& return\n/' "$HOME/.bashrc"
 
 fi
 

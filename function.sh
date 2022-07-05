@@ -2859,7 +2859,7 @@ sudoe()
 # sudo root [COMMAND] - run commands or a shell as root with access to the users SSH Agent and credential manager
 sudor()
 {
-	(( $# == 0 )) && set -- bash -i
+	(( $# == 0 )) && set -- bash -il # -l for macOS
 
 	# let the root command use our credential manager, ssh-agent, and Vault token
 	sudox \
