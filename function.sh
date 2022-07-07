@@ -2793,15 +2793,17 @@ IsElevated()
 # sudo
 SudoCheck() { [[ ! -r "$1" ]] && sudo="sudoc"; } # SudoCheck FILE - set sudo variable to sudoc if user does not have read permissiont to the file
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
-sudov() { sudoc --validate; } # update the cached credentials
+sudov() { sudoc -- sudo --validate; } # update the cached credentials if needed
+IsSudo() { sudo --validate --non-interactive >& /dev/null; } # return true if the sudo credentials are cached
 
 # sudoc COMMANDS - run COMMANDS using sudo and use the credential store to get the password if available
 #   --no-prompt|-np   do not prompt for a password
 #   --preserve|-p   	preserve the existing path (less secure)
 sudoc()
 { 
-	# if root already return - use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
-	IsRoot && { env "$@"; return; } 
+	# run the command if root already or we have cached credentials
+	# - use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
+	{ IsRoot || IsSudo; } && { env "$@"; return; } 
 
 	# arguments
 	local args=() noPrompt preserve 
