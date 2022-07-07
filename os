@@ -413,7 +413,7 @@ infoSetRemoteArgs() { remoteArgs=( $detail $prefix "${skipArg[@]}" "${whatArg[@]
 
 infoHosts()
 {
-	local host hosts; getHosts || return
+	local host hosts; GetHosts || return
 	(( ${#hosts[@]} > 1 )) && { prefix="--prefix"; infoSetRemoteArgs; }
 	local errors=0
 	for host in "${hosts[@]}"; do infoHost || (( ++errors )); done
