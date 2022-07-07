@@ -779,7 +779,9 @@ CloudGet()
 	for file in "$@"; do
 		[[ -d "$file" ]] && continue 										# skip directories
 		ScriptFileCheck "$file" || return 							# validate file
-		(( $(GetFileSize "$file" B) > 1 )) && continue		# skip if already downloaded, 1 in Windows 0 in macOS
+
+		# macOS can skip if already downloaded, in Windows file shows as true size even if offline
+		IsPlatform mac && (( $(GetFileSize "$file" B) > 1 )) && continue
 
 		if IsPlatform win; then
 			( cd "$(GetFilePath "$file")"; cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
@@ -1220,7 +1222,7 @@ GetEthernetAdapterInfo()
 			dns="$(DnsResolve "$ip")" || return
 			echo "${RESET}${RESET}$adapter-$ip-$dns" # add resets to line up the columns
 		done
-	} | column -c $(tput cols -T "$term") -t -s-
+	} | column -c $(tput cols -T "$TERM") -t -s-
 }
 
 # GetInterface - name of the primary network interface
@@ -1398,7 +1400,7 @@ MacLookupInfo()
 			dns="$(DnsResolve "$ip")"
 			echo "${RESET}${RESET}$mac-$ip-$dns" # add resets to line up the columns
 		done
-	} | column -c $(tput cols -T "$term") -t -s-
+	} | column -c $(tput cols -T "$TERM") -t -s-
 }
 
 # MacLookupName MAC - return the DNS names associated with the specified MAC address
