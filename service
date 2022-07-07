@@ -163,17 +163,26 @@ checkWaiting()
 
 isLinuxService() { isInitdService "$1" || isSystemdService "$1"; }
 isInitdService() { [[ -f "/etc/init.d/$1" ]] ; }
-isSystemdService() { [[ $useSystemd ]] || return ; [[ -f "/etc/systemd/system/$1.service" || -f "/lib/systemd/system/$1.service" ]]; }
+
+# isSystemdService NAME - NAME format is SERVICE_NAME[@SERVICE_INSTANCE]
+isSystemdService()
+{
+	[[ $useSystemd ]] || return
+	local name="$1" 
+	[[ "$name" =~ @ && "$(RemoveBefore "$name" "@")" == "" ]] && return 1 # empty instance name not allowed
+	[[ "$name" =~ @ ]] && name="$(RemoveAfter "$name" "@")@" # remove instance suffix
+	[[ -f "/etc/systemd/system/$name.service" || -f "/lib/systemd/system/$name.service" ]]
+}
 
 linuxService() # Linux Service Command - COMMAND SERVICE
 {
-	local sudo="sudoc"; [[ "$1" == @(status) ]] && sudo=""
-
+	sudov || return
+	
 	if IsPlatform wsl; then 
 		[[ $1 == "auto" ]] && return
-		RunLog $sudo "/usr/sbin/service" "$2" "$1" > "$quietOutput"
-	elif [[ $useSystemd ]]; then $sudo systemctl "$1" "$2"
-	else RunLog $sudo "/etc/init.d/$2" "$1"
+		RunLog sudo "/usr/sbin/service" "$2" "$1" > "$quietOutput"
+	elif [[ $useSystemd ]]; then sudo systemctl "$1" "$2"
+	else RunLog sudo "/etc/init.d/$2" "$1"
 	fi
 }
 
@@ -407,13 +416,17 @@ listWin() { $sc $hostUnc queryex bufsize= $scBufferSize type= all state= all; /u
 listLinux()
 {
 	local isSystemd; IsSystemd && isSystemd="true"
-	{ [[ -d "/etc/init.d" ]] && ls -1 "/etc/init.d";
+	{
+		[[ -d "/etc/init.d" ]] && grep "force-reload" "/etc/init.d/"* --files-with-matches | cut -d'/' -f4;
 		[[ $isSystemd && -d "/etc/systemd/system" ]] && ls -1 "/etc/systemd/system/" | grep ".service$" | cut -d. -f 1; 
 		[[ $isSystemd && -d "/lib/systemd/system" ]] && ls -1 "/lib/systemd/system/" | grep ".service$" | cut -d. -f 1;
+		[[ $isSystemd ]] && systemctl list-units --type=service --no-legend --full | tr -s " " | cut -d" " -f2 | cut -d. -f1;
 	} | sort | uniq; 
 }
 
-
+#systemctl list-units --type=service --no-legend --full | tr -s " " | cut -d" " -f2 | cut -d. -f1;
+		# [[ $isSystemd && -d "/etc/systemd/system" ]] && ls -1 "/etc/systemd/system/" | grep ".service$" | cut -d. -f 1; 
+		# [[ $isSystemd && -d "/lib/systemd/system" ]] && ls -1 "/lib/systemd/system/" | grep ".service$" | cut -d. -f 1;
 
 #
 # Log Command
