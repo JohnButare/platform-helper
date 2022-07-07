@@ -656,6 +656,7 @@ HexToDecimal() { echo "$((16#${1#0x}))"; }
 CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; }
 IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
+NewlineToComma()  { tr '\n' ','; }
 NewlineToSpace()  { tr '\n' ' '; }
 StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } # StringRepeat S N - repeat the specified string N times
 
@@ -1218,8 +1219,9 @@ GetEthernetAdapterInfo()
 		hilight "adapter-IP Address-DNS Name"
 
 		for adapter in "${adapters[@]}"; do
+			[[ "$adapter" == @(lo|docker*|br-*) ]] && continue
 			ip="$(GetAdapterIpAddress "$adapter")" || return
-			dns="$(DnsResolve "$ip")" || return
+			dns="$(DnsResolve "$ip" | NewlineToComma | RemoveEnd ",")" || dns="unknown"
 			echo "${RESET}${RESET}$adapter-$ip-$dns" # add resets to line up the columns
 		done
 	} | column -c $(tput cols -T "$TERM") -t -s-
