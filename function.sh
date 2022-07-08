@@ -2803,7 +2803,8 @@ sudoc()
 { 
 	# run the command if root already or we have cached credentials
 	# - use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
-	{ IsRoot || IsSudo; } && { env "$@"; return; } 
+	IsRoot && { env "$@"; return; } 	
+	IsSudo && { sudo "$@"; return; } 
 
 	# arguments
 	local args=() noPrompt preserve 
