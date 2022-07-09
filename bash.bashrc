@@ -220,15 +220,25 @@ PathAdd "$UBIN"
 
 [[ ! $FUNCTIONS && -f "$BIN/function.sh" ]] && . "$BIN/function.sh"
 
-# root user setup - not required for macOS since HOME is not updated
-if [[ "$USER" == "root" ]] && ! IsPlatform mac; then
+# root user setup - for sudor
+if [[ "$USER" == "root" ]]; then
 
-	# use aliases from the configuration user
-	! grep -q "ConfigGet" "$HOME/.bashrc" && echo ". \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.bashrc"
+	if IsPlatform mac; then
 
-	# do not execute .bashrc for non-interactive shells (Raspberry Pi OS does not check this)
-	! grep -q '\[ -z "$PS1" \]' "$HOME/.bashrc" && ${G}sed -i '1s/^/[ -z "$PS1" ] \&\& return\n/' "$HOME/.bashrc"
+		# HOME is not updated
+	 	export HOME=~root
 
+	 	# root shell is sh which runs .profile
+	 	[[ ! -f ~/.profile ]] && echo "[ $BASH ] && . \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.profile"
+
+	else
+		# use aliases from the configuration user
+		local file=".bashrc"; IsPlatform mac && file=".profile"
+		! grep -q "ConfigGet" "$HOME/.bashrc" && echo ". \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.bashrc"
+
+		# do not execute .bashrc for non-interactive shells (Raspberry Pi OS does not check this)
+		! grep -q '\[ -z "$PS1" \]' "$HOME/.bashrc" && ${G}sed -i '1s/^/[ -z "$PS1" ] \&\& return\n/' "$HOME/.bashrc"
+	fi
 fi
 
 # warning message for interactive shells if the configuration was not set properly
