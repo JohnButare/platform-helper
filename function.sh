@@ -398,9 +398,10 @@ store()
 #
 
 ConfigInit() { [[ ! $functionConfigFileCache ]] && export functionConfigFileCache="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$functionConfigFileCache" ]] && return; EchoErr "ConfigInit: configuration file '$functionConfigFileCache' does not exist"; return 1; }
-ConfigExists() { ConfigInit && (. "$functionConfigFileCache"; IsVar "$1"); }
-ConfigGet() { ConfigInit && (. "$functionConfigFileCache"; eval echo "\$$1"); }
-ConfigFileGet() { echo "$functionConfigFileCache"; }
+ConfigExists() { ConfigInit && (. "$functionConfigFileCache"; IsVar "$1"); }			# ConfigExists "VAR" - return true if a configuration variable exists
+ConfigGet() { ConfigInit && (. "$functionConfigFileCache"; eval echo "\$$1"); }		# ConfigGet "VAR" - get a configuration variable
+ConfigGetCurrent() { ConfigGet "$(network current name)$(UpperCaseFirst "$1")" ; } 		# ConfigGetCurrent "VAR" - get a configuration entry for the current network
+ConfigFileGet() { echo "$functionConfigFileCache"; }															# ConfigFileGet - return the current configuration file
 
 #
 # console
@@ -746,6 +747,7 @@ CopyFileProgress() { rsync --info=progress2 "$@"; }
 DirCount() { local result; result="$(command ls "${1:-.}" |& wc -l)" || return; RemoveSpace "$result"; }
 EnsureDir() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
 GetBatchDir() { GetFilePath "$0"; }
+GetDirs() { [[ ! -d "$1" ]] && return; find "$1" -maxdepth 1 -type d -not -path "$1"; }
 GetFileSize() { GetArgs; [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { GetArgs; local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { GetArgs; r "${1##*/}" $2; }
@@ -2613,7 +2615,9 @@ start()
 	fi
 
  	# run a non-Windows program
-	if [[ $wait ]]; then
+ 	if IsShellScript "$file"; then
+ 		"$file"
+	elif [[ $wait ]]; then
 		(
 			nohup $sudo "$file" "${args[@]}" >& /dev/null &
 			wait $!

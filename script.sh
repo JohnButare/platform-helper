@@ -331,20 +331,25 @@ GetHostsConfig()
 	return 0
 }
 
-# GetHostsConfigNetwork CONFIG - set hosts array from --host argument or from the passed configuration entry for the current network.
+# GetHostsConfigNetwork CONFIG [DEFAULT](all) - set hosts array from --host argument (hostArg) or from the passed configuration entry for the current network.
+# - if hostArg is first, hosts is set to the first available server
+# - if hostArg is all, hosts is set to all of the servers
 GetHostsConfigNetwork() 
 {
-	local config="$1"
+	local config="$1" default="$2" hostCheck="$(LowerCase "$hostArg")"
 
-	# use hostArg if specified
-	[[ "$hostArg" != @(|all) ]] && { StringToArray "${hostArg,,}" "," hosts; return; }
+	# default
+	[[ ! $hostCheck ]] && hostCheck="${default:-all}"
 
-	# used the passed configuration entry
-	local network; network="$(network current name)" || return
-	StringToArray "$(ConfigGet "${network}$(UpperCaseFirst "$config")Servers")" "," hosts # i.e. hagermanLbServers
-	[[ ! $hosts ]] && MissingOperand "hosts"
+	# first
+	[[ "$hostCheck" == "first" ]] && { hosts=( "$(network current server "$config")" ); return; }
 
-	return 0
+	# all
+	[[ "$hostCheck" == "all" ]] && { hostCheck="$(network current servers "$config")" || return; }
+
+	# list
+	StringToArray "$hostCheck" "," hosts; [[ $hosts ]] && return
+	MissingOperand "hosts"
 }
 
 #

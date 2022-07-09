@@ -120,12 +120,21 @@ currentFindCommand()
 currentServerUsage()
 { 
 	echot "Usage: $(ScriptName) current server TYPE
-Return the first server of the specified type for the current network.
+Return the first available server for the current network, i.e. network 'network current server wireguard --service=wg'.
 
-	-s, --service	the service to check if one is not specified, see 'network find --help'"
+	-s, --service		the service to validate, defaults to ping, see 'network find --help'"
 }
 
 currentServerArgStart() { unset -v service type; }
+
+currentServerOpt()
+{
+	case "$1" in
+		-s|--service|-s=*|--service=*) ScriptOptGet "service" "$@"; service="--service=$service";;
+		*) return 1;;
+	esac
+}
+
 currentServerArgs() { ScriptArgGet "type" -- "$@"; shift; }
 currentServerCommand() { local name; name="$(name)" || return; findServer "$name" "$type" "$service"; }
 
@@ -142,15 +151,6 @@ Return all servers of the specified type for the current network."
 currentServersArgStart() { unset -v type; }
 currentServersArgs() { ScriptArgGet "type" -- "$@"; shift; }
 currentServersCommand() { local name; name="$(name)" || return; getServersFromConfig "$name" "$type"; }
-
-currentServerOpt()
-{
-	case "$1" in
-		-s|--service|-s=*|--service=*) ScriptOptGet "service" "$@"; service="--service=$service";;
-		*) return 1;;
-	esac
-}
-
 
 #
 # Current Update Command
@@ -227,12 +227,12 @@ findServer()
 
 	# no servers defined
 	if [[ ! $servers ]]; then
-		doLog && EchoErr "no $type services defined for '$network' network"
+		doLog && EchoErr "no '$type' services defined for '$network' network"
 		return 1
 	fi
 
 	# find an active server
-	serverIndex="$(network find "${servers[@]}" $brief "${globalArgs[@]}")" || return
+	serverIndex="$(RunLog network find "${servers[@]}" $brief $service "${globalArgs[@]}")" || return
 
 	# return HOST:SERVICE of the server (DESCRIPTION@HOST:SERVICE)
 	RemoveBefore "${servers[$serverIndex]}" "@" 
@@ -249,12 +249,13 @@ Find the first server that exposes a specific service.  Returns the zero based i
 
 - SERVER format is [DESCRIPTION@]HOST_OR_IP[:SERVICE], i.e. hagerman:10.10.10:DNS
 - DESCRIPTION is used for information messages while checking
-- SERVICE is a numeric port or one of
-		PING - performs a UDP ping
-		DNS - checks port 53 and performs a DNS lookup
-  	NFS - checks port 111
-  	SMB - checks port 445
-  	SSH - checks port 22, or the port the port defined in the SSH configuration for the host
+- SERVICE is a numeric port, or one of:
+		ping - performs a UDP ping
+		dns - checks port 53 and performs a DNS lookup
+  	nfs - checks port 111
+  	smb - checks port 445
+  	ssh - checks port 22, or the port the port defined in the SSH configuration for the host
+  	wg - checks the WireGuard UDP port for the current network, defaults to 51820
 
 	-b,	--brief		show brief status messages
 	-s, --service	the service to use if one is not specified, defaults to PING
@@ -295,7 +296,7 @@ findCommand()
 		local description="$(GetSshUser "$server")"; description="${description:-$host}"; [[ "$description" != "$host" && $verbose ]] && description="$description ($host)"
 
 		# check for a valid service
-		! IsInteger "$service" && [[ "$service" != @(dns|ping|nfs|smb|ssh) ]] && { ScriptErr "'$service' is not a valid service"; return 1; }
+		! IsInteger "$service" && [[ "$service" != @(dns|ping|nfs|smb|ssh|wg) ]] && { ScriptErr "'$service' is not a valid service"; return 1; }
 
 		# logging
 		if [[ $verbose ]]; then
@@ -334,6 +335,7 @@ findCheck()
 	case "$service" in
 		dns) IsAvailablePort "$host" 53 && dig @$host bogus +time=1 +tries=1 >& /dev/null;;
 		ping) IsAvailable "$host";;
+		wg) local port="$(ConfigGetCurrent WireguardPort)"; [[ ! $port ]] && port="51820"; IsAvailablePortUdp "$host" "$port";;
 		*) "$check" "$host" "$service";;
 	esac
 }
