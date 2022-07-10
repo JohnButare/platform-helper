@@ -69,6 +69,7 @@ hagermanDomain="hagerman.$hagermanBaseDomain" hd="$hagermanDomain"
 hagermanBackupUser="$user"
 hagermanBackupServers="backup2.$hbd,backup1.$hbd" 	# list of backup servers in the format HOST1 [,HOST2]...
 hagermanFileServers="file2.$hbd,file1.$hbd"					# File Servers
+hagermanHassServers="pi9.$hbd,pi11.$hbd"						# Home Assistant Servers
 hagermanLbServers="pi1.$hd,pi3.$hd,pi4.$hd"					# Load Balancer Servers (NGINX reverse proxy)
 hagermanNas="nas3.$hd"															# NAS Server
 hagermanProxyServers="proxy.$hbd:3128" 							# Forward Proxy Servers

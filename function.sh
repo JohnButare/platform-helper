@@ -398,10 +398,10 @@ store()
 #
 
 ConfigInit() { [[ ! $functionConfigFileCache ]] && export functionConfigFileCache="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$functionConfigFileCache" ]] && return; EchoErr "ConfigInit: configuration file '$functionConfigFileCache' does not exist"; return 1; }
-ConfigExists() { ConfigInit && (. "$functionConfigFileCache"; IsVar "$1"); }			# ConfigExists "VAR" - return true if a configuration variable exists
-ConfigGet() { ConfigInit && (. "$functionConfigFileCache"; eval echo "\$$1"); }		# ConfigGet "VAR" - get a configuration variable
-ConfigGetCurrent() { ConfigGet "$(network current name)$(UpperCaseFirst "$1")" ; } 		# ConfigGetCurrent "VAR" - get a configuration entry for the current network
-ConfigFileGet() { echo "$functionConfigFileCache"; }															# ConfigFileGet - return the current configuration file
+ConfigExists() { ConfigInit && (. "$functionConfigFileCache"; IsVar "$1"); }				# ConfigExists "VAR" - return true if a configuration variable exists
+ConfigGet() { ConfigInit && (. "$functionConfigFileCache"; eval echo "\$$1"); }			# ConfigGet "VAR" - get a configuration variable
+ConfigGetCurrent() { ConfigGet "$(network current name)$(UpperCaseFirst "$1")" ; } 	# ConfigGetCurrent "VAR" - get a configuration entry for the current network
+ConfigFileGet() { echo "$functionConfigFileCache"; }																# ConfigFileGet - return the current configuration file
 
 #
 # console
@@ -1093,9 +1093,12 @@ LogShow()
 	local sudo file="$1" pattern="$2"; [[ $pattern ]] && pattern=" $pattern"
 
 	LineWrap "off"
-	SudoCheck "$1"; $sudo tail -f "$1" | grep "$pattern"
+	SudoCheck "$file"; $sudo tail -f "$1" | grep "$pattern"
 	LineWrap "on"
 }
+
+# FileWatch FILE [PATTERN] - watch a whole file for changes, optionally for a specific pattern
+FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo tail -F -n +0 "$1" | grep "$2"; }
 
 #
 # Network

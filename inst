@@ -108,6 +108,7 @@ installInit()
 		[bcc]="BeyondCompareConfig"
 		[cc]="CreativeCloud"
 		[cctray]="CruiseControlTray"
+		[cts]="ConsulTemplateService"
 		[ddm]="DellDisplayManager"
 		[dnsserver]="bind"
 		[dhcpserver]="kea"
@@ -194,7 +195,7 @@ installInit()
 	macDebian+=(HashiProgram ConsulProgram VaultProgram NomadProgram)
 	macDebian+=(HashiCli ConsulCli NomadCli VaultCli)
 	macDebian+=(HashiServer ConsulServer NomadServer VaultServer HashiServerUpdate ConsulServerUpdate NomadServerUpdate VaultServerUpdate)
-	macDebian+=(HashiUp ConsulDocker ConsulK8s ConsulTemplate NomadServerTools sockaddr)
+	macDebian+=(HashiUp ConsulDocker ConsulK8s ConsulTemplate ConsulTemplateService NomadServerTools sockaddr)
 
 	# Home Automation
 	debian+=(HomeAssistant HomeAssistantCore HomeAssistantCli HomeAssistantNomad)
@@ -862,7 +863,7 @@ runTypeNomad()
 	fi
 
 	# run the job
-	hashi nomad job run "$p" || return
+	CloudGet --quiet "$p" && hashi nomad job run "$p"
 }
 
 runTypePackage() { package --quiet "$1"; }
@@ -1106,7 +1107,7 @@ AppHostSoftwareInstall()
 	local common="1Password 1PasswordCli dropbox notion office GitCore JumpCloud"
 	local commonLaptop="WireGuard"
 	local commonMac="$common bartender moom spark"
-	local coreServer="UbuntuStaticIp ChronyServer cron cups DnsServer DhcpServer keepalived nginx PiVPN"
+	local coreServer="UbuntuStaticIp ChronyServer ConsulTemplateService cron cups DnsServer DhcpServer keepalived nginx PiVPN"
 	local homebridge="homebridge HomebridgeWiggin"
 
 	# software
@@ -3974,7 +3975,7 @@ SaltMinionInstall()
 #
 
 HashiAll() { i HashiOtherInstall HashiCliInstall HashiProgramInstall HashiServerInstall HashiServerUpdate; }
-HashiOtherAll() { i ConsulK8s ConsulTemplate HashiUp sockaddr vagrant; }
+HashiOtherAll() { i ConsulK8s ConsulTemplate ConsulTemplateService HashiUp sockaddr vagrant; }
 
 # Hashi Programs program only
 HashiProgramInstall() { i ConsulProgram NomadProgram VaultProgram; }
@@ -4028,6 +4029,46 @@ ConsulDockerInstall()
 	IsPlatform mac && return
 	! { UserExists "consul" && GroupExists "docker"; } || UserInGroup "consul" "docker" && return
 	GroupAddUser "docker" "consul" && service restart consul --no-service-check
+}
+
+ConsulTemplateServiceInstall()
+{
+	header "consul-template Service"
+	
+	# install consul-template
+	! InPath consul-template && { i --no-header ConsulTemplate || return; }
+
+	# service
+	local dir="/etc/consul-template.d"
+	local file="/etc/systemd/system/consul-template.service"
+		
+	if [[ ! -f "$file" || $force ]]; then
+		cat <<-EOF | sudoc ${G}tee "$file" > /dev/null || return
+			[Unit]
+			Description=consul-template
+			Requires=network-online.target
+			After=network-online.target consul.service nomad.service vault.service
+
+			[Service]
+			EnvironmentFile=/etc/systemd/system/consul-template.env
+			ExecStart=/usr/local/bin/consul-template $OPTIONS -syslog -config=/etc/consul-template.d
+			ExecReload=/bin/kill -HUP $MAINPID
+			Restart=on-failure
+			RestartSec=5s
+			KillSignal=SIGINT
+
+			[Install]
+			WantedBy=multi-user.target
+		EOF
+	fi
+
+	# environment
+	local file="/etc/systemd/system/consul-template.env"
+	! [[ -f "$file" ]] && { sudo touch "$file" || return; }
+
+	# start the service
+	service refresh || return
+	serviceAutoStart consul-template || return
 }
 
 VagrantInstall()
