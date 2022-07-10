@@ -233,7 +233,6 @@ if [[ "$USER" == "root" ]]; then
 
 	else
 		# use aliases from the configuration user
-		local file=".bashrc"; IsPlatform mac && file=".profile"
 		! grep -q "ConfigGet" "$HOME/.bashrc" && echo ". \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.bashrc"
 
 		# do not execute .bashrc for non-interactive shells (Raspberry Pi OS does not check this)
