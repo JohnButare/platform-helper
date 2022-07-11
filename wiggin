@@ -606,7 +606,8 @@ syncCommand() { usage; }
 
 syncArgStart()
 {
-	unset hostArg hostOpt hosts noServiceRestart
+	unset hostArg hostOpt hosts noServiceRestart 
+	unset u # addition unison arguments
 	syncDir="$UDATA/sync"
 	syncUsage="	-nsr|--no-service-restart					do not restart services"
 }
@@ -659,6 +660,7 @@ syncHassCommand() { local forAllHeader="Sync Load Balancer"; GetHostsConfigNetwo
 syncHass()
 {
 	local current="$(GetServers home-assistant)"; echo "The current Home Assistant server is '$current'"
+	u=(-ignore "Name {*.log*}")
 	syncDir "$1" "/home/homeassistant/.homeassistant"; 
 }
 
@@ -676,7 +678,7 @@ syncJumpcloudCommand()
 syncLbUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize load balancer configuration (NGINX rever proxy servers).\n\n$hostUsage\n$syncUsage"; }
 syncLbOpt() { ScriptOptHost "$@"; }
 syncLbCommand() { local forAllHeader="Sync Load Balancer"; GetHostsConfigNetwork "lb" && ForAllHosts syncLb; }
-syncLb() { syncDir "$1" "/etc/nginx" "nginx" && syncDir "$1" "/etc/consul-template.d" "consul-template"; }
+syncLb() { u=(-ignore "Name {sites-available/*.conf}"); syncDir "$1" "/etc/nginx,/etc/consul-template.d" "consul-template,nginx"; }
 
 syncLbCertUsage() { EchoWrap "Usage: $(ScriptName) sync lb cert\nSyncronize load balancer SSL certificates.\n\n$hostUsage"; }
 syncLbCertCommand() { local forAllHeader="Sync Certificates"; GetHostsConfigNetwork "lb" && ForAllHosts syncLbCert; }
@@ -688,7 +690,7 @@ syncWebCommand() { apache sync "${hostOpt[@]}" "${globalArgs[@]}"; }
 syncWgcUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize WireGuard configuration.\n\n$hostUsage"; }
 syncWgcOpt() { ScriptOptHost "$@"; }
 syncWgcCommand() { local forAllHeader="Sync WireGuard Files"; GetHostsConfigNetwork "Wireguard" && ForAllHosts syncWgc; }
-syncWgc() { syncDir "$1" "/etc/wireguard" && syncDir "$1" "/etc/pivpn"; }
+syncWgc() { syncDir "$1" "/etc/wireguard,/etc/pivpn"; }
 
 syncWireguardCommand()
 {
@@ -836,28 +838,36 @@ getHost()
 	hostIp="$(GetIpAddress "$host")" || return	
 }
 
-# syncDir HOST DIR [SERVICE] - synronize NAME servers from the local DIR and reload SERVICE
+# syncDir HOST DIRS [SERVICES] - syncronize DIRS with HOST and reload SERVICES
 syncDir()
 {
-	local host="$1" dir="$2" service="$3"
-	local localDir="$dir"; IsDesktop && localDir="$UDATA/sync/$dir"
+	local host="$1" dirs="$2" services="$3"
 
-	# validate
+	# validate host
 	IsLocalHost "$host" && return # do not sync to ourself
 	HostAvailable "$host" || return
 
+	# sync dirs
+	local dir; StringToArray "$dirs" "," "dirs"
+	for dir in "${dirs[@]}"; do 
 
-	# create the local directory if needed
-	[[ ! -d "$localDir" ]] && { RunLog sudoc ${G}mkdir --parents "$localDir" || return; }
+		# create the local directory if needed
+		local localDir="$dir"; IsDesktop && localDir="$UDATA/sync/$dir"
+		[[ ! -d "$localDir" ]] && { RunLog sudoc ${G}mkdir --parents "$localDir" || return; }
 
-	# sync	
-	hilight "Syncing '$dir'..."
-	RunLog sudor -- UnisonHelper sync "$localDir" "$host" "$dir" "${globalArgs[@]}" || return
+		# sync
+		hilight "Syncing '$dir'..."
+		RunLog sudor -- UnisonHelper sync "$localDir" "$host" "$dir" "${globalArgs[@]}" -- "${u[@]}" || return
 
-	# service reload
-	[[ $service && ! $noServiceRestart ]] && { RunLog service reload "$service" --host="$host" || return; }
+	done	
 
-	return 0
+	# reload services
+	[[ $noServiceRestart ]] && return
+	local service; StringToArray "$services" "," "services"
+	for service in "${services[@]}"; do 
+		hilight "Reloading service '$service'..."
+		RunLog service reload "$service" --host="$host" || return;
+	done	
 }
 
 ScriptRun "$@"
