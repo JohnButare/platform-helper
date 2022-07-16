@@ -108,6 +108,7 @@ installInit()
 		[bcc]="BeyondCompareConfig"
 		[cc]="CreativeCloud"
 		[cctray]="CruiseControlTray"
+		[consul]="ConsulCli"
 		[cts]="ConsulTemplateService"
 		[ddm]="DellDisplayManager"
 		[dnsserver]="bind"
@@ -128,7 +129,7 @@ installInit()
 		[etcher]="BalenaEtcher"
 		[ff]="firefox"
 		[ghub]="LogitechGhub"
-		[consul]="ConsulCli"
+		[named]="bind"
 		[nomad]="NomadCli"
 		[vault]="VaultCli"
 		[hasscli]="HomeAssistantCli"
@@ -4362,6 +4363,36 @@ BindInstall()
 		pkg bind9 bind9utils bind9-doc dnsutils bind9-host || return
 	else
 		pkg bind9 bind9-utils bind9-doc bind9-dnsutils bind9-host || return
+	fi
+
+	# update service file - for Raspberry Pi time syncronization
+	local file="/etc/systemd/system/multi-user.target.wants/named.service"
+	if IsPlatformAll ubuntu,PiKernel && [[ -f "$file" ]] && { [[ $force ]] || ! grep --quiet "clock-sync" "$file"; }; then
+		hilight "Updating service..."
+		
+		cat <<-EOF | sudo ${G}tee "$file" > /dev/null || return
+			[Unit]
+			Description=BIND Domain Name Server
+			Documentation=man:named(8)			
+			Wants=nss-lookup.target
+			Before=nss-lookup.target
+
+			# ensures time is syncronized to prevent broken trust chain errors on systems without clock
+			After=network.target clock-sync.target multi-user.target
+
+			[Service]
+			EnvironmentFile=-/etc/default/named
+			ExecStart=/usr/sbin/named -f \$OPTIONS
+			ExecReload=/usr/sbin/rndc reload
+			ExecStop=/usr/sbin/rndc stop
+
+			[Install]
+			WantedBy=multi-user.target
+			Alias=bind9.service
+		EOF
+
+		service refresh || return
+		service restart named || return
 	fi
 
 	i DebianSudoPasswordless || return # for remote updates
