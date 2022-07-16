@@ -1087,7 +1087,7 @@ UnzipPlatform()
 # Monitoring
 #
 
-# LogShow FILE [PATTERN]
+# LogShow FILE [PATTERN] - show and follow a log file, optionally filtering for a pattern
 LogShow()
 { 
 	local sudo file="$1" pattern="$2"; [[ $pattern ]] && pattern=" $pattern"
@@ -1095,6 +1095,13 @@ LogShow()
 	LineWrap "off"
 	SudoCheck "$file"; $sudo tail -f "$1" | grep "$pattern"
 	LineWrap "on"
+}
+
+# LogShowAll FILE [PATTERN] - show the entire log file, optionally starting a reverse search for pattern
+LogShowAll()
+{
+	local sudo file="$1" pattern="$2"; [[ $pattern ]] && pattern="+?$pattern"
+	SudoCheck "$file"; $sudo less $pattern "$file"
 }
 
 # FileWatch FILE [PATTERN] - watch a whole file for changes, optionally for a specific pattern
