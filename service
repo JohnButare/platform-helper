@@ -8,9 +8,9 @@ usage()
 Usage: service [OPTION]... [COMMAND](start) 
 Control system services.
 
-	continue|manage|pause|reload|restart|start|stop SERVICE			control service
-	auto|delete|demand|disable|manual SERVICE		 								configure service
-	detail|exists|log|StartType|state|status|running SERVICE	service information
+	continue|manage|pause|reload|restart|start|stop SERVICE				control service
+	auto|delete|demand|disable|manual SERVICE		 									configure service
+	detail|exists|log|show|StartType|state|status|running SERVICE	service information
 	dir|list|refresh|ui
 
 	-f, --force 						force the service operation even if the service seems to be in the correct state
@@ -175,7 +175,10 @@ isSystemdService()
 	# service with an instance name
 	[[ "$name" =~ @ && "$(RemoveBefore "$name" "@")" == "" ]] && return 1 # empty instance name not allowed
 	[[ "$name" =~ @ ]] && name="$(RemoveAfter "$name" "@")@" # remove instance suffix
-	[[ -f "/etc/systemd/system/$name.service" || -f "/lib/systemd/system/$name.service" ]]
+	[[ -f "/etc/systemd/system/$name.service" || -f "/lib/systemd/system/$name.service" ]] && return
+
+	# static units
+	systemctl is-enabled "$service" >& /dev/null
 }
 
 linuxService() # Linux Service Command - COMMAND SERVICE
@@ -424,7 +427,8 @@ listLinux()
 		[[ -d "/etc/init.d" ]] && grep "force-reload" "/etc/init.d/"* --files-with-matches | cut -d'/' -f4;
 		[[ $isSystemd && -d "/etc/systemd/system" ]] && ls -1 "/etc/systemd/system/" | grep ".service$" | cut -d. -f 1; 
 		[[ $isSystemd && -d "/lib/systemd/system" ]] && ls -1 "/lib/systemd/system/" | grep ".service$" | cut -d. -f 1;
-		[[ $isSystemd ]] && systemctl list-units --type=service --no-legend --full | tr -s " " | cut -d" " -f2 | cut -d. -f1;
+		[[ $isSystemd ]] && systemctl list-units --type=service --no-legend --full | tr -s " " | cut -d" " -f1 | cut -d. -f1;
+		[[ $isSystemd ]] && systemctl list-units --type=target --no-legend --full | tr -s " " | cut -d" " -f1;
 	} | sort | uniq; 
 }
 
@@ -465,7 +469,7 @@ logClearCommand() { RunPlatform "logClear"; }
 logClearLinux() { sudo journalctl --rotate && sudoc journalctl --vacuum-time=1s; }
 
 #
-# Start Command
+# Manage Command
 #
 
 manageUsage()
@@ -551,6 +555,24 @@ stateWin()
 {
 	GetWord "$($sc $hostUnc query "$service" |& grep STATE)" 4
 }
+
+#
+# Show Command
+#
+
+showUsage() { EchoWrap "Usage: $(ScriptName) show active|start\nShow service information."; }
+showCommand() { RunPlatform show; }
+showLinux() { [[ ! $useSystemd ]] && return; systemctl show "$service"; }
+
+showActiveUsage() { EchoWrap "Usage: $(ScriptName) show active\nShow time service became active."; }
+showActiveCommand() { RunPlatform showActive; }
+showActiveLinux() { getProp "ActiveEnterTimestamp"; }
+
+showStartUsage() { EchoWrap "Usage: $(ScriptName) show start\nShow service start time."; }
+showStartCommand() { RunPlatform showStart; }
+showStartLinux() { local result="$(getProp "ExecMainStartTimestamp")"; [[ $result ]] && { echo $result; return; }; showActiveLinux; }
+
+getProp() { showCommand | grep "^$1=" | cut -d= -f2; }
 
 #
 # Start Type Command
