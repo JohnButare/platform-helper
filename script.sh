@@ -246,7 +246,7 @@ ScriptOptGet()
 		scriptOptValue="$(GetAfter "$opt" =)"
 
 	# format: -o VAL --option VAL
-	elif (( $# > 0 )) && ! IsOption "$1"; then
+	elif (( $# > 0 )) && ! IsOption "$1" && { [[ ! $integer ]] || IsInteger "$1"; }; then
 		scriptOptValue="$1"; ((++shift))
 		
 	elif [[ $require ]]; then
@@ -258,7 +258,7 @@ ScriptOptGet()
 	fi
 
 	# check data type
-	[[ $integer ]] && ! IsInteger "$scriptOptValue" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
+	[[ $integer && $scriptOptValue ]] && ! IsInteger "$scriptOptValue" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
 
 	# set variable
 	local -n var="$scriptVar"
