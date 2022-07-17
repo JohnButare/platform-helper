@@ -435,7 +435,7 @@ infoPrint()
 infoRemote()
 {
 	# check for ssh
-	! SshIsAvailable "$host" && { infoEcho "$host Operating System information is not available"; return; }
+	! SshIsAvailablePort "$host" && { infoEcho "$host Operating System information is not available"; return; }
 
 	# get detailed information using the os command on the host if possible
 	SshInPath "$host" "os" && { SshHelper connect "$host" --pseudo-terminal -- os info "${remoteArgs[@]}"; return; }
