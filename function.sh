@@ -1328,7 +1328,7 @@ GetServer()
 GetServers() { hashi resolve name --all "$@"; }
 
 # GetAllServers - get all active servers
-GetAllServers() { GetServers "nomad-client" | sort; } # assume all servers have the nomad-client service
+GetAllServers() { GetServers "nomad-client" | sort -V; } # assume all servers have the nomad-client service
 
 # ipconfig [COMMAND] - show or configure network
 ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
@@ -1600,7 +1600,7 @@ WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 # Network: DNS Names
 #
 
-AddDnsSuffix() { GetArgs2; HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 						# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already present
+AddDnsSuffix() { GetArgs2; HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 	# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already present
 GetDnsSearch() { cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2-; }
 GetDnsServers() { resolvectl status | grep -1 'DNS Servers' | tail -2 | sed "s/DNS Servers://" | RemoveNewline | tr -s " " | RemoveSpaceTrim; }
 GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }	# GetDnsSuffix HOST - the DNS suffix of the HOST
