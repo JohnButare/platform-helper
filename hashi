@@ -17,8 +17,8 @@ Common options:
 	-a,	 --api						server for API communication
 	-cf, --config-file		configuration file to use in place og bootstrap-config.sh
 	-cp, --config-prefix	configuration prefix to use, i.e. test
-	-H,  --host HOST			comma separated list of hosts for the command, or one of the
-												following aliases: all|clients|servers|1|2|3|4|5|6|first|second|third|fourth|fifth|sixth
+	-H,  --host HOST			comma separated list of hosts for the command
+												aliases: active|all|clients|servers|1|2|3|4|5|6|first|second|third|fourth|fifth|sixth
 	-is, --is-server			assume the hosts are servers"
 }
 
@@ -887,7 +887,7 @@ consulAclAgentAllowCommand() { forAllHosts consulAclAgentAllow; }
 
 consulAclAgentCreateUsage() { EchoWrap "Usage: $(ScriptName) consul acl agent create\nCreate agent ACL policies and tokens.  \
 If this is a new agent, use --api to specify the API server.  For example:\n
-hashi consul acl agent create --api=pi1 -H=pi5"; }
+hashi consul acl agent create --api=pi1 --host=pi5"; }
 consulAclAgentCreateCommand() { consulApiCheck && forAllHosts consulAclAgentCreate; }
 
 consulAclAgentDenyUsage() { EchoWrap "Usage: $(ScriptName) consul acl agent deny\nChange the default ACL policy to deny."; }
@@ -2225,9 +2225,18 @@ nomadConfigEnableVault()
 # nomad node commands
 #
 
-nomadNodeUsage() { echot "Usage: $(ScriptName) nomad node drain|id\nNomad node commands."; }
+nomadNodeUsage() { echot "Usage: $(ScriptName) nomad node alloccations|drain|exists|id|ls\nNomad node commands."; }
 nomadNodeCommand() { usage; }
+nomadNodeAllocationsCommand() { forAllHosts nomadNodeAllocations; }
+nomadNodeExistsCommand() { local quiet="--quiet"; nomadNodeIdCommand > /dev/null; }
 nomadNodeIdCommand() { forAllHosts nomadGetNodeId; }
+nomadNodeLsCommand() { nomad node status -json | jq '.[] | .Name' | RemoveQuotes; }
+
+nomadNodeAllocations()
+{
+	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
+	printf "$(RemoveDnsSuffix "$host"): "; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | wc -l
+}
 
 # nomadGetNodeId HOST
 nomadGetNodeId()
@@ -2242,11 +2251,12 @@ nomadGetNodeId()
 # nomad node drain commands
 #
 
-nomadNodeDrainUsage() { echot "Usage: $(ScriptName) nomad node drain enable|disable id\nNomad node drain commands."; }
-
+nomadNodeDrainUsage() { echot "Usage: $(ScriptName) nomad node drain enable|disable|status\nNomad node drain commands."; }
 nomadNodeDrainCommand() { usage; }
 nomadNodeDrainEnableCommand() { forAllHosts nomadNodeDrainEnable; }
 nomadNodeDrainDisableCommand() { forAllHosts nomadNodeDrainDisable; }
+nomadNodeDrainStatusUsage() { echot "Usage: $(ScriptName) nomad node drain status\nReturn true if all specified hosts are drained."; }
+nomadNodeDrainStatusCommand() { forAllHosts nomadNodeDrainStatus; }
 
 # nomadNodeDrainEnable HOST
 nomadNodeDrainEnable()
@@ -2254,6 +2264,10 @@ nomadNodeDrainEnable()
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
 	local forceArg; [[ $force ]] && forceArg="-deadline 1m"
 
+	# return if already enabled
+	[[ ! $force ]] && nomadNodeDrainStatus "$host" && return
+
+	# enable
 	hilight "Draining Nomad on node $host..."
 	RunLog nomad node drain -enable -yes $forceArg "$id" && echo
 }
@@ -2263,8 +2277,22 @@ nomadNodeDrainDisable()
 {
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
 
+	# return if already disbaled
+	[[ ! $force ]] && ! nomadNodeDrainStatus "$host" && return
+
+	# disable
 	hilight "Bringing Nomad node $host back online..."
 	RunLog nomad node drain -disable -yes "$id" && echo
+}
+
+# nomadNodeDrainStatus HOST
+nomadNodeDrainStatus()
+{
+	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
+	local eleigible; eleigible="$(nomad node status -json "$id" | jq '.SchedulingEligibility' | RemoveQuotes	)" || return
+	local hasAllocations="true"; nomad status "$id" | ${G}grep --quiet '^No allocations placed$' && unset hasAllocations
+	log2 "eligible=$eleigible hasAllocations=$hasAllocations"
+	[[ "$eleigible" == "ineligible" && ! $hasAllocations ]]
 }
 
 #
@@ -3525,12 +3553,6 @@ productGetServerDo()
 	# use the --api argument
 	[[ $api ]] && { echo "$api"; return; }
 
-	# use the first host specified by the --host or --servers arguments
-	if [[ $hostArg || $servers ]]; then
-		local hosts; getHosts "${servers[@]}" || return
-		echo "${hosts[0]}"; return
-	fi
-
 	# use the <product>_SERVER environment variable if it is valid
 	if [[ ! $force && $(productVarGet "SERVER") ]]; then
 		server="$(productVarGet "SERVER")"
@@ -3550,6 +3572,12 @@ productGetServerDo()
 	# use consul to resolve the server for the product
 	if [[ "$product" != "consul" ]] && server="$(quiet="true" productResolve "$product")"; then
 		echo $server; return
+	fi
+
+	# use the first host specified by the --host or --servers arguments
+	if [[ $hostArg || $servers ]]; then
+		local hosts; getHosts "${servers[@]}" || return
+		echo "${hosts[0]}"; return
 	fi
 
 	# use the first server specified in bootstrap-config.sh
@@ -3837,15 +3865,19 @@ getHosts()
 	# use the hostArg if specified
 	if [[ $h ]]; then
 
-		# all servers
-		if [[ "$h" == "all" ]]; then
+		# active servers
+		if [[ "$h" == "active" ]]; then
+			hosts=( $(GetAllServers) )
+
+		# all servers in configurations
+		elif [[ "$h" == "all" ]]; then
 			configServers
 
-		# clients or servers
+		# clients or servers in configuration
 		elif [[ "$h" == @(clients|servers) ]]; then
 			configGetArray "$h" hosts
 		
-		# ordered server
+		# ordered server from configuration, servers first, then clients
 		elif [[ "$h" == @(1|2|3|4|5|6|first|second|third|fourth|fifth|sixth) ]]; then
 			local servers; configGetArray "servers"
 			local clients; configGetArray "clients"
@@ -3863,15 +3895,15 @@ getHosts()
 			StringToArray "$hostArg" "," hosts
 		fi
 
-	# use all hosts from configuration
+	# passed argument - empty or all
 	elif [[ $# == 0 ]] || [[ $# == 1 && "$1" == "all" ]]; then
 		configServers
 		
-	# use the specicified configuration variable (clients, servers, etc.)
+	# passed argument - configuration variable (clients, servers, etc.)
 	elif [[ $# == 1 && $(configGet "$1") ]] ; then
 		configGetArray "$1" "hosts"
 	
-	# use the passed servers	
+	# passed arguments
 	else
 		hosts=( "${@}" )
 	fi
