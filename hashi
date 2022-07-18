@@ -1049,7 +1049,7 @@ consulAclDelete() { local name="$1"; consulAclPolicyRm "$name" && consulAclToken
 consulAclPolicyCreate()
 {
 	local name="$1" def="$2"
-	consulAclPolicyExists "$name" && { [[ ! $force ]] && return; consulAclPolicyRm "$name" || return; }
+	consulAclPolicyExists "$name" && { ScriptErr "the consul ACL policy '$name' already exists"; return 1; }
 	echo "$def" | RunLog consul acl policy create -name "$name" -rules -
 }
 
@@ -1102,7 +1102,7 @@ consulAclTokenGetId()
 consulAclTokenCreate()
 {
 	local name="$1" policy="${2:-$1}"
-	consulAclTokenExists "$name" && { [[ ! $force ]] && return; consulAclTokenRm "$name" || return; }
+	consulAclTokenExists "$name" && { ScriptErr "the consul ACL token '$name' already exists"; return 1; }
 	RunLog consul acl token create -description "$name" -policy-name "$policy"
 }
 
@@ -2235,7 +2235,12 @@ nomadNodeLsCommand() { nomad node status -json | jq '.[] | .Name' | RemoveQuotes
 nomadNodeAllocations()
 {
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
-	printf "$(RemoveDnsSuffix "$host"): "; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | wc -l
+
+	if [[ $verbose ]]; then
+		header "$(RemoveDnsSuffix "$host")"; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2
+	else
+		printf "$(RemoveDnsSuffix "$host"): "; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | wc -l
+	fi
 }
 
 # nomadGetNodeId HOST
@@ -2289,10 +2294,17 @@ nomadNodeDrainDisable()
 nomadNodeDrainStatus()
 {
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
+
+	# node is not drained if it is elegible to get jobs
 	local eleigible; eleigible="$(nomad node status -json "$id" | jq '.SchedulingEligibility' | RemoveQuotes	)" || return
-	local hasAllocations="true"; nomad status "$id" | ${G}grep --quiet '^No allocations placed$' && unset hasAllocations
-	log2 "eligible=$eleigible hasAllocations=$hasAllocations"
-	[[ "$eleigible" == "ineligible" && ! $hasAllocations ]]
+	[[ "$eleigible" == "eligible" ]] && { log2 "host '$host' is elegible for jobs"; return 1; }
+	
+	# node is not drained if it has running allocations
+	local hasAllocations; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | grep --quiet " running " && hasAllocations="true"
+	(( verboseLevel > 2 )) && nomad status "$id" | sed '1,/Allocations/d' | tail -n +2
+	[[ $hasAllocations ]] && { log2 "host '$host' has running allocations"; return 1; }
+	
+	return 0	
 }
 
 #
