@@ -2089,7 +2089,7 @@ isPlatformDo()
 
 
 		# hardware
-		cm4) grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo";;
+		cm4) [[ -e /proc/cpuinfo ]] && grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo";;
 
 		# hashi
 		consul|nomad|vault) service running "$p";;
@@ -2181,6 +2181,7 @@ function RunPlatform()
 	fi
 
 	# run other functions
+	IsPlatform cm4 --host && { RunFunction $function cm4 "$@" || return; }
 	IsPlatform entware --host && { RunFunction $function entware "$@" || return; }
 	IsPlatform debian,mac --host && { RunFunction $function DebianMac "$@" || return; }
 	IsPlatform pikernel --host && { RunFunction $function PiKernel "$@" || return; }
