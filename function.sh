@@ -1497,7 +1497,10 @@ IsAvailablePortUdp()
 {
 	local host="$1" port="$2" timeout="${3-$(AvailableTimeoutGet)}"; host="$(GetIpAddress "$host" --quiet)" || return
 
-	if InPath nmap; then
+	if InPath nc; then # does not require root access
+		timeout="$(( timeout / 1000 + 1 ))" # round up to nearest second
+		nc -zvu "$host" "$port" -w "$timeout" >& /dev/null
+	elif InPath nmap; then
 		sudoc -- nmap "$host" -p "$port" -Pn -T5 -sU |& grep -q "open" >& /dev/null
 	else
 		return 0 
