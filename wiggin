@@ -71,7 +71,7 @@ backupNginxCommand() { borgBackupConfig "Nginx" "lb" "/etc/nginx"; }
 backupProxymanagerCommand() { borgBackupService "ProxyManager" "nginx-proxy-manager" "/srv/nginx-proxy-manager"; }
 backupHomeassistantCommand() { borgBackupService "HomeAssistant" "home-assistant" "/home/homeassistant/.homeassistant"; }
 backupWebCommand() { borgBackupService "web" "web" "/srv/apache-web"; }
-backupWireguardCommand() { borgBackupConfig "WireGuard" "wireguard" "/etc/wireguard" "/etc/pivpn"; }
+backupWireguardCommand() { borgBackupService "WireGuard" "wireguard" "/etc/wireguard" "/etc/pivpn"; }
 
 backupDomain()
 {
@@ -613,11 +613,12 @@ syncArgStart()
 	unset hostArg hostOpt hosts noServiceRestart 
 	unset u # addition unison arguments
 	syncDir="$UDATA/sync"
-	syncUsage="	-nsr|--no-service-restart					do not restart services"
+	syncUsage="$hostUsage\n	-nsr, --no-service-restart				do not restart services"
 }
 
 syncOpt()
 {
+	ScriptOptHost "$@" && return
 	case "$1" in
 		-nsr|--no-service-restart) noServiceRestart="--no-service-restart";;
 		*) return 1;;
@@ -659,7 +660,7 @@ updateIp()
 
 syncHassUsage() { EchoWrap "Usage: $(ScriptName) sync hass [cert]\nSyncronize Home Assistant configuration.\n\n$hostUsage\n$syncUsage"; }
 syncHassOpt() { ScriptOptHost "$@"; }
-syncHassCommand() { local forAllHeader="Sync Load Balancer"; GetHostsConfigNetwork "hass" && ForAllHosts syncHass; }
+syncHassCommand() { local forAllHeader="Sync Home Assistant"; GetHostsConfigNetwork "hass" && ForAllHosts syncHass; }
 
 syncHass()
 {
@@ -693,36 +694,31 @@ syncWebCommand() { apache sync "${hostOpt[@]}" "${globalArgs[@]}"; }
 
 syncWgcUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize WireGuard configuration.\n\n$hostUsage"; }
 syncWgcOpt() { ScriptOptHost "$@"; }
-syncWgcCommand() { local forAllHeader="Sync WireGuard Files"; GetHostsConfigNetwork "Wireguard" && ForAllHosts syncWgc; }
-syncWgc() { syncDir "$1" "/etc/wireguard,/etc/pivpn"; }
+syncWgcCommand() { local forAllHeader="Sync WireGuard Files"; GetHostsService "wire-guard" && ForAllHosts syncWgc; }
+syncWgc() { u=(-ignore "Name {setupVars.conf}"); syncDir "$1" "/etc/wireguard,/etc/pivpn"; }
 
 syncWireguardCommand()
 {
 	# get current WireGuard server
 	log1 "getting the current WireGuard server..."
-	local currentHost="$(UpdateGet "WireGuardServer")"
+	local currentHost; currentHost="$(UnifiController port ls | jq ".data | .[] | select(.name == \"WireGuard\").fwd" | RemoveQuotes)" || return
+	[[ $currentHost ]] && { currentHost="$(DnsResolve "$currentHost")" || return; }
+	log1 "currentHost=$currentHost"
 
-	# get first sctive WireGuard server
-	log1 "getting the first active WireGuard server..."
-	local newHost; newHost="$(network current server wireguard --service=wg)" || return
-	
+	# get active WireGuard server
+	log1 "getting active WireGuard server..."
+	local hosts; GetHostsService "wire-guard"
+	local activeHost="$(ArrayShow "hosts" | sort -V | tac | head -1 | RemoveQuotes)" || return
+	activeHost="$(DnsResolve "$activeHost")"
+	log1 "activeHost=$activeHost"
+
 	# return if the WireGuard server has not changed	
-	[[ "$currentHost" == "$newHost" ]] && { echo "The WireGuard server ($currentHost) has not changed."; return; }
+	[[ "$currentHost" == "$activeHost" ]] && { echo "The WireGuard server ($currentHost) has not changed."; [[ ! $force ]] && return; }
 
-	# enable port forwarding for the selected WireGuard server
-	echo "Enabling WireGuard port forwarding for $newHost..."
-	UniFiController port enable "WireGuard ($(RemoveDnsSuffix "$newHost"))" || return
-
-	# disable port forwarding for other WireGuard servers
-	log1 "getting all WireGuard servers..."
-	local host hosts; GetHostsConfigNetwork wireguard || return	
-	for host in "${hosts[@]}"; do
-		[[ "$host" == "$newHost" ]] && continue
-		echo "Disabling WireGuard port forwarding for $host..."
-		UniFiController port disable "WireGuard ($(RemoveDnsSuffix "$host"))" || return
-	done
-
-	UpdateSet "WireGuardServer" "$newHost"
+	# update the port forwarding rule
+	local ip; ip="$(GetIpAddress "$activeHost")" || return
+	echo "Updating the WireGuard port forwarding to $ip ($activeHost)..."
+	RunLog UniFiController port host "WireGuard" "$ip"
 }
 
 #
@@ -817,12 +813,12 @@ borgBackup()
 	RunLog BorgHelper remote "$server" "${globalArgs[@]}" -- backup "$@" --archive=$archive --host=all --prune=5
 }
 
-# borgBackupConfig ARCHIVE CONFIG [DIR]... - backup first availble host for the network configuration
+# borgBackupConfig ARCHIVE CONFIG [DIR]... - backup first availble host for the specified network configuration
 borgBackupConfig()
 {
 	local archive="$1" config="$2"; shift 2
-	local hosts; GetHostsConfigNetwork "$config" "first" || return
-	borgBackup "$archive" "${hosts[@]}" "/etc/nginx"
+	local hosts; GetHostsConfigNetwork "$config" || return
+	borgBackup "$archive" "${hosts[0]}" "$@"
 }
 
 # borgBackupService ARCHIVE SERVICE [DIR]... - backup first availble host directories for service
@@ -856,7 +852,7 @@ syncDir()
 	for dir in "${dirs[@]}"; do 
 
 		# create the local directory if needed
-		local localDir="$dir"; IsDesktop && localDir="$UDATA/sync/$dir"
+		local localDir="$dir"; IsDesktop && localDir="$UDATA/sync$dir"
 		[[ ! -d "$localDir" ]] && { RunLog sudoc ${G}mkdir --parents "$localDir" || return; }
 
 		# sync
