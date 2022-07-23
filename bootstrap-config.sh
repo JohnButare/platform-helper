@@ -67,12 +67,12 @@ networks="hagerman@10.10.100.10,hagerman@10.10.100.11" # list of DNS servers for
 hagermanBaseDomain="butare.net" hbd="$hagermanBaseDomain"
 hagermanDomain="hagerman.$hagermanBaseDomain" hd="$hagermanDomain"
 hagermanBackupUser="$user"
-hagermanBackupServers="backup2.$hbd,backup1.$hbd" 	# list of backup servers in the format HOST1 [,HOST2]...
-hagermanFileServers="file2.$hbd,file1.$hbd"					# File Servers
-hagermanHassServers="pi9.$hbd,pi11.$hbd"						# Home Assistant Servers
-hagermanLbServers="pi1.$hd,pi2.$hd,pi3.$hd,pi4.$hd"					# Load Balancer Servers (NGINX reverse proxy)
-hagermanNas="nas3.$hd"															# NAS Server
-hagermanProxyServers="proxy.$hbd:3128" 							# Forward Proxy Servers
-hagermanVip="10.10.100.6" 													# Virtual IP Address
-hagermanWireguardServers="pi2.$hd,pi1.$hd" 					# Wireguard VPN Servers
+hagermanBackupServers="backup2.$hbd,backup1.$hbd" 					# backup (Borg)
+hagermanFileServers="file2.$hbd,file1.$hbd"									# file (SMB)
+hagermanHassServers="pi9.$hbd,pi11.$hbd"										# Home Assistant
+hagermanLbServers="pi1.$hd,pi2.$hd,pi3.$hd,pi4.$hd"					# Load Balancer (NGINX reverse proxy)
+hagermanNas="nas3.$hd"																			# NAS Server
+hagermanProxyServers="proxy.$hbd:3128" 											# Forward Proxy (Squid)
+hagermanVip="10.10.100.6" 																	# Virtual IP Address
+hagermanWireguardServers="pi4.$hd,pi3.$hd,pi2.$hd,pi1.$hd" 	# Wireguard VPN
 hagermanWireguardPort="51820"
