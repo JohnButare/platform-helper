@@ -300,7 +300,7 @@ ScriptOptHost()
 }
 
 # GetHosts [HOSTS] - set hosts array from --host argument, the passed list, or all Nomad clients.
-GetHosts() 
+GetHosts()
 {
 	# return if hosts is already specified
 	[[ $hosts ]] && return
@@ -316,7 +316,25 @@ GetHosts()
 	IFS=$'\n' ArrayMakeC hosts GetServers "$hostArg"
 }
 
-# GetHostsConfig CONFIG - set hosts array from --host argument or from the passed configuration entry.
+# GetHostsService [SERVICE] - set hosts array from --host argument or from the specified service.
+GetHostsService()
+{
+	local service="$1"
+
+	# return if hosts is already specified
+	[[ $hosts ]] && return
+
+	# use hostArg, then passed list
+	local h="$hostArg"
+
+	# comma separate list of hosts
+	[[ $h ]] && { StringToArray "${h,,}" "," hosts; return; }
+
+	# service name
+	IFS=$'\n' ArrayMakeC hosts GetServers "${service:-nomad-client}"
+}
+
+# GetHostsConfig CONFIG - set hosts array from --host argument or from the specified configuration entry.
 GetHostsConfig() 
 {
 	local config="$1"
