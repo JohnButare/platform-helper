@@ -1847,6 +1847,7 @@ package() # package install
 	[[ $noPrompt ]] && IsPlatform debian && noPrompt="DEBIAN_FRONTEND=noninteractive"
 
 	# install
+	IsPlatform nala && { sudoc $noPrompt nala install -y "${packages[@]}"; return; }
 	IsPlatform apt && { sudoc $noPrompt apt install -y "${packages[@]}"; return; }
 	IsPlatform brew && { HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"; return; }
 	IsPlatform dnf && { sudo dnf install -assumeyes "${packages[@]}"; }
@@ -1888,7 +1889,8 @@ packageExclude()
 # - allow removal prompt to view dependant programs being uninstalled, i.e. uninstall of mysql-common will remove kea
 packageu() # package uninstall
 { 
-	if IsPlatform apt; then sudo apt remove "$@"
+	if IsPlatform nala; then sudo nala purge "$@"
+	elif IsPlatform apt; then sudo apt remove "$@"
 	elif IsPlatform brew; then brew remove "$@"
 	elif IsPlatform opkg; then sudo opkg remove "$@"
 	fi
@@ -1896,10 +1898,11 @@ packageu() # package uninstall
 
 PackageCleanup()
 {
-	ask "Clean packages"	&& { sudoc apt-get clean -y || return; } # cleanup downloaded package files in /var/cache/apt/archives
-	ask "Remove packages" && { sudoc apt autoremove -y || return; }
-	ask "Purge packages" && { PackagePurge || return; }
-	return 0
+	if IsPlatform apt; then
+		ask "Clean packages"	&& { sudoc apt-get clean -y || return; } # cleanup downloaded package files in /var/cache/apt/archives
+		ask "Remove packages" && { sudoc apt autoremove -y || return; }
+		ask "Purge packages" && { PackagePurge || return; }
+	fi
 }
 
 # PackageExist PACKAGE - return true if the specified package exists
@@ -2003,10 +2006,11 @@ PackageListInstalled()
 # PackageUpdate - update packages
 PackageUpdate() 
 {
-	IsPlatform debian && { sudo apt update || return; sudo apt dist-upgrade -y; return; }
-	IsPlatform mac && { brew update || return; brew upgrade; return; }
-	IsPlatform qnap && { sudo opkg update || return; sudo opkg upgade; return; }
-	return 0
+	if IsPlatform nala; then sudo nala update && sudo nala upgrade -y
+	elif IsPlatform debian; then sudo apt update && sudo apt dist-upgrade -y
+	elif IsPlatform mac; then brew update && brew upgrade;
+	elif IsPlatform qnap; then sudo opkg update && sudo opkg upgade
+	fi
 }
 
 # PackageWhich FILE - show which package an installed file is located in
@@ -2111,6 +2115,7 @@ isPlatformDo()
 		apt) ! IsPlatform mac && InPath apt;;
 		brew|homebrew) InPath brew;;
 		dnf|opkg|rpm|yum) InPath "$p";;
+		nala) InPath "nala";;
 
 		# other
 		busybox|gnome-keyring) InPath "$p";;
