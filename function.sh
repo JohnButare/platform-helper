@@ -230,7 +230,7 @@ SetLoginShell() # SetCurrentShell SHELL
 		sudoc usermod --shell "$shell" $USER
 	elif [[ -f /etc/passwd ]]; then
 		clipw "$shell" || { echo "Change the $USER login shell (after last :) to $shell"; pause; }
-		sudoedit "/etc/passwd"
+		sudoe "/etc/passwd"
 	else
 		EchoErr "SetLoginShell: unable to change login shell to $1"
 	fi
@@ -1865,14 +1865,16 @@ packageExclude()
 	IsPlatform ubuntu && IsInArray "libturbojpeg0" packages && { ArrayRemove packages "libturbojpeg0"; packages+=( libturbojpeg ); }
 
 	# macOS excludes
-	! IsPlatform mac && return
+	! IsPlatform entware,mac && return
 
+	local entware=( pwgen )
 	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk util-linux virt-what )	
 	local macArm=( bonnie++ pv rust traceroute )
 	local macx86=( ncat traceroute )
 
 	local p
 	for p in "${packages[@]}"; do
+		IsPlatformAll entware && IsInArray "$p" entware && ArrayRemove packages "$p"
 		IsPlatform mac && IsInArray "$p" mac && ArrayRemove packages "$p"
 		IsPlatformAll mac,arm && IsInArray "$p" macArm && ArrayRemove packages "$p"
 		IsPlatformAll mac,x86 && IsInArray "$p" macx86 && ArrayRemove packages "$p"
