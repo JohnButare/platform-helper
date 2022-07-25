@@ -1325,10 +1325,10 @@ GetServer()
 }
 
 # GetServers SERVICE - get all active hosts for the specified service
-GetServers() { hashi resolve name --all "$@"; }
+GetServers() { hashi resolve name --all "$@" | sort -V; }
 
 # GetAllServers - get all active servers
-GetAllServers() { GetServers "nomad-client" | sort -V; } # assume all servers have the nomad-client service
+GetAllServers() { GetServers "nomad-client"; } # assume all servers have the nomad-client service
 
 # ipconfig [COMMAND] - show or configure network
 ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
