@@ -7,6 +7,8 @@ timeServer="time.butare.net"
 bootstrapBin="//ender.hagerman.butare.net/system/usr/local/data/bin" # initial bin directory UNC (//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL])
 bootstrapProxyServer="proxy.butare.net" boostrapProxyPort="3128"
 bootstrapProxy="http://$bootstrapProxyServer:$boostrapProxyPort"
+bootstrapDns1="10.10.100.7"
+bootstrapDns2="10.10.100.6"
 
 # user
 user="jjbutare"
@@ -24,14 +26,6 @@ confDir="$CLOUD/network/system"
 #
 # servers
 #
-
-# DHCP
-dhcpServers="pi1,pi2,pi3,pi4"
-
-# DNS
-dnsServers="pi1,pi2,pi3,pi4"
-dns1="10.10.100.7"
-dns2="10.10.100.6"
 
 # proxy
 noProxy="localhost,127.0.0.1,.$baseDomain,.$domain,web,www,autoproxy,.releases.ubuntu.com"
@@ -66,9 +60,10 @@ hashiTestVaultServers="pi5,pi6"
 networks="hagerman@10.10.100.10,hagerman@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
 hagermanBaseDomain="butare.net" hbd="$hagermanBaseDomain"
 hagermanDomain="hagerman.$hagermanBaseDomain" hd="$hagermanDomain"
+hagermanDhcpServers="pi1,pi2,pi3,pi4"
+hagermanDnsServers="pi1,pi2,pi3,pi4"
 hagermanBackupUser="$user"
 hagermanBackupServers="backup2.$hbd,backup1.$hbd" 					# backup (Borg)
-hagermanFileServers="file2.$hbd,file1.$hbd"									# file (SMB)
 hagermanHassServers="pi9.$hbd,pi11.$hbd"										# Home Assistant
 hagermanLbServers="pi1.$hd,pi2.$hd,pi3.$hd,pi4.$hd"					# Load Balancer (NGINX reverse proxy)
 hagermanNas="nas3.$hd"																			# NAS Server
