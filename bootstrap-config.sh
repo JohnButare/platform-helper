@@ -7,8 +7,8 @@ timeServer="time.butare.net"
 bootstrapBin="//ender.hagerman.butare.net/system/usr/local/data/bin" # initial bin directory UNC (//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL])
 bootstrapProxyServer="proxy.butare.net" boostrapProxyPort="3128"
 bootstrapProxy="http://$bootstrapProxyServer:$boostrapProxyPort"
-bootstrapDns1="10.10.100.7"
-bootstrapDns2="10.10.100.6"
+bootstrapDns1="10.10.100.8"
+bootstrapDns2="10.10.100.7"
 
 # user
 user="jjbutare"
