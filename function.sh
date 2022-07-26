@@ -1600,12 +1600,11 @@ WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 }
 
 #
-# Network: DNS Names
+# Network: DNS
 #
 
 AddDnsSuffix() { GetArgs2; HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 	# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already present
 GetDnsSearch() { cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2-; }
-GetDnsServers() { resolvectl status | grep -1 'DNS Servers' | tail -2 | sed "s/DNS Servers://" | RemoveNewline | tr -s " " | RemoveSpaceTrim; }
 GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }	# GetDnsSuffix HOST - the DNS suffix of the HOST
 HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuffix HOST - true if the specified host includes a DNS suffix
 RemoveDnsSuffix() { GetArgs; [[ ! $@ ]] && return; printf "${@%%.*}"; }				# RemoveDnsSuffix HOST - remove the DNS suffix if present
@@ -1667,6 +1666,20 @@ DnsResolve()
 
 	[[ ! $lookup ]] && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
 	[[ "$lookup" ]] && echo "$lookup" || return 1
+}
+
+DnsFlush()
+{
+	if IsPlatform mac; then sudoc dscacheutil -flushcache; sudo killall -HUP mDNSResponder
+	elif IsPlatform win; then ipconfig.exe /flushdns
+	fi
+}
+
+GetDnsServers()
+{
+	if InPath resolvectl; then resolvectl status | grep -1 'DNS Servers' | tail -2 | sed "s/DNS Servers://" | RemoveNewline | tr -s " " | RemoveSpaceTrim
+	elif IsPlatform mac; then scutil --dns | grep 'nameserver\[[0-9]*\]' | cut -d: -f2 | sort | uniq | RemoveNewline | RemoveSpaceTrim
+	fi			
 }
 
 MdnsResolve()
