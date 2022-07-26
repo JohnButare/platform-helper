@@ -1328,7 +1328,7 @@ GetServer()
 GetServers() { hashi resolve name --all "$@" | sort -V; }
 
 # GetAllServers - get all active servers
-GetAllServers() { GetServers "nomad-client"; } # assume all servers have the nomad-client service
+GetAllServers() { GetServers "${1:-nomad-client}"; } # assume all servers have the nomad-client service
 
 # ipconfig [COMMAND] - show or configure network
 ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
