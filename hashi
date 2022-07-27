@@ -8,7 +8,9 @@ usage()
 Usage: $(ScriptName) [COMMAND]... [OPTION]...
 Helper commands for HashiCorp consul, nomad, and vault products.
 
-Common commands: cert|config|install|remove|service|update
+Product commands: consul|nomad|vault
+
+Common commands:  app|cert|config|install|remove|service|update
 	resolve						resolve a service
 	PRODUCT|all				commands for a product or all products
 	status						show status for all products
@@ -29,11 +31,13 @@ Other commands: cleanup
 	ui								start the hashi-ui server and launch it
 
 Other options:
-	-nt, --no-token 	do not use a token for the command"
+	-nrs, --no-restart-service	do not restart services
+	-nt, 	--no-token 						do not use a token for the command"
 }
 
 init()
 {
+	unset product
 	products=( consul nomad vault )
 	productUsage="consul|nomad|vault"
 	binDir="/usr/local/bin"; IsPlatform entware && binDir="/opt/bin"
@@ -43,17 +47,18 @@ init()
 	unset sshAgentChecked
 }
 
-argStart() { unset -v api assumeServer configFile configFileArg configPrefix configPrefixArg hostArg; }
+argStart() { unset -v api assumeServer configFile configFileArg configPrefix configPrefixArg hostArg noRestartService noToken; }
 
 opt()
 {
 	case "$1" in
-		-a|--api|-a=*|--api=*) ScriptOptGet api "$@";;
-		-cf|--config-file|-cf=*|--config-file=*) ScriptOptGet "configFile" "config-file" "$@" && ScriptCheckFile "$configFile" && configFileArg=(--config-file "$configFile");;
-		-cp|--config-prefix|-cp=*|--config-prefix=*) ScriptOptGet "configPrefix" "config-prefix" "$@" && configPrefixArg=(--config-prefix "$configPrefix");;
-		-H|--host|-H=*|--host=*) ScriptOptGet hostArg host "$@";;
-		-nt|--no-token) noToken="--no-token";;
-		-is|--is-server) assumeServer="true";;
+		--api|--api=*|-a|-a=*) ScriptOptGet api "$@";;
+		--config-file|--config-file=*|-cf|-cf=*) ScriptOptGet "configFile" "config-file" "$@" && ScriptCheckFile "$configFile" && configFileArg=(--config-file "$configFile");;
+		--config-prefix|--config-prefix=*|-cp|-cp=*) ScriptOptGet "configPrefix" "config-prefix" "$@" && configPrefixArg=(--config-prefix "$configPrefix");;
+		--host|--host=*|-H|-H=*) ScriptOptGet hostArg host "$@";;
+		--no-restart-service|-nrs) noRestartService="--no-restart-service";;
+		--no-token|-nt) noToken="--no-token";;
+		--is-server|-is) assumeServer="true";;
 		*) return 1;;
 	esac
 }
@@ -71,9 +76,7 @@ argEnd()
 	vaultHttpPort="8200" vaultHttpsPort="$vaultHttpPort"
 
 	# product configuration - set product from command if possible
-	product=""
-	if IsInArray "${commandNames[0]}" products; then
-		product="${commandNames[0]}"
+	if [[ $product ]]; then
 		productInit "$product" || return
 	else
 		initConfig || return
@@ -164,12 +167,104 @@ allStatusCommand()
 }
 
 #
+# application commands
+#
+
+appUsage() { EchoWrap "Usage: $(ScriptName) app ls|node|server"; }
+appArgStart() { unset app; product="consul"; }
+appCommand() { usage; }
+
+appLsUsage() { EchoWrap "Usage: $(ScriptName) app ls NAME\nList all applications."; }
+appLsCommand() { consul kv get -recurse app | cut -d/ -f2 | sort | uniq; }
+
+#
+# application node commands
+#
+
+appNodeUsage()  { EchoWrap "Usage: $(ScriptName) app node [status|register|unregister](status)"; }
+appNodeCommand() { appNodeStatusCommand; }
+appNodeStatusUsage() { EchoWrap "Usage: $(ScriptName) app node status\nShow the applications that the specified host can run."; }
+appNodeStatusCommand() { verbose="--verbose" nomadNodeStatus "${hostArg:-$HOSTNAME}" | tgrep '^app\.' | cut -d" " -f1 | cut -d. -f2 | sort; }
+
+appNodeRegisterUsage() { EchoWrap "Usage: $(ScriptName) app register APP\nRegister an application with Consul and Nomad."; }
+appNodeRegisterArgs() { ScriptArgGet "app" -- "$@"; shift; }
+
+appNodeRegisterCommand()
+{
+	hilight "Registering '$app' application in Consul..."
+	consul kv put "app/$app/hosts/${HOSTNAME,,}" || return
+	echo
+
+	hilight "Registering '$app' application in Nomad..."
+	serviceVerify "nomad" || return
+
+	local file="/etc/nomad.d/03_$app.hcl"
+	[[ -f "$file" && ! $force ]] && return
+
+ 	cat <<-EOF | sudoc ${G}tee "$file" || return
+		client {
+		  meta { 
+		    app.$app = "true" 
+		  }
+		}
+	EOF
+
+	serviceRestartLocal "nomad"
+}
+
+appNodeUnregisterUsage() { EchoWrap "Usage: $(ScriptName) app unregister APP\nUnregister an application in Consul and Nomad."; }
+appNodeUnregisterArgs() { ScriptArgGet "app" -- "$@"; shift; }
+
+appNodeUnregisterCommand()
+{
+	# Consul
+	hilight "Unregistering '$app' application in Consul..."
+	consul kv delete -recurse "apps/wire-guard/${HOSTNAME,,}" || return
+	echo
+
+	# Nomad
+	local file="/etc/nomad.d/03_$app.hcl"; [[ ! -f "$file" ]] && return
+	hilight "Unregistering '$app' application in Nomad..."
+	sudoc rm "$file" && serviceVerify "nomad" && serviceRestartLocal "nomad"
+}
+
+#
+# app server commands
+#
+
+appServerUsage() { EchoWrap "Usage: $(ScriptName) app server [not] [all|active|available](all) APP\nShow servers for an application."; }
+appServerCommand() { appServerAllCommand; }
+appServerArgs() { ScriptArgGet "app" -- "$@"; shift; }
+appServerNotCommand() { usage; }
+
+appServerActiveUsage() { EchoWrap "Usage: $(ScriptName) app server up APP\nShow servers where the application is actively running."; }
+appServerActiveCommand() { appServerActive "$app" | sort -V; }
+
+appServerAllUsage() { EchoWrap "Usage: $(ScriptName) app server all APP\nShow all servers that can host the application."; }
+appServerAllCommand() { appServerAll "$app" | sort -V; }
+
+appServerAvailableUsage() { EchoWrap "Usage: $(ScriptName) app server available APP\nShow available servers for the application.  These servers are accessible and may be running the applciation."; }
+appServerAvailableCommand() { appServerAvailable "$app"; }
+
+appServerNotActiveUsage() { EchoWrap "Usage: $(ScriptName) app server not active APP\nShow servers where the application is not currently running."; }
+appServerNotActiveCommand() { appServerNotActive "$app"; }
+
+appServerNotAvailableUsage() { EchoWrap "Usage: $(ScriptName) app server not available APP\nShow unavailable servers for the application.  These servers are down and are not available to run the applciation"; }
+appServerNotAvailableCommand() { appServerNotAvailable "$app"; }
+
+appServerActive() { resolveName "$1" --all; }
+appServerAll() { local names; names="$(consul kv get -recurse "app/$1/hosts" | cut -d/ -f4 | cut -d: -f1)" && DnsResolveBatch $names; }
+appServerAvailable() { local hosts; hosts="$(appServerAll "$1" | sort -V)" && IsAvailableBatch $hosts | sort -V; }
+appServerNotAvailable() { local all available; available="$(appServerAvailable "$1")" && all=( $(appServerAll "$1") ) && ArrayRemove all "$available" && ArrayDelimit all "\n" | RemoveEmptyLines | sort -V; }
+appServerNotActive() { local all active; active="$(appServerActive "$1")" && all=( $(appServerAll "$1") ) && ArrayRemove all "$active" && ArrayDelimit all "\n" | RemoveEmptyLines | sort -V; }
+
+#
 # certificate commands
 #
 
 certUsage()
 {
-	echot "Usage: $(ScriptName) cert copy|make|status
+	EchoWrap "Usage: $(ScriptName) cert copy|make|status
 
 	copy		copy public certificates
 	make		make certificates
@@ -860,6 +955,7 @@ configStatusCommand()
 #
 
 consulUsage() { EchoWrap "Usage: $(ScriptName) consul acl|agent|api|backup|environment|reload|restore|service|status\nConsul commands."; }
+consulArgStart() { product="consul"; }
 consulCommand() { usage; }
 consulBackupCommand() { consul snapshot save "$(GetDateStampNext "consul.$domain" "snap")"; }
 consulEnvironmentCommand() { productEnvironment "$product"; }
@@ -2084,10 +2180,8 @@ installCli()
 # nomad commands
 #
 
-nomadUsage() { echot "\
-Usage: $(ScriptName) nomad api|config|environment|node|job|status
-Nomad commands."; }
-
+nomadUsage() { echot "Usage: $(ScriptName) nomad api|config|environment|node|job|status\nNomad commands."; }
+nomadArgStart() { product="nomad"; }
 nomadCommand() { usage; }
 nomadEnvironmentCommand() { productEnvironment "$product"; }
 nomadStatusCommand() { nomad node status; }
@@ -2227,12 +2321,13 @@ nomadConfigEnableVault()
 # nomad node commands
 #
 
-nomadNodeUsage() { echot "Usage: $(ScriptName) nomad node alloccations|drain|exists|id|ls\nNomad node commands."; }
+nomadNodeUsage() { echot "Usage: $(ScriptName) nomad node allocations|drain|exists|id|ls|status\nNomad node commands."; }
 nomadNodeCommand() { usage; }
 nomadNodeAllocationsCommand() { forAllHosts nomadNodeAllocations; }
 nomadNodeExistsCommand() { local quiet="--quiet"; nomadNodeIdCommand > /dev/null; }
 nomadNodeIdCommand() { forAllHosts nomadGetNodeId; }
 nomadNodeLsCommand() { nomad node status -json | jq '.[] | .Name' | RemoveQuotes; }
+nomadNodeStatusCommand() { forAllHeader="status" forAllHosts nomadNodeStatus; }
 
 nomadNodeAllocations()
 {
@@ -2252,6 +2347,13 @@ nomadGetNodeId()
 	local id; id="$(nomad node status -json | jq '.[] | select(.Name == "'"$host"'").ID' | RemoveQuotes)" || return
 	[[ ! $id ]] && { ScriptErrQuiet "unable to get Nomad node ID for host '$host'"; return 1; }
 	echo "$id"
+}
+
+nomadNodeStatus()
+{
+	local host="$1" id; id="$(nomadGetNodeId "$host")" || return	
+	local args=(); [[ $verbose ]] && args+=(-verbose)
+	nomad status "${args[@]}" "$id"
 }
 
 #
@@ -2588,6 +2690,7 @@ resolveOpt()
 resolveCommand() { resolvePassingCommand; }
 resolvePassingCommand() { resolve "$name" "$all"; }
 resolveApiCommand() { resolveApi "$name"; }
+resolveNameCommand() { resolveName "$name" "$all" | sort --version-sort; }
 
 resolveApi()
 {
@@ -2609,14 +2712,6 @@ resolveListCommand()
 {
 	log1 "using API to resolve the '$name' service to a list of available nodes from the API"
 	test="" resolveApi "$name" | jq ".[].Node" | RemoveQuotes
-}
-
-resolveNameCommand()
-{
-	local ip ips; ips="$(resolvePassingCommand | sort --numeric)" || return
-	for ip in ${ips[@]}; do
-		DnsResolve "$ip" || return
-	done
 }
 
 resolveNslookupCommand()
@@ -2668,6 +2763,12 @@ resolveNslookup()
 	
 	log1 "nslooklup resolved '$name' to '$(echo "$ip" | NewlineToSpace | RemoveSpaceTrim)'"
 	echo "$ip"
+}
+
+resolveName()
+{
+	local name="$1" all="$2"
+	local ips; ips="$(resolve "$name" "$all")" && DnsResolveBatch $ips
 }
 
 #
@@ -2737,7 +2838,7 @@ updateCliProgram()
 	header "Update $(ProperCase "$product") CLI ($host)"
 
 	# return if the product installation is not needed
-	productInstallCheck "$product" "$host" || return; [[ ! $installNeeded ]] && return
+	productInstallNeeded "$product" "$host" || return; [[ ! $installNeeded ]] && return
 
 	# install the product
 	productInstallDo "$product" "$host"
@@ -2805,7 +2906,7 @@ updateServiceProgram()
 	header "Update $(ProperCase "$product") Service ($host)"
 
 	# return if the product installation is not needed
-	productInstallCheck "$product" "$host" || return; [[ ! $installNeeded ]] && return
+	productInstallNeeded "$product" "$host" || return; [[ ! $installNeeded ]] && return
 
 	# install the product
 	RunFunction "updateStart" "$product" && productInstallDo "$product" "$host" && RunFunction "updateEnd" "$product"
@@ -2818,7 +2919,7 @@ updateEndNomad() { nomadNodeDrainDisable "$host"; }
 # service commands
 #
 
-serviceUsage() { echot "Usage: $(ScriptName) service config|IsServer|monitor|restart|start|stop $productUsage\nControl Hashi product services."; }
+serviceUsage() { echot "Usage: $(ScriptName) service config|IsServer|monitor|restart|start|stop|verify $productUsage\nControl Hashi product services."; }
 
 serviceCommand() { usage; }
 
@@ -2854,6 +2955,21 @@ serviceStopCommand() { usage; }
 serviceStopConsulCommand() { forAllHosts serviceStop "consul"; }
 serviceStopNomadCommand() { forAllHosts serviceStop "nomad"; }
 serviceStopVaultCommand() { forAllHosts serviceStop "vault"; }
+
+serviceVerifyCommand() { usage; }
+serviceVerifyConsulCommand() { forAllHosts serviceVerify "consul"; }
+serviceVerifyNomadCommand() { forAllHosts serviceVerify "nomad"; }
+serviceVerifyVaultCommand() { forAllHosts serviceVerify "vault"; }
+
+# serviceVerify PRODUCT - return 1 and an error message if the service for a product is not installed
+serviceVerify()
+{
+	local product="$1" host="$2"; [[ ! $product ]] && MissingOperand "product"
+
+	productVerify "$product" && [[ -d "/etc/$product.d" ]] && service exists "$product" && return
+	[[ ! $quiet ]] && ScriptErr "the $product service is not installed"
+	return 1
+}
 
 # service helper
 
@@ -2977,11 +3093,19 @@ serviceRemove()
 	)"
 }
 
-# serviceRestart PRODUCT HOST
+# serviceCOMMAND PRODUCT HOST
+
 serviceRestart() 
 {
+	[[ $noRestartService ]] && return
 	local product="$1" host="$2"
 	RunLog scriptRun "$host" "sudoc systemctl restart "$product" --no-block || exit"; 
+}
+
+serviceRestartLocal() 
+{
+	[[ $noRestartService ]] && return
+	local product="$1"; service restart "$product" 
 }
 
 serviceStart() 
@@ -3019,12 +3143,8 @@ serviceVars()
 # vault commands
 #
 
-vaultUsage() { echot "\
-Usage: $(ScriptName) vault api|environment|status|token|unseal
-Vault commands.
-
-	unseal			unseal the vault using keys from the credential store"; }
-
+vaultUsage() { echot "Usage: $(ScriptName) vault api|environment|status|token|unseal\nVault commands."; }
+vaultArgStart() { product="vault"; }
 vaultCommand() { usage; }
 vaultEnvironmentCommand() { productEnvironment "$product"; }
 
@@ -3124,13 +3244,14 @@ vaultTokenCommand()
 # vault unseal command
 #
 
+vaultUnsealUsage() { EchoWrap "Usage: $(ScriptName) vault unseal\nUnseal the vault using keys from the credential store."; }
+
 vaultUnsealCommand()
 {
 	local host hosts key; vaultHostsGet || return
 
 	for host in "${hosts[@]}"; do
 		header "Vault Unseal ($host)"
-		productInit "vault" "$host" || return
 
 		vaultIsUnsealed && { echo "Vault on $host is already unsealed"; continue; }
 
@@ -3602,14 +3723,8 @@ productGetServerDo()
 productInit()
 {
 	local product="$1" host="$2"; [[ ! $product ]] && MissingOperand "product"
-
 	log2 "productInit: initializing $product"
-
-	! productIsInstalled "$1" && { EchoErr "$product is not installed"; return 1; }
-
-	initConfig "$product" || return
-	certInit "$product" || return
-	ScriptEval productEnvironment "$product" "$host" || return
+	productVerify "$product" && initConfig "$product" && certInit "$product" && ScriptEval productEnvironment "$product" "$host"
 }
 
 # productInstall PRODUCT HOST
@@ -3618,15 +3733,16 @@ productInstall()
 	local product="$1" host="$2"
 
 	# return if the product installation is not needed
-	productInstallCheck "$product" "$host" || return
+	productInstallNeeded "$product" "$host" || return
 	[[ ! $installNeeded ]] && return
 
 	# install the product
 	productInstallDo "$product" "$host"
 }
 
-# productInstallCheck PRODUCT HOST - exports installDir, installFile, and installNeeded
-productInstallCheck()
+# productInstallNeeded PRODUCT HOST - return true if the product install is needed on the host.
+#   Exports installDir, installFile, and installNeeded
+productInstallNeeded()
 {
 	local product="$1" host="$2"; hostCheck "$host" || return
 	local fileExists currentVersion newVersion
@@ -3656,7 +3772,7 @@ productInstallCheck()
 	return 0
 }
 
-# productInstallDo PRODUCT HOST - requires that productInstallCheck is called first
+# productInstallDo PRODUCT HOST - requires that productInstallNeeded is called first
 productInstallDo()
 {
 	local product="$1" host="$2"
@@ -3758,6 +3874,15 @@ productVarSet()
 	v="$value"
 }
 
+# productVerify PRODUCT - return 1 and an error message if the product is not installed
+productVerify() 
+{
+	local product="$1"; [[ ! $product ]] && MissingOperand "product"
+	productIsInstalled "$product" && return
+	[[ ! $quiet ]] && ScriptErr "$product is not installed"
+	return 1
+}
+
 # productVersion PRODUCT WHAT - show the versionof the specified product
 productVersion()
 {
@@ -3851,12 +3976,13 @@ findInstallFile()
 	FindInstallFile "$@"
 }
 
-# forAllHosts COMMAND [ARGS...] - run a command for all hosts
+# forAllHosts COMMAND [ARGS...] - run a command for all hosts.  If forAllHeader is set and there is more than one host display it as a header.
 forAllHosts()
 {
 	local host hosts; getHosts || return
 
 	for host in "${hosts[@]}"; do
+		[[ $forAllHeader ]] && (( ${#hosts[@]} > 1 )) && header "$forAllHeader ($host)"
 		"$@" "$host" || return
 	done
 }

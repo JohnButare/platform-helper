@@ -1325,7 +1325,7 @@ GetServer()
 }
 
 # GetServers SERVICE - get all active hosts for the specified service
-GetServers() { hashi resolve name --all "$@" | sort -V; }
+GetServers() { hashi resolve name --all "$@"; }
 
 # GetAllServers - get all active servers
 GetAllServers() { GetServers "${1:-nomad-client}"; } # assume all servers have the nomad-client service
@@ -1475,6 +1475,9 @@ IsAvailable()
 		ping -c 1 -W 1 "$ip" &> /dev/null # -W timeoutSeconds
 	fi
 }
+
+# IsAvailableBatch HOST... - check if available in parallel
+IsAvailableBatch() { parallel -i bash -c '. function.sh && IsAvailable {} && echo {}' -- "$@"; }
 
 # IsPortAvailable HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified TCP port
 IsAvailablePort()
@@ -1667,6 +1670,9 @@ DnsResolve()
 	[[ ! $lookup ]] && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
 	[[ "$lookup" ]] && echo "$lookup" || return 1
 }
+
+# DnsResolveBatch NAME|IP... - resolve in parallel
+DnsResolveBatch() { parallel -i bash -c '. function.sh && DnsResolve {}' -- "$@"; }
 
 DnsFlush()
 {
