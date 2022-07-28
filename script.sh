@@ -286,7 +286,7 @@ ForAllHosts()
 {
 	local host; GetHosts || return
 	for host in "${hosts[@]}"; do
-		[[ $forAllHeader ]] && (( ${#hosts[@]} > 1 )) && header "$forAllHeader ($host)"
+		[[ $forAllHeader ]] && (( ${#hosts[@]} > 1 )) && header "$forAllHeader ($(RemoveDnsSuffix "$host"))"
 		"$@" "$host" || return
 	done
 }
@@ -316,13 +316,10 @@ GetHosts()
 	IFS=$'\n' ArrayMakeC hosts GetServers "$hostArg"
 }
 
-# GetHostsService [SERVICE] - set hosts array from --host argument or from the specified service.
+# GetHostsService SERVICE - set hosts array from --host argument or from the specified service.
 GetHostsService()
 {
-	local service="$1"
-
-	# return if hosts is already specified
-	[[ $hosts ]] && return
+	local service="$1"; [[ ! $service ]] && MissingOperand "service", "GetHostsService"
 
 	# use hostArg, then passed list
 	local h="$hostArg"
@@ -330,8 +327,8 @@ GetHostsService()
 	# comma separate list of hosts
 	[[ $h ]] && { StringToArray "${h,,}" "," hosts; return; }
 
-	# service name
-	IFS=$'\n' ArrayMakeC hosts GetServers "${service:-nomad-client}"
+	# service name	
+	IFS=$'\n' ArrayMakeC hosts hashi app server available "$service"
 }
 
 # GetHostsConfig CONFIG - set hosts array from --host argument or from the specified configuration entry.
