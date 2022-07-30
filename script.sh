@@ -318,7 +318,7 @@ GetHosts()
 	IFS=$'\n' ArrayMakeC hosts GetServers "$hostArg"
 }
 
-# GetHostsService SERVICE - set hosts array from --host argument or from the specified service.
+# GetHostsService SERVICE - set hosts array from --host argument or from the available hosts for the service.
 GetHostsService()
 {
 	local service="$1"; [[ ! $service ]] && MissingOperand "service", "GetHostsService"

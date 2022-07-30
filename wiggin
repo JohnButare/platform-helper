@@ -5,36 +5,19 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [COMMAND]... [OPTION]...
-Manage the Wiggin network.
-
-	backup	backup wiggin data
-	device	control devices
-	remove	remove applications from the environment
-	setup		setup the network
-	network	configure network	
-	sync		syncronize items"
+Usage: $(ScriptName) backup|host|network|setup|sync|update [OPTION]...
+Manage the Wiggin network."
 }
 
 init()
 {
-	# credentials
-	credentialPaths=( CloudFlare domotz JumpCloud LastPass namecheap ssh system unifi )
-
-	# devices
-	camDevices=(BackShedCamera BackYardEastCamera ChickenYardNorthCamera ChickenYardSouthCamera FrontPatioCamera FrontYardEastCamera FrontYardWestCamera LivingRoomCamera)
-
-	# file server
-	domain="$(ConfigGet "domain")" || return
-	baseDomain="$(ConfigGet "baseDomain")" || return
-
 	# configuration
-	ncd="$CLOUD/network"
-	hashiConfig="$ncd/system/hashi"
+	configDir="$CLOUD/network"
+	hashiConfig="$configDir/system/hashi"
 }
 
 #
-# Backup Commands
+# backup commands
 #
 
 backupCommands=( consul ContainerStation domains HomeAssistant LastPass nginx ProxyManager qnap web )
@@ -48,13 +31,12 @@ Backup data for the Wiggin network.
 }
 
 backupCommand() { usage; }
-
-backupContainerstationCommand()
-{ 
-	local server="nas3"
-	! unc IsAvailable "$server" && { ScriptErr "'$server' is not available"; return 1; }
-	AppBackup "$(RemoveDnsSuffix "$server").ContainerStation" "//$server/root/share/data/Container/container-station-data/application"
-}
+backupDomainsCommand() { backupDomain "butare.net" && backupDomain "juntosholdings.com"; }
+backupNginxCommand() { borgBackupConfig "Nginx" "lb" "/etc/nginx"; }
+backupProxymanagerCommand() { borgBackupService "ProxyManager" "nginx-proxy-manager" "/srv/nginx-proxy-manager"; }
+backupHomeassistantCommand() { borgBackupService "HomeAssistant" "home-assistant" "/home/homeassistant/.homeassistant"; }
+backupApachewebCommand() { borgBackupService "web" "web" "/srv/apache-web"; }
+backupWireguardCommand() { borgBackupService "WireGuard" "wireguard" "/etc/wireguard" "/etc/pivpn"; }
 
 backupConsulCommand()
 {
@@ -64,13 +46,12 @@ backupConsulCommand()
 	hashi consul backup || return
 }
 
-backupDomainsCommand() { backupDomain "butare.net" && backupDomain "juntosholdings.com"; }
-
-backupNginxCommand() { borgBackupConfig "Nginx" "lb" "/etc/nginx"; }
-backupProxymanagerCommand() { borgBackupService "ProxyManager" "nginx-proxy-manager" "/srv/nginx-proxy-manager"; }
-backupHomeassistantCommand() { borgBackupService "HomeAssistant" "home-assistant" "/home/homeassistant/.homeassistant"; }
-backupWebCommand() { borgBackupService "web" "web" "/srv/apache-web"; }
-backupWireguardCommand() { borgBackupService "WireGuard" "wireguard" "/etc/wireguard" "/etc/pivpn"; }
+backupContainerstationCommand()
+{ 
+	local server="nas3"
+	! unc IsAvailable "$server" && { ScriptErr "'$server' is not available"; return 1; }
+	AppBackup "$(RemoveDnsSuffix "$server").ContainerStation" "//$server/root/share/data/Container/container-station-data/application"
+}
 
 backupDomain()
 {
@@ -82,7 +63,6 @@ backupDomain()
 
   echo "Domain backup completed to '$dest'"
 }
-
 
 backupLastpassCommand()
 {
@@ -121,7 +101,7 @@ backupQnapCommand()
 }
 
 #
-# Backup Job Command
+# backup job command
 #
 
 backupJobCommand()
@@ -149,7 +129,7 @@ backupJobCommand()
 	# backup 
 	local fail=0 success=0
 	echo
-	runAll "sync" internet JumpCloud WireGuard || return
+	runAll "update" CloudFlare JumpCloud WireGuard || return
 	runAll "backup" consul domains domotz HomeAssistant homebridge nginx UniFi web WireGuard || return
 
 	# result
@@ -195,27 +175,78 @@ backupHomebridge() { runApp "backup" "homebridge" HomebridgeHelper backup pi1 pi
 backupNginx() { runApp "backup" "Nginx" wiggin backup nginx; }
 backupProxyManager() { runApp "backup" "ProxyManager" wiggin backup ProxyManager; }
 backupUniFi() { runApp "backup" "UniFi" UniFiController backup; }
-backupWeb() { runApp "backup" "web" wiggin backup web; }
+backupWeb() { runApp "backup" "web" wiggin backup ApacheWeb; }
 backupWireGuard() { runApp "backup" "WireGuard" wiggin backup WireGuard; }
-syncInternet() { runApp "sync" "internet" wiggin sync internet; }
-syncJumpCloud() { runApp "sync" "JumpCloud" wiggin sync JumpCloud; }
-syncWireGuard() { runApp "sync" "WireGuard" wiggin sync WireGuard; }
+
+updateCloudFlare() { runApp "update" "CloudFlare" wiggin update CloudFlare; }
+updateJumpCloud() { runApp "update" "JumpCloud" wiggin update JumpCloud; }
+updateWireGuard() { runApp "update" "WireGuard" wiggin update WireGuard; }
 
 #
-# Remove Command
+# host commands
 #
 
-removeUsage() { echo "Usage: $(ScriptName) remove hashi [test]
-Remove applications from the environment."; }
+hostUsage() { EchoErr "Usage: $(ScriptName) host info|list|on|off|status|sync|update\n\n$hostUsage"; }
 
-removeCommand() { usage; }
+hostArgStart()
+{
+	unset -v hostArg hostOpt; hosts=(); 
+	hostUsage="	-H, --host [HOSTS](all)	comma separated list of hosts, or all|hashi-prod|hashi-test|web"
+}
 
-removeHashiArgStart() { unset -v configPrefixArg; }
-removeHashiCommand() { hashiRun remove --what=program,service,consul-vault-data,local-certs,local-credentials,private-certs,public-certs; }
-removeHashiTestCommand() { configPrefixArg=( --config-prefix=test ); removeHashiCommand; }
+hostCommand() { hostListCommand; }
+
+hostOpt()
+{
+	ScriptOptHost "$@" || return
+
+	case "${hostArg,,}" in
+		cam|camera) unset hostArg; GetHostsConfigNetwork "camera";;
+		hashi-*) hosts=( $(hashi config hosts --config-prefix="$(RemoveFront "${hostArg,,}" "hashi-")") ) || ScriptExit;;
+	esac
+}
+
+hostInfoUsage() { EchoErr "Usage: $(ScriptName) info\n\n	-d, --detail						display detailed information\n$hostUsage"; }
+hostInfoArgStart() { unset -v detail; }
+hostInfoOpt() { scriptOptDetail "$@"; }
+hostInfoCommand() { GetHosts && RunLog os info "$(ArrayDelimit hosts ",")" $detail; }
+hostListCommand() { GetHosts && ArrayDelimit hosts $'\n'; }
+hostOffCommand() { local forAllHeader="Powering Off"; ForAllHosts hostOff; }
+hostOnCommand() { local forAllHeader="Powering On"; ForAllHosts hostOn; }
+hostStatusCommand() { ForAllHosts hostStatus; }
+hostSyncCommand() { ForAllHosts hostSync; }
+hostUpdateCommand() { ForAllHosts hostUpdate; }
+
+hostOff() { RunLog power off "$1" "${globalArgs[@]}"; }
+hostOn() { RunLog power on "$1" "${globalArgs[@]}"; }
+
+hostStatus()
+{
+	if [[ $verbose ]]; then
+		power status "$host" --verbose
+	else
+		local status; status="$(power status "$host")" && echo "$host is $status"
+	fi
+}
+
+hostSync()
+{
+	local host="$1" args; [[ $noPrompt ]] && args+=("--dest-older" "${globalArgs[@]}")
+	{ IsLocalHost "$host" || ! HostAvailable "$host"; } && return
+	SyncLocalFiles "$host" "${args[@]}"
+}
+
+hostUpdate()
+{
+	local host args; [[ $noPrompt ]] && args+=("--dest-older" "${globalArgs[@]}")
+	for host in "$@"; do
+		HostAvailable "$host" || continue
+		HostUpdate "$host" "${args[@]}" || return
+	done
+}
 
 #
-# Network Commands
+# network commands
 #
 
 networkUsage() { echo "Usage: $(ScriptName) network backup|edit|update|validate"; }
@@ -223,6 +254,10 @@ networkUsage() { echo "Usage: $(ScriptName) network backup|edit|update|validate"
 networkArgStart()
 {
 	unset -v hostArg hostOpt hosts
+
+	# DNS domain
+	domain="$(ConfigGetCurrent "domain")" || return
+	baseDomain="$(ConfigGetCurrent "baseDomain")" || return
 
 	# network configuration
 	network="$(ConfigGet "network")"
@@ -237,8 +272,8 @@ networkArgStart()
 	dhcpDirBuild="/usr/local/etc/kea" # build location
 	dnsDir="/etc/bind"
 
-	dhcpConfig="$ncd/system/dhcp"
-	dnsConfig="$ncd/system/dns"
+	dhcpConfig="$configDir/system/dhcp"
+	dnsConfig="$configDir/system/dns"
 }
 
 networkCommand() { usage; }
@@ -541,50 +576,34 @@ networkValidateWait()
 }
 
 #
-# Setup Command
+# setup command
 #
 
-setupUsage() { EchoWrap "Usage: $(ScriptName) setup all|hashi"; }
+setupUsage() { EchoWrap "Usage: $(ScriptName) setup hashi"; }
 setupCommand() { usage; }
-setupAllCommand() {	setupHashiCommand && setupHashiFinalCommand; }
 
 #
-# Setup Hashi Command
+# setup hashi command
 #
 
-setupHashiUsage() { echot "\
-Usage: $(ScriptName) setup hashi [final|service|test]
-Setup HashiCorp programs."; }
+setupHashiUsage() { echot "Usage: $(ScriptName) setup hashi\nSetup programs."; }
 
-setupHashiArgStart() { unset -v configPrefixArg; }
-setupHashiCommand() {	inst HashiServer; }
-setupHashiTestCommand() { inst HashiServer --test; }
-
-setupHashiFinalCommand()
-{
-	hilight  "Copying local credentials to the remote Vault server..."
-	hashiRun config set remote || return
-}
-
-setupHashiServiceCommand()
+setupHashiCommand()
 {
 	header "Installing Hashi jobs..."
-	hashiJob "backup" || return
-	inst "ApacheNomad" || return
-	inst "NginxProxyManagerNomad" || return
+	local job jobs=(apache-web backup file git ome-assistant lb node-red pool-controller pool-dash-panel pool-temperature wire-guard)
+	for job in "${jobs[@]}"; do hashiJob "backup" || return; done
 
 	header "Installing Hashi Consul services..."
 	hashiService "cups" 3 || return
 	hashiService "dns.json" 1,2,3,4 || return
-	hashiService "domotz-agent" 2 || return
-	hashiService "hass" 3 || return
-	hashiService "node-red" 3 || return
-	hashiService "nomad-web" 1,23 || return
+	hashiService "domotz-agent" 6 || return
+	hashiService "nomad-web" 1,2,3 || return
 	hashiService "squid-proxy" 3 || return
-	hashiService "unifi-controller" 2 || return
+	hashiService "unifi-controller" 6 || return
 }
 
-hashiRun() { hashi "$@" $force $test $verbose "${configPrefixArg[@]}" "${otherArgs[@]}"; }
+hashiRun() { hashi "$@" $force $test "${globalArgs[@]}" "${otherArgs[@]}"; }
 hashiJob() { local job="$1"; shift; hashiRun nomad job run "$job" "$@"; }
 
 hashiService()
@@ -596,21 +615,27 @@ hashiService()
 
 	# add the service
 	for hostNum in "${hostNums[@]}"; do
- 		hashiRun consul service add "$hashiConfig/service/$service.hcl" --host="$hostNum" "$@"
+ 		hashiRun consul service add "$hashiConfig/service/$service.hcl" --host="pi$hostNum" "$@"
 	done
 }
 
 #
-# Syncronize Commands
+# synchronize commands
 #
 
-syncUsage() { EchoWrap "Usage: $(ScriptName) sync credential|hass|internet|JumpCloud|lb|pool-dash-panel|web|wire-guard|wgc\nSynronize Wiggin data.\n\n$syncUsage"; }
+syncUsage()
+{
+	EchoWrap "\
+Usage: $(ScriptName) sync apache-web|home-assistant|lb|lb-cert|pool-dash-panel|wire-guard
+Synronize Wiggin application data.\n\n$syncUsage"
+}
+
 syncCommand() { usage; }
 
 syncArgStart()
 {
 	unset hostArg hostOpt hosts noServiceRestart 
-	unset u # addition unison arguments
+	unset unisonArgs
 	syncUsage="$hostUsage\n	-nsr, --no-service-restart				do not restart services"
 }
 
@@ -623,51 +648,58 @@ syncOpt()
 	esac
 }
 
-syncCredentialCommand()
+syncApache-webUsage() { EchoWrap "Usage: $(ScriptName) sync lb cert\nSyncronize Apache web site data.\n\n$syncUsage"; }
+syncApache-webCommand() { apache sync "${hostOpt[@]}" "${globalArgs[@]}"; }
+
+syncLbUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize load balancer configuration (NGINX rever proxy servers).\n\n$syncUsage"; }
+syncLbCommand() { local forAllHeader="Sync Load Balancer"; GetHostsService "lb" && ForAllHosts syncLb; }
+syncLb() { unisonArgs=(-ignore "Name {sites-available/*.conf}"); syncDir "$1" "/etc/nginx,/etc/consul-template.d" "consul-template,nginx"; }
+
+syncLb-certUsage() { EchoWrap "Usage: $(ScriptName) sync lb cert\nSyncronize load balancer SSL certificates.\n\n$syncUsage"; }
+syncLb-certCommand() { local forAllHeader="Sync Certificates"; GetHostsService "lb" && ForAllHosts syncLbCert; }
+syncLbCert() { syncDir "$1" "/etc/letsencrypt"; }
+
+syncPool-dash-panelUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize Pool Dash Panel configuration.\n\n$syncUsage"; }
+syncPool-dash-panelCommand() { local forAllHeader="Sync Pool Dash Panel Files"; GetHostsService "pool-dash-panel" && ForAllHosts syncPoolDashPanel; }
+syncPoolDashPanel() { unisonArgs=(-ignorenot "Name {config.json}" -ignore "Regex .*[^.]" ); syncDir "$1" "/opt/pool-dash-panel"; }
+
+syncWire-guardUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize WireGuard configuration.\n\n$syncUsage"; }
+syncWire-guardCommand() { local forAllHeader="Sync WireGuard Files"; GetHostsService "wire-guard" && ForAllHosts syncWireGuard; }
+syncWireGuard() { unisonArgs=(-ignore "Name {setupVars.conf}"); syncDir "$1" "/etc/wireguard,/etc/pivpn"; }
+
+#
+# sync home-assistant command
+#
+
+syncHome-assistantUsage() { EchoWrap "Usage: $(ScriptName) sync hass [cert]\nSyncronize Home Assistant configuration.\n\n$$syncUsage"; }
+
+syncHome-assistantCommand()
 {
-	local p
-	for p in "${credentialPaths[@]}"; do
-		credential sync "$p" $verbose || return
-	done
+	local currentHost="$(GetServer --quiet home-assistant)"
+
+	if [[ $currentHost ]]; then
+		hilight "The current Home Assistant server '$currentHost' will be syncronize first"
+		syncHomeAssistant "$currentHost" || return
+	else
+		EchoErr "There is current Home Assistant server is not known"	
+	fi
+
+	local forAllHeader="Sync Home Assistant"
+	GetHostsService "home-assistant" && ArrayRemove "$currentHost" hosts && ForAllHosts syncHomeAssistant
 }
 
-syncInternetCommand()
-{
-	local domain="$(ConfigGet "baseDomain")"
-	updateIp "vpn" && updateIp "wan1" "1" && updateIp "wan2" "2"
-}
+syncHomeAssistant() { unisonArgs=(-ignore "Name {*.log*}"); syncDir "$1" "/home/homeassistant/.homeassistant"; }
 
-updateIp()
-{
-	local name="$1" port="$2"
-	local desc="${name^^}"
+#
+# update commands
+#
 
-	hilight "Updating $name..."
+updateUsage() { echot "Usage: $(ScriptName) update CloudFlare|JumpCloud|WireGuard\nUpdate Wiggin network configuration."; }
+updateCommand() { usage; }
 
-	# get the internet address
-	local ip; ip="$(network internet address $port "${globalArgs[@]}")" || return
+updateJumpcloudUsage() { echot "Usage: $(ScriptName) update JumpCloud\nUpdate JumpCloud RADIUS IP Address with the the current WAN IP addresses."; }
 
-	# validate internet address
-	[[ ! $ip || "$ip" == null ]] && { EchoErr "$desc internet address not found, internet may be failed over"; echo; return 0; }
-	! IsIpAddress "$ip" && { EchoErr "$desc  internet address '$ip' is not valid"; return 1; }
-
-	# update CloudFlare with the internet address
-	echo "$desc address is $ip"
-	CloudFlare update "$domain" "$name" "$ip" "${globalArgs[@]}" || return; echo
-}
-
-syncHassUsage() { EchoWrap "Usage: $(ScriptName) sync hass [cert]\nSyncronize Home Assistant configuration.\n\n$hostUsage\n$syncUsage"; }
-syncHassOpt() { ScriptOptHost "$@"; }
-syncHassCommand() { local forAllHeader="Sync Home Assistant"; GetHostsConfigNetwork "hass" && ForAllHosts syncHass; }
-
-syncHass()
-{
-	local current="$(GetServers home-assistant)"; echo "The current Home Assistant server is '$current'"
-	u=(-ignore "Name {*.log*}")
-	syncDir "$1" "/home/homeassistant/.homeassistant"; 
-}
-
-syncJumpcloudCommand()
+updateJumpcloudCommand()
 {
 	local ip; ip="$(network internet address 1)" || return
 	hilight "Updating JumpCloud wiggin-cable RADIUS Server to $ip..."
@@ -678,29 +710,9 @@ syncJumpcloudCommand()
 	JumpCloud radius update wiggin-dsl "$ip" > /dev/null || return; echo
 }
 
-syncLbUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize load balancer configuration (NGINX rever proxy servers).\n\n$hostUsage\n$syncUsage"; }
-syncLbOpt() { ScriptOptHost "$@"; }
-syncLbCommand() { local forAllHeader="Sync Load Balancer"; GetHostsConfigNetwork "lb" && ForAllHosts syncLb; }
-syncLb() { u=(-ignore "Name {sites-available/*.conf}"); syncDir "$1" "/etc/nginx,/etc/consul-template.d" "consul-template,nginx"; }
+updateWireguardUsage() { echot "Usage: $(ScriptName) update WireGuard\nUpdate the router port forward rule for the current WireGuard server."; }
 
-syncLbCertUsage() { EchoWrap "Usage: $(ScriptName) sync lb cert\nSyncronize load balancer SSL certificates.\n\n$hostUsage"; }
-syncLbCertCommand() { local forAllHeader="Sync Certificates"; GetHostsConfigNetwork "lb" && ForAllHosts syncLbCert; }
-syncLbCert() { syncDir "$1" "/etc/letsencrypt"; }
-
-syncPool-dash-panelUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize Pool Dash Panel configuration.\n\n$hostUsage"; }
-syncPool-dash-panelOpt() { ScriptOptHost "$@"; }
-syncPool-dash-panelCommand() { local forAllHeader="Sync Pool Dash Panel Files"; GetHostsService "pool-dash-panel" && ForAllHosts syncPoolDashPanel; }
-syncPoolDashPanel() { u=(-ignorenot "Name {config.json}" -ignore "Regex .*[^.]" ); syncDir "$1" "/opt/pool-dash-panel"; }
-
-syncWebUsage() { EchoWrap "Usage: $(ScriptName) sync lb cert\nSyncronize web site.\n\n$hostUsage"; }
-syncWebCommand() { apache sync "${hostOpt[@]}" "${globalArgs[@]}"; }
-
-syncWgcUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize WireGuard configuration.\n\n$hostUsage"; }
-syncWgcOpt() { ScriptOptHost "$@"; }
-syncWgcCommand() { local forAllHeader="Sync WireGuard Files"; GetHostsService "wire-guard" && ForAllHosts syncWgc; }
-syncWgc() { u=(-ignore "Name {setupVars.conf}"); syncDir "$1" "/etc/wireguard,/etc/pivpn"; }
-
-syncWire-guardCommand()
+updateWireguardCommand()
 {
 	# get current WireGuard server
 	log1 "getting the current WireGuard server..."
@@ -722,86 +734,35 @@ syncWire-guardCommand()
 	RunLog UniFiController port host "WireGuard" "$ip"
 }
 
-#
-# device commands
-#
+updateCloudflareUsage() { echot "Usage: $(ScriptName) update CloudFlare\nUpdate CloudFlare DNS with the current WAN IP addresses."; }
 
-deviceUsage() { echo "Usage: $(ScriptName) device info|list|on|off|status|sync|update [cam|prod|test|SERVICE](nomad-client)"; }
-deviceCommand() { usage; }
-
-deviceArgs()
+updateCloudflareCommand()
 {
-	service="nomad-client"; [[ $1 ]] && ScriptArgGet "service" -- "$@"
-	case "${service,,}" in
-		cam) ArrayCopy camDevices devices;;
-		prod|test) devices=( $(hashi config hosts --config-prefix="${service,,}") ) || return;;
-		*) devices=( $(GetServers "$service") ) || return;;
-	esac
+	local domain="$(ConfigGet "baseDomain")"
+	updateCloudFlareDns "vpn" && updateCloudFlareDns "wan1" "1" && updateCloudFlareDns "wan2" "2"
 }
 
-deviceListCommand() { deviceList "${devices[@]}"; }
-deviceOffCommand() { deviceOff "${devices[@]}"; }
-deviceOnCommand() { deviceOn "${devices[@]}"; }
-deviceStatusCommand() { deviceStatus "${devices[@]}"; }
-deviceSyncCommand() { deviceSync "${devices[@]}"; }
-deviceUpdateCommand() { deviceUpdate "${devices[@]}"; }
-
-deviceList() { local devices=("$@"); ArrayDelimit devices $'\n'; }
-deviceOff() { local h; for h in "$@"; do power off "$h" "${globalArgs[@]}" || return; done; }
-deviceOn() { local h; for h in "$@"; do power on "$h" "${globalArgs[@]}" || return; done; }
-
-deviceSync()
+updateCloudFlareDns()
 {
-	local host args; [[ $noPrompt ]] && args+=("--dest-older" "${globalArgs[@]}")
-	for host in "$@"; do
-		IsLocalHost "$host" && continue
-		HostAvailable "$host" || continue
-		SyncLocalFiles "$host" "${args[@]}" || return
-	done
-}
+	local name="$1" port="$2"
+	local desc="${name^^}"
 
-deviceUpdate()
-{
-	local host args; [[ $noPrompt ]] && args+=("--dest-older" "${globalArgs[@]}")
-	for host in "$@"; do
-		HostAvailable "$host" || continue
-		HostUpdate "$host" "${args[@]}" || return
-	done
-}
+	hilight "Updating $name..."
 
-deviceStatus()
-{
-	local host
-	for host in "$@"; do
-		if [[ $verbose ]]; then
-			power status "$host" --verbose || return
-		else
-			local status; status="$(power status "$host")" || return
-			echo "$host is $status"
-		fi
-	done
+	# get the internet address
+	local ip; ip="$(network internet address $port "${globalArgs[@]}")" || return
+
+	# validate internet address
+	[[ ! $ip || "$ip" == null ]] && { EchoErr "$desc internet address not found, internet may be failed over"; echo; return 0; }
+	! IsIpAddress "$ip" && { EchoErr "$desc  internet address '$ip' is not valid"; return 1; }
+
+	# update CloudFlare with the internet address
+	echo "$desc address is $ip"
+	CloudFlare update "$domain" "$name" "$ip" "${globalArgs[@]}" || return; echo
 }
 
 #
-# device info command
-#
-
-deviceInfoUsage() { echo "Usage: $(ScriptName) info [-d|--detail]"; }
-deviceInfoArgStart() { unset -v detail; }
-
-deviceInfoOpt()
-{
-	case "$1" in
-		-d|--detail) detail="--detail";;
-		*) return 1;;
-	esac
-}
-
-deviceInfoCommand() { deviceInfo "${devices[@]}"; }
-deviceInfo() { local h; for h in "$@"; do header "$h"; os info "$h" $detail || return; done; }
-
-#
-# Helper
+# helper
 #
 
 mountVol() { VeraCrypt mount "$@" p "${globalArgs[@]}"; }
@@ -839,6 +800,14 @@ getHost()
 	hostIp="$(GetIpAddress "$host")" || return	
 }
 
+scriptOptDetail()
+{
+	case "$1" in
+		-d|--detail) detail="--detail";;
+		*) return 1;;
+	esac
+}
+
 serviceReload()
 {
 	[[ $noServiceRestart ]] && return
@@ -869,7 +838,7 @@ syncDir()
 
 		# sync
 		hilight "Syncing '$dir'..."
-		RunLog sudor -- UnisonHelper sync "$localDir" "$host" "$dir" "${globalArgs[@]}" -- "${u[@]}" || return		
+		RunLog sudor -- UnisonHelper sync "$localDir" "$host" "$dir" "${globalArgs[@]}" -- "${unisonArgs[@]}" || return		
 		echo
 
 	done	
