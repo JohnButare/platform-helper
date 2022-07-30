@@ -299,6 +299,8 @@ ScriptOptHost()
 	esac
 }
 
+ScriptOptHostVerify() { [[ $hostArg ]] && return; MissingOperand "host"; }
+
 # GetHosts [HOSTS] - set hosts array from --host argument, the passed list, or all Nomad clients.
 GetHosts()
 {
@@ -364,7 +366,7 @@ ScriptRun()
 {
 	# variables	
 	local defaultCommand defaultCommandUsed
-	local hostUsage="	-H,  --host [all|web|HOST](all)		comma separated list of hosts"
+	local hostUsage="	-H,  --host [HOSTS](all)		comma separated list of hosts, or all|web"
 
 	# initialize
 	RunFunction "init" -- "$@" || return
