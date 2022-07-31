@@ -287,7 +287,6 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 # -h, --header HEADER - if set and there is more than one host display it as a header
 ForAllHosts()
 {
-	local host; GetHosts || return
 	local brief errors header command
 
 	# options
@@ -301,17 +300,17 @@ ForAllHosts()
 		esac
 		shift
 	done
-	# echo "brief=$brief errors=$errors header=$header command=${command[@]}"; return
 
 	# run command for all hosts
 	local host; GetHosts || return
+	local multipl; (( ${#hosts[@]} > 1 )) && multiple="true"
 	for host in "${hosts[@]}"; do
 
 		# header		
-		if (( ${#hosts[@]} > 1 )); then
+		if [[ $multiple ]]; then
 			local hostShort="$(RemoveDnsSuffix "$host")"
-			[[ $header ]] && header "$header ($hostShort)"
-			[[ $brief ]] && printf "$hostShort: "
+			[[ $header || $verbose ]] && header "$header ($hostShort)"
+			[[ $brief && ! $verbose ]] && printf "$hostShort: "
 		fi
 
 		# command
@@ -319,7 +318,7 @@ ForAllHosts()
 		(( result == 0 )) && result="success" || { [[ ! $errors ]] && return $result; result="failure"; ((++errors)); }
 
 		# status
-		(( $(CurrentColumn) != 0 )) && { [[ $brief ]] && echo "$result" || echo; }
+		[[ $multiple ]]	&& (( $(CurrentColumn) != 0 )) && { [[ $brief ]] && echo "$result" || echo; }
 
 	done
 

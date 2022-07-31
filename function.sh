@@ -127,7 +127,7 @@ InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_
 header() { InitColor; printf "${RB_BLUE}************************* ${RB_INDIGO}$1${RB_BLUE} *************************${RESET}\n"; headerDone="$((52 + ${#1}))"; }
 HeaderBig() { InitColor; printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n**************************************************${RESET}\n"; }
 HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
-hilight() { InitColor; EchoWrap "${GREEN}$1${RESET}"; }
+hilight() { InitColor; EchoWrap "${@:2}" "${GREEN}$1${RESET}"; }
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
 # CurrentColumn - return the current cursor column, https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
@@ -135,17 +135,17 @@ if IsTty; then
 	if IsBash; then
 		CurrentColumn()
 		{
-			exec < /dev/tty; oldstty=$(${G}stty -g); ${G}stty raw -echo min 0; echo -en "\033[6n" > /dev/tty
+			exec < "/dev/tty"; local old="$(${G}stty -g)"; ${G}stty raw -echo min 0; echo -en "\033[6n" > "/dev/tty"
 			IFS=';' read -r -d R -a pos
-			${G}stty $oldstty
+			${G}stty "$old" >& /dev/null
 			echo $(( ${pos[1]} - 1 ))
 		}
 	else
 		CurrentColumn()
 		{
-			exec < /dev/tty; oldstty=$(${G}stty -g); ${G}stty raw -echo min 0; echo -en "\033[6n" > /dev/tty
+			exec < "/dev/tty"; local old="$(${G}stty -g)"; ${G}stty raw -echo min 0; echo -en "\033[6n" > "/dev/tty"
 			IFS=';' read -r -d R -A pos
-			${G}stty $oldstty
+			${G}stty "$old" >& /dev/null
 			echo $(( ${pos[2]%%$'\n'*} - 1 ))
 		}
 	fi
@@ -466,7 +466,7 @@ SleepStatus()
 }
 
 EchoErr() { (( $(CurrentColumn) != 0 )) && echo; EchoWrap "$@" >&2; return 0; }
-HilightErr() { InitColor; EchoWrap "${RED}$1${RESET}" >&2; return 0; }
+HilightErr() { InitColor; EchoWrap "${@:2}" "${RED}$1${RESET}" >&2; return 0; }
 PrintErr() { printf "$@" >&2; return 0; }
 
 EchoWrap()
