@@ -250,7 +250,7 @@ ScriptOptGet()
 		scriptOptValue="$1"; ((++shift))
 		
 	elif [[ $require ]]; then
-		MissingOperand "$scriptDesc"
+		MissingOperand "$scriptDesc" || return
 
 	else
 		return 1
@@ -281,14 +281,50 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 # Script Host Option
 #
 
-# ForAllHosts COMMAND [ARGS...] - run a command for all hosts.  If forAllHeader is set and there is more than one host display it as a header.
+# ForAllHosts COMMAND [ARGS...] - run a command for all hosts
+# -b, --brief 				- display a brief header by prefixing the command with the host name
+# -e, --errors				- if a command returns an error track it, return the total number of errors
+# -h, --header HEADER - if set and there is more than one host display it as a header
 ForAllHosts()
 {
 	local host; GetHosts || return
-	for host in "${hosts[@]}"; do
-		[[ $forAllHeader ]] && (( ${#hosts[@]} > 1 )) && header "$forAllHeader ($(RemoveDnsSuffix "$host"))"
-		"$@" "$host" || return
+	local brief errors header command
+
+	# options
+	while (( $# != 0 )); do
+		case "$1" in
+			--brief|-b) brief="--brief";;
+			--errors|-e) errors=0;;
+			--header|--header=*|-h|-h=*) local shift=0; ScriptOptGet "header" "$@" || return; shift $shift;;
+			--) shift; command+=("$@"); break;;
+			*) command+=("$1");;
+		esac
+		shift
 	done
+	# echo "brief=$brief errors=$errors header=$header command=${command[@]}"; return
+
+	# run command for all hosts
+	local host; GetHosts || return
+	for host in "${hosts[@]}"; do
+
+		# header		
+		if (( ${#hosts[@]} > 1 )); then
+			local hostShort="$(RemoveDnsSuffix "$host")"
+			[[ $header ]] && header "$header ($hostShort)"
+			[[ $brief ]] && printf "$hostShort: "
+		fi
+
+		# command
+		local result; RunLog "${command[@]}" "$host"; result="$?"
+		(( result == 0 )) && result="success" || { [[ ! $errors ]] && return $result; result="failure"; ((++errors)); }
+
+		# status
+		(( $(CurrentColumn) != 0 )) && { [[ $brief ]] && echo "$result" || echo; }
+
+	done
+
+	# return
+	[[ $errors ]] && return $errors || return 0
 }
 
 ScriptOptHost() 
@@ -366,7 +402,7 @@ ScriptRun()
 {
 	# variables	
 	local defaultCommand defaultCommandUsed
-	local hostUsage="	-H,  --host [HOSTS](all)		comma separated list of hosts, or all|web"
+	local hostUsage="	-H, --host [HOSTS](all)		comma separated list of hosts, or all|web"
 
 	# initialize
 	RunFunction "init" -- "$@" || return
