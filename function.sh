@@ -41,7 +41,7 @@ SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - spli
 
 EvalVar() { r "${!1}" $2; } # EvalVar <var> <variable> - return the contents of the variable in variable, or set it to var
 IsInteractiveShell() { [[ "$-" == *i* ]]; } # true if we are running at the command prompt
-IsTty() { tty --silent;  }
+IsTty() { ${G}tty --silent;  }
 IsStdIn() { [[ -t 0 ]];  } # 0 if STDIN refers to a terminal, i.e. "echo | IsStdIn" is 1
 IsStdOut() { [[ -t 1 ]];  } # 0 if STDOUT refers to a terminal, i.e. "IsStdOut | cat" is 1
 IsStdErr() { [[ -t 2 ]];  } # 0 if STDERR refers to a terminal, i.e. "IsStdErr |& cat" is 1
