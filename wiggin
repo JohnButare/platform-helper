@@ -675,20 +675,31 @@ syncHome-assistantUsage() { EchoWrap "Usage: $(ScriptName) sync hass [cert]\nSyn
 
 syncHome-assistantCommand()
 {
-	local currentHost="$(GetServer --quiet home-assistant)"
+	local currentHost="$(GetServer home-assistant --quiet)"
 
-	if [[ $currentHost ]]; then
-		hilight "The current Home Assistant server '$currentHost' will be syncronize first"
-		syncHomeAssistant "$currentHost" || return
-	else
-		EchoErr "There is current Home Assistant server is not known"	
+	# sync active Home Assistant server
+	if [[ ! $hostArg ]]; then
+		if [[ $currentHost ]]; then
+			header "Sync Active Home Assistant ($(RemoveDnsSuffix "$currentHost"))"
+			hilight "The active Home Assistant server '$currentHost' will be syncronize first"
+			syncHomeAssistant "$currentHost" || return
+		else
+			ScriptErr "the is current Home Assistant server is not known"	
+		fi
 	fi
 
-	local forAllHeader="Sync Home Assistant"
-	GetHostsService "home-assistant" && ArrayRemove "$currentHost" hosts && ForAllHosts syncHomeAssistant
+	# sync other Home Assistant servers
+	GetHostsService "home-assistant" || return
+	[[ $currentHost ]] && ArrayRemove hosts "$currentHost"
+	local forAllHeader="Sync Home Assistant"; ForAllHosts syncHomeAssistant
 }
 
-syncHomeAssistant() { unisonArgs=(-ignore "Name {*.log*}"); syncDir "$1" "/home/homeassistant/.homeassistant"; }
+syncHomeAssistant()
+{
+	local host="$1"
+	unisonArgs=(-ignore "Name {*.log*,*.db-shm,*.db-wal}"); syncDir "$host" "/home/homeassistant/.homeassistant" || return
+	updateOwner "$host" "homeassistant" "/home/homeassistant/.homeassistant"
+}
 
 #
 # update commands
@@ -837,13 +848,22 @@ syncDir()
 		[[ ! -d "$localDir" ]] && { RunLog sudoc ${G}mkdir --parents "$localDir" || return; }
 
 		# sync
-		hilight "Syncing '$dir'..."
+		hilight "Syncing '$dir' to '$host'..."
 		RunLog sudor -- UnisonHelper sync "$localDir" "$host" "$dir" "${globalArgs[@]}" -- "${unisonArgs[@]}" || return		
 		echo
 
 	done	
 
 	serviceReload "$services"
+}
+
+# updateOwner HOST OWNER DIRS
+updateOwner()
+{
+	local host="$1" owner="$2" dirs="${@:3}" options=(--recursive --changes)
+
+	hilight "Updating user and group ownership on '$host'..."
+	RunLog SshSudoc "$host" "chown ${options[@]} $owner $dirs && sudoc chgrp ${options[@]} $owner $dirs" || return
 }
 
 ScriptRun "$@"
