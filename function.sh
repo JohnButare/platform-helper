@@ -130,17 +130,25 @@ HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RES
 hilight() { InitColor; EchoWrap "${GREEN}$1${RESET}"; }
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
-if IsBash && IsInteractiveShell; then
-	CurrentColumn() # https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
-	{
-		exec < /dev/tty
-		oldstty=$(stty -g)
-		stty raw -echo min 0
-		echo -en "\033[6n" > /dev/tty
-		IFS=';' read -r -d R -a pos
-		stty $oldstty
-		echo $((${pos[1]} - 1))
-	}
+# CurrentColumn - return the current cursor column, https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
+if IsTty; then
+	if IsBash; then
+		CurrentColumn()
+		{
+			exec < /dev/tty; oldstty=$(${G}stty -g); ${G}stty raw -echo min 0; echo -en "\033[6n" > /dev/tty
+			IFS=';' read -r -d R -a pos
+			${G}stty $oldstty
+			echo $(( ${pos[1]} - 1 ))
+		}
+	else
+		CurrentColumn()
+		{
+			exec < /dev/tty; oldstty=$(${G}stty -g); ${G}stty raw -echo min 0; echo -en "\033[6n" > /dev/tty
+			IFS=';' read -r -d R -A pos
+			${G}stty $oldstty
+			echo $(( ${pos[2]%%$'\n'*} - 1 ))
+		}
+	fi
 else
 	CurrentColumn() { echo "0"; }
 fi
