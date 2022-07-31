@@ -327,7 +327,7 @@ GetHostsService()
 	local h="$hostArg"
 
 	# comma separate list of hosts
-	[[ $h ]] && { StringToArray "${h,,}" "," hosts; return; }
+	[[ $h ]] && { StringToArray "$(LowerCase "$h")" "," hosts; return; }
 
 	# service name	
 	IFS=$'\n' ArrayMakeC hosts hashi app server available "$service"
