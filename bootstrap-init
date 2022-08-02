@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # bootstrap-init [CONFIG_FILE] [BIN_UNC] [INSTALL_UNC] - bootstrap a local system with no dependencies, mounts bin
 # bootstrap-remote -> bootstrap-init -> bootstrap -> inst
+# macOS - |& does not work on fresh macOS, use 2>&1 |
+
 shopt -s extglob expand_aliases
 shopt -u nocaseglob nocasematch
 
@@ -231,7 +233,7 @@ initVariables()
 	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
 
 	# GNU utilities	
-	export G=""; isMac && G="g"
+	export G=""; inPath "gdate" && isMac && G="g"
 
 	return 0
 }
@@ -388,7 +390,7 @@ packageInstalled()
 { 
 	if inPath dpkg; then
 		# if any one of the packages passed returns "no packages found" then return error 1
-		dpkg --get-selections "$@" |& grep -q "no packages found" && return 1 || return 0
+		dpkg --get-selections "$@" 2>&1 | grep -q "no packages found" && return 1 || return 0
 	else
 		# assumes each package name is in the path
 		inPath "$@"; return
@@ -409,7 +411,6 @@ setupPackageManager()
 }
 
 setupPackageManager-win() { setupPackageManager-debian; }
-setupPackageManager-mac() { :; }
 
 setupPackageManager-debian()
 {
@@ -426,6 +427,18 @@ setupPackageManager-entware()
 	[[ ! -d "/opt/bin" ]] && { wget -O - "http://bin.entware.net/x64-k3.2/installer/generic.sh" | sudo /bin/sh || return; }
 	[[ ! -f "/opt/bin/stat" ]] && { sudo opkg install coreutils-stat || return; }
 	return 0
+}
+
+setupPackageManager-mac()
+{
+	local brew="/usr/local/bin/brew"; bash="/usr/local/bin/bash" 
+	isArm && brew="/opt/homebrew/bin/brew" bash="/opt/bin/bash"
+
+	[[ ! -f "$brew" ]] && { /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || return; }
+	eval "\$($brew shellenv)"
+	! brew list bash >& /dev/null && { brew install bash || return; }
+	! which -p gmkdir >&/dev/null && { brew install coreutils || return; }
+	G="g"
 }
 
 debianPackageCore()
@@ -502,12 +515,13 @@ debianFixMan()
 
 configGet() { (. "$functionConfigFileCache"; eval echo "\$$1"); }
 getDateStamp() { ${G}date '+%Y%m%d'; }
-getFileDateStamp() { ${G}stat |& grep "BusyBox" >& /dev/null && return; ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
+getFileDateStamp() { ${G}stat 2>&1 | grep "BusyBox" >& /dev/null && return; ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
 echoErr() { echo "$@" >&2; }
 header() { printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
 hilight() { printf "${GREEN}$1${RESET}\n"; }
 initColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
 inPath() { local f; for f in "$@"; do ! which "$f" >& /dev/null && return 1; done; return 0; }
+isArm() { uname -a | grep -q arm; }
 isAvailable() { "$ping" -c 2 -W 2 "$1" &> /dev/null; }
 isChroot() { [[ $chroot ]]; }
 isContainer() { [[ $container ]]; }
@@ -520,7 +534,7 @@ isWsl2() { [[ "$(uname -r)" =~ .*-microsoft-standard$ ]]; }
 isQnap() { [[ "$platform_like" == "qnap" ]]; }
 log1() { ! (( verboseLevel >= 1 )) && return; echoErr "bootstrap-init: $@"; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
-updateNeeded() { [[ $force || ! -f "$updateDir/$1" || "$(getDateStamp)" != "$(getFileDateStamp "$updateDir/$1")" ]]; }
+updateNeeded() { isMac && [[ ! $G ]] && return; [[ $force || ! -f "$updateDir/$1" || "$(getDateStamp)" != "$(getFileDateStamp "$updateDir/$1")" ]]; }
 updateDone() { touch "$updateDir/$1"; }
 
 #
