@@ -3,17 +3,17 @@ timezone="America/Denver"
 timezoneWin="Mountain Standard Time" # tzutil.exe /l
 timeServer="time.butare.net"
 
-# bootstrap
-bootstrapBin="//ender.hagerman.butare.net/system/usr/local/data/bin" # initial bin directory UNC (//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL])
-bootstrapProxyServer="proxy.butare.net" boostrapProxyPort="3128"
-bootstrapProxy="http://$bootstrapProxyServer:$boostrapProxyPort"
-bootstrapDns1="10.10.100.8"
-bootstrapDns2="10.10.100.7"
-
 # user
 user="jjbutare"
 dropboxCompany="Juntos Holdings"
 dropboxUser="John Butare"
+
+# bootstrap
+bootstrapBin="//$user@ender.hagerman.butare.net/system/usr/local/data/bin" # initial bin directory UNC (//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL])
+bootstrapProxyServer="proxy.butare.net" boostrapProxyPort="3128"
+bootstrapProxy="http://$bootstrapProxyServer:$boostrapProxyPort"
+bootstrapDns1="10.10.100.8"
+bootstrapDns2="10.10.100.7"
 
 # system
 network="hagerman"
@@ -58,6 +58,8 @@ hashiTestVaultServers="pi20,pi21"
 
 # networks - list of available networks that the system can be connected to
 networks="hagerman@10.10.100.10,hagerman@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
+
+# hagerman network
 hagermanBaseDomain="butare.net" hbd="$hagermanBaseDomain"
 hagermanDomain="hagerman.$hagermanBaseDomain" hd="$hagermanDomain"
 hagermanCredentialPaths="CloudFlare,domotz,JumpCloud,LastPass,namecheap,ssh,system,unifi"
