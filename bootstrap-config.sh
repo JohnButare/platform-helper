@@ -9,7 +9,8 @@ dropboxCompany="Juntos Holdings"
 dropboxUser="John Butare"
 
 # bootstrap
-bootstrapBin="//$user@ender.hagerman.butare.net/system/usr/local/data/bin" # initial bin directory UNC (//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL])
+bootstrapUser="$user"
+bootstrapBin="//$bootstrapUser@ender.butare.net/system/usr/local/data/bin" # initial bin directory UNC (//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL])
 bootstrapProxyServer="proxy.butare.net" boostrapProxyPort="3128"
 bootstrapProxy="http://$bootstrapProxyServer:$boostrapProxyPort"
 bootstrapDns1="10.10.100.8"
