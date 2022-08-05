@@ -57,8 +57,9 @@ hashiTestVaultServers="pi20,pi21"
 # networks
 #
 
-# networks - list of available networks that the system can be connected to
-networks="hagerman@10.10.100.10,hagerman@10.10.100.11" # list of DNS servers for the specified network in the format NETWORK@IP
+# networks - list of networks that the system can connect to, format is NETWORK@DNS_IP
+networks="hagerman@10.10.100.8,hagerman@10.10.100.7" # list of 
+networks+="dt@10.10.0.91,dt@10.10.0.92,dt@10.10.0.93,dt@10.10.0.94"
 
 # hagerman network
 hagermanBaseDomain="butare.net" hbd="$hagermanBaseDomain"
@@ -69,6 +70,7 @@ hagermanVip="10.10.100.6" 																	# Virtual IP Address
 
 hagermanCameraServers="BackShedCamera,BackYardEastCamera,ChickenYardNorthCamera,ChickenYardSouthCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
 hagermanDhcpServers="pi1,pi2,pi3,pi4"
+hagermanDnsIps="10.10.100.8,10.10.100.7"
 hagermanDnsServers="pi1,pi2,pi3,pi4"
 hagermanBackupUser="$user"
 hagermanBackupServers="backup2.$hbd,backup1.$hbd" 					# backup (Borg)
