@@ -1646,7 +1646,7 @@ DnsAlternate()
 }
 
 
-# DnsResolve NAME|IP - resolve NAME or IP address to a unique fully qualified domain name
+# DnsResolve [--quiet] NAME|IP - resolve NAME or IP address to a unique fully qualified domain name
 # test cases: $HOSTNAME 10.10.100.10 web.service pi1 pi1.butare.net pi1.hagerman.butare.net
 DnsResolve()
 {
@@ -1784,16 +1784,40 @@ GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; r "${gus%:
 GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 	# DIRS
 IsUncPath() { [[ "$1" =~ ^\ *//.* ]]; }
 
-# GetFullUnc UNC: return the UNC with server fully qualified domain name
-GetFullUnc()
+# GetUncFull [--ip] UNC: return the UNC with server fully qualified domain name or an IP
+GetUncFull()
 {
-	local user="$(GetUncUser "$1")"
-	local server="$(GetUncServer "$1")"
-	local share="$(GetUncShare "$1")"
-	local dirs="$(GetUncDirs "$1")"
-	local protocol="$(GetUncProtocol "$1")"
+	local ip unc
 
-	server="$(DnsResolve "$server")" || return
+	# arguments
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--ip) ip="true";;
+			*)
+				if ! IsOption "$1" && [[ ! $unc ]]; then unc="$1"
+				else UnknownOption "$1" "GetUncFull"; return 1
+				fi
+		esac
+		shift
+	done
+
+	[[ ! $unc ]] && { MissingOperand "unc" "GetUncFull"; return 1; } 
+
+	# parse the UNC
+	local user="$(GetUncUser "$unc")"
+	local server="$(GetUncServer "$unc")"
+	local share="$(GetUncShare "$unc")"
+	local dirs="$(GetUncDirs "$unc")"
+	local protocol="$(GetUncProtocol "$unc")"
+
+	# resolve the server
+	if [[ $ip ]]; then
+		server="$(GetIpAddress "$server")" || return
+	else
+		server="$(DnsResolve "$server")" || return
+	fi
+
+	# return the new UNC
 	UncMake "$user" "$server" "$share" "$dirs" "$protocol"
 }
 

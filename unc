@@ -199,16 +199,18 @@ mountUsage()
 Mount the specified UNC.
 
 	$protocolUsage
+	-i, --ip										mount using the server IP address
 	-N, --no-host-check					do not check host availability"
 }
 
-mountArgStart() { unset -v noHostCheck port protocol; }
+mountArgStart() { unset -v ip noHostCheck port protocol; }
 mountArgs() { getTargetArg "$@"; }
 
 mountOpt() 
 {
 	protocolOpt "$@" && return
 	case "$1" in
+		-i|--ip) ip="--ip";;
 		-N|--no-host-check) noHostCheck="true";;
 		*) return 1
 	esac
@@ -288,7 +290,7 @@ mountCommand()
 	# macOS
 	elif IsPlatform mac; then
 		local password; password="$(getPassword)" || return
-		
+
 		# mount - don't log passwords
 		if [[ $password ]]; then
 			log1 "mount: mount_smbfs \"smb://$user:HIDDEN@$server/$share\" \"$mountRoot\""
@@ -542,7 +544,7 @@ getDir()
 		return 1
 	fi
 
-	# get the mounted root directory of the unc	
+	# get the mounted root directory of the unc
 	local mountRoot; mountRoot="$(getDirRoot "$unc")" || return
 
 	# return the directory
@@ -555,7 +557,7 @@ getDirRoot()
 	local root unc="$1"; validateUnc "$unc"
 
 	# ensure the UNC has the fully qualified server name
-	unc="$(GetFullUnc "$unc")" || return
+	unc="$(GetUncFull $ip "$unc")" || return
 
 	# get the mountDir from the UNC
 	local user server share dirs mountRoot mountDir
@@ -687,10 +689,17 @@ getUncInfo()
 	GetUncDirs "$unc" dirs
 	local p; GetUncProtocol "$unc" p || return; [[ $p ]] && protocol="$p"
 
-	# resolve aliass such as web->pi3.hagerman.butare.net
+	# force use of the IP if the host requires an alternate DNS server
+	[[ $(DnsAlternate "$server") ]] && ip="--ip"
+
+	# resolve DNS alias to a unique hostname or IP.  For example backup.butare.net->pi3.hagerman.butare.net
 	# this ensures we can mount the same share under a different alias
-	server="$(os name "$server")"
-	
+	if [[ $ip ]]; then
+		server="$(GetIpAddress "$server")" || return
+	else
+		server="$(os name "$server")" || return
+	fi
+
 	# mountRoot - the root directory for the mounted volume without problematic directory characters
 	mountRoot="$(echo "$volumeDir/${server}_${share}" | RemoveChar '$')"
 	
@@ -745,6 +754,7 @@ isAvailable()
 isMountedCheck()
 {
 	local unc="$1"
+
 	local dir; dir="$(quiet="true" getDir "$unc")"
 	local result="$?"
 
