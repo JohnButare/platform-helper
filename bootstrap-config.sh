@@ -29,7 +29,7 @@ confDir="$CLOUD/network/system"
 #
 
 # proxy
-noProxy="localhost,127.0.0.1,.$baseDomain,.$domain,web,www,autoproxy,.releases.ubuntu.com"
+noProxy="localhost,127.0.0.1,.$baseDomain,.$domain,web,www,autoproxy,.releases.ubuntu.com,.internal,.local"
 
 # other
 mqttServer="mosquitto"
