@@ -1331,8 +1331,9 @@ GetPrimaryAdapterName()
 GetServer()
 {
 	local service="$1"; shift; [[ ! $service ]] && { MissingOperand "service" "GetServer"; return 1; }
-	local ip; ip="$(GetIpAddress "$service.service" "$@")" || return
-	DnsResolve "$ip" "$@"
+	local useAlternate; [[ "$(DnsAlternate "$host")" != "" ]] && useAlternate="--use-alternate"
+	local ip; ip="$(GetIpAddress "$service.service.butare.net" "$@")" || return
+	DnsResolve $useAlternate "$ip" "$@"
 }
 
 # GetServers SERVICE - get all active hosts for the specified service
@@ -1638,8 +1639,8 @@ DnsAlternate()
 	local host="$1"
 
 	# hardcoded to check if connected on VPN from the Hagerman network to the DriveTime network (coeixst.local suffix) 
-	if [[ "$(GetDnsSuffix "$host")" == @(butare.net|hagerman.butare.net) && "$(GetDnsSearch)" == "coexist.local" ]]; then
-		echo "10.10.100.8"
+	if [[ "$host" =~ (^$|butare.net$) && "$(GetDnsSearch)" == "coexist.local" ]]; then
+		echo "10.10.100.8" # butare.net primary DNS server
 	fi
 
 	return 0
@@ -1650,11 +1651,12 @@ DnsAlternate()
 # test cases: $HOSTNAME 10.10.100.10 web.service pi1 pi1.butare.net pi1.hagerman.butare.net
 DnsResolve()
 {
-	local name quiet server
+	local name quiet server useAlternate
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-q|--quiet) quiet="true";;
+			--quiet|-q) quiet="true";;
+			--use-alternate) useAlternate="true";;
 			*)
 				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
 				else UnknownOption "$1" "DnsResolve"; return 1
@@ -1668,6 +1670,9 @@ DnsResolve()
 	# localhost - use the domain in the configuration
 	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(ConfigGet "domain")")
 
+	# override the server if needed
+	if [[ $useAlternate ]]; then server="$(DnsAlternate)"; else server="$(DnsAlternate "$name")"; fi
+
 	# Resolve name using various commands
 	# - -N 3 and -ndotes=3 allow the default domain names for partial names like consul.service
 
@@ -1676,15 +1681,15 @@ DnsResolve()
 	if IsIpAddress "$name"; then
 
 		if IsLocalHost "$name"; then lookup="localhost"
-		elif InPath host; then lookup="$(host -t A -4 "$name" $server |& cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
-		else lookup="$(nslookup -type=A "$name" $server |& grep "name =" | cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
+		elif InPath host; then lookup="$(host -t A -4 "$name" $server |& ${G}grep -E "domain name pointer" | ${G}cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
+		else lookup="$(nslookup -type=A "$name" $server |& ${G}grep "name =" | ${G}cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
 		fi
 
 	# forward DNS lookup to get the fully qualified DNS address
 	else
-		if [[ ! $server ]] && InPath getent; then lookup="$(getent ahostsv4 "$name" |& head -1 | tr -s " " | cut -d" " -f 3)" || unset lookup
-		elif InPath host; then lookup="$(host -N 2 -t A -4 "$name" $server |& ${G}grep -v "^ns." | grep "has address" | head -1 | cut -d" " -f 1)" || unset lookup
-		elif InPath nslookup; then lookup="$(nslookup -ndots=2 -type=A "$name" $server |& tail -3 | grep "Name:" | cut -d$'\t' -f 2)" || unset lookup
+		if [[ ! $server ]] && InPath getent; then lookup="$(getent ahostsv4 "$name" |& ${G}head -1 | tr -s " " | ${G}cut -d" " -f 3)" || unset lookup
+		elif InPath host; then lookup="$(host -N 2 -t A -4 "$name" $server |& ${G}grep -v "^ns." | ${G}grep -E "domain name pointer|has address" | head -1 | cut -d" " -f 1)" || unset lookup
+		elif InPath nslookup; then lookup="$(nslookup -ndots=2 -type=A "$name" $server |& tail -3 | ${G}grep "Name:" | ${G}cut -d$'\t' -f 2)" || unset lookup
 		fi
 		
 	fi
