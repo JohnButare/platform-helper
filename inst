@@ -308,6 +308,7 @@ serviceDemandStop() { service demand "$1" && service stop "$1"; }
 servicesDemandStop() { local s; for s in "$@"; do serviceDemandStop "$s" || return; done; }
 serviceDisableStop() { service disable "$1" && service stop "$1"; }
 sshRun() { SshAgentConf --quiet "${globalArgs[@]}" && RunLog ssh "$@"; }
+versionCheck() { local name="$1" version="$2"; [[ "$(AppVersion "$name" 2>&1)" == "$version" ]]; }
 waitForInstall() { [[ ! $ran ]] && return; local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
 waitForInstallWin() { ! IsPlatform win && return; waitForInstall "$1"; }
 
@@ -633,7 +634,7 @@ run()
 	[[ ! "$dest" ]] && dest="$P"
 
 	# version check
-	[[ $version && ! $force && "$(AppVersion "$name" 2>&1)" == "$version" ]] && return
+	local forceVersion; [[ $version && ! $force ]] && { versionCheck "$name" "$version" && return; forceVersion="true"; }
 
 	# variables
 	local platform; unset ran
@@ -1018,7 +1019,7 @@ runDmgWorker()
 
 		[[ ! "$app" ]] && { EchoErr "inst: \"$p\" does not contain an application"; return 1; }
 		local dir; GetFileName "$app" dir || return
-		[[ -d "$P/$dir" ]] && { echo "$dir is already installed"; return 0; }
+		[[ -d "$P/$dir" && ! $force  && ! $forceVersion ]] && { echo "$dir is already installed"; return 0; }
 		sudoc acp --recursive --progress-bar "$app" "$P"
 	fi
 
@@ -1798,7 +1799,7 @@ DeltaInstall()
 {
 	header "delta"; local v="0.13.0" # https://dandavison.github.io/delta/installation.html
 
-	# check if installed
+	# version check
 	InPath delta && [[ "$(delta --version | head -1 | cut -d" " -f2)" == "$v" && ! $force ]] && return
 
 	# install
@@ -4455,7 +4456,7 @@ CurlieInstall()
 {
 	local v="7.68.0"
 
-	# check if installed
+	# version check
 	InPath curlie && [[ ! $force && "$(curlie --version | head -1 | cut -d" " -f2)" == "$v" ]] && return
 
 	# install	
@@ -5492,7 +5493,7 @@ ProcsInstall()
 {
 	header "procs"; local v="0.12.1" # # https://github.com/dalance/procs
 
-	# check if installed
+	# version check
 	InPath procs && [[ "$(procs --version | head -1 | cut -d" " -f 2)" == "$v" && ! $force ]] && return
 
 	# install
@@ -5777,7 +5778,7 @@ StuiInstall()
 {
 	local v="1.1.3"
 
-	# check if installed
+	# version check
 	InPath s-tui && [[ "$(s-tui --version | head -1 | cut -d" " -f2)" == "$v" && ! $force ]] && return
 
 	# install
@@ -7302,7 +7303,7 @@ DogInstall()
 {
 	header "dog"; local v='v0.2.0-pre [721440b] built on 2022-03-30 (pre-release!)' # https://github.com/ogham/dog
 
-	# check if installed
+	# version check
 	InPath dog && [[ "$(dog --version | head -2 | tail -1)" == "$v" && ! $force ]] && return
 
 	# install
@@ -7406,7 +7407,7 @@ RipgrepInstall()
 {
 	header "ripgrep (rg)"; local v="13.0.0" # https://github.com/BurntSushi/ripgrep/releases
 
-	# check if installed
+	# version check
 	InPath rg && [[ "$(rg --version | head -1 | cut -d" " -f 2)" == "$v" && ! $force ]] && return
 
 	# install
@@ -7722,17 +7723,20 @@ dockerCheck() { InPath docker && return 0; i --no-header docker || return; }
 
 DockerInstall()
 {
-	header "Docker" # https://docs.docker.com/engine/install
+	header "Docker" # https://docs.docker.com/desktop/release-notes/
+
+	# install Docker Desktop
+	if IsPlatform mac; then
+		local version="4.11.1"
+		run "shareware/Docker/setup/Docker_$(os architecture).dmg" --version=$version || return
+		start Docker.app || return
+		[[ $ran ]] && pause
+	fi
 
 	# install
-	if ! InPath docker || [[ $force ]]; then
-		
-		if IsPlatformAll mac; then
-			run "shareware/Docker/setup/Docker_$(os architecture).dmg" || return
-			start Docker.app || return
-			pause
+	if ! IsPlatform mac && { ! InPath docker || [[ $force ]]; }; then
 
-		elif IsPlatform pi; then
+		if IsPlatform pi; then
 			curl -sSL get.docker.com | sh  || return
 		
 		elif IsPlatform ubuntu && ! grep "download.docker.com" "/etc/apt/sources.list" >& /dev/null; then # https://docs.docker.com/engine/install/ubuntu/
@@ -7741,10 +7745,6 @@ DockerInstall()
 			sudo add-apt-repository "deb [arch=$(dpkg --print-architecture)] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" || return
 	  	sudo apt-get update || return
 		fi
-	fi
-
-	# install	
-	if ! IsPlatform mac; then
 
 		# packages
 		pkg docker-ce docker-ce-cli containerd.io docker-compose-plugin || return
