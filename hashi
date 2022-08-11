@@ -167,7 +167,7 @@ allStatusCommand()
 }
 
 #
-# application commands
+# app commands
 #
 
 appUsage() { EchoWrap "Usage: $(ScriptName) app ls|node|server"; }
@@ -178,13 +178,55 @@ appLsUsage() { EchoWrap "Usage: $(ScriptName) app ls NAME\nList all applications
 appLsCommand() { consul kv get -recurse app | cut -d/ -f2 | sort | uniq; }
 
 #
-# application node commands
+# app node commands
 #
 
 appNodeUsage()  { EchoWrap "Usage: $(ScriptName) app node [status|register|unregister](status)"; }
 appNodeCommand() { appNodeStatusCommand; }
-appNodeStatusUsage() { EchoWrap "Usage: $(ScriptName) app node status\nShow the applications that the specified host can run."; }
-appNodeStatusCommand() { verbose="--verbose" nomadNodeStatus "${hostArg:-$HOSTNAME}" | tgrep '^app\.' | cut -d" " -f1 | cut -d. -f2 | sort; }
+
+#
+# app node status command 
+#
+
+appNodeStatusUsage()
+{
+	EchoWrap "Usage: $(ScriptName) app node status\nShow the applications that the specified host can run.
+
+	-a,	--active		show active applications for the node"
+}
+
+appNodeStatusArgStart() { unset -v active; }
+
+appNodeStatusOpt()
+{
+	case "$1" in
+		--active|-a) active="--active";;
+		*) return 1;;
+	esac
+}
+
+appNodeStatusCommand() { ForAllHosts --brief appNodeStatus; }
+
+appNodeStatus()
+{
+	local host="$(RemoveDnsSuffix "$1")"
+
+	local app apps; IFS=$'\n' ArrayMake apps "$(verbose="--verbose" nomadNodeStatus "$host" | tgrep '^app\.' | cut -d" " -f1 | cut -d. -f2 | sort)" || return
+
+	[[ ! $active ]] && { ArrayDelimit apps " "; return; }
+
+	for app in "${apps[@]}"; do
+		[[ "$app" == "apache-web" ]] && app="web"
+		GetServers "$app" | ${G}grep --quiet "^$host." && printf "$app "
+	done
+	[[ "$host" == "pi1" ]] && printf "homebridge "
+	[[ "$host" == "pi6" ]] && printf "domotz-agent unifi-controller "
+	echo
+}
+
+#
+# app node register commands
+#
 
 appNodeRegisterUsage() { EchoWrap "Usage: $(ScriptName) app register APP\nRegister an application with Consul and Nomad."; }
 appNodeRegisterArgs() { ScriptArgGet "app" -- "$@"; shift; }
@@ -580,7 +622,9 @@ certMakeVault()
 # cert status command
 #
 
-certStatusUsage() { EchoWrap "Usage: $(ScriptName) cert status
+certStatusUsage()
+{
+	EchoWrap "Usage: $(ScriptName) cert status
 Show certificate status.
 
 	-P,	--private		show private certificate status by mounting the private certificate directory
@@ -2326,17 +2370,17 @@ nomadNodeCommand() { usage; }
 nomadNodeAllocationsCommand() { forAllHosts nomadNodeAllocations; }
 nomadNodeExistsCommand() { local quiet="--quiet"; nomadNodeIdCommand > /dev/null; }
 nomadNodeIdCommand() { forAllHosts nomadGetNodeId; }
-nomadNodeLsCommand() { nomad node status -json | jq '.[] | .Name' | RemoveQuotes; }
-nomadNodeStatusCommand() { forAllHosts nomadNodeStatus --header "status"; }
+nomadNodeLsCommand() { nomad node status -json | jq '.[] | .Name' | RemoveQuotes | sort --version-sort; }
+nomadNodeStatusCommand() { ForAllHosts nomadNodeStatus --header "status"; }
 
 nomadNodeAllocations()
 {
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
 
 	if [[ $verbose ]]; then
-		header "$(RemoveDnsSuffix "$host")"; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2
+		header "$(RemoveDnsSuffix "$host")"; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | grep " running "
 	else
-		printf "$(RemoveDnsSuffix "$host"): "; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | wc -l
+		printf "$(RemoveDnsSuffix "$host"): "; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | grep " running " | wc -l
 	fi
 }
 

@@ -303,7 +303,7 @@ ForAllHosts()
 
 	# run command for all hosts
 	local host; GetHosts || return
-	local multipl; (( ${#hosts[@]} > 1 )) && multiple="true"
+	local multiple; (( ${#hosts[@]} > 1 )) && multiple="true"
 	for host in "${hosts[@]}"; do
 
 		# header		
