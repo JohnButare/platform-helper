@@ -30,6 +30,7 @@ confDir="$CLOUD/network/system"
 
 # proxy
 noProxy="localhost,127.0.0.1,.$baseDomain,.$domain,web,www,autoproxy,.releases.ubuntu.com,.internal,.local"
+noProxy+=",10.96.0.0/12,192.168.59.0/24,192.168.49.0/24,192.168.39.0/24" # minikube - https://minikube.sigs.k8s.io/docs/handbook/vpn_and_proxy/
 
 # other
 mqttServer="mosquitto"
