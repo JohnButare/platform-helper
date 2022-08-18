@@ -8,7 +8,7 @@ Usage: $(ScriptName) [OPTION]... [COMMAND]...
 Manipulate network volumes using the UNC (Universal Naming Convention) format.
 The UNC format is //[USER@]SERVER/SHARE[/DIRS].
 
-	get 								get UNC information
+	get 								get UNC informationR
 	browse							list UNC shares on the local network
 	IsAvailable HOST		return true if a host is available for UNC connections
 	IsMounted TARGET		return true if the target UNC or path is mounted 
@@ -38,8 +38,9 @@ init()
 {
 	volumeDir="$(GetRealPath "$HOME/Volumes")"; initVolumeDir || return
 	protocolUsage="-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)"
-	uncTypes="cifs,nfs,nfs4,fuse.sshfs"
+	uncTypes="cifs,drvfs,nfs,nfs4,fuse.sshfs"
 	uncTypesDf="-t nfs -t nfs4 -t smbfs -t fuse.sshfs"
+	IsPlatform wsl1 && uncTypes+=",drvfs" uncTypesDf+=" -t drvfs"
 	uncTypesGrep="${uncTypes//,/|}"
 	return 0
 }
@@ -241,8 +242,11 @@ mountCommand()
 	# mount
 
 	# WSL 1
-	if isWslshare || [[ "$PLATFORM_KERNEL" == "wsl1" ]]; then
-		RunLog sudoc mount -t drvfs "//$server/$share" "$mountRoot"
+	if isWslshare; then
+		if ! RunLog sudoc mount -t drvfs "//$server/$share" "$mountRoot"; then
+			net.exe use '*' '\\'"$server"'\'"$share" || return						# fixes "bad superblock" error mounting macOS shares
+			RunLog sudoc mount -t drvfs "//$server/$share" "$mountRoot"
+		fi
 
 	# NFS
 	elif [[ "$protocol" == "nfs" ]]; then
@@ -257,10 +261,10 @@ mountCommand()
 		RunLog $prefix sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountRoot" "${portArg[@]}"
 
 	# linux and WSL 2
-	elif IsPlatform linux,wsl2; then		
+	elif IsPlatform linux,wsl; then		
 
 		# add an entry to /etc/fstab so sudo is not required to write to the share		
-		if ! grep -i "//$server/$share\\\$* $mountRoot cifs username=$user,noauto,rw,users 0 0" /etc/fstab >& /dev/null; then
+		if ! IsPlatform wsl1 && ! grep -i "//$server/$share\\\$* $mountRoot cifs username=$user,noauto,rw,users 0 0" /etc/fstab >& /dev/null; then
 			local line="//$server/$share $(GetRealPath "$mountRoot") cifs username=$user,noauto,rw,users 0 0"
 			sudoc bash -c "echo \"$line\" >> /etc/fstab" || return
 		fi
@@ -271,7 +275,7 @@ mountCommand()
 		local options="user=$user sec=ntlmsspi"
 
 		# mount elevated
-		if elevateCheck; then	
+		if ! IsPlatform wsl1 && elevateCheck; then	
 			[[ $password ]] && elevateSet --sensitive --no-quote || elevateSet "--no-hide"
 			log1 "mount: $elevate PASSWD="$passwordHidden" mount.cifs //$server/$share $mountRoot -o $options"
 			$elevate $passwordVar mount.cifs "//$server/$share" "$mountRoot" $options
@@ -380,8 +384,10 @@ unmount()
 	# unable to remove
 	if [[ ! $quiet ]]; then
 		ScriptErr "unable to unmount '$dir', try --force"
-		local processes; processes="$(sudoc fuser -c "$dir" |& cut -d" " -f 2- | sed "s/c//g" | sed "s/m//g" | tr -s " " | RemoveSpaceFront)" && [[ $processes ]] && \
-			{ log1 "blocking processes: $processes"; EchoErr "The following processes are preventing '$dir' from being unmounted:"; ps -p $processes; }
+		if ! IsPlatform wsl; then
+			local processes; processes="$(sudoc fuser -c "$dir" |& cut -d" " -f 2- | sed "s/c//g" | sed "s/m//g" | tr -s " " | RemoveSpaceFront)" && [[ $processes ]] && \
+				{ log1 "blocking processes: $processes"; EchoErr "The following processes are preventing '$dir' from being unmounted:"; ps -p $processes; }
+		fi
 	fi
 
 	return 1

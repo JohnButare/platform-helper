@@ -4,11 +4,12 @@ REM bootstrap-setup.cmd -> bootstrap.cmd -> bootstrap-wsl.cmd -> bootstrap-init 
 
 REM variables
 set pwd=%~dp0
+set version=1
 
 REM create bootstrap.cmd on the Desktop to run manually if needed
 set file=%HOMEPATH%\Desktop\bootstrap.cmd
 echo @echo off > %file%
-echo %pwd%bootstrap-wsl.cmd >> %file%
+echo %pwd%bootstrap-wsl%version%.cmd >> %file%
 
 REM run bootstrap.cmd after reboot
 copy %file% "%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs\Startup"

@@ -1,6 +1,6 @@
 @echo off
-REM bootstrap-wsl.cmd - bootstrap a Windows sytem
-REM bootstrap-setup.cmd -> bootstrap-wsl.cmd -> bootstrap-init -> bootstrap -> inst
+REM bootstrap-wsl2.cmd - bootstrap a Windows sytem using WSL 2 (requires Hyper-V)
+REM bootstrap-setup.cmd -> bootstrap-wsl2.cmd -> bootstrap-init -> bootstrap -> inst
 
 REM dist - name of the distribution to install
 set dist=Ubuntu
