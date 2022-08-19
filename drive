@@ -35,7 +35,7 @@ init()
 {
 	unset device devices efiDevice lvm
 	driveLetters=( c d e f g h i j k l m n o p q r s t u v w x y z )
-	InPath lvm && lvm="true"
+	InPath lvm && ! IsPlatform wsl1 && lvm="true"
 	mountRoot="/mnt"; [[ -d "/media/$USER" ]] && mountRoot="/media/$USER" # Ubuntu
 	return 0
 }
@@ -374,10 +374,16 @@ areAllUnmounted()
 
 canMount()
 {
+	# check UNC share of device
+	local share; share="$(getUnc)" || return
+	[[ "$share" == '\\Mac\Dropbox' ]] && { reason="Parallels Dropbox"; return 1; }
+
+	# check types
 	local type="$(getType)"
 	[[ "$type" == "" ]] && { reason="no filesystem"; return 1; }
 	[[ "$type" == "LVM2_member" ]] && { reason="logical volume member"; return 1; }
 	[[ "$type" == "swap" ]] && { reason="swap drive"; return 1; }
+
 	return 0
 }
 
@@ -448,13 +454,18 @@ doMountDriveLetter()
 
 	local result desc
 
+	# skip some errors when mounting all drives
 	desc="$(sudoc mount -t drvfs "$device:" "$mountDir" 2>&1)"; result="$?"
 	
-	# when mounting all drives, do not error out for empty optical media drives
+	# empty optical media drives
 	if echo "$desc" | grep "No medium found" >& /dev/null; then
 		log " (no media)..."; cleanupMountDir; return 0
+
+	# mount failed
 	elif [[ "$result" != "0" ]]; then
 		log " (failed)..."
+
+	# mount succeeded
 	else
 		log "..."
 	fi
@@ -546,6 +557,16 @@ getLabel()
 	fi
 
 	echo "$label"
+}
+
+# getUnc - get the UNC path for a device
+getUnc() 
+{
+	! isDriveLetter "$device" && return
+	echo "\\$(net.exe use | RemoveCarriageReturn | grep "${device^}": | \
+		sed 's/Micorosoft Windows Network//' | \
+		sed 's/Parallels Shared Folders//' | \
+		tr -s " " | cut -d\\ -f2- | RemoveSpaceTrim)"
 }
 
 getMountDir()
