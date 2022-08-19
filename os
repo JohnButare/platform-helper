@@ -132,13 +132,13 @@ executableFindCommand()
 	# find an executable that supports the primary architecture
 	arch="$(executableFormatCommand)"
 	file="$(file "$dir"/* | grep "$arch" | tail -1 | cut -d: -f1)"
-	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for MacOS universal binaries
+	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for mac universal binaries
 	[[ $file ]] && { echo "$file"; return; }
 
 	# see if we can find an executable the supports an alternate architecture if the platform supports one
 	arch="$(alternateExecutableFormatCommand)"; [[ ! $arch ]] && return 1
 	file="$(file "$dir"/* | grep "$arch" | tail -1 | cut -d: -f1)"
-	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for MacOS universal binaries
+	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for mac universal binaries
 	[[ $file ]] && { echo "$file"; return; }
 
 	return 1
@@ -291,7 +291,7 @@ architectureFileCommand()
 	local m; m=${machine:-$(hardwareCommand)} || return
 
 	case "$m" in
-		arm64) echo "arm64"; return;; # MacOS M1 ARM Chip, from: file vault|...
+		arm64) echo "arm64"; return;; # mac M1 ARM Chip, from: file vault|...
 		armv7l|aarch64) echo "ARM"; return;;
 		mips|mip64) echo "MIPS"; return;;
 		x86_64) IsPlatform mac && echo "x86_64" || echo "x86-64"; return;;
@@ -304,7 +304,7 @@ architectureFileCommand()
 alternateFileArchitectureCommand()
 {
 	case "$(hardwareCommand)" in
-		arm64) echo "x86_64";; # MacOS M1 ARM Chip supports x86_64 executables using Rosetta
+		arm64) echo "x86_64";; # mac M1 ARM Chip supports x86_64 executables using Rosetta
 	esac
 }
 
@@ -344,7 +344,7 @@ mhzCommand()
 }
 
 # hardware - return the machine hardware, one of:
-# arm64						ARM, 64 bit, macOS
+# arm64						ARM, 64 bit, mac
 # armv71|aarch64 	ARM, 32|64 bit, Raspberry Pi
 # mips|mip64			MIPS, 32|64 bit
 # x86_64 					x86_64 (Intel/AMD), 64 bit
@@ -616,7 +616,7 @@ infoDistributionMac()
 		*) codeName="unknown";;
 	esac
 
-	infoEcho "distribution: macOS $version ($codeName build $build)"
+	infoEcho "distribution: MacOS $version ($codeName build $build)"
 }
 
 infoDistributionWin()

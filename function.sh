@@ -268,7 +268,7 @@ AppVersion() # AppVersion file - return the version of the specified application
 {
 	local app="$1" version
 
-	# macOS application
+	# mac application
 	local dir
 	if IsPlatform mac && dir="$(command ls "/Applications" | grep -i "^$app.app$")" && [[ -f "/Applications/$dir/Contents/Info.plist" ]]; then
 		defaults read "/Applications/$dir/Contents/Info.plist" CFBundleShortVersionString; return
@@ -780,8 +780,8 @@ fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; ech
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 
 # CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
-# - macOS: if the file is moved outside of Dropvox the file it is not automatically downloaded
-# - WSL:  reads of the file do not trigger online-only file download in Dropbox
+# - mac: if the file is moved outside of Dropvox the file it is not automatically downloaded
+# - wsl:  reads of the file do not trigger online-only file download in Dropbox
 CloudGet()
 {
 	local quiet; [[ "$1" == @(-q|--quiet) ]] && { quiet="true"; shift; }
@@ -791,7 +791,7 @@ CloudGet()
 		[[ -d "$file" ]] && continue 										# skip directories
 		ScriptFileCheck "$file" || return 							# validate file
 
-		# macOS can skip if already downloaded, in Windows file shows as true size even if offline
+		# mac can skip if already downloaded, in Windows file shows as true size even if offline
 		IsPlatform mac && (( $(GetFileSize "$file" B) > 1 )) && continue
 
 		if IsPlatform win; then
@@ -1297,7 +1297,7 @@ GetIpAddress()
 	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
-	# - nslookup is slow on macOS if a name server is not specified
+	# - nslookup is slow on mac if a name server is not specified
 	if [[ ! $server ]] && InPath getent; then ip="$(getent ahostsv4 "$host" |& grep "STREAM" | "${all[@]}" | cut -d" " -f 1)"
 	elif InPath host; then ip="$(host -N 2 -t A -4 "$host" $server |& ${G}grep -v "^ns." | grep "has address" | "${all[@]}" | cut -d" " -f 4)"
 	elif InPath nslookup; then ip="$(nslookup -ndots=2 -type=A "$host" $server |& tail +4 | grep "^Address:" | "${all[@]}" | cut -d" " -f 2)"
@@ -1940,7 +1940,7 @@ packageExclude()
 	# Ubuntu - libturbojpeg0 is libturbojpeg in Ubuntu
 	IsPlatform ubuntu && IsInArray "libturbojpeg0" packages && { ArrayRemove packages "libturbojpeg0"; packages+=( libturbojpeg ); }
 
-	# macOS excludes
+	# mac excludes
 	! IsPlatform entware,mac && return
 
 	local entware=( pwgen )
@@ -2966,7 +2966,7 @@ sudoe()
 # sudo root [COMMAND] - run commands or a shell as root with access to the users SSH Agent and credential manager
 sudor()
 {
-	(( $# == 0 )) && set -- bash -il # -l for macOS
+	(( $# == 0 )) && set -- bash -il # -l for mac
 
 	# let the root command use our credential manager, ssh-agent, and Vault token
 	sudox \
