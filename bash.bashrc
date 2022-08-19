@@ -240,8 +240,8 @@ if [[ "$USER" == "root" ]]; then
 	fi
 fi
 
-# warning message for interactive shells if the configuration was not set properly
-if [[ $BASHRC ]]; then
+# warning message for interactive shells if the configuration was not set properly, except for GitKraken terminal
+if [[ $BASHRC && ! $GITKRAKEN_BINARY_PATH ]]; then
 	echo "System configuration was not set in /etc/bash.bashrc" >&2
 	unset BASHRC
 fi
