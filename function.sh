@@ -158,13 +158,32 @@ fi
 #
 
 ActualUser() { echo "${SUDO_USER-$USER}"; }
-UserExists() { getent passwd "$1" >& /dev/null; }
-GroupAdd() { local group="$1"; GroupExists "$group" && return; sudoc groupadd "$group"; }
-GroupAddUser() { local group="$1" user="${2:-$USER}"; GroupAdd "$group" || return; UserInGroup "$user" "$group" && return; sudo adduser "$user" "$group"; }
-GroupDelete() { local group="$1"; ! GroupExists "$group" && return; sudoc groupdel "$group"; }
-GroupExists() { getent group "$1" >& /dev/null; }
-GroupList() { getent group; }
+CreateId() { echo "$((1000 + RANDOM % 9999))"; }
+UserExists() { IsPlatform mac && { dscl . -list "/Users" | ${G}grep --quiet "^${1}$"; return; }; getent passwd "$1" >& /dev/null; }
+UserList() { IsPlatform mac && { dscl . -list "/Users"; return; }; getent passwd | cut -d: -f1 | sort; }
+GroupDelete() { local group="$1"; ! GroupExists "$group" && return; IsPlatform mac && { sudoc dscl . delete "/Groups/$group"; return; }; sudoc groupdel "$group"; }
+GroupExists() { IsPlatform mac && { dscl . -list "/Groups" | ${G}grep --quiet "^${1}$"; return; }; getent group "$1" >& /dev/null; }
+GroupList() { IsPlatform mac && { dscl . -list "/Groups"; return; }; getent group; }
 UserInGroup() { id "$1" | grep -q "($2)"; } # UserInGroup USER GROUP
+
+GroupAdd()
+{
+	local group="$1"; GroupExists "$group" && return
+	if IsPlatform mac; then sudoc dscl . create "/Groups/$group" gid "$(CreateId)"
+	else sudoc groupadd "$group"
+	fi
+}
+
+GroupAddUser()
+{
+	local group="$1" user="${2:-$USER}"
+	GroupAdd "$group" || return
+	UserInGroup "$user" "$group" && return
+
+	if IsPlatform mac; then sudoc dscl . create "/Groups/$group" GroupMembership "$user"
+	else sudo adduser "$user" "$group"; 
+	fi
+}
 
 UserCreate()
 {
@@ -173,13 +192,23 @@ UserCreate()
 
 	# create user
 	if ! UserExists "$1"; then
-		sudoc adduser $user --disabled-password --gecos "" || return
-		echo "$user:$password" | sudo chpasswd || return
+		if IsPlatform mac; then
+				sudoc dscl . create "/Users/$user" IsHidden 0 || return
+				sudoc dscl . -passwd "/Users/$user" "$password" || return
+		else
+				sudoc adduser $user --disabled-password --gecos "" || return
+				echo "$user:$password" | sudo chpasswd || return
+		fi		
 		echo "User password is $password"
 	fi
 
 	# make root
-	! UserInGroup "$user" "sudo" && ask "Make user root" && { sudo usermod -aG sudo $user || return; }
+	local group="sudo"; IsPlatform mac && group="admin"
+	if ! UserInGroup "$user" "sudo" && ask "Make user root"; then
+		if IsPlatform mac; then GroupAddUser "$group" "$user" || return
+		else sudo usermod -aG sudo $user || return
+		fi
+	fi
 
 	# create private key
 	[[ ! -d ~$user/.ssh ]] && { sudo install -o "$user" -g "$user" -m 700 -d ~$user/.ssh || exit || return; }
@@ -465,7 +494,8 @@ SleepStatus()
 	echo "done"
 }
 
-EchoErr() { (( $(CurrentColumn) != 0 )) && echo; EchoWrap "$@" >&2; return 0; }
+EchoErr() { (( $(CurrentColumn) != 0 )) && [[ $@ ]] && echo >&2; EchoWrap "$@" >&2; return 0; }
+EchoErrEnd() { echo "$@" >&2; } # echo at the end of the line without moving to column 0
 HilightErr() { InitColor; EchoWrap "${@:2}" "${RED}$1${RESET}" >&2; return 0; }
 PrintErr() { printf "$@" >&2; return 0; }
 
