@@ -159,8 +159,8 @@ case "$PLATFORM" in
 		;;
 	win)
 		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows"
-		WIN_USER="$(cmd.exe /c 'echo %USERNAME%')"
-		WIN_HOME="$WIN_ROOT/Users/$WIN_USER"
+		WIN_USER="$USER" WIN_HOME="$WIN_ROOT/Users/$WIN_USER" # for performancd assume the Windows username is the same
+		[[ ! -d "$WIN_HOME/Documents" ]] && echo WIN_USER="$(cmd.exe /c set | grep '^USERNAME=' | cut -d= -f2 | tr -d '\n' | sed 's/\r//g')" WIN_HOME="$WIN_ROOT/Users/$WIN_USER"
 		WIN_CODE="$WIN_HOME/code"
 		WIN_DOC="$WIN_HOME/Documents"
 		WIN_UDATA="$WIN_HOME/data"	
