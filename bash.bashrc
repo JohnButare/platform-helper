@@ -159,7 +159,8 @@ case "$PLATFORM" in
 		;;
 	win)
 		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows"
-		WIN_HOME="$WIN_ROOT/Users/$USER" 
+		WIN_USER="$(cmd.exe /c 'echo %USERNAME%')"
+		WIN_HOME="$WIN_ROOT/Users/$WIN_USER"
 		WIN_CODE="$WIN_HOME/code"
 		WIN_DOC="$WIN_HOME/Documents"
 		WIN_UDATA="$WIN_HOME/data"	
