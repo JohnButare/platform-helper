@@ -1,28 +1,15 @@
 @echo off
 REM bootstrap-wsl2.cmd - bootstrap a Windows sytem using WSL 2 (requires Hyper-V)
-REM bootstrap-setup.cmd -> bootstrap-wsl2.cmd -> bootstrap-init -> bootstrap -> inst
+REM - bootstrap-setup.cmd -> bootstrap.cmd -> bootstrap-wsl2.cmd -> bootstrap-init -> bootstrap -> inst
 
-REM dist - name of the distribution to install
-set dist=Ubuntu
-
-REM if set, the distribution image to import, otherwise a fresh image is downloaded
-set distUnc=\\ender.hagerman.butare.net\public
-set distImage=documents\data\install\platform\linux\wsl\image\ubuntu\default.tar.gz
-
-REM bin - the location of the bin directory, if unset find it
-set bin=//ender.hagerman.butare.net/system/usr/local/data/bin
-rem set bin=//pi2.hagerman.butare.net/root/usr/local/data/bin
-rem set bin=//StudyMonitor.hagerman.butare.net/root/usr/local/data/bin:22
-
-REM install - installation directory, if unset find it
-set install=//ender.hagerman.butare.net/public/documents/data/install
-
-REM variables
-set pwd=%~dp0%
-set wsl=C:\Users\Public\data\appdata\wsl
+if not defined wsl (
+	echo This script must be called from bootstrap-setup.cmd.
+	pause
+	exit /b
+)
 
 REM create directories
-if not exist "%wsl%" mkdir "%wsl%"
+if not exist "%wslDir%" mkdir "%wslDir%"
 
 REM if the distribution exists then run the bootstrap
 if exist "\\wsl.localhost\%dist%\home" goto bootstrap
@@ -44,7 +31,7 @@ wsl --status > nul
 if not %ErrorLevel% == 0 wsl --install --no-distribution
 
 REM import the distribution image, use --no-distribution option to prevent installing a distribution automatically
-wsl --import %dist% %wsl% %distImage%
+wsl --import %dist% %wslDir% %distImage%
 
 REM check the distribution
 :check
@@ -56,11 +43,12 @@ if not exist "\\wsl.localhost\%dist%\home" (
 
 REM run the bootstrap
 :bootstrap
-echo Running bootstrap...
-copy %pwd%bootstrap-init \\wsl.localhost\%dist%\tmp
-copy %pwd%bootstrap-config.sh \\wsl.localhost\%dist%\tmp
+echo Running bootstrap-init...
+copy /Y %pwd%bootstrap-init \\wsl.localhost\%dist%\tmp
+copy /Y %pwd%bootstrap-config.sh \\wsl.localhost\%dist%\tmp
 wsl --user root -- sudo chmod ugo+rwx /tmp/bootstrap-init /tmp/bootstrap-config.sh
-wsl --user %USERNAME% /tmp/bootstrap-init %bin% %install% %*
+echo.
+wsl --user %distUser% /tmp/bootstrap-init%args%
+if errorlevel 2 ( wsl.exe --shutdown & goto bootstrap )
 if errorlevel 1 goto bootstrap
-
 pause

@@ -12,7 +12,7 @@ prepareUsage() { echot "Usage: $(ScriptName) prepare\nShow steps to prepare a ho
 
 prepareCommand()
 {
-	local user="$USER"
+	local user="$(ConfigGet "user" "$config")"
 	local host="$HOST"
 	local port="$(SshHelper config get "$HOST" port)"
 
@@ -67,7 +67,7 @@ runArgs() { ScriptArgGet "target" -- "$@"; shift; }
 runArgEnd()
 {
 	bash="bash"
-	bootstrapUser="$(ConfigGet "user" "$config")"; bootstrapUser="${bootstrapUser:-$USER}"
+	user="$(ConfigGet "user" "$config")"; user="${user:-$USER}"
 	coreFiles=( "$BIN/bootstrap-init" "$config" )
 }
 
@@ -83,14 +83,11 @@ runCommand()
 		type="ssh"
 	fi
 
-	RunFunction bootstrap "${type^}"
+	RunFunction run "${type^}"
 }
 
-#
-# chroot - bootstrap a chroot
-#
-
-bootstrapChroot()
+# runChroot - bootstrap a chroot
+runChroot()
 {
 	local dist="$target"
 	local dir="$(ChrootHelper dir "$dist")"
@@ -103,18 +100,15 @@ bootstrapChroot()
 	copyCoreFiles "/tmp/bootstrap/" || return # some chroots mount our tmp directory
 
 	# run bootstrap-init
-	runBootstrap || return
+	bootstrapRun || return
 }
 
-#
-# SSH - bootstrap a remote host using SSH
-#
-
-bootstrapSsh()
+# runSsh - bootstrap a remote host using SSH
+runSsh()
 {
 	local host="$(GetSshHost "$target")"
 	local port="$(GetSshPort "$target")"; port="${port:-$(SshHelper config get "$host" port)}"
-	local sshUser="$(GetSshUser "$target")"; user="${sshUser:-$bootstrapUser}"
+	local sshUser="$(GetSshUser "$target")" user="${sshUser:-$user}"
 
 	local isHostLocal; GetIpAddress --quiet "$host" | IsIpLocal && isHostLocal="true"
 	local sshCommonArgs=( -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ) # trust new hosts, don't modify known_hosts
@@ -127,16 +121,84 @@ bootstrapSsh()
 	sshCheckUserPassword || return
 	sshGetHostInfo || return
 	sshConfigure || return
-	runInit || return
+	bootstrapInit || return
 	IsPlatform openwrt,ubiquiti --host && return
 	
 	while true; do 
-		sshCheckBootstrapUser || return
+		sshCheckUser || return
 		sshCopyCoreFiles || return
-		runBootstrap && return
+		bootstrapRun && return
 		sshReconnect || return		
 	done
 }
+
+# runWsl - bootstrap a WSL distribution
+runWsl()
+{
+	local dist="$target" dir="/tmp"
+
+	if [[ "$(wsl get name)" != "$dist" ]]; then
+		hilight "Mounting share..."
+		dir="$(unc mount "//$(wsl get share)/$dist/tmp")" || return
+	fi
+
+	copyCoreFiles "$dir" && bootstrapRun
+}
+
+#
+# Bootstrap Helper
+#
+
+bootstrapInit() { RunPlatform bootstrapInit --host; }
+bootstrapInitOpenwrt() { installMicro; }
+bootstrapInitUbiquiti() { installMicro; }
+
+bootstrapInitMac()
+{
+	local brew="/usr/local/bin/brew"; bash="/usr/local/bin/bash" 
+	IsPlatform arm --host && brew="/opt/homebrew/bin/brew" bash="/opt/bin/bash"
+
+	# host specific configuration
+	IsPlatform mac --host && sshArgs+=(-t)
+
+	# initialize
+	run "$(cat <<-EOF
+		[[ ! -f "$brew" ]] && { /bin/bash -c "\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || exit; }
+		eval "\$($brew shellenv)"
+		! brew list bash >& /dev/null && { brew install bash || exit; }
+		! which -p gmkdir >&/dev/null && { brew install coreutils || exit; }
+		exit 0
+		EOF
+	)"
+}
+
+bootstrapInitQnap()
+{
+	bash="/opt/bin/bash"
+
+	# initialize
+	run 'bash -s' <<-EOF
+		export PATH=/opt/bin:\$PATH
+		[[ ! -d "/opt/bin" ]] && { wget -O - "http://bin.entware.net/x64-k3.2/installer/generic.sh" | sudo /bin/sh || exit; }
+		[[ ! -f "/opt/bin/stat" ]] && { sudo opkg install bash coreutils-stat iputils-ping || exit; }
+		grep -q "$user" /etc/passwd | grep "/opt/bin/bash" && { sudo usermod --shell "/opt/bin/bash" "$user" || exit; }
+		exit 0
+	EOF
+}
+
+bootstrapRun()
+{
+	local restart; [[ "$type" == "ssh" ]] && restart="--restart"
+
+	hilight "Running bootstrap on $host..."
+	runi "/tmp/bootstrap/bootstrap-init" "/tmp/bootstrap/$(GetFileName "$config")" "$bin" "${globalArgs[@]}" $restart
+}
+
+#
+# SSH Helper
+#
+
+sshGetHostInfo() { ScriptEval HostGetInfo --trust $verbose "$target"; }
 
 sshBootHost() # wait for the host to become available (after initial boot or reboot)
 {
@@ -150,19 +212,14 @@ sshBootHost() # wait for the host to become available (after initial boot or reb
 }
 
 # sshCheckUser - if the bootstrap user exists use it
-sshCheckBootstrapUser() 
+sshCheckUser() 
 { 
-	# bootstrap user already being used
-	[[ "$bootstrapUser" == "$user" ]] && return
+	hilight "Checking for $user on $host..."
+	! run getent passwd "$user" >& /dev/null && { echo "User $user does not exist on $host..."; return; }
 
-	# check if the bootstrap user exists
-	hilight "Checking for bootstrap user $bootstrapUser..."
-	! run getent passwd "$bootstrapUser" >& /dev/null && { echo "Bootstrap user $bootstrapUser does not exist"; return; }
-
-	# the bootstrap user exists
-	user="$bootstrapUser"
-	echo "Bootstrap user $bootstrapUser exists and will be used for further configuration"
-	sshConfigure || return
+	# the user exists on the host, 
+	echo "User $user exists on $host and will be used for further SSH commands..."
+	sshUser="$user" && sshConfigure
 }
 
 # sshCheckUserPassword - check if user password is expired
@@ -192,6 +249,7 @@ sshCheckUserPassword()
 	done
 }
 
+# sshConfigure - configure SSH for user
 sshConfigure()
 {
 	IsPlatform openwrt,ubiquiti --host && return
@@ -231,8 +289,6 @@ sshCopyCoreFiles()
 	rsync "${rsyncArgs[@]}" --port=$port --perms --chmod=ugo+w --recursive "${coreFiles[@]}" "$user@$host:/tmp/bootstrap/" || return
 }
 
-sshGetHostInfo() { ScriptEval HostGetInfo --trust $verbose "$target"; }
-
 sshReconnect()
 {
 	hilight "Reconnecting to $host..."
@@ -247,29 +303,10 @@ sshWait()
 }
 
 #
-# WSL - bootstrap a WSL distribution
-#
-
-bootstrapWsl()
-{
-	local dist="$target" dir="/tmp"
-
-	if [[ "$(wsl get name)" != "$dist" ]]; then
-		hilight "Mounting share..."
-		dir="$(unc mount "//$(wsl get share)/$dist/tmp")" || return
-	fi
-
-	# copy core files
-	copyCoreFiles "$dir" || return
-
-	# run bootstrap-init
-	runBootstrap || return
-}
-
-#
 # helper
 #
 
+# copyCoreFiles DIR - copy core files to the directory
 copyCoreFiles()
 {
 	local dir="$1"
@@ -281,75 +318,26 @@ copyCoreFiles()
 
 	# copy core files - allow updates by other users
 	local umask="$(umask)"; umask 0
-	cp "${coreFiles[@]}" "$dir" || return 
-	umask "$umask" || return
+	cp "${coreFiles[@]}" "$dir" && umask "$umask"
 }
 
+# installMicro - install the Micro editor on the host
 installMicro()
 {
 	IsPlatform mips --host && return
 	MicroHelper install "$host" || return
 }
 
-runInit()
-{
-	RunPlatform runInit --host || return
-}
-
-runInitOpenwrt() { installMicro; }
-runInitUbiquiti() { installMicro; }
-
-runInitMac()
-{
-	local brew="/usr/local/bin/brew"; bash="/usr/local/bin/bash" 
-	IsPlatform arm --host && brew="/opt/homebrew/bin/brew" bash="/opt/bin/bash"
-
-	# host specific configuration
-	IsPlatform mac --host && sshArgs+=(-t)
-
-	# initialize
-	run "$(cat <<-EOF
-		[[ ! -f "$brew" ]] && { /bin/bash -c "\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || exit; }
-		eval "\$($brew shellenv)"
-		! brew list bash >& /dev/null && { brew install bash || exit; }
-		! which -p gmkdir >&/dev/null && { brew install coreutils || exit; }
-		exit 0
-		EOF
-	)"
-}
-
-runInitQnap()
-{
-	bash="/opt/bin/bash"
-
-	# initialize
-	run 'bash -s' <<-EOF
-		export PATH=/opt/bin:\$PATH
-		[[ ! -d "/opt/bin" ]] && { wget -O - "http://bin.entware.net/x64-k3.2/installer/generic.sh" | sudo /bin/sh || exit; }
-		[[ ! -f "/opt/bin/stat" ]] && { sudo opkg install bash coreutils-stat iputils-ping || exit; }
-		grep -q "$user" /etc/passwd | grep "/opt/bin/bash" && { sudo usermod --shell "/opt/bin/bash" "$user" || exit; }
-		exit 0
-	EOF
-}
-
-runBootstrap()
-{
-	local restart; [[ "$type" == "ssh" ]] && restart="--restart"
-
-	hilight "Running bootstrap on $host..."
-	runi "/tmp/bootstrap/bootstrap-init" "/tmp/bootstrap/$(GetFileName "$config")" "$bin" "${globalArgs[@]}" $restart
-}
-
 # run command on host
 run() { RunFunction run "${type^}" -- "$@"; }
 runChroot() { ChrootHelper run "$dist" -s "/bin/bash" -d /tmp "$@"; }
-runSsh() { SshAgentConf "${globalArgs[@]}" && ssh "$user@$host" "${sshArgs[@]}" -- "$@"; }
+runSsh() { SshAgentConf "${globalArgs[@]}" && ssh "$sshUser@$host" "${sshArgs[@]}" -- "$@"; }
 runWsl() { wsl.exe -d "$dist" "$@"; }
 
 # run command on host interactively
 runi() { RunFunction runi "${type^}" -- "$@"; }
 runiChroot() { ChrootHelper run "$dist" -s /bin/bash -d /tmp "$bash" -l "$@"; }
-runiSsh() { ssh -Yt "$user@$host" "${sshArgs[@]}" -- "$bash" -l "$@"; }
+runiSsh() { ssh -Yt "$sshUser@$host" "${sshArgs[@]}" -- "$bash" -l "$@"; }
 runiWsl() { wsl.exe -d "$dist" "$bash" -l "$@"; }
 
 ScriptRun "$@"

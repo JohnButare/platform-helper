@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# bootstrap-init [CONFIG_FILE] [BIN_UNC] [INSTALL_UNC] - bootstrap a local system with no dependencies, mounts bin
-# bootstrap-remote -> bootstrap-init -> bootstrap -> inst
-# mac - |& does not work on fresh install, use 2>&1 |
+# bootstrap-init [CONFIG_FILE] - bootstrap a local system with no dependencies
+# - bootstrap-remote -> bootstrap-init -> bootstrap -> inst
+# - mac - |& does not work on fresh install, use 2>&1 |
 
 shopt -s extglob expand_aliases
 shopt -u nocaseglob nocasematch
@@ -58,15 +58,26 @@ configureProxyServer()
 	return 0
 }
 
+# createUser - create the user as administrator
 createUser()
 {
-	isMac || [[ ! $user ]] || grep "$user" /etc/passwd >& /dev/null && return
+	[[ ! $user ]] && return
 
+	# check if user exists
+	if isMac; then dscl . -list "/Users" | grep --quiet "^${user}$" && return
+	else grep "^$user:" "/etc/passwd" >& /dev/null && return
+	fi
+
+	# create user
 	hilight "Creating user $user..."
-	sudo adduser "$user" --gecos "" || return
-	sudo usermod -aG sudo $user || return
+	if isMac; then
+		sudo dscl . create "/Users/$user" IsHidden 0 && sudo dscl . create "/Groups/admin" GroupMembership "$user"
+	else
+		sudo adduser "$user" --gecos "" && sudo usermod -aG sudo $user
+	fi
 }
 
+# createUserHome - create user home directory, not applicable on mac
 createUserHome()
 {
 	isMac || [[ ! $user ]] && return
@@ -83,8 +94,8 @@ rebootCheck() { [[ ! -f /var/run/reboot-required ]] && return; rebootDo; }
 rebootDo()
 {
 	hilight "Rebooting..."
-	isWin && { sync; wsl.exe --shutdown; } || { $sudo reboot now; }
-	sleep 1; exit 1;
+	isWin && { sync; exit 2; }
+	$sudo reboot now; sleep 1; exit
 }
 
 runBootstrap()
@@ -95,13 +106,13 @@ runBootstrap()
 
 	hilight "Running bootstrap..."
 	log1 "bootstrap ${args[@]} ${globalArgs[@]}"
-	bootstrap "${args[@]}" "${globalArgs[@]}" || return
+	echo; bootstrap "${args[@]}" "${globalArgs[@]}" || return
 }
 
+# runAsUser - run bootstrap-init as the target user
 runAsUser()
 {
-	[[ "$USER" == "johnbutare" ]] && return 		# DriveTime user
-	[[ $user && "$USER" == "$user" ]] && return # bootstrap-config user
+	[[ $user && "$USER" == "$user" ]] && return
 
 	[[ $restart ]] && { hilight "Restarting to run as $user..."; return 1; }
 	
@@ -164,7 +175,6 @@ init()
 
 	# arguments
 	unset -v force noPrompt quiet restart test verbose verboseLevel wait
-	unset -v bin install
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-f|--force) force="--force";;
@@ -180,18 +190,11 @@ init()
 			-w|--wait) wait="--wait";;
 			*) 
 				[[ -f "$1" ]] && { export functionConfigFileCache="$1"; shift; continue; }
-				[[ ! $bin ]] && { bin="$1"; shift; continue; }
-				[[ ! $install ]] && { install="$1"; shift; continue; }
 				echoErr "bootstrap-init: invalid argument '$1'"; return 1;
 		esac
 		shift
 	done
 	globalArgs=($force $noPrompt $quiet $verbose)
-
-	# bin
-	[[ ! $bin ]] && bin="$(configGet "bootstrapBin")"
-	! IsUncPath "$bin" && { echoErr "'$bin' is not a UNC path"; return 1; }
-	GetUncServer "$bin" host || return
 
 	# variables
 	initVariables || return
@@ -207,15 +210,25 @@ init()
 	# path - debian only includes sbin directories in the root users path
 	isDebian && PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" 
 
+	# logging
+	log1 "\n	config=$functionConfigFileCache\n	user=$user\n	bin=$bin\n	install=$install"
+
 	return 0
 }
 
 initVariables()
 {
-	user="$(configGet "user")"
+	# configuration
+	user="$(configGet "user")"; isMac && user="$USER" # if we are on a mac bootstrap as the current user
+	bin="$(configGet "bootstrapBin")"; ! IsUncPath "$bin" && { echoErr "'$bin' is not a UNC path"; return 1; }; 
+	host="$(GetUncServer "$bin")" || return
+	install="$(configGet "bootstrapInstall")"
+
+	# virtualization
 	chroot=""; [[ -f /etc/debian_chroot ]] && chroot="$(cat "/etc/debian_chroot")"
 	container=""; inPath systemd-detect-virt && [[ "$(systemd-detect-virt --container)" != "none" ]] && container="true"
 
+	# platform_kernel
 	platform_kernel="linux"
 	if [[ "$(uname -r)" =~ .*-Microsoft$ ]]; then platform_kernel="wsl1"
 	elif [[ "$(uname -r)" =~ .*-microsoft-standard.* ]]; then platform_kernel="wsl2"
@@ -254,6 +267,7 @@ mountBin()
  		dir="/usr/local/data/bin"
  	fi
 
+ 	hilight "Using bin directory '$dir'..."
 	export PATH="$dir:$PATH"
 	log1 "PATH=$PATH"
 	return 0
@@ -337,8 +351,9 @@ mountPublic-sshfs()
 mountPublic-win()
 {
 	log1 "mounting SMB drive: sudo mount -t drvfs //$server/$share $mountDir"
-	net.exe use '*' '\\'"$server"'\'"$share" || return # allows prompting for username and password
+	net.exe use '\\'"$server"'\IPC$' || return # drvfs requires and existing Windows connection
 	sudo mount -t drvfs "//$server/$share" "$mountDir"
+	ls "$mountDir/usr/local/data/bin"; pause
 }
 
 #
@@ -518,7 +533,7 @@ debianFixMan()
 configGet() { (. "$functionConfigFileCache"; eval echo "\$$1"); }
 getDateStamp() { ${G}date '+%Y%m%d'; }
 getFileDateStamp() { ${G}stat 2>&1 | grep "BusyBox" >& /dev/null && return; ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
-echoErr() { echo "$@" >&2; }
+echoErr() { echo -e "$@" >&2; }
 header() { printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
 hilight() { printf "${GREEN}$1${RESET}\n"; }
 initColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
