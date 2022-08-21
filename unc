@@ -167,7 +167,7 @@ listSmb()
 
 listSmbClient()
 {	
-	local password; password="$(getPassword)" || return
+	local password; password="$(getPasswordCredentialStore)" || return
 
 	# smbclient password prompt will be hidden if output is sent to a pipe
 	if [[ $password ]]; then
@@ -243,10 +243,15 @@ mountCommand()
 
 	# WSL 1
 	if isWslshare || IsPlatform wsl1; then
-		if ! RunLog sudoc mount -t drvfs "//$server/$share" "$mountRoot"; then
-			net.exe use '*' '\\'"$server"'\'"$share" || return						# fixes "bad superblock" error mounting mac shares
-			RunLog sudoc mount -t drvfs "//$server/$share" "$mountRoot"
+
+		# drvfs requires an existing connection to the share
+		if ! net.exe use | RemoveCarriageReturn | grep --quiet '\\\\'"$server"'\\'; then
+			local password; password="$(getPassword)" || return
+			net.exe use '\\'"$server"'\IPC$' /USER:$user "$password" &> /dev/null || return
 		fi
+
+		# mount
+		RunLog sudoc mount -t drvfs "//$server/$share" "$mountRoot"
 
 	# NFS
 	elif [[ "$protocol" == "nfs" ]]; then
@@ -270,7 +275,7 @@ mountCommand()
 		fi
 
 		# mount - don't log password, mount.cifs password option does not work (WSL 2)
-		local password; password="$(getPassword)" || return
+		local password; password="$(getPasswordCredentialStore)" || return
 		local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
 		local options="user=$user sec=ntlmsspi"
 
@@ -293,7 +298,7 @@ mountCommand()
 
 	# mac
 	elif IsPlatform mac; then
-		local password; password="$(getPassword)" || return
+		local password; password="$(getPasswordCredentialStore)" || return
 
 		# mount - don't log passwords
 		if [[ $password ]]; then
@@ -593,8 +598,18 @@ getDirRoot()
 	echo "$root"
 }
 
-# getPassword - get the password to connect to a share if possible
 getPassword()
+{
+	# get the share password from the credential store if possible
+	local password; password="$(getPasswordCredentialStore)" || return
+
+	# prompt for password
+	PrintErr "Enter SMB password for $user on $server: "
+	read -s password; EchoErr; echo "$password"
+}
+
+# getPasswordCredentialStore - get the share password from the credential store
+getPasswordCredentialStore()
 {
 	# try and get the share password
 	password="$(credential --quiet get secure default)"
