@@ -11,13 +11,14 @@ Additional Git functionality."
 
 init()
 { 
-	GitExtensions="$P32/GitExtensions/GitExtensions.exe"
-	gitExtensionsGit="$P/Git/cmd/git.exe"
-
-	fork="$UADATA/Fork/Fork.exe"; IsPlatform mac && fork="/usr/local/bin/fork"
+	fork="/usr/local/bin/fork"
+	forkWin="$UADATA/Fork/Fork.exe"
 	forkGit="$UADATA/Fork/gitInstance/2.24.1/bin/git.exe"
 	forkTitle="Fork*"
-
+	gitExtensions="$P32/GitExtensions/GitExtensions.exe"
+	gitExtensionsGit="$P/Git/cmd/git.exe"
+	gitKraken="/usr/bin/gitkraken"; IsPlatform mac && gitKraken="$P/GitKraken.app/Contents/MacOS/GitKraken"
+	gitKrakenWin="$UADATA/gitkraken/bin/gitkraken.cmd"
 	gitx="$P/GitX.app/Contents/Resources/gitx"
 }
 
@@ -292,7 +293,10 @@ Open the repository in the current or specified directory in a Git GUI program.
 }
 
 guiArgStart() { unset -v path wait; }
-guiArgs() { [[ ! $1 ]] && return; ScriptArgGet "path" -- "$@" && ScriptCheckDir "$path" && path="$(GetFullPath "$path")"; }
+
+guiArgs()
+{
+	[[ ! $1 ]] && return; ScriptArgGet "path" -- "$@" && ScriptCheckDir "$path" && path="$(GetFullPath "$path")" && isGitRepo "$path"; }
 
 guiOpt()
 {
@@ -304,30 +308,26 @@ guiOpt()
 
 guiCommand()
 {	
-	[[ $path ]] && cd "$path" && git rev-parse --git-dir >& /dev/null || { ScriptErr "fatal: not a git repository (or any of the parent directories)"; return 1; }
+	drive IsWin "$path" && { guiWin; return; }
 
-	if InPath "gitkraken" && ! drive IsWin "$path"; then unset path; guiGitKraken
-	elif InPath "gitkraken" || [[ -d "/Applications/GitKraken.app" ]]; then guiGitKraken
+	if [[ -f "$gitKraken" ]]; then guiGitKraken
 	elif [[ -f "$fork" ]]; then guiFork
-	elif [[ -f "$GitExtensions" ]]; then guiGitExtensions
 	elif [[ -f "$gitx" ]]; then guiGitx
 	elif InPath "gitg"; then guiGitg
-	else ScriptErr "could not find a Git GUI application"; return 1
+	else guiNone
 	fi
 }
 
-guiFork()
+guiWin()
 {
-	local args=(); [[ $path ]] && args+=( "$path" )
-	local start; IsPlatform win && start="start"
-	$start "$fork" "${args[@]}"
+	if [[ -f "$gitKrakenWin" ]]; then guiGitKrakenWin
+	elif [[ -f "$forkWin" ]]; then guiForkWin
+	elif [[ -f "$gitExtensions" ]]; then guiGitExtensions
+	else guiNone
+	fi
 }
 
-guiGitExtensions()
-{
-	local args=( "${otherArgs[@]}" ); [[ $path ]] && args+=( browse "$path" )
-	start $wait "$GitExtensions" "${args[@]}" || return
-}
+guiNone() { ScriptErr "could not find a Git GUI application"; return 1; }
 
 guiGitg()
 {
@@ -335,20 +335,37 @@ guiGitg()
 	start $wait gitg "${otherArgs[@]}"
 }
 
-guiGitKraken() { RunPlatform guiGitKraken; }
-
-guiGitKrakenMac() 
+guiGitExtensions()
 {
-	! IsProcessRunning "GitKraken" && { start "$P/GitKraken.app" || return; }
-	[[ ! $path ]] && return
-	RunLog "$P/GitKraken.app/Contents/MacOS/GitKraken" --path "$path"; 
+	local args=( "${otherArgs[@]}" ); [[ $path ]] && args+=( browse "$path" )
+	start $wait "$gitExtensions" "${args[@]}" || return
+}
+
+guiFork()
+{
+	local args=(); [[ $path ]] && args+=( "$path" )
+	start "$fork" "${args[@]}"
+}
+
+guiForkWin()
+{
+	local args=(); [[ $path ]] && args+=( "$path" )
+	start "$fork" "${args[@]}"
+}
+
+guiGitKraken()
+{
+	# ! IsProcessRunning "GitKraken" && { start "$P/GitKraken.app" || return; }
+	# --new-window
+	local args=(); [[ $path ]] && args+=( --path "$path" )
+	RunLog start $wait "$gitKraken" "${args[@]}"; 
+	WinSetState "GitKraken" --activate >& /dev/null
 }
 
 guiGitKrakenWin()
 {
-	local args=( --new-window "${otherArgs[@]}" ); [[ $path ]] && args+=( -p "$path" )
-	RunLog start $wait gitkraken "${args[@]}"
-	WinSetState "GitKraken" --activate >& /dev/null
+	local args=(); [[ $path ]] && args+=( --path "$(utw "$path")" )
+	cmd.exe /c gitkraken.cmd "${args[@]}" &
 }
 
 guiGitx()
@@ -580,6 +597,14 @@ getBaseUrl()
 	url="$(echo "$url" | sed 's/ssh:\/\///' | sed 's/git@//' | sed 's/:[0-9]*\//\//')" # remove ssh://, user@, and :port
 	url="${url%%/}" # remove trailing /
 	echo "${url}"
+}
+
+# isGitRepo DIR - return 0 if the directory is in a Git repository
+isGitRepo()
+{
+	( cd "$path" && git rev-parse --git-dir >& /dev/null; ) && return
+	[[ ! $quiet ]] && ScriptErr "fatal: not a git repository (or any of the parent directories)"
+	return 1
 }
 
 # serverToRepo server name -> ssh://user@server:port/dir/name
