@@ -2148,13 +2148,13 @@ fi
 #          use the _platform host variables set from the last call to HostGetInfo.
 IsPlatform()
 {
-	local all host p platforms=() useHost
+	local all host hostArg p platforms=() useHost
 
 	# arguments
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-a|--all) all="true";;
-			-h|--host) useHost="true"; [[ $2 ]] && ! IsOption "$2" && { host="$2"; shift; };;
+			-h|--host) useHost="true"; [[ $2 ]] && ! IsOption "$2" && { host="$2"; shift; }; hostArg="--host $host";;
 			*)
 				if ! IsOption "$1" && [[ ! $platforms ]]; then StringToArray "$1" "," platforms
 				else UnknownOption "$1" "IsPlatform"; return
@@ -2173,16 +2173,16 @@ IsPlatform()
 	# check if the host matches the specified platforms
 	for p in "${platforms[@]}"; do
 		if [[ $all ]]; then
-			! isPlatformDo "$p" "$@" && return 1			
+			! isPlatformCheck "$p" "$@" && return 1			
 		else
-			isPlatformDo "$p" && return
+			isPlatformCheck "$p" && return
 		fi
 	done
 
 	[[ $all ]]
 }
 	
-isPlatformDo()
+isPlatformCheck()
 {
 	local p="$1"; LowerCase "$p" p
 
@@ -2194,7 +2194,7 @@ isPlatformDo()
 		dsm|qts|rhel|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]];;
 
 		# aliases
-		rh) IsPlatform rhel;; # Red Hat
+		rh) IsPlatform rhel $hostArg;; # Red Hat
 
 		# windows
 		win11) IsPlatform win && (( $(os build) >= 22000 ));;
@@ -2229,7 +2229,7 @@ isPlatformDo()
 
 		# processor
 		arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]];;
-		x64) IsPlatformAll x86,64;;
+		x64) eval IsPlatformAll x86,64 $hostArg;;
 
 		# virtualization
 		container) IsContainer;;
