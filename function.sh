@@ -2154,7 +2154,7 @@ IsPlatform()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-a|--all) all="true";;
-			-h|--host) useHost="true"; shift; ! IsOption "$1" && { host="$1"; shift; };;
+			-h|--host) useHost="true"; [[ $2 ]] && ! IsOption "$2" && { host="$2"; shift; };;
 			*)
 				if ! IsOption "$1" && [[ ! $platforms ]]; then StringToArray "$1" "," platforms
 				else UnknownOption "$1" "IsPlatform"; return
