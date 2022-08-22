@@ -1183,57 +1183,44 @@ AppNetworkInstall()
 # Application Directories (appdata appconfig)
 #
 
-# appconfig - application configuration
-# appdata - application data, locate on a large drive
-#
-# Windows:
-# - $DATA/app* - located on the Linux disk, for high performance access by Linux programs.
-# - $DATA/app*w - located on the Windows disk, for high performance access by Windows programs.
-
 AppDirInstall()
 {
-	# additional data
+	# primary
+	declare dir="$DATA"
+	appDirCreate "$DATA" || return
+
+	# extended
 	local appdata2
 	IsPlatform qnap && appdata2="/share/data2"
 	[[ "$HOST" == "ender" && -d "/Volumes/data" ]] && appdata2="/Volumes/data" # external SSD array
 
-	# defaults
-	declare {appConfigDir,appDataDir}="$DATA" 
+	# platform specific
+	RunPlatform appDir || return
+}
 
-	# set platform specific location
-	RunPlatform AppDir || return 
+# appDirCreate DIR SUFFIX - create application directories in the directory, link to $ADATA{suffix} and $ACONFIG{suffix}
+appDirCreate()
+{
+	local dir="$1" suffix="$2"
 
-	# create the application directories and link to them if they are in a non-standard location
-	makeDir "$appConfigDir/appconfig" "$appDataDir/appdata" || return
-	[[ ! -d "$ACONFIG" ]] && { MakeLink --symbolic "$appConfigDir/appconfig" "$ACONFIG" || return; }
-	[[ ! -d "$ADATA" ]] && { MakeLink --symbolic "$appDataDir/appdata" "$ADATA" || return; }
-
-	# link to the application directories on the Windows drive
-	if IsPlatform win; then
-		MakeLink --symbolic "$WIN_ROOT/Users/Public" "$PUB" || return
-		makeDir "$PUB/data" "$PUB/data/appconfig" "$PUB/data/appdata" || return
-		MakeLink --symbolic "$PUB/data/appconfig" "$DATA/appconfigw" || return
-		MakeLink --symbolic "$PUB/data/appdata" "$DATA/appdataw" || return
-
-		# bootstrap also creates this link
-		MakeLink --symbolic "$DATA/appdataw/win" "$DATA/platform/win" || return
-	fi
-
-	# link additional data
-	if [[ -d "$appdata2" ]]; then
-		makeDir "$appdata2/appconfig" "$appdata2/appdata" || return
-		MakeLink --symbolic "$appdata2/appconfig" "$DATA/appconfig2" || return
-		MakeLink --symbolic "$appdata2/appdata" "$DATA/appdata2" || return
-	fi
+	# create directories
+	makeDir "$dir/appconfig" "$dir/appdata" || return
+	
+	# create links if needed
+	[[ ! -d "$ACONFIG${suffix}" ]] && { MakeLink --symbolic "$dir/appconfig" "$ACONFIG${suffix}" || return; }
+	[[ ! -d "$ADATA${suffix}" ]] && { MakeLink --symbolic "$dir/appdata" "$ADATA${suffix}" || return; }
 
 	return 0
 }
 
-AppDirQnap() { appDataDir="$DATA"; } # locate data on large physical drive, i.e. /share/CACHEDEV2_DATA
-
-AppDirWin()
+appDirWin()
 {
-	
+	appDirCreate "$WIN_ROOT/Users/Public/data" "w" || return
+
+	# move Windows executables to the Windows file system
+	# - for performance and reliability (some Windows programs do not run well from WSL shares)
+	makeLink --symbolic --merge "$DATA/appdataw/win" "$DATA/platform/win" || return
+	makeLink --symbolic --merge "$DATA/appdataw/win_arm" "$DATA/platform/win_arm" || return
 }
 
 #################################################
@@ -8281,10 +8268,12 @@ WinDirectoriesInstall()
 {
 	header "Windows Directories"
 
+	# other
 	makeDir "$WIN_ROOT/temp" || return
+	MakeLink --symbolic "$WIN_ROOT/Users/Public" "$PUB" || return
 
+	# public programs
 	makeDir "$pp/Applications/Other" || return
-	makeDir "$up/Applications/Other" || return
 	makeDir "$pp/Development/Other" || return
 	makeDir "$pp/Development/DotNet/Other" || return
 	makeDir "$pp/Game/Other" || return
@@ -8292,6 +8281,10 @@ WinDirectoriesInstall()
 	makeDir "$pp/Operating System/Other" || return
 	makeDir "$pp/Surveillance/Other" || return
 
+	# user programs
+	makeDir "$up/Applications/Other" || return
+
+	# user directories
 	makeDir "$WIN_HOME/$(GetFileName "$CODE")" || return
 }
 

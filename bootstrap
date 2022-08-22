@@ -34,62 +34,38 @@ runCommand()
 	header "bootstrap"
 	echo "Running from '$(ScriptDir)'..."
 	log1 "\n	syncronization host=$host\n	install=$install"
-	setupPlatform || return
-	setupDataDir || return
-	setupNetwork || return
-	syncFiles || return
-	runInstall || return
+
+	{ runSetup && syncFiles && runInstall; } || return
 	echo "bootstrap completed successfully"
 }
 
-runInstall()
-{
-	local args=(--quiet --no-prompt --no-help $verbose)
-	[[ $install ]] && args+=(--hint "$install")
-
-	# ensure path is set properly now that all directories are present
-	. bash.bashrc || return 
-	IsPlatform win && export WSLENV="PATH/l" # make new PATH visible for Windows programs
-
-	# run bootstrap
-	if UpdateNeeded "inst-bootstrap"; then
-		HeaderBig "Install Bootstrap"
-		inst "${args[@]}" bootstrap || return
-		UpdateDone "inst-bootstrap" || return;
-	fi
-
-	# run appcore
-	if UpdateNeeded "inst-appcore"; then
-		HeaderBig "Install AppCore"
-		inst "${args[@]}" appcore || return
-		UpdateDone "inst-appcore" || return
-	fi
-
-	return 0
-}
+runSetup() { setupPlatform && setupDirs && setupNetwork; }
+runInstall() { install AppDir && install bootstrap && install AppCore; }
 
 #
 # Setup Data Directory
 #
 
-setupDataDir()
+setupDirs()
 {
+	[[ ! $force ]] && ! UpdateNeeded "setup-dirs" && return
+
 	hilight "Data directory setup..."
-
-	# create
 	[[ ! -d "$DATA" ]] && { sudo ${G}mkdir --parents "$DATA" || return; }
-
-	# set owner
 	[[ "$(${G}stat $DATA --format="%U")" != "$USER" ]] && { sudo chown $USER "$DATA" || return; }
 
-	return 0
+	UpdateDone "setup-dirs"
 }
 
 #
 # Setup Network
 #
 
-setupNetwork() { network current update; }
+setupNetwork()
+{
+	[[ ! $force ]] && ! UpdateNeeded "setup-network" && return
+	hilight "Setup network..." && network current update && UpdateDone "setup-network"
+}
 
 #
 # Setup Platform
@@ -97,8 +73,8 @@ setupNetwork() { network current update; }
 
 setupPlatform()
 {
-	hilight "Platform setup..."
-	RunPlatform setup || return
+	[[ ! $force ]] && ! UpdateNeeded "setup-platform" && return
+	hilight "Setup platform..." && RunPlatform setup && UpdateDone "setup-platform"
 }
 
 setupQnap()
@@ -136,29 +112,30 @@ syncFiles()
 	local args=($verbose); 
 	[[ ! -d "$DATA/bin" ]] && args+=("--src-older")
 	RunLog SyncLocalFiles "${args[@]}" $host || return
-
-	# platform final steps
-	RunPlatform syncFilesFinal || return
-
-	# update path
-	. "/usr/local/data/bin/bash.bashrc" || return	
-}
-
-syncFilesFinalWin()
-{
-	# move Windows program directories to Windows file system for performance
-	local src="$WIN_ROOT/Users/Public/data/appdata" link="$DATA/platform/win"
-	[[ -L "$link" ]] && return
-
-	hilight "Moving win directory..."
-	mkdir --parents "$src" || return
-	[[ -d "$link" && ! -d "$src/win" ]] && { sudo mv "$link" "$src" || return; } # sudo preserves time
-	makeLink "$src/win" "$link" || return
 }
 
 #
 # helper
 #
+
+install()
+{
+	local what="$1" update="install-$what"
+
+	# return if this install was done
+	[[ ! $force ]] && ! UpdateNeeded "$update" && return
+
+	# ensure path is set properly now that all directories are present
+	. "/usr/local/data/bin/bash.bashrc" || return	
+
+	# make new PATH visible for Windows programs
+	IsPlatform win && export WSLENV="PATH/l"
+
+	# run the install
+	local args=(--quiet --no-prompt --no-help $verbose)
+	[[ $install ]] && args+=(--hint "$install")
+	HeaderBig "Install ${what^}" && inst "${args[@]}" "$what" && UpdateDone "$update"
+}
 
 makeLink() # SRC LINK
 {
