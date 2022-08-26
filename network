@@ -68,15 +68,8 @@ adapterNameCommand()
 
 currentUsage()
 {
-	echot "Usage: $(ScriptName) current [find|name|status|server|servers|timeout|update](name)
+	echot "Usage: $(ScriptName) current [all|find|name|status|server|servers|timeout|update](all)
 Current network commands.
-
-	find			find the network we are currently on
-	server		find the first active server
-	servers		list all servers for the current network
-	status		status of the current network
-	timeout		get or set the network host timeout
-	update		update network settings for the network we are currently on
 
 	-b,	--brief		show brief status messages (for use with app script)
 	-t, --timeout	the network host timeout in milliseconds, defaults to 200"
@@ -94,16 +87,41 @@ currentOpt()
 }
 
 currentArgEnd() { ! updateTimeout && return; AvailableTimeoutSet "$timeout"; }
-currentCommand() { currentNameCommand; }
+currentCommand() { currentAllCommand; }
 currentNameCommand() { name; }
+currentStatusUsage() { echot "Usage: $(ScriptName) current all\nStatus of the current network."; }
 currentStatusCommand() { printf "network=$(name)\nproxy=$(getProxyServer)\n"; }
+currentTimeoutUsage() { echot "Usage: $(ScriptName) current all\nGet or set the network host timeout."; }
 currentTimeoutCommand() { [[ $quiet ]] && return; echo "The network host timeout is $(AvailableTimeoutGet) milliseconds"; }
 
 updateTimeout() { [[ $timeoutSet || "$command" != "currentTimeout" ]]; }
 
 #
+# Current All Command
+#
+
+currentAllUsage() { echot "Usage: $(ScriptName) current all\nFind all networks we are currently on."; }
+
+currentAllCommand()
+{
+	local network networks=(); StringToArray "$(ConfigGet "networks")" "," networks
+	local current="$(RunLog network find --all --service=dns "${networks[@]}" "${globalArgs[@]}" --quiet)" || { echo "external"; return; }
+
+	local name names=()
+	local host hosts; IFS=$'\n' ArrayMake hosts "$current"
+	for host in "${hosts[@]}"; do
+		name="$(GetSshUser "$host")" # name of the network (before @)		
+		! IsInArray "$name" names && names+=("$name") 
+	done
+
+	ArrayDelimit names " "
+}
+
+#
 # Current Find Command
 #
+
+currentFindUsage() { echot "Usage: $(ScriptName) current find\nFind the primary network."; }
 
 currentFindCommand()
 {
@@ -144,7 +162,7 @@ currentServerCommand() { local name; name="$(name)" || return; findServer "$name
 currentServersUsage()
 {
 	echot "Usage: $(ScriptName) current servers TYPE
-Return all servers of the specified type for the current network."
+Return all servers of the specified type for the current network, i.e. 'network current server dns --service=dns'."
 }
 
 currentServersArgStart() { unset -v type; }
@@ -154,6 +172,8 @@ currentServersCommand() { local name; name="$(name)" || return; getServersFromCo
 #
 # Current Update Command
 #
+
+currentUpdateUsage() { echot "Usage: $(ScriptName) current all\nUpdate network settings for the current networks."; }
 
 currentUpdateCommand()
 {
@@ -207,9 +227,9 @@ currentUpdateCommand()
 # findNetwork - find the first active network from the networks specified in the networks configuration variabke 
 findNetwork()
 {
-	local networkIndex networks=(); StringToArray "$(ConfigGet "networks")" "," networks
-	networkIndex="$(network find --service=dns "${networks[@]}" "${globalArgs[@]}" $brief)" || { echo "external"; return; }
-	GetSshUser "${networks[$networkIndex]}" # return the name of the network (before @)
+	local network networks=(); StringToArray "$(ConfigGet "networks")" "," networks
+	network="$(RunLog network find --service=dns "${networks[@]}" "${globalArgs[@]}" $brief)" || { echo "external"; return; }
+	GetSshUser "$network" # return the name of the network (before @)
 }
 
 # findServer NETWORK TYPE SERVICE - find the first server of the specified type for the specified network  
@@ -218,7 +238,7 @@ findServer()
 	local network="$1" type="$2" service="$3"
 
 	# get servers of the specified type
-	local serverIndex servers=(); StringToArray "$(getServersFromConfig "$network" "$type")" "," servers
+	local server servers=(); StringToArray "$(getServersFromConfig "$network" "$type")" "," servers
 
 	# no servers defined
 	if [[ ! $servers ]]; then
@@ -227,10 +247,10 @@ findServer()
 	fi
 
 	# find an active server
-	serverIndex="$(RunLog network find "${servers[@]}" $brief $service "${globalArgs[@]}")" || return
+	server="$(RunLog network find "${servers[@]}" $brief $service "${globalArgs[@]}")" || return
 
 	# return HOST:SERVICE of the server (DESCRIPTION@HOST:SERVICE)
-	RemoveBefore "${servers[$serverIndex]}" "@" 
+	RemoveBefore "$server" "@" 
 }
 
 #
@@ -240,7 +260,7 @@ findServer()
 findUsage()
 {
 	echot "Usage: $(ScriptName) find SERVER [SERVER...]
-Find the first server that exposes a specific service.  Returns the zero based index of the found server.
+Find servers that exposes a specific service.
 
 - SERVER format is [DESCRIPTION@]HOST_OR_IP[:SERVICE], i.e. hagerman:10.10.10:DNS
 - DESCRIPTION is used for information messages while checking
@@ -252,16 +272,18 @@ Find the first server that exposes a specific service.  Returns the zero based i
   	ssh - checks port 22, or the port the port defined in the SSH configuration for the host
   	wg - checks the WireGuard UDP port for the current network, defaults to 51820
 
+	-a,	--all			find all servers instead of the first
 	-b,	--brief		show brief status messages
 	-s, --service	the service to use if one is not specified, defaults to PING
 	-u, --udp			check the port using UDP instead of TCP"
 }
 
-findArgStart() { unset -v brief timeoutSet; check="IsAvailablePort" defaultService="PING" timeout="200"; }
+findArgStart() { unset -v all brief timeoutSet; check="IsAvailablePort" defaultService="PING" timeout="200"; }
 
 findOpt()
 {
 	case "$1" in
+		-a|--all) all="--all";;
 		-b|--brief) brief="--brief";;
 		-s|--service|-s=*|--service=*) ScriptOptGet "defaultService" "service" "$@";;
 		-t|--timeout|-t=*|--timeout=*) ScriptOptGet --integer "timeout" "$@" && timeoutSet="true";;
@@ -282,13 +304,15 @@ findCommand()
 {
 	[[ ! $brief && ! $quiet ]] && PrintErr "checking..."
 
-	local server i="0"
+	local server descriptions=() results=()
 	for server in "${servers[@]}"
 	do
 		# parse the server: DESCRIPTION@HOST_OR_IP:SERVICE
 		local host="$(GetSshHost "$server")"
 		local service="$(GetSshPort "$server")"; service="${service:-$defaultService}"; service="${service,,}"
 		local description="$(GetSshUser "$server")"; description="${description:-$host}"; [[ "$description" != "$host" && $verbose ]] && description="$description ($host)"
+
+		IsInArray "$description" descriptions && continue
 
 		# check for a valid service
 		! IsInteger "$service" && [[ "$service" != @(dns|ping|nfs|smb|ssh|wg) ]] && { ScriptErr "'$service' is not a valid service"; return 1; }
@@ -304,21 +328,27 @@ findCommand()
 
 		# check the service
 		if findCheck "$host" "$service" "$description"; then
-			[[ ! $brief && ! $quiet ]] && EchoErrEnd "found"
-			echo "$i"
-			return 0
+			[[ ! $brief && ! $quiet ]] && PrintErr "found"
+			descriptions+=($description) results+=($server)
+			[[ ! $all ]] && { EchoErr; echo "$server"; return 0; }
+			[[ ! $brief && ! $quiet ]] && PrintErr "..."
 		fi
 		
-		(( ++i ))
 	done
  
-	[[ ! $brief && ! $quiet ]] && EchoErr "none available"
-	return 1
+ 	if [[ $results ]]; then
+ 		[[ ! $brief && ! $quiet ]] && EchoErrEnd "done"	
+ 		ArrayDelimit servers $'\n'
+ 	else
+		[[ ! $brief && ! $quiet ]] && EchoErrEnd "none available"	
+		return 1
+	fi
 }
 
 findCheck()
 {
 	local host="$1" service="$2" description="$3"
+	local ip; ip="$(GetIpAddress "$host")" || return
 
 	# port number aliases
 	case "$service" in
@@ -328,8 +358,8 @@ findCheck()
 	esac
 
 	case "$service" in
-		dns) IsAvailablePort "$host" 53 && dig @$host bogus +time=1 +tries=1 >& /dev/null;;
-		ping) IsAvailable "$host";;
+		dns) IsAvailablePort "$ip" 53 && dig @$host bogus +time=1 +tries=1 >& /dev/null;;
+		ping) IsAvailable "$ip";;
 		wg) local port="$(ConfigGetCurrent WireguardPort)"; [[ ! $port ]] && port="51820"; IsAvailablePortUdp "$host" "$port";;
 		*) "$check" "$host" "$service";;
 	esac
