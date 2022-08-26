@@ -494,10 +494,17 @@ SleepStatus()
 	echo "done"
 }
 
-EchoErr() { (( $(CurrentColumn) != 0 )) && [[ $@ ]] && echo >&2; EchoWrap "$@" >&2; return 0; }
-EchoErrEnd() { echo "$@" >&2; } # echo at the end of the line without moving to column 0
+EchoErr() { EchoReset "$@" >&2; EchoWrap "$@" >&2; return 0; }
+EchoErrEnd() { echo "$@" >&2; } # show an error message without resetting to column 0
 HilightErr() { InitColor; EchoWrap "${@:2}" "${RED}$1${RESET}" >&2; return 0; }
 PrintErr() { printf "$@" >&2; return 0; }
+
+# EchoReset MESSAGE -  # reset to column 0 if not at column 0 and a message is specified
+EchoReset()
+{
+	(( $(CurrentColumn) != 0 )) && [[ $@ ]] && echo >&2
+	return 0
+}
 
 EchoWrap()
 {
@@ -663,6 +670,7 @@ IsInArray()
 
 # date
 CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
+GetDate() { ${G}date --date "$1"; }
 GetDateStamp() { ${G}date '+%Y%m%d'; }
 GetFileDateStamp() { ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
 GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
@@ -723,6 +731,7 @@ RemoveSpaceTrim() { GetArgs; RemoveTrim "$1" " "; }
 
 QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
+QuoteQuotes() { GetArgs; echo "$@" | sed 's/\"/\\\"/g'; } # escape (quote) quotes using a back slash (\)
 QuoteSpaces() { GetArgs; echo "$@" | sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
 RemoveQuotes() { sed 's/"//g'; }
 RemoveParens() { tr -d '()'; }
@@ -1652,7 +1661,14 @@ AddDnsSuffix() { GetArgs2; HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 	# 
 GetDnsSearch() { cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2-; }
 GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }	# GetDnsSuffix HOST - the DNS suffix of the HOST
 HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuffix HOST - true if the specified host includes a DNS suffix
-RemoveDnsSuffix() { GetArgs; [[ ! $@ ]] && return; printf "${@%%.*}"; }				# RemoveDnsSuffix HOST - remove the DNS suffix if present
+
+# RemoveDnsSuffix HOST - remove the DNS suffix if present
+RemoveDnsSuffix()
+{
+	GetArgs; [[ ! $1 ]] && return
+	IsIpAddress "$1" && printf "$1" || printf "${@%%.*}"
+}
+
 
 #
 # Network: Name Resolution
