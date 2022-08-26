@@ -61,10 +61,16 @@ hashiTestVaultServers="pi20,pi21"
 #
 
 # networks - list of networks that the system can connect to, format is NETWORK@DNS_IP
-networks="hagerman@10.10.100.8,hagerman@10.10.100.7" # list of 
-networks+="dt@10.10.0.91,dt@10.10.0.92,dt@10.10.0.93,dt@10.10.0.94"
+networks="hagerman@10.10.100.8,hagerman@10.10.100.7"
+networks+=",dt@10.10.0.91,dt@10.10.0.92,dt@10.10.0.93,dt@10.10.0.94"
+
+# dt network
+dtUser="jbutare"
+dtAdDomain="coexist" 				# Active Directory domain
+dtDomain="coexist.local"		# DNS Domain
 
 # hagerman network
+hagermanUser="jjbutare"
 hagermanBaseDomain="butare.net" hbd="$hagermanBaseDomain"
 hagermanDomain="hagerman.$hagermanBaseDomain" hd="$hagermanDomain"
 hagermanCredentialPaths="CloudFlare,domotz,JumpCloud,LastPass,namecheap,ssh,system,unifi"
@@ -74,7 +80,7 @@ hagermanVip="10.10.100.6" 																	# Virtual IP Address
 hagermanCameraServers="BackShedCamera,BackYardEastCamera,ChickenYardNorthCamera,ChickenYardSouthCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
 hagermanDhcpServers="pi1,pi2,pi3,pi4"
 hagermanDnsIps="10.10.100.8,10.10.100.7"
-hagermanDnsServers="pi1,pi2,pi3,pi4"
+hagermanDnsServers="pi1.$hbd,pi2.$hbd,pi3.butare.net,pi4.$hbd"
 hagermanBackupUser="$user"
 hagermanBackupServers="backup2.$hbd,backup1.$hbd" 					# backup (Borg)
 hagermanHassServers="pi9.$hbd,pi11.$hbd"										# Home Assistant
