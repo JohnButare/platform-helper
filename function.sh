@@ -1327,7 +1327,7 @@ GetIpAddress()
 	host="$(SshHelper config get "$host" hostname)" || return
 
 	# /etc/hosts
-	IsFunction getent && ip="$(getent hosts "$host")" && { echo "$ip" | cut -d" " -f1; return; }
+	[[ $host ]] && IsFunction getent && ip="$(getent hosts "$host")" && { echo "$ip" | cut -d" " -f1; return; }
 
 	# IP address
 	IsIpAddress "$host" && { echo "$host"; return; }
