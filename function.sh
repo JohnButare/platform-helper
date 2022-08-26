@@ -737,7 +737,7 @@ RemoveQuotes() { sed 's/"//g'; }
 RemoveParens() { tr -d '()'; }
 
 BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
-ForwardToBackSlash() { GetArgs; echo "${@////\\}"; }
+ForwardToBackSlash() { GetArgs; echo -E "$@" | sed 's/\//\\/g'; }
 RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
 
 GetAfter() { GetArgs2; [[ "$1" =~ ^[^$2]*$2(.*)$ ]] && echo "${BASH_REMATCH[1]}"; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
