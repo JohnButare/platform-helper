@@ -2259,12 +2259,15 @@ isPlatformCheck()
 		x64) eval IsPlatformAll x86,64 $hostArg;;
 
 		# virtualization
+		chroot) IsChroot && return;;
 		container) IsContainer;;
 		docker) IsDocker;;
-		swarm) InPath docker && docker info |& command grep "^ *Swarm: active$" >& /dev/null;; # -q does not work reliably on pi2
-		chroot) IsChroot && return;;
-		host|physical) ! IsChroot && ! IsContainer && ! IsVm;;
 		guest|vm|virtual) IsVm;;
+		hyperv) IsHypervVm;;
+		host|physical) ! IsChroot && ! IsContainer && ! IsVm;;
+		parallels) IsParallelsVm;;
+		swarm) InPath docker && docker info |& command grep "^ *Swarm: active$" >& /dev/null;; # -q does not work reliably on pi2
+		vmware) IsVmwareVm;;
 		*) return 1;;
 
 	esac
@@ -3088,6 +3091,7 @@ ChrootPlatform() { ! IsChroot && return; [[ $(uname -r) =~ [Mm]icrosoft ]] && ec
 IsContainer() { ! InPath systemd-detect-virt && return 1; [[ "$(systemd-detect-virt --container)" != @(none|wsl) ]]; }
 IsDocker() { ! InPath systemd-detect-virt && return 1; [[ "$(systemd-detect-virt --container)" == "docker" ]]; }
 IsVm() { GetVmType; [[ $VM_TYPE ]]; }
+IsParallelsVm() { GetVmType; [[ "$VM_TYPE" == "parallels" ]]; }
 IsVmwareVm() { GetVmType; [[ "$VM_TYPE" == "vmware" ]]; }
 IsHypervVm() { GetVmType; [[ "$VM_TYPE" == "hyperv" ]]; }
 VmType() { GetVmType; echo "$VM_TYPE"; }
@@ -3124,6 +3128,7 @@ GetVmType() # vmware|hyperv
 
 	[[ "$result" == "microsoft" ]] && result="hyperv"
 	[[ "$result" == "none" ]] && result=""
+	[[ -d "$P/Parallels" ]] && result="parallels"
 
 	# In wsl2, Hyper-V is detected on the physical host and the virtual machine as "microsoft" so check the product
 	if IsPlatform wsl2 && [[ "$result" == "hyperv" ]]; then
