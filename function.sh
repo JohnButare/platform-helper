@@ -1304,7 +1304,7 @@ GetInterface()
 GetIpAddress() 
 {
 	# arguments
-	local host mdns quiet vm wsl all=(head -1) server
+	local host mdns quiet vm wsl all=(head -1) 
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -1321,7 +1321,18 @@ GetIpAddress()
 		shift
 	done
 
+	local ip server
+
+	# SSH configuration
+	host="$(SshHelper config get "$host" hostname)" || return
+
+	# /etc/hosts
+	IsFunction getent && ip="$(getent hosts "$host")" && { echo "$ip" | cut -d" " -f1; return; }
+
+	# IP address
 	IsIpAddress "$host" && { echo "$host"; return; }
+
+	# localhost
 	IsLocalHost "$host" && { GetAdapterIpAddress $wsl; return; }
 
 	# Resolve mDNS (.local) names exclicitly as the name resolution commands below can fail on some hosts
