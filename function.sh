@@ -537,6 +537,7 @@ IsAnyArray() { IsArray "$1" || IsAssociativeArray "$1"; }
 # ArrayMakeC CMD ARG... - make an array from the output of a command if the command succeeds
 # StringToArray STRING DELIMITER ARRAY_VAR
 if IsBash; then
+	ArrayMake() { local -n arrayMake="$1"; shift; arrayMake=( $@ ); } # ArrayMake VAR ARG... - make an array by splitting passed arguments using IFS
 	ArrayMakeC() { local -n arrayMakeC="$1"; shift; arrayMakeC=( $($@) ); }
 	ArrayShift() { local -n arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${arrayShiftVar[@]}"; shift "$arrayShiftNum"; arrayShiftVar=( "$@" ); }
 	ArrayShowKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ArrayShow keys; }
@@ -545,7 +546,8 @@ if IsBash; then
 	IsAssociativeArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-A.* ]]; }
 	StringToArray() { GetArgs3; IFS=$2 read -a $3 <<< "$1"; } 
 else
-	ArrayMakeC() { local arrayMakeC=() arrayName="$1"; shift; arrayMakeC=( $($@) ) || return; ArrayCopy "arrayMakeC" "$arrayName"; }
+	ArrayMake() { local arrayMake=() arrayName="$1"; shift; arrayMake=( $@ ); ArrayCopy arrayMake "$arrayName"; }
+	ArrayMakeC() { local arrayMakeC=() arrayName="$1"; shift; arrayMakeC=( $($@) ) || return; ArrayCopy arrayMakeC "$arrayName"; }
 	ArrayShift() { local arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${${(P)arrayShiftVar}[@]}"; shift "$arrayShiftNum"; local arrayShiftArray=( "$@" ); ArrayCopy arrayShiftArray "$arrayShiftVar"; }
 	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; r "${gt%% *}" $2; }
@@ -610,9 +612,6 @@ ArrayIntersection()
 
 # ArrayIndex NAME VALUE - return the 1 based index of the value in the array
 ArrayIndex() { ArrayDelimit "$1" '\n' | RemoveEnd '\n' | grep --line-number "^${2}$" | cut -d: -f1; }
-
-# ArrayMake VAR ARG... - make an array by splitting passed arguments using IFS
-ArrayMake() { local -n arrayMake="$1"; shift; arrayMake=( $@ ); }
 
 # ArrayRemove ARRAY VALUES - remove items from the array except specified values.  If vaules is the name of a variable
 # the contents of the variable are used.
