@@ -64,7 +64,6 @@ hashiTestVaultServers="pi20,pi21"
 # hagerman 10.10.100.8|7 (lb3|lb2)
 # dt 10.10.0.91-94
 networks="hagerman@10.10.100.8,dt@10.10.0.91,hagerman@10.10.100.7,dt@10.10.0.92"
-# networks="hagerman@10.10.100.99" # test
 
 # dt network
 dtUser="jbutare"
