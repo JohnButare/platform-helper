@@ -1797,9 +1797,9 @@ MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';
 # network: SSH
 #
 
-GetSshUser() { echo "$1" | cut -s -d@ -f 1; } 							# GetSshUser USER@HOST:PORT -> USER
-GetSshHost() { echo "$1" | cut -d@ -f 2 | RemovePort; }			# GetSshHost USER@HOST:PORT -> HOST
-GetSshPort() { echo "$1" | cut -s -d: -f 2; }								# GetSshPort USER@HOST:PORT -> PORT
+GetSshUser() { GetArgs; local gsu; [[ "$1" =~ @ ]] && gsu="${1%@*}"; r "$(RemoveSpaceTrim "$gsu")" $2; } 	# GetSshUser USER@HOST:PORT -> USER
+GetSshHost() { GetArgs; local gsh="${1#*@}"; gsh="${gsh%:*}"; r "$(RemoveSpaceTrim "$gsh")" $2; }					# GetSshHost USER@HOST:PORT -> HOST
+GetSshPort() { GetArgs; local gsp; [[ "$1" =~ : ]] && gsp="${1#*:}"; r "$(RemoveSpaceTrim "$gsp")" $2; }	# GetSshPort USER@HOST:PORT -> PORT
 
 IsSsh() { [[ $SSH_CONNECTION || $XPRA_SERVER_SOCKET ]]; }		# IsSsh - return true if connected over SSH
 IsSshTty() { [[ $SSH_TTY ]]; }															# IsSsh - return true if connected over SSH with a TTY
@@ -1807,9 +1807,10 @@ IsXpra() { [[ $XPRA_SERVER_SOCKET ]]; }											# IsXpra - return true if conn
 RemoteServer() { echo "${SSH_CONNECTION%% *}"; }						# RemoveServer - return the IP addres of the remote server that the SSH session is connected from
 RemoteServerName() { DnsResolve "$(RemoteServer)"; }				# RemoveServerName - return the DNS name remote server that the SSH session is connected from
 
-SshInPath() { SshHelper connect "$1" -- which "$2" >/dev/null; } # HOST FILE
+SshConfigGet() { local host="$1" value="$2"; ssh -G "$host" | grep -i "^$value " | head -1 | cut -d" " -f2; } # SshConfigGet HOST VALUE - do not use SshHelp config get for speed
+SshInPath() { SshHelper connect "$1" -- which "$2" >/dev/null; } 																							# SshInPath HOST FILE
 SshIsAvailablePort() { local port="$(SshHelper config get "$1" port)"; IsAvailablePort "$1" "${port:-22}"; } 	# SshIsAvailablePort HOST - return true if SSH is available on the host
-SshUser() { local host="$1" user; user="$(SshHelper config get "$host" user)" || return; echo "${user:-$USER}"; } # SshUser HOST - return the user for the host
+SshUser() { local host="$1" user; user="$(SshConfigGet "$host" "user")" || return; echo "${user:-$USER}"; } 	# SshUser HOST - return the user for the host
 
 SshAgentConf()
 { 
@@ -1817,8 +1818,9 @@ SshAgentConf()
 	local force; ScriptOptForce "$@"
 	local verbose verboseLevel; ScriptOptVerbose "$@"
 
-	# set the environment if it exists
-	SshAgent environment exists "$@" && ScriptEval SshAgent environment "$@"
+	# set the environment if it exists - faster than calling SshAgent
+	local e="$HOME/.ssh/environment"
+	[[ -f  "$e" ]] && eval "$(cat "$e")" 
 
 	# return if the ssh-agent has keys already loaded
 	[[ ! $force ]] && ssh-add -L >& /dev/null && { [[ $verbose ]] && SshAgent status; return 0; }
