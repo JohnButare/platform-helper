@@ -19,7 +19,7 @@ ScriptArgGet()
 	[[ $integer ]] && ! IsInteger "$1" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
 
 	# set the variable
-	local -n var="$scriptVar"; var="$1"; ((++shift))
+	SetVar "$scriptVar" "$1"; ((++shift))
 }
 
 ScriptArgDriveLetter()
@@ -185,7 +185,7 @@ RunLogLevel()
 
 	[[ $test ]] && return
 
-	"$@"
+	$@
 }
 
 # logFileN COMMAND - log and run a command if the logging verbosity level is at least N
@@ -268,8 +268,7 @@ ScriptOptGet()
 	[[ $integer && $scriptOptValue ]] && ! IsInteger "$scriptOptValue" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
 
 	# set variable
-	local -n var="$scriptVar"
-	var="$scriptOptValue"
+	SetVar "$scriptVar" "$scriptOptValue"
 }
 
 # ScriptOptNetworkProtocol - sets protocol and protocolArg
@@ -294,7 +293,7 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 # -h, --header HEADER - if set and there is more than one host display it as a header
 ForAllHosts()
 {
-	local brief errors header command
+	local brief errors header command=()
 
 	# options
 	while (( $# != 0 )); do
@@ -353,7 +352,7 @@ GetHosts()
 	local h="${hostArg:-$1}"
 
 	# comma separate list of hosts
-	[[ "$h" != @(|all|web) ]] && { StringToArray "${h,,}" "," hosts; return; }
+	[[ "$h" != @(|all|web) ]] && { StringToArray "$(LowerCase "$h")" "," hosts; return; }
 
 	# service name
 	[[ "$h" == @(|all) ]] && hostArg="nomad-client"
@@ -427,10 +426,10 @@ ScriptRun()
 		! IsValidCommandName "$1" && { args+=("$1"); shift; continue; }
 
 		# first command is lower case (i.e. dhcp), second command is upper case (i.e. dhcpStatus)
-		[[ $firstCommand ]] && c="${1,,}" || c="$(ProperCase "$1")"
+		[[ $firstCommand ]] && c="$(LowerCase "$1")" || c="$(ProperCase "$1")"
 
 		# commands that start with 'is' are proper cased after is, i.e. isAvailable
-		if [[ "${c,,}" =~ ^is..* ]]; then
+		if [[ "$(LowerCase "$c")}" =~ ^is..* ]]; then
 			local prefix="${c:0:2}" suffix="${c#??}"
 			[[ $firstCommand ]] && prefix="${prefix,,}" || prefix="$(ProperCase "$prefix")"
 			c="${prefix}$(ProperCase "${suffix}")"
@@ -439,7 +438,7 @@ ScriptRun()
 		# the argument is a command if there is a function for it
 		c="${command}${c}Command"
 		if IsFunction "$c"; then
-			command="${c%Command}" commands+=("$command") commandNames+=("${1,,}")			
+			command="${c%Command}" commands+=("$command") commandNames+=("$(LowerCase "$1")")			
 		else
 			args+=("$1")		
 		fi
@@ -489,7 +488,7 @@ ScriptRun()
 
 	# cleanup
 	unset args c shift
-	
+
 	# run command
 	[[ $showVersion ]] && command="version"
 	[[ ! $command ]] && usage
