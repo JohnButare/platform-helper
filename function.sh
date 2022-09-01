@@ -1168,7 +1168,7 @@ HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsInDomain() { [[ $USERDOMAIN && "$USERDOMAIN" != "$HOSTNAME" ]]; }							# IsInDomain - true if the computer is in a network domain
-NetworkCurrent() { ! ConfigExists "network" && return; ConfigGet "network"; }
+NetworkCurrent() { UpdateGet "network"; }; NetworkDomain() { UpdateGet "network_domain"; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
 
@@ -2166,8 +2166,14 @@ PackageWhich()
 # 
 
 IsPlatformAll() { IsPlatform --all "$@"; }
-PlatformSummary() { echo "$(os architecture) $(PlatformDescription | RemoveSpaceTrim) $(os bits)"; }
 PlatformDescription() { echo "$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"; }
+
+PlatformSummary()
+{
+	printf "$(os architecture) $(PlatformDescription | RemoveSpaceTrim) $(os bits)"
+	! IsPlatform win && { echo ; return; }
+	IsWinAdmin && echo " administrator" || echo " non-administrator"
+}
 
 # GetPlatformVar VAR - return PLATFORM_VAR variable if defined, otherewise return VAR
 if IsBash; then GetPlatformVar() { local v="$1" pv="${PLATFORM^^}_$1"; [[ ${!pv} ]] && echo "${!pv}" || echo "${!v}"; }
@@ -2354,12 +2360,14 @@ IsServer() { ! IsDesktop; }
 # Process
 #
 
+CanElevate() { IsWinAdmin; }
 console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternatively run in a regular Windows console (Start, Run, bash --login)
 CoprocCat() { cat 0<&${COPROC[0]}; } # read output from a process started with coproc
 handle() { ProcessResource "$@"; }
 InUse() { ProcessResource "$@"; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
+IsWinAdmin() { IsPlatform win && net.exe localgroup Administrators | RemoveCarriageReturn | grep "$WIN_USER$"; }
 pkillchildren() { pkill -P "$1"; } # pkillchildren PID - kill process and children
 ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
 pschildren() { ps --forest $(ps -e --no-header -o pid,ppid|awk -vp=$1 'function r(s){print s;s=a[s];while(s){sub(",","",s);t=s;sub(",.*","",t);sub("[0-9]+","",
@@ -2686,7 +2694,7 @@ start()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--elevate|-e) ! IsElevated && IsPlatform win && elevate="--elevate";;
+			--elevate|-e) IsPlatform win && CanElevate && ! IsElevated && elevate="--elevate";;
 			--force|-f) force="--force";;
 			--help|-h) startUsage; return 0;;
 			--no-prompt|-np) noPrompt="--no-prompt";;
