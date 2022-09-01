@@ -61,8 +61,10 @@ hashiTestVaultServers="pi20,pi21"
 #
 
 # networks - list of networks that the system can connect to, format is NETWORK@DNS_IP
-networks="hagerman@10.10.100.8,hagerman@10.10.100.7"
-networks+=",dt@10.10.0.91,dt@10.10.0.92,dt@10.10.0.93,dt@10.10.0.94"
+# hagerman 10.10.100.8|7 (lb3|lb2)
+# dt 10.10.0.91-94
+networks="hagerman@10.10.100.8,dt@10.10.0.91,hagerman@10.10.100.7,dt@10.10.0.92"
+# networks="hagerman@10.10.100.99" # test
 
 # dt network
 dtUser="jbutare"
