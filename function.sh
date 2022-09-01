@@ -545,7 +545,7 @@ if IsBash; then
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#declare }"; r "${gt%% *}" $2; }
 	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
 	IsAssociativeArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-A.* ]]; }
-	SetVar() { local -n var="$1"; var="$2"; }
+	SetVariable() { local -n var="$1"; var="$2"; }
 	StringToArray() { GetArgs3; IFS=$2 read -a $3 <<< "$1"; } 
 else
 	ArrayMake() { local arrayMake=() arrayName="$1"; shift; arrayMake=( $@ ); ArrayCopy arrayMake "$arrayName"; }
@@ -555,7 +555,7 @@ else
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; r "${gt%% *}" $2; }
 	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == @(array|array-local) ]]; }
 	IsAssociativeArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "association" ]]; }
-	SetVar() { eval $1="$2"; }
+	SetVariable() { eval $1="$2"; }
 	StringToArray() { GetArgs3; IFS=$2 read -A $3 <<< "$1"; }
 fi
 

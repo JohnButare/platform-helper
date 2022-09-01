@@ -19,7 +19,7 @@ ScriptArgGet()
 	[[ $integer ]] && ! IsInteger "$1" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
 
 	# set the variable
-	SetVar "$scriptVar" "$1"; ((++shift))
+	SetVariable "$scriptVar" "$1"; ((++shift))
 }
 
 ScriptArgDriveLetter()
@@ -268,7 +268,7 @@ ScriptOptGet()
 	[[ $integer && $scriptOptValue ]] && ! IsInteger "$scriptOptValue" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
 
 	# set variable
-	SetVar "$scriptVar" "$scriptOptValue"
+	SetVariable "$scriptVar" "$scriptOptValue"
 }
 
 # ScriptOptNetworkProtocol - sets protocol and protocolArg
