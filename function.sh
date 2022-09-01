@@ -2361,6 +2361,7 @@ IsServer() { ! IsDesktop; }
 #
 
 CanElevate() { IsWinAdmin; }
+ProgramsElevate() { CanElevate && echo "$P" || echo "$UADATA"; }
 console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternatively run in a regular Windows console (Start, Run, bash --login)
 CoprocCat() { cat 0<&${COPROC[0]}; } # read output from a process started with coproc
 handle() { ProcessResource "$@"; }
