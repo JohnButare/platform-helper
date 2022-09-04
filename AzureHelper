@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+. script.sh || exit
+
+usage() 
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... api|me|subscriptions
+Manage Microsoft Azure."
+}						 
+
+argStart() { unset -v names apiFilter; }
+
+opt()
+{
+	case "$1" in
+		-n|--names) names="--names"; apiFilter="| jq .value[].displayName | RemoveQuotes";;
+		*) return 1;;
+	esac
+}
+
+meUsage() { echot "Usage: $(ScriptName) me [groups]"; }
+meCommand() { api "me"; }
+meGroupsCommand() { eval api "me/transitiveMemberOf/microsoft.graph.group?$count=true" $apiFilter; }
+groupsCommand() { eval api "groups" $apiFilter; }
+
+groupUsage() { echot "Usage: $(ScriptName) group NAME info|members"; }
+groupArgs() { ScriptArgGet "group" -- "$@"; }
+groupCommand() { usage; }
+groupInfoCommand() { local id; id="$(getGroupId "$group")" && api "groups/$id"; }
+groupMembersCommand() { local id; id="$(getGroupId "$group")" && eval api "groups/$id/members?$count=true" $apiFilter; }
+
+subscriptionsCommand() { az account list --output table --query '[].{Name:name, SubscriptionId:id, TenantId:tenantId}'; }
+
+getGroupId()
+{
+	local name="$1"
+	local name="$1" id; id="$(api "groups" | jq '.value[] | select(.displayName == "'"$name"'").id' | RemoveQuotes)"
+	[[ ! $id ]] && { ScriptErrQuiet "group '$name' does not exist"; return 1; }
+	echo "$id"
+}
+
+#
+# API Commands
+#
+
+apiUsage()
+{
+	echot "Usage: $(ScriptName) api test
+API commands.
+
+	test					test the API"
+}
+
+apiCommand() { usage; }
+apiTestCommand() { api "me"; }
+
+# api COMMAND
+api()
+{
+	local command="$1"
+	local url="https://graph.microsoft.com/v1.0/$command"
+
+	az rest --method get --url "$url"; return
+
+	local token; token="$(credential get azure token --fallback --quiet)" || return
+
+	curl --silent -X GET "$url" \
+		-H "Authorization: Bearer $token" \
+	  -H "Content-Type:application/json"
+}
+
+ScriptRun "$@"
