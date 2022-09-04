@@ -309,6 +309,7 @@ AppVersion() # AppVersion file - return the version of the specified application
 
 	# Windows file version
 	if IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
+		! CanElevate && return
 		powershell "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn; return
 	fi
 
