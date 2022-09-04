@@ -2501,6 +2501,7 @@ ProcessClose()
 		if [[ $win ]]; then
 			name="${name/.exe/}.exe"; GetFileName "$name" name # ensure process has an .exe extension
 			cd "$PBIN" || return # process.exe only runs from the current directory in WSL
+			! InPath process.exe && return # Process.exe is not installed in some environments (flagged as malware by Cylance Protect)
 			./Process.exe -q "$name" $2 |& grep --quiet "has been closed successfully."; result="$(PipeStatus 1)"
 
 		elif IsPlatform mac; then
