@@ -409,6 +409,9 @@ getArch()
 	echo "$arch"
 }
 
+# getElevate YES NO
+getElevate() { CanElevate && echo "$1" || echo "$2"; }
+
 # getInstallFunction APP - find the function used to install the specified application
 # - The function will have the name appInstall
 # - A case insensitive search of all functions is performed, i.e. the app xming will match the function xMingInstall
@@ -653,7 +656,7 @@ run()
 	# variables
 	local platform; unset ran
 
-	# get file for platform if p is in the format PATH/WIN_FILE|MAC_FILE|LINUX_FILE
+	# get file for platform if the program p is in the format PATH/WIN_FILE|MAC_FILE|LINUX_FILE
 	local file="$(GetFileName "$p")"
 	local files=(); StringToArray "$file" "|" files; set -- "${files[@]}"
 	if (( $# > 1 )); then
@@ -817,6 +820,9 @@ runTypeExtension()
 	# elevate for installations which require it
 	[[ "$ext" == @(msi) ]] && elevate="--elevate"
 
+	# do not try and elevate if we cannot
+	! CanElevate && unset elevate
+
 	# find the installation file
 	findFile "$p" || { ask "Continue the installation"; return; }
 	p="$file"
@@ -945,8 +951,6 @@ runStoreQnap() { qnap package install "$1"; }
 runStoreWin() { start RunProcess.exe "ms-windows-store://pdp/?ProductId=$1"; return 0; } # Windows Store  always returns an error
 
 # run helper
-
-runElevate() { local suffix="NoElevate"; CanElevate && suffix="Elevate"; "${1}$suffix"; }
 
 runAppImage()
 {
@@ -2934,10 +2938,21 @@ LazyGitInstall()
 SublimeMergeInstall()
 {
 	local v="2077" # https://www.sublimemerge.com/download https://discord.com/channels/280102180189634562/650695903446827011 (beta)
-	run --header "Sublime Merge" "other/Sublime/merge/sublime_merge_build_${v}_x64_setup.exe|sublime_merge_build_${v}_mac.zip|sublime-merge_build_${v}_$(getArch "amd64" "arm64").deb" --version "$v" || return;
+	local args=(); ! CanElevate && args+=(--dest "$UADATA/Sublime Merge")
+	run --header "Sublime Merge" "other/Sublime/merge/sublime_merge_build_${v}_x64$(getElevate "_setup.exe" ".zip")|sublime_merge_build_${v}_mac.zip|sublime-merge_build_${v}_$(getArch "amd64" "arm64").deb" --version "$v" "${args[@]}" || return;
 }
 
-SublimeMergeFinalWin() { $mv "$pp/Sublime Merge.lnk" "$pp/Applications" && gitFixWin "$P/Sublime Merge/Git/cmd/git.exe"; }
+SublimeMergeFinalWin()
+{
+	if ! CanElevate; then
+		$makeShortcut "$UADATA/Sublime Merge/sublime_merge.exe" "$up/Applications/Sublime Merge" || return
+		gitFixWin "$UADATA/Sublime Merge/Git/cmd/git.exe" || return
+		return
+	fi
+
+	$mv "$pp/Sublime Merge.lnk" "$pp/Applications" && gitFixWin "$P/Sublime Merge/Git/cmd/git.exe" "elevate"; 
+}
+
 SublimeMergeProfile() { SublimeMerge $noPrompt profile restore default; }
 SublimeMergeRegister() { register "SublimeMerge"; }
 
@@ -2965,12 +2980,12 @@ TortoiseGitHelp()
 
 TortoiseGitFinalWin() { mergeDir "$pp/TortoiseGit" "$pp/Development/Other"; }
 
-# gitFixWin PROGRAM - file permissions does not work for Windows git programs
+# gitFixWin GIT_PROGRAM [elevate] - file permissions does not work for Windows git programs
 gitFixWin()
 {
 	local git="$1"
-	[[ ! -f "$git" ]] && return
-	elevate "$git" config --system core.filemode false
+	[[ ! -f "$1" ]] && return
+	$(LowerCase "$2") "$git" config --system core.filemode false
 }
 
 #################################################
@@ -7084,8 +7099,9 @@ SublimeInstall()
 
 	# install	
 	if [[ "$installType" == @(|beta|local) ]]; then
-		if CanElevate; then run "other/Sublime/setup/sublime_text_build_${v}_x64_setup.exe|sublime_text_build_${v}_mac.zip|sublime-text_build-${v}_$(getArch "amd64" "arm64").deb" --elevate -- "${args[@]}" || return
-		else run "other/Sublime/setup/sublime_text_build_${v}_x64.zip" --dest "$UADATA/Sublime Text" --copy-local || return
+		local file="other/Sublime/setup/sublime_text_build_${v}_x64_setup.$(getElevate "exe" "zip")|sublime_text_build_${v}_mac.zip|sublime-text_build-${v}_$(getArch "amd64" "arm64").deb"
+		if CanElevate; then run "$file" --elevate -- "${args[@]}" || return
+		else run "$file" --dest "$UADATA/Sublime Text" --copy-local || return
 		fi
 	elif IsPlatform debian && [[ "$installType" == @(|alternate|package) ]]; then sublimePackage || return
 	else couldNotLocate
@@ -7493,11 +7509,8 @@ AutoHotKeyInstall()
 	AutoHotKey IsInstalled && [[ "$(AutoHotKey version)" == "$v" && ! $force ]] && return
 
 	# install	
-	AutoHotKey close && runElevate "autoHotKey" && AutoHotKey startup
+	AutoHotKey close && run "$file" --dest "$(getElevate "AutoHotKey" "$UADATA/AutoHotKey")" --elevate && AutoHotKey startup
 }
-
-autoHotKeyElevate() { run "$file" --dest "AutoHotKey" --elevate; }
-autoHotKeyNoElevate() { run "$file" --dest "$UADATA/AutoHotKey" --copy-local; }
 
 BetterTouchToolInstall() { run --header "BetterTouchTool" "platform/mac/BetterTouchTool/setup/BetterTouchTool.zip"; } # https://folivora.ai/
 
