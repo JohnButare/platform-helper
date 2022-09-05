@@ -324,8 +324,10 @@ ForAllHosts()
 		(( result == 0 )) && result="success" || { [[ ! $errors ]] && return $result; result="failure"; ((++errors)); }
 
 		# status
-		[[ $multiple ]]	&& (( $(CurrentColumn) != 0 )) && { [[ $brief ]] && echo "$result" || echo; }
+		[[ $multiple ]]	&& (( $(CurrentColumn) != 0 )) && { [[ $brief ]] && echo "$result" || echo; }	
 
+		# logging
+		log1 "errors=$errors"
 	done
 
 	# return
