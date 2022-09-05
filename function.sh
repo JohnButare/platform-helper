@@ -423,6 +423,16 @@ powershell()
 
 PowerShellVersion() { powershell --version | grep PSVersion | tr -s " " | cut -d" " -f2; }
 
+# PythonConf - add Python bin directory if present
+PythonConf()
+{
+	! IsFunction PathAdd && { . $BIN/bash.bashrc || return; }
+	if [[ "$PLATFORM" != "mac" && -d "$HOME/.local/bin" ]]; then PathAdd "$HOME/.local/bin"
+	elif [[ "$PLATFORM" == "mac" && -d "$HOME/Library/Python/3.9/bin" ]]; then PathAdd front "$HOME/Library/Python/3.9/bin"
+	elif [[ "$PLATFORM" == "mac" && -d "$HOME/Library/Python/3.8/bin" ]]; then PathAdd front "$HOME/Library/Python/3.8/bin"
+	fi
+}
+
 store()
 {
 	IsPlatform win && { cmd.exe /c start ms-windows-store: >& /dev/null; }
