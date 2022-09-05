@@ -185,7 +185,7 @@ RunLogLevel()
 
 	[[ $test ]] && return
 
-	$@
+	"$@" # must be in quotes to preserve arguments, test with wiggin sync lb -H=pi2 -v
 }
 
 # logFileN COMMAND - log and run a command if the logging verbosity level is at least N
