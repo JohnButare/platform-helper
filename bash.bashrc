@@ -126,6 +126,8 @@ PathAdd() # PathAdd [front] DIR...
 		[[ $front ]] && { PATH="$f:${PATH//:$f:/:}"; continue; } # force to front
 		[[ ! $PATH =~ (^|:)$f(:|$) ]] && PATH+=":$f" # add to back if not present
 	done
+
+	return 0
 }
 
 #
