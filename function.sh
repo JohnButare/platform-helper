@@ -2371,7 +2371,7 @@ handle() { ProcessResource "$@"; }
 InUse() { ProcessResource "$@"; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
-IsWinAdmin() { IsPlatform win && net.exe localgroup Administrators | RemoveCarriageReturn | grep "$WIN_USER$"; }
+IsWinAdmin() { IsPlatform win && net.exe localgroup Administrators | RemoveCarriageReturn | grep --quiet "$WIN_USER$"; }
 pkillchildren() { pkill -P "$1"; } # pkillchildren PID - kill process and children
 ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
 pschildren() { ps --forest $(ps -e --no-header -o pid,ppid|awk -vp=$1 'function r(s){print s;s=a[s];while(s){sub(",","",s);t=s;sub(",.*","",t);sub("[0-9]+","",
