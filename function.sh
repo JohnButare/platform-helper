@@ -1182,7 +1182,7 @@ HostAvailable() { IsAvailable "$@" && return; ScriptErr "host '$1' is not availa
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
-IsInDomain() { [[ $NETWORK_DOMAIN ]]; }																					# IsInDomain - true if the computer is in a network domain
+IsInDomain() { [[ $(NetworkDomain) ]]; }																					# IsInDomain - true if the computer is in a network domain
 NetworkCurrent() { UpdateGet "network"; }; NetworkDomain() { UpdateGet "network_domain"; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
