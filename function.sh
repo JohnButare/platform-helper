@@ -680,7 +680,6 @@ IsInArray()
 CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
 GetDate() { ${G}date --date "$1"; }
 GetDateStamp() { ${G}date '+%Y%m%d'; }
-GetFileDateStamp() { ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
 GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
 
 # GetDateStampNext PREFIX SUFFIX
@@ -803,6 +802,10 @@ DirCount() { local result; result="$(command ls "${1:-.}" |& wc -l)" || return; 
 EnsureDir() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
 GetBatchDir() { GetFilePath "$0"; }
 GetDirs() { [[ ! -d "$1" ]] && return; find "$1" -maxdepth 1 -type d -not -path "$1"; }
+GetFileDateStamp() { ${G}date '+%Y%m%d' --reference "$1"; }
+GetFileMod() { ${G}stat --format="%y" "$1"; }
+GetFileModSeconds() { date +%s --reference "$1"; }
+GetFileModTime() { ShowSimpleTime "@$(GetFileSeconds "$1")"; }
 GetFileSize() { GetArgs; [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { GetArgs; local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { GetArgs; r "${1##*/}" $2; }
@@ -810,8 +813,6 @@ GetFileNameWithoutExtension() { GetArgs; local gfnwe="$1"; GetFileName "$1" gfnw
 GetFileExtension() { GetArgs; local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
 GetFullPath() { GetArgs; local gfp="$(GetRealPath "${@/#\~/$HOME}")"; r "$gfp" $2; } # replace ~ with $HOME so we don't lose spaces in expansion
 GetLastDir() { GetArgs; echo "$@" | RemoveTrailingSlash | GetFileName; }
-GetModifiedSeconds() { GetArgs; r "$(date +%s --reference "$1")"; }
-GetModifiedTime() { GetArgs; local gmt="$(GetModifiedSeconds "$1")"; r "$(ShowSimpleTime "@$gmt")"; }
 GetParentDir() { GetArgs; echo "$@" | GetFilePath | GetFilePath; }
 FileExists() { local f; for f in "$@"; do [[ ! -f "$f" ]] && return 1; done; return 0; }
 FileExistsAny() { local f; for f in "$@"; do [[ -f "$f" ]] && return 0; done; return 1; }

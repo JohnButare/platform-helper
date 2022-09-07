@@ -115,6 +115,7 @@ sync()
 	setLastSync || return
 }
 
+# syncDo SRC DEST - syncronize directories
 syncDo()
 {
 	local src="$1" dest="$2"
@@ -206,7 +207,14 @@ syncFile()
 
 	# sync file times
 	if (( srcSize == destSize )) && cmp --quiet "$src" "$dest"; then
-		syncFileTimes "$src" "$srcAge" "$dest" "$destAge"; return
+
+		case "$method" in
+			--dest-older) setFileTime "$dest" "$src";;
+			--src-older) setFileTime "$src" "$dest";;
+			*) syncFileTimes "$src" "$srcAge" "$dest" "$destAge";;
+		esac
+				
+		return
 	fi
 
 	# replace file as instructed
@@ -261,7 +269,7 @@ syncFile()
 }
 
 # bakFiles FILE... - move a file to the local backup directory
-bakFiles() { [[ ! $bak ]] && return; bak "$@" --move --local --quiet "${globalArgsLessVerbose[@]}"; }
+bakFiles() { [[ $noBak ]] && return; bak "$@" --move --local --quiet "${globalArgsLessVerbose[@]}"; }
 
 copyMissingDir()
 {
@@ -269,7 +277,10 @@ copyMissingDir()
 	local finalSrcDir="$(GetFileName "$(RemoveTrailingSlash "$src")")"
 
 	echo "$finalSrcDir..."
-	CopyDir "$src" "$dest" $recursive || return
+	CopyDir "$src" "$dest" $recursive "${globalArgsLessVerbose[@]}" || return
+
+	# correct file times - for SMB some modification times will not be correct after the directory copy
+	local method="--dest-older"; syncDo "$src" "$dest" --dest-older
 }
 
 deleteMissingDir() 
@@ -288,17 +299,11 @@ copyFile()
 	# log
 	{ [[ ! $verbose ]] || (( verboseLevel == 1 )); } && printf "${direction}$(GetFileName "$src")..."
 	
-	# log detail before copy
-	(( verboseLevel > 4 )) && { showFileDetail "copyFile: src before cp" "$src"; showFileDetail "dest before cp" "$dest"; }
-	
 	# copy
-	RunLog2 ${G}cp --force --preserve "$src" "$dest" || return
+	RunLog2 ${G}cp --force "$src" "$dest" || return
 
-	# log detail after copy
-	(( verboseLevel > 4 )) && { showFileDetail "dest after cp" "$dest"; pause; }
-
-	# touch - cp --preserve does not set file time
-	setFileTime "$dest" "$src"
+	# touch - cp --preserve does not set file time in SMB > 1
+	local copyFile="true"; setFileTime "$dest" "$src"
 }
 
 # copyFileBak SRC DEST [DIRECTION]
@@ -345,7 +350,7 @@ deleteFilesDir()
 getDirList() 
 { 
 	IFS=$'\n' read -d '' -r -a $1 < <(\
-		${G}find "$2" -maxdepth 1 -type d -printf "%f\n" | tail -n +2 | RemoveEmptyLines | sort); 
+		${G}find "$2" -maxdepth 1 -type d,l -printf "%f\n" | tail -n +2 | RemoveEmptyLines | sort); 
 }
 
 # getFileList() - get files, each file attributes requested individually, very slow over WebDAV, timestamp in milliseconds
@@ -439,25 +444,34 @@ setLastSync()
 # syncTime FILE REFERENCE_FILE [DIRECTION] - make the last modification time of file the same as the reference file
 setFileTime()
 {
+	local file="$1" reference="$2" direction="$3"
 	IsPlatform wsl1 && return # WSL 1 does not support setting file time
 
-	local file="$1" reference="$2" direction="$3"; 
+	# reference file m odification time
+	local refMod; refMod="$(GetFileMod "$reference")" || return
+	local refModSeconds; refModSeconds="$(GetFileModSeconds "$reference")" || return
+	(( verboseLevel > 4 )) && { showFileDetail "setFileTime: reference" "$reference"; echo -e "refMod='$refMod'\nrefModSeconds='$refModSeconds'"; }
 
-	# log	
-	if [[ $direction && ! $verbose ]]; then echo -n "${direction}$(GetFileName "$file") (time)..."
-	elif (( verboseLevel == 1 )); then echo -n "${direction}$(GetFileName "$file") (file='$(GetModifiedTime "$file")' reference='$(GetModifiedTime "$reference")')..."
-	fi
+	# set modification time	
+	local fileMod="$(GetFileMod "$file")" || return
+	local fileModSeconds; fileModSeconds="$(GetFileModSeconds "$file")" || return
+	while true; do
+		
+		# log
+		if [[ $direction && ! $verbose ]]; then echo -n "${direction}$(GetFileName "$file") (time)..."
+		elif (( verboseLevel == 1 )); then echo -n "${direction}$(GetFileName "$file") (file='$(ShowSimpleTime "$fileMod")' reference='$(ShowSimpleTime "$refMod")')..."
+		elif (( verboseLevel > 4 )); then
+			local color="$RED"; [[ $copyFile ]] && { unset copyFile color; }
+			showFileDetail "setFileTime: target" "$file"
+			echo "fileModSeconds=$fileModSeconds (${color}off by $(( refModSeconds - fileModSeconds ))${RESET})"
+		fi
 
-	# log detail before touch
-	(( verboseLevel > 4 )) && { showFileDetail "setFileTime: reference" "$dest"; showFileDetail "setFileTime: file before touch" "$file"; }
-
-	${G}touch "$file" --reference "$reference" || return
-setFileTimesNow "$file" "$reference" # if the touch fails try and set both files to current time
-
-	# log detail after touch
-	(( verboseLevel > 4 )) && { showFileDetail "setFileTime: file after touch" "$file"; pause; }
-
-	return 0
+		# update and check
+		RunLog5 ${G}touch "$file" --time=mtime --date "$refMod" || return
+		sleep 1 # for SMB first touch does not take, takes time to read correct value
+		fileModSeconds="$(GetFileModSeconds "$file")" || return
+		[[ "$fileModSeconds" == "$refModSeconds" ]] && break
+	done
 }
 
 # syncFileTimes SRC SRC_AGE DEST DEST_AGE - synronize file times to the newer file
@@ -476,7 +490,7 @@ syncFileTimes()
 setFileTimesNow()
 {
 	IsPlatform wsl1 && return # WSL 1 does not support setting file time
-	local now="$(GetSeconds)"; ${G}touch "$@" -d "@$now" || return
+	local now="$(GetSeconds)"; ${G}touch "$@" --date "@$now" || return
 }
 
 syncMissingDir()
