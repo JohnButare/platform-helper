@@ -124,10 +124,10 @@ pipxg()
 
 # logging
 InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); }
-header() { InitColor; printf "${RB_BLUE}************************* ${RB_INDIGO}$1${RB_BLUE} *************************${RESET}\n"; headerDone="$((52 + ${#1}))"; }
+header() { EchoReset; InitColor; printf "${RB_BLUE}************************* ${RB_INDIGO}$1${RB_BLUE} *************************${RESET}\n"; headerDone="$((52 + ${#1}))"; }
 HeaderBig() { InitColor; printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n**************************************************${RESET}\n"; }
 HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
-hilight() { InitColor; EchoWrap "${@:2}" "${GREEN}$1${RESET}"; }
+hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
 # CurrentColumn - return the current cursor column, https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
@@ -505,25 +505,20 @@ SleepStatus()
 	echo "done"
 }
 
-EchoErr() { EchoReset "$@" >&2; EchoWrap "$@" >&2; return 0; }
-EchoErrEnd() { echo "$@" >&2; } # show an error message without resetting to column 0
-HilightErr() { InitColor; EchoWrap "${@:2}" "${RED}$1${RESET}" >&2; return 0; }
-PrintErr() { printf "$@" >&2; return 0; }
+EchoReset() { (( $(CurrentColumn) == 0 )) && return; echo; }		 			# reset to column 0 if not at column 0
 
-# EchoReset MESSAGE -  # reset to column 0 if not at column 0 and a message is specified
-EchoReset()
-{
-	(( $(CurrentColumn) != 0 )) && [[ $@ ]] && echo >&2
-	return 0
-}
-
+# EchoWrap MESSAGE... - show messages wrapping at spaces
 EchoWrap()
 {
+	[[ ! $@ ]] && { echo; return 0; }
 	! InPath ${G}fold || ! IsInteger "$COLUMNS" || (( COLUMNS < 20 )) && { echo -e "$@"; return 0; }
 	echo -e "$@" | expand -t $TABS | ${G}fold --space --width=$COLUMNS; return 0
 }
 
-EchoWrapErr() { EchoWrap "$@" >&2; }
+EchoErr() { [[ $@ ]] && EchoResetErr; EchoWrap "$@" >&2; return 0; }		# show error message at column 0
+EchoResetErr() { EchoReset "$@" >&2; return 0; } 												# reset to column 0 if not at column 0
+HilightErr() { InitColor; EchoErr "${RED}$@${RESET}"; }									# hilight an error message
+PrintErr() { echo -n "$@" >&2; return 0; }															# print an error message without a newline or resetting to column 0
 
 # printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var
 printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; }
@@ -815,6 +810,8 @@ GetFileNameWithoutExtension() { GetArgs; local gfnwe="$1"; GetFileName "$1" gfnw
 GetFileExtension() { GetArgs; local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
 GetFullPath() { GetArgs; local gfp="$(GetRealPath "${@/#\~/$HOME}")"; r "$gfp" $2; } # replace ~ with $HOME so we don't lose spaces in expansion
 GetLastDir() { GetArgs; echo "$@" | RemoveTrailingSlash | GetFileName; }
+GetModifiedSeconds() { GetArgs; r "$(date +%s --reference "$1")"; }
+GetModifiedTime() { GetArgs; local gmt="$(GetModifiedSeconds "$1")"; r "$(ShowSimpleTime "@$gmt")"; }
 GetParentDir() { GetArgs; echo "$@" | GetFilePath | GetFilePath; }
 FileExists() { local f; for f in "$@"; do [[ ! -f "$f" ]] && return 1; done; return 0; }
 FileExistsAny() { local f; for f in "$@"; do [[ -f "$f" ]] && return 0; done; return 1; }
@@ -909,7 +906,11 @@ FileCommand()
 	esac
 }
 
-FileToDesc() # short description for the file, mounted volumes are converted to UNC,i.e. //server/share.
+# FileToDesc FILE - short description for the file
+# - convert mounted volumes to UNC,i.e. //server/share
+# - replace $HOME with ~, i.e. /home/CURRENT_USER/file -> ~/file
+# - replace $USERS with ~, i.e. /home/OTHER_USER/file -> ~OTHER_USER/file
+FileToDesc() 
 {
 	GetArgs
 	local file="$1"; [[ ! $1 ]] && return
@@ -2867,17 +2868,26 @@ RunFunctionExists()
 
 # scripts
 
-ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } # ScriptArgs: SCRIPT_NAME ARGS...
-ScriptCd() { local dir; dir="$("$@")" || return; dir="$(echo "$dir" | ${G}head --lines=1)" && { echo "cd $dir"; DoCd "$dir"; }; }  # ScriptCd <script> [arguments](cd) - run a script and change the directory returned
-ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }
-ScriptErr() { InitColor; EchoErr "${RED}$(ScriptPrefix "$2")$1${RESET}"; }
+ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } 						# ScriptArgs SCRIPT_NAME ARGS... - display script arguments
+ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }		# ScriptDir - return the directory the script is contained in
+ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; }						# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
 ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "$name: "; }
 ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; }
 
-# ScriptEval <script> [<arguments>] - run a script and evaluate the output.
-#    Typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
+# ScriptCd PROGRAM [ARG...] - run a script and change to the first directory returned
+ScriptCd()
+{
+	[[ ! $@ ]] && { MissingOperand "program" "ScriptCd"; return 1; }
+	local dir="$("$@" | ${G}head --lines=1)" || return # run the script
+	[[ ! $dir ]] && { ScriptErr "directory not returned" "ScriptCd"; return 1; }
+	[[ ! -d "$dir" ]] && { ScriptErr "'$dir' is not a valid directory" "ScriptCd"; return 1; }
+	echo "cd $dir"; DoCd "$dir"
+}
+
+# ScriptEval <script> [<arguments>] - run a script and evaluate the output
+# - typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
 ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || return; eval "$result"; } 
 
 ScriptName()

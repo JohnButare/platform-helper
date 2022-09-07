@@ -98,21 +98,16 @@ ScriptCheckPath()
 #
 # Script Logging
 #
+# - log output is sent to the standard error to avoid interference with commands whose output is consumed using a subshell, i.e. var="$(command)"
 
-# LogMessage MESSAGE - log a script message, not named log to avoid name conflict
-# - output is sent to the standard error to avoid interference with commands whose output is consumed using a subshell, i.e. var="$(command)"
-LogPrint() { PrintErr "$(ScriptPrefix)$@"; }
+# LogMessage MESSAGE - print a message with the script prefix
+LogPrint() { [[ $@ ]] && EchoResetErr; PrintErr "$(ScriptPrefix)$@"; }
 
-# LogMessage MESSAGE - log a message with the script prefix at the start of line
-LogMessage()
-{
-	EchoReset "$@"; 
-	[[ ! $@ ]] && { echo >&2; return; }
-	EchoWrapErr "$(ScriptPrefix)$@"
-}
+# LogMessage MESSAGE - log a message with the script prefix
+LogMessage() { EchoErr "$(ScriptPrefix)$@"; }
 
 # LogLevel LEVEL MESSAGE - log a message if the logging verbosity level is at least LEVEL
-LogLevel() { level="$1"; shift; (( verboseLevel >= level )) && LogMessage "$@"; return 0; }
+LogLevel() { level="$1"; shift; (( verboseLevel >= level )) && LogMessage "$@"; }
 
 # logN MESSAGE - log a message if the logging verbosity level is a least N
 log1() { LogLevel 1 "$@"; }; log2() { LogLevel 2 "$@"; }; log3() { LogLevel 3 "$@"; }; log4() { LogLevel 4 "$@"; }; log5() { LogLevel 5 "$@"; }

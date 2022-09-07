@@ -63,8 +63,7 @@ syncCommand()
 #
 
 desc() { FileToDesc "$1"; }
-getSrcDesc() { desc "$src"; }
-getDestDesc() { desc "$dest"; }
+showFileDetail() { local message="$1" file="$2"; hilight "$message: $(GetFileName "$file")" && stat "$file"; }
 
 sync()
 {
@@ -73,19 +72,21 @@ sync()
 	# src or dest directory is excluded
 	{ IsInArray --array-wild "${src##*/}" x || IsInArray --array-wild "${dest##*/}" x; } && return
 
-	# logging
-	(( verboseLevel > 0 )) && LogMessage "sync: src=$(getSrcDesc) dest=$(getDestDesc) srcId=$srcId destId=$destId"
+	# logging - check verboseLevel to avoid expensive calls to desc if not logging
+	if (( verboseLevel > 1 )); then
+		header "SyncDir: $(GetFileName "$src")"
+		EchoErr "src=$src ($srcId)"
+		EchoErr "dest=$dest ($destId)"
+	fi
 
 	# mount and validate src and dest directories
-	IsUncPath "$src" && { src="$(unc mount "$src" "${uncArgs[@]}")" || { EchoErr "Unable to mount $(getSrcDesc)"; return 1; }; }
-	IsUncPath "$dest" && { dest="$(unc mount "$dest" "${uncArgs[@]}")" || { EchoErr "Unable to mount $(getDestDesc)"; return 1; }; }
+	IsUncPath "$src" && { src="$(unc mount "$src" "${uncArgs[@]}")" || { EchoErr "Unable to mount $(desc "$src")"; return 1; }; }
+	IsUncPath "$dest" && { dest="$(unc mount "$dest" "${uncArgs[@]}")" || { EchoErr "Unable to mount $(desc "$dest")"; return 1; }; }
 
 	[[ $exist && (! -d "$src" && ! -d "$dest") ]] && return 0
 
 	if [[ ! -d "$src" && ! -d "$dest" ]]; then
-		echo
-		EchoErr "Source ($(getSrcDesc)) and destination ($(getDestDesc)) directories do not exist"
-		return 1
+		echo; ScriptErr "source directory '$(desc "$src")' and destination directory '$(desc "$dest")' do not exist"; return 1
 	fi
 
 	# determine last sync times
@@ -120,33 +121,36 @@ syncDo()
 	local srcFiles destFiles srcIndex=0 destIndex=0 lastSrcIndex lastDestIndex
 	local ignoreMs convertTime srcLine destLine srcFile destFile srcOnlyFiles destOnlyFiles
 
-	(( verboseLevel > 1 )) && LogPrint "syndDo: "
-	getFileList srcFiles "$src"; (( verboseLevel > 1 )) && PrintErr "src times..."; [[ ! $verbose ]] && printf "."
-	getFileList destFiles "$dest";  (( verboseLevel > 1 )) && EchoErr "dest times"; [[ ! $verbose ]] && printf "."
+	# get file list
+	getFileList srcFiles "$src"; getFileList destFiles "$dest"
+	{ [[ ! $verbose ]] || (( verboseLevel == 1 )); } && printf "."
+
+	# evaluate file lists
 	lastSrcIndex="${#srcFiles[@]}"; lastDestIndex="${#destFiles[@]}"
 
 	while (( srcIndex<lastSrcIndex || destIndex<lastDestIndex )); do
-		log3 "src=$srcIndex..$lastSrcIndex dest=$destIndex..$lastDestIndex"
-
-		srcLine="${srcFiles[$srcIndex]}"
-		destLine="${destFiles[destIndex]}"
+		srcLine="${srcFiles[$srcIndex]}" destLine="${destFiles[destIndex]}"
 	
-		# quick check
+		# lines same - quick check
 		if [[ "$srcLine" == "$destLine" ]]; then
 			(( ++srcIndex, ++destIndex ))
 			continue;
 		fi
 
+		# lines different
 		srcFile="${srcLine%	*	*}"; destFile="${destLine%	*	*}"
 
+		# same file in source and destination
 		if [[ "$srcFile" == "$destFile" ]]; then
-			! IsInArray --array-wild "$srcFile" x && { syncFile "$src" "$dest" || return; }
+			! IsInArray --array-wild "$srcFile" x && { syncFile "$src/$srcFile" "$dest/$destFile" || return; }
 			(( ++srcIndex, ++destIndex ))
 
+		# file only in source
 		elif [[ $srcFile && ( "$destFile" == "" || "$srcFile" < "$destFile" ) ]]; then
 			! IsInArray --array-wild "$srcFile" x && srcOnlyFiles+=("$srcFile")
 			(( ++srcIndex ))
 
+		# file only in destination
 		elif [[ "$srcFile" == "" || "$destFile" < "$srcFile" ]]; then
 			! IsInArray --array-wild "$destFile" x && destOnlyFiles+=("$destFile")
 			(( ++destIndex ))
@@ -154,13 +158,14 @@ syncDo()
 		fi
 	done
 
+	# handle files only in source or destination
 	case "${method##--}" in
 		dest-older)
-			deleteFiles "$dest" "${destOnlyFiles[@]}" || return
-			copyFiles "$src" "$dest" "${srcOnlyFiles[@]}" || return;;
+			deleteFilesDir "$dest" "${destOnlyFiles[@]}" || return
+			copyFilesDir "$src" "$dest" "${srcOnlyFiles[@]}" || return;;
 		src-older)
-			deleteFiles "$src" "${srcOnlyFiles[@]}" || return
-			copyFiles "$dest" "$src" "${destOnlyFiles[@]}" || return;;
+			deleteFilesDir "$src" "${srcOnlyFiles[@]}" || return
+			copyFilesDir "$dest" "$src" "${destOnlyFiles[@]}" || return;;
 		*) 
 			syncMissingFiles "$src" "$dest" "${srcOnlyFiles[@]}" || return
 			syncMissingFiles "$dest" "$src" "${destOnlyFiles[@]}" || return
@@ -168,6 +173,7 @@ syncDo()
 
 	[[ ! $recursive ]] && return
 
+	# recurse into subdirectories
 	local srcDirs destDirs dir
 
 	getDirList srcDirs "$src"
@@ -184,65 +190,52 @@ syncDo()
 
 syncFile()
 {
-	local src="$1" dest="$2"
-	local srcPath="$src/$srcFile" destPath="$dest/$destFile" 
-	local srcPathDesc="$(desc "$src/$srcFile")" destPathDesc="$(desc "$dest/$destFile")"
-	local srcInfo srcFileSize srcFileAge destInfo destFileSize destFileAge ext
-	local desc="$srcFile" srcDesc destDesc
+	local src="$1" dest="$2" file; file="$(GetFileName "$src")"
 
-	IFS="	" read srcFileSize srcFileAge <<< "${srcLine#$srcFile	}"
-	IFS="	" read destFileSize destFileAge <<< "${destLine#$destFile	}"
-	
-	[[ $convertTime ]] && { srcFileAge="$(GetSeconds "$srcFileAge")"; destFileAge="$(GetSeconds "$destFileAge")"; }
-	GetFileExtension "$srcFile" ext
+	# get file information
+	local srcSize srcAge destSize destAge
+	IFS="	" read srcSize srcAge <<< "${srcLine#$srcFile	}"
+	IFS="	" read destSize destAge <<< "${destLine#$destFile	}"
+	[[ $convertTime ]] && { srcAge="$(GetSeconds "$srcAge")"; destAge="$(GetSeconds "$destAge")"; }
+	(( verboseLevel > 1 )) && EchoErr "$(cat <<-EOF
+		syncFile: file='$(GetFileName "$src")'
+		  src: age='$srcAge' modified='$(ShowSimpleTime @$srcAge)'
+		  dest: age='$destAge' modified='$(ShowSimpleTime @$destAge)'
+		EOF
+		)"
 
-	# printf "syncFile $srcPath to $destPath\n"
-	# printf 'src="%s" srcFileSize=%s srcFileAge=%s\n' "$src" "$srcFileSize" "$srcFileAge"
-	# printf 'dest="%s" destFileSize=%s destFileAge=%s\n' "$dest" "$destFileSize" "$destFileAge"
-	# pause
-
-	if (( srcFileSize==destFileSize )) && diff "$srcPath" "$destPath" > /dev/null; then
-		local srcFileDate="$(${G}date -d @$srcFileAge)" destFileDate="$(${G}date -d @$destFileAge)"
-		# printf "$srcFile (src=$srcFileDate dest=$destFileDate)..."
-		# printf "\nsrcFileAge=%s-%s\ndestFileAge=%s-%s\n" "$srcFileDate" "$srcFileAge" "$destFileDate" "$destFileAge"
-		# pause
-		#stat "$srcPath"; stat "$destPath"
-		RunLog2 syncFileTimes "$srcPath" "$srcFileAge" "$destPath" "$destFileAge" || return
-		return
+	# sync file times
+	if (( srcSize == destSize )) && cmp --quiet "$src" "$dest"; then
+		syncFileTimes "$src" "$srcAge" "$dest" "$destAge"; return
 	fi
 
+	# replace file as instructed
 	case "$method" in
-	--dest-older) replaceFile "$srcPath" "$destPath" "$desc"; return;;
-	--src-older) replaceFile "$destPath" "$srcPath" "$desc"; return;;
+		--dest-older) copyFileBak "$src" "$dest"; return;;
+		--src-older) copyFileBak "$dest" "$src"; return;;
 	esac
 
-	if CompareSeconds $destFileAge '<' $srcFileAge; then
-		local older="$dest" olderAge="$destFileAge" destDesc="older" newer="$src" srcDesc="newer"
-		local olderDesc="$destPathDesc" newerDesc="$srcPathDesc"
-		desc=">$desc"
-	else
-		local older="$src" olderAge="$srcFileAge" srcDesc="older" newer="$dest" destDesc="newer"
-		local olderDesc="$srcPathDesc" newerDesc="$destPathDesc"
-		desc="<$desc"
-	fi
-	local olderPath="$older/$srcFile" newerPath="$newer/$srcFile"
+	# get older and newer file information
+	local older="$dest" olderAge="$destAge" newer="$src" direction=">" srcStatus="newer" destStatus="older"
+	CompareSeconds $destAge '>' $srcAge && older="$src" olderAge="$srcAge" newer="$dest" direction="<" srcStatus="older" destStatus="newer"
 
+	# one file was changed after last sync - replace older file
 	if [[ $lastSync ]] && CompareSeconds $olderAge '<=' $lastSync; then
-		replaceFile "$newerPath" "$olderPath" "$desc"; return
+		copyFileBak "$newer" "$older" "$direction"; return
 	fi
 
-	printf "\n\nDifferences:\n"
+	# both files changed after last sync - prompt
 	local diff="diff"; InPath delta && { diff="delta --paging never"; (( $COLUMNS > 150 )) && diff+=" --side-by-side"; }
-	$diff "$olderPath" "$newerPath"
+	$diff "$older" "$newer"
 	echo
 
-	printf "%s: %s %s (%s bytes)\n" "$srcDesc" "$srcPathDesc" "$(ShowSimpleTime @$srcFileAge)" "$srcFileSize"
-	printf "%s: %s %s (%s bytes)\n" "$destDesc" "$destPathDesc" "$(ShowSimpleTime @$destFileAge)" "$destFileSize"
+	echo "src $srcStatus: $(ShowSimpleTime "@$srcAge") ($srcSize bytes)"
+	echo "dest $destStatus: $(ShowSimpleTime "@$destAge") ($destSize bytes)"
 
 	local defaultChoice=3
-	case $ext in
-		dll|exe|com) defaultChoice=3;; # ReplaceOlder
-		*) defaultChoice=1;; # EditBoth
+	case "$(GetFileExtension "$src")" in
+		dll|exe|com) defaultChoice=3;; 	# ReplaceOlder
+		*) defaultChoice=1;; 						# EditBoth
 	esac
 
 	while true; do
@@ -251,28 +244,24 @@ syncFile()
 		case $(( $?+1 )) in
 
 		  1) # edit
-				log2 "syncDo edit: olderPath=$olderPath newerPath=$newerPath"
-				merge --wait "$olderPath" "$newerPath" #  merge return values vary, Beyond Compare return 1 for "Binary Same" on all platforms except mac
-		    if ! cmp --quiet "$olderPath" "$newerPath"; then
-		    	echo "$srcFile is still diferent"
+				merge --wait "$older" "$newer" #  merge return values vary, Beyond Compare return 1 for "Binary Same" on all platforms except mac
+		    if ! cmp --quiet "$older" "$newer"; then
+		    	echo "$(GetFileName "$src") is still diferent"
 	    		continue
 	  		fi
-	  		setFileTimes "$srcPath" "$destPath" || return
+	  		setFileTimesNow "$src" "$dest" || return
 	  		;;
 
-		  2) # delete
-				log2 "syncDo delete: srcPath=$srcPath destPath=$destPath"
-				if [[ $noBak ]]; then
-					rm -f "$srcPath" "$destPath" || return
-				else
-					bak --local --quiet "$srcPath" "$destPath" || return
-				fi;;
-			3) replaceFile "$newerPath" "$olderPath" "$olderDesc"; return;;
-	  	4) replaceFile "$olderPath" "$newerPath" "$newerDesc"; return;;
+		  2) deleteFiles "$src" "$dest"; return;;
+			3) copyFileBak "$newer" "$older" "$direction"; return;;
+	  	4) copyFileBak "$older" "$newer" "$direction"; return;;
 		esac
 		return
 	done
 }
+
+# bakFiles FILE... - move a file to the local backup directory
+bakFiles() { [[ ! $bak ]] && return; bak "$@" --move --local --quiet "${globalArgsLessVerbose[@]}"; }
 
 copyMissingDir()
 {
@@ -291,36 +280,64 @@ deleteMissingDir()
 	DelDir $ask "$dir" "${globalArgs[@]}"
 }
 
+# copyFile SRC DEST [DIRECTION]
 copyFile()
 {
-	local src="$1" dest="$2" desc="$3"
+	local src="$1" dest="$2" direction="$3"
 
-	printf "$(GetFileName "$desc")..."
-	${G}cp --force "$src" "$dest" && setFileTime "$dest" "$src"
+	# log
+	{ [[ ! $verbose ]] || (( verboseLevel == 1 )); } && printf "${direction}$(GetFileName "$src")..."
+	
+	# log detail before copy
+	(( verboseLevel > 4 )) && { showFileDetail "copyFile: src before cp" "$src"; showFileDetail "dest before cp" "$dest"; }
+	
+	# copy
+	RunLog2 ${G}cp --force --preserve "$src" "$dest" || return
+
+	# log detail after copy
+	(( verboseLevel > 4 )) && { showFileDetail "dest after cp" "$dest"; pause; }
+
+	# touch - cp --preserve does not set file time
+	setFileTime "$dest" "$src"
 }
 
-copyFiles()
+# copyFileBak SRC DEST [DIRECTION]
+copyFileBak() { bakFiles "$2" && copyFile "$@"; }
+
+# copyFilesDir SRC DEST FILE... - copy files from the source to the destination directiroes
+copyFilesDir()
 {
 	local src="$1" dest="$2"; shift 2
 	local files=("$@")
 
 	for file in "${files[@]}"; do
-		RunLog2 copyFile "$src/$file" "$dest/$file" "$src/$file" || return
+		copyFile "$src/$file" "$dest/$file" || return
 	done
 }
 
+# deleteFiles FILE...
 deleteFiles()
+{
+	if [[ $noBak ]]; then
+		rm -f "$src" "$dest"
+	else
+		bakFiles "$src" "$dest"
+	fi
+}
+
+# deleteFilesDir DIR FILE...
+deleteFilesDir()
 {
 	local dir="$1"; shift
 	local desc files=("$@")
 	
 	for file in "${files[@]}"; do
 		if [[ $noBak ]]; then
-			printf "\nRemoving \`$(desc "$dir/$file")\`..."
-			RunLog2 rm -f "$dir/$file" || return
+			printf "\nRemoving '$(desc "$dir/$file")'..."
+			rm -f "$dir/$file" || return
 			printf "done\n"
 		else
-			RunLog2 bak --move --local --quiet "$dir/$file" || return
+			bakFiles "$dir/$file" || return
 		fi
 	done
 }
@@ -396,23 +413,6 @@ promptForFiles()
 	ArrayRemove files "${results[@]}"
 }
 
-replaceFile()
-{
-	local src="$1" dest="$2" desc="$3"
-
-	# logging
-	log2 "replaceFile: src='$src' dest='$dest' desc='$desc'"
-	[[ ! $verbose ]] && printf "$(GetFileName "$desc")..."; 
-
-	# backup file
-	if [[ ! "$noBak" ]]; then
-		bak --local --quiet "$dest" || return
-	fi
-
-	# replace file 
-	${G}cp --force "$src" "$dest" && setFileTime "$dest" "$src"
-}
-
 setLastSync() 
 {
 	[[ ! -d "$src" || ! -d "$dest" ]] && return 0
@@ -436,40 +436,47 @@ setLastSync()
 	return 0
 }
 
-# syncTime FILE REFERENCE_FILE - make the last modification time of file the same as the reference file
+# syncTime FILE REFERENCE_FILE [DIRECTION] - make the last modification time of file the same as the reference file
 setFileTime()
 {
-	local file="$1" reference="$2" sudo; IsPlatform wsl1 && return # WSL 1 does not support setting file time
-	$sudo ${G}touch "$file" --reference "$reference" && return
-	setFileTimes "$file" "$reference" # if the touch fails try and sync both files to current time
+	IsPlatform wsl1 && return # WSL 1 does not support setting file time
+
+	local file="$1" reference="$2" direction="$3"; 
+
+	# log	
+	if [[ $direction && ! $verbose ]]; then echo -n "${direction}$(GetFileName "$file") (time)..."
+	elif (( verboseLevel == 1 )); then echo -n "${direction}$(GetFileName "$file") (file='$(GetModifiedTime "$file")' reference='$(GetModifiedTime "$reference")')..."
+	fi
+
+	# log detail before touch
+	(( verboseLevel > 4 )) && { showFileDetail "setFileTime: reference" "$dest"; showFileDetail "setFileTime: file before touch" "$file"; }
+
+	${G}touch "$file" --reference "$reference" || return
+setFileTimesNow "$file" "$reference" # if the touch fails try and set both files to current time
+
+	# log detail after touch
+	(( verboseLevel > 4 )) && { showFileDetail "setFileTime: file after touch" "$file"; pause; }
+
+	return 0
 }
 
-# syncFileTimes FILE1 FILE1_AGE FILE2 FILE2_AGE - synronize file times to the newer file
+# syncFileTimes SRC SRC_AGE DEST DEST_AGE - synronize file times to the newer file
 syncFileTimes()
 {
-	local f1="$1" f1Age="$2" f2="$3" f2Age="$4"
+	local src="$1" srcAge="$2" dest="$3" destAge="$4"
 
-	# logging
-	log2 "syncFileTimes: f1='$f1' f1Age='$f1Age' f2='$f2' f2Age='$f2Age'"
-	(( verboseLevel > 1 )) && { stat $f1; stat $f2; }
-	[[ ! $verbose ]] && printf "."
-
-	# sync
-	if CompareSeconds "$f1Age" '>' "$f2Age"; then
-		setFileTime "$f2" "$f1"  
+	if CompareSeconds "$srcAge" '>' "$destAge"; then
+		setFileTime "$dest" "$src" ">"
 	else
-		setFileTime "$f1" "$f2"  
+		setFileTime "$src" "$dest" "<"
 	fi
 }
 
-# setFileTimes FILES - set all file times to the current time
-setFileTimes()
+# setFileTimesNow FILES - set all file times to the current time
+setFileTimesNow()
 {
-	local now="$(GetSeconds)"; IsPlatform wsl1 && return # WSL 1 does not support setting file time
-
-	for file in "$@"; do
-		${G}touch "$file" -d "@$now" || return
-	done
+	IsPlatform wsl1 && return # WSL 1 does not support setting file time
+	local now="$(GetSeconds)"; ${G}touch "$@" -d "@$now" || return
 }
 
 syncMissingDir()
@@ -477,7 +484,7 @@ syncMissingDir()
 	local src="$1" dest="$2"
 
 	echo "Directory $(desc "$dest") does not exist"
-	ask "Do you want to (d)elete or (c)opy directory \`$(desc "$src")?\`" -vr dc -dr c
+	ask "Do you want to (d)elete or (c)opy directory '$(desc "$src")?'" -vr dc -dr c
 	if [[ $? == 0 ]]; then
 		deleteMissingDir "$src"
 	else
@@ -494,14 +501,14 @@ syncMissingFiles()
 	[[ ! $files ]] && return 0
 
 	while (( ${#files[@]} != 0 )); do
-		printf "\n\nSync files only in \`$(desc "$src")\` directory: "
+		printf "\n\nSync files only in '$(desc "$src")' directory: "
 		ArrayShow files
 
 		ask '  (1) Copy All (2) Delete All (3) Copy Some (4) Delete Some' -vr 1234 -dr 1
 
 		case $(( $? + 1 )) in
-			1) copyFiles "$src" "$dest" "${files[@]}" || return; unset files;;
-		 	2) deleteFiles "$src" "${files[@]}" || return; unset files;;
+			1) copyFilesDir "$src" "$dest" "${files[@]}" || return; unset files;;
+		 	2) deleteFilesDir "$src" "${files[@]}" || return; unset files;;
 			3) promptForFiles "copy" "Synchronizing files from $src to $dest" "copyFiles" "$src" "$dest" || return;;
 			4) promptForFiles "delete" "Deleting files from $src" "deleteFiles" "$src" || return;;
 		esac
