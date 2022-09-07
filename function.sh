@@ -907,6 +907,20 @@ FileCommand()
 	esac
 }
 
+# FileGetUnc FILE - get the UNC path for the file, faster than calling unc get unc
+FileGetUnc()
+{
+	local file="$1"; [[ ! -e "$file" ]] && return 1
+	
+	! InPath findmnt && { unc get unc --quiet "$file"; return; }
+
+	local parts; parts="$(findmnt --target="$file" --output=SOURCE,TARGET --types=cifs,drvfs,nfs,nfs4,fuse.sshfs --noheadings)" || return
+	local source="$(GetWord "$parts" 1)" target="$(GetWord "$parts" 2)"	
+	[[ ! $source || ! $target ]] && return 1
+	echo "${file/$target/$source}"
+}
+
+
 # FileToDesc FILE - short description for the file
 # - convert mounted volumes to UNC,i.e. //server/share
 # - replace $HOME with ~, i.e. /home/CURRENT_USER/file -> ~/file
@@ -917,9 +931,7 @@ FileToDesc()
 	local file="$1"; [[ ! $1 ]] && return
 
 	# if the file is a UNC mounted share get the UNC format
-	if [[ -e "$file" ]] && unc IsMounted "$file"; then
-		file="$(unc get unc "$file")"
-	fi
+	local unc; unc="$(FileGetUnc "$file")" && file="$unc"
 
 	# remove the server DNS suffix from UNC paths
 	IsUncPath "$file" && file="//$(GetUncServer "$file" | RemoveDnsSuffix)/$(GetUncShare "$file")/$(GetUncDirs "$file")"
