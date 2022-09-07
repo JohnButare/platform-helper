@@ -804,7 +804,7 @@ GetBatchDir() { GetFilePath "$0"; }
 GetDirs() { [[ ! -d "$1" ]] && return; find "$1" -maxdepth 1 -type d -not -path "$1"; }
 GetFileDateStamp() { ${G}date '+%Y%m%d' --reference "$1"; }
 GetFileMod() { ${G}stat --format="%y" "$1"; }
-GetFileModSeconds() { date +%s --reference "$1"; }
+GetFileModSeconds() { ${G}date +%s --reference "$1"; }
 GetFileModTime() { ShowSimpleTime "@$(GetFileSeconds "$1")"; }
 GetFileSize() { GetArgs; [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { GetArgs; local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
