@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 . script.sh || exit
+. color.sh || exit
 
 usage()
 {
@@ -444,14 +445,25 @@ setLastSync()
 # syncTime FILE REFERENCE_FILE [DIRECTION] - make the last modification time of file the same as the reference file
 setFileTime()
 {
-	local file="$1" reference="$2" direction="$3"
+	local file="$1" ref="$2" direction="$3"
 	IsPlatform wsl1 && return # WSL 1 does not support setting file time
 
-	# reference file m odification time
-	local refMod; refMod="$(GetFileMod "$reference")" || return
-	local refModSeconds; refModSeconds="$(GetFileModSeconds "$reference")" || return
-	(( verboseLevel > 4 )) && showFileDetail "setFileTime: reference" "$reference"
+	# reference file modification time
+	local refMod; refMod="$(GetFileMod "$ref")" || return
+	local refModSeconds; refModSeconds="$(GetFileModSeconds "$ref")" || return
+	(( verboseLevel > 4 )) && showFileDetail "setFileTime: reference" "$ref"
 	(( verboseLevel > 1 )) && echo -e "refMod='$refMod'\nrefModSeconds='$refModSeconds'"
+
+	# validate reference file modification time 
+	# - must not be beyond 60 seconds of current time
+	local future checkSeconds="$(( $(${G}date "+%s") + 60 ))" # Bash cannot use fractional seconds
+	if (( refModSeconds > checkSeconds)); then
+		setFileTimesNow "$file" "$ref" || return
+		refMod="$(GetFileMod "$ref")" || return
+		refModSeconds="$(GetFileModSeconds "$ref")"
+		future=" ${RED}future${RESET}"
+		log1 "${RED}Reference file modification time is to far in the future${RESET}"
+	fi
 
 	# set modification time	
 	local fileMod="$(GetFileMod "$file")" || return
@@ -459,13 +471,14 @@ setFileTime()
 	while true; do
 		
 		# log
-		if [[ $direction && ! $verbose ]]; then echo -n "${direction}$(GetFileName "$file") (time)..."
-		elif (( verboseLevel == 1 )); then echo -n "${direction}$(GetFileName "$file") (file='$(ShowSimpleTime "$fileMod")' reference='$(ShowSimpleTime "$refMod")')..."
+		if [[ ! $copyFile && ! $verbose ]]; then echo -n "${direction}$(GetFileName "$file") (time$future)..."
+		elif (( verboseLevel == 1 )); then echo -n "${direction}$(GetFileName "$file") (file='$(ShowSimpleTime "$fileMod")' reference='$(ShowSimpleTime "$refMod")'$future)..."
 		elif (( verboseLevel > 1 )); then
-			local color="$RED"; [[ $copyFile ]] && { unset copyFile color; }
+			local color="$RED"; [[ $copyFile ]] && unset color
 			(( verboseLevel > 4 )) && showFileDetail "setFileTime: target" "$file"
 			EchoErr "fileModSeconds=$fileModSeconds (${color}off by $(( refModSeconds - fileModSeconds ))${RESET})"
 		fi
+		unset copyFile
 
 		# update and check
 		RunLog5 ${G}touch "$file" --time=mtime --date "$refMod" || return
