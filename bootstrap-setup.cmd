@@ -6,7 +6,7 @@ REM variables
 set pwd=%~dp0
 set args=%*
 rem set args=%* -v
-set wsl=1
+set wsl=2
 set wslDir=C:\Users\Public\data\appdata\wsl
 set dist=Ubuntu
 set distUser=jjbutare
