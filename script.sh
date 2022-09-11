@@ -339,7 +339,8 @@ ScriptOptHost()
 
 ScriptOptHostVerify() { [[ $hostArg ]] && return; MissingOperand "host"; }
 
-# GetHosts [HOSTS] - set hosts array from --host argument, the passed list, or all Nomad clients.
+# GetHosts [HOSTS] - set hosts array from --host argument, the passed list, or all clients
+# getHostsOther - if this array variable set, add these other hosts if all was specified
 GetHosts()
 {
 	# return if hosts is already specified
@@ -354,6 +355,9 @@ GetHosts()
 	# service name
 	[[ "$h" == @(|all) ]] && hostArg="nomad-client"
 	IFS=$'\n' ArrayMakeC hosts GetServers "$hostArg"
+	[[ ! $getHostsOther ]] && return
+	hosts=("${getHostsOther[@]}" "${hosts[@]}")
+	unset getHostsOther
 }
 
 # GetHostsService SERVICE - set hosts array from --host argument or from the available hosts for the service.
