@@ -73,3 +73,9 @@ elevate()
 }
 
 return 0
+
+#
+# user
+#
+
+GetSid() { PsGetsid.exe -nobanner jjbutare | tail -2 | head | RemoveNewline | RemoveCarriageReturn; }
