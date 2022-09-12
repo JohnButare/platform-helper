@@ -23,8 +23,8 @@ set file=%HOMEPATH%\Desktop\bootstrap.cmd
 >> %file% echo set wsl=%wsl%
 >> %file% echo set dist=%dist%
 >> %file% echo set distUser=%distUser%
->> %file% echo set distUnc=%distUser%
->> %file% echo set distImage=%distUser%
+>> %file% echo set distUnc=%distUnc%
+>> %file% echo set distImage=%distImage%
 >> %file% echo %pwd%bootstrap-wsl%wsl%.cmd
 
 REM run bootstrap.cmd after reboot
