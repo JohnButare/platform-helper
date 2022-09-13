@@ -85,23 +85,19 @@ clipok()
 
 clipr() 
 { 
-	! clipok && return 1;
-	
 	case "$PLATFORM" in
-		linux) xclip -o -sel clip;;
-		mac) pbpaste;;
-		win) paste.exe | tail -n +2;;
+		linux) clipok && xclip -o -sel clip;;
+		mac) clipok && pbpaste;;
+		win) InPath paste.exe && { paste.exe | tail -n +2; return; }; powershell.exe -c Get-Clipboard;;
 	esac
 }
 
 clipw() 
 { 
-	! clipok && return 1;
-
 	case "$PLATFORM" in 
-		linux) printf "%s" "$@" | xclip -sel clip;;
-		mac) printf "%s" "$@" | pbcopy;; 
-		win) ( cd /; printf "%s" "$@" | clip.exe );; # cd / to fix WSL 2 error running from network share
+		linux) clipok && printf "%s" "$@" | xclip -sel clip;;
+		mac) clipok && printf "%s" "$@" | pbcopy;; 
+		win) InPath clip.exe && ( cd /; printf "%s" "$@" | clip.exe );; # cd / to fix WSL 2 error running from network share
 	esac
 }
 
