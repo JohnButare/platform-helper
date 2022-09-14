@@ -40,9 +40,8 @@ testUsage() { echot "Usage: $(ScriptName) test\nTest the netboot.xyz configurati
 
 testCommand()
 {
-	printf "TFTP: " && IsAvailablePortUdp "web.service.butare.net" 69 && echo "OK" || EchoErr "FAIL"
-	printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "Legacy and EFI Combined iPXE Bootloaders" && echo "OK" || EchoErr "FAIL"
-	printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || EchoErr "FAIL"
+	printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "Legacy and EFI Combined iPXE Bootloaders" && echo "OK" || HilightErr "FAIL"
+	printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || HilightErr "FAIL"
 
 	# ender
 	testWeb "ender-docker-live" "http://ender.butare.net:10181"
@@ -56,6 +55,20 @@ testCommand()
 		testWeb "nas3-apache-assets" "http://10.10.100.4/assets/custom"
 	fi
 
+	# TFTP
+	local check; IsPlatform WSL && { check="ssh $(GetServer web)"; } # WSL does not support UDP
+	local file="about.ipxe"
+	local server servers="$(GetServers lb)"
+
+	for server in $servers; do
+		local desc="$(RemoveDnsSuffix "$server")"
+		printf "TFTP $desc: "
+		IsAvailable "$server" && printf "available..." || { HilightErr "$desc not available"; continue; }
+		IsAvailablePortUdp "$server" 69 && printf "port available..." || { HilightErr "$desc port 69 not responding"; continue; }
+		$check tftp $server -c get "$file" > /dev/null && echo "file available" || HilightErr "$file not available on $desc"
+		$check rm -f "$file" # cleanup
+	done
+
 	return 0
 }
 
@@ -65,10 +78,9 @@ testWeb()
 	local description="$1" url="$2"
 	local server="$(GetUriServer "$url")" port="$(GetUriPort "$url")"
 	printf "$description: "
-	IsAvailable "$server" || { EchoErr "$server not available"; return; }
-	IsAvailablePort "$server" "$port" || { EchoErr "port $port not responding"; return; }
-	curl -sL "$url" | grep -q "Index of /" && printf "OK" || PrintErr "FAIL"	
-	echo " ($url)"
+	IsAvailable "$server" && printf "available..." || { HilightErr "$server not available"; return; }
+	IsAvailablePort "$server" "$port" && printf "port available..." || { HilightErr "$server port $port not responding"; return; }
+	curl -sL "$url" | grep -q "Index of /" && echo "url available" || HilightErr "$url not available"
 }
 
 #
