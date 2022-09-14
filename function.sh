@@ -1467,7 +1467,7 @@ IsIpAddress()
 IsIpLocal() { GetArgs; CacheDefaultGateway || return; ! traceroute "$1" -4 --max-hops=5 | grep --quiet "($(GetDefaultGateway))"; } 
 
 # IsLocalHost HOST - true if the specified host refers to the local host, assume unique host names across domains
-IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$(RemoveDnsSuffix "$host")" == "$(RemoveDnsSuffix $(hostname))" ]]; }
+IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$(RemoveDnsSuffix "$host" | LowerCase)" == "$(RemoveDnsSuffix $(hostname))" ]]; }
 
 # IsLocalHostIp HOST - true if the specified host refers to the local host.  Also check the IP address of the host.
 IsLocalHostIp() { IsLocalHost "$1" || [[ "$(GetIpAddress "$1" --quiet)" == "$(GetIpAddress)" ]] ; }
