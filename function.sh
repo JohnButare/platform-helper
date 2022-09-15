@@ -1183,6 +1183,7 @@ FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo tail -F -n +0 "$1" | grep "
 # Network
 #
 
+GetPorts() { sudoc lsof -i -P -n; }
 GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
 GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }	# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 													# GetHostname NAME - hosts actual configured name
