@@ -3184,7 +3184,7 @@ GetVmType() # vmware|hyperv
 		local product
 
 		if InPath wmic.exe; then
-			product="$(wmic.exe baseboard get product | RemoveCarriageReturn | head -2 | tail -1 | RemoveSpaceTrim)"
+			product="$(wmic.exe baseboard get product |& RemoveCarriageReturn | head -2 | tail -1 | RemoveSpaceTrim)"
 
 		# wmic.exe is removed from Windows build  >= 22000.376
 		# - PowerShell 5 (powershell.exe) is ~6X faster than PowerShell 7
@@ -3195,6 +3195,7 @@ GetVmType() # vmware|hyperv
 
 		if [[ "$product" == "440BX Desktop Reference Platform" ]]; then result="vmware"
 		elif [[ "$product" == "Virtual Machine" ]]; then result="hyperv"
+		elif [[ "$product" == "" ]]; then result="proxmox"
 		else result=""
 		fi
 	fi
