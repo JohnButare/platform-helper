@@ -2301,6 +2301,7 @@ isPlatformCheck()
 		guest|vm|virtual) IsVm;;
 		hyperv) IsHypervVm;;
 		host|physical) ! IsChroot && ! IsContainer && ! IsVm;;
+		proxmox) IsProxmoxVm;;
 		parallels) IsParallelsVm;;
 		swarm) InPath docker && docker info |& command grep "^ *Swarm: active$" >& /dev/null;; # -q does not work reliably on pi2
 		vmware) IsVmwareVm;;
@@ -2366,6 +2367,7 @@ function RunPlatform()
 	IsPlatform entware --host && { RunFunction $function entware "$@" || return; }
 	IsPlatform debian,mac --host && { RunFunction $function DebianMac "$@" || return; }
 	IsPlatform pikernel --host && { RunFunction $function PiKernel "$@" || return; }
+	IsPlatform proxmox --host && { RunFunction $function proxmox "$@" || return; }
 	IsPlatform vm --host && { RunFunction $function vm "$@" || return; }
 	IsPlatform physical --host && { RunFunction $function physical "$@" || return; }
 
@@ -3141,6 +3143,7 @@ IsContainer() { ! InPath systemd-detect-virt && return 1; [[ "$(systemd-detect-v
 IsDocker() { ! InPath systemd-detect-virt && return 1; [[ "$(systemd-detect-virt --container)" == "docker" ]]; }
 IsVm() { GetVmType; [[ $VM_TYPE ]]; }
 IsParallelsVm() { GetVmType; [[ "$VM_TYPE" == "parallels" ]]; }
+IsProxmoxVm() { GetVmType; [[ "$VM_TYPE" == "proxmox" ]]; }
 IsVmwareVm() { GetVmType; [[ "$VM_TYPE" == "vmware" ]]; }
 IsHypervVm() { GetVmType; [[ "$VM_TYPE" == "hyperv" ]]; }
 VmType() { GetVmType; echo "$VM_TYPE"; }
