@@ -710,7 +710,7 @@ NewlineToComma()  { tr '\n' ','; }
 NewlineToSpace()  { tr '\n' ' '; }
 StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } # StringRepeat S N - repeat the specified string N times
 
-ShowChars() { GetArgs; echo -n -e "$@" | od --address-radix=d -t x1 -t a; } # Show
+ShowChars() { GetArgs; echo -n -e "$@" | ${G}od --address-radix=d -t x1 -t a; } # Show
 ShowIfs() { echo -n "$IFS" | ShowChars; }
 ResetIfs() { IFS=$' \t\n\0'; }
 
