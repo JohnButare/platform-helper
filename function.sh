@@ -424,6 +424,7 @@ PythonConf()
 {
 	! IsFunction PathAdd && { . $BIN/bash.bashrc || return; }
 	if [[ "$PLATFORM" != "mac" && -d "$HOME/.local/bin" ]]; then PathAdd "$HOME/.local/bin"
+	elif [[ "$PLATFORM" == "mac" && -d "$HOME/Library/Python/3.10/bin" ]]; then PathAdd front "$HOME/Library/Python/3.10/bin"
 	elif [[ "$PLATFORM" == "mac" && -d "$HOME/Library/Python/3.9/bin" ]]; then PathAdd front "$HOME/Library/Python/3.9/bin"
 	elif [[ "$PLATFORM" == "mac" && -d "$HOME/Library/Python/3.8/bin" ]]; then PathAdd front "$HOME/Library/Python/3.8/bin"
 	fi
