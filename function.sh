@@ -512,6 +512,7 @@ EchoWrap()
 	echo -e "$@" | expand -t $TABS | ${G}fold --space --width=$COLUMNS; return 0
 }
 
+EchoEnd() { echo -e "$@"; }
 EchoErr() { [[ $@ ]] && EchoResetErr; EchoWrap "$@" >&2; return 0; }		# show error message at column 0
 EchoResetErr() { EchoReset "$@" >&2; return 0; } 												# reset to column 0 if not at column 0
 HilightErr() { InitColor; EchoErr "${RED}$@${RESET}"; }									# hilight an error message
