@@ -844,7 +844,7 @@ runTypeExtension()
 	IsFunction "$p" && { "$p"; return; }
 
 	# pause for installations which return without waiting
-	[[ "$ext" == @(air|iso|msu|vsix|xpi) ]] && pause="--pause"
+	[[ "$ext" == @(air|msu|vsix|xpi) ]] && pause="--pause"
 
 	# elevate for installations which require it
 	[[ "$ext" == @(msi) ]] && elevate="--elevate"
@@ -1085,7 +1085,13 @@ runIso()
 	local p="$1"
 
 	iso mount "$p" || return
-	pause "Run the setup program from '$(utw "$p")'..."
+
+	if IsPlatform win && cmd.exe /c dir 'd:\setup.exe' >& /dev/null; then
+		elevate cmd.exe /c 'd:\setup.exe' || return
+	else
+		pause "Run the setup program..."
+	fi
+
 	iso dismount "$p" || return
 }
 
@@ -5318,27 +5324,41 @@ SkypeFinalWin()
 
 SqlServerInstall()
 {
-	local base="other/Microsoft/SQL Server"
-	local setup="en_sql_server_2017_enterprise_x64_dvd_11293666"; [[ $client ]] && setup="en_sql_server_2017_developer_x64_dvd_11296168"
+	local v="2019"; local setup="SQLServer$v-x64-ENU"; os IsServer && setup+="-Dev"
 	header "SQL Server"
+
+	clipw "$(cred get secure system)" || return
 
 	echot "\
 Setup logs are in \"$P/Microsoft SQL Server/130/Setup Bootstrap/Log\"
-- run <drive>\setup.exe
-- Installation, New SQL installation
-- Feature Selection, Select Database Engine Services, SQL Server Replication
-- Server Configuration, check Grant Perform Volume Maintenance Task provilege
+- Installation, New SQL Server stand-alone installation
+- Feature Selection, Select Database Engine Services
+- Server Configuration, check Grant Perform Volume Maintenance Task privilege
 - Database Engine Configuration
-  - Authentication Mode=Mixed Mode, Enter password=XXX, Confirm password=XXX
+  - Authentication Mode=Mixed Mode, Enter password=<paste>, Confirm password=<paste>
   - Add Current User"
- 	run "$base/setup/$setup.iso" || return
-
-	i sqlServerConfig sqlServerLogCleanup || return
+ 	run "other/Microsoft/SQL Server/setup/$v/$setup.iso" && sqlServerConfig && sqlServerLogCleanup
 }
 
 SqlServerFinalWin()
 {
-	ScriptEval SqlServerManagementStudio init || return
+	os IsServer && return
+	SqlServer service demand --all && SqlServer service stop --all
+}
+
+SqlServerManagementStudioInstall()
+{
+	run "$other/Microsoft/SQL Server/studio/SSMS-Setup-ENU.exe" || return # https://docs.microsoft.com/en-us/sql/ssms/download-sql-server-management-studio-ssms
+	run "$other/Microsoft/SQL Server/studio/plugins/SSMSBoostInstaller_3.4.6796.msi" || return # http://www.ssmsboost.com
+}
+
+SqlServerManagementStudioProfile() { SqlServerManagementStudio profile restore default; }
+
+SqlServerManagementStudioFinalWin()
+{
+	mergeDir "$pp/Microsoft SQL Server Tools 18" "$pp/Development/other" || return
+
+		ScriptEval SqlServerManagementStudio init || return
 
 	local dir="$(utw "$udata/sql")" r="HKCU/Software/Microsoft/SQL Server Management Studio/${versionNum}.0"
 
@@ -5350,25 +5370,7 @@ SqlServerFinalWin()
 	registry set "$r/DefaultOpenProjectLocation" REG_EXPAND_SZ "$dir" || return
 	registry set "$r/DefaultOpenProjItemLocation" REG_EXPAND_SZ "$dir" || return
 	registry set "$r/DefaultOpenSolutionLocation" REG_EXPAND_SZ "$dir" || return
-
-	if [[ $client ]]; then
-		SqlServer service demand --all || return
-		SqlServer service stop --all || return
-	fi
-
-	os path editor || return
-	echo "- Remove SQL entries from the system path"
-	pause
 }
-
-SqlServerManagementStudioInstall()
-{
-	run "$other/Microsoft/SQL Server/studio/SSMS-Setup-ENU.exe" || return # https://docs.microsoft.com/en-us/sql/ssms/download-sql-server-management-studio-ssms
-	run "$other/Microsoft/SQL Server/studio/plugins/SSMSBoostInstaller_3.4.6796.msi" || return # http://www.ssmsboost.com
-}
-
-SqlServerManagementStudioProfile() { SqlServerManagementStudio profile restore default; }
-SqlServerManagementStudioFinalWin() { mergeDir "$pp/Microsoft SQL Server Tools 18" "$pp/Development/other"; }
 
 sqlServerConfig()
 {
@@ -8034,9 +8036,9 @@ VmwareLinuxToolsInstall()
 {
 	{ IsPlatform win || ! IsVmwareVm; } && return
 
-	if IsServer; then
+	if os IsServer; then
 		pkg open-vm-tools || return
-	elif IsDesktop; then
+	else
 		pkg open-vm-tools-desktop || return
 	fi
 

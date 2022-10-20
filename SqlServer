@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+. app.sh || exit
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [](latest) [COMMAND]... [OPTION]...
+SQL Server helper commands.
+
+	Common commands: service|vars
+
+  -n, 	--name=NAME					instance name
+				--version=VERSION		version"
+}
+
+usageVerbose()
+{ 
+	ScriptUsageEcho "
+Version: [2022|2019|2017|2016|2014|2012|2008r2](latest)
+   Name: [NAME|default|express](default)"
+}
+
+argStart() { unset -v version; name="default"; }
+
+opt()
+{
+	case "$1" in
+		--name|--name=*|-n|-n=*) ScriptOptGet "name" "$@";;
+		--version|--version=*) ScriptOptGet "version" "$@";;
+		*) return 1;;
+	esac
+}
+
+argEnd()
+{
+	local p="$P/Microsoft SQL Server" s="LocalDB/Binn/sqlservr.exe"
+	
+	if [[ ! $version ]]; then
+		if [[ -f "$p/MSSQL15.MSSQLSERVER/MSSQL/Binn/sqlservr.exe" ]]; then
+			version=2019
+		elif [[ -f "$p/MSSQL14.MSSQLSERVER/MSSQL/Binn/sqlservr.exe" ]]; then
+			version=2017
+		elif [[ -f "$p/130/$s" ]]; then
+			version=2016
+		elif [[ -f "$p/120/$s" ]]; then
+			version=2014
+		elif [[ -f "$p/110/$s" ]]; then
+			version=2012
+		elif [[ -f "$p/100/$s" ]]; then
+			version=20008r2
+		fi
+	fi
+
+	case "$version" in
+		2019) versionNum=15;;
+		2017) versionNum=14;;
+		2016) versionNum=13;;
+		2014) versionNum=12;;
+		2012) versionNum=11;;
+		2008r2) versionNum=10;;
+		2008) versionNum=10;;
+		*) ScriptErr "'$version' is not a valid SQL Server version"; return 1;;
+	esac
+
+	commonServices=( MsDtsServer${versionNum}0 SqlBrowser SqlWriter "SQL Server Distributed Replay Client" "SQL Server Distributed Replay Controller" )
+	configManager="$WINDIR/SysWOW64/SQLServerManager${versionNum}.msc"
+	projectDir="$UDATA/sql"
+	rsConfig="$P32/Microsoft SQL Server/${versionNum}0/Tools/Binn/rsConfigTool.exe"
+	sqlCmd="$P/Microsoft SQL Server/${versionNum}0/Tools/Binn/sqlCmd.EXE"
+	sqlTemp="$TEMP/temp.sql"
+
+	[[ "$version" != @(2008r2|2008) ]] && return
+	allServices=( SqlBrowser MsDtsServer${versionNum}0 SqlWriter MsSqlServerADHelper100 )
+	sqlStudio="$P32/Microsoft SQL Server/${versionNum}0/Tools/Binn/VSShell/Common7/IDE/Ssms.exe"	
+}
+
+#
+# commands
+#
+
+varsCommand()
+{
+	vars=( version versionNum ) 
+	ScriptReturn "${vars[@]}"
+}
+
+#
+# service commands
+#
+
+serviceUsage()
+{
+	ScriptUsageEcho "\
+Usage: $(ScriptName) service COMMAND [instance <instance>](express|default)
+SQL Server services.
+
+	start|stop|restart|auto|demand|disable|enable|status|detail
+	instance: <name>|default|express
+
+	-a, --all		all services"
+}
+
+serviceArgStart() { unset -v all; }
+
+serviceOpt()
+{
+	case "$1" in
+		--all|-a) all="--all";;
+		*) return 1;;
+	esac
+}
+
+serviceCommand() { usage; }
+serviceAutoCommand() { doService; } 
+serviceDemandCommand() { doService; } 
+serviceDetailCommand() { doService; } 
+serviceDisableCommand() { doService; } 
+serviceEnableCommand() { doService; } 
+serviceRestartCommand() { doService; } 
+serviceStartCommand() { doService; } 
+serviceStatusCommand() { doService; } 
+serviceStopCommand() { doService; } 
+
+doService()
+{
+	local command="${commandNames[1]}"
+	local allServices instanceDisplayName instanceFriendlyName services; getInstance "$name" || return
+	[[ $all ]] && services=("${allServices[@]}")
+
+	for service in "${services[@]}"; do
+		local startType; startType="$(service StartType "$service" --quiet)" || continue
+		[[ "$command" == @(start|stop|restart) && "$startType" == "DISABLED" ]] && continue
+		RunLog service "$command" "$service" --no-service-check || return
+	done
+}
+
+#
+# helper
+#
+
+getInstance()
+{
+	local name="$1"
+	instanceFriendlyName="$name"
+
+	allServices=("${commonServices[@]}")
+
+	case "$name" in
+		"")
+			instanceDisplayName=''
+			services=( 'MSSQL$SQLEXPRESS' "MsSqlServer" )
+			allServices+=("${services[@]}" 'SQLAgent$SQLEXPRESS' "SQLSERVERAGENT" "MsSqlServerOLAPService" "ReportServer" "MSSQLFDLauncher")
+			;;
+		default)
+			instanceDisplayName=''
+			services=("MSSQLSERVER" "SQLSERVERAGENT")
+			allServices+=("${services[@]}" "MsSqlServerOLAPService" "ReportServer" "MSSQLFDLauncher")
+			;;
+		express)
+			instanceDisplayName='\SQLEXPRESS'
+			services=('MSSQL$SQLEXPRESS')
+			allServices+=("${services[@]}" 'SQLAgent$SQLEXPRESS')
+			;;
+		*)
+			instanceDisplayName='\MSSQLSERVER'"$name"
+			services=('MSSQL$MSSQLSERVER'"$name")
+			allServices+=("${services[@]}" 'SQLAgent$MSSQLSERVER'"$name" 'MSOLAP$MS'"$name" 'ReportServer$MSSQLSERVER'"$name" 'MSSQLFDLauncher$MSSQLSERVER'"$name")
+			;;
+	esac
+
+	[[ "$version" != @(2019) ]] && return
+	allServices+=(SQLTELEMETRY)
+}
+
+ScriptRun "$@"
