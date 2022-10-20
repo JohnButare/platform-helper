@@ -2378,15 +2378,6 @@ function RunPlatform()
 	return 0
 }
 
-IsDesktop()
-{
-	IsPlatform mac,win && return 0
-	IsPlatform debian && [[ "$XDG_CURRENT_DESKTOP" != "" ]] && return 0
-	return 1
-}
-
-IsServer() { ! IsDesktop; }
-
 #
 # Process
 #

@@ -7,9 +7,9 @@ usage()
 Usage: os [COMMAND]... [OPTION]...
 Operating system commands
 
-	info|architecture|bits|build|CodeName|hardware|mhz|release|version		information
+	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release|version
 	disk					[available|total](total)
-	environment|index|path|lock|preferences|store													control
+	environment|index|path|lock|preferences|store
 	executable		executable information
 	memory				[available|total](total)
 	name					show or set the operating system name"
@@ -361,6 +361,15 @@ mhzCommand()
 # x86_64 					x86_64 (Intel/AMD), 64 bit
 hardwareCommand() ( uname -m; )
 
+isServerCommand()
+{
+	case "$PLATFORM" in
+		linux) IsPlatform debian && [[ ! $XDG_CURRENT_DESKTOP ]];;
+		mac) return 1;;
+		win) registry get "$r/ProductName" | RemoveCarriageReturn | grep -q -i "server";;
+	esac
+}
+
 releaseCommand() { RunPlatform "release"; }
 releaseUbuntu() { lsb_release -rs; }
 
@@ -634,6 +643,7 @@ infoDistributionWin()
 {	
 	local r="HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion"
 	local releaseId="$(registry get "$r/ReleaseID" | RemoveCarriageReturn)"
+	local product="$(registry get "$r/ProductName" | RemoveCarriageReturn)"
 	local ubr="$(HexToDecimal "$(registry get "$r/UBR" | RemoveCarriageReturn)")"
 	local build="$(buildCommand)"
 
@@ -641,7 +651,7 @@ infoDistributionWin()
 	local wslgVersion="$(wsl get version wslg)"
 	local wslExtra; [[ $wslVersion ]] && wslExtra+=" v$wslVersion WSLg v$wslgVersion"
 
-	infoEcho "     windows: $releaseId (build $build.$ubr, WSL$wslExtra $(wsl get name))"
+	infoEcho "     windows: $releaseId ($product, build $build.$ubr, WSL$wslExtra $(wsl get name))"
 }
 
 #
