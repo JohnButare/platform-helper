@@ -1570,8 +1570,8 @@ IsAvailable()
 	fi
 }
 
-# IsAvailableBatch HOST... - check if available in parallel
-IsAvailableBatch() { parallel -i bash -c '. function.sh && IsAvailable {} && echo {}' -- "$@"; }
+# IsAvailableBatch HOST... -  return available hosts in parallel
+IsAvailableBatch() { parallel -i bash -c '. function.sh && IsAvailable {} && echo {}' -- "$@"; return 0; }
 
 # IsPortAvailable HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified TCP port
 IsAvailablePort()
