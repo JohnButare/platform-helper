@@ -240,7 +240,7 @@ GetLoginShell()
 	elif [[ -f /etc/passwd ]]; then
 		echo "$(grep $USER /etc/passwd | cut -d: -f7)"
 	else
-		EchoErr "GetCurrentShell: cannot determine current shell"
+		EchoErr "GetLoginShell: cannot determine current shell"
 		return 1
 	fi
 }
@@ -416,7 +416,7 @@ powershell()
 	FindInPath powershell.exe && { powershell.exe "$@"; return; }
 	
 	# could not find
-	EchoErr "Could not find powershell"; return 1;
+	EchoErr "powershell: could not find powershell"; return 1;
 }
 
 PowerShellVersion() { powershell --version | grep PSVersion | tr -s " " | cut -d" " -f2; }
@@ -3105,7 +3105,7 @@ GetTextEditor()
 	InPath micro && { echo "micro"; return 0; }
 	InPath nano && { echo "nano"; return 0; }
 	InPath vi && { echo "vi"; return 0; }
-	EchoErr "No text editor found"; return 1;
+	ScriptErr "no text editor found" "GetTextEditor"; return 1;
 }
 
 # SetTextEditor - set the default text editor for commands.  The text editor must:
