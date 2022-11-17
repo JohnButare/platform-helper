@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+. app.sh || exit
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [api|config|pump|state](api)
+Manage the pool controller.
+
+	api 			call a API command
+	pump			manage the pool pump
+	state			get the current state"
+}
+
+init()
+{	
+	server="pc.butare.net"
+	pumpId=50
+	pumpCircuitId=6
+	curl='curl'
+}
+
+#
+# commands
+#
+
+configCommand() { api "/config" | jq; }
+stateCommand() { state | jq; }
+
+#
+# API Command
+#
+
+apiUsage()
+{
+	EchoWrap "Usage: $(ScriptName) api [available|put] [URI](/config) [JSON]({})
+Perform an API command.
+
+Examples:
+	/config - current configuration
+	/state/all - current state
+	/state/circuit/setState '{"id":6,"state":false}'"
+}
+
+apiArgStart() { uri="/config" json="{}"; }
+
+apiArgs()
+{
+	(( $# > 0 )) && { ScriptArgGet "uri" -- "$@"; shift; }
+	(( $# > 0 )) && { ScriptArgGet "json" -- "$@"; shift; }
+	return 0
+}
+
+apiCommand() { api "$uri" "$json"; }
+apiavailableCommand() { IsAvailablePort "$server" 443; }
+apiPutCommand() { apiPut "$uri" "$json"; }
+
+#
+# Pump Commands
+#
+
+pumpUsage()
+{
+	echot "Usage: $(ScriptName) pump [on|off|detail|status](status)
+Manage the pool pump."
+}
+
+pumpCommand() { pumpStatusCommand; }
+pumpOnCommand() { apiPut "/state/circuit/setState" '{"id":'$pumpCircuitId',"state":true}'; }
+pumpOffCommand() { apiPut "/state/circuit/setState" '{"id":'$pumpCircuitId',"state":false}'; }
+pumpStatusCommand() { [[ "$(state | isPumpOn)" == "true" ]] && echo -n "on" || echo -n "off"; }
+
+pumpDetailCommand()
+{
+	local state; state="$(api "/state/all")" || return
+
+	if [[ "$(echo "$state" | isPumpOn)" != "true" ]]; then
+		echo "The pool pump is off."
+		return
+	fi
+
+	local watts="$(echo "$state" | jq '.pumps[] | select(.id == 50).watts')"
+	local rpm="$(echo "$state" | jq '.pumps[] | select(.id == 50).rpm')"
+	local gpm="$(echo "$state" | jq '.pumps[] | select(.id == 50).flow')"
+	echo "The pool pump is on ($watts watts, $rpm rpm, $gpm gpm)."
+}
+
+isPumpOn() { cat | jq '.pumps[] | select(.id == 50).circuits[0].circuit.isOn'; }
+
+#
+# API Helper
+#
+
+api()
+{
+	local uri="$1" json="$2"
+	RunLog $curl --silent "$server/$(echo "$uri" | RemoveFront "/")"
+}
+
+apiPut()
+{
+	local uri="$1" json="$2"
+	RunLog $curl  -H "Content-Type: application/json" -X PUT --silent --data "$json" "$server/$(echo "$uri" | RemoveFront "/")"
+}
+
+state() { api "/state/all"; }
+
+ScriptRun "$@"
