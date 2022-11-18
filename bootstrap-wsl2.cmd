@@ -14,9 +14,12 @@ if not exist "%wslDir%" mkdir "%wslDir%"
 REM if the distribution exists then run the bootstrap
 if exist "\\wsl.localhost\%dist%\home" goto bootstrap
 
+REM default to WSL 2
+wsl --set-default-version 2
+
 REM download WSL and a distribution if a distribution image was not specified
 if not defined distImage (
-	wsl --install --distribution %dist%	--web-download
+	wsl --install --distribution %dist%	--web-download || wsl --install --distribution %dist%
 	goto check
 )
 
