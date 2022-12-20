@@ -145,8 +145,14 @@ CheckPlatform || return
 P="/opt" SRV="/srv" BIN="" DATA="" ADATA="" ACONFIG="" PUB="" USERS="/home" VOLUMES="/mnt"
 
 # USER=logged on user, SUDO_USER, HOME=home directory, DOC=user documents, UDATA=user data, UBIN=user programs
-# UDATA=user data, UADATA=user application data, CODE=source code
+# UDATA=user data, UADATA=user application data, CODE=source code WIN_CODE=windows source code
 USER="${USERNAME:-$USER}" DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
+DATA="/usr/local/data" ADATA="$DATA/appdata" ACONFIG="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM" PUB="${PUB:-$USERS/Shared}"
+
+DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" WIN_CODE="$code" UDATA="$HOME/data" UBIN="$UDATA/bin"
+HOSTNAME="${HOSTNAME:-$(hostname -s)}"
+declare {TMPDIR,TMP,TEMP}="${TMPDIR:-$HOME/tmp}"
+[[ ! -d "$TMP" ]] && mkdir "$TMP" >& /dev/null
 
 # G=GNU program prefix (i.e. gls)
 G="" 
@@ -168,17 +174,12 @@ case "$PLATFORM" in
 		WIN_UDATA="$WIN_HOME/data"	
 		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" UADATA="$WIN_HOME/AppData/Local"
 		;;
+
 esac
 
 case "$PLATFORM_LIKE" in 
 	qnap) USERS="/share/home";;
 esac
-
-DATA="/usr/local/data" ADATA="$DATA/appdata" ACONFIG="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM" PUB="${PUB:-$USERS/Shared}"
-DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
-HOSTNAME="${HOSTNAME:-$(hostname -s)}"
-declare {TMPDIR,TMP,TEMP}="${TMPDIR:-$HOME/tmp}"
-[[ ! -d "$TMP" ]] && mkdir "$TMP" >& /dev/null
 
 set +a
 
