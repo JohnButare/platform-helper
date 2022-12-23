@@ -48,6 +48,7 @@ discord() { IsProcessRunning Discord.exe || taskStart "$UADATA/Discord/app-0.0.3
 docker() { runService "docker"; }
 duet() { taskStart "$P/Kairos/Duet Display/duet.exe"; }
 Explorer() { [[ "$command" == "startup" ]] && ! IsProcessRunning explorer.exe && start explorer; }
+FixTime() { [[ ! $force ]] && ClockHelper check && return; printf "time."; ClockHelper fix $verbose; }
 GlassWire() { IsProcessRunning "GlassWire.exe" || taskStart "$P32/GlassWire/glasswire.exe" "" -hide; }
 Greenshot() { IsProcessRunning "Greenshot.exe" || taskStart "$P/Greenshot/Greenshot.exe" "" ; }
 incron() { runService "incron"; }
@@ -58,14 +59,6 @@ PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.
 SecurityHealthTray() { IsProcessRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
 sshd() { runService "ssh"; }
 SyncPlicity() { taskStart "$P/Syncplicity/Syncplicity.exe"; }
-
-FixTime() 
-{
-	! InPath chronyc && return
-	local skew="$(chronyc tracking | grep "^System time" | cut -d" " -f8)"
-  (( $(echo "$skew < 10" | bc -l) )) && return
-  printf "time." && sudoc chronyc makestep > /dev/null
-}
 
 IntelDesktopControlCenter() 
 { 
