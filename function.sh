@@ -358,7 +358,10 @@ HashiServiceRegister()
 }
 
 # git
-GitRoot() { git rev-parse --show-toplevel; }
+IsGitDir() { GitRun rev-parse --git-dir >& /dev/null; } # return true if the current directory is in a Git repository
+GitRun() { local git; GitSet && SshAgentConf && $git "$@"; }
+GitSet() { git="git"; InPath git.exe && drive IsWin . && git="git.exe"; }
+GitRoot() { GitRun rev-parse --show-toplevel; }
 GitClone() { ScriptCd GitHelper GitHub clone "$@"; }
 
 # i: invoke the installer script (inst) saving the INSTALL_DIR

@@ -14,6 +14,7 @@ Common options:
 
 init()
 { 
+	setGit || return
 	code="$CODE"
 	fork="/usr/local/bin/fork"
 	forkWin="$UADATA/Fork/Fork.exe"; IsPlatform win && fork="$forkWin"
@@ -47,30 +48,30 @@ changesCommand()
 	local newline
 
 	# change summary
-	local changeSummary; changeSummary="$(git --no-pager diff --compact-summary)" || return
+	local changeSummary; changeSummary="$($git --no-pager diff --compact-summary)" || return
 	if [[ $changeSummary ]]; then
 		echo "$changeSummary"
 		newline='\n'
 	fi
 
 	# regular git status output
-	(( verboseLevel > 1 )) && { printf "$newline"; git status || return; }
+	(( verboseLevel > 1 )) && { printf "$newline"; $git status || return; }
 
 	# new files
-	local newFiles; newFiles="$(git status --porcelain | grep -E "^(\?\?|A)" | cut -c 4-)" || return
+	local newFiles; newFiles="$($git status --porcelain | grep -E "^(\?\?|A)" | cut -c 4-)" || return
 	if [[ $newFiles ]] && (( verboseLevel <= 1 )); then
 		printf "${newline}New files:\n"
-		git status --porcelain | grep -E "^(\?\?|A)" | cut -c 4- | AddTab
+		$git status --porcelain | grep -E "^(\?\?|A)" | cut -c 4- | AddTab
 		newline='\n'
 	fi
 
 	# file mode changes
-	local fileModeChanges; fileModeChanges="$(git --no-pager diff --summary)" || return
+	local fileModeChanges; fileModeChanges="$($git --no-pager diff --summary)" || return
 	if [[ $fileModeChanges ]]; then
 		(( verboseLevel <= 1 )) && printf "$newline"
 		echo "File mode changes:"
 		echo "$fileModeChanges" | AddTab
-		[[ $verbose ]] && { git diff --summary | tgrep 'mode change ' | awk '{print "'$(GitRoot)'/"$6}' | ${G}xargs --no-run-if-empty ${G}stat -c '%A %a %n' | AddTab || return; }
+		[[ $verbose ]] && { $git diff --summary | tgrep 'mode change ' | awk '{print "'$(GitRoot)'/"$6}' | ${G}xargs --no-run-if-empty ${G}stat -c '%A %a %n' | AddTab || return; }
 	fi
 	return 0
 }
@@ -142,7 +143,7 @@ sizeCommand()
 
 	# list all objects including their size, sort by size, take top 10
 	echo "Calculating object sizes..."
-	objects=`git verify-pack -v .git/objects/pack/pack-*.idx | grep -v chain | sort -k3nr | head -n 50`
+	objects=`$git verify-pack -v .git/objects/pack/pack-*.idx | grep -v chain | sort -k3nr | head -n 50`
 
 	echo "All sizes are in kB's. Pack is the size of the object, compressed, inside the pack file."
 
@@ -156,7 +157,7 @@ sizeCommand()
 		# extract the SHA
 		sha=`echo $y | cut -f 1 -d ' '`
 		# find the objects location in the repository tree
-		other=`git rev-list --all --objects | grep $sha`
+		other=`$git rev-list --all --objects | grep $sha`
 		#lineBreak=`echo -e "\n"`
 		output="${output}\n${size},${compressedSize},${other}"
 	done
@@ -173,9 +174,9 @@ Return the upstream status: up-to-date, behind, ahead, or diverged."
 upstreamCommand()
 {
 	local upstream='@{u}'
-	local local="$(git rev-parse @)"
-	local remote="$(git rev-parse "$upstream")"
-	local base=$(git merge-base @ "$upstream")
+	local local="$($git rev-parse @)"
+	local remote="$($git rev-parse "$upstream")"
+	local base=$($git merge-base @ "$upstream")
 
 	if [[ "$local" == "$remote" ]]; then echo "up-to-date"
 	elif [[ "$local" == "$base" ]]; then echo "behind"
@@ -231,17 +232,18 @@ cloneCommand()
 	# set the destination
 	[[ ! $dest ]] && { dest="$code/$repo"; [[ $win ]] && dest="$WIN_CODE/$repo"; }
 	[[ ! $force && -d "$dest" ]] && return
+	setGit "$dest" || return
 
 	# clone	
 	echo "Cloning $repo ($url) to $dest..."
-	RunLog git clone "$url" "$dest" || return
+	RunLog $git clone "$url" "$dest" || return
 	[[ $test ]] && return
 
 	# change to the new repo directory
 	cd "$dest" || return
 
 	# Windows file system does not support file permissions
-	drive IsWin "$dest" && { RunLog git config --local --add core.filemode false || return; }
+	drive IsWin "$dest" && { RunLog $git config --local --add core.filemode false || return; }
 
 	return 0
 }
@@ -287,7 +289,7 @@ cloneExistingCommand()
 	[[ -d hold ]] && { rm -fr hold || return; }
 
 	echo "Updating remote to $repo..."
-	git remote set-url origin "$repo" || return # in case the repository existed
+	$git remote set-url origin "$repo" || return # in case the repository existed
 	
 	return 0
 }
@@ -403,7 +405,8 @@ githubCloneCommand()
 {
 	local dir; dir="$(repoDir "$repo")" || return
 	[[ -d "$dir" ]]  && { echo "$dir"; return; }
-	cd "$code" && git clone "$repo" 1>&2 && echo "$dir"
+	setGit "$(GetParentDir "$dir")" || return
+	cd "$code" && $git clone "$repo" 1>&2 && echo "$dir"
 }
 
 #
@@ -425,13 +428,14 @@ githubCreateCommand()
 
 	[[ ! -d "$dir/$repo" ]] && { EchoErr "$repo is not a valid repository"; return 1; }
 	cd "$dir/$repo"
+	setGit "$dir/$repo" || return
 
 	header "$repo"
 
 	[[ ! -f .gitignore ]] && { addDefaultGitIgnore || return 1; }
 	[[ ! -f README.md ]] && { addDefaultReadMe || return 1; }
-	git remote | grep origin > /dev/null || { createGitHubRepository || return 1; } 
-	echo "Pushing repository to GitHub..."; git push || return 1
+	$git remote | grep origin > /dev/null || { createGitHubRepository || return 1; } 
+	echo "Pushing repository to GitHub..."; $git push || return 1
 	} 
 
 createGitHubRepository()
@@ -444,8 +448,8 @@ addDefaultGitIgnore()
 {
 	echo "Adding default C# .gitignore...."
 	cp ../.gitignore . || return 1
-	git add .gitignore || return 1
-	git commit -m "Add default C# .gitignore" || return 1
+	$git add .gitignore || return 1
+	$git commit -m "Add default C# .gitignore" || return 1
 }
 
 addDefaultReadMe()
@@ -461,8 +465,8 @@ addDefaultReadMe()
 		---------------------
 	EOF
 	
-	git add README.md || return 1
-	git commit -m "Add default README.md" || return 1
+	$git add README.md || return 1
+	$git commit -m "Add default README.md" || return 1
 }
 
 #
@@ -481,7 +485,7 @@ remoteArgs()
 		if (( $# > 0 )); then
 			ScriptArgGet "repo" -- "$@"; shift;
 		elif [[ "$command" != @(remoteDir) ]]; then
-			local url; url="$(git remote get-url origin)" || return
+			local url; url="$($git remote get-url origin)" || return
 			repo="$(echo "$url" | GetLastDir)"
 		fi
 	fi
@@ -490,7 +494,7 @@ remoteArgs()
 }
 
 remoteAddUsage() { echot "Usage: $(ScriptName) git remote add SERVER REPO\nAdd the repository as a remote."; }
-remoteAddCommand() { git remote add "$server" "$(serverToRepo "$server" "$repo")" && git fetch "$server" && git remote -v; }
+remoteAddCommand() { $git remote add "$server" "$(serverToRepo "$server" "$repo")" && $git fetch "$server" && $git remote -v; }
 
 remoteDirUsage() { echot "Usage: $(ScriptName) remote dir SERVER\nReturn the git directory for the specified server."; }
 remoteDirCommand() { echo "$(serverToShare "$server")/$repo"; }
@@ -511,9 +515,7 @@ remoteInitCommand()
 	[[ -e "$repo" ]] && { ScriptErr "repository $repo already exists on $server"; return 1; }
 
 	# create respository
-	${G}mkdir --parents "$repo" || return
-	cd "$repo" || return
-	git init --bare || return
+	${G}mkdir --parents "$repo" && setGit "$repo" && cd "$repo" && $git init --bare 
 }
 
 remoteSwapUsage() { echot "Usage: $(ScriptName) git remote swap [remote1] [remote2](origin)\nSwap remote names."; }
@@ -531,36 +533,36 @@ remoteSwapCommand()
 	# validate
 	[[ "$remote1" == "$remote2" ]] && { ScriptErr "remote1 and remote2 must be different"; return 1; }
 
-	local remote1Url; remote1Url="$(git remote get-url "$remote1")" || return
-	local remote2Url; remote2Url="$(git remote get-url "$remote2")" || return
+	local remote1Url; remote1Url="$($git remote get-url "$remote1")" || return
+	local remote2Url; remote2Url="$($git remote get-url "$remote2")" || return
 	local remote1NewName="$remote2" remote2NewName="$remote1"
 	[[ "$remote1" == "origin" ]] && { remote1NewName="$(GetUriServer "$remote1Url")"; }
 	[[ "$remote2" == "origin" ]] && { remote2NewName="$(GetUriServer "$remote2Url")"; }
 
 	# original configuration
 	header "Original Configuration"
-	git remote -v || return
+	$git remote -v || return
 	echo
 
 	# swap
 	header "Swapping $remote1 and $remote2"
 	log1 "$remote1 ($remote1Url)->$remote1NewName"
 	log1 "$remote2 ($remote2Url)->$remote2NewName"
-	RunLog git remote rename "$remote1" "$remote1.hold" || return
-	RunLog git remote rename "$remote2" "$remote2NewName" || return
-	RunLog git remote rename "$remote1.hold" "$remote1NewName" || return
-	[[ "$remote1" == "origin" || "$remote2" == "origin" ]] && { RunLog git branch master --set-upstream-to origin/master || return; }
+	RunLog $git remote rename "$remote1" "$remote1.hold" || return
+	RunLog $git remote rename "$remote2" "$remote2NewName" || return
+	RunLog $git remote rename "$remote1.hold" "$remote1NewName" || return
+	[[ "$remote1" == "origin" || "$remote2" == "origin" ]] && { RunLog $git branch master --set-upstream-to origin/master || return; }
 	echo
 
 	# new configuration
 	header "New Configuration"
-	git remote -v || return
+	$git remote -v || return
 }
 
 remoteToHttpCommand()
 {
-	git remote set-url origin "https://$(getBaseUrl "origin")/"
-	git remote --verbose
+	$git remote set-url origin "https://$(getBaseUrl "origin")/"
+	$git remote --verbose
 }
 
 remoteToSshCommand()
@@ -569,8 +571,8 @@ remoteToSshCommand()
 	local server="${url%%/*}"
 	local suffix="${url#*( )*/}"
 
-	git remote set-url origin "$(serverToRepo "$server" "${suffix}")" || return
-	git remote --verbose
+	$git remote set-url origin "$(serverToRepo "$server" "${suffix}")" || return
+	$git remote --verbose
 }
 
 #
@@ -599,7 +601,7 @@ timeCommand()
 	# update times	
 	printf "times..."
 	for file in "${files[@]}"; do
-	  local gitTime; gitTime="$(git log -1 --format="%at" -- "$file")"
+	  local gitTime; gitTime="$($git log -1 --format="%at" -- "$file")"
 	  local fileTime; fileTime="$(GetFileModSeconds "$file")"	  
 	  [[ "$gitTime" == "$fileTime" ]] && { printf "."; continue; }
 	  printf "$file..."; log1 "$file: $gitTime $fileTime $(( fileTime - gitTime ))"
@@ -644,7 +646,7 @@ findServer()
 # getBaseUrl REMOTE - get repository base URL, i.e. https://server/path/ ssh://user@server:port/path/ -> server/path
 getBaseUrl() 
 {
-	local url; url="$(git remote get-url "$1")" || return
+	local url; url="$($git remote get-url "$1")" || return
 	url="$(echo "$url" | sed 's/https:\/\///')" # remove https://
 	url="$(echo "$url" | sed 's/ssh:\/\///' | sed 's/git@//' | sed 's/:[0-9]*\//\//')" # remove ssh://, user@, and :port
 	url="${url%%/}" # remove trailing /
@@ -654,7 +656,7 @@ getBaseUrl()
 # isGitRepo DIR - return 0 if the directory is in a Git repository
 isGitRepo()
 {
-	( cd "$path" && git rev-parse --git-dir >& /dev/null; ) && return
+	( cd "$path" && setGit "$path" && $git rev-parse --git-dir >& /dev/null; ) && return
 	[[ ! $quiet ]] && ScriptErr "fatal: not a git repository (or any of the parent directories)"
 	return 1
 }
@@ -700,6 +702,12 @@ serverToUser()
 		gitlab|gitlab.butare.net) echo "git@";;
 		*) echo "$USER@";;
 	esac
+}
+
+setGit()
+{
+	local dir="${1:-.}"
+	git="git"; drive IsWin "$dir" && git="git.exe"
 }
 
 ScriptRun "$@"
