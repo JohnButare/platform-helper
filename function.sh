@@ -360,7 +360,7 @@ HashiServiceRegister()
 # git
 IsGitDir() { GitRun rev-parse --git-dir >& /dev/null; } # return true if the current directory is in a Git repository
 GitRun() { local git; GitSet && SshAgentConf && $git "$@"; }
-GitSet() { git="git"; InPath git.exe && drive IsWin . && git="git.exe"; }
+GitSet() { git="git"; InPath git.exe && drive IsWin . && git="git.exe"; return 0; }
 GitRoot() { GitRun rev-parse --show-toplevel; }
 GitClone() { ScriptCd GitHelper GitHub clone "$@"; }
 
