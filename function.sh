@@ -833,26 +833,20 @@ fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; ech
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
 
 # CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
-# - mac: if the file is moved outside of Dropvox the file it is not automatically downloaded
-# - wsl:  reads of the file do not trigger online-only file download in Dropbox
+# - mac: beta v166.3.2891+ triggers download of online-only files on move or copy
+# - wsl: 
+#   - reads of the file do not trigger online-only file download in Dropbox
+#   - show true size of file even if online-only
 CloudGet()
 {
+	! IsPlatform win && return
 	local quiet; [[ "$1" == @(-q|--quiet) ]] && { quiet="true"; shift; }
 
 	local file
 	for file in "$@"; do
 		[[ -d "$file" ]] && continue 										# skip directories
 		ScriptFileCheck "$file" || return 							# validate file
-
-		# mac can skip if already downloaded, in Windows file shows as true size even if offline
-		IsPlatform mac && (( $(GetFileSize "$file" B) > 1 )) && continue
-
-		if IsPlatform win; then
-			( cd "$(GetFilePath "$file")"; cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
-		elif IsPlatform mac; then
-			start "/System/Applications/TextEdit.app" "$file" && sleep 1 && ProcessClose TextEdit
-			#cat "$file" >& /dev/null || return
-		fi
+		( cd "$(GetFilePath "$file")"; cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
 	done
 }
 

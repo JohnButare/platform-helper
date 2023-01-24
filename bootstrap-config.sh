@@ -5,7 +5,7 @@ timeServer="time.butare.net"
 
 # user
 user="jjbutare"
-dropboxCompany="Juntos Holdings"
+dropboxCompany="JuntosHoldings"
 dropboxUser="John Butare"
 
 # bootstrap
