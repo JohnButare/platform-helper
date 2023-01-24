@@ -2336,7 +2336,7 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 	for file in "${files[@]}"; do . "$file" || return; done
 }
 
-PlatformTmp() { IsPlatform win && echo "$UADATA/Temp" || echo "$TMP"; }
+PlatformTmp() { IsPlatform win && echo "$UADATA/Temp" || echo "$TEMP"; }
 
 # RunPlatform PREFIX [--host [HOST]] - call platform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
 function RunPlatform()
