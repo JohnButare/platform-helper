@@ -148,15 +148,12 @@ P="/opt" SRV="/srv" BIN="" DATA="" ADATA="" ACONFIG="" PUB="" USERS="/home" VOLU
 # UDATA=user data, UADATA=user application data, CODE=source code WIN_CODE=windows source code
 USER="${USERNAME:-$USER}" DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
 DATA="/usr/local/data" ADATA="$DATA/appdata" ACONFIG="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM" PUB="${PUB:-$USERS/Shared}"
-
-DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" WIN_CODE="$code" UDATA="$HOME/data" UBIN="$UDATA/bin"
+DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
+WIN_CODE="$code"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
-declare {TMPDIR,TMP,TEMP}="${TMPDIR:-$HOME/tmp}"
-[[ ! -d "$TMP" ]] && mkdir "$TMP" >& /dev/null
+G="" # G=GNU program prefix (i.e. gls)
 
-# G=GNU program prefix (i.e. gls)
-G="" 
-
+# PLATFORM environment variables
 case "$PLATFORM" in 
 	mac) USERS="/Users" P="/Applications" G="g" SRV="/opt" VOLUMES="/Volumes" UADATA="$HOME/Library/Application Support" 
 		# Homebrew
@@ -177,9 +174,14 @@ case "$PLATFORM" in
 
 esac
 
+# PLATFORM_LIKE environment variables
 case "$PLATFORM_LIKE" in 
 	qnap) USERS="/share/home";;
 esac
+
+# temp directory
+declare {TMPDIR,TMP,TEMP}="${TMPDIR:-$HOME/tmp}"
+[[ ! -d "$TMP" ]] && mkdir "$TMP" >& /dev/null
 
 set +a
 
