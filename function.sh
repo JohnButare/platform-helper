@@ -2449,8 +2449,11 @@ IsProcessRunning()
 	# check Windows process
 	IsWindowsProcess "$name" && { IsProcessRunningList "$name" --win; return; }
 
-	# mac
-	IsPlatform mac && { pidof -l "$name" | ${G}grep --quiet "^PID for $name is"; return; }
+	# mac	
+	if IsPlatform mac; then
+		local nameCheck="$name"; [[ "$name" =~ \.app$ ]] && nameCheck="$(GetFileNameWithoutExtension "$name")"
+		pidof -l "$nameCheck" | ${G}grep --quiet "^PID for $nameCheck is"; return;
+	fi
 
 	# check for process using pidof - slightly faster but pickier than pgrep
 	[[ ! $full && $root ]] && { pidof -snq "$name" > /dev/null; return; }
