@@ -20,6 +20,8 @@ ScriptArgGet()
 
 	# set the variable
 	SetVariable "$scriptVar" "$1"; ((++shift))
+
+	return 0
 }
 
 ScriptArgDriveLetter()

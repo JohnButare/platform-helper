@@ -120,7 +120,7 @@ pipxg()
 
 # logging
 InitColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); }
-header() { EchoReset; InitColor; printf "${RB_BLUE}************************* ${RB_INDIGO}$1${RB_BLUE} *************************${RESET}\n"; headerDone="$((52 + ${#1}))"; }
+header() { EchoReset; InitColor; printf "${RB_BLUE}************************* ${RB_INDIGO}$1${RB_BLUE} *************************${RESET}\n"; headerDone="$((52 + ${#1}))"; return 0; }
 HeaderBig() { InitColor; printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n**************************************************${RESET}\n"; }
 HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
 hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
