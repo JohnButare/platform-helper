@@ -214,10 +214,10 @@ getAppFile()
 isAppInstalled()
 {
 	if ! AppCommandExists isInstalled "$appFile"; then
-		ScriptErr "'$app' does not have an IsInstalled command"; return 1
+		ScriptErrQuiet "'$app' does not have an IsInstalled command"; return 1
 	fi
 
-	"$appFile" --quiet IsInstalled "${globalArgs[@]}"
+	"$appFile" IsInstalled "${globalArgs[@]}"
 }
 
 isAppRunning()
