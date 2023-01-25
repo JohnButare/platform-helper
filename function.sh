@@ -291,19 +291,32 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 # Applications
 #
 
-AppVersion() # AppVersion file - return the version of the specified application
+AppVersion() # AppVersion app - return the version of the specified application
 {
-	local app="$1" version
+	# arguments
+	local app quiet 
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-q|--quiet) quiet="--quiet";;
+			*)
+				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
+				UnknownOption "$1" "AppVersion"; return
+		esac
+		shift
+	done
+	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
 
 	# mac application
 	local dir
-	if IsPlatform mac && dir="$(command ls "/Applications" | grep -i "^$app.app$")" && [[ -f "/Applications/$dir/Contents/Info.plist" ]]; then
+	if IsPlatform mac && dir="$(command ls "/Applications" | grep -i "^$(GetFileNameWithoutExtension "$app").app$")" && [[ -f "/Applications/$dir/Contents/Info.plist" ]]; then
 		defaults read "/Applications/$dir/Contents/Info.plist" CFBundleShortVersionString; return
 	fi
 
 	# file
+	local version;
 	local file="$app"; InPath "$file" && file="$(FindInPath "$file")"	
-	[[ ! -f "$file" ]] && { [[ ! $quiet ]] && ScriptErr "application is not installed" "$app"; return 1; }
+	[[ ! -f "$file" ]] && { ScriptErrQuiet "application is not installed" "$app"; return 1; }
 
 	# Windows file version
 	if IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
