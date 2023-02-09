@@ -304,7 +304,7 @@ AppVersion() # AppVersion app - return the version of the specified application
 				UnknownOption "$1" "AppVersion"; return
 		esac
 		shift
-	done
+	done	
 	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
 
 	# mac application
@@ -325,7 +325,7 @@ AppVersion() # AppVersion app - return the version of the specified application
 	fi
 
 	# --version option, where the version number is the last word of the first line
-	version="$("$file" --version | head -1 | awk '{print $NF}')" || return
+	version="$("$file" --version $quiet | head -1 | awk '{print $NF}')" || return
 	IsNumeric "$version" && echo "$version"
 }
 
