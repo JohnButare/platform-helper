@@ -87,5 +87,6 @@ hagermanBackupServers="backup2.$hbd,backup1.$hbd" 					# backup (Borg)
 hagermanHassServers="pi9.$hbd,pi11.$hbd"										# Home Assistant
 hagermanLbServers="pi1.$hd,pi2.$hd,pi3.$hd,pi4.$hd"					# Load Balancer (NGINX reverse proxy)
 hagermanProxyServers="proxy.$hbd:3128" 											# Forward Proxy (Squid)
+hagermanSyslog="syslog.$hbd"																# remote system logs
 hagermanWireguardServers="pi4.$hd,pi3.$hd,pi2.$hd,pi1.$hd" 	# Wireguard VPN
 hagermanWireguardPort="51820"
