@@ -13,7 +13,7 @@ Return 1 if the clock is more than 1 second off of NTP time."
 }
 
 checkCommand() { 
-  ! InPath chronyc && return 1
+  ! InPath chronyc && return 0
   local skew="$(chronyc tracking | grep "^System time" | cut -d" " -f8)"
   [[ $verbose ]] && echo "skew=$skew"
   (( $(echo "$skew <= 1" | bc -l) ))
@@ -45,23 +45,25 @@ statusCommand()
     sudoc chronyc serverstats || return
   fi
 
-  if IsPlatform win; then
-    header "Windows"
-    {
-      echo "reference: $(net.exe time '\\time.butare.net' | cut -d" " -f7)"
-      echo "WSL: $(date +'%H:%M:%S:%N')"
-      echo "Windows:$(cmd.exe /c time < /dev/null | cut -d: -f2-)"    
-    } |& grep -vE "CMD|UNC|command|wsl|Enter" | RemoveEmptyLines
-  fi
+  ! IsPlatform win && return
 
-  return 0
+  header "Windows"
+
+  w32tm.exe /query /status /verbose || return
+
+  {
+    echo "reference: $(net.exe time '\\time.butare.net' | cut -d" " -f7)"
+    echo "WSL: $(date +'%H:%M:%S:%N')"
+    echo "Windows:$(cmd.exe /c time < /dev/null | cut -d: -f2-)"    
+  } |& grep -vE "CMD|UNC|command|wsl|Enter" | RemoveEmptyLines
 }
 
 fixCommand()
 {
-  IsPlatform win && elevate --window-style hidden w32tm.exe /resync
-  checkCommand && return
-  sudoc chronyc makestep > /dev/null
+  ! InPath chronyc && return
+  [[ ! $force ]] && checkCommand && return
+  IsPlatform win && RunQuiet RunScript --elevate w32tm.exe /resync
+  RunQuiet sudoc chronyc makestep
 }
 
 startCommand()
@@ -82,7 +84,7 @@ terminalCommand()
 # diff command
 #
 
-diffUsage() { EchoWrap "$1" "Usage: $(ScriptName) diff [HOST](time.apple.com)\nCompare system time against another host."; }
+diffUsage() { EchoWrap "$1" "Usage: $(ScriptName) diff [HOST](time.apple.com)\nCompare system time with the specified host."; }
 diffArgStart() { host="time.apple.com"; }
 diffArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
 diffCommand() { diff "$host"; }
@@ -101,7 +103,7 @@ diffInstalled() { IsPlatform mac || InPath ntpdate; }
 # sync command
 #
 
-syncUsage() { EchoWrap "$1" "Usage: $(ScriptName) diff [HOST](time.apple.com)\nSync system time against another host."; }
+syncUsage() { EchoWrap "$1" "Usage: $(ScriptName) sync [HOST](time.apple.com)\nSync system time against the specified host."; }
 syncArgStart() { host="time.apple.com"; }
 syncArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
 
