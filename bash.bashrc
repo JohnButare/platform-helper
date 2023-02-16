@@ -76,8 +76,8 @@ exit 0;'
 		esac
 
 		if [[ ! $chroot && ! $container ]]; then
-			if [[ "$platformKernel" == "wsl1" ]]; then platform="win" wsl=1
-			elif [[ "$platformKernel" == "wsl2" ]]; then platform="win" wsl=2
+			if [[ "$platformKernel" == "wsl1" ]]; then platformOs="win" wsl=1
+			elif [[ "$platformKernel" == "wsl2" ]]; then platformOs="win" wsl=2
 			elif [[ $ID_LIKE =~ .*openwrt ]]; then ID_LIKE="openwrt"
 			elif [[ $kernel =~ .*-rock ]]; then ID="rock"
 			elif [[ $kernel =~ .*-qnap ]]; then ID_LIKE="qnap"
