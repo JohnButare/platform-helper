@@ -2278,7 +2278,6 @@ isPlatformCheck()
 		wsl) [[ "$_platformOs" == "win" && "$_platformLike" == "debian" ]];; # Windows Subsystem for Linux
 		wsl1|wsl2) [[ "$p" == "wsl$_wsl" ]];;
 
-
 		# hardware
 		cm4) [[ -e /proc/cpuinfo ]] && grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo";;
 
