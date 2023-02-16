@@ -5,15 +5,17 @@
 # Script Arguments
 # 
 
-# ScriptArgGet VAR [DESC](VAR) [--] VALUE - get an argument.  Sets var to value and increments shift.
+# ScriptArgGet [--integer] [--required] VAR [DESC](VAR) [--] VALUE - get an argument.  Sets var to value and increments shift.
 ScriptArgGet()
 {
 	# arguments
 	local integer; [[ "$1" == "--integer" ]] && { integer="true"; shift; }
+	local required; [[ "$1" == "--required" ]] && { required="true"; shift; }
 	local scriptVar="$1"; shift
 	local scriptDesc="$scriptVar"; [[ "$1" != "--" ]] && { scriptDesc="$1"; shift; }
 	[[ "$1" == "--" ]] && shift
 	(( $# == 0 )) && MissingOperand "$scriptDesc"
+	[[ $required && ! $1 ]] && MissingOperand "$scriptDesc"
 
 	# check data type
 	[[ $integer ]] && ! IsInteger "$1" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
