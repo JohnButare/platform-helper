@@ -153,7 +153,7 @@ WIN_CODE="$code"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
 G="" # G=GNU program prefix (i.e. gls)
 
-# PLATFORM environment variables
+# PLATFORM_OS environment variables
 case "$PLATFORM_OS" in 
 	mac) USERS="/Users" P="/Applications" G="g" SRV="/opt" VOLUMES="/Volumes" UADATA="$HOME/Library/Application Support" 
 		# Homebrew

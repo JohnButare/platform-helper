@@ -2215,8 +2215,8 @@ PlatformSummary()
 }
 
 # GetPlatformVar VAR - return PLATFORM_VAR variable if defined, otherewise return VAR
-if IsBash; then GetPlatformVar() { local v="$1" pv="${PLATFORM^^}_$1"; [[ ${!pv} ]] && echo "${!pv}" || echo "${!v}"; }
-else GetPlatformVar() { local v="$1" pv="${(U)PLATFORM}_$1"; [[ ${(P)pv} ]] && echo "${(P)pv}" || echo "${(P)v}"; }
+if IsBash; then GetPlatformVar() { local v="$1" pv="${PLATFORM_OS^^}_$1"; [[ ${!pv} ]] && echo "${!pv}" || echo "${!v}"; }
+else GetPlatformVar() { local v="$1" pv="${(U)PLATFORM_OS}_$1"; [[ ${(P)pv} ]] && echo "${(P)pv}" || echo "${(P)v}"; }
 fi
 
 # IsPlatform  platform[,platform,...] [--host [HOST]] - return true if the host matches any of the listed characteristics
