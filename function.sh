@@ -2240,11 +2240,11 @@ IsPlatform()
 		shift
 	done
 
-	# set _platform variables
+	# set _platformOs variables
 	if [[ $useHost && $host ]]; then		
 		ScriptEval HostGetInfo "$host" || return
 	elif [[ ! $useHost ]]; then
-		local _platform="$PLATFORM_OS" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
+		local _platformOs="$PLATFORM_OS" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
 
 	# check if the host matches the specified platforms
@@ -2265,8 +2265,8 @@ isPlatformCheck()
 
 	case "$p" in 
 
-		# platform, platformLike, and platformId
-		win|mac|linux) [[ "$p" == "$_platform" ]];;
+		# platformOs, platformLike, and platformId
+		win|mac|linux) [[ "$p" == "$_platformOs" ]];;
 		debian|fedora|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]];;
 		dsm|qts|rhel|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]];;
 
@@ -2275,7 +2275,7 @@ isPlatformCheck()
 
 		# windows
 		win11) IsPlatform win && (( $(os build) >= 22000 ));;
-		wsl) [[ "$_platform" == "win" && "$_platformLike" == "debian" ]];; # Windows Subsystem for Linux
+		wsl) [[ "$_platformOs" == "win" && "$_platformLike" == "debian" ]];; # Windows Subsystem for Linux
 		wsl1|wsl2) [[ "$p" == "wsl$_wsl" ]];;
 
 
