@@ -7,12 +7,12 @@ set -a # export variables and functions to child processes
 #
 
 # GetPlatform [host](local) - get the platform for the specified host, sets:
-# platform=linux|mac|win
+# platformOs=linux|mac|win
 # platformLike=debian|openwrt|qnap|synology|ubiquiti
 # platformId=dsm|pi|pixel|qts|rock|srm|ubuntu
 # wsl=1|2 (Windows)
 # machine=aarch64|armv7l|mips|x86_64
-# test:  sf; time GetPlatform nas3 && echo "success: $platform-$platformLike-$platformId"
+# test:  sf; time GetPlatform nas3 && echo "success: $platformOs-$platformLike-$platformId"
 
 function GetPlatform() 
 {
@@ -34,7 +34,7 @@ function GetPlatform()
 
 	# /etc/os-release sets ID, ID_LIKE
 	local cmd='
-echo platform=$(uname);
+echo platformOs=$(uname);
 echo kernel=\"$(uname -r)\";
 echo machine=\"$(uname -m)\";
 [[ -f /etc/os-release ]] && cat /etc/os-release;
@@ -53,7 +53,7 @@ exit 0;'
 	fi
 
 	# don't let all of the variables defined in results leak out of this function	
-	unset chroot platform platformLike platformId platformKernel wsl
+	unset chroot platformOs platformLike platformId platformKernel wsl
 	results="$(
 		eval $results
 
@@ -64,10 +64,10 @@ exit 0;'
 		elif [[ "$ID" == "raspbian" || $kernel =~ .*-raspi$ ]]; then platformKernel="pi"
 		fi
 
-		case "$platform" in
-			Darwin)	platform="mac";;
-			Linux) platform="linux";;
-			MinGw*) platform="win"; ID_LIKE=mingw;;
+		case "$platformOs" in
+			Darwin)	platformOs="mac";;
+			Linux) platformOs="linux";;
+			MinGw*) platformOs="win"; ID_LIKE=mingw;;
 		esac
 
 		case "$container" in
@@ -94,9 +94,9 @@ exit 0;'
 		fi
 
 		echo chroot=\""$chroot"\"
-		echo platform="$platform"
-		echo platformLike="$ID_LIKE"
-		echo platformId="$ID"
+		echo platformOs="$platformOs"
+		echo platformLike="${ID_LIKE:-$platformOs}"
+		echo platformId="${ID:-$platformOs}"
 		echo platformKernel="$platformKernel"
 		echo machine="$machine"
 		echo wsl="$wsl"
@@ -108,9 +108,9 @@ exit 0;'
 
 CheckPlatform() # ensure PLATFORM, PLATFORM_LIKE, and PLATFORM_ID are set
 { 
-	[[ "$PLATFORM" && "$PLATFORM_LIKE" && "$PLATFORM_ID" ]] && return
+	[[ "$PLATFORM_OS" && "$PLATFORM_LIKE" && "$PLATFORM_ID" ]] && return
 	GetPlatform || return
-	export CHROOT="$chroot" PLATFORM="$platform" PLATFORM_ID="$platformId" PLATFORM_LIKE="$platformLike" PLATFORM_KERNEL="$platformKernel" MACHINE="$machine" WSL="$wsl"
+	export CHROOT="$chroot" PLATFORM_OS="$platformOs" PLATFORM_ID="$platformId" PLATFORM_LIKE="$platformLike" PLATFORM_KERNEL="$platformKernel" MACHINE="$machine" WSL="$wsl"
 	unset chroot platform platformId platformLike platformKernel wsl
 }
 
@@ -147,14 +147,14 @@ P="/opt" SRV="/srv" BIN="" DATA="" ADATA="" ACONFIG="" PUB="" USERS="/home" VOLU
 # USER=logged on user, SUDO_USER, HOME=home directory, DOC=user documents, UDATA=user data, UBIN=user programs
 # UDATA=user data, UADATA=user application data, CODE=source code WIN_CODE=windows source code
 USER="${USERNAME:-$USER}" DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
-DATA="/usr/local/data" ADATA="$DATA/appdata" ACONFIG="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM" PUB="${PUB:-$USERS/Shared}"
+DATA="/usr/local/data" ADATA="$DATA/appdata" ACONFIG="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM_OS" PUB="${PUB:-$USERS/Shared}"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
 WIN_CODE="$code"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
 G="" # G=GNU program prefix (i.e. gls)
 
 # PLATFORM environment variables
-case "$PLATFORM" in 
+case "$PLATFORM_OS" in 
 	mac) USERS="/Users" P="/Applications" G="g" SRV="/opt" VOLUMES="/Volumes" UADATA="$HOME/Library/Application Support" 
 		# Homebrew
 		unset -v HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY
@@ -201,7 +201,7 @@ fi
 InfoPathAdd "/usr/local/share/info"
 ManPathAdd "/usr/local/man" "/usr/local/share/man" "$DATA/man"
 
-case "$PLATFORM" in 
+case "$PLATFORM_OS" in 
 	mac) [[ $HOMEBREW_PREFIX ]] && PathAdd front "$HOMEBREW_PREFIX/bin" "$HOMEBREW_PREFIX/sbin";; # use Homebrew utilities before system utilities
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case

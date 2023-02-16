@@ -75,7 +75,7 @@ UpdateSet() { UpdateCheck && printf "$2" > "$updateDir/$1"; }
 
 clipok()
 { 
-	case "$PLATFORM" in 
+	case "$PLATFORM_OS" in 
 		linux) [[ "$DISPLAY" ]] && InPath xclip;;
 		mac) InPath pbcopy;; 
 		win) InPath clip.exe paste.exe;;
@@ -85,7 +85,7 @@ clipok()
 
 clipr() 
 { 
-	case "$PLATFORM" in
+	case "$PLATFORM_OS" in
 		linux) clipok && xclip -o -sel clip;;
 		mac) clipok && pbpaste;;
 		win) InPath paste.exe && { paste.exe | tail -n +2; return; }; powershell.exe -c Get-Clipboard;;
@@ -94,7 +94,7 @@ clipr()
 
 clipw() 
 { 
-	case "$PLATFORM" in 
+	case "$PLATFORM_OS" in 
 		linux) clipok && printf "%s" "$@" | xclip -sel clip;;
 		mac) clipok && printf "%s" "$@" | pbcopy;; 
 		win) InPath clip.exe && ( cd /; printf "%s" "$@" | clip.exe );; # cd / to fix WSL 2 error running from network share
@@ -224,7 +224,7 @@ FullName()
 { 
 	case "$USER" in jjbutare|ad_jjbutare) echo John; return;; esac; 
 	local s
-	case "$PLATFORM" in
+	case "$PLATFORM_OS" in
 		win) s="$(net user "$USER" |& grep -i "Full Name")"; s="${s:29}";;
 		mac)  s="$(dscl . -read /Users/$USER RealName | tail -n 1)"; s="${s:1}";;
 	esac
@@ -441,10 +441,10 @@ PowerShellVersion() { powershell --version | grep PSVersion | tr -s " " | cut -d
 PythonConf()
 {
 	! IsFunction PathAdd && { . $BIN/bash.bashrc || return; }
-	if [[ "$PLATFORM" != "mac" && -d "$HOME/.local/bin" ]]; then PathAdd "$HOME/.local/bin"
-	elif [[ "$PLATFORM" == "mac" && -d "$HOME/Library/Python/3.10/bin" ]]; then PathAdd front "$HOME/Library/Python/3.10/bin"
-	elif [[ "$PLATFORM" == "mac" && -d "$HOME/Library/Python/3.9/bin" ]]; then PathAdd front "$HOME/Library/Python/3.9/bin"
-	elif [[ "$PLATFORM" == "mac" && -d "$HOME/Library/Python/3.8/bin" ]]; then PathAdd front "$HOME/Library/Python/3.8/bin"
+	if [[ "$PLATFORM_OS" != "mac" && -d "$HOME/.local/bin" ]]; then PathAdd "$HOME/.local/bin"
+	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.10/bin" ]]; then PathAdd front "$HOME/Library/Python/3.10/bin"
+	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.9/bin" ]]; then PathAdd front "$HOME/Library/Python/3.9/bin"
+	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.8/bin" ]]; then PathAdd front "$HOME/Library/Python/3.8/bin"
 	fi
 }
 
@@ -839,7 +839,7 @@ InPathAny() { local f option; IsZsh && option="-p"; for f in "$@"; do which $opt
 IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff "$1" "$2" >& /dev/null; }
 IsPath() { [[ ! $(GetFileName "$1") ]]; }
 IsWindowsFile() { drive IsWin "$1"; }
-IsWindowsLink() { [[ "$PLATFORM" != "win" ]] && return 1; lnWin -s "$1" >& /dev/null; }
+IsWindowsLink() { ! IsPlatform win && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
 
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
@@ -873,7 +873,7 @@ explore() # explorer DIR - explorer DIR in GUI program
 	InPath nautilus && { start nautilus "$dir"; return; }
 	InPath mc && { mc; return; } # Midnight Commander
 
-	EchoErr "The $PLATFORM_ID platform does not have a file explorer"; return 1
+	EchoErr "The $(PlatformDescription) platform does not have a file explorer"; return 1
 }
 
 # File<Life|Right|Intersect> FILE1 FILE2 - return the lines only in the left file, right file, or not in either file
@@ -2205,7 +2205,7 @@ PackageWhich()
 # 
 
 IsPlatformAll() { IsPlatform --all "$@"; }
-PlatformDescription() { echo "$PLATFORM $PLATFORM_LIKE $PLATFORM_ID"; }
+PlatformDescription() { echo "$PLATFORM_OS$([[ "$PLATFORM_LIKE" != "$PLATFORM_OS" ]] && echo " $PLATFORM_LIKE")$([[ "$PLATFORM_ID" != "$PLATFORM_OS" ]] && echo " $PLATFORM_ID")"; }
 
 PlatformSummary()
 {
@@ -2244,7 +2244,7 @@ IsPlatform()
 	if [[ $useHost && $host ]]; then		
 		ScriptEval HostGetInfo "$host" || return
 	elif [[ ! $useHost ]]; then
-		local _platform="$PLATFORM" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
+		local _platform="$PLATFORM_OS" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
 
 	# check if the host matches the specified platforms
@@ -2332,9 +2332,9 @@ function GetPlatformFiles() # GetPlatformFiles FILE_PREFIX FILE_SUFFIX
 {
 	files=()
 
-	[[ -f "$1$PLATFORM$2" ]] && files+=("$1$PLATFORM$2")
-	[[ -f "$1$PLATFORM_LIKE$2" ]] && files+=("$1$PLATFORM_LIKE$2")
-	[[ -f "$1$PLATFORM_ID$2" ]] && files+=("$1$PLATFORM_ID$2")
+	[[ -f "$1$PLATFORM_OS$2" ]] && files+=("$1$PLATFORM_OS$2")
+	[[ "$PLATFORM_LIKE" != "$PLATFORM_OS" && -f "$1$PLATFORM_LIKE$2" ]] && files+=("$1$PLATFORM_LIKE$2")
+	[[ "$PLATFORM_ID" != "$PLATFORM_OS" && -f "$1$PLATFORM_ID$2" ]] && files+=("$1$PLATFORM_ID$2")
 
 	return 0
 }
@@ -2361,16 +2361,16 @@ function RunPlatform()
 		shift
 		[[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; }
 	else
-		local _platform="$PLATFORM" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
+		local _platformOs="$PLATFORM_OS" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
 
 	# run platform function
-	[[ $_platform ]] && { RunFunction $function $_platform "$@" || return; }
-	[[ $_platformLike ]] && { RunFunction $function $_platformLike "$@" || return; }
-	[[ $_platformId ]] && { RunFunction $function $_platformId "$@" || return; }
+	[[ $_platformOs ]] && { RunFunction $function $_platformOs "$@" || return; }
+	[[ $_platformLike && "$_platformLike" != "$platformOs" ]] && { RunFunction $function $_platformLike "$@" || return; }
+	[[ $_platformId && "$platformId" != "$platformOs" ]] && { RunFunction $function $_platformId "$@" || return; }
 
 	# run windows WSL functions
-	if [[ "$PLATFORM" == "win" ]]; then
+	if [[ "$PLATFORM_OS" == "win" ]]; then
 		IsPlatform wsl --host && { RunFunction $function wsl "$@" || return; }
 		IsPlatform wsl1 --host && { RunFunction $function wsl1 "$@" || return; }
 		IsPlatform wsl2 --host && { RunFunction $function wsl2 "$@" || return; }

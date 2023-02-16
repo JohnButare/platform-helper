@@ -363,7 +363,7 @@ hardwareCommand() ( uname -m; )
 
 isServerCommand()
 {
-	case "$PLATFORM" in
+	case "$PLATFORM_OS" in
 		linux) IsPlatform debian && [[ ! $XDG_CURRENT_DESKTOP ]];;
 		mac) return 1;;
 		win) registry get "$r/ProductName" | RemoveCarriageReturn | grep -q -i "server";;
