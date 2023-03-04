@@ -26,10 +26,9 @@ listCommand() { declare -f | grep --basic-regexp '.*Install () ' | cut -d" " -f1
 
 installUsage()
 {
-	echot "\
+	EchoWrap "\
 Usage: $(ScriptName) install [alternate|beta|compile|local|package|store] [OPTION]... [APP]...
-Install an application.   To run a portion of the installation, the application name can be suffixed with 
-download, final, help, profile, or register.  For example, 'inst SublimeProfile'.
+Install an application.  To run a portion of the installation, the application name can be suffixed with download, final, help, profile, or register.  For example, 'inst SublimeProfile'.
 
 	     --hint=DIR				first directory to search for installation files
 	-H,  --host=HOST			comma separated list of hosts for the installation
@@ -154,7 +153,6 @@ installInit()
 		[tftpc]="TftpClient"
 		[tftps]="TftpServer"
 		[ufw]="UncomplicatedFirewall"
-		[unif]="UnifiController"
 		[vmw]="VmwareWorkstation"
 		[vs]="VisualStudio"
 		[vsc]="VisualStudioCode"
@@ -262,7 +260,7 @@ installInit()
 	# network
 	debian+=(CloudInit keepalived mDNS mtr NetbootxyzDocker NetbootxyzTftpServer pivpn TftpClient TftpServer UncomplicatedFirewall)
 	mac+=(proxifier)
-	macDebian+=(JumpCloud MozillaVpn UnifiController)
+	macDebian+=(JumpCloud MozillaVpn unifi)
 	macWin+=(domotz WireGuard WireShark)
 	ubuntu+=(NicUsb)
 	win+=(GlassWire Ninite NordVpn Tribler)
@@ -1259,9 +1257,10 @@ AppHostSoftwareInstall()
 		# server
 		nas3) iStore Firefox HybridBackup MultimediaConsole NetbootxyzDocker Terminology;;
 		pi1|pi2|pi3|pi4) i $coreServer;;
-		pi5|pi8|pi9|pi10|pi11) i $coreServices;;
-		pi6) i $coreServices DomotzAgent UnifiController;;
+		pi5|pi10|pi11) i $coreServices;;
+		pi6) i $coreServices DomotzAgent;;
 		pi7) i PiWiFi PoolTemperature PoolController;; # pool pad
+		pi8|pi9) i $coreServices unifi;;
 	esac
 }
 
@@ -4494,7 +4493,7 @@ NvmFinalWin() { mergeDir "$pp/NVM For Windows" "$pp/Development/Other"; }
 # Network
 #################################################
 
-NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler GlassWire gping httpie JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn NetbootxyzDocker NetbootxyzTftpServer nginx NicUsb Ninite NordVpn pivpn Proxifier StaticIp TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall UnifiController WireGuard Wireshark; }
+NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler GlassWire gping httpie JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn NetbootxyzDocker NetbootxyzTftpServer nginx NicUsb Ninite NordVpn pivpn Proxifier StaticIp TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall unifi WireGuard Wireshark; }
 HttpieInstall() { run --python-global "httpie"; }
 MtrInstall() { run --package "mtr"; }
 TftpclientInstall() { run --name "TFTP Client" --package "tftp-hpa"; }
@@ -4942,58 +4941,61 @@ UncomplicatedFirewallInstall()
 	sudo ufw allow "$(SshHelper config get "$HOSTNAME" port)" || return
 }
 
-UnifiControllerInstall()
+UnifiInstall()
 {
-	header "UniFi Controller"
+	header "UniFi Network Application"
 
-	if [[ "$installType" == @(|local) ]]; then
-		unifiControllerLocal || return
+	if IsPlatform debian && ! IsPlatform 64 && [[ "$installType" == @(|package) ]]; then
+		unifiPackage || return
+	elif [[ "$installType" == @(|local) ]]; then
+		unifiLocal || return
 	else
-		unifiControllerPackage || return
+		couldNotLocate
 	fi
 
-	unifiControllerFinal || return
+	unifiFinal || return
 }
 
-UnifiControllerFinalWin() { mergeDir "$up/Ubiquiti UniFi" "$oo" && $rm "$ud/UnicatFi.lnk" && moveAppData "Ubiquiti UniFi" "Unifi Controller"; }
+UnifiFinalWin() { mergeDir "$up/Ubiquiti UniFi" "$oo" && $rm "$ud/UnicatFi.lnk" && moveAppData "Ubiquiti UniFi" "Unifi Controller"; }
 
-unifiControllerLocal()
+unifiLocal()
 {
 	# check for a package installation
 	if [[ -f "/etc/apt/sources.list.d/100-ubnt-unifi.list" ]]; then
-		ScriptErr "use 'inst package UnifiController' to update the UniFi Controller"
+		ScriptErr "use 'inst install package unifi' to update the UniFi Network Application"
 		return 1
 	fi
 	
+	IsPlatform debian && ! IsPlatform win && { pkg openjdk-11-jre-headless || return; }
 	run "hardware/Ubiquiti Networks/UniFi/controller/UniFi-installer.exe|UniFi.pkg|unifi_sysvinit_all.deb" || return # https://www.ui.com/download/unifi	
 }
 
-unifiControllerPackage()
+unifiPackage()
 {
-	# check for a manual installation
+	# check for a local installation
 	if [[ -d "/usr/lib/unifi" ]]; then
-		ScriptErr "use 'inst UnifiController' to update the UniFi Controller"
+		ScriptErr "use 'inst install local unifi' to update the UniFi Network Application"
 		return 1
 	fi
 
 	# add UniFi sources
+	local file="/etc/apt/sources.list.d/100-ubnt-unifi.list"
 	[[ ! $channel ]] && local channel="testing" # oldstable|stable|testing
-	if [[ ! -f "/etc/apt/sources.list.d/100-ubnt-unifi.list" ]]; then
-		echo "deb https://www.ui.com/downloads/unifi/debian $channel ubiquiti" | sudo ${G}tee "/etc/apt/sources.list.d/100-ubnt-unifi.list" || return
+	if [[ $force || ! -f "$file" ]]; then
+		echo "deb https://www.ui.com/downloads/unifi/debian $channel ubiquiti" | sudoc ${G}tee "$file" || return
 		sudo wget -O "/etc/apt/trusted.gpg.d/unifi-repo.gpg" "https://dl.ui.com/unifi/unifi-repo.gpg" || return
 		sudo apt-get update || return
+		sudo apt-mark hold openjdk-11-* || return
 	fi
 
 	# install packages
 	IsPlatform pi && { pkg haveged || return; } # fix Raspberry Pi slow startup (low hardware entropy)
 	pkg ca-certificates apt-transport-https || return
-	pkg openjdk-8-jre-headless ca-certificates-java java-common jsvc libcommons-daemon-java || return
-	pkg mongodb || return
 	pkg unifi || return
-	unifiControllerFinal || return
+	unifiFinal || return
 }
 
-unifiControllerFinal() { serviceAutoStart unifi && httpsShow 8443; }
+unifiFinal() { serviceAutoStart unifi && httpsShow 8443; }
 
 WireGuardInstall()
 {
