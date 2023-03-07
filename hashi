@@ -1077,23 +1077,29 @@ consulAclAgentCreate()
 	local host="$1"
 
 	# create default token for DNS requests
-	consulAclCreate "dns-requests" "$(cat <<-EOF
-		node_prefix "" {
-		  policy = "read"
-		}
-		service_prefix "" {
-		  policy = "read"
-		}
-		EOF
-	)" || return
+	if ! consulAclTokenExists "dns-requests"; then
+		consulAclCreate "dns-requests" "$(cat <<-EOF
+			node_prefix "" {
+			  policy = "read"
+			}
+			service_prefix "" {
+			  policy = "read"
+			}
+			EOF
+		)" || return
+	fi
 
 	# create the ACL policy for the host
-	consulAclCreate "agent-$host" "$(cat <<-EOF
-		node "$host" {
-		  policy = "write"
-		}		
-		EOF
-	)" || return
+	if ! consulAclTokenExists "agent-$host"; then
+		consulAclCreate "agent-$host" "$(cat <<-EOF
+			node "$host" {
+			  policy = "write"
+			}		
+			EOF
+		)" || return
+	fi
+
+	return 0
 }
 
 # consulAclAgentDeploy HOST - deploy ACL tokens to a host
@@ -1342,7 +1348,7 @@ consulServiceAddCommand()
 	local type; type="$(configFileValidate "$file")" || return
 
 	# create the service ACL
-	if ! consulAclPolicyExists "service-$id"; then
+	if ! consulAclTokenExists "service-$id"; then
 		consulAclCreate "service-$id" "$(cat <<-EOF
 			service "$id" {
 			  policy = "write"
@@ -1582,7 +1588,7 @@ installService()
 		log_level = "info"\n
 		EOF
 	)"
-	
+
 	# add clients and servers from hostArg if specified
 	if [[ $hostArg ]]; then
 		local host hosts; StringToArray "$hostArg" "," hosts
@@ -3978,7 +3984,7 @@ certs() { [[ $encrypt ]]; } # true if certificates are being used
 doHashi() { hashi "$@" $force $test "${configFileArg[@]}" "${configPrefixArg[@]}" "${otherArgs[@]}" "${globalArgs[@]}"; }
 isClient() { [[ "$type" == "client" ]]; }
 isServer() { [[ "$type" == "server" ]]; }
-sshAgentCheck() { [[ $sshAgentChecked ]] && return; SshAgentConf $verbose && sshAgentChecked="true"; }
+sshAgentCheck() { [[ $sshAgentChecked ]] && return; SshAgentConf --quiet "${globalArgs[@]}" && sshAgentChecked="true"; }
 sshRun() { sshAgentCheck && RunLog ssh "$@"; }
 sshRunInteractive() { sshAgentCheck && RunLog SshHelper "$1" --interactive --pseudo-terminal "${globalArgs[@]}" -- "${@:2}"; }
 protocol() { certs && echo "https" || echo "http"; }
