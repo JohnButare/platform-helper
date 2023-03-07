@@ -1877,8 +1877,7 @@ SshAgentConf()
 }
 
 # SshSudoc HOST COMMAND ARGS - run a command on host using sudoc.  
-# --x-forwaridng (GUI credentials) --pseudo-terminal (CLI credentials)  --hashi (Vault credentials)
-SshSudoc() { SshHelper connect --x-forwarding --pseudo-terminal --hashi --function "$1" -- sudoc "${@:2}"; }
+SshSudoc() { SshHelper connect --credentials --function "$1" -- sudoc "${@:2}"; }
 
 #
 # Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]

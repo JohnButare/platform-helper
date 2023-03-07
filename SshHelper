@@ -128,11 +128,11 @@ connectUsage()
 Connect to a HOST using SSH.
 
 	-a, --all									resolve host using all methods (DNS, MDNS)
-	-c, --commands CMDS				bash commands to run
 	-f, --function						define functions
 $hostUsage
-	-i, --interactive					start an interactive shell
-	-p, --password						supply password if needed
+	-i, --interactive					interactive shell, implies --function and --pseudo-terminal
+	-p, --password						specify a password
+	    --quote								quote arguments
 	-t, --pseudo-terminal			allocate a pseudo terminal
 	-x, --x-forwarding  			connect with X forwarding"
 }
@@ -141,23 +141,24 @@ connectUsageVerbose()
 {
 	ScriptUsageEcho "
 Other options:
-	-m, --mosh					connecting using mosh
-	-T, --trust					trust host identification ignoring possible security issues
-	-w, --wait					wait for SSH to become available
+	-c, --credentials			suport credential prompts on the remote host using the CLI, Vault, or an X Window
+	-m, --mosh						connecting using mosh
+	-T, --trust						trust host identification ignoring possible security issues
+	-w, --wait						wait for SSH to become available
 
 Multiple hosts:
-	-b, --brief					display a brief header by prefixing the command with the host name
-	-e, --errors				if a command returns an error track it, return the total number of errors
+	-b, --brief						display a brief header by prefixing the command with the host name
+	-e, --errors					if a command returns an error track it, return the total number of errors
 
 Environment options:
-	--borg							send BorgBackup environment variables
-	--credential				send credential environment variables
-	--hashi							send HashiCorp environment variables"
+	--borg								send BorgBackup environment variables
+	--credential-manager	send credential manager environment variables
+	--hashi								send HashiCorp environment variables"
 }
 
 connectArgStart()
 { 
-	unset -v all borg briefHeader commandsArg credential errors functions hashi interactive mosh password pseudoTerminal trust wait x; 
+	unset -v all borg briefHeader credentialManager errors functions hashi interactive mosh password pseudoTerminal quote trust wait x; 
 	unset hostArg hostOpt hosts; 
 }
 
@@ -169,8 +170,8 @@ connectOpt()
 		--all|-a) all="--resolve-all";;
 		--borg) borg="--borg";;
 		--brief|-b) briefHeader="--brief";;
-		--commands|-c) ScriptOptGet "commandsArg" "commands" "$@";;
-		--credential) credential="--credential";;
+		--credentials|-c) hashi="--hashi" pseudoTerminal="-t" x="--x-forwarding";;
+		--credential-manager) credentialManager="--credential-manager";;
 		--errors|-e) errors="--errors";;
 		--function|-f) functions="--functions";;
 		--hashi) hashi="--hashi";;
@@ -178,6 +179,7 @@ connectOpt()
 		--mosh|-m) mosh="--mosh";;
 		--password|--password=*|-p|-p*) ScriptOptGet "password" "$@";;
 		--pseudo-terminal|-t) pseudoTerminal="-t";;
+		--quote) quote="--quote";;
 		--trust|-T) trust="--trust";;
 		--wait|-w) wait="--wait";;
 		--x-forwarding|-x) x="--x-forwarding";;
@@ -242,23 +244,29 @@ connect()
 	# hashi causes spawn error with password spawn	
 	[[ $password ]] && unset hashi
 
-	# arguments
+	# arguments - use "$(ArrayShow otherArgs)" to preserve spaces
 	local args=() quietArg
 	[[ $borg ]] && args+=("-o" SendEnv="BORG_*")
-	[[ $credential ]] && ! IsPlatform mac && args+=("-o" SendEnv="CREDENTIAL_*") # don't send for mac as target likely uses a different credential manager.   This setting may prevent recursion but is it necessary?
-	[[ $credential && "$CREDENTIAL_MANAGER" == "vault" ]] && args+=("-o" SendEnv="VAULT_*")
+	[[ $credentialManager ]] && ! IsPlatform mac && args+=("-o" SendEnv="CREDENTIAL_*") # don't send for mac as target likely uses a different credential manager.   This setting may prevent recursion but is it necessary?
+	[[ $credentialManager && "$CREDENTIAL_MANAGER" == "vault" ]] && args+=("-o" SendEnv="VAULT_*")
 	[[ $hashi ]] && args+=("-o" SendEnv="CONSUL_* NOMAD_* VAULT_*")
 	[[ $user ]] && args+=("$user@$host") || args+=("$host")
 	[[ $port ]] && args+=(-p "$port")
 
-	if [[ $commandsArg ]]; then
-		args+=(-- bash $interactive -c "\"$commandsArg\"" "${otherArgs[@]}")
-	elif [[ $interactive && $otherArgs ]]; then
-		args+=(-- bash -i "${otherArgs[@]}")
-	elif [[ $functions ]]; then
-		args+=(". function.sh;" "${otherArgs[@]}")
-	else
-		args+=("${otherArgs[@]}")
+	if [[ $otherArgs ]]; then
+
+		if [[ $interactive ]]; then
+			args+=(-- BashRun) quote="--quote" pseudoTerminal="-t"			
+		elif [[ $functions ]]; then
+			args+=(-- ". function.sh;")
+		fi
+
+		if [[ $quote ]]; then
+			args+=("$(ArrayShow otherArgs)")
+		else
+			args+=("${otherArgs[@]}")
+		fi
+
 	fi
 
 	set -- "${args[@]}"
@@ -285,7 +293,7 @@ connect()
 		[[ ! $verbose ]] && command+=(-q)
 
 		# verbosity - don't allow if sending credentials, otherwise reduce verbosity by 1 to reduce noise
-		[[ ! $borg && ! $credential && ! $hashi ]] && (( verboseLevel > 1 )) && command+=(-$(StringRepeat v $((verboseLevel - 1))))
+		[[ ! $borg && ! $credentialManager && ! $hashi ]] && (( verboseLevel > 1 )) && command+=(-$(StringRepeat v $((verboseLevel - 1))))
 
 		# other
 		[[ $pseudoTerminal ]] && command+=($pseudoTerminal)

@@ -12,7 +12,7 @@ Programs installation.
 	list								list all applications"
 }
 
-init() { defaultCommand="install" hostname="$HOSTNAME"; }
+init() { defaultCommand="install" hostname="$HOSTNAME"; unset sshAgentChecked; }
 
 #
 # commands
@@ -370,7 +370,9 @@ serviceAutoStart() { service auto "$1" && service start "$1"; }
 serviceDemandStop() { service demand "$1" && service stop "$1"; }
 servicesDemandStop() { local s; for s in "$@"; do serviceDemandStop "$s" || return; done; }
 serviceDisableStop() { service disable "$1" && service stop "$1"; }
-sshRun() { SshAgentConf --quiet "${globalArgs[@]}" && RunLog ssh "$@"; }
+sshAgentCheck() { [[ $sshAgentChecked ]] && return; SshAgentConf --quiet "${globalArgs[@]}" && sshAgentChecked="true"; }
+sshRun() { sshAgentCheck && RunLog ssh "$@"; }
+sshRunInteractive() { sshAgentCheck && RunLog SshHelper "$1" --credentials "${globalArgs[@]}" -- "${@:2}"; }
 versionCheck() { local name="$1" version="$2"; [[ "$(AppVersion --quiet "$(echo "$name" | sed 's/ //g')")" == "$version" ]]; }
 waitForInstall() { [[ ! $ran ]] && return; local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
 waitForInstallWin() { ! IsPlatform win && return; waitForInstall "$1"; }
@@ -4133,7 +4135,7 @@ NomadServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerNomad; }
 VaultServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerVault; }
 
 hashiServerConsul() { local host="$1"; hashiServer "consul" "$host" && sshRun "$host" "inst ConsulDocker"; }
-hashiServerNomad() { local host="$1"; hashiServer "nomad" "$host" && sshRun "$host" "inst NomadServerTools"; }
+hashiServerNomad() { local host="$1"; hashiServer "nomad" "$host" && sshRunInteractive "$host" "inst NomadServerTools"; }
 hashiServerVault() { local host="$1"; hashiServer "vault" "$host"; }
 hashiServer() { local what="$1" host="$2"; header "${what^} Server ($host)"; RunLog hashi install service "$what" --host="$host" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 
@@ -7802,7 +7804,7 @@ DockerInstall()
 		
 		elif IsPlatform ubuntu && ! grep "download.docker.com" "/etc/apt/sources.list" >& /dev/null; then # https://docs.docker.com/engine/install/ubuntu/
 			package ca-certificates curl gnupg lsb-release || return
-			curl -fsSL "https://download.docker.com/linux/ubuntu/gpg" | sudo apt-key add - || return
+			curl -fsSL "https://download.docker.com/linux/ubuntu/gpg" | sudoc apt-key add - || return
 			sudo add-apt-repository "deb [arch=$(dpkg --print-architecture)] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" || return
 	  	sudo apt-get update || return
 		fi
