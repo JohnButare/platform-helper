@@ -449,6 +449,35 @@ findFile()
 	return 0
 }
 
+extractFiles()
+{
+	local dir="$1"
+	pushd "$dir" >& /dev/null || return
+
+	local file files; IFS=$'\n' ArrayMake files "$(fd --max-depth=1 '\.(bz2|gz|tar|tgz|zip)$')"
+	for file in "${files[@]}"; do
+
+		# rename .tar.gz files to tgz for easier handling
+		if [[ "$file" =~ (.tar.gz$) ]]; then
+			local fileNew="$(GetFileNameWithoutExtension "$file" | GetFileNameWithoutExtension).tgz"
+			mv "$file" "$fileNew" || return; file="$fileNew"
+		fi
+		
+		# extract
+		echo "Extracting $file..."		
+		case "$(GetFileExtension "$file")" in
+			gz) gunzip "$file" --to-stdout > "$(GetFileNameWithoutExtension "$file")" || return;;
+			tar) tar --file "$file" --extract --to-stdout > "$(GetFileNameWithoutExtension "$file")" || return;;
+			bz2|tar|tgz) tar --file "$file" --extract --auto-compress --to-stdout "$file" > "$(GetFileNameWithoutExtension "$file")" || return;;
+			zip) unzip -p "$file" \* -x '*.sig' > "$(GetFileNameWithoutExtension "$file")" || return;;
+		esac
+		rm -f "$file" || return
+	done
+
+	popd >& /dev/null
+	return 0
+}
+
 # getArch IA64 ARM64 ARM32
 getArch()
 {
@@ -830,29 +859,7 @@ runTypeExecutable()
 	findFile "$dir" || return; dir="$file"
 
 	# extract the executable from compressed files so we can analyze them
-	pushd "$dir" >& /dev/null || return
-
-	local file files; IFS=$'\n' ArrayMake files "$(fd --max-depth=1 '\.(bz2|gz|tar|tgz|zip)$')"
-	for file in "${files[@]}"; do
-
-		# rename .tar.gz files to tgz for easier handling
-		if [[ "$file" =~ (.tar.gz$) ]]; then
-			local fileNew="$(GetFileNameWithoutExtension "$file" | GetFileNameWithoutExtension).tgz"
-			mv "$file" "$fileNew" || return; file="$fileNew"
-		fi
-		
-		# extract
-		echo "Extracting $file..."		
-		case "$(GetFileExtension "$file")" in
-			gz) gunzip "$file" --to-stdout > "$(GetFileNameWithoutExtension "$file")" || return;;
-			tar) tar --file "$file" --extract --to-stdout > "$(GetFileNameWithoutExtension "$file")" || return;;
-			bz2|tar|tgz) tar --file "$file" --extract --auto-compress --to-stdout "$file" > "$(GetFileNameWithoutExtension "$file")" || return;;
-			zip) unzip -p "$file" \* -x '*.sig' > "$(GetFileNameWithoutExtension "$file")" || return;;
-		esac
-		rm -f "$file" || return
-	done
-
-	popd >& /dev/null
+	extractFiles "$dir" || return
 
 	# find the correct file for this machine
 	file="$(os executable find "$dir")"
@@ -4117,7 +4124,7 @@ SaltMinionInstall()
 HashiAll() { i HashiUpdate HashiOtherInstall HashiCliInstall HashiProgramInstall HashiServerInstall HashiServerUpdate; }
 HashiOtherAll() { i ConsulK8s ConsulTemplate ConsulTemplateService HashiUp sockaddr vagrant; }
 
-HashiUpdateInstall() { i HashiProgram && i HashiServerUpdate -H=pi3 && pause "Check status..." && i HashiServerUpdate; }
+HashiUpdateInstall() { i HashProgramDownload HashiProgram && i HashiServerUpdate -H=pi3 && pause "Check status..." && i HashiServerUpdate; }
 
 # Hashi CLI - install programs, certificates, and other setup necessary to run Hashi tools on the command line as clients
 HashiCliInstall() { i VaultCli ConsulCli NomadCli; }
@@ -4151,11 +4158,48 @@ VaultUpdateInstall() { inst VaultProgram && inst VaultServerUpdate; }
 
 # program install - install Hashi program only by decrompressing downloads in install directory and update the program locally
 HashiProgramInstall() { i ConsulProgram NomadProgram VaultProgram; }
-ConsulProgramInstall() { hashiProgram "consul"; } # https://www.consul.io/downloads.html
-NomadProgramInstall() { hashiProgram "nomad"; } 	# https://www.nomadproject.io/downloads
-VaultProgramInstall() { hashiProgram "vault"; } 	# https://www.vaultproject.io/downloads
+ConsulProgramInstall() { hashiProgram "consul"; }
+NomadProgramInstall() { hashiProgram "nomad"; }
+VaultProgramInstall() { hashiProgram "vault"; }
 
 hashiProgram() { run --header "${1^} Program" --executable --no-install-check "other/HashiCorp/$1"; }
+
+# program download
+HashiProgramDownload() { i ConsulProgramDownload NomadProgramDownload VaultProgramDownload; }
+ConsulProgramDownload() { hashiDownload "consul"; } # https://www.consul.io/downloads.html
+NomadProgramDownload() { hashiDownload "nomad"; }		# https://www.nomadproject.io/downloads
+VaultProgramDownload() { hashiDownload "vault"; }		# https://www.vaultproject.io/downloads
+
+hashiDownload()
+{
+	local program="$1"
+	header "${program^} Download"
+
+	# find the install ocation
+	findFile "other/HashiCorp/$program" || return; cd "$file" || return
+
+	# get latest version
+	local url="https://releases.hashicorp.com/$program"
+	local version; version="$(curl -s "$url" | grep "$program" | grep -v "+ent" | head -1 | cut -d">" -f2 | cut -d"<" -f1 | cut -d"_" -f2)"
+	[[ ! $version ]] && { ScriptErr "cannot get ${program^} version"; return 1; }
+
+	# download
+	local prefix="$url/$version/${program}_${version}"
+	local suffix suffixes=("darwin_amd64" "darwin_arm64" "linux_amd64" "linux_arm" "linux_arm64" "windows_amd64")
+
+	for suffix in "${suffixes[@]}"; do
+		local url="${prefix}_${suffix}.zip"
+		local file="$(GetFileNameWithoutExtension "$url")"
+		
+		if [[ $force || ! -f "$file" ]]; then
+			hilight "Downloading '$file'..."
+			curl -L "$url" --output "${file}.zip" || return
+			echo .
+		fi
+	done
+
+	extractFiles || return
+}
 
 # Hashi Server Update - extract new executables and install them on the specified servers
 HashiServerUpdateInstall() { ForAllHosts hashiServerUpdate all; }
