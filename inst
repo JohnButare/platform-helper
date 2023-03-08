@@ -4773,30 +4773,47 @@ KeepalivedInstall()
 	# install
 	run --package --no-header "keepalived" || return
 
-	# check configuration
+	# check if the configuration file exists
 	local file="/etc/keepalived/keepalived.conf"
 	[[ -f "$file" && ! $force ]] && return
 
-	# configure
-	keepalivedConfigure || return
+	# create the configure file
+	keepalivedConfigureCreate "$file" || return
 
 	# start service
 	service refresh || return
 	serviceAutoStart keepalived || return
 
-	# test	
-	WaitForAvailable "$vip" "" 10 || return
+	# test all vips
+	local file="/etc/keepalived/keepalived.conf"
+	local vip vips; ArrayMake vips "$(grep -A 1 "virtual_ipaddress" "$file" | grep -v "virtual_ipaddress" | grep -v '\-\-' | awk '{ print $1; }')"
+	for vip in "${vips[@]}"; do WaitForAvailable "$vip" "" 10 || return; done
+
+	# ensure service is running in case other keepalived servers are responding to the vips
+	service running keepalived
 }
 
-keepalivedConfigure()
-{
-	local file="/etc/keepalived/keepalived.conf"
-	
-	# configure - existing file for host
-	local confFile="$DATA/setup/keepalived_$HOSTNAME.conf"
-	[[ -f "$confFile" ]] && { sudo cp "$confFile" "$file"; return; }
+# keepalivedConfigureCreate - create the keepalived configuration file
+keepalivedConfigureCreate()
+{	
+	local file="$1"
 
-	# configure - build
+	# configure - use existing file for the host or build a new configuration file
+	local confFile="$DATA/setup/keepalived_$HOSTNAME.conf"
+	if [[ -f "$confFile" ]]; then
+		sudoc cp "$confFile" "$file" || return
+	else
+		keepalivedConfigureBuild "$file" || return
+	fi
+
+	# set configuration file permissions
+	sudoc chmod ugo-x "$file" && sudoc chmod go-w "$file"
+}
+
+# keepalivedConfigureBuild - build the keepalived configuration file
+keepalivedConfigureBuild()
+{
+	local file="$1"
 	local interface; interface="$(GetInterface)" || return
 	local priority="${HOSTNAME//[!0-9]/}"; ! IsNumeric "$priority" && { ScriptErr "unable to determine VIP priority from hostname"; return 1; }
 	local password; password="$(credential get --fallback keepalived password)" || { ScriptErr "unable to get the keepalived password"; return 1; }
