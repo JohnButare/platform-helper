@@ -1408,7 +1408,7 @@ GetIpAddress()
 }
 
 GetSubnetMask() { ifconfig "$(GetInterface)" | grep "netmask" | tr -s " " | cut -d" " -f 5; }
-GetSubnetNumber() { ip -4 -oneline -br address show "$(GetInterface)" | cut -d/ -f2; }
+GetSubnetNumber() { ip -4 -oneline -br address show "$(GetInterface)" | cut -d/ -f2 | RemoveSpaceTrim; }
 
 # GetPrimaryAdapterName - get the descriptive name of the primary network adapter used for communication
 GetPrimaryAdapterName()
