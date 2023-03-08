@@ -313,6 +313,10 @@ AppVersion() # AppVersion app - return the version of the specified application
 		defaults read "/Applications/$dir/Contents/Info.plist" CFBundleShortVersionString; return
 	fi
 
+	# check for helper script
+	local helper="$(UpperCaseFirst "$app")Helper"
+	InPath "$helper" && app="$helper"
+
 	# file
 	local version;
 	local file="$app"; InPath "$file" && file="$(FindInPath "$file")"	
@@ -325,7 +329,7 @@ AppVersion() # AppVersion app - return the version of the specified application
 	fi
 
 	# --version option, where the version number is the last word of the first line
-	version="$("$file" --version $quiet | head -1 | awk '{print $NF}')" || return
+	version="$("$file" --version $quiet | head -1 | awk '{print $NF}' | RemoveCarriageReturn)" || return
 	IsNumeric "$version" && echo "$version"
 }
 
