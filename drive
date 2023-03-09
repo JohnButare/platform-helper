@@ -10,18 +10,19 @@ Manipulate system drives.
 	DEVICE 	the drive device name to mount or a file in the mounted drive.
 				  Ex: sdb1, d (Windows), or all (all available drives)
 
-	IsMounted|mount|unmount|remount DEVICE
+	format|IsMounted|mount|unmount|remount|SetLabel DEVICE - perform an action on the device
+		format FS				format the device
 		IsMounted				if the specified device is mounted return the directory it is mounted to
-		mount						mount the specified device and return the directory it is mounted to
+		[re]mount				mount the specified device and return the directory it is mounted to
+		SetLabel LABEL 	set the label of the drive
+		unmount					unmount the specified device
 
-	device|fs|format|IsDrive|IsWin|label|resize|SetLabel|size|type DEVICE
+	device|fs|IsDrive|IsWin|label|resize|size|type DEVICE - get information about the device
 		device					get the device name of the specified mounted file
 		desc						get the description of the specified mounted file
-		format FS				format the device
 		IsWin						return true if the drive is mounted using Windows drvfs
 		fs							get the file system of the drive
 		root						get the root of the mounted file
-		SetLabel LABEL 	set the label of the drive
 		size						get the size of the drive
 		type						get the type of the drive (9p for Windows mounted drives)
 
@@ -108,7 +109,6 @@ mountCommand() { [[ $all ]] && { allMount; return; }; doMount && returnMountDir;
 unmountCommand() { [[ $all ]] && { allUnmount; return; }; doUnmount; }
 remountCommand() { [[ $all ]] && { allUnMount; allMount; return; }; doUnmount; doMount && returnMountDir; }
 
-descCommand() { echo "$device:$(RemoveFront "$deviceArg" "$(getMountDir)")"; }
 deviceCommand() { echo "$device"; }
 fsCommand() { getFs; }
 isDriveCommand() { :; }
@@ -116,6 +116,12 @@ isWinCommand() { IsPlatform win && [[ "$(typeCommand "$device")" == "9p" ]]; }
 labelCommand() { getLabel; }
 rootCommand() { getMountDir; }
 typeCommand() { getType; }
+
+descCommand()
+{	
+	local what="device"; isDriveLetter "$device" && what="drive"
+	echo "'$deviceArg' is mounted on $what $device"; 
+}
 
 detailCommand()
 {
@@ -307,7 +313,7 @@ winOfflineCommand() { diskpart "select disk $disk \n offline disk" | grep "DiskP
 
 isDriveLetter() { IsPlatform win && IsInArray "$1" driveLetters; }
 isLvm() { sudo lvdisplay -c | cut -d: -f1 | RemoveSpace | grep "^/dev/${device}$" >& /dev/null; }
-isMounted() { getMountDir >& /dev/null; }
+isMounted() { getMountDir > /dev/null; }
 log() { [[ $quiet ]] && return; printf "$@"; }
 platformUnmount() { sudoc umount "$mountDir"; }
 returnMountDir() { [[ $mountDir && ! $quiet ]] && echo "$mountDir"; [[ $mountDir ]]; }
@@ -584,9 +590,12 @@ getUnc()
 		tr -s " " | RemoveSpaceTrim | cut -d" " -f2- | BackToForwardSlash)"
 }
 
+# getMountDir - get the first mounted directory of DEVICE
 getMountDir()
 {
 	local dir
+
+	[[ $verbose ]] && ScriptErr "checking if $device is mounted"
 
 	if isDriveLetter "$device"; then
 		if IsPlatform wsl1; then			
@@ -596,7 +605,7 @@ getMountDir()
 		fi
 
 	elif InPath findmnt; then
-		dir="$(findmnt --noheadings --output=TARGET --source "/dev/$device")"
+		dir="$(findmnt --noheadings --output=TARGET --source "/dev/$device" | head -1)"
 
 	elif InPath df; then
 		dir="$(df -P "$file" | awk 'END{print $NF}')"
