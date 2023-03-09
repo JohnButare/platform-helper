@@ -82,20 +82,35 @@ getDeviceArg()
 	# get the device for the mounted file
 	device="$(getDevice "$file")" || return
 
-	# if the device (source) is drvfs, look in the mount OPTIONS for path=LETTER (Windows build 20221.1000)
+	# if the device (source) is drvfs (WSL 2), look in the mount OPTIONS for path=LETTER (Windows build 20221.1000)
 	if [[ "$device" == "drvfs" ]]; then
 		local options; IFS=';' ArrayMake options "$(findmnt --noheadings --output=OPTIONS --target "$file")"
 		device="$(ArrayDelimit options $'\n' | grep "^path=" | cut -d"=" -f2)"
 	fi
 
-	# change drive letters to a single lower case letter, i.e. C:\ -> c
-	[[ "$device" =~ ^[a-zA-Z]: ]] && { device="${device:0:1}"; device="${device,,}"; return; }
+	# drive letter
+	if IsPlatform win && [[ "$device" =~ ^[a-zA-Z]: ]]; then
+
+		# exclude network drives
+		if net.exe use | grep -q -i " .$device"; then
+			local shareName="$(net.exe use | grep -i " .$device" | tr -s " " | cut -d" " -f3 | BackToForwardSlash)"
+			ScriptErr "'${shareName:-$device}' is not a valid block device"
+			return 1
+		fi
+
+		# change to a single lower case letter, i.e. C:\ -> c
+		device="${device:0:1}"; device="${device,,}"
+		return
+	fi
 
 	# remove /dev from the device, i.e. /dev/sdb1 -> sdb1
 	[[ "$device" =~ ^/dev/ ]] && device="${device#/dev/}"
 
-	# ensure the device is a block device
-	[[ ! -b "/dev/$device" ]] && { [[ ! $quiet ]] && ScriptErr "$device is not a valid block device"; return 1; }
+	# WSL 1 file system - rootfs
+	[[ "$device" == "rootfs" ]] && return
+
+	# real device - ensure it is a block device
+	[[ ! -b "/dev/$device" ]] && { [[ ! $quiet ]] && ScriptErr "'$device' is not a valid block device"; return 1; }
 
 	return 0	
 }
@@ -551,8 +566,14 @@ getDevice()
 
 getFs()
 {
-	local fs="$(getType)"
-	[[ "$fs" == "9p" ]] && fs="$(RunScript --elevate fsutil.exe fsinfo volumeinfo ${device}: | grep "File System Name" | RemoveCarriageReturn | cut -d: -f 2 | RemoveSpace)"
+	local fs="$(getType)"	
+	
+	# mounted Windows drives
+	if [[ "$fs" == "9p" ]]; then
+		fs="$(cd /; RunScript --elevate fsutil.exe fsinfo volumeinfo ${device}: | grep "File System Name" | RemoveCarriageReturn | cut -d: -f 2 | RemoveSpace)"
+	fi
+
+	[[ $fs ]] && return 0
 	echo "$fs"
 }
 
@@ -621,6 +642,9 @@ getMountDir()
 
 getType()
 {
+	# WSL 1 rootfs has file system type of wslfs
+	[[ "$device" == "rootfs" ]] && { echo "wslfs"; return; }
+
 	# get the type if we have the mount directory
 	if [[ -d "$mountDir" ]]; then
 		InPath findmnt && { findmnt --noheadings --output=FSTYPE --target "$mountDir"; return; }
