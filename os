@@ -7,7 +7,7 @@ usage()
 Usage: os [COMMAND]... [OPTION]...
 Operating system commands
 
-	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release|version
+	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release
 	disk					[available|total](total)
 	environment|index|path|lock|preferences|store
 	executable		executable information

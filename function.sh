@@ -108,8 +108,8 @@ pipxg()
 {
 	if IsPlatform debian,mac,qnap; then
 		local dir
-		if IsPlatform debian; then dir="/root/.local/bin/"
-		elif IsPlatform qnap; then dir="/share/homes/admin/.local/bin/"
+		if IsPlatform qnap; then dir="/share/homes/admin/.local/bin/"
+		elif IsPlatform linux; then dir="/root/.local/bin/"
 		fi
 		local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="$HOMEBREW_PREFIX/opt/openssl@3/"
 		sudo PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "${dir}pipx" "$@"
@@ -1242,7 +1242,7 @@ DhcpRenew()
 		ipconfig.exe /renew "$adapter" || return
 		echo
 
-	elif IsPlatform debian && InPath dhclient; then
+	elif IsPlatform linux && InPath dhclient; then
 		sudoc dhclient -r || return
 		sudoc dhclient || return
 	fi
@@ -1981,7 +1981,7 @@ GetUrlPort()
 # Package Manager
 #
 
-HasPackageManger() { IsPlatform debian,entware,mac; }
+HasPackageManager() { [[ "$(PackageManager)" != "none" ]]; }
 PackageFileInfo() { dpkg -I "$1"; } # information about a DEB package
 PackageFileInstall() { sudo gdebi -n "$@"; } # install a DEB package with dependencies
 PackageFileVersion() { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -d: -f2; }
@@ -2167,7 +2167,7 @@ PackageSearch()
 # PackageSearchDetail PATTERN - search for a package showing installed and uninstalled matches
 PackageSearchDetail() 
 { 
-	if IsPlatform debian && InPath wajig && InPath apt-file; then wajig whichpkg "$@"
+	if IsPlatform apt && InPath wajig && InPath apt-file; then wajig whichpkg "$@"
 	elif IsPlatform entware; then opkg whatprovides "$@"
 	fi
 }
@@ -2175,7 +2175,7 @@ PackageSearchDetail()
 PackageListInstalled()
 {
 	local full; [[ "$1" == @(--full|-f) ]] && { full="true"; shift; }
-	if IsPlatform debian && InPath dpkg; then dpkg --get-selections "$@"
+	if IsPlatform apt && InPath dpkg; then dpkg --get-selections "$@"
 	elif IsPlatform mac && [[ $full ]]; then brew info --installed --json
 	elif IsPlatform mac && [[ ! $full ]]; then brew info --installed --json | jq -r '.[].name'
 	elif IsPlatform entware; then opkg list-installed
@@ -2187,7 +2187,7 @@ PackageListInstalled()
 PackageUpdate() 
 {
 	if IsPlatform nala; then sudo nala update && sudo nala upgrade -y
-	elif IsPlatform debian; then sudo apt update && sudo apt dist-upgrade -y
+	elif IsPlatform apt; then sudo apt update && sudo apt dist-upgrade -y
 	elif IsPlatform mac; then brew update && brew upgrade;
 	elif IsPlatform qnap; then sudo opkg update && sudo opkg upgade
 	fi
@@ -2199,7 +2199,7 @@ PackageWhich()
 	local file="$1"
 	[[ -f "$file" ]] && file="$(GetFullPath "$1")"
 	[[ ! -f "$file" ]] && InPath "$file" && file="$(FindInPath "$file")"
-	if IsPlatform debian; then dpkg -S "$file"
+	if IsPlatform apt; then dpkg -S "$file"
 	elif IsPlatform entware; then	opkg search "$file"
 	fi
 }
@@ -2271,8 +2271,11 @@ isPlatformCheck()
 
 		# platformOs, platformLike, and platformId
 		win|mac|linux) [[ "$p" == "$_platformOs" ]];;
-		debian|fedora|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]];;
+		fedora|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]];;
 		dsm|qts|rhel|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]];;
+		debian) [[ "$_platformId" == "debian" || "$_platformLike" == "debian" ]];;
+		debianbase) [[ "$_platform" == "debian" && "$_platformLike" == "" ]];;
+		debianlike) [[ "$_platformLike" == "debian" ]];;
 
 		# aliases
 		rh) IsPlatform rhel $hostArg;; # Red Hat

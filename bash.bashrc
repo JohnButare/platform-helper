@@ -88,11 +88,6 @@ exit 0;'
 
 		[[ "$ID" == "raspbian" ]] && ID="pi"
 
-		if [[ "$ID" == "debian" && ! $ID_LIKE ]]; then
-			ID="none" ID_LIKE="debian"
-			which raspi-config >& /dev/null && ID="pixel"
-		fi
-
 		echo chroot=\""$chroot"\"
 		echo platformOs="$platformOs"
 		echo platformLike="${ID_LIKE:-$platformOs}"
