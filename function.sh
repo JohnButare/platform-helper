@@ -742,14 +742,14 @@ RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveNewline()  { tr -d '\n'; }
 RemoveEmptyLines() { ${G}sed -r '/^\s*$/d'; }
 
-RemoveChar() { GetArgs2; echo "${1//${2:- }/}"; }
-RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }
-RemoveFront() { GetArgs2; echo "${1##*(${2:- })}"; }
+RemoveChar() { GetArgs2; echo "${1//${2:- }/}"; }		# RemoveChar STRING REMOVE
+RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }	# RemoveEnd STRING REMOVE 
+RemoveFront() { GetArgs2; echo "${1##*(${2:- })}"; } # RemoveFront STRING REMOVE 
 RemoveTrim() { GetArgs2; echo "$1" | RemoveFront "${2:- }" | RemoveEnd "${2:- }"; }
 
-RemoveAfter() { GetArgs2; echo "${1%%$2*}"; }
-RemoveBefore() { GetArgs2; echo "${1##*$2}"; }
-RemoveBeforeFirst() { GetArgs2; echo "${1#*$2}"; }
+RemoveAfter() { GetArgs2; echo "${1%%$2*}"; }				# RemoveAfter STRING REMOVE - remove first occerance of REMOVE and all text after it
+RemoveBefore() { GetArgs2; echo "${1##*$2}"; }			# RemoveBefore STRING REMOVE - remove last occerance of REMOVE and all text before it
+RemoveBeforeFirst() { GetArgs2; echo "${1#*$2}"; }	# RemoveBeforeFirst STRING REMOVE - remove first occerance of REMOVE and all text before it
 
 RemoveSpace() { GetArgs; RemoveChar "$1" " "; }
 RemoveSpaceEnd() { GetArgs; RemoveEnd "$1" " "; }
