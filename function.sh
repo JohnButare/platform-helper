@@ -121,7 +121,7 @@ pipxg()
 	if IsPlatform debian,mac,qnap; then
 		local dir
 		if IsPlatform qnap; then dir="/share/homes/admin/.local/bin/"
-		elif IsPlatform linux; then dir="/root/.local/bin/"
+		elif IsPlatform linux,win; then dir="/root/.local/bin/"
 		fi
 		local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="$HOMEBREW_PREFIX/opt/openssl@3/"
 		sudo PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "${dir}pipx" "$@"
