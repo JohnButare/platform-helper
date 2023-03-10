@@ -371,8 +371,7 @@ isServerCommand()
 }
 
 releaseCommand() { RunPlatform "release"; }
-releaseUbuntu() { lsb_release -rs; }
-
+releaseDebian() { lsb_release -rs; }
 
 #
 # info command
