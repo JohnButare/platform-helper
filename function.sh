@@ -48,7 +48,7 @@ IsStdErr() { [[ -t 2 ]];  } # 0 if STDERR refers to a terminal, i.e. "IsStdErr |
 IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
 
-urlencode()
+UrlEncode()
 {
 	GetArgs
 	echo "$1" | sed '
@@ -59,7 +59,19 @@ urlencode()
   '
 }
 
-urldecode() { GetArgs; : "${*//+/ }"; echo -e "${_//%/\\x}"; }
+UrlDecode()
+{
+	GetArgs
+	echo "$1" | sed '
+		s %2f / g
+		s %3a : g
+		s %24 \$ g
+		s/%20/ /g 
+  '
+}
+
+UrlDecodeAlt() { GetArgs; : "${*//+/ }"; echo -e "${_//%/\\x}"; }
+
 
 # update - manage update state in a temporary file location
 UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
