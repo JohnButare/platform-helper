@@ -247,7 +247,7 @@ nameCommand()
 nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
 {
 	[[ ! $name ]] && { read -p "Enter new operating system name (current $HOSTNAME): " name; }
-	[[ ! $name || "$name" == "$HOSTNAME" ]] && return 1
+	[[ ! $name || "$name" == "$HOSTNAME" ]] && return 1 # 1=name unchanged
 	RunPlatform setHostname && UpdateSet "hostname" "$name"
 }
 
