@@ -3272,6 +3272,9 @@ InitializeXServer()
 		fi
 	fi
 
+	# force GNOME applications to use X forwaring over SSH
+	[[ $SSH_CONNECTION ]] && export GDK_BACKEND=x11 
+
 	# add DISPLAY to the D-Bus activation environment
 	if IsSsh && InPath dbus-launch dbus-update-activation-environment; then
 		( # do not show job messages
