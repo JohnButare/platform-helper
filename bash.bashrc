@@ -33,14 +33,16 @@ function GetPlatform()
 	done
 
 	# /etc/os-release sets ID, ID_LIKE
+	unset ID ID_LIKE
 	local cmd='
 echo platformOs=$(uname);
 echo kernel=\"$(uname -r)\";
 echo machine=\"$(uname -m)\";
 [[ -f /etc/os-release ]] && cat /etc/os-release;
 [[ -f /etc/debian_chroot ]] && echo chroot=\"$(cat /etc/debian_chroot)\";
-[[ -f /usr/bin/ubntconf || -f /usr/bin/ubnt-ipcalc ]] && echo ubiquiti=true;
-[[ -f /proc/syno_platform ]] && echo synology=true;
+[[ -f /usr/bin/ubntconf || -f /usr/bin/ubnt-ipcalc ]] && echo ID_LIKE=ubiquiti;
+[[ -f /proc/syno_platform ]] && echo ID=dsm ID_LIKE=synology;
+[[ -d /etc/casaos ]] && echo ID=casaos ID_LIKE=debian;
 [[ -f /bin/busybox ]] && echo busybox=true;
 [[ -f /usr/bin/systemd-detect-virt ]] && echo container=\"$(systemd-detect-virt --container)\";
 exit 0;'
@@ -54,6 +56,7 @@ exit 0;'
 
 	# don't let all of the variables defined in results leak out of this function	
 	unset chroot platformOs platformLike platformId platformKernel wsl
+
 	results="$(
 		eval $results
 
@@ -81,8 +84,8 @@ exit 0;'
 			elif [[ $ID_LIKE =~ .*openwrt ]]; then ID_LIKE="openwrt"
 			elif [[ $kernel =~ .*-rock ]]; then ID="rock"
 			elif [[ $kernel =~ .*-qnap ]]; then ID_LIKE="qnap"
-			elif [[ $synology ]]; then ID_LIKE="synology" ID="dsm"; [[ $busybox ]] && ID="srm"
-			elif [[ $ubiquiti ]]; then ID_LIKE="ubiquiti"
+			elif [[ "$ID_LIKE" == "casaos" ]]; then ID="casaos" ID_LIKE="debian"
+			elif [[ $ubiquiti ]]; then ID_LIKE=""
 			fi
 		fi
 
@@ -90,7 +93,7 @@ exit 0;'
 
 		echo chroot=\""$chroot"\"
 		echo platformOs="$platformOs"
-		echo platformLike="${ID_LIKE:-$platformOs}"
+		echo platformLike="$ID_LIKE"
 		echo platformId="${ID:-$platformOs}"
 		echo platformKernel="$platformKernel"
 		echo machine="$machine"

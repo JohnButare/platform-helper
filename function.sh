@@ -291,7 +291,8 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 # Applications
 #
 
-AppVersion() # AppVersion app - return the version of the specified application
+# AppVersion app - return the version of the specified application
+AppVersion()
 {
 	# arguments
 	local app quiet 
@@ -2271,10 +2272,10 @@ isPlatformCheck()
 
 		# platformOs, platformLike, and platformId
 		win|mac|linux) [[ "$p" == "$_platformOs" ]];;
+		casaos|dsm|qts|rhel|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]];;
 		fedora|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]];;
-		dsm|qts|rhel|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]];;
 		debian) [[ "$_platformId" == "debian" || "$_platformLike" == "debian" ]];;
-		debianbase) [[ "$_platform" == "debian" && "$_platformLike" == "" ]];;
+		debianbase) [[ "$_platformId" == "debian" && "$_platformLike" == "" ]];;
 		debianlike) [[ "$_platformLike" == "debian" ]];;
 
 		# aliases
