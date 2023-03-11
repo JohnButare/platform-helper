@@ -2188,7 +2188,7 @@ PackageSearchDetail()
 PackageListInstalled()
 {
 	local full; [[ "$1" == @(--full|-f) ]] && { full="true"; shift; }
-	if IsPlatform apt && InPath dpkg; then dpkg --get-selections "$@"
+	if IsPlatform apt && InPath dpkg; then dpkg --get-selections "$@3"
 	elif IsPlatform mac && [[ $full ]]; then brew info --installed --json
 	elif IsPlatform mac && [[ ! $full ]]; then brew info --installed --json | jq -r '.[].name'
 	elif IsPlatform entware; then opkg list-installed
@@ -2199,10 +2199,21 @@ PackageListInstalled()
 # PackageUpdate - update packages
 PackageUpdate() 
 {
-	if IsPlatform nala; then sudo nala update && sudo nala upgrade -y
-	elif IsPlatform apt; then sudo apt update && sudo apt dist-upgrade -y
-	elif IsPlatform mac; then brew update && brew upgrade;
-	elif IsPlatform qnap; then sudo opkg update && sudo opkg upgade
+	if IsPlatform nala; then sudoc nala update
+	elif IsPlatform apt; then sudoc apt update
+	elif IsPlatform mac; then brew update
+	elif IsPlatform qnap; then sudoc opkg update
+	fi
+}
+
+# PackageUpgrade - update packages
+PackageUpgrade() 
+{
+	PackageUpdate || return
+	if IsPlatform nala; then sudo sudo nala upgrade -y
+	elif IsPlatform apt; then sudo apt dist-upgrade -y
+	elif IsPlatform mac; then brew upgrade;
+	elif IsPlatform qnap; then sudo opkg upgade
 	fi
 }
 
