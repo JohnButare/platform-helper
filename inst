@@ -229,7 +229,7 @@ installInit()
 
 	# Home Automation
 	debian+=(HomeAssistant HomeAssistantServer HomeAssistantIntegrations HomeAssistantNomad)
-	debian+=(homebridge HomebridgeFfmpeg HomebridgeRing HomebridgeWiggin)
+	debian+=(homebridge HomebridgeFfmpeg HomebridgeWiggin)
 	debian+=(mosquitto PoolController PoolDashPanel PoolTemperature)
 	mac+=(homie)
 	macDebian+=(HomeAssistantCli)
@@ -3713,7 +3713,7 @@ IntelFinalWin()
 
 HomeAutomationAllInstall() { i HomeAssistantAll HomebridgeAll HomeOtherAll homie; }
 HomeAssistantAllInstall() { i HomeAssistant HomeAssistantCli HomeAssistantNomad HomeAssistantServer; }
-HomebridgeAllInstall() { i homebridge HomebridgeFfmpeg HomebridgeRing HomebridgeWiggin; }
+HomebridgeAllInstall() { i homebridge HomebridgeFfmpeg HomebridgeWiggin; }
 HomeOtherAllInstall() { i mosquitto PoolController PoolDashPanel PoolTemperature; }
 
 # Home Assistant
@@ -3840,16 +3840,12 @@ haIntegrations()
 }
 
 # Homebridge
-
-HomebridgeRingInstall() { run --node homebridge-ring -- --unsafe-perm && i HomebridgeFfmpeg; }
-
 homebridgeCheck() { InPath homebridge && return 0; i --no-header homebridge || return; }
-
-HomebridgeInstall() { header "Homebridge" &&	homebridgeCore && RunPlatform homebridge; }
+HomebridgeInstall() { header "Homebridge" && homebridgeCore && homebridgeSsh; }
 
 homebridgeCore()
 {
-	InPath homebridge && [[ ! $force ]] && return
+	InPath hb-service && [[ ! $force ]] && return
 
 	if IsPlatform debian; then # https://github.com/homebridge/homebridge/wiki/Install-Homebridge-on-Debian-or-Ubuntu-Linux
 		curl -sSfL "https://repo.homebridge.io/KEY.gpg" | sudo gpg --dearmor | sudo tee "/usr/share/keyrings/homebridge.gpg"  > /dev/null
@@ -3861,52 +3857,28 @@ homebridgeCore()
 	fi
 }
 
-homebridgePi()
+# homebridgeSsh - enable passwordless ssh for the homebridge account - for scripts using ssh
+homebridgeSsh()
 {
-	if ! [[ -f /etc/systemd/system/homebridge.service ]]; then
-		sudo hb-service install --user homebridge || return
-	fi
+	local user="homebridge"
+	local dir="$USERS/$user/.ssh"
 
-	# Enable running homebridge from the command line for the current user
-	makeLink --symbolic "/var/lib/homebridge" "$HOME/.homebridge" || return
+	# return if already configured
+	[[ -d "$dir" && ! $force ]] && return
+	[[ ! -d "$dir" ]] && { sudo mkdir "$dir" || return; }
 
-	# Configuring Wake On Lan plugin
-	InPath setcap && { sudo setcap cap_net_raw+pe "$(FindInPath node)" || return; }
+	echo "Copying SSH files from the current user..."	
+	local src="$HOME/.ssh"
+	sudoc cp "$src/config" "$src/known_hosts" "$src/id_ed25519" "$src/id_rsa" "$dir" || return
+	sudo chown "$user" "$dir/config" "$dir/known_hosts" "$dir/id_ed25519" "$dir/id_rsa" || return
 
-	if ! grep -q "/usr/local/data/bin" "/etc/default/homebridge"; then
-		printf "\n"'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/data/bin"'"\n" | sudo ${G}tee -a "/etc/default/homebridge" || return
-	fi
+	echo "Removing passphrase from private key files..."	
+	local p="$(credential get ssh default --fallback)"; [[ ! $p ]] && read -s -p "Enter your ssh passphrase: " password; echo
+	sudo ssh-keygen -p -P "$p" -N '' -f "$dir/id_ed25519" || return
+	sudo ssh-keygen -p -P "$p" -N '' -f "$dir/id_rsa" || return
 
-	if ! credential exists homebridge password --fallback; then
-		password linux -u homebridge --save || return
-	fi
-
-	# Enable passwordless ssh for the homebridge account - for scripts using ssh
-	if [[ ! -d ~homebridge/.ssh ]]; then
-
-		sudo mkdir ~homebridge/.ssh || return
-
-		sudoc cp ~/.ssh/config ~/.ssh/known_hosts ~homebridge/.ssh || return
-		sudo chown homebridge ~homebridge/.ssh/config ~homebridge/.ssh/known_hosts || return
-
-		sudo cp ~/.ssh/id_ed25519 ~/.ssh/id_rsa ~homebridge/.ssh || return
-		sudo chown homebridge ~homebridge/.ssh/known_hosts ~homebridge/.ssh/id_ed25519 ~homebridge/.ssh/id_rsa || return
-
-		echo "Removing passphrase from private key files..."
-		local p="$(credential get ssh default --fallback)"; [[ ! $p ]] && read -s -p "Enter your ssh passphrase: " password; echo
-		sudo ssh-keygen -p -P "$p" -N '' -f ~homebridge/.ssh/id_ed25519 || return
-		sudo ssh-keygen -p -P "$p" -N '' -f ~homebridge/.ssh/id_rsa || return
-
-		echo "Testing passwordless ssh connection as homebridge..."
-		su - homebridge <<-EOF
-			$(credential get homebridge password --fallback)
-			ssh "$USER@$HOSTNAME" ls
-		EOF
-		[[ $? != 0 ]] && return 1
-
-	fi
-
-	return 0
+	echo "Testing SSH as $user user..."
+	echo "ssh $USER@$HOSTNAME ls" | sudoc hb-shell || return
 }
 
 HomebridgeFfmpegInstall()
@@ -3931,11 +3903,14 @@ HomebridgeWigginInstall()
 	homebridgeCheck || return
 
 	# install plugins	
-	local plugin plugins; plugins=(broadlink-rm-pro dyson-pure-cool http-temperature-sensor myq nest purpleair-sensor rachio-platform script2 vera weather-plus zp)
-	for plugin in "${plugins[@]}"; do run --node homebridge-$plugin || return; done
+	local plugin plugins; plugins=(broadlink-rm-pro dyson-pure-cool http-temperature-sensor meross nest rachio-platform script2 vera weather-plus)
+	for plugin in "${plugins[@]}"; do sudoc hb-service add "homebridge-$plugin" || return; done
 
-	# install Homebridge Ring plugin
-	i HomebridgeRing || return
+	# Configuring Wake On Lan plugin
+	InPath setcap && { sudo setcap cap_net_raw+pe "$(FindInPath node)" || return; }
+
+	# install ring
+	run --node homebridge-ring -- --unsafe-perm && i HomebridgeFfmpeg;
 }
 
 # Home Other
