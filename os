@@ -7,7 +7,7 @@ usage()
 Usage: os [COMMAND]... [OPTION]...
 Operating system commands
 
-	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release
+	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release|version
 	disk					[available|total](total)
 	environment|index|path|lock|preferences|store
 	executable		executable information
@@ -273,8 +273,6 @@ setHostnameMac()
 # Information Commands
 #
 
-codenameCommand() { ! InPath lsb_release && return 1; lsb_release -a |& grep "Codename:" | cut -f 2-; }
-
 architectureUsage() { echot "Usage: os architecture [MACHINE]\n	Show the architecture of the current machine or the specified machine."; }
 architectureArgStart() { unset -v machine; }
 architectureArgs() { (( $# == 0 )) && return; ScriptArgGet "machine" -- "$@"; }
@@ -346,7 +344,40 @@ bitsCommand() # 32 or 64
 }
 
 buildCommand() { RunPlatform "build"; } 
+buildMac() { system_profiler SPSoftwareDataType | grep "System Version" | cut -f 11 -d" " | sed 's/(//' | sed 's/)//'; }
+buildLinux() { versionCommand; }
 buildWin() { registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/CurrentBuild" | RemoveCarriageReturn; }
+
+codenameCommand() { RunPlatform "codeName"; }
+
+codeNameLinux() # buster|focal
+{
+	! InPath lsb_release && return; lsb_release -cs; 
+}
+
+codeNameMac()
+{
+	# https://www.macworld.com/article/672681/list-of-all-macos-versions-including-the-latest-macos.html
+	case "$(versionCommand)" in
+		10.15*) echo "Mojave";;
+		10.16*) echo "Catalina";;
+		11.*) echo "Big Sur";;
+		12.*) echo "Monterey";;
+		13.*) echo "Ventura";;
+		*) echo "unknown";;
+	esac
+}
+
+distributorCommand() { RunPlatform "distributor"; }
+distributorMac() { echo "Apple"; }
+distributorWin() { echo "Microsoft"; }
+
+distributorLinux() # CasaOS|Debian|Raspbian|Ubuntu
+{
+	IsPlatform CasaOs && { echo "CasaOS"; return; }
+	! InPath lsb_release && return
+	lsb_release -is
+}
 
 mhzCommand()
 {
@@ -372,6 +403,18 @@ isServerCommand()
 
 releaseCommand() { RunPlatform "release"; }
 releaseDebian() { lsb_release -rs; }
+
+versionCommand() { RunPlatform version; }
+versionMac() { system_profiler SPSoftwareDataType | grep "System Version" | cut -f 10 -d" "; }
+versionWin() { buildWin; }
+
+versionLinux()
+{
+	if IsPlatform ubuntu; then lsb_release -ds | cut -d" " -f2 # Ubuntu 20.04.5 LTS
+	elif [[ -f "/etc/debian_version" ]]; then cat "/etc/debian_version"
+	else lsb_release -rs
+	fi
+}
 
 #
 # info command
@@ -594,68 +637,77 @@ infoVm()
 }
 
 # infoDistribution
-infoDistribution() { infoDistributionLsb && RunPlatform "infoDistribution"; }
+infoDistribution() { RunPlatform "infoDistribution"; }
 
-infoDistributionLsb()
+infoDistributionLinux() # distributor version (CodeName)
 {
 	! InPath lsb_release && return
 
-	local distributor version codename
-	local release; release="$(lsb_release -a 2>&1)" || return
+	# primary
+	local suffix; IsPlatform CasaOs,pi && suffix="/Debian"
+	local primary="$(distributorLinux)$suffix $(versionLinux) ($(codeNameLinux))"
 
-	# Distributor - Debian|Raspbian|Ubuntu
-	distributor="$(infoEcho "$release" |& grep "Distributor ID:" | cut -f 2-)"
-	IsPlatform pi && distributor+="/Debian"
-
-	# Version - 10.4|20.04.1 LTS
-	version="$(infoEcho "$release" |& grep "Release:" | cut -f 2-)"
-	if IsPlatform ubuntu; then version="$(infoEcho "$release" |& grep "Description:" | cut -f 2- | sed 's/'$distributor' //')"
-	elif [[ -f /etc/debian_version ]]; then version="$(cat /etc/debian_version)"
+	# secondary
+	local secondary;
+	if IsPlatform DebianLike && ! IsPlatform CasaOs,pi; then
+		local version="$(cat "/etc/debian_version")"
+		local codeName="$(debianVersionToCodeName "$version")"
+		IsPlatform ubuntu && codeName="$version" version="$(debianCodeNameToVersion "$version")" 
+		secondary+="Debian $version ($codeName)"
 	fi
 
-	# Code Name - buster|focal
-	codename="$(infoEcho "$release" | grep "Codename:" | cut -f 2- )"
-
-	infoEcho "distribution: $distributor $version ($codename)"
+	# use primary and secondary distributions if they are distinct
+	local distribution="$primary"
+	[[ $secondary && "$primary" != "$secondary" ]] && distribution+=" / $secondary"
+	
+	infoEcho "distribution: $distribution"
 }
 
 infoDistributionMac()
 {
-	local version="$(system_profiler SPSoftwareDataType | grep "System Version" | cut -f 10 -d" ")"
-	local build="$(system_profiler SPSoftwareDataType | grep "System Version" | cut -f 11 -d" " | sed 's/(//' | sed 's/)//' )"
-	local codeName
-
-	# https://www.macworld.com/article/672681/list-of-all-macos-versions-including-the-latest-macos.html
-	case "$version" in
-		10.15*) codeName="Mojave";;
-		10.16*) codeName="Catalina";;
-		11.*) codeName="Big Sur";;
-		12.*) codeName="Monterey";;
-		13.*) codeName="Ventura";;
-		*) codeName="unknown";;
-	esac
-
-	infoEcho "distribution: MacOS $version ($codeName build $build)"
+	infoEcho "distribution: macOS $(versionCommand) ($(codenameCommand), build $(buildCommand))"
 }
 
 infoDistributionWin()
 {	
-	local r="HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion"
-	local releaseId="$(registry get "$r/ReleaseID" | RemoveCarriageReturn)"
-	local product="$(registry get "$r/ProductName" | RemoveCarriageReturn)"
-	local ubr="$(HexToDecimal "$(registry get "$r/UBR" | RemoveCarriageReturn)")"
 	local build="$(buildCommand)"
-
-	local wslVersion="$(wsl get version)"
-	local wslgVersion="$(wsl get version wslg)"
-	local wslExtra; [[ $wslVersion ]] && wslExtra+=" v$wslVersion WSLg v$wslgVersion"
-
-	infoEcho "     windows: $releaseId ($product, build $build.$ubr, WSL$wslExtra $(wsl get name))"
+	local ubr="$(HexToDecimal "$(registry get "$r/UBR" | RemoveCarriageReturn)")" # UBR (Update Build Revision)
+	local version="11"; (( $(os build) < 22000 )) && version="10" # 10|11
+	infoDistributionLinux && infoEcho "              Windows $version (build $build.$ubr, wsl $(wsl get version), wslg $(wsl get version wslg))"
 }
 
 #
 # helper
 #
+
+debianCodeNameToVersion()
+{
+	# https://en.wikipedia.org/wiki/Debian_version_history 
+	case "$(echo "$1" | cut -d"/" -f1)" in # remove /sid, sid=rolling release
+		jessie) echo "8";;
+		stretch) echo "9";;
+		buster) echo "10";;
+		bullseye) echo "11";;
+		bookworm) echo "12";;
+		trixie) echo "13";;
+		forky) echo "14";;
+		*) echo "unknown";;
+	esac
+}
+
+debianVersionToCodeName()
+{
+	# https://en.wikipedia.org/wiki/Debian_version_history
+	case "$(echo "$1" | cut -d"." -f1)" in
+		8) echo "jessie";;
+		9) echo "stretch";;
+		10) echo "buster";;
+		11) echo "bullseye";;
+		12) echo "bookworm";;
+		13) echo "trixie";;
+		14) echo "forky";;
+	esac
+}
 
 systemProperties()
 {

@@ -94,7 +94,7 @@ exit 0;'
 		echo chroot=\""$chroot"\"
 		echo platformOs="$platformOs"
 		echo platformLike="$ID_LIKE"
-		echo platformId="${ID:-$platformOs}"
+		echo platformId="$ID"
 		echo platformKernel="$platformKernel"
 		echo machine="$machine"
 		echo wsl="$wsl"
