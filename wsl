@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-usage: wsl disk|dist|get|help|install|list|set|shutdown|supports|update
+usage: wsl disk|dist|get|help|install|list|set|shutdown|supports|update|wslg
 Windows Subsystem for Linux (WSL) commands."
 }
 
@@ -12,6 +12,7 @@ init()
 { 
 	[[ ! -d "$DATA/appdataw/" ]] && { inst AppDir || return; }
 	wslDir="$DATA/appdataw/wsl"; [[ ! -d "$wslDir/image" ]] && { mkdir --parents "$wslDir/image" || return; }
+	wslConfig="$WIN_HOME/.wslconfig"
 	wslgConfig="$WIN_ROOT/ProgramData/Microsoft/WSL/.wslgconfig"
 	shortcutDir="$PROGRAMDATA/Microsoft/Windows/Start Menu/Programs/Operating System/Other/WSL/"
 }
@@ -25,13 +26,6 @@ shutdownCommand() { sync; wsl.exe --shutdown; } # sync prevents file corruption,
 downCommand() { shutdownCommand; }
 offCommand() { shutdownCommand; }
 terminateCommand() { shutdownCommand; }
-
-updateCommand()
-{
-	! supports "update" && return
-	! IsElevated && { RunScript $verbose --elevate -- wsl update "${globalArgs[@]}"; return; }
-	w --update
-}
 
 #
 # Disk Command
@@ -323,24 +317,15 @@ setFractionalscalingCommand() { usage; }
 setFractionalscalingOnCommand()
 {
 	! IsElevated && { RunScript $verbose --elevate -- wsl set FractionalScaling on; return; }
-	initWslgConfig || return
+	configInitWslg || return
 	sed -i "s/^WESTON_RDP_DISABLE_FRACTIONAL_HI_DPI_SCALING=true$/WESTON_RDP_DISABLE_FRACTIONAL_HI_DPI_SCALING=false/" "$wslgConfig" || return
 }
 
 setFractionalscalingOffCommand()
 {
 	! IsElevated && { RunScript $verbose --elevate -- wsl set FractionalScaling off; return; }
-	initWslgConfig || return
+	configInitWslg || return
 	sed -i "s/^WESTON_RDP_DISABLE_FRACTIONAL_HI_DPI_SCALING=false$/WESTON_RDP_DISABLE_FRACTIONAL_HI_DPI_SCALING=true/" "$wslgConfig" || return
-}
-
-initWslgConfig()
-{
-	[[ -f "$wslgConfig" ]] && return
-	cat <<-EOF > "$wslgConfig" || return
-		[system-distro-env]
-		WESTON_RDP_DISABLE_FRACTIONAL_HI_DPI_SCALING=true
-	EOF
 }
 
 #
@@ -403,6 +388,26 @@ supportsUpdate() { supports "update" && return; supportsError "update is not imp
 supportsX() { (( $(os build) > 21362 )) && return; supportsError "X is not implemented in this version of WSL"; return 1; }
 
 #
+# Update Command
+#
+
+updateCommand()
+{
+	! supports "update" && return
+	! IsElevated && { RunScript $verbose --elevate -- wsl update "${globalArgs[@]}"; return; }
+	w --update
+}
+
+#
+# WSLg Command
+#
+
+wslgHelp() { echot "Usage: $(ScriptName) wslg disable|enable"; }
+wslgCommand() { usage; }
+wslgEnableCommand() { configInitWsl && sed -i "s/^guiApplications=false$/guiApplications=true/" "$wslConfig"; }
+wslgDisableCommand() { configInitWsl && sed -i "s/^guiApplications=true$/guiApplications=false/" "$wslConfig"; }
+
+#
 # helper
 #
 
@@ -413,6 +418,24 @@ distImageDir() { FindInstallFile "platform/linux/wsl/image"; }
 distIsRunning() { [[ "$(list | grep "^$dist" | awk '{ print $2; }')" == "Running" ]]; }
 distValidate() { distExists && return; [[ ! $quiet ]] && EchoErr "Distribution '$dist' does not exist"; return 1; }
 distVersion() { list | grep "^$dist" | awk '{ print $3; }'; }
+
+configInitWsl()
+{
+	[[ -f "$wslConfig" ]] && return	
+	cat <<-EOF > "$wslConfig" || return
+		[wsl2] 
+		guiApplications=false	
+	EOF
+}
+
+configInitWslg()
+{
+	[[ -f "$wslgConfig" ]] && return
+	cat <<-EOF > "$wslgConfig" || return
+		[system-distro-env]
+		WESTON_RDP_DISABLE_FRACTIONAL_HI_DPI_SCALING=true
+	EOF
+}
 
 distArgGetDefault()
 { 
