@@ -438,6 +438,7 @@ powershell()
 { 
 	# return version
 	[[ "$1" == @(--version|-v) ]] && { powershell -Command '$PSVersionTable'; return; }
+	[[ "$1" == @(--version-short|-vs) ]] && { powershell --version | grep PSVersion | tr -s " " | cut -d" " -f2; return; }
 	
 	# find powershell in a specific location
 	local f files=( "$P/PowerShell/7/pwsh.exe" "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" )
@@ -451,8 +452,6 @@ powershell()
 	# could not find
 	EchoErr "powershell: could not find powershell"; return 1;
 }
-
-PowerShellVersion() { powershell --version | grep PSVersion | tr -s " " | cut -d" " -f2; }
 
 # PythonConf - add Python bin directory if present
 PythonConf()
@@ -2714,7 +2713,7 @@ ProcessList()
 		elif InPath wmic.exe; then
 			wmic.exe process get Name,ExecutablePath,ProcessID /format:csv | RemoveCarriageReturn | tail +3 | awk -F"," '{ print $4 "," ($2 == "" ? $3 : $2) }'
 		else
-			powershell --command 'Get-Process | select Name,Path,ID | ConvertTo-Csv' | RemoveCarriageReturn | awk -F"," '{ print $3 "," ($2 == "" ? $1 ".exe" : $2) }' | RemoveQuotes
+			powershell.exe --command 'Get-Process | select Name,Path,ID | ConvertTo-Csv' | RemoveCarriageReturn | awk -F"," '{ print $3 "," ($2 == "" ? $1 ".exe" : $2) }' | RemoveQuotes
 		fi
 	fi
 }
