@@ -165,7 +165,7 @@ RunFunctionLog()
 	return "$return"
 }
 
-# RunLog LEVEL COMMAND - log and run a command if the logging verbosist level is at least at the specified leave
+# RunLog LEVEL COMMAND - run a command if not testing, log it if the logging verbosisty level is at least at the specified leave
 RunLogLevel()
 {
 	local level="$1"; shift
