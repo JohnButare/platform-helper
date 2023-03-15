@@ -752,7 +752,7 @@ ResetIfs() { IFS=$' \t\n\0'; }
 
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveNewline()  { tr -d '\n'; }
-RemoveEmptyLines() { ${G}sed -r '/^\s*$/d'; }
+RemoveEmptyLines() { awk 'NF { print; }'; }
 
 RemoveChar() { GetArgs2; echo "${1//${2:- }/}"; }		# RemoveChar STRING REMOVE
 RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }	# RemoveEnd STRING REMOVE 
@@ -1227,6 +1227,7 @@ NetworkCurrent() { UpdateGet "network"; };
 NetworkDomain() { UpdateGet "network_domain"; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
+WifiNetworks() {  sf; sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuotes | RemoveEmptyLines | sort | uniq; }
 
 CacheDefaultGateway()
 {
