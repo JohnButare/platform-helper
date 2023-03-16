@@ -439,7 +439,7 @@ Items (basic): ${infoBasic[@]}
 
 Examples:
 os info -w=disk_free pi11,pi2		# free disk space for specified hosts
-os info -w=disk_free all			# free disk space for all hosts"
+os info -w=disk_free all				# free disk space for all hosts"
 }
 
 infoArgStart() 
