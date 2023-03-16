@@ -230,7 +230,7 @@ mountCommand()
 	log1 "connection will use $protocol"
 
 	# remove an existing share in the mountRoot
-	unmount || return
+	unmount "$mountRoot" "$isLocal" || return
 
 	# create the mount directory
 	if [[ ! -d "$mountRoot" ]]; then
@@ -336,7 +336,7 @@ unmountArgs()
 
 unmountCommand()
 {
-	[[ "$unc" != "all" ]] && { unmount; return; }
+	[[ "$unc" != "all" ]] && { unmount "$mountRoot" "$isLocal"; return; }
 
 	# mac
 	[[ $force ]] && IsPlatform mac && { sudoc umount "$volumeDir/"*; rmdir "$volumeDir/"*; }
@@ -346,11 +346,12 @@ unmountCommand()
 	[[ ! $dirs ]] && return
 
 	# unmount
-	local fail=0 message
+	local fail=0 message isLocal # we found all mounted shares, so none of them are local
 	log "unmounting..."
 	for mountRoot in "${dirs[@]}"; do
+
 		log "$(GetFileName "$mountRoot")..."; [[ $verbose ]] && echo
-		message="$(unmount 2>&1)" || { (( ++fail )); echo; EchoErr "$message"; }
+		message="$(unmount "$mountRoot" "$isLocal" 2>&1)" || { (( ++fail )); echo; EchoErr "$message"; }
 	done
 	log "done\n"
 	
@@ -366,17 +367,17 @@ unmountCommand()
 # - getTargetArg sets: target unc 
 # - getUncInfo sets: unc user server share dirs mountRoot mountDir
 
-# unmount - unmount a share and remove the mount directory
+# unmount mountRoot isLocal - unmount a share and remove the mount directory
 #   The mounted directory may be in an invalid state, and normal file operations on it will fail.
-#   To test an invalid state, mount an SSHFS share, logout and reconnect.  ls "$mountRoot" will error with:
+#   To test with a share in an invalid state, mount an SSHFS share, logout and reconnect.  ls "$mountRoot" will error with:
 #   "ls: cannot access rosie.hagerman.butare.net_root: Input/output error"
 unmount()
 {
-	local dir="$mountRoot"
+	local dir="$1" isLocal="$2"
 	local output="/dev/null"; [[ $verbose ]] && output="/dev/stderr"
 
 	# cannot unmount local directories
-	isUncLocal "$unc" && return
+	[[ $isLocal ]] && return
 
 	# return if the mount directory does not exist or is empty
 	mountDirCleanup "$dir" >& "$output" && return
@@ -518,7 +519,7 @@ isWslshare() { [[ "$server" == @(wsl|wsl.localhost) ]]; }
 validateUnc() { IsUncPath "$1" && return; [[ ! $quiet ]] && ScriptErr "'$1' is not a UNC"; ScriptExit; }
 
 # checkElevation - check if the mountRoot directory requires elevation
-# - in WSL 2 mounted network shares are not visible when  not elevated, so
+# - in WSL 2 mounted network shares are not visible when not elevated, so
 #   must mount them to a distinct location
 checkElevation()
 {
@@ -553,8 +554,8 @@ getDir()
 	local unc="$1"; validateUnc "$unc"
 	local dirs="$(GetUncDirs "$unc")"
 
-	# unc is local to this system
-	isUncLocal "$unc" && { echo "/$dirs"; return; }
+	# return a local path to this system if possible
+	[[ $isLocal && "$share" == @(root) ]] &&  { echo "/$dirs"; return; }
 
 	# WSL shares
 	if isWslshare; then
@@ -702,7 +703,8 @@ getUncRoot()
 }
 
 # getUncInfo UNC - UNC format is //[USER@]SERVER/SHARE[/DIRS]
-# sets variables: unc user server share dirs mountRoot mountDir
+# sets variables: isLocal unc user server share dirs mountRoot mountDir
+# - isLocal: set if the UNC refers to a local share
 # - unc user server share dirs (parsed from UNC)
 # - mountRoot: the root directory for the mounted volume, i.e. ~/Volumes/$server_$share
 #   In Windows shares created when elevated will end in _elevated.
@@ -720,7 +722,7 @@ getUncInfo()
 	# force use of the IP if the host requires an alternate DNS server
 	[[ $(DnsAlternate "$server") ]] && ip="--ip"
 
-	# resolve DNS alias to a unique hostname or IP.  For example backup.butare.net->pi3.hagerman.butare.net
+	# use an IP address, or resolve a DNS alias to a unique hostname or IP.  For example backup.butare.net->pi3.hagerman.butare.net
 	# this ensures we can mount the same share under a different alias
 	if [[ $ip ]]; then
 		server="$(GetIpAddress "$server")" || return
@@ -728,9 +730,12 @@ getUncInfo()
 		server="$(GetOsName "$server")" || return
 	fi
 
+	# determine if the UNC refers to a share on this host
+	isLocal=""; IsLocalHost "$server" && isLocal="true"
+
 	# mountRoot - the root directory for the mounted volume without problematic directory characters
 	mountRoot="$(echo "$volumeDir/${server}_${share}" | RemoveChar '$')"
-	
+
 	# determine if using elevation
 	checkElevation || return
 
@@ -789,14 +794,6 @@ isMountedCheck()
 	logMounted "$result" "$unc"
 	(( $result == 0 )) && [[ ! $quiet ]] && echo "$dir"
 	(( $result == 0 ))
-}
-
-# isUncLocal UNC - the UNC specifies a location and this machine, and we can determine the full path to the directory (the share is root)
-isUncLocal()
-{
-	local unc="$1"
-	! IsUncPath "$1" && return 1
-	IsLocalHost "$(GetUncServer "$unc")" && [[ "$(GetUncShare "$unc")" == "root" ]]
 }
 
 logMounted()
