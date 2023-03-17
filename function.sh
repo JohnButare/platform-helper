@@ -1307,6 +1307,45 @@ GetAdapterIpAddress()
 	fi
 }
 
+# GetMacAddress [ADAPTER](primary) - get the MAC address of the specified network adapter
+GetAdapterMacAddress()
+{
+	local adapter wsl; 
+
+	# options
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-w|--wsl) wsl="--wsl";;
+			*)
+				if ! IsOption "$1" && [[ ! $adapter ]]; then adapter="$1"
+				else UnknownOption "$1" "GetAdapterMacAddress"; return
+				fi
+		esac
+		shift
+	done
+
+	# for Windows determine if we want the MAC address of a Windows or WSL adapter
+	local isWin; IsPlatform win && [[ ! $wsl ]] && isWin="true"
+
+	# get the primary adapter name
+	if [[ ! $adapter ]]; then
+		if [[ $isWin ]]; then
+			adapter="$(GetPrimaryAdapterName)" || return
+		else
+			adapter="$(GetInterface)" || return
+		fi
+	fi
+
+	# get the MAC address of the specified adapter
+	if [[ $isWin ]]; then
+		ipconfig.exe /all | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | \
+			grep "^[ ]*Physical Address" | head -1 | cut -d: -f2 | RemoveSpace | LowerCase | sed 's/-/:/g'
+	else
+		ifconfig "$adapter" | grep "^[ ]*ether " | RemoveSpaceFront | cut -d" " -f2
+	fi
+}	
+
+
 # GetBroadcastAddress - get the broadcast address for the first network adapter
 GetBroadcastAddress()
 {
@@ -1330,6 +1369,7 @@ GetEthernetAdapters()
 	fi
 }
 
+# GetEthernetAdapterInfo - get information about all ethernet adapters
 GetEthernetAdapterInfo()
 {
 	local adapter adapters dns ip; adapters=( $(GetEthernetAdapters | sort) ) || return
