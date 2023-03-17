@@ -2228,7 +2228,7 @@ PackageSearchDetail()
 PackageListInstalled()
 {
 	local full; [[ "$1" == @(--full|-f) ]] && { full="true"; shift; }
-	if IsPlatform apt && InPath dpkg; then dpkg --get-selections "$@3"
+	if IsPlatform apt && InPath dpkg; then dpkg --get-selections "$@"
 	elif IsPlatform mac && [[ $full ]]; then brew info --installed --json
 	elif IsPlatform mac && [[ ! $full ]]; then brew info --installed --json | jq -r '.[].name'
 	elif IsPlatform entware; then opkg list-installed
