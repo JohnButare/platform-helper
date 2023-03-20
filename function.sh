@@ -337,8 +337,11 @@ AppVersion()
 
 	# Windows file version
 	if IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
-		! CanElevate && return
-		powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn; return
+		if CanElevate; then
+			powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn; return
+		elif InPath "wmic.exe"; then
+			 wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2; return
+		fi
 	fi
 
 	# --version option, where the version number is the last word of the first line
@@ -2603,8 +2606,11 @@ ProcessClose()
 		if [[ $win ]]; then
 			name="${name/.exe/}.exe"; GetFileName "$name" name # ensure process has an .exe extension
 			cd "$PBIN" || return # process.exe only runs from the current directory in WSL
-			! InPath process.exe && return # Process.exe is not installed in some environments (flagged as malware by Cylance Protect)
-			./Process.exe -q "$name" $2 |& grep --quiet "has been closed successfully."; result="$(PipeStatus 1)"
+			if InPath process.exe; then # Process.exe is not installed in some environments (flagged as malware by Cylance Protect)
+				./Process.exe -q "$name" $2 |& grep --quiet "has been closed successfully."; result="$(PipeStatus 1)"
+			else
+				cmd.exe /c taskkill /IM "$name" >& /dev/null; result="$?"
+			fi
 
 		elif IsPlatform mac; then
 			osascript -e "quit app \"$name\""; result="$?"
