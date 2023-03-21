@@ -10,13 +10,15 @@ set wsl=2
 set wslDir=C:\Users\Public\data\appdata\wsl
 set dist=Ubuntu
 set distUser=jjbutare
+
+REM optionally use a WSL image
 rem set distUser=%USERNAME%
 rem set distUnc=\\ender.hagerman.butare.net\public
 rem set distImage=documents\data\install\platform\linux\wsl\image\ubuntu\default.tar.gz
 
 REM create bootstrap.cmd on the Desktop to run manually if needed
-set file=%HOMEPATH%\Desktop\bootstrap.cmd
-> %file% echo @echo off
+set file=%HOMEDRIVE%%HOMEPATH%\Desktop\bootstrap.cmd
+
 >> %file% echo echo ************************* bootstrap.cmd *************************
 >> %file% echo set pwd=%pwd%
 >> %file% echo set args=%args%
@@ -30,6 +32,7 @@ set file=%HOMEPATH%\Desktop\bootstrap.cmd
 REM run bootstrap.cmd after reboot
 copy %file% "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 
-REM run bootstrap.cmd
+REM run bootstrap
+run bootstrap.cmd
 echo.
 %file%
