@@ -337,10 +337,10 @@ AppVersion()
 
 	# Windows file version
 	if IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
-		if CanElevate; then
-			powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn; return
-		elif InPath "wmic.exe"; then
+		if InPath "wmic.exe"; then # WMIC is deprecated but does not require elevation
 			 wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2; return
+		elif CanElevate; then
+			powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn; return
 		fi
 	fi
 

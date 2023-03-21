@@ -397,7 +397,7 @@ isServerCommand()
 	case "$PLATFORM_OS" in
 		linux) IsPlatform debian && [[ ! $XDG_CURRENT_DESKTOP ]];;
 		mac) return 1;;
-		win) registry get "$r/ProductName" | RemoveCarriageReturn | grep -q -i "server";;
+		win) CanElevate && registry get "$r/ProductName" | RemoveCarriageReturn | grep -q -i "server";;
 	esac
 }
 

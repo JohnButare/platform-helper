@@ -62,6 +62,8 @@ IsWindowsProgram()
 # Windows process elevation (use Administrator token) 
 elevate()
 {
+	! CanElevate && { ScriptErr "unable to elevate" "elevate"; return 1; }
+
 	# Launch a terminal elevated in the current directory
 	if [[ "$#" == "0" ]]; then
 		InPath wt.exe && { start --elevate wt.exe -d "$PWD"; return; }

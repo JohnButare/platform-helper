@@ -77,8 +77,8 @@ OneDrive()
 
 ports()
 {
-	# only need to open ports for Windows WSL
-	! IsPlatform wsl && return
+	# only open ports for Windows WSL when have permission
+	! { IsPlatform wsl && CanElevate; } && return
 
 	# initialize
 	SshAgentConf --quiet "${globalArgs[@]}" || return
