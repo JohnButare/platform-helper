@@ -59,6 +59,7 @@ PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.
 SecurityHealthTray() { IsProcessRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
 sshd() { runService "ssh"; }
 SyncPlicity() { taskStart "$P/Syncplicity/Syncplicity.exe"; }
+UltraMon() { IsProcessRunning "UltraMon.exe" || taskStart "$P/UltraMon/UltraMon.exe" "" ; }
 
 IntelDesktopControlCenter() 
 { 
