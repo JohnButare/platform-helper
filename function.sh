@@ -1944,10 +1944,10 @@ SshSudoc() { SshHelper connect --credentials --function "$1" -- sudoc "${@:2}"; 
 #
 
 CheckNetworkProtocol() { [[ "$1" == @(|nfs|smb|ssh) ]] || IsInteger "$1"; }
-GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }															# //SERVER/SHARE
-GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }									# SERVER
-GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; r "${gus%:*}" $2; }									# SHARE
-GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 	# DIRS
+GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }																	# //SERVER/SHARE
+GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }											# SERVER
+GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; gus="${gus%:*}"; r "${gus:-$3}" $2; }		# SHARE
+GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 			# DIRS
 IsUncPath() { [[ "$1" =~ ^\ *//.* ]]; }
 
 # GetUncFull [--ip] UNC: return the UNC with server fully qualified domain name or an IP
@@ -1976,6 +1976,9 @@ GetUncFull()
 	local dirs="$(GetUncDirs "$unc")"
 	local protocol="$(GetUncProtocol "$unc")"
 
+	# force use of the IP if the host requires an alternate DNS server
+	[[ $(DnsAlternate "$server") ]] && ip="--ip"
+
 	# resolve the server
 	if [[ $ip ]]; then
 		server="$(GetIpAddress "$server")" || return
@@ -1993,10 +1996,10 @@ GetUncUser()
 	local guu="${1#*( )//}"; guu="${guu%%@*}"; r "$guu" $2
 }
 
-# GetUncProtocol UNC - PROTOCOL=NFS|SMB|SSH|INTEGER - INTEGER is a custom SSH port
+# GetUncProtocol UNC [VAR [DEFAULT]] - PROTOCOL=NFS|SMB|SSH|INTEGER - INTEGER is a custom SSH port
 GetUncProtocol()
 {
-	GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "$gup" $2
+	GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "${gup:-$3}" $2
 	CheckNetworkProtocol "$gup" || { EchoErr "'$gup' is not a valid network protocol"; return 1; }
 }
 
