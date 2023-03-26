@@ -25,8 +25,8 @@ prepareCommand()
 			[[ -f /assets/sshd_config ]] && sudo sed -i 's/^AllowUsers .*/AllowUsers git '"$user"'/' /assets/sshd_config && sudo /etc/init.d/ssh restart
 		- SSH
 			sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' && systemctl restart sshd
-		- Raspberry Pi OS: pi/raspberry, Ubuntu=
-		- Ubuntu: ubuntu/ubuntu
+		- Raspberry Pi OS password: pi/raspberry
+		- Ubuntu password: ubuntu/ubuntu
 	EOF
 }
 
@@ -108,7 +108,7 @@ bootstrapSsh()
 {
 	local host="$(GetSshHost "$target")"
 	local port="$(GetSshPort "$target")"; port="${port:-$(SshHelper config get "$host" port)}"
-	local sshUser="$(GetSshUser "$target")" user="${sshUser:-$user}"
+	local sshUser="$user"; [[ "$target" =~ @ ]] && sshUser="$(GetSshUser "$target")"
 
 	local isHostLocal; GetIpAddress --quiet "$host" | IsIpLocal && isHostLocal="true"
 	local sshCommonArgs=( -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ) # trust new hosts, don't modify known_hosts
@@ -118,9 +118,10 @@ bootstrapSsh()
 	local rsyncArgs=( --rsh "$rsyncSshArgs" )
 
 	sshBootHost || return	
-	sshCheckUserPassword || return
+	sshCheckUserPassword "$sshUser" || return
+	sshCheckUser || return
 	sshGetHostInfo || return
-	sshConfigure || return
+	sshConfigure "$sshUser" || return
 	bootstrapInit || return
 	IsPlatform openwrt,ubiquiti --host && return
 	
@@ -198,7 +199,11 @@ bootstrapRun()
 # SSH Helper
 #
 
-sshGetHostInfo() { ScriptEval HostGetInfo --trust $verbose "$target"; }
+sshGetHostInfo()
+{
+	hilight "Getting host '$host' information..."
+	ScriptEval HostGetInfo --trust $verbose "$host"; 
+}
 
 sshBootHost() # wait for the host to become available (after initial boot or reboot)
 {
@@ -211,22 +216,24 @@ sshBootHost() # wait for the host to become available (after initial boot or reb
 	sshWait || return
 }
 
-# sshCheckUser - if the bootstrap user exists use it
+# sshCheckUser - if the preferred user exists on the host, use it for SSH
 sshCheckUser() 
 { 
+	# return if the preferred user is already the SSH user
+	[[ "$user" == "$sshUser" ]] && return
+
 	hilight "Checking for $user on $host..."
 	! run getent passwd "$user" >& /dev/null && { echo "User $user does not exist on $host..."; return; }
 
-	# the user exists on the host, 
+	# the user exists on the host, use it for SSH
 	echo "User $user exists on $host and will be used for further SSH commands..."
 	sshUser="$user" && sshConfigure
 }
 
-# sshCheckUserPassword - check if user password is expired
+# sshCheckUserPassword USER - check if user password is expired and change it if needed
 sshCheckUserPassword()
 {
-	# ubuntu user password is initially expired 
-	[[ "$user" != "ubuntu" ]] && return
+	local user="$1"
 
 	local tries=10
 	for (( i = 1; i <= $tries; i++ )); do
@@ -234,12 +241,12 @@ sshCheckUserPassword()
 		# if SSH failed, sleep before retry
 		(( i != 1 )) && sleep 4; 
 
-		hilight "Checking user '$user' password (try $i of $tries)..."
+		hilight "Checking user '$user' password expiration (try $i of $tries)..."
 
 		# run a simple SSH command
 		local result; result="$(run ls 2>&1)" && return
 
-		# if the password has expired login interactivelt to change it
+		# if the password has expired login interactively to change it
 		if echo "$result" | grep -q "password has expired"; then
 			echo "Changing user '$user' password..."
 			runSsh # will prompt for password change
@@ -249,14 +256,16 @@ sshCheckUserPassword()
 	done
 }
 
-# sshConfigure - configure SSH for user
+# sshConfigure USER - configure SSH for the SSH user
 sshConfigure()
 {
+	local user="$1"
+
+	# return if configuration is not needed
 	IsPlatform openwrt,ubiquiti --host && return
 
+	# add Ubuntu SSH connection performance fix
 	local other;
-
-	# Ubuntu SSH connection performance fix
 	IsPlatformAll piKernel,ubuntu --host && other+="$(cat <<-EOF
 		sudo sed -i "s/^session\soptional\spam_motd.so\s*motd=\/run\/motd.dynamic$/#session optional pam_motd.so motd=\/run\/motd.dynamic/" "/etc/pam.d/sshd" || exit
 		EOF
@@ -270,7 +279,7 @@ sshConfigure()
 		exit 1
 	EOF
 
-	echo "Configuring ssh for $user..."
+	echo "Configuring SSH for $user..."
 	scp "${scpArgs[@]}" "$HOME/.ssh/"* ''"$user@$host"':~/.ssh' || return
 }
 
