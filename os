@@ -671,7 +671,7 @@ infoDistributionMac()
 infoDistributionWin()
 {	
 	local build="$(buildCommand)"
-	local ubr="$(HexToDecimal "$(registry get "$r/UBR" | RemoveCarriageReturn)")" # UBR (Update Build Revision)
+	local ubr="$(HexToDecimal "$(registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/UBR" | RemoveCarriageReturn)")" # UBR (Update Build Revision)
 	local version="11"; (( $(os build) < 22000 )) && version="10" # 10|11
 	infoDistributionLinux && infoEcho "              Windows $version (build $build.$ubr, wsl $(wsl get version), wslg $(wsl get version wslg))"
 }
