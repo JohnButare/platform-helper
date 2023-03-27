@@ -506,9 +506,9 @@ infoRemote()
 	
 	# othereise, get basic information using HostGetInfo vars command locally
 	ScriptEval HostGetInfo vars "$host" || return
-	[[ $_platform ]] && 		infoEcho "    platform: $_platform"
+	[[ $_platformOs ]] &&		infoEcho "    platform: $_platformOs"
 	[[ $_platformLike ]] && infoEcho "        like: $_platformLike"
-	[[ $_platformId ]] &&   infoEcho "          id: $_platformId"
+	[[ $_platformId ]] &&		infoEcho "          id: $_platformId"
 
 	return 0
 }
