@@ -489,6 +489,7 @@ ConfigFileGet() { echo "$functionConfigFileCache"; }																# ConfigFile
 # console
 #
 
+beep() { echo -en "\007"; }
 clear() { echo -en $'\e[H\e[2J'; }
 pause() { local response m="${@:-Press any key when ready...}"; ReadChars "" "" "$m"; }
 
