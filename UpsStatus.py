@@ -76,24 +76,21 @@ elif (aReceiveBuf[10] << 8 | aReceiveBuf[9]) > 4000:
 else:
     print('charging: not charging.')   # Consider shutting down to save data or send notifications
 
-if aReceiveBuf[24] == 0:
-    print('countdown: shutdown none')
-else:
-    print("countdown: shutdown %d seconds"% (aReceiveBuf[24]))
-
-#if aReceiveBuf[25] == 1:
-#    print("Automatically turn on when there is external power supply!")
-#else:
-#    print("Does not automatically turn on when there is an external power supply!")
-if aReceiveBuf[26] == 0:
-    print('           restart none')
-else:
-    print("           restart %d seconds"% (aReceiveBuf[26]))
-
 if aReceiveBuf[23] == 1:
     print("power state: normal")
 else:
     print("power state: off")
+
+if aReceiveBuf[25] == 1:
+    print("restart: automatic")
+else:
+    print("restart: manual")
+
+if aReceiveBuf[24] != 0:
+    print("         shutdown %d seconds"% (aReceiveBuf[24]))
+
+if aReceiveBuf[26] != 0:
+    print("         restart %d seconds"% (aReceiveBuf[26]))
 
 
 #print("Accumulated running time: %d sec"% (aReceiveBuf[31] << 24 | aReceiveBuf[30] << 16 | aReceiveBuf[29] << 8 | aReceiveBuf[28]))
