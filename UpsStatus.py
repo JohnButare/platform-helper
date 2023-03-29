@@ -38,8 +38,8 @@ aReceiveBuf.append(0x00)   # Placeholder
 for i in range(1,255):
     aReceiveBuf.append(bus.read_byte_data(DEVICE_ADDR, i))
 
-if batt_current <= 0:
-        print("         port=%d mV"% (aReceiveBuf[6] << 8 | aReceiveBuf[5])) # This value is inaccurate during charging
+if batt_current < 0:
+        print("       port %d mV"% (aReceiveBuf[6] << 8 | aReceiveBuf[5])) # This value is inaccurate during charging
 
 #print("Current processor voltage: %d mV"% (aReceiveBuf[2] << 8 | aReceiveBuf[1]))
 #print("Current Raspberry Pi report voltage: %d mV"% (aReceiveBuf[4] << 8 | aReceiveBuf[3]))
@@ -143,3 +143,5 @@ else:
 #UID1 = "%08X" % (aReceiveBuf[247] << 24 | aReceiveBuf[246] << 16 | aReceiveBuf[245] << 8 | aReceiveBuf[244]) 
 #UID2 = "%08X" % (aReceiveBuf[251] << 24 | aReceiveBuf[250] << 16 | aReceiveBuf[249] << 8 | aReceiveBuf[248])
 #print("Serial Number is:" + UID0 + "-" + UID1 + "-" + UID2 )
+
+bus.close()
