@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
 
-# Description：
-'''This is the demo code for all the functions of UPS Plus.
-Advanced users can select the functions they need through the function options provided in the code below to customize and develop them to meet their needs.
-'''
-
 import time
 import smbus2
 import logging
@@ -25,11 +20,18 @@ print("    current %.3f mA" % supply_current)
 #print("Raspberry Pi power supply voltage: %.3f V" % supply_voltage)
 #print("Current power consumption of Raspberry Pi: %.3f mW" % supply_power)
 
-ina_batt = INA219(0.005, busnum=DEVICE_BUS, address=0x45)
-ina_batt.configure()
-batt_voltage = ina_batt.voltage()
-batt_current = ina_batt.current()
-batt_power = ina_batt.power()
+try:
+    ina_batt = INA219(0.005, busnum=DEVICE_BUS, address=0x45)
+    ina_batt.configure()
+    batt_voltage = ina_batt.voltage()
+    batt_current = ina_batt.current()
+    batt_power = ina_batt.power()
+    
+except Exception as e:
+    batt_voltage = 0
+    batt_current = 0
+    batt_power = 0
+
 bus = smbus2.SMBus(DEVICE_BUS)
 
 aReceiveBuf = []
