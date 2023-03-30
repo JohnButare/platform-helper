@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [reset|set|status](status)
+Usage: $(ScriptName) [OPTION]... [monitor|reset|set|status](status)
 Manage a UPS."
 }
 
@@ -14,21 +14,14 @@ init() { defaultCommand="status"; }
 # Commands
 #
 
-resetCommand()
-{
-	ask "Are you sure you want to reset the UPS to factory defaults" && python3 "$BIN/UpsWrite.py" 27 1
-}
+resetUsage() { EchoWrap "Usage: $(ScriptName) reset\nReset the UPS to factory defaults."; }
+resetCommand() { ask "Are you sure you want to reset the UPS to factory defaults" && python3 "$BIN/UpsWrite.py" 27 1; }
 
 #
 # Get Command
 #
 
-getUsage()
-{
-	EchoWrap "\
-Usage: $(ScriptName) get REGISTER|AutoOn|protect|restart|shutdown|AutoOn"
-}
-
+getUsage() { EchoWrap "Usage: $(ScriptName) get REGISTER|AutoOn|protect|restart|shutdown|AutoOn"; }
 getArgStart() { unset -v register register1 register2; }
 getArgs() { registerArgGet "$@"; shift; }
 
@@ -36,6 +29,54 @@ getCommand()
 {
 	[[ ! $register2 ]] && { python3 "$BIN/UpsRead.py" "$register1"; return; }
 	python3 "$BIN/UpsRead2.py" "$register1" "$register2"
+}
+
+#
+# Monitor Command
+#
+
+monitorUsage() { EchoWrap "Usage: $(ScriptName) reset\Check the UPS battery and shutdown the system when the battery is low."; }
+
+monitorCommand()
+{
+	local protectVolts=3700; [[ $test ]] && protectVolts=4000
+	local shutdownSeconds=
+
+ 	echo "************************* UPS Battery Check ($(date)) *************************"
+
+	# enable Raspberry Pi power on when UPS power is restored
+	ups set AutoOn 1 > /dev/null || return
+
+	# Set the threshold of UPS automatic power-off to prevent damage caused by battery over-discharge, unit: mV.
+	ups set protect $protectVolts > /dev/null || return
+
+	# show UPS status
+	statusCommand || return
+	echo
+
+	# check the battery voltage
+	local batteryVolts; batteryVolts="$(python3 "$BIN/UpsBatteryVoltage.py")" || return
+	
+	if (( batteryVolts < protectVolts + 200 )); then
+
+		echo "The battery is low ($batteryVolts mV), shutting down the system..."
+		ups set shutdown 30 || return
+	  [[ ! $test ]] && { os down || return; }
+
+	  printf "Waiting for system shutdown..."
+	  while true; do 
+	  	printf "."
+	  	sleep 1
+	  done
+
+	else
+		if [[ $verbose ]]; then
+			echo "The battery voltage is $batteryVolts mV, which is more than 200 mV above protection voltage of $protectVolts mV."
+		else
+			echo "The battery has sufficient capacity."
+		fi
+		
+	fi
 }
 
 #
