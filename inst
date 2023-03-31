@@ -175,7 +175,7 @@ installInit()
 	mac=(amphetamine AppleConfigurator batteries bear Calendar366 CanaryMail CarrotWeather DayOne DiskInventortyX HomeAssistant iTerm KarabinerElements LiveDesktop Magnet MakrdownView pcalc rectagle spark speedtest SystemToolkit WallpaperWizard xcode XcodeCli XQuartz yoink)
 	macDebian=(BalenaEtcher bat bc btop chrony colorls DotNet Dropbox DropboxDownload docker etcher exa fzf ghq gnupg NetbootxyzDocker passh PiDiskImager RpiBoot ruby RubyAsdf RubyPackage RubyRvm StandardNotes SublimeMerge tmux thunderbird unison)
 	macWin=(BlueSherpa BrotherPrinter calibre CleanMyMac CreativeCloud cricut deezer DuetDisplay edge firefox fork garmin iExplorer keybase loom miro notion nVidia PdfElement plex quicken qvr slack sonos spotify SurveillanceStation VisualStudio VisualStudioExtensions xpra xServer zoom)
-	pi=()
+	pi=(wifi)
 	win=(AjaSystemTest backupper bonjourSdk CoreTemp CorsairUtilityEngine cpuz DiskImager EdgeDeflector FileLocatorPro GigabyteMotherboard HardwareMonitor HiddenStart HiddenStartConfigure Hp9020 iCloud kindle KindleDrm vcxsrv WinScp xMing AjaSystemTest CPUZ DiskImager hyperv HiddenStart java LgMonitor MarkdownView NitroPdf nVidiaDriver nVidiaGeForceExperience OneDrive pa PartitionAssistant PowerPanel PowerrToys QuickBooks RealtekCardReader stamps SystemInternals TemperatureLogger Todoist UupDump Wallpaper4k WslConfig x410 xMing)
 	winElevated=(HiddenStart HiddenStartConfigure MaxTo NoMachine SystemUser UltraMon)
 	
@@ -263,7 +263,7 @@ installInit()
 	mac+=(proxifier)
 	macDebian+=(JumpCloud MozillaVpn unifi)
 	macWin+=(domotz WireGuard WireShark)
-	ubuntu+=(NicUsb StaticIp)
+	ubuntu+=(NicUsb StaticIp wifi)
 	win+=(GlassWire Ninite NordVpn Tribler)
 
 	# Node.js
@@ -286,7 +286,7 @@ installInit()
 	macWin+=(qnap Qfinder QnapExternalRaidManager)
 
 	# Raspberry Pi
-	piKernel=(PiConfig PiFirmware PiGpio PiI2c PiOverclock PiOneWire PiPinout PiReporter PiSpi PiUps PiWifi)
+	piKernel=(PiConfig PiFirmware PiGpio PiI2c PiOverclock PiOneWire PiPinout PiReporter PiSpi PiUps)
 
 	# Remote Desktop
 	mac+=(AppleRemoteDesktop MicrosoftRemoteDesktop)
@@ -1275,7 +1275,7 @@ AppHostSoftwareInstall()
 		# server
 		pi2) i HomebridgeWiggin || return;;
 		pi6) i DomotzAgentInstall || return;;
-		pi7) i PiWiFi PoolTemperature PoolController;; # pool pad
+		pi7) i wifi PoolTemperature PoolController;; # pool pad
 		pi9) i unifi || return;;
 
 		# Mac
@@ -4639,7 +4639,7 @@ NvmFinalWin() { mergeDir "$pp/NVM For Windows" "$pp/Development/Other"; }
 # Network
 #################################################
 
-NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler GlassWire gping httpie JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn NetbootxyzDocker NetbootxyzTftpServer nginx NicUsb Ninite NordVpn pivpn Proxifier StaticIp TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall unifi WireGuard Wireshark; }
+NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler GlassWire gping httpie JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn NetbootxyzDocker NetbootxyzTftpServer nginx NicUsb Ninite NordVpn pivpn Proxifier StaticIp TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall unifi wifi WireGuard Wireshark; }
 HttpieInstall() { run --python-global "httpie"; }
 MtrInstall() { run --package "mtr"; }
 TftpclientInstall() { run --name "TFTP Client" --package "tftp-hpa"; }
@@ -5173,6 +5173,56 @@ unifiPackage()
 }
 
 unifiFinal() { hashiApp "unifi" && httpsShow 8443; }
+
+WiFiInstall() { header "Wi-Fi"; RunPlatform wifi; }
+
+wifiPi()
+{
+	piConfigCheck || return
+
+	if (( ${#otherArgs[@]} > 0 )); then
+		sudo raspi-config nonint do_wifi_ssid_passphrase "${otherArgs[@]}"
+	else
+		sudo raspi-config do_wifi_ssid_passphrase
+	fi
+}
+
+wifiUbuntu()
+{
+	local interface="wlan0"
+
+	# return if configured
+	[[ ! $force ]] && GetAdapterIpAddress $interface >& /dev/null && return
+
+	# install software
+	package wpasupplicant wireless-tools || return
+
+	# bring the interface up
+	iwconfig $interface >& /dev/null && { sudo ifconfig $interface up || return; }
+		
+	# connect to a wireless network
+	if iwconfig |& grep --quiet Not-Associated; then
+
+		# get SSID
+		local networks; networks="$(WifiNetworks)" || return
+		local defaultNetwork="$(ConfigGet "wifi")"
+		! echo "$networks" | grep --quiet "^$defaultNetwork$" && defaultNetwork="" # default network not found
+		[[ ! $defaultNetwork ]] && defaultNetwork="$(WiFiNetworks | head -1)"
+		local network; network="$(ask text "What Wi-Fi network would you like to connect to ($defaultNetwork)")" || return
+		[[ ! $network ]] && network="$defaultNetwork"
+
+		# configure passphrase
+		local passphrase; passphrase="$(wpa_passphrase "$network" "$(PasswordGet)")" || return
+		echo "$passphrase" | sudoc tee "/etc/wpa_supplicant.conf" || return
+
+		# connect to network
+		echo "Connecting to network (ctrl-c when associated)..."
+		sudo wpa_supplicant -c "/etc/wpa_supplicant.conf" -i $interface || return
+		sudo wpa_supplicant -B -c /etc/wpa_supplicant.conf -i $interface # run in background
+	fi
+
+	sudo dhclient $interface && ip addr show $interface
+}
 
 WireGuardInstall()
 {
@@ -6283,7 +6333,7 @@ pythonInstallVersion()
 
 PiAllInstall() { i PiDevAll PiHardwareAll PiUtilities BalenaEtcher PiDiskImager PiFirmware PiOverclock PiReporter PiUps RpiBoot; }
 PiDevAllInstall() { pkg thonny; } # Python development
-PiHardwareAllInstall() { i PiGpio PiI2c PiOneWire PiSpi PiWifi; }
+PiHardwareAllInstall() { i PiGpio PiI2c PiOneWire PiSpi wifi; }
 PiUtilitiesInstall() { i PiConfig PiPinout; }
 PiFinalWin() { mergeDir "$up/Raspberry Pi" "$up/Applications/Other"; }
 
@@ -6453,19 +6503,6 @@ PiUpsInstall()
 	pythonCheckLocal || return
 	pip install smbus2 pi-ina219 || return
 	ups status || return
-}
-
-PiWifiInstall()
-{
-	header "Raspberry Pi Wi-Fi"
-
-	piConfigCheck || return
-
-	if (( ${#otherArgs[@]} > 0 )); then
-		sudo raspi-config nonint do_wifi_ssid_passphrase "${otherArgs[@]}"
-	else
-		sudo raspi-config do_wifi_ssid_passphrase
-	fi
 }
 
 # RPI Boot - makes Compute Module eMMC drive mountable

@@ -1232,7 +1232,7 @@ NetworkCurrent() { UpdateGet "network"; };
 NetworkDomain() { UpdateGet "network_domain"; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
-WifiNetworks() {  sf; sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuotes | RemoveEmptyLines | sort | uniq; }
+WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuotes | RemoveEmptyLines | sort | uniq; }
 
 CacheDefaultGateway()
 {
@@ -1290,6 +1290,7 @@ GetAdapterIpAddress()
 	[[ ! $adapter && ! $isWin ]] && { adapter="$(GetInterface)" || return; }
 
 	# get IP address for the specified adapter
+	local ip
 	if [[ $isWin ]]; then
 
 		if [[ ! $adapter ]]; then
@@ -1301,7 +1302,9 @@ GetAdapterIpAddress()
 		fi
 
 	elif InPath ifdata; then
-		ifdata -pa "$adapter"
+		ip="$(ifdata -pa "$adapter")" || return
+		[[ "$ip" == "NON-IP" ]] && { ScriptErr "interface '$adapter' does not have an IPv4 address"; return 1; }
+		echo "$ip"
 
 	elif IsPlatform entware; then
 		ifconfig "$adapter" | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }' | cut -d: -f2

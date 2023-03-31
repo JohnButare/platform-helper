@@ -21,6 +21,7 @@ bootstrapDns2="10.10.100.7"
 # system
 network="hagerman"
 workgroup="$network"
+wifi="Wiggin"
 baseDomain="butare.net"
 domain="$network.$baseDomain"
 systemUser="wsystem"
