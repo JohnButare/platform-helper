@@ -62,7 +62,7 @@ exit 0;'
 
 		platformKernel="linux"
 		if [[ $kernel =~ .*-Microsoft$ ]]; then platformKernel="wsl1"
-		elif [[ $kernel =~ .*-microsoft-standard-WSL2$ ]]; then platformKernel="wsl2"
+		elif [[ $kernel =~ .*-microsoft-standard-WSL2(|\\+)$ ]]; then platformKernel="wsl2"
 		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platformKernel="wsl2"
 		elif [[ "$ID" == "raspbian" || $kernel =~ .*-raspi$ ]]; then platformKernel="pi"
 		fi
