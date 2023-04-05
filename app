@@ -91,7 +91,7 @@ ports()
 
 	showStatus
 	local r; [[ $brief && ! $verbose ]] && r="RunSilent"; [[ $verbose ]] && EchoErr
-	RunScript --elevate "${globalArgs[@]}" -- RunScript $r powershell.exe WslPortForward.ps1
+	RunScript --elevate "${globalArgs[@]}" -- RunScript $r powershell.exe WslPortForward.ps1 $(GetIpAddress)
 	[[ ! $brief ]] && echo done
 	return 0
 }
