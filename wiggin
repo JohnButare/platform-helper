@@ -260,7 +260,7 @@ hostUpdate()
 # network commands
 #
 
-networkUsage() { echo "Usage: $(ScriptName) network backup|edit|update|validate"; }
+networkUsage() { echo "Usage: $(ScriptName) network backup|config|edit|update|validate"; }
 
 networkArgStart()
 {
@@ -279,11 +279,13 @@ networkArgStart()
 
 	# server file locations
 	dhcpDirPackageDir="/etc/kea" # package location
-	dhcpDirBuild="/usr/local/etc/kea" # build location
+	dhcpDirBuild="/usr/local/etc/kea" # build location	
 	dnsDir="/etc/bind"
 
+	# configuration
 	dhcpConfig="$configDir/system/dhcp"
 	dnsConfig="$configDir/system/dns"
+	dhcpReservations="$dhcpConfig/$network/kea-dhcp4-$network-reservations.json"
 }
 
 networkCommand() { usage; }
@@ -332,6 +334,46 @@ networkBackupDns()
 
 	# copy the backup to the backup directory
 	scp "$hostIp:~/tmp/$file" "$backupDir/$stamp.$i.$file" || return
+}
+
+#
+# Network Config
+#
+
+networkConfigUsage() { EchoErr "Usage: $(ScriptName) network config current|reservations|compare"; }
+networkConfigCommand() { usage; }
+
+networkConfigReservationsUsage() { EchoErr "Usage: $(ScriptName) network config reservations\nGet DHCP reservation DNS names and MAC addresses in CSV format."; }
+
+networkConfigReservationsCommand()
+{
+	EchoErr "Getting device reservations..."
+	configFileToCommaDelimited "$dhcpReservations" | tr A-Z a-z | awk -F "," '{ print $1 "," $2 }'
+}
+
+networkConfigCurrentUsage() { EchoErr "Usage: $(ScriptName) network config current\nGet current network device DNS names and MAC addresses in CSV format."; }
+
+networkConfigCurrentCommand()
+{
+	EchoErr "Getting current devices..."
+	{ UniFiController api "/rest/user" | unifiToCsv; UniFiController api "/stat/device" | unifiToCsv; } | sort
+}
+
+unifiToCsv()
+{
+	jq '.data[]
+			| select((has("note") and (.note | startswith("ignore") | not)) or (has("note") | not))
+			| {name: .name, mac: .mac }
+			| join(",")' \
+		| RemoveQuotes | sed 's/[- ()]//g' | sed 's/'\''//g' | LowerCase | sort; 
+}
+
+networkConfigCompareCommand()
+{
+	local current="/tmp/current.csv" reservations="/tmp/reservations.csv"
+	networkConfigCurrentCommand > "$current" || return
+	networkConfigReservationsCommand > "$reservations" || return
+	merge "$reservations" "$current"
 }
 
 #
@@ -392,7 +434,7 @@ networkUpdateDnsCommand() {	GetHostsConfigNetwork "dns" && ForAllHosts networkUp
 
 networkUpdateDhcp()
 {
-	local host="$1" hostShort hostIp reservations; networkUpdateCommon "DHCP" || return
+	local host="$1" hostShort hostIp; networkUpdateCommon "DHCP" || return
 	local config="$dhcpConfig/$network"; CloudGet "$config"/* || return
 	local dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
 	local subnetVar="subnet$(ProperCase "$hostShort")"
@@ -408,10 +450,10 @@ networkUpdateDhcp()
 	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4.conf" || return
 
 	echo "Updating the ethers configuration file..." # downcase to make etherwake case agnostic
-	configFileToCommaDelimited "$reservations" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
+	configFileToCommaDelimited "$dhcpReservations" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
 
 	echo "Updating the hosts configuration file..."
-	configFileToCommaDelimited "$reservations" |  awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return
+	configFileToCommaDelimited "$dhcpReservations" | awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return
 
 	echo "Updating DHCP configuration on $hostShort..."
 	rsync --no-perms --chmod=ugo=rw --rsync-path="sudo rsync" --info=progress2 "$dir/"* "$host:$dhcpDir" || return
@@ -434,7 +476,7 @@ networkUpdateDhcp()
 
 networkUpdateDns()
 {
-	local host="$1" hostShort hostIp reservations; networkUpdateCommon "DNS" || return
+	local host="$1" hostShort hostIp; networkUpdateCommon "DNS" || return
 	local config="$dnsConfig"; CloudGet "$config"/* || return
 	local dir="$(mktemp -d -t 'dns.XXXXXXXXXX')" || return
 
@@ -442,7 +484,7 @@ networkUpdateDns()
 	cp "$config/named.conf."* "$dir" || return
 	cp "$config/$baseDomain" "$dir" || return
 	cp "$config/forward.txt" "$dir/$domain" || return
-	configFileToCommaDelimited "$reservations" | awk -F "," '{ print $1 ".'$domain'.	A	" $3 }' | column -t	>> "$dir/$domain" || return
+	configFileToCommaDelimited "$dhcpReservations" | awk -F "," '{ print $1 ".'$domain'.	A	" $3 }' | column -t	>> "$dir/$domain" || return
 
 	# create reverse lookup zone files
 	for zone in 100 101 102; do
@@ -453,7 +495,7 @@ networkUpdateDns()
 		{ printf "\n; static\n"; cat "$config/reverse.txt" | ${G}grep "^[0-9]*.$zone.10.10"; } >> "$z"
 
 		{ printf "\n; dynamic\n"
-			configFileToCommaDelimited "$reservations" |
+			configFileToCommaDelimited "$dhcpReservations" |
 				grep ",10.10.$zone." |
 				sed "s/10.10.$zone.//" |
 				awk -F "," '{ print $3 ".'$zone'.10.10.in-addr.arpa. PTR " $1 ".'$domain'." }' |
@@ -482,14 +524,14 @@ networkUpdateDns()
 
 networkUpdateCommon()
 {
-	getHost || return
-	reservations="$dhcpConfig/$network/kea-dhcp4-$network-reservations.json"
-	networkConfigFileValidate "$reservations" || return
+	getHost || return	
+	networkConfigFileValidate "$dhcpReservations" || return
 	[[ ! $noBackup ]] && { networkBackup$(ProperCase "$1") "$host" || return; }
 	return 0
 }
 
-configFileToCommaDelimited() # configFileToCommaDelimited FILE - convert a Kea configuration file to comma delimited
+# configFileToCommaDelimited FILE - convert a Kea configuration file to comma delimited
+configFileToCommaDelimited()
 {
 	configFileToJson "$1" |
 		jq '.[]|{a: .hostname, b: ."hw-address", c: ."ip-address"}|join(",")' | # convert to comma delimited
@@ -497,7 +539,8 @@ configFileToCommaDelimited() # configFileToCommaDelimited FILE - convert a Kea c
 		sort
 }
 
-configFileToJson() # configFileToJson FILE - convert a Kea configuration file to valid JSON
+# configFileToJson FILE - convert a Kea configuration file to valid JSON
+configFileToJson()
 {
 	cat "$1" |
 		sed '/^[	 ]*\/\//d' |  # remove comments - lines that begin with //
