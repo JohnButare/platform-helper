@@ -400,12 +400,13 @@ GitClone() { ScriptCd GitHelper GitHub clone "$@"; }
 # i: invoke the installer script (inst) saving the INSTALL_DIR
 i() 
 { 
-	local check find force noRun select
+	local check find force noFind noRun select
 
 	if [[ "$1" == "--help" ]]; then echot "\
 usage: i [APP*|bak|cd|check|dir|info|select]
   Install applications
 	-f,  --force		force installation even if a minimal install is selected
+  -nf, --no-find 	do not find the installation location
   -nr, --no-run 	do not find or run the installation program
   -f,  --force		check for a new installation location
   -s,  --select		select the install location"
@@ -413,6 +414,7 @@ usage: i [APP*|bak|cd|check|dir|info|select]
 	fi
 
 	[[ "$1" == @(--force|-f) ]] && { force="--force"; shift; }
+  [[ "$1" == @(--no-find|-nf) ]] && { noFind="--no-find"; shift; }
   [[ "$1" == @(--no-run|-nr) ]] && { noRun="$1"; shift; }
 	[[ "$1" == @(--select|-s) ]] && { select="--select"; shift; }
 	[[ "$1" == @(select) ]] && { select="--select"; }
@@ -425,13 +427,14 @@ usage: i [APP*|bak|cd|check|dir|info|select]
 		check|select) InstFind;;
 		dir) InstFind && echo "$INSTALL_DIR";;
 		info) InstFind && echo "The installation directory is $INSTALL_DIR";;
-		*) inst install --hint "$INSTALL_DIR" $noRun $force "$@";;
+		*) InstFind && inst install --hint "$INSTALL_DIR" $noRun $force "$@";;
 	esac
 }
 
 InstFind()
 {
 	[[ ! $force && ! $select && $INSTALL_DIR && -d "$INSTALL_DIR" ]] && return
+	[[ $noFind ]] && return
 	ScriptEval FindInstallFile --eval $select || return
 	export INSTALL_DIR="$installDir"
 	unset installDir file
