@@ -23,7 +23,7 @@ backupCommands=( consul ContainerStation domains HomeAssistant LastPass nginx po
 
 backupUsage() 
 {
-	echot "Usage: $(ScriptName) backup job|$(ArrayDelimit backupCommands "|")
+	ScriptUsageEcho "Usage: $(ScriptName) backup job|$(ArrayDelimit backupCommands "|")
 Backup data for the Wiggin network.
 
 	job			run the backup job which backs up all relevant data for the Wiggin network."
@@ -185,7 +185,7 @@ updateWireGuard() { runApp "update" "WireGuard" wiggin update WireGuard; }
 # host commands
 #
 
-hostUsage() { EchoErr "Usage: $(ScriptName) host info|list|on|off|status|sync|update\n\n$hostUsage"; }
+hostUsage() { ScriptUsageEcho "Usage: $(ScriptName) host info|list|on|off|status|sync|update\n\n$hostUsage"; }
 
 hostArgStart()
 {
@@ -205,7 +205,7 @@ hostOpt()
 	esac
 }
 
-hostInfoUsage() { EchoErr "Usage: $(ScriptName) info\n\n	-d, --detail						display detailed information\n$hostUsage"; }
+hostInfoUsage() { ScriptUsageEcho "Usage: $(ScriptName) info\n\n	-d, --detail						display detailed information\n$hostUsage"; }
 hostInfoArgStart() { unset -v detail; }
 hostInfoOpt() { scriptOptDetail "$@"; }
 hostInfoCommand() { GetHosts && RunLog os info "$(ArrayDelimit hosts ",")" $detail; }
@@ -260,7 +260,7 @@ hostUpdate()
 # network commands
 #
 
-networkUsage() { echo "Usage: $(ScriptName) network backup|config|edit|update|validate"; }
+networkUsage() { ScriptUsageEcho "Usage: $(ScriptName) network backup|config|edit|update|validate"; }
 
 networkArgStart()
 {
@@ -294,7 +294,7 @@ networkCommand() { usage; }
 # Network Backup Command
 #
 
-networkBackupUsage() { echo "Usage: $(ScriptName) network backup [dns|dhcp|all](all)\nBackup the DHCP or DNC configuration of HOST.\n\n$hostUsage"; }
+networkBackupUsage() { ScriptUsageEcho "Usage: $(ScriptName) network backup [dns|dhcp|all](all)\nBackup the DHCP or DNC configuration of HOST.\n\n$hostUsage"; }
 networkBackupCommand() { networkBackupAllCommand; }
 networkBackupAllCommand() { networkBackupDhcpCommand && networkBackupDnsCommand; }
 networkBackupDhcpCommand() { GetHostsConfigNetwork "dhcp" && ForAllHosts networkBackupDhcp; }
@@ -340,18 +340,36 @@ networkBackupDns()
 # Network Config
 #
 
-networkConfigUsage() { EchoErr "Usage: $(ScriptName) network config current|reservations|compare"; }
+
+networkConfigUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) network config current|reservations|compare
+Display network configuration.
+
+	-i, --ip		display the IP address"; 
+}
+
 networkConfigCommand() { usage; }
 
-networkConfigReservationsUsage() { EchoErr "Usage: $(ScriptName) network config reservations\nGet DHCP reservation DNS names and MAC addresses in CSV format."; }
+networkConfigArgStart() { unset -v ip; }
+
+networkConfigOpt()
+{
+	case "$1" in
+		-i|--ip) ip="--ip";;
+	esac
+}
+
+networkConfigReservationsUsage() { ScriptUsageEcho "Usage: $(ScriptName) network config reservations\nGet DHCP reservation DNS names and MAC addresses in CSV format."; }
 
 networkConfigReservationsCommand()
 {
 	EchoErr "Getting device reservations..."
-	configFileToCommaDelimited "$dhcpReservations" | tr A-Z a-z | awk -F "," '{ print $1 "," $2 }'
+	local what='print $1 "," $2'; [[ $ip ]] && what+='"," $3'
+	configFileToCommaDelimited "$dhcpReservations" | tr A-Z a-z | awk -F "," "{ $what }"
 }
 
-networkConfigCurrentUsage() { EchoErr "Usage: $(ScriptName) network config current\nGet current network device DNS names and MAC addresses in CSV format."; }
+networkConfigCurrentUsage() { ScriptUsageEcho "Usage: $(ScriptName) network config current\nGet current network device DNS names and MAC addresses in CSV format."; }
 
 networkConfigCurrentCommand()
 {
@@ -361,11 +379,19 @@ networkConfigCurrentCommand()
 
 unifiToCsv()
 {
+	local what='name: .name, mac: .mac'; [[ $ip ]] && what+=', ip: .last_ip, dip: .ip'
 	jq '.data[]
 			| select((has("note") and (.note | startswith("ignore") | not)) or (has("note") | not))
-			| {name: .name, mac: .mac }
+			| {'"$what"'}
 			| join(",")' \
-		| RemoveQuotes | sed 's/[- ()]//g' | sed 's/'\''//g' | LowerCase | sort; 
+		| RemoveQuotes | sed 's/[- ()]//g' | sed 's/'\''//g' | LowerCase | sort | unifiIpFix; 
+}
+
+# unifiIpFix - consolidate the IP address in columns 3, 4, and 5
+unifiIpFix()
+{
+	[[ ! $ip ]] && { cat; return; }
+	awk -F, '{ if ($3 == "") $3=$4; print $1 "," $2 "," $3 }'
 }
 
 networkConfigCompareCommand()
@@ -380,7 +406,7 @@ networkConfigCompareCommand()
 # Network Edit Command
 #
 
-networkEditUsage() { EchoWrap "Usage: $(ScriptName) network edit\nEdit the DHCP and DNC configuration files."; }
+networkEditUsage() { ScriptUsageEcho "Usage: $(ScriptName) network edit\nEdit the DHCP and DNC configuration files."; }
 
 networkEditCommand()
 {
@@ -562,7 +588,7 @@ networkConfigFileValidate()
 # Network Validate Command
 #
 
-networkValidateUsage() { echo "Usage: $(ScriptName) network validate [dns|dhcp|all](all)\nValidate the DHCP or DNC operation of HOST.\n\n$hostUsage"; }
+networkValidateUsage() { ScriptUsageEcho "Usage: $(ScriptName) network validate [dns|dhcp|all](all)\nValidate the DHCP or DNC operation of HOST.\n\n$hostUsage"; }
 networkValidateCommand() { networkValidateAllCommand; }
 networkValidateAllCommand() { networkValidateDhcpCommand && networkValidateDnsCommand; }
 networkValidateDhcpCommand() { networkValidateHosts "DHCP"; }
@@ -634,14 +660,14 @@ networkValidateWait()
 # setup command
 #
 
-setupUsage() { EchoWrap "Usage: $(ScriptName) setup hashi"; }
+setupUsage() { ScriptUsageEcho "Usage: $(ScriptName) setup hashi"; }
 setupCommand() { usage; }
 
 #
 # setup hashi command
 #
 
-setupHashiUsage() { echot "Usage: $(ScriptName) setup hashi\nSetup programs."; }
+setupHashiUsage() { ScriptUsageEcho "Usage: $(ScriptName) setup hashi\nSetup programs."; }
 
 setupHashiCommand()
 {
@@ -681,8 +707,7 @@ hashiService()
 
 syncUsage()
 {
-	EchoWrap "\
-Usage: $(ScriptName) sync broadlink-manager|homebridge|home-assistant|lb|lb-cert|pool-controller|pool-dash-panel|web|wire-guard
+	ScriptUsageEcho "Usage: $(ScriptName) sync broadlink-manager|homebridge|home-assistant|lb|lb-cert|pool-controller|pool-dash-panel|web|wire-guard
 Synronize Wiggin application data.\n\n$syncUsage"
 }
 
@@ -704,34 +729,34 @@ syncOpt()
 	esac
 }
 
-syncHomebridgeUsage() { EchoWrap "Usage: $(ScriptName) sync homebridge [cert]\nSyncronize Homebridge configuration.\n\n$syncUsage"; }
+syncHomebridgeUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync homebridge [cert]\nSyncronize Homebridge configuration.\n\n$syncUsage"; }
 syncHomebridgeCommand() { GetHostsService "lb" && ForAllHosts syncHomebridge --header "Sync Homebridge"; }
 syncHomebridge() { unisonArgs=(-ignore "Name {backups,homebridge.err,homebridge.log,node_modules}"); syncDir "$1" "/var/lib/homebridge"; }
 
-syncBroadlink-managerUsage() { EchoWrap "Usage: $(ScriptName) sync broadlink-manager\nSyncronize Broadlink Manager configuration.\n\n$syncUsage"; }
+syncBroadlink-managerUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync broadlink-manager\nSyncronize Broadlink Manager configuration.\n\n$syncUsage"; }
 syncBroadlink-managerCommand() { GetHostsService "broadlink-manager" && ForAllHosts syncBroadlinkManager --header "Sync Broadlink Manager"; }
 syncBroadlinkManager() { syncDir "$1" "/srv/broadlinkmanager"; }
 
-syncLbUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize load balancer configuration (NGINX rever proxy servers).\n\n$syncUsage"; }
+syncLbUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb [cert]\nSyncronize load balancer configuration (NGINX rever proxy servers).\n\n$syncUsage"; }
 syncLbCommand() { GetHostsService "lb" && ForAllHosts syncLb --header "Sync Load Balancer"; }
 syncLb() { unisonArgs=(-ignore "Name {sites-available/*.conf}"); syncDir "$1" "/etc/nginx,/etc/consul-template.d" "consul-template,nginx"; }
 
-syncLb-certUsage() { EchoWrap "Usage: $(ScriptName) sync lb cert\nSyncronize load balancer SSL certificates.\n\n$syncUsage"; }
+syncLb-certUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb cert\nSyncronize load balancer SSL certificates.\n\n$syncUsage"; }
 syncLb-certCommand() { GetHostsService "lb" && ForAllHosts syncLbCert --header "Sync Certificates"; }
 syncLbCert() { syncDir "$1" "/etc/letsencrypt"; }
 
-syncPool-controllerUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize Pool Dash Panel configuration.\n\n$syncUsage"; }
+syncPool-controllerUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb [cert]\nSyncronize Pool Dash Panel configuration.\n\n$syncUsage"; }
 syncPool-controllerCommand() { GetHostsService "pool-controller" && ForAllHosts syncPoolController --header "Sync Pool Controller Files"; }
 syncPoolController() { unisonArgs=(); syncDir "$1" "/opt/pool-controller/data"; }
 
-syncPool-dash-panelUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize Pool Dash Panel configuration.\n\n$syncUsage"; }
+syncPool-dash-panelUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb [cert]\nSyncronize Pool Dash Panel configuration.\n\n$syncUsage"; }
 syncPool-dash-panelCommand() { GetHostsService "pool-dash-panel" && ForAllHosts syncPoolDashPanel --header "Sync Pool Dash Panel Files"; }
 syncPoolDashPanel() { unisonArgs=(-ignorenot "Name {config.json}" -ignore "Regex .*[^.]" ); syncDir "$1" "/opt/pool-dash-panel"; }
 
-syncWebUsage() { EchoWrap "Usage: $(ScriptName) sync lb cert\nSyncronize web site data.\n\n$syncUsage"; }
+syncWebUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb cert\nSyncronize web site data.\n\n$syncUsage"; }
 syncWebCommand() { apache sync "${hostOpt[@]}" "${globalArgs[@]}"; }
 
-syncWire-guardUsage() { EchoWrap "Usage: $(ScriptName) sync lb [cert]\nSyncronize WireGuard configuration.\n\n$syncUsage"; }
+syncWire-guardUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb [cert]\nSyncronize WireGuard configuration.\n\n$syncUsage"; }
 syncWire-guardCommand() { GetHostsService "wire-guard" && ForAllHosts syncWireGuard --header "Sync WireGuard Files"; }
 syncWireGuard() { unisonArgs=(-ignore "Name {setupVars.conf}"); syncDir "$1" "/etc/wireguard,/etc/pivpn" "wg-quick@wg0"; }
 
@@ -739,7 +764,7 @@ syncWireGuard() { unisonArgs=(-ignore "Name {setupVars.conf}"); syncDir "$1" "/e
 # sync home-assistant command
 #
 
-syncHome-assistantUsage() { EchoWrap "Usage: $(ScriptName) sync hass [cert]\nSyncronize Home Assistant configuration.\n\n$$syncUsage"; }
+syncHome-assistantUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync hass [cert]\nSyncronize Home Assistant configuration.\n\n$$syncUsage"; }
 
 syncHome-assistantCommand()
 {
@@ -773,10 +798,10 @@ syncHomeAssistant()
 # update commands
 #
 
-updateUsage() { echot "Usage: $(ScriptName) update CloudFlare|JumpCloud|WireGuard\nUpdate Wiggin network configuration."; }
+updateUsage() { ScriptUsageEcho "Usage: $(ScriptName) update CloudFlare|JumpCloud|WireGuard\nUpdate Wiggin network configuration."; }
 updateCommand() { usage; }
 
-updateJumpcloudUsage() { echot "Usage: $(ScriptName) update JumpCloud\nUpdate JumpCloud RADIUS IP Address with the the current WAN IP addresses."; }
+updateJumpcloudUsage() { ScriptUsageEcho "Usage: $(ScriptName) update JumpCloud\nUpdate JumpCloud RADIUS IP Address with the the current WAN IP addresses."; }
 
 updateJumpcloudCommand()
 {
@@ -789,7 +814,7 @@ updateJumpcloudCommand()
 	JumpCloud radius update wiggin-dsl "$ip" > /dev/null || return; echo
 }
 
-updateWireguardUsage() { echot "Usage: $(ScriptName) update WireGuard\nUpdate the router port forward rule for the current WireGuard server."; }
+updateWireguardUsage() { ScriptUsageEcho "Usage: $(ScriptName) update WireGuard\nUpdate the router port forward rule for the current WireGuard server."; }
 
 updateWireguardCommand()
 {
@@ -813,7 +838,7 @@ updateWireguardCommand()
 	RunLog UniFiController port host "WireGuard" "$ip"
 }
 
-updateCloudflareUsage() { echot "Usage: $(ScriptName) update CloudFlare\nUpdate CloudFlare DNS with the current WAN IP addresses."; }
+updateCloudflareUsage() { ScriptUsageEcho "Usage: $(ScriptName) update CloudFlare\nUpdate CloudFlare DNS with the current WAN IP addresses."; }
 
 updateCloudflareCommand()
 {
