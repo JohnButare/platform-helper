@@ -109,7 +109,6 @@ installInit()
 		[cc]="CreativeCloud"
 		[cctray]="CruiseControlTray"
 		[code]="VisualStudioCode"
-		[consul]="ConsulCli"
 		[cts]="ConsulTemplateService"
 		[ddm]="DellDisplayManager"
 		[dnsserver]="bind"
@@ -134,8 +133,6 @@ installInit()
 		[ff]="firefox"
 		[ghub]="LogitechGhub"
 		[named]="bind"
-		[nomad]="NomadCli"
-		[vault]="VaultCli"
 		[hasscli]="HomeAssistantCli"
 		[hass]="HomeAssistantServer"
 		[hassintegrations]="HomeAssistantIntegrations"	
@@ -223,10 +220,7 @@ installInit()
 	macDebian+=(haskell bench)
 
 	# HashiCorp
-	macDebian+=(HashiUpdate HashiProgram ConsulProgram VaultProgram NomadProgram)
-	macDebian+=(HashiCli ConsulCli NomadCli VaultCli)
-	macDebian+=(HashiServer ConsulServer NomadServer VaultServer HashiServerUpdate ConsulServerUpdate NomadServerUpdate VaultServerUpdate)
-	macDebian+=(HashiUp ConsulDocker ConsulK8s ConsulTemplate ConsulTemplateService damon NomadServerTools sockaddr wander)
+	macDebian+=(damon sockaddr vagrant wander)
 
 	# Home Automation
 	debian+=(HomeAssistant HomeAssistantServer HomeAssistantIntegrations HomeAssistantNomad)
@@ -503,7 +497,7 @@ getInstallFunction()
 	[[ ${aliases[$app]} ]] && app="${aliases[$app]}"
 
 	# find the install function (with Install suffix)
-	declare -f | grep -iE "^${app}Install \(\) $" | sed "s/ () //"
+	declare -f | ${G}grep -iE "^${app}Install \(\) $" | sed "s/ () //"
 	return ${PIPESTATUS[1]}
 }
 
@@ -603,7 +597,8 @@ isInstallable()
 	IsInArray -ci "$check" winElevated && IsPlatform win && ! CanElevate && return 1
 
 	# app name checks
-	[[ "$check" =~ ^(.*all|app.*|bootstrap.*|hashi.*|.*core|ssh.*)$ ]] && return
+	[[ "$check" =~ ^(.*all|app.*|bootstrap.*|.*core|ssh.*)$ ]] && return
+	[[ "$check" =~ ^(hashi.*|consul.*|nomad.*|vault.*)$ ]] && IsPlatform debian && return
 	[[ "$check" =~ ^(debian.*)$ ]] && IsPlatform debian && return
 	[[ "$check" =~ ^(linux.*)$ ]] && IsPlatform linux,mac,win && return
 	[[ "$check" =~ ^(mac.*)$ ]] && IsPlatform mac && return
@@ -4239,65 +4234,54 @@ SaltMinionInstall()
 # IT Management - HashiCorp
 #
 
-HashiAll() { i HashiUpdate HashiOtherInstall HashiCliInstall HashiProgramInstall HashiServerInstall HashiServerUpdate; }
-HashiOtherAll() { i ConsulK8s ConsulTemplate ConsulTemplateService HashiUp sockaddr vagrant; }
+HashiAllInstall() { i hashi HashiUpdate HashiServer HashiServerUpdate HashiOther HashiUtilities; }
+HashiOtherInstall() { i ConsulDocker ConsulK8s ConsulTemplate ConsulTemplateService HashiUp NomadServerTools; }
+HashiUtilitiesInstall() { i damon sockaddr vagrant wander; }
 
-# Hashi CLI - install programs, certificates, and other setup necessary to run Hashi tools on the command line as clients
-HashiCliInstall() { i VaultCli ConsulCli NomadCli; }
-ConsulCliInstall() { hashiCli "consul"; }
-NomadCliInstall() { hashiCli "nomad"; }
-VaultCliInstall() { hashiCli "vault"; }
+#  hashi - install Hashi program only by decrompressing downloads in install directory and update the program locally
+HashiInstall() { i consul nomad vault; }
+ConsulInstall() { hashiCli "consul"; }
+NomadInstall() { hashiCli "nomad"; }
+VaultInstall() { hashiCli "vault"; }
 
-hashiCli()
-{	
-	local what="$1"; header "${what^} CLI"
-	[[ ! $force ]] && ! UpdateNeeded "$what-cli" && return
-	RunLog hashi install cli "$what" --encrypt "${globalArgs[@]}" "${otherArgs[@]}" && UpdateDone "$what-cli"
+# hashiCli consul|nomad|vaault - install a Hashi program, certificates, and other setup necessary to run Hashi tools on the command line as clients
+hashiCli() 
+{
+	local what="$1"; header "${what^}"
+
+	# check version
+	if [[ ! $force ]] && InPath "$what"; then
+		local installedVersion; installedVersion="$(hashiInstalledVersion "$what")" || return
+		local latestVersion; latestVersion="$(hashiLatestVersion "$what")" || return
+		log1 "install $what: installedVersion=$installedVersion latestVersion=$latestVersion"
+		[[ "$installedVersion" == "$latestVersion" ]] && return
+	fi
+
+	# update the program if it is already installed, or run the full CLI install
+	if [[ ! $force ]] && InPath "$what"; then
+		run --no-header --executable --no-install-check "other/HashiCorp/$1"
+	else
+		RunLog hashi install cli "$what" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"
+	fi
 }
 
-# Hashi Server - install Hashi server on the specified servers, set servers explicitly for safety
-HashiServerInstall() { i ConsulServer NomadServer VaultServer; }
-ConsulServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerConsul; }
-NomadServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerNomad; }
-VaultServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerVault; }
-
-hashiServerConsul() { local host="$1"; hashiServer "consul" "$host" && sshRun "$host" "inst ConsulDocker"; }
-hashiServerNomad() { local host="$1"; hashiServer "nomad" "$host" && sshRunInteractive "$host" "inst NomadServerTools"; }
-hashiServerVault() { local host="$1"; hashiServer "vault" "$host"; }
-hashiServer() { local what="$1" host="$2"; header "${what^} Server ($host)"; RunLog hashi install service "$what" --host="$host" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
-
-# update - update local program and server
-HashiUpdateInstall() { i HashProgramDownload HashiProgram && i HashiServerUpdate -H=pi3 && pause "Check status..." && i HashiServerUpdate; }
-
-# program install - install Hashi program only by decrompressing downloads in install directory and update the program locally
-HashiProgramInstall() { i ConsulProgram NomadProgram VaultProgram; }
-ConsulProgramInstall() { hashiProgram "consul"; }
-NomadProgramInstall() { hashiProgram "nomad"; }
-VaultProgramInstall() { hashiProgram "vault"; }
-
-hashiProgram() { run --header "${1^} Program" --executable --no-install-check "other/HashiCorp/$1"; }
-
-# program download
-HashiProgramDownload() { i ConsulProgramDownload NomadProgramDownload VaultProgramDownload; }
-ConsulProgramDownload() { hashiDownload "consul"; } # https://www.consul.io/downloads.html
-NomadProgramDownload() { hashiDownload "nomad"; }		# https://www.nomadproject.io/downloads
-VaultProgramDownload() { hashiDownload "vault"; }		# https://www.vaultproject.io/downloads
+HashiDownload() { i ConsulDownload NomadDownload VaultDownload; }
+ConsulDownload() { hashiDownload "consul"; } 	# https://www.consul.io/downloads.html
+NomadDownload() { hashiDownload "nomad"; }		# https://www.nomadproject.io/downloads
+VaultDownload() { hashiDownload "vault"; }		# https://www.vaultproject.io/downloads
 
 hashiDownload()
 {
-	local program="$1"
-	header "${program^} Download"
+	local what="$1"
+	header "${what^} Download"
 
 	# find the install ocation
-	findFile "other/HashiCorp/$program" || return; cd "$file" || return
-
-	# get latest version
-	local url="https://releases.hashicorp.com/$program"
-	local version; version="$(curl -s "$url" | grep "$program" | grep -v "+ent" | head -1 | cut -d">" -f2 | cut -d"<" -f1 | cut -d"_" -f2)"
-	[[ ! $version ]] && { ScriptErr "cannot get ${program^} version"; return 1; }
+	findFile "other/HashiCorp/$what" || return; cd "$file" || return
 
 	# download
-	local prefix="$url/$version/${program}_${version}"
+	local url; url="$(hashiReleaseUrl "$what")" || return
+	local version; version="$(hashiLatestVersion "$what")" || return
+	local prefix="$url/$version/${what}_${version}"
 	local suffix suffixes=("darwin_amd64" "darwin_arm64" "linux_amd64" "linux_arm" "linux_arm64" "windows_amd64")
 
 	for suffix in "${suffixes[@]}"; do
@@ -4314,13 +4298,50 @@ hashiDownload()
 	extractFiles || return
 }
 
+# Hashi Server - install Hashi server on the specified servers, set servers explicitly for safety
+HashiServerInstall() { i ConsulServer NomadServer VaultServer; }
+ConsulServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerConsul; }
+NomadServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerNomad; }
+VaultServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerVault; }
+
+hashiServerConsul() { local host="$1"; hashiServer "consul" "$host" && sshRun "$host" "inst ConsulDocker"; }
+hashiServerNomad() { local host="$1"; hashiServer "nomad" "$host" && sshRunInteractive "$host" "inst NomadServerTools"; }
+hashiServerVault() { local host="$1"; hashiServer "vault" "$host"; }
+hashiServer() { local what="$1" host="$2"; header "${what^} Server ($host)"; RunLog hashi install service "$what" --host="$host" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
+
+# hashi update - download latest programs, update locally, update a test server, then update all servers
+HashiUpdateInstall() { i HashiDownload && i hashi && i HashiServerUpdate -H=pi3 && pause "Check status..." && i HashiServerUpdate; }
+
 # Hashi Server Update - extract new executables and install them on the specified servers
 HashiServerUpdateInstall() { ForAllHosts hashiServerUpdate all; }
 ConsulServerUpdateInstall() { ForAllHosts hashiServerUpdate consul; }
 NomadServerUpdateInstall() { ForAllHosts hashiServerUpdate nomad; }
 VaultServerUpdateInstall() { ForAllHosts hashiServerUpdate vault; }
 
-hashiServerUpdate() { local what="$1" host="$2"; hashi update service program $what --host="$host" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
+hashiServerUpdate() { local what="$1" host="$2"; command hashi update service program $what --host="$host" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
+
+# helper
+hashiReleaseUrl() { echo "https://releases.hashicorp.com/$1"; }
+hashiInstalledVersion() { InPath "$1" && "$1" --version | head -1 | cut -d" " -f2 | cut -d"v" -f2; }
+
+hashiLatestVersion()
+{
+	# find the install ocation
+	findFile "other/HashiCorp/$what" || return; cd "$file" || return
+
+	# return if we do not need to  update the version
+	[[ ! $force ]] && ! UpdateNeeded "$what-version" && { cat "version.txt"; return; }
+
+	# get the version
+	local what="$1" url; url="$(hashiReleaseUrl "$what")" || return
+	local version; version="$(curl -s "$url" | grep "$what" | grep -v "+ent" | head -1 | cut -d">" -f2 | cut -d"<" -f1 | cut -d"_" -f2)"
+	[[ ! $version ]] && { ScriptErr "cannot get ${program^} version"; return 1; }
+
+	# save and return the version
+	echo "$version" > "version.txt" || return
+	UpdateDone "$what-version" || return
+	echo "$version"	
+}
 
 # other
 ConsulK8sInstall() { run --name "consul-k8s" --executable "other/HashiCorp/consul-k8s"; } # https://releases.hashicorp.com/consul-k8s/
