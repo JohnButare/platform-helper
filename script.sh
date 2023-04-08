@@ -434,14 +434,16 @@ ScriptRun()
 		[[ $firstCommand ]] && c="$(LowerCase "$1")" || c="$(ProperCase "$1")"
 
 		# commands that start with 'is' are proper cased after is, i.e. isAvailable
+
 		if [[ "$(LowerCase "$c")}" =~ ^is..* ]]; then
 			local prefix="${c:0:2}" suffix="${c#??}"
 			[[ $firstCommand ]] && prefix="${prefix,,}" || prefix="$(ProperCase "$prefix")"
-			c="${prefix}$(ProperCase "${suffix}")"
+			local check="${prefix}$(ProperCase "${suffix}")" # i.e. isAvailble
+			IsFunction "${command}${check}Command" && c="$check"
 		fi
 
 		# the argument is a command if there is a function for it
-		c="${command}${c}Command"
+		c="${command}${c}Command"	
 		if IsFunction "$c"; then
 			command="${c%Command}" commands+=("$command") commandNames+=("$(LowerCase "$1")")			
 		else
