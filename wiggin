@@ -343,7 +343,7 @@ networkBackupDns()
 
 networkConfigUsage()
 {
-	ScriptUsageEcho "Usage: $(ScriptName) network config current|reservations|compare
+	ScriptUsageEcho "Usage: $(ScriptName) network config active|compare|current|issues|reservations
 Display network configuration.
 
 	-i, --ip		display the IP address"; 
@@ -358,6 +358,45 @@ networkConfigOpt()
 	case "$1" in
 		-i|--ip) ip="--ip";;
 	esac
+}
+
+networkConfigIssueCommand()
+{
+	local file="/tmp/active.json"
+	UniFiController api "/stat/sta" | jq > "$file" || return
+
+	# missign IP
+	#local missingIp; missingIp="$(cat "$file" | jq '.data[] | select(has("last_ip") | not) | .name' | RemoveQuotes | toDnsName | sort | uniq)"	
+	#echo $missingIp
+
+	# MAC address with no reservation
+	
+	# DNS name -
+	#local active; IFS=$'\n' active=( $(cat "$file" | configActive | toDnsName) )
+	#time parallel -i bash -c ". function.sh; DnsResolve {}" -- "${active[@]}"
+
+	# DNS name - check against name	
+	#local active; ip=true IFS=$'\n' active=( $(cat "$file" | configActive | toDnsName) )
+
+	# list inactive
+
+	# IsAvailable
+	local active; ip= IFS=$'\n' active=( $(cat "$file" | configActive | toDnsName) )
+	time parallel -i bash -c ". function.sh; IsAvailable {} 5000 || echo {}" -- "${active[@]}"
+	
+	# time for a in "${active[@]}"; do DnsResolve "$a"; done
+}
+
+networkConfigActiveCommand() { UniFiController api "/stat/sta" | configActive; }
+
+# configActive - return active host "name" or "ip,name"
+configActive()
+{
+	if [[ $ip ]]; then
+		jq '.data[] | { ip: .last_ip, name: .name } | join(",") ' | RemoveQuotes | grep -v null | ${G}sort -V | uniq
+	else
+		jq '.data[].name' | RemoveQuotes | sort | uniq
+	fi
 }
 
 networkConfigReservationsUsage() { ScriptUsageEcho "Usage: $(ScriptName) network config reservations\nGet DHCP reservation DNS names and MAC addresses in CSV format."; }
@@ -384,8 +423,10 @@ unifiToCsv()
 			| select((has("note") and (.note | startswith("ignore") | not)) or (has("note") | not))
 			| {'"$what"'}
 			| join(",")' \
-		| RemoveQuotes | sed 's/[- ()]//g' | sed 's/'\''//g' | LowerCase | sort | unifiIpFix; 
+		| RemoveQuotes | toDnsName | sort | unifiIpFix; 
 }
+
+toDnsName() { sed 's/[- ()]//g' | sed 's/'\''//g' | LowerCase; }
 
 # unifiIpFix - consolidate the IP address in columns 3, 4, and 5
 unifiIpFix()
