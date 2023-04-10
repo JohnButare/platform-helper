@@ -138,9 +138,9 @@ CheckPlatform || return
 # Environment Variables
 #
 
-# P=apps, SRV=server apps, BIN=programs, PBIN=platform programs, DATA=common data, ADATA=application data, ACONFIG=application configuration
+# P=apps, PUSER=user apps, SRV=server apps, BIN=programs, PBIN=platform programs, DATA=common data, ADATA=application data, ACONFIG=application configuration
 # PUB=public documents, USERS=users home directory, VOLUMES=mounted system volumes
-P="/opt" SRV="/srv" BIN="" DATA="" ADATA="" ACONFIG="" PUB="" USERS="/home" VOLUMES="/mnt"
+P="/opt" PUSER="" SRV="/srv" BIN="" DATA="" ADATA="" ACONFIG="" PUB="" USERS="/home" VOLUMES="/mnt"
 
 # USER=logged on user, SUDO_USER, HOME=home directory, DOC=user documents, UDATA=user data, UBIN=user programs
 # UDATA=user data, UADATA=user application data, CODE=source code WIN_CODE=windows source code
@@ -167,7 +167,7 @@ case "$PLATFORM_OS" in
 		WIN_CODE="$WIN_HOME/code"
 		WIN_DOC="$WIN_HOME/Documents"
 		WIN_UDATA="$WIN_HOME/data"	
-		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" UADATA="$WIN_HOME/AppData/Local"
+		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" UADATA="$WIN_HOME/AppData/Local" PUSER="$UADATA/Programs"
 		;;
 
 esac
