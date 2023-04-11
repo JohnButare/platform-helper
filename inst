@@ -37,7 +37,7 @@ Install an application.  To run a portion of the installation, the application n
 	-s,  --select					select the install location"
 }
 
-installArgStart() { unset -v apps hint hostArg hostOpt hosts installType noHeader noHelp npProfile noPrompt noRegister noRun select; }
+installArgStart() { unset -v alternate apps hint hostArg hostOpt hosts installType noHeader noHelp npProfile noPrompt noRegister noRun select; }
 
 installOpt() 
 {
@@ -58,7 +58,7 @@ installOpt()
 installArgs() { apps=("$@"); shift="$#"; }
 
 installCommand() { installDo; }
-installAlternateCommand() { installType="alternate"; installDo; }
+installAlternateCommand() { installType="alternate" alternate="--alternate"; installDo; }
 installBetaCommand() { installType="beta"; installDo; }
 installCompileCommand() { installType="compile"; installDo; }
 installLocalCommand() { installType="local"; installDo; }
@@ -404,6 +404,20 @@ copyLocal()
 	echo "$t/$(GetFileName "$file")"
 }
 
+# download URL DIR [FILE](URL filename) - download url to file in dir
+download()
+{
+	local url="$1" dir="$2" file="${3:-$(GetFileName "$1")}"
+	
+	# change to download directory and check if file exists
+	findFileCd "$dir" || return
+	[[ -f "$file" && ! $force ]] && return
+
+	# download
+	hilight "Downloading '$(GetFileName "$file")'..."
+	curl --location "$url" --output "$file" && echo
+ }
+
 findCompareProgram()
 {
 	unset args name program
@@ -420,6 +434,8 @@ findEditorProgram()
 	program="$(GetTextEditor)"
 }
 
+# findFile [-q|--quiet] FILE - find the full installation path specified by file.
+#   Set the file variable to the full path of the found file.
 findFile()
 {
 	local quiet; [[ "$1" == @(-q|--quiet) ]] && { quiet="true"; shift; }
@@ -441,6 +457,9 @@ findFile()
 	[[ $pattern ]] && { SelectFile "$file" "$pattern" || return; }
 	return 0
 }
+
+# findFileCd FILE - change to the full installation path specified by fi;e.
+findFileCd() { local file="$1"; findFile "$file" && cd "$file"; }
 
 extractFiles()
 {
@@ -499,6 +518,36 @@ getInstallFunction()
 	# find the install function (with Install suffix)
 	declare -f | ${G}grep -iE "^${app}Install \(\) $" | sed "s/ () //"
 	return ${PIPESTATUS[1]}
+}
+
+# getVersion APP FILE - get version of application using the function ${app}Version.
+#   Version information is cached at the install file location.
+getVersion()
+{
+	local app="$1" file="$2"
+	local function="${app,}Version" track=".$app-version"; [[ "$installType" == "beta" ]] && track+="-beta" function+="Beta"
+
+	# change to the install ocation
+	findFileCd "$file" || return
+
+	# return if we do not need to  update the version
+	[[ ! $force ]] && ! UpdateNeeded "$track" && { cat "$track"; return; }
+
+	# get the version
+	local version; version="$($function)"
+	[[ ! $version ]] && { ScriptErr "could not get ${app^} version"; return 1; }
+
+	# save and return the version
+	echo "$version" > "$track" || return
+	UpdateDone "$track" || return
+	echo "$version"	
+
+}
+
+# getWin PRIMARY ALTERNATE - use Debian package for alternate Windows install
+getWin()
+{
+	[[ $alternate ]] && echo "deb" || echo "exe"
 }
 
 header()
@@ -742,7 +791,7 @@ run()
 	[[ ! "$dest" ]] && dest="$P"
 
 	# version check
-	local forceVersion; [[ $version && ! $force ]] && { versionCheck "${name:-$header}" "$version" && return; forceVersion="true"; }
+	local forceVersion; [[ $version && ! $force ]] && { ! versionCheckApp "${name:-$header}" "$version" && return; forceVersion="true"; }
 
 	# variables
 	local platform; unset ran
@@ -1178,12 +1227,40 @@ runXip()
 	sudo unxip "$p" "$dest" || return
 }
 
+# versionCheckApp APP CHECK - return true if install is needed (the installed version is older than check version)
+versionCheckApp()
+{
+	local app="$1" check="$2"
+	[[ ! $app ]] && { MissingOperand "app" "versionCheckApp"; }
+	[[ ! $check ]] && { MissingOperand "check" "versionCheckApp"; }
+	! appIsInstalled "$app" || versionCheck "$app" "$(AppVersion --quiet "$(echo "$app" | sed 's/ //g')")" "$check"
+}
+
+# versionCheck APP INSTALLED CHECK - return true install is needed (the installed version is older than check version)
 versionCheck()
 {
-	local name="$1" version="$2"
-	[[ ! $name ]] && { MissingOperand "name" "versionCheck"; }
-	[[ ! $version ]] && { MissingOperand "version" "versionCheck"; }
-	[[ "$(AppVersion --quiet "$(echo "$name" | sed 's/ //g')")" == "$version" ]]
+	local app="$1" installed="$2" check="$3"
+	[[ ! $app ]] && { MissingOperand "app" "versionCheck"; }
+	[[ ! $installed ]] && { MissingOperand "installed" "versionCheck"; }
+	[[ ! $check ]] && { MissingOperand "check" "versionCheck"; }
+
+	# install is forced
+	[[ $force ]] && return 0
+
+	# logging
+	log1 "installed=$installed"
+	log1 "new=$check"
+	
+	# return false if the installed version is the same as the version we are checking
+	[[ "$installed" == "$check" ]] && return 1
+
+	# return false and display an error if the installed version is newer than the version we are checking
+	if [[ "$(echo -e "$installed\n$check" | sort -V | head -1)" == "$check" ]]; then
+		ScriptErrQuiet "the installed version of ${app^} ($installed) is newer than the version to install ($check)"
+		return 1
+	fi
+
+	return 0
 }
 
 
@@ -1860,10 +1937,12 @@ EdgeFinalWin()
 
 FirefoxInstall()
 {
-	header "Firefox"; local v="111.0" # https://www.mozilla.org/en-US/firefox/all/
+	header "Firefox"
 
-	# version check
-	firefox IsInstalled && [[ "$(firefox version)" == "Mozilla Firefox $v" && ! $force ]] && return
+	# check version
+	local dir="other/Mozilla/Firefox"
+	local v; v="$(getVersion "firefox" "$dir")"
+	! versionCheckApp "firefox" "$v" && return
 
 	# install
 	if IsPlatform mac,win; then run "other/Mozilla/Firefox/Firefox Setup $v.$(getArch "msi" "exe")|Firefox $v.dmg" --dest="firefox" --copy-local
@@ -1878,40 +1957,22 @@ FirefoxRegister() { register "firefox"; }
 
 FirefoxDownload()
 {
-	header "Firtefox Download"
+	header "Firefox Download" # https://www.mozilla.org/en-US/firefox/all/
 
-	# change to the install location
-	local file; findFile "other/Mozilla/Firefox" || return; cd "$file" || return
-
-	# get version
-	local url="http://www.mozilla.org/en-US/firefox/notes"
-	local v="$(curl --silent --location "$url" | grep "Firefox " | head -1 | tr -s " " | cut -d" " -f3 | cut -d"," -f1)"
-	[[ ! $v ]] && { ScriptErr "unable to get the current Firefox version from '$url'"; return 1; }
-
-	# check version
-	[[ -f "version.txt" && "$(cat "version.txt")" == "$v" && ! $force ]] && return
-
-	# store version
-	echo "$v" > "version.txt" || return
-
-	# download
+	local dir="other/Mozilla/Firefox"
+	local v; v="$(getVersion "firefox" "$dir")" || return
 	local baseUrl="https://download.mozilla.org/?lang=en-US&product=firefox-latest-ssl&os="
 	local suffix suffixes=("linux64" "osx" "win64" "win64-aarch64")
+
 	for suffix in "${suffixes[@]}"; do
-		local downloadUrl="$baseUrl$suffix"
-		[[ "$suffix" == "win64" ]] && downloadUrl="https://download.mozilla.org/?product=firefox-msi-latest-ssl&os=win64&lang=en-US"
-		url="$(curl --silent -H -L "$downloadUrl" | cut -d"\"" -f2)" || { ScriptErr "unable to get the Firefox download URL from '$downloadUrl'"; return 1; }		
-		file="$(GetFileName "$url" | UrlDecode)"
-		[[ -f "$file" ]] && { rm "$file" || return; }
-		hilight "Downloading '$file'..."
-		curl -L "$url" --output "$file" || return
-		echo
+		local downloadUrl="$baseUrl$suffix"; [[ "$suffix" == "win64" ]] && downloadUrl="https://download.mozilla.org/?product=firefox-msi-latest-ssl&os=win64&lang=en-US"
+		local url="$(curl --silent --header --location "$downloadUrl" | cut -d"\"" -f2)" || { ScriptErr "unable to get the Firefox download URL from '$downloadUrl'"; return 1; }		
+		local file="$(GetFileName "$url" | UrlDecode)"
+		download "$url" "$dir" "$file" || return
 	done
-
-	# show version
-	echo "Downloaded Firefox version $v"
-
 }
+
+firefoxVersion() { curl --silent --location "http://www.mozilla.org/en-US/firefox/notes" | grep "Firefox " | head -1 | tr -s " " | cut -d" " -f3 | cut -d"," -f1; }
 
 FirefoxHelp()
 {
@@ -1963,43 +2024,38 @@ CompareCoreInstall()
 
 BeyondCompareInstall()
 {
-	local v=4.4.6.27483 # http://www.scootersoftware.com/download.php
 	IsPlatform linux && BeyondCompare IsInstalled && [[ ! $force ]] && return
-	run --name "BeyondCompare" --header "Beyond Compare" "other/Scooter Software/Beyond Compare/setup/BCompare-${v}_x64.msi|BCompareOSX-${v}.zip|bcompare-${v}_amd64.deb" --version=$v --copy-local || return
+
+	# check version
+	local dir="other/Scooter Software/Beyond Compare/setup"
+	local v; v="$(getVersion "BeyondCompare" "$dir")"
+	! versionCheckApp "BeyondCompare" "$v" && return
+
+	run --name "BeyondCompare" --header "Beyond Compare" "$dir/BCompare-${v}_x64.msi|BCompareOSX-${v}.zip|bcompare-${v}_amd64.deb" --version=$v --copy-local || return
 }
 
 BeyondCompareDownload()
 {
 	header "BeyondCompare Download"
 
-	# change to the install location
-	local file; findFile "other/Scooter Software/Beyond Compare/setup" || return; cd "$file" || return
-
-	# get version
-	local url="https://www.scootersoftware.com/download.php"	
-	local s; s="$(curl --silent "$url" | grep "Current Version" | cut -d";" -f2)" || { ScriptErr "unable to get the current BeyondCompare version from '$url'"; return 1; }
-	local v="$(echo "$s" | cut -d"," -f1 | RemoveSpaceTrim)" || return
-	local build="$(echo "$s" | cut -d"," -f2 | cut -d" " -f3)"
-	[[ ! $v || ! $build ]] && { ScriptErr "unable to get the current BeyondCompare version from '$url'"; return 1; }
-	v="$v.$build"	
-
 	# check version
-	[[ -f "version.txt" && "$(cat "version.txt")" == "$v" && ! $force ]] && return
-
-	# store version
-	echo "$v" > "version.txt" || return
+	local dir="other/Scooter Software/Beyond Compare/setup"
+	local v; v="$(getVersion "BeyondCompare" "$dir")"
 
 	# download
 	local file files=("BCompare-${v}_x64.msi" "BCompareSetup-$v.zip" "BCompareOSX-${v}.zip" "bcompare-${v}_amd64.deb")
 	for file in "${files[@]}"; do
-		[[ -f "$file" ]] && { rm "$file" || return; }
-		hilight "Downloading '$file'..."
-		curl -L "https://www.scootersoftware.com/$file" --output "$file" || return
-		echo
+		download "https://www.scootersoftware.com/$file" "$dir" "$file"
 	done
+}
 
-	# show version
-	echo "Downloaded BeyondComalpare version $v"
+beyondCompareVersion()
+{
+	local url="https://www.scootersoftware.com/download.php"	
+	local s; s="$(curl --silent "$url" | grep "Current Version" | cut -d";" -f2)" || return
+	local prefix="$(echo "$s" | cut -d"," -f1 | RemoveSpaceTrim)"
+	local build="$(echo "$s" | cut -d"," -f2 | cut -d" " -f3)"
+	echo "$prefix.$build"
 }
 
 BeyondCompareProfile()
@@ -2586,8 +2642,9 @@ FileHostingCoreInstall() { i Dropbox iCloud OneDrive; }
 
 DropboxInstall()
 {
-	local v="171.4.6182" # i DropboxDownload; https://www.dropbox.com/install-linux
-	run --name "dropbox" "other/Dropbox/Dropbox $v Offline Installer.x86.exe|Dropbox${mac}.dmg" --version=$v --elevate -- /S || return
+	local dir="other/Dropbox"
+	local v; v="$(getVersion "dropbox" "$dir")" || return
+	run --name "dropbox" "$dir/Dropbox $v.exe|Dropbox $v.dmg" --version=$v --elevate -- /S || return
 } 
 
 DropboxHelp()
@@ -2633,21 +2690,19 @@ DropboxDownload()
 {
 	header "Dropbox Download"
 
-	# find the install ocation
-	findFile "other/Dropbox" || return; cd "$file" || return
+	local dir="other/Dropbox"
+	local v; v="$(getVersion "dropbox" "$dir")" || return
+	local platform platforms=("mac" "win")
 
-	# download
-	local url urls=("https://www.dropbox.com/download?full=1&plat=mac" "https://www.dropbox.com/download?full=1&plat=win")
-	for url in "${urls[@]}"; do
-		local file; file="$(curl --silent -H -L "$url" |& grep "The resource was found" | cut -d" " -f6 | RemoveAfter ';' | UrlDecodeAlt)" || { ScriptErr "unable to download '$url'"; return 1; }
-		file="$(GetFileName "$file")"
-		if [[ $force || ! -f "$file" ]]; then
-			hilight "Downloading '$file'..."
-			curl -L "$url" --output "$file" || return
-			echo .
-		fi
+	for platform in "${platforms[@]}"; do
+		local url="https://www.dropbox.com/download?build=${v}&plat=${platform}&type=full"
+		local ext="exe"; [[ "$platform" == "mac" ]] && ext="dmg"
+		download "$url" "$dir" "Dropbox $v.$ext" || return
 	done
 }
+
+dropboxVersion() { curl --silent --header --location "https://www.dropbox.com/download?full\=1&plat=mac" | grep "The resource was found" | cut -d"=" -f2 | cut -d"&" -f1; }
+dropboxVersionBeta() { curl --silent "https://www.dropboxforum.com/t5/Dropbox-desktop-client-builds/bd-p/101003016" | grep "Beta Build" | head -1 | cut -d">" -f3 | cut -d"<" -f1 | cut -d" " -f3; }
 
 dropboxGetInfo()
 {
@@ -3073,40 +3128,44 @@ gitForWindowsConfigure()
 
 GitKrakenInstall()
 {
-	local v="9.3.0"; # https://www.gitkraken.com/download
-	IsPlatformAll win,x64 && { run "git/Git Kraken/GitKraken-amd64.deb" || return; }
-	run --header "Git Kraken" "git/Git Kraken/GitKrakenSetup.exe|installGitKraken_$(os architecture).dmg|GitKraken-amd64.deb" --version="$v" --copy-local || return
+	header "Git Kraken"
+
+	# check version
+	local dir="git/Git Kraken"
+	local v; v="$(getVersion "GitKraken" "$dir")"
+	local f="Git Kraken Setup $v"
+	GitKrakenHelper $alternate IsInstalled && ! versionCheck "GitKraken" "$(GitKrakenHelper $alternate version)" "$v" && return
+
+	# install	
+	IsPlatformAll win,x64 && [[ ! $alternate ]] && { alternate="--alternate" i --no-header GitKraken || return; }
+	run --no-header "$dir/$f.$(getWin)|$f$(getArch " amd64")|$f.deb" --version="$v" --copy-local || return
 }
 
-GitKrakenProfile() { GitKrakenHelper profile restore default; }
-GitKrakenFinalWin() { mergeDir "$up/GitKraken" "$up/Development/Other" && gitForWindowsConfigure; }
+# GitKrakenProfile() { GitKrakenHelper profile restore default; }
+# GitKrakenFinalWin() { mergeDir "$up/GitKraken" "$up/Development/Other" && gitForWindowsConfigure; }
 
 GitKrakenDownload()
 {	
 	header "GitKraken Download"
 
-	# change to the install location
-	local file; findFile "git/Git Kraken" || return; cd "$file" || return
-
-	# version
-	local v="$(curl --silent https://www.gitkraken.com/download | ${G}grep "release:" | grep -oP '(?<=release:).*' | cut -d"<" -f1 | RemoveSpaceTrim)" || return
-	[[ -f "version.txt" && "$(cat "version.txt")" == "$v" && ! $force ]] && return
-	echo "$v" > "version.txt" || return
-
-	# download
+	local dir="git/Git Kraken"
+	local v; v="$(getVersion "GitKraken" "$dir")" || return
 	local url urls=("https://release.axocdn.com/win64/GitKrakenSetup.exe" "https://release.axocdn.com/darwin/installGitKraken.dmg" "https://release.axocdn.com/darwin-arm64/installGitKraken.dmg" "https://release.axocdn.com/linux/gitkraken-amd64.deb")
-	for url in "${urls[@]}"; do
-		file="$(GetFileName "$url")"
-		[[ "$url" =~ darwin-arm64 ]] && file="$(GetFileNameWithoutExtension "$file")_arm.dmg"
-		[[ -f "$file" ]] && { rm "$file" || return; }
-		hilight "Downloading '$file'..."
-		curl -L "$url" --output "$file" || return
-		echo
-	done
 
-	# show version
-	echo "Downloaded GitKraken version $v"
+	for url in "${urls[@]}"; do
+
+		local file="GitKraken Setup $v"
+		if [[ "$url" =~ /linux/ ]]; then file+=".deb"
+		elif [[ "$url" =~ /darwin-arm64/ ]]; then file+=".dmg"
+		elif [[ "$url" =~ /darwin/ ]]; then file+=" amd64.dmg"
+		else file+=".exe"
+		fi
+		
+		download "$url" "$dir" "$file" || return
+	done
 }
+
+gitKrakenVersion() { curl --silent "https://www.gitkraken.com/download" | ${G}grep "release:" | grep -oP '(?<=release:).*' | cut -d"<" -f1 | RemoveSpaceTrim; }
 
 GitHubInstall()
 {
@@ -4246,19 +4305,20 @@ VaultInstall() { hashiCli "vault"; }
 # hashiCli consul|nomad|vaault - install a Hashi program, certificates, and other setup necessary to run Hashi tools on the command line as clients
 hashiCli() 
 {
-	local what="$1"; header "${what^}"
+	local what="$1" file="other/HashiCorp/$1"
+	header "${what^}"
 
 	# check version
 	if [[ ! $force ]] && InPath "$what"; then
 		local installedVersion; installedVersion="$(hashiInstalledVersion "$what")" || return
-		local latestVersion; latestVersion="$(hashiLatestVersion "$what")" || return
+		local latestVersion; latestVersion="$(getVersion "$what" "$file")" || return
 		log1 "install $what: installedVersion=$installedVersion latestVersion=$latestVersion"
-		[[ "$installedVersion" == "$latestVersion" ]] && return
+		! versionCheck "$what" "$installedVersion" "$latestVersion" && return
 	fi
 
 	# update the program if it is already installed, or run the full CLI install
 	if [[ ! $force ]] && InPath "$what"; then
-		run --no-header --executable --no-install-check "other/HashiCorp/$1"
+		run --no-header --executable --no-install-check "$file"
 	else
 		RunLog hashi install cli "$what" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"
 	fi
@@ -4273,28 +4333,30 @@ hashiDownload()
 {
 	local what="$1"
 	header "${what^} Download"
-
-	# find the install ocation
-	findFile "other/HashiCorp/$what" || return; cd "$file" || return
-
-	# download
-	local url; url="$(hashiReleaseUrl "$what")" || return
-	local version; version="$(hashiLatestVersion "$what")" || return
-	local prefix="$url/$version/${what}_${version}"
+	
+	local dir="other/HashiCorp/$what"
+	local v; v="$(getVersion "$what" "$dir")" || return
+	local url; url="$(hashiUrl "$what")" || return
+	local prefix="$url/$v/${what}_${v}"
 	local suffix suffixes=("darwin_amd64" "darwin_arm64" "linux_amd64" "linux_arm" "linux_arm64" "windows_amd64")
-
+	
 	for suffix in "${suffixes[@]}"; do
 		local url="${prefix}_${suffix}.zip"
 		local file="$(GetFileNameWithoutExtension "$url")"
-		
-		if [[ $force || ! -f "$file" ]]; then
-			hilight "Downloading '$file'..."
-			curl -L "$url" --output "${file}.zip" || return
-			echo .
-		fi
+		download "$url" "other/HashiCorp/$what" "$dir" "${file}.zip" || return
 	done
 
 	extractFiles || return
+}
+
+consulVersion() { hashiVersion "consul"; }
+nomadVersion() { hashiVersion "nomad"; }
+vaultVersion() { hashiVersion "vault"; }
+
+hashiVersion()
+{
+	local what="$1" url; url="$(hashiUrl "$what")" || return
+	curl --silent "$url" | grep "$1" | grep -v "+ent" | head -1 | cut -d">" -f2 | cut -d"<" -f1 | cut -d"_" -f2; 
 }
 
 # Hashi Server - install Hashi server on the specified servers, set servers explicitly for safety
@@ -4320,27 +4382,9 @@ VaultServerUpdateInstall() { ForAllHosts hashiServerUpdate vault; }
 hashiServerUpdate() { local what="$1" host="$2"; command hashi update service program $what --host="$host" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 
 # helper
-hashiReleaseUrl() { echo "https://releases.hashicorp.com/$1"; }
+
+hashiUrl() { echo "https://releases.hashicorp.com/$1"; }
 hashiInstalledVersion() { InPath "$1" && "$1" --version | head -1 | cut -d" " -f2 | cut -d"v" -f2; }
-
-hashiLatestVersion()
-{
-	# find the install ocation
-	findFile "other/HashiCorp/$what" || return; cd "$file" || return
-
-	# return if we do not need to  update the version
-	[[ ! $force ]] && ! UpdateNeeded "$what-version" && { cat "version.txt"; return; }
-
-	# get the version
-	local what="$1" url; url="$(hashiReleaseUrl "$what")" || return
-	local version; version="$(curl -s "$url" | grep "$what" | grep -v "+ent" | head -1 | cut -d">" -f2 | cut -d"<" -f1 | cut -d"_" -f2)"
-	[[ ! $version ]] && { ScriptErr "cannot get ${program^} version"; return 1; }
-
-	# save and return the version
-	echo "$version" > "version.txt" || return
-	UpdateDone "$what-version" || return
-	echo "$version"	
-}
 
 # other
 ConsulK8sInstall() { run --name "consul-k8s" --executable "other/HashiCorp/consul-k8s"; } # https://releases.hashicorp.com/consul-k8s/
@@ -7420,15 +7464,16 @@ SublimeInstall()
 {
 	header "Sublime Text Editor"	
 
-	# check if installed
-	local v="4143"
-	sublime IsInstalled && [[ ! $force && "$(sublime $alternate version)" == "$v" ]] && return
+	# check version
+	local dir="other/Sublime/setup"
+	local v; v="$(getVersion "sublime" "$dir")"
+	sublime $alternate IsInstalled && ! versionCheck "sublime" "$(sublime $alternate version)" "$v" && return
 
 	# install	
 	IsPlatform linux && [[ ! $installType ]] && installType="package" # Linux defaults to package
 	if [[ "$installType" == @(|beta|local) ]]; then
 		local args=(); IsPlatform win && args+=('/VERYSILENT' '/TASKS="contextentry"')
-		run "other/Sublime/setup/sublime_text_build_${v}_x64$(getElevate "_setup.exe" ".zip")|sublime_text_build_${v}_mac.zip|sublime-text_build-${v}_$(getArch "amd64" "arm64").deb" --copy-local --elevate -- "${args[@]}" || return
+		run "$dir/sublime_text_build_${v}_x64$(getElevate "_setup.exe" ".zip")|sublime_text_build_${v}_mac.zip|sublime-text_build-${v}_$(getArch "amd64" "arm64").deb" --copy-local --elevate -- "${args[@]}" || return
 	elif IsPlatform debian && [[ "$installType" == @(|alternate|package) ]]; then sublimePackage || return
 	else couldNotLocate
 	fi
@@ -7455,36 +7500,19 @@ SublimeDownload()
 {
 	header "Sublime Download"
 
-	# change to the install location
-	local file; findFile "other/Sublime/setup" || return; cd "$file" || return
-
-	# get version
-	local url="https://www.sublimetext.com/download"
-	local v="$(curl --silent --location "$url" | grep "Version" | ${G}grep -oP '(?=Build ).*' | cut -d" " -f2 | cut -d"<" -f1)"
-	[[ ! $v ]] && { ScriptErr "unable to get the current Sublime version from '$url'"; return 1; }
-
-	# check version
-	[[ -f "version.txt" && "$(cat "version.txt")" == "$v" && ! $force ]] && return
-
-	# store version
-	echo "$v" > "version.txt" || return
-
-	# download
+	local dir="other/Sublime/setup"
+	local v; v="$(getVersion "sublime" "$dir")" || return
 	local baseUrl="https://download.sublimetext.com/sublime_text_build_${v}_"
 	local baseUrlDeb="https://download.sublimetext.com/sublime-text_build-${v}_"
 	local suffix suffixes=("arm64.deb" "mac.zip" "x64_setup.exe" "x64.zip" "amd64.deb")
+
 	for suffix in "${suffixes[@]}"; do
 		local url="$baseUrl$suffix"; [[ "$url" =~ .deb$ ]] && url="$baseUrlDeb$suffix"
-		file="$(GetFileName "$url")"
-		[[ -f "$file" ]] && { rm "$file" || return; }
-		hilight "Downloading '$file'..."
-		curl -L "$url" --output "$file" || return
-		echo
+		download "$url" "$dir" || return
 	done
-
-	# show version
-	echo "Downloaded Sublime version $v"
 }
+
+sublimeVersion() { curl --silent --location "https://www.sublimetext.com/download" | grep "Version" | ${G}grep -oP '(?=Build ).*' | cut -d" " -f2 | cut -d"<" -f1; }
 
 SublimeFinalWin()
 {
@@ -7524,7 +7552,7 @@ VisualStudioCodeDownload()
 	
 	# get version
 	local url="https://code.visualstudio.com/sha/download?build=stable&os=" os="win32-x64"
-	local v; v="$(curl --silent -H -L "$url$os" | cut -d- -f3 | RemoveEnd ".exe")" || return
+	local v; v="$(curl --silent --header --location "$url$os" | cut -d- -f3 | RemoveEnd ".exe")" || return
 	[[ ! $v ]] && { ScriptErr "unable to get the current Visual Studio Code version from '$url$os'"; return 1; }
 
 	# check version
@@ -8141,8 +8169,8 @@ DockerInstall()
 
 	# install Docker Desktop
 	if IsPlatform mac,win; then
-		local version="4.17.0"
-		run --name "Docker" --no-header "shareware/Docker/setup/Docker Desktop Installer.exe|Docker_$(os architecture).dmg" --version=$version --copy-local || return
+		local v; v="$(getVersion "docker" "shareware/Docker/setup")"
+		run --name "Docker" --no-header "shareware/Docker/setup/Docker Desktop Installer $v.exe|Docker$(getArch " amd64") $v.dmg" --version=$v --copy-local --elevate || return
 		IsPlatform mac && { start "Docker.app" || return; }
 		[[ $ran ]] && pause
 	fi
@@ -8187,28 +8215,19 @@ DockerDownload()
 {
 	header "Docker Download"
 
-	# find the install ocation
-	findFile "shareware/Docker/setup" || return; cd "$file" || return
-
-	# download
+	local dir="shareware/Docker/setup"
+	local v; v="$(getVersion "docker" "$dir")" || return
 	local prefix="https://desktop.docker.com"
 	local url urls=("$prefix/mac/main/amd64/Docker.dmg" "$prefix/mac/main/arm64/Docker.dmg" "$prefix/win/main/amd64/Docker%20Desktop%20Installer.exe")
+
 	for url in "${urls[@]}"; do
-
-		# identify the file name
-		if [[ "$url" =~ win ]]; then file="Docker Desktop Installer.exe"
-		elif [[ "$url" =~ mac && "$url" =~ amd64 ]]; then file="docker_x86.dmg"
-		elif [[ "$url" =~ mac && "$url" =~ arm64 ]]; then file="docker_arm.dmg"
-		else ScriptErr "could not identify file name for url `$url`"; return
-		fi
-
-		# download		
-		hilight "Downloading '$file'..."
-		[[ -f "$file" ]] && { rm "$file" || return; }
-		curl -L "$url" --output "$file" || return
-		echo .
+		local file="$(GetFileName "$url" | UrlDecode)"; [[ "$url" =~ mac && "$url" =~ amd64 ]] &&  file="Docker amd64.dmg"
+		file="$(GetFileNameWithoutExtension "$file") $v.$(GetFileExtension "$file")"
+		download "$url" "$dir" "$file" || return
 	done
 }
+
+dockerVersion() { curl --silent "https://docs.docker.com/desktop/release-notes/" | grep h2 | head -1 | cut -d">" -f2 | cut -d"<" -f1; }
 
 DockerFinalWin()
 {

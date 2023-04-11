@@ -317,7 +317,8 @@ AppVersion()
 				UnknownOption "$1" "AppVersion"; return
 		esac
 		shift
-	done	
+	done
+
 	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
 
 	# mac application
