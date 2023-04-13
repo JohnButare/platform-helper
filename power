@@ -201,7 +201,7 @@ powerLocalReturnExit()
 # powerRemote COMMAND HOST - run a power command on a remote computer
 powerRemote()
 {
-	local command="$1" host="$2" sshCommandInitialized; initHost "$host" || return
+	local command="$1" host="$2" sshCommandInitialized sshCommandRaw; initHost "$host" || return
 
 	# wait for the host to become available if we are connecting to the GUI desktop.  For virtual machines the GUI is available immediately.
 	[[ $gui && ! $wait ]] && ! IsHostnameVm "$host" && wait="$waitSecondsDefault"
@@ -221,12 +221,14 @@ powerRemote()
 
 	# check if host is already on
 	if [[ ! $force && "$command" == "on" && "$initialState" == "on" ]]; then
-		powerStatusOk && powerWaitOn && doGuiConnect && echo "done" && doSshConnect; return
+		powerStatusOk && powerWaitOn && doGuiConnect && echo "done" && sshConnect; return
 	fi
 
 	# determine host switch port to control it's power
 	local switch switchPort; switchLookup "$host"
 	local switchPortPower; [[ $host && $switch && $switchPort ]] && switchPortPower="true"
+	[[ "$initialState" == "on" && "$command" == @(on|reboot) ]] && unset switchPortPower # do not control switch port if already on
+	log1 "initialState=$initialState switchPortPower=$switchPortPower switch=$switch switchPort=$switchPort"
 
 	# determine the current status off the switch port
 	local initialSwitchState="$expectedState"
@@ -240,10 +242,12 @@ powerRemote()
 	
 	# run power command
 	if [[ "$command"  == @(on|reboot) ]]; then
-		power${command^} && powerWaitOn && doGuiConnect && echo "done" && doSshConnect
+		power${command^} && powerWaitOn && doGuiConnect && echo "done" && sshConnect
 	else
-		powerOff "$command" && powerWaitOff && switchPortOff "$switch" "$switchPort" && echo "done"
+		powerOff "$command" && echo "done"
 	fi
+
+	(( $? == 0 )) && return || return $ignoreErrors
 }
 
 powerStatusOk() { [[ $quiet ]] && return; printf "already $expectedState..."; }
@@ -253,26 +257,23 @@ powerOff()
 {
 	local command="$1"
 
-	# prepare host for power command
+	# nothing to do
+	[[ "$initialState" == "off" ]] && return
+
+	# prepare the host
 	powerOffPrepare "$host" || return
 
-	# control a Hyper-V virtual machine	
-	if IsHostnameVm "$host"; then
-		hypervCommandDo || return
-		
-	# nothing to do
-	elif [[ "$initialState" == "off" ]]; then
-		return
-
 	# use SSH if possible
-	elif sshCommandInit; then
-		sshCommandDo || return
+	sshCommandInit && sshCommandDo && powerWaitOff && switchPortOff "$switch" "$switchPort" && return
 
-	elif [[ "$command" != "off" || ! $switchPortPower ]]; then
-		[[ ! $quiet ]] && ScriptErr "$command operation is not available on $host"
-		return "$ignoreErrors"
+	# SSH failed, try to control Hyper-V machine
+	IsHostnameVm "$host" && { hypervCommandDo; return; }
 
-	fi
+	# power off switch port
+	[[ $switch ]] && { switchPortOff "$switch" "$switchPort"; return; }
+
+	# power off not available
+	commandNotAvailable
 }
 
 # powerOffPrepare [HOST](localhost) - prepare a host for power off
@@ -353,23 +354,22 @@ powerOnPrepareNomad()
 powerReboot()
 {
 	# if not on just power the host on
-	if [[ "$initialState" != "on" ]]; then
-		powerOn; return
+	[[ "$initialState" == "off" ]] && { powerOn; return; }
 
-	# SSH command
-	elif sshCommandInit; then
-		powerOffPrepare && sshCommandDo && powerWaitOff && powerWaitOn && return
+	# prepare the host
+	powerOffPrepare "$host" || return
 
-	# Hyper-V
-	elif IsHostnameVm "$host"; then
-		hypevCommandDo; return
-	fi
+	# use SSH if possible
+	sshCommandInit && sshCommandDo && powerWaitOff && powerWaitOn && return
 
-	# reboot switch port if the SSH command failed or there are no other options
+	# SSH failed, try to control Hyper-V machine
+	IsHostnameVm "$host" && { hypevCommandDo; return; }
+
+	# reboot switch port
 	[[ $switch ]] && { switchPortReboot "$switch" "$switchPort"; return; }
 
-	# unable to reboot
-	ScriptErr "unable to reboot '$host'"
+	# reboot command not available
+	commandNotAvailable
 }
 
 # powerWaitOff - wait for host to disconnect from the network
@@ -648,7 +648,7 @@ switchPortOn()
 	[[ "$status" == "on" ]] && { [[ ! $quiet ]] && printf "already on..."; return; }
 
 	# turn on the switch port
-	doSsh "admin@$switch" swctrl poe set auto id $switchPort || return
+	sshSwitch "admin@$switch" swctrl poe set auto id $switchPort || { ScriptErr "unable to turn on '$switch' port '$switchPort'"; return 1; }
 	printf "on..."
 }
 
@@ -666,9 +666,9 @@ switchPortOff()
 	[[ "$status" == "off" ]] && { [[ ! $quiet ]] && printf "already off..."; return; }
 
 	# turn off the switch port - first try can fail
-	if ! doSsh "admin@$switch" swctrl poe set off id $switchPort; then
+	if ! sshSwitch "admin@$switch" swctrl poe set off id $switchPort; then
 		printf "port..."
-		if ! doSsh "admin@$switch" swctrl poe set off id $switchPort; then
+		if ! sshSwitch "admin@$switch" swctrl poe set off id $switchPort; then
 			ScriptErr "unable to turn off '$switch' port '$switchPort'"
 			return 1
 		fi
@@ -713,12 +713,76 @@ switchWatts()
 }
 
 #
+# SSH Helper
+#
+
+sshConnect() { [[ ! $ssh ]] && return 0; SshHelper connect -x "$host" $trust "${globalArgsLessVerbose[@]}"; }
+sshSwitch() { ssh -o ServerAliveInterval=2 "$@"; } # StudyDeskSwitch requires ServerAliveInterval >= 2
+
+sshCommandDo()
+{
+	! sshCommandInit && return
+	printf "command..."; 
+
+	# arguments
+	local args=() supressError
+
+	# platform specific arguments
+
+	if IsPlatform win --host; then
+		args+=(-o ServerAliveInterval=2 -o ServerAliveCountMax=1) # prevents psshutdown hang
+		suppressError="true" # psshutdown hangs so SSH will always return an error
+	fi
+
+	local result redirect=">"; [[ $suppressError ]] && redirect=">&"
+	redirect+=" /dev/null"; [[ $verbose ]] && unset redirect
+
+	if IsPlatform ubiquiti; then
+		ssh "$user$host" "$sshCommand" $redirect
+	else
+		RunLog SshHelper connect "$user$host" --pseudo-terminal $trust "${globalArgsLessVerbose[@]}" -- "$sshCommand" $redirect
+	fi
+	result="$?"
+	log1 "sshDo: result=$result _platformOs=$_platformOs"
+
+	# return result
+	[[ $supressError ]] && return 0 || return "$result"
+}
+
+
+# sshCommandInit COMMAND - initialize SSH for a remote power command, returns true if the host supports the power command using SSH, updates sshCommand and _platform
+sshCommandInit()
+{
+	# cache
+	[[ $sshCommandInitialized ]] && return	
+	sshCommandInitialized="true"
+
+	# check if host is available on it's SSH port
+	SshIsAvailablePort "$host" || return
+
+	# use the power command on the host if possible
+	if [[ "$host" != @(VeraBridge) ]]; then
+		SshInPath "$user$host" "power" && { sshCommand="$BIN/power $command"; }
+		ScriptEval HostGetInfo vars "$host" $trust >& /dev/null || return
+		
+		if IsPlatform Busybox --host; then
+			sshCommandRaw="true"
+			[[ "$command" == "off" ]] && sshCommand="poweroff"
+			[[ "$command" == "reboot" ]] && sshCommand="reboot"
+		fi
+
+	fi
+
+	# return true if the host supports the power command using SSH
+	[[ $sshCommand ]]
+}
+
+#
 # Helper
 #
 
-doSshConnect() { [[ ! $ssh ]] && return 0; SshHelper connect -x "$host" $trust "${globalArgsLessVerbose[@]}"; }
+commandNotAvailable() { ScriptErrQuiet "'$command' operation is not available for '$host'"; return 1; }
 hypervCommandDo() { printf "command..."; RunLog hyperv power "$command" "$host" "${globalArgs[@]}"; }
-sshCommandDo() { ! sshCommandInit && return; printf "command..."; doSsh "$user$host" "$sshCommand"; }
 
 initHost()
 {
@@ -755,22 +819,6 @@ initHost()
 	hostDesc="$(os name "$host" | RemoveDnsSuffix)"
 }
 
-doSsh()
-{ 
-	local result redirect=">"; [[ "$_platformOs" == "win" ]] && redirect=">&" # suppress Windows psshutdown header
-	redirect+=" /dev/null"
-	[[ $verbose ]] && unset redirect
-
-	# perform ssh
-	# - ServerAliveInterval and ServerAliveCountMax prevents ssh hang (seen in Windows)
-	# - StudyDeskSwitch requires ServerAliveInterval >= 2
-	RunLog SshHelper connect "$1" --pseudo-terminal $trust "${globalArgsLessVerbose[@]}" -- -o ServerAliveInterval=2 -o ServerAliveCountMax=1 "${@:2}" $redirect
-	result="$?"
-
-	# Windows psshutdown hangs and always returns an error
-	[[ "$_platformOs" == "win" ]] && return 0 || return "$result"
-}
-
 doGuiConnect()
 {
 	[[ ! $gui ]] && return 0
@@ -790,26 +838,6 @@ doGuiConnect()
 
  	fi
 
-}
-
-# sshCommandInit COMMAND - initialize SSH for a remote power command, returns true if the host supports the power command using SSH, updates sshCommand and _platform
-sshCommandInit()
-{
-	# cache
-	[[ $sshCommandInitialized ]] && return	
-	sshCommandInitialized="true"
-
-	# check if host is available on it's SSH port
-	SshIsAvailablePort "$host" || return
-
-	# use the power command on the host if possible
-	if [[ "$host" != @(VeraBridge) ]]; then
-		SshInPath "$user$host" "power" && { sshCommand="$BIN/power $command"; }
-		ScriptEval HostGetInfo vars "$host" $trust >& /dev/null || return
-	fi
-
-	# return true if the host supports the power command using SSH
-	[[ $sshCommand ]]
 }
 
 ScriptRun "$@"
