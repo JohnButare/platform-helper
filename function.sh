@@ -2979,7 +2979,9 @@ RunFunctionExists()
 
 ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } 						# ScriptArgs SCRIPT_NAME ARGS... - display script arguments
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }		# ScriptDir - return the directory the script is contained in
+ScriptEchoQuiet() { log1 "$1"; [[ $quiet ]] && return; EchoWrap "$1"; }
 ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; }						# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
+ScriptErrQuiet() { log1 "$1"; [[ $quiet ]] && return; ScriptErr "$1"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
 ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "$name: "; }
