@@ -192,16 +192,17 @@ updateWireGuard() { runApp "update" "WireGuard" wiggin update WireGuard; }
 
 hostUsage()
 {
-	ScriptUsageEcho "Usage: $(ScriptName) host info|list|on|off|reboot|status|sync|update
+	ScriptUsageEcho "Usage: $(ScriptName) host fix|info|list|on|off|reboot|status|sync|update
 
 $hostUsage
-	-w, --wait		wait for the operation to finish"
+$waitUsage"
 }
 
 hostArgStart()
 {
 	unset -v hostArg hostOpt; hosts=(); 
-	hostUsage="	-H, --host [HOSTS](all)		comma separated list of hosts, or all|hashi-prod|hashi-test|network|web"
+	hostUsage="	-H, --host [HOSTS](all)		comma separated list of hosts, or all|down|hashi-prod|hashi-test|important|network|web"
+	waitUsage="	-w, --wait								wait for the operation to finish"
 }
 
 hostCommand() { hostListCommand; }
@@ -222,11 +223,15 @@ hostArgEnd()
 {
 	case "${hostArg,,}" in
 		cam|camera) unset hostArg; GetHostsConfigNetwork "camera";;
+		down) ;;
 		network) hosts=("${aps[@]}" "${switches[@]}" "${routers[@]}") wait="--wait";;
 		hashi-*) hosts=( $(hashi config hosts --config-prefix="$(RemoveFront "${hostArg,,}" "hashi-")") ) || ScriptExit;;
+		important) echo TODO;;
 	esac
 }
 
+hostFixUsage() { ScriptUsageEcho "Usage: $(ScriptName) fix\nFix host by forcing it to reconnect to the network.\n\n$hostUsage\n$waitUsage"; }
+hostFixCommand() { ForAllHosts hostFix --header "Fixing"; }
 hostInfoUsage() { ScriptUsageEcho "Usage: $(ScriptName) info\n\n	-d, --detail						display detailed information\n$hostUsage"; }
 hostInfoArgStart() { unset -v detail; }
 hostInfoOpt() { scriptOptDetail "$@"; }
@@ -235,7 +240,7 @@ hostListCommand() { GetHosts && ArrayDelimit hosts $'\n'; }
 hostOffCommand() { ForAllHosts hostOff --header "Powering Off"; }
 hostOnCommand() { ForAllHosts hostOn --header "Powering On"; }
 hostRebootCommand() { ForAllHosts hostReboot --header "Powering On"; }
-hostStatusCommand() { ForAllHosts hostStatus; }
+hostStatusCommand() { ForAllHosts hostStatus --header "Rebooting"; }
 hostUpdateCommand() { setOtherHosts; ForAllHosts --errors hostUpdate; }
 
 hostSyncArgStart() { unset -v unison; }
@@ -254,6 +259,24 @@ hostSyncCommand() { setOtherHosts; ForAllHosts --errors hostSync; }
 hostOff() { RunLog power off "$1" $wait "${globalArgs[@]}"; }
 hostOn() { RunLog power on "$1" $wait "${globalArgs[@]}"; }
 hostReboot() { RunLog power reboot "$1" $wait "${globalArgs[@]}"; }
+
+hostFix()
+{
+	hosts="$(DomotzHelper down)" || exit
+	IFS=$'\n' ArrayMake hosts "$hosts"
+
+	for host in "${hosts[@]}"; do
+		name="$(echo "$host" | cut -d"," -f1)"
+		mac="$(echo "$host" | cut -d"," -f2)"
+		dns="$(MacLookupEthers "$mac")" || return
+		log1 "name=$name mac=$mac dns=$dns"
+		
+		UniFiController disconnect $mac
+	done
+
+	# if wait then hostWait
+
+}
 
 hostStatus()
 {

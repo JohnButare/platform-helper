@@ -580,7 +580,7 @@ GetDef() { local gd="$(declare -p $1)"; gd="${gd#*\=}"; gd="${gd#\(}"; r "${gd%\
 IsVar() { declare -p "$1" >& /dev/null; }
 IsAnyArray() { IsArray "$1" || IsAssociativeArray "$1"; }
 
-# ArrayMakeC CMD ARG... - make an array from the output of a command if the command succeeds
+# ArrayMakeC VAR CMD... - make an array from the output of a command if the command succeeds
 # StringToArray STRING DELIMITER ARRAY_VAR
 # SetVar VAR VALUE
 if IsBash; then
@@ -1573,6 +1573,12 @@ MacLookup()
 	! IsMacAddress "$mac" && { mac="$(MacResolve "$mac")" || return; }
 	! IsMacAddress "$mac" && { ScriptErr "invalid MAC address '$mac'" "MacLookup"; return 1; }
 	arp -a -n | command ${G}grep " $mac " | cut -d" " -f2 | RemoveParens | sort | uniq
+}
+
+# MacLookup MAC - lookup a MAC address from /etc/ethers
+MacLookupEthers()
+{
+	getent ethers "$1" | cut -d" " -f2
 }
 
 # MacLookupInfo MAC - return the IP addresses and DNS names associated with the specified MAC address
