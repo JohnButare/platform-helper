@@ -651,7 +651,7 @@ ArrayDelimit()
 	local arrayDelimit=(); ArrayCopy "$1" arrayDelimit || return;
 	local result delimiter="${2:-,}"
 	printf -v result '%s'"$delimiter" "${arrayDelimit[@]}"
-	printf "%s" "${result%$delimiter}" # remove delimiter from end
+	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
 }
 
 # ArrayDiff A1 A2 - return the items not in either array
@@ -1960,7 +1960,7 @@ DnsResolveMac()
 	done
 
 	# show names
-	[[ $names ]] && ArrayDelimit names "\n" | $full; return $result
+	[[ $names ]] && ArrayDelimit names $'\n' | $full; return $result
 }
 
 DnsFlush()
