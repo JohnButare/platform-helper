@@ -1616,13 +1616,13 @@ MacLookup()
 
 	# resolve using /etc/ethers	
 	if [[ $ethers ]]; then
-		mac="$(getent ethers "$host" | cut -d" " -f2 | sort | uniq)" || return
-	
+		mac="$(getent ethers "$(RemoveDnsSuffix "$host")" | cut -d" " -f1 | sed 's/\b\(\w\)\b/0\1/g' | sort | uniq)" # sed pads zeros, i.e. 2:2 -> 02:02 
+
 	# resolve using the ARP table
 	else
 
 		# populate the arp cache with the MAC address
-		ping -c 1 "$host" >& /dev/null || { ScriptErrQuiet "unable to resolve the MAC address for '$host'" "MacResolve"; return 1; }
+		ping -c 1 "$host" >& /dev/null || { ScriptErrQuiet "unable to lookup the MAC address for '$host'" "MacResolve"; return 1; }
 
 		# get the MAC address in Windows
 		if IsPlatform win; then
@@ -1639,6 +1639,9 @@ MacLookup()
 		fi
 
 	fi
+
+	# check if got a mac
+	[[ ! $mac ]] && { ScriptErrQuiet "unable to lookup the MAC address for '$host'" "MacResolve"; return 1; }
 
 	# return the MAC address if not showing detail
 	[[ ! $detail ]] && { echo "$mac"; return; }
@@ -1793,7 +1796,7 @@ WaitForAvailable() # WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SEC
 	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForAvailable"; return 1; }
 	local timeout="${2-$(AvailableTimeoutGet)}" seconds="${3-$(AvailableTimeoutGet)}"
 
-	printf "Waiting $seconds seconds for $host..."
+	printf "Waiting $seconds seconds for $(RemoveDnsSuffix "$host")..."
 	for (( i=1; i<=$seconds; ++i )); do
  		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
 		printf "."
@@ -1917,17 +1920,23 @@ DnsResolveBatch()
 	parallel -i bash -c '. function.sh && DnsResolve {}' -- "$@"; 
 }
 
+DnsResolveMacBatch()
+{
+	(( $# == 0 )) && GetArgsPipe # take arguments from pipe 
+	parallel -i bash -c '. function.sh && DnsResolveMac --full --errors {}' -- "$@"; 
+}
+
 # DnsResolveMac MAC... - resolve MAC addresses to DNS names using /etc/ethers
-# --ignore-errors|-ie		keep processing if an error occurs
-# --full|-f  						return a fully qualified domain name
-# --quiet|-q						suppress error message where possible
+# --errors|-e		keep processing if an error occurs, return the total number of errors
+# --full|-f  		return a fully qualified domain name
+# --quiet|-q		suppress error message where possible
 DnsResolveMac()
 {
-	local ignoreErrors macs=() quiet full="cat"
+	local errors macs=() quiet full="cat"
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--ignore-errors|-ie) ignoreErrors="true";;
+			--errors|-e) errors=0;;
 			--full|-f) full="DnsResolveBatch";;
 			--quiet|-q) quiet="true";;
 			*) 
@@ -1941,11 +1950,11 @@ DnsResolveMac()
 	[[ ! $macs ]] && { MissingOperand "mac" "DnsResolveMac"; return 1; } 	
 
 	# validate
-	local result=0 mac validMacs=()
+	local mac validMacs=()
 	for mac in "${macs[@]}"; do
 		IsMacAddress "$mac" && { validMacs+=("$mac"); continue; }
 		ScriptErrQuiet "'$mac' is not a valid MAC address" "DnsResolveMac"
-		result=1; [[ ! $ignoreErrors ]] && return $result
+		[[ ! $errors ]] && return 1; (( ++errors ))
 	done
 	
 	# lookup
@@ -1955,12 +1964,12 @@ DnsResolveMac()
 			names+=("$name")
 		else
 			ScriptErrQuiet "'$mac' was not found" "DnsResolveMac"
-			result=1; [[ ! $ignoreErrors ]] && return $result
+			[[ ! $errors ]] && return 1; (( ++errors ))
 		fi
 	done
 
 	# show names
-	[[ $names ]] && ArrayDelimit names $'\n' | $full; return $result
+	[[ $names ]] && ArrayDelimit names $'\n' | $full; return $errors
 }
 
 DnsFlush()

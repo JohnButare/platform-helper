@@ -288,7 +288,7 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 
 # ForAllHosts COMMAND [ARGS...] - run a command for all hosts
 # -b, --brief 				- display a brief header by prefixing the command with the host name
-# -e, --errors				- if a command returns an error track it, return the total number of errors
+# -e, --errors				- keep processing if a command fails, return the total number of errors
 # -h, --header HEADER - if set and there is more than one host display it as a header
 ForAllHosts()
 {
