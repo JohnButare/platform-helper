@@ -4,13 +4,13 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [api|backup|devices|disconnect|port](api)
+Usage: $(ScriptName) [OPTION]... [api|backup|disconnect|info|port](api)
 Manage the UniFi controller.
 
 	ap 					Access Point commands
 	api 				call a API command
 	backup			backup the controller configuration
-	devices			show UniFi device configuration
+	info				show UniFi device and client information
 	disconnect	disconnect a client
 	port				configure port forwarding"
 }
@@ -29,13 +29,6 @@ cleanup()
 	[[ $apiInitialized ]] && { apiCleanup || return; }
 	return 0
 }
-
-#
-# commands
-#
-
-devcicesUsage() {	echot "Usage: $(ScriptName) devices\nShow all devices."; }
-devicesCommand() { UniFiController api "/stat/device" | jq; }
 
 #
 # Access Point (AP) commands
@@ -119,6 +112,77 @@ disconnectCommand()
 
 	echo "Disconnecting $desc..."
  	$curl --silent --data '{"cmd":"kick-sta", "mac": "'$mac'"}' "$url/api/s/$site/cmd/stamgr" | jq
+}
+
+#
+# Info Commands
+#
+
+infoUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) info
+Show UniFi device and client information.
+
+	-c,	--clients		show clients (hosts) that are connected to the UniFi Controller network
+	-d,	--devices		show UniFi devices
+	-w, --wireless	show wireless clients
+	-wi, --wired		show wired clients"
+}
+
+infoArgStart() { unset -v clients devices summary wired wireless; }
+
+infoOpt() 
+{
+	case "$1" in
+		-c|--clients) clients="true";;
+		-d|--devices) devices="true";;
+		-s|--summary) summary="true";;
+		-wi|--wired) wired="true";;
+		-w|--wireless) wireless="true";;
+		*) return 1
+	esac
+}
+
+infoCommand()
+{
+	[[ $summary ]] && { infoSummary; return; }
+	[[ $devices ]] && { api "/stat/device" | jq; return; }
+	[[ $clients ]] && { api "/stat/sta" | jq; return; }
+	[[ $wired ]] && { api "/stat/sta" | jq '.data | .[] | select(.is_wired == true)'; return; }
+	[[ $wireless ]] && { api "/stat/sta" | jq '.data | .[] | select(.is_wired == false)'; return; }
+}
+
+infoSummary()
+{
+	local clients; clients="$(mktemp)" || return
+	UniFiController info --clients > "$clients" || return
+	[[ $wired ]] && { infoSummaryWired || return; }
+	[[ $wireless ]] && { infoSummaryWireless || return; }
+	rm "$clients"
+}
+
+infoSummaryWired()
+{
+	local sep="#"
+
+	{
+		hilight "DNS${sep}switch${sep}port${sep}depth${sep}Mbps${sep}sat${sep}anomalies${sep}retries"
+		cat "$clients" | jq '.data | .[] | select(.is_wired == true) | { a: .name, b: .sw_mac, c: .sw_port, d: .sw_depth, e: .wired_rate_mbps, f: .satisfaction, g: .anomalies, h: .tx_retries } | join("'${sep}'")' | \
+			RemoveQuotes | sort --ignore-case | \
+			awk 'BEGIN { FS="'${sep}'"; }; { cmd="RunFunction.sh DnsResolveMac " $2; cmd | getline sw; close(cmd); print $1 FS sw FS $3 FS $4 FS $5 FS $6 FS $7 FS $8; }'
+	} | column -c $(tput cols -T "$TERM") -t -s${sep}
+
+}
+
+infoSummaryWireless()
+{
+	local sep="#"
+	{
+		hilight "DNS${sep}network${sep}AP${sep}channel${sep}sat${sep}retries${sep}signal${sep}noise"
+		cat "$clients" | jq '.data | .[] | select(.is_wired == false) | { a: .name, b: .essid, c: .ap_mac, d: .channel, e: .satisfaction, f: .tx_retries, g: .signal, h: .noise } | join("'${sep}'")' | \
+			RemoveQuotes | sort --ignore-case | \
+			awk 'BEGIN { FS="'${sep}'"; }; { cmd="RunFunction.sh DnsResolveMac " $3; cmd | getline ap; close(cmd); print $1 FS $2 FS ap FS $4 FS $5 FS $6 FS $7 FS $8; }'
+	} | column -c $(tput cols -T "$TERM") -t -s${sep}
 }
 
 #
