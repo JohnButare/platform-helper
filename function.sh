@@ -28,10 +28,17 @@ fi
 # - must be an alias in order to set the arguments of the caller
 # - GetArgsN will read the first argument from standard input if there are not at least N arguments present
 # - aliases must be defiend before used in a function
-alias GetArgDash='[[ "$1" == "-" ]] && shift && set -- "$(cat)" "$@"' 
 alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"' 
 alias GetArgs2='(( $# < 2 )) && set -- "$(cat)" "$@"'
 alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
+alias GetArgDash='[[ "$1" == "-" ]] && shift && set -- "$(cat)" "$@"' 
+
+if IsZsh; then
+	alias GetArgsPipe='{ local args; args=("${(@f)"$(cat)"}"); set -- "${args[@]}"; }'
+else
+	alias GetArgsPipe='{ local args; mapfile -t args <<<$(cat); set -- "${args[@]}"; }'
+fi
+
 ShowArgs() { local args=( "$@" ); ArrayShow args; } 	# ShowArgs [ARGS...] - show arguments from command line
 SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - split arguments using to IFS from command line
 
@@ -136,6 +143,7 @@ header() { InitColor; printf "${RB_BLUE}************************* ${RB_INDIGO}$1
 HeaderBig() { InitColor; printf "${RB_BLUE}**************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n**************************************************${RESET}\n"; }
 HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
 hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
+hilightp() { InitColor; printf "${GREEN}$@${RESET}"; } # hilight with no newline
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
 # CurrentColumn - return the current cursor column, https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
@@ -643,7 +651,7 @@ ArrayDelimit()
 	local arrayDelimit=(); ArrayCopy "$1" arrayDelimit || return;
 	local result delimiter="${2:-,}"
 	printf -v result '%s'"$delimiter" "${arrayDelimit[@]}"
-	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
+	printf "%s" "${result%$delimiter}" # remove delimiter from end
 }
 
 # ArrayDiff A1 A2 - return the items not in either array
@@ -1566,26 +1574,82 @@ IsMacAddress()
 
 IsStaticIp() { ! ip address show "$(GetInterface)" | grep "inet " | grep --quiet "dynamic"; }
 
-# MacLookup MAC|DNS - return the IP addresses associated with the specified MAC address or DNS name
-MacLookup()
+# MacLookup HOST|IP... - resolve a host name or IP to a MAC address using the ARP table or /etc/ethers
+# --detail|-d		displayed detailed information about the MAC address including all MAC, IP address, and 
+#               DNS names.  Allows identification of the current host of a Virtual IP Addresses (VIP).
+# --monitor|-m	monitor the host name or IP address for changes (useful for VIP failovers)
+# --ethers|-e		resolve using /etc/ethers instead of the ARP table
+# --quiet|-q		suppress error message where possible
+# test: lb lb3 pi1
+MacLookup() 
 {
-	local mac="$1"; [[ ! $mac ]] && { MissingOperand "mac" "MacLookup"; return 1; }
-	! IsMacAddress "$mac" && { mac="$(MacResolve "$mac")" || return; }
-	! IsMacAddress "$mac" && { ScriptErr "invalid MAC address '$mac'" "MacLookup"; return 1; }
-	arp -a -n | command ${G}grep " $mac " | cut -d" " -f2 | RemoveParens | sort | uniq
-}
+	local detail ethers host monitor quiet
 
-# MacLookup MAC - lookup a MAC address from /etc/ethers
-MacLookupEthers()
-{
-	getent ethers "$1" | cut -d" " -f2
-}
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--detail|-d) detail="true";;
+			--ethers|-e) ethers="true";;
+			--monitor|-m) monitor="true";;
+			--quiet|-q) quiet="true";;
+			*) 
+					IsOption "$1" && { UnknownOption "$1" "MacLookup"; return 1; }
+					[[ ! $host ]] && host="$1" || { ExtraOperand "$1" "MacLookup"; return 1; }
+					;;
+		esac
+		shift
+	done
 
-# MacLookupInfo MAC - return the IP addresses and DNS names associated with the specified MAC address
-MacLookupInfo()
-{
-	local mac="$1" dns ip ips; ips=( $(MacLookup "$mac") ) || return
-	! IsMacAddress "$mac" && { mac="$(MacResolve "$mac")" || return; }
+	[[ ! $host ]] && { MissingOperand "host" "MacLookup"; return 1; } 	
+
+	# monitor
+	if [[ $monitor ]]; then
+		echo "Press any key to stop monitoring '$host'..."
+		
+		while true; do
+			hilightp "$host: "; MacLookup --detail "$host" | tail -n +2 | tr -s " " | cut -d" " -f3 | cut -d"." -f1 | sort | NewlineToSpace; echo
+			ReadChars 1 1 && return
+		done
+	fi
+
+	# variables
+	local mac macWin
+
+	# resolve using /etc/ethers	
+	if [[ $ethers ]]; then
+		mac="$(getent ethers "$host" | cut -d" " -f2 | sort | uniq)" || return
+	
+	# resolve using the ARP table
+	else
+
+		# populate the arp cache with the MAC address
+		ping -c 1 "$host" >& /dev/null || { ScriptErrQuiet "unable to resolve the MAC address for '$host'" "MacResolve"; return 1; }
+
+		# get the MAC address in Windows
+		if IsPlatform win; then
+			local ip; ip="$(GetIpAddress "$host")" || return
+			macWin="$(arp.exe -a | grep "$ip" | tr -s " " | cut -d" " -f3 | tail -1)" || return
+			mac="$(echo "$macWin" | sed 's/-/:/g')" || return # change - to :
+
+		# get the MAC address - everything else
+		else
+			mac="$(arp "$host")" || return
+			echo "$mac" | ${G}grep --quiet "no entry$" && { ScriptErrQuiet "no MAC address for '$host'"; return 1; }
+			local column=3; IsPlatform mac && column=4
+			mac="$(echo "$mac" | tr -s " " | cut -d" " -f${column} | tail -1)"
+		fi
+
+	fi
+
+	# return the MAC address if not showing detail
+	[[ ! $detail ]] && { echo "$mac"; return; }
+
+	# get all IP addresses associated with the MAC address - more than one for a Virtual IP Address (VIP)
+	local ips; 
+	if IsPlatform win; then
+		IFS=$'\n' ips=( $(arp.exe -a | command ${G}grep "$macWin" | tr -s " " | cut -d" " -f2 | sort | uniq) ) || return
+	else
+		IFS=$'\n' ips=( $(arp -a -n | command ${G}grep " $mac " | cut -d" " -f2 | RemoveParens | sort | uniq) ) || return
+	fi
 
 	{
 		hilight "mac-IP Address-DNS Name"
@@ -1596,31 +1660,6 @@ MacLookupInfo()
 		done
 	} | column -c $(tput cols -T "$TERM") -t -s-
 }
-
-# MacLookupName MAC - return the DNS names associated with the specified MAC address
-MacLookupName()
-{
-	local ip ips; ips=( $(MacLookup "$1") ) || return
-	for ip in "${ips[@]}"; do echo "$(DnsResolve "$ip")"; done
-}
-
-# MacResolve HOST [--quiet] - get the MAC address for the host
-MacResolve() 
-{
-	local quiet opts; ScriptOptQuiet "$@"; set -- "${opts[@]}"
-	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "MacResolve"; return 1; }
-
-	# populate the arp cache with the MAC address
-	ping -c 1 "$host" >& /dev/null || { [[ ! $quiet ]] && ScriptErr "unable to resolve the MAC address for '$host'" "MacResolve"; return 1; }
-
-	# get the MAC address
-	local mac; mac="$(arp "$host")" || return
-	echo "$mac" | ${G}grep --quiet "no entry$" && { ScriptErr "no MAC address for '$host'"; return 1; }
-
-	# return the MAC address
-	local column=3; IsPlatform mac && column=4
-	echo "$mac" | tr -s " " | tail -1 | cut -d" " -f${column}
-} 
 
 #
 # Network: Host Availability
@@ -1821,9 +1860,7 @@ DnsAlternate()
 	return 0
 }
 
-
-# DnsResolve [--quiet] NAME|IP - resolve NAME or IP address to a unique fully qualified domain name
-# test cases: $HOSTNAME 10.10.100.10 web.service pi1 pi1.butare.net pi1.hagerman.butare.net
+# DnsResolve [--quiet] IP|NAME - resolve an IP address or host name to a fully qualified domain name
 DnsResolve()
 {
 	local name quiet server useAlternate
@@ -1873,8 +1910,58 @@ DnsResolve()
 	[[ "$lookup" ]] && echo "$lookup" || return 1
 }
 
-# DnsResolveBatch NAME|IP... - resolve in parallel
-DnsResolveBatch() { parallel -i bash -c '. function.sh && DnsResolve {}' -- "$@"; }
+# DnsResolveBatch [IP|NAME...](pipe) - resolve IP addresses or names to fully qualified DNS names in parallel
+DnsResolveBatch()
+{
+	(( $# == 0 )) && GetArgsPipe # take arguments from pipe 
+	parallel -i bash -c '. function.sh && DnsResolve {}' -- "$@"; 
+}
+
+# DnsResolveMac MAC... - resolve MAC addresses to DNS names using /etc/ethers
+# --ignore-errors|-ie		keep processing if an error occurs
+# --full|-f  						return a fully qualified domain name
+# --quiet|-q						suppress error message where possible
+DnsResolveMac()
+{
+	local ignoreErrors macs=() quiet full="cat"
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--ignore-errors|-ie) ignoreErrors="true";;
+			--full|-f) full="DnsResolveBatch";;
+			--quiet|-q) quiet="true";;
+			*) 
+					IsOption "$1" && { UnknownOption "$1" "DnsResolveMac"; return 1; }
+					macs+=("$1")
+					;;
+		esac
+		shift
+	done
+
+	[[ ! $macs ]] && { MissingOperand "mac" "DnsResolveMac"; return 1; } 	
+
+	# validate
+	local result=0 mac validMacs=()
+	for mac in "${macs[@]}"; do
+		IsMacAddress "$mac" && { validMacs+=("$mac"); continue; }
+		ScriptErrQuiet "'$mac' is not a valid MAC address" "DnsResolveMac"
+		result=1; [[ ! $ignoreErrors ]] && return $result
+	done
+	
+	# lookup
+	local name names=()
+	for mac in "${validMacs[@]}"; do
+		if name="$(getent ethers "$mac" | cut -d" " -f2)"; then
+			names+=("$name")
+		else
+			ScriptErrQuiet "'$mac' was not found" "DnsResolveMac"
+			result=1; [[ ! $ignoreErrors ]] && return $result
+		fi
+	done
+
+	# show names
+	[[ $names ]] && ArrayDelimit names "\n" | $full; return $result
+}
 
 DnsFlush()
 {
@@ -2985,9 +3072,9 @@ RunFunctionExists()
 
 ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } 						# ScriptArgs SCRIPT_NAME ARGS... - display script arguments
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }		# ScriptDir - return the directory the script is contained in
-ScriptEchoQuiet() { log1 "$1"; [[ $quiet ]] && return; EchoWrap "$1"; }
-ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; }						# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
-ScriptErrQuiet() { log1 "$1"; [[ $quiet ]] && return; ScriptErr "$1"; }
+ScriptEchoQuiet() { [[ $quiet ]] && return; EchoWrap "$1"; }
+ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; return 1; }	# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
+ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$1"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
 ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "$name: "; }
