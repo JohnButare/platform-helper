@@ -3309,6 +3309,7 @@ GetTextEditor()
 
 	InPath micro && { echo "micro"; return 0; }
 	InPath nano && { echo "nano"; return 0; }
+	InPath hx && { echo "hx"; return 0; }
 	InPath vi && { echo "vi"; return 0; }
 	ScriptErr "no text editor found" "GetTextEditor"; return 1;
 }
