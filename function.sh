@@ -1616,8 +1616,11 @@ MacLookup()
 
 	# resolve using /etc/ethers	
 	if [[ $ethers ]]; then
-		mac="$(getent ethers "$(RemoveDnsSuffix "$host")" | cut -d" " -f1 | sed 's/\b\(\w\)\b/0\1/g' | sort | uniq)" # sed pads zeros, i.e. 2:2 -> 02:02 
-
+		if InPath getent; then
+			mac="$(getent ethers "$(RemoveDnsSuffix "$host")" | cut -d" " -f1 | sed 's/\b\(\w\)\b/0\1/g' | sort | uniq)" # sed pads zeros, i.e. 2:2 -> 02:02 
+		else
+			mac="$(grep " $(RemoveDnsSuffix "${host,,}")$" "/etc/ethers" | cut -d" " -f1)"
+		fi
 	# resolve using the ARP table
 	else
 
@@ -1960,7 +1963,13 @@ DnsResolveMac()
 	# lookup
 	local name names=()
 	for mac in "${validMacs[@]}"; do
-		if name="$(getent ethers "$mac" | cut -d" " -f2)"; then
+		if InPath getent; then
+			name="$(getent ethers "$mac" | cut -d" " -f2)"
+		else
+			name="$(grep -i "^${mac} " "/etc/ethers" | cut -d" " -f2)"
+		fi	
+
+		if [[ $name ]]; then
 			names+=("$name")
 		else
 			ScriptErrQuiet "'$mac' was not found" "DnsResolveMac"
