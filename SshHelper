@@ -241,18 +241,28 @@ connect()
 		return 1
 	fi
 
+	# arguments for all commands
+	local args=()
+	[[ $user ]] && args+=("$user@$host") || args+=("$host")
+
+	# mosh
+	if [[ $mosh ]]; then
+		IsPlatform --host ender mac && args+=( --server='/opt/homebrew/bin/mosh-server')
+		 mosh "${args[@]}"
+		return
+	fi
+
 	# hashi causes spawn error with password spawn	
 	[[ $password ]] && unset hashi
 
-	# arguments - use "$(ArrayShow otherArgs)" to preserve spaces
-	local args=() quietArg
+	# arguments
 	[[ $borg ]] && args+=("-o" SendEnv="BORG_*")
 	[[ $credentialManager ]] && ! IsPlatform mac && args+=("-o" SendEnv="CREDENTIAL_*") # don't send for mac as target likely uses a different credential manager.   This setting may prevent recursion but is it necessary?
 	[[ $credentialManager && "$CREDENTIAL_MANAGER" == "vault" ]] && args+=("-o" SendEnv="VAULT_*")
 	[[ $hashi ]] && args+=("-o" SendEnv="CONSUL_* NOMAD_* VAULT_*")
-	[[ $user ]] && args+=("$user@$host") || args+=("$host")
 	[[ $port ]] && args+=(-p "$port")
 
+	# other arguments
 	if [[ $otherArgs ]]; then
 
 		if [[ $interactive ]]; then
@@ -261,6 +271,7 @@ connect()
 			args+=(-- ". function.sh;")
 		fi
 
+		# use "$(ArrayShow otherArgs)" to preserve spaces
 		if [[ $quote ]]; then
 			args+=("$(ArrayShow otherArgs)")
 		else
@@ -276,9 +287,7 @@ connect()
 	
 	# get the command
 	local command
-	if [[ $mosh ]]; then
-		command=(mosh)
-	elif [[ ! $x ]]; then
+	if [[ ! $x ]]; then
 		command=(ssh)
 	elif IsPlatform mac,wsl2; then # WSL 2 and mac XQuartz requires trusted X11 forwarding (X programs are trusted to use all X features on the host)
 		command=(ssh -Y)
@@ -286,19 +295,15 @@ connect()
 		command=(ssh -X)
 	fi
 
-	# add SSH arguments
-	if [[ "$command" != "mosh" ]]; then
+	# supress warnings
+	[[ ! $verbose ]] && command+=(-q)
 
-		# supress warnings
-		[[ ! $verbose ]] && command+=(-q)
+	# verbosity - don't allow if sending credentials, otherwise reduce verbosity by 1 to reduce noise
+	[[ ! $borg && ! $credentialManager && ! $hashi ]] && (( verboseLevel > 1 )) && command+=(-$(StringRepeat v $((verboseLevel - 1))))
 
-		# verbosity - don't allow if sending credentials, otherwise reduce verbosity by 1 to reduce noise
-		[[ ! $borg && ! $credentialManager && ! $hashi ]] && (( verboseLevel > 1 )) && command+=(-$(StringRepeat v $((verboseLevel - 1))))
-
-		# other
-		[[ $pseudoTerminal ]] && command+=($pseudoTerminal)
-		[[ $trust ]] && command+=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
-	fi
+	# other
+	[[ $pseudoTerminal ]] && command+=($pseudoTerminal)
+	[[ $trust ]] && command+=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
 
 	# logging
 	log1 "command: ${command[@]} $@"
