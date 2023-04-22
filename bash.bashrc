@@ -237,6 +237,9 @@ if [[ "$USER" == "root" ]]; then
 	 	[[ ! -f ~/.profile ]] && echo "[ $BASH ] && . \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.profile"
 
 	else
+		# link configuration users .inputrc
+		[[ ! -f "$HOME/.inputrc" ]] && { MakeLink create "$USERS/$(ConfigGet "user")/.inputrc" "$HOME/.inputrc" || return; }
+
 		# use aliases from the configuration user
 		! grep -q "ConfigGet" "$HOME/.bashrc" && echo ". \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.bashrc"
 
