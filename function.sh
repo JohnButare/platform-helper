@@ -1983,9 +1983,12 @@ DnsResolveMac()
 
 DnsFlush()
 {
-	if IsPlatform mac; then sudoc dscacheutil -flushcache; sudo killall -HUP mDNSResponder
-	elif IsPlatform win; then ipconfig.exe /flushdns
+	if IsPlatform mac; then sudoc dscacheutil -flushcache && sudo killall -HUP mDNSResponder
+	elif IsPlatform win; then ipconfig.exe /flushdns >& /dev/null
+	elif IsPlatform systemd && systemctl is-active systemd-resolved >& /dev/null; then resolvectl flush-caches
 	fi
+
+
 }
 
 GetDnsServers()
