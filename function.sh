@@ -40,7 +40,7 @@ else
 fi
 
 ShowArgs() { local args=( "$@" ); ArrayShow args; } 	# ShowArgs [ARGS...] - show arguments from command line
-SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - split arguments using to IFS from command line
+SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - split arguments from command line using IFS 
 
 #
 # Other
@@ -473,6 +473,7 @@ PythonConf()
 {
 	! IsFunction PathAdd && { . $BIN/bash.bashrc || return; }
 	if [[ "$PLATFORM_OS" != "mac" && -d "$HOME/.local/bin" ]]; then PathAdd "$HOME/.local/bin"
+	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.11/bin" ]]; then PathAdd front "$HOME/Library/Python/3.11/bin"
 	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.10/bin" ]]; then PathAdd front "$HOME/Library/Python/3.10/bin"
 	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.9/bin" ]]; then PathAdd front "$HOME/Library/Python/3.9/bin"
 	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.8/bin" ]]; then PathAdd front "$HOME/Library/Python/3.8/bin"

@@ -146,7 +146,7 @@ P="/opt" PUSER="" SRV="/srv" BIN="" DATA="" ADATA="" ACONFIG="" PUB="" USERS="/h
 # USER=logged on user, SUDO_USER, HOME=home directory, DOC=user documents, UDATA=user data, UBIN=user programs
 # UDATA=user data, UADATA=user application data, CODE=source code WIN_CODE=windows source code
 USER="${USERNAME:-$USER}" DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
-DATA="/usr/local/data" ADATA="$DATA/appdata" ACONFIG="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM_OS" PUB="${PUB:-$USERS/Shared}"
+DATA="/usr/local/data" ADATA="$DATA/appdata" ACONFIG="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM_OS"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
 WIN_CODE="$code"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
@@ -172,6 +172,9 @@ case "$PLATFORM_OS" in
 		;;
 
 esac
+
+# platform dependant variables
+PUB="${PUB:-$USERS/Shared}"
 
 # PLATFORM_LIKE environment variables
 case "$PLATFORM_LIKE" in 
