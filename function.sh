@@ -589,11 +589,12 @@ GetDef() { local gd="$(declare -p $1)"; gd="${gd#*\=}"; gd="${gd#\(}"; r "${gd%\
 IsVar() { declare -p "$1" >& /dev/null; }
 IsAnyArray() { IsArray "$1" || IsAssociativeArray "$1"; }
 
-# ArrayMakeC VAR CMD... - make an array from the output of a command if the command succeeds
-# StringToArray STRING DELIMITER ARRAY_VAR
+# ArrayMake VAR ARG... - make an array by splitting passed arguments using IFS
+# ArrayMakeC VAR CMD... - make an array from the output of a command
 # SetVar VAR VALUE
+# StringToArray STRING DELIMITER VAR
 if IsBash; then
-	ArrayMake() { local -n arrayMake="$1"; shift; arrayMake=( $@ ); } # ArrayMake VAR ARG... - make an array by splitting passed arguments using IFS
+	ArrayMake() { local -n arrayMake="$1"; shift; arrayMake=( $@ ); }
 	ArrayMakeC() { local -n arrayMakeC="$1"; shift; arrayMakeC=( $($@) ); }
 	ArrayShift() { local -n arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${arrayShiftVar[@]}"; shift "$arrayShiftNum"; arrayShiftVar=( "$@" ); }
 	ArrayShowKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ArrayShow keys; }
@@ -607,7 +608,7 @@ else
 	ArrayMakeC() { local arrayMakeC=() arrayName="$1"; shift; arrayMakeC=( $($@) ) || return; ArrayCopy arrayMakeC "$arrayName"; }
 	ArrayShift() { local arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${${(P)arrayShiftVar}[@]}"; shift "$arrayShiftNum"; local arrayShiftArray=( "$@" ); ArrayCopy arrayShiftArray "$arrayShiftVar"; }
 	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
-	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; r "${gt%% *}" $2; }
+	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; gt="${gt#-g }"; r "${gt%% *}" $2; }
 	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == @(array|array-local) ]]; }
 	IsAssociativeArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "association" ]]; }
 	SetVariable() { eval $1="$2"; }
