@@ -643,7 +643,7 @@ ArrayAppend()
 ArrayCopy()
 {
 	! IsAnyArray "$1" && { ScriptErr "'$1' is not an array"; return 1; }
-	declare -g $(GetType $1) $2
+	local ifsSave; IfsSave; declare -g $(GetType $1) $2; IfsRestore # save and restore IFS in case it is set to - or a
 	eval "$2=( $(GetDef $1) )"
 }
 
@@ -687,7 +687,7 @@ ArrayShow()
 {
 	IsAssociativeArray "$1" && { GetDef "$1"; return; }
 
-	local arrayShow=(); ArrayCopy "$1" arrayShow || return;
+	local arrayShow=(); ArrayCopy "$1" arrayShow || { IFS="$ifsSave"; return 1; }
 	local result delimiter="${2:- }" begin="${3:-\"}" end="${4:-\"}"
 	printf -v result "$begin%s$end$delimiter" "${arrayShow[@]}"
 	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
@@ -765,8 +765,6 @@ NewlineToSpace()  { tr '\n' ' '; }
 StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } # StringRepeat S N - repeat the specified string N times
 
 ShowChars() { GetArgs; echo -n -e "$@" | ${G}od --address-radix=d -t x1 -t a; } # Show
-ShowIfs() { echo -n "$IFS" | ShowChars; }
-ResetIfs() { IFS=$' \t\n\0'; }
 
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveNewline()  { tr -d '\n'; }
@@ -798,7 +796,6 @@ ForwardToBackSlash() { GetArgs; echo -E "$@" | sed 's/\//\\/g'; }
 RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
 
 GetAfter() { GetArgs2; [[ "$1" =~ ^[^$2]*$2(.*)$ ]] && echo "${BASH_REMATCH[1]}"; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
-
 GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoErr "usage: GetWord STRING|- WORD [DELIMITER]( ) - 1 based"; return 1; }
 
 if IsZsh; then
@@ -1203,6 +1200,16 @@ UnzipPlatform()
 
 	return 0
 }
+
+
+#
+# IFS
+#
+
+IfsShow() { echo -n "$IFS" | ShowChars; }
+IfsReset() { IFS=$' \t\n\0'; }
+IfsSave() { ifsSave="$IFS"; IfsReset; }
+IfsRestore() { IFS="$ifsSave"; }
 
 #
 # Monitoring
