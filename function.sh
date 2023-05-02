@@ -182,7 +182,7 @@ GroupExists() { IsPlatform mac && { dscl . -list "/Groups" | ${G}grep --quiet "^
 GroupList() { IsPlatform mac && { dscl . -list "/Groups"; return; }; getent group; }
 PasswordGet() { ask password "password" </dev/tty; }
 PasswordSet() { PasswordGet | cred set "$@" - ; }
-UserInGroup() { id "$1" | grep -q "($2)"; } # UserInGroup USER GROUP
+UserInGroup() { id "$1" 2&> /dev/null | grep --quiet "($2)"; } # UserInGroup USER GROUP
 
 GroupAdd()
 {
@@ -203,41 +203,85 @@ GroupAddUser()
 	fi
 }
 
-UserCreate()
+# UserCreate USER PASSWORD [-s|--system] [--ssh-copy]
+# --system|-s 		create a system user
+# --admin|-a			make the user an administrator
+# --ssh-copy			copy the current users SSH configuration to the new user
+UserCreate() 
 {
-	local user="$1"; [[ ! $user ]] && { MissingOperand "user" "UserCreate"; return 1; }
-	local password="$2"; [[ ! $password ]] && { password="$(pwgen 14 1)" || return; }
+	local admin system sslCopy user password; 
+
+	# options
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--admin|-a) admin="--admin";;
+			--system|-s) system="--system";;
+			--ssh-copy) sshCopy="--ssh-copy";;
+			*)
+				if ! IsOption "$1" && [[ ! $user ]]; then user="$1"
+				elif ! IsOption "$1" && [[ ! $password ]]; then password="$1"
+				else UnknownOption "$1" "UserCreate"; return
+				fi
+		esac
+		shift
+	done
+
+	[[ ! $user ]] && { MissingOperand "user" "UserCreate"; return 1; }
+	[[ ! $password ]] && { password="$(pwgen 14 1)" || return; }
 
 	# create user
-	if ! UserExists "$1"; then
+	if ! UserExists "$user"; then
+		hilight "Creating user '$user'..."
+
 		if IsPlatform mac; then
-				sudoc dscl . create "/Users/$user" IsHidden 0 || return
-				sudoc dscl . -passwd "/Users/$user" "$password" || return
+			local adminArg; [[ $admin || $system ]] && adminArg="-admin"			
+			sudoc sysadminctl -addUser "$user" -password "$password" $admin || return
+
+		elif [[ $system ]]; then
+			sudoc useradd --create-home --system "$user" || return
+			password linux --user "$user" --password "$password" || return
+
 		else
-				sudoc adduser $user --disabled-password --gecos "" || return
-				echo "$user:$password" | sudo chpasswd || return
+			sudoc adduser $user --disabled-password --gecos "" || return
+			echo "$user:$password" | sudo chpasswd || return
+
 		fi		
-		echo "User password is $password"
+
+		echo "User '$user' password is $password"
 	fi
 
-	# make root
+	# make user administrator	
 	local group="sudo"; IsPlatform mac && group="admin"
-	if ! UserInGroup "$user" "sudo" && ask "Make user root"; then
+
+	if [[ $admin || $system ]] && ! UserInGroup "$user" "$group"; then
+		echo "Adding user '$user' to group '$group'..."
 		if IsPlatform mac; then GroupAddUser "$group" "$user" || return
 		else sudo usermod -aG sudo $user || return
 		fi
 	fi
 
-	# create private key
-	[[ ! -d ~$user/.ssh ]] && { sudo install -o "$user" -g "$user" -m 700 -d ~$user/.ssh || exit || return; }
-	if ! sudo ls ~$user/.ssh/id_ed25519 >& /dev/null && ask "Create private key"; then
-		sudo ssh-keygen -t ed25519 -C "$user" -f ~$user/.ssh/id_ed25519 -P "$password" || return
-		sudo chown $user ~$user/.ssh/id_ed25519 ~$user/.ssh/id_ed25519.pub || return
-		sudo chgrp $user ~$user/.ssh/id_ed25519 ~$user/.ssh/id_ed25519.pub || return
+	# don't require sudo password for system users
+	if [[ $system ]] && ! IsPlatform mac; then
+		local file="/etc/sudoers.d/020_$user-nopasswd"
+		if ! sudoc ls "$file" >& /dev/null; then
+			echo "Adding user '$user' to sudoers..."
+			echo "$user ALL=(ALL) NOPASSWD: ALL" | sudo ${G}tee "/etc/sudoers.d/020_$user-nopasswd" || return
+		fi
+	fi
+
+	# SSH configuration - copy or create
+	if [[ $sshCopy && ! -d "$USERS/$user/.ssh" ]]; then
+		echo "Copying user '$user' SSH configuration from $USER..."
+		sudoc cp -r "$HOME/.ssh" "$USERS/$user/.ssh" || return
+
+	elif ! sudo ls "$USERS/$user/.ssh/id_ed25519" >& /dev/null; then
+		echo "Creating user '$user' SSH keys..."
+		sudo ssh-keygen -t "ed25519" -C "$user" -f "$USERS/$user/.ssh/id_ed25519" -P "$password" || return
 		echo "Private key passphrase is password is $password"
 	fi
 
-	return 0	
+	# update SSH configuration permissions
+	SshHelper permission "$user" || return
 }
 
 FullName() 

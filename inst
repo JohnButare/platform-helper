@@ -167,14 +167,14 @@ installInit()
 	# isInstallable	
 	all=(download final register)
 	all+=(AppDir bash duf envoy hostname jq magic NetbootxyzTftpServer PartitionManagement timezone zsh ZshProfile)	
-	debian=(audacity bind ChronyServer cron CronLog DnsServer DhcpServer kea KeaService mDns SaltMinion SystemUser terminator)
+	debian=(audacity bind ChronyServer cron CronLog DnsServer DhcpServer kea KeaService mDns SaltMinion terminator)
 	debian64=() debianWin=()
 	mac=(amphetamine AppleConfigurator batteries bear Calendar366 CanaryMail CarrotWeather DayOne DiskInventortyX HomeAssistant iTerm KarabinerElements LiveDesktop Magnet MakrdownView pcalc rectagle spark speedtest  WallpaperWizard warp xcode XcodeCli XQuartz yoink)
 	macDebian=(BalenaEtcher bat bc btop chrony colorls DotNet Dropbox DropboxDownload docker etcher exa fzf ghq gnupg NetbootxyzDocker passh PiDiskImager RpiBoot ruby RubyAsdf RubyPackage RubyRvm StandardNotes SublimeMerge tmux thunderbird unison)
 	macWin=(BlueSherpa BrotherPrinter calibre CleanMyMac CreativeCloud cricut deezer DuetDisplay edge firefox fork garmin iExplorer keybase loom miro notion nVidia PdfElement plex quicken qvr slack sonos spotify SurveillanceStation VisualStudio VisualStudioExtensions xpra xServer zoom)
 	pi=(wifi)
 	win=(AjaSystemTest backupper bonjourSdk CoreTemp CorsairUtilityEngine cpuz DiskImager EdgeDeflector FileLocatorPro GigabyteMotherboard HardwareMonitor HiddenStart HiddenStartConfigure Hp9020 iCloud kindle KindleDrm vcxsrv WinScp xMing AjaSystemTest CPUZ DiskImager hyperv HiddenStart java LgMonitor MarkdownView NitroPdf nVidiaDriver nVidiaGeForceExperience OneDrive pa PartitionAssistant PowerPanel PowerrToys QuickBooks RealtekCardReader stamps SystemInternals TemperatureLogger Todoist UupDump Wallpaper4k WslConfig x410 xMing)
-	winElevated=(HiddenStart HiddenStartConfigure MaxTo NoMachine SystemUser UltraMon)
+	winElevated=(HiddenStart HiddenStartConfigure MaxTo NoMachine UltraMon)
 	
 	# Android
 	win+=(AndroidIcon BlueStacks)
@@ -299,10 +299,9 @@ installInit()
 	# security
 	all+=(CredentialStore)
 	debian+=(cfssl GnomeKeyring LastPass)
-	macDebian+=(1Password 1PasswordCli AxCrypt certbot pass VeraCrypt YubiKeyManager)
+	macDebian+=(1Password 1PasswordCli AxCrypt certbot pass SystemUser VeraCrypt YubiKeyManager)
 	macWin+=(AxCrypt)
 	win+=(Dashlane pGina)
-	winElevated+=(SystemUser)
 
 	# Server Applications
 	debian+=(LoadBalancer VpnServer)
@@ -358,6 +357,7 @@ mergeDir() { MergeDir --parents --suppress "$@"; }
 minimalInstall() { [[ $_minimalInstall ]]; }
 moveAppData() { local src="$1" dest="${2:-$1}"; makeLink --merge --hide "$(platformUserAppData)/$dest" "$DOC/$src"; }
 mvSudo() { [[ ! -e "$1" ]] && return; sudoc mv "$1" "$2"; }
+networkVars() { network current update --quiet && ScriptEval network vars; } # sets NETWORK and NETWORK_DOMAIN
 pausep() { [[ $noPrompt ]] && return; pause; } # pausep - pause if prompting
 pkg() { package --quiet "$@"; }
 platformUserAppData() { local d; d="$(GetPlatformVar "UDATA")/app" && makeDir "$d" && echo "$d"; }
@@ -749,6 +749,12 @@ register()
 
 	# start the application
 	app "$app" && pause
+}
+
+# manageSystem - return 0 if the system will be managed remotely ( non-Linux Wiggin physical machines that are not in another domain)
+manageSystem()
+{	
+	networkVars && [[ "$NETWORK" == "hagerman" && ! $NETWORK_DOMAIN ]] && IsPlatform physical && ! IsPlatform linux
 }
 
 # run [PROGRAM] - run an installation program
@@ -1382,9 +1388,7 @@ AppHostSoftwareInstall()
 
 AppNetworkInstall()
 {
-	network current update --quiet || return
-	ScriptEval network vars || return # sets NETWORK and NETWORK_DOMAIN
-	
+	networkVars || return
 	header "${NETWORK^} Applications"
 
 	# network
@@ -1397,10 +1401,8 @@ AppNetworkInstall()
 		coexist) i docker VisualStudioCode || return;;
 	esac
 
-	# wiggin physical machine, not in another domain, not linux
-	if [[ "$NETWORK" == "hagerman" && ! $NETWORK_DOMAIN ]] && IsPlatform physical && ! IsPlatform linux; then
-		i JumpCloud ninite || return
-	fi
+	# management
+	manageSystem && { i JumpCloud ninite || return; }
 
 	return 0
 }
@@ -7170,29 +7172,17 @@ SystemUserInstall()
 	header "System User"
 
 	local user; user="$(ConfigGet "systemUser")" || return
-
+	local password; password="$(credential get system default --quiet --fallback)" || return
+	
 	# validate user
 	[[ ! $user ]] && { ScriptErr "the system user is not specified in configuration."; return 0; }
 
-	# add user and set password
-	if ! UserExists "$user"; then
-		sudoc useradd --create-home --system "$user" || return
-		password linux --user "$user" --password "$(credential get system default --quiet --fallback)" || return
-	fi
+	# create system user
+	UserCreate --system --ssh-copy "$user" "$password" || return
 
-	# do not require sudo password
-	local file="/etc/sudoers.d/020_$user-nopasswd"
-	if ! sudoc ls "$file" >& /dev/null; then 
-		echo "$user ALL=(ALL) NOPASSWD: ALL" | sudo ${G}tee "/etc/sudoers.d/020_$user-nopasswd" || return
-	fi
-	
-	# SSH permission
-	if [[ ! -d "$USERS/$user/.ssh" ]]; then
-		sudoc cp -r "$HOME/.ssh" "$USERS/$user/.ssh" || return
-		SshHelper permission "wsystem" || return
-	fi
-
-	return 0
+	# create a backup system user that is not managed	
+	! manageSystem && return
+	UserCreate --system --ssh-copy "${user}b" "$password"	|| return
 }
 
 VeraCryptInstall()
