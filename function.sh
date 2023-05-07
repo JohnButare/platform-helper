@@ -889,6 +889,7 @@ fi
 # File System
 #
 
+CanWrite() { [[ -w "$1" ]]; }
 CopyFileProgress() { rsync --info=progress2 "$@"; }
 DirCount() { local result; result="$(command ls "${1:-.}" |& wc -l)" || return; RemoveSpace "$result"; }
 EnsureDir() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
@@ -2644,7 +2645,7 @@ function RunPlatform()
 # Process
 #
 
-CanElevate() { IsWinAdmin; }
+CanElevate() { ! IsPlatform win && return; IsWinAdmin; }
 ProgramsElevate() { CanElevate && echo "$P" || echo "$UADATA"; }
 console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternatively run in a regular Windows console (Start, Run, bash --login)
 CoprocCat() { cat 0<&${COPROC[0]}; } # read output from a process started with coproc
