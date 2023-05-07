@@ -3015,9 +3015,12 @@ start()
 	else open="NO_OPEN"; fi
 
 	# start Mac application
-	if [[ "$file" =~ \.app$ ]]; then
+	if [[ "$file" =~ \.app$ || -d "$P/$file.app" ]]; then
 		[[ ! -d "$file" ]] && file="$(GetFileNameWithoutExtension "$file")" || file="$(GetFullPath "$file")"
-		open -a "$file" "${args[@]}"; return; 
+		[[ ! -d "$file" ]] && { ScriptErrQuiet "Unable to find '$fileOrig'" "start"; return 1; }
+		local result; result="$(open -a "$file" "${args[@]}")"
+		[[ ! "$result" =~ "Unable to find application named" ]] && { ScriptErrQuiet "$result"; return 1; }
+		StartWaitExists "$file"; return
 	fi
 
 	# start directories and URL's
@@ -3025,7 +3028,7 @@ start()
 
 	# verify the file	
 	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
-	[[ ! -f "$file" ]] && { EchoErr "Unable to find $fileOrig"; return 1; }
+	[[ ! -f "$file" ]] && { ScriptErrQuiet "Unable to find '$fileOrig'" "start"; return 1; }
 
 	# start files with a specific extention
 	case "$(GetFileExtension "$file")" in
