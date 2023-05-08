@@ -3014,13 +3014,22 @@ start()
 	elif InPath xdg-open; then open=( xdg-open )
 	else open="NO_OPEN"; fi
 
-	# start Mac application
-	if [[ "$file" =~ \.app$ || -d "$P/$file.app" ]]; then
-		[[ ! -d "$file" ]] && file="$(GetFileNameWithoutExtension "$file")" || file="$(GetFullPath "$file")"
-		[[ ! -d "$file" ]] && { ScriptErrQuiet "Unable to find '$fileOrig'" "start"; return 1; }
+	# start Mac application 
+	if [[ "$file" =~ \.app$ || -d "$P/$file.app" || -d "$HOME/Applications/$file.app" ]]; then
+		
+		# find the physical app location if possible
+		[[ ! -d "$file" ]] && file="$(GetFileNameWithoutExtension "$file")"
+		[[ ! -d "$file" && -d "$P/$file.app" ]] && file="$P/$file.app"
+		[[ ! -d "$file" && -d "$HOME/Applications/$file.app" ]] && file="$P/$file.app"
+
+		# we could not find the app, just try and open it
+		[[ ! -d "$file" ]] && { open -a "$file"  "${args[@]}"; return; }
+
+		# open the app, waiting for the OS to see newly installed apps if needed
 		local result; result="$(open -a "$file" "${args[@]}")"
 		[[ ! "$result" =~ "Unable to find application named" ]] && { ScriptErrQuiet "$result"; return 1; }
 		StartWaitExists "$file"; return
+
 	fi
 
 	# start directories and URL's
