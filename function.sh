@@ -2650,6 +2650,7 @@ ProgramsElevate() { CanElevate && echo "$P" || echo "$UADATA"; }
 console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternatively run in a regular Windows console (Start, Run, bash --login)
 CoprocCat() { cat 0<&${COPROC[0]}; } # read output from a process started with coproc
 handle() { ProcessResource "$@"; }
+IsMacApp() { [[ "$app" =~ \.app$ ]] && return; local app="$(GetFileNameWithoutExtension "$1")"; [[ -d "$P/$app.app" || -d "$HOME/Applications/$app.app" ]]; }
 InUse() { ProcessResource "$@"; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
@@ -3015,7 +3016,7 @@ start()
 	else open="NO_OPEN"; fi
 
 	# start Mac application 
-	if [[ "$file" =~ \.app$ || -d "$P/$file.app" || -d "$HOME/Applications/$file.app" ]]; then
+	if IsMacApp "$file"; then
 		
 		# find the physical app location if possible
 		[[ ! -d "$file" ]] && file="$(GetFileNameWithoutExtension "$file")"
