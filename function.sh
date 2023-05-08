@@ -1049,8 +1049,8 @@ FileWait()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-nc|--no-cancel) noCancel="true";;
-			-q|--quiet) quiet="true";;
+			--no-cancel|-nc) noCancel="true";;
+			--quiet|-q) quiet="true";;
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $timeoutSeconds ]] && { timeoutSeconds="$1"; shift; continue; }
@@ -1486,12 +1486,12 @@ GetIpAddress()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-a|--all) all=(cat);;
-			-ra|--resolve-all) mdsn="true" vm="true";;
-			-m|--mdns) mdns="true";;
-			-q|--quiet) quiet="true";;
-			-v|--vm) vm="true";;
-			-w|--wsl) wsl="--wsl";;
+			--all|-a) all=(cat);;
+			--resolve-all|-ra) mdsn="true" vm="true";;
+			--mdns|-m) mdns="true";;
+			--quiet|-q) quiet="true";;
+			--vm|-v) vm="true";;
+			--wsl|-w) wsl="--wsl";;
 			*)
 				! IsOption "$1" && [[ ! $host ]] && { host="$(GetSshHost "$1")"; shift; continue; }
 				UnknownOption "$1" "GetIpAddress"; return 1
@@ -1813,8 +1813,8 @@ PortResponse()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-q|--quiet) quiet="--quiet";;
-			-v|-vv|-vvv|-vvvv|-vvvvv|--verbose) ScriptOptVerbose "$1";;
+			--quiet|-q) quiet="--quiet";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
@@ -2765,10 +2765,10 @@ ProcessClose()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--full) args+=("--full");;
-			-f|--force) force="--force";;
-			-q|--quiet) quiet="--quiet";;
-			-r|--root) root="sudoc";;
-			-v|-vv|-vvv|-vvvv|-vvvvv|--verbose) ScriptOptVerbose "$1";;
+			--force|-f) force="--force";;
+			--quiet|-q) quiet="--quiet";;
+			--root|-w) root="sudoc";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
 				UnknownOption "$1" "ProcessClose"; return 1
@@ -2825,10 +2825,10 @@ ProcessCloseWait()
 	# options
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-f|--full) full="--full";;
-			-q|--quiet) quiet="true";;
-			-r|--root) root="--root";;
-			-v|-vv|-vvv|-vvvv|-vvvvv|--verbose) ScriptOptVerbose "$1";;
+			--full|-f) full="--full";;
+			--quiet|-q) quiet="true";;
+			--root|-r) root="--root";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
 				UnknownOption "$1" "ProcessCloseWait"; return 1
@@ -2869,10 +2869,10 @@ ProcessKill()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--full) args+=("--full");;
-			-f|--force) force="--force";;
-			-q|--quiet) quiet="true";;
-			-r|--root) rootArg="--root" root="sudoc";;
-			-w|--win) win="--win";;
+			--force|-f) force="--force";;
+			--quiet|-q) quiet="true";;
+			--root|-r) rootArg="--root" root="sudoc";;
+			--win|-w) win="--win";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
 				UnknownOption "$1" "ProcessKill"; return 1
@@ -3226,7 +3226,7 @@ ScriptOptQuiet()
 	opts=()
 	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
 		case "$1" in
-			-q|--quiet) quiet="--quiet";;
+			--quiet|-q) quiet="--quiet";;
 			*) opts+=("$1")
 		esac
 		shift; 
@@ -3511,7 +3511,7 @@ InitializeXServer()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-q|--quiet) quiet="true";;
+			--quiet|-q) quiet="true";;
 			*) UnknownOption "$1" "InitializeXServer"; return 1;;
 		esac
 		shift
