@@ -3026,7 +3026,7 @@ start()
 		[[ ! -d "$file" ]] && { open -a "$file"  "${args[@]}"; return; }
 
 		# open the app, waiting for the OS to see newly installed apps if needed
-		local result; result="$(open -a "$file" "${args[@]}")"
+		local result; result="$(open -a "$file" "${args[@]}")" && return
 		[[ ! "$result" =~ "Unable to find application named" ]] && { ScriptErrQuiet "$result"; return 1; }
 		StartWaitExists "$file"; return
 
