@@ -2225,6 +2225,7 @@ HasPackageManager() { [[ "$(PackageManager)" != "none" ]]; }
 PackageFileInfo() { dpkg -I "$1"; } # information about a DEB package
 PackageFileInstall() { sudo gdebi -n "$@"; } # install a DEB package with dependencies
 PackageFileVersion() { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -d: -f2; }
+PackageIsInstalled() { PackageListInstalled | ${G}grep "^$1	" >& /dev/null; } # --quiet causes pipe to fail in Debian
 PackageLog() { LogShow "/var/log/unattended-upgrades/unattended-upgrades-dpkg.log"; }
 PackagePurge() { InPath wajig && wajig purgeremoved; }
 PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
