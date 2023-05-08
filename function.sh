@@ -360,13 +360,14 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 AppVersion()
 {
 	# arguments
-	local app quiet 
+	local allowAlpha app appOrig quiet 
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-q|--quiet) quiet="--quiet";;
+			--quiet|-q) quiet="--quiet";;
+			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
 			*)
-				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $app ]] && { app="$1" appOrig="$1"; shift; continue; }
 				UnknownOption "$1" "AppVersion"; return
 		esac
 		shift
@@ -387,7 +388,7 @@ AppVersion()
 	# file
 	local version;
 	local file="$app"; InPath "$file" && file="$(FindInPath "$file")"	
-	[[ ! -f "$file" ]] && { ScriptErrQuiet "application is not installed" "$app"; return 1; }
+	[[ ! -f "$file" ]] && { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
 
 	# Windows file version
 	if IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
@@ -400,7 +401,9 @@ AppVersion()
 
 	# --version option, where the version number is the last word of the first line
 	version="$("$file" --version $quiet | head -1 | awk '{print $NF}' | RemoveCarriageReturn)" || return
-	IsNumeric "$version" && echo "$version"
+	[[ ! $version ]] && { ScriptErrQuiet "application '$appOrig' version was not found"; return 1; }
+	[[ ! $allowAlpha ]] && ! IsNumeric "$version" && { ScriptErrQuiet "application '$appOrig' version '$version' is not numeric"; return 1; }
+	echo "$version"
 }
 
 browser()
