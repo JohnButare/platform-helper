@@ -182,7 +182,7 @@ GroupExists() { IsPlatform mac && { dscl . -list "/Groups" | ${G}grep --quiet "^
 GroupList() { IsPlatform mac && { dscl . -list "/Groups"; return; }; getent group; }
 PasswordGet() { ask password "password" </dev/tty; }
 PasswordSet() { PasswordGet | cred set "$@" - ; }
-UserInGroup() { id "$1" 2&> /dev/null | grep --quiet "($2)"; } # UserInGroup USER GROUP
+UserInGroup() { id "$1" 2> /dev/null | ${G}grep --quiet "($2)"; } # UserInGroup USER GROUP
 
 GroupAdd()
 {
@@ -263,6 +263,7 @@ UserCreate()
 	# don't require sudo password for system users
 	if [[ $system ]] && ! IsPlatform mac; then
 		local file="/etc/sudoers.d/020_$user-nopasswd"
+
 		if ! sudoc ls "$file" >& /dev/null; then
 			echo "Adding user '$user' to sudoers..."
 			echo "$user ALL=(ALL) NOPASSWD: ALL" | sudo ${G}tee "/etc/sudoers.d/020_$user-nopasswd" || return
