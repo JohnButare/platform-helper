@@ -233,6 +233,7 @@ powerRemote()
 	# determine the current status off the switch port
 	local initialSwitchState="$expectedState"
 	[[ $switchPortPower ]] && { initialSwitchState="$(switchPortStatus $switch $switchPort)" || return; }
+	log1 "initialSwitchState=$initialSwitchState"
 
 	# return if we are in the correct state
 	[[ ! $force && "$initialState" == "$expectedState" && "$initialState" == "$initialSwitchState" ]] && { powerStatusOk; return; }
@@ -257,23 +258,23 @@ powerOff()
 {
 	local command="$1"
 
-	# nothing to do
-	[[ "$initialState" == "off" ]] && return
+	# if the host is already off just power off the switch port 
+	[[ "$initialState" == "off" ]] && { switchPortOff "$switch" "$switchPort"; return; }
 
 	# prepare the host
 	powerOffPrepare "$host" || return
 
-	# use SSH if possible
+	# power off using SSH
 	sshCommandInit && sshCommandDo && powerWaitOff && switchPortOff "$switch" "$switchPort" && return
 
-	# SSH failed, try to control Hyper-V machine
+	# SSH failed, power off using Hyper-V commands
 	IsHostnameVm "$host" && { hypervCommandDo; return; }
 
-	# power off switch port
-	[[ $switch ]] && { switchPortOff "$switch" "$switchPort"; return; }
+	# Hyper-V failed, just power off switch port if we are forcing
+	[[ $switch && $force ]] && { switchPortOff "$switch" "$switchPort"; return; }
 
-	# power off not available
-	commandNotAvailable
+	# power off failed
+	commandFailed
 }
 
 # powerOffPrepare [HOST](localhost) - prepare a host for power off
@@ -353,23 +354,23 @@ powerOnPrepareNomad()
 
 powerReboot()
 {
-	# if not on just power the host on
+	# if the host is already off just power the host on
 	[[ "$initialState" == "off" ]] && { powerOn; return; }
 
 	# prepare the host
 	powerOffPrepare "$host" || return
 
-	# use SSH if possible
+	# power off using SSH
 	sshCommandInit && sshCommandDo && powerWaitOff && powerWaitOn && return
 
-	# SSH failed, try to control Hyper-V machine
+	# SSH failed, reboot using Hyper-V commands
 	IsHostnameVm "$host" && { hypevCommandDo; return; }
 
-	# reboot switch port
-	[[ $switch ]] && { switchPortReboot "$switch" "$switchPort"; return; }
+	# Hyper-V failed, reboot the switch port if we are forcing
+	[[ $switch && $force ]] && { switchPortReboot "$switch" "$switchPort"; return; }
 
-	# reboot command not available
-	commandNotAvailable
+	# reboot failed
+	commandFailed
 }
 
 # powerWaitOff - wait for host to disconnect from the network
@@ -786,7 +787,7 @@ sshCommandInit()
 # Helper
 #
 
-commandNotAvailable() { ScriptErrQuiet "'$command' operation is not available for '$host'"; return 1; }
+commandFailed() { ScriptErrQuiet "'$command' failed for '$host'"; return 1; }
 hypervCommandDo() { printf "command..."; RunLog hyperv power "$command" "$host" "${globalArgs[@]}"; }
 
 initHost()
