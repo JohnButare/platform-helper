@@ -744,8 +744,9 @@ ArrayShow()
 # IsInArray [-ci|--case-insensitive] [-w|--wild] [-aw|--awild] STRING ARRAY_VAR
 IsInArray() 
 { 
+	# arguments
 	local wild awild caseInsensitive
-	local s isInArray=()
+	local s arrayVar
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -753,16 +754,26 @@ IsInArray()
 			-a|--array-wild) awild="true";; 	# array contains glob patterns
 			-w|--wild) wild="true";; 					# value contain glob patterns
 			*)
+				[[ "$1" == "--" ]] && { shift; break; }
 				if ! IsOption "$1" && [[ ! $s ]]; then s="$1"
-				elif ! IsOption "$1" && [[ ! $isInArray ]]; then ArrayCopy "$1" isInArray
+				elif ! IsOption "$1" && [[ ! $isInArray ]]; then arrayVar="$1"
 				else UnknownOption "$1" "IsInArray"; return
 				fi
 		esac
 		shift
 	done
 
+	# get string to check
+	[[ ! $s && $1 ]] && { s="$1"; shift; }
+	[[ ! $s ]] && { MissingOperand "string" "IsInArray"; return 1; }
 	[[ $caseInsensitive ]] && LowerCase "$s" s;
 
+	# get array variable
+	[[ ! $arrayVar && $1 ]] && { arrayVar="$1"; shift; }
+	[[ ! $arrayVar ]] && { MissingOperand "array_var" "IsInArray"; return 1; }
+	local isInArray=(); ArrayCopy "$arrayVar" isInArray
+		
+	# check if string is in the array
 	local value
 	for value in "${isInArray[@]}"; do
 		[[ $caseInsensitive ]] && LowerCase "$value" value

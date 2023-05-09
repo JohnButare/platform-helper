@@ -71,7 +71,7 @@ sync()
 	local src="$1" dest="$2"
 
 	# src or dest directory is excluded
-	{ IsInArray --array-wild "${src##*/}" x || IsInArray --array-wild "${dest##*/}" x; } && return
+	{ IsInArray --array-wild -- "${src##*/}" x || IsInArray --array-wild -- "${dest##*/}" x; } && return
 
 	# logging - check verboseLevel to avoid expensive calls to desc if not logging
 	if (( verboseLevel > 1 )); then
@@ -132,7 +132,7 @@ syncDo()
 
 	while (( srcIndex<lastSrcIndex || destIndex<lastDestIndex )); do
 		srcLine="${srcFiles[$srcIndex]}" destLine="${destFiles[destIndex]}"
-	
+
 		# lines same - quick check
 		if [[ "$srcLine" == "$destLine" ]]; then
 			(( ++srcIndex, ++destIndex ))
@@ -144,17 +144,17 @@ syncDo()
 
 		# same file in source and destination
 		if [[ "$srcFile" == "$destFile" ]]; then
-			! IsInArray --array-wild "$srcFile" x && { syncFile "$src/$srcFile" "$dest/$destFile" || return; }
+			! IsInArray --array-wild -- "$srcFile" x && { syncFile "$src/$srcFile" "$dest/$destFile" || return; }
 			(( ++srcIndex, ++destIndex ))
 
 		# file only in source
 		elif [[ $srcFile && ( "$destFile" == "" || "$srcFile" < "$destFile" ) ]]; then
-			! IsInArray --array-wild "$srcFile" x && srcOnlyFiles+=("$srcFile")
+			! IsInArray --array-wild -- "$srcFile" x && srcOnlyFiles+=("$srcFile")
 			(( ++srcIndex ))
 
 		# file only in destination
 		elif [[ "$srcFile" == "" || "$destFile" < "$srcFile" ]]; then
-			! IsInArray --array-wild "$destFile" x && destOnlyFiles+=("$destFile")
+			! IsInArray --array-wild -- "$destFile" x && destOnlyFiles+=("$destFile")
 			(( ++destIndex ))
 		
 		fi
@@ -163,14 +163,14 @@ syncDo()
 	# handle files only in source or destination
 	case "${method##--}" in
 		dest-older)
-			deleteFilesDir "$dest" "${destOnlyFiles[@]}" || return
-			copyFilesDir "$src" "$dest" "${srcOnlyFiles[@]}" || return;;
+			deleteFilesDir "$dest" "" "${destOnlyFiles[@]}" || return
+			copyFilesDir "$src" "$dest" "" "${srcOnlyFiles[@]}" || return;;
 		src-older)
-			deleteFilesDir "$src" "${srcOnlyFiles[@]}" || return
-			copyFilesDir "$dest" "$src" "${destOnlyFiles[@]}" || return;;
+			deleteFilesDir "$src" "" "${srcOnlyFiles[@]}" || return
+			copyFilesDir "$dest" "$src" "" "${destOnlyFiles[@]}" || return;;
 		*) 
-			syncMissingFiles "$src" "$dest" "${srcOnlyFiles[@]}" || return
-			syncMissingFiles "$dest" "$src" "${destOnlyFiles[@]}" || return
+			syncMissingFiles "$src" "$dest" ">" "${srcOnlyFiles[@]}" || return
+			syncMissingFiles "$dest" "$src" "<" "${destOnlyFiles[@]}" || return
 	esac
 
 	[[ ! $recursive ]] && return
@@ -185,7 +185,7 @@ syncDo()
 
 	getDirList destDirs "$dest"
 	for dir in "${destDirs[@]}"; do
-		IsInArray "$dir" srcDirs && continue
+		IsInArray -- "$dir" srcDirs && continue
 		sync "$src/$dir" "$dest/$dir" || return
 	done
 }
@@ -218,15 +218,15 @@ syncFile()
 		return
 	fi
 
-	# replace file as instructed
+	# replace file as instructed without a direction
 	case "$method" in
 		--dest-older) copyFileBak "$src" "$dest"; return;;
 		--src-older) copyFileBak "$dest" "$src"; return;;
 	esac
 
 	# get older and newer file information
-	local older="$dest" olderAge="$destAge" newer="$src" direction=">" srcStatus="newer" destStatus="older"
-	CompareSeconds $destAge '>' $srcAge && older="$src" olderAge="$srcAge" newer="$dest" direction="<" srcStatus="older" destStatus="newer"
+	local older="$dest" olderAge="$destAge" newer="$src" direction=">" otherDirection="<" srcStatus="newer" destStatus="older"
+	CompareSeconds $destAge '>' $srcAge && older="$src" olderAge="$srcAge" newer="$dest" direction="<" otherDirection=">" srcStatus="older" destStatus="newer"
 
 	# one file was changed after last sync - replace older file
 	if [[ $lastSync ]] && CompareSeconds $olderAge '<=' $lastSync; then
@@ -263,14 +263,14 @@ syncFile()
 
 		  2) deleteFiles "$src" "$dest"; return;;
 			3) copyFileBak "$newer" "$older" "$direction"; return;;
-	  	4) copyFileBak "$older" "$newer" "$direction"; return;;
+	  	4) copyFileBak "$older" "$newer" "$otherDirection"; return;;
 		esac
 		return
 	done
 }
 
 # bakFiles FILE... - move a file to the local backup directory
-bakFiles() { [[ $noBak ]] && return; bak "$@" --move --local --quiet "${globalArgsLessVerbose[@]}"; }
+bakFiles() { [[ $noBak ]] && return; bak "$@" --local --quiet "${globalArgsLessVerbose[@]}"; }
 
 copyMissingDir()
 {
@@ -301,7 +301,8 @@ copyFileDo()
 	{ [[ ! $verbose ]] || (( verboseLevel == 1 )); } && printf "${direction}$(GetFileName "$src")..."
 	
 	# copy
-	RunLog2 ${G}cp --force "$src" "$dest" || return
+	local args=(--preserve=mode,timestamps); IsPlatform win && args=()
+	RunLog2 ${G}cp "${args[@]}" --force "$src" "$dest" || return
 
 	# touch - cp --preserve does not set file time in SMB > 1
 	local copyFile="true"; setFileTime "$dest" "$src"
@@ -310,41 +311,30 @@ copyFileDo()
 # copyFileBak SRC DEST [DIRECTION]
 copyFileBak() { bakFiles "$2" && copyFileDo "$@"; }
 
-# copyFilesDir SRC DEST FILE... - copy files from the source to the destination directiroes
+# copyFilesDir SRC DEST DIRECTION FILE... - copy files from the source to the destination directiroes
 copyFilesDir()
 {
-	local src="$1" dest="$2"; shift 2
+	local src="$1" dest="$2" direction="$3"; shift 3
 	local files=("$@")
 
 	for file in "${files[@]}"; do
-		copyFileDo "$src/$file" "$dest/$file" || return
+		copyFileDo "$src/$file" "$dest/$file" "$direction" || return
 	done
 }
 
 # deleteFiles FILE...
-deleteFiles()
-{
-	if [[ $noBak ]]; then
-		rm -f "$src" "$dest"
-	else
-		bakFiles "$src" "$dest"
-	fi
-}
+deleteFiles() {	bakFiles "$@" && rm -f "$@"; }
 
 # deleteFilesDir DIR FILE...
 deleteFilesDir()
 {
-	local dir="$1"; shift
+	local dir="$1" direction="$2"; shift 2
 	local desc files=("$@")
 	
 	for file in "${files[@]}"; do
-		if [[ $noBak ]]; then
-			printf "\nRemoving '$(desc "$dir/$file")'..."
-			rm -f "$dir/$file" || return
-			printf "done\n"
-		else
-			bakFiles "$dir/$file" || return
-		fi
+		bakFiles "$dir/$file" || return
+		printf "$(GetFileName "${direction}$file") (removed)..."
+		rm -f "$dir/$file" || return
 	done
 }
 
@@ -393,6 +383,7 @@ getLastSync()
 	return 0
 }
 
+# promptForFiles OPERATION DESCRIPTION FUNCTION [FUNCTIOPN_ARGS...]
 promptForFiles()
 {
 	local operation="$1" desc="$2"; shift 2
@@ -521,9 +512,11 @@ syncMissingDir()
 
 }
 
+otherDirection() { [[ "$1" == ">" ]] && echo "<" || echo ">"; }
+
 syncMissingFiles()
 {
-	local src="$1" dest="$2"; shift 2
+	local src="$1" dest="$2" direction="$3"; shift 3
 	local files=("$@")
 
 	[[ ! $files ]] && return 0
@@ -535,10 +528,10 @@ syncMissingFiles()
 		ask '  (1) Copy All (2) Delete All (3) Copy Some (4) Delete Some' -vr 1234 -dr 1
 
 		case $(( $? + 1 )) in
-			1) copyFilesDir "$src" "$dest" "${files[@]}" || return; unset files;;
-		 	2) deleteFilesDir "$src" "${files[@]}" || return; unset files;;
-			3) promptForFiles "copy" "Synchronizing files from $src to $dest" "copyFilesDir" "$src" "$dest" || return;;
-			4) promptForFiles "delete" "Deleting files from $src" "deleteFiles" "$src" || return;;
+			1) copyFilesDir "$src" "$dest" "$direction" "${files[@]}" || return; unset files;;
+		 	2) deleteFilesDir "$src" "$(otherDirection "$direction")" "${files[@]}" || return; unset files;;
+			3) promptForFiles "copy" "Synchronizing files from $src to $dest" "copyFilesDir" "$src" "$dest" "$direction" || return;;
+			4) promptForFiles "delete" "Deleting files from $src" "deleteFiles" "$src" "$direction" || return;;
 		esac
 
 	done
