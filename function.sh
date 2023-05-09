@@ -55,6 +55,14 @@ IsStdErr() { [[ -t 2 ]];  } # 0 if STDERR refers to a terminal, i.e. "IsStdErr |
 IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
 
+UrlEncodeSpace()
+{
+	GetArgs
+	echo "$1" | sed '
+		s/ /%20/g 
+  '
+}
+
 UrlEncode()
 {
 	GetArgs
