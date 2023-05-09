@@ -776,7 +776,7 @@ IsInArray()
 
 # date
 CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
-GetDate() { ${G}date --date "$1"; }
+GetDate() { ${G}date --date "$1"; } # GetDate @1683597765
 GetDateStamp() { ${G}date '+%Y%m%d'; }
 GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
 
