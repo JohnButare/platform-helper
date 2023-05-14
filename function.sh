@@ -93,7 +93,7 @@ UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; 
 UpdateCheck() { [[ $updateDir ]] && return; UpdateInit; }
 UpdateNeeded() { UpdateCheck || return; [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
 UpdateDone() { UpdateCheck && touch "$updateDir/$1"; }
-UpdateGet() { UpdateCheck && [[ ! -f "$updateDir/$1" ]] && return; cat "$updateDir/$1"; }
+UpdateGet() { UpdateCheck || return; [[ -f "$updateDir/$1" ]] || return; cat "$updateDir/$1"; }
 UpdateExists() { UpdateCheck && [[ -f "$updateDir/$1" ]]; }
 UpdateRm() { UpdateCheck && rm -f "$updateDir/$1"; }
 UpdateSet() { UpdateCheck && printf "$2" > "$updateDir/$1"; }
@@ -368,14 +368,14 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 AppVersion()
 {
 	# arguments
-	local allowAlpha app appOrig quiet 
+	local allowAlpha app appOrig quiet
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--quiet|-q) quiet="--quiet";;
 			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
 			*)
-				! IsOption "$1" && [[ ! $app ]] && { app="$1" appOrig="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $app ]] && { app="$(AppToCli "$1")" appOrig="$1"; shift; continue; }
 				UnknownOption "$1" "AppVersion"; return
 		esac
 		shift
@@ -385,33 +385,82 @@ AppVersion()
 
 	# mac application
 	local dir
-	if IsPlatform mac && dir="$(command ls "/Applications" | grep -i "^$(GetFileNameWithoutExtension "$app").app$")" && [[ -f "/Applications/$dir/Contents/Info.plist" ]]; then
-		defaults read "/Applications/$dir/Contents/Info.plist" CFBundleShortVersionString; return
+	if IsPlatform mac && dir="$(FindMacApp "$app")" && [[ -f "$dir/Contents/Info.plist" ]]; then
+		defaults read "$dir/Contents/Info.plist" CFBundleShortVersionString; return
 	fi
 
-	# check for helper script
-	local helper="$(UpperCaseFirst "$app")Helper"
-	InPath "$helper" && app="$helper"
+	# check for a helper script
+	local helper; helper="$(AppHelper "$app")" && { "$helper" $quiet --version; return; }
 
-	# file
-	local version;
-	local file="$app"; InPath "$file" && file="$(FindInPath "$file")"	
-	[[ ! -f "$file" ]] && { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
+	# check if the app exists
+	local file; file="$(FindInPath "$app")" || { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
 
-	# Windows file version
-	if IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
+	# get version
+	local version
+
+	# special cases
+	case "$(LowerCase "$(GetFileName "$app")")" in
+		duf) return;;
+		7z) version="$(7z | head -2 | tail -1 | cut -d" " -f 3)" || return;;
+		bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
+		consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
+		dog) version="$(dog --version | head -2 | tail -1 | cut -d"v" -f2)" || return;;
+		exa) version="$(exa --version | head -2 | tail -1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
+		gcc) version="$(gcc --version | head -1 | cut -d" " -f4)" || return;;
+		go) version="$(go version | head -1 | cut -d" " -f3 | RemoveFront "go")" || return;;
+		java) version="$(java --version |& head -1 | cut -d" " -f2)" || return;;
+		jq) version="$(jq --version |& cut -d"-" -f2)" || return;;
+		nomad) version="$(nomad --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
+		pip) version="$(pip --version | cut -d" " -f2)" || return;;
+		ruby) version="$(ruby --version | cut -d" " -f2 | cut -d"p" -f 1)" || return;;
+		vault) version="$(vault --version | cut -d" " -f2 | RemoveFront "v")" || return;;
+		zsh) version="$("$app" --version | cut -d" " -f2)" || return;;
+	esac
+
+	# get Windows executable version
+	if [[ ! $version ]] && IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
 		if InPath "wmic.exe"; then # WMIC is deprecated but does not require elevation
-			 wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2; return
+			 version="$(wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2)" || return
 		elif CanElevate; then
-			powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn; return
+			version="$(powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn)" || return
 		fi
 	fi
 
-	# --version option, where the version number is the last word of the first line
-	version="$("$file" --version $quiet | head -1 | awk '{print $NF}' | RemoveCarriageReturn)" || return
-	[[ ! $version ]] && { ScriptErrQuiet "application '$appOrig' version was not found"; return 1; }
+	# call APP --version - where the version number is the last word of the first line
+	[[ ! $version ]] && { version="$("$file" --version | head -1 | awk '{print $NF}' | RemoveCarriageReturn)" || return; }
+
+	# validation
+	[[ ! $version ]] && { ScriptErrQuiet "application '$appOrig' version was not found"; return 1; }	
 	[[ ! $allowAlpha ]] && ! IsNumeric "$version" && { ScriptErrQuiet "application '$appOrig' version '$version' is not numeric"; return 1; }
 	echo "$version"
+}
+
+# AppHelper APP - return the helper application for the app (script in $BIN)
+AppHelper()
+{
+	local app="$1"
+
+	[[ "$app" =~ ^$BIN ]] && { echo "$app"; return; }
+
+	[[ -f "$BIN/$app" ]] && { echo "$BIN/$app"; return; }
+
+	app="$(UpperCaseFirst "$app")Helper"
+	[[ -f "$BIN/$app" ]] && { echo "$BIN/$app"; return; }	
+
+	return 1
+}
+
+AppToCli()
+{
+	local app="$1"
+	case "$(LowerCase "$app")" in
+		1passwordcli) echo "op";;
+		7zip) echo "7z";;
+		apache) echo "";; # no program for Apache
+		apt) ! IsPlatform mac && echo "apt";; # /usr/bin/apt in Mac is legacy
+		chroot) echo "schroot";;
+		*) echo "$app";;
+	esac
 }
 
 browser()
@@ -2674,20 +2723,31 @@ ProgramsElevate() { CanElevate && echo "$P" || echo "$UADATA"; }
 console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PROGRAM to a hidden Windows console (powershell, nuget, python, chocolatey), alternatively run in a regular Windows console (Start, Run, bash --login)
 CoprocCat() { cat 0<&${COPROC[0]}; } # read output from a process started with coproc
 handle() { ProcessResource "$@"; }
-IsMacApp() { local app="$1"; [[ "$app" =~ \.app$ ]] && return; HasFilePath "$app" && return 1; app="$(GetFileNameWithoutExtension "$1")"; [[ -d "$P/$app.app" || -d "$HOME/Applications/$app.app" ]]; }
 InUse() { ProcessResource "$@"; }
+IsMacApp() { FindMacApp "$1" >& /dev/null; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
 IsWinAdmin() { IsPlatform win && net.exe localgroup Administrators | RemoveCarriageReturn | grep --quiet "$WIN_USER$"; }
 pkillchildren() { pkill -P "$1"; } # pkillchildren PID - kill process and children
 ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
-pschildren() { ps --forest $(ps -e --no-header -o pid,ppid|awk -vp=$1 'function r(s){print s;s=a[s];while(s){sub(",","",s);t=s;sub(",.*","",t);sub("[0-9]+","",
-s);r(t)}}{a[$2]=a[$2]","$1}END{r(p)}'); } # pschildren PPID - list process with children
+pschildren() { ps --forest $(ps -e --no-header -o pid,ppid|awk -vp=$1 'function r(s){print s;s=a[s];while(s){sub(",","",s);t=s;sub(",.*","",t);sub("[0-9]+","",s);r(t)}}{a[$2]=a[$2]","$1}END{r(p)}'); } # pschildren PPID - list process with children
 pschildrenc() { local n="$(pschildren "$1" | wc -l)"; (( n == 1 )) && return 1 || echo $(( n - 2 )); } # pschildrenc PPID - list count of process children
 pscount() { ProcessList | wc -l; }
 pstree() { InPath pstree && { command pstree "$@"; return; }; ps -axj --forest "$@"; }
 RunQuiet() { if [[ $verbose ]]; then "$@"; else "$@" 2> /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout unless verbose logging
 RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout and stderr unless verbose logging
+
+# FindMacApp APP - return the location of a Mac applciation
+FindMacApp()
+{
+	local app="$1"
+	[[ -f "$app" && "$app" =~ \.app$ ]] && HasFilePath "$app" && return "$app"
+
+ app="$(GetFileNameWithoutExtension "$1")"
+ [[ -d "$P/$app.app" ]] && { echo "$P/$app.app"; return; }
+ [[ -d "$HOME/Applications/$app.app" ]] && { echo "$HOME/Applications/$app.app"; return; }
+ return 1
+}
 
 IsExecutable()
 {

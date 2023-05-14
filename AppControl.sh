@@ -1,41 +1,32 @@
 # AppControl.sh - control another application
 
-AppClose() { AppCommand close "$1"; }
-AppCommandExists() { AppFunctionExists "${1}Command" "$2" ; } # AppCommandExists COMMAND APP - application supports command
-AppExists() { local app="$(AppHelper "$1")"; FindInPath "$app" > /dev/null && AppCommandExists isInstalled "$(FindInPath "$app")"; } # AppExists APP - return true if the application is a helper file
-AppFunctionExists() { local app="$(AppHelper "$2")"; [[ -f "$app" ]] && ${G}grep --quiet "^$1"'()' "$app"; } # AppFunctionExists FUNCTION APP - return true if the function exists in the app
+AppClose() { AppCommand close "$@"; }
+AppIsInstalled() { AppCommand isInstalled "$@"; }
 AppInstallCheck() { AppIsInstalled "$1" && return; [[ ! $quiet ]] && ScriptErr "application is not installed" "$1"; return 1; }
-AppIsHelper() { [[ "$(GetFilePath "$(FindInPath "$1")")" == "$BIN" ]]; }
-AppIsInstalled() { AppCommand isInstalled "$1"; }
-AppIsRunning() { AppCommand isRunning "$1"; }
-AppStart() { AppCommand start "$1"; }
-AppStartRestore() { [[ ! $wasRunning ]] && return 0; AppStart "$1"; }
+AppIsRunning() { AppCommand isRunning "$@"; }
+AppStart() { AppCommand start "$@"; }
 
-AppCloseSave()
-{
-	! AppIsInstalled "$1" && return 0
-	! AppIsRunning "$1" && return 0
-	wasRunning="true"
-	AppClose "$1"
-}
+# AppCloseSave/AppStartRestore APP - close an application and restore it's previous state
+AppCloseSave() { AppIsInstalled "$@" && AppIsRunning "$@" && { wasRunning="true"; AppClose "$@"; return; }; return 0; }
+AppStartRestore() { [[ ! $wasRunning ]] && return 0; AppStart "$@"; }
+
+# AppHasHelper APP - return true if the application has a helper script
+AppHasHelper() { local app="$(AppHelper "$1")" && appCommandExists isInstalled "$app"; } 
 
 # AppCommand COMMAND APP - execute COMMAND on APP
 AppCommand()
 {
-	local command="$1" app="$(AppHelper "$2")" appPath
+	local command="$1" app="$2" appOrig="$2"; shift 2; app="$(AppHelper "$app")" || return
 
-	appPath="$(FindInPath "$app")" || return
+	# check if the application has the command
+	appCommandExists "$command" "$app" || { ScriptErrQuiet "application '$appOrig' does not have a '$command' command"; return 1; }
 
-	! AppCommandExists "$command" "$appPath" && return 1
-	[[ "$command" == @(start|startup) ]] && echo "Starting $app..."
-	[[ "$command" == @(close) ]] && echo "Closing $app..."
-	"$app" "$command"
+	# logging
+	[[ "$command" == @(start|startup) ]] && ScriptEchoQuiet "Starting $app..."
+	[[ "$command" == @(close) ]] && ScriptEchoQuiet "Closing $app..."
+
+	# run the command
+	"$app" "$command" "$@"
 }
 
-# AppHelper APP - return the helper application for the app
-AppHelper()
-{
-	local app="$1"
-	[[ "$app" == @(1Password) ]] && app="${app}Helper"
-	echo "$app"
-}
+appCommandExists() { local command="$1" app="$2"; [[ -f "$app" ]] && ${G}grep --quiet "^${command}Command"'()' "$app"; }

@@ -139,12 +139,12 @@ run()
 runExternalApp()
 {
 	getAppFile || return 0
-	isAppInstalled || return 0
+	IsAppInstalled "${globalArgs[@]}" || return 0
 
 	if [[ "$command" == @(start|startup) ]]; then
-		isAppRunning && return
+		IsAppRunning "${globalArgs[@]}" && return
 	else
-		! isAppRunning && return
+		! IsAppRunning "${globalArgs[@]}" && return
 	fi;
 
 	showStatus
@@ -210,24 +210,6 @@ getAppFile()
 {
 	appFile="$(FindInPath "$app")"
 	[[ -f "$appFile" ]]
-}
-
-isAppInstalled()
-{
-	if ! AppCommandExists isInstalled "$appFile"; then
-		ScriptErrQuiet "'$app' does not have an IsInstalled command"; return 1
-	fi
-
-	"$appFile" IsInstalled "${globalArgs[@]}"
-}
-
-isAppRunning()
-{
-	if ! AppCommandExists isRunning "$appFile"; then
-		ScriptErr "'$app' does not have an IsRunning command"; return 1
-	fi
-
-	"$appFile" --quiet IsRunning "${globalArgs[@]}"
 }
 
 mapApp()

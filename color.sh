@@ -11,12 +11,19 @@ if [ -t 1 ]; then
   RB_INDIGO=$(printf '\033[38;5;093m')
   RB_VIOLET=$(printf '\033[38;5;163m')
 
-  RED=$(printf '\033[31m')
-  GREEN=$(printf '\033[32m')
-  YELLOW=$(printf '\033[33m')
-  BLUE=$(printf '\033[34m')
   BOLD=$(printf '\033[1m')
-  RESET=$(printf '\033[m')
+  RESET=$(printf '\033[00m')
+  PAD=$(printf '\033[25m') # use not blinking as a pad
+  
+  BLUE=$(printf '\033[34m')
+  GREEN=$(printf '\033[32m')
+  GREY=$(printf '\033[90m')
+  RED=$(printf '\033[31m')
+  WHITE=$(printf '\033[97m')
+  YELLOW=$(printf '\033[33m')
+
+  LGREY=$(printf '\033[90m')
+
 else
   RB_RED=""
   RB_ORANGE=""
@@ -26,10 +33,15 @@ else
   RB_INDIGO=""
   RB_VIOLET=""
 
-  RED=""
-  GREEN=""
-  YELLOW=""
-  BLUE=""
   BOLD=""
-  RESET=""
+  RESET=
+
+  BLUE=""
+  GREEN=""
+  GREY=""
+  RED=""
+  WHITE=""
+  YELLOW=""
+
+  LGREY=""
 fi

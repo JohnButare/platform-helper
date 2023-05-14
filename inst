@@ -21,32 +21,60 @@ init() { defaultCommand="install" hostname="$HOSTNAME"; unset sshAgentChecked; }
 # commands
 #
 
-listCommand() { declare -f | grep --basic-regexp '.*Install () ' | cut -d" " -f1 | sed "s/Install//" | grep -v "^$" | sort --ignore-case; }
+listCommand()
+{
+	declare -f | grep --basic-regexp '.*Install () ' | cut -d" " -f1 | sed "s/Install//" | grep -v "^$" | sort --ignore-case
+}
 
 checkCommand()
 {
 	local product term="$TERM"; [[ ! $term ]] && term="xterm-256color"
 
-	installInit || return
+	PrintErr "checking..."
+
+	# get list of apps to check
+	local ignore=(chroot cron hashi hostname hyperv java kea lolcat office qnap SqlServer xQuartz xServer)
+	local app apps=() cache="inst-check-apps"
+	if [[ $force ]] || UpdateNeeded "$cache"; then
+
+		installInit || return
+
+		local allApps; IFS=$'\n' ArrayMake allApps "$(listCommand)"
+		for app in "${allApps[@]}"; do
+			! isCollection "$app" && ! IsInArray --case-insensitive "$app" ignore && { appIsInstalled "$app" || IsFunction ${app}Download; } && apps+=("$app")
+		done
+		
+		UpdateSet "$cache" "$(GetDef apps)" || return
+	else
+		eval "apps=( $(UpdateGet "$cache") )" || return
+	fi
 
 	{
-		hilight "app-installed-downloaded-current"
+		hilight "app-${GREEN}installed${PAD}-${PAD}downloaded${PAD}-current"
 
-		local app apps; IFS=$'\n' ArrayMake apps "$(listCommand)"
 		for app in "${apps[@]}"; do			
-			isCollection "$app" && continue
-			! appIsInstalled "$app" && ! IsFunction ${app}Download && continue
-
-			local installed downloaded current
-			AppIsInstalled "$app" && { installed="$(AppVersion "$app")" || return; }
+			local installed="" downloaded="" current=""
+			installed="$(AppVersion --allow-alpha --quiet "$app")" || ScriptErr "unable to get '$app' installed version"
+			
 			if IsFunction "${app}Download"; then
-				downloaded="$(getVersionDownloaded "$app")" || ScriptErr "$app"
-				current="$(getVersionCurrent "$app")"  || ScriptErr "$app"
+				log1 "${app} Download"
+				downloaded="$(getVersionDownloaded "$app")"  || ScriptErr "unable to get '$app' downloaded version"
+				PrintErr "."
 			fi
 
-			echo "${RESET}${RESET}$app-$installed-$downloaded-$current" # add resets to line up the columns
+			if IsFunction "${app,}Version"; then
+				log1 "${app} Version"
+				current="$(getVersionCurrent "$app")"  || ScriptErr "unable to get '$app' current version"
+				PrintErr "."
+			fi
 
+			[[ $installed && $current && "$installed" != "$current" ]] && installed="${RED}$installed${RESET}" || installed="${PAD}$installed${PAD}"
+			[[ $downloaded && $current && "$downloaded" != "$current" ]] && downloaded="${RED}$downloaded${RESET}" || downloaded="${PAD}$downloaded${PAD}"
+
+			echo "${RESET}$app-$installed-$downloaded-$current"
 		done
+
+		PrintErr "done" && EchoErr ""
 
 	} | column -c $(tput cols -T "$term") -t -s-
 }
@@ -421,24 +449,14 @@ waitForInstallWin() { ! IsPlatform win && return; waitForInstall "$1"; }
 appStart()
 {
 	local app="$1"	
-	AppExists "$app" && { AppStart "$app"; return; }  
+	AppHasHelper "$app" && { AppStart "$app"; return; }  
 	start "$app"
 }
 
 appIsInstalled()
 {
-		AppIsHelper "$1" && { AppIsInstalled "$1"; return; }
-		InPath "$(appToCli "$1")" || IsMacApp "$1"
-}
-
-appToCli()
-{
-	local app="$1"
-	case "$app" in
-		1PasswordCli) echo "op";;
-		7Zip) echo "7z";;
-		*) echo "$app";;
-	esac
+	AppHasHelper "$1" && { AppIsInstalled "$1"; return; }
+	InPath "$(AppToCli "$1")" || IsMacApp "$1"
 }
 
 checkInstallable()
@@ -494,7 +512,7 @@ downloadDone()
 {
 	local app="$1" v="$2" track; track="$(appGetTrack "$app" "downloaded")"
 	echo "${app^} v$v download complete."
-	echo "$v" > "$track" && UpdateDone "$track"
+	echo "$v" > "$track" && UpdateSet "$track" "$v"
 } 
 
 downloadStart()
@@ -609,31 +627,33 @@ getInstallFunction()
 # getVersionDownloaded APP - get downloaded version of application.
 getVersionDownloaded()
 {
-	local app="$1" dir; appCd "$app" || return
+	local app="$1";
+
+	# use the cached downloaded version if possible
 	local track="$(appGetTrack "$app" "downloaded")"
-	[[ -f "$track" ]] && cat "$track"
+	! UpdateNeeded "$track" && { UpdateGet "$track"; return; }
+
+	# get the downloaded version
+	local version; appCd "$app" && [[ -f "$track" ]] && version="$(cat "$track")" && UpdateSet "$track" "$version" && echo $version
 }
 
 # getVersionCurrent APP - get current version of application using the function ${app}Version.
 #   Version information is cached at the install tracking file location.
 getVersionCurrent()
 {
-	local app="$1"; appCd "$app" || return
+	local app="$1"
 
 	# return if we do not need to update the version
 	local track="$(appGetTrack "$app" "current")"
-	[[ ! $force && -f "$track" ]] && ! UpdateNeeded "$track" && { cat "$track"; return; }
+	! UpdateNeeded "$track" && { UpdateGet "$track"; return; }
 
 	# get the version
 	local function="${app,}Version"; [[ "$installType" == "beta" ]] && function+="Beta"
 	local version; version="$($function)"
 	[[ ! $version ]] && { ScriptErr "could not get ${app^} version"; return 1; }
 
-	# save and return the version
-	echo "$version" > "$track" || return
-	UpdateDone "$track" || return
-	echo "$version"	
-
+	# save and return the version	
+	UpdateSet "$track" "$version" && appCd "$app" && echo "$version" > "$track" && echo "$version"	
 }
 
 # getWin PRIMARY ALTERNATE - use Debian package for alternate Windows install
@@ -6916,7 +6936,11 @@ noMachineFindUrl()
 	echo "not found"; return 1
 }
 
-noMachineVersion() { curl --silent "https://www.nomachine.com/all-news-software-updates" | grep "now available" | grep "href" | head -1 | sed 's/.*NoMachine //' | cut -d" " -f1; }
+noMachineVersion()
+{
+	local agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/534.30 (KHTML, like Gecko) Chrome/12.0.742.112 Safari/534.30"
+	curl --location --silent -A "$agent" "http://NoMachine.com" | grep "Mac -" | sed 's/.* Mac - //' | cut -d" " -f1
+}
 
 TigerVncInstall()
 {
