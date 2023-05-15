@@ -368,10 +368,11 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 AppVersion()
 {
 	# arguments
-	local allowAlpha app appOrig quiet
+	local allowAlpha app appOrig force quiet version
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--force|-f) force="--force";;
 			--quiet|-q) quiet="--quiet";;
 			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
 			*)
@@ -382,42 +383,44 @@ AppVersion()
 	done
 
 	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
-	#local appCache=".${app}-version"
-	#! UpdateNeeded "$appCache" && { UpdateGet "$appCache"; return; }
+	local appCache=".$(GetFileName "$app")-version"
+	! UpdateNeeded "$appCache" && { UpdateGet "$appCache"; return; }
 
 	# get version with helper script
-	local helper; helper="$(AppHelper "$app")" && { "$helper" $quiet --version; return; }
+	local helper; helper="$(AppHelper "$app")" && { version="$("$helper" $quiet --version)" || return; }
 
 	# find and get mac application versions
 	local dir
-	if IsPlatform mac && dir="$(FindMacApp "$app")" && [[ -f "$dir/Contents/Info.plist" ]]; then
-		defaults read "$dir/Contents/Info.plist" CFBundleShortVersionString; return
+	if [[ ! $version ]] && IsPlatform mac && dir="$(FindMacApp "$app")" && [[ -f "$dir/Contents/Info.plist" ]]; then
+		version="$(defaults read "$dir/Contents/Info.plist" CFBundleShortVersionString)" || return
 	fi
 
 	# check if the app exists
-	local file; file="$(FindInPath "$app")" || { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
-
-	# get version
-	local version
+	if [[ ! $version ]]; then
+		local file; file="$(FindInPath "$app")" || { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
+	fi
 
 	# special cases
-	case "$(LowerCase "$(GetFileName "$app")")" in
-		duf|gtop|kubectl) return;;
-		7z) version="$(7z | head -2 | tail -1 | cut -d" " -f 3)" || return;;
-		bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
-		consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
-		dog) version="$(dog --version | head -2 | tail -1 | cut -d"v" -f2)" || return;;
-		exa) version="$(exa --version | head -2 | tail -1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
-		gcc) version="$(gcc --version | head -1 | cut -d" " -f4)" || return;;
-		go) version="$(go version | head -1 | cut -d" " -f3 | RemoveFront "go")" || return;;
-		java) version="$(java --version |& head -1 | cut -d" " -f2)" || return;;
-		jq) version="$(jq --version |& cut -d"-" -f2)" || return;;
-		nomad) version="$(nomad --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
-		pip) version="$(pip --version | cut -d" " -f2)" || return;;
-		ruby) version="$(ruby --version | cut -d" " -f2 | cut -d"p" -f 1)" || return;;
-		vault) version="$(vault --version | cut -d" " -f2 | RemoveFront "v")" || return;;
-		zsh) version="$("$app" --version | cut -d" " -f2)" || return;;
-	esac
+	if [[ ! $version ]]; then
+		case "$(LowerCase "$(GetFileName "$app")")" in
+			duf|gtop|kubectl) return;;
+			7z) version="$(7z | head -2 | tail -1 | cut -d" " -f 3)" || return;;
+			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
+			consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
+			dog) version="$(dog --version | head -2 | tail -1 | cut -d"v" -f2)" || return;;
+			exa) version="$(exa --version | head -2 | tail -1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
+			gcc) version="$(gcc --version | head -1 | cut -d" " -f4)" || return;;
+			go) version="$(go version | head -1 | cut -d" " -f3 | RemoveFront "go")" || return;;
+			java) version="$(java --version |& head -1 | cut -d" " -f2)" || return;;
+			jq) version="$(jq --version |& cut -d"-" -f2)" || return;;
+			nomad) version="$(nomad --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
+			pip) version="$(pip --version | cut -d" " -f2)" || return;;
+			python3) version="$(python3 --version | cut -d" " -f2)" || return;;
+			ruby) version="$(ruby --version | cut -d" " -f2 | cut -d"p" -f 1)" || return;;
+			vault) version="$(vault --version | cut -d" " -f2 | RemoveFront "v")" || return;;
+			zsh) version="$("$app" --version | cut -d" " -f2)" || return;;
+		esac
+	fi
 
 	# get Windows executable version
 	if [[ ! $version ]] && IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
@@ -434,7 +437,7 @@ AppVersion()
 	# validation
 	[[ ! $version ]] && { ScriptErrQuiet "application '$appOrig' version was not found"; return 1; }	
 	[[ ! $allowAlpha ]] && ! IsNumeric "$version" && { ScriptErrQuiet "application '$appOrig' version '$version' is not numeric"; return 1; }
-	echo "$version"
+	UpdateSet "$appCache" "$version" && echo "$version"
 }
 
 # AppHelper APP - return the helper application for the app (script in $BIN)
@@ -461,6 +464,7 @@ AppToCli()
 		apache) echo "";; # no program for Apache
 		apt) ! IsPlatform mac && echo "apt";; # /usr/bin/apt in Mac is legacy
 		chroot) echo "schroot";;
+		python) echo "python3";;
 		*) echo "$app";;
 	esac
 }
