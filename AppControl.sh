@@ -2,7 +2,7 @@
 
 AppClose() { AppCommand close "$@"; }
 AppIsInstalled() { AppCommand isInstalled "$@"; }
-AppInstallCheck() { AppIsInstalled "$1" && return; [[ ! $quiet ]] && ScriptErr "application is not installed" "$1"; return 1; }
+AppInstallVerify() { AppIsInstalled "$1" && return; ScriptErrQuiet "application '$1' is not installed" "$1"; return 1; }
 AppIsRunning() { AppCommand isRunning "$@"; }
 AppStart() { AppCommand start "$@"; }
 

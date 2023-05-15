@@ -26,7 +26,7 @@ argStart() { unset -v app files global method noControl platform profile saveExt
 
 argEnd()
 {
-	[[ ! $force && ! $noControl ]] && AppHasHelper "$app" && { AppInstallCheck "$app" || return; }
+	[[ ! $force && ! $noControl ]] && AppHasHelper "$app" && { AppInstallVerify "$app" || return; }
 	[[ ! $method ]] && MissingOption "method"
 
 	# Registry profile - profile contains registry entries

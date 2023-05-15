@@ -1,7 +1,7 @@
 # common functions for application scripts
 . script.sh || exit
 
-AppInstallCheck() { isInstalledCommand && return; [[ "${command[0]}" != "isInstalled" ]] && ScriptErrQuiet "application is not installed"; return 1; }
+AppInstallCheck() { isInstalledCommand && return; [[ "${command[0]}" != "isInstalled" ]] && ScriptErrQuiet "application '$(ScriptName)' is not installed"; return 1; }
 
 AppStart() { AppCommand start "$1"; }
 

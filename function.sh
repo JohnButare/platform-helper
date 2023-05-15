@@ -2741,7 +2741,7 @@ RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }		# Run
 FindMacApp()
 {
 	local app="$1"
-	[[ -f "$app" && "$app" =~ \.app$ ]] && HasFilePath "$app" && return "$app"
+	[[ -d "$app" && "$app" =~ \.app$ ]] && HasFilePath "$app" && echo "$app" && return
 	HasFilePath "$app" && return 1
 	
 	app="$(GetFileNameWithoutExtension "$1")"
