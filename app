@@ -139,12 +139,12 @@ run()
 runExternalApp()
 {
 	getAppFile || return 0
-	IsAppInstalled "${globalArgs[@]}" || return 0
-
+	AppIsInstalled "$app" "${globalArgs[@]}" || return 0
+	
 	if [[ "$command" == @(start|startup) ]]; then
-		IsAppRunning "${globalArgs[@]}" && return
+		AppIsRunning "$app" "${globalArgs[@]}" && return
 	else
-		! IsAppRunning "${globalArgs[@]}" && return
+		! AppIsRunning "$app" "${globalArgs[@]}" && return
 	fi;
 
 	showStatus
