@@ -405,6 +405,7 @@ AppVersion()
 		case "$(LowerCase "$(GetFileName "$app")")" in
 			duf|gtop|kubectl) return;;
 			7z) version="$(7z | head -2 | tail -1 | cut -d" " -f 3)" || return;;
+			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
 			consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
 			dog) version="$(dog --version | head -2 | tail -1 | cut -d"v" -f2)" || return;;
