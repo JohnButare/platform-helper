@@ -30,10 +30,10 @@ checkCommand()
 {
 	local product term="$TERM"; [[ ! $term ]] && term="xterm-256color"
 
-	PrintErr "checking..."
+	[[ ! $verbose ]] && PrintErr "checking..."
 
 	# get list of apps to check
-	local ignore=(chroot cron hashi hostname hyperv java kea lolcat office qnap SqlServer xQuartz xServer)
+	local ignore=(chroot cron duf hashi hostname hyperv java kea lolcat office qnap SqlServer xQuartz xServer)
 	local app apps=() cache="inst-check-apps"
 	if [[ $force ]] || UpdateNeeded "$cache"; then
 
@@ -49,34 +49,53 @@ checkCommand()
 		eval "apps=( $(UpdateGet "$cache") )" || return
 	fi
 
+	# show versions
 	{
 		hilight "app-${GREEN}installed${PAD}-${PAD}downloaded${PAD}-current"
 
-		for app in "${apps[@]}"; do			
-			local installed="" downloaded="" current=""
-			installed="$(AppVersion --allow-alpha --quiet "$app")" || ScriptErr "unable to get '$app' installed version"
-			
-			if IsFunction "${app}Download"; then
-				log1 "${app} Download"
-				downloaded="$(getVersionDownloaded "$app")"  || ScriptErr "unable to get '$app' downloaded version"
-				PrintErr "."
-			fi
-
-			if IsFunction "${app,}Version"; then
-				log1 "${app} Version"
-				current="$(getVersionCurrent "$app")"  || ScriptErr "unable to get '$app' current version"
-				PrintErr "."
-			fi
-
-			[[ $installed && $current && "$installed" != "$current" ]] && installed="${RED}$installed${RESET}" || installed="${PAD}$installed${PAD}"
-			[[ $downloaded && $current && "$downloaded" != "$current" ]] && downloaded="${RED}$downloaded${RESET}" || downloaded="${PAD}$downloaded${PAD}"
-
-			echo "${RESET}$app-$installed-$downloaded-$current"
+		for app in "${apps[@]}"; do
+			checkApp "$app" || return
+			IsFunction "${app,}VersionBeta" && { installType="beta" checkApp "$app" || return; }
 		done
 
 		PrintErr "done" && EchoErr ""
 
 	} | column -c $(tput cols -T "$term") -t -s-
+}
+
+checkApp()
+{
+	local app="$1" installed="" downloaded="" current=""
+	installed="$(AppVersion --allow-alpha --quiet "$app")" || ScriptErr "unable to get '$app' installed version"
+	
+	if IsFunction "${app}Download"; then
+		log1 "Getting ${app} downloaded version..."
+		downloaded="$(getVersionDownloaded "$app")"  || ScriptErr "unable to get '$app' downloaded version"
+		[[ ! $verbose ]] && PrintErr "."
+	fi
+
+	if IsFunction "${app,}Version"; then
+		log1 "Getting ${app} current version..."
+		current="$(getVersionCurrent "$app")"  || ScriptErr "unable to get '$app' current version"
+		[[ ! $verbose ]] && PrintErr "."
+	fi
+
+	# do not show installed version if showing beta version and regular version is installed or vice versa
+	if [[ $current && "$installed" != "$current" ]]; then
+		if [[ "$installType" == "beta" ]]; then
+			local regularVersion; installType="" regularVersion="$(getVersionCurrent "$app")" || ScriptErr "unable to get '$app' current non-beta version"
+			{ [[ "$installed" == "$regularVersion" ]] || versionIsOlder "$installed" "$regularVersion"; } && installed=""
+		else
+			versionIsNewer "$installed" "$current" && installed=""
+		fi
+	fi
+
+	# hilight out of date versions in red
+	[[ $installed && $current && "$installed" != "$current" ]] && installed="${RED}$installed${RESET}" || installed="${PAD}$installed${PAD}"
+	[[ $downloaded && $current && "$downloaded" != "$current" ]] && downloaded="${RED}$downloaded${RESET}" || downloaded="${PAD}$downloaded${PAD}"
+
+	local type; [[ $installType ]] && type=" ($installType)"
+	echo "${RESET}$app$type-$installed-$downloaded-$current"
 }
 
 installedCommand()
@@ -1393,7 +1412,7 @@ versionCheckApp()
 	versionCheck "$app" "$installedVersion" "$check"
 }
 
-# versionCheck APP INSTALLED CHECK - return true if install is needed (the installed version is older than check version)
+# versionCheck APP INSTALLED_VERSION CHECK_VERSION - return true if install is needed (the installed version is older than check version)
 versionCheck()
 {
 	local app="$1" installed="$2" check="$3"
@@ -1422,6 +1441,10 @@ versionCheck()
 
 	return 0
 }
+
+# versionIsOlder V1 V2 - return true if V1 is newer or older than V2
+versionIsNewer() { [[ "$(echo -e "$v1\n$v2" | sort -V | head -1)" == "$v1" ]]; }
+versionIsOlder() { [[ "$(echo -e "$v1\n$v2" | sort -V | head -1)" == "$v2" ]]; }
 
 #################################################
 # applications
@@ -6925,7 +6948,7 @@ noMachineFindUrl()
 {
 	local i result tryUrl
 
-	printf "Finding $plat..."
+	printf "finding $plat..."
 	for (( i = 1; i <= 20; i++ )); do
 		tryUrl="$(eval echo $url)"
 		result="$(curl --silent "$tryUrl" --head | head -1)" || return
@@ -7673,13 +7696,14 @@ iTermDownload()
 {
 	local app="iTerm"; downloadStart "$app" || return 0	
 	local v; v="$(getVersionCurrent "$app")" || return
-	local type="stable"; [[ "$installType" == "beta" ]] && type="beta"
-	download "https://iterm2.com/downloads/$type/iTerm2-${v//./_}.zip" "$(iTermDir)" && downloadDone "$app" "$v"
+	local type="stable" vActual="$v"; [[ "$installType" == "beta" ]] && type="beta" v="$(iTermVersionBetaFull)"
+	download "https://iterm2.com/downloads/$type/iTerm2-${v//./_}.zip" "$(iTermDir)" "iTerm2 $vActual.zip" && downloadDone "$app" "$vActual"
 }
 
 iTermDir() { echo "platform/mac/iTerm2"; }
 iTermVersion() { curl --silent --location "https://iterm2.com/downloads.html" | ${G}grep "iterm2" | head -1 | sed 's/.*iTerm2 //' | cut -d" " -f1; }
-iTermVersionBeta() { curl --silent --location "https://iterm2.com/downloads.html" | ${G}grep "beta" | ${G}grep "iterm2" | head -1 | sed 's/.*iTerm2 //' | cut -d" " -f1; }
+iTermVersionBeta() { iTermVersionBetaFull | sed 's/beta.*//'; }
+iTermVersionBetaFull() { curl --silent --location "https://iterm2.com/downloads.html" | ${G}grep "beta" | ${G}grep "iterm2" | head -1 | sed 's/.*iTerm2 //' | cut -d" " -f1; }
 
 TerminatorInstall() { run --package terminator; }
 TerminatorProfile() { TerminatorHelper $noPrompt profile restore default; }
@@ -7699,22 +7723,35 @@ WarpInstall()
 	run --name="Warp" "$(warpDir)/Warp ${v}.dmg" --version="$v"
 }
 
-# https://releases.warp.dev/stable/v0.2023.05.02.08.03.stable_00/Warp.dmg
-# https://releases.warp.dev/stable/v0.2023.05.02.08.03.stable_00/Warp%202023.05.04.dmg
 WarpProfile() { warp profile restore default && warp startup; }
 
 WarpDownload()
 {
 	local app="warp"; downloadStart "$app" || return 0	
 	local v; v="$(getVersionCurrent "$app")" || return
-	download "https://releases.warp.dev/stable/v$(warpVersionDetail).stable_00/Warp.dmg" "$(warpDir)" "Warp ${v}.dmg"
-	downloadDone "$app" "$v"
+	local url="https://releases.warp.dev/stable/v$(warpVersionDetail).stable_0"'${i}'"/Warp.dmg"
+	warpFindUrl && download "$url" "$(warpDir)" "Warp ${v}.dmg" && downloadDone "$app" "$v"
+}
+
+# warpFindUrl - the latest build is not easily accessible
+# - the url includes ${i} as a substitution for the version, i.e. v0.2023.05.09.08.0${i}.stable_0${i}
+warpFindUrl()
+{
+	local i result tryUrl
+
+	printf "finding build..."
+	for (( i = 3; i >= 0; i-- )); do
+		tryUrl="$(eval echo $url)"
+		curl --silent "$tryUrl" --head | grep --quiet "404" && { printf "."; continue; }
+		echo "found"; url="$tryUrl"; return 0
+	done
+
+	echo "not found"; return 1
 }
 
 warpDir() { echo "platform/mac/Warp"; }
 warpVersion() { curl --silent --location "https://docs.warp.dev/getting-started/changelog" | tr '</span>' '\n' | grep "(v" | head -1 | cut -d" " -f1; }
 warpVersionDetail() { curl --silent --location "https://docs.warp.dev/getting-started/changelog" | tr '</span>' '\n' | grep "(v" | head -1 | sed 's/.* (v//' | cut -d")" -f1; }
-
 
 WindowsTerminalInstall()
 {

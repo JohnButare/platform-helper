@@ -382,15 +382,17 @@ AppVersion()
 	done
 
 	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
+	#local appCache=".${app}-version"
+	#! UpdateNeeded "$appCache" && { UpdateGet "$appCache"; return; }
 
-	# mac application
+	# get version with helper script
+	local helper; helper="$(AppHelper "$app")" && { "$helper" $quiet --version; return; }
+
+	# find and get mac application versions
 	local dir
 	if IsPlatform mac && dir="$(FindMacApp "$app")" && [[ -f "$dir/Contents/Info.plist" ]]; then
 		defaults read "$dir/Contents/Info.plist" CFBundleShortVersionString; return
 	fi
-
-	# check for a helper script
-	local helper; helper="$(AppHelper "$app")" && { "$helper" $quiet --version; return; }
 
 	# check if the app exists
 	local file; file="$(FindInPath "$app")" || { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
