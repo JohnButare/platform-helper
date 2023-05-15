@@ -2742,11 +2742,12 @@ FindMacApp()
 {
 	local app="$1"
 	[[ -f "$app" && "$app" =~ \.app$ ]] && HasFilePath "$app" && return "$app"
-
- app="$(GetFileNameWithoutExtension "$1")"
- [[ -d "$P/$app.app" ]] && { echo "$P/$app.app"; return; }
- [[ -d "$HOME/Applications/$app.app" ]] && { echo "$HOME/Applications/$app.app"; return; }
- return 1
+	HasFilePath "$app" && return 1
+	
+	app="$(GetFileNameWithoutExtension "$1")"
+	[[ -d "$P/$app.app" ]] && { echo "$P/$app.app"; return; }
+	[[ -d "$HOME/Applications/$app.app" ]] && { echo "$HOME/Applications/$app.app"; return; }
+	return 1
 }
 
 IsExecutable()
@@ -3108,7 +3109,7 @@ start()
 		[[ ! -d "$file" && -d "$HOME/Applications/$file.app" ]] && file="$P/$file.app"
 
 		# we could not find the app, just try and open it
-		[[ ! -d "$file" ]] && { open -a "$file"  "${args[@]}"; return; }
+		[[ ! -d "$file" ]] && { open -a "$file" "${args[@]}"; return; }
 
 		# open the app, waiting for the OS to see newly installed apps if needed
 		local result; result="$(open -a "$file" "${args[@]}")" && return
