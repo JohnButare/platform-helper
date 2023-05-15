@@ -402,7 +402,7 @@ AppVersion()
 
 	# special cases
 	case "$(LowerCase "$(GetFileName "$app")")" in
-		duf) return;;
+		duf|gtop|kubectl) return;;
 		7z) version="$(7z | head -2 | tail -1 | cut -d" " -f 3)" || return;;
 		bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
 		consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
