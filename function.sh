@@ -410,6 +410,8 @@ AppVersion()
 			consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
 			dog) version="$(dog --version | head -2 | tail -1 | cut -d"v" -f2)" || return;;
 			exa) version="$(exa --version | head -2 | tail -1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
+			figlet) version="$(figlet --version | RemoveEnd ".post1")" || return;;
+			fortune) version="$(fortune --version | cut -d" " -f2)" || return;;
 			gcc) version="$(gcc --version | head -1 | cut -d" " -f4)" || return;;
 			go) version="$(go version | head -1 | cut -d" " -f3 | RemoveFront "go")" || return;;
 			java) version="$(java --version |& head -1 | cut -d" " -f2)" || return;;
@@ -3287,7 +3289,9 @@ ScriptOptForce()
 {
 	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
 		case "$1" in
-			-f|--force) force="--force";;
+			-f|--force) force="-f"; forceLevel=1;;
+			-ff) force="-ff"; forceLevel=2;;
+			-fff) force="-fff"; forceLevel=3;;
 		esac
 		shift; 
 	done

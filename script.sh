@@ -220,7 +220,7 @@ ScriptOpt()
 ScriptOptGlobal()
 {
 	case "$1" in
-		--force|-f) force="--force";;
+		--force|-f|-ff|-fff) ScriptOptForce "$1";;
 		--help|-h) ScriptOptVerbose "$@"; usage 0;;
 		--no-prompt|-np) noPrompt="--no-prompt";;
 		--quiet|-q) quiet="--quiet" quietOutput="/dev/null";;
@@ -463,7 +463,7 @@ ScriptRun()
 	done
 
 	# options
-	unset -v force noPrompt quiet test showVersion verbose verboseLevel verboseLess wait
+	unset -v force forceLevel noPrompt quiet test showVersion verbose verboseLevel verboseLess wait
 	quietOutput="/dev/stdout"
 
 	set -- "${args[@]}"; args=()
@@ -530,7 +530,7 @@ ScriptUsage()
 	# global option usage
 	local version; IsFunction versionCommand && version="\n	    --version			output version information and exit"
 	[[ $verbose ]] && ScriptUsageEcho "\nGlobal options:
-	-f, --force				force the operation
+	-f, --force				force the operation, multiple -f increase force (max 3)
 	-h, --help				display this help and exit
 	-np, --no-prompt  suppress interactive prompts
 	-q, --quiet 			minimize informational messages
