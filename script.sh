@@ -463,7 +463,7 @@ ScriptRun()
 	done
 
 	# options
-	unset -v force forceLevel noPrompt quiet test showVersion verbose verboseLevel verboseLess wait
+	unset -v force forceLess forceLevel noPrompt quiet test showVersion verbose verboseLess verboseLevel wait
 	quietOutput="/dev/stdout"
 
 	set -- "${args[@]}"; args=()
@@ -474,6 +474,7 @@ ScriptRun()
 
 	# set global options
 	globalArgs=($force $noPrompt $quiet $verbose)
+	(( forceLevel > 1 )) && forceLess="-$(StringRepeat "f" "$(( forceLevel - 1 ))")"
 	(( verboseLevel > 1 )) && verboseLess="-$(StringRepeat "v" "$(( verboseLevel - 1 ))")"
 	globalArgsLessVerbose=($force $noPrompt $quiet $verboseLess)
 
