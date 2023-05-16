@@ -21,88 +21,7 @@ init() { defaultCommand="install" hostname="$HOSTNAME"; unset sshAgentChecked; }
 # commands
 #
 
-listCommand()
-{
-	declare -f | grep --basic-regexp '.*Install () ' | cut -d" " -f1 | sed "s/Install//" | grep -v "^$" | sort --ignore-case
-}
-
-checkCommand()
-{
-	local product term="$TERM"; [[ ! $term ]] && term="xterm-256color"
-
-	[[ ! $verbose ]] && PrintErr "checking..."
-
-	# get list of apps to check
-	local ignore=(apache chroot CreativeCloud cron DellDisplayManager duf hashi hostname hyperv java kea lolcat office qnap SqlServer VisualStudio xQuartz xServer)
-	local app apps=() cache="inst-check-apps"
-	if [[ $force ]] || UpdateNeeded "$cache"; then
-
-		installInit || return
-
-		local allApps; IFS=$'\n' ArrayMake allApps "$(listCommand)"
-		for app in "${allApps[@]}"; do
-			! isCollection "$app" && ! IsInArray --case-insensitive "$app" ignore && { appIsInstalled "$app" || IsFunction ${app}Download; } && apps+=("$app")
-		done
-		
-		UpdateSet "$cache" "$(GetDef apps)" || return
-	else
-		eval "apps=( $(UpdateGet "$cache") )" || return
-	fi
-
-	# show versions
-	{
-		hilight "app-${GREEN}installed${PAD}-${PAD}downloaded${PAD}-current"
-
-		for app in "${apps[@]}"; do
-			checkApp "$app" || return
-			IsFunction "${app,}VersionBeta" && { installType="beta" checkApp "$app" || return; }
-		done
-
-		PrintErr "done" && EchoErr ""
-
-	} | column -c $(tput cols -T "$term") -t -s-
-}
-
-checkApp()
-{
-	local app="$1" installed="" downloaded="" current=""
-	local type; [[ $installType ]] && type=" ($installType)"
-
-	# get version
-	log1 "Getting ${app}${type} version..."
-	installed="$(AppVersion --allow-alpha --quiet "$app")"
-	
-	# get download version
-	if IsFunction "${app}Download"; then
-		log1 "Getting ${app}${type} downloaded version..."
-		downloaded="$(getVersionDownloaded "$app")"  || ScriptErr "unable to get '$app' downloaded version"
-		[[ ! $verbose ]] && PrintErr "."
-	fi
-
-	# get current version
-	if IsFunction "${app,}Version"; then
-		log1 "Getting ${app}${type} current version..."
-		current="$(getVersionCurrent "$app")"  || ScriptErr "unable to get '$app' current version"
-		[[ ! $verbose ]] && PrintErr "."
-	fi
-
-	# do not show installed version if showing beta version and regular version is installed or vice versa
-	if [[ $current && "$installed" != "$current" ]]; then
-		if [[ "$installType" == "beta" ]]; then
-			local regularVersion; installType="" regularVersion="$(getVersionCurrent "$app")" || ScriptErr "unable to get '$app' current non-beta version"
-			{ [[ "$installed" == "$regularVersion" ]] || versionIsOlder "$installed" "$regularVersion"; } && installed=""
-		else
-			versionIsNewer "$installed" "$current" && installed=""
-		fi
-	fi
-
-	# hilight out of date versions in red
-	[[ $installed && $current && "$installed" != "$current" ]] && installed="${RED}$installed${RESET}" || installed="${PAD}$installed${PAD}"
-	[[ $downloaded && $current && "$downloaded" != "$current" ]] && downloaded="${RED}$downloaded${RESET}" || downloaded="${PAD}$downloaded${PAD}"
-
-	# show results
-	echo "${RESET}$app$type-$installed-$downloaded-$current"
-}
+listCommand() { declare -f | grep --basic-regexp '.*Install () ' | cut -d" " -f1 | sed "s/Install//" | grep -v "^$" | sort --ignore-case; }
 
 installedCommand()
 {
@@ -114,13 +33,118 @@ installedCommand()
 }
 
 #
+# check command
+#
+
+checkUsage() { EchoWrap "Usage: $(ScriptName) check [APP]...(all installed and downloaded)\nCheck the version of applicaitons."; }
+checkArgStart() { unset -v appsArg; }
+checkArgs() { appsArg=("$@"); shift="$#"; }
+
+checkCommand()
+{
+	local product term="$TERM"; [[ ! $term ]] && term="xterm-256color"
+
+	[[ ! $verbose && ! $appsArg ]] && PrintErr "checking..."
+
+	# check or get list of apps to check
+	local app apps=()
+	if [[ $appsArg ]]; then
+
+		# check applications and get install function
+		for app in "${appsArg[@]}"; do
+			local appFunction; appFunction="$(getInstallFunction "$app")" || { ScriptErr "'$app' installation does not exist"; return 1; }
+			apps+=( "$(RemoveEnd "$appFunction" "Install")" )
+		done
+
+		[[ ! $verbose && ! $quiet ]] && PrintErr "checking..."
+
+	else
+
+		# get all installed and downloaded applications
+		local ignore=(apache chroot CreativeCloud cron DellDisplayManager duf hashi hostname hyperv java kea lolcat office qnap SqlServer VisualStudio xQuartz xServer)
+		local cache="inst-check-apps"
+		if [[ $force ]] || UpdateNeeded "$cache"; then
+
+			installInit || return
+
+			local allApps; IFS=$'\n' ArrayMake allApps "$(listCommand)"
+			for app in "${allApps[@]}"; do
+				! isCollection "$app" && ! IsInArray --case-insensitive "$app" ignore && { appIsInstalled "$app" || IsFunction ${app}Download; } && apps+=("$app")
+			done
+			
+			UpdateSet "$cache" "$(GetDef apps)" || return
+		else
+			eval "apps=( $(UpdateGet "$cache") )" || return
+		fi
+	fi
+
+	# show versions
+	{
+		hilight "app-${GREEN}installed${PAD}-${PAD}downloaded${PAD}-current"
+
+		for app in "${apps[@]}"; do
+			checkApp "$app" || return
+			IsFunction "${app,}VersionBeta" && { installType="beta" checkApp "$app" || return; }
+		done
+
+		[[ ! $verbose && ! $quiet ]] && { PrintErr "done" && EchoErr ""; }
+
+	} | column -c $(tput cols -T "$term") -t -s-
+}
+
+checkApp()
+{
+	local app="$1" installed="" downloaded="" current=""
+	local type; [[ $installType ]] && type=" ($installType)"
+
+	# get version
+	log1 "Getting ${app}${type} version..."	
+	installed="$(AppVersion --allow-alpha --quiet "$app")"
+
+	# get download version
+	if IsFunction "${app^}Download"; then
+		log1 "Getting ${app}${type} downloaded version..."
+		downloaded="$(getVersionDownloaded "$app")"  || ScriptErr "unable to get '$app' downloaded version"
+		[[ ! $verbose && ! $quiet ]] && PrintErr "."
+	fi
+
+	# get current version
+	if IsFunction "${app,}Version"; then
+		log1 "Getting ${app}${type} current version..."
+		current="$(getVersionCurrent "$app")"  || ScriptErr "unable to get '$app' current version"
+		[[ ! $verbose && ! $quiet ]] && PrintErr "."
+	fi
+
+	# hide installed version if needed
+	if [[ $current && "$installed" != "$current" ]]; then
+
+		# showing beta version and regular version is installed
+		if [[ "$installType" == "beta" ]]; then
+			local regularVersion; installType="" regularVersion="$(getVersionCurrent "$app")" || ScriptErr "unable to get '$app' current non-beta version"
+			{ [[ "$installed" == "$regularVersion" ]] || versionIsOlder "$installed" "$regularVersion"; } && installed=""
+
+		# showing regular version and beta version is installed			
+		else
+			versionIsNewer "$installed" "$current" && installed=""
+
+		fi
+	fi
+
+	# hilight out of date versions in red
+	[[ $installed && $current && "$installed" != "$current" ]] && installed="${RED}$installed${RESET}" || installed="${PAD}$installed${PAD}"
+	[[ $downloaded && $current && "$downloaded" != "$current" ]] && downloaded="${RED}$downloaded${RESET}" || downloaded="${PAD}$downloaded${PAD}"
+
+	# show results
+	echo "${RESET}$app$type-$installed-$downloaded-$current"
+}
+
+#
 # install command
 #
 
 installUsage()
 {
-	EchoWrap "\
-Usage: $(ScriptName) install [alternate|beta|compile|local|package|store] [OPTION]... [APP]...
+	EchoWrap "Usage: $(ScriptName) install [alternate|beta|compile|local|package|store] [OPTION]... [APP]...
 Install an application.  To run a portion of the installation, the application name can be suffixed with download, final, help, profile, or register.  For example, 'inst SublimeProfile'.
 
 	     --hint=DIR				first directory to search for installation files
@@ -1448,9 +1472,11 @@ versionCheck()
 	return 0
 }
 
-# versionIsOlder V1 V2 - return true if V1 is newer or older than V2
-versionIsNewer() { [[ "$(echo -e "$v1\n$v2" | sort -V | head -1)" == "$v1" ]]; }
-versionIsOlder() { [[ "$(echo -e "$v1\n$v2" | sort -V | head -1)" == "$v2" ]]; }
+# versionIsNewer V1 V2 - return true if V1 is newer than V2
+versionIsNewer() { local v1="$1" v2="$2"; [[ "$v1" == "$v2" ]] & return 1; [[ "$(echo -e "$v1\n$v2" | sort -V | head -1)" == "$v1" ]]; }
+
+# versionIsOlder V1 V2 - return true if V1 is older than V2
+versionIsOlder() { local v1="$1" v2="$2"; [[ "$v1" == "$v2" ]] & return 1; [[ "$(echo -e "$v1\n$v2" | sort -V | head -1)" == "$v2" ]]; }
 
 #################################################
 # applications
