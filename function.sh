@@ -369,10 +369,11 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 AppVersion()
 {
 	# arguments
-	local allowAlpha app appOrig force quiet version
+	local allowAlpha app appOrig cache force quiet version
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--cache|-c) cache="--cache";;
 			--force|-f) force="--force";;
 			--quiet|-q) quiet="--quiet";;
 			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
@@ -385,7 +386,7 @@ AppVersion()
 
 	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
 	local appCache=".$(GetFileName "$app")-version"
-	! UpdateNeeded "$appCache" && { UpdateGet "$appCache"; return; }
+	[[ $cache ]] && ! UpdateNeeded "$appCache" && { UpdateGet "$appCache"; return; }
 
 	# get version with helper script
 	local helper; helper="$(AppHelper "$app")" && { version="$("$helper" $quiet --version)" || return; }
