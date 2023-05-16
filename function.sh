@@ -33,6 +33,7 @@ alias GetArgs2='(( $# < 2 )) && set -- "$(cat)" "$@"'
 alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
 alias GetArgDash='[[ "$1" == "-" ]] && shift && set -- "$(cat)" "$@"' 
 
+# GetArgsPipe - get all arguments from a pipe
 if IsZsh; then
 	alias GetArgsPipe='{ local args; args=("${(@f)"$(cat)"}"); set -- "${args[@]}"; }'
 else
@@ -2055,6 +2056,7 @@ DnsResolve()
 DnsResolveBatch()
 {
 	(( $# == 0 )) && GetArgsPipe # take arguments from pipe 
+	[[ ! $@ ]] && return
 	parallel -i bash -c '. function.sh && DnsResolve {}' -- "$@"; 
 }
 
