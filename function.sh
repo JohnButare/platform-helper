@@ -140,9 +140,9 @@ pipxg()
 		elif IsPlatform linux,win; then dir="/root/.local/bin/"
 		fi
 		local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="$HOMEBREW_PREFIX/opt/openssl@3/"
-		sudo PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "${dir}pipx" "$@"
+		sudoc PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "${dir}pipx" "$@"
 	elif [[ "$1" == "install" ]]; then
-		sudo python3 -m pip "$@"
+		sudoc python3 -m pip "$@"
 	fi
 }
 
