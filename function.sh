@@ -2756,7 +2756,14 @@ FindMacApp()
 	[[ -d "$app" && "$app" =~ \.app$ ]] && HasFilePath "$app" && echo "$app" && return
 	HasFilePath "$app" && return 1
 	
-	app="$(GetFileNameWithoutExtension "$1")"
+	# special cases
+	case "$app" in
+		DiskSpeedTest) app="Blackmagic Disk Speed Test";;
+		MicrosoftRemoteDesktop) app="Microsoft Remote Desktop";;
+	esac
+
+	# get directory
+	app="$(GetFileNameWithoutExtension "$app")"
 	[[ -d "$P/$app.app" ]] && { echo "$P/$app.app"; return; }
 	[[ -d "$HOME/Applications/$app.app" ]] && { echo "$HOME/Applications/$app.app"; return; }
 	return 1
