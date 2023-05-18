@@ -111,7 +111,7 @@ checkApp()
 	fi
 
 	# get current version
-	if IsFunction "${app,}Version"; then
+	if [[ ${storeIds[$app]} ]] || IsFunction "${app,}Version"; then
 		log1 "Getting ${app}${type} current version..."
 		current="$(force="$forceLess" getVersionCurrent "$app" | ReplaceString "-" "_")"  || ScriptErr "unable to get '$app' current version"
 		[[ ! $verbose && ! $quiet ]] && PrintErr "."
@@ -281,6 +281,24 @@ installInit()
 		[yubikey]="YubiKeyManager"
 	)
 
+	declare -Ag storeIds=(
+		[1PasswordExtension]="1569813296"
+		[CarrotWeather]="993487541"
+		[DayOne]="1055511498"
+		[DiskSpeedTest]="425264550"
+		[iPerfman]="6444657542"
+		[LiveDesktop]="846060286"
+		[Magnet]="441258766"
+		[MicrosoftRemoteDesktop]="1295203466"
+		[Moom]="419330170"
+		[PCalc]="403504866"
+		[Spark]="1176895641"
+		[SpeedTest]="1153157709"
+		[WiFiExplorer]="1587083834"
+		[WireGuard]="1451685025"
+		[Yonk]="457622435"
+	)
+
 	# force elevation
 	elevateInstall=(GitForWindows win WinPermissions)
 
@@ -374,7 +392,7 @@ installInit()
 
 	# network
 	debian+=(CloudInit DomotzAgent keepalived mDNS mtr NetbootxyzDocker NetbootxyzTftpServer pivpn TftpClient TftpServer UncomplicatedFirewall)
-	mac+=(proxifier)
+	mac+=(proxifier WiFiExplorer)
 	macDebian+=(JumpCloud MozillaVpn unifi)
 	macWin+=(domotz WireGuard WireShark)
 	ubuntu+=(NicUsb StaticIp wifi)
@@ -390,7 +408,7 @@ installInit()
 	win+=(chocolatey WinGet)
 
 	# Performance
-	mac+=(SystemToolkit)
+	mac+=(DiskSpeedTest iPerfman SystemToolkit)
 	macDebian+=(bench Geekbench glances gtop PerformanceTest stui)
 	macDebianQnap+=(glances)
 
@@ -472,7 +490,6 @@ getFileSudo() { sudo curl --silent --location --output "$@"; }
 httpsOpen() { local url="$1"; [[ ! $url ]] && return; IsInteger "$url" && url="https://$(GetIpAddress --wsl):$url"; echo "Opening $url..."; browser "$url"; }
 httpShow() { local url="$1"; [[ ! $url ]] && return; IsInteger "$url" && url="http://$(GetIpAddress --wsl):$url"; echo "URL: $url"; }
 httpsShow() { local url="$1"; [[ ! $url ]] && return; IsInteger "$url" && url="https://$(GetIpAddress --wsl):$url"; echo "URL: $url"; }
-isMacStoreId() { IsPlatform mac && IsInteger "$1"; }
 macAppConfigure() { askp "Configure $1" && { start "$1" || return; }; return 0; }
 makeFileSudo() { local file="$1" dir="$(GetFilePath "$1")"; makeDir --sudo "$dir" || return; [[ ! -f "$dir" ]] && { sudo touch "$file" || return; }; }
 makeLinkSudo() { sudoc MakeLink --suppress $quiet $noPrompt "$@"; }
@@ -597,7 +614,7 @@ findFile()
 	local quiet; [[ "$1" == @(-q|--quiet) ]] && { quiet="true"; shift; }
 	local pattern; file="$1"
 
-	(isMacStoreId "$file" || IsUrl "$file" ) && return 0
+	(isStoreId "$file" || IsUrl "$file" ) && return 0
 
 	if IsWild "$file"; then
 		GetFileName "$file" pattern || return
@@ -681,7 +698,7 @@ getVersionDownloaded()
 {
 	local app="$1";
 
-	# use the cached downloaded version if possible
+	# use the cached downloaded version if possible.
 	local track="$(appGetTrack "$app" "downloaded")"
 	! UpdateNeeded "$track" && { UpdateGet "$track"; return; }
 
@@ -699,13 +716,20 @@ getVersionCurrent()
 	local track="$(appGetTrack "$app" "current")"
 	! UpdateNeeded "$track" && { UpdateGet "$track"; return; }
 
-	# get the version
-	local function="${app,}Version"; [[ "$installType" == "beta" ]] && function+="Beta"
-	local version; version="$($function)"
-	[[ ! $version ]] && { ScriptErr "could not get ${app^} version"; return 1; }
+	# get current version - store
+	if [[ ${storeIds[$app]} ]]; then
+		version="$(storeCurrentVersion "${storeIds[$app]}")" || return
+
+	# get current version - function
+	else
+		local function="${app,}Version"; [[ "$installType" == "beta" ]] && function+="Beta"
+		local version; version="$($function)"
+		[[ ! $version ]] && { ScriptErr "could not get ${app^} version"; return 1; }
+		{ appCd "$app" && echo "$version" > "$track"; } || return
+	fi
 
 	# save and return the version	
-	UpdateSet "$track" "$version" && appCd "$app" && echo "$version" > "$track" && echo "$version"	
+	UpdateSet "$track" "$version" && echo "$version"	
 }
 
 # getWin PRIMARY ALTERNATE - use Debian package for alternate Windows install
@@ -854,7 +878,7 @@ isInstallable()
 	return 1
 }
 
-# iStore APPS - install store applications
+# iStore [APP...] - install store applications
 iStore()
 {
 	while (($# != 0 )); do		
@@ -974,6 +998,10 @@ run()
 		shift "$shift"
 	done
 
+	# get store ID if possible
+	[[ ${storeIds[$appFunction]} ]] && { type="store" p="${storeIds[$appFunction]}"; }
+
+	# validate arguments
 	[[ ! "$p" ]] && { MissingOperand "program" "run"; }
 	(( $# != 0 )) && { ExtraOperand "$@"; return 1; }
 	[[ ! "$dest" ]] && dest="$P"
@@ -1003,9 +1031,9 @@ run()
 	fi
 
 	# Mac Store install
-	if isMacStoreId "$p"; then
+	if isStoreId "$p"; then
 		type="store"
-		macStoreIsInstalled "$p" && return
+		storeIsInstalled "$p" && return
 	fi
 
 	# version check
@@ -1269,10 +1297,7 @@ runTypeSnap()
 	snapCheck && sudoc snap install core && sudo snap refresh core && pause snap install "$p" "$@"
 }
 
-runTypeStore() { RunPlatform runStore "$@"; }
-runStoreMac() { macStoreInstall "$@"; }
-runStoreQnap() { qnap package install "$1"; }
-runStoreWin() { start RunProcess.exe "ms-windows-store://pdp/?ProductId=$1"; return 0; } # Windows Store  always returns an error
+runTypeStore() { storeRun "$@"; }
 
 # run helper
 
@@ -1497,7 +1522,7 @@ versionIsOlder() { local v1="$1" v2="$2"; [[ "$v1" == "$v2" ]] && return 1; [[ "
 # applications
 #################################################
 
-AppCoreInstall() { winPathFix && i AppPlatform AppNetwork AppHost register && rebootIfNeeded; }
+AppCoreInstall() { winPathFix && i store AppPlatform AppNetwork AppHost register && rebootIfNeeded; }
 
 AppPlatformInstall() { RunPlatform app; }
 appMac() { package macchina tokei && i AltTab iTerm KarabinerElements warp; }
@@ -4493,7 +4518,7 @@ PoolTemperatureInstall()
 MacInstall() # called by bootstrap
 {
 	header "Mac Setup"
-	i MacAppCleanup MacAppStore MacConfigure MacDirectories MacDockCleanup MacDockOrder MacFonts MacShortcuts || return
+	i MacAppCleanup MacConfigure MacDirectories MacDockCleanup MacDockOrder MacFonts MacShortcuts || return
 }
 
 MacAppCleanupInstall()
@@ -4504,35 +4529,6 @@ MacAppCleanupInstall()
 	macUninstall "GarageBand" || return
 	macUninstall "Numbers" || return
 }
-
-MacAppStoreInstall()
-{
-	header "mas" # https://github.com/mas-cli/mas/releases
-	macStoreCheck
-}
-
-macStoreCheck() { InPath mas && return; pkg mas; }
-
-macStoreInstall()
-{
-	local id="$1" app="$2"
-
-	# install mas if needed
-	macStoreCheck || return
-
-	# return if the app is installed
-	macStoreIsInstalled "$id" && return
-
-	# install the app
-	mas install "$1" || return
-
-	# start the app
-	[[ $app ]] && start "$app"; 
-
-	return 0
-}
-
-macStoreIsInstalled() { macStoreCheck && mas list | grep --quiet "^$1 "; }
 
 MacConfigureInstall()
 {
@@ -4624,13 +4620,13 @@ macDockOrder()
 
 # Mac Applications
 MacAppAllInstall() { i CarrotWeather DayOne LiveDesktop magnet pcalc SpeedTest yoink; }
-CarrotWeatherInstall() { run --name "CARROTweather" "993487541"; }
-DayOneInstall() { run --name "Day One" "1055511498"; }
-LiveDesktopInstall() { run --name "LiveDesktop" "846060286"; }
-MagnetInstall() { run --name "Magnet" "441258766"; }
-PcalcInstall() { run --name "PCalc" "403504866"; }
-SpeedTestInstall() { run --name "Speedtest" "1153157709"; }
-YoinkInstall() { run --name "Yoink" "457622435"; }
+CarrotWeatherInstall() { run --name "CARROT Weather"; };
+DayOneInstall() { run --name "Day One"; };
+LiveDesktopInstall() { run --name "LiveDesktop"; }
+MagnetInstall() { run --name "Magnet"; }
+PCalcInstall() { run --name "PCalc"; }
+SpeedTestInstall() { run --name "Speedtest"; }
+YoinkInstall() { run --name "Yoink"; }
 
 #################################################
 # IT Management
@@ -4835,7 +4831,7 @@ hashiApp()
 
 MailCoreInstall() { i CanaryMail spark thunderbird; }
 CanaryMailInstall() { run --name "Canary Mail" "1236045954"; }
-SparkInstall() { run --name "Spark" "1176895641"; }
+SparkInstall() { run --name "Spark"; }
 ThunderbirdInstall() { local v="102.6.1"; run --name "thunderbird" "other/Mozilla/Thunderbird/Thunderbird Setup $v.msi|Thunderbird $v.dmg|thunderbird-$v.tar" --version=$v; } # https://www.thunderbird.net/en-US/thunderbird/all/#E
 ThunderbirdHelp() { echot "- see Mozilla Notes, ThunderBird"; }
 ThunderbirdProfile() { thunderbird $noPrompt profile restore default; }
@@ -5089,11 +5085,12 @@ NvmFinalWin() { mergeDir "$pp/NVM For Windows" "$pp/Development/Other"; }
 # Network
 #################################################
 
-NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler GlassWire gping httpie JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn NetbootxyzDocker NetbootxyzTftpServer nginx NicUsb Ninite NordVpn pivpn Proxifier StaticIp TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall unifi wifi WireGuard Wireshark; }
+NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler GlassWire gping httpie JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn NetbootxyzDocker NetbootxyzTftpServer nginx NicUsb Ninite NordVpn pivpn Proxifier StaticIp TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall unifi wifi WiFiExplorer WireGuard Wireshark; }
 HttpieInstall() { run --python-global "httpie"; }
 MtrInstall() { run --package "mtr"; }
 TftpclientInstall() { run --name "TFTP Client" --package "tftp-hpa"; }
 TftpserverInstall() { run --name "TFTP Server" --package "tftpd-hpa" && serviceAutoStart "tftpd-hpa"; }
+WiFiExplorerInstall() { run --name "WiFi Explorer Pro 3"; }
 
 BindInstall()
 {
@@ -5683,7 +5680,7 @@ WireGuardInstall()
 	elif IsPlatform debian; then
 		package wireguard || return
 	elif IsPlatform mac; then
-		run "1451685025" || return
+		run || return
 	fi
 }
 
@@ -6136,16 +6133,6 @@ WindowsDownloadInstall()
 	gcp ~/Downloads/Windows.iso "$(GetFilePath "$file")/Windows_$v.iso" || return
 }
 
-WindowsStoreInstall()
-{
-	header "Windows Store"
-	[[ ! $force ]] && ! UpdateNeeded "WindowsStore" && return
-	UpdateDone "bootstrapStart" || return
-
-	echo "Log in to the Windows Store"
-	store && UpdateDone "WindowsStore"
-}
-
 WslConfigInstall()
 {
 	header "Windows Subsystem for Linux Configuration"
@@ -6508,8 +6495,10 @@ PdfElementFinalWin()
 # performance
 #################################################
 
-PerformanceAllInstall() { i bench Geekbench glances gtop stui SystemToolkit && pkg bonnie++ gnome-system-monitor hardinfo stacer || return; }
+PerformanceAllInstall() { i bench DiskSpeedTest Geekbench glances gtop iPerfman stui SystemToolkit && pkg bonnie++ gnome-system-monitor hardinfo stacer || return; }
+DiskSpeedTestInstall() { run --name "Blackmagic Disk Speed Test"; }
 GlancesInstall() { run --python-global "glances"; }
+iPerfmanInstall() { run --name "iperfman"; }
 SystemtoolkitInstall() { run --name "System Toolkit" --store "1234854699" && run "platform/mac/System Toolkit/|Helper.dmg"; }
 
 BenchInstall()
@@ -6974,7 +6963,7 @@ RemoteDesktopAllInstall() { i AppleRemoteDesktop JumpDesktop MicrosoftRemoteDesk
 AppleRemoteDesktopInstall() { run --name "Remote Desktop" "409907375" || return; }
 JumpDesktopInstall() { run --name "Jump Desktop"  "network/JumpDesktop/JumpDesktop.exe|JumpDesktopMac.zip"; } # https://app.jumpdesktop.com/dashboard
 JumpDesktopFinalWin() {	makeDir "$oo/Jump Desktop" && $mv "$pp/Jump Desktop.lnk" "$oo/Jump Desktop" && $mv "$pp/Jump Desktop Connect.lnk" "$oo/Jump Desktop"; }
-MicrosoftRemoteDesktopInstall() { run --name "Microsoft Remote Desktop" "1295203466"; }
+MicrosoftRemoteDesktopInstall() { run --name "Microsoft Remote Desktop"; }
 
 NoMachineInstall()
 {
@@ -7360,6 +7349,8 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 {
 	local v; v="$(getVersionCurrent "1Password")" || return
 	run --name "1Password" "$(1PasswordDir)/1Password-win v$v.exe|1Password-mac v$v.zip|1Password-linux v$v.deb" --version=$v --elevate -- /S || return
+	IsPlatform mac && { run --name="1PasswordExtension" || return; }
+	return 0
 } 
 
 1PasswordRegister() { register "1Password"; }
@@ -7705,6 +7696,60 @@ SshFsInstall()
 WinScpInstall() { run --header "WinSCP" "shareware/WinSCP/WinSCP-5.19.6-Setup.exe"; } # https://winscp.net/eng/index.php
 WinScpProfile() { winscp $noPrompt profile restore default; }
 WinScpFinalWin() { $mv "$pp/WinSCP.lnk" "$pp/Operating System" && $rm "$pd/WinSCP.lnk"; }
+
+#################################################
+# Store
+#################################################
+
+storeInstall()  { header "Store"; RunPlatform storeInstall "$@"; }
+storeInstallMac() {	InPath mas && return; package mas; }
+
+storeInstallWin()
+{
+	[[ ! $force ]] && ! UpdateNeeded "WindowsStore" && return
+	echo "Log in to the Windows Store"
+	store && UpdateDone "WindowsStore"
+}
+
+# storeCheck - ensure the store is installed for the platform
+storeCheck() { RunPlatform storeCheck; }
+storeCheckMac() { storeInstallMac; }
+
+# storeRun ID APP - run the installation for the application with store ID
+storeRun()
+{
+	local id="$1" app="$2"
+
+	# install the store if needed
+	storeInstall || return
+
+	# return if the app is installed
+	storeIsInstalled "$id" && return
+
+	# install the store app
+	RunPlatform storeRun "$1"
+
+	# start the app
+	[[ $app ]] && start "$app"; 
+
+	return 0
+}
+
+storeRunMac() { mas install "$1"; }
+storeRunQnap() { qnap package install "$1"; }
+storeRunWin() { start RunProcess.exe "ms-windows-store://pdp/?ProductId=$1"; return 0; } # Windows Store  always returns an error
+
+# isStoreId ID - return true if the ID is a store ID on the current platform
+isStoreId() { RunPlatform isStoreId "$1"; }
+isStoreIdMac() { IsInteger "$1"; }
+
+# storeCurrentVersion ID - return the current version if the application with the store ID
+storeCurrentVersion() { RunPlatform storeCurrentVersion "$1"; }
+storeCurrentVersionMac() { storeCheck && mas info "$1" | tr -s " " | head -1 | rev | cut -d" " -f2 | rev; }
+
+# storeIsInstalled ID - return true if the application with store ID is installed
+storeIsInstalled() { RunPlatform storeIsInstalled "$1"; }
+storeIsInstalledMac() { storeCheck && mas list | grep --quiet "^$1 "; }
 
 #################################################
 # Surveillance
@@ -9040,7 +9085,7 @@ MaxToProfile() { MaxTo $noPrompt profile restore default; }
 MaxToRegister() { register "MaxTo"; }
 MaxToFinalWin() {	mergeDir "$up/Digital Creations AS" "$up/Applications/Other" && $rm "$ud/MaxTo.lnk"; }
 
-MoomInstall() { run --name "Moom" "419330170"; }
+MoomInstall() { run --name "Moom"; }
 MoomProfile() { moom $noPrompt profile restore default; }
 
 MoomHelp()

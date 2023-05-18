@@ -374,7 +374,7 @@ AppVersion()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--cache|-c) cache="--cache";;
-			--force|-f) force="--force";;
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--quiet|-q) quiet="--quiet";;
 			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
 			*)
