@@ -917,7 +917,7 @@ QuoteQuotes() { GetArgs; echo "$@" | sed 's/\"/\\\"/g'; } # escape (quote) quote
 QuoteSpaces() { GetArgs; echo "$@" | sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
 RemoveQuotes() { sed 's/"//g'; }
 RemoveParens() { tr -d '()'; }
-
+ReplaceString() { GetArgs3; echo "${1//$2/$3}"; }
 BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
 ForwardToBackSlash() { GetArgs; echo -E "$@" | sed 's/\//\\/g'; }
 RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
