@@ -369,13 +369,14 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 AppVersion()
 {
 	# arguments
-	local allowAlpha app appOrig cache force quiet version
+	local allowAlpha alternate app appOrig cache force quiet version
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--cache|-c) cache="--cache";;
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--quiet|-q) quiet="--quiet";;
+			--alternate|-a) alternate="--alternate";;
 			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
 			*)
 				! IsOption "$1" && [[ ! $app ]] && { app="$(AppToCli "$1")" appOrig="$1"; shift; continue; }
@@ -385,11 +386,14 @@ AppVersion()
 	done
 
 	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
+
+	# cache
 	local appCache=".$(GetFileName "$app")-version"
+	[[ $alternate ]] && appCache=".$(GetFileName "$app")-alternate-version"
 	[[ $cache ]] && ! UpdateNeeded "$appCache" && { UpdateGet "$appCache"; return; }
 
 	# get version with helper script
-	local helper; helper="$(AppHelper "$app")" && { version="$("$helper" $quiet --version)" || return; }
+	local helper; helper="$(AppHelper "$app")" && { version="$(alternate="$alternate" "$helper" $quiet --version)" || return; }
 
 	# find and get mac application versions
 	local dir
@@ -445,18 +449,20 @@ AppVersion()
 	UpdateSet "$appCache" "$version" && echo "$version"
 }
 
-# AppHelper APP - return the helper application for the app (script in $BIN)
+# AppHelper APP - return the helper application for the app in $BIN
 AppHelper()
 {
-	local app="$1"
+	local app="$1" appCheck
 
+	# return if a full path to BIN was specified
 	[[ "$app" =~ ^$BIN ]] && { echo "$app"; return; }
+	HasFilePath "$app" && return 1
+	
+	# find $app or ${app}Helper
+	appCheck="$(${G}find "$BIN" -iname "$app")" && [[ -f "$appCheck" ]] && { echo "$appCheck"; return; }
+	appCheck="$(${G}find "$BIN" -iname "${app}Helper")" && [[ -f "$appCheck" ]] && { echo "$appCheck"; return; }
 
-	[[ -f "$BIN/$app" ]] && { echo "$BIN/$app"; return; }
-
-	app="$(UpperCaseFirst "$app")Helper"
-	[[ -f "$BIN/$app" ]] && { echo "$BIN/$app"; return; }	
-
+	# not found
 	return 1
 }
 
