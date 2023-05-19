@@ -159,15 +159,15 @@ memoryCommand() { memoryTotalCommand; }
 memoryFreeCommand()
 {
 	if IsPlatform mac; then
-		local pages="$(vm_stat | grep "^Pages free:" | tr -s " " | cut -d" " -f 3 | cut -d. -f 1)"
-		local bytes="$(echo "$pages * 4 * 1024 * 1024 / 10" | bc)"
+		local pages; pages="$(vm_stat | grep "^Pages free:" | tr -s " " | cut -d" " -f 3 | cut -d. -f 1)"
+		local bytes; bytes="$(echo "$pages * 4 * 1024 * 1024 / 10" | bc)"
 	elif InPath free; then
-		local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f7)"
+		local bytes; bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f7)"
 	else 
 		return
 	fi
 
-	local gbRounded="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
+	local gbRounded; gbRounded="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
 	echo "$gbRounded"
 }
 
@@ -177,9 +177,9 @@ memoryTotalCommand()
 		system_profiler SPHardwareDataType | grep "Memory:" | tr -s " " | cut -d" " -f 3
 	else
 		! InPath free && return
-		local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f2)"
-		local gbRoundedTwo="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
-		local gbRounded="$(echo "($gbRoundedTwo + .5)/1" | bc)"
+		local bytes; bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f2)"
+		local gbRoundedTwo; gbRoundedTwo="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
+		local gbRounded; gbRounded="$(echo "($gbRoundedTwo + .5)/1" | bc)"
 		echo "$gbRounded"
 	fi
 }
@@ -187,15 +187,15 @@ memoryTotalCommand()
 memoryUsedCommand()
 { 
 	if IsPlatform mac; then
-		local pages="$(vm_stat | grep "^Pages active:" | tr -s " " | cut -d" " -f 3 | cut -d. -f 1)"
-		local bytes="$(echo "$pages * 4 * 1024 * 1024 / 10" | bc)"
+		local pages; pages="$(vm_stat | grep "^Pages active:" | tr -s " " | cut -d" " -f 3 | cut -d. -f 1)"
+		local bytes; bytes="$(echo "$pages * 4 * 1024 * 1024 / 10" | bc)"
 	elif InPath free; then
-		local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f3)"
+		local bytes; bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f3)"
 	else 
 		return
 	fi
 
-	local gbRounded="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
+	local gbRounded; gbRounded="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
 	echo "$gbRounded"
 }
 
@@ -472,8 +472,8 @@ infoOpt()
 
 infoCommand() { [[ $monitor ]] && { infoMonitor; return; } || infoHosts; }
 infoHost() { if IsLocalHost "$host"; then infoLocal; else infoRemote; fi; }
-infoMonitor() { watch -n 1 os info $hostArg --dynamic "${remoteArgs[@]}"; }
-infoSetRemoteArgs() { remoteArgs=( $detail $prefix "${skipArg[@]}" "${whatArg[@]}" "${globalArgs[@]}" ); }
+infoMonitor() { watch -n 1 os info "$hostArg" --dynamic "${remoteArgs[@]}"; }
+infoSetRemoteArgs() { remoteArgs=( "$detail" "$prefix" "${skipArg[@]}" "${whatArg[@]}" "${globalArgs[@]}" ); }
 
 infoHosts()
 {
@@ -492,8 +492,8 @@ infoEcho()
 
 infoPrint()
 {
-	[[ $prefix ]] && printf "$HOSTNAME "
-	printf "$1"
+	[[ $prefix ]] && printf "%s" "$HOSTNAME "
+	printf "%s" "$1"
 }
 
 infoRemote()
@@ -526,7 +526,7 @@ infoLocal()
  	local w
 	for w in "${what[@]}"; do
 		IsInArray "$w" skip && continue
-		info${w^} || return
+		"info${w^}" || return
 	done	
 }
 
@@ -584,7 +584,7 @@ infoFile()
 
 infoKernel()
 {
-	local bits="$(bitsCommand)"; [[ $bits ]] && bits=" ($bits bit)"
+	local bits; bits="$(bitsCommand)"; [[ $bits ]] && bits=" ($bits bit)"
 	infoEcho "      kernel: $(uname -r)$bits"
 	RunPlatform infoKernel;
 }
@@ -647,13 +647,13 @@ infoDistributionLinux() # distributor version (CodeName)
 
 	# primary
 	local suffix; IsPlatform CasaOs,pi && suffix="/Debian"
-	local primary="$(distributorLinux)$suffix $(versionLinux) ($(codeNameLinux))"
+	local primary; primary="$(distributorLinux)$suffix $(versionLinux) ($(codeNameLinux))"
 
 	# secondary
 	local secondary;
 	if IsPlatform DebianLike && ! IsPlatform CasaOs,pi; then
-		local version="$(cat "/etc/debian_version")"
-		local codeName="$(debianVersionToCodeName "$version")"
+		local version; version="$(cat "/etc/debian_version")"
+		local codeName; codeName="$(debianVersionToCodeName "$version")"
 		IsPlatform ubuntu && codeName="$version" version="$(debianCodeNameToVersion "$version")" 
 		secondary+="Debian $version ($codeName)"
 	fi
@@ -672,8 +672,8 @@ infoDistributionMac()
 
 infoDistributionWin()
 {	
-	local build="$(buildCommand)"
-	local ubr="$(HexToDecimal "$(registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/UBR" | RemoveCarriageReturn)")" # UBR (Update Build Revision)
+	local build; build="$(buildCommand)"
+	local ubr; ubr="$(HexToDecimal "$(registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/UBR" | RemoveCarriageReturn)")" # UBR (Update Build Revision)
 	local version="11"; (( $(os build) < 22000 )) && version="10" # 10|11
 	infoDistributionLinux && infoEcho "              Windows $version (build $build.$ubr, wsl $(wsl get version), wslg $(wsl get version wslg))"
 }
@@ -715,7 +715,7 @@ systemProperties()
 {
 	! IsPlatform win && return
 	local tab=; [[ $1 ]] && tab=",,$1"; 
-	rundll32.exe /d shell32.dll,Control_RunDLL SYSDM.CPL$tab
+	rundll32.exe /d "shell32.dll,Control_RunDLL SYSDM.CPL$tab"
 }
 
 ScriptRun "$@"
