@@ -520,8 +520,8 @@ installInit()
 
 appGetDir() { ${app,}Dir; }
 appCd() { local dir; dir="$(appGetDir "$app")" && findFileCd "$dir"; }
-appGetTrack() { local app="$1" what="$2"; track=".$app-$what-version"; [[ "$installType" == "beta" ]] && track+="-beta"; echo "$track"; }
 askp() { [[ $noPrompt ]] && { echo "$1..."; return; }; ask "$1"; } # askp MESSAGE - ask a question if prompting
+checkUrl() { curl --silent "$1" --head | grep --quiet "HTTP/2 200"; }
 couldNotLocate() { ScriptErr "could not locate '$app'"; return 1; }
 getAgent() { echo "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/534.30 (KHTML, like Gecko) Chrome/12.0.742.112 Safari/534.30"; }
 getFile() { curl --silent --location --output "$@"; }
@@ -553,6 +553,14 @@ sshRun() { sshAgentCheck && RunLog ssh "$@"; }
 sshRunInteractive() { sshAgentCheck && RunLog SshHelper "$1" --credentials "${globalArgs[@]}" -- "${@:2}"; }
 waitForInstall() { [[ ! $ran ]] && return; local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
 waitForInstallWin() { ! IsPlatform win && return; waitForInstall "$1"; }
+
+appGetTrack()
+{
+	local app="$1" what="$2"; track=".$app-$what-version"
+	[[ "$installType" == "beta" ]] && track+="-beta"
+	[[ "$app" == @(1PasswordCli) ]] && track+="-$PLATFORM_OS"
+	echo "$track" 
+}
 
 appStart()
 {
@@ -715,6 +723,13 @@ getArch()
 
 # getElevate YES NO
 getElevate() { CanElevate && echo "$1" || echo "$2"; }
+
+# getPlatfor WIN MAC LINUX
+getPlatform()
+{
+	local win="$1" mac="$2" linux="$3"
+	eval echo '$'$PLATFORM_OS
+}
 
 # getInstallFunction APP - find the function used to install the specified application
 # - The function will have the name appInstall
@@ -2353,12 +2368,7 @@ BeyondCompareDownload()
 }
 
 beyondCompareDir() { echo "other/Scooter Software/Beyond Compare/setup"; }
-
-beyondCompareVersion()
-{
-	local url="https://www.scootersoftware.com/download.php"
-	curl --silent "$url" | curl --silent "$url" | grep "/files/BCompare-" | head -1 | cut -d'-' -f2 | cut -d" " -f1 | RemoveEnd ".exe\""
-}
+beyondCompareVersion() { curl --silent "https://www.scootersoftware.com/download.php" | grep "/files/BCompare-" | head -1 | cut -d'-' -f2 | cut -d" " -f1 | RemoveEnd ".exe\""; }
 
 BeyondCompareProfile()
 {
@@ -3408,7 +3418,7 @@ gitClientWin()
 ForkInstall()
 {
 	local v; v="$(getVersionCurrent "Fork")" || return
-	run --name="Fork" "$(forkDir)/Fork-$v.dmg" --version="$v"
+	run --name="Fork" "$(forkDir)/Fork-$v.exe|Fork-$v.dmg" --version="$v"
 }
 
 ForkFinalWin() { mergeDir "$up/Fork" "$up/Development/Other" && $rm "$ud/Fork.lnk" && gitFixWin "$(GetDirs "$UADATA/Fork/GitInstance/" | tail -1)/bin/git.exe"; }
@@ -3417,12 +3427,23 @@ ForkProfile() { ForkHelper $noPrompt profile restore default; }
 
 ForkDownload()
 {
-	local app="Fork"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" && download "https://cdn.fork.dev/$PLATFORM_OS/Fork-$v.dmg" "$(forkDir)" && downloadDone "$app" "$v"
+	local app="Fork"; downloadStart "$app" || return 0
+	local v; v="$(getVersionCurrent "$app")" || return; download "https://cdn.fork.dev/$PLATFORM_OS/Fork-$v.$(getPlatform "exe" "dmg")" "$(forkDir)" && downloadDone "$app" "$v"
 }
 
 forkDir() { echo "git/Fork"; }
-forkVersion() { local win; IsPlatform win && win="win"; echo "$(curl --silent https://git-fork.com/releasenotes${win} | grep "header4" | head -1 | sed 's/.*Fork //' | cut -d"<" -f1).1"; }
+
+forkVersion()
+{
+	local win; IsPlatform win && win="win"
+	local prefix="$(curl --silent https://git-fork.com/releasenotes${win} | grep "header4" | head -1 | sed 's/.*Fork //' | cut -d"<" -f1)"
+	local suffix suffixes=(".3" ".2" ".1" "")
+	for suffix in "${suffixes[@]}"; do
+		local url="https://cdn.fork.dev/$PLATFORM_OS/Fork-$prefix${suffix}.$(getPlatform "exe" "dmg")"
+		checkUrl "$url" && { echo "$prefix$suffix"; return; }
+	done
+	return 1
+}
 
 GitUpInstall() { run --python-global git-up && git config --global git-up.rebase.auto false; }
 
@@ -7077,9 +7098,7 @@ noMachineFindUrl()
 	printf "finding $plat..."
 	for (( i = 1; i <= 20; i++ )); do
 		tryUrl="$(eval echo $url)"
-		result="$(curl --silent "$tryUrl" --head | head -1)" || return
-		[[ ! "$result" =~ 200 ]] && { printf "."; continue; }
-		echo "found"; url="$tryUrl"; return 0
+		checkUrl "$tryUrl" && { echo "found"; url="$tryUrl"; return; }
 	done
 
 	echo "not found"; return 1
@@ -7471,7 +7490,7 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 	local app="1PasswordCli"; downloadStart "$app" || return 0	
 	local v; v="$(getVersionCurrent "$app")" || return	
 
-	local item items=("op_apple_universal_v$v.pkg" "op_linux_arm64_v$v.zip" "op_windows_amd64_v$v.zip")
+	local item items=("op_apple_universal_v$v.pkg" "op_linux_amd64_v$v.zip" "op_linux_arm64_v$v.zip" "op_windows_amd64_v$v.zip")
 
 	for item in "${items[@]}"; do
 		download "https://cache.agilebits.com/dist/1P/op2/pkg/v$v/$item" "$(1PasswordCliDir)" || return

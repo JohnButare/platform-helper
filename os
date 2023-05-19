@@ -131,13 +131,13 @@ executableFindCommand()
 
 	# find an executable that supports the primary architecture
 	arch="$(executableFormatCommand)"
-	file="$(file "$dir"/* | grep "$arch" | tail -1 | cut -d: -f1)"
+	file="$(file "$dir"/* | sort -V | grep "$arch" | tail -1 | cut -d: -f1)"
 	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for mac universal binaries
 	[[ $file ]] && { echo "$file"; return; }
 
 	# see if we can find an executable the supports an alternate architecture if the platform supports one
 	arch="$(alternateExecutableFormatCommand)"; [[ ! $arch ]] && return 1
-	file="$(file "$dir"/* | grep "$arch" | tail -1 | cut -d: -f1)"
+	file="$(file "$dir"/* | sort -V | grep "$arch" | tail -1 | cut -d: -f1)"
 	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for mac universal binaries
 	[[ $file ]] && { echo "$file"; return; }
 
