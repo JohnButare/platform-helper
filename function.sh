@@ -414,6 +414,7 @@ AppVersion()
 			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
 			consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
+			damon) version="$(damon --version | head -1 | cut -d"v" -f2 | cut -d"-" -f1)" || return;;
 			dog) version="$(dog --version | head -2 | tail -1 | cut -d"v" -f2)" || return;;
 			exa) version="$(exa --version | head -2 | tail -1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
 			figlet) version="$(figlet --version | RemoveEnd ".post1")" || return;;
@@ -422,6 +423,7 @@ AppVersion()
 			go) version="$(go version | head -1 | cut -d" " -f3 | RemoveFront "go")" || return;;
 			java) version="$(java --version |& head -1 | cut -d" " -f2)" || return;;
 			jq) version="$(jq --version |& cut -d"-" -f2)" || return;;
+			minikube) version="$(echo "$(minikube version)" | head -1 | sed 's/.* v//')" || return;; # minicube pipe returns error on mac
 			nomad) version="$(nomad --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
 			pip) version="$(pip --version | cut -d" " -f2)" || return;;
 			python3) version="$(python3 --version | cut -d" " -f2)" || return;;

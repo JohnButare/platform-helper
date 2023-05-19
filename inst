@@ -521,7 +521,8 @@ installInit()
 appGetDir() { ${app,}Dir; }
 appCd() { local dir; dir="$(appGetDir "$app")" && findFileCd "$dir"; }
 askp() { [[ $noPrompt ]] && { echo "$1..."; return; }; ask "$1"; } # askp MESSAGE - ask a question if prompting
-checkUrl() { curl --silent "$1" --head | grep --quiet "HTTP/2 200"; }
+checkUrl() { local url="$1" check="${2:-^HTTP/2 200\|HTTP/1.1 200 OK}"; curl --silent --head --location "$url" | ${G}grep --quiet "$check"; }
+checkUrlDownload() { checkUrl "$1" "application/octet-stream\|application/x-diskcopy"; }
 couldNotLocate() { ScriptErr "could not locate '$app'"; return 1; }
 getAgent() { echo "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/534.30 (KHTML, like Gecko) Chrome/12.0.742.112 Safari/534.30"; }
 getFile() { curl --silent --location --output "$@"; }
@@ -558,7 +559,7 @@ appGetTrack()
 {
 	local app="$1" what="$2"; track=".$app-$what-version"
 	[[ "$installType" == "beta" ]] && track+="-beta"
-	[[ "$app" == @(1PasswordCli) ]] && track+="-$PLATFORM_OS"
+	[[ "$app" == @(Fork) ]] && track+="-$PLATFORM_OS"
 	echo "$track" 
 }
 
@@ -613,7 +614,9 @@ download()
 
 	# download
 	hilight "Downloading '$(GetFileName "$file")'..."
-	RunLog curl --location "$(UrlEncodeSpace "$url")" --output "$file" && echo
+	url="$(UrlEncodeSpace "$url")"
+	checkUrlDownload "$url" || { ScriptErr "the download fle '$file' is not available at '$url'"; return 1; }
+	RunLog curl --location "$url" --output "$file" && echo
  }
 
 # downloadCheck APP - return 0 if can download the application
@@ -757,7 +760,9 @@ getVersionDownloaded()
 	! UpdateNeeded "$track" && { UpdateGet "$track"; return; }
 
 	# get the downloaded version
-	local version; appCd "$app" && [[ -f "$track" ]] && version="$(cat "$track")" && UpdateSet "$track" "$version" && echo $version
+	appCd "$app" || return
+	[[ -f "$track" ]] || return 0 # don't return error if the app has not been downloaded yet
+	local version;  version="$(cat "$track")" && UpdateSet "$track" "$version" && echo $version
 }
 
 # getVersionCurrent APP - get current version of application using the function ${app}Version.
@@ -1092,13 +1097,14 @@ run()
 
 	# version check
 	local checkName="${name:-$header}"
-	local forceVersion; [[ $version && $checkName && ! $force ]] && { ! versionCheckApp "$checkName" "$version" && return; forceVersion="true"; }
+	local forceVersion="$force"; [[ $version && $checkName && ! $force ]] && { ! versionCheckApp "$checkName" "$version" && return; forceVersion="true"; }
+	local force="$forceVersion"
 
 	# return if not running installations
 	[[ $noRun ]] && return;
 
 	# return if the program is installed
-	if [[ ! $force && ! $forceVersion && ! $noInstallCheck ]]; then
+	if [[ ! $force && ! $noInstallCheck ]]; then
 		[[ "$type" == @(go|python|pythonGlobal|ruby) ]] && InPath "$p" && return
 		[[ "$type" == @(executable) ]] && InPath "$name" && return
 		[[ "$type" == @(package) ]] && PackageInstalled "$p" && return
@@ -1445,7 +1451,7 @@ runDmgWorker()
 
 		[[ ! "$app" ]] && { EchoErr "inst: \"$p\" does not contain an application"; return 1; }
 		local dir; GetFileName "$app" dir || return
-		[[ -d "$P/$dir" && ! $force  && ! $forceVersion ]] && { echo "$dir is already installed"; return 0; }
+		[[ -d "$P/$dir" && ! $force ]] && { echo "$dir is already installed"; return 0; }
 		sudoc acp --recursive --progress-bar "$app" "$P"
 	fi
 
@@ -1513,11 +1519,10 @@ runXip()
 versionCheckApp()
 {
 	# arguments
-	local allowAlpha app check
+	local app check
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
 			*)
 				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $check ]] && { check="$1"; shift; continue; }
@@ -1533,7 +1538,7 @@ versionCheckApp()
 	! appIsInstalled "$app" && return
 
 	# get the installed version
-	local installedVersion; installedVersion="$(AppVersion $alternate $allowAlpha "$(echo "$app" | sed 's/ //g')")" || return
+	local installedVersion; installedVersion="$(AppVersion --allow-alpha $alternate "$(echo "$app" | sed 's/ //g')")" || ScriptExit
 
 	# check the version
 	versionCheck "$app" "$installedVersion" "$check"
@@ -2258,7 +2263,7 @@ FirefoxInstall()
 	! versionCheckApp "firefox" "$v" && return
 
 	# install
-	if IsPlatform mac,win; then run "$(firefoxDir)/Firefox Setup $v.$(getArch "msi" "exe")|Firefox $v.dmg" --dest="firefox"
+	if IsPlatform mac,win; then force="--force" run "$(firefoxDir)/Firefox Setup $v.$(getArch "msi" "exe")|Firefox $v.dmg" --dest="firefox"
 	elif IsPlatform debian; then pkg firefox-esr
 	fi
 }
@@ -7097,8 +7102,10 @@ noMachineFindUrl()
 
 	printf "finding $plat..."
 	for (( i = 1; i <= 20; i++ )); do
+		logp1 "$i..."
 		tryUrl="$(eval echo $url)"
-		checkUrl "$tryUrl" && { echo "found"; url="$tryUrl"; return; }
+		checkUrlDownload "$tryUrl" && { echo "found"; url="$tryUrl"; return; }
+		printf "."
 	done
 
 	echo "not found"; return 1
@@ -8518,7 +8525,7 @@ MouseBoostInstall() { run --name "Mouse Boost" --store "1555844307"; }
 AlfredInstall()
 {
 	local v; v="$(getVersionCurrent "alfred" )" || return
-	run --name="Alfred" "$(alfredDir)/Alfred-$v.zip" --version="$(GetWord "$v" 1 _)" && alfred startup
+	run --name="Alfred" "$(alfredDir)/Alfred_$v.dmg" --version="$v" && alfred startup
 }
 
 AlfredProfile() { alfred profile restore default; }
@@ -8698,7 +8705,7 @@ KarabinerElementsInstall()
 }
 
 KarabinerElementsHelp() { echot "\n- Preferences..., Function keys, check Use all F1, F2, etc. keys as standard function keys"; }
-KarabinerElementsProfile() { karabiner profile restore default && start Karabiner-Elements; }
+KarabinerElementsProfile() { KarabinerElements profile restore default && KarabinerElements start; }
 
 KarabinerElementsDownload()
 {

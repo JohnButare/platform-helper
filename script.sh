@@ -112,9 +112,11 @@ LogMessage() { EchoErr "$(ScriptPrefix)$@"; }
 
 # LogLevel LEVEL MESSAGE - log a message if the logging verbosity level is at least LEVEL
 LogLevel() { level="$1"; shift; (( verboseLevel < level )) && return; LogMessage "$@"; }
+LogPrintLevel() { level="$1"; shift; (( verboseLevel < level )) && return; PrintErr "$@"; }
 
 # logN MESSAGE - log a message if the logging verbosity level is a least N
 log1() { LogLevel 1 "$@"; }; log2() { LogLevel 2 "$@"; }; log3() { LogLevel 3 "$@"; }; log4() { LogLevel 4 "$@"; }; log5() { LogLevel 5 "$@"; }
+logp1() { LogPrintLevel 1 "$@"; }; log2() { LogPrintLevel 2 "$@"; }; log3() { LogPrintLevel 3 "$@"; }; log4() { LogPrintLevel 4 "$@"; }; log5() { LogPrintLevel 5 "$@"; }
 
 # LogFile - log a file
 LogFile()
