@@ -92,6 +92,7 @@ UrlDecodeAlt() { GetArgs; : "${*//+/ }"; echo -e "${_//%/\\x}"; }
 # update - manage update state in a temporary file location
 UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
 UpdateCheck() { [[ $updateDir ]] && return; UpdateInit; }
+UpdateDate() { UpdateCheck && GetFileDateStamp "$updateDir/$1"; }
 UpdateNeeded() { UpdateCheck || return; [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
 UpdateDone() { UpdateCheck && touch "$updateDir/$1"; }
 UpdateGet() { UpdateCheck || return; [[ -f "$updateDir/$1" ]] || return; cat "$updateDir/$1"; }

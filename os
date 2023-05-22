@@ -448,9 +448,9 @@ infoArgStart()
 { 
 	unset -v detail monitor prefix
 	hostArg="localhost" what=() skip=()
-	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz file other)
+	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz file other update)
 	infoDetail=(mhz memory process disk package switch)
-	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used )
+	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used)
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
 }
 
@@ -630,6 +630,11 @@ infoSwitch()
 	fi
 
 	infoEcho "      switch: $switch" 
+}
+
+infoUpdate()
+{
+	infoEcho " last update: $(UpdateDate "update-default")" || return
 }
 
 infoVm()
