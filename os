@@ -634,7 +634,8 @@ infoSwitch()
 
 infoUpdate()
 {
-	infoEcho " last update: $(UpdateDate "update-default")" || return
+	local date; date="$(UpdateDate "update-default" 2>&1)" || date="never"
+	infoEcho " last update: $date" || return
 }
 
 infoVm()
