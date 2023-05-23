@@ -98,6 +98,7 @@ UpdateDone() { UpdateCheck && touch "$updateDir/$1"; }
 UpdateGet() { UpdateCheck || return; [[ -f "$updateDir/$1" ]] || return; cat "$updateDir/$1"; }
 UpdateExists() { UpdateCheck && [[ -f "$updateDir/$1" ]]; }
 UpdateRm() { UpdateCheck && rm -f "$updateDir/$1"; }
+UpdateRmAll() { UpdateCheck && rm -f "$updateDir/"* "$updateDir/".*; }
 UpdateSet() { UpdateCheck && printf "$2" > "$updateDir/$1"; }
 
 # clipboard
@@ -389,8 +390,8 @@ AppVersion()
 	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
 
 	# cache
-	local appCache=".$(GetFileName "$app")-version"
-	[[ $alternate ]] && appCache=".$(GetFileName "$app")-alternate-version"
+	local appCache="version-$(GetFileName "$app" | LowerCase)"
+	[[ $alternate ]] && appCache+="-alternate"
 	[[ $cache ]] && ! UpdateNeeded "$appCache" && { UpdateGet "$appCache"; return; }
 
 	# get version with helper script
@@ -2487,9 +2488,9 @@ PackageManager()
 PackageSearch() 
 { 
 	if IsPlatform apt; then apt-cache search  "$@"
+	elif IsPlatform brew; then brew search "$@"
 	elif IsPlatform dnf; then dnf search "$@"
 	elif IsPlatform entware; then opkg find "*$@*"
-	elif IsPlatform mac; then brew search "$@"
 	elif IsPlatform yum; then yum search "$@"
 	fi
 }
@@ -2506,8 +2507,8 @@ PackageListInstalled()
 {
 	local full; [[ "$1" == @(--full|-f) ]] && { full="true"; shift; }
 	if IsPlatform apt && InPath dpkg; then dpkg --get-selections "$@"
-	elif IsPlatform mac && [[ $full ]]; then brew info --installed --json
-	elif IsPlatform mac && [[ ! $full ]]; then brew info --installed --json | jq -r '.[].name'
+	elif IsPlatform brew && [[ $full ]]; then brew info --installed --json
+	elif IsPlatform brew && [[ ! $full ]]; then brew info --installed --json | jq -r '.[].name'
 	elif IsPlatform entware; then opkg list-installed
 	elif IsPlatform rpm; then rpm --query --all
 	fi
@@ -2518,7 +2519,7 @@ PackageUpdate()
 {
 	if IsPlatform nala; then sudoc nala update
 	elif IsPlatform apt; then sudoc apt update
-	elif IsPlatform mac; then brew update
+	elif IsPlatform brew; then brew update
 	elif IsPlatform qnap; then sudoc opkg update
 	fi
 }
@@ -2529,7 +2530,7 @@ PackageUpgrade()
 	PackageUpdate || return
 	if IsPlatform nala; then sudo sudo nala upgrade -y
 	elif IsPlatform apt; then sudo apt dist-upgrade -y
-	elif IsPlatform mac; then brew upgrade;
+	elif IsPlatform brew; then brew upgrade;
 	elif IsPlatform qnap; then sudo opkg upgade
 	fi
 }
@@ -2541,6 +2542,7 @@ PackageWhich()
 	[[ -f "$file" ]] && file="$(GetFullPath "$1")"
 	[[ ! -f "$file" ]] && InPath "$file" && file="$(FindInPath "$file")"
 	if IsPlatform apt; then dpkg -S "$file"
+	elif IsPlatform brew; then { file="$(readlink "$file")" && echo "$file" | sed 's/.*Cellar\///' | cut -d"/" -f1; }
 	elif IsPlatform entware; then	opkg search "$file"
 	fi
 }

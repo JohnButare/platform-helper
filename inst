@@ -74,7 +74,7 @@ checkCommand()
 
 		# get all installed and downloaded applications
 		local ignore=(apache chroot CreativeCloud cron DellDisplayManager duf hashi hostname hyperv java kea lolcat office qnap SqlServer VisualStudio xQuartz xServer)
-		local cache="inst-check-apps"
+		local cache="install-check-apps"
 		if force="$forceLess" UpdateNeeded "$cache"; then
 
 			local allApps; IFS=$'\n' ArrayMake allApps "$(listCommand)"
@@ -94,25 +94,26 @@ checkCommand()
 	IsPlatform win && IsInArray "GitKraken" apps && apps+=(GitKrakenDeb)
 
 	# get packages
-	local packages
-	if UpdateNeeded "packages"; then
+	local packages cache="install-check-packages"
+	if UpdateNeeded "$cache"; then
 		log1 "Getting packages..."
 		packages=( $(PackageListInstalled) ) || return
 		IsInArray --case-insensitive "p7zip" packages && packages+=( 7zip )
+		IsInArray --case-insensitive "python@3.10" packages && packages+=( python python3.10 )
 		IsInArray --case-insensitive "python@3.11" packages && packages+=( python python3.11 )
-		UpdateSet "packages" "$(GetDef packages)" || return
+		UpdateSet "$cache" "$(GetDef packages)" || return
 	else
-		eval "packages=( $(UpdateGet packages) )" || return
+		eval "packages=( $(UpdateGet "$cache") )" || return
 	fi
 
 	# get Python global pipx packages
-	local pipxg
-	if UpdateNeeded "pipxg"; then
+	local pipxg cache="install-check-pipxg"
+	if UpdateNeeded "$cache"; then
 		log1 "Getting Python packages..."
 		pipxg=( $(pipxg list | grep "package " | sed 's/.*package //' | cut -d" " -f1) ) || return
-		UpdateSet "pipxg" "$(GetDef pipxg)" || return
+		UpdateSet "$cache" "$(GetDef pipxg)" || return
 	else
-		eval "pipxg=( $(UpdateGet pipxg) )" || return
+		eval "pipxg=( $(UpdateGet "$cache") )" || return
 	fi
 
 	# pip
@@ -147,7 +148,7 @@ checkApp()
 	installed="$(AppVersion --allow-alpha $alternate --quiet --cache $force "$app" | ReplaceString "-" "_")"
 
 	# get download version
-	if IsFunction "${app^}Download"; then
+	if IsFunction "${app}Download"; then
 		log1 "Getting ${appName}${type} downloaded version..."
 		downloaded="$(getVersionDownloaded "$app" | ReplaceString "-" "_")"  || ScriptErr "unable to get '$app' downloaded version"
 		[[ ! $verbose && ! $quiet ]] && PrintErr "."
@@ -181,7 +182,6 @@ checkApp()
 		# beta version is installed and showing regular version
 		else
 			versionIsNewer "$installed" "$current" && installed=""
-
 		fi
 	fi
 
@@ -575,7 +575,7 @@ waitForInstallWin() { ! IsPlatform win && return; waitForInstall "$1"; }
 
 appGetTrack()
 {
-	local app="$1" what="$2"; track=".$app-$what-version"
+	local app="$1" what="$2"; track="install-$app-$what-version"
 	[[ "$installType" == "beta" ]] && track+="-beta"
 	[[ "$app" == @(Fork) ]] && track+="-$PLATFORM_OS"
 	echo "$track" 
@@ -633,7 +633,7 @@ download()
 	# download
 	hilight "Downloading '$(GetFileName "$file")'..."
 	url="$(UrlEncodeSpace "$url")"
-	checkUrlDownload "$url" || { ScriptErr "the download fle '$file' is not available at '$url'"; return 1; }
+	checkUrlDownload "$url" || { ScriptErr "the download file '$file' is not available at '$url'"; return 1; }
 	RunLog curl --location "$url" --output "$file" && echo
  }
 
@@ -648,7 +648,7 @@ downloadCheck()
 downloadDone()
 {
 	local app="$1" v="$2" track; track="$(appGetTrack "$app" "downloaded")"
-	echo "$v" > "$track" && UpdateSet "$track" "$v" && echo "${app^} v$v download complete."
+	echo "$v" > ".$track" && UpdateSet "$track" "$v" && echo "${app^} v$v download complete."
 }
 
 downloadStart()
@@ -656,9 +656,8 @@ downloadStart()
 	local app="$1";	header "${app^} Download"
 	local vCurrent; vCurrent="$(getVersionCurrent "$app")" || return
 	local vDownloaded; vDownloaded="$(getVersionDownloaded "$app")" || return
-	log1 "vDownloaded=$vDownloaded vCurrent=$vCurrent"	
-	v="$vCurrent"
-	versionIsNewer "$vCurrent" "$vDownloaded"
+	log1 "vDownloaded=$vDownloaded vCurrent=$vCurrent"
+	[[ $force ]] || versionIsNewer "$vCurrent" "$vDownloaded"
 }
 
 findCompareProgram()
@@ -781,15 +780,15 @@ getVersionDownloaded()
 
 	# get the downloaded version
 	appCd "$app" || return
-	[[ -f "$track" ]] || return 0 # don't return error if the app has not been downloaded yet
-	local version;  version="$(cat "$track")" && UpdateSet "$track" "$version" && echo $version
+	[[ -f ".$track" ]] || return 0 # don't return error if the app has not been downloaded yet
+	local version;  version="$(cat ".$track")" && UpdateSet "$track" "$version" && echo $version
 }
 
 # getVersionCurrent APP - get current version of application using the function ${app}Version.
 #   Version information is cached at the install tracking file location.
 getVersionCurrent()
 {
-	local app="$1"
+	local app="$1" version
 
 	# return if we do not need to update the version
 	local track="$(appGetTrack "$app" "current")"
@@ -804,7 +803,6 @@ getVersionCurrent()
 		local function="${app,}Version"; [[ "$installType" == "beta" ]] && function+="Beta"
 		local version; version="$($function)"
 		[[ ! $version ]] && { ScriptErr "could not get ${app^} current version"; return 1; }
-		{ appCd "$app" && echo "$version" > "$track"; } || return
 	fi
 
 	# save and return the version	
@@ -1139,6 +1137,7 @@ run()
 	# run specified installation type
 	RunFunction "runType" "$type" -- "$p" "$name" "$dest" "${args[@]}" || return
 	ran="true"
+	AppVersion --force "$app" >& /dev/null # force the app version cache to update
 
 	# cleanup
 	[[ $pause ]] && pause "When the installation has finished press any key..."
@@ -1592,11 +1591,11 @@ versionCheck()
 	versionIsOlder "$installed" "$check"
 }
 
-# versionIsNewer V1 V2 - return true if V1 is newer than V2
-versionIsNewer() { local v1="$1" v2="$2"; [[ "$v1" == "$v2" ]] && return 1; [[ "$(echo -e "$v1\n$v2" | sort -V | head -1)" == "$v2" ]]; }
-
-# versionIsOlder V1 V2 - return true if V1 is older than V2
-versionIsOlder() { local v1="$1" v2="$2"; [[ "$v1" == "$v2" ]] && return 1; [[ "$(echo -e "$v1\n$v2" | sort -V | head -1)" == "$v1" ]]; }
+# versionIsEqual|Newer|Older V1 V2 - return true if V1 is equal|newer|older than V2
+versionIsEqual() { [[ "$1" == "$2" ]]; }
+versionIsNewer() { local v1="$(versionRemoveBuild "$1")" v2="$(versionRemoveBuild "$2")"; ! versionIsEqual "$v1" "$v2" && [[ "$(echo -e "$v1\n$v2" | sort -V | head -1)" == "$v2" ]]; }
+versionIsOlder() { local v1="$1" v2="$2"; ! versionIsEqual "$v1" "$v2" && ! versionIsNewer "$v1" "$v2"; }
+versionRemoveBuild() { local version="$1"; [[ "$version" =~ _ ]] && GetWord "$version" 1 _ || printf "$version"; } # versionRemoveBuild VERSION - assume part after _ is the build (Alfred), remove for proper comparison
 
 #################################################
 # applications
@@ -1774,6 +1773,8 @@ UpdateInstall() { local apps; i download && apps=( $(inst update) ) && i "${apps
 
 DownloadInstall()
 {
+	! UpdateNeeded "install-download" && return
+
 	local app apps=(1Password 1PasswordCli Alfred AltTab BalenaCli BalenaEtcher Bartender BetterDisplay BeyondCompare CleanMyMac Docker Dropbox Firefox Fork GitKraken Hashi iTerm KarabinerElements NoMachine Rectangle Shottr SoundSource Sublime SublimeMerge VisualStudioCode Warp)
 
 	# regular downloads
@@ -1785,7 +1786,8 @@ DownloadInstall()
 		IsInArray --case-insensitive "$app" skip && continue
 		downloadCheck "$app" && { i "${app}Download" || return; }; 
 	done
-	return 0
+
+	UpdateDone "install-download"
 }
 
 FinalInstall()
@@ -1955,7 +1957,7 @@ BootstrapInstall()
 {
 	header "Bootstrap"	
 
-	[[ ! $force ]] && ! UpdateNeeded "bootstrap" && return
+	[[ ! $force ]] && ! UpdateNeeded "install-bootstrap" && return
 
 	# dependencies
 	i BootstrapFiles SshClientPermission CredentialStore timezone || return 
@@ -1968,7 +1970,7 @@ BootstrapInstall()
 	i AppDir bash SshCore zsh $PLATFORM_OS || return
 }
 
-BootstrapFinal() { i BootstrapIcons && UpdateDone "bootstrap"; }
+BootstrapFinal() { i BootstrapIcons && UpdateDone "install-bootstrap"; }
 BootstrapIconsInstall() { RunPlatform BootstrapIcons; }
 BootstrapIconsWin() { i WinIcons; }
 
@@ -2153,7 +2155,7 @@ bootstrapQnap()
 	header "Bootstrap QNAP"
 
 	# autorun
-	if [[ $force ]] || UpdateNeeded "QnapAutorun"; then
+	if [[ $force ]] || UpdateNeeded "install-QnapAutorun"; then
 
 		local clip; clip="$(cat <<-EOF
 			# add links
@@ -2176,7 +2178,7 @@ bootstrapQnap()
 		echo -e "- paste at the end of the file:\n$clip"; clipw "$clip" || pause
 		qnap autorun || return
 
-		UpdateDone "QnapAutorun"
+		UpdateDone "install-QnapAutorun"
 	fi
 
 	# share root directory from admin uses to allow access to $DATA from root share, this should be shared out as root
@@ -2286,7 +2288,7 @@ FirefoxInstall()
 	! versionCheckApp "firefox" "$v" && return
 
 	# install
-	if IsPlatform mac,win; then force="--force" run "$(firefoxDir)/Firefox Setup $(getArch)$v.$(getElevate "msi" "exe")|Firefox $v.dmg" --dest="firefox" --elevate
+	if IsPlatform mac,win; then force="--force" run "$(firefoxDir)/Firefox Setup $(getArch)$v.$(getElevate "msi" "exe")|Firefox Setup $v.dmg" --dest="firefox" --elevate
 	elif IsPlatform debian; then pkg firefox-esr
 	fi
 }
@@ -2919,7 +2921,7 @@ BorgBackupInstall()
 CleanMyMacInstall()
 {
 	local v; v="$(getVersionCurrent "CleanMyMac")" || return
-	run --name="Clean My Mac" "$dir/CleanMyMac $v.dmg" --version="$v"
+	run --name="Clean My Mac" "$(cleanMyMacDir)/CleanMyMac $v.dmg" --version="$v"
 }
 
 CleanMyMacHelp() { echot "- Notifications, uncheck all\n- Assistant, check Enable silent mode"; }
@@ -2934,9 +2936,6 @@ CleanMyMacDownload()
 
 cleanMyMacDir() { echo "platform/mac/MacPaw/CleanMyMac"; }
 cleanMyMacVersion() { curl --silent --location "https://macpaw.com/cleanmymac/whats-new" | grep 'class="version">Update ' | head -1 | sed 's/.*Update //' | cut -d'<' -f1; }
-
-# 
-# 
 
 PartitionManagementInstall()
 {
@@ -3072,7 +3071,8 @@ DropboxFinalWin()
 
 DropboxDownload()
 {
-	local app="dropbox" v; downloadStart "$app" || return 0
+	local app="dropbox"; downloadStart "$app" || return 0
+	local v; v="$(getVersionCurrent "$app")" || return
 	local item items=("mac-arm64-dmg" "mac-x64-dmg" "win-x64-exe")
 
 	for item in "${items[@]}"; do
@@ -3727,9 +3727,9 @@ QflipperFinalWin() { $mv "$up/qFlipper.lnk" "$pp/Applications"; }
 
 PowerCoreInstall()
 {
-	[[ ! $force ]] && ! UpdateNeeded "PowerCore" && return
+	[[ ! $force ]] && ! UpdateNeeded "install-PowerCore" && return
 	IsPlatformAll physical,win && { power fix disable || return; }
-	UpdateDone "PowerCore"	
+	UpdateDone "install-PowerCore"	
 }
 
 balenaEtcherInstall()
@@ -7461,9 +7461,9 @@ SecurityAllInstall() { i 1Password 1PasswordCli AxCrypt certbot cfssl Credential
 
 SecurityCoreInstall() 
 {
-	[[ ! $force ]] && ! UpdateNeeded "SecurityCore" && return
+	[[ ! $force ]] && ! UpdateNeeded "install-cecurity-core" && return
 	IsPlatformAll physical,win && { echo "Configure Windows Hello..."; password gui || return; }
-	UpdateDone "SecurityCore"	
+	UpdateDone "install-security-core"	
 }
 
 DashLaneInstall() { run --header "Dashlane" "Dashlane/Dashlane/Inst.exe"; } # https://www.dashlane.com/download#downloaded
@@ -7831,9 +7831,9 @@ storeInstallMac() {	InPath mas && return; package mas; }
 
 storeInstallWin()
 {
-	[[ ! $force ]] && ! UpdateNeeded "WindowsStore" && return
+	[[ ! $force ]] && ! UpdateNeeded "install-windows-store" && return
 	echo "Log in to the Windows Store"
-	store && UpdateDone "WindowsStore"
+	store && UpdateDone "install-windows-store"
 }
 
 # storeCheck - ensure the store is installed for the platform
@@ -9284,7 +9284,7 @@ WinInstall() # called by bootstrap
 WinAppsInstall()
 {
 	header "Windows Applications"
-	[[ ! $force ]] && ! UpdateNeeded "WinApps" && return
+	[[ ! $force ]] && ! UpdateNeeded "install-win-apps" && return
 
 	# find the applications for the current build
 	findFile "other/Microsoft/Windows/setup" || return
@@ -9308,7 +9308,7 @@ WinAppsInstall()
 	# cleanup
 	cd ~; rm -fr "$dest/apps"
 
-	UpdateDone "WinApps"
+	UpdateDone "install-win-apps"
 }
 
 WinConfigurationInstall()
@@ -9695,9 +9695,9 @@ xQuartzHelp()
 
 xWslInstall()
 { 
-	if [[ ! $force ]] && UpdateNeeded "WslUpdate"; then
+	if [[ ! $force ]] && UpdateNeeded "install-wsl-update"; then
 		elevate wsl update || return
-		UpdateDone "WslUpdate" || return
+		UpdateDone "install-wsl-update" || return
 	fi
 
 	return 0
@@ -9728,7 +9728,7 @@ HostnameInstall()
 	IsDocker && return
 	
 	# return if needed
-	[[ ! $force ]] && ! UpdateNeeded "HostnameChanged" && return
+	[[ ! $force ]] && ! UpdateNeeded "install-hostname" && return
 
 	header "Hostname"
 
@@ -9737,13 +9737,13 @@ HostnameInstall()
 
 		# name changed
 		0) 
-			UpdateDone "HostnameChanged" || return
+			UpdateDone "install-hostname" || return
 			rebootNeeded="true"
 			hostname="$(UpdateGet "hostname")" || return
 			;;
 
 		# name unchanged
-		1) UpdateDone "HostnameChanged"; return;;
+		1) UpdateDone "install-hostname"; return;;
 
 		# error
 		*) return 1;;
