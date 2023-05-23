@@ -2821,7 +2821,7 @@ IsProcessRunning()
 	# mac	
 	if IsPlatform mac; then
 		local nameCheck="$name"; [[ "$name" =~ \.app$ ]] && nameCheck="$(GetFileNameWithoutExtension "$name")"
-		pidof -l "$nameCheck" | ${G}grep --quiet "^PID for $nameCheck is"; return;
+		pidof -l "$nameCheck" | ${G}grep --ignore --quiet "^PID for $nameCheck is"; return;
 	fi
 
 	# check for process using pidof - slightly faster but pickier than pgrep
