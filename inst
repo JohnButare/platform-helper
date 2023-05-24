@@ -38,13 +38,22 @@ installedCommand()
 # check command
 #
 
-checkUsage() { EchoWrap "Usage: $(ScriptName) check [APP]...(all installed and downloaded)\nCheck the version of applicaitons."; }
-checkArgStart() { unset -v appsArg detail; }
+checkUsage()
+{
+	EchoWrap "Usage: $(ScriptName) check [APP]...(all installed and downloaded)
+Check the version of applicaitons.
+
+	-a,	--all			check applications with download in addition to installed runProgramDescription
+	-d,	--detail	show additional detail"
+}
+
+checkArgStart() { unset -v allArg appsArg detail; }
 checkArgs() { appsArg=("$@"); shift="$#"; }
 
 checkOpt()
 {
 	case "$1" in
+		--all|-a) allArg="--all";;
 		--detail|-d) detail="--detail";;
 		*) return 1;;
 	esac
@@ -60,7 +69,7 @@ checkCommand()
 	local app apps=()
 	if [[ $appsArg ]]; then
 
-		# check applications and get install function
+		# check applications and get their install function
 		for app in "${appsArg[@]}"; do
 			local appFunction; appFunction="$(getInstallFunction "$app")" || { ScriptErr "'$app' installation does not exist"; return 1; }
 			apps+=( "$(RemoveEnd "$appFunction" "Install")" )
@@ -74,20 +83,35 @@ checkCommand()
 
 		# get all installed and downloaded applications
 		local ignore=(apache chroot CreativeCloud cron DellDisplayManager duf hashi hostname hyperv java kea lolcat office qnap SqlServer VisualStudio xQuartz xServer)
-		local cache="install-check-apps"
-		if force="$forceLess" UpdateNeeded "$cache"; then
 
-			local allApps; IFS=$'\n' ArrayMake allApps "$(listCommand)"
-			for app in "${allApps[@]}"; do
+		local appsInstalled=() appsDownloaded=()
+		local cacheInstalled="install-installed-apps" cacheDownloaded="install-downloaded-apps"
+		if force="$forceLess" UpdateNeeded "$cacheInstalled" || force="$forceLess" UpdateNeeded "$cacheDownloaded"; then
+
+			IFS=$'\n' ArrayMake apps "$(listCommand)"
+			for app in "${apps[@]}"; do
 				[[ ! $verbose  && ! $quiet ]] && PrintErr .
 				log1 "Checking ${app}..."
-				! isCollection "$app" && ! IsInArray --case-insensitive "$app" ignore && { appIsInstalled "$app" || IsFunction ${app}Download; } && apps+=("$app")
+				if ! isCollection "$app" && ! IsInArray --case-insensitive "$app" ignore; then
+					appIsInstalled "$app" && appsInstalled+=("$app")
+					IsFunction "${app}Download" && appsDownloaded+=("$app")
+				fi
 			done
-			
-			UpdateSet "$cache" "$(GetDef apps)" || return
+
+			UpdateSet "$cacheInstalled" "$(GetDef appsInstalled)" || return
+			UpdateSet "$cacheDownloaded" "$(GetDef appsDownloaded)" || return
 		else
-			eval "apps=( $(UpdateGet "$cache") )" || return
+			eval "appsInstalled=( $(UpdateGet "$cacheInstalled") )" || return
+			eval "appsDownloaded=( $(UpdateGet "$cacheDownloaded") )" || return
 		fi
+	fi
+
+	# add downloaded apps
+	apps=( "${appsInstalled[@]}" )
+	if [[ $allArg ]]; then
+		for app in "${appsDownloaded[@]}"; do
+			! IsInArray "$app" appsInstalled && apps+=("$app")
+		done
 	fi
 
 	# add alternate version 
