@@ -1390,6 +1390,7 @@ IsInDomain() { [[ $(NetworkDomain) ]]; }																				# IsInDomain - true 
 NetworkCurrent() { UpdateGet "network"; }; 
 NetworkDomain() { UpdateGet "network_domain"; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
+scurl() { curl "$@" | sponge; } # use curl with sponge to avoid write error 23 in a pipeline
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
 WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuotes | RemoveEmptyLines | sort | uniq; }
 
@@ -3487,8 +3488,8 @@ sudor()
 # Text Processing
 #
 
+sgrep() { ${G}grep "$@" | sponge; } # use grep with sponge to prevent SIGPIPE when grep closes the pipe
 tac() { InPath tac && command tac "$@" | cat "$@"; }
-tgrep() { ${G}grep "$@"; (( $? == 0 || $? == 141 )) && true || false; } # true grep, return true if grep succeeds or gets SIGPIPE (success but pipe closed)
 Utf16toAnsi() { iconv -f utf-16 -t ISO-8859-1; }
 Utf16to8() { iconv -f utf-16 -t UTF-8; }
 
