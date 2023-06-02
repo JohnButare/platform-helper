@@ -416,6 +416,7 @@ AppVersion()
 			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
 			consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
+			cryfs|cryfs-unmount) version="$(cryfs --version | head -1 | cut -d" " -f3)";;
 			damon) version="$(damon --version | head -1 | cut -d"v" -f2 | cut -d"-" -f1)" || return;;
 			dog) version="$(dog --version | head -2 | tail -1 | cut -d"v" -f2)" || return;;
 			exa) version="$(exa --version | head -2 | tail -1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
