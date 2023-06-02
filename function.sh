@@ -2867,8 +2867,11 @@ IsWindowsProcess()
 }
 
 # ProcessClose|ProcessCloseWait|ProcessKill NAME... - close or kill the specified process
-# -f|--full 	match the full command line argument not just the process name
-# -r|--root 	kill processes as root
+# --full 					match the full command line argument not just the process name
+# --force|-f			do not check if the process exists
+# --quiet|-q 			minimize informational messages
+# --root|-r 			kill processes as root
+# --verbose|-v		verbose mode, multiple -v increase verbosity (max 5)
 ProcessClose() 
 { 
 	# arguments
@@ -2897,7 +2900,7 @@ ProcessClose()
 		[[ ! $force ]] && ! IsProcessRunning $root $full "$name" && continue
 
 		# check for Windows process
-		IsWindowsProcess "$name" && win="true"
+		IsPlatform win && IsWindowsProcess "$name" && win="true"
 
 		# close
 		if [[ $win ]]; then
