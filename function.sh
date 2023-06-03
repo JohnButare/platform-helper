@@ -3492,10 +3492,19 @@ sudor()
 # Text Processing
 #
 
-sgrep() { ${G}grep "$@" | sponge; } # use grep with sponge to prevent SIGPIPE when grep closes the pipe
 tac() { InPath tac && command tac "$@" | cat "$@"; }
 Utf16toAnsi() { iconv -f utf-16 -t ISO-8859-1; }
 Utf16to8() { iconv -f utf-16 -t UTF-8; }
+
+# sgrep - sponge grep - use to prevent SIGPIPE when grep closes pipe
+sgrep() { ${G}grep "$@" | sponge; }
+
+# true grep - always return 0
+# - normally 0=text found, 1=text not found, 2=error
+# - macOS ggrep returns 1 if no text found or error (i.e. invalid arguments)
+tgrep() { sgrep "$@"; true; }
+
+# editor
 
 GetTextEditor()
 {
