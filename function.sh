@@ -3498,6 +3498,7 @@ Utf16to8() { iconv -f utf-16 -t UTF-8; }
 
 # sgrep - sponge grep - use to prevent SIGPIPE when grep closes pipe
 sgrep() { ${G}grep "$@" | sponge; }
+shead() { ${G}head "$@" | sponge; }
 
 # true grep - always return 0
 # - normally 0=text found, 1=text not found, 2=error
