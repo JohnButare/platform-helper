@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+. app.sh || exit
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [api|devices](api)
+Manage the Huibitat controller.
+
+	api 				call a API command
+	devices			list all devices"
+}
+
+argStart() { unset -v apiInitialized; }
+
+#
+# API Command
+#
+
+apiUsage()
+{
+	EchoWrap "Usage: $(ScriptName) api [URI](/devices)
+Perform an API command.
+
+Examples:
+	/devices - all devices"
+}
+
+apiArgStart() { uri="/devices"; }
+
+apiArgs()
+{
+	(( $# > 0 )) && { ScriptArgGet "uri" -- "$@"; shift; }
+	return 0
+}
+
+apiCommand() { api "$uri" "$json"; }
+apiavailableCommand() { apiInit; }
+apiPutCommand() { apiPut "$uri" "$json"; }
+
+#
+# Device Commands
+#
+
+deviceUsage()
+{
+	echot "Usage: $(ScriptName) device [id|info](info)
+Perform a device command.
+
+	ls						list all devices
+	id NAME				get specified device ID
+	info NAME			get specified device information"
+}
+
+deviceCommand() { deviceLsCommand | jq; }
+deviceLsCommand() { getDevices; }
+
+deviceIdArgs() { ScriptArgGet "name" -- "$@"; shift; }
+deviceIdCommand() { getDeviceId "$name"; }
+
+deviceInfoArgs() { ScriptArgGet "name" -- "$@"; shift; }
+deviceInfoCommand() { local id; id="$(getDeviceId "$name")" && api "/devices/$id"; }
+
+# getDeviceId NAME - get the ID of the specified device
+getDeviceId()
+{
+	local name="$1"
+	local id; id="$(getDevices | jq ".[] | select(.label == \"$name\").id" | RemoveQuotes)" || return
+	[[ ! $quiet && ! $id ]] && EchoErr "device '$name' not found"
+	[[ $id ]] && echo "$id"
+}
+
+getDevices() { api "/devices"; }
+
+#
+# API Helper
+#
+
+api()
+{
+	local uri="$1"
+	apiInit || return
+	RunLog curl -X GET --silent "http://$server/apps/api/15/$(echo "$uri" | RemoveFront "/")?access_token=$token"
+}
+
+apiInit()
+{
+	[[ $apiInitialized ]] && return
+	
+	# get configuration
+
+	log1 "getting API server and token from the credential store"
+  server="$(credential get hubitat server --fallback)" || return
+  port="80"
+  token="$(credential get hubitat token --fallback)" || return
+
+
+	log1 "server='$server' token='REDACTED'"
+
+	# check if the API is available
+	if ! IsAvailablePort "$server" "$port"; then
+		[[ ! $quiet ]] && ScriptErr "The Hubitat Controller on '$server' is not available on port '$port'" 
+		return 1
+	fi
+
+  apiInitialized="true"
+}
+
+ScriptRun "$@"
