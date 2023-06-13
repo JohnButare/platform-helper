@@ -234,7 +234,6 @@ copyDefaultProfile()
 
 	# backup
 	if [[ -f "$dest" && -d "$cloudProfileSaveDir" ]]; then
-		bak "$dest" --dest "$cloudProfileSaveDir" || return
 		copyProfile "$src" "$cloudProfileSaveDir/$(GetFileName "$dest")" || return
 	fi
 
