@@ -5,6 +5,9 @@ set -o pipefail # pipes return first non-zero result
 IsBash() { [[ $BASH_VERSION ]]; }
 IsZsh() { [[ $ZSH_VERSION ]]; }
 
+IsiTerm() { [[ "$TERM_PROGRAM" == "iTerm.app" ]]; }
+IsWarp() { [[ "$TERM_PROGRAM" == "WarpTerminal" ]]; }
+
 if IsBash; then
 	shopt -s extglob expand_aliases
 	shopt -u nocaseglob nocasematch
@@ -630,7 +633,7 @@ ConfigFileGet() { echo "$functionConfigFileCache"; }																# ConfigFile
 #
 
 beep() { echo -en "\007"; }
-clear() { echo -en $'\e[H\e[2J'; }
+! IsWarp && clear() { echo -en $'\e[H\e[2J'; }
 pause() { local response m="${@:-Press any key when ready...}"; ReadChars "" "" "$m"; }
 
 LineWrap() { ! InPath setterm && return; setterm --linewrap "$1"; }
@@ -3663,7 +3666,7 @@ InitializeXServer()
 	# add DISPLAY to the D-Bus activation environment
 	if IsSsh && InPath dbus-launch dbus-update-activation-environment; then
 		( # do not show job messages
-			{ # run un background to allow login even if this hangs (if D-Bus is in a bad state)
+			{ # run in background to allow login even if this hangs (if D-Bus is in a bad state)
 				local result; result="$(dbus-update-activation-environment --systemd DISPLAY 2>&1)"
 				if [[ "$result" != "" ]]; then
 					[[ ! $quiet ]] && ScriptErr "unable to initialize D-Bus: $result" "InitializeXServer"
