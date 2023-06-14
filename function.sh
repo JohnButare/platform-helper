@@ -1873,15 +1873,36 @@ IsAvailablePort()
 }
 
 # IsPortAvailableUdp HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified UDP port
+# --verbose - does not supress error message
 IsAvailablePortUdp()
 {
-	local host="$1" port="$2" timeout="${3-$(AvailableTimeoutGet)}"; host="$(GetIpAddress "$host" --quiet)" || return
+	# arguments
+	local host port timeout verbose verboseLevel
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			*)
+				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $timeout ]] && { timeout="$1"; shift; continue; }
+				UnknownOption "$1" start; return
+		esac
+		shift
+	done
+	[[ ! $host ]] && { MissingOperand "host" "IsAvailablePortUdp"; return 1; }
+	[[ ! $port ]] && { MissingOperand "port" "IsAvailablePortUdp"; return 1; }
+	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
+
+	host="$(GetIpAddress "$host" --quiet)" || return
+
+	local redirect=">& /dev/null"; [[ $verbose ]] && redirect=""
 
 	if InPath nc; then # does not require root access
 		timeout="$(( timeout / 1000 + 1 ))" # round up to nearest second
-		nc -zvu "$host" "$port" -w "$timeout" >& /dev/null
+		eval nc -zvu "$host" "$port" -w "$timeout" $redirect
 	elif InPath nmap; then
-		sudoc -- nmap "$host" -p "$port" -Pn -T5 -sU |& grep -q "open" >& /dev/null
+		eval sudoc -- nmap "$host" -p "$port" -Pn -T5 -sU |& grep --quiet "open" $redirect
 	else
 		return 0 
 	fi
@@ -1913,7 +1934,7 @@ PortResponse()
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $timeout ]] && { timeout="$1"; shift; continue; }
-				UnknownOption "$1" start; return
+				UnknownOption "$1" PortResponse; return
 		esac
 		shift
 	done
