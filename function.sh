@@ -699,7 +699,7 @@ EchoEnd() { echo -e "$@"; }																							# show message on the end of t
 EchoErr() { [[ $@ ]] && EchoResetErr; EchoWrap "$@" >&2; return 0; }		# show error message at column 0
 EchoResetErr() { EchoReset "$@" >&2; return 0; } 												# reset to column 0 if not at column 0
 HilightErr() { InitColor; EchoErr "${RED}$@${RESET}"; }									# hilight an error message
-PrintErr() { echo -n "$@" >&2; return 0; }															# print an error message without a newline or resetting to column 0
+PrintErr() { echo -n -e "$@" >&2; return 0; }														# print an error message without a newline or resetting to column 0
 
 # printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var
 printfp() { local stdin; read -d '' -u 0 stdin; printf "$@" "$stdin"; }
