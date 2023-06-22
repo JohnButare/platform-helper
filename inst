@@ -8094,28 +8094,41 @@ WarpDownload()
 {
 	local app="warp"; downloadStart "$app" || return 0	
 	local v; v="$(getVersionCurrent "$app")" || return
-	local url="https://releases.warp.dev/stable/v${v}.stable_0"'${i}'"/Warp.dmg"
-	warpFindUrl && download "$url" "$(warpDir)" "Warp ${v}.dmg" && downloadDone "$app" "$v"
-}
-
-# warpFindUrl - the latest build is not easily accessible
-# - the url includes ${i} as a substitution for the version, i.e. v0.2023.05.09.08.0${i}.stable_0${i}
-warpFindUrl()
-{
-	local i result tryUrl
-
-	printf "finding build..."
-	for (( i = 3; i >= 0; i-- )); do
-		tryUrl="$(eval echo $url)"
-		curl --silent "$tryUrl" --head | grep --quiet "404" && { printf "."; continue; }
-		echo "found"; url="$tryUrl"; return 0
-	done
-
-	echo "not found"; return 1
+	local url; url="$(warpFindUrl)" || return
+	download "$url" "$(warpDir)" "Warp ${v}.dmg" && downloadDone "$app" "$v"
 }
 
 warpDir() { echo "platform/mac/Warp"; }
-warpVersion() { scurl --silent --location "https://docs.warp.dev/getting-started/changelog" | tr '</span>' '\n' | sgrep "(v0" | sort -V --reverse | shead -1 | sed 's/.* (v//' | RemoveEnd ")"; }
+
+warpVersion()
+{
+	local dmg="$(mktemp)" plist="$(mktemp -d)/Info.plist"
+	local url; url="$(warpFindUrl)" || return
+	curl --silent --location "$url" --output "$dmg" || return
+	7z x "$dmg" "Warp/Warp.app/Contents/Info.plist" -so > "$plist" || { warpVersionClean 1; return; }
+	defaults read "$plist" CFBundleVersion || { warpVersionClean "$?"; return; }
+	warpVersionClean
+}
+
+warpVersionClean() { rm -fr "$dmg" "$(GetFilePath "$plist")"; return "${1:-0}"; }
+
+warpFindUrl()
+{
+	local stamp; stamp="$(scurl --silent --location "https://docs.warp.dev/getting-started/changelog" | tr '</span>' '\n' | sgrep "(v0" | sort -V --reverse | shead -1 | sed 's/.* (v//' | cut -d")" -f1)" || return
+	local url="https://releases.warp.dev/stable/v${stamp}.stable_0"'${i}'"/Warp.dmg"
+	local i result tryUrl
+
+	logp1 "Finding Warp version..."
+
+	for (( i = 5; i >= 0; i-- )); do
+		tryUrl="$(eval echo $url)"
+		scurl --silent "$tryUrl" --head | sgrep --quiet "404" && { logp1 "."; continue; }
+		logp1 "found\n"; echo "$tryUrl"; return
+	done
+
+	PrintErr "not found"
+	return 1
+}
 
 WindowsTerminalInstall()
 {
