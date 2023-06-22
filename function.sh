@@ -418,6 +418,7 @@ AppVersion()
 			7z) version="$(7z | head -2 | tail -1 | cut -d" " -f 3)" || return;;
 			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
+			cfssl) version="$(cfssl version | head -1 | cut -d':' -f 2 | RemoveSpaceTrim)" || return;;
 			consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
 			cryfs|cryfs-unmount) version="$(cryfs --version | head -1 | cut -d" " -f3)";;
 			damon) version="$(damon --version | head -1 | cut -d"v" -f2 | cut -d"-" -f1)" || return;;
@@ -434,6 +435,7 @@ AppVersion()
 			pip) version="$(pip --version | cut -d" " -f2)" || return;;
 			python3) version="$(python3 --version | cut -d" " -f2)" || return;;
 			ruby) version="$(ruby --version | cut -d" " -f2 | cut -d"p" -f 1)" || return;;
+			tmux) version="$(tmux -V | cut -d" " -f2)" || return;;
 			vault) version="$(vault --version | cut -d" " -f2 | RemoveFront "v")" || return;;
 			zsh) version="$("$app" --version | cut -d" " -f2)" || return;;
 		esac
@@ -466,7 +468,7 @@ AppHelper()
 	[[ "$app" =~ ^$BIN ]] && { echo "$app"; return; }
 	HasFilePath "$app" && return 1
 	
-	# find $app or ${app}Helper
+	# find $app or ${app}Helper in $BIN
 	appCheck="$(${G}find "$BIN" -iname "$app")" && [[ -f "$appCheck" ]] && { echo "$appCheck"; return; }
 	appCheck="$(${G}find "$BIN" -iname "${app}Helper")" && [[ -f "$appCheck" ]] && { echo "$appCheck"; return; }
 
@@ -484,7 +486,7 @@ AppToCli()
 		apt) ! IsPlatform mac && echo "apt";; # /usr/bin/apt in Mac is legacy
 		chroot) echo "schroot";;
 		python) echo "python3";;
-		*) echo "$app";;
+		*) InPath "$(LowerCase "$app")" && echo "$(LowerCase "$app")" || echo "$app";;
 	esac
 }
 
