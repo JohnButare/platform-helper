@@ -148,9 +148,9 @@ P="/opt" PUSER="" SRV="/srv" BIN="" DATA="" ADATA="" ACONFIG="" PUB="" USERS="/h
 USER="${USERNAME:-$USER}" DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
 DATA="/usr/local/data" ADATA="$DATA/appdata" ACONFIG="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM_OS"
 DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
-WIN_CODE="$code"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
 G="" # G=GNU program prefix (i.e. gls)
+WIN_ROOT="/" WIN_HOME="$HOME"
 
 # PLATFORM_OS environment variables
 case "$PLATFORM_OS" in 
@@ -165,13 +165,15 @@ case "$PLATFORM_OS" in
 		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows"
 		WIN_USER="$USER" WIN_HOME="$WIN_ROOT/Users/$WIN_USER" # for performancd assume the Windows username is the same
 		[[ ! -d "$WIN_HOME/Documents" ]] && WIN_USER="$(cmd.exe /c set 2> /dev/null | grep '^USERNAME=' | cut -d= -f2 | tr -d '\n' | sed 's/\r//g')" WIN_HOME="$WIN_ROOT/Users/$WIN_USER"
-		WIN_CODE="$WIN_HOME/code"
-		WIN_DOC="$WIN_HOME/Documents"
-		WIN_UDATA="$WIN_HOME/data"	
 		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" UADATA="$WIN_HOME/AppData/Local" PUSER="$UADATA/Programs"
 		;;
 
 esac
+
+# define for all platforms for compatibility
+WIN_CODE="$WIN_HOME/code"
+WIN_DOC="$WIN_HOME/Documents"
+WIN_UDATA="$WIN_HOME/data"	
 
 # platform dependant variables
 PUB="${PUB:-$USERS/Shared}"
