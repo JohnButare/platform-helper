@@ -444,7 +444,7 @@ AppVersion()
 	# get Windows executable version
 	if [[ ! $version ]] && IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
 		if InPath "wmic.exe"; then # WMIC is deprecated but does not require elevation
-			 version="$(wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" )" || return
+			 version="$(wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2)" || return
 		elif CanElevate; then
 			version="$(powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn)" || return
 		fi
