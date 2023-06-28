@@ -1409,7 +1409,7 @@ CacheDefaultGateway()
 	if IsPlatform win; then
 		local g="$(route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | head -1 | awk '{ print $3; }')" || return
 	elif IsPlatform mac; then
-		local g="$(netstat -rnl | grep '^default' | head -1 | awk '{ print $3; }')" || return
+		local g="$(netstat -rnl | grep '^default' | head -1 | awk '{ print $2; }')" || return
 	else
 		local g="$(route -n | grep '^0.0.0.0' | head -1 | awk '{ print $2; }')" || return
 	fi
@@ -1712,8 +1712,13 @@ IsIpAddress()
   fi
 }
 
-# IsIpLocal - return true if the specified IP is reachable on the local network (does not use the default gateway in 5 hops or less)
-IsIpLocal() { GetArgs; CacheDefaultGateway || return; ! traceroute "$1" -4 --max-hops=5 | grep --quiet "($(GetDefaultGateway))"; } 
+# IsIpLocal - return true if the specified IP is reachable on the local network (check if host does not use the default gateway in 5 hops or less)
+IsIpLocal()
+{
+	GetArgs
+	local args=("-4"); IsPlatform mac && args=()
+	! traceroute "${args[@]}" -m 5 "$1" |& sponge | ${G}grep --quiet "($(GetDefaultGateway))"
+}
 
 # IsLocalHost HOST - true if the specified host refers to the local host, assume unique host names across domains
 IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$(RemoveDnsSuffix "$host" | LowerCase)" == "$(RemoveDnsSuffix $(hostname))" ]]; }
