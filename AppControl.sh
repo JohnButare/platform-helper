@@ -22,11 +22,16 @@ AppCommand()
 	appCommandExists "$command" "$app" || { ScriptErrQuiet "application '$appOrig' does not have a '$command' command"; return 1; }
 
 	# logging
-	[[ "$command" == @(start|startup) ]] && ScriptEchoQuiet "Starting $app..."
-	[[ "$command" == @(close) ]] && ScriptEchoQuiet "Closing $app..."
+	[[ "$command" == @(start|startup) ]] && PrintQuiet "starting $appOrig..."
+	[[ "$command" == @(close) ]] && PrintQuiet "closing $appOrig..."
 
 	# run the command
 	"$app" "$command" "$@"
+
+	# logging
+	[[ "$command" == @(close|start|startup) ]] && EchoQuiet "done"
+
+	return 0
 }
 
 appCommandExists() { local command="$1" app="$2"; [[ -f "$app" ]] && ${G}grep --quiet "^${command}Command"'()' "$app"; }
