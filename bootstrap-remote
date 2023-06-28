@@ -79,7 +79,7 @@ runCommand()
 	
 	if ChrootHelper installed && ChrootHelper exists "$target"; then
 		type="chroot"
-	elif wsl dist exists "$target"; then
+	elif IsPlatform win && wsl dist exists "$target"; then
 		type="wsl"
 	else
 		type="ssh"
@@ -116,8 +116,6 @@ bootstrapSsh()
 	local sshCommonArgs=( -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ) # trust new hosts, don't modify known_hosts
 	local sshArgs=( -p "$port" "${sshCommonArgs[@]}" )
 	local scpArgs=( -P "$port" "${sshCommonArgs[@]}" )
-	local rsyncSshArgs="ssh ${sshCommonArgs[@]}"
-	local rsyncArgs=( --rsh "$rsyncSshArgs" )
 
 	sshBootHost || return	
 	sshCheckUserPassword "$sshUser" || return
@@ -166,7 +164,8 @@ bootstrapInitMac()
 
 	# initialize
 	run "$(cat <<-EOF
-		[[ ! -f "$brew" ]] && { /bin/bash -c "\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || exit; }
+		[[ ! -f "$brew" ]] && { /bin/bash -c "\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || 
+		; }
 		eval "\$($brew shellenv)"
 		! brew list bash >& /dev/null && { brew install bash || exit; }
 		! which -p gmkdir >&/dev/null && { brew install coreutils || exit; }
@@ -296,8 +295,15 @@ sshCopyCoreFiles()
 		chmod -R o+w "/tmp/bootstrap" || exit
 	EOF
 
-	# copy core files - allow updates by other users
-	rsync "${rsyncArgs[@]}" --port=$port --perms --chmod=ugo+w --recursive "${coreFiles[@]}" "$sshUser@$host:/tmp/bootstrap/" || return
+	# copy core files
+	scp "${scpArgs[@]}" "${coreFiles[@]}" "$sshUser@$host:/tmp/bootstrap/" || return
+
+	# allow updates by other users
+	runSshSudo "$(cat <<-EOF
+		ls -l "/tmp/bootstrap/bootstrap-init" | grep --quiet "rwx " && exit
+		sudo chmod -R o+w "/tmp/bootstrap" || exit
+		EOF
+	)"
 }
 
 sshReconnect()
@@ -339,16 +345,19 @@ installMicro()
 	MicroHelper install "$host" || return
 }
 
-# run command on host
+# run - run command on host
 run() { RunFunction run "${type^}" -- "$@"; }
-runChroot() { ChrootHelper run "$dist" -s "/bin/bash" -d /tmp "$@"; }
+runChroot() { ChrootHelper run "$dist" -s "/bin/bash" -d "/tmp" "$@"; }
 runSsh() { SshAgentConf "${globalArgs[@]}" && ssh "$sshUser@$host" "${sshArgs[@]}" -- "$@"; }
 runWsl() { wsl.exe -d "$dist" "$@"; }
 
-# run command on host interactively
+# runi - run bash command on host interactively
 runi() { RunFunction runi "${type^}" -- "$@"; }
-runiChroot() { ChrootHelper run "$dist" -s /bin/bash -d /tmp "$bash" -l "$@"; }
+runiChroot() { ChrootHelper run "$dist" -s "/bin/bash" -d "/tmp" "$bash" -l "$@"; }
 runiSsh() { ssh -Yt "$sshUser@$host" "${sshArgs[@]}" -- "$bash" -l "$@"; }
 runiWsl() { wsl.exe -d "$dist" "$bash" -l "$@"; }
+
+# runSshSudo - run SSH commands on host allowing sudo prompt (a pseudo-terminal is allocated)
+runSshSudo() { ssh -Yt "$sshUser@$host" "${sshArgs[@]}" -- "$@"; }
 
 ScriptRun "$@"
