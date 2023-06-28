@@ -2649,7 +2649,7 @@ isPlatformCheck()
 
 		# platformOs, platformLike, and platformId
 		win|mac|linux) [[ "$p" == "$_platformOs" ]];;
-		casaos|dsm|qts|rhel|srm|pi|rock|ubuntu) [[ "$p" == "$_platformId" ]];;
+		casaos|dsm|qts|rhel|srm|pi|ubuntu) [[ "$p" == "$_platformId" ]];;
 		fedora|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]];;
 		debian) [[ "$_platformId" == "debian" || "$_platformLike" == "debian" ]];;
 		debianbase) [[ "$_platformId" == "debian" && "$_platformLike" == "" ]];;
@@ -2673,6 +2673,7 @@ isPlatformCheck()
 		winkernel) [[ "$_platformKernel" == @(wsl1|wsl2) ]];;
 		linuxkernel) [[ "$_platformKernel" == "linux" ]];;
 		pikernel) [[ "$_platformKernel" == "pi" ]];;
+		rock|rockkernel) [[ "$_platformKernel" == "rock" ]];;
 
 		# operating system
 		32|64) [[ "$p" == "$(os bits "$_machine" )" ]];;

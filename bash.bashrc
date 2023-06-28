@@ -65,6 +65,7 @@ exit 0;'
 		elif [[ $kernel =~ .*-microsoft-standard-WSL2+$ ]]; then platformKernel="wsl2"
 		elif [[ $kernel =~ .*-microsoft-standard-WSL2$ ]]; then platformKernel="wsl2" # macOS error using (|\\+)
 		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platformKernel="wsl2"
+		elif [[ $kernel =~ .*-rock ]]; then platformKernel="rock"
 		elif [[ "$ID" == "raspbian" || $kernel =~ .*-raspi$ ]]; then platformKernel="pi"
 		fi
 
@@ -82,8 +83,7 @@ exit 0;'
 		if [[ ! $chroot && ! $container ]]; then
 			if [[ "$platformKernel" == "wsl1" ]]; then platformOs="win" wsl=1
 			elif [[ "$platformKernel" == "wsl2" ]]; then platformOs="win" wsl=2
-			elif [[ $ID_LIKE =~ .*openwrt ]]; then ID_LIKE="openwrt"
-			elif [[ $kernel =~ .*-rock ]]; then ID="rock"
+			elif [[ $ID_LIKE =~ .*openwrt ]]; then ID_LIKE="openwrt"			
 			elif [[ $kernel =~ .*-qnap ]]; then ID_LIKE="qnap"
 			elif [[ "$ID_LIKE" == "casaos" ]]; then ID="casaos" ID_LIKE="debian"
 			elif [[ $ubiquiti ]]; then ID_LIKE=""

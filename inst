@@ -933,7 +933,7 @@ i()
 		[[ "$suffix" != "Download" ]] && ! checkInstallable "$appFunction" && continue
 
 		# variables
-		unset ran runCheck rebootNeeded
+		unset forceAllParts ran runCheck rebootNeeded
 
 		# elevate install
 		if IsInArray --case-insensitive "${appFunction}" elevateInstall && CanElevate && ! IsElevated; then
@@ -953,11 +953,11 @@ i()
 			# run the install
 			iPortion "Install" || return
 
-			# if the install did not do not run do not run any more steps
-			[[ ! $force && ! $runCheck ]] && continue
+			# if the install did not do run do not run any more steps
+			[[ ! $force && ! $forceAllParts && ! $runCheck ]] && continue
 
 			# if the application was already installed (and we were updating it) only run the final step
-			[[ ! $force && $isInstalled ]] && { iPortion "Final" || return; continue; } 
+			[[ ! $force && ! $forceAllParts && $isInstalled ]] && { iPortion "Final" || return; continue; } 
 
 			# run the remaining steps
 			{ iPortion "Final" && iPortion "Profile" && iPortionRegister "Register" && iPortion "Help"; } || return
@@ -1688,7 +1688,7 @@ appDebian()
 
 	# other	
 	! IsPlatform CasaOs,win && { pkg gnome-system-monitor hardinfo nautilus terminator || return; }
-	! IsPlatform pi,win && { pkg gnome-software || return; }
+	! IsPlatform pi,rock,win && { pkg gnome-software || return; }
 
 	return 0
 }
@@ -1696,17 +1696,18 @@ appDebian()
 appDebianMac()
 {	
 	# minimal
-	i LinuxMinimalUtilities PythonLocal PythonTextUtilities || return
+	i LinuxMinimalUtilities PythonLocal PythonTextUtilities 7Zip || return
 	{ [[ ! $force ]] && minimalInstall; } && return
 
 	# other
-	i 7Zip CompareCore firefox LinuxUtilities TextEditorCore xServer || return
+	i CompareCore firefox LinuxUtilities TextEditorCore xServer || return
 }
 
 appPhysical()
 {
 	i TimeCore PowerCore || return
-	! IsPlatform CasaOs,piKernel && { i NoMachine || return; }
+	! IsPlatform CasaOs,piKernel,rock && { i NoMachine || return; }
+	IsPlatform debian && { package partitionmanager; }
 	IsPlatform win && { i MaxTo || return; }
 	return 0;
 }
@@ -2216,7 +2217,7 @@ bootstrapPi()
 	# other
 	sudo raspi-config nonint do_net_names 0 || return # enable predictable network names
 	sudo raspi-config nonint do_wifi_country US || return
-	[[ -f /run/sshwarn ]] && { password linux -u pi || return; } # if needed change pi password
+	[[ -f /run/sshwarn ]] && { password linux --user "pi" || return; } # if needed change pi password
 
 	# locale
 	local locale="$(ConfigGet "locale")"
@@ -2269,25 +2270,16 @@ bootstrapQnap()
 	return 0
 }
 
-bootstrapRock() # https://wiki.radxa.com/Rockpi4/Ubuntu#
+bootstrapRock() # https://wiki.radxa.com/Rock5
 {
-	header "Bootstrap Rock Pi"
+	header "Bootstrap Rock 5"
 
-	password linux -u rock || return
+	if [[ $force ]] || UpdateNeeded "install-rock-password"; then
+		password linux --user "rock" || return
+		UpdateDone "install-rock-password" || return
+	fi
 
-	# local f="/etc/apt/sources.list.d/apt-radxa-com.list"
-	# if [[ ! -f "$f" ]]; then
-	# 	echo "Adding radxa pkg source..."
-	# 	export DISTRO=bionic-stable
-	# 	echo "deb http://apt.radxa.com/$DISTRO/ ${DISTRO%-*} main" | sudo ${G}tee -a "/etc/apt/sources.list.d/apt-radxa-com.list" || return
-	# 	wget -O - apt.radxa.com/$DISTRO/public.key | sudo apt-key add - || return
-	# 	PackageUpdate || return
-	# fi
-
-	# sudo apt-get install rockchip-overlay rockchip-fstab || return
-	# sudo apt-get install -y rockpi4b-rk-u-boot-latest || return
-	# sudo apt-get install linux-base || return
-	# sudo apt-get install linux-4.4-latest || return
+	return 0
 }
 
 bootstrapUbuntu()
@@ -2553,6 +2545,7 @@ DebianFileSharingInstall()
 
 	! InPath smbd && { pkg samba || return; } # service
 	! InPath smbclient && { pkg smbclient || return; }
+	! PackageListInstalled | ${G}grep --quiet "^samba-vfs-modules:" && { pkg samba-vfs-modules || return; }
 
 	local workgroup; workgroup="$(ConfigGet "workgroup")"
 	if [[ "$(network workgroup name)" != "$workgroup" ]]; then
@@ -2615,7 +2608,24 @@ DebianFileSharingInstall()
 		restart="true"
 	fi
 
-	# restart smbd service to configuration changes take effect
+	# public share
+	if [[ -d "$VOLUMES/data/public" ]] && ! grep --quiet "\[public\]" "$file"; then
+		cat <<-EOF | sudo ${G}tee -a "$file" > /dev/null || return
+
+			[public]
+			path = $VOLUMES/data/public
+			valid users = $USER
+			read only = no
+			follow symlinks = yes
+			wide links = no
+		EOF
+		restart="true"
+	fi
+
+	# service to auto
+	serviceAutoStart "smbd" || return
+
+	# restart smbd service to configuration changes take effect	
 	[[ $restart ]] && { service restart smbd || return; }
 
 	# add SMB password for the current user
@@ -7484,7 +7494,7 @@ NginxProxyManagerDockerInstall()
 # Shell
 #################################################
 
-BashInstall() { run --name="Bourne Again Shell" --package bash; }
+BashInstall() { run --name="Bourne Again Shell" --package bash && forceAllParts="true"; }
 
 BashProfile()
 {
@@ -7518,8 +7528,8 @@ BashProfile()
 
 ZshInstall()
 {
-	IsPlatform mac && ! which zsh | grep --quiet "homebrew" && force="--force"
-	run --name="Z shell" --package zsh
+	IsPlatform mac && ! which zsh | grep --quiet "homebrew" && force="--force" # force if the Homebrew Zsh is not installed
+	run --name="Z shell" --package zsh && forceAllParts="true"
 }
 
 ZshProfile()
