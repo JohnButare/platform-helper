@@ -617,15 +617,13 @@ sshRunInteractive() { sshAgentCheck && RunLog SshHelper "$1" --credentials "${gl
 waitForInstall() { [[ ! $ran ]] && return; local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
 waitForInstallWin() { ! IsPlatform win && return; waitForInstall "$1"; }
 
+# appClean APP
 appClean()
 {
 	local app="$1" dir="$2"
 	[[ ! $app ]] && { MissingOperand "app" "appClean"; }
 	[[ ! $dir ]] && { MissingOperand "dir" "appClean"; }
-
-	# the directory must exist in the program directory
-	dir="$P/$dir"
-
+	
 	# return if app does not exist
 	[[ ! -d "$dir" ]] && return
 
@@ -636,7 +634,10 @@ appClean()
 	[[ $noPrompt && ! $force ]] && { ScriptErr "The application '$app' is installed, --force must be specified."; return 1; }
 	
 	# close the application if possible
-	AppHasHelper "$app" && AppIsRunning "$app" && { AppClose "$app" || return; }
+	if AppHasHelper "$app" && AppIsRunning "$app"; then
+		AppClose "$app" || return
+		sleep 2 # let the app fully close
+	fi
 
 	# remove the application
 	sudoc $rmd "$dir"
@@ -1514,10 +1515,11 @@ runDmg()
 	return $result
 }
 
+# runDmgWorker PROGRAM NAME
 runDmgWorker()
 {
 	local p="$1" name="$2"; shift 2
-	local dir="$P/$name"
+	local appDir="$P/${name}.app"
 
 	if ! hdiutil mount "$p" -mountpoint /Volumes/install -quiet; then
 		EchoErr "inst: unable to mount \"$p\""
@@ -1536,17 +1538,15 @@ runDmgWorker()
 			sudoc installer $verboseInstaller -pkg /Volumes/install/*.pkg -target /Applications
 		fi
 	else
-		shopt -s nullglob; local app=(/Volumes/install/*.app);
-
-		[[ ! "$app" ]] && { EchoErr "inst: \"$p\" does not contain an application"; return 1; }
-		dir="$(GetFileName "$app")" || return
-		
-		appClean "$name" "$dir" || return
-		sudoc acp --recursive --progress-bar "$app" "$P" || return
+		shopt -s nullglob; local installDir=(/Volumes/install/*.app);
+		[[ ! "$installDir" ]] && { EchoErr "inst: \"$p\" does not contain an application"; return 1; }
+		appDir="$P/$(GetFileName "$installDir")" || return
+		appClean "$name" "$appDir" || return
+		sudoc acp --recursive --progress-bar "$installDir" "$P" || return
 	fi
 
 	echo "Updating Spotlight..."
-	mdimport "$P/$dir" || return
+	mdimport "$appDir" || return
 }
 
 runIso()
