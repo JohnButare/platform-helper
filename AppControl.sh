@@ -26,12 +26,12 @@ AppCommand()
 	[[ "$command" == @(close) ]] && PrintQuiet "closing $appOrig..."
 
 	# run the command
-	"$app" "$command" "$@"
+	local result; "$app" "$command" "$@"; result="$?"
 
 	# logging
 	[[ "$command" == @(close|start|startup) ]] && EchoQuiet "done"
 
-	return 0
+	return "$result"
 }
 
 appCommandExists() { local command="$1" app="$2"; [[ -f "$app" ]] && ${G}grep --quiet "^${command}Command"'()' "$app"; }

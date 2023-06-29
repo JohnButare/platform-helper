@@ -104,8 +104,8 @@ ScriptCheckPath()
 #
 # - log output is sent to the standard error to avoid interference with commands whose output is consumed using a subshell, i.e. var="$(command)"
 
-# LogMessage MESSAGE - print a message with the script prefix
-LogPrint() { [[ $@ ]] && EchoResetErr; PrintErr "$(ScriptPrefix)$@"; }
+# LogMessage MESSAGE - print a message
+LogPrint() { [[ $@ ]] && EchoResetErr; PrintErr "$@"; }
 
 # LogMessage MESSAGE - log a message with the script prefix
 LogMessage() { EchoErr "$(ScriptPrefix)$@"; }
