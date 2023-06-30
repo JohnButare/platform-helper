@@ -62,11 +62,15 @@ checkOpt()
 checkCommand()
 {
 	local product term="$TERM"; [[ ! $term ]] && term="xterm-256color"
+	local app apps=() appsInstalled=() appsDownloaded=() 
+	local appsToIgnore=(apache chroot CreativeCloud cron DellDisplayManager duf hashi hostname hyperv java kea lolcat office qnap SqlServer VisualStudio xQuartz xServer)
+	local cacheInstalled="install-installed-apps" cacheDownloaded="install-downloaded-apps"
 
 	installInit || return
 
-	# check or get list of apps to check
-	local app apps=()
+	[[ ! $appsArg && ! $verbose  && ! $quiet ]] && PrintErr "checking..."
+
+	# use specified apps
 	if [[ $appsArg ]]; then
 
 		# check applications and get their install function
@@ -77,57 +81,47 @@ checkCommand()
 
 		[[ ! $verbose && ! $quiet ]] && PrintErr "checking..."
 
+	# get installed and downloaded applications
+	elif force="$forceLess" UpdateNeeded "$cacheInstalled" || force="$forceLess" UpdateNeeded "$cacheDownloaded"; then
+		IFS=$'\n' ArrayMake apps "$(listCommand)"
+
+		for app in "${apps[@]}"; do
+
+			[[ ! $verbose  && ! $quiet ]] && PrintErr "."
+			logp1 "$(ScriptPrefix)checking ${app}..."
+
+			if ! isCollection "$app" && ! IsInArray --case-insensitive "$app" appsToIgnore; then
+				appIsInstalled "$app" && { logp1 "installed..."; appsInstalled+=("$app"); }
+				IsFunction "${app}Download" && { logp1 "downloadable..."; appsDownloaded+=("$app"); }
+			fi
+
+			logp1 "done\n"
+
+		done
+
+		UpdateSet "$cacheInstalled" "$(GetDef appsInstalled)" || return			
+		UpdateSet "$cacheDownloaded" "$(GetDef appsDownloaded)" || return
+
+	# get cached installed and downloaded applications
 	else
-
-		[[ ! $verbose  && ! $quiet ]] && PrintErr "checking..."
-
-		# get all installed and downloaded applications
-		local ignore=(apache chroot CreativeCloud cron DellDisplayManager duf hashi hostname hyperv java kea lolcat office qnap SqlServer VisualStudio xQuartz xServer)
-
-		local appsInstalled=() appsDownloaded=()
-		local cacheInstalled="install-installed-apps" cacheDownloaded="install-downloaded-apps"
-
-		if force="$forceLess" UpdateNeeded "$cacheInstalled" || force="$forceLess" UpdateNeeded "$cacheDownloaded"; then
-			IFS=$'\n' ArrayMake apps "$(listCommand)"
-
-			for app in "${apps[@]}"; do
-				[[ ! $verbose  && ! $quiet ]] && PrintErr .
-				logp1 "$(ScriptPrefix)checking ${app}..."
-				if ! isCollection "$app" && ! IsInArray --case-insensitive "$app" ignore; then
-
-					# check if is installed
-					appIsInstalled "$app" && { logp1 "installed..."; appsInstalled+=("$app"); }
-
-					# check if can download					
-					[[ "$app" == @(Warp) ]] && ! IsPlatform mac && { logp1 "done\n"; continue; } # can only check Warp version on mac
-					IsFunction "${app}Download" && { logp1 "downloadable..."; appsDownloaded+=("$app"); }
-				fi
-
-				logp1 "done\n"
-			done
-
-			UpdateSet "$cacheInstalled" "$(GetDef appsInstalled)" || return			
-			UpdateSet "$cacheDownloaded" "$(GetDef appsDownloaded)" || return
-
-		else
-			eval "appsInstalled=( $(UpdateGet "$cacheInstalled") )" || return
-			eval "appsDownloaded=( $(UpdateGet "$cacheDownloaded") )" || return
-		fi
-
+		eval "appsInstalled=( $(UpdateGet "$cacheInstalled") )" || return
+		eval "appsDownloaded=( $(UpdateGet "$cacheDownloaded") )" || return
 	fi
 
 	# logging
-	if (( verboseLevel > 1 )); then
+	if [[ ! $appsArg ]] && (( verboseLevel > 1 )); then
 			printf "appsInstalled="; ArrayShow appsInstalled
 			printf "appsDownloaded="; ArrayShow appsDownloaded
 	fi
 
-	# add downloaded apps
+	# get apps to check (installed and downloaded)
 	apps=( "${appsInstalled[@]}" )
 	if [[ $allArg ]]; then
 		for app in "${appsDownloaded[@]}"; do
-			! IsInArray "$app" appsInstalled && apps+=("$app")
-		done
+			IsInArray "$app" appsInstalled && continue
+			[[ "$app" == @(Warp) ]] && ! IsPlatform mac && continue # can only check Warp version on mac
+			apps+=("$app")			
+		done				
 	fi
 
 	# add alternate version 
