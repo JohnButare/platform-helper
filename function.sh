@@ -1396,6 +1396,7 @@ HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsInDomain() { [[ $(NetworkDomain) ]]; }																				# IsInDomain - true if the computer is in a network domain
 NetworkCurrent() { UpdateGet "network"; }; 
+NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars; }
 NetworkDomain() { UpdateGet "network_domain"; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 scurl() { curl "$@" | sponge; } # use curl with sponge to avoid write error 23 in a pipeline
