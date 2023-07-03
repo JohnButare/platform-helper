@@ -374,7 +374,7 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 AppVersion()
 {
 	# arguments
-	local allowAlpha alternate app appOrig cache force quiet version
+	local allowAlpha alternate app appOrig cache force forceLevel quiet version
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -541,34 +541,42 @@ GitClone() { ScriptCd GitHelper GitHub clone "$@"; }
 # i: invoke the installer script (inst) saving the INSTALL_DIR
 i() 
 { 
-	local check find force noFind noRun select
+	# arguments
+	local command="cd" force forceLevel help noFind noRun select verbose verboseLevel
 
-	if [[ "$1" == "--help" ]]; then echot "\
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;	
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--help|-h) help="--help";;
+			--no-find|-nf) noFind="--no-find";;
+			--no-run|-nr) noRun="--no-run";;
+			--select|-s) select="--select";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			*)
+				! IsOption "$1" && [[ ! $command ]] && { command="$1"; shift; continue; }
+				UnknownOption "$1" i; return
+		esac
+		shift
+	done
+
+	if [[ $help ]]; then echot "\
 usage: i [APP*|bak|cd|check|dir|info|select]
-  Install applications
-	-f,  --force		force installation even if a minimal install is selected
+install commands.
   -nf, --no-find 	do not find the installation location
   -nr, --no-run 	do not find or run the installation program
-  -f,  --force		check for a new installation location
   -s,  --select		select the install location"
 		return 0
 	fi
 
-	[[ "$1" == @(--force|-f) ]] && { force="--force"; shift; }
-  [[ "$1" == @(--no-find|-nf) ]] && { noFind="--no-find"; shift; }
-  [[ "$1" == @(--no-run|-nr) ]] && { noRun="$1"; shift; }
-	[[ "$1" == @(--select|-s) ]] && { select="--select"; shift; }
-	[[ "$1" == @(select) ]] && { select="--select"; }
-	[[ "$1" == @(force) ]] && { force="true"; }
 	[[ "$1" == @(check) ]] && { check="true"; }
 
-	case "${1:-cd}" in
+	case "$(LowerCase "$command")" in
 		bak) InstBak;;
 		cd) InstFind && cd "$INSTALL_DIR";;
 		check|select) InstFind;;
 		dir) InstFind && echo "$INSTALL_DIR";;
 		info) InstFind && echo "The installation directory is $INSTALL_DIR";;
-		*) InstFind && inst install --hint "$INSTALL_DIR" $noRun $force "$@";;
+		*) InstFind && inst install --hint "$INSTALL_DIR" $noRun $force $verbose "$command" "$@";;
 	esac
 }
 
@@ -576,7 +584,7 @@ InstFind()
 {
 	[[ ! $force && ! $select && $INSTALL_DIR && -d "$INSTALL_DIR" ]] && return
 	[[ $noFind ]] && return
-	ScriptEval FindInstallFile --eval $select || return
+	ScriptEval FindInstallFile --eval $select $verbose || return
 	export INSTALL_DIR="$installDir"
 	unset installDir file
 }
