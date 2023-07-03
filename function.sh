@@ -542,7 +542,7 @@ GitClone() { ScriptCd GitHelper GitHub clone "$@"; }
 i() 
 { 
 	# arguments
-	local command="cd" force forceLevel help noFind noRun select verbose verboseLevel
+	local args=() command force forceLevel help noFind noRun select verbose verboseLevel
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;	
@@ -552,9 +552,7 @@ i()
 			--no-run|-nr) noRun="--no-run";;
 			--select|-s) select="--select";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
-			*)
-				! IsOption "$1" && [[ ! $command ]] && { command="$1"; shift; continue; }
-				UnknownOption "$1" i; return
+			*) args+=( "$1" ); ! IsOption "$1" && [[ ! $command ]] && command="$1";;
 		esac
 		shift
 	done
@@ -568,9 +566,7 @@ install commands.
 		return 0
 	fi
 
-	[[ "$1" == @(check) ]] && { check="true"; }
-
-	case "$(LowerCase "$command")" in
+	case "$(LowerCase "${command:-cd}")" in
 		bak) InstBak;;
 		cd) InstFind && cd "$INSTALL_DIR";;
 		check|select) InstFind;;
