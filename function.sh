@@ -572,7 +572,7 @@ install commands.
 		check|select) InstFind;;
 		dir) InstFind && echo "$INSTALL_DIR";;
 		info) InstFind && echo "The installation directory is $INSTALL_DIR";;
-		*) InstFind && inst install --hint "$INSTALL_DIR" $noRun $force $verbose "$command" "$@";;
+		*) InstFind && inst install --hint "$INSTALL_DIR" $noRun $force $verbose "${args[@]}";;
 	esac
 }
 
