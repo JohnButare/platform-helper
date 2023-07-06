@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+. app.sh || exit
+
+usage() 
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... IsInstalled|mount|program|unmount|version
+Mount or unmount an encrypted file system.   Currenltly only CryFS is supported."
+}
+
+init()
+{
+	defaultCommand="start"
+	mountDirRoot="$HOME/Volumes"
+	program="cryfs"
+}
+
+isInstalledCommand() { [[ -f "$program" ]]; }
+programCommand() { echo "$program"; }
+versionCommand() { AppInstallCheck && AppVersion "$program"; }
+									 
+#
+# Mount Command
+#
+
+mountUsage() { echo "\
+Usage: $(ScriptName) mount DIR
+Mount the specified directory.
+
+	-p, --password PASSWORD			password for the file"
+}
+
+mountArgStart() { unset dir password; }
+
+mountOpt() 
+{
+	case "$1" in
+		-p|--password|-p=*|--password=*) ScriptOptGet password "$@" || return;;
+		*) return 1
+	esac
+}
+
+mountArgs() { ScriptArgGet "dir" -- "$@" && ScriptCheckDir "$dir"; }
+
+mountCommand()
+{
+	local baseDir="$dir"
+	local mountDir="$mountDirRoot/$(GetLastDir "$dir")"
+
+	# check if the directory is already mounted
+	[[ -d "$mountDir" ]] && { echo "$mountDir"; return; }
+	mkdir "$mountDir" || return
+
+	# get the password
+	[[ ! $password ]] && credential exists secure strong --fallback && { password="$(credential get secure strong --fallback)" || return; }
+
+	# mount without a password
+	[[ ! $quiet ]] && EchoErr "Mounting encrypted directory '$(FileToDesc "$baseDir")' to '$(FileToDesc "$mountDir")'..."
+	[[ ! $password ]] && { RunLog cryfs "$baseDir" "$mountDir" && echo "$mountDir"; return; }
+	
+	# mount using supplied password
+	local script="$(cat <<-EOF
+		spawn cryfs "$baseDir" "$mountDir"
+		expect "Password: "
+		send "$password\r";
+		expect eof
+		EOF
+	)"
+
+	export CRYFS_FRONTEND="noninteractive" CRYFS_NO_UPDATE_CHECK="true"
+	local result="$(expect -c "$script")" || return
+	log1 "$result"
+	echo "$result" | grep --quiet "Mounting filesystem." || { ScriptErr "unable to mount encrypted directory '$(FileToDesc "$baseDir")'"; return 1; }
+	echo "$mountDir"
+}
+
+#
+# Unmount Command
+#
+
+unmountUsage() {
+EchoWrap "\
+Usage: $(ScriptName) unmount DIR
+Unmount the specified directory.  Only the last part of the directory is used and is assumed to be mounted in '$VOLUMES', which means it can be the mount point or the base directory that was mounted."
+}
+
+unmountArgStart() { unset dir; }
+unmountArgs() { ScriptArgGet "dir" -- "$@"; }
+
+unmountCommand()
+{
+	local mountDir="$mountDirRoot/$(GetLastDir "$dir")"
+	local args=(); [[ $force ]] && args+=(--immediate)
+
+	# cleanup and return if not mounted
+	rmdir "$mountDir" >& "/dev/null"
+	[[ ! -d "$mountDir" ]] && return
+
+	# unmount
+	[[ ! $quiet ]] && echo "Unmounting encrypted volume '$(FileToDesc "$mountDir")'..."
+	RunLog cryfs-unmount "$dir" "${args[@]}" && rmdir "$mountDir"
+}
+
+ScriptRun "$@"

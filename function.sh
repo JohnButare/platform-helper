@@ -2288,6 +2288,9 @@ GetUncFull()
 	local dirs="$(GetUncDirs "$unc")"
 	local protocol="$(GetUncProtocol "$unc")"
 
+	# exclude if not a server
+	[[ "${server,,}" == @(cryfs) ]] && { echo "$unc"; return; }
+
 	# force use of the IP if the host requires an alternate DNS server
 	[[ $(DnsAlternate "$server") ]] && ip="--ip"
 
