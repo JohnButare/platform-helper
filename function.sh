@@ -432,6 +432,7 @@ AppVersion()
 			jq) version="$(jq --version |& cut -d"-" -f2)" || return;;
 			keepalived) version="$(keepalived --version |& shead -1 | sed 's/.* v//' | cut -d" " -f1)" || return;;
 			minikube) version="$(echo "$(minikube version)" | head -1 | sed 's/.* v//')" || return;; # minicube pipe returns error on mac
+			nginx) version="$(nginx -v |& sed 's/.*nginx\///' | cut -d" " -f1)";;
 			nomad) version="$(nomad --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
 			pip) version="$(pip --version | cut -d" " -f2)" || return;;
 			python3) version="$(python3 --version | cut -d" " -f2)" || return;;
