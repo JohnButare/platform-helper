@@ -3343,7 +3343,7 @@ ScriptCd()
 
 # ScriptEval <script> [<arguments>] - run a script and evaluate the output
 # - typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
-ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || return; eval "$result"; } 
+ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || return; eval "$result"; unset SCRIPT_EVAL; } 
 
 ScriptName()
 {
