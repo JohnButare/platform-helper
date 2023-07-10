@@ -567,7 +567,7 @@ ScriptUsageEcho()
 	if [[ $SCRIPT_EVAL ]]; then
 		echote "$@"
 	else
-		echot "$@"
+		EchoWrap "$@"
 	fi
 }
 
