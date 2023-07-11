@@ -473,7 +473,7 @@ infoOpt()
 infoCommand() { [[ $monitor ]] && { infoMonitor; return; } || infoHosts; }
 infoHost() { if IsLocalHost "$host"; then infoLocal; else infoRemote; fi; }
 infoMonitor() { watch -n 1 os info "$hostArg" --dynamic "${remoteArgs[@]}"; }
-infoSetRemoteArgs() { remoteArgs=( "$detail" "$prefix" "${skipArg[@]}" "${whatArg[@]}" "${globalArgs[@]}" ); }
+infoSetRemoteArgs() { remoteArgs=( $detail $prefix "${skipArg[@]}" "${whatArg[@]}" "${globalArgs[@]}" ); }
 
 infoHosts()
 {
@@ -502,7 +502,7 @@ infoRemote()
 	! SshIsAvailablePort "$host" && { infoEcho "$host Operating System information is not available"; return; }
 
 	# get detailed information using the os command on the host if possible
-	SshInPath "$host" "os" && { SshHelper connect "$host" --pseudo-terminal -- os info "${remoteArgs[@]}"; return; }
+	SshInPath "$host" "os" && { RunLog SshHelper connect "$host" --pseudo-terminal --interactive -- os info "${remoteArgs[@]}"; return; }
 	
 	# othereise, get basic information using HostGetInfo vars command locally
 	ScriptEval HostGetInfo vars "$host" || return
@@ -549,9 +549,9 @@ infoCpu()
 
 	local model count
 
-	model="$(lscpu | grep "^Model name:" | cut -d: -f 2)"
-	count="$(lscpu | grep "^CPU(s):" | cut -d: -f 2)"
-	infoEcho "         cpu: $(RemoveSpace "$model") ($(RemoveSpace "$count") CPU)"
+	model="$(lscpu | grep "^Model name:" | cut -d: -f 2 | RemoveNewline | tr -s " " | RemoveSpaceTrim)" # Rock 5 has multiple different types of CPUs
+	count="$(lscpu | grep "^CPU(s):" | cut -d: -f 2 | RemoveSpace)"
+	infoEcho "         cpu: $model ($count CPU)"
 }
 
 infoDisk() { ! InPath di && return; infoEcho "        disk: $(diskUsedCommand)/$(diskFreeCommand)/$(diskTotalCommand) GB used/free/total"; }
