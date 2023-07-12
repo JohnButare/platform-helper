@@ -428,12 +428,12 @@ infoUsage()
 Usage: $(ScriptName) info [HOSTS|all](localhost)
 Show Operating System information.
 
-	-d|--detail		show detailed information
+	-d|--detail			show detailed information
 	   --dynamic		show dynamic information
 	-m|--monitor		monitor dynamic information
-	-p|--prefix		prefix each line with the hostname
-	-s|--skip LIST		comma separated list of items to skip
-	-w|--what LIST		comma separated list of items to show
+	-p|--prefix			prefix each line with the hostname
+	-s|--skip LIST	comma separated list of items to skip
+	-w|--what LIST	comma separated list of items to show
 
 Items (basic): ${infoBasic[@]}
 	 (detail): ${infoDetail[@]}
