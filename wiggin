@@ -261,7 +261,6 @@ hostOffCommand() { ForAllHosts $errors hostOff --header "Powering Off"; }
 hostOnCommand() { ForAllHosts $errors hostOn --header "Powering On"; }
 hostRebootCommand() { ForAllHosts $errors hostReboot --header "Reboot"; }
 hostStatusCommand() { ForAllHosts $errors hostStatus --header "Status"; }
-hostUpdateCommand() { setOtherHosts; ForAllHosts $errors hostUpdate; }
 
 hostSyncUsage()
 {
@@ -286,14 +285,42 @@ hostSyncOpt()
 
 hostSyncCommand() { setOtherHosts; ForAllHosts --errors hostSync; }
 
+hostUpdateUsage() 
+{
+	ScriptUsageEcho "Usage: $(ScriptName) host update
+Update hosts then reboot hosts that need it."
+}
+
+hostUpdateCommand()
+{
+	# update hosts
+	ForAllHosts $errors hostUpdate || return
+
+	find hosts which require a reboot
+	header "Reboot Check"; printf "hosts..."
+	local host rebootHosts=()
+	for host in "${hosts[@]}"; do
+		local status; status="$(os info -w=reboot $host)" || return
+		echo "$status" | ${G}grep --quiet " yes" && { printf "$(RemoveDnsSuffix "$host")..."; rebootHosts+=("$host"); } || printf "."
+	done
+	echo "done"
+
+	[[ ! $rebootHosts ]] && return
+
+	# reboot
+	local wait="--ssh"
+	hosts=( "${rebootHosts[@]}" )
+	ForAllHosts $errors hostReboot --header "Reboot"
+}
+
 hostOff() { RunLog power off "$1" $wait "${globalArgs[@]}"; }
 hostOn() { RunLog power on "$1" $wait "${globalArgs[@]}"; }
 
 hostReboot()
 {
 	local host="$1"
-	local waitArg="$wait"; isVaultHost "$host" && waitArg="--wait"
-	RunLog power reboot "$1" $waitArg "${globalArgs[@]}" && vaultUnseal "$host"	
+	local waitArg="$wait"; isVaultHost "$host" && waitArg="--ssh"
+	echo RunLog power reboot "$1" $waitArg "${globalArgs[@]}" && vaultUnseal "$host"	
 }
 
 hostFix()
@@ -331,8 +358,9 @@ hostSync()
 hostUpdate()
 {
 	local host="$1" args; [[ $noPrompt ]] && args+=("--dest-older" "${globalArgs[@]}")
-	[[ "$(RemoveDnsSuffix "$host")" == @(ender|nas1) ]] && return
-	HostAvailable "$host" && HostUpdate "$host" --skip="file" "${args[@]}"
+	local cache="wiggin-host-update-$host"
+	! UpdateNeeded "$cache" && return
+	HostAvailable "$host" && HostUpdate "$host" --skip="file" "${args[@]}" && UpdateDone "$cache"
 }
 
 #
@@ -1070,7 +1098,7 @@ getHost()
 isVaultHost()
 {
 	local host="$1" servers; StringToArray "$(ConfigGet hashiVaultServers)" "," servers
-	IsInArray "$host" servers
+	IsInArray "$(RemoveDnsSuffix "$host")" servers
 }
 
 setOtherHosts() 
