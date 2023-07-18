@@ -828,7 +828,9 @@ ArrayShow()
 {
 	IsAssociativeArray "$1" && { GetDef "$1"; return; }
 
+	! IsArray "$1" && return
 	local arrayShow=(); ArrayCopy "$1" arrayShow || { IFS="$ifsSave"; return 1; }
+	[[ "${#arrayShow[@]}" == "0" ]] && return
 	local result delimiter="${2:- }" begin="${3:-\"}" end="${4:-\"}"
 	printf -v result "$begin%s$end$delimiter" "${arrayShow[@]}"
 	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
