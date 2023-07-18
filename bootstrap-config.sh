@@ -45,7 +45,7 @@ mqttServer="mosquitto"
 
 hashiDnsDomain="service"
 hashiCredentialPath=""
-hashiCertificateDevice="$CLOUD/data/VeraCrypt/personal.hc" hashiCertificateDir="data/hashi"
+hashiCertificateDevice="$CLOUD/data/app/CryFS/personal" hashiCertificateDir="data/hashi"
 hashiServers="pi1,pi2,pi3"
 hashiClients="pi4"
 hashiVaultServers="pi2,pi1"
