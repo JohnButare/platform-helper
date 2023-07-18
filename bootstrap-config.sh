@@ -80,7 +80,7 @@ hagermanCredentialPaths="CloudFlare,domotz,JumpCloud,LastPass,namecheap,ssh,syst
 hagermanNas="nas3.$hd"																			# NAS Server
 hagermanVip="10.10.100.6" 																	# Virtual IP Address
 
-hagermanCameraServers="BackShedCamera,BackYardEastCamera,ChickenYardNorthCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
+hagermanCameraServers="BackShedCamera,BackYardEastCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
 hagermanDhcpServers="pi1,pi2,pi3,pi4"
 hagermanDnsIps="10.10.100.8,10.10.100.7"
 hagermanDnsServers="pi1.$hbd,pi2.$hbd,pi3.butare.net,pi4.$hbd"
