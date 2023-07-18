@@ -38,9 +38,9 @@ alias GetArgDash='[[ "$1" == "-" ]] && shift && set -- "$(cat)" "$@"'
 
 # GetArgsPipe - get all arguments from a pipe
 if IsZsh; then
-	alias GetArgsPipe='{ local args; args=("${(@f)"$(cat)"}"); set -- "${args[@]}"; }'
+	alias GetArgsPipe='{ local gap; gap=("${(@f)"$(cat)"}"); set -- "${gap[@]}"; unset gap; }'
 else
-	alias GetArgsPipe='{ local args; mapfile -t args <<<$(cat); set -- "${args[@]}"; }'
+	alias GetArgsPipe='{ local gap; mapfile -t gap <<<$(cat); set -- "${gap[@]}"; unset gap; }'
 fi
 
 ShowArgs() { local args=( "$@" ); ArrayShow args; } 	# ShowArgs [ARGS...] - show arguments from command line
@@ -701,8 +701,9 @@ EchoWrap()
 	echo -e "$@" | expand -t $TABS | ${G}fold --space --width=$COLUMNS; return 0
 }
 
-EchoEnd() { echo -e "$@"; }																							# show message on the end of the line
+EchoEnd() { echo -e "$@"; return 0; }																		# show message on the end of the line
 EchoErr() { [[ $@ ]] && EchoResetErr; EchoWrap "$@" >&2; return 0; }		# show error message at column 0
+EchoErrEnd() { echo -e "$@"  >&2; return 0; }														# show error message on the end of the line
 EchoQuiet() { [[ $quiet ]] && return; EchoWrap "$1"; }									# echo a message if quiet is not set
 EchoResetErr() { EchoReset "$@" >&2; return 0; } 												# reset to column 0 if not at column 0
 HilightErr() { InitColor; EchoErr "${RED}$@${RESET}"; }									# hilight an error message
@@ -2104,34 +2105,38 @@ DnsResolve()
 	[[ "$lookup" ]] && echo "$lookup" || return 1
 }
 
-# DnsResolveBatch [IP|NAME...](pipe) - resolve IP addresses or names to fully qualified DNS names in parallel
+# DnsResolveBatch - resolve IP addresses or names to fully qualified DNS names in parallel, uses the same options as DnsResolve
 DnsResolveBatch()
 {
-	(( $# == 0 )) && GetArgsPipe # take arguments from pipe 
-	[[ ! $@ ]] && return
-	parallel -i bash -c '. function.sh && DnsResolve {}' -- "$@"; 
+	local args=(); [[ $1 ]] && args=("$@")
+	local command=". function.sh && DnsResolve ${args[@]} {}" # command must be set first or ${args[@]} is not expanded properly
+	GetArgsPipe && parallel -i bash -c "$command" -- $@; 
 }
 
+# DnsResolveMacBatch  - resolve mac addresses from standard input in parallel, uses the same options as DnsResolveMac
 DnsResolveMacBatch()
 {
-	(( $# == 0 )) && GetArgsPipe # take arguments from pipe 
-	parallel -i bash -c '. function.sh && DnsResolveMac --full --errors {}' -- "$@"; 
+	local args=(); [[ $1 ]] && args=("$@")
+	local command=". function.sh && DnsResolveMac ${args[@]} {}" # command must be set first or ${args[@]} is not expanded properly
+	GetArgsPipe && parallel -i bash -c "$command" -- $@
 }
 
 # DnsResolveMac MAC... - resolve MAC addresses to DNS names using /etc/ethers
+# --all|-a			show all names, even those that could not be resolved
 # --errors|-e		keep processing if an error occurs, return the total number of errors
 # --full|-f  		return a fully qualified domain name
 # --quiet|-q		suppress error message where possible
 DnsResolveMac()
 {
-	local errors macs=() quiet full="cat"
+	local all errors macs=() quiet full="cat"
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--all|-a) all="true";;
 			--errors|-e) errors=0;;
 			--full|-f) full="DnsResolveBatch";;
 			--quiet|-q) quiet="true";;
-			*) 
+			*)
 					IsOption "$1" && { UnknownOption "$1" "DnsResolveMac"; return 1; }
 					macs+=("$1")
 					;;
@@ -2152,6 +2157,7 @@ DnsResolveMac()
 	# lookup
 	local name names=()
 	for mac in "${validMacs[@]}"; do
+
 		if InPath getent; then
 			name="$(getent ethers "$mac" | cut -d" " -f2)"
 		else
@@ -2160,10 +2166,13 @@ DnsResolveMac()
 
 		if [[ $name ]]; then
 			names+=("$name")
+		elif [[ $all ]]; then
+			names+=("$mac")
 		else
 			ScriptErrQuiet "'$mac' was not found" "DnsResolveMac"
 			[[ ! $errors ]] && return 1; (( ++errors ))
 		fi
+
 	done
 
 	# show names

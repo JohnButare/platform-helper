@@ -433,6 +433,7 @@ Show Operating System information.
 	-m|--monitor		monitor dynamic information
 	-p|--prefix			prefix each line with the hostname
 	-s|--skip LIST	comma separated list of items to skip
+	   --status			provide status (periods) on standard error
 	-w|--what LIST	comma separated list of items to show
 
 Items (basic): ${infoBasic[@]}
@@ -446,7 +447,7 @@ os info -w=disk_free all				# free disk space for all hosts"
 
 infoArgStart() 
 { 
-	unset -v detail monitor prefix
+	unset -v detail monitor prefix status
 	hostArg="localhost" what=() skip=()
 	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz file other update reboot)
 	infoDetail=(mhz memory process disk package switch)
@@ -465,6 +466,7 @@ infoOpt()
 		-m|--monitor) monitor="--monitor";;
 		-p|--prefix) prefix="--prefix";;
 		-s|--skip|-s=*|--skip=*) ScriptArgItems "skip" "infoAll" "$@" || return;;
+		--status) status="--status";;
 		-w|--what|-w=*|--what=*) ScriptArgItems "what" "infoAll" "$@" || return;;
 		*) return 1;;
 	esac
@@ -480,7 +482,12 @@ infoHosts()
 	local host hosts; GetHosts || return
 	(( ${#hosts[@]} > 1 )) && { prefix="--prefix"; infoSetRemoteArgs; }
 	local errors=0
-	for host in "${hosts[@]}"; do infoHost || (( ++errors )); done
+
+	for host in "${hosts[@]}"; do
+		infoHost || (( ++errors ))
+		[[ $status ]] && PrintErr "."
+	done
+
 	return $errors
 }
 

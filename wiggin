@@ -18,6 +18,7 @@ init()
 	aps=(LivingRoomAp BackYardAp FrontYardAp GarageAp StudyAp) # reboot Living Room AP first
 	switches=(BackShedSwitch BensRoomSwitch DenSwitch GarageIotSwitch GarageSwitch HallSwitch LivingRoomSwitch StudyClosetSwitch1 StudyClosetSwitch2 StudyClosetSwitch3 StudyDeskSwitch)
 	routers=(router)
+	networkAll=("${aps[@]}" "${switches[@]}" "${routers[@]}")
 }
 
 #
@@ -198,7 +199,9 @@ hostArgStart()
 
 	commonUsage="\
 	-H,  --host [HOSTS](all)	comma separated list of hosts, or one of:
-														all|down|hashi-prod|hashi-test|important|network|web
+														all|down|hashi-prod|hashi-test|important|network|reboot|web
+														  down=important hosts that are down
+														  reboot=host requiring a reboot
 	-e, --errors							keep processing if a host operation fails, return the total number of failed hosts"
 	waitUsage="	-w,  --wait								wait for the operation to finish"
 }
@@ -216,14 +219,35 @@ hostOpt()
 
 hostArgEnd()
 {
+	local resolve="DnsResolveBatch $quiet"
+	local resolveMac="DnsResolveMacBatch --full $errors $quiet"
+	local sort="sort --ignore-case --version-sort"
+
+	# status
+	[[ "${hostArg,,}" == @(down|important|reboot) ]] && PrintErr "hosts..."
+
+	# alias
+	local aliasUsed="true";
 	case "${hostArg,,}" in
-		cam|camera) unset hostArg; GetHostsConfigNetwork "camera";;
-		down) hosts=( $(DomotzHelper down | cut -d"," -f2 | DnsResolveMacBatch) ) || ScriptExit;;
-		network) hosts=("${aps[@]}" "${switches[@]}" "${routers[@]}") wait="--wait";;
-		hashi-*) hosts=( $(hashi config hosts --config-prefix="$(RemoveFront "${hostArg,,}" "hashi-")") ) || ScriptExit;;
-		important) hosts=( $(DomotzHelper important) ) || ScriptExit;;
+		cam|camera) unset hostArg; GetHostsConfigNetwork "camera"; hosts=("$(ArrayDelimit hosts $'\n' | $resolve | $sort)") || hostExit;;
+		down) hosts=( $(DomotzHelper down | cut -d"," -f2 | $resolveMac | $sort) ) || hostExit;;
+		network) hosts=( "$(ArrayDelimit networkAll $'\n' | $resolve | $sort)" ) || hostExit; wait="--wait";;
+		hashi-*) hosts=( $(hashi config hosts --config-prefix="$(RemoveFront "${hostArg,,}" "hashi-")" | $resolve | $sort) ) || hostExit;;
+		important) hosts=( $(DomotzHelper important | $resolveMac | $sort) ) || hostExit;;
+		reboot) hosts=( $(os info -w=reboot all --status | grep " yes" | cut -d" " -f1 | $resolve | $sort) ) || hostExit;;
+		*) unset aliasUsed;;
 	esac
+
+	# status
+	[[ "${hostArg,,}" == @(down|important|reboot) ]] && EchoErrEnd "done"
+
+	# exist if an alias was used and no hosts were found
+	[[ $aliasUsed && ! $hosts ]] && exit
+ 
+	return 0
 }
+
+hostExit() { [[ $errors ]] && return; ScriptExit 1; }
 
 hostCommand() { hostListCommand; }
 hostFixUsage() { ScriptUsageEcho "Usage: $(ScriptName) fix\nFix host by forcing it to reconnect to the network.\n\n$commonUsage\n$waitUsage"; }
