@@ -116,7 +116,7 @@ LogPrintLevel() { level="$1"; shift; (( verboseLevel < level )) && return; Print
 
 # logN MESSAGE - log a message if the logging verbosity level is a least N
 log1() { LogLevel 1 "$@"; }; log2() { LogLevel 2 "$@"; }; log3() { LogLevel 3 "$@"; }; log4() { LogLevel 4 "$@"; }; log5() { LogLevel 5 "$@"; }
-logp1() { LogPrintLevel 1 "$@"; }; log2() { LogPrintLevel 2 "$@"; }; log3() { LogPrintLevel 3 "$@"; }; log4() { LogPrintLevel 4 "$@"; }; log5() { LogPrintLevel 5 "$@"; }
+logp1() { LogPrintLevel 1 "$@"; }; logp2() { LogPrintLevel 2 "$@"; }; logp3() { LogPrintLevel 3 "$@"; }; logp4() { LogPrintLevel 4 "$@"; }; logp5() { LogPrintLevel 5 "$@"; }
 
 # LogFile - log a file
 LogFile()
