@@ -909,7 +909,6 @@ HexToDecimal() { echo "$((16#${1#0x}))"; }
 
 # string
 CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; }
-IsInList() { [[ $1 =~ (^| )$2($| ) ]]; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 NewlineToComma()  { tr '\n' ','; }
 NewlineToSpace()  { tr '\n' ' '; }
