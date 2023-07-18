@@ -448,7 +448,7 @@ infoArgStart()
 { 
 	unset -v detail monitor prefix
 	hostArg="localhost" what=() skip=()
-	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz file other update)
+	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz file other update reboot)
 	infoDetail=(mhz memory process disk package switch)
 	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used)
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
@@ -635,7 +635,29 @@ infoSwitch()
 infoUpdate()
 {
 	local date; date="$(UpdateDate "update-default" 2>&1)" || date="never"
-	infoEcho " last update: $date" || return
+	infoEcho " last update: $date"
+}
+
+infoReboot()
+{
+	local detail status="no"; RunPlatform "infoReboot" && status="yes"
+	infoEcho "needs reboot: ${status}${detail}"
+}
+
+infoRebootDebian()
+{
+	# packages
+	local file="/var/run/reboot-required.pkgs"
+	if [[ -f "$file" ]]; then
+		local packages; IFS=$'\n' packages=( $(cat "$file") )
+		detail=" (${packages[@]})"
+		return
+	fi
+
+	# other
+	[[ -f "/var/run/reboot-required" ]] && return
+
+	return 1
 }
 
 infoVm()
