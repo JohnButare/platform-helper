@@ -191,7 +191,7 @@ updateWireGuard() { runApp "update" "WireGuard" wiggin update WireGuard; }
 # host commands
 #
 
-hostUsage() {	ScriptUsageEcho "Usage: $(ScriptName) host fix|info|list|on|off|reboot|status|sync|update\n\n$commonUsage\n$waitUsage"; }
+hostUsage() {	ScriptUsageEcho "Usage: $(ScriptName) host fix|info|list|on|off|reboot|status|sync|unlock|update\n\n$commonUsage\n$waitUsage"; }
 
 hostArgStart()
 {
@@ -202,6 +202,7 @@ hostArgStart()
 														all|down|hashi-prod|hashi-test|important|network|reboot|web
 														  down=important hosts that are down
 														  reboot=host requiring a reboot
+														  unlock=unlock the credential manager and configure the SSH agent
 	-e, --errors							keep processing if a host operation fails, return the total number of failed hosts"
 	waitUsage="	-w,  --wait								wait for the operation to finish"
 }
@@ -223,8 +224,12 @@ hostArgEnd()
 	local resolveMac="DnsResolveMacBatch --full $errors $quiet"
 	local sort="sort --ignore-case --version-sort"
 
+	# default alias
+	[[ ! $hostArg && "${commandNames[1]}" == @(reboot|unlock) ]] && hostArg="${commandNames[1]}"
+
 	# status
-	[[ "${hostArg,,}" == @(down|important|reboot) ]] && PrintErr "hosts..."
+	local status="down|important|locked|reboot|unlock"
+	[[ "${hostArg,,}" == @($status) ]] && PrintErr "hosts..."
 
 	# alias
 	local aliasUsed="true";
@@ -234,12 +239,13 @@ hostArgEnd()
 		network) hosts=( "$(ArrayDelimit networkAll $'\n' | $resolve | $sort)" ) || hostExit; wait="--wait";;
 		hashi-*) hosts=( $(hashi config hosts --config-prefix="$(RemoveFront "${hostArg,,}" "hashi-")" | $resolve | $sort) ) || hostExit;;
 		important) hosts=( $(DomotzHelper important | $resolveMac | $sort) ) || hostExit;;
-		reboot) hosts=( $(os info -w=reboot all --status | grep " yes" | cut -d" " -f1 | $resolve | $sort) ) || hostExit;;
+		reboot) hosts=( $(os info -w=reboot all --status | tgrep " yes" | cut -d" " -f1 | $resolve | $sort) ) || hostExit;;
+		locked|unlock) hosts=( $(os info -w=credential all --status | tgrep "(locked)" | cut -d" " -f1 | $resolve | $sort) ) || hostExit;;
 		*) unset aliasUsed;;
 	esac
 
 	# status
-	[[ "${hostArg,,}" == @(down|important|reboot) ]] && EchoErrEnd "done"
+	[[ "${hostArg,,}" == @($status) ]] && EchoErrEnd "done"
 
 	# exist if an alias was used and no hosts were found
 	[[ $aliasUsed && ! $hosts ]] && exit
@@ -261,6 +267,7 @@ hostOffCommand() { ForAllHosts $errors hostOff --header "Powering Off"; }
 hostOnCommand() { ForAllHosts $errors hostOn --header "Powering On"; }
 hostRebootCommand() { ForAllHosts $errors hostReboot --header "Reboot"; }
 hostStatusCommand() { ForAllHosts $errors hostStatus --header "Status"; }
+hostUnlockCommand() { ForAllHosts $errors hostUnlock --header "Unlock"; }
 
 hostSyncUsage()
 {
@@ -315,6 +322,7 @@ hostUpdateCommand()
 
 hostOff() { RunLog power off "$1" $wait "${globalArgs[@]}"; }
 hostOn() { RunLog power on "$1" $wait "${globalArgs[@]}"; }
+hostUnlock() { SshHelper connect --x-forwarding --interactive "$h" -- 'HashiConfStatus && echo && CredentialConfStatus && SshAgentConfStatus'; }
 
 hostReboot()
 {

@@ -449,7 +449,7 @@ infoArgStart()
 { 
 	unset -v detail monitor prefix status
 	hostArg="localhost" what=() skip=()
-	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz file other update reboot)
+	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz credential file other update reboot)
 	infoDetail=(mhz memory process disk package switch)
 	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used)
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
@@ -559,6 +559,13 @@ infoCpu()
 	model="$(lscpu | grep "^Model name:" | cut -d: -f 2 | RemoveNewline | tr -s " " | RemoveSpaceTrim)" # Rock 5 has multiple different types of CPUs
 	count="$(lscpu | grep "^CPU(s):" | cut -d: -f 2 | RemoveSpace)"
 	infoEcho "         cpu: $model ($count CPU)"
+}
+
+infoCredential()
+{
+	local name; name="$(credential manager name)"
+	local status; status="$(credential manager status | sed 's/.*(//' | cut -d')' -f1)"
+	infoEcho "  credential: $name ($status)"
 }
 
 infoDisk() { ! InPath di && return; infoEcho "        disk: $(diskUsedCommand)/$(diskFreeCommand)/$(diskTotalCommand) GB used/free/total"; }

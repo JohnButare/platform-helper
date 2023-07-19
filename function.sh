@@ -518,6 +518,8 @@ HashiConf()
 	HASHI_CHECKED="true"
 }
 
+HashiConfStatus() { [[ "$NETWORK" != "hagerman" ]] && return; HashiConf --config-prefix=prod "$@" && hashi config status; }
+
 HashiConfConsul() { [[ $CONSUL_HTTP_ADDR || $CONSUL_HTTP_TOKEN ]] || HashiConf "$@"; }
 HashiConfNomad() { [[ $NOMAD_ADDR || $NOMAD_TOKEN ]] || HashiConf "$@"; }
 HashiConfVault() { [[ $VAULT_ADDR || $VAULT_TOKEN ]] || HashiConf "$@"; }
@@ -2259,6 +2261,8 @@ SshAgentConf()
 	SshAgent start "$@" && ScriptEval SshAgent environment "$@"
 }
 
+SshAgentConfStatus() { SshAgentConf "$@" && SshAgent status && echo; }
+
 # SshSudoc HOST COMMAND ARGS - run a command on host using sudoc.  
 SshSudoc() { SshHelper connect --credentials --function "$1" -- sudoc "${@:2}"; }
 
@@ -3444,6 +3448,8 @@ CredentialConf()
 	[[ $CREDENTIAL_MANAGER_CHECKED && ! $force ]] && return
 	ScriptEval credential environment "$@" || { export CREDENTIAL_MANAGER="None" CREDENTIAL_MANAGER_CHECKED="true"; return 1; }
 }
+
+CredentialConfStatus() { CredentialConf --unlock "$@" && credential manager status; }
 
 # IsElevated - return true if the user has an Administrator token, always true if not on Windows
 IsElevated() 
