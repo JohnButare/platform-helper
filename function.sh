@@ -2261,7 +2261,7 @@ SshAgentConf()
 	SshAgent start "$@" && ScriptEval SshAgent environment "$@"
 }
 
-SshAgentConfStatus() { SshAgentConf "$@" && SshAgent status && echo; }
+SshAgentConfStatus() { SshAgentConf "$@" && SshAgent status; }
 
 # SshSudoc HOST COMMAND ARGS - run a command on host using sudoc.  
 SshSudoc() { SshHelper connect --credentials --function "$1" -- sudoc "${@:2}"; }

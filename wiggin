@@ -205,6 +205,10 @@ hostArgStart()
 														  unlock=unlock the credential manager and configure the SSH agent
 	-e, --errors							keep processing if a host operation fails, return the total number of failed hosts"
 	waitUsage="	-w,  --wait								wait for the operation to finish"
+	syncUsage="\
+	-do, --dest-older		assume destination files are than the local source files
+	-so, --src-older		assume local files are older than the destination files
+	-u,  --unison				perform synchronization using Unison"
 }
 
 hostOpt()
@@ -250,13 +254,11 @@ hostArgEnd()
 	# exit if an alias was used and no hosts were found
 	[[ $aliasUsed && ! $hosts ]] && exit
  
-	# initialize SSH agentg
+	# initialize SSH agent
 	SshAgentConf "${globalArgs[@]}" || return
 
 	return 0
 }
-
-hostExit() { [[ $errors ]] && return; ScriptExit 1; }
 
 hostCommand() { hostListCommand; }
 hostFixUsage() { ScriptUsageEcho "Usage: $(ScriptName) fix\nFix host by forcing it to reconnect to the network.\n\n$commonUsage\n$waitUsage"; }
@@ -272,34 +274,101 @@ hostRebootCommand() { ForAllHosts $errors hostReboot --header "Reboot"; }
 hostStatusCommand() { ForAllHosts $errors hostStatus --header "Status"; }
 hostUnlockCommand() { ForAllHosts $errors hostUnlock --header "Unlock"; }
 
+hostExit() { [[ $errors ]] && return; ScriptExit 1; }
+hostOff() { RunLog power off "$1" $wait "${globalArgs[@]}"; }
+hostOn() { RunLog power on "$1" $wait "${globalArgs[@]}"; }
+hostUnlock() { SshHelper connect --x-forwarding --interactive "$h" -- 'HashiConfStatus && echo && CredentialConfStatus && SshAgentConfStatus'; }
+
+hostFix()
+{
+	local host="$1"; host="$(DnsResolve "$host")" || return
+	local mac; mac="$(MacLookup --ethers "$host")" || return
+
+	# disconnect	
+	log1 "host=$host mac=$mac"
+	UniFiController disconnect $mac "${globalArgs[@]}" || return
+
+	# wait
+	[[ ! $wait ]] && return
+	WaitForAvailable "$host"
+}
+
+hostReboot()
+{
+	local host="$1"
+	local waitArg="$wait"; isVaultHost "$host" && waitArg="--ssh"
+	RunLog power reboot "$1" $waitArg "${globalArgs[@]}" && vaultUnseal "$host"	
+}
+
+hostStatus()
+{
+	if [[ $verbose ]]; then
+		power status "$host" --verbose
+	else
+		local status; status="$(power status "$host")" && echo "$host is $status"
+	fi
+}
+
+#
+# Host Sync Command
+#
+
 hostSyncUsage()
 {
 	ScriptUsageEcho "Usage: $(ScriptName) host sync
+Synchronize host files.
 
-Synronization options:			follow --, i.e. -- --unison
+Synronization options:
+$syncUsage
+	-- 									other synchronization options
 
 Common options:
 $commonUsage
 $waitUsage"
 }
 
-hostSyncArgStart() { unset -v unison; }
+hostSyncArgStart() { unset -v method unison; }
 
 hostSyncOpt()
 {
 	case "$1" in
+		--destination-older|--dest-older|-do) method="--dest-older";;
+		--source-older|--src-older|-so) method="--src-older";;
 		-u|--unison) unison="--unison";;
 		*) return 1;;
 	esac
 }
 
-hostSyncCommand() { setOtherHosts; ForAllHosts --errors hostSync; }
+hostSyncCommand() { setOtherHosts; ForAllHosts hostSync; }
 
-hostUpdateUsage() 
+hostSync()
+{
+	local host="$1" args=($method "${globalArgs[@]}")
+	[[ "$(RemoveDnsSuffix "$host")" != @(nas1) ]] && args=($unison)
+	{ IsLocalHost "$host" || ! HostAvailable "$host"; } && return
+	SyncLocalFiles "$host" "${args[@]}" "${otherArgs[@]}"
+}
+
+#
+# Host Update Command
+#
+
+hostUpdateUsage()
 {
 	ScriptUsageEcho "Usage: $(ScriptName) host update
-Update hosts then reboot hosts that need it."
+Update hosts, then reboot hosts if needed.
+
+Synronization options:
+$syncUsage
+	-- 									other synchronization options
+
+Common options:
+$commonUsage
+$waitUsage"
 }
+
+hostUpdateArgStart() { hostSyncArgStart; }
+hostUpdateOpt() { hostSyncOpt; }
 
 hostUpdateCommand()
 {
@@ -323,55 +392,13 @@ hostUpdateCommand()
 	ForAllHosts $errors hostReboot --header "Reboot"
 }
 
-hostOff() { RunLog power off "$1" $wait "${globalArgs[@]}"; }
-hostOn() { RunLog power on "$1" $wait "${globalArgs[@]}"; }
-hostUnlock() { SshHelper connect --x-forwarding --interactive "$h" -- 'HashiConfStatus && echo && CredentialConfStatus && SshAgentConfStatus'; }
-
-hostReboot()
-{
-	local host="$1"
-	local waitArg="$wait"; isVaultHost "$host" && waitArg="--ssh"
-	RunLog power reboot "$1" $waitArg "${globalArgs[@]}" && vaultUnseal "$host"	
-}
-
-hostFix()
-{
-	local host="$1"; host="$(DnsResolve "$host")" || return
-	local mac; mac="$(MacLookup --ethers "$host")" || return
-
-	# disconnect	
-	log1 "host=$host mac=$mac"
-	UniFiController disconnect $mac "${globalArgs[@]}" || return
-
-	# wait
-	[[ ! $wait ]] && return
-	WaitForAvailable "$host"
-}
-
-hostStatus()
-{
-	if [[ $verbose ]]; then
-		power status "$host" --verbose
-	else
-		local status; status="$(power status "$host")" && echo "$host is $status"
-	fi
-}
-
-hostSync()
-{
-	local host="$1" args=($unison); 
-	[[ "$(RemoveDnsSuffix "$host")" == @(nas1) ]] && args=() # these hosts do not support unison
-	[[ $noPrompt ]] && args+=("--dest-older" "${globalArgs[@]}")
-	{ IsLocalHost "$host" || ! HostAvailable "$host"; } && return
-	SyncLocalFiles "$host" "${args[@]}" "${otherArgs[@]}"
-}
-
 hostUpdate()
 {
-	local host="$1" args; [[ $noPrompt ]] && args+=("--dest-older" "${globalArgs[@]}")
+	local host="$1" args=($method)
+	[[ "$(RemoveDnsSuffix "$host")" != @(nas1) ]] && args=($unison)
 	local cache="wiggin-host-update-$host"
 	! UpdateNeeded "$cache" && return
-	HostAvailable "$host" && HostUpdate "$host" --skip="file" "${args[@]}" && UpdateDone "$cache"
+	HostAvailable "$host" && HostUpdate "$host" "${args[@]}" "${otherArgs[@]}" && UpdateDone "$cache"
 }
 
 #
