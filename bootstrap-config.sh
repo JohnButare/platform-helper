@@ -76,19 +76,11 @@ dtDomain="coexist.local"		# DNS Domain
 hagermanUser="jjbutare"
 hagermanBaseDomain="butare.net" hbd="$hagermanBaseDomain"
 hagermanDomain="hagerman.$hagermanBaseDomain" hd="$hagermanDomain"
-hagermanCredentialPaths="CloudFlare,domotz,JumpCloud,LastPass,namecheap,ssh,system,unifi"
-hagermanNas="nas3.$hd"																			# NAS Server
-hagermanVip="10.10.100.6" 																	# Virtual IP Address
 
 hagermanCameraServers="BackShedCamera,BackYardEastCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
-hagermanDhcpServers="pi1,pi2,pi3,pi4"
-hagermanDnsIps="10.10.100.8,10.10.100.7"
-hagermanDnsServers="pi1.$hbd,pi2.$hbd,pi3.butare.net,pi4.$hbd"
 hagermanBackupUser="$user"
-hagermanBackupServers="backup2.$hbd,backup1.$hbd" 					# backup (Borg)
-hagermanHassServers="pi9.$hbd,pi11.$hbd"										# Home Assistant
-hagermanLbServers="pi1.$hd,pi2.$hd,pi3.$hd,pi4.$hd"					# Load Balancer (NGINX reverse proxy)
+hagermanGitServer="git.$hbd"																# Git Server
 hagermanProxyServers="proxy.$hbd:3128" 											# Forward Proxy (Squid)
-hagermanSyslog="syslog.$hbd"																# remote system logs
-hagermanWireguardServers="pi4.$hd,pi3.$hd,pi2.$hd,pi1.$hd" 	# Wireguard VPN
-hagermanWireguardPort="51820"
+hagermanSyslogServer="syslog.$hbd"													# syslog server for remote system logs
+hagermanVip="10.10.100.6" 																	# Virtual IP Address
+hagermanWireguardPort="51820"																# port used for WireGuard

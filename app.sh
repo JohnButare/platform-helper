@@ -7,8 +7,8 @@ AppStart() { AppCommand start "$1"; }
 
 AppGetBackupDir()
 {
-	local server; server="$(network current server backup --service=smb)" || return
-	local dir unc="//$(ConfigGetCurrent "BackupUser")@$server/root$ADATA/backup" # //user@server/share/dirs:protocol
+	local server; server="$(GetServer "file")" || return
+	local dir unc="//$(ConfigGetCurrent "BackupUser")@$server/public/backup" # //user@server/share/dirs:protocol
 
 	if ! dir="$(unc mount "$unc" ${globalArgs[@]})"; then # globalArgs not quoted in case it is not set
 		EchoErr "AppGetBackupDir: unable to mount '$unc'"

@@ -366,19 +366,27 @@ GetHosts()
 	unset getHostsOther
 }
 
-# GetHostsService SERVICE - set hosts array from --host argument or from the available hosts for the service.
-GetHostsService()
+# GetHostsApp APP [all|active|available](available) - set hosts set hosts array from --host argument or the servers hosting the specified application
+GetHostsApp()
 {
-	local service="$1"; [[ ! $service ]] && MissingOperand "service", "GetHostsService"
+	# arguments
+	local app="$1" type="${2:-available}"; type="$(LowerCase "$type")"
+	[[ ! $app ]] && { MissingOperand "app" "GetHostsApp"; return; }
+	[[ "$type" != @(all|active|available) ]] && { ExtraOperand "$2" "GetHostsApp"; return; }
 
-	# use hostArg, then passed list
-	local h="$hostArg"
+	# if the hostArg is all get all specified servers for the app
+	[[ "$(LowerCase "$hostArg")" == "all" ]] && hostArg=""
 
-	# comma separate list of hosts
-	[[ $h ]] && { StringToArray "$(LowerCase "$h")" "," hosts; return; }
+	# use hostArg
+	[[ $hostArg ]] && { StringToArray "$(LowerCase "$hostArg")" "," hosts; return; }
 
-	# service name	
-	IFS=$'\n' ArrayMakeC hosts hashi app server available "$service"
+	# get hosts
+	hosts=(); IFS=$'\n' ArrayMakeC hosts hashi app server "$type" "$app"
+
+	# validate
+	[[ $hosts ]] && return
+	local desc=" $(LowerCase "$type")"; [[ "$type" == "available" ]] && type=
+	ScriptErrQuiet "there are no$desc '$app' servers" "GetHostsApp"; return 1
 }
 
 # GetHostsConfig CONFIG - set hosts array from --host argument or from the specified configuration entry.
@@ -393,7 +401,7 @@ GetHostsConfig()
 	ScriptErr "the current network does not have any '$config' hosts" "GetHostsConfig"; return 1
 }
 
-# GetHostsConfigNetwork CONFIG - set hosts array from --host argument (hostArg) or from the specified configuration entry for the current network.
+# GetHostsConfigNetwork CONFIG - set hosts array from --host argument (hostArg) or from the specified configuration entry for the current network
 GetHostsConfigNetwork() 
 {
 	local config="$1" h="$(LowerCase "$hostArg")"
