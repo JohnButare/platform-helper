@@ -196,7 +196,7 @@ updateWireGuard() { runApp "update" "WireGuard" wiggin update WireGuard; }
 # host commands
 #
 
-hostUsage() {	ScriptUsageEcho "Usage: $(ScriptName) host fix|info|list|on|off|reboot|status|sync|unlock|update\n\n$commonUsage\n$waitUsage"; }
+hostUsage() {	ScriptUsageEcho "Usage: $(ScriptName) host credential|info|ls|network|power|sync|update\n\n$commonUsage\n$waitUsage"; }
 
 hostArgStart()
 {
@@ -265,26 +265,34 @@ hostArgEnd()
 	return 0
 }
 
-hostCommand() { hostListCommand; }
-hostFixUsage() { ScriptUsageEcho "Usage: $(ScriptName) fix\nFix host by forcing it to reconnect to the network.\n\n$commonUsage\n$waitUsage"; }
-hostFixCommand() { ForAllHosts $errors --header "Fixing" hostFix ; }
+hostCommand() { hostLsCommand; }
 hostInfoUsage() { ScriptUsageEcho "Usage: $(ScriptName) info\n\n	-d, --detail						display detailed information\n$commonUsage"; }
 hostInfoArgStart() { unset -v detail; }
 hostInfoOpt() { scriptOptDetail "$@"; }
 hostInfoCommand() { GetHosts && RunLog os info "$(ArrayDelimit hosts ",")" $detail; }
-hostListCommand() { GetHosts && ArrayDelimit hosts $'\n'; }
-hostOffCommand() { ForAllHosts $errors hostOff --header "Powering Off"; }
-hostOnCommand() { ForAllHosts $errors hostOn --header "Powering On"; }
-hostRebootCommand() { ForAllHosts $errors hostReboot --header "Reboot"; }
-hostStatusCommand() { ForAllHosts $errors hostStatus --header "Status"; }
-hostUnlockCommand() { ForAllHosts $errors hostUnlock --header "Unlock"; }
+hostLsCommand() { GetHosts && ArrayDelimit hosts $'\n'; }
 
 hostExit() { [[ $errors ]] && return; ScriptExit 1; }
-hostOff() { RunLog power off "$1" $wait "${globalArgs[@]}"; }
-hostOn() { RunLog power on "$1" $wait "${globalArgs[@]}"; }
-hostUnlock() { SshHelper connect --x-forwarding --interactive "$1" -- 'HashiConfStatus && echo && CredentialConfStatus && SshAgentConfStatus'; }
 
-hostFix()
+#
+# Host Credential Commands
+#
+
+hostCredentialUsage() { ScriptUsageEcho "Usage: $(ScriptName) host credential [unlock](unlock)\n\n$commonUsage\n$waitUsage"; }
+hostCredentialCommand() { hostCredentialUnlockCommand; }
+hostCredentialUnlockCommand() { ForAllHosts $errors hostCredentialUnlock --header "Unlock"; }
+hostCredentialUnlock() { SshHelper connect --x-forwarding --interactive "$1" -- 'HashiConfStatus && echo && CredentialConfStatus && SshAgentConfStatus'; }
+
+#
+# Host Network Commands
+#
+
+hostNetworkUsage() { ScriptUsageEcho "Usage: $(ScriptName) host network [fix](fix)\n\n$commonUsage\n$waitUsage"; }
+hostNetworkCommand() { hostNetworkFixCommand; }
+hostNetworkFixUsage() { ScriptUsageEcho "Usage: $(ScriptName) fix\nFix host by forcing it to reconnect to the network.\n\n$commonUsage\n$waitUsage"; }
+hostNetworkFixCommand() { ForAllHosts $errors --header "Fixing" hostNetworkFix; }
+
+hostNetworkFix()
 {
 	local host="$1"; host="$(DnsResolve "$host")" || return
 	local mac; mac="$(MacLookup --ethers "$host")" || return
@@ -297,6 +305,20 @@ hostFix()
 	[[ ! $wait ]] && return
 	WaitForAvailable "$host"
 }
+
+#
+# Host Power Commands
+#
+
+hostPowerUsage() {	ScriptUsageEcho "Usage: $(ScriptName) host power [on|off|reboot|status](status)\n\n$commonUsage\n$waitUsage"; }
+hostPowerCommand() { hostPowerStatusCommand; }
+hostPowerOffCommand() { ForAllHosts $errors hostOff --header "Powering Off"; }
+hostPowerOnCommand() { ForAllHosts $errors hostOn --header "Powering On"; }
+hostPowerRebootCommand() { ForAllHosts $errors hostReboot --header "Reboot"; }
+hostPowerStatusCommand() { ForAllHosts $errors hostStatus --header "Status"; }
+
+hostOff() { RunLog power off "$1" $wait "${globalArgs[@]}"; }
+hostOn() { RunLog power on "$1" $wait "${globalArgs[@]}"; }
 
 hostReboot()
 {
@@ -315,12 +337,30 @@ hostStatus()
 }
 
 #
-# Host Sync Command
+# Host Sync Commands
 #
 
 hostSyncUsage()
 {
-	ScriptUsageEcho "Usage: $(ScriptName) host sync
+	ScriptUsageEcho "Usage: $(ScriptName) host sync [files|root](files)
+Synchronize host files or root user configuration.
+
+Synronization options:
+$syncUsage
+	-- 									other synchronization options
+
+Common options:
+$commonUsage
+$waitUsage"
+}
+
+hostSyncCommand() { hostSyncFilesCommand; }
+hostSyncRootCommand() { ForAllHosts $errors hostSyncRoot --header "Sync Root User"; }
+hostSyncRoot() { SshHelper connect --x-forwarding --interactive "$1" -- 'SshHelper config sync root'; }
+
+hostSyncFilesUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) host sync files
 Synchronize host files.
 
 Synronization options:
@@ -332,9 +372,9 @@ $commonUsage
 $waitUsage"
 }
 
-hostSyncArgStart() { unset -v method unison; }
+hostSyncFilesArgStart() { unset -v method unison; }
 
-hostSyncOpt()
+hostSyncFilesOpt()
 {
 	case "$1" in
 		--destination-older|--dest-older|-do) method="--dest-older";;
@@ -344,9 +384,9 @@ hostSyncOpt()
 	esac
 }
 
-hostSyncCommand() { setOtherHosts; ForAllHosts hostSync; }
+hostSyncFilesCommand() { setOtherHosts; ForAllHosts hostSyncFiles; }
 
-hostSync()
+hostSyncFiles()
 {
 	local host="$1" args=($method "${globalArgs[@]}")
 	[[ "$(RemoveDnsSuffix "$host")" != @(nas1) ]] && args=($unison)
@@ -1117,7 +1157,7 @@ borgBackup()
 borgBackupConfig()
 {
 	local archive="$1" config="$2"; shift 2
-	local hosts; GetHostsConfigNetwork "$config" || return
+	local hosts; GetHostsApp "$config" || return
 	borgBackup "$archive" "${hosts[0]}" "$@"
 }
 
