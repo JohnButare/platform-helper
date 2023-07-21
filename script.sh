@@ -355,7 +355,7 @@ GetHosts()
 	# use hostArg, then passed list
 	local h="${hostArg:-$1}"
 
-	# comma separate list of hosts
+	# comma separated list of hosts
 	[[ "$h" != @(|all|web) ]] && { StringToArray "$(LowerCase "$h")" "," hosts; return; }
 
 	# service name

@@ -32,16 +32,20 @@ backupUsage()
 	ScriptUsageEcho "Usage: $(ScriptName) backup job|$(ArrayDelimit backupCommands "|")
 Backup data for the Wiggin network.
 
-	job			run the backup job which backs up all relevant data for the Wiggin network."
+	job			run the backup job which backs up all relevant data for the Wiggin network.
+
+$hostUsage"
 }
 
 backupCommand() { usage; }
+backupArgStart() { borgArgs=(); }
+backupOpt() {	ScriptOptHost "$@"; }
 backupDomainsCommand() { backupDomain "butare.net" && backupDomain "juntosholdings.com"; }
-backupNginxCommand() { borgBackupConfig "Nginx" "lb" "/etc/nginx"; }
+backupNginxCommand() { borgBackupService "Nginx" "lb" "/etc/nginx"; }
 backupProxymanagerCommand() { borgBackupService "ProxyManager" "nginx-proxy-manager" "/srv/nginx-proxy-manager"; }
 backupHomeassistantCommand() { borgBackupService "HomeAssistant" "home-assistant" "/home/homeassistant/.homeassistant"; }
 backupPoolCommand() { borgBackupService "PoolController" "pool-controller" "/opt/pool-controller" && borgBackupService "PoolDashPanel" "pool-dash-panel" "/opt/pool-dash-panel"; }
-backupWebCommand() { borgBackupService "web" "web" "/srv/apache-web"; }
+backupWebCommand() { local borgArgs=(--exclude "/srv/apache-web/logs/"); borgBackupService "web" "web" "/srv/apache-web"; }
 backupWireguardCommand() { borgBackupService "WireGuard" "wire-guard" "/etc/wireguard" "/etc/pivpn"; }
 
 backupConsulCommand()
@@ -290,7 +294,7 @@ hostCredentialUnlock() { SshHelper connect --x-forwarding --interactive "$1" -- 
 hostNetworkUsage() { ScriptUsageEcho "Usage: $(ScriptName) host network [fix](fix)\n\n$commonUsage\n$waitUsage"; }
 hostNetworkCommand() { hostNetworkFixCommand; }
 hostNetworkFixUsage() { ScriptUsageEcho "Usage: $(ScriptName) fix\nFix host by forcing it to reconnect to the network.\n\n$commonUsage\n$waitUsage"; }
-hostNetworkFixCommand() { ForAllHosts $errors --header "Fixing" hostNetworkFix; }
+hostNetworkFixCommand() { ForAllHosts $errors hostNetworkFix --header "Fixing"; }
 
 hostNetworkFix()
 {
@@ -1146,27 +1150,22 @@ getDhcpHosts() { GetHostsApp "dns"; } # assume the DNS servers are also the DHCP
 mountVol() { VeraCrypt mount "$@" p "${globalArgs[@]}"; }
 unmountVol() { VeraCrypt unmount p "${globalArgs[@]}"; }
 
-# backupBackup ARCHIVE SERVER [DIRS]
+# backupBackupHost HOST - assumes archive, dirs, and borgArgs are set.
 borgBackup()
 {
-	local archive="$1" server="$2"; shift 2
-	RunLog BorgHelper remote "$server" "${globalArgs[@]}" -- backup "$@" --archive=$archive --host=all --prune=5
+	echo "${GREEN}Backing up ${service^} ($host)...${RESET}"
+	echo "directories: ${dirs[@]}"
+	[[ $borgArgs ]] && echo "borg arguments: ${borgArgs[@]}"
+
+	RunLog BorgHelper remote "$1" "${globalArgs[@]}" -- backup "${dirs[@]}" --archive=$archive --host=all --prune=5 -- "${borgArgs[@]}"; 
 }
 
-# borgBackupConfig ARCHIVE CONFIG [DIR]... - backup first availble host for the specified network configuration
-borgBackupConfig()
-{
-	local archive="$1" config="$2"; shift 2
-	local hosts; GetHostsApp "$config" || return
-	borgBackup "$archive" "${hosts[0]}" "$@"
-}
-
-# borgBackupService ARCHIVE SERVICE [DIR]... - backup first availble host directories for service
+# borgBackupService ARCHIVE SERVICE [DIR]... - backup service of first available host
 borgBackupService()
 {
-	local archive="$1" service="$2"; shift 2
-	local host; host="$(GetServer "$service")" || return
-	borgBackup "$archive" "$host" "$@"
+	local archive="$1" service="$2" dirs=("${@:3}")
+	[[ ! $hostArg ]] && { hostArg="$(GetServer "$service")" || return; }
+	ForAllHosts borgBackup --header "Backup ${service^}"
 }
 
 getHost()
