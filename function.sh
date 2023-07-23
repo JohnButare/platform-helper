@@ -140,7 +140,8 @@ clipw()
 pipg()
 {
 	if IsPlatform debian,mac; then
-		sudoc "/root/.local/bin/pip" "$@"
+		local dir; IsPlatform debian && dir="/root/.local/bin/"
+		sudoc "${dir}pip" "$@"
 	elif [[ "$1" == "install" ]]; then
 		sudoc python3 -m pip "$@"
 	fi
@@ -150,8 +151,9 @@ pipg()
 pipxg()
 {
 	if IsPlatform debian,mac; then
+		local dir; IsPlatform debian && dir="/root/.local/bin/"
 		local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="$HOMEBREW_PREFIX/opt/openssl@3/"
-		sudoc PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "/root/.local/bin/pipx" "$@"
+		sudoc PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "${dir}pipx" "$@"
 	elif [[ "$1" == "install" ]]; then
 		sudoc python3 -m pipx "$@"
 	fi
