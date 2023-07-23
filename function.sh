@@ -136,18 +136,24 @@ clipw()
 
 # languages
 
+# pipg - pip global, run pip for all users
+pipg()
+{
+	if IsPlatform debian,mac; then
+		sudoc "/root/.local/bin/pip" "$@"
+	elif [[ "$1" == "install" ]]; then
+		sudoc python3 -m pip "$@"
+	fi
+}
+
 # pipxg - pipx global, run pipx for all users
 pipxg()
 {
-	if IsPlatform debian,mac,qnap; then
-		local dir
-		if IsPlatform qnap; then dir="/share/homes/admin/.local/bin/"
-		elif IsPlatform linux,win; then dir="/root/.local/bin/"
-		fi
+	if IsPlatform debian,mac; then
 		local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="$HOMEBREW_PREFIX/opt/openssl@3/"
-		sudoc PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "${dir}pipx" "$@"
+		sudoc PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "/root/.local/bin/pipx" "$@"
 	elif [[ "$1" == "install" ]]; then
-		sudoc python3 -m pip "$@"
+		sudoc python3 -m pipx "$@"
 	fi
 }
 
