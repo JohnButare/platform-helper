@@ -91,7 +91,6 @@ UrlDecode()
 
 UrlDecodeAlt() { GetArgs; : "${*//+/ }"; echo -e "${_//%/\\x}"; }
 
-
 # update - manage update state in a temporary file location
 UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
 UpdateCheck() { [[ $updateDir ]] && return; UpdateInit; }
@@ -132,31 +131,6 @@ clipw()
 		mac) clipok && printf "%s" "$@" | pbcopy;; 
 		win) InPath clip.exe && ( cd /; printf "%s" "$@" | clip.exe );; # cd / to fix WSL 2 error running from network share
 	esac
-}
-
-# languages
-
-# pipg - pip global, run pip for all users
-pipg()
-{
-	if IsPlatform debian,mac; then
-		local dir; IsPlatform debian && dir="/root/.local/bin/"
-		sudoc "${dir}pip" "$@"
-	elif [[ "$1" == "install" ]]; then
-		sudoc python3 -m pip "$@"
-	fi
-}
-
-# pipxg - pipx global, run pipx for all users
-pipxg()
-{
-	if IsPlatform debian,mac; then
-		local dir; IsPlatform debian && dir="/root/.local/bin/"
-		local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="$HOMEBREW_PREFIX/opt/openssl@3/"
-		sudoc PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "${dir}pipx" "$@"
-	elif [[ "$1" == "install" ]]; then
-		sudoc python3 -m pipx "$@"
-	fi
 }
 
 # logging
@@ -615,18 +589,6 @@ powershell()
 	
 	# could not find
 	EchoErr "powershell: could not find powershell"; return 1;
-}
-
-# PythonConf - add Python bin directory if present
-PythonConf()
-{
-	! IsFunction PathAdd && { . $BIN/bash.bashrc || return; }
-	if [[ "$PLATFORM_OS" != "mac" && -d "$HOME/.local/bin" ]]; then PathAdd "$HOME/.local/bin"
-	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.11/bin" ]]; then PathAdd front "$HOME/Library/Python/3.11/bin"
-	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.10/bin" ]]; then PathAdd front "$HOME/Library/Python/3.10/bin"
-	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.9/bin" ]]; then PathAdd front "$HOME/Library/Python/3.9/bin"
-	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.8/bin" ]]; then PathAdd front "$HOME/Library/Python/3.8/bin"
-	fi
 }
 
 store()
@@ -3288,6 +3250,52 @@ start()
 		(nohup $sudo "$file" "${args[@]}" >& /dev/null &)		
 	fi
 } 
+
+#
+# Python
+#
+
+# PythonConf - add Python bin directory if present
+PythonConf()
+{
+	local dir; dir="$(PythonPathLocal)" || return; [[ ! $dir ]] && return
+	local front; IsPlatform mac && front="front"
+	! IsFunction PathAdd && { . "$BIN/bash.bashrc" || return; }
+	PathAdd "$front" $dir
+}
+
+# PythonPathLocal - path to local Python bin directory if present
+PythonPathLocal()
+{
+	if [[ "$PLATFORM_OS" != "mac" && -d "$HOME/.local/bin" ]]; then echo "$HOME/.local/bin"
+	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.11/bin" ]]; then echo "$HOME/Library/Python/3.11/bin"
+	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.10/bin" ]]; then echo "$HOME/Library/Python/3.10/bin"
+	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.9/bin" ]]; then echo "$HOME/Library/Python/3.9/bin"
+	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.8/bin" ]]; then echo "$HOME/Library/Python/3.8/bin"
+	fi
+}
+
+# PythonPathGlobal - path to global Python bin directory if present
+PythonPathGlobal()
+{
+	if IsPlatform debian; then
+		echo "/root/.local/bin"
+	fi
+}
+
+# prl - pip run local, run a Python program locally (for the local user)
+prl() { local dir; dir="$(PythonPathLocal)"; [[ $dir ]] && dir+="/"; "${dir}$@"; }
+
+# prg - Python run global, run a global Python program (for all users)
+prg() { local dir; dir="$(PythonPathGlobal)"; [[ $dir ]] && dir+="/"; sudoc "${dir}$@"; }
+
+# pipxg - pipx global, run pipx for all users with environment variables
+pipxg()
+{
+	local dir; dir="$(PythonPathGlobal)"; [[ $dir ]] && dir+="/"
+	local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="$HOMEBREW_PREFIX/opt/openssl@3/"
+	sudoc PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "${dir}pipx" "$@"
+}
 
 #
 # Scripts
