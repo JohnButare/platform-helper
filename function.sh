@@ -3375,8 +3375,8 @@ prr()
 	sudoc --set-home "$PYTHON_ROOT_BIN/$@"
 }
 
-# pipxr - pipx root, run pipx for root with required environment variables
-pipxr()
+# pipxg - pipx global, install pipx programs in the global (shared) location
+pipxg()
 {
 	[[ ! $PYTHON_ROOT_CHECKED ]] && { PythonRootConf || return; }	
 	local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="$HOMEBREW_PREFIX/opt/openssl@3/"
