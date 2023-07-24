@@ -491,6 +491,14 @@ browser()
 # Borg Backup
 BorgConf() { ScriptEval BorgHelper environment "$@"; }
 
+# DirenvConf - confiogure direnv if it is installed
+DirenvConf()
+{
+	InPath direnv || { ScriptErr "direnv is not installed" "DirenvConf"; return 1; }
+	def _direnv_hook >& /dev/null && return
+	eval "$(direnv hook "$PLATFORM_SHELL")"
+}
+
 # HashiCorp
 
 HashiConf()
@@ -570,6 +578,16 @@ InstFind()
 	ScriptEval FindInstallFile --eval $select $verbose || return
 	export INSTALL_DIR="$installDir"
 	unset installDir file
+}
+
+# McFly - initialie last since
+# - must be after after set prompt as this modifies the bash prompt
+# - sometimes it prevents the rest of the script from running
+McflyConf()
+{
+	{ ! InPath mcfly || [[ "$TERM_PROGRAM" == @(vscode) ]] || [[ $MCFLY_PATH && ! $force ]]; } && return
+	local force; ScriptOptForce "$@"
+	export MCFLY_HISTFILE="$HISTFILE" && eval "$(mcfly init "$PLATFORM_SHELL")"
 }
 
 powershell() 
@@ -1383,6 +1401,14 @@ RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort N
 scurl() { curl "$@" | sponge; } # use curl with sponge to avoid write error 23 in a pipeline
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
 WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuotes | RemoveEmptyLines | sort | uniq; }
+
+NetworkConf()
+{
+	local force; ScriptOptForce "$@"
+	[[ $NETWORK_CHECKED && ! $force ]] && return
+	ScriptEval network proxy vars || return
+	NETWORK_CHECKED="true"
+}
 
 CacheDefaultGateway()
 {
@@ -2211,6 +2237,13 @@ SshConfigGet() { local host="$1" value="$2"; ssh -G "$host" | grep -i "^$value "
 SshInPath() { SshHelper connect "$1" -- which "$2" >/dev/null; } 																							# SshInPath HOST FILE
 SshIsAvailablePort() { local port="$(SshHelper config get "$1" port)"; IsAvailablePort "$1" "${port:-22}"; } 	# SshIsAvailablePort HOST - return true if SSH is available on the host
 SshUser() { local host="$1" user; user="$(SshConfigGet "$host" "user")" || return; echo "${user:-$USER}"; } 	# SshUser HOST - return the user for the host
+
+SshAgentEnvConf()
+{
+	local force; ScriptOptForce "$@"
+	[[ $SSH_AUTH_SOCK && !$force ]] && return
+	ScriptEval SshAgent environment --quiet
+}
 
 SshAgentConf()
 { 
@@ -3255,46 +3288,99 @@ start()
 # Python
 #
 
-# PythonConf - add Python bin directory if present
+# PythonConf - configure Python for the current user
 PythonConf()
 {
-	local dir; dir="$(PythonPathLocal)" || return; [[ ! $dir ]] && return
-	local front; IsPlatform mac && front="front"
+	local force; ScriptOptForce "$@"
+
+	# return if python is not installed
+	! InPath python3 && return
+	
+	# configure
+	if [[ $force || ! $PYTHON_CHECKED ]]; then
+	 
+		# find locations
+		export PYTHON_USER_SITE; PYTHON_USER_SITE="$(python3 -m site --user-site)" || return
+		export PYTHON_USER_BIN; PYTHON_USER_BIN="$(python3 -m site --user-base)/bin" || return
+
+		[[ ! -d "$PYTHON_USER_SITE" ]] && { ScriptErr "The Python user site directory '$(FileToDesc "$PYTHON_USER_SITE")' does not exist" "PythonConf"; return 1; }
+		[[ ! -d "$PYTHON_USER_BIN" ]] && { ScriptErr "The Python user bin directory '$(FileToDesc "$PYTHON_USER_BIN")' does not exist" "PythonConf"; return 1; }
+
+		# add to path
+		local front; IsPlatform mac && front="front"
+		! IsFunction PathAdd && { . "$BIN/bash.bashrc" || return; }
+		PathAdd "$front" "$PYTHON_USER_BIN"
+		
+		PYTHON_CHECKED="true"
+	fi
+
+	# configure direnv for virtual environments
+	if [[ -f ".envrc" ]] && InPath direnv; then
+		DirenvConf || return
+		${G}grep --quiet pyenv ".envrc" && { PyenvConf || return; }
+	fi
+
+	return 0
+}
+
+PyenvMake()
+{
+	DirenvConf || return
+	[[ ! -f ".envrc" ]] && { echo 'layout python3' > ".envrc" || return; }
+	direnv allow	
+}
+
+PyenvConf()
+{
+	# initialize
+	[[ ! -d "$HOME/.pyenv" ]] && { ScriptErr "pyenv is not installed" "PyenvConf"; return 1; }	
+	export PYENV_ROOT="$HOME/.pyenv"
+
+	# add to path
 	! IsFunction PathAdd && { . "$BIN/bash.bashrc" || return; }
-	PathAdd "$front" $dir
+	PathAdd front "$PYENV_ROOT/bin"
+
+	# configure
+	eval "$(pyenv init -)"
 }
 
-# PythonPathLocal - path to local Python bin directory if present
-PythonPathLocal()
+# prl - Python run local, run a Python program freom the current users Python bin directory
+prl()
 {
-	if [[ "$PLATFORM_OS" != "mac" && -d "$HOME/.local/bin" ]]; then echo "$HOME/.local/bin"
-	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.11/bin" ]]; then echo "$HOME/Library/Python/3.11/bin"
-	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.10/bin" ]]; then echo "$HOME/Library/Python/3.10/bin"
-	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.9/bin" ]]; then echo "$HOME/Library/Python/3.9/bin"
-	elif [[ "$PLATFORM_OS" == "mac" && -d "$HOME/Library/Python/3.8/bin" ]]; then echo "$HOME/Library/Python/3.8/bin"
-	fi
+	[[ ! $PYTHON_CHECKED ]] && { PythonConf || return; }
+	"$PYTHON_USER_BIN/$@"
 }
 
-# PythonPathGlobal - path to global Python bin directory if present
-PythonPathGlobal()
+# PythonRootConf - configure Python for the root user
+PythonRootConf()
 {
-	if IsPlatform debian; then
-		echo "/root/.local/bin"
-	fi
+	local force; ScriptOptForce "$@"
+	( [[ $PYTHON_ROOT_CHECKED && ! $force ]] || ! InPath python3 ) && return
+	 
+	# find locations
+	sudov || return
+	export PYTHON_ROOT_SITE; PYTHON_ROOT_SITE="$(sudo --set-home python3 -m site --user-site)" || return
+	export PYTHON_ROOT_BIN; PYTHON_ROOT_BIN="$(sudo --set-home python3 -m site --user-base)/bin" || return
+
+	! sudo ls "$PYTHON_ROOT_SITE" >& /dev/null && { ScriptErr "The Python root site directory '$(FileToDesc "$PYTHON_ROOT_SITE")' does not exist" "PythonConfRoot"; return 1; }
+	! sudo ls "$PYTHON_ROOT_BIN" >& /dev/null && { ScriptErr "The Python root bin directory '$(FileToDesc "$PYTHON_ROOT_BIN")' does not exist" "PythonConfRoot"; return 1; }
+
+	PYTHON_ROOT_CHECKED="true"
 }
 
-# prl - pip run local, run a Python program locally (for the local user)
-prl() { local dir; dir="$(PythonPathLocal)"; [[ $dir ]] && dir+="/"; "${dir}$@"; }
-
-# prg - Python run global, run a global Python program (for all users)
-prg() { local dir; dir="$(PythonPathGlobal)"; [[ $dir ]] && dir+="/"; sudoc "${dir}$@"; }
-
-# pipxg - pipx global, run pipx for all users with environment variables
-pipxg()
+# prr - Python run root, run a Python program freom the root users Python bin directory
+prr()
 {
-	local dir; dir="$(PythonPathGlobal)"; [[ $dir ]] && dir+="/"
+	[[ ! $PYTHON_ROOT_CHECKED ]] && { PythonRootConf || return; }	
+	sudoc --set-home "$PYTHON_ROOT_BIN/$@"
+}
+
+# pipxr - pipx root, run pipx for root with required environment variables
+pipxr()
+{
+	[[ ! $PYTHON_ROOT_CHECKED ]] && { PythonRootConf || return; }	
 	local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="$HOMEBREW_PREFIX/opt/openssl@3/"
-	sudoc PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "${dir}pipx" "$@"
+	sudoc --set-home PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "$PYTHON_ROOT_BIN/pipx" "$@"
 }
 
 #
@@ -3607,8 +3693,9 @@ GetTextEditor()
 # - return only when the file has been edited
 SetTextEditor()
 {
-	local e
-	
+	local e force; ScriptOptForce "$@"
+	[[ $EDITOR && ! $force ]] && return
+
 	if IsInstalled sublime; then e="$BIN/sublime -w"
 	elif InPath geany; then e="geany -i"
 	elif InPath micro; then e="micro"
