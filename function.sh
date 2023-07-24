@@ -3325,8 +3325,24 @@ PythonConf()
 
 PyenvMake()
 {
+	local v="$1" vOrig="$1"
+
+	# initialize
 	DirenvConf || return
-	[[ ! -f ".envrc" ]] && { echo 'layout python3' > ".envrc" || return; }
+	[[ $v ]] && { PyenvConf || return; }
+	
+	# configure
+	if [[ ! -f ".envrc" ]]; then
+		local layout="layout python3"; 
+		if [[ $v ]]; then
+			v="$(pyenv versions --bare --skip-envs | ${G}grep "$v" | sort --version-sort --reverse | head -1)"
+			[[ ! $v ]] && { ScriptErr "Python version '$vOrig' is not installed" "PyenvMake"; return 1; }
+			layout="layout pyenv $v"
+		fi
+		echo "$layout" > ".envrc" || return
+	fi
+
+	# create the environment
 	direnv allow	
 }
 
