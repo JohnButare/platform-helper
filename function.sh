@@ -585,7 +585,7 @@ InstFind()
 # - sometimes it prevents the rest of the script from running
 McflyConf()
 {
-	{ ! InPath mcfly || [[ "$TERM_PROGRAM" == @(vscode) ]] || [[ $MCFLY_PATH && ! $force ]]; } && return
+	{ ! InPath mcfly || [[ "$TERM_PROGRAM" == @(vscode|WarpTerminal) ]] || [[ $MCFLY_PATH && ! $force ]]; } && return
 	local force; ScriptOptForce "$@"
 	export MCFLY_HISTFILE="$HISTFILE" && eval "$(mcfly init "$PLATFORM_SHELL")"
 }
