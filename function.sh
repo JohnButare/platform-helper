@@ -1407,6 +1407,7 @@ NetworkConf()
 	local force; ScriptOptForce "$@"
 	[[ $NETWORK_CHECKED && ! $force ]] && return
 	ScriptEval network proxy vars || return
+	NetworkCurrentUpdate "$@" || return
 	NETWORK_CHECKED="true"
 }
 
