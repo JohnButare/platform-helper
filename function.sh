@@ -504,9 +504,9 @@ DirenvConf()
 HashiConf()
 {
 	local force; ScriptOptForce "$@"
-	[[ $HASHI_CHECKED && ! $force ]] && return
-	ScriptEval hashi config environment all --suppress-errors "$@" || return
-	HASHI_CHECKED="true"
+	[[ ! $force && $HASHI_CHECKED ]] && return
+
+	ScriptEval hashi config environment all --suppress-errors "$@" && HASHI_CHECKED="true"
 }
 
 HashiConfStatus() { [[ "$NETWORK" != "hagerman" ]] && return; HashiConf --config-prefix=prod "$@" && hashi config status; }
@@ -583,10 +583,13 @@ InstFind()
 # McFly - initialie last since
 # - must be after after set prompt as this modifies the bash prompt
 # - sometimes it prevents the rest of the script from running
+
 McflyConf()
 {
-	{ ! InPath mcfly || [[ "$TERM_PROGRAM" == @(vscode|WarpTerminal) ]] || [[ $MCFLY_PATH && ! $force ]]; } && return
-	local force; ScriptOptForce "$@"
+	local force; ScriptOptForce "$@"	
+	[[ ! $force && $MCFLY_PATH ]] && return	
+	{ ! InPath mcfly || [[ "$TERM_PROGRAM" == @(vscode|WarpTerminal) ]]; } && return
+
 	export MCFLY_HISTFILE="$HISTFILE" && eval "$(mcfly init "$PLATFORM_SHELL")"
 }
 
@@ -1385,9 +1388,9 @@ FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo tail -F -n +0 "$1" | grep "
 #
 
 GetPorts() { sudoc lsof -i -P -n; }
-GetDefaultGateway() { CacheDefaultGateway && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
-GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }	# GetMacAddress - MAC address of the primary network interface
-GetHostname() { SshHelper connect "$1" -- hostname; } 													# GetHostname NAME - hosts actual configured name
+GetDefaultGateway() { CacheDefaultGateway "$@" && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
+GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }				# GetMacAddress - MAC address of the primary network interface
+GetHostname() { SshHelper connect "$1" -- hostname; } 																# GetHostname NAME - hosts actual configured name
 GetOsName() { local name="$1"; name="$(UpdateGet "os-name-$1")"; [[ $name ]] && echo "$name" || os name "$server"; } # GetOsName NAME - cached DNS name, fast
 HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not available"; return 1; }
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
@@ -1405,15 +1408,15 @@ WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuote
 NetworkConf()
 {
 	local force; ScriptOptForce "$@"
-	[[ $NETWORK_CHECKED && ! $force ]] && return
-	ScriptEval network proxy vars || return
-	NetworkCurrentUpdate "$@" || return
-	NETWORK_CHECKED="true"
+	[[ ! $force && $NETWORK_CHECKED ]] && return
+
+	NetworkCurrentUpdate "$@" && NETWORK_CHECKED="true"
 }
 
 CacheDefaultGateway()
 {
-	[[ $NETWORK_DEFAULT_GATEWAY ]] && return
+	local force; ScriptOptForce "$@"
+	[[ ! $force && $NETWORK_DEFAULT_GATEWAY ]] && return
 
 	if IsPlatform win; then
 		local g="$(route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | head -1 | awk '{ print $3; }')" || return
@@ -1608,17 +1611,17 @@ GetIpAddress()
 
 	local ip server
 
-	# SSH configuration
-	host="$(SshHelper config get "$host" hostname)" || return
-
-	# /etc/hosts
-	[[ $host ]] && IsFunction getent && ip="$(getent hosts "$host")" && { echo "$ip" | cut -d" " -f1; return; }
-
 	# IP address
 	IsIpAddress "$host" && { echo "$host"; return; }
 
 	# localhost
 	IsLocalHost "$host" && { GetAdapterIpAddress $wsl; return; }
+
+	# SSH configuration
+	host="$(SshHelper config get "$host" hostname)" || return
+
+	# /etc/hosts
+	[[ $host ]] && IsFunction getent && ip="$(getent hosts "$host")" && { echo "$ip" | cut -d" " -f1; return; }
 
 	# Resolve mDNS (.local) names exclicitly as the name resolution commands below can fail on some hosts
 	# In Windows WSL the methods below never resolve mDNS addresses
@@ -3372,7 +3375,7 @@ prl()
 PythonRootConf()
 {
 	local force; ScriptOptForce "$@"
-	( [[ $PYTHON_ROOT_CHECKED && ! $force ]] || ! InPath python3 ) && return
+	( [[ ! $force && $PYTHON_ROOT_CHECKED ]] || ! InPath python3 ) && return
 	 
 	# find locations
 	sudov || return
@@ -3565,7 +3568,7 @@ CertView() { local c; for c in "$@"; do openssl x509 -in "$c" -text; done; }
 CredentialConf()
 {
 	local force; ScriptOptForce "$@"
-	[[ $CREDENTIAL_MANAGER_CHECKED && ! $force ]] && return
+	[[ ! $force && $CREDENTIAL_MANAGER_CHECKED ]] && return
 	ScriptEval credential environment "$@" || { export CREDENTIAL_MANAGER="None" CREDENTIAL_MANAGER_CHECKED="true"; return 1; }
 }
 
@@ -3711,7 +3714,7 @@ GetTextEditor()
 SetTextEditor()
 {
 	local e force; ScriptOptForce "$@"
-	[[ $EDITOR && ! $force ]] && return
+	[[ ! $force && $EDITOR ]] && return
 
 	if IsInstalled sublime; then e="$BIN/sublime -w"
 	elif InPath geany; then e="geany -i"
@@ -3742,7 +3745,9 @@ VmType() { GetVmType; echo "$VM_TYPE"; }
 
 GetChrootName()
 {
-	[[ $CHROOT_CHECKED ]] && return
+	local force; ScriptOptForce "$@"
+	local verbose verboseLevel; ScriptOptVerbose "$@"
+	[[ ! $force && $CHROOT_CHECKED ]] && return
 	
 	if [[ -f "/etc/debian_chroot" ]]; then
 		CHROOT_NAME="$(cat "/etc/debian_chroot")"
@@ -3752,13 +3757,16 @@ GetChrootName()
 		CHROOT_NAME="chroot"
 	fi
 
+	[[ $verbose ]] && { ScriptErr "CHROOT_NAME=$CHROOT_NAME"; }	
 	CHROOT_CHECKED="true"
 }
 
 # GetVmType - cached to avoid multiple sudo calls
 GetVmType() # vmware|hyperv
 {	
-	[[ $VM_TYPE_CHECKED ]] && return
+	local force; ScriptOptForce "$@"
+	local verbose verboseLevel; ScriptOptVerbose "$@"
+	[[ ! $force && $VM_TYPE_CHECKED ]] && return
 
 	local result
 
@@ -3795,6 +3803,7 @@ GetVmType() # vmware|hyperv
 		fi
 	fi
 
+	[[ $verbose ]] && { ScriptErr "VM_TYPE=$VM_TYPE"; }
 	export VM_TYPE_CHECKED="true" VM_TYPE="$result"
 }
 
