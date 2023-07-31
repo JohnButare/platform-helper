@@ -449,7 +449,7 @@ infoArgStart()
 { 
 	unset -v detail monitor prefix status
 	hostArg="localhost" what=() skip=()
-	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz credential file other update reboot)
+	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz credential file other update reboot restart)
 	infoDetail=(mhz memory process disk package switch)
 	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used)
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
@@ -654,23 +654,42 @@ infoUpdate()
 
 infoReboot()
 {
-	local detail status="no"; RunPlatform "infoReboot" && status="yes"
+	local detail status="no"; RunPlatform "infoReboot" || status="yes"
+	[[ ! $ran ]] && return
 	infoEcho "needs reboot: ${status}${detail}"
 }
 
 infoRebootDebian()
 {
+	ran="true"
+
 	# packages
 	local file="/var/run/reboot-required.pkgs"
 	if [[ -f "$file" ]]; then
 		local packages; IFS=$'\n' packages=( $(cat "$file") )
 		detail=" (${packages[@]})"
-		return
+		return 1
 	fi
 
 	# other
-	[[ -f "/var/run/reboot-required" ]] && return
+	[[ -f "/var/run/reboot-required" ]] && return 1
 
+	return 0
+}
+
+infoRestart()
+{
+	local detail ran status="no"; RunPlatform "infoRestart" || status="yes"
+	[[ ! $ran ]] && return
+	infoEcho "     restart: ${status}${detail}"
+}
+
+infoRestartDebian()
+{
+	ran="true"
+
+	local result; result="$(sudo checkrestart --terse --package | cut -d" " -f1,2)" && return
+	detail=" ($result)"
 	return 1
 }
 
