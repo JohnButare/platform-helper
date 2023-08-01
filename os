@@ -686,9 +686,10 @@ infoRestart()
 
 infoRestartDebian()
 {
+	! InPath checkrestart && return
 	ran="true"
 
-	local result; result="$(sudo checkrestart --terse --package | cut -d" " -f1,2)" && return
+	local result; result="$(sudoc checkrestart --terse --package 2> /dev/null | cut -d" " -f1,2)" && return
 	detail=" ($result)"
 	return 1
 }
