@@ -664,6 +664,7 @@ ReadChars()
 	return "$result"
 }
 
+# SleepStatus [seconds](5) [message](Waiting for n seconds)
 SleepStatus()
 {
 	local i message seconds=5
@@ -3159,7 +3160,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 
 	--elevate, -e 					run the program with an elevated administrator token (Windows)
 	--open, -o							open the the file using the associated program
-	--sudo, -2							run the program as root
+	--sudo, -s							run the program as root
 	--terminal, -T 					the terminal used to elevate programs, valid values are wsl|wt
 													wt does not preserve the current working directory
 	--test, -t 							test mode, the program is not started
@@ -3182,7 +3183,7 @@ start()
 			--sudo|-s) sudo="sudoc";;
 			--terminal|-T) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
-			--wait|-2) wait="--wait";;
+			--wait|-w) wait="--wait";;
 			--window-style|-ws) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "--window-style" "$2" ); shift;;
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; break; }
