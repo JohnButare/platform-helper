@@ -651,10 +651,7 @@ appClean()
 	[[ $noPrompt && ! $force ]] && { ScriptErr "The application '$app' is installed, --force must be specified."; return 1; }
 	
 	# close the application if possible
-	if AppHasHelper "$app" && AppIsRunning "$app"; then
-		AppClose "$app" || return
-		sleep 2 # let the app fully close
-	fi
+	AppClose --wait "$app" || return
 
 	# remove the application
 	sudoc $rmd "$dir"
@@ -1218,6 +1215,9 @@ run()
 	# prompt to run the installation
 	runPrompt "$p" "$name" || return 0
 
+	# close the application if possible
+	AppClose --wait "$app" || return
+
 	# determine if arguments are platform specific
 	[[ "${args[@]}" =~ / ]] && ! IsPlatform win && args=()
 
@@ -1524,10 +1524,14 @@ runDeb()
 
 runDmg()
 {
-	local result
+	local result volume="/Volumes/install"
 
 	runDmgWorker "$@"; result=$?
-	hdiutil detach /Volumes/install -quiet || return
+
+	if ! hdiutil detach "$volume" -quiet && ! hdiutil detach "$volume"; then
+		ask "Do you want to forcibly detach '$volume'" || return 
+		! hdiutil detach -force "$volume" && { sudoc umount "$volume" || return; }
+	fi
 
 	return $result
 }
@@ -1538,28 +1542,42 @@ runDmgWorker()
 	local p="$1" name="$2"; shift 2
 	local appDir="$P/${name}.app"
 
-	if ! hdiutil mount "$p" -mountpoint /Volumes/install -quiet; then
-		EchoErr "inst: unable to mount \"$p\""
-		hdiutil mount "$p" -mountpoint /Volumes/install
+	if ! hdiutil mount "$p" -mountpoint "$volume" -quiet; then
+		ScriptErr "unable to mount '$p'"
 		return 1
 	fi
 
-	if [[ -f "/Volumes/install/Install.mpkg" ]]; then
-		sudoc installer $verboseInstaller -pkg "/Volumes/install/Install.mpkg" -target /Applications
-	elif [[ -f "/Volumes/install/Install.app" ]]; then
-		start "/Volumes/install/Install.app"
-	elif ls /Volumes/install/*.pkg >& /dev/null; then
+	if p="/Volumes/install/Install.mpkg" && [[ -f "$p" ]]; then
+		log1 "running installer '$p'..."
+		sudoc installer $verboseInstaller -pkg "$volume/Install.mpkg" -target "/Applications"
+
+	elif p="$volume/Install.app" && [[ -f "$p" ]]; then
+		log1 "running installer '$p'..."
+		start "$p"
+
+	elif ls "$volume/"*.pkg >& /dev/null; then		
+		shopt -s nullglob; p=("$volume/"*.pkg); shopt -s nullglob
+
 		if [[ $useGui ]]; then
-			open /Volumes/install/*.pkg || return
+			log1 "running installer '$p'..."
+			open "$p" || return
 		else
-			sudoc installer $verboseInstaller -pkg /Volumes/install/*.pkg -target /Applications
+			log1 "running installer '$p' silently..."
+			sudoc installer $verboseInstaller -pkg "$p" -target "/Applications"
 		fi
-	else
-		shopt -s nullglob; local installDir=(/Volumes/install/*.app);
-		[[ ! "$installDir" ]] && { EchoErr "inst: \"$p\" does not contain an application"; return 1; }
-		appDir="$P/$(GetFileName "$installDir")" || return
+
+	elif ls "$volume/"*.app >& /dev/null; then
+		shopt -s nullglob; p=("$volume/"*.app); shopt -u nullglob
+		log1 "copying application '$p'..."
+	
+		appDir="$P/$(GetFileName "$p")" || return
 		appClean "$name" "$appDir" || return
-		sudoc acp --recursive --progress-bar "$installDir" "$P" || return
+		sudoc acp --recursive --progress-bar "$p" "$P" || return
+
+	else
+		ScriptErr "'$volume' does not contain an installer or an application"
+		return 1
+
 	fi
 
 	echo "Updating Spotlight..."
