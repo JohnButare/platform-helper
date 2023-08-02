@@ -509,7 +509,7 @@ infoRemote()
 	! SshIsAvailablePort "$host" && { infoEcho "$host Operating System information is not available"; return; }
 
 	# get detailed information using the os command on the host if possible
-	SshInPath "$host" "os" && { RunLog SshHelper connect "$host" --pseudo-terminal --interactive -- os info "${remoteArgs[@]}"; return; }
+	SshInPath "$host" "os" && { RunLog SshHelper connect "$host" --hashi "${globalArgsLessVerbose[@]}" -- os info "${remoteArgs[@]}"; return; }
 	
 	# othereise, get basic information using HostGetInfo vars command locally
 	ScriptEval HostGetInfo vars "$host" || return
