@@ -429,9 +429,20 @@ hostUpdateCommand() { hostUpdateAllCommand; }
 hostUpdateAllCommand() { HeaderBig "Update" && hostUpdateUpdateCommand && HeaderBig "Reboot" && hostUpdateRebootCommand && HeaderBig "Restart" && hostUpdateRestartCommand; }
 hostUpdateUpdateCommand() { ForAllHosts $errors hostUpdate; }
 hostUpdateRebootCommand() { hostUpdateRebootFindHost && hostUpdateReboot; }
-hostUpdateRestartCommand() { hostUpdateRestartFindHost && ForAllHosts $errors hostUpdateRestartHost --header "Restart" && hostUpdateRestartFindHost && hostUpdateReboot; }
 
-hostUpdateReboot() { wait="--ssh" ForAllHosts $errors hostUpdateRebootHost --header "Reboot"; }
+hostUpdateRestartCommand()
+{
+	local hostsOrig; ArrayCopy hosts hostsOrig || return
+
+	# restart
+	hostUpdateRestartFindHost || return; [[ ! $hosts ]] && return
+	ForAllHosts --no-get $errors hostUpdateRestartHost --header "Restart" || return
+
+	# reboot
+	ArrayCopy hostsOrig hosts && hostUpdateRestartFindHost && hostUpdateReboot
+}
+
+hostUpdateReboot() { wait="--ssh" ForAllHosts --no-get $errors hostUpdateRebootHost --header "Reboot"; }
 
 hostUpdate()
 {
@@ -444,11 +455,20 @@ hostUpdate()
 hostUpdateRestartFindHost()
 {
 	header "Restart Check"; printf "hosts..."
+
+	local cache="wiggin-host-restart-$host"
 	local host restartHosts=(); GetHosts || return
+	
 	for host in "${hosts[@]}"; do
+		! UpdateNeeded "$cache" && continue
 		local status; status="$(os info -w=restart $host)" || return
-		echo "$status" | ${G}grep --quiet " yes" && { printf "$(RemoveDnsSuffix "$host")..."; restartHosts+=("$host"); } || printf "."
+		if echo "$status" | ${G}grep --quiet " yes"; then
+			printf "$(RemoveDnsSuffix "$host")..."; restartHosts+=("$host")
+		else
+			printf "."; UpdateDone "$cache"
+		fi
 	done
+	
 	echo "done"
 	ArrayCopy restartHosts hosts
 }
@@ -463,12 +483,20 @@ hostUpdateRestartHost()
 hostUpdateRebootFindHost()
 {
 	header "Reboot Check"; printf "hosts..."
+
+	local cache="wiggin-host-reboot-$host"
 	local host rebootHosts=(); GetHosts || return
+
 	for host in "${hosts[@]}"; do
-		! UpdateNeeded "wiggin-host-restart-$host" && continue
+		! UpdateNeeded "$cache" && continue
 		local status; status="$(os info -w=reboot $host)" || return
-		echo "$status" | ${G}grep --quiet " yes" && { printf "$(RemoveDnsSuffix "$host")..."; rebootHosts+=("$host"); } || printf "."
+		if echo "$status" | ${G}grep --quiet " yes"; then
+			printf "$(RemoveDnsSuffix "$host")..."; rebootHosts+=("$host")
+		else
+			printf "."; UpdateDone "$cache"
+		fi
 	done
+
 	echo "done"
 	ArrayCopy rebootHosts hosts
 }

@@ -292,9 +292,10 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 # -b, --brief 				- display a brief header by prefixing the command with the host name
 # -e, --errors				- keep processing if a command fails, return the total number of errors
 # -h, --header HEADER - if set and there is more than one host display it as a header
+# -ng, --no-get 			- do not get hosts
 ForAllHosts()
 {
-	local brief errors header command=()
+	local brief errors header noGet command=()
 
 	# options
 	while (( $# != 0 )); do
@@ -302,6 +303,7 @@ ForAllHosts()
 			--brief|-b) brief="--brief";;
 			--errors|-e) errors=0;;
 			--header|--header=*|-h|-h=*) local shift=0; ScriptOptGet "header" "$@" || return; shift $shift;;
+			--no-get|-ng) noGet="--no-get";;
 			--) shift; command+=("$@"); break;;
 			*) command+=("$1");;
 		esac
@@ -309,7 +311,7 @@ ForAllHosts()
 	done
 
 	# run command for all hosts
-	local host; GetHosts || return
+	local host; [[ ! $noGet ]] && { GetHosts || return; }
 	local multiple; (( ${#hosts[@]} > 1 )) && multiple="true"
 	for host in "${hosts[@]}"; do
 
@@ -360,8 +362,8 @@ GetHosts()
 	[[ "$h" != @(|all|web) ]] && { StringToArray "$(LowerCase "$h")" "," hosts; return; }
 
 	# service name
-	[[ "$h" == @(|all) ]] && hostArg="nomad-client"
-	IFS=$'\n' ArrayMakeC hosts GetServers "$hostArg"
+	local service="$hostArg"; [[ "$h" == @(|all) ]] && service="nomad-client"
+	IFS=$'\n' ArrayMakeC hosts GetServers "$service"
 	[[ ! $getHostsOther ]] && return
 	hosts=("${getHostsOther[@]}" "${hosts[@]}")
 	unset getHostsOther
