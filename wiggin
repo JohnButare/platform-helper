@@ -406,8 +406,13 @@ hostSyncFiles()
 
 hostUpdateUsage()
 {
-	ScriptUsageEcho "Usage: $(ScriptName) host update
+	ScriptUsageEcho "Usage: $(ScriptName) host update [all|reboot|restart|update](all)
 Update hosts, then reboot hosts if needed.
+
+	all			perform all actions
+	reboot	only reboot hosts which require it
+	restart	only restart required processes
+	update	only update hosts
 
 Synronization options:
 $syncUsage
@@ -420,37 +425,58 @@ $waitUsage"
 
 hostUpdateArgStart() { hostSyncFilesArgStart; }
 hostUpdateOpt() { hostSyncFilesOpt "$@"; }
+hostUpdateCommand() { hostUpdateAllCommand; }
+hostUpdateAllCommand() { HeaderBig "Update" && hostUpdateUpdateCommand && HeaderBig "Reboot" && hostUpdateRebootCommand && HeaderBig "Restart" && hostUpdateRestartCommand; }
+hostUpdateUpdateCommand() { ForAllHosts $errors hostUpdate; }
+hostUpdateRebootCommand() { hostUpdateRebootFindHost && hostUpdateReboot; }
+hostUpdateRestartCommand() { hostUpdateRestartFindHost && ForAllHosts $errors hostRestart --header "Restart" && hostUpdateRestartFindHost && hostUpdateReboot; }
 
-hostUpdateCommand()
+hostUpdateReboot() { wait="--ssh" ForAllHosts $errors hostUpdateRebootHost --header "Reboot"; }
+
+hostUpdate()
 {
-	# update hosts
-	ForAllHosts $errors hostUpdate || return
+	local cache="wiggin-host-update-$host"; ! UpdateNeeded "$cache" && return
+	local host="$1" args=($method); [[ "$(RemoveDnsSuffix "$host")" != @(nas1) ]] && args=($unison)	
+	HostAvailable "$host" && HostUpdate "$host" "${args[@]}" "${otherArgs[@]}" && UpdateDone "$cache"
+}
 
-	# find hosts which require a reboot
-	local cache="wiggin-host-reboot-check"; ! UpdateNeeded "$cache" && return
-	header "Reboot Check"; printf "hosts..."
-	local host rebootHosts=()
+# hostUpdateRestartFindHost - sets hosts to the hosts which require process restarts
+hostUpdateRestartFindHost()
+{
+	header "Restart Check"; printf "hosts..."
+	local host restartHosts=(); GetHosts || return
 	for host in "${hosts[@]}"; do
+		local status; status="$(os info -w=restart $host)" || return
+		echo "$status" | ${G}grep --quiet " yes" && { printf "$(RemoveDnsSuffix "$host")..."; restartHosts+=("$host"); } || printf "."
+	done
+	echo "done"
+	ArrayCopy restartHosts hosts
+}
+
+hostUpdateRestartHost()
+{
+	local cache="wiggin-host-restart-$host"; ! UpdateNeeded "$cache" && return
+	SshHelper connect --x-forwarding --interactive "$1" -- sudoc needrestart -r a && UpdateDone "$cache"
+}
+
+# hostUpdateRebootFindHost - sets hosts to the hosts which require reboot
+hostUpdateRebootFindHost()
+{
+	header "Reboot Check"; printf "hosts..."
+	local host rebootHosts=(); GetHosts || return
+	for host in "${hosts[@]}"; do
+		! UpdateNeeded "wiggin-host-restart-$host" && continue
 		local status; status="$(os info -w=reboot $host)" || return
 		echo "$status" | ${G}grep --quiet " yes" && { printf "$(RemoveDnsSuffix "$host")..."; rebootHosts+=("$host"); } || printf "."
 	done
 	echo "done"
-
-	[[ ! $rebootHosts ]] && { UpdateDone "$cache"; return; }
-
-	# reboot
-	local wait="--ssh"
-	hosts=( "${rebootHosts[@]}" )
-	ForAllHosts $errors hostReboot --header "Reboot" && UpdateDone "$cache"
+	ArrayCopy rebootHosts hosts
 }
 
-hostUpdate()
+hostUpdateRebootHost()
 {
-	local host="$1" args=($method)
-	[[ "$(RemoveDnsSuffix "$host")" != @(nas1) ]] && args=($unison)
-	local cache="wiggin-host-update-$host"
-	! UpdateNeeded "$cache" && return
-	HostAvailable "$host" && HostUpdate "$host" "${args[@]}" "${otherArgs[@]}" && UpdateDone "$cache"
+	local cache="wiggin-host-reboot-$host"; ! UpdateNeeded "$cache" && return
+	hostReboot "$1" && UpdateDone "$cache"
 }
 
 #

@@ -335,6 +335,7 @@ ForAllHosts()
 	[[ $errors ]] && return $errors || return 0
 }
 
+# ScriptOptHost - sets hostArg hostOpt
 ScriptOptHost() 
 {
 	case "$1" in
