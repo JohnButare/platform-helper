@@ -507,6 +507,24 @@ DirenvConf()
 	eval "$(direnv hook "$PLATFORM_SHELL")"
 }
 
+DotNetConf()
+{
+	local force; ScriptOptForce "$@"
+	[[ ! $force && $DOTNET_CHECKED ]] && return
+
+	# .NET on macOS use .NET from /usr/local/share/dotnet, fails if DOTNET_ROOT is set to $HOME/.dotnet
+	if ! InPath dotnet; then
+		if [[ -d "$HOME/.dotnet" ]]; then
+			PathAdd "$HOME/.dotnet"; export DOTNET_ROOT="$HOME/.dotnet"
+		elif [[ -d "$P/dotnet" ]]; then
+			PathAdd "$P/dotnet"; export DOTNET_ROOT="$P/dotnet"
+		fi
+		! InPath dotnet && IsPlatform win && { alias dotnet="dotnet.exe"; }
+	fi
+
+	DOTNET_CHECKED="true"
+}
+
 # HashiCorp
 
 HashiConf()
@@ -603,9 +621,24 @@ McflyConf()
 {
 	local force; ScriptOptForce "$@"	
 	[[ ! $force && $MCFLY_PATH ]] && return	
+
 	{ ! InPath mcfly || [[ "$TERM_PROGRAM" == @(vscode|WarpTerminal) ]]; } && return
 
 	export MCFLY_HISTFILE="$HISTFILE" && eval "$(mcfly init "$PLATFORM_SHELL")"
+}
+
+NodeConf()
+{
+	local force; ScriptOptForce "$@"
+	[[ ! $force && $NODE_CHECKED ]] && return
+
+	if [[ -d "$HOME/.nvm" ]]; then
+		export NVM_DIR="$HOME/.nvm"
+		SourceIfExists "$NVM_DIR/nvm.sh" || return
+		SourceIfExists "$NVM_DIR/bash_completion" || return
+	fi
+
+	NODE_CHECKED="true"
 }
 
 powershell() 
@@ -3836,6 +3869,9 @@ WinList() { ! IsPlatform win && return; start cmdow /f | RemoveCarriageReturn; }
 
 InitializeXServer()
 {
+	local force; ScriptOptForce "$@"
+	[[ ! $force && $X_SERVER_CHECKED ]] && return
+
 	# return if X is not installed
 	! InPath xauth && return
 
@@ -3877,6 +3913,8 @@ InitializeXServer()
 			} &
 		)
 	fi
+
+	X_SERVER_CHECKED="true"
 }
 
 WinSetStateUsage()
