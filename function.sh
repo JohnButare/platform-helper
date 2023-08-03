@@ -514,7 +514,14 @@ HashiConf()
 	local force; ScriptOptForce "$@"
 	[[ ! $force && $HASHI_CHECKED ]] && return
 
-	ScriptEval hashi config environment all --suppress-errors "$@" && HASHI_CHECKED="true"
+	local manager="--manager=local"; IsPlatform win && manager="--manager=gk" # gnone-keyring is faster
+	if ! ScriptEval credential get hashi cache $manager; then
+		local vars; vars="$(hashi config environment all --suppress-errors "$@")" || return
+		eval "$vars" || return
+		echo "$vars" | credential set hashi cache - $manager
+	fi
+
+	HASHI_CHECKED="true"
 }
 
 HashiConfStatus() { [[ "$NETWORK" != "hagerman" ]] && return; HashiConf --config-prefix=prod "$@" && hashi config status; }
