@@ -531,9 +531,10 @@ HashiConf()
 {
 	local force; ScriptOptForce "$@"
 	[[ ! $force && $HASHI_CHECKED ]] && return
+	[[ ! $force && $VAULT_TOKEN ]] && { HASHI_CHECKED="true"; return; }
 
 	local manager="--manager=local"; IsPlatform win && manager="--manager=gk" # gnone-keyring is faster
-	if ! ScriptEval credential get hashi cache $manager; then
+	if ! ScriptEval credential get hashi cache --quiet $manager; then
 		local vars; vars="$(hashi config environment all --suppress-errors "$@")" || return
 		eval "$vars" || return
 		echo "$vars" | credential set hashi cache - $manager
