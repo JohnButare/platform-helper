@@ -50,6 +50,7 @@ SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - spli
 # Other
 #
 
+AllConf() { HashiConf "$@" && CredentialConf "$@" && NetworkConf "$@" && SshAgentConf "$@"; }
 EvalVar() { r "${!1}" $2; } # EvalVar <var> <variable> - return the contents of the variable in variable, or set it to var
 IsInteractiveShell() { [[ "$-" == *i* ]]; } # true if we are running at the command prompt
 IsTty() { ${G}tty --silent;  }
