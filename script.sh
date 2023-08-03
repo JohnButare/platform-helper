@@ -432,7 +432,7 @@ ScriptRun()
 
 	# commands - format command1Command2Command
 	local args=() c shift="1"
-	local command commandNames=() commands=() globalArgs=() globalArgsLessVerbose=() originalArgs=("$@") otherArgs=() # public
+	local command commandNames=() commands=() globalArgs=() globalArgsLess=() globalArgsLessForce=() globalArgsLessVerbose=() originalArgs=("$@") otherArgs=() # public
 
 	while (( $# )); do
 		local firstCommand="true"; [[ $command ]] && unset firstCommand
@@ -489,6 +489,8 @@ ScriptRun()
 	globalArgs=($force $noPrompt $quiet $verbose)
 	(( forceLevel > 1 )) && forceLess="-$(StringRepeat "f" "$(( forceLevel - 1 ))")"
 	(( verboseLevel > 1 )) && verboseLess="-$(StringRepeat "v" "$(( verboseLevel - 1 ))")"
+	globalArgsLess=($forceLess $noPrompt $quiet $verboseLess)
+	globalArgsLessForce=($forceLess $noPrompt $quiet $verbose)
 	globalArgsLessVerbose=($force $noPrompt $quiet $verboseLess)
 
 	# operands
