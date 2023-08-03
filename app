@@ -43,7 +43,6 @@ AspnetVersionSwitcher() { [[ "$command" == "startup" ]] && taskStart "$P/ASPNETV
 chrony() { runService "chrony"; }
 cron() { runService "cron"; }
 cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsProcessRunning "iCUE.exe" || taskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
-dbus() { runService "dbus"; }
 discord() { IsProcessRunning Discord.exe || taskStart "$UADATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }
 docker() { runService "docker"; }
 duet() { taskStart "$P/Kairos/Duet Display/duet.exe"; }
@@ -60,6 +59,25 @@ SecurityHealthTray() { IsProcessRunning SecurityHealthSystray.exe || start "$WIN
 sshd() { runService "ssh"; }
 SyncPlicity() { taskStart "$P/Syncplicity/Syncplicity.exe"; }
 UltraMon() { IsProcessRunning "UltraMon.exe" || taskStart "$P/UltraMon/UltraMon.exe" "" ; }
+
+dbus()
+{	
+	! IsPlatform wsl && return
+
+	DbusConf || return
+
+	if [[ ! -d "$XDG_RUNTIME_DIR" ]]; then
+		sudoc mkdir "$XDG_RUNTIME_DIR" || return
+		sudo chmod 700 "$XDG_RUNTIME_DIR" || return
+		sudo chown "$(id -un):$(id -gn)" "$XDG_RUNTIME_DIR" || return
+	fi
+
+	runService "dbus" || return
+  
+  if [[ ! -e "$XDG_RUNTIME_DIR/bus" ]]; then
+  	"/usr/bin/dbus-daemon" --session --address="$DBUS_SESSION_BUS_ADDRESS" --nofork --nopidfile --syslog-only &
+  fi
+}
 
 IntelDesktopControlCenter() 
 { 

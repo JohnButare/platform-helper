@@ -492,6 +492,13 @@ browser()
 # Borg Backup
 BorgConf() { ScriptEval BorgHelper environment "$@"; }
 
+DbusConf()
+{
+	! IsPlatform wsl && return
+	export XDG_RUNTIME_DIR=/run/user/$(id -u)
+	export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
+}
+
 # DirenvConf - confiogure direnv if it is installed
 DirenvConf()
 {
