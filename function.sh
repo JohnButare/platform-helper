@@ -950,6 +950,7 @@ GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 
 }
 
 # integer
+IsHex() { [[ "$1" =~ ^[[:xdigit:]]+$ ]]; }
 IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
 IsNumeric() { [[ "$1" =~ ^-?[0-9.]+([.][0-9]+)?$ ]]; }
 HexToDecimal() { echo "$((16#${1#0x}))"; }
