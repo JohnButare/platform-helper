@@ -53,7 +53,7 @@ Greenshot() { IsProcessRunning "Greenshot.exe" || taskStart "$P/Greenshot/Greens
 incron() { runService "incron"; }
 IntelActiveMonitor() { taskStart "$P32/Intel/Intel(R) Active Monitor/iActvMon.exe"; }
 IntelRapidStorage() { IsProcessRunning "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe" || start "$P/Intel/Intel(R) Rapid Storage Technology/IAStorIcon.exe"; }
-NetworkUpdate() { NetworkCurrentUpdate --quiet; }
+NetworkUpdate() { NetworkCurrentUpdate --brief; }
 PowerPanel() { local p="$P32/CyberPower PowerPanel Personal/PowerPanel Personal.exe"; [[ ! -f "$p" ]] && return; IsProcessRunning "$p" || start "$p"; }
 SecurityHealthTray() { IsProcessRunning SecurityHealthSystray.exe || start "$WINDIR/system32/SecurityHealthSystray.exe"; } # does not work, RunProcess cannot find programs in $WINDIR/system32
 sshd() { runService "ssh"; }
@@ -75,6 +75,7 @@ dbus()
 	runService "dbus" || return
   
   if [[ ! -e "$XDG_RUNTIME_DIR/bus" ]]; then
+  	[[ $brief ]] && printf "dbus-daemon..."
   	"/usr/bin/dbus-daemon" --session --address="$DBUS_SESSION_BUS_ADDRESS" --nofork --nopidfile --syslog-only &
   fi
 }

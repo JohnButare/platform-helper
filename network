@@ -188,7 +188,8 @@ currentUpdateCommand()
 
 	# return if current network has not changed
 	local gateway; gateway="$(GetDefaultGateway --force)" || return
-	if [[ ! $force && "$existingGateway" == "$gateway" ]]; then		
+	if [[ ! $force && "$existingGateway" == "$gateway" ]]; then
+		updateDns "$existingNetwork" || return
 		doLog && echo "Current network '$existingNetwork' has not changed"
 		return 0
 	fi
@@ -205,20 +206,16 @@ currentUpdateCommand()
 	UpdateSet "network_domain" "$domain" || return
 	doLog && { [[ $domain ]] && echo "$domain" || echo "none"; }
 
-	# update resolv.conf - ensures name resolution is working to find other servers
-	local resolvConf="$DATA/setup/resolv.conf.$network"
-	{ ! IsPlatform wsl || [[ ! -f "$resolvConf" ]]; } && unset resolvConf
-	if [[ $resolvConf ]] && ! cmp --quiet "$resolvConf" "/etc/resolv.conf"; then
-		sudoc cp "$resolvConf" "/etc/resolv.conf" || return
-	fi
-
 	# update network configuration if needed
 	if [[ $force || "$network" != "$existingNetwork" || "$gateway" != "$existingGateway" ]]; then
 		doLog && hilight "Setting the network to $network..."
-		[[ $brief ]] && printf "network..."
+		[[ $brief ]] && printf "network."
 		UpdateSet "network" "$network" || return
 		UpdateSet "network_gateway" "$gateway" || return
 	fi
+
+	# update resolv.conf - ensures name resolution is working so we can find other servers
+	updateDns "$network" || return
 
 	# find proxy servers
 	local proxyServer
@@ -246,6 +243,15 @@ currentUpdateCommand()
 	fi
 
 	return 0
+}
+
+updateDns()
+{
+	local network="$1"
+	local resolvConf="$DATA/setup/resolv.conf.$network"
+	{ ! IsPlatform wsl || [[ ! -f "$resolvConf" ]] || cmp --quiet "$resolvConf" "/etc/resolv.conf"; } && return
+	[[ $brief ]] && printf "resolv.conf."
+	sudoc cp "$resolvConf" "/etc/resolv.conf" || return
 }
 
 # findNetwork - find the first active network from the networks specified in the networks configuration variabke 
