@@ -30,7 +30,7 @@ argEnd()
 	[[ ! $method ]] && MissingOption "method"
 
 	# Registry profile - profile contains registry entries
-	if IsPlatform win && registry IsKey "$method";  then
+	if IsPlatform win && CanElevate && registry IsKey "$method";  then
 		methodType="registry"
 		profileKey="$method"
 		saveExtension=reg
