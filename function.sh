@@ -3890,7 +3890,7 @@ InitializeXServer()
 
 	# display
 	if [[ ! $DISPLAY ]]; then
-		if IsPlatform wsl2; then
+		if IsPlatform wsl2 && CanElevate; then
 			export DISPLAY="$(GetWslGateway):0"
 			export LIBGL_ALWAYS_INDIRECT=1
 		elif [[ $SSH_CONNECTION ]]; then

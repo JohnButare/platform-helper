@@ -36,15 +36,55 @@ isInstalledCommand() { [[ -f "$program" ]]; }
 isRunningCommand() { IsProcessRunning "$running"; }
 killCommand() { ! IsRunningCommand && return 0; ProcessKill "$running"; }
 programCommand() { echo "$program"; }
-restartCommand() { closeCommand && startCommand; }
-startupCommand() { { IsPlatform mac || isRunningCommand; } && return 0; startCommand; } # Mac OS starts automatically
 									 
 #
 # Start Command
 #
 
-startCommand() { AppInstallCheck && RunPlatform "start"; }
+restartUsage() { startUsage; }
+restartCommand() { closeCommand && startCommand; }
+
+startupUsage() { startUsage; }
+startupCommand() { { IsPlatform mac || isRunningCommand; } && return 0; startCommand; } # Mac OS starts automatically
+
+startUsage()
+{
+		echot "Usage: $(ScriptName) restart|start|startup
+Start the X Server.
+
+	--vsock			use VSOCK for connections to the X Server"
+}
+
+startArgStart() { unset -v vsock; }
+
+startOpt() 
+{
+	case "$1" in
+		--vsock) vsock="--vsock";;
+		*) return 1
+	esac
+}
+
+startCommand() { isInstalledCommand && RunPlatform "start"; }
 startMac() { start "/opt/X11/bin/Xquartz"; }
-startWin() { start "${start[@]}"; }
+
+startWin()
+{
+	! isRunningCommand && { start "${start[@]}" || return; }
+	[[ ! $vsock ]] && CanElevate && return # assume if we cannot elevate than TCP connections are blocked and we need to use VSOCK
+
+	# initialize
+	sudov || return
+	mkdir --parents "/tmp/.X11-unix" || return
+
+	# return if running
+	[[ ! $force ]] && IsProcessRunning --root socat && return
+
+	# cleanup
+	IsProcessRunning --root socat && { sudo pkill socat || return; }
+
+	# start socat in the background
+	sudo -b socat -b65536 UNIX-LISTEN:/tmp/.X11-unix/X0,fork,mode=777 SOCKET-CONNECT:40:0:x0000x70170000x02000000x00000000
+}
 
 ScriptRun "$@"
