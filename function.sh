@@ -3039,7 +3039,7 @@ ProcessClose()
 
 		fi
 
-		if (( $result != 0 )); then
+		if (( ${result:-0} != 0 )); then
 			[[ ! $quiet ]] && ScriptErr "unable to close '$name'"; finalResult="1"
 		elif [[ $verbose ]]; then
 			ScriptErr "closed process '$name'"
