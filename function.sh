@@ -916,7 +916,7 @@ IsInArray()
 	local value
 	for value in "${isInArray[@]}"; do
 		[[ $caseInsensitive ]] && LowerCase "$value" value
-		if [[ $wild ]]; then [[ "$value" == $s ]] && return 0;
+		if [[ $wild ]]; then [[ "$value" =~ $s ]] && return 0;
 		elif [[ $awild ]]; then [[ "$s" == $value ]] && return 0;
 		else [[ "$s" == "$value" ]] && return 0; fi
 	done;
