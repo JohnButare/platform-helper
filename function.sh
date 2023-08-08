@@ -3358,8 +3358,8 @@ PythonConf()
 		export PYTHON_USER_SITE; PYTHON_USER_SITE="$(python3 -m site --user-site)" || return
 		export PYTHON_USER_BIN; PYTHON_USER_BIN="$(python3 -m site --user-base)/bin" || return
 
-		[[ ! -d "$PYTHON_USER_SITE" ]] && { ScriptErr "The Python user site directory '$(FileToDesc "$PYTHON_USER_SITE")' does not exist" "PythonConf"; return 1; }
-		[[ ! -d "$PYTHON_USER_BIN" ]] && { ScriptErr "The Python user bin directory '$(FileToDesc "$PYTHON_USER_BIN")' does not exist" "PythonConf"; return 1; }
+		[[ ! -d "$PYTHON_USER_SITE" ]] && { ScriptErr "The Python user site directory '$(FileToDesc "$PYTHON_USER_SITE")' does not exist" "PythonConf"; PYTHON_CHECKED="true"; return 1; }
+		[[ ! -d "$PYTHON_USER_BIN" ]] && { ScriptErr "The Python user bin directory '$(FileToDesc "$PYTHON_USER_BIN")' does not exist" "PythonConf"; PYTHON_CHECKED="true"; return 1; }
 
 		# add to path
 		local front; IsPlatform mac && front="front"
