@@ -130,7 +130,7 @@ executableFindCommand()
 	local arch file
 
 	# find an executable that supports the primary architecture
-	arch="$(executableFormatCommand)"
+	arch="$(executableFormatCommand)" || return
 	file="$(file "$dir"/* | sort -V | grep "$arch" | tail -1 | cut -d: -f1)"
 	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for mac universal binaries
 	[[ $file ]] && { echo "$file"; return; }
