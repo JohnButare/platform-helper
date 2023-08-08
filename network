@@ -186,12 +186,19 @@ currentUpdateCommand()
 	# get cached network configuration
 	local existingNetwork="$(UpdateGet "network")" existingGateway="$(UpdateGet "network_gateway")" existingProxyServer="$(UpdateGet "ProxyServer")"
 
-	# return if current network has not changed
+	# return if current network has not changed and is valid
 	local gateway; gateway="$(GetDefaultGateway --force)" || return
+
 	if [[ ! $force && "$existingGateway" == "$gateway" ]]; then
-		updateDns "$existingNetwork" || return
-		doLog && echo "Current network '$existingNetwork' has not changed"
-		return 0
+		local dnsServer; dnsServer="$(GetDnsServers | cut -d" " -f1)"
+
+		if validateNetwork "$existingNetwork" "$dnsServer"; then
+			updateDns "$existingNetwork" || return
+			doLog && echo "Current network '$existingNetwork' has not changed"
+			return 0
+		fi			
+
+		doLog && echo "The DNS server '$dnsServer' for the current network '$existingNetwork' is not valid"
 	fi
 
 	# determine current network configuration
@@ -283,6 +290,19 @@ findServer()
 	RemoveBefore "$server" "@" 
 }
 
+# validateNetwork NETWORK DNS_SERVER - validate the DNS server is correct for the network
+validateNetwork()
+{
+	local network="$1" dnsServer="$2"
+	local networks=(); StringToArray "$(ConfigGet "networks")" "," networks	# array of network:DNS_IP
+	
+	# if the DNS server is not in the list of known networks, the network must be external
+	! IsInArray --wild ".*@$dnsServer" networks && { [[ "$network" == "external" ]]; return; }
+
+	# the DNS server in the list of known networks, so network@DNS_IP must be in the list of known networks
+	IsInArray --wild "$network@$dnsServer.*" networks
+}
+
 #
 # find commands
 #
@@ -336,13 +356,15 @@ findCommand()
 	[[ ! $brief && ! $quiet ]] && PrintErr "checking..."
 
 	local server descriptions=() results=()
+
 	for server in "${servers[@]}"
 	do
-		# parse the server: DESCRIPTION@HOST_OR_IP:SERVICE
-		local host="$(GetSshHost "$server")"
-		local service="$(GetSshPort "$server")"; service="${service:-$defaultService}"; service="${service,,}"
-		local description="$(GetSshUser "$server")"; description="${description:-$host}"; [[ "$description" != "$host" && $verbose ]] && description="$description ($host)"
+		local host service description; parseServer $server || return
 
+		# add the host to the description if verbose logging
+		[[ "$description" != "$host" && $verbose ]] && description="$description ($host)"
+		
+		# already checked this server
 		IsInArray "$description" descriptions && continue
 
 		# check for a valid service
@@ -851,5 +873,14 @@ getServersFromConfig()
 }
 
 isAptInstalled() { [[ -d "/etc/apt" ]]; }
+
+# defaultService=PING parseServer SERVER - SERVER format is [DESCRIPTION@]HOST_OR_IP[:SERVICE], i.e. hagerman:10.10.10:DNS
+parseServer()
+{
+	local server="$1"
+	host="$(GetSshHost "$server")"
+	service="$(GetSshPort "$server")"; service="${service:-$defaultService}"; service="${service,,}"
+	description="$(GetSshUser "$server")"; description="${description:-$host}"
+}
 
 ScriptRun "$@"
