@@ -12,7 +12,7 @@ if IsBash; then
 	shopt -s extglob expand_aliases
 	shopt -u nocaseglob nocasematch
 	PLATFORM_SHELL="bash"
-	whence() { type "$@"; }
+	whence() { type "@$"; }
 	PipeStatus() { return ${PIPESTATUS[$1]}; } # PipeStatus N - return the status of the 0 based Nth command in the pipe
 fi
 
@@ -960,6 +960,7 @@ CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 NewlineToComma()  { tr '\n' ','; }
 NewlineToSpace()  { tr '\n' ' '; }
+SpaceToNewline()  { tr ' ' '\n'; }
 StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } # StringRepeat S N - repeat the specified string N times
 
 ShowChars() { GetArgs; echo -n -e "$@" | ${G}od --address-radix=d -t x1 -t a; } # Show
@@ -2247,8 +2248,9 @@ DnsFlush()
 
 GetDnsServers()
 {
-	if InPath resolvectl; then resolvectl status | grep -1 'DNS Servers' | tail -2 | sed "s/DNS Servers://" | RemoveNewline | tr -s " " | RemoveSpaceTrim
+	if [[ -f "/etc/resolv.conf" ]]; then cat "/etc/resolv.conf" | grep nameserver | cut -d" " -f2 | sort | uniq | NewlineToSpace | RemoveSpaceTrim
 	elif IsPlatform mac; then scutil --dns | grep 'nameserver\[[0-9]*\]' | cut -d: -f2 | sort | uniq | RemoveNewline | RemoveSpaceTrim
+	elif InPath resolvectl; then resolvectl status |& grep "DNS Servers" | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
 	fi			
 }
 
