@@ -1143,7 +1143,7 @@ FileCommand()
 		ren) 'mv' "${args[@]}" "${files[@]}" "$dir";;
 		cp|mv)
 			[[ ! -d "$dir" ]] && { EchoErr "FileCommand: accessing '$dir': No such directory"; return 1; }
-			"$command" -t "$dir" "${args[@]}" "${files[@]}"
+			${G}"$command" -t "$dir" "${args[@]}" "${files[@]}"
 			;;		
 	esac
 }
