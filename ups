@@ -8,27 +8,47 @@ Usage: $(ScriptName) [OPTION]... [monitor|reset|set|status](status)
 Manage a UPS."
 }
 
-init() { defaultCommand="status"; }
+init()
+{	
+	defaultCommand="status"
+	ups="GeekPi"; [[ -S /tmp/pisugar-server.sock ]] && ups="PiSugar"
+	return 0
+}
 
 #
 # Commands
 #
 
 resetUsage() { EchoWrap "Usage: $(ScriptName) reset\nReset the UPS to factory defaults."; }
-resetCommand() { ask "Are you sure you want to reset the UPS to factory defaults" && python3 "$BIN/UpsWrite.py" 27 1; }
+resetCommand() { ask "Are you sure you want to reset the UPS to factory defaults" && RunFunction reset$ups; }
+resetGeekPi() { python3 "$BIN/GeekPiUpsWrite.py" 27 1; }
 
 #
 # Get Command
 #
 
-getUsage() { EchoWrap "Usage: $(ScriptName) get REGISTER|AutoOn|protect|restart|shutdown|AutoOn"; }
-getArgStart() { unset -v register register1 register2; }
-getArgs() { registerArgGet "$@"; shift; }
-
-getCommand()
+getUsage()
 {
-	[[ ! $register2 ]] && { python3 "$BIN/UpsRead.py" "$register1"; return; }
-	python3 "$BIN/UpsRead2.py" "$register1" "$register2"
+	EchoWrap "\
+Usage: $(ScriptName) get KEY VALUE
+get a value from the UPS, where valid keys are:
+
+	GeekPi 	REGISTER|AutoOn|protect|restart|shutdown
+	PiSugar alarm_repeat|model
+					battery|battery_charging|battery_charging_range|battery_led_amount|battery_v"
+}
+
+getArgStart() { unset -v key; }
+getArgs() { ScriptArgGet "key" -- "$@"; }
+getCommand() { get "$key"; }
+get() { local arg; for arg in "$@"; do RunFunction get$ups -- "$arg" || return; done; }
+getPiSugar() { echo "get $1" | nc -q 0 127.0.0.1 8423; }
+	
+getGeekPi()
+{
+	local register register1 register2; keyLookup || return
+	[[ ! $register2 ]] && { python3 "$BIN/GeekPiUpsRead.py" "$register1"; return; }
+	python3 "$BIN/GeekPiUpsRead2.py" "$register1" "$register2"
 }
 
 #
@@ -37,12 +57,15 @@ getCommand()
 
 monitorUsage() { EchoWrap "Usage: $(ScriptName) reset\Check the UPS battery and shutdown the system when the battery is low."; }
 
-monitorCommand()
+monitorCommand() { RunFunction monitor$ups; }
+monitorHeader() { echo "************************* UPS Battery Check ($(date)) *************************"; }
+
+monitorGeekPi()
 {
 	local protectVolts=3600; [[ $test ]] && protectVolts=4000
 	local shutdownSeconds=
 
- 	echo "************************* UPS Battery Check ($(date)) *************************"
+ 	monitorHeader || return
 
 	# enable Raspberry Pi power on when UPS power is restored
 	ups set AutoOn 1 > /dev/null || return
@@ -55,7 +78,7 @@ monitorCommand()
 	echo
 
 	# check the battery voltage
-	local batteryVolts; batteryVolts="$(python3 "$BIN/UpsBatteryVoltage.py")" || return
+	local batteryVolts; batteryVolts="$(python3 "$BIN/GeekPiUpsBatteryVoltage.py")" || return
 	local shutdownVolts=$(( protectVolts + 300 ))
 
 	if (( batteryVolts < shutdownVolts )); then
@@ -87,16 +110,22 @@ monitorCommand()
 setUsage()
 {
 	EchoWrap "\
-Usage: $(ScriptName) set REGISTER|AutoOn|protect|restart|shutdown VALUE"
+Usage: $(ScriptName) set KEY VALUE
+Set a value on the UPS, where valid keys are:
+
+	GeekPi 	REGISTER|AutoOn|protect|restart|shutdown
+	PiSugar rtc_alarm_set"
 }
 
-setArgStart() { unset -v register  register1 register2 value; }
-setArgs() { registerArgGet "$@"; shift; ScriptArgGet "value" -- "$@"; }
+setArgStart() { unset -v key value; }
+setArgs() { ScriptArgGet "key" -- "$@"; shift; ScriptArgGet "value" -- "$@"; }
+setCommand() { RunFunction set$ups; }
 
-setCommand()
+setGeekPi()
 {
-	[[ ! $register2 ]] && { python3 "$BIN/UpsWrite.py" "$register1" "$value"; return; }
-	python3 "$BIN/UpsWrite2.py" "$register1" "$register2" "$value"
+	local register register1 register2; keyLookup || return
+	[[ ! $register2 ]] && { python3 "$BIN/GeekPiUpsWrite.py" "$register1" "$value"; return; }
+	python3 "$BIN/GeekPiUpsWrite2.py" "$register1" "$register2" "$value"
 }
 
 #
@@ -129,23 +158,24 @@ statusCommand()
 	fi
 }
 
-statusDo() { python3 "$BIN/UpsStatus.py"; }
+statusDo() { RunFunction status$ups; }
+statusGeekPi() { python3 "$BIN/GeekPiUpsStatus.py"; }
+statusPiSugar() { get model battery battery_power_plugged battery_v battery_allow_charging rtc_time safe_shutdown_level safe_shutdown_delay; }
 
 #
 # helper
 #
 
-registerArgGet()
+keyLookup()
 {
-	ScriptArgGet "register" -- "$@"
+	local key="$1"
 
-	case "${register,,}" in
+	case "${key,,}" in
 		autoon) register1=25;;
 		protect) register1=17 register2=18;;
 		restart) register1=26;;
 		shutdown) register1=24;;
 	esac
 }
-
 
 ScriptRun "$@"
