@@ -59,22 +59,25 @@ Return the total or available amount of system disk."
 
 diskCommand() { diskTotalCommand; }
 
+# diskFreeCommand [N](1) - disk N from space.    Disk 1 is the main disk, 2 is the next, etc.
 diskFreeCommand()
-{
-	! InPath di && return
-	di --type ext4 --display-size g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 5
+{	
+	! InPath di && return; local disk="${1:-1}"
+	di --type ext4 --display-size g | grep "^/dev" | head -$disk | tail -1 | tr -s ' ' | cut -d" " -f 5
 }
 
+# diskTotalCommand [N](1) - disk N from space.    Disk 1 is the main disk, 2 is the next, etc.
 diskTotalCommand()
 {
-	! InPath di && return
-	di --type ext4 --display-size g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 3
+	! InPath di && return; local disk="${1:-1}"
+	di --type ext4 --display-size g | grep "^/dev" | head -$disk | tail -1 | tr -s ' ' | cut -d" " -f 3
 }
 
+# diskUsedCommand [N](1) - disk N from space.    Disk 1 is the main disk, 2 is the next, etc.
 diskUsedCommand()
 {
-	! InPath di && return
-	di --type ext4 --display-size g | head -2 | tail -1 | tr -s ' ' | cut -d" " -f 4
+	! InPath di && return; local disk="${1:-1}"
+	di --type ext4 --display-size g | grep "^/dev" | head -$disk | tail -1 | tr -s ' ' | cut -d" " -f 4
 }
 
 memoryTotalCommand()
@@ -569,7 +572,16 @@ infoCredential()
 	infoEcho "  credential: $name ($status)"
 }
 
-infoDisk() { ! InPath di && return; infoEcho "        disk: $(diskUsedCommand)/$(diskFreeCommand)/$(diskTotalCommand) GB used/free/total"; }
+infoDisk()
+{ 
+ ! InPath di && return; local disks; disks="$(di --type ext4 | grep "^/dev" | wc -l)"
+ infoEcho " system disk: $(infoDiskGet used 1)/$(infoDiskGet free 1)/$(infoDiskGet total 1) GB used/free/total"; 
+ (( disks > 1 )) && infoEcho "   data disk: $(infoDiskGet used 2)/$(infoDiskGet free 2)/$(infoDiskGet total 2) GB used/free/total"; 
+ return 0
+}
+
+infoDiskGet() { echo "$(StringPad "$(disk${1^}Command $2)" 6)"; } # infoDiskGet COMMAND DISK
+
 infoDisk_free() { ! InPath di && return; infoEcho "   disk free: $(diskFreeCommand) GB"; }
 infoDisk_total() { ! InPath di && return; infoEcho "  disk total: $(diskTotalCommand) GB"; }
 infoDisk_used() { ! InPath di && return; infoEcho "   disk used: $(diskUsedCommand) GB"; }

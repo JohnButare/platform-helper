@@ -180,7 +180,6 @@ GroupList() { IsPlatform mac && { dscl . -list "/Groups"; return; }; getent grou
 PasswordGet() { ask password "password" </dev/tty; }
 PasswordSet() { PasswordGet | cred set "$@" - ; }
 UserInGroup() { id "$1" 2> /dev/null | ${G}grep --quiet "($2)"; } # UserInGroup USER GROUP
-
 GroupAdd()
 {
 	local group="$1"; GroupExists "$group" && return
@@ -961,6 +960,7 @@ IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 NewlineToComma()  { tr '\n' ','; }
 NewlineToSpace()  { tr '\n' ' '; }
 SpaceToNewline()  { tr ' ' '\n'; }
+StringPad() { printf '%*s%s\n' "$(($2))" "$1" ""; } # StringPad S N - pad string s to N characters with spaces on the left
 StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } # StringRepeat S N - repeat the specified string N times
 
 ShowChars() { GetArgs; echo -n -e "$@" | ${G}od --address-radix=d -t x1 -t a; } # Show
