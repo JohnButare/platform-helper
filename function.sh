@@ -508,7 +508,7 @@ DirenvConf()
 
 DotNetConf()
 {
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
 	[[ ! $force && $DOTNET_CHECKED ]] && return
 
 	# .NET on macOS use .NET from /usr/local/share/dotnet, fails if DOTNET_ROOT is set to $HOME/.dotnet
@@ -528,22 +528,32 @@ DotNetConf()
 
 HashiConf()
 {
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
+	local verbose verboseLevel; ScriptOptVerbose "$@"
+
+	# return if Hashi configuration is set
 	[[ ! $force && $HASHI_CHECKED ]] && return
 	[[ ! $force && $VAULT_TOKEN ]] && { HASHI_CHECKED="true"; return; }
 
-	local manager="--manager=local"; IsPlatform win && manager="--manager=gk" # gnone-keyring is faster
-	if ! ScriptEval credential get hashi cache --quiet $manager; then
-		local vars; vars="$(hashi config environment all --suppress-errors "$@")" || return
-		eval "$vars" || return
-		echo "$vars" | credential set hashi cache - $manager
+	# initialize
+	(( verboseLevel > 1 )) && header "Hashi Configuration"
+	local manager="local"; IsPlatform win && manager="gk" # gnone-keyring is faster
+
+	# set environment from credential store cache if possible
+	if ! (( forceLevel > 1 )); then
+		(( verboseLevel > 1 )) && ScriptMessage "trying to set Hashi environment from '$manager' credential store cache" "HashiConf"
+		ScriptEval credential get hashi cache --quiet $force $verbose --manager="$manager" $force $verbose  && { HASHI_CHECKED="true"; return; }
 	fi
 
+	# set environment manually
+	(( verboseLevel > 1 )) && ScriptMessage "setting the Hashi environment manually" "HashiConf"
+	local vars; vars="$(hashi config environment all --suppress-errors $force $verbose)" || return
+	eval "$vars" || return
+	echo "$vars" | credential set hashi cache $force $verbose - $manager
 	HASHI_CHECKED="true"
 }
 
 HashiConfStatus() { [[ "$NETWORK" != "hagerman" ]] && return; HashiConf --config-prefix=prod "$@" && hashi config status; }
-
 HashiConfConsul() { [[ $CONSUL_HTTP_ADDR || $CONSUL_HTTP_TOKEN ]] || HashiConf "$@"; }
 HashiConfNomad() { [[ $NOMAD_ADDR || $NOMAD_TOKEN ]] || HashiConf "$@"; }
 HashiConfVault() { [[ $VAULT_ADDR || $VAULT_TOKEN ]] || HashiConf "$@"; }
@@ -619,7 +629,7 @@ InstFind()
 
 McflyConf()
 {
-	local force; ScriptOptForce "$@"	
+	local force forceLevel; ScriptOptForce "$@"	
 	[[ ! $force && $MCFLY_PATH ]] && return	
 
 	{ ! InPath mcfly || [[ "$TERM_PROGRAM" == @(vscode|WarpTerminal) ]]; } && return
@@ -629,7 +639,7 @@ McflyConf()
 
 NodeConf()
 {
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
 	[[ ! $force && $NODE_CHECKED ]] && return
 
 	if [[ -d "$HOME/.nvm" ]]; then
@@ -1459,15 +1469,21 @@ WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuote
 
 NetworkConf()
 {
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
+	local verbose verboseLevel; ScriptOptVerbose "$@"
+
+	# return if network configuration is set
 	[[ ! $force && $NETWORK_CHECKED ]] && return
 
+	# configure network
+	(( verboseLevel > 1 )) && header "Network Configuration"
 	NetworkCurrentUpdate "$@" && NETWORK_CHECKED="true"
 }
 
 CacheDefaultGateway()
 {
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
+
 	[[ ! $force && $NETWORK_DEFAULT_GATEWAY ]] && return
 
 	if IsPlatform win; then
@@ -2297,18 +2313,17 @@ SshUser() { local host="$1" user; user="$(SshConfigGet "$host" "user")" || retur
 
 SshAgentEnvConf()
 {
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
 	[[ $SSH_AUTH_SOCK && !$force ]] && return
 	ScriptEval SshAgent environment --quiet
 }
 
 SshAgentConf()
 { 
-	# arguments
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
 	local verbose verboseLevel; ScriptOptVerbose "$@"
 
-	# set the environment if it exists - faster than calling SshAgent
+	# set the environment from cache if possible - faster than calling SshAgent
 	local e="$HOME/.ssh/environment"
 	[[ -f  "$e" ]] && eval "$(cat "$e")" 
 
@@ -2319,6 +2334,7 @@ SshAgentConf()
 	! SshAgent check keys && { [[ $verbose ]] && ScriptErr "no SSH keys found in $HOME/.ssh", "SshAgentConf"; return 0; }
 
 	# start the ssh-agent and set the environment
+	(( verboseLevel > 1 )) && header "SSH Agent Configuration"
 	SshAgent start "$@" && ScriptEval SshAgent environment "$@"
 }
 
@@ -3348,7 +3364,7 @@ start()
 # PythonConf - configure Python for the current user
 PythonConf()
 {
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
 
 	# return if python is not installed
 	! InPath python3 && return
@@ -3427,7 +3443,7 @@ prl()
 # PythonRootConf - configure Python for the root user
 PythonRootConf()
 {
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
 	( [[ ! $force && $PYTHON_ROOT_CHECKED ]] || ! InPath python3 ) && return
 	 
 	# find locations
@@ -3518,6 +3534,7 @@ ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; ret
 ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$1"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
+ScriptMessage() { EchoErr "$(ScriptPrefix "$2")$1"; } 																		# ScriptMessage MESSAGE - log a message with the script prefix
 ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "$name: "; }
 ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; }
 
@@ -3618,14 +3635,22 @@ ScriptReturn()
 
 CertView() { local c; for c in "$@"; do openssl x509 -in "$c" -text; done; }
 
+# CredentialConf - configure the credential manager but do not unlock (to prevent password prompt)
 CredentialConf()
 {
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
+	local verbose verboseLevel; ScriptOptVerbose "$@"
+
+	# return if credential configuration is set
 	[[ ! $force && $CREDENTIAL_MANAGER_CHECKED ]] && return
+
+	# configure credentials
+	(( verboseLevel > 1 )) && header "Credential Configuration"
 	ScriptEval credential environment "$@" || { export CREDENTIAL_MANAGER="None" CREDENTIAL_MANAGER_CHECKED="true"; return 1; }
 }
 
-CredentialConfStatus() { CredentialConf --unlock "$@" && credential manager status; }
+# CredentialConfStatus - configure, unlock, and show the status of the credential manager
+CredentialConfStatus() { CredentialConf "$@" && credential manager unlock && credential manager status; }
 
 # IsElevated - return true if the user has an Administrator token, always true if not on Windows
 IsElevated() 
@@ -3798,7 +3823,7 @@ VmType() { GetVmType; echo "$VM_TYPE"; }
 
 GetChrootName()
 {
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
 	local verbose verboseLevel; ScriptOptVerbose "$@"
 	[[ ! $force && $CHROOT_CHECKED ]] && return
 	
@@ -3817,7 +3842,7 @@ GetChrootName()
 # GetVmType - cached to avoid multiple sudo calls
 GetVmType() # vmware|hyperv
 {	
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
 	local verbose verboseLevel; ScriptOptVerbose "$@"
 	[[ ! $force && $VM_TYPE_CHECKED ]] && return
 
@@ -3873,7 +3898,7 @@ WinList() { ! IsPlatform win && return; start cmdow /f | RemoveCarriageReturn; }
 
 InitializeXServer()
 {
-	local force; ScriptOptForce "$@"
+	local force forceLevel; ScriptOptForce "$@"
 	[[ ! $force && $X_SERVER_CHECKED ]] && return
 
 	# return if X is not installed

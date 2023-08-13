@@ -104,14 +104,11 @@ ScriptCheckPath()
 #
 # - log output is sent to the standard error to avoid interference with commands whose output is consumed using a subshell, i.e. var="$(command)"
 
-# LogMessage MESSAGE - print a message
+# LogPrint MESSAGE - print a message
 LogPrint() { [[ $@ ]] && EchoResetErr; PrintErr "$@"; }
 
-# LogMessage MESSAGE - log a message with the script prefix
-LogMessage() { EchoErr "$(ScriptPrefix)$@"; }
-
 # LogLevel LEVEL MESSAGE - log a message if the logging verbosity level is at least LEVEL
-LogLevel() { level="$1"; shift; (( verboseLevel < level )) && return; LogMessage "$@"; }
+LogLevel() { level="$1"; shift; (( verboseLevel < level )) && return; ScriptMessage "$@"; }
 LogPrintLevel() { level="$1"; shift; (( verboseLevel < level )) && return; PrintErr "$@"; }
 
 # logN MESSAGE - log a message if the logging verbosity level is a least N
@@ -140,9 +137,9 @@ LogScript()
 	[[ ! $verboseLevel || ! $level ]] || (( verboseLevel < level )) && return
 
 	if [[ "$(echo "$@" | wc -l)" == "1" ]]; then
-		LogMessage "running: $@"
+		ScriptMessage "running: $@"
 	else
-		LogMessage "running:"; echo "$@" | AddTab >& /dev/stderr; 
+		ScriptMessage "running:"; echo "$@" | AddTab >& /dev/stderr; 
 	fi
 }
 
@@ -181,7 +178,7 @@ RunLogLevel()
 			[[ "$arg" =~  $pattern || ! $arg ]] && message+="\"$arg\" " || message+="$arg "
 		done
 
-		LogMessage "command: $message"
+		ScriptMessage "command: $message"
 	fi
 
 	[[ $test ]] && return
