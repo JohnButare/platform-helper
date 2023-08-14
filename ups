@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [monitor|reset|set|status](status)
+Usage: $(ScriptName) [OPTION]... [check|monitor|reset|set|status|type](status)
 Manage a UPS."
 }
 
@@ -22,6 +22,27 @@ init()
 resetUsage() { EchoWrap "Usage: $(ScriptName) reset\nReset the UPS to factory defaults."; }
 resetCommand() { ask "Are you sure you want to reset the UPS to factory defaults" && RunFunction reset$ups; }
 resetGeekPi() { python3 "$BIN/GeekPiUpsWrite.py" 27 1; }
+typeCommand() { echo "$ups"; }
+
+#
+# Check Command
+#
+
+checkCommand() { check; }
+
+check()
+{
+	if RunFunction check$ups -- "$arg"; then
+		ScriptErrQuiet "the UPS is OK"
+		return 0
+	else
+		upsNotResponding
+		return 1
+	fi
+}
+
+checkGeekPi() { python3 "$BIN/GeekPiUpsRead2.py" "25" >& /dev/null; }
+checkPiSugar() { getPiSugarValue "battery_power_plugged" >& /dev/null; }
 
 #
 # Get Command
@@ -42,14 +63,20 @@ getArgStart() { unset -v key; }
 getArgs() { ScriptArgGet "key" -- "$@"; }
 getCommand() { get "$key"; }
 get() { local arg; for arg in "$@"; do RunFunction get$ups -- "$arg" || return; done; }
-getPiSugar() { echo "get $1" | nc -q 0 127.0.0.1 8423 | sed 's/^single//'; }
 getPiSugarValue() { getPiSugar "$1" | cut -d":" -f2 | RemoveSpaceTrim; }
-	
+
 getGeekPi()
 {
 	local register register1 register2; keyLookup || return
 	[[ ! $register2 ]] && { python3 "$BIN/GeekPiUpsRead.py" "$register1"; return; }
 	python3 "$BIN/GeekPiUpsRead2.py" "$register1" "$register2"
+}
+
+getPiSugar()
+{
+	local result; result="$(echo "get $1" | nc -q 0 127.0.0.1 8423 | sed 's/^single//')" || return
+	[[ "$result" == "Invalid request." ]] && { upsNotResponding; return 1; }
+	echo "$result"
 }
 
 #
@@ -58,7 +85,15 @@ getGeekPi()
 
 monitorUsage() { EchoWrap "Usage: $(ScriptName) reset\Check the UPS battery and shutdown the system when the battery is low."; }
 
-monitorCommand() { RunFunction monitor$ups; }
+monitorCommand()
+{ 
+	# check if UPS is responsive
+	! quiet="true" check && { monitorHeader; upsNotResponding; return 1; }
+
+	# monitor UPS
+	RunFunction monitor$ups
+}
+
 monitorHeader() { echo "************************* UPS Battery Check ($(date)) *************************"; }
 
 monitorGeekPi()
@@ -105,7 +140,7 @@ monitorGeekPi()
 }
 
 monitorPiSugar()
-{ 	
+{
  	# check if on battery
  	local hasPower; hasPower="$(getPiSugarValue "battery_power_plugged")" || return
  	[[ "$hasPower" == "true" ]] && return
@@ -116,9 +151,13 @@ monitorPiSugar()
 	# show UPS status
 	[[ $verbose ]] && { statusCommand || return; echo; }
 
-	# check the battery voltage
+	# check the battery level
 	local batteryLevel; batteryLevel="$(getPiSugarValue "battery" | cut -d"." -f1)" || return
+	! IsInteger "$batteryLevel" && { ScriptErr "the battery level '$batteryLevel' is not an integer"; return 1; }
+
+	# check the safe shutdown battery level
 	local safeShutdownLevel; safeShutdownLevel="$(getPiSugarValue "safe_shutdown_level")" || return
+	! IsInteger "$safeShutdownLevel" && { ScriptErr "the safe shutdown level '$safeShutdownLevel' is not an integer"; return 1; }
 
 	# allow the PiSugar software a chance to shutdown the system
 	(( safeShutdownLevel-= 5 ))
@@ -183,6 +222,7 @@ statusOpt()
 
 statusCommand()
 {
+	check || return
 	if [[ $monitor ]]; then watch -n 1 ups status;
 	else statusDo;
 	fi
@@ -207,5 +247,7 @@ keyLookup()
 		shutdown) register1=24;;
 	esac
 }
+
+upsNotResponding() { ScriptErrQuiet "the $ups UPS is not responding"; }
 
 ScriptRun "$@"
