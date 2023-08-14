@@ -141,7 +141,6 @@ HeaderBig() { InitColor; printf "${RB_BLUE}*************************************
 HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
 hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
 hilightp() { InitColor; printf "${GREEN}$@${RESET}"; } # hilight with no newline
-CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
 # CurrentColumn - return the current cursor column, https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
 if IsTty; then
@@ -491,6 +490,27 @@ browser()
 # Borg Backup
 BorgConf() { ScriptEval BorgHelper environment "$@"; }
 
+# Cron
+CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
+
+# CronAdd [--root] JOB - add a job to the Cron table if it does not exist
+CronAdd()
+{
+	local root; [[ "$1" == @(-r|--root) ]] && { shift; root="sudoc"; }
+	local job="$1"
+
+	# return if the job exists
+	$root crontab -l |& grep --quiet "^${job}$" && return
+
+	# add the job
+	local file; file="${G}mktemp" || return
+	$root crontab -l &> /dev/null && { $root crontab -l > "$file" || return; } 	# add existing crontab
+	echo "$job" >> "$file" || return																						# add new job
+	$root crontab "$file" || return																							# save new crontab
+	rm "$file" || return																												# cleanup
+}
+
+# D-Bus
 DbusConf()
 {
 	! IsPlatform wsl && return
@@ -506,6 +526,7 @@ DirenvConf()
 	eval "$(direnv hook "$PLATFORM_SHELL")"
 }
 
+# .NET
 DotNetConf()
 {
 	local force forceLevel; ScriptOptForce "$@"
