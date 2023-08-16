@@ -59,7 +59,7 @@ Return the total or available amount of system disk."
 
 diskCommand() { diskTotalCommand; }
 
-# diskFreeCommand [N](1) - disk N from space.    Disk 1 is the main disk, 2 is the next, etc.
+# diskFreeCommand [N](1) - disk N free space.    Disk 1 is the main disk, 2 is the next, etc.
 diskFreeCommand()
 {	
 	! InPath di && return; local disk="${1:-1}"
@@ -439,9 +439,9 @@ Show Operating System information.
 	   --status			provide status (periods) on standard error
 	-w|--what LIST	comma separated list of items to show
 
-Items (basic): ${infoBasic[@]}
-	 (detail): ${infoDetail[@]}
-	 (other): ${infoOther[@]}
+Items (basic): ${infoBasic[*]}
+	 (detail): ${infoDetail[*]}
+	 (other): ${infoOther[*]}
 
 Examples:
 os info -w=disk_free pi11,pi2		# free disk space for specified hosts
