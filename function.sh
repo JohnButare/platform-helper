@@ -775,13 +775,14 @@ EchoWrap()
 	echo -e "$@" | expand -t $TABS | ${G}fold --space --width=$COLUMNS; return 0
 }
 
-EchoEnd() { echo -e "$@"; return 0; }																		# show message on the end of the line
+EchoEnd() { echo -e "$@"; return 0; }																		# show message at the current cursor position
 EchoErr() { [[ $@ ]] && EchoResetErr; EchoWrap "$@" >&2; return 0; }		# show error message at column 0
-EchoErrEnd() { echo -e "$@"  >&2; return 0; }														# show error message on the end of the line
+EchoErrEnd() { echo -e "$@" >&2; return 0; }														# show error message on the end of the line
 EchoQuiet() { [[ $quiet ]] && return; EchoWrap "$1"; }									# echo a message if quiet is not set
 EchoResetErr() { EchoReset "$@" >&2; return 0; } 												# reset to column 0 if not at column 0
 HilightErr() { InitColor; EchoErr "${RED}$@${RESET}"; }									# hilight an error message
 PrintErr() { echo -n -e "$@" >&2; return 0; }														# print an error message without a newline or resetting to column 0
+PrintEnd() { echo -n -e "$@"; return 0; }																# print message at the current cursor position
 PrintQuiet() { [[ $quiet ]] && return; printf "$1"; }										# print a message if quiet is not set
 
 # printf pipe: read input for printf from a pipe, ex: cat file | printfp -v var
@@ -3690,41 +3691,71 @@ sudov() { sudoc -- sudo --validate; } # update the cached credentials if needed
 IsSudo() { sudo --validate --non-interactive >& /dev/null; } # return true if the sudo credentials are cached
 
 # sudoc COMMANDS - run COMMANDS using sudo and use the credential store to get the password if available
-#   --no-prompt|-np   do not prompt for a password
+#   --no-prompt|-np   do not prompt or ask for a password
 #   --preserve|-p   	preserve the existing path (less secure)
+#   --stderr|-se   		prompt for a password using stderr
 sudoc()
 { 
-	# run the command if root already or we have cached credentials
-	# - use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
-	IsRoot && { env "$@"; return; } 	
+	# run the command - already root
+	IsRoot && { env "$@"; return; } # use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
+
+	# run the command - sudo credentials are cached
 	IsSudo && { sudo "$@"; return; } 
 
 	# arguments
-	local args=() noPrompt preserve 
+	local args=() noPrompt preserve stderr verbose verboseLevel
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--preserve|-p) preserve="--preserve";;
+			--stderr|-se) stderr="--stderr";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--) shift; args+=("$@"); break;;
 			*) args+=("$1");;
 		esac
 		shift
 	done
 
-	# command
+	# set variables
+	local prompt="[sudoc] password for $USER on $HOSTNAME: "
 	local command=( "$(FindInPath "sudo")" )
 
+	# determine environment variables need to be preserved when running sudo
 	if [[ $preserve ]]; then
 		if IsPlatform pi; then command+=(--preserve-env)
 		elif ! IsPlatform mac; then command+=(--preserve-env=PATH)
 		fi
 	fi
 
-	if credential --quiet exists secure default; then
-		SUDO_ASKPASS="$BIN/SudoAskPass" "${command[@]}" --askpass "${args[@]}"
+	# get password if possible, ignore errors so we can prompt for it
+	local password; password="$(credential --quiet get secure default $verbose)"
+
+	# prompt for password to stdout or stderr if possible, prevent sudo from asking for a password
+	if [[ ! $noPrompt && ! $password ]]; then
+		if [[ ! $srderr ]] && IsStdOut; then		
+			PrintEnd "$prompt" || return
+		elif IsStdErr; then
+			EchoEnd "$prompt || return"
+		else
+			noPrompt="--no-prompt"
+		fi
+	fi
+
+	# run sudo
+	if [[ $password ]]; then
+
+		# askpass:
+		# - times out more quickly if the password is incorrect
+		#SUDO_ASKPASS="$BIN/SudoAskPass" "${command[@]}" --askpass "${args[@]}"
+
+		# --stdin: 
+		# - prevents a second credential call 
+		# - allows us to pass conditional arguments to the credential call, like $verbose
+		echo "$password" | "${command[@]}" --prompt="" --stdin -- "${args[@]}"
+
 	else
 		[[ $noPrompt ]] && command+=(--non-interactive)
-		"${command[@]}" "${args[@]}"
+		"${command[@]}" --prompt="" -- "${args[@]}"
 	fi
 } 
 
