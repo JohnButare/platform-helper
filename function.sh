@@ -3556,7 +3556,7 @@ ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$1"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
 ScriptMessage() { EchoErr "$(ScriptPrefix "$2")$1"; } 																		# ScriptMessage MESSAGE - log a message with the script prefix
-ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "$name: "; }
+ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "%s" "$name: "; }
 ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; }
 
 # ScriptCd PROGRAM [ARG...] - run a script and change to the first directory returned
@@ -3575,7 +3575,7 @@ ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || retu
 
 ScriptName()
 {
-	local name; func="$1"; [[ $func ]] && { printf "$func"; return; }
+	local name; func="$1"; [[ $func ]] && { printf "%s" "$func"; return; }
 	IsBash && name="$(GetFileName "${BASH_SOURCE[-1]}")" || name="$(GetFileName "$ZSH_SCRIPT")"
 	[[ "$name" == "function.sh" ]] && unset name
 	printf "$name" 
