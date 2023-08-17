@@ -3751,7 +3751,7 @@ sudoc()
 		# --stdin: 
 		# - prevents a second credential call 
 		# - allows us to pass conditional arguments to the credential call, like $verbose
-		echo "$password" | "${command[@]}" --prompt="" --stdin -- "${args[@]}"
+		echo "$password" | "${command[@]}" --prompt="" --stdin "${args[@]}" # do not use -- to allow environment variables, i.e. sudoc TEST=1 ls
 
 	else
 		[[ $noPrompt ]] && command+=(--non-interactive)
