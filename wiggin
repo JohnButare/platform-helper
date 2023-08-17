@@ -205,6 +205,7 @@ hostUsage() {	ScriptUsageEcho "Usage: $(ScriptName) host credential|info|ls|netw
 hostArgStart()
 {
 	unset -v hostArg hostOpt errors wait; hosts=(); 
+	unset -v totalErrors
 
 	commonUsage="\
 	-H,  --host [HOSTS](all)	comma separated list of hosts, or one of:
@@ -248,14 +249,14 @@ hostArgEnd()
 	# alias
 	local aliasUsed="true";
 	case "${hostArg,,}" in
-		cam|camera) unset hostArg; GetHostsConfigNetwork "camera"; hosts=("$(ArrayDelimit hosts $'\n' | $resolve | $sort)") || hostExit;;
-		down) hosts=( $(DomotzHelper down | cut -d"," -f2 | $resolveMac | $sort) ) || hostExit;;
-		network) hosts=( "$(ArrayDelimit networkAll $'\n' | $resolve | $sort)" ) || hostExit; wait="--wait";;
-		hashi-*) hosts=( $(hashi config hosts --config-prefix="$(RemoveFront "${hostArg,,}" "hashi-")" | $resolve | $sort) ) || hostExit;;
-		important) hosts=( $(DomotzHelper important | $resolveMac | $sort) ) || hostExit;;
-		reboot) hosts=( $(os info -w=reboot all --status "${globalArgs[@]}" | tgrep " yes" | cut -d" " -f1 | $resolve | $sort) ) || hostExit;;
-		restart) hosts=( $(os info -w=restart all --status "${globalArgs[@]}" | tgrep " yes" | cut -d" " -f1 | $resolve | $sort) ) || hostExit;;
-		locked|unlock) hosts=( $(os info -w=credential all --status | tgrep "(locked)" | cut -d" " -f1 | $resolve | $sort) ) || hostExit;;
+		cam|camera) unset hostArg; GetHostsConfigNetwork "camera"; hosts=("$(ArrayDelimit hosts $'\n' | $resolve | $sort)") || hostExit "$?";;
+		down) hosts=( $(DomotzHelper down | cut -d"," -f2 | $resolveMac | $sort) ) || hostExit "$?";;
+		network) hosts=( "$(ArrayDelimit networkAll $'\n' | $resolve | $sort)" ) || hostExit "$?"; wait="--wait";;
+		hashi-*) hosts=( $(hashi config hosts --config-prefix="$(RemoveFront "${hostArg,,}" "hashi-")" | $resolve | $sort) ) || hostExit "$?";;
+		important) hosts=( $(DomotzHelper important | $resolveMac | $sort) ) || hostExit "$?";;
+		reboot) hosts=( $(os info -w=reboot all --status "${globalArgs[@]}" | tgrep " yes" | cut -d" " -f1 | $resolve | $sort) ) || hostExit "$?";;
+		restart) hosts=( $(os info -w=restart all --status "${globalArgs[@]}" | tgrep " yes" | cut -d" " -f1 | $resolve | $sort) ) || hostExit "$?";;
+		locked|unlock) hosts=( $(os info -w=credential all --status | tgrep "(locked)" | cut -d" " -f1 | $resolve | $sort) ) || hostExit "$?";;
 		*) unset aliasUsed;;
 	esac
 
@@ -278,7 +279,7 @@ hostInfoOpt() { scriptOptDetail "$@"; }
 hostInfoCommand() { GetHosts && RunLog os info "$(ArrayDelimit hosts ",")" $detail; }
 hostLsCommand() { GetHosts && ArrayDelimit hosts $'\n'; }
 
-hostExit() { [[ $errors ]] && return; ScriptExit 1; }
+hostExit() { (( totalErrors+=${1:-0} )); [[ $errors ]] && return; ScriptExit 1; }
 
 #
 # Host Credential Commands
@@ -427,20 +428,30 @@ $waitUsage"
 hostUpdateArgStart() { hostSyncFilesArgStart; }
 hostUpdateOpt() { hostSyncFilesOpt "$@"; }
 hostUpdateCommand() { hostUpdateAllCommand; }
-hostUpdateAllCommand() { hostUpdateUpdateCommand && header "reboot" && hostUpdateRebootCommand && header "restart" && hostUpdateRestartCommand; }
 hostUpdateUpdateCommand() { ForAllHosts $errors hostUpdate; }
 hostUpdateRebootCommand() { hostUpdateRebootFindHost && hostUpdateReboot; }
+
+hostUpdateAllCommand()
+{
+	hostUpdateUpdateCommand || hostExit;
+	header "reboot"; hostUpdateRebootCommand || hostExit
+	header "restart"; hostUpdateRestartCommand || hostExit
+	return $totalErrors
+}
 
 hostUpdateRestartCommand()
 {
 	local hostsOrig; ArrayCopy hosts hostsOrig || return
 
 	# restart
-	hostUpdateRestartFindHost || return; [[ ! $hosts ]] && return
+	unset hosts; hostUpdateRestartFindHost || hostExit; [[ ! $hosts ]] && return
 	ForAllHosts --no-get $errors hostUpdateRestartHost --header "restart" || return
 
-	# reboot
-	ArrayCopy hostsOrig hosts && hostUpdateRestartFindHost && hostUpdateReboot
+	# reboot hosts where the restart was not enough
+	ArrayCopy hostsOrig hosts || return
+	unset hosts; hostUpdateRestartFindHost || hostExit; [[ ! $hosts ]] && return
+	hostUpdateReboot || hostExit
+	return $totalErrors
 }
 
 hostUpdateReboot() { wait="--ssh" ForAllHosts --no-get $errors hostUpdateRebootHost --header "reboot"; }
