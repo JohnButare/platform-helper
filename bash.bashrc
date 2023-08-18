@@ -140,8 +140,8 @@ CheckPlatform || return
 #
 
 # P=apps, PUSER=user apps, SRV=server apps, BIN=programs, PBIN=platform programs, DATA=common data, ADATA=application data, ACONFIG=application configuration
-# PUB=public documents, USERS=users home directory, VOLUMES=mounted system volumes
-P="/opt" PUSER="" SRV="/srv" BIN="" DATA="" ADATA="" ACONFIG="" PUB="" USERS="/home" VOLUMES="/mnt"
+# PUB=public documents, USERS=users home directory
+P="/opt" PUSER="" SRV="/srv" BIN="" DATA="" ADATA="" ACONFIG="" PUB="" USERS="/home"
 
 # USER=logged on user, SUDO_USER, HOME=home directory, DOC=user documents, UDATA=user data, UBIN=user programs
 # UDATA=user data, UADATA=user application data, CODE=source code WIN_CODE=windows source code
@@ -154,7 +154,7 @@ WIN_ROOT="/" WIN_HOME="$HOME"
 
 # PLATFORM_OS environment variables
 case "$PLATFORM_OS" in 
-	mac) USERS="/Users" P="/Applications" G="g" SRV="/opt" VOLUMES="/Volumes" UADATA="$HOME/Library/Application Support" 
+	mac) USERS="/Users" P="/Applications" G="g" SRV="/opt" UADATA="$HOME/Library/Application Support" 
 		# Homebrew
 		unset -v HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY
 		if [[ -f "/usr/local/bin/brew" ]]; then export HOMEBREW_PREFIX="/usr/local" HOMEBREW_CELLAR="$HOMEBREW_PREFIX/Cellar" HOMEBREW_REPOSITORY="/usr/local/Homebrew"
