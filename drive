@@ -17,7 +17,7 @@ Manipulate system drives.
 		SetLabel LABEL 	set the label of the drive
 		unmount					unmount the specified device
 
-	device|fs|IsDrive|IsWin|label|resize|size|type DEVICE - get information about the device
+	device|free|fs|IsDrive|IsLetter|IsWin|label|resize|size|type DEVICE - get information about the device
 		device					get the device name of the specified mounted file
 		desc						get the description of the specified mounted file
 		IsWin						return true if the drive is mounted using Windows drvfs
@@ -54,7 +54,7 @@ opt()
 argStart() { unset -v all device deviceArg noOptical; }
 args() { isQuietCommand && quiet="--quiet"; getDeviceArg "$1"; }
 isQuietCommand() { [[ "$command" == @(isDrive|isWin) ]]; }
-needsDevice() { [[ "$command" == @(desc|device|format|fs|label|isDrive|isMounted|isWin|mount|unmount|remount|resize|root|setLabel|size|type) ]]; }
+needsDevice() { [[ "$command" == @(desc|device|format|free|fs|label|isDrive|isLetter|isMounted|isWin|mount|unmount|remount|resize|root|setLabel|size|type) ]]; }
 
 # getDeviceArg DEVICE - get the device argument (all, DEVICE or /dev/DEVICE)
 getDeviceArg()
@@ -120,6 +120,7 @@ getDeviceArg()
 # commands
 # 
 
+isLetterCommand() { isDriveLetter "$device"; }
 isMountedCommand() { [[ $all ]] && { areAllMounted; return; }; isMounted; }
 mountCommand() { [[ $all ]] && { allMount; return; }; doMount && returnMountDir; }
 unmountCommand() { [[ $all ]] && { allUnmount; return; }; doUnmount; }
@@ -166,6 +167,15 @@ detailCommand()
 	} | column -c $(tput cols) -t -s: -n
 }
 
+freeCommand()
+{
+	if isDriveLetter "$device"; then
+		RunScript --elevate fsutil.exe volume diskfree ${device}: | grep "^Total free bytes" | cut -d":" -f2 | RemoveSpaceTrim | cut -d" " -f1 | sed 's/,//g'
+	else
+		lsblk -b | grep "$device " | tr -s " " | cut -d" " -f4
+	fi
+}
+
 mountsCommand()
 {
 	local d=()
@@ -194,7 +204,7 @@ mountsCommand()
 sizeCommand()
 {
 	if isDriveLetter "$device"; then
-		diskpart "list volume" | grep "^[ ]* Volume [0-9][0-9]*[ ]*${device^^} " | tr -s " " | cut -d" " -f8
+		RunScript --elevate fsutil.exe volume diskfree ${device}: | grep "^Total bytes" | cut -d":" -f2 | RemoveSpaceTrim | cut -d" " -f1 | sed 's/,//g'
 	else
 		lsblk -b | grep "$device " | tr -s " " | cut -d" " -f4
 	fi
@@ -317,11 +327,19 @@ winArgs()
 }
 
 winCommand() { usage; }
-winListCommand() { diskpart "list disk" | grep -E 'Online|Offline|Status|---'; }
-winExistsCommand() { diskpart "select disk $disk" | grep "Disk $disk is now the selected disk." >& /dev/null; }
+winListCommand() { runDiskpart "list disk" | grep -E 'Online|Offline|Status|---'; }
+winExistsCommand() { runDiskpart "select disk $disk" | grep "Disk $disk is now the selected disk." >& /dev/null; }
 winGetofflineCommand() { drive win list | grep Offline | tr -s " " | cut -d" " -f3; }
-winOnlineCommand() { diskpart "select disk $disk \n online disk" | grep "DiskPart successfully onlined the selected disk" >& /dev/null; }
-winOfflineCommand() { diskpart "select disk $disk \n offline disk" | grep "DiskPart successfully offlined the selected disk" >& /dev/null; }
+winOnlineCommand() { runDiskpart "select disk $disk \n online disk" | grep "DiskPart successfully onlined the selected disk" >& /dev/null; }
+winOfflineCommand() { runDiskpart "select disk $disk \n offline disk" | grep "DiskPart successfully offlined the selected disk" >& /dev/null; }
+
+runDiskpart()
+{
+	local file result; file="$(mktemp --tmpdir="$WIN_ROOT/temp")"
+	echo "$*" > "$file" || return
+	cd "$WIN_ROOT/temp"; RunScript --elevate -- cmd.exe /c diskpart /s $(GetFileName "$file"); result=$?
+	rm "$file"; return $result
+}
 
 #
 # helper
