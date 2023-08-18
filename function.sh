@@ -3699,9 +3699,6 @@ sudoc()
 	# run the command - already root
 	IsRoot && { env "$@"; return; } # use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
 
-	# run the command - sudo credentials are cached
-	IsSudo && { sudo "$@"; return; } 
-
 	# arguments
 	local args=() noPrompt preserve stderr verbose verboseLevel
 	while (( $# != 0 )); do
@@ -3727,6 +3724,9 @@ sudoc()
 		fi
 	fi
 
+	# run the command - sudo credentials are cached
+	IsSudo && { "${command[@]}" --prompt="" "${args[@]}"; return; } 
+
 	# get password if possible, ignore errors so we can prompt for it
 	local password; password="$(credential --quiet get secure default $verbose)"
 
@@ -3741,21 +3741,12 @@ sudoc()
 		fi
 	fi
 
-	# run sudo
+	# run sudo - do not use -- to allow environment variables, i.e. sudoc TEST=1 ls
 	if [[ $password ]]; then
-
-		# askpass:
-		# - times out more quickly if the password is incorrect
-		#SUDO_ASKPASS="$BIN/SudoAskPass" "${command[@]}" --askpass "${args[@]}"
-
-		# --stdin: 
-		# - prevents a second credential call 
-		# - allows us to pass conditional arguments to the credential call, like $verbose
-		echo "$password" | "${command[@]}" --prompt="" --stdin "${args[@]}" # do not use -- to allow environment variables, i.e. sudoc TEST=1 ls
-
+		echo "$password" | "${command[@]}" --prompt="" --stdin "${args[@]}"
 	else
 		[[ $noPrompt ]] && command+=(--non-interactive)
-		"${command[@]}" --prompt="" -- "${args[@]}"
+		"${command[@]}" --prompt="" "${args[@]}"
 	fi
 } 
 
