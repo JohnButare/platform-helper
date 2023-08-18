@@ -164,6 +164,7 @@ case "$PLATFORM_OS" in
 	win)
 		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows"
 		WIN_USER="$USER" WIN_HOME="$WIN_ROOT/Users/$WIN_USER" # for performancd assume the Windows username is the same
+		WIN_PUB="$WIN_ROOT/Users/Public"; WIN_DATA="$WIN_PUB/data"
 		[[ ! -d "$WIN_HOME/Documents" ]] && WIN_USER="$(cmd.exe /c set 2> /dev/null | grep '^USERNAME=' | cut -d= -f2 | tr -d '\n' | sed 's/\r//g')" WIN_HOME="$WIN_ROOT/Users/$WIN_USER"
 		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" UADATA="$WIN_HOME/AppData/Local" PUSER="$UADATA/Programs"
 		;;
