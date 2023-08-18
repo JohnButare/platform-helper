@@ -1853,22 +1853,9 @@ AppDirInstall()
 	# boot drive
 	appDirCreate "$DATA" || return
 
-	# data drive
-
-	local dir
-	if [[ -d "/share/data2" ]]; then dir="/share/data2"			# qnap
-	elif [[ -d "/mnt/data" ]]; then dir="/mnt/data"				 	# debian
-	elif [[ -d "/Volumes/data" ]]; then dir="/Volumes/data" # mac
-	fi
-
-	if [[ $dir ]]; then
-		sudoc chown "$USER" "$dir" || return
-		! IsPlatform mac && { sudoc chgrp "$USER" "$dir" || return; }
-		appDirCreate "$dir" || return
-		makeDir "$dir/public/backup" "$dir/public/install" "$dir/public/test" "$dir/public/test/tmp" || return
-		IsPlatform debian && { i DebianFileSharing || return; }
-	fi
-
+	# data drives
+	local drive; for drive in "" 1 2 3 4 5; do appDataCreate $drive || return; done
+	
 	# platform specific
 	RunPlatform appDir || return
 }
@@ -1877,11 +1864,45 @@ appDirWin()
 {
 	appDirCreate "$WIN_ROOT/Users/Public/data" "w" || return
 
-	# move Windows executables to the Windows file system
-	# - for performance and reliability (some Windows programs do not run well from WSL shares)
+	# data drives
+	local drive drives; IFS=$'\n' ArrayMakeC drives drive list || return
+	for drive in "${drives[@]}"; do appDataCreate "$drive" || return; done
+
+	# move Windows executables to the Windows file system for performance and reliability - some Windows programs do not run well from WSL shares
 	RunLog makeLink --symbolic --merge "$DATA/appdataw/win" "$DATA/platform/win" || return
 	RunLog makeLink --symbolic --merge "$DATA/appdataw/win_arm" "$DATA/platform/win_arm" || return
 }
+
+# appDataCreate N - create data drive N
+appDataCreate()
+{
+	local n="$1"
+
+	# find the drive
+	local dir
+	if drive IsLetter "$n" && [[ "$(drive label d)" =~ "^data" ]]; then dir="$(drive root c)"
+	elif [[ -d "/share/data$n" ]]; then dir="/share/data$n"			# qnap
+	elif [[ -d "/mnt/data$n" ]]; then dir="/mnt/data$n"				 	# debian
+	elif [[ -d "/Volumes/data$n" ]]; then dir="/Volumes/data$n" # mac
+	fi
+
+	# get the drive label
+	local label; label="$(drive label "$dir")"
+	
+	# return if the drive does not exist
+	[[ ! $dir || ! -d "$dir" ]] && return
+
+	# setup the data drive
+	sudoc chown "$USER" "$dir" || return
+	! IsPlatform mac && { sudoc chgrp "$USER" "$dir" || return; }
+	appDirCreate "$dir" || return
+	makeDir "$dir/public/backup" "$dir/public/install" "$dir/public/test" "$dir/public/test/tmp" || return
+
+	IsPlatform debian && { i DebianFileSharing || return; }
+
+	return 0
+}
+
 
 # appDirCreate DIR SUFFIX - create application directories in the directory, link to $ADATA{suffix} and $ACONFIG{suffix}
 appDirCreate()
