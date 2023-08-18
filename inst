@@ -407,7 +407,7 @@ installInit()
 
 	# isInstallable	
 	all=(download final register update)
-	all+=(AppDir bash DriveTime envoy hostname jq NetbootxyzTftpServer PartitionManagement timezone zsh ZshProfile)	
+	all+=(AppDir bash DriveTime envoy fileServer hostname jq NetbootxyzTftpServer PartitionManagement timezone zsh ZshProfile)	
 	debian=(audacity bind ChronyServer cron CronLog DnsServer DhcpServer kea KeaService mDns SaltMinion terminator)
 	debian64=() debianWin=()
 	mac=(amphetamine AppleConfigurator batteries bear Calendar366 CanaryMail CarrotWeather DayOne DiskInventortyX flighty HomeAssistant iTerm KarabinerElements LiveDesktop Magnet MakrdownView pcalc rectagle spark speedtest ValetCarControl WallpaperWizard warp xcode XcodeCli XQuartz yoink)
@@ -447,7 +447,7 @@ installInit()
 	win+=(GameIcon EpicGames oculus steam uplay)
 
 	# Git
-	all+=(fileServer gitClient gitServer)
+	all+=(gitClient gitServer)
 	mac+=(gitx)
 	macDebian+=(GitHub GitKraken GitKrakenDownload SublimeMerge)
 	macWin+=(lazygit)
@@ -615,7 +615,7 @@ httpShow() { local url="$1"; [[ ! $url ]] && return; IsInteger "$url" && url="ht
 httpsShow() { local url="$1"; [[ ! $url ]] && return; IsInteger "$url" && url="https://$(GetIpAddress --wsl):$url"; echo "URL: $url"; }
 macAppConfigure() { askp "Configure $1" && { start "$1" || return; }; return 0; }
 makeFileSudo() { local file="$1" dir="$(GetFilePath "$1")"; makeDir --sudo "$dir" || return; [[ ! -f "$dir" ]] && { sudo touch "$file" || return; }; }
-makeLinkSudo() { sudoc MakeLink --suppress $quiet $noPrompt "$@"; }
+makeLinkSudo() { RunLog sudoc MakeLink --suppress $quiet $noPrompt "$@"; }
 mergeDir() { MergeDir --parents --suppress "$@"; }
 minimalInstall() { [[ $_minimalInstall ]]; }
 moveAppData() { local src="$1" dest="${2:-$1}"; makeLink --merge --hide "$(platformUserAppData)/$dest" "$DOC/$src"; }
@@ -1080,12 +1080,12 @@ makeDir()
 
 makeLink()
 {
-	local dir="$(GetFilePath "${@: -1}")"
-	
 	# only make links on mounted drives, i.e. Parallels $HOME/Documents is a network drive and is not mounted
+	local dir="$(GetFilePath "${@: -1}")" # last argument
 	! drive IsMounted "$dir" && return
 
-	MakeLink --suppress $quiet $noPrompt "$@"; 
+	# make link
+	RunLog MakeLink --suppress $quiet $noPrompt $verbose "$@"; 
 }
 
 # register APP - enter the registration information for an application
@@ -1849,13 +1849,18 @@ AppNetworkInstall()
 # Application Directories (appdata appconfig)
 #
 
+# $DATA/app[data|config][w] app[data|config]N[w] ...
+#	- no numeric suffix for boot drive or first data drive
+#	- w suffix for Windows file system, otherwise native file system
+#	- store group data in links to ../GROUP, i.e. ../games ($data/games $WIN_DATA/games)
+
 AppDirInstall()
 {
+	# data drives
+	local drive; for drive in {1..10}; do appDataSetup $drive || return; done
+
 	# boot drive
 	appDirCreate "$DATA" || return
-
-	# data drives
-	local drive; for drive in "" 1 2 3 4 5; do appDataCreate $drive || return; done
 	
 	# platform specific
 	RunPlatform appDir || return
@@ -1863,61 +1868,64 @@ AppDirInstall()
 
 appDirWin()
 {
-	appDirCreate "$WIN_ROOT/Users/Public/data" "w" || return
-
 	# data drives
 	local drive drives; IFS=$'\n' ArrayMakeC drives drive list || return
-	for drive in "${drives[@]}"; do appDataCreate "$drive" || return; done
+	for drive in "${drives[@]}"; do appDataWinSetup "$drive" || return; done
 
-	# move Windows executables to the Windows file system for performance and reliability - some Windows programs do not run well from WSL shares
-	RunLog makeLink --symbolic --merge "$DATA/appdataw/win" "$DATA/platform/win" || return
-	RunLog makeLink --symbolic --merge "$DATA/appdataw/win_arm" "$DATA/platform/win_arm" || return
+	# boot drive
+	appDirCreate "$WIN_DATA" "" "w" || return
+
+	# move Windows executables to the Windows file system for perfomrance and reliability - some Windows programs do not run well from WSL shares
+	makeLink --symbolic --merge "$DATA/appdataw/win" "$DATA/platform/win" || return
+	makeLink --symbolic --merge "$DATA/appdataw/win_arm" "$DATA/platform/win_arm" || return
 }
 
-# appDataCreate N - create data drive N
-appDataCreate()
+# appDataSetup N - setup data drive N
+appDataSetup()
 {
-	local n="$1"
+	local n="$1" dir; dir="$(drive mount root)/data$n"
+	[[ ! -d "$dir" ]] && return
 
-	# find the drive
-	local dir
-	if drive IsLetter "$n" && [[ "$(drive label d)" =~ "^data" ]]; then dir="$(drive root c)"
-	elif [[ -d "/share/data$n" ]]; then dir="/share/data$n"			# qnap
-	elif [[ -d "/mnt/data$n" ]]; then dir="/mnt/data$n"				 	# debian
-	elif [[ -d "/Volumes/data$n" ]]; then dir="/Volumes/data$n" # mac
-	fi
+	# no prefix for first data drive	
+	(( n == 1 )) && n=""
 
-	# get the drive label
-	local label; label="$(drive label "$dir")"
-	
-	# return if the drive does not exist
-	[[ ! $dir || ! -d "$dir" ]] && return
-
-	# setup the data drive
+	# setup data drive permissions
 	sudoc chown "$USER" "$dir" || return
 	! IsPlatform mac && { sudoc chgrp "$USER" "$dir" || return; }
-	appDirCreate "$dir" || return
-	makeDir "$dir/public/backup" "$dir/public/install" "$dir/public/test" "$dir/public/test/tmp" || return
 
-	IsPlatform debian && { i DebianFileSharing || return; }
+	# create directories and links
+	appDirCreate "$dir" "$n" || return
 
 	return 0
 }
 
+# appDataSetup N - setup data drive N
+appDataWinSetup()
+{
+	local n="$1" label; label="$(drive label "$n")" || return; [[ ! "$label" =~ ^data ]] && return
+	local dir="$(drive root "$n")" suffix="w"; n="$(echo "$label" | sed 's/^data//')"
+	appDirCreate "$dir" "$n" "w" || return
+}
 
-# appDirCreate DIR SUFFIX - create application directories in the directory, link to $ADATA{suffix} and $ACONFIG{suffix}
+# appDirCreate PATH [N] [w] - create application directories at PATH
 appDirCreate()
 {
-	local dir="$1" suffix="$2"
+	local path="$1" n="$2" suffix="$3"
+	appDirLink "$path" "appconfig" "$n" "$suffix" || return
+	appDirLink "$path" "appdata" "$n" "$suffix" || return
+}
 
-	# create directories
-	makeDir "$dir/appconfig" "$dir/appdata" || return
+appDirLink()
+{
+	local path="$1" dir="$2" n="$3" suffix="$4"; [[ "$n" == "1" ]] && n=""
+	makeDir "$path/$dir" || return
 	
-	# create links if needed
-	[[ "$ACONFIG${suffix}" != "$dir/appconfig" ]] && { RunLog sudo MakeLink --symbolic --merge "$dir/appconfig" "$ACONFIG${suffix}" || return; }
-	[[ "$ADATA${suffix}" != "$dir/appdata" ]] && { RunLog sudo MakeLink --symbolic --merge "$dir/appdata" "$ADATA${suffix}" || return; }
-
-	return 0
+	if drive IsWin "$path"; then 
+		makeLink --junction --merge "$path/$dir" "$WIN_DATA/$dir${n}" || return								# hard link from $WIN_DATA to data drive
+		makeLink --symbolic --merge "$WIN_DATA/$dir${n}" "$DATA/$dir${n}${suffix}" || return	# symbolic link from $DATA to boot drive
+	else
+		makeLink --symbolic --merge "$path/$dir" "$DATA/$dir${n}${suffix}" || return
+	fi
 }
 
 #################################################
@@ -3806,7 +3814,7 @@ GitHubInstall()
 		PackageUpdate || return
 	fi
 
-	package gh && sudoc MakeLink --symbolic "$(FindInPath "gh")" "/usr/local/bin/gh"
+	package gh && makeLinkSudo --symbolic "$(FindInPath "gh")" "/usr/local/bin/gh"
 } 
 
 GitHubRegister() { ! InPath gh && return; gh auth login && gh auth setup-git; }
@@ -7710,7 +7718,16 @@ FileServerInstall()
 {
 	header "File Server"
 	i --no-header AppDir || return
+
+	# directories - assume drive is mounted as data
+	local dir="$(drive mount root)/data"
+	makeDir "$dir/public/backup" "$dir/public/install" "$dir/public/test" "$dir/public/test/tmp" || return
 	makeDir --sudo "$ADATA/borg" || return
+
+	# setup file sharing
+	IsPlatform debian && { i DebianFileSharing || return; }
+
+	# register service
 	hashiRegisterApp "file"
 }
 
@@ -8579,7 +8596,7 @@ sublimePackage()
 
 SublimeProfile() { sublime $noPrompt profile restore default && SetTextEditor; }
 SublimeRegister() { register "sublime"; }
-SublimeFinalMac() { sudoc MakeLink "$P/Sublime Text.app/Contents/SharedSupport/bin/subl" "/usr/local/bin/subl"; }
+SublimeFinalMac() { makeLinkSudo "$P/Sublime Text.app/Contents/SharedSupport/bin/subl" "/usr/local/bin/subl"; }
 
 SublimeFinalWin()
 {
@@ -9906,7 +9923,7 @@ WinDirsUserInstall()
 	makeDir "$WIN_ROOT/temp" || return
 	makeDir "$up/Applications/Other" || return
 	makeDir "$WIN_HOME/$(GetFileName "$CODE")" || return
-	MakeLink --symbolic "$WIN_ROOT/Users/Public" "$PUB" || return
+	makeLink --symbolic "$WIN_ROOT/Users/Public" "$PUB" || return
 }
 
 WinFontsInstall()
