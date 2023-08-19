@@ -563,14 +563,14 @@ HashiConf()
 	# set environment from credential store cache if possible
 	if ! (( forceLevel > 1 )); then
 		(( verboseLevel > 1 )) && ScriptMessage "trying to set Hashi environment from '$manager' credential store cache" "HashiConf"
-		ScriptEval credential get hashi cache --quiet $force $verbose --manager="$manager" $force $verbose  && { HASHI_CHECKED="true"; return; }
+		ScriptEval credential get hashi cache --quiet --manager="$manager" $force $verbose  && { HASHI_CHECKED="true"; return; }
 	fi
 
 	# set environment manually
 	(( verboseLevel > 1 )) && ScriptMessage "setting the Hashi environment manually" "HashiConf"
 	local vars; vars="$(hashi config environment all --suppress-errors $force $verbose)" || return
 	eval "$vars" || return
-	echo "$vars" | credential set hashi cache $force $verbose - $manager
+	echo "$vars" | credential set hashi cache - --quiet --manager="$manager" $force $verbose
 	HASHI_CHECKED="true"
 }
 
