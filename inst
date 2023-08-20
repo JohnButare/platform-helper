@@ -794,7 +794,7 @@ findFileCd() { local file="$1"; findFile "$file" && cd "$file"; }
 
 extractFiles()
 {
-	local dir="$1"
+	local dir="$1"; ! InPath fd && return # fd not installed on bootstrap 
 	pushd "$dir" >& /dev/null || return
 
 	local file files; IFS=$'\n' ArrayMake files "$(fd --max-depth=1 '\.(bz2|gz|tar|tgz|zip)$')"
@@ -1722,7 +1722,7 @@ appProxmox() { i ProxmoxWinTools; }
 appDebian()
 {
 	# minimal
-	i AptUtilities CloudInit nala dbus rsyslog xClient || return
+	i AptUtilities CloudInit nala rsyslog xClient || return
 	package debian-goodies needrestart || return
 	{ [[ ! $force ]] && minimalInstall; } && return
 
@@ -1856,14 +1856,8 @@ AppNetworkInstall()
 
 AppDirInstall()
 {
-	# data drives
-	local drive; for drive in {1..10}; do appDataSetup $drive || return; done
-
-	# boot drive
-	appDirCreate "$DATA" || return
-
-	# platform specific
-	RunPlatform appDir || return
+	local drive; for drive in {1..10}; do appDataSetup $drive || return; done # data drives
+	appDirCreate "$DATA" && RunPlatform appDir															  # boot drive and platform
 }
 
 appDirWin()
@@ -1875,11 +1869,11 @@ appDirWin()
 	# boot drive
 	appDirCreate "$WIN_DATA" "" "w" || return
 
-	# move Windows executables to the Windows file system for perfomrance and reliability - some Windows programs do not run well from WSL shares
-	[[ -d "$DATA/appdataw" && -d "$DATA/appdataw/win_arm" ]] && return
+	# move Windows executables to the Windows file system for perfomrance and reliability
+	[[ -L "$DATA/platform/win" && -d "$DATA/platform/win_arm" ]] && return
 	makeLink --symbolic --merge "$DATA/appdataw/win" "$DATA/platform/win" || return
 	makeLink --symbolic --merge "$DATA/appdataw/win_arm" "$DATA/platform/win_arm" || return
-	SyncLocalFiles --source-older --no-user || return # moving win and win_arm changes file times
+	SyncLocalFiles --source-older --no-user $host || return # moving win and win_arm changes file times
 }
 
 # appDataSetup N - setup data drive N
@@ -2140,7 +2134,7 @@ BootstrapInstall()
 	[[ ! $force ]] && ! UpdateNeeded "install-bootstrap" && return
 
 	# dependencies
-	i BootstrapFiles SshClientPermission CredentialStore timezone || return 
+	i BootstrapFiles SshClientPermission dbus CredentialStore timezone || return 
 
 	# bootstrap
 	RunPlatform bootstrapStart || return
@@ -2520,7 +2514,7 @@ TorInstall()
 	
 	if IsPlatform win; then
 		local clip; clip="$(utw "$PUSER/Tor Browser")"; clipw "$clip"
-		echot "- Destination Folder=<paste> ($clip)"
+		echo -E "- Destination Folder=<paste> ($clip)"
 	fi
 
 	run "shareware/Tor Browser/torbrowser-install-win64-${v}_en-US.exe|TorBrowser-$v-osx64_en-US.dmg|tor-browser-linux64-$v_en-US.tar.xz" || return # https://www.torproject.org/download/
@@ -2625,7 +2619,6 @@ DebianSetupInstall() # called by bootstrapDebian
 {
 	header "Debian Setup"
 	i apt DebianDns DebianFileSharing DebianFonts DebianLocale DebianPolicies DebianProxyServer DebianSudoSecurePath || return
-	DbusSetup || return
 }
 
 DebianDnsInstall()
@@ -3489,15 +3482,16 @@ CupsInstall()
 }
 
 DbusInstall()
-{
+{	
 	# shared D-Bus
 	IsPlatform debian && ! PackageInstalled dbus-user-session && { package dbus-user-session || return; }
 
 	# fix WSL error message
 	local file="/usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf"
 	IsPlatform wsl && [[ -f "$file" ]] && grep -q "whoopsie" "$file" && { echo "Remove whoopsie policy..."; sudoe "$file"; }
-	
-	return 0
+
+	# activate
+	DbusSetup && app dbus
 }
 
 GpgInstall()
@@ -3617,8 +3611,8 @@ SteamFinalWin()
 SteamHelp()
 {
 	local clip; clip="$(utw "$WIN_DATA")"'\app\Steam'; clipw "$clip"
-	echot "\
-- Steam, Settings, Storage, +, Let me choose another location, Add, <paste> ($clip), Set Defauls"
+	echo -E "\
+- Steam, Settings, Storage, +, Let me choose another location, Add, <paste> ($clip), ..., Make Default"
 }
 
 UplayInstall() { run --name "UPlay (UbiSoft)" "game/Ubisoft/UplayInstaller.exe"; }
@@ -3914,7 +3908,7 @@ TortoiseGitHelp()
 {
 	local clip; clip="$(utw "$program")"; clipw "$clip"
 	findCompareProgram || return
-	echot "\
+	echo -E "\
 - General
 	- Contect Menu, uncheck all but Clone and Show log
 	-Dialogs 1, check Enable Gravatar
@@ -7982,7 +7976,7 @@ CredentialStoreInstall()
 {	
 	header "Credential Store"
 
-	# install fd - used by credential script
+	# dependencies
 	i --no-header fd || return
 
 	# tools
@@ -8552,7 +8546,7 @@ ObsidianHelp()
 	makeDir "$WIN_UDATA/app/Obsidian" || return
 	obsidian start || return
 	local clip; clip="$(utw "$WIN_UDATA/app/Obsidian")"; clipw "$clip"
-	echot "\
+	echo -E "\
 - Open vault from Obidian Sync=Sign in, personal=Connect, Location=paste ($clip)
 - Sync check all"
 }
@@ -8898,10 +8892,9 @@ FdInstall()
 	# check if installed
 	InPath fd && [[ "$(fd --version)" == "fd $v" && ! $force ]] && return
 
-	# install
+	# install - deb package has too many dependencies
 	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then pkg fd
-	elif IsPlatform arm,64 && [[ "$installType" == @(|local) ]]; then run --executable "shareware/fd" --no-header
-	elif IsPlatform debian,64 && [[ "$installType" == @(|package) ]]; then run "shareware/fd/fd-musl_${v}_amd64.deb" --no-header
+	elif IsPlatform 64 && [[ "$installType" == @(|local) ]]; then run --executable "shareware/fd" --no-header
 	elif [[ "$installType" == @(|compile) ]]; then run --rust "fd-find"
 	else couldNotLocate
 	fi
@@ -9488,15 +9481,15 @@ HypervInstall()
 {
 	header "Hyper-V"
 	RunScript --elevate --no-hide "${globalArgs[@]}" -- cmd.exe /c DISM /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V || return
-	RunScript --elevate powershell Set-VMHost -EnableEnhancedSessionMode \$true || return # USB
+	RunScript --elevate --functions "${globalArgs[@]}" -- powershell Set-VMHost -EnableEnhancedSessionMode '\$true' || return # USB
 }
 
 HypervHelp()
 {
 	local data="$DATA/appdataw/Hyper-V"; makeDir "$data" || return
 	local clip; clip="$(utw "$data")"; clipw "$clip"
-	echot "- Hyper-V Manager, $HOSTNAME, Hyper-V Settings...
-	- Virtual Hard Disks=<paste> ($clip\Virtual Hard Disks
+	echo -E "- Hyper-V Manager, $HOSTNAME, Hyper-V Settings...
+	- Virtual Hard Disks=<paste> ($clip\Virtual Hard Disks)
 	- Virtual Machines=<paste> ($clip)"
 	hyperv gui || return
 }
@@ -9599,7 +9592,7 @@ VirtualBoxInstall()
 	makeDir "$data" || return
 
 	local clip; clip="$(utw "$data")"; clipw "$clip"
-	echot "- File, Preferences..., General, Default Machine Folder=<paste> ($clip)"
+	echo -E "- File, Preferences..., General, Default Machine Folder=<paste> ($clip)"
 }
 
 VirualBoxFinalWin()
