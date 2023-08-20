@@ -12,7 +12,7 @@ dropboxUser="John Butare"
 # - bootStrapBin - initial bin directory UNC in the format //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
 # - bootstrapInstall - installation directory, if unset find it
 bootstrapBin="//ender.hagerman.butare.net/system/usr/local/data/bin"
-bootstrapInstall="//ender.butare.net/public/documents/data/install"
+bootstrapInstall="//ender.butare.net/public/install"
 bootstrapProxyServer="proxy.butare.net" boostrapProxyPort="3128"
 bootstrapProxy="http://$bootstrapProxyServer:$boostrapProxyPort"
 bootstrapDns1="10.10.100.8"
