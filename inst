@@ -376,7 +376,6 @@ installInit()
 		[vsc]="VisualStudioCode"
 		[vse]="VisualStudioExtensions"
 		[vscode]="VisualStudioCode"
-		[winconfig]="WinConfiguration"
 		[wmp]="WindowsMediaPlayer"
 		[wt]="WindowsTerminal"
 		[yubikey]="YubiKeyManager"
@@ -779,7 +778,7 @@ findFile()
 		GetFilePath "$file" file || return
 	fi
 
-	if ! ScriptEval FindInstallFile $select --suppress --eval --quiet "${hint[@]}" "$file"; then
+	if ! ScriptEval FindInstallFile $select --suppress --eval --quiet "${hint[@]}" "$file" "${globalArgs[@]}"; then
 		[[ ! $quiet ]] && ScriptErr "could not locate ${1:-the installation directory}"
 		return 1
 	fi
@@ -843,19 +842,22 @@ getPlatform()
 }
 
 # getInstallFunction APP - find the function used to install the specified application
-# - The function will have the name appInstall
-# - A case insensitive search of all functions is performed, i.e. the app xming will match the function xMingInstall
+# - the function will have the name appInstall
+# - a case insensitive search of all functions is performed, i.e. the app xming will match the function xMingInstall
 # - the actual install function name is returned, i.e. xMingInstall
 getInstallFunction()
 {
-	local app="${1,,}"
+	local app="$1" alias="$1" check="${1,,}"
 
 	# alias lookup
-	[[ ${aliases[$app]} ]] && app="${aliases[$app]}"
+	[[ ${aliases[$check]} ]] && app="${aliases[$check]}"
+	log1 "getInstallFunction: alias='$alias' app='$app' check='$check'"
 
 	# find the install function (with Install suffix)
 	declare -f | ${G}grep -iE "^${app}Install \(\) $" | sed "s/ () //"
-	return ${PIPESTATUS[1]}
+	local result=${PIPESTATUS[1]}
+	(( $result != 0 )) && log1 "getInstallFunction: app '$app' not  found, search='$(declare -f | ${G}grep "${app}Install")'"
+	return $result
 }
 
 # getVersionDownloaded APP - get downloaded version of application.
@@ -6884,13 +6886,18 @@ NalaInstall()
 
 	InPath nala && [[ ! $force ]] && return
 
-	# https://gitlab.com/volian/nala/-/issues/72
+	# determine if we should use legacy nala - https://gitlab.com/volian/nala/-/issues/72
 	local useLegacy
 	IsPlatform ubuntu && (( $(echo "$(os release) < 22.04" | bc -l) )) && useLegacy="true"
 	IsPlatform CasaOs,DebianBase && (( $(echo "$(os release) < 12" | bc -l) )) && useLegacy="true"
 
+	# install
 	[[ ! $useLegacy ]] && { package nala && sudo nala fetch; return; }
-	run "shareware/Nala/nala-legacy_0.11.0_amd64.deb" && sudo nala fetch
+	run "shareware/Nala/nala-legacy_0.11.0_amd64.deb" || return
+
+	# sources
+	[[ ! $force && -f "/etc/apt/sources.list.d/nala-sources.list" ]] && return
+	sudoc nala fetch --auto --fetches 1 --country US || return
 }
 
 WinGetInstall() { run --name "winget" --store "9nblggh4nns1"; }
@@ -7989,9 +7996,13 @@ CredentialStoreInstall()
 	! IsPlatform mac,debian,win && { i --no-header pass || return; }
 
 	# add passwords to the credential store
-	unset CREDENTIAL_MANAGER # ensure the new credential manager is detected	
+	unset CREDENTIAL_MANAGER # detect the new credential manager
 	password store set || return
-	IsPlatform win && { CREDENTIAL_MANAGER=gk password store set || return; }
+
+	if IsPlatform win && ! CREDENTIAL_MANAGER=gk password store check; then
+		credential sync -m2=gk secure --quiet || return
+		credential sync -m2=gk ssh --quiet || return
+	fi
 
 	return 0
 }
@@ -9777,6 +9788,8 @@ WinConfigInstall()
 {
 	header "Windows Configuration"
 
+	cd "$WIN_ROOT" || return
+
 	echo "Cleanup files..."
 	$hide "$WIN_ROOT/PerfLogs" || return
 	$hide "$WIN_ROOT/Windows.old" || return
@@ -9804,7 +9817,8 @@ WinConfigInstall()
 	registry set "HKLM/SOFTWARE/Policies/Microsoft/Windows/WindowsUpdate/AU/AllowMUUpdateService" REG_DWORD 1 || return # enable Microsoft update
 
  	echo "Configuring face logon..."
- 	registry set "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Authentication/LogonUI/FaceLogon/$(GetSid)/AutoDismissOn" REG_DWORD 1
+ 	local sid; sid="$(GetSid)" || return
+ 	registry set "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Authentication/LogonUI/FaceLogon/$sid/AutoDismissOn" REG_DWORD 1
 
 	echo "Disabling start menu web search suggestions..."
 	registry set 'HKCU/SOFTWARE/Policies/Microsoft/Windows/Explorer/DisableSearchBoxSuggestions' REG_DWORD 1 || return

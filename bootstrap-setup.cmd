@@ -18,6 +18,7 @@ rem set distImage=documents\data\install\platform\linux\wsl\image\ubuntu\default
 
 REM create bootstrap.cmd on the Desktop to run manually if needed
 set file=%HOMEDRIVE%%HOMEPATH%\Desktop\bootstrap.cmd
+if exist %file% del %file%
 
 >> %file% echo echo ************************* bootstrap.cmd *************************
 >> %file% echo set pwd=%pwd%
