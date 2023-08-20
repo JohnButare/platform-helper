@@ -1393,7 +1393,8 @@ attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe optio
 
 	[[ ! -e "$f" ]] && { EchoErr "attrib: $f: No such file or directory"; return 2; }
 	
-	# /L flag does not work (target changed not link) from WSL when full path specified, i.e. attrib.exe /l +h 'C:\Users\jjbutare\Documents\data\app\Audacity'
+	# /L flag changes target changed not link from WSL when full path specified
+	# i.e. attrib.exe /l +h 'C:\Users\jjbutare\Documents\data\app\Audacity'
 	( cd "$(GetFilePath "$f")"; attrib.exe "$@" "$(GetFileName "$f")" );
 }
 
