@@ -11,7 +11,7 @@ Manage system drives.
 				  Ex: sdb1, d (Windows), or all (all available drives)
 
 	format|IsMounted|mount|unmount|remount|SetLabel DEVICE - perform an action on the device
-	device|free|fs|IsDrive|IsLetter|IsWin|label|list|resize|size|type DEVICE - get information about the device
+	device|free|fs|IsDrive|IsLetter|IsRemovable|IsWin|label|list|resize|size|type DEVICE - get information about the device
 	detail|mounts|win - other commands"
 }
 
@@ -24,7 +24,7 @@ Manage system drives.
 	DEVICE 	the drive device name to mount or a file in the mounted drive.
 				  Ex: sdb1, d (Windows), or all (all available drives)
 
-	format|IsMounted|mount|unmount|remount|SetLabel DEVICE - perform an action on the device
+	format|IsMounted|mount|unmount|remount|set DEVICE - perform an action on the device
 		format FS				format the device
 		IsMounted				if the specified device is mounted return the directory it is mounted to
 		[re]mount				mount the specified device and return the directory it is mounted to
@@ -70,7 +70,7 @@ opt()
 argStart() { unset -v all device deviceArg noOptical; }
 args() { isQuietCommand && quiet="--quiet"; getDeviceArg "$1"; }
 isQuietCommand() { [[ "$command" == @(isDrive|isWin) ]]; }
-needsDevice() { [[ "$command" == @(desc|device|format|free|fs|label|isDrive|isLetter|isMounted|isWin|mount|unmount|remount|resize|root|setLabel|size|type) ]]; }
+needsDevice() { [[ "$command" == @(desc|device|format|free|fs|label|isDrive|isLetter|isMounted|isRemovable|isWin|mount|unmount|remount|resize|root|setLabel|size|type) ]]; }
 
 # getDeviceArg DEVICE - get the device argument (all, DEVICE or /dev/DEVICE)
 getDeviceArg()
@@ -138,6 +138,7 @@ getDeviceArg()
 
 isLetterCommand() { isDriveLetter "$device"; }
 isMountedCommand() { [[ $all ]] && { areAllMounted; return; }; isMounted; }
+isRemovableCommand() { isRemovable "$device"; }
 mountUsage() { ScriptUsageEcho "Usage: $(ScriptName) mount [root|user]\nMount a drive, or show the root or user mount directory."; }
 mountCommand() { [[ $all ]] && { allMount; return; }; doMount && returnMountDir; }
 mountRootCommand() { echo "$mountRoot"; }
@@ -190,9 +191,11 @@ detailCommand()
 
 freeCommand()
 {
-	if isDriveLetter "$device"; then
+	if IsPlatform mac; then
+		getMac disk3s1s1 "Container Free Space|Volume Free Space" | cut -d"(" -f2 | cut -d" " -f1
+	elif isDriveLetter "$device"; then
 		RunScript --elevate fsutil.exe volume diskfree ${device}: | grep "^Total free bytes" | cut -d":" -f2 | RemoveSpaceTrim | cut -d" " -f1 | sed 's/,//g'
-	else
+	elif InPath lsblk; then
 		lsblk -b | grep "$device " | tr -s " " | cut -d" " -f4
 	fi
 }
@@ -226,9 +229,11 @@ mountsCommand()
 
 sizeCommand()
 {
-	if isDriveLetter "$device"; then
+	if IsPlatform mac; then
+		getMac "$device" "Container Total Space|Volume Total Space" | cut -d"(" -f2 | cut -d" " -f1
+	elif isDriveLetter "$device"; then
 		RunScript --elevate fsutil.exe volume diskfree ${device}: | grep "^Total bytes" | cut -d":" -f2 | RemoveSpaceTrim | cut -d" " -f1 | sed 's/,//g'
-	else
+	elif InPath lsblk; then
 		lsblk -b | grep "$device " | tr -s " " | cut -d" " -f4
 	fi
 }
@@ -324,13 +329,17 @@ resizeCommand()
 # SetLabel Command
 #
 
-setLabelArgStart() { unset label; }
-setLabelArgs() { ScriptArgGet "label" - "$@"; shift; }
+setUsage() {	ScriptUsageEcho "Usage: $(ScriptName) [set](set) label LABEL\nSet device information."; }
+setArgStart() { unset label; }
+setArgs() { ScriptArgGet "label" - "$@"; shift; }
+setCommand() { setLabelCommand; }
 
 setLabelCommand()
 {
-	if isDriveLetter "$device"; then
-		RunScript --elevate cmd.exe /c label "$device:" "$1"
+	if IsPlatform mac; then
+		diskutil rename "$device" "$label"
+	elif isDriveLetter "$device"; then
+		RunScript --elevate cmd.exe /c label "$device:" "$label"
 	elif InPath e2label; then
 		sudo e2label "/dev/$device" "$label"
 	elif InPath tune2fs; then
@@ -598,6 +607,7 @@ getAllDevices()
 	d+=( /dev/sd[a-c][0-9]* ) 			# SATA disks
 	d+=( /dev/mmcblk[0-9]p[0-9]* ) 	# SD cards
 	d+=( /dev/nvme0n[0-9]p[0-9]* ) 	# NVMe
+	d+=( /dev/disk* )								# mac
 
 	# LVM logical volumes
 	[[ $lvm ]] && { d+=( $(sudoc lvdisplay -c |& cut -d: -f1 |& RemoveSpace) ) || return; }
@@ -633,6 +643,9 @@ getLabel()
 {
 	local label
 
+	# Mac
+	IsPlatform mac && { getMac "$device" "Volume Name" | cut -d":" -f2 | RemoveSpaceTrim; return; }
+
 	# Windows drive letter
 	if isDriveLetter "$device"; then		
 		label="$(getUnc)"; [[ $label ]] && { echo "$(GetUncShare "$label")"; return; } # in Parallels the drive letter UNC is in the format \\Mac\<label>
@@ -643,6 +656,7 @@ getLabel()
 	! IsPlatform win && InPath lsblk && { lsblk --nodeps --noheadings --output LABEL "/dev/$device" |& grep -v "not a block device"; return; }
 
 	# use blkid
+	! InPath blkid && return
 	local label info="$(blkid "/dev/$device")" || return 
 	if [[ $info ]]; then # block device information is in the cache
 		blkid "/dev/$device" -o export | grep "^LABEL=" | cut -d"=" -f2
@@ -651,15 +665,8 @@ getLabel()
 	fi
 }
 
-# getUnc - get the UNC path for a device
-getUnc() 
-{
-	! isDriveLetter "$device" && return
-	echo "$(net.exe use | RemoveCarriageReturn | grep "${device^}": | \
-		sed 's/Micorosoft Windows Network//' | \
-		sed 's/Parallels Shared Folders//' | \
-		tr -s " " | RemoveSpaceTrim | cut -d" " -f2- | BackToForwardSlash)"
-}
+# getMac DEVICE DESC - get mac disk information
+getMac() { diskutil info "$1" | grep -E "^[ ]*${2}:" | sort | head -1 | cut -d":" -f2 | RemoveSpaceTrim; }
 
 # getMountDir - get the first mounted directory of DEVICE
 getMountDir()
@@ -723,6 +730,16 @@ getType()
 	return 1
 }
 
+# getUnc - get the UNC path for a device
+getUnc() 
+{
+	! isDriveLetter "$device" && return
+	echo "$(net.exe use | RemoveCarriageReturn | grep "${device^}": | \
+		sed 's/Micorosoft Windows Network//' | \
+		sed 's/Parallels Shared Folders//' | \
+		tr -s " " | RemoveSpaceTrim | cut -d" " -f2- | BackToForwardSlash)"
+}
+
 isEfiDevice()
 {
 	IsPlatform win && return 1
@@ -732,9 +749,15 @@ isEfiDevice()
 
 isRemovable()
 {
-	isDriveLetter "$device" && { fsutil.exe fsinfo driveType "${drive}:\\" |& grep -q "Removable Drive"; return; }
-	[[ "$(lsblk --nodeps --noheadings --output RM "/dev/$device")" == "1" ]] && return
-	udevadm info --query=property --export --name="/dev/$device" | grep "ID_BUS='usb'" >& /dev/null && return
+	if IsPlatform mac; then
+		local location; location="$(getMac "$device" "Device Location")" || return
+		local removableMedia; removableMedia="$(getMac "$device" "Removable Media")" || return
+	 	[[ "$location" == "External" || "$removableMedia" != "Fixed" ]]; return
+
+	elif isDriveLetter "$device"; then fsutil.exe fsinfo driveType "${drive}:\\" |& grep -q "Removable Drive"; return
+	elif InPath lsblk; then [[ "$(lsblk --nodeps --noheadings --output RM "/dev/$device")" == "1" ]]; return
+	elif InPath udevadm; then udevadm info --query=property --export --name="/dev/$device" | grep "ID_BUS='usb'" >& /dev/null; return
+	fi
 	return 1
 }
 
