@@ -452,8 +452,8 @@ infoArgStart()
 { 
 	unset -v detail monitor prefix status
 	hostArg="localhost" what=() skip=()
-	infoBasic=(model platform distribution kernel chroot vm cpu architecture mhz credential file other update reboot restart)
-	infoDetail=(mhz memory process disk package switch)
+	infoBasic=(model platform distribution kernel chroot vm cpu architecture credential file other update reboot)
+	infoDetail=(mhz memory process disk package switch restart)
 	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used)
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
 }
@@ -702,8 +702,27 @@ infoRestartDebian()
 	! InPath checkrestart && return
 	ran="true"
 
-	local result; result="$(sudoc checkrestart --terse --package 2> /dev/null | cut -d" " -f1,2)" && return
-	detail=" ($result)"
+	local result; result="$(sudoc needrestart -b)"
+	local kernel services containers sessions
+
+	kernel="$(echo "$result" | grep "^NEEDRESTART-KSTA:" | cut -d":" -f2 | RemoveSpaceTrim)"; (( kernel == 1 )) && kernel=0
+	services="$(echo "$result" | grep "^NEEDRESTART-SVC:" | wc -l | RemoveSpaceTrim)"
+	sessions="$(echo "$result" | grep "^NEEDRESTART-SESS:" | wc -l | RemoveSpaceTrim)"
+	containers="$(echo "$result" | grep "^NEEDRESTART-CONT:" | wc -l | RemoveSpaceTrim)"
+
+	# nothing requires a restart, return 0
+	(( kernel == 0 && services == 0 && sessions == 0 && containers == 0 )) && return
+
+	# build detail of what needs a restart, i.e. kernel ABI, 4 sessions, 2 services
+	detail=" ("
+	(( kernel != 0 && kernel == 2 )) && detail+="kernel ABI, "
+	(( kernel != 0 && kernel == 3 )) && detail+="kernel, "
+	(( services != 0 )) && detail+="$services services, "
+	(( sessions != 0 )) && detail+="$sessions sessions, "
+	(( containers != 0 )) && detail+="$containers containers, "
+	detail="$(RemoveEnd "$detail" ", ")"
+
+	# restarts required, return 1
 	return 1
 }
 
