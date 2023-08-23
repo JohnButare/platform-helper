@@ -171,6 +171,7 @@ fi
 
 ActualUser() { echo "${SUDO_USER-$USER}"; }
 CreateId() { echo "$((1000 + RANDOM % 9999))"; }
+UserDelete() { local user="$1"; ! UserExists "$user" && return; IsPlatform mac && { sudoc dscl . delete "/Users/$group"; return; }; sudoc userdel "$user"; }
 UserExists() { IsPlatform mac && { dscl . -list "/Users" | ${G}grep --quiet "^${1}$"; return; }; getent passwd "$1" >& /dev/null; }
 UserList() { IsPlatform mac && { dscl . -list "/Users"; return; }; getent passwd | cut -d: -f1 | sort; }
 GroupDelete() { local group="$1"; ! GroupExists "$group" && return; IsPlatform mac && { sudoc dscl . delete "/Groups/$group"; return; }; sudoc groupdel "$group"; }
