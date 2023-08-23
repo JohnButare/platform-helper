@@ -720,7 +720,7 @@ infoRestartDebian()
 	(( services != 0 )) && detail+="$services services, "
 	(( sessions != 0 )) && detail+="$sessions sessions, "
 	(( containers != 0 )) && detail+="$containers containers, "
-	detail="$(RemoveEnd "$detail" ", ")"
+	detail="$(RemoveEnd "$detail" ", "))"
 
 	# restarts required, return 1
 	return 1
