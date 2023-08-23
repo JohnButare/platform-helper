@@ -55,7 +55,7 @@ exit 0;'
 	fi
 
 	# don't let all of the variables defined in results leak out of this function	
-	unset chroot platformOs platformLike platformId platformKernel wsl
+	unset busybox chroot platformOs platformLike platformId platformKernel wsl
 
 	results="$(
 		eval $results
@@ -92,6 +92,7 @@ exit 0;'
 
 		[[ "$ID" == "raspbian" ]] && ID="pi"
 
+		echo busybox=\""$busybox"\"
 		echo chroot=\""$chroot"\"
 		echo platformOs="$platformOs"
 		echo platformLike="$ID_LIKE"

@@ -2765,11 +2765,14 @@ IsPlatform()
 
 	[[ $all ]]
 }
-	
+
+# isPlatformCheck p
 isPlatformCheck()
 {
 	local p="$1"; LowerCase "$p" p
+	local found="true" result
 
+	# works local and remote - only use variables from "HostGetInfo vars HOST"	
 	case "$p" in 
 
 		# platformOs, platformLike, and platformId
@@ -2784,15 +2787,13 @@ isPlatformCheck()
 		rh) IsPlatform rhel $hostArg;; # Red Hat
 
 		# windows
-		win11) IsPlatform win && (( $(os build) >= 22000 ));;
 		wsl) [[ "$_platformOs" == "win" && "$_platformLike" == "debian" ]];; # Windows Subsystem for Linux
-		wsl1|wsl2) [[ "$p" == "wsl$_wsl" ]];;
+		wsl1|wsl2) [[ "$p" == "$_platformKernel" ]];;
 
 		# hardware
-		cm4) [[ -e /proc/cpuinfo ]] && grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo";;
-
-		# hashi
-		consul|nomad|vault) service running "$p";;
+		32|64) [[ "$p" == "$(os bits "$_machine" )" ]];;
+		arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]];;
+		x64) eval IsPlatformAll x86,64 $hostArg;;
 
 		# kernel
 		winkernel) [[ "$_platformKernel" == @(wsl1|wsl2) ]];;
@@ -2800,8 +2801,17 @@ isPlatformCheck()
 		pikernel) [[ "$_platformKernel" == "pi" ]];;
 		rock|rockkernel) [[ "$_platformKernel" == "rock" ]];;
 
-		# operating system
-		32|64) [[ "$p" == "$(os bits "$_machine" )" ]];;
+		# other
+		entware) IsPlatform qnap,synology $hostArg;;
+
+		*) unset found;;
+	esac
+	result="$?"; [[ $found ]] && return $result
+
+	# local only - useHost must be false
+	[[ $useHost ]] && return 1
+
+	case "$p" in 
 
 		# package management
 		apt) ! IsPlatform mac && InPath apt;;
@@ -2809,17 +2819,8 @@ isPlatformCheck()
 		dnf|opkg|rpm|yum) InPath "$p";;
 		nala) InPath "nala";;
 
-		# other
-		busybox|gnome-keyring) InPath "$p";;
-		entware) IsPlatform qnap,synology;;
-		systemd) IsSystemd;;
-
-		# processor
-		arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]];;
-		x64) eval IsPlatformAll x86,64 $hostArg;;
-
 		# virtualization
-		chroot) IsChroot && return;;
+		chroot) IsChroot;;
 		container) IsContainer;;
 		docker) IsDocker;;
 		guest|vm|virtual) IsVm;;
@@ -2829,10 +2830,20 @@ isPlatformCheck()
 		parallels) IsParallelsVm;;
 		swarm) InPath docker && docker info |& command grep "^ *Swarm: active$" >& /dev/null;; # -q does not work reliably on pi2
 		vmware) IsVmwareVm;;
+
+		# windows
+		win11) [[ ! $useHost ]] && IsPlatform win && (( $(os build) >= 22000 ));;
+
+		# other
+		busybox) IsBusyBox;;
+		cm4) [[ -e /proc/cpuinfo ]] && grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo";;
+		gnome-keyring) InPath "$p";;
+		consul|nomad|vault) service running "$p";;
+		systemd) IsSystemd;;
+
 		*) return 1;;
 
 	esac
-
 }
 
 # IsBusyBox FILE - return true if the specified file is using BusyBox
