@@ -92,7 +92,9 @@ getPiSugar()
 monitorUsage() { EchoWrap "Usage: $(ScriptName) reset\Check the UPS battery and shutdown the system when the battery is low."; }
 
 monitorCommand()
-{ 
+{
+	local headerShown
+
 	# check if UPS is responsive
 	! quiet="true" check && { monitorHeader; upsNotResponding; return 1; }
 
@@ -100,12 +102,13 @@ monitorCommand()
 	RunFunction monitor$ups
 }
 
-monitorHeader() { echo "************************* UPS Battery Check ($(date)) *************************"; }
+monitorHeader() { [[ $headerShown ]] && return; headerShown="true"; echo "************************* UPS Battery Check ($(date)) *************************"; }
+monitorLog() { monitorHeader; echo "$@"; }
 
 monitorGeekPi()
 {
+	local shutdownSeconds
 	local protectVolts=3600; [[ $test ]] && protectVolts=4000
-	local shutdownSeconds=
 
  	monitorHeader || return
 
@@ -147,29 +150,44 @@ monitorGeekPi()
 
 monitorPiSugar()
 {
- 	# check if on battery
- 	local hasPower; hasPower="$(getPiSugarValue "battery_power_plugged")" || return
+	local wasOnBattery="ups-was-on-battery"
 
- 	# log UPS status
+ 	# verbose log
 	if [[ $verbose ]]; then
 		monitorHeader || return
 		statusCommand || return
 		echo
 	fi
 
- 	# return if the UPS has power
+ 	# check if UPS has power
+ 	local hasPower; hasPower="$(getPiSugarValue "battery_power_plugged")" || return
+
+	# get the battery level
+	local batteryLevel; batteryLevel="$(getPiSugarValue "battery" | cut -d"." -f1)" || return
+	! IsInteger "$batteryLevel" && { ScriptErr "the battery level '$batteryLevel' is not an integer"; return 1; }
+
+ 	# return if the UPS has power, log if batterLevel < 50%
 	if [[ "$hasPower" == "true" ]]; then
-		[[ $verbose ]] && echo "The UPS has power."
+
+		# log power restored
+		if UpdateGet "$wasOnBattery"; then
+			monitorLog "UPS power has been restored, the battery level is $batteryLevel%." || return
+			UpdateRm "$wasOnBattery" || return
+		fi
+
+		# return if batterY level is greater than 50%
+		(( batteryLevel >= 50 )) && return
+
+		# log battery level is less than 50%
+		local not="not "; [[ "$(getPiSugarValue "battery_allow_charging")" == "true" ]] && unset not
+		monitorLog "The battery level ($batteryLevel%) is less than 50%.  The battery is$not charging."
+
 		return 0
 	fi
 
-	# logging
-	[[ ! $verbose ]] && { monitorHeader || return; }
-	echo "The UPS is running on battery."
-
-	# check the battery level
-	local batteryLevel; batteryLevel="$(getPiSugarValue "battery" | cut -d"." -f1)" || return
-	! IsInteger "$batteryLevel" && { ScriptErr "the battery level '$batteryLevel' is not an integer"; return 1; }
+	# UPS is running on battery
+	monitorLog "The UPS is running on battery."
+	UpdateSet "$wasOnBattery" || return
 
 	# check the safe shutdown battery level
 	local safeShutdownLevel; safeShutdownLevel="$(getPiSugarValue "safe_shutdown_level")" || return
@@ -179,12 +197,20 @@ monitorPiSugar()
 	(( safeShutdownLevel-= 5 ))
 
 	# return if the battery level is ok
-	(( batteryLevel >= safeShutdownLevel )) && { echo "The battery level ($batteryLevel%) is sufficient.  It is above the safe shutdown level of $safeShutdownLevel%."; return; }
- 
+	if (( batteryLevel >= safeShutdownLevel )); then		
+		monitorLog "The battery level ($batteryLevel%) is sufficient.  It is above the safe shutdown level of $safeShutdownLevel%."
+		return 0
+	fi
+
  	# shutdown
-	echo "The battery is level ($batteryLevel%) is below the safe level ($safeShutdownLevel%), shutting down the system..."
-	[[ ! $test ]] && shutdown now
-	SleepStatus 30
+	monitorLog "The battery is level ($batteryLevel%) is below the safe level ($safeShutdownLevel%), shutting down the system..."
+	RunLog shutdown now; SleepStatus 45
+}
+
+monitorPiSugarHasPower()
+{
+
+	return 0
 }
 
 #
