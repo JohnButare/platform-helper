@@ -3324,7 +3324,9 @@ start()
 	fi
 
 	# start directories and URL's
-	{ [[ -d "$file" ]] || IsUrl "$file"; } && { start "${open[@]}" "$file" "${args[@]}"; return; }
+	if [[ -d "$file" ]] || IsUrl "$file"; then
+		( IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"; start "${open[@]}" "$(GetFullPath "$file")" "${args[@]}"; ); return
+	fi
 
 	# verify the file	
 	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
@@ -3332,7 +3334,7 @@ start()
 
 	# start files with a specific extention
 	case "$(GetFileExtension "$file")" in
-		cmd) start "${open[@]}" "$file" "${args[@]}"; return;;
+		cmd) ( IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"; cmd.exe /c "$(utw "$(GetFullPath "$file")")" "${args[@]}"; ); return;;
 		js|vbs) start cscript.exe /NoLogo "$file" "${args[@]}"; return;;
 	esac
 
