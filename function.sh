@@ -559,7 +559,10 @@ HashiConf()
 
 	# initialize
 	(( verboseLevel > 1 )) && header "Hashi Configuration"
-	local manager="local"; IsPlatform win && manager="gk" # gnone-keyring is faster
+	
+	# manager - gnome-keyring is faster in Windows
+	local manager="local" 
+	IsPlatform win && { service running dbus || app start dbus --quiet $force $verbose; } && manager="gk"
 
 	# set environment from credential store cache if possible
 	if ! (( forceLevel > 1 )); then

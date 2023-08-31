@@ -215,13 +215,13 @@ runService()
 
 	if [[ "$command" != "startup" ]]; then
 		! service running "$service" && return
-		printf "$service."
+		[[ ! $quiet ]] && printf "$service."
 		service stop $service --quiet "${globalArgs[@]}"
 		return
 	fi
 
 	service running $service && return
-	printf "$service."
+	[[ ! $quiet ]] && printf "$service."
 	service start $service --quiet "${globalArgs[@]}"
 }
 
@@ -252,6 +252,7 @@ mapApp()
 
 showStatus()
 {
+	[[ $quiet ]] && return
 	[[ $brief ]] && printf "$appDesc..." || printf "$status $appDesc..."
 }
 
