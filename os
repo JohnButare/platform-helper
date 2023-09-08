@@ -617,7 +617,8 @@ infoKernel()
 }
 infoKernelPi() { infoEcho "    firmware: $(pi info firmware)"; }
 
-infoMemory() { infoEcho "      memory: $(memoryUsedCommand)/$(memoryFreeCommand)/$(memoryTotalCommand) GB used/free/total"; }
+infoMemory() { infoEcho "      memory: $(infoMemoryGet used)/$(infoMemoryGet free)/$(infoMemoryGet total 2) GB used/free/total"; }
+infoMemoryGet() { echo "$(StringPad "$(memory${1^}Command)" ${2:-5})"; } # infoDiskGet COMMAND DISK
 infoMemory_free() { infoEcho "memory free: $(memoryFreeCommand) GB"; }
 infoMemory_total() { infoEcho "memory total: $(memoryTotalCommand) GB"; }
 infoMemory_used() { infoEcho "memory used: $(memoryUsedCommand) GB"; }
