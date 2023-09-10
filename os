@@ -100,17 +100,18 @@ memoryTotalCommand()
 executableUsage()
 {
 	echot "\
-Usage: os executable format|find
+Usage: os executable format|find|id
 OS executable information
 	format 			returns the executable formats supported by the system.  The text will match
-								the output of the \`file\` command.  Possible values are:
+							the output of the \`file\` command.  Possible values are:
 									ELF 32|64-bit LSB executable
 									Mach-O 64-bit x86_64|arm64e
-	find DIR		return the executables for the current machine in the target directory"
+	find DIR		return the executables for the current machine in the target directory
+	id FILE			return a unique identifier for the specified executable file, one of 
+							linux|mac|win_arm32|arm64|x86|x64|universal"
 }
 
 executableArgStart() { unset name; }
-
 executableCommand() { usage; }
 
 executableFormatCommand()
@@ -124,6 +125,35 @@ alternateExecutableFormatCommand()
 {
 	IsPlatform mac,arm && { echo "Mach-O $(bitsCommand)-bit executable $(alternateFileArchitectureCommand)"; return; }
 	return 1
+}
+
+executableIdArgs() { ScriptArgGet "file" -- "$@"; ScriptCheckFile "$file"; shift; }
+
+executableIdCommand()
+{
+	local desc="$(command file "$file")" || return
+	local id
+
+	# lower case description
+	desc="${desc,,}"
+
+	# platform
+	if [[ "$desc" =~ mach-o ]]; then id="mac_"
+	elif [[ "$desc" =~ elf ]]; then id="linux_"
+	elif [[ "$desc" =~ pe32|pe32+ ]]; then id="win_"
+	else ScriptErrQuiet "unable to determine the platform of '$(FileToDesc "$file")'"; return 1
+	fi
+
+	# architecture
+	if [[ "$desc" =~ universal ]]; then id+="universal"
+	elif [[ "$desc" =~ arm && "$desc" =~ 64-bit ]]; then id+="arm64"
+	elif [[ "$desc" =~ arm && "$desc" =~ 32-bit ]]; then id+="arm32"
+	elif [[ "$desc" =~ x86-64|x86_64 ]]; then id+="x64"
+	elif [[ "$desc" =~ 80386 ]]; then id+="x86"
+	else ScriptErrQuiet "unable to determine the architecture of '$(FileToDesc "$file")'"; return 1
+	fi
+
+	echo "$id"
 }
 
 executableFindArgs() { ScriptArgGet "dir" -- "$@"; ScriptCheckDir "$dir"; shift; }
@@ -278,7 +308,7 @@ setHostnameMac()
 # Information Commands
 #
 
-architectureUsage() { echot "Usage: os architecture [MACHINE]\n	Show the architecture of the current machine or the specified machine."; }
+architectureUsage() { echot "Usage: os architecture [bits] [MACHINE]\n	Show the architecture of the current machine or the specified machine.  Returns arm, mips, or x86."; }
 architectureArgStart() { unset -v machine; }
 architectureArgs() { (( $# == 0 )) && return; ScriptArgGet "machine" -- "$@"; }
 
@@ -294,6 +324,18 @@ architectureCommand()
 
 	[[ ! $quiet ]] && EchoErr "The architecture for machine '$m' is unknown"
 	return 1
+}
+
+architectureBitsUsage() { echot "Usage: os architecture bits\n	Show the architecture with memory bits of the current machine.  Returns arm, arm64, x86, or x64."; }
+
+architectureBitsCommand()
+{
+	if IsPlatformAll arm,64; then echo "arm64"
+	elif IsPlatformAll x86,64; then echo "x64"
+	elif IsPlatformAll arm,32; then echo "arm"
+	elif IsPlatformAll x86,32; then echo "x86"
+	else return 1;
+	fi
 }
 
 architectureFileUsage() { echot "Usage: os architecture file [MACHINE]\n	Show the architecture of the current machine or the specified machine returned by the file command."; }

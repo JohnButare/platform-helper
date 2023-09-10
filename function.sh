@@ -57,7 +57,7 @@ IsTty() { ${G}tty --silent;  }
 IsStdIn() { [[ -t 0 ]];  } # 0 if STDIN refers to a terminal, i.e. "echo | IsStdIn" is 1
 IsStdOut() { [[ -t 1 ]];  } # 0 if STDOUT refers to a terminal, i.e. "IsStdOut | cat" is 1
 IsStdErr() { [[ -t 2 ]];  } # 0 if STDERR refers to a terminal, i.e. "IsStdErr |& cat" is 1
-IsUrl() { [[ "$1" =~ ^(file|http[s]?|ms-windows-store)://.* ]]; }
+IsUrl() { [[ "$1" =~ ^(file|git|http[s]?|ms-windows-store)://.* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
 
 UrlEncodeSpace()

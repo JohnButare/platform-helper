@@ -519,7 +519,7 @@ installInit()
 	macDebian+=(notion StandardNotes Todoist)
 
 	# Package Management
-	debian+=(apt AptUtilities flatpak nala snap SnapStore)
+	debian+=(apt AptSrc AptUtilities flatpak nala snap SnapStore)
 	macDebian+=(asdf homebrew)
 	win+=(chocolatey PortableApps WinGet)
 
@@ -770,6 +770,14 @@ findEditorProgram()
 	unset args program
 	sublime IsInstalled && { program="sublime" args="-w"; return; }
 	program="$(GetTextEditor)"
+}
+
+findExecutable()
+{
+	local name="$1" dir="$2"	
+	local file; file="$(os executable find "$dir")"
+	[[ $file ]] && { echo "$file"; return; }
+	ScriptErr "could not find an executable for $name"; return 1
 }
 
 # findFile [-q|--quiet] FILE - find the full installation path specified by file.
@@ -1322,8 +1330,7 @@ runTypeExecutable()
 	extractFiles "$dir" || return
 
 	# find the correct file for this machine
-	file="$(os executable find "$dir")"
-	[[ ! $file ]] && { ScriptErr "could not find an executable for $name"; return 1; }
+	file="$(findExecutable "$name" "$dir")" || return
 	log1 "installing '$(FileToDesc "$file")'"
 
 	# copy the file to /usr/local/bin
@@ -6848,7 +6855,7 @@ TodoistFinalWin()
 # Package Management
 #################################################
 
-PackageManagementAllInstall() { i apt AptUtilities asdf chocolatey flatpak homebrew nala PortableApps snap SnapStore WinGet; }
+PackageManagementAllInstall() { i apt AptSrc AptUtilities asdf chocolatey flatpak homebrew nala PortableApps snap SnapStore WinGet; }
 snapCheck() { InPath snap && return; i --no-header snap; }
 SnapInstall() { pkg snapd; }
 SnapStoreInstall() { run --name "Snap Store" --snap "snap-store"; }
@@ -6863,9 +6870,34 @@ AptInstall()
 		PackageUpdate || return
 	fi
 
+	# enable unattended upgrades
 	if ! service --quiet exists unattended-upgrades; then
 		package unattended-upgrades || return
 	fi
+
+	return 0
+}
+
+AptSrcInstall()
+{
+	local file="/etc/apt/sources.list"
+
+	# return if deb-src present
+	[[ ! $force ]] && ${G}grep --quiet "^deb-src" "$file" && return
+
+	# first uncomment deb-src lines
+	sudoc sed -i.bak 's/^# *deb-src/deb-src/g' "$file" || return
+
+	# ensure the deb-src distribution matches the deb distribution - seen on WSL
+ 	local deb; deb="$(grep "^deb " "$file" | head -1 | cut -d" " -f3)" || return
+ 	local debSrc; debSrc="$(grep "^deb-src " "$file" | head -1 | cut -d" " -f3)" || return
+	[[ "$deb" != "$debSrc" ]] && { sudoc sed -i "s/ $debSrc/ $deb/g" "$file" || return; }
+	
+	# duplicate deb sources if none are present - seen on Rock5
+	! ${G}grep --quiet "^deb-src" "$file" && { ${G}grep "^deb " "$file" | sed 's/^deb /deb-src /g' | sudo tee --append "$file" || return; }
+
+	# update
+	sudoc apt-get update || return
 
 	return 0
 }
@@ -9425,12 +9457,49 @@ FreeFileSyncInstall()
 
 GitAnnexInstall()
 {
+	local share="/usr/share"
 	if IsPlatform mac; then
 		package git-annex && brew services start git-annex; return
 	fi
 
-	# TODO: look at Makefile and see how to install man page, etc.
-	run --name "git-annex" "shareware/git-annex/bin"
+	# initialize
+	sudov || return
+
+	# find install file
+	findFile "shareware/git-annex/image" || return
+	command cd "$file" || return
+
+	# find the correct file for this machine
+	local exe; exe="$(findExecutable "git-annex" "$PWD")" || return
+
+	# bin
+	local dir="/usr/bin"
+	sudo install "$exe" "$dir/git-annex" || return
+	sudo ln -sf "git-annex" "$dir/git-annex-shell" || return
+	sudo ln -sf "git-annex" "$dir/git-remote-tor-annex" || return
+
+	# doc
+	local dir="/usr/share/doc/git-annex"
+	sudo install -d "$dir" || return
+	sudo rsync -a --delete "html/" "$dir/html/" || return
+
+	# man
+	local dir="$share/man/man1"
+	sudo install -d "$dir" || return
+	sudo install -m 0644 man/*.1 "$dir" || return
+
+	# completion
+	local dir="$share/bash-completion/completions"
+	sudo install -d "$dir" || return
+	sudo install -m 0644 "bash-completion.bash" "$dir/git-annex"
+
+ 	local dir="$share/zsh/site-functions"
+ 	sudo install -d "$dir" || return
+	git-annex --zsh-completion-script git-annex 2> "/dev/null" | sudo tee "$dir/_git-annex" || return
+	
+	local dir="$share/fish/vendor_completions.d"
+	sudo install -d "$dir" || return
+	git-annex --fish-completion-script git-annex 2> "/dev/null" | sudo tee "$dir/git-annex.fish" || return
 }
 
 #################################################
