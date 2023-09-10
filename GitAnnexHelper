@@ -1,17 +1,39 @@
 #!/usr/bin/env bash
-. script.sh || exit
+. app.sh || exit
 
 usage() 
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... build|install
+Usage: $(ScriptName) [OPTION]... [build|close|create|install|IsInstalled|IsRunning|profile|program|restart|start|startup|stop|web](start)
 $(ScriptName) commands."
 }
 
 init()
 {
+	defaultCommand="gui"
+	profileName="git-annex" profileDir="$HOME/.config/git-annex" profileMask="*"
+	program="git-annex"
 	src="$CODE/git-annex"
 }
+
+stopCommand() { closeCommand; } 
+closeCommand() { [[ $force ]] && ! isRunningCommand && return 0; git annex assistant --autostop > "$quietOutput"; } 
+guiCommand() { git annex webapp; }
+isInstalledCommand() { InPath "$program"; }
+isRunningCommand() { IsProcessRunning "^${program}$"; }
+profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."; }
+profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); return 0; }
+profileCommand() { profile $noPrompt --app "$profileName" --method "$profileDir" --files "$profileMask" "${profileArgs[@]}"; }
+programCommand() { echo "$program"; }
+restartCommand() { closeCommand && startCommand; }
+startArgs() { startArgs=( "$@" ); shift="$#"; }
+startCommand() { AppInstallCheck && git annex assistant --autostart "${startArgs[@]}" > "$quietOutput"; }
+startupCommand() { startCommand; }
+versionCommand() { AppInstallCheck && "$program" version | head -1 | cut -d":" -f 2 | RemoveSpace; }
+
+#
+# build command
+#
 
 buildCommand()
 {
@@ -22,6 +44,55 @@ buildCommand()
 	cabal update || return
 	make || return
 }
+
+#
+# create command
+#
+
+createUsage()
+{
+	ScriptUsageEcho "\
+Usage: $(ScriptName) create DIR [REMOTES]
+Create a git-annex repository with the list of command separated remotes."
+}
+
+createArgStart() { unset -v dir remotes; }
+
+createArgs()
+{
+	ScriptArgGet "dir" -- "$@"; ScriptCheckDir "$(GetFullPath "$dir" | RemoveTrailingSlash | GetFilePath)"; shift;
+	[[ $1 ]] && { ScriptArgGet "remotes" -- "$@"; shift; }
+	return 0
+}
+
+createCommand()
+{
+	# create the directory and change to it
+	[[ ! -d "$dir" ]] && { mkdir "$dir" || return; }
+	command cd "$dir" || return
+	
+	# initilaize git and git annex
+	! IsGitDir "." && { hilight "Initialize repository..."; git init || return; }
+	
+	if ! git annex status >& /dev/null; then
+		hilight "Initializing git annex..."
+		git annex init "$HOSTNAME-$(GetFileName "$dir")" || return
+	fi
+
+	# add remotes
+	[[ ! $remotes ]] && return
+	local remote; StringToArray "$remotes" "," remotes
+	for remote in "${remotes[@]}"; do
+		git remote | grep --quiet "^${remote}$" && continue
+		hilight "Adding remote '$remote'..."
+		local fqdn; fqdn="$(DnsResolve "$remote")" || return
+		git remote add "$remote" "ssh://$USER@$fqdn$PWD" || return
+	done
+}
+
+#
+# install command
+#
 
 installCommand()
 {
