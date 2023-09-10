@@ -2382,6 +2382,8 @@ GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; gus="${gus
 GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 			# DIRS
 IsUncPath() { [[ "$1" =~ ^\ *//.* ]]; }
 
+IsRcloneRemote() { [[ -f "$HOME/.config/rclone/rclone.conf" ]] && grep --quiet "^\[$1\]$" "$HOME/.config/rclone/rclone.conf"; }
+
 # GetUncFull [--ip] UNC: return the UNC with server fully qualified domain name or an IP
 GetUncFull()
 {
@@ -2409,7 +2411,7 @@ GetUncFull()
 	local protocol="$(GetUncProtocol "$unc")"
 
 	# exclude if not a server
-	[[ "${server,,}" == @(cryfs) ]] && { echo "$unc"; return; }
+	{ [[ "$(LowerCase "$server")" == @(cryfs) ]] || IsRcloneRemote "$server"; } && { echo "$unc"; return; }
 
 	# force use of the IP if the host requires an alternate DNS server
 	[[ $(DnsAlternate "$server") ]] && ip="--ip"

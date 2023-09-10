@@ -40,6 +40,7 @@ init()
 	protocolUsage="-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)"
 	uncTypes="cifs,drvfs,nfs,nfs4,fuse.sshfs"
 	uncTypesDf="-t nfs -t nfs4 -t smbfs -t fuse.sshfs"
+	IsPlatform mac && uncTypesDf+=" -t macfuse"
 	IsPlatform wsl1 && uncTypes+=",drvfs" uncTypesDf+=" -t drvfs"
 	uncTypesGrep="${uncTypes//,/|}"
 }
@@ -227,7 +228,7 @@ mountCommand()
 		[[ ! "$quiet" ]] && ScriptErr "host '$server' is not available"
 		return 1
 	fi
-	log1 "connection will use $protocol"
+	log1 "connection will use '$protocol' protocol"
 
 	# remove an existing share in the mountRoot
 	unmount "$mountRoot" "$isLocal" || return
@@ -240,8 +241,12 @@ mountCommand()
 
 	# mount
 
+	# rclone
+	if [[ "$protocol" == "rclone" ]]; then
+		RunLog rclone mount "$server:$share/$dirs" "$mountRoot" --daemon
+
 	# WSL 1
-	if isWslshare || IsPlatform wsl1; then
+	elif isWslshare || IsPlatform wsl1; then
 
 		# required if DNS name is not available in Windows 
 		server="$(GetIpAddress "$server")" || return
@@ -262,7 +267,7 @@ mountCommand()
 		RunLog mount "${options[@]}" -t nfs "$server:/$share" "$mountRoot"
 
 	# SSH
-	elif InPath sshfs && { [[ "$protocol" == "ssh" ]] || IsInteger "$protocol"; }; then
+	elif [[ "$protocol" == "ssh" ]] || IsInteger "$protocol"; then		
 		local portArg; IsInteger "$protocol" && portArg=(-p "${protocol}")
 		local prefix; IsPlatform qnap && prefix="sudo"
 		[[ "$share" == "root" ]] && share=""
@@ -484,12 +489,15 @@ getTargetArg()
 # Protocol Helper
 #
 
-# findProtocol HOST - find a file sharing protocol for HOST.   
+# findProtocol HOST - find a file sharing protocol for HOST, sets protocol variable.
 findProtocol()
 {
 	local host="$1"; noHostCheck && return
 
 	log1 "findProtocol: host='$host'"
+
+	# rclone
+	IsRcloneRemote "$host" && { protocol="rclone"; return; }
 
 	# Synology SMB mount.cifs does not work, use sshfs
   IsPlatform synology && [[ "$protocol" == @(|smb) ]] && protocol="ssh"
@@ -580,7 +588,7 @@ getDirRoot()
 	local root unc="$1"; validateUnc "$unc"
 
 	# ensure the UNC has the fully qualified server name
-	unc="$(GetUncFull $ip "$unc")" || return
+	# unc="$(GetUncFull $ip "$unc")" || return
 
 	# get the mountDir from the UNC
 	local user server share dirs mountRoot mountDir
@@ -737,7 +745,7 @@ getUncInfo()
 	checkElevation || return
 
 	# mountDir is the full path to the mounted directory
-	mountDir="$mountRoot";  [[ $dirs ]] && mountDir="$mountDir/$dirs"
+	mountDir="$mountRoot"; [[ $dirs ]] && ! IsRcloneRemote "$server" && mountDir="$mountDir/$dirs"
 
 	# MDNS name resolution - Windows does not resolve MDNS natively	
 	IsPlatform win && IsMdnsName "$server" && { server="$(MdnsResolve "$server")" || return; }
