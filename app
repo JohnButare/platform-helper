@@ -157,9 +157,8 @@ run()
 
 runExternalApp()
 {
-	getAppFile || return 0
-	AppIsInstalled "$app" "${globalArgs[@]}" || return 0
-	
+	app="$(findApp "$app")" || return 0
+
 	if [[ "$command" == @(start|startup) ]]; then
 		AppIsRunning "$app" "${globalArgs[@]}" && return
 	else
@@ -225,10 +224,13 @@ runService()
 	service start $service --quiet "${globalArgs[@]}"
 }
 
-getAppFile()
+findApp()
 {
-	appFile="$(FindInPath "$app")"
-	[[ -f "$appFile" ]]
+	local app="$1"
+	if AppIsInstalled "${app}Helper"; then app="${app}Helper"
+	elif ! AppIsInstalled "$app" "${globalArgs[@]}"; then return 1
+	fi
+	echo "$app"
 }
 
 mapApp()
