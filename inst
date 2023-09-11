@@ -251,6 +251,7 @@ installUsage()
 	EchoWrap "Usage: $(ScriptName) install [alternate|beta|compile|local|package|store] [OPTION]... [APP]...
 Install an application.  To run a portion of the installation, the application name can be suffixed with download, final, help, profile, or register.  For example, 'inst SublimeProfile'.
 
+	     --force-full			force a full install, even on hosts targeted for a minimal install
 	     --hint=DIR				first directory to search for installation files
 	-H,  --host=HOST			comma separated list of hosts for the installation
 	-nh, --no-header	   	suppress headers
@@ -258,11 +259,12 @@ Install an application.  To run a portion of the installation, the application n
 	-s,  --select					select the install location"
 }
 
-installArgStart() { unset -v alternate apps hint hostArg hostOpt hosts installType noHeader noHelp npProfile noPrompt noRegister noRun select; }
+installArgStart() { unset -v alternate apps forceFull hint hostArg hostOpt hosts installType noHeader noHelp npProfile noPrompt noRegister noRun select; }
 
 installOpt() 
 {
 	case "$1" in
+		--force-full) forceFull="--force-full";;
 		--hint) ScriptOptGet "hint" "$@"; export INSTALL_DIR="$hint"; hint=(--hint "$hint");;
 		--host|--host=*|-H|-H=*) ScriptOptGet hostArg host "$@";;
 		--no-header|-nh) noHeader="--no-header";;
@@ -623,7 +625,7 @@ macAppConfigure() { askp "Configure $1" && { start "$1" || return; }; return 0; 
 makeFileSudo() { local file="$1" dir="$(GetFilePath "$1")"; makeDir --sudo "$dir" || return; [[ ! -f "$dir" ]] && { sudo touch "$file" || return; }; }
 makeLinkSudo() { RunLog sudoc MakeLink --suppress $quiet $noPrompt "$@"; }
 mergeDir() { MergeDir --parents --suppress "$@"; }
-minimalInstall() { [[ $_minimalInstall ]]; }
+minimalInstall() { [[ ! $forceFull && $_minimalInstall ]]; }
 moveAppData() { local src="$1" dest="${2:-$1}"; makeLink --merge --hide "$(platformUserAppData)/$dest" "$DOC/$src"; }
 moveCloudData() { local src="$1" dest="${2:-$1}"; makeLink --merge --hide "$CLOUD/data/app/$dest" "$DOC/$src"; }
 mvSudo() { [[ ! -e "$1" ]] && return; sudoc mv "$1" "$2"; }
@@ -1748,32 +1750,28 @@ appQnap() { i qcli && iStore MalwareRemover NotificationCenter Qboost QuLog SSDL
 appWin() { i WindowsTerminal AutoHotKey UltraMon; }
 appProxmox() { i ProxmoxWinTools; }
 
-appDebian()
+appDebian() { appDebianMinimal && appDebianFull; }
+
+appDebianMinimal()
 {
-	# minimal
 	i AptUtilities CloudInit nala rsyslog xClient || return
 	package debian-goodies needrestart || return
-	{ [[ ! $force ]] && minimalInstall; } && return
-
-	# other	
-	! IsPlatform CasaOs,win && { pkg gnome-system-monitor hardinfo nautilus terminator || return; }
-	! IsPlatform pi,rock,win && { pkg gnome-software || return; }
 
 	# configure needrestart - disable outdated kernel prompt in apt 
 	sudoc sed -i "s/#\$nrconf{kernelhints} = -1;/\$nrconf{kernelhints} = -1;/g" /etc/needrestart/needrestart.conf
+}
 
+appDebianFull()
+{
+	minimalInstall && return
+	! IsPlatform win && { pkg gnome-system-monitor hardinfo nautilus terminator || return; }
+	! IsPlatform pi,rock,win && { pkg gnome-software || return; }
 	return 0
 }
 
-appDebianMac()
-{	
-	# minimal
-	i LinuxMinimalUtilities PythonLocal PythonTextUtilities 7Zip || return
-	{ [[ ! $force ]] && minimalInstall; } && return
-
-	# other
-	i CompareCore firefox LinuxUtilities TextEditorCore xServer || return
-}
+appDebianMac() { appDebianMacMinimal && appDebianMacFull; }
+appDebianMacMinimal() { i LinuxMinimalUtilities PythonLocal PythonTextUtilities 7Zip; }
+appDebianMacFull() { minimalInstall && return; i BrowserCore CompareCore LinuxUtilities TextEditorCore xServer; }
 
 appPhysical()
 {
@@ -2455,6 +2453,17 @@ bootstrapWin()
 #################################################
 
 BrowserAllInstall() { i chrome edge firefox tor vivaldi; }
+
+BrowserCoreInstall()
+{
+	header "Browser Core"
+	
+	if IsPlatform debian && ! IsPlatform win; then
+		i vivaldi
+	else
+		i firefox
+	fi
+}
 
 ChromeInstall()
 {
