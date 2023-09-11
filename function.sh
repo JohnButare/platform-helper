@@ -3529,12 +3529,12 @@ IsAlias() { type "-t $1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is a
 GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}"; }
 
 # arguments
+ExtraOperand() { ScriptErr "extra operand '$1'" "$2"; ScriptTry "$2"; }
 IsOption() { [[ "$1" =~ ^-.* && "$1" != "--" ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
-MissingOperand() { ScriptErr "missing $1 operand" "$2"; ScriptTry "$2"; ScriptExit; }
+MissingOperand() { ScriptErr "missing $1 operand" "$2"; ScriptTry "$2"; }
 MissingOption() { ScriptErr "missing $1 option" "$2"; ScriptExit; }
-UnknownOption() { ScriptErr "unrecognized option '$1'" "$2"; EchoErr "Try '${2:-$(ScriptName)} --help' for more information.";	ScriptExit; }
-ExtraOperand() { ScriptErr "extra operand '$1'" "$2"; ScriptTry "$2";	ScriptExit; }
+UnknownOption() { ScriptErr "unrecognized option '$1'" "$2"; ScriptTry "$2"; }
 
 # functions
 IsFunction() { declare -f "$1" >& /dev/null; }	# IsFunction NAME - NAME is a function
@@ -3579,7 +3579,7 @@ ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; };
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
 ScriptMessage() { EchoErr "$(ScriptPrefix "$2")$1"; } 																		# ScriptMessage MESSAGE - log a message with the script prefix
 ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "%s" "$name: "; }
-ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; }
+ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; ScriptExit; }
 
 # ScriptCd PROGRAM [ARG...] - run a script and change to the first directory returned
 ScriptCd()
@@ -3595,6 +3595,7 @@ ScriptCd()
 # - typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
 ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || return; eval "$result"; unset SCRIPT_EVAL; } 
 
+# ScriptName [func]
 ScriptName()
 {
 	local name; func="$1"; [[ $func ]] && { printf "%s" "$func"; return; }
