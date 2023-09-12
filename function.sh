@@ -3304,13 +3304,6 @@ start()
 
 	local args=( "$@" ) fileOrig="$file"
 
-	# open file with the associated program
-	local open=()
-	if IsPlatform mac; then open=( open )
-	elif IsPlatform win; then open=( cmd.exe /c start \"open\" /b ) # must set title with quotes so quoted arguments are interpreted as file to start, test with start "/mnt/c/Program Files"
-	elif InPath xdg-open; then open=( xdg-open )
-	else open="NO_OPEN"; fi
-
 	# start Mac application 
 	if IsMacApp "$file"; then
 		
@@ -3329,23 +3322,36 @@ start()
 
 	fi
 
-	# start directories and URL's
-	if [[ -d "$file" ]] || IsUrl "$file"; then
-		( IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"; start "${open[@]}" "$(GetFullPath "$file")" "${args[@]}"; ); return
+	# find executable file in path
+	InPath "$file" && file="$(FindInPath "$file")"
+
+	# start files we can open - directories, URL's, and non-executable files
+	if [[ -d "$file" ]] || IsUrl "$file" || { [[ -f "$file" ]] && ! IsExecutable "$file"; }; then
+
+		# open file with the associated program
+		local open=()
+		if IsPlatform mac; then open=( open )
+		elif IsPlatform win; then open=( cmd.exe /c start \"open\" /b ) # must set title with quotes so quoted arguments are interpreted as file to start, test with start "/mnt/c/Program Files"
+		elif InPath xdg-open; then open=( xdg-open )
+		else open="NO_OPEN"; fi
+
+		(
+			IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"
+			start "${open[@]}" "$(GetFullPath "$file")" "${args[@]}";
+		)
+		return
 	fi
 
-	# verify the file	
-	[[ ! -f "$file" ]] && file="$(FindInPath "$file")"
-	[[ ! -f "$file" ]] && { ScriptErrQuiet "Unable to find '$fileOrig'" "start"; return 1; }
+	# at this point we must have a file, verify it exists
+	if [[ ! -f "$file" ]]; then
+		ScriptErrQuiet "Unable to find '$fileOrig'" "start"; return 1
+	fi
 
 	# start files with a specific extention
 	case "$(GetFileExtension "$file")" in
 		cmd) ( IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"; cmd.exe /c "$(utw "$(GetFullPath "$file")")" "${args[@]}"; ); return;;
 		js|vbs) start cscript.exe /NoLogo "$file" "${args[@]}"; return;;
 	esac
-
-	# start non-executable files
-	! IsExecutable "$file" && { start "${open[@]}" "$file" "${args[@]}"; return; }
 
 	# start Windows processes, or start a process on Windows elevated
 	if IsPlatform win && ( [[ $elevate ]] || IsWindowsProgram "$file" ) ; then
@@ -3389,7 +3395,7 @@ start()
 
  	# run a non-Windows program
  	if IsShellScript "$file"; then
- 		"$file"
+ 		$sudo "$file" "${args[@]}"
 	elif [[ $wait ]]; then
 		(
 			nohup $sudo "$file" "${args[@]}" >& /dev/null &
