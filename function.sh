@@ -596,7 +596,7 @@ HashiServiceRegister()
 
 # git
 IsGitDir() { git rev-parse --git-dir >& /dev/null; } # return true if the current directory is in a Git directory (current or parent has a .git directory)
-IsGitWorkTree() { [[ "$(git rev-parse --is-inside-git-dir 2>1)" == "false" ]]; } # return true if the current directory is in a Git work tree (current or parent has a .git directory, not in or under the .git directory)
+IsGitWorkTree() { [[ "$(git rev-parse --is-inside-git-dir 2>&1)" == "false" ]]; } # return true if the current directory is in a Git work tree (current or parent has a .git directory, not in or under the .git directory)
 GitBranch() { git rev-parse --abbrev-ref HEAD; }
 GitClone() { ScriptCd GitHelper GitHub clone "$@"; }
 GitRoot() { git rev-parse --show-toplevel; }
