@@ -56,7 +56,9 @@ createUsage()
 {
 	ScriptUsageEcho "\
 Usage: $(ScriptName) create DIR [REMOTES]
-Create a git-annex repository with the list of command separated remotes."
+Create a git-annex repository with the list of command separated remotes.
+
+	-n , --new 					create a new repository, if not specified the first remote is cloned"
 }
 
 createArgStart() { unset -v dir remotes; }
@@ -68,6 +70,16 @@ createArgs()
 	return 0
 }
 
+createArgStart() { unset -v new; }
+
+createOpt() 
+{
+	case "$1" in
+		--new|-n) new="true";;
+		*) return 1
+	esac
+}
+
 createCommand()
 {
 	# directory - create and change to the directory
@@ -77,11 +89,20 @@ createCommand()
 	command cd "$dir" || return # remote needs to be $PWD, full path to the given dir, not the dereferenced fullDir
 	
 	# initilaize
-	! IsGitDir "." && { hilight "Initialize repository..."; git init || return; }
+	local clone="true"; [[ $new ]] && unset clone
+	! IsGitDir "." && { hilight "Initialize repository..."; RunLog git init || return; }
 	
 	if ! git annex status >& /dev/null; then
 		hilight "Initializing git annex..."
-		git annex init "$HOSTNAME-$(GetFileName "$fullDir")" || return
+		RunLog git annex init "$HOSTNAME-$(GetFileName "$fullDir")" || return
+	fi
+
+	# setup a new repository
+	if [[ $new ]]; then
+		local file="README.md"
+		echo "New annex." > "$file" || return
+		git annex add "$file" || return
+		git commit --all --message "initial commit" || return
 	fi
 
 	# add remotes
@@ -94,12 +115,19 @@ createCommand()
 		git remote | grep --quiet "^${remote}$" && continue
 		
 		hilight "Adding remote '$remote'..."
-		git remote add "$remote" "ssh://$USER@$fqdn$PWD" || return
+		RunLog git remote add "$remote" "ssh://$USER@$fqdn$PWD" || return
+
+		# clone the remote
+		if [[ $clone ]]; then
+			hilight "Cloning '$remote'..."
+			RunLog git fetch "$remote" || return
+			RunLog git pull "$remote" master || return
+			unset clone
+		fi
+
 	done
 
 	# configure
-	restartCommand || return
-	guiCommand || return
 	echot "\
 - Dashboard, click syncing disbaled (where present)
 - Configuration
