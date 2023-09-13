@@ -3324,7 +3324,8 @@ start()
 	fi
 
 	# find executable file in path
-	InPath "$file" && file="$(FindInPath "$file")"
+	local newFile="$(FindInPath "$file")"
+	[[ $newFile ]] && file="$newFile"
 
 	# start files we can open - directories, URL's, and non-executable files
 	if [[ -d "$file" ]] || IsUrl "$file" || { [[ -f "$file" ]] && ! IsExecutable "$file"; }; then
