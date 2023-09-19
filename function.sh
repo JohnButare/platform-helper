@@ -3327,8 +3327,23 @@ start()
 	local newFile="$(FindInPath "$file")"
 	[[ $newFile ]] && file="$newFile"
 
-	# start files we can open - directories, URL's, and non-executable files
-	if [[ -d "$file" ]] || IsUrl "$file" || { [[ -f "$file" ]] && ! IsExecutable "$file"; }; then
+	# determine if we can open the file
+	local useOpen; { [[ -d "$file" ]] || IsUrl "$file"; } && useOpen="true"
+
+	# ensure file exists
+	if [[ ! $useOpen && ! -f "$file" ]]; then
+		ScriptErrQuiet "Unable to find '$fileOrig'" "start"
+		return 1
+	fi
+
+	# start files with a specific extention
+	case "$(GetFileExtension "$file")" in
+		cmd) (IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"; cmd.exe /c "$(utw "$(GetFullPath "$file")")" "${args[@]}"; ); return;;
+		js|vbs) start cscript.exe /NoLogo "$file" "${args[@]}"; return;;
+	esac
+
+	# open file
+	if [[ $useOpen ]] || ! IsExecutable "$file"; then
 
 		# open file with the associated program
 		local open=()
@@ -3343,17 +3358,6 @@ start()
 		)
 		return
 	fi
-
-	# at this point we must have a file, verify it exists
-	if [[ ! -f "$file" ]]; then
-		ScriptErrQuiet "Unable to find '$fileOrig'" "start"; return 1
-	fi
-
-	# start files with a specific extention
-	case "$(GetFileExtension "$file")" in
-		cmd) ( IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"; cmd.exe /c "$(utw "$(GetFullPath "$file")")" "${args[@]}"; ); return;;
-		js|vbs) start cscript.exe /NoLogo "$file" "${args[@]}"; return;;
-	esac
 
 	# start Windows processes, or start a process on Windows elevated
 	if IsPlatform win && ( [[ $elevate ]] || IsWindowsProgram "$file" ) ; then
