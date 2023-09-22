@@ -990,6 +990,7 @@ GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 
 IsHex() { [[ "$1" =~ ^[[:xdigit:]]+$ ]]; }
 IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
 IsNumeric() { [[ "$1" =~ ^-?[0-9.]+([.][0-9]+)?$ ]]; }
+IsNumericEqual() { IsNumeric "$1" && IsNumeric "$2" && [[ "$(echo "$1 != $2" | bc)" == "0" ]]; } # IsNumericEqual N1 N2 - return true (0) if N1 and N2 are numeric and are equal, i.e. IsNumeric 15.0 15 returns 0
 HexToDecimal() { echo "$((16#${1#0x}))"; }
 
 # string
