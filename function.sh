@@ -1037,7 +1037,7 @@ GetAfter() { GetArgs2; [[ "$1" =~ ^[^$2]*$2(.*)$ ]] && echo "${BASH_REMATCH[1]}"
 GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoErr "usage: GetWord STRING|- WORD [DELIMITER]( ) - 1 based"; return 1; }
 
 if IsZsh; then
-	LowerCase() { GetArgs; r "${1:l}" $2; }
+	LowerCase() { GetArgs; [[ $# == 0 ]] && { tr '[:upper:]' '[:lower:]'; return; }; r "${1:l}" $2; }
 	ProperCase() { GetArgs; r "${(C)1}" $2; }
 	UpperCase() { echo "${(U)1}"; }
 	UpperCaseFirst() { echo "${(U)1:0:1}${1:1}"; }
@@ -1049,7 +1049,7 @@ if IsZsh; then
 	}
 
 else
-	LowerCase() { GetArgs; r "${1,,}" $2; }
+	LowerCase() { GetArgs; [[ $# == 0 ]] && { tr '[:upper:]' '[:lower:]'; return; }; r "${1,,}" $2; }
 	ProperCase() { GetArgs; local arg="${1,,}"; r "${arg^}" $2; }
 	UpperCase() { echo "${1^^}"; }
 	UpperCaseFirst() { echo "${1^}"; }

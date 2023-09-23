@@ -32,6 +32,8 @@ hostTimeout="200"
 # servers
 #
 
+servers="pi1,pi2,pi3,pi4,pi5,pi6,pi7,pi9,pi10,pi11,rp1,rp2,rp3,rp4,zima1,zima2"
+
 # proxy
 noProxy="localhost,127.0.0.1,.$baseDomain,.$domain,web,www,autoproxy,.releases.ubuntu.com,.internal,.local"
 noProxy+=",10.96.0.0/12,192.168.59.0/24,192.168.49.0/24,192.168.39.0/24" # minikube - https://minikube.sigs.k8s.io/docs/handbook/vpn_and_proxy/

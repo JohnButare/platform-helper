@@ -352,18 +352,55 @@ GetHosts()
 	# return if hosts is already specified
 	[[ $hosts ]] && return
 
+	local resolve="DnsResolveBatch $quiet"
+	local resolveMac="DnsResolveMacBatch --full $errors $quiet"
+	local sort="sort --ignore-case --version-sort"
+
 	# use hostArg, then passed list
 	local h="${hostArg:-$1}"
+	local hLower="$(LowerCase "$h")"
 
-	# comma separated list of hosts
-	[[ "$h" != @(|all|web) ]] && { StringToArray "$(LowerCase "$h")" "," hosts; return; }
+	# aliases
+	case "$hLower" in
+		cam|camera) hostArg="" GetHostsConfigNetwork "camera"; IFS=$'\n' ArrayMake hosts "$(ArrayDelimit hosts $'\n' | $resolve | $resolve | $sort)"; return;;
+		down) IFS=$'\n' ArrayMake hosts "$(DomotzHelper down | cut -d"," -f2 | $resolveMac | $sort)"; return;; # important hosts that are down
+		hashi-*) IFS=$'\n' ArrayMake hosts "$(hashi config hosts --config-prefix="$(RemoveFront "$hLower" "hashi-")" | $resolve | $sort)"; return;;
+		important) IFS=$'\n' ArrayMake hosts "$(DomotzHelper important | $resolveMac | $sort)"; return;;
+		locked|unlock) IFS=$'\n' ArrayMake hosts "$(os info -w=credential all --status | tgrep "(locked)" | cut -d" " -f1 | $resolve | $sort)"; return;;
+		reboot) IFS=$'\n' ArrayMake hosts "$(os info -w=reboot all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)"; return;;
+		restart) IFS=$'\n' ArrayMake hosts "$(os info -w=restart all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)"; return;;
+		unused) IFS=$'\n' ArrayMake hosts "$(hashi nomad node allocations | grep ": 0$" | cut -d":" -f1)"; return;; # hosts with no Nomad allocations
+
+		off)
+			local allServers onServers
+			StringToArray "$(ConfigGet servers | sort --version-sort)" "," allServers
+			IFS=$'\n' ArrayMake onServers "$(GetAllServers | cut -d"." -f1 | $sort)"
+			IFS=$'\n' ArrayMake hosts "$(ArrayIntersection onServers allServers | $sort)"		
+			return
+			;;
+	esac
 
 	# service name
-	local service="$hostArg"; [[ "$h" == @(|all) ]] && service="nomad-client"
-	IFS=$'\n' ArrayMakeC hosts GetServers "$service"
-	[[ ! $getHostsOther ]] && return
-	hosts=("${getHostsOther[@]}" "${hosts[@]}")
-	unset getHostsOther
+	if [[ ! "$h" =~ , ]] && { [[ "$hLower" == @(|active|all|web) ]] || DnsResolve --quiet "$h.service"; }; then
+		local service="$1"; 
+
+		# aliases
+		case "$hLower" in
+			""|active|all) service="nomad-client";;
+			web) service="apache-web";;
+		esac
+
+		IFS=$'\n' ArrayMake hosts "$(GetServers "$service" | $sort)"
+
+		# other hosts
+		[[ $getHostsOther && "$service" == "nomad-client" ]] && hosts=("${getHostsOther[@]}" "${hosts[@]}")
+		unset getHostsOther
+
+	# comma separated list of hosts
+	else
+		StringToArray "$hLower" "," hosts
+
+	fi
 }
 
 # GetHostsApp APP [all|active|available](available) - set hosts set hosts array from --host argument or the servers hosting the specified application

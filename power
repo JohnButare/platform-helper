@@ -22,7 +22,7 @@ init()
 {
 	switch="" waitSecondsDefault=120 poeSwitchDefault="StudyDeskSwitch"
 
-	hostArg="HOST format is HOST[:PORT] where PORT is an optional switch port number.
+	hostUsage="HOST format is HOST[:PORT] where PORT is an optional switch port number.
 		If the PORT is all the command applies to all switch ports on the host."
 
 	unset user; [[ "$USER" == "homebridge" ]] && user="$(ConfigGet "user")@"
@@ -45,21 +45,17 @@ opt()
 args()
 {
 	[[ "${commands[0]}" == @(fix|info) ]] && return
-	hosts=( "$@" ); (( shift+=$# )); return 0;
+	local hosts=( "$@" ); (( shift+=$# ));
+	hostArg="$(ArrayDelimit hosts ",")"
+	return 0
 }
 
 #
 # Commands
 #
 
-portCommand()
-{
-	local host
-	for host in "${hosts[@]}"; do
-		switchLookup "$host" || return
-		echo "$host is connected to $switch:$switchPort"
-	done
-}
+portCommand() { ForAllHosts port; }
+port() { switchLookup "$1" && echo "$1 is connected to $switch:$switchPort"; }
 
 #
 # Power Commands (off, on, firmware, hibernate, reboot, or sleep)
@@ -73,7 +69,7 @@ opUsage()
 Usage: power $command [HOST]...
 Perform a power command.
 
-	$hostArg
+	$hostUsage
 
 	-e, --exit 						return the specified exit code after the power command
 	-f, --force 					force the power operation even if we believe the host is in the correct state
@@ -86,7 +82,7 @@ Perform a power command.
 	   ,--wait-seconds N	seconds to wait for a host, defaults to $waitSecondsDefault	"
 }
 
-opArgStart() { unset -v exit ignoreErrors noPrepare gui quiet test ssh ; expectedState="off" waitSeconds="$waitSecondsDefault"; unset -v sshCommand; }
+opArgStart() { unset -v exit hostArg ignoreErrors noPrepare gui quiet test ssh ; expectedState="off" waitSeconds="$waitSecondsDefault"; unset -v sshCommand; }
 
 opOpt() 
 {
@@ -136,7 +132,7 @@ sleepCommand() { power "sleep"; }
 power()
 {
 	local command="$1"
-	[[ $hosts ]] && { ForAllHosts powerRemote "$command"; return; }
+	[[ $hostArg ]] && { ForAllHosts powerRemote "$command"; return; }
 	powerLocal "$command"
 }
 
@@ -606,21 +602,22 @@ Usage: power status [switch|watts] HOST[:PORT]
 Report the status of the host or PoE switch (on or off).  
 If port is all then the status of all switch ports is displayed.
 
-	$hostArg
+	$hostUsage
 
 	-t, --timeout=[$timeout]		milliseconds to wait for a response from the host"
 }
 
-statusArgEnd() { [[ ! $hosts ]] && MissingOperand "host"; return 0; }
+statusArgEnd() { [[ ! $hostArg ]] && MissingOperand "host"; return 0; }
 
 statusCommand()
 {
 	local host command="doStatus"; [[ $verbose ]] && command="doStatusVerbose"
-	for host in "${hosts[@]}"; do "$command" "$host" || return; done; 
+	ForAllHosts "$command" --header "status"
 }
 
-statusWattsCommand() { for host in "${hosts[@]}"; do doStatusWatts "$host" || return; done; }
-statusSwitchCommand() { for host in "${hosts[@]}"; do switchLookup "$host" && echo "$switch:$switchPort"; done; }
+statusWattsCommand() { ForAllHosts doStatusWatts --header "watts"; }
+statusSwitchCommand() { ForAllHosts doStatusSwitch --header "switch"; }
+doStatusSwitch() { switchLookup "$host" && echo "$switch:$switchPort"; }
 
 doStatus()
 {

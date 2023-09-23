@@ -213,7 +213,7 @@ appNodeStatusOpt()
 	esac
 }
 
-appNodeStatusCommand() { ForAllHosts --brief appNodeStatus; }
+appNodeStatusCommand() { forAllHosts --brief appNodeStatus; }
 
 appNodeStatus()
 {
@@ -721,8 +721,8 @@ certStatusPrivate()
 
 configUsage() { echot "Usage: $(ScriptName) config deploy|get|hosts|remove|set\nConfigure products."; }
 configCommand() { usage; }
-configHostsUsage() { echot "Usage: $(ScriptName) config servers\nReturn the list of hosts."; }
-configHostsCommand() { getHosts; ArrayDelimit hosts $'\n'; }
+configHostsUsage() { echot "Usage: $(ScriptName) config hosts\nReturn the list of hosts."; }
+configHostsCommand() { getHosts "config"; ArrayDelimit hosts $'\n'; }
 
 # config deploy commands
 
@@ -888,23 +888,23 @@ removeConfig()
 
 	header "Remove $(ProperCase "$product") Configuration"
 
-	# Vault data
+	# delete Vault data
 	if [[ "$product" == "vault" ]] && whatCheck "consul-vault-data" && quiet="--quiet" productInit "consul"; then
 		hilight "Removing Vault data from Consul..."
 		RunLog consul kv delete -recurse "vault/"
 	fi
 
-	# certificates (local, private, and public)	
+	# delete certificates (local, private, and public)	
 	local dir
 	whatCheck "local-certs" && { hilight "Removing local certificates..."; removeLocalCerts || return; }
 	whatCheck "private-certs" && { hilight "Removing private credentials..."; dir="$(certDirPrivate | certDirSuffix "$product")" || return; removeDir "$dir"; }
 	whatCheck "public-certs" && { hilight "Removing public credentials..."; dir="$(certDirPublic | certDirSuffix "$product")" || return; removeDir "$dir"; }
 
-	# credentials (local)
+	# delete local credentials
 	whatCheck "local-credentials" && { hilight "Removing local credentials..."; credDelete "all" || return; }
 
-	# delete host certificates
-	local host hosts; getHosts "all" || return
+	# delete host credentials and certificates
+	local host hosts; getHosts "config" || return
 	for host in "${hosts[@]}"; do
 		hilight "Removing $host certificates and credentials..."
 		sshRun -q -t "$host" bash -i "credential rm \"$(credPath)\" all ${globalArgs[@]} && rm -fr \"$(certDirSuffix "$product" "/opt/hashi")\"" || return
@@ -1614,9 +1614,9 @@ installService()
 	# add clients and servers from hostArg if specified
 	if [[ $hostArg ]]; then
 		local host hosts; StringToArray "$hostArg" "," hosts
-		local defaultServers; configGetArray "servers" "defaultServers"
+		local configServers; configGetArray "servers" "configServers"
 		for host in "${hosts[@]}"; do
-			IsInArray "$host" defaultServers && servers+=( "$host" ) || clients+=( "$host" )
+			IsInArray "$host" configServers && servers+=( "$host" ) || clients+=( "$host" )
 		done
 		unset hostArg
 	fi
@@ -2406,7 +2406,7 @@ nomadNodeAllocationsCommand() { forAllHosts nomadNodeAllocations; }
 nomadNodeExistsCommand() { local quiet="--quiet"; nomadNodeIdCommand > /dev/null; }
 nomadNodeIdCommand() { forAllHosts nomadGetNodeId; }
 nomadNodeLsCommand() { nomad node status -json | jq '.[] | .Name' | RemoveQuotes | sort --version-sort; }
-nomadNodeStatusCommand() { ForAllHosts nomadNodeStatus --header "status"; }
+nomadNodeStatusCommand() { forAllHosts nomadNodeStatus --header "status"; }
 
 nomadNodeAllocations()
 {
@@ -2417,6 +2417,8 @@ nomadNodeAllocations()
 	else
 		printf "$(RemoveDnsSuffix "$host"): "; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | grep " running " | wc -l
 	fi
+
+	return 0
 }
 
 # nomadGetNodeId HOST
@@ -2709,7 +2711,7 @@ removeService()
 		return 1
 	fi
 
-	local host hosts; getHosts "all" || return
+	local host hosts; getHosts "config" || return
 	for host in "${hosts[@]}"; do
 		header "Remove $(ProperCase "$product") Service ($host)"
 		serviceRemove "$product" "$host" || return
@@ -4066,54 +4068,39 @@ getDnsServer()
 # getHosts [HOSTS]
 getHosts() 
 {
-	local h="${hostArg,,}"
+	(( $# > 1 )) && { hosts=( "${@}" ); return; }
 
-	# use the hostArg if specified
-	if [[ $h ]]; then
+	# use hostArg if specified
+	local h="${hostArg:-$1}"
 
-		# active servers
-		if [[ "$h" == "active" ]]; then
-			hosts=( $(GetAllServers) )
-
-		# all servers in configurations
-		elif [[ "$h" == "all" ]]; then
-			configServers
-
-		# clients or servers in configuration
-		elif [[ "$h" == @(clients|servers) ]]; then
-			configGetArray "$h" hosts
-		
-		# ordered server from configuration, servers first, then clients
-		elif [[ "$h" == @(1|2|3|4|5|6|first|second|third|fourth|fifth|sixth) ]]; then
-			local servers; configGetArray "servers"
-			local clients; configGetArray "clients"
-			local hosts=(); ArrayAppend hosts servers clients
-
-			[[ "$h" == @(1|first) ]] && hosts=( "${hosts[0]}" )
-			[[ "$h" == @(2|second) ]] && hosts=( "${hosts[1]}" )
-			[[ "$h" == @(3|third) ]] && hosts=( "${hosts[2]}" )
-			[[ "$h" == @(4|fourth) ]] && hosts=( "${hosts[3]}" )
-			[[ "$h" == @(5|fifth) ]] && hosts=( "${hosts[4]}" )
-			[[ "$h" == @(6|sixth) ]] && hosts=( "${hosts[5]}" )
-
-		# comma separated lists of hosts
-		else 
-			StringToArray "$hostArg" "," hosts
-		fi
-
-	# passed argument - empty or all
-	elif [[ $# == 0 ]] || [[ $# == 1 && "$1" == "all" ]]; then
+	# all servers from configuration with duplicates removed
+	if [[ "${h,,}" == @(config) ]]; then
 		configServers
-		
-	# passed argument - configuration variable (clients, servers, etc.)
-	elif [[ $# == 1 && $(configGet "$1") ]] ; then
-		configGetArray "$1" "hosts"
 	
-	# passed arguments
+	# ordered server from configuration, servers first, then clients
+	elif [[ "${h,,}" == @(1|2|3|4|5|6|first|second|third|fourth|fifth|sixth) ]]; then
+		local servers; configGetArray "servers"
+		local clients; configGetArray "clients"
+		local all=(); ArrayAppend all servers clients
+
+		[[ "$h" == @(1|first) ]] && hosts=( "${all[0]}" )
+		[[ "$h" == @(2|second) ]] && hosts=( "${all[1]}" )
+		[[ "$h" == @(3|third) ]] && hosts=( "${all[2]}" )
+		[[ "$h" == @(4|fourth) ]] && hosts=( "${all[3]}" )
+		[[ "$h" == @(5|fifth) ]] && hosts=( "${all[4]}" )
+		[[ "$h" == @(6|sixth) ]] && hosts=( "${all[5]}" )
+
+	# servers from a configuration variable (clients, servers, VaultServers)
+	elif [[ $(configGet "$h") ]]; then
+		configGetArray "$h" hosts
+
+	# comma separated lists of hosts
 	else
-		hosts=( "${@}" )
+		GetHosts "${h,,}" || return
+
 	fi
 
+	# validate
 	[[ ! $hosts ]] && MissingOperand "host"
 
 	return 0
