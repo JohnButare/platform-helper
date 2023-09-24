@@ -334,6 +334,24 @@ ForAllHosts()
 	[[ $errors ]] && return $errors || return 0
 }
 
+ScriptOptHostUsage()
+{
+	EchoWrap "	-H, --host [HOSTS](all)		comma separated list of hosts"
+	[[ ! $verbose ]] && return
+	EchoWrap "\
+		all|camera|down|important
+			down=important hosts that are down
+			important=important hosts
+
+		servers:
+			all=active servers
+			hashi-ENV=Hashi servers for the specified environment (i.e. dev, test)
+			locked|unlock=hosts with locked credential manager
+			reboot=servers requiring a reboot
+			restart=servers which have processes requiring a restart
+			SERVICE=servers with an active Consul service, i.e. apache-web (web), file
+			unused=servers with no Nomad allocations"
+}
 # ScriptOptHost - sets hostArg hostOpt
 ScriptOptHost() 
 {
@@ -366,10 +384,10 @@ GetHosts()
 		down) IFS=$'\n' ArrayMake hosts "$(DomotzHelper down | cut -d"," -f2 | $resolveMac | $sort)"; return;; # important hosts that are down
 		hashi-*) IFS=$'\n' ArrayMake hosts "$(hashi config hosts --config-prefix="$(RemoveFront "$hLower" "hashi-")" | $resolve | $sort)"; return;;
 		important) IFS=$'\n' ArrayMake hosts "$(DomotzHelper important | $resolveMac | $sort)"; return;;
-		locked|unlock) IFS=$'\n' ArrayMake hosts "$(os info -w=credential all --status | tgrep "(locked)" | cut -d" " -f1 | $resolve | $sort)"; return;;
+		locked|unlocked) IFS=$'\n' ArrayMake hosts "$(os info -w=credential all --status | tgrep "(locked)" | cut -d" " -f1 | $resolve | $sort)"; return;;
 		reboot) IFS=$'\n' ArrayMake hosts "$(os info -w=reboot all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)"; return;;
 		restart) IFS=$'\n' ArrayMake hosts "$(os info -w=restart all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)"; return;;
-		unused) IFS=$'\n' ArrayMake hosts "$(hashi nomad node allocations | grep ": 0$" | cut -d":" -f1)"; return;; # hosts with no Nomad allocations
+		unused) IFS=$'\n' ArrayMake hosts "$(hashi nomad node allocations | grep ": 0$" | cut -d":" -f1 | $resolve | $sort)"; return;;
 
 		off)
 			local allServers onServers
@@ -382,7 +400,7 @@ GetHosts()
 
 	# service name
 	if [[ ! "$h" =~ , ]] && { [[ "$hLower" == @(|active|all|web) ]] || DnsResolve --quiet "$h.service"; }; then
-		local service="$1"; 
+		local service="$h"; 
 
 		# aliases
 		case "$hLower" in
@@ -459,8 +477,7 @@ ScriptRun()
 {
 	# variables	
 	local defaultCommand defaultCommandUsed
-	local hostUsage="	-H, --host [HOSTS](all)		comma separated list of hosts, or all|web"
-
+	
 	# initialize
 	RunFunction "init" -- "$@" || return
 

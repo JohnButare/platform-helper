@@ -2201,11 +2201,12 @@ DnsResolve()
 		elif InPath host; then lookup="$(host -N 2 -t A -4 "$name" $server |& ${G}grep -v "^ns." | ${G}grep -E "domain name pointer|has address" | head -1 | cut -d" " -f 1)" || unset lookup
 		elif InPath nslookup; then lookup="$(nslookup -ndots=2 -type=A "$name" $server |& tail -3 | ${G}grep "Name:" | ${G}cut -d$'\t' -f 2)" || unset lookup
 		fi
-		
+
 	fi
 
 	[[ ! $lookup ]] && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
-	[[ "$lookup" ]] && echo "$lookup" || return 1
+	[[ ! "$quiet" ]] && echo "$lookup"
+	return 0
 }
 
 # DnsResolveBatch - resolve IP addresses or names to fully qualified DNS names in parallel, uses the same options as DnsResolve
@@ -2422,7 +2423,7 @@ GetUncFull()
 	if [[ $ip ]]; then
 		server="$(GetIpAddress "$server")" || return
 	else
-		server="$(DnsResolve "$server")" || return
+		server="$(quiet="" DnsResolve "$server")" || return
 	fi
 
 	# return the new UNC
