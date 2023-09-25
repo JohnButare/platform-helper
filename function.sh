@@ -3712,7 +3712,7 @@ CredentialConfStatus() { CredentialConf "$@" && credential manager unlock && cre
 # IsElevated - return true if the user has an Administrator token, always true if not on Windows
 IsElevated() 
 { 
-	! IsPlatform win && return 1
+	! IsPlatform win && return 0
 
 	# if the user is in the Administrators group they have the Windows Administrator token
 	# cd / to fix WSL 2 error running from network share
