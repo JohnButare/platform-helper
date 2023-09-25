@@ -292,13 +292,13 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 # -ng, --no-get 			- do not get hosts
 ForAllHosts()
 {
-	local brief errors header noGet command=()
+	local brief command=() errors errorCount=0 header noGet
 
 	# options
 	while (( $# != 0 )); do
 		case "$1" in
 			--brief|-b) brief="--brief";;
-			--errors|-e) errors=0;;
+			--errors|-e) errors="--errors";;
 			--header|--header=*|-h|-h=*) local shift=0; ScriptOptGet "header" "$@" || return; shift $shift;;
 			--no-get|-ng) noGet="--no-get";;
 			--) shift; command+=("$@"); break;;
@@ -307,9 +307,11 @@ ForAllHosts()
 		shift
 	done
 
-	# run command for all hosts
+	# initialize
 	local host; [[ ! $noGet ]] && { GetHosts || return; }
 	local multiple; (( ${#hosts[@]} > 1 )) && multiple="true"
+
+	# run command for all hosts
 	for host in "${hosts[@]}"; do
 
 		# header		
@@ -320,18 +322,18 @@ ForAllHosts()
 		fi
 
 		# command
-		local result; RunLog "${command[@]}" "$host"; result="$?"
-		(( result == 0 )) && result="success" || { [[ ! $errors ]] && return $result; result="failure"; ((++errors)); }
+		local result resultDesc="success"; RunLog "${command[@]}" "$host"; result="$?"
+		(( result != 0 )) && { [[ ! $errors ]] && return $result; resultDesc="failure"; ((++errorCount)); }
 
 		# status
-		[[ $multiple ]]	&& (( $(CurrentColumn) != 0 )) && { [[ $brief ]] && echo "$result" || echo; }	
+		[[ $multiple ]]	&& (( $(CurrentColumn) != 0 )) && { [[ $brief ]] && echo "$resultDesc" || echo; }	
 
 		# logging
-		log1 "errors=$errors"
+		log1 "errors=$errorCount"
 	done
 
 	# return
-	[[ $errors ]] && return $errors || return 0
+	[[ $errors ]] && return $errorCount || return 0
 }
 
 ScriptOptHostUsage()
@@ -378,25 +380,37 @@ GetHosts()
 	local h="${hostArg:-$1}"
 	local hLower="$(LowerCase "$h")"
 
+	# status
+	local showStatus; [[ ! $quiet && "${hostArg,,}" == @(down|important|locked|reboot|restart|unlock) ]] && showStatus="true"
+	[[ $showStatus ]] && PrintErr "hosts..."
+
 	# aliases
+	local aliasUsed="true";
 	case "$hLower" in
-		cam|camera) hostArg="" GetHostsConfigNetwork "camera"; IFS=$'\n' ArrayMake hosts "$(ArrayDelimit hosts $'\n' | $resolve | $resolve | $sort)"; return;;
-		down) IFS=$'\n' ArrayMake hosts "$(DomotzHelper down | cut -d"," -f2 | $resolveMac | $sort)"; return;; # important hosts that are down
-		hashi-*) IFS=$'\n' ArrayMake hosts "$(hashi config hosts --config-prefix="$(RemoveFront "$hLower" "hashi-")" | $resolve | $sort)"; return;;
-		important) IFS=$'\n' ArrayMake hosts "$(DomotzHelper important | $resolveMac | $sort)"; return;;
-		locked|unlocked) IFS=$'\n' ArrayMake hosts "$(os info -w=credential all --status | tgrep "(locked)" | cut -d" " -f1 | $resolve | $sort)"; return;;
-		reboot) IFS=$'\n' ArrayMake hosts "$(os info -w=reboot all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)"; return;;
-		restart) IFS=$'\n' ArrayMake hosts "$(os info -w=restart all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)"; return;;
-		unused) IFS=$'\n' ArrayMake hosts "$(hashi nomad node allocations | grep ": 0$" | cut -d":" -f1 | $resolve | $sort)"; return;;
+		cam|camera) hostArg="" GetHostsConfigNetwork "camera"; IFS=$'\n' ArrayMake hosts "$(ArrayDelimit hosts $'\n' | $resolve | $resolve | $sort)" || return;;
+		down) IFS=$'\n' ArrayMake hosts "$(DomotzHelper down | cut -d"," -f2 | $resolveMac | $sort)" || return;;
+		hashi-*) IFS=$'\n' ArrayMake hosts "$(hashi config hosts --config-prefix="$(RemoveFront "$hLower" "hashi-")" | $resolve | $sort)" || return;;
+		important) IFS=$'\n' ArrayMake hosts "$(DomotzHelper important | $resolveMac | $sort)" || return;;
+		locked|unlocked) IFS=$'\n' ArrayMake hosts "$(os info -w=credential all --status | tgrep "(locked)" | cut -d" " -f1 | $resolve | $sort)" || return;;
+		reboot) IFS=$'\n' ArrayMake hosts "$(os info -w=reboot all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)" || return;;
+		restart) IFS=$'\n' ArrayMake hosts "$(os info -w=restart all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)" || return;;
+		unused) IFS=$'\n' ArrayMake hosts "$(hashi nomad node allocations | grep ": 0$" | cut -d":" -f1 | $resolve | $sort)" || return;;
 
 		off)
 			local allServers onServers
 			StringToArray "$(ConfigGet servers | sort --version-sort)" "," allServers
-			IFS=$'\n' ArrayMake onServers "$(GetAllServers | cut -d"." -f1 | $sort)"
+			IFS=$'\n' ArrayMake onServers "$(GetAllServers | cut -d"." -f1 | $sort)" || return
 			IFS=$'\n' ArrayMake hosts "$(ArrayIntersection onServers allServers | $sort)"		
-			return
 			;;
+
+		default) unset aliasUsed;
 	esac
+
+	# status
+	[[ $showStatus ]] && EchoErrEnd "done"
+
+	# return if an alias was used
+	[[ $aliasUsed ]] && return
 
 	# service name
 	if [[ ! "$h" =~ , ]] && { [[ "$hLower" == @(|active|all|web) ]] || DnsResolve --quiet "$h.service"; }; then
