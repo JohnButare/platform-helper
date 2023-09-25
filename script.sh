@@ -403,7 +403,7 @@ GetHosts()
 			IFS=$'\n' ArrayMake hosts "$(ArrayIntersection onServers allServers | $sort)"		
 			;;
 
-		default) unset aliasUsed;
+		*) unset aliasUsed;
 	esac
 
 	# status
@@ -413,7 +413,8 @@ GetHosts()
 	[[ $aliasUsed ]] && return
 
 	# service name
-	if [[ ! "$h" =~ , ]] && { [[ "$hLower" == @(|active|all|web) ]] || DnsResolve --quiet "$h.service"; }; then
+
+	if [[ ! "$h" =~ , ]] && { [[ "$hLower" == @(|active|all|web) ]] || DnsResolve "$h.service" >& /dev/null; }; then
 		local service="$h"; 
 
 		# aliases
