@@ -228,7 +228,7 @@ mountCommand()
 		[[ ! "$quiet" ]] && ScriptErr "host '$server' is not available"
 		return 1
 	fi
-	log1 "connection will use '$protocol' protocol"
+	log1 "connection will use '$(protocolDesc "$protocol" "$server")' protocol"
 
 	# remove an existing share in the mountRoot
 	unmount "$mountRoot" "$isLocal" || return
@@ -496,16 +496,13 @@ findProtocol()
 
 	log1 "findProtocol: host='$host'"
 
-	# rclone
-	IsRcloneRemote "$host" && { protocol="rclone"; return; }
-
 	# Synology SMB mount.cifs does not work, use sshfs
   IsPlatform synology && [[ "$protocol" == @(|smb) ]] && protocol="ssh"
 
 	# if a specific protocol was requested check it
 	[[ $protocol ]] && { isAvailable "$host" "$protocol"; return; }
 
-	isAvailable "$host" "smb" || isAvailable "$host" "nfs" "mount.nfs" || isAvailable "$host" "ssh" "sshfs"
+	isAvailable "$host" "smb" || isAvailable "$host" "nfs" "mount.nfs" || isAvailable "$host" "ssh" "sshfs" || isAvailable "$host" "rclone" "rclone"
 }
 
 getPort()
@@ -516,7 +513,7 @@ getPort()
 		nfs) echo "111";; # 111 and 2049 
 		smb) echo "445";; # 135 and 445
 		ssh) SshHelper config get "$host" port;;
-		*) echo "$protocol"
+		*) IsInteger "$protocol" && echo "$protocol" || echo ""
 	esac
 }
 
@@ -765,11 +762,10 @@ initVolumeDir()
 }
 
 # isAvailable HOST PROTOCOL PROGRAM - return true if the file sharing PROGRAM is installed
-# and the host is available on the port required for the protocol.   Sets protocol on return.
+# and the host is available on the port required for the protocol.  Sets protocol on return.
 isAvailable()
-{
-	protocol="$2"
-	local host="$1" program="$3"
+{	
+	local host="$1" program="$3"; protocol="$2"
 	local port="$(getPort "$protocol" "$host")"
 
 	if [[ $program ]] && ! InPath "$program"; then
@@ -779,13 +775,17 @@ isAvailable()
 
 	noHostCheck && return
 
+	# find check command
+	local check="IsAvailablePort $host $port"; [[ "$protocol" == "rclone" ]] && check="IsRcloneRemote $host"
+		
+	# logging
 	if [[ $verbose ]]; then
-		IsInteger "$protocol" && protocol="ssh"
-		PrintErr "$(ScriptPrefix)checking $host $protocol protocol (port $port)..."
+		PrintErr "$(ScriptPrefix)checking $host $(protocolDesc "$protocol" "$host") protocol..."
 		IsAvailablePort "$host" "$port" && EchoErr "available" || EchoErr "not available"
 	fi
 
-	IsAvailablePort "$host" "$port"
+	# check
+	eval "$check"
 }
 
 # isMountedCheck UNC - if the UNC is mounted show it's path and return true
@@ -828,6 +828,13 @@ pathRoot()
 	check="$(GetFullPath "$1")" || return
 	check="$(RemoveFront "$check" "$volumeDir/")"
 	echo "$volumeDir/${check%%/*}"
+}
+
+protocolDesc()
+{
+	local protocol="$1" host="$2"
+	local desc="$protocol"; IsInteger "$protocol" && desc="ssh"
+	echo "$desc (port $(getPort "$protocol" "$host"))"
 }
 
 ScriptRun "$@"
