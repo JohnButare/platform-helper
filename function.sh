@@ -2205,8 +2205,7 @@ DnsResolve()
 	fi
 
 	[[ ! $lookup ]] && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
-	[[ ! "$quiet" ]] && echo "$lookup"
-	return 0
+	echo "$lookup"
 }
 
 # DnsResolveBatch - resolve IP addresses or names to fully qualified DNS names in parallel, uses the same options as DnsResolve
@@ -2423,7 +2422,7 @@ GetUncFull()
 	if [[ $ip ]]; then
 		server="$(GetIpAddress "$server")" || return
 	else
-		server="$(quiet="" DnsResolve "$server")" || return
+		server="$(DnsResolve "$server")" || return
 	fi
 
 	# return the new UNC
