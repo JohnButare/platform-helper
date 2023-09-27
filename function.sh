@@ -2936,7 +2936,6 @@ ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
 pschildren() { ps --forest $(ps -e --no-header -o pid,ppid|awk -vp=$1 'function r(s){print s;s=a[s];while(s){sub(",","",s);t=s;sub(",.*","",t);sub("[0-9]+","",s);r(t)}}{a[$2]=a[$2]","$1}END{r(p)}'); } # pschildren PPID - list process with children
 pschildrenc() { local n="$(pschildren "$1" | wc -l)"; (( n == 1 )) && return 1 || echo $(( n - 2 )); } # pschildrenc PPID - list count of process children
 pscount() { ProcessList | wc -l; }
-pstree() { InPath pstree && { command pstree "$@"; return; }; ps -axj --forest "$@"; }
 RunQuiet() { if [[ $verbose ]]; then "$@"; else "$@" 2> /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout unless verbose logging
 RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout and stderr unless verbose logging
 
@@ -3247,11 +3246,16 @@ ProcessList()
 ProcessParents()
 {
 	local ppid; 
-
-	{ 
-		for ((ppid=$PPID; ppid > 1; ppid=$(ps ho %P -p $ppid))); do
-			 ps ho %c -p $ppid
-		done
+	{
+		if IsPlatform mac; then
+			for ((ppid=$PPID; ppid > 1; ppid=$(ps ao ppid $ppid | tail -1))); do
+				ps ao comm $ppid | tail -1 | GetFileName
+			done
+		else
+			for ((ppid=$PPID; ppid > 1; ppid=$(ps ho %P -p $ppid))); do
+				ps ho %c -p $ppid
+			done
+		fi
 	} | NewlineToSpace | RemoveTrim
 }
 
@@ -3260,6 +3264,14 @@ ProcessResource()
 	IsPlatform win && { start handle.exe "$@"; return; }
 	InPath lsof && { lsof "$@"; return; }
 	echo "Not Implemented"
+}
+
+pstree()
+{
+	local pstreeOpts=(); IsPlatform mac && pstreeOpts+=(-g 2)
+	InPath pstree && { command pstree "${pstreeOpts[@]}" "$@"; return; }
+	! IsPlatform mac && { ps -axj --forest "$@"; return; }
+	return
 }
 
 # start a program converting file arguments for the platform as needed
