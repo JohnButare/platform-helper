@@ -132,7 +132,7 @@ Connect to a HOST using SSH.
 	-a, --all									resolve host using all methods (DNS, MDNS)
 	    --function						define functions
 $hostUsage
-	-i, --interactive					interactive shell, implies --function and --pseudo-terminal
+	-i, --interactive					interactive shell, implies --function, --pseudo-terminal, and --quote
 	-p, --password						specify a password
 	    --quote								quote arguments
 	-t, --pseudo-terminal			allocate a pseudo terminal
@@ -265,16 +265,19 @@ connect()
 	[[ $hashi ]] && args+=("-o" SendEnv="CONSUL_* NOMAD_* VAULT_*")
 	[[ $port ]] && args+=(-p "$port")
 
-	# other arguments
+	# if otherArgs is set we are running an SSH command not a login shell
 	if [[ $otherArgs ]]; then
 
+		# allow the command to run interactively
 		if [[ $interactive ]]; then
-			args+=(-- BashRun) quote="--quote" pseudoTerminal="-t"			
+			args+=(-- BashRun) quote="--quote" pseudoTerminal="-t"
+
+		# allow command to use functions
 		elif [[ $functions ]]; then
 			args+=(-- ". function.sh;")
 		fi
 
-		# use "$(ArrayShow otherArgs)" to preserve spaces
+		# use "$(ArrayShow otherArgs)" to preserve spaces		
 		if [[ $quote ]]; then
 			args+=("$(ArrayShow otherArgs)")
 		else
@@ -304,8 +307,13 @@ connect()
 	# verbosity - don't allow if sending credentials, otherwise reduce verbosity by 1 to reduce noise
 	[[ ! $borg && ! $credentialManager && ! $hashi ]] && (( verboseLevel > 1 )) && command+=(-$(StringRepeat v $((verboseLevel - 1))))
 
-	# other
-	[[ $pseudoTerminal ]] && command+=($pseudoTerminal)
+	# pseudo termianl - allocate a pseudo terminal if possible (stdout is connected).
+	# If stdout is not connected, interactive shells have the following limitations which cause issues:
+	# - when the command writes to stderr, it is sent to the ssh stdout
+	# - writes to stdout cannout be read using the read command, i.e. CurrentColumn blocks
+	[[ $pseudoTerminal ]] && IsStdOut && command+=($pseudoTerminal)
+
+	# trust
 	[[ $trust ]] && command+=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
 
 	# logging

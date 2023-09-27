@@ -52,13 +52,18 @@ SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - spli
 
 AllConf() { HashiConf "$@" && CredentialConf "$@" && NetworkConf "$@" && SshAgentConf "$@"; }
 EvalVar() { r "${!1}" $2; } # EvalVar <var> <variable> - return the contents of the variable in variable, or set it to var
-IsInteractiveShell() { [[ "$-" == *i* ]]; } # true if we are running at the command prompt
-IsTty() { ${G}tty --silent;  }
-IsStdIn() { [[ -t 0 ]];  } # 0 if STDIN refers to a terminal, i.e. "echo | IsStdIn" is 1
-IsStdOut() { [[ -t 1 ]];  } # 0 if STDOUT refers to a terminal, i.e. "IsStdOut | cat" is 1
-IsStdErr() { [[ -t 2 ]];  } # 0 if STDERR refers to a terminal, i.e. "IsStdErr |& cat" is 1
+IsInteractiveShell() { [[ "$-" == *i* ]]; } # 0 if we are running at the command prompt, 1 if we are running from a script
 IsUrl() { [[ "$1" =~ ^(file|git|http[s]?|ms-windows-store)://.* ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
+
+# TTY input and output
+IsTty() { ${G}tty --silent;  }		# ??
+IsTtyOk() {  { printf "" > "/dev/tty"; } >& "/dev/null"; } # 0 if /dev/tty is usable for reading input or sending output (useful when stdin or stdout is not available in a pipeline)
+IsSshTty() { [[ $SSH_TTY ]]; }		# 0 if connected over SSH with a TTY
+IsStdIn() { [[ -t 0 ]];  } 				# 0 if STDIN refers to a terminal, i.e. "echo | IsStdIn" is 1
+IsStdOut() { [[ -t 1 ]];  } 			# 0 if STDOUT refers to a terminal, i.e. "IsStdOut | cat" is 1
+IsStdErr() { [[ -t 2 ]];  } 			# 0 if STDERR refers to a terminal, i.e. "IsStdErr |& cat" is 1
+
 
 UrlEncodeSpace()
 {
@@ -143,13 +148,14 @@ hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
 hilightp() { InitColor; printf "${GREEN}$@${RESET}"; } # hilight with no newline
 
 # CurrentColumn - return the current cursor column, https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
-if IsTty; then
-	if IsBash; then
+if IsTtyOk; then
+	if IsBash; then		
 		CurrentColumn()
 		{
 			exec < "/dev/tty"; local old="$(${G}stty -g)"; ${G}stty raw -echo min 0; echo -en "\033[6n" > "/dev/tty"
 			IFS=';' read -r -d R -a pos
 			${G}stty "$old" >& /dev/null
+			[[ ! ${pos[1]} ]] && { echo "0"; return; }
 			echo $(( ${pos[1]} - 1 ))
 		}
 	else
@@ -158,6 +164,7 @@ if IsTty; then
 			exec < "/dev/tty"; local old="$(${G}stty -g)"; ${G}stty raw -echo min 0; echo -en "\033[6n" > "/dev/tty"
 			IFS=';' read -r -d R -A pos
 			${G}stty "$old" >& /dev/null
+			[[ ! ${pos[2]} ]] && { echo "0"; return; }
 			echo $(( ${pos[2]%%$'\n'*} - 1 ))
 		}
 	fi
@@ -177,9 +184,8 @@ UserList() { IsPlatform mac && { dscl . -list "/Users"; return; }; getent passwd
 GroupDelete() { local group="$1"; ! GroupExists "$group" && return; IsPlatform mac && { sudoc dscl . delete "/Groups/$group"; return; }; sudoc groupdel "$group"; }
 GroupExists() { IsPlatform mac && { dscl . -list "/Groups" | ${G}grep --quiet "^${1}$"; return; }; getent group "$1" >& /dev/null; }
 GroupList() { IsPlatform mac && { dscl . -list "/Groups"; return; }; getent group; }
-PasswordGet() { ask password "password" </dev/tty; }
-PasswordSet() { PasswordGet | cred set "$@" - ; }
 UserInGroup() { id "$1" 2> /dev/null | ${G}grep --quiet "($2)"; } # UserInGroup USER GROUP
+
 GroupAdd()
 {
 	local group="$1"; GroupExists "$group" && return
@@ -198,6 +204,15 @@ GroupAddUser()
 	else sudo adduser "$user" "$group"; 
 	fi
 }
+
+# PasswordGet - get a password from the tty, which works when we are run from a pipeline, i.e. echo test | PasswordGet password
+PasswordGet()
+{
+	! IsTtyOk && { ScriptErr "unable to get a password" "PasswordGet"; return 1; }
+	ask password "password" < "/dev/tty"
+}
+
+PasswordSet() { PasswordGet | cred set "$@" - ; }
 
 # UserCreate USER PASSWORD [-s|--system] [--ssh-copy]
 # --system|-s 		create a system user
@@ -2331,7 +2346,6 @@ GetSshHost() { GetArgs; local gsh="${1#*@}"; gsh="${gsh%:*}"; r "$(RemoveSpaceTr
 GetSshPort() { GetArgs; local gsp; [[ "$1" =~ : ]] && gsp="${1#*:}"; r "$(RemoveSpaceTrim "$gsp")" $2; }	# GetSshPort USER@HOST:PORT -> PORT
 
 IsSsh() { [[ $SSH_CONNECTION || $XPRA_SERVER_SOCKET ]]; }		# IsSsh - return true if connected over SSH
-IsSshTty() { [[ $SSH_TTY ]]; }															# IsSsh - return true if connected over SSH with a TTY
 IsXpra() { [[ $XPRA_SERVER_SOCKET ]]; }											# IsXpra - return true if connected using XPRA
 RemoteServer() { echo "${SSH_CONNECTION%% *}"; }						# RemoveServer - return the IP addres of the remote server that the SSH session is connected from
 RemoteServerName() { DnsResolve "$(RemoteServer)"; }				# RemoveServerName - return the DNS name remote server that the SSH session is connected from
