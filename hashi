@@ -2475,20 +2475,28 @@ nomadNodeDrainDisable()
 	RunLog nomad node drain -disable -yes "$id" && echo
 }
 
-# nomadNodeDrainStatus HOST
+# nomadNodeDrainStatus HOST - return 0 if host is drained
 nomadNodeDrainStatus()
 {
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
 
+	# get node status
+	local status; status="$(nomad node status -json "$id")" || return
+
 	# node is not drained if it is elegible to get jobs
-	local eleigible; eleigible="$(nomad node status -json "$id" | jq '.SchedulingEligibility' | RemoveQuotes	)" || return
+	local eleigible; eleigible="$(echo "$status" | jq '.SchedulingEligibility' | RemoveQuotes)" || return
 	[[ "$eleigible" == "eligible" ]] && { log2 "host '$host' is elegible for jobs"; return 1; }
-	
+		
+	# node is drained if it is down
+	local down; down="$(echo "$status" | jq '.Status' | RemoveQuotes)" || return
+	[[ "$down" == "down" ]] && { log2 "host '$host' is down"; return 0; }
+
 	# node is not drained if it has running allocations
 	local hasAllocations; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | grep --quiet " running " && hasAllocations="true"
 	(( verboseLevel > 2 )) && nomad status "$id" | sed '1,/Allocations/d' | tail -n +2
 	[[ $hasAllocations ]] && { log2 "host '$host' has running allocations"; return 1; }
 	
+	# node is drained: it is not elegible for jobs and has no allocations
 	return 0	
 }
 
