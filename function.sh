@@ -1017,7 +1017,7 @@ SpaceToNewline()  { tr ' ' '\n'; }
 StringPad() { printf '%*s%s\n' "$(($2))" "$1" ""; } # StringPad S N - pad string s to N characters with spaces on the left
 StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } # StringRepeat S N - repeat the specified string N times
 
-ShowChars() { GetArgs; echo -n -e "$@" | ${G}od --address-radix=d -t x1 -t a; } # Show
+ShowChars() { GetArgs; echo -n -e "$@" | ${G}od --address-radix=d -t x1 -t a; } # ShowChars STRING - show all characters in the string
 
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveNewline()  { tr -d '\n'; }
