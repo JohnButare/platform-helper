@@ -1696,7 +1696,7 @@ GetInterface()
 }
 
 # GetIpAddress [HOST] - get the IP address of the current or specified host
-# -a|--all 						resolve all hosts not just the first
+# -a|--all 						resolve all addresses for the host, not just the first
 # -ra|--resolve-all 	resolve host using all methods (DNS, MDNS, and local virtual machine names)
 # -m|--mdns						resolve host using MDNS
 # -v|--vm 						resolve host using local virtual machine names (check $HOSTNAME-HOST)
@@ -1845,8 +1845,31 @@ IsIpLocal()
 	! traceroute "${args[@]}" -m 5 "$1" |& sponge | ${G}grep --quiet "($(GetDefaultGateway))"
 }
 
-# IsLocalHost HOST - true if the specified host refers to the local host, assume unique host names across domains
-IsLocalHost() { local host="$(RemoveSpace "$1")"; [[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$(RemoveDnsSuffix "$host" | LowerCase)" == "$(RemoveDnsSuffix $(hostname))" ]]; }
+# IsLocalHost HOST - true if the specified host refers to the local host.  
+#   - This is a fast check, so we assume this is the local host if the host is 
+#     the same as the local hostname, and if the host DNS suffixes is specified 
+#     it must match one of our DNS search domains.
+#   - A slower more reliable check would resolve the host name and check if the returned
+#     IP address matches one of our network adapters IP addresses.  This could be accomplished
+#     using DnsResolve , GetEternetAdapters, GetAdapterIpAddress.  The call to DnsResolve 
+#     would need to prevent recursion and not call IsLocalHost.
+IsLocalHost()
+{
+	local host="$(RemoveSpace "$1" | LowerCase)"
+
+	# host is empty, localhost, or the loopback address (127.0.0.1)
+	[[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" ]] && return
+
+	# if the name is different, this is not localhost
+	[[ "$(RemoveDnsSuffix "$host")" != "$(RemoveDnsSuffix $(hostname))" ]] && return 1
+
+	# since the host name is the same, assume if there is no DNS suffix the host is localhost
+	local suffix="$(GetDnsSuffix "$host")"; [[ ! $suffix ]] && return 0
+
+	# since the host name is the same and has a DNS suffix, assume host is localhost if the DNS suffix matches one of our DNS search suffixes
+	local search; search=( $(GetDnsSearch) ) || return
+	IsInArray --case-insensitive "$suffix" search
+}
 
 # IsLocalHostIp HOST - true if the specified host refers to the local host.  Also check the IP address of the host.
 IsLocalHostIp() { IsLocalHost "$1" || [[ "$(GetIpAddress "$1" --quiet)" == "$(GetIpAddress)" ]] ; }
