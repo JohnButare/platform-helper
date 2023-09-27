@@ -413,7 +413,7 @@ GetHosts()
 
 	# service name
 
-	if [[ ! "$h" =~ , ]] && { [[ "$hLower" == @(|active|all|web) ]] || DnsResolve "$h.service.$(ConfigGet "domain")" >& /dev/null; }; then
+	if [[ ! "$h" =~ , ]] && { [[ "$hLower" == @(|active|all|web) ]] || IsService "$h"; }; then
 		local service="$h"; 
 
 		# aliases

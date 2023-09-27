@@ -1778,21 +1778,6 @@ GetPrimaryAdapterName()
 	fi
 }
 
-# GetServer SERVICE - get an active host for the specified service
-GetServer()
-{
-	local service="$1"; shift; [[ ! $service ]] && { MissingOperand "service" "GetServer"; return 1; }
-	local useAlternate; [[ "$(DnsAlternate "$host")" != "" ]] && useAlternate="--use-alternate"
-	local ip; ip="$(GetIpAddress "$service.service.butare.net" "$@")" || return
-	DnsResolve $useAlternate "$ip" "$@"
-}
-
-# GetServers SERVICE - get all active hosts for the specified service
-GetServers() { hashi resolve name --all "$@"; }
-
-# GetAllServers - get all active servers
-GetAllServers() { GetServers "${1:-nomad-client}"; } # assume all servers have the nomad-client service
-
 # ipconfig [COMMAND] - show or configure network
 ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
 
@@ -2360,7 +2345,29 @@ MdnsNames() { avahi-browse -all -c -r | grep hostname | sort | uniq | cut -d"=" 
 MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';' -f5 | sort | uniq; }
 
 #
-# network: SSH
+# Network: Services
+#
+
+# GetServer SERVICE - get an active host for the specified service
+GetServer()
+{
+	local service="$1"; shift; [[ ! $service ]] && { MissingOperand "service" "GetServer"; return 1; }
+	local useAlternate; [[ "$(DnsAlternate "$host")" != "" ]] && useAlternate="--use-alternate"
+	local ip; ip="$(GetIpAddress "$service.service.butare.net" "$@")" || return
+	DnsResolve $useAlternate "$ip" "$@"
+}
+
+# GetServers SERVICE - get all active hosts for the specified service
+GetServers() { hashi resolve name --all "$@"; }
+
+# GetAllServers - get all active servers
+GetAllServers() { GetServers "${1:-nomad-client}"; } # assume all servers have the nomad-client service
+
+# IsService SERVICE - return true if the service is a service on the current domain
+IsService() { DnsResolve "$1.service.$(ConfigGet "domain")" >& /dev/null; }
+
+#
+# Network: SSH
 #
 
 GetSshUser() { GetArgs; local gsu; [[ "$1" =~ @ ]] && gsu="${1%@*}"; r "$(RemoveSpaceTrim "$gsu")" $2; } 	# GetSshUser USER@HOST:PORT -> USER
