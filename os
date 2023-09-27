@@ -742,7 +742,7 @@ infoRestart()
 
 infoRestartDebian()
 {
-	! InPath checkrestart && return
+	! InPath needrestart && return
 	ran="true"
 
 	local result; result="$(sudoc needrestart -b)"
