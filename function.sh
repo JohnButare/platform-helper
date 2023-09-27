@@ -2139,7 +2139,7 @@ WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 #
 
 AddDnsSuffix() { GetArgs2; HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 	# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already present
-GetDnsSearch() { cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2-; }
+GetDnsSearch() { cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2-; }	# GetDnsSearch - get the system DNS search domains
 GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }	# GetDnsSuffix HOST - the DNS suffix of the HOST
 HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuffix HOST - true if the specified host includes a DNS suffix
 
@@ -2149,7 +2149,6 @@ RemoveDnsSuffix()
 	GetArgs; [[ ! $1 ]] && return
 	IsIpAddress "$1" && printf "$1" || printf "${@%%.*}"
 }
-
 
 #
 # Network: Name Resolution
