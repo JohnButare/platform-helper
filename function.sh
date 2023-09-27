@@ -2160,13 +2160,13 @@ IsMdnsName() { IsBash && [[ "$1" =~ .*'.'local$ ]] || [[ "$1" =~ .*\\.local$ ]];
 
 ConsulResolve() { hashi resolve "$@"; }
 
-# DnsAlternate HOST - return an alternate DNS server for the host if needed
+# DnsAlternate [HOST] - return an alternate DNS server for the host if it requires one
 DnsAlternate()
 {
 	local host="$1"
 
 	# hardcoded to check if connected on VPN from the Hagerman network to the DriveTime network (coeixst.local suffix) 
-	if [[ "$host" =~ (^$|butare.net$) && "$(GetDnsSearch)" == "coexist.local" ]]; then
+	if [[ ! $host || ("$host" =~ (^$|butare.net$) && "$(GetDnsSearch)" == "coexist.local") ]]; then
 		echo "10.10.100.8" # butare.net primary DNS server
 	fi
 
