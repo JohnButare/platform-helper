@@ -341,11 +341,10 @@ ScriptOptHostUsage()
 	EchoWrap "	-H, --host [HOSTS](all)		comma separated list of hosts"
 	[[ ! $verbose ]] && return
 	EchoWrap "\
-		all|camera|down|important
+		hosts: cam|camera|down|important
 			down=important hosts that are down
 			important=important hosts
-
-		servers:
+		servers: all|hashi-ENV|locked|unlock|reboot|restart|web|SERVICE|unused
 			all=active servers
 			hashi-ENV=Hashi servers for the specified environment (i.e. dev, test)
 			locked|unlock=hosts with locked credential manager
