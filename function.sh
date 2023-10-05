@@ -435,6 +435,7 @@ AppVersion()
 			pip) version="$(pip --version | cut -d" " -f2)" || return;;
 			python3) version="$(python3 --version | cut -d" " -f2)" || return;;
 			ruby) version="$(ruby --version | cut -d" " -f2 | cut -d"p" -f 1)" || return;;
+			sshfs) version="$(sshfs --version |& tail -1 | cut -d" " -f3)" || return;;
 			tmux) version="$(tmux -V | cut -d" " -f2)" || return;;
 			vault) version="$(vault --version | cut -d" " -f2 | RemoveFront "v")" || return;;
 			zsh) version="$("$app" --version | cut -d" " -f2)" || return;;
