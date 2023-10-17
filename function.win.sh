@@ -23,7 +23,7 @@ MakeShortcut()
 	local linkDir="$(utw "$(GetFilePath "$link")")"
 	local linkName="$(GetFileName "$link")"
 
-	start nircmd shortcut "$f" "$linkDir" "$linkName" "${@:3}";
+	start nircmd shortcut "$f" "$linkDir" "$linkName" "${@:3}"
 }
 
 #

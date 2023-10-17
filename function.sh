@@ -1847,7 +1847,8 @@ IsLocalHost()
 	[[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" ]] && return
 
 	# if the name is different, this is not localhost
-	[[ "$(RemoveDnsSuffix "$host")" != "$(RemoveDnsSuffix $(hostname))" ]] && return 1
+	local hostname="$(hostname | LowerCase)"
+	[[ "$(RemoveDnsSuffix "$host")" != "$(RemoveDnsSuffix $hostname)" ]] && return 1
 
 	# since the host name is the same, assume if there is no DNS suffix the host is localhost
 	local suffix="$(GetDnsSuffix "$host")"; [[ ! $suffix ]] && return 0

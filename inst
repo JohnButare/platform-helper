@@ -416,7 +416,7 @@ installInit()
 	)
 
 	# force elevation
-	elevateInstall=(GitForWindows WinConfig WinFonts WinPermissions)
+	elevateInstall=(GitForWindows WinConfig WinPermissions)
 
 	# isInstallable	
 	all=(download final register update)
@@ -634,16 +634,18 @@ couldNotLocate() { ScriptErr "could not locate '$app'"; return 1; }
 getAgent() { echo "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/534.30 (KHTML, like Gecko) Chrome/12.0.742.112 Safari/534.30"; }
 getFile() { curl --silent --location --output "$@"; }
 getFileSudo() { sudo curl --silent --location --output "$@"; }
+getLocalDoc() { local doc="$DOC"; IsPlatform parallels && doc="$WIN_HOME/Documents"; echo "$doc"; } # Parallels $DOC is a network share
 httpsOpen() { local url="$1"; [[ ! $url ]] && return; IsInteger "$url" && url="https://$(GetIpAddress --wsl):$url"; echo "Opening $url..."; browser "$url"; }
 httpShow() { local url="$1"; [[ ! $url ]] && return; IsInteger "$url" && url="http://$(GetIpAddress --wsl):$url"; echo "URL: $url"; }
 httpsShow() { local url="$1"; [[ ! $url ]] && return; IsInteger "$url" && url="https://$(GetIpAddress --wsl):$url"; echo "URL: $url"; }
 macAppConfigure() { askp "Configure $1" && { start "$1" || return; }; return 0; }
 makeFileSudo() { local file="$1" dir="$(GetFilePath "$1")"; makeDir --sudo "$dir" || return; [[ ! -f "$dir" ]] && { sudo touch "$file" || return; }; }
+makeLink() { RunLog MakeLink --suppress $quiet $noPrompt $verbose "$@"; }
 makeLinkSudo() { RunLog sudoc MakeLink --suppress $quiet $noPrompt "$@"; }
 mergeDir() { MergeDir --parents --suppress "$@"; }
 minimalInstall() { [[ ! $forceFull && $_minimalInstall ]]; }
-moveAppData() { local src="$1" dest="${2:-$1}"; makeLink --merge --hide "$(platformUserAppData)/$dest" "$DOC/$src"; }
-moveCloudData() { local src="$1" dest="${2:-$1}"; makeLink --merge --hide "$CLOUD/data/app/$dest" "$DOC/$src"; }
+moveAppData() { local src="$1" dest="${2:-$1}"; makeLink --merge --hide "$(platformUserAppData)/$dest" "$(getLocalDoc)/$src"; }
+moveCloudData() { local src="$1" dest="${2:-$1}"; makeLink --merge --hide "$CLOUD/data/app/$dest" "$(getLocalDoc)/$src"; }
 mvSudo() { [[ ! -e "$1" ]] && return; sudoc mv "$1" "$2"; }
 networkVars() { network current update --quiet && ScriptEval network vars; } # sets NETWORK and NETWORK_DOMAIN
 pausep() { [[ $noPrompt ]] && return; pause; } # pausep - pause if prompting
@@ -1134,16 +1136,6 @@ makeDir()
 		fi
 
 	done
-}
-
-makeLink()
-{
-	# only make links on mounted drives, i.e. Parallels $HOME/Documents is a network drive and is not mounted
-	local dir="$(GetFilePath "${@: -1}")" # last argument
-	! drive IsMounted "$dir" && return
-
-	# make link
-	RunLog MakeLink --suppress $quiet $noPrompt $verbose "$@"; 
 }
 
 # register APP - enter the registration information for an application
@@ -1894,7 +1886,7 @@ AppNetworkInstall()
 
 			header "Wiggin Credentials"
 			wiggin sync credential || return
-			if IsPlatform win; then
+			if IsPlatform wsl2; then
 				header "Wiggin Credentials (Windows GNOME Keyring)"
 				wiggin sync credential -m1=gk || return
 			fi
@@ -2216,7 +2208,7 @@ BootstrapInstall()
 	# bootstrap
 	RunPlatform bootstrapStart || return
 	RunPlatform bootstrap || return
-
+	
 	# applications
 	i AppDir bash SshCore zsh $PLATFORM_OS || return
 }
@@ -2556,7 +2548,8 @@ FirefoxInstall()
 	! versionCheckApp "firefox" "$v" && return
 
 	# install
-	local p="$(firefoxDir)/Firefox Setup $v $(getArch "ia64" "arm64").$(getElevate "msi" "exe")|Firefox Setup $v.dmg"
+	local ext="msi"; { IsPlatform arm || ! CanElevate; } && ext="exe"
+	local p="$(firefoxDir)/Firefox Setup $v $(getArch "ia64" "arm64").$ext|Firefox Setup $v.dmg"
 	[[ "$NETWORK_DOMAIN" == "coexist" ]] && p="shareware/PortableApps/FirefoxPortable_116.0_English.paf.exe"
 	if IsPlatform mac,win; then force="--force" run --name "Firefox" "$p" --dest="firefox" --elevate --no-header || return
 	elif IsPlatform debian; then pkg firefox-esr || return
@@ -2564,9 +2557,15 @@ FirefoxInstall()
 }
 
 FirefoxFinalMac() { dockutil --find "Firefox" >& /dev/null && return; dockutil --add "/Applications/Firefox.app"; }
-FirefoxFinalWin() { ! CanElevate && return; $mv "$pp/Firefox.lnk" "$pp/Applications" && $mv "$pp/Firefox Private Browsing.lnk" "$pp/Applications" && $rm "$pd/Firefox.lnk"; }
 FirefoxProfile() { firefox $noPrompt profile restore default; }
 FirefoxRegister() { register "firefox"; }
+
+FirefoxFinalWin()
+{
+	local dest="$pp/Applications"; ! CanElevate && dest="$up/Applications"
+	{ $mv "$up/Firefox.lnk" "$dest" && $mv "$up/Firefox Private Browsing.lnk" "$dest"; } || return
+	! CanElevate && return; $mv "$pp/Firefox.lnk" "$dest" && $mv "$pp/Firefox Private Browsing.lnk" "$dest" && $rm "$pd/Firefox.lnk"
+}
 
 FirefoxDownload()
 {
@@ -3553,7 +3552,7 @@ LinuxUtilitiesInstall()
 	pkg shellcheck || return													# script
 	pkg sox || return																	# sound (play)
 	pkg timewarrior util-linux || return							# other
-	i bat cheat choose direnv dog duf dust exa mcfly procs ripgrep || return
+	i bat cheat choose direnv duf dust exa mcfly procs ripgrep || return
 }
 
 LinuxNetworkUtilitiesInstall()
@@ -3605,7 +3604,7 @@ DbusInstall()
 	IsPlatform wsl && [[ -f "$file" ]] && grep -q "whoopsie" "$file" && { echo "Remove whoopsie policy..."; sudoe "$file"; }
 
 	# mac
-	brew services list | grep '^dbus ' | grep --quiet none && { brew services start dbus || return; }
+	IsPlatform mac && brew services list | grep '^dbus ' | grep --quiet none && { brew services start dbus || return; }
 
 	# start
 	app dbus "${globalArgs[@]}" && DbusConf
@@ -6786,6 +6785,7 @@ VisualStudioFinalWin()
 	SilverlightFinalWin && $hide "$WIN_HOME/.nuget"
 
 	! CanElevate && return
+	makeDir "$pp/Development/other/Visual Studio $vsName" || return
 	$mv "$pp/Blend for Visual Studio $vsName"*".lnk" "$pp/Development/other/Visual Studio $vsName" || return
 	$mv "$pp/Visual Studio $vsName"*".lnk" "$pp/Development/other/Visual Studio $vsName" || return
 	$mv "$pp/Visual Studio Installer.lnk" "$pp/Development" || return
@@ -8185,7 +8185,7 @@ CredentialStoreInstall()
 	unset CREDENTIAL_MANAGER # detect the new credential manager
 	password store set "${globalArgs[@]}" || return
 
-	if IsPlatform win && ! CREDENTIAL_MANAGER=gk password store check "${globalArgs[@]}"; then
+	if IsPlatform wsl2 && ! CREDENTIAL_MANAGER=gk password store check --quiet "${globalArgs[@]}"; then
 		credential sync -m2=gk secure --quiet "${globalArgs[@]}" || return
 		credential sync -m2=gk ssh --quiet "${globalArgs[@]}" || return
 	fi
@@ -10047,10 +10047,10 @@ UltraMonProfile() { profile restore default --app "UltraMon" --method "$UADATA/.
 WinInstall() # called by bootstrap
 {
 	header "Windows Setup"
-	i WinPath WinConfigUser WinConsole WinDirsUser WslConfig OneDrive || return
+	i WinPath WinConfigUser WinConsole WinDirsUser WinFonts WslConfig OneDrive || return
 	! CanElevate && return
 	i SystemInternals || return # run first to minimize prompts
-	i WinApps WinPermissions WinDirs WinFonts WinConfig || return
+	i WinApps WinPermissions WinDirs WinConfig || return
 }
 
 WinAppsInstall()
@@ -10265,24 +10265,27 @@ WinFontsInstall()
 
 windowsFont()
 {
+	local dir="$WIN_ROOT/temp/fonts"
+
 	# copy font
 	for file in "$@" "${otherArgs[@]}"; do
 		findFile "fonts/$file" || return
-		CopyDir "$file" "/tmp/fonts/" || return # fontreg.exe fails on network share in wsl 2
+		CopyDir "$file/" "$dir" || return # fontreg.exe fails on network share in wsl 2
 	done
 
 	# install font
-	pushd "/tmp/fonts" > /dev/null || return
+	pushd "$WIN_ROOT/temp" > /dev/null || return
 
+	# register font
 	if CanElevate; then
-		FontReg.exe /copy || return
+		RunScript --elevate cmd.exe /c "cd $(utw "$dir") && FontReg.exe /copy && echo Registered fonts..." || return
 	else
 		echo "Right click, Install"
 		explore .; pause
 	fi
 
- # requires elevation
-	rm -fr "/tmp/fonts" >& /dev/null
+ 	# cleanup
+	rm -fr "$dir" >& /dev/null
 
 	return 0
 }
@@ -10303,7 +10306,6 @@ WinIconsInstall()
 
 	$rm "$up/Administrative Tools.lnk" || return
 	$rm "$ud/Microsoft Edge.lnk" || return
-	$rm "$up/Microsoft Edge.lnk" || return
 	$rm "$up/OneDrive.lnk" || return
 	$rm "$ud/bootstrap.cmd" || return
 	$rm "$up/Startup/bootstrap.cmd" || return
