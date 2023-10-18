@@ -1106,6 +1106,7 @@ EnsureDir() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
 GetBatchDir() { GetFilePath "$0"; }
 GetDirs() { [[ ! -d "$1" ]] && return; find "$1" -maxdepth 1 -type d -not -path "$1"; }
 GetFileDateStamp() { ${G}date '+%Y%m%d' --reference "$1"; }
+GetFileHash() { sha1sum "$1" | cut -d" " -f1; }
 GetFileMod() { ${G}stat --format="%y" "$1"; }
 GetFileModSeconds() { ${G}date +%s --reference "$1"; }
 GetFileModTime() { ShowSimpleTime "@$(GetFileSeconds "$1")"; }
