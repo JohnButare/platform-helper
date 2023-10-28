@@ -40,7 +40,7 @@ echo kernel=\"$(uname -r)\";
 echo machine=\"$(uname -m)\";
 [[ -f /etc/os-release ]] && cat /etc/os-release;
 [[ -f /etc/debian_chroot ]] && echo chroot=\"$(cat /etc/debian_chroot)\";
-[[ -f /usr/bin/ubntconf || -f /usr/bin/ubnt-ipcalc ]] && echo ID_LIKE=ubiquiti;
+[[ -f /sbin/ubntconf || -f /usr/bin/ubntconf || -f /usr/bin/ubnt-ipcalc ]] && echo ID_LIKE=ubiquiti;
 [[ -f /proc/syno_platform ]] && echo ID=dsm ID_LIKE=synology;
 [[ -d /etc/casaos ]] && echo ID=casaos ID_LIKE=debian;
 [[ -f /bin/busybox ]] && echo busybox=true;
