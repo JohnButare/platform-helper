@@ -81,9 +81,8 @@ dateCommand() { for file in "${files[@]}"; do addDate "$file" || return; done; }
 addDate()
 {
 	local file="$1"
-	local fileName; GetFileName "$file" fileName || return; printf "$fileName..."
-	local ext; GetFileExtension "$file" ext || return
-	local mediaType; getMediaType "$ext" mediaType || { echo "unknown media type"; return 0; }
+	local fileName="$(GetFileName "$file")"; printf "$fileName..."
+	local mediaType; mediaType="$(getMediaType "$fileName")" || return
 	local -A fileMetadata; metadataGet "$file" fileMetadata || return
 	local dateTaken; getDateTaken "$file" fileMetadata dateTaken && { echo "date already present"; return 0; }
 	local modificationDate="$(${G}stat -c%y "$file")" || return;
@@ -150,7 +149,7 @@ getInit()
 	if [[ $dest ]]; then
 		IsUncPath "$dest" && { dest="$(unc mount "$dest")" || return; }
 	else
-		dest="$(unc mount media)" || return
+		dest="$(unc mount "//file/public/media")" || return
 		useSuffix="true"
 	fi
 
@@ -197,10 +196,10 @@ processDrive()
 processFile()
 {
 	local src="$1" additionalMetadata
-	local srcName; GetFileName "$src" srcName || return
-	local ext; GetFileExtension "$src" ext || return
-	local srcDesc; GetFileNameWithoutExtension "$src" srcDesc || return
-	local mediaType; getMediaType "$ext" mediaType || return 0
+	local srcName="$(GetFileName "$src")"
+	local ext="$(GetFileExtension "$src" | LowerCase)"
+	local srcDesc="$(GetFileNameWithoutExtension "$src")"
+	local mediaType; mediaType="$(getMediaType "$srcName")" || return
 	local -A srcMetadata; metadataGet "$src" srcMetadata || return
 	local dateTaken; getDateTaken "$src" srcMetadata dateTaken || { echo "no DateTaken"; return 0; }
 	local srcNamePrefix; getNewName "$dateTaken" srcNamePrefix || return
@@ -275,10 +274,10 @@ renameCommand() { for file in "${files[@]}"; do rename "$file" || return; done; 
 rename()
 {
 	local file="$1"
-	local path; GetFilePath "$file" path || return
-	local fileName; GetFileName "$file" fileName || return; printf "$fileName..."
-	local name; GetFileNameWithoutExtension "$file" name || return
-	local ext; GetFileExtension "$file" ext || return
+	local path="$(GetFilePath "$file")"
+	local fileName="$(GetFileName "$file" fileName)"; printf "$fileName..."
+	local name="$(GetFileNameWithoutExtension "$file")"; 
+	local ext="$(GetFileExtension "$file" | LowerCase)"
 	local suffix; [[ "$name" =~ .*-[0-9]+ ]] && suffix="-${name##*-}"
 	local -A fileMetadata; metadataGet "$file" fileMetadata || return
 	local dateTaken; getDateTaken "$file" fileMetadata dateTaken || { echo "no DateTaken"; return 0; }
@@ -312,8 +311,7 @@ getDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 	local file="$1" metadataVar="$2" returnVar="$3" s
 	local -A md; ArrayCopy $metadataVar md
 	local mm="${md[Make]}-${md[Model]}" dto="${md[DateTimeOriginal]}" isUtc
-	local ext; GetFileExtension "$file" ext || return
-	local mediaType; getMediaType "$ext" mediaType || return
+	local mediaType; mediaType="$(getMediaType "$file")" || return
 
 	# Apple
 	if [[ "$mm" ==  @(Apple-iPad|Apple-iPhone*) || "${md[HandlerVendorID]}" == "Apple" ]]; then
@@ -343,17 +341,18 @@ getDateTaken() # returns the files date taken in the format YYYY-MM-DD HH:MM:SS
 
 getMediaType()
 {
-	local ext="$1" result
+	local file="$(GetFileName "$1")"
+	local ext="$(GetFileExtension "$file" | LowerCase)"
 
-	if IsInArray "$ext" pictureExtensions; then
-		result="picture"
+	if [[ ! $ext ]]; then
+		ScriptErr "unable to determine the media type for file '$file' since it does not have an extension"; return 1
+	elif IsInArray "$ext" pictureExtensions; then
+		echo "picture"
 	elif IsInArray "$ext" videoExtensions; then
-	 result="video"
+	 echo "video"
 	else
-		return 1
+		ScriptErr "file '$file' is not a known media type"; return 1
 	fi 
-
-	r "$result" $2
 }
 
 metadataAdd()
