@@ -3397,21 +3397,33 @@ vaultTokenSetRemote()
 # vaultTokenGetRemote - get the Vault token from a remote host if needed
 vaultTokenGetRemote()
 {
-	# return if we have a Vault token
-	local product="vault"; { [[ $VAULT_TOKEN ]] || credExists "token"; } && return
+	local product="vault" token
+
+	# get the vault token from the VAULT_TOKEN environment variable
+	if [[ $VAULT_TOKEN ]]; then
+		token="$VAULT_TOKEN"
+
+	# get the vault token from the credential store
+	elif credExists "token"; then
+		token="$(credGet "token")" || return
 	
-	# get the token from the host
-	local host token; host="$(configServer)" || return
-	echo "Getting the Vault token from $host..."
-	! IsLocalHost "$host" && token="$(sshRunInteractive "$host" credential get "$(credPath)" token "${globalArgs[@]}" | RemoveCarriageReturn)"
-	
+	# get the Vault token from the configuration host
+	else
+		local host credPath="$(credPath)"; host="$(configServer)" || return
+		if ! IsLocalHost "$host"; then
+			echo "Getting the Vault token from '$host' at path $credPath..."
+			token="$(sshRunInteractive "$host" credential get "$credPath" token "${globalArgs[@]}" | RemoveCarriageReturn)"
+		fi
+	fi
+
 	# unable to get the token
 	if [[ ! $token ]]; then
-		ScriptErr "The Vault token does not exist in the local credential manager on $(configServer) at path $(credPath)"
+		ScriptErr "unable to get the Vault token"
 		return 1
 	fi
 
-	# got a token
+	# got the token
+	log1 "vaultTokenGetRemote: got a vault token"
 	export VAULT_TOKEN="$token"
 }
 
@@ -3602,7 +3614,7 @@ credGet() { test="" RunLog credential get "$(credPath)" "$@" "${globalArgs[@]}";
 
 credPath()
 {
-	local path="$(configGet "credentialPath")" product="${1:-$product}"
+	local path="$(configGet "credentialPath")"; checkProduct "credPath" || return
 
 	if [[ "$path" ]]; then
 		echo "$(RemoveTrailingSlash "$path")/$product"
@@ -4002,6 +4014,7 @@ productVersionFilter() { head -1 | cut -d" " -f 2 | RemoveFront v; }
 #
 
 certs() { [[ $encrypt ]]; } # true if certificates are being used
+checkProduct() { [[ $product ]] && return; ScriptErr "$1: product is not set"; return 1; }
 doHashi() { hashi "$@" $force $test "${configFileArg[@]}" "${configPrefixArg[@]}" "${otherArgs[@]}" "${globalArgs[@]}"; }
 isClient() { [[ "$type" == "client" ]]; }
 isServer() { [[ "$type" == "server" ]]; }
