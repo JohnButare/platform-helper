@@ -2553,8 +2553,8 @@ package() # package install
 		shift
 	done
 
-	# exclude packages
-	packageExclude || return
+	# fix package list
+	packageFix || return
 
 	# return if all packages have been excluded
 	if [[ ! $packages ]]; then
@@ -2581,32 +2581,37 @@ package() # package install
 	return 0
 }
 
-# packageExclude - remove excludes packages fromthe packages array
-packageExclude()
-{	
-	# Ubuntu excludes - ncat is not present on older distributions
-	IsPlatform ubuntu && IsInArray "ncat" packages && [[ "$(os CodeName)" =~ ^(bionic|xenial)$ ]] && ArrayRemove packages "ncat"
+# packageFix - fix packages in the packages array for the platform
+packageFix()
+{
+	local p exclude=()
 
-	# Ubuntu - libturbojpeg0 is libturbojpeg in Ubuntu
-	IsPlatform ubuntu && IsInArray "libturbojpeg0" packages && { ArrayRemove packages "libturbojpeg0"; packages+=( libturbojpeg ); }
+	# Ubuntu changes
+	if IsPlatform ubuntu; then
 
-	# mac excludes
-	! IsPlatform entware,mac && return
+		# ncat is not present on older distributions
+		IsInArray "ncat" packages && [[ "$(os CodeName)" =~ ^(bionic|xenial)$ ]] && ArrayRemove packages "ncat"
 
-	local entware=( pwgen )
-	local mac=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk util-linux virt-what )	
-	local macArm=( bonnie++ pv rust traceroute )
-	local macx86=( ncat traceroute )
+		# libturbojpeg0 is libturbojpeg in Ubuntu
+		IsInArray "libturbojpeg0" packages && { ArrayRemove packages "libturbojpeg0"; packages+=( libturbojpeg ); }
+	fi
 
-	local p
-	for p in "${packages[@]}"; do
-		IsPlatformAll entware && IsInArray "$p" entware && ArrayRemove packages "$p"
-		IsPlatform mac && IsInArray "$p" mac && ArrayRemove packages "$p"
-		IsPlatformAll mac,arm && IsInArray "$p" macArm && ArrayRemove packages "$p"
-		IsPlatformAll mac,x86 && IsInArray "$p" macx86 && ArrayRemove packages "$p"
-	done
+	# exclude packages
+	IsPlatform entware && exclude=( pwgen ) packageExclude
+	IsPlatform mac && exclude=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk util-linux virt-what )	packageExclude
+	IsPlatformAll mac,arm && exclude=( bonnie++ pv rust traceroute ) packageExclude
+	IsPlatformAll mac,x86 && exclude=( ncat traceroute ) packageExclude
+	IsPlatform wsl1 && exclude=( fping ) packageExclude
 
 	return 0
+}
+
+packageExclude()
+{
+	local p
+	for p in "${packages[@]}"; do
+		IsInArray "$p" exclude && ArrayRemove packages "$p"
+	done
 }
 
 
