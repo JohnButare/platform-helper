@@ -33,7 +33,7 @@ opt()
 {
 	case "$1" in
 		--host|-H|--host=*|-H=*) ScriptOptGet "host" "$@"; hostArg="--host=\"$host\"";;
-		--ignore-host) ignoreHost="true";;
+		--ignore-host) ignoreHost="--ignore-host";;
 		--no-host-check|--nhc) noHostCheck="--no-host-check";;
 		--no-service-check|--nsc) noServiceCheck="--no-service-check";;
 		--wait|-w) wait="--wait";;
@@ -70,9 +70,11 @@ serviceInit()
 	[[ $service ]] && { serviceCheck || return; }
 
 	# run with additional permissions if needed
-	if IsPlatform win && [[ "$command" == @(auto|delete|demand|disable|pause|start|stop) ]] && ! isLinuxService "$service" && ! IsElevated; then
+	if IsPlatform win && [[ "$command" == @(auto|continue|delete|demand|disable|pause|start|stop) ]] && ! isLinuxService "$service" && ! IsElevated; then
+		checkState && return
 		! CanElevate && { ScriptErrQuiet "unable to elevate"; return 1; }
-		RunLog elevate RunScript --pause-error -- service "${originalArgs[@]}"; exit $?
+		waitStart && RunLog elevate RunScript --pause-error -- service $command $service $noHostCheck $noServiceCheck "${globalArgs[@]}" && waitEnd
+		exit $?
 	fi
 
 	return 0
@@ -133,98 +135,7 @@ unknownService()
 }
 
 #
-# Helper Functions
-#
-
-macDaemons=( "/System/Library/LaunchDaemons" "/Library/LaunchDaemons" )
-macSystemAgents=( "/System/Library/LaunchAgents" "/Library/LaunchAgents" "$HOME/Library/LaunchAgents" )
-macAgents=(  "${macSystemAgents[@]}" "$HOME/Library/LaunchAgents" )
-macServices=( "${macDaemons[@]}" "${macAgents[@]}" )
-
-macGetServices() { find "${macServices[@]}" -type f; }
-
-checkElevated()
-{
-	! IsPlatform win && return
-	
-	if ! IsElevated && [[ "$host" == @(|localhost|$HOSTNAME) ]]; then
-		elevate="true";
-		return 0
-	else
-		elevate=""
-		return 1
-	fi
-}
-
-checkWaiting()
-{
-	unset -v waiting
-	[[ ! $wait ]] && waiting="\n"
-}
-
-isLinuxService() { isInitdService "$1" || isSystemdService "$1"; }
-isInitdService() { [[ -f "/etc/init.d/$1" ]] ; }
-
-# isSystemdService NAME - NAME format is SERVICE_NAME[@SERVICE_INSTANCE]
-isSystemdService()
-{
-	local name="$1"; [[ $useSystemd ]] || return
-
-	# service or service@instance exists explicitly
-	[[ -f "/etc/systemd/system/$name.service" || -f "/lib/systemd/system/$name.service" ]] && return
-
-	# service with an instance name
-	[[ "$name" =~ @ && "$(RemoveBefore "$name" "@")" == "" ]] && return 1 # empty instance name not allowed
-	[[ "$name" =~ @ ]] && name="$(RemoveAfter "$name" "@")@" # remove instance suffix
-	[[ -f "/etc/systemd/system/$name.service" || -f "/lib/systemd/system/$name.service" ]] && return
-
-	# static units
-	systemctl is-enabled "$service" >& /dev/null
-}
-
-linuxService() # Linux Service Command - COMMAND SERVICE
-{
-	sudov || return
-	
-	if IsPlatform wsl; then 
-		[[ $1 == "enable" ]] && return
-		RunLog sudo "/usr/sbin/service" "$2" "$1" > "$quietOutput"
-	elif [[ $useSystemd ]]; then sudo systemctl "$1" "$2"
-	else RunLog sudo "/etc/init.d/$2" "$1"
-	fi
-}
-
-waitForState()
-{
-	local seconds=30 state="$1"
-
-	[[ ! $wait ]] && return
-
-	for (( i=1; i<=seconds; ++i )); do
- 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
- 		[[ "$(stateCommand)" == "$state" ]] && { echo "$3 in $i seconds"; return 0; }
-		printf "."
-	done
-
-	echo "did not $2 in $seconds seconds"; return 1
-}
-
-waitForStop()
-{
-	local seconds=30 state="$1"
-
-	for (( i=1; i<=seconds; ++i )); do
- 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
- 		[[ "$(stateCommand)" == "STOPPED" ]] && { echo "stopped in $i seconds"; return 0; }
- 		[[ "$(stateCommand)" == "FAILED" ]] && { echo "failed in $i seconds"; return 0; }
-		printf "."
-	done
-
-	echo "did not stop in $seconds seconds"; return 1
-}
-
-#
-# Commands
+# commands
 #
 
 existsCommand() { serviceCheck >& /dev/null; }
@@ -247,20 +158,7 @@ dirLinux()
 demandCommand() 
 {	
 	! IsPlatform win && { disableCommand; return; }
-
-	[[ ! $force && "$(startType)" == "DEMAND_START" ]] && return 
-	$sc config $hostUnc "$service" start= demand; 
-}
-
-continueCommand()
-{
-	! IsPlatform win && { startCommand; return; }
-	
-	[[ ! $force && "$(stateCommand)" != "PAUSED" ]] && return 
-	
-	checkWaiting; [[ ! $quiet ]] && printf "Continuing $service service$hostDescription..."$waiting
-	result="$($sc $hostUnc continue "$service")" || { EchoErr "$result"; return 1; }
-	waitForState "RUNNING" "continue" "continued"
+	checkState && return; $sc config $hostUnc "$service" start= demand; 
 }
 
 manualCommand()
@@ -269,17 +167,6 @@ manualCommand()
 	demandCommand || return
 	stopCommand || return
 	return 0
-}
-
-pauseCommand()
-{
-	! IsPlatform win && { stopCommand; return; }
-	
-	[[ ! $force && "$(stateCommand)" != "RUNNING" ]] && return 
-
-	checkWaiting; [[ ! $quiet ]] && printf "Pausing $service service$hostDescription..."$waiting
-	result="$($sc $hostUnc pause "$service")" || { EchoErr "$result"; return 1; }
-	waitForState "PAUSED" "pause" "paused"
 }
 
 refreshUsage()
@@ -320,16 +207,28 @@ statusCommand()
 }
 
 #
-# Auto Command
+# auto command
 #
 
-autoCommand() { [[ ! $force && "$(startType)" == "AUTO_START" ]] && return; RunPlatform "auto" --host; }
+autoCommand() { checkState && return; RunPlatform "auto" --host; }
 autoLinux() { linuxService enable "$service"; }
 autoMac() { $sudo launchctl enable "$(getMacServicePrefix "$service")$service"; }
 autoWin() {	$sc config $hostUnc "$service" start= auto; }
 
 #
-# Delete Command
+# continue command
+#
+
+continueCommand()
+{
+	! IsPlatform win && { startCommand; return; }
+	checkState && return; waitStart && RunPlatform continue --host && waitEnd
+}
+
+continueWin() { local result; result="$($sc $hostUnc continue "$service")" && return; EchoErr "$result"; return 1; }
+
+#
+# delete command
 #
 
 deleteCommand() { stopCommand || return; disableCommand || return; RunPlatform "delete" --host; }
@@ -344,7 +243,7 @@ deleteLinux()
 }
 
 #
-# Detail Command
+# detail command
 #
 
 detailCommand() { statusCommand && RunPlatform "detail" --host; }
@@ -379,16 +278,16 @@ detailWin()
 }
 
 #
-# Disable Command
+# disable command
 #
 
-disableCommand() { [[ ! $force && "$(startType)" == "DISABLED" ]] && return; RunPlatform "disable" --host; }
+disableCommand() { checkState && return; RunPlatform "disable" --host; }
 disableMac() { $sudo launchctl disable "$(getMacServicePrefix "$service")$service"; }
 disableWin() { $sc config $hostUnc "$service" start= disabled; }
 disableLinux() { linuxService disable "$service"; }
 
 #
-# List Command
+# list command
 #
 
 listUsage()
@@ -434,7 +333,7 @@ listLinux()
 }
 
 #
-# Log Command
+# log command
 #
 
 logUsage()
@@ -473,7 +372,7 @@ logClearCommand() { RunPlatform "logClear"; }
 logClearLinux() { sudo journalctl --rotate && sudoc journalctl --vacuum-time=1s; }
 
 #
-# Manage Command
+# manage command
 #
 
 manageUsage()
@@ -530,25 +429,35 @@ manageSignal()
 }
 
 #
-# Start Command
+# pause command
 #
 
-startCommand()
+pauseCommand()
 {
-	[[ ! $force && "$(stateCommand)" != @(FAILED|STOPPED) ]] && return 
-
-	checkWaiting; [[ ! $quiet ]] && printf "Starting $service service$hostDescription...$waiting"
-	RunPlatform "start" --host || return
-	waitForState RUNNING start started || return
+	! IsPlatform win && { stopCommand; return; }	
+	checkCommand && return; waitStart && RunPlatform "pause" --host && waitEnd
 }
 
+pauseWin() { local result; result="$($sc $hostUnc pause "$service")" && return; EchoErr "$result"; return 1; }
+
+#
+# start command
+#
+
+startCommand() { checkState && return; waitStart && RunPlatform "start" --host && waitEnd; }
 startLinux() { linuxService start "$service"; }
 startMac() { $sudo launchctl load -w "$config"; }
-startWin() { local result; result="$($sc $hostUnc start "$service")" || { EchoErr "$result"; return 1; }; }
+startWin() { local result; result="$($sc $hostUnc start "$service")" && return; EchoErr "$result"; return 1; }
 
 #
 # State Command
 #
+
+stateUsage()
+{
+	EchoWrap "Usage: $(ScriptName) state
+Show service state, one of RUNNING, STOPPED, FAILED, or PAUSED."
+}
 
 stateCommand() { RunPlatform "state" --host; }
 
@@ -573,7 +482,7 @@ stateWin()
 }
 
 #
-# Show Command
+# show command
 #
 
 showUsage() { EchoWrap "Usage: $(ScriptName) show active|start\nShow service information."; }
@@ -594,6 +503,12 @@ getProp() { showCommand | grep "^$1=" | cut -d= -f2; }
 # Start Type Command
 #
 
+starttypeUsage()
+{
+	EchoWrap "Usage: $(ScriptName) StartType
+Show service start type, one of AUTO_START, DISABLED, or DEMAND_START."
+}
+
 starttypeCommand() { startType; }
 startType() { RunPlatform "startType" --host; }
 
@@ -607,7 +522,7 @@ startTypeMac()
 {
 	if sudoc launchctl print-disabled system | ${G}grep --quiet "\"$service\" => true"; then echo "DISABLED"
 	elif sudoc launchctl print-disabled system | ${G}grep --quiet "\"$service\" => false"; then echo "AUTO_START"
-	else echo "DEMAND"
+	else echo "DEMAND_START"
 	fi
 }
 
@@ -620,18 +535,126 @@ startTypeWin()
 # Stop Command
 #
 
-stopCommand()
-{
-	[[ ! $force && "$(stateCommand)" != "RUNNING" ]] && return 
-
-	checkWaiting; [[ ! $quiet ]] && printf "Stopping $service service$hostDescription..."$waiting
-	RunPlatform "stop" --host || return
-	[[ ! $wait ]] && return
-	waitForStop
-}
-
+stopCommand() { checkStateStop && return; waitStart && RunPlatform "stop" --host && waitEnd; }
 stopLinux() { linuxService stop "$service"; }
 stopMac() { $sudo launchctl unload "$config"; }
-stopWin() { result="$($sc $hostUnc stop "$service")" || { EchoErr "$result"; return 1; }; }
+stopWin() { local result="$($sc $hostUnc stop "$service")" && return; EchoErr "$result"; return 1; }
+
+#
+# helper
+#
+
+macDaemons=( "/System/Library/LaunchDaemons" "/Library/LaunchDaemons" )
+macSystemAgents=( "/System/Library/LaunchAgents" "/Library/LaunchAgents" "$HOME/Library/LaunchAgents" )
+macAgents=(  "${macSystemAgents[@]}" "$HOME/Library/LaunchAgents" )
+macServices=( "${macDaemons[@]}" "${macAgents[@]}" )
+
+macGetServices() { find "${macServices[@]}" -type f; }
+
+checkElevated()
+{
+	! IsPlatform win && return
+	
+	if ! IsElevated && [[ "$host" == @(|localhost|$HOSTNAME) ]]; then
+		elevate="true";
+		return 0
+	else
+		elevate=""
+		return 1
+	fi
+}
+
+isLinuxService() { isInitdService "$1" || isSystemdService "$1"; }
+isInitdService() { [[ -f "/etc/init.d/$1" ]] ; }
+
+# isSystemdService NAME - NAME format is SERVICE_NAME[@SERVICE_INSTANCE]
+isSystemdService()
+{
+	local name="$1"; [[ $useSystemd ]] || return
+
+	# service or service@instance exists explicitly
+	[[ -f "/etc/systemd/system/$name.service" || -f "/lib/systemd/system/$name.service" ]] && return
+
+	# service with an instance name
+	[[ "$name" =~ @ && "$(RemoveBefore "$name" "@")" == "" ]] && return 1 # empty instance name not allowed
+	[[ "$name" =~ @ ]] && name="$(RemoveAfter "$name" "@")@" # remove instance suffix
+	[[ -f "/etc/systemd/system/$name.service" || -f "/lib/systemd/system/$name.service" ]] && return
+
+	# static units
+	systemctl is-enabled "$service" >& /dev/null
+}
+
+linuxService() # Linux Service Command - COMMAND SERVICE
+{
+	sudov || return
+	
+	if IsPlatform wsl; then 
+		[[ $1 == "enable" ]] && return
+		RunLog sudo "/usr/sbin/service" "$2" "$1" > "$quietOutput"
+	elif [[ $useSystemd ]]; then sudo systemctl "$1" "$2"
+	else RunLog sudo "/etc/init.d/$2" "$1"
+	fi
+}
+
+#
+# helper - checkState
+#
+
+# checkState - return true if the command is in the desired state
+checkState() { [[ ! $force ]] && RunFunction "checkState" "$command"; }
+
+checkStateAuto() { [[ "$(startType)" == "AUTO_START" ]]; }
+checkStateDemand() { ! IsPlatform win && { checkStateDisabled; return; }; [[ "$(startType)" == "DEMAND_START" ]]; }
+checkStateDisable() { [[ "$(startType)" == "DISABLED" ]]; }
+
+checkStateContinue() { ! IsPlatform win && { checkStateStart; return; }; [[ "$(stateCommand)" != "RUNNING" ]]; }
+checkStatePause() { ! IsPlatform win && { checkStateStop; return; }; [[ "$(stateCommand)" != "PAUSED" ]]; }
+checkStateStart() { [[ "$(stateCommand)" != @(FAILED|STOPPED) ]]; }
+checkStateStop() { [[ "$(stateCommand)" != "RUNNING" ]]; }
+
+#
+# helper - wait
+#
+
+waitNeeded() { IsFunction waitForState${command^}; }
+
+waitStart() 
+{	
+	! waitNeeded && return
+	local waiting="\n"; [[ $wait ]] && waiting=""
+	local desc="${command^}ing"; [[ "$command" == "stop" ]] && desc="Stopping"
+	[[ ! $quiet ]] && printf "$desc $service service$hostDescription...$waiting"
+	return 0
+}
+
+# waitEnd STATE PRESENT [PAST](finalState)
+waitEnd()
+{
+	! waitNeeded && return
+	[[ ! $wait ]] && return
+	RunFunction waitForState "$command"
+}
+
+waitForStateContinue() { waitForState "RUNNING" "continue" "continued"; }
+waitForStatePause() { waitForState "PAUSED" "pause";}
+waitForStateStart() { waitForState "RUNNING" "start" "started"; }
+waitForStateStop() { waitForState  "STOPPED|FAILED" "stop"; }
+
+# waitForState STATE PRESENT [PAST](finalState)
+waitForState()
+{
+	local seconds=30 state="$1" present="$2" past="$3"
+
+	[[ ! $wait ]] && return
+
+	for (( i=1; i<=seconds; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
+ 		local currentState="$(stateCommand)"
+ 		[[ "$currentState" =~ ^($state)$ ]] && { echo "${past:-${currentState,,}} in $i seconds"; return 0; }
+		printf "."
+	done
+
+	echo "did not $present in $seconds seconds"; return 1
+}
 
 ScriptRun "$@"
