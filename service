@@ -69,14 +69,6 @@ serviceInit()
 	# initialize service variables
 	[[ $service ]] && { serviceCheck || return; }
 
-	# run with additional permissions if needed
-	if IsPlatform win && [[ "$command" == @(auto|continue|delete|demand|disable|pause|start|stop) ]] && ! isLinuxService "$service" && ! IsElevated; then
-		checkState && return
-		! CanElevate && { ScriptErrQuiet "unable to elevate"; return 1; }
-		waitStart && RunLog elevate RunScript --pause-error -- service $command $service $noHostCheck $noServiceCheck "${globalArgs[@]}" && waitEnd
-		exit $?
-	fi
-
 	return 0
 }
 
@@ -157,9 +149,14 @@ dirLinux()
 
 demandCommand() 
 {	
-	! IsPlatform win && { disableCommand; return; }
-	checkState && return; $sc config $hostUnc "$service" start= demand; 
+	if IsPlatform win; then
+		doCommand "demand"
+	else
+		disableCommand
+	fi
 }
+
+demandWin() { local result; result="$($sc config $hostUnc "$service" start= demand)" && return; EchoErr "$result"; return 1; }
 
 manualCommand()
 {
@@ -210,10 +207,10 @@ statusCommand()
 # auto command
 #
 
-autoCommand() { checkState && return; RunPlatform "auto" --host; }
+autoCommand() { doCommand "auto"; }
 autoLinux() { linuxService enable "$service"; }
 autoMac() { $sudo launchctl enable "$(getMacServicePrefix "$service")$service"; }
-autoWin() {	$sc config $hostUnc "$service" start= auto; }
+autoWin() { local result; result="$($sc config $hostUnc "$service" start= auto)" && return; EchoErr "$result"; return 1; }
 
 #
 # continue command
@@ -221,8 +218,11 @@ autoWin() {	$sc config $hostUnc "$service" start= auto; }
 
 continueCommand()
 {
-	! IsPlatform win && { startCommand; return; }
-	checkState && return; waitStart && RunPlatform continue --host && waitEnd
+	if IsPlatform win; then
+		doCommand "continue"
+	else
+		startCommand
+	fi	
 }
 
 continueWin() { local result; result="$($sc $hostUnc continue "$service")" && return; EchoErr "$result"; return 1; }
@@ -231,7 +231,7 @@ continueWin() { local result; result="$($sc $hostUnc continue "$service")" && re
 # delete command
 #
 
-deleteCommand() { stopCommand || return; disableCommand || return; RunPlatform "delete" --host; }
+deleteCommand() { stopCommand && disableCommand && RunPlatform "delete" --host; }
 deleteWin() {	$sc delete $hostUnc "$service"; }
 
 deleteLinux()
@@ -281,7 +281,7 @@ detailWin()
 # disable command
 #
 
-disableCommand() { checkState && return; RunPlatform "disable" --host; }
+disableCommand() { doCommand "disable"; }
 disableMac() { $sudo launchctl disable "$(getMacServicePrefix "$service")$service"; }
 disableWin() { $sc config $hostUnc "$service" start= disabled; }
 disableLinux() { linuxService disable "$service"; }
@@ -434,8 +434,11 @@ manageSignal()
 
 pauseCommand()
 {
-	! IsPlatform win && { stopCommand; return; }	
-	checkCommand && return; waitStart && RunPlatform "pause" --host && waitEnd
+	if IsPlatform win; then
+		doCommandWait "pause"
+	else
+		stopCommand
+	fi
 }
 
 pauseWin() { local result; result="$($sc $hostUnc pause "$service")" && return; EchoErr "$result"; return 1; }
@@ -444,7 +447,7 @@ pauseWin() { local result; result="$($sc $hostUnc pause "$service")" && return; 
 # start command
 #
 
-startCommand() { checkState && return; waitStart && RunPlatform "start" --host && waitEnd; }
+startCommand() { doCommandWait "start"; }
 startLinux() { linuxService start "$service"; }
 startMac() { $sudo launchctl load -w "$config"; }
 startWin() { local result; result="$($sc $hostUnc start "$service")" && return; EchoErr "$result"; return 1; }
@@ -535,7 +538,7 @@ startTypeWin()
 # Stop Command
 #
 
-stopCommand() { checkStateStop && return; waitStart && RunPlatform "stop" --host && waitEnd; }
+stopCommand() { doCommandWait "stop"; }
 stopLinux() { linuxService stop "$service"; }
 stopMac() { $sudo launchctl unload "$config"; }
 stopWin() { local result="$($sc $hostUnc stop "$service")" && return; EchoErr "$result"; return 1; }
@@ -543,6 +546,24 @@ stopWin() { local result="$($sc $hostUnc stop "$service")" && return; EchoErr "$
 #
 # helper
 #
+
+doCommand() { local command="$1"; checkState "$command" && return; doCommandRun "$command"; }
+doCommandWait() { local command="$1"; checkState "$command" && return; waitStart "$command" && doCommandRun "$command" --host && waitEnd "$command"; }
+
+doCommandRun()
+{
+	local command="$1"
+
+	# run command with additional permissions if needed
+	if IsPlatform win && ! isLinuxService "$service" && ! IsElevated; then
+		! CanElevate && { ScriptErrQuiet "unable to elevate"; return 1; }
+		RunLog elevate RunScript --pause-error -- service $command $service $noHostCheck $noServiceCheck "${globalArgs[@]}"
+		return
+	fi
+
+	# run command
+	RunPlatform "$command" --host
+}
 
 macDaemons=( "/System/Library/LaunchDaemons" "/Library/LaunchDaemons" )
 macSystemAgents=( "/System/Library/LaunchAgents" "/Library/LaunchAgents" "$HOME/Library/LaunchAgents" )
@@ -594,7 +615,7 @@ linuxService()
 	# WSL
 	if IsPlatform wsl; then 
 		[[ "$command" == "enable" ]] && return
-		local quiet="$quietCommand"; [[ "$command" == "status" ]] && quiet="/dev/stdout"
+		local quiet="/dev/null"; [[ "$command" == "status" ]] && quiet="/dev/stdout"
 		RunLog sudo "/usr/sbin/service" "$service" "$command" > "$quiet"
 
 	# systemd
@@ -613,7 +634,7 @@ linuxService()
 #
 
 # checkState - return true if the command is in the desired state
-checkState() { [[ ! $force ]] && RunFunction "checkState" "$command"; }
+checkState() { local command="$1"; [[ ! $force ]] && RunFunction "checkState" "$command"; }
 
 checkStateAuto() { [[ "$(startType)" == "AUTO_START" ]]; }
 checkStateDemand() { ! IsPlatform win && { checkStateDisabled; return; }; [[ "$(startType)" == "DEMAND_START" ]]; }
@@ -628,22 +649,21 @@ checkStateStop() { [[ "$(stateCommand)" != "RUNNING" ]]; }
 # helper - wait
 #
 
-waitNeeded() { IsFunction waitForState${command^}; }
+waitNeeded() { IsFunction "waitForState${command^}"; }
 
 waitStart() 
 {	
 	! waitNeeded && return
-	local waiting="\n"; [[ $wait ]] && waiting=""
 	local desc="${command^}ing"; [[ "$command" == "stop" ]] && desc="Stopping"
-	[[ ! $quiet ]] && printf "$desc $service service$hostDescription...$waiting"
+	[[ ! $quiet ]] && printf "$desc $service service$hostDescription..."
 	return 0
 }
 
-# waitEnd STATE PRESENT [PAST](finalState)
+# waitEnd
 waitEnd()
 {
 	! waitNeeded && return
-	[[ ! $wait ]] && return
+	[[ ! $wait ]] && { echo done; return; }
 	RunFunction waitForState "$command"
 }
 
