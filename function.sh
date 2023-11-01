@@ -1989,9 +1989,9 @@ IsAvailable()
 	# - Windows ping.exe name resolution is slow for non-existent hosts
 	local ip; ip="$(GetIpAddress --quiet "$host")" || return
 	
-	# if IsPlatform wsl1; then # WSL 1 ping and fping do not timeout quickly for unresponsive hosts so use ping.exe
-	# 	ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes=" &> /dev/null 
-	if InPath fping; then
+	if IsPlatform wsl1; then # WSL 1 ping does not timeout quickly for unresponsive hosts, ping.exe does
+	  	ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes=" &> /dev/null 
+	elif InPath fping; then
 		fping -r 1 -t "$timeout" -e "$ip" &> /dev/null
 	else
 		ping -c 1 -W 1 "$ip" &> /dev/null # -W timeoutSeconds
