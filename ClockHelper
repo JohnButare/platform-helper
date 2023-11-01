@@ -26,8 +26,8 @@ checkCommand() { RunPlatform check; }
 
 checkLinux()
 {
-  log1 "checking time..."
-  local skew; skew="$(getSkewNtp || getSkewChrony)" || return
+  log1 "checking time..."  
+  local skew; skew="$(getSkewNtp || getSkewChrony)" || return  
   checkSkew "$skew"
 } 
 
@@ -39,7 +39,9 @@ checkWin()
   # check Windows clock
   log1 "checking Windows time..."
   local format="$formatSerial" toleranceSeconds="$toleranceWindowsSeconds"
-  local skew; skew="$(echo "$(getTimeWin)-$(getTimeNtp "${host:-$(getTimeServer)}")" | bc -l | RemoveFront "-")" || return
+  local timeWin; timeWin="$(getTimeWin)" || return
+  local timeNtp; timeNtp="$(getTimeNtp)" || return
+  local skew; skew="$(echo "$timeWin-$timeNtp" | bc -l | RemoveFront "-")" || return
   checkSkew "$skew" "Windows "
 }
 
@@ -61,7 +63,7 @@ fixArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
 fixCommand()
 {
   # check if we need to fix a clock
-  [[ ! $force ]] && checkCommand && return
+  [[ ! $force ]] && checkCommand >& /dev/null && return
 
   # fix the clocks
   [[ ! $quiet ]] && echo -n "fixing..."
@@ -69,10 +71,11 @@ fixCommand()
   EchoQuiet "done"
 
   # log if manual fix is required in Windows
-  if [[ ! $quiet ]] && IsPlatform win && checkLinux && ! checkWin && ! CanElevate; then
+  if [[ ! $quiet ]] && IsPlatform win && checkLinux && ! checkWin; then
     [[ $brief ]] && echo
     echo "The Windows clock must be manually corrected"
     IsInDomain && echo "Connect to the corporate network and run 'w32tm.exe /resync' or 'net.exe time sync /set'"
+    return
   fi
 
   # status
@@ -81,27 +84,32 @@ fixCommand()
   return 0
 }
 
-fixLinux() { fixNtp || fixChrony; }
 fixMac() { RunQuiet sudoc sntp -sS "$host"; }
 fixWin() { fixWinTime && fixLinux; }
 
+fixLinux()
+{
+  isInstalledChrony && fixChrony && return # use Chrony if installed
+  fixNtp # if Chrony is not installed or fails use NTP
+}
+
 fixNtp()
 {
-  InPath ntpdate || return
+  isInstalledNtp || return 0
   [[ ! $quiet ]] && echo -n "ntp..."; [[ $verbose ]] && echo
-  RunSilent sudoc ntpdate "$host"  
+  RunSilent sudoc ntpdate "$host"
 }
 
 fixChrony()
 {
-  { InPath chronyc && [[ -f "/etc/chrony/chrony.conf" ]] && service running chrony; } || return
+  isInstalledChrony || return 0
   [[ ! $quiet ]] && echo -n "chrony..."; [[ $verbose ]] && echo
   RunSilent sudoc chronyc makestep
 }
 
 fixWinTime()
 {
-  { ! service running W32Time || ! CanElevate; } && return
+  isInstalledWinTime || return 0
   [[ ! $quiet ]] && echo -n "win..."; [[ $verbose ]] && echo
   RunSilent RunScript --elevate w32tm.exe /resync
 }
@@ -139,10 +147,10 @@ getTimeWin()
   ${G}date +"$format" -d "$time"
 }
 
-# getNtpTime HOST - get time from host using the NTP protocol
+# getNtpTime [HOST](timeServer) - get time from host using the NTP protocol
 getTimeNtp()
 {
-  local host="$1"
+  local host="${host:-$(getTimeServer)}"
 
   ! InPath ntpdate && { ScriptErrQuiet "cannot get time from '$host' using NTP"; return 1; }
   HostAvailable "$host" || return
@@ -234,11 +242,22 @@ statusClientCommand()
   echo "${GREEN}reference:${RESET} $(${G}date +"$formatDisplay" -d @$serverSerial) ($timeServer)"
 
   # show local time
-  if IsPlatform win; then
+  if IsPlatform wsl2; then # WSL time and Windows time are the same in WSL1
+    echo "    ${GREEN}local:${RESET} $(timeDiff "$winSerial" "$serverSerial")"
+  elif IsPlatform wsl2; then # WSL time and Windows time are separate in WSL2
     echo "      ${GREEN}WSL:${RESET} $(timeDiff "$localSerial" "$serverSerial")"
     echo "  ${GREEN}windows:${RESET} $(timeDiff "$winSerial" "$serverSerial")"
   else
     echo "    ${GREEN}local:${RESET} $(timeDiff "$localSerial" "$serverSerial")"
+  fi
+
+  # show tolerance  
+  if IsPlatform wsl1; then
+    echo "${GREEN}tolerance:${RESET} $toleranceWindowsSeconds second(s)"
+  elif IsPlatform wsl2; then
+    echo "${GREEN}tolerance:${RESET} $toleranceSeconds second(s), windows $toleranceWindowsSeconds second(s)"
+  else
+    printf "${GREEN}tolerance:${RESET} $toleranceSeconds second(s)"
   fi
 }
 
@@ -272,6 +291,10 @@ statusWinCommand()
 
 getSkewChrony() { InPath chronyc && chronyc tracking | grep "^System time" | cut -d" " -f8; }
 getSkewNtp() { InPath ntpdate && ntpdate -q "${host:-$(getTimeServer)}" | tail -1 | awk '{ print $(NF-1); }' | RemoveFront "-" | RemoveFront "+"; }
+
+isInstalledChrony() { InPath chronyc && [[ -f "/etc/chrony/chrony.conf" ]] && service exists chrony && service start chrony --wait --quiet; }
+isInstalledNtp() { ! IsPlatform wsl1 && InPath ntpdate; }
+isInstalledWinTime() { ! IsParallelsVm && CanElevate && service start W32Time --wait --quiet; } # W32Time not needed under Parallels and requires ability to elevate
 
 getTimeServer()
 {
