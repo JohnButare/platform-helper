@@ -494,7 +494,7 @@ infoArgStart()
 { 
 	unset -v detail monitor prefix status
 	hostArg="localhost" what=() skip=()
-	infoBasic=(model platform distribution kernel chroot vm cpu architecture credential file other update reboot)
+	infoBasic=(model platform distribution kernel firmware chroot vm cpu architecture credential file other update reboot)
 	infoDetail=(mhz memory process disk package switch restart)
 	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used)
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
@@ -650,6 +650,9 @@ infoFile()
 {
 	infoEcho "file sharing: $(unc get protocols "$HOSTNAME")" || return
 }
+
+infoFirmware() { RunPlatform infoFirmware; }
+infoFirmwarePiKernel() { infoEcho "    firmware: $(pi info firmware)"; }
 
 infoKernel()
 {
