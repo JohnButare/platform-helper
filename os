@@ -660,7 +660,6 @@ infoKernel()
 	infoEcho "      kernel: $(uname -r)$bits"
 	RunPlatform infoKernel;
 }
-infoKernelPiKernel() { infoEcho "    firmware: $(pi info firmware)"; }
 
 infoMemory() { infoEcho "      memory: $(infoMemoryGet used)/$(infoMemoryGet free)/$(infoMemoryGet total 2) GB used/free/total"; }
 infoMemoryGet() { echo "$(StringPad "$(memory${1^}Command)" ${2:-5})"; } # infoDiskGet COMMAND DISK
