@@ -2388,7 +2388,6 @@ RemoteServerName() { DnsResolve "$(RemoteServer)"; }				# RemoveServerName - ret
 SshConfigGet() { local host="$1" value="$2"; ssh -G "$host" | grep -i "^$value " | head -1 | cut -d" " -f2; } # SshConfigGet HOST VALUE - do not use SshHelp config get for speed
 SshInPath() { SshHelper connect "$1" -- which "$2" >/dev/null; } 																							# SshInPath HOST FILE
 SshIsAvailablePort() { local port="$(SshHelper config get "$1" port)"; IsAvailablePort "$1" "${port:-22}"; } 	# SshIsAvailablePort HOST - return true if SSH is available on the host
-SshUser() { local host="$1" user; user="$(SshConfigGet "$host" "user")" || return; echo "${user:-$USER}"; } 	# SshUser HOST - return the user for the host
 
 SshAgentEnvConf()
 {
@@ -2489,6 +2488,14 @@ GetUncProtocol()
 {
 	GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "${gup:-$3}" $2
 	CheckNetworkProtocol "$gup" || { EchoErr "'$gup' is not a valid network protocol"; return 1; }
+}
+
+# SshUser HOST - return the user for the host
+SshUser()
+{
+	local host="$1" user; user="$(SshConfigGet "$host" "user")" || return
+	[[ "$user" == "johnbutare" ]] && user="jjbutare"
+	echo "${user:-$USER}"
 }
 
 # UncMake user server share dirs protocol
