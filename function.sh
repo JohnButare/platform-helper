@@ -405,7 +405,9 @@ AppVersion()
 
 	# check if the app exists
 	if [[ ! $version ]]; then
-		local file; file="$(FindInPath "$app")" || { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
+		local file; file="$(FindInPath "$app")"
+		# not found if cannot find in path or if is excluded - exclude Homebrew speedtest as it conflicts with the GUI speedtest
+		[[ "$?" != "0" || "$file" == "/opt/homebrew/bin/speedtest" ]] && { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
 	fi
 
 	# special cases
@@ -435,6 +437,7 @@ AppVersion()
 			pip) version="$(pip --version | cut -d" " -f2)" || return;;
 			python3) version="$(python3 --version | cut -d" " -f2)" || return;;
 			ruby) version="$(ruby --version | cut -d" " -f2 | cut -d"p" -f 1)" || return;;
+			speedtest-cli) allowAlpha="--allow-alpha"; version="$(speedtest-cli --version | head -1 | cut -d" " -f2)" || return;;
 			sshfs) version="$(sshfs --version |& tail -1 | cut -d" " -f3)" || return;;
 			tmux) version="$(tmux -V | cut -d" " -f2)" || return;;
 			vault) version="$(vault --version | cut -d" " -f2 | RemoveFront "v")" || return;;
