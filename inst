@@ -780,10 +780,32 @@ downloadDone()
 
 downloadStart()
 {
-	local app="$1";	header "${app^} Download"
-	local vCurrent; vCurrent="$(getVersionCurrent "$app")" || return
-	local vDownloaded; vDownloaded="$(getVersionDownloaded "$app")" || return
+	# arguments
+	local allowAlpha app version
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
+			*)
+				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
+				UnknownOption "$1" "getVersionCurrent"; return
+		esac
+		shift
+	done
+
+	[[ ! $app ]] && { MissingOperand "app" "downloadStart"; return 1; }
+	header "${app^} Download"
+	
+	# get current version
+	local vCurrent; vCurrent="$(getVersionCurrent $allowAlpha "$app")" || return
+
+	# get downloaded version
+	local vDownloaded; vDownloaded="$(getVersionDownloaded $allowAlpha "$app")" || return
+
+	# log
 	log1 "vDownloaded=$vDownloaded vCurrent=$vCurrent"
+
+	# return true if the current version is newer than the downloaded version
 	[[ $force ]] || versionIsNewer "$vCurrent" "$vDownloaded"
 }
 
@@ -907,33 +929,68 @@ getInstallFunction()
 	return $result
 }
 
-# getVersionDownloaded APP - get downloaded version of application.
+# getVersionDownloaded APP  [--alow-alpha|-aa] - get downloaded version of application.
 getVersionDownloaded()
 {
-	local app="$1";
+	# arguments
+	local allowAlpha app version
 
-	# use the cached downloaded version if possible.
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
+			*)
+				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
+				UnknownOption "$1" "getVersionCurrent"; return
+		esac
+		shift
+	done
+
+	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
 	local track="$(appGetTrack "$app" "downloaded")"
-	! UpdateNeeded "$track" && { UpdateGet "$track"; return; }
 
-	# get the downloaded version
+	# get downloaded version - local cache
+	if ! UpdateNeeded "$track" && version="$(UpdateGet "$track")" && { [[ $allowAlpha ]] || IsNumeric "$version"; }; then
+		 echo "$version"; return
+	fi
+
+	# get current version - install cache
 	appCd "$app" || return
 	[[ -f ".$track" ]] || return 0 # don't return error if the app has not been downloaded yet
-	local version;  version="$(cat ".$track")" && UpdateSet "$track" "$version" && echo $version
+	version="$(cat ".$track")"
+
+	# validate the version
+ 	validateVersion "$app" "$version" $allowAlpha || return 0 # don't return an error if the version is not valid
+
+ 	# save and return the version
+	UpdateSet "$track" "$version" && echo $version
 }
 
-# getVersionCurrent APP - get current version of application using the function ${app}Version.
+# getVersionCurrent APP [--alow-alpha|-aa] - get current version of application using the function ${app}Version.
 #   Version information is cached at the install tracking file location.
 getVersionCurrent()
 {
-	local app="$1" version
+	# arguments
+	local allowAlpha app version
 
-	# return if we do not need to update the version
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
+			*)
+				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
+				UnknownOption "$1" "getVersionCurrent"; return
+		esac
+		shift
+	done
+
+	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
 	local track="$(appGetTrack "$app" "current")"
-	! UpdateNeeded "$track" && { UpdateGet "$track"; return; }
+
+	# get current version - cache
+	if ! UpdateNeeded "$track" && version="$(UpdateGet "$track")" && { [[ $allowAlpha ]] || IsNumeric "$version"; }; then
+		:
 
 	# get current version - store
-	if [[ ${storeIds[$app]} ]]; then
+	elif [[ ${storeIds[$app]} ]]; then
 		version="$(storeCurrentVersion "${storeIds[$app]}")" || return
 
 	# get current version - function
@@ -944,7 +1001,33 @@ getVersionCurrent()
 	fi
 
 	# save and return the version	
-	UpdateSet "$track" "$version" && echo "$version"	
+	validateVersion "$app" "$version" $allowAlpha && UpdateSet "$track" "$version" && echo "$version"	
+}
+
+# validateVersion APP VERSION [--alow-alpha|-aa] - ensure version is correct
+validateVersion()
+{
+	# arguments
+	local allowAlpha app version
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
+			*)
+				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $version ]] && { version="$1"; shift; continue; }
+				UnknownOption "$1" "validateVersion"; return
+		esac
+		shift
+	done
+
+	[[ ! $app ]] && { MissingOperand "app" "validateVersion"; return 1; }
+	[[ ! $version ]] && { MissingOperand "version" "validateVersion"; return 1; }
+
+	# check
+	[[ ! $version ]] && { ScriptErr "unable to get the '$app' current version"; return 1; }
+	[[ ! $allowAlpha ]] && ! IsNumeric "$version" && { ScriptErr "'$app' current version '$version' is not numeric"; return 1; }
+	return 0
 }
 
 # getWin PRIMARY ALTERNATE - use Debian package for alternate Windows install
