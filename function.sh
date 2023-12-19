@@ -3909,7 +3909,7 @@ Utf16to8() { iconv -f utf-16 -t UTF-8; }
 # shead - sponge head
 # - prevents termination of the pipeline with SIGPIPE when head terminates
 # - the rest of the output from the pipe is discarded (sent to /dev/null with cat)
-shead() { ${G}head "$@"; cat /dev/null; }
+shead() { ${G}head "$@"; cat > /dev/null; }
 
 # true grep - always return 0
 # - normally 0=text found, 1=text not found, 2=error

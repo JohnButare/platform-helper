@@ -634,8 +634,6 @@ installInit()
 appGetDir() { ${app,}Dir; }
 appCd() { local dir; dir="$(appGetDir "$app")" && findFileCd "$dir"; }
 askp() { [[ $noPrompt ]] && { echo "$1..."; return; }; ask "$1"; } # askp MESSAGE - ask a question if prompting
-checkUrl() { local url="$1" check="${2:-^HTTP/2 200\|HTTP/1.1 200 OK}"; curl --silent --head --location "$url" | ${G}grep --quiet "$check"; }
-checkUrlDownload() { checkUrl "$1" "attachment\|content-length\|application/octet-stream\|application/x-\|application/zip"; } # docker only has content-length
 couldNotLocate() { ScriptErr "could not locate '$app'"; return 1; }
 getAgent() { echo "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/534.30 (KHTML, like Gecko) Chrome/12.0.742.112 Safari/534.30"; }
 getFile() { curl --silent --location --output "$@"; }
@@ -753,10 +751,10 @@ copyLocal()
 	echo "$t/$(GetFileName "$file")"
 }
 
-# download URL DIR [FILE](URL filename) - download url to file in dir
+# download URL DIR [FILE](URL filename) [validHeaders] - download url to file in dir
 download()
 {
-	local url="$1" dir="$2" file="${3:-$(GetFileName "$1")}"
+	local url="$1" dir="$2" file="${3:-$(GetFileName "$1")}" validHeaders="$4"
 
 	# change to download directory and check if file exists, check for file without extension if the extension is compressed
 	findFileCd "$dir" || return
@@ -765,7 +763,7 @@ download()
 	# download
 	hilight "Downloading '$(GetFileName "$file")'..."
 	url="$(UrlEncodeSpace "$url")"
-	checkUrlDownload "$url" || { ScriptErr "the download file '$file' is not available at '$url'"; return 1; }
+	urlDownloadValidate "$url" "$validHeaders" || return
 	log1 "PWD=$PWD"
 	RunLog curl --location "$url" --output "$file" && echo
  }
@@ -784,22 +782,24 @@ downloadDone()
 	echo "$v" > ".$track" && UpdateSet "$track" "$v" && echo "${app^} v$v download complete."
 }
 
+# downloadStart APP - start the download of an app
+# - returns 2 on error, 0 if the current version is newer than the downloaded version, 1 otherwise
 downloadStart()
 {
 	local app="$1" version
 
 	header "${app^} Download"
-	
+
 	# get current version
-	local vCurrent; vCurrent="$(versionGetCurrent "$app")" || return
+	local vCurrent; vCurrent="$(versionGetCurrent "$app")" || return 2
 
 	# get downloaded version
-	local vDownloaded; vDownloaded="$(versionGetDownloaded "$app")" || return
+	local vDownloaded; vDownloaded="$(versionGetDownloaded "$app")" || return 2
 
 	# log
 	log1 "vDownloaded=$vDownloaded vCurrent=$vCurrent"
 
-	# return true if the current version is newer than the downloaded version
+	# return 0 if the current version is newer than the downloaded version, 1 otherwise
 	[[ $force ]] || versionIsNewer "$vCurrent" "$vDownloaded"
 }
 
@@ -1705,7 +1705,12 @@ runXip()
 	appClean "$name" "$P/${name}.app" && echo "Installing '$name'..." && sudoc unxip "$p" "$dest"
 }
 
+urlCheck() { local url="$1" check="${2:-^HTTP/2 200\|HTTP/1.1 200 OK}"; curl --silent --head --location "$url" | ${G}grep --quiet "$check"; }
+urlDownloadCheck() { urlCheck "$1" "${2:-attachment\|application/octet-stream\|application/x-\|application/zip}"; }
+urlDownloadValidate() { urlDownloadCheck "$1" "$2" && return; ScriptErr "the download is not available at '$1'"; return 1; }
+
 versionAllowAlpha() { IsInArray "$1" alphaVersions; }
+versionError() { local app="$1" type="$2"; ScriptErrQuiet "unable to get the '$app' $type version"; return 1; }
 versionIsEqual() { [[ "$1" == "$2" ]]; } # versionIsEqual|Newer|Older V1 V2 - return true if V1 is equal|newer|older than V2
 versionIsNewer() { local v1="$(versionRemoveBuild "$1")" v2="$(versionRemoveBuild "$2")"; ! versionIsEqual "$v1" "$v2" && [[ "$(echo -e "$v1\n$v2" | sort -V | shead -1)" == "$v2" ]]; }
 versionIsOlder() { local v1="$1" v2="$2"; ! versionIsEqual "$v1" "$v2" && ! versionIsNewer "$v1" "$v2"; }
@@ -1787,11 +1792,11 @@ versionGetCurrent()
 	else
 		local function="${app,}Version"; [[ $installType ]] && function+="${installType^}"
 		! IsFunction "$function" && { ScriptErr "cannot get the '$(appDesc)' version"; return 1; }
-		local version; version="$($function)" || return
+		local version; version="$($function)" || { versionError "$app" "current"; return; }
 	fi
 
 	# save and return the version	
-	versionValidate "$app" "$version" && UpdateSet "$track" "$version" && echo "$version"	
+	versionValidate "$app" "$version" "current" && UpdateSet "$track" "$version" && echo "$version"	
 }
 
 # versionGetDownloaded APP - get downloaded version of application.
@@ -1804,13 +1809,13 @@ versionGetDownloaded()
 		 echo "$version"; return
 	fi
 
-	# get current version - install cache
+	# get downloaded version - install cache
 	appCd "$app" || return
 	[[ -f ".$track" ]] || return 0 # don't return error if the app has not been downloaded yet
 	version="$(cat ".$track")"
 
 	# validate the version
- 	versionValidate "$app" "$version" || return 0 # don't return an error if the version is not valid
+ 	versionValidate "$app" "$version" "downloaded" || return 0 # don't return an error if the version is not valid
 
  	# save and return the version
 	UpdateSet "$track" "$version" && echo $version
@@ -1819,13 +1824,13 @@ versionGetDownloaded()
 # versionValidate APP VERSION - ensure version is correct
 versionValidate()
 {
-	local app="$1" version="$2"
+	local app="$1" version="$2" type="$3"
 
 	# check for empty version
-	[[ ! $version ]] && { ScriptErrQuiet "unable to get the '$app' current version"; return 1; }
+	[[ ! $version ]] && { versionError "$app" "$type"; return; }
 
 	# check for numeric version
-	! versionAllowAlpha "$app" && ! IsNumeric "$version" && { ScriptErrQuiet "'$app' current version '$version' is not numeric"; return 1; }
+	! versionAllowAlpha "$app" && ! IsNumeric "$version" && { ScriptErrQuiet "'$app' $type version '$version' is not numeric"; return 1; }
 
 	return 0
 }
@@ -2576,7 +2581,7 @@ ChromeDownload()
 	[[ ! -f "$test" ]] && return
 
 	# initialize download
-	local app="chrome"; downloadStart "$app" || return 0	
+	local app="chrome"; downloadStart "$app" || return $(( $? > 1 ))
 
 	# download	
 	hilight "Downloading Chrome..."
@@ -2678,7 +2683,7 @@ FirefoxFinalWin()
 
 FirefoxDownload()
 {
-	local app="firefox"; downloadStart "$app" || return 0	
+	local app="firefox"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	local baseUrl="https://download.mozilla.org/?lang=en-US&product=firefox-latest-ssl&os="
 	local item items=("linux64:tar.bz2" "msi:msi: ia64" "osx:dmg:" "win64:exe: ia64" "win64-aarch64:exe: arm64")
@@ -2773,7 +2778,7 @@ BeyondCompareInstall()
 
 BeyondCompareDownload()
 {
-	local app="BeyondCompare"; downloadStart "$app" || return 0	
+	local app="BeyondCompare"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "BeyondCompare")" || return
 
 	local file files=("BCompare-${v}_x64.msi" "BCompareSetup-$v.zip" "BCompareOSX-${v}.zip" "bcompare-${v}_amd64.deb")
@@ -3149,7 +3154,7 @@ JetBrainsFinalWin()
 
 JetBrainsDownload()
 {
-	local app="JetBrains"; downloadStart "$app" || return 0	
+	local app="JetBrains"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 
 	local platform platforms=(linux mac macM1 windows)
@@ -3363,7 +3368,7 @@ CleanMyMacProfile() { CleanMyMac profile restore default; }
 
 CleanMyMacDownload()
 {
-	local app="CleanMyMac"; downloadStart "$app" || return 0	
+	local app="CleanMyMac"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "CleanMyMac")" && download "https://dl.devmate.com/com.macpaw.CleanMyMac4/CleanMyMacX.dmg" "$(cleanMyMacDir)" "CleanMyMac $v.dmg" && downloadDone "$app" "$v"
 }
 
@@ -3505,7 +3510,7 @@ DropboxFinalWin()
 
 DropboxDownload()
 {
-	local app="dropbox"; downloadStart "$app" || return 0
+	local app="dropbox"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	local item items=("mac-arm64-dmg" "mac-x64-dmg" "win-x64-exe")
 
@@ -3918,7 +3923,7 @@ ForkProfile() { ForkHelper $noPrompt profile restore default; }
 
 ForkDownload()
 {
-	local app="Fork"; downloadStart "$app" || return 0
+	local app="Fork"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return; download "https://cdn.fork.dev/$PLATFORM_OS/Fork-$v.$(getPlatform "exe" "dmg")" "$(forkDir)" && downloadDone "$app" "$v"
 }
 
@@ -3941,7 +3946,7 @@ forkVersionHelper()
 	local suffix suffixes=(".3" ".2" ".1" "")
 	for suffix in "${suffixes[@]}"; do
 		local url="https://cdn.fork.dev/$platform/Fork-$prefix${suffix}.$ext"
-		checkUrl "$url" && { echo "$prefix$suffix"; return; }
+		urlCheck "$url" && { echo "$prefix$suffix"; return; }
 	done
 	return 1
 }
@@ -4035,7 +4040,7 @@ GitKrakenFinalWin() { mergeDir "$up/GitKraken" "$up/Development/Other" && gitFor
 
 GitKrakenDownload()
 {	
-	local app="GitKraken"; downloadStart "$app" || return 0	
+	local app="GitKraken"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "GitKraken")" || return
 	local url urls=("https://release.axocdn.com/win64/GitKrakenSetup.exe" "https://release.axocdn.com/darwin/installGitKraken.dmg" "https://release.axocdn.com/darwin-arm64/installGitKraken.dmg" "https://release.axocdn.com/linux/gitkraken-amd64.deb")
 
@@ -4132,7 +4137,7 @@ SublimeMergeRegister() { register "SublimeMerge"; }
 
 SublimeMergeDownload()
 {
-	local app="SublimeMerge"; downloadStart "$app" || return 0	
+	local app="SublimeMerge"; downloadStart "$app" || return $(( $? > 1 ))
 	local dir="other/Sublime/merge"
 	local v; v="$(versionGetCurrent "SublimeMerge")" || return
 	local baseUrl="https://download.sublimetext.com/sublime_merge_build_${v}_"	
@@ -4228,7 +4233,7 @@ BalenaEtcherFinalWin()
 
 BalenaEtcherDownload()
 {
-	local app="BalenaEtcher"; downloadStart "$app" || return 0
+	local app="BalenaEtcher"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	
 	items=( "balenaEtcher-${v}.dmg" "balena-etcher_${v}_amd64.deb" "balenaEtcher-Setup-${v}.exe" )
@@ -4251,7 +4256,7 @@ BalenaCliInstall()
 
 BalenaCliDownload()
 {
-	local app="BalenaCli"; downloadStart "$app" || return 0	
+	local app="BalenaCli"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	
 	items=( "linux-arm64-standalone.zip" "linux-x64-standalone.zip" "macOS-x64-standalone.zip" "windows-x64-standalone.zip" )
@@ -4277,7 +4282,7 @@ BetterDisplayRegister() { register "BetterDisplay"; }
 
 BetterDisplayDownload()
 {
-	local app="BetterDisplay"; downloadStart "$app" || return 0	
+	local app="BetterDisplay"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "BetterDisplay")" && download "https://github.com/waydabber/BetterDisplay/releases/download/v${v}/BetterDisplay-v${v}.dmg" "$(betterDisplayDir)" && downloadDone "$app" "$v" 
 }
 
@@ -5341,7 +5346,7 @@ VaultDownload() { hashiDownload "vault"; }		# https://www.vaultproject.io/downlo
 
 hashiDownload()
 {
-	local app="$1"; downloadStart "$app" || return 0	
+	local app="$1"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	local url; url="$(hashiUrl "$app")" || return
 	local prefix="$url/$v/${app}_${v}"
@@ -6659,13 +6664,13 @@ TeamsDownload() { Teams${PLATFORM_OS^}Download; }
 
 TeamsMacDownload()
 {
-	local app="TeamsMac"; downloadStart "$app" || return 0
+	local app="TeamsMac"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" && download "https://statics.teams.cdn.office.net/production-osx/$v/Teams_osx.pkg" "$(teamsDir)" "teams-$v.pkg" && downloadDone "$app" "$v"
 }
 
 TeamsWinDownload()
 {
-	local app="TeamsWin"; downloadStart "$app" || return 0
+	local app="TeamsWin"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" && download "https://statics.teams.cdn.office.net/production-windows/1.6.00.18681/TeamsSetup.exe" "$(teamsDir)" "teams-$v.exe" && downloadDone "$app" "$v"
 }
 
@@ -7816,7 +7821,7 @@ NoMachineProfile() { NoMachine profile restore default && NoMachine startup; }
 
 NoMachineDownload()
 {
-	local app="NoMachine"; downloadStart "$app" || return 0	
+	local app="NoMachine"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	local vShort="$(GetWord "$v" 1 .).$(GetWord "$v" 2 .)"
 	local item items=("Linux-_amd64-deb" "MacOSX--dmg" "Windows-_x64-exe")
@@ -7843,7 +7848,7 @@ noMachineFindUrl()
 	for (( i = 1; i <= 20; i++ )); do
 		logp1 "$i..."
 		tryUrl="$(eval echo $url)"
-		checkUrlDownload "$tryUrl" && { echo "found"; url="$tryUrl"; return; }
+		urlDownloadCheck "$tryUrl" && { echo "found"; url="$tryUrl"; return; }
 		printf "."
 	done
 
@@ -8247,7 +8252,7 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 
 1PasswordDownload()
 {
-	local app="1Password"; downloadStart "$app" || return 0	
+	local app="1Password"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return	
 
 	local item items=("mac/1Password.zip" "win/1PasswordSetup-latest.msi" "win/1PasswordSetup-latest.exe" "linux/debian/amd64/stable/1password-latest.deb")
@@ -8277,7 +8282,7 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 
 1PasswordCliDownload()
 {
-	local app="1PasswordCli"; downloadStart "$app" || return 0	
+	local app="1PasswordCli"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return	
 
 	local item items=("op_apple_universal_v$v.pkg" "op_linux_amd64_v$v.zip" "op_linux_arm64_v$v.zip" "op_windows_amd64_v$v.zip")
@@ -8735,7 +8740,7 @@ iTermHelp()
 
 iTermDownload()
 {
-	local app="iTerm"; downloadStart "$app" || return 0	
+	local app="iTerm"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	local type="stable" vActual="$v"; [[ "$installType" == "beta" ]] && type="beta" v="$(iTermVersionBetaFull)"
 	download "https://iterm2.com/downloads/$type/iTerm2-${v//./_}.zip" "$(iTermDir)" "iTerm2 $vActual.zip" && downloadDone "$app" "$vActual"
@@ -8768,7 +8773,7 @@ WarpProfile() { warp profile restore default && warp startup; }
 
 WarpDownload()
 {
-	local app="warp"; downloadStart "$app" || return 0	
+	local app="warp"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	local url; url="$(warpFindUrl)" || return
 	download "$url" "$(warpDir)" "Warp ${v}.dmg" && downloadDone "$app" "$v"
@@ -8918,7 +8923,7 @@ ObsidianHelp()
 
 ObsidianDownload()
 {
-	local app="obsidian"; downloadStart "$app" || return 0	
+	local app="obsidian"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	local suffix suffixes=( "Obsidian.$v.exe" "Obsidian.$v-arm64.exe" "Obsidian-$v-universal.dmg" "obsidian_${v}_amd64.deb" )
 
@@ -8980,7 +8985,7 @@ SublimeFinalWin()
 
 SublimeDownload()
 {
-	local app="sublime"; downloadStart "$app" || return 0	
+	local app="sublime"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	local baseUrl="https://download.sublimetext.com/sublime_text_build_${v}_"
 	local baseUrlDeb="https://download.sublimetext.com/sublime-text_build-${v}_"
@@ -9034,7 +9039,7 @@ VisualStudioCodeFinalWin()
 
 VisualStudioCodeDownload()
 {
-	local app="VisualStudioCode"; downloadStart "$app" || return 0	
+	local app="VisualStudioCode"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	local oss=("darwin-universal" "linux-deb-arm64" "linux-deb-x64" "win32-x64-user" "win32-x64" "win32-arm64-user" "win32-arm64")
 
@@ -9418,7 +9423,7 @@ AlfredRegister() { register "alfred"; }
 
 AlfredDownload()
 {
-	local app="alfred"; downloadStart "$app" || return 0
+	local app="alfred"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" && download "https://cachefly.alfredapp.com/Alfred_$v.dmg" "$(alfredDir)" && downloadDone "$app" "$v"
 }
 
@@ -9452,7 +9457,7 @@ AltTabProfile() { AltTab profile restore default; }
 
 AltTabDownload()
 {
-	local app="AltTab"; downloadStart "$app" || return 0	
+	local app="AltTab"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" && download "https://github.com/lwouis/alt-tab-macos/releases/download/v$v/AltTab-$v.zip" "$(altTabDir)" && downloadDone "$app" "$v"
 }
 
@@ -9515,7 +9520,7 @@ BartenderProfile() { bartender profile restore default; }
 
 BartenderDownload()
 {
-	local app="bartender"; downloadStart "$app" || return 0	
+	local app="bartender"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" && download "https://www.macbartender.com/B2/updates/B4Latest/Bartender%204.dmg" "$(bartenderDir)" "Bartender v${v}.dmg" && downloadDone "$app" "$v"
 }
 
@@ -9594,7 +9599,7 @@ KarabinerElementsProfile() { KarabinerElements profile restore default && Karabi
 
 KarabinerElementsDownload()
 {
-	local app="KarabinerElements"; downloadStart "$app" || return 0	
+	local app="KarabinerElements"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "KarabinerElements")" && download "https://github.com/pqrs-org/Karabiner-Elements/releases/download/v$v/Karabiner-Elements-$v.dmg" "$(karabinerElementsDir)" && downloadDone "$app" "$v"
 }
 
@@ -9692,7 +9697,7 @@ ShottrProfile() { shottr profile restore default && shottr startup; }
 
 ShottrDownload()
 {
-	local app="shottr"; downloadStart "$app" || return 0	
+	local app="shottr"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" && download "https://shottr.cc/dl/Shottr-${v}.dmg" "$(shottrDir)" && downloadDone "$app" "$v"
 }
 
@@ -9710,7 +9715,7 @@ SoundSourceRegister() { register "SoundSource"; }
 
 SoundSourceDownload()
 {
-	local app="SoundSource"; downloadStart "$app" || return 0	
+	local app="SoundSource"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "SoundSource")" && download "https://d2oxtzozd38ts8.cloudfront.net/public/soundsource/download/SoundSource.zip" "$(soundSourceDir)" "SoundSource $v.zip" && downloadDone "$app" "$v"
 }
 
@@ -9895,7 +9900,7 @@ dockerInstallDo()
 
 DockerDownload()
 {
-	local app="docker"; downloadStart "$app" || return 0	
+	local app="docker"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "docker")" || return
 	local prefix="https://desktop.docker.com"
 	local url urls=("$prefix/mac/main/amd64/Docker.dmg" "$prefix/mac/main/arm64/Docker.dmg" "$prefix/win/main/amd64/Docker%20Desktop%20Installer.exe")
@@ -9903,7 +9908,7 @@ DockerDownload()
 	for url in "${urls[@]}"; do
 		local arch="$(GetFilePath "$url" | GetFileName)"
 		local file="Docker $arch $v.$(GetFileExtension "$url")"
-		download "$url" "$(dockerDir)" "$file" || return
+		download "$url" "$(dockerDir)" "$file" "content-length:" || return # docker download only has content-length
 	done
 
 	downloadDone "$app" "$v"
@@ -10194,7 +10199,7 @@ RectangleRegister() { register "rectangle"; }
 
 RectangleDownload()
 {
-	local app="rectangle"; downloadStart "$app" || return 0	
+	local app="rectangle"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" && download "https://rectangleapp.com/pro/downloads/Rectangle Pro $v.dmg" "$(rectangleDir)" && downloadDone "$app" "$v"
 }
 
@@ -10758,7 +10763,7 @@ LoomFinalWin()
 
 LoomDownload()
 {
-	local app="Loom"; downloadStart "$app" || return 0	
+	local app="Loom"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 
 	local url urls; IFS=$'\n' ArrayMake urls "$({ 
@@ -10794,7 +10799,7 @@ SlackFinalWin() {	mergeDir "$up/Slack Technologies Inc" "$up/Applications/Other"
 
 SlackDownload()
 {
-	local app="slack"; downloadStart "$app" || return 0	
+	local app="slack"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	local prefix="https://downloads.slack-edge.com/releases"
 	local item items=("linux/$v/prod/x64/slack-desktop-$v-amd64.deb:x64:deb" "macos/$v/prod/universal/Slack-$v-macOS.dmg:universal:dmg" "windows/$v/prod/x64/slack-standalone-$v.0.msi:x64:msi" "windows/$v/prod/x64/SlackSetup.exe:x64:exe")
