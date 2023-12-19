@@ -22,7 +22,7 @@ init() { defaultCommand="install" hostname="$HOSTNAME"; unset sshAgentChecked; }
 # commands
 #
 
-listCommand() { declare -f | grep --basic-regexp '.*Install () ' | cut -d" " -f1 | sed "s/Install//" | grep -v "^$" | sort --ignore-case; }
+listCommand() { declare -f | ${G}grep --basic-regexp '.*Install () ' | cut -d" " -f1 | sed "s/Install//" | ${G}grep -v "^$" | sort --ignore-case; }
 updateCommand() { detail="--detail" checkCommand | awk '{ if ($2 == "yes") print $1; }'; }
 
 installedCommand()
@@ -147,7 +147,7 @@ checkCommand()
 	if UpdateNeeded "$cache"; then
 		log1 "Getting Python packages..."
 		sudov || return
-		pipxg=( $(pipxg list | grep "package " | sed 's/.*package //' | cut -d" " -f1) ) || return
+		pipxg=( $(pipxg list | ${G}grep "package " | sed 's/.*package //' | cut -d" " -f1) ) || return
 		UpdateSet "$cache" "$(GetDef pipxg)" || return
 	else
 		eval "pipxg=( $(UpdateGet "$cache") )" || return
@@ -157,12 +157,13 @@ checkCommand()
 	local pip=(pip pipx)
 
 	# show versions
+	local delimit=":" # application name or version must not contain the delimiter
 	local filter; [[ $update ]] && filter=' yes '
 	{
 		if [[ $detail ]]; then
-			hilight "app-update-${PAD}installed${PAD}-${PAD}downloaded${PAD}-current"
+			hilight "appupdate${delimit}${PAD}installed${PAD}${delimit}${PAD}downloaded${PAD}${delimit}current"
 		else
-			hilight "app-${PAD}installed${PAD}-${PAD}downloaded${PAD}-current"
+			hilight "app${delimit}${PAD}installed${PAD}${delimit}${PAD}downloaded${PAD}${delimit}current"
 		fi
 
 		for app in "${apps[@]}"; do
@@ -172,9 +173,10 @@ checkCommand()
 
 		[[ ! $verbose && ! $quiet ]] && { PrintErr "done" && EchoErr ""; }
 
-	} | column -c $(tput cols -T "$term") -t -s- | grep "$filter"
+	} | column -c $(tput cols -T "$term") -t -s"${delimit}" | ${G}grep "$filter"
 }
 
+# checkApp APP NAME - show app version information
 checkApp()
 {
 	local app="$1" appName="$1" installed="" downloaded="" update="no" current=""
@@ -183,12 +185,13 @@ checkApp()
 
 	# get installed version
 	log1 "Getting ${appName}${type} installed version..."	
-	installed="$(AppVersion --allow-alpha $alternate --quiet --cache $force "$app" | ReplaceString "-" "_")"
+	local allowAlpha; versionAllowAlpha "$app" && allowAlpha="--allow-alpha"
+	installed="$(AppVersion "$app" $allowAlpha $alternate --quiet --cache $force)"
 
 	# get download version
 	if IsFunction "${app}Download"; then
 		log1 "Getting ${appName}${type} downloaded version..."
-		downloaded="$(getVersionDownloaded "$app" | ReplaceString "-" "_")"  || ScriptErr "unable to get '$app' downloaded version"
+		downloaded="$(versionGetDownloaded "$app")"  || ScriptErr "unable to get '$app' downloaded version"
 		[[ ! $verbose && ! $quiet ]] && PrintErr "."
 	elif [[ ${storeIds[$app]} ]]; then
 		downloaded="store"
@@ -205,7 +208,7 @@ checkApp()
 	# get current version	
 	if isStoreApp "$app" || IsFunction "${app,}Version"; then
 		log1 "Getting ${appName}${type} current version..."
-		if ! current="$(force="$forceLess" getVersionCurrent "$app" | ReplaceString "-" "_")"; then
+		if ! current="$(force="$forceLess" versionGetCurrent "$app")"; then
 			local error="unable to get '$app${type}' current version"
 			[[ "$installType" != "beta" ]] && ScriptErr "$error" || log1 "$error"
 		fi
@@ -219,7 +222,7 @@ checkApp()
 
 		# regular version is installed and showing beta version
 		if [[ "$installType" == "beta" ]]; then
-			local regularVersion; installType="" regularVersion="$(installType="" force="$forceLess" getVersionCurrent "$app")" || ScriptErr "unable to get '$app' current non-beta version"
+			local regularVersion; installType="" regularVersion="$(installType="" force="$forceLess" versionGetCurrent "$app")" || ScriptErr "unable to get '$app' current non-beta version"
 			{ [[ "$installed" == "$regularVersion" ]] || versionIsOlder "$installed" "$regularVersion"; } && installed=""
 
 		# has a beta version and it is installed and showing regular version
@@ -239,9 +242,9 @@ checkApp()
 
 	# show results
 	if [[ $detail ]]; then
-		echo "${PAD}${appName}${type}-${update}-${installed}-${downloaded}-${current}"
+		echo "${PAD}${appName}${type}${delimit}${update}-${installed}-${downloaded}${delimit}${current}"
 	else
-		echo "${PAD}${appName}${type}-${installed}-${downloaded}-${current}"
+		echo "${PAD}${appName}${type}${delimit}${installed}${delimit}${downloaded}${delimit}${current}"
 	fi
 }
 
@@ -414,6 +417,9 @@ installInit()
 		[WireGuard]="1451685025"
 		[Yonk]="457622435"
 	)
+
+	# allow alpha versions
+	alphaVersions=(1Password)
 
 	# force elevation
 	elevateInstall=(GitForWindows WinConfig WinPermissions)
@@ -780,27 +786,15 @@ downloadDone()
 
 downloadStart()
 {
-	# arguments
-	local allowAlpha app version
+	local app="$1" version
 
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
-			*)
-				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
-				UnknownOption "$1" "getVersionCurrent"; return
-		esac
-		shift
-	done
-
-	[[ ! $app ]] && { MissingOperand "app" "downloadStart"; return 1; }
 	header "${app^} Download"
 	
 	# get current version
-	local vCurrent; vCurrent="$(getVersionCurrent $allowAlpha "$app")" || return
+	local vCurrent; vCurrent="$(versionGetCurrent "$app")" || return
 
 	# get downloaded version
-	local vDownloaded; vDownloaded="$(getVersionDownloaded $allowAlpha "$app")" || return
+	local vDownloaded; vDownloaded="$(versionGetDownloaded "$app")" || return
 
 	# log
 	log1 "vDownloaded=$vDownloaded vCurrent=$vCurrent"
@@ -927,107 +921,6 @@ getInstallFunction()
 	local result=${PIPESTATUS[1]}
 	(( $result != 0 )) && log1 "getInstallFunction: app '$app' not  found, search='$(declare -f | ${G}grep "${app}Install")'"
 	return $result
-}
-
-# getVersionDownloaded APP  [--alow-alpha|-aa] - get downloaded version of application.
-getVersionDownloaded()
-{
-	# arguments
-	local allowAlpha app version
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
-			*)
-				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
-				UnknownOption "$1" "getVersionCurrent"; return
-		esac
-		shift
-	done
-
-	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
-	local track="$(appGetTrack "$app" "downloaded")"
-
-	# get downloaded version - local cache
-	if ! UpdateNeeded "$track" && version="$(UpdateGet "$track")" && { [[ $allowAlpha ]] || IsNumeric "$version"; }; then
-		 echo "$version"; return
-	fi
-
-	# get current version - install cache
-	appCd "$app" || return
-	[[ -f ".$track" ]] || return 0 # don't return error if the app has not been downloaded yet
-	version="$(cat ".$track")"
-
-	# validate the version
- 	validateVersion "$app" "$version" $allowAlpha || return 0 # don't return an error if the version is not valid
-
- 	# save and return the version
-	UpdateSet "$track" "$version" && echo $version
-}
-
-# getVersionCurrent APP [--alow-alpha|-aa] - get current version of application using the function ${app}Version.
-#   Version information is cached at the install tracking file location.
-getVersionCurrent()
-{
-	# arguments
-	local allowAlpha app version
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
-			*)
-				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
-				UnknownOption "$1" "getVersionCurrent"; return
-		esac
-		shift
-	done
-
-	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
-	local track="$(appGetTrack "$app" "current")"
-
-	# get current version - cache
-	if ! UpdateNeeded "$track" && version="$(UpdateGet "$track")" && { [[ $allowAlpha ]] || IsNumeric "$version"; }; then
-		:
-
-	# get current version - store
-	elif [[ ${storeIds[$app]} ]]; then
-		version="$(storeCurrentVersion "${storeIds[$app]}")" || return
-
-	# get current version - function
-	else
-		local function="${app,}Version"; [[ $installType ]] && function+="${installType^}"
-		! IsFunction "$function" && { ScriptErr "cannot get the '$(appDesc)' version"; return 1; }
-		local version; version="$($function)" || return
-	fi
-
-	# save and return the version	
-	validateVersion "$app" "$version" $allowAlpha && UpdateSet "$track" "$version" && echo "$version"	
-}
-
-# validateVersion APP VERSION [--alow-alpha|-aa] - ensure version is correct
-validateVersion()
-{
-	# arguments
-	local allowAlpha app version
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
-			*)
-				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
-				! IsOption "$1" && [[ ! $version ]] && { version="$1"; shift; continue; }
-				UnknownOption "$1" "validateVersion"; return
-		esac
-		shift
-	done
-
-	[[ ! $app ]] && { MissingOperand "app" "validateVersion"; return 1; }
-	[[ ! $version ]] && { MissingOperand "version" "validateVersion"; return 1; }
-
-	# check
-	[[ ! $version ]] && { ScriptErr "unable to get the '$app' current version"; return 1; }
-	[[ ! $allowAlpha ]] && ! IsNumeric "$version" && { ScriptErr "'$app' current version '$version' is not numeric"; return 1; }
-	return 0
 }
 
 # getWin PRIMARY ALTERNATE - use Debian package for alternate Windows install
@@ -1812,34 +1705,11 @@ runXip()
 	appClean "$name" "$P/${name}.app" && echo "Installing '$name'..." && sudoc unxip "$p" "$dest"
 }
 
-# versionCheckApp APP CHECK - return true if install is needed (the installed version is older than check version)
-versionCheckApp()
-{
-	# arguments
-	local app check
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			*)
-				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
-				! IsOption "$1" && [[ ! $check ]] && { check="$1"; shift; continue; }
-				UnknownOption "$1" "versionCheckApp"; return
-		esac
-		shift
-	done
-
-	[[ ! $app ]] && { MissingOperand "app" "versionCheckApp"; }
-	[[ ! $check ]] && { MissingOperand "check" "versionCheckApp"; }
-
-	# if the application is not installed install is needed 
-	! appIsInstalled "$app" && return
-
-	# get the installed version
-	local installedVersion; installedVersion="$(AppVersion --allow-alpha $alternate "$(echo "$app" | sed 's/ //g')")" || ScriptExit
-
-	# check the version
-	versionCheck "$app" "$installedVersion" "$check"
-}
+versionAllowAlpha() { IsInArray "$1" alphaVersions; }
+versionIsEqual() { [[ "$1" == "$2" ]]; } # versionIsEqual|Newer|Older V1 V2 - return true if V1 is equal|newer|older than V2
+versionIsNewer() { local v1="$(versionRemoveBuild "$1")" v2="$(versionRemoveBuild "$2")"; ! versionIsEqual "$v1" "$v2" && [[ "$(echo -e "$v1\n$v2" | sort -V | shead -1)" == "$v2" ]]; }
+versionIsOlder() { local v1="$1" v2="$2"; ! versionIsEqual "$v1" "$v2" && ! versionIsNewer "$v1" "$v2"; }
+versionRemoveBuild() { local version="$1"; [[ "$version" =~ _ ]] && GetWord "$version" 1 _ || printf "$version"; } # versionRemoveBuild VERSION - assume part after _ is the build (Alfred), remove for proper comparison
 
 # versionCheck APP INSTALLED_VERSION CHECK_VERSION - return true if install is needed (the installed version is older than check version)
 versionCheck()
@@ -1869,11 +1739,96 @@ versionCheck()
 	versionIsOlder "$installed" "$check"
 }
 
-# versionIsEqual|Newer|Older V1 V2 - return true if V1 is equal|newer|older than V2
-versionIsEqual() { [[ "$1" == "$2" ]]; }
-versionIsNewer() { local v1="$(versionRemoveBuild "$1")" v2="$(versionRemoveBuild "$2")"; ! versionIsEqual "$v1" "$v2" && [[ "$(echo -e "$v1\n$v2" | sort -V | head -1)" == "$v2" ]]; }
-versionIsOlder() { local v1="$1" v2="$2"; ! versionIsEqual "$v1" "$v2" && ! versionIsNewer "$v1" "$v2"; }
-versionRemoveBuild() { local version="$1"; [[ "$version" =~ _ ]] && GetWord "$version" 1 _ || printf "$version"; } # versionRemoveBuild VERSION - assume part after _ is the build (Alfred), remove for proper comparison
+# versionCheckApp APP CHECK - return true if install is needed (the installed version is older than check version)
+versionCheckApp()
+{
+	# arguments
+	local app check
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			*)
+				! IsOption "$1" && [[ ! $app ]] && { app="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $check ]] && { check="$1"; shift; continue; }
+				UnknownOption "$1" "versionCheckApp"; return
+		esac
+		shift
+	done
+
+	[[ ! $app ]] && { MissingOperand "app" "versionCheckApp"; }
+	[[ ! $check ]] && { MissingOperand "check" "versionCheckApp"; }
+
+	# if the application is not installed install is needed 
+	! appIsInstalled "$app" && return
+
+	# get the installed version
+	local allowAlpha; versionAllowAlpha "$app" && allowAlpha="--allow-alpha"
+	local installedVersion; installedVersion="$(AppVersion $allowAlpha $alternate "$(echo "$app" | sed 's/ //g')")" || ScriptExit
+
+	# check the version
+	versionCheck "$app" "$installedVersion" "$check"
+}
+
+# versionGetCurrent APP - get current version of application using the function ${app}Version.
+#   Version information is cached at the install tracking file location.
+versionGetCurrent()
+{
+	local app="$1" track="$(appGetTrack "$app" "current")" version
+
+	# get current version - cache
+	if ! UpdateNeeded "$track"; then
+		version="$(UpdateGet "$track")"
+
+	# get current version - store
+	elif [[ ${storeIds[$app]} ]]; then
+		version="$(storeCurrentVersion "${storeIds[$app]}")" || return
+
+	# get current version - function
+	else
+		local function="${app,}Version"; [[ $installType ]] && function+="${installType^}"
+		! IsFunction "$function" && { ScriptErr "cannot get the '$(appDesc)' version"; return 1; }
+		local version; version="$($function)" || return
+	fi
+
+	# save and return the version	
+	versionValidate "$app" "$version" && UpdateSet "$track" "$version" && echo "$version"	
+}
+
+# versionGetDownloaded APP - get downloaded version of application.
+versionGetDownloaded()
+{
+	local app="$1" track="$(appGetTrack "$app" "downloaded")"
+
+	# get downloaded version - local cache
+	if ! UpdateNeeded "$track" && version="$(UpdateGet "$track")"; then
+		 echo "$version"; return
+	fi
+
+	# get current version - install cache
+	appCd "$app" || return
+	[[ -f ".$track" ]] || return 0 # don't return error if the app has not been downloaded yet
+	version="$(cat ".$track")"
+
+	# validate the version
+ 	versionValidate "$app" "$version" || return 0 # don't return an error if the version is not valid
+
+ 	# save and return the version
+	UpdateSet "$track" "$version" && echo $version
+}
+
+# versionValidate APP VERSION - ensure version is correct
+versionValidate()
+{
+	local app="$1" version="$2"
+
+	# check for empty version
+	[[ ! $version ]] && { ScriptErr "unable to get the '$app' current version"; return 1; }
+
+	# check for numeric version
+	! versionAllowAlpha "$app" && ! IsNumeric "$version" && { ScriptErr "'$app' current version '$version' is not numeric"; return 1; }
+
+	return 0
+}
 
 #################################################
 # applications
@@ -2226,15 +2181,15 @@ QuickTimeFinalWin()
 
 XcodeInstall()
 {
-	local v; v="$(getVersionCurrent "Xcode")" || return
+	local v; v="$(versionGetCurrent "Xcode")" || return
 	run --name "Xcode" "$(xcodeDir)/Xcode_${v}.xip" --version=$v || return
 } 
 
 XcodeDownload() { echo "Manual download from https://developer.apple.com/download/all/"; }
 xcodeDir() { echo "other/Apple/Xcode/setup"; }
-xcodeVersionCommon() { curl --silent "https://developer.apple.com/tutorials/data/documentation/xcode-release-notes.json" | jq '.references' | grep '\"title\":' | grep "Release Notes" | sort -V --reverse; }
-xcodeVersion() { xcodeVersionCommon | grep -v -E "(Beta|RC)" | head -1 | sed 's/.*Xcode //' | cut -d" " -f1; }
-xcodeVersionBeta() { xcodeVersionCommon | grep -E "(Beta|RC)" | head -1 | sed 's/.*Xcode //' | cut -d" " -f1; }
+xcodeVersionCommon() { curl --silent "https://developer.apple.com/tutorials/data/documentation/xcode-release-notes.json" | jq '.references' | ${G}grep '\"title\":' | ${G}grep "Release Notes" | sort -V --reverse; }
+xcodeVersion() { xcodeVersionCommon | ${G}grep -v -E "(Beta|RC)" | shead -1 | sed 's/.*Xcode //' | cut -d" " -f1; }
+xcodeVersionBeta() { xcodeVersionCommon | ${G}grep -E "(Beta|RC)" | shead -1 | sed 's/.*Xcode //' | cut -d" " -f1; }
 
 XcodeCliInstall() { run --header "Xcode Command Line Tools (CLI)" "other/Apple/Xcode/tools/Command_Line_Tools_for_Xcode_15.dmg"; } # https://developer.apple.com/xcode/
 
@@ -2499,7 +2454,7 @@ bootstrapPi()
 
 	# locale
 	local locale="$(ConfigGet "locale")"
-	! cat /etc/default/locale | grep -q "$locale" && { sudo raspi-config nonint do_change_locale $locale || return; export LOCALE="$locale"; }
+	! cat /etc/default/locale | ${G}grep -q "$locale" && { sudo raspi-config nonint do_change_locale $locale || return; export LOCALE="$locale"; }
 
 	# other setup
 	i PiSwap || return
@@ -2606,7 +2561,7 @@ BrowserCoreInstall()
 
 ChromeInstall()
 {
-	local v; v="$(getVersionCurrent "chrome")" || return
+	local v; v="$(versionGetCurrent "chrome")" || return
 	local platform="$(getPlatform "win64" "mac")"
 	local ext="$(getPlatform "exe" "dmg" "deb")"
 	run --name="Chrome" "$(chromeDir)/chrome-$v-$platform.$ext" --version="$v" --elevate
@@ -2658,7 +2613,7 @@ ChromeDownload()
 
 chromeDir() { echo "other/Google/Chrome/setup"; }
 chromeVersion() { chromeVersionPlatform "mac_arm64"; } # linux mac mac_arm64 win64
-chromeVersionPlatform() { curl --silent "https://versionhistory.googleapis.com/v1/chrome/platforms/$1/channels/stable/versions" | sponge | jq '.versions[] | .version' | shead -1 | RemoveQuotes; } # linux mac mac_arm64 win64
+chromeVersionPlatform() { curl --silent "https://versionhistory.googleapis.com/v1/chrome/platforms/$1/channels/stable/versions" | jq '.versions[] | .version' | shead -1 | RemoveQuotes; } # linux mac mac_arm64 win64
 
 ChromeHelp()
 {
@@ -2697,7 +2652,7 @@ FirefoxInstall()
 	header "Firefox"
 
 	# check version
-	local v; v="$(getVersionCurrent "firefox")" || return
+	local v; v="$(versionGetCurrent "firefox")" || return
 	PackageIsInstalled "firefox.*" && return # don't update here if Firefox is installed from a package
 	! versionCheckApp "firefox" "$v" && return
 
@@ -2724,7 +2679,7 @@ FirefoxFinalWin()
 FirefoxDownload()
 {
 	local app="firefox"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	local baseUrl="https://download.mozilla.org/?lang=en-US&product=firefox-latest-ssl&os="
 	local item items=("linux64:tar.bz2" "msi:msi: ia64" "osx:dmg:" "win64:exe: ia64" "win64-aarch64:exe: arm64")
 
@@ -2741,7 +2696,7 @@ FirefoxDownload()
 }
 
 firefoxDir() { echo "other/Mozilla/Firefox"; }
-firefoxVersion() { scurl --silent --location "http://www.mozilla.org/en-US/firefox/notes" | sgrep "Firefox " | shead -1 | tr -s " " | cut -d" " -f3 | cut -d"," -f1; }
+firefoxVersion() { curl --silent --location "http://www.mozilla.org/en-US/firefox/notes" | ${G}grep "Firefox " | shead -1 | tr -s " " | cut -d" " -f3 | cut -d"," -f1; }
 
 FirefoxHelp()
 {
@@ -2812,14 +2767,14 @@ BeyondCompareInstall()
 	IsPlatform linux && BeyondCompare IsInstalled && [[ ! $force ]] && return
 
 	# install
-	local v; v="$(getVersionCurrent "BeyondCompare")" || return
+	local v; v="$(versionGetCurrent "BeyondCompare")" || return
 	run --no-header --name "BeyondCompare" "$(beyondCompareDir)/BCompare-${v}_x64.msi|BCompareOSX-${v}.zip|bcompare-${v}_amd64.deb" --version=$v || return
 }
 
 BeyondCompareDownload()
 {
 	local app="BeyondCompare"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "BeyondCompare")" || return
+	local v; v="$(versionGetCurrent "BeyondCompare")" || return
 
 	local file files=("BCompare-${v}_x64.msi" "BCompareSetup-$v.zip" "BCompareOSX-${v}.zip" "bcompare-${v}_amd64.deb")
 	for file in "${files[@]}"; do
@@ -2830,7 +2785,7 @@ BeyondCompareDownload()
 }
 
 beyondCompareDir() { echo "other/Scooter Software/Beyond Compare/setup"; }
-beyondCompareVersion() { curl --silent "https://www.scootersoftware.com/download.php" | grep "/files/BCompare-" | head -1 | cut -d'-' -f2 | cut -d" " -f1 | RemoveEnd ".exe\""; }
+beyondCompareVersion() { curl --silent "https://www.scootersoftware.com/download.php" | ${G}grep "/files/BCompare-" | shead -1 | cut -d'-' -f2 | cut -d" " -f1 | RemoveEnd ".exe\""; }
 
 BeyondCompareProfile()
 {
@@ -2855,7 +2810,7 @@ DeltaInstall()
 	header "delta"; local v="0.13.0" # https://dandavison.github.io/delta/installation.html
 
 	# version check
-	InPath delta && [[ "$(delta --version | head -1 | cut -d" " -f2)" == "$v" && ! $force ]] && return
+	InPath delta && [[ "$(delta --version | shead -1 | cut -d" " -f2)" == "$v" && ! $force ]] && return
 
 	# install - install gdebi
 	if IsPlatform mac; then package git-delta
@@ -2911,7 +2866,7 @@ DebianFileSharingInstall()
 	local file="/etc/samba/smb.conf"
 
 	# macOS Configuration
-	if ! grep --quiet "fruit" "$file"; then
+	if ! ${G}grep --quiet "fruit" "$file"; then
 		cat <<-EOF | sudo ${G}sed -e "/^\[global\]$/{ e cat" -e "d}" -i "$file" || return
 			[global]
 
@@ -2932,7 +2887,7 @@ DebianFileSharingInstall()
 	fi
 
 	# root share
-	if ! grep --quiet "\[root\]" "$file"; then
+	if ! ${G}grep --quiet "\[root\]" "$file"; then
 		cat <<-EOF | sudo ${G}tee -a "$file" > /dev/null || return
 
 			[root]
@@ -2946,7 +2901,7 @@ DebianFileSharingInstall()
 	fi
 
 	# admin share
-	if ! grep --quiet "\[admin\]" "$file"; then
+	if ! ${G}grep --quiet "\[admin\]" "$file"; then
 		cat <<-EOF | sudo ${G}tee -a "$file" > /dev/null || return
 
 			[admin]
@@ -2965,7 +2920,7 @@ DebianFileSharingInstall()
 
 	# public share
 	local mountRoot; mountRoot="$(drive mount root)" || return
-	if [[ -d "$mountRoot/data/public" ]] && ! grep --quiet "\[public\]" "$file"; then
+	if [[ -d "$mountRoot/data/public" ]] && ! ${G}grep --quiet "\[public\]" "$file"; then
 		cat <<-EOF | sudo ${G}tee -a "$file" > /dev/null || return
 
 			[public]
@@ -3051,7 +3006,7 @@ DebianProxyServerInstall()
 	header "Debian Proxy Server"
 
 	local file="/etc/sudoers"
-	sudo grep -q "HTTP_PROXY" "$file" && return
+	sudo ${G}grep -q "HTTP_PROXY" "$file" && return
 	echo 'Defaults env_keep += "ftp_proxy http_proxy https_proxy no_proxy FTP_PROXY HTTP_PROXY HTTPS_PROXY NO_PROXY"' | sudo ${G}tee -a "$file" || return
 }
 
@@ -3060,14 +3015,14 @@ DebianSudoSecurePathInstall() # add /usr/local/data/bin to the sudo secure path
 	header "Debian SUDO Secure Path"
 
 	local file="/etc/sudoers"
-	sudo grep -q "/usr/local/data/bin" "$file" && return
+	sudo ${G}grep -q "/usr/local/data/bin" "$file" && return
 
 	local find="/usr/local/sbin"
 	local clip="/usr/local/data/bin:$PLATFORM_PATH:"
 
 	# try automatic change
 	sudo sed -i "s/$(echo "$find" | QuotePath)/$(echo "$clip$find:" | QuotePath)/" "$file" || return
-	sudo grep -q "/usr/local/data/bin" "$file" && return
+	sudo ${G}grep -q "/usr/local/data/bin" "$file" && return
 
 	# manual change
 	echo "Paste the contents of the clipboard ($clip) at the beginning of the secure_path"
@@ -3178,7 +3133,7 @@ CruiseControlTrayFinalWin()
 
 JetBrainsInstall()
 {
-	local v; v="$(getVersionCurrent "JetBrains")" || return
+	local v; v="$(versionGetCurrent "JetBrains")" || return
 	local p="jetbrains-toolbox-$v"; IsPlatform mac && p+="$(getArch "" "-arm64" "")"
 	run --name="JetBrains" "$(jetBrainsDir)/$p.exe|$p.dmg|$p.tar.gz" --version="$v"
 } 
@@ -3195,11 +3150,11 @@ JetBrainsFinalWin()
 JetBrainsDownload()
 {
 	local app="JetBrains"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 
 	local platform platforms=(linux mac macM1 windows)
 	for platform in "${platforms[@]}"; do
-		local url; url="$(scurl --silent --location 'https://data.services.jetbrains.com/products/releases?code=TBA&latest=true&type=release&build=' | jq ".TBA[].downloads.$platform.link" | RemoveQuotes)" || return
+		local url; url="$(curl --silent --location 'https://data.services.jetbrains.com/products/releases?code=TBA&latest=true&type=release&build=' | jq ".TBA[].downloads.$platform.link" | RemoveQuotes)" || return
 		download "$url" "$(jetBrainsDir)" || return
 	done
 
@@ -3207,7 +3162,7 @@ JetBrainsDownload()
 }
 
 jetBrainsDir() { echo "other/JetBrains/toolbox"; }
-jetBrainsVersion() { scurl --silent --location 'https://data.services.jetbrains.com/products/releases?code=TBA&latest=true&type=release&build=' | jq '.TBA[].build' | RemoveQuotes; }
+jetBrainsVersion() { curl --silent --location 'https://data.services.jetbrains.com/products/releases?code=TBA&latest=true&type=release&build=' | jq '.TBA[].build' | RemoveQuotes; }
 
 JustInstall()
 {
@@ -3224,7 +3179,7 @@ PlaywrightInstall()
 	[[ ! $force && -d "$dir" ]] && return
 
 	# install from Git repository if possible
-	if IsAvailable git && GitHelper remote ls git | grep --quiet "^playwright$"; then
+	if IsAvailable git && GitHelper remote ls git | ${G}grep --quiet "^playwright$"; then
 		GitHelper clone git playwright && cd "$dir" && yarn install
 	else
 		run --yarn --header "Playwright" playwright
@@ -3398,7 +3353,7 @@ BorgBackupInstall()
 
 CleanMyMacInstall()
 {
-	local v; v="$(getVersionCurrent "CleanMyMac")" || return
+	local v; v="$(versionGetCurrent "CleanMyMac")" || return
 	run --name="Clean My Mac" "$(cleanMyMacDir)/CleanMyMac $v.dmg" --version="$v"
 }
 
@@ -3409,11 +3364,11 @@ CleanMyMacProfile() { CleanMyMac profile restore default; }
 CleanMyMacDownload()
 {
 	local app="CleanMyMac"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "CleanMyMac")" && download "https://dl.devmate.com/com.macpaw.CleanMyMac4/CleanMyMacX.dmg" "$(cleanMyMacDir)" "CleanMyMac $v.dmg" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "CleanMyMac")" && download "https://dl.devmate.com/com.macpaw.CleanMyMac4/CleanMyMacX.dmg" "$(cleanMyMacDir)" "CleanMyMac $v.dmg" && downloadDone "$app" "$v"
 }
 
 cleanMyMacDir() { echo "platform/mac/MacPaw/CleanMyMac"; }
-cleanMyMacVersion() { scurl --silent --location "https://macpaw.com/cleanmymac/whats-new" | sgrep 'class="version">Update ' | shead -1 | sed 's/.*Update //' | cut -d'<' -f1; }
+cleanMyMacVersion() { curl --silent --location "https://macpaw.com/cleanmymac/whats-new" | ${G}grep 'class="version">Update ' | shead -1 | sed 's/.*Update //' | cut -d'<' -f1; }
 
 PartitionManagementInstall()
 {
@@ -3503,7 +3458,7 @@ DropboxInstall()
 {
 	local dir="$P"
 	IsPlatform mac && installType="beta" dir="$UADATA/Dropbox/Dropbox.app" # beta allows opening offline files from all applications, stores files in ~/Library/CloudStorage
-	local v; v="$(getVersionCurrent "dropbox")" || return
+	local v; v="$(versionGetCurrent "dropbox")" || return
 	run --name "Dropbox" "$(dropboxDir)/Dropbox $v.x64.exe|Dropbox $v.$(getArch "x64" "arm64").dmg" --version=$v --elevate --dest="$dir" -- /S || return
 } 
 
@@ -3551,7 +3506,7 @@ DropboxFinalWin()
 DropboxDownload()
 {
 	local app="dropbox"; downloadStart "$app" || return 0
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	local item items=("mac-arm64-dmg" "mac-x64-dmg" "win-x64-exe")
 
 	for item in "${items[@]}"; do
@@ -3567,7 +3522,7 @@ DropboxDownload()
 dropboxDir() { echo "other/Dropbox"; }
 dropboxVersion() { dropboxVersionCommon "stable"; }
 dropboxVersionBeta() { dropboxVersionCommon "beta"; }
-dropboxVersionCommon() { local type="${1^}"; curl --silent --header --location "https://www.dropboxforum.com/t5/Desktop-client-builds/ct-p/101003000" | grep "$type Build" | head -1 | sed 's/.*'$typr' Build //' | cut -d"<" -f1; }
+dropboxVersionCommon() { local type="${1^}"; curl --silent --header --location "https://www.dropboxforum.com/t5/Desktop-client-builds/ct-p/101003000" | ${G}grep "$type Build" | shead -1 | sed 's/.*'$typr' Build //' | cut -d"<" -f1; }
 
 dropboxGetInfo()
 {
@@ -3757,7 +3712,7 @@ CupsInstall()
 
 	# set allowed host headers
 	local file="/etc/cups/cupsd.conf"
-	if ! sudo grep -q "^ServerAlias " "$file"; then
+	if ! sudo ${G}grep -q "^ServerAlias " "$file"; then
 		echo "ServerAlias cups.$(ConfigGet "baseDomain") $HOSTNAME $HOSTNAME.$(ConfigGet "domain")" | sudo ${G}tee -a "$file" || return
 	fi
 
@@ -3778,10 +3733,10 @@ DbusInstall()
 
 	# WSL error message
 	local file="/usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf"
-	IsPlatform wsl && [[ -f "$file" ]] && grep -q "whoopsie" "$file" && { echo "Remove whoopsie policy..."; sudoe "$file"; }
+	IsPlatform wsl && [[ -f "$file" ]] && ${G}grep -q "whoopsie" "$file" && { echo "Remove whoopsie policy..."; sudoe "$file"; }
 
 	# mac
-	IsPlatform mac && brew services list | grep '^dbus ' | grep --quiet none && { brew services start dbus || return; }
+	IsPlatform mac && brew services list | ${G}grep '^dbus ' | ${G}grep --quiet none && { brew services start dbus || return; }
 
 	# start
 	app dbus "${globalArgs[@]}" && DbusConf
@@ -3953,7 +3908,7 @@ gitClientWin()
 
 ForkInstall()
 {
-	local v; v="$(getVersionCurrent "Fork")" || return
+	local v; v="$(versionGetCurrent "Fork")" || return
 	run --name="Fork" "$(forkDir)/Fork-$v.exe|Fork-$v.dmg" --version="$v"
 }
 
@@ -3964,7 +3919,7 @@ ForkProfile() { ForkHelper $noPrompt profile restore default; }
 ForkDownload()
 {
 	local app="Fork"; downloadStart "$app" || return 0
-	local v; v="$(getVersionCurrent "$app")" || return; download "https://cdn.fork.dev/$PLATFORM_OS/Fork-$v.$(getPlatform "exe" "dmg")" "$(forkDir)" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "$app")" || return; download "https://cdn.fork.dev/$PLATFORM_OS/Fork-$v.$(getPlatform "exe" "dmg")" "$(forkDir)" && downloadDone "$app" "$v"
 }
 
 forkDir() { echo "git/Fork"; }
@@ -3982,7 +3937,7 @@ forkVersionHelper()
 {
 	local line="${1:-1}" # version to get, i.e. 1st, 2nd, ...
 	local ext="dmg" platform="mac" win; IsPlatform win && ext="exe" platform="win" win="win"
-	local prefix="$(curl --silent https://git-fork.com/releasenotes${win} | grep "header4" | sed "${line}q;d" | sed 's/.*Fork //' | cut -d"<" -f1)"
+	local prefix="$(curl --silent https://git-fork.com/releasenotes${win} | ${G}grep "header4" | sed "${line}q;d" | sed 's/.*Fork //' | cut -d"<" -f1)"
 	local suffix suffixes=(".3" ".2" ".1" "")
 	for suffix in "${suffixes[@]}"; do
 		local url="https://cdn.fork.dev/$platform/Fork-$prefix${suffix}.$ext"
@@ -4066,7 +4021,7 @@ GitKrakenInstall()
 	header "Git Kraken"
 
 	# check version
-	local f v; v="$(getVersionCurrent "GitKraken")" || return; f="GitKraken Setup $v"
+	local f v; v="$(versionGetCurrent "GitKraken")" || return; f="GitKraken Setup $v"
 
 	# install	alternate (Linux) version in Windows
 	IsPlatformAll win,x64 && [[ ! $alternate ]] && { alternate="--alternate" i --no-header GitKraken || return; }
@@ -4081,7 +4036,7 @@ GitKrakenFinalWin() { mergeDir "$up/GitKraken" "$up/Development/Other" && gitFor
 GitKrakenDownload()
 {	
 	local app="GitKraken"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "GitKraken")" || return
+	local v; v="$(versionGetCurrent "GitKraken")" || return
 	local url urls=("https://release.axocdn.com/win64/GitKrakenSetup.exe" "https://release.axocdn.com/darwin/installGitKraken.dmg" "https://release.axocdn.com/darwin-arm64/installGitKraken.dmg" "https://release.axocdn.com/linux/gitkraken-amd64.deb")
 
 	for url in "${urls[@]}"; do
@@ -4154,7 +4109,7 @@ LazyGitInstall()
 SublimeMergeInstall()
 {
 	header "Sublime Merge"	
-	local args=() v="$(getVersionCurrent "SublimeMerge")" || return
+	local args=() v="$(versionGetCurrent "SublimeMerge")" || return
 	! CanElevate && args+=(--dest "$PUSER/Sublime Merge")
 	run "other/Sublime/merge/sublime_merge_build_${v}_x64$(getElevate "_setup.exe" ".zip")|sublime_merge_build_${v}_mac.zip|sublime-merge_build_${v}_$(getArch "amd64" "arm64").deb" --copy-local-win --version "$v" "${args[@]}" || return;
 }
@@ -4179,7 +4134,7 @@ SublimeMergeDownload()
 {
 	local app="SublimeMerge"; downloadStart "$app" || return 0	
 	local dir="other/Sublime/merge"
-	local v; v="$(getVersionCurrent "SublimeMerge")" || return
+	local v; v="$(versionGetCurrent "SublimeMerge")" || return
 	local baseUrl="https://download.sublimetext.com/sublime_merge_build_${v}_"	
 	local baseUrlDeb="https://download.sublimetext.com/sublime-merge_build-${v}_"
 	local suffix suffixes=("arm64.deb" "mac.zip" "x64_setup.exe" "x64.zip" "amd64.deb")
@@ -4193,7 +4148,7 @@ SublimeMergeDownload()
 }
 
 sublimeMergeDir() { echo "other/Sublime/merge"; }
-sublimeMergeVersion() { curl --silent --location "https://www.sublimemerge.com/download" | grep "Version" | sed 's/.*Build //' | cut -d"<" -f1; }
+sublimeMergeVersion() { curl --silent --location "https://www.sublimemerge.com/download" | ${G}grep "Version" | sed 's/.*Build //' | cut -d"<" -f1; }
 
 TortoiseGitInstall()
 {
@@ -4261,7 +4216,7 @@ PowerCoreInstall()
 
 BalenaEtcherInstall()
 {
-	local v; v="$(getVersionCurrent "BalenaEtcher")" || return
+	local v; v="$(versionGetCurrent "BalenaEtcher")" || return
 	run --name="BalenaEtcher" "$(balenaEtcherDir)/balenaEtcher-Setup-${v}.exe|balenaEtcher-${v}.dmg|balena-etcher_${v}_amd64.deb" --version="$v" && i BalenaCli
 }
 
@@ -4274,7 +4229,7 @@ BalenaEtcherFinalWin()
 BalenaEtcherDownload()
 {
 	local app="BalenaEtcher"; downloadStart "$app" || return 0
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	
 	items=( "balenaEtcher-${v}.dmg" "balena-etcher_${v}_amd64.deb" "balenaEtcher-Setup-${v}.exe" )
 
@@ -4286,18 +4241,18 @@ BalenaEtcherDownload()
 }
 
 balenaEtcherDir() { echo "hardware/Balena/Etcher/setup"; }
-balenaEtcherVersion() { scurl --silent "https://github.com/balena-io/etcher/releases" | sgrep "/balena-io/etcher/tree" | shead -1 | sed 's/.*tree\/v//' | cut -d"\"" -f1; }
+balenaEtcherVersion() { curl --silent "https://github.com/balena-io/etcher/releases" | ${G}grep "/balena-io/etcher/tree" | shead -1 | sed 's/.*tree\/v//' | cut -d"\"" -f1; }
 
 BalenaCliInstall()
 {
-	local v; v="$(getVersionCurrent "BalenaCli")" || return
+	local v; v="$(versionGetCurrent "BalenaCli")" || return
 	local file="balena-cli-v$v"; run "$(balenaCliDir)/$file-windows-x64-standalone.zip|$file-macOS-x64-standalone.zip|$file-linux-x64-standalone.zip" --dest "balena-cli" --elevate --version=$v || return
 }
 
 BalenaCliDownload()
 {
 	local app="BalenaCli"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	
 	items=( "linux-arm64-standalone.zip" "linux-x64-standalone.zip" "macOS-x64-standalone.zip" "windows-x64-standalone.zip" )
 
@@ -4309,11 +4264,11 @@ BalenaCliDownload()
 }
 
 balenaCliDir() { echo "hardware/Balena/cli"; }
-balenaCliVersion() { curl --silent "https://github.com/balena-io/balena-cli/releases" | grep "/balena-io/balena-cli/tree" | head -1 | sed 's/.*tree\/v//' | cut -d"\"" -f1; }
+balenaCliVersion() { curl --silent "https://github.com/balena-io/balena-cli/releases" | ${G}grep "/balena-io/balena-cli/tree" | shead -1 | sed 's/.*tree\/v//' | cut -d"\"" -f1; }
 
 BetterDisplayInstall()
 {
-	local v; v="$(getVersionCurrent "BetterDisplay")" || return
+	local v; v="$(versionGetCurrent "BetterDisplay")" || return
 	run --name="BetterDisplay" "$(betterDisplayDir)/BetterDisplay-v$v.dmg" --version="$v"
 }
 
@@ -4323,11 +4278,11 @@ BetterDisplayRegister() { register "BetterDisplay"; }
 BetterDisplayDownload()
 {
 	local app="BetterDisplay"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "BetterDisplay")" && download "https://github.com/waydabber/BetterDisplay/releases/download/v${v}/BetterDisplay-v${v}.dmg" "$(betterDisplayDir)" && downloadDone "$app" "$v" 
+	local v; v="$(versionGetCurrent "BetterDisplay")" && download "https://github.com/waydabber/BetterDisplay/releases/download/v${v}/BetterDisplay-v${v}.dmg" "$(betterDisplayDir)" && downloadDone "$app" "$v" 
 }
 
 betterDisplayDir() { echo "platform/mac/BetterDisplay"; }
-betterDisplayVersion() { scurl --silent --location "https://github.com/waydabber/BetterDisplay/releases" | sgrep '<h2' | sgrep '>v' | sgrep '<h' | sgrep -v "pre-release" | shead -1 | sed 's/.*>v//' | cut -d'<' -f1 | cut -d"-" -f1; }
+betterDisplayVersion() { curl --silent --location "https://github.com/waydabber/BetterDisplay/releases" | ${G}grep '<h2' | ${G}grep '>v' | ${G}grep '<h' | ${G}grep -v "pre-release" | shead -1 | sed 's/.*>v//' | cut -d'<' -f1 | cut -d"-" -f1; }
 
 BlueSherpaInstall()
 {
@@ -5366,7 +5321,7 @@ hashiCli()
 	# check version
 	if [[ ! $force ]] && InPath "$what"; then
 		local installedVersion; installedVersion="$(hashiInstalledVersion "$what")" || return
-		local latestVersion; latestVersion="$(getVersionCurrent "$what")" || return
+		local latestVersion; latestVersion="$(versionGetCurrent "$what")" || return
 		log1 "install $what: installedVersion=$installedVersion latestVersion=$latestVersion"
 		! versionCheck "$what" "$installedVersion" "$latestVersion" && return
 	fi
@@ -5387,7 +5342,7 @@ VaultDownload() { hashiDownload "vault"; }		# https://www.vaultproject.io/downlo
 hashiDownload()
 {
 	local app="$1"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	local url; url="$(hashiUrl "$app")" || return
 	local prefix="$url/$v/${app}_${v}"
 	local suffix suffixes=("darwin_amd64" "darwin_arm64" "linux_amd64" "linux_arm" "linux_arm64" "windows_amd64")
@@ -5413,7 +5368,7 @@ vaultVersion() { hashiVersion "vault"; }
 hashiVersion()
 {
 	local what="$1" url; url="$(hashiUrl "$what")" || return
-	scurl --silent "$url" | sgrep "$what" | sgrep -v "+ent" | sgrep -v -E "-beta|-rc" | shead -1 | cut -d">" -f2 | cut -d"<" -f1 | cut -d"_" -f2; 
+	curl --silent "$url" | ${G}grep "$what" | ${G}grep -v "+ent" | ${G}grep -v -E "-beta|-rc" | shead -1 | cut -d">" -f2 | cut -d"<" -f1 | cut -d"_" -f2; 
 }
 
 # Hashi Server - install Hashi server on the specified servers, set servers explicitly for safety
@@ -5712,7 +5667,7 @@ NodeRedInstall()
 	local file="$dir/package.json"
 	if [[ ! -f "$file" ]] || [[ $force ]]; then
 		hilight "Creating package.json..."
-		local version="$(npm --no-progress --no-update-notifier --no-audit --no-fund -g ls node-red | grep node-red | cut -d '@' -f 2)" || return
+		local version="$(npm --no-progress --no-update-notifier --no-audit --no-fund -g ls node-red | ${G}grep node-red | cut -d '@' -f 2)" || return
 		cat <<-EOF | sudo ${G}tee "$file" || return
 			{
 			  "name": "node-red-project",
@@ -5832,7 +5787,7 @@ BindInstall()
 
 	# update service file - for Raspberry Pi time syncronization
 	local file="/etc/systemd/system/multi-user.target.wants/named.service"
-	if IsPlatformAll ubuntu,PiKernel && [[ -f "$file" ]] && { [[ $force ]] || ! grep --quiet "clock-sync" "$file"; }; then
+	if IsPlatformAll ubuntu,PiKernel && [[ -f "$file" ]] && { [[ $force ]] || ! ${G}grep --quiet "clock-sync" "$file"; }; then
 		hilight "Updating service..."
 		
 		cat <<-EOF | sudo ${G}tee "$file" > /dev/null || return
@@ -5873,7 +5828,7 @@ cloudInitLimitUser()
 
 	sudov || return
 	! sudo ls "$file" >& /dev/null && return		# no cloud-init sudo file
-	! sudo grep -q "$line" "$file" && return		# user is already limited
+	! sudo ${G}grep -q "$line" "$file" && return		# user is already limited
 
 	# add the user to the sudo group as a fail-safe
 	GroupAddUser "sudo" || return
@@ -5891,7 +5846,7 @@ CurlieInstall()
 	local v="7.68.0"
 
 	# version check
-	InPath curlie && [[ ! $force && "$(curlie --version | head -1 | cut -d" " -f2)" == "$v" ]] && return
+	InPath curlie && [[ ! $force && "$(curlie --version | shead -1 | cut -d" " -f2)" == "$v" ]] && return
 
 	# install	
 	run --go --header "curlie" "github.com/rs/curlie@latest"
@@ -5921,7 +5876,7 @@ DomotzAgentInstall()
 	
 	# install
 	local name="domotzpro-agent-publicstore"
-	if ! snap list | grep --quiet '^domotzpro-agent-publicstore'; then
+	if ! snap list | ${G}grep --quiet '^domotzpro-agent-publicstore'; then
 		sudoc snap install "$name" || return
 	  sudo snap connect $name:firewall-control || return
 	  sudo snap connect $name:network-observe || return
@@ -5931,12 +5886,12 @@ DomotzAgentInstall()
 	fi
 
 	# configure firewall
-	InPath ufw && sudo ufw status | grep --quiet " active" && { sudo ufw allow 3000 || return; }
+	InPath ufw && sudo ufw status | ${G}grep --quiet " active" && { sudo ufw allow 3000 || return; }
 
 	# configured allowed interface
 	local interface; interface="$(GetInterface)" || return
 	echo "Checking if '$interface' is the allowed interface..."
-	if ! DomotzHelper api network/interfaces-policy | grep --quiet "\"$interface\""; then
+	if ! DomotzHelper api network/interfaces-policy | ${G}grep --quiet "\"$interface\""; then
 		echo "Setting '$interface' to the allowed interface..."
 		DomotzHelper api put network/interfaces-policy '{ "policy": "allow", "rules": [ "'$interface'" ] }' || return
 	fi
@@ -6060,7 +6015,7 @@ KeepalivedInstall()
 
 	# test all vips
 	local file="/etc/keepalived/keepalived.conf"
-	local vip vips; ArrayMake vips "$(grep -A 1 "virtual_ipaddress" "$file" | grep -v "virtual_ipaddress" | grep -v '\-\-' | awk '{ print $1; }')"
+	local vip vips; ArrayMake vips "$(grep -A 1 "virtual_ipaddress" "$file" | ${G}grep -v "virtual_ipaddress" | ${G}grep -v '\-\-' | awk '{ print $1; }')"
 	for vip in "${vips[@]}"; do WaitForAvailable "$vip" "" 10 || return; done
 
 	# ensure service is running in case other keepalived servers are responding to the vips
@@ -6403,13 +6358,13 @@ wifiUbuntu()
 	iwconfig $interface >& /dev/null && { sudo ifconfig $interface up || return; }
 		
 	# connect to a wireless network
-	if iwconfig |& grep --quiet Not-Associated; then
+	if iwconfig |& ${G}grep --quiet Not-Associated; then
 
 		# get SSID
 		local networks; networks="$(WifiNetworks)" || return
 		local defaultNetwork="$(ConfigGet "wifi")"
-		! echo "$networks" | grep --quiet "^$defaultNetwork$" && defaultNetwork="" # default network not found
-		[[ ! $defaultNetwork ]] && defaultNetwork="$(WiFiNetworks | head -1)"
+		! echo "$networks" | ${G}grep --quiet "^$defaultNetwork$" && defaultNetwork="" # default network not found
+		[[ ! $defaultNetwork ]] && defaultNetwork="$(WiFiNetworks | shead -1)"
 		local network; network="$(ask text "What Wi-Fi network would you like to connect to ($defaultNetwork)")" || return
 		[[ ! $network ]] && network="$defaultNetwork"
 
@@ -6592,7 +6547,7 @@ K3sInstall()
 	# enable memory cgroups - Raspberry Pi Ubuntu
 	local file="/boot/firmware/cmdline.txt"
 	local what=" cgroup_memory=1 cgroup_enable=memory"
-	if [[ $file ]] && ! grep --quiet "$what" "$file"; then
+	if [[ $file ]] && ! ${G}grep --quiet "$what" "$file"; then
 		sudoc sed -i '$s/$/'"$what/" "$file" && rebootDo
 	fi
 
@@ -6677,7 +6632,7 @@ IisFinalWin() { makeDir "$pp/Development/Other/IIS" && mergeDir "$pp/IIS" "$pp/D
 
 TeamsInstall()
 {
-	local v; v="$(getVersionCurrent "Teams${PLATFORM_OS^}")" || return
+	local v; v="$(versionGetCurrent "Teams${PLATFORM_OS^}")" || return
 	run --name="Teams" "$(teamsDir)/teams-$v.$(getPlatform "exe" "pkg")" --version="$v"
 } 
 
@@ -6705,13 +6660,13 @@ TeamsDownload() { Teams${PLATFORM_OS^}Download; }
 TeamsMacDownload()
 {
 	local app="TeamsMac"; downloadStart "$app" || return 0
-	local v; v="$(getVersionCurrent "$app")" && download "https://statics.teams.cdn.office.net/production-osx/$v/Teams_osx.pkg" "$(teamsDir)" "teams-$v.pkg" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "$app")" && download "https://statics.teams.cdn.office.net/production-osx/$v/Teams_osx.pkg" "$(teamsDir)" "teams-$v.pkg" && downloadDone "$app" "$v"
 }
 
 TeamsWinDownload()
 {
 	local app="TeamsWin"; downloadStart "$app" || return 0
-	local v; v="$(getVersionCurrent "$app")" && download "https://statics.teams.cdn.office.net/production-windows/1.6.00.18681/TeamsSetup.exe" "$(teamsDir)" "teams-$v.exe" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "$app")" && download "https://statics.teams.cdn.office.net/production-windows/1.6.00.18681/TeamsSetup.exe" "$(teamsDir)" "teams-$v.exe" && downloadDone "$app" "$v"
 }
 
 teamsDir() { echo "other/Microsoft/teams"; }
@@ -6720,7 +6675,7 @@ teamsWinDir() { teamsDir; }
 
 teamsMacVersion() { teamsVersionDo "Mac"; }
 teamsWinVersion() { teamsVersionDo "Windows"; }
-teamsVersionDo() { curl --silent --location "https://learn.microsoft.com/en-us/officeupdates/teams-app-versioning" | sgrep "$1 version history" -A20 | grep '^<td' | head -3 | tail -1 | cut -d'>' -f2 | cut -d'<' -f1; }
+teamsVersionDo() { curl --silent --location "https://learn.microsoft.com/en-us/officeupdates/teams-app-versioning" | ${G}grep "$1 version history" -A20 | ${G}grep '^<td' | shead -3 | tail -1 | cut -d'>' -f2 | cut -d'<' -f1; }
 
 TfsCliInstall()
 {
@@ -7064,7 +7019,7 @@ ProcsInstall()
 	header "procs"; local v="0.12.1" # # https://github.com/dalance/procs
 
 	# version check
-	InPath procs && [[ "$(procs --version | head -1 | cut -d" " -f 2)" == "$v" && ! $force ]] && return
+	InPath procs && [[ "$(procs --version | shead -1 | cut -d" " -f 2)" == "$v" && ! $force ]] && return
 
 	# install
 	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then pkg procs
@@ -7142,7 +7097,7 @@ AptInstall()
 	local codeName; codeName="$(os CodeName)" || return
 
 	# add universe sources
-	if IsPlatform ubuntu && ! IsPlatform rock && ! grep "$codeName universe" "/etc/apt/sources.list" |& grep -v "^#" >& /dev/null; then
+	if IsPlatform ubuntu && ! IsPlatform rock && ! ${G}grep "$codeName universe" "/etc/apt/sources.list" |& ${G}grep -v "^#" >& /dev/null; then
 		echo "deb http://us.archive.ubuntu.com/ubuntu/ $codeName universe" | sudo ${G}tee -a "/etc/apt/sources.list" || return
 		PackageUpdate || return
 	fi
@@ -7166,8 +7121,8 @@ AptSrcInstall()
 	sudoc sed -i.bak 's/^# *deb-src/deb-src/g' "$file" || return
 
 	# ensure the deb-src distribution matches the deb distribution - seen on WSL
- 	local deb; deb="$(grep "^deb " "$file" | head -1 | cut -d" " -f3)" || return
- 	local debSrc; debSrc="$(grep "^deb-src " "$file" | head -1 | cut -d" " -f3)" || return
+ 	local deb; deb="$(grep "^deb " "$file" | shead -1 | cut -d" " -f3)" || return
+ 	local debSrc; debSrc="$(grep "^deb-src " "$file" | shead -1 | cut -d" " -f3)" || return
 	[[ "$deb" != "$debSrc" ]] && { sudoc sed -i "s/ $debSrc/ $deb/g" "$file" || return; }
 	
 	# duplicate deb sources if none are present - seen on Rock5
@@ -7375,7 +7330,7 @@ StuiInstall()
 	package stress || return
 
 	# version check
-	InPath s-tui && [[ "$(s-tui --version | head -1 | cut -d" " -f2)" == "$v" && ! $force ]] && return
+	InPath s-tui && [[ "$(s-tui --version | shead -1 | cut -d" " -f2)" == "$v" && ! $force ]] && return
 
 	# install
 	run --python-global s-tui || return
@@ -7423,7 +7378,7 @@ PythonAsdfInstall()
 	esac
 
 	# install plugin
-	! asdf plugin list | grep -q python && { asdf plugin add python || return; }
+	! asdf plugin list | ${G}grep -q python && { asdf plugin add python || return; }
 
 	# install latest python
 	asdf install python latest || return
@@ -7687,7 +7642,7 @@ PiFirmwareInstall()
 
 	# change from ciritical to stable firmware channel
 	local file="/etc/default/rpi-eeprom-update"
-	if ! grep -q "FIRMWARE_RELEASE_STATUS=\"stable\"" "$file"; then
+	if ! ${G}grep -q "FIRMWARE_RELEASE_STATUS=\"stable\"" "$file"; then
 		sudo sed -i "s/^FIRMWARE_RELEASE_STATUS=.*/FIRMWARE_RELEASE_STATUS=\"stable\"/" "$file" || return
 	fi
 
@@ -7852,7 +7807,7 @@ MicrosoftRemoteDesktopInstall() { run --name "Microsoft Remote Desktop"; }
 
 NoMachineInstall()
 {
-	local v; v="$(getVersionCurrent "NoMachine")" || return
+	local v; v="$(versionGetCurrent "NoMachine")" || return
 	run --name="NoMachine" "$(noMachineDir)/NoMachine $v.exe|NoMachine $v.dmg|NoMachine $v.deb" --version="$v"
 }
 
@@ -7862,7 +7817,7 @@ NoMachineProfile() { NoMachine profile restore default && NoMachine startup; }
 NoMachineDownload()
 {
 	local app="NoMachine"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	local vShort="$(GetWord "$v" 1 .).$(GetWord "$v" 2 .)"
 	local item items=("Linux-_amd64-deb" "MacOSX--dmg" "Windows-_x64-exe")
 
@@ -7895,7 +7850,7 @@ noMachineFindUrl()
 	echo "not found"; return 1
 }
 
-noMachineVersion() { curl --location --silent -A "$(getAgent)" "http://NoMachine.com" | grep "Mac -" | sed 's/.* Mac - //' | cut -d" " -f1; }
+noMachineVersion() { curl --location --silent -A "$(getAgent)" "http://NoMachine.com" | ${G}grep "Mac -" | sed 's/.* Mac - //' | cut -d" " -f1; }
 
 TigerVncInstall()
 {
@@ -7947,7 +7902,7 @@ RubyAsdfInstall()
 	i --no-header asdf || return
 
 	# install Ruby plugin
-	! asdf plugin list | grep -q ruby && { asdf plugin add ruby || return; }
+	! asdf plugin list | ${G}grep -q ruby && { asdf plugin add ruby || return; }
 
 	# install latest Ruby
 	asdf install ruby latest || return
@@ -7982,7 +7937,7 @@ RubyRvmInstall()
 
 	# ruby
 	local version="3.0"
-	if ! InPath ruby || ! ruby --version | grep "$version" >& /dev/null; then
+	if ! InPath ruby || ! ruby --version | ${G}grep "$version" >& /dev/null; then
 		rvm install "$version" || return
 		. "$HOME/.rvm/scripts/rvm" || return # add ruby and gem to the path in current shell
 		rvm use --default "$version" || return
@@ -8046,7 +8001,7 @@ CronInstall()
 
 	# incron
 	local file="/etc/incron.allow"
-	[[ -f "$file" ]] && ! sudoc grep --quiet "^$USER$" "$file" && { echo "$USER" | sudo ${G}tee --append "/etc/incron.allow" || return; }
+	[[ -f "$file" ]] && ! sudoc ${G}grep --quiet "^$USER$" "$file" && { echo "$USER" | sudo ${G}tee --append "/etc/incron.allow" || return; }
 
 	return 0
 }
@@ -8055,7 +8010,7 @@ CronLogInstall()
 {
 	local f="/etc/rsyslog.d/50-default.conf"
 
-	if [[ -f "$f" ]] && grep -q "#cron\.\*" "$f"; then
+	if [[ -f "$f" ]] && ${G}grep -q "#cron\.\*" "$f"; then
 		sudo sed -i "s/^#cron\.\**/cron\.\*/" "$f" || return
 		sudoc systemctl restart rsyslog --no-block || return
 	fi
@@ -8089,7 +8044,7 @@ ApacheInstall()
 
 	# configure
 	local dir="$(apache dir conf)" file="$dir/envvars"
-	[[ -f "$file" ]] && ! grep --quiet "^export HOSTNAME" "$file" && { echo 'export HOSTNAME=`uname -n`' | sudo ${G}tee --append "$file" || return; }
+	[[ -f "$file" ]] && ! ${G}grep --quiet "^export HOSTNAME" "$file" && { echo 'export HOSTNAME=`uname -n`' | sudo ${G}tee --append "$file" || return; }
 	
 	# restart service
 	service restart apache2 || return
@@ -8201,12 +8156,12 @@ BashProfile()
 	[[ ! -f "$file" ]] && { ScriptErr "'$file' does not exist"; return 1; }
 
 	# try and add the line automatically
-	if ! grep -q "$line" "$file" && [[ $after ]]; then
+	if ! ${G}grep -q "$line" "$file" && [[ $after ]]; then
 		sudoc ${G}sed -ie '/^'"$after"'/a \\n'"$line"'' "$file" || return
 	fi
 
 	# add the line manually
-	if ! grep -q "$line" "$file"; then
+	if ! ${G}grep -q "$line" "$file"; then
 		echo "$line"; clipw "$line"
 		echo "- paste above line before \"$before\""
 		pause
@@ -8223,7 +8178,7 @@ BashProfile()
 
 ZshInstall()
 {
-	IsPlatform mac && ! which zsh | grep --quiet "homebrew" && force="--force" # force if the Homebrew Zsh is not installed
+	IsPlatform mac && ! which zsh | ${G}grep --quiet "homebrew" && force="--force" # force if the Homebrew Zsh is not installed
 	run --name="Z shell" --package zsh && forceAllParts="true"
 }
 
@@ -8244,7 +8199,7 @@ ZshProfile()
 	makeFileSudo "$file" || return
 
 	local line='[[ -f "/usr/local/data/bin/bash.bashrc" ]] && . "/usr/local/data/bin/bash.bashrc"'
-	! grep --quiet "$line" "$file" && { echo "$line" | sudo ${G}tee --append "$file" || return; }
+	! ${G}grep --quiet "$line" "$file" && { echo "$line" | sudo ${G}tee --append "$file" || return; }
 	sudoc chmod +x "$file" || return
 
 	# login shell
@@ -8273,7 +8228,7 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 
 1PasswordInstall()
 {
-	local v; v="$(getVersionCurrent "1Password")" || return
+	local v; v="$(versionGetCurrent "1Password")" || return
 	run --name "1Password" "$(1PasswordDir)/1Password-win v$v.$(getElevate "msi" "exe")|1Password-mac v$v.zip|1Password-linux v$v.deb" --version=$v --elevate || return
 	IsPlatform mac && { i "1PasswordExtension" --no-header || return; }
 	return 0
@@ -8293,7 +8248,7 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 1PasswordDownload()
 {
 	local app="1Password"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return	
+	local v; v="$(versionGetCurrent "$app")" || return	
 
 	local item items=("mac/1Password.zip" "win/1PasswordSetup-latest.msi" "win/1PasswordSetup-latest.exe" "linux/debian/amd64/stable/1password-latest.deb")
 	[[ "$installType" == "beta" ]] && items=("mac/1Password%20Beta.zip" "win/1PasswordSetup-latest.BETA.msi")
@@ -8302,16 +8257,16 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 		download "https://downloads.1password.com/$item" "$(1PasswordDir)" "1Password-$(RemoveAfter "$item" "/") v$v.$(GetFileExtension "$item")" || return
 	done
 
-	downloadDone "$app" "$v"
+	pause downloadDone "$app" "$v"
 }
 
 1PasswordDir() { echo "other/1Password/setup"; }
-1PasswordVersion() { curl --silent "https://releases.1password.com/mac/" | tr -d '\n' | sed 's/u-flexgrow u-text-left/\n/g' | ${G}grep -A 1 "Updated to" | grep -v "href=/mac/beta" | head -1 | cut -d" " -f3; }
-1PasswordVersionBeta() { curl --silent "https://releases.1password.com/mac/" | tr -d '\n' | sed 's/u-flexgrow u-text-left/\n/g' | ${G}grep -A 1 "Updated to" | grep "href=/mac/beta" | head -1 | cut -d" " -f3; }
+1PasswordVersion() { curl --silent "https://releases.1password.com/mac/" | tr -d '\n' | sed 's/u-flexgrow u-text-left/\n/g' | ${G}grep -A 1 "Updated to" | ${G}grep -v "href=/mac/beta" | shead -1 | cut -d" " -f3; }
+1PasswordVersionBeta() { curl --silent "https://releases.1password.com/mac/" | tr -d '\n' | sed 's/u-flexgrow u-text-left/\n/g' | ${G}grep -A 1 "Updated to" | ${G}grep "href=/mac/beta" | shead -1 | cut -d" " -f3; }
 
 1PasswordCliInstall()
 {
-	local v; v="$(getVersionCurrent "1PasswordCli")" || return
+	local v; v="$(versionGetCurrent "1PasswordCli")" || return
 
 	if IsPlatform mac; then
 		run --name "op" "$(1PasswordCliDir)/op_apple_universal_v$v.pkg" --version=$v || return
@@ -8323,7 +8278,7 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 1PasswordCliDownload()
 {
 	local app="1PasswordCli"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return	
+	local v; v="$(versionGetCurrent "$app")" || return	
 
 	local item items=("op_apple_universal_v$v.pkg" "op_linux_amd64_v$v.zip" "op_linux_arm64_v$v.zip" "op_windows_amd64_v$v.zip")
 
@@ -8335,7 +8290,7 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 }
 
 1PasswordCliDir() { echo "other/1Password/cli"; }
-1PasswordCliVersion() { scurl --silent "https://app-updates.agilebits.com/product_history/CLI2" | sgrep build | grep -v beta | shead -1 | sed 's/.*title="//' | cut -d" " -f1; }
+1PasswordCliVersion() { curl --silent "https://app-updates.agilebits.com/product_history/CLI2" | ${G}grep build | ${G}grep -v beta | shead -1 | sed 's/.*title="//' | cut -d" " -f1; }
 
 AxCryptInstall() { run --name "AxCrypt" "AxCrypt/setup/AxCrypt-2.1.1573.0-Setup.exe|AxCrypt-Mac-2.2.578.0.pkg"; } # https://www.axcrypt.net/download/
 
@@ -8449,7 +8404,7 @@ PassInstall()
 	pkg pass || return;
 
 	if [[ ! -d "$HOME/.password-store" ]]; then
-		local id; id="$(gpg --list-keys | head -4 | tail -1 | RemoveSpace)" || return
+		local id; id="$(gpg --list-keys | shead -4 | tail -1 | RemoveSpace)" || return
 		pass init "$id" || return
 		credential test set --manager=pass || return
 	fi
@@ -8551,7 +8506,7 @@ sshServerEntware()
 
 sshServerMac()
 {
-	sudoc systemsetup -getremotelogin | grep --quiet "Remote Login: On" && return
+	sudoc systemsetup -getremotelogin | ${G}grep --quiet "Remote Login: On" && return
 	sudo systemsetup -setremotelogin on
 }
 
@@ -8575,7 +8530,7 @@ sshServerWsl()
 
 	# service permission
 	local file="/etc/sudoers"
-	if ! sudo grep "$USER" "$file" >& /dev/null; then
+	if ! sudo ${G}grep "$USER" "$file" >& /dev/null; then
 		echo "$USER ALL = (root) NOPASSWD: /usr/sbin/sshd -D" | sudo ${G}tee -a "$file" || return
 	fi
 
@@ -8607,7 +8562,7 @@ sshClientMac()
 	ssh-add --apple-use-keychain || return
 
 	# configure X
-	if ! grep "XAuthLocation /opt/X11/bin/xauth" /etc/ssh/ssh_config  >& /dev/null; then
+	if ! ${G}grep "XAuthLocation /opt/X11/bin/xauth" /etc/ssh/ssh_config  >& /dev/null; then
 		echo "Configuring SSH authentication..."
 		echo "XAuthLocation /opt/X11/bin/xauth" | sudo ${G}tee -a /etc/ssh/ssh_config
 	fi
@@ -8688,7 +8643,7 @@ isStoreId() { ! IsPlatform mac && return 1; RunPlatform isStoreId "$1"; }
 isStoreIdMac() { IsInteger "$1"; }
 
 # storeIsInstalled ID - return true if the application with store ID is installed
-storeIsInstalled() { storeCheck && mas list | grep --quiet "^$1 "; }
+storeIsInstalled() { storeCheck && mas list | ${G}grep --quiet "^$1 "; }
 
 # storeCurrentVersion ID - return the current version of the application with the store ID
 storeCurrentVersion() { RunPlatform storeCurrentVersion "$1"; }
@@ -8696,7 +8651,7 @@ storeCurrentVersionMac() { storeCheck && mas search "$1" | rev | cut -d" " -f 1 
 
 # storeIsInstalled ID - return true if the application with store ID is installed
 storeIsInstalled() { RunPlatform storeIsInstalled "$1"; }
-storeIsInstalledMac() { storeCheck && mas list | grep --quiet "^$1 "; }
+storeIsInstalledMac() { storeCheck && mas list | ${G}grep --quiet "^$1 "; }
 
 #################################################
 # Surveillance
@@ -8758,7 +8713,7 @@ TerminalAllInstall() { i iTerm terminator tmux Warp WindowsTerminal; }
 
 iTermInstall()
 {
-	local v; v="$(getVersionCurrent "iTerm")" || return
+	local v; v="$(versionGetCurrent "iTerm")" || return
 	run --name="iTerm" "$(iTermDir)/iTerm2 $v.zip" --version="$v"
 
 	# shell intergration - https://iterm2.com/documentation-shell-integration.html
@@ -8781,15 +8736,15 @@ iTermHelp()
 iTermDownload()
 {
 	local app="iTerm"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	local type="stable" vActual="$v"; [[ "$installType" == "beta" ]] && type="beta" v="$(iTermVersionBetaFull)"
 	download "https://iterm2.com/downloads/$type/iTerm2-${v//./_}.zip" "$(iTermDir)" "iTerm2 $vActual.zip" && downloadDone "$app" "$vActual"
 }
 
 iTermDir() { echo "platform/mac/iTerm2"; }
-iTermVersion() { scurl --silent --location "https://iterm2.com/downloads.html" | sgrep "iterm2" | shead -1 | sed 's/.*iTerm2 //' | cut -d" " -f1; }
+iTermVersion() { curl --silent --location "https://iterm2.com/downloads.html" | ${G}grep "iterm2" | shead -1 | sed 's/.*iTerm2 //' | cut -d" " -f1; }
 iTermVersionBeta() { iTermVersionBetaFull | sed 's/beta.*//'; }
-iTermVersionBetaFull() { scurl --silent --location "https://iterm2.com/downloads.html" | sgrep "beta" | sgrep "iterm2" | shead -1 | sed 's/.*iTerm2 //' | cut -d" " -f1; }
+iTermVersionBetaFull() { curl --silent --location "https://iterm2.com/downloads.html" | ${G}grep "beta" | ${G}grep "iterm2" | shead -1 | sed 's/.*iTerm2 //' | cut -d" " -f1; }
 
 TerminatorInstall() { run --package terminator; }
 TerminatorProfile() { TerminatorHelper $noPrompt profile restore default; }
@@ -8805,7 +8760,7 @@ TmuxProfile()
 
 WarpInstall()
 {
-	local v; v="$(getVersionCurrent "warp")" || return
+	local v; v="$(versionGetCurrent "warp")" || return
 	run --name="Warp" "$(warpDir)/Warp ${v}.dmg" --version="$v"
 }
 
@@ -8814,7 +8769,7 @@ WarpProfile() { warp profile restore default && warp startup; }
 WarpDownload()
 {
 	local app="warp"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	local url; url="$(warpFindUrl)" || return
 	download "$url" "$(warpDir)" "Warp ${v}.dmg" && downloadDone "$app" "$v"
 }
@@ -8837,7 +8792,7 @@ warpVersionClean() { rm -fr "$dmg" "$(GetFilePath "$plist")"; return "${1:-0}"; 
 
 warpFindUrl()
 {
-	local stamp; stamp="$(scurl --silent --location "https://docs.warp.dev/getting-started/changelog" | sgrep --text "gitbook-root" | tr '</span>' '\n' | sgrep --text "(v0" | sort -V --reverse | shead -1 | sed 's/.* (v//' | cut -d")" -f1)" || return
+	local stamp; stamp="$(curl --silent --location "https://docs.warp.dev/getting-started/changelog" | ${G}grep --text "gitbook-root" | tr '</span>' '\n' | ${G}grep --text "(v0" | sort -V --reverse | shead -1 | sed 's/.* (v//' | cut -d")" -f1)" || return
 	local url="https://releases.warp.dev/stable/v${stamp}.stable_0"'${i}'"/Warp.dmg"
 	local i result tryUrl
 
@@ -8845,7 +8800,7 @@ warpFindUrl()
 
 	for (( i = 5; i >= 0; i-- )); do
 		tryUrl="$(eval echo $url)"
-		scurl --silent "$tryUrl" --head | sgrep --quiet "404" && { logp1 "."; continue; }
+		curl --silent "$tryUrl" --head | ${G}grep --quiet "404" && { logp1 "."; continue; }
 		logp1 "found\n"; echo "$tryUrl"; return
 	done
 
@@ -8944,7 +8899,7 @@ NotepadPpFinalWin() {	$mv "$pp/Notepad++.lnk" "$pp/Applications" && $rmd "$pp/No
   
 ObsidianInstall()
 {
-	local v; v="$(getVersionCurrent "obsidian" )" || return
+	local v; v="$(versionGetCurrent "obsidian" )" || return
 	run --name="Obsidian" "$(obsidianDir)/Obsidian.$v$(getArch "" "-arm64").exe|Obsidian-$v-universal.dmg|obsidian_$v_amd64.deb" --version="$v"
 }
 
@@ -8964,7 +8919,7 @@ ObsidianHelp()
 ObsidianDownload()
 {
 	local app="obsidian"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	local suffix suffixes=( "Obsidian.$v.exe" "Obsidian.$v-arm64.exe" "Obsidian-$v-universal.dmg" "obsidian_${v}_amd64.deb" )
 
 	for suffix in "${suffixes[@]}"; do
@@ -8975,14 +8930,14 @@ ObsidianDownload()
 }
 
 obsidianDir() { echo "shareware/Obsidian"; }
-obsidianVersion() {	scurl --silent "https://github.com/obsidianmd/obsidian-releases/releases" | sgrep "/obsidianmd/obsidian-releases/tree" | shead -1 | sed 's/.*tree\/v//' | cut -d"\"" -f1; }
+obsidianVersion() {	curl --silent "https://github.com/obsidianmd/obsidian-releases/releases" | ${G}grep "/obsidianmd/obsidian-releases/tree" | shead -1 | sed 's/.*tree\/v//' | cut -d"\"" -f1; }
 
 SublimeInstall()
 {
 	header "Sublime Text Editor"	
 
 	# check version
-	local v; v="$(getVersionCurrent "sublime")" || return
+	local v; v="$(versionGetCurrent "sublime")" || return
 	sublime $alternate IsInstalled && ! versionCheck "sublime" "$(sublime $alternate version)" "$v" && return
 
 	# install	
@@ -9026,7 +8981,7 @@ SublimeFinalWin()
 SublimeDownload()
 {
 	local app="sublime"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	local baseUrl="https://download.sublimetext.com/sublime_text_build_${v}_"
 	local baseUrlDeb="https://download.sublimetext.com/sublime-text_build-${v}_"
 	local suffix suffixes=("arm64.deb" "mac.zip" "x64_setup.exe" "x64.zip" "amd64.deb")
@@ -9040,14 +8995,14 @@ SublimeDownload()
 }
 
 sublimeDir() { echo "other/Sublime/setup"; }
-sublimeVersion() { curl --silent --location "https://www.sublimetext.com/download" | grep "Version" | ${G}grep -oP '(?=Build ).*' | cut -d" " -f2 | cut -d"<" -f1; }
+sublimeVersion() { curl --silent --location "https://www.sublimetext.com/download" | ${G}grep "Version" | ${G}grep -oP '(?=Build ).*' | cut -d" " -f2 | cut -d"<" -f1; }
 
 VisualStudioCodeInstall()
 {
 	header "Visual Studio Code"
 
 	# install
-	local v; v="$(getVersionCurrent "VisualStudioCode")" || return
+	local v; v="$(versionGetCurrent "VisualStudioCode")" || return
 	local args=(); IsPlatform mac && args+=(--dest "$HOME/Applications")
 	run --no-header --name="VisualStudioCode" "$(visualStudioCodeDir)/VSCodeUserSetup-$(getArch "x64" "arm64")-$v.exe|VSCode-darwin-universal-$v.zip|code_$v_$(getArch "amd64" "arm64" "armhf").deb" "${args[@]}" --version=$v --copy-local-win || return
 
@@ -9080,12 +9035,12 @@ VisualStudioCodeFinalWin()
 VisualStudioCodeDownload()
 {
 	local app="VisualStudioCode"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	local oss=("darwin-universal" "linux-deb-arm64" "linux-deb-x64" "win32-x64-user" "win32-x64" "win32-arm64-user" "win32-arm64")
 
 	for os in "${oss[@]}"; do
 		local url="$(visualStudioCodeUrl "$os")"
-		local file; file="$(curl --silent -H -L "$url" |& grep "Found." | GetFileName)" || { ScriptErr "unable to download '$url'"; return 1; }
+		local file; file="$(curl --silent -H -L "$url" |& ${G}grep "Found." | GetFileName)" || { ScriptErr "unable to download '$url'"; return 1; }
 		[[ "$file" =~ .deb$ ]] && file="code_${v}_$(echo "$file" |  cut -d_ -f3)" # remove serial number, i.e. code_1.76.2-1678817801_amd64.deb -> code_1.76.2_amd64.deb
 		[[ "$file" == "VSCode-darwin-universal.zip" ]] && file="VSCode-darwin-universal-$v.zip"
 		download "$url" "$(visualStudioCodeDir)" "$file" || return
@@ -9134,32 +9089,32 @@ rtcPiKernel()
 {
 	# dependencies
 	piI2cCheck || return
-	! PackageListInstalled | sponge | grep --quiet "^python3-smbus:" &&  { package python3-smbus || return; }
+	! PackageListInstalled | ${G}grep --quiet "^python3-smbus:" &&  { package python3-smbus || return; }
 
 	# check for RTC chip
-	! sudoc i2cdetect -y 1 | sponge | grep --quiet -E "( 68|UU )" && { ScriptErr 'RTC chip not detected, try rebooting'; return 1; }
+	! sudoc i2cdetect -y 1 | ${G}grep --quiet -E "( 68|UU )" && { ScriptErr 'RTC chip not detected, try rebooting'; return 1; }
 
 	# update config.txt if needed
 	local file="/boot/firmware/config.txt"
 	local line="include usercfg.txt"
-	! grep --quiet "^$line$" "$file" && { echo "$line" | sudo ${G}tee -a "$file" || return; }
+	! ${G}grep --quiet "^$line$" "$file" && { echo "$line" | sudo ${G}tee -a "$file" || return; }
 
 	# add kernel module
 	local file="/boot/firmware/usercfg.txt"; IsPlatform pi && file="/boot/config.txt"
 	local line="dtoverlay=i2c-rtc,ds3231"
-	if ! grep --quiet "^$line$" "$file"; then
+	if ! ${G}grep --quiet "^$line$" "$file"; then
 		echo "$line" | sudo ${G}tee -a "$file" || return
 		rebootDo || return
 		return 1
 	fi
 
 	# check for RTC
-	! sudo i2cdetect -y 1 | sponge | grep --quiet -E "UU " && { ScriptErr 'RTC chip not detected'; return 1; }		
+	! sudo i2cdetect -y 1 | ${G}grep --quiet -E "UU " && { ScriptErr 'RTC chip not detected'; return 1; }		
 
 	# configure hwclock-set
 	local file="/lib/udev/hwclock-set"
 	local line="if \[ \-e \/run\/systemd\/system \] \; then"
-	if grep --quiet "^$line$" "$file"; then
+	if ${G}grep --quiet "^$line$" "$file"; then
 		sudoc sed -i '/^'"$line"$'/,+2s/^/#/' "$file" || return
 	fi
 
@@ -9172,7 +9127,7 @@ timezoneMessage() { hilight "Setting the timezone to '$timezone'..."; }
 timezoneDebian()
 {
 	{ [[ ! $timezone ]] || IsPlatform win; } && return
-	[[ ! $force ]] && cat "/etc/timezone" |& grep "$timezone" > /dev/null && return
+	[[ ! $force ]] && cat "/etc/timezone" |& ${G}grep "$timezone" > /dev/null && return
 
 	timezoneMessage
 	DEBIAN_FRONTEND=noninteractive sudoc apt install -y tzdata || return
@@ -9185,7 +9140,7 @@ timezoneDebian()
 timezonePi()
 {
 	[[ ! $timezone ]] && return
-	[[ ! $force ]] && cat /etc/timezone | grep -q "$timezone" && return
+	[[ ! $force ]] && cat /etc/timezone | ${G}grep -q "$timezone" && return
 
 	timezoneMessage; sudo raspi-config nonint do_change_timezone "$timezone"
 }
@@ -9291,7 +9246,7 @@ DogInstall()
 	header "dog"; local v='v0.2.0-pre [721440b] built on 2022-03-30 (pre-release!)' # https://github.com/ogham/dog
 
 	# version check
-	InPath dog && [[ "$(dog --version | head -2 | tail -1)" == "$v" && ! $force ]] && return
+	InPath dog && [[ "$(dog --version | shead -2 | tail -1)" == "$v" && ! $force ]] && return
 
 	# install
 	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then brew install dog
@@ -9394,7 +9349,7 @@ RipgrepInstall()
 	header "ripgrep (rg)"; local v="13.0.0" # https://github.com/BurntSushi/ripgrep/releases
 
 	# version check
-	InPath rg && [[ "$(rg --version | head -1 | cut -d" " -f 2)" == "$v" && ! $force ]] && return
+	InPath rg && [[ "$(rg --version | shead -1 | cut -d" " -f 2)" == "$v" && ! $force ]] && return
 
 	# install
 	if IsPlatform mac && [[ "$installType" == @(|package) ]]; then brew install ripgrep
@@ -9454,7 +9409,7 @@ MouseBoostInstall() { run --name "Mouse Boost" --store "1555844307"; }
 
 AlfredInstall()
 {
-	local v; v="$(getVersionCurrent "alfred" )" || return
+	local v; v="$(versionGetCurrent "alfred" )" || return
 	run --name="Alfred" "$(alfredDir)/Alfred_$v.dmg" --version="$v" && alfred startup
 }
 
@@ -9464,32 +9419,32 @@ AlfredRegister() { register "alfred"; }
 AlfredDownload()
 {
 	local app="alfred"; downloadStart "$app" || return 0
-	local v; v="$(getVersionCurrent "$app")" && download "https://cachefly.alfredapp.com/Alfred_$v.dmg" "$(alfredDir)" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "$app")" && download "https://cachefly.alfredapp.com/Alfred_$v.dmg" "$(alfredDir)" && downloadDone "$app" "$v"
 }
 
 alfredDir() { echo "platform/mac/Alfred/setup"; }
 
 alfredVersion()
 {
-	local change; change="$(alfredChangeLog |& sgrep -A1 '<h2>Alfred[^\s]*<' | shead -2)" || return
-	local version="$(echo "$change" | head -1 | sed 's/.*Alfred //' | cut -d'<' -f1)"
+	local change; change="$(alfredChangeLog |& ${G}grep -A1 '<h2>Alfred[^\s]*<' | shead -2)" || return
+	local version="$(echo "$change" | shead -1 | sed 's/.*Alfred //' | cut -d'<' -f1)"
 	local build="$(echo "$change" | tail -1 | sed 's/.*Build //' | cut -d',' -f1)"
 	echo "${version}_${build}"
 }
 
 alfredVersionBeta()
 {
-	local change; change="$(alfredChangeLog |& sgrep -A1 'Pre-release' | shead -2)" || return 0; # no pre-release version
-	local version="$(echo "$change" | head -1 | sed 's/.*Alfred //' | cut -d' ' -f1)"
+	local change; change="$(alfredChangeLog |& ${G}grep -A1 'Pre-release' | shead -2)" || return 0; # no pre-release version
+	local version="$(echo "$change" | shead -1 | sed 's/.*Alfred //' | cut -d' ' -f1)"
 	local build="$(echo "$change" | tail -1 | sed 's/.*Build //' | cut -d',' -f1)"
 	echo "${version}_${build}"
 }
 
-alfredChangeLog() { scurl --silent --location "https://www.alfredapp.com/changelog"; }
+alfredChangeLog() { curl --silent --location "https://www.alfredapp.com/changelog"; }
 
 AltTabInstall()
 {
-	local v; v="$(getVersionCurrent "AltTab")" || return
+	local v; v="$(versionGetCurrent "AltTab")" || return
 	run --name="AltTab" "$(altTabDir)/AltTab-$v.zip" --version="$v" && AltTab startup
 }
 
@@ -9498,11 +9453,11 @@ AltTabProfile() { AltTab profile restore default; }
 AltTabDownload()
 {
 	local app="AltTab"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" && download "https://github.com/lwouis/alt-tab-macos/releases/download/v$v/AltTab-$v.zip" "$(altTabDir)" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "$app")" && download "https://github.com/lwouis/alt-tab-macos/releases/download/v$v/AltTab-$v.zip" "$(altTabDir)" && downloadDone "$app" "$v"
 }
 
 altTabDir() { echo "platform/mac/AltTab"; }
-altTabVersion() { scurl --silent --location "https://alt-tab-macos.netlify.app/changelog" | sgrep '<h1 id=' | shead -2 | tail -1 | cut -d'>' -f3 | cut -d'<' -f1; }
+altTabVersion() { curl --silent --location "https://alt-tab-macos.netlify.app/changelog" | ${G}grep '<h1 id=' | shead -2 | tail -1 | cut -d'>' -f3 | cut -d'<' -f1; }
 
 AltTabTerminatorInstall() { run --header "Alt-Tab Terminator" "platform/win/NTwind/AltTabTer_4.8-setup.exe" --elevate; } # https://www.ntwind.com/software/alttabter.html
 
@@ -9552,7 +9507,7 @@ AutoHotKeyInstall()
 
 BartenderInstall()
 {
-	local v; v="$(getVersionCurrent "bartender")" || return
+	local v; v="$(versionGetCurrent "bartender")" || return
 	run --name="Bartender" "$(bartenderDir)/Bartender v$v.dmg" --version="$v"
 }
 
@@ -9561,11 +9516,11 @@ BartenderProfile() { bartender profile restore default; }
 BartenderDownload()
 {
 	local app="bartender"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" && download "https://www.macbartender.com/B2/updates/B4Latest/Bartender%204.dmg" "$(bartenderDir)" "Bartender v${v}.dmg" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "$app")" && download "https://www.macbartender.com/B2/updates/B4Latest/Bartender%204.dmg" "$(bartenderDir)" "Bartender v${v}.dmg" && downloadDone "$app" "$v"
 }
 
 bartenderDir() { echo "platform/mac/Bartender"; }
-bartenderVersion() { scurl --silent --location "https://www.macbartender.com/Bartender4/release_notes/" | sgrep "<h1>Bartender " | shead -1 | sed 's/.*Bartender //' | cut -d'<' -f1; }
+bartenderVersion() { curl --silent --location "https://www.macbartender.com/Bartender4/release_notes/" | ${G}grep "<h1>Bartender " | shead -1 | sed 's/.*Bartender //' | cut -d'<' -f1; }
 
 BetterTouchToolInstall() { run --header "BetterTouchTool" "platform/mac/BetterTouchTool/setup/BetterTouchTool.zip"; } # https://folivora.ai/
 
@@ -9630,7 +9585,7 @@ GreenshotFinalWin()
 KarabinerElementsInstall()
 {
 	header "Karabiner-Elements"
-	local v; v="$(getVersionCurrent "KarabinerElements")" || return
+	local v; v="$(versionGetCurrent "KarabinerElements")" || return
 	run --no-header --name="KarabinerElements" "$(karabinerElementsDir)/Karabiner-Elements-$v.dmg" --version="$v"
 }
 
@@ -9640,11 +9595,11 @@ KarabinerElementsProfile() { KarabinerElements profile restore default && Karabi
 KarabinerElementsDownload()
 {
 	local app="KarabinerElements"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "KarabinerElements")" && download "https://github.com/pqrs-org/Karabiner-Elements/releases/download/v$v/Karabiner-Elements-$v.dmg" "$(karabinerElementsDir)" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "KarabinerElements")" && download "https://github.com/pqrs-org/Karabiner-Elements/releases/download/v$v/Karabiner-Elements-$v.dmg" "$(karabinerElementsDir)" && downloadDone "$app" "$v"
 }
 
 karabinerElementsDir() { echo "platform/mac/Karabiner-Elements"; }
-karabinerElementsVersion() { curl --silent --location "https://karabiner-elements.pqrs.org/" | ${G}grep "Download " | head -1 | cut -d'v' -f2; }
+karabinerElementsVersion() { curl --silent --location "https://karabiner-elements.pqrs.org/" | ${G}grep "Download " | shead -1 | cut -d'v' -f2; }
 
 HiddenStartInstall() { run --header "Hidden Start" "platform/win/NTwind/Hstart_4.9-setup.exe" --elevate; } # https://www.ntwind.com/software/hstart.html
 
@@ -9659,7 +9614,7 @@ HiddenStartFinalWin()
 	i HiddenStartConfigure || return
 }
 
-isHiddenStartConfigued() { schtasks.exe | grep HstartUAC-x64 >& /dev/null; }
+isHiddenStartConfigued() { schtasks.exe | ${G}grep HstartUAC-x64 >& /dev/null; }
 
 HiddenStartConfigureInstall()
 {
@@ -9729,7 +9684,7 @@ RightClickEnhancerFinalWin() { mergeDir "$up/Right Click Enhancer Professional" 
 
 ShottrInstall()
 {
-	local v; v="$(getVersionCurrent "shottr")" || return
+	local v; v="$(versionGetCurrent "shottr")" || return
 	run --name="Shottr" "$(shottrDir)/Shottr-${v}.dmg" --version="$v"
 }
 
@@ -9738,15 +9693,15 @@ ShottrProfile() { shottr profile restore default && shottr startup; }
 ShottrDownload()
 {
 	local app="shottr"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" && download "https://shottr.cc/dl/Shottr-${v}.dmg" "$(shottrDir)" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "$app")" && download "https://shottr.cc/dl/Shottr-${v}.dmg" "$(shottrDir)" && downloadDone "$app" "$v"
 }
 
 shottrDir() { echo "platform/mac/Shottr"; }
-shottrVersion() { curl --silent --location "https://shottr.cc/#section-faq" | grep "\"colVersion\"" | head -1 | cut -d'>' -f2 | cut -d'<' -f1 | sed 's/v//'; }
+shottrVersion() { curl --silent --location "https://shottr.cc/#section-faq" | ${G}grep "\"colVersion\"" | shead -1 | cut -d'>' -f2 | cut -d'<' -f1 | sed 's/v//'; }
 
 SoundSourceInstall()
 {
-	local v; v="$(getVersionCurrent "SoundSource")" || return
+	local v; v="$(versionGetCurrent "SoundSource")" || return
 	run --name="SoundSource" "$(soundSourceDir)/SoundSource ${v}.zip" --version="$v"
 }
 
@@ -9756,11 +9711,11 @@ SoundSourceRegister() { register "SoundSource"; }
 SoundSourceDownload()
 {
 	local app="SoundSource"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "SoundSource")" && download "https://d2oxtzozd38ts8.cloudfront.net/public/soundsource/download/SoundSource.zip" "$(soundSourceDir)" "SoundSource $v.zip" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "SoundSource")" && download "https://d2oxtzozd38ts8.cloudfront.net/public/soundsource/download/SoundSource.zip" "$(soundSourceDir)" "SoundSource $v.zip" && downloadDone "$app" "$v"
 }
 
 soundSourceDir() { echo "platform/mac/Rogue Amoeba"; }
-soundSourceVersion() { curl --silent --location "https://rogueamoeba.com/support/knowledgebase/releasenotes/?product=SoundSource" | grep '<h2>SoundSource ' | head -1 | sed 's/.*SoundSource //' | cut -d'<' -f1; }
+soundSourceVersion() { curl --silent --location "https://rogueamoeba.com/support/knowledgebase/releasenotes/?product=SoundSource" | ${G}grep '<h2>SoundSource ' | shead -1 | sed 's/.*SoundSource //' | cut -d'<' -f1; }
 
 TaskLayoutInstall()
 {
@@ -9898,7 +9853,7 @@ DockerInstall()
 
 	# install Docker Desktop
 	if IsPlatform mac,win; then
-		local v; v="$(getVersionCurrent "docker")"
+		local v; v="$(versionGetCurrent "docker")"
 		run --name "Docker" --no-header "$(dockerDir)/Docker $(getArch "amd64" "arm64") $v.$(getPlatform "exe" "dmg")" --version=$v --copy-local-win --elevate || return
 		IsPlatform mac && { start "Docker.app" || return; }
 		[[ $ran ]] && pause
@@ -9911,7 +9866,7 @@ DockerInstall()
 	docker run "hello-world"
 
 	# create the user-network
-	! docker network ls | grep --quiet user-network && { sudoc docker network create "user-network" || return; }
+	! docker network ls | ${G}grep --quiet user-network && { sudoc docker network create "user-network" || return; }
 
 	return 0
 }
@@ -9924,7 +9879,7 @@ dockerInstallDo()
 	if IsPlatform pi; then
 		curl -sSL get.docker.com | sh  || return
 	
-	elif IsPlatform ubuntu && ! grep "download.docker.com" "/etc/apt/sources.list" >& /dev/null; then # https://docs.docker.com/engine/install/ubuntu/
+	elif IsPlatform ubuntu && ! ${G}grep "download.docker.com" "/etc/apt/sources.list" >& /dev/null; then # https://docs.docker.com/engine/install/ubuntu/
 		package ca-certificates curl gnupg lsb-release || return
 		curl -fsSL "https://download.docker.com/linux/ubuntu/gpg" | sudoc apt-key add - || return
 		sudo add-apt-repository "deb [arch=$(dpkg --print-architecture)] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" || return
@@ -9941,7 +9896,7 @@ dockerInstallDo()
 DockerDownload()
 {
 	local app="docker"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "docker")" || return
+	local v; v="$(versionGetCurrent "docker")" || return
 	local prefix="https://desktop.docker.com"
 	local url urls=("$prefix/mac/main/amd64/Docker.dmg" "$prefix/mac/main/arm64/Docker.dmg" "$prefix/win/main/amd64/Docker%20Desktop%20Installer.exe")
 
@@ -9955,7 +9910,7 @@ DockerDownload()
 }
 
 dockerDir() { echo "shareware/Docker/setup"; }
-dockerVersion() { curl --silent "https://docs.docker.com/desktop/release-notes/" | grep '<h2' | sponge | head -1 | sed 's/.*<h2//' | sed 's/<\/a>.*//' | sed 's/.*<a//' | cut -d'>' -f2; }
+dockerVersion() { curl --silent "https://docs.docker.com/desktop/release-notes/" | ${G}grep '<h2' | shead -1 | sed 's/.*<h2//' | sed 's/<\/a>.*//' | sed 's/.*<a//' | cut -d'>' -f2; }
 
 DockerFinalWin()
 {
@@ -10229,7 +10184,7 @@ MosaicoHelp()
 
 RectangleInstall()
 {
-	local v; v="$(getVersionCurrent "rectangle")" || return
+	local v; v="$(versionGetCurrent "rectangle")" || return
 	run --name="Rectangle" "$(rectangleDir)/Rectangle Pro ${v}.dmg" --version="$v"
 } 
 
@@ -10240,11 +10195,11 @@ RectangleRegister() { register "rectangle"; }
 RectangleDownload()
 {
 	local app="rectangle"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" && download "https://rectangleapp.com/pro/downloads/Rectangle Pro $v.dmg" "$(rectangleDir)" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "$app")" && download "https://rectangleapp.com/pro/downloads/Rectangle Pro $v.dmg" "$(rectangleDir)" && downloadDone "$app" "$v"
 }
 
 rectangleDir() { echo "platform/mac/Rectangle"; }
-rectangleVersion() { curl --silent --location "https://rectangleapp.com" | grep "/pro/downloads" | head -1 | sed "s/.*Rectangle Pro //" | cut -d'"' -f1 | GetFileNameWithoutExtension; }
+rectangleVersion() { curl --silent --location "https://rectangleapp.com" | ${G}grep "/pro/downloads" | shead -1 | sed "s/.*Rectangle Pro //" | cut -d'"' -f1 | GetFileNameWithoutExtension; }
 
 UltraMonInstall()
 {
@@ -10660,7 +10615,7 @@ xpraInstall() # 332MB (Linux)
 
 		# disable sound forwarding -  https://www.xpra.org/trac/wiki/Sound
 		local file="$UADATA/../Roaming/Xpra/xpra.conf" line="speaker = off"
-		[[ -f "$file" ]] && ! grep -q "$line" "$file" && { echo "$line" >> "$file" || return; }
+		[[ -f "$file" ]] && ! ${G}grep -q "$line" "$file" && { echo "$line" >> "$file" || return; }
 
 		# icons
 		mergeDir "$pp/Xpra" "$oo" || return
@@ -10675,7 +10630,7 @@ xpraInstall() # 332MB (Linux)
 	if IsPlatform mac; then
 		local file="$HOME/Library/Application Support/Xpra/xpra.conf"
 		local line="ssh = ssh -Y"
-		! grep -q "^${line}$" "$file" && { echo "$line" >> "$file" || return; }
+		! ${G}grep -q "^${line}$" "$file" && { echo "$line" >> "$file" || return; }
 
 		return 0
 	fi
@@ -10788,7 +10743,7 @@ HostnameInstall()
 
 LoomInstall()
 {
-	local v; v="$(getVersionCurrent "loom")" || return
+	local v; v="$(versionGetCurrent "loom")" || return
 	run --name="Loom" "$(loomDir)/Loom Setup $v.exe|Loom-$v$(getArch "" "-arm64").dmg" --version="$v"
 } 
 
@@ -10804,11 +10759,11 @@ LoomFinalWin()
 LoomDownload()
 {
 	local app="Loom"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 
 	local url urls; IFS=$'\n' ArrayMake urls "$({ 
-		scurl --silent --location "https://www.loom.com/v1/desktop/download/win" | jq '.urls[]' | RemoveQuotes ;
-		scurl --silent --location "https://www.loom.com/v1/desktop/download/mac" | jq '.urls[]' | RemoveQuotes;
+		curl --silent --location "https://www.loom.com/v1/desktop/download/win" | jq '.urls[]' | RemoveQuotes ;
+		curl --silent --location "https://www.loom.com/v1/desktop/download/mac" | jq '.urls[]' | RemoveQuotes;
 	})"
 	
 	for url in "${urls[@]}"; do
@@ -10819,7 +10774,7 @@ LoomDownload()
 }
 
 loomDir() { echo "other/Loom"; }
-loomVersion() { scurl --silent --location "https://www.loom.com/v1/desktop/download/win" | jq '.urls[]' | head -1 | RemoveQuotes | GetFileNameWithoutExtension | cut -d" " -f3; }
+loomVersion() { curl --silent --location "https://www.loom.com/v1/desktop/download/win" | jq '.urls[]' | shead -1 | RemoveQuotes | GetFileNameWithoutExtension | cut -d" " -f3; }
 
 MiroInstall()
 {
@@ -10829,7 +10784,7 @@ MiroInstall()
 
 SlackInstall()
 {
-	local v; v="$(getVersionCurrent "slack")" || return
+	local v; v="$(versionGetCurrent "slack")" || return
 	local arch="$(getPlatform "x64" "universal" "x64")"
 	local ext="$(getPlatform "$(getElevate "msi" "exe")" "dmg" "deb")"
 	run --name="Slack" "$(slackDir)/slack-$v-$arch.$ext" --version="$v"
@@ -10840,7 +10795,7 @@ SlackFinalWin() {	mergeDir "$up/Slack Technologies Inc" "$up/Applications/Other"
 SlackDownload()
 {
 	local app="slack"; downloadStart "$app" || return 0	
-	local v; v="$(getVersionCurrent "$app")" || return
+	local v; v="$(versionGetCurrent "$app")" || return
 	local prefix="https://downloads.slack-edge.com/releases"
 	local item items=("linux/$v/prod/x64/slack-desktop-$v-amd64.deb:x64:deb" "macos/$v/prod/universal/Slack-$v-macOS.dmg:universal:dmg" "windows/$v/prod/x64/slack-standalone-$v.0.msi:x64:msi" "windows/$v/prod/x64/SlackSetup.exe:x64:exe")
 	
@@ -10854,7 +10809,7 @@ SlackDownload()
 }
 
 slackDir() { echo "other/Slack"; }
-slackVersion() { curl --silent --location "https://slack.com/downloads/mac" | sgrep "Version " | sed 's/.*Version //' | cut -d'<' -f1; }
+slackVersion() { curl --silent --location "https://slack.com/downloads/mac" | ${G}grep "Version " | sed 's/.*Version //' | cut -d'<' -f1; }
 
 DiscordFinalWin()
 {

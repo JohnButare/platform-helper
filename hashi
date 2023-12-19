@@ -219,7 +219,7 @@ appNodeStatus()
 {
 	local host="$(RemoveDnsSuffix "$1")"
 
-	local app apps; IFS=$'\n' ArrayMake apps "$(verbose="--verbose" nomadNodeStatus "$host" | sgrep '^app\.' | cut -d" " -f1 | cut -d. -f2 | sort)" || return
+	local app apps; IFS=$'\n' ArrayMake apps "$(verbose="--verbose" nomadNodeStatus "$host" | ${G}grep '^app\.' | cut -d" " -f1 | cut -d. -f2 | sort)" || return
 	[[ ! $active ]] && { ArrayDelimit apps " "; return; }
 
 	for app in "${apps[@]}"; do
@@ -1004,7 +1004,7 @@ configStatusCommand()
 			local prefix="$(productVarGet "CONFIG")"; prefix="${prefix:-prod}"
 			local domain="$(productVarGet "DOMAIN")"
 
-			[[ "$cert" == "true" && "$product" == "consul" ]] && { productVarGet "CACERT" | grep -q "auto" && cert="client" || cert="server"; }
+			[[ "$cert" == "true" && "$product" == "consul" ]] && { productVarGet "CACERT" | ${G}grep -q "auto" && cert="client" || cert="server"; }
 
 			echo "${RESET}${RESET}$product-$ui-$cert-$token-$prefix-$domain" # add resets to line up the columns
 
@@ -1204,7 +1204,7 @@ consulAclTokenRmCommand() { consulAclTokenRm "$name"; }
 # Consul ACL Helper
 
 consulAclPolicyLs() { consul acl policy list -format=json | jq '.[].Name' | RemoveQuotes | sort; }
-consulAclTokenLs() { consul acl token list | grep "^Description:" | cut -d: -f2 | tr -s " " | cut -d" " -f2 | sort; }
+consulAclTokenLs() { consul acl token list | ${G}grep "^Description:" | cut -d: -f2 | tr -s " " | cut -d" " -f2 | sort; }
 
 # consulAclCreate NAME DEF - create an ACL with the specified name and definition.   Return the secret token for the policy.
 consulAclCreate()
@@ -1259,7 +1259,7 @@ consulAclTokenGetSecret()
 {
 	local name="$1"
 	! consulAclTokenExists "$1" && { ScriptErr "token '$name' does not exists"; return 1; }
-	consul acl token read -accessor-id "$(consulAclTokenGetId "$name")" | grep "SecretID" | cut -d: -f 2 | RemoveSpace
+	consul acl token read -accessor-id "$(consulAclTokenGetId "$name")" | ${G}grep "SecretID" | cut -d: -f 2 | RemoveSpace
 }
 
 # consulAclPolicyGetId NAME - get the token accessor ID for the specified token name
@@ -1389,7 +1389,7 @@ consulServiceAddCommand()
 	fi
 
 	# ensure the ACL token was added to the service file
-	if ! grep --quiet "\"$token\"" "$f"; then
+	if ! ${G}grep --quiet "\"$token\"" "$f"; then
 		ScriptErr "the token parameter was not found in the service file"
 		return 1
 	fi
@@ -1421,7 +1421,7 @@ consulServiceCleanCommand()
 	# find orphan policies
 	policies=(
 		$(FileLeft \
-			<(consulAclPolicyLs | grep "^service-" | sed 's/service-//') \
+			<(consulAclPolicyLs | ${G}grep "^service-" | sed 's/service-//') \
 			<(consulServiceLs))
 	)
 
@@ -1435,7 +1435,7 @@ consulServiceCleanCommand()
 	# find orphan tokens
 	tokens=(
 		$(FileLeft \
-			<(consulAclTokenLs | grep "^service-" | sed 's/service-//') \
+			<(consulAclTokenLs | ${G}grep "^service-" | sed 's/service-//') \
 			<(consulServiceLs))
 	)
 
@@ -1489,8 +1489,8 @@ consulServiceFileGetId()
 		id="$(cat "$file" | jq ".service.id" | RemoveQuotes)"
 		[[ ! $id || "$id" == "null" ]] && id="$(cat "$file" | jq ".service.name" | RemoveQuotes)"
 	else
-		id="$(cat "$file" | grep "id =" | head -1 | cut -d= -f2 | RemoveSpace | RemoveQuotes)"
-		[[ ! $id ]] && id="$(cat "$file" | grep "name =" | head -1 | cut -d= -f2 | RemoveSpace | RemoveQuotes)"
+		id="$(cat "$file" | ${G}grep "id =" | head -1 | cut -d= -f2 | RemoveSpace | RemoveQuotes)"
+		[[ ! $id ]] && id="$(cat "$file" | ${G}grep "name =" | head -1 | cut -d= -f2 | RemoveSpace | RemoveQuotes)"
 	fi
 
 	# check for a valid id
@@ -1680,13 +1680,13 @@ installServiceAcl()
 	# try up to 30 times to get the bootstrap text
 	for (( i = 0; i < 30; i++ )); do
 		text="$($product acl bootstrap 2>&1)" && break
-		echo "$text" | grep -q "$alreadyCreated" && return
-		echo "$text" | grep -q "$waitingForNodes" &&
+		echo "$text" | ${G}grep -q "$alreadyCreated" && return
+		echo "$text" | ${G}grep -q "$waitingForNodes" &&
 			{ [[ $header ]] && printf "." || printf "bootstrap..."; header="true"; sleep 1; continue; }
 		EchoErr "$text"; return 1
 	done
 	[[ $header ]] && echo
-	echo "$text" | grep -q "$waitingForNodes" && { EchoErr "$text"; return 1; }
+	echo "$text" | ${G}grep -q "$waitingForNodes" && { EchoErr "$text"; return 1; }
 	
 	# show the full bootstrap text
 	hilight "Store the following bootstrap token in a secure location:"
@@ -1695,7 +1695,7 @@ installServiceAcl()
 	# get and store the token
 	local secretId="Secret ID"; [[ "$product" == "consul" ]] && secretId="SecretID"
 	local sep="="; [[ "$product" == "consul" ]] && sep=":"
-	local token="$(echo "$text" | grep "$secretId" | cut -d$sep -f 2 | RemoveSpace)"
+	local token="$(echo "$text" | ${G}grep "$secretId" | cut -d$sep -f 2 | RemoveSpace)"
 	[[ ! $token ]] && { ScriptErr "unable to determine the bootstrap token"; return 1; }
 	credSet "token" "$token" || return
 
@@ -2139,7 +2139,7 @@ installServiceServerFinalNomadVaultIntegration()
 	local policy; productInit "vault" || return
 
 	# nomad-cluster policy - policy for jobs (specifiy in job configuration)
-	if ! vault policy list | grep -q "^nomad-cluster$"; then
+	if ! vault policy list | ${G}grep -q "^nomad-cluster$"; then
 		hilight "Adding the nomad-cluster policy to Vault..."
 		local policy="$(cat <<-EOF
 			path "secret/*" {
@@ -2151,14 +2151,14 @@ installServiceServerFinalNomadVaultIntegration()
 	fi
 
 	# nomad-cluster role - role Nomad uses to create tokens for jobs (specifies which policies jobs can request)
-	if ! vault list "/auth/token/roles" |& grep -q "^nomad-cluster$"; then
+	if ! vault list "/auth/token/roles" |& ${G}grep -q "^nomad-cluster$"; then
 		hilight "Adding the nomad-cluster role to Vault..."
 		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-cluster-role.json")" || return
 		vault write /auth/token/roles/nomad-cluster @"$policy" || return
 	fi
 
 	# nomad-server policy - policy for the token Nomad uses to access Vault
-	if ! vault policy list | grep -q "^nomad-server$"; then
+	if ! vault policy list | ${G}grep -q "^nomad-server$"; then
 		hilight "Adding the nomad-server policy to Vault..."
 		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-server-policy.hcl")" || return
 		vault policy write nomad-server "$policy" || return
@@ -2170,7 +2170,7 @@ installServiceServerFinalVault()
 {
 	# generate the unseal keys
 	local n key result s seals; seals="$(vault operator init 2>&1)"; result="$?"
-	echo "$seals" | grep -q "Vault is already initialized" && return
+	echo "$seals" | ${G}grep -q "Vault is already initialized" && return
 	(( result != 0 )) && { EchoErr "$seals"; return 1; }
 
 	# show the seal keys
@@ -2178,12 +2178,12 @@ installServiceServerFinalVault()
 	echo "$seals"
 
 	# store the root token
-	declare token; token="$(echo "$seals" | grep "Initial Root Token" | cut -d: -f 2 | RemoveSpace)" || return 0
+	declare token; token="$(echo "$seals" | ${G}grep "Initial Root Token" | cut -d: -f 2 | RemoveSpace)" || return 0
 	credSet "token" "$token" || return
 	export VAULT_TOKEN="$token"
 
 	# store the seal keys
-	IFS=$'\n' ArrayMake seals "$(echo "$seals" | grep "Unseal Key")"
+	IFS=$'\n' ArrayMake seals "$(echo "$seals" | ${G}grep "Unseal Key")"
 	for s in "${seals[@]}"; do
 		n="$(echo "$s" | cut -d: -f1 | cut -d" " -f 3)"
 		key="$(echo "$s" | cut -d: -f2 | RemoveSpace)"
@@ -2197,7 +2197,7 @@ installServiceServerFinalVault()
 	vaultUnsealCommand || return
 
 	# enable the "secret" secret engine, the default path for the credential script
-	if ! vault secrets list | grep -q "^secret"; then
+	if ! vault secrets list | ${G}grep -q "^secret"; then
 		header "Vault Configuration"
 		vault secrets enable -path=secret kv-v2 || return
 	fi
@@ -2413,9 +2413,9 @@ nomadNodeAllocations()
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
 
 	if [[ $verbose ]]; then
-		header "$(RemoveDnsSuffix "$host")"; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | grep " running "
+		header "$(RemoveDnsSuffix "$host")"; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | ${G}grep " running "
 	else
-		printf "$(RemoveDnsSuffix "$host"): "; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | grep " running " | wc -l
+		printf "$(RemoveDnsSuffix "$host"): "; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | ${G}grep " running " | wc -l
 	fi
 
 	return 0
@@ -2492,7 +2492,7 @@ nomadNodeDrainStatus()
 	[[ "$down" == "down" ]] && { log2 "host '$host' is down"; return 0; }
 
 	# node is not drained if it has running allocations
-	local hasAllocations; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | grep --quiet " running " && hasAllocations="true"
+	local hasAllocations; nomad status "$id" | sed '1,/Allocations/d' | tail -n +2 | ${G}grep --quiet " running " && hasAllocations="true"
 	(( verboseLevel > 2 )) && nomad status "$id" | sed '1,/Allocations/d' | tail -n +2
 	[[ $hasAllocations ]] && { log2 "host '$host' has running allocations"; return 1; }
 	
@@ -2565,7 +2565,7 @@ nomadJobStatusCommand()
 		nomadGetAllocId || return
 		nomad alloc status "$allocId"
 	else
-		nomad job status | grep -v dead
+		nomad job status | ${G}grep -v dead
 	fi
 }
 
@@ -2633,7 +2633,7 @@ nomadJobLogCommand()
 # nomad helper
 
 # nomadClientName ID - return the name of the Nomad client with ID
-nomadClientName() { nomad status "$1" | grep "^Name " | tr -s ' ' | cut -d"=" -f2 | RemoveSpace; }
+nomadClientName() { nomad status "$1" | ${G}grep "^Name " | tr -s ' ' | cut -d"=" -f2 | RemoveSpace; }
 
 # nomadClients - return all Nomad client ID's
 nomadClients() { nomad node status | tail +2 | cut -d" " -f1; }
@@ -2660,7 +2660,7 @@ nomadVaultStatus()
 {
 	hilight "Nomad Vault integration status:"
 	for id in $(nomadClients); do 
-		echo "$(nomadClientName "$id"): $(nomad status -verbose "$id" | grep "^vault.accessible" | tr -s " " | cut -d"=" -f2 | RemoveSpace)"; 
+		echo "$(nomadClientName "$id"): $(nomad status -verbose "$id" | ${G}grep "^vault.accessible" | tr -s " " | cut -d"=" -f2 | RemoveSpace)"; 
 	done
 }
 
@@ -2850,9 +2850,9 @@ resolveNslookup()
 
 	local ip
 	if [[ "$result" =~ .*canonical\ name.* ]]; then
-		ip="$(printf "$result" | tail +4 | grep "canonical name =" | cut -d= -f2 | RemoveSpace | sed 's/.$//')"
+		ip="$(printf "$result" | tail +4 | ${G}grep "canonical name =" | cut -d= -f2 | RemoveSpace | sed 's/.$//')"
 	else
-		ip="$(printf "$result" | tail +4 | grep "^Address:" | cut -d: -f2 | RemoveSpace)"
+		ip="$(printf "$result" | tail +4 | ${G}grep "^Address:" | cut -d: -f2 | RemoveSpace)"
 	fi
 	
 	log1 "nslooklup resolved '$name' to '$(echo "$ip" | NewlineToSpace | RemoveSpaceTrim)'"
@@ -3379,7 +3379,7 @@ vaultHostsGet()
 	return 0
 }
 
-vaultIsUnsealed() { vault status | grep -q '^Sealed[ ]*false$'; }
+vaultIsUnsealed() { vault status | ${G}grep -q '^Sealed[ ]*false$'; }
 
 # vaultTokenSetRemote - set the Vault token on a remote host
 vaultTokenSetRemote()

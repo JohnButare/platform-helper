@@ -1513,7 +1513,6 @@ NetworkCurrent() { UpdateGet "network"; };
 NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars; }
 NetworkDomain() { UpdateGet "network_domain"; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
-scurl() { curl "$@" | sponge; } # use curl with sponge to avoid write error 23 in a pipeline
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
 WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuotes | RemoveEmptyLines | sort | uniq; }
 
@@ -3907,14 +3906,15 @@ tac() { InPath tac && command tac "$@" | cat "$@"; }
 Utf16toAnsi() { iconv -f utf-16 -t ISO-8859-1; }
 Utf16to8() { iconv -f utf-16 -t UTF-8; }
 
-# sgrep - sponge grep - use to prevent SIGPIPE when grep closes pipe
-sgrep() { ${G}grep "$@" | sponge; }
-shead() { ${G}head "$@" | sponge; }
+# shead - sponge head
+# - prevents termination of the pipeline with SIGPIPE when head terminates
+# - the rest of the output from the pipe is discarded (sent to /dev/null with cat)
+shead() { ${G}head "$@"; cat /dev/null; }
 
 # true grep - always return 0
 # - normally 0=text found, 1=text not found, 2=error
 # - macOS ggrep returns 1 if no text found or error (i.e. invalid arguments)
-tgrep() { sgrep "$@"; true; }
+tgrep() { ${G}grep "$@"; true; }
 
 # editor
 
