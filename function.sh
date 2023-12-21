@@ -363,6 +363,14 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 	echo "$shell"
 }
 
+# UserHome USER - return users home directory
+UserHome()
+{
+	IsPlatform mac && { dscl . -read "/users/$1" | grep "^NFSHomeDirectory:" | cut -d" " -f2; return; }
+	InPath getent && { getent passwd "$1" | cut -d":" -f6; return; }
+	${G}grep "^$1:" "/etc/passwd" | cut -d":" -f6
+}
+
 #
 # Applications
 #
