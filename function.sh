@@ -732,6 +732,22 @@ store()
 	return 0
 }
 
+# Unison
+
+UnisonConfigDir()
+{
+	local dir="$HOME/.unison"; IsPlatform mac && dir="$UADATA/Unison"
+	[[ -d "$dir" ]] && { echo "$dir"; return; }
+	unisonRootConfigDir
+}
+
+UnisonRootConfigDir()
+{
+	local dir="$(UserHome "root")/.unison"; IsPlatform mac && dir="$(UserHome "root")/Library/Application Support/Unison"
+	echo "$dir"
+}
+
+
 #
 # Config
 #
