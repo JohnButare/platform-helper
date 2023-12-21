@@ -3917,10 +3917,14 @@ sudoe()
 	fi
 } 
 
-# sudo root [COMMAND] - run commands or a shell as root with access to the users SSH Agent and credential manager
+# sudor [COMMAND|--dir|-d DIR] - run commands or a shell as root with access to the users SSH Agent and credential manager
+# - if DIR is specified, start an interactive shell in the specified DIR
+# - test: sudor && sudor --dir /tmp && sudor credential ls -m=r
 sudor()
 {
-	(( $# == 0 )) && set -- bash -il # -l for mac
+	local bash=(bash -i -l); IsPlatform mac && bash=(bash -l)
+	[[ $# == 0 ]] && set -- "${bash[@]}"
+	[[ $# == 2 && "$1" =~ (--dir|-d) ]] && set -- "${bash[@]}" -c "cd \"$2\"; ${bash[*]}"
 
 	# let the root command use our credential manager, ssh-agent, and Vault token
 	sudox \
