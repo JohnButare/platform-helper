@@ -2606,17 +2606,18 @@ packageFix()
 	fi
 
 	# exclude packages
-	IsPlatform entware && exclude=( pwgen ) packageExclude
-	IsPlatform mac && exclude=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk util-linux virt-what )	packageExclude
-	IsPlatformAll mac,arm && exclude=( bonnie++ pv rust traceroute ) packageExclude
-	IsPlatformAll mac,x86 && exclude=( ncat traceroute ) packageExclude
-	IsPlatform wsl1 && exclude=( fping ) packageExclude
-
+	IsPlatform entware && exclude+=( pwgen )
+	IsPlatform mac && exclude+=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk util-linux virt-what )
+	IsPlatformAll mac,arm && exclude+=( bonnie++ pv rust traceroute )
+	IsPlatformAll mac,x86 && exclude+=( ncat traceroute )
+	IsPlatform wsl1 && exclude+=( fping )
+	packageExclude
 	return 0
 }
 
 packageExclude()
 {
+	(( ${#packages[@]} == 0 )) && return
 	local p
 	for p in "${packages[@]}"; do
 		IsInArray "$p" exclude && ArrayRemove packages "$p"
