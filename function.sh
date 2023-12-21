@@ -3525,13 +3525,19 @@ PythonConf()
 	return 0
 }
 
-PyenvMake()
+# PyEnvCreate [dir](.) [version] - make a Python virtual environment in the current directory
+PyEnvCreate()
 {
+	local dir="$1"; [[ $dir ]] && shift || { MissingOperand "dir" "PyEnvCreate"; return; }
 	local v="$1" vOrig="$1"
+
+	# create the directory
+	[[ ! -d "$dir" ]] && { ${G}mkdir --parents "$dir" || return; }
+	cd "$dir" || return
 
 	# initialize
 	DirenvConf || return
-	[[ $v ]] && { PyenvConf || return; }
+	[[ $v ]] && { PyEnvConf || return; }
 	
 	# configure
 	if [[ ! -f ".envrc" ]]; then
@@ -3548,7 +3554,8 @@ PyenvMake()
 	direnv allow	
 }
 
-PyenvConf()
+# PyenvConf - configure pyenv to mange multiple Python versions
+PyEnvConf()
 {
 	# initialize
 	[[ ! -d "$HOME/.pyenv" ]] && { ScriptErr "pyenv is not installed" "PyenvConf"; return 1; }	
