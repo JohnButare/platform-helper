@@ -751,6 +751,7 @@ copyLocal()
 	echo "$t/$(GetFileName "$file")"
 }
 
+# downloadCheck URL [HEADERS] - return true if the URL is a valid download by ensuring it's headers contains on of the specified headers
 downloadCheck() { urlCheck "$1" "${2:-attachment\|application/octet-stream\|application/x-\|application/zip\|binary/octet-stream}"; }
 downloadValidate() { downloadCheck "$1" "$2" && return; ScriptErr "the download is not available at '$1'"; return 1; }
 
@@ -1708,7 +1709,12 @@ runXip()
 	appClean "$name" "$P/${name}.app" && echo "Installing '$name'..." && sudoc unxip "$p" "$dest"
 }
 
-urlCheck() { local url="$1" check="${2:-^HTTP/2 200\|HTTP/1.1 200 OK}"; curl --silent --head --location "$url" | ${G}grep --quiet "$check"; }
+# urlCheck URL HEADERS - return true if the URL contains one of the headers, which is a regular expression of valid headers
+urlCheck()
+{
+	local url="$1" check="${2:-^HTTP/2 200\|HTTP/1.1 200 OK}"
+	curl --silent --head --location "$url" | ${G}grep --quiet "$check"
+}
 
 versionAllowAlpha() { IsInArray --case-insensitive "$1" alphaVersions; }
 versionError() { local app="$1" type="$2"; ScriptErrQuiet "unable to get the '$app' $type version"; return 1; }
@@ -1905,26 +1911,35 @@ AppHostHardwareInstall()
 
 AppHostSoftwareInstall()
 {
-	local common="1Password 1PasswordCli CryFS dropbox obsidian office writage GitCore"
-	local commonLaptop="WireGuard" commonLaptopMac="batteries"
-	local commonMac="$common alfred bartender BetterDisplay CleanMyMac moom MouseBoost numi rectangle shottr SoundSource spark"
-	local serverCommon="cron"
-	local serverCore="StaticIp ChronyServer DhcpServer DnsServer LoadBalancer rtc VpnServer"
-	local serverServices="NomadServerTools ApacheDockerConfig PoolDashPanel NodeRed" # HomeAssistantServer HomeAssistantCli HomeAssistantIntegrations
+	# base client software
+	local clientCommon="1Password 1PasswordCli CryFS dropbox obsidian office writage GitCore"
+	local clientMac="$clientCommon alfred bartender BetterDisplay CleanMyMac moom MouseBoost numi rectangle shottr SoundSource spark"
+	local clientWin="$clientCommon"
+
+	local clientLaptop="$clientCommon WireGuard"
+	local clientLaptopMac="$clientLaptop batteries"
+	local clientLaptopWin="$clientLaptop"
+
+	# base server software
+	local hostArg="$HOSTNAME" # for Consul and Nomad
+	local serverCommon="cron ConsulServer NomadServer"
+	local serverCore="StaticIp $serverCommon ChronyServer DhcpServer DnsServer LoadBalancer rtc VpnServer"
+	local serverServices="$serverCommon NomadServerTools ApacheDockerConfig PoolDashPanel NodeRed" # HomeAssistantServer HomeAssistantCli HomeAssistantIntegrations
 	local fileServer="FileServer GitServer"
 
-	# base software
+	# client software
 	case "$hostname" in
-		flo|fun|jane|pants) i $commonMac $commonLaptop $commonLaptop;;	# Mac Laptop
-		bc|micro|ultron) i $common;;																		# Windows Desktop
-		rosie) i $common $commonLaptop;;																# Windows Laptop
+		flo|fun|jane|pants) i $clientLaptopMac;;	# Mac Laptop
+		bc|micro|ultron) i $clientWin;;						# Windows Desktop
+		rosie) i $clientLaptopWin;;								# Windows Laptop
 	esac
 
 	# server software
 	case "$hostname" in
-		pi1|pi2|pi3|pi4) i $serverCommon $serverCore;;										# core servers
-		rp1|rp2) i $serverCommon $serverServices FileServer GitServer;;		# file servers
-		pi?|rp?|zima?) i $serverCommon $serverServices;;									# other Servers
+		pi1|pi2) i $serverCore VaultServer;;								# core servers with Vault
+		pi3|pi4) i $serverCore;;														# core servers
+		rp1|rp2) i $serverServices FileServer GitServer;;		# file servers
+		pi?|rp?|zima?) i $serverServices;;									# other Servers
 	esac
 
 	# other software
@@ -1945,6 +1960,7 @@ AppHostSoftwareInstall()
 		bc|rosie) i Quicken thunderbird;;
 	esac
 }
+
 
 AppNetworkInstall()
 {
@@ -5403,7 +5419,9 @@ hashiVersion()
 	curl --silent "$url" | ${G}grep "$what" | ${G}grep -v "+ent" | ${G}grep -v -E "-beta|-rc" | shead -1 | cut -d">" -f2 | cut -d"<" -f1 | cut -d"_" -f2; 
 }
 
-# Hashi Server - install Hashi server on the specified servers, set servers explicitly for safety
+# Hashi Server - install Hashi server on the specified servers
+# - set servers explicitly for safety
+# - requires cryfs
 HashiServerInstall() { i ConsulServer NomadServer VaultServer; }
 ConsulServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerConsul; }
 NomadServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerNomad; }
@@ -5412,7 +5430,47 @@ VaultServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerVault; }
 hashiServerConsul() { local host="$1"; hashiServer "consul" "$host" && sshRunInteractive "$host" "inst ConsulDocker"; }
 hashiServerNomad() { local host="$1"; hashiServer "nomad" "$host"; }
 hashiServerVault() { local host="$1"; hashiServer "vault" "$host"; }
-hashiServer() { local what="$1" host="$2"; header "${what^} Server ($host)"; RunLog hashi install service "$what" --host="$host" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
+hashiServerCanRun() { InPath cryfs && [[ -d "$(ConfigGet "hashiCertificateDevice")" ]]; } # return true if can run a Hashi server install
+
+# hashiServer consul|nomad|vault HOST - install a hashi server component, or provide instructions and wait for it
+hashiServer()
+{
+	local what="$1" host="$2"
+
+	header "${what^} Server ($host)"
+	! hashiServerCanRun && { hashiServerWait "$what"; return; }
+	RunLog hashi install service "$what" --host="$host" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"
+}
+
+# hashiServerWait [consul|nomad|vault] - wait for a Hashi server component
+hashiServerWait()
+{
+	local what="$1" seconds=600 installed
+
+	# check if already running
+	[[ "$(service state "$what" --quiet)" == "RUNNING" ]] && return 0
+
+	# messages
+	local command="inst ${what^}Server -H=$HOSTNAME"; clipw "$command"
+	echo "Install ${what^} server on a capable host using '$command' (in the clipboard)"; 
+	printf "Waiting for the $what service..."
+
+	# wait for service
+	for (( i=1; i<=$seconds; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
+
+		if [[ $installed ]]; then
+			[[ "$(service state "$what" --quiet)" == "RUNNING" ]] && { echo "running"; return 0; }
+
+		elif service exists "$what" --quiet; then
+			installed="true"; printf "installed..."
+		fi
+
+		printf "."
+	done
+
+	echo "failed"; return 1
+}
 
 # hashi update - update locally, update a test server, then update all servers
 HashiUpdateInstall() { i hashi && i HashiServerUpdate -H=pi3 && pause "Check status..." && i HashiServerUpdate; }
@@ -5501,7 +5559,7 @@ hashiRegisterAppCheck() { InPath consul && hashi service verify nomad --quiet; }
 nomadCheck() { InPath nomad && return 0; header "Nomad"; hashi install cli nomad --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 nomadHttpShow() { local service="$1" port="$2"; local url; url="http://$(hashi resolve "$service"):$port" && echo "URL: $url"; } # SERVICE PORT
 
-# hashiApp APP [SERVICE](APP) - if the application is running with HashiCorp Nomad register it, otherwise start it
+# hashiApp APP [SERVICE](APP) - if Nomad is running register the application, otherwise start the service
 hashiApp()
 {
 	local app="$1" service="${2:-$1}" port="$3"
@@ -5513,10 +5571,11 @@ hashiApp()
 	fi
 }
 
+# hashiAppNoService APP - if Nomad is running register the application
 hashiAppNoService()
 {
 	! hashiRegisterAppCheck && return
-	hashiRegisterApp "$app"
+	hashiRegisterApp "$1"
 }
 
 #################################################
@@ -9097,7 +9156,7 @@ visualStudioCodeUrl() { echo "https://code.visualstudio.com/sha/download?build=s
 TimeAllInstall() { i chrony ChronyServer rtc timezone && pkg ntpdate tty-clock; }
 TimeCoreInstall() { i chrony && pkg ntpdate tty-clock; }
 
-ChronyInstall() # time syncronization / NTP replacement
+ChronyInstall() # time syncronization (NTP replacement)
 {
 	service exists systemd-timesyncd --quiet && return
 
@@ -9109,6 +9168,8 @@ ChronyInstall() # time syncronization / NTP replacement
 	else
 		pkg chrony ntpdate || return
 	fi
+
+	hashiApp "chrony"
 }
 
 ChronyServerInstall()
