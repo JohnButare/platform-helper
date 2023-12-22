@@ -949,8 +949,8 @@ i()
 	# arguments
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-nh|--no-header) noHeaderArg="--no-header";;
-			-np|--no-prompt) noPromptArg="--no-prompt";;
+			--no-header|-nh) noHeaderArg="--no-header";;
+			--no-prompt|-np) noPromptArg="--no-prompt";;
 			*) args+=("$1")
 		esac
 		shift
@@ -1286,7 +1286,7 @@ runTypeDocker()
 	# locate the compose file	
 	if ! IsUrl "$p" && ! [[ -f "$(CloudGet --quiet "$p")" ]]; then
 		local file		
-		if ! file="$(CloudGet --quiet "$(ConfigGet confDir)/docker/compose/$p")" && ! findFile --quiet "shareware/Docker/image/$p"; then
+		if ! file="$(CloudGet --quiet "$HOME/$(ConfigGet confDir)/docker/compose/$p")" && ! findFile --quiet "shareware/Docker/image/$p"; then
 			ScriptErr "unable to locate '$(GetFileName "$p")' Docker compose YAML file"; return 1
 		fi
 		p="$file"
@@ -1469,7 +1469,7 @@ runTypeNomad()
 
 	# locate the Nomad job file
 	if ! [[ -f "$p" ]]; then
-		local file="$(ConfigGet "confDir")/hashi/job/$p"
+		local file="$HOME/$(ConfigGet "confDir")/hashi/job/$p"
 		if [[ -f "$file.yml" ]]; then p="$file.yml"
 		elif [[ -f "$file.json" ]]; then p="$file.json"
 		else ScriptErr "unable to locate '$(GetFileName "$p")' Nomad job file"; return 1
@@ -3739,8 +3739,8 @@ CupsInstall()
 		echo "ServerAlias cups.$(ConfigGet "baseDomain") $HOSTNAME $HOSTNAME.$(ConfigGet "domain")" | sudo ${G}tee -a "$file" || return
 	fi
 
-	# show the web interface URL
-	httpsShow "631" || return
+	# configure Consul service and show the web interface URL
+	hashiConsulService "dns.json" && httpsShow "631"
 }
 
 DbusInstall()
@@ -4936,7 +4936,7 @@ HomeAssistantServerInstall()
 	fi
 
 	# other
-	hashiApp "home-assistant" "home-assistant@homeassistant" && httpShow "8123"
+	nomadRegisterApp "home-assistant" "home-assistant@homeassistant" && httpShow "8123"
 }
 
 HomeAssistantCliInstall()
@@ -5051,7 +5051,7 @@ HomebridgeWigginInstall()
 	InPath setcap && { sudo setcap cap_net_raw+pe "$(FindInPath node)" || return; }
 
 	# final
-	hashiApp "homebridge" && httpShow "8581"
+	nomadRegisterApp "homebridge" "homebridge" && httpShow "8581"
 }
 
 # Home Other
@@ -5104,7 +5104,7 @@ PoolControllerInstall()
 	fi
 
 	# final
-	hashiApp "pool-controller" && httpShow 4200
+	nomadRegisterApp "pool-controller" "pool-controller" && httpShow 4200
 }
 
 PoolDashPanelInstall()
@@ -5143,7 +5143,7 @@ PoolDashPanelInstall()
 	fi
 
 	# final
-	hashiApp "pool-dash-panel" && httpShow 5150
+	nomadRegisterApp "pool-dash-panel" "pool-dash-panel" && httpShow 5150
 }
 
 # PoolDashPanelProfile - save: profile save default --app "pool-dash-panel" --method "/opt/pool-dash-panel" --files "config.json"
@@ -5199,7 +5199,7 @@ PoolTemperatureInstall()
 	fi
 
 	# final
-	hashiApp "pool-temperature" && httpShow 5002 # http://$HOST:5002/AnalogTemperature/1
+	nomadRegisterApp "pool-temperature" "pool-temperature" && httpShow 5002 # http://$HOST:5002/AnalogTemperature/1
 }
 
 #################################################
@@ -5347,14 +5347,19 @@ SaltMinionInstall()
 }
 
 #
-# IT Management - HashiCorp
+# IT Management - Hashi
 #
 
 HashiAllInstall() { i hashi HashiUpdate HashiServer HashiServerUpdate HashiOther HashiUtilities; }
 HashiOtherInstall() { i ConsulDocker ConsulK8s ConsulTemplate ConsulTemplateService HashiUp NomadServerTools; }
 HashiUtilitiesInstall() { i damon sockaddr vagrant wander; }
 
-#  hashi - install Hashi program only by decrompressing downloads in install directory and update the program locally
+#
+# IT Management - Hashi - CLI
+#
+
+#  Install the Hashi CLI programs by decrompressing downloads in install directory and update the program locally.
+
 HashiInstall() { i consul nomad vault; }
 ConsulInstall() { hashiCli "consul"; }
 NomadInstall() { hashiCli "nomad"; }
@@ -5382,6 +5387,8 @@ hashiCli()
 	fi
 }
 
+hashiInstalledVersion() { InPath "$1" && "$1" --version | shead -1 | cut -d" " -f2 | cut -d"v" -f2; }
+
 HashiDownload() { i ConsulDownload NomadDownload VaultDownload; }
 ConsulDownload() { hashiDownload "consul"; } 	# https://www.consul.io/downloads.html
 NomadDownload() { hashiDownload "nomad"; }		# https://www.nomadproject.io/downloads
@@ -5404,6 +5411,7 @@ hashiDownload()
 	extractFiles && downloadDone "$app" "$v"
 }
 
+
 consulDir() { hashiDir "consul"; }
 nomadDir() { hashiDir "nomad"; }
 vaultDir() { hashiDir "vault"; }
@@ -5419,9 +5427,14 @@ hashiVersion()
 	curl --silent "$url" | ${G}grep "$what" | ${G}grep -v "+ent" | ${G}grep -v -E "-beta|-rc" | shead -1 | cut -d">" -f2 | cut -d"<" -f1 | cut -d"_" -f2; 
 }
 
-# Hashi Server - install Hashi server on the specified servers
-# - set servers explicitly for safety
-# - requires cryfs
+hashiUrl() { echo "https://releases.hashicorp.com/$1"; }
+
+#
+# IT Management - Hashi - Server
+#
+
+# Install Hashi server components on the specified servers.
+
 HashiServerInstall() { i ConsulServer NomadServer VaultServer; }
 ConsulServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerConsul; }
 NomadServerInstall() { ScriptOptHostVerify; ForAllHosts hashiServerNomad; }
@@ -5472,10 +5485,13 @@ hashiServerWait()
 	echo "failed"; return 1
 }
 
-# hashi update - update locally, update a test server, then update all servers
-HashiUpdateInstall() { i hashi && i HashiServerUpdate -H=pi3 && pause "Check status..." && i HashiServerUpdate; }
+#
+# IT Management - Hashi - Update
+#
 
-# Hashi Server Update - extract new executables and install them on the specified servers
+# Update Hashi tools by updating locally, then update a test server, then update all servers.
+
+HashiUpdateInstall() { i hashi && i HashiServerUpdate -H=pi3 && pause "Check status..." && i HashiServerUpdate; }
 HashiServerUpdateInstall() { ForAllHosts hashiServerUpdate all; }
 ConsulServerUpdateInstall() { ForAllHosts hashiServerUpdate consul; }
 NomadServerUpdateInstall() { ForAllHosts hashiServerUpdate nomad; }
@@ -5483,12 +5499,12 @@ VaultServerUpdateInstall() { ForAllHosts hashiServerUpdate vault; }
 
 hashiServerUpdate() { local what="$1" host="$2"; command hashi update service program $what --host="$host" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 
-# helper
+#
+# IT Management - Hashi - Other
+#
 
-hashiUrl() { echo "https://releases.hashicorp.com/$1"; }
-hashiInstalledVersion() { InPath "$1" && "$1" --version | shead -1 | cut -d" " -f2 | cut -d"v" -f2; }
+# Install other Hashi tools.
 
-# other
 ConsulK8sInstall() { run --name "consul-k8s" --executable "other/HashiCorp/consul-k8s"; } # https://releases.hashicorp.com/consul-k8s/
 ConsulTemplateInstall() { run --name "consul-template" --executable "other/HashiCorp/consul-template"; } # https://releases.hashicorp.com/consul-template/
 DamonInstall() { run --executable "other/HashiCorp/damon"; } # https://github.com/hashicorp/damon/releases/tag/nightly
@@ -5552,30 +5568,49 @@ VagrantInstall()
 	makeDir "$(platformUserAppData)/app/vagrant" || return
 }
 
-# Hashi helper
+#
+# IT Management - Hashi - Helper
+#
 
-hashiRegisterApp() { ! hashiRegisterAppCheck && return; hashi app node register "$1"; }
-hashiRegisterAppCheck() { InPath consul && hashi service verify nomad --quiet; }
+consulServiceCheck() { hashi service verify consul --quiet; }
+consulServiceAdd() { ! consulServiceCheck && return; }
 nomadCheck() { InPath nomad && return 0; header "Nomad"; hashi install cli nomad --encrypt "${globalArgs[@]}" "${otherArgs[@]}"; }
 nomadHttpShow() { local service="$1" port="$2"; local url; url="http://$(hashi resolve "$service"):$port" && echo "URL: $url"; } # SERVICE PORT
 
-# hashiApp APP [SERVICE](APP) - if Nomad is running register the application, otherwise start the service
-hashiApp()
+# nomadRegisterApp APP [SERVICE] - register an application with Nomad if it is running, otherwise auto start the service if specified
+nomadRegisterApp()
 {
-	local app="$1" service="${2:-$1}" port="$3"
+	local app="$1" service="$2"
 
-	if hashiRegisterAppCheck; then
-		serviceDemandStop "$service" && hashiRegisterApp "$app"
-	else
+	# Nomad is installed, demand start the service and register the application with Nomad
+	if hashi service verify nomad --quiet; then
+		[[ $service ]] && { serviceDemandStop "$service" || return; }
+		hashi app node register "$app" || return
+
+	# Nomad is not installed, auto-start the service
+	elif [[ $service ]]; then
 		serviceAutoStart "$service"
 	fi
 }
 
-# hashiAppNoService APP - if Nomad is running register the application
-hashiAppNoService()
+# hashiConsulService FILE[.hcl] - register a Consul service using the service file
+hashiConsulService()
 {
-	! hashiRegisterAppCheck && return
-	hashiRegisterApp "$1"
+	local file="$(ConfigGet "confDir")/hashi/service/$1" clean result
+	[[ ! $(GetFileExtension "$1") ]] && file+=".hcl" # assume HCL extension
+
+	# locate the Hashi consul service configuration files, or get them from the remote server
+	if [[ -f "$HOME/$file" ]]; then
+		file="$HOME/$file"
+	else
+		scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null  "$(RemoteServer):~/$file" "/tmp" || return
+		file="/tmp/$(GetFileName "$file")" 
+		clean="true"
+	fi
+
+	hashi consul service add "$file" --api="$HOSTNAME"; result=$?
+	[[ $clean ]] && rm "$file"
+	return $result
 }
 
 #################################################
@@ -5836,7 +5871,7 @@ NodeRedInstall()
 	service restart nodered || return
 
 	# final
-	hashiApp "node-red" "nodered" && httpShow 1880	
+	nomadRegisterApp "node-red" "nodered" && httpShow 1880	
 }
 
 nodeRedPermissions() { makeDir --sudo --owner "$user" "$home/.config" "$home/.node-red" "$home/.node-red/node_modules" "$home/.npm"; }
@@ -5906,7 +5941,7 @@ BindInstall()
 		service restart named || return
 	fi
 
-	return 0
+	hashiConsulService "dns.json"
 }
 
 CloudInitInstall() { header "cloud-init"; cloudInitLimitUser; }
@@ -5987,8 +6022,8 @@ DomotzAgentInstall()
 		DomotzHelper api put network/interfaces-policy '{ "policy": "allow", "rules": [ "'$interface'" ] }' || return
 	fi
 
-	# configure Hashi - do not control the service (snap.domotzpro-agent-publicstore.domotzpro-agent-publicstore)
-	hashiAppNoService "domotz-agent" || return
+	# configure Consul service
+	hashiConsulService "domotz-agent" || return
 
 	# manual configuration
 	echo "Click "START MIGRATION..., ..., Resume Agent
@@ -6052,6 +6087,7 @@ KeaInstall()
 	makeDir --sudo "/var/log/kea" || return
 	sudo update-rc.d kea-dhcp4-server defaults || return
 	service auto kea-dhcp4-server || return
+	hashiConsulService "dhcp.json"
 }
 
 KeaServiceInstall() # separate service installation - use when installing from source
@@ -6420,7 +6456,7 @@ unifiPackage()
 	unifiFinal || return
 }
 
-unifiFinal() { hashiApp "unifi" && httpsShow 8443; }
+unifiFinal() { nomadRegisterApp "unifi" "unifi" && httpsShow 8443; }
 
 WiFiInstall() { header "Wi-Fi"; RunPlatform wifi; }
 
@@ -8124,8 +8160,8 @@ CronLogInstall()
 #################################################
 
 ServerAllInstall() { i ApacheAll FileServer GitServer NginxAll VpnServer LoadBalancer; }
-LoadBalancerInstall() { i ConsulTemplateService keepalived nginx && hashiRegisterApp "lb"; }
-VpnServerInstall() { i PiVPN && hashiApp "wire-guard" "wg-quick@wg0"; }
+LoadBalancerInstall() { i ConsulTemplateService keepalived nginx && nomadRegisterApp "lb"; }
+VpnServerInstall() { i PiVPN && nomadRegisterApp "wire-guard" "wg-quick@wg0"; }
 
 #
 # Apache
@@ -8168,7 +8204,7 @@ ApacheDockerInstall()
 ApacheDockerConfigInstall()
 {
 	header "Apache Web Server (Docker Configuration)"
-	apache deploy -H=localhost && hashiRegisterApp "apache-web"; 
+	apache deploy -H=localhost && nomadRegisterApp "apache-web"; 
 }
 
 #
@@ -8189,7 +8225,7 @@ FileServerInstall()
 	IsPlatform debian && { i DebianFileSharing || return; }
 
 	# register service
-	hashiRegisterApp "file"
+	nomadRegisterApp "file"
 }
 
 #
@@ -8212,7 +8248,7 @@ GitServerInstall()
 	[[ ! -d "/git/test" ]] && { git init --bare /git/test || return; }
 
 	# register the application
-	hashiRegisterApp "git"
+	nomadRegisterApp "git"
 }
 
 #
@@ -9173,8 +9209,6 @@ ChronyInstall() # time syncronization (NTP replacement)
 	else
 		pkg chrony ntpdate || return
 	fi
-
-	hashiApp "chrony"
 }
 
 ChronyServerInstall()
@@ -9188,7 +9222,7 @@ ChronyServerInstall()
 		service restart chrony || return
 	fi
 
-	hashiApp "chrony"
+	nomadRegisterApp "chrony" "chrony"
 }
 
 RtcInstall() { RunPlatform "rtc"; }

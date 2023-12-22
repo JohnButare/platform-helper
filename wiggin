@@ -5,14 +5,14 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) backup|host|maintenance|network|setup|sync|update [OPTION]...
+Usage: $(ScriptName) backup|check|host|maintenance|network|setup|sync|update [OPTION]...
 Manage the Wiggin network."
 }
 
 init()
 {
-	configDir="$CLOUD/network"
-	hashiConfig="$configDir/system/hashi"
+	confDir="$HOME/$(ConfigGet "confDir")"
+	hashiConfig="$confDir/hashi"
 
 	# network devices
 	aps=(LivingRoomAp BackYardAp FrontYardAp GarageAp StudyAp) # reboot Living Room AP first
@@ -197,6 +197,39 @@ backupWireGuard() { runApp "backup" "WireGuard" wiggin backup WireGuard; }
 updateCloudFlare() { runApp "update" "CloudFlare" wiggin update CloudFlare; }
 updateJumpCloud() { runApp "update" "JumpCloud" wiggin update JumpCloud; }
 updateWireGuard() { runApp "update" "WireGuard" wiggin update WireGuard; }
+
+#
+# check commands
+#
+
+checkUsage() 
+{
+	ScriptUsageEcho "Usage: $(ScriptName) check dhcp
+Perform checks.
+
+	dhcp		check for a DHCP server on the current host"
+}
+
+checkCommand() { usage; }
+
+# checkDhcpCommand - check if the local DHCP server is working
+# - requires root privileges, or nmap capabilities (https://www.maketecheasier.com/run-nmap-without-root-or-sudo)
+checkDhcpCommand()
+{	
+	local ip; ip="$(GetIpAddress)" || return
+	local adapter; adapter="$(GetPrimaryAdapterName)"
+
+	printf "checking for a local DHCP server at $ip..."
+
+	local i 
+	for (( i = 0; i < 5; i++ )); do		
+		nmap --script broadcast-dhcp-discover -e "$adapter" |& grep --quiet "Server Identifier: $ip" && { echo "found"; return; }
+		sleep 1
+		printf "."
+	done
+	echo "not found"
+	return 1
+}
 
 #
 # host commands
@@ -561,8 +594,8 @@ networkArgStart()
 	dnsDir="/etc/bind"
 
 	# configuration
-	dhcpConfig="$configDir/system/dhcp"
-	dnsConfig="$configDir/system/dns"
+	dhcpConfig="$confDir/dhcp"
+	dnsConfig="$confDir/dns"
 	dhcpReservations="$dhcpConfig/$network/kea-dhcp4-$network-reservations.json"
 }
 
@@ -998,9 +1031,6 @@ setupHashiCommand()
 	for job in "${jobs[@]}"; do hashiJob "backup" || return; done
 
 	header "Installing Hashi Consul services..."
-	hashiService "cups" 3 || return
-	hashiService "dns.json" 1,2,3,4 || return
-	hashiService "domotz-agent" 11 || return
 	hashiService "hubitat" 3 || return
 	hashiService "nomad-web" 1,2,3,4 || return
 	hashiService "squid-proxy" 3 || return
@@ -1227,7 +1257,7 @@ updateCloudFlareDns()
 #
 
 getDnsHosts() { GetHostsApp "dns" active ; }
-getDhcpHosts() { GetHostsApp "dns" active ; } # assume the DNS servers are also the DHCP servers
+getDhcpHosts() { GetHostsApp "dhcp" active ; }
 mountVol() { VeraCrypt mount "$@" p "${globalArgs[@]}"; }
 unmountVol() { VeraCrypt unmount p "${globalArgs[@]}"; }
 

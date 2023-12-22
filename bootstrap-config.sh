@@ -25,7 +25,7 @@ wifi="Wiggin"
 baseDomain="butare.net"
 domain="$network.$baseDomain"
 systemUser="wsystem"
-confDir="$CLOUD/network/system"
+confDir="Dropbox/network/system"
 hostTimeout="200"
 
 #
