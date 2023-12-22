@@ -3947,6 +3947,9 @@ Utf16to8() { iconv -f utf-16 -t UTF-8; }
 # - the rest of the output from the pipe is discarded (sent to /dev/null with cat)
 shead() { ${G}head "$@"; cat > /dev/null; }
 
+# qgrep - quiet grep - prevents termination of the pipeline with SIGPIPE when grep terminates before early with a match
+qgrep() { ${G}grep --quiet "$@"; cat > /dev/null; }
+
 # true grep - always return 0
 # - normally 0=text found, 1=text not found, 2=error
 # - macOS ggrep returns 1 if no text found or error (i.e. invalid arguments)
