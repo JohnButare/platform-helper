@@ -2610,6 +2610,7 @@ package() # package install
 	IsPlatform brew && { HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"; return; }
 	IsPlatform dnf && { sudo dnf install -assumeyes "${packages[@]}"; }
 	IsPlatform opkg && { sudoc opkg install "${packages[@]}"; return; }
+	IsPlatform pacman && { sudoc pacman -S "$@"; }
 
 	return 0
 }
@@ -2744,6 +2745,7 @@ PackageSearch()
 	elif IsPlatform brew; then brew search "$@"
 	elif IsPlatform dnf; then dnf search "$@"
 	elif IsPlatform entware; then opkg find "*$@*"
+	elif IsPlatform pacman; then pacman -Ss "$@"
 	elif IsPlatform yum; then yum search "$@"
 	fi
 }
@@ -2764,6 +2766,7 @@ PackageListInstalled()
 	elif IsPlatform brew && [[ ! $full ]]; then brew info --installed --json | jq -r '.[].name'
 	elif IsPlatform entware; then opkg list-installed
 	elif IsPlatform rpm; then rpm --query --all
+	elif IsPlatform pacman; then pacman --query
 	fi
 }
 
@@ -2911,6 +2914,7 @@ isPlatformCheck()
 		brew|homebrew) InPath brew;;
 		dnf|opkg|rpm|yum) InPath "$p";;
 		nala) InPath "nala";;
+		pacman) InPath "pacman";;
 
 		# virtualization
 		chroot) IsChroot;;
