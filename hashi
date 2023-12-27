@@ -173,7 +173,8 @@ appArgStart() { unset app; product="consul"; }
 appCommand() { usage; }
 
 appLsUsage() { EchoWrap "Usage: $(ScriptName) app ls NAME\nList all applications."; }
-appLsCommand() { consul kv get -recurse app | cut -d/ -f2 | sort | uniq; }
+appLsCommand() { appLs; }
+appLs() { consul kv get -recurse app | cut -d/ -f2 | sort | uniq; }
 
 #
 # app alive command 
@@ -240,8 +241,8 @@ appNodeRegisterArgs() { ScriptArgGet "app" -- "$@"; shift; }
 
 appNodeRegisterCommand()
 {
-	serviceVerify "nomad" || return
-	
+	local host="${hostArg:-$HOSTNAME}"; host="${host,,}"
+
 	# Consul
 	if [[ ! $(consul kv get -recurse "app/$app/hosts/${HOSTNAME,,}") ]]; then
 		hilight "Registering '$app' application in Consul..."
@@ -249,9 +250,17 @@ appNodeRegisterCommand()
 		echo
 	fi
 	
-	# Nomad
+	# Nomad - remote host
+	if ! IsLocalHost "$host"; then
+		! IsAvailable "$host" && { ScriptErr "host $host is not available"; return 1; }
+		sshRunInteractive "$host" "hashi app node register $app"; return
+	fi
+
+	# Nomad - local host
 	local file="/etc/nomad.d/03_$app.hcl"
 	[[ -f "$file" && ! $force ]] && return
+	serviceVerify "nomad" || return	
+
 	hilight "Registering '$app' application in Nomad..."
 
  	cat <<-EOF | sudoc ${G}tee "$file" || return
@@ -273,7 +282,7 @@ appNodeUnregisterCommand()
 	local host="${hostArg:-$HOSTNAME}"; host="${host,,}"
 
 	# Consul
-	if [[ $(consul kv get -recurse "app/apache-web/hosts/$host") ]]; then
+	if [[ $(consul kv get -recurse "app/$app/hosts/$host") ]]; then
 		hilight "Unregistering '$app' application in Consul for host '$host'..."
 		consul kv delete -recurse "app/$app/hosts/$host" || return
 		echo
@@ -287,12 +296,11 @@ appNodeUnregisterCommand()
 
 	# Nomad - local host
 	local file="/etc/nomad.d/03_$app.hcl"
-	if [[ -f "$file" ]]; then
-		hilight "Unregistering '$app' application in Nomad on host '$host'..."
-		sudoc rm "$file" && serviceVerify "nomad" && serviceRestartLocal "nomad"
-	fi
+	serviceVerify "nomad" || return
+	[[ ! -f "$file" ]] && return
 
-	return 0
+	hilight "Unregistering '$app' application in Nomad on host '$host'..."
+	sudoc rm "$file" && serviceRestartLocal "nomad"
 }
 
 #
@@ -335,27 +343,42 @@ appServerNotActive() { local all active; active="$(appServerActive "$1")" && all
 # app verify
 #
 
-appVerifyUsage() { EchoWrap "Usage: $(ScriptName) app verify APP\nVerify all known servers for the application are configured to run the application, and vice-versa."; }
+appVerifyUsage() { EchoWrap "Usage: $(ScriptName) app verify [APP|all]\nVerify all known servers for the application are configured to run the application, and vice-versa."; }
 appVerifyArgs() { ScriptArgGet "app" -- "$@"; shift; }
 
 appVerifyCommand()
 {
-	local errors=0;
+	[[ "$app" == "all" ]] && { appVerifyAll; return; }
+	appVerify "$app"
+}
+
+appVerifyAll()
+{
+	local app apps errors=0; IFS=$'\n' ArrayMake apps "$(appLs)" || return
+	for app in "${apps[@]}"; do
+		appVerify "$app"; (( errors+=$? ))
+	done
+	return $errors
+}
+
+appVerify()
+{
+	local errors=0 app="$1";
 
 	printf "Verifying the '$app' application..."
 
 	# check if each registered server for the application is configured to run the application by checking the servers Nomad app.<APP> metadata tags
 	local registeredServer registeredServers; IFS=$'\n' ArrayMake registeredServers "$(appServerAll "$app" | sort -V)" || return
 	for registeredServer in "${registeredServers[@]}"; do
-		! IsAvailable "$registeredServer" && { (( errors++ )); EchoErr "Cannot check if server '$(RemoveDnsSuffix "$registeredServer")' is configured to run '$app', it is not available"; continue; }
-		! appNodeGet "$registeredServer" | qgrep "^$app$" && { (( errors++ )); EchoErr "Server '$(RemoveDnsSuffix "$registeredServer")' is not configured to run '$app'"; continue; }
+		! IsAvailable "$registeredServer" && { (( errors++ )); HilightErr "Cannot check if server '$(RemoveDnsSuffix "$registeredServer")' is configured to run '$app', it is not available"; continue; }
+		! appNodeGet "$registeredServer" | qgrep "^$app$" && { (( errors++ )); HilightErr "Server '$(RemoveDnsSuffix "$registeredServer")' is not configured to run '$app'"; continue; }
 		[[ ! $errors ]] && print "."
 	done
 
 	# check if active servers configured to run the application (which have the Nomad app.<APP> metadata tag) are registered to run it
 	local host; for host in $(GetAllServers); do
 		IsInArray "$host" registeredServers && continue # already checked each registered server
-		appNodeGet "$host" | qgrep "$app" && { (( errors++ )); EchoErr "Server '$(RemoveDnsSuffix "$host")' is configured to run '$app', but it is not registered"; continue; }
+		appNodeGet "$host" | qgrep "$app" && { (( errors++ )); HilightErr "Server '$(RemoveDnsSuffix "$host")' is configured to run '$app', but it is not registered"; continue; }
 	done
 	
 	(( errors == 0 )) && echo "ok"
