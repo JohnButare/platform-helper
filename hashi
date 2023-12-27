@@ -168,7 +168,7 @@ allStatusCommand()
 # app commands
 #
 
-appUsage() { EchoWrap "Usage: $(ScriptName) app alive|ls|node|server"; }
+appUsage() { EchoWrap "Usage: $(ScriptName) app alive|ls|node|server|verify"; }
 appArgStart() { unset app; product="consul"; }
 appCommand() { usage; }
 
@@ -198,7 +198,7 @@ appNodeCommand() { appNodeStatusCommand; }
 appNodeStatusUsage()
 {
 	EchoWrap "Usage: $(ScriptName) app node status
-Show applications registered on the host using Nomad app.<APP> metadata tags.
+Show applications configured on the host by checking the Nomad app.<APP> metadata tags.
 
 	-a,	--active		show currently running applications on the host"
 }
@@ -219,7 +219,7 @@ appNodeStatus()
 {
 	local host="$(RemoveDnsSuffix "$1")"
 
-	local app apps; IFS=$'\n' ArrayMake apps "$(verbose="--verbose" nomadNodeStatus "$host" | ${G}grep '^app\.' | cut -d" " -f1 | cut -d. -f2 | sort)" || return
+	local app apps; IFS=$'\n' ArrayMake apps "$(appNodeGet "$host")" || return
 	[[ ! $active ]] && { ArrayDelimit apps " "; return; }
 
 	for app in "${apps[@]}"; do
@@ -228,11 +228,14 @@ appNodeStatus()
 	echo
 }
 
+# appNodeGet HOST - get all of the applications on the specified host by searching for Nomad app.<APP> metadata tags
+appNodeGet() { verbose="--verbose" nomadNodeStatus "$1" | ${G}grep '^app\.' | cut -d" " -f1 | cut -d. -f2 | sort; }
+
 #
-# app node register commands
+# app node [un]register commands
 #
 
-appNodeRegisterUsage() { EchoWrap "Usage: $(ScriptName) app register APP\nRegister an application with Consul and Nomad."; }
+appNodeRegisterUsage() { EchoWrap "Usage: $(ScriptName) app node register APP\nRegister the application on this host with Consul and Nomad."; }
 appNodeRegisterArgs() { ScriptArgGet "app" -- "$@"; shift; }
 
 appNodeRegisterCommand()
@@ -262,20 +265,28 @@ appNodeRegisterCommand()
 	serviceRestartLocal "nomad"
 }
 
-appNodeUnregisterUsage() { EchoWrap "Usage: $(ScriptName) app unregister APP\nUnregister an application in Consul and Nomad."; }
+appNodeUnregisterUsage() { EchoWrap "Usage: $(ScriptName) app node unregister APP\nUnregister the application on this host in Consul and Nomad."; }
 appNodeUnregisterArgs() { ScriptArgGet "app" -- "$@"; shift; }
 
 appNodeUnregisterCommand()
 {
+	
 	# Consul
-	hilight "Unregistering '$app' application in Consul..."
-	consul kv delete -recurse "app/$app/hosts/${HOSTNAME,,}" || return
-	echo
+	let host="${HOSTNAME,,}"
+	if [[ $(consul kv get -recurse "app/apache-web/hosts/$host") ]]; then
+		hilight "Unregistering '$app' application in Consul..."
+		consul kv delete -recurse "app/$app/hosts/$host" || return
+		echo
+	fi
 
 	# Nomad
-	local file="/etc/nomad.d/03_$app.hcl"; [[ ! -f "$file" ]] && return
-	hilight "Unregistering '$app' application in Nomad..."
-	sudoc rm "$file" && serviceVerify "nomad" && serviceRestartLocal "nomad"
+	local file="/etc/nomad.d/03_$app.hcl"
+	if [[ -f "$file" ]]; then
+		hilight "Unregistering '$app' application in Nomad..."
+		sudoc rm "$file" && serviceVerify "nomad" && serviceRestartLocal "nomad"
+	fi
+
+	return 0
 }
 
 #
@@ -285,7 +296,7 @@ appNodeUnregisterCommand()
 appServerUsage()
 {
 	EchoWrap "Usage: $(ScriptName) app server [not] [all|active|available](all) APP
-Show servers registered for an application using information in Consul key 'app/<APP>/hosts'."
+Show servers registered to run the application using the information in then Consul key 'app/<APP>/hosts'."
 }
 
 appServerArgs() { ScriptArgGet "app" -- "$@"; shift; }
@@ -313,6 +324,36 @@ appServerAll() { consul kv get -recurse "app/$1/hosts" | cut -d/ -f4 | cut -d: -
 appServerAvailable() { local hosts; hosts="$(appServerAll "$1")" && IsAvailableBatch $hosts | sort -V; }
 appServerNotAvailable() { local all available; available="$(appServerAvailable "$1")" && all=( $(appServerAll "$1") ) && ArrayRemove all "$available" && ArrayDelimit all $'\n' | RemoveEmptyLines | sort -V; }
 appServerNotActive() { local all active; active="$(appServerActive "$1")" && all=( $(appServerAll "$1") ) && ArrayRemove all "$active" && ArrayDelimit all "\n" | RemoveEmptyLines | sort -V; }
+
+#
+# app verify
+#
+
+appVerifyUsage() { EchoWrap "Usage: $(ScriptName) app verify APP\nVerify all known servers for the application are configured to run the application, and vice-versa."; }
+appVerifyArgs() { ScriptArgGet "app" -- "$@"; shift; }
+
+appVerifyCommand()
+{
+	local errors=0;
+
+	printf "Verifying the '$app' application..."
+
+	# check if each registered server for the application is configured to run the application by checking the servers Nomad app.<APP> metadata tags
+	local registeredServer registeredServers; IFS=$'\n' ArrayMake registeredServers "$(appServerAll "$app" | sort -V)" || return
+	for registeredServer in "${registeredServers[@]}"; do
+		! IsAvailable "$registeredServer" && { (( errors++ )); EchoErr "Cannot check if server '$registeredServer' is configured to run '$app', it is not available"; continue; }
+		! appNodeGet "$registeredServer" | qgrep "^$app$" && { (( errors++ )); EchoErr "Server '$registeredServer' is not configured to run '$app'"; continue; }
+		[[ ! $errors ]] && print "."
+	done
+
+	# check if active servers configured to run the application (which have the Nomad app.<APP> metadata tag) are registered to run it
+	local host; for host in $(GetAllServers); do
+		IsInArray "$host" registeredServers && continue # already checked each registered server
+		appNodeGet "$host" | qgrep "$app" && { (( errors++ )); EchoErr "Server '$host' is configured to run '$app', but it is not registered"; continue; }
+	done
+	
+	return $errors
+}
 
 #
 # certificate commands
