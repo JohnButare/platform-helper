@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 . script.sh || exit
+. color.sh || exit
 
 usage()
 {
@@ -11,24 +12,26 @@ usageVerbose()
 {
 	ScriptUsageEcho "\
 Locations:
-- application - netboot.xyz Git repository  : $appDir 
-- configuration - custom configuration      : $confDir
-- hosts - custom deployment scripts					: $customHost 
-- web app - netboot.xyz website             : $webDirApp
-- web final - local website source          : $webDirFinal" 
+- application - netboot.xyz Git repository  : $appDir ($(checkDir "$appDir"))
+- configuration - custom configuration      : $confDir ($(checkDir "$confDir"))
+- hosts - custom deployment scripts					: $customHost
+- web app - netboot.xyz website             : $webDirApp ($(checkDir "$webDirApp"))
+- web final - local website source          : $webDirFinal ($(checkDir "$webDirFinal"))"
 }
+
+checkDir() {  [[ -d "$1" ]] && echo "present" || echo "${RED}missing${RESET}";  }
 
 init() 
 { 
 	app="netbootxyz"
 	dockerImageName="$app"
 
-	confDir="$(ConfigGet confDir)/netboot.xyz" || return
-	webDirFinal="$(apache dir sync)/netboot.xyz" || return
+	confDir="$HOME/$(ConfigGet confDir)/netboot.xyz" || return
+	webDirFinal="$(apache dir sync)/htdocs/netboot.xyz" || return
 
 	appDir="/opt/netboot.xyz"
 	appConfig="$confDir/user_overrides.yml"
-	customHost="ender,nas3"
+	customHost="ender"
 	webDirApp="/var/www/html/"
 }
 
@@ -45,20 +48,13 @@ testCommand()
 
 	# ender
 	testWeb "ender-docker-live" "http://ender.butare.net:10181"
-	testWeb "ender-docker-assets" "http://10.10.101.67:10181/custom/"
-	testWeb "ender-apache-assets" "http://10.10.101.67:8080/assets/custom"
-
-	# nas3
-	if IsAvailable nas3.butare.net; then
-		testWeb "nas3-docker-live" "http://nas3.butare.net:10181"
-		testWeb "nas3-docker-assets" "http://10.10.100.4:10181/custom"
-		testWeb "nas3-apache-assets" "http://10.10.100.4/assets/custom"
-	fi
+	testWeb "ender-docker-assets" "http://ender.butare.net:10181/custom/"
+	testWeb "ender-apache-assets" "http://ender.butare.net:8080/assets/custom"
 
 	# TFTP
-	local check; IsPlatform WSL && { check="ssh $(GetServer web)"; } # WSL does not support UDP
+	local check; IsPlatform WSL && { check="ssh $(GetServer apache-web)"; } # WSL does not support UDP, ssh to a web server for the test
 	local file="about.ipxe"
-	local server servers="$(GetServers lb)"
+	local server servers="$(GetServers tftp)"
 
 	for server in $servers; do
 		local desc="$(RemoveDnsSuffix "$server")"
@@ -95,17 +91,17 @@ deployWebOpt() { ScriptOptHost "$@"; }
 
 deployWebCommand()
 {
-	echo "Updating web files..."
-	sudoc CopyDir --recursive --delete "$webDirApp" "$webDirFinal" "${globalArgs[@]}" || return
+	HeaderBig "Updating web files..."
+	sudoc CopyDir --recursive --delete --rsync "$webDirApp" "$webDirFinal" "${globalArgs[@]}" || return
 
-	echo "Updating web custom files..."
-	sudo CopyDir --recursive "$confDir/web/netboot.xyz/" "$webDirFinal" "${globalArgs[@]}" || return
+	HeaderBig "Updating web custom files..."
+	sudo CopyDir --recursive --rsync --no-metadata "$confDir/web/netboot.xyz/" "$webDirFinal" "${globalArgs[@]}" || return
 
-	echo "Updating custom menus..."
-	sudo cp "$confDir/menu/custom.ipxe.j2" "$webDirFinal/custom/custom.ipxe"  || return # assumes Jinja2 template not used (no {{ }})
+	HeaderBig "Updating custom menus..."
+	sudo cp "$confDir/menu/custom.ipxe.j2" "$webDirFinal/custom/custom.ipxe"  || return # assumes Jinja2 templates are not used (no {{ }})
 
-	echo "Syncronizing web sites..."	
-	apache deploy --host=localhost "${globalArgs[@]}" && apache sync "${hostOpt[@]}" "${globalArgs[@]}"
+	HeaderBig "Syncronizing web sites..."	
+	apache sync "${hostOpt[@]}" "${globalArgs[@]}"
 }
 
 deployScriptsCommand()
@@ -118,12 +114,6 @@ deployScriptsCommand()
 		local dir="/opt/homebrew/var/www/assets/custom/windows/scripts"
 		UnisonHelper sync "$src" "ender" "$dir" --no-props "${globalArgs[@]}" || return
 		SshHelper connect "ender" -- "/usr/local/bin/docker" cp "$dir" "$dockerImageName:/assets/custom/windows"
-	fi
-
-	# nas3
-	if IsAvailable nas3; then
-		hilight "Updating nas3..."
-		UnisonHelper sync "$src" "nas3" "/share/Web/assets" --no-props "${globalArgs[@]}" || return
 	fi
 
 	return 0
@@ -154,17 +144,17 @@ editMenuCommand() { TextEdit "$confDir/menu/custom.ipxe.j2"; }
 # setup command
 #
 
-setupUsage() { echot "Usage: $(ScriptName) setup [app|web](all)\nSetup the netboot.xyz build environment including the application and web source files."; }
+setupUsage() { echot "Usage: $(ScriptName) setup [app|config|web](all)\nSetup the netboot.xyz build environment including the application and web source files."; }
 setupCommand() { setupAll; }
 setupAllCommand() { setupAll; }
-setupAll() { setupWebCommand && setupAppCommand; }
+setupAll() { setupWebCommand && setupConfigCommand && setupAppCommand; }
 
 setupAppCommand()
 {
 	[[ -d "$appDir" && ! $force ]] && return
 
 	# packages
-	RunLog package ansible git apache2 || return
+	RunLog package ansible git apache2 python-is-python3 || return
 
 	# application
 	[[ -d "$appDir" ]] && { RunLog sudo rm -fr "$appDir" || return; }
@@ -179,10 +169,16 @@ setupAppCommand()
 	RunLog sudo mv "$webDirAppParent/$(GetFileName "$webDirFinal")" "$webDirApp" || return
 }
 
+setupConfigCommand()
+{
+	(( $(stat -c%b "$confDir/user_overrides.yml") > 0 )) && [[ ! $force ]] && return
+	CloudGet "$$confDir"
+
+}
 setupWebCommand()
 {
 	[[ -d "$webDirFinal" && ! $force ]] && return
-	apache sync --host="$(GetServer "web")" && sudo mkdir --parents "$webDirFinal"
+	apache sync && sudo mkdir --parents "$webDirFinal"
 }
 
 #
@@ -190,7 +186,7 @@ setupWebCommand()
 #
 
 updateUsage() { echot "Usage: $(ScriptName) app update\nUpdate the netboot.xyz application by running the Ansible playbook."; }
-updateCommand() { cp "$confDir/user_overrides.yml" "$appDir" && setupAll && cd "$appDir" && sudo ansible-playbook -i "inventory site.yml"; }
+updateCommand() { setupAll && cp "$confDir/user_overrides.yml" "$appDir" && cd "$appDir" && sudoc ansible-playbook -i "inventory" "site.yml"; }
 
 #
 # helper functions
