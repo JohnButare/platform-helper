@@ -1162,9 +1162,7 @@ pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; cl
 
 # CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
 # - mac: beta v166.3.2891+ triggers download of online-only files on move or copy
-# - wsl: 
-#   - reads of the file do not trigger online-only file download in Dropbox
-#   - show true size of file even if online-only
+# - wsl: reads of the file do not trigger online-only file download in Dropbox
 CloudGet()
 {
 	! IsPlatform win && return
@@ -1172,9 +1170,22 @@ CloudGet()
 
 	local file
 	for file in "$@"; do
-		[[ -d "$file" ]] && continue 										# skip directories
-		ScriptFileCheck "$file" || return 							# validate file
+
+		# dirs
+		if [[ -d "$file" ]]; then
+			local files; IFS=$'\n' ArrayMake files "$(find . -type f)" || return
+			CloudGet "${files[@]}" || return
+			continue
+		fi
+
+		# check
+		ScriptFileCheck "$file" || return
+		(( $(stat -c%b "$file") > 0 )) && continue # file is already downloaded, does not work for small files
+
+		# get
+		echo "Getting '$file'..."
 		( cd "$(GetFilePath "$file")"; cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
+
 	done
 }
 
