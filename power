@@ -312,11 +312,14 @@ powerOffPrepareNomad()
 	# if rebooting we want to wait for the node to stabilize	
 	[[ "$command" == @(reboot) ]] && wait="--wait" waitSsh="--wait-ssh"
 
-	# return if drained
-	[[ ! $force ]] && hashi nomad node drain status --host=$host && { echo "drained"; return; }
+	# drain
+	if [[ $force ]] || ! hashi nomad node drain status --host=$host; then
+		echo "draining..."; hashi nomad node drain enable --host=$host
+	else
+		echo "drained"
+	fi
 
-	# drain enable
-	echo "draining..."; hashi nomad node drain enable --host=$host
+	scaleHost "$host"	
 }
 
 powerOffPrepareVmWare()
@@ -432,11 +435,12 @@ poweredOnNomad()
 	# return if not a Nomad node
 	! hashi nomad node exists --host=$host && return
 
-	# return if not drained
-	[[ ! $force ]] && ! hashi nomad node drain status --host=$host >& /dev/null && return
-
 	# disable drain
-	echo "nomad..."; hashi nomad node drain disable --host=$host
+	if [[ $force ]] || hashi nomad node drain status --host=$host >& /dev/null ; then
+		echo "nomad..."; hashi nomad node drain disable --host=$host
+	fi
+
+	scaleHost "$host"
 }
 	
 powerWaitOnDo()
@@ -899,6 +903,18 @@ doGuiConnect()
 
  	fi
 
+}
+
+# scalHost - set the Nomad scale for the specified host
+scaleHost()
+{
+	# we need a TFTP server active on rp1-4 if up since netboot uses lb2 VIP
+	[[ ! "rp1" =~ ^rp[0-9]+$ ]] || ! nomad job status tftp >& /dev/null && return
+
+	local hostCount; hostCount="$(nomad node status | awk '{ print $4 " " $7 }' | grep -E "^rp[0-9]+ " | grep " eligible$" | wc -l)" || return
+	! IsNumeric "$hostCount" && { ScriptErr "unable get a host count to determine the correct scale for the TFTP job"; return 1; }
+	hilight "Scaling TFTP job to ${hostCount} nodes..."
+	nomad job scale tftp "$hostCount" || return
 }
 
 ScriptRun "$@"
