@@ -3884,13 +3884,18 @@ sudoc()
 		fi
 	fi
 
-	# run sudo - do not use -- to allow environment variables, i.e. sudoc TEST=1 ls
+	# validate sudo to cache credentials
+	# - do separately from running the command so can use stdin in the command
 	if [[ $password ]]; then
-		echo "$password" | "${command[@]}" --prompt="" --stdin "${args[@]}"
+		echo "$password" | "${command[@]}" --prompt="" --stdin --validate || return
 	else
 		[[ $noPrompt ]] && command+=(--non-interactive)
-		"${command[@]}" --prompt="" "${args[@]}"
+		"${command[@]}" --prompt="" --validate || return
 	fi
+
+	# run the command
+	# - do not use -- to allow environment variables, i.e. sudoc TEST=1 ls
+	"${command[@]}" --prompt="" "${args[@]}"
 } 
 
 # sudoe FILE - sudoedit with credentials
