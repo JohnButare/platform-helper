@@ -2,12 +2,12 @@
 . app.sh || exit
 
 usage() { ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [IsInstalled|profile|program|start|sync](start)
-$(ScriptName) commands."; }
+Usage: $(ScriptName) [OPTION]... IsInstalled|profile|program|start|sync
+$(ScriptName) commands."
+}
 
 init()
 {
-	defaultCommand="start"
 	program="$(FindInPath "unison")"
 	gui="$(FindInPath "unison-gtk")"
 	return 0
@@ -29,17 +29,19 @@ versionCommand() { AppInstallCheck && "$program" -version | cut -d" " -f3; }
 
 syncUsage()
 {
-	echot "Usage: $(ScriptName) sync DIR HOST [HOST_DIR]
+	echot "Usage: $(ScriptName) sync DIR HOST [HOST_DIR](DIR)
 Syncronize the directory to the host.
 
-	--no-props	   	do not syncronize properties (permissions or attributes)" 
+	-H, --host HOST		if specified, syncrhonize from the specified host
+	    --no-props	 	do not syncronize properties (permissions or attributes)
+	-r, --root				run Unison as root"
 }
 
-syncArgStart() { unset dir host hostDir noProps; }
+syncArgStart() { unset dir host hostDir noProps remoteHost root rootArg; }
 
 syncArgs()
 {
-	ScriptArgGet "dir" -- "$@"; ScriptCheckDir "$dir"; shift
+	ScriptArgGet "dir" -- "$@"; shift
 	ScriptArgGet "host" -- "$@"; shift; (( $# == 0 )) && return
  	ScriptArgGet "hostDir" -- "$@"; shift
 }
@@ -47,18 +49,45 @@ syncArgs()
 syncOpt() 
 {
 	case "$1" in
+		--host|--host=*|-H|-H=*) ScriptOptGet "remoteHost" "$@" && hostValidate "$remoteHost";;
 		--no-props) noProps="--no-props";;
+		--root|-r) rootArg="--root" root="root@";;
 		*) return 1
 	esac
 }
 
 syncCommand()
 {
-	local args=(-servercmd "/usr/local/bin/unison") src="$dir" dest="ssh://root@$host/${hostDir:-$src}"
+	# local sync
+	[[ ! $remoteHost ]] && { sync; return; }
+
+	SshHelper connect "$remoteHost" --interactive --credential --hashi --ssh-agent "${globalArgs[@]}" -- "$(cat <<-EOF
+		SshAgentConf && UnisonHelper sync "$dir" "$host" "$hostDir" $rootArg ${globalArgs[@]}
+		EOF
+	)" || return
+
+}
+
+sync()
+{
+	# validate
+	{ hostValidate "$host" && ScriptCheckDir "$dir"; } || return
+
+	# arguments
+	local args=(-servercmd "/usr/local/bin/unison")
 	[[ $force ]] && args+=(-force "$dir")
 	[[ $noPrompt ]] && args+=(-batch)
 	[[ $noProps ]] && args+=(-dontchmod -perms=0)
-	RunLog unison "$src" "$dest" -auto "${args[@]}" "${otherArgs[@]}"
+
+	# run
+	local sudo=(); [[ $root ]] && sudo=(sudor --)
+	"${sudo[@]}" unison "$dir" "ssh://$root$host/${hostDir:-$dir}" -auto "${args[@]}" "${otherArgs[@]}"
 }
+
+#
+# helper
+#
+
+hostValidate() { SshIsAvailablePort "$1" && return; ScriptErr "'$host' is not available"; return 1; }
 
 ScriptRun "$@"
