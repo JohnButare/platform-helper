@@ -555,7 +555,7 @@ infoRemote()
 
 	# get detailed information using the os command on the host if possible
 	# - switch information requires credential
-	SshInPath "$host" "os" && { RunLog SshHelper connect --credentials "$host" --hashi "${globalArgsLessVerbose[@]}" -- os info "${remoteArgs[@]}"; return; }
+	SshInPath "$host" "os" && { RunLog SshHelper connect --credential "$host" --hashi "${globalArgsLessVerbose[@]}" -- os info "${remoteArgs[@]}"; return; }
 	
 	# othereise, get basic information using HostGetInfo vars command locally
 	ScriptEval HostGetInfo vars "$host" || return

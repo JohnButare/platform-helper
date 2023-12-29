@@ -6,8 +6,8 @@ platform-helper is a collection of Bash shell scripts that provide several helpe
 SshHelper -i pi1 'cred manager lock'
 
 # stays unlocked
-SshHelper --credentials --interactive pi1 'credential manager unlock;'
+SshHelper --credential --interactive pi1 'credential manager unlock;'
 
 # locks after 10 seconds, not interactive
-SshHelper --credentials pi1 'credential manager unlock; credential manager status; sleep 10'
+SshHelper --credential pi1 'credential manager unlock; credential manager status; sleep 10'
 ```

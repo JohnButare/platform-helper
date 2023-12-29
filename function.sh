@@ -2441,8 +2441,8 @@ SshAgentConf()
 
 SshAgentConfStatus() { SshAgentConf "$@" && SshAgent status; }
 
-# SshSudoc HOST COMMAND ARGS - run a command on host using sudoc.  
-SshSudoc() { SshHelper connect --credentials --function "$1" -- sudoc "${@:2}"; }
+# SshSudoc HOST COMMAND ARGS - run a command on host using sudoc
+SshSudoc() { SshHelper connect --credential --function "$1" -- sudoc "${@:2}"; }
 
 #
 # Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
