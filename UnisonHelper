@@ -29,21 +29,25 @@ versionCommand() { AppInstallCheck && "$program" -version | cut -d" " -f3; }
 
 syncUsage()
 {
-	echot "Usage: $(ScriptName) sync DIR HOST [HOST_DIR](DIR)
+	echot "Usage: $(ScriptName) sync SRC_DIR DEST_HOST [DEST_DIR](SRC_DIR)
 Syncronize the directory to the host.
 
-	-H, --host HOST		if specified, syncrhonize from the specified host
+	-H, --host HOST		if specified, syncrhonize the source from the specified host
 	    --no-props	 	do not syncronize properties (permissions or attributes)
-	-r, --root				run Unison as root"
+	-r, --root				run Unison as root
+
+Synchronization direction:
+	-do, --dest-older		assume destination files are than the local source files
+	-so, --src-older		assume local files are older than the destination files"
 }
 
-syncArgStart() { unset dir host hostDir noProps remoteHost root rootArg; }
+syncArgStart() { unset destHost destDir method noProps remoteHost root rootArg srcDir; }
 
 syncArgs()
 {
-	ScriptArgGet "dir" -- "$@"; shift
-	ScriptArgGet "host" -- "$@"; shift; (( $# == 0 )) && return
- 	ScriptArgGet "hostDir" -- "$@"; shift
+	ScriptArgGet "srcDir" -- "$@"; shift
+	ScriptArgGet "destHost" -- "$@"; shift; (( $# == 0 )) && return
+ 	ScriptArgGet "destDir" -- "$@"; shift
 }
 
 syncOpt() 
@@ -52,6 +56,9 @@ syncOpt()
 		--host|--host=*|-H|-H=*) ScriptOptGet "remoteHost" "$@" && hostValidate "$remoteHost";;
 		--no-props) noProps="--no-props";;
 		--root|-r) rootArg="--root" root="root@";;
+
+		--dest-older|--destination-older|-do) method="--dest-older";;
+		--src-older|--source-older|-so) method="--src-older";;
 		*) return 1
 	esac
 }
@@ -61,8 +68,12 @@ syncCommand()
 	# local sync
 	[[ ! $remoteHost ]] && { sync; return; }
 
+	# synchronization direction
+	[[ "$method" == "--src-older" ]] && args+=(-force "$destDir")
+	[[ "$method" == "--dest-older" ]] && args+=(-force "$srcDir")
+
 	SshHelper connect "$remoteHost" --interactive --credential --hashi --ssh-agent "${globalArgs[@]}" -- "$(cat <<-EOF
-		SshAgentConf && UnisonHelper sync "$dir" "$host" "$hostDir" $rootArg $noProps ${globalArgs[@]} -- ${otherArgs[@]}
+		SshAgentConf && UnisonHelper sync "$srcDir" "$destHost" "$destDir" $rootArg $noProps ${globalArgs[@]} -- ${otherArgs[@]}
 		EOF
 	)" || return
 
@@ -71,23 +82,23 @@ syncCommand()
 sync()
 {
 	# validate
-	{ hostValidate "$host" && ScriptCheckDir "$dir"; } || return
+	{ hostValidate "$host" && ScriptCheckDir "$srcDir"; } || return
 
 	# arguments
 	local args=(-servercmd "/usr/local/bin/unison")
-	[[ $force ]] && args+=(-force "$dir")
+	[[ $force ]] && args+=(-force "$srcDir")
 	[[ $noPrompt ]] && args+=(-batch)
 	[[ $noProps ]] && args+=(-dontchmod -perms=0)
 
 	# run
 	local sudo=(); [[ $root ]] && sudo=(sudor --)
-	RunLog "${sudo[@]}" unison "$dir" "ssh://$root$host/${hostDir:-$dir}" -auto "${args[@]}" "${otherArgs[@]}"
+	RunLog "${sudo[@]}" unison "$srcDir" "ssh://$root$destHost/${destDir:-$srcDir}" -auto "${args[@]}" "${otherArgs[@]}"
 }
 
 #
 # helper
 #
 
-hostValidate() { SshIsAvailablePort "$1" && return; ScriptErr "'$host' is not available"; return 1; }
+hostValidate() { local host="$1"; SshIsAvailablePort "$host" && return; ScriptErr "'$host' is not available"; return 1; }
 
 ScriptRun "$@"
