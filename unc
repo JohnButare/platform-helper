@@ -399,13 +399,21 @@ unmount()
 	
 	mountDirCleanup "$dir" >& "$output" && return
 
+	# unable to remove - check if it's not a mount point
+	if { sudoc fuser -c "$dir" --ismountpoint; true; } |& qgrep "is not a mountpoint"; then
+		ScriptErr "unable to unmount '$dir', it is not a mount point and likely contains local files, try -ff to blindly remove those files"
+		return 1
+	fi
+
 	# unable to remove
 	if [[ ! $quiet ]]; then
 		ScriptErr "unable to unmount '$dir', try --force"
 		if ! IsPlatform wsl1; then
-			local processes; processes="$(sudoc fuser -c "$dir" |& cut -d" " -f 2- | sed "s/c//g" | sed "s/m//g" | tr -s " " | RemoveSpaceFront)" && [[ $processes ]] && \
-				{ log1 "blocking processes: $processes"; EchoErr "The following processes are preventing '$dir' from being unmounted:"; ps -p $processes; }
-			EchoErr by	
+			local processes; processes="$(sudoc fuser -c "$dir" --ismountpoint |& cut -d":" -f2 | sed "s/[cefFrm]//g" |  tr -s " " | RemoveSpaceFront)" || return
+			if [[ $processes ]]; then
+				log1 "blocking processes for '$dir': $processes"
+				EchoErr "The following processes are preventing '$dir' from being unmounted:"; ps -p $processes
+			fi
 		fi
 	fi
 
@@ -435,6 +443,9 @@ mountDirCleanup()
 
 	# remove directory - ignore errors
 	[[ -d "$dir" ]] && RunLog2 rmdir "$dir"
+
+	# remove directory and files - ignore errors
+	(( forceLevel >= 2 )) && RunLog2 rm -fr $dir
 
 	# validate removal
 	! mountDirExists "$dir"
