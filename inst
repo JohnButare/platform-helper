@@ -6235,12 +6235,40 @@ NetbootxyzDockerInstall()
 {
 	header "netboot.xyz (Docker Container)"
 
+	# create netbootxyz directory
+	local netbootDir="/srv/netbootxyz"
+	makeDir --sudo "$netbootDir" || return
+
 	# create directories
-	local dir="/srv/netbootxyz" configDir="$ACONFIG/netbootxyz/config" dataDir="$ADATA/netbootxyz/assets"
-	makeDir --sudo "$dir" "$configDir" "$dataDir" || return	
-	makeLinkSudo --symbolic --merge "$configDir" "$dir/config" || return
-	makeLinkSudo --symbolic --merge "$dataDir" "$dir/assets" || return
+	local dir dirs=("$ACONFIG/netbootxyz/config" "$ADATA/netbootxyz/assets" "$ADATA/netbootxyz/installers") 
+	for dir in "${dirs[@]}"; do
+		makeDir --sudo "$dir" || return	
+		makeLinkSudo --symbolic --merge "$dir" "$netbootDir/$(GetFileName "$dir")" || return
+	done
+
+	# setup assets directory
 	echo "Options +Indexes" | sudoc tee "/srv/netbootxyz/assets/.htaccess"
+
+	# setup installer directory
+	local dir="$ADATA/netbootxyz/installers"
+	local file="/etc/samba/smb.conf" restart
+
+	sudoc chown "$USER" "$dir" && return
+	sudoc chgrp "$USER" "$dir" && return
+
+	if ! ${G}grep --quiet "\[installers\]" "$file"; then
+		cat <<-EOF | sudo ${G}tee -a "$file" > /dev/null || return
+
+			[installers]
+			path = $dir
+			public = yes  
+			guest only = yes  
+			writable = no
+		EOF
+		restart="true"
+	fi
+
+	[[ $restart ]] && { service restart smbd || return; }
 
 	# final
 	nomadRegisterApp "netbootxyz" && httpShow 3000 && httpShow "10180"
