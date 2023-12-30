@@ -5,7 +5,7 @@
 usage()
 {
 	init; ScriptUsage "$1" "\
-usage: netbootxyz deploy|docker|edit|setup|test|update"
+usage: netbootxyz all|deploy|dir|docker|edit|setup|test|update"
 }
 
 usageVerbose()
@@ -39,68 +39,47 @@ init()
 # commands
 #
 
-testUsage() { echot "Usage: $(ScriptName) test\nTest the netboot.xyz configuration."; }
+allUsage() { echot "Usage: $(ScriptName) all\nUpdate and deploy netboot.xyz."; }
 
-testCommand()
+allCommand()
 {
-	printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "Legacy and EFI Combined iPXE Bootloaders" && echo "OK" || HilightErr "FAIL"
-	printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || HilightErr "FAIL"
-
-	# ender
-	testWeb "ender-docker-live" "http://ender.butare.net:10181"
-	testWeb "ender-docker-assets" "http://ender.butare.net:10181/custom/"
-	testWeb "ender-apache-assets" "http://ender.butare.net:8080/assets/custom"
-
-	# TFTP
-	local check; IsPlatform WSL && { check="ssh $(GetServer apache-web)"; } # WSL does not support UDP, ssh to a web server for the test
-	local file="about.ipxe"
-	local server servers="$(GetServers tftp)"
-
-	for server in $servers; do
-		local desc="$(RemoveDnsSuffix "$server")"
-		printf "TFTP $desc: "
-		IsAvailable "$server" && printf "available..." || { HilightErr "$desc not available"; continue; }
-		IsAvailablePortUdp "$server" 69 && printf "port available..." || { HilightErr "$desc port 69 not responding"; continue; }
-		$check tftp $server -c get "$file" > /dev/null && echo "file available" || HilightErr "$file not available on $desc"
-		$check rm -f "$file" # cleanup
-	done
-
-	return 0
-}
-
-# testWeb DESCRIPTION URL
-testWeb()
-{
-	local description="$1" url="$2"
-	local server="$(GetUriServer "$url")" port="$(GetUriPort "$url")"
-	printf "$description: "
-	IsAvailable "$server" && printf "available..." || { HilightErr "$server not available"; return; }
-	IsAvailablePort "$server" "$port" && printf "port available..." || { HilightErr "$server port $port not responding"; return; }
-	curl -sL "$url" | grep -q "Index of /" && echo "url available" || HilightErr "$url not available"
+	netbootxyz update "${globalArgs[@]}" || return
+	netbootxyz deploy web --no-prompt "${globalArgs[@]}" || return
+	netbootxyz deploy assets --no-prompt "${globalArgs[@]}" || return
 }
 
 #
 # deploy commands
 #
 
-deployUsage() { echot "Usage: $(ScriptName) deploy scripts|web\nDeploy netboot.xyz web site or custom deployment scripts."; }
+deployUsage() { echot "Usage: $(ScriptName) deploy assets|scripts|web\nDeploy netboot.xyz assets, web site, custom deployment scripts."; }
 deployCommand() { usage; }
+
+deployAssetsCommand()
+{
+	header "Deploying Assets"
+
+	UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz" "rp2" "${globalArgs[@]}" || return
+}
 
 deployWebArgStart() { unset hostArg hostOpt hosts; }
 deployWebOpt() { ScriptOptHost "$@"; }
 
 deployWebCommand()
 {
-	HeaderBig "Updating web files..."
+	HeaderBig "Deploying Web"
+
+	hilight "Copying files.."
 	sudoc CopyDir --recursive --delete --rsync "$webDirApp" "$webDirFinal" "${globalArgs[@]}" || return
 
-	HeaderBig "Updating web custom files..."
+	hilight "Copying custom files..."
 	sudo CopyDir --recursive --rsync --no-metadata "$confDir/web/netboot.xyz/" "$webDirFinal" "${globalArgs[@]}" || return
-
-	HeaderBig "Updating custom menus..."
+	sudoc ln -s "/srv/netbootxyz/assets" "$webDirFinal/assets" || return
+	
+	hilight "Copying custom menus..."
 	sudo cp "$confDir/menu/custom.ipxe.j2" "$webDirFinal/custom/custom.ipxe"  || return # assumes Jinja2 templates are not used (no {{ }})
 
-	HeaderBig "Syncronizing web sites..."	
+	hilight "Syncronizing web sites..."	
 	apache sync "${hostOpt[@]}" "${globalArgs[@]}"
 }
 
@@ -120,6 +99,30 @@ deployScriptsCommand()
 }
 
 #
+# dir command
+#
+
+dirUsage()
+{
+	echot "Usage: $(ScriptName) dir [app|conf|wapp|wfinal](web)
+Return the path to a netboot.xyz directory."
+}
+
+
+# - application - netboot.xyz Git repository  : $appDir ($(checkDir "$appDir"))
+# - configuration - custom configuration      : $confDir ($(checkDir "$confDir"))
+# - hosts - custom deployment scripts					: $customHost
+# - web app - netboot.xyz website             : $webDirApp ($(checkDir "$webDirApp"))
+# - web final - local website source          : $webDirFinal ($(checkDir "$webDirFinal"))"
+
+
+dirCommand() { dirAppCommand; }
+dirAppCommand() { echo "$appDir"; }
+dirConfCommand() { echo "$confDir"; }
+dirWappCommand() { echo "$webDirApp"; }
+dirWfinalCommand() { echo "$webDirFinal"; }
+
+#
 # docker commands
 #
 
@@ -135,9 +138,9 @@ dockerStopCommand() { docker stop "$(getContainerId)"; }
 # edit commands
 #
 
-editUsage() { echot "Usage: $(ScriptName) edit config|menu\nEdit the netboot.xyz configuration or menus."; }
+editUsage() { echot "Usage: $(ScriptName) edit conf|menu\nEdit the netboot.xyz configuration or menus."; }
 editCommand() { usage; }
-editConfigCommand() { TextEdit "$appConfig"; }
+editConfCommand() { TextEdit "$appConfig"; }
 editMenuCommand() { TextEdit "$confDir/menu/custom.ipxe.j2"; }
 
 #
@@ -187,12 +190,69 @@ setupConfigCommand()
 {
 	(( $(stat -c%b "$confDir/user_overrides.yml") > 0 )) && [[ ! $force ]] && return
 	CloudGet "$$confDir"
-
 }
+
 setupWebCommand()
 {
 	[[ -d "$webDirFinal" && ! $force ]] && return
 	apache sync && sudo mkdir --parents "$webDirFinal"
+}
+
+#
+# test command
+#
+
+testUsage() { echot "Usage: $(ScriptName) test\nTest the netboot.xyz configuration."; }
+
+testCommand()
+{
+	printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "iPXE Bootloaders" && echo "OK" || HilightErr "FAIL"
+	printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || HilightErr "FAIL"
+
+	# ender
+	testWeb "assets-vanity" "http://boot.butare.net/assets/"
+	testWeb "assets-rp1" "http://rp1.butare.net:180/netboot.xyz/assets/"
+	testWeb "assets-rp2" "http://rp2.butare.net:180/netboot.xyz/assets/"
+
+	# TFTP
+	local check; IsPlatform WSL && { check="ssh $(GetServer apache-web)"; } # WSL does not support UDP, ssh to a web server for the test
+	local file="about.ipxe"
+	local server servers="$(GetServers tftp)"
+
+	for server in $servers; do
+		local desc="$(RemoveDnsSuffix "$server")"
+		printf "TFTP $desc: "
+		IsAvailable "$server" && printf "available..." || { HilightErr "$desc not available"; continue; }
+		IsAvailablePortUdp "$server" 69 && printf "port available..." || { HilightErr "$desc port 69 not responding"; continue; }
+		$check tftp $server -c get "$file" > /dev/null && echo "file available" || HilightErr "$file not available on $desc"
+		$check rm -f "$file" # cleanup
+	done
+
+	return 0
+}
+
+# testWeb DESCRIPTION URL
+testWeb()
+{
+	local description="$1" url="$2"
+	local server="$(GetUriServer "$url")" port="$(GetUriPort "$url")"
+
+	printf "$description: "
+
+	# check server
+	IsAvailable "$server" && printf "available..." || { HilightErr "$server not available"; return; }
+	
+	# check port
+	if [[ $port ]]; then
+		if IsAvailablePort "$server" "$port"; then
+			printf "port available..."
+		else
+			HilightErr "$server port $port not responding"; return
+		fi
+	fi
+	
+	# check HTTP response
+	curl -sL "$url" | grep -q "Index of /" && echo "url available" || HilightErr "$url not available"
 }
 
 #
