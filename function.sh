@@ -1540,6 +1540,10 @@ RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort N
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
 WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuotes | RemoveEmptyLines | sort | uniq; }
 
+ProxyEnable() { ScriptEval network proxy vars --enable; network proxy vars --status; }
+ProxyDisable() { ScriptEval network proxy vars --disable; network proxy vars --status; }
+ProxyStatus() { network proxy --status; }
+
 NetworkConf()
 {
 	local force forceLevel; ScriptOptForce "$@"
