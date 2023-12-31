@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+. script.sh || exit
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [COMMAND]...
+$(ScriptName) commands.
+	
+	build			build an ISO using a downloaded UUP script"
+}
+
+init() { defaultCommand="build"; }
+
+#
+# commands
+#
+
+#
+# build commands
+#
+
+buildUsage()
+{
+	ScriptUsageEcho "\
+Usage: $(ScriptName) build FILE
+Build an ISO using a downloaded UUP script."
+}
+
+buildArgStart() { unset -v file; }
+
+buildArgs()
+{
+	ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"
+}
+
+buildCommand() 
+{  
+	local zip="$file"
+
+	# validate ZIP
+	[[ "$(GetFileExtension "$zip")" != "zip" ]] && { ScriptErr "UUP download file '$zip' is not a ZIP file"; return 1;  }
+	local build; build="$(echo "$zip" | cut -d. -f1)"; ! IsNumeric "$build" && { ScriptErr "UUP download file '$zip' does have a numeric build number (expected format BUILD.DESC.zip)"; return 1;  }
+
+	# initialize
+	if [[ $force || ! -d "$build" ]]; then
+		${G}mkdir --parents "$build" || return
+		${G}unzip "$zip" -d "$build" || return
+	fi
+
+	# run
+	cd "$build" || return
+	if [[ $force ]] || ! getIso > /dev/null; then
+		./uup_download_linux.sh || return
+	fi
+
+	# validate ISO
+	local iso; iso="$(getIso)" || { ScriptErr "unable to create the ISO image for Windows build $build"; return 1; }
+
+	# deploy to install directory
+	local setupDir; setupDir="$(FindInstallFile "other/Microsoft/Windows/setup")" || return
+	setupDir="$setupDir/${build}-uup"
+	if [[ $force || ! -d "$setupDir" ]]; then
+		${G}mkdir --parents "$setupDir" || return
+		CopyFileProgress "$iso" "$setupDir" || return
+	fi
+	
+	# deploy to installers directory
+	local installDir; installDir="$(unc mount "//rp1.butare.net/root/srv/netbootxyz/installers/windows")/${build}-uup" || return
+	if [[ $force || ! -d "$dir/$build" ]]; then
+		${G}mkdir --parents "$installDir" || return
+		CopyFileProgress "$iso" "$installDir" || return
+		cd "$installDir" || return
+		7z x "$iso" || return
+		rm "$installDir/$(GetFileName "$iso")" || return
+	fi
+
+	return 0
+}
+
+getIso()
+{
+	local iso="$(${G}find $PWD -iname "*.ISO")"
+	[[ -f "$iso" ]] || return
+	echo "$iso"
+}
+
+ScriptRun "$@"
