@@ -3637,7 +3637,7 @@ pipxg()
 {
 	[[ ! $PYTHON_ROOT_CHECKED ]] && { PythonRootConf || return; }	
 	local openSslPrefix="/usr"; IsPlatform mac && openSslPrefix="$HOMEBREW_PREFIX/opt/openssl@3/"
-	sudoc --set-home PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "$PYTHON_ROOT_BIN/pipx" "$@"
+	sudoc --set-home PIPX_HOME="$ADATA/pipx" PIPX_BIN_DIR="/usr/local/bin" BORG_OPENSSL_PREFIX="$openSslPrefix" "$PYTHON_ROOT_BIN/pipx" "$1" "${@:2}"
 }
 
 #
