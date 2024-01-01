@@ -3834,7 +3834,7 @@ IsElevated()
 # sudo
 SudoCheck() { [[ ! -r "$1" ]] && sudo="sudoc"; } # SudoCheck FILE - set sudo variable to sudoc if user does not have read permissiont to the file
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
-sudov() { sudoc -- sudo --validate; } # update the cached credentials if needed
+sudov() { sudoc "$@" -- sudo --validate; } # update the cached credentials if needed
 IsSudo() { sudo --validate --non-interactive >& /dev/null; } # return true if the sudo credentials are cached
 
 # sudoc COMMANDS - run COMMANDS using sudo and use the credential store to get the password if available
