@@ -555,7 +555,7 @@ infoRemote()
 
 	# get detailed information using the os command on the host if possible
 	# - switch information requires credential
-	SshInPath "$host" "os" && { RunLog SshHelper connect --credential "$host" --hashi "${globalArgsLessVerbose[@]}" -- os info "${remoteArgs[@]}"; return; }
+	SshInPath "$host" "os" && { RunLog SshHelper connect "$host" --credential --hashi "${globalArgsLessVerbose[@]}" -- os info "${remoteArgs[@]}"; return; }
 	
 	# othereise, get basic information using HostGetInfo vars command locally
 	ScriptEval HostGetInfo vars "$host" || return
@@ -747,9 +747,14 @@ infoRestartDebian()
 	! InPath needrestart && return
 	ran="true"
 
-	local result; result="$(sudoc needrestart -b)"
-	local kernel services containers sessions
+	# setup sudo - run outside of subshell so stdout is available
+	sudov "${globalArgsLessVerbose[@]}" || return
 
+	# get result
+	local result; result="$(sudo needrestart -b)"
+
+	# parse result
+	local kernel services containers sessions
 	kernel="$(echo "$result" | grep "^NEEDRESTART-KSTA:" | cut -d":" -f2 | RemoveSpaceTrim)"; (( kernel == 1 )) && kernel=0
 	services="$(echo "$result" | grep "^NEEDRESTART-SVC:" | wc -l | RemoveSpaceTrim)"
 	sessions="$(echo "$result" | grep "^NEEDRESTART-SESS:" | wc -l | RemoveSpaceTrim)"
