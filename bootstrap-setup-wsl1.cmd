@@ -16,6 +16,9 @@ rem set distUser=%USERNAME%
 rem set distUnc=\\ender.hagerman.butare.net\public
 rem set distImage=documents\data\install\platform\linux\wsl\image\ubuntu\default.tar.gz
 
+REM set unc - the current directory is a UNC, but we need to remove the trailing slash or net use will error
+set unc=%pwd:~0,-1%  
+
 REM create bootstrap.cmd on the Desktop to run manually if needed
 set file=%HOMEDRIVE%%HOMEPATH%\Desktop\bootstrap.cmd
 if exist %file% del %file%
@@ -28,6 +31,7 @@ if exist %file% del %file%
 >> %file% echo set distUser=%distUser%
 >> %file% echo set distUnc=%distUnc%
 >> %file% echo set distImage=%distImage%
+>> %file% echo net use * %pwd% /User:Guest
 >> %file% echo %pwd%bootstrap-wsl%wsl%.cmd
 
 REM run bootstrap.cmd after reboot
