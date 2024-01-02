@@ -172,7 +172,7 @@ appUsage() { EchoWrap "Usage: $(ScriptName) app alive|ls|node|server|verify"; }
 appArgStart() { unset app; product="consul"; }
 appCommand() { usage; }
 
-appLsUsage() { EchoWrap "Usage: $(ScriptName) app ls NAME\nList all applications."; }
+appLsUsage() { EchoWrap "Usage: $(ScriptName) app ls\nList all applications."; }
 appLsCommand() { appLs; }
 appLs() { consul kv get -recurse app | cut -d/ -f2 | sort | uniq; }
 
@@ -274,7 +274,7 @@ appNodeRegisterCommand()
 	serviceRestartLocal "nomad"
 }
 
-appNodeUnregisterUsage() { EchoWrap "Usage: $(ScriptName) app node unregister APP\nUnregister the application on this host in Consul and Nomad."; }
+appNodeUnregisterUsage() { EchoWrap "Usage: $(ScriptName) app node unregister APP\nUnregister the application on this or the specified host in Consul and Nomad."; }
 appNodeUnregisterArgs() { ScriptArgGet "app" -- "$@"; shift; }
 
 appNodeUnregisterCommand()
@@ -2471,15 +2471,15 @@ nomadConfigEnableVault()
 # nomad node commands
 #
 
-nomadNodeUsage() { echot "Usage: $(ScriptName) nomad node allocations|drain|exists|id|ls|status\nNomad node commands."; }
+nomadNodeUsage() { echot "Usage: $(ScriptName) nomad node allocs|drain|exists|id|ls|name|status\nNomad node commands."; }
 nomadNodeCommand() { usage; }
-nomadNodeAllocationsCommand() { forAllHosts nomadNodeAllocations; }
+nomadNodeAllocsCommand() { forAllHosts nomadNodeAllocs; }
 nomadNodeExistsCommand() { local quiet="--quiet"; nomadNodeIdCommand > /dev/null; }
 nomadNodeIdCommand() { forAllHosts nomadGetNodeId; }
 nomadNodeLsCommand() { nomad node status -json | jq '.[] | .Name' | RemoveQuotes | sort --version-sort; }
 nomadNodeStatusCommand() { forAllHosts nomadNodeStatus --header "status"; }
 
-nomadNodeAllocations()
+nomadNodeAllocs()
 {
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
 
@@ -2492,7 +2492,7 @@ nomadNodeAllocations()
 	return 0
 }
 
-# nomadGetNodeId HOST
+# nomadGetNodeId HOST - get the node ID for the HOST
 nomadGetNodeId()
 {
 	local host="$(RemoveDnsSuffix "$1")"
@@ -2507,6 +2507,16 @@ nomadNodeStatus()
 	local args=(); [[ $verbose ]] && args+=(-verbose)
 	RunLog2 nomad status "${args[@]}" "$id"
 }
+
+#
+# nomad node name command
+#
+
+nomadNodeNameUsage() { EchoWrap "Usage: $(ScriptName) nomad node name ID\nGet the node name for the specified node ID."; }
+nomadNodeNameArgStart() { unset -v id; }
+nomadNodeNameArgs() { ScriptArgGet "id" -- "$@"; shift; }
+nomadNodeNameCommand() { nomadNodeName "$id"; }
+nomadNodeName() { nomad node status "$1" | grep '^Name' | cut -d= -f2 | RemoveSpace; }
 
 #
 # nomad node drain commands
@@ -2604,13 +2614,8 @@ nomadNodeEligibilityDisable()
 #
 
 nomadJobUsage() { echot "\
-Usage: $(ScriptName) nomad job NAME
-Nomad job commands.
-
-	force	NAME		force a periodic job to start
-	log	NAME			show the log for a periodic job
-	run NAME			run or update a job
-	status [NAME]	status of all running jobs or the specified job"; }
+Usage: $(ScriptName) nomad job alloc|exec|force|log|run|status
+Nomad job commands."; }
 
 nomadJobArgs()
 {
@@ -2621,7 +2626,41 @@ nomadJobArgs()
 
 nomadJobCommand() { nomadJobStatusCommand; }
 
+# nomad job alloc
+nomadJobAllocUsage() { EchoWrap "Usage: $(ScriptName) nomad job alloc NAME\nReturn all running allocations of a job."; }
+nomadJobAllocCommand() { nomadJobAlloc "$job"; }
+
+nomadJobAlloc()
+{
+	local alloc allocs; IFS=$'\n' ArrayMake allocs "$(nomad job allocs netbootxyz | grep " running " | tr -s " ")" || return
+	{ 
+		for alloc in "${allocs[@]}"; do
+			local node="$(GetWord "$alloc" 2)"; node="$(nomadNodeName "$node")" || return
+			local alloc="$(GetWord "$alloc" 1)"
+			echo "$node:$alloc"
+		done
+	} | sort
+}
+
+# nomad job exec
+nomadJobExecUsage() { EchoWrap "Usage: $(ScriptName) nomad job exec NAME -- COMMAND [OPTIONS...]\nExecute a command on all allocation of a job."; }
+nomadJobExecCommand() { nomadJobExec "$job"; }
+
+nomadJobExec()
+{
+	local alloc allocs errors; IFS=$'\n' ArrayMake allocs "$(nomadJobAlloc "$job")" || return
+	for alloc in "${allocs[@]}"; do
+		local node="$(GetWord "$alloc" 1 ":")"
+		local alloc="$(GetWord "$alloc" 2 ":")"
+		header "$node"
+		nomad alloc exec "$alloc" "${otherArgs[@]}"; (( errors+=$? ))
+	done
+
+	return $errors
+}
+
 # nomad job run
+nomadJobRunUsage() { EchoWrap "Usage: $(ScriptName) nomad job run NAME\nRun or update a job."; }
 nomadJobRunCommand()
 {
 	local file; file="$(ConfigGet confDir)/hashi/job/$job.hcl"; [[ -f "$file" ]] && job="$file"
@@ -2630,10 +2669,11 @@ nomadJobRunCommand()
 }
 
 # nomad job status 
+nomadJobStatusUsage() { EchoWrap "Usage: $(ScriptName) nomad job status [NAME]\nStatus of all running jobs or the specified job."; }
 nomadJobStatusCommand() 
 {
 	if [[ $job ]]; then
-		nomadGetAllocId || return
+		nomadPeriodicJobGetAllocId || return
 		nomad alloc status "$allocId"
 	else
 		nomad job status | ${G}grep -v dead
@@ -2690,7 +2730,7 @@ nomadJobLogOpt()
 
 nomadJobLogCommand()
 {
-	nomadGetAllocId || return
+	nomadPeriodicJobGetAllocId || return
 	
 	if [[ $follow ]]; then
 		nomad alloc logs -f "$allocId" &
@@ -2709,18 +2749,18 @@ nomadClientName() { nomad status "$1" | ${G}grep "^Name " | tr -s ' ' | cut -d"=
 # nomadClients - return all Nomad client ID's
 nomadClients() { nomad node status | tail +2 | cut -d" " -f1; }
 
-# nomadGetJobId - get the job ID for $job 
-nomadGetJobId()
+# nomadPeriodicJobGetId - get the job ID for $job 
+nomadPeriodicJobGetId()
 { 
 	jobId="$(nomad job status "$job" |& tail -1 |& cut -d" " -f1)"
 	[[ "$jobId" =~ $job/periodic-.* ]] && return
 	ScriptErr "Unknown job '$job'"; exit 1
 }
 
-# nomadGetAllocId - get the allocation ID for the $jobId or $job 
-nomadGetAllocId()
+# nomadPeriodicJobGetAllocId - get the allocation ID for the $jobId or $job 
+nomadPeriodicJobGetAllocId()
 {
-	[[ ! $jobId ]] && { nomadGetJobId || return; }
+	[[ ! $jobId ]] && { nomadPeriodicJobGetId || return; }
 	allocId="$(nomad job status "$jobId" |& tail -1 |& cut -d" " -f1)"
 	[[ "${#allocId}" == "8" ]] && return
 	ScriptErr "No allocations for job '$job'"; exit 1
