@@ -431,7 +431,7 @@ AppVersion()
 			damon) version="$(damon --version | head -1 | cut -d"v" -f2 | cut -d"-" -f1)" || return;;
 			dog) version="$(dog --version | head -2 | tail -1 | cut -d"v" -f2)" || return;;
 			exa) version="$(exa --version | head -2 | tail -1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
-			figlet) version="$(figlet --version | RemoveEnd ".post1")" || return;;
+			figlet|pyfiglet) version="$(pyfiglet --version | RemoveEnd ".post1")" || return;;
 			fortune) version="$(fortune --version | cut -d" " -f2)" || return;;
 			gcc) version="$(gcc --version | head -1 | cut -d" " -f4)" || return;;
 			go) version="$(go version | head -1 | cut -d" " -f3 | RemoveFront "go")" || return;;
