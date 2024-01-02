@@ -31,6 +31,7 @@ if exist %file% del %file%
 >> %file% echo %pwd%bootstrap-wsl%wsl%.cmd
 
 REM run bootstrap.cmd after reboot
+copy %file% "%USERPROFILE%\Desktop"
 copy %file% "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 
 REM run bootstrap
