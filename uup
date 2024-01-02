@@ -13,72 +13,105 @@ $(ScriptName) commands.
 init() { defaultCommand="build"; }
 
 #
-# commands
-#
-
-#
 # build commands
 #
 
 buildUsage()
 {
 	ScriptUsageEcho "\
-Usage: $(ScriptName) build FILE
-Build an ISO using a downloaded UUP script."
+Usage: $(ScriptName) build FILE|DIR [all|init|iso|install|installers](all)
+Build an ISO using a downloaded UUP script.
+
+	-l,	--linux		force linux build under Windows (will not get updates, component cleanup, or Windows Store apps)"
 }
 
-buildArgStart() { unset -v file; }
+buildArgStart() { unset -v file buildDir; buildScript="uup_download_windows.cmd"; }
+buildCommand() { buildAllCommand; }
+buildArgs() { ScriptArgGet "file" -- "$@" && ScriptCheckPath "$file"; }
+buildAllCommand() { buildIsoCommand && buildInstallCommand && buildInstallersCommand; }
 
-buildArgs()
+buildOpt()
 {
-	ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"
+	case "$1" in
+		--linux|-l) script="uup_download_linux.sh";;
+		*) return 1;;
+	esac
 }
 
-buildCommand() 
-{  
-	local zip="$file"
+buildArgEnd()
+{		
+	# file
+	if [[ -f "$file" ]]; then
+		[[ "$(GetFileExtension "$file")" != "zip" ]] && { ScriptErr "UUP download file '$file' is not a ZIP file"; return 1;  }
+		buildDir="$(echo "$file" | cut -d. -f1)"; ! IsNumeric "$buildDir" && { ScriptErr "UUP script '$file' does have a numeric build number (expected format is BUILD.DESC.zip)"; return 1; }
+		[[ "$file" =~ arm64 ]] && build+="-arm"
+		
+		if [[ $force || ! -d "$buildDir" ]]; then
+			rm -fr "$buildDir" || return
+			${G}mkdir --parents "$buildDir" || return
+			${G}unzip "$file" -d "$buildDir" || return
+		fi
 
-	# validate ZIP
-	[[ "$(GetFileExtension "$zip")" != "zip" ]] && { ScriptErr "UUP download file '$zip' is not a ZIP file"; return 1;  }
-	local build; build="$(echo "$zip" | cut -d. -f1)"; ! IsNumeric "$build" && { ScriptErr "UUP download file '$zip' does have a numeric build number (expected format BUILD.DESC.zip)"; return 1;  }
+		bak --local --move "$file" || return
 
-	# initialize
-	local platform; [[ "$zip" =~ arm64 ]] && platform="-arm"
-	build+="$platform"
-
-	if [[ $force || ! -d "$build" ]]; then
-		${G}mkdir --parents "${build}" || return
-		${G}unzip "$zip" -d "$build" || return
+	# directory
+	else
+		buildDir="$(GetWord "$file" 1 "-")"; ! IsNumeric "$buildDir" && { ScriptErr "UUP directory '$file' does have a numeric build number (expected format is BUILD[-arm])"; return 1; }
+		[[ "$(GetWord "$file" 2 "-")" == "arm" ]] && build+="-arm"
 	fi
+		
+	# validate the build script
+	IsPlatform mac && buildScript="uup_download_macos.sh"	
+	[[ ! -f "$buildDir/$buildScript" ]] && { ScriptErr "the ISO build script '$buildScript' does not exist"; return 1; }
 
-	# run
-	cd "$build" || return
-	if [[ $force ]] || ! getIso > /dev/null; then
-		./uup_download_linux.sh || return
+	# update the configuration
+	sed -i "s/AppsLevel    =0/AppsLevel    =1/g" "$buildDir/ConvertConfig.ini" || return
+
+	cd "$buildDir"
+}
+
+buildIsoValidate()
+{
+	iso="$(getIso)" && return
+	ScriptErr "the ISO image for Windows build $buildDir does not exist"; return 1
+}
+
+buildIsoCommand()
+{
+	hilight "Building the ISO image..."
+	[[ ! $force ]] && getIso > /dev/null && return
+	if [[ "$buildScript" =~ cmd ]]; then
+		elevate cmd.exe /c "$buildScript" || return
+		pause
+	else
+		"./$buildScript"
 	fi
+}
 
-	# validate ISO
-	local iso; iso="$(getIso)" || { ScriptErr "unable to create the ISO image for Windows build $build"; return 1; }
+buildInitUsage() { ScriptUsageEcho "Usage: $(ScriptName) build init FILE\nJust setup the build directory.   This allows configuration changes before a build."; }
+buildInitCommand() { :; }
 
-	# deploy to install directory
-	local setupDir; setupDir="$(FindInstallFile "other/Microsoft/Windows/setup")" || return
-	setupDir="$setupDir/${build}"
-	if [[ $force || ! -d "$setupDir" ]]; then
-		${G}mkdir --parents "$setupDir" || return
-		CopyFileProgress "$iso" "$setupDir" || return
-	fi
-	
-	# deploy to installers directory
-	local installDir; installDir="$(unc mount "//rp1.butare.net/root/srv/netbootxyz/installers/windows")/${build}" || return
-	if [[ $force || ! -d "$dir/$build" ]]; then
-		${G}mkdir --parents "$installDir" || return
-		CopyFileProgress "$iso" "$installDir" || return
-		cd "$installDir" || return
-		7z x "$iso" || return
-		rm "$installDir/$(GetFileName "$iso")" || return
-	fi
+buildInstallCommand()
+{
+	hilight "Copying ISO to the install directory..."
+	buildIsoValidate || return	
+	local setupDir; setupDir="$(FindInstallFile "other/Microsoft/Windows/setup")" || return; setupDir="$setupDir/$buildDir"	
+	[[ ! $force && -d "$setupDir" ]] && return
 
-	return 0
+	${G}mkdir --parents "$setupDir" && CopyFileProgress "$iso" "$setupDir"
+}
+
+buildInstallersCommand()
+{
+	hilight "Copying and extracting ISO to the installers directory..."
+	buildIsoValidate || return
+	local installDir; installDir="$(unc mount "//rp1.butare.net/root/srv/netbootxyz/installers/windows")/$buildDir" || return
+	[[ ! $force && -d "$installDir" ]] && return
+	[[ -d "$installDir" ]] && { rm -fr "$installDir" || return; }
+	${G}mkdir --parents "$installDir" || return
+	CopyFileProgress "$iso" "$installDir" || return
+	cd "$installDir" || return
+	7z x "$iso" && rm "$installDir/$(GetFileName "$iso")"
 }
 
 getIso()
