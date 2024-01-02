@@ -6247,7 +6247,11 @@ NetbootxyzDockerInstall()
 	done
 
 	# setup assets directory
-	echo "Options +Indexes" | sudoc tee "$SRV/netbootxyz/assets/.htaccess"
+	local file="$SRV/netbootxyz/assets/.htaccess"
+	local what="Options +Indexes"
+	if ! qgrep "$what" "$file"; then
+		echo "$what" | sudoc tee --append "$file" || return
+	fi
 
 	# setup installer directory
 	RunPlatform netbootxyzDocker || return
@@ -6258,12 +6262,44 @@ NetbootxyzDockerInstall()
 
 netbootxyzDockerDebian()
 {
-	# installers
-	local dir="$ADATA/netbootxyz/installers"
 	local file="/etc/samba/smb.conf" restart
 
-	sudoc chown "$USER" "$dir" && return
-	sudoc chgrp "$USER" "$dir" && return
+	# bin
+	if ! qgrep "\[bin\]" "$file"; then
+		cat <<-EOF | sudo ${G}tee -a "$file" > /dev/null || return
+
+			[bin]
+			path = $BIN
+			public = yes  
+			guest only = yes  
+			writable = no
+			acl allow execute always = True
+		EOF
+		restart="true"
+	fi
+
+	# install
+	local dir; dir="$(FindInstallFile)" || return
+	unc IsMounted "$dir" && { ScriptErr "could not find a local install directory"; return 1; }
+
+	if ! qgrep "\[install\]" "$file"; then
+		cat <<-EOF | sudo ${G}tee -a "$file" > /dev/null || return
+
+			[install]
+			path = $dir
+			public = yes  
+			guest only = yes  
+			writable = no
+			acl allow execute always = True
+		EOF
+		restart="true"
+	fi
+
+	# installers
+	local dir="$ADATA/netbootxyz/installers"
+
+	sudoc chown "$USER" "$dir" || return
+	sudoc chgrp "$USER" "$dir" || return
 
 	if ! qgrep "\[installers\]" "$file"; then
 		cat <<-EOF | sudo ${G}tee -a "$file" > /dev/null || return
