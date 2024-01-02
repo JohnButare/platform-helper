@@ -31,14 +31,15 @@ if exist %file% del %file%
 >> %file% echo set distUser=%distUser%
 >> %file% echo set distUnc=%distUnc%
 >> %file% echo set distImage=%distImage%
->> %file% echo net use * %pwd% /User:Guest
+>> %file% echo net use * %unc% /User:Guest
 >> %file% echo %pwd%bootstrap-wsl%wsl%.cmd
 
-REM run bootstrap.cmd after reboot
+REM put bootstrap.cmd on then desktop to run manually
 copy %file% "%USERPROFILE%\Desktop"
-copy %file% "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
+
+REM put bootstrap.cmd in Startup to run after reboot.  The user Startup directory may not exist.
+set startup=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
+mkdir "%startup%" & copy %file% "%startup%"
 
 REM run bootstrap
-run bootstrap.cmd
-echo.
 %file%

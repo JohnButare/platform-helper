@@ -3961,7 +3961,7 @@ Utf16to8() { iconv -f utf-16 -t UTF-8; }
 shead() { ${G}head "$@"; cat > /dev/null; }
 
 # sqgrep - sponge quiet grep - prevents termination of the pipeline with SIGPIPE when grep terminates before early with a match
-sgrep() { local result; qgrep "$@"; result=$?; cat > /dev/null; return $result; }
+sqgrep() { local result; qgrep "$@"; result=$?; cat > /dev/null; return $result; }
 qgrep() { ${G}grep --quiet "$@"; }
 
 # true grep - always return 0
