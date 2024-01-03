@@ -393,7 +393,7 @@ GetHosts()
 		locked|unlocked) IFS=$'\n' ArrayMake hosts "$(os info -w=credential all --status | tgrep "(locked)" | cut -d" " -f1 | $resolve | $sort)" || return;;
 		reboot) IFS=$'\n' ArrayMake hosts "$(os info -w=reboot all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)" || return;;
 		restart) IFS=$'\n' ArrayMake hosts "$(os info -w=restart all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)" || return;;
-		unused) IFS=$'\n' ArrayMake hosts "$(hashi nomad node allocations | RemoveSpace | grep ":0$" | cut -d":" -f1 | $resolve | $sort)" || return;;
+		unused) IFS=$'\n' ArrayMake hosts "$(hashi nomad node allocs | RemoveSpace | grep ":0$" | cut -d":" -f1 | $resolve | $sort)" || return;;
 
 		off)
 			local allServers onServers
