@@ -11,7 +11,7 @@ Manage the Wiggin network."
 
 init()
 {
-	backupDir="$DATA/backup"
+	backupDir="$DATA/.bak"
 	confDir="$HOME/$(ConfigGet "confDir")"
 	hashiConfig="$confDir/hashi"
 
@@ -820,19 +820,21 @@ networkUpdateDhcp()
 	# validate subnet range for the host
 	[[ ! $subnet ]] && { ScriptErr "unable to find a DHCP pool for host '$hostShort'"; return 1; }
 
-	echo "Updating DHCP configuration for $hostShort..."
+	hilight "Updating DHCP on $hostShort..."
+
+	echo "Creating DHCP configuration files..."
 	cp "$config/"* "$dir" || return
 	${G}sed -i "s/SUBNET4_POOL/$subnet/" "$dir/kea-dhcp4-$network.json" || return
 	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4-$network.json" || return
 	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4.conf" || return
 
-	echo "Updating the ethers configuration file..." # downcase to make etherwake case agnostic
+	# update ethers files - downcase to make etherwake case agnostic
 	configFileToCommaDelimited "$dhcpReservations" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
 
-	echo "Updating the hosts configuration file..."
+	# update the hosts configuration file
 	configFileToCommaDelimited "$dhcpReservations" | awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return
 
-	echo "Updating DHCP configuration on $hostShort..."
+	echo "Copying DHCP configuration files to $hostShort..."
 	local pw; pw="$(credential get secure default)" || return
 	rsync --no-perms --chmod=ugo=rw --info=progress2 "$dir/"* "root@$host:$dhcpDir" || return
 
@@ -840,6 +842,7 @@ networkUpdateDhcp()
 	rm -fr "$dir" || return
 
 	# restart the service
+	echo "Restarting the DHCP service on $host..."
 	service restart kea-dhcp4-server --host="$host" || return
 
 	# validate
@@ -857,6 +860,8 @@ networkUpdateDns()
 	local host="$1" hostShort hostIp; networkUpdateCommon "DNS" || return
 	local config="$dnsConfig"; CloudGet "$config"/* || return
 	local dir="$(mktemp -d -t 'dns.XXXXXXXXXX')" || return
+
+	hilight "Updating DNS on $hostShort..."
 
 	echo "Creating DNS configuration files..."
 	cp "$config/named.conf."* "$dir" || return
@@ -881,13 +886,14 @@ networkUpdateDns()
 
 	done
 
-	echo "Updating DNS configuration files on $host..."
+	echo "Copying DNS configuration files to $host..."
 	rsync --no-perms --chmod=ugo=rw "$dir/"* "root@$hostIp:$dnsDir" --info=progress2 || return
 
 	# cleanup
 	rm -fr "$dir" || return
 
 	# restart the service - use X Forwarding to enable local credential manager
+	echo "Restarting the DNS service on $host..."
 	service restart named --host="$host" || return
 
 	# validate
