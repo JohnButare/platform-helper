@@ -4,14 +4,13 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [api|backup|disconnect|info|ls|port](api)
+Usage: $(ScriptName) [OPTION]... [api|backup|device|disconnect|info|ls|port](api)
 Manage the UniFi controller.
 
 	ap 					Access Point commands
 	api 				call a API command
 	backup			backup the controller configuration
 	info				show UniFi device and client information
-	disconnect	disconnect a client
 	port				configure port forwarding"
 }
 
@@ -41,7 +40,7 @@ apStatusUsage() { EchoWrap "Usage: $(ScriptName) ap status\nShow the status of a
 apStatusCommand() { SshHelper "$host" iwconfig |& grep -v "no wireless" | grep -v '^$' | grep -v "Invalid misc" | grep -v "xauth" | sed 's/sh: //'; }
 
 #
-# API Command
+# API command
 #
 
 apiUsage()
@@ -69,7 +68,7 @@ apiavailableCommand() { apiInit; }
 apiPutCommand() { apiPut "$uri" "$json"; }
 
 #
-# Backup Command
+# backup command
 #
 
 backupCommand()
@@ -92,19 +91,63 @@ backupCommand()
 }
 
 #
-# Disconnect Command
+# device commands
 #
 
-disconnectUsage()
+deviceUsage()
 {
-	echot "Usage: $(ScriptName) disconnect MAC
-Disconnect the client with the specified MAC address."
+	ScriptUsageEcho "Usage: $(ScriptName) device delete|disconnect|default
+Device commands."
 }
 
-disconnectCommand() { portListCommand; }
-disconnectArgs() { ScriptArgGet "mac" -- "$@"; shift; }
+deviceDefaultCommand() { UniFiController api /rest/user | jq '.data[] | select(.name == null) | .mac' | RemoveQuotes | sort; }
 
-disconnectCommand() 
+# macArgs - set macs to ["mac1",...]
+macArgs()
+{
+	[[ ! $1 ]] && MissingOperand "mac"; shift="$#"
+
+	# get default (unconfigured) devices
+	if [[ "${1,,}" == "default" ]]; then
+		macs="$(deviceDefaultCommand | NewlineToSpace;)" || return
+		set -- $macs
+	fi
+
+	# format the macs as a JSON array
+	local mac; macList="$@" macs="["
+	for mac in "$@"; do
+		ScriptCheckMac "$mac"
+		macs+="\"$mac\","
+	done
+	macs="$(RemoveEnd "$macs", ",")]" && macCount="$#"
+}
+
+deviceCommand() { usage; }
+
+#
+# device delete command
+#
+
+deviceDeleteUsage() { ScriptUsageEcho "Usage: $(ScriptName) device delete MAC default|MAC...\nDelete the device with the specified MAC address, or all default (unconfigured) device."; }
+deviceDeleteArgs() { macArgs "$@"; }
+
+deviceDeleteCommand() 
+{
+	apiInit || return
+
+	printf "Deleting ${macCount} device(s)..."
+ 	local result; result="$($curl --silent --data '{"cmd":"forget-sta", "macs": '$macs'}' "$url/api/s/$site/cmd/stamgr")"
+ 	apiError "$result" && echo "done"
+}
+
+#
+# device disconnect command
+#
+
+deviceDisconnectUsage() { ScriptUsageEcho "Usage: $(ScriptName) device disconnect MAC\nDisconnect the device with the specified MAC address."; }
+deviceDisconnectArgs() { ScriptArgGet "mac" && ScriptCheckMac "$mac"; }
+
+deviceDisconnectCommand() 
 {
 	local name="$(DnsResolveMac "$mac")"
 	local desc="$mac"; [[ $name ]] && desc="$name ($mac)"

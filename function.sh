@@ -3700,6 +3700,7 @@ RunFunctionExists()
 # scripts
 
 ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } 						# ScriptArgs SCRIPT_NAME ARGS... - display script arguments
+ScriptCheckMac() { IsMacAddress "$1" && return; ScriptErr "'$1' is not a valid MAC address"; }
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }		# ScriptDir - return the directory the script is contained in
 ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; return 1; }	# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
 ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$1"; }
