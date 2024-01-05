@@ -1118,6 +1118,8 @@ fi
 CanWrite() { [[ -w "$1" ]]; }
 CopyFileProgress() { rsync --info=progress2 "$@"; }
 DirCount() { local result; result="$(command ls "${1:-.}" |& wc -l)" || return; RemoveSpace "$result"; }
+DirSave() { [[ ! $1 ]] && set -- "$TEMP"; pushd "$@" > /dev/null; }
+DirRestore() { popd "$@" > /dev/null; }
 EnsureDir() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
 GetBatchDir() { GetFilePath "$0"; }
 GetDirs() { [[ ! -d "$1" ]] && return; find "$1" -maxdepth 1 -type d -not -path "$1"; }
