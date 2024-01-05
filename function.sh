@@ -1164,14 +1164,15 @@ CloudGet()
 
 		# dirs
 		if [[ -d "$file" ]]; then
-			local files; IFS=$'\n' ArrayMake files "$(find . -type f)" || return
+			local files; IFS=$'\n' ArrayMake files "$(find "$file" -type f)" || return
 			CloudGet "${files[@]}" || return
 			continue
 		fi
 
-		# check
+		# check if file is downloaded
 		ScriptFileCheck "$file" || return
-		(( $(stat -c%b "$file") > 0 )) && continue # file is already downloaded, does not work for small files
+		(( $(stat -c%b "$file") > 0 )) && continue 					# check blocks, does not work for small files
+		[[ "$(cat "$file" | head -1)" != "" ]] && continue 	# check first line, does not work if first line is empty
 
 		# get
 		echo "Getting '$file'..."
