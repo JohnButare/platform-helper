@@ -448,8 +448,14 @@ isServerCommand()
 	esac
 }
 
+releaseUsage() { ScriptUsageEcho "Usage: $(ScriptName) release [check]"; }
 releaseCommand() { RunPlatform "release"; }
 releaseDebian() { lsb_release -rs; }
+
+releaseCheckUsage() { ScriptUsageEcho "Usage: $(ScriptName) release check EXPR\nCheck the version, where check is an expression to check the version against, i.e. release check '>= 23.10'."; }
+releaseCheckArgStart() { unset -v check; }
+releaseCheckArgs() { ScriptArgGet "check" -- "$@"; }
+releaseCheckCommand() { (( $(echo "$(os release) $check" | bc --mathlib) )); }
 
 versionCommand() { RunPlatform version; }
 versionMac() { system_profiler SPSoftwareDataType | grep "System Version" | cut -f 10 -d" "; }
