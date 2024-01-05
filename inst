@@ -947,7 +947,7 @@ header()
 # i [--no-header] [--no-prompt] APPS - install applications
 i()
 {
-	local args=() noHeaderArg="$noHeader" noPromptArg="$noPrompt" prompt
+	local args=() noHeaderArg="$noHeader" noPromptArg="$noPrompt" prompt	
 
 	# arguments
 	while (( $# != 0 )); do
@@ -988,6 +988,7 @@ i()
 
 		# variables
 		unset forceAllParts ran runCheck rebootNeeded
+		unset pipArgs pipxArgs # run arguments
 
 		# elevate install
 		if iNeedsElevatation "$appFunction"; then
@@ -2967,7 +2968,7 @@ DebianFileSharingInstall()
 	[[ $restart ]] && { service restart smbd || return; }
 
 	# add SMB password for the current user
-	! sudoc pdbedit -L -u "$USER" >& /dev/null  && { sudo smbpasswd -a "$USER" || return; }
+	! sudoc pdbedit --list --user "$USER" >& /dev/null  && { password smb || return; }
 
 	# add guest user
 	local user="wiggin"
@@ -3378,7 +3379,7 @@ BorgBackupInstall()
 
 	# prevent high CPU building wheels on Pi 4 Ubuntun <= 22.04
 	local pipArgs; IsPlatform pi && os release check "<= 22.04" && pipArgs='--no-build-isolation'
-	local preinstall='--preinstall=wheel --preinstall=pkgconfig' 	# required in Ubuntu 22.04 
+	local preinstall='--preinstall=wheel --preinstall=pkgconfig' # required in Ubuntu 22.04 
 	{ ! InPath borg || [[ $force ]]; } && { run --no-header --python-global borgbackup || return; }
 	pipxg inject borgbackup llfuse || return	
 
@@ -7339,10 +7340,9 @@ AptInstall()
 		package unattended-upgrades || return
 	fi
 
-	# wajig
+	# wajig	
 	PackageIsInstalled wajig && ( packageu wajig || return; )
-	pythonCheckGlobal || return
-	pipxg install --quiet --system-site-packages wajig || return
+	{ ! InPath wajig || [[ $force ]]; } && { pipxArgs="--system-site-packages" run --no-header --python-global wajig || return; }
 
 	return 0
 }
@@ -7855,21 +7855,34 @@ PiFirmwareInstall()
 		package rpi-eeprom rpi-eeprom-images; return
 	fi
 
-	# base firmware package
+	# install firmware package to /lib/firmware/raspberrypi - pi4=2711 pi5=2712
 	package rpi-eeprom || return
 
-	# firmware repository
-	local dir="/opt/rpi-eeprom"
-	[[ ! -d "$dir" ]] && { sudo git clone "https://github.com/raspberrypi/rpi-eeprom" "$dir" || return; }
-	pushd "$dir" > /dev/null || return
+	# clone firmware repository to /opt/rpi-eeprom
+	local repoDir="/opt/rpi-eeprom"
+	[[ ! -d "$repoDir" ]] && { sudo git clone "https://github.com/raspberrypi/rpi-eeprom" "$repoDir" || return; }
+	pushd "$repoDir" > /dev/null || return
 	sudo git pull || return
 
-	# link firmware directory to repository firmware
-	local firmwareDir="/lib/firmware/raspberrypi/bootloader"
-	if [[ ! -L "$firmwareDir" ]]; then
+	# create links
+	# from firware directories: /lib/firmware/raspberrypi/bootloader-2711|2712
+	# to firmware repository: /opt/rpi-eeprom/firmware-2711|2712
+	local firmware firmwareDir="/lib/firmware/raspberrypi"
+	for firmware in 2711 2712; do
+		local link="$firmwareDir/bootloader-$firmware"
+		local dest="$repoDir/firmware-$firmware"
+		[[ -L "$link" ]] && continue
+		[[ -d "$link" ]] && { sudo mv "$link" "$link.hold" || return; }
+		[[ ! -d "$dest" ]] && { ScriptErr "the firmware directory '$firmware' does not exist"; return 1; }
+		makeLinkSudo "$dest" "$link" || return
+	done
+
+	# link /lib/firmware/raspberrypi/bootloader to /opt/rpi-eeprom/firmware-NNNN
+	local link="$firmwareDir/bootloader"
+	if [[ ! -L "$link" ]]; then
 		
 		# backup the existing firmware directory
-		[[ -d "$firmwareDir" ]] && { sudo mv "$firmwareDir" "$firmwareDir.hold" || return; }
+		[[ -d "$link" ]] && { sudo mv "$link" "$link.hold" || return; }
 
 		# get the Raspberry Pi model
 		local model; model="$(pi info model)" || return
@@ -7881,11 +7894,11 @@ PiFirmwareInstall()
 		[[ ! $version ]] && { ScriptErr "no firmware for '$model'"; return 1; }
 
 		# validate the firmware directory
-		local dir="$dir/firmware-$version"
-		[[ ! -d "$dir" ]] && { ScriptErr "the firmware directory for '$model' does not exist"; return 1; }
+		local dest="$repoDir/firmware-$version"
+		[[ ! -d "$dest" ]] && { ScriptErr "the firmware directory for '$model' does not exist"; return 1; }
 
 		# create a link to the firmware directory
-		makeLinkSudo "$dir" "$firmwareDir" || return
+		makeLinkSudo "$dest" "$link" || return
 	fi
 
 	# change from ciritical to stable firmware channel
