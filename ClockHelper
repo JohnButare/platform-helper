@@ -1,14 +1,37 @@
 #!/usr/bin/env bash
 . script.sh || exit
 
-usage() { ScriptUsage "$1" "\
+usage()
+{
+  ScriptUsage "$1" "\
 Usage: $(ScriptName) [OPTION]... check|fix|get|show|start|status
-$(ScriptName) commands."; }
+$(ScriptName) commands.
+
+  -w, --what LIST clock source, all|chrony|ntp|win"
+  exit $1
+}
 
 init()
 {
   formatDisplay="%H:%M:%S.%N" formatSerial="%s.%N"; format="$formatDisplay"
   toleranceSeconds="1" toleranceWindowsSeconds="2"
+}
+
+argStart() { what="all"; }
+
+opt()
+{
+  case "$1" in
+    -w|--what|-w=*|--what=*) scriptOptWhat "$@" || return;;
+    *) return 1;;
+  esac
+}
+
+scriptOptWhat()
+{
+  ScriptOptGet "what" "$@" || return
+  [[ "$what" == @(all|chrony|ntp|win) ]] && return
+  ScriptUsageEcho "'$what' is not a valid clock source"; ScriptTry
 }
 
 #
@@ -39,8 +62,13 @@ checkWin()
   # check Windows clock
   log1 "checking Windows time..."
   local format="$formatSerial" toleranceSeconds="$toleranceWindowsSeconds"
+
   local timeWin; timeWin="$(getTimeWin)" || return
-  local timeNtp; timeNtp="$(getTimeNtp)" || return
+  ! IsNumeric "$timeWin" && { ScriptErrQuiet "Windows time '$winTime' is not numeric"; return 1; }
+
+  local timeNtp; what="ntp" timeNtp="$(getTimeNtp)" || return
+  ! IsNumeric "$timeNtp" && { ScriptErrQuiet "NTP time '$timeNtp' is not numeric"; return 1; }
+
   local skew; skew="$(echo "$timeWin-$timeNtp" | bc -l | RemoveFront "-")" || return
   checkSkew "$skew" "Windows "
 }
@@ -56,7 +84,7 @@ checkSkew()
 # fix command
 #
 
-fixUsage() { EchoWrap "$1" "Usage: $(ScriptName) fix [HOST](time.apple.com)\nFix system clocks, using the specified host if possible."; }
+fixUsage() { EchoWrap "$1" "Usage: $(ScriptName) fix [HOST]($(getTimeServer))\nFix system clocks, using the specified host if possible."; }
 fixArgStart() { host="$(getTimeServer)"; }
 fixArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; }
 
@@ -84,7 +112,7 @@ fixCommand()
   return 0
 }
 
-fixMac() { RunQuiet sudoc sntp -sS "$host"; }
+fixMac() { [[ "$what" == @(all|ntp) ]] && RunQuiet sudoc sntp -sS "$host"; }
 fixWin() { fixWinTime && fixLinux; }
 
 fixLinux()
@@ -126,7 +154,7 @@ getCommand()
 {
   # get local time
   if [[ "$host" == @(local|wsl) ]]; then
-    if IsPlatform win && [[ "$host" == "local" ]]; then
+    if IsPlatform win && [[ "$what" == @(all|win) ]] && [[ "$host" == "local" ]]; then
       getTimeWin; return
     else
       getTimeLocal; return
@@ -143,6 +171,7 @@ getTimeLocal() { ${G}date +"$format"; }
 
 getTimeWin()
 {
+  [[ "$what" == @(all|win) ]] || return
   local time; time="$({ cmd.exe /c time < /dev/null; } |& cut -d: -f2- | grep -vE "CMD|UNC|command|wsl|Enter" | RemoveEmptyLines)";
   ${G}date +"$format" -d "$time"
 }
@@ -150,6 +179,8 @@ getTimeWin()
 # getNtpTime [HOST](timeServer) - get time from host using the NTP protocol
 getTimeNtp()
 {
+  [[ "$what" == @(all|ntp) ]] || return
+
   local host="${host:-$(getTimeServer)}"
 
   ! InPath ntpdate && { ScriptErrQuiet "cannot get time from '$host' using NTP"; return 1; }
@@ -215,22 +246,24 @@ Show clock status using the Chrony service (if running) and the configured time 
 }
 
 statusCommand() { statusClientCommand; }
+statusClientCommand() { InitColor && statusClientChrony && statusClientNtp; }
 
-statusClientCommand()
+statusClientChrony()
 {
-  InitColor || return;
+  { [[ "$what" != @(all|chrony) ]] || ! InPath chronyc; } && return
 
-  # show chrony server time
-  if InPath chronyc; then
-    local tracking; tracking="$(chronyc tracking)" || return
-    local chronyServer="$(echo "$tracking" | grep "^Reference ID" | cut -d"(" -f2 | cut -d")" -f1)"
-    local chronyReferenceTime="$(echo "$tracking" | grep "^Ref time" | cut -d: -f2- | RemoveSpaceTrim)"
-    local chronyDifference="$(echo "$tracking" | grep "^System time" | cut -d: -f2 | cut -d" " -f2)"
-    echo "   ${GREEN}chrony:${RESET} $(${G}date +"$formatDisplay" -d "$chronyReferenceTime UTC") ($chronyServer, $chronyDifference seconds from system)"
-    [[ $verbose ]] && { chronyc tracking || return; }
-  fi
+  local tracking; tracking="$(chronyc tracking)" || return
+  local chronyServer="$(echo "$tracking" | grep "^Reference ID" | cut -d"(" -f2 | cut -d")" -f1)"
+  local chronyReferenceTime="$(echo "$tracking" | grep "^Ref time" | cut -d: -f2- | RemoveSpaceTrim)"
+  local chronyDifference="$(echo "$tracking" | grep "^System time" | cut -d: -f2 | cut -d" " -f2)"
+  echo "   ${GREEN}chrony:${RESET} $(${G}date +"$formatDisplay" -d "$chronyReferenceTime UTC") ($chronyServer, $chronyDifference seconds from system)"
+  [[ $verbose ]] && { chronyc tracking || return; }
+  return 0
+}
 
-  ! InPath ntpdate && return
+statusClientNtp()
+{
+  { [[ "$what" != @(all|ntp) ]] || ! InPath ntpdate; } && return
 
   local timeServer="$(getTimeServer)"
   local format="$formatSerial"
@@ -263,7 +296,7 @@ statusClientCommand()
 
 statusServerCommand() 
 { 
-  ! isChronyServerRunning || return
+  ! isRunningChronyServer || return
   
   header "Chrony Sources"
   chronyc sources || return
@@ -271,12 +304,6 @@ statusServerCommand()
 
   header "Chrony Server Statistics"
   sudoc chronyc serverstats
-}
-
-isChronyServerRunning()
-{
-  local service="chrony"; IsPlatform mac && service="org.tuxfamily.chronyc"
-  [[ -f "/etc/chrony/chrony.conf" ]] && grep "^allow" "/etc/chrony/chrony.conf" >& /dev/null && service running "$chrony"
 }
 
 statusWinCommand()
@@ -289,17 +316,26 @@ statusWinCommand()
 # helper
 #
 
-getSkewChrony() { InPath chronyc && chronyc tracking | grep "^System time" | cut -d" " -f8; }
-getSkewNtp() { InPath ntpdate && ntpdate -q "${host:-$(getTimeServer)}" | tail -1 | awk '{ print $(NF-1); }' | RemoveFront "-" | RemoveFront "+"; }
+getSkewChrony() { [[ "$what" == @(all|chrony) ]] && InPath chronyc && chronyc tracking | grep "^System time" | cut -d" " -f8; }
+getSkewNtp() { [[ "$what" == @(all|ntp) ]] && InPath ntpdate && ntpdate -q "${host:-$(getTimeServer)}" | tail -1 | awk '{ print $(NF-1); }' | RemoveFront "-" | RemoveFront "+"; }
 
-isInstalledChrony() { InPath chronyc && [[ -f "/etc/chrony/chrony.conf" ]] && service exists chrony && service start chrony --wait --quiet; }
-isInstalledNtp() { ! IsPlatform wsl1 && InPath ntpdate; }
-isInstalledWinTime() { ! IsParallelsVm && CanElevate && service start W32Time --wait --quiet; } # W32Time not needed under Parallels and requires ability to elevate
+isInstalledChrony() { [[ "$what" == @(all|chrony) ]] && InPath chronyc && [[ -f "/etc/chrony/chrony.conf" ]] && service exists chrony && service start chrony --wait --quiet; }
+isInstalledNtp() { [[ "$what" == @(all|ntp) ]] && ! IsPlatform wsl1 && InPath ntpdate; }
+isInstalledWinTime() { [[ "$what" == @(all|win) ]] && ! IsParallelsVm && CanElevate && service start W32Time --wait --quiet; } # W32Time not needed under Parallels and requires ability to elevate
 
 getTimeServer()
 {
-  local server="$(ConfigGet "timeServer")"
+  [[ $timeServerCache ]] && { echo "$timeServerCache"; return; }
+  local server="$(ConfigGetCurrent "timeServer")"
+  ! IsAvailable "$server" && server=""
   echo "${server:-time.apple.com}"
+}
+
+isRunningChronyServer()
+{
+  [[ "$what" == @(all|chrony) ]] || return
+  local service="chrony"; IsPlatform mac && service="org.tuxfamily.chronyc"
+  [[ -f "/etc/chrony/chrony.conf" ]] && grep "^allow" "/etc/chrony/chrony.conf" >& /dev/null && service running "$chrony"
 }
 
 # timeDiff TIME_SERIAL REFERENCE_TIME_SERIAL - show time with reference difference as "TIME (DIFFERENCE)"

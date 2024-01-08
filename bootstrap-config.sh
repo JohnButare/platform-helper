@@ -1,7 +1,6 @@
 locale="en_US.UTF-8"
 timezone="America/Denver"
 timezoneWin="Mountain Standard Time" # tzutil.exe /l
-timeServer="time.butare.net"
 
 # user
 user="jjbutare"
@@ -69,6 +68,9 @@ hashiTestVaultServers="pi20,pi21"
 # dt 10.10.0.91-94
 networks="hagerman@10.10.100.8,dt@10.10.0.91,hagerman@10.10.100.7,dt@10.10.0.92"
 
+# external network
+externalTimeServer="time.apple.com"
+
 # dt network
 dtUser="jbutare"
 dtAdDomain="coexist" 				# Active Directory domain
@@ -82,7 +84,8 @@ hagermanDomain="hagerman.$hagermanBaseDomain" hd="$hagermanDomain"
 hagermanCameraServers="BackShedCamera,BackYardEastCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
 hagermanBackupUser="$user"
 hagermanGitServer="git.$hbd"																# Git Server
-hagermanProxyServers="proxy.$hbd:3128" 											# Forward Proxy (Squid)
+hagermanProxyServers="proxy.$hbd:3128" 											# Forward Proxy Server (Squid)
 hagermanSyslogServer="syslog.$hbd"													# syslog server for remote system logs
+hagermanTimeServer="time.butare.net"												# Time Server
 hagermanVip="10.10.100.6" 																	# Virtual IP Address
-hagermanWireguardPort="51820"																# port used for WireGuard
+hagermanWireguardPort="51820"																# WireGuard Port
