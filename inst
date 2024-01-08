@@ -669,7 +669,7 @@ serviceDisableStop() { service disable "$1" && service stop "$1"; }
 sshAgentCheck() { [[ $sshAgentChecked ]] && return; SshAgentConf --quiet "${globalArgs[@]}" && sshAgentChecked="true"; }
 sshRun() { sshAgentCheck && RunLog ssh "$@"; }
 sshRunInteractive() { sshAgentCheck && RunLog SshHelper "$1" --credential "${globalArgs[@]}" -- "${@:2}"; }
-waitForInstall() { [[ ! $ran ]] && return; local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
+waitForInstall() { [[ ! $ran ]] && return; local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel $2 "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
 waitForInstallWin() { ! IsPlatform win && return; waitForInstall "$1"; }
 
 # appClean APP
@@ -5784,7 +5784,8 @@ NodeInstallFinalWin() { mergeDir "$pp/Node.js" "$pp/Development/Other"; }
 # Node-RED - from https://nodered.org/docs/getting-started/raspberrypi - not used because it changes node
 NodeRedInstall()
 {	
-	# initialize
+	local restart
+
 	header "Node-RED"
 	service exists nodered --quiet && { service stop nodered || return; }
 
@@ -5794,6 +5795,7 @@ NodeRedInstall()
 	# install
 	if ! InPath node-red || [[ $force ]]; then
 		run --node node-red@latest -- --unsafe-perm --no-progress --no-update-notifier --no-audit --no-fund || return
+		restart="true"
 	fi
 
 	# create  user
@@ -5811,7 +5813,7 @@ NodeRedInstall()
 
 	# create package.json
 	local file="$dir/package.json"
-	if [[ ! -f "$file" ]] || [[ $force ]]; then
+	if ! sudoc ls "$file" >& /dev/null || [[ $force ]]; then
 		hilight "Creating package.json..."
 		local version="$(npm --no-progress --no-update-notifier --no-audit --no-fund -g ls node-red | ${G}grep node-red | cut -d '@' -f 2)" || return
 		cat <<-EOF | sudo ${G}tee "$file" || return
@@ -5827,10 +5829,11 @@ NodeRedInstall()
 	fi
 
 	# Raspbery Pi Nodes
-	if IsPlatform PiKernel && [[ ! -d "node_modules/node-red-node-serialport" || $force ]]; then
+	if IsPlatform PiKernel && { [[ $force ]] || ! sudoc ls "$dir/node_modules/node-red-node-serialport" >& /dev/null; }; then
 		hilight "Installing Raspberry Pi nodes..."
 		local piNodes="node-red-node-pi-gpio@latest node-red-node-random@latest node-red-node-ping@latest node-red-contrib-play-audio@latest node-red-node-smooth@latest node-red-node-serialport@latest"
 		sudo npm install --prefix "$dir" $piNodes --unsafe-perm --save --no-progress --no-update-notifier --no-audit --no-fund || return
+		restart="true"
 	fi
 
 	# programs
@@ -5848,6 +5851,20 @@ NodeRedInstall()
 		sudo chmod +x "/usr/bin/node-red-"* || return
 	fi
 
+	# Node-RED assumes python is in the path
+	pythonIsPython3 || return
+
+	# remove unneeded large sentiment library to save space and load time
+  rmSudo "/usr/lib/node_modules/node-red/node_modules/multilang-sentiment/build/output/build-all.json" || return
+
+  # configure Raspberyy Pi
+  if IsPlatform PiKernel; then
+	  sudo setcap cap_net_raw+eip "$(FindInPath "node")" || return
+	  sudo setcap cap_net_raw=ep "/bin/ping" || return
+	  GroupAddUser "gpio" "$user" || return
+	  ! PackageIsInstalled python3-rpi.gpio && { package python3-rpi.gpio || return; }
+  fi
+
 	# service
 	local file="/lib/systemd/system/nodered.service"
 	if [[ ! -f "$file" || $force ]]; then
@@ -5864,31 +5881,20 @@ NodeRedInstall()
 		service restart nodered || return
 	fi
 
-	# Node-RED assumes python is in the path
-	makeLinkSudo "$(which python3)" "/usr/bin/python" || return
-
-	# remove unneeded large sentiment library to save space and load time
-  rmSudo "/usr/lib/node_modules/node-red/node_modules/multilang-sentiment/build/output/build-all.json" || return
-
-  # configure Raspberyy Pi
-  if IsPlatform PiKernel; then
-	  sudo setcap cap_net_raw+eip "$(FindInPath "node")"
-	  sudo setcap cap_net_raw=ep "/bin/ping"
-	  GroupAddUser "gpio" "$user" || return
-	  package python3-rpi.gpio || return
-  fi
-
 	# settings
 	local file="$home/.node-red/settings.js"
-	sudo chmod o+r "$home" || return
-	waitForInstall "$file" || return
-	sudo chmod o-r "$home" || return
-	sudo sed -i 's/enabled: false/enabled: true/' "$file" || return # assume the one 'enabled: false' in the default settings.js file is for projects
-	sudo sed -i 's/lib: "ace",/lib: "monaco",/' "$file" || return
+	waitForInstall "$file" --sudo || return
+	if sudoc grep --quiet "enabled: false" "$file" || [[ "$force" ]]; then
+		sudo sed -i 's/enabled: false/enabled: true/' "$file" || return # assume the one 'enabled: false' in the default settings.js file is for projects
+		sudo sed -i 's/lib: "ace",/lib: "monaco",/' "$file" || return
+		restart="true"
+	fi
 
 	# finish
 	nodeRedPermissions || return
-	service restart nodered || return
+
+	# restart the service
+	[[ $restart || $force ]] && { service restart nodered || return; }
 
 	# final
 	nomadRegisterApp "node-red" "nodered" && httpShow 1880	
@@ -7800,6 +7806,18 @@ pythonInstallVersion()
 		i --no-header --no-prompt PythonDeadsnakes && package python$version
 	else
 		ScriptErr "cannot install Python $version"
+	fi
+}
+
+# pythonIsPython3 - link python to python3
+pythonIsPython3()
+{
+	InPath python && return
+
+	if IsPlatform debian; then
+		package python-is-python3
+	else
+		makeLinkSudo "$(which python3)" "/usr/bin/python"
 	fi
 }
 

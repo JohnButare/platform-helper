@@ -1282,12 +1282,13 @@ FileToDesc()
 FileWait()
 {
 	# arguments
-	local file noCancel quiet timeoutSeconds
+	local file noCancel quiet sudo timeoutSeconds
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--no-cancel|-nc) noCancel="true";;
 			--quiet|-q) quiet="true";;
+			--sudo|-s) sudo="sudoc";;
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $timeoutSeconds ]] && { timeoutSeconds="$1"; shift; continue; }
@@ -1305,7 +1306,7 @@ FileWait()
 	# wait
 	[[ ! $quiet ]] && printf "Waiting $timeoutSeconds seconds for '$fileName'..."
 	for (( i=1; i<=$timeoutSeconds; ++i )); do
-		[[ -e "$file" ]] && { [[ ! $quiet ]] && echo "found"; return 0; }
+		$sudo ls "$file" > /dev/null && { [[ ! $quiet ]] && echo "found"; return 0; }
 		if [[ $noCancel ]]; then
 			sleep 1
 		else
