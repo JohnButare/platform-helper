@@ -1235,6 +1235,20 @@ FileCommand()
 	esac
 }
 
+# FileGetProcessesUsing FILE - get the processes using a file
+FileGetProcessesUsing()
+{
+	local file="$1"
+
+	IsPlatform wsl1 && return
+
+	if IsPlatform mac; then
+		fuser "$file" |& cut -d":" -f2 | sed "s/[cefFrm]//g" |  tr -s " " | RemoveSpaceFront
+	else
+		sudoc fuser -c "$file" |& cut -d":" -f2 | sed "s/[cefFrm]//g" |  tr -s " " | RemoveSpaceFront
+	fi
+}
+
 # FileGetUnc FILE - get the UNC path for the file, faster than calling unc get unc
 FileGetUnc()
 {
