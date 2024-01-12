@@ -694,15 +694,50 @@ McflyConf()
 NodeConf()
 {
 	local force forceLevel; ScriptOptForce "$@"
-	[[ ! $force && $NODE_CHECKED ]] && return
 
-	if [[ -d "$HOME/.nvm" ]]; then
-		export NVM_DIR="$HOME/.nvm"
-		SourceIfExists "$NVM_DIR/nvm.sh" || return
-		SourceIfExists "$NVM_DIR/bash_completion" || return
+	if [[ $force || ! $NODE_CHECKED ]]; then
+
+		if [[ -d "$HOME/.nvm" ]]; then
+			export NVM_DIR="$HOME/.nvm"
+			SourceIfExists "$NVM_DIR/nvm.sh" || return
+			SourceIfExists "$NVM_DIR/bash_completion" || return
+		fi
+
+		NODE_CHECKED="true"
 	fi
 
-	NODE_CHECKED="true"
+	# configure virtual environments
+	if [[ -f ".nvmrc" ]] && [[ -d "$HOME/.nvm" ]]; then
+		export NVM_CURRENT="$(nvm current)"
+		nvm use --silent || return
+	elif [[ $NVM_CURRENT ]]; then
+		nvm use --silent "$NVM_CURRENT" || return
+		unset NVM_CURRENT
+	fi
+
+	return 0
+
+}
+
+# NodeNpmGlobal - run npm --global with sudo if needed, assume we do not need sudo if the global prefix is in the users home directory
+NodeNpmGlobal()
+{
+	local sudo="sudoc"; npm --global prefix | qgrep "^$HOME" && sudo=""; 
+	$sudo npm --global "$@"
+}
+
+NodeUpdate()
+{
+	# cleanup - update will fail if .bin directory existx, which is create from a failed update
+	sudoc rm -fr "$(npm --global prefix)/lib/node_modules/.bin" || return
+
+	# update npm - npm outdated returns false if there are updates
+	{ npm outdated --global; true; } | qgrep '^npm ' && { NodeNpmGlobal install npm@latest || return; }
+
+	# update other packages
+	npm outdated --global >& /dev/null || { NodeNpmGlobal update || return; }
+
+	return 0
 }
 
 powershell() 
@@ -3546,11 +3581,11 @@ PythonConf()
 {
 	local force forceLevel; ScriptOptForce "$@"
 
-	# return if python is not installed
-	! InPath python3 && return
-	
 	# configure
 	if [[ $force || ! $PYTHON_CHECKED ]]; then
+
+		# return if python is not installed
+		! InPath python3 && { PYTHON_CHECKED="true"; return; }
 	 
 		# find locations
 		export PYTHON_USER_SITE; PYTHON_USER_SITE="$(python3 -m site --user-site)" || return
