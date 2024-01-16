@@ -2691,7 +2691,7 @@ packageFix()
 	# exclude packages
 	IsPlatform entware && exclude+=( pwgen )
 	IsPlatform mac && exclude+=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk util-linux virt-what )
-	IsPlatformAll mac,arm && exclude+=( bonnie++ pv rust traceroute )
+	IsPlatformAll mac,arm && exclude+=( bonnie++ rust traceroute )
 	IsPlatformAll mac,x86 && exclude+=( ncat traceroute )
 	IsPlatform wsl1 && exclude+=( fping )
 	packageExclude
