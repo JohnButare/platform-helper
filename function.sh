@@ -5,7 +5,7 @@ set -o pipefail # pipes return first non-zero result
 IsBash() { [[ $BASH_VERSION ]]; }
 IsZsh() { [[ $ZSH_VERSION ]]; }
 
-IsiTerm() { [[ "$TERM_PROGRAM" == "iTerm.app" ]]; }
+IsiTerm() { [[ "$LC_TERMINAL" == "iTerm2" ]]; }
 IsWarp() { [[ "$TERM_PROGRAM" == "WarpTerminal" ]]; }
 
 if IsBash; then
