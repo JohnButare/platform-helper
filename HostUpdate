@@ -396,25 +396,33 @@ pythonInstalled() { PythonConf && which pip3 >& /dev/null; }
 pythonUpdate()
 {
 	{ ! pythonInstalled || ! UpdateNeeded "update-python"; } && return
+	{ pythonUpdatePip pipl pip && pythonUpdatePip pipl pipx && pythonUpdatePipx pipxl; } || return # update local packages
+	{ pythonUpdatePip pipr pip && pythonUpdatePip pipr pipx && pythonUpdatePipx pipxg; } || return # update root/global packages
+	UpdateDone "update-python"
+}
 
-	# update local packages
-	local outdated; outdated="$(prl pip list --user --outdated --format=columns)"
-	echo "$outdated" | grep --quiet '^pip ' && { prl pip install --user --upgrade pip || return; }
-	echo "$outdated" | grep --quiet '^pipx ' && { prl pip install --user --upgrade pipx || return; }
-	prl pipx --version >& /dev/null && ! prl pipx list --quiet |& sqgrep "^nothing has been installed with pipx" && { prl pipx upgrade-all --quiet || return; }
+# pythonUpdatePip pipl|pipr PACKAGE - update a local or root packages using pip
+pythonUpdatePip()
+{
+	local p="$1" package="$2"
+	local outdated; outdated="$($p list --user --outdated --format=columns)"	
 
-	# update global packages
-	local outdated; outdated="$(prr pip list --user --outdated --format=columns)"	
-	echo "$outdated" | grep --quiet '^pip ' && { prr pip install --user --upgrade pip || return; }
-	echo "$outdated" | grep --quiet '^pipx ' && { prr pip install --user --upgrade pipx || return; }
+	# return if the package is not outdated
+	! echo "$outdated" | grep --quiet "^${package} " && return	
 
-	# update global pipx packages
-	if pipxg --version >& /dev/null; then
-		pipxg list --quiet | ${G}grep --quiet "borg" && { pipxg upgrade --quiet --pip-args='--no-build-isolation' borgbackup || return; } # borg requires no build isolation
-		pipxg upgrade-all --quiet || return
-	fi
+	# update the package
+	PythonManageDisable || return
+	local result; $p install --user --upgrade "$package"; result="$?"
+	PythonManageEnable; return "$result"
+}
 
-	UpdateDone "update-python" || return
+# pythonUpdatePipx pipxl|pipxg - update local or global pipx packages
+pythonUpdatePipx()
+{
+	local p="$1"
+	{ ! $p --version >& /dev/null || $p list --quiet |& sqgrep "^nothing has been installed with pipx"; } && return
+	$p list --quiet | ${G}grep --quiet "borg" && { $p upgrade --quiet --pip-args='--no-build-isolation' borgbackup || return; } # borg requires no build isolation
+	$p upgrade-all --quiet || return
 }
 
 #

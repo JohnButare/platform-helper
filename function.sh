@@ -3576,6 +3576,10 @@ start()
 # Python
 #
 
+PythonGetConfig() { local var="$1"; python3 -m "sysconfig" | grep "$var = " | head -1 | cut -d= -f2 | RemoveSpace | RemoveQuotes; }
+PythonManageDisable() { local file; file="$(PythonGetConfig "DESTLIB")/EXTERNALLY-MANAGED" || return; [[ ! -f "$file" ]] && return; sudoc mv "$file" "$file.hold"; }
+PythonManageEnable() { local file; file="$(PythonGetConfig "DESTLIB")/EXTERNALLY-MANAGED" || return; [[ ! -f "$file.hold" ]] && return; sudoc mv "$file.hold" "$file"; }
+
 # PythonConf - configure Python for the current user
 PythonConf()
 {
@@ -3686,7 +3690,15 @@ prr()
 	sudoc --set-home "$PYTHON_ROOT_BIN/$@"
 }
 
-# pipxg - pipx global, install pipx programs in the global (shared) location
+
+# pipl|pipr - run pip the global or local user
+pipl() { prl pip "$@"; }
+pipr() { prr pip "$@"; }
+
+# pipxl - pipx global, run pipx programs for the local user
+pipxl() { prl pipx "$@"; }
+
+# pipxg - pipx global, run pipx programs for the global (shared) location
 pipxg()
 {
 	[[ ! $PYTHON_ROOT_CHECKED ]] && { PythonRootConf || return; }	
