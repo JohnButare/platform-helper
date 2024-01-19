@@ -84,7 +84,8 @@ hagermanDomain="hagerman.$hagermanBaseDomain" hd="$hagermanDomain"
 hagermanCameraServers="BackShedCamera,BackYardEastCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
 hagermanBackupUser="$user"
 hagermanGitServer="git.$hbd"																# Git Server
-hagermanProxyServers="proxy.$hbd:3128" 											# Forward Proxy Server (Squid)
+hagermanProxyServers="proxy.$hbd:3128"											# Forward Proxy Server (Squid)
+#hagermanProxyServers="10.10.100.9:3128"										# Forward Proxy Server (Squid)
 hagermanSyslogServer="syslog.$hbd"													# syslog server for remote system logs
 hagermanTimeServer="time.butare.net"												# Time Server
 hagermanVip="10.10.100.6" 																	# Virtual IP Address
