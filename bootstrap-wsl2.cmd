@@ -20,7 +20,7 @@ wsl --set-default-version 2
 
 REM download WSL and a distribution if a distribution image was not specified
 if not defined distImage (
-	wsl --install --distribution %dist%	--web-download || wsl --install --distribution %dist%
+	wsl --install --distribution %dist%	--web-download --no-launch
 	goto check
 )
 
@@ -45,14 +45,30 @@ if not exist "\\wsl.localhost\%dist%\home" (
 	shutdown /r /t 0 & exit
 )
 
+goto bootstrap
+
+REM bootstrap recovery
+:bootstrap-recovery
+echo Unable to create bootstrap files, recovering...
+wsl.exe --shutdown
+start /min wsl
+wsl sleep 5
+goto bootstrap
+
 REM run the bootstrap
 :bootstrap
-echo Running bootstrap-init...
+
+echo.
+echo Preparing bootstrap files...
 copy /Y %pwd%bootstrap-init \\wsl.localhost\%dist%\tmp
 copy /Y %pwd%bootstrap-config.sh \\wsl.localhost\%dist%\tmp
+wsl -- ls /tmp/bootstrap-init > nul & if errorlevel 1 goto bootstrap-recovery
 wsl --user root -- sudo chmod ugo+rwx /tmp/bootstrap-init /tmp/bootstrap-config.sh
+
 echo.
+echo Running bootstrap-init...
 wsl --user %distUser% /tmp/bootstrap-init %args%
 if errorlevel 2 ( wsl.exe --shutdown & goto bootstrap )
 if errorlevel 1 goto bootstrap
+
 pause
