@@ -1,9 +1,10 @@
 @echo off
 REM bootstrap-wsl2.cmd - bootstrap a Windows sytem using WSL 2 (requires Hyper-V)
-REM - bootstrap-setup.cmd -> bootstrap.cmd -> bootstrap-wsl2.cmd -> bootstrap-init -> bootstrap -> inst
+REM - bootstrap-setup-wsl2.cmd -> bootstrap-wsl2.cmd -> bootstrap-init -> bootstrap -> inst
+REM - arguments - bootstrap-wsl2.cmd arguments are passed to bootstrap-init, i.e. --verbose
 
 if not defined wsl (
-	echo This script must be called from bootstrap-setup.cmd.
+	echo This script must be called from bootstrap-setup-wsl2.cmd.
 	pause
 	exit /b
 )

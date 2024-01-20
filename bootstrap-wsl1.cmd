@@ -1,6 +1,7 @@
 @echo off
 REM bootstrap-wsl1.cmd - bootstrap a Windows sytem using WSL 1 (if Hyper-V virtualization is not available)
-REM - bootstrap-setup.cmd -> bootstrap.cmd -> bootstrap-wsl1.cmd -> bootstrap-init -> bootstrap -> inst
+REM - bootstrap-setup-wsl1.cmd -> bootstrap-wsl1.cmd -> bootstrap-init -> bootstrap -> inst
+REM - arguments - bootstrap-wsl1.cmd arguments are passed to bootstrap-init, i.e. --verbose
 
 if not defined wsl (
 	echo This script must be called from bootstrap-setup.cmd.

@@ -26,6 +26,7 @@ if exist %file% del %file%
 >> %file% echo echo ************************* bootstrap.cmd *************************
 >> %file% echo set pwd=%pwd%
 >> %file% echo set args=%args%
+>> %file% echo REM set args=%args% -v
 >> %file% echo set wsl=%wsl%
 >> %file% echo set dist=%dist%
 >> %file% echo set distUser=%distUser%
