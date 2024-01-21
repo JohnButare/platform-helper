@@ -15,12 +15,13 @@ if not exist "%wslDir%" mkdir "%wslDir%"
 REM if the distribution exists then run the bootstrap
 if exist "\\wsl.localhost\%dist%\home" goto bootstrap
 
-REM default to WSL 2
+REM default to WSL 2 - errors out if WSL is not installed
 wsl --set-default-version 2
 
 REM download WSL and a distribution if a distribution image was not specified
+pause
 if not defined distImage (
-	wsl --install --distribution %dist%	--web-download --no-launch
+	wsl --install --distribution %dist%	--web-download
 	goto check
 )
 
@@ -44,7 +45,14 @@ if not exist "\\wsl.localhost\%dist%\home" (
 	pause
 	shutdown /r /t 0 & exit
 )
+goto startup
 
+REM startup - setup Startup directory
+:startup
+set file=%HOMEDRIVE%%HOMEPATH%\Desktop\bootstrap.cmd
+set startup=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
+if not exist "%startup%" mkdir "%startup%"
+rem if not exist "%startup%\bootstrap.cmd" copy %file% "%startup%"
 goto bootstrap
 
 REM bootstrap recovery
