@@ -15,44 +15,29 @@ if not exist "%wslDir%" mkdir "%wslDir%"
 REM if the distribution exists then run the bootstrap
 if exist "\\wsl.localhost\%dist%\home" goto bootstrap
 
-REM default to WSL 2 - errors out if WSL is not installed
-wsl --set-default-version 2
-
-REM download WSL and a distribution if a distribution image was not specified
-pause
-if not defined distImage (
-	wsl --install --distribution %dist%	--web-download
-	goto check
+REM default to WSL 2 and install WSL and reboot if needed
+wsl --set-default-version 2 > nul 2>&1
+if not %ErrorLevel% == 0 (
+	wsl --install --no-distribution --web-download
+	shutdown /r /t 0 & exit
 )
 
-REM connect to the distribution network share
+REM install the distribution if an image was not specified
+if not defined distImage (
+	echo.
+	echo Once the user account is created, exit the shell...
+	wsl --install --distribution %dist%	--web-download
+	goto bootstrap
+)
+
+REM connect to the distribution network share if needed
 if defined distUnc (
 	if not exist z:\ net use z: %distUnc%
 	set distImage=z:\%distImage%
 )
 
-REM install WSL 
-wsl --status > nul
-if not %ErrorLevel% == 0 wsl --install --no-distribution
-
-REM import the distribution image, use --no-distribution option to prevent installing a distribution automatically
+REM import the distribution image
 wsl --import %dist% %wslDir% %distImage%
-
-REM check the distribution
-:check
-if not exist "\\wsl.localhost\%dist%\home" (
-	echo Press any key to reboot and finish the installation...
-	pause
-	shutdown /r /t 0 & exit
-)
-goto startup
-
-REM startup - setup Startup directory
-:startup
-set file=%HOMEDRIVE%%HOMEPATH%\Desktop\bootstrap.cmd
-set startup=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
-if not exist "%startup%" mkdir "%startup%"
-rem if not exist "%startup%\bootstrap.cmd" copy %file% "%startup%"
 goto bootstrap
 
 REM bootstrap recovery
@@ -78,5 +63,6 @@ echo Running bootstrap-init...
 wsl --user %distUser% /tmp/bootstrap-init %args%
 if errorlevel 2 ( wsl.exe --shutdown & goto bootstrap )
 if errorlevel 1 goto bootstrap
-
 pause
+
+:done

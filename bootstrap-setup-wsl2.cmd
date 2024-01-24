@@ -23,6 +23,7 @@ REM create bootstrap.cmd on the Desktop to run manually if needed
 set file=%HOMEDRIVE%%HOMEPATH%\Desktop\bootstrap.cmd
 if exist %file% del %file%
 
+>> %file% echo @echo off
 >> %file% echo echo ************************* bootstrap.cmd *************************
 >> %file% echo set pwd=%pwd%
 >> %file% echo set args=%args%
@@ -37,10 +38,6 @@ if exist %file% del %file%
 
 REM put bootstrap.cmd on then desktop to run manually
 copy %file% "%USERPROFILE%\Desktop"
-
-REM put bootstrap.cmd in Startup to run after reboot.  The user Startup directory may not exist.
-set startup=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
-mkdir "%startup%" & copy %file% "%startup%"
 
 REM run bootstrap
 %file%
