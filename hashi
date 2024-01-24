@@ -32,7 +32,8 @@ Other commands: cleanup
 
 Other options:
 	-nrs, --no-restart-service	do not restart services
-	-nt, 	--no-token 						do not use a token for the command"
+	-nt, 	--no-token 						do not use a token for the command
+	-t, --timeout	the network host timeout in milliseconds, defaults to $timeout ms"
 }
 
 init()
@@ -45,7 +46,11 @@ init()
 	configWhat="consul-vault-data local-certs local-credentials private-certs public-certs"
 }
 
-argStart() { unset -v api assumeServer configFile configFileArg configPrefix configPrefixArg hostArg noRestartService noToken; }
+argStart()
+{
+	unset -v api assumeServer configFile configFileArg configPrefix configPrefixArg hostArg noRestartService noToken
+	timeout="$(AvailableTimeoutGet)"; timeoutArg="--timeout=$timeout"
+}
 
 opt()
 {
@@ -57,6 +62,7 @@ opt()
 		--no-restart-service|-nrs) noRestartService="--no-restart-service";;
 		--no-token|-nt) noToken="--no-token";;
 		--is-server|-is) assumeServer="true";;
+		--timeout|-t|--timeout=*|-t=*) ScriptOptGet --integer "timeout" "$@"; timeoutArg="--timeout=$timeout";;
 		*) return 1;;
 	esac
 }
@@ -252,7 +258,7 @@ appNodeRegisterCommand()
 	
 	# Nomad - remote host
 	if ! IsLocalHost "$host"; then
-		! IsAvailable "$host" && { ScriptErr "host $host is not available"; return 1; }
+		! IsAvailable "$host"  $timeout && { ScriptErr "host $host is not available"; return 1; }
 		sshRunInteractive "$host" "hashi app node register $app"; return
 	fi
 
@@ -370,7 +376,7 @@ appVerify()
 	# check if each registered server for the application is configured to run the application by checking the servers Nomad app.<APP> metadata tags
 	local registeredServer registeredServers; IFS=$'\n' ArrayMake registeredServers "$(appServerAll "$app" | sort -V)" || return
 	for registeredServer in "${registeredServers[@]}"; do
-		! IsAvailable "$registeredServer" && { (( errors++ )); HilightErr "Cannot check if server '$(RemoveDnsSuffix "$registeredServer")' is configured to run '$app', it is not available"; continue; }
+		! IsAvailable "$registeredServer" $timeout && { (( errors++ )); HilightErr "Cannot check if server '$(RemoveDnsSuffix "$registeredServer")' is configured to run '$app', it is not available"; continue; }
 		! appNodeGet "$registeredServer" | sqgrep "^$app$" && { (( errors++ )); HilightErr "Server '$(RemoveDnsSuffix "$registeredServer")' is not configured to run '$app'"; continue; }
 		[[ ! $errors ]] && print "."
 	done
@@ -1382,11 +1388,11 @@ consulApiCheck()
 {
 	# check host
 	local host="$(productVarGet "SERVER")"
-	! IsAvailable "$host" && { [[ ! $quiet ]] && ScriptErr "consul server $host is not available"; return 1; }
+	! IsAvailable "$host" $timeout && { [[ ! $quiet ]] && ScriptErr "consul server $host is not available"; return 1; }
 
 	# check port
 	local port="$(GetUriPort "$(productVarGet "ADDR")")"
-	! IsAvailablePort "$host" "$port" && { [[ ! $quiet ]] && ScriptErr "consul server $host is not available on port $port"; return 1; }	
+	! IsAvailablePort "$host" "$port" $timeout && { [[ ! $quiet ]] && ScriptErr "consul server $host is not available on port $port"; return 1; }	
 
 	# check api
 	consulApi "/status/leader" 2> /dev/null | RemoveQuotes | RemovePort | IsIpAddress && return
@@ -2355,11 +2361,11 @@ nomadApiCheck()
 {
 	# check host
 	local host="$(productVarGet "SERVER")"
-	! IsAvailable "$host" && { [[ ! $quiet ]] && ScriptErr "nomad server $host is not available"; return 1; }
+	! IsAvailable "$host" $timeout && { [[ ! $quiet ]] && ScriptErr "nomad server $host is not available"; return 1; }
 
 	# check port
 	local port="$(GetUriPort "$(productVarGet "ADDR")")"
-	! IsAvailablePort "$host" "$port" && { [[ ! $quiet ]] && ScriptErr "nomad server $host is not available on port $port"; return 1; }	
+	! IsAvailablePort "$host" "$port" $timeout && { [[ ! $quiet ]] && ScriptErr "nomad server $host is not available on port $port"; return 1; }	
 
 	# check api
 	nomadApi "/status/leader" 2> /dev/null | RemoveQuotes | RemovePort | IsIpAddress && return
@@ -3394,11 +3400,11 @@ vaultApiCheck()
 {
 	# check host
 	local host="$(productVarGet "SERVER")"
-	! IsAvailable "$host" && { [[ ! $quiet ]] && ScriptErr "vault server $host is not available"; return 1; }
+	! IsAvailable "$host" $timeout && { [[ ! $quiet ]] && ScriptErr "vault server $host is not available"; return 1; }
 
 	# check port
 	local port="$(GetUriPort "$(productVarGet "ADDR")")"
-	! IsAvailablePort "$host" "$port" && { [[ ! $quiet ]] && ScriptErr "vault server $host is not available on port $port"; return 1; }	
+	! IsAvailablePort "$host" "$port" $timeout && { [[ ! $quiet ]] && ScriptErr "vault server $host is not available on port $port"; return 1; }	
 
 	# check api
 	[[ "$(vaultApi "/sys/health" 2> /dev/null | jq '.initialized')" == "true" ]]  && return
@@ -3769,7 +3775,7 @@ hostCheck()
 {
 	local host="$1"
 	[[ ! $host ]] && MissingOperand "host"
-	! IsAvailable "$host" && { [[ ! $quiet ]] && EchoErr "$host is not available"; return 1; }
+	! IsAvailable "$host" $timeout && { [[ ! $quiet ]] && EchoErr "$host is not available"; return 1; }
 	return 0
 }
 
@@ -4212,7 +4218,7 @@ getDnsServer()
 	local server; server="$(productGetServer "consul")"
 	[[ ! $server ]] && { [[ ! $quiet ]] && ScriptErr "no consul server found"; return 1; }
 	log1 "found consul consul server '$server'"
-	! IsAvailablePort "$server" 8600 && { [[ ! $quiet ]] && ScriptErr "consul server $server port 8600 is not available"; return 1; }
+	! IsAvailablePort "$server" 8600 $timeout && { [[ ! $quiet ]] && ScriptErr "consul server $server port 8600 is not available"; return 1; }
 	echo "$server"
 }
 
