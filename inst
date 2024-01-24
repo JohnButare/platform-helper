@@ -1978,7 +1978,9 @@ AppNetworkInstall()
 	# network
 	case "$NETWORK" in
 		hagerman)
-			i borgbackup glances hashi iTermShellIntegration unison || return
+			i borgbackup glances hashi iTermShellIntegration unison || return			
+			export CREDENTIAL_MANAGER=local # use the local credential manager
+			HashiConf --fff || return # ensure Hashi Vault is initialized properly, since on initial bootstrap the Vault errors
 			wiggin sync credential || return
 			;;
 	esac
@@ -5526,6 +5528,12 @@ hashiCli()
 	local what="$1"
 	header "${what^}"
 
+	# get local configuration if needed
+	if InPath vault && ! credential exists "hashi/$(ConfigGet "baseDomain")/$what" "token"; then
+		unset CREDENTIAL_MANAGER; CredentialConf --force || return
+		hashi config set local || return
+	fi
+
 	# check version
 	if [[ ! $force ]] && InPath "$what"; then
 		local installedVersion; installedVersion="$(hashiInstalledVersion "$what")" || return
@@ -5538,8 +5546,13 @@ hashiCli()
 	if [[ ! $force ]] && InPath "$what"; then
 		run --no-header --executable --no-install-check "$(hashiDir "$what")"
 	else
+		unset CREDENTIAL_MANAGER; CredentialConf --force || return
+		credential ls; pause
 		RunLog hashi install cli "$what" --encrypt "${globalArgs[@]}" "${otherArgs[@]}"
+		credential ls; pause
 	fi
+
+	HashiConf --force
 }
 
 hashiInstalledVersion() { InPath "$1" && "$1" --version | shead -1 | cut -d" " -f2 | cut -d"v" -f2; }
@@ -8707,13 +8720,16 @@ CredentialStoreInstall()
 	! IsPlatform mac,debian,win && { i --no-header pass || return; }
 
 	# add passwords to the credential store
-	unset CREDENTIAL_MANAGER # detect the new credential manager
+	unset CREDENTIAL_MANAGER; CredentialConf --force || return
 	password store set "${globalArgs[@]}" || return
 
 	if IsPlatform wsl2 && ! CREDENTIAL_MANAGER=gk password store check --quiet "${globalArgs[@]}"; then
 		credential sync -m2=gk secure --quiet "${globalArgs[@]}" || return
 		credential sync -m2=gk ssh --quiet "${globalArgs[@]}" || return
+		unset CREDENTIAL_MANAGER; CredentialConf --force || return
 	fi
+
+
 
 	return 0
 }
