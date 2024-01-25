@@ -63,6 +63,9 @@ echo Running bootstrap-init...
 wsl --user %distUser% /tmp/bootstrap-init %args%
 if errorlevel 2 ( wsl.exe --shutdown & goto bootstrap )
 if errorlevel 1 goto bootstrap
+goto done
 
+:done
+echo.
 echo Bootstrap completed successfully.
 pause
