@@ -572,7 +572,7 @@ installInit()
 	all+=(CredentialStore)
 	debian+=(GnomeKeyring LastPass)
 	mac+=(1PasswordExtension)
-	macDebian+=(1Password 1PasswordCli AxCrypt certbot cfssl CryFS pass SystemUser VeraCrypt YubiKeyManager)
+	macDebian+=(1Password 1PasswordCli AxCrypt CredentialSync certbot cfssl CryFS pass SystemUser VeraCrypt YubiKeyManager)
 	macWin+=(AxCrypt)
 	win+=(Dashlane pGina)
 
@@ -722,7 +722,18 @@ appIsInstalled()
 {
 	AppHasHelper "$1" && { AppIsInstalled "$1"; return; }
 	[[ "$(FindInPath "${1,,}")" == "/opt/opt/homebrew/bin/speedtest" ]] && return 1 # exclude Homebrew speedtest since it conflicts with the GUI speedtest
-	InPath "$(AppToCli "$1")" || IsMacApp "$1"
+	{ InPath "$(AppToCli "$1")" || IsMacApp "$1"; } && return
+
+	app="${app,,}"
+	[[ "$app" == @(java) ]] && InPath "$app" && return
+	[[ "$app" == @(bootstrap) ]] && return
+	[[ "$app" == "Edge" ]] && IsPlatform win && return
+	[[ "$app" == "intel" && -d "$P/NVIDIA Corporation" ]] && return
+	[[ "$app" == "nvidia" && -d "$P/NVIDIA Corporation" ]] && return
+	[[ "$app" == "plex" && -d "$P/NVIDIA Corporation" ]] && return
+	[[ "$app" == "python" ]] && InPath python3 && return
+
+	return 1
 }
 
 checkInstallable()
@@ -1983,11 +1994,7 @@ AppNetworkInstall()
 	# network
 	case "$NETWORK" in
 		hagerman)
-			i borgbackup glances hashi iTermShellIntegration unison || return			
-			export CREDENTIAL_MANAGER=local # use the local credential manager
-			HashiConf --fff || return # ensure Hashi Vault is initialized properly, since on initial bootstrap the Vault errors
-			DbusConf || return
-			wiggin sync credential --timeout=500 || return
+			i borgbackup glances hashi iTermShellIntegration unison CredentialSync || return
 			;;
 	esac
 
@@ -2116,9 +2123,10 @@ DownloadInstall()
 
 FinalInstall()
 {
-	local app apps=(bootstrap 1Password BeyondCompare CreativeCloud Dropbox Edge Firefox Fork Intel Java JetBrains LogitechOptions NotepadPp nVidia Plex Python Sonos Sublime Thunderbird VisualStudio Zoom)
+	local app apps=(bootstrap 1Password BeyondCompare CreativeCloud Dropbox Edge Firefox Fork Intel Java JetBrains LogitechOptions NotepadPp nVidia Plex Python Sonos Sublime Thunderbird VisualStudio Zoom)	
 	printf "final..."
 	for app in "${apps[@]}"; do
+		! appIsInstalled "$app" && return
 		printf "$app..."
 		i --no-header --no-prompt "${app}Final" || return
 	done
@@ -4270,7 +4278,7 @@ PowerCoreInstall()
 {
 	[[ ! $force ]] && ! UpdateNeeded "install-PowerCore" && return
 	IsPlatformAll physical,win && { power fix disable || return; }
-	UpdateDone "install-PowerCore"	
+	UpdateDone "install-PowerCore"
 }
 
 BalenaEtcherInstall()
@@ -8587,7 +8595,7 @@ ZshProfile()
 # Security
 #################################################
 
-SecurityAllInstall() { i 1Password 1PasswordCli AxCrypt certbot cfssl CredentialStore CryFS Dashlane GnomeKeyring LastPass pass pGina SystemUser VeraCrypt YubiKeyManager; }
+SecurityAllInstall() { i 1Password 1PasswordCli AxCrypt certbot cfssl CredentialStore CredentialSync CryFS Dashlane GnomeKeyring LastPass pass pGina SystemUser VeraCrypt YubiKeyManager; }
 
 SecurityCoreInstall() 
 {
@@ -8728,9 +8736,21 @@ CredentialStoreInstall()
 		unset CREDENTIAL_MANAGER; CredentialConf --force || return
 	fi
 
-
-
 	return 0
+}
+
+CredentialSyncInstall()
+{
+	networkVars || return
+	[[ "$NETWORK" != "hagerman" ]] && return
+	[[ ! $force ]] && ! UpdateNeeded "credential-sync" && return
+
+	export CREDENTIAL_MANAGER=local # use the local credential manager
+	HashiConf --fff || return # ensure Hashi Vault is initialized properly, since on initial bootstrap the Vault errors
+	DbusConf || return
+	wiggin sync credential --timeout=500 || return
+
+	UpdateDone "credential-sync"
 }
 
 CryFSInstall()
@@ -10670,7 +10690,7 @@ WinInstall() # called by bootstrap
 WinAppsInstall()
 {
 	header "Windows Applications"
-	#[[ ! $force ]] && ! UpdateNeeded "install-win-apps" && return
+	[[ ! $force ]] && ! UpdateNeeded "install-win-apps" && return
 
 	# find the applications for the current build
 	findFile "other/Microsoft/Windows/setup" || return
