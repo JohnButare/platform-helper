@@ -553,7 +553,7 @@ installInit()
 	all+=(pip pipx pyenv python PythonLocal PythonGlobal PythonDev PythonTextUtilities httpie)
 	debian64+=(PythonDeadsnakes)
 	macDebian+=(PythonAsdf Python3.10 Python3.11)
-	macDebianQnap+=(BorgBackup certbot GitUp vorta)
+	macDebianQnap+=(BorgBackup GitUp vorta)
 
 	# QNAP
 	qnap=(asdf qcli)
@@ -628,7 +628,7 @@ installInit()
 	notArm32=(1Password)
 	notMacArm=(chrony)
 	notPi=(sublime)
-	notWin=(certbot snap SnapStore)
+	notWin=(snap SnapStore)
 	notWinArm=(exa)
 }
 
@@ -1134,10 +1134,7 @@ makeDir()
 # register APP - enter the registration information for an application
 register()
 {
-	local app="$1"; { ! appIsInstalled "$app" || [[ $noPrompt ]]; } && return
-
-	# skip registration if a remote credential manager is not installed
-	credential manager status --manager=remote --quiet || { [[ ! $quiet ]] && ScriptErr "register: remote credential manager is not available"; return; }
+	local app="$1"; { ! appIsInstalled "$app" || [[ $noPrompt ]] || ! registerCheck; } && return
 
 	# message
 	local app="$1"
@@ -1145,12 +1142,21 @@ register()
 	[[ $noPrompt ]] && { hilight "$message..."; } || { ! ask "$message" && return; }
 
 	# get registration
-	local registration; registration="$(credential get --fallback $app registration)" || return
+	local registration; registration="$(registerGetRegistration "$app")" || return
 	clipw "$registration" || return
 
 	# start the application
 	appStart "$app" && pause
 }
+
+registerCheck()
+{
+	credential manager status --manager=remote --quiet && return
+	[[ ! $quiet ]] && ScriptErr "register: remote credential manager is not available"
+	return 1
+}
+
+registerGetRegistration() { credential get --fallback "$1" "registration"; }
 
 # manageSystem - return 0 if the system will be managed remotely ( non-Linux Wiggin physical machines that are not in another domain)
 manageSystem()
@@ -1981,7 +1987,8 @@ AppHostSoftwareInstall()
 		jane|pants) i BetterTouchTool;;
 
 		# Windows
-		bc|rosie) i $clientPersonalWin;;
+		bc) i $clientPersonalWin certbot;;
+		rosie) i $clientPersonalWin;;
 	esac
 }
 
@@ -8691,10 +8698,31 @@ AxCryptFinalWin()
 
 CertbotInstall()
 { 
-	run --name "certbot" --snap "certbot" -- --classic || return
+	header "Certbot"
+
+	# package
+	{ IsPlatform win || [[ "$installType" != "store" ]]; } && { package certbot python3-certbot-dns-cloudflare; return; }
+
+	# Snap Store
+	run --no-header --name "certbot" --snap "certbot" -- --classic || return
 	sudo snap set certbot trust-plugin-with-root=ok || return
 	sudo snap install certbot-dns-cloudflare || return
 	sudo ln -s /snap/bin/certbot /usr/bin/certbot || return
+}
+
+CertbotFinal() { [[ ! $force && -d "/etc/letsencrypt/accounts" ]] && return; certbot register; }
+
+CertbotRegister()
+{
+	local dir="/etc/letsencrypt/credentials"
+	! registerCheck && return
+	[[ ! $force && -d "$dir" ]] && return
+	local token; token="$(credential get --fallback "certbot" "cloudflare")" || return
+
+	sudoc cat <<-EOF > "$dir/cloudflare.ini" /dev/null || return
+		# Cloudflare API token used by Certbot
+		dns_cloudflare_api_token = $token
+	EOF
 }
 
 CfsslInstall()
