@@ -1192,25 +1192,45 @@ pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; cl
 CloudGet()
 {
 	! IsPlatform win && return
-	local quiet; [[ "$1" == @(-q|--quiet) ]] && { quiet="true"; shift; }
 
-	local file
-	for file in "$@"; do
+	# arguments
+	local file files=() quiet verbose verboseLevel
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--quiet|-q) quiet="--quiet";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			-*) UnknownOption "$1" "CloudGet"; return 1;;
+			*) files+="$1"; shift; continue
+		esac
+		shift
+	done
+
+	for file in "${files[@]}"; do
+		[[ $verbose ]] && EchoErr "CloudGet: processing '$file'"
 
 		# dirs
 		if [[ -d "$file" ]]; then
 			local files; IFS=$'\n' ArrayMake files "$(find "$file" -type f)" || return
-			CloudGet "${files[@]}" || return
+			CloudGet $quiet $verbose "${files[@]}" || return
 			continue
 		fi
 
 		# check if file is downloaded
 		ScriptFileCheck "$file" || return
-		(( $(stat -c%b "$file") > 0 )) && continue 					# check blocks, does not work for small files
-		local line1="$(cat --show-nonprinting "$file" | ${G}head -1)"; (( ${#line1} != 0 )) && continue 	# check first line, does not work if first line is empty
+
+		# check blocks, does not work for small files
+		local blocks="$(stat -c%b "$file")"
+		[[ $verbose ]] && EchoErr "CloudGet: blocks=$blocks"
+		((  $blocks > 0 )) && continue 	
+
+		# check at lease one line
+		local lines="$(wc --lines "$file" | cut -d" " -f1)"
+		[[ $verbose ]] && EchoErr "CloudGet: lines=$lines"
+		[[ "$lines" != "0" ]] && continue 		
 
 		# download file
-		echo "Getting '$file'..."
+		[[ ! $quiet ]] && echo "Downloading file '$(GetFileName "$file")'..."
 		( cd "$(GetFilePath "$file")"; cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
 
 	done
@@ -2115,7 +2135,7 @@ IsAvailablePortUdp()
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $timeout ]] && { timeout="$1"; shift; continue; }
-				UnknownOption "$1" start; return
+				UnknownOption "$1" "IsAvailablePortUdp"; return
 		esac
 		shift
 	done
