@@ -77,7 +77,8 @@ checkCommand()
 
 		# check applications and get their install function
 		for app in "${appsArg[@]}"; do
-			local appFunction; appFunction="$(getInstallFunction "$app")" || { ScriptErr "'$app' installation does not exist"; return 1; }
+			app="$(appResolveAlias "$app")"
+			local appFunction; appFunction="$(appGetInstallFunction "$app")" || { ScriptErr "'$app' installation does not exist"; return 1; }
 			appsInstalled+=( "$(RemoveEnd "$appFunction" "Install")" )
 		done
 
@@ -703,6 +704,19 @@ appDesc()
 	echo "$desc"
 }
 
+# appGetInstallFunction APP - find the function used to install the specified application
+# - the function will have the name appInstall
+# - a case insensitive search of all functions is performed, i.e. the app xming will match the function xMingInstall
+# - the actual install function name is returned, i.e. xMingInstall
+appGetInstallFunction()
+{
+	local app="$1" alias="$1"
+	declare -f | ${G}grep -iE "^${app}Install \(\) $" | sed "s/ () //"
+	local result=${PIPESTATUS[1]}
+	(( $result != 0 )) && log1 "appGetInstallFunction: app '$app' not  found, search='$(declare -f | ${G}grep "${app}Install")'"
+	return $result
+}
+
 appGetTrack()
 {
 	local app="${1,,}" what="$2"; track="install-$app-$what-version"
@@ -711,6 +725,13 @@ appGetTrack()
 	echo "$track" 
 }
 
+# appResolveAlias alias - returns app name from an app aliases 
+appResolveAlias()
+{
+	local app="${1,,}"
+	[[ ${aliases[$app]} ]] && app="${aliases[$app]}"
+	echo "$app"
+}
 appStart()
 {
 	local app="$1"	
@@ -919,25 +940,6 @@ getPlatform()
 	eval echo '$'$PLATFORM_OS
 }
 
-# getInstallFunction APP - find the function used to install the specified application
-# - the function will have the name appInstall
-# - a case insensitive search of all functions is performed, i.e. the app xming will match the function xMingInstall
-# - the actual install function name is returned, i.e. xMingInstall
-getInstallFunction()
-{
-	local app="$1" alias="$1" check="${1,,}"
-
-	# alias lookup
-	[[ ${aliases[$check]} ]] && app="${aliases[$check]}"
-	log1 "getInstallFunction: alias='$alias' app='$app' check='$check'"
-
-	# find the install function (with Install suffix)
-	declare -f | ${G}grep -iE "^${app}Install \(\) $" | sed "s/ () //"
-	local result=${PIPESTATUS[1]}
-	(( $result != 0 )) && log1 "getInstallFunction: app '$app' not  found, search='$(declare -f | ${G}grep "${app}Install")'"
-	return $result
-}
-
 # getWin PRIMARY ALTERNATE - use Debian package for alternate Windows install
 getWin()
 {
@@ -974,9 +976,11 @@ i()
 	while (($# != 0 )); do		
 		local app="$1"; shift
 
-		# check app
-		[[ ! $app ]] && { ScriptErr "application not specified"; return 1; }
+		# initialize
+		app="$(appResolveAlias "$app")"
 		local appCheck="${app,,}" suffix
+
+		# apps to ignore
 		[[ "$appCheck" =~ ^(gitkrakendeb)$ ]] && return
 
 		# check for suffix
@@ -988,7 +992,7 @@ i()
 		[[ $suffix ]] && appCheck="$(RemoveEnd "$appCheck" "${suffix,,}")"
 
 		# find the name of the function used to install the application without the Install suffix, i.e. xMing
-		local appFunction; appFunction="$(getInstallFunction "$appCheck")" || { ScriptErr "'$app' installation does not exist"; return 1; }
+		local appFunction; appFunction="$(appGetInstallFunction "$app")" || { ScriptErr "'$app' installation does not exist"; return 1; }
 		appFunction="$(RemoveEnd "$appFunction" "Install")"
 
 		# ensure the application is installable for the current platform
@@ -4758,10 +4762,11 @@ nVidiaFinalWin()
 	[[ -d "$WIN_HOME/Ansel" ]] && { makeLink --merge --hide "$(platformUserAppData)/nVidia/Ansel" "$WIN_HOME/Ansel" || return; } # screenshots
 
 	! CanElevate && return
+
 	mergeDir --rename "$pp/NVIDIA Corporation" "$oo/NVIDIA" || return
 	$rm "$pd/GeForce Experience.lnk" || return	
 	registry delete "HKEY_CLASSES_ROOT/Directory/Background/shellex/ContextMenuHandlers/NvCplDesktopContext/" || return
-	# serviceDisableStop NvContainerLocalSystem || return # https://www.file.net/process/nvcontainer.exe.html
+	#serviceDisableStop NvContainerLocalSystem || return # https://www.file.net/process/nvcontainer.exe.html
 }
 
 nVidiaDriverInstall() { run --header "nVidia Driver" "hardware/nVidia/driver/512.15/setup.exe" --elevate; } # https://www.nvidia.com/Download/index.aspx?lang=en-us
@@ -9238,7 +9243,7 @@ WindowsTerminalInstall()
 {
 	local v; v="$(versionGetCurrent "WindowsTerminal")" || return
 	local dir="$P/Windows Terminal"; ! CanElevate && dir="$PUSER/Windows Terminal"
-	run --name="Windows Terminal" "$(windowsTerminalDir)/Microsoft.WindowsTerminalPreview_${vFile}_$(getArch "x64" "arm64").zip" --version="$v" --dest "$dir" --elevate
+	run --name="Windows Terminal" "$(windowsTerminalDir)/Microsoft.WindowsTerminalPreview_${v}_$(getArch "x64" "arm64").zip" --version="$v" --dest "$dir" --elevate
 }
 
 WindowsTerminalFinalWin()
