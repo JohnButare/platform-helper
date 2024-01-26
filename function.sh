@@ -1207,9 +1207,9 @@ CloudGet()
 		# check if file is downloaded
 		ScriptFileCheck "$file" || return
 		(( $(stat -c%b "$file") > 0 )) && continue 					# check blocks, does not work for small files
-		[[ "$(cat "$file" | head -1)" != "" ]] && continue 	# check first line, does not work if first line is empty
+		local line1="$(cat --show-nonprinting "$file" | ${G}head -1)"; (( ${#line1} != 0 )) && continue 	# check first line, does not work if first line is empty
 
-		# get
+		# download file
 		echo "Getting '$file'..."
 		( cd "$(GetFilePath "$file")"; cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
 

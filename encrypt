@@ -42,11 +42,12 @@ Mount the specified directory.
 	-p, --password PASSWORD			password for the file"
 }
 
-mountArgStart() { unset dir password; }
+mountArgStart() { unset dir noPassword password; }
 
 mountOpt() 
 {
 	case "$1" in
+		-np|--no-password) noPassword="true";;
 		-p|--password|-p=*|--password=*) ScriptOptGet password "$@" || return;;
 		*) return 1
 	esac
@@ -54,21 +55,38 @@ mountOpt()
 
 mountArgs() { ScriptArgGet "dir" -- "$@" && ScriptCheckDir "$dir"; }
 
-mountCommand()
+mountCommand() { mount "$dir"; }
+
+mount()
 {
-	local baseDir="$dir"
-	local mountDir="$mountDirRoot/$(GetLastDir "$dir")"
+	local dir="$1" baseDir="$1" mountDir="$mountDirRoot/$(GetLastDir "$1")"
+	local result; mountWorker; result="$?"
+	(( $result != 0 )) && { rmdir "$mountDir"; return "$result"; }
+	echo "$mountDir"
+}
+
+mountWorker()
+{
+	# ensure all of the encrypted files are downloaded
+	local check="encrypt-$(GetFileName "$mountDir")"
+	if UpdateNeeded "$check"; then
+		EchoErr "Downloading encrypted files..."
+		CloudGet "$baseDir" 1>&2 || return
+		UpdateDone "$check" || return
+	fi
 
 	# check if the directory is already mounted
 	[[ -d "$mountDir" ]] && { echo "$mountDir"; return; }
 	mkdir "$mountDir" || return
 
 	# get the password
-	[[ ! $password ]] && credential exists secure strong --fallback && { password="$(credential get secure strong --fallback)" || return; }
+	[[ ! $password && ! $noPassword ]] && credential exists secure strong --fallback && { password="$(credential get secure strong --fallback)" || return; }
+
+	# log mount
+	[[ ! $quiet ]] && EchoErr "Mounting encrypted directory '$(FileToDesc "$baseDir")' to '$(FileToDesc "$mountDir")'..."
 
 	# mount without a password
-	[[ ! $quiet ]] && EchoErr "Mounting encrypted directory '$(FileToDesc "$baseDir")' to '$(FileToDesc "$mountDir")'..."
-	[[ ! $password ]] && { RunLog cryfs "$baseDir" "$mountDir" && echo "$mountDir"; return; }
+	[[ ! $password ]] && { RunLog cryfs "$baseDir" "$mountDir"; return; }
 	
 	# mount using supplied password
 	local script="$(cat <<-EOF
@@ -80,10 +98,11 @@ mountCommand()
 	)"
 
 	export CRYFS_FRONTEND="noninteractive" CRYFS_NO_UPDATE_CHECK="true"
+	log1 "$script"
 	local result="$(expect -c "$script")" || return
 	log1 "$result"
 	echo "$result" | grep --quiet "Mounting filesystem." || { ScriptErr "unable to mount encrypted directory '$(FileToDesc "$baseDir")'"; return 1; }
-	echo "$mountDir"
+	return 0
 }
 
 #
