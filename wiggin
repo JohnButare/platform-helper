@@ -5,7 +5,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) backup|check|host|maintenance|network|setup|sync|update [OPTION]...
+Usage: $(ScriptName) backup|check|host|maintenance|network|renew|setup|sync|update [OPTION]...
 Manage the Wiggin network."
 }
 
@@ -1017,6 +1017,41 @@ networkValidateWait()
 }
 
 #
+# renew command
+#
+
+renewUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert\nRenew Wiggin data."; }
+renewCommand() { usage; }
+
+renewCertUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert\nRenew Wiggin certificates."; }
+
+renewCertCommand()
+{
+	hilight "Renewing certificate..."
+	echo "select 1: Obtain certificates using a DNS TXT record"
+	sudoc certbot certonly -d '*.butare.net' --dns-cloudflare --dns-cloudflare-credentials "/etc/letsencrypt/credentials/cloudflare.ini" || return
+
+	hilight "Copying certificate to the encrypted store..."
+	{ cd $(encm)/data/letsencrypt && bak butare.net -d .; } || return
+	{ sudoc cp -Lr /etc/letsencrypt/live/butare.net /tmp/ && 	sudoc chown -R $USER /tmp/butare.net && rm -fr butare.net && mv /tmp/butare.net .; } || return
+
+	hilight "Updating the certificate on the Load Balancer (NGINX)..."
+	{ wiggin sync lb-cert -H=bc && wiggin sync lb-cert && wiggin sync lb; } || return
+
+	hilight "Updating the certificate on Hubitat..."
+	cd butare.net
+	(cd ~; open https://hubitat1.butare.net/hub/advanced/certificate) && clipw "$(cat cert.pem)" && pause && clipw "$(cat privkey.pem)"
+	(cd ~; open https://hubitat2.butare.net/hub/advanced/certificate) && clipw "$(cat cert.pem)" && pause && clipw "$(cat privkey.pem)"
+
+
+	# (not used) Study Color Printer – Import, ServerCertificate=cert?.pem, Private Key=privkey?.pem
+	# open https://studycolorprinter.butare.net/PRESENTATION/ADVANCED/NWS_CERT_SSLTLS/TOP
+
+	hilight "Cleaning up..."
+	encum
+}
+
+#
 # setup command
 #
 
@@ -1281,6 +1316,8 @@ updateCloudFlareDns()
 # helper
 #
 
+encm() { encrypt mount "$cdata/app/CryFS/personal" "$@"; }
+encum() { encrypt unmount "personal" "$@"; }
 getDnsHosts() { GetHostsApp "dns" active ; }
 getDhcpHosts() { GetHostsApp "dhcp" active ; }
 mountVol() { VeraCrypt mount "$@" p "${globalArgs[@]}"; }
