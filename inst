@@ -989,7 +989,7 @@ i()
 		[[ "$appCheck" =~ .help$ ]] && { suffix="Help"; }
 		[[ "$appCheck" =~ .profile$ ]] && { suffix="Profile"; }
 		[[ "$appCheck" =~ .register$ ]] && { suffix="Register"; }
-		[[ $suffix ]] && appCheck="$(RemoveEnd "$appCheck" "${suffix,,}")"
+		[[ $suffix ]] && app="$(RemoveEnd "$appCheck" "${suffix,,}")"
 
 		# find the name of the function used to install the application without the Install suffix, i.e. xMing
 		local appFunction; appFunction="$(appGetInstallFunction "$app")" || { ScriptErr "'$app' installation does not exist"; return 1; }
@@ -999,6 +999,8 @@ i()
 		[[ "$suffix" != "Download" ]] && ! checkInstallable "$appFunction" && continue
 
 		# variables
+		# ran - if set the setup program ran
+		# runCheck - if set we checked if we want to run 
 		unset forceAllParts ran runCheck rebootNeeded
 		unset pipArgs pipxArgs # run arguments
 
@@ -1284,9 +1286,9 @@ run()
 	# run specified installation type
 	RunFunction "runType" "$type" -- "$p" "$name" "$dest" "${args[@]}" || return
 	ran="true"
-	AppVersion --force "$app" >& /dev/null # force the app version cache to update
 
 	# cleanup
+	AppVersion --force "$app" >& /dev/null # force the app version cache to update
 	[[ $pause ]] && runPause
 
 	return 0
@@ -8706,7 +8708,7 @@ CertbotInstall()
 	header "Certbot"
 
 	# package
-	{ IsPlatform win || [[ "$installType" != "store" ]]; } && { package certbot python3-certbot-dns-cloudflare; return; }
+	{ IsPlatform win || [[ "$installType" != "store" ]]; } && { package --quiet certbot python3-certbot-dns-cloudflare; forceAllParts="true"; return; }
 
 	# Snap Store
 	run --no-header --name "certbot" --snap "certbot" -- --classic || return
@@ -8715,19 +8717,29 @@ CertbotInstall()
 	sudo ln -s /snap/bin/certbot /usr/bin/certbot || return
 }
 
-CertbotFinal() { [[ ! $force && -d "/etc/letsencrypt/accounts" ]] && return; certbot register; }
+CertbotFinal() { [[ ! $force && -d "/etc/letsencrypt/accounts" ]] && return; sudoc certbot register; }
 
 CertbotRegister()
 {
 	local dir="/etc/letsencrypt/credentials"
+	local file="$dir/cloudflare.ini"
+
+	# return if registered
 	! registerCheck && return
 	[[ ! $force && -d "$dir" ]] && return
+
+	# create the directory
+	makeDir --sudo "$dir" || return
+
+	# set the CloudFlare token
 	local token; token="$(credential get --fallback "certbot" "cloudflare")" || return
 
-	sudoc cat <<-EOF > "$dir/cloudflare.ini" /dev/null || return
+	cat <<-EOF | sudoc tee "$file" > /dev/null || return
 		# Cloudflare API token used by Certbot
 		dns_cloudflare_api_token = $token
 	EOF
+
+	sudoc chmod go-rw "$file" || rturn
 }
 
 CfsslInstall()
@@ -9243,7 +9255,8 @@ WindowsTerminalInstall()
 {
 	local v; v="$(versionGetCurrent "WindowsTerminal")" || return
 	local dir="$P/Windows Terminal"; ! CanElevate && dir="$PUSER/Windows Terminal"
-	run --name="Windows Terminal" "$(windowsTerminalDir)/Microsoft.WindowsTerminalPreview_${v}_$(getArch "x64" "arm64").zip" --version="$v" --dest "$dir" --elevate
+	run --name="Windows Terminal" "$(windowsTerminalDir)/Microsoft.WindowsTerminalPreview_${v}_$(getArch "x64" "arm64").zip" --version="$v" --dest "$dir" --elevate || return
+	forceAllParts="true" # another Windows Terminal may already be installed
 }
 
 WindowsTerminalFinalWin()
