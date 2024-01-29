@@ -945,7 +945,7 @@ ArrayDelimit()
 	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
 }
 
-# ArrayDiff A1 A2 - return the items not in either array
+# ArrayDiff A1 A2 - return the items not in common
 ArrayIntersection()
 {
 	local arrayIntersection1=(); ArrayCopy "$1" arrayIntersection1 || return;
@@ -995,7 +995,7 @@ IsInArray()
 		case "$1" in "") : ;;
 			-ci|--case-insensitive) caseInsensitive="true";;
 			-a|--array-wild) awild="true";; 	# array contains glob patterns
-			-w|--wild) wild="true";; 					# value contain glob patterns
+			-w|--wild) wild="true";; 					# string contain glob patterns
 			*)
 				[[ "$1" == "--" ]] && { shift; break; }
 				if ! IsOption "$1" && [[ ! $s ]]; then s="$1"
