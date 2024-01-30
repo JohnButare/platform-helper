@@ -4,7 +4,7 @@ timezoneWin="Mountain Standard Time" # tzutil.exe /l
 
 # user
 user="jjbutare"
-dropboxCompany="JuntosHoldings"
+dropboxCompany="Juntos Holdings"
 dropboxUser="John Butare"
 
 # bootstrap
