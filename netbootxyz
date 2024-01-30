@@ -33,6 +33,8 @@ init()
 	appConfig="$confDir/user_overrides.yml"
 	customHost="ender"
 	webDirApp="/var/www/html/"
+
+	winReleases=(canary dev beta rp)
 }
 
 #
@@ -160,7 +162,7 @@ infoWinUsage() { echot "Usage: $(ScriptName) info win\Show Windows release infor
 infoWinCommand()
 {
 	local release
-	for release in canary dev beta rp; do
+	for release in "${winReleases[@]}"; do
 		echo "$release: $(infoWinRelease "$release")"
 	done
 }
@@ -306,18 +308,82 @@ updateCommand() { updateAllCommand; }
 updateAnsibleUsage() { echot "Usage: $(ScriptName) app update ansible\nUpdate the netboot.xyz application by running the Ansible playbook."; }
 updateAnsibleCommand() { setupAll && cp "$confDir/user_overrides.yml" "$appDir" && cd "$appDir" && sudoc ansible-playbook -i "inventory" "site.yml"; }
 
-updateWinUsage() { echot "Usage: $(ScriptName) app update win\nUpdate windows setup programs using UUP."; }
+updateWinUsage() { echot "Usage: $(ScriptName) app update win [auto|download|prompt](prompt)\nUpdate Windows setup programs."; }
+updateWinCommand() { updateWinPromptCommand; }
 
-updateWinCommand()
+updateWinPromptUsage() { echot "Usage: $(ScriptName) app update win [auto]\Prompt to download UUP files to update Windows."; }
+
+updateWinPromptCommand()
 {
 		echot "\
 - Latest NNN build, x64
 - Windows 11 Insider Preview NNN (ni_release)
 - Next, Next, Create download package"
 	open "https://uupdump.net/"; pause
+	uupBuild || return
+}
+
+updateWinAutoUsage() { echot "Usage: $(ScriptName) app update win auto\Download current Windows builds automatically."; }
+updateWinAutoCommand() { HeaderBig "Download UUP Files" && uupDownload && uupBuild; }
+
+updateWinDownloadUsage() { echot "Usage: $(ScriptName) app update win download\Download current Windows UUP files to ~/Download."; }
+updateWinDownloadCommand() { uupDownload; }
+
+# uupBuild - build the UUP files in ~/Download
+uupBuild()
+{
 	cd "$HOME/Downloads" || return
-	local file; for file in *_convert.zip; do uup build "$file" "${globalArgs[@]}" || return; done
+
+	local file; for file in *.*.zip; do
+		HeaderBig "Building $file"
+		uup build "$file" "${globalArgs[@]}" || return
+	done
+
 	netbootxyz deploy installers || return
+}
+
+# uupDownload - download current UUP files to ~/Download
+uupDownload()
+{
+	hilight "Downloading current releases..."
+	local setupDir; setupDir="$(FindInstallFile "other/Microsoft/Windows/setup")" || return
+	infoWinCommand | tee "$setupDir/releases.txt" || return
+
+	hilight "Download UUP builds..."
+	local file; file="$(mktemp -t "UupBuilds.XXXXXXXXXX.json")" || return
+	curl --silent "https://api.uupdump.net/listid.php" > "$file" || return
+
+	# download the UUP files for each current windows build
+	local release
+	for release in "${winReleases[@]}"; do
+		local build; build="$(infoWinRelease "$release")" || return
+		local arch="amd64" # amd64|arm64
+		local uuid; uuid="$(cat "$file" | jq '.response.builds | map(select(.build | contains("'$build'"))) | map(select(.arch == "amd64"))[0] | .uuid' | RemoveQuotes)"
+		local uup="$HOME/Downloads/${build}.${arch}.zip"
+
+		# UUP zip file is already downloaded
+		[[ -f "$uup" ]] && continue
+
+		# check if this release is already downloaded
+		[[ ! $force && -d "$setupDir/$build" ]] && continue
+
+		# download UUP zip file
+		hilight "Downloading UUP file for Windows $release build $build $arch..."
+		log1 "uuid=$uuid uup=$uup"
+
+		while true; do
+			curl --location -X POST "https://uupdump.net/get.php?id=${uuid}&pack=en-us&edition=core;professional" --data 'autodl=2&updates=1' --output "$uup" || return
+			file "$uup" | qgrep "Zip" && break # rapid downloads are text files not zip files
+			SleepStatus "Download failed, waiting for UUP site to stabilize..." 5
+		done
+
+	done
+
+	# display status
+	local files="$(command ls -1 *.*.zip 2> /dev/null | wc -l)"
+	(( files == 0 )) && { hilight "All current Windows releases have been downloaded."; }
+
+	rm "$file"
 }
 
 #
