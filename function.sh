@@ -1604,6 +1604,7 @@ GetOsName() { local name="$1"; name="$(UpdateGet "os-name-$1")"; [[ $name ]] && 
 HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not available"; return 1; }
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
+HttpHeader() { curl --silent --show-error --location --dump-header - --output /dev/null "$1"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsInDomain() { [[ $(NetworkDomain) ]]; }																				# IsInDomain - true if the computer is in a network domain
 NetworkCurrent() { UpdateGet "network"; }; 
