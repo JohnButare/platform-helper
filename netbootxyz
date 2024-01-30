@@ -14,7 +14,6 @@ usageVerbose()
 Locations:
 - application - netboot.xyz Git repository  : $appDir ($(checkDir "$appDir"))
 - configuration - custom configuration      : $confDir ($(checkDir "$confDir"))
-- hosts - custom deployment scripts					: $customHost
 - web app - netboot.xyz website             : $webDirApp ($(checkDir "$webDirApp"))
 - web final - local website source          : $webDirFinal ($(checkDir "$webDirFinal"))"
 }
@@ -31,7 +30,6 @@ init()
 
 	appDir="/opt/netboot.xyz"
 	appConfig="$confDir/user_overrides.yml"
-	customHost="ender"
 	webDirApp="/var/www/html/"
 
 	winReleases=(canary dev beta rp)
@@ -111,23 +109,22 @@ deployWebCommand()
 
 dirUsage()
 {
-	echot "Usage: $(ScriptName) dir [app|conf|wapp|wfinal](web)
-Return the path to a netboot.xyz directory."
+	echot "Usage: $(ScriptName) dir [app|conf|web-app|win-final|win-install](web)
+Return the path to a netboot.xyz directory.
+
+- app: netboot.xyz application (the Git repository)
+- conf: custom configuration
+- web-app: netboot.xyz website
+- web-final: local website source
+- win-install: Windows installers"
 }
-
-
-# - application - netboot.xyz Git repository  : $appDir ($(checkDir "$appDir"))
-# - configuration - custom configuration      : $confDir ($(checkDir "$confDir"))
-# - hosts - custom deployment scripts					: $customHost
-# - web app - netboot.xyz website             : $webDirApp ($(checkDir "$webDirApp"))
-# - web final - local website source          : $webDirFinal ($(checkDir "$webDirFinal"))"
-
 
 dirCommand() { dirAppCommand; }
 dirAppCommand() { echo "$appDir"; }
 dirConfCommand() { echo "$confDir"; }
-dirWappCommand() { echo "$webDirApp"; }
-dirWfinalCommand() { echo "$webDirFinal"; }
+dirWeb-appCommand() { echo "$webDirApp"; }
+dirWeb-finalCommand() { echo "$webDirFinal"; }
+dirWin-installCommand() { getWinInstallDir; }
 
 #
 # docker commands
@@ -308,8 +305,25 @@ updateCommand() { updateAllCommand; }
 updateAnsibleUsage() { echot "Usage: $(ScriptName) app update ansible\nUpdate the netboot.xyz application by running the Ansible playbook."; }
 updateAnsibleCommand() { setupAll && cp "$confDir/user_overrides.yml" "$appDir" && cd "$appDir" && sudoc ansible-playbook -i "inventory" "site.yml"; }
 
-updateWinUsage() { echot "Usage: $(ScriptName) app update win [auto|download|prompt](prompt)\nUpdate Windows setup programs."; }
+updateWinUsage() { echot "Usage: $(ScriptName) app update win [auto|build|download|prompt](prompt)\nUpdate Windows setup programs."; }
 updateWinCommand() { updateWinPromptCommand; }
+
+updateWinBuildUsage() { echot "Usage: $(ScriptName) app update win build\Build any compressed UUP download files in ~/Download."; }
+updateWinBuildCommand() { uupBuild; }
+
+updateWinDownloadUsage() { echot "Usage: $(ScriptName) app update win download\Download current Windows UUP files to ~/Download."; }
+updateWinDownloadCommand() { uupDownload; }
+
+updateWinAutoUsage() { echot "Usage: $(ScriptName) app update win auto\Download current Windows builds automatically."; }
+
+updateWinAutoCommand()
+{
+	HeaderBig "Download UUP Files"
+	uupDownload || return
+	(( $(getUupFileCount) == 0 )) && return
+	uupBuild || return
+}
+
 
 updateWinPromptUsage() { echot "Usage: $(ScriptName) app update win [auto]\Prompt to download UUP files to update Windows."; }
 
@@ -323,17 +337,15 @@ updateWinPromptCommand()
 	uupBuild || return
 }
 
-updateWinAutoUsage() { echot "Usage: $(ScriptName) app update win auto\Download current Windows builds automatically."; }
-updateWinAutoCommand() { HeaderBig "Download UUP Files" && uupDownload && uupBuild; }
-
-updateWinDownloadUsage() { echot "Usage: $(ScriptName) app update win download\Download current Windows UUP files to ~/Download."; }
-updateWinDownloadCommand() { uupDownload; }
-
 # uupBuild - build the UUP files in ~/Download
 uupBuild()
 {
 	cd "$HOME/Downloads" || return
 
+	# return if no UUP files
+	(( $(getUupFileCount) == 0 )) && { echo "No UUP files have been downloaded to ~/Downloads."; return 0; }
+
+	# build UUP zip files
 	local file; for file in *.*.zip; do
 		HeaderBig "Building $file"
 		uup build "$file" "${globalArgs[@]}" || return
@@ -346,7 +358,7 @@ uupBuild()
 uupDownload()
 {
 	hilight "Downloading current releases..."
-	local setupDir; setupDir="$(FindInstallFile "other/Microsoft/Windows/setup")" || return
+	local setupDir; setupDir="$(getWinInstallDir)" || return
 	infoWinCommand | tee "$setupDir/releases.txt" || return
 
 	hilight "Download UUP builds..."
@@ -380,17 +392,19 @@ uupDownload()
 	done
 
 	# display status
-	local files="$(command ls -1 *.*.zip 2> /dev/null | wc -l)"
-	(( files == 0 )) && { hilight "All current Windows releases have been downloaded."; }
+	(( $(getUupFileCount) == 0 )) && { echo "All current Windows releases have been downloaded."; }
 
 	rm "$file"
 }
+
 
 #
 # helper functions
 #
 
 getContainerId() { docker ps --all | grep "$dockerImageName" | cut -d" " -f1; }
+getUupFileCount() { command ls -1 "$HOME/Downloads"*.*".zip" 2> /dev/null | wc -l; }
+getWinInstallDir() { FindInstallFile "other/Microsoft/Windows/setup"; }
 
 version()
 {
