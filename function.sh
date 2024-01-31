@@ -1191,12 +1191,6 @@ pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; cl
 # - wsl: reads of the file do not trigger online-only file download in Dropbox
 CloudGet()
 {
-	# echo 1
-	# file="/home/jjbutare/Dropbox/network/system/dns"
-	# local files; IFS=$'\n' ArrayMake files "$(find "$file" -type f)"
-	# echo 2
-	# return
-
 	! IsPlatform win && return
 
 	# arguments
@@ -1207,7 +1201,7 @@ CloudGet()
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			-*) UnknownOption "$1" "CloudGet"; return 1;;
-			*) files+="$1"; shift; continue
+			*) files+=("$1"); shift; continue
 		esac
 		shift
 	done
