@@ -9,7 +9,7 @@ Operating system commands
 
 	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release|version
 	disk					[available|total](total)
-	environment|index|path|lock|preferences|store
+	dark|environment|index|path|lock|preferences|store
 	executable		executable information
 	memory				[available|total](total)
 	name					show or set the operating system name"
@@ -46,6 +46,19 @@ preferencesWin() { control.exe; }
 storeCommand() { RunPlatform store; }
 storeMac() { open "/System/Applications/App Store.app"; }
 storeWin() { start "" "ms-windows-store://"; }
+
+#
+# dark command
+#
+
+darkUsage() { echot "Usage: os dark on|off\nTurn dark mode on or off."; }
+darkCommand(){ usage; }
+darkOnCommand() { RunPlatform darkOn; }
+darkOffCommand() { RunPlatform darkOff; }
+
+darkOnWin() { registry set "$(darkKey)/AppsUseLightTheme" 0 && registry set "$(darkKey)/SystemUsesLightTheme" 0 && RestartExplorer; }
+darkOffWin() { registry set "$(darkKey)/AppsUseLightTheme" 1 && registry set "$(darkKey)/SystemUsesLightTheme" 1 && RestartExplorer; }
+darkKey() { echo "HKEY_CURRENT_USER/Software/Microsoft/Windows/CurrentVersion/Themes/Personalize"; }
 
 #
 # Disk Command
