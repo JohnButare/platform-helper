@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+. app.sh || exit
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [api|services](api)
+Manage Datadog.
+
+	api 				call an API command
+	service			get all services"
+}
+
+argStart() { unset -v apiInitialized; }
+
+#
+# API command
+#
+
+apiUsage()
+{
+	EchoWrap "Usage: $(ScriptName) api [URI](/v1/validate) [JSON]({})
+Perform an API command."
+}
+
+apiArgStart() { uri="/v1/validate" json="{}"; }
+
+apiArgs()
+{
+	(( $# > 0 )) && { ScriptArgGet "uri" -- "$@"; shift; }
+	(( $# > 0 )) && { ScriptArgGet "json" -- "$@"; shift; }
+	return 0
+}
+
+apiCommand() { api "$uri" "$json"; }
+
+#
+# services command
+#
+
+servicesCommand()
+{
+	HilightErr "Getting services..."
+
+	local data; page=0
+
+	while true; do
+		log1 "getting page $page"
+		data="$(api "/v2/services/definitions?page\[size\]=100&page\[number\]=${page}&schema_version=v1")" || return
+		[[ "$data" == '{"data":[]}' ]] && return
+		echo "$data"
+		(( ++page ))
+		sleep 1
+	done	
+}
+
+#
+# API Helper
+#
+
+api()
+{
+	local uri="$1" json="$2"
+	local args=(); [[ $json ]] && apps+=(--data "$json")
+
+	apiInit || return	
+	RunLog curl "${args[@]}" -X GET --silent "https://api.datadoghq.com/api/$(echo "$uri" | RemoveFront "/")" \
+		-H "Accept: application/json" -H "DD-API-KEY: ${apiKey}" -H "DD-APPLICATION-KEY: ${appKey}"
+}
+
+apiInit()
+{
+	[[ $apiInitialized ]] && return
+	
+	# get configuration
+
+	log1 "getting API keys from the credential store"
+  apiKey="$(credential get datadog api-key --fallback)" || return
+  appKey="$(credential get datadog app-key --fallback)" || return
+
+  apiInitialized="true"
+}
+
+ScriptRun "$@"
