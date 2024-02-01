@@ -1375,7 +1375,7 @@ FileWait()
 	# wait
 	[[ ! $quiet ]] && printf "Waiting $timeoutSeconds seconds for '$fileName'..."
 	for (( i=1; i<=$timeoutSeconds; ++i )); do
-		$sudo ls "$file" > /dev/null && { [[ ! $quiet ]] && echo "found"; return 0; }
+		$sudo ls "$file" >& /dev/null && { [[ ! $quiet ]] && echo "found"; return 0; }
 		if [[ $noCancel ]]; then
 			sleep 1
 		else
