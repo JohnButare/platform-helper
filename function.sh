@@ -1101,7 +1101,7 @@ ForwardToBackSlash() { GetArgs; echo -E "$@" | sed 's/\//\\/g'; }
 RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
 
 GetAfter() { GetArgs2; [[ "$1" =~ ^[^$2]*$2(.*)$ ]] && echo "${BASH_REMATCH[1]}"; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
-GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoErr "usage: GetWord STRING|- WORD [DELIMITER]( ) - 1 based"; return 1; }
+GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoErr "usage: GetWord STRING|- WORD [DELIMITER](-) - 1 based"; return 1; }
 
 if IsZsh; then
 	LowerCase() { GetArgs; [[ $# == 0 ]] && { tr '[:upper:]' '[:lower:]'; return; }; r "${1:l}" $2; }
