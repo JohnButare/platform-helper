@@ -671,7 +671,12 @@ infoFile()
 }
 
 infoFirmware() { RunPlatform infoFirmware; }
-infoFirmwarePiKernel() { infoEcho "    firmware: $(pi info firmware)"; }
+
+infoFirmwarePiKernel()
+{
+	IsPlatform cm4 && return
+	infoEcho "    firmware: $(pi info firmware)"; 
+}
 
 infoKernel()
 {
