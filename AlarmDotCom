@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+. app.sh || exit
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... [api|arm|disarm](api)
+Manage the Alarm.com alarm systems."
+}
+
+argStart() { unset -v apiInitialized; }
+
+#
+# arm commands
+#
+
+armUsage() { EchoWrap "Usage: $(ScriptName) arm away|stay\nArm the system."; }
+armCommand() { usage; }
+armAwayCommand() { api "ArmAway"; }
+armStayCommand() { api "ArmStay"; }
+
+disarmUsage() { EchoWrap "Usage: $(ScriptName) disarm\Disarm the system."; }
+disarmCommand() { api "disarm"; }
+
+#
+# API command
+#
+
+apiUsage()
+{
+	EchoWrap "Usage: $(ScriptName) api [script|vars](status)
+Perform an API command."
+}
+
+apiArgStart() { script="status"; }
+
+apiArgs()
+{
+	(( $# > 0 )) && { ScriptArgGet "script" -- "$@"; shift; }
+	return 0
+}
+
+apiCommand() { api "$script"; }
+apiVarsCommand() { apiInit && ScriptReturn --export "ALARM_COM_USERNAME" "ALARM_COM_PASSWORD" "ALARM_COM_MFA"; }
+
+#
+# API Helper
+#
+
+api()
+{
+	local script="$1"
+	apiInit || return
+	cd "$scriptDir" || return
+	ScriptCheckFile "$scriptDir/${script}.js" || return
+	node "${script}.js"
+}
+
+apiInit()
+{
+	[[ $apiInitialized ]] && return
+
+	# configure
+	scriptDir="$SRV/alarm.com"
+	
+	# get credentials
+	if [[ ! $ALARM_COM_USERNAME && -f "$scriptDir/.configure" ]]; then
+		log1 "trying to get Alarm.com credentials from the configuration file"
+		. "$scriptDir/.configure" >& /dev/null
+	fi
+
+	if [[ ! $ALARM_COM_USERNAME ]] ; then		
+		log1 "trying to get Alarm.com credentials from the credential store"
+		export ALARM_COM_USERNAME="$(credential get alarm.com username --fallback)"
+		export ALARM_COM_PASSWORD="$(credential get alarm.com password --fallback)"
+		export ALARM_COM_MFA="$(credential get alarm.com mfa --fallback)"
+	fi
+
+	[[ ! $ALARM_COM_USERNAME ]] && { ScriptErr "unable to get Alarm.com credentials"; return 1; }		
+
+	# get the scripts
+	[[ ! -d "$scriptDir" ]] && { sudoc git clone "ssh://jjbutare@git/git/adc" "$scriptDir" || return; }
+	if [[ ! -d "$scriptDir/node_modules" ]]; then
+		cd "$scriptDir" || return
+		sudoc yarn install || return
+	fi
+
+  apiInitialized="true"
+}
+
+ScriptRun "$@"
