@@ -494,10 +494,10 @@ installInit()
 
 	# Home Automation
 	debian+=(HomeAssistant HomeAssistantServer HomeAssistantIntegrations HomeAssistantNomad) 	# Home Assistant
-	macDebian+=(HomeAssistantCli)
-	debian+=(homebridge HomebridgeFfmpeg HomebridgeWiggin)																		# Homebridge
-	debian+=(PoolController PoolDashPanel PoolTemperature)																		# pool
-	debian+=(mosquitto NodeRed)																																# other
+	macDebian+=(HomeAssistantCli homebridge)
+	debian+=(HomebridgeFfmpeg HomebridgeWiggin)
+	debian+=(PoolController PoolDashPanel PoolTemperature) # pool
+	debian+=(mosquitto NodeRed)
 
 	# languages
 	macDebian+=(gcc go haskell rust)
@@ -1490,7 +1490,14 @@ runTypeNode()
 runTypeNodeSystem()
 {
 	NodeConf --force || return	
+
+	# use node if nvm is not installed
 	! IsFunction nvm && { runTypeNode "$@"; return; }
+
+	# ensure the system node is installed
+	nodeCheckSystem || return
+
+	# run npm using the system node
 	sudov && nvm exec --silent system sudo npm install --global "$1"
 }
 
@@ -5064,7 +5071,7 @@ NodeRedInstall()
 	[[ $restart || $force ]] && { service restart nodered || return; }
 
 	# final
-	nomadRegisterApp "node-red" "nodered" && httpShow 1880	
+	nomadRegisterApp "node-red" "nodered" && httpShow 1880
 }
 
 nodeRedPermissions() { makeDir --sudo --owner "$user" "$home/.config" "$home/.node-red" "$home/.node-red/node_modules" "$home/.npm"; }
@@ -5198,7 +5205,7 @@ homeAssistantIntegration()
 
 # Homebridge
 
-homebridgeCheck() { InPath homebridge && return 0; i --no-header homebridge || return; }
+homebridgeCheck() { InPath homebridge && return 0; noShow="true" i --no-header homebridge || return; }
 HomebridgeInstall() { header "Homebridge" && homebridgeCore && homebridgeSsh; }
 
 homebridgeCore()
@@ -5210,9 +5217,15 @@ homebridgeCore()
 		echo "deb [signed-by=/usr/share/keyrings/homebridge.gpg] https://repo.homebridge.io stable main" | sudo tee "/etc/apt/sources.list.d/homebridge.list" > /dev/null
 		PackageUpdate || return
 		package homebridge || return
+
 	else
-		run --node--system homebridge -- homebridge-config-ui-x --unsafe-perm || return
+		# https://github.com/homebridge/homebridge/wiki/Install-Homebridge-on-macOS
+		run --node-system homebridge -- homebridge-config-ui-x --unsafe-perm || return
+
 	fi
+
+	[[ ! $noShow ]] && return
+	httpShow 8581
 }
 
 # homebridgeSsh - enable passwordless ssh for the homebridge account - for scripts using ssh
@@ -5930,7 +5943,23 @@ NodeAllInstall() { i node yarn NodeDev; }
 yarnCheck() { InPath node yarn && return; nodeCheck && i --no-header yarn; }
 YarnInstall() { run --node yarn; }
 
+# nodeCheck - ensure node is installed
 nodeCheck() { InPath node && return; i --no-header node; }
+
+
+# nodeCheckSystem - ensure node is installed as a system package
+nodeCheckSystem()
+{ 
+	# return if nvm is not installed and node is in the path
+	! IsFunction nvm && InPath node && return
+
+	# install the system node package if needed
+	nvm exec --silent system >& /dev/null && { i node || return; }
+
+	# check if the system node package installed properly
+	nvm exec --silent system
+}
+
 
 NodeInstall()
 {

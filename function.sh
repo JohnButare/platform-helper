@@ -709,7 +709,7 @@ NodeConf()
 	# configure virtual environments
 	if [[ -f ".nvmrc" ]] && [[ -d "$HOME/.nvm" ]]; then
 		export NVM_CURRENT="$(nvm current)"
-		nvm use --silent || return
+		nvm use --silent || { nvm use; return; }
 	elif [[ $NVM_CURRENT ]]; then
 		nvm use --silent "$NVM_CURRENT" || return
 		unset NVM_CURRENT
