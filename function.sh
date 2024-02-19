@@ -3471,7 +3471,7 @@ start()
 			--help|-h) startUsage; return 0;;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
-			--sudo|-s) sudo="sudoc";;
+			--sudo|-s) sudov || return; sudo="sudo";;
 			--terminal|-T) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--wait|-w) wait="--wait";;
@@ -3482,6 +3482,7 @@ start()
 		esac
 		shift
 	done
+
 	[[ ! "$file" ]] && { MissingOperand "file" "start"; return; }
 
 	local args=( "$@" ) fileOrig="$file"
@@ -3582,13 +3583,16 @@ start()
 
  	# run a non-Windows program
  	if IsShellScript "$file"; then
+ 		(( verboseLevel > 1 )) && ScriptArgs "start" $sudo "$file" "${args[@]}"
  		$sudo "$file" "${args[@]}"
 	elif [[ $wait ]]; then
+		(( verboseLevel > 1 )) && ScriptArgs "start" nohup $sudo "$file" "${args[@]}"
 		(
 			nohup $sudo "$file" "${args[@]}" >& /dev/null &
 			wait $!
 		)
 	else
+		(( verboseLevel > 1 )) && ScriptArgs "start" nohup $sudo "$file" "${args[@]}"
 		(nohup $sudo "$file" "${args[@]}" >& /dev/null &)		
 	fi
 } 
