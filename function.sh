@@ -3097,7 +3097,7 @@ handle() { ProcessResource "$@"; }
 InUse() { ProcessResource "$@"; }
 IsMacApp() { FindMacApp "$1" >& /dev/null; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
-IsSystemd() { cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
+IsSystemd() { IsPlatform mac && return 1; cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
 IsWinAdmin() { IsPlatform win && net.exe localgroup Administrators | RemoveCarriageReturn | grep --quiet "$WIN_USER$"; }
 pkillchildren() { pkill -P "$1"; } # pkillchildren PID - kill process and children
 ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
