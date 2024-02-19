@@ -226,8 +226,9 @@ runService()
 
 findApp()
 {
-	local app="$1"
-	if AppIsInstalled "${app}Helper"; then app="${app}Helper"
+	local app="$1" appHelper
+	if appHelper="$(AppHelper "$app")"; then app="$appHelper"
+	elif AppIsInstalled "${app^}Helper"; then app="${app^}Helper"
 	elif ! AppIsInstalled "$app" "${globalArgs[@]}"; then return 1
 	fi
 	echo "$app"
