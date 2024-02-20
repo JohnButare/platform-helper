@@ -775,7 +775,7 @@ UnisonRootConfDir() { local dir="$(UserHome "root")/.unison"; IsPlatform mac && 
 # Zoxide - configure zoxide if it is installed
 ZoxideConf()
 {
-	{ ! InPath zoxide || IsAlias z; } && return
+	{ ! InPath zoxide || IsDefined z; } && return
 	eval "$(zoxide init zsh)" || return
 }
 
@@ -3746,6 +3746,7 @@ FilterShellScript() { grep -E "shell script|bash.*script|Bourne-Again shell scri
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
 IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
 IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
+IsDefined() { def "$1" >& /dev/null; }				 # IsDefined NAME - NAME is a an alias or function
 
 # aliases
 IsAlias() { type "$1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias
