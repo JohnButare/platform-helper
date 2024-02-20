@@ -772,6 +772,13 @@ store()
 UnisonConfDir() { local dir="$HOME/.unison"; IsPlatform mac && dir="$UADATA/Unison"; echo "$dir"; }
 UnisonRootConfDir() { local dir="$(UserHome "root")/.unison"; IsPlatform mac && dir="$(UserHome "root")/Library/Application Support/Unison"; echo "$dir"; }
 
+# Zoxide - configure zoxide if it is installed
+ZoxideConf()
+{
+	{ ! InPath zoxide || IsAlias z; } && return
+	eval "$(zoxide init zsh)" || return
+}
+
 #
 # Config
 #
@@ -3741,7 +3748,7 @@ IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
 IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
 
 # aliases
-IsAlias() { type "-t $1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias
+IsAlias() { type "$1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias
 GetAlias() { local a=$(type "$1"); a="${a#$1 is aliased to \`}"; echo "${a%\'}"; }
 
 # arguments
