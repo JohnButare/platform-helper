@@ -111,8 +111,7 @@ ports()
 	showStatus
 	local r; [[ $brief && ! $verbose ]] && r="RunSilent"; [[ $verbose ]] && EchoErr
 	RunScript --elevate "${globalArgs[@]}" -- RunScript $r powershell.exe WslPortForward.ps1 $(GetIpAddress)
-	[[ ! $brief ]] && echo done
-	return 0
+	showStatusDone "$?"
 }
 
 processExplorer()
@@ -130,14 +129,14 @@ processExplorer()
 
 run()
 {	
-	local command="$1" time
+	local command="$1" time errors=0
 	TIMEFORMAT='%R seconds'
 
 	for app in "${apps[@]}"
 	do
 		mapApp || return
 
-		if (( verboseLevel == 1 )); then printf "$app.."
+		if (( verboseLevel == 1 )); then printf "$app "
 		elif (( verboseLevel > 1 )); then echo; header "$app"; time="time"
 		elif [[ $brief ]]; then printf "."
 		fi
@@ -145,19 +144,21 @@ run()
 		if f="$(FindFunction "$app")"; then
 			eval $time "$f"
 		elif IsInArray "$app" localApps; then
-			eval $time runInternalApp
+			eval $time runInternalApp "$app"
 		else
-			eval $time runExternalApp
+			eval $time runExternalApp "$app"
 		fi
-		(( $? != 0 )) && { EchoErr "app: unable to run $app"; return 1; }
+
 	done
-	
-	return 0
+
+	return $errors
 }
 
 runExternalApp()
 {
-	app="$(findApp "$app")" || return 0
+	local app; app="$(findApp "$1")" || return 0
+
+	! AppIsInstalled "$app" && return
 
 	if [[ "$command" == @(start|startup) ]]; then
 		AppIsRunning "$app" "${globalArgs[@]}" && return
@@ -166,14 +167,13 @@ runExternalApp()
 	fi;
 
 	showStatus
-	"$app" --quiet "${command}" "${globalArgs[@]}" || return
-	[[ ! $brief ]] && echo done
-	return 0
+	"$app" --quiet "${command}" "${globalArgs[@]}"
+	showStatusDone "$?"
 }
 
 runInternalApp()
 {
-	local program="${app}.exe" close="ProcessClose" args=""
+	local program="${1}.exe" close="ProcessClose" args=""
 
 	case "$app" in
 		hp) program="$P32/Hewlett-Packard/HP HotKey Support/QLBController.exe";;
@@ -202,6 +202,8 @@ runInternalApp()
 		showStatus
 		$close "$(GetFileName "$program")"
 	fi
+
+	showStatusDone "$?"
 }
 
 runService()
@@ -256,7 +258,23 @@ mapApp()
 showStatus()
 {
 	[[ $quiet ]] && return
-	[[ $brief ]] && printf "$appDesc..." || printf "$status $appDesc..."
+	[[ $brief ]] && printf "$appDesc" || printf "$status $appDesc"
+}
+
+showStatusDone()
+{
+	local status="$1"
+
+	if (( status != 0 )); then
+		if [[ ! $brief ]] || (( verboseLevel > 1)); then EchoErr "app: unable to run $app"
+		else printf " (failed).."
+		fi
+		(( errors++ ))
+	fi
+
+	[[ ! $brief ]] && echo "...done"
+
+	return "$status"
 }
 
 taskStart()
@@ -270,14 +288,14 @@ taskStart()
 
 	if [[ "$command" == "startup" ]]; then
 		IsProcessRunning "$program" && return
-		showStatus || return
+		showStatus
 		task start --brief --title "$title" "$program" "${args[@]}"
-		[[ ! $brief ]] && echo done
+		showStatusDone "$?"
 	else
-		IsProcessRunning "$program" || return
-		showStatus || return
-		task close --brief --title "$title" "$program" || return
-		[[ ! $brief ]] && echo done
+		! IsProcessRunning "$program" && return
+		showStatus
+		task close --brief --title "$title" "$program"
+		showStatusDone "$?"
 	fi
 
 	return 0
