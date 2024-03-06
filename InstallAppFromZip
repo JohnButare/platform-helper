@@ -24,18 +24,35 @@ opt()
 args()
 {
 	ScriptArgGet "zip" -- "$@"; shift
-	ScriptArgGet "dest" -- "$@"; shift
+	(( $# == 0 )) && return; ScriptArgGet "dest" -- "$@"; shift
 }
 
-argEnd()
+argEnd() { setDest && setSudo; }
+
+setDest()
 {
-	# if a full path is not specified, use the program directory ($P)
-	[[ ! "$dest" =~ ^/ ]] && dest="$P/$dest"
-	[[ "$dest" == "$P" ]] && dest="$P/$(GetFileNameWithoutExtension "$zip")"
+	# remove trailing slash
+	dest="$(RemoveTrailingSlash "$dest")"
 
-	# use sudoc - except for windows drives to prevent a possible credential prompt in a hidden elevated window
+	# if a destination is not specified use the program directpry ($P)
+	[[ ! $dest ]] && dest="$P"
+
+	# if an absolute path is not specified, prepend the program directory ($P)
+	[[ $dest && ! "$dest" =~ ^/ ]] && dest="$P/$dest"
+
+	# save the original destination, in case we do not want to append the zip filename (in installMacApp)
+	destOrig="$dest"
+
+	# if the destination is just the program directory ($P), append the zip filename
+	[[ "$dest" == @(|$(RemoveTrailingSlash "$P")) ]] && dest="$P/$(GetFileNameWithoutExtension "$zip")"
+
+	log2 "dest=$dest destOrig=$destOrig"
+}
+
+# setSudo - use sudoc - except for windows drives to prevent a possible credential prompt in a hidden elevated window
+setSudo()
+{
 	sudo="sudoc"; IsPlatform win && drive IsWin "$(GetFilePath "$dest")" && unset sudo 
-
 	return 0; 
 }
 
@@ -58,36 +75,43 @@ installLinux()
 
 installMac()
 {
-	local dir="$(zipinfo -1 "$zip" | head -1)"
+	local extractDir; extractDir="$(gmktemp -d)" || return
 
-	if [[ ! "$dir" =~ ^.*app/$ ]]; then installMacStandard
-	elif [[ "${dir,,}" =~ install ]]; then installMacInstaller
+	# get the top level directory in the zip file
+	local zipDir="$(zipinfo -1 "$zip" | head -1)" # ignore errors
+	[[ ! $zipDir ]] && { ScriptErr "unable to determine the top level directory in '$(GetFileName "$zip")'"; return 1; }
+	log2 "zipDir=$zipDir extractDir=$extractDir"
+
+	# install - depends on the format of the zip directory
+	if [[ ! "$zipDir" =~ ^.*app/$ ]]; then installMacStandard
+	elif [[ "${zipDir,,}" =~ install ]]; then installMacInstaller
 	else installMacApp
 	fi
+
+	# cleanup and return
+	local result="$?"; rm -fr "$extractDir"; return "$result"
 }
 
 installMacApp()
-{	
-	checkExists "$dest/$dir" || return
+{
+	checkExists "$destOrig/$zipDir" || return
 	installMacAppRestore || return
 
-	sudo mv "$TEMP/hold/$dir" "$dest" || return
-	sudo rmdir "$TEMP/hold" || return
+	sudo mv "$extractDir/$zipDir" "$destOrig" || return
 
 	[[ "$dest" != "$P" ]] && return
-	sudo gchown root -R "$dest/$dir" || return
-	sudo gchgrp wheel -R "$dest/$dir" || return
+	sudo gchown root -R "$destOrig/$zipDir" || return
+	sudo gchgrp wheel -R "$destOrig/$zipDir" || return
 }
 
 installMacInstaller()
 {
 	installMacAppRestore || return
-	start "$TEMP/hold/$dir" || return
+	start "$extractDir/$zipDir" || return
 	pause "When the installation has finished press any key..."
-	clean "$TEMP/hold" || return
 }
 
-installMacAppRestore() { echo "Restoring $(GetFileName "$zip")..."; RunLog $sudo ditto -kx "$zip" "$TEMP/hold"; } # use ditto to unzip, unzip corrupts some applications (seen with Sublime Merge)
+installMacAppRestore() { echo "Restoring $(GetFileName "$zip")..."; RunLog $sudo ditto -kx "$zip" "$extractDir"; } # use ditto to unzip, unzip corrupts some applications (seen with Sublime Merge)
 
 installMacStandard() { checkExists "$dest" && runCommon; }
 
