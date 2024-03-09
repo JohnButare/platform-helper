@@ -1868,10 +1868,12 @@ GetIpAddress()
 	# lookup IP address using various commands
 	# - -N 3 and -ndots=2 allow the default domain names for partial names like consul.service
 	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
+	# - dnscachutil -q host -a name HOST - query macOS system resolvers, ensure get hosts on VPN network as /etc/resolv.conf does not always update wit the VPN nameservers
 	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
 	# - nslookup is slow on mac if a name server is not specified
 	if [[ ! $server ]] && InPath getent; then ip="$(getent ahostsv4 "$host" |& grep "STREAM" | "${all[@]}" | cut -d" " -f 1)"
+	elif [[ ! $server ]] && IsPlatform mac; then ip="$(dscacheutil -q host -a name "$host" |& grep "^ip_address:" | cut -d" " -f2)"
 	elif InPath host; then ip="$(host -N 2 -t A -4 "$host" $server |& ${G}grep -v "^ns." | grep "has address" | "${all[@]}" | cut -d" " -f 4)"
 	elif InPath nslookup; then ip="$(nslookup -ndots=2 -type=A "$host" $server |& tail +4 | grep "^Address:" | "${all[@]}" | cut -d" " -f 2)"
 	fi
@@ -2303,7 +2305,7 @@ DnsAlternate()
 	return 0
 }
 
-# DnsResolve [--quiet] IP|NAME - resolve an IP address or host name to a fully qualified domain name
+# DnsResolve [--quiet|-q|--user-alternate|-ua] IP|NAME - resolve an IP address or host name to a fully qualified domain name
 DnsResolve()
 {
 	local name quiet server useAlternate
@@ -2311,7 +2313,7 @@ DnsResolve()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--quiet|-q) quiet="true";;
-			--use-alternate) useAlternate="true";;
+			--use-alternate|-ua) useAlternate="true";;
 			*)
 				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
 				else UnknownOption "$1" "DnsResolve"; return 1
@@ -2336,6 +2338,7 @@ DnsResolve()
 	if IsIpAddress "$name"; then
 
 		if IsLocalHost "$name"; then lookup="localhost"
+		elif IsPlatform mac; then lookup="$(dscacheutil -q host -a ip_address "$name" | grep "^name:" | cut -d" " -f2)" || unset lookup
 		elif InPath host; then lookup="$(host -t A -4 "$name" $server |& ${G}grep -E "domain name pointer" | ${G}cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
 		else lookup="$(nslookup -type=A "$name" $server |& ${G}grep "name =" | ${G}cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
 		fi
@@ -2343,6 +2346,7 @@ DnsResolve()
 	# forward DNS lookup to get the fully qualified DNS address
 	else
 		if [[ ! $server ]] && InPath getent; then lookup="$(getent ahostsv4 "$name" |& ${G}head -1 | tr -s " " | ${G}cut -d" " -f 3)" || unset lookup
+		elif [[ ! $server ]] && IsPlatform mac; then lookup="$(dscacheutil -q host -a name "$name" |& grep "^name:" | cut -d" " -f2)" || unset lookup
 		elif InPath host; then lookup="$(host -N 2 -t A -4 "$name" $server |& ${G}grep -v "^ns." | ${G}grep -E "domain name pointer|has address" | head -1 | cut -d" " -f 1)" || unset lookup
 		elif InPath nslookup; then lookup="$(nslookup -ndots=2 -type=A "$name" $server |& tail -3 | ${G}grep "Name:" | ${G}cut -d$'\t' -f 2)" || unset lookup
 		fi
