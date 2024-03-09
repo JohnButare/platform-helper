@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) adapter|current|cache|center|dns|find|gui|hosts|internet|name|profile|proxy|run|vars|vpn|workgroup
+Usage: $(ScriptName) adapter|current|cache|center|dns|find|gui|hosts|internet|name|profile|proxy|run|service|vars|vpn|workgroup
 Network commands."
 }
 
@@ -304,6 +304,24 @@ validateNetwork()
 }
 
 #
+# DNS Commands
+#
+
+dnsUsage() { echot "Usage: $(ScriptName) adapter edit|list|name
+Network adapter commands."; }
+
+dnsCommand() { dnsFlushCommand; }
+
+dnsFlushCommand() 
+{ 
+	case "$PLATFORM_OS" in
+		linux) sudoc systemd-resolve --flush-caches;;
+		mac) sudoc killall -HUP mDNSResponder;;
+		win) ipconfig /flushdns;;
+	esac
+}
+
+#
 # find commands
 #
 
@@ -430,24 +448,6 @@ findCheck()
 			"$check" "$host" "$service"
 			;;
 			
-	esac
-}
-
-#
-# DNS Commands
-#
-
-dnsUsage() { echot "Usage: $(ScriptName) adapter edit|list|name
-Network adapter commands."; }
-
-dnsCommand() { dnsFlushCommand; }
-
-dnsFlushCommand() 
-{ 
-	case "$PLATFORM_OS" in
-		linux) sudoc systemd-resolve --flush-caches;;
-		mac) sudoc killall -HUP mDNSResponder;;
-		win) ipconfig /flushdns;;
 	esac
 }
 
@@ -611,79 +611,6 @@ profileSetCommand()
 }
 
 #
-# VPN Commands
-#
-
-vpnUsage() { echot "Usage: $(ScriptName) workgroup on|off|status
-VPN commands."; }
-
-vpnArgStart() { IsPlatform win && return; EchoErr "network: VPN is only implemented for Windows"; return 1; }
-vpnCommand() { vpnStatusCommand; }
-vpnStatusCommand() { rasdial.exe; }
-
-vpnOnCommand()
-{
-	if [[ -d "$P/WireGuard" ]]; then
-		elevate RunScript start "$P/WireGuard/wireguard.exe" /installtunnelservice "$P/WireGuard/Data/Configurations/$HOSTNAME.conf.dpapi"
-	else
-		rasdial.exe "vpn-$(ConfigGet "network")" "$USER" "$(credential get secure default)" || return
-	fi
-	currentUpdateCommand || return
-}
-
-vpnOffCommand()
-{
-	if [[ -d "$P/WireGuard" ]]; then
-		elevate "$P/WireGuard/wireguard.exe" /uninstalltunnelservice "$HOSTNAME"
-	else
-		rasdial.exe "vpn-$(ConfigGet "network")" /disconnect || return
-	fi
-	currentUpdateCommand || return
-}
-
-#
-# Workgroup Commands
-#
-
-workgroupUsage() { echot "Usage: $(ScriptName) workgroup name|set
-SAMBA workgroup commands."; }
-
-workgroupCommand() { workgroupNameCommand; }
-
-workgroupNameCommand()
-{ 
-	if IsPlatform win; then
-		net.exe config workstation | grep "Workstation domain" | RemoveCarriageReturn | awk '{ print $3; }'
-	elif [[ -f "/etc/samba/smb.conf" ]]; then
-		cat "/etc/samba/smb.conf" | grep -i "^[ 	]*workgroup[ 	]*=[ 	s]*" | cut -d "=" -f 2 | sed 's/ //g'
- 	else
-		echo "unknown"
-	fi 
-}
-
-workgroupSetArgs() { [[ $1 ]] && ScriptArgGet "new" -- "$@"; return 0; }
-
-workgroupSetCommand()
-{
-	local current="$(network workgroup name)"
-	[[ ! $new ]] && { read -p "Enter new workgroup: " new; echo; }
-
-	[[ ! $force && "$current" == "$new" ]] && return
-
-	echo "The current workgroup is $current, setting the workgroup to $new..."
-
-	if [[ -f "/etc/samba/smb.conf" ]]; then
-		sudoc sed -i "s/^[        ]*workgroup[    ]*=.*$/workgroup = ${new}/" "/etc/samba/smb.conf" || return
-	fi
-
-	if IsPlatform win; then
-		RunLog RunScript --elevate --pause-error -- powershell.exe Add-computer -WorkgroupName "$new" || return
-	fi
-	
-	return 0
-}
-
-#
 # proxy commands
 #
 
@@ -830,6 +757,139 @@ proxyVarsStatus()
 	else
 		echo "disabled"
 	fi
+}
+
+#
+# VPN Commands
+#
+
+vpnUsage() { echot "Usage: $(ScriptName) workgroup on|off|status
+VPN commands."; }
+
+vpnArgStart() { IsPlatform win && return; EchoErr "network: VPN is only implemented for Windows"; return 1; }
+vpnCommand() { vpnStatusCommand; }
+vpnStatusCommand() { rasdial.exe; }
+
+vpnOnCommand()
+{
+	if [[ -d "$P/WireGuard" ]]; then
+		elevate RunScript start "$P/WireGuard/wireguard.exe" /installtunnelservice "$P/WireGuard/Data/Configurations/$HOSTNAME.conf.dpapi"
+	else
+		rasdial.exe "vpn-$(ConfigGet "network")" "$USER" "$(credential get secure default)" || return
+	fi
+	currentUpdateCommand || return
+}
+
+vpnOffCommand()
+{
+	if [[ -d "$P/WireGuard" ]]; then
+		elevate "$P/WireGuard/wireguard.exe" /uninstalltunnelservice "$HOSTNAME"
+	else
+		rasdial.exe "vpn-$(ConfigGet "network")" /disconnect || return
+	fi
+	currentUpdateCommand || return
+}
+
+#
+# Service Commands
+#
+
+serviceUsage() { echot "Usage: $(ScriptName) service current
+macOS network service commands."; }
+
+serviceCommand() { usage; }
+
+serviceCurrentUsage()
+{
+	echot "Usage: $(ScriptName) service current
+List the currently active network services.  Services are listed in the preferred order (the order of use).
+	
+	-d,	--detail			show detailed information in the format service|interface|mac"
+
+}
+
+serviceCurrentArgStart() { unset -v detail; }
+
+serviceCurrentOpt()
+{
+	case "$1" in
+		-d|--detail) detail="--detail";;
+		*) return 1;;
+	esac
+}
+
+serviceCurrentCommand()
+{
+	serviceCurrent | uniq && return
+	ScriptErr "unable to find the current network service"
+	return 1
+}
+
+serviceCurrent()
+{
+	local gotService
+
+	while read -r line; do
+
+		# get the service and network interface
+    local service=$(echo "$line" | awk -F  "(, )|(: )|[)]" '{print $2}')
+    local interface=$(echo "$line" | awk -F  "(, )|(: )|[)]" '{print $4}')
+    [[ ! $interface ]] && continue
+
+    # get interface detail
+    interfaceDetail="$(ifconfig "$interface" 2>/dev/null)"
+    ! echo "$interfaceDetail" | ${G}grep --quiet 'status: active' && continue
+
+    # show the service information
+    gotService="true"
+    mac=$(echo "$interfaceDetail" | awk '/ether/{print $2}')
+    [[ $detail ]] && echo "$service|$interface|$mac" || echo "$service"
+
+	done <<< "$(networksetup -listnetworkserviceorder | grep 'Hardware Port')"
+
+	[[ $gotService ]]
+}
+
+#
+# Workgroup Commands
+#
+
+workgroupUsage() { echot "Usage: $(ScriptName) workgroup name|set
+SAMBA workgroup commands."; }
+
+workgroupCommand() { workgroupNameCommand; }
+
+workgroupNameCommand()
+{ 
+	if IsPlatform win; then
+		net.exe config workstation | grep "Workstation domain" | RemoveCarriageReturn | awk '{ print $3; }'
+	elif [[ -f "/etc/samba/smb.conf" ]]; then
+		cat "/etc/samba/smb.conf" | grep -i "^[ 	]*workgroup[ 	]*=[ 	s]*" | cut -d "=" -f 2 | sed 's/ //g'
+ 	else
+		echo "unknown"
+	fi 
+}
+
+workgroupSetArgs() { [[ $1 ]] && ScriptArgGet "new" -- "$@"; return 0; }
+
+workgroupSetCommand()
+{
+	local current="$(network workgroup name)"
+	[[ ! $new ]] && { read -p "Enter new workgroup: " new; echo; }
+
+	[[ ! $force && "$current" == "$new" ]] && return
+
+	echo "The current workgroup is $current, setting the workgroup to $new..."
+
+	if [[ -f "/etc/samba/smb.conf" ]]; then
+		sudoc sed -i "s/^[        ]*workgroup[    ]*=.*$/workgroup = ${new}/" "/etc/samba/smb.conf" || return
+	fi
+
+	if IsPlatform win; then
+		RunLog RunScript --elevate --pause-error -- powershell.exe Add-computer -WorkgroupName "$new" || return
+	fi
+	
+	return 0
 }
 
 #
