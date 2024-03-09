@@ -1626,6 +1626,14 @@ ProxyEnable() { ScriptEval network proxy vars --enable; network proxy vars --sta
 ProxyDisable() { ScriptEval network proxy vars --disable; network proxy vars --status; }
 ProxyStatus() { network proxy --status; }
 
+# GetRoute host - get the interface used to send to host
+GetRoute()
+{
+	local host="${1:-"0.0.0.0"}"
+	if IsPlatform mac; then route -n get $host | grep interface | cut -d":" -f2 | RemoveSpaceTrim
+	else ip route show to match $host | cut -d" " -f5
+	fi
+}
 NetworkConf()
 {
 	local force forceLevel; ScriptOptForce "$@"
@@ -1648,7 +1656,7 @@ CacheDefaultGateway()
 	if IsPlatform win; then
 		local g="$(route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | head -1 | awk '{ print $3; }')" || return
 	elif IsPlatform mac; then
-		local g="$(netstat -rnl | grep '^default' | head -1 | awk '{ print $2; }')" || return
+		local g="$(netstat -rnl | grep '^default' | ${G}grep -v "ppp" | head -1 | awk '{ print $2; }')" || return
 	else
 		local g="$(route -n | grep '^0.0.0.0' | head -1 | awk '{ print $2; }')" || return
 	fi
