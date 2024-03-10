@@ -1612,8 +1612,9 @@ HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not a
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 HttpHeader() { curl --silent --show-error --location --dump-header - --output /dev/null "$1"; }
-IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 							# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
-IsInDomain() { [[ $(NetworkDomain) ]]; }																				# IsInDomain - true if the computer is in a network domain
+IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } # IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
+IsInDomain() { [[ $(NetworkDomain) ]]; }													# IsInDomain - true if the computer is in a network domain
+IsIpInCidr() { nmap -sL -n "$2" | grep --quiet " $1$"; }					# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
 NetworkCurrent() { UpdateGet "network"; }; 
 NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars; }
 NetworkDomain() { UpdateGet "network_domain"; }
@@ -2312,8 +2313,8 @@ DnsResolve()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--quiet|-q) quiet="true";;
-			--use-alternate|-ua) useAlternate="true";;
+			--quiet|-q) quiet="--quiet";;
+			--use-alternate|-ua) useAlternate="--use-alternate";;
 			*)
 				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
 				else UnknownOption "$1" "DnsResolve"; return 1
@@ -2338,10 +2339,13 @@ DnsResolve()
 	if IsIpAddress "$name"; then
 
 		if IsLocalHost "$name"; then lookup="localhost"
-		elif IsPlatform mac; then lookup="$(dscacheutil -q host -a ip_address "$name" | grep "^name:" | cut -d" " -f2)" || unset lookup
+		elif [[ ! $server ]] && IsPlatform mac; then lookup="$(dscacheutil -q host -a ip_address "$name" | grep "^name:" | cut -d" " -f2)" || unset lookup
 		elif InPath host; then lookup="$(host -t A -4 "$name" $server |& ${G}grep -E "domain name pointer" | ${G}cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
 		else lookup="$(nslookup -type=A "$name" $server |& ${G}grep "name =" | ${G}cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
 		fi
+
+		# use alternate for Hagerman network IP addresses, reverse lookup fails on mac using VPN
+		[[ ! $lookup ]] && IsIpInCidr "$name" "10.10.100.0/22" && { DnsResolve --use-alternate $quiet "$name"; return; }
 
 	# forward DNS lookup to get the fully qualified DNS address
 	else
@@ -2353,6 +2357,7 @@ DnsResolve()
 
 	fi
 
+	# error
 	[[ ! $lookup ]] && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
 	echo "$lookup"
 }
