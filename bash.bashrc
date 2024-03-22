@@ -155,7 +155,7 @@ WIN_ROOT="/" WIN_HOME="$HOME"
 
 # PLATFORM_OS environment variables
 case "$PLATFORM_OS" in 
-	mac) USERS="/Users" P="/Applications" G="g" SRV="/opt" UADATA="$HOME/Library/Application Support" 
+	mac) USERS="/Users" P="/Applications" G="g" SRV="/opt" UADATA="$HOME/Library/Application Support" PUSER="$HOME/Applications"
 		# Homebrew
 		unset -v HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY
 		if [[ -f "/opt/homebrew/bin/brew" ]]; then export HOMEBREW_PREFIX="/opt/homebrew" HOMEBREW_CELLAR="$HOMEBREW_PREFIX/Cellar" HOMEBREW_REPOSITORY="$HOMEBREW_PREFIX"	
