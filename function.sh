@@ -779,7 +779,7 @@ UnisonRootConfDir() { local dir="$(UserHome "root")/.unison"; IsPlatform mac && 
 ZoxideConf()
 {
 	{ ! InPath zoxide || IsDefined z; } && return
-	eval "$(zoxide init zsh)" || return
+	eval "$(zoxide init $PLATFORM_SHELL)" || return
 }
 
 #
