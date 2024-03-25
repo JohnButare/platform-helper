@@ -414,8 +414,11 @@ AppVersion()
 	# check if the app exists
 	if [[ ! $version ]]; then
 		local file; file="$(FindInPath "$app")"
-		# not found if cannot find in path or if is excluded - exclude Homebrew speedtest as it conflicts with the GUI speedtest
-		[[ "$?" != "0" || "$file" == "/opt/homebrew/bin/speedtest" ]] && { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
+
+		# not found if cannot find in path or if is excluded
+		# - Homebrew speedtest conflicts with the GUI speedtest
+		# - /usr/bin/dash conflicts with the Dash mac application
+		[[ "$?" != "0" || "$file" == @(/opt/homebrew/bin/speedtest|/usr/bin/dash) ]] && { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
 	fi
 
 	# special cases
