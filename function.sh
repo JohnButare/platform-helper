@@ -418,7 +418,7 @@ AppVersion()
 		# not found if cannot find in path or if is excluded
 		# - Homebrew speedtest conflicts with the GUI speedtest
 		# - /usr/bin/dash conflicts with the Dash mac application
-		[[ "$?" != "0" || "$file" == @(/opt/homebrew/bin/speedtest|/usr/bin/dash) ]] && { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
+		[[ "$?" != "0" || "$file" == @(/opt/homebrew/bin/speedtest|/bin/dash|/usr/bin/dash) ]] && { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
 	fi
 
 	# special cases
