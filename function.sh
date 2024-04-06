@@ -126,7 +126,7 @@ clipr()
 	case "$PLATFORM_OS" in
 		linux) clipok && xclip -o -sel clip;;
 		mac) clipok && pbpaste;;
-		win) InPath paste.exe && { paste.exe | tail -n +2; return; }; powershell.exe -c Get-Clipboard;;
+		win) InPath paste.exe && { RunWin paste.exe | tail -n +2; return; }; RunWin powershell.exe -c Get-Clipboard;;
 	esac
 }
 
@@ -135,7 +135,7 @@ clipw()
 	case "$PLATFORM_OS" in 
 		linux) clipok && printf "%s" "$@" | xclip -sel clip;;
 		mac) clipok && printf "%s" "$@" | pbcopy;; 
-		win) InPath clip.exe && ( cd /; printf "%s" "$@" | clip.exe );; # cd / to fix WSL 2 error running from network share
+		win) InPath clip.exe && printf "%s" "$@" | RunWin clip.exe;; # cd / to fix WSL 2 error running from network share
 	esac
 }
 
@@ -459,9 +459,9 @@ AppVersion()
 	# get Windows executable version
 	if [[ ! $version ]] && IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
 		if InPath "wmic.exe"; then # WMIC is deprecated but does not require elevation
-			 version="$(wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2)" || return
+			 version="$(RunWin wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2)" || return
 		elif CanElevate; then
-			version="$(powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn)" || return
+			version="$(RunWin powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn)" || return
 		fi
 	fi
 
@@ -764,7 +764,7 @@ powershell()
 
 store()
 {
-	IsPlatform win && { cmd.exe /c start ms-windows-store: >& /dev/null; }
+	IsPlatform win && { RunWin cmd.exe /c start ms-windows-store: >& /dev/null; }
 	InPath gnome-software && { coproc gnome-software; }
 	InPath snap-store && { coproc snap-store; }
 	return 0
@@ -1249,10 +1249,10 @@ CloudGet()
 explore() # explorer DIR - explorer DIR in GUI program
 {
 	local dir="$1"; [[ ! $dir ]] && dir="."
-	
+
 	IsPlatform mac && { open "$dir"; return; }
-	IsPlatform wsl1 && { explorer.exe "$(utw "$dir")"; return; }
-	IsPlatform wsl2 && { local dir="$PWD"; ( cd /tmp; explorer.exe "$(utw "$dir")" ); return 0; } # cd to local directory to fix invalid argument error running programs from SMB mounted shares
+	IsPlatform wsl1 && { RunWin explorer.exe "$(utw "$dir")"; return; }
+	IsPlatform wsl2 && { local dir="$PWD"; RunWin explorer.exe "$(utw "$dir")"; return 0; } # cd to local directory to fix invalid argument error running programs from SMB mounted shares
 	InPath nautilus && { start nautilus "$dir"; return; }
 	InPath mc && { mc; return; } # Midnight Commander
 
@@ -1658,7 +1658,7 @@ CacheDefaultGateway()
 	[[ ! $force && $NETWORK_DEFAULT_GATEWAY ]] && return
 
 	if IsPlatform win; then
-		local g="$(route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | head -1 | awk '{ print $3; }')" || return
+		local g="$(RunWin route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | head -1 | awk '{ print $3; }')" || return
 	elif IsPlatform mac; then
 		local g="$(netstat -rnl | grep '^default' | ${G}grep -v "ppp" | head -1 | awk '{ print $2; }')" || return
 	else
@@ -1675,8 +1675,8 @@ DhcpRenew()
 	local oldIp="$(GetAdapterIpAddress "$adapter")"
 
 	if IsPlatform win; then
-		ipconfig.exe /release "$adapter" || return
-		ipconfig.exe /renew "$adapter" || return
+		RunWin ipconfig.exe /release "$adapter" || return
+		RunWin ipconfig.exe /renew "$adapter" || return
 		echo
 
 	elif IsPlatform linux && InPath dhclient; then
@@ -1715,9 +1715,9 @@ GetAdapterIpAddress()
 		if [[ ! $adapter ]]; then
 			# - use default route (0.0.0.0 destination) with lowest metric
 			# - Windows build 22000.376 adds "Default " route
-			route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | grep -v "Default[ ]*$" | sort -k5 --numeric-sort | head -1 | awk '{ print $4; }'
+			RunWin route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | grep -v "Default[ ]*$" | sort -k5 --numeric-sort | head -1 | awk '{ print $4; }'
 		else
-			ipconfig.exe | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | grep "IPv4 Address" | head -1 | cut -d: -f2 | RemoveSpace
+			RunWin ipconfig.exe | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | grep "IPv4 Address" | head -1 | cut -d: -f2 | RemoveSpace
 		fi
 
 	elif InPath ifdata; then
@@ -1765,7 +1765,7 @@ GetAdapterMacAddress()
 
 	# get the MAC address of the specified adapter
 	if [[ $isWin ]]; then
-		ipconfig.exe /all | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | \
+		RunWin ipconfig.exe /all | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | \
 			grep "^[ ]*Physical Address" | head -1 | cut -d: -f2 | RemoveSpace | LowerCase | sed 's/-/:/g'
 	else
 		ifconfig "$adapter" | grep "^[ ]*ether " | RemoveSpaceFront | cut -d" " -f2
@@ -1788,7 +1788,7 @@ GetBroadcastAddress()
 GetEthernetAdapters()
 {
 	if IsPlatform win; then
-		ipconfig.exe /all | grep -e "^Ethernet adapter" | cut -d" " -f3- | cut -d: -f1	
+		RunWin ipconfig.exe /all | grep -e "^Ethernet adapter" | cut -d" " -f3- | cut -d: -f1	
 	elif IsPlatform mac; then 
 		netstat -rn | grep '^default' | awk '{ print $4; }' | grep -v '^utun' # utunN - IPv6 adapters
 	else
@@ -1900,14 +1900,14 @@ GetSubnetNumber() { ip -4 -oneline -br address show "$(GetInterface)" | cut -d/ 
 GetPrimaryAdapterName()
 {
 	if IsPlatform win; then
-		ipconfig.exe | grep $(GetAdapterIpAddress) -B 8 | grep "Ethernet adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
+		RunWin ipconfig.exe | grep $(GetAdapterIpAddress) -B 8 | grep "Ethernet adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
 	else
 		GetInterface
 	fi
 }
 
 # ipconfig [COMMAND] - show or configure network
-ipconfig() { IsPlatform win && { ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
+ipconfig() { IsPlatform win && { RunWin ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
 
 # ipinfo - show network configuration
 ipinfo()
@@ -2053,7 +2053,7 @@ MacLookup()
 		# get the MAC address in Windows
 		if IsPlatform win; then
 			local ip; ip="$(GetIpAddress "$host")" || return
-			macWin="$(arp.exe -a | grep "$ip" | tr -s " " | cut -d" " -f3 | tail -1)" || return
+			macWin="$(RunWin arp.exe -a | grep "$ip" | tr -s " " | cut -d" " -f3 | tail -1)" || return
 			mac="$(echo "$macWin" | sed 's/-/:/g')" || return # change - to :
 
 		# get the MAC address - everything else
@@ -2075,7 +2075,7 @@ MacLookup()
 	# get all IP addresses associated with the MAC address - more than one for a Virtual IP Address (VIP)
 	local ips; 
 	if IsPlatform win; then
-		IFS=$'\n' ips=( $(arp.exe -a | command ${G}grep "$macWin" | tr -s " " | cut -d" " -f2 | sort | uniq) ) || return
+		IFS=$'\n' ips=( $(RunWin arp.exe -a | command ${G}grep "$macWin" | tr -s " " | cut -d" " -f2 | sort | uniq) ) || return
 	else
 		IFS=$'\n' ips=( $(arp -a -n | command ${G}grep " $mac " | cut -d" " -f2 | RemoveParens | sort | uniq) ) || return
 	fi
@@ -2116,7 +2116,7 @@ IsAvailable()
 	local ip; ip="$(GetIpAddress --quiet "$host")" || return
 	
 	if IsPlatform wsl1; then # WSL 1 ping does not timeout quickly for unresponsive hosts, ping.exe does
-	  	ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes=" &> /dev/null 
+	  	RunWin ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes=" &> /dev/null 
 	elif InPath fping; then
 		fping -r 1 -t "$timeout" -e "$ip" &> /dev/null
 	else
@@ -2137,7 +2137,7 @@ IsAvailablePort()
 	elif InPath nmap; then
 		nmap "$host" -p "$port" -Pn -T5 |& grep -q "open" >& /dev/null
 	elif IsPlatform win; then	
-		chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
+		RunWin chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
 	else
 		return 0 
 	fi
@@ -2442,7 +2442,7 @@ DnsResolveMac()
 DnsFlush()
 {
 	if IsPlatform mac; then sudoc dscacheutil -flushcache && sudo killall -HUP mDNSResponder
-	elif IsPlatform win; then ipconfig.exe /flushdns >& /dev/null
+	elif IsPlatform win; then RunWIn ipconfig.exe /flushdns >& /dev/null
 	elif IsPlatform systemd && systemctl is-active systemd-resolved >& /dev/null; then resolvectl flush-caches
 	fi
 
@@ -2465,7 +2465,7 @@ MdnsResolve()
 
 	# Currently WSL does not resolve mDns .local address but Windows does
 	if IsPlatform win; then
-		result="$(dns-sd.exe -timeout 200 -Q "$name" |& grep "$name" | head -1 | rev | cut -d" " -f1 | rev)"
+		result="$(RunWin dns-sd.exe -timeout 200 -Q "$name" |& grep "$name" | head -1 | rev | cut -d" " -f1 | rev)"
 	elif IsPlatform mac; then
 		result="$(ping -c 1 -W 200 "$name" |& grep "bytes from" | gcut -d" " -f 4 | sed s/://)"
 	else
@@ -3125,7 +3125,7 @@ InUse() { ProcessResource "$@"; }
 IsMacApp() { FindMacApp "$1" >& /dev/null; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { IsPlatform mac && return 1; cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
-IsWinAdmin() { IsPlatform win && net.exe localgroup Administrators | RemoveCarriageReturn | grep --quiet "$WIN_USER$"; }
+IsWinAdmin() { IsPlatform win && RunWin net.exe localgroup Administrators | RemoveCarriageReturn | grep --quiet "$WIN_USER$"; }
 pkillchildren() { pkill -P "$1"; } # pkillchildren PID - kill process and children
 ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
 pschildren() { ps --forest $(ps -e --no-header -o pid,ppid|awk -vp=$1 'function r(s){print s;s=a[s];while(s){sub(",","",s);t=s;sub(",.*","",t);sub("[0-9]+","",s);r(t)}}{a[$2]=a[$2]","$1}END{r(p)}'); } # pschildren PPID - list process with children
@@ -3133,6 +3133,7 @@ pschildrenc() { local n="$(pschildren "$1" | wc -l)"; (( n == 1 )) && return 1 |
 pscount() { ProcessList | wc -l; }
 RunQuiet() { if [[ $verbose ]]; then "$@"; else "$@" 2> /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout unless verbose logging
 RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout and stderr unless verbose logging
+RunWin() { (cd "/tmp" && "$@"); } # running Windows executables from some Linux directories (like CryFS mounts) cause "Invalid argument" errors
 
 # FindMacApp APP - return the location of a Mac applciation
 FindMacApp()
@@ -3431,9 +3432,9 @@ ProcessList()
 		if InPath ProcessList.exe; then
 			ProcessList.exe | RemoveCarriageReturn
 		elif InPath wmic.exe; then
-			wmic.exe process get Name,ExecutablePath,ProcessID /format:csv | RemoveCarriageReturn | tail +3 | awk -F"," '{ print $4 "," ($2 == "" ? $3 : $2) }'
+			RunWin wmic.exe process get Name,ExecutablePath,ProcessID /format:csv | RemoveCarriageReturn | tail +3 | awk -F"," '{ print $4 "," ($2 == "" ? $3 : $2) }'
 		else
-			powershell.exe --command 'Get-Process | select Name,Path,ID | ConvertTo-Csv' | RemoveCarriageReturn | awk -F"," '{ print $3 "," ($2 == "" ? $1 ".exe" : $2) }' | RemoveQuotes
+			RunWin powershell.exe --command 'Get-Process | select Name,Path,ID | ConvertTo-Csv' | RemoveCarriageReturn | awk -F"," '{ print $3 "," ($2 == "" ? $1 ".exe" : $2) }' | RemoveQuotes
 		fi
 	fi
 }
@@ -3948,7 +3949,7 @@ IsElevated()
 
 	# if the user is in the Administrators group they have the Windows Administrator token
 	# cd / to fix WSL 2 error running from network share
-	( cd /; whoami.exe /groups ) | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; 
+	RunWin whoami.exe /groups | grep 'BUILTIN\\Administrators' | grep "Enabled group" >& /dev/null; 
 } 
 
 # sudo
@@ -4189,13 +4190,13 @@ GetVmType() # vmware|hyperv
 		local product
 
 		if InPath wmic.exe; then
-			product="$(wmic.exe baseboard get product |& RemoveCarriageReturn | head -2 | tail -1 | RemoveSpaceTrim)"
+			product="$(RunWin wmic.exe baseboard get product |& RemoveCarriageReturn | head -2 | tail -1 | RemoveSpaceTrim)"
 
 		# wmic.exe is removed from Windows build  >= 22000.376
 		# - PowerShell 5 (powershell.exe) is ~6X faster than PowerShell 7
 		# - PowerShell 7 - use powershell without the .exe
 		else
-			product="$(powershell.exe 'Get-WmiObject -Class Win32_BaseBoard | Format-List Product' | RemoveCarriageReturn | grep Product | tr -s ' ' | cut -d: -f2 | RemoveSpaceTrim)"
+			product="$(RunWin powershell.exe 'Get-WmiObject -Class Win32_BaseBoard | Format-List Product' | RemoveCarriageReturn | grep Product | tr -s ' ' | cut -d: -f2 | RemoveSpaceTrim)"
 		fi
 
 		if [[ "$product" == "440BX Desktop Reference Platform" ]]; then result="vmware"
@@ -4308,7 +4309,7 @@ WinSetState()
 
 	# Windows - see if the title matches a windows running in Windows
 	if IsPlatform win; then
-		WindowMode.exe -title "$title" -mode "${wargs[@]}"
+		RunWin WindowMode.exe -title "$title" -mode "${wargs[@]}"
 		return
 	fi
 
