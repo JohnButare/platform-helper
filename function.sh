@@ -3595,14 +3595,14 @@ start()
 		if IsShellScript "$fullFile"; then
 			local p="wsl.exe -d $(wsl get name)"; [[ "$terminal" == "wt" ]] && InPath wt.exe && p="wt.exe -d \"$PWD\" wsl.exe -d $(wsl get name)"
 			if IsSystemd; then
-				RunProcess.exe $wait $elevate "${windowStyle[@]}" bash.exe -c \""$(FindInPath "$fullFile") "${args[@]}""\"
+				RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" bash.exe -c \""$(FindInPath "$fullFile") "${args[@]}""\"
 			else
 				(( verboseLevel > 1 )) && ScriptArgs "start" RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
 				RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
 			fi
 		else
 			(( verboseLevel > 1 )) && ScriptArgs "start" RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
-			RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
+			RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
 		fi
 		result=$?
 

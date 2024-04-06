@@ -1031,23 +1031,36 @@ renewCertCommand()
 	sudoc certbot certonly -d '*.butare.net' --dns-cloudflare --dns-cloudflare-credentials "/etc/letsencrypt/credentials/cloudflare.ini" || return
 
 	hilight "Copying certificate to the encrypted store..."
-	{ cd $(encm)/data/letsencrypt && bak butare.net; } || return
-	{ sudoc cp -Lr /etc/letsencrypt/live/butare.net /tmp/ && 	sudoc chown -R $USER /tmp/butare.net && rm -fr butare.net && mv /tmp/butare.net .; } || return
+	local certDir="/etc/letsencrypt/live/butare.net"
+	local encryptedDir; encryptedDir="$(encrypt mount "$CLOUD/data/app/CryFS/personal")/data/letsencrypt" || return
+	( cd "$encryptedDir" && bak "butare.net" ) || return 	# backup existing certificate
+	rm -fr "$encryptedDir/butare.net" || return						# remove existing certificate
+	{ sudoc cp -Lr "$certDir" "/tmp/" && 	sudoc chown -R $USER "/tmp/butare.net" && mv "/tmp/butare.net" "$encryptedDir"; } || return
 
 	hilight "Updating the certificate on the Load Balancer (NGINX)..."
 	{ wiggin sync lb-cert -H=bc && wiggin sync lb-cert && wiggin sync lb; } || return
 
 	hilight "Updating the certificate on Hubitat..."
-	cd butare.net
-	(cd ~; open https://hubitat1.butare.net/hub/advanced/certificate) && clipw "$(cat cert.pem)" && pause && clipw "$(cat privkey.pem)"
-	(cd ~; open https://hubitat2.butare.net/hub/advanced/certificate) && clipw "$(cat cert.pem)" && pause && clipw "$(cat privkey.pem)"
-
+	cd "$encryptedDir/butare.net" || return
+	{ renewHubitat 1 && renewHubitat 2; } || return
 
 	# (not used) Study Color Printer – Import, ServerCertificate=cert?.pem, Private Key=privkey?.pem
 	# open https://studycolorprinter.butare.net/PRESENTATION/ADVANCED/NWS_CERT_SSLTLS/TOP
 
 	hilight "Cleaning up..."
-	encum
+	encrypt unmount "personal" || return
+}
+
+renewHubitat()
+{
+	local n="$1"
+	open "https://hubitat${n}.butare.net/hub/advanced/certificate" || return
+
+	clipw "$(cat "cert.pem")" || return
+	pause "Paste certifcate, then press any key to continue..."
+
+	clipw "$(cat "privkey.pem")"
+	pause "Paste private key, then press any key to continue..."	
 }
 
 #
