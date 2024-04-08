@@ -583,7 +583,7 @@ installInit()
 
 	# Raspberry Pi
 	pi=(PiSwap)
-	piKernel=(PiConfig PiFirmware PiGpio PiI2c PiOverclock PiOneWire PiPinout PiReporter PiSpi PiSugarUps GeekPiUps)
+	piKernel=(PiConfig PiFirmware PiGpio PiI2c PiNvme PiOverclock PiOneWire PiPinout PiReporter PiSpi PiSugarUps GeekPiUps)
 
 	# Remote Desktop
 	mac+=(AppleRemoteDesktop MicrosoftRemoteDesktop)
@@ -8079,9 +8079,9 @@ pythonIsPython3()
 # Raspberry Pi
 #################################################
 
-PiAllInstall() { i PiDevAll PiHardwareAll PiUtilities BalenaEtcher PiDiskImager PiFirmware PiOverclock PiReporter PiSugarUps PiSwap GeekPiUps RpiBoot; }
+PiAllInstall() { i PiDevAll PiHardwareAll PiUtilities BalenaEtcher PiDiskImager PiFirmware PiNvme PiOverclock PiReporter PiSugarUps PiSwap GeekPiUps RpiBoot; }
 PiDevAllInstall() { pkg thonny; } # Python development
-PiHardwareAllInstall() { i PiGpio PiI2c PiOneWire PiSpi wifi; }
+PiHardwareAllInstall() { i PiGpio PiI2c PiNvme PiOneWire PiSpi wifi; }
 PiUtilitiesInstall() { i PiConfig PiPinout; }
 PiFinalWin() { mergeDir "$up/Raspberry Pi" "$up/Applications/Other"; }
 
@@ -8145,21 +8145,19 @@ PiFirmwareInstall()
 		makeLinkSudo "$dest" "$link" || return
 	done
 
-	# link /lib/firmware/raspberrypi/bootloader to /opt/rpi-eeprom/firmware-NNNN
+	# link /lib/firmware/raspberrypi/bootloader to /opt/rpi-eeprom/firmware-NNNN (2711 2712)
 	local link="$firmwareDir/bootloader"
 	if [[ ! -L "$link" ]]; then
 		
 		# backup the existing firmware directory
 		[[ -d "$link" ]] && { sudo mv "$link" "$link.hold" || return; }
 
-		# get the Raspberry Pi model
-		local model; model="$(pi info model)" || return
-		
 		# get the firmware version for the model
 		local version
-		[[ "$model" =~ ^Raspberry\ Pi\ 4 ]] && version=2711
-		[[ "$model" =~ ^Raspberry\ Pi\ 5 ]] && version=2712
-		[[ ! $version ]] && { ScriptErr "no firmware for '$model'"; return 1; }
+		if IsPlatform pi4; then version=2711
+		elif IsPlatform pi5; then version=2712
+		else ScriptErr "no firmware for '$(pi info model)'"; return 1
+		fi
 
 		# validate the firmware directory
 		local dest="$repoDir/firmware-$version"
@@ -8196,6 +8194,26 @@ PiI2cInstall()
 	package i2c-tools || return
 }
 
+PiNvmeInstall()
+{
+	local file="/boot/firmware/config.txt"
+	
+	! IsPlatformAll pi5,ubuntu && return
+
+	# return if overclocked already	
+	grep --quiet "^# NVMe" "$file" && return
+
+	# backup
+	sudoc bak "$file" || return
+
+	# update
+	cat <<-EOF | sudo ${G}tee -a "$file"
+	
+		# NVMe
+		dtparam=pciex1_gen=3
+	EOF
+}
+
 PiOneWireInstall()
 {
 	header "Raspberry Pi 1-Wire  Interface"
@@ -8207,10 +8225,10 @@ PiOverclockInstall()
 {
 	local file="/boot/firmware/config.txt"
 	
-	! IsPlatform ubuntu && return
+	! IsPlatformAll pi4,ubuntu && return
 
 	# return if overclocked already	
-	grep --quiet "# overclocking" "$file" && return
+	grep --quiet "^# overclocking" "$file" && return
 
 	# backup
 	sudoc bak "$file" || return

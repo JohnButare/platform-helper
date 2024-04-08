@@ -3040,8 +3040,9 @@ isPlatformCheck()
 		# other
 		busybox) IsBusyBox;;
 		cm4) [[ -e /proc/cpuinfo ]] && grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo";;
-		gnome-keyring) InPath "$p";;
 		consul|nomad|vault) service running "$p";;
+		gnome-keyring) InPath "$p";;
+		pi4|pi5) IsPlatform PiKernel && [[ "$(pi info model | cut -d" " -f3)" == "${p:2}" ]];;
 		systemd) IsSystemd;;
 
 		*) return 1;;
