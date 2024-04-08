@@ -93,19 +93,6 @@ diskUsedCommand()
 	di --type ext4 --display-size g | grep "^/dev" | head -$disk | tail -1 | tr -s ' ' | cut -d" " -f 4
 }
 
-memoryTotalCommand()
-{ 
-	if IsPlatform mac; then
-		system_profiler SPHardwareDataType | grep "Memory:" | tr -s " " | cut -d" " -f 3
-	else
-		! InPath free && return
-		local bytes="$(free --bytes | grep "Mem:" | tr -s " " | cut -d" " -f2)"
-		local gbRoundedTwo="$(echo "scale=2; ($bytes / 1024 / 1024 / 1024) + .05" | bc)"; 
-		local gbRounded="$(echo "($gbRoundedTwo + .5)/1" | bc)"
-		echo "$gbRounded"
-	fi
-}
-
 #
 # Executable Command
 #
@@ -513,8 +500,8 @@ infoArgStart()
 { 
 	unset -v detail monitor prefix status
 	hostArg="localhost" what=() skip=()
-	infoBasic=(model platform distribution kernel firmware chroot vm cpu architecture credential file other update reboot)
-	infoDetail=(mhz memory process disk package switch restart)
+	infoBasic=(model platform distribution kernel firmware chroot vm cpum architecture credential file other update reboot)
+	infoDetail=(cpu load mhz process memory disk package switch restart)
 	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used)
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
 }
@@ -615,7 +602,7 @@ infoChroot()
 	infoEcho "      chroot: $(cat "/etc/debian_chroot")"
 }
 
-infoCpu()
+infoCpum()
 {
 	! InPath lscpu && return
 
@@ -623,7 +610,13 @@ infoCpu()
 
 	model="$(lscpu | grep "^Model name:" | cut -d: -f 2 | RemoveNewline | tr -s " " | RemoveSpaceTrim)" # Rock 5 has multiple different types of CPUs
 	count="$(lscpu | grep "^CPU(s):" | cut -d: -f 2 | RemoveSpace)"
-	infoEcho "         cpu: $model ($count CPU)"
+	infoEcho "   cpu model: $model ($count CPU)"
+}
+
+infoCpu()
+{
+	local cpu; cpu="$[100-$(vmstat 1 2|tail -1|awk '{print $15}')]%"
+	infoEcho "         cpu: $cpu"
 }
 
 infoCredential()
@@ -685,8 +678,14 @@ infoKernel()
 	RunPlatform infoKernel;
 }
 
-infoMemory() { infoEcho "      memory: $(infoMemoryGet used)/$(infoMemoryGet free)/$(infoMemoryGet total 2) GB used/free/total"; }
-infoMemoryGet() { echo "$(StringPad "$(memory${1^}Command)" ${2:-5})"; } # infoDiskGet COMMAND DISK
+infoLoad()
+{
+	local load; load="$(uptime | cut -d' ' -f13 | RemoveEnd ",")"
+	infoEcho "        load: $load"
+}
+
+infoMemory() { infoEcho "      memory: $(infoMemoryGet used)/$(infoMemoryGet free)/$(infoMemoryGet total) GB used/free/total"; }
+infoMemoryGet() { echo "$(StringPad "$(memory${1^}Command)" ${2:-6})"; } # infoDiskGet COMMAND DISK
 infoMemory_free() { infoEcho "memory free: $(memoryFreeCommand) GB"; }
 infoMemory_total() { infoEcho "memory total: $(memoryTotalCommand) GB"; }
 infoMemory_used() { infoEcho "memory used: $(memoryUsedCommand) GB"; }
