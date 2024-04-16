@@ -42,7 +42,9 @@ init()
 	products=( consul nomad vault )
 	productUsage="consul|nomad|vault"
 	binDir="/usr/local/bin"; IsPlatform entware && binDir="/opt/bin"
-	certOptUsage="-e, --encrypt [DIR]		directory for PKI certificates\n	-ne, --no-encrypt		disable TLS encryption"
+	certOptUsage="-e, --encrypt [DIR]		directory for PKI certificates
+	-ne, --no-encrypt			disable TLS encryption
+	-fc, --force-cert			force creation of certificate even if it exists (dangerous)"
 	configWhat="consul-vault-data local-certs local-credentials private-certs public-certs"
 }
 
@@ -94,7 +96,6 @@ argEnd()
 	fi
 
 	return 0
-
 }
 
 cleanup()
@@ -406,7 +407,7 @@ certUsage()
 	$certOptUsage"
 }
 
-certArgStart() { encrypt="true"; }
+certArgStart() { unset -v forceCert; encrypt="true"; }
 certOpt() { encryptOpt "$@"; }
 certCommand() { usage; }
 
@@ -471,6 +472,7 @@ certMakeConsulCommand() { certMake "consul"; }
 certMakeNomadCommand() { certMake "nomad"; }
 certMakeVaultCommand() { certMake "vault"; }
 certMakeConsulServerCommand() { forAllHosts certMakeConsulServer; }
+certMakeNomadServerCommand() { local hosts; getHosts "${hostArg:-servers}" && hostJoinInit "${hosts[@]}" && certMakeNomadServer; }
 certMakeVaultServerCommand() { forAllHosts certMakeVaultServer; }
 
 # certMakeCd PRODUCT - mount and change to the private certificate directory for the product
@@ -501,9 +503,9 @@ certMakeDnsArgs()
 	echo "$(RemoveSpaceTrim "$args")"	
 }
 
-# certMakeServer PRODUCT HOST [DEST] [CERT_ARGS...] - make server certificate for product.  Optionally copy it
-#   to the destination directory.   CERT_ARGS allow for additional (alternate) names using -additional-ipaddress="IP"
-#   or -additional-dnsname="DNS"
+# certMakeServer PRODUCT HOST [DEST] [CERT_ARGS...] - make server certificate for product on HOST.
+#   Optionally copy it to the destination directory.
+#   CERT_ARGS allow for additional (alternate) names using -additional-ipaddress="IP" or -additional-dnsname="DNS"
 certMakeServer()
 {
 	local product="$1" host="$2"; shift 2; certMakeCd "$product" || return
@@ -548,22 +550,23 @@ certMakeServer()
 	fi
 }
 
-# certMakePRODUCTServer HOST [DIR] - make a server certificate
+# certMakePRODUCTServer HOST [DEST] [CERT_ARGS...] - make a server certificate, see certMakeServer above
 certMakeConsulServer() { certMakeServer "consul" "$@" "$(certMakeDnsArgs "consul")"; }
 certMakeVaultServer() { certMakeServer "vault" "$@" "$(certMakeDnsArgs "vault,active.vault,standby.vault")"; }
 
+# certMakeNomadServer - make a server certificate for a Nomad server
 certMakeNomadServer()
 {
 	local product="nomad" host="$1"; shift 1; certMakeCd "$product" || return
-	local dest; [[ -d "$1" ]] && { dest="$1"; shift; }
 
 	certValidate "$ca" "$caKey" || return
 	certExists "$certServer" "$certServerKey" && return
 
 	hilight "Creating the Nomad server certificates..."
+	certMakeNomadInit || return
 
 	# create the cfssl configuration file
-	[[ ! -f "cfssl.json" ]] && { cat <<-EOF > "cfssl.json" || return; }
+	[[ $forceCert || ! -f "cfssl.json" ]] && { cat <<-EOF > "cfssl.json" || return; }
 		{
 		    "signing": {
 		        "default": {
@@ -585,12 +588,6 @@ certMakeNomadServer()
 
 	# create the certificate
 	echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config="cfssl.json" -hostname="$hosts" - | cfssljson -bare "nomad-server" || return
-
-	# copy the certificates
-	if [[ $dest ]]; then
-		cp "$certServer" "$dest/$certServer" || return
-		cp "$certServerKey" "$dest/$certServerKey" || return
-	fi
 }
 
 # certMake PRODUCT - make certificates for the product.  All of the following certMake functions are should only be called from certMake.
@@ -666,26 +663,14 @@ certMakeConsulCaAuto()
 		--output-file "$caAuto" || return
 }
 
-certMakeNomad()
-{
-	# install cfssl to create certificates
-	if ! InPath "cfssl"; then
-		inst "cfssl" || return
-		! InPath "cfssl" && return
-	fi
-
-	# create certificates
-	certMakeNomadCa || return
-	certMakeNomadServer || return
-	certMakeNomadClient || return
-	certMakeNomadCli || return
-}
+certMakeNomad() {	certMakeNomadCa && certMakeNomadServer && certMakeNomadClient && certMakeNomadCli; }
+certMakeNomadInit() { InPath "cfssl" || inst "cfssl"; }
 
 certMakeNomadCa()
 {
 	certExists "$ca" "$caKey" && return
 	hilight "Creating the Nomad certificate authority..."
-	cfssl print-defaults csr | cfssl gencert -initca - | cfssljson -bare nomad-ca
+	certMakeNomadInit && cfssl print-defaults csr | cfssl gencert -initca - | cfssljson -bare nomad-ca
 }
 
 certMakeNomadCli()
@@ -693,16 +678,15 @@ certMakeNomadCli()
 	certValidate "$ca" "$caKey" || return
 	certExists "$certCli" "$certCliKey" && return
 	hilight "Creating the Nomad CLI certificate..."
-	echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -profile=client - | cfssljson -bare nomad-cli
+	certMakeNomadInit && echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -profile=client - | cfssljson -bare nomad-cli
 }
 
 certMakeNomadClient()
 {
 	certValidate "$ca" "$caKey" || return
 	certExists "$certClient" "$certClientKey" && return
-
 	hilight "Creating the Nomad client certificate..."
-	echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config=cfssl.json -hostname="client.global.nomad,localhost,127.0.0.1" - | cfssljson -bare nomad-client
+	certMakeNomadInit && echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config=cfssl.json -hostname="client.global.nomad,localhost,127.0.0.1" - | cfssljson -bare nomad-client
 }
 
 certMakeVault()
@@ -1656,7 +1640,7 @@ Install a HashiCorp product.
 	-w, --what=C1[,C2...] components to install: acl program service config
 	                        cert (cert-local cert-make cert-public cert-service)"; }
 
-installServiceArgStart() { unset force interface whatArg; clients=() servers=() join=(); encrypt="true"; }
+installServiceArgStart() { unset -v force forceCert interface whatArg; clients=() servers=() join=(); encrypt="true"; }
 
 installServiceOpt()
 {
@@ -1711,9 +1695,8 @@ installService()
 
 	hosts=( "${servers[@]}" "${clients[@]}" )
 
-	# set join servers	
-	[[ ! $join ]] && configGetArray "servers" "join"
-	joinFqdn=(); local h; for h in "${join[@]}"; do joinFqdn+=( "$(hostFqdn "$h")" ); done
+	# set join servers
+	hostJoinInit "${join[@]}" || return
 
 	if [[ $verbose ]]; then
 		PrintErr "clients: "; ArrayShow clients
@@ -3010,7 +2993,7 @@ updateCommand() { usage; }
 
 # update cli command
 updateCliUsage() { ScriptUsageEcho "usage: $(ScriptName) update cli cert|program\n\n	$certOptUsage"; }
-updateCliArgStart() { encrypt="true"; }
+updateCliArgStart() { certArgStart; }
 updateCliOpt() { encryptOpt "$@"; }
 updateCliCommand() { usage; }
 
@@ -3076,7 +3059,7 @@ updateCliProgram()
 
 # update service command
 updateServiceUsage() { ScriptUsageEcho "usage: $(ScriptName) update service cert|program\n\n	$certOptUsage"; }
-updateServiceArgStart() { encrypt="true"; }
+updateServiceArgStart() { certArgStart; }
 updateServiceOpt() { encryptOpt "$@"; }
 updateServiceCommand() { usage; }
 
@@ -3632,6 +3615,8 @@ certDirUnmountPrivate()
 # certExists DIR FILES - return 0 if all certificate files exist in the certificate directory
 certExists()
 {	
+	[[ $forceCert ]] && return 1
+
 	local file dir="$PWD"; [[ -d "$1" ]] && { dir="$1"; shift; }
 
 	for file in "$@"; do
@@ -3779,21 +3764,6 @@ hostCheck()
 	return 0
 }
 
-# hostFqdn HOST - get and validate the host fully qualified DNS name
-hostFqdn()
-{
-	local host="$1"
-
-	hostCheck "$host" || return
-	HasDnsSuffix "$host" && { ScriptErr "host '$host' should not have a DNS suffix"; return 1; }
-
-	local fqdn expectedFqdn="$host.$domain"
-
-	fqdn="$(DnsResolve "$host")" || return; [[ "$fqdn" != "$expectedFqdn" ]] && { ScriptErr "host '$host' fully qualified DNS name is '$fqdn' but '$expectedFqdn' was expected"; return 1; }
-
-	echo "$expectedFqdn"
-}
-
 hostCleanup()
 {
 	local host="$1"; hostCheck "$host" || return 0
@@ -3813,6 +3783,28 @@ hostFileExists()
 {
 	local host="$1" file="$2"
 	scriptRun "$host" "[[ -f \"$file\" ]]"
+}
+
+# hostFqdn HOST - get and validate the host fully qualified DNS name
+hostFqdn()
+{
+	local host="$1"
+
+	hostCheck "$host" || return
+	HasDnsSuffix "$host" && { ScriptErr "host '$host' should not have a DNS suffix"; return 1; }
+
+	local fqdn expectedFqdn="$host.$domain"
+
+	fqdn="$(DnsResolve "$host")" || return; [[ "$fqdn" != "$expectedFqdn" ]] && { ScriptErr "host '$host' fully qualified DNS name is '$fqdn' but '$expectedFqdn' was expected"; return 1; }
+
+	echo "$expectedFqdn"
+}
+
+# hostJoinInit [HOST...] - set join and joinFqdn to the passed (or default) join servers
+hostJoinInit()
+{
+	join=("$@"); [[ ! $join ]] && configGetArray "servers" "join"
+	joinFqdn=(); local h; for h in "${join[@]}"; do joinFqdn+=( "$(hostFqdn "$h")" ); done
 }
 
 #
@@ -4190,6 +4182,7 @@ encryptOpt()
 	case "$1" in
 		-e|--encrypt|-e=*|--encrypt=*) ScriptOptGet --optional "encrypt" "$@" && ScriptCheckDir "$encrypt" || encrypt="true";;
 		-ne|--no-encrypt) unset encrypt;;
+		-fc|--force-cert) forceCert="--force-cert";;
 		*) return 1;;
 	esac
 }
@@ -4222,7 +4215,7 @@ getDnsServer()
 	echo "$server"
 }
 
-# getHosts [HOSTS]
+# getHosts [HOSTS] - set hosts array from different sources
 getHosts() 
 {
 	(( $# > 1 )) && { hosts=( "${@}" ); return; }
