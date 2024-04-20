@@ -4,14 +4,14 @@
 usage() 
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [close|IsInstalled|IsRunning|profile|program|restart|start|startup|version](start)
+Usage: $(ScriptName) [OPTION]... [api|close|IsInstalled|IsRunning|profile|program|restart|search|start|startup|version](start)
 $(ScriptName) commands."
 }
 
 init()
 {
 	defaultCommand="start"
-	unset program
+	unset -v apiInitialized program
 
 	# find program
 	case "$PLATFORM_OS" in
@@ -34,5 +34,123 @@ startArgs() { startArgs=( "$@" ); shift="$#"; }
 startCommand() { AppInstallCheck && start $wait "$program" "${startArgs[@]}"; }
 startupCommand() { startCommand; }
 versionCommand() { AppInstallCheck && AppVersion "$program" | cut -d"." -f1-3; }
-									 
+
+#
+# API command
+#
+
+apiUsage()
+{
+	EchoWrap "Usage: $(ScriptName) api [URI]($uri) [JSON]($json)
+Perform an API command."
+}
+
+apiArgStart() { uri="/check/user"; json='{"query": "ok"}'; }
+
+apiArgs()
+{
+	(( $# > 0 )) && { ScriptArgGet "uri" -- "$@"; shift; }
+	(( $# > 0 )) && { ScriptArgGet "json" -- "$@"; shift; }
+	return 0
+}
+
+apiCommand() { api "$uri" "$json"; }
+
+#
+# API Helper
+#
+
+api()
+{
+	local uri="$1" json="$2"
+	apiInit || return
+	RunLog curl --silent -X POST \
+		--header "Authorization: Bearer $token" \
+		--header "Content-Type: application/json" \
+		--data "$json" \
+		"https://api.dropboxapi.com/2/$uri"
+}
+
+apiInit()
+{
+	[[ $apiInitialized ]] && return
+	
+	# get configuration
+	log1 "getting token from the credential store"
+  token="$(credential get dropbox token --fallback)" || return
+
+  apiInitialized="true"
+}
+
+#
+# Search Command
+#
+
+searchUsage()
+{
+	EchoWrap "Usage: $(ScriptName) search QUERY
+Search for files and folders.
+
+	-e, --extensions EXTENSIONS		comma separated list of extensions to search for
+	-o, --open										select and open the file
+	-r, --recent									recent files (less than 1 month old)
+	-w, --word										search for Word files"
+}
+
+searchArgStart() { unset -v extensions filesOpt open recent word; uri="/check/user"; json='{"query": "ok"}'; }
+searchArgs() { ScriptArgGet "search" -- "$@"; shift; }
+
+searchOpt()
+{
+	case "$1" in
+		--extensions|--extensions=*|-e|-e=*) ScriptOptGet "extensions" "$@"; StringToArray "$extensions" "," extensions;;
+		--files|-f) filesOpt=', "filename_only": true';;
+		--open|-o) open="--select";;
+		--recent|-r) recent="after:$(${G}date -d '1 month ago' +'%Y-%m-%d') ";;
+		--word|-w) extensions=(docx);;
+		*) return 1;;
+	esac
+}
+
+# https://www.dropbox.com/developers/documentation/http/documentation#files-search
+searchCommand()
+{
+	PrintErr "searching..."
+	local files=(); IFS=$'\n' ArrayMakeC files search || return
+	EchoErrEnd "done"
+
+	# no files found
+	(( ${#files} == 0 )) && return
+
+	# show files if not opening
+	[[ ! $open ]] && { ArrayDelimit files '\n'; return; }
+
+	# open a single file
+	(( ${#files[@]} == 1 )) && { open "$CLOUD/${files[0]}"; return; }
+
+	# select and open a file
+	local file; file="$(ArrayDelimit files '\n' | fzf)" || return
+	[[ ! $file ]] && return
+	start "$CLOUD/$file"; 
+}
+
+search()
+{
+	[[ $extensions ]] && extensions=', "file_extensions": ['$(ArrayDelimit --quote extensions)']'
+
+	local json; json="$(cat <<-EOF
+			{ 
+				"options": {
+					"max_results": 1000 
+					$extensions
+					$filesOpt
+				},
+				"query":"${recent}$(QuoteQuotes "$search")"
+			}
+			EOF
+		)"
+
+	api "files/search_v2" "$json" | jq '.matches.[].metadata.metadata.path_display' | RemoveQuotes
+}
+
 ScriptRun "$@"

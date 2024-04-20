@@ -946,13 +946,14 @@ ArrayCopy()
 	eval "$2=( $(GetDef $1) )"
 }
 
-# ArrayDelimit NAME [DELIMITER](,) - show array with a delimiter, i.e. ArrayDelimit a $'\n'
+# ArrayDelimit [-q|--quote] NAME [DELIMITER](,) - show array with a delimiter, i.e. ArrayDelimit a $'\n'
 ArrayDelimit()
 {
+	local quote; [[ "$1" == @(-q|--quote) ]] && { quote="\""; shift; }
 	local arrayDelimit=(); ArrayCopy "$1" arrayDelimit || return;
 	local result delimiter="${2:-,}"
-	printf -v result '%s'"$delimiter" "${arrayDelimit[@]}"
-	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
+	printf -v result "${quote}%s${quote}${delimiter}" "${arrayDelimit[@]}"
+	printf "%s" "${result%$delimiter}" # remove delimiter from end
 }
 
 # ArrayDiff A1 A2 - return the items not in common
