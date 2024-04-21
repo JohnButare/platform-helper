@@ -46,6 +46,24 @@ fi
 ShowArgs() { local args=( "$@" ); ArrayShow args; } 	# ShowArgs [ARGS...] - show arguments from command line
 SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - split arguments from command line using IFS 
 
+# commands
+
+# GetCommandType NAME - return type of command: alias|builtin|function|file|keyword|, https://serverfault.com/questions/879222/get-on-zsh-the-same-result-you-get-when-executing-type-t-on-bash
+if IsBash; then
+	GetCommandType() { local type -t "$1"; }
+else
+	GetCommandType()
+	{
+		local type; type="$(whence -w "$1" | cut -d" " -f2)" || return
+		case "$type" in 
+			alias|builtin|function) echo "$type";;
+			command) echo "file";;
+			reserved) echo "keyword";;
+		esac
+	}
+fi 
+
+
 #
 # Other
 #
@@ -53,7 +71,7 @@ SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - spli
 AllConf() { HashiConf "$@" && CredentialConf "$@" && NetworkConf "$@" && SshAgentConf "$@"; }
 EvalVar() { r "${!1}" $2; } # EvalVar <var> <variable> - return the contents of the variable in variable, or set it to var
 IsInteractiveShell() { [[ "$-" == *i* ]]; } # 0 if we are running at the command prompt, 1 if we are running from a script
-IsUrl() { [[ "$1" =~ ^(file|git|http[s]?|ms-windows-store)://.* ]]; }
+IsUrl() { [[ "$1" =~ ^[A-Za-z][A-Za-z0-9+-]+: ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
 
 # TTY input and output
@@ -117,8 +135,7 @@ clipok()
 		linux) [[ "$DISPLAY" ]] && InPath xclip;;
 		mac) InPath pbcopy;; 
 		win) InPath clip.exe paste.exe;;
-	esac
-	
+	esac	
 }
 
 clipr() 
@@ -418,7 +435,7 @@ AppVersion()
 		# not found if cannot find in path or if is excluded
 		# - Homebrew speedtest conflicts with the GUI speedtest
 		# - /usr/bin/dash conflicts with the Dash mac application
-		[[ "$?" != "0" || "$file" == @(/opt/homebrew/bin/speedtest|/bin/dash|/usr/bin/dash) ]] && { ScriptErrQuiet "application '$appOrig' is not installed" "$app"; return 1; }
+		[[ "$?" != "0" || "$file" == @(/opt/homebrew/bin/speedtest|/bin/dash|/usr/bin/dash) ]] && { ScriptErrQuiet "application '$appOrig' is not installed" "AppVersion"; return 1; }
 	fi
 
 	# special cases
@@ -469,8 +486,8 @@ AppVersion()
 	[[ ! $version ]] && { version="$("$file" --version | head -1 | awk '{print $NF}' | RemoveCarriageReturn)" || return; }
 
 	# validation
-	[[ ! $version ]] && { ScriptErrQuiet "application '$appOrig' version was not found"; return 1; }	
-	[[ ! $allowAlpha ]] && ! IsNumeric "$version" && { ScriptErrQuiet "application '$appOrig' version '$version' is not numeric"; return 1; }
+	[[ ! $version ]] && { ScriptErrQuiet "application '$appOrig' version was not found" "AppVersion"; return 1; }	
+	[[ ! $allowAlpha ]] && ! IsNumeric "$version" && { ScriptErrQuiet "application '$appOrig' version '$version' is not numeric" "AppVersion"; return 1; }
 	UpdateSet "$appCache" "$version" && echo "$version"
 }
 
@@ -652,8 +669,8 @@ i()
 		shift
 	done
 
-	if [[ $help ]]; then echot "\
-usage: i [APP*|bak|cd|check|dir|info|select]
+	if [[ $help ]]; then EchoWrap "\
+Usage: i [APP*|bak|cd|check|dir|info|select]
 install commands.
   -nf, --no-find 	do not find the installation location
   -nr, --no-run 	do not find or run the installation program
@@ -835,7 +852,7 @@ SleepStatus()
 		0) :;;
 		1) IsInteger "$1" && seconds="$1" || message="$1";;
 		2) message="$1"; seconds=$2;;
-		*) EchoErr "usage: SleepStatus [MESSAGE](Waiting for n seconds) [SECONDS](5)"
+		*) EchoWrap "Usage: SleepStatus [MESSAGE](Waiting for n seconds) [SECONDS](5)"
 	esac
 	[[ ! $message ]] && message="Waiting for $seconds seconds"
 
@@ -1112,7 +1129,7 @@ ForwardToBackSlash() { GetArgs; echo -E "$@" | sed 's/\//\\/g'; }
 RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
 
 GetAfter() { GetArgs2; [[ "$1" =~ ^[^$2]*$2(.*)$ ]] && echo "${BASH_REMATCH[1]}"; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
-GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoErr "usage: GetWord STRING|- WORD [DELIMITER](-) - 1 based"; return 1; }
+GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoWrap "Usage: GetWord STRING|- WORD [DELIMITER](-) - 1 based"; return 1; }
 
 if IsZsh; then
 	LowerCase() { GetArgs; [[ $# == 0 ]] && { tr '[:upper:]' '[:lower:]'; return; }; r "${1:l}" $2; }
@@ -1253,7 +1270,7 @@ explore() # explorer DIR - explorer DIR in GUI program
 
 	IsPlatform mac && { open "$dir"; return; }
 	IsPlatform wsl1 && { RunWin explorer.exe "$(utw "$dir")"; return; }
-	IsPlatform wsl2 && { local dir="$PWD"; RunWin explorer.exe "$(utw "$dir")"; return 0; } # cd to local directory to fix invalid argument error running programs from SMB mounted shares
+	IsPlatform wsl2 && { RunWin explorer.exe "$(utw "$dir")"; return 0; }
 	InPath nautilus && { start nautilus "$dir"; return; }
 	InPath mc && { mc; return; } # Midnight Commander
 
@@ -1441,7 +1458,7 @@ HideAll()
 # MoveAll SRC DEST - move contents of SRC to DEST including hidden files and folders
 MoveAll()
 { 
-	[[ ! $1 || ! $2 ]] && { EchoErr "usage: MoveAll SRC DEST"; return 1; }
+	[[ ! $1 || ! $2 ]] && { EchoWrap "Usage: MoveAll SRC DEST"; return 1; }
 	shopt -s dotglob nullglob
 	mv "$1/"* "$2" && rmdir "$1"
 }
@@ -2060,7 +2077,7 @@ MacLookup()
 		# get the MAC address - everything else
 		else
 			mac="$(arp "$host")" || return
-			echo "$mac" | ${G}grep --quiet "no entry$" && { ScriptErrQuiet "no MAC address for '$host'"; return 1; }
+			echo "$mac" | ${G}grep --quiet "no entry$" && { ScriptErrQuiet "no MAC address for '$host'" "MacResolve"; return 1; }
 			local column=3; IsPlatform mac && column=4
 			mac="$(echo "$mac" | tr -s " " | cut -d" " -f${column} | tail -1)"
 		fi
@@ -3157,19 +3174,31 @@ FindMacApp()
 	return 1
 }
 
+# IsExecutable FILE - true if the file is an executable program
 IsExecutable()
 {
-	local p="$@"; [[ ! $p ]] && { EchoErr "usage: IsExecutable PROGRAM"; return 1; }
-	local ext="$(GetFileExtension "$p")"
+	local file="$1"; [[ ! $file ]] && { EchoWrap "Usage: IsExecutable FILE"; return 1; }
 
 	# file $UADATA/Microsoft/WindowsApps/*.exe returns empty, so assume files that end in exe are executable
-	[[ -f "$p" && "$ext" =~ (^exe$|^com$) ]] && return 0
+	[[ -f "$file" && "$(GetFileExtension "$file")" == "@(exe|com)" ]] && return 0
 
 	# executable file
-	[[ -f "$p" ]] && { file "$(GetRealPath "$p")" | grep -E "executable|ELF" > /dev/null; return; }
+	[[ -f "$file" ]] && { file "$(GetRealPath "$file")" | grep -E "executable|ELF" > /dev/null; return; }
 
-	# alias, builtin, or function
-	type -a "$p" >& /dev/null
+	# not executable
+	return 1
+}
+
+# IsRunnable COMMAND - true if the command is runnable (executable, script, function, alias)
+IsRunnable()
+{
+	local command="$1"; [[ ! $command ]] && { EchoWrap "Usage: IsRunnable COMMAND"; return 1; }
+
+	# executable
+	IsExecutable "$command" && return
+
+	# runnable shell commands: alias, function, or builtin
+	[[ "$(GetCommandType "$command")" == @(alias|function|builtin) ]]
 }
 
 # IsProcessRunning NAME
@@ -3475,7 +3504,7 @@ pstree()
 # start a program converting file arguments for the platform as needed
 startUsage()
 {
-	echot "\
+	EchoWrap "\
 Usage: start [OPTION]... FILE [ARGUMENTS]...
 	Start a program converting file arguments for the platform as needed
 
@@ -3530,46 +3559,45 @@ start()
 
 		# open the app, waiting for the OS to see newly installed apps if needed
 		local result; result="$(open -a "$file" "${args[@]}")" && return
-		[[ ! "$result" =~ "Unable to find application named" ]] && { ScriptErrQuiet "$result"; return 1; }
+		[[ ! "$result" =~ "Unable to find application named" ]] && { ScriptErrQuiet "$result" "start"; return 1; }
 		StartWaitExists "$file"; return
 
 	fi
 
-	# find executable file in path
-	local newFile="$(FindInPath "$file")"
-	[[ $newFile ]] && file="$newFile"
+	# find file in path
+	[[ "$(GetCommandType "$file")" == "file" ]] && file="$(FindInPath "$file")"
 
-	# determine if we can open the file
-	local useOpen; { [[ -d "$file" ]] || IsUrl "$file"; } && useOpen="true"
+	# open directories, URLs, and non-executable files
+	if [[ -d "$file" ]] || IsUrl "$file" || { [[ -f "$file" ]] && ! IsExecutable "$file"; }; then
 
-	# ensure file exists
-	if [[ ! $useOpen && ! -f "$file" ]]; then
-		ScriptErrQuiet "Unable to find '$fileOrig'" "start"
-		return 1
+		# get the full path of files
+		[[ -f "$file" ]] && file="$(GetFullPath "$file")"
+
+		# determin open program
+		local open=()
+		if [[ -d "$file" ]]; then explore "$file"; return
+		elif IsPlatform mac; then open=( open )
+		elif IsPlatform win; then open=( cmd.exe /c start \"open\" /b ) # must set title with quotes so quoted arguments are interpreted as file to start, test with start "/mnt/c/Program Files"
+		elif InPath xdg-open; then open=( xdg-open )
+		else ScriptErrQuiet "unable to open '$fileOrig'" "start"; return 1
+		fi
+
+		# open
+		(
+			IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"
+			start "${open[@]}" "$file" "${args[@]}";
+		)		
+		return
 	fi
+
+	# validate file exists
+	[[ ! -f "$file" ]] && { ScriptErrQuiet "unable to find '$fileOrig'" "start"; return 1; }
 
 	# start files with a specific extention
 	case "$(GetFileExtension "$file")" in
 		cmd) (IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"; cmd.exe /c "$(utw "$(GetFullPath "$file")")" "${args[@]}"; ); return;;
 		js|vbs) start cscript.exe /NoLogo "$file" "${args[@]}"; return;;
 	esac
-
-	# open file
-	if [[ $useOpen ]] || ! IsExecutable "$file"; then
-
-		# open file with the associated program
-		local open=()
-		if IsPlatform mac; then open=( open )
-		elif IsPlatform win; then open=( cmd.exe /c start \"open\" /b ) # must set title with quotes so quoted arguments are interpreted as file to start, test with start "/mnt/c/Program Files"
-		elif InPath xdg-open; then open=( xdg-open )
-		else open="NO_OPEN"; fi
-
-		(
-			IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"
-			start "${open[@]}" "$(GetFullPath "$file")" "${args[@]}";
-		)
-		return
-	fi
 
 	# start Windows processes, or start a process on Windows elevated
 	if IsPlatform win && ( [[ $elevate ]] || IsWindowsProgram "$file" ) ; then
@@ -3822,7 +3850,7 @@ ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } 		
 ScriptCheckMac() { IsMacAddress "$1" && return; ScriptErr "'$1' is not a valid MAC address"; }
 ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }		# ScriptDir - return the directory the script is contained in
 ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; return 1; }	# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
-ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$1"; }
+ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$@"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
 ScriptMessage() { EchoErr "$(ScriptPrefix "$2")$1"; } 																		# ScriptMessage MESSAGE - log a message with the script prefix
@@ -4275,7 +4303,7 @@ InitializeXServer()
 
 WinSetStateUsage()
 {
-	echot "\
+	EchoWrap "\
 Usage: WinSetState [OPTION](--activate) WIN
 	Set the state of the specified windows title or class
 
