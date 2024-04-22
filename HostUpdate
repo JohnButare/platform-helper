@@ -3,7 +3,7 @@
 
 usage()
 {
-	ScriptUsage "$1" "Usage: $(ScriptName) [OPTION]... [HOST]...
+	ScriptUsage "$1" "Usage: $(ScriptName) [all|client|server](client) [HOST]...
 
 	-p, --prompt		prompt for what to update
 	-P,	--protocol	$(ScriptOptNetworkProtocolUsage)
@@ -26,8 +26,9 @@ init()
 	defaultCommand="update"	
 	defaultItems=( adobe brew choco motd npm node os python ruby store zsh)
 	defaultHagermanItems=( apps )
+	serverItems=( server-credential server server-root-user )
 	otherHagermanItems=( download hass pool-controller pool-dash-panel pool-temperature ) # pool-controller latest version after 8.0.3 does not turn on outside of scheduled times
-	otherItems=( file debian fzf intel mac micro opkg windows wsl ${otherHagermanItems[@]} )
+	otherItems=( file files public-files debian fzf intel mac micro opkg windows wsl ${otherHagermanItems[@]} ${serverItems[@]} )
 	allItems=( "${defaultItems[@]}" "${otherItems[@]}" )
 	ohMyZsh="$HOME/.oh-my-zsh"
 }
@@ -61,7 +62,26 @@ argEnd()
 # commands
 #
 
-updateCommand()
+updateCommand() { clientCommand; }
+
+allCommand()
+{
+	HeaderBig "Download"
+	downloadUpdate || return
+
+	HeaderBig "Files"
+	fileUpdate || return
+	filesUpdate || return
+	public-filesUpdate || return
+
+	HeaderBig "Update Client"
+	clientCommand || return
+
+	HeaderBig "Update Server"
+	serverCommand || return
+}
+
+clientCommand()
 {
 	local default item
 
@@ -83,6 +103,13 @@ updateCommand()
 	return 0
 }
 
+serverCommand()
+{
+	ask "server-credentials" && { server-credentialUpdate || return; }
+	ask "server" && { serverUpdate || return; }
+	ask "server-root-user" && { server-root-userUpdate || return; }
+}
+
 #
 # App Update
 #
@@ -101,7 +128,7 @@ downloadInstalled() { true; }
 downloadUpdate()
 {
 	! UpdateNeeded "update-app-download" && return
-	inst install download "${globalArgs}";
+	inst install download "${globalArgs[@]}" || return
 	UpdateDone "update-app-download" || return
 }
 
@@ -231,8 +258,34 @@ fileUpdate()
 	local server; server="$(GetServer "file")" || return
 	IsLocalHostIp "$server" && return # do not sync files to ourself
 	! unc IsAvailable "$server" "${protocolArg[@]}" "${globalArgs[@]}" && return
-	SyncLocalFiles $method $noBak "${protocolArg[@]}" "$server" || return
+	SyncLocalFiles $method $noBak "${protocolArg[@]}" "${globalArgs[@]}" "$server" || return
 	UpdateDone "update-file" || return
+}
+
+#
+# Files Update
+#
+
+filesInstalled() { return 0; }
+
+filesUpdate()
+{
+	{ ! filesInstalled || ! UpdateNeeded "update-files"; } && return
+	wiggin host sync files --errors --dest-older "${globalArgs[@]}" || return
+	UpdateDone "update-files" || return
+}
+
+#
+# Public Files Update
+#
+
+public-filesInstalled() { return 0; }
+
+public-filesUpdate()
+{
+	{ ! public-filesInstalled || ! UpdateNeeded "update-public-files"; } && return
+	wiggin sync public --no-prompt "${globalArgs[@]}" || return
+	UpdateDone "update-public-files" || return
 }
 
 #
@@ -448,6 +501,37 @@ rubyUpdate()
 	UpdateNeeded "update-ruby" && { $sudo gem update "${args[@]}" || return; UpdateDone "update-ruby" || return; }
 
 	return 0
+}
+
+#
+# Server Update
+#
+
+server-credentialInstalled() { return 0; }
+
+server-credentialUpdate()
+{
+	{ ! server-credentialInstalled || ! UpdateNeeded "update-server-credential"; } && return
+	wiggin host credential -H=locked "${globalArgs[@]}" || return
+	UpdateDone "update-server-credential" || return
+}
+
+server-root-userInstalled() { return 0; }
+
+server-root-userUpdate()
+{
+	{ ! server-root-userInstalled || ! UpdateNeeded "update-server-root-user"; } && return
+	wiggin host sync root "${globalArgs[@]}" || return
+	UpdateDone "update-server-root-user" || return
+}
+
+serverInstalled() { return 0; }
+
+serverUpdate()
+{
+	{ ! serverInstalled || ! UpdateNeeded "update-server"; } && return
+	wiggin host update --errors --dest-older "${globalArgs[@]}" || return
+	UpdateDone "update-server" || return
 }
 
 #
