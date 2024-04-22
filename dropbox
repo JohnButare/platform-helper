@@ -4,8 +4,13 @@
 usage() 
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [api|close|IsInstalled|IsRunning|profile|program|restart|search|start|startup|version](start)
-$(ScriptName) commands."
+Usage: $(ScriptName) [OPTION]...  [COMMAND]...
+$(ScriptName) commands.
+
+	program commands: close|IsInstalled|IsRunning|profile|program|restart|search|start|startup
+	api commands: api|check|search
+
+	-r, --root		use the root namespace for API calls"
 }
 
 init()
@@ -20,6 +25,16 @@ init()
 	esac
 
 	return 0
+}
+
+argStart() { unset -v root rootNamespaceId; }
+
+opt()
+{
+	case "$1" in
+		--root|-r) root="--root";;
+		*) return 1;;
+	esac
 }
 
 closeCommand() { ! isRunningCommand && return 0; ProcessClose "$program"; } 
@@ -63,11 +78,17 @@ apiCommand() { api "$uri" "$json"; }
 api()
 {
 	local uri="$1" json="$2"
+
+	# initialize the API
 	apiInit || return
-	RunLog curl --silent -X POST \
+
+	# get arguments
+	local args=(); [[ $root ]] && args+=(--header 'Dropbox-API-Path-Root: {".tag": "namespace_id", "namespace_id": "'$rootNamespaceId'"}')
+
+	# perform the API call
+	RunLog curl --silent -X POST "${args[@]}" \
 		--header "Authorization: Bearer $token" \
 		--header "Content-Type: application/json" \
-		--header 'Dropbox-API-Path-Root: {".tag": "namespace_id", "namespace_id": "6257181744"}' \
 		--data "$json" \
 		"https://api.dropboxapi.com/2/$uri"
 }
@@ -80,7 +101,19 @@ apiInit()
 	log1 "getting token from the credential store"
   token="$(credential get dropbox token --fallback)" || return
 
+  [[ $root ]] && { rootNamespaceId="$(credential get dropbox RootNamespaceId --fallback)" || return; }
+
   apiInitialized="true"
+}
+
+#
+# Check Command
+#
+
+checkCommand()
+{
+	[[ ! $json ]] && json='{"query": "ok"}'
+	api "check/user" "$json" || return
 }
 
 #
