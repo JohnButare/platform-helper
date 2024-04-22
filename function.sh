@@ -50,7 +50,7 @@ SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - spli
 
 # GetCommandType NAME - return type of command: alias|builtin|function|file|keyword|, https://serverfault.com/questions/879222/get-on-zsh-the-same-result-you-get-when-executing-type-t-on-bash
 if IsBash; then
-	GetCommandType() { local type -t "$1"; }
+	GetCommandType() { type -t "$1"; }
 else
 	GetCommandType()
 	{
