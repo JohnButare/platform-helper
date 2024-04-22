@@ -3577,14 +3577,14 @@ start()
 		local open=()
 		if [[ -d "$file" ]]; then explore "$file"; return
 		elif IsPlatform mac; then open=( open )
-		elif IsPlatform win; then open=( cmd.exe /c start \"open\" /b ) # must set title with quotes so quoted arguments are interpreted as file to start, test with start "/mnt/c/Program Files"
+		elif IsPlatform win; then open=( explorer.exe )
 		elif InPath xdg-open; then open=( xdg-open )
 		else ScriptErrQuiet "unable to open '$fileOrig'" "start"; return 1
 		fi
 
 		# open
 		(
-			IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"
+			#IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"
 			start "${open[@]}" "$file" "${args[@]}";
 		)		
 		return
@@ -3603,13 +3603,22 @@ start()
 	if IsPlatform win && ( [[ $elevate ]] || IsWindowsProgram "$file" ) ; then
 		local fullFile="$(GetFullPath "$file")"
 
-		# convert POSIX paths to Windows format (i.e. c:\...)		
+		# convert POSIX paths to Windows format (i.e. c:\...) if needed
 		if IsWindowsProgram "$file"; then
 			local a newArgs=()
 			for a in "${args[@]}"; do 
 				[[  -e "$a" || ( ! "$a" =~ .*\\.* && "$a" =~ .*/.* && -e "$a" ) ]] && { newArgs+=( "$(utw "$a")" ) || return; } || newArgs+=( "$a" )
 			done
 			args=("${newArgs[@]}")
+		fi
+
+		# file:// convert HOME directory in Windows, example: start 'ms-word:ofe|u|file:/~/Juntos%20Holdings%20Dropbox/test.docx'
+		if IsPlatform win && [[ "${args[1]}" =~ file: ]]; then
+			local newHome="$(utw "$WIN_HOME" | BackToForwardSlash | RemoveTrailingSlash)"
+			local s="${args[1]}"
+			s="${s/\~/$newHome}"
+			s="${s/$HOME/$newHome}"
+			args[1]="$s"
 		fi
 
 		# start Windows console process
