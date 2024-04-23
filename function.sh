@@ -708,7 +708,8 @@ McflyConf()
 
 	{ ! InPath mcfly || [[ "$TERM_PROGRAM" == @(vscode|WarpTerminal) ]]; } && return
 
-	export MCFLY_HISTFILE="$HISTFILE" && eval "$(mcfly init "$PLATFORM_SHELL")"
+	export MCFLY_HISTFILE="$HISTFILE" MCFLY_RESULTS="50" MCFLY_DELETE_WITHOUT_CONFIRM="true" MCFLY_INTERFACE_VIEW="BOTTOM" MCFLY_RESULTS_SORT="LAST_RUN" MCFLY_PROMPT="❯"
+	eval "$(mcfly init "$PLATFORM_SHELL")"
 }
 
 NodeConf()
