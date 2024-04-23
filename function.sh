@@ -933,7 +933,7 @@ fi
 
 # array
 ArrayAnyCheck() { IsAnyArray "$1" && return; ScriptErr "'$1' is not an array"; return 1; }
-ArrayReverse() { ArrayDelimit "$1" $'\n' | tac; }
+ArrayReverse() { { ArrayDelimit "$1" $'\n'; printf "\n"; } | tac; } # last line of tac must end in a newline
 ArraySize() { eval "echo \${#$1[@]}"; }
 
 # AppendArray [-rd|--remove-dups|--remove-duplicates] DEST A1 A2 ... - combine specified arrays into first array
@@ -970,7 +970,7 @@ ArrayDelimit()
 	local arrayDelimit=(); ArrayCopy "$1" arrayDelimit || return;
 	local result delimiter="${2:-,}"
 	printf -v result "${quote}%s${quote}${delimiter}" "${arrayDelimit[@]}"
-	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
+	printf "%s" "${result%$delimiter}" # remove delimiter from end
 }
 
 # ArrayDiff A1 A2 - return the items not in common
