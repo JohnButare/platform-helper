@@ -8,9 +8,10 @@ Usage: $(ScriptName) [OPTION]...  [COMMAND]...
 $(ScriptName) commands.
 
 	program commands: close|IsInstalled|IsRunning|profile|program|restart|search|start|startup
-	api commands: api|check|search
+	api commands: api|check|namespace|search
 
-	-r, --root		use the root namespace for API calls"
+	-r, --root		use the root namespace for API calls
+	-t, --team		use a team token for API calls"
 }
 
 init()
@@ -27,12 +28,13 @@ init()
 	return 0
 }
 
-argStart() { unset -v root rootNamespaceId; }
+argStart() { unset -v root rootNamespaceId team teamToken; }
 
 opt()
 {
 	case "$1" in
 		--root|-r) root="--root";;
+		--team|-t) team="--team";;
 		*) return 1;;
 	esac
 }
@@ -82,26 +84,31 @@ api()
 	# initialize the API
 	apiInit || return
 
-	# get arguments
-	local args=(); [[ $root ]] && args+=(--header 'Dropbox-API-Path-Root: {".tag": "namespace_id", "namespace_id": "'$rootNamespaceId'"}')
+	# get API arguments
+	local args=()
+
+	if [[ $team ]]; then
+		args+=(--header "Authorization: Bearer $teamToken")
+	else
+		args+=(--header "Authorization: Bearer $userToken")
+	fi
+
+	[[ $root ]] && args+=(--header 'Dropbox-API-Path-Root: {".tag": "namespace_id", "namespace_id": "'$rootNamespaceId'"}')
 
 	# perform the API call
-	RunLog curl --silent -X POST "${args[@]}" \
-		--header "Authorization: Bearer $token" \
+	RunLog curl --silent -X POST "https://api.dropboxapi.com/2/$uri" "${args[@]}" \
 		--header "Content-Type: application/json" \
-		--data "$json" \
-		"https://api.dropboxapi.com/2/$uri"
+		--data "$json"
 }
 
 apiInit()
 {
 	[[ $apiInitialized ]] && return
 	
-	# get configuration
-	log1 "getting token from the credential store"
-  token="$(credential get dropbox token --fallback)" || return
-
+	log1 "getting the API configuration from the credential store"
+  userToken="$(credential get dropbox token --fallback)" || return
   [[ $root ]] && { rootNamespaceId="$(credential get dropbox RootNamespaceId --fallback)" || return; }
+  [[ $team ]] && { teamToken="$(credential get dropbox TeamToken --fallback)" || return; }
 
   apiInitialized="true"
 }
@@ -114,6 +121,18 @@ checkCommand()
 {
 	[[ ! $json ]] && json='{"query": "ok"}'
 	api "check/user" "$json" || return
+}
+
+#
+# Namespace Commands
+#
+
+namespaceCommand() { namespaceListCommand; }
+
+namespaceListCommand()
+{
+	[[ ! $json ]] && json='{"limit": 1}'
+	api "team/namespaces/list" "$json" || return
 }
 
 #
@@ -188,7 +207,7 @@ search()
 		)"
 
 	[[ $jsonOpt ]] && { api "files/search_v2" "$json"; return; }
-	api "files/search_v2" "$json" | jq '.matches.[].metadata.metadata.path_display' | RemoveQuotes
+	api "files/search_v2" "$json" | jq '.matches[].metadata.metadata.path_display' | RemoveQuotes
 }
 
 ScriptRun "$@"
