@@ -1082,7 +1082,7 @@ GetSeconds()
 	local format="+%s.%N"; [[ "$1" == @(--no-nanoseconds|--no-ns) ]] && { format="+%s"; shift; }
 	[[ "$1" == "-" ]] && set -- "$(cat)"
 
-	[[ $1 ]] && { seconds${G}date "$format" -d "$1"; return; }
+	[[ $1 ]] && { ${G}date "$format" -d "$1"; return; }
 	[[ $# == 0 ]] && ${G}date "$format"; # only return default date if no argument is specified
 }
 
