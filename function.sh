@@ -78,10 +78,9 @@ r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VA
 IsTty() { ${G}tty --silent;  }		# ??
 IsTtyOk() {  { printf "" > "/dev/tty"; } >& "/dev/null"; } # 0 if /dev/tty is usable for reading input or sending output (useful when stdin or stdout is not available in a pipeline)
 IsSshTty() { [[ $SSH_TTY ]]; }		# 0 if connected over SSH with a TTY
-IsStdIn() { [[ -t 0 ]];  } 				# 0 if STDIN refers to a terminal, i.e. "echo | IsStdIn" is 1
-IsStdOut() { [[ -t 1 ]];  } 			# 0 if STDOUT refers to a terminal, i.e. "IsStdOut | cat" is 1
-IsStdErr() { [[ -t 2 ]];  } 			# 0 if STDERR refers to a terminal, i.e. "IsStdErr |& cat" is 1
-
+IsStdIn() { [[ -t 0 ]];  } 				# 0 if STDIN refers to a terminal, i.e. "echo | IsStdIn" is 1 (false)
+IsStdOut() { [[ -t 1 ]];  } 			# 0 if STDOUT refers to a terminal, i.e. "IsStdOut | cat" is 1 (false)
+IsStdErr() { [[ -t 2 ]];  } 			# 0 if STDERR refers to a terminal, i.e. "IsStdErr |& cat" is 1 (false)
 
 UrlEncodeSpace()
 {
@@ -157,12 +156,18 @@ clipw()
 }
 
 # logging
-InitColor() { test -t 1 || return 0; GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); } # set color variables if colors are supported (standard out is a terminal)
+
 header() { InitColor; printf "${RB_BLUE}*********************************** ${RB_INDIGO}$1${RB_BLUE} ***********************************${RESET}\n"; headerDone="$((52 + ${#1}))"; return 0; }
 HeaderBig() { InitColor; printf "${RB_BLUE}************************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n************************************************************${RESET}\n"; }
 HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
 hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
 hilightp() { InitColor; printf "${GREEN}$@${RESET}"; } # hilight with no newline
+
+# set color variables if colors are supported (using a terminal)
+InitColor() { IsStdOut && InitColorForce || InitColorClear; }
+InitColorErr() { IsStdErr && InitColorForce || InitColorClear; }
+InitColorForce() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); }
+InitColorClear() { unset -v GREEN RB_BLUE RB_INDIGO RED RESET; }
 
 # CurrentColumn - return the current cursor column, https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
 if IsTtyOk; then
@@ -881,7 +886,7 @@ EchoErr() { [[ $@ ]] && EchoResetErr; EchoWrap "$@" >&2; return 0; }		# show err
 EchoErrEnd() { echo -e "$@" >&2; return 0; }														# show error message on the end of the line
 EchoQuiet() { [[ $quiet ]] && return; EchoWrap "$1"; }									# echo a message if quiet is not set
 EchoResetErr() { EchoReset "$@" >&2; return 0; } 												# reset to column 0 if not at column 0
-HilightErr() { InitColor; EchoErr "${RED}$@${RESET}"; }									# hilight an error message
+HilightErr() { InitColorErr; EchoErr "${RED}$@${RESET}"; }									# hilight an error message
 PrintErr() { echo -n -e "$@" >&2; return 0; }														# print an error message without a newline or resetting to column 0
 PrintEnd() { echo -n -e "$@"; return 0; }																# print message at the current cursor position
 PrintQuiet() { [[ $quiet ]] && return; printf "$1"; }										# print a message if quiet is not set
