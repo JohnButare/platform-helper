@@ -1075,11 +1075,15 @@ GetDateStampNext()
 	echo "$prefix$stamp-$i.$suffix"
 }
 
-GetSeconds() # GetSeconds [<date string>](current time) - seconds from 1/1/1970 to specified time
+# GetSeconds [--no-ns|--no-nanoseconds] [<date string>](current time) - return seconds from 1/1/1970 to specified time
+# --no-ns|--no-nanoseconds - do not return nanoseconds (fractional date)
+GetSeconds()
 {
+	local format="+%s.%N"; [[ "$1" == @(--no-nanoseconds|--no-ns) ]] && { format="+%s"; shift; }
 	[[ "$1" == "-" ]] && set -- "$(cat)"
-	[[ $1 ]] && { ${G}date +%s.%N -d "$1"; return; }
-	[[ $# == 0 ]] && ${G}date +%s.%N; # only return default date if no argument is specified
+
+	[[ $1 ]] && { seconds${G}date "$format" -d "$1"; return; }
+	[[ $# == 0 ]] && ${G}date "$format"; # only return default date if no argument is specified
 }
 
 # integer
@@ -1191,7 +1195,7 @@ GetFileDateStamp() { ${G}date '+%Y%m%d' --reference "$1"; }
 GetFileHash() { sha1sum "$1" | cut -d" " -f1; }
 GetFileMod() { ${G}stat --format="%y" "$1"; }
 GetFileModSeconds() { ${G}date +%s --reference "$1"; }
-GetFileModTime() { ShowSimpleTime "@$(GetFileSeconds "$1")"; }
+GetFileModTime() { ShowSimpleTime "@$(GetFileModSeconds "$1")"; }
 GetFileSize() { GetArgs; [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "$size" == "B" ]] && size="1"; s="$(${G}du --apparent-size --summarize -B$size "$1" |& cut -f 1)"; echo "${s%%*([[:alpha:]])}"; } # FILE [SIZE]
 GetFilePath() { GetArgs; local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { GetArgs; r "${1##*/}" $2; }
