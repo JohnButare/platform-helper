@@ -454,6 +454,7 @@ AppVersion()
 			consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
 			cryfs|cryfs-unmount) version="$(cryfs --version | head -1 | cut -d" " -f3)";;
 			damon) version="$(damon --version | head -1 | cut -d"v" -f2 | cut -d"-" -f1)" || return;;
+			dbxcli) version="$(dbxcli version | head -1 | sed 's/.* v//')" || return;;
 			dog) version="$(dog --version | head -2 | tail -1 | cut -d"v" -f2)" || return;;
 			exa) version="$(exa --version | head -2 | tail -1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
 			figlet|pyfiglet) version="$(pyfiglet --version | RemoveEnd ".post1")" || return;;
