@@ -4173,6 +4173,29 @@ SetTextEditor()
 	export {SUDO_EDITOR,EDITOR}="$e"
 }
 
+# JSON
+JsonIsValid() { GetArgs; printf "$1" | jq '.' >& /dev/null; }
+JsonGetKeyArg() { local key="$1"; [[ ! "$key" =~ '\.' ]] && key=".$key"; printf "$key"; }
+JsonGetKey() { GetArgs2; printf "$1" | jq -e "$(JsonGetKeyArg "$2")" | RemoveQuotes; }
+JsonHasKey() { GetArgs2; local key="$2"; printf "$1" | jq -e "select($(JsonGetKeyArg "$2") != null)" >& /dev/null; }
+JsonLog() { GetArgs2; (( verboseLevel < ${2:-1} )) && return; ScriptMessage "json="; printf "$1" | jq >&2; } # JsonLog [JSON] [VERBOSE_LEVEL]
+
+JsonValidate()
+{
+	GetArgs3; local json="$1" errorPath="$2" errorDescriptionPath="$3"
+
+	# invalid json
+	! JsonIsValid "$json" && { log1 "json='$json'"; ScriptErrQuiet "the JSON is not valid"; return 1; }	
+
+	# no error
+	! JsonHasKey "$json" "$errorPath" && return
+
+	# show error - the error description if present, otherwise a generic error
+	JsonLog "$json" 2
+	! JsonHasKey "$json" "$errorDescriptionPath" && { ScriptErrQuiet "the API call returned an error"; return 1; }
+	ScriptErrQuiet "$(JsonGetKey "$json" "$errorDescriptionPath")"; return 1
+}
+
 #
 # Virtual Machine
 #
