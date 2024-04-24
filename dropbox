@@ -8,7 +8,7 @@ Usage: $(ScriptName) [OPTION]...  [COMMAND]...
 $(ScriptName) commands.
 
 	program commands: close|IsInstalled|IsRunning|profile|program|restart|search|start|startup
-	api commands: api|check|namespace|search
+	api commands: api|check|namespace|search|token
 
 	-r, --root		use the root namespace for API calls
 	-t, --team		use a team token for API calls"
@@ -16,8 +16,8 @@ $(ScriptName) commands.
 
 init()
 {
-	defaultCommand="start"
 	unset -v apiInitialized program
+	defaultCommand="start" tokenCacheFile="dropbox-token-$USER"
 
 	# find program
 	case "$PLATFORM_OS" in
@@ -25,7 +25,7 @@ init()
 		win) program="$P32/Dropbox/Client/Dropbox.exe";;
 	esac
 
-	return 0
+	UpdateInit || return
 }
 
 argStart() { unset -v root rootNamespaceId team token; }
@@ -106,47 +106,12 @@ apiInit()
   if [[ $team ]]; then
   	token="$(credential get dropbox TeamToken --fallback)" || return
   else
-  	apiGetUserToken || return
+  	token="$(credential get dropbox token --fallback --quiet)"
   fi
 
   apiInitialized="true"
 }
 
-apiGetUserToken()
-{
-	local tokenCacheFile="dropbox-token-$USER"
-
-	# get the saved token
-	token="$(credential get dropbox token --fallback --quiet)"
-
-	# return if the token is valid
-	local expiresInSeconds expiresInSecondsDefault="1440"
-	UpdateInit || return	
-	expiresInSeconds="$(UpdateGet "$tokenCacheFile")"; ! IsInteger "$expiresInSeconds" && expiresInSeconds="$expiresInSecondsDefault"
-	[[ $token ]] && [[ -f "$updateDir/$tokenCacheFile" ]] && (( $(GetFileModSeconds "$updateDir/$tokenCacheFile") + 1440 > $(GetSeconds --no-nanoseconds) )) && return
-
-	# get a new token
-	local authorizationCode; authorizationCode="$(credential get dropbox AuthorizationCode --fallback)" || return
-	local appKey; appKey="$(credential get dropbox AppKey --fallback)" || return
-	local appSecret; appSecret="$(credential get dropbox AppSecret --fallback)" || return
-
-	local response; response="$(curl --silent "https://api.dropbox.com/oauth2/token" \
-    -d "code=$authorizationCode" \
-    -d "grant_type=authorization_code" \
-    -d "client_id=$appKey" \
-    -d "client_secret=$appSecret")" || return
-	ScriptErr "$response"
-
-	# save the token
-	token="$(echo "$response" | jq ".access_token" 2> /dev/null | RemoveQuotes)"
-	[[ "$token" == "null" ]] && { ScriptErr "$response"; return 1; }
-	credential set dropbox token "$token" || return
-
-	# save the token expiration seconds
-	expiresInSeconds="$(echo "$response" | jq ".expires_in" 2> /dev/null | RemoveQuotes)" || return
-	! IsInteger "$expiresInSeconds" && expiresInSeconds="$expiresInSecondsDefault"
-	UpdateSet "$tokenCacheFile" "$expiresInSeconds" || return
-}
 #
 # Check Command
 #
@@ -242,6 +207,67 @@ search()
 
 	[[ $jsonOpt ]] && { api "files/search_v2" "$json"; return; }
 	api "files/search_v2" "$json" | jq '.matches[].metadata.metadata.path_display' | RemoveQuotes
+}
+
+#
+# Token Commands
+#
+
+tokenCommand() { usage; }
+
+tokenAuthorizeUsage()
+{
+	EchoWrap "Usage: $(ScriptName) token authorize IsValid
+Token authentication commands."
+}
+
+tokenAuthorizeCommandUsage()
+{
+	EchoWrap "Usage: $(ScriptName) token authorize
+Prompt user for authorization and get a new token."
+}
+
+tokenAuthorizeCommand()
+{
+	# get a new token
+	local appKey; appKey="$(credential get dropbox AppKey --fallback)" || return
+	local appSecret; appSecret="$(credential get dropbox AppSecret --fallback)" || return
+
+	# get the authorization code
+	start "https://www.dropbox.com/oauth2/authorize?client_id=$appKey&response_type=code" || return
+	local authorizationCode; authorizationCode="$(ask text "Authorization Code")" || return
+
+	# get the token
+	local response; response="$(curl --silent "https://api.dropbox.com/oauth2/token" \
+    -d "code=$authorizationCode" \
+    -d "grant_type=authorization_code" \
+    -d "client_id=$appKey" \
+    -d "client_secret=$appSecret")" || return
+
+	# save the token
+	token="$(echo "$response" | jq ".access_token" 2> /dev/null | RemoveQuotes)"
+	[[ "$token" == "null" ]] && { ScriptErr "$response"; return 1; }
+	credential set dropbox token "$token" || return
+	credential set dropbox token "$token" --manager=remote || return
+
+	# save the token expiration seconds
+	expiresInSeconds="$(echo "$response" | jq ".expires_in" 2> /dev/null | RemoveQuotesA)" || return
+	UpdateSet "$tokenCacheFile" "$(tokenGetExpirationInSeconds "$expiresInSeconds")" || return
+}
+
+tokenIsValidCommand()
+{
+	local expiresInSeconds="$(tokenGetExpirationInSeconds "$(UpdateGet "$tokenCacheFile")")"
+	apiInit || return
+	[[ $token ]] && [[ -f "$updateDir/$tokenCacheFile" ]] && (( $(GetFileModSeconds "$updateDir/$tokenCacheFile") + expiresInSeconds > $(GetSeconds --no-nanoseconds) ))
+}
+
+# tokenGetExpirationInSeconds SECONDS - return SECONDS if it is an interger, otherwise return the default token expiration time
+tokenGetExpirationInSeconds()
+{
+	local expiresInSeconds="$1" expiresInSecondsDefault="1440"
+	! IsInteger "$expiresInSeconds" && expiresInSeconds="$expiresInSecondsDefault"
+	echo "$expiresInSecondsDefault"
 }
 
 ScriptRun "$@"
