@@ -1131,8 +1131,9 @@ RemoveSpaceTrim() { GetArgs; RemoveTrim "$1" " "; }
 QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
 QuoteQuotes() { GetArgs; echo "$@" | sed 's/\"/\\\"/g'; } # escape (quote) quotes using a back slash (\)
+UnQuoteQuotes() { GetArgs; echo "$@" | sed 's/\\\"/\"/g'; } # remove backslash before quotes
 QuoteSpaces() { GetArgs; echo "$@" | sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
-RemoveQuotes() { sed 's/"//g'; }
+RemoveQuotes() { sed 's/^\"//g ; s/\"$//g'; }
 RemoveParens() { tr -d '()'; }
 ReplaceString() { GetArgs3; echo "${1//$2/$3}"; }
 BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
@@ -3974,6 +3975,7 @@ ScriptReturn()
 #
 
 CertView() { local c; for c in "$@"; do openssl x509 -in "$c" -text; done; }
+CredentialSetBoth() { credential set "$@" --manager=local && credential set "$@" --manager=remote; }
 
 # CredentialConf - configure the credential manager but do not unlock (to prevent password prompt)
 CredentialConf()
@@ -4180,15 +4182,17 @@ SetTextEditor()
 }
 
 # JSON
-JsonIsValid() { GetArgs; printf "$1" | jq '.' >& /dev/null; }
+JsonIsValid() { GetArgs; echo "$1" | jq '.' >& /dev/null; }
 JsonGetKeyArg() { local key="$1"; [[ ! "$key" =~ '\.' ]] && key=".$key"; printf "$key"; }
-JsonGetKey() { GetArgs2; printf "$1" | jq -e "$(JsonGetKeyArg "$2")" | RemoveQuotes; }
-JsonHasKey() { GetArgs2; local key="$2"; printf "$1" | jq -e "select($(JsonGetKeyArg "$2") != null)" >& /dev/null; }
-JsonLog() { GetArgs2; (( verboseLevel < ${2:-1} )) && return; ScriptMessage "json="; printf "$1" | jq >&2; } # JsonLog [JSON] [VERBOSE_LEVEL]
+JsonGetKey() { GetArgs2; echo "$1" | jq -e "$(JsonGetKeyArg "$2")" | RemoveQuotes; }
+JsonHasKey() { GetArgs2; local key="$2"; echo "$1" | jq -e "select($(JsonGetKeyArg "$2") != null)" >& /dev/null; }
+JsonLog() { GetArgs2; (( verboseLevel < ${2} )) && return; ScriptMessage "json="; echo "$1" | jq >&2; } # JsonLog [JSON] [VERBOSE_LEVEL]
 
+# JsonValidate JSON [ERROR_PATH](error) [ERROR_DESCRIPTION_PATH](ERROR_PATH) - validate the passed value is valid JSON.   If it contains and ERROR_PATH key show it.
 JsonValidate()
 {
-	GetArgs3; local json="$1" errorPath="$2" errorDescriptionPath="$3"
+	# arguments
+	local json="$1" errorPath="${2:-error}"; local errorDescriptionPath="${3:-$errorPath}"
 
 	# invalid json
 	! JsonIsValid "$json" && { log1 "json='$json'"; ScriptErrQuiet "the JSON is not valid"; return 1; }	
@@ -4198,8 +4202,11 @@ JsonValidate()
 
 	# show error - the error description if present, otherwise a generic error
 	JsonLog "$json" 2
-	! JsonHasKey "$json" "$errorDescriptionPath" && { ScriptErrQuiet "the API call returned an error"; return 1; }
-	ScriptErrQuiet "$(JsonGetKey "$json" "$errorDescriptionPath")"; return 1
+	local errorDescription; errorDescription="$(JsonGetKey "$json" "$errorDescriptionPath" | UnQuoteQuotes)"
+	[[ ! $errorDescription || "$errorDescription" == "null" ]] && errorDescription="$(JsonGetKey "$json" "$errorPath" | UnQuoteQuotes)"
+	[[ ! $errorDescription || "$errorDescription" == "null" ]] && errorDescription="the API call returned an error"
+	log2 "errorPath=$errorPath error='$error' errorDescriptionPath=$errorDescriptionPath errorDescription='$errorDescription'"
+	ScriptErrQuiet "$errorDescription"; return 1
 }
 
 #
