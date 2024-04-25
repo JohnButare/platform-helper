@@ -4183,7 +4183,7 @@ SetTextEditor()
 
 # JSON
 JsonIsValid() { GetArgs; echo "$1" | jq '.' >& /dev/null; }
-JsonGetKeyArg() { local key="$1"; [[ ! "$key" =~ '\.' ]] && key=".$key"; printf "$key"; }
+JsonGetKeyArg() { local key="$1"; [[ ! "$key" == *.* ]] && key=".$key"; echo "$key"; }
 JsonGetKey() { GetArgs2; echo "$1" | jq -e "$(JsonGetKeyArg "$2")" | RemoveQuotes; }
 JsonHasKey() { GetArgs2; local key="$2"; echo "$1" | jq -e "select($(JsonGetKeyArg "$2") != null)" >& /dev/null; }
 JsonLog() { GetArgs2; (( verboseLevel < ${2} )) && return; ScriptMessage "json="; echo "$1" | jq >&2; } # JsonLog [JSON] [VERBOSE_LEVEL]
