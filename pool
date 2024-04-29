@@ -61,13 +61,14 @@ apiPutCommand() { apiPut "$uri" "$json"; }
 
 pumpUsage()
 {
-	echot "Usage: $(ScriptName) pump [on|off|detail|status](status)
+	echot "Usage: $(ScriptName) pump [on|off|speed|config|detail|status](status)
 Manage the pool pump."
 }
 
 pumpCommand() { pumpStatusCommand; }
 pumpOnCommand() { apiPut "/state/circuit/setState" '{"id":'$pumpCircuitId',"state":true}'; }
 pumpOffCommand() { apiPut "/state/circuit/setState" '{"id":'$pumpCircuitId',"state":false}'; }
+pumpConfigCommand() { api "/config/options/pumps" | jq '.pumps.[]'; }
 
 pumpDetailCommand()
 {
@@ -91,6 +92,49 @@ pumpStatusCommand()
 }
 
 isPumpOn() { cat | jq '.pumps[] | select(.id == 50).circuits[0].circuit.isOn'; }
+
+pumpSpeedUsage() { echot "Usage: $(ScriptName) pump speed [set|status](status)\nControl the pool pump speed in RPM."; }
+pumpSpeedCommand() { pumpSpeedStatusCommand; }
+pumpSpeedStatusCommand() { pumpConfigCommand | jq '.circuits.[0].speed'; }
+pumpSpeedStatusCommand() { pumpConfigCommand | jq '.circuits.[0].speed'; }
+
+pumpSpeedSetUsage() { echot "Usage: $(ScriptName) pump speed set RPM\nSet the pool pump speed in RPM."; }
+pumpSpeedSetArgs() { ScriptArgGet --integer  "rpm" -- "$@"; shift; }
+
+pumpSpeedSetCommand()
+{
+	local pumpConfig; pumpConfig="$(pumpConfigCommand)" || return
+
+	# validate RPM	
+	local maxSpeed; maxSpeed="$(echo "$pumpConfig" | jq '.maxSpeed')" || return
+	local minSpeed; minSpeed="$(echo "$pumpConfig" | jq '.minSpeed')" || return
+	(( rpm < minSpeed || rpm > maxSpeed )) && { ScriptErr "rpm must be between $minSpeed and $maxSpeed"; return 1; }
+	log1 "rpm=$rpm maxSpeed=$maxSpeed minSpeed=$minSpeed"
+
+	# get pump and circuit configuration
+	local pumpId; pumpId="$(echo "$pumpConfig" | jq '.id')" || return
+	local circuitId; circuitId="$(echo "$pumpConfig" | jq '.circuits.[0].id')" || return
+	local circuit; circuit="$(echo "$pumpConfig" | jq '.circuits.[0].circuit')" || return
+	log1 "pumpId=$pumpId circuitId=$circuitId circuit=$circuit"
+
+	# set the pump speed
+	local json; json="$(cat <<-EOF
+		{
+			"id":$pumpId,
+			"circuits":[
+				{
+					"speed": $rpm,
+					"units": {"val":0},
+					"id":$circuitId,
+					"circuit":$circuit}
+				]
+		}
+		EOF
+	)"
+	apiPut "/config/pump" "$json" || return
+}
+
+
 
 #
 # Temp Command
