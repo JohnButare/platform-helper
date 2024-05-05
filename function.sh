@@ -3106,7 +3106,8 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 
 PlatformTmp() { IsPlatform win && echo "$UADATA/Temp" || echo "$TEMP"; }
 
-# RunPlatform PREFIX [--host [HOST]] - call platform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
+# RunPlatform PREFIX [--host [HOST]] [ARGS] - call platform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
+# --host [HOST] - if specified run the platform function for the specified host
 function RunPlatform()
 {
 	local function="$1"; shift
@@ -3120,25 +3121,25 @@ function RunPlatform()
 	fi
 
 	# run platform function
-	[[ $_platformOs ]] && { RunFunction $function $_platformOs "$@" || return; }
-	[[ $_platformLike && "$_platformLike" != "$platformOs" ]] && { RunFunction $function $_platformLike "$@" || return; }
-	[[ $_platformId && "$platformId" != "$platformOs" ]] && { RunFunction $function $_platformId "$@" || return; }
+	[[ $_platformOs ]] && { RunFunction $function $_platformOs -- "$@" || return; }
+	[[ $_platformLike && "$_platformLike" != "$platformOs" ]] && { RunFunction $function $_platformLike -- "$@" || return; }
+	[[ $_platformId && "$platformId" != "$platformOs" ]] && { RunFunction $function $_platformId -- "$@" || return; }
 
 	# run windows WSL functions
 	if [[ "$PLATFORM_OS" == "win" ]]; then
-		IsPlatform wsl --host && { RunFunction $function wsl "$@" || return; }
-		IsPlatform wsl1 --host && { RunFunction $function wsl1 "$@" || return; }
-		IsPlatform wsl2 --host && { RunFunction $function wsl2 "$@" || return; }
+		IsPlatform wsl --host && { RunFunction $function wsl -- "$@" || return; }
+		IsPlatform wsl1 --host && { RunFunction $function wsl1 -- "$@" || return; }
+		IsPlatform wsl2 --host && { RunFunction $function wsl2 -- "$@" || return; }
 	fi
 
 	# run other functions
-	IsPlatform cm4 --host && { RunFunction $function cm4 "$@" || return; }
-	IsPlatform entware --host && { RunFunction $function entware "$@" || return; }
-	IsPlatform debian,mac --host && { RunFunction $function DebianMac "$@" || return; }
-	IsPlatform pikernel --host && { RunFunction $function PiKernel "$@" || return; }
-	IsPlatform proxmox --host && { RunFunction $function proxmox "$@" || return; }
-	IsPlatform vm --host && { RunFunction $function vm "$@" || return; }
-	IsPlatform physical --host && { RunFunction $function physical "$@" || return; }
+	IsPlatform cm4 --host && { RunFunction $function cm4 -- "$@" || return; }
+	IsPlatform entware --host && { RunFunction $function entware -- "$@" || return; }
+	IsPlatform debian,mac --host && { RunFunction $function DebianMac -- "$@" || return; }
+	IsPlatform pikernel --host && { RunFunction $function PiKernel -- "$@" || return; }
+	IsPlatform proxmox --host && { RunFunction $function proxmox -- "$@" || return; }
+	IsPlatform vm --host && { RunFunction $function vm -- "$@" || return; }
+	IsPlatform physical --host && { RunFunction $function physical -- "$@" || return; }
 
 	return 0
 }
