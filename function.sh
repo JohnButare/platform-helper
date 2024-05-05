@@ -160,6 +160,7 @@ clipw()
 header() { InitColor; printf "${RB_BLUE}*********************************** ${RB_INDIGO}$1${RB_BLUE} ***********************************${RESET}\n"; headerDone="$((52 + ${#1}))"; return 0; }
 HeaderBig() { InitColor; printf "${RB_BLUE}************************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n************************************************************${RESET}\n"; }
 HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
+HeaderFancy() { ! InPath pyfiglet lolcat && { HeaderBig "$1"; return; }; pyfiglet --justify=center --width=$COLUMNS "$1" | lolcat; }
 hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
 hilightp() { InitColor; printf "${GREEN}$@${RESET}"; } # hilight with no newline
 
