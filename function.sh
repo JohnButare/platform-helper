@@ -1646,9 +1646,9 @@ HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not a
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 HttpHeader() { curl --silent --show-error --location --dump-header - --output /dev/null "$1"; }
-IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } # IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
-IsInDomain() { [[ $(NetworkDomain) ]]; }													# IsInDomain - true if the computer is in a network domain
-IsIpInCidr() { nmap -sL -n "$2" | grep --quiet " $1$"; }					# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
+IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
+IsInDomain() { [[ $(NetworkDomain) ]]; }																							# IsInDomain - true if the computer is in a network domain
+IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
 NetworkCurrent() { UpdateGet "network"; }; 
 NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars; }
 NetworkDomain() { UpdateGet "network_domain"; }
