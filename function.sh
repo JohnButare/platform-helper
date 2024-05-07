@@ -2379,7 +2379,7 @@ DnsResolve()
 		fi
 
 		# use alternate for Hagerman network IP addresses, reverse lookup fails on mac using VPN
-		[[ ! $lookup ]] && IsIpInCidr "$name" "10.10.100.0/22" && { DnsResolve --use-alternate $quiet "$name"; return; }
+		[[ ! $lookup && ! $useAlternate ]] && IsIpInCidr "$name" "10.10.100.0/22" && { DnsResolve --use-alternate $quiet "$name"; return; }
 
 	# forward DNS lookup to get the fully qualified DNS address
 	else
