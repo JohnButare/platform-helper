@@ -2473,7 +2473,7 @@ DnsResolveMac()
 DnsFlush()
 {
 	if IsPlatform mac; then sudoc dscacheutil -flushcache && sudo killall -HUP mDNSResponder
-	elif IsPlatform win; then RunWIn ipconfig.exe /flushdns >& /dev/null
+	elif IsPlatform win; then RunWin ipconfig.exe /flushdns >& /dev/null
 	elif IsPlatform systemd && systemctl is-active systemd-resolved >& /dev/null; then resolvectl flush-caches
 	fi
 
