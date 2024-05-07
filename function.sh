@@ -3249,6 +3249,7 @@ IsProcessRunning()
 
 	# check for proces using pgrep
 	local args=(); [[ ! $root ]] && args+=("--uid" "$USER")
+	HasFilePath "$name" && full="--full" # pgrep >= 4.0.3 requires full for process name longer than 15 characters
 	pgrep $full "$name" "${args[@]}" > /dev/null
 }
 
