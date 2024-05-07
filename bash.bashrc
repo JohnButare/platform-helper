@@ -66,7 +66,7 @@ exit 0;'
 		elif [[ $kernel =~ .*-microsoft-standard-WSL2$ ]]; then platformKernel="wsl2" # macOS error using (|\\+)
 		elif [[ $kernel =~ .*-microsoft-standard$ ]]; then platformKernel="wsl2"
 		elif [[ $kernel =~ .*-rock ]]; then platformKernel="rock"
-		elif [[ "$ID" == "raspbian" || $kernel =~ .*-raspi$ ]]; then platformKernel="pi"
+		elif [[ "$ID" == "raspbian" || $kernel =~ .*-([0-9]+-raspi|rpi-[0-9]+)$ ]]; then platformKernel="pi" # Ubuntu=6.5.0-1015-raspi, Debian=6.6.28+rpt-rpi-2712
 		fi
 
 		case "$platformOs" in
