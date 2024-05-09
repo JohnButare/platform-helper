@@ -3675,7 +3675,7 @@ start()
 		)
 	else
 		(( verboseLevel > 1 )) && ScriptArgs "start" nohup $sudo "$file" "${args[@]}"
-		(nohup $sudo "$file" "${args[@]}" >& /dev/null &)		
+		(nohup $sudo "$file" "${args[@]}" >& /dev/null &)
 	fi
 } 
 
