@@ -290,9 +290,10 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 # -e, --errors				- keep processing if a command fails, return the total number of errors
 # -h, --header HEADER - if set and there is more than one host display it as a header
 # -ng, --no-get 			- do not get hosts
+# -sr, --show-result	- if the command does not output anything, show the result of running the command (success or failure)
 ForAllHosts()
 {
-	local brief command=() errors errorCount=0 header noGet
+	local brief command=() errors errorCount=0 header noGet showResult
 
 	# options
 	while (( $# != 0 )); do
@@ -301,6 +302,7 @@ ForAllHosts()
 			--errors|-e) errors="--errors";;
 			--header|--header=*|-h|-h=*) local shift=0; ScriptOptGet "header" "$@" || return; shift $shift;;
 			--no-get|-ng) noGet="--no-get";;
+			--show-result|-sr) showResult="--show-result";;
 			--) shift; command+=("$@"); break;;
 			*) command+=("$1");;
 		esac
@@ -313,7 +315,7 @@ ForAllHosts()
 
 	# run command for all hosts
 	for host in "${hosts[@]}"; do
-
+		
 		# header		
 		if [[ $multiple ]]; then
 			local hostShort="$(RemoveDnsSuffix "$host")"
@@ -321,15 +323,19 @@ ForAllHosts()
 			[[ $brief && ! $verbose ]] && printf "$hostShort: "
 		fi
 
-		# command
+		# run command - if it fails, return if we are not tracking errors
 		local result resultDesc="success"; RunLog "${command[@]}" "$host"; result="$?"
 		(( result != 0 )) && { [[ ! $errors ]] && return $result; resultDesc="failure"; ((++errorCount)); }
 
-		# status
-		[[ $multiple ]]	&& (( $(CurrentColumn) != 0 )) && { [[ $brief ]] && echo "$resultDesc" || echo; }	
+		# for brief output, if the command does not output anything show the result otherwise go to the next line
+		if [[ $brief ]]; then
+			if [[ $multiple && $showResult ]] && (( $(CurrentColumn) != 0 )); then echo "$resultDesc"
+			elif (( $(CurrentColumn) != 0 )); then echo
+			fi
+		fi
 
 		# logging
-		log1 "errors=$errorCount"
+		[[ $errors ]] && log1 "errors=$errorCount"
 	done
 
 	# return
