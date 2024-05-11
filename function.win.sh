@@ -23,14 +23,14 @@ MakeShortcut()
 	local linkDir="$(utw "$(GetFilePath "$link")")"
 	local linkName="$(GetFileName "$link")"
 
-	start nircmd shortcut "$f" "$linkDir" "$linkName" "${@:3}"
+	start nircmd.exe shortcut "$f" "$linkDir" "$linkName" "${@:3}"
 }
 
 #
 # Explorer
 #
 
-RestartExplorer() { taskkill.exe /f /im explorer.exe  && start explorer; }
+RestartExplorer() { taskkill.exe /f /im explorer.exe  && start explorer.exe; }
 
 #
 # Network

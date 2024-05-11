@@ -2961,8 +2961,8 @@ fi
 
 # IsPlatform  platform[,platform,...] [--host [HOST]] - return true if the host matches any of the listed characteristics
 # --all - return true if the host match all of the listed characteristics
-# --host - check the specified host instead of localhost.   If the HOST argument is not specified,
-#          use the _platform host variables set from the last call to HostGetInfo.
+# --host [HOST] - check the specified host instead of localhost.   If the HOST argument is not specified,
+#   use the _platform host variables set from the last call to HostGetInfo.
 IsPlatform()
 {
 	local all host hostArg p platforms=() useHost
@@ -2971,11 +2971,15 @@ IsPlatform()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-a|--all) all="true";;
-			-h|--host) useHost="true"; [[ $2 ]] && ! IsOption "$2" && { host="$2"; shift; }; hostArg="--host $host";;
+			-h|--host) 
+				[[ $2 ]] && ! IsOption "$2" && { host="$2"; shift; }
+				useHost="true" hostArg="--host $host"
+				;;
 			*)
 				if ! IsOption "$1" && [[ ! $platforms ]]; then StringToArray "$1" "," platforms
 				else UnknownOption "$1" "IsPlatform"; return
 				fi
+				;;
 		esac
 		shift
 	done
@@ -2984,7 +2988,7 @@ IsPlatform()
 	if [[ $useHost && $host ]]; then		
 		ScriptEval HostGetInfo "$host" || return
 	elif [[ ! $useHost ]]; then
-		local _platformOs="$PLATFORM_OS" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
+		local _platformTarget="localhost" _platformLocal="true" _platformOs="$PLATFORM_OS" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
 
 	# check if the host matches the specified platforms
@@ -3041,8 +3045,8 @@ isPlatformCheck()
 	esac
 	result="$?"; [[ $found ]] && return $result
 
-	# local only - useHost must be false
-	[[ $useHost ]] && return 1
+	# perform local only checks, return if we are not checking the local system
+	[[ ! $_platformLocal ]] && return 1
 
 	case "$p" in 
 
@@ -3107,7 +3111,7 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 
 PlatformTmp() { IsPlatform win && echo "$UADATA/Temp" || echo "$TEMP"; }
 
-# RunPlatform PREFIX [--host [HOST]] [ARGS] - call platform functions, i.e. prefixWin.  Sample order win -> debian -> ubuntu -> wsl
+# RunPlatform PREFIX [--host [HOST]] [ARGS] - call platform functions, i.e. prefixWin.  example order: win -> debian -> ubuntu -> wsl -> physical
 # --host [HOST] - if specified run the platform function for the specified host
 function RunPlatform()
 {
