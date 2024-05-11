@@ -15,7 +15,13 @@ Locations:
 - application: netboot.xyz Git repository  : $appDir ($(checkDir "$appDir"))
 - configuration: custom configuration      : $confDir ($(checkDir "$confDir"))
 - web app: netboot.xyz website             : $webDirApp ($(checkDir "$webDirApp"))
-- web final: local website source          : $webDirFinal ($(checkDir "$webDirFinal"))"
+- web final: local website source          : $webDirFinal ($(checkDir "$webDirFinal"))
+
+Sites:
+- bootloader download: http://boot.butare.net 
+- assets: http://boot.butare.net/assets
+- UI (menus, local assets): https://netboot.butare.net"
+
 }
 
 checkDir() {  [[ -d "$1" ]] && echo "present" || echo "${RED}missing${RESET}";  }
@@ -30,6 +36,7 @@ init()
 
 	appDir="/opt/netboot.xyz"
 	appConfig="$confDir/user_overrides.yml"
+	menu="$confDir/menu/custom.ipxe.j2"
 	webDirApp="/var/www/html/"
 
 	winReleases=(canary dev beta rp)
@@ -40,7 +47,7 @@ init()
 #
 
 allUsage() { echot "Usage: $(ScriptName) all\nUpdate and deploy netboot.xyz."; }
-allCommand() { netbootxyz update "${globalArgs[@]}" && deployAllCommand; }
+allCommand() { netbootxyz update ansible "${globalArgs[@]}" && deployAllCommand; }
 isInstalledCommand() { [[ -d "$appDir" ]]; }
 versionCommand() { version; }
 
@@ -51,6 +58,8 @@ versionCommand() { version; }
 deployUsage() { echot "Usage: $(ScriptName) deploy [all|assets|assets-custom|installers|web](all)\nDeploy netboot.xyz assets, installers, and the web site."; }
 deployCommand() { deployAllCommand; }
 deployAllCommand() { netbootxyz deploy web --no-prompt "${globalArgs[@]}" && netbootxyz deploy assets --no-prompt "${globalArgs[@]}" && netbootxyz deploy assets-custom --no-prompt "${globalArgs[@]}" && netbootxyz deploy installers --no-prompt "${globalArgs[@]}"; }
+
+deployAssetsUsage() { echot "Usage: $(ScriptName) deploy assets\nDeploy netboot.xyz assets."; }
 
 deployAssetsCommand()
 {
@@ -72,6 +81,8 @@ deployAssets-customCommand()
 	UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz/assets-custom" "rp2" "${globalArgs[@]}" || return
 	UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz/assets-custom" "ender" "${globalArgs[@]}" || return
 }
+
+deployInstallersUsage() { echot "Usage: $(ScriptName) deploy installers\nDeploy installers "; }
 
 deployInstallersCommand()
 {
@@ -97,7 +108,7 @@ deployWebCommand()
 	[[ ! -L "$webDirFinal/assets-custom" ]] && { sudoc ln -s "/srv/netbootxyz/assets-custom" "$webDirFinal/assets-custom" || return; }
 
 	hilight "Copying custom menus..."
-	sudo cp "$confDir/menu/custom.ipxe.j2" "$webDirFinal/custom/custom.ipxe"  || return # assumes Jinja2 templates are not used (no {{ }})
+	sudo cp "$menu" "$webDirFinal/custom/custom.ipxe"  || return # assumes Jinja2 templates are not used (no {{ }})
 
 	hilight "Syncronizing web sites..."	
 	apache sync "${hostOpt[@]}" "${globalArgs[@]}"
@@ -144,8 +155,10 @@ dockerStopCommand() { docker stop "$(getContainerId)"; }
 
 editUsage() { echot "Usage: $(ScriptName) edit conf|menu\nEdit the netboot.xyz configuration or menus."; }
 editCommand() { usage; }
+editConfUsage() { echot "Usage: $(ScriptName) edit conf\nEdit the netboot.xyz configuration ($(FileToDesc "$appConfig"))."; }
 editConfCommand() { TextEdit "$appConfig"; }
-editMenuCommand() { TextEdit "$confDir/menu/custom.ipxe.j2"; }
+editMenuUsage() { echot "Usage: $(ScriptName) edit conf\nEdit the netboot.xyz configuration ($(FileToDesc "$menu"))."; }
+editMenuCommand() { TextEdit "$menu"; }
 
 #
 # info commands
@@ -302,7 +315,9 @@ testWeb()
 updateUsage() { echot "Usage: $(ScriptName) app update [all|ansible|win](all)"; }
 updateCommand() { updateAllCommand; }
 
-updateAnsibleUsage() { echot "Usage: $(ScriptName) app update ansible\nUpdate the netboot.xyz application by running the Ansible playbook."; }
+updateAllCommand() { updateAnsible && updateWin; }
+
+updateAnsibleUsage() { echot "Usage: $(ScriptName) app update ansible\nUpdate the netboot.xyz application by running the Ansible playbook.  Run for netboot.xyz repository updates or if the menus are edited."; }
 updateAnsibleCommand() { setupAll && cp "$confDir/user_overrides.yml" "$appDir" && cd "$appDir" && sudoc ansible-playbook -i "inventory" "site.yml"; }
 
 updateWinUsage() { echot "Usage: $(ScriptName) app update win [auto|build|download|prompt](prompt)\nUpdate Windows setup programs."; }
@@ -323,7 +338,6 @@ updateWinAutoCommand()
 	(( $(getUupFileCount) == 0 )) && return
 	uupBuild || return
 }
-
 
 updateWinPromptUsage() { echot "Usage: $(ScriptName) app update win [auto]\Prompt to download UUP files to update Windows."; }
 
