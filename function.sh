@@ -4321,8 +4321,9 @@ InitializeXServer()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--quiet|-q) quiet="true";;
-			*) UnknownOption "$1" "InitializeXServer"; return 1;;
+			*) $1; UnknownOption "$1" "InitializeXServer"; return 1;;
 		esac
 		shift
 	done
@@ -4338,6 +4339,10 @@ InitializeXServer()
 			export DISPLAY=:0
 		fi
 	fi
+
+	# GWSL configuration 
+	# export QT_SCALE_FACTOR=2
+	# export GDK_SCALE=2
 
 	# force GNOME applications to use X forwaring over SSH
 	[[ $SSH_CONNECTION ]] && export GDK_BACKEND=x11 
