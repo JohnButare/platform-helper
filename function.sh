@@ -4318,7 +4318,7 @@ IsXServerRunning() { xprop -root >& /dev/null; }
 RestartGui() { IsPlatform win && { RestartExplorer; return; }; IsPlatform mac && { RestartDock; return; }; }
 
 WinInfo() { IsPlatform win && start Au3Info; } # get window information
-WinList() { ! IsPlatform win && return; start cmdow /f | RemoveCarriageReturn; }
+WinList() { ! IsPlatform win && return; start cmdow.exe /f | RemoveCarriageReturn; }
 
 InitializeXServer()
 {
