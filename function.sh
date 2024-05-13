@@ -3077,7 +3077,19 @@ isPlatformCheck()
 		cm4) [[ -e /proc/cpuinfo ]] && grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo";;
 		consul|nomad|vault) service running "$p";;
 		gnome-keyring) InPath "$p";;
-		pi4|pi5) IsPlatform PiKernel && [[ "$(pi info model | cut -d" " -f3)" == "${p:2}" ]];;
+		laptop)
+			if IsPlatform mac; then system_profiler "SPHardwareDataType" | grep "Model Identifier" | grep --quiet "Book"
+			elif IsPlatform win; then
+				local chassisType; chassisType="$( wmic.exe systemenclosure get chassistypes /value | grep ChassisTypes | cut -d"{" -f2 | cut -d"}" -f1)"
+				(( (chassisType >= 8 && chassisType <=15) || (chassisType >= 30 && chassisType <=32) )) # https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-systemenclosure
+			fi
+			;;
+		mini) # mini computer, like a Mac mini or Beelink
+			if IsPlatform mac; then system_profiler "SPHardwareDataType" | grep "Model Identifier" | grep --quiet "mini"
+			elif IsPlatform win; then os info -w=cpum | ${G}grep --extended-regexp --quiet 'N100|N305|N5105'
+			fi
+			;;
+		pi4|pi5) IsPlatform PiKernel && [[ "$(pi info model | cut -d" " -f3)" == "${p:2}" ]];; # Raspberry Pi model 4 or 5
 		systemd) IsSystemd;;
 
 		*) return 1;;
