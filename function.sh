@@ -4316,9 +4316,7 @@ GetVmType() # vmware|hyperv
 HasWindowManager() { ! IsSsh || IsXServerRunning; } # assume if we are not in an SSH shell we are running under a Window manager
 IsXServerRunning() { xprop -root >& /dev/null; }
 RestartGui() { IsPlatform win && { RestartExplorer; return; }; IsPlatform mac && { RestartDock; return; }; }
-
-WinInfo() { IsPlatform win && start Au3Info; } # get window information
-WinList() { ! IsPlatform win && return; start cmdow.exe /f | RemoveCarriageReturn; }
+WinExists() { ! IsPlatform win && return 1; ! tasklist.exe /fi "WINDOWTITLE eq $1" | grep --quiet "No tasks are running"; }
 
 InitializeXServer()
 {
