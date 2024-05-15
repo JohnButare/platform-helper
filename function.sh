@@ -3182,7 +3182,11 @@ pschildrenc() { local n="$(pschildren "$1" | wc -l)"; (( n == 1 )) && return 1 |
 pscount() { ProcessList | wc -l; }
 RunQuiet() { if [[ $verbose ]]; then "$@"; else "$@" 2> /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout unless verbose logging
 RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout and stderr unless verbose logging
-RunWin() { (cd "/tmp" && "$@"); } # running Windows executables from some Linux directories (like CryFS mounts) cause "Invalid argument" errors
+
+# RunWin PROGRAM - running Windows executables from some Linux directories fails
+# - CryFS directories causes "Invalid argument" errors
+# - logioptionsplus_installer.exe terminates in Linux directories
+RunWin() { (IsPlatform win && cd "$WIN_ROOT"; "$@"); }
 
 # FindMacApp APP - return the location of a Mac applciation
 FindMacApp()
