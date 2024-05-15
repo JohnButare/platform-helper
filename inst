@@ -279,7 +279,7 @@ Install an application.  To run a portion of the installation, the application n
 
 installArgStart()
 { 
-	unset -v alternate apps forceFull hint hostArg hostOpt hosts installType noHeader noHelp npProfile noPrompt noRegister noRun select
+	unset -v alternate apps forceFull hint hostArg hostOpt hosts installType noHeader noHelp noProfile noPrompt noRegister noRun select
 	installTypes="alternate|beta|compile|local|package|store"
 }
 
@@ -327,6 +327,12 @@ installInit()
 	# arguments
 	options=($force $noPrompt $noRun $quiet $verbose "${hint[@]}")
 	verboseInstaller=""; [[ $verbose ]] && verboseInstaller="-verbose"
+
+	# apps
+	commonApps=(1Password BetterDisplay BeyondCompare Dropbox Firefox GitKraken MaxTo Sublime SublimeMerge TidyTabs typora)
+	finalApps=(bootstrap CleanMyMac CreativeCloud Edge Fork Intel Java JetBrains LogitechOptions nVidia Plex Python Sonos Thunderbird VisualStudio Zoom "${commonApps[@]}")
+	helpApps=(1Password Firefox Alfred Docker Dymo Epson4760 Hyperv iTerm Obsidian Typora xQuartz)
+	registerApps=(Alfred GitHub rectangle soulver SoundSource "${commonApps[@]}")
 
 	# commands
 	cp="FileCommand cp"
@@ -441,7 +447,7 @@ installInit()
 	elevateInstall=(GitForWindows WinConfig WinPermissions)
 
 	# isInstallable	
-	all=(download final register update)
+	all=(download final help register update)
 	all+=(AppDir DriveTime envoy fileServer hostname PartitionManagement store)	
 	debian=()	debian64=() debianWin=() mac=() macDebian=() winElevated=() win=()
 	
@@ -1985,12 +1991,19 @@ versionValidate()
 # applications
 #################################################
 
-AppCoreInstall() { header "App Core"; appCoreStart && winPathFix && i AppCoreCommon AppPlatform AppNetwork AppHardware AppHost register && appCoreEnd && rebootIfNeeded; }
+AppCoreInstall() { header "App Core"; appCoreStart && winPathFix && i AppCoreCommon AppPlatform AppNetwork AppHardware AppHost && appCoreEnd && rebootIfNeeded; }
 
 appCoreStart() { header "App Core Start"; RunPlatform appCoreStart; }
 appCoreStartWsl() { header "App Core Start WSL"; return 0; } # service stop dbus; pkill dbus-daemon; dbus service causes restart prompts on fresh install
 
-appCoreEnd() { header "App Core End"; i final && RunPlatform appCoreEnd && HostUpdate; }
+appCoreEnd()
+{
+	header "App Core End"
+	RunPlatform appCoreEnd || return
+	i final register help || return
+	HostUpdate || return
+}
+
 appCoreEndWin() { header "App Core End Windows"; $rm "$ud/bootstrap.cmd" && $rm "$up/Startup/bootstrap.cmd"; }
 appCoreEndWsl() { header "App Core End WSL"; service start dbus; }
 
@@ -2106,7 +2119,7 @@ AppHostSoftwareInstall()
 		bc|fun|jane|micro|pants|rosie|ultron) i $client;;
 
 		# client/server
-		bl?|ender) i $clientServer;;
+		bl?|ender) i hyperv $clientServer;;
 
 		# server
 		pi1|pi2) i $serverCore1 VaultServer;;								# core server 1, Vault
@@ -2273,7 +2286,7 @@ DownloadInstall()
 
 FinalInstall()
 {
-	local app apps=(bootstrap 1Password BeyondCompare CreativeCloud Dropbox Edge Firefox Fork Intel Java JetBrains LogitechOptions NotepadPp nVidia Plex Python Sonos Sublime Thunderbird VisualStudio Zoom)	
+	local app apps=()
 	printf "final..."
 	for app in "${apps[@]}"; do
 		! appIsInstalled "$app" && continue
@@ -2283,11 +2296,21 @@ FinalInstall()
 	echo "done"
 }
 
+HelpInstall()
+{
+	local app noHelp=""
+	for app in "${helpApps[@]}"; do
+		! appIsInstalled "$app" && continue
+		! IsFunction ${app}Help && continue
+		header "$app Help"
+		i "${app}Help" || return
+		pause
+	done
+}
+
 RegisterInstall()
 {
-	local app apps=(1Password alfred BetterDisplay BeyondCompare CleanMyMac firefox GitHub GitKraken MaxTo rectangle soulver SoundSource sublime SublimeMerge TidyTabs typora)
-	local isRegistering="true"
-	noRegister="" # force registration
+	local app isRegistering="true" noRegister=""
 	for app in "${apps[@]}"; do i --no-header "${app}Register" || return; done
 }
 
@@ -11011,39 +11034,31 @@ HypervInstall()
 {
 	header "Hyper-V"
 
-	hilight "Installing..."
-	RunScript --elevate --no-hide "${globalArgs[@]}" -- cmd.exe /c DISM /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V || return
-	echo
+	askp "Install" && { RunScript --elevate --no-hide "${globalArgs[@]}" -- cmd.exe /c DISM /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V || return; }
+	askp "Configure" && { RunScript --elevate --functions "${globalArgs[@]}" -- powershell Set-VMHost -EnableEnhancedSessionMode '\$true' || return; } # USB
 
-	hilight "Configuraing..."
-	RunScript --elevate --functions "${globalArgs[@]}" -- powershell Set-VMHost -EnableEnhancedSessionMode '\$true' || return # USB
-	echo 
-
-	hilight "Creating external virtual switch..."
-	local adapters; adapters="$(network adapter list)" || return
-	if echo "$adapters" | grep --quiet "^wired2 "; then
-		echo "$adapters"
-		if ask "Do you want to create the external virtual switch using the wired2 network adapter"; then
-			 hyperv config external wired2 || return
+	if askp "Creating external virtual switch"; then
+		local adapters; adapters="$(network adapter list)" || return
+		if echo "$adapters" | grep --quiet "^wired2 "; then
+			echo "$adapters"
+			if ask "Do you want to create the external virtual switch using the wired2 network adapter"; then
+				 hyperv config external wired2 || return
+			fi
 		fi
 	fi
-
+	
 	forceAllParts="true"
 }
 
 HypervHelp()
 {
-	local data="$DATA/appdataw/Hyper-V"; makeDir "$data" || return
+	local data="$DATA/appdataw/Hyper-V"; makeDir "$data/Virtual Hard Disks" || return
 	local clip; clip="$(utw "$data")"; clipw "$clip"
 	echot "\
 - Hyper-V Manager, $hostname
 	- Hyper-V Settings...
 		- Virtual Hard Disks=<paste> ($clip\Virtual Hard Disks)
-		- Virtual Machines=<paste> ($clip)
-	- Virtual Switch Manager..., New virtual switch, External, Create Virtual Switch
-		- name=external
-		- External network=QLogix #2
-		- check Allow management operating system to share this network adapter"
+		- Virtual Machines=<paste> ($clip)"
 	hyperv gui || return
 }
 
