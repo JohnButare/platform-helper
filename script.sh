@@ -143,6 +143,13 @@ LogScript()
 	fi
 }
 
+# RunErr CMD - run a command.   Discard stderr unless the command fails, in which case it is re-run
+RunErr()
+{
+	local output; output="$("$@" 2> /dev/null)" || { "$@"; return; }
+	echo "$output"
+}
+
 # RunFunction FUNCTION SUFFIX LEVEL MESSAGE FAIL -- [ARGS]- call a function with the specified suffix if it exists
 # - level: the numeric logging level at which to log a message
 # - message: contains a message to log, the $not variable is substituted for "$FAIL" if the function fails

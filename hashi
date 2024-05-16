@@ -221,15 +221,27 @@ appNodeStatusOpt()
 	esac
 }
 
-appNodeStatusCommand() { forAllHosts --brief appNodeStatus; }
+appNodeStatusCommand()
+{
+	local json; json="$(nomad node status -json)" || return
+	forAllHosts --brief appNodeStatus
+}
 
 appNodeStatus()
 {
 	local host="$(RemoveDnsSuffix "$1")"
 
+	# check status
+	local status; status="$(nomadNodeEligibilityStatus "$host")" || return
+	[[ "$status" == @(down|ineligible) ]] && { InitColor; printf "${RED}$status${RESET} "; }
+
+	# get all apps for the host
 	local app apps; IFS=$'\n' ArrayMake apps "$(appNodeGet "$host")" || return
+
+	# show all apps
 	[[ ! $active ]] && { ArrayDelimit apps " "; return; }
 
+	# show active apps		
 	for app in "${apps[@]}"; do
 		GetServers --quiet "$app" | ${G}grep --quiet "^$host." && printf "$app "
 	done
@@ -237,7 +249,7 @@ appNodeStatus()
 }
 
 # appNodeGet HOST - get all of the applications on the specified host by searching for Nomad app.<APP> metadata tags
-appNodeGet() { verbose="--verbose" nomadNodeStatus "$1" | ${G}grep '^app\.' | cut -d" " -f1 | cut -d. -f2 | sort; }
+appNodeGet() { verbose="--verbose" RunErr nomadNodeStatus "$1" | ${G}grep '^app\.' | cut -d" " -f1 | cut -d. -f2 | sort; }
 
 #
 # app node [un]register commands
@@ -2593,18 +2605,38 @@ nomadNodeDrainStatus()
 # nomad node eligibility commands
 #
 
-nomadNodeEligibilityUsage() { ScriptUsageEcho "Usage: $(ScriptName) nomad node eligibility enable|disable|id\nNomad node eligibility commands."; }
+nomadNodeEligibilityUsage() { ScriptUsageEcho "Usage: $(ScriptName) nomad node eligibility [disable|enable|status](status)\nNomad node eligibility commands."; }
+nomadNodeEligibilityCommand() { nomadNodeEligibilityStatusCommand; }
 
-nomadNodeEligibilityCommand() { usage; }
-nomadNodeEligibilityEnableCommand() { forAllHosts nomadNodeEligibilityEnable; }
-nomadNodeEligibilityDisableCommand() { forAllHosts nomadNodeEligibilityDisable; }
+#
+# nomad node eligibility disable|enable
+#
+
+nomadNodeEligibilityDisableCommand()
+{
+	getHostsByEligibility "eligible" || return
+	[[ ! $hosts ]] && { [[ ! $quiet ]] && echo "No hosts are eligible for scheduling"; return 0; }
+	ForAllHosts --brief nomadNodeEligibilityDisable; 
+}
+
+nomadNodeEligibilityEnableCommand()
+{
+	getHostsByEligibility "ineligible" || return
+	[[ ! $hosts ]] && { [[ ! $quiet ]] && echo "All hosts are eligible for scheduling"; return 0; }
+	ForAllHosts --brief nomadNodeEligibilityEnable
+}
+
+# getHostsByEligibility eligible|ineligible
+getHostsByEligibility()
+{
+	[[ $hostArg ]] && { getHosts; return; }
+	IFS=$'\n' ArrayMake hosts "$(nomadNodeEligibilityStatusCommand | "${G}grep" " ${1}$"  | cut -d":" -f1)" || return
+}
 
 # nomadNodeEligibilityEnable HOST
 nomadNodeEligibilityEnable()
 {
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
-
-	hilight "Making Nomad node $host eligible..."
 	RunLog nomad node eligibility -enable "$id"
 }
 
@@ -2612,9 +2644,26 @@ nomadNodeEligibilityEnable()
 nomadNodeEligibilityDisable()
 {
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
-
-	hilight "Making Nomad node $host ineligible..."
 	RunLog nomad node eligibility -disable "$id"
+}
+
+#
+# nomad node eligibility status
+#
+
+nomadNodeEligibilityStatusCommand()
+{
+	local json; json="$(nomad node status -json)" || return
+	forAllHosts --brief nomadNodeEligibilityStatus
+}
+
+# nomadNodeEligibilityStatus HOST - requires json variable be set, returns down|elegible|ineligible
+nomadNodeEligibilityStatus()
+{
+	local host="$(RemoveDnsSuffix "$1")"
+	local status; status="$(echo "$json" | jq '.[] | select(.Name == "'$host'") | .Status' | RemoveQuotes)" || return
+	[[ "$status" == "down" ]] && { echo "down"; return; }
+	echo "$json" | jq '.[] | select(.Name == "'$host'") | .SchedulingEligibility' | RemoveQuotes
 }
 
 #
