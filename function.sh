@@ -1908,7 +1908,7 @@ GetIpAddress()
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
 	# - nslookup is slow on mac if a name server is not specified
 	if [[ ! $server ]] && InPath getent; then ip="$(getent ahostsv4 "$host" |& grep "STREAM" | "${all[@]}" | cut -d" " -f 1)"
-	elif [[ ! $server ]] && IsPlatform mac; then ip="$(dscacheutil -q host -a name "$host" |& grep "^ip_address:" | cut -d" " -f2)"
+	elif [[ ! $server ]] && IsPlatform mac; then ip="$(dscacheutil -q host -a name "$host" |& grep "^ip_address:" | cut -d" " -f2 | ${G}head -1)"
 	elif InPath host; then ip="$(host -N 2 -t A -4 "$host" $server |& ${G}grep -v "^ns." | grep "has address" | "${all[@]}" | cut -d" " -f 4)"
 	elif InPath nslookup; then ip="$(nslookup -ndots=2 -type=A "$host" $server |& tail +4 | grep "^Address:" | "${all[@]}" | cut -d" " -f 2)"
 	fi
