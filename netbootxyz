@@ -5,7 +5,7 @@
 usage()
 {
 	init; ScriptUsage "$1" "\
-usage: netbootxyz all|deploy|dir|docker|edit|info|setup|test|update"
+usage: netbootxyz all|deploy|dir|docker|edit|info|setup|test|update|vars"
 }
 
 usageVerbose()
@@ -32,42 +32,28 @@ Servers:
 - tftp
   - servers: GetServers tftp
   - configuration: /etc/default/tftpd-hpa
-	- example: 'tftp \$(GetServer tftp) -c get about.ipxe'
-netbootxyz 10181 (not used) - curl http://rp1:10181 - assets - served from Apache
-does info view assets and assets-custom
-
-custom asset test - dir browsing not on curl http://boot.butare.net/assets-custom/windows/pe/bootmgr
-what syncs assets and assets-custom and installers - ?  document here - likely netbootxyz script?
-/mnt/data/appdata/netbootxyz/installers
-
-file="/etc/samba/smb.conf"
-install share - test with unc mount FindInstallFile, used for bootstrap program installation
-installers share - $ADATA/netbootxyz/installers - used for OS installers
-test all of these in test, document here
-
-
-web dir
-assets -> /srv/netbootxyz/assets/
-assets-custom -> /srv/netbootxyz/assets-custom/
-
-	"
+	- example: 'tftp \$(GetServer tftp) -c get about.ipxe'	"
 }
 
 checkDir() {  [[ -d "$1" ]] && echo "present" || echo "${RED}missing${RESET}";  }
 
 init() 
 { 
+	# netboot.xyz application
 	app="netbootxyz"
 	dockerImageName="$app"
 
+	# locations
 	confDir="$HOME/$(ConfigGet confDir)/netboot.xyz" || return
-	webDirFinal="$(apache dir sync)/htdocs/netboot.xyz" || return
-
 	appDir="/opt/netboot.xyz"
 	appConfig="$confDir/user_overrides.yml"
+	downloadDir="$HOME/Downloads"
 	menu="$confDir/menu/custom.ipxe.j2"
 	webDirApp="/var/www/html/"
+	webDirFinal="$(apache dir sync)/htdocs/netboot.xyz" || return
+	winScriptDir="$confDir/web/custom/windows/scripts"
 
+	# other
 	winReleases=(canary dev beta rp)
 }
 
@@ -76,39 +62,34 @@ init()
 #
 
 allUsage() { echot "Usage: $(ScriptName) all\nUpdate and deploy netboot.xyz."; }
-allCommand() { netbootxyz update ansible "${globalArgs[@]}" && deployAllCommand; }
+allCommand() { updateAppCommand && deployAllCommand; }
 isInstalledCommand() { [[ -d "$appDir" ]]; }
+varsCommand() { ScriptReturn appDir confDir webDirApp webDirFinal; }
 versionCommand() { version; }
 
 #
 # deploy commands
 #
 
-deployUsage() { echot "Usage: $(ScriptName) deploy [all|assets|assets-custom|installers|web](all)\nDeploy netboot.xyz assets, installers, and the web site."; }
+deployUsage() { echot "Usage: $(ScriptName) deploy [all|assets|installers|web](all)\nDeploy netboot.xyz assets, installers, and the web site."; }
 deployCommand() { deployAllCommand; }
-deployAllCommand() { netbootxyz deploy web --no-prompt "${globalArgs[@]}" && netbootxyz deploy assets --no-prompt "${globalArgs[@]}" && netbootxyz deploy assets-custom --no-prompt "${globalArgs[@]}" && netbootxyz deploy installers --no-prompt "${globalArgs[@]}"; }
+deployAllCommand() { local noPrompt="--no-prompt"; deployWebCommand && deployAssetsCommand && deployInstallersCommand; }
 
-deployAssetsUsage() { echot "Usage: $(ScriptName) deploy assets\nDeploy netboot.xyz assets."; }
+deployAssetsUsage() { echot "Usage: $(ScriptName) deploy assets\nDeploy netboot.xyz menus, netboot.xyz  assets, and custom assets."; }
 
 deployAssetsCommand()
 {
 	header "Deploying Assets"
 
-	hilight "Synchronize asset menus..."
-	UnisonHelper sync --host=rp1 --root "$ACONF/netbootxyz/config" "rp2" "${globalArgs[@]}" || return
-	UnisonHelper sync --host=rp1 --root "$ACONF/netbootxyz/config" "ender" "${globalArgs[@]}" || return
+	hilight "Synchronizing Netboot.xyz menus..."
+	UnisonHelper sync --host=rp1 --root "$ACONF/netbootxyz/config" "rp2" "${globalArgs[@]}"  -- -ignore "'Name {*.log}'" || return
 
-	hilight "Synchronize assets..."
+	hilight "Synchronizing Netboot.xyz assets..."
 	UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz/assets" "rp2" "${globalArgs[@]}" || return
-	UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz/assets" "ender" "${globalArgs[@]}" || return
-}
 
-deployAssets-customCommand()
-{
-	hilight "Updating custom asset scripts..."
-	UnisonHelper sync "$confDir/web/custom/windows/scripts" "rp1" "$ADATA/netbootxyz/assets-custom/windows/scripts" --root --no-props "${globalArgs[@]}" || return
+	hilight "Synchronizing custom asset..."
+	UnisonHelper sync "$winScriptDir" "rp1" "$ADATA/netbootxyz/assets-custom/windows/scripts" --root --no-props "${globalArgs[@]}" || return
 	UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz/assets-custom" "rp2" "${globalArgs[@]}" || return
-	UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz/assets-custom" "ender" "${globalArgs[@]}" || return
 }
 
 deployInstallersUsage() { echot "Usage: $(ScriptName) deploy installers\nDeploy installers "; }
@@ -121,6 +102,7 @@ deployInstallersCommand()
 	UnisonHelper sync --host=rp1 --no-props "$ADATA/netbootxyz/installers" "ender" "${globalArgs[@]}" || return
 }
 
+deployWebUsage() { echot "Usage: $(ScriptName) deploy web\nDeploy the Apache web site."; }
 deployWebArgStart() { unset hostArg hostOpt hosts; }
 deployWebOpt() { ScriptOptHost "$@"; }
 
@@ -182,12 +164,14 @@ dockerStopCommand() { docker stop "$(getContainerId)"; }
 # edit commands
 #
 
-editUsage() { echot "Usage: $(ScriptName) edit conf|menu\nEdit the netboot.xyz configuration or menus."; }
+editUsage() { echot "Usage: $(ScriptName) edit conf|menu|win\nEdit the netboot.xyz configuration or menus."; }
 editCommand() { usage; }
 editConfUsage() { echot "Usage: $(ScriptName) edit conf\nEdit the netboot.xyz configuration ($(FileToDesc "$appConfig"))."; }
 editConfCommand() { TextEdit "$appConfig"; }
 editMenuUsage() { echot "Usage: $(ScriptName) edit conf\nEdit the netboot.xyz configuration ($(FileToDesc "$menu"))."; }
 editMenuCommand() { TextEdit "$menu"; }
+editWinUsage() { echot "Usage: $(ScriptName) edit conf\nEdit the netboot.xyz configuration ($(FileToDesc "$menu"))."; }
+editWinCommand() { TextEdit "$winScriptDir"; }
 
 #
 # info commands
@@ -202,15 +186,15 @@ infoWinCommand()
 {
 	local release
 	for release in "${winReleases[@]}"; do
-		echo "$release: $(infoWinRelease "$release")"
+		echo "$release: $(infoWinBuild "$release")"
 	done
 }
 
-# infoWinRelease canary|dev|beta|rp
-infoWinRelease()
+# infoWinBuild canary|dev|beta|rp
+infoWinBuild()
 {
-	local name
-	case "${1,,}" in
+	local name release="$1"
+	case "${release,,}" in
 		canary) name="canarychannellatest";;
 		dev) name="DevLatest";;
 		beta) name="BetaLatest";;
@@ -218,7 +202,9 @@ infoWinRelease()
 		*) ScriptErr "'$1' is not a valid Windows release"; return 1;;
 	esac
 	
-	HttpHeader "https://aka.ms/$name" | ${G}grep "^Location:" | sed 's/^.*-build//' | cut -d"-" -f2
+	local build; build="$(HttpHeader "https://aka.ms/$name" | ${G}grep "^Location:" | sed 's/^.*-build//' | cut -d"-" -f2)" || return
+	! IsInteger "$build" && { ScriptErr "Windows '$release' release build '$build' is not numeric"; return 1; }
+	echo "$build"
 }
 
 #
@@ -228,55 +214,41 @@ infoWinRelease()
 setupUsage() { echot "Usage: $(ScriptName) setup [app|config|web](all)\nSetup the netboot.xyz build environment including the application and web source files."; }
 setupCommand() { setupAll; }
 setupAllCommand() { setupAll; }
-setupAll() { setupWebCommand && setupConfigCommand && setupAppCommand; }
+setupAll() { setupWebCommand && setupConfigCommand && setupAppCommand && setupAppCommand; }
 
 setupAppCommand()
 {
-	[[ -d "$appDir" && ! $force ]] && { setupAppLatest; return; }
+	[[ ! $force && -d "$appDir" ]] && return	
+	hilight "Setting up the netboot.xyz application ($appDir)..."
 
-	# packages
-	RunLog package ansible git apache2 python-is-python3 || return
+	# install packages
+	package ansible git apache2 || return
+	IsPlatform debian && { package python-is-python3 || return; }
 
-	# application
-	[[ -d "$appDir" ]] && { RunLog sudo rm -fr "$appDir" || return; }
-	RunLog sudo git clone "https://github.com/netbootxyz/netboot.xyz.git" "$appDir" || return
-	RunLog sudo chown --recursive "$USER" "$appDir" || return
-	! IsPlatform mac && { RunLog sudo chgrp -R "$USER" "$appDir" || return; }
+	# install /opt/netboot.xyz application
+	[[ -d "$appDir" ]] && { sudo rm -fr "$appDir" || return; }
+	sudoc git clone "https://github.com/netbootxyz/netboot.xyz.git" "$appDir" || return
+	sudo $(G)chown --recursive "$USER" "$appDir" || return
+	! IsPlatform mac && { sudo chgrp -R "$USER" "$appDir" || return; }
 
-	# web - use existing web site, it will be updated when the application is deployed
-	local webDirAppParent="$(GetParentDir "$webDirApp")"
-	RunLog sudoc CopyDir --recursive --delete "$webDirFinal" "$webDirAppParent"  "${globalArgs[@]}" || return
-	[[ -d "$webDirApp" ]] && { RunLog sudo rm -fr "$webDirApp" || return; }
-	RunLog sudo mv "$webDirAppParent/$(GetFileName "$webDirFinal")" "$webDirApp" || return
+	# create /var/www/html web site - it will be updated when the application is deployed
+	sudoc CopyDir --recursive --delete "$webDirFinal/" "$webDirApp"  "${globalArgs[@]}" || return
 
-	# checkout the latest tag of the application
-	setupAppLatest || return
-}
-
-setupAppLatest()
-{
-	hilight "Setting up application..."
-
-	cd "$appDir" || return	
-	git fetch || return
-
-	local tag; tag="$(version)" || return
-	
-	hilight "v$tag..."
-	git reset --hard  "$tag"
+	# update the application (checks out the latest tag)
+	updateAppCommand || return
 }
 
 setupConfigCommand()
 {
-	(( $(stat -c%b "$confDir/user_overrides.yml") > 0 )) && [[ ! $force ]] && return
-	hilight "Setting up configuration..."
+	(( $(${G}stat -c%b "$confDir/user_overrides.yml") > 0 )) && [[ ! $force ]] && return
+	hilight "Setting up the configuration directory '$(FileToDesc "$confDir")'..."
 	CloudGet "$confDir"
 }
 
 setupWebCommand()
 {
 	[[ -d "$webDirFinal" && ! $force ]] && return
-	hilight "Setting up web directory..."
+	hilight "Setting up the web directory '$(FileToDesc "$webDirFinal")'..."
 	apache sync "${globalArgs[@]}" && sudo mkdir --parents "$webDirFinal"
 }
 
@@ -336,6 +308,7 @@ testWeb()
 	fi
 	
 	# check HTTP response
+	 curl -sL http://boot.butare.net/assets/
 	RunLog curl -sL "$url" | grep -q "Index of /" && echo "url available" || HilightErr "$url not available"
 }
 
@@ -343,26 +316,66 @@ testWeb()
 # update commands
 #
 
-updateUsage() { echot "Usage: $(ScriptName) app update [all|ansible|win](all)"; }
+updateUsage() { echot "Usage: $(ScriptName) update [all|app|win](all)"; }
 updateCommand() { updateAllCommand; }
+updateAllCommand() { updateAppCommand && updateWinCommand; }
 
-updateAllCommand() { updateAnsible && updateWin; }
+#
+# update app commands
+#
 
-updateAnsibleUsage() { echot "Usage: $(ScriptName) app update ansible\nUpdate the netboot.xyz application by running the Ansible playbook.  Run for netboot.xyz repository updates or if the menus are edited."; }
-updateAnsibleCommand() { setupAll && cp "$confDir/user_overrides.yml" "$appDir" && cd "$appDir" && sudoc ansible-playbook -i "inventory" "site.yml"; }
+updateAppUsage() { echot "Usage: $(ScriptName) update app [all|code|build](all)\nUpdate the netboot.xyz application to the latest version (tag)."; }
+updateAppCommand() { updateAppAllCommand; }
+updateAppAllCommand() { updateAppCodeCommand && updateAppBuildCommand; }
 
-updateWinUsage() { echot "Usage: $(ScriptName) app update win [auto|build|download|prompt](prompt)\nUpdate Windows setup programs."; }
+# updateAppCodeCommand - update the netboot.xyz application code to the latest repository tag
+updateAppCodeCommand()
+{
+	cd "$appDir" || return	
+	git fetch || return
+
+	# return if at the latest
+	local latestTag; latestTag="$(version)" || return
+	local currentTag; currentTag="$(git describe --tags)" || return
+	log1 "updateAppCode: currentTag=$currentTag latestTag=$latestTag"
+	[[ ! $force && "$currentTag" == "$latestTag" ]] && return
+
+	# update
+	hilight "Updating the netboot.xyz application to v${latestTag}..."
+	git reset --hard  "$latestTag" || return
+}
+
+updateAppBuildUsage() { echot "Usage: $(ScriptName) update app build\nBuild the netboot.xyz application by running the Ansible playbook.  Run for netboot.xyz repository updates or if the menus are edited."; }
+updateAppBuildCommand() { cp "$confDir/user_overrides.yml" "$appDir" && cd "$appDir" && sudoc ansible-playbook -i "inventory" "site.yml"; }
+
+#
+# update win commands
+#
+
+updateWinUsage()
+{
+	echot "\
+Usage: $(ScriptName) app update win [all|build|download|select|sync](select)
+Update Windows setup images.
+
+	all 				download and build the current Windows builds 
+	build				build any compressed UUP download files in $(FileToDesc "$downloadDir")
+	download  	download current Windows UUP files to $(FileToDesc "$downloadDir")
+	select 			select a specific Windows build
+	sync				synchronize installation shares"
+}
+
 updateWinCommand() { updateWinPromptCommand; }
-
-updateWinBuildUsage() { echot "Usage: $(ScriptName) app update win build\Build any compressed UUP download files in ~/Download."; }
+updateWinBuildUsage() { echot "Usage: $(ScriptName) update win build\Build any compressed UUP download files in $(FileToDesc "$downloadDir")."; }
 updateWinBuildCommand() { uupBuild; }
 
-updateWinDownloadUsage() { echot "Usage: $(ScriptName) app update win download\Download current Windows UUP files to ~/Download."; }
+updateWinDownloadUsage() { echot "Usage: $(ScriptName) update win download\Download current Windows UUP files to $(FileToDesc "$downloadDir")."; }
 updateWinDownloadCommand() { uupDownload; }
+updateWinSyncCommand() { wiggin sync public "${globalArgs[@]}"; }
 
-updateWinAutoUsage() { echot "Usage: $(ScriptName) app update win auto\Download current Windows builds automatically."; }
+updateWinAllUsage() { echot "Usage: $(ScriptName) update win all auto\Download and build the current Windows builds."; }
 
-updateWinAutoCommand()
+updateWinAllCommand()
 {
 	HeaderBig "Download UUP Files"
 	uupDownload || return
@@ -370,9 +383,9 @@ updateWinAutoCommand()
 	uupBuild || return
 }
 
-updateWinPromptUsage() { echot "Usage: $(ScriptName) app update win [auto]\Prompt to download UUP files to update Windows."; }
+updateWinSelectUsage() { echot "Usage: $(ScriptName) update win select [auto]\Select a specific Windows build."; }
 
-updateWinPromptCommand()
+updateWinSelectCommand()
 {
 		echot "\
 - Latest NNN build, x64
@@ -382,13 +395,13 @@ updateWinPromptCommand()
 	uupBuild || return
 }
 
-# uupBuild - build the UUP files in ~/Download
+# uupBuild - build the UUP files in $downloadDir
 uupBuild()
 {
-	cd "$HOME/Downloads" || return
+	cd "$downloadDir" || return
 
 	# return if no UUP files
-	(( $(getUupFileCount) == 0 )) && { echo "No UUP files have been downloaded to ~/Downloads."; return 0; }
+	(( $(getUupFileCount) == 0 )) && { echo "There are not any UUP build files in $(FileToDesc "$downloadDir")."; return 0; }
 
 	# build UUP zip files
 	local file; for file in *.*.zip; do
@@ -397,35 +410,37 @@ uupBuild()
 	done
 
 	echo "Updating batchfiles..."
-	echo "@setup.bat $build" > "$confDir/web/custom/windows/scripts/install/$build.bat" || return
+	echo "@setup.bat $build" > "$winScriptDir/install/$build.bat" || return
 
-	netbootxyz deploy installers || return
+	deployInstallersCommand || return
 }
 
-# uupDownload - download current UUP files to ~/Download
+# uupDownload - download current UUP files to $downloadDir
 uupDownload()
 {
 	hilight "Downloading current releases..."
 	local setupDir; setupDir="$(getWinInstallDir)" || return
 	infoWinCommand | tee "$setupDir/releases.txt" || return
 
-	hilight "Download UUP builds..."
+	hilight "Downloading UUP build files..."
 	local file; file="$(mktemp -t "UupBuilds.XXXXXXXXXX.json")" || return
 	curl --silent "https://api.uupdump.net/listid.php" > "$file" || return
+	log2 "downloaded UUP build JSON file to '$file'"
 
 	# download the UUP files for each current windows build
 	local release
 	for release in "${winReleases[@]}"; do
-		local build; build="$(infoWinRelease "$release")" || return
+		local build; build="$(infoWinBuild "$release")" || return
 		local arch="amd64" # amd64|arm64
 		local uuid; uuid="$(cat "$file" | jq '.response.builds | map(select(.build | contains("'$build'"))) | map(select(.arch == "amd64"))[0] | .uuid' | RemoveQuotes)"
-		local uup="$HOME/Downloads/${build}.${arch}.zip"
+		local uup="$downloadDir/${build}.${arch}.zip"
+		log2 "release=$release build=$build uuid=$uuid uup='$uup'"
 
 		# UUP zip file is already downloaded
-		[[ -f "$uup" ]] && continue
+		[[ -f "$uup" ]] && { log1 "the UUP build file for the current $release release is already in '$uup'"; continue; }
 
 		# check if this release is already downloaded
-		[[ ! $force && -d "$setupDir/$build" ]] && continue
+		[[ ! $force && -d "$setupDir/$build" ]] && { [[ ! $quiet ]] && echo "The setup for the current $release release (build $build) exists in $(FileToDesc "$setupDir/$build")."; continue; }
 
 		# download UUP zip file
 		hilight "Downloading UUP file for Windows $release build $build $arch..."
@@ -440,20 +455,21 @@ uupDownload()
 	done
 
 	# display status
-	(( $(getUupFileCount) == 0 )) && { echo "All current Windows releases have been downloaded."; }
+	let uupFileCount; uupFileCount="$(getUupFileCount)" || return
+	(( uupFileCount > 0 )) && { echo "$uupFileCount UUP build file(s) in $(FileToDesc "$(GetFilePath "$uup") need processing")."; }
 
 	rm "$file"
 }
-
 
 #
 # helper functions
 #
 
 getContainerId() { docker ps --all | grep "$dockerImageName" | cut -d" " -f1; }
-getUupFileCount() { command ls -1 "$HOME/Downloads"*.*".zip" 2> /dev/null | wc -l; }
+getUupFileCount() { command ls -1 "$downloadDir/"*.*".zip" 2> /dev/null | wc -l; }
 getWinInstallDir() { FindInstallFile "other/Microsoft/Windows/setup"; }
 
+# version - return the latest version (tag) of the netboot.xyz application
 version()
 {
 	AppInstallCheck || return
