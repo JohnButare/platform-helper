@@ -1136,7 +1136,7 @@ UnQuoteQuotes() { GetArgs; echo "$@" | sed 's/\\\"/\"/g'; } # remove backslash b
 QuoteSpaces() { GetArgs; echo "$@" | sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
 RemoveQuotes() { sed 's/^\"//g ; s/\"$//g'; }
 RemoveParens() { tr -d '()'; }
-ReplaceString() { GetArgs3; echo "${1//$2/$3}"; }
+ReplaceString() { GetArgs3; echo "${1//$2/$3}"; } # ReplaceString TEXT STRING REPLACEMENT 
 BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
 ForwardToBackSlash() { GetArgs; echo -E "$@" | sed 's/\//\\/g'; }
 RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
