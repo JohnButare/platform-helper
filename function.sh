@@ -2384,7 +2384,7 @@ DnsResolve()
 	# forward DNS lookup to get the fully qualified DNS address
 	else
 		if [[ ! $server ]] && InPath getent; then lookup="$(getent ahostsv4 "$name" |& ${G}head -1 | tr -s " " | ${G}cut -d" " -f 3)" || unset lookup
-		elif [[ ! $server ]] && IsPlatform mac; then lookup="$(dscacheutil -q host -a name "$name" |& grep "^name:" | cut -d" " -f2)" || unset lookup
+		elif [[ ! $server ]] && IsPlatform mac; then lookup="$(dscacheutil -q host -a name "$name" |& grep "^name:" | ${G}tail -1 | cut -d" " -f2)" || unset lookup # return the IPv4 name (the last name), dscacheutil returns ipv6 name first if present, i.e. dscacheutil -q host -a name "google.com"
 		elif InPath host; then lookup="$(host -N 2 -t A -4 "$name" $server |& ${G}grep -v "^ns." | ${G}grep -E "domain name pointer|has address" | head -1 | cut -d" " -f 1)" || unset lookup
 		elif InPath nslookup; then lookup="$(nslookup -ndots=2 -type=A "$name" $server |& tail -3 | ${G}grep "Name:" | ${G}cut -d$'\t' -f 2)" || unset lookup
 		fi
