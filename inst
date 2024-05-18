@@ -2617,9 +2617,6 @@ bootstrapMac()
 	# packages
 	pkg duti findutils fontconfig pidof wakeonlan wget xz || return
 
-	# file sharing
-	defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool TRUE || return # faster SMB file sharing - https://support.apple.com/en-us/HT208209
-
 	# dockutil - https://github.com/kcrawford/dockutil/issues/127
 	! InPath dockutil && [[ ! $force ]] && { brew install dockutil || return; }
 
@@ -2760,6 +2757,7 @@ bootstrapCommon()
 
 bootstrapFinal() { RunPlatform bootstrapFinal && RunPlatform bootstrapIcons && UpdateDone "install-bootstrap"; }
 bootstrapFinalDebian() { i DebianSetup; }
+bootstrapFinalMac() { i MacSetup; }
 bootstrapFinalWin() { i WinSetup; }
 bootstrapIcons() { RunPlatform BootstrapIcons; }
 bootstrapIconsWin() { i WinIcons; }
@@ -5848,10 +5846,10 @@ PoolTemperatureInstall()
 
 MacAppAllInstall() { i CarrotWeather DayOne flighty LiveDesktop SpeedTest ValetCarControl yoink; }
 
-MacInstall() # called by bootstrap
+MacSetupInstall()
 {
 	header "Mac Setup"
-	i MacAppCleanup MacConfigure MacDirectories MacDockCleanup MacDockOrder MacFonts MacPower MacShortcuts || return
+	i MacAppCleanup MacConfigure MacDirectories MacDockCleanup MacDockOrder MacFonts MacNetwork MacPower MacShortcuts || return
 }
 
 MacAppCleanupInstall()
@@ -5907,6 +5905,52 @@ MacFontsInstall()
 {
 	findFile "fonts/MesloLGS NF/$PLATFORM_OS" || return
 	cp "$file/"* "$HOME/Library/Fonts" || return
+}
+
+MacNetworkInstall()
+{
+	# file sharing
+	defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool TRUE || return # faster SMB file sharing - https://support.apple.com/en-us/HT208209
+
+	# SMB configuration - https://forums.unraid.net/topic/146818-optimal-samba-settings-to-get-better-macos-to-unraid-performance/
+	local file="/etc/nsmb.conf"
+		
+	if [[ ! -f "$file" || $force ]]; then
+		cat <<-EOF | sudoc ${G}tee "$file" > /dev/null || return
+			[default]
+			# Use NTFS streams if supported
+			streams=yes
+
+			# soft mount - try to mount until completed, the retry limit is met, or the timeout limit is met
+			soft=yes
+
+			# Disable package signing - improves performance, off by default in macOS
+			signing_required=no
+
+			# Disable directory caching - ensures Finder folder contents are up to date
+			dir_cache_off=yes
+
+			# Prevent SMB 1
+			# 7 == 0111  SMB 1/2/3 should be enabled
+			# 6 == 0110  SMB 2/3 should be enabled
+			# 4 == 0100  SMB 3 should be enabled
+			protocol_vers_map=6
+
+			# No SMB1, so disable NetBIOS
+			port445=no_netbios
+
+			# Turn off change notifications - Finder maintains folder list integrity
+			notify_off=yes
+
+			# SMB Multichannel behavior
+			# To disable multichannel support completely uncomment the next line
+			# mc_on=no
+
+			# prefer wired networks over Wi-Fi networks - some Wi-Fi networks advertise faster speeds than the connected wired network.
+			mc_prefer_wired=yes
+		EOF
+	fi
+
 }
 
 MacPortsInstall()
