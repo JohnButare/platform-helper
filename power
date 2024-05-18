@@ -234,7 +234,7 @@ powerRemote()
 	fi
 
 	# determine the current status off the host
-	local initialState="off"; IsAvailable "$host" "$timeout" && initialState="on"
+	local initialState="off"; IsAvailable "$hostMain" "$timeout" && initialState="on"
 
 	# check if host is already on
 	if [[ ! $force && "$command" == "on" && "$initialState" == "on" ]]; then
@@ -408,14 +408,14 @@ powerWaitOff()
 {	
 	local seconds="${waitSeconds:-$waitSecondsDefault}"
 
-	{ [[ ! $wait ]] || ! IsAvailable "$host" "$timeout"; } && return
+	{ [[ ! $wait ]] || ! IsAvailable "$hostMain" "$timeout"; } && return
 
 	printf "waiting..."
 
 	for (( i=1; i<=$seconds; ++i )); do
  		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
 
-		if ! IsAvailable "$host" "$timeout"; then
+		if ! IsAvailable "$hostMain" "$timeout"; then
 			printf "disconnected..."
 			[[ $switchPortPower ]] && sleep 1
 			return 0			
@@ -458,7 +458,7 @@ powerWaitOnDo()
 {
 	local seconds="${waitSeconds:-$waitSecondsDefault}" found
 
-	{ [[ ! $wait ]] || IsAvailable "$host" "$timeout"; } && return
+	{ [[ ! $wait ]] || IsAvailable "$hostMain" "$timeout"; } && return
 
 	printf "waiting..."
 
@@ -466,9 +466,9 @@ powerWaitOnDo()
  		read -n 1 -t 1 -s && { echo "cancelled"; return 1; }
 
 		if [[ $found ]]; then
-			SshHelper IsAvailable "$host" --quiet && { printf "ssh..."; return 0; }
+			SshHelper IsAvailable "$hostMain" --quiet && { printf "ssh..."; return 0; }
 
-		elif IsAvailable "$host" "$timeout"; then
+		elif IsAvailable "$hostMain" "$timeout"; then
 			found="true"; printf "found..."
 			[[ ! $waitSsh ]] && return 0
 		fi
@@ -649,7 +649,7 @@ doStatus()
 	elif [[ $switchPort ]]; then
 		switchPortStatus "$host" "$switchPort"
 	else
-		IsAvailable "$host" "$timeout" && echo "on" || echo "off"
+		IsAvailable "$hostMain" "$timeout" && echo "on" || echo "off"
 	fi	
 }
 
@@ -786,7 +786,7 @@ switchWatts()
 # SSH Helper
 #
 
-sshConnect() { [[ ! $ssh ]] && return 0; SshHelper connect -x "$host" $trust "${globalArgsLessVerbose[@]}"; }
+sshConnect() { [[ ! $ssh ]] && return 0; SshHelper connect -x "$hostMain" $trust "${globalArgsLessVerbose[@]}"; }
 sshSwitch() { ssh -o ServerAliveInterval=2 "$@"; } # StudyDeskSwitch requires ServerAliveInterval >= 2
 
 sshCommandDo()
@@ -810,7 +810,15 @@ sshCommandDo()
 	if IsPlatform ubiquiti --host; then
 		ssh "$user$host" "$sshCommand" $redirect
 	else
-		eval RunLog SshHelper connect "$user$host" --credential --interactive $trust "${globalArgsLessVerbose[@]}" -- "$sshCommand" "${globalArgs[@]}" $redirect
+		local cmd=(SshHelper connect "$user$hostMain" --credential --interactive $trust "${globalArgsLessVerbose[@]}" -- "$sshCommand" "${globalArgs[@]}" $redirect)
+		local detach; IsPlatform win --host && [[ "$command" != "on" ]] && { detach="nohup"; log1 "running power command detatched"; }
+		(( verboseLevel > 1 )) && ScriptArgs "power" $detach "${cmd[@]}"		
+		if [[ $detach ]]; then
+			(eval nohup "${cmd[@]}" >& /dev/null &)
+			sleep 1
+		else
+			eval "${cmd[@]}"
+		fi
 	fi
 	result="$?"
 	log1 "sshDo: result=$result _platformOs=$_platformOs"
@@ -828,15 +836,15 @@ sshCommandInit()
 	sshCommandInitialized="true"
 	
 	# check if host is available on it's SSH port
-	SshIsAvailablePort "$host" || return
+	SshIsAvailablePort "$hostMain" || return
 
 	# use the power command on the host if possible
 	if [[ "$host" == @(hubitat?) ]]; then
 		return 1
 	elif [[ "$host" != @(VeraBridge) ]]; then
-		ScriptEval HostGetInfo vars $quiet "$host" $trust "${globalArgs[@]}" || return
+		ScriptEval HostGetInfo vars $quiet "$hostMain" $trust "${globalArgs[@]}" || return
 
-		if SshInPath "$user$host" "power"; then
+		if SshInPath "$user$hostMain" "power"; then
 			sshCommand="$BIN/power --no-prepare $command"
 
 		elif IsPlatform Busybox,OpenWrt,Ubiquiti --host; then
@@ -869,6 +877,7 @@ initHost()
 	switchPort="$(GetWord "$host" 2 :)"
 	host="$(GetWord "$host" 1 :)"
 	hostOrig="${host,,}"
+	unset -v hostMain
 	
 	# host aliases
 	case "$(RemoveDnsSuffix "$hostOrig")" in
@@ -877,12 +886,12 @@ initHost()
 		d) host="StudyDeskSwitch";;
 		g) host="GarageSwitch";;
 		bc) host="bcw1";;
-		bl1) host="bl1w2";;
-		bl2) host="bl2w2";;
+		bl1) hostMain="$host"; host="bl1w2";;
+		bl2) hostMain="$host"; host="bl2w2";;
 		ender) host="enderw1";;
 		nas2|pm|oversoul|oversoulw1|oversoulw2|oversoulw3|oversoulw4) host="oversoulw1";; # nas2=TrueNas pm=Proxmox
 	esac
-
+	
 	# validate host
 	if ! GetIpAddress "$host" >& /dev/null; then
 
@@ -898,6 +907,7 @@ initHost()
 
 	fi
 
+	hostMain="${hostMain:-$host}"
 	hostDesc="$(os name "$host" | RemoveDnsSuffix)"
 }
 
