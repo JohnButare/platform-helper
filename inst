@@ -273,13 +273,19 @@ Install an application.  To run a portion of the installation, the application n
 	-H,  --host=HOST			comma separated list of hosts for the installation
 	-nh, --no-header	   	suppress headers
 	-np, --no-prompt	   	suppress interactive prompts
+	-p,  --prompt	   			force the installation prompt even for single app installs
 	-s,  --select					select the install location
-	-t,  --type=TYPE      $installTypes"
+	-t,  --type=TYPE      $installTypes
+
+Portions:
+			 --no-help				do not run the help portion of the installation
+			 --no-profile			do not run the profile portion of the installation
+	-nr, --no-run					do not run the software installation program"
 }
 
 installArgStart()
 { 
-	unset -v alternate apps forceFull hint hostArg hostOpt hosts installType noHeader noHelp noProfile noPrompt noRegister noRun select
+	unset -v alternate apps forceFull hint hostArg hostOpt hosts installType noHeader noHelp noProfile noPrompt noRegister noRun promptArg select
 	installTypes="alternate|beta|compile|local|package|store"
 }
 
@@ -295,6 +301,7 @@ installOpt()
 		--no-prompt|-np) noPrompt="--no-prompt";;
 		--no-register) noRegister="--no-register";;
 		--no-run|-nr) noRun="--no-run";;
+		--prompt|-p) promptArg="--prompt";;
 		--select|-s) select="--select";;
 		--type|--type=*|-t|-t=*) installOptType "$@";;
 		*) return 1
@@ -1071,7 +1078,10 @@ i()
 	done
 	set -- "${args[@]}"
 
-	[[ ! $noPromptArg ]] && (( $# > 1 )) && prompt="true"
+	# determine if we should prompt to run the install
+	# - --no-prompt takes precedence, if set do not prompt
+	# - --prompt or more than one install forces a prompt
+	[[ ! $noPromptArg ]] && ( [[ $promptArg ]] || (( $# > 1 )) ) && prompt="true"
 
 	# install applications
 	while (($# != 0 )); do		
@@ -1991,7 +2001,16 @@ versionValidate()
 # applications
 #################################################
 
-AppCoreInstall() { header "App Core"; appCoreStart && winPathFix && i AppCoreCommon AppPlatform AppNetwork AppHardware AppHost && appCoreEnd && rebootIfNeeded; }
+AppCoreInstall()
+{
+	header "App Core"
+
+	# initialize
+	promptArg="--prompt" # force prompt even if a single application is being installed
+
+	# install
+	appCoreStart && winPathFix && i AppCoreCommon AppPlatform AppNetwork AppHardware AppHost && appCoreEnd && rebootIfNeeded; 
+}
 
 appCoreStart() { header "App Core Start"; RunPlatform appCoreStart; }
 appCoreStartWsl() { header "App Core Start WSL"; return 0; } # service stop dbus; pkill dbus-daemon; dbus service causes restart prompts on fresh install
@@ -2478,9 +2497,11 @@ KindleFinalWin() { mergeDir "$up/Amazon" "$up/Applications/Other" && $rm "$ud/Ki
 
 BootstrapInstall()
 {
-	header "Bootstrap"	
-
+	header "Bootstrap"
 	[[ ! $force ]] && ! UpdateNeeded "install-bootstrap" && return
+
+	# initialize
+	promptArg="--prompt" # force prompt even if a single application is being installed
 
 	# dependencies
 	i BootstrapFiles SshClientPermission dbus CredentialStore timezone || return 
@@ -2488,83 +2509,13 @@ BootstrapInstall()
 	# bootstrap
 	RunPlatform bootstrapStart || return
 	RunPlatform bootstrap || return
-
-	# shells
-	i bash zsh || return
-
-	# other
-	i AppDir SshCore $PLATFORM_OS || return
+	bootstrapCommon || return
+	bootstrapFinal || return
 }
 
-BootstrapFinal() { i BootstrapIcons && UpdateDone "install-bootstrap"; }
-BootstrapIconsInstall() { RunPlatform BootstrapIcons; }
-BootstrapIconsWin() { i WinIcons; }
-
-BootstrapFilesInstall()
-{
-	local file files dir dirs
-
-	printf "permissions..."
-	files=("$HOME/.bash_history")
-	for file in "${files[@]}"; do
-		printf "."; [[ -f "$file" ]] && { sudoc chown "$USER" "$file" || return; }
-	done
-
-	printf "files..."
-	files=(.bash_history .hushlogin .lesshst .z)
-	for file in "${files[@]}"; do
-		printf "."; touch "$HOME/$file" || return
-	done
-
-	printf "directories..."
-	files=("$HOME/.config" "$CODE/test" "$HOME/tmp")
-	for file in "${files[@]}"; do
-		printf "."; makeDir "$file" || return
-	done
-
-	files=("/usr/local/bin")
-	for dir in "${files[@]}"; do
-		printf "."; makeDir --sudo "$dir" || return
-	done
-
-	printf "links..."
-	local files=(.bashrc .bash_logout .bash_profile .dialogrc .gitconfig .gitignore .inputrc .kdiff3rc .lessfilter .magic .p10k.zsh .profile .Xresources .zlogin .zshenv .zshrc)
-	for file in "${files[@]}"; do
-		printf "."; makeLink --symbolic --hide "$UBIN/$file" "$HOME/$file" || return
-	done
-	
-	if [[ ! -L "/etc/ethers" ]]; then
-		[[ -f "/etc/ethers" ]] && { sudo rm "/etc/ethers" || return; }
-		printf "."; sudo ${G}ln --symbolic "$DATA/setup/ethers" "/etc/ethers" || return
-	fi
-
-	echo "done"
-}
-
-bootstrapStartWin() { bootstrapStartHiddenStart && bootstrapStartWsl; }
-
-# bootstrapStartHiddenStart - install early to prevent excessive UAC dialogs
-bootstrapStartHiddenStart()
-{
-	! CanElevate && return
-	winPathFix && i HiddenStartConfigure
-}
-
-# bootstrapStartWsl - set default user to aid troubleshooting - only supported in WSL 2
-bootstrapStartWsl()
-{
-	header "Bootstrap Start WSL"
-	! IsPlatform wsl1 && { wsl dist user set --user="$USER" || return; }
-	return 0
-}
-
-bootstrapCm4() { header "Bootstrap Start CM4"; i NicUsb; }
-
-bootstrapStartDebianMac()
-{
-	header "Bootstrap Start Mac and Debian"
-	pkg bc curl dialog expect git htop jq less moreutils unzip zip || return
-}
+#
+# bootstrap start
+#
 
 bootstrapStartDebian()
 {
@@ -2572,9 +2523,32 @@ bootstrapStartDebian()
 	pkg virt-what; unset VM_TYPE_CHECKED # force GetVmType to check again
 }
 
+bootstrapStartDebianMac()
+{
+	header "Bootstrap Start Mac and Debian"
+	pkg bc curl dialog expect git htop jq less moreutils unzip zip || return
+}
+
+bootstrapStartWin()
+ {
+ 	header "Bootstrap Start Win"
+
+ 	# Hidden Start - install early if possible to prevent excessive UAC dialogs
+	CanElevate && { { winPathFix && i HiddenStartConfigure; } || return; }
+
+	# Set default user to aid troubleshooting - only supported in WSL 2+
+	! IsPlatform wsl1 && { wsl dist user set --user="$USER" || return; }
+
+	return 0
+}
+
+#
+# bootstrap
+#
+
 bootstrapCasaos()
 {
-	header "Bootstrap Start CasaOS"
+	header "Bootstrap CasaOS"
 
 	# do not start X by default
 	sudo systemctl set-default multi-user.target
@@ -2587,6 +2561,8 @@ bootstrapCasaos()
 
 	return 0
 }
+
+bootstrapCm4() { header "Bootstrap CM4"; i NicUsb; }
 
 bootstrapDebian()
 {
@@ -2603,7 +2579,7 @@ bootstrapDebian()
 	pkg --no-prompt keyboard-configuration 
 	! IsPlatform wsl1 && { pkg smbclient || return; }
 
-	i DebianSetup || return
+	return 0
 }
 
 bootstrapEntware()
@@ -2766,6 +2742,73 @@ bootstrapWin()
 	makeLink --symbolic "$target/Documents" "$HOME/Documents" || return
 	makeLink --symbolic "$target/Downloads" "$HOME/Downloads" || return
 }
+
+#
+# bootstrap common
+#
+
+bootstrapCommon()
+{
+	header "Bootstrap Common"
+	i bash zsh || return				# shells
+	i AppDir SshCore || return	# other
+}
+
+#
+# bootstrap final
+#
+
+bootstrapFinal() { RunPlatform bootstrapFinal && RunPlatform bootstrapIcons && UpdateDone "install-bootstrap"; }
+bootstrapFinalDebian() { i DebianSetup; }
+bootstrapFinalWin() { i WinSetup; }
+bootstrapIcons() { RunPlatform BootstrapIcons; }
+bootstrapIconsWin() { i WinIcons; }
+
+#
+# bootstral installs
+#
+
+BootstrapFilesInstall()
+{
+	local file files dir dirs
+
+	printf "permissions..."
+	files=("$HOME/.bash_history")
+	for file in "${files[@]}"; do
+		printf "."; [[ -f "$file" ]] && { sudoc chown "$USER" "$file" || return; }
+	done
+
+	printf "files..."
+	files=(.bash_history .hushlogin .lesshst .z)
+	for file in "${files[@]}"; do
+		printf "."; touch "$HOME/$file" || return
+	done
+
+	printf "directories..."
+	files=("$HOME/.config" "$CODE/test" "$HOME/tmp")
+	for file in "${files[@]}"; do
+		printf "."; makeDir "$file" || return
+	done
+
+	files=("/usr/local/bin")
+	for dir in "${files[@]}"; do
+		printf "."; makeDir --sudo "$dir" || return
+	done
+
+	printf "links..."
+	local files=(.bashrc .bash_logout .bash_profile .dialogrc .gitconfig .gitignore .inputrc .kdiff3rc .lessfilter .magic .p10k.zsh .profile .Xresources .zlogin .zshenv .zshrc)
+	for file in "${files[@]}"; do
+		printf "."; makeLink --symbolic --hide "$UBIN/$file" "$HOME/$file" || return
+	done
+	
+	if [[ ! -L "/etc/ethers" ]]; then
+		[[ -f "/etc/ethers" ]] && { sudo rm "/etc/ethers" || return; }
+		printf "."; sudo ${G}ln --symbolic "$DATA/setup/ethers" "/etc/ethers" || return
+	fi
+
+	echo "done"
+}
+
 
 #################################################
 # Browser
@@ -3120,7 +3163,7 @@ RiffInstall()
 
 DebianAllInstall() { i DebianSetup DebianDns DebianFileSharing DebianFonts DebianLocale DebianPolicies DebianProxyServer DebianSudoSecurePath; }
 
-DebianSetupInstall() # called by bootstrapDebian
+DebianSetupInstall()
 {
 	header "Debian Setup"
 	i apt DebianDns DebianFileSharing DebianFonts DebianLocale DebianPolicies DebianProxyServer DebianSudoSecurePath || return
@@ -11313,7 +11356,7 @@ UltraMonProfile() { UltraMonHelper profile restore default; }
 # Windows
 #################################################
 
-WinInstall() # called by bootstrap
+WinSetupInstall()
 {
 	header "Windows Setup"
 	i SystemInternals WinPath WinPermissions || return # run first
