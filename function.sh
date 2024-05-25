@@ -203,11 +203,11 @@ ActualUser() { echo "${SUDO_USER-$USER}"; }
 CreateId() { echo "$((1000 + RANDOM % 9999))"; }
 UserDelete() { local user="$1"; ! UserExists "$user" && return; IsPlatform mac && { sudoc dscl . delete "/Users/$group"; return; }; sudoc userdel "$user"; }
 UserExists() { IsPlatform mac && { dscl . -list "/Users" | ${G}grep --quiet "^${1}$"; return; }; getent passwd "$1" >& /dev/null; }
+UserInGroup() { id "$1" 2> /dev/null | ${G}grep --quiet "($2)"; } # UserInGroup USER GROUP
 UserList() { IsPlatform mac && { dscl . -list "/Users"; return; }; getent passwd | cut -d: -f1 | sort; }
 GroupDelete() { local group="$1"; ! GroupExists "$group" && return; IsPlatform mac && { sudoc dscl . delete "/Groups/$group"; return; }; sudoc groupdel "$group"; }
 GroupExists() { IsPlatform mac && { dscl . -list "/Groups" | ${G}grep --quiet "^${1}$"; return; }; getent group "$1" >& /dev/null; }
 GroupList() { IsPlatform mac && { dscl . -list "/Groups"; return; }; getent group; }
-UserInGroup() { id "$1" 2> /dev/null | ${G}grep --quiet "($2)"; } # UserInGroup USER GROUP
 
 GroupAdd()
 {
@@ -319,13 +319,13 @@ UserCreate()
 	SshHelper permission "$user" || return
 }
 
-FullName() 
+# UserFullName - return the full name of the user, or the user id if the full name is not available
+UserFullName() 
 { 
-	case "$USER" in jjbutare|ad_jjbutare) echo John; return;; esac; 
 	local s
 	case "$PLATFORM_OS" in
-		win) s="$(net user "$USER" |& grep -i "Full Name")"; s="${s:29}";;
-		mac)  s="$(dscl . -read /Users/$USER RealName | tail -n 1)"; s="${s:1}";;
+		win) s="$(net.exe user jjbutare | grep "Full Name" | RemoveCarriageReturn | ${G}sed 's/Full Name//' | RemoveSpaceTrim)";;
+		mac)  s="$(dscl . -read "/Users/$USER" RealName  | tail -n 1 | RemoveSpaceTrim)";;
 	esac
 	echo ${s:-$USER}; 
 }
@@ -1256,6 +1256,7 @@ IsWindowsLink() { ! IsPlatform win && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
 
 # FindDir|File DIR NAME [DEPTH] - find directory or file starting from DIR with NAME (supports wildcards) for max of DEPTH directories
+FindAny() { "${G}find" "$1" -maxdepth "${3:-1}" -name "$2" | "${G}grep" ""; }	# grep returns error if nothing found
 FindDir() { "${G}find" "$1" -maxdepth "${3:-1}" -name "$2" -type d | "${G}grep" ""; }	# grep returns error if nothing found
 FindFile() { "${G}find" "$1" -maxdepth "${3:-1}" -name "$2" -type f | "${G}grep" ""; }
 
@@ -1446,18 +1447,22 @@ FileWait()
 	! IsInteger "$timeoutSeconds" && { ScriptErr "seconds '$timeoutSeconds' is not an integer"; return 1; }
 
 	# variables
-	local dir="$(GetFilePath "$file")" fileName="$(GetFullPath "$file")"
+	local dir="$(GetFilePath "$(GetFullPath "$file")")" fileName="$(GetFileName "$file")" fileDesc="$(FileToDesc "$file")"
+	local find=(FindAny "$dir" "$fileName"); [[ $sudo ]] && find=($sudo ls "$file")
+	ArrayShow find
 
 	# wait
-	[[ ! $quiet ]] && printf "Waiting $timeoutSeconds seconds for '$fileName'..."
+	[[ ! $quiet ]] && printf "Waiting $timeoutSeconds seconds for '$fileDesc'..."
 	for (( i=1; i<=$timeoutSeconds; ++i )); do
-		$sudo ls "$file" >& /dev/null && { [[ ! $quiet ]] && echo "found"; return 0; }
+
+		"${find[@]}"  >& /dev/null && { [[ ! $quiet ]] && echo "found"; return 0; }
 		if [[ $noCancel ]]; then
 			sleep 1
 		else
 			ReadChars 1 1 && { [[ ! $quiet ]] && echo "cancelled after $i seconds"; return 1; }
 		fi
 		[[ ! $quiet ]] && printf "."
+		
 	done
 
 	[[ ! $quiet ]] && echo "not found"; return 1

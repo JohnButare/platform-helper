@@ -4,8 +4,6 @@ timezoneWin="Mountain Standard Time" # tzutil.exe /l
 
 # user
 user="jjbutare"
-dropboxCompany="Juntos Holdings"
-dropboxUser="John Butare"
 
 # bootstrap
 # - bootStrapBin - initial bin directory UNC in the format //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
