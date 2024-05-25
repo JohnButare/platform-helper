@@ -151,7 +151,7 @@ P="/opt" PUSER="" SRV="/srv" BIN="" DATA="" ADATA="" ACONF="" PUB="" USERS="/hom
 # UDATA=user data, UADATA=user application data, CODE=source code WIN_CODE=windows source code
 USER="${USERNAME:-$USER}" DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
 DATA="/usr/local/data" ADATA="$DATA/appdata" ACONF="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM_OS"
-DOC="$HOME/Documents" CLOUD="$HOME/Dropbox" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
+DOC="$HOME/Documents" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
 G="" # G=GNU program prefix (i.e. gls)
 WIN_ROOT="/" WIN_HOME="$HOME"

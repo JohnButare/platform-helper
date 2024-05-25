@@ -545,6 +545,37 @@ browser()
 # Borg Backup
 BorgConf() { ScriptEval BorgHelper environment "$@"; }
 
+# Cloud
+CloudConf()
+{
+	# arguments
+	local quiet
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--quiet|-q) quiet="--quiet";;
+			*) UnknownOption "$1" CloudConf; return
+		esac
+		shift
+	done
+
+	# find a cloud directory
+	local cloud; unset CLOUD
+
+	if cloud="$(FindDir "$HOME" "* Dropbox")"; then
+		export CLOUD="$cloud"
+	elif cloud="$(FindDir "$WIN_HOME" "* Dropbox")"; then
+		export CLOUD="$cloud"
+	elif cloud="$(FindDir "$HOME" "OneDrive - *")"; then
+		export CLOUD="$cloud"
+	elif cloud="$(FindDir "$WIN_HOME" "OneDrive - *")"; then
+		export CLOUD="$cloud"
+	fi
+
+	[[ ! $CLOUD ]] && { [[ ! $quiet ]] && ScriptErr "unable to find a cloud directory" "CloudConf"; return 1; }
+	return 0
+}
+
 # Cron
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
@@ -1223,6 +1254,10 @@ IsPath() { [[ ! $(GetFileName "$1") ]]; }
 IsWindowsFile() { drive IsWin "$1"; }
 IsWindowsLink() { ! IsPlatform win && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
+
+# FindDir|File DIR NAME [DEPTH] - find directory or file starting from DIR with NAME (supports wildcards) for max of DEPTH directories
+FindDir() { "${G}find" "$1" -maxdepth "${3:-1}" -name "$2" -type d | "${G}grep" ""; }	# grep returns error if nothing found
+FindFile() { "${G}find" "$1" -maxdepth "${3:-1}" -name "$2" -type f | "${G}grep" ""; }
 
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
@@ -2167,7 +2202,7 @@ IsAvailablePort()
 		ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" >& /dev/null
 	elif InPath nmap; then
 		nmap "$host" -p "$port" -Pn -T5 |& grep -q "open" >& /dev/null
-	elif IsPlatform win; then	
+	elif IsPlatform win && InPath chkport-ip.exe; then	
 		RunWin chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
 	else
 		return 0 

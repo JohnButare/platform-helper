@@ -61,7 +61,7 @@ argEnd()
 	appProfileSaveDir="$profileSaveDir/$app"
 	userProfileSaveDir="$profileSaveDir/default"
 	userProfile="$userProfileSaveDir/$app Profile.$saveExtension"	
-	cloudProfileSaveDir="$CLOUD/network/profile/"
+	cloudProfileSaveDir=""; CloudConf && cloudProfileSaveDir="$CLOUD/network/profile/"
 }
 
 opt()
@@ -233,7 +233,7 @@ copyDefaultProfile()
 	local src="$1" dest="$2"
 
 	# backup
-	if [[ -f "$dest" && -d "$cloudProfileSaveDir" ]]; then
+	if [[ -f "$dest" && [[ $cloudProfileSaveDir && -d "$cloudProfileSaveDir" ]]; then
 		copyProfile "$src" "$cloudProfileSaveDir/$(GetFileName "$dest")" || return
 	fi
 
