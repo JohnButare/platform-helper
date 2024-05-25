@@ -4,32 +4,40 @@
 usage() 
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [close|IsInstalled|IsRunning|profile|program|restart|start|startup|version](start)
+Usage: $(ScriptName) [OPTION]... [bookmarks|close|IsInstalled|IsRunning|profile|program|restart|start|startup|vars|version](start)
 $(ScriptName) commands."
 }
 
 init()
 {
 	defaultCommand="start" 
-	unset program
+	unset program configDir profileDir
 
-	# find program and profile
+	# platform configuration
 	case "$PLATFORM_OS" in
 		linux) 
-			program="$P/firefox/firefox"
+			program="$P/firefox/firefox"			
 			if [[ ! -f "$program" ]]; then program="/usr/bin/firefox"
 			elif [[ ! -f "$program" ]]; then program="/usr/lib/firefox/firefox"
 			elif [[ ! -f "$program" ]]; then program="/usr/lib/firefox-esr/firefox-esr"
 			elif [[ ! -f "$program" ]]; then program="/snap/firefox/current/firefox"
 			fi
 			;;
-		mac) program="$P/Firefox.app";;
+		mac)
+			program="$P/Firefox.app"
+			configDir="$HOME/Library/Application Support/Firefox"
+			;;
 		win)
 			program="$P/Mozilla Firefox/firefox.exe"
-			if [[ ! -f "$program" ]]; then program="$WIN_HOME/PortableApps/FirefoxPortable/App/Firefox64/firefox.exe"
-			fi
+			[[ ! -f "$program" ]] && program="$WIN_HOME/PortableApps/FirefoxPortable/App/Firefox64/firefox.exe"
+			configDir="$UADATA/../Roaming/Mozilla/Firefox"
 			;;
 	esac
+
+	# other configuration
+	local profileSuffix; profileSuffix="$(${G}grep "^Default="  "$configDir/profiles.ini" | cut -d"=" -f2)" && profileDir="$configDir/$profileSuffix"
+
+	return 0
 }
 
 closeCommand() { ! isRunningCommand && return 0; ProcessClose "$program"; } 
@@ -40,6 +48,8 @@ restartCommand() { closeCommand && startCommand; }
 startArgs() { startArgs=( "$@" ); shift="$#"; }
 startCommand() { isInstalledCommand && start $wait "$program" "${startArgs[@]}"; }
 startupCommand() { startCommand; }
+varsUsage() { echot "Usage: $(ScriptName) vars\nReturn Firefox configuration variables: program configDir profileDir"; }
+varsCommand() { ScriptReturn "program" "configDir" "profileDir"; }
 
 versionCommand()
 {
@@ -48,9 +58,49 @@ versionCommand()
 	else AppVersion "$program"
 	fi
 }
-									 
+
 #
-# Profile Command
+# bookmarks commands
+#
+
+bookmarksUsage() { echot "Usage: $(ScriptName) bookmarks [json|markdown](json)"; }
+bookmarksCommand() { bookmarksJsonCommand; }
+
+bookmarksJsonUsage() { echot "Usage: $(ScriptName) bookmarks json\nReturn the latest bookmark backup as JSON."; }
+
+bookmarksJsonCommand()
+{
+	local dir="$profileDir/bookmarkbackups"
+	local file; file="$dir/$(command ls -Art "$dir" | tail -n 1)"
+	lz4jsoncat "$file"
+}
+
+bookmarksMarkdownCommand()
+{
+	bookmarksJsonCommand | jq -r '
+  def bookmark($iconuri; $title; $uri):
+     if $iconuri != null then "![\($iconuri)]" else "" end +
+     "[\($title)](\($uri))";
+
+  def bookmarks:
+    (objects | to_entries[]
+     | if .value | type == "array" then (.value | bookmarks)
+                                   else .value end ) //
+    (arrays[] | [bookmarks] | " - \(.[0])", "  \(.[1:][])" );
+
+  (.. | .children? | arrays)
+    |= map(if .uri != null then {bookmark: bookmark(.iconuri; .title; .uri)}
+                           else {title} end +
+           {children})
+  | del(..| select(length == 0))     # remove empty children and empty titles
+  | del(..| select(length == 0))     # remove objects that got empty because of previous deletion
+  | del(..| objects | select(has("title") and (.children | length == 0)))   # remove objects with title but no children
+  | .children                        # remove root level
+  | bookmarks'
+}
+
+#
+# profile command
 #
 
 profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."; }
