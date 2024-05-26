@@ -220,6 +220,7 @@ distRestoreCommand()
 
 	fi
 
+	# validate the installation file
 	if [[ ! -f "$file" ]]; then
 		ScriptErr "could not find the installation for '$src'"
 		return 1
@@ -268,8 +269,12 @@ distUserSetCommand()
 	local currentUid="$(getDefaultUser)" || return
 	[[ ! $force && "$uid" == "$currentUid" ]] && return
 
-	printf "Chaning the default used from UID $currentUid to UID $uid..."
-	lxr set-uid -n "$dist" -v "$uid"
+	printf "Changing the default used from UID $currentUid to UID $uid..."
+	if lxrOk; then
+		lxr set-uid -n "$dist" -v "$uid"
+	else
+		powershell "Get-ItemProperty Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Lxss\*\ DistributionName | Where-Object -Property DistributionName -eq $dist | Set-ItemProperty -Name DefaultUid -Value $uid"
+	fi	
 	echo "done"
 }
 
@@ -469,9 +474,18 @@ distShortcut()
 	MakeShortcut "wsl.exe" "$shortcutDir/$dist" "-d $dist" "$(utw $(FindInPath wsl.exe))" || return
 }
 
-getDefaultUser() { lxr get-uid -n "$dist" | Utf16toAnsi | RemoveCarriageReturn; }
+getDefaultUser()
+{
+	if lxrOk; then
+		lxr get-uid -n "$dist" | Utf16toAnsi | RemoveCarriageReturn; 
+	else
+		powershell "(Get-ItemProperty Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Lxss\* | Where-Object -Property DistributionName -eq $dist).DefaultUid" | RemoveCarriageReturn
+	fi	
+}
+
 list() { listCommand | cut -b 3- | tail +2 ; } # remove header and default distribution * }
-lxr() { ( cd /; RunLog LxRunOffline.exe "$@"; ); }
+lxr() { ! lxrOk && return; ( cd /; RunLog LxRunOffline.exe "$@"; ); }
+lxrOk() { InPath LxRunOffline.exe; }
 wslShare() { supports "mount" && printf "wsl.localhost"; }
 w() { IsPlatform win && ( cd /; wsl.exe "$@"; ); } # cd to local directory to fix invalid argument error running programs from SMB mounted shares
 
