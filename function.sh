@@ -560,18 +560,15 @@ CloudConf()
 	done
 
 	# find a cloud directory
-	local cloud; unset CLOUD
+	local cloud; unset CLOUD CLOUD_ROOT
 
-	if cloud="$(FindDir "$HOME" "* Dropbox")"; then
-		export CLOUD="$cloud"
-	elif cloud="$(FindDir "$WIN_HOME" "* Dropbox")"; then
-		export CLOUD="$cloud"
-	elif cloud="$(FindDir "$HOME" "OneDrive - *")"; then
-		export CLOUD="$cloud"
-	elif cloud="$(FindDir "$WIN_HOME" "OneDrive - *")"; then
-		export CLOUD="$cloud"
+	if [[ -d "$HOME/Dropbox" ]]; then
+		export CLOUD="$HOME/Dropbox"
+	elif [[ -d "$HOME/OneDrive" ]]; then
+		export CLOUD="$HOME/OneDrive"
 	fi
 
+	[[ $CLOUD ]] && { export CLOUD_ROOT="$CLOUD"; [[ -d "${CLOUD}Root" ]] && export CLOUD_ROOT="${CLOUD}Root"; }
 	[[ ! $CLOUD ]] && { [[ ! $quiet ]] && ScriptErr "unable to find a cloud directory" "CloudConf"; return 1; }
 	return 0
 }
@@ -1255,13 +1252,21 @@ IsWindowsFile() { drive IsWin "$1"; }
 IsWindowsLink() { ! IsPlatform win && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
 
-# FindDir|File DIR NAME [DEPTH] - find directory or file starting from DIR with NAME (supports wildcards) for max of DEPTH directories
-FindAny() { "${G}find" "$1" -maxdepth "${3:-1}" -name "$2" | "${G}grep" ""; }	# grep returns error if nothing found
-FindDir() { "${G}find" "$1" -maxdepth "${3:-1}" -name "$2" -type d | "${G}grep" ""; }	# grep returns error if nothing found
-FindFile() { "${G}find" "$1" -maxdepth "${3:-1}" -name "$2" -type f | "${G}grep" ""; }
+# FindAny DIR NAME [DEPTH](1) - find NAME (supports wildcards) starting from DIR for max of DEPTH directories
+FindAny()
+{
+	local dir="$1" name="$2"; shift 2
+	local depth="1"; IsInteger "$1" && { depth="$1"; shift; }
+	[[ ! -d "$dir" ]] && return 1
+	"${G}find" "$dir" -maxdepth "$depth" -name "$name" "$@" | "${G}grep" "" # grep returns error if nothing found
+}
 
-fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; echo "$arg"; clipw "$arg"; } # full path to clipboard
-pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; clipw "$(utw "$arg")"; } # full path to clipboard in platform specific format
+FindDir() { FindAny "${@:1:3}" -type d; }
+FindFile() { FindAny "${@:1:3}" -type f; }
+
+# (p)fpc - (platform) full path to clipboard
+fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; echo "$arg"; clipw "$arg"; } 
+pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; clipw "$(utw "$arg")"; }
 
 # CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
 # - mac: beta v166.3.2891+ triggers download of online-only files on move or copy
