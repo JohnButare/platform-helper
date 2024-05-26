@@ -1291,29 +1291,29 @@ CloudGet()
 	for file in "${files[@]}"; do
 		[[ $verbose ]] && EchoErr "CloudGet: processing '$file'"
 
-		# dirs
+		# directory
 		if [[ -d "$file" ]]; then
 			local newFiles=(); IFS=$'\n' ArrayMake newFiles "$(find "$file" -type f)"
 			CloudGet $quiet $verbose "${newFiles[@]}" || return
 			continue
 		fi
 
-		# check if file is downloaded
+		# ensure we have a file
 		ScriptFileCheck "$file" || return
 
-		# check blocks, does not work for small files
+		# check if downloaded by checking blocks, does not work for small files
 		local blocks="$(stat -c%b "$file")"
 		[[ $verbose ]] && EchoErr "CloudGet: blocks=$blocks"
 		((  $blocks > 0 )) && continue 	
 
-		# check at lease one line
+		# check if downloaded by checking for one line
 		local lines="$(wc --lines "$file" | cut -d" " -f1)"
 		[[ $verbose ]] && EchoErr "CloudGet: lines=$lines"
 		[[ "$lines" != "0" ]] && continue 		
 
 		# download file
 		[[ ! $quiet ]] && echo "Downloading file '$(GetFileName "$file")'..."
-		( cd "$(GetFilePath "$file")"; cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
+		( { ! HasFilePath "$file" || cd "$(GetFilePath "$file")"; } && cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
 
 	done
 }
