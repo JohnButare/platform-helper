@@ -133,7 +133,7 @@ clipok()
 	case "$PLATFORM_OS" in 
 		linux) [[ "$DISPLAY" ]] && InPath xclip;;
 		mac) InPath pbcopy;; 
-		win) InPath clip.exe paste.exe;;
+		win) InPath clip.exe;;
 	esac	
 }
 
@@ -1692,7 +1692,6 @@ HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 HttpHeader() { curl --silent --show-error --location --dump-header - --output /dev/null "$1"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
-IsInDomain() { [[ $(NetworkDomain) ]]; }																							# IsInDomain - true if the computer is in a network domain
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
 NetworkCurrent() { UpdateGet "network"; }; 
 NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars; }
@@ -1714,6 +1713,7 @@ GetRoute()
 	else ip route show to match $host | cut -d" " -f5
 	fi
 }
+
 NetworkConf()
 {
 	local force forceLevel; ScriptOptForce "$@"
@@ -2008,6 +2008,14 @@ ipinfo()
 		EchoErr "done"
 	} | column -c $(tput cols) -t -s: -n
 
+}
+
+# IsInDomain [DOMAIN] - true if the computer is in a network domain, or the specified domain
+IsInDomain()
+{
+	local domain="$(echo "$1" | LowerCase)" currentDomain="$(NetworkDomain | LowerCase)"
+	[[ $domain ]] && { [[ "$currentDomain" == "$domain" ]]; return; }
+	[[ $currentDomain ]]
 }
 
 # IsIpAddress IP - return true if the IP is a valid IPv4 address
@@ -2540,11 +2548,11 @@ MdnsResolve()
 	{ [[ ! $name ]] || ! IsMdnsName "$name"; } && return 1
 
 	# Currently WSL does not resolve mDns .local address but Windows does
-	if IsPlatform win; then
+	if InPath dns-sd.exe; then
 		result="$(RunWin dns-sd.exe -timeout 200 -Q "$name" |& grep "$name" | head -1 | rev | cut -d" " -f1 | rev)"
 	elif IsPlatform mac; then
 		result="$(ping -c 1 -W 200 "$name" |& grep "bytes from" | gcut -d" " -f 4 | sed s/://)"
-	else
+	elif InPath avahi-resolve-address; then
 		result="$(avahi-resolve-address -4 -n "$name" | awk '{ print $2; }')"
 	fi
 
@@ -3392,7 +3400,7 @@ ProcessClose()
 			name="${name/.exe/}.exe"; GetFileName "$name" name # ensure process has an .exe extension
 			cd "$PBIN" || return # process.exe only runs from the current directory in WSL
 			if InPath process.exe; then # Process.exe is not installed in some environments (flagged as malware by Cylance Protect)
-				./Process.exe -q "$name" $2 |& grep --quiet "has been closed successfully."; result="$(PipeStatus 1)"
+				./process.exe -q "$name" $2 |& grep --quiet "has been closed successfully."; result="$(PipeStatus 1)"
 			else
 				cmd.exe /c taskkill /IM "$name" >& /dev/null; result="$?"
 			fi
@@ -4464,6 +4472,7 @@ WinSetState()
 
 	# Windows - see if the title matches a windows running in Windows
 	if IsPlatform win; then
+		! InPath WindowMode.exe && return
 		RunWin WindowMode.exe -title "$title" -mode "${wargs[@]}"
 		return
 	fi

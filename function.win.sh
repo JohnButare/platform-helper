@@ -11,6 +11,7 @@ mmc() {	( cmd.exe /c mmc.exe "$@" & ) >& /dev/null; }
 # MakeShortcut FILE LINK ARGUMENTS ICON_FILE ICON_RESOURCE_NUMBER [MAX|MIN] START_IN_FOLDER HOT_KEY
 MakeShortcut() 
 { 
+	! InPath nircmd.exe && return
 	local suppress; [[ "$1" == @(-s|--suppress) ]] && { suppress="true"; shift; }
 	(( $# < 2 )) && { EchoErr "usage: MakeShortcut TARGET NAME ..."; return 1; }
 
