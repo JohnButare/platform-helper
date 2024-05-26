@@ -3716,7 +3716,11 @@ start()
 			fi
 		else
 			(( verboseLevel > 1 )) && ScriptArgs "start" RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
-			RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
+			if InPath RunProcess.exe; then
+				RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
+			else
+				"$fullFile" "${args[@]}"
+			fi
 		fi
 		result=$?
 
