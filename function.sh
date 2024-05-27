@@ -4127,8 +4127,12 @@ sudoc()
 	# run the command - sudo credentials are cached
 	IsSudo && { "${command[@]}" --prompt="" "${args[@]}"; return; } 
 
+	# determine which password to use
+	local passwordName="secure"
+	InPath opensc-tool && opensc-tool --list-readers | ${G}grep --quiet "Yes" && passwordName="ssh"
+
 	# get password if possible, ignore errors so we can prompt for it
-	local password; password="$(credential --quiet get secure default $verbose)"
+	local password; password="$(credential --quiet get $passwordName default $verbose)"
 
 	# prompt for password to stdout or stderr if possible, prevent sudo from asking for a password
 	if [[ ! $noPrompt && ! $password ]]; then
