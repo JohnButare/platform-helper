@@ -2220,7 +2220,7 @@ IsAvailablePort()
 		ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" >& /dev/null
 	elif InPath nmap; then
 		nmap "$host" -p "$port" -Pn -T5 |& grep -q "open" >& /dev/null
-	elif IsPlatform win && InPath chkport-ip.exe; then	
+	elif IsPlatform win && InPath chkport-ip.exe; then
 		RunWin chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
 	else
 		return 0 
@@ -3267,7 +3267,7 @@ IsExecutable()
 	local file="$1"; [[ ! $file ]] && { EchoWrap "Usage: IsExecutable FILE"; return 1; }
 
 	# file $UADATA/Microsoft/WindowsApps/*.exe returns empty, so assume files that end in exe are executable
-	[[ -f "$file" && "$(GetFileExtension "$file")" == "@(exe|com)" ]] && return 0
+	[[ -f "$file" && "$(GetFileExtension "$file")" == @(exe|com) ]] && return 0
 
 	# executable file
 	[[ -f "$file" ]] && { file "$(GetRealPath "$file")" | grep -E "executable|ELF" > /dev/null; return; }
@@ -3671,9 +3671,10 @@ start()
 		fi
 
 		# open
+		(( verboseLevel > 1 )) && ScriptMessage "opening file '$file'" "start"
 		(
 			#IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"
-			start "${open[@]}" "$file" "${args[@]}";
+			start $verbose "${open[@]}" "$file" "${args[@]}";
 		)		
 		return
 	fi
@@ -3720,13 +3721,18 @@ start()
 
 		# start the program
 		if IsShellScript "$fullFile"; then
-			local p="wsl.exe -d $(wsl get name)"; [[ "$terminal" == "wt" ]] && InPath wt.exe && p="wt.exe -d \"$PWD\" wsl.exe -d $(wsl get name)"
+			local distribution; distribution="$(wsl get name)" || return
+			local p=(wsl.exe --distribution "$distribution" --user "$USER"); [[ "$terminal" == "wt" ]] && InPath wt.exe && p=(wt.exe -d \"$PWD\" "${p[@]}")
+
+			# IsSystemd - requires bash -c, if WSL is a Windows Store app (seen on Windows build 22631.3593)
 			if IsSystemd; then
-				RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" bash.exe -c \""$(FindInPath "$fullFile") "${args[@]}""\"
+				(( verboseLevel > 1 )) && ScriptArgs eval RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "${p[@]}" --exec bash -c \""$(FindInPath "$fullFile")" "${args[@]}"\"
+				eval RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "${p[@]}" --exec bash -c \""$(FindInPath "$fullFile") "${args[@]}""\"
 			else
-				(( verboseLevel > 1 )) && ScriptArgs "start" RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
-				RunProcess.exe $wait $elevate "${windowStyle[@]}" $p --user $USER -e "$(FindInPath "$fullFile")" "${args[@]}"
+				(( verboseLevel > 1 )) && ScriptArgs eval RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "${p[@]}" --exec bash -c \""$(FindInPath "$fullFile")" "${args[@]}"\"
+				RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "${p[@]}" --exec "$(FindInPath "$fullFile") "${args[@]}""
 			fi
+
 		else
 			(( verboseLevel > 1 )) && ScriptArgs "start" RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
 			if InPath RunProcess.exe; then
