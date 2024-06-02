@@ -324,7 +324,7 @@ UserFullName()
 { 
 	local s
 	case "$PLATFORM_OS" in
-		win) s="$(net.exe user jjbutare | grep "Full Name" | RemoveCarriageReturn | ${G}sed 's/Full Name//' | RemoveSpaceTrim)";;
+		win) s="$(net.exe user "$USER" |& grep "Full Name" | RemoveCarriageReturn | ${G}sed 's/Full Name//' | RemoveSpaceTrim)";;
 		mac)  s="$(dscl . -read "/Users/$USER" RealName  | tail -n 1 | RemoveSpaceTrim)";;
 	esac
 	echo ${s:-$USER}; 
