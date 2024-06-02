@@ -2547,7 +2547,7 @@ bootstrapStartWin()
  	header "Bootstrap Start Win"
 
  	# Hidden Start - install early if possible to prevent excessive UAC dialogs
-	CanElevate && { { winPathFix && i HiddenStartConfigure; } || return; }
+	CanElevate && ! IsInDomain && { { winPathFix && i HiddenStartConfigure; } || return; }
 
 	# Set default user to aid troubleshooting - only supported in WSL 2+
 	! IsPlatform wsl1 && { wsl dist user set --user="$USER" || return; }
@@ -2588,8 +2588,9 @@ bootstrapDebian()
 
 	# libdbus-glib-1-dev - fails on ZimaBoard
 	pkg file man-db sensible-utils sharutils xz-utils || return			# other
-	pkg avahi-daemon dnsutils net-tools wakeonlan || return															# network
+	pkg net-tools wakeonlan || return																# network
 	pkg --no-prompt keyboard-configuration 
+	! IsPlatform wsl && { pkg avahi-daemon || return; }
 	! IsPlatform wsl1 && { pkg smbclient || return; }
 
 	return 0
@@ -3228,7 +3229,7 @@ DebianFileSharingInstall()
 	! PackageListInstalled | sqgrep "^samba-vfs-modules:" && { pkg samba-vfs-modules || return; }
 
 	local workgroup; workgroup="$(ConfigGet "workgroup")"
-	if [[ "$(network workgroup name)" != "$workgroup" ]]; then
+	if ! IsInDomain && [[ "$(network workgroup name)" != "$workgroup" ]]; then
 		network workgroup set "$workgroup" || return
 		restart="true"
 	fi
@@ -3362,11 +3363,12 @@ DebianPoliciesInstall()
 
 	local dir="/etc/polkit-1/localauthority/50-local.d" file
 
+	# return if no policy directory
 	! { InPath systemctl && systemctl >& /dev/null && sudo ls "$dir" >& /dev/null; } && return
 
 	# reboot
 	file="$dir/allow_shutdown_suspend.pkla"
-	if ! sudo ls "$file" >& /dev/null; then
+	if ! IsPlatform win && ! sudo ls "$file" >& /dev/null; then
 		echo "[Shutdown or suspend without a password]
 Identity=unix-user:$USER
 Action=org.freedesktop.login1.halt-multiple-sessions;org.freedesktop.login1.reboot-multiple-sessions;org.freedesktop.login1.set-wall-message;org.freedesktop.login1.halt;org.freedesktop.login1.power-off;org.freedesktop.login1.reboot;org.freedesktop.login1.suspend
@@ -3380,12 +3382,14 @@ DebianProxyServerInstall()
 {
 	header "Debian Proxy Server"
 
+	# preserve proxy server environment variables when using sudo
 	local file="/etc/sudoers"
 	sudo ${G}grep --quiet "HTTP_PROXY" "$file" && return
 	echo 'Defaults env_keep += "ftp_proxy http_proxy https_proxy no_proxy FTP_PROXY HTTP_PROXY HTTPS_PROXY NO_PROXY"' | sudo ${G}tee -a "$file" || return
 }
 
-DebianSudoSecurePathInstall() # add /usr/local/data/bin to the sudo secure path
+ # DebianSudoSecurePath - add /usr/local/data/bin to the sudo secure path
+DebianSudoSecurePathInstall()
 {
 	header "Debian SUDO Secure Path"
 
@@ -6740,7 +6744,7 @@ KeaInstall()
 
 KeaServiceInstall() # separate service installation - use when installing from source
 {
-	! IsSystemd && DefaultReturnAddress
+	! IsSystemd && return
 
 	header "ISC Kea DHCP Server Service"
 

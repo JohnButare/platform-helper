@@ -63,7 +63,7 @@ hashiTestVaultServers="pi20,pi21"
 
 # networks - list of known networks, check the DNS servers, format is NETWORK@DNS_IP
 # hagerman 10.10.100.8|7 (lb3|lb2)
-networks="hagerman@10.10.100.8,sandia@172.29.128.1,hagerman@10.10.100.7"
+networks="hagerman@10.10.100.8,sandia@172.29.128.1,sandia-vpn@134.253.181.25,hagerman@10.10.100.7"
 
 # external network
 externalTimeServer="time.apple.com"
