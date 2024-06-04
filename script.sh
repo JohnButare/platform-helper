@@ -425,7 +425,6 @@ GetHosts()
 	[[ $aliasUsed ]] && return
 
 	# service name
-
 	if [[ ! "$h" =~ , ]] && { [[ "$hLower" == @(|active|all|web) ]] || IsService "$h"; }; then
 		local service="$h"; 
 
