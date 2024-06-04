@@ -660,7 +660,7 @@ HashiConf()
 	HASHI_CHECKED="true"
 }
 
-HashiConfStatus() { [[ "$NETWORK" != "hagerman" ]] && return; HashiConf --config-prefix=prod "$@" && hashi config status; }
+HashiConfStatus() { ! IsOnNetwork "hagerman" && return; HashiConf --config-prefix=prod "$@" && hashi config status; }
 HashiConfConsul() { [[ $CONSUL_HTTP_ADDR || $CONSUL_HTTP_TOKEN ]] || HashiConf "$@"; }
 HashiConfNomad() { [[ $NOMAD_ADDR || $NOMAD_TOKEN ]] || HashiConf "$@"; }
 HashiConfVault() { [[ $VAULT_ADDR || $VAULT_TOKEN ]] || HashiConf "$@"; }
@@ -2079,6 +2079,13 @@ IsMacAddress()
 	echo "$mac" | ${G}grep --extended-regexp --quiet '^([0-9A-F]{1,2}:){5}[0-9A-F]{1,2}$'
 }
 
+# IsOnNetwork NETWORK - true if the computer is the network
+IsOnNetwork()
+{
+	ScriptEval network vars || return
+	[[ "$(LowerCase "$NETWORK")" == "$(LowerCase "$1")" ]]
+}
+
 IsStaticIp() { ! ip address show "$(GetInterface)" | grep "inet " | grep --quiet "dynamic"; }
 
 # MacLookup HOST|IP... - resolve a host name or IP to a MAC address using the ARP table or /etc/ethers
@@ -2422,7 +2429,7 @@ DnsResolve()
 	# - -N 3 and -ndotes=3 allow the default domain names for partial names like consul.service
 
 	# reverse DNS lookup for IP Address
-	local lookup 
+	local lookup
 	if IsIpAddress "$name"; then
 
 		if IsLocalHost "$name"; then lookup="localhost"
@@ -2583,7 +2590,13 @@ GetServers() { hashi resolve name --all "$@"; }
 GetAllServers() { GetServers "${1:-nomad-client}"; } # assume all servers have the nomad-client service
 
 # IsService SERVICE - return true if the service is a service on the current domain
-IsService() { DnsResolve "$1.service.$(ConfigGet "domain")" >& /dev/null; }
+IsService()
+{
+	local service="$1"
+	IsIpAddress "$service" && return 1
+	! IsOnNetwork "hagerman" && return 1
+	DnsResolve "$1.service.$(ConfigGet "domain")"
+}
 
 #
 # Network: SSH
@@ -3227,7 +3240,7 @@ InUse() { ProcessResource "$@"; }
 IsMacApp() { FindMacApp "$1" >& /dev/null; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { IsPlatform mac && return 1; cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
-IsWinAdmin() { IsPlatform win && RunWin net.exe localgroup Administrators | RemoveCarriageReturn | grep --quiet "$WIN_USER$"; }
+IsWinAdmin() { IsPlatform win && { IsInDomain sandia || RunWin net.exe localgroup Administrators | RemoveCarriageReturn | grep --quiet "$WIN_USER$"; }; }
 pkillchildren() { pkill -P "$1"; } # pkillchildren PID - kill process and children
 ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
 pschildren() { ps --forest $(ps -e --no-header -o pid,ppid|awk -vp=$1 'function r(s){print s;s=a[s];while(s){sub(",","",s);t=s;sub(",.*","",t);sub("[0-9]+","",s);r(t)}}{a[$2]=a[$2]","$1}END{r(p)}'); } # pschildren PPID - list process with children
