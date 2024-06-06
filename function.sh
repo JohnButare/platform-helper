@@ -2596,7 +2596,7 @@ IsService()
 	IsIpAddress "$service" && return 1
 	HasDnsSuffix "$service" && return 1
 	! IsOnNetwork "hagerman" && return 1	
-	DnsResolve "$1.service.$(ConfigGet "domain")"
+	DnsResolve --quiet "$1.service.$(ConfigGet "domain")"
 }
 
 #
