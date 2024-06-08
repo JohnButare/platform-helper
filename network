@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) adapter|current|cache|center|dns|find|gui|hosts|internet|name|profile|proxy|run|service|vars|vpn|workgroup
+Usage: $(ScriptName) adapter|current|cache|center|dns|domain|find|gui|hosts|internet|name|profile|proxy|run|service|vars|vpn|workgroup
 Network commands."
 }
 
@@ -36,11 +36,16 @@ nameCommand() { registry edit 'HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/
 varsCommand()
 {
 	local NETWORK="$(UpdateGet "network")" NETWORK_DOMAIN="$(UpdateGet "network_domain")" NETWORK_GATEWAY="$(UpdateGet "network_gateway")"
-	ScriptReturn "NETWORK" "NETWORK_DOMAIN" "NETWORK_GATEWAY" && proxyVarsEnable
+	local NETWORK_DNS_BASE_DOMAIN="$(ConfigGet "${NETWORK_DOMAIN}DnsBaseDomain")"
+	local NETWORK_DNS_DOMAIN="$(ConfigGet "${NETWORK_DOMAIN}DnsDomain")"
+	local NETWORK_DNS1="$(ConfigGet "${NETWORK_DOMAIN}Dns1")"
+	local NETWORK_DNS2="$(ConfigGet "${NETWORK_DOMAIN}Dns2")"
+	local NETWORK_DNS_SEARCH="$(ConfigGet "${NETWORK_DOMAIN}DnsSearch")"
+	ScriptReturn "NETWORK" "NETWORK_DOMAIN" "NETWORK_GATEWAY" "NETWORK_DNS_BASE_DOMAIN" "NETWORK_DNS_DOMAIN" "NETWORK_DNS1" "NETWORK_DNS2" "NETWORK_DNS_SEARCH" && proxyVarsEnable
 }
 
 #
-# Adapter Commands
+# adapter commands
 #
 
 adapterUsage() { echot "Usage: $(ScriptName) adapter edit|list|name
@@ -69,7 +74,7 @@ adapterNameCommand()
 }
 
 #
-# Current Commands
+# current commands
 #
 
 currentUsage()
@@ -124,7 +129,7 @@ currentAllCommand()
 }
 
 #
-# Current Find Command
+# current find command
 #
 
 currentFindUsage() { echot "Usage: $(ScriptName) current find\nFind the primary network."; }
@@ -132,12 +137,19 @@ currentFindUsage() { echot "Usage: $(ScriptName) current find\nFind the primary 
 currentFindCommand()
 {
 	local network; printf "network..."; network="$(findNetwork)" || return 
-	local proxyServer; printf "proxy..."; proxyServer="$(quiet="--quiet" findServer "$network" "proxy" $brief "${globalArgs[@]}")" || { PrintErr "none"; }
+	
+	local proxyServer
+	if canProxy; then
+		printf "proxy..."
+		proxyServer="$(findProxyServer)" || return
+		[[ $proxyServer ]] && echo "available" || echo "none"
+	fi
+
 	log1 "network=$network proxy=$proxyServer"
 }
 
 #
-# Current Server Command
+# current server command
 #
 
 currentServerUsage()
@@ -162,7 +174,7 @@ currentServerArgs() { ScriptArgGet "type" -- "$@"; shift; }
 currentServerCommand() { local name; name="$(name)" || return; findServer "$name" "$type" "$service"; }
 
 #
-# Current Servers Command
+# current servers command
 #
 
 currentServersUsage()
@@ -176,7 +188,7 @@ currentServersArgs() { ScriptArgGet "type" -- "$@"; shift; }
 currentServersCommand() { local name; name="$(name)" || return; getServersFromConfig "$name" "$type"; }
 
 #
-# Current Update Command
+# current update command
 #
 
 currentUpdateUsage() { echot "Usage: $(ScriptName) current all\nUpdate network settings for the current networks."; }
@@ -208,8 +220,7 @@ currentUpdateCommand()
 
 	# domain
 	doLog && printf "domain..."
-	local domain="$(cmd.exe /c 'echo %USERDOMAIN%' 2> /dev/null | RemoveCarriageReturn | RemoveNewline | LowerCase)"
-	IsLocalHost "$domain" && domain="" # the hostname is the domain name for computers not in a workgroup	
+	local domain; domain="$(domainNameCommand)" || return
 	UpdateSet "network_domain" "$domain" || return
 	doLog && { [[ $domain ]] && echo "$domain" || echo "none"; }
 
@@ -227,7 +238,8 @@ currentUpdateCommand()
 	# find proxy servers
 	local proxyServer
 	if canProxy; then 
-		doLog && printf "proxy..."; proxyServer="$(quiet="--quiet" findServer "$network" proxy $brief "${globalArgs[@]}")" || { EchoErr "none"; }
+		doLog && printf "proxy..."; proxyServer="$(findProxyServer "$network")" || return
+		doLog && { [[ $proxyServer ]] && echo "available" || echo "none"; }
 	fi
 
 	# return if no changes are required
@@ -245,6 +257,7 @@ currentUpdateCommand()
 
 	# status
 	if doLog; then
+		hilight "Status..."
 		network current status "${globalArgs[@]}" || return
 		[[ $(getProxyServer) ]] && { network proxy --status "${globalArgs[@]}" || return; }
 	fi
@@ -260,6 +273,7 @@ updateDnsWsl()
 	local network="$1"
 	local src="$DATA/setup/resolv.conf.$network" dest="/etc/resolv.conf"
 	[[ ! -f "$src" ]] && src="$DATA/setup/resolv.conf.external"
+	[[ ! -f "$src" ]] && return
 	cmp --quiet "$src" "$dest" >& /dev/null && return
 
 	# update
@@ -285,6 +299,13 @@ findNetwork()
 	local network networks=(); StringToArray "$(ConfigGet "networks")" "," networks
 	network="$(RunLog network find --service=dns "${networks[@]}" "${globalArgs[@]}" $brief)" || { echo "external"; return; }
 	GetSshUser "$network" # return the name of the network (before @)
+}
+
+findProxyServer()
+{
+	local network="$1"
+	local server="$(ConfigGet "${network}ProxyServer")"; [[ ! $server ]] && return
+	IsAvailablePort "$server" && echo "$server"
 }
 
 # findServer NETWORK TYPE SERVICE - find the first server of the specified type for the specified network  
@@ -322,7 +343,7 @@ validateNetwork()
 }
 
 #
-# DNS Commands
+# DNS commands
 #
 
 dnsUsage() { echot "Usage: $(ScriptName) adapter edit|list|name
@@ -338,6 +359,38 @@ dnsFlushCommand()
 		win) ipconfig /flushdns;;
 	esac
 }
+
+#
+# domain commands
+#
+
+domainUsage() { echot "Usage: $(ScriptName) domain [name|joined](name)
+Domain commands."; }
+
+domainCommand() { domainNameCommand; }
+
+#
+# domain name commands
+#
+
+domainNameUsage() { echot "Usage: $(ScriptName) domain name\nReturn the name of the domain."; }
+domainNameCommand() { RunPlatform domainName; }
+
+domainNameWin()
+{
+	local domain="$(domainNameWinDo)"
+	IsLocalHost "$domain" && domain="$(ConfigGet "bootstrapDomain")"
+	echo "$domain"
+}
+
+domainNameWinDo() { cmd.exe /c 'echo %USERDOMAIN%' 2> /dev/null | RemoveCarriageReturn | RemoveNewline | LowerCase; }
+
+#
+# domain joined commands
+#
+
+domainJoinedUsage() { echot "Usage: $(ScriptName) domain joined\nReturn true if we are joined to a domain."; }
+domainJoinedCommand() { IsPlatform win && ! IsLocalHost "$(domainNameWinDo)"; }
 
 #
 # find commands
@@ -758,7 +811,7 @@ proxyVarsShow()
 	local proxyServer="$1"
 
 	if [[ $proxyServer ]]; then
-		echo "export {$proxyVars}=\"http://$proxyServer\"; eval export {$noProxyVars}=\"$(ConfigGet "noProxy")\""
+		echo "export {$proxyVars}=\"http://$proxyServer\"; eval export {$noProxyVars}=\"$(ConfigGetCurrent "NoProxy")\""
 	else
 		echo "unset {$allProxyVars}"
 	fi
@@ -892,7 +945,7 @@ serviceListDetail()
 }
 
 #
-# Workgroup Commands
+# workgroup commands
 #
 
 workgroupUsage() { echot "Usage: $(ScriptName) workgroup name|set

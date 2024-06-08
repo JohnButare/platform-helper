@@ -5,35 +5,27 @@ timezoneWin="Mountain Standard Time" # tzutil.exe /l
 # user
 user="jjbutare"
 
-# bootstrap
-# - bootStrapBin - initial bin directory UNC in the format //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
-# - bootstrapInstall - installation directory, if unset find it
-bootstrapBin="//ender.hagerman.butare.net/system/usr/local/data/bin"
-bootstrapInstall="//ender.butare.net/public/install"
-bootstrapProxyServer="proxy.butare.net" boostrapProxyPort="3128"
-bootstrapProxy="http://$bootstrapProxyServer:$boostrapProxyPort"
-bootstrapDns1="10.10.100.8"
-bootstrapDns2="10.10.100.7"
-
 # system
 network="hagerman"
-workgroup="$network"
 wifi="Wiggin"
-baseDomain="butare.net"
-domain="$network.$baseDomain"
 systemUser="wsystem"
 confDir="Dropbox/network/system"
 hostTimeout="200"
+
+# bootstrap - network
+# - bootStrapBin - initial bin directory UNC in the format //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
+# - bootstrapInstall - installation directory, if unset find it
+# - bootstrapDir - contains compressed bin directory
+bootstrapDomain="hagerman"
+bootstrapBin="//ender.hagerman.butare.net/system/usr/local/data/bin"
+bootstrapInstall="//ender.butare.net/public/install"
+bootstrapDir="/mnt/c/Users/jjbutar/OneDrive - Sandia National Laboratories/data/download"
 
 #
 # servers
 #
 
 servers="bl1,bl2,pi1,pi2,pi3,pi4,pi5,pi6,pi7,pi8,pi9,pi10,pi11,pi12,pi13,rp1,rp2,rp3,rp4,zima1,zima2"
-
-# proxy
-noProxy="localhost,127.0.0.1,.$baseDomain,.$domain,web,www,autoproxy,.releases.ubuntu.com,.internal,.local"
-noProxy+=",10.96.0.0/12,192.168.59.0/24,192.168.49.0/24,192.168.39.0/24" # minikube - https://minikube.sigs.k8s.io/docs/handbook/vpn_and_proxy/
 
 # other
 mqttServer="mosquitto"
@@ -58,34 +50,48 @@ hashiTestClients="pi22"
 hashiTestVaultServers="pi20,pi21"
 
 #
-# networks
+# network
 #
 
 # networks - list of known networks, check the DNS servers, format is NETWORK@DNS_IP
 # hagerman 10.10.100.8|7 (lb3|lb2)
 # sandia 172.29.128.1 - yes (IPOC) no (office)
-# sandia 134.253.181.25 - yes (VPN, office)
-networks="hagerman@10.10.100.8,sandia@134.253.181.25,hagerman@10.10.100.7"
+# sandia 134.253.181.25|16.5 - yes (VPN, office)
+networks="hagerman@10.10.100.8,sandia@134.253.181.25,hagerman@10.10.100.7,sandia@134.253.16.5"
 
 # external network
 externalTimeServer="time.apple.com"
 
-# dt network
-dtUser="jbutare"
-dtAdDomain="coexist" 				# Active Directory domain
-dtDomain="coexist.local"		# DNS Domain
+# proxy common
+noProxyLocal="localhost,127.0.0.0/8,::1"
+noProxyRemote=".releases.ubuntu.com,.internal,.local"
 
 # hagerman network
 hagermanUser="jjbutare"
-hagermanBaseDomain="butare.net" hbd="$hagermanBaseDomain"
-hagermanDomain="hagerman.$hagermanBaseDomain" hd="$hagermanDomain"
+hagermanDnsBaseDomain="butare.net"
+hagermanDnsDomain="hagerman.$hagermanDnsBaseDomain"
+hagermanDns1="10.10.100.8"
+hagermanDns2="10.10.100.7"
+hagermanDnsSearch="$hagermanDnsBaseDomain $hagermanDnsDomain"
+
+hagermanNoProxy="$noProxyLocal,.$hagermanDnsBaseDomain,web,www,autoproxy,$noProxyRemote"
+hagermanNoProxy+=",10.96.0.0/12,192.168.59.0/24,192.168.49.0/24,192.168.39.0/24" # minikube - https://minikube.sigs.k8s.io/docs/handbook/vpn_and_proxy/
 
 hagermanCameraServers="BackShedCamera,BackYardEastCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
 hagermanBackupUser="$user"
-hagermanGitServer="git.$hbd"																# Git Server
-hagermanProxyServers="proxy.$hbd:3128"											# Forward Proxy Server (Squid)
-#hagermanProxyServers="10.10.100.9:3128"										# Forward Proxy Server (Squid)
-hagermanSyslogServer="syslog.$hbd"													# syslog server for remote system logs
+hagermanGitServer="git.$hagermanDnsBaseDomain"							# Git Server
+hagermanProxyServer="proxy.$hagermanDnsBaseDomain:3128"			# Forward Proxy Server (Squid), service=proxy.$hbd:3128 ender=10.10.100.9:3128
+hagermanSyslogServer="syslog.$hagermanDnsBaseDomain"				# syslog server for remote system logs
 hagermanTimeServer="time.butare.net"												# Time Server
 hagermanVip="10.10.100.6" 																	# Virtual IP Address
 hagermanWireguardPort="51820"																# WireGuard Port
+
+# sandia network
+sandiaUser="jjbutare"
+sandiaDnsBaseDomain="sandia.gov"
+sandiaDnsDomain="srn.$sandiaDnsBaseDomain"
+sandiaDns1="134.253.181.25"
+sandiaDns2="134.253.16.5"
+sandiaDnsSearch="$sandiaDnsBaseDomain $sandiaDnsDomain ca.$sandiaDnsBaseDomain"
+sandiaProxyServer="proxy.$sandiaDnsBaseDomain:80"
+sandiaNoProxy="$noProxyLocal,.$sandiaDnsBaseDomain,$noProxyRemote"

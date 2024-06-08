@@ -1695,6 +1695,8 @@ IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# Is
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
 NetworkCurrent() { UpdateGet "network"; }; 
 NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars; }
+NetworkDnsDomain() { echo "$(ConfigGet "$(NetworkDomain)DnsDomain")"; }
+NetworkDnsBaseDomain() { echo "$(ConfigGet "$(NetworkDomain)DnsBaseDomain")"; }
 NetworkDomain() { UpdateGet "network_domain"; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }										# SmbPasswordIsSet USER - return true if the SMB password for user is set
@@ -2010,13 +2012,15 @@ ipinfo()
 
 }
 
-# IsInDomain [DOMAIN] - true if the computer is in a network domain, or the specified domain
+# IsInDomain domain[,pdomain,...] - true if the computer is in one of the specified domains
 IsInDomain()
 {
-	local domain="$(echo "$1" | LowerCase)" currentDomain="$(NetworkDomain | LowerCase)"
-	[[ $domain ]] && { [[ "$currentDomain" == "$domain" ]]; return; }
-	[[ $currentDomain ]]
+	local domains; StringToArray "$(LowerCase "$1")" "," domains
+	local domain="$(NetworkDomain)"; [[ ! $domain ]] && return 1
+	IsInArray "$(NetworkDomain)" domains
 }
+
+IsDomainRestricted() { IsInDomain sandia; }
 
 # IsIpAddress IP - return true if the IP is a valid IPv4 address
 IsIpAddress()
@@ -2218,10 +2222,12 @@ IsAvailable()
 # IsAvailableBatch HOST... -  return available hosts in parallel
 IsAvailableBatch() { parallel -i bash -c '. function.sh && IsAvailable {} && echo {}' -- "$@"; return 0; }
 
-# IsPortAvailable HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified TCP port
+# IsPortAvailable HOST:PORT|HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified TCP port
 IsAvailablePort()
 {
-	local host="$1" port="$2" timeout="${3-$(AvailableTimeoutGet)}"; host="$(GetIpAddress "$host" --quiet)" || return
+	local host="$1"; shift
+	local port; [[ "$host" =~ : ]] && port="$(GetUriPort "$host")" host="$(GetUriServer "$host")" || { port="$1"; shift; }
+	local timeout="${1-$(AvailableTimeoutGet)}"; host="$(GetIpAddress "$host" --quiet)" || return
 
 	if InPath ncat; then
 		ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" >& /dev/null
@@ -2420,7 +2426,7 @@ DnsResolve()
 	[[ ! $name ]] && { MissingOperand "host" "DnsResolve"; return 1; } 
 
 	# localhost - use the domain in the configuration
-	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(ConfigGet "domain")")
+	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(NetworkDnsDomain)")
 
 	# override the server if needed
 	if [[ $useAlternate ]]; then server="$(DnsAlternate)"; else server="$(DnsAlternate "$name")"; fi
@@ -2596,7 +2602,7 @@ IsService()
 	IsIpAddress "$service" && return 1
 	HasDnsSuffix "$service" && return 1
 	! IsOnNetwork "hagerman" && return 1	
-	DnsResolve --quiet "$1.service.$(ConfigGet "domain")"
+	DnsResolve --quiet "$1.service.$(NetworkDnsDomain)"
 }
 
 #
@@ -3933,7 +3939,7 @@ MissingOption() { ScriptErr "missing $1 option" "$2"; ScriptExit; }
 UnknownOption() { ScriptErr "unrecognized option '$1'" "$2"; ScriptTry "$2"; }
 
 # functions
-IsFunction() { declare -f "$1" >& /dev/null; }	# IsFunction NAME - NAME is a function
+IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
 
 # FindFunction NAME - find a function NAME case-insensitive
 if IsBash; then

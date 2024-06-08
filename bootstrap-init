@@ -17,48 +17,115 @@ run()
 	createUser || return
 	createUserHome || return	
 	runAsUser || return
-	mountBin || return
-	runBootstrap || return
+	binSetup || return
+	runBootstrap
 }
 
-configureNetwork()
+# binSetup - setup the bin directory
+binSetup()
 {
-	! isWin && return
+	# initialize
+	local data="/usr/local/data" udata="$HOME/data" 
+	local binDir="$data/bin"
+	local bootstrapDir="$(configGet "bootstrapDir")"
 
-	# check name resolution
-	[[ -f "/etc/resolv.conf" ]] && ! nslookup "www.ubuntu.com" > /dev/null && sudo rm "/etc/resolv.conf"
-
-	# WSL - update /etc/resolv.conf if needed
-	if [[ ! -f "/etc/resolv.conf" ]]; then
-		[[ -L "/etc/resolv.conf" ]] && { sudo rm "/etc/resolv.conf" || return; }
-		printf "nameserver $(configGet "bootstrapDns1")\nnameserver $(configGet "bootstrapDns2")\nsearch $(configGet "baseDomain") $(configGet "domain")\n" | sudo tee -a "/etc/resolv.conf" || return
+	# setup
+	if [[ -d "$bootstrapDir" ]]; then binDir || return
+	else binNetwork || return
 	fi
+
+ 	# configure
+ 	hilight "Using bin directory '$binDir'..."
+	export PATH="$binDir:$PATH"
+	log1 "PATH=$PATH"
+}
+
+# binDir - get bin directory from compressed files in a directory
+binDir()
+{
+	# check
+	[[ -d "$data/bin" ]] && return
+	hilight "Bin setup..."
+
+	# data
+	if [[ ! -d "$data" ]]; then
+		sudo mkdir --parents "$data" "$udata" || return
+		sudo chown --recursive "$user" "$data" || return
+	fi
+
+	# bin
+	[[ ! -d "$data/bin" && -f "$bootstrapDir/pbin.zip" ]] && { { hilight "Restoring bin..."; unzip "$bootstrapDir/pbin.zip" -d "$data/bin" && chmod +x "$data/bin"/* && chmod -x "$data/bin/"*.sh; } || return; }
+
+	# udata
+	if [[ ! -d "$udata" ]]; then
+		mkdir --parents "$udata" || return
+	fi
+
+	# ubin
+	[[ ! -d "$udata/bin" && -f "$bootstrapDir/ubin.zip" ]] && { hilight "Restoring ubin..."; unzip "$bootstrapDir/ubin.zip" -d "$udata/bin" || return; }
+
+	# platform
+	[[ ! -d "$data/platform" && -f "$bootstrapDir/platform.zip" ]] && { hilight "Restoring platform..."; unzip "$bootstrapDir/platform.zip" -d "$data/platform" || return; }
 
 	return 0
 }
 
+# binNetwork - mount bin directory from network
+binNetwork()
+{
+	# check
+	[[ -d "$binDir" ]] && return
+
+	# mount
+	mountUnc "$bin" || return
+	binDir="$mountDir/$dirs"
+}
+
+configureNetwork() { RunFunction configureNetwork-$platform; }
+
+configureNetwork-win()
+{
+	# remove resolv.conf if name resolution fails
+	[[ -f "/etc/resolv.conf" ]] && ! dnsTestWin && sudo rm "/etc/resolv.conf"
+
+	# remove resolve.conf link
+	[[ -L "/etc/resolv.conf" ]] && { sudo rm "/etc/resolv.conf" || return; }
+
+	# return if resolv.conf is present
+	[[ -f "/etc/resolv.conf" ]] && return
+
+	# configure
+	cat <<-EOF | sudo tee -a "/etc/resolv.conf" || return
+		nameserver $(configGet "${domain}Dns1")
+		nameserver $(configGet "${domain}Dns2")
+		search $(configGet "${domain}DnsSearch")
+		EOF
+
+	# test
+	! dnsTestWin && { echoErr "unable to configure a DNS server"; return 1; }
+
+	return 0
+}
+
+dnsTestWin() { nslookup "www.ubuntu.com" > /dev/null; }
+
 configureProxyServer()
 {
-	local proxy="$(configGet "bootstrapProxy")"; [[ ! $proxy ]] && return
-	local proxyServer="$(configGet "bootstrapProxyServer")"
+	local proxy="$(configGet "${domain}ProxyServer")"; [[ ! $proxy ]] && return
 
 	# return if the proxy server is not available
-	if ! isAvailable "$proxyServer"; then
-		hilight "Skipping proxy server configuration ($proxyServer is not available)..."
+	if ! isAvailable "$(echo "$proxy" | cut -d":" -f1)"; then
+		hilight "Skipping proxy server configuration ($proxy is not available)..."
 		return
 	fi
 
 	# header
+	proxy="http://$proxy"
 	hilight "Setting the proxy server to $proxy..."
 
 	# set proxy variables
-	[[ ! $HTTP_PROXY ]] && export {HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy}="$proxy"
-	[[ ! $NO_PROXY ]] && export {NO_PROXY,no_proxy}="$(configGet "noProxy")"
-
-	# set package proxy configuration
-	if [[ -d /etc/apt/apt.conf.d && ! -f "/etc/apt/apt.conf.d/proxy" ]]; then
-		printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$proxy" "$proxy" | $sudo tee "/etc/apt/apt.conf.d/proxy"
-	fi
+	export {HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy}="$proxy"
+	export {NO_PROXY,no_proxy}="$(configGet "${domain}NoProxy")"
 
 	return 0
 }
@@ -144,12 +211,9 @@ configureOs()
 	! updateNeeded "os" && return
 
 	hilight "Configuring the operating system..."
-	configure-$platform || return
+	RunFunction configure-$platform || return
 	updateDone "os" || return
 }
-
-configure-debian() { :; }
-configure-mac() { :; }
 
 configure-entware()
 {
@@ -250,7 +314,7 @@ initVariables()
 	fi
 
 	# platform=debian|entware|mac|win
-	platform=debian
+	platform=debian; inPath "lsb_release" && codeName="$(lsb_release -cs)"
 	[[ "$(uname)" == "Darwin" ]] && platform=mac
 	! isChroot && [[ "$platform_kernel" == @(wsl1|wsl2) ]] && platform=win
 
@@ -261,6 +325,11 @@ initVariables()
 	# ID=ubuntu|raspbian|qts
 	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
 
+	# network
+	domain=""; [[ "$platform" == "win" ]] && domain="$(cmd.exe /c 'echo %USERDOMAIN%' 2> /dev/null | RemoveCarriageReturn | RemoveNewline | LowerCase)"
+	[[ "$(hostname | LowerCase)" == "$domain" ]] && domain="$(ConfigGet "bootstrapDomain")"
+	dnsBaseDomain="$(configGet "${domain}DnsBaseDomain")"
+
 	# GNU utilities	
 	export G=""; inPath "gdate" && isMac && G="g"
 
@@ -270,26 +339,6 @@ initVariables()
 #
 # mount
 #
-
-mountBin()
-{
-	local dir
-
-	# mount
-	if [[ ! -d "/usr/local/data/bin" ]]; then
-		mountUnc "$bin" || return
-		dir="$mountDir/$dirs"
-	else
- 		dir="/usr/local/data/bin"
- 	fi
-
- 	# configure
- 	hilight "Using bin directory '$dir'..."
-	export PATH="$dir:$PATH"
-	log1 "PATH=$PATH"
-
-	return 0
-}
 
 # mountUnc UNC - from unc script
 mountUnc() 
@@ -399,11 +448,11 @@ installPackages-pre()
 }
 
 packageAll="jq"
-packageDebWin="bc cgroup-tools cifs-utils inotify-tools iputils-ping moreutils ncat" # moreutils (sponge)
+packageDebWin="bc cgroup-tools cifs-utils inotify-tools iputils-ping moreutils ncat unzip" # moreutils (sponge)
 
 installPackages-debian() { package $packageAll $packageDebWin net-tools openssh-server; }
-installPackages-entware() { package $packageAll bash coreutils coreutils-ln coreutils-readlink coreutils-realpath coreutils-tac mount-utils nano openssh-client-utils; }
-installPackages-mac() { package $packageAll bash coreutils gsed grep nmap; }
+installPackages-entware() { package $packageAll bash coreutils coreutils-ln coreutils-readlink coreutils-realpath coreutils-tac mount-utils nano openssh-client-utils unzip; }
+installPackages-mac() { package $packageAll bash coreutils gsed grep nmap unzip; }
 installPackages-win() {	package $packageAll $packageDebWin || return; }
 
 installPackages-post()
@@ -444,18 +493,48 @@ setupPackageManager()
 	! updateNeeded "PackageManager" && return
 
 	hilight "Setting up the package manager..."
-	setupPackageManager-$platform || return
+	RunFunction setupPackageManager-$platform || return
 	updateDone "PackageManager" || return
 }
 
 setupPackageManager-win() { setupPackageManager-debian; }
 
 setupPackageManager-debian()
-{
+{	
+	RunFunction setupPackageManager-debian-$domain || return
 	debianUnminimizeDoc || return
 	debianFixMan || return
+	debianPackageProxy || return
 	debianPackageUpdate || return
 	debianPackageCore || return
+	return 0
+}
+
+setupPackageManager-debian-sandia()
+{
+	# sources
+	local file="/etc/apt/sources.list"	
+	if ! ${G}grep --quiet "deb.sandia.gov" "$file"; then
+		cat <<-EOF | sudo tee "$file" || return
+			# This is taken from https://deb.sandia.gov
+			deb https://deb.sandia.gov/ubuntu/ubuntu $codeName main restricted universe multiverse
+			deb https://deb.sandia.gov/ubuntu/ubuntu $codeName-security main restricted universe multiverse
+			deb https://deb.sandia.gov/ubuntu/ubuntu $codeName-updates main restricted universe multiverse
+			deb https://deb.sandia.gov/ubuntu/ubuntu $codeName-backports main restricted universe multiverse 
+			EOF
+	fi
+
+	# ignore SSL errors - remove when deb.sandia.gov certificate is fixed (not expired)
+	local file="/etc/apt/apt.conf.d/80ssl"	
+	if ! [[ -f "$file" ]]; then
+		cat <<-EOF | sudo tee -a "$file" || return
+			// Do not verify peer certificate
+			Acquire::https::Verify-Peer "false";
+			// Do not verify that certificate name matches server name
+			Acquire::https::Verify-Host "false";
+			EOF
+	fi
+
 	return 0
 }
 
@@ -483,6 +562,17 @@ debianPackageCore()
 {
 	inPath "sudo" && return
 	apt install sudo -y || return
+}
+
+debianPackageProxy()
+{
+	# check
+	[[ ! $HTTP_PROXY ]] && return # no proxy server
+	grep "$dnsBaseDomain" "/etc/apt/sources.list" && return # using an internally hosted source
+	[[ ! -d /etc/apt/apt.conf.d || -f "/etc/apt/apt.conf.d/proxy" ]] && return # already configured
+
+	# configure
+	printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$HTTP_PROXY" "$HTTP_PROXY" | $sudo tee "/etc/apt/apt.conf.d/proxy"
 }
 
 debianPackageUpdate()
@@ -579,11 +669,26 @@ updateDone() { touch "$updateDir/$1"; }
 # from function.sh
 #
 
+# arguments
 alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"'
-IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
 
-# Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
+# functions
+IsFunction() { declare -f "$1" >& /dev/null; }
+RunFunction() { local f="$1"; shift; ! IsFunction "$f" && return; "$f" "$@"; }
+
+# integer
+IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }
+
+# string
+LowerCase() { tr '[:upper:]' '[:lower:]'; }
+RemoveCarriageReturn()  { sed 's/\r//g'; }
+RemoveNewline()  { tr -d '\n'; }
+
+# network
+IsInDomain() { [[ "$(echo "$1" | LowerCase)" == "$domain" ]]; }
+
+# network - UNC Shares - //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
 CheckNetworkProtocol() { [[ "$1" == @(|nfs|smb|ssh) ]] || IsInteger "$1"; }
 GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }															# //SERVER/SHARE
 GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }									# SERVER

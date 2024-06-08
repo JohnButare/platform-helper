@@ -2554,7 +2554,7 @@ bootstrapStartWin()
  	header "Bootstrap Start Win"
 
  	# Hidden Start - install early if possible to prevent excessive UAC dialogs
-	CanElevate && ! IsInDomain && { { winPathFix && i HiddenStartConfigure; } || return; }
+	CanElevate && ! IsDomainRestricted && { { winPathFix && i HiddenStartConfigure; } || return; }
 
 	# Set default user to aid troubleshooting - only supported in WSL 2+
 	! IsPlatform wsl1 && { wsl dist user set --user="$USER" || return; }
@@ -3237,7 +3237,7 @@ DebianDnsInstall()
 	{ IsPlatform chroot,win || ! InPath systemd-resolve; } && return 0
 
 	# return if the FQDN and the short non-qualified name resolves
-	local domain="$(ConfigGet "domain")"
+	local domain="$(NetworkDnsDomain)"
 	IsAvailable "router.$domain" && IsAvailable "router" && return
 
 	sudo systemd-resolve -i eth0 --set-domain="$domain"
@@ -3256,7 +3256,7 @@ DebianFileSharingInstall()
 	! PackageListInstalled | sqgrep "^samba-vfs-modules:" && { pkg samba-vfs-modules || return; }
 
 	local workgroup; workgroup="$(ConfigGet "workgroup")"
-	if ! IsInDomain && [[ "$(network workgroup name)" != "$workgroup" ]]; then
+	if ! network domain joined  && [[ "$(network workgroup name)" != "$workgroup" ]]; then
 		network workgroup set "$workgroup" || return
 		restart="true"
 	fi
@@ -4268,7 +4268,7 @@ CupsInstall()
 	# set allowed host headers
 	local file="/etc/cups/cupsd.conf"
 	if ! sudo ${G}grep -q "^ServerAlias " "$file"; then
-		echo "ServerAlias cups.$(ConfigGet "baseDomain") $hostname $hostname.$(ConfigGet "domain")" | sudo ${G}tee -a "$file" || return
+		echo "ServerAlias cups.$(NetworkDnsBaseDomain) $hostname $hostname.$(NetworkDnsDomain)" | sudo ${G}tee -a "$file" || return
 	fi
 
 	# configure Consul service and show the web interface URL
@@ -6141,7 +6141,7 @@ hashiCli()
 	header "${what^}"
 
 	# get local configuration if needed
-	if InPath vault && ! credential exists "hashi/$(ConfigGet "baseDomain")/$what" "token"; then
+	if InPath vault && ! credential exists "hashi/$(NetworkDnsBaseDomain)/$what" "token"; then
 		unset CREDENTIAL_MANAGER; CredentialConf --force || return
 		hashi config set local || return
 	fi
@@ -8010,7 +8010,7 @@ AptInstall()
 
 	# wajig		
 	PackageIsInstalled wajig && ( packageu wajig || return; )
-	! IsInDomain && { ! InPath wajig || [[ $force ]]; } && { pipxArgs+=(--system-site-packages); run --no-header --python-global wajig || return; }
+	! IsDomainRestricted && { ! InPath wajig || [[ $force ]]; } && { pipxArgs+=(--system-site-packages); run --no-header --python-global wajig || return; }
 
 	return 0
 }
@@ -8688,7 +8688,7 @@ PiReporterInstall()
 	sudo pip3 install -r "requirements.txt" || return
 
 	# configure
-	local host="$(ConfigGet "mqttServer").$(ConfigGet "domain")"
+	local host="$(ConfigGet "mqttServer").$(NetworkDnsDomain)"
 	local config="/opt/RPi-Reporter-MQTT2HA-Daemon/config.ini"
 	[[ ! -f "$config" ]] && { sudo cp "/opt/RPi-Reporter-MQTT2HA-Daemon/config.ini.dist" "$config" || return; }
 	sudo sed -i "s/^#hostname = localhost$/hostname = $host/" "/opt/RPi-Reporter-MQTT2HA-Daemon/config.ini" || return
@@ -9349,7 +9349,7 @@ CredentialStoreInstall()
 	pkg pwgen || return
 
 	# Debian - use the gnome-keyring (encryption) and secret-tool (command line)
-	! IsInDomain && IsPlatform debian && ! IsPlatform wsl1 && { i --no-header dbus GnomeKeyring || return; }
+	! IsDomainRestricted && IsPlatform debian && ! IsPlatform wsl1 && { i --no-header dbus GnomeKeyring || return; }
 
 	# other platforms - use pass
 	! IsPlatform mac,debian,win && { i --no-header pass || return; }
@@ -9448,7 +9448,7 @@ PassInstall()
 
 pGinaInstall()
 {
-	IsInDomain && return 0
+	network domain joined && return 0
 
 	header "pGina" # http://pgina.org/download.html
 	run "other/Microsoft/Visual Studio/redistributable/vcredist_x86.exe" || return
@@ -11624,7 +11624,7 @@ WinConfigInstall()
  	$printer -d -p "OneNote for Windows 10" >& /dev/null
 
 	echo "Configuring network settings..."
-	IsHypervVm && { powershell.exe Set-DnsClientGlobalSetting -SuffixSearchList "$(ConfigGet "domain")" || return; } # Hyper-V clients do not get the DNS suffix from the DHCP server
+	IsHypervVm && { powershell.exe Set-DnsClientGlobalSetting -SuffixSearchList "$(NetworkDnsDomain)" || return; } # Hyper-V clients do not get the DNS suffix from the DHCP server
 
 	echo "Configuring network adapters..."
 	network adapter name "Bluetooth Network Connection" "bluetooth" >& /dev/null
