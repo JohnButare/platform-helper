@@ -1684,6 +1684,7 @@ FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo tail -F -n +0 "$1" | grep "
 
 GetPorts() { sudoc lsof -i -P -n; }
 GetDefaultGateway() { CacheDefaultGateway "$@" && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
+GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGet "domain"; }
 GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }				# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 																# GetHostname NAME - hosts actual configured name
 GetOsName() { local name="$1"; name="$(UpdateGet "os-name-$1")"; [[ $name ]] && echo "$name" || os name "$server"; } # GetOsName NAME - cached DNS name, fast
@@ -1693,11 +1694,11 @@ HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not
 HttpHeader() { curl --silent --show-error --location --dump-header - --output /dev/null "$1"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
+IsOnNetwork() {	[[ "$(LowerCase "$(NetworkCurrent)")" == "$(LowerCase "$1")" ]]; } # IsOnNetwork NETWORK - true if the computer is the network
 NetworkCurrent() { UpdateGet "network"; }; 
-NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars; }
-NetworkDnsDomain() { echo "$(ConfigGet "$(NetworkDomain)DnsDomain")"; }
-NetworkDnsBaseDomain() { echo "$(ConfigGet "$(NetworkDomain)DnsBaseDomain")"; }
-NetworkDomain() { UpdateGet "network_domain"; }
+NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars proxy; }
+NetworkDnsDomain() { echo "$(ConfigGet "$(GetDomain)DnsDomain")"; }							# NetworkDnsDomain - return the DNS domain for the domain the computer is in
+NetworkDnsBaseDomain() { echo "$(ConfigGet "$(GetDomain)DnsBaseDomain")"; } 		# NetworkDnsDomain - return the base DNS domain for the domain the computer is in
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }										# SmbPasswordIsSet USER - return true if the SMB password for user is set
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
@@ -2012,12 +2013,12 @@ ipinfo()
 
 }
 
-# IsInDomain domain[,pdomain,...] - true if the computer is in one of the specified domains
+# IsInDomain domain[,domain,...] - true if the computer is in one of the specified domains
 IsInDomain()
 {
 	local domains; StringToArray "$(LowerCase "$1")" "," domains
-	local domain="$(NetworkDomain)"; [[ ! $domain ]] && return 1
-	IsInArray "$(NetworkDomain)" domains
+	local domain="$(GetDomain)"; [[ ! $domain ]] && return 1
+	IsInArray "$(GetDomain)" domains
 }
 
 IsDomainRestricted() { IsInDomain sandia; }
@@ -2083,12 +2084,6 @@ IsMacAddress()
 	echo "$mac" | ${G}grep --extended-regexp --quiet '^([0-9A-F]{1,2}:){5}[0-9A-F]{1,2}$'
 }
 
-# IsOnNetwork NETWORK - true if the computer is the network
-IsOnNetwork()
-{
-	ScriptEval network vars || return
-	[[ "$(LowerCase "$NETWORK")" == "$(LowerCase "$1")" ]]
-}
 
 IsStaticIp() { ! ip address show "$(GetInterface)" | grep "inet " | grep --quiet "dynamic"; }
 
