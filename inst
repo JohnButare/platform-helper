@@ -405,6 +405,7 @@ installInit()
 		[parallels]="ParallelsDesktop"
 		[ps]="PowerShell"
 		[rg]="ripgrep"
+		[rsat]="RemoteServerAdministrationTools"
 		[ss]="SqlServer"
 		[sshkeys]="SshServerHostKeys"
 		[ssms]="SqlServerManagementStudio"
@@ -455,7 +456,7 @@ installInit()
 
 	# isInstallable	
 	all=(download final help register update)		# install
-	all+=(FileSharing fonts IconCleanup setup) 	# platform
+	all+=(certificates FileSharing fonts IconCleanup setup) 	# platform
 	all+=(AppDir DriveTime envoy FileServer hostname PartitionManagement store)	
 	debian=()	debian64=() debianWin=() mac=() macDebian=() winElevated=() win=()
 	
@@ -583,7 +584,7 @@ installInit()
 	all+=(WindowsDownload)
 	macWin+=(AzureCli AzureDataStudio AzureFunctions AzureStorageExplorer)
 	macWin+=(PowerShell teams TeamsMac TeamsWin office skype TfsCli VisualStudio)
-	win+=(IIS PowerToys SystemsInternals WindowsAdministrationTools WindowsAssessmentAndDeploymentKit WindowsStore WslConfig)
+	win+=(IIS PowerToys SystemsInternals RemoteServerAdministrationTools WindowsAssessmentAndDeploymentKit WindowsStore wsl)
 
 	# monitoring
 	mac+=(SystemToolkit)
@@ -750,6 +751,8 @@ appGetDir() { ${app,}Dir; }
 appCd() { local dir; dir="$(appGetDir "$app")" && findDirCd "$dir"; }
 askp() { [[ $noPrompt ]] && { echo "$1..."; return; }; ask "$1"; } # askp MESSAGE - ask a question if prompting
 couldNotLocate() { ScriptErr "could not locate '$app'"; return 1; }
+cpSudoExists() { local file="$1" dir="$2"; [[ ! $force && -f "$dir/$(GetFileName "$file")" ]] && return; copied="true"; sudo cp "$file" "$dir"; } # cpForce FILE DIR - copy file to dir if does not exists or force is specified
+cpSudoRenameExists() { local src="$1" dest="$2"; [[ ! $force && -f "$(GetFilePath "$dest")/$(GetFileName "$src")" ]] && return; copied="true"; sudo cp "$src" "$dest"; }
 getAgent() { echo "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/534.30 (KHTML, like Gecko) Chrome/12.0.742.112 Safari/534.30"; }
 getFile() { curl --silent --location --output "$@"; }
 getFileSudo() { sudo curl --silent --location --output "$@"; }
@@ -1468,7 +1471,7 @@ runTypeDocker()
 	if [[ $useCompose ]] || ! IsPlatform swarm; then
 
 		# pull the service images
-		cd "$appDir" || return
+		command cd "$appDir" || return
 		docker compose pull || return
 
 		# create and start the containers
@@ -2196,9 +2199,8 @@ AppNetworkInstall()
 
 	# domain
 	case "$(GetDomain)" in
-		hagerman)
-			i borgbackup glances hashi iTermShellIntegration unison CredentialSync || return
-			;;
+		hagerman) i borgbackup glances hashi iTermShellIntegration unison CredentialSync || return;;
+		sandia) i RemoteServerAdministrationTools || return;
 	esac
 
 	# network dependencies
@@ -2520,14 +2522,14 @@ BootstrapInstall()
 	promptArg="--prompt" # force prompt even if a single application is being installed
 
 	# dependencies
-	i BootstrapPackage BootstrapFiles SshClientPermission dbus CredentialStore timezone || return 
+	i BootstrapPackage BootstrapFiles SshClientPermission dbus AppDir CredentialStore timezone certificates || return 
 
 	# bootstrap
-	i BootstrapStart BootstrapMain BootstrapCommon BootstrapFinal
+	i BootstrapStart BootstrapMain BootstrapFinal
 }
 
 #
-# bootstrap start
+# bootstrap start - must happen first
 #
 
 BootstrapStartInstall() { RunPlatform bootstrapStart; }
@@ -2561,7 +2563,7 @@ bootstrapStartWin()
 # bootstrap main
 #
 
-BootstrapMainInstall() { RunPlatform bootstrapMain; }
+BootstrapMainInstall() { RunPlatform bootstrapMain && i BootstrapCommon; }
 
 bootstrapMainCasaos()
 {
@@ -2766,18 +2768,18 @@ BootstrapCommonInstall()
 {
 	header "Bootstrap Common"
 	i bash zsh || return								# shells
-	i AppDir SshCore || return					# other
+	i SshCore || return									# other
 	i setup FileSharing fonts || return # platform
 }
 
 #
-# bootstrap final
+# bootstrap final - must happen last
 #
 
 BootstrapFinalInstall() { i icons && UpdateDone "install-bootstrap"; }
 
 #
-# bootstrap files
+# bootstrap files - core file structure
 #
 
 BootstrapFilesInstall()
@@ -2822,7 +2824,7 @@ BootstrapFilesInstall()
 }
 
 #
-# bootstrap package
+# bootstrap package - core packages
 #
 
 # install core packages - typically installed from bootstrap-init
@@ -2842,6 +2844,12 @@ bootstrapPackageDebian()
 #################################################
 # Platform Installs
 #################################################
+
+PlatformAllInstall() { i certificates FileSharing fonts IconCleanup setup; }
+
+# Certificates - install required certificates
+CertificatesInstall() { RunPlatform certificates; }
+certificatesDebian() { i DebianCertificates; }
 
 # File Sharing - install file sharing and standard shares
 FileSharingInstall() { RunPlatform fileSharing; }
@@ -3115,7 +3123,7 @@ SpeedCrunchFinalWin()
 CompareAllInstall() { i BeyondCompare delta kaleidoscope meld; }
 KaleidoscopeInstall() { run --name "Kaleidoscope" "platform/mac/Kaleidoscope/Kaleidoscope-4.5-5554.app.zip"; }
 MeldInstall() { run --package "meld"; }
-MeldProfile() { profile restore default --app "meld" --method "$HOME/.config/dconf" --files '*'; }
+MeldProfile() { profile $noPrompt restore default --app "meld" --method "$HOME/.config/dconf" --files '*'; }
 
 CompareCoreInstall()
 { 
@@ -3167,7 +3175,7 @@ BeyondCompareProfile()
 {
 	echo "- Help|Preferences, Enter Key..."
 	IsPlatform mac && echo "- Beyond Compare, Install Command Line Tools…"
-	BeyondCompare profile restore default "${globalArgs[@]}" || return	
+	BeyondCompare $noPrompt profile restore default "${globalArgs[@]}" || return	
 }
 
 BeyondCompareRegister() { register "BeyondCompare"; }
@@ -3215,12 +3223,33 @@ RiffInstall()
 # Debian
 #################################################
 
-DebianAllInstall() { i DebianSetup DebianDns DebianFileSharing DebianFonts DebianLocale DebianPolicies DebianProxyServer DebianSudoSecurePath; }
+DebianAllInstall() { i DebianSetup DebianDns DebianCertificates DebianFileSharing DebianFonts DebianLocale DebianPolicies DebianProxyServer DebianSudoSecurePath; }
 
 DebianSetupInstall()
 {
 	header "Debian Setup"
 	i apt DebianDns DebianFileSharing DebianLocale DebianPolicies DebianProxyServer DebianSudoSecurePath || return
+}
+
+DebianCertificatesInstall() { RunFunction debianCertificates "$(GetDomain)"; }
+
+debianCertificatesSandia()
+{
+	header "Certificates"
+
+	# initialize
+	findFile "certificates/Sandia/sandia_root_ca-main/files" || return
+	sudov || return
+
+	# copy
+	local src="$file" dest="/usr/local/share/ca-certificates" copied
+	cpSudoRenameExists "$src/nix.crt" "$dest/sandia_root_ca_2022.crt" || return
+	cpSudoRenameExists "$src/nix-new.crt" "$dest/sandia_root_ca_2023.crt" || return
+
+	# install
+	[[ $copied ]] && { sudo update-ca-certificates || return; }
+
+	return 0
 }
 
 DebianDnsInstall()
@@ -3231,7 +3260,7 @@ DebianDnsInstall()
 	{ IsPlatform chroot,win || ! InPath systemd-resolve; } && return 0
 
 	# return if the FQDN and the short non-qualified name resolves
-	local domain="$(NetworkDnsDomain)"
+	local domain="$(GetDnsDomain)"
 	IsAvailable "router.$domain" && IsAvailable "router" && return
 
 	sudo systemd-resolve -i eth0 --set-domain="$domain"
@@ -3473,7 +3502,7 @@ CruiseControlTrayHelp()
   Configure, Username=%USERNAME%"
 }
 
-CruiseControlTrayProfile() { CruiseControlTray profile restore default; }
+CruiseControlTrayProfile() { CruiseControlTray $noPrompt profile restore default; }
 
 CruiseControlTrayFinalWin()
 {
@@ -4262,7 +4291,7 @@ CupsInstall()
 	# set allowed host headers
 	local file="/etc/cups/cupsd.conf"
 	if ! sudo ${G}grep -q "^ServerAlias " "$file"; then
-		echo "ServerAlias cups.$(NetworkDnsBaseDomain) $hostname $hostname.$(NetworkDnsDomain)" | sudo ${G}tee -a "$file" || return
+		echo "ServerAlias cups.$(GetDnsBaseDomain) $hostname $hostname.$(GetDnsDomain)" | sudo ${G}tee -a "$file" || return
 	fi
 
 	# configure Consul service and show the web interface URL
@@ -4538,7 +4567,7 @@ GitExtensionsInstall()
 	FileTouchAndHide "$WIN_HOME/.gitconfig.backup" || return
 }
 
-GitExtensionsProfile() { GitHelper profile restore default; }
+GitExtensionsProfile() { GitHelper $noPrompt profile restore default; }
 
 GitExtensionsFinalWin()
 {
@@ -4608,7 +4637,7 @@ GitKrakenInstall()
 }
 
 GitKrakenFinalWin() { mergeDir "$up/GitKraken" "$up/Development/Other" && gitForWindowsConfigure; }
-GitKrakenProfile() { GitKrakenHelper profile restore default; }
+GitKrakenProfile() { GitKrakenHelper $noPrompt profile restore default; }
 GitKrakenRegister() { register "GitKraken"; }
 
 GitKrakenDownload()
@@ -4875,7 +4904,7 @@ BetterDisplayInstall()
 	package "waydabber/betterdisplay/betterdisplaycli" || return
 }
 
-BetterDisplayProfile() { BetterDisplay profile restore default && BetterDisplay startup; }
+BetterDisplayProfile() { BetterDisplay $noPrompt profile restore default && BetterDisplay startup; }
 BetterDisplayRegister() { register "BetterDisplay"; }
 
 BetterDisplayDownload()
@@ -4965,7 +4994,7 @@ CorsairUtilityEngineInstall()
 	run "hardware/Corsair/Utility Engine/Install iCUE.exe|iCUEInitialInstaller.zip" --pause || return
 }
 
-CorsairUtilityEngineProfile() { profile restore default --app "CorsairUtilityEngine" --method "$UADATA/../Roaming/Corsair/CUE4"; }
+CorsairUtilityEngineProfile() { profile $noPrompt restore default --app "CorsairUtilityEngine" --method "$UADATA/../Roaming/Corsair/CUE4"; }
 
 CorsairUtilityEngineFinalWin()
 {
@@ -5858,7 +5887,7 @@ PoolDashPanelInstall()
 }
 
 # PoolDashPanelProfile - save: profile save default --app "pool-dash-panel" --method "/opt/pool-dash-panel" --files "config.json"
-PoolDashPanelProfile() { profile restore default --app "pool-dash-panel" --method "/opt/pool-dash-panel" --files "config.json" --sudo; }
+PoolDashPanelProfile() { profile $noPrompt restore default --app "pool-dash-panel" --method "/opt/pool-dash-panel" --files "config.json" --sudo; }
 
 PoolTemperatureInstall()
 {
@@ -6135,7 +6164,7 @@ hashiCli()
 	header "${what^}"
 
 	# get local configuration if needed
-	if InPath vault && ! credential exists "hashi/$(NetworkDnsBaseDomain)/$what" "token"; then
+	if InPath vault && ! credential exists "hashi/$(GetDnsBaseDomain)/$what" "token"; then
 		unset CREDENTIAL_MANAGER; CredentialConf --force || return
 		hashi config set local || return
 	fi
@@ -6405,9 +6434,9 @@ SonosInstall() { local v="78.1-51030"; run --name "Sonos" "hardware/Sonos/Sonos_
 SonosFinalMac() { macAppConfigure Sonos; }
 SonosFinalWin() {	$rm "$pd/Sonos.lnk" && mergeDir "$pp/Sonos" "$pp/Media/Other"; }
 SpotifyTuiInstall() { local p="spt"; IsPlatform mac && p="spotify-tui"; package "$p"; }
-SpotifyTuiProfile() { profile restore default --app "SpotifyTui" --method "$HOME/.config/spotify-tui" --files '*' $noPrompt; }
+SpotifyTuiProfile() { profile $noPrompt restore default --app "SpotifyTui" --method "$HOME/.config/spotify-tui" --files '*' $noPrompt; }
 SpotifydInstall() { package "spotifyd"; }
-SpotifydProfile() { profile restore default --app "spotifyd" --method "$HOME/.config/spotifyd" --files '*' $noPrompt; }
+SpotifydProfile() { profile $noPrompt restore default --app "spotifyd" --method "$HOME/.config/spotifyd" --files '*' $noPrompt; }
 SpotifydFinalMac() { brew services start spotifyd; }
 TidalInstall() { run --name "TIDAL" "TIDAL/TIDALSetup.exe|TIDALSetup.dmg" || return; }
 TidalFinalWin() { mergeDir "$up/TIDAL" "$up/Media/Other" && $rm "$ud/TIDAL.lnk"; }
@@ -6572,7 +6601,7 @@ NetbootxyzInstall() { netbootxyz setup all; }
 TftpclientInstall() { run --name "TFTP Client" --package "tftp-hpa"; }
 WiFiExplorerInstall() { run --name "WiFi Explorer Pro 3"; }
 WtfisInstall() { run --python-global wtfis; } # # https://github.com/pirxthepilot/wtfis
-WtfisProfile() { profile restore default --app "wtfis" --method "$HOME" --files '.env.wtfis' $noPrompt && chmod 400 "$HOME/.env.wtfis"; }
+WtfisProfile() { profile $noPrompt restore default --app "wtfis" --method "$HOME" --files '.env.wtfis' $noPrompt && chmod 400 "$HOME/.env.wtfis"; }
 
 BindInstall()
 {
@@ -7513,7 +7542,7 @@ MinikubeInstall() { run --header "minikube" --executable "shareware/kubernetes/m
 # Microsoft
 #################################################
 
-MicrosoftAllInstall() { i AzureAll IIS teams office PowerShell PowerToys Skype SqlServer SqlServerManagementStudio SystemsInternals TfsCli VisualStudio WindowsAdministrationTools WindowsAssessmentAndDeploymentKit WindowsDownload WindowsStore; }
+MicrosoftAllInstall() { i AzureAll IIS teams office PowerShell PowerToys RemoteServerAdministrationTools Skype SqlServer SqlServerManagementStudio SystemsInternals TfsCli VisualStudio WindowsAssessmentAndDeploymentKit WindowsDownload WindowsStore; }
 AzureAllInstall() { i AzureCli AzureDataStudio AzureFunctions AzureStorageExplorer; }
 AzureDataStudioInstall() { local v="1.41.2"; run --header "Azure Data Studio" "other/Microsoft/azure/azuredatastudio-windows-user-setup-$v.exe|azuredatastudio-macos-1.41.2.zip"; } # https://learn.microsoft.com/en-us/sql/azure-data-studio/download-azure-data-studio
 AzureDataStudioFinalWin() { $mv "$pp/Azure Data Studio/Azure Data Studio.lnk" "$pp/Development" && $rmd "$pp/Azure Data Studio"; }
@@ -7674,7 +7703,7 @@ SqlServerFinalWin()
 }
 
 SqlServerManagementStudioInstall() { run "other/Microsoft/SQL Server/studio/setup/SSMS-Setup-ENU.exe"; } # https://docs.microsoft.com/en-us/sql/ssms/download-sql-server-management-studio-ssms
-SqlServerManagementStudioProfile() { SqlServerManagementStudio profile restore default; }
+SqlServerManagementStudioProfile() { SqlServerManagementStudio $noPrompt profile restore default; }
 
 SqlServerManagementStudioFinalWin()
 {
@@ -7727,13 +7756,13 @@ SystemInternalsInstall()
 	registry import "$setupFiles/SysInternalsEula.reg"
 }
 
-WindowsAdministrationToolsInstall()
+RemoteServerAdministrationToolsInstall()
 {
-	header "Windows Administration Tools" # http://www.microsoft.com/en-us/search/result.aspx?q=Remote%20Server%20Administration%20Tools&form=DLC
-	run "other/Microsoft/Server/tools/WindowsTH-RSAT_WS_1803-x64.msu" || return
+	header "Remote Server Administration Tools (RSAT)" # https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/remote-server-administration-tools
+	run "other/Microsoft/Server/tools/WindowsTH-KB2693643-x64.msu" || return
 }
 
-WindowsAdministrationToolsFinalWin()
+RemoteServerAdministrationToolsFinalWin()
 {
 	mergeDir "$pp/Administrative Tools" "$oo" || return
 	$rm "$pp/Server Manager.lnk" || return
@@ -7766,13 +7795,13 @@ WindowsDownloadInstall()
 	gcp ~/Downloads/Windows.iso "$(GetFilePath "$file")/Windows_$v.iso" || return
 }
 
-WslConfigInstall()
+WslInstall()
 {
-	header "Windows Subsystem for Linux Configuration"
+	header "Windows Subsystem for Linux (WSL) Configuration"
+}
 
-	# profile
-	wsl profile restore default || return
-
+WslFinalWin()
+{
 	# shortcut
 	local location="$pp"; ! CanElevate && location="$up"
 	$makeShortcut "wsl.exe" "$location/Operating System/Zsh" || return
@@ -7781,6 +7810,8 @@ WslConfigInstall()
 	local prefix; ! CanElevate && prefix="u"
 	registry set "${prefix}run/startup" REG_SZ "$(utw "$(FindInPath "wsl.exe")") /usr/local/data/bin/RunScript startup" # wsl.exe /usr/local/data/bin/RunScript startup
 }
+
+WslProfile() { wsl $noPrompt profile restore default; }
 
 #
 # .NET
@@ -7812,7 +7843,7 @@ VisualStudioInstall()
 	run --header "Visual Studio" "other/Microsoft/Visual Studio/setup/VisualStudioSetup$suffix.exe|VisualStudioForMac${suffix}Installer.dmg" --pause || return
 } 
 
-VisualStudioProfile() { VisualStudio profile restore default; }
+VisualStudioProfile() { VisualStudio $noPrompt profile restore default; }
 
 VisualStudioFinalWin()
 {
@@ -8682,7 +8713,7 @@ PiReporterInstall()
 	sudo pip3 install -r "requirements.txt" || return
 
 	# configure
-	local host="$(ConfigGet "mqttServer").$(NetworkDnsDomain)"
+	local host="$(ConfigGet "mqttServer").$(GetDnsDomain)"
 	local config="/opt/RPi-Reporter-MQTT2HA-Daemon/config.ini"
 	[[ ! -f "$config" ]] && { sudo cp "/opt/RPi-Reporter-MQTT2HA-Daemon/config.ini.dist" "$config" || return; }
 	sudo sed -i "s/^#hostname = localhost$/hostname = $host/" "/opt/RPi-Reporter-MQTT2HA-Daemon/config.ini" || return
@@ -8789,7 +8820,7 @@ NoMachineInstall()
 }
 
 NoMachineFinalWin() { $rm "$pd/NoMachine.lnk" && mergeDir "$pp/NoMachine" "$oo" && moveAppData "NoMachine" || return; }
-NoMachineProfile() { NoMachine profile restore default && NoMachine startup; }
+NoMachineProfile() { NoMachine $noPrompt profile restore default && NoMachine startup; }
 
 NoMachineDownload()
 {
@@ -9449,7 +9480,7 @@ pGinaInstall()
 	run "shareware/pGina/setup/pGinaSetup-3.1.8.0.exe" /silent || return
 }
 
-pGinaProfile() { pGina profile restore default; }
+pGinaProfile() { pGina $noPrompt profile restore default; }
 pGinaFinalWin() { mergeDir "$pp/pGina" "$oo"; }
 
 SystemUserInstall()
@@ -9558,7 +9589,7 @@ NixInstall()
 	ran="true"
 }
 
-NixProfile() { NixHelper profile restore default "${globalArgs[@]}"; }
+NixProfile() { NixHelper $noPrompt profile restore default "${globalArgs[@]}"; }
 
 ZshInstall()
 {
@@ -9672,8 +9703,7 @@ SshClientInstall()
 
 SshClientPermissionInstall()
 {
-	[[ ! -d ~/.ssh ]] && return
-
+	[[ "$(DirCount ~/.ssh)" == "0" ]] && return	
 	sudoc chown "$USER" ~/.ssh/* || return
 	! IsPlatform mac && { chgrp "$USER" ~/.ssh/* || return; }
 	chmod 700 ~/.ssh && sudo chmod 600 ~/.ssh/* && $hide ~/.ssh
@@ -9884,7 +9914,7 @@ WarpInstall()
 	run --name="Warp" "$(warpDir)/Warp ${v}.dmg" --version="$v"
 }
 
-WarpProfile() { warp profile restore default && warp startup; }
+WarpProfile() { warp $noPrompt profile restore default && warp startup; }
 
 WarpDownload()
 {
@@ -9960,7 +9990,7 @@ WindowsTerminalFinalWin()
 	$makeShortcut "$p" "$dest/Windows Terminal" || return
 }
 
-WindowsTerminalProfile() { WindowsTerminal profile restore default "${globalArgs[@]}"; }
+WindowsTerminalProfile() { WindowsTerminal $noPrompt profile restore default "${globalArgs[@]}"; }
 
 WindowsTerminalDownload()
 {
@@ -10038,7 +10068,7 @@ NotepadPpInstall()
 	return 0
 }
 
-NotepadPpProfile() { notepadpp profile restore default; }
+NotepadPpProfile() { notepadpp $noPrompt profile restore default; }
 NotepadPpFinalWin() {	$mv "$pp/Notepad++.lnk" "$pp/Applications" && $rmd "$pp/Notepad++" && $rm "$pd/Notepad++.lnk"; }
   
 ObsidianInstall()
@@ -10049,7 +10079,7 @@ ObsidianInstall()
 	run --name="Obsidian" --no-header "$(obsidianDir)/Obsidian.$v$(getArch "" "-arm64").exe|Obsidian-$v-universal.dmg|obsidian_$v_amd64.deb" --version="$v"	
 }
 
-ObsidianProfile() { obsidian profile restore default; }
+ObsidianProfile() { obsidian $noPrompt profile restore default; }
 ObsidianFinalWin() { $mv "$up/Obsidian.lnk" "$up/Applications" && $rm "$ud/Obsidian.lnk"; }
 ObsidianRegister() { register "obsidian"; }
 
@@ -10631,7 +10661,7 @@ Calendar366Install() { run --name "Calendar 366" --store "1265895169"; }
 GladysInstall() { run --name "Gladys"; }
 HammerspoonInstall() { run --header "Hammerspoon" "platform/mac/Hammerspoon/Hammerspoon-0.9.100.zip"; }
 HammerspoonHelp() {	TextEdit "~/.hammerspoon/init.lua"; }
-HammerspoonProfile() { hammerspoon profile restore default; }
+HammerspoonProfile() { hammerspoon $noPrompt profile restore default; }
 HoudahSpotInstall() { run --header "HoudahSpot" "platform/mac/HoudahSpot/HoudahSpot6.5.1.zip"; }
 HoudahSpotRegister() { register "HoudahSpot"; }
 LingonInstall() { run --name "Lingon" "platform/mac/LingonX7/LingonX7.zip"; } # https://www.peterborgapps.com/lingon/
@@ -10671,7 +10701,7 @@ AlfredInstall()
 	run --name="Alfred" "$(alfredDir)/Alfred_$v.dmg" --version="$v" && alfred startup
 }
 
-AlfredProfile() { alfred profile restore default; }
+AlfredProfile() { alfred $noPrompt profile restore default; }
 AlfredRegister() { register "alfred"; }
 
 AlfredHelp()
@@ -10712,7 +10742,7 @@ AltTabInstall()
 	run --name="AltTab" "$(altTabDir)/AltTab-$v.zip" --version="$v" && AltTab startup
 }
 
-AltTabProfile() { AltTab profile restore default; }
+AltTabProfile() { AltTab $noPrompt profile restore default; }
 
 AltTabDownload()
 {
@@ -10784,7 +10814,7 @@ BartenderInstall()
 	run --name="Bartender" "$(bartenderDir)/Bartender v$v.dmg" --version="$v"
 }
 
-BartenderProfile() { bartender profile restore default; }
+BartenderProfile() { bartender $noPrompt profile restore default; }
 
 BartenderDownload()
 {
@@ -10804,7 +10834,7 @@ BetterTouchToolHelp()
 	echot "- BetterTouchTool, Import License, cmd-shift-g, cmd-v, Open" || return
 }
 
-BetterTouchToolProfile() { BetterTouchTool profile restore default && start "BetterTouchTool"; }
+BetterTouchToolProfile() { BetterTouchTool $noPrompt profile restore default && start "BetterTouchTool"; }
 
 CleanMyMacInstall()
 {
@@ -10814,7 +10844,7 @@ CleanMyMacInstall()
 
 CleanMyMacHelp() { echot "- Notifications, uncheck all\n- Assistant, check Enable silent mode"; }
 CleanMyMacRegister() { register "CleanMyMac"; }
-CleanMyMacProfile() { CleanMyMac profile restore default; }
+CleanMyMacProfile() { CleanMyMac $noPrompt profile restore default; }
 
 CleanMyMacDownload()
 {
@@ -10868,7 +10898,7 @@ KarabinerElementsInstall()
 }
 
 KarabinerElementsHelp() { echot "\n- Preferences..., Function keys, check Use all F1, F2, etc. keys as standard function keys"; }
-KarabinerElementsProfile() { KarabinerElements profile restore default && KarabinerElements start; }
+KarabinerElementsProfile() { KarabinerElements $noPrompt profile restore default && KarabinerElements start; }
 
 KarabinerElementsDownload()
 {
@@ -10946,7 +10976,7 @@ SoundSourceInstall()
 	run --name="SoundSource" "$(soundSourceDir)/SoundSource ${v}.zip" --version="$v"
 }
 
-SoundSourceProfile() { SoundSource profile restore default && SoundSource startup; }
+SoundSourceProfile() { SoundSource $noPrompt profile restore default && SoundSource startup; }
 SoundSourceRegister() { register "SoundSource"; }
 
 SoundSourceDownload()
@@ -10971,7 +11001,7 @@ TidyTabsInstall()
 }
 
 TidyTabsRegister() { register "TidyTabs"; }
-TidyTabsProfile() { TidyTabs profile restore default; }
+TidyTabsProfile() { TidyTabs $noPrompt profile restore default; }
 
 TidyTabsFinalWin()
 {
@@ -11098,7 +11128,7 @@ ShottrInstall()
 	run --name="Shottr" "$(shottrDir)/Shottr-${v}.dmg" --version="$v"
 }
 
-ShottrProfile() { shottr profile restore default && shottr startup; }
+ShottrProfile() { shottr $noPrompt profile restore default && shottr startup; }
 
 ShottrDownload()
 {
@@ -11497,7 +11527,7 @@ RectangleInstall()
 } 
 
 RectangleHelp() { echot "Settings, check Sync configuration over iCloud"; }
-RectangleProfile() { rectangle profile restore default; }
+RectangleProfile() { rectangle $noPrompt profile restore default; }
 RectangleRegister() { register "rectangle"; }
 
 RectangleDownload()
@@ -11526,7 +11556,7 @@ UltraMonInstall()
 
 UltraMonFinalWin() { $mv "$pp/UltraMon.lnk" "$pp/Applications" && $rm "$pp/Startup/UltraMon.lnk"; }
 UltraMonHelp() { echot "- Options..., Customization, System tray icons=Leapo Windows 7"; }
-UltraMonProfile() { UltraMonHelper profile restore default; }
+UltraMonProfile() { UltraMonHelper $noPrompt profile restore default; }
 
 #################################################
 # Windows
@@ -11536,7 +11566,7 @@ WinSetupInstall()
 {
 	header "Windows Setup"
 	i SystemInternals WinPath WinPermissions || return # run first
-	i WinApps WinConfig WinConfigUser WinConsole WinDirs WinDirsUser WslConfig OneDrive || return
+	i WinApps WinConfig WinConfigUser WinConsole WinDirs WinDirsUser wsl OneDrive || return
 }
 
 # WinAppsInstall - install additional applications for the current Windows build
@@ -11617,7 +11647,7 @@ WinConfigInstall()
  	$printer -d -p "OneNote for Windows 10" >& /dev/null
 
 	echo "Configuring network settings..."
-	IsHypervVm && { powershell.exe Set-DnsClientGlobalSetting -SuffixSearchList "$(NetworkDnsDomain)" || return; } # Hyper-V clients do not get the DNS suffix from the DHCP server
+	IsHypervVm && { powershell.exe Set-DnsClientGlobalSetting -SuffixSearchList "$(GetDnsDomain)" || return; } # Hyper-V clients do not get the DNS suffix from the DHCP server
 
 	echo "Configuring network adapters..."
 	network adapter name "Bluetooth Network Connection" "bluetooth" >& /dev/null

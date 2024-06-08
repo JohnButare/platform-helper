@@ -12,15 +12,6 @@ systemUser="wsystem"
 confDir="Dropbox/network/system"
 hostTimeout="200"
 
-# bootstrap - network
-# - bootStrapBin - initial bin directory UNC in the format //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
-# - bootstrapInstall - installation directory, if unset find it
-# - bootstrapDir - contains compressed bin directory
-bootstrapDomain="hagerman"
-bootstrapBin="//ender.hagerman.butare.net/system/usr/local/data/bin"
-bootstrapInstall="//ender.butare.net/public/install"
-bootstrapDir="/mnt/c/Users/jjbutar/OneDrive - Sandia National Laboratories/data/download"
-
 #
 # servers
 #
@@ -53,6 +44,8 @@ hashiTestVaultServers="pi20,pi21"
 # network
 #
 
+defaultDomain="hagerman"
+
 # networks - list of known networks, check the DNS servers, format is NETWORK@DNS_IP
 # hagerman 10.10.100.8|7 (lb3|lb2)
 # sandia 172.29.128.1 - yes (IPOC) no (office)
@@ -68,6 +61,9 @@ noProxyRemote=".releases.ubuntu.com,.internal,.local"
 
 # hagerman network
 hagermanUser="jjbutare"
+hagermanBinUnc="//ender.hagerman.butare.net/system/usr/local/data/bin"
+hagermanBootstrapDir=""
+hagermanInstallUnc="//ender.butare.net/public/install"
 hagermanDnsBaseDomain="butare.net"
 hagermanDnsDomain="hagerman.$hagermanDnsBaseDomain"
 hagermanDns1="10.10.100.8"
@@ -88,6 +84,9 @@ hagermanWireguardPort="51820"																# WireGuard Port
 
 # sandia network
 sandiaUser="jjbutare"
+sandiaBinUnc=""
+sandiaBootstrapDir="/mnt/c/Users/jjbutar/OneDrive - Sandia National Laboratories/data/download"
+sandiaInstallUnc=""
 sandiaDnsBaseDomain="sandia.gov"
 sandiaDnsDomain="srn.$sandiaDnsBaseDomain"
 sandiaDns1="134.253.181.25"

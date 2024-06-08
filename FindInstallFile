@@ -64,36 +64,39 @@ selectCommand() { findSelect && returnData; }
 # helper
 #
 
-addDir() { local name="$1" dir="$2"; log1 "adding '$name'..."; dirs["$name"]="$dir"; }
 printStatus() { [[ $quiet || $verbose ]] && return; PrintErr "$1"; }
 returnData() { [[ $eval ]] && ScriptReturn installDir file || printf "$file"; }
 status() { [[ $quiet ]] && return; EchoErrEnd "$1"; }
 
 addDirs()
 {
-	[[ $hint ]] && { addDir "$hint" "$hint" || return; }
+	[[ $hint ]] && { addLocalDir "$hint" "$hint" && return; }
 
 	# add local directories
-	addLocalDirs || return
+	addLocalDirs && return
 
 	# domain
-	case "$(GetDomain)" in
-		hagerman)
-			addDirHost "ender.hagerman.butare.net" "public/install" && return
-			addDirHost "rp1.butare.net" "public/install" && return
-			addDirHost "rp2.butare.net" "public/install" && return
-			;;
-		sandia)
-			addDirHost "s1091967" "install" && return # rack
-			addDirHost "s1071466" "install" && return # desktop
-			;;
-	esac
+	RunFunction addDirs "$(GetDomain)" && return
 
 	# internet
-	# addDirHost "ln1.butare.net" "root/usr/local/data/install" "ssh"
-	addDirHost "ssh.butare.net" "root/usr/local/data/install" "608"
+	# addDirHost "ln1.butare.net" "root/usr/local/data/install" "ssh" && return
+	addDirHost "ssh.butare.net" "root/usr/local/data/install" "608" && return
 
 	return 0
+}
+
+addDirsHagerman()
+{
+	addDirHost "ender.hagerman.butare.net" "public/install" && return
+	addDirHost "rp1.butare.net" "public/install" && return
+	addDirHost "rp2.butare.net" "public/install" && return
+	return 1
+}
+
+addDirsSandia()
+{
+	addDirHost "s1091967" "install" && return # rack
+	addDirHost "s1071466" "install" && return # desktop
 }
 
 # addDirHost HOST SUFFIX PROTCOL - if HOST is available using PROTOCOL (nfs|smb|ssh) add directory //HOST/SUFFIX.
@@ -114,7 +117,19 @@ addDirHost()
 	fi
 	
 	# add the UNC direcory
-	addDir "$(RemoveDnsSuffix "$host")$desc" "//$host/$suffix:$protocol"
+	addLocalDir "$(RemoveDnsSuffix "$host")$desc" "//$host/$suffix:$protocol" 
+}
+
+addLocalDir()
+{
+	local name="$1" dir="$2"
+
+	# directory does not exist
+	[[ ! -d "$dir" ]] && return 1
+
+	# add directory
+	log1 "adding '$name' ($dir)..."
+	dirs["$name"]="$dir"
 
 	# return 1 (keep checking) if we are selecting from all available locations
 	[[ "$command" != "select" ]]
@@ -125,29 +140,37 @@ addLocalDirs()
 	local p="public/install"
 
 	# local drive
-	[[ -d "$DATA/install" ]] && addDir "local" "$DATA/install"
+	addLocalDir "local" "$DATA/install" && return
 
 	# cloud provider
-	CloudConf --quiet && [[ -d "$CLOUD/install" ]] && addDir "cloud" "$CLOUD/install"
+	CloudConf --quiet && addLocalDir "cloud" "$CLOUD/install" && pause return
+
+	# domain
+	RunFunction addLocalDirs "$(GetDomain)" && return
 
 	# mounted drives
-	drive mount all $quiet
-
-	local desc drive drives; IFS=$'\n' ArrayMake drives "$(drive mounts)"
-	for drive in "${drives[@]}"; do
-		if [[ -d "$drive/$p" ]]; then
-			drive IsDrive "$drive" && desc="drive-$(drive label "$drive")" || desc="drive-$(GetFileName "$drive")"
-			addDir "$desc" "$drive/$p"
-		fi
-	done
+	if drive mount all $quiet; then
+		local desc drive drives; IFS=$'\n' ArrayMake drives "$(drive mounts)"
+		for drive in "${drives[@]}"; do
+			if [[ -d "$drive/$p" ]]; then
+				drive IsDrive "$drive" && desc="drive-$(drive label "$drive")" || desc="drive-$(GetFileName "$drive")"
+				addLocalDir "$desc" "$drive/$p" && return
+			fi
+		done
+	fi
 
 	# VMware Host
-	IsVmwareVm && [[ -d "//vmware-host/Shared Folders/d/users/public/install/" ]] && addDir "host-drive-d" "//vmware-host/Shared Folders/d/users/public/install"
+	IsVmwareVm && addLocalDir "host-drive-d" "//vmware-host/Shared Folders/d/users/public/install" && return
 
-	# Synology DSM NAS
-	[[ -d "/volume1/$p" ]] && addDir "dsm-host" "/volume1/$p"
+	return 1
+}
 
-	return 0
+addLocalDirsSandia()
+{
+	# use OneDrive if it is not configured properly
+	local dir="$WIN_HOME/OneDrive - Sandia National Laboratories/install"
+	[[ -d ~/OneDrive || ! -d "$dir" ]] && return 1
+	addLocalDir "cloud-temp" "$dir"
 }
 
 checkDir()
@@ -177,11 +200,11 @@ checkServerAvailability()
 
 		log1 "Checking $dir...."
 		GetUncServer "$dir" server
-		[[ ! $server || "$server" == "vmware-host" ]] && { addDir "0-$key" "$dir"; continue; }
+		[[ ! $server || "$server" == "vmware-host" ]] && { addLocalDir "0-$key" "$dir"; continue; }
 
 		local protocol; GetUncProtocol "$dir" protocol
 		local port; port="$(unc get port --protocol="$protocol")" || return
-		local responseTime="$(PortResponse "$server" "$port")" && { addDir "$responseTime-$key" "$dir" || return; }
+		local responseTime="$(PortResponse "$server" "$port")" && { addLocalDir "$responseTime-$key" "$dir" || return; }
 		printStatus "." 
 	done
 
@@ -253,7 +276,7 @@ findSelect()
 	for key in "${closestKeys[@]}"; do
 		local dir="${dirs["$key"]}" desc="${key#*-}" ms="${key%%-*}ms away"
 		items+=( "$desc" "$ms" )
-		unset dirs["$key"]; addDir "$desc" "$dir"
+		unset dirs["$key"]; addLocalDir "$desc" "$dir"
 	done
 
 	if (( ${#items[@]} == 0 )); then
@@ -267,7 +290,7 @@ findSelect()
 	  	--menu "Choose the location to search for:\n$file" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
 		[[ "$result" == "" ]] && return 1
 		[[ ! $quiet ]] && clear
-		printStatus "checking...$result ("${dirs[$result]}")..."; log1
+		printStatus "checking...$result ("$(FileToDesc "${dirs[$result]}")")..."; log1
 		checkDir "${dirs[$result]}" && { status "found"; return; }
 
 		status "not found"		

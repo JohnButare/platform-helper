@@ -18,7 +18,7 @@ run()
 	createUserHome || return	
 	runAsUser || return
 	binSetup || return
-	runBootstrap
+	runBootstrap || return
 }
 
 # binSetup - setup the bin directory
@@ -27,10 +27,9 @@ binSetup()
 	# initialize
 	local data="/usr/local/data" udata="$HOME/data" 
 	local binDir="$data/bin"
-	local bootstrapDir="$(configGet "bootstrapDir")"
-
+	
 	# setup
-	if [[ -d "$bootstrapDir" ]]; then binDir || return
+	if [[ -f "$bootstrapDir/pbin.zip" ]]; then binDir || return
 	else binNetwork || return
 	fi
 
@@ -75,9 +74,10 @@ binNetwork()
 {
 	# check
 	[[ -d "$binDir" ]] && return
-
-	# mount
-	mountUnc "$bin" || return
+	[[ ! $binUnc ]] && { echoErr "no bin UNC specified"; return 1; }; 
+	
+	# mount	
+	mountUnc "$binUnc" || return
 	binDir="$mountDir/$dirs"
 }
 
@@ -107,7 +107,7 @@ configureNetwork-win()
 	return 0
 }
 
-dnsTestWin() { nslookup "www.ubuntu.com" > /dev/null; }
+dnsTestWin() { nslookup -retry=1 -timeout=1 "www.ubuntu.com" > /dev/null; }
 
 configureProxyServer()
 {
@@ -173,8 +173,9 @@ rebootDo()
 runBootstrap()
 {
 	local args=()
+	local host="$(GetUncServer "$binUnc")" || return
 	[[ $host ]] && args+=(--host "$host")
-	[[ $install ]] && args+=(--install "$install")
+	[[ $installUnc ]] && args+=(--install "$installUnc")
 
 	hilight "Running bootstrap..."
 	log1 "bootstrap ${args[@]} ${globalArgs[@]}"
@@ -237,7 +238,7 @@ configure-win()
 
 init()
 {
-	unset -v bin uncUser server share dirs
+	unset -v binUnc uncUser server share dirs
 	initColor || return
 	header "bootstrap-init ($USER)"
 
@@ -262,8 +263,8 @@ init()
 			-w|--wait) wait="--wait";;
 			*) 
 				[[ -f "$1" ]] && { export functionConfigFileCache="$1"; shift; continue; }
-				[[ "$1" && ! $bin ]] && { bin="$1"; shift; continue; }
-				echoErr "bootstrap-init: invalid argument '$1'"; return 1;
+				[[ "$1" && ! $binUnc ]] && { binUnc="$1"; shift; continue; }
+				echoErr "invalid argument '$1'"; return 1;
 		esac
 		shift
 	done
@@ -274,7 +275,7 @@ init()
 
 	# sudo
 	sudo="sudo"; ! inPath sudo && sudo=""
-	[[ ! $sudo && "$USER" != "root" ]] && { echoErr "bootstrap-init: sudo is not installed and user is not root"; return 1; }
+	[[ ! $sudo && "$USER" != "root" ]] && { echoErr "sudo is not installed and user is not root"; return 1; }
 
 	# bootstrap directory
 	if [[ ! -d "$updateDir" ]]; then
@@ -290,19 +291,13 @@ init()
 	isDebian && PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" 
 
 	# logging
-	log1 "\n	config=$functionConfigFileCache\n	user=$user\n	bin=$bin\n	install=$install"
+	log1 "\n	config=$functionConfigFileCache\n	user=$user\n	binUnc=$binUnc\n	bootstrapDir=$bootstrapDir\n	install=$installUnc"
 
 	return 0
 }
 
 initVariables()
 {
-	# configuration
-	user="$(configGet "user")"; isMac && user="$USER" # if we are on a mac bootstrap as the current user
-	bin="${bin:-$(configGet "bootstrapBin")}"; ! IsUncPath "$bin" && { echoErr "'$bin' is not a UNC path"; return 1; }; 
-	host="$(GetUncServer "$bin")" || return
-	install="$(configGet "bootstrapInstall")"
-
 	# virtualization
 	chroot=""; [[ -f /etc/debian_chroot ]] && chroot="$(cat "/etc/debian_chroot")"
 	container=""; inPath systemd-detect-virt && [[ "$(systemd-detect-virt --container)" != "none" ]] && container="true"
@@ -327,8 +322,14 @@ initVariables()
 
 	# network
 	domain=""; [[ "$platform" == "win" ]] && domain="$(cmd.exe /c 'echo %USERDOMAIN%' 2> /dev/null | RemoveCarriageReturn | RemoveNewline | LowerCase)"
-	[[ "$(hostname | LowerCase)" == "$domain" ]] && domain="$(ConfigGet "bootstrapDomain")"
+	[[ "$(hostname | LowerCase)" == "$domain" ]] && domain="$(ConfigGet "defaultDomain")"
 	dnsBaseDomain="$(configGet "${domain}DnsBaseDomain")"
+
+	# configuration
+	user="$(configGet "${domain}User")"; isMac && user="$USER" # if we are on a mac bootstrap as the current user
+	installUnc="$(configGet "${domain}InstallUnc")"
+	binUnc="${binUnc:-$(configGet "${domain}BinUnc")}"
+	bootstrapDir="$(configGet "${domain}BootstrapDir")"
 
 	# GNU utilities	
 	export G=""; inPath "gdate" && isMac && G="g"
@@ -345,8 +346,9 @@ mountUnc()
 {
 	local unc="$1"
 
+	! IsUncPath "$unc" && { echoErr "'$unc' is not a UNC path"; return 1; }; 		
 	GetUncUser "$unc" uncUser; [[ ! $uncUser ]] && uncUser="$user"
-	GetUncServer "$unc" server || return; [[ ! $server ]] && { echoErr "UNC '$unc' does not include a server"; return 1; }
+	GetUncServer "$unc" server || return; [[ ! $server ]] && { echoErr " UNC '$unc' does not include a server"; return 1; }
 	GetUncShare "$unc" share || return; [[ ! $share ]] && share="root" 
 	GetUncDirs "$unc" dirs
 	local p; GetUncProtocol "$unc" p || return; [[ $p ]] && protocol="$p"
@@ -373,7 +375,7 @@ mountUnc()
 	fi
 
 	# validate directory
-	[[ ! -d "$mountDir/$dirs" ]] && { echoErr "$dirs directory does not exist on '//$server/$share'"; return 1; }
+	[[ ! -d "$mountDir/$dirs" ]] && { echoErr "'$dirs' directory does not exist on '//$server/$share'"; return 1; }
 	return 0
 }
 
@@ -568,7 +570,7 @@ debianPackageProxy()
 {
 	# check
 	[[ ! $HTTP_PROXY ]] && return # no proxy server
-	grep "$dnsBaseDomain" "/etc/apt/sources.list" && return # using an internally hosted source
+	grep --quiet "$dnsBaseDomain" "/etc/apt/sources.list" && return # using an internally hosted source
 	[[ ! -d /etc/apt/apt.conf.d || -f "/etc/apt/apt.conf.d/proxy" ]] && return # already configured
 
 	# configure
@@ -622,7 +624,7 @@ debianUnminimizeDoc()
 		rm -f "$configTmp" "$motd" || return
 	else
 		dpkg --verify | grep '^..5......   /usr/share/doc'
-		echoErr "bootstrap-init: unable to unminimize the listed documentation"
+		echoErr "unable to unminimize the listed documentation"
 		return 1
 	fi
 
@@ -644,7 +646,7 @@ debianFixMan()
 configGet() { (. "$functionConfigFileCache"; eval echo "\$$1"); }
 getDateStamp() { ${G}date '+%Y%m%d'; }
 getFileDateStamp() { ${G}stat 2>&1 | grep "BusyBox" >& /dev/null && return; ${G}date '+%Y%m%d' -d "$(${G}stat --format="%y" "$1")"; }
-echoErr() { echo -e "$@" >&2; }
+echoErr() { echo -e "bootstrap-init: $@" >&2; }
 header() { printf "${RB_BLUE}*************** ${RB_INDIGO}$1${RB_BLUE} ***************${RESET}\n"; }
 hilight() { printf "${GREEN}$1${RESET}\n"; }
 initColor() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RESET=$(printf '\033[m'); }
@@ -660,7 +662,7 @@ isUbuntu() { [[ "$ID" == "ubuntu" ]]; }
 isWin() { [[ "$platform" == "win" ]]; }
 isWsl2() { [[ "$(uname -r)" =~ .*-microsoft-standard$ ]]; }
 isQnap() { [[ "$platform_like" == "qnap" ]]; }
-log1() { ! (( verboseLevel >= 1 )) && return; echoErr "bootstrap-init: $@"; }
+log1() { ! (( verboseLevel >= 1 )) && return; echoErr "$@"; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 updateNeeded() { isMac && [[ ! $G ]] && return; [[ $force || ! -f "$updateDir/$1" || "$(getDateStamp)" != "$(getFileDateStamp "$updateDir/$1")" ]]; }
 updateDone() { touch "$updateDir/$1"; }

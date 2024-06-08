@@ -6,13 +6,12 @@
 usage()
 {
 	echot "\
-usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
+usage: profile [save|restore|dir|SaveDir](dir)
 	Profile services for batch files
 	save|restore [profile](default)
 
 	-a,  --app NAME					name of the application
 	-f,  --files FILE...		for directory profiles, file patterns in the profile
-	-g,  --global 					use the global profile in install/bootstrap/profile
 	-m,  --method	<dir>|<program>|<key>
 	-nc, --no-control				do not control the applciation
 	-p,  --platform 				use platform specific unzip
@@ -22,20 +21,23 @@ usage: profile [save|restore|dir|SaveDir|CopyGlobal](dir)
 }
 
 init() { defaultCommand="dir"; }
-argStart() { unset -v app files global method noControl platform profile saveExtension sudo; }
+argStart() { unset -v app files method noControl platform profile saveExtension sudo; }
 
 argEnd()
 {
 	[[ ! $force && ! $noControl ]] && AppHasHelper "$app" && { AppInstallVerify "$app" || return; }
 	[[ ! $method ]] && MissingOption "method"
 
-	# Registry profile - profile contains registry entries
+	# create the profile directory if needed - assume we have a file profile if the parent directory of the method is a directory
+	[[ ! -f "$method" && -d "$(GetParentDir "$(EnsureDir "$method")")" && ! -d "$method" ]] && { mkdir "$method" || return; }
+
+	# registry - profile contains registry entries
 	if IsPlatform win && CanElevate && registry IsKey "$method";  then
 		methodType="registry"
 		profileKey="$method"
 		saveExtension=reg
 
-	# ProfileFiles program - program it will be used to import and export the profile  
+	# program - program it will be used to import and export the profile  
 	# IN: profileDir, profileSaveExtension -  the profile file extension used by the program must be specified
 	elif which "$method" > /dev/null ; then
 		methodType="program"
@@ -43,9 +45,8 @@ argEnd()
 		
 		[[ ! $saveExtension ]] && { ScriptErr "the profile save extension was not specified"; return 1; }
 
-	# Profile files - profile contains ZIP of specified files
-	elif [[ ! -f "$method" && -d "$(GetParentDir "$(EnsureDir "$method")")" ]]; then
-		[[ ! -d "$method" ]] && { mkdir "$method" || return; }
+	# files - profile contains ZIP of specified files
+	elif [[ -d "$method" ]]; then
 		methodType="file"
 		profileDir="$method"
 		saveExtension="zip"
@@ -61,7 +62,9 @@ argEnd()
 	appProfileSaveDir="$profileSaveDir/$app"
 	userProfileSaveDir="$profileSaveDir/default"
 	userProfile="$userProfileSaveDir/$app Profile.$saveExtension"	
-	cloudProfileSaveDir=""; CloudConf && cloudProfileSaveDir="$CLOUD/network/profile/"
+	cloudProfileSaveDir=""; CloudConf --quiet && cloudProfileSaveDir="$CLOUD/network/profile/"
+
+	return 0
 }
 
 opt()
@@ -69,7 +72,6 @@ opt()
 	case "$1" in
 		-a|--app) ScriptOptGet "app" "$@";;
 		-F|--files|-F=*|--files=*) ScriptOptGet "files" "$@";;
-		-g|--global) global="--global";;
 		-m|--method) ScriptOptGet "method" "$@";;
 		-nc|--no-control) noControl="--no-control";;
 		-p|--platform) platform="--platform";;
@@ -77,13 +79,6 @@ opt()
 		-s|--sudo) sudo="sudo";;
 		*) return 1;;
 	esac
-}
-
-copyGlobalCommand()
-{
-	findGlobalProfile || return
-	[[ ! -f "$userProfile" ]] && { ScriptErr " cannot access user profile \`$userProfile\`: No such file"; return 1; }
-	cp "$userProfile" "$globalProfile" || return
 }
 
 dirCommand()
@@ -99,19 +94,9 @@ restoreArgs() { ScriptArgGet "profile" -- "$@"; shift; }
 
 restoreCommand()
 {
-	local globalDescription
-
 	if [[ ! $profile || "$profile" == "default" ]]; then
-
-		if [[ $global || ! -f "$userProfile" ]]; then
-			findGlobalProfile || return
-			profile="$globalProfile"
-			globalDescription=" global"
-		else
-			profile="$userProfile"
-		fi
+		profile="$userProfile"
 		[[ ! -f "$profile" ]] && { echo "profile: no default $app profile found"; return 0; }
-		
 	fi
 
 	[[ "$(GetFileExtension "$profile")" == "" ]] && profile+=".$saveExtension"
@@ -120,7 +105,7 @@ restoreCommand()
 	
 	[[ ! -f "$profile" ]] && { ScriptErr "cannot access profile \`$filename\`: No such file"; return 1; }
 
-	! askp "Restore $app$globalDescription profile \"$filename\"" -dr n && return 0
+	! askp "Restore $app profile \"$filename\"" -dr n && return 0
 
 	if [[ "$method" == "file" ]]; then
 		[[ ! $noControl ]] && { AppCloseSave "$app" || return; }
@@ -190,23 +175,14 @@ saveCommand()
 	fi
 		
 	# Copy the default profile to the replicate directory
-	if [[ "$file" == "default.$saveExtension" && -f "$dest/$file" ]]; then
-		if [[ $global ]]; then
-			findGlobalProfile || return
-			copyDefaultProfile "$dest/$file" "$globalProfile" || return
-		else
-			copyDefaultProfile "$dest/$file" "$userProfile" || return
-		fi
-	fi
+	[[ "$file" == "default.$saveExtension" && -f "$dest/$file" ]] && { copyDefaultProfile "$dest/$file" "$userProfile" || return; }
 
+	return 0
 }
 
 savedirCommand()
 {
-	if [[ $global ]]; then
-		findGlobalProfile || return
-		echo "$globalProfileSaveDir"
-	elif [[ -d "$appProfileSaveDir" ]]; then
+	if [[ -d "$appProfileSaveDir" ]]; then
 		echo "$appProfileSaveDir"
 	elif [[ -d "$profileSaveDir" ]]; then
 		echo "$profileSaveDir"		
@@ -249,12 +225,6 @@ copyProfile()
 	printf "Copying profile to $(FileToDesc "$destDir")..."
 	cp "$srcFile" "$destFile" || return
 	echo "done"
-}
-
-findGlobalProfile()
-{
-	 globalProfileSaveDir="$(FindInstallFile "profile")" || return
-	 globalProfile="$globalProfileSaveDir/$app Profile.$saveExtension"
 }
 
 ScriptRun "$@"

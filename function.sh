@@ -1344,7 +1344,7 @@ FileCacheFlush()
 	return 0
 }
 
-# FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp ignoring files that do not exist
+# FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp files, ignore files that do not exist
 FileCommand() 
 { 
 	local command="$1"; shift
@@ -1697,8 +1697,6 @@ IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"
 IsOnNetwork() {	[[ "$(LowerCase "$(NetworkCurrent)")" == "$(LowerCase "$1")" ]]; } # IsOnNetwork NETWORK - true if the computer is the network
 NetworkCurrent() { UpdateGet "network"; }; 
 NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars proxy; }
-NetworkDnsDomain() { echo "$(ConfigGet "$(GetDomain)DnsDomain")"; }							# NetworkDnsDomain - return the DNS domain for the domain the computer is in
-NetworkDnsBaseDomain() { echo "$(ConfigGet "$(GetDomain)DnsBaseDomain")"; } 		# NetworkDnsDomain - return the base DNS domain for the domain the computer is in
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }										# SmbPasswordIsSet USER - return true if the SMB password for user is set
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
@@ -1707,6 +1705,12 @@ WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuote
 ProxyEnable() { ScriptEval network proxy vars --enable; network proxy vars --status; }
 ProxyDisable() { ScriptEval network proxy vars --disable; network proxy vars --status; }
 ProxyStatus() { network proxy --status; }
+
+# GetDns - get DNS informationm for the computer, or the network the computer is in
+GetDnsDomain() { echo "$(ConfigGet "$(GetDomain)DnsDomain")"; }
+GetDnsBaseDomain() { echo "$(ConfigGet "$(GetDomain)DnsBaseDomain")"; }
+GetNetworkDnsDomain() { echo "$(ConfigGet "$(NetworkCurrent)DnsDomain")"; }
+GetNetworkDnsBaseDomain() { echo "$(ConfigGet "$(NetworkCurrent)DnsBaseDomain")"; }
 
 # GetRoute host - get the interface used to send to host
 GetRoute()
@@ -2421,7 +2425,7 @@ DnsResolve()
 	[[ ! $name ]] && { MissingOperand "host" "DnsResolve"; return 1; } 
 
 	# localhost - use the domain in the configuration
-	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(NetworkDnsDomain)")
+	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(GetNetworkDnsDomain)")
 
 	# override the server if needed
 	if [[ $useAlternate ]]; then server="$(DnsAlternate)"; else server="$(DnsAlternate "$name")"; fi
@@ -2576,12 +2580,24 @@ MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';
 #
 
 # GetServer SERVICE - get an active host for the specified service
-GetServer()
+GetServer() 
 {
-	local service="$1"; shift; [[ ! $service ]] && { MissingOperand "service" "GetServer"; return 1; }
-	local useAlternate; [[ "$(DnsAlternate "$host")" != "" ]] && useAlternate="--use-alternate"
-	local ip; ip="$(GetIpAddress "$service.service.butare.net" "$@")" || return
-	DnsResolve $useAlternate "$ip" "$@"
+	# arguments
+	local quiet service
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--quiet|-q) quiet="--quiet";;
+			*)
+				! IsOption "$1" && [[ ! $service ]] && { service="$1"; shift; continue; }
+				pause UnknownOption "$1" "GetServer"; return 1
+		esac
+		shift
+	done
+
+	[[ ! $service ]] && { MissingOperand "service" "GetServer"; return 1; }	
+	local ip; ip="$(GetIpAddress $quiet "$service.service.$(GetNetworkDnsBaseDomain)")" || return
+	DnsResolve $quiet $useAlternate "$ip" "$@"
 }
 
 # GetServers SERVICE - get all active hosts for the specified service
@@ -2597,7 +2613,7 @@ IsService()
 	IsIpAddress "$service" && return 1
 	HasDnsSuffix "$service" && return 1
 	! IsOnNetwork "hagerman" && return 1	
-	DnsResolve --quiet "$1.service.$(NetworkDnsDomain)"
+	DnsResolve --quiet "$1.service.$(GetNetworkDnsDomain)"
 }
 
 #
@@ -3449,7 +3465,7 @@ ProcessCloseWait()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--full|-f) full="--full";;
-			--quiet|-q) quiet="true";;
+			--quiet|-q) quiet="--quiet";;
 			--root|-r) root="--root";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
@@ -4418,7 +4434,7 @@ InitializeXServer()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
-			--quiet|-q) quiet="true";;
+			--quiet|-q) quiet="--quiet";;
 			*) $1; UnknownOption "$1" "InitializeXServer"; return 1;;
 		esac
 		shift
