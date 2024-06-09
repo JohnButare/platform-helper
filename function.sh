@@ -1158,6 +1158,7 @@ RemoveSpaceFront() { GetArgs; RemoveFront "$1" " "; }
 RemoveSpaceTrim() { GetArgs; RemoveTrim "$1" " "; }
 
 QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
+QuoteParens() { sed 's/(/\\(/g' | sed 's/)/\\)/g'; } # escape (quote) parents
 QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
 QuoteQuotes() { GetArgs; echo "$@" | sed 's/\"/\\\"/g'; } # escape (quote) quotes using a back slash (\)
 UnQuoteQuotes() { GetArgs; echo "$@" | sed 's/\\\"/\"/g'; } # remove backslash before quotes
@@ -3373,7 +3374,7 @@ IsProcessRunningList()
 
 	# convert windows programs to a quoted Windows path format
 	HasFilePath "$name" && IsWindowsProcess "$name" && name="$(utw "$name")"	
-	IsWindowsPath "$name" && name="$(echo -E "$name" | QuoteBackslashes)"
+	IsWindowsPath "$name" && name="$(echo -E "$name" | QuoteBackslashes | QuoteParens)"
 
 	# search for an exact match, a match without the Unix path, and a match without the Windows path
 	echo -E "$processes" | grep --extended-regexp --ignore-case --quiet "(,$name$|,.*/$name$|,.*\\\\$name$)"
