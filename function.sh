@@ -1175,8 +1175,8 @@ GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoWra
 if IsZsh; then
 	LowerCase() { GetArgs; [[ $# == 0 ]] && { tr '[:upper:]' '[:lower:]'; return; }; r "${1:l}" $2; }
 	ProperCase() { GetArgs; r "${(C)1}" $2; }
-	UpperCase() { echo "${(U)1}"; }
-	UpperCaseFirst() { echo "${(U)1:0:1}${1:1}"; }
+	UpperCase() { GetArgs; echo "${(U)1}"; }
+	UpperCaseFirst() { GetArgs; echo "${(U)1:0:1}${1:1}"; }
 
 	GetWord()
 	{
@@ -1187,8 +1187,8 @@ if IsZsh; then
 else
 	LowerCase() { GetArgs; [[ $# == 0 ]] && { tr '[:upper:]' '[:lower:]'; return; }; r "${1,,}" $2; }
 	ProperCase() { GetArgs; local arg="${1,,}"; r "${arg^}" $2; }
-	UpperCase() { echo "${1^^}"; }
-	UpperCaseFirst() { echo "${1^}"; }
+	UpperCase() { GetArgs; echo "${1^^}"; }
+	UpperCaseFirst() { GetArgs; echo "${1^}"; }
 
 	GetWord() 
 	{ 

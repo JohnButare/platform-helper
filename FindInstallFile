@@ -25,15 +25,15 @@ init()
 	preferredServers=( ender rp1 rp2 ) # 10G/2.5G servers
 }
 
-argStart() { unset -v eval file hint suppress; }
+argStart() { unset -v all eval file hint suppress; }
 
 opt()
 {
 	case "$1" in "") : ;;
-		-a|--all) command="all";;
+		-a|--all) command="all" all="true";;
 		-e|--eval) eval="true" quiet="--quiet";;
 		-h|--hint) ScriptOptGet "hint" "$@";;
-		-s|--select) command="select";;
+		-s|--select) command="select"  all="true";;
 		   --suppress) suppress="true";;
 		*) return 1;;
 	esac
@@ -76,7 +76,8 @@ addDirs()
 	addLocalDirs && return
 
 	# domain
-	RunFunction addDirs "$(GetDomain)" && return
+	local f="addDirs$(GetDomain | UpperCaseFirst)"
+	IsFunction "$f" && { "$f" && return; }
 
 	# internet
 	# addDirHost "ln1.butare.net" "root/usr/local/data/install" "ssh" && return
@@ -99,42 +100,6 @@ addDirsSandia()
 	addDirHost "s1071466" "install" && return # desktop
 }
 
-# addDirHost HOST SUFFIX PROTCOL - if HOST is available using PROTOCOL (nfs|smb|ssh) add directory //HOST/SUFFIX.
-# - return 1 to continue searching and 0 to stop searching.
-addDirHost()
-{
-	local host="$1" suffix="$2" protocol="${3:-smb}"
-
-	# return if host is not available using the specified protocol
-	log1 "checking '//$host:$protocol/$suffix'..."
-	unc IsAvailable "$host" --protocol="$protocol" $verboseLess || return
-
-	# get a host description if needed
-	local desc
-	if [[ "$protocol" == "22" ]]; then desc=" (ssh)"
-	elif IsInteger "$protocol"; then desc=" (ssh $protocol)"
-	elif [[ $protocol ]]; then desc=" (${protocol,,})"
-	fi
-	
-	# add the UNC direcory
-	addLocalDir "$(RemoveDnsSuffix "$host")$desc" "//$host/$suffix:$protocol" 
-}
-
-addLocalDir()
-{
-	local name="$1" dir="$2"
-
-	# directory does not exist
-	[[ ! -d "$dir" ]] && return 1
-
-	# add directory
-	log1 "adding '$name' ($dir)..."
-	dirs["$name"]="$dir"
-
-	# return 1 (keep checking) if we are selecting from all available locations
-	[[ "$command" != "select" ]]
-}
-
 addLocalDirs()
 {
 	local p="public/install"
@@ -143,10 +108,11 @@ addLocalDirs()
 	addLocalDir "local" "$DATA/install" && return
 
 	# cloud provider
-	CloudConf --quiet && addLocalDir "cloud" "$CLOUD/install" && pause return
+	CloudConf --quiet && addLocalDir "cloud" "$CLOUD/install" && return
 
 	# domain
-	RunFunction addLocalDirs "$(GetDomain)" && return
+	local f="addLocalDirs$(GetDomain | UpperCaseFirst)"
+	IsFunction "$f" && { "$f" && return; }
 
 	# mounted drives
 	if drive mount all $quiet; then
@@ -173,6 +139,44 @@ addLocalDirsSandia()
 	addLocalDir "cloud-temp" "$dir"
 }
 
+# addDirHost HOST SUFFIX PROTCOL - if HOST is available using PROTOCOL (nfs|smb|ssh) add directory //HOST/SUFFIX
+addDirHost()
+{
+	local host="$1" suffix="$2" protocol="${3:-smb}"
+
+	# return if host is not available using the specified protocol
+	log1 "checking '//$host:$protocol/$suffix'..."
+	unc IsAvailable "$host" --protocol="$protocol" $verboseLess || return
+
+	# get a host description if needed
+	local desc
+	if [[ "$protocol" == "22" ]]; then desc=" (ssh)"
+	elif IsInteger "$protocol"; then desc=" (ssh $protocol)"
+	elif [[ $protocol ]]; then desc=" (${protocol,,})"
+	fi
+	
+	# add the UNC direcory
+	addDir "$(RemoveDnsSuffix "$host")$desc" "//$host/$suffix:$protocol" 
+}
+
+# addDirLocal NAME DIR - if DIR exists add it
+addLocalDir()
+{
+	local name="$1" dir="$2"
+	[[ ! -d "$dir" ]] && return 1
+	addDir "$name" "$dir"
+}
+
+# addDir NAME DIR - add candidate directory
+# - return 1 to continue searching (searching for all locations) and 0 to stop searching
+addDir()
+{
+	local name="$1" dir="$2"
+	log1 "adding '$name' ($(FileToDesc "$dir"))..."	
+	dirs["$name"]="$dir"
+	[[ ! $all ]]
+}
+
 checkDir()
 {
 	local dir="$1"
@@ -196,15 +200,21 @@ checkServerAvailability()
 
 	for key in "${!dirs[@]}"; do
 		local dir="${dirs["$key"]}" server protocol
-		unset dirs["$key"]
 
-		log1 "Checking $dir...."
-		GetUncServer "$dir" server
+		# initialize
+		log1 "checking $dir...."
+		server="$(GetUncServer "$dir")"
+		unset dirs["$key"] # remove the existing entry
+		
+		# add normal directory with 0 response time
 		[[ ! $server || "$server" == "vmware-host" ]] && { addLocalDir "0-$key" "$dir"; continue; }
 
+		# get server response time
 		local protocol; GetUncProtocol "$dir" protocol
-		local port; port="$(unc get port --protocol="$protocol")" || return
-		local responseTime="$(PortResponse "$server" "$port")" && { addLocalDir "$responseTime-$key" "$dir" || return; }
+		local port; port="$(unc get port --protocol="$protocol")" || continue
+		local responseTime="$(PortResponse "$server" "$port")" && { addDir "$responseTime-$key" "$dir"; }
+
+		# status
 		printStatus "." 
 	done
 
