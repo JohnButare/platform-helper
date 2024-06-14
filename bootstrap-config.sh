@@ -86,6 +86,7 @@ hagermanWireguardPort="51820"																# WireGuard Port
 sandiaUser="jjbutare"
 sandiaBinUnc=""
 sandiaBootstrapDir="/mnt/c/Users/jjbutar/OneDrive - Sandia National Laboratories/data/download"
+sandiaGitServer="ados.sandia.gov"
 sandiaInstallUnc=""
 sandiaDnsBaseDomain="sandia.gov"
 sandiaDnsDomain="srn.$sandiaDnsBaseDomain"

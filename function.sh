@@ -1222,7 +1222,7 @@ fi
 
 CanWrite() { [[ -w "$1" ]]; }
 CopyFileProgress() { rsync --info=progress2 "$@"; }
-DirCount() { local result; result="$(command ls "${1:-.}" |& wc -l)" || return; RemoveSpace "$result"; }
+DirCount() { local result; result="$(command ls "${1:-.}" |& wc -l)"; ! IsNumeric "$result" && result="0"; RemoveSpace "$result"; }
 DirSave() { [[ ! $1 ]] && set -- "$TEMP"; pushd "$@" > /dev/null; }
 DirRestore() { popd "$@" > /dev/null; }
 EnsureDir() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
@@ -4167,14 +4167,16 @@ sudoc()
 
 	# determine which password to use
 	local passwordName="secure"
-	InPath opensc-tool && opensc-tool --list-readers | ${G}grep --quiet "Yes" && passwordName="ssh"
+	if InPath opensc-tool && opensc-tool --list-readers | ${G}grep --quiet "Yes"; then passwordName="ssh"
+	elif echo "BOGUS" | sudo --stdin --validate 2>&1 | ${G}grep --quiet "^Enter PIN"; then passwordName="ssh"  
+	fi
 
 	# get password if possible, ignore errors so we can prompt for it
 	local password; password="$(credential --quiet get $passwordName default $verbose)"
 
 	# prompt for password to stdout or stderr if possible, prevent sudo from asking for a password
 	if [[ ! $noPrompt && ! $password ]]; then
-		if [[ ! $srderr ]] && IsStdOut; then		
+		if [[ ! $stderr ]] && IsStdOut; then		
 			PrintEnd "$prompt" || return
 		elif IsStdErr; then
 			EchoEnd "$prompt || return"
