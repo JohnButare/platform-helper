@@ -4,14 +4,14 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... FILE
+Usage: $(ScriptName) [all|closest|select](closest) [OPTION]... FILE
 Find an installation file or directory from known locations.  
 Searches INSTALL_DIR if defined.  
 
 	-a, --all					return all found directories
 	-e, --eval				return variables to evaluate (installDir and file)
 	-f, --force				do not use cached installation directory
-	-h, --hint DIR 		first directory to search
+	    --hint DIR 		first directory to search
 	-q, --quiet				do not display status messages
 	-s, --select			select the install location
 			--suppress		suppress error messages
@@ -30,16 +30,17 @@ argStart() { unset -v all eval file hint suppress; }
 opt()
 {
 	case "$1" in "") : ;;
-		-a|--all) command="all" all="true";;
-		-e|--eval) eval="true" quiet="--quiet";;
-		-h|--hint) ScriptOptGet "hint" "$@";;
-		-s|--select) command="select"  all="true";;
-		   --suppress) suppress="true";;
+		--all|-a) command="all";;
+		--eval|-e) eval="true" quiet="--quiet";;
+		--hint) ScriptOptGet "hint" "$@";;
+		--select|-s) command="select";;
+		--suppress) suppress="true";;
 		*) return 1;;
 	esac
 }
 
 args() { [[ $1 ]] && ScriptArgGet "file" -- "$@"; shift; true; }
+argEnd() { [[ "$command" == @(all|select) ]] && all="true"; return 0; }
 
 #
 # commands
@@ -77,7 +78,7 @@ addDirs()
 
 	# domain
 	local f="addDirs$(GetDomain | UpperCaseFirst)"
-	IsFunction "$f" && { "$f" && return; }
+	[[ "$f" != "addDirs" ]] && IsFunction "$f" && { "$f" && return; }
 
 	# internet
 	# addDirHost "ln1.butare.net" "root/usr/local/data/install" "ssh" && return
@@ -112,7 +113,7 @@ addLocalDirs()
 
 	# domain
 	local f="addLocalDirs$(GetDomain | UpperCaseFirst)"
-	IsFunction "$f" && { "$f" && return; }
+	[[ "$f" != "addLocalDirs" ]] && IsFunction "$f" && { "$f" && return; }
 
 	# mounted drives
 	if drive mount all $quiet; then
@@ -286,7 +287,7 @@ findSelect()
 	for key in "${closestKeys[@]}"; do
 		local dir="${dirs["$key"]}" desc="${key#*-}" ms="${key%%-*}ms away"
 		items+=( "$desc" "$ms" )
-		unset dirs["$key"]; addLocalDir "$desc" "$dir"
+		unset dirs["$key"]; addDir "$desc" "$dir"
 	done
 
 	if (( ${#items[@]} == 0 )); then
@@ -296,18 +297,24 @@ findSelect()
 	fi
 
 	while true; do
+
+		# display selection dialog
 		local result=$(dialog --stdout --backtitle "Select Installation Location" \
 	  	--menu "Choose the location to search for:\n$file" $(($LINES-5)) 50 $(($LINES)) "${items[@]}")
 		[[ "$result" == "" ]] && return 1
+
+		# check select location
 		[[ ! $quiet ]] && clear
 		printStatus "checking...$result ("$(FileToDesc "${dirs[$result]}")")..."; log1
 		checkDir "${dirs[$result]}" && { status "found"; return; }
 
-		status "not found"		
+		# install location not found
+		status "not found"
 		if [[ ! $suppress ]]; then			
 			EchoErr "FindInstallFile: ${file:-the installation directory} is not located on $result"
 			[[ ! $quiet ]] && pause
 		fi
+		
 	done
 }
 
