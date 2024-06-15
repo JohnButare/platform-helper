@@ -39,17 +39,18 @@ runUsage()
 	echot "Usage: $(ScriptName) run TARGET
 Bootstrap a remote system.  Target is a remote host ([USER]@HOST[:PORT]), a chroot, or a WSL distribution.
 	
+	-b,	--bin=UNC				bin directory UNC, default is in the configuration file
+	-f, --config=FILE		the configuration file to use, defaults to bootstrap-config.sh
+	-i, --install=DIR		application installation directory, defaults to search with FindInstallFile
+	-t, --type=TYPE			run a specific type of bootstrap: chroot|cloud|ssh|wsl
+
 flow: bootstrap-remote -> bootstrap-init -> bootstrap -> inst
 	
 example:
 	cls; bootstrap-remote casaos@zima1
 	cls; bootstrap-remote ubuntu@pi9 --bin=//ender.hagerman.butare.net/system/usr/local/data/bin
 	cls; bootstrap-remote rosie-lvm1 --bin=//rosie.hagerman.butare.net/root/usr/local/data/bin:22
-	cls; bootstrap-remote ln1 --bin=//ssh.butare.net/root/usr/local/data/bin:608
-
-	-b,	--bin=UNC				bin directory UNC, default is in the configuration file
-	-f, --config=FILE		the configuration file to use, defaults to bootstrap-config.sh
-	-i, --install=DIR		application installation directory, defaults to search with FindInstallFile"
+	cls; bootstrap-remote ln1 --bin=//ssh.butare.net/root/usr/local/data/bin:608"
 }
 
 runArgStart() { unset -v bin installDir; }
@@ -57,9 +58,13 @@ runArgStart() { unset -v bin installDir; }
 runOpt() 
 {
 	case "$1" in
-		-b|--bin|-b=*|--bin=*) ScriptOptGet "bin" "$@" || return;;
-		-c|--config|-c=*|--config-file=*) ScriptOptGet "config" "$@" && ScriptCheckFile "$config";;
-		-i|-i=*|--install|--install=*) ScriptOptGet "install" "$@";;
+		--bin|--bin=*|-b|-b=*) ScriptOptGet "bin" "$@" || return;;
+		--config|--config-file=*|-c|-c=*) ScriptOptGet "config" "$@" && ScriptCheckFile "$config";;
+		--install|--install=*|-i|-i=*) ScriptOptGet "install" "$@";;
+		--type|--type=*|-t|-t=*)
+			ScriptOptGet "type" "$@"; [[ "$type" == @(chroot|cloud|ssh|wsl) ]] && return
+			ScriptErr "'$type' is not a valid bootstrap type, see 'bootstrap-remote run --help'"; ScriptExit
+			;;
 		*) return 1
 	esac
 }
@@ -77,18 +82,20 @@ runCommand()
 {
 	header "bootstrap-remote"
 	
-	if ChrootHelper installed && ChrootHelper exists "$target"; then
-		type="chroot"
-	elif IsPlatform win && wsl dist exists "$target"; then
-		type="wsl"
-	else
-		type="ssh"
+	if [[ ! $type ]]; then
+		if ChrootHelper installed && ChrootHelper exists "$target"; then
+			type="chroot"
+		elif IsPlatform win && wsl dist exists "$target"; then
+			type="wsl"
+		else
+			type="ssh"
+		fi
 	fi
 
 	RunFunction bootstrap "${type^}"
 }
 
-# runChroot - bootstrap a chroot
+# bootstrapChroot - bootstrap a chroot
 bootstrapChroot()
 {
 	local dist="$target"
@@ -105,7 +112,23 @@ bootstrapChroot()
 	bootstrapRun || return
 }
 
-# runSsh - bootstrap a remote host using SSH
+# runCloud - bootstrap a remote host using a cloud service
+bootstrapCloud()
+{
+	CloudConf || return
+	local dir="$CLOUD/data/download"
+	local exclude=('.git/*' '*.*_sync.txt')
+
+	# copy files
+	( cd "$bin" && rm -f "$dir/pbin.zip" && zip "$dir/pbin.zip" . -r --exclude "${exclude[@]}"; ) || return
+	( cd "$ubin" && rm -f "$dir/ubin.zip" && zip "$dir/ubin.zip" . -r --exclude "${exclude[@]}"; ) || return
+	cp "$BIN/bootstrap-init" "$BIN/bootstrap-config.sh" "$dir" || return
+
+	# help
+	echo -e "\nOn the new system run './bootstrap-init' from the cloud data/download directory"
+}
+
+# bootstrapSsh - bootstrap a remote host using SSH
 bootstrapSsh()
 {
 	local host="$(GetSshHost "$target")"
