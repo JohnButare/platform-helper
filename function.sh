@@ -1158,6 +1158,7 @@ RemoveSpaceFront() { GetArgs; RemoveFront "$1" " "; }
 RemoveSpaceTrim() { GetArgs; RemoveTrim "$1" " "; }
 
 QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
+QuoteForwardslashes() { GetArgs; echo "$@" | sed 's/\//\\\//g'; } # escape (quote) forward slashes (/) using a back slash (\)
 QuoteParens() { sed 's/(/\\(/g' | sed 's/)/\\)/g'; } # escape (quote) parents
 QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
 QuoteQuotes() { GetArgs; echo "$@" | sed 's/\"/\\\"/g'; } # escape (quote) quotes using a back slash (\)
@@ -1229,6 +1230,7 @@ EnsureDir() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
 GetBatchDir() { GetFilePath "$0"; }
 GetDirs() { [[ ! -d "$1" ]] && return; find "$1" -maxdepth 1 -type d -not -path "$1"; }
 GetFileDateStamp() { ${G}date '+%Y%m%d' --reference "$1"; }
+GetFileExtension() { GetArgs; local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
 GetFileHash() { sha1sum "$1" | cut -d" " -f1; }
 GetFileMod() { ${G}stat --format="%y" "$1"; }
 GetFileModSeconds() { ${G}date +%s --reference "$1"; }
@@ -1237,7 +1239,8 @@ GetFileSize() { GetArgs; [[ ! -e "$1" ]] && return 1; local size="${2-MB}"; [[ "
 GetFilePath() { GetArgs; local gfp="${1%/*}"; [[ "$gfp" == "$1" ]] && gfp=""; r "$gfp" $2; }
 GetFileName() { GetArgs; r "${1##*/}" $2; }
 GetFileNameWithoutExtension() { GetArgs; local gfnwe="$1"; GetFileName "$1" gfnwe; r "${gfnwe%.*}" $2; }
-GetFileExtension() { GetArgs; local gfe="$1"; GetFileName "$gfe" gfe; [[ "$gfe" == *"."* ]] && r "${gfe##*.}" $2 || r "" $2; }
+GetFileTimeStamp() { ${G}date '+%Y%m%d_%H%M%S' --reference "$1"; }
+GetFileTimeStampPretty() { ${G}date '+%Y-%m-%d %H:%M:%S' --reference "$1"; }
 GetFullPath() { GetArgs; local gfp="$(GetRealPath "${@/#\~/$HOME}")"; r "$gfp" $2; } # replace ~ with $HOME so we don't lose spaces in expansion
 GetLastDir() { GetArgs; echo "$@" | RemoveTrailingSlash | GetFileName; }
 GetParentDir() { GetArgs; echo "$@" | GetFilePath | GetFilePath; }
