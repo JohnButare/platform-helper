@@ -9679,13 +9679,7 @@ sshServerWsl()
 	# install
 	! InPath sshd && { pkg openssh-server || return; }
 	service start ssh || return
-
-	# port forwarding - updated during WSL startup by the 'app ports' command
-	if IsPlatform wsl2; then
-		RunScript --elevate netsh.exe interface portproxy delete v4tov4 listenport=22 listenaddress=$(GetIpAddress) >& /dev/null
-		RunScript --elevate netsh.exe interface portproxy add v4tov4 listenport=22 listenaddress=$(GetIpAddress) connectport=22 connectaddress=$(GetIpAddress --wsl)
-	fi
-
+	
 	# service permission
 	local file="/etc/sudoers"
 	if ! sudo ${G}grep --quiet "$USER" "$file"; then
@@ -11611,10 +11605,6 @@ WinConfigInstall()
 
 	cd "$WIN_ROOT" || return
 
-	echo "Configuring powershell..."
-	powershell.exe Set-ExecutionPolicy RemoteSigned || return
-	powershell.exe Set-ExecutionPolicy -ExecutionPolicy Bypass
-
 	echo "Cleanup files..."
 	$hide "$WIN_ROOT/PerfLogs" || return
 	$hide "$WIN_ROOT/Windows.old" || return
@@ -11624,24 +11614,9 @@ WinConfigInstall()
 	registry delete "run/SecurityHealth" # %windir%\system32\SecurityHealthSystray.exe
 
 	echo "Configuring..."
-	registry import "$setupFiles/Windows Setup.reg" || return
+	local restricted; IsDomainRestricted && restricted=" Restricted"
+	registry import "$setupFiles/Windows Setup${restricted}.reg" || return
 	numlock boot off || return
-	netsh.exe advfirewall firewall set rule group="Network Discovery" new enable=Yes || return
-	netsh.exe advfirewall firewall set rule group="Core Networking Diagnostics" new enable=Yes || return # Windows 11 only?
-
-	echo "Configure remote desktop..."
- 	registry set "HKLM/SYSTEM/CurrentControlSet/Control/Terminal Server/fDenyTSConnections" REG_DWORD 0 || return
-	netsh.exe advfirewall firewall set rule group="Remote Desktop" new enable=yes; # sets for all profiles
-
- 	echo "Configuring Windows Update..."
-	registry set "HKLM/SOFTWARE/Policies/Microsoft/Windows/WindowsUpdate/AU/AllowMUUpdateService" REG_DWORD 1 || return # enable Microsoft update
-
- 	echo "Configuring face logon..."
- 	local sid; sid="$(GetSid)" || return
- 	registry set "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Authentication/LogonUI/FaceLogon/$sid/AutoDismissOn" REG_DWORD 1
-
-	echo "Disabling Windows Defender..."
-	registry set "HKLM/SOFTWARE/Policies/Microsoft/Microsoft Defender/DisableAntiSpyware" REG_DWORD 1 || return
 
 	echo "Configuring printers..."
 	local printer='cscript.exe C:\Windows\System32\Printing_Admin_Scripts\en-US\prnmngr.vbs'
@@ -11665,18 +11640,37 @@ WinConfigInstall()
 	echo "Configuring auto logon..."
 	registryDo set "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Winlogon/AutoLogonCount" REG_DWORD 0 || return
 
-	local workgroup="$(ConfigGet "workgroup")"
-	if [[ $workgroup ]] && askp "Configure network for $workgroup"; then
-		network workgroup set "$workgroup" || return
-		[[ $(network profile list | wc -l) == 1 ]] && { network profile set "$(ProperCase "$workgroup")" || return; }
-	fi
-
 	# search suggestions requires elevation (seen on Windows on ARM)
 	echo "Disabling start menu web search suggestions..."
 	registry set 'HKCU/SOFTWARE/Policies/Microsoft/Windows/Explorer/DisableSearchBoxSuggestions' REG_DWORD 1 || return
 
 	# taskbar	 
  	powershell "$(utw "$DATA/setup/TaskbarClean.ps1")" || return
+
+ 	# remaining setup is not for restricted domains
+	IsDomainRestricted && return
+
+	echo "Firewall..."
+	netsh.exe advfirewall firewall set rule group="Network Discovery" new enable=Yes || return
+	netsh.exe advfirewall firewall set rule group="Core Networking Diagnostics" new enable=Yes || retur
+
+	echo "Configuring powershell..."
+	powershell.exe Set-ExecutionPolicy RemoteSigned || return
+	powershell.exe Set-ExecutionPolicy -ExecutionPolicy Bypass
+
+	echo "Configure remote desktop..."
+ 	registry set "HKLM/SYSTEM/CurrentControlSet/Control/Terminal Server/fDenyTSConnections" REG_DWORD 0 || return
+	netsh.exe advfirewall firewall set rule group="Remote Desktop" new enable=yes; # sets for all profiles
+
+ 	echo "Configuring Windows Update..."
+	registry set "HKLM/SOFTWARE/Policies/Microsoft/Windows/WindowsUpdate/AU/AllowMUUpdateService" REG_DWORD 1 || return # enable Microsoft update
+
+ 	echo "Configuring face logon..."
+ 	local sid; sid="$(GetSid)" || return
+ 	registry set "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Authentication/LogonUI/FaceLogon/$sid/AutoDismissOn" REG_DWORD 1
+
+	echo "Disabling Windows Defender..."
+	registry set "HKLM/SOFTWARE/Policies/Microsoft/Microsoft Defender/DisableAntiSpyware" REG_DWORD 1 || return
 
 	return 0
 }
