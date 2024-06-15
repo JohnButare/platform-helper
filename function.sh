@@ -4446,7 +4446,8 @@ InitializeXServer()
 	# display
 	if [[ ! $DISPLAY ]]; then
 		if IsPlatform wsl2 && CanElevate; then
-			export DISPLAY="$(GetWslGateway):0"
+			local ip="0.0.0.0"; ! wsl supports mirrored && ip="$(GetWslGateway)"
+			export DISPLAY="$ip:0"
 			export LIBGL_ALWAYS_INDIRECT=1
 		elif [[ $SSH_CONNECTION ]]; then
 			export DISPLAY="$(GetWord "$SSH_CONNECTION" 1):0"

@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-usage: wsl disk|dist|get|help|install|list|profile|set|shutdown|supports|update|version|wslg
+usage: wsl config|disk|dist|get|help|install|ls|port|profile|set|shutdown|supports|update|version|wslg
 Windows Subsystem for Linux (WSL) commands."
 }
 
@@ -21,12 +21,21 @@ init()
 # commands
 #
 
-listCommand() { w --list --verbose | Utf16toAnsi | RemoveCarriageReturn; }
+lsCommand() { w --list --verbose | Utf16toAnsi | RemoveCarriageReturn; }
 shutdownCommand() { sync; wsl.exe --shutdown; } # sync prevents file corruption, ~/.zsh_history is likely to corrupt
 downCommand() { shutdownCommand; }
 offCommand() { shutdownCommand; }
 terminateCommand() { shutdownCommand; }
 versionCommand() { getVersionCommand; }
+
+#
+# config command
+#
+
+configUsage() { echot "Usage: $(ScriptName) config NAME\nReturn the WSL gloval configuration named element."; }
+configArgs() { ScriptArgGet "name" -- "$@"; }
+configCommand() { config "$name"; }
+config() { cat "$WIN_HOME/.wslconfig" | grep "^$1" | cut -d"=" -f2; }
 
 #
 # disk command
@@ -328,9 +337,7 @@ profileCommand()
 # set command
 #
 
-setUsage() { echot "Usage: $(ScriptName) set FractionalScaling on|off
-Set WSL configuration"; }
-
+setUsage() { echot "Usage: $(ScriptName) set FractionalScaling on|off\nSet WSL configuration."; }
 setCommand() { usage; }
 
 setFractionalscalingUsage() { echot "Usage: $(ScriptName) set FractionalScaling on|off
@@ -395,25 +402,153 @@ installSystemdCommand()
 }
 
 #
+# port commands
+#
+
+portUsage() { echot "Usage: $(ScriptName) port [all|add|delete|exists|ls]\nWSL port forwarding commands."; }
+
+portCommandUsage()
+{ 
+	echot "Usage: $(ScriptName) port [all|list]
+WSL port forwarding commands.
+
+	-m, --mirrored		force mirrored networking configuration
+	-n, --nat					force NAT networking configuration"
+}
+
+portArgInit() { unset mode; }
+portOpt() 
+{
+	case "$1" in
+		-m|--mirrored) mode="mirrored";;
+		-n|--nat) mode="nat";;
+		*) return 1
+	esac
+}
+
+portArgEnd() { 	[[ $mode ]] && return; supportsMirrored && mode="mirrored" || mode="nat"; }
+portCommand() { usage; }
+
+# port list command
+portLsUsage() { echot "Usage: $(ScriptName) list\nList WSL port forwarding rules."; }
+portLsCommand() { portLs${mode^}; }
+portLsMirrored() { powershell "Get-NetFirewallHyperVRule -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}'" | grep "^DisplayName" | RemoveCarriageReturn| cut -d":" -f2 | sed 's/ //g'; }
+portLsNat() { netsh.exe interface portproxy show all; }
+
+#
+# port add command
+#
+
+portAddUsage() { echot "Usage: $(ScriptName) port add NAME DISPLAY_NAME PORT\nAdd a WSL port forwarding rule."; }
+portAddArgStart() { unset name displayName port; }
+portAddArgs() { ScriptArgGet "name" -- "$@"; shift; ScriptArgGet "displayName" "display name" -- "$@"; shift; ScriptArgGet --integer "port" -- "$@"; }
+portAddCommand() { portAdd "$name" "$displayName" "$port"; }
+
+# portAddRule NAME DISPLAY_NAME PORT
+portAdd()
+{
+	local name="$1" displayName="$2" port="$3"
+	local exists; portExists "$name" && exists="true"
+	[[ ! $force && $exists ]] && return
+	[[ $exists ]] && { portDelete "$name" || return; }
+	ps 'New-NetFirewallHyperVRule -Name \"'$name'\" -DisplayName \"'$displayName'\" -Direction Inbound -VMCreatorId \"{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}\" -Protocol TCP -LocalPorts '$port
+}
+
+#
+# port all command
+#
+
+portAllUsage()
+{ 
+	echot "Usage: $(ScriptName) port [all|list]
+WSL port forwarding commands.
+
+	-e, --enable			enable port forwarding
+	-d, --disable			disable port forwardning
+	-s, --status			return true if port forwarding is enabled"
+}
+
+portAllArgStart() { unset action; }
+
+portAllOpt() 
+{
+	case "$1" in
+		-d|--disable) action="disable";;
+		-e|--enable) action="enable";;
+		-s|--status) action="status";;
+		*) return 1
+	esac
+}
+
+portAllCommand() { portAll${action^}${mode^}; }
+
+portAllEnableMirrored() { portAdd "SshServer" "SSH Server" 22; }
+
+portAllEnableNat() { ps WslPortForward.ps1 $(GetIpAddress); }
+
+portAllDisableMirrored() { portDelete "SshServer"; }
+
+portAllDisableNat()
+{
+	local commands="$(netsh.exe interface portproxy show all | grep '^[0-9]' | tr -s " " | cut -d" " -f1,2 | awk '{ print "elevate netsh.exe interface portproxy delete v4tov4 listenport=" $2 " listenaddress=" $1 "" }')"
+	eval "$commands"
+}
+
+portAllStatusMirrored() { portAllStatus; }
+portAllStatusNat() { portAllStatus; }
+
+# portStatusCommand - check if SSH port 22 is being forwarded  
+# - in Windows the port may show as open even if the port is not being forwarded
+# - turn off host key checking to avoid prompting (we trust ourself)
+portAllStatus()
+{
+	SshAgentConf --quiet "${globalArgs[@]}" || return
+	ssh -o "ConnectTimeout=1" -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no" "$(GetIpAddress)" -p 22 "true" >& /dev/null
+}
+
+#
+# port delete command
+#
+
+portDeleteUsage() { echot "Usage: $(ScriptName) port delete NAME\Delete the port forwarding rule."; }
+portDeleteArgStart() { unset name; }
+portDeleteArgs() { ScriptArgGet "name" -- "$@"; }
+portDeleteCommand() { portDelete "$name"; }
+portDelete() { ! portExists "$1" && return; ps "Remove-NetFirewallHyperVRule -Name \"${1}\""; }
+
+#
+# port exists command
+#
+
+portExistsUsage() { echot "Usage: $(ScriptName) port exists NAME\nReturn true if the port forwarding rule exists."; }
+portExistsArgStart() { unset name; }
+portExistsArgs() { ScriptArgGet "name" -- "$@"; }
+portExistsCommand() { portExists "$name"; }
+portExists() { portLs | grep --quiet "^${1}$"; }
+
+#
 # supports command
 #
 
-suppotsUsage() { echot "Usage: $(ScriptName) supports mount|update|x
+suppotsUsage() { echot "Usage: $(ScriptName) supports mirrored|mount|update|x
 Return true if the specified feature is supported in this version of WSL."; }
 
 supportsCommand() { usage; }
+supportsMirroredUsage() { echot "Usage: $(ScriptName) supports mirrored\nReturn true if WSL supports mirrored networking."; }
+supportsMirroredCommand() { supportsMirrored; }
 supportsMountCommand() { supportsMount; }
 supportsUpdateCommand() { supportsUpdate; }
 supportsXCommand() { supportsX; }
 
 supports() { wsl.exe --help | Utf16to8 | grep -q '\-\-'"$1"; return "${PIPESTATUS[2]}"; }
 supportsError() { [[ $quiet ]] && return; ScriptErr "$1"; }
+supportsMirrored() { [[ "$(config networkingMode | LowerCase)" = "mirrored" ]]; }
 supportsMount() { supports "mount" && return; supportsError "mounting drives is not implemented in this version of WSL"; return 1; }
 supportsUpdate() { supports "update" && return; supportsError "update is not implemented in this version of WSL"; return 1; }
 supportsX() { (( $(os build) > 21362 )) && return; supportsError "X is not implemented in this version of WSL"; return 1; }
 
 #
-# Update Command
+# update command
 #
 
 updateCommand()
@@ -424,7 +559,7 @@ updateCommand()
 }
 
 #
-# WSLg Command
+# WSLg commands
 #
 
 wslgHelp() { echot "Usage: $(ScriptName) wslg disable|enable|status"; }
@@ -445,6 +580,7 @@ distIsRunning() { [[ "$(list | grep "^$dist" | awk '{ print $2; }')" == "Running
 distValidate() { distExists && return; [[ ! $quiet ]] && EchoErr "Distribution '$dist' does not exist"; return 1; }
 distVersion() { list | grep "^$dist" | awk '{ print $3; }'; }
 initDirs() { [[ -d "$wslDir/image" ]] && return; mkdir --parents "$wslDir/image"; }
+ps() { RunScript --elevate "${globalArgs[@]}" -- powershell.exe "$@"; }
 
 configInitWsl()
 {
