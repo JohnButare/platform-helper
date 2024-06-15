@@ -1159,7 +1159,7 @@ RemoveSpaceTrim() { GetArgs; RemoveTrim "$1" " "; }
 
 QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
 QuoteForwardslashes() { GetArgs; echo "$@" | sed 's/\//\\\//g'; } # escape (quote) forward slashes (/) using a back slash (\)
-QuoteParens() { sed 's/(/\\(/g' | sed 's/)/\\)/g'; } # escape (quote) parents
+QuoteParens() { GetArgs; echo "$@" | sed 's/(/\\(/g' | sed 's/)/\\)/g'; } # escape (quote) parents
 QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
 QuoteQuotes() { GetArgs; echo "$@" | sed 's/\"/\\\"/g'; } # escape (quote) quotes using a back slash (\)
 UnQuoteQuotes() { GetArgs; echo "$@" | sed 's/\\\"/\"/g'; } # remove backslash before quotes
