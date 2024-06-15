@@ -3759,8 +3759,8 @@ start()
 			local distribution; distribution="$(wsl get name)" || return
 			local p=(wsl.exe --distribution "$distribution" --user "$USER"); [[ "$terminal" == "wt" ]] && InPath wt.exe && p=(wt.exe -d \"$PWD\" "${p[@]}")
 
-			# IsSystemd - requires bash -c, if WSL is a Windows Store app (seen on Windows build 22631.3593)
-			if IsSystemd; then
+			# WindowsStore WSL requires bash -c
+			if wsl supports store; then
 				(( verboseLevel > 1 )) && ScriptArgs eval RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "${p[@]}" --exec bash -c \""$(FindInPath "$fullFile")" "${args[@]}"\"
 				eval RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "${p[@]}" --exec bash -c \""$(FindInPath "$fullFile") "${args[@]}""\"
 			else
