@@ -37,9 +37,8 @@ nameCommand() { registry edit 'HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/
 # adapter commands
 #
 
-adapterUsage() { echot "Usage: $(ScriptName) adapter [edit|list|name](list)\nNetwork adapter commands."; }
+adapterUsage() { echot "Usage: $(ScriptName) adapter [edit|list|name|vars](list)\nNetwork adapter commands."; }
 adapterCommand() { adapterListCommand; }
-
 adapterEditCommand() { registry edit "$adapterKey"; }
 
 #
@@ -62,23 +61,24 @@ adapterListCommand()
 
 adapterListDetailUsage() { echot "Usage: $(ScriptName) adapter list detail [NAME]\nList network adapter detail."; }
 adapterListDetailArgs() { [[ ! $1 ]] && return; ScriptArgGet "name" -- "$@"; }
+adapterListDetailCommand() { if [[ $name ]]; then adapterListDetail "$name"; else adapterListDetailAll; fi; }
 
-adapterListDetailCommand()
+# adapterListDetail NAME - list detail for the specific network adapter
+adapterListDetail()
 {
-	[[ ! $name ]] && { adapterListDetailAll; return; }
-	! IsPlatform win && return
-
+	local name="$1"
 	ipconfig.exe /all | RemoveCarriageReturn |
-		sed -n '/^[A-Z].* adapter '$name':/,/[A-Z].* adapter /p' |	# text between NAME and next adapter 
+		sed -n '/^[A-Z].* adapter '$name':/,/[A-Z].* adapter /p' |	# get text between NAME and next adapter 
 		grep --extended-regexp --invert-match "^[A-Z].* adapter" | 	# remove adapter lines
 		grep "\S" |																									# remove empty lines
+		sed 's/^[ ]*//g' |																					# remove leading spaces
 		sed 's/\. //g' | tr -s " " | sed 's/[ ]*:[ ]*/=/g'					# make key=value pairs
 }
 
+# adapterListDetailAll - list detailed information for all network adapters
 adapterListDetailAll()
 {
 	! IsPlatform win && return
-	! IsElevated && { RunScript --elevate "${globalArgs[@]}" -- network adapter list detail all "$@"; return; }
 	powershell.exe Get-NetAdapter | RemoveCarriageReturn | RemoveEmptyLines | tail -n +3
 }
 
@@ -96,6 +96,40 @@ adapterNameCommand()
 { 
 	! IsElevated && { RunScript --elevate -- network adapter name "$old" "$new"; return; }
 	powershell.exe Rename-NetAdapter -Name \"$old\" -NewName \"$new\"
+}
+
+#
+# adapter vars command
+#
+
+adapterVarsUsage() { echot "Usage: $(ScriptName) adapter vars NAME|show\nReturn network adapter detail in variables."; }
+adapterVarsArgStart() { ipVarsArgStart && vars=(name description linkSpeed ifIndex status "${vars[@]}" defaultGateway mac); }
+adapterVarsArgs() { [[ "${commandNames[2]}" == "show" ]] && return; ScriptArgGet "name" -- "$@"; }
+adapterVarsCommand() { adapterVars "$name"; }
+adapterVarsShowCommand() { echo -n "${vars[@]}"; }
+
+# adapterVars NAME - return adapter information in variables
+adapterVars()
+{
+	local detail; detail="$(adapterListDetail "$name")"
+	local other; other="$(adapterListDetailAll | grep "^$name " | cut -c 72- | tr -s " ")"
+	
+	# adapter
+	local description; description="$(echo "$detail" | grep "^Description=" | cut -d"=" -f2-)"
+	local status; status="$(echo "$other" | cut -d" " -f2 | LowerCase)"
+	local ifIndex; ifIndex="$(echo "$other" | cut -d" " -f1)"
+	local linkSpeed; linkSpeed="$(echo "$other" | cut -d" " -f4-)"
+
+	# IPv4
+	local ip; ip="$(echo "$detail" | grep "^IPv4 Address=" | cut -d"=" -f2 | cut -d'(' -f1)"
+	local mask; mask="$(echo "$detail" | grep "^Subnet Mask=" | cut -d"=" -f2)"
+	local defaultGateway; defaultGateway="$(echo "$detail" | grep "^Default Gateway=" | cut -d"=" -f2)"
+	setIpVars "$ip" "$mask" || return
+
+	# other
+	local mac; mac="$(echo "$detail" | grep "^Physical Address=" | cut -d"=" -f2 | tr '-' ':' | LowerCase)"
+
+	ScriptReturn "${vars[@]}"
 }
 
 #
@@ -651,27 +685,17 @@ getIp() { echo "$devices" | jq '.data[] | select(.name == "router").wan'$port'.i
 # ip commands
 #
 
-ipUsage() { echot "Usage: $(ScriptName) ip all|broadcast|cidr|mask|network\nIP address commands."; }
+ipUsage() { echot "Usage: $(ScriptName) ip broadcast|cidr|mask|network|vars\nIP address commands."; }
 ipCommand() { usage; }
 
-ipAllUsage() { echot "Usage: $(ScriptName) ip all IP [MASK]\nGet the CIDR, ip, mask, broadcast, and network for the IP.  If the subnet mask is not specified, the IP address must be in CIDR format (IP/N)."; }
-ipAllArgs() { ScriptArgGet "ip" -- "$@"; shift; [[ ! $1 ]] && return; ScriptArgGet "mask" -- "$@"; }
-ipAllCommand()
-{
-	local cidr; cidr="$(cidrMake "$ip" "$mask")" || return
-	local network; network="$(getNetwork "$ip" "$mask")" || return
-	local broadcast; broadcast="$(getBroadcast "$ip" "$mask")" || return
-	ScriptReturn cidr ip mask network broadcast
-}
-
-ipBroadcastUsage() { echot "Usage: $(ScriptName) ip broadcast IP [MASK]\nGet the broadcast (last) address for the IP.  If the subnet mask is not specified, the IP address must be in CIDR format (IP/N)."; }
+ipBroadcastUsage() { echot "Usage: $(ScriptName) ip broadcast [IP MASK]|CIDR\nGet the broadcast (last) address for the IP.  CIDR format is IP/N."; }
 ipBroadcastArgs() { ScriptArgGet "ip" -- "$@"; shift; [[ ! $1 ]] && return; ScriptArgGet "mask" -- "$@"; }
 ipBroadcastCommand() { getBroadcast "$ip" "$mask"; }
 
 ipMaskUsage() { echot "Usage: $(ScriptName) ip mask N\nGet the subnet mask for a subnet with N network bits."; }
 ipMaskArgs() { ScriptArgGet "n" -- "$@"; }
 
-ipNetworkUsage() { echot "Usage: $(ScriptName) ip network IP [MASK]\nGet the network (first) address for the IP.  If the subnet mask is not specified, the IP address must be in CIDR format (IP/N)."; }
+ipNetworkUsage() { echot "Usage: $(ScriptName) ip network [IP MASK]|CIDR\nGet the network (first) address for the IP.  CIDR format is IP/N."; }
 ipNetworkArgs() { ScriptArgGet "ip" -- "$@"; shift; [[ ! $1 ]] && return; ScriptArgGet "mask" -- "$@"; }
 ipNetworkCommand() { getNetwork "$ip" "$mask"; }
 
@@ -712,6 +736,16 @@ cidrSplit()
 }
 
 #
+# IP vars command
+#
+
+ipVarsUsage() { echot "Usage: $(ScriptName) ip vars show|[IP MASK]|CIDR\nGet the CIDR, ip, mask, broadcast, and network for the IP.  CIDR format is IP/N."; }
+ipVarsArgStart() { vars=(cidr ip mask network broadcast); }
+ipVarsArgs() { [[ "${commandNames[2]}" == "show" ]] && return; ScriptArgGet "ip" -- "$@"; shift; [[ ! $1 ]] && return; ScriptArgGet "mask" -- "$@"; }
+ipVarsShowCommand() { echo -n "${vars[@]}"; }
+ipVarsCommand() { local cidr network broadcast; setIpVars "$ip" "$mask" && ScriptReturn "${vars[@]}"; }
+
+#
 # IP helper
 #
 
@@ -728,7 +762,7 @@ getIpArgs()
 # getBroadcast [IP MASK]|CIDR - 192.0.2.0/24 => 192.0.2.255
 getBroadcast()
 {
-	local ip mask; getIpArgs "$@"
+	local ip mask; getIpArgs "$@" || return
   local addr="$(ipToInt "$ip")"
   local mask=$((0xffffffff << (32 - $(maskToN "$mask")))); shift
   intToIp "$((addr | ~mask))"
@@ -737,7 +771,7 @@ getBroadcast()
 # getNetwork [IP MASK]|CIDR - 192.0.2.0/24 => 192.0.2.0
 getNetwork()
 {
-	local ip mask; getIpArgs "$@"
+	local ip mask; getIpArgs "$@" || return
   local addr=$(ipToInt "$ip"); shift
   local mask=$((0xffffffff << (32 - $(maskToN "$mask")))); shift
   intToIp $((addr & mask))
@@ -777,6 +811,15 @@ nToMask()
 {
   local mask="$((0xffffffff << (32 - "$1")))"
   intToIp "$mask"
+}
+
+# setIpVars IP MASL
+setIpVars()
+{
+	local ip="$1" mask="$2"
+	cidr="$(cidrMake "$ip" "$mask")" || return
+	network="$(getNetwork "$ip" "$mask")" || return
+	broadcast="$(getBroadcast "$ip" "$mask")" || return
 }
 
 #
