@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) adapter|current|cache|center|dns|domain|find|gui|hosts|internet|name|profile|proxy|run|service|vars|vpn|workgroup
+Usage: $(ScriptName) adapter|current|cache|center|dns|domain|find|gui|hosts|internet|ip|name|profile|proxy|run|service|vars|vpn|workgroup
 Network commands."
 }
 
@@ -37,18 +37,54 @@ nameCommand() { registry edit 'HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/
 # adapter commands
 #
 
-adapterUsage() { echot "Usage: $(ScriptName) adapter edit|list|name
-Network adapter commands."; }
-
-adapterCommand() { usage; }
+adapterUsage() { echot "Usage: $(ScriptName) adapter [edit|list|name](list)\nNetwork adapter commands."; }
+adapterCommand() { adapterListCommand; }
 
 adapterEditCommand() { registry edit "$adapterKey"; }
 
+#
+# adapter list command
+#
+
+adapterListUsage() { echot "Usage: $(ScriptName) adapter list [detail]\nList network adapters."; }
+
 adapterListCommand()
 {
-	! IsElevated && { RunScript --elevate network adapter list "$@"; return; }
+	! IsPlatform win && return
+
+	# format "Ethernet adapter NAME:" and "Wireless LAN adapter NAME:"
+	ipconfig.exe /all | RemoveCarriageReturn |
+		grep "^[A-Z].* adapter " |					# include adapter names
+		sed 's/.* adapter //' |							# remove text up to " adapter "
+		grep -v "Local Area Connection*" | 	# ignore wireless hotspots with the name "Local Area Connection" - https://superuser.com/questions/1580417/what-is-microsoft-wi-fi-direct-virtual-adapter-used-for
+		cut -d":" -f1 | sort
+}
+
+adapterListDetailUsage() { echot "Usage: $(ScriptName) adapter list detail [NAME]\nList network adapter detail."; }
+adapterListDetailArgs() { [[ ! $1 ]] && return; ScriptArgGet "name" -- "$@"; }
+
+adapterListDetailCommand()
+{
+	[[ ! $name ]] && { adapterListDetailAll; return; }
+	! IsPlatform win && return
+
+	ipconfig.exe /all | RemoveCarriageReturn |
+		sed -n '/^[A-Z].* adapter '$name':/,/[A-Z].* adapter /p' |	# text between NAME and next adapter 
+		grep --extended-regexp --invert-match "^[A-Z].* adapter" | 	# remove adapter lines
+		grep "\S" |																									# remove empty lines
+		sed 's/\. //g' | tr -s " " | sed 's/[ ]*:[ ]*/=/g'					# make key=value pairs
+}
+
+adapterListDetailAll()
+{
+	! IsPlatform win && return
+	! IsElevated && { RunScript --elevate "${globalArgs[@]}" -- network adapter list detail all "$@"; return; }
 	powershell.exe Get-NetAdapter | RemoveCarriageReturn | RemoveEmptyLines | tail -n +3
 }
+
+#
+# adapter name command
+#
 
 adapterNameArgs()
 {
@@ -612,7 +648,163 @@ getDevices() { devices="$(UniFiController api "/stat/device")"; }
 getIp() { echo "$devices" | jq '.data[] | select(.name == "router").wan'$port'.ip' | RemoveQuotes; }
 
 #
-# Profile Commands
+# ip commands
+#
+
+ipUsage() { echot "Usage: $(ScriptName) ip all|broadcast|cidr|mask|network\nIP address commands."; }
+ipCommand() { usage; }
+
+ipAllUsage() { echot "Usage: $(ScriptName) ip all IP [MASK]\nGet the CIDR, ip, mask, broadcast, and network for the IP.  If the subnet mask is not specified, the IP address must be in CIDR format (IP/N)."; }
+ipAllArgs() { ScriptArgGet "ip" -- "$@"; shift; [[ ! $1 ]] && return; ScriptArgGet "mask" -- "$@"; }
+ipAllCommand()
+{
+	local cidr; cidr="$(cidrMake "$ip" "$mask")" || return
+	local network; network="$(getNetwork "$ip" "$mask")" || return
+	local broadcast; broadcast="$(getBroadcast "$ip" "$mask")" || return
+	ScriptReturn cidr ip mask network broadcast
+}
+
+ipBroadcastUsage() { echot "Usage: $(ScriptName) ip broadcast IP [MASK]\nGet the broadcast (last) address for the IP.  If the subnet mask is not specified, the IP address must be in CIDR format (IP/N)."; }
+ipBroadcastArgs() { ScriptArgGet "ip" -- "$@"; shift; [[ ! $1 ]] && return; ScriptArgGet "mask" -- "$@"; }
+ipBroadcastCommand() { getBroadcast "$ip" "$mask"; }
+
+ipMaskUsage() { echot "Usage: $(ScriptName) ip mask N\nGet the subnet mask for a subnet with N network bits."; }
+ipMaskArgs() { ScriptArgGet "n" -- "$@"; }
+
+ipNetworkUsage() { echot "Usage: $(ScriptName) ip network IP [MASK]\nGet the network (first) address for the IP.  If the subnet mask is not specified, the IP address must be in CIDR format (IP/N)."; }
+ipNetworkArgs() { ScriptArgGet "ip" -- "$@"; shift; [[ ! $1 ]] && return; ScriptArgGet "mask" -- "$@"; }
+ipNetworkCommand() { getNetwork "$ip" "$mask"; }
+
+#
+# IP CIDR commands
+#
+
+ipCidrUsage() { echot "Usage: $(ScriptName) ip cidr make|split\nIP CIDR commands."; }
+ipCidrCommand() { usage; }
+
+ipCidrMakeArgs() { ScriptArgGet "ip" -- "$@"; shift; ScriptArgGet "mask" -- "$@"; }
+ipCidrMakeUsage() { echot "Usage: $(ScriptName) ip cidr make IP MASK\nMake a CIDR (IP/N) from the IP address and subnet mask."; }
+ipCidrMakeCommand() { cidrMake "$ip" "$mask"; }
+
+ipCidrSplitArgs() { ScriptArgGet "cidr" -- "$@"; }
+ipCidrSplitUsage() { echot "Usage: $(ScriptName) ip cidr split CIDR\nSplit a CIDR (IP/N) and return the IP address and subnet mask."; }
+ipCidrSplitCommand() { cidrSplit "$cidr"; }
+
+# isCidr CIDR - return true if CIDR is a CIDR (IP/N)
+isCidr() { [[ "$1" =~ / ]]; }
+
+# cidrMake IP MASK - make a CIDR (IP/N) from an IP address and subnet mask
+cidrMake()
+{
+	local ip="$1" mask="$2"; log1 "ip=$ip mask=$mask"
+	echo "$ip/$(maskToN "$mask")"
+}
+
+# cidrSplit CIDR - split a CIDR (IP/N) to an IP address and subnet mask, sets ip and mask variables
+cidrSplit()
+{
+	local cidr="$1"
+	local ip="$(GetWord "$cidr" 1 "/")" n="$(GetWord "$cidr" 2 "/")" mask
+	{ ! IsIpAddress "$ip" || ! IsInteger "$n"; } && { ScriptErrQuiet "'$cidr' is not a valid CIDR (IP/N)"; return 1; }
+	mask="$(nToMask "$n")"
+	log1 "ip=$ip mask=$mask"
+	ScriptReturn ip mask
+}
+
+#
+# IP helper
+#
+
+# getIpArgs [IP MASK]|CIDR - sets ip and mask variables
+getIpArgs()
+{
+	ip="$1" mask="$2"
+	isCidr "$ip" && { ScriptEval cidrSplit "$ip"; return; }
+	! IsIpAddress "$ip" && { ScriptErr "'$ip' is not a valid IP address"; return 1; }	
+	! IsIpAddress "$mask" && { ScriptErr "'$mask' is not a valid subnet mask"; return 1; }
+	return 0
+}
+
+# getBroadcast [IP MASK]|CIDR - 192.0.2.0/24 => 192.0.2.255
+getBroadcast()
+{
+	local ip mask; getIpArgs "$@"
+  local addr="$(ipToInt "$ip")"
+  local mask=$((0xffffffff << (32 - $(maskToN "$mask")))); shift
+  intToIp "$((addr | ~mask))"
+}
+
+# getNetwork [IP MASK]|CIDR - 192.0.2.0/24 => 192.0.2.0
+getNetwork()
+{
+	local ip mask; getIpArgs "$@"
+  local addr=$(ipToInt "$ip"); shift
+  local mask=$((0xffffffff << (32 - $(maskToN "$mask")))); shift
+  intToIp $((addr & mask))
+}
+
+intToIp()
+{
+  local ui32="$1" ip n
+  for n in 1 2 3 4; do
+      ip="$((ui32 & 0xff))${ip:+.}$ip"
+      ui32="$((ui32 >> 8))"
+  done
+  echo "$ip"
+}
+
+ipToInt()
+{
+  local a b c d
+  { IFS=. read a b c d; } <<< "$1"
+  echo "$(((((((a << 8) | b) << 8) | c) << 8) | d))"
+}
+
+maskToN()
+{
+	local mask="$1"
+	local i="$(ipToInt "$mask")" n=0
+
+	while (( i > 0)); do
+  	: $(( n+=i&1, i>>=1 ))
+	done
+
+	echo "$n"
+}
+
+# nToMask N - 24 => 255.255.255.0
+nToMask()
+{
+  local mask="$((0xffffffff << (32 - "$1")))"
+  intToIp "$mask"
+}
+
+#
+# adapter list command
+#
+
+adapterListUsage() { echot "Usage: $(ScriptName) adapter list [detail]\nList network adapters."; }
+
+adapterListCommand()
+{
+	! IsPlatform win && return
+
+	# format "Ethernet adapter NAME:" and "Wireless LAN adapter NAME:"
+	ipconfig.exe /all | RemoveCarriageReturn |
+		grep "^[A-Z].* adapter " |					# include adapter names
+		sed 's/.* adapter //' |							# remove text up to " adapter "
+		grep -v "Local Area Connection*" | 	# ignore wireless hotspots with the name "Local Area Connection" - https://superuser.com/questions/1580417/what-is-microsoft-wi-fi-direct-virtual-adapter-used-for
+		cut -d":" -f1 | sort
+}
+
+adapterListDetailUsage() { echot "Usage: $(ScriptName) adapter list detail [NAME]\nList network adapter detail."; }
+adapterListDetailArgs() { [[ ! $1 ]] && return; ScriptArgGet "name" -- "$@"; }
+
+
+
+
+#
+# profile commands
 #
 
 profileUsage() { echot "Usage: $(ScriptName) profile edit|list|set
