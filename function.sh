@@ -4171,7 +4171,7 @@ sudoc()
 	# determine which password to use
 	local passwordName="secure"
 	if InPath opensc-tool && opensc-tool --list-readers | ${G}grep --quiet "Yes"; then passwordName="ssh"
-	elif echo "BOGUS" | sudo --stdin --validate 2>&1 | ${G}grep --quiet "^Enter PIN"; then passwordName="ssh"  
+	elif echo "BOGUS" | { sudo --stdin --validate 2>&1; true; } | ${G}grep --quiet "^Enter PIN"; then passwordName="ssh"  
 	fi
 
 	# get password if possible, ignore errors so we can prompt for it
@@ -4266,7 +4266,7 @@ qgrep() { ${G}grep --quiet "$@"; }
 
 # true grep - always return 0
 # - normally 0=text found, 1=text not found, 2=error
-# - macOS ggrep returns 1 if no text found or error (i.e. invalid arguments)
+# - on macOS ggrep returns 1 if no text found or error (i.e. invalid arguments)
 tgrep() { ${G}grep "$@"; true; }
 
 # editor
