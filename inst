@@ -743,6 +743,7 @@ installInit()
 	notArm32=(1Password)
 	notMacArm=(chrony)
 	notPi=(sublime)
+	notRestricted=(UltraMon)
 	notWin=(snap SnapStore)
 	notWinArm=(exa)
 }
@@ -878,7 +879,7 @@ checkInstallable()
 	local app="$1"
 
 	isInstallable "$app" && return
-	[[ ! $quiet && ! $isRegistering ]] && echo "$(ScriptName): '$app' is not installable on $(PlatformSummary)"
+	[[ ! $quiet && ! $isRegistering && ! $muteInstallable ]] && echo "$(ScriptName): '$app' is not installable"
 	return 1
 }
 
@@ -1207,6 +1208,7 @@ isInstallable()
 	IsInArray -ci "$check" notPi && IsPlatform pi && return 1
 	IsInArray -ci "$check" notWin && IsPlatformAll win && return 1
 	IsInArray -ci "$check" notWinArm && IsPlatformAll win,arm && return 1
+	IsInArray -ci "$check" notRestricted && IsDomainRestricted && return 1
 	IsInArray -ci "$check" winElevated && IsPlatform win && ! CanElevate && return 1
 
 	# app name checks
@@ -2031,6 +2033,7 @@ AppCoreInstall()
 
 	# initialize
 	promptArg="--prompt" # force prompt even if a single application is being installed
+	muteInstallable="true"
 
 	# install
 	appCoreStart && winPathFix && i AppCoreCommon AppPlatform AppNetwork AppHardware AppHost && appCoreEnd && rebootIfNeeded; 
@@ -2052,17 +2055,21 @@ appCoreEndWsl() { header "App Core End WSL"; service start dbus; }
 
 AppCoreCommonInstall() { header "App Core Common"; i PythonLocal PythonGlobal; }
 
-AppPlatformInstall() { header "App Platform"; RunPlatform app; }
-appMac() { header "App Platform Mac"; package macchina psgrep pstree tokei && i AltTab iTerm KarabinerElements warp; }
-appQnap() { header "App Platform QNAP"; i qcli && iStore MalwareRemover NotificationCenter Qboost QuLog SSDLaboratory SecurityCounselor; }
-appWin() { header "App Platform Windows"; i WindowsTerminal AutoHotKey UltraMon; }
-appProxmox() { header "App Platform Proxmox"; i ProxmoxWinTools; }
+#
+# app platform
+#
 
-appDebian() { header "App Debian"; appDebianMinimal && appDebianFull; }
+AppPlatformInstall() { header "App Platform"; RunPlatform appPlatform; }
+appPlatformMac() { header "App Platform Mac"; package macchina psgrep pstree tokei && i AltTab iTerm KarabinerElements warp; }
+appPlatformQnap() { header "App Platform QNAP"; i qcli && iStore MalwareRemover NotificationCenter Qboost QuLog SSDLaboratory SecurityCounselor; }
+appPlatformWin() { header "App Platform Windows"; i WindowsTerminal AutoHotKey UltraMon; }
+appPlatformProxmox() { header "App Platform Proxmox"; i ProxmoxWinTools; }
 
-appDebianMinimal()
+appPlatformDebian() { header "App Debian"; appPlatformDebianMinimal && appPlatformDebianFull; }
+
+appPlatformDebianMinimal()
 {
-	header "App Debian Minimal"
+	header "App Platform Debian Minimal"
 
 	i AptUtilities CloudInit nala rsyslog xClient || return
 	package fail2ban || return # firewall
@@ -2073,9 +2080,9 @@ appDebianMinimal()
 	sudoc sed -i "s/#\$nrconf{kernelhints} = -1;/\$nrconf{kernelhints} = -1;/g" "/etc/needrestart/needrestart.conf" || return
 }
 
-appDebianFull()
+appPlatformDebianFull()
 {
-	header "App Debian Full"; 
+	header "App Platform Debian Full"; 
 
 	minimalInstall && return
 
@@ -2085,21 +2092,25 @@ appDebianFull()
 	pkg  sox || return # sound - sox is used by the playsound function
 }
 
-appDebianMac() { header "App Debian Mac"; appDebianMacMinimal && appDebianMacFull; }
-appDebianMacMinimal() { header "App Debian Mac Minimal"; i LinuxMinimalUtilities PythonTextUtilities 7Zip; }
-appDebianMacFull() { header "App Debian Mac Full"; minimalInstall && return; i BrowserCore CompareCore LinuxUtilities TextEditorCore xServer; }
+appPlatformDebianMac() { header "App Platform Debian Mac"; appDebianMacMinimal && appDebianMacFull; }
+appPlatformDebianMacMinimal() { header "App Platform Debian Mac Minimal"; i LinuxMinimalUtilities PythonTextUtilities 7Zip; }
+appPlatformDebianMacFull() { header "App Platform Debian Mac Full"; minimalInstall && return; i BrowserCore CompareCore LinuxUtilities TextEditorCore xServer; }
 
-appPhysical()
+appPlatformPhysical()
 {
-	header "App Physical"
+	header "App Platform Physical"
 	i TimeCore PowerCore || return
 	IsPlatform debian && { i PartitionManagement; }
 	IsPlatform win && { i MaxTo || return; }
 	return 0;
 }
 
-appPi() { header "App Raspberry Pi OS"; pkg piclone; }
-appPiKernel() { header "App Pi Kernel"; i PiFirmware PiGpio PiPinout; }
+appPlatformPi() { header "App Platform Raspberry Pi OS"; pkg piclone; }
+appPlatformPiKernel() { header "App Platform Pi Kernel"; i PiFirmware PiGpio PiPinout; }
+
+#
+# app host
+#
 
 AppHostInstall() { header "App Host"; i hostname AppHostHardware AppHostSoftware; } # get correct hostname first
 
@@ -2189,10 +2200,13 @@ AppHostSoftwareInstall()
 	esac
 }
 
+#
+# app network
+#
 
 AppNetworkInstall()
 {
-	header "App Host Network"
+	header "App Network"
 
 	networkVars || return
 	header "${NETWORK^} Applications"
@@ -2213,7 +2227,7 @@ AppNetworkInstall()
 }
 
 #
-# Application Directories (appdata appconfig)
+# application directories (appdata appconfig)
 #
 
 # $DATA/app[data|config][w] app[data|config]N[w] ...
@@ -11644,11 +11658,11 @@ WinConfigInstall()
 	echo "Disabling start menu web search suggestions..."
 	registry set 'HKCU/SOFTWARE/Policies/Microsoft/Windows/Explorer/DisableSearchBoxSuggestions' REG_DWORD 1 || return
 
-	# taskbar	 
- 	powershell "$(utw "$DATA/setup/TaskbarClean.ps1")" || return
-
  	# remaining setup is not for restricted domains
 	IsDomainRestricted && return
+
+	# taskbar	 
+ 	powershell "$(utw "$DATA/setup/TaskbarClean.ps1")" || return
 
 	echo "Firewall..."
 	netsh.exe advfirewall firewall set rule group="Network Discovery" new enable=Yes || return
@@ -11770,10 +11784,10 @@ WinFileSharingInstall()
 {
 	echo "Configure file sharing..."
 	$firewall group enable "${globalArgs[@]}" "File and Printer Sharing" || return
- 	registry set "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Policies/system/LocalAccountTokenFilterPolicy" REG_DWORD 1 || return # Enable remote administrator access to protected file shares (admin$, c$...)
+ 	registry set "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Policies/system/LocalAccountTokenFilterPolicy" REG_DWORD 1 || return # remote administrator access to protected file shares (admin$, c$...)
 
  	echo "Creating shares..."
- 	RunScript --elevate -- net.exe share "$USER=$(utw "$WIN_HOME")" /GRANT:$USER,FULL || return # user
+ 	RunScript --elevate -- net.exe share "$WIN_USER=$(utw "$WIN_HOME")" /GRANT:$USER,FULL || return # user
 }
 
 WinFontsInstall()
