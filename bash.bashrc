@@ -244,14 +244,14 @@ if [[ "$USER" == "root" ]]; then
 	 	export HOME=~root
 
 	 	# root shell is sh which runs .profile
-	 	[[ ! -f ~/.profile ]] && echo "[ $BASH ] && . \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.profile"
+	 	[[ ! -f ~/.profile ]] && echo "[ $BASH ] && . \"$USERS/\$(ConfigGetCurrent "user")/.bashrc\"" >> "$HOME/.profile"
 
 	else
 		# link configuration users .inputrc
-		[[ ! -f "$HOME/.inputrc" ]] && { MakeLink create "$USERS/$(ConfigGet "user")/.inputrc" "$HOME/.inputrc" || return; }
+		[[ ! -f "$HOME/.inputrc" ]] && { MakeLink create "$USERS/$(ConfigGetCurrent "user")/.inputrc" "$HOME/.inputrc" || return; }
 
 		# use aliases from the configuration user
-		! grep -q "ConfigGet" "$HOME/.bashrc" && echo ". \"$USERS/\$(ConfigGet "user")/.bashrc\"" >> "$HOME/.bashrc"
+		! grep -q "ConfigGet" "$HOME/.bashrc" && echo ". \"$USERS/\$(ConfigGetCurrent "user")/.bashrc\"" >> "$HOME/.bashrc"
 
 		# do not execute .bashrc for non-interactive shells (Raspberry Pi OS does not check this)
 		! grep -q '\[ -z "$PS1" \]' "$HOME/.bashrc" && ${G}sed -i '1s/^/[ -z "$PS1" ] \&\& return\n/' "$HOME/.bashrc"

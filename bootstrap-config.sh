@@ -2,9 +2,6 @@ locale="en_US.UTF-8"
 timezone="America/Denver"
 timezoneWin="Mountain Standard Time" # tzutil.exe /l
 
-# user
-user="jjbutare"
-
 # system
 network="hagerman"
 wifi="Wiggin"
@@ -83,7 +80,7 @@ hagermanVip="10.10.100.6" 																	# Virtual IP Address
 hagermanWireguardPort="51820"																# WireGuard Port
 
 # sandia network
-sandiaUser="jjbutare"
+sandiaUser="jjbutar"
 sandiaBinUnc=""
 sandiaBootstrapDir="/mnt/c/Users/jjbutar/OneDrive - Sandia National Laboratories/data/download"
 sandiaGitServer="ados.sandia.gov"

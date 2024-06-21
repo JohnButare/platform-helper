@@ -672,7 +672,7 @@ HashiServiceRegister()
 
 	HashiConf || return
 	for hostNum in "${hostNums[@]}"; do
-		hashi consul service register "$(ConfigGet confDir)/hashi/services/$service$hostNum.hcl" --host="$hostNum" "$@" 
+		hashi consul service register "$(ConfigGet "confDir")/hashi/services/$service$hostNum.hcl" --host="$hostNum" "$@" 
 	done
 }
 
@@ -840,10 +840,10 @@ ZoxideConf()
 #
 
 ConfigInit() { [[ ! $functionConfigFileCache ]] && export functionConfigFileCache="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$functionConfigFileCache" ]] && return; EchoErr "ConfigInit: configuration file '$functionConfigFileCache' does not exist"; return 1; }
-ConfigExists() { ConfigInit && (. "$functionConfigFileCache"; IsVar "$1"); }				# ConfigExists "VAR" - return true if a configuration variable exists
-ConfigGet() { ConfigInit && (. "$functionConfigFileCache"; eval echo "\$$1"); }			# ConfigGet "VAR" - get a configuration variable
-ConfigGetCurrent() { ConfigGet "$(network current name)$(UpperCaseFirst "$1")" ; } 	# ConfigGetCurrent "VAR" - get a configuration entry for the current network
-ConfigFileGet() { echo "$functionConfigFileCache"; }																# ConfigFileGet - return the current configuration file
+ConfigExists() { ConfigInit "$2" && (. "$functionConfigFileCache"; IsVar "$1"); }				# ConfigExists "VAR" - return true if a configuration variable exists
+ConfigGet() { ConfigInit "$2" && (. "$functionConfigFileCache"; eval echo "\$$1"); }		# ConfigGet "VAR" - get a configuration variable
+ConfigGetCurrent() { ConfigGet "$(network current name)$(UpperCaseFirst "$1")" "$2"; } 	# ConfigGetCurrent "VAR" - get a configuration entry for the current network
+ConfigFileGet() { echo "$functionConfigFileCache"; }																		# ConfigFileGet - return the current configuration file
 
 #
 # console
@@ -1599,17 +1599,21 @@ FileTouchAndHide() { [[ ! -e "$1" ]] && { touch "$1" || return; }; FileHide "$1"
 FileShow() { for f in "$@"; do [[ -e "$f" ]] && { attrib "$f" -h || return; }; done; return 0; }
 FileHideAndSystem() { for f in "$@"; do [[ -e "$f" ]] && { attrib "$f" +h +s || return; }; done; return 0; }
 
-attrib() # attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe options must come after the file
+# attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe options must come after the file
+attrib()
 { 
 	! IsPlatform win && return
 	
 	local f="$1"; shift
-
 	[[ ! -e "$f" ]] && { EchoErr "attrib: $f: No such file or directory"; return 2; }
+
+	# ensure path is on a Windows drive
+	local path; path="$(GetFilePath "$f")" || return
+	{ [[ ! $path ]] || ! drive IsWin "$path"; } && return
 	
 	# /L flag changes target changed not link from WSL when full path specified
 	# i.e. attrib.exe /l +h 'C:\Users\jjbutare\Documents\data\app\Audacity'
-	( cd "$(GetFilePath "$f")"; attrib.exe "$@" "$(GetFileName "$f")" );
+	( cd "$path"; attrib.exe "$@" "$(GetFileName "$f")" );
 }
 
 #
