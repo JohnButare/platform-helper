@@ -4,7 +4,7 @@
 usage() 
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [bookmarks|close|IsInstalled|IsRunning|profile|program|restart|start|startup|vars|version](start)
+Usage: $(ScriptName) [OPTION]... [bookmarks|close|extension|IsInstalled|IsRunning|profile|program|restart|start|startup|vars|version](start)
 $(ScriptName) commands."
 }
 
@@ -26,17 +26,22 @@ init()
 		mac)
 			program="$P/Firefox.app"
 			configDir="$HOME/Library/Application Support/Firefox"
+			extensionDir="$(GetFullPath "$configDir/../Mozilla/Extensions/{ec8030f7-c20a-464f-9b0e-13a3a9e97384}")"
 			;;
 		win)
 			program="$P/Mozilla Firefox/firefox.exe"
 			[[ ! -f "$program" ]] && program="$WIN_HOME/PortableApps/FirefoxPortable/App/Firefox64/firefox.exe"
-			configDir="$UADATA/../Roaming/Mozilla/Firefox"
+			configDir="$(GetFullPath "$UADATA/../Roaming/Mozilla/Firefox")"
+			extensionDir="$(GetFullPath "$configDir/../Extensions/{ec8030f7-c20a-464f-9b0e-13a3a9e97384}")"
 			;;
 	esac
 
-	# other configuration
-	local profileSuffix; profileSuffix="$(${G}grep "^Default="  "$configDir/profiles.ini" | cut -d"=" -f2)" && profileDir="$configDir/$profileSuffix"
-
+	# profileDir
+	local p="$configDir/profiles.ini"
+	if [[ $(${G}grep '\[Profile[^0]\]' "$p") ]]; then profileDir="$configDir/$(grep -E '^\[Profile|^Path|^Default' "$p" | ${G}grep -1 '^Default=1' | ${G}grep '^Path' | cut -c6- | RemoveCarriageReturn)"
+	else profileDir="$configDir/$(${G}grep 'Path=' "$p" | ${G}sed 's/^Path=//' | RemoveCarriageReturn)"
+	fi
+	
 	return 0
 }
 
@@ -100,11 +105,35 @@ bookmarksMarkdownCommand()
 }
 
 #
+# extension commands
+#
+
+extensionUsage() { echot "Usage: $(ScriptName) extension dir|id|install|ls|name FILE\nExtension commands."; }
+
+extensionArgs() {  [[ "${commandNames[1]}" != @(id|install|name) ]] && return; ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+extensionCommand() { usage; }
+extensionDirCommand() { echo "$extensionDir"; }
+extensionIdCommand() { unzip -p "$file" "manifest.json" | jq '.browser_specific_settings.gecko.id' | RemoveQuotes; }
+extensionLsCommand() { cat "$profileDir/extensions.json" | jq; }
+extensionNameCommand() { unzip -p "$file" "manifest.json" | jq '.name' | RemoveQuotes; }
+
+extensionInstallCommand()
+{
+	local id; id="$(extensionIdCommand)" || return
+	local name; name="$(extensionNameCommand)" || return
+	local dest="$extensionDir/$id.xpi"
+	[[ ! $force && -f "$dest" ]] && return
+	[[ ! -d "$extensionDir" ]] && { mkdir --parents "$extensionDir" || return; }
+	cp "$file" "$extensionDir/$id.xpi"
+}
+
+#
 # profile command
 #
 
 profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."; }
 profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); return 0; }
+profileDirCommand() { echo "$profileDir"; }
 
 profileCommand()
 {

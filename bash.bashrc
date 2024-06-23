@@ -6,7 +6,8 @@ set -a # export variables and functions to child processes
 # functions
 #
 
-# GetPlatform [host](local) - get the platform for the specified host, sets:
+# GetPlatform [host](local) - get the platform for the specified host
+# sets: busybox chroot platformOs platformLike platformId platformKernel machine wsl
 # platformOs=linux|mac|win
 # platformLike=debian|openwrt|qnap|synology|ubiquiti
 # platformId=dsm|pi|pixel|qts|rock|srm|ubuntu

@@ -14,7 +14,7 @@ init()
 
 	wpadFile="/srv/apache-web/htdocs/autoproxy/wpad.dat"
 	
-	adapterKey='HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Network​'
+	adapterKey='HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Network???'
 	profileKey='HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/NetworkList/Profiles/'
 
 	proxyVars="http_proxy,https_proxy,ftp_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY"
@@ -364,9 +364,10 @@ currentUpdateCommand()
 	return 0
 }
 
-updateDns() {	RunPlatform updateDns "$1"; }
+# updateDns NETWORK
+updateDns() {	RunPlatform updateDns "$1" && updateHosts "$1"; }
 
-# updateDnsWsl - update /etc/resolv.conf
+# updateDnsWsl NETWORK - update /etc/resolv.conf for the current network
 updateDnsWsl()
 {
 	local network="$1"
@@ -380,9 +381,10 @@ updateDnsWsl()
 	sudoc cp "$src" "$dest"
 }
 
-# updateDnsMac - updage /etc/resolver/custom
+# updateDnsMac NETWORK - update /etc/resolver/custom for the current network
 updateDnsMac()
 {
+	local network="$1"
 	local src="$DATA/setup/$network.resolver" dest="/etc/resolver/custom"
 	! [[ -f "$src" ]] && { sudoc rm -f "$dest"; return 0; }
 	cmp --quiet "$src" "$dest" >& /dev/null && return
@@ -390,6 +392,29 @@ updateDnsMac()
 	# update
 	[[ $brief ]] && printf "resolver."
 	sudoc ${G}mkdir --parents "/etc/resolver" && sudoc cp "$src" "$dest"
+}
+
+# updateHosts NETWORK - update /etc/hosts for the current network
+updateHosts()
+{
+	local network="$1"
+	local src="$DATA/setup/hosts.$network" dest="/etc/hosts"
+
+	# no hosts file for the current network - restore original /etc/hosts
+	if [[ ! -f "$src" ]]; then
+		[[ -f "$dest.orig" ]] && { sudoc cp "$dest.orig" "$dest" || return; }
+		return 0
+	fi
+
+	# current network hosts are alread in /etc/hosts
+	qgrep --ignore-case "^# $network" "$dest" && return
+
+	# backup original /etc/hosts file if needed
+	[[ ! -f "$dest.orig" ]] && { sudoc cp "$dest" "$dest.orig" || return; }
+
+	# add hosts for this network
+	[[ $brief ]] && printf "hosts."
+	{ echo; cat "$src"; } | sudoc ${G}tee --append "$dest" > /dev/null
 }
 
 # findNetwork - find the first active network from the networks specified in the networks configuration variabke 
@@ -463,10 +488,19 @@ dnsFlushCommand()
 # domain commands
 #
 
-domainUsage() { echot "Usage: $(ScriptName) domain [name|joined](name)
+domainUsage() { echot "Usage: $(ScriptName) domain [dns|name|joined](name)
 Domain commands."; }
 
 domainCommand() { domainNameCommand; }
+
+#
+# domain dns commands
+#
+
+domainDnsUsage() { echot "Usage: $(ScriptName) domain dns\nReturn the DNS name of the domain."; }
+domainDnsCommand() { RunPlatform "domainDns"; }
+domainDnsMac() { dsconfigad -show | grep "^Active Directory Domain" | cut -d"=" -f2 | RemoveSpaceTrim; }
+domainDnsWin() { cmd.exe /c 'echo %USERDNSDOMAIN%' 2> /dev/null | RemoveCarriageReturn | RemoveNewline | LowerCase; }
 
 #
 # domain name commands
@@ -481,6 +515,7 @@ domainNameCommand()
 	echo "$domain"
 }
 
+domainNameMac() { domainDnsMac | GetWord - 2 .; }
 domainNameWin() { cmd.exe /c 'echo %USERDOMAIN%' 2> /dev/null | RemoveCarriageReturn | RemoveNewline | LowerCase; }
 
 #
@@ -488,7 +523,9 @@ domainNameWin() { cmd.exe /c 'echo %USERDOMAIN%' 2> /dev/null | RemoveCarriageRe
 #
 
 domainJoinedUsage() { echot "Usage: $(ScriptName) domain joined\nReturn true if we are joined to a domain."; }
-domainJoinedCommand() { IsPlatform win && ! IsLocalHost "$(domainNameWin)"; }
+domainJoinedCommand() { RunPlatform domainJoined; }
+domainJoinedMac() { [[ $(domainNameMac) ]]; }
+domainJoinedWin() { ! IsLocalHost "$(domainNameWin)"; }
 
 #
 # find commands

@@ -70,7 +70,7 @@ varsBasic()
 	local var	
 	basicVars=(_platformTarget _platformLocal	_platformOs _platformLike _platformId _platformKernel _machine _data)
 	basicVars+=(_root _media _public _users _user _wuser _home)	# directory and user
-	basicVars+=(_protocol)																			# file sharting protocol
+	basicVars+=(_protocol _rootSmb _rootSsh)										# file sharting protocol
 	basicVars+=(_busybox _chroot _wsl)													# other
 
 	for var in "${basicVars[@]}"; do unset $var; done
@@ -106,13 +106,7 @@ varsBasic()
 
 	fi
 
-	# Synology does not support SMB connections
-	[[ "$protocol" == "smb" ]] && IsPlatform synology && protocol="ssh";
-
-	# assume QNAP and Synology use port 608 for SSH
-	[[ "$protocol" == "ssh" ]] && { IsPlatform qnap,synology --host && _protocol="608"; }
-
-	# override standard shares
+	# override standard shares if needed
 	if [[ $target && "$protocol" == "smb" ]] && IsPlatform qnap,synology --host; then
 		_root="//$target" _users="$_root/homes" _public="$_root/public" _data="$_public/documents/data" _home="$_root/home" _media="$_root/data/media"
 	fi
@@ -183,35 +177,40 @@ varsBasicHost()
 	local host="$(RemoveDnsSuffix "$target")"
 	local network="$(network current name)"
 
-	# Wiggin hosts - Synology 
-	if [[ "$network" == "hagerman" && "$host" == @(nas1) ]]; then
-		_platform="linux" _platformLike="synology" _platformId="dsm" _platformKernel="linux" _machine="x86_64" _root="//$target/root"
-	
-	# Wiggin hosts - QNAP
-	elif [[ "$network" == "hagerman" && "$host" == @(nas3|nas3.hagerman.butare.net|nas3.butare.net) ]]; then
-		_platform="linux" _platformLike="qnap" _platformId="qts"  _platformKernel="linux" _machine="x86_64" _root="//$target/root"
-	
-	# other host - determine platform using SSH
+	# determine platform using cached data or SSH
+	local vars=(busybox chroot platformOs platformLike platformId platformKernel machine wsl)
+	local cache="host-info-$host" script
+
+	if [[ ! $force ]] && script="$(UpdateGet "$cache")"; then
+		eval "$script"
 	elif SshAgentConf --quiet "${globalArgs[@]}" && GetPlatform "$target" --quiet $trust $verbose; then
-		_platformOs="$platformOs" _platformLike="$platformLike"	_platformId="$platformId" _platformKernel="$platformKernel" _machine="$machine"
-		_busybox="$busybox" _chroot="$chroot" _wsl="$wsl"
-
-		# _root
-		_root="//$target/root"
-		if IsPlatformAll mac,arm --host; then _root="//$target/system"
-		elif IsPlatformAll mac,x86 --host; then _root="//$target/system/volumes/data"
-		fi
-
-		# for Windows assume SSH (for the WSL file ssytem) unless the protocol was set explicitly
-		[[ ! $protocolArg ]] && IsPlatform win --host && protocol="$(SshHelper config get "$target" port)" # access WSL drives by default
-	
-		# if SMB is not available fall back to SSH 
-		[[ "$protocol" == "smb" ]] && ! unc IsAvailable "$target" --protocol="$protocol" && protocol="$(SshHelper config get "$target" port)"
-
+		UpdateSet "$cache" "$(ScriptReturn "${vars[@]}")"
 	else
 		[[ ! $quiet ]] && ScriptErr "unable to determine '$target' platform"
 		return 1
+	fi
 
+	_platformOs="$platformOs" _platformLike="$platformLike"	_platformId="$platformId" _platformKernel="$platformKernel" _machine="$machine"
+	_busybox="$busybox" _chroot="$chroot" _wsl="$wsl"
+
+	# _root _rootSmb _rootSsh
+	_root="//$target/root"; _rootSmb="$_root" _rootSsh="$_root"
+	if IsPlatformAll mac,arm --host; then _rootSmb="//$target/system"
+	elif IsPlatformAll mac,x86 --host; then _rootSmb="//$target/system/volumes/data"
+	elif IsPlatform win --host; then _rootSmb="//$target/c$"
+	fi
+
+	# if the protocol was not explicitly set, use SSH instead of SMB if needed
+	if [[ ! $protocolArg && "$protocol" == "smb" ]] && InPath sshfs; then	
+		if IsPlatform win --host; then protocol="ssh" 												# allow access to WSL file system, i.e. /usr/local/data/bin
+		elif IsPlatform synology; then protocol="ssh" 												# Synology does not support SMB
+		else ! unc IsAvailable "$target" --protocol="smb"; protocol="ssh"; 		# SMB is not available
+	fi
+	fi
+
+	# set _root to the appropriate location for the selected protocol
+	if [[ "$protocol" == "smb" ]]; then _root="$_rootSmb"
+	elif [[ "$protocol" == "ssh" ]]; then _root="$_rootSsh" protocol="$(SshHelper config get "$target" port)"
 	fi
 
 	return 0

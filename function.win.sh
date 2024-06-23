@@ -11,7 +11,6 @@ mmc() {	( cmd.exe /c mmc.exe "$@" & ) >& /dev/null; }
 # MakeShortcut FILE LINK ARGUMENTS ICON_FILE ICON_RESOURCE_NUMBER [MAX|MIN] START_IN_FOLDER HOT_KEY
 MakeShortcut() 
 { 
-	! InPath nircmd.exe && return
 	local suppress; [[ "$1" == @(-s|--suppress) ]] && { suppress="true"; shift; }
 	(( $# < 2 )) && { EchoErr "usage: MakeShortcut TARGET NAME ..."; return 1; }
 
@@ -21,10 +20,19 @@ MakeShortcut()
 	[[ ! -e "$f" && $suppress ]] && { return 1; }
 	[[ ! -e "$f" ]] && { EchoErr "MakeShortcut: could not find file $1"; return 1; }
 
-	local linkDir="$(utw "$(GetFilePath "$link")")"
-	local linkName="$(GetFileName "$link")"
-
-	start nircmd.exe shortcut "$f" "$linkDir" "$linkName" "${@:3}"
+	if InPath create-shortcut.exe; then
+		local args=()
+		[[ $3 ]] && args+=(--arguments "$3")
+		[[ $4 ]] && args+=(--icon-file "$(utw "$4")")
+		args+=("$(utw "$f")" "$(utw "$link")")
+		create-shortcut.exe "${args[@]}"
+	elif Inpath nircmd.exe; then
+		local linkDir="$(utw "$(GetFilePath "$link")")"
+		local linkName="$(GetFileName "$link")"
+		start nircmd.exe shortcut "$f" "$linkDir" "$linkName" "${@:3}"
+	else
+		return
+	fi
 }
 
 #

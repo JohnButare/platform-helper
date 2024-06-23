@@ -732,10 +732,6 @@ InstFind()
 	unset installDir file
 }
 
-# McFly - initialie last since
-# - must be after after set prompt as this modifies the bash prompt
-# - sometimes it prevents the rest of the script from running
-
 McflyConf()
 {
 	local force forceLevel; ScriptOptForce "$@"	
@@ -1700,6 +1696,7 @@ HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not a
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 HttpHeader() { curl --silent --show-error --location --dump-header - --output /dev/null "$1"; }
+IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
 IsOnNetwork() {	[[ "$(LowerCase "$(NetworkCurrent)")" == "$(LowerCase "$1")" ]]; } # IsOnNetwork NETWORK - true if the computer is the network
