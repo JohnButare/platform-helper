@@ -122,7 +122,8 @@ extensionDownloadCommand()
 
 	[[ ! $quiet ]] && printf "downloading..."
 	for file in "${files[@]}"; do
-		IsPlatform win && file="$(echo -E "$file" | RemoveQuotes | wtu)"
+		file="$(echo -E "$file" | RemoveQuotes)"
+		IsPlatform win && file="$(echo -E "$file" | wtu)"
 		cp "$file" . || return
 		[[ ! $quiet ]] && printf "."
 	done
@@ -146,18 +147,33 @@ extensionIsInstalledCommand()
 # extension info commands
 #
 
-extensionInfoUsage() { echot "Usage: $(ScriptName) extension [all|id|name](all) FILE\nExtension info commands."; }
-extensionInfoArgs() {  ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
-extensionInfoCommand() { extensionInfoAllCommand; }
-extensionInfoIdCommand() { local manifest; extensionManifest && extensionInfoId; }
-extensionInfoNameCommand() { local manifest; extensionManifest && extensionInfoName; }
+extensionInfoUsage() { echot "Usage: $(ScriptName) extension [all|id|name](all) DIR|FILE\nExtension info commands."; }
+extensionInfoArgs() {  ScriptArgGet "file" -- "$@" && ScriptCheckPath "$file"; }
+extensionInfoCommand() { extensionInfo "all"; }
+extensionInfoAllCommand() { extensionInfo "all"; }
+extensionInfoIdCommand() { extensionInfo "id"; }
+extensionInfoNameCommand() { extensionInfo "name"; }
 
-extensionInfoAllCommand()
+extensionInfo()
 {
-	local manifest; extensionManifest || pause return
+	local what="$1" manifest
+
+	[[ -f "$file" ]] && { extensionManifest && RunFunction extensionInfo $what; return; }
+
+	local files; IFS=$'\n' ArrayMake files "$(find "$file/"*.xpi |& grep -v "No such file")"	
+	for file in "${files[@]}"; do
+		[[ "$what" == "all" ]] && header "$(GetFileName "$file")" || printf "$(GetFileName "$file"): "
+		extensionManifest || return
+		RunFunction extensionInfo "$what" || return
+		[[ "$what" != "all" ]] && echo
+	done
+} 
+
+extensionInfoAll()
+{
 	echo "\
 name=\"$(extensionInfoName)\"
-short_name=\"$(echo "$manifest" | jq '.short_name' | RemoveQuotes)\"
+short_name=\"$(extensionInfoShortName)\"
 author=\"$(extensionInfoAuthor)\"
 id=\"$(extensionInfoId)\"
 description=\"$(extensionInfoDescription)\"
@@ -165,13 +181,28 @@ url=\"$(extensionInfoUrl)\""
 }
 
 extensionManifest() { manifest="$(unzip -p "$file" "manifest.json")"; }
-extensionInfoGet() { echo "$manifest" | jq "$1" | RemoveQuotes; }
 
-extensionInfoDescription() { local d; d="$(extensionInfoGet '.description')"; [[ "$d" == @(null|__MSG_extension_description__) ]] && d=""; printf "$d"; }
-extensionInfoAuthor() { local author; author="$(extensionInfoGet '.author')"; [[ "$author" == @(null) ]] && author=""; printf "$author"; }
-extensionInfoName() { local name; name="$(extensionInfoGet '.name')"; [[ "$name" == @(null|__MSG_extName__) ]] && name="$(extensionInfoGet '.short_name')"; printf "$name"; }
-extensionInfoId() { local id; id="$(extensionInfoGet '.browser_specific_settings.gecko.id')"; [[ "$id" == null ]] && id="$(extensionInfoGet '.applications.gecko.id')"; printf "$id"; }
-extensionInfoUrl() { local url; url="$(extensionInfoGet '.homepage_url')"; [[ "$url" == null ]] && url=""; printf "$url"; }
+extensionInfoGet()
+{
+	local value; value="$(echo "$manifest" | jq "$1" | RemoveQuotes)" || return
+	[[ "$value" == @(null) ]] && value=""
+	printf "$value"
+}
+
+extensionInfoAuthor() { extensionInfoGet '.author'; }
+
+extensionInfoDescription() { local d; d="$(extensionInfoGet '.description')"; [[ "$d" == @(__MSG_extension_description__|__MSG_extensionDescription__|__MSG_extShortDesc__|__MSG_extensionDesc__|__MSG_extDescription__|__MSG_app_desc__) ]] && d=""; printf "$d"; }
+extensionInfoId() { local id; id="$(extensionInfoGet '.browser_specific_settings.gecko.id')"; [[ ! $id ]] && id="$(extensionInfoGet '.applications.gecko.id')"; echo "$id"; }
+extensionInfoShortName() { extensionInfoGet '.short_name'; }
+extensionInfoUrl() { extensionInfoGet '.homepage_url'; }
+
+extensionInfoName()
+{
+	local name; name="$(extensionInfoGet '.name')"
+	[[ "$name" == @(|__MSG_appName__|__MSG_extName__|__MSG_extensionName__|__MSG_app_name__|__MSG_extension_name__) ]] && name="$(extensionInfoShortName)"
+	[[ ! $name ]] && name="$(extensionInfoId)"
+	printf "$name"; 
+}
 
 #
 # extension install command
