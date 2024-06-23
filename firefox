@@ -41,6 +41,9 @@ init()
 	if [[ $(${G}grep '\[Profile[^0]\]' "$p") ]]; then profileDir="$configDir/$(grep -E '^\[Profile|^Path|^Default' "$p" | ${G}grep -1 '^Default=1' | ${G}grep '^Path' | cut -c6- | RemoveCarriageReturn)"
 	else profileDir="$configDir/$(${G}grep 'Path=' "$p" | ${G}sed 's/^Path=//' | RemoveCarriageReturn)"
 	fi
+
+	# other
+	extensionDirProfile="$profileDir/extensions"
 	
 	return 0
 }
@@ -108,23 +111,104 @@ bookmarksMarkdownCommand()
 # extension commands
 #
 
-extensionUsage() { echot "Usage: $(ScriptName) extension dir|id|install|ls|name FILE\nExtension commands."; }
-
-extensionArgs() {  [[ "${commandNames[1]}" != @(id|install|name) ]] && return; ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+extensionUsage() { echot "Usage: $(ScriptName) extension dir|download|info|install|IsInstalled|ls\nExtension commands."; }
 extensionCommand() { usage; }
 extensionDirCommand() { echo "$extensionDir"; }
-extensionIdCommand() { unzip -p "$file" "manifest.json" | jq '.browser_specific_settings.gecko.id' | RemoveQuotes; }
 extensionLsCommand() { cat "$profileDir/extensions.json" | jq; }
-extensionNameCommand() { unzip -p "$file" "manifest.json" | jq '.name' | RemoveQuotes; }
+
+extensionDownloadCommand()
+{
+	local file files; IFS=$'\n' ArrayMake files "$(extensionLsCommand | jq '.addons[].path' | grep -v "null" | grep -v "@mozilla.org" | sort)"
+
+	[[ ! $quiet ]] && printf "downloading..."
+	for file in "${files[@]}"; do
+		IsPlatform win && file="$(echo -E "$file" | RemoveQuotes | wtu)"
+		cp "$file" . || return
+		[[ ! $quiet ]] && printf "."
+	done
+	[[ ! $quiet ]] && echo "done"
+}
+
+#
+# extension IsInstalled command
+#
+
+extensionIsInstalledUsage() { echot "Usage: $(ScriptName) extension IsInstalled FILE\Return 0 if the extensions is installed."; }
+extensionIsInstalledArgs() {  ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+
+extensionIsInstalledCommand()
+{
+	local id; id="$(extensionInfoIdCommand)" || return
+	[[ -f "$extensionDir/$id.xpi" || -f "$extensionDirProfile/$id.xpi" ]]
+}
+
+#
+# extension info commands
+#
+
+extensionInfoUsage() { echot "Usage: $(ScriptName) extension [all|id|name](all) FILE\nExtension info commands."; }
+extensionInfoArgs() {  ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+extensionInfoCommand() { extensionInfoAllCommand; }
+extensionInfoIdCommand() { local manifest; extensionManifest && extensionInfoId; }
+extensionInfoNameCommand() { local manifest; extensionManifest && extensionInfoName; }
+
+extensionInfoAllCommand()
+{
+	local manifest; extensionManifest || pause return
+	echo "\
+name=\"$(extensionInfoName)\"
+short_name=\"$(echo "$manifest" | jq '.short_name' | RemoveQuotes)\"
+author=\"$(extensionInfoAuthor)\"
+id=\"$(extensionInfoId)\"
+description=\"$(extensionInfoDescription)\"
+url=\"$(extensionInfoUrl)\""
+}
+
+extensionManifest() { manifest="$(unzip -p "$file" "manifest.json")"; }
+extensionInfoGet() { echo "$manifest" | jq "$1" | RemoveQuotes; }
+
+extensionInfoDescription() { local d; d="$(extensionInfoGet '.description')"; [[ "$d" == @(null|__MSG_extension_description__) ]] && d=""; printf "$d"; }
+extensionInfoAuthor() { local author; author="$(extensionInfoGet '.author')"; [[ "$author" == @(null) ]] && author=""; printf "$author"; }
+extensionInfoName() { local name; name="$(extensionInfoGet '.name')"; [[ "$name" == @(null|__MSG_extName__) ]] && name="$(extensionInfoGet '.short_name')"; printf "$name"; }
+extensionInfoId() { local id; id="$(extensionInfoGet '.browser_specific_settings.gecko.id')"; [[ "$id" == null ]] && id="$(extensionInfoGet '.applications.gecko.id')"; printf "$id"; }
+extensionInfoUrl() { local url; url="$(extensionInfoGet '.homepage_url')"; [[ "$url" == null ]] && url=""; printf "$url"; }
+
+#
+# extension install command
+#
+
+extensionInstallUsage()
+{
+	echot "Usage: $(ScriptName) extension install FILE
+Install the extension.
+
+	-g, --global 		install the extension for all profiles"; 
+}
+
+extensionInstallArgStart() { destDir="$extensionDirProfile"; }
+extensionInstallArgs() {  ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+
+extensionInstallOpt()
+{
+	case "$1" in
+		-g|--global) destDir="$extensionDir";;
+		*) return 1;;
+	esac
+}
 
 extensionInstallCommand()
 {
-	local id; id="$(extensionIdCommand)" || return
-	local name; name="$(extensionNameCommand)" || return
-	local dest="$extensionDir/$id.xpi"
-	[[ ! $force && -f "$dest" ]] && return
-	[[ ! -d "$extensionDir" ]] && { mkdir --parents "$extensionDir" || return; }
-	cp "$file" "$extensionDir/$id.xpi"
+	local id; id="$(extensionInfoIdCommand)" || return
+	local dest="$destDir/$id.xpi"
+
+	# return if the extension is already installed
+	[[ ! $force && ( -f "$dest" || -f "$extensionDir/$id.xpi" || -f "$extensionDirProfile/$id.xpi") ]] && return
+
+	# create the extension directory
+	[[ ! -d "$destDir" ]] && { mkdir --parents "$destDir" || return; }
+
+	# copy the extension
+	cp "$file" "$dest"
 }
 
 #
@@ -138,8 +222,35 @@ profileDirCommand() { echo "$profileDir"; }
 profileCommand()
 {
 	AppInstallCheck || return
-	
-	echo "Simple Tab Groups..."
+
+	# restore profile for restricted domains - Firefox Sync is used for non-restricted domains
+	{ [[ "${profileArgs[0]}" == "restore" ]] && IsDomainRestricted; } && { profileRestoreRestrictredDomain || return; }
+
+	# other
+	profileSimpleTableGroups
+}
+
+profileRestoreRestrictredDomain() { profileRestoreExtensions; }
+
+profileRestoreExtensions()
+{
+	! askp 'Restore extensions' -dr n && return
+
+	# restore extensions
+	local file files; ScriptEval FindInstallFile --eval "other/Mozilla/Firefox/extensions" "${globalArgs[@]}" || return
+	IFS=$'\n' ArrayMake files "$(find "$file/"*.xpi |& grep -v "No such file")"
+	for file in "${files[@]}"; do
+		[[ ! $force ]] && firefox extension IsInstalled "$file" "${globalArgs[@]}" && continue		
+		echo "Installing extensions "$(firefox extension info name "$file")"..."
+		firefox extension install "$file" "${globalArgs[@]}" || return
+	done
+
+	return 0
+}
+
+profileSimpleTableGroups()
+{
+	hilight "Simple Tab Groups..."
 	case "${profileArgs[0]}" in
 		backup) echo "- Simple Tab Groups, gear, Backup, check Include tab fav-icons in backup, Create backup";;
 		restore) echo "- Simple Tab Groups, gear, Backup, Restore backup";;
@@ -147,5 +258,11 @@ profileCommand()
 
 	profile $noPrompt --app "Firefox SimpleTabGroups" --method "firefox" --save-extension "json" "${profileArgs[@]}" || return
 }
+
+#
+# helper
+#
+
+askp() { [[ $noPrompt ]] && echo "${GREEN}$1...${RESET}" || ask "$1"; }
 
 ScriptRun "$@"

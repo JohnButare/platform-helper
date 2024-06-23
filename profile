@@ -20,7 +20,6 @@ usage: profile [save|restore|dir|SaveDir](dir)
 	exit $1 
 }
 
-init() { defaultCommand="dir"; }
 argStart() { unset -v app files method noControl platform profile saveExtension sudo; }
 
 argEnd()
@@ -195,14 +194,7 @@ savedirCommand()
 # helper
 #
 
-askp()
-{
-	if [[ $noPrompt ]]; then
-		echo "${GREEN}$1...${RESET}"
-	else
-		ask "$1"
-	fi
-}
+askp() { [[ $noPrompt ]] && echo "${GREEN}$1...${RESET}" || ask "$1"; }
 
 copyDefaultProfile()
 {
