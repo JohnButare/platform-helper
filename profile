@@ -11,6 +11,7 @@ usage: profile [save|restore|dir|SaveDir](dir)
 	save|restore [profile](default)
 
 	-a,  --app NAME					name of the application
+	,e,  --editor						copy text to an editor for profile save
 	-f,  --files FILE...		for directory profiles, file patterns in the profile
 	-m,  --method	<dir>|<program>|<key>
 	-nc, --no-control				do not control the applciation
@@ -20,7 +21,7 @@ usage: profile [save|restore|dir|SaveDir](dir)
 	exit $1 
 }
 
-argStart() { unset -v app files method noControl platform profile saveExtension sudo; }
+argStart() { unset -v app editor files method noControl platform profile saveExtension sudo; }
 
 argEnd()
 {
@@ -70,6 +71,7 @@ opt()
 {
 	case "$1" in
 		-a|--app) ScriptOptGet "app" "$@";;
+		-e|--editor) editor="--editor";;
 		-F|--files|-F=*|--files=*) ScriptOptGet "files" "$@";;
 		-m|--method) ScriptOptGet "method" "$@";;
 		-nc|--no-control) noControl="--no-control";;
@@ -159,10 +161,16 @@ saveCommand()
 		[[ "$status" != "0" ]] && return "$status"
 
 	# save using the specified import/export program		
-	elif [[ "$method" == "program" ]]; then
-		clipw "$(utw "$dest/$file")"
-		echo "Export the profile to the filename contained in the clipboard"
+	elif [[ "$method" == "program" ]]; then		
+		if [[ $editor ]]; then
+			touch "$dest/$file" || return
+			echo "Copy the profile to the text editor"
+		else
+			clipw "$(utw "$dest/$file")"
+			echo "Export the profile to the filename contained in the clipboard"
+		fi		
 		askp "Start $(GetFileName "$profileProgram")" && { start "$profileProgram" || return; }
+		[[ $editor ]] && { TextEdit "$dest/$file" || return; }
 		pause
 		
 	# save the registry
