@@ -1044,7 +1044,7 @@ ArrayShow()
 	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
 }
 
-# IsInArray [-ci|--case-insensitive] [-w|--wild] [-aw|--awild] STRING ARRAY_VAR
+# IsInArray [-ci|--case-insensitive] [-w|--wild] [-aw|--array-wild] STRING ARRAY_VAR
 IsInArray() 
 { 
 	# arguments
