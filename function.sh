@@ -641,7 +641,7 @@ HashiConf()
 
 	# initialize
 	(( verboseLevel > 1 )) && header "Hashi Configuration"
-	
+
 	# manager - gnome-keyring is faster in Windows
 	local manager="local" 
 	IsPlatform win && { service running dbus || app start dbus --quiet $force $verbose; } && manager="gk"
