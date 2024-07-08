@@ -29,6 +29,7 @@ Other options:
 	-E,  --elevate					in Windows run the script with an elevated (Administrator) token
 	-e,  --exec							exec the script so it retains this process ID
 			 --functions				use functions in the script
+	-hs, --hashi-service		return errors for a HashiCorp service, where 0=success 1=warning 2=error
 	-ie, --ignore-errors		ignore non-fatal errors
 	-nh, --no-hide					do not hide the elevated script window
 	-nq, --no-quote					do not hide quote script arguments
@@ -55,8 +56,11 @@ init() { defaultCommand="run"; }
 
 runArgStart()
 {
-	unset -v credential credentialManager elevate exec hashi hashiService ignoreErrors multiple noQuote pause pauseError sensitive ssh sshAgent verbose verboseLevel
-	credentialManager=() script=() windowStyle="--window-style hidden" functions="# no functions loaded"
+	unset -v credential credentialManager elevate exec hashi hashiService ignoreErrors multiple noQuote pause pauseError sensitive ssh sshAgent xServer
+	credentialManagerArg=() sshArgs=()
+
+	unset -v eval	
+	credentialConfArgs=() script=() windowStyle="--window-style hidden" functions="# no functions loaded"
 }
 
 runArgs() {  (( $# == 0 )) && return; script=( "$@" ); (( shift+=$# )); return 0; }
@@ -66,22 +70,22 @@ runOpt()
 {
 	case "$1" in
 		--credential|-c) credential="--credential";;
-		--credential-manager|--credential-manager=*|-cm|-cm=*) ScriptOptGet "credentialManager" "credential-manager" "$@"; credentialManagerArg=(--manager "$credentialManager");;
-		--exec|-e) exec="--exec";;
+		--credential-manager|--credential-manager=*|-cm|-cm=*) ScriptOptGet "credentialManager" "credential-manager" "$@"; credentialManagerArgs=(--credential-manager "$credentialManager") credentialConfArgs=(--manager "$credentialManager");;
 		--elevate|-E) elevate="--elevate";;
+		--exec|-e) exec="--exec";;
 		--functions) functions=". function.sh || return";;
-		--hashi-service|-hs) hashiService="--hashi-service";;
 		--hashi|-H) hashi="--hashi";;
+		--hashi-service|-hs) hashiService="--hashi-service";;
 		--ignore-errors|-ie) ignoreErrors="--ignore-errors";;
+		--multiple|-m) multiple="--multiple" eval="eval";;
 		--no-hide|-nh) windowStyle="";;
 		--no-quote|-nq) noQuote="--no-quote";;
-		--multiple|-m) multiple="eval";;
 		--pause|-p) pause="--pause";;
 		--pause-error|-pe) pauseError="--pause-error";;
 		--sensitive|-s) sensitive="--sensitive";;
 		--ssh-agent|-sa) sshAgent="--ssh-agent";;
-		--ssh|-s) ScriptOptGet "ssh" "$@";;
-		--x-server|-x) InitializeXServer || return;;
+		--ssh|-s) ScriptOptGet "ssh" "$@"; sshArgs=(--ssh "$ssh");;
+		--x-server|-x) xServer="--x-server"; InitializeXServer || return;;
 		*) return 1;;
 	esac
 }
@@ -114,7 +118,7 @@ runCommand()
 		runSsh "$ssh" "$@"
 	else
 		[[ $verbose || ! $quiet ]] && [[ ! $sensitive ]] && LogScript 2 "$@"
-		$multiple "$@"
+		$eval "$@"
 	fi
 
 	local result="$?"
@@ -169,10 +173,14 @@ runElevated()
 	# script: the script file
 	# scriptLog: a file which contains the standard output and error of the script
 	# scriptResult: a file which contains the return code (result) of the script
-	local scriptFile="$dir/script.sh" scriptLog="$dir/log.txt" scriptResult="$dir/result.txt"
+	# scriptStart: a file which is written when the script starts
+	local scriptFile="$dir/script.sh" scriptLog="$dir/log.txt" scriptResult="$dir/result.txt" scriptStart="$dir/start.txt"
 
-	# create the script log file now so inotifywait does not return when it is created
+	# create the script log file now so inotifywait does not return when it is created, it should wait for the scriptResult
 	touch "$scriptLog" || return
+
+	# create scriptStart now, we will wait for it to be removed
+	touch "$scriptStart" || return
 
 	# create the script and run it elevated
 	# - use the same CREDENTIAL_MANAGER as we have now
@@ -180,6 +188,7 @@ runElevated()
 	# - example: RunScript --elevate powershell 'Get-VM | where {\$_.Name -eq \"oversoul-wvm1\"}'
 	cat > "$scriptFile" <<-EOF
 		#!/usr/bin/env bash
+		rm "$scriptStart" || return
 		export CREDENTIAL_MANAGER="$CREDENTIAL_MANAGER"
 		$functions
 	EOF
@@ -191,7 +200,7 @@ runElevated()
 	else
 		local script=("$@")
 		cat >> "$scriptFile" <<-EOF
-			$(ScriptReturn script)
+			$(ScriptReturn script) # for reference
 			$(ArrayShow script) |& tee "$scriptLog"
 		EOF
 	fi
@@ -202,18 +211,32 @@ runElevated()
 
 	# logging
 	[[ $sensitive ]] && log2 "script: hidden" || LogFile2 "$scriptFile"
-	[[ $verbose ]] && unset windowStyle
+	[[ $verbose  || $pause || $pauseError ]] && unset windowStyle
 
 	# ensure the user with an elevated token can run the script
 	chmod ugo+x "$scriptFile" || return
 
 	# execute the script
-	start --elevate $windowStyle $verbose RunScript "${scriptFile}" || return
+	log1 "running script ('$scriptFile')..."
+	local wait; ! InPath "hstart64.exe" && wait="--wait"
+	if ! start --elevate $wait $windowStyle $verbose RunScript "$scriptFile" "${globalArgs[@]}" $credential "${credentialManagerArg[@]}" $exec $hashi $hashiService $ignoreErrors $pause $pauseError $sensitive $sshAgent "${sshArgs[@]}" $xServer && [[ ! -f "$scriptResult" ]]; then
+		ScriptErr "unable to run the script"; ScriptTryVerbose; pause
+	fi
 
-	# wait for the creation of the script result file
-	logp1 "$(ScriptPrefix)waiting for log file in '$dir'..."
-	inotifywait --event create --quiet --quiet "$dir/" # two quiets for very silent (no output)
-	logp1 "found\n"
+	# wait for removal of the script start file
+	if [[ -f "$scriptStart" ]]; then
+		logp1 "$(ScriptPrefix)waiting for script start ('$scriptStart' removal)..."
+		inotifywait --event delete --quiet --quiet --timeout 2 "$scriptStart"
+		[[ -f "$scriptStart" ]] && { ScriptErr "the script did not start in a timely fashion"; runElevatedCleanup; return 1; }
+		logp1 "started\n"
+	fi
+
+	# wait for creation of the script result file
+	if [[ ! -f "$scriptResult" ]]; then
+		logp1 "$(ScriptPrefix)waiting for script result ('$scriptResult')..."
+		inotifywait --event create --quiet --quiet "$dir/" # two quiets for very silent (no output)
+		logp1 "found\n"
+	fi
 
 	# return the script log to standard output
 	if [[ -f "$scriptLog" ]]; then
@@ -228,11 +251,10 @@ runElevated()
 	[[ -f "$scriptResult" ]] && scriptResult="$(cat "$scriptResult")"
 	log1 "script result=${RESET}${scriptResult}"
 
-	# cleanup
-	rm -fr "$dir"
-	
-	return "$scriptResult"
+	runElevatedCleanup; return "$scriptResult"
 }
+
+runElevatedCleanup() { rm -fr "$dir"; }
 
 #
 # helper

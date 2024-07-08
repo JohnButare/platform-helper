@@ -3759,15 +3759,9 @@ start()
 		if IsShellScript "$fullFile"; then
 			local distribution; distribution="$(wsl get name)" || return
 			local p=(wsl.exe --distribution "$distribution" --user "$USER"); [[ "$terminal" == "wt" ]] && InPath wt.exe && p=(wt.exe -d \"$PWD\" "${p[@]}")
-
-			# WindowsStore WSL requires bash -c
-			if wsl supports store; then
-				(( verboseLevel > 1 )) && ScriptArgs eval RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "${p[@]}" --exec bash -c \""$(FindInPath "$fullFile")" "${args[@]}"\"
-				eval RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "${p[@]}" --exec bash -c \""$(FindInPath "$fullFile") "${args[@]}""\"
-			else
-				(( verboseLevel > 1 )) && ScriptArgs eval RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "${p[@]}" --exec bash -c \""$(FindInPath "$fullFile")" "${args[@]}"\"
-				RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "${p[@]}" --exec "$(FindInPath "$fullFile") "${args[@]}""
-			fi
+			local runProcessArgs=($wait $elevate "${windowStyle[@]}"); [[ $verbose ]] && runProcessArgs+=(--verbose --pause)
+			(( verboseLevel > 1 )) && ScriptArgs RunWin RunProcess.exe "${runProcessArgs[@]}" "${p[@]}" --exec "$(FindInPath "$fullFile")" "${args[@]}"
+			RunWin RunProcess.exe "${runProcessArgs[@]}" "${windowStyle[@]}" "${p[@]}" --exec "$(FindInPath "$fullFile")" "${args[@]}"
 
 		else
 			(( verboseLevel > 1 )) && ScriptArgs "start" RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
@@ -3999,6 +3993,7 @@ ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '
 ScriptMessage() { EchoErr "$(ScriptPrefix "$2")$1"; } 																		# ScriptMessage MESSAGE - log a message with the script prefix
 ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "%s" "$name: "; }
 ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; ScriptExit; }
+ScriptTryVerbose() { EchoErr "Use '--verbose' for more information."; ScriptExit; }
 
 # ScriptCd PROGRAM [ARG...] - run a script and change to the first directory returned
 ScriptCd()

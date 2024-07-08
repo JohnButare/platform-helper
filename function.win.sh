@@ -75,8 +75,13 @@ elevate()
 
 	# Launch a terminal elevated in the current directory
 	if [[ "$#" == "0" ]]; then
-		InPath wt.exe && { start --elevate wt.exe -d "$PWD"; return; }
-		start --elevate wsl.exe; return;
+
+		# use Windows Terminal if poassible
+		local p; p="$(FindInPath "wt.exe")" || p="$P/Windows Terminal/wt.exe"
+		[[ -f "$p" ]] && { start --elevate "$p" -d "$PWD"; return; }
+
+		# use wsl.exe
+		start --elevate "wsl.exe"; return;
 	fi
 
 	# Launch the specified program elevated
