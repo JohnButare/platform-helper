@@ -4091,6 +4091,7 @@ ScriptReturn()
 # Security
 #
 
+CertGetDates() { local c; for c in "$@"; do echo "$c:"; SudoRead "$c" openssl x509 -in "$c" -text | grep "Not "; done; }
 CertView() { local c; for c in "$@"; do openssl x509 -in "$c" -text; done; }
 CredentialSetBoth() { credential set "$@" --manager=local && credential set "$@" --manager=remote; }
 
@@ -4241,6 +4242,14 @@ sudor()
 		SSH_AUTH_SOCK="$SSH_AUTH_SOCK" SSH_AGENT_PID="$SSH_AGENT_PID" \
 		VAULT_TOKEN="$VAULT_TOKEN" \
 		"$@"
+}
+
+# SudoRead FILE COMMAND - use sudoc to run the command if the file is not readable
+SudoRead()
+{
+	local file="$1"; shift
+	local sudo; [[ ! -r "$file" ]] && sudo="sudoc"
+	$sudo "$@"
 }
 
 #

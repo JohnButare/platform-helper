@@ -5,7 +5,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) backup|check|config|host|maintenance|network|renew|setup|sync|update [OPTION]...
+Usage: $(ScriptName) backup|cert|check|config|host|maintenance|network|setup|sync|update [OPTION]...
 Manage the Wiggin network."
 }
 
@@ -21,6 +21,8 @@ init()
 	routers=(router)
 	networkAll=("${aps[@]}" "${switches[@]}" "${routers[@]}")
 }
+
+cleanup() { encrypt unmount "personal"; }
 
 #
 # backup commands
@@ -198,6 +200,84 @@ backupWireGuard() { runApp "backup" "WireGuard" wiggin backup WireGuard; }
 updateCloudFlare() { runApp "update" "CloudFlare" wiggin update CloudFlare; }
 updateJumpCloud() { runApp "update" "JumpCloud" wiggin update JumpCloud; }
 updateWireGuard() { runApp "update" "WireGuard" wiggin update WireGuard; }
+
+#
+# certificate commands
+#
+
+certUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert all|renew|copy|lb|hubitat|printer\nCertificate commands."; }
+certCommand() { usage; }
+
+certArgStart()
+{
+	domain="butare.net"
+	certDir="/etc/letsencrypt/live"
+	encryptedDir="$(CloudConf && encrypt mount "$CLOUD/data/app/CryFS/personal")/data/letsencrypt" || return
+}
+
+certAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert all\nPerform all certificate commands."; }
+certAllCommand() { certRenewCommand && certCopyCommand && certLbCommand && certHubitatCommand; }
+
+certRenewCommand()
+{
+	hilight "Renewing certificate..."
+	CertGetDates "$certDir/$domain/cert.pem" || return
+	! ask 'Do you want to renew the certificate' && return
+	sudoc certbot certonly -d '*.butare.net' --dns-cloudflare --dns-cloudflare-credentials "/etc/letsencrypt/credentials/cloudflare.ini" || return
+}
+
+certCopyCommand()
+{
+	hilight "Copying certificate to the encrypted store..."	
+	CertGetDates "$certDir/$domain/cert.pem" || return
+	local cert="$encryptedDir/$domain/cert.pem"
+	[[ -f "$cert" ]] && { CertGetDates "$cert" || return; }
+	[[ -f "$cert" ]] && ! ask 'Do you want to copy the certificate to the encrypted store' && return
+
+	# backup existing certificate
+	( cd "$encryptedDir" && bak "$domain" -d "$domain.bak") || return
+
+	# copy certificates to the encrypted store
+	sudoc cp -Lr "$certDir/$domain" "/tmp/" || return
+	sudoc chown -R $USER "/tmp/$domain" || return
+	sudoc chgrp -R $USER "/tmp/$domain" || return
+	mv "/tmp/$domain/"* "$encryptedDir/$domain" && rmdir "/tmp/$domain"
+}
+
+certLbCommand()
+{
+	hilight "Updating the certificate on the Load Balancer (NGINX)..."
+
+	# update certificates used by the load balancer
+	cp -rp "$encryptedDir/$domain/." "/tmp/$domain" || return
+	sudoc chown -R root "/tmp/$domain" || return
+	sudoc chgrp -R root "/tmp/$domain" || return
+	sudoc mv "/tmp/$domain/"* "$UDATA/sync/etc/letsencrypt/live/$domain" || return
+	sudoc rmdir "/tmp/$domain" || return
+
+	# sync the load balancer certificates and the load balancer configuration
+	wiggin sync lb-cert && wiggin sync lb
+}
+
+certHubitatCommand()
+{	
+	cd "$encryptedDir/butare.net" || return
+	{ certHubitat 1 && certHubitat 2; } || return
+}
+
+certHubitat()
+{
+	local n="$1"; hilight "Updating the Hubitat $n certificates..."
+	open "https://hubitat${n}.butare.net/hub/advanced/certificate" || return
+
+	clipw "$(cat "cert.pem")" || return
+	pause "Paste certifcate, then press any key to continue..."
+
+	clipw "$(cat "privkey.pem")"
+	pause "Paste private key, then press any key to continue..."	
+
+	echo "Save key pair, Settings, Reboot"; pause
+}
 
 #
 # check commands
@@ -1069,55 +1149,6 @@ networkValidateWait()
 }
 
 #
-# renew command
-#
-
-renewUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert\nRenew Wiggin data."; }
-renewCommand() { usage; }
-
-renewCertUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert\nRenew Wiggin certificates."; }
-
-renewCertCommand()
-{
-	hilight "Renewing certificate..."
-	sudoc certbot certonly -d '*.butare.net' --dns-cloudflare --dns-cloudflare-credentials "/etc/letsencrypt/credentials/cloudflare.ini" || return
-
-	hilight "Copying certificate to the encrypted store..."
-	local certDir="/etc/letsencrypt/live/butare.net"
-	local encryptedDir; encryptedDir="$(CloudConf && encrypt mount "$CLOUD/data/app/CryFS/personal")/data/letsencrypt" || return
-	( cd "$encryptedDir" && bak "butare.net" ) || return 	# backup existing certificate
-	rm -fr "$encryptedDir/butare.net" || return						# remove existing certificate
-	{ sudoc cp -Lr "$certDir" "/tmp/" && 	sudoc chown -R $USER "/tmp/butare.net" && mv "/tmp/butare.net" "$encryptedDir"; } || return
-
-	hilight "Updating the certificate on the Load Balancer (NGINX)..."
-	{ wiggin sync lb-cert -H=bc && wiggin sync lb-cert && wiggin sync lb; } || return
-
-	hilight "Updating the certificate on Hubitat..."
-	cd "$encryptedDir/butare.net" || return
-	{ renewHubitat 1 && renewHubitat 2; } || return
-
-	hilight "Updating Study Color Printer..."
-	echo "– Import, ServerCertificate=cert?.pem, Private Key=privkey?.pem:"
-	open https://studycolorprinter.butare.net/PRESENTATION/ADVANCED/NWS_CERT_SSLTLS/TOP
-
-	hilight "Cleaning up..."
-	cd || return
-	encrypt unmount "personal" || return
-}
-
-renewHubitat()
-{
-	local n="$1"
-	open "https://hubitat${n}.butare.net/hub/advanced/certificate" || return
-
-	clipw "$(cat "cert.pem")" || return
-	pause "Paste certifcate, then press any key to continue..."
-
-	clipw "$(cat "privkey.pem")"
-	pause "Paste private key, then press any key to continue..."	
-}
-
-#
 # setup command
 #
 
@@ -1387,7 +1418,7 @@ updateCloudFlareDns()
 #
 
 encm() { encrypt mount "$cdata/app/CryFS/personal" "$@"; }
-encum() { encrypt unmount "personal" "$@"; }
+encum() { cd && encrypt unmount "personal" "$@"; }
 getDnsHosts() { GetHostsApp "dns" active ; }
 getDhcpHosts() { GetHostsApp "dhcp" active ; }
 mountVol() { VeraCrypt mount "$@" p "${globalArgs[@]}"; }
