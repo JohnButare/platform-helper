@@ -646,13 +646,13 @@ HashiConf()
 	local manager="local" 
 	IsPlatform win && { service running dbus || app start dbus --quiet $force $verbose; } && manager="gk"
 
-	# set environment from credential store cache if possible
+	# set environment from credential store cache if possible (faster .5s, securely save tokens)
 	if ! (( forceLevel > 1 )); then
 		(( verboseLevel > 1 )) && ScriptMessage "trying to set Hashi environment from '$manager' credential store cache" "HashiConf"
 		ScriptEval credential get hashi cache --quiet --manager="$manager" $force $verbose  && { HASHI_CHECKED="true"; return; }
 	fi
 
-	# set environment manually
+	# set environment (slower 5s)
 	(( verboseLevel > 1 )) && ScriptMessage "setting the Hashi environment manually" "HashiConf"
 	local vars; vars="$(hashi config environment all --suppress-errors $force $verbose)" || return
 	eval "$vars" || return
