@@ -22,7 +22,7 @@ init()
 	networkAll=("${aps[@]}" "${switches[@]}" "${routers[@]}")
 }
 
-cleanup() { encrypt unmount "personal"; }
+cleanup() { certStageCleanup && encrypt unmount "personal"; }
 
 #
 # backup commands
@@ -205,18 +205,20 @@ updateWireGuard() { runApp "update" "WireGuard" wiggin update WireGuard; }
 # certificate commands
 #
 
-certUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert all|renew|copy|lb|hubitat|printer\nCertificate commands."; }
+certUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert all|renew|copy|hubitat|lb|nas|printer\nCertificate commands."; }
 certCommand() { usage; }
 
 certArgStart()
 {
 	domain="butare.net"
 	certDir="/etc/letsencrypt/live"
+	certDirTmp="/tmp/cert-$domain"
 	encryptedDir="$(CloudConf && encrypt mount "$CLOUD/data/app/CryFS/personal")/data/letsencrypt" || return
+	certStage || return
 }
 
 certAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert all\nPerform all certificate commands."; }
-certAllCommand() { certRenewCommand && certCopyCommand && certLbCommand && certHubitatCommand; }
+certAllCommand() { certRenewCommand && certCopyCommand && certHubitatCommand && certLbCommand && certNasCommand && certPrinterCommand; }
 
 certRenewCommand()
 {
@@ -237,33 +239,23 @@ certCopyCommand()
 	# backup existing certificate
 	( cd "$encryptedDir" && bak "$domain" -d "$domain.bak") || return
 
-	# copy certificates to the encrypted store
-	sudoc cp -Lr "$certDir/$domain" "/tmp/" || return
-	sudoc chown -R $USER "/tmp/$domain" || return
-	sudoc chgrp -R $USER "/tmp/$domain" || return
-	mv "/tmp/$domain/"* "$encryptedDir/$domain" && rmdir "/tmp/$domain"
+	# copy certificates to the temporary certificate directory
+	sudoc cp -Lr "$certDir/$domain/"* "$certDirTmp" || return
+	sudoc chown -R $USER "$certDirTmp" || return
+	sudoc chgrp -R $USER "$certDirTmp" || return
+
+	# create X.509 certificate
+	( cd "$encryptedDir/$domain" && cat "cert.pem" "privkey.pem" > "certificate.pem"; ) || return
+
+	# create PKCS#12 certificate
+	echo "Use an empty password for the PKCS#12 (PFX) certificate..."	
+	( cd "$encryptedDir/$domain" && openssl pkcs12 -keypbe NONE -certpbe NONE -export -out certificate.pfx -inkey privkey.pem -in fullchain.pem; ) || return
+
+	# copy certificates to the encrypted certificate directory
+	cp "$certDirTmp/"* "$encryptedDir/$domain" || return
 }
 
-certLbCommand()
-{
-	hilight "Updating the certificate on the Load Balancer (NGINX)..."
-
-	# update certificates used by the load balancer
-	cp -rp "$encryptedDir/$domain/." "/tmp/$domain" || return
-	sudoc chown -R root "/tmp/$domain" || return
-	sudoc chgrp -R root "/tmp/$domain" || return
-	sudoc mv "/tmp/$domain/"* "$UDATA/sync/etc/letsencrypt/live/$domain" || return
-	sudoc rmdir "/tmp/$domain" || return
-
-	# sync the load balancer certificates and the load balancer configuration
-	wiggin sync lb-cert && wiggin sync lb
-}
-
-certHubitatCommand()
-{	
-	cd "$encryptedDir/butare.net" || return
-	{ certHubitat 1 && certHubitat 2; } || return
-}
+certHubitatCommand() { cd "$certDirTmp" && certHubitat 1 && certHubitat 2; }
 
 certHubitat()
 {
@@ -278,6 +270,53 @@ certHubitat()
 
 	echo "Save key pair, Settings, Reboot"; pause
 }
+
+certLbCommand()
+{
+	hilight "Updating the certificate on the Load Balancer (NGINX)..."
+
+	# update certificates used by the load balancer
+	local lbDir="$UDATA/sync/etc/letsencrypt/live/$domain"
+	sudoc cp "$certDirTmp/"* "$lbDir" || return
+	sudoc chown -R root "$lbDir" || return
+
+	# sync the load balancer certificates and the load balancer configuration
+	wiggin sync lb-cert && wiggin sync lb
+}
+
+certNasCommand() { certNas 1; }
+
+certNas()
+{	
+	local n="$1"; hilight "Updating the NAS $n certificates..."
+	local clip; clip="$(utw "${certDirTmp}")"; clipw "$clip"
+	open "https://nas${n}.hagerman.butare.net:5001" || return
+	EchoWrap "Control Panel, Security, Certificate, Add, Replace an existing certificate, *.butare.net, check Set as default certificate, Private Key=<paste>/privkey.pem, Certificate=<paste>/cert.pem, Private Key=<paste>/chain.pem"
+	pause
+}
+
+certPrinterCommand() { certStudyPrinter && certStudyColorPrinter; }
+
+certStudyPrinter()
+{	
+	local n="$1"; hilight "Updating the Study Printer certificate..."
+	local clip; clip="$(utw "${certDirTmp}/certificate.pem")"; clipw "$clip"
+	open "https://StudyPrinter.butare.net/net/security/certificate/ca.html" || return
+	EchoWrap "Import CA Certificate, Browse..., <paste>, Submit, reboot printer from panel"	
+	pause
+}
+
+certStudyColorPrinter()
+{	
+	local n="$1"; hilight "Updating the Study Color Printer certificate..."
+	local clip; clip="$(utw "${certDirTmp}/certificate.pfx")"; clipw "$clip"
+	open "https://StudyColorPrinter.butare.net/net/security/certificate/certificate.html" || return
+	EchoWrap "Delete, Import Certificate and Private Key, Browse..., <paste>, Submit, Administrator, Reboot Menu, Reboot, Yes"	
+	pause
+}
+
+certStage() { [[ -d "$encryptedDir/$domain" && $certDirTmp ]] && certStageCleanup && cp -rp "$encryptedDir/$domain/." "$certDirTmp"; }
+certStageCleanup() { [[ $certDirTmp && -d "$certDirTmp" ]] && sudoc rm -fr "$certDirTmp"; return 0; }
 
 #
 # check commands
