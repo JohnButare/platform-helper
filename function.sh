@@ -635,8 +635,9 @@ HashiConf()
 	local force forceLevel; ScriptOptForce "$@"
 	local verbose verboseLevel; ScriptOptVerbose "$@"
 
-	# return if Hashi configuration is set
+	# return if needed
 	[[ ! $force && $HASHI_CHECKED ]] && return
+	! IsOnNetwork "hagerman" && return
 	[[ ! $force && $VAULT_TOKEN ]] && { HASHI_CHECKED="true"; return; }
 
 	# initialize
