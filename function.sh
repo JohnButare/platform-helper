@@ -596,11 +596,18 @@ CronAdd()
 # D-Bus
 DbusConf()
 {
-	! IsPlatform wsl && return
-	export XDG_RUNTIME_DIR=/run/user/$(id -u)
-	export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
-	[[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" == "$USER" ]] && return
-	ScriptErr "directory '$XDG_RUNTIME_DIR' is not owned by '$USER', D-Bus will not function properly" "DbusConf"; return 1
+	if IsPlatform wsl; then
+		export XDG_RUNTIME_DIR=/run/user/$(id -u)
+		export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
+		[[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" == "$USER" ]] && return
+		ScriptErr "directory '$XDG_RUNTIME_DIR' is not owned by '$USER', D-Bus will not function properly" "DbusConf"; return 1
+	elif IsPlatform linux; then
+		[[ $DBUS_SESSION_BUS_ADDRESS ]] && return
+		[[ $XDG_RUNTIME_DIR ]] && { export DBUS_SESSION_BUS_ADDRESS="$XDG_RUNTIME_DIR/bus"; return; }
+		export DBUS_SESSION_BUS_ADDRESS="/dev/null"
+	fi
+
+	return 0
 }
 
 # DirenvConf - confiogure direnv if it is installed
