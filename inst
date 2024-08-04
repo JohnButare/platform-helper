@@ -271,13 +271,14 @@ installUsage()
 	EchoWrap "Usage: $(ScriptName) install [OPTION]... [APP]...
 Install an application.  To run a portion of the installation, the application name can be suffixed with download, final, help, profile, or register.  For example, 'inst SublimeProfile'.
 
-	     --force-full			force a full install, even on hosts targeted for a minimal install
-	     --hint=DIR				first directory to search for installation files
-	-H,  --host=HOST			comma separated list of hosts for the installation
-	-nh, --no-header	   	suppress headers
-	-np, --no-prompt	   	suppress interactive prompts
-	-p,  --prompt	   			force the installation prompt even for single app installs
-	-s,  --select					select the install location
+	     --force-full				force a full install, even on hosts targeted for a minimal install
+	     --hint=DIR					first directory to search for installation files
+	-H,  --host=HOST				comma separated list of hosts for the installation
+	-nh, --no-header	   		suppress headers
+	-np, --no-prompt	   		suppress interactive prompts
+	-p,  --prompt	   				force the installation prompt even for single app installs
+	-s,  --select						select the install location
+	-se, --suppress-errors	supress some errors 
 	-t,  --type=TYPE      $installTypes
 
 Portions:
@@ -288,7 +289,7 @@ Portions:
 
 installArgStart()
 { 
-	unset -v alternate apps forceFull hint hostArg hostOpt hosts installType noHeader noHelp noProfile noPrompt noRegister noRun promptArg select
+	unset -v alternate apps forceFull hint hostArg hostOpt hosts installType noHeader noHelp noProfile noPrompt noRegister noRun promptArg select suppressErrors
 	installTypes="alternate|beta|compile|local|package|store"
 }
 
@@ -306,6 +307,7 @@ installOpt()
 		--no-run|-nr) noRun="--no-run";;
 		--prompt|-p) promptArg="--prompt";;
 		--select|-s) select="--select";;
+		--suppress-errors|-se) suppressErrors="true";;
 		--type|--type=*|-t|-t=*) installOptType "$@";;
 		*) return 1
 	esac
@@ -927,11 +929,13 @@ download()
 	findDirCd "$dir" || return
 	[[  -f "$file" || -f "$(GetFileNameWithoutExtension "$file")" ]] && (( forceLevel < 2 )) && return
 
-	# download
+	# validate
 	hilight "Downloading '$(GetFileName "$file")'..."
 	url="$(UrlEncodeSpace "$url")"
-	downloadValidate "$url" "$validHeaders" || return
-	log1 "PWD=$PWD"
+	downloadValidate "$url" "$validHeaders" || return $(ScriptReturnError);
+	
+	# downbload
+	log1 "downloading: PWD=$PWD"
 	RunLog curl --location "$url" --output "$file" && echo
  }
 
@@ -1122,70 +1126,72 @@ i()
 	[[ ! $noPromptArg ]] && ( [[ $promptArg ]] || (( $# > 1 )) ) && prompt="true"
 
 	# install applications
-	while (($# != 0 )); do		
-		local app="$1"; shift
-
-		# check for suffix
-		local appCheck="${app,,}" suffix
-		[[ "$appCheck" =~ .download$ && "$appCheck" != "download" ]] && { suffix="Download"; }
-		[[ "$appCheck" =~ .final$ && "$appCheck" != "final" ]] && { suffix="Final"; }
-		[[ "$appCheck" =~ .help$ ]] && { suffix="Help"; }
-		[[ "$appCheck" =~ .profile$ ]] && { suffix="Profile"; }
-		[[ "$appCheck" =~ .register$ ]] && { suffix="Register"; }
-		[[ $suffix ]] && app="$(RemoveEnd "$appCheck" "${suffix,,}")"
-
-		# resolve app alias
-		app="$(appResolveAlias "$app")"
-
-		# apps to ignore
-		[[ "${app,,}" =~ ^(gitkrakendeb)$ ]] && return
-
-		# find the name of the function used to install the application without the Install suffix, i.e. xMing
-		local appFunction; appFunction="$(appGetInstallFunction "$app")" || { ScriptErr "'$app' installation does not exist"; return 1; }
-		appFunction="$(RemoveEnd "$appFunction" "Install")"
-
-		# ensure the application is installable for the current platform
-		[[ "$suffix" != "Download" ]] && ! checkInstallable "$appFunction" && continue
-
-		# variables
-		# ran - if set the setup program ran
-		# runCheck - if set we checked if we want to run 
-		unset forceAllParts ran runCheck rebootNeeded
-		pipArgs=() pipxArgs=() # run arguments
-
-		# elevate install
-		if iNeedsElevatation "$appFunction"; then
-			log1 "i: running '$appFunction' elevated"
-			RunScript --elevate --no-hide "${globalArgs[@]}" -- inst "$app" "${options[@]}" || return
-			continue
-		fi
-
-		# run a portion of the install
-		if [[ $suffix ]] ; then
-			iPortion "${suffix}" || return
-
-		# run the app install
-		elif [[ ! $prompt ]] || ask "\nInstall $appFunction"; then
-
-			local isInstalled; appIsInstalled "$appFunction" && isInstalled="true"
-
-			# run the install
-			iPortion "Install" || return
-
-			# if the install did not run do not run any more steps
-			[[ ! $force && ! $forceAllParts && ! $runCheck ]] && continue
-
-			# if the application was already installed (and we were updating it) only run the final step
-			[[ ! $force && ! $forceAllParts && $isInstalled ]] && { iPortion "Final" || return; continue; } 
-
-			# run the remaining steps
-			{ iPortion "Final" && iPortion "Profile" && iPortionRegister "Register" && iPortion "Help"; } || return
-
-		fi
-
-	done
+	local app; for app in "$@"; do iApp "$app" || return; done
 }
 
+iApp()
+{
+	local app="$1"
+
+	# check for suffix
+	local appCheck="${app,,}" suffix
+	[[ "$appCheck" =~ .download$ && "$appCheck" != "download" ]] && { suffix="Download"; }
+	[[ "$appCheck" =~ .final$ && "$appCheck" != "final" ]] && { suffix="Final"; }
+	[[ "$appCheck" =~ .help$ ]] && { suffix="Help"; }
+	[[ "$appCheck" =~ .profile$ ]] && { suffix="Profile"; }
+	[[ "$appCheck" =~ .register$ ]] && { suffix="Register"; }
+	[[ $suffix ]] && app="$(RemoveEnd "$appCheck" "${suffix,,}")"
+
+	# resolve app alias
+	app="$(appResolveAlias "$app")"
+
+	# apps to ignore
+	[[ "${app,,}" =~ ^(gitkrakendeb)$ ]] && return
+
+	# find the name of the function used to install the application without the Install suffix, i.e. xMing
+	local appFunction; appFunction="$(appGetInstallFunction "$app")" || { ScriptErr "'$app' installation does not exist"; return 1; }
+	appFunction="$(RemoveEnd "$appFunction" "Install")"
+
+	# ensure the application is installable for the current platform
+	[[ "$suffix" != "Download" ]] && ! checkInstallable "$appFunction" && return
+
+	# variables
+	# ran - if set the setup program ran
+	# runCheck - if set we checked if we want to run 
+	unset forceAllParts ran runCheck rebootNeeded
+	pipArgs=() pipxArgs=() # run arguments
+
+	# elevate install
+	if iNeedsElevatation "$appFunction"; then
+		log1 "i: running '$appFunction' elevated"
+		RunScript --elevate --no-hide "${globalArgs[@]}" -- inst "$app" "${options[@]}" || $(ScriptReturnError)
+		return
+	fi
+
+	# run a portion of the install
+	if [[ $suffix ]] ; then
+		iPortion "${suffix}" || return $(ScriptReturnError)
+
+	# run the app install
+	elif [[ ! $prompt ]] || ask "\nInstall $appFunction"; then
+
+		local isInstalled; appIsInstalled "$appFunction" && isInstalled="true"
+
+		# run the install
+		iPortion "Install" || return $(ScriptReturnError)
+
+		# if the install did not run do not run any more steps
+		[[ ! $force && ! $forceAllParts && ! $runCheck ]] && return
+
+		# if the application was already installed (and we were updating it) only run the final step
+		[[ ! $force && ! $forceAllParts && $isInstalled ]] && { iPortion "Final" || return $(ScriptReturnError); return; } 
+
+		# run the remaining steps
+		{ iPortion "Final" && iPortion "Profile" && iPortionRegister "Register" && iPortion "Help"; } || return $(ScriptReturnError)
+
+	fi
+
+}
 iNeedsElevatation()
 {
  	{ ! IsPlatform win || ! CanElevate || IsElevated; } && return 1
@@ -2330,13 +2336,20 @@ appDirLink()
 # Installs
 #################################################
 
-UpdateInstall() { local apps; apps=( $(inst update) ) && i "${apps[@]}"; }
+UpdateInstall()
+{
+	local suppressErrors="true" # supress install errors
+	local apps; apps=( $(inst update) ) && i "${apps[@]}"
+}
 
 DownloadInstall()
 {
+	local suppressErrors="true" # supress download errors
+
 	! UpdateNeeded "install-download" && return
 
-	local app apps=(1Password 1PasswordCli Alfred BeyondCompare Firefox GitKraken iTerm KarabinerElements Obsidian Rectangle Sublime SublimeMerge VisualStudioCode Warp WindowsTerminal)
+	# initialize
+	local app apps=(1Password 1PasswordCli Alfred BeyondCompare Docker Firefox GitKraken iTerm KarabinerElements Obsidian Rectangle Sublime SublimeMerge VisualStudioCode Warp WindowsTerminal)
 	! IsDomainRestricted && apps+=(AltTab BalenaCli BalenaEtcher Bartender BetterDisplay CleanMyMac Dropbox Fork Hashi Loom Shottr SoundSource)
 
 	# regular downloads

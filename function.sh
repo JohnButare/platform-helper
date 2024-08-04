@@ -4002,6 +4002,7 @@ ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; };
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
 ScriptMessage() { EchoErr "$(ScriptPrefix "$2")$1"; } 																		# ScriptMessage MESSAGE - log a message with the script prefix
 ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "%s" "$name: "; }
+ScriptReturnError() { [[ $suppressErrors ]] && echo 0 || echo 1; }
 ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; ScriptExit; }
 ScriptTryVerbose() { EchoErr "Use '--verbose' for more information."; ScriptExit; }
 
