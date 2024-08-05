@@ -652,7 +652,10 @@ HashiConf()
 	# initialize
 	(( verboseLevel > 1 )) && header "Hashi Configuration"
 
-	# manager - gnome-keyring is faster in Windows
+	# D-BUS Configuration - as root avoid vault error "DBUS_SESSION_BUS_ADDRESS envvar looks to be not set, this can lead to runaway dbus-daemon processes"
+	DbusConf || return
+
+	# set credential manager - use gnome-keyring in Windows (faster)
 	local manager="local" 
 	IsPlatform win && { service running dbus || app start dbus --quiet $force $verbose; } && manager="gk"
 
