@@ -659,6 +659,10 @@ HashiConf()
 	local force forceLevel; ScriptOptForce "$@"
 	local verbose verboseLevel; ScriptOptVerbose "$@"
 
+	# configure D-BUS - as root avoid vault error "DBUS_SESSION_BUS_ADDRESS envvar looks to be not set, this can lead to runaway dbus-daemon processes"
+	# - run before return to ensure D-BUS is configured when running from Nomad job with VAULT_TOKEN set
+	[[ "$USER" == "root" ]] && { DbusConf $force $verbose || return; }
+
 	# return if needed
 	[[ ! $force && $HASHI_CHECKED ]] && return
 	! IsOnNetwork "hagerman" && return
@@ -666,9 +670,6 @@ HashiConf()
 
 	# initialize
 	(( verboseLevel > 1 )) && header "Hashi Configuration"
-
-	# D-BUS Configuration - as root avoid vault error "DBUS_SESSION_BUS_ADDRESS envvar looks to be not set, this can lead to runaway dbus-daemon processes"
-	DbusConf $force $verbose || return
 
 	# set credential manager - use gnome-keyring in Windows (faster)
 	local manager="local" 
