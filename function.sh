@@ -596,17 +596,32 @@ CronAdd()
 # D-Bus
 DbusConf()
 {
+	local force forceLevel; ScriptOptForce "$@"
+	local verbose verboseLevel; ScriptOptVerbose "$@"
+
+	# initialize
+	(( verboseLevel > 1 )) && header "D-BUS Configuration"
+
 	if IsPlatform wsl; then
 		export XDG_RUNTIME_DIR=/run/user/$(id -u)
 		export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
-		[[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" == "$USER" ]] && return
-		ScriptErr "directory '$XDG_RUNTIME_DIR' is not owned by '$USER', D-Bus will not function properly" "DbusConf"; return 1
+		if ! [[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" == "$USER" ]]; then
+			ScriptErr "directory '$XDG_RUNTIME_DIR' is not owned by '$USER', D-Bus will not function properly" "DbusConf"
+			return 1
+		fi
 	elif IsPlatform linux; then
-		[[ $DBUS_SESSION_BUS_ADDRESS ]] && return
-		[[ $XDG_RUNTIME_DIR ]] && { export DBUS_SESSION_BUS_ADDRESS="$XDG_RUNTIME_DIR/bus"; return; }
-		export DBUS_SESSION_BUS_ADDRESS="/dev/null"
+		if [[ $DBUS_SESSION_BUS_ADDRESS ]]; then :
+		elif [[ $XDG_RUNTIME_DIR ]]; then export DBUS_SESSION_BUS_ADDRESS="$XDG_RUNTIME_DIR/bus"
+		else export DBUS_SESSION_BUS_ADDRESS="/dev/null"
+		fi
+	else
+		ScriptMessage "D-BUS is not installed" "DbusConf"
+		return
 	fi
 
+	# logging
+	(( verboseLevel > 1 )) && ScriptMessage "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" "DbusConf"
+	
 	return 0
 }
 
@@ -653,7 +668,7 @@ HashiConf()
 	(( verboseLevel > 1 )) && header "Hashi Configuration"
 
 	# D-BUS Configuration - as root avoid vault error "DBUS_SESSION_BUS_ADDRESS envvar looks to be not set, this can lead to runaway dbus-daemon processes"
-	DbusConf || return
+	DbusConf $force $verbose || return
 
 	# set credential manager - use gnome-keyring in Windows (faster)
 	local manager="local" 
