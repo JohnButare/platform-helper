@@ -614,8 +614,10 @@ DbusConf()
 		elif [[ $XDG_RUNTIME_DIR ]]; then export DBUS_SESSION_BUS_ADDRESS="$XDG_RUNTIME_DIR/bus"
 		else export DBUS_SESSION_BUS_ADDRESS="/dev/null"
 		fi
+	elif IsPlatform mac; then
+		:
 	else
-		ScriptMessage "D-BUS is not installed" "DbusConf"
+		ScriptMessage "D-BUS is not installed" #"DbusConf"
 		return
 	fi
 
