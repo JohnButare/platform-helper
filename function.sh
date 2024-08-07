@@ -1485,7 +1485,6 @@ FileWait()
 	# variables
 	local dir="$(GetFilePath "$(GetFullPath "$file")")" fileName="$(GetFileName "$file")" fileDesc="$(FileToDesc "$file")"
 	local find=(FindAny "$dir" "$fileName"); [[ $sudo ]] && find=($sudo ls "$file")
-	ArrayShow find
 
 	# wait
 	[[ ! $quiet ]] && printf "Waiting $timeoutSeconds seconds for '$fileDesc'..."
