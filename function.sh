@@ -2175,9 +2175,10 @@ MacLookup()
 		fi
 	# resolve using the ARP table
 	else
+		local ping="ping -c 1"; IsPlatform win && ping="ping.exe -n 1 -w 100"
 
 		# populate the arp cache with the MAC address
-		ping -c 1 "$host" >& /dev/null || { ScriptErrQuiet "unable to lookup the MAC address for '$host'" "MacResolve"; return 1; }
+		eval $ping "$host" >& /dev/null || { ScriptErrQuiet "unable to lookup the MAC address for '$host'" "MacResolve"; return 1; }
 
 		# get the MAC address in Windows
 		if IsPlatform win; then
