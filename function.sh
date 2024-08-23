@@ -602,7 +602,7 @@ DbusConf()
 	# initialize
 	(( verboseLevel > 1 )) && header "D-BUS Configuration"
 
-	if IsPlatform wsl; then
+	if IsPlatform wsl && IsSystemd; then
 		export XDG_RUNTIME_DIR=/run/user/$(id -u)
 		export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
 		if ! [[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" == "$USER" ]]; then
@@ -614,10 +614,10 @@ DbusConf()
 		elif [[ $XDG_RUNTIME_DIR ]]; then export DBUS_SESSION_BUS_ADDRESS="$XDG_RUNTIME_DIR/bus"
 		else export DBUS_SESSION_BUS_ADDRESS="/dev/null"
 		fi
-	elif IsPlatform mac; then
+	elif IsPlatform mac,wsl; then # ignore systems without D-BUS (no D-BUS on WSL without systemd)
 		:
 	else
-		ScriptMessage "D-BUS is not installed" #"DbusConf"
+		ScriptMessage "D-BUS is not installed"
 		return
 	fi
 
