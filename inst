@@ -385,7 +385,8 @@ installInit()
 		[filelocator]="FileLocatorPro"
 		[fusion]="VmwareFusion"
 		[FsviewInstall]="FastStoneImageViewer"
-		[ge]="nVidiaGeForceExperience"
+		[ge]="GitExtensions"
+		[gfe]="nVidiaGeForceExperience"
 		[ghub]="LogitechGhub"
 		[GeForceExperience]="nVidiaGeForceExperience"
 		[gfw]="GitForWindows"
@@ -2084,7 +2085,7 @@ AppCoreCommonInstall() { header "App Core Common"; i PythonLocal PythonGlobal; }
 AppPlatformInstall() { header "App Platform"; RunPlatform appPlatform; }
 appPlatformMac() { header "App Platform Mac"; package macchina psgrep pstree tokei && i AltTab iTerm KarabinerElements warp; }
 appPlatformQnap() { header "App Platform QNAP"; i qcli && iStore MalwareRemover NotificationCenter Qboost QuLog SSDLaboratory SecurityCounselor; }
-appPlatformWin() { header "App Platform Windows"; i WindowsTerminal AutoHotKey UltraMon; }
+appPlatformWin() { header "App Platform Windows"; i WindowsTerminal AutoHotKey EdgeFinal OneDrive UltraMon; }
 appPlatformProxmox() { header "App Platform Proxmox"; i ProxmoxWinTools; }
 
 appPlatformDebian() { header "App Debian"; appPlatformDebianMinimal && appPlatformDebianFull; }
@@ -2267,6 +2268,8 @@ AppDirInstall()
 
 appDirWin()
 {
+	header "Application Directory"
+
 	# data drives
 	local drive drives; IFS=$'\n' ArrayMakeC drives drive list || return
 	for drive in "${drives[@]}"; do appDataWinSetup "$drive" || return; done
@@ -2869,10 +2872,13 @@ BootstrapFilesInstall()
 	fi
 
 	printf "permissions..."
-	InPath setfacl && { setfacl --default --modify o::rwX "$DATA/update" || return; }
-	sudoc chmod -R o+w "$DATA/update" || return
+	if [[ -d "$DATA/update" ]]; then
+		InPath setfacl && { setfacl --default --modify o::rwX "$DATA/update" || return; }
+		sudoc chmod -R o+w "$DATA/update" || return
+	fi
 
 	echo "done"
+	UpdateDone "bootstrap-files"
 }
 
 #
@@ -3052,7 +3058,10 @@ ChromeFinalWin()
 	mergeDir "$up/Chrome Apps" "$up/Applications/Other" || return
 }
 
-EdgeInstall() { run --header "Edge" "install/other/Microsoft/Edge/MicrosoftEdgeSetup.exe|MicrosoftEdge-108.0.1462.76$(getArch "", "_arm").pkg"; } # https://www.microsoft.com/en-us/edge/download?form=MA13FJ
+EdgeInstall()
+{
+	run --header "Edge" "install/other/Microsoft/Edge/MicrosoftEdgeSetup.exe|MicrosoftEdge-108.0.1462.76$(getArch "", "_arm").pkg"; # https://www.microsoft.com/en-us/edge/download?form=MA13FJ
+}
 
 EdgeFinalWin()
 { 
@@ -3775,6 +3784,7 @@ TeamsFinalWin()
 {	
 	$mv "$up/Microsoft Teams.lnk" "$up/Applications" || return
 	$rm "$ud/Microsoft Teams.lnk" || return	
+	$mv "$up/Microsoft Teams (work or school).lnk" "$up/Applications" || return
 	$mv "$up/Microsoft Teams classic (work or school).lnk" "$up/Applications" || return
 	registry 32 delete "urun/com.squirrel.Teams.Teams" || return # $UADATA/Microsoft/Teams/Update.exe --processStart "Teams.exe" --process-start-args "--system-initiated"
 }
@@ -4555,10 +4565,16 @@ GitAllInstall()
 GitCoreInstall()
 {
 	header "Git Core"
+
+	# install
 	pkg git || return
-	i GitCredentialManager GitClient GitHub || return	
+	i GitCredentialManager GitClient || return
+	! IsDomainRestricted && { i GitHub || return; }
 	RunPlatform gitCore || return
+
+	# clone	
 	! IsPlatform chroot,vm && { GitHelper clone bin || return; }
+
 	return 0
 }
 
@@ -4571,7 +4587,7 @@ gitClientUbuntu() { i GitKraken SublimeMerge; }
 
 gitClientWin()
 {
-	i GitForWindows || return
+	i GitForWindows GitExtensions || return
 
  	# posix permissions do not work well on windows file systems
 	if IsPlatform wsl1; then
@@ -6580,6 +6596,7 @@ SpotifyInstall() { run --header "Spotify" "other/Spotify/SpotifySetup.exe|Spotif
 
 SpotifyFinalWin()
 {
+	mediaInit || return
 	$rm "$ud/Spotify.lnk" || return
 	$mv "$up/Spotify.lnk" "$up/Media" || return
 	registry delete "urun/Spotify" || return	# C:\Users\jjbutare\AppData\Roaming\Spotify\Spotify.exe --autostart --minimized
@@ -8549,19 +8566,20 @@ pipInstallDo()
 	pythonCheckLocalPip && return
 
 	# restricted domains block get-pip.py
-	IsDomainRestricted && { package pip || return; }
+	IsDomainRestricted && { package pip && pythonCheckLocalPip; return; }
 
 	# CasaOS does not work with get-pip.py
 	if IsPlatform CasaOs; then
 		package python3-pip || return
 		pip3 install pip --upgrade --user || return
 		packageu python3-pip || return
+		pythonCheckLocalPip; return
 	fi
 
-	# try installing local pip from the global version
+	# try global pip
 	InPath pip3 && { pip3 install pip --upgrade --user || return; }
 
-	# pip - also install on externally managed environments since need latest pip features
+	# get-pip.py  - also install on externally managed environments since need latest pip features
 	if ! pythonCheckLocalPip; then
 		PythonManageDisable || return
 		curl -s "https://bootstrap.pypa.io/get-pip.py" | python3 - --user || { PythonManageEnable; return 1; }
@@ -9565,7 +9583,7 @@ CredentialStoreInstall()
 	! IsPlatform mac,debian,win && { i --no-header pass || return; }
 
 	# add passwords to the credential store
-	unset CREDENTIAL_MANAGER; CredentialConf --force || return
+	unset CREDENTIAL_MANAGER; CredentialConf --force "${globalArgs[@]}" || return
 	password store set "${globalArgs[@]}" || return
 
 	if IsPlatform wsl2 && CREDENTIAL_MANAGER=gk credential manager status --quiet && ! CREDENTIAL_MANAGER=gk password store check --quiet "${globalArgs[@]}"; then
@@ -9882,6 +9900,7 @@ SshClientInstall()
 
 SshClientPermissionInstall()
 {
+	[[ ! -d ~/.ssh ]] && return
 	[[ "$(DirCount ~/.ssh)" == "0" ]] && return	
 	sudoc chown "$USER" ~/.ssh/* || return
 	! IsPlatform mac && { chgrp "$USER" ~/.ssh/* || return; }
@@ -10269,14 +10288,16 @@ ObsidianProfile() { obsidian $noPrompt profile restore default; }
 ObsidianFinalWin() { $mv "$up/Obsidian.lnk" "$up/Applications" && $rm "$ud/Obsidian.lnk"; }
 ObsidianRegister() { register "obsidian"; }
 
-ObsidianHelp() {	makeDir "$WIN_UDATA/app/Obsidian" && obsidian start && obsiandHelp$(GetDomain); } 
+ObsidianHelp() {	makeDir "$WIN_UDATA/app/Obsidian" && obsidian start && obsidianHelp$(GetDomain | UpperCaseFirst); } 
 
 obsidianHelpSandia()
 {
 	CloudConf || return
-	local clip; clip="$(utw "$CLOUD/data/app/Obsidian/Sandia")"; clipw "$clip"	
+	local clip; clip="$(utw "$CLOUD/data/app/Obsidian/Sandia/")"; clipw "$clip"	
 	echo -E "\
-- Open folder as vault, Open, <paste> ($clip), Select Folder
+($clip)
+- Explorer, <paste>, Obsidian, Right click Sandia, Always keep on this device
+- Open folder as vault, Open, <paste>, Select Folder
 - Community plugins, Turn on community plugins"
 }
 
@@ -10284,7 +10305,8 @@ obsidianHelpWiggin()
 {
 	local clip; clip="$(utw "$WIN_UDATA/app/Obsidian")"; clipw "$clip"	
 	echo -E "\
-- Open vault from Obidian Sync=Sign in, personal=Connect, Location=paste ($clip), Create
+($clip)
+- Open vault from Obidian Sync=Sign in, personal=Connect, Location=paste, Create
 - Community plugins, Turn on community plugins
 - Sync, check all"
 }
@@ -11781,8 +11803,8 @@ UltraMonProfile() { UltraMonHelper $noPrompt profile restore default; }
 WinSetupInstall()
 {
 	header "Windows Setup"
-	i SystemInternals WinPath WinPermissions || return # run first
-	i WinApps WinConfig WinConfigUser WinConsole WinDirs WinDirsUser wsl OneDrive || return
+	i DebianSudoSecurePath SystemInternals WinPath WinPermissions || return # run first
+	i WinApps WinConfig WinConfigUser WinConsole WinDirs WinDirsUser wsl || return
 }
 
 # WinAppsInstall - install additional applications for the current Windows build
@@ -11922,9 +11944,6 @@ WinConfigUserInstall()
 	echo "Disabling AutoPlay..."
 	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/AutoplayHandlers/DisableAutoplay' REG_DWORD 1 || return
 
-	echo "Removing startup applications..."
-	i EdgeFinal || return	
-
 	if IsVm; then
 		echo "Configuring power settings for a virtual machine..."
 		powercfg.exe /change standby-timeout-ac 0
@@ -11933,6 +11952,7 @@ WinConfigUserInstall()
 	fi
 
 	# taskbar
+	echo "Configuring the taskbar..."
 	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/TaskbarMn' REG_DWORD 0 || return # chat
  	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/ShowCortanaButton' REG_DWORD 0 || return
  	registry set 'HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/ShowTaskViewButton' REG_DWORD 0 || return
@@ -11966,21 +11986,20 @@ WinConsoleInstall()
 
 WinDirsInstall()
 {
-	# public programs
+	header "Windows Directories"
 	makeDir "$pp/Applications/Other" || return
 	makeDir "$pp/Operating System/Other" || return
+	makeLinkSudo --symbolic "$WIN_ROOT/Users/Public" "$PUB" || return
 }
 
 WinDirsUserInstall()
 {
 	header "Windows Directories User"
-
 	makeDir "$PUSER" || return
 	makeDir "$WIN_ROOT/temp" || return
 	makeDir "$up/Applications/Other" || return
 	makeDir "$up/Startup" || return
 	makeDir "$WIN_HOME/$(GetFileName "$CODE")" || return
-	makeLinkSudo --symbolic "$WIN_ROOT/Users/Public" "$PUB" || return
 }
 
 WinFileSharingInstall()
