@@ -517,7 +517,7 @@ installInit()
 	win+=(AjaSystemTest backupper DiskImager FileLocatorPro ParagonExtFs PartitionAssistant TeraCopy ToDoBackup TrueImage)
 
 	# .NET
-	macDebian+=(DotNet DotNetDev VisualStudio VisualStudioExtensions)
+	macDebian+=(VisualStudio VisualStudioExtensions)
 	win+=(nUnit Silverlight)
 
 	# File Comparison
@@ -1233,7 +1233,7 @@ isInstallable()
 	# app name checks
 	isCollectionCommon "$app" && return
 	[[ "$check" =~ ^(ssh.*)$ ]] && return
-	[[ "$check" =~ ^(hashi.*|consul.*|nomad.*|vault.*)$ ]] && IsPlatform debian,mac && return
+	[[ "$check" =~ ^(dotnet.*|hashi.*|consul.*|nomad.*|vault.*)$ ]] && IsPlatform debian,mac && return
 	[[ "$check" =~ ^(debian.*)$ ]] && IsPlatform debian && return
 	[[ "$check" =~ ^(linux.*)$ ]] && IsPlatform linux,mac,win && return
 	[[ "$check" =~ ^(mac.*)$ ]] && IsPlatform mac && return
@@ -7906,15 +7906,67 @@ WslProfile() { wsl $noPrompt profile restore default; }
 # .NET
 #
 
-DotNetAllInstall() { i DotNet nUnit Silverlight VisualStudio; }
-DotNetDevInstall() { i DotNet nUnit; }
+DotNetAllInstall() { i DotNetRuntime DotNetSdk nUnit Silverlight VisualStudio; }
+DotNetDevInstall() { i DotNetSdk nUnit; }
 
-DotNetInstall()
+dotNetGetVersion()
 {
-	header ".NET"; local v="7.0.302" # https://dotnet.microsoft.com/en-us/download
+	local version="$1"
+
+	# default version
+	if [[ ! $version ]]; then
+		[[ "$installType" == "beta" ]] && version=9 || version=8
+	fi
+
+	# get full versaion - https://dotnet.microsoft.com/en-us/download
+	case "$version" in
+		9) echo "9.0.100";;
+		8) echo "8.0.401";;
+		7) echo "7.0.302";;
+		6) echo "6.0.33";;
+		*) ScriptErr "cannot install .NET version '$1'"; return 1;;
+	esac
+}
+
+# .NET Runtime
+
+dotNetRuntimeCheck() { local v; v="$(dotNetGetVersion "$1")" && InPath dotnet.exe && dotnet.exe --list-runtimes | qgrep " $v "; }
+DotNetRuntime9Install() { DotNetRuntimeInstall 9; }; DotNetRuntime8Install() { DotNetRuntimeInstall 8; }; DotNetRuntime7Install() { DotNetRuntimeInstall 7; }; DotNetRuntime6Install() { DotNetRuntimeInstall 6; }
+
+DotNetRuntimeInstall()
+{
+	header ".NET Runtime"
+
+	# check
+	local v; v="$(dotNetGetVersion "$1")" || return
+	[[ ! $force ]] && { dotNetRuntimeCheck "$1" || dotNetSdkCheck "$1"; } && return
+
+	# install
 	if IsPlatform mac,win; then
-		local f="dotnet-sdk-$v-"
-		run "other/Microsoft/DOT.NET/setup/${f}win-x64.exe|${f}osx-$(getArch "x64" "arm64").pkg" || return
+		local f="dotnet-runtime-$v-" arch="$(getArch "x64" "arm64")"
+		run "other/Microsoft/DOT.NET/setup/${f}win-${arch}.exe|${f}osx-${arch}.pkg" --elevate -- /quiet || return
+	else
+		curl -sSL "https://dot.net/v1/dotnet-install.sh" | bash /dev/stdin --channel Current
+	fi
+}
+
+# .NET SDK
+
+dotNetSdkCheck() { local v; v="$(dotNetGetVersion "$1")" && InPath dotnet.exe && dotnet.exe --list-sdks | qgrep "^$v "; }
+DotNetSdk9Install() { DotNetSdkInstall 9; }; DotNetSdk8Install() { DotNetSdkInstall 8; }; DotNetSdk7Install() { DotNetSdkInstall 7; }; DotNetSdk6Install() { DotNetSdkInstall 6; }
+
+DotNetSdkInstall()
+{
+	header ".NET SDK"
+	
+	# check
+	local v; v="$(dotNetGetVersion "$1")" || return
+	[[ ! $force ]] && dotNetSdkCheck "$1" && return
+
+	# install
+	if IsPlatform mac,win; then
+		local f="dotnet-sdk-$v-" arch="$(getArch "x64" "arm64")"
+		run "other/Microsoft/DOT.NET/setup/${f}win-${arch}.exe|${f}osx-${arch}.pkg" --elevate -- /quiet || return
 	else
 		curl -sSL "https://dot.net/v1/dotnet-install.sh" | bash /dev/stdin --channel Current
 	fi
