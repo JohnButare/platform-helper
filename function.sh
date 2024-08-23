@@ -866,11 +866,27 @@ ZoxideConf()
 # Config
 #
 
-ConfigInit() { [[ ! $functionConfigFileCache ]] && export functionConfigFileCache="${1:-$BIN/bootstrap-config.sh}"; [[ -f "$functionConfigFileCache" ]] && return; EchoErr "ConfigInit: configuration file '$functionConfigFileCache' does not exist"; return 1; }
-ConfigExists() { ConfigInit "$2" && (. "$functionConfigFileCache"; IsVar "$1"); }				# ConfigExists "VAR" - return true if a configuration variable exists
-ConfigGet() { ConfigInit "$2" && (. "$functionConfigFileCache"; eval echo "\$$1"); }		# ConfigGet "VAR" - get a configuration variable
-ConfigGetCurrent() { ConfigGet "$(network current name)$(UpperCaseFirst "$1")" "$2"; } 	# ConfigGetCurrent "VAR" - get a configuration entry for the current network
-ConfigFileGet() { echo "$functionConfigFileCache"; }																		# ConfigFileGet - return the current configuration file
+ConfigExists() { local file; configInit "$2" && (. "$functionConfigFileCache"; IsVar "$1"); }				# ConfigExists VAR [FILE] - return true if a configuration variable exists
+ConfigGet() { local file; configInit "$2" && (. "$functionConfigFileCache"; eval echo "\$$1"); }		# ConfigGet VAR [FILE] - get a configuration variable
+ConfigGetCurrent() { local file; ConfigGet "$(network current name)$(UpperCaseFirst "$1")" "$2"; } 	# ConfigGetCurrent VAR [FILE] - get a configuration entry for the current network
+
+# configInit [FILE] - set the configuration file, find in $BIN/bootstrap-config.sh or /usr/local/bin/bootstrap-config.sh
+configInit()
+{
+	file="$1"
+
+	# use the specified configuration file
+	if [[ $file ]]; then
+		[[ -f "$file" ]] && return
+		EchoErr "ConfigInit: configuration file '$file' does not exist"; return 1
+	fi
+
+	# locate the configuration file
+	if file="$BIN/bootstrap-config.sh" && [[ -f "$file" ]]; then return
+	elif file="/usr/local/data/bin/bootstrap-config.sh" && [[ -f "$file" ]]; then return
+	else EchoErr "ConfigInit: unable to locate a configuration file"; return 1
+	fi
+}
 
 #
 # console
