@@ -182,38 +182,25 @@ adapterCheck()
 # current commands
 #
 
-currentUsage()
-{
-	echot "Usage: $(ScriptName) current [all|find|name|status|server|servers|timeout|update](all)
-Current network commands.
-
-	-b,	--brief		show brief status messages (for use with app script)
-	-t, --timeout	the network host timeout in milliseconds, defaults to $(AvailableTimeoutGet).  The timeout is changed permanently (AvailableTimeoutGet changed)."
-}
-
-currentArgStart() { unset -v brief timeoutSet; timeout="$(AvailableTimeoutGet)"; }
-
-currentOpt()
-{
-	case "$1" in
-		-b|--brief) brief="--brief";;
-		-t|--timeout|-t=*|--timeout=*) ScriptOptGet --integer "timeout" "$@" && timeoutSet="true";;
-		*) return 1;;
-	esac
-}
-
-currentArgEnd()
-{
-		! updateTimeout && return
-		doLog && echo "Setting the availablility timeout to $timeout"
-		AvailableTimeoutSet "$timeout"
-}
-
+currentUsage() { echot "Usage: $(ScriptName) current [all|find|name|status|server|servers|update](all)\nCurrent network commands."; }
 currentCommand() { currentAllCommand; }
 currentNameCommand() { name; }
 currentStatusUsage() { echot "Usage: $(ScriptName) current all\nStatus of the current network."; }
 currentStatusCommand() { printf "network=$(name)\nproxy=$( [[ "$(getProxyServer)" == "" ]] && echo "none" || echo "$(getProxyServer)" )\ntimeout=$(AvailableTimeoutGet) ms\n"; }
-updateTimeout() { [[ $timeoutSet && "$command" != @(currentTimeout) ]]; }
+
+# common options
+
+currentUsageOther() { currentUsageBrief; currentUsageTimeout; }
+currentUsageBrief() { EchoWrap "	-b,	--brief		show brief status messages (for use with app script)."; }
+currentUsageTimeout() { EchoWrap "	-t, --timeout	the network host timeout in milliseconds, defaults to $(AvailableTimeoutGet)."; }
+
+currentArgStartOther() { currentArgStartBrief && currentArgStartTimeout; }
+currentArgStartBrief() { unset -v brief; }
+currentArgStartTimeout() { unset -v timeoutSet; timeout="$(AvailableTimeoutGet)"; }
+
+currentOptOther() { currentOptBrief "$@" || currentOptTimeout "$@"; }
+currentOptBrief() { [[ "$1" == @(-b|--brief) ]] || return; brief="--brief"; }
+currentOptTimeout() { [[ "$1" =~ --t|--timeout|-t=*|--timeout=* ]] || return; ScriptOptGet --integer "timeout" "$@" && timeoutSet="true"; }
 
 #
 # Current All Command
@@ -226,6 +213,7 @@ currentAllCommand()
 	local network networks=(); StringToArray "$(ConfigGet "networks")" "," networks
 	local current="$(RunLog network find --all --service=dns "${networks[@]}" "${globalArgs[@]}" --quiet)" || { echo "external"; return; }
 
+	# format
 	local name names=()
 	local host hosts; IFS=$'\n' ArrayMake hosts "$current"
 	for host in "${hosts[@]}"; do
@@ -240,7 +228,9 @@ currentAllCommand()
 # current find command
 #
 
-currentFindUsage() { echot "Usage: $(ScriptName) current find\nFind the primary network."; }
+currentFindUsage() { echot "Usage: $(ScriptName) current find\nFind the primary network.\n\n$(currentUsageOther)"; }
+currentFindArgStart() { currentArgStartOther; }
+currentFindOpt() { currentOptOther "$@"; }
 
 currentFindCommand()
 {
@@ -249,8 +239,8 @@ currentFindCommand()
 	local proxyServer
 	if canProxy; then
 		printf "proxy..."
-		proxyServer="$(findProxyServer)"
-		[[ $proxyServer ]] && echo "available" || echo "none"
+		proxyServer="$(findProxyServer "$network")"
+		[[ $proxyServer ]] && echo "available ($proxyServer)" || echo "none"
 	fi
 
 	log1 "network=$network proxy=$proxyServer"
@@ -265,13 +255,15 @@ currentServerUsage()
 	ScriptUsageEcho "Usage: $(ScriptName) current server TYPE
 Find the first available server for the current network, i.e. network 'network current server wireguard --service=wg' find the first available WireGuard from the list of servers in bootstrap-config.sh <domain>WireguardServers.
 
-	-s, --service		the service used to validate the server, defaults to ping, see 'network find --help'"
+$(currentUsageOther)
+	-s, --service	the service used to validate the server, defaults to ping, see 'network find --help'"
 }
 
-currentServerArgStart() { unset -v service type; }
+currentServerArgStart() { unset -v service; currentArgStartOther; }
 
 currentServerOpt()
 {
+	currentOptOther "$@" && return
 	case "$1" in
 		-s|--service|-s=*|--service=*) ScriptOptGet "service" "$@"; service="--service=$service";;
 		*) return 1;;
@@ -299,7 +291,9 @@ currentServersCommand() { local name; name="$(name)" || return; getServersFromCo
 # current update command
 #
 
-currentUpdateUsage() { echot "Usage: $(ScriptName) current all\nUpdate network settings for the current networks."; }
+currentUpdateUsage() { echot "Usage: $(ScriptName) current all\nUpdate network settings for the current networks.\n\n$(currentUsageOther)"; }
+currentUpdateArgStart() { currentArgStartOther; }
+currentUpdateOpt() { currentOptOther "$@"; }
 
 currentUpdateCommand()
 {
@@ -324,7 +318,7 @@ currentUpdateCommand()
 	# determine current network configuration
 	local network
 	doLog && { hilight "Determining network..."; echo "Existing network is ${existingNetwork:-unknown}"; }
-	doLog && printf "network..."; network="$(findNetwork $brief)" || return
+	doLog && printf "network..."; network="$(findNetwork)" || return
 
 	# update network configuration if needed
 	if [[ $force || "$network" != "$existingNetwork" || "$gateway" != "$existingGateway" ]]; then
@@ -425,7 +419,7 @@ updateHosts()
 findNetwork()
 {
 	local network networks=(); StringToArray "$(ConfigGet "networks")" "," networks
-	network="$(RunLog network find --service=dns "${networks[@]}" "${globalArgs[@]}" $brief)" || { echo "external"; return; }
+	network="$(RunLog network find --service=dns --timeout=$timeout $brief "${networks[@]}" "${globalArgs[@]}")" || { echo "external"; return; }
 	GetSshUser "$network" # return the name of the network (before @)
 }
 
@@ -433,7 +427,7 @@ findProxyServer()
 {
 	local network="$1"
 	local server="$(ConfigGet "${network}ProxyServer")"; [[ ! $server ]] && return
-	IsAvailablePort "$server" && curl --silent -x "http://$server" "http://httpbin.org/ip" |& jq > /dev/null && echo "$server"
+	IsAvailablePort "$server" "$timeout" && curl --silent -x "http://$server" "http://httpbin.org/ip" |& jq > /dev/null && echo "$server"
 }
 
 # findServer NETWORK TYPE SERVICE - find the first server of the specified type for the specified network  
@@ -577,8 +571,6 @@ findArgs()
 	servers=( "$@" ); (( shift+=$# )); return 0;
 }
 
-findArgEnd() { AvailableTimeoutSet "$timeout"; }
-
 findCommand()
 {
 	[[ ! $brief && ! $quiet ]] && PrintErr "checking..."
@@ -603,7 +595,7 @@ findCommand()
 		# logging
 		if [[ $verbose ]]; then
 			PrintErr "$description..."
-			IsAvailable "$host" && PrintErr "available..."
+			IsAvailable "$host" "$timeout" && PrintErr "available..."
 			PrintErr "$service..."
 		elif doLog; then
 			PrintErr "$description..."
@@ -643,18 +635,18 @@ findCheck()
 
 	case "$service" in
 		dns) 
-			IsAvailablePort "$ip" 53 || return
+			IsAvailablePort "$ip" 53 "$timeout" || return
 			InPath dig && { dig @$host bogus +time=2 +tries=1 >& /dev/null || return; } # some DNS servers require 2
 			return 0
 			;;
 
 		ping)
-			IsAvailable "$ip"
+			IsAvailable "$ip" "$timeout"
 			;;
 
 		wg)
 				local port="$(ConfigGetCurrent WireguardPort)"; [[ ! $port ]] && port="51820"
-				IsAvailablePortUdp "$host" "$port"
+				IsAvailablePortUdp "$host" "$port" "$timeout"
 				;;
 
 		*) 
