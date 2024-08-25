@@ -43,11 +43,10 @@ hashiTestVaultServers="pi20,pi21"
 
 defaultDomain="hagerman"
 
-# networks - list of known networks, check the DNS servers, format is NETWORK@DNS_IP
+# networks - list of known networks, check the DNS servers, format is NETWORK@DNS_IP[:ping|dns|nfs|smb|ssh|wg](dns)
 # hagerman 10.10.100.8|7 (lb3|lb2)
-# sandia 172.29.128.1 - yes (IPOC) no (office)
-# sandia 134.253.181.25|16.5 - yes (VPN, office)
-networks="hagerman@10.10.100.8,sandia@134.253.181.25,hagerman@10.10.100.7,sandia@134.253.16.5"
+# sandia 10.248.0.3 - gateware from trace route
+networks="hagerman@10.10.100.8:dns,sandia@10.248.0.3:ping,hagerman@10.10.100.7:dns"
 
 # external network
 externalTimeServer="time.apple.com"
