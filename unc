@@ -50,6 +50,13 @@ init()
 
 argStart() { unset -v protocol unc; }
 
+
+# common options
+
+timeoutUsage() { EchoWrap "-t, --timeout					the network host timeout in milliseconds, defaults to $(AvailableTimeoutGet)"; }
+timeoutArgStart() { unset -v; timeout="$(AvailableTimeoutGet)"; }
+timeoutOpt() { [[ "$1" =~ --t|--timeout|-t=*|--timeout=* ]] || return; ScriptOptGet --integer "timeout" "$@"; }
+
 #
 # browse command
 #
@@ -137,11 +144,12 @@ isAvailableUsage() { echot "Usage: unc IsAvailable [HOST](localhost)
 Return true if the specified HOST is available using the specified protocols.
 If no protocols are specified search for a protocol to use.
 
-	$protocolUsage"
+	$protocolUsage
+	$(timeoutUsage)"
 }
 
-isAvailableArgStart() { unset -v host; }
-isAvailableOpt() { protocolOpt "$@"; }
+isAvailableArgStart() { unset -v host; timeoutArgStart; }
+isAvailableOpt() { protocolOpt "$@" || timeoutOpt "$@"; }
 isAvailableArgs() { ScriptArgGet "host" -- "$@"; shift; }
 isAvailableCommand() { findProtocol "$host"; }
 
@@ -215,16 +223,18 @@ mountUsage()
 Mount the specified UNC.
 
 	$protocolUsage
-	-i, --ip										mount using the server IP address
-	-N, --no-host-check					do not check host availability"
+	-i, --ip							mount using the server IP address
+	-N, --no-host-check		do not check host availability
+	$(timeoutUsage)"
 }
 
-mountArgStart() { unset -v ip noHostCheck port protocol; }
+mountArgStart() { unset -v ip noHostCheck port protocol; timeoutArgStart; }
 mountArgs() { getTargetArg "$@"; }
 
 mountOpt() 
-{
+{	
 	protocolOpt "$@" && return
+	timeoutOpt "$@" && return
 	case "$1" in
 		-i|--ip) ip="--ip";;
 		-N|--no-host-check) noHostCheck="true";;
@@ -714,9 +724,9 @@ getProtocols()
 	
 	local hostIp; hostIp="$(GetIpAddress "$host")" || return
 	local protocols=() 
-	IsAvailablePort "$hostIp" "$(getPort "nfs")" && protocols+=( "nfs" )
-	IsAvailablePort "$hostIp" "$(getPort "smb")" && protocols+=( "smb" )
-	SshIsAvailablePort "$host" && protocols+=( "ssh" )
+	IsAvailablePort "$hostIp" "$(getPort "nfs")" $timeout && protocols+=( "nfs" )
+	IsAvailablePort "$hostIp" "$(getPort "smb")" $timeout  && protocols+=( "smb" )
+	SshIsAvailablePort "$host" $timeout && protocols+=( "ssh" )
 
 	[[ $protocols ]] && ArrayDelimit protocols " " || echo "none"
 }
@@ -835,12 +845,12 @@ isAvailable()
 	noHostCheck && return
 
 	# find check command
-	local check="IsAvailablePort $host $port"; [[ "$protocol" == "rclone" ]] && check="IsRcloneRemote $host"
+	local check="IsAvailablePort $host $port $timeout"; [[ "$protocol" == "rclone" ]] && check="IsRcloneRemote $host"
 		
 	# logging
 	if [[ $verbose ]]; then
 		PrintErr "$(ScriptPrefix)checking $host $(protocolDesc "$protocol" "$host") protocol..."
-		IsAvailablePort "$host" "$port" && EchoErr "available" || EchoErr "not available"
+		IsAvailablePort "$host" "$port" $timeout && EchoErr "available" || EchoErr "not available"
 	fi
 
 	# check host availability for protocol

@@ -717,10 +717,10 @@ GitRun() { local git; GitSet && SshAgentConf && $git "$@"; }
 GitSet() { git="git"; InPath git.exe && drive IsWin . && git="git.exe"; return 0; }
 
 # i: invoke the installer script (inst) saving the INSTALL_DIR
-i() 
+i()
 { 
 	# arguments
-	local args=() command force forceLevel help noFind noRun select verbose verboseLevel
+	local args=() command force forceLevel help noFind noRun select timeout verbose verboseLevel
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;	
@@ -729,6 +729,7 @@ i()
 			--no-find|-nf) noFind="--no-find";;
 			--no-run|-nr) noRun="--no-run";;
 			--select|-s) select="--select";;
+			--timeout|--timeout=*|-t|-t=*) . script.sh && ScriptOptGet --integer "timeout" "$@" && timeout="--timeout=$timeout";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*) args+=( "$1" ); ! IsOption "$1" && [[ ! $command ]] && command="$1";;
 		esac
@@ -758,7 +759,7 @@ InstFind()
 {
 	[[ ! $force && ! $select && $INSTALL_DIR && -d "$INSTALL_DIR" ]] && return
 	[[ $noFind ]] && return
-	ScriptEval FindInstallFile --eval $select $verbose || return
+	ScriptEval FindInstallFile --eval $select $timeout $verbose || return
 	export INSTALL_DIR="$installDir"
 	unset installDir file
 }
@@ -1214,10 +1215,10 @@ BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
 ForwardToBackSlash() { GetArgs; echo -E "$@" | sed 's/\//\\/g'; }
 RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
 
-GetAfter() { GetArgs2; [[ "$1" =~ ^[^$2]*$2(.*)$ ]] && echo "${BASH_REMATCH[1]}"; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
 GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoWrap "Usage: GetWord STRING|- WORD [DELIMITER](-) - 1 based"; return 1; }
 
 if IsZsh; then
+	GetAfter() { GetArgs2; echo "$1" | cut -d"$2" -f2-; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
 	LowerCase() { GetArgs; [[ $# == 0 ]] && { tr '[:upper:]' '[:lower:]'; return; }; r "${1:l}" $2; }
 	ProperCase() { GetArgs; r "${(C)1}" $2; }
 	UpperCase() { GetArgs; echo "${(U)1}"; }
@@ -1230,6 +1231,7 @@ if IsZsh; then
 	}
 
 else
+	GetAfter() { GetArgs2; [[ "$1" =~ ^[^$2]*$2(.*)$ ]] && echo "${BASH_REMATCH[1]}"; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
 	LowerCase() { GetArgs; [[ $# == 0 ]] && { tr '[:upper:]' '[:lower:]'; return; }; r "${1,,}" $2; }
 	ProperCase() { GetArgs; local arg="${1,,}"; r "${arg^}" $2; }
 	UpperCase() { GetArgs; echo "${1^^}"; }
@@ -2683,7 +2685,7 @@ RemoteServerName() { DnsResolve "$(RemoteServer)"; }				# RemoveServerName - ret
 
 SshConfigGet() { local host="$1" value="$2"; ssh -G "$host" | grep -i "^$value " | head -1 | cut -d" " -f2; } # SshConfigGet HOST VALUE - do not use SshHelp config get for speed
 SshInPath() { SshHelper connect "$1" -- which "$2" >/dev/null; } 																							# SshInPath HOST FILE
-SshIsAvailablePort() { local port="$(SshHelper config get "$1" port)"; IsAvailablePort "$1" "${port:-22}"; } 	# SshIsAvailablePort HOST - return true if SSH is available on the host
+SshIsAvailablePort() { local port="$(SshHelper config get "$1" port)"; IsAvailablePort "$1" "${port:-22}" $2; } 	# SshIsAvailablePort HOST [TIMEOUT] - return true if SSH is available on the host
 
 SshAgentEnvConf()
 {
