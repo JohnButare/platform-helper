@@ -18,21 +18,24 @@ Locations:
 - web final: local website source          : $webDirFinal ($(checkDir "$webDirFinal"))
 
 Sites:
-- bootloader download: http://boot.butare.net 
+- application
+	- vanity: https://netboot.butare.net
+	- direct: http://$(GetServer "netbootxyz"):3000
+- bootloaders: https://boot.butare.net 
 - assets
-  - vanity: http://boot.butare.net/assets
-  - direct: http://\$(GetServer apache-web):180/netboot.xyz/assets/
-- UI (menus, local assets)
-  - vanity: https://netboot.butare.net
-  - direct: http://\$(GetServer netbootxyz):3000
+  - vanity: https://boot.butare.net/assets/
+  - direct: https://$(GetServer apache-web):1443/netboot.xyz/assets/
+- assets-custom
+  - vanity: https://boot.butare.net/assets-custom/
+  - direct: https://$(GetServer apache-web):1443/netboot.xyz/assets-custom/
 Servers:
 - web
-  - servers: GetServers apache-web
+  - servers: $(GetServers "apache-web" | NewlineToSpace)
   - directory: 'cd \$(apache dir cd)/netboot.xyz/assets'
 - tftp
-  - servers: GetServers tftp
+  - servers: $(Getervers "tftp" | NewlineToSpace)
   - configuration: /etc/default/tftpd-hpa
-	- example: 'tftp \$(GetServer tftp) -c get about.ipxe'	"
+	- example: 'tftp $(GetServer tftp) -c get about.ipxe'	"
 }
 
 checkDir() {  [[ -d "$1" ]] && echo "present" || echo "${RED}missing${RESET}";  }
@@ -65,17 +68,36 @@ allUsage() { echot "Usage: $(ScriptName) all\nUpdate and deploy netboot.xyz."; }
 allCommand() { updateAppCommand && deployAllCommand; }
 isInstalledCommand() { [[ -d "$appDir" ]]; }
 varsCommand() { ScriptReturn appDir confDir webDirApp webDirFinal; }
-versionCommand() { version; }
 
 #
 # deploy commands
 #
 
-deployUsage() { echot "Usage: $(ScriptName) deploy [all|assets|installers|web](all)\nDeploy netboot.xyz assets, installers, and the web site."; }
+deployUsage() { echot "Usage: $(ScriptName) deploy [all|app|assets|installers|web](all)\nDeploy netboot.xyz assets, installers, and the web site."; }
 deployCommand() { deployAllCommand; }
-deployAllCommand() { local noPrompt="--no-prompt"; deployWebCommand && deployAssetsCommand && deployInstallersCommand; }
+deployAllUsage() { echot "Usage: $(ScriptName) deploy all\nDeploy application, assets, and installers."; }
+deployAllCommand() { local noPrompt="--no-prompt"; deployAppCommand && deployWebCommand && deployAssetsCommand && deployInstallersCommand; }
 
-deployAssetsUsage() { echot "Usage: $(ScriptName) deploy assets\nDeploy netboot.xyz menus, netboot.xyz  assets, and custom assets."; }
+deployAppUsage() { echot "Usage: $(ScriptName) deploy app\nDeploy the netboot.xyz application by upgrading the menus."; }
+
+deployAppCommand()
+{
+	HeaderBig "Deploying Application"
+
+ 	local versionLatest; versionLatest="$(versionLatest)" || return
+ 	log1 "versionLatest=$versionLatest"
+
+	local host hosts; getHosts || return
+	for host in "${hosts[@]}"; do
+		local h="$(RemoveDnsSuffix "$host")" versionHost; versionHost="$(versionApp "$host")" || return		
+		log1 "host=$host versionHost=$versionHost versionLatest=$versionLatest"
+		[[ "$versionHost" == "$versionLatest" ]] && continue
+		open "http://$host:3000" || return
+		pause "Click Update Menus then press any key to continue..."
+	done
+}
+
+deployAssetsUsage() { echot "Usage: $(ScriptName) deploy assets\nDeploy menus, assets, and custom assets."; }
 
 deployAssetsCommand()
 {
@@ -87,7 +109,7 @@ deployAssetsCommand()
 	hilight "Synchronizing Netboot.xyz assets..."
 	UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz/assets" "rp2" "${globalArgs[@]}" || return
 
-	hilight "Synchronizing custom asset..."
+	hilight "Synchronizing custom assets..."
 	UnisonHelper sync "$winScriptDir" "rp1" "$ADATA/netbootxyz/assets-custom/windows/scripts" --root --no-props "${globalArgs[@]}" || return
 	UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz/assets-custom" "rp2" "${globalArgs[@]}" || return
 }
@@ -102,7 +124,7 @@ deployInstallersCommand()
 	UnisonHelper sync --host=rp1 --no-props "$ADATA/netbootxyz/installers" "ender" "${globalArgs[@]}" || return
 }
 
-deployWebUsage() { echot "Usage: $(ScriptName) deploy web\nDeploy the Apache web site."; }
+deployWebUsage() { echot "Usage: $(ScriptName) deploy web\nCopy the netboot.xys web site from $(FileToDesc "$webDirApp") to $(FileToDesc "$webDirFinal"), then uploads the content to the Apache web servers."; }
 deployWebArgStart() { unset hostArg hostOpt hosts; }
 deployWebOpt() { ScriptOptHost "$@"; }
 
@@ -260,12 +282,24 @@ testUsage() { echot "Usage: $(ScriptName) test\nTest the netboot.xyz configurati
 
 testCommand()
 {
+	local result="0";
 	! InPath tftp && { i --no-prompt --no-header TftpClient || return; }
 
-	printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "iPXE Bootloaders" && echo "OK" || HilightErr "FAIL"
-	printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || HilightErr "FAIL"
+	printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "iPXE Bootloaders" && echo "OK" || testFail "FAIL"
+	printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || testFail "FAIL"
 
-	# ender
+ 	# application
+ 	local versionCurrent; versionCurrent="$(versionCurrent)" || return
+ 	local versionLatest; versionLatest="$(versionLatest)" || return
+ 	printf "application source version: "; [[ "$versionCurrent" == "$versionLatest" ]] && echo "OK" || testFail "out of date (current v$versionCurrent, latest v$versionLatest)"
+
+	local host hosts; getHosts || return
+	for host in "${hosts[@]}"; do
+		local h="$(RemoveDnsSuffix "$host")" versionHost; versionHost="$(versionApp "$host")" || return
+		printf "application $h version: "; [[ "$versionHost" == "$versionLatest" ]] && echo "OK" || testFail "out of date ($h v$versionHost, latest v$versionLatest)"
+	done
+
+	# assets
 	testWeb "assets-vanity" "http://boot.butare.net/assets/"
 	testWeb "assets-custom-vanity" "http://boot.butare.net/assets-custom/"
 	testWeb "assets-rp1" "http://rp1.butare.net:180/netboot.xyz/assets/"
@@ -281,14 +315,17 @@ testCommand()
 	for server in $servers; do
 		local desc="$(RemoveDnsSuffix "$server")"
 		printf "TFTP $desc: "
-		IsAvailable "$server" && printf "available..." || { HilightErr "$desc not available"; continue; }
-		IsAvailablePortUdp "$server" 69 && printf "port available..." || { HilightErr "$desc port 69 not responding"; continue; }
-		RunLog $check tftp $server -c get "$file" > /dev/null && echo "file available" || HilightErr "$file not available on $desc"
+		printf "server..."; IsAvailable "$server" || { testFail "not available"; continue; }
+		printf "port..."; IsAvailablePortUdp "$server" 69 || { testFail "not responding (port 69)"; continue; }
+		printf "file..."; RunLog $check tftp $server -c get "$file" > /dev/null || testFail "not available ($file)"
+		echo "OK"
 		$check rm -f "$file" # cleanup
 	done
 
-	return 0
+	return $result
 }
+
+testFail() { (( ++result )); HilightErrEnd "$1"; }
 
 # testWeb DESCRIPTION URL
 testWeb()
@@ -299,19 +336,17 @@ testWeb()
 	printf "$description: "
 
 	# check server
-	IsAvailable "$server" && printf "available..." || { HilightPrintErr "not available"; EchoErrEnd "($server)"; return; }
+	printf "server..."; IsAvailable "$server" || { testFail "not available ($(RemoveDnsSuffix "$server"))"; return; }
 	
 	# check port
 	if [[ $port ]]; then
-		if IsAvailablePort "$server" "$port"; then
-			printf "port available..."
-		else
-			HilightPrintErr "not responding"; EchoErrEnd " ($server port $port)"; return
-		fi
+		printf "port..."; IsAvailablePort "$server" "$port" || { testFail "not responding ($(RemoveDnsSuffix "$server") port $port)"; return; }
 	fi
 	
 	# check HTTP response
-	RunLog curl -sL "$url" | qgrep "Index of /" && echo "url available" || { HilightPrintErr "not available"; EchoErrEnd " ($url)"; }
+	printf "url..."; RunLog curl -sL "$url" | qgrep "Index of /" || { testFail "not available ($url)"; return; }
+
+	echo "OK"
 }
 
 #
@@ -330,15 +365,17 @@ updateAppUsage() { echot "Usage: $(ScriptName) update app [all|code|build](all)\
 updateAppCommand() { updateAppAllCommand; }
 updateAppAllCommand() { updateAppCodeCommand && updateAppBuildCommand; }
 
-# updateAppCodeCommand - update the netboot.xyz application code to the latest repository tag
+updateAppCodeUsage() { echot "Usage: $(ScriptName) update app code\nUpdate the netboot.xyz application code in $(FileToDesc "$appDir") to the latest tag in the repository."; }
+
+# updateAppCodeCommand - 
 updateAppCodeCommand()
 {
 	cd "$appDir" || return	
 	git fetch || return
 
 	# return if at the latest
-	local latestTag; latestTag="$(version)" || return
-	local currentTag; currentTag="$(git describe --tags)" || return
+	local latestTag; latestTag="$(versionLatest)" || return
+	local currentTag; currentTag="$(versionCurrent)" || return
 	log1 "updateAppCode: currentTag=$currentTag latestTag=$latestTag"
 	[[ ! $force && "$currentTag" == "$latestTag" ]] && return
 
@@ -347,7 +384,7 @@ updateAppCodeCommand()
 	git reset --hard  "$latestTag" || return
 }
 
-updateAppBuildUsage() { echot "Usage: $(ScriptName) update app build\nBuild the netboot.xyz application by running the Ansible playbook.  Run for netboot.xyz repository updates or if the menus are edited."; }
+updateAppBuildUsage() { echot "Usage: $(ScriptName) update app build\nBuild the netboot.xyz application by running the Ansible playbook.  The build integrates new netboot.xyz code and menus to $(FileToDesc "$webDirApp")."; }
 updateAppBuildCommand() { cp "$confDir/user_overrides.yml" "$appDir" && cd "$appDir" && sudoc ansible-playbook -i "inventory" "site.yml"; }
 
 #
@@ -464,19 +501,44 @@ uupDownload()
 }
 
 #
+# version command
+#
+
+versionUsage() { echot "Usage: $(ScriptName) version all|app|current|latest\nShow netboot.xyz versions."; }
+versionCommand() { versionAllCommand; }
+
+versionAllCommand()
+{
+	echo "source current: v$(versionCurrent)"
+	echo "source latest: v$(versionLatest)"
+
+	local host hosts; getHosts || return
+	for host in "${hosts[@]}"; do
+		echo "application $(RemoveDnsSuffix "$host"): v$(versionApp "$host")"
+	done
+}
+
+versionAppUsage() { echot "Usage: $(ScriptName) version menus\nShow netboot.xyz application version."; }
+versionAppCommand() { local host; host="$(GetServer "netbootxyz")" && versionApp "$host"; }
+
+versionCurrentUsage() { echot "Usage: $(ScriptName) version current\nShow netboot.xyz application source current version."; }
+versionCurrentCommand() { versionCurrent; }
+
+versionLatestUsage() { echot "Usage: $(ScriptName) version latest\nShow netboot.xyz application source latest version."; }
+versionLatestCommand() { versionLatest; }
+
+versionCurrent() { ( appCd && git describe --tags; ); }
+versionLatest() { ( appCd && git tag | sort -V | grep -v '\-RC' | tail -1; ); }
+versionApp() { SshHelper connect "$1" -- cat "$ACONF/netbootxyz/config/menuversion.txt"; } # versionApp HOST
+
+#
 # helper functions
 #
 
+appCd() { AppInstallCheck && cd "$appDir"; }
 getContainerId() { docker ps --all | grep "$dockerImageName" | cut -d" " -f1; }
+getHosts() { GetHosts "netbootxyz"; }
 getUupFileCount() { command ls -1 "$downloadDir/"*.*".zip" 2> /dev/null | wc -l; }
 getWinInstallDir() { FindInstallFile "other/Microsoft/Windows/setup"; }
-
-# version - return the latest version (tag) of the netboot.xyz application
-version()
-{
-	AppInstallCheck || return
-	cd "$appDir" || return
-	git tag | sort -V | grep -v '\-RC' | tail -1
-}
 
 ScriptRun "$@"

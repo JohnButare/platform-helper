@@ -434,7 +434,7 @@ GetHosts()
 			web) service="apache-web";;
 		esac
 
-		IFS=$'\n' ArrayMake hosts "$(GetServers "$service" | $sort)"
+		IFS=$'\n' ArrayMake hosts "$(GetServers "$service" | $sort)" || return
 
 		# other hosts
 		[[ $getHostsOther && "$service" == "nomad-client" ]] && hosts=("${getHostsOther[@]}" "${hosts[@]}")
