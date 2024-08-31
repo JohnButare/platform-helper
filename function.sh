@@ -960,7 +960,9 @@ EchoErr() { [[ $@ ]] && EchoResetErr; EchoWrap "$@" >&2; return 0; }		# show err
 EchoErrEnd() { echo -e "$@" >&2; return 0; }														# show error message on the end of the line
 EchoQuiet() { [[ $quiet ]] && return; EchoWrap "$1"; }									# echo a message if quiet is not set
 EchoResetErr() { EchoReset "$@" >&2; return 0; } 												# reset to column 0 if not at column 0
-HilightErr() { InitColorErr; EchoErr "${RED}$@${RESET}"; }									# hilight an error message
+HilightErr() { InitColorErr; EchoErr "${RED}$@${RESET}"; }							# hilight an error message
+HilightErrEnd() { InitColorErr; EchoErrEnd "${RED}$@${RESET}"; }				# hilight an error message
+HilightPrintErr() { InitColorErr; PrintErr "${RED}$@${RESET}"; }				# hilight an error message
 PrintErr() { echo -n -e "$@" >&2; return 0; }														# print an error message without a newline or resetting to column 0
 PrintEnd() { echo -n -e "$@"; return 0; }																# print message at the current cursor position
 PrintQuiet() { [[ $quiet ]] && return; printf "$1"; }										# print a message if quiet is not set
