@@ -22,7 +22,7 @@ REM run the bootstrap
 echo Running bootstrap-init...
 copy /Y %pwd%bootstrap-init \\wsl.localhost\%dist%\tmp
 copy /Y %pwd%bootstrap-config.sh \\wsl.localhost\%dist%\tmp
-wsl --user root -- sudo chmod ugo+rwx /tmp/bootstrap-init /tmp/bootstrap-config.sh
+wsl --user root -- sudo chmod ugo+rwx /tmp/bootstrap-init
 echo.
 wsl --user %distUser% /tmp/bootstrap-init %args%
 if errorlevel 2 ( wsl.exe --shutdown & goto bootstrap )

@@ -879,13 +879,14 @@ configInit()
 	# use the specified configuration file
 	if [[ $file ]]; then
 		[[ -f "$file" ]] && return
-		EchoErr "ConfigInit: configuration file '$file' does not exist"; return 1
+		EchoErr "configInit: configuration file '$file' does not exist"; return 1
 	fi
 
 	# locate the configuration file
-	if file="$BIN/bootstrap-config.sh" && [[ -f "$file" ]]; then return
+	if [[ $BIN ]] && file="$BIN/bootstrap-config.sh" && [[ -f "$file" ]]; then return
 	elif file="/usr/local/data/bin/bootstrap-config.sh" && [[ -f "$file" ]]; then return
-	else EchoErr "ConfigInit: unable to locate a configuration file"; return 1
+	elif file="$(ScriptDir)/bootstrap-config.sh" && [[ -f "$file" ]]; then return
+	else EchoErr "configInit: unable to locate a configuration file"; return 1
 	fi
 }
 

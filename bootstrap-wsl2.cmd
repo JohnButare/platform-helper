@@ -56,7 +56,7 @@ echo Preparing bootstrap files...
 copy /Y %pwd%bootstrap-init \\wsl.localhost\%dist%\tmp
 copy /Y %pwd%bootstrap-config.sh \\wsl.localhost\%dist%\tmp
 wsl -- ls /tmp/bootstrap-init > nul & if errorlevel 1 goto bootstrap-recovery
-wsl --user root -- sudo chmod ugo+rwx /tmp/bootstrap-init /tmp/bootstrap-config.sh
+wsl --user root -- sudo chmod ugo+rwx /tmp/bootstrap-init
 
 echo.
 echo Running bootstrap-init...
