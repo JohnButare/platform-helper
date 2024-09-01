@@ -232,8 +232,10 @@ PathAdd "$UBIN"
 # Interactive Initialization
 #
 
+export BASHRC="true"
 [[ "$-" != *i* ]] && return
 
+# functions
 [[ ! $FUNCTIONS && -f "$BIN/function.sh" ]] && . "$BIN/function.sh"
 
 # root user setup - for sudor
@@ -261,7 +263,7 @@ if [[ "$USER" == "root" ]]; then
 fi
 
 # warning message for interactive shells if the configuration was not set properly, except for GitKraken terminal
-if [[ $BASHRC && ! $GITKRAKEN_BINARY_PATH ]]; then
+if [[ $bashrcWarn && ! $GITKRAKEN_BINARY_PATH ]]; then
 	echo "System configuration was not set in /etc/bash.bashrc" >&2
-	unset BASHRC
+	unset bashrcWarn
 fi

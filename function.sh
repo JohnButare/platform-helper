@@ -22,10 +22,8 @@ if IsZsh; then
 	PipeStatus() { echo "${pipestatus[$(($1+1))]}"; }
 fi
 
-if [[ ! $BIN ]]; then
-	BASHRC="${BASH_SOURCE[0]%/*}/bash.bashrc"
-	[[ -f "$BASHRC" ]] && . "$BASHRC"
-fi
+# bash.bashrc
+[[ ! $BASHRC ]] && { bashrcWarn="true"; . "${BASH_SOURCE[0]%/*}/bash.bashrc" || return; }
 
 # arguments - get argument from standard input if not specified on command line
 # - must be an alias in order to set the arguments of the caller
@@ -4599,4 +4597,4 @@ WinSetState()
 # platform specific functions
 SourceIfExistsPlatform "$BIN/function." ".sh" || return
 
-FUNCTIONS="true"
+export FUNCTIONS="true"
