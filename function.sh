@@ -601,8 +601,8 @@ DbusConf()
 	(( verboseLevel > 1 )) && header "D-BUS Configuration"
 
 	if IsPlatform wsl && IsSystemd; then
-		export XDG_RUNTIME_DIR=/run/user/$(id -u)
-		export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
+		export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+		export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 		if ! [[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" == "$USER" ]]; then
 			ScriptErr "directory '$XDG_RUNTIME_DIR' is not owned by '$USER', D-Bus will not function properly" "DbusConf"
 			return 1
