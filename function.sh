@@ -3324,7 +3324,7 @@ SystemdConf()
 	[[ ! -d "$dir" ]] && { sudo mkdir "$dir" || return; }
 	[[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" != "$USER" ]] && { sudo chown "$USER" "$XDG_RUNTIME_DIR"; }
 
-	return 1
+	return 0
 }
 
 # RunWin PROGRAM - running Windows executables from some Linux directories fails
