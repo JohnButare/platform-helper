@@ -600,19 +600,16 @@ DbusConf()
 	# initialize
 	(( verboseLevel > 1 )) && header "D-BUS Configuration"
 
-	if IsPlatform wsl && IsSystemd; then
+	if IsPlatform wsl; then
 		export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 		export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-		if ! [[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" == "$USER" ]]; then
-			ScriptErr "directory '$XDG_RUNTIME_DIR' is not owned by '$USER', D-Bus will not function properly" "DbusConf"
-			return 1
-		fi
+		SystemdConf || return
 	elif IsPlatform linux; then
 		if [[ $DBUS_SESSION_BUS_ADDRESS ]]; then :
 		elif [[ $XDG_RUNTIME_DIR ]]; then export DBUS_SESSION_BUS_ADDRESS="$XDG_RUNTIME_DIR/bus"
 		else export DBUS_SESSION_BUS_ADDRESS="/dev/null"
 		fi
-	elif IsPlatform mac,wsl; then # ignore systems without D-BUS (no D-BUS on WSL without systemd)
+	elif IsPlatform mac; then # ignore systems without D-BUS
 		:
 	else
 		ScriptMessage "D-BUS is not installed"
@@ -2596,8 +2593,6 @@ DnsFlush()
 	elif IsPlatform win; then RunWin ipconfig.exe /flushdns >& /dev/null
 	elif IsPlatform systemd && systemctl is-active systemd-resolved >& /dev/null; then resolvectl flush-caches
 	fi
-
-
 }
 
 GetDnsServers()
@@ -3321,6 +3316,16 @@ pschildrenc() { local n="$(pschildren "$1" | wc -l)"; (( n == 1 )) && return 1 |
 pscount() { ProcessList | wc -l; }
 RunQuiet() { if [[ $verbose ]]; then "$@"; else "$@" 2> /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout unless verbose logging
 RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout and stderr unless verbose logging
+
+SystemdConf()
+{
+	# configure runtime directory - must be owned by $USER
+	local dir="/run/user/$(id -u)"
+	[[ ! -d "$dir" ]] && { sudo mkdir "$dir" || return; }
+	[[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" != "$USER" ]] && { sudo chown "$USER" "$XDG_RUNTIME_DIR"; }
+
+	return 1
+}
 
 # RunWin PROGRAM - running Windows executables from some Linux directories fails
 # - CryFS directories causes "Invalid argument" errors
