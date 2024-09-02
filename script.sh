@@ -230,7 +230,7 @@ ScriptOptGlobal()
 		--help|-h) ScriptOptVerbose "$@"; usage 0;;
 		--no-prompt|-np) noPrompt="--no-prompt";;
 		--quiet|-q) quiet="--quiet" quietOutput="/dev/null";;
-		--test|-t) test="--test";;
+		--test) test="--test";;
 		--verbose|-v|-vv|-vvv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 		--version) IsFunction versionCommand || return; showVersion="true";;
 		--wait|-w) wait="--wait";;
@@ -627,7 +627,7 @@ ScriptUsage()
 	-h, --help				display this help and exit
 	-np, --no-prompt  suppress interactive prompts
 	-q, --quiet 			minimize informational messages
-	-t, --test				test mode, do not make changes
+	    --test				test mode, do not make changes
 	-v, --verbose			verbose mode, multiple -v increase verbosity (max 5)$version
 	-w, --wait				wait for the operation to complete"
 
