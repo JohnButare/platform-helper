@@ -1367,7 +1367,6 @@ run()
 
 			--cd) cd="--cd";;
 			--copy-local) copyLocal="--copy-local";;
-			--copy-local-win) IsPlatform win && copyLocal="--copy-local";;
 			--dest|--dest=*|-d|-d=*) ScriptOptGet "dest" "$@";;
 			--elevate) IsPlatform win && elevate="--elevate";;
 			--header|--header=*|-h|-h=*) ScriptOptGet "header" "$@";;
@@ -1386,6 +1385,9 @@ run()
 		esac
 		shift "$shift"
 	done
+
+	# always copy local in Windows due to issues (elevation, different credentials)
+	IsPlatform win && copyLocal="--copy-local"
 
 	# get store ID if possible
 	[[ ! $p && ${storeIds[$appFunction]} ]] && { type="store" p="${storeIds[$appFunction]}"; }
@@ -1563,11 +1565,8 @@ runTypeExtension()
 	# elevate for installations which require it
 	[[ "$ext" == @(msi) ]] && elevate="--elevate"
 
-	# do not try and elevate if we cannot, and copy setup programm locally
-	! CanElevate && { unset elevate; copyLocal="--copy-local"; }
-
-	# elevation requires copying local
-	[[ $elevate ]] && copyLocal="--copy-local"
+	# do not try and elevate if we cannot
+	! CanElevate && unset elevate
 
 	# find the installation file
 	findFile "$p" || return
@@ -1578,16 +1577,6 @@ runTypeExtension()
 	
 	# change to the installation directory if needed
 	[[ $cd ]] && { command cd "$(GetFilePath "$p")" || return; }
-
-	# mount installation share elevated if required - WSL 2 mounted network shares are not present when elevating
-	# - if this causes issues, instead of mounting elevated force copyLocal
-	if ! IsElevated && [[ $elevate && ! $copyLocal ]] && IsPlatform wsl2; then
-		log1 "runTypeExtension: mounting elevated share for '$p'"
-		local installUnc="$(unc get unc --root "$INSTALL_DIR")"
-		local newInstallDir="$(unc mount "$installUnc" --elevate $verbose)" || return # don't use globalArgs, can't set quiet and want to prompt
-		p="${p/$installUnc/$newInstallDir}"
-		log1 "runTypeExtension: installUnc=$installUnc newInstallDir=$newInstallDir p=$p"
-	fi
 
 	# disable Open File Secirity Warning
  	[[ "$PLATFORM_OS" == "win" ]] && export SEE_MASK_NOZONECHECKS=1
@@ -2971,7 +2960,7 @@ setupWin() { i WinSetup; }
 #################################################
 
 BrowserAllInstall() { i chrome edge EdgeDeflector firefox qutebrowser tor vivaldi; }
-EdgeDeflectorInstall() { run --header "EdgeDeflector" "shareware/other/EdgeDeflector_install.exe" --elevate --copy-local-win; } # https://github.com/da2x/EdgeDeflector/releases, copy local to avoid the unknown zone prompt
+EdgeDeflectorInstall() { run --header "EdgeDeflector" "shareware/other/EdgeDeflector_install.exe" --elevate; } # https://github.com/da2x/EdgeDeflector/releases
 QuteBrowserInstall() { package qutebrowser; }
 
 BrowserCoreInstall()
@@ -3914,7 +3903,7 @@ MySqlInstall()
 	return 0
 }
 
-SqlPromptInstall() { run --name "SQL Prompt" "platform/win/RedGate/SQLPrompt_10.13.1.31417.exe" --copy-local-win; } # downloads to "$UADATA/Temp/Red Gate", http://www.red-gate.com/products/sql-development/sql-prompt
+SqlPromptInstall() { run --name "SQL Prompt" "platform/win/RedGate/SQLPrompt_10.13.1.31417.exe"; } # downloads to "$UADATA/Temp/Red Gate", http://www.red-gate.com/products/sql-development/sql-prompt
 
 SqlPromptHelp()
 {
@@ -4752,7 +4741,7 @@ GitKrakenInstall()
 	IsPlatformAll win,x64 && [[ ! $alternate ]] && { alternate="--alternate" i --no-header GitKraken || return; }
 
 	# install	
-	run --no-header --name="GitKraken" "$(gitKrakenDir)/$f.$(getWin)|$f$(getArch " amd64").dmg|$f.deb" --version="$v" --copy-local-win || return
+	run --no-header --name="GitKraken" "$(gitKrakenDir)/$f.$(getWin)|$f$(getArch " amd64").dmg|$f.deb" --version="$v" || return
 
 	# CLI
 	IsPlatform mac && { package gitkraken-cli || return; }
@@ -4842,7 +4831,7 @@ SublimeMergeInstall()
 	header "Sublime Merge"	
 	local args=() v="$(versionGetCurrent "SublimeMerge")" || return
 	CanElevate && args+=(--dest "$P/Sublime Merge") || args+=(--dest "$PUSER/Sublime Merge")
-	run "other/Sublime/merge/sublime_merge_build_${v}_x64$(getElevate "_setup.exe" ".zip")|sublime_merge_build_${v}_mac.zip|sublime-merge_build_${v}_$(getArch "amd64" "arm64").deb" --copy-local-win --version "$v" "${args[@]}" || return;
+	run "other/Sublime/merge/sublime_merge_build_${v}_x64$(getElevate "_setup.exe" ".zip")|sublime_merge_build_${v}_mac.zip|sublime-merge_build_${v}_$(getArch "amd64" "arm64").deb" --version "$v" "${args[@]}" || return;
 }
 
 SublimeMergeFinalWin()
@@ -5400,7 +5389,7 @@ LogitechBoltFinalWin() { LogitechFinalWin; }
 LogitechGhubInstall()
 {
 	local v="2022.8.306864" # https://support.logi.com/hc/en-us/articles/360024696774--Downloads-PRO-Wireless-Gaming-Mouse
-	run --header="Logitech G HUB" --name="ghub" "hardware/Logitech/G HUB/lghub_installer.exe|lghub_installer.zip" --version=$v --copy-local-win --elevate || return
+	run --header="Logitech G HUB" --name="ghub" "hardware/Logitech/G HUB/lghub_installer.exe|lghub_installer.zip" --version=$v --elevate || return
 }
 
 LogitechGhubFinalWin() { 	serviceDemandStop "LGHUBUpdaterService" && LogitechFinalWin; }
@@ -8176,7 +8165,7 @@ NotionInstall()
 	notion IsInstalled && [[ ! $force && "$(notion version)" == "$vCheck" ]] && return
 
 	# install
-	run "other/Notion/Notion Setup $v.exe|Notion-$v$(getArch "", "-arm64").dmg" --copy-local-win || return
+	run "other/Notion/Notion Setup $v.exe|Notion-$v$(getArch "", "-arm64").dmg" || return
 
 	# change ownership to current user - prevents "Invalid Install" message
 	IsPlatform mac && { sudoc chown -R "$USER" "$P/Notion.app" || return; }
@@ -10368,7 +10357,7 @@ SublimeInstall()
 	IsPlatform linux && [[ ! $installType ]] && installType="package" # Linux defaults to package
 	if [[ "$installType" == @(|beta|local) ]]; then
 		local args=(); IsPlatform win && CanElevate && args+=('/VERYSILENT' '/TASKS="contextentry"')
-		run "$(sublimeDir)/sublime_text_build_${v}_x64_setup.exe|sublime_text_build_${v}_mac.zip|sublime-text_build-${v}_$(getArch "amd64" "arm64").deb" --copy-local-win --elevate -- "${args[@]}" || return
+		run "$(sublimeDir)/sublime_text_build_${v}_x64_setup.exe|sublime_text_build_${v}_mac.zip|sublime-text_build-${v}_$(getArch "amd64" "arm64").deb" --elevate -- "${args[@]}" || return
 	elif IsPlatform debian && [[ "$installType" == @(|alternate|package) ]]; then sublimePackage || return
 	else couldNotLocate
 	fi
@@ -10490,7 +10479,7 @@ VisualStudioCodeInstall()
 	local v; v="$(versionGetCurrent "VisualStudioCode")" || return
 	local args=(); IsPlatform mac && args+=(--dest "$PUSER")
 	local user=""; IsPlatform win && ! CanElevate && user="User"
-	run --no-header --name="VisualStudioCode" "$(visualStudioCodeDir)/VSCode${user}Setup-$(getArch "x64" "arm64")-$v.exe|VSCode-darwin-universal-$v.zip|code_$v_$(getArch "amd64" "arm64" "armhf").deb" "${args[@]}" --version=$v --copy-local-win || return
+	run --no-header --name="VisualStudioCode" "$(visualStudioCodeDir)/VSCode${user}Setup-$(getArch "x64" "arm64")-$v.exe|VSCode-darwin-universal-$v.zip|code_$v_$(getArch "amd64" "arm64" "armhf").deb" "${args[@]}" --version=$v || return
 
 	# SSH Agent
 	if IsPlatform win && ! service running ssh-agent; then		
@@ -11076,7 +11065,7 @@ AutoHotKeyInstall()
 	# install	
 	local dest; dest="$(getElevate "AutoHotKey" "$UADATA/AutoHotKey")" || return
 	local elevate; elevate="$(getElevate "--elevate")" || return
-	AutoHotKey close && run "$file" --dest "$dest" "$elevate" --copy-local-win && AutoHotKey startup
+	AutoHotKey close && run "$file" --dest "$dest" "$elevate" && AutoHotKey startup
 }
 
 AutoHotKeyFinalWin()
@@ -11452,7 +11441,7 @@ DockerInstall()
 	# install Docker Desktop
 	if IsPlatform mac,win; then
 		local v; v="$(versionGetCurrent "docker")"
-		run --name "Docker" --no-header "$(dockerDir)/Docker $(getArch "amd64" "arm64") $v.$(getPlatform "exe" "dmg")" --version=$v --copy-local-win --elevate || return
+		run --name "Docker" --no-header "$(dockerDir)/Docker $(getArch "amd64" "arm64") $v.$(getPlatform "exe" "dmg")" --version=$v --elevate || return
 		IsPlatform mac && { start "Docker.app" || return; }
 		[[ $ran ]] && pause
 	fi
