@@ -400,7 +400,7 @@ UserHome()
 AppVersion()
 {
 	# arguments
-	local allowAlpha alternate app appOrig cache force forceLevel quiet version
+	local allowAlpha alternate app appOrig cache force forceLevel forceLess quiet version
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -594,8 +594,8 @@ CronAdd()
 # D-Bus
 DbusConf()
 {
-	local force forceLevel; ScriptOptForce "$@"
-	local verbose verboseLevel; ScriptOptVerbose "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
+	local verbose verboseLevel verboseLess; ScriptOptVerbose "$@"
 
 	# initialize
 	(( verboseLevel > 1 )) && header "D-BUS Configuration"
@@ -633,7 +633,7 @@ DirenvConf()
 # .NET
 DotNetConf()
 {
-	local force forceLevel; ScriptOptForce "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
 	[[ ! $force && $DOTNET_CHECKED ]] && return
 
 	# .NET on macOS use .NET from /usr/local/share/dotnet, fails if DOTNET_ROOT is set to $HOME/.dotnet
@@ -653,8 +653,8 @@ DotNetConf()
 
 HashiConf()
 {
-	local force forceLevel; ScriptOptForce "$@"
-	local verbose verboseLevel; ScriptOptVerbose "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
+	local verbose verboseLevel verboseLess; ScriptOptVerbose "$@"
 
 	# configure D-BUS - as root avoid vault error "DBUS_SESSION_BUS_ADDRESS envvar looks to be not set, this can lead to runaway dbus-daemon processes"
 	# - run before return to ensure D-BUS is configured when running from Nomad job with VAULT_TOKEN set
@@ -715,7 +715,7 @@ GitSet() { git="git"; InPath git.exe && drive IsWin . && git="git.exe"; return 0
 i()
 { 
 	# arguments
-	local args=() command force forceLevel help noFind noRun select timeout verbose verboseLevel
+	local args=() command force forceLevel forceLess help noFind noRun select timeout verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;	
@@ -761,7 +761,7 @@ InstFind()
 
 McflyConf()
 {
-	local force forceLevel; ScriptOptForce "$@"	
+	local force forceLevel forceLess; ScriptOptForce "$@"	
 	[[ ! $force && $MCFLY_PATH ]] && return	
 
 	{ ! InPath mcfly || [[ "$TERM_PROGRAM" == @(vscode|WarpTerminal) ]]; } && return
@@ -772,7 +772,7 @@ McflyConf()
 
 NodeConf()
 {
-	local force forceLevel; ScriptOptForce "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
 
 	if [[ $force || ! $NODE_CHECKED ]]; then
 
@@ -1323,7 +1323,7 @@ CloudGet()
 	! IsPlatform win && return
 
 	# arguments
-	local file files=() quiet verbose verboseLevel
+	local file files=() quiet verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -1774,8 +1774,8 @@ GetRoute()
 
 NetworkConf()
 {
-	local force forceLevel; ScriptOptForce "$@"
-	local verbose verboseLevel; ScriptOptVerbose "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
+	local verbose verboseLevel verboseLess; ScriptOptVerbose "$@"
 
 	# return if network configuration is set
 	[[ ! $force && $NETWORK_CHECKED ]] && return
@@ -1787,7 +1787,7 @@ NetworkConf()
 
 CacheDefaultGateway()
 {
-	local force forceLevel; ScriptOptForce "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
 
 	[[ ! $force && $NETWORK_DEFAULT_GATEWAY ]] && return
 
@@ -2296,7 +2296,7 @@ IsAvailablePort()
 IsAvailablePortUdp()
 {
 	# arguments
-	local host port timeout verbose verboseLevel
+	local host port timeout verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2343,7 +2343,7 @@ PingResponse()
 PortResponse() 
 {
 	# arguments
-	local host port timeout quiet verbose verboseLevel
+	local host port timeout quiet verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2685,15 +2685,15 @@ SshIsAvailablePort() { local port="$(SshHelper config get "$1" port)"; IsAvailab
 
 SshAgentEnvConf()
 {
-	local force forceLevel; ScriptOptForce "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
 	[[ $SSH_AUTH_SOCK && !$force ]] && return
 	ScriptEval SshAgent environment --quiet
 }
 
 SshAgentConf()
 { 
-	local force forceLevel; ScriptOptForce "$@"
-	local verbose verboseLevel; ScriptOptVerbose "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
+	local verbose verboseLevel verboseLess; ScriptOptVerbose "$@"
 
 	# set the environment from cache if possible - faster than calling SshAgent
 	local e="$HOME/.ssh/environment"
@@ -3459,7 +3459,7 @@ IsWindowsProcess()
 ProcessClose() 
 { 
 	# arguments
-	local args=() force names=() quiet root verbose verboseLevel
+	local args=() force names=() quiet root verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -3519,7 +3519,7 @@ ProcessClose()
 ProcessCloseWait()
 {
 	# arguments
-	local full names=() quiet root seconds=10 verbose verboseLevel
+	local full names=() quiet root seconds=10 verbose verboseLevel verboseLess
 
 	# options
 	while (( $# != 0 )); do
@@ -3700,7 +3700,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 start() 
 {
 	# arguments
-	local elevate file force noPrompt sudo terminal verbose verboseLevel wait windowStyle
+	local elevate file force noPrompt sudo terminal verbose verboseLevel verboseLess wait windowStyle
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -3858,7 +3858,7 @@ PythonManageEnable() { local file; file="$(PythonGetConfig "DESTLIB")/EXTERNALLY
 # PythonConf - configure Python for the current user
 PythonConf()
 {
-	local force forceLevel; ScriptOptForce "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
 
 	# configure
 	if [[ $force || ! $PYTHON_CHECKED ]]; then
@@ -3944,7 +3944,7 @@ prl()
 # PythonRootConf - configure Python for the root user
 PythonRootConf()
 {
-	local force forceLevel; ScriptOptForce "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
 	( [[ ! $force && $PYTHON_ROOT_CHECKED ]] || ! InPath python3 ) && return
 	 
 	# find locations
@@ -4074,7 +4074,7 @@ ScriptName()
 	printf "$name" 
 }
 
-# ScriptOptForce - find force option
+# ScriptOptForce - find force option.  Sets force, forceLevel, and forceLess.
 ScriptOptForce()
 {
 	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
@@ -4085,9 +4085,13 @@ ScriptOptForce()
 		esac
 		shift; 
 	done
+
+	(( forceLevel > 1 )) && forceLess="-$(StringRepeat "f" "$(( forceLevel - 1 ))")"
+
+	return 0
 }
 
-# ScriptOptVerbose - find verbose option
+# ScriptOptVerbose - find verbose option.  Sets verbose, verboseLevel, and verboseLess.
 ScriptOptVerbose()
 {
 	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
@@ -4100,6 +4104,10 @@ ScriptOptVerbose()
 		esac
 		shift; 
 	done
+
+	(( verboseLevel > 1 )) && verboseLess="-$(StringRepeat "v" "$(( verboseLevel - 1 ))")"
+
+	return 0
 }
 
 # ScriptOptQuiet - find quiet option
@@ -4154,8 +4162,8 @@ CredentialSetBoth() { credential set "$@" --manager=local && credential set "$@"
 # CredentialConf - configure the credential manager but do not unlock (to prevent password prompt)
 CredentialConf()
 {
-	local force forceLevel; ScriptOptForce "$@"
-	local verbose verboseLevel; ScriptOptVerbose "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
+	local verbose verboseLevel verboseLess; ScriptOptVerbose "$@"
 
 	# return if credential configuration is set
 	[[ ! $force && $CREDENTIAL_MANAGER_CHECKED ]] && return
@@ -4194,7 +4202,7 @@ sudoc()
 	IsRoot && { env "$@"; return; } # use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
 
 	# arguments
-	local args=() noPrompt preserve stderr verbose verboseLevel
+	local args=() noPrompt preserve stderr verbose verboseLevel verboseLess
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--no-prompt|-np) noPrompt="--no-prompt";;
@@ -4416,8 +4424,8 @@ VmType() { GetVmType; echo "$VM_TYPE"; }
 
 GetChrootName()
 {
-	local force forceLevel; ScriptOptForce "$@"
-	local verbose verboseLevel; ScriptOptVerbose "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
+	local verbose verboseLevel verboseLess; ScriptOptVerbose "$@"
 	[[ ! $force && $CHROOT_CHECKED ]] && return
 	
 	if [[ -f "/etc/debian_chroot" ]]; then
@@ -4435,8 +4443,8 @@ GetChrootName()
 # GetVmType - cached to avoid multiple sudo calls
 GetVmType() # vmware|hyperv
 {	
-	local force forceLevel; ScriptOptForce "$@"
-	local verbose verboseLevel; ScriptOptVerbose "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
+	local verbose verboseLevel verboseLess; ScriptOptVerbose "$@"
 	[[ ! $force && $VM_TYPE_CHECKED ]] && return
 
 	local result
@@ -4489,7 +4497,7 @@ WinExists() { ! IsPlatform win && return 1; ! tasklist.exe /fi "WINDOWTITLE eq $
 
 InitializeXServer()
 {
-	local force forceLevel; ScriptOptForce "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"
 	[[ ! $force && $X_SERVER_CHECKED ]] && return
 
 	# return if X is not installed
