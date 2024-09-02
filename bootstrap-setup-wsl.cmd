@@ -21,7 +21,7 @@ set unc=%dir:~0,-1%
 REM create bootstrap.cmd on the Desktop
 set f=%HOMEDRIVE%%HOMEPATH%\Desktop\bootstrap.cmd
 > "%f%" echo @echo off
->> "%f%" echo echo ************************* bootstrap.cmd (manual) *************************
+>> "%f%" echo echo ************************* bootstrap.cmd *************************
 >> "%f%" echo set dist=%dist%
 >> "%f%" echo set distUser=%distUser%
 >> "%f%" echo set distUnc=%distUnc%
