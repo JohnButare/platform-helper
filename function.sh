@@ -3218,7 +3218,7 @@ isPlatformCheck()
 		gnome-keyring) InPath "$p";;
 		laptop)
 			if IsPlatform mac; then system_profiler "SPHardwareDataType" | grep "Model Identifier" | grep --quiet "Book"
-			elif IsPlatform win; then
+			elif IsPlatform win && InPath wmic.exe; then
 				local chassisType; chassisType="$( wmic.exe systemenclosure get chassistypes /value | grep ChassisTypes | cut -d"{" -f2 | cut -d"}" -f1)"
 				(( (chassisType >= 8 && chassisType <=15) || (chassisType >= 30 && chassisType <=32) )) # https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-systemenclosure
 			fi
