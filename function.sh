@@ -479,16 +479,11 @@ AppVersion()
 	fi
 
 	# get Windows executable version
-	# - WMIC format is 1.22.2408.23002
-	# - PowerShell format is 1.22.240823002
 	if [[ ! $version ]] && IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
 		if InPath "wmic.exe"; then # WMIC is deprecated but does not require elevation
 			version="$(RunWin wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2)" || return
-			local versionFirst="$(echo "$version" | cut -d"." -f1-3)" # remove after 3rd .
-			local versionLast="$(echo "$version" | cut -d"." -f4)"
-			[[ "$versionLast" == "0" ]] && version="$versionFirst" || version="${versionFirst}${versionLast}"
 		elif CanElevate; then
-			version="$(RunWin powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.ProductVersion" | RemoveCarriageReturn)" || return
+			version="$(RunWin powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.FileVersion" | RemoveCarriageReturn)" || return
 		fi
 	fi
 
