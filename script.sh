@@ -564,8 +564,6 @@ ScriptRun()
 
 	# set global options
 	globalArgs=($force $noPrompt $quiet $verbose)
-	(( forceLevel > 1 )) && forceLess="-$(StringRepeat "f" "$(( forceLevel - 1 ))")"
-	(( verboseLevel > 1 )) && verboseLess="-$(StringRepeat "v" "$(( verboseLevel - 1 ))")"
 	globalArgsLess=($forceLess $noPrompt $quiet $verboseLess)
 	globalArgsLessForce=($forceLess $noPrompt $quiet $verbose)
 	globalArgsLessVerbose=($force $noPrompt $quiet $verboseLess)
