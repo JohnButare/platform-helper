@@ -421,7 +421,7 @@ AppVersion()
 	# cache
 	local appCache="version-$(GetFileName "$app" | LowerCase)"
 	[[ $alternate ]] && appCache+="-alternate"
-	[[ $cache ]] && ! UpdateNeeded "$appCache" && { UpdateGet "$appCache"; return; }
+	[[ ! $force ]] && [[ $cache ]] && ! UpdateNeeded "$appCache" && { UpdateGet "$appCache"; return; }
 
 	# get version with helper script
 	local helper; helper="$(AppHelper "$app")" && { version="$(alternate="$alternate" "$helper" $quiet --version)" || return; }
