@@ -2082,6 +2082,7 @@ IsInDomain()
 }
 
 IsDomainRestricted() { IsInDomain sandia; }
+IsOnRestrictedDomain() { IsDomainRestricted && IsOnNetwork Sandia; }
 
 # IsIpAddress IP - return true if the IP is a valid IPv4 address
 IsIpAddress()
