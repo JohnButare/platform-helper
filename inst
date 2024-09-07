@@ -776,8 +776,6 @@ makeLink() { RunLog MakeLink --suppress $quiet $noPrompt $verbose "$@"; }
 makeLinkSudo() { RunLog sudoc MakeLink --suppress $quiet $noPrompt "$@"; }
 mergeDir() { MergeDir --parents --suppress "$@"; }
 minimalInstall() { [[ ! $forceFull && $_minimalInstall ]]; }
-moveAppData() { ! InPath lnWin.exe && return; local src="$1" dest="${2:-$1}"; makeLink --merge --hide "$(platformUserAppData)/$dest" "$(getLocalDoc)/$src"; }
-moveCloudData() { local src="$1" dest="${2:-$1}"; CloudConf && makeLink --merge --hide "$CLOUD/data/app/$dest" "$(getLocalDoc)/$src"; }
 mvSudo() { [[ ! -e "$1" ]] && return; sudoc mv "$1" "$2"; }
 networkVars() { network current update --quiet && ScriptEval network vars; }
 pausep() { [[ $noPrompt ]] && return; pause; } # pausep - pause if prompting
@@ -1301,6 +1299,28 @@ makeDir()
 		fi
 
 	done
+}
+
+# moveAppData SRC [DEST] - move application data from SRC to DEST, link SRC to DEST, and hide SRC
+# - SRC - the default directory is the local documents directory (usually $WIN_HOME/Documents)
+# - DEST - defaults to the last path in SRC, the default directory is the platform user application data directory (usually $WIN_HOME/data/app)
+moveAppData()
+{
+	! { IsPlatform win && InPath lnWin.exe; } && return
+	local src="$1"; [[ ! -d "$src" ]] && src="$(getLocalDoc)/$src"
+	local dest="$2:-$(RemoveTrailingSlash "$src" | GetFileName)"; [[ ! -d "$dest" ]] && dest="$(platformUserAppData)/$dest"
+	makeLink --merge --hide "$dest" "$src" || return
+}
+
+# moveCloudData SRC [DEST] - move cloud application data from SRC to DEST, link SRC to DEST, and hide SRC
+# - SRC - the default directory is the local documents directory (usually $WIN_HOME/Documents)
+# - DEST - defaults to the last path in SRC, the default directory is the cloud application data directory (usually $CLOUD/data/app)
+moveCloudData()
+{
+	CloudConf || return	
+	local src="$1"; [[ ! -d "$src" ]] && src="$(getLocalDoc)/$src"
+	local dest="$2:-$(RemoveTrailingSlash "$src" | GetFileName)"; [[ ! -d "$dest" ]] && dest="$CLOUD/data/app/$dest"
+	makeLink --merge --hide "$dest" "$src" || return
 }
 
 # register APP - enter the registration information for an application
@@ -3837,8 +3857,8 @@ ZoomFinalMac() { mergeDir "$udoc/Zoom" "$udata/app"; }
 ZoomFinalWin()
 {
 	mergeDir "$pp/Zoom" "$pp/Applications/Other" || return
-	$rm "$pd/Zoom Workplace.lnk" || return
-	$rm "$ud/Zoom Workplace.lnk" || return
+	$rm "$pd/Zoom.lnk" || return
+	$rm "$ud/Zoom.lnk" || return
 	moveAppData "Zoom" || return	
 	registry delete "urun/Zoom" || return # "C:\Program Files (x86)\Zoom\bin\Zoom.exe" --background=true
 }
@@ -4179,6 +4199,9 @@ OneDriveFinalWin()
 {
 	# common
 	oneDriveFinalCommon || return
+	CloudConf || return
+	moveCloudData "$CLOUD/Whiteboards" "OneDrive/Whiteboards" || return
+	moveCloudData "$CLOUD/Microsoft Teams Chat Files" "OneDrive/Chat Files" || return
 
 	# registry
 	registry delete "urun/OneDrive" # "C:\Users\jjbutare\AppData\Local\Microsoft\OneDrive\OneDrive.exe" /background
@@ -5452,8 +5475,7 @@ nVidiaInstall() { i nVidiaGeForceExperience nVidiaDriver; }
 
 nVidiaFinalWin()
 {
-	[[ -d "$WIN_HOME/Ansel" ]] && { makeLink --merge --hide "$(platformUserAppData)/nVidia/Ansel" "$WIN_HOME/Ansel" || return; } # screenshots
-
+	[[ -d "$WIN_HOME/Ansel" ]] && { moveAppData "$WIN_HOME/Ansel" "nVidia/Ansel" || return; } # screenshots
 	! CanElevate && return
 
 	mergeDir --rename "$pp/NVIDIA Corporation" "$oo/NVIDIA" || return
@@ -5465,7 +5487,7 @@ nVidiaFinalWin()
 nVidiaDriverInstall() { run --header "nVidia Driver" "hardware/nVidia/driver/512.15/setup.exe" --elevate; } # https://www.nvidia.com/Download/index.aspx?lang=en-us
 nVidiaDriverFinal() { i nVidiaFinal; }
 
-nVidiaGeForceExperienceInstall() { run --header "nVidia GeForce Experience" "hardware/nVidia/experience/GeForce_Experience_v3.28.0.417.exe" --elevate; } # https://www.nvidia.com/en-us/geforce/geforce-experience/
+nVidiaGeForceExperienceInstall() { run --header "nVidia GeForce Experience" "hardware/nVidia/experience/GeForce_Experience_v3.26.0.160.exe" --elevate; } # https://www.nvidia.com/en-us/geforce/geforce-experience/
 nVidiaGeForceExperienceFinal() { i nVidiaFinal; }
 nVidiaGeForceExperienceHelp() {	echot "- Settings, uncheck in-game overlay"; }
 
@@ -11139,11 +11161,11 @@ BartenderProfile() { bartender $noPrompt profile restore default; }
 BartenderDownload()
 {
 	local app="bartender"; downloadStart "$app" || return $(( $? > 1 ))
-	local v; v="$(versionGetCurrent "$app")" && download "https://www.macbartender.com/B2/updates/$(echo "$v" | sed 's/\./-/g')/Bartender%205.dmg" "$(bartenderDir)" "Bartender v${v}.dmg" "text/plain" && downloadDone "$app" "$v"
+	local v; v="$(versionGetCurrent "$app")" && download "https://www.macbartender.com/B2/updates/B4Latest/Bartender%204.dmg" "$(bartenderDir)" "Bartender v${v}.dmg" && downloadDone "$app" "$v"
 }
 
 bartenderDir() { echo "platform/mac/Bartender"; }
-bartenderVersion() { curl --silent --location "https://www.macbartender.com/Bartender5/release_notes/" | ${G}grep "<h1>Bartender " | shead -1 | sed 's/.*Bartender //' | cut -d'<' -f1; }
+bartenderVersion() { curl --silent --location "https://www.macbartender.com/Bartender4/release_notes/" | ${G}grep "<h1>Bartender " | shead -1 | sed 's/.*Bartender //' | cut -d'<' -f1; }
 
 BetterTouchToolInstall() { run --header "BetterTouchTool" "platform/mac/BetterTouchTool/setup/BetterTouchTool.zip"; } # https://folivora.ai/
 
@@ -11158,14 +11180,8 @@ BetterTouchToolProfile() { BetterTouchTool $noPrompt profile restore default && 
 
 CleanMyMacInstall()
 {
-	local v vFile
-	if [[ "$installType" == "beta" ]]; then
-		v="" vFile="Beta" # https://macpaw.esclick.me/1aewIbF1NiHlJDIC8k"
-	else
-		v="$(versionGetCurrent "CleanMyMac")" || return
-		vFile=" $v"
-	fi
-	run --name="Clean My Mac" "$(cleanMyMacDir)/CleanMyMac$vFile.dmg" --version="$v"
+	local v; v="$(versionGetCurrent "CleanMyMac")" || return
+	run --name="Clean My Mac" "$(cleanMyMacDir)/CleanMyMac $v.dmg" --version="$v"
 }
 
 CleanMyMacHelp() { echot "- Notifications, uncheck all\n- Assistant, check Enable silent mode"; }
