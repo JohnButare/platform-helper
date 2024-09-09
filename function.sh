@@ -2839,7 +2839,6 @@ HasPackageManager() { [[ "$(PackageManager)" != "none" ]]; }
 PackageFileInfo() { dpkg -I "$1"; } # information about a DEB package
 PackageFileInstall() { sudo gdebi -n "$@"; } # install a DEB package with dependencies
 PackageFileVersion() { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -d: -f2; }
-PackageIsInstalled() { PackageListInstalled | ${G}grep "^$1	" >& /dev/null; } # --quiet causes pipe to fail in Debian
 PackageLog() { LogShow "/var/log/unattended-upgrades/unattended-upgrades-dpkg.log"; }
 PackagePurge() { InPath wajig && wajig purgeremoved; }
 PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
@@ -2885,7 +2884,7 @@ package() # package install
 	IsPlatform nala && { sudoc $noPrompt nala install -y "${packages[@]}"; return; }
 	IsPlatform apt && { sudoc $noPrompt apt install -y "${packages[@]}"; return; }
 	IsPlatform brew && { HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"; return; }
-	IsPlatform dnf && { sudo dnf install -assumeyes "${packages[@]}"; }
+	IsPlatform dnf && { sudoc dnf install -assumeyes "${packages[@]}"; }
 	IsPlatform opkg && { sudoc opkg install "${packages[@]}"; return; }
 	IsPlatform pacman && { sudoc pacman -S "$@"; }
 
@@ -2926,6 +2925,13 @@ packageExclude()
 	done
 }
 
+PackageIsInstalled()
+{
+	if IsPlatform apt; then ! dpkg --get-selections "$1" 2>&1 | grep -q "no packages found"
+	elif IsPlatform dnf; then dnf info "$1" >& /dev/null
+	else PackageListInstalled | ${G}grep "^$1	" >& /dev/null # --quiet causes pipe to fail in Debian
+	fi
+}
 
 # pakcageu PACKAGE - remove the specified package exists
 # - allow removal prompt to view dependant programs being uninstalled, i.e. uninstall of mysql-common will remove kea
@@ -3041,6 +3047,7 @@ PackageListInstalled()
 	if IsPlatform apt && InPath dpkg; then dpkg --get-selections "$@"
 	elif IsPlatform brew && [[ $full ]]; then brew info --installed --json
 	elif IsPlatform brew && [[ ! $full ]]; then brew info --installed --json | jq -r '.[].name'
+	elif IsPlatform dnf; then dnf list installed
 	elif IsPlatform entware; then opkg list-installed
 	elif IsPlatform rpm; then rpm --query --all
 	elif IsPlatform pacman; then pacman --query
@@ -3076,6 +3083,7 @@ PackageWhich()
 	[[ ! -f "$file" ]] && InPath "$file" && file="$(FindInPath "$file")"
 	if IsPlatform apt; then dpkg -S "$file"
 	elif IsPlatform brew; then { file="$(readlink "$file")" && echo "$file" | sed 's/.*Cellar\///' | cut -d"/" -f1; }
+	elif IsPlatform dnf; then dnf provides "$file"
 	elif IsPlatform entware; then	opkg search "$file"
 	fi
 }
@@ -3149,7 +3157,7 @@ isPlatformCheck()
 	local p="$1"; LowerCase "$p" p
 	local found="true" result
 
-	# works local and remote - only use variables from "HostGetInfo vars HOST"	
+	# works local and remote - only use variables from "HostGetInfo vars HOST"
 	case "$p" in 
 
 		# platformOs, platformLike, and platformId

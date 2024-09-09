@@ -336,17 +336,19 @@ initVariables()
 	elif [[ "$(uname -r)" =~ .*-microsoft-standard.* ]]; then platform_kernel="wsl2"
 	fi
 
+	# ID=ubuntu|raspbian|rhel|qts
+	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
+
 	# platform=debian|entware|mac|win
-	platform=debian; inPath "lsb_release" && codeName="$(lsb_release -cs)"
-	[[ "$(uname)" == "Darwin" ]] && platform=mac
-	! isChroot && [[ "$platform_kernel" == @(wsl1|wsl2) ]] && platform=win
+	platform="debian"; inPath "lsb_release" && codeName="$(lsb_release -cs)"
+	if isRh; then platform="rh"
+	elif [[ "$(uname)" == "Darwin" ]]; then platform=mac
+	elif ! isChroot && [[ "$platform_kernel" == @(wsl1|wsl2) ]]; then platform=win
+	fi
 
 	# platform_like=qnap|synology
 	! isContainer && [[ $(uname -r) =~ .*-qnap ]] && { platform="entware" platform_like="qnap"; }
 	! isContainer && [[ -f /proc/syno_platform ]] && { platform="entware" platform_like="synology"; }
-
-	# ID=ubuntu|raspbian|qts
-	[[ -f /etc/os-release ]] && eval $(cat /etc/os-release)
 
 	# network
 	domain=""; [[ "$platform" == "win" ]] && domain="$(cmd.exe /c 'echo %USERDOMAIN%' 2> /dev/null | RemoveCarriageReturn | RemoveNewline | LowerCase)"
@@ -407,8 +409,13 @@ mountUnc()
 	return 0
 }
 
+mountPublic-rh() { mountPublic-debian; }
+
 mountPublic-debian()
 {
+	# configure sudo
+	local sudo; isRh && sudo="sudo"
+
 	# configure fstab - allows writing without sudo
 	local unc="//$server/$share"
 	local line="$unc $(readlink -f "$mountDir") cifs username=$uncUser,noauto,rw,users 0 0"	
@@ -419,7 +426,7 @@ mountPublic-debian()
 
 	# mount
 	log1 "mounting SMB drive: mount.cifs $unc $mountDir -o user=$uncUser sec=ntlmsspi"
-	mount.cifs "$unc" "$mountDir" -o user=$uncUser sec=ntlmsspi || return
+	$sudo mount.cifs "$unc" "$mountDir" -o user=$uncUser sec=ntlmsspi || return
 }
 
 mountPublic-mac()
@@ -483,6 +490,7 @@ packageDebWin="acl bc cgroup-tools cifs-utils inotify-tools iputils-ping moreuti
 installPackages-debian() { package $packageAll $packageDebWin net-tools openssh-server; }
 installPackages-entware() { package $packageAll bash coreutils coreutils-ln coreutils-readlink coreutils-realpath coreutils-tac mount-utils nano openssh-client-utils unzip; }
 installPackages-mac() { package $packageAll bash coreutils gsed grep nmap unzip; }
+installPackages-rh() { package acl bc cifs-utils coreutils net-tools openssh-server unzip; }
 installPackages-win() {	package $packageAll $packageDebWin || return; }
 
 installPackages-post()
@@ -498,8 +506,9 @@ package()
 
 	case $platform in
 		debian|win) sudo apt install -y --allow-unauthenticated "$@";;
-		mac) brew install "$@";;
 		entware) sudo opkg install "$@";;
+		mac) brew install "$@";;
+		rh) sudo dnf install "$@";;	
 	esac
 }
 
@@ -586,6 +595,11 @@ setupPackageManager-mac()
 	! brew list bash >& /dev/null && { brew install bash || return; }
 	! which -p gmkdir >&/dev/null && { brew install coreutils || return; }
 	G="g"
+}
+
+setupPackageManager-rh()
+{
+	:
 }
 
 debianPackageCore()
@@ -686,6 +700,7 @@ isContainer() { [[ $container ]]; }
 isDebian() { [[ "$platform" == "debian" ]]; }
 isMac() { [[ "$platform" == "mac" ]]; }
 isPi() { [[ "$ID" == "raspbian" ]]; }
+isRh() { [[ "$ID" == "rhel" || "$ID_LIKE" == "fedora" ]]; }
 isUbuntu() { [[ "$ID" == "ubuntu" ]]; }
 isWin() { [[ "$platform" == "win" ]]; }
 isWsl2() { [[ "$(uname -r)" =~ .*-microsoft-standard$ ]]; }
