@@ -3246,7 +3246,7 @@ isPlatformCheck()
 }
 
 # IsBusyBox FILE - return true if the specified file is using BusyBox
-IsBusyBox() { [[ "$(readlink -f "$(which nslookup)")" == "$(which "busybox")" ]]; }
+IsBusyBox() { InPath busybox && [[ "$(readlink -f "$(which nslookup 2>&1)")" == "$(which "busybox" 2>&1)" ]]; }
 
 function GetPlatformFiles() # GetPlatformFiles FILE_PREFIX FILE_SUFFIX
 {
