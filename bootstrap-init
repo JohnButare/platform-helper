@@ -376,6 +376,7 @@ mountUnc()
 {
 	local unc="$1"
 
+	# initialize variables
 	! IsUncPath "$unc" && { echoErr "'$unc' is not a UNC path"; return 1; }; 		
 	GetUncUser "$unc" uncUser; [[ ! $uncUser ]] && uncUser="$user"
 	GetUncServer "$unc" server || return; [[ ! $server ]] && { echoErr " UNC '$unc' does not include a server"; return 1; }
@@ -387,35 +388,35 @@ mountUnc()
 	mountDir="$HOME/Volumes/${server}_${shareId}"
 
 	# return if mounted
-	[[ -d "$mountDir/$dirs" ]] && return
+	[[ ! $force && -d "$mountDir/$dirs" ]] && return
 
-	hilight "Mounting $unc..."
-
-	# cleanup existing mount directory
-	[[ -d "$mountDir" ]] && { umount "$mountDir" >& /dev/null; rmdir "$mountDir" || return; }
-
-	# prepare mount directory
-	${G}mkdir --parents "$mountDir" || return
-
-	# mount 	
-	if [[ "$protocol" == "ssh" ]] || IsInteger "$protocol" || ! isAvailable "$server"; then mountPublic-sshfs || return
-	elif [[ "$platform_kernel" == "wsl1" ]]; then mountPublic-win || return
-	elif [[ "$platform_kernel" == "wsl2" || "$platform" == "entware" ]]; then mountPublic-debian || return
-	else mountPublic-$platform || return
+	# find mounting program
+	local mount
+	if [[ "$protocol" == "ssh" ]] || IsInteger "$protocol" || ! isAvailable "$server"; then mount="sshfs"
+	elif isMac; then mount="smbfs"
+	elif [[ "$platform_kernel" == "wsl1" ]]; then mount="drvfs"
+	elif inPath gio; then mount="gio" unmount="gio"
+	elif inPath mount.cifs; then mount="cifs"
+	else echoErr "no UNC mounting program installed"; return 1
 	fi
+
+	# cleanup
+	[[ "$mount" != @(gio) && -e "$mountDir" ]] && { umount "$mountDir" >& /dev/null; rmdir "$mountDir" || return; }
+
+	# prepare
+	[[ "$mount" != "gio" ]] && { ${G}mkdir --parents "$mountDir" || return; }
+
+	# mount
+	hilight "Mounting $unc..."
+	RunFunction "mount${mount^}" || return
 
 	# validate directory
 	[[ ! -d "$mountDir/$dirs" ]] && { echoErr "'$dirs' directory does not exist on '//$server/$share'"; return 1; }
 	return 0
 }
 
-mountPublic-rh() { mountPublic-debian; }
-
-mountPublic-debian()
+mountCifs()
 {
-	# configure sudo
-	local sudo; isRh && sudo="sudo"
-
 	# configure fstab - allows writing without sudo
 	local unc="//$server/$share"
 	local line="$unc $(readlink -f "$mountDir") cifs username=$uncUser,noauto,rw,users 0 0"	
@@ -426,16 +427,44 @@ mountPublic-debian()
 
 	# mount
 	log1 "mounting SMB drive: mount.cifs $unc $mountDir -o user=$uncUser sec=ntlmsspi"
-	$sudo mount.cifs "$unc" "$mountDir" -o user=$uncUser sec=ntlmsspi || return
+	mount.cifs "$unc" "$mountDir" -o user=$uncUser sec=ntlmsspi || return
 }
 
-mountPublic-mac()
+mountDrvfs()
+{
+	log1 "mounting SMB drive: sudo mount -t drvfs //$server/$share $mountDir"
+	net.exe use '\\'"$server"'\IPC$' || return # drvfs requires and existing Windows connection
+	sudo mount -t drvfs "//$server/$share" "$mountDir" || return
+
+	# test reads - try and avoid initial "Invalid argument"
+	ls "$mountDir/usr/local/data/bin"; pause
+	ls "$mountDir/usr/local/data/bin"; pause
+}
+
+mountGio()
+{
+	local unc="smb://$server/$share"
+	local source="/run/user/$(id --user)/gvfs/smb-share:server=$server,share=$share"
+
+	# cleanup
+	[[ -d "$source" ]] && { gio mount --unmount "$unc" >& "/dev/null"; rm -f "$mountDir"; }
+
+	# mount
+	log1 "mounting SMB drive: gio mount $unc"
+	log2 "\n	unc=$$unc\n	source=$source\n"
+	gio mount "$unc" || return
+	pause
+	# link
+	ln -s "$source" "$mountDir" || return 
+}
+
+mountSmbfs()
 {
 	log1 "mounting SMB drive: mount_smbfs -s smb://$uncUser@$server/$share $mountDir"
 	mount_smbfs -s "smb://$uncUser@$server/$share" "$mountDir" || return
 }
 
-mountPublic-sshfs()
+mountSshfs()
 {
 	# install
 	package sshfs || return
@@ -450,17 +479,6 @@ mountPublic-sshfs()
 	local sudo; isQnap && sudo="sudo"
 	log1 "mounting SSH drive: $sudo sshfs -o allow_other -o follow_symlinks $uncUser@$server:/ $mountDir -p $port"
 	$sudo sshfs -o allow_other -o follow_symlinks "$uncUser@$server:/" "$mountDir" -p "$port" || return
-}
-
-mountPublic-win()
-{
-	log1 "mounting SMB drive: sudo mount -t drvfs //$server/$share $mountDir"
-	net.exe use '\\'"$server"'\IPC$' || return # drvfs requires and existing Windows connection
-	sudo mount -t drvfs "//$server/$share" "$mountDir" || return
-
-	# test reads - try and avoid initial "Invalid argument"
-	ls "$mountDir/usr/local/data/bin"; pause
-	ls "$mountDir/usr/local/data/bin"; pause
 }
 
 #
@@ -706,6 +724,7 @@ isWin() { [[ "$platform" == "win" ]]; }
 isWsl2() { [[ "$(uname -r)" =~ .*-microsoft-standard$ ]]; }
 isQnap() { [[ "$platform_like" == "qnap" ]]; }
 log1() { ! (( verboseLevel >= 1 )) && return; echoErr "$@"; }
+log2() { ! (( verboseLevel >= 2 )) && return; echoErr "$@"; }
 pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
 updateNeeded() { isMac && [[ ! $G ]] && return; [[ $force || ! -f "$updateDir/$1" || "$(getDateStamp)" != "$(getFileDateStamp "$updateDir/$1")" ]]; }
 updateDone() { touch "$updateDir/$1"; }
