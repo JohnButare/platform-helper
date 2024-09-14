@@ -298,6 +298,29 @@ mountCommand()
 		[[ "$share" == "root" ]] && share=""
 		RunLog $prefix sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountRoot" "${portArg[@]}"
 
+	# gio
+	elif InPath HOLDgio && [[ -f "/usr/lib/gvfs/gvfsd-fuse" && -f "/usr/lib/gvfs/gvfsd-smb" ]]; then
+		local unc="smb://$server/$share"
+		local source="/run/user/$(id --user)/gvfs/smb-share:server=$server,share=$share"
+
+		# password
+		local password; password="$(getPassword)" || return
+		local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
+
+		# mount with a password
+		if [[ $password ]]; then
+			echo -e "$user\n\n$password\n" | RunLog gio mount "$unc" || return
+			ls $source; exit
+
+		# mount without a password
+		else
+			RunLog gio mount "$unc" || return
+
+		fi
+		
+		# link
+		ln -s "$source" "$mountRoot" || return 
+
 	# linux and WSL 2
 	elif IsPlatform linux,wsl2; then		
 
@@ -309,15 +332,16 @@ mountCommand()
 		local checkLine="//$server/$shareQuoted\\\$* $mountRootQuoted cifs username=$user,noauto,rw,users 0 0"
 
 		# add an entry to /etc/fstab so sudo is not required to write to the share
-		if ! IsPlatform wsl1 && ! ${G}grep -i "$checkLine" "/etc/fstab" >& /dev/null; then
+		if ! ${G}grep -i "$checkLine" "/etc/fstab" >& /dev/null; then
 			sudoc bash -c "echo \"$line\" >> /etc/fstab" || return
 		fi
 
-		# mount - don't log password, mount.cifs password option does not work (WSL 2)
+		# password
 		local password; password="$(getPassword)" || return
 		local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
+
+		# options - mount.cifs password option does not work (WSL 2)
 		local options="user=$user sec=ntlmsspi"
-		local sudo; IsPlatform rhel && sudo="sudoc"
 		
 		# mount elevated
 		if ! IsPlatform wsl1 && elevateCheck; then	
@@ -327,12 +351,12 @@ mountCommand()
 
 		# mount with a password
 		elif [[ $password ]]; then
-			log1 "mount: PASSWD="$passwordHidden" $sudo mount.cifs //$server/$share $mountRoot -o $options"
-			PASSWD="$password" $sudo mount.cifs "//$server/$share" "$mountRoot" -o $options
+			log1 "mount: PASSWD="$passwordHidden" mount.cifs //$server/$share $mountRoot -o $options"
+			PASSWD="$password" mount.cifs "//$server/$share" "$mountRoot" -o $options
 
 		# mount without a password - can't use PASSWD="" prefix as that is treated as an empty password
 		else
-			RunLog $sudo mount.cifs "//$server/$share" "$mountRoot" -o $options
+			RunLog mount.cifs "//$server/$share" "$mountRoot" -o $options
 
 		fi		
 
