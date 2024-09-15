@@ -85,7 +85,7 @@ ScriptCaller()
 
 ScriptCheckDir() { ScriptCheckPath --dir "$1"; }
 ScriptCheckFile() { ScriptCheckPath --file "$1"; }
-ScriptCheckUnc() {	IsUncPath "$1" && return; ScripdtErr "'$1' is not a UNC"; ScriptExit; }
+ScriptCheckUnc() {	IsUncPath "$1" && return; ScriptErr "'$1' is not a UNC"; ScriptExit; }
 
 ScriptCheckPath()
 {

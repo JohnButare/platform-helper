@@ -1522,7 +1522,23 @@ FileWait()
 	done
 
 	[[ ! $quiet ]] && echo "not found"; return 1
+}
 
+# FileWait FILE [SECONDS](60) - wait for a file or directory to be deleted
+# - useful if inotifywait is not available or cannot be used (gio mounts)
+FileWaitDelete()
+{
+	# arguments
+	local file="$1" timeoutSeconds="${2:-60}" i ii
+
+	for (( i=1; i<=$timeoutSeconds; ++i )); do
+		for  (( ii=1; ii<=10; ++ii )); do
+			[[ ! -e "$file" ]] && return
+			${G}sleep .1
+		done	
+	done
+
+	return 1
 }
 
 FindInPath()
@@ -1545,8 +1561,8 @@ FindInPath()
 # GetRealPath - resolve symbolic links in path, the full path need not exist
 GetRealPath()
 {
-	# use -m so directory existence is not checked (which can error out for mounted network volumes)
-	InPath ${G}realpath && { ${G}realpath -m "$1"; return; }
+	# use --canonicalize-missing so directory existence is not checked (which can error out for mounted network volumes)
+	InPath ${G}realpath && { ${G}realpath --canonicalize-missing "$1"; return; }
 
 	# readlink returns nothing if the path does not exist, 
 	# so don't resolve symbolic links in this case
@@ -2722,14 +2738,21 @@ SshAgentConfStatus() { SshAgentConf "$@" && SshAgent status; }
 SshSudoc() { SshHelper connect --credential --function "$1" -- sudoc "${@:2}"; }
 
 #
-# Network: UNC Shares - [PROTOCOL:]//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
+# network GIO shares - # .../smb-share:server=SERVER,share=SHARE/...
+#
+
+GetGioServer() { GetArgs; local ggs="${1#*server=}"; ggs="${ggs%,*}"; r "$ggs" $2; }
+GetGioShare() { GetArgs; local ggs="${1#*share=}"; ggs="${ggs%/*}"; r "$ggs" $2; }
+
+#
+# network: UNC Shares - [PROTOCOL:]//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
 #
 
 CheckNetworkProtocol() { [[ "$1" == @(|nfs|smb|ssh) ]] || IsInteger "$1"; }
 GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }																	# //SERVER/SHARE
-GetUncServer() { GetArgs; local gus="${1#*( )(*:)//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }											# SERVER
-GetUncShare() { GetArgs; local gus="${1#*( )(*:)//*/}"; gus="${gus%%/*}"; gus="${gus%:*}"; r "${gus:-$3}" $2; }		# SHARE
-GetUncDirs() { GetArgs; local gud="${1#*( )(*:)//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 			# DIRS
+GetUncServer() { GetArgs; local gus="${1#*( )*(*:)//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }											# SERVER
+GetUncShare() { GetArgs; local gus="${1#*( )*(*:)//*/}"; gus="${gus%%/*}"; gus="${gus%:*}"; r "${gus:-$3}" $2; }		# SHARE
+GetUncDirs() { GetArgs; local gud="${1#*( )*(*:)//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 			# DIRS
 IsUncPath() { [[ "$1" =~ ^(\ |.*:)*//.* ]]; }
 
 IsRcloneRemote() { [[ -f "$HOME/.config/rclone/rclone.conf" ]] && grep --quiet "^\[$1\]$" "$HOME/.config/rclone/rclone.conf"; }

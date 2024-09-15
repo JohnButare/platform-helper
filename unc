@@ -10,6 +10,7 @@ The UNC format is //[USER@]SERVER/SHARE[/DIRS].
 
 	browse              list UNC shares on the local network
 	exists							check if a share exists
+	get									get information
 	IsAvailable HOST    return true if a host is available for UNC connections
 	IsMounted TARGET    return true if the target UNC or path is mounted 
 	list HOST           list UNC shares on the specified host
@@ -40,9 +41,10 @@ Other options:
 init()
 {
 	volumeDir="$(GetRealPath "$HOME/Volumes")"; initVolumeDir || return
+	volumeDirGio="/run/user/$(id --user)/gvfs"
 	protocolUsage="-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)"
 	uncTypes="cifs,drvfs,nfs,nfs4,fuse.sshfs"
-	uncTypesDf="-t nfs -t nfs4 -t smbfs -t fuse.sshfs"
+	uncTypesDf="-t nfs -t nfs4 -t smbfs -t fuse.sshfs -t fuse.gvfsd-fuse"
 	IsPlatform mac && uncTypesDf+=" -t macfuse"
 	IsPlatform wsl1 && uncTypes+=",drvfs" uncTypesDf+=" -t drvfs"
 	uncTypesGrep="${uncTypes//,/|}"
@@ -83,6 +85,7 @@ Get information.
 												If --root is specified omit the subdirectories, i.e. ~/Volumes/server_share
 	mounts								return all mounted shares in ~/Volumes
 	port [-p|--protocol]	return the port for the specified protocol	
+	programs							return the supported mount programs
 	protocol PATH					the protocol used for the mounted path
 	protocols [HOST]			return the protocols supported by specified host, or all valid protocols
 	unc PATH [--root]			return the UNC of a mounted path, i.e. //server/share/dir1/dir2.
@@ -95,6 +98,12 @@ getCommand() { usage; }
 
 getDetailCommand()
 {
+	if isAvailableMountGio; then
+		hilight "gio mounts..."
+		gio mount --list | grep "GDaemonMount" -A 1 | grep -v "GDaemonMount"
+		hilight "standard mounts..."
+	fi
+
 	if InPath findmnt; then findmnt --output=TARGET,SOURCE,FSTYPE --types=$uncTypes | ${G}grep -e "^TARGET\|$volumeDir"
 	elif InPath ${G}df; then ${G}df $uncTypesDf
 	else noUncCommand
@@ -104,11 +113,18 @@ getDetailCommand()
 getMountsCommand()
 {
 	elevateSet
-	if InPath findmnt; then RunLog $elevate findmnt --output=TARGET --types=$uncTypes --noheadings | tgrep "^$volumeDir"
-	elif InPath ${G}df; then RunLog $elevate ${G}df $uncTypesDf |& ${G}tail -n +2 | awk '{ print $NF }'
-	elif InPath mount; then RunLog $elevate mount | ${G}grep -E "type ($uncTypesGrep) " | cut -d" " -f3
-	else noUncCommand
-	fi
+
+	{
+		# get mounts - gio mounts
+		isAvailableMountGio && find $(GetFullPath "$volumeDir") -maxdepth 1 -type l
+
+		# get mounts - standard mounts
+		if InPath findmnt; then RunLog $elevate findmnt --output=TARGET --types=$uncTypes --noheadings | tgrep "^$volumeDir"
+		elif InPath ${G}df; then RunLog $elevate ${G}df $uncTypesDf |& ${G}tail -n +2 | awk '{ print $NF }'
+		elif InPath mount; then RunLog $elevate mount | ${G}grep -E "type ($uncTypesGrep) " | cut -d" " -f3
+		else noUncCommand
+		fi
+	} | sort
 }
 
 # dir
@@ -120,6 +136,20 @@ getDirCommand() { getDir$root "$unc"; }
 # port
 getPortOpt() { protocolOpt "$@"; }
 getPortCommand() { getPort "$protocol"; }
+
+# programs
+getProgramsCommand()
+{
+	local programs=() 
+	isAvailableMountCifs && programs+=( "cifs" )
+	isAvailableMountDrvfs && programs+=( "drvfs" )
+	isAvailableMountGio && programs+=( "gio" )
+	isAvailableMountNfs && programs+=( "nfs" )
+	isAvailableMountRclone && programs+=( "rclone" )
+	isAvailableMountSmbfs && programs+=( "smbfs" )
+	isAvailableMountSshfs && programs+=( "sshfs" )
+	[[ $programs ]] && ArrayDelimit programs " " || echo "none"
+}
 
 # protocol
 getProtocolArgs() { getPathArg "$@"; }
@@ -157,6 +187,7 @@ isAvailableCommand() { findProtocol "$host"; }
 # IsMounted Command
 #
 
+isMountArgStart() { unset -v isLocal unc user server share dirs mountDir mountRoot mountRootTarget mountRootTargetGio protocol; }
 isMountedArgs() { quiet="true" getTargetArg "$@"; }
 isMountedCommand() { [[ -e "$mountDir" ]]; }
 
@@ -223,12 +254,13 @@ mountUsage()
 Mount the specified UNC and return the mounted path.
 
 	$protocolUsage
-	-i, --ip							mount using the server IP address
-	-N, --no-host-check		do not check host availability
+	-i, --ip								mount using the server IP address
+	-N, --no-host-check			do not check host availability
+	-p, --program cifs|gio	use the specified SMB mounting program, cifs is preferred (faster)
 	$(timeoutUsage)"
 }
 
-mountArgStart() { unset -v ip noHostCheck port protocol; timeoutArgStart; }
+mountArgStart() { unset -v ip noHostCheck port program protocol; timeoutArgStart; unset -v isLocal unc user server share dirs mountDir mountRoot mountRootTarget mountRootTargetGio protocol; }
 mountArgs() { getTargetArg "$@"; }
 
 mountOpt() 
@@ -236,8 +268,9 @@ mountOpt()
 	protocolOpt "$@" && return
 	timeoutOpt "$@" && return
 	case "$1" in
-		-i|--ip) ip="--ip";;
-		-N|--no-host-check) noHostCheck="true";;
+		--ip|-i) ip="--ip";;
+		--no-host-check|-N) noHostCheck="true";;
+		--program|--program=*|-p|-p=*) ScriptOptGet "program" "$@"; program="$(LowerCase "$program")"; [[ "$program" == @(cifs|gio) ]] || usage;;
 		*) return 1
 	esac
 }
@@ -246,6 +279,7 @@ mountCommand()
 {
 	local result
 
+	# return if mounted
 	isMountedCheck "$unc" && return
 
 	# ensure server is available
@@ -256,138 +290,152 @@ mountCommand()
 	log1 "connection will use '$(protocolDesc "$protocol" "$server")' protocol"
 
 	# remove an existing share in the mountRoot
-	unmount "$mountRoot" "$isLocal" || return
+	unmount
+
+	# determine mount program from protocol (nfs|rclone|smb|ssh|INTEGER)
+	if [[ "$protocol" == @(nfs|rclone|ssh) ]] && RunFunc isAvailableMount "$protocol"; then mountProgram="$protocol"
+	elif [[ "$protocol" == "smb" ]] && isAvailableMountDrvfs && { isWslShare || IsPlatform wsl1; }; then mountProgram="drvfs"
+	elif [[ "$protocol" == "smb" ]] && isAvailableMountSmbfs; then mountProgram="smbfs"
+	elif [[ "$protocol" == "smb" ]] && isAvailableMountCifs && { [[ "$program" == @(|cifs) ]] || ! isAvailableMountGio; }; then mountProgram="cifs"
+	elif [[ "$protocol" == "smb" ]] && isAvailableMountGio; then mountProgram="gio"
+	else ScriptErr "no mounting protocol available for '$unc' protocol '$protocol'"; return 1
+	fi
 
 	# create the mount directory
-	if [[ ! -d "$mountRoot" ]]; then
+	if [[ "$mountProgram" != @(gio) && ! -d "$mountRoot" ]]; then
 		log1 "creating mount root directory '$mountRoot'"
 		! ${G}mkdir "$mountRoot" --parents && { ScriptErr "could not create the mount root directory '$mountRoot'"; return 1; }
 	fi
 
 	# mount
-
-	# rclone
-	if [[ "$protocol" == "rclone" ]]; then
-		RunLog rclone mount "$server:$share/$dirs" "$mountRoot" --daemon
-
-	# WSL 1
-	elif isWslshare || IsPlatform wsl1; then
-
-		# required if DNS name is not available in Windows 
-		server="$(GetIpAddress "$server")" || return
-
-		# drvfs requires an existing connection to the share
-		if ! net.exe use | RemoveCarriageReturn | ${G}grep --quiet '\\\\'"$server"'\\'; then
-			local password; password="$(getPassword)" || return
-			log1 "mount: net.exe use "'\\\\'"$server\\IPC$ /USER:$user HIDDEN"
-			net.exe use '\\'"$server"'\IPC$' /USER:$user "$password" || return
-		fi
-
-		# mount
-		RunLog sudoc mount -t drvfs "//$server/$share" "$mountRoot"
-
-	# NFS
-	elif [[ "$protocol" == "nfs" ]]; then
-		local options=(); IsPlatform win && options+=( -o nolock )
-		RunLog mount "${options[@]}" -t nfs "$server:/$share" "$mountRoot"
-
-	# SSH
-	elif [[ "$protocol" == "ssh" ]] || IsInteger "$protocol"; then		
-		local portArg; IsInteger "$protocol" && portArg=(-p "${protocol}")
-		local prefix; IsPlatform qnap && prefix="sudo"
-		[[ "$share" == "root" ]] && share=""
-		RunLog $prefix sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountRoot" "${portArg[@]}"
-
-	# gio
-	elif InPath HOLDgio && [[ -f "/usr/lib/gvfs/gvfsd-fuse" && -f "/usr/lib/gvfs/gvfsd-smb" ]]; then
-		local unc="smb://$server/$share"
-		local source="/run/user/$(id --user)/gvfs/smb-share:server=$server,share=$share"
-
-		# password
-		local password; password="$(getPassword)" || return
-		local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
-
-		# mount with a password
-		if [[ $password ]]; then
-			echo -e "$user\n\n$password\n" | RunLog gio mount "$unc" || return
-			ls $source; exit
-
-		# mount without a password
-		else
-			RunLog gio mount "$unc" || return
-
-		fi
-		
-		# link
-		ln -s "$source" "$mountRoot" || return 
-
-	# linux and WSL 2
-	elif IsPlatform linux,wsl2; then		
-
-		# create the fstab line - spaces in the share and mount directory must be quoted using \044
-		local quote='\\040' quoteCheck='\040'
-		local shareQuoted; shareQuoted="$(ReplaceString "$share" " " "$quote")" || return
-		local mountRootQuoted; mountRootQuoted="$(GetRealPath "$mountRoot" | ReplaceString " " "$quote")" || return
-		local line="//$server/$shareQuoted $mountRootQuoted cifs username=$user,noauto,rw,users 0 0"
-		local checkLine="//$server/$shareQuoted\\\$* $mountRootQuoted cifs username=$user,noauto,rw,users 0 0"
-
-		# add an entry to /etc/fstab so sudo is not required to write to the share
-		if ! ${G}grep -i "$checkLine" "/etc/fstab" >& /dev/null; then
-			sudoc bash -c "echo \"$line\" >> /etc/fstab" || return
-		fi
-
-		# password
-		local password; password="$(getPassword)" || return
-		local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
-
-		# options - mount.cifs password option does not work (WSL 2)
-		local options="user=$user sec=ntlmsspi"
-		
-		# mount elevated
-		if ! IsPlatform wsl1 && elevateCheck; then	
-			[[ $password ]] && elevateSet --sensitive --no-quote || elevateSet "--no-hide"
-			log1 "mount: $elevate PASSWD="$passwordHidden" mount.cifs //$server/$share $mountRoot -o $options"
-			$elevate $passwordVar mount.cifs "//$server/$share" "$mountRoot" $options
-
-		# mount with a password
-		elif [[ $password ]]; then
-			log1 "mount: PASSWD="$passwordHidden" mount.cifs //$server/$share $mountRoot -o $options"
-			PASSWD="$password" mount.cifs "//$server/$share" "$mountRoot" -o $options
-
-		# mount without a password - can't use PASSWD="" prefix as that is treated as an empty password
-		else
-			RunLog mount.cifs "//$server/$share" "$mountRoot" -o $options
-
-		fi		
-
-	# mac
-	elif IsPlatform mac; then
-		local password; password="$(getPassword)" || return
-
-		# options
-		# nobrowse - don't show share on the Desktop
-		# nodatacache - prevent caching of file data
-		# nomdatacache - prevent caching of file metadata (i.e. file modification time, stat gets current file modification time for 30 seconds if time modified on server)
-		# forcenewsession, -s - force a new session to be created on the server
-		local options="nobrowse"
-		#options+=",nomdatacache,nodatacache"
-
-		# mount - don't log passwords
-		if [[ $password ]]; then
-			log1 "mount: mount_smbfs -s -o $options \"smb://$user:HIDDEN@$server/$share\" \"$mountRoot\""
-			mount_smbfs -o "$options" "smb://$user:$password@$server/$share" "$mountRoot"
-		else
-			RunLog mount_smbfs -o "$options" "smb://$user@$server/$share" "$mountRoot"
-		fi
-
-	fi
+	RunFunction mount "$mountProgram" || return
 
 	# return the mounted directory	
 	isMountedCheck "$unc" && return
 
 	# mount failed, cleanup 
 	[[ ! $quiet ]] && { ScriptErr "unable to mount UNC '$unc'"; }
-	unmount "$mountRoot" "$isLocal"; return 1
+	unmount; return 1
+}
+
+mountRclone() { RunLog rclone mount "$server:$share/$dirs" "$mountRoot" --daemon; return 0; }
+
+mountCifs()
+{
+	# create the fstab line - spaces in the share and mount directory must be quoted using \044
+	local quote='\\040' quoteCheck='\040'
+	local shareQuoted; shareQuoted="$(ReplaceString "$share" " " "$quote")" || return
+	local mountRootQuoted; mountRootQuoted="$(GetRealPath "$mountRoot" | ReplaceString " " "$quote")" || return
+	local line="//$server/$shareQuoted $mountRootQuoted cifs username=$user,noauto,rw,users 0 0"
+	local checkLine="//$server/$shareQuoted\\\$* $mountRootQuoted cifs username=$user,noauto,rw,users 0 0"
+
+	# add an entry to /etc/fstab so sudo is not required to write to the share
+	if ! ${G}grep -i "$checkLine" "/etc/fstab" >& /dev/null; then
+		sudoc bash -c "echo \"$line\" >> /etc/fstab" || return
+	fi
+
+	# password
+	local password; password="$(getPassword)" || return
+	local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
+
+	# options - mount.cifs password option does not work (WSL 2)
+	local options="user=$user sec=ntlmsspi"
+	
+	# mount elevated
+	if ! IsPlatform wsl1 && elevateCheck; then	
+		[[ $password ]] && elevateSet --sensitive --no-quote || elevateSet "--no-hide"
+		log1 "mount: $elevate PASSWD="$passwordHidden" mount.cifs //$server/$share $mountRoot -o $options"
+		$elevate $passwordVar mount.cifs "//$server/$share" "$mountRoot" $options
+
+	# mount with a password
+	elif [[ $password ]]; then
+		log1 "mount: PASSWD="$passwordHidden" mount.cifs //$server/$share $mountRoot -o $options"
+		PASSWD="$password" mount.cifs "//$server/$share" "$mountRoot" -o $options
+
+	# mount without a password - can't use PASSWD="" prefix as that is treated as an empty password
+	else
+		RunLog mount.cifs "//$server/$share" "$mountRoot" -o $options
+	fi		
+
+	return 0
+}
+
+mountDrvfs()
+{
+	# required if DNS name is not available in Windows 
+	server="$(GetIpAddress "$server")" || return
+
+	# drvfs requires an existing connection to the share
+	if ! net.exe use | RemoveCarriageReturn | ${G}grep --quiet '\\\\'"$server"'\\'; then
+		local password; password="$(getPassword)" || return
+		log1 "mount: net.exe use "'\\\\'"$server\\IPC$ /USER:$user HIDDEN"
+		net.exe use '\\'"$server"'\IPC$' /USER:$user "$password" || return
+	fi
+
+	# mount
+	RunLog sudoc mount -t drvfs "//$server/$share" "$mountRoot"
+
+	return 0
+}
+
+mountGio()
+{
+	# password
+	local password; password="$(getPassword)" || return
+	local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
+
+	# mount with a password
+	local unc="smb://$server/$share"
+
+	if [[ $password ]]; then
+		echo -e "$user\n\n$password\n" | RunLog gio mount "$unc" >& /dev/null
+
+	# mount without a password
+	else
+		RunLog gio mount "$unc" >& /dev/null
+	fi
+
+	# link
+	ln -s "$mountRootTargetGio" "$mountRoot" || return
+}
+
+mountNfs()
+{
+	local options=(); IsPlatform win && options+=( -o nolock )
+	RunLog mount "${options[@]}" -t nfs "$server:/$share" "$mountRoot"
+	return 0
+}
+
+mountSmbfs()
+{
+	local password; password="$(getPassword)" || return
+
+	# options
+	# nobrowse - don't show share on the Desktop
+	# nodatacache - prevent caching of file data
+	# nomdatacache - prevent caching of file metadata (i.e. file modification time, stat gets current file modification time for 30 seconds if time modified on server)
+	# forcenewsession, -s - force a new session to be created on the server
+	local options="nobrowse"
+	#options+=",nomdatacache,nodatacache"
+
+	# mount - don't log passwords
+	if [[ $password ]]; then
+		log1 "mount: mount_smbfs -s -o $options \"smb://$user:HIDDEN@$server/$share\" \"$mountRoot\""
+		mount_smbfs -o "$options" "smb://$user:$password@$server/$share" "$mountRoot"
+	else
+		RunLog mount_smbfs -o "$options" "smb://$user@$server/$share" "$mountRoot"
+	fi
+
+	return 0
+}
+
+mountSsh()
+{
+	local portArg; IsInteger "$protocol" && portArg=(-p "${protocol}")
+	local prefix; IsPlatform qnap && prefix="sudo"
+	[[ "$share" == "root" ]] && share=""
+	RunLog $prefix sshfs -o reconnect -o allow_other -o follow_symlinks "$user@$server:/$share" "$mountRoot" "${portArg[@]}"
+	return 0
 }
 
 #
@@ -413,29 +461,41 @@ shareExistsWin() { net.exe share | grep --quiet "^${share} "; }
 unmountUsage() { echot "Usage: unc unmount TARGET|all
 Unmount the specified target UNC or path, or all mounted UNCs."; }
 
+unmountArgStart() { unset -v isLocal unc user server share dirs mountDir mountRoot mountRootTarget mountRootTargetGio protocol; }
+
 unmountArgs()
 { 
 	[[ "$1" == "all" ]] && { shift=1; unc="all"; return; }
 	getTargetArg "$@"
 }
 
-unmountCommand()
-{
-	[[ "$unc" != "all" ]] && { unmount "$mountRoot" "$isLocal"; return; }
+unmountCommand() { [[ "$unc" == "all" ]] && { unmountAll; return; } || unmount; }
 
+unmountAll()
+{
 	# mac
 	[[ $force ]] && IsPlatform mac && { sudoc umount "$volumeDir/"*; rmdir "$volumeDir/"*; }
 
 	# find mounted directories - direct call to getUncMounts does not work with --elevate
-	local dirs; IFS=$'\n' dirs=( $(unc get mounts $elevateArg "${globalArgs[@]}") ) || return
+	local dir dirs; IFS=$'\n' dirs=( $(unc get mounts $elevateArg "${globalArgs[@]}") ) || return
 	[[ ! $dirs ]] && return
 
 	# unmount
 	local fail=0 message isLocal # we found all mounted shares, so none of them are local
 	log "unmounting..."
-	for mountRoot in "${dirs[@]}"; do
-		log "$(GetFileName "$mountRoot")..."; [[ $verbose ]] && echo
-		message="$(unmount "$mountRoot" "$isLocal" 2>&1)" || { (( ++fail )); echo; EchoErr "$message"; }
+	for dir in "${dirs[@]}"; do
+		log "$(GetFileName "$dir")..."; [[ $verbose ]] && echo
+
+		# remove dead links
+		if [[ -L "$dir" && ! -e "$dir" ]]; then
+			message="$(rm "$dir" 2>&1)" || { (( ++fail )); echo; EchoErr "$message"; }
+			continue
+		fi
+
+		# get target information and unmount
+		getTargetArg "$dir" || return
+		message="$(unmount 2>&1)" || { (( ++fail )); echo; EchoErr "$message"; }
+
 	done
 	log "done\n"
 
@@ -446,55 +506,62 @@ unmountCommand()
 # mount/unmount helper
 #
 
-# unmount mountRoot isLocal - unmount a share and remove the mount directory
+# unmount - unmount and cleanup dir (the mounted directory)
 #   The mounted directory may be in an invalid state, and normal file operations on it will fail.
 #   To test with a share in an invalid state, mount an SSHFS share, logout and reconnect.  ls "$mountRoot" will error with:
 #   "ls: cannot access rosie.hagerman.butare.net_root: Input/output error"
 unmount()
 {
-	local dir="$1" isLocal="$2"
 	local output="/dev/null"; [[ $verbose ]] && output="/dev/stderr"
+	local forceArg; [[ $force ]] && forceArg="--force"
 
-	# cannot unmount local directories
+	# return for local mounts
 	[[ $isLocal ]] && return
 
-	# return if the mount directory does not exist or is empty
-	mountDirCleanup "$dir" >& "$output" && return
+	# gio unmount
+	[[ -L "$dir" || -d "$mountRootTargetGio" ]] && { unmountGio; return; }
+	
+	# standard unmount
+	unmountStandard || return
+}
+
+unmountGio()
+{
+	# unmount gio
+	if [[ -d "$mountRootTargetGio" ]]; then 
+		gio mount --unmount $forceArg "smb:$unc" >& "$output"
+		FileWaitDelete "$mountRootTargetGio" 2
+		[[ -d "$mountRootTargetGio" ]] && { unmountProcessShow "$mountRootTargetGio"; return; }
+	fi
+
+	# remove link
+	[[ -L "$mountRoot" ]] && { RunLog2 rm "$mountRoot" || return; }
+
+	# check for local files
+	unmountLocalFiles "$mountRoot"
+}
+
+unmountStandard()
+{
+	# cleanup the mount directory
+	mountDirCleanup "$mountRoot" >& "$output" && return
 	
 	# unmount - ignore errors
-	case "$PLATFORM_OS" in
-		mac) unmountMac "$dir" >& "$output";;
-		linux|win) unmountLinux "$dir" >& "$output";;
-	esac
-	
-	mountDirCleanup "$dir" >& "$output" && return
-
-	# unable to remove - check if it is a local drive
-	if drive IsMounted "$dir"; then
-		ScriptErr "unable to unmount '$dir', it contains local files, try -ff to blindly remove those files"
-		return 1
+	if [[ ! $isGio ]]; then
+		case "$PLATFORM_OS" in
+			linux|win) unmountStandardLinux "$mountRootTarget" >& "$output";;
+			mac) unmountStandardMac "$mountRootTarget" >& "$output";;
+		esac
 	fi
 
-	# unable to remove
-	if [[ ! $quiet ]]; then
-		ScriptErr "unable to unmount '$dir', try --force"
-		local processes; processes="$(FileGetProcessesUsing "$dir")" || return
-		if [[ $processes ]]; then
-			log1 "blocking processes for '$dir': $processes"
-			EchoErr "The following processes are preventing '$dir' from being unmounted:"; ps -p $processes
-		fi
-	fi
+	# cleanup the mount directory again
+	mountDirCleanup "$mountRoot" >& "$output" && return
 
-	return 1
+	# failed, final messages
+	unmountLocalFiles "$mountRoot" && unmountProcessShow "$mountRootTarget"
 }
 
-unmountMac()
-{
-	local dir="$1" args=(); [[ $force ]] && args+=(force)
-	RunLog diskutil unmount "${args[@]}" "$dir"
-}
-
-unmountLinux()
+unmountStandardLinux()
 {
 	local dir="$1" args=(); [[ $force ]] && args+=(-f)	
 	RunLog $elevate umount "${args[@]}" "$dir"
@@ -503,6 +570,39 @@ unmountLinux()
 	if ! mountDirCleanup "$dir"; then
 		RunLog sudo umount "${args[@]}" "$dir"
 	fi
+}
+
+unmountStandardMac()
+{
+	local dir="$1" args=(); [[ $force ]] && args+=(force)
+	RunLog diskutil unmount "${args[@]}" "$dir"
+}
+
+# unmountLocalFiles DIR - show unmount error if DIR is a local drive
+unmountLocalFiles()
+{
+	local dir="$1"
+	! drive IsMounted "$dir" --quiet && return
+	ScriptErr "unable to unmount '$dir', it contains local files, try -ff to blindly remove those files"
+	return 1
+}
+
+# unmountProcessShow - show processes in use
+unmountProcessShow()
+{
+	local dir="$1"
+	[[ $quiet ]] && return 1
+
+	# show unable to unmmount message
+	ScriptErr "unable to unmount '$dir', try --force"
+
+	# show processes in use
+	local processes; processes="$(FileGetProcessesUsing "$dir")" || return
+	[[ ! $processes ]] && return
+	log1 "blocking processes for '$dir': $processes"
+	EchoErr "The following processes are preventing '$dir' from being unmounted:"; ps -p $processes
+
+	return 1
 }
 
 mountDirCleanup()
@@ -551,9 +651,6 @@ getTargetArg()
 {
 	ScriptArgGet --required "target" -- "$@"
 
-	# target aliases
-	[[ "$target" == "//nas3/root" ]] && target="//nas3/homes/admin/root"
-
 	# target is a mounted file or directory
 	if [[ -e "$target" ]]; then		
 		[[ "$target" =~ _elevated ]] && elevateArg="--elevated" && elevateSet
@@ -568,7 +665,7 @@ getTargetArg()
 # protocol helper
 #
 
-# findProtocol HOST - find a file sharing protocol for HOST, sets protocol variable.
+# findProtocol HOST - find a file sharing protocol for HOST, sets protocol variable to smb|nfs|ssh|rclone.
 findProtocol()
 {
 	local host="$1"; noHostCheck && return
@@ -581,6 +678,7 @@ findProtocol()
 	# if a specific protocol was requested check it
 	[[ $protocol ]] && { isAvailable "$host" "$protocol"; return; }
 
+	# find a protocol to connect to the host
 	isAvailable "$host" "smb" || isAvailable "$host" "nfs" || isAvailable "$host" "ssh" || isAvailable "$host" "rclone"
 }
 
@@ -601,9 +699,9 @@ getPort()
 #
 
 log() { [[ $quiet ]] && return; printf "$@"; }
-noHostCheck() { [[ $noHostCheck ]] || isWslshare; }
+noHostCheck() { [[ $noHostCheck ]] || isWslShare; }
 protocolOpt() { [[ "$1" == @(-p|--protocol|-p*|--protocol=*) ]] && ScriptOptNetworkProtocol "$@"; }
-isWslshare() { [[ "$server" == @(wsl|wsl.localhost) ]]; }
+isWslShare() { [[ "$server" == @(wsl|wsl.localhost) ]]; }
 validateUnc() { IsUncPath "$1" && return; [[ ! $quiet ]] && ScriptErr "'$1' is not a UNC"; ScriptExit; }
 
 # checkElevation - check if the mountRoot directory requires elevation
@@ -646,7 +744,7 @@ getDir()
 	[[ $isLocal && "$share" == @(root) ]] &&  { echo "/$dirs"; return; }
 
 	# WSL shares
-	if isWslshare; then
+	if isWslShare; then
 		[[ -d "$mountRoot/tmp" ]] && { echo "$mountRoot/$dirs"; return; }
 		return 1
 	fi
@@ -667,21 +765,24 @@ getDirRoot()
 	# unc="$(GetUncFull $ip "$unc")" || return
 
 	# get the mountDir from the UNC
-	local user server share dirs mountRoot mountDir
+	local isLocal unc user server share dirs mountDir mountRoot mountRootTarget mountRootTargetGio protocol
 	getUncInfo "$unc" || return
 
-	# find the mounted directory
-	# - search for mounted UNC types where the destination is the specified mountRoot
+	# find the mounted directory - gio mounts
+	isAvailableMountGio && [[ -d "$mountRootTargetGio" ]] && [[ -L "$mountRoot" ]] && { echo "$mountRoot"; return; }
+
+	# find the mounted directory - standard mounts
+	# - search for mounted UNC types where the destination is the specified dir
 	# - do not search for the UNC source as it is different for each protocol and platform.
 	#   For example mac includes the username in in the SMB source.
 
 	# findmnt
 	if InPath findmnt; then
-		root="$($elevate findmnt --target="$mountRoot" --output=TARGET --types=$uncTypes --noheadings)" || { notAUncShare "$unc"; return; }
+		root="$($elevate findmnt --target="$mountRootTarget" --output=TARGET --types=$uncTypes --noheadings)" || { notAUncShare "$unc"; return; }
 
 	# df
 	elif InPath ${G}df; then
-		root="$($elevate ${G}df -P $uncTypesDf |& ${G}grep " ${mountRoot}$" | awk '{print $NF}')" || { notAUncShare "$unc"; return; };
+		root="$($elevate ${G}df -P $uncTypesDf |& ${G}grep " ${mountRootTarget}$" | awk '{print $NF}')" || { notAUncShare "$unc"; return; };
 
 	else
 		noUncCommand; return
@@ -738,6 +839,7 @@ getProtocol()
 	case "$type" in
 		cifs) echo "smb";;
 		fuse.sshfs) echo "ssh";;
+		fuse.gvfsd-fuse) echo "gio";;
 		*) echo "$type";;
 	esac
 }
@@ -759,9 +861,10 @@ getProtocols()
 # getUnc PATH - return the UNC of a mounted path, i.e. //server/share/dir1/dir2
 getUnc()
 {
-	local path; path="$(GetFullPath "$1")" || return
+	local path; path="$(${G}realpath --canonicalize-missing --no-symlinks "$1")" || return # --no-symlinks for gio paths, --canonicalize-missing for mounted network volumes
 	local uncRoot; uncRoot="$(getUncRoot "$path")" || return
 	local mountRoot; mountRoot="$(getDirRoot "$uncRoot")" || return
+	log2 "getUnc:\n	path=$path\n	uncRoot=$uncRoot\n	mountRoot=$mountRoot"
 	echo "${path/$mountRoot/$uncRoot}"
 }
 
@@ -769,6 +872,12 @@ getUnc()
 getUncRoot()
 {
 	local uncRoot path="$1"; path="$(GetFullPath "$1")" || return
+
+	# gio - format $volumeDirGio/smb-share:server=SERVER,share=SHARE/...
+	if isAvailableMountGio && echo "$path" | qgrep "^$volumeDirGio"; then
+		echo "//$(GetGioServer "$path")/$(GetGioShare "$path")"
+		return
+	fi
 
 	# use findmnt
 	if InPath findmnt; then 
@@ -780,7 +889,6 @@ getUncRoot()
 		uncRoot="$($elevate ${G}df -P |& ${G}grep " ${check}$" | awk '{print $1}')" || { notAUncShare "$path"; return; }
 	else 
 		noUncCommand; return
-
 	fi
 
 	# no changes for cifs, i.e. //nas3/public->no change
@@ -799,11 +907,13 @@ getUncRoot()
 }
 
 # getUncInfo UNC - UNC format is //[USER@]SERVER/SHARE[/DIRS]
-# sets: isLocal unc user server share dirs mountRoot mountDir protocol
+# sets: isLocal unc user server share dirs mountDir mountRoot mountRootTarget mountRootTargetGio protocol
+#   - parsed from UNC: unc user server share dirs
 #   - isLocal: set if the UNC refers to a local share
-#   - unc user server share dirs (parsed from UNC)
 #   - mountRoot: the root directory for the mounted volume, i.e. ~/Volumes/$server_$share
 #     In Windows shares created when elevated will end in _elevated.
+#   - mountRootTarget: the actual mounted target of the mountRoot, i.e. for gifs /run/user/1000/gvfs/...
+#   - mountRootTargetGio: the gio mount root
 #   - mountDir: the full path to the mounted directory, i.e. $mountRoot/$dirs
 getUncInfo()
 {	
@@ -822,6 +932,12 @@ getUncInfo()
 	# mountRoot - the root directory for the mounted volume without problematic directory characters
 	mountRoot="$(echo "$volumeDir/${server}_${share}" | RemoveChar '$')"
 
+	# mountRootTarget - the actual mounted target of the mountRoot, i.e. for gio /run/user/1000/gvfs/...
+	mountRootTarget="$(GetFullPath "$mountRoot")" # resolve links
+
+	# mountRootGio: the gio mount root if it is mounted - always set even if not mounted
+	isAvailableMountGio && mountRootTargetGio="$volumeDirGio/smb-share:server=$server,share=$share"
+
 	# determine if using elevation
 	checkElevation || return
 
@@ -832,7 +948,7 @@ getUncInfo()
 	IsPlatform win && IsMdnsName "$server" && { server="$(MdnsResolve "$server")" || return; }
 
 	# log
-	[[ ! $getUncInfoLogged ]] && log2 "unc $command: unc='$unc'\n	user=$user protocol=$protocol server=$server share='$share' dirs='$dirs'\n	mountRoot='$mountRoot'\n	mountDir='$mountDir'"
+	[[ ! $getUncInfoLogged ]] && log2 "getUncInfo:\n	unc='$unc'\n	user=$user protocol=$protocol server=$server share='$share' dirs='$dirs'\n	mountRoot='$mountRoot'\n	mountRootTarget='$mountRootTarget'\n	mountRootTargetGio='$mountRootTargetGio'\n	mountDir='$mountDir'"
 	getUncInfoLogged="true"
 
 	return 0
@@ -846,25 +962,31 @@ initVolumeDir()
 }
 
 # isAvailable HOST PROTOCOL - return true if file sharing is available to host using protocol.
-# Sets protocol on return.
+# - sets protocol variable
 isAvailable()
 {	
-	local host="$1" protocol="$2"
+	local host="$1" protocolArg="$2"
 	local port="$(getPort "$protocol" "$host")"
 
 	# find program for protocol
 	local program
-	case "$protocol" in
+	case "$protocolArg" in
 		nfs) program="mount.nfs";;
 		ssh) program="sshfs";;
 		rclone) program="rclone";;
 	esac
 
-	# ensure program exists
+	# use sshfs if the port is numeric
+	IsInteger "$protocolArg" && program="sshfs"
+
+	# ensure mount program exists - assume host can mount SSH
 	if [[ $program ]] && ! InPath "$program"; then
 		log1 "$protocol protocol unavailable ($program not installed)"
 		return 1
 	fi
+
+	# set the protocol
+	protocol="$protocolArg"
 
 	# return if not checking host availability
 	noHostCheck && return
@@ -881,6 +1003,15 @@ isAvailable()
 	# check host availability for protocol
 	eval "$check"
 }
+
+# isAvailableMount
+isAvailableMountCifs() { InPath mount.cifs && IsPlatform linux,wsl2 && ! IsPlatform rhel; }
+isAvailableMountDrvfs() { IsPlatform wsl; }
+isAvailableMountGio() { InPath gio && [[ -f "/usr/lib/gvfs/gvfsd-fuse" && -f "/usr/lib/gvfs/gvfsd-smb" ]]; }
+isAvailableMountNfs() { InPath mount.nfs; }
+isAvailableMountRclone() { InPath rclone; }
+isAvailableMountSmbfs() { InPath mount_smbfs && IsPlatform mac; }
+isAvailableMountSshfs() { InPath sshfs; }
 
 # isMountedCheck UNC - if the UNC is mounted show it's path and return true
 isMountedCheck()
