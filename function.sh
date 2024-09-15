@@ -2722,15 +2722,15 @@ SshAgentConfStatus() { SshAgentConf "$@" && SshAgent status; }
 SshSudoc() { SshHelper connect --credential --function "$1" -- sudoc "${@:2}"; }
 
 #
-# Network: UNC Shares - //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
+# Network: UNC Shares - [PROTOCOL:]//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
 #
 
 CheckNetworkProtocol() { [[ "$1" == @(|nfs|smb|ssh) ]] || IsInteger "$1"; }
 GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }																	# //SERVER/SHARE
-GetUncServer() { GetArgs; local gus="${1#*( )//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }											# SERVER
-GetUncShare() { GetArgs; local gus="${1#*( )//*/}"; gus="${gus%%/*}"; gus="${gus%:*}"; r "${gus:-$3}" $2; }		# SHARE
-GetUncDirs() { GetArgs; local gud="${1#*( )//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 			# DIRS
-IsUncPath() { [[ "$1" =~ ^\ *//.* ]]; }
+GetUncServer() { GetArgs; local gus="${1#*( )(*:)//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }											# SERVER
+GetUncShare() { GetArgs; local gus="${1#*( )(*:)//*/}"; gus="${gus%%/*}"; gus="${gus%:*}"; r "${gus:-$3}" $2; }		# SHARE
+GetUncDirs() { GetArgs; local gud="${1#*( )(*:)//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 			# DIRS
+IsUncPath() { [[ "$1" =~ ^(\ |.*:)*//.* ]]; }
 
 IsRcloneRemote() { [[ -f "$HOME/.config/rclone/rclone.conf" ]] && grep --quiet "^\[$1\]$" "$HOME/.config/rclone/rclone.conf"; }
 
@@ -2786,8 +2786,17 @@ GetUncUser()
 # GetUncProtocol UNC [VAR [DEFAULT]] - PROTOCOL=NFS|SMB|SSH|INTEGER - INTEGER is a custom SSH port
 GetUncProtocol()
 {
-	GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "${gup:-$3}" $2
+	# GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "${gup:-$3}" $2
+	# CheckNetworkProtocol "$gup" || { EchoErr "'$gup' is not a valid network protocol"; return 1; }
+
+	GetArgs; local gup="$(RemoveSpaceTrim "$1")"
+	if [[ "$gup" =~ ^[a-zA-Z]*:// ]]; then gup="${gup%:*}"
+	elif [[ "$gup" =~ :[a-zA-Z] ]]; then gup="${gup##*:}"
+	else gup="$3"
+	fi
+
 	CheckNetworkProtocol "$gup" || { EchoErr "'$gup' is not a valid network protocol"; return 1; }
+	r "${gup}" $2	
 }
 
 # SshUser HOST - return the user for the host
