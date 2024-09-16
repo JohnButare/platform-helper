@@ -2742,7 +2742,7 @@ SshSudoc() { SshHelper connect --credential --function "$1" -- sudoc "${@:2}"; }
 #
 
 GetGioServer() { GetArgs; local ggs="${1#*server=}"; ggs="${ggs%,*}"; r "$ggs" $2; }
-GetGioShare() { GetArgs; local ggs="${1#*share=}"; ggs="${ggs%/*}"; r "$ggs" $2; }
+GetGioShare() { GetArgs; local ggs="${1#*share=}"; ggs="${ggs%%/*}"; r "$ggs" $2; }
 
 #
 # network: UNC Shares - [PROTOCOL:]//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
