@@ -601,7 +601,7 @@ DbusConf()
 	(( verboseLevel > 1 )) && header "D-BUS Configuration"
 
 	if IsPlatform wsl; then
-		export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+		export XDG_RUNTIME_DIR="/run/user/$(${G}id -u)"
 		export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 		SystemdConf || return
 	elif IsPlatform linux; then
@@ -3366,7 +3366,7 @@ RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }		# Run
 SystemdConf()
 {
 	# configure runtime directory - must be owned by $USER
-	local dir="/run/user/$(id -u)"
+	local dir="/run/user/$(${G}id -u)"
 	[[ ! -d "$dir" ]] && { sudo mkdir "$dir" || return; }
 	[[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" != "$USER" ]] && { sudo chown "$USER" "$XDG_RUNTIME_DIR"; }
 

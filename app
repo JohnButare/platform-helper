@@ -69,7 +69,7 @@ dbus()
 	if [[ ! -d "$XDG_RUNTIME_DIR" ]]; then
 		sudoc mkdir "$XDG_RUNTIME_DIR" || return
 		sudo chmod 700 "$XDG_RUNTIME_DIR" || return
-		sudo chown "$(id -un):$(id -gn)" "$XDG_RUNTIME_DIR" || return
+		sudo chown "$(${G}id -un):$(${G}id -gn)" "$XDG_RUNTIME_DIR" || return
 	fi
 
 	runService "dbus" || return
