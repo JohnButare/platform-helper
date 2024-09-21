@@ -61,7 +61,6 @@ else
 	}
 fi 
 
-
 #
 # Other
 #
@@ -170,16 +169,7 @@ InitColorClear() { unset -v GREEN RB_BLUE RB_INDIGO RED RESET; }
 
 # CurrentColumn - return the current cursor column, https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
 if IsTtyOk; then
-	if IsBash; then		
-		CurrentColumn()
-		{
-			exec < "/dev/tty"; local old="$(${G}stty -g)"; ${G}stty raw -echo min 0; echo -en "\033[6n" > "/dev/tty"
-			IFS=';' read -r -d R -a pos
-			${G}stty "$old" >& /dev/null
-			[[ ! ${pos[1]} ]] && { echo "0"; return; }
-			echo $(( ${pos[1]} - 1 ))
-		}
-	else
+	if IsZsh; then		
 		CurrentColumn()
 		{
 			exec < "/dev/tty"; local old="$(${G}stty -g)"; ${G}stty raw -echo min 0; echo -en "\033[6n" > "/dev/tty"
@@ -187,6 +177,15 @@ if IsTtyOk; then
 			${G}stty "$old" >& /dev/null
 			[[ ! ${pos[2]} ]] && { echo "0"; return; }
 			echo $(( ${pos[2]%%$'\n'*} - 1 ))
+		}
+	else
+		CurrentColumn()
+		{
+			exec < "/dev/tty"; local old="$(${G}stty -g)"; ${G}stty raw -echo min 0; echo -en "\033[6n" > "/dev/tty"
+			IFS=';' read -r -d R -a pos
+			${G}stty "$old" >& /dev/null
+			[[ ! ${pos[1]} ]] && { echo "0"; return; }
+			echo $(( ${pos[1]} - 1 ))
 		}
 	fi
 else
@@ -350,7 +349,8 @@ AddLoginShell()
 	echo "$shell" | sudo tee -a "$shells" || return
 }
 
-SetLoginShell() # SetCurrentShell SHELL
+# SetCurrentShell SHELL - bash|zsh
+SetLoginShell()
 {
 	local shell; shell="$(FindLoginShell "$1")" || return
 
@@ -1259,10 +1259,10 @@ TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02dh:%02dm:%02ds\n" $(( $
 
 # TimeCommand - return the time it takes to execute a command in seconds to three decimal places.
 # Command output is supressed.  The status of the command is returned.
-if IsBash; then
-	TimeCommand() { TIMEFORMAT="%3R"; time (command "$@" >& /dev/null) 2>&1; }
-else
+if IsZsh; then
 	TimeCommand() { { time (command "$@" >& /dev/null); } |& cut -d" " -f9; return $pipestatus[1]; }
+else
+	TimeCommand() { TIMEFORMAT="%3R"; time (command "$@" >& /dev/null) 2>&1; }
 fi
 
 #
@@ -1468,12 +1468,12 @@ FileToDesc()
 	IsUncPath "$file" && file="//$(GetUncServer "$file" | RemoveDnsSuffix)/$(GetUncShare "$file")/$(GetUncDirs "$file")"
 
 	# replace $HOME with ~, $USERS/ with ~
-	if IsBash; then
-		file="${file/#${HOME}/\~}"
-		file="${file/#$USERS\//\~}"
-	else
+	if IsZsh; then
 		file="${file/#${HOME}/~}"
 		file="${file/#$USERS\//~}"
+	else
+		file="${file/#${HOME}/\~}"
+		file="${file/#$USERS\//\~}"
 	fi
 
 	[[ "$file" != "/" ]] && file="$(RemoveTrailingSlash "$file")"
@@ -1618,7 +1618,7 @@ SelectFile() # DIR PATTERN MESSAGE
 
 # Path Conversion
 IsUnixPath() { [[ "$1" =~ '/' ]]; }
-IsBash && IsWindowsPath() { [[ "$1" =~ '\' ]]; } || IsWindowsPath() { [[ "$1" =~ '\\' ]]; }
+IsZsh && IsWindowsPath() { [[ "$1" =~ '\\' ]]; } || IsWindowsPath() { [[ "$1" =~ '\' ]]; }
 utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
 ptw() { printf "%s\n" "${1//\//"\\"}"; } # PathToWin - use printf so zsh does not interpret back slashes (\)
 
@@ -2107,12 +2107,12 @@ IsIpAddress()
   local ip="$1"
   [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && return 1
 	
-  if IsBash; then
-  	IFS='.' read -a ip <<< "$ip"
-  	(( ${ip[0]}<=255 && ${ip[1]}<=255 && ${ip[2]}<=255 && ${ip[3]}<=255 ))
-  else # zsh
+  if IsZsh; then
   	ip=( "${(s/./)ip}" )
   	(( ${ip[1]}<=255 && ${ip[2]}<=255 && ${ip[3]}<=255 && ${ip[4]}<=255 ))
+  else # zsh
+  	IFS='.' read -a ip <<< "$ip"
+  	(( ${ip[0]}<=255 && ${ip[1]}<=255 && ${ip[2]}<=255 && ${ip[3]}<=255 ))
   fi
 }
 
@@ -2462,7 +2462,7 @@ RemoveDnsSuffix()
 #
 
 # IsMdnsName NAME - return true if NAME is a local address (ends in .local)
-IsMdnsName() { IsBash && [[ "$1" =~ .*'.'local$ ]] || [[ "$1" =~ .*\\.local$ ]]; }
+IsMdnsName() { IsZsh && [[ "$1" =~ .*\\.local$ ]] || [[ "$1" =~ .*'.'local$ ]]; }
 
 ConsulResolve() { hashi resolve "$@"; }
 
@@ -3135,8 +3135,8 @@ PlatformSummary()
 }
 
 # GetPlatformVar VAR - return PLATFORM_VAR variable if defined, otherewise return VAR
-if IsBash; then GetPlatformVar() { local v="$1" pv="${PLATFORM_OS^^}_$1"; [[ ${!pv} ]] && echo "${!pv}" || echo "${!v}"; }
-else GetPlatformVar() { local v="$1" pv="${(U)PLATFORM_OS}_$1"; [[ ${(P)pv} ]] && echo "${(P)pv}" || echo "${(P)v}"; }
+if IsZsh; then GetPlatformVar() { local v="$1" pv="${(U)PLATFORM_OS}_$1"; [[ ${(P)pv} ]] && echo "${(P)pv}" || echo "${(P)v}"; }
+else GetPlatformVar() { local v="$1" pv="${PLATFORM_OS^^}_$1"; [[ ${!pv} ]] && echo "${!pv}" || echo "${!v}"; }
 fi
 
 # IsPlatform  platform[,platform,...] [--host [HOST]] - return true if the host matches any of the listed characteristics
@@ -4053,10 +4053,10 @@ UnknownOption() { ScriptErr "unrecognized option '$1'" "$2"; ScriptTry "$2"; }
 IsFunction() { declare -f "$1" >& /dev/null; } # IsFunction NAME - NAME is a function
 
 # FindFunction NAME - find a function NAME case-insensitive
-if IsBash; then
-	FindFunction() { declare -F | grep -iE "^declare -f ${1}$" | sed "s/declare -f //"; return "${PIPESTATUS[1]}"; }
-else
+if IsZsh; then
 	FindFunction() { print -l ${(ok)functions} | grep -iE "^${1}$" ; }
+else
+	FindFunction() { declare -F | grep -iE "^declare -f ${1}$" | sed "s/declare -f //"; return "${PIPESTATUS[1]}"; }
 fi
 
 # RunFunction NAME [SUFFIX] -- [ARGS]- call a function if it exists, optionally with the specified suffix (i.e. nameSuffix)
@@ -4086,7 +4086,7 @@ RunFunctionExists()
 
 ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } 						# ScriptArgs SCRIPT_NAME ARGS... - display script arguments
 ScriptCheckMac() { IsMacAddress "$1" && return; ScriptErr "'$1' is not a valid MAC address"; }
-ScriptDir() { IsBash && GetFilePath "${BASH_SOURCE[0]}" || GetFilePath "$ZSH_SCRIPT"; }		# ScriptDir - return the directory the script is contained in
+ScriptDir() { IsZsh && GetFilePath "$ZSH_SCRIPT" || GetFilePath "${BASH_SOURCE[0]}"; }		# ScriptDir - return the directory the script is contained in
 ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; return 1; }	# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
 ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$@"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
@@ -4115,7 +4115,7 @@ ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || retu
 ScriptName()
 {
 	local name; func="$1"; [[ $func ]] && { printf "%s" "$func"; return; }
-	IsBash && name="$(GetFileName "${BASH_SOURCE[-1]}")" || name="$(GetFileName "$ZSH_SCRIPT")"
+	IsZsh && name="$(GetFileName "$ZSH_SCRIPT")" || name="$(GetFileName "${BASH_SOURCE[-1]}")"
 	[[ "$name" == "function.sh" ]] && unset name
 	printf "$name" 
 }
