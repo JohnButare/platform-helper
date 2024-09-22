@@ -65,9 +65,14 @@ versionOpt()
 
 versionCommand()
 {
+	# get application function
+	app="$(appGetInstallFunction "$app")" || return
+
+	# get description
 	local desc; desc="$(appDesc "$app")" || return	
 	hilight "$desc versions..."
 
+	# show versions
 	installInit || return	
 	echo "current=$(force="$forceLess" quiet="--quiet" versionGetCurrent "$app")"
 	echo "downloaded=$(versionGetDownloaded "$app")"
@@ -129,9 +134,8 @@ check()
 
 		# check applications and get their install function
 		for app in "${appsArg[@]}"; do
-			app="$(appResolveAlias "$app")"
-			local appFunction; appFunction="$(appGetInstallFunction "$app")" || return
-			appsInstalled+=( "$appFunction" )
+			app="$(appGetInstallFunction "$app")" || return
+			appsInstalled+=( "$app" )
 		done
 
 		[[ ! $verbose && ! $quiet ]] && PrintErr "checking..."
@@ -849,12 +853,6 @@ appClean()
 # appDesc [DESC]($app)
 appDesc()
 {
-	# get application function
-	local app="${1:-$app}"
-	app="$(appResolveAlias "$app")" || return
-	app="$(appGetInstallFunction "$app")" || return
-
-	# get description
 	local desc="$app"
 	[[ $installType ]] && desc+=" ($installType)"
 	echo "$desc"
@@ -866,7 +864,8 @@ appDesc()
 # - the actual install function name is returned, i.e. xMingInstall
 appGetInstallFunction()
 {
-	local app="$1" alias="$1"
+
+	local app="$1"; app="$(appResolveAlias "$app")" || return
 	local function="$(declare -f | ${G}grep -iE "^${app}Install \(\) $" | sed "s/ () //")"
 
 	if [[ ! $function ]]; then
@@ -1180,17 +1179,14 @@ iApp()
 	[[ "$appCheck" =~ .register$ ]] && { suffix="Register"; }
 	[[ $suffix ]] && app="$(RemoveEnd "$appCheck" "${suffix,,}")"
 
-	# resolve app alias
-	app="$(appResolveAlias "$app")"
-
 	# apps to ignore
 	[[ "${app,,}" =~ ^(gitkrakendeb)$ ]] && return
 
 	# find the name of the function used to install the application
-	local appFunction; appFunction="$(appGetInstallFunction "$app")" || return
+	app="$(appGetInstallFunction "$app")" || return
 
 	# ensure the application is installable for the current platform
-	[[ "$suffix" != "Download" ]] && ! checkInstallable "$appFunction" && return
+	[[ "$suffix" != "Download" ]] && ! checkInstallable "$app" && return
 
 	# variables
 	# ran - if set the setup program ran
@@ -1199,9 +1195,9 @@ iApp()
 	pipArgs=() pipxArgs=() # run arguments
 
 	# elevate install
-	if iNeedsElevatation "$appFunction"; then
+	if iNeedsElevatation "$app"; then
 		header "$app (elevated)"
-		log1 "i: running '$appFunction' elevated"
+		log1 "i: running '$app' elevated"
 		RunScript --elevate --no-hide "${globalArgs[@]}" -- inst "$app" "${options[@]}" || return $(ScriptReturnError)
 		return
 	fi
@@ -1211,9 +1207,9 @@ iApp()
 		iPortion "${suffix}" || return $(ScriptReturnError)
 
 	# run the app install
-	elif [[ ! $prompt ]] || ask "\nInstall $appFunction"; then
+	elif [[ ! $prompt ]] || ask "\nInstall $app"; then
 
-		local isInstalled; appIsInstalled "$appFunction" && isInstalled="true"
+		local isInstalled; appIsInstalled "$app" && isInstalled="true"
 
 		# run the install
 		iPortion "Install" || return $(ScriptReturnError)
@@ -1233,8 +1229,8 @@ iApp()
 iNeedsElevatation()
 {
  	{ ! IsPlatform win || ! CanElevate || IsElevated; } && return 1
-	log1 "i: checking if '$appFunction' requires elevation"
-	IsInArray --case-insensitive "${appFunction}" elevateInstall
+	log1 "i: checking if '$app' requires elevation"
+	IsInArray --case-insensitive "${app}" elevateInstall
 }
 
 # iPortion PORTION - run a portion of the application install
@@ -1243,8 +1239,8 @@ iPortion()
 	local portion="$1"
 	local -n no="no${portion^}"; [[ $no ]] && return 			# return if the --no-PORTION option was used
 	local noHeader="$noHeaderArg" noPrompt="$noPromptArg" # don't run as prefix, interferes with local variables later
-	RunFunction "${appFunction}${portion}" || return 			# run the portion
-	noHeader="$noHeaderArg" noPrompt="$noPromptArg" RunPlatform "${appFunction}${portion}"; # run the platform specific portion
+	RunFunction "${app}${portion}" || return 			# run the portion
+	noHeader="$noHeaderArg" noPrompt="$noPromptArg" RunPlatform "${app}${portion}"; # run the platform specific portion
 }
 
 iPortionRegister() { [[ $noRegister ]] && return; iPortion "Register";  }
@@ -1449,7 +1445,7 @@ run()
 	IsPlatform win && copyLocal="--copy-local"
 
 	# get store ID if possible
-	[[ ! $p && ${storeIds[$appFunction]} ]] && { type="store" p="${storeIds[$appFunction]}"; }
+	[[ ! $p && ${storeIds[$app]} ]] && { type="store" p="${storeIds[$app]}"; }
 
 	# validate arguments
 	[[ ! "$p" ]] && { MissingOperand "program" "run"; }
@@ -2060,7 +2056,7 @@ versionGetCurrent()
 		local version; version="$($function)" || { versionError "$app" "current"; return; }
 	fi
 
-	# save and return the version	
+	# save and return the version
 	versionValidate "$app" "$version" "current" && UpdateSet "$track" "$version" && echo "$version"	
 }
 
@@ -2097,6 +2093,9 @@ versionGetInstalled()
 versionValidate()
 {
 	local app="$1" version="$2" what="$3"
+
+	# no beta version is OK
+	[[ "$installType" == "beta" && ! $version ]] && return
 
 	# check for empty version
 	[[ ! $version ]] && { versionError "$app" "$what"; return; }
@@ -10225,8 +10224,14 @@ iTermDownload()
 
 iTermDir() { echo "platform/mac/iTerm2"; }
 iTermVersion() { curl --silent --location "https://iterm2.com/downloads.html" | ${G}grep "iterm2" | shead -1 | sed 's/.*iTerm2 //' | cut -d" " -f1; }
-iTermVersionBeta() { iTermVersionBetaFull | sed 's/beta.*//'; }
 iTermVersionBetaFull() { curl --silent --location "https://iterm2.com/downloads.html" | ${G}grep "beta" | ${G}grep "iterm2" | shead -1 | sed 's/.*iTerm2 //' | cut -d" " -f1; }
+
+iTermVersionBeta()
+{
+	local version; version="$(iTermVersionBetaFull | sed 's/beta.*//')"
+	[[ "$(iTermVersion)" == "$version" ]] && return # ignore beta version if the current version is the same
+	echo "$version"
+}
 
 iTermShellIntegrationInstall()
 {
