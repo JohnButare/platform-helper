@@ -161,9 +161,9 @@ HeaderFancy() { ! InPath pyfiglet lolcat && { HeaderBig "$1"; return; }; pyfigle
 hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
 hilightp() { InitColor; printf "${GREEN}$@${RESET}"; } # hilight with no newline
 
-# set color variables if colors are supported (using a terminal)
-InitColor() { IsStdOut && InitColorForce || InitColorClear; }
-InitColorErr() { IsStdErr && InitColorForce || InitColorClear; }
+# set color variables if colors are supported (using a terminal, or FORCE_COLOR is set)
+InitColor() { { [[ $FORCE_COLOR ]] || IsStdOut; } && InitColorForce || InitColorClear; }
+InitColorErr() { { [[ $FORCE_COLOR ]] || IsStdErr; } && InitColorForce || InitColorClear; }
 InitColorForce() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); }
 InitColorClear() { unset -v GREEN RB_BLUE RB_INDIGO RED RESET; }
 
@@ -451,6 +451,7 @@ AppVersion()
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
 			cfssl) version="$(cfssl version | head -1 | cut -d':' -f 2 | RemoveSpaceTrim)" || return;;
 			consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
+			# consul) version="1.19.1";; # testing
 			cryfs|cryfs-unmount) version="$(cryfs --version | head -1 | cut -d" " -f3)";;
 			damon) version="$(damon --version | head -1 | cut -d"v" -f2 | cut -d"-" -f1)" || return;;
 			dbxcli) version="$(dbxcli version | head -1 | sed 's/.* v//')" || return;;
