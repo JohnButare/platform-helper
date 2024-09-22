@@ -20,6 +20,22 @@ Programs installation.
 init() { defaultCommand="install" hostname="$HOSTNAME"; unset sshAgentChecked; }
 
 #
+# Argument Helpers
+#
+
+typeOptInit() { unset -v installType; installTypes="alternate|beta|compile|local|package|store"; }
+typeOptUsage() { echo "-T,  --type=TYPE				$installTypes"; }
+
+typeOptGet()
+{
+	ScriptOptGet installType type "$@" || return
+	installType="${installType,,}"
+	[[ "$installType" == "alternate" ]] && alternate="--alternate"
+	[[ "$installType" == @($installTypes) ]] && return
+	ScriptErr "'$installType' is not a valid type"; ScriptTry
+}
+
+#
 # commands
 #
 
@@ -36,13 +52,24 @@ installedCommand()
 }
 
 versionUsage() { EchoWrap "Usage: $(ScriptName) version [APP]\nGet the application current, downloaded, and installed versions."; }
-versionArgStart() { unset -v app; }
+versionArgStart() { unset -v app; typeOptInit; }
 versionArgs() { ScriptArgGet "app" -- "$@"; shift; }
+
+versionOpt() 
+{
+	case "$1" in
+		--type|--type=*|-T|-T=*) typeOptGet "$@";;
+		*) return 1
+	esac
+}
 
 versionCommand()
 {
+	local desc; desc="$(appDesc "$app")" || return	
+	hilight "$desc versions..."
+
 	installInit || return	
-	echo "current=$(force="$forceLess" versionGetCurrent "$app")"
+	echo "current=$(force="$forceLess" quiet="--quiet" versionGetCurrent "$app")"
 	echo "downloaded=$(versionGetDownloaded "$app")"
 	echo "installed=$(versionGetInstalled "$app")"
 }
@@ -103,8 +130,8 @@ check()
 		# check applications and get their install function
 		for app in "${appsArg[@]}"; do
 			app="$(appResolveAlias "$app")"
-			local appFunction; appFunction="$(appGetInstallFunction "$app")" || { ScriptErr "'$app' installation does not exist"; return 1; }
-			appsInstalled+=( "$(RemoveEnd "$appFunction" "Install")" )
+			local appFunction; appFunction="$(appGetInstallFunction "$app")" || return
+			appsInstalled+=( "$appFunction" )
 		done
 
 		[[ ! $verbose && ! $quiet ]] && PrintErr "checking..."
@@ -291,7 +318,7 @@ Install an application.  To run a portion of the installation, the application n
 	-p,  --prompt	   				force the installation prompt even for single app installs
 	-s,  --select						select the install location
 	-se, --suppress-errors	supress some errors 
-	-T,  --type=TYPE				$installTypes
+	$(typeOptUsage)
 
 Portions:
 			 --no-help				do not run the help portion of the installation
@@ -299,11 +326,7 @@ Portions:
 	-nr, --no-run					do not run the software installation program"
 }
 
-installArgStart()
-{ 
-	unset -v alternate apps forceFull hint hostArg hostOpt hosts installType noHeader noHelp noProfile noPrompt noRegister noRun promptArg select suppressErrors
-	installTypes="alternate|beta|compile|local|package|store"
-}
+installArgStart() { unset -v alternate apps forceFull hint hostArg hostOpt hosts noHeader noHelp noProfile noPrompt noRegister noRun promptArg select suppressErrors; typeOptInit; }
 
 installOpt() 
 {
@@ -320,18 +343,9 @@ installOpt()
 		--prompt|-p) promptArg="--prompt";;
 		--select|-s) select="--select";;
 		--suppress-errors|-se) suppressErrors="true";;
-		--type|--type=*|-T|-T=*) installOptType "$@";;
+		--type|--type=*|-T|-T=*) typeOptGet "$@";;
 		*) return 1
 	esac
-}
-
-installOptType()
-{
-	ScriptOptGet installType type "$@" || return
-	installType="${installType,,}"
-	[[ "$installType" == "alternate" ]] && alternate="--alternate"
-	[[ "$installType" == @($installTypes) ]] && return
-	ScriptErr "'$installType' is not a valid type"; ScriptTry
 }
 
 installArgs() { apps=("$@"); shift="$#"; }
@@ -835,7 +849,13 @@ appClean()
 # appDesc [DESC]($app)
 appDesc()
 {
-	local desc="${1:-$app}"
+	# get application function
+	local app="${1:-$app}"
+	app="$(appResolveAlias "$app")" || return
+	app="$(appGetInstallFunction "$app")" || return
+
+	# get description
+	local desc="$app"
 	[[ $installType ]] && desc+=" ($installType)"
 	echo "$desc"
 }
@@ -847,10 +867,15 @@ appDesc()
 appGetInstallFunction()
 {
 	local app="$1" alias="$1"
-	declare -f | ${G}grep -iE "^${app}Install \(\) $" | sed "s/ () //"
-	local result=${PIPESTATUS[1]}
-	(( $result != 0 )) && log1 "appGetInstallFunction: app '$app' not  found, search='$(declare -f | ${G}grep "${app}Install")'"
-	return $result
+	local function="$(declare -f | ${G}grep -iE "^${app}Install \(\) $" | sed "s/ () //")"
+
+	if [[ ! $function ]]; then
+		log1 "appGetInstallFunction: app '$app' not  found, search='$(declare -f | ${G}grep "${app}Install")'"
+		ScriptErr "'$app' installation does not exist"
+		return 1
+	fi
+
+	RemoveEnd "$function" "Install"
 }
 
 appGetTrack()
@@ -1161,9 +1186,8 @@ iApp()
 	# apps to ignore
 	[[ "${app,,}" =~ ^(gitkrakendeb)$ ]] && return
 
-	# find the name of the function used to install the application without the Install suffix, i.e. xMing
-	local appFunction; appFunction="$(appGetInstallFunction "$app")" || { ScriptErr "'$app' installation does not exist"; return 1; }
-	appFunction="$(RemoveEnd "$appFunction" "Install")"
+	# find the name of the function used to install the application
+	local appFunction; appFunction="$(appGetInstallFunction "$app")" || return
 
 	# ensure the application is installable for the current platform
 	[[ "$suffix" != "Download" ]] && ! checkInstallable "$appFunction" && return
