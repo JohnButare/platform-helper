@@ -767,12 +767,15 @@ InstFind()
 McflyConf()
 {
 	local force forceLevel forceLess; ScriptOptForce "$@"	
-	[[ ! $force && $MCFLY_PATH ]] && return	
+	[[ ! $force && $MCFLY_CHECKED ]] && return	
 
 	{ ! InPath mcfly || [[ "$TERM_PROGRAM" == @(vscode|WarpTerminal) ]]; } && return
-
+	
 	export MCFLY_HISTFILE="$HISTFILE" MCFLY_RESULTS="50" MCFLY_DELETE_WITHOUT_CONFIRM="true" MCFLY_INTERFACE_VIEW="BOTTOM" MCFLY_RESULTS_SORT="LAST_RUN" MCFLY_PROMPT="❯"
-	eval "$(mcfly init "$PLATFORM_SHELL")"
+	unset MCFLY_HISTORY MCFLY_SESSION_ID PROMPT_COMMAND
+	eval "$(mcfly init "$PLATFORM_SHELL")" || return
+	IsBash && PROMPT_COMMAND+=("history -r")
+	MCFLY_CHECKED="true"
 }
 
 NodeConf()
