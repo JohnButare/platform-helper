@@ -3392,7 +3392,7 @@ FindMacApp()
 	# special cases
 	case "$app" in
 		DiskSpeedTest) app="Blackmagic Disk Speed Test";;
-		MicrosoftRemoteDesktop) app="Microsoft Remote Desktop";;
+		MicrosoftRemoteDesktop) app="Windows App";;
 	esac
 
 	# get directory
