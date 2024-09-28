@@ -25,7 +25,7 @@ opt()
 {
 	case "$1" in
 		-e|--elevate) IsPlatform win && elevateArg="--elevate";;
-		-p|--password) ScriptOptGet "passwordArg" "password" "$@";;
+		-pw|--password) ScriptOptGet "passwordArg" "password" "$@";;
 		*) return 1
 	esac
 }
@@ -35,7 +35,7 @@ usageVerbose()
 	ScriptUsageEcho "
 Other options:
 	-e,  --elevate							in Windows, use an elevated administrator token
-	-p,  --password							password for share authentication"
+	-pw,  --password						password for share authentication"
 }
 
 init()
@@ -256,7 +256,7 @@ Mount the specified UNC and return the mounted path.
 	$protocolUsage
 	-i, --ip								mount using the server IP address
 	-N, --no-host-check			do not check host availability
-	-p, --program cifs|gio	use the specified SMB mounting program, cifs is preferred (faster)
+	-P, --program cifs|gio	use the specified SMB mounting program, cifs is preferred (faster)
 	$(timeoutUsage)"
 }
 
@@ -270,7 +270,7 @@ mountOpt()
 	case "$1" in
 		--ip|-i) ip="--ip";;
 		--no-host-check|-N) noHostCheck="true";;
-		--program|--program=*|-p|-p=*) ScriptOptGet "program" "$@"; program="$(LowerCase "$program")"; [[ "$program" == @(cifs|gio) ]] || usage;;
+		--program|--program=*|-P|-P=*) ScriptOptGet "program" "$@"; program="$(LowerCase "$program")"; [[ "$program" == @(cifs|gio) ]] || usage;;
 		*) return 1
 	esac
 }
@@ -294,10 +294,10 @@ mountCommand()
 
 	# determine mount program from protocol (nfs|rclone|smb|ssh|INTEGER)
 	if [[ "$protocol" == @(nfs|rclone|ssh) ]] && RunFunc isAvailableMount "$protocol"; then mountProgram="$protocol"
-	elif [[ "$protocol" == "smb" ]] && isAvailableMountDrvfs && { isWslShare || IsPlatform wsl1; }; then mountProgram="drvfs"
-	elif [[ "$protocol" == "smb" ]] && isAvailableMountSmbfs; then mountProgram="smbfs"
-	elif [[ "$protocol" == "smb" ]] && isAvailableMountCifs && { [[ "$program" == @(|cifs) ]] || ! isAvailableMountGio; }; then mountProgram="cifs"
-	elif [[ "$protocol" == "smb" ]] && isAvailableMountGio; then mountProgram="gio"
+	elif [[ "$protocol" == "smb" ]] && isAvailableMountDrvfs && { isWslShare || IsPlatform wsl1; }; then mountProgram="drvfs" 																					# SMB drvfs (WSL 1)
+	elif [[ "$protocol" == "smb" ]] && isAvailableMountSmbfs; then mountProgram="smbfs"																																									# SMB smbfs (macOS)
+	elif [[ "$protocol" == "smb" ]] && isAvailableMountCifs && { [[ "$program" == @(|cifs) ]] || ! isAvailableMountGio; }; then mountProgram="cifs"	# SMB cifs (Linux, faster)
+	elif [[ "$protocol" == "smb" ]] && isAvailableMountGio; then mountProgram="gio"																																											# SMB gio	(Linux)
 	else ScriptErr "no mounting protocol available for '$unc' protocol '$protocol'"; return 1
 	fi
 
@@ -388,10 +388,12 @@ mountGio()
 	local unc="smb://$server/$share"
 
 	if [[ $password ]]; then
+		log1 "mount: echo -e $user\n\n$passwordHidden | gio mount $unc"
 		echo -e "$user\n\n$password\n" | RunLog gio mount "$unc" >& /dev/null
 
 	# mount without a password
 	else
+		log1 "mount: gio mount $unc"
 		RunLog gio mount "$unc" >& /dev/null
 	fi
 
@@ -668,7 +670,14 @@ getTargetArg()
 # findProtocol HOST - find a file sharing protocol for HOST, sets protocol variable to smb|nfs|ssh|rclone.
 findProtocol()
 {
-	local host="$1"; noHostCheck && return
+	local host="$1"
+
+	# do not check protocol port on host, defaults to SMB protocol
+	if noHostCheck; then
+		[[ ! $protocol ]] && { log1 "findProtocol: protocol defaulting to smb"; protocol="smb"; }
+		log1 "findProtocol: not checking host '$host' protocol '$protocol'"
+		return
+	fi
 
 	log1 "findProtocol: host='$host'"
 
@@ -1001,7 +1010,7 @@ isAvailable()
 	# logging
 	if [[ $verbose ]]; then
 		PrintErr "$(ScriptPrefix)checking $host $(protocolDesc "$protocol" "$host") protocol..."
-		IsAvailablePort "$host" "$port" $timeout && EchoErr "available" || EchoErr "not available"
+		IsAvailablePort "$host" "$port" $timeout && EchoErrEnd "available" || EchoErrEnd "not available"
 	fi
 
 	# check host availability for protocol
@@ -1009,13 +1018,18 @@ isAvailable()
 }
 
 # isAvailableMount
-isAvailableMountCifs() { InPath mount.cifs && IsPlatform linux,wsl2 && ! IsPlatform rhel; }
+isAvailableMountCifs() { InPath mount.cifs && IsPlatform linux,wsl2 && ! IsPlatform rh; }
 isAvailableMountDrvfs() { IsPlatform wsl; }
-isAvailableMountGio() { InPath gio && [[ -f "/usr/lib/gvfs/gvfsd-fuse" && -f "/usr/lib/gvfs/gvfsd-smb" ]]; }
 isAvailableMountNfs() { InPath mount.nfs; }
 isAvailableMountRclone() { InPath rclone; }
 isAvailableMountSmbfs() { InPath mount_smbfs && IsPlatform mac; }
 isAvailableMountSshfs() { InPath sshfs; }
+
+isAvailableMountGio()
+{
+	local dir="/usr/lib/gvfs"; IsPlatform rh && dir="/usr/libexec"
+	InPath gio && [[ -f "$dir/gvfsd-fuse" && -f "$dir/gvfsd-smb" ]]
+}
 
 # isMountedCheck UNC - if the UNC is mounted show it's path and return true
 isMountedCheck()

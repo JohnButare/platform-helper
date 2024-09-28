@@ -3019,6 +3019,9 @@ PackageInfo()
 		! PackageInstalled "$1" && return
 		brew list "$1"; echo
 		brew list "$1" | grep 'bin/'
+	elif IsPlatform dnf; then
+		dnf info "$1"
+		dnf repoquery -l "$1"
 	elif IsPlatform opkg; then
 		opkg info "$@"
 	fi
@@ -3097,6 +3100,7 @@ PackageUpdate()
 	elif IsPlatform apt; then sudoc apt update
 	elif IsPlatform brew; then brew update
 	elif IsPlatform qnap; then sudoc opkg update
+	elif IsPlatform dnf; then sudoc dnf update --assumeyes
 	fi
 }
 
@@ -4093,7 +4097,7 @@ ScriptCheckMac() { IsMacAddress "$1" && return; ScriptErr "'$1' is not a valid M
 ScriptDir() { IsZsh && GetFilePath "$ZSH_SCRIPT" || GetFilePath "${BASH_SOURCE[0]}"; }		# ScriptDir - return the directory the script is contained in
 ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; return 1; }	# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
 ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$@"; }
-ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 
+ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 								# ScriptExit [STATUS](1) - return or exist from a script with the specified status
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
 ScriptMessage() { EchoErr "$(ScriptPrefix "$2")$1"; } 																		# ScriptMessage MESSAGE - log a message with the script prefix
 ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "%s" "$name: "; }
