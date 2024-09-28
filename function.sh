@@ -23,7 +23,14 @@ if IsZsh; then
 fi
 
 # bash.bashrc
-[[ ! $BASHRC ]] && { bashrcWarn="true"; . "${BASH_SOURCE[0]%/*}/bash.bashrc" || return; }
+PlatformConf()
+{
+	[[ $BASHRC ]] && return
+	bashrcWarn="true"
+	local dir="${BASH_SOURCE[0]%/*}"; IsZsh && dir="${0:A:h}"
+	. "$dir/bash.bashrc" || return
+}
+PlatformConf || return
 
 # arguments - get argument from standard input if not specified on command line
 # - must be an alias in order to set the arguments of the caller
@@ -2872,9 +2879,6 @@ GetUrlPort()
 #
 
 HasPackageManager() { [[ "$(PackageManager)" != "none" ]]; }
-PackageFileInfo() { dpkg -I "$1"; } # information about a DEB package
-PackageFileInstall() { sudo gdebi -n "$@"; } # install a DEB package with dependencies
-PackageFileVersion() { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -d: -f2; }
 PackageLog() { LogShow "/var/log/unattended-upgrades/unattended-upgrades-dpkg.log"; }
 PackagePurge() { InPath wajig && wajig purgeremoved; }
 PackageSize() { InPath wajig && wajig sizes | grep "$1"; }
@@ -2920,11 +2924,31 @@ package() # package install
 	IsPlatform nala && { sudoc $noPrompt nala install -y "${packages[@]}"; return; }
 	IsPlatform apt && { sudoc $noPrompt apt install -y "${packages[@]}"; return; }
 	IsPlatform brew && { HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"; return; }
-	IsPlatform dnf && { sudoc dnf install -assumeyes "${packages[@]}"; }
+	IsPlatform dnf && { sudoc dnf install --assumeyes "${packages[@]}"; }
 	IsPlatform opkg && { sudoc opkg install "${packages[@]}"; return; }
 	IsPlatform pacman && { sudoc pacman -S "$@"; }
 
 	return 0
+}
+
+# PackageFileInstall - install a package file with dependencies
+PackageFileInstall()
+{
+	IsPlatform deb && InPath gdebi && { sudoc gdebi -n "$@"; return; }
+	IsPlatform rpm && { sudoc rpm --install --asumeyes "$@"; return; }
+} 
+
+ # PackageFileInfo - information about a package file
+PackageFileInfo()
+{
+	IsPlatform deb && InPath dpkg && { dpkg -I "$1"; return; }
+	IsPlatform rpm && { rpm --query --info --package "$1"; return; }
+}
+
+PackageFileVersion()
+{
+	IsPlatform deb && InPath dpkg && { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -d: -f2; return; }
+	IsPlatform rpm && { rpm --query --queryformat '%{VERSION}' --nosignature --package "$1"; return; }
 }
 
 # packageFix - fix packages in the packages array for the platform
@@ -2947,6 +2971,7 @@ packageFix()
 	IsPlatform mac && exclude+=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk util-linux virt-what )
 	IsPlatformAll mac,arm && exclude+=( bonnie++ rust traceroute )
 	IsPlatformAll mac,x86 && exclude+=( ncat traceroute )
+	IsPlatform rhel && exclude+=( pwgen )
 	IsPlatform wsl1 && exclude+=( fping )
 	packageExclude
 	return 0
@@ -3209,6 +3234,8 @@ isPlatformCheck()
 		debianlike) [[ "$_platformIdLike" == "debian" ]];;
 
 		# aliases
+		embedded) IsPlatform pi,piKernel,rock,RockKernel $hostArg;;
+		nas) IsPlatform qnap|synology;;
 		rh) IsPlatform rhel $hostArg;; # Red Hat
 
 		# windows
@@ -3256,6 +3283,10 @@ isPlatformCheck()
 		parallels) IsParallelsVm;;
 		swarm) InPath docker && docker info |& command grep "^ *Swarm: active$" >& /dev/null;; # -q does not work reliably on pi2
 		vmware) IsVmwareVm;;
+
+		# window manager
+		wm) IsPlatform gnome,mac,win;; # system has a windows manager
+		gnome) command ls /usr/bin/*session* | qgrep "gnome-session";;
 
 		# windows
 		win11) [[ ! $useHost ]] && IsPlatform win && (( $(os build) >= 22000 ));;
@@ -3341,7 +3372,6 @@ function RunPlatform()
 	# run other functions
 	IsPlatform cm4 --host && { RunFunction $function cm4 -- "$@" || return; }
 	IsPlatform entware --host && { RunFunction $function entware -- "$@" || return; }
-	IsPlatform debian,mac --host && { RunFunction $function DebianMac -- "$@" || return; }
 	IsPlatform pikernel --host && { RunFunction $function PiKernel -- "$@" || return; }
 	IsPlatform proxmox --host && { RunFunction $function proxmox -- "$@" || return; }
 	IsPlatform vm --host && { RunFunction $function vm -- "$@" || return; }
