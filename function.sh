@@ -1512,20 +1512,20 @@ FileWait()
 	local find=(FindAny "$dir" "$fileName"); [[ $sudo ]] && find=($sudo ls "$file")
 
 	# wait
-	[[ ! $quiet ]] && printf "Waiting $timeoutSeconds seconds for '$fileDesc'..."
+	[[ ! $quiet ]] && PrintErr "Waiting $timeoutSeconds seconds for '$fileDesc'..."
 	for (( i=1; i<=$timeoutSeconds; ++i )); do
 
-		"${find[@]}"  >& /dev/null && { [[ ! $quiet ]] && echo "found"; return 0; }
+		"${find[@]}" >& /dev/null && { [[ ! $quiet ]] && EchoErrEnd "found"; return 0; }
 		if [[ $noCancel ]]; then
 			sleep 1
 		else
-			ReadChars 1 1 && { [[ ! $quiet ]] && echo "cancelled after $i seconds"; return 1; }
+			ReadChars 1 1 && { [[ ! $quiet ]] && EchoErrEnd "cancelled after $i seconds"; return 1; }
 		fi
-		[[ ! $quiet ]] && printf "."
+		[[ ! $quiet ]] && PrintErr "."
 		
 	done
 
-	[[ ! $quiet ]] && echo "not found"; return 1
+	[[ ! $quiet ]] && EchoErrEnd "not found"; return 1
 }
 
 # FileWait FILE [SECONDS](60) - wait for a file or directory to be deleted
