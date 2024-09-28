@@ -7,13 +7,14 @@ set -a # export variables and functions to child processes
 #
 
 # GetPlatform [host](local) - get the platform for the specified host
-# sets: busybox chroot platformOs platformLike platformId platformKernel machine wsl
+# sets: busybox chroot platformOs platformIdMain platformIdLike platformIdDetail platformKernel machine wsl
 # platformOs=linux|mac|win
-# platformLike=debian|openwrt|qnap|synology|ubiquiti
-# platformId=dsm|pi|pixel|qts|rock|srm|ubuntu
+# platformIdMain=dsm|pi|pixel|qts|rhel|rock|srm|ubuntu
+# platformIdLike=debian|openwrt|qnap|synology|ubiquiti
+# platformIdDetail=platform:el9 (RedHat)
 # wsl=1|2 (Windows)
 # machine=aarch64|armv7l|mips|x86_64
-# test:  sf; time GetPlatform nas3 && echo "success: $platformOs-$platformLike-$platformId"
+# test:  sf; time GetPlatform nas3 && echo "success: $platformOs-$platformIdMain-$platformIdLike"
 
 function GetPlatform() 
 {
@@ -33,7 +34,7 @@ function GetPlatform()
 		shift
 	done
 
-	# /etc/os-release sets ID, ID_LIKE
+	# /etc/os-release sets ID, ID_LIKE - https://www.man7.org/linux/man-pages/man5/os-release.5.html
 	unset ID ID_LIKE
 	local cmd='
 echo platformOs=$(uname);
@@ -56,7 +57,7 @@ exit 0;'
 	fi
 
 	# don't let all of the variables defined in results leak out of this function	
-	unset busybox chroot platformOs platformLike platformId platformKernel wsl
+	unset busybox chroot platformOs platformIdMain platformIdLike platformIdDetail platformKernel wsl
 
 	# evaluate results - set variables based on results
 	# kernel (uname --r) - platformKernel=pi if Ubuntu=6.5.0-1015-raspi, Debian=6.6.28+rpt-rpi-2712
@@ -99,8 +100,9 @@ exit 0;'
 		echo busybox=\""$busybox"\"
 		echo chroot=\""$chroot"\"
 		echo platformOs="$platformOs"
-		echo platformLike="$ID_LIKE"
-		echo platformId="$ID"
+		echo platformIdMain="$ID"
+		echo platformIdLike="$ID_LIKE"
+		echo platformIdDetail="$PLATFORM_ID"
 		echo platformKernel="$platformKernel"
 		echo machine="$machine"
 		echo wsl="$wsl"
@@ -110,12 +112,12 @@ exit 0;'
 	return 0
 }
 
-CheckPlatform() # ensure PLATFORM, PLATFORM_LIKE, and PLATFORM_ID are set
+CheckPlatform() # ensure PLATFORM_OS, PLATFORM_ID_MAIN, and PLATFORM_ID_LIKE are set
 { 
-	[[ "$PLATFORM_OS" && "$PLATFORM_LIKE" && "$PLATFORM_ID" ]] && return
+	[[ "$PLATFORM_OS" && "$PLATFORM_ID_MAIN" && "$PLATFORM_ID_LIKE" ]] && return
 	GetPlatform || return
-	export CHROOT="$chroot" PLATFORM_OS="$platformOs" PLATFORM_ID="$platformId" PLATFORM_LIKE="$platformLike" PLATFORM_KERNEL="$platformKernel" MACHINE="$machine" WSL="$wsl"
-	unset chroot platform platformId platformLike platformKernel wsl
+	export CHROOT="$chroot" PLATFORM_OS="$platformOs" PLATFORM_ID_MAIN="$platformIdMain" PLATFORM_ID_LIKE="$platformIdLike" PLATFORM_ID_DETAIL="$platformIdDetail" PLATFORM_KERNEL="$platformKernel" MACHINE="$machine" WSL="$wsl"
+	unset chroot platform platformIdMain platformIdLike platformIdDetail platformKernel wsl
 }
 
 InfoPathAdd() { for f in "$@"; do [[ -d "$f" && ! $INFOPATH =~ (^|:)$f(:|$) ]] && INFOPATH="${INFOPATH+$INFOPATH:}$f"; done; }
@@ -184,8 +186,8 @@ WIN_UDATA="$WIN_HOME/data"
 # platform dependant variables
 PUB="${PUB:-$USERS/Shared}"
 
-# PLATFORM_LIKE environment variables
-case "$PLATFORM_LIKE" in 
+# PLATFORM_ID_LIKE environment variables
+case "$PLATFORM_ID_LIKE" in 
 	qnap) USERS="/share/home";;
 esac
 
@@ -220,7 +222,7 @@ case "$PLATFORM_OS" in
 		;;
 esac
 
-case "$PLATFORM_LIKE" in	
+case "$PLATFORM_ID_LIKE" in	
 	debian) PathAdd front "/usr/local/games" "/sbin" "/usr/sbin" "/usr/local/sbin";;
 	qnap|synology) PathAdd front "/opt/sbin" "/opt/bin"; PathAdd "/usr/local/sbin" "/usr/local/bin" "/share/CACHEDEV1_DATA/.qpkg/container-station/bin";;
 esac

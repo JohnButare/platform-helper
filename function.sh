@@ -3133,7 +3133,7 @@ PackageWhich()
 # 
 
 IsPlatformAll() { IsPlatform --all "$@"; }
-PlatformDescription() { echo "$PLATFORM_OS$([[ "$PLATFORM_LIKE" != "$PLATFORM_OS" ]] && echo " $PLATFORM_LIKE")$([[ "$PLATFORM_ID" != "$PLATFORM_OS" ]] && echo " $PLATFORM_ID")"; }
+PlatformDescription() { echo "$PLATFORM_OS$([[ "$PLATFORM_ID_LIKE" != "$PLATFORM_OS" ]] && echo " $PLATFORM_ID_LIKE")$([[ "$PLATFORM_ID_MAIN" != "$PLATFORM_OS" ]] && echo " $PLATFORM_ID_MAIN")"; }
 
 PlatformSummary()
 {
@@ -3176,7 +3176,7 @@ IsPlatform()
 	if [[ $useHost && $host ]]; then		
 		ScriptEval HostGetInfo "$host" || return
 	elif [[ ! $useHost ]]; then
-		local _platformTarget="localhost" _platformLocal="true" _platformOs="$PLATFORM_OS" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
+		local _platformTarget="localhost" _platformLocal="true" _platformOs="$PLATFORM_OS" _platformIdMain="$PLATFORM_ID_MAIN" _platformIdLike="$PLATFORM_ID_LIKE" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
 
 	# check if the host matches the specified platforms
@@ -3200,19 +3200,19 @@ isPlatformCheck()
 	# works local and remote - only use variables from "HostGetInfo vars HOST"
 	case "$p" in 
 
-		# platformOs, platformLike, and platformId
+		# platformOs, platformIdMain, and platformIdLike
 		win|mac|linux) [[ "$p" == "$_platformOs" ]];;
-		casaos|dsm|qts|rhel|srm|pi|ubuntu) [[ "$p" == "$_platformId" ]];;
-		fedora|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformLike" ]];;
-		debian) [[ "$_platformId" == "debian" || "$_platformLike" == "debian" ]];;
-		debianbase) [[ "$_platformId" == "debian" && "$_platformLike" == "" ]];;
-		debianlike) [[ "$_platformLike" == "debian" ]];;
+		casaos|dsm|qts|rhel|srm|pi|ubuntu) [[ "$p" == "$_platformIdMain" ]];;
+		fedora|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformIdLike" ]];;
+		debian) [[ "$_platformIdMain" == "debian" || "$_platformIdLike" == "debian" ]];;
+		debianbase) [[ "$_platformIdMain" == "debian" && "$_platformIdLike" == "" ]];;
+		debianlike) [[ "$_platformIdLike" == "debian" ]];;
 
 		# aliases
 		rh) IsPlatform rhel $hostArg;; # Red Hat
 
 		# windows
-		wsl) [[ "$_platformOs" == "win" && "$_platformLike" == "debian" ]];; # Windows Subsystem for Linux
+		wsl) [[ "$_platformOs" == "win" && "$_platformIdLike" == "debian" ]];; # Windows Subsystem for Linux
 		wsl1|wsl2) [[ "$p" == "$_platformKernel" ]];;
 
 		# hardware
@@ -3288,13 +3288,14 @@ isPlatformCheck()
 # IsBusyBox FILE - return true if the specified file is using BusyBox
 IsBusyBox() { InPath busybox && [[ "$(readlink -f "$(which nslookup 2>&1)")" == "$(which "busybox" 2>&1)" ]]; }
 
-function GetPlatformFiles() # GetPlatformFiles FILE_PREFIX FILE_SUFFIX
+# GetPlatformFiles FILE_PREFIX FILE_SUFFIX - add platform specific files to files array, i.e. .bashrc.win.sh
+function GetPlatformFiles()
 {
 	files=()
 
 	[[ -f "$1$PLATFORM_OS$2" ]] && files+=("$1$PLATFORM_OS$2")
-	[[ "$PLATFORM_LIKE" != "$PLATFORM_OS" && -f "$1$PLATFORM_LIKE$2" ]] && files+=("$1$PLATFORM_LIKE$2")
-	[[ "$PLATFORM_ID" != "$PLATFORM_OS" && -f "$1$PLATFORM_ID$2" ]] && files+=("$1$PLATFORM_ID$2")
+	[[ "$PLATFORM_ID_LIKE" != "$PLATFORM_OS" && -f "$1$PLATFORM_ID_LIKE$2" ]] && files+=("$1$PLATFORM_ID_LIKE$2")
+	[[ "$PLATFORM_ID_MAIN" != "$PLATFORM_OS" && -f "$1$PLATFORM_ID_MAIN$2" ]] && files+=("$1$PLATFORM_ID_MAIN$2")
 
 	return 0
 }
@@ -3322,13 +3323,13 @@ function RunPlatform()
 		shift
 		[[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; }
 	else
-		local _platformOs="$PLATFORM_OS" _platformLike="$PLATFORM_LIKE" _platformId="$PLATFORM_ID" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
+		local _platformOs="$PLATFORM_OS" _platformIdMain="$PLATFORM_ID_MAIN" _platformIdLike="$PLATFORM_ID_LIKE" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
 
 	# run platform function
 	[[ $_platformOs ]] && { RunFunction $function $_platformOs -- "$@" || return; }
-	[[ $_platformLike && "$_platformLike" != "$platformOs" ]] && { RunFunction $function $_platformLike -- "$@" || return; }
-	[[ $_platformId && "$platformId" != "$platformOs" ]] && { RunFunction $function $_platformId -- "$@" || return; }
+	[[ $_platformIdLike && "$_platformIdLike" != "$platformOs" ]] && { RunFunction $function $_platformIdLike -- "$@" || return; }
+	[[ $_platformIdMain && "$platformIdMain" != "$platformOs" ]] && { RunFunction $function $_platformIdMain -- "$@" || return; }
 
 	# run windows WSL functions
 	if [[ "$PLATFORM_OS" == "win" ]]; then
