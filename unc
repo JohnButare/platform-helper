@@ -10,7 +10,7 @@ The UNC format is //[USER@]SERVER/SHARE[/DIRS].
 
 	browse              list UNC shares on the local network
 	exists							check if a share exists
-	get									get information
+	get|set							get or set configuration
 	IsAvailable HOST    return true if a host is available for UNC connections
 	IsMounted TARGET    return true if the target UNC or path is mounted 
 	list HOST           list UNC shares on the specified host
@@ -40,14 +40,15 @@ Other options:
 
 init()
 {
-	volumeDir="$(GetRealPath "$HOME/Volumes")"; initVolumeDir || return
-	volumeDirGio="/run/user/$(${G}id --user)/gvfs"
+	gvfsDir="/usr/lib/gvfs"; IsPlatform rh && gvfsDir="/usr/libexec"
 	protocolUsage="-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)"
 	uncTypes="cifs,drvfs,nfs,nfs4,fuse.sshfs"
 	uncTypesDf="-t nfs -t nfs4 -t smbfs -t fuse.sshfs -t fuse.gvfsd-fuse"
 	IsPlatform mac && uncTypesDf+=" -t macfuse"
 	IsPlatform wsl1 && uncTypes+=",drvfs" uncTypesDf+=" -t drvfs"
 	uncTypesGrep="${uncTypes//,/|}"
+	volumeDir="$(GetRealPath "$HOME/Volumes")"; initVolumeDir || return
+	volumeDirGio="/run/user/$(${G}id --user)/gvfs"
 }
 
 argStart() { unset -v protocol unc; }
@@ -78,8 +79,9 @@ browseCommand()
 
 getUsage() { echot "\
 Usage: unc get [OPTION]... [COMMAND]...
-Get information.
+Get configuration.
 
+	allow									get information about who is allowed to see GVFS mounted shares
 	detail								return detailed information for shares mounted in ~/Volumes
 	dir UNC	[--root]			return the mounted path of the UNC, i.e. ~/Volumes/server_share/dir1/dir2.
 												If --root is specified omit the subdirectories, i.e. ~/Volumes/server_share
@@ -95,6 +97,20 @@ Get information.
 }
 
 getCommand() { usage; }
+
+getAllowUsage()
+{
+ echot "\
+Usage: unc get allow other|root
+Get information about who is allowed to see GVFS mounted shares.
+
+	other									other users can be configured to allow to access GVFS shares in /etc/fuse.conf
+	root									root is allowed to access GVFS shares"
+}
+
+getAllowCommand() { usage; }
+getAllowOtherCommand() { ! isAvailableMountGio && return; qgrep "^user_allow_other$" "/etc/fuse.conf"; }
+getAllowRootCommand() { ! isAvailableMountGio && return; mount | ${G}grep "gvfs" | qgrep "allow_other"; }
 
 getDetailCommand()
 {
@@ -254,13 +270,14 @@ mountUsage()
 Mount the specified UNC and return the mounted path.
 
 	$protocolUsage
-	-i, --ip								mount using the server IP address
-	-N, --no-host-check			do not check host availability
-	-P, --program cifs|gio	use the specified SMB mounting program, cifs is preferred (faster)
+	-ar, --allow-root				allow root to access the share (for all shares)
+	-i,  --ip								mount using the server IP address
+	-N,  --no-host-check		do not check host availability
+	-P,  --program cifs|gio	use the specified SMB mounting program, cifs is preferred (faster)
 	$(timeoutUsage)"
 }
 
-mountArgStart() { unset -v ip noHostCheck port program protocol; timeoutArgStart; unset -v isLocal unc user server share dirs mountDir mountRoot mountRootTarget mountRootTargetGio protocol; }
+mountArgStart() { unset -v allowRoot ip noHostCheck port program protocol; timeoutArgStart; unset -v isLocal unc user server share dirs mountDir mountRoot mountRootTarget mountRootTargetGio protocol; }
 mountArgs() { getTargetArg "$@"; }
 
 mountOpt() 
@@ -268,8 +285,9 @@ mountOpt()
 	protocolOpt "$@" && return
 	timeoutOpt "$@" && return
 	case "$1" in
+		--allow-root|-ar) allowRoot="--allowRoot";;
 		--ip|-i) ip="--ip";;
-		--no-host-check|-N) noHostCheck="true";;
+		--no-host-check|-N) noHostCheck="--no-host-check";;
 		--program|--program=*|-P|-P=*) ScriptOptGet "program" "$@"; program="$(LowerCase "$program")"; [[ "$program" == @(cifs|gio) ]] || usage;;
 		*) return 1
 	esac
@@ -307,8 +325,8 @@ mountCommand()
 		! ${G}mkdir "$mountRoot" --parents && { ScriptErr "could not create the mount root directory '$mountRoot'"; return 1; }
 	fi
 
-	# mount
-	RunFunction mount "$mountProgram" || return
+	# mount - ignore errors to cleanup
+	RunFunction mount "$mountProgram"
 
 	# return the mounted directory	
 	isMountedCheck "$unc" && return
@@ -384,18 +402,16 @@ mountGio()
 	local password; password="$(getPassword)" || return
 	local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
 
-	# mount with a password
+	# allow root
+	[[ $allowRoot ]] && { setAllowRootTrueCommand || return; }
+	# mount
 	local unc="smb://$server/$share"
+	log1 "mount: echo -e $user\n\n$passwordHidden | gio mount $unc"
+	echo -e "$user\n\n$password\n" | gio mount "$unc" > /dev/null || { log1 "mount: gio mount failed"; return 1; }
 
-	if [[ $password ]]; then
-		log1 "mount: echo -e $user\n\n$passwordHidden | gio mount $unc"
-		echo -e "$user\n\n$password\n" | RunLog gio mount "$unc" >& /dev/null
-
-	# mount without a password
-	else
-		log1 "mount: gio mount $unc"
-		RunLog gio mount "$unc" >& /dev/null
-	fi
+	# wait for the target to exist
+	local seconds=2 args=(); [[ ! $verbose ]] && args+=(--quiet)
+	FileWait "${args[@]}" "$mountRootTargetGio" $seconds || { log1 "mount: gio mount did not create '$mountRootTargetGio' in $seconds seconds"; return 1; }
 
 	# link
 	ln -s "$mountRootTargetGio" "$mountRoot" || return
@@ -421,14 +437,8 @@ mountSmbfs()
 	#options+=",nomdatacache,nodatacache"
 
 	# mount - don't log passwords
-	if [[ $password ]]; then
-		log1 "mount: mount_smbfs -s -o $options \"smb://$user:HIDDEN@$server/$share\" \"$mountRoot\""
-		mount_smbfs -o "$options" "smb://$user:$password@$server/$share" "$mountRoot"
-	else
-		RunLog mount_smbfs -o "$options" "smb://$user@$server/$share" "$mountRoot"
-	fi
-
-	return 0
+	log1 "mount: mount_smbfs -s -o $options \"smb://$user:HIDDEN@$server/$share\" \"$mountRoot\""
+	mount_smbfs -o "$options" "smb://$user:$password@$server/$share" "$mountRoot"
 }
 
 mountSsh()
@@ -441,11 +451,42 @@ mountSsh()
 }
 
 #
+# set commands
+#
+
+setUsage() { echot "\
+Usage: unc set [OPTION]... [COMMAND]...
+Set information.
+
+	allow		set information about who is allowed to see GVFS mounted shares"
+}
+
+setCommand() { usage; }
+
+setAllowUsage()
+{
+ echot "\
+Usage: unc set allow other|root [true|false](true)
+Set who is allowed to see GVFS mounted shares.
+
+	other		allow other users to access GVFS shares in /etc/fuse.conf
+	root		root is allowed to access GVFS shares"
+}
+
+setAllowCommand() { usage; }
+
+setAllowOtherCommand() { setAllowOtherTrueCommand; }
+setAllowOtherFalseCommand() { { ! isAvailableMountGio || ! getAllowOtherCommand; } && return; sudoc sed -i -e 's/user_allow_other/#user_allow_other/' "/etc/fuse.conf"; }
+setAllowOtherTrueCommand() { { ! isAvailableMountGio || getAllowOtherCommand; } && return; sudoc sed -i -e 's/#user_allow_other/user_allow_other/' "/etc/fuse.conf"; }
+
+setAllowRootCommand() { setAllowRootTrueCommand; }
+setAllowRootFalseCommand() { ! getAllowRootCommand && return; fuseRestart; }
+setAllowRootTrueCommand() {	getAllowRootCommand && return; setAllowOtherTrueCommand && fuseRestart -o allow_root; }
+
+#
 # share commands
 #
 
-
-	# share               UNC share commands
 shareUsage() { echot "Usage: unc share [exists]\nUNC share commands."; }
 shareCommand() { shareExistsCommand; }
 
@@ -521,7 +562,7 @@ unmount()
 	[[ $isLocal ]] && return
 
 	# gio unmount
-	[[ -L "$dir" || -d "$mountRootTargetGio" ]] && { unmountGio; return; }
+	[[ -L "$mountRoot" || -d "$mountRootTargetGio" ]] && { unmountGio; return; }
 
 	# standard unmount
 	unmountStandard || return
@@ -532,12 +573,11 @@ unmountGio()
 	# unmount gio
 	if [[ -d "$mountRootTargetGio" ]]; then 
 		gio mount --unmount $forceArg "smb:$unc" >& "$output"
-		FileWaitDelete "$mountRootTargetGio" 2
-		[[ -d "$mountRootTargetGio" ]] && { unmountProcessShow "$mountRootTargetGio"; return; }
+		! FileWaitDelete "$mountRootTargetGio" 2 && { unmountProcessShow "$mountRootTargetGio"; return; }
 	fi
 
 	# remove link
-	[[ -L "$mountRoot" ]] && { RunLog2 rm "$mountRoot" || return; }
+	[[ -L "$mountRoot" ]] && { RunLog2 rm "$mountRoot" && return; }
 
 	# check for local files
 	unmountLocalFiles "$mountRoot"
@@ -641,7 +681,7 @@ mountDirExists()
 }
 
 #
-# Argument Helpers
+# argument Helpers
 #
 
 getPathArg() { ScriptArgGet "path" -- "$@" && ScriptCheckPath "$path"; }
@@ -743,6 +783,14 @@ checkElevation()
 elevateCheck() { [[ $elevateArg ]] && ! IsElevated ; }
 elevateSet() { ! elevateCheck && return; elevate="RunScript --elevate ${globalArgs[@]} $@ --"; }
 
+fuseRestart()
+{
+	! isAvailableMountGio && return
+	mount | qgrep "gvfs" && { fusermount -zu "$volumeDirGio" || return; }
+	ProcessKill "gvfsd-fuse" || return
+	"$gvfsDir/gvfsd-fuse" "$@" "$volumeDirGio" || return
+}
+
 # getDir UNC - return the mounted path of the UNC, i.e. ~/Volumes/server_share/dir1/dir2
 getDir()
 {
@@ -806,11 +854,19 @@ getPassword()
 {	
 	local password
 
+	# passed password
 	if [[ $passwordArg ]]; then
 		password="$passwordArg"
-	elif password="$(getPasswordCredentialStore)" && [[ ! $password ]] ; then
+
+	# credential store
+	elif password="$(getPasswordCredentialStore)" && [[ $password ]] ; then
+		:
+
+	# prompt
+	else
 		PrintErr "Enter SMB password for $user on $server: "
 		read -s password; EchoErr; 
+
 	fi
 
 	echo "$password"
@@ -1020,16 +1076,11 @@ isAvailable()
 # isAvailableMount
 isAvailableMountCifs() { InPath mount.cifs && IsPlatform linux,wsl2 && ! IsPlatform rh; }
 isAvailableMountDrvfs() { IsPlatform wsl; }
+isAvailableMountGio() { InPath gio && [[ -f "/etc/fuse.conf" && -f "$gvfsDir/gvfsd-fuse" && -f "$gvfsDir/gvfsd-smb" ]]; }
 isAvailableMountNfs() { InPath mount.nfs; }
 isAvailableMountRclone() { InPath rclone; }
 isAvailableMountSmbfs() { InPath mount_smbfs && IsPlatform mac; }
 isAvailableMountSshfs() { InPath sshfs; }
-
-isAvailableMountGio()
-{
-	local dir="/usr/lib/gvfs"; IsPlatform rh && dir="/usr/libexec"
-	InPath gio && [[ -f "$dir/gvfsd-fuse" && -f "$dir/gvfsd-smb" ]]
-}
 
 # isMountedCheck UNC - if the UNC is mounted show it's path and return true
 isMountedCheck()
