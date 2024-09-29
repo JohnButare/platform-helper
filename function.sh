@@ -1194,7 +1194,7 @@ IsNumericEqual() { IsNumeric "$1" && IsNumeric "$2" && [[ "$(echo "$1 != $2" |& 
 HexToDecimal() { echo "$((16#${1#0x}))"; }
 
 # string
-CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; }
+CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; } # CharCount STRING [CHAR]
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 NewlineToComma()  { tr '\n' ','; }
 NewlineToSpace()  { tr '\n' ' '; }
