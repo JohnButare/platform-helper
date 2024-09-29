@@ -399,7 +399,9 @@ codenameCommand() { RunPlatform "codeName"; }
 
 codeNameLinux() # buster|focal
 {
-	! InPath lsb_release && return; lsb_release -cs; 
+	if InPath lsb_release && return; then lsb_release -cs
+	elif IsPlatform rhel && [[ -f "/etc/system-release" ]]; then cat "/etc/system-release" | cut -d"(" -f2 | cut -d")" -f1
+	fi
 }
 
 codeNameMac()
@@ -442,7 +444,7 @@ hardwareCommand() ( uname -m; )
 isServerCommand()
 {
 	case "$PLATFORM_OS" in
-		linux) IsPlatform debian && [[ ! $XDG_CURRENT_DESKTOP ]];;
+		linux) [[ ! $XDG_CURRENT_DESKTOP ]];;
 		mac) return 1;;
 		win) CanElevate && registry get "$r/ProductName" | RemoveCarriageReturn | grep -q -i "server";;
 	esac
@@ -451,6 +453,7 @@ isServerCommand()
 releaseUsage() { ScriptUsageEcho "Usage: $(ScriptName) release [check]"; }
 releaseCommand() { RunPlatform "release"; }
 releaseDebian() { lsb_release -rs; }
+releaseRhel() { rpm --query redhat-release; }
 
 releaseCheckUsage() { ScriptUsageEcho "Usage: $(ScriptName) release check EXPR\nCheck the version, where check is an expression to check the version against, i.e. release check '>= 23.10'."; }
 releaseCheckArgStart() { unset -v check; }
@@ -463,7 +466,8 @@ versionWin() { buildWin; }
 
 versionLinux()
 {
-	if IsPlatform ubuntu; then lsb_release -ds | cut -d" " -f2 # Ubuntu 20.04.5 LTS
+	if IsPlatform rhel; then ( eval "$(cat "/etc/os-release")"; echo "$VERSION_ID"; )
+	elif IsPlatform ubuntu; then lsb_release -ds | cut -d" " -f2 # Ubuntu 20.04.5 LTS
 	elif [[ -f "/etc/debian_version" ]]; then cat "/etc/debian_version"
 	else lsb_release -rs
 	fi
@@ -811,8 +815,12 @@ infoDistribution() { RunPlatform "infoDistribution"; }
 
 infoDistributionLinux() # distributor version (CodeName)
 {
-	! InPath lsb_release && return
+	InPath lsb_release && { infoDistributionLsb; return; }
+	IsPlatform rhel && { infoEcho "distribution: $(hostnamectl | grep "^[ ]*Operating System:" | cut -d":" -f2 | RemoveSpaceTrim)"; return; }
+}
 
+infoDistributionLsb()
+{
 	# primary
 	local suffix; IsPlatform CasaOs,pi && suffix="/Debian"
 	local primary; primary="$(distributorLinux)$suffix $(versionLinux) ($(codeNameLinux))"
