@@ -3006,10 +3006,10 @@ PackageIsInstalled()
 # - allow removal prompt to view dependant programs being uninstalled, i.e. uninstall of mysql-common will remove kea
 packageu() # package uninstall
 { 
-	if IsPlatform nala; then sudo nala purge "$@"
-	elif IsPlatform apt; then sudo apt remove "$@"
+	if IsPlatform nala; then sudoc nala purge "$@"
+	elif IsPlatform apt; then sudoc apt remove "$@"
 	elif IsPlatform brew; then brew remove "$@"
-	elif IsPlatform opkg; then sudo opkg remove "$@"
+	elif IsPlatform opkg; then sudoc opkg remove "$@"
 	fi
 }
 
