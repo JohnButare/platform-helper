@@ -92,7 +92,7 @@ elevate()
 # user
 #
 
-GetSid() { PsGetsid.exe -nobanner jjbutare | tail -2 | head | RemoveNewline | RemoveCarriageReturn; }
+GetSid() { PsGetsid.exe -nobanner jjbutare | ${G}tail --lines=-2 | head | RemoveNewline | RemoveCarriageReturn; }
 
 #
 # done

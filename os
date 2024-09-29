@@ -76,21 +76,21 @@ diskCommand() { diskTotalCommand; }
 diskFreeCommand()
 {	
 	! InPath di && return; local disk="${1:-1}"
-	di --type ext4 --display-size g | grep "^/dev" | head -$disk | tail -1 | tr -s ' ' | cut -d" " -f 5
+	di --type ext4 --display-size g | grep "^/dev" | head -$disk | ${G}tail --lines=-1 | tr -s ' ' | cut -d" " -f 5
 }
 
 # diskTotalCommand [N](1) - disk N from space.    Disk 1 is the main disk, 2 is the next, etc.
 diskTotalCommand()
 {
 	! InPath di && return; local disk="${1:-1}"
-	di --type ext4 --display-size g | grep "^/dev" | head -$disk | tail -1 | tr -s ' ' | cut -d" " -f 3
+	di --type ext4 --display-size g | grep "^/dev" | head -$disk | ${G}tail --lines=-1 | tr -s ' ' | cut -d" " -f 3
 }
 
 # diskUsedCommand [N](1) - disk N from space.    Disk 1 is the main disk, 2 is the next, etc.
 diskUsedCommand()
 {
 	! InPath di && return; local disk="${1:-1}"
-	di --type ext4 --display-size g | grep "^/dev" | head -$disk | tail -1 | tr -s ' ' | cut -d" " -f 4
+	di --type ext4 --display-size g | grep "^/dev" | head -$disk | ${G}tail --lines=-1 | tr -s ' ' | cut -d" " -f 4
 }
 
 #
@@ -164,13 +164,13 @@ executableFindCommand()
 
 	# find an executable that supports the primary architecture
 	arch="$(executableFormatCommand)" || return
-	file="$(file "$dir"/* | sort -V | grep "$arch" | tail -1 | cut -d: -f1)"
+	file="$(file "$dir"/* | sort -V | grep "$arch" | ${G}tail --lines=-1 | cut -d: -f1)"
 	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for mac universal binaries
 	[[ $file ]] && { echo "$file"; return; }
 
 	# see if we can find an executable the supports an alternate architecture if the platform supports one
 	arch="$(alternateExecutableFormatCommand)"; [[ ! $arch ]] && return 1
-	file="$(file "$dir"/* | sort -V | grep "$arch" | tail -1 | cut -d: -f1)"
+	file="$(file "$dir"/* | sort -V | grep "$arch" | ${G}tail --lines=-1 | cut -d: -f1)"
 	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for mac universal binaries
 	[[ $file ]] && { echo "$file"; return; }
 
@@ -627,7 +627,7 @@ infoCpum()
 
 infoCpu()
 {
-	local cpu; cpu="$[100-$(vmstat 1 2|tail -1|awk '{print $15}')]%"
+	local cpu; cpu="$[100-$(vmstat 1 2| ${G}tail --lines=-1|awk '{print $15}')]%"
 	infoEcho "         cpu: $cpu"
 }
 

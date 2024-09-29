@@ -150,7 +150,7 @@ clipr()
 	case "$PLATFORM_OS" in
 		linux) clipok && xclip -o -sel clip;;
 		mac) clipok && pbpaste;;
-		win) InPath paste.exe && { RunWin paste.exe | tail -n +2; return; }; RunWin powershell.exe -c Get-Clipboard;;
+		win) InPath paste.exe && { RunWin paste.exe | ${G}tail --lines=+2; return; }; RunWin powershell.exe -c Get-Clipboard;;
 	esac
 }
 
@@ -333,7 +333,7 @@ UserFullName()
 	local s
 	case "$PLATFORM_OS" in
 		win) s="$(net.exe user "$USER" |& grep "Full Name" | RemoveCarriageReturn | ${G}sed 's/Full Name//' | RemoveSpaceTrim)";;
-		mac)  s="$(dscl . -read "/Users/$USER" RealName  | tail -n 1 | RemoveSpaceTrim)";;
+		mac)  s="$(dscl . -read "/Users/$USER" RealName  | ${G}tail --lines=1 | RemoveSpaceTrim)";;
 	esac
 	echo ${s:-$USER}; 
 }
@@ -386,7 +386,7 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 	[[ ! $1 ]] && { MissingOperand "shell" "FindLoginShell"; return 1; }
 
 	if [[ -f "$shells" ]]; then
-		shell="$(grep "/$1" "$shells" | tail -1)" # assume the last shell is the newest
+		shell="$(grep "/$1" "$shells" | ${G}tail --lines=-1)" # assume the last shell is the newest
 	else
 		shell="$(which "$1")" # no valid shell file, assume it is valid and search for it in the path
 	fi
@@ -457,7 +457,7 @@ AppVersion()
 	if [[ ! $version ]]; then
 		case "$(LowerCase "$(GetFileName "$app")")" in
 			cowsay|gtop|kubectl) return;; # cannot get version
-			7z) version="$(7z | head -2 | tail -1 | cut -d" " -f 3)" || return;;
+			7z) version="$(7z | head -2 | ${G}tail --lines=-1 | cut -d" " -f 3)" || return;;
 			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
 			cfssl) version="$(cfssl version | head -1 | cut -d':' -f 2 | RemoveSpaceTrim)" || return;;
@@ -466,9 +466,9 @@ AppVersion()
 			cryfs|cryfs-unmount) version="$(cryfs --version | head -1 | cut -d" " -f3)";;
 			damon) version="$(damon --version | head -1 | cut -d"v" -f2 | cut -d"-" -f1)" || return;;
 			dbxcli) version="$(dbxcli version | head -1 | sed 's/.* v//')" || return;;
-			dog) version="$(dog --version | head -2 | tail -1 | cut -d"v" -f2)" || return;;
+			dog) version="$(dog --version | head -2 | ${G}tail --lines=-1 | cut -d"v" -f2)" || return;;
 			duf) version="$(duf --version | cut -d" " -f2)" || return;;
-			exa) version="$(exa --version | head -2 | tail -1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
+			exa) version="$(exa --version | head -2 | ${G}tail --lines=-1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
 			figlet|pyfiglet) version="$(pyfiglet --version | RemoveEnd ".post1")" || return;;
 			fortune) version="$(fortune --version | cut -d" " -f2)" || return;;
 			gcc) version="$(gcc --version | head -1 | cut -d" " -f4)" || return;;
@@ -486,7 +486,7 @@ AppVersion()
 			rg) version="$(rg --version | shead -1 | cut -d" " -f 2)" || return;;
 			ruby) version="$(ruby --version | cut -d" " -f2 | cut -d"p" -f 1)" || return;;
 			speedtest-cli) allowAlpha="--allow-alpha"; version="$(speedtest-cli --version | head -1 | cut -d" " -f2)" || return;;
-			sshfs) version="$(sshfs --version |& tail -1 | cut -d" " -f3)" || return;;
+			sshfs) version="$(sshfs --version |& ${G}tail --lines=-1 | cut -d" " -f3)" || return;;
 			tmux) version="$(tmux -V | cut -d" " -f2)" || return;;
 			vault) version="$(vault --version | cut -d" " -f2 | RemoveFront "v")" || return;;
 			zsh) version="$("$app" --version | cut -d" " -f2)" || return;;
@@ -1753,7 +1753,7 @@ LogShow()
 	local sudo file="$1" pattern="$2"; [[ $pattern ]] && pattern=" $pattern"
 
 	LineWrap "off"
-	SudoCheck "$file"; $sudo tail -f "$1" | grep "$pattern"
+	SudoCheck "$file"; $sudo ${G}tail -f "$1" | grep "$pattern"
 	LineWrap "on"
 }
 
@@ -1765,7 +1765,7 @@ LogShowAll()
 }
 
 # FileWatch FILE [PATTERN] - watch a whole file for changes, optionally for a specific pattern
-FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo tail -F -n +0 "$1" | grep "$2"; }
+FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo ${G}tail -F --lines=+0 "$1" | grep "$2"; }
 
 #
 # Network
@@ -1954,7 +1954,7 @@ GetBroadcastAddress()
 	elif IsPlatform mac; then
 		ifconfig "$(GetInterface)" | grep broadcast | head -1 |  awk '{ print $6; }'
 	else
-		ifconfig "$(GetInterface)" | head -2 | tail -1 | awk '{ print $6; }'
+		ifconfig "$(GetInterface)" | head -2 | ${G}tail --lines=-1 | awk '{ print $6; }'
 	fi
 }
 
@@ -2052,7 +2052,7 @@ GetIpAddress()
 	if [[ ! $server ]] && InPath getent; then ip="$(getent ahostsv4 "$host" |& grep "STREAM" | "${all[@]}" | cut -d" " -f 1)"
 	elif [[ ! $server ]] && IsPlatform mac; then ip="$(dscacheutil -q host -a name "$host" |& grep "^ip_address:" | cut -d" " -f2 | ${G}head -1)"
 	elif InPath host; then ip="$(host -N 2 -t A -4 "$host" $server |& ${G}grep -v "^ns." | grep "has address" | "${all[@]}" | cut -d" " -f 4)"
-	elif InPath nslookup; then ip="$(nslookup -ndots=2 -type=A "$host" $server |& tail +4 | grep "^Address:" | "${all[@]}" | cut -d" " -f 2)"
+	elif InPath nslookup; then ip="$(nslookup -ndots=2 -type=A "$host" $server |& ${G}tail --lines=+4 | grep "^Address:" | "${all[@]}" | cut -d" " -f 2)"
 	fi
 
 	# if an IP address was not found, check for a local virtual hostname
@@ -2116,7 +2116,7 @@ IsInDomain()
 }
 
 IsDomainRestricted() { IsInDomain sandia; }
-IsOnRestrictedDomain() { IsDomainRestricted && IsOnNetwork Sandia; }
+IsOnRestrictedDomain() { IsOnNetwork Sandia; }
 
 # IsIpAddress IP - return true if the IP is a valid IPv4 address
 IsIpAddress()
@@ -2214,7 +2214,7 @@ MacLookup()
 		echo "Press any key to stop monitoring '$host'..."
 		
 		while true; do
-			hilightp "$host: "; MacLookup --detail "$host" | tail -n +2 | tr -s " " | cut -d" " -f3 | cut -d"." -f1 | sort | NewlineToSpace; echo
+			hilightp "$host: "; MacLookup --detail "$host" | ${G}tail --lines=+2 | tr -s " " | cut -d" " -f3 | cut -d"." -f1 | sort | NewlineToSpace; echo
 			ReadChars 1 1 && return
 		done
 	fi
@@ -2239,7 +2239,7 @@ MacLookup()
 		# get the MAC address in Windows
 		if IsPlatform win; then
 			local ip; ip="$(GetIpAddress "$host")" || return
-			macWin="$(RunWin arp.exe -a | grep "$ip" | tr -s " " | cut -d" " -f3 | tail -1)" || return
+			macWin="$(RunWin arp.exe -a | grep "$ip" | tr -s " " | cut -d" " -f3 | ${G}tail --lines=-1)" || return
 			mac="$(echo "$macWin" | sed 's/-/:/g')" || return # change - to :
 
 		# get the MAC address - everything else
@@ -2247,7 +2247,7 @@ MacLookup()
 			mac="$(arp "$host")" || return
 			echo "$mac" | ${G}grep --quiet "no entry$" && { ScriptErrQuiet "no MAC address for '$host'" "MacResolve"; return 1; }
 			local column=3; IsPlatform mac && column=4
-			mac="$(echo "$mac" | tr -s " " | cut -d" " -f${column} | tail -1)"
+			mac="$(echo "$mac" | tr -s " " | cut -d" " -f${column} | ${G}tail --lines=-1)"
 		fi
 
 	fi
@@ -2549,9 +2549,9 @@ DnsResolve()
 	# forward DNS lookup to get the fully qualified DNS address
 	else
 		if [[ ! $server ]] && InPath getent; then lookup="$(getent ahostsv4 "$name" |& ${G}head -1 | tr -s " " | ${G}cut -d" " -f 3)" || unset lookup
-		elif [[ ! $server ]] && IsPlatform mac; then lookup="$(dscacheutil -q host -a name "$name" |& grep "^name:" | ${G}tail -1 | cut -d" " -f2)" || unset lookup # return the IPv4 name (the last name), dscacheutil returns ipv6 name first if present, i.e. dscacheutil -q host -a name "google.com"
+		elif [[ ! $server ]] && IsPlatform mac; then lookup="$(dscacheutil -q host -a name "$name" |& grep "^name:" | ${G}tail --lines=-1 | cut -d" " -f2)" || unset lookup # return the IPv4 name (the last name), dscacheutil returns ipv6 name first if present, i.e. dscacheutil -q host -a name "google.com"
 		elif InPath host; then lookup="$(host -N 2 -t A -4 "$name" $server |& ${G}grep -v "^ns." | ${G}grep -E "domain name pointer|has address" | head -1 | cut -d" " -f 1)" || unset lookup
-		elif InPath nslookup; then lookup="$(nslookup -ndots=2 -type=A "$name" $server |& tail -3 | ${G}grep "Name:" | ${G}cut -d$'\t' -f 2)" || unset lookup
+		elif InPath nslookup; then lookup="$(nslookup -ndots=2 -type=A "$name" $server |& ${G}tail --lines=-3 | ${G}grep "Name:" | ${G}cut -d$'\t' -f 2)" || unset lookup
 		fi
 
 	fi
@@ -3155,7 +3155,7 @@ PackageListInstalled()
 	fi
 }
 
-# PackageUpdate - update packages
+# PackageUpdate - update package list
 PackageUpdate() 
 {
 	if IsPlatform nala; then sudoc nala update
@@ -3765,7 +3765,7 @@ ProcessList()
 		if InPath ProcessList.exe; then
 			ProcessList.exe | RemoveCarriageReturn
 		elif InPath wmic.exe; then
-			RunWin wmic.exe process get Name,ExecutablePath,ProcessID /format:csv | RemoveCarriageReturn | tail +3 | awk -F"," '{ print $4 "," ($2 == "" ? $3 : $2) }'
+			RunWin wmic.exe process get Name,ExecutablePath,ProcessID /format:csv | RemoveCarriageReturn | ${G}tail --lines=+3 | awk -F"," '{ print $4 "," ($2 == "" ? $3 : $2) }'
 		else
 			RunWin powershell.exe --command 'Get-Process | select Name,Path,ID | ConvertTo-Csv' | RemoveCarriageReturn | awk -F"," '{ print $3 "," ($2 == "" ? $1 ".exe" : $2) }' | RemoveQuotes
 		fi
@@ -3777,8 +3777,8 @@ ProcessParents()
 	local ppid; 
 	{
 		if IsPlatform mac; then
-			for ((ppid=$PPID; ppid > 1; ppid=$(ps ao ppid $ppid | tail -1))); do
-				ps ao comm $ppid | tail -1 | GetFileName
+			for ((ppid=$PPID; ppid > 1; ppid=$(ps ao ppid $ppid | ${G}tail --lines=-1))); do
+				ps ao comm $ppid | ${G}tail --lines=-1 | GetFileName
 			done
 		else
 			for ((ppid=$PPID; ppid > 1; ppid=$(ps ho %P -p $ppid))); do
@@ -4588,7 +4588,7 @@ GetVmType() # vmware|hyperv
 		local product
 
 		if InPath wmic.exe; then
-			product="$(RunWin wmic.exe baseboard get product |& RemoveCarriageReturn | head -2 | tail -1 | RemoveSpaceTrim)"
+			product="$(RunWin wmic.exe baseboard get product |& RemoveCarriageReturn | head -2 | ${G}tail --lines=-1 | RemoveSpaceTrim)"
 
 		# wmic.exe is removed from Windows build  >= 22000.376
 		# - PowerShell 5 (powershell.exe) is ~6X faster than PowerShell 7
