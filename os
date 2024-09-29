@@ -473,6 +473,13 @@ versionLinux()
 	fi
 }
 
+versionMajorCommand()
+{
+	if IsPlatform rhel; then versionCommand | cut -d"." -f1
+	else versionCommand
+	fi
+}
+
 #
 # info command
 #

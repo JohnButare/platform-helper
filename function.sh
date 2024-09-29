@@ -3160,9 +3160,10 @@ PackageUpdate()
 {
 	if IsPlatform nala; then sudoc nala update
 	elif IsPlatform apt; then sudoc apt update
+	elif IsPlatform dnf; then sudoc dnf clean expire-cache && sudo dnf update --assumeyes
 	elif IsPlatform brew; then brew update
 	elif IsPlatform qnap; then sudoc opkg update
-	elif IsPlatform dnf; then sudoc dnf update --assumeyes
+	elif IsPlatform yum; then sudoc yum makecache --assumeyes
 	fi
 }
 
