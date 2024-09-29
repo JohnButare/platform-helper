@@ -452,7 +452,7 @@ AppVersion()
 	# special cases
 	if [[ ! $version ]]; then
 		case "$(LowerCase "$(GetFileName "$app")")" in
-			cowsay|duf|gtop|kubectl) return;; # cannot get version
+			cowsay|gtop|kubectl) return;; # cannot get version
 			7z) version="$(7z | head -2 | tail -1 | cut -d" " -f 3)" || return;;
 			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
@@ -463,6 +463,7 @@ AppVersion()
 			damon) version="$(damon --version | head -1 | cut -d"v" -f2 | cut -d"-" -f1)" || return;;
 			dbxcli) version="$(dbxcli version | head -1 | sed 's/.* v//')" || return;;
 			dog) version="$(dog --version | head -2 | tail -1 | cut -d"v" -f2)" || return;;
+			duf) version="$(duf --version | cut -d" " -f2)" || return;;
 			exa) version="$(exa --version | head -2 | tail -1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
 			figlet|pyfiglet) version="$(pyfiglet --version | RemoveEnd ".post1")" || return;;
 			fortune) version="$(fortune --version | cut -d" " -f2)" || return;;
@@ -476,7 +477,9 @@ AppVersion()
 			node) version="$(node --version | RemoveFront "v")";;
 			nomad) version="$(nomad --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
 			pip) version="$(pip --version | cut -d" " -f2)" || return;;
+			procs) version="$(procs --version | cut -d" " -f2 | RemoveFront "\"")" || return;;
 			python3) version="$(python3 --version | cut -d" " -f2)" || return;;
+			rg) version="$(rg --version | shead -1 | cut -d" " -f 2)" || return;;
 			ruby) version="$(ruby --version | cut -d" " -f2 | cut -d"p" -f 1)" || return;;
 			speedtest-cli) allowAlpha="--allow-alpha"; version="$(speedtest-cli --version | head -1 | cut -d" " -f2)" || return;;
 			sshfs) version="$(sshfs --version |& tail -1 | cut -d" " -f3)" || return;;
