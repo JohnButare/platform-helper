@@ -2934,20 +2934,28 @@ package() # package install
 # PackageFileInstall - install a package file with dependencies
 PackageFileInstall()
 {
-	IsPlatform deb && InPath gdebi && { sudoc gdebi -n "$@"; return; }
-	IsPlatform rpm && { sudoc rpm --install --asumeyes "$@"; return; }
+	IsPlatform apt && InPath gdebi && { sudoc gdebi -n "$@"; return; }
+	IsPlatform yum && { sudoc yum localinstall --assumeyes "$@"; return; } # try before rpm, which does not install dependencies
+	IsPlatform rpm && { sudoc rpm --install --assumeyes "$@"; return; }
 } 
+
+ # PackageFileExtension - the package file extension for the system
+PackageFileExtension()
+{
+	IsPlatform apt && { echo "deb"; return; }
+	IsPlatform rpm && { echo "rpm"; return; }
+}
 
  # PackageFileInfo - information about a package file
 PackageFileInfo()
 {
-	IsPlatform deb && InPath dpkg && { dpkg -I "$1"; return; }
+	IsPlatform apt && InPath dpkg && { dpkg -I "$1"; return; }
 	IsPlatform rpm && { rpm --query --info --package "$1"; return; }
 }
 
 PackageFileVersion()
 {
-	IsPlatform deb && InPath dpkg && { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -d: -f2; return; }
+	IsPlatform apt && InPath dpkg && { PackageFileInfo "$1" | RemoveSpace | grep Version | cut -d: -f2; return; }
 	IsPlatform rpm && { rpm --query --queryformat '%{VERSION}' --nosignature --package "$1"; return; }
 }
 
