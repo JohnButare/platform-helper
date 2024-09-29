@@ -3008,7 +3008,7 @@ packageFix()
 	IsPlatform mac && exclude+=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk util-linux virt-what )
 	IsPlatformAll mac,arm && exclude+=( bonnie++ rust traceroute )
 	IsPlatformAll mac,x86 && exclude+=( ncat traceroute )
-	IsPlatform rhel && exclude+=( pwgen )
+	IsPlatform rhel && exclude+=( pwgen htop )
 	IsPlatform wsl1 && exclude+=( fping )
 	packageExclude
 	return 0
@@ -3127,7 +3127,7 @@ PackageSearch()
 { 
 	if IsPlatform apt; then apt-cache search  "$@"
 	elif IsPlatform brew; then brew search "$@"
-	elif IsPlatform dnf; then dnf search "$@"
+	elif IsPlatform dnf; then sudoc dnf search "$@"
 	elif IsPlatform entware; then opkg find "*$@*"
 	elif IsPlatform pacman; then pacman -Ss "$@"
 	elif IsPlatform yum; then yum search "$@"
