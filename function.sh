@@ -26,9 +26,9 @@ fi
 PlatformConf()
 {
 	[[ $BASHRC ]] && return
-	bashrcWarn="true"
-	local dir="${BASH_SOURCE[0]%/*}"; IsZsh && dir="${0:A:h}"
-	. "$dir/bash.bashrc" || return
+	local dir="${BASH_SOURCE[0]%/*}"; IsZsh && dir="${ZSH_SOURCE:A:h}"; [[ ! $dir ]] && dir="/usr/local/data/bin"
+	local file="$dir/bash.bashrc"	
+	[[ -f "$file" ]] && { . "$file" || return; } || echo "PlatformConf: the platform configuration file '$file' does not exist" >&2
 }
 PlatformConf || return
 
@@ -3008,7 +3008,7 @@ packageFix()
 	IsPlatform mac && exclude+=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk util-linux virt-what )
 	IsPlatformAll mac,arm && exclude+=( bonnie++ rust traceroute )
 	IsPlatformAll mac,x86 && exclude+=( ncat traceroute )
-	IsPlatform rhel && exclude+=( pwgen htop )
+	IsPlatform rhel && exclude+=( daemonize di pwgen htop iproute2 ncat ntpdate )
 	IsPlatform wsl1 && exclude+=( fping )
 	packageExclude
 	return 0
@@ -3324,7 +3324,7 @@ isPlatformCheck()
 
 		# window manager
 		wm) IsPlatform gnome,mac,win;; # system has a windows manager
-		gnome) command ls /usr/bin/*session* | qgrep "gnome-session";;
+		gnome) [[ -f "/usr/bin/gnome-session" ]];;
 
 		# windows
 		win11) [[ ! $useHost ]] && IsPlatform win && (( $(os build) >= 22000 ));;
