@@ -32,6 +32,9 @@ PlatformConf()
 }
 PlatformConf || return
 
+# core
+IsDefined() { def "$1" >& /dev/null; }				 # IsDefined NAME - NAME is a an alias or function
+
 # arguments - get argument from standard input if not specified on command line
 # - must be an alias in order to set the arguments of the caller
 # - GetArgsN will read the first argument from standard input if there are not at least N arguments present
@@ -77,6 +80,7 @@ EvalVar() { r "${!1}" $2; } # EvalVar <var> <variable> - return the contents of 
 IsInteractiveShell() { [[ "$-" == *i* ]]; } # 0 if we are running at the command prompt, 1 if we are running from a script
 IsUrl() { [[ "$1" =~ ^[A-Za-z][A-Za-z0-9+-]+: ]]; }
 r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
+! IsDefined sponge && alias sponge='cat'
 
 # TTY input and output
 IsTty() { ${G}tty --silent;  }		# ??
@@ -2307,7 +2311,15 @@ IsAvailable()
 }
 
 # IsAvailableBatch HOST... -  return available hosts in parallel
-IsAvailableBatch() { parallel -i bash -c '. function.sh && IsAvailable {} && echo {}' -- "$@"; return 0; }
+IsAvailableBatch()
+{
+	if InPath parallel; then
+		parallel -i bash -c '. function.sh && IsAvailable {} && echo {}' -- "$@"
+	else
+		local host; for host in "$@"; do IsAvailable "$host" && echo "$host"; done
+	fi
+	return 0
+}
 
 # IsPortAvailable HOST:PORT|HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified TCP port
 IsAvailablePort()
@@ -2550,19 +2562,33 @@ DnsResolve()
 }
 
 # DnsResolveBatch - resolve IP addresses or names to fully qualified DNS names in parallel, uses the same options as DnsResolve
+# - example: echo "10.10.100.1\n10.10.100.10" | DnsResolveBatch
 DnsResolveBatch()
 {
 	local args=(); [[ $1 ]] && args=("$@")
-	local command=". function.sh && DnsResolve ${args[@]} {}" # command must be set first or ${args[@]} is not expanded properly
-	GetArgsPipe && parallel -i bash -c "$command" -- $@; 
+	GetArgsPipe || return
+
+	if InPath parallel; then
+		local command=". function.sh && DnsResolve ${args[@]} {}" # command must be set first or ${args[@]} is not expanded properly
+		parallel -i bash -c "$command" -- $@; 
+	else
+		local host; for host in "$@"; do DnsResolve "$host" "${args[@]}"; done
+	fi
 }
 
 # DnsResolveMacBatch  - resolve mac addresses from standard input in parallel, uses the same options as DnsResolveMac
+# example: echo "74:ac:b9:ed:8c:eb\ndc:a6:32:02:b5:34" | DnsResolveMacBatch
 DnsResolveMacBatch()
 {
 	local args=(); [[ $1 ]] && args=("$@")
-	local command=". function.sh && DnsResolveMac ${args[@]} {}" # command must be set first or ${args[@]} is not expanded properly
-	GetArgsPipe && parallel -i bash -c "$command" -- $@
+	GetArgsPipe || return
+
+	if InPath parallel; then
+		local command=". function.sh && DnsResolveMac ${args[@]} {}; echo" # command must be set first or ${args[@]} is not expanded properly
+		parallel -i bash -c "$command" -- $@
+	else
+		local host; for host in "$@"; do DnsResolveMac "$host" "${args[@]}"; echo; done
+	fi
 }
 
 # DnsResolveMac MAC... - resolve MAC addresses to DNS names using /etc/ethers
@@ -4085,7 +4111,6 @@ FilterShellScript() { grep -E "shell script|bash.*script|Bourne-Again shell scri
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
 IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
 IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
-IsDefined() { def "$1" >& /dev/null; }				 # IsDefined NAME - NAME is a an alias or function
 
 # aliases
 IsAlias() { type "$1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias
