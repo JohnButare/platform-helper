@@ -239,7 +239,7 @@ memoryUsedCommand()
 nameUsage()
 {
 	echot "\
-Usage: os hostname [set HOST]
+Usage: os name [alias|set HOST]
 	Show or set the operating system name"
 }
 
@@ -302,6 +302,17 @@ setHostnameMac()
 	sudo scutil --set LocalHostName "$name" || return 2
 	sudo scutil --set ComputerName "$name" || return 2
 	dscacheutil -flushcache
+}
+
+nameAliasCommand()
+{
+	local check="$(RemoveDnsSuffix "${name,,}")"
+	case "$check" in
+		s1114928) echo "laptop";;
+		s1113731) echo "desktop";;
+		s1081454) echo "rack";;
+		default) echo "$check"
+	esac	
 }
 
 #

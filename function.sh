@@ -1313,7 +1313,7 @@ GetParentDir() { GetArgs; echo "$@" | GetFilePath | GetFilePath; }
 FileExists() { local f; for f in "$@"; do [[ ! -f "$f" ]] && return 1; done; return 0; }
 FileExistsAny() { local f; for f in "$@"; do [[ -f "$f" ]] && return 0; done; return 1; }
 HasFilePath() { GetArgs; [[ $(GetFilePath "$1") ]]; }
-IsDirEmpty() { GetArgs; [[ "$(find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
+IsDirEmpty() { GetArgs; [[ "$(${G}find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
 InPath() { local f option; IsZsh && option="-p"; for f in "$@"; do ! which $option "$f" >& /dev/null && return 1; done; return 0; }
 InPathAny() { local f option; IsZsh && option="-p"; for f in "$@"; do which $option "$f" >& /dev/null && return; done; return 1; }
 IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff "$1" "$2" >& /dev/null; }
@@ -2108,8 +2108,10 @@ ipinfo()
 }
 
 # IsInDomain domain[,domain,...] - true if the computer is in one of the specified domains
+# - if not domain is specified, return true if the computer is joined to a domain
 IsInDomain()
 {
+	[[ ! $1 ]] && { network domain joined; return; }
 	local domains; StringToArray "$(LowerCase "$1")" "," domains
 	local domain="$(GetDomain)"; [[ ! $domain ]] && return 1
 	IsInArray "$(GetDomain)" domains

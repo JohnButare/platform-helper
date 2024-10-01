@@ -344,7 +344,8 @@ mountCifs()
 	local quote='\\040' quoteCheck='\040'
 	local shareQuoted; shareQuoted="$(ReplaceString "$share" " " "$quote")" || return
 	local mountRootQuoted; mountRootQuoted="$(GetRealPath "$mountRoot" | ReplaceString " " "$quote")" || return
-	local line="//$server/$shareQuoted $mountRootQuoted cifs username=$user,noauto,rw,users 0 0"
+	local domain; IsInDomain && domain=",domain=$(GetDomain)"
+	local line="//$server/$shareQuoted $mountRootQuoted cifs username=$user$domain,noauto,rw,users 0 0"
 	local checkLine="//$server/$shareQuoted\\\$* $mountRootQuoted cifs username=$user,noauto,rw,users 0 0"
 
 	# add an entry to /etc/fstab so sudo is not required to write to the share
@@ -357,8 +358,8 @@ mountCifs()
 	local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
 
 	# options - mount.cifs password option does not work (WSL 2)
-	local options="user=$user sec=ntlmsspi"
-	
+	local options="user=$user$domain,sec=ntlmsspi"
+
 	# mount elevated
 	if ! IsPlatform wsl1 && elevateCheck; then	
 		[[ $password ]] && elevateSet --sensitive --no-quote || elevateSet "--no-hide"
@@ -402,20 +403,27 @@ mountGio()
 	local password; password="$(getPassword)" || return
 	local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
 
+	# check if already mounted but no link exists
+	[[ -d "$mountRootTargetGio" ]] && { mountGioLink; return; } 
+
 	# allow root
 	[[ $allowRoot ]] && { setAllowRootTrueCommand || return; }
+
 	# mount
 	local unc="smb://$server/$share"
-	log1 "mount: echo -e $user\n\n$passwordHidden | gio mount $unc"
-	echo -e "$user\n\n$password\n" | gio mount "$unc" > /dev/null || { log1 "mount: gio mount failed"; return 1; }
+	local domain; IsInDomain && domain="$(GetDomain)"
+	log1 "mount: echo -e $user\n$domain\n$passwordHidden | gio mount $unc"
+	echo -e "$user\n$domain\n$password\n" | gio mount "$unc" > /dev/null || { log1 "mount: gio mount failed"; return 1; }
 
 	# wait for the target to exist
-	local seconds=2 args=(); [[ ! $verbose ]] && args+=(--quiet)
+	local seconds=4 args=(); [[ ! $verbose ]] && args+=(--quiet)
 	FileWait "${args[@]}" "$mountRootTargetGio" $seconds || { log1 "mount: gio mount did not create '$mountRootTargetGio' in $seconds seconds"; return 1; }
 
 	# link
-	ln -s "$mountRootTargetGio" "$mountRoot" || return
+	mountGioLink || return
 }
+
+mountGioLink() { ln -s "$mountRootTargetGio" "$mountRoot"; }
 
 mountNfs()
 {
