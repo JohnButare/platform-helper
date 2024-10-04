@@ -239,8 +239,8 @@ memoryUsedCommand()
 nameUsage()
 {
 	echot "\
-Usage: os name [alias|set HOST]
-	Show or set the operating system name"
+Usage: os name [set|alias|real HOST]
+Show or set the operating system name."
 }
 
 nameArgStart() { unset name; }
@@ -304,14 +304,33 @@ setHostnameMac()
 	dscacheutil -flushcache
 }
 
+nameAliasUsage() { echot "Usage: os name alias HOST\nGet the alias of the host from the real name."; }
+
 nameAliasCommand()
 {
 	local check="$(RemoveDnsSuffix "${name,,}")"
+
 	case "$check" in
-		s1114928) echo "laptop";;
 		s1113731) echo "desktop";;
+		s1114928) echo "laptop";;
 		s1081454) echo "rack";;
-		default) echo "$check"
+		*) echo "$name";;
+
+	esac	
+}
+
+nameRealUsage() { echot "Usage: os name real ALIAS\nGet the real name of the host from an alias."; }
+
+nameRealCommand()
+{
+	local check="$(RemoveDnsSuffix "${name,,}")"
+
+	case "$check" in
+		desktop|mac) echo "s1113731";;
+		laptop) echo "s1114928";;
+		rack) echo "s1081454";;
+		*) echo "$name";;
+
 	esac	
 }
 
@@ -644,7 +663,7 @@ infoCpu()
 
 infoCredential()
 {
-	local name; name="$(credential manager name)"
+	local name; name="$(credential manager name --quiet)"; [[ ! $name ]] && { infoEcho "  credential: none"; return; }
 	local status; status="$(credential manager status | sed 's/.*(//' | cut -d')' -f1)"
 	infoEcho "  credential: $name ($status)"
 }
