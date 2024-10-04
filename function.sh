@@ -22,13 +22,25 @@ if IsZsh; then
 	PipeStatus() { echo "${pipestatus[$(($1+1))]}"; }
 fi
 
-# bash.bashrc
+# PlatformConf - source bash.bashrc
 PlatformConf()
 {
 	[[ $BASHRC ]] && return
-	local dir="${BASH_SOURCE[0]%/*}"; IsZsh && dir="${ZSH_SOURCE:A:h}"; [[ ! $dir ]] && dir="/usr/local/data/bin"
+
+	# find
+	local dir="${BASH_SOURCE[0]%/*}" 										# BASH script source directory
+	IsZsh && [[ $ZSH_SOURCE ]] && "${ZSH_SOURCE:A:h}"; 	# ZSH  script source directory
+	[[ ! $dir ]] && dir="/usr/local/data/bin"						# default
 	local file="$dir/bash.bashrc"	
-	[[ -f "$file" ]] && { . "$file" || return; } || echo "PlatformConf: the platform configuration file '$file' does not exist" >&2
+
+	# validate
+	[[ ! -f "$file" ]] && { echo "PlatformConf: the platform configuration file '$file' does not exist" >&2; return; }
+
+	# source
+	. "$file" || return
+
+	# warn
+	EchoErr "PlatformConf: bash.bashrc was not set for globally"
 }
 PlatformConf || return
 
