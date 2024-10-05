@@ -40,7 +40,7 @@ typeOptGet()
 #
 
 listCommand() { declare -f | ${G}grep --basic-regexp '.*Install () ' | cut -d" " -f1 | sed "s/Install//" | ${G}grep -v "^$" | sort --ignore-case; }
-updateCommand() { update="--update" checkCommand | awk '{ if ($5 == "yes") print $1; }'; }
+updateCommand() { update="--update" checkCommand | awk '{ if (NR != 1) print $1; }'; }
 
 installedCommand()
 {
@@ -89,12 +89,14 @@ checkUsage()
 	EchoWrap "Usage: $(ScriptName) check [APP]...(all installed and downloaded)
 Check the version of applicaitons.
 
-	-a,	--all			check applications with automatic downloads in addition to installed programs
-	-d,	--detail	show additional detail
-	-u,	--update	only show applications which need to be updated"
+	-a,	 --all			check applications with automatic downloads in addition to installed programs
+	-d,	 --detail		show additional detail
+	-c,  --color		show color even if a terminal is not detected
+	-nc, --no-color	do not show color
+	-u,  --update		only show applications which need to be updated, implies --detail"
 }
 
-checkArgStart() { unset -v allArg appsArg detail update; }
+checkArgStart() { unset -v allArg appsArg dcolor etail noColor update; }
 checkArgs() { appsArg=("$@"); shift="$#"; }
 
 checkOpt()
@@ -102,6 +104,8 @@ checkOpt()
 	case "$1" in
 		--all|-a) allArg="--all";;
 		--detail|-d) detail="--detail";;
+		--color|-c) color="--color";;
+		--no-color|-nc) noColor="--no-color";;
 		--update|-u) update="--update";;
 		*) return 1;;
 	esac
@@ -111,12 +115,17 @@ checkCommand()
 {
 	[[ ! $update ]] && { check; return; }
 
-	# update - only show applications which need to be updated
+	# force detail so we can check what needs to be updated
+	local detail="--detail"
+
+	# exclude - only show applications which need to be updated
 	# - exclude Chrome as version check is not reliable
 	# - exclude Flighty, store reports current version as 3.4.2, but only updates to 3.4.1
-	local detail="--detail"
 	local exclude="Chrome\|Flighty"
-	check | ${G}grep -v "$exclude" | awk '{ if (NR == 1 || $5 == "yes") print $0; }'
+
+	# check
+	local check="yes"; [[ ! $noColor ]] && check+="${PAD}"
+	check | ${G}grep -v "$exclude" | awk '{ if (NR == 1 || $5 == "'$check'") print $0; }'
 } 
 
 check()
@@ -216,9 +225,12 @@ check()
 	# pip
 	local pip=(pip pipx)
 
-	# show versions
+	# configure color
+	[[ $noColor ]] && InitColorClear
+	[[ $color ]] && ForceColor
 
-	local FORCE_COLOR="true" delimit=":" # application name or version must not contain the delimiter
+	# show versions
+	local delimit=":" # application name or version must not contain the delimiter
 	{
 		if [[ $detail ]]; then
 			echo "${GREEN}app${delimit}${PAD}installed${PAD}${delimit}${PAD}downloaded${PAD}${delimit}current${delimit}update${RESET}"
@@ -292,8 +304,12 @@ checkApp()
 	# return if no versions are available
 	[[ "$installed" == "" && ! $downloaded && ! $current ]] && return
 
-	# if the installed version is older than the current version, hilight it in red
-	[[ $current && $installed ]] && versionIsOlder "$installed" "$current" && update="yes" installed="${RED}$installed${RESET}" || installed="${PAD}$installed${PAD}"
+	# if the installed version is older than the current version, hilight it in red	
+	if [[ $test && "${appName:0:1}" == @(T|R|V) ]]; then
+		update="yes" installed="${RED}$installed${RESET}"
+	else
+		[[ $current && $installed ]] && versionIsOlder "$installed" "$current" && update="yes" installed="${RED}$installed${RESET}" || installed="${PAD}$installed${PAD}"
+	fi
 
 	# if the downloaded version is older than the current version, hilight it in red
 	[[ $current && $downloaded != @(|os|package|pip|pipxg|store) ]] && versionIsOlder "$downloaded" "$current" && downloaded="${RED}$downloaded${RESET}" || downloaded="${PAD}$downloaded${PAD}"
@@ -2454,7 +2470,7 @@ appDirLink()
 UpdateInstall()
 {
 	local suppressErrors="true" # supress install errors
-	local apps; apps=( $(inst update) ) && i "${apps[@]}"
+	local apps; apps=( $(inst update "${globalArgs[@]}") ) && i "${apps[@]}"
 }
 
 DownloadInstall()

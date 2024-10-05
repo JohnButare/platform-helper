@@ -187,8 +187,8 @@ hilightp() { InitColor; printf "${GREEN}$@${RESET}"; } # hilight with no newline
 # set color variables if colors are supported (using a terminal, or FORCE_COLOR is set)
 InitColor() { { [[ $FORCE_COLOR ]] || IsStdOut; } && InitColorForce || InitColorClear; }
 InitColorErr() { { [[ $FORCE_COLOR ]] || IsStdErr; } && InitColorForce || InitColorClear; }
-InitColorForce() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); }
-InitColorClear() { unset -v GREEN RB_BLUE RB_INDIGO RED RESET; }
+InitColorForce() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); PAD=$(printf '\033[25m'); }
+InitColorClear() { unset -v GREEN RB_BLUE RB_INDIGO RED RESET PAD; }
 
 # CurrentColumn - return the current cursor column, https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
 if IsTtyOk; then

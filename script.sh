@@ -563,10 +563,10 @@ ScriptRun()
 	done
 
 	# set global options
-	globalArgs=($force $noPrompt $quiet $verbose)
-	globalArgsLess=($forceLess $noPrompt $quiet $verboseLess)
-	globalArgsLessForce=($forceLess $noPrompt $quiet $verbose)
-	globalArgsLessVerbose=($force $noPrompt $quiet $verboseLess)
+	globalArgs=($force $noPrompt $quiet $test $verbose)
+	globalArgsLess=($forceLess $noPrompt $quiet $test $verboseLess)
+	globalArgsLessForce=($forceLess $noPrompt $quiet $test $verbose)
+	globalArgsLessVerbose=($force $noPrompt $quiet $test $verboseLess)
 
 	# operands
 	set -- "${args[@]}"
