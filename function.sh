@@ -40,7 +40,9 @@ PlatformConf()
 	. "$file" || return
 
 	# warn
-	EchoErr "PlatformConf: bash.bashrc was not set for globally"
+	[[ ! $quiet ]] && EchoErr "PlatformConf: bash.bashrc was not set for globally"
+
+	return 0
 }
 PlatformConf || return
 
@@ -926,7 +928,7 @@ configInit()
 
 beep() { echo -en "\007"; }
 ! IsWarp && clear() { echo -en $'\e[H\e[2J'; }
-pause() { local response m="${@:-Press any key when ready...}"; ReadChars "" "" "$m"; }
+pause() { [[ $noPause ]] && { [[ $verbose ]] && EchoErr "pause skipped"; return; }; local response m="${@:-Press any key when ready...}"; ReadChars "" "" "$m"; }
 
 LineWrap() { ! InPath setterm && return; setterm --linewrap "$1"; }
 

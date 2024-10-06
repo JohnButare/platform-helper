@@ -32,6 +32,7 @@ Other options:
 	-hs, --hashi-service		return errors for a HashiCorp service, where 0=success 1=warning 2=error
 	-ie, --ignore-errors		ignore non-fatal errors
 	-nh, --no-hide					do not hide the elevated script window
+	-np, --no-pause					never pause
 	-nq, --no-quote					do not hide quote script arguments
 	-m,  --multiple					allow multiple commands, i.e. \"sudo RunScript --multiple 'ls; pause'\"
 													Useful in cases where bash -c cannot be used
@@ -56,7 +57,7 @@ init() { defaultCommand="run"; }
 
 runArgStart()
 {
-	unset -v credential credentialManager elevate exec hashi hashiService ignoreErrors multiple noQuote pause pauseError sensitive ssh sshAgent xServer
+	unset -v credential credentialManager elevate exec hashi hashiService ignoreErrors multiple noPause noQuote pause pauseError sensitive ssh sshAgent xServer
 	credentialManagerArg=() sshArgs=()
 
 	unset -v eval	
@@ -79,6 +80,7 @@ runOpt()
 		--ignore-errors|-ie) ignoreErrors="--ignore-errors";;
 		--multiple|-m) multiple="--multiple" eval="eval";;
 		--no-hide|-nh) windowStyle="";;
+		--no-pause|-np) noPause="--no-pause";;
 		--no-quote|-nq) noQuote="--no-quote";;
 		--pause|-p) pause="--pause";;
 		--pause-error|-pe) pauseError="--pause-error";;
@@ -89,7 +91,6 @@ runOpt()
 		*) return 1;;
 	esac
 }
-#. function.sh || return
 
 #
 # run command
@@ -150,7 +151,7 @@ runSsh()
 	)"
 
 	if IsLocalHost "$host"; then
-		[[ $verbose ]] && { ScriptErr "running the following script locally:"; echo "$script" | AddTab >& /dev/stderr; }
+		[[ $verbose ]] && { ScriptErr "running the following script locally:"; echo "$script" | AddTab >&2; }
 		bash -c "$script"
 	else
 		# DISPLAY="" - disable warning "Warning: No xauth data; using fake authentication data for X11 forwarding."
@@ -158,7 +159,7 @@ runSsh()
 		# -t - allocate a pseudo-terminal to allow the sudo password to be entered on the terminal if needed
 		local args=(-q -X -t)
 
-		[[ $verbose ]] && { ScriptErr "running the following script on '$host':"; echo "$script" | AddTab >& /dev/stderr; }
+		[[ $verbose ]] && { ScriptErr "running the following script on '$host':"; echo "$script" | AddTab >&2; }
 		DISPLAY="" ssh "${args[@]}" "$host" "$script"
 	fi
 }
@@ -219,7 +220,7 @@ runElevated()
 	# execute the script
 	log1 "running script ('$scriptFile')..."
 	local wait; ! InPath "hstart64.exe" && wait="--wait"
-	if ! start --elevate $wait $windowStyle $verbose RunScript "$scriptFile" "${globalArgs[@]}" $credential "${credentialManagerArg[@]}" $exec $hashi $hashiService $ignoreErrors $pause $pauseError $sensitive $sshAgent "${sshArgs[@]}" $xServer && [[ ! -f "$scriptResult" ]]; then
+	if ! start --elevate $wait $windowStyle $verbose RunScript "$scriptFile" "${globalArgs[@]}" $credential "${credentialManagerArg[@]}" $exec $hashi $hashiService $ignoreErrors $noPause $pause $pauseError $sensitive $sshAgent "${sshArgs[@]}" $xServer && [[ ! -f "$scriptResult" ]]; then
 		ScriptErr "unable to run the script"; ScriptTryVerbose; pause
 	fi
 
@@ -261,27 +262,29 @@ runElevatedCleanup() { rm -fr "$dir"; }
 #
 
 # functions which may be used before we load function.sh
-EchoErr() { echo "$@" > /dev/stderr; }
-pause() { local response; read -n 1 -s -p "${*-Press any key when ready...}"; echo; }
+EchoErr() { echo "$@" >&2; }
+pause() { [[ $noPause ]] && { [[ $verbose ]] && EchoErr "pause skipped"; return; }; local response m="${@:-Press any key when ready...}"; ReadChars "" "" "$m"; }
 
 # loadFunctions - load functions from function.sh
 # - look in the path, the current directory, the script directory, and /usr/local/bin
 # - sets functionFile to the function file
 # - sets scriptDir to the script directory
 loadFunctions() 
-{
-	local file="function.sh" # for debugging
-	functionFile="$(type -P "$file")"
-	if (( $? != 0 )); then
-		functionFile="$PWD/function.sh"
-		if [[ ! -f "$functionFile" ]]; then functionFile="${BASH_SOURCE[0]%/*}/$file"
-		elif [[ ! -f "$functionFile" ]]; then functionFile="/usr/local/data/bin/$file"
-		elif [[ ! -f "$functionFile" ]]; then EchoErr "Unable to find $file"; pause; return 1
-		fi
+{	
+	# find functionFile
+	functionFile="$(type -P "function.sh")" # check path
+	if (( $? != 0 )) || [[ ! -f "$functionFile" ]]; then functionFile="$PWD/function.sh"
+	elif [[ ! -f "$functionFile" ]]; then functionFile="${BASH_SOURCE[0]%/*}/$file"
+	elif [[ ! -f "$functionFile" ]]; then functionFile="/usr/local/data/bin/$file"
+	elif [[ ! -f "$functionFile" ]]; then EchoErr "RunScript: unable to find the '$file' script"; pause; return 1
 	fi
 
-	[[ ! $functionFile ]] && { EchoErr "RunScript: unable to find the '$file' script"; return 1; }
-	. "$functionFile" || { EchoErr "RunScript: unable to run the '$file' script"; pause; return 1; }
+	# source function file - set quiet to supress PlatformConf warning
+	log1 "loading functions"
+	quiet="--quiet" . "$functionFile" || { EchoErr "RunScript: unable to run the '$file' script"; pause; return 1; }
+	log1 "functions loaded"
+
+	# initialize - requires functions
 	scriptDir="$(GetFilePath "$functionFile")"
 }
 
