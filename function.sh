@@ -2,36 +2,30 @@
 
 set -o pipefail # pipes return first non-zero result
 
+# core setup
 IsBash() { [[ $BASH_VERSION ]]; }
 IsZsh() { [[ $ZSH_VERSION ]]; }
 
-IsiTerm() { [[ "$LC_TERMINAL" == "iTerm2" ]]; }
-IsWarp() { [[ "$TERM_PROGRAM" == "WarpTerminal" ]]; }
-
-if IsBash; then
+if IsZsh; then
+	PLATFORM_SHELL="zsh"
+	PLATFORM_DIR="${${(%):-%x}:h}"
+	setopt EXTENDED_GLOB KSH_GLOB NO_NO_MATCH
+else
+	PLATFORM_SHELL="bash"
+	PLATFORM_DIR="${BASH_SOURCE[0]%/*}"
 	shopt -s extglob expand_aliases
 	shopt -u nocaseglob nocasematch
-	PLATFORM_SHELL="bash"
 	whence() { type "@$"; }
-	PipeStatus() { return ${PIPESTATUS[$1]}; } # PipeStatus N - return the status of the 0 based Nth command in the pipe
 fi
 
-if IsZsh; then
-	setopt EXTENDED_GLOB KSH_GLOB NO_NO_MATCH
-	PLATFORM_SHELL="zsh"
-	PipeStatus() { echo "${pipestatus[$(($1+1))]}"; }
-fi
-
-# PlatformConf - source bash.bashrc
+# PlatformConf - source bash.bashrc now if needed
 PlatformConf()
-{
-	[[ $BASHRC ]] && return
+{	
+	[[ ! $force && $BASHRC ]] && return
 
-	# find
-	local dir="${BASH_SOURCE[0]%/*}" 										# BASH script source directory
-	IsZsh && [[ $ZSH_SOURCE ]] && "${ZSH_SOURCE:A:h}"; 	# ZSH  script source directory
-	[[ ! $dir ]] && dir="/usr/local/data/bin"						# default
-	local file="$dir/bash.bashrc"	
+	# variables
+	local file="$PLATFORM_DIR/bash.bashrc"	
+	local notSet; [[ ! $BASHRC ]] && notSet="true"
 
 	# validate
 	[[ ! -f "$file" ]] && { echo "PlatformConf: the platform configuration file '$file' does not exist" >&2; return; }
@@ -40,16 +34,20 @@ PlatformConf()
 	. "$file" || return
 
 	# warn
-	[[ ! $quiet ]] && EchoErr "PlatformConf: bash.bashrc was not set for globally"
+	[[ ! $notSet && ! $quiet ]] && EchoErr "PlatformConf: bash.bashrc was not set for globally"
 
 	return 0
 }
 PlatformConf || return
 
-# core
-IsDefined() { def "$1" >& /dev/null; }				 # IsDefined NAME - NAME is a an alias or function
+# dependant commands - these commands are used below
+IsDefined() { def "$1" >& /dev/null; }						# IsDefined NAME - NAME is a an alias or function
 
-# arguments - get argument from standard input if not specified on command line
+#
+# arguments
+#
+
+# GetAregs - get argument from standard input if not specified on command line
 # - must be an alias in order to set the arguments of the caller
 # - GetArgsN will read the first argument from standard input if there are not at least N arguments present
 # - aliases must be defiend before used in a function
@@ -68,25 +66,8 @@ fi
 ShowArgs() { local args=( "$@" ); ArrayShow args; } 	# ShowArgs [ARGS...] - show arguments from command line
 SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - split arguments from command line using IFS 
 
-# commands
-
-# GetCommandType NAME - return type of command: alias|builtin|function|file|keyword|, https://serverfault.com/questions/879222/get-on-zsh-the-same-result-you-get-when-executing-type-t-on-bash
-if IsBash; then
-	GetCommandType() { type -t "$1"; }
-else
-	GetCommandType()
-	{
-		local type; type="$(whence -w "$1" | cut -d" " -f2)" || return
-		case "$type" in 
-			alias|builtin|function) echo "$type";;
-			command) echo "file";;
-			reserved) echo "keyword";;
-		esac
-	}
-fi 
-
 #
-# Other
+# other
 #
 
 AllConf() { HashiConf "$@" && CredentialConf "$@" && NetworkConf "$@" && SshAgentConf "$@"; }
@@ -218,7 +199,7 @@ else
 fi
 
 #
-# Account
+# account
 #
 
 ActualUser() { echo "${SUDO_USER-$USER}"; }
@@ -418,8 +399,11 @@ UserHome()
 }
 
 #
-# Applications
+# applications
 #
+
+IsiTerm() { [[ "$LC_TERMINAL" == "iTerm2" ]]; }
+IsWarp() { [[ "$TERM_PROGRAM" == "WarpTerminal" ]]; }
 
 # AppVersion app - return the version of the specified application
 AppVersion()
@@ -1013,18 +997,46 @@ lesst() { less -x $TABS $*; } 										# LessTab
 AddTab() { sed "s/^/$(StringRepeat " " 2)/"; } # AddTab - add $TABS spaces to the pipeline 
 
 #
-# Data Types
+# data types
 #
 
-GetDef() { local gd="$(declare -p $1)"; gd="${gd#*\=}"; gd="${gd#\(}"; r "${gd%\)}" $2; } # get definition
 IsVar() { declare -p "$1" >& /dev/null; }
 IsAnyArray() { IsArray "$1" || IsAssociativeArray "$1"; }
+GetDef() { local gd="$(declare -p "$1")"; gd="${gd#*\=}"; gd="${gd#\(}"; r "${gd%\)}" $2; } # GetDef VAR - get definition (value) of the variable
+
+# GetCommandType NAME - return type of command: alias|builtin|function|file|keyword|, https://serverfault.com/questions/879222/get-on-zsh-the-same-result-you-get-when-executing-type-t-on-bash
+if IsZsh; then
+	GetCommandType()
+	{
+		local type; type="$(whence -w "$1" | cut -d" " -f2)" || return
+		case "$type" in 
+			alias|builtin|function) echo "$type";;
+			command) echo "file";;
+			reserved) echo "keyword";;
+		esac
+	}
+else
+	GetCommandType() { type -t "$1"; }
+fi 
 
 # ArrayMake VAR ARG... - make an array by splitting passed arguments using IFS
 # ArrayMakeC VAR CMD... - make an array from the output of a command
+# GetType VAR - show type option without -g (global), i.e. -a (array), -i (integer), -ir (read only integer).   Does not work for some special variables  like funcfiletrace, 
 # SetVar VAR VALUE
 # StringToArray STRING DELIMITER VAR
-if IsBash; then
+if IsZsh; then
+	ArrayMake() { setopt sh_word_split; local arrayMake=() arrayName="$1"; shift; arrayMake=( $@ ); ArrayCopy arrayMake "$arrayName"; }
+	ArrayMakeC() { setopt sh_word_split; local arrayMakeC=() arrayName="$1"; shift; arrayMakeC=( $($@) ) || return; ArrayCopy arrayMakeC "$arrayName"; }
+	ArrayShift() { local arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${${(P)arrayShiftVar}[@]}"; shift "$arrayShiftNum"; local arrayShiftArray=( "$@" ); ArrayCopy arrayShiftArray "$arrayShiftVar"; }
+	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
+	GetType()	{ local gt="$(declare -p "$1")"; gt="${gt#typeset }"; gt="${gt#-g }"; r "${gt%% *}" $2; }
+	GetTypeFull() { eval 'echo ${(t)'$1'}'; }
+	IsArray() { [[ "$(GetTypeFull "$1")" =~ ^(array|array-) ]]; }
+	IsAssociativeArray() { [[ "$(GetTypeFull "$1")" =~ ^(association|association-) ]]; }
+	IsVarHidden() { [[ "$(GetTypeFull "$1")" =~ (-hide) ]]; }
+	SetVariable() { eval $1="$2"; }
+	StringToArray() { GetArgs3; IFS=$2 read -A $3 <<< "$1"; }
+else
 	ArrayMake() { local -n arrayMake="$1"; shift; arrayMake=( $@ ); }
 	ArrayMakeC() { local -n arrayMakeC="$1"; shift; arrayMakeC=( $($@) ); }
 	ArrayShift() { local -n arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${arrayShiftVar[@]}"; shift "$arrayShiftNum"; arrayShiftVar=( "$@" ); }
@@ -1034,16 +1046,6 @@ if IsBash; then
 	IsAssociativeArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-A.* ]]; }
 	SetVariable() { local -n var="$1"; var="$2"; }
 	StringToArray() { GetArgs3; IFS=$2 read -a $3 <<< "$1"; } 
-else
-	ArrayMake() { setopt sh_word_split; local arrayMake=() arrayName="$1"; shift; arrayMake=( $@ ); ArrayCopy arrayMake "$arrayName"; }
-	ArrayMakeC() { setopt sh_word_split; local arrayMakeC=() arrayName="$1"; shift; arrayMakeC=( $($@) ) || return; ArrayCopy arrayMakeC "$arrayName"; }
-	ArrayShift() { local arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${${(P)arrayShiftVar}[@]}"; shift "$arrayShiftNum"; local arrayShiftArray=( "$@" ); ArrayCopy arrayShiftArray "$arrayShiftVar"; }
-	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
-	GetType() { local gt="$(declare -p $1)"; gt="${gt#typeset }"; gt="${gt#-g }"; r "${gt%% *}" $2; }
-	IsArray() { [[ "$(eval 'echo ${(t)'$1'}')" == @(array|array-local) ]]; }
-	IsAssociativeArray() { [[ "$(eval 'echo ${(t)'$1'}')" == "association" ]]; }
-	SetVariable() { eval $1="$2"; }
-	StringToArray() { GetArgs3; IFS=$2 read -A $3 <<< "$1"; }
 fi
 
 # array
@@ -1074,8 +1076,8 @@ ArrayAppend()
 ArrayCopy()
 {
 	! IsAnyArray "$1" && { ScriptErr "'$1' is not an array"; return 1; }
-	local ifsSave; IfsSave; declare -g $(GetType $1) $2; IfsRestore # save and restore IFS in case it is set to - or a
-	eval "$2=( $(GetDef $1) )"
+	local ifsSave; IfsSave; declare -g $(GetType "$1") "$2"; IfsRestore # save and restore IFS in case it is set to - or a
+	eval "$2=( $(GetDef "$1") )"
 }
 
 # ArrayDelimit [-q|--quote] NAME [DELIMITER](,) - show array with a delimiter, i.e. ArrayDelimit a $'\n'
@@ -1758,7 +1760,7 @@ IfsSave() { ifsSave="$IFS"; IfsReset; }
 IfsRestore() { IFS="$ifsSave"; }
 
 #
-# Monitoring
+# monitoring
 #
 
 # LogShow FILE [PATTERN] - show and follow a log file, optionally filtering for a pattern
@@ -1782,7 +1784,7 @@ LogShowAll()
 FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo ${G}tail -F --lines=+0 "$1" | grep "$2"; }
 
 #
-# Network
+# network
 #
 
 GetPorts() { sudoc lsof -i -P -n; }
@@ -2293,7 +2295,7 @@ MacLookup()
 }
 
 #
-# Network: Host Availability
+# network: host availability
 #
 
 AvailableTimeoutGet() { local t="$(UpdateGet "hostTimeout")"; echo "${t:-$(ConfigGet "hostTimeout")}"; }
@@ -2484,7 +2486,7 @@ WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 }
 
 #
-# Network: DNS
+# network: DNS
 #
 
 AddDnsSuffix() { GetArgs2; HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 	# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already present
@@ -2500,7 +2502,7 @@ RemoveDnsSuffix()
 }
 
 #
-# Network: Name Resolution
+# network: name resolution
 #
 
 # IsMdnsName NAME - return true if NAME is a local address (ends in .local)
@@ -2704,7 +2706,7 @@ MdnsNames() { avahi-browse -all -c -r | grep hostname | sort | uniq | cut -d"=" 
 MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';' -f5 | sort | uniq; }
 
 #
-# Network: Services
+# network: services
 #
 
 # GetServer SERVICE - get an active host for the specified service
@@ -2745,7 +2747,7 @@ IsService()
 }
 
 #
-# Network: SSH
+# network: SSH
 #
 
 GetSshUser() { GetArgs; local gsu; [[ "$1" =~ @ ]] && gsu="${1%@*}"; r "$(RemoveSpaceTrim "$gsu")" $2; } 	# GetSshUser USER@HOST:PORT -> USER
@@ -2794,14 +2796,14 @@ SshAgentConfStatus() { SshAgentConf "$@" && SshAgent status; }
 SshSudoc() { SshHelper connect --credential --function "$1" -- sudoc "${@:2}"; }
 
 #
-# network GIO shares - # .../smb-share:server=SERVER,share=SHARE/...
+# network: GIO shares - # .../smb-share:server=SERVER,share=SHARE/...
 #
 
 GetGioServer() { GetArgs; local ggs="${1#*server=}"; ggs="${ggs%,*}"; r "$ggs" $2; }
 GetGioShare() { GetArgs; local ggs="${1#*share=}"; ggs="${ggs%%/*}"; r "$ggs" $2; }
 
 #
-# network: UNC Shares - [PROTOCOL:]//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
+# network: UNC shares - [PROTOCOL:]//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
 #
 
 CheckNetworkProtocol() { [[ "$1" == @(|nfs|smb|ssh) ]] || IsInteger "$1"; }
@@ -2899,7 +2901,7 @@ UncMake()
 }
 
 #
-# Network: URI - PROTOCOL://SERVER:PORT[/DIRS]
+# network: URI - PROTOCOL://SERVER:PORT[/DIRS]
 #
 
 GetUriProtocol() { GetArgs; local gup="${1%%\:*}"; r "$(LowerCase "$gup")" $2; }
@@ -2920,7 +2922,7 @@ GetUrlPort()
 }
 
 #
-# Package Manager
+# package manager
 #
 
 HasPackageManager() { [[ "$(PackageManager)" != "none" ]]; }
@@ -3208,7 +3210,7 @@ PackageWhich()
 }
 
 #
-# Platform
+# platform
 # 
 
 IsPlatformAll() { IsPlatform --all "$@"; }
@@ -3435,7 +3437,7 @@ function RunPlatform()
 }
 
 #
-# Process
+# process
 #
 
 CanElevate() { ! IsPlatform win && return; IsWinAdmin; }
@@ -3456,20 +3458,12 @@ pscount() { ProcessList | wc -l; }
 RunQuiet() { if [[ $verbose ]]; then "$@"; else "$@" 2> /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout unless verbose logging
 RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout and stderr unless verbose logging
 
-SystemdConf()
-{
-	# configure runtime directory - must be owned by $USER
-	local dir="/run/user/$(${G}id -u)"
-	[[ ! -d "$dir" ]] && { sudo mkdir "$dir" || return; }
-	[[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" != "$USER" ]] && { sudo chown "$USER" "$XDG_RUNTIME_DIR"; }
-
-	return 0
-}
-
-# RunWin PROGRAM - running Windows executables from some Linux directories fails
-# - CryFS directories causes "Invalid argument" errors
-# - logioptionsplus_installer.exe terminates in Linux directories
-RunWin() { (IsPlatform win && cd "$WIN_ROOT"; "$@"); }
+# PipeStatus N - return the status of the 0 based Nth command in the pipe
+if IsZsh; then
+	PipeStatus() { echo "${pipestatus[$(($1+1))]}"; }
+else
+	PipeStatus() { return ${PIPESTATUS[$1]}; }
+fi
 
 # FindMacApp APP - return the location of a Mac applciation
 FindMacApp()
@@ -3504,18 +3498,6 @@ IsExecutable()
 
 	# not executable
 	return 1
-}
-
-# IsRunnable COMMAND - true if the command is runnable (executable, script, function, alias)
-IsRunnable()
-{
-	local command="$1"; [[ ! $command ]] && { EchoWrap "Usage: IsRunnable COMMAND"; return 1; }
-
-	# executable
-	IsExecutable "$command" && return
-
-	# runnable shell commands: alias, function, or builtin
-	[[ "$(GetCommandType "$command")" == @(alias|function|builtin) ]]
 }
 
 # IsProcessRunning NAME
@@ -3576,6 +3558,18 @@ IsProcessRunningList()
 
 	# search for an exact match, a match without the Unix path, and a match without the Windows path
 	echo -E "$processes" | grep --extended-regexp --ignore-case --quiet "(,$name$|,.*/$name$|,.*\\\\$name$)"
+}
+
+# IsRunnable COMMAND - true if the command is runnable (executable, script, function, alias)
+IsRunnable()
+{
+	local command="$1"; [[ ! $command ]] && { EchoWrap "Usage: IsRunnable COMMAND"; return 1; }
+
+	# executable
+	IsExecutable "$command" && return
+
+	# runnable shell commands: alias, function, or builtin
+	[[ "$(GetCommandType "$command")" == @(alias|function|builtin) ]]
 }
 
 # IsWindowsProces NAME: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
@@ -3819,6 +3813,11 @@ pstree()
 	return
 }
 
+# RunWin PROGRAM - running Windows executables from some Linux directories fails
+# - CryFS directories causes "Invalid argument" errors
+# - logioptionsplus_installer.exe terminates in Linux directories
+RunWin() { (IsPlatform win && cd "$WIN_ROOT"; "$@"); }
+
 # start a program converting file arguments for the platform as needed
 startUsage()
 {
@@ -3984,7 +3983,18 @@ start()
 		(( verboseLevel > 1 )) && ScriptArgs "start" nohup $sudo "$file" "${args[@]}"
 		(nohup $sudo "$file" "${args[@]}" >& /dev/null &)
 	fi
-} 
+}
+
+# SystemdConf - configure systemd
+SystemdConf()
+{
+	# configure runtime directory - must be owned by $USER
+	local dir="/run/user/$(${G}id -u)"
+	[[ ! -d "$dir" ]] && { sudo mkdir "$dir" || return; }
+	[[ "$(stat -c '%U' "$XDG_RUNTIME_DIR")" != "$USER" ]] && { sudo chown "$USER" "$XDG_RUNTIME_DIR"; }
+
+	return 0
+}
 
 #
 # Python
@@ -4121,13 +4131,13 @@ pipxg()
 }
 
 #
-# Scripts
+# scripts
 #
 
 FilterShellScript() { grep -E "shell script|bash.*script|Bourne-Again shell script|\.sh:|\.bash.*:"; }
 IsInstalled() { type "$1" >& /dev/null && command "$1" IsInstalled; }
 IsShellScript() { file "$1" | FilterShellScript >& /dev/null; }
-IsDeclared() { declare -p "$1" >& /dev/null; } # IsDeclared NAME - NAME is a declared variable
+IsDeclared() { declare -p "$1" >& /dev/null; } 		# IsDeclared NAME - NAME is a declared variable
 
 # aliases
 IsAlias() { type "$1" |& grep alias > /dev/null; } # IsAlias NAME - NAME is an alias
@@ -4175,10 +4185,8 @@ RunFunctionExists()
 }
 
 # scripts
-
 ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } 						# ScriptArgs SCRIPT_NAME ARGS... - display script arguments
 ScriptCheckMac() { IsMacAddress "$1" && return; ScriptErr "'$1' is not a valid MAC address"; }
-ScriptDir() { IsZsh && GetFilePath "$ZSH_SCRIPT" || GetFilePath "${BASH_SOURCE[0]}"; }		# ScriptDir - return the directory the script is contained in
 ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; return 1; }	# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
 ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$@"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 								# ScriptExit [STATUS](1) - return or exist from a script with the specified status
@@ -4199,16 +4207,24 @@ ScriptCd()
 	echo "cd $dir"; DoCd "$dir"
 }
 
+# ScriptDir - return the directory of the root script
+ScriptDir()
+{
+	local dir="$0"; IsZsh && dir="$ZSH_SCRIPT"
+	GetFilePath "$(GetFullPath "$dir")"; 
+}
+
+
 # ScriptEval <script> [<arguments>] - run a script and evaluate the output
 # - typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
 ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || return; eval "$result"; unset SCRIPT_EVAL; } 
 
-# ScriptName [func]
+# ScriptName [func] - return the function, or the name of root script
 ScriptName()
 {
-	local name; func="$1"; [[ $func ]] && { printf "%s" "$func"; return; }
-	IsZsh && name="$(GetFileName "$ZSH_SCRIPT")" || name="$(GetFileName "${BASH_SOURCE[-1]}")"
-	[[ "$name" == "function.sh" ]] && unset name
+	local func="$1"; [[ $func ]] && { printf "%s" "$func"; return; }
+	local name="$0"; IsZsh && name="$ZSH_SCRIPT"
+	name="$(GetFileName "$name")"; [[ "$name" == "function.sh" ]] && unset name
 	printf "$name" 
 }
 
@@ -4290,7 +4306,7 @@ ScriptReturn()
 }
 
 #
-# Security
+# security
 #
 
 CertGetDates() { local c; for c in "$@"; do echo "$c:"; SudoRead "$c" openssl x509 -in "$c" -text | grep "Not "; done; }
@@ -4455,7 +4471,7 @@ SudoRead()
 }
 
 #
-# Text Processing
+# text processing
 #
 
 tac() { InPath tac && command tac "$@" | cat "$@"; }
@@ -4544,7 +4560,7 @@ JsonValidate()
 }
 
 #
-# Virtual Machine
+# virtual machine
 #
 
 IsChroot() { GetChrootName; [[ $CHROOT_NAME ]]; }
@@ -4625,7 +4641,7 @@ GetVmType() # vmware|hyperv
 }
 
 #
-# Window
+# window
 #
 
 HasWindowManager() { ! IsSsh || IsXServerRunning; } # assume if we are not in an SSH shell we are running under a Window manager
