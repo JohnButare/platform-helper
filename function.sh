@@ -3397,6 +3397,19 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 	for file in "${files[@]}"; do . "$file" || return; done
 }
 
+SourcePlatformScripts()
+{
+	local script errors=0
+	
+	for script in "$@"; do
+		{ [[ ! $script ]] || IsOption "$script"; } && continue
+		[[ ! -f "$script" ]] && { ScriptErrQuiet "script '$(FileToDesc "$f")' does not exist" "SourcePlatformScripts"; (( ++errors )); continue; }
+		. "$PLATFORM_DIR/$script.sh" || { ScriptErrQuiet "error sourcing script '$(FileToDesc "$f")'" "SourcePlatformScripts"; (( ++errors )); continue; }
+	done
+
+	return $errors
+}
+
 PlatformTmp() { IsPlatform win && echo "$UADATA/Temp" || echo "$TEMP"; }
 
 # RunPlatform PREFIX [--host [HOST]] [ARGS] - call platform functions, i.e. prefixWin.  example order: win -> debian -> ubuntu -> wsl -> physical
@@ -4763,5 +4776,8 @@ WinSetState()
 
 # platform specific functions
 SourceIfExistsPlatform "$BIN/function." ".sh" || return
+
+# source other scripts
+# SourcePlatformScripts "$@" || return
 
 export FUNCTIONS="true"
