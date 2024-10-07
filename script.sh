@@ -1,5 +1,4 @@
 # common functions for scripts
-. function.sh
 
 #
 # Script Arguments

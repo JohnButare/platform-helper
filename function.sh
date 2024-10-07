@@ -3399,12 +3399,15 @@ SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
 
 SourcePlatformScripts()
 {
-	local script errors=0
-	
-	for script in "$@"; do
+	local script scripts=( "$@" ) errors=0 
+
+	set --
+	for script in "${scripts[@]}"; do
 		{ [[ ! $script ]] || IsOption "$script"; } && continue
-		[[ ! -f "$script" ]] && { ScriptErrQuiet "script '$(FileToDesc "$f")' does not exist" "SourcePlatformScripts"; (( ++errors )); continue; }
-		. "$PLATFORM_DIR/$script.sh" || { ScriptErrQuiet "error sourcing script '$(FileToDesc "$f")'" "SourcePlatformScripts"; (( ++errors )); continue; }
+		script="$PLATFORM_DIR/$script.sh"
+		[[ ! -f "$script" ]] && { ScriptErrQuiet "script '$(FileToDesc "$script")' does not exist" "SourcePlatformScripts"; (( ++errors )); continue; }
+		[[ $verbose ]] && ScriptErr "sourcing '$(FileToDesc "$script")'" "SourcePlatformScripts"
+		. "$script" || { ScriptErrQuiet "error sourcing script '$(FileToDesc "$script")'" "SourcePlatformScripts"; (( ++errors )); continue; }
 	done
 
 	return $errors
@@ -4778,6 +4781,6 @@ WinSetState()
 SourceIfExistsPlatform "$BIN/function." ".sh" || return
 
 # source other scripts
-# SourcePlatformScripts "$@" || return
+SourcePlatformScripts "$@" || return
 
 export FUNCTIONS="true"

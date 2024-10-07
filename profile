@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-. script.sh || exit
-. color.sh || exit
-. AppControl.sh || exit
+. "${BASH_SOURCE[0]%/*}/function.sh" script color AppControl || exit
 
 usage()
 {

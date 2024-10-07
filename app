@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-. script.sh || exit
-. AppControl.sh || exit
+. "${BASH_SOURCE[0]%/*}/function.sh" script AppControl || exit
 
 usage()
 {

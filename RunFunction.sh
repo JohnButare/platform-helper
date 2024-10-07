@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
-. function.sh || exit
+. "${BASH_SOURCE[0]%/*}/function.sh" "" || exit
 "$@"
