@@ -58,7 +58,7 @@ noProxyRemote=".releases.ubuntu.com,.internal,.local"
 # hagerman network
 hagermanUser="jjbutare"
 hagermanBinUnc="//ender.hagerman.butare.net/system/usr/local/data/bin"
-hagermanBootstrapDir=""
+hagermanBootstrapCloudDir=""
 hagermanInstallUnc="//ender.butare.net/public/install"
 hagermanDnsBaseDomain="butare.net"
 hagermanDnsDomain="hagerman.$hagermanDnsBaseDomain"
