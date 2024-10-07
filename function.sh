@@ -18,6 +18,9 @@ else
 	whence() { type "@$"; }
 fi
 
+# dependant commands - these commands are used below
+IsDefined() { def "$1" >& /dev/null; }						# IsDefined NAME - NAME is a an alias or function
+
 # PlatformConf - source bash.bashrc now if needed
 PlatformConf()
 {	
@@ -34,14 +37,11 @@ PlatformConf()
 	. "$file" || return
 
 	# warn
-	[[ ! $notSet && ! $quiet ]] && EchoErr "PlatformConf: bash.bashrc was not set for globally"
+	[[ ! $notSet && ! $quiet ]] && echo "PlatformConf: bash.bashrc was not set for globally" >&2
 
 	return 0
 }
 PlatformConf || return
-
-# dependant commands - these commands are used below
-IsDefined() { def "$1" >& /dev/null; }						# IsDefined NAME - NAME is a an alias or function
 
 #
 # arguments
