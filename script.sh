@@ -547,9 +547,7 @@ ScriptRun()
 
 	# arg start
 	RunFunction "argStart" || return
-	for c in "${commands[@]}"; do
-		RunFunction "${c}ArgStart" || return
-	done
+	for c in "${commands[@]}"; do RunFunction "${c}ArgStart" || return; done
 
 	# options
 	unset -v force forceLess forceLevel noPrompt quiet test showVersion verbose verboseLess verboseLevel wait
@@ -578,9 +576,7 @@ ScriptRun()
 	(( $# != 0 )) && { ExtraOperand "$1"; return 1; }
 
 	# arg end
-	for c in "${commands[@]}"; do
-		RunFunction "${c}ArgEnd" || return
-	done
+	for c in "${commands[@]}"; do RunFunction "${c}ArgEnd" || return; done
 	RunFunction "argEnd" || return
 
 	# cleanup
@@ -592,7 +588,8 @@ ScriptRun()
 	local result; "${command}Command"; result="$?"
 
 	# cleanup
-	RunFunction cleanup || return
+	for c in "${commands[@]}"; do RunFunction "${c}Cleanup" || return; done
+	RunFunction "cleanup" || return
 
 	return "$result"
 }
