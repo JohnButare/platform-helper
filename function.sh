@@ -25,10 +25,10 @@ IsDefined() { def "$1" >& /dev/null; }						# IsDefined NAME - NAME is a an alia
 PlatformConf()
 {	
 	[[ ! $force && $BASHRC ]] && return
-
+	
 	# variables
 	local file="$PLATFORM_DIR/bash.bashrc"	
-	local notSet; [[ ! $BASHRC ]] && notSet="true"
+	local notSet; [[ ! $force && ! $BASHRC ]] && notSet="true"
 
 	# validate
 	[[ ! -f "$file" ]] && { echo "PlatformConf: the platform configuration file '$file' does not exist" >&2; return; }
@@ -37,7 +37,7 @@ PlatformConf()
 	. "$file" || return
 
 	# warn
-	[[ ! $notSet && ! $quiet ]] && echo "PlatformConf: bash.bashrc was not set for globally" >&2
+	[[ $notSet && ! $quiet ]] && echo "PlatformConf: bash.bashrc was not set" >&2
 
 	return 0
 }
