@@ -248,6 +248,9 @@ if [[ "$USER" == "root" ]]; then
 		# HOME is not updated
 	 	export HOME=~root
 
+	 	# the mac credential manager does not work as root
+	 	export CREDENTIAL_MANAGER="remote"
+
 	 	# root shell is sh which runs .profile
 	 	[[ ! -f ~/.profile ]] && echo "[ $BASH ] && . \"$USERS/\$(ConfigGetCurrent "user")/.bashrc\"" >> "$HOME/.profile"
 
