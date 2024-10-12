@@ -202,11 +202,27 @@ updateWireGuard() { runApp "update" "WireGuard" wiggin update WireGuard; }
 # certificate commands
 #
 
-certUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert all|renew|copy|hubitat|lb|nas|printer\nCertificate commands."; }
-certCommand() { usage; }
+certUsage() {
+	ScriptUsageEcho "\
+Usage: $(ScriptName) cert all|renew|copy|hubitat|lb|nas|printer|cleanup\nCertificate commands.
+	-nc, --no-cleanup		do not cleanup temporary certificate files or the mounted certificate directory"
+}
+
+certArgStart() { unset -v noCleanup; }
+certCommand() { certAllCommand; }
+certCleanupCommand() { :; }
+
+certOpt()
+{
+	case "$1" in
+		--no-cleanup|-nc) noCleanup="--no-cleanup";;
+		*) return 1;;
+	esac
+}
 
 certArgEnd()
 {
+	log1 "initialize certificates"
 	domain="butare.net"
 	certDir="/etc/letsencrypt/live"
 	certDirTmp="/tmp/cert-$domain"
@@ -214,10 +230,23 @@ certArgEnd()
 	certStage || return
 }
 
-certCleanup() { certStageCleanup && encrypt unmount "personal"; }
+certCleanup() { [[ $noCleanup ]] && return; log1 "cleanup"; certStageCleanup && encrypt unmount "personal"; }
 
-certStage() { [[ -d "$encryptedDir/$domain" && $certDirTmp ]] && certStageCleanup && cp -rp "$encryptedDir/$domain/." "$certDirTmp"; }
-certStageCleanup() { [[ $certDirTmp && -d "$certDirTmp" ]] && sudoc rm -fr "$certDirTmp"; return 0; }
+certStage()
+{
+	certStageCleanup || return
+	[[ -d "$certDirTmp" ]] && return
+	local from="$encryptedDir/$domain/." to="$certDirTmp"
+	log1 "copy certificate files from '$from' to '$to'"
+	cp -rp "$from" "$to"
+}
+
+certStageCleanup()
+{
+	[[ $noCleanup || ! "$certDirTmp" || ! -d "$certDirTmp" ]] && return
+	log1 "cleaning certificate temporary directory '$certDirTmp'"
+	sudoc rm -fr "$certDirTmp"
+}
 
 certAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert all\nPerform all certificate commands."; }
 certAllCommand() { certRenewCommand && certCopyCommand && certHubitatCommand && certLbCommand && certNasCommand && certPrinterCommand; }
