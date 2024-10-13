@@ -123,7 +123,7 @@ UpdateCheck() { [[ $updateDir ]] && return; UpdateInit; }
 UpdateDate() { UpdateCheck && GetFileDateStamp "$updateDir/$1"; }
 UpdateNeeded() { UpdateCheck || return; [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
 UpdateDone() { UpdateCheck && touch "$updateDir/$1"; }
-UpdateGet() { UpdateCheck || return; [[ -f "$updateDir/$1" ]] || return; cat "$updateDir/$1"; }
+UpdateGet() { UpdateNeeded "$1" && return 1; cat "$updateDir/$1"; }
 UpdateExists() { UpdateCheck && [[ -f "$updateDir/$1" ]]; }
 UpdateRm() { UpdateCheck && rm -f "$updateDir/$1"; }
 UpdateRmAll() { UpdateCheck && rm -f "$updateDir/"* "$updateDir/".*; }
