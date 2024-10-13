@@ -210,6 +210,8 @@ Usage: $(ScriptName) cert all|renew|copy|hubitat|lb|nas|printer|cleanup\nCertifi
 
 certArgStart() { unset -v noCleanup; }
 certCommand() { certAllCommand; }
+certAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert all\nPerform all certificate commands."; }
+certAllCommand() { certRenewCommand && certCopyCommand && certLbCommand && certHubitatCommand && certNasCommand && certPrinterCommand; }
 certCleanupCommand() { :; }
 
 certOpt()
@@ -222,41 +224,46 @@ certOpt()
 
 certArgEnd()
 {
-	log1 "initialize certificates"
+	log1 "initialize certificates"	
 	domain="butare.net"
-	certDir="/etc/letsencrypt/live"
 	certDirTmp="/tmp/cert-$domain"
+
+	# Let's Encrypt
+	letsEncryptDir="/etc/letsencrypt"
+	[[ ! -d "$letsEncryptDir" ]] && { ScriptErr "Let's Encrypt is not installed.  Use 'inst install certbot' to install and configure it."; return 1; }
+	certDir="$letsEncryptDir/live"
+
+	# mount existing certificates
 	encryptedDir="$(CloudConf && encrypt mount "$CLOUD/data/app/CryFS/personal")/data/letsencrypt" || return
-	certStage || return
+	
+	# stage existing certificates
+	[[ $noCleanup && -d "$certDirTmp" ]] && return
+	certStageCleanup && certStage
 }
 
 certCleanup() { [[ $noCleanup ]] && return; log1 "cleanup"; certStageCleanup && encrypt unmount "personal"; }
 
 certStage()
 {
-	certStageCleanup || return
-	[[ -d "$certDirTmp" ]] && return
 	local from="$encryptedDir/$domain/." to="$certDirTmp"
+	[[ ! -d "$from" ]] && return # certificate does not exist yet
 	log1 "copy certificate files from '$from' to '$to'"
 	cp -rp "$from" "$to"
 }
 
 certStageCleanup()
 {
-	[[ $noCleanup || ! "$certDirTmp" || ! -d "$certDirTmp" ]] && return
+	[[ $noCleanup || ! -d "$certDirTmp" ]] && return
 	log1 "cleaning certificate temporary directory '$certDirTmp'"
 	sudoc rm -fr "$certDirTmp"
 }
-
-certAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert all\nPerform all certificate commands."; }
-certAllCommand() { certRenewCommand && certCopyCommand && certHubitatCommand && certLbCommand && certNasCommand && certPrinterCommand; }
 
 certRenewCommand()
 {
 	hilight "Renewing certificate..."
 	CertGetDates "$certDir/$domain/cert.pem" || return
 	! ask 'Do you want to renew the certificate' && return
-	sudoc certbot certonly -d '*.butare.net' --dns-cloudflare --dns-cloudflare-credentials "/etc/letsencrypt/credentials/cloudflare.ini" || return
+	sudoc certbot certonly -d '*.butare.net' --dns-cloudflare --dns-cloudflare-credentials "$letsEncryptDir/credentials/cloudflare.ini" || return
 }
 
 certCopyCommand()
@@ -271,19 +278,19 @@ certCopyCommand()
 	( cd "$encryptedDir" && bak "$domain" -d "$domain.bak") || return
 
 	# copy certificates to the temporary certificate directory
-	sudoc cp -Lr "$certDir/$domain/"* "$certDirTmp" || return
+	sudoc cp -Lr "$certDir/$domain/." "$certDirTmp" || return
 	sudoc chown -R $USER "$certDirTmp" || return
 	sudoc chgrp -R $USER "$certDirTmp" || return
 
 	# create X.509 certificate
-	( cd "$encryptedDir/$domain" && cat "cert.pem" "privkey.pem" > "certificate.pem"; ) || return
+	( cd "$certDirTmp" && cat "cert.pem" "privkey.pem" > "certificate.pem"; ) || return
 
 	# create PKCS#12 certificate
 	echo "Use an empty password for the PKCS#12 (PFX) certificate..."	
-	( cd "$encryptedDir/$domain" && openssl pkcs12 -keypbe NONE -certpbe NONE -export -out certificate.pfx -inkey privkey.pem -in fullchain.pem; ) || return
+	( cd "$certDirTmp" && openssl pkcs12 -keypbe NONE -certpbe NONE -export -out certificate.pfx -inkey privkey.pem -in fullchain.pem; ) || return
 
 	# copy certificates to the encrypted certificate directory
-	cp "$certDirTmp/"* "$encryptedDir/$domain" || return
+	cp -r "$certDirTmp/." "$encryptedDir/$domain" || return
 }
 
 certHubitatCommand() { cd "$certDirTmp" && certHubitat 1 && certHubitat 2; }
@@ -308,7 +315,7 @@ certLbCommand()
 
 	# update certificates used by the load balancer
 	local lbDir="$UDATA/sync/etc/letsencrypt/live/$domain"
-	sudoc cp "$certDirTmp/"* "$lbDir" || return
+	sudoc cp -r "$certDirTmp/." "$lbDir" || return
 	sudoc chown -R root "$lbDir" || return
 
 	# sync the load balancer certificates and the load balancer configuration
@@ -322,11 +329,11 @@ certNas()
 	local n="$1"; hilight "Updating the NAS $n certificates..."
 	local clip; clip="$(utw "${certDirTmp}")"; clipw "$clip"
 	open "https://nas${n}.hagerman.butare.net:5001" || return
-	EchoWrap "Control Panel, Security, Certificate, Add, Replace an existing certificate, *.butare.net, check Set as default certificate, Private Key=<paste>/privkey.pem, Certificate=<paste>/cert.pem, Private Key=<paste>/chain.pem"
+	EchoWrap "Control Panel, Security, Certificate, Add, Replace an existing certificate, *.butare.net, check Set as default certificate, Private Key=<paste>/privkey.pem, Certificate=<paste>/cert.pem, Intermediate certificate=<paste>/chain.pem"
 	pause
 }
 
-certPrinterCommand() { certStudyPrinter && certStudyColorPrinter; }
+certPrinterCommand() { certStudyColorPrinter; } # certStudyPrinter does not work
 
 certStudyPrinter()
 {	
