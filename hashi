@@ -72,9 +72,9 @@ opt()
 argEnd()
 {
 	# basic configuration
-	datacenter="$(GetDomain)"
-	baseDomain="$(GetDnsBaseDomain)"
-	domain="$(GetDnsDomain)"
+	datacenter="$(GetDomain)"; argValidate "$datacenter" "domain" || return
+	baseDomain="$(GetDnsBaseDomain)"; argValidate "$baseDomain" "DNS base domain" || return
+	domain="$(GetDnsDomain)"; argValidate "$domain" "DNS domain" || return
 
 	# port configuration
 	consulHttpPort="8500" consulHttpsPort="8501"
@@ -96,6 +96,13 @@ argEnd()
 	fi
 
 	return 0
+}
+
+argValidate()
+{
+	local arg="$1" desc="$2";
+	[[ $1 ]] && return; 
+	ScriptErr "$desc is not set"
 }
 
 cleanup()
@@ -429,7 +436,7 @@ certCommand() { usage; }
 
 certCopyUsage() { ScriptUsageEcho "\
 Usage: $(ScriptName) cert copy all|$productUsage
-Copy public certificates to the public installation location.\n\n  $certOptUsage"; }
+Copy public CLI certificates to the public installation location.\n\n  $certOptUsage"; }
 
 certCopyCommand() { usage; }
 certCopyAllCommand() { certCopyPublic "consul" && certCopyPublic "nomad" && certCopyPublic "vault"; }
@@ -595,8 +602,9 @@ certMakeNomadServer()
 	EOF
 
 	# add the nomad servers to the certificate
-	local h="$(ArrayDelimit joinFqdn)"; [[ $h ]] && h+=","
-	local hosts="${h}server.global.nomad,localhost,127.0.0.1"
+	local join=() joinFqdn=(); hostJoinInit || return
+	local h="$(ArrayDelimit joinFqdn)"
+	local hosts="$(serviceDnsNameShort "$product"),$(serviceDnsName "$product"),${h},server.global.$product,localhost,127.0.0.1"
 
 	# create the certificate
 	echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config="cfssl.json" -hostname="$hosts" - | cfssljson -bare "nomad-server" || return
@@ -1642,7 +1650,7 @@ installCommand() { usage; }
 #
 
 installServiceUsage() { ScriptUsageEcho "\
-Usage: $(ScriptName) install service all|cli|$productUsage
+Usage: $(ScriptName) install service all|cli|$productUsage [integration]
 Install a HashiCorp product.
 
 	-c, --clients	HOSTS						comma separated list of clients to install
@@ -1673,17 +1681,174 @@ installServiceConsulCommand() { installService "consul"; }
 installServiceNomadCommand() { installService "nomad"; }
 installServiceVaultCommand() { installService "vault"; }
 
+# integrations
+installServiceNomadIntegrationUsage() { ScriptUsageEcho "Usage: $(ScriptName) install service nomad integration vault\nInstall Nomad integrations."; }
+installServiceNomadIntegrationCommand() { usage; }
+
+installServiceNomadIntegrationVaultCommand() { product="nomad"; installServiceInit "$product" && productInit "$product" && installServiceNomadVaultIntegration; }
+
+installServiceNomadVaultIntegration()
+{	
+	! whatCheck "config" && return
+
+	header "Install Nomad Vault Integration"
+
+	local policy; productInit "vault" || return
+
+	#
+	# Workload Identity
+	#
+	
+	# enable JWT for Nomad
+	if ! vault auth list | qgrep '^jwt-nomad/'; then
+		vault auth enable -path 'jwt-nomad' 'jwt' || { ScriptErr "unable to enable JWT for Vault integration"; return 1; }
+	fi
+
+	# configure JWT for Nomad
+	local address="https://$(serviceDnsName "nomad"):$(productGetPort "nomad" "$(protocol)")/.well-known/jwks.json"
+	if [[ $force || "$(vault read "/auth/jwt-nomad/config" |& ${G}grep "^jwks_url " | tr -s " " | cut -d" " -f2)" != "$address" ]]; then
+		hilight "Adding Nomad JWT to Vault..."
+		
+		local config="$(cat <<-EOF
+			{
+			  "jwks_url": "$address",
+			  "jwt_supported_algs": ["RS256", "EdDSA"],
+			  "default_role": "nomad-workloads"
+			}
+			EOF
+		)"
+		echo "$config" | vault write "/auth/jwt-nomad/config" - || return
+	fi
+
+	# create Vault ACL role
+	if [[ $force ]] || ! vault read "/auth/jwt-nomad/role/nomad-workloads" >& /dev/null; then
+		hilight "Creating Vault ACL role..."
+		
+		local config="$(cat <<-EOF
+			{
+			  "role_type": "jwt",
+			  "bound_audiences": ["vault.io"],
+			  "user_claim": "/nomad_job_id",
+			  "user_claim_json_pointer": true,
+			  "claim_mappings": {
+			    "nomad_namespace": "nomad_namespace",
+			    "nomad_job_id": "nomad_job_id",
+			    "nomad_task": "nomad_task"
+			  },
+			  "token_type": "service",
+			  "token_policies": ["nomad-workloads"],
+			  "token_period": "30m",
+			  "token_explicit_max_ttl": 0
+			}
+			EOF
+		)"
+		echo "$config" | vault write "/auth/jwt-nomad/role/nomad-workloads" - || return
+	fi
+
+	# create Vault ACL policy
+	local accessor; accessor="$(vault auth list | ${G}grep "^jwt-nomad/" | tr -s " " | cut -d" " -f3)" || return
+	if [[ $force ]] || ! vault policy read "nomad-workloads" >& /dev/null; then
+		hilight "Creating Vault ACL policy..."
+		
+		local policy="$(cat <<-EOF
+			path "kv/data/{{identity.entity.aliases.$accessor.metadata.nomad_namespace}}/{{identity.entity.aliases.$accessor.metadata.nomad_job_id}}/*" {
+			  capabilities = ["read"]
+			}
+
+			path "kv/data/{{identity.entity.aliases.$accessor.metadata.nomad_namespace}}/{{identity.entity.aliases.$accessor.metadata.nomad_job_id}}" {
+			  capabilities = ["read"]
+			}
+
+			path "kv/metadata/{{identity.entity.aliases.$accessor.metadata.nomad_namespace}}/*" {
+			  capabilities = ["list"]
+			}
+
+			path "kv/metadata/*" {
+			  capabilities = ["list"]
+			}
+
+			path "secret/data/*" {
+			  capabilities = ["read"]
+			}
+
+			path "secret/data" {
+			  capabilities = ["read"]
+			}
+
+			path "secret/metadata/*" {
+			  capabilities = ["list"]
+			}
+
+			EOF
+		)"
+		echo "$policy" | vault policy write "nomad-workloads" - || return
+	fi
+
+	#
+	# Token Based Authentication (deprecated)
+	#
+
+	# nomad-cluster policy - policy for jobs (specifiy in job configuration)
+	if ! vault policy list | ${G}grep -q "^nomad-cluster$"; then
+		hilight "Adding the nomad-cluster policy to Vault..."
+		local policy="$(cat <<-EOF
+			path "secret/*" {
+			  capabilities = ["read"]
+			}
+			EOF
+		)"
+		echo "$policy" | vault policy write nomad-cluster - || return
+	fi
+
+	# nomad-cluster role - role Nomad uses to create tokens for jobs (specifies which policies jobs can request)
+	if ! vault list "/auth/token/roles" |& ${G}grep -q "^nomad-cluster$"; then
+		hilight "Adding the nomad-cluster role to Vault..."
+		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-cluster-role.json")" || return
+		vault write /auth/token/roles/nomad-cluster @"$policy" || return
+	fi
+
+	# nomad-server policy - Nomad token policy used to access Vault
+	if ! vault policy list | ${G}grep -q "^nomad-server$"; then
+		hilight "Adding the nomad-server policy to Vault..."
+		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-server-policy.hcl")" || return
+		vault policy write nomad-server "$policy" || return
+	fi
+
+	return 0
+}
+
 # install helper
 
 installService()
 {
-	local product="$1" isServiceInstall="true"; serviceVars "$product" || return
+	local product="$1" isServiceInstall="true"; installServiceInit || return
 
 	# common service options
 	local commonOptions="$(cat <<-EOF
 		log_level = "info"\n
 		EOF
 	)"
+
+	# install
+	local certDir; certs && { certMakeCd "$product" || return; }
+	local tmpDir; tmpDir="$(tmpDirCreate)" || return	
+	installServiceCertMake || return # current directory will be the private certificate directory
+	installServiceProgram || return
+	installServiceHosts "server" "${servers[@]}" || return
+	installServiceCertLocal || return
+	installServiceServerFinal || return
+	installServiceHosts "client" "${clients[@]}" || return
+	installServiceFinal || return
+	installServiceCertPublic || return
+
+	# cleanup
+	unset servers clients
+	rm -fr "$tmpDir"
+}
+
+installServiceInit()
+{
+	local product="$1"; serviceVars "$product" || return
 
 	# add clients and servers from hostArg if specified
 	if [[ $hostArg ]]; then
@@ -1716,22 +1881,6 @@ installService()
 		PrintErr "servers: "; ArrayShow servers
 		PrintErr "join: "; ArrayShow join
 	fi
-
-	# install
-	local certDir; certs && { certMakeCd "$product" || return; }
-	local tmpDir; tmpDir="$(tmpDirCreate)" || return	
-	installServiceCertMake || return # current directory will be the private certificate directory
-	installServiceProgram || return
-	installServiceHosts "server" "${servers[@]}" || return
-	installServiceCertLocal || return
-	installServiceServerFinal || return
-	installServiceHosts "client" "${clients[@]}" || return
-	installServiceFinal || return
-	installServiceCertPublic || return
-
-	# cleanup
-	unset servers clients
-	rm -fr "$tmpDir"
 }
 
 installServiceCertLocal() { ! whatCheck "cert" "cert-local" && return; header "Install Local Certificates" && certs && productInstallCerts "$product"; }
@@ -1932,6 +2081,7 @@ installServiceProgram()
 	done
 }
 
+# installServiceFinal - called after all servers and clients for a product are installed
 installServiceFinal() { RunFunction "installServiceFinal" "${product}" || return; }
 
 installServiceFinalConsul() { installServiceFinalConsulAgentAcl; }
@@ -1954,12 +2104,13 @@ installServiceFinalConsulAgentAcl()
 	done
 }
 
-
-installServiceFinalNomad() 
+installServiceFinalNomad()
 {
 	! whatCheck "config" && return
 
 	header "Nomad Configuration"
+
+	# other
 	installServiceForAllHosts "nomadConfigEnableVault" && \
 		installServiceForAllHosts "nomadConfigEnableDocker" && \
 		installServiceForAllHosts "nomadConfigEnableRawExec" && \
@@ -2193,6 +2344,7 @@ installServicePrepVault()
 	serviceLimit+=$'\n'"LimitMEMLOCK=infinity"
 }
 
+# installServiceServerFinal - called after all servers for a product are installed
 installServiceServerFinal() { RunFunction "installServiceServerFinal" "${product}"; }
 
 installServiceServerFinalConsul()
@@ -2201,43 +2353,7 @@ installServiceServerFinalConsul()
 	installServiceAcl || return
 }
 
-installServiceServerFinalNomad() { installServiceAcl && installServiceServerFinalNomadVaultIntegration; }
-
-installServiceServerFinalNomadVaultIntegration()
-{	
-	! whatCheck "config" && return
-
-	header "Install Nomad Vault Integration"
-
-	local policy; productInit "vault" || return
-
-	# nomad-cluster policy - policy for jobs (specifiy in job configuration)
-	if ! vault policy list | ${G}grep -q "^nomad-cluster$"; then
-		hilight "Adding the nomad-cluster policy to Vault..."
-		local policy="$(cat <<-EOF
-			path "secret/*" {
-			  capabilities = ["read"]
-			}
-			EOF
-		)"
-		echo "$policy" | vault policy write nomad-cluster - || return
-	fi
-
-	# nomad-cluster role - role Nomad uses to create tokens for jobs (specifies which policies jobs can request)
-	if ! vault list "/auth/token/roles" |& ${G}grep -q "^nomad-cluster$"; then
-		hilight "Adding the nomad-cluster role to Vault..."
-		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-cluster-role.json")" || return
-		vault write /auth/token/roles/nomad-cluster @"$policy" || return
-	fi
-
-	# nomad-server policy - policy for the token Nomad uses to access Vault
-	if ! vault policy list | ${G}grep -q "^nomad-server$"; then
-		hilight "Adding the nomad-server policy to Vault..."
-		policy="$(policyDownload "https://nomadproject.io/data/vault/nomad-server-policy.hcl")" || return
-		vault policy write nomad-server "$policy" || return
-	fi
-}
-
+installServiceServerFinalNomad() { installServiceAcl && installServiceNomadVaultIntegration; }
 
 installServiceServerFinalVault()
 {
@@ -2320,7 +2436,7 @@ installCli()
 	local product="$1"; initConfig "$product" || return
 
 	[[ $hostArg || $servers || $clients ]] && { EchoErr "$product CLI can only be installed locally"; return 1; }
-	
+
 	whatCheck "program" && { productInstall "$product" "localhost" || return; }
 	whatCheck "cert" && { productInstallCerts "$product" || return; }
 	whatCheck "cred" && InPath vault && { doHashi config set local || return; }
@@ -2452,9 +2568,11 @@ nomadConfigEnableVault()
 		local token; token="$(vault token create -display-name nomad-server -policy nomad-server -period 72h -orphan -format=json | jq '.auth.client_token' | RemoveQuotes)" || return
 
 		serverConfig="$(cat <<-EOF
-
-		  create_from_role = "nomad-cluster"
-		  token = "$token"
+			default_identity {
+			  aud  = ["vault.io"]
+			  env  = true
+			  ttl  = "2h"
+			}
 			EOF
 		)"
 	fi
@@ -2464,6 +2582,7 @@ nomadConfigEnableVault()
 		vault {
 		  enabled = true
 		  address = "https://$(serviceDnsName "active.vault"):$(productGetPort "vault" "$(protocol)")"$certConfig$serverConfig
+		  create_from_role = "nomad-workloads"
 		}
 		EOF
 	)"
@@ -3652,7 +3771,7 @@ certDirService() { echo "/opt/$1/cert"; }
 # certDirSuffix PRODUCT DIR - add certificate suffix to DIR: DIR/certificate/DOMAIN[/CONFIG_PREFIX]/PRODUCT
 certDirSuffix()
 { 
-	local product="$1"; shift; 	GetArgs; [[ ! $1 ]] && return 1
+	local product="$1"; shift; 	GetArgs; [[ ! $1 ]] && { ScriptErrQuiet "certDirSuffix: directory not specified"; return 1; }
 	echo "$(RemoveTrailingSlash "$1")/certificate/$baseDomain$(RemoveTrailingSlash "/$configPrefix")/$product"
 }
 
@@ -3719,7 +3838,7 @@ certPublicExists() { quiet="--quiet" certPublicFind "$1" > /dev/null; }
 certPublicFind()
 {
 	local dir product="$1"; certInit "$product" || return
-	quiet="--quiet" certPublicCheck "$PWD" && return 																					# check current directory (makeCertCd was called)
+	quiet="--quiet" certPublicCheck "$PWD" && return 																				# check current directory (makeCertCd was called)
 	dir="$(certDirPublic | certDirSuffix "$product")" && certPublicCheck "$dir" && return 	# check public directory
 	dir="$(certDirPrivate | certDirSuffix "$product")" && certPublicCheck "$dir" && return 	# check private certificate directory
 }
@@ -4115,7 +4234,7 @@ productInstallCerts()
 	local src; src="$(certPublicFind "$product")" || return
 	local dest="$(certDirSuffix "$product" "/opt/hashi")" # always install certificates to /opt/hashi 
 
-	[[ -f "$dest/$ca" && ! $force ]] && return	
+	[[ ! $force && -f "$dest/$ca" ]] && return	
 
 	hilight "Installing ${product^} certificates..."
 	sudoc ${G}mkdir --parents "$dest" || return
