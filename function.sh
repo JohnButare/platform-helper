@@ -123,7 +123,8 @@ UpdateCheck() { [[ $updateDir ]] && return; UpdateInit; }
 UpdateDate() { UpdateCheck && GetFileDateStamp "$updateDir/$1"; }
 UpdateNeeded() { UpdateCheck || return; [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
 UpdateDone() { UpdateCheck && touch "$updateDir/$1"; }
-UpdateGet() { UpdateNeeded "$1" && return 1; cat "$updateDir/$1"; }
+UpdateGet() { ! UpdateNeeded "$1" && UpdateGetForce "$1"; }
+UpdateGetForce() { UpdateCheck && cat "$updateDir/$1"; }
 UpdateExists() { UpdateCheck && [[ -f "$updateDir/$1" ]]; }
 UpdateRm() { UpdateCheck && rm -f "$updateDir/$1"; }
 UpdateRmAll() { UpdateCheck && rm -f "$updateDir/"* "$updateDir/".*; }
@@ -430,7 +431,7 @@ AppVersion()
 	# cache
 	local appCache="version-$(GetFileName "$app" | LowerCase)"
 	[[ $alternate ]] && appCache+="-alternate"
-	[[ ! $force ]] && [[ $cache ]] && ! UpdateNeeded "$appCache" && { UpdateGet "$appCache"; return; }
+	[[ $cache ]] && UpdateGet "$appCache" && return
 
 	# get version with helper script
 	local helper; helper="$(AppHelper "$app")" && { version="$(alternate="$alternate" "$helper" $quiet --version)" || return; }
@@ -1789,10 +1790,10 @@ FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo ${G}tail -F --lines=+0 "$1"
 
 GetPorts() { sudoc lsof -i -P -n; }
 GetDefaultGateway() { CacheDefaultGateway "$@" && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
-GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGet "domain"; }
+GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGetForce "domain"; }
 GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }				# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 																# GetHostname NAME - hosts actual configured name
-GetOsName() { local name="$1"; name="$(UpdateGet "os-name-$1")"; [[ $name ]] && echo "$name" || os name "$server"; } # GetOsName NAME - cached DNS name, fast
+GetOsName() { local name="$1"; name="$(UpdateGet "os-name-$1")"; [[ $name ]] && echo "$name" || os name "$server"; } # GetOsName NAME - use cached DNS name without calling os for speed
 HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not available"; return 1; }
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
@@ -1801,7 +1802,7 @@ IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
 IsOnNetwork() {	[[ "$(LowerCase "$(NetworkCurrent)")" == "$(LowerCase "$1")" ]]; } # IsOnNetwork NETWORK - true if the computer is the network
-NetworkCurrent() { UpdateGet "network"; }; 
+NetworkCurrent() { UpdateGetForce "network"; }; 
 NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars proxy; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }										# SmbPasswordIsSet USER - return true if the SMB password for user is set

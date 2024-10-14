@@ -258,10 +258,7 @@ nameCommand()
 	IsLocalHost "$name" && { echo "$HOSTNAME"; return; }
 
 	# check cache
-	if [[ ! $force ]]; then
-		resolvedName="$(UpdateGet "$cache")"
-		[[ $resolvedName ]] && { echo "$resolvedName"; return; }
-	fi
+	resolvedName="$(UpdateGet "$cache")" && [[ $resolvedName ]] && { echo "$resolvedName"; return; }
 
 	# check DNS
 	resolvedName="$(DnsResolve "$name" --quiet)"
