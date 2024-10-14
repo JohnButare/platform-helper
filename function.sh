@@ -1809,6 +1809,15 @@ SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }										# SmbPass
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
 WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuotes | RemoveEmptyLines | sort | uniq; }
 
+# curl
+curl()
+{
+	local file="/opt/homebrew/opt/curl/bin/curl"
+	IsPlatform mac && [[ -f "$file" ]] && { "$file" "$@"; return; }
+	command curl "$@"; return
+}
+
+# proxy
 ProxyEnable() { ScriptEval network proxy vars --enable; network proxy vars --status; }
 ProxyDisable() { ScriptEval network proxy vars --disable; network proxy vars --status; }
 ProxyStatus() { network proxy --status; }
