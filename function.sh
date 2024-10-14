@@ -1225,10 +1225,10 @@ RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveNewline()  { tr -d '\n'; }
 RemoveEmptyLines() { awk 'NF { print; }'; }
 
-RemoveChar() { GetArgs2; echo "${1//${2:- }/}"; }		# RemoveChar STRING REMOVE
-RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }	# RemoveEnd STRING REMOVE 
-RemoveFront() { GetArgs2; echo "${1##*(${2:- })}"; } # RemoveFront STRING REMOVE 
-RemoveTrim() { GetArgs2; echo "$1" | RemoveFront "${2:- }" | RemoveEnd "${2:- }"; }
+RemoveChar() { GetArgs2; echo "${1//${2:- }/}"; }																		# RemoveChar STRING REMOVE
+RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }																	# RemoveEnd STRING REMOVE 
+RemoveFront() { GetArgs2; echo "${1##*(${2:- })}"; }																# RemoveFront STRING REMOVE 
+RemoveTrim() { GetArgs2; echo "$1" | RemoveFront "${2:- }" | RemoveEnd "${2:- }"; }	# RemoveTrim STRING REMOVE - remove from front and end
 
 RemoveAfter() { GetArgs2; echo "${1%%$2*}"; }				# RemoveAfter STRING REMOVE - remove first occerance of REMOVE and all text after it
 RemoveBefore() { GetArgs2; echo "${1##*$2}"; }			# RemoveBefore STRING REMOVE - remove last occerance of REMOVE and all text before it
