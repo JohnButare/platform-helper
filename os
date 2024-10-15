@@ -305,7 +305,7 @@ nameAliasUsage() { echot "Usage: os name alias HOST\nGet the alias of the host f
 
 nameAliasCommand()
 {
-	local check="$(RemoveDnsSuffix "${name,,}")"
+	local check="${name:-$HOSTNAME}"; check="$(RemoveDnsSuffix "${check,,}")"
 
 	case "$check" in
 		s1113731) echo "desktop";;
