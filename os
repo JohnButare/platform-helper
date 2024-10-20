@@ -723,8 +723,8 @@ infoLoad()
 	infoEcho "        load: $load"
 }
 
-infoMemory() { infoEcho "      memory: $(infoMemoryGet used)/$(infoMemoryGet free)/$(infoMemoryGet total) GB used/free/total"; }
-infoMemoryGet() { echo "$(StringPad "$(memory${1^}Command)" ${2:-6})"; } # infoDiskGet COMMAND DISK
+infoMemory() { infoEcho "      memory: $(infoMemoryGet used)/$(infoMemoryGet free)/$(infoMemoryGet total 2) GB used/free/total"; }
+infoMemoryGet() { echo "$(StringPad "$(memory${1^}Command)" ${2:-5})"; } # infoMemoryGet COMMAND [PAD](5)
 infoMemory_free() { infoEcho "memory free: $(memoryFreeCommand) GB"; }
 infoMemory_total() { infoEcho "memory total: $(memoryTotalCommand) GB"; }
 infoMemory_used() { infoEcho "memory used: $(memoryUsedCommand) GB"; }
