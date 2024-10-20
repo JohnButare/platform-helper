@@ -2858,12 +2858,14 @@ GetUncFull()
 	[[ $(DnsAlternate "$server") ]] && ip="--ip"
 
 	# resolve the server
-	if [[ $ip ]]; then
-		server="$(GetIpAddress "$server")" || return
-	else
-		server="$(DnsResolve "$server")" || return
+	if ! IsIpAddress "$server" ; then
+		if [[ $ip ]]; then
+			server="$(GetIpAddress "$server")" || return
+		else
+			server="$(DnsResolve "$server")" || return
+		fi
 	fi
-
+	
 	# return the new UNC
 	UncMake "$user" "$server" "$share" "$dirs" "$protocol"
 }
