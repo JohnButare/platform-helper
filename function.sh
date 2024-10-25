@@ -3055,7 +3055,7 @@ packageExclude()
 
 PackageIsInstalled()
 {
-	if IsPlatform apt; then ! dpkg --get-selections "$1" 2>&1 | grep -q "no packages found"
+	if IsPlatform apt; then dpkg --get-selections "$1" 2>&1 | qgrep --extended-regexp "(install|hold)$"
 	elif IsPlatform dnf; then dnf info "$1" >& /dev/null
 	else PackageListInstalled | ${G}grep "^$1	" >& /dev/null # --quiet causes pipe to fail in Debian
 	fi
