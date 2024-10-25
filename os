@@ -422,11 +422,18 @@ buildMac() { system_profiler SPSoftwareDataType | grep "System Version" | cut -f
 buildLinux() { versionCommand; }
 buildWin() { registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/CurrentBuild" | RemoveCarriageReturn; }
 
-codenameCommand() { RunPlatform "codeName"; }
-
-codeNameLinux() # buster|focal
+codenameCommand()
 {
-	if InPath lsb_release && return; then lsb_release -cs
+	local name="$(RunPlatform "codeName")"
+	[[ $name ]] || { ScriptErrQuiet "unable to determine the code name"; return; }
+	echo "$name"
+}
+
+oscodeNameWin() { codeNameLinux; }
+
+codeNameLinux() # buster|focal|jammy
+{
+	if InPath lsb_release; then lsb_release -cs
 	elif IsPlatform rhel && [[ -f "/etc/system-release" ]]; then cat "/etc/system-release" | cut -d"(" -f2 | cut -d")" -f1
 	fi
 }
@@ -440,7 +447,8 @@ codeNameMac()
 		11.*) echo "Big Sur";;
 		12.*) echo "Monterey";;
 		13.*) echo "Ventura";;
-		*) echo "unknown";;
+		14.*) echo "Sonoma";;
+		15.*) echo "Sequoia";;
 	esac
 }
 
@@ -857,7 +865,8 @@ infoDistributionLsb()
 {
 	# primary
 	local suffix; IsPlatform CasaOs,pi && suffix="/Debian"
-	local primary; primary="$(distributorLinux)$suffix $(versionLinux) ($(codeNameLinux))"
+	local codeName="$(quiet="--quiet" codenameCommand)"
+	local primary; primary="$(distributorLinux)$suffix $(versionLinux) (${codeName:-unknown})"
 
 	# secondary
 	local secondary;
