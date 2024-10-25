@@ -422,7 +422,14 @@ buildMac() { system_profiler SPSoftwareDataType | grep "System Version" | cut -f
 buildLinux() { versionCommand; }
 buildWin() { registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/CurrentBuild" | RemoveCarriageReturn; }
 
-codenameCommand() { RunPlatform "codeName"; }
+codenameCommand()
+{
+	local name="$(RunPlatform "codeName")"
+	[[ $name ]] || { ScriptErr "unable to determine the code name"; return; }
+	echo "$name"
+}
+
+oscodeNameWin() { codeNameLinux; }
 
 codeNameLinux() # buster|focal
 {
@@ -440,7 +447,8 @@ codeNameMac()
 		11.*) echo "Big Sur";;
 		12.*) echo "Monterey";;
 		13.*) echo "Ventura";;
-		*) echo "unknown";;
+		14.*) echo "Sonoma";;
+		15.*) echo "Sequoia";;
 	esac
 }
 
