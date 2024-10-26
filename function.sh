@@ -2962,7 +2962,7 @@ package() # package install
 	done
 
 	# fix package list
-	packageFix || return
+	packageFixList || return
 
 	# return if all packages have been excluded
 	if [[ ! $packages ]]; then
@@ -3018,8 +3018,14 @@ PackageFileVersion()
 	IsPlatform rpm && { rpm --query --queryformat '%{VERSION}' --nosignature --package "$1"; return; }
 }
 
-# packageFix - fix packages in the packages array for the platform
-packageFix()
+PackageFix()
+{
+	IsPlatform apt && { sudoc apt-get -y --with-new-pkgs upgrade "$@"; } # held back
+	return 0
+}
+
+# packageFixList - fix packages in the packages array for the platform
+packageFixList()
 {
 	local p exclude=()
 
