@@ -16,7 +16,7 @@ if [[ -f "$P/Microsoft Office/root/Office16/winword.exe" ]]; then
 elif [[ -f "$P32/Microsoft Office/root/Office16/WinWord.exe" ]]; then
 	OfficeDir="$P32/Microsoft Office/root/Office16"
 else
-	return
+	return 0
 fi
 
 WordProgram="$OfficeDir/WINWORD.EXE"
