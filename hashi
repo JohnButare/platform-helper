@@ -1791,7 +1791,7 @@ installServiceNomadVaultIntegration()
 
 installService()
 {
-	local product="$1" isServiceInstall="true"; installServiceInit || return
+	local product="$1" isServiceInstall="true"; installServiceInit "$product" || return
 
 	# common service options
 	local commonOptions="$(cat <<-EOF
@@ -1802,13 +1802,14 @@ installService()
 	# install
 	local certDir; certs && { certMakeCd "$product" || return; }
 	local tmpDir; tmpDir="$(tmpDirCreate)" || return	
-	installServiceCertMake || return # current directory will be the private certificate directory
-	installServiceProgram || return
-	installServiceHosts "server" "${servers[@]}" || return
-	installServiceCertLocal || return
-	installServiceServerFinal || return
-	installServiceHosts "client" "${clients[@]}" || return
-	installServiceFinal || return
+	installServiceCertMake || return 																	# make required certificates - current directory will be the private certificate directory
+	installServiceProgram "${servers[@]}" "${clients[@]}" || return		# install the program the service uses on all servers and clients
+	installServiceHosts "server" "${servers[@]}" || return						# install the service on the servers
+	productInstall "$product" "localhost" || return										# install the program on the local computer
+	installServiceCertLocal || return																	# install the program certificates on the local computer
+	installServiceServerFinal || return																# run the final part of the server service install (i.e. such as ACL setup)
+	installServiceHosts "client" "${clients[@]}" || return						# install the service on the clients
+	installServiceFinal "${servers[@]}" "${clients[@]}" || return			# run the final part of the service install for all clients and servers
 	installServiceCertPublic || return
 
 	# cleanup
@@ -1967,6 +1968,7 @@ installServiceHost()
 	fi
 
 	# product specifics
+	hilight "Running ${product} service prep"
 	RunFunction "installServicePrep" "${product}" || return
 
 	# create the configuration files
@@ -2024,7 +2026,7 @@ installServiceHost()
 	)" || return
 }
 
-# installServiceHosts client|server [HOST...]- install the service on the specified hosts.
+# installServiceHosts client|server [HOST...] - install the service on the specified hosts
 # - in Consul, use 'consul members' to view the servers and clients.
 # - in Nomad, the clients are known as nodes, use 'nomad server members' to view the servers in the cluster, use 'nomad node status' to view the nodes in the cluster.
 installServiceHosts()
@@ -2038,23 +2040,21 @@ installServiceHosts()
 	done
 }
 
+# installServiceProgram [HOST...] - install the service program on the specified hosts
 installServiceProgram()
 {
 	! whatCheck "program" && return
 
-	local hosts=("${servers[@]}" "${clients[@]}")
-	! InPath "$product" && other+="localhost"
-
-	for host in "${hosts[@]}"; do
+	for host in "$@"; do
 		header "Install $product Program ($host)"
 		productInstall "$product" "$host" || return
 	done
 }
 
-# installServiceFinal - called after all servers and clients for a product are installed
-installServiceFinal() { RunFunction "installServiceFinal" "${product}" || return; }
+# installServiceFinal [HOST...] - called after all servers and clients for a product are installed
+installServiceFinal() { local hosts=( "$@" ); RunFunction "installServiceFinal" "${product}" "$@" || return; }
 
-installServiceFinalConsul() { installServiceFinalConsulAgentAcl; }
+installServiceFinalConsul() { installServiceFinalConsulAgentAcl "@"; }
 
 installServiceFinalConsulAgentAcl()
 {
@@ -2189,8 +2189,11 @@ installServicePrepConsul()
 
 installServicePrepNomad()
 {
-	# options
-	local token; token="$(product="consul" credGet "token" --quiet)"; [[ ! $token ]] && { ScriptErr "unable to get a Consul token for Nomad"; return 1; }
+	# Consul token
+	local token; token="$(product="consul" credGet "token" --quiet)"
+	[[ ! $token ]] && { ScriptErr "unable to get a Consul token for Nomad"; return 1; }
+
+	# port
 	local port; port="$(productGetPort "consul" "$(protocol)")" || return
 
 	o+="$(cat <<-EOF
@@ -2251,6 +2254,8 @@ installServicePrepNomad()
 
 		certInit "nomad" || return
 	fi
+
+	return 0
 }
 
 installServicePrepVault()
