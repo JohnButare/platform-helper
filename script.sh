@@ -91,7 +91,7 @@ ScriptCheckPath()
 	local checkFile; [[ "$1" == "--file" ]] && { checkFile="true"; shift; }
 	local checkDir; [[ "$1" == "--dir" ]] && { checkDir="true"; shift; }
 
-	[[ ! -e "$1" ]] && { [[ ! $quiet ]] && ScriptErr "cannot access '$1': No such file or directory"; ScriptExit; }
+	[[ ! -e "$1" ]] && { ScriptErrQuiet "cannot access '$1': No such file or directory"; ScriptExit; }
 	[[ $checkFile && -d "$1" ]] && { ScriptErr "'$1' is a directory, not a file"; ScriptExit; }
 	[[ $checkDir && -f "$1" ]] && { ScriptErr "'$1' is a file, not a directory"; ScriptExit; }
 	
@@ -278,14 +278,19 @@ ScriptOptGet()
 # ScriptOptNetworkProtocol - sets protocol and protocolArg
 ScriptOptNetworkProtocol()
 {
-	ScriptOptGet "protocol" "$@"; 
-	protocol="${protocol,,}"
+	ScriptOptGet "protocol" "$@"
+	protocol="${protocol,,}" protocolArg="--protocol=$protocol"
 	CheckNetworkProtocol "$protocol" || { ScriptErr "'$protocol' is not a valid network protocol"; ScriptExit; }
-	unset protocolArg; [[ $protocol ]] && protocolArg=( "--protocol=$protocol" )
 	return 0
 }
 
 ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file sharing (NFS|SMB|SSH|SSH_PORT)"; }
+
+# ScriptOptTimeout - sets timeout and timeoutArg
+ScriptOptTimeout() { ScriptOptGet --integer "timeout" "$@"; timeoutArg="--timeout=$timeout"; }
+
+ScriptOptTimeoutArgStart() { timeout="$(AvailableTimeoutGet)"; timeoutArg="--timeout=$timeout"; return 0; }
+ScriptOptTimeoutUsage() { echo "the network host timeout in milliseconds, defaults to $timeout ms"; }
 
 #
 # Script Host Option
@@ -350,7 +355,7 @@ ForAllHosts()
 
 ScriptOptHostUsage()
 {
-	EchoWrap "	-H, --host [HOSTS](all)		comma separated list of hosts"
+	echo "comma separated list of hosts"
 	[[ ! $verbose ]] && return
 	EchoWrap "\
 		hosts: cam|camera|down|important

@@ -7,7 +7,8 @@ usage()
 usage: $(ScriptName) [excludes|sync|IsAvailable](sync)
 Sync local files.
 
-	-p, --protocol  $(ScriptOptNetworkProtocolUsage)"
+	-p, --protocol  $(ScriptOptNetworkProtocolUsage)
+	-t, --timeout		$(ScriptOptTimeoutUsage)"
 }
 
 init() 
@@ -31,12 +32,13 @@ init()
 	SshAgentConf "${globalArgsLessVerbose[@]}" || return
 }
 
-argStart() { unset -v protocol; }
+argStart() { unset -v protocol protocolArg && ScriptOptTimeoutArgStart; }
 
 opt()
 {
 	case "$1" in
-		-p|--protocol|-p*|--protocol=*) ScriptOptNetworkProtocol "$@";;
+		--protocol|--protocol=*|-p|-p*) ScriptOptNetworkProtocol "$@";;
+		--timeout|--timeout=*|-t|-t=*) ScriptOptTimeout "$@";;
 		*) return 1;;
 	esac
 }
@@ -57,7 +59,7 @@ isAvailableUsage() { echo "\
 Usage: $(ScriptName) IsAvailable
 Return true if the default file server is available for synchronization."; }
 
-isAvailableCommand() { local host; host="$(GetServer "file")" && unc IsAvailable "$host" "${protocolArg[@]}" "${globalArgsLessVerbose[@]}"; }
+isAvailableCommand() { local host; host="$(GetServer "file")" && unc IsAvailable "$host" $protocolArg "${globalArgsLessVerbose[@]}"; }
 
 #
 # sync command
@@ -91,7 +93,8 @@ Synchronization method:
 
 Other options:
 	    --no-unmount		do not unmount shares when done
-	-p, --protocol  		$(ScriptOptNetworkProtocolUsage)"
+	-p, --protocol  		$(ScriptOptNetworkProtocolUsage)
+	-t, --timeout				$(ScriptOptTimeoutUsage)"
 }
 
 syncArgStart() { unset -v hosts method noBak noGit noPlatform noShared noUser syncMethod noUnmount; }
@@ -109,7 +112,7 @@ syncOpt()
 		--no-user|-nu) noUser="--no-user";;
 
 		--smb|-s) syncMethod="--smb";;
-		--unison|-u) syncMethod="--unison" protocol=ssh protocolArg=( "--protocol=$protocol" );;
+		--unison|-u) syncMethod="--unison" protocol=ssh protocolArg="--protocol=$protocol";;
 
 		--no-unmount) noUnmount="--no-unmount";;
 		*) return 1
@@ -298,7 +301,7 @@ syncInitDest()
 
 	# do not sync to ourself
 	if [[ ! -d "$destHost" ]] && IsLocalHostIp "$destHost" || [[ "$destHost" == "/" ]]; then
-		[[ ! $quiet ]] && ScriptErr "cannot sync to the local computer"
+		ScriptErrQuiet "cannot sync to the local computer"
 		return 1
 	fi
 
@@ -324,8 +327,9 @@ syncInitDest()
 
 	# HOST
 	else
+		! IsAvailable "$destHost" $timeout && { ScriptErr "host '$destHost' is not available"; return 1; }
 		destId="$(os name "$destHost" | RemoveDnsSuffix)"
-		RunLog2 ScriptEval HostGetInfo "$destHost" "${protocolArg[@]}" --quiet || { [[ ! $quiet ]] && ScriptErr "unable to get '$destHost' information"; return 1; }
+		RunLog2 ScriptEval HostGetInfo "$destHost" $protocolArg --quiet || { ScriptErrQuiet "unable to get '$destHost' information"; return 1; }
 		syncSetProgram || return
 		syncIsUnison && { destData="/$(GetUncDirs "$_data")" destHome="/$(GetUncDirs "$_home")"; }
 		IsDomainRestricted && IsPlatform mac --host && noUnmount="--no-unmount" # keep mounted, minimize password prompts

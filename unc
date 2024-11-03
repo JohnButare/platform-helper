@@ -41,7 +41,6 @@ Other options:
 init()
 {
 	gvfsDir="/usr/lib/gvfs"; IsPlatform rhel && gvfsDir="/usr/libexec"
-	protocolUsage="-p, --protocol=[NFS|SMB|SSH|INTEGER](SMB)"
 	uncTypes="cifs,drvfs,nfs,nfs4,fuse.sshfs"
 	uncTypesDf="-t nfs -t nfs4 -t smbfs -t fuse.sshfs -t fuse.gvfsd-fuse"
 	IsPlatform mac && uncTypesDf+=" -t macfuse"
@@ -52,13 +51,6 @@ init()
 }
 
 argStart() { unset -v protocol unc; }
-
-
-# common options
-
-timeoutUsage() { EchoWrap "-t, --timeout					the network host timeout in milliseconds, defaults to $(AvailableTimeoutGet)"; }
-timeoutArgStart() { unset -v; timeout="$(AvailableTimeoutGet)"; }
-timeoutOpt() { [[ "$1" =~ --t|--timeout|-t=*|--timeout=* ]] || return; ScriptOptGet --integer "timeout" "$@"; }
 
 #
 # browse command
@@ -93,7 +85,7 @@ Get configuration.
 	unc PATH [--root]			return the UNC of a mounted path, i.e. //server/share/dir1/dir2.
 												If --root is specified omit the subdirectories, i.e. //server/share
 
-	$protocolUsage"
+	-p, --protocol				$(ScriptOptNetworkProtocolUsage)"
 }
 
 getCommand() { usage; }
@@ -190,11 +182,11 @@ isAvailableUsage() { echot "Usage: unc IsAvailable [HOST](localhost)
 Return true if the specified HOST is available using the specified protocols.
 If no protocols are specified search for a protocol to use.
 
-	$protocolUsage
-	$(timeoutUsage)"
+	-p, --protocol	$(ScriptOptNetworkProtocolUsage)
+	-t, --timeout		$(ScriptOptTimeoutUsage)"
 }
 
-isAvailableArgStart() { unset -v host; timeoutArgStart; }
+isAvailableArgStart() { unset -v host; ScriptOptTimeoutArgStart; }
 isAvailableOpt() { protocolOpt "$@" || timeoutOpt "$@"; }
 isAvailableArgs() { ScriptArgGet "host" -- "$@"; shift; }
 isAvailableCommand() { findProtocol "$host"; }
@@ -217,8 +209,8 @@ listUsage()
 Usage: unc list HOST
 List UNC shares on the specified host.
 
-	$protocolUsage
-	-N, --no-host-check					do not check host availability"
+	-p, --protocol				$(ScriptOptNetworkProtocolUsage)
+	-N, --no-host-check		do not check host availability"
 }
 
 listArgStart() { unset -v port protocol; }
@@ -269,15 +261,20 @@ mountUsage()
 	echot "Usage: unc mount UNC
 Mount the specified UNC and return the mounted path.
 
-	$protocolUsage
 	-ar, --allow-root				allow root to access the share (for all shares)
 	-i,  --ip								mount using the server IP address
 	-N,  --no-host-check		do not check host availability
 	-P,  --program cifs|gio	use the specified SMB mounting program, cifs is preferred (faster)
-	$(timeoutUsage)"
+	-p,  --protocol					$(ScriptOptNetworkProtocolUsage)
+	-t,  --timeout					$(ScriptOptTimeoutUsage)"
 }
 
-mountArgStart() { unset -v allowRoot ip noHostCheck port program protocol; timeoutArgStart; unset -v isLocal unc user server share dirs mountDir mountRoot mountRootTarget mountRootTargetGio protocol; }
+mountArgStart()
+{
+	unset -v allowRoot ip noHostCheck port program protocol; ScriptOptTimeoutArgStart
+	unset -v isLocal unc user server share dirs mountDir mountRoot mountRootTarget mountRootTargetGio protocol
+}
+
 mountArgs() { getTargetArg "$@"; }
 
 mountOpt() 
@@ -755,11 +752,13 @@ getPort()
 # helper
 #
 
+protocolOpt() { [[ "$1" == @(--protocol|--protocol=*|-p|-p*) ]] && ScriptOptNetworkProtocol "$@"; }
+timeoutOpt() { [[ "$1" == @(--timeout|--timeout=*|-t|-t=*) ]] && ScriptOptTimeout "$@"; }
+
 log() { [[ $quiet ]] && return; printf "$@"; }
 noHostCheck() { [[ $noHostCheck ]] || isWslShare; }
-protocolOpt() { [[ "$1" == @(-p|--protocol|-p*|--protocol=*) ]] && ScriptOptNetworkProtocol "$@"; }
 isWslShare() { [[ "$server" == @(wsl|wsl.localhost) ]]; }
-validateUnc() { IsUncPath "$1" && return; [[ ! $quiet ]] && ScriptErr "'$1' is not a UNC"; ScriptExit; }
+validateUnc() { IsUncPath "$1" && return; ScriptErrQuiet "'$1' is not a UNC"; ScriptExit; }
 
 # checkElevation - check if the mountRoot directory requires elevation
 # - in WSL 2 mounted network shares are not visible when not elevated, so
@@ -896,7 +895,7 @@ getPasswordCredentialStore()
 	[[ ! $noPrompt ]] && return
 
 	# return an error - we are not allowed to prompt for the password when connecting to the share
-	[[ ! $quiet ]] && ScriptErr "no password found for '$unc'"
+	ScriptErrQuiet "no password found for '$unc'"
 	return 1
 }
 

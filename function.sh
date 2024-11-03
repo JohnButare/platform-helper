@@ -743,7 +743,7 @@ i()
 			--no-find|-nf) noFind="--no-find";;
 			--no-run|-nr) noRun="--no-run";;
 			--select|-s) select="--select";;
-			--timeout|--timeout=*|-t|-t=*) . script.sh && ScriptOptGet --integer "timeout" "$@" && timeout="--timeout=$timeout";;
+			--timeout|--timeout=*|-t|-t=*) . script.sh && ScriptOptTimeout "$@";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*) args+=( "$1" ); ! IsOption "$1" && [[ ! $command ]] && command="$1";;
 		esac
@@ -773,7 +773,7 @@ InstFind()
 {
 	[[ ! $force && ! $select && $INSTALL_DIR && -d "$INSTALL_DIR" ]] && return
 	[[ $noFind ]] && return
-	ScriptEval FindInstallFile --eval $select $timeout $verbose || return
+	ScriptEval FindInstallFile --eval $select $timeoutArg $verbose || return
 	export INSTALL_DIR="$installDir"
 	unset installDir file
 }
