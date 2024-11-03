@@ -487,7 +487,7 @@ isServerCommand()
 
 releaseUsage() { ScriptUsageEcho "Usage: $(ScriptName) release [check]"; }
 releaseCommand() { RunPlatform "release"; }
-releaseDebian() { lsb_release -rs; }
+releaseDebian() { lsb_release -rs | ${G}grep -v "No LSB"; }
 releaseRhel() { rpm --query redhat-release; }
 
 releaseCheckUsage() { ScriptUsageEcho "Usage: $(ScriptName) release check EXPR\nCheck the version, where check is an expression to check the version against, i.e. release check '>= 23.10'."; }
