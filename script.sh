@@ -284,7 +284,7 @@ ScriptOptNetworkProtocol()
 	return 0
 }
 
-ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file sharing (NFS|SMB|SSH|SSH_PORT)"; }
+ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file sharing (NFS|RCLONE|SMB|SSH|SSH_PORT)"; }
 
 # ScriptOptTimeout - sets timeout and timeoutArg
 ScriptOptTimeout() { ScriptOptGet --integer "timeout" "$@"; timeoutArg="--timeout=$timeout"; }

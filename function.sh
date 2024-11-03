@@ -2816,7 +2816,7 @@ GetGioShare() { GetArgs; local ggs="${1#*share=}"; ggs="${ggs%%/*}"; r "$ggs" $2
 # network: UNC shares - [PROTOCOL:]//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
 #
 
-CheckNetworkProtocol() { [[ "$1" == @(|nfs|smb|ssh) ]] || IsInteger "$1"; }
+CheckNetworkProtocol() { [[ "$1" == @(|nfs|rclone|smb|ssh) ]] || IsInteger "$1"; }
 GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }																	# //SERVER/SHARE
 GetUncServer() { GetArgs; local gus="${1#*( )*(*:)//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }											# SERVER
 GetUncShare() { GetArgs; local gus="${1#*( )*(*:)//*/}"; gus="${gus%%/*}"; gus="${gus%:*}"; r "${gus:-$3}" $2; }		# SHARE

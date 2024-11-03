@@ -88,16 +88,17 @@ What to synchronize:
 	-nu, --no-user			do not synchronize user directories
 
 Synchronization method:
-	-s,  --smb					perform synchronization using SMB
+			 --unc					perform synchronization using UNC shares
 	-u,  --unison				perform synchronization using Unison
 
 Other options:
 	    --no-unmount		do not unmount shares when done
+	-o, --on						if needed turn the host on
 	-p, --protocol  		$(ScriptOptNetworkProtocolUsage)
 	-t, --timeout				$(ScriptOptTimeoutUsage)"
 }
 
-syncArgStart() { unset -v hosts method noBak noGit noPlatform noShared noUser syncMethod noUnmount; }
+syncArgStart() { unset -v hosts method noBak noGit noPlatform noShared noUser syncMethod noUnmount on; }
 
 syncOpt() 
 {
@@ -111,10 +112,11 @@ syncOpt()
 		--no-shared|-ns) noShared="--no-shared";;
 		--no-user|-nu) noUser="--no-user";;
 
-		--smb|-s) syncMethod="--smb";;
-		--unison|-u) syncMethod="--unison" protocol=ssh protocolArg="--protocol=$protocol";;
+		--unc) syncMethod="UNC";;
+		--unison|-u) syncMethod="Unison";;
 
 		--no-unmount) noUnmount="--no-unmount";;
+		--on|-o) on="--on";;
 		*) return 1
 	esac
 }
@@ -165,19 +167,43 @@ syncSetProgram()
 {
 	# set default syncMethod
 	if [[ ! $syncMethod ]]; then
-		syncMethod="--smb" # default to SMB
 
 		# use Unison if possible for protocols that cannot set file modification time (SSHFS, WSL 1)
-		if InPath unison && { [[ "$_protocol" != "smb" ]] || IsPlatform wsl1; }; then
-			log1 "syncSetProgram: using Unison to set file modification times (for WSL1 and SSHFS)"
-			syncMethod="--unison" 
+		if InPath unison && { [[ "$_protocol" == "ssh" ]] || IsPlatform wsl1; }; then
+			log1 "syncSetProgram: using Unison to set file modification times (for SSHFS and WSL1)"
+			syncMethod="Unison" 
+
+		# use Unison for Windows destination hosts
+		elif IsPlatform win --host; then
+			log1 "syncSetProgram: using Unison for Windows destination host '$destHost'"
+			syncMethod="Unison" 
+
+		# default to UNC
+		else
+			syncMethod="UNC" 
+
 		fi
 	fi
 
+	# validate sync method if the destination is Windows
+	# - UNC over SMB does not allow access to the WSL file system, this assumes the Windows destination is using SMB from Windows which is standard
+	# - Windows destination hosts with UNC over other protocols (NFS, Rclone) is not yet supported
+	if IsPlatform win --host && [[ "$syncMethod" != "Unison" ]]; then
+		ScriptErr "Cannot use syncrhonization method '$syncMethod' to synchrnonize to Windows destination host '$destHost'"
+		return 1
+	fi
+	
+	# validate Unison
+	[[ "$syncMethod" == "Unison" ]] && ! InPath unison && { ScriptErr "Unison is not installed"; return 1; }
+
 	# set the sync program
 	case "$syncMethod" in
-		--smb) syncProgram="SyncDir";;
-		--unison) syncProgram="Unison";;
+		UNC) syncProgram="SyncDir";;
+		Unison) syncProgram="Unison"
+			if [[ "$protocol" != "ssh" ]]; then
+				protocol="ssh" protocolArg="--protocol=$protocol" # Unison must use SSH protocol
+				hostGetInfo || return # update host information for the new protocol
+			fi
 	esac
 
 	log2 "syncSetProgram: syncMethod='$syncMethod' syncProgram='$syncProgram'"
@@ -327,9 +353,19 @@ syncInitDest()
 
 	# HOST
 	else
-		! IsAvailable "$destHost" $timeout && { ScriptErr "host '$destHost' is not available"; return 1; }
+
+		# check destination host
+		if ! IsAvailable "$destHost" $timeout; then
+			[[ ! $on ]] && { ScriptErr "host '$destHost' is not available"; return 1; }
+			local wait="--wait"; [[ "$protocol" == "ssh" ]] && wait="--wait-ssh"
+			power on $wait "$destHost" "${globalArgs[@]}" || return
+		fi
+
+		# get host information
 		destId="$(os name "$destHost" | RemoveDnsSuffix)"
-		RunLog2 ScriptEval HostGetInfo "$destHost" $protocolArg --quiet || { ScriptErrQuiet "unable to get '$destHost' information"; return 1; }
+		hostGetInfo || return
+		
+		# configure synchronization
 		syncSetProgram || return
 		syncIsUnison && { destData="/$(GetUncDirs "$_data")" destHome="/$(GetUncDirs "$_home")"; }
 		IsDomainRestricted && IsPlatform mac --host && noUnmount="--no-unmount" # keep mounted, minimize password prompts
@@ -443,5 +479,7 @@ syncSsh()
 #
 # helper
 #
+
+hostGetInfo() { RunLog2 ScriptEval HostGetInfo "$destHost" $protocolArg --quiet && return; ScriptErrQuiet "unable to get '$destHost' information"; return 1; }
 
 ScriptRun "$@"
