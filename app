@@ -86,14 +86,6 @@ IntelDesktopControlCenter()
 		start --directory="$(GetFilePath "$program")" "$program"
 }
 
-OneDrive()
-{
-	IsProcessRunning OneDrive.exe && return
-
-	local file="$P32/Microsoft OneDrive/OneDrive.exe"; [[ ! -f "$file" ]] && file="$UADATA/Microsoft/OneDrive/OneDrive.exe"
-	start "$file" /background; 
-}
-
 ports() 
 {	
 	{ ! IsPlatform wsl || ! CanElevate || wsl supports mirrored; } && return	

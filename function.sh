@@ -676,7 +676,7 @@ HashiConf()
 
 	# return if needed
 	[[ ! $force && $HASHI_CHECKED ]] && return
-	! IsOnNetwork "hagerman" && return
+	{ ! IsOnNetwork "hagerman" || IsDomainRestricted; } && return
 	[[ ! $force && $VAULT_TOKEN ]] && { HASHI_CHECKED="true"; return; }
 
 	# initialize
