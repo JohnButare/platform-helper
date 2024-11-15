@@ -123,7 +123,7 @@ fixWinTime()
 # get command
 #
 
-getUsage() { EchoWrap "Usage: $(ScriptName) sync [local|wsl|win|HOST](local)\nGet time from the specified host.  If host is a UNC, get time using the SMB protocol."; }
+getUsage() { EchoWrap "Usage: $(ScriptName) sync [local|ntp|wsl|win|HOST](local)\nGet time from the specified host.  If host is a UNC, get time using the SMB protocol."; }
 getArgStart() { host="local"; }
 getArgs() { (( $# == 0 )) && return; ScriptArgGet "host" -- "$@"; host="${host,,}"; }
 
@@ -134,7 +134,7 @@ getCommand()
   if IsPlatform win && [[ "${host,,}" == "win" ]]; then getTimeLocalWin
   elif [[ "${host,,}" == @(local|win|wsl) ]]; then getTimeLocal
   elif IsUncPath "$host"; then getTimeSmb "$host"
-  else getTimeNtp "$host"
+  else getTimeNtp "${host,,}"
   fi
 }
 
@@ -153,23 +153,23 @@ getTimeLocalWin()
   logp1 "$time\n"; echo "$time"
 }
 
-# getNtpTime [HOST](timeServer) - get time from host using the NTP protocol
+# getNtpTime [HOST|ntp] - get time from host or the default time server using the NTP protocol
 getTimeNtp()
 {
-  local host="${host:-$(getTimeServer)}"
+  local host="$1"; [[ "$host" == @(|ntp) ]] && host="$(getTimeServer)"
 
   ! InPath ntpdate && { ScriptErrQuiet "cannot get time from '$host' using NTP"; return 1; }
   HostAvailable "$host" || return
 
   logp1 "getting NTP time from $host..."
   local result; result="$(RunLog2 ntpdate -q "$host" | ${G}tail --lines=-1)" || return
-
+  
   # get current system time and offset from NTP host
   local time offset
   if IsPlatform ubuntu && os release check "< 24.04"; then
     # 22.04: 3 Nov 12:44:08 ntpdate[248118]: adjust time server 10.10.100.10 offset -0.241973 sec
-    time="$(echo "$result" | ${G}grep -o "^.*:..:..")" 
-    time="$(echo "$time" | cut -d" " -f2-3) $(date '+%Y') "$(echo "$time" | cut -d" " -f4)
+    time="$(echo "$result" | ${G}grep -o "^.*:..:.." | RemoveSpaceTrim)" 
+    time="$(echo "$time" | cut -d" " -f1-2) $(date '+%Y') "$(echo "$time" | cut -d" " -f3)
     offset="$(echo "$result" | awk '{print $(NF - 1)}')"
   else
     # 24.04: 2024-11-03 12:45:27.506649 (-0700) -0.146280 +/- 0.000275 pi1 10.10.100.10 s3 no-leap
@@ -177,8 +177,10 @@ getTimeNtp()
     offset="$(echo "$result" | awk '{print $4}')"
   fi
 
+  log2 "getTimeNtp: result='$result' time='$time' offset='$offset'"
   time="$(${G}date +"$format" -d "$time $offset second")" || return
-  logp1 "$time (offset $offset)\n"; echo "$time"
+  logp1 "$time (offset $offset)\n" # logp does not reset to beginning of line
+  echo "$time"
 }
 
 # getTimeSmb HOST - get time from host using the SMB protocol
