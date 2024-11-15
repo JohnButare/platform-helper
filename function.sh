@@ -4530,22 +4530,27 @@ tgrep() { ${G}grep "$@"; true; }
 
 GetTextEditor()
 {
-	# Native or X Windows
-	if ! IsSsh || { IsPlatform linux && IsXServerRunning; }; then
-		IsInstalled sublime && { echo "$(sublime program)"; return 0; }
-	fi
+	# use cached editor
+	[[ ! $force && -f "$EDITOR_PROGRAM" ]] && { echo "$EDITOR_PROGRAM"; return; }
 
-	# X Windows
-	if IsXServerRunning; then
-		InPath geany && { echo "geany"; return 0; }
-		InPath gedit && { echo "gedit"; return 0; }
-	fi
+	# initialize
+	local isSsh; IsSsh && isSsh="true"
+	local sublimeProgram="$(sublime program)"
 
 	# native
-	if ! IsSsh; then
+	if [[ ! $isSsh ]]; then
+		[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
 		IsPlatform win && InPath "$P/Notepad++/notepad++.exe" && { echo "$P/Notepad++/notepad++.exe"; return 0; }
 		IsPlatform mac && { echo "TextEdit.app"; return 0; }
 		IsPlatform win && InPath notepad.exe && { echo "notepad.exe"; return 0; }
+	fi
+
+  # X Windows
+	if IsXServerRunning; then
+		IsPlatform win && sublimeProgram="$(sublime program --alternate)"
+		[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
+		InPath geany && { echo "geany"; return 0; }
+		InPath gedit && { echo "gedit"; return 0; }
 	fi
 
 	# console
@@ -4557,7 +4562,7 @@ GetTextEditor()
 	ScriptErr "no text editor found" "GetTextEditor"; return 1;
 }
 
-# SetTextEditor - set the default text editor for commands.  The text editor must:
+# SetTextEditor - set EDITOR_PROGRAM and the default text editor for commands (SUDO_EDITOR,EDITOR), which must:
 # - be a physical file in the path 
 # - accept a UNIX style path as the file to edit
 # - return only when the file has been edited
@@ -4574,6 +4579,7 @@ SetTextEditor()
 	fi
 		
 	export {SUDO_EDITOR,EDITOR}="$e"
+	export EDITOR_PROGRAM="$(GetTextEditor)"
 }
 
 # JSON
