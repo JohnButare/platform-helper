@@ -4530,19 +4530,30 @@ tgrep() { ${G}grep "$@"; true; }
 
 GetTextEditor()
 {
-	if HasWindowManager; then
+	# Native or X Windows
+	if ! IsSsh || { IsPlatform linux && IsXServerRunning; }; then
 		IsInstalled sublime && { echo "$(sublime program)"; return 0; }
-		IsPlatform win && InPath "$P/Notepad++/notepad++.exe" && { echo "$P/Notepad++/notepad++.exe"; return 0; }
+	fi
+
+	# X Windows
+	if IsXServerRunning; then
 		InPath geany && { echo "geany"; return 0; }
-		IsPlatform mac && { echo "TextEdit.app"; return 0; }
-		IsPlatform win && InPath notepad.exe && { echo "notepad.exe"; return 0; }
 		InPath gedit && { echo "gedit"; return 0; }
 	fi
 
+	# native
+	if ! IsSsh; then
+		IsPlatform win && InPath "$P/Notepad++/notepad++.exe" && { echo "$P/Notepad++/notepad++.exe"; return 0; }
+		IsPlatform mac && { echo "TextEdit.app"; return 0; }
+		IsPlatform win && InPath notepad.exe && { echo "notepad.exe"; return 0; }
+	fi
+
+	# console
 	InPath micro && { echo "micro"; return 0; }
 	InPath nano && { echo "nano"; return 0; }
 	InPath hx && { echo "hx"; return 0; }
 	InPath vi && { echo "vi"; return 0; }
+
 	ScriptErr "no text editor found" "GetTextEditor"; return 1;
 }
 
@@ -4679,7 +4690,7 @@ GetVmType() # vmware|hyperv
 #
 
 HasWindowManager() { ! IsSsh || IsXServerRunning; } # assume if we are not in an SSH shell we are running under a Window manager
-IsXServerRunning() { xprop -root >& /dev/null; }
+IsXServerRunning() { InPath xhost && xhost >& /dev/null; } # was xprop -root >& /dev/null
 RestartGui() { IsPlatform win && { RestartExplorer; return; }; IsPlatform mac && { RestartDock; return; }; }
 WinExists() { ! IsPlatform win && return 1; ! tasklist.exe /fi "WINDOWTITLE eq $1" | grep --quiet "No tasks are running"; }
 
