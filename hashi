@@ -426,7 +426,7 @@ certUsage()
 	$certOptUsage"
 }
 
-certArgStart() { unset -v forceCert; encrypt="true"; }
+certArgStart() { unset -v forceCert noEncrypt; encrypt="true"; }
 certOpt() { encryptOpt "$@"; }
 certCommand() { usage; }
 
@@ -3727,24 +3727,24 @@ certDirPrivate()
 
 	# mount encrypted private certificate directory
 	CloudConf || return
-	local encryptedDir="$(configGet "CertificateDevice")"
+	local mountDir="$(configGet "CertificateDevice")"
 	local dir="$(configGet "CertificateDir")"
 	
 	# check if the certificate volume was mounted already so we don't unmount it later
-	certVolumeWasMounted=""; encrypt IsMounted "$encryptedDir" && certVolumeWasMount="true"
+	certVolumeWasMounted=""; encrypt IsMounted "$mountDir" && certVolumeWasMount="true"
 
 	# return if not found
-	if [[ ! -d "$encryptedDir" || ! $dir ]]; then
+	if [[ ! -d "$mountDir" || ! $dir ]]; then
 		ScriptErrQuiet "unable to locate the private certificate encrypted directory"
 		return 1
 	fi 
 
 	# mount
-	certVolume="$(RunLog encrypt mount "$encryptedDir" "$@")" || return
+	certVolume="$(RunLog encrypt mount "$mountDir" "$@")" || return
 
 	# check
 	local fullDir="$certVolume/$dir"
-	[[ ! -d "$fullDir" ]] && { ScriptErrQuiet "certificate directory '$dir' is missing on '$(FileToDesc "$encryptedDir")'"; return 1; }
+	[[ ! -d "$fullDir" ]] && { ScriptErrQuiet "certificate directory '$dir' is missing on '$(FileToDesc "$mountDir")'"; return 1; }
 
 	echo "$fullDir"
 }
@@ -3989,12 +3989,23 @@ productEnvironment()
 {
 	local product="${1:-$product}" host="$2"; certInit "$product" || return
 
-	# variables
+	# return
+	IsOnNetwork sandia && [[ "$product" == @(consul|nomad) ]] && return
+
+	# variables - certificate
 	local certDir; certDir="$(quiet="--quiet" certDirLocal "$product")"
 	local encrypt; [[ -d "$certDir" ]] && encrypt="true"
-	local port; port="$(productGetPort "$product" "$(protocol)")"
-	local server; server="$(productGetServer "$product" "$host")" || return
-	local url="$(protocol)://$server:$port"
+
+	# variables - port, server, url
+	local port server url="$(ConfigGetCurrent "${product}Url")"
+	if [[ $url ]]; then
+		port="$(GetUriPort "$url")"
+		server="$(GetUriServer "$url")"
+	else
+		port="$(productGetPort "$product" "$(protocol)")"
+		server="$(productGetServer "$product" "$host")" || return
+		url="$(protocol)://$server:$port"
+	fi
 	
 	# use the automatic certificate authority if connecting to a consul client
 	if [[ "$product" == "consul" ]]; then
@@ -4071,7 +4082,10 @@ productGetServer()
 	[[ ! $server ]] && { ScriptErr "unable to find a $product server for the '$configDesc' configuration"; return 1; }
 
 	# return server - use 127.0.0.1 or the fully qualified DNS name (to match the certificate)
-	IsLocalHost "$server" && echo "127.0.0.1" || DnsResolve $quiet "$server"
+	if IsLocalHost "$server"; then echo "127.0.0.1"
+	elif ! HasDnsSuffix "$server"; then DnsResolve $quiet "$server"
+	else echo "$server"
+	fi
 }
 
 productGetServerDo()
@@ -4087,6 +4101,10 @@ productGetServerDo()
 		server="$(productVarGet "SERVER")"
 		DnsResolve --quiet "$server" >& /dev/null && { echo "$server"; return; }
 	fi
+
+	# use the vanity DNS name in the current network configuration
+	server="$(ConfigGetCurrent "${product}Url" | GetUriServer)"
+	[[ $server ]] && { echo "$server"; return; }
 
 	# use the local host for the server if the product service is running
 	if [[ "$product" != @(nomad) ]] && [[ -f "/etc/systemd/system/$product.service" ]] && IsProcessRunning "$product" && service running "$product"; then
@@ -4352,7 +4370,7 @@ encryptOpt()
 {
 	case "$1" in
 		-e|--encrypt|-e=*|--encrypt=*) ScriptOptGet --optional "encrypt" "$@" && ScriptCheckDir "$encrypt" || encrypt="true";;
-		-ne|--no-encrypt) unset encrypt;;
+		-ne|--no-encrypt) noEncrypt="--no-encrypt"; unset encrypt;;
 		-fc|--force-cert) forceCert="--force-cert";;
 		*) return 1;;
 	esac

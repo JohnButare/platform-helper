@@ -675,16 +675,18 @@ HashiConf()
 	[[ "$USER" == "root" ]] && { DbusConf $force $verbose || return; }
 
 	# return if needed
+	! HashiAvailable && return
 	[[ ! $force && $HASHI_CHECKED ]] && return
-	{ ! IsOnNetwork "hagerman" || IsDomainRestricted; } && return
 	[[ ! $force && $VAULT_TOKEN ]] && { HASHI_CHECKED="true"; return; }
 
 	# initialize
 	(( verboseLevel > 1 )) && header "Hashi Configuration"
 
-	# set credential manager - use gnome-keyring in Windows (faster)
-	local manager="local" 
-	IsPlatform win && { service running dbus || app start dbus --quiet $force $verbose; } && manager="gk"
+	# set credential manager - use gnome-keyring if already selected or if in Windows (faster)
+	local manager="local"
+	if [[ "$CREDENTIAL_MANAGER" == "gk" ]]; then manager="gk"
+	elif IsPlatform win && { service running dbus || app start dbus --quiet $force $verbose; } && credential manager IsAvailable -m=gk; then manager="gk"
+	fi
 
 	# set environment from credential store cache if possible (faster .5s, securely save tokens)
 	if ! (( forceLevel > 1 )); then
@@ -705,7 +707,8 @@ HashiConf()
 	HASHI_CHECKED="true"
 }
 
-HashiConfStatus() { ! IsOnNetwork "hagerman" && return; HashiConf --config-prefix=prod "$@" && hashi config status; }
+HashiAvailable() { IsOnNetwork hagerman,sandia; }
+HashiConfStatus() { ! HashiAvailable && return; HashiConf --config-prefix=prod "$@" && hashi config status; }
 HashiConfConsul() { [[ $CONSUL_HTTP_ADDR || $CONSUL_HTTP_TOKEN ]] || HashiConf "$@"; }
 HashiConfNomad() { [[ $NOMAD_ADDR || $NOMAD_TOKEN ]] || HashiConf "$@"; }
 HashiConfVault() { [[ $VAULT_ADDR || $VAULT_TOKEN ]] || HashiConf "$@"; }
@@ -1802,7 +1805,6 @@ HttpHeader() { curl --silent --show-error --location --dump-header - --output /d
 IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
-IsOnNetwork() {	[[ "$(LowerCase "$(NetworkCurrent)")" == "$(LowerCase "$1")" ]]; } # IsOnNetwork NETWORK - true if the computer is the network
 NetworkCurrent() { UpdateGetForce "network"; }; 
 NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars proxy; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
@@ -2208,6 +2210,18 @@ IsMacAddress()
 	echo "$mac" | ${G}grep --extended-regexp --quiet '^([0-9A-F]{1,2}:){5}[0-9A-F]{1,2}$'
 }
 
+# IsOnNetwork network[,network,...] - return true if we are connected to one of the specified networks
+IsOnNetwork()
+{
+	local network networks=(); StringToArray "$(LowerCase "$1")" "," networks
+	local current; current="$(NetworkCurrent | LowerCase)" || return
+
+	for network in "${networks[@]}"; do 
+		[[ "$current" == "$network" ]] && return
+	done
+
+	return 1
+}
 
 IsStaticIp() { ! ip address show "$(GetInterface)" | grep "inet " | grep --quiet "dynamic"; }
 
@@ -2925,6 +2939,7 @@ IsHttps() { GetArgs; [[ "$(GetUriProtocol "$@")" == "https" ]]; }
 
 GetUrlPort()
 {
+	GetArgs
 	local gup="$(GetUriPort "$1")"
 	[[ $gup ]] && { r "$gup" $2; return; }
 	case "$(GetUriProtocol "$1")" in
@@ -4359,8 +4374,9 @@ CredentialConf()
 
 	# configure credentials
 	(( verboseLevel > 1 )) && header "Credential Configuration"
-	ScriptEval credential environment "$@" || { export CREDENTIAL_MANAGER="None" CREDENTIAL_MANAGER_CHECKED="true"; return 1; }
+	ScriptEval credential environment $verbose "$@" || { export CREDENTIAL_MANAGER="None" CREDENTIAL_MANAGER_CHECKED="true"; return 1; }
 }
+
 
 # CredentialConfStatus - configure, unlock, and show the status of the credential manager
 CredentialConfStatus() { CredentialConf "$@" && credential manager unlock && credential manager status; }
