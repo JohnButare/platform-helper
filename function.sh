@@ -881,7 +881,8 @@ UnisonRootConfDir() { local dir="$(UserHome "root")/.unison"; IsPlatform mac && 
 ZoxideConf()
 {
 	{ ! InPath zoxide || IsDefined z; } && return
-	eval "$(zoxide init $PLATFORM_SHELL)" || return
+	eval "$(zoxide init $PLATFORM_SHELL)" # errors on bl3 on new shell
+	return 0
 }
 
 #
