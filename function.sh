@@ -118,18 +118,42 @@ UrlDecode()
 UrlDecodeAlt() { GetArgs; : "${*//+/ }"; echo -e "${_//%/\\x}"; }
 
 # update - manage update state in a temporary file location
-UpdateInit() { updateDir="${1:-$DATA/update}"; [[ -d "$updateDir" ]] && return; ${G}mkdir --parents "$updateDir"; }
-UpdateCheck() { [[ $updateDir ]] && return; UpdateInit; }
-UpdateDate() { UpdateCheck && GetFileDateStamp "$updateDir/$1"; }
-UpdateNeeded() { UpdateCheck || return; [[ $force || ! -f "$updateDir/$1" || "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$1")" ]]; }
-UpdateDone() { UpdateCheck && touch "$updateDir/$1"; }
-UpdateGet() { ! UpdateNeeded "$1" && UpdateGetForce "$1"; }
-UpdateGetForce() { UpdateCheck && cat "$updateDir/$1"; }
-UpdateExists() { UpdateCheck && [[ -f "$updateDir/$1" ]]; }
-UpdateRm() { UpdateCheck && rm -f "$updateDir/$1"; }
-UpdateRmAll() { UpdateCheck && rm -f "$updateDir/"* "$updateDir/".*; }
-UpdateSet() { UpdateCheck && printf "$2" > "$updateDir/$1"; }
-UpdateSince() { UpdateCheck || return; [[ ! $2 || ! -f "$updateDir/$1" ]] || (( $2 <= $(GetFileModSeconds "$updateDir/$1") )); } # UpdateSince SECONDS - true if updated since passed seconds
+UpdateDate() { UpdateInit && GetFileDateStamp "$updateDir/$1"; } 					# UpdateDate FILE - return the last updated date
+UpdateDone() { UpdateInit && touch "$updateDir/$1"; }											# UpdateDone FILE - update the last updated date
+UpdateGet() { ! UpdateNeeded "$@" && UpdateGetForce "$1"; }								# UpdateGet FILE - if an update is not needed, get the contents of the update file 
+UpdateGetForce() { UpdateInit && cat "$updateDir/$1"; }										# UpdateGetForce FILE - get the contents of the update file 
+UpdateRm() { UpdateInit && rm -f "$updateDir/$1"; }												# UpdateRm FILE - remove the update file
+UpdateRmAll() { UpdateInit && rm -f "$updateDir/"* "$updateDir/".*; }			# UpdateRmAll - remove all update files
+UpdateSet() { UpdateInit && printf "$2" > "$updateDir/$1"; }							# UpdateSet FILE TEXT - set the contents of the update file
+UpdateSince() { ! UpdateNeeded "$@"; }																		# UpdateSince FILE [DATE_SECONDS](TODAY) - return true if the file was updated since the date, or today
+
+# UpdateInit [DIR]($DATA/update) - initialize update system, sets updateDir 
+UpdateInit()
+{
+	[[ $updateDir ]] && return
+	updateDir="${1:-$DATA/update}"
+	[[ -d "$updateDir" ]] && return
+
+	# create update directory
+	${G}mkdir --parents "$updateDir" || return
+	InPath setfacl && { setfacl --default --modify o::rw "$updateDir" || return; }
+	sudoc chmod -R o+w "$updateDir" || return
+}
+
+# UpdateNeeded FILE [DATE_SECONDS](TODAY) - return true if an update is needed based on the last file modification time.
+# - SECONDS - if specified, an update is needed if the file was not modified since the date or today if not specified
+# - examples - UpdateNeeded 'update-os', UpdateNeeded 'update-os' "$(GetSeconds '-10 min')"
+UpdateNeeded()
+{
+	local file="$1" seconds="$2"; { ! UpdateInit || [[ $force || ! -f "$updateDir/$file" ]]; } && return
+
+	if [[ $seconds ]]; then
+		(( $(echo "$(GetFileModSeconds "$updateDir/$1") <= $seconds" | bc) )) # bc required for Bash since seconds is a float
+	else
+		[[ "$(GetDateStamp)" != "$(GetFileDateStamp "$updateDir/$file")" ]]; 
+	fi
+}
+
 
 # clipboard
 
@@ -1182,10 +1206,10 @@ IsInArray()
 
 # date
 CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $op 1${b#*.} : ${a%.*} $op ${b%.*} )); }
-GetDate() { ${G}date --date "$1"; } # GetDate @1683597765
+GetDate() { ${G}date --date "$1"; } 																											# GetDate DATE, i.e. @1683597765, @$(GetSeconds '-10 min') 
 GetDateStamp() { ${G}date '+%Y%m%d'; }
 GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
-GetSeconds() { ${G}date +%s; }
+GetSeconds() { local args; [[ $1 ]] && args+=(--date "$1"); ${G}date "${args[@]}" +%s; } 	# GetSeconds [DATE](now) - i.e '-10 min'
 
 # GetDateStampNext PREFIX SUFFIX
 GetDateStampNext()
