@@ -129,6 +129,7 @@ UpdateExists() { UpdateCheck && [[ -f "$updateDir/$1" ]]; }
 UpdateRm() { UpdateCheck && rm -f "$updateDir/$1"; }
 UpdateRmAll() { UpdateCheck && rm -f "$updateDir/"* "$updateDir/".*; }
 UpdateSet() { UpdateCheck && printf "$2" > "$updateDir/$1"; }
+UpdateSince() { UpdateCheck || return; [[ ! $2 || ! -f "$updateDir/$1" ]] || (( $2 <= $(GetFileModSeconds "$updateDir/$1") )); } # UpdateSince SECONDS - true if updated since passed seconds
 
 # clipboard
 
@@ -1184,6 +1185,7 @@ CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $
 GetDate() { ${G}date --date "$1"; } # GetDate @1683597765
 GetDateStamp() { ${G}date '+%Y%m%d'; }
 GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
+GetSeconds() { ${G}date +%s; }
 
 # GetDateStampNext PREFIX SUFFIX
 GetDateStampNext()

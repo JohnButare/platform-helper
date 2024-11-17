@@ -865,7 +865,7 @@ configEnvironmentAll()
 	local product
 	for product in "${products[@]}"; do
 		log1 "configuring '$product'"
-		! productIsInstalled && continue
+		echo "# ${product^}"
 		productEnvironment || return; echo
 	done
 }
@@ -1072,15 +1072,21 @@ configStatusCommand()
 	local product term="$TERM"; [[ ! $term ]] && term="xterm-256color"
 
 	{
-		#(productVarGet "CACERT" | GetFilePath | FileToDesc
-		hilight "product-ui-certificate-token-config-domain"
+		echo "${GREEN}product#url#certificate#token#config#domain${RESET}"
 
-		for product in "${products[@]}"; do			
+		for product in "${products[@]}"; do
+
+			# product is not installed
 			! productIsInstalled && continue
 
+			# initialize product variables
 			suppressErrors="true" productInit "$product" || return
 
-			local ui="$(productVarGet "ADDR")"			
+			# do not show product if there is no URL
+			local url="$(productVarGet "ADDR")"			
+			[[ ! $url ]] && continue
+
+			# get variables
 			local cert="false"; [[ -f "$(productVarGet "CACERT")" ]] && cert="true"
 			local token="false"; [[ $(productVarGet "TOKEN") ]] && token="true"
 			local prefix="$(productVarGet "CONFIG")"; prefix="${prefix:-prod}"
@@ -1088,11 +1094,11 @@ configStatusCommand()
 
 			[[ "$cert" == "true" && "$product" == "consul" ]] && { productVarGet "CACERT" | ${G}grep -q "auto" && cert="client" || cert="server"; }
 
-			echo "${RESET}${RESET}$product-$ui-$cert-$token-$prefix-$domain" # add resets to line up the columns
+			echo "${RESET}${RESET}$product#$url#$cert#$token#$prefix#$domain" # add resets to line up the columns
 
 		done
 
-	} | column -c $(tput cols -T "$term") -t -s-
+	} | column -c $(tput cols -T "$term") -t -s#
 }
 
 #
@@ -3996,10 +4002,11 @@ productTokenStatus() { local token="${1:-$(productVarGet "TOKEN")}"; [[ $token ]
 # productEnvironment [PRODUCT] [HOST] - show the environment variables for the specified product
 productEnvironment()
 {
-	local product="${1:-$product}" host="$2"; certInit "$product" || return
+	local clear product="${1:-$product}" host="$2"; certInit "$product" || return
+	local tokenVar="$(productVar "TOKEN")"
 
 	# return
-	IsOnNetwork sandia && [[ "$product" == @(consul|nomad) ]] && return
+	IsOnNetwork sandia && [[ "$product" == @(consul|nomad) ]] && { clear="true" productEnvironmentVars; return; }
 
 	# variables - certificate
 	local certDir; certDir="$(quiet="--quiet" certDirLocal "$product")"
@@ -4035,42 +4042,55 @@ productEnvironment()
 	local args="-http-addr=$url"
 	certs && args+=" -ca-file=$certDir/$ca -client-cert=$certDir/$certCli -client-key=$certDir/$certCliKey"
 
+	# get the token if not already set, i.e. if cached value, if Nomad sets the VAULT_TOKEN use it, etc.
+	local tokenVal="$(productVarGet "TOKEN")"
+	if [[ $forceEnvironment || ! $tokenVal ]] && [[ ! $noToken ]]; then
+		local exclude=(); [[ ! $VAULT_TOKEN ]] && exclude=( "--exclude-managers=vault" ) # prevent recursion	
+		tokenVal="$(credGet "token" "${exclude[@]}")" || return
+	fi
+
+	productEnvironmentVars
+
+	log2 "productEnvironment: product='$product' token='$(productTokenStatus "$tokenVal")' args='$args'"
+	return 0
+}
+
+productEnvironmentVars()
+{
+	local unset=()
+
 	# standard configuration
-	cat <<-EOF
-		export $(productVar "CONFIG")="$configPrefix"
-		export $(productVar "DOMAIN")="$baseDomain"
-		export $(productVar "SERVER")="$server"
-		export $(productVar "ADDR")="$url"
-		export $(productVar "ARGS")="$args"
-	EOF
+	if [[ ! $clear ]]; then
+		cat <<-EOF
+			export $(productVar "CONFIG")="$configPrefix"
+			export $(productVar "DOMAIN")="$baseDomain"
+			export $(productVar "SERVER")="$server"
+			export $(productVar "ADDR")="$url"
+			export $(productVar "ARGS")="$args"
+		EOF
+	else
+		unset+=( $(productVar "CONFIG") $(productVar "DOMAIN") $(productVar "SERVER") $(productVar "ADDR") )
+	fi
 
 	# certificate configuration
-	if certs; then
+	if [[ ! $clear ]] && certs; then
 		cat <<-EOF
 			export $(productVar "CACERT")="$certDir/$ca"
 			export $(productVar "CLIENT_CERT")="$certDir/$certCli"
 			export $(productVar "CLIENT_KEY")="$certDir/$certCliKey"
 		EOF
 	else
-		cat <<-EOF
-			export $(productVar "CACERT")=""
-			export $(productVar "CLIENT_CERT")=""
-			export $(productVar "CLIENT_KEY")=""
-		EOF
+		unset+=( $(productVar "CACERT") $(productVar "CLIENT_CERT") $(productVar "CLIENT_KEY") )
 	fi
 
-	# get the token if not already set, i.e. if cached value, if Nomad sets the VAULT_TOKEN use it, etc.
-	local tokenVar tokenVal
-	tokenVar="$(productVar "TOKEN")"
-	tokenVal="$(productVarGet "TOKEN")"
-
-	if [[ $forceEnvironment || ! $tokenVal ]] && [[ ! $noToken ]]; then
-		local exclude=(); [[ ! $VAULT_TOKEN ]] && exclude=( "--exclude-managers=vault" ) # prevent recursion	
-		tokenVal="$(credGet "token" "${exclude[@]}")" || return
+	if [[ ! $clear && $tokenVal ]]; then
+		echo "export $tokenVar=\"$tokenVal\""
+	else
+		unset+=( "$tokenVar" )
 	fi
-	[[ $tokenVal ]] && echo "export $tokenVar=\"$tokenVal\""
 
-	log2 "productEnvironment: product='$product' token='$(productTokenStatus "$tokenVal")' args='$args'"
+	[[ $unset ]] && echo "unset -v ${unset[@]}"
+
 	return 0
 }
 
