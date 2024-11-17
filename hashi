@@ -72,9 +72,9 @@ opt()
 argEnd()
 {
 	# basic configuration
-	datacenter="$(GetDomain)"; argValidate "$datacenter" "domain" || return
-	baseDomain="$(GetDnsBaseDomain)"; argValidate "$baseDomain" "DNS base domain" || return
-	domain="$(GetDnsDomain)"; argValidate "$domain" "DNS domain" || return
+	datacenter="$(NetworkCurrent)"; argValidate "$datacenter" "domain" || return
+	baseDomain="$(GetNetworkDnsBaseDomain)"; argValidate "$baseDomain" "DNS base domain" || return
+	domain="$(GetNetworkDnsDomain)"; argValidate "$domain" "DNS domain" || return
 
 	# port configuration
 	consulHttpPort="8500" consulHttpsPort="8501"
@@ -460,7 +460,7 @@ certCopyPublic()
 	certValidate "$src" "${certs[@]}" || return
 
 	# destination directory (public certificates)
-	local dest; dest="$(certDirPublic | certDirSuffix "$product")" || return
+	local dest; { dest="$(certDirPublic)" && "$(echo "$dest" | certDirSuffix "$product")"; } || return
 	${G}mkdir --parents "$dest" || return
 
 	# return if the source (private) and destination (public) locations are the same
@@ -910,7 +910,7 @@ configServer()
 {
 	local var="servers"; [[ "$product" == "vault" ]] && var="VaultServers"
 	local server="$(configGet "$var" | GetWord - "1" ",")";
-	local domain="$(GetDnsDomain)"
+	local domain="$(GetNetworkDnsDomain)"
 	AddDnsSuffix "$server" "$domain"
 }
 
@@ -3681,7 +3681,7 @@ vaultTokenGetRemote()
 	# get the vault token from the credential store
 	elif credExists "token"; then
 		token="$(credGet "token")" || return
-	
+
 	# get the Vault token from the configuration host
 	else
 		local host credPath="$(credPath)"; host="$(configServer)" || return
@@ -3729,15 +3729,15 @@ certDirPrivate()
 	CloudConf || return
 	local mountDir="$(configGet "CertificateDevice")"
 	local dir="$(configGet "CertificateDir")"
-	
-	# check if the certificate volume was mounted already so we don't unmount it later
-	certVolumeWasMounted=""; encrypt IsMounted "$mountDir" && certVolumeWasMount="true"
 
 	# return if not found
 	if [[ ! -d "$mountDir" || ! $dir ]]; then
-		ScriptErrQuiet "unable to locate the private certificate encrypted directory"
+		ScriptErrQuiet "the private certificate directory '$(FileToDesc "$mountDir")' does not exist"
 		return 1
 	fi 
+	
+	# check if the certificate volume was mounted already so we don't unmount it later
+	certVolumeWasMounted=""; encrypt IsMounted "$mountDir" && certVolumeWasMount="true"
 
 	# mount
 	certVolume="$(RunLog encrypt mount "$mountDir" "$@")" || return
@@ -3750,7 +3750,7 @@ certDirPrivate()
 }
 
 # certDirPublic - return the public certificate directory from an installation file server
-certDirPublic() { findInstallFile --quiet "other/HashiCorp" && return "${PIPESTATUS[0]}"; }
+certDirPublic() { findInstallFile --quiet "other/HashiCorp"; }
 
 # certDirService PRODUCT - return the product service certificate directory
 certDirService() { echo "/opt/$1/cert"; }
@@ -3825,9 +3825,18 @@ certPublicExists() { quiet="--quiet" certPublicFind "$1" > /dev/null; }
 certPublicFind()
 {
 	local dir product="$1"; certInit "$product" || return
-	quiet="--quiet" certPublicCheck "$PWD" && return 																				# check current directory (makeCertCd was called)
-	dir="$(certDirPublic | certDirSuffix "$product")" && certPublicCheck "$dir" && return 	# check public directory
-	dir="$(certDirPrivate | certDirSuffix "$product")" && certPublicCheck "$dir" && return 	# check private certificate directory
+
+	# check current directory (makeCertCd was called)
+	quiet="--quiet" certPublicCheck "$PWD" && return
+
+	# check public directory
+	if dir="$(certDirPublic)" && dir="$(echo "$dir" | certDirSuffix "$product")"; then
+		certPublicCheck "$dir" && return
+		ScriptErr "warning: '$(FileToDesc "$dir")' does not contain the public certificates"
+	fi
+
+	# check private certificate directory
+	dir="$(certDirPrivate)" && dir="$(echo "$dir" | certDirSuffix "$product")" && certPublicCheck "$dir" && return
 }
 
 certPublicCheck() { [[ -d "$1" ]] || return; certValidate "$1" "$ca" "$certCli" "$certCliKey" && echo "$dir"; }
@@ -4189,7 +4198,7 @@ productInstallDo()
 {
 	local product="$1" host="$2"
 	
-	hilight "Installing $product ($host)..."
+	hilight "Installing ${product^} on '$host' for the '$datacenter' datacenter..."
 
 	# local install
 	if IsLocalHost "$host"; then

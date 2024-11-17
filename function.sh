@@ -684,7 +684,7 @@ HashiConf()
 
 	# set credential manager - use gnome-keyring if already selected or if in Windows (faster)
 	local manager="local"
-	if [[ "$CREDENTIAL_MANAGER" == "gk" ]]; then manager="gk"
+	if [[ "$CREDENTIAL_MANAGER" == "gk" ]] || ! UpdateNeeded "credential-manager-gk-ok"; then manager="gk"
 	elif IsPlatform win && { service running dbus || app start dbus --quiet $force $verbose; } && credential manager IsAvailable -m=gk; then manager="gk"
 	fi
 
@@ -781,6 +781,7 @@ InstFind()
 	unset installDir file
 }
 
+# McflyConf - run after set prompt as this modifies the bash prompt
 McflyConf()
 {
 	local force forceLevel forceLess; ScriptOptForce "$@"	
@@ -1290,10 +1291,13 @@ fi
 # time
 ShowTime() { ${G}date '+%F %T.%N %Z' -d "$1"; }
 ShowSimpleTime() { ${G}date '+%D %T' -d "$1"; }
-TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')" timerSplit=0; }
-TimerSplit() { (( timerSplit++ )); printf "split $timerSplit: "; TimerOff; }
 TimestampDiff () { ${G}printf '%s' $(( $(${G}date -u +%s) - $(${G}date -u -d"$1" +%s))); }
-TimerOff() { s=$(TimestampDiff "$startTime"); printf "%02dh:%02dm:%02ds\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
+
+# timer
+TimerOn() { startTime="$(${G}date -u '+%F %T.%N %Z')" timerSplit=0 timerOn="true"; }
+TimerSplit() { (( timerSplit++ )); printf "split $timerSplit: "; TimerOff; }
+TimerStatus() { s=$(TimestampDiff "$startTime"); printf "%02dh:%02dm:%02ds\n" $(( $s/60/60 )) $(( ($s/60)%60 )) $(( $s%60 )); }
+TimerOff() { TimerStatus; unset -v timerOn; }
 
 # TimeCommand - return the time it takes to execute a command in seconds to three decimal places.
 # Command output is supressed.  The status of the command is returned.
@@ -1805,8 +1809,7 @@ HttpHeader() { curl --silent --show-error --location --dump-header - --output /d
 IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
-NetworkCurrent() { UpdateGetForce "network"; }; 
-NetworkCurrentUpdate() { network current update "$@" && ScriptEval network vars proxy; }
+NetworkCurrent() { UpdateGetForce "network"; }; 																# NetworkCurrent - configured current network
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }										# SmbPasswordIsSet USER - return true if the SMB password for user is set
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
@@ -1873,7 +1876,7 @@ CacheDefaultGateway()
 # DhcpRenew ADDRESS(primary) - renew the IP address of the specified adapter
 DhcpRenew()
 {
-	local adapter="$1";  [[ ! $adapter ]] && adapter="$(GetPrimaryAdapterName)"
+	local adapter="$1";  [[ ! $adapter ]] && adapter="$(GetAdapterName)"
 	local oldIp="$(GetAdapterIpAddress "$adapter")"
 
 	if IsPlatform win; then
@@ -1959,7 +1962,7 @@ GetAdapterMacAddress()
 	# get the primary adapter name
 	if [[ ! $adapter ]]; then
 		if [[ $isWin ]]; then
-			adapter="$(GetPrimaryAdapterName)" || return
+			adapter="$(GetAdapterName)" || return
 		else
 			adapter="$(GetInterface)" || return
 		fi
@@ -2098,13 +2101,15 @@ GetIpAddress()
 GetSubnetMask() { ifconfig "$(GetInterface)" | grep "netmask" | tr -s " " | cut -d" " -f 5; }
 GetSubnetNumber() { ip -4 -oneline -br address show "$(GetInterface)" | cut -d/ -f2 | cut -d" " -f1 | RemoveSpaceTrim; }
 
-# GetPrimaryAdapterName - get the descriptive name of the primary network adapter used for communication
-GetPrimaryAdapterName()
+# GetAdapterName [IP](primary) - get the descriptive name of the primary network adapter used for communication
+GetAdapterName()
 {
+	local ip="$1"; [[ ! $ip ]] && { ip="$(GetAdapterIpAddress)" || return; }
+
 	if IsPlatform win; then
-		RunWin ipconfig.exe | grep $(GetAdapterIpAddress) -B 8 | grep "Ethernet adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
+		RunWin ipconfig.exe | grep "$ip" -B 8 | grep " adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
 	else
-		GetInterface
+		GetInterface "$@"
 	fi
 }
 
@@ -2317,6 +2322,19 @@ MacLookup()
 			echo "${RESET}${RESET}$mac-$ip-$dns" # add resets to line up the columns
 		done
 	} | column -c $(tput cols -T "$TERM") -t -s-
+}
+
+NetworkCurrentUpdate()
+{
+	local force forceLevel forceLess; ScriptOptForce "$@"
+
+	# show detail if forcing
+	if [[ $force ]]; then
+		network current update "$@" || return
+		ScriptEval network vars proxy "$@" || return
+	else
+		ScriptEval network --quiet --update vars proxy "$@" || return
+	fi
 }
 
 #
@@ -4234,6 +4252,47 @@ RunFunctionExists()
 	IsFunction "$f"
 }
 
+# RunFunctions NAME[,NAME...] -- [ARGS]- run functions
+# - if showing timing exported variables are not set
+RunFunctions()
+{
+	# arguments
+	local function functions=() ignoreErrors result
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--ignore-errors|-ie) ignoreErrors="--ignore-errors";;
+			*)
+				[[ "$1" == "--" ]] && { shift; break; }
+				if ! IsOption "$1" && [[ ! $s ]]; then s="$1"
+				elif ! IsOption "$1"; then functions+=("$1")
+				else UnknownOption "$1" "RunFunctions"; return
+				fi
+		esac
+		shift
+	done
+
+	# run functions
+	for function in "${functions[@]}"; do
+
+		# time function
+		if [[ $timerOn ]]; then
+			printf "$(StringPad "$function:" 20) "; time ("$function" "$@" $force $quiet $verbose)			
+		else
+			"$function" "$@" $force $quiet $verbose
+		fi
+		result="$?"
+		
+		if (( result != 0 )); then
+			ScriptErr "$function failed with result $result"
+			[[ ! $ignoreErrors ]] && return 1
+		fi
+
+	done
+
+	return 0
+}
+
 # scripts
 ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } 						# ScriptArgs SCRIPT_NAME ARGS... - display script arguments
 ScriptCheckMac() { IsMacAddress "$1" && return; ScriptErr "'$1' is not a valid MAC address"; }
@@ -4547,56 +4606,83 @@ tgrep() { ${G}grep "$@"; true; }
 
 GetTextEditor()
 {
-	# use cached editor
-	[[ ! $force && -f "$EDITOR_PROGRAM" ]] && { echo "$EDITOR_PROGRAM"; return; }
+	local e cache="get-text-editor" force; ScriptOptForce "$@"
+	
+	if ! e="$(UpdateGet "$cache")"; then
+		e="$(
+			# initialize
+			local isSsh; IsSsh && isSsh="true"
+			local sublimeProgram="$(sublime program)"
 
-	# initialize
-	local isSsh; IsSsh && isSsh="true"
-	local sublimeProgram="$(sublime program)"
+			# native
+			if [[ ! $isSsh ]]; then
+				[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
+				IsPlatform win && InPath "$P/Notepad++/notepad++.exe" && { echo "$P/Notepad++/notepad++.exe"; return 0; }
+				IsPlatform mac && { echo "TextEdit.app"; return 0; }
+				IsPlatform win && InPath notepad.exe && { echo "notepad.exe"; return 0; }
+			fi
 
-	# native
-	if [[ ! $isSsh ]]; then
-		[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
-		IsPlatform win && InPath "$P/Notepad++/notepad++.exe" && { echo "$P/Notepad++/notepad++.exe"; return 0; }
-		IsPlatform mac && { echo "TextEdit.app"; return 0; }
-		IsPlatform win && InPath notepad.exe && { echo "notepad.exe"; return 0; }
+		  # X Windows
+			if IsXServerRunning; then
+				IsPlatform win && sublimeProgram="$(sublime program --alternate)"
+				[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
+				InPath geany && { echo "geany"; return 0; }
+				InPath gedit && { echo "gedit"; return 0; }
+			fi
+
+			# console
+			InPath micro && { echo "micro"; return 0; }
+			InPath nano && { echo "nano"; return 0; }
+			InPath hx && { echo "hx"; return 0; }
+			InPath vi && { echo "vi"; return 0; }
+
+			return 1
+		)" || { ScriptErr "no text editor found" "GetTextEditor"; return 1; }
+		UpdateSet "$cache" "$e"
 	fi
 
-  # X Windows
-	if IsXServerRunning; then
-		IsPlatform win && sublimeProgram="$(sublime program --alternate)"
-		[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
-		InPath geany && { echo "geany"; return 0; }
-		InPath gedit && { echo "gedit"; return 0; }
-	fi
-
-	# console
-	InPath micro && { echo "micro"; return 0; }
-	InPath nano && { echo "nano"; return 0; }
-	InPath hx && { echo "hx"; return 0; }
-	InPath vi && { echo "vi"; return 0; }
-
-	ScriptErr "no text editor found" "GetTextEditor"; return 1;
+	echo "$e"		
 }
 
-# SetTextEditor - set EDITOR_PROGRAM and the default text editor for commands (SUDO_EDITOR,EDITOR), which must:
+# GetTextEditorCli - get the default CLI text editor for commands, which must:
 # - be a physical file in the path 
 # - accept a UNIX style path as the file to edit
 # - return only when the file has been edited
+GetTextEditorCli()
+{
+	local e cache="get-text-editor-cli" force; ScriptOptForce "$@"
+
+	if ! e="$(UpdateGet "$cache")"; then
+		if IsInstalled sublime; then e="$BIN/sublime -w"
+		elif InPath geany; then e="geany -i"
+		elif InPath micro; then e="micro"
+		elif InPath nano; then e="nano"
+		elif InPath vi; then e="vi"
+		else ScriptErr "no CLI text editor found" "GetTextEditorCli"; return 1
+		fi
+		UpdateSet "$cache" "$e"
+	fi
+
+	echo "$e"
+}
+
+# SetTextEditor - set EDITOR, EDITOR_PROGRAM, and SUDO_EDITOR
 SetTextEditor()
 {
-	local e force; ScriptOptForce "$@"
-	[[ ! $force && $EDITOR ]] && return
+	local e cache="set-text-editor" force; ScriptOptForce "$@"
 
-	if IsInstalled sublime; then e="$BIN/sublime -w"
-	elif InPath geany; then e="geany -i"
-	elif InPath micro; then e="micro"
-	elif InPath nano; then e="nano"
-	elif InPath vi; then e="vi"
+	[[ ! $force && $EDITOR && $EDITOR_PROGRAM && $SUDO_EDITOR ]] && return
+
+	if ! e="$(UpdateGet "$cache")"; then
+		e="$(cat <<-EOF
+			export {SUDO_EDITOR,EDITOR}="$(GetTextEditorCli "$@")"
+			export EDITOR_PROGRAM="$(GetTextEditor "$@")"
+			EOF
+		)"
+		UpdateSet "$cache" "$e"
 	fi
-		
-	export {SUDO_EDITOR,EDITOR}="$e"
-	export EDITOR_PROGRAM="$(GetTextEditor)"
+
+	eval "$e"
 }
 
 # JSON

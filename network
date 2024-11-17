@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) adapter|current|cache|center|dns|domain|find|gui|hosts|internet|ip|profile|proxy|run|service|timeout|vars|vpn|workgroup
+Usage: $(ScriptName) adapter|current|cache|center|dns|domain|find|gui|hosts|internet|ip|profile|proxy|run|service|timeout|vars|vpn|watch|workgroup
 Network commands."
 }
 
@@ -215,7 +215,7 @@ currentAllCommand()
 	local network networks=(); StringToArray "$(ConfigGet "networks")" "," networks
 	local current="$(RunLog network find --all --service=dns "${networks[@]}" "${globalArgs[@]}" --quiet)" || { echo "external"; return; }
 
-	# format
+	# format - remove suffix after @
 	local name names=()
 	local host hosts; IFS=$'\n' ArrayMake hosts "$current"
 	for host in "${hosts[@]}"; do
@@ -233,20 +233,7 @@ currentAllCommand()
 currentFindUsage() { echot "Usage: $(ScriptName) current find\nFind the primary network.\n\n$(currentUsageOther)"; }
 currentFindArgStart() { currentArgStartOther; }
 currentFindOpt() { currentOptOther "$@"; }
-
-currentFindCommand()
-{
-	local network; printf "network..."; network="$(findNetwork)" || return 
-	
-	local proxyServer
-	if canProxy; then
-		printf "proxy..."
-		proxyServer="$(findProxyServer "$network")"
-		[[ $proxyServer ]] && echo "available ($proxyServer)" || echo "none"
-	fi
-
-	log1 "network=$network proxy=$proxyServer"
-}
+currentFindCommand() { findNetwork; }
 
 #
 # current server command
@@ -299,6 +286,9 @@ currentUpdateOpt() { currentOptOther "$@"; }
 
 currentUpdateCommand()
 {
+	# return if recently updates
+	local cache="network-current-update"; ! UpdateNeeded "$cache" && return
+
 	# get cached network configuration
 	local existingNetwork="$(UpdateGet "network")" existingGateway="$(UpdateGet "network_gateway")" existingProxyServer="$(UpdateGet "ProxyServer")"
 
@@ -311,6 +301,7 @@ currentUpdateCommand()
 		if validateNetwork "$existingNetwork" "$dnsServer"; then
 			updateDns "$existingNetwork" || return
 			doLog && echo "Current network '$existingNetwork' has not changed"
+			UpdateDone "$cache"
 			return 0
 		fi			
 
@@ -355,12 +346,12 @@ currentUpdateCommand()
 
 	# status
 	if doLog; then
-		hilight "Status..."
+		hilight "Network status..."
 		force= currentStatusCommand || return
 		[[ $(getProxyServer) ]] && { network proxy --status "${globalArgs[@]}" || return; }
 	fi
 
-	return 0
+	UpdateDone "$cache"
 }
 
 # updateDns NETWORK
@@ -1111,7 +1102,10 @@ proxyVarsStatus()
 # vars commands
 #
 
-varsUsage() { echot "Usage: $(ScriptName) vars [dns]\nVariable commands."; }
+varsUsage() { echot "Usage: $(ScriptName) vars [dns|proxy] [-u|--update]\nVariable commands."; }
+varsArgStart() { unset -v update; }
+varsOpt() { [[ "$1" == @(--update|-u) ]] || return; update="--update"; }
+varsArgEnd() { [[ ! $update ]] && return; quiet="--quiet" currentUpdateCommand; }
 
 varsCommand()
 {
@@ -1140,7 +1134,7 @@ varsDnsCommand()
 	ScriptReturn "NETWORK_DNS_BASE_DOMAIN" "NETWORK_DNS_DOMAIN" "NETWORK_DNS1" "NETWORK_DNS2" "NETWORK_DNS_SEARCH"
 }
 
-varsProxyUsage() { echot "Usage: $(ScriptName) vars proxy \nShow current proxy server variables."; }
+varsProxyUsage() { echot "Usage: $(ScriptName) vars proxy\nShow current proxy server variables."; }
 varsProxyCommand() { proxyVarsEnable; }
 
 #
@@ -1150,14 +1144,32 @@ varsProxyCommand() { proxyVarsEnable; }
 vpnUsage() { echot "Usage: $(ScriptName) workgroup on|off|status
 VPN commands."; }
 
-vpnArgStart() { IsPlatform win && return; EchoErr "network: VPN is only implemented for Windows"; return 1; }
+vpnArgStart()
+{
+	IsPlatform win || { EchoErr "network: VPN is only implemented for Windows"; return 1; }
+	gp="$P/Palo Alto Networks/GlobalProtect/PanGPA.exe"
+	wg="$P/WireGuard/wireguard.exe"
+}
+
 vpnCommand() { vpnStatusCommand; }
-vpnStatusCommand() { rasdial.exe; }
+
+vpnStatusCommand()
+{
+	if [[ -f "$gp" ]]; then
+		"$gp"
+	elif [[ -f "$wg" ]]; then
+		"$wg"
+	else
+		rasdial.exe
+	fi
+}
 
 vpnOnCommand()
-{
-	if [[ -d "$P/WireGuard" ]]; then
-		elevate RunScript start "$P/WireGuard/wireguard.exe" /installtunnelservice "$P/WireGuard/Data/Configurations/$HOSTNAME.conf.dpapi"
+{	
+	if [[ -f "$gp" ]]; then
+		"$gp"
+	elif [[ -f "$wg" ]]; then
+		elevate RunScript start "$wg" /installtunnelservice "$P/WireGuard/Data/Configurations/$HOSTNAME.conf.dpapi"
 	else
 		rasdial.exe "vpn-$(ConfigGet "network")" "$USER" "$(credential get secure default)" || return
 	fi
@@ -1166,8 +1178,10 @@ vpnOnCommand()
 
 vpnOffCommand()
 {
-	if [[ -d "$P/WireGuard" ]]; then
-		elevate "$P/WireGuard/wireguard.exe" /uninstalltunnelservice "$HOSTNAME"
+	if [[ -f "$gp" ]]; then
+		"$gp"
+	elif [[ -f "$wg" ]]; then
+		elevate "$wg" /uninstalltunnelservice "$HOSTNAME"
 	else
 		rasdial.exe "vpn-$(ConfigGet "network")" /disconnect || return
 	fi
@@ -1271,12 +1285,57 @@ serviceListDetail()
 }
 
 #
+# watch commands
+#
+
+watchUsage() { echot "Usage: $(ScriptName) watch\nWatch for network changes."; }
+
+watchCommand()
+{
+	local configuredNetwork currentNetwork
+
+	ip monitor address |\
+	while read line; do
+		[[ "$line" =~ "inet " ]] || continue
+
+		header "Network Change"		
+		line="$(echo "$line" | tr -s " ")"
+		log3 "line=$line"
+
+		# get action (up or down)
+		local action="$(echo "$line" | cut -d" " -f1)"
+		[[ "$action" == "Deleted" ]] && action="down" line="$(echo "$line" | cut -d" " -f2-)" || action="up"
+
+		# get IP
+		local ip="$(echo "$line" | cut -d" " -f4 | cut -d"/" -f1)"
+
+		# get adapter
+		local adapter="$(echo "$line" | cut -d" " -f2)"
+		IsPlatform win && { adapter="$(GetAdapterName "$ip")" || adapter="$(echo "$line" | cut -d" " -f2)"; }
+
+		echo "Adapter $adapter has gone $action with IP address $ip"
+
+		# update network
+		if currentNetwork="$(network current find)"; then
+			configuredNetwork="$(NetworkCurrent)"
+			log3 "configuredNetwork='$configuredNetwork' currentNetwork='$currentNetwork'"
+			if [[ "$configuredNetwork" != "$currentNetwork" ]]; then
+				echo "The network has changed from '$configuredNetwork' to '$currentNetwork'..."
+				NetworkCurrentUpdate --force || ScriptErr "unable to update the current network"
+			fi
+		else
+			ScriptErr "unable to get current networks"
+		fi
+		oldNetworks="$newNetworks"
+
+	done
+}
+
+#
 # workgroup commands
 #
 
-workgroupUsage() { echot "Usage: $(ScriptName) workgroup name|set
-SAMBA workgroup commands."; }
-
+workgroupUsage() { echot "Usage: $(ScriptName) workgroup name|set\nSAMBA workgroup commands."; }
 workgroupCommand() { workgroupNameCommand; }
 
 workgroupNameCommand()
