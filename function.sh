@@ -3406,11 +3406,17 @@ isPlatformCheck()
 		busybox) IsBusyBox;;
 		cm4) [[ -e /proc/cpuinfo ]] && grep -q "Raspberry Pi Compute Module" "/proc/cpuinfo";;
 		consul|nomad|vault) service running "$p";;
+		desktop) ! IsPlatform laptop;;
 		gnome-keyring) InPath "$p";;
 		laptop)
 			if IsPlatform mac; then system_profiler "SPHardwareDataType" | grep "Model Identifier" | grep --quiet "Book"
-			elif IsPlatform win && InPath wmic.exe; then
-				local chassisType; chassisType="$( wmic.exe systemenclosure get chassistypes /value | grep ChassisTypes | cut -d"{" -f2 | cut -d"}" -f1)"
+			elif IsPlatform win; then
+				local chassisType
+				if InPath wmic.exe; then
+					chassisType="$( wmic.exe systemenclosure get chassistypes /value | grep ChassisTypes | cut -d"{" -f2 | cut -d"}" -f1)"
+				else
+					chassisType="$( powershell "Get-CimInstance -ClassName Win32_SystemEnclosure -Property ChassisTypes" | grep ChassisTypes | cut -d"{" -f2 | cut -d"}" -f1)"
+				fi
 				(( (chassisType >= 8 && chassisType <=15) || (chassisType >= 30 && chassisType <=32) )) # https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-systemenclosure
 			fi
 			;;
