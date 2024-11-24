@@ -18,6 +18,8 @@ else
 	whence() { type "@$"; }
 fi
 
+SHELL_DIR="${SHELL%/*}"
+
 # dependant commands - these commands are used below
 IsDefined() { def "$1" >& /dev/null; }						# IsDefined NAME - NAME is a an alias or function
 
