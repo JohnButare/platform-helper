@@ -120,14 +120,14 @@ UrlDecode()
 UrlDecodeAlt() { GetArgs; : "${*//+/ }"; echo -e "${_//%/\\x}"; }
 
 # update - manage update state in a temporary file location
-UpdateDate() { UpdateInit "$1" && GetFileDateStamp "$updateFile"; } 	# UpdateDate FILE - return the last updated date
-UpdateDone() { UpdateInit "$1" && ${G}touch "$updateFile"; }					# UpdateDone FILE - update the last updated date
-UpdateGet() { ! UpdateNeeded "$@" && UpdateGetForce "$updateFile"; }	# UpdateGet FILE - if an update is not needed, get the contents of the update file 
-UpdateGetForce() { UpdateInit "$1" && cat "$updateFile"; }						# UpdateGetForce FILE - get the contents of the update file 
-UpdateRm() { UpdateInit "$1" && rm -f "$updateFile"; }								# UpdateRm FILE - remove the update file
-UpdateRmAll() { UpdateInitDir && DelDir --contents --hidden --files "$updateDir"; }		# UpdateRmAll - remove all update files
-UpdateSet() { UpdateInit "$1" && printf "$2" > "$updateFile"; }				# UpdateSet FILE TEXT - set the contents of the update file
-UpdateSince() { ! UpdateNeeded "$@"; }																# UpdateSince FILE [DATE_SECONDS](TODAY) - return true if the file was updated since the date, or today
+UpdateDate() { UpdateInit "$1" && [[ -f "$updateFile" ]] && GetFileDateStamp "$updateFile"; } 	# UpdateDate FILE - return the last updated date
+UpdateDone() { UpdateInit "$1" && ${G}touch "$updateFile"; }																		# UpdateDone FILE - update the last updated date
+UpdateGet() { ! UpdateNeeded "$@" && UpdateGetForce "$updateFile"; }														# UpdateGet FILE - if an update is not needed, get the contents of the update file 
+UpdateGetForce() { UpdateInit "$1" && [[ ! -f "$updateFile" ]] && return; cat "$updateFile"; }	# UpdateGetForce FILE - get the contents of the update file 
+UpdateRm() { UpdateInit "$1" && rm -f "$updateFile"; }																					# UpdateRm FILE - remove the update file
+UpdateRmAll() { UpdateInitDir && DelDir --contents --hidden --files "$updateDir"; }							# UpdateRmAll - remove all update files
+UpdateSet() { UpdateInit "$1" && printf "$2" > "$updateFile"; }																	# UpdateSet FILE TEXT - set the contents of the update file
+UpdateSince() { ! UpdateNeeded "$@"; }																													# UpdateSince FILE [DATE_SECONDS](TODAY) - return true if the file was updated since the date, or today
 
 # UpdateInit [FILE] - initialize update system, sets updateDir, updateFile
 UpdateInit() { UpdateInitDir && UpdateInitFile "$1"; }
@@ -147,8 +147,6 @@ UpdateInitFile()
 {
 	[[ ! $1 ]] && { MissingOperand "file" "UpdateInitFile"; return 1; }
 	HasFilePath "$1" && updateFile="$1" || updateFile="$updateDir/$1"
-	[[ -f "$updateFile" ]] && return
-	${G}touch "$updateFile"
 }
 
 # UpdateNeeded FILE [DATE_SECONDS](TODAY) - return true if an update is needed based on the last file modification time.
@@ -158,8 +156,8 @@ UpdateNeeded()
 {
 	local file="$1" seconds="$2"
 
-	# update needed if cannot initialize or if forcing
-	{ ! UpdateInit "$file" || [[ $force ]]; } && return
+	# return if update needed
+	{ $force || ! UpdateInit "$file" || [[ ! -f "$updateFile" ]]; } && return
 
 	# update is needed if file was not changed 1) in the last seconds (if specified) 2) today
 	if [[ $seconds ]]; then
