@@ -4656,7 +4656,7 @@ GetTextEditor()
 {
 	local e cache="get-text-editor" force; ScriptOptForce "$@"
 	
-	if ! e="$(UpdateGet "$cache")"; then
+	if ! e="$(UpdateGet "$cache")" || [[ ! $e ]]; then
 		e="$(
 			# initialize
 			local isSsh; IsSsh && isSsh="true"
