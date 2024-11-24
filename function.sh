@@ -157,7 +157,7 @@ UpdateNeeded()
 	local file="$1" seconds="$2"
 
 	# return if update needed
-	{ $force || ! UpdateInit "$file" || [[ ! -f "$updateFile" ]]; } && return
+	{ [[ $force ]] || ! UpdateInit "$file" || [[ ! -f "$updateFile" ]]; } && return
 
 	# update is needed if file was not changed 1) in the last seconds (if specified) 2) today
 	if [[ $seconds ]]; then
