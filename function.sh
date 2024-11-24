@@ -4652,12 +4652,13 @@ tgrep() { ${G}grep "$@"; true; }
 
 GetTextEditor()
 {
-	local e cache="get-text-editor" force; ScriptOptForce "$@"
+	local e force; ScriptOptForce "$@"
+	local isSsh; IsSsh && isSsh="true"
+	local cache="get-text-editor"; [[ $isSsh ]] && cache+="-ssh"
 	
 	if ! e="$(UpdateGet "$cache")" || [[ ! $e ]]; then
 		e="$(
-			# initialize
-			local isSsh; IsSsh && isSsh="true"
+			# initialize			
 			local sublimeProgram="$(sublime program)"
 
 			# native
@@ -4669,7 +4670,7 @@ GetTextEditor()
 			fi
 
 		  # X Windows
-			if IsXServerRunning; then
+			if ! IsPlatform mac && IsXServerRunning; then
 				IsPlatform win && sublimeProgram="$(sublime program --alternate)"
 				[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
 				InPath geany && { echo "geany"; return 0; }
