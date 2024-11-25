@@ -4654,11 +4654,17 @@ GetTextEditor()
 {
 	local e force; ScriptOptForce "$@"
 	local isSsh; IsSsh && isSsh="true"
-	local cache="get-text-editor"; [[ $isSsh ]] && cache+="-ssh"
-	
+	local isSshX; [[ $isSsh ]] && IsXServerRunning && isSshX="true"
+
+	# cache
+	local cache="get-text-editor"
+	if [[ $isSshX ]]; then cache+="-sshx"
+	elif [[ $ssh ]]; then cache+="-ssh"
+	fi
+
 	if ! e="$(UpdateGet "$cache")" || [[ ! $e ]]; then
 		e="$(
-			# initialize			
+			# initialize
 			local sublimeProgram="$(sublime program)"
 
 			# native
@@ -4669,8 +4675,8 @@ GetTextEditor()
 				IsPlatform win && InPath notepad.exe && { echo "notepad.exe"; return 0; }
 			fi
 
-		  # X Windows
-			if ! IsPlatform mac && IsXServerRunning; then
+			# X Windows
+			if ! IsPlatform mac && { [[ $isSshX ]] || IsXServerRunning; }; then
 				IsPlatform win && sublimeProgram="$(sublime program --alternate)"
 				[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
 				InPath geany && { echo "geany"; return 0; }
@@ -4688,7 +4694,7 @@ GetTextEditor()
 		UpdateSet "$cache" "$e"
 	fi
 
-	echo "$e"		
+	echo "$e"
 }
 
 # GetTextEditorCli - get the default CLI text editor for commands, which must:
