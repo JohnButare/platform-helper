@@ -4654,7 +4654,7 @@ GetTextEditor()
 {
 	local e force; ScriptOptForce "$@"
 	local isSsh; IsSsh && isSsh="true"
-	local isSshX; [[ $isSsh ]] && IsXServerRunning && isSshX="true"
+	local isSshX; [[ $isSsh && $DISPLAY ]] && isSshX="true"
 
 	# cache
 	local cache="get-text-editor"
@@ -4676,7 +4676,7 @@ GetTextEditor()
 			fi
 
 			# X Windows
-			if ! IsPlatform mac && { [[ $isSshX ]] || IsXServerRunning; }; then
+			if ! IsPlatform mac && [[ $DISPLAY ]]; then
 				IsPlatform win && sublimeProgram="$(sublime program --alternate)"
 				[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
 				InPath geany && { echo "geany"; return 0; }
@@ -4887,6 +4887,9 @@ InitializeXServer()
 		else
 			export DISPLAY=:0
 		fi
+
+		! IsXServerRunning && { unset DISPLAY; X_SERVER_CHECKED="true"; return; }
+
 	fi
 
 	# GWSL configuration 
