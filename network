@@ -286,85 +286,66 @@ currentUpdateOpt() { currentOptOther "$@"; }
 
 currentUpdateCommand()
 {
-	# get cached network configuration
-	local existingNetwork="$(UpdateGetForce "network")" existingGateway="$(UpdateGetForce "network_gateway")" existingProxyServer="$(UpdateGetForce "ProxyServer")"
+	# get cached network
+	local network; network="$(UpdateGetForce "network")" || return
 
 	# return if recently updated
-	local cache="network-current-update"; [[ $existingNetwork ]] && ! UpdateNeeded "$cache" && return
+	local cache="network-current-update"; [[ $network ]] && ! UpdateNeeded "$cache" && return
 
-	# return if current network has not changed and is valid
-	local gateway; gateway="$(GetDefaultGateway --force)" || return
-
-	if [[ ! $force && "$existingGateway" == "$gateway" ]]; then
-		local dnsServer; dnsServer="$(GetDnsServers | cut -d" " -f1)"
-
-		if validateNetwork "$existingNetwork" "$dnsServer"; then
-			updateDns "$existingNetwork" || return
-			doLog && echo "Current network '$existingNetwork' has not changed"
-			UpdateDone "$cache"
-			return 0
-		fi			
-
-		doLog && echo "The DNS server '$dnsServer' for the current network '$existingNetwork' is not valid"
+	# check if the current network is the same (the default gateway is the same and the DNS server is valid)
+	if [[ ! $force ]] && updateCheckGateway && updateCheckDns; then
+		updateDns "$network" || return # ensure DNS configuration is correct
+		doLog && echo "Current network '$network' has not changed"
+		currentUpdateDone && return
 	fi
 
-	# determine current network configuration
-	local network
-	doLog && { hilight "Determining network..."; echo "Existing network is ${existingNetwork:-unknown}"; }
+	# network has changed - determine the new network configuration
+	UpdateSet "network-old" "${network:-external}" || return
+	doLog && { hilight "Determining network..."; echo "Existing network is ${network:-unknown}"; }
 	doLog && printf "network..."; network="$(findNetwork)" || return
+	UpdateSet "network" "$network" || return
 
-	# update network configuration if needed
-	if [[ $force || "$network" != "$existingNetwork" || "$gateway" != "$existingGateway" ]]; then
-		doLog && hilight "Configuring the network for '$network'..."
-		[[ $brief ]] && printf "network."
-		UpdateSet "network-old" "$existingNetwork" || return
-		UpdateSet "network" "$network" || return
-		UpdateSet "network_gateway" "$gateway" || return
-	fi
+	# update configuration based on the new network - update DNS first to enable name resolution so we can find servers on the new network
+	doLog && hilight "Configuring the network for '$network'..."; [[ $brief ]] && printf "network."		
+	updateDns && updatePython && updateProxy && currentUpdateStatus && currentUpdateDone
+}
 
-	# update DNS (resolv.conf) - ensures name resolution is working so we can find other servers
-	updateDns "$network" || return
+currentUpdateDone() { UpdateDone "$cache"; }
 
-	# find proxy servers
-	local proxyServer
-	if canProxy; then 
-		doLog && printf "proxy..."; proxyServer="$(findProxyServer "$network")" || return
-		doLog && { [[ $proxyServer ]] && echo "available" || echo "none"; }
-	fi
+currentUpdateStatus()
+{
+	! doLog && return
+	hilight "Network status..."
+	force= currentStatusCommand || return
+	[[ $(getProxyServer) ]] && { network proxy --status "${globalArgs[@]}" || return; }
+	return 0
+}
 
-	# update Python configuration
-	updatePython "$network" || return
+updateCheckDns()
+{
+	local dnsServer; dnsServer="$(GetDnsServers | cut -d" " -f1)"
+	validateDnsServer "$network" "$dnsServer" && return
+	doLog && echo "The DNS server '$dnsServer' for the current network '$network' is not valid"
+	return 1
+}
 
-	# return if no changes are required
-	[[ ! $force && "$network" == "$existingNetwork" && "$proxyServer" == "$existingProxyServer" ]] && return
+updateCheckGateway()
+{
+	local oldGateway; oldGateway="$(UpdateGetForce "network-gateway")" || return
+	local gateway; gateway="$(GetDefaultGateway --force)" || return
+	UpdateSet "network-gateway" "$gateway" || return
+	[[ "$oldGateway" == "$gateway" ]] && return
 
-	# save proxy server
-	UpdateSet "ProxyServer" "$proxyServer" || return
-	if [[ $proxyServer ]]; then
-		network proxy apt --enable "${globalArgs[@]}" || return
-		ScriptEval network proxy vars --enable || return
-	else
-		network proxy apt --disable "${globalArgs[@]}" || return
-		ScriptEval network proxy vars --disable || return
-	fi
-
-	# status
-	if doLog; then
-		hilight "Network status..."
-		force= currentStatusCommand || return
-		[[ $(getProxyServer) ]] && { network proxy --status "${globalArgs[@]}" || return; }
-	fi
-
-	UpdateDone "$cache"
+	doLog && echo "The current gateway '$gateway' for the current network '$network' is not valid"
+	return 1
 }
 
 # updateDns NETWORK
-updateDns() {	RunPlatform updateDns "$1" && updateHosts "$1"; }
+updateDns() {	RunPlatform updateDns && updateHosts; }
 
 # updateDnsWsl NETWORK - update /etc/resolv.conf for the current network
 updateDnsWsl()
 {
-	local network="$1"
 	local src="$DATA/setup/resolv.conf.$network" dest="/etc/resolv.conf"
 	[[ ! -f "$src" ]] && src="$DATA/setup/resolv.conf.external"
 	[[ ! -f "$src" ]] && return
@@ -380,7 +361,6 @@ updateDnsWsl()
 # updateDnsMac NETWORK - update /etc/resolver/custom for the current network
 updateDnsMac()
 {
-	local network="$1"
 	local src="$DATA/setup/$network.resolver" dest="/etc/resolver/custom"
 	! [[ -f "$src" ]] && { sudoc rm -f "$dest"; return 0; }
 	cmp --quiet "$src" "$dest" >& /dev/null && return
@@ -394,7 +374,6 @@ updateDnsMac()
 # updateHosts NETWORK - update /etc/hosts for the current network
 updateHosts()
 {
-	local network="$1"
 	local src="$DATA/setup/hosts.$network" dest="/etc/hosts"
 
 	# no hosts file for the current network - restore original /etc/hosts
@@ -415,10 +394,33 @@ updateHosts()
 	{ echo; cat "$src"; } | sudoc ${G}tee --append "$dest" > /dev/null
 }
 
+# updateDns NETWORK
+updateProxy()
+{
+	# find current proxy server
+	local proxyServer oldProxyServer; oldProxyServer="$(UpdateGetForce "network-proxy-server")" || return
+	if canProxy; then 
+		doLog && printf "proxy..."; proxyServer="$(findProxyServer "$network")" || return
+		doLog && { [[ $proxyServer ]] && echo "available" || echo "none"; }
+	fi
+
+	# return if no changes are required
+	[[ ! $force && "$proxyServer" == "$oldProxyServer" ]] && return
+
+	# save proxy server
+	UpdateSet "network-proxy-server" "$proxyServer" || return
+	if [[ $proxyServer ]]; then
+		network proxy apt --enable "${globalArgs[@]}" || return
+		ScriptEval network proxy vars --enable || return
+	else
+		network proxy apt --disable "${globalArgs[@]}" || return
+		ScriptEval network proxy vars --disable || return
+	fi
+}
+
 # updatePython NETWORK
 updatePython()
 {
-	local network="$1"
 	local src="$DATA/setup/pip.conf.$network" dest="$HOME/.config/pip/pip.conf"
 	
 	# src does not exists
@@ -474,8 +476,8 @@ findServer()
 	RemoveBefore "$server" "@" 
 }
 
-# validateNetwork NETWORK DNS_SERVER - validate the DNS server is correct for the network
-validateNetwork()
+# validateDnsServer NETWORK DNS_SERVER - validate the DNS server is correct for the specified network
+validateDnsServer()
 {
 	local network="$1" dnsServer="$2"
 	local networks=(); StringToArray "$(ConfigGet "networks")" "," networks	# array of network:DNS_IP
@@ -1141,7 +1143,7 @@ varsArgEnd() { [[ ! $update ]] && return; quiet="--quiet" currentUpdateCommand; 
 
 varsCommand()
 {
-	local NETWORK="$(UpdateGetForce "network")" NETWORK_GATEWAY="$(UpdateGetForce "network_gateway")"
+	local NETWORK="$(UpdateGetForce "network")" NETWORK_GATEWAY="$(UpdateGetForce "network-gateway")"
 	ScriptReturn "NETWORK" "NETWORK_GATEWAY"
 }
 
@@ -1409,8 +1411,8 @@ workgroupSetCommand()
 
 doLog() { [[ ! $brief && ! $quiet ]]; } # return true if output should be logged
 domain() { UpdateGetForce "network_domain"; }
-getProxyServer() { canProxy && UpdateGetForce "ProxyServer"; }
-getProxyServerApt() { canProxyApt && UpdateGetForce "ProxyServer"; }
+getProxyServer() { canProxy && UpdateGetForce "network-proxy-server"; }
+getProxyServerApt() { canProxyApt && UpdateGetForce "network-proxy-server"; }
 canProxyApt() { canProxy && isAptInstalled && ! grep --quiet "$(GetNetworkDnsBaseDomain)" "/etc/apt/sources.list"; } # canProxyApt - APT proxy not needed if using an internally hosted source
 
 # name - return the current network name

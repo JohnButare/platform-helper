@@ -929,7 +929,7 @@ ZoxideConf()
 
 ConfigExists() { local file; configInit "$2" && (. "$file"; IsVar "$1"); }							# ConfigExists VAR [FILE] - return true if a configuration variable exists
 ConfigGet() { local file; configInit "$2" && (. "$file"; eval echo "\$$1"); }						# ConfigGet VAR [FILE] - get a configuration variable
-ConfigGetCurrent() { ConfigGet "$(network current name)$(UpperCaseFirst "$1")" "$2"; } 	# ConfigGetCurrent VAR [FILE] - get a configuration entry for the current network
+ConfigGetCurrent() { ConfigGet "$(NetworkCurrent)$(UpperCaseFirst "$1")" "$2"; } 	# ConfigGetCurrent VAR [FILE] - get a configuration entry for the current network
 
 # configInit [FILE] - set the configuration file, find in $BIN/bootstrap-config.sh or /usr/local/bin/bootstrap-config.sh
 configInit()
@@ -1850,6 +1850,7 @@ IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
 NetworkCurrent() { UpdateGetForce "network"; }; 																# NetworkCurrent - configured current network
+NetworkOld() { UpdateGetForce "network-old"; }; 																# NetworkOld - the previous network
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }										# SmbPasswordIsSet USER - return true if the SMB password for user is set
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
@@ -2364,12 +2365,16 @@ MacLookup()
 	} | column -c $(tput cols -T "$TERM") -t -s-
 }
 
+# NetworkCurrentConfig - configure the shell with the current network configuration
+NetworkCurrentConfig() { ScriptEval network vars proxy; HashiConf -ff; }
+
+# NetworkCurrentUpdate - update the network configuration
 NetworkCurrentUpdate()
 {
 	local force forceLevel forceLess; ScriptOptForce "$@"
 
 	# show detail if forcing
-	if [[ $force ]]; then
+	if [[ $force || ! $(NetworkCurrent) ]]; then
 		network current update "$@" || return
 		ScriptEval network vars proxy "$@" || return
 	else
