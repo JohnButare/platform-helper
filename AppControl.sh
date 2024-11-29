@@ -1,7 +1,7 @@
 # AppControl.sh - control another application
 
 AppIsInstalled() { AppCommand isInstalled "$@"; }
-AppInstallVerify() { AppIsInstalled "$1" && return; ScriptErrQuiet "application '$1' is not installed" "$1"; return 1; }
+AppInstallVerify() { AppIsInstalled "$1" && return; ScriptErrQuiet "application '$1' is not installed" "$1"; }
 AppIsRunning() { AppCommand isRunning "$@"; }
 AppStart() { AppCommand start "$@"; }
 

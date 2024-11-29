@@ -1842,7 +1842,7 @@ GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name
 GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }				# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 																# GetHostname NAME - hosts actual configured name
 GetOsName() { local name="$1"; name="$(UpdateGet "os-name-$1")"; [[ $name ]] && echo "$name" || os name "$server"; } # GetOsName NAME - use cached DNS name without calling os for speed
-HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not available"; return 1; }
+HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not available"; }
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 HttpHeader() { curl --silent --show-error --location --dump-header - --output /dev/null "$1"; }
@@ -4349,7 +4349,7 @@ RunFunctions()
 ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } 						# ScriptArgs SCRIPT_NAME ARGS... - display script arguments
 ScriptCheckMac() { IsMacAddress "$1" && return; ScriptErr "'$1' is not a valid MAC address"; }
 ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; return 1; }	# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
-ScriptErrQuiet() { [[ $quiet ]] && return; ScriptErr "$@"; }
+ScriptErrQuiet() { [[ $quiet ]] && return 1; ScriptErr "$@"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 								# ScriptExit [STATUS](1) - return or exist from a script with the specified status
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
 ScriptMessage() { EchoErr "$(ScriptPrefix "$2")$1"; } 																		# ScriptMessage MESSAGE - log a message with the script prefix
@@ -4769,7 +4769,7 @@ JsonValidate()
 	[[ ! $errorDescription || "$errorDescription" == "null" ]] && errorDescription="$(JsonGetKey "$json" "$errorPath" | UnQuoteQuotes)"
 	[[ ! $errorDescription || "$errorDescription" == "null" ]] && errorDescription="the API call returned an error"
 	log2 "errorPath=$errorPath error='$error' errorDescriptionPath=$errorDescriptionPath errorDescription='$errorDescription'"
-	ScriptErrQuiet "$errorDescription"; return 1
+	ScriptErrQuiet "$errorDescription"
 }
 
 #

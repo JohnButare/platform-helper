@@ -471,7 +471,7 @@ GetHostsApp()
 	# validate
 	[[ $hosts ]] && return
 	local desc=" $(LowerCase "$type")"; [[ "$type" == "available" ]] && type=
-	ScriptErrQuiet "there are no$desc '$app' servers" "GetHostsApp"; return 1
+	ScriptErrQuiet "there are no$desc '$app' servers" "GetHostsApp"
 }
 
 # GetHostsConfig CONFIG - set hosts array from --host argument or from the specified configuration entry.

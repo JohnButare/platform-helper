@@ -413,8 +413,7 @@ bitsCommand() # 32 or 64
 	elif InPath lscpu; then { lscpu | grep "CPU op-mode(s): 32-bit, 64-bit" >& /dev/null && echo "64" || echo "32"; return; }
 	fi
 
-	[[ ! $quiet ]] && EchoErr "Unable to determine the operating systems bits."
-	return 1
+	ScriptErrQuiet "Unable to determine the operating systems bits"
 }
 
 buildCommand() { RunPlatform "build"; } 
@@ -424,12 +423,11 @@ buildWin() { registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/Curr
 
 codenameCommand()
 {
-	local name="$(RunPlatform "codeName")"
-	[[ $name ]] || { ScriptErrQuiet "unable to determine the code name"; return; }
-	echo "$name"
+	local name; name="$(RunPlatform "codeName")" && [[ $name ]] && { echo "$name"; return; }
+	ScriptErrQuiet "unable to determine the code name"
 }
 
-oscodeNameWin() { codeNameLinux; }
+codeNameWin() { codeNameLinux; }
 
 codeNameLinux() # buster|focal|jammy
 {

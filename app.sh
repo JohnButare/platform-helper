@@ -1,6 +1,6 @@
 # common functions for application scripts
 
-AppInstallCheck() { isInstalledCommand && return; [[ "${command[0]}" != "isInstalled" ]] && ScriptErrQuiet "application '$(ScriptName)' is not installed"; return 1; }
+AppInstallCheck() { isInstalledCommand && return; [[ "${command[0]}" != "isInstalled" ]] && ScriptErrQuiet "application '$(ScriptName)' is not installed"; }
 
 AppStart() { AppCommand start "$1"; }
 
