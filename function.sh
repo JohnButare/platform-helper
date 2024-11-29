@@ -497,9 +497,9 @@ AppVersion()
 			7z) version="$(7z | head -2 | ${G}tail --lines=-1 | cut -d" " -f 3)" || return;;
 			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
+			bat) version="$(bat --version | cut -d" " -f2)";;
 			cfssl) version="$(cfssl version | head -1 | cut -d':' -f 2 | RemoveSpaceTrim)" || return;;
 			consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
-			# consul) version="1.19.1";; # testing
 			cryfs|cryfs-unmount) version="$(cryfs --version | head -1 | cut -d" " -f3)";;
 			damon) version="$(damon --version | head -1 | cut -d"v" -f2 | cut -d"-" -f1)" || return;;
 			dbxcli) version="$(dbxcli version | head -1 | sed 's/.* v//')" || return;;
