@@ -1223,6 +1223,9 @@ iApp()
 	# apps to ignore
 	[[ "${app,,}" =~ ^(gitkrakendeb)$ ]] && return
 
+	# call a regular (non-install) function
+	IsFunction "$app" && { "$app"; return; }
+
 	# find the name of the function used to install the application
 	app="$(appGetInstallFunction "$app")" || return
 
@@ -1321,6 +1324,7 @@ isInstallable()
 	IsInArray -ci "$check" debRh && IsPlatform debian,rh && return
 	IsInArray -ci "$check" mac && IsPlatform mac && return
 	IsInArray -ci "$check" macDeb && IsPlatform mac,debian && return
+	IsInArray -ci "$check" macDebQnap && IsPlatform mac,debian,qnap && return
 	IsInArray -ci "$check" macDebRh && IsPlatform debian,mac,rh && return
 	IsInArray -ci "$check" macWin && IsPlatform mac,win && return
 	IsInArray -ci "$check" pi && IsPlatform pi && return
@@ -2185,13 +2189,13 @@ AppCoreInstall()
 	muteInstallable="true"
 
 	# install
-	appCoreStart && winPathFix && i AppCoreCommon AppPlatform AppNetwork AppHardware AppHost && appCoreEnd && rebootIfNeeded; 
+	i AppCoreStart winPathFix AppCoreCommon AppPlatform AppNetwork AppHardware AppHost AppCoreEnd rebootIfNeeded; 
 }
 
-appCoreStart() { header "App Core Start"; RunPlatform appCoreStart; }
+AppCoreStartInstall() { header "App Core Start"; RunPlatform appCoreStart; }
 appCoreStartWsl() { header "App Core Start WSL"; return 0; } # service stop dbus; pkill dbus-daemon; dbus service causes restart prompts on fresh install
 
-appCoreEnd()
+AppCoreEndInstall()
 {
 	header "App Core End"
 	! UpdateNeeded "install-app-core-end" && return
@@ -2749,7 +2753,7 @@ bootstrapStartWin()
  	header "Bootstrap Start Win"
 
  	# Hidden Start - install early if possible to prevent excessive UAC dialogs
-	CanElevate && ! IsDomainRestricted && { { winPathFix && i HiddenStartConfigure; } || return; }
+	CanElevate && ! IsDomainRestricted && { i winPathFix HiddenStartConfigure || return; }
 
 	# Set default user to aid troubleshooting - only supported in WSL 2+
 	! IsPlatform wsl1 && { wsl dist user set --user="$USER" || return; }
@@ -5144,7 +5148,7 @@ PowerCoreInstall()
 BalenaCliInstall()
 {
 	local v; v="$(versionGetCurrent "BalenaCli")" || return
-	local file="balena-cli-v$v"; run "$(balenaCliDir)/$file-windows-x64-standalone.zip|$file-macOS-x64-standalone.zip|$file-linux-x64-standalone.zip" --dest "balena-cli" --elevate --version=$v || return
+	local file="balena-cli-v$v"; run --name="BalenaCli" "$(balenaCliDir)/$file-windows-x64-standalone.zip|$file-macOS-x64-standalone.zip|$file-linux-x64-standalone.zip" --dest "balena-cli" --elevate --version=$v || return
 }
 
 BalenaCliDownload()
@@ -9977,7 +9981,7 @@ PassInstall()
 
 PasswordInstall()
 {
-	header "Passwords"
+	header "Password"
 	! IsPlatform win && return
 	[[ ! $force ]] && ! UpdateNeeded "install-password" && return
 
@@ -9986,7 +9990,8 @@ PasswordInstall()
 	password win --password "$password" || return
 
 	local password; password="$(credential get system default --quiet --fallback)" || return
-	password win --user "$(ConfigGet "systemUser")" --password "$password" || return
+	local user=$(ConfigGet "systemUser"); 
+	UserExistsWin "$user" && { password win --user "$user" --password "$password" || return; }
 
 	UpdateDone "install-password"
 }
@@ -12627,7 +12632,7 @@ xServerWin() { IsDomainRestricted && return; IsVm && return; i gwsl && wsl wslg 
 # GWSL - donation
 gwslInstall()
 {	
-	local gwsl="$UADATA/Microsoft/WindowsApps/gwsl"
+	local gwsl="$UADATA/Microsoft/WindowsApps/gwsl.exe"
 	[[ -f "$gwsl" && ! $force ]] && return
 	run --name "GWSL" --store "9NL6KD1H33V3"
 }

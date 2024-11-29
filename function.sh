@@ -245,6 +245,7 @@ ActualUser() { echo "${SUDO_USER-$USER}"; }
 CreateId() { echo "$((1000 + RANDOM % 9999))"; }
 UserDelete() { local user="$1"; ! UserExists "$user" && return; IsPlatform mac && { sudoc dscl . delete "/Users/$group"; return; }; sudoc userdel "$user"; }
 UserExists() { IsPlatform mac && { dscl . -list "/Users" | ${G}grep --quiet "^${1}$"; return; }; getent passwd "$1" >& /dev/null; }
+UserExistsWin() { IsPlatform win || return; net.exe user "$1" >& /dev/null; }
 UserInGroup() { id "$1" 2> /dev/null | ${G}grep --quiet "($2)"; } # UserInGroup USER GROUP
 UserList() { IsPlatform mac && { dscl . -list "/Users"; return; }; getent passwd | cut -d: -f1 | sort; }
 GroupDelete() { local group="$1"; ! GroupExists "$group" && return; IsPlatform mac && { sudoc dscl . delete "/Groups/$group"; return; }; sudoc groupdel "$group"; }
@@ -285,7 +286,7 @@ PasswordSet() { PasswordGet | cred set "$@" - ; }
 # --ssh-copy			copy the current users SSH configuration to the new user
 UserCreate() 
 {
-	local admin system sslCopy user password; 
+	local admin system sslCopy user password passwordShow; 
 
 	# options
 	while (( $# != 0 )); do
@@ -303,7 +304,7 @@ UserCreate()
 	done
 
 	[[ ! $user ]] && { MissingOperand "user" "UserCreate"; return 1; }
-	[[ ! $password ]] && { password="$(pwgen 14 1)" || return; }
+	[[ ! $password ]] && { passwordShow="true"; password="$(pwgen 14 1)" || return; }
 
 	# create user
 	if ! UserExists "$user"; then
@@ -323,7 +324,7 @@ UserCreate()
 
 		fi		
 
-		echo "User '$user' password is $password"
+		[[ "$passwordShow" ]] && echo "User '$user' password is $password"
 	fi
 
 	# make user administrator	
@@ -2387,7 +2388,11 @@ NetworkCurrentUpdate()
 # network: host availability
 #
 
-AvailableTimeoutGet() { local t="$(UpdateGet "hostTimeout")"; echo "${t:-$(ConfigGet "hostTimeout")}"; }
+AvailableTimeoutGet()
+{
+	local t="$(UpdateGet "hostTimeout")"; [[ ! $t ]] && t="$(ConfigGet "hostTimeout")"
+	echo "${t:-200}"
+}
 
 AvailableTimeoutSet()
 {
@@ -2407,7 +2412,7 @@ IsAvailable()
 	# - mDNS name resolution is intermitant (double check this on various platforms)
 	# - Windows ping.exe name resolution is slow for non-existent hosts
 	local ip; ip="$(GetIpAddress --quiet "$host")" || return
-	
+
 	if IsPlatform wsl1; then # WSL 1 ping does not timeout quickly for unresponsive hosts, ping.exe does
 	  	RunWin ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes=" &> /dev/null 
 	elif InPath fping; then
@@ -2579,9 +2584,15 @@ WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 #
 
 AddDnsSuffix() { GetArgs2; HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 	# AddDnsSuffix HOST DOMAIN - add the specified domain to host if a domain is not already present
-GetDnsSearch() { cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2-; }	# GetDnsSearch - get the system DNS search domains
 GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }	# GetDnsSuffix HOST - the DNS suffix of the HOST
 HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuffix HOST - true if the specified host includes a DNS suffix
+
+# GetDnsSearch - get the system DNS search domains
+GetDnsSearch()
+{
+	local f="/etc/resolv.conf"; [[ ! -f "$f" ]] && return 1
+	cat "$f" | grep "^search " | cut -d" " -f2-
+}
 
 # RemoveDnsSuffix HOST - remove the DNS suffix if present
 RemoveDnsSuffix()
@@ -4349,6 +4360,7 @@ RunFunctions()
 ScriptArgs() { PrintErr "$1: "; shift; printf "\"%s\" " "$@" >&2; echo >&2; } 						# ScriptArgs SCRIPT_NAME ARGS... - display script arguments
 ScriptCheckMac() { IsMacAddress "$1" && return; ScriptErr "'$1' is not a valid MAC address"; }
 ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; return 1; }	# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
+ScriptErrEnd() { [[ $1 ]] && HilightErrEnd "$(ScriptPrefix "$2")$1" || HilightErrEnd; return 1; }
 ScriptErrQuiet() { [[ $quiet ]] && return 1; ScriptErr "$@"; }
 ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 								# ScriptExit [STATUS](1) - return or exist from a script with the specified status
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
@@ -4534,6 +4546,9 @@ sudoc()
 	# set variables
 	local prompt="[sudoc] password for $USER on $HOSTNAME: "
 	local command=( "$(FindInPath "sudo")" )
+	
+	# do not prompt no prompt if there is no stdin
+	! IsStdIn && noPrompt="--no-prompt"
 
 	# determine environment variables need to be preserved when running sudo
 	if [[ $preserve ]]; then
@@ -4559,7 +4574,7 @@ sudoc()
 		if [[ ! $stderr ]] && IsStdOut; then		
 			PrintEnd "$prompt" || return
 		elif IsStdErr; then
-			EchoEnd "$prompt || return"
+			PrintErr "$prompt" || return
 		else
 			noPrompt="--no-prompt"
 		fi
@@ -4568,11 +4583,12 @@ sudoc()
 	# validate sudo to cache credentials
 	# - do separately from running the command so can use stdin in the command
 	if [[ $password ]]; then
-		echo "$password" | "${command[@]}" --prompt="" --stdin --validate || return
+		echo "$password" | "${command[@]}" --prompt="" --stdin --validate
 	else
 		[[ $noPrompt ]] && command+=(--non-interactive)
-		"${command[@]}" --prompt="" --validate || return
+		"${command[@]}" --prompt="" --validate
 	fi
+	(( ? != 0 )) && { ScriptErrEnd "unable to run command '"${args[@]}"'" "sudoc"; return 1; }
 
 	# run the command
 	# - do not use -- to allow environment variables, i.e. sudoc TEST=1 ls
@@ -4858,7 +4874,6 @@ GetVmType() # vmware|hyperv
 #
 
 HasWindowManager() { ! IsSsh || IsXServerRunning; } # assume if we are not in an SSH shell we are running under a Window manager
-IsXServerRunning() { InPath xhost && xhost >& /dev/null; } # was xprop -root >& /dev/null
 RestartGui() { IsPlatform win && { RestartExplorer; return; }; IsPlatform mac && { RestartDock; return; }; }
 WinExists() { ! IsPlatform win && return 1; ! tasklist.exe /fi "WINDOWTITLE eq $1" | grep --quiet "No tasks are running"; }
 
@@ -4884,12 +4899,12 @@ InitializeXServer()
 
 	# display
 	if [[ $force || ! $DISPLAY ]]; then
-		if IsPlatform wsl2 && ! IsSsh && CanElevate; then
+		if [[ $SSH_CONNECTION ]]; then
+			export DISPLAY="$(GetWord "$SSH_CONNECTION" 1):0"
+		elif IsPlatform wsl2 && CanElevate; then
 			local ip="0.0.0.0"; ! wsl supports mirrored && ip="$(GetWslGateway)"
 			export DISPLAY="$ip:0"
 			export LIBGL_ALWAYS_INDIRECT=1
-		elif [[ $SSH_CONNECTION ]]; then
-			export DISPLAY="$(GetWord "$SSH_CONNECTION" 1):0"
 		else
 			export DISPLAY=:0
 		fi
@@ -4919,6 +4934,26 @@ InitializeXServer()
 	fi
 
 	X_SERVER_CHECKED="true"
+}
+
+# IsXServerRunning - was xprop -root >& /dev/null
+IsXServerRunning()
+{
+	[[ ! $DISPLAY ]] && return 1
+	local ip="$(GetWord "$DISPLAY" 1 ":")"
+
+	if IsIpAddress "$ip"; then
+		local timeout="$(AvailableTimeoutGet)"
+
+		# quick timeout if the X Server is local
+		if [[ "$ip" == @(0.0.0.0) ]] || { IsPlatform wsl && [[ "$ip" == @(GetWslGateway) ]]; }; then
+			timeout=10 
+		fi
+
+		IsAvailablePort "$ip" 6000 "$timeout" || return
+	fi
+	
+	InPath xhost && xhost >& /dev/null
 }
 
 WinSetStateUsage()
