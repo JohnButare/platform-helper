@@ -156,7 +156,8 @@ USER="${USERNAME:-$USER}" DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
 DATA="/usr/local/data" ADATA="$DATA/appdata" ACONF="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM_OS"
 DOC="$HOME/Documents" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
-G="" # G=GNU program prefix (i.e. gls)
+G="" 		# G=GNU program prefix (i.e. gls)
+EXE="" 	# executable program suffix, i.e. .exe
 WIN_ROOT="/" WIN_HOME="$HOME"
 
 # PLATFORM_OS environment variables
@@ -174,6 +175,7 @@ case "$PLATFORM_OS" in
 		WIN_PUB="$WIN_ROOT/Users/Public"; WIN_DATA="$WIN_PUB/data"
 		[[ ! -d "$WIN_HOME/Documents" ]] && WIN_USER="$(cmd.exe /c set 2> /dev/null | grep '^USERNAME=' | cut -d= -f2 | tr -d '\n' | sed 's/\r//g')" WIN_HOME="$WIN_ROOT/Users/$WIN_USER"
 		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" UADATA="$WIN_HOME/AppData/Local" PUSER="$UADATA/Programs"
+		EXE=".exe"
 		;;
 
 esac
