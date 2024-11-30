@@ -4570,7 +4570,7 @@ sudoc()
 	# determine which password to use
 	local passwordName="secure"
 	if InPath opensc-tool && opensc-tool --list-readers | ${G}grep --quiet "Yes"; then passwordName="ssh"
-	elif echo "BOGUS" | { sudo --stdin --validate 2>&1; true; } | ${G}grep --quiet "^Enter PIN"; then passwordName="ssh"  
+	elif IsDomainRestricted && echo "BOGUS" | { sudo --stdin --validate 2>&1; true; } | ${G}grep --quiet "^Enter PIN"; then passwordName="ssh"  
 	fi
 
 	# get password if possible, ignore errors so we can prompt for it
