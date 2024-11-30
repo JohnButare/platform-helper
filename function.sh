@@ -4588,7 +4588,7 @@ sudoc()
 		[[ $noPrompt ]] && command+=(--non-interactive)
 		"${command[@]}" --prompt="" --validate
 	fi
-	(( ? != 0 )) && { ScriptErrEnd "unable to run command '"${args[@]}"'" "sudoc"; return 1; }
+	(( $? != 0 )) && { ScriptErrEnd "unable to run command '"${args[@]}"'" "sudoc"; return 1; }
 
 	# run the command
 	# - do not use -- to allow environment variables, i.e. sudoc TEST=1 ls
