@@ -21,6 +21,8 @@ init()
 	noProxyVars="no_proxy,NO_PROXY"	
 	allProxyVars="$proxyVars,$noProxyVars"
 	aptFile="/etc/apt/apt.conf.d/proxy"	
+
+	networkCache="${NETWORK_CACHE:-network}" networkCacheOld="${NETWORK_CACHE_OLD:-network-old}"
 }
 
 #
@@ -286,11 +288,10 @@ currentUpdateOpt() { currentOptOther "$@"; }
 currentUpdateCommand()
 {
 	# get cached network
-	local network; network="$(UpdateGetForce "network")" || return
+	local network; network="$(UpdateGetForce "$networkCache")" || return
 
 	# return if recently updated and we pass quick checks
-	local cache="network-current-update"; 
-	if [[ $network ]] && updateCheckQuick && ! UpdateNeeded "$cache"; then
+	if [[ $network ]] && ! UpdateNeeded "$networkCache" && updateCheckQuick; then
 		return
 	fi
 
@@ -302,17 +303,17 @@ currentUpdateCommand()
 	fi
 
 	# network has changed - determine the new network configuration
-	UpdateSet "network-old" "${network:-external}" || return
+	UpdateSet "$networkCacheOld" "${network:-external}" || return
 	doLog && { hilight "Determining network..."; echo "Existing network is ${network:-unknown}"; }
 	doLog && printf "network..."; network="$(findNetwork)" || return
-	UpdateSet "network" "$network" || return
+	UpdateSet "$networkCache" "$network" || return
 
 	# update configuration based on the new network - update DNS first to enable name resolution so we can find servers on the new network
 	doLog && hilight "Configuring the network for '$network'..."; [[ $brief ]] && printf "network."		
 	updateDns && updatePython && updateProxy && currentUpdateStatus && currentUpdateDone
 }
 
-currentUpdateDone() { UpdateDone "$cache"; }
+currentUpdateDone() { UpdateDone "$networkCache"; }
 
 currentUpdateStatus()
 {
@@ -1148,7 +1149,7 @@ varsArgEnd() { [[ ! $update ]] && return; quiet="--quiet" currentUpdateCommand; 
 
 varsCommand()
 {
-	local NETWORK="$(UpdateGetForce "network")" NETWORK_GATEWAY="$(UpdateGetForce "network-gateway")"
+	local NETWORK="$(UpdateGetForce "$networkCache")" NETWORK_GATEWAY="$(UpdateGetForce "network-gateway")"
 	ScriptReturn "NETWORK" "NETWORK_GATEWAY"
 }
 
@@ -1210,7 +1211,7 @@ vpnOnCommand()
 	elif [[ -f "$wg" ]]; then
 		elevate RunScript start "$wg" /installtunnelservice "$P/WireGuard/Data/Configurations/$HOSTNAME.conf.dpapi"
 	else
-		rasdial.exe "vpn-$(ConfigGet "network")" "$USER" "$(credential get secure default)" || return
+		rasdial.exe "vpn-$(ConfigGet "$networkCache")" "$USER" "$(credential get secure default)" || return
 	fi
 	currentUpdateCommand || return
 }
@@ -1222,7 +1223,7 @@ vpnOffCommand()
 	elif [[ -f "$wg" ]]; then
 		elevate "$wg" /uninstalltunnelservice "$HOSTNAME"
 	else
-		rasdial.exe "vpn-$(ConfigGet "network")" /disconnect || return
+		rasdial.exe "vpn-$(ConfigGet "$networkCache")" /disconnect || return
 	fi
 	currentUpdateCommand || return
 }
@@ -1424,18 +1425,18 @@ canProxyApt() { canProxy && isAptInstalled && ! grep --quiet "$(GetNetworkDnsBas
 name()
 { 
 	# return the cached network name if exists
-	local name; name="$(UpdateGet "network")" && [[ $name ]] && { echo "$name"; return; }
+	local name; name="$(UpdateGet "$networkCache")" && [[ $name ]] && { echo "$name"; return; }
 
 	# no network name identified, try and update it
 	network current update --quiet || return
-	name="$(UpdateGet "network")" && [[ $name ]] && { echo "$name"; return; }
+	name="$(UpdateGet "$networkCache")" && [[ $name ]] && { echo "$name"; return; }
 
 	# unable to identify the network
 	ScriptErr "unable to identify the current network"
 	return 1
 }
 
-nameCached() { UpdateGetForce "network"; }
+nameCached() { UpdateGetForce "$networkCache"; }
 
 # canProxy - return true if we can use a proxy on the current network 
 canProxy()

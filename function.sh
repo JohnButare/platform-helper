@@ -1844,6 +1844,8 @@ FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo ${G}tail -F --lines=+0 "$1"
 # network
 #
 
+NETWORK_CACHE="network" NETWORK_CACHE_OLD="network-old"
+
 GetPorts() { sudoc lsof -i -P -n; }
 GetDefaultGateway() { CacheDefaultGateway "$@" && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
 GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGetForce "domain"; }
@@ -1857,8 +1859,8 @@ HttpHeader() { curl --silent --show-error --location --dump-header - --output /d
 IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
-NetworkCurrent() { UpdateGetForce "network"; }; 																# NetworkCurrent - configured current network
-NetworkOld() { UpdateGetForce "network-old"; }; 																# NetworkOld - the previous network
+NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; }; 																# NetworkCurrent - configured current network
+NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; }; 																# NetworkOld - the previous network
 PortScan() { local args=(); IsPlatform win && [[ ! $1 ]] && args+=(-Pn); nmap "${1:-localhost}" "${args[@]}" "$@"; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }										# SmbPasswordIsSet USER - return true if the SMB password for user is set
