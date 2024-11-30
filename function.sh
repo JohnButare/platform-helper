@@ -1565,15 +1565,17 @@ FileToDesc()
 	echo "$file"
 }
 
-# FileWait [-q|--quiet] FILE [SECONDS](60) - wait for a file or directory to exist
+# FileWait [-q|--quiet]  FILE [SECONDS](60) - wait for a file or directory to exist
+# -p|--path		wait for the file to be in the path
 FileWait()
 {
 	# arguments
-	local file noCancel quiet sudo timeoutSeconds
+	local file noCancel pathFind quiet sudo timeoutSeconds
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--no-cancel|-nc) noCancel="true";;
+			--path|-p) pathFind="true";;
 			--quiet|-q) quiet="true";;
 			--sudo|-s) sudo="sudoc";;
 			*)
@@ -1589,12 +1591,17 @@ FileWait()
 
 	# variables
 	local dir="$(GetFilePath "$(GetFullPath "$file")")" fileName="$(GetFileName "$file")" fileDesc="$(FileToDesc "$file")"
-	local find=(FindAny "$dir" "$fileName"); [[ $sudo ]] && find=($sudo ls "$file")
+	
+	# find command
+	local find=(FindAny "$dir" "$fileName")
+	if [[ $pathFind ]]; then find=(InPath "$file")
+	elif [[ $sudo ]]; then find=($sudo ls "$file")
+	fi
+	"${find[@]}" >& /dev/null && return
 
 	# wait
 	[[ ! $quiet ]] && PrintErr "Waiting $timeoutSeconds seconds for '$fileDesc'..."
 	for (( i=1; i<=$timeoutSeconds; ++i )); do
-
 		"${find[@]}" >& /dev/null && { [[ ! $quiet ]] && EchoErrEnd "found"; return 0; }
 		if [[ $noCancel ]]; then
 			sleep 1
