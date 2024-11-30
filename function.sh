@@ -714,9 +714,9 @@ HashiConf()
 	[[ "$USER" == "root" ]] && { DbusConf $force $verbose || return; }
 
 	# return if needed
-	! HashiAvailable && return
 	[[ ! $force && $HASHI_CHECKED ]] && return
 	[[ ! $force && $VAULT_TOKEN ]] && { HASHI_CHECKED="true"; return; }
+	! HashiAvailable && return
 
 	# initialize
 	(( verboseLevel > 1 )) && header "Hashi Configuration"
@@ -1677,6 +1677,22 @@ MoveAll()
 	[[ ! $1 || ! $2 ]] && { EchoWrap "Usage: MoveAll SRC DEST"; return 1; }
 	shopt -s dotglob nullglob
 	mv "$1/"* "$2" && rmdir "$1"
+}
+
+InfoPathAdd() { for f in "$@"; do [[ -d "$f" && ! $INFOPATH =~ (^|:)$f(:|$) ]] && INFOPATH="${INFOPATH+$INFOPATH:}$f"; done; }
+ManPathAdd() { for f in "$@"; do [[ -d "$f" && ! $MANPATH =~ (^|:)$f(:|$) ]] && MANPATH="${MANPATH+$MANPATH:}$f"; done; }	
+
+PathAdd() # PathAdd [front] DIR...
+{
+	local front; [[ "$1" == "front" ]] && front="true"
+
+	for f in "$@"; do 
+		[[ ! -d "$f" ]] && continue
+		[[ $front ]] && { PATH="$f:${PATH//:$f:/:}"; continue; } # force to front
+		[[ ! $PATH =~ (^|:)$f(:|$) ]] && PATH+=":$f" # add to back if not present
+	done
+
+	return 0
 }
 
 rsync()
@@ -4164,7 +4180,6 @@ PythonConf()
 
 		# add to path
 		local front; IsPlatform mac && front="front"
-		! IsFunction PathAdd && { . "$BIN/bash.bashrc" || return; }
 		PathAdd "$front" "$PYTHON_USER_BIN" # $HOME/.local/bin
 		
 		PYTHON_CHECKED="true"
@@ -4216,7 +4231,6 @@ PyEnvConf()
 	export PYENV_ROOT="$HOME/.pyenv"
 
 	# add to path
-	! IsFunction PathAdd && { . "$BIN/bash.bashrc" || return; }
 	PathAdd front "$PYENV_ROOT/bin"
 
 	# configure
