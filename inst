@@ -8199,66 +8199,83 @@ WslProfile() { wsl $noPrompt profile restore default; }
 # .NET
 #
 
-DotNetAllInstall() { i DotNetRuntime DotNetSdk nUnit Silverlight VisualStudio; }
+DotNetAllInstall() { i DotNetAspRuntime DotNetDesktopRuntime DotNetRuntime DotNetSdk nUnit Silverlight VisualStudio; }
 DotNetDevInstall() { i DotNetSdk nUnit; }
 
-dotNetGetVersion()
+# dotNetGetInfo asp|desktop|sdk|runtime [6|7|8|9](latest) - sets variables: desc package prefix v
+dotNetGetInfo()
 {
-	local version="$1"
+	local type="$1" version="$2"; DotNetConf --force || return
 
 	# default version
 	if [[ ! $version ]]; then
-		[[ "$installType" == "beta" ]] && version=9 || version=8
+		[[ "$installType" == "beta" ]] && version=9 || version=9
 	fi
 
-	# get full versaion - https://dotnet.microsoft.com/en-us/download
-	case "$version" in
-		9) echo "9.0.100";;
-		8) echo "8.0.401";;
-		7) echo "7.0.302";;
-		6) echo "6.0.33";;
-		*) ScriptErr "cannot install .NET version '$1'"; return 1;;
+	[[ "$type" != @(asp|desktop|sdk|runtime) ]] && { ScriptErr "unknown .NET type '$type'"; return; }
+	[[ "$version" != @(6|7|8|9) ]] && { ScriptErr ".NET version '$version' is invalid"; return; }
+
+	# get full version - https://dotnet.microsoft.com/en-us/download
+	case "$type" in
+		sdk)
+			case "$version" in
+				9) v="9.0.100";;
+				8) v="8.0.404";;
+				7) v="7.0.410";;
+				6) v="6.0.428";;
+			esac
+			;;
+		asp|desktop|runtime)
+			case "$version" in
+				9) v="9.0.0";;
+				8) v="8.0.11";;
+				7) v="7.0.20";;
+				6) v="6.0.33";;
+			esac
+			;;
+	esac
+
+	# get other
+	case "$type" in
+		sdk) desc=".NET SDK" package="" prefix="dotnet-sdk";;
+		asp) desc="ASP.NET Core Runtime" package="Microsoft.AspNetCore.App" prefix="aspnetcore-runtime";;
+		desktop) desc=".NET Desktop Runtime" package="Microsoft.WindowsDesktop.App" prefix="windowsdesktop-runtime";;
+		runtime) desc=".NET Runtime" package="Microsoft.NETCore.App" prefix="dotnet-runtime";;
 	esac
 }
 
-# .NET Runtime
+DotNetRuntime9Install() { dotNetDo runtime 9; }; DotNetRuntime8Install() { dotNetDo runtime 8; }; DotNetRuntime7Install() { dotNetDo runtime 7; }; DotNetRuntime6Install() { dotNetDo runtime 6; };
+DotNetAspRuntimeInstall() { dotNetDo asp; }; DotNetAspRuntime9Install() { dotNetDo asp 9; }; DotNetAspRuntime8Install() { dotNetDo asp 8; }; DotNetAspRuntime7Install() { dotNetDo asp 7; }; DotNetAspRuntime6Install() { dotNetDo asp 6; };
+DotNetDesktopRuntimeInstall() { dotNetDo desktop; }; DotNetDesktopRuntime9Install() { dotNetDo desktop 9; }; DotNetDesktopRuntime8Install() { dotNetDo desktop 8; }; DotNetDesktopRuntime7Install() { dotNetDo desktop 7; }; DotNetDesktopRuntime6Install() { dotNetDo desktop 6; };
+DotNetSdkInstall() { dotNetDo sdk; }; DotNetSdk9Install() { dotNetDo sdk 9; }; DotNetSdk8Install() { dotNetDo sdk 8; }; DotNetSdk7Install() { dotNetDo sdk 7; }; DotNetSdk6Install() { dotNetDo sdk 6; };
 
-dotNetRuntimeCheck() { local v; v="$(dotNetGetVersion "$1")" && InPath dotnet.exe && dotnet.exe --list-runtimes | qgrep " $v "; }
-DotNetRuntime9Install() { DotNetRuntimeInstall 9; }; DotNetRuntime8Install() { DotNetRuntimeInstall 8; }; DotNetRuntime7Install() { DotNetRuntimeInstall 7; }; DotNetRuntime6Install() { DotNetRuntimeInstall 6; }
+# dotNetCheck asp|desktop|sdk|runtime VERSION
+dotNetCheck() { local type="$1" version="$2"; dotNetIsInstalled "$type" "$version" && return; i --no-header DotNet${type^}${version}; }
 
-DotNetRuntimeInstall()
+# dotNetIsInstalled asp|desktop|sdk|runtime VERSION
+dotNetIsInstalled()
 {
-	header ".NET Runtime"
-
-	# check
-	local v; v="$(dotNetGetVersion "$1")" || return
-	[[ ! $force ]] && { dotNetRuntimeCheck "$1" || dotNetSdkCheck "$1"; } && return
-
-	# install
-	if IsPlatform mac,win; then
-		local f="dotnet-runtime-$v-" arch="$(getArch "x64" "arm64")"
-		run "other/Microsoft/DOT.NET/setup/${f}win-${arch}.exe|${f}osx-${arch}.pkg" --elevate -- /quiet || return
+	local type="$1" version="$2" desc prefix; dotNetGetInfo "$type" "$version" || return
+	InPath dotnet${EXE} || return
+	if [[ "$type" == "sdk" ]]; then
+		dotnet${EXE} --list-sdks | qgrep "^$v "
 	else
-		curl -sSL "https://dot.net/v1/dotnet-install.sh" | bash /dev/stdin --channel Current
+		dotnet${EXE} --list-runtimes | qgrep "^$package $v "
 	fi
 }
 
-# .NET SDK
-
-dotNetSdkCheck() { local v; v="$(dotNetGetVersion "$1")" && InPath dotnet.exe && dotnet.exe --list-sdks | qgrep "^$v "; }
-DotNetSdk9Install() { DotNetSdkInstall 9; }; DotNetSdk8Install() { DotNetSdkInstall 8; }; DotNetSdk7Install() { DotNetSdkInstall 7; }; DotNetSdk6Install() { DotNetSdkInstall 6; }
-
-DotNetSdkInstall()
+# dotNetDo asp|desktop|sdk|runtime VERSION
+dotNetDo()
 {
-	header ".NET SDK"
-	
-	# check
-	local v; v="$(dotNetGetVersion "$1")" || return
-	[[ ! $force ]] && dotNetSdkCheck "$1" && return
+	local type="$1" version="$2" desc package prefix; dotNetGetInfo "$type" "$version" || return
+	header "$desc"
+
+	# install check
+	[[ ! $force ]] && dotNetIsInstalled "$type" "$version" && return
 
 	# install
 	if IsPlatform mac,win; then
-		local f="dotnet-sdk-$v-" arch="$(getArch "x64" "arm64")"
+		local f="$prefix-$v-" arch="$(getArch "x64" "arm64")"
 		run "other/Microsoft/DOT.NET/setup/${f}win-${arch}.exe|${f}osx-${arch}.pkg" --elevate -- /quiet || return
 	else
 		curl -sSL "https://dot.net/v1/dotnet-install.sh" | bash /dev/stdin --channel Current
@@ -9271,7 +9288,7 @@ MicrosoftRemoteDesktopInstall()
 	header "Microsoft Remote Desktop (Windows App)"
 	if IsPlatform mac && [[ "$installType" == "beta" ]]; then run --no-header "other/Microsoft/Remote Desktop/Microsoft Remote Desktop Beta.app.zip"; # https://install.appcenter.ms/orgs/rdmacios-k2vy/apps/microsoft-remote-desktop-for-mac/distribution_groups/all-users-of-microsoft-remote-desktop-for-mac
 	elif IsPlatform mac; then run --no-header --name "Microsoft Remote Desktop"; 
-	elif IsPlatform win && InPath "RdpProtocolHandler.exe"; then elevate RdpProtocolHandler.exe /install
+	elif IsPlatform win && InPath "RdpProtocolHandler.exe"; then dotNetCheck runtime 7 && elevate RdpProtocolHandler.exe /install
 	fi
 }
 

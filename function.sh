@@ -686,19 +686,28 @@ DirenvConf()
 # .NET
 DotNetConf()
 {
-	local force forceLevel forceLess; ScriptOptForce "$@"
+	local force forceLevel forceLess; ScriptOptForce "$@"	
 	[[ ! $force && $DOTNET_CHECKED ]] && return
+	unset -v DOTNET DOTNET_ROOT
 
-	# .NET on macOS use .NET from /usr/local/share/dotnet, fails if DOTNET_ROOT is set to $HOME/.dotnet
-	if ! InPath dotnet; then
-		if [[ -d "$HOME/.dotnet" ]]; then
-			PathAdd "$HOME/.dotnet"; export DOTNET_ROOT="$HOME/.dotnet"
+	# find .NET root directory
+	if ! InPath dotnet || { IsPlatform win && ! InPath dotnet.exe; }; then
+		if [[ -d "/usr/local/share/dotnet" ]]; then
+			export DOTNET_ROOT="/usr/local/share/dotnet" # .NET on mac fails if DOTNET_ROOT is $HOME/.dotnet
+		elif [[ -d "$HOME/.dotnet" ]]; then
+			export DOTNET_ROOT="$HOME/.dotnet"
 		elif [[ -d "$P/dotnet" ]]; then
-			PathAdd "$P/dotnet"; export DOTNET_ROOT="$P/dotnet"
+			export DOTNET_ROOT="$P/dotnet"	
+		else
+			DOTNET_CHECKED="true"; return
 		fi
-		! InPath dotnet && IsPlatform win && { alias dotnet="dotnet.exe"; }
 	fi
 
+	# initialize
+	PathAdd "$DOTNET_ROOT"
+	export DOTNET="$DOTNET_ROOT/dotnet"
+	IsPlatform win && { export DOTNET="$DOTNET.exe"; alias dotnet="dotnet.exe"; }
+	
 	DOTNET_CHECKED="true"
 }
 
