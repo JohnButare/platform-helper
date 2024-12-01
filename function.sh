@@ -1505,6 +1505,7 @@ FileCommand()
 	[[ ! $dir ]] && { MissingOperand "dir" "FileCommand"; return 1; }
 	[[ ! "$command" =~ ^(cp|mv|ren)$ ]] && { ScriptErr "unknown command '$command'" "FileCommand"; return 1; }
 	[[ ! $files ]] && return 0
+	
 	[[ ! -d "$dir" ]] && { ${G}mkdir --parents "$dir" || return; }
 
 	# command
