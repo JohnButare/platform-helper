@@ -507,7 +507,7 @@ ScriptRun()
 {
 	# variables	
 	local defaultCommand defaultCommandUsed
-	
+
 	# initialize
 	RunFunction "init" -- "$@" || return
 
