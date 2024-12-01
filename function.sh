@@ -1294,19 +1294,19 @@ RemoveSpaceEnd() { GetArgs; RemoveEnd "$1" " "; }
 RemoveSpaceFront() { GetArgs; RemoveFront "$1" " "; }
 RemoveSpaceTrim() { GetArgs; RemoveTrim "$1" " "; }
 
-QuoteBackslashes() { sed 's/\\/\\\\/g'; } # escape (quote) backslashes
-QuoteForwardslashes() { GetArgs; echo "$@" | sed 's/\//\\\//g'; } # escape (quote) forward slashes (/) using a back slash (\)
-QuoteParens() { GetArgs; echo "$@" | sed 's/(/\\(/g' | sed 's/)/\\)/g'; } # escape (quote) parents
-QuotePath() { sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
-QuoteQuotes() { GetArgs; echo "$@" | sed 's/\"/\\\"/g'; } # escape (quote) quotes using a back slash (\)
-UnQuoteQuotes() { GetArgs; echo "$@" | sed 's/\\\"/\"/g'; } # remove backslash before quotes
-QuoteSpaces() { GetArgs; echo "$@" | sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
+QuoteBackslashes() { GetArgs; echo -E "$@" | sed 's/\\/\\\\/g'; } # escape (quote) backslashes
+QuoteForwardslashes() { GetArgs; echo -E "$@" | sed 's/\//\\\//g'; } # escape (quote) forward slashes (/) using a back slash (\)
+QuoteParens() { GetArgs; echo -E "$@" | sed 's/(/\\(/g' | sed 's/)/\\)/g'; } # escape (quote) parents
+QuotePath() { GetArgs; echo -E "$@" | sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
+QuoteQuotes() { GetArgs; echo -E "$@" | sed 's/\"/\\\"/g'; } # escape (quote) quotes using a back slash (\)
+QuoteSpaces() { GetArgs; echo -E "$@" | sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
 RemoveQuotes() { sed 's/^\"//g ; s/\"$//g'; }
 RemoveParens() { tr -d '()'; }
 ReplaceString() { GetArgs3; echo "${1//$2/$3}"; } # ReplaceString TEXT STRING REPLACEMENT 
 BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
 ForwardToBackSlash() { GetArgs; echo -E "$@" | sed 's/\//\\/g'; }
 RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
+UnQuoteQuotes() { GetArgs; echo "$@" | sed 's/\\\"/\"/g'; } # remove backslash before quotes
 
 GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoWrap "Usage: GetWord STRING|- WORD [DELIMITER](-) - 1 based"; return 1; }
 
