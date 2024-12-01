@@ -510,6 +510,7 @@ AppVersion()
 			figlet|pyfiglet) version="$(pyfiglet --version | RemoveEnd ".post1")" || return;;
 			fortune) version="$(fortune --version | cut -d" " -f2)" || return;;
 			gcc) version="$(gcc --version | head -1 | cut -d" " -f4)" || return;;
+			git-credential-manager) version="$(git-credential-manager --version | cut -d"+" -f1)" || return;;
 			go) version="$(go version | head -1 | cut -d" " -f3 | RemoveFront "go")" || return;;
 			java) version="$(java --version |& head -1 | cut -d" " -f2)" || return;;
 			jq) version="$(jq --version |& cut -d"-" -f2)" || return;;
