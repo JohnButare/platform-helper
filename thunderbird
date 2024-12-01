@@ -4,21 +4,28 @@
 usage() 
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [close|IsInstalled|IsRunning|profile|program|restart|start|startup|version](start)
+Usage: $(ScriptName) [OPTION]... [close|IsInstalled|IsRunning|profile|program|restart|start|startup|vars|version](start)
 $(ScriptName) commands."
 }
 
 init()
 {
 	defaultCommand="start"
-	unset program
+	unset program profileDir
 
   # find program
 	case "$PLATFORM_OS" in
 		linux) program="/usr/lib/thunderbird/thunderbird";;
 		mac) program="$P/Thunderbird.app";;
-		win) program="$P/Mozilla Thunderbird/thunderbird.exe";;
+		win) program="$P/Mozilla Thunderbird/thunderbird.exe" configDir="$(GetFullPath "$UADATA/../Roaming/Thunderbird")"
 	esac
+
+	# profileDir
+	local p="$configDir/profiles.ini" profileSuffix
+	[[ -f "$p" ]] && profileSuffix="$(cat "$p" | ${G}grep '^Default=Profiles' | cut -d"=" -f2 | RemoveCarriageReturn)" && profileDir="$configDir/$profileSuffix"
+
+	# other
+	extensionDirProfile="$profileDir/extensions"
 }
 
 closeCommand() { ! isRunningCommand && return 0; task close --title "$title" "$program"; }
@@ -29,18 +36,29 @@ restartCommand() { closeCommand && startCommand; }
 startArgs() { startArgs=( "$@" ); shift="$#"; }
 startCommand() { AppInstallCheck && start $wait "$program" "${startArgs[@]}"; }
 startupCommand() { startCommand; }
+varsUsage() { echot "Usage: $(ScriptName) vars\nReturn Firefox configuration variables: program configDir profileDir"; }
+varsCommand() { ScriptReturn "program" "configDir" "profileDir"; }
 versionCommand() { AppInstallCheck && AppVersion "$program" | cut -d"." -f1-3; }
 
 #
 # Profile Command
 
-profileUsage() { echot "Usage: $(ScriptName) profile dir|SaveDir|save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."; }
-profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); return 0; }
-
-profileCommand()
+profileUsage()
 {
-	AppInstallCheck || return
-	
+	echot "\
+Usage: $(ScriptName) profile [dir|manager]
+	[all|profile|QuickFolders](all) save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."
+}
+
+profileArgStart() { AppInstallCheck; }
+profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); return 0; }
+profileCommand() { profileAllCommand; }
+profileAllCommand() { profileConfigCommand && profileQuickfoldersCommand; }
+profileDirCommand() { echo "$profileDir"; }
+profileManagerCommand() { "$program" -p; }
+
+profileQuickfoldersCommand()
+{
 	echo "QuickFolders..."
 	case "${profileArgs[0]}" in
 		backup) echo "- QuickFolders Options..., Licenses, Save Configuration...";;
@@ -48,6 +66,14 @@ profileCommand()
 	esac
 
 	profile $noPrompt --app "Thunderbird QuickFolders" --method "thunderbird" --save-extension "json" "${profileArgs[@]}" || return
+}
+
+profileProfileCommand()
+{
+	local command="${profileArgs[0]}"
+	[[ "$command" == "restore" ]] && echo "- alt-t, Import..."
+	[[ "$command" == "save" ]] &&  echo "- alt-t, Export..."
+	profile $noPrompt --app "Thunderbird" --method "$program" --save-extension "zip" "${profileArgs[@]}" || return
 }
 
 ScriptRun "$@"
