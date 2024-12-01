@@ -4326,6 +4326,14 @@ else
 	FindFunction() { declare -F | grep -iE "^declare -f ${1}$" | sed "s/declare -f //"; return "${PIPESTATUS[1]}"; }
 fi
 
+# RunCache CACHE FUNCTION [ARGS] - run function if an update is needed
+RunCache()
+{
+	local cache="$1"; shift
+	! UpdateNeeded "$cache" && return
+	"$@" && UpdateDone "$cache"
+}
+
 # RunFunction NAME [SUFFIX] -- [ARGS]- call a function if it exists, optionally with the specified suffix (i.e. nameSuffix)
 RunFunction()
 {
