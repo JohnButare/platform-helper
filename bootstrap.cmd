@@ -6,22 +6,25 @@ REM - 2: run the bootstrap process for WSL 2 (requires Hyper-V nested virtualiza
 
 REM variables
 set dir=%~dp0
-set wsl=%1
 set dist=Ubuntu
 set distUser=%USERNAME%
 rem set distUnc=\\ender.hagerman.butare.net\public
 rem set distImage=documents\data\install\platform\linux\wsl\image\ubuntu\default.tar.gz
 
+set wsl=%1
+if not DEFINED wsl set wsl=2
+
 REM unc - the current directory is a UNC, but we need to remove the trailing slash or net use will error
 set unc=%dir:~0,-1%  
-
-if not DEFINED wsl set wsl=2
 
 REM
 REM create bootstrap.cmd on the Desktop
 REM 
 
-set f=%HOMEDRIVE%%HOMEPATH%\Desktop\bootstrap.cmd
+set desktop=%HOMEDRIVE%%HOMEPATH%\OneDrive\Desktop
+if not exist "%desktop%" set desktop=%HOMEDRIVE%%HOMEPATH%\Desktop
+set f=%desktop%\bootstrap.cmd
+
 if not exist "%f%" (
 	> "%f%" echo @echo off
 	>> "%f%" echo echo ************************* bootstrap.cmd *************************
