@@ -606,7 +606,7 @@ CloudConf()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--quiet|-q) quiet="--quiet";;
-			*) UnknownOption "$1" CloudConf; return
+			*) UnknownOption "$1" "CloudConf"; return
 		esac
 		shift
 	done
@@ -3755,11 +3755,12 @@ IsWindowsProcess()
 # --force|-f			do not check if the process exists
 # --quiet|-q 			minimize informational messages
 # --root|-r 			kill processes as root
+# --timeout|-t		time to wait for the process to end in seconds
 # --verbose|-v		verbose mode, multiple -v increase verbosity (max 5)
 ProcessClose() 
 { 
 	# arguments
-	local args=() force names=() quiet root verbose verboseLevel verboseLess
+	local args=() force names=() quiet root timeout=10 verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -3767,6 +3768,7 @@ ProcessClose()
 			--force|-f) force="--force";;
 			--quiet|-q) quiet="--quiet";;
 			--root|-w) root="sudoc";;
+			--timeout|--timeout=*|-t|-t=*) . script.sh && ScriptOptTimeout "$@";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
@@ -3791,7 +3793,7 @@ ProcessClose()
 			name="${name/.exe/}.exe"; GetFileName "$name" name # ensure process has an .exe extension
 			cd "$PBIN" || return # process.exe only runs from the current directory in WSL
 			if InPath process.exe; then # Process.exe is not installed in some environments (flagged as malware by Cylance Protect)
-				./process.exe -q "$name" $2 |& grep --quiet "has been closed successfully."; result="$(PipeStatus 1)"
+				./process.exe -q "$name" $timeout |& grep --quiet "has been closed successfully."; result="$(PipeStatus 1)"
 			else
 				cmd.exe /c taskkill /IM "$name" >& /dev/null; result="$?"
 			fi
