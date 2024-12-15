@@ -538,6 +538,11 @@ AppVersion()
 			version="$(RunWin wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2)" || return
 		elif CanElevate; then
 			version="$(RunWin powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.FileVersion" | RemoveCarriageReturn)" || return
+
+			# use major, minor, build, revision - for programs like speedcrunch.exe
+			if ! IsNumeric "$version"; then
+				version="$(RunWin powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.FileVersionRaw" | RemoveCarriageReturn | RemoveEmptyLines | tail -1 | tr -s " " | RemoveSpaceTrim | sed 's/ /\./g')" || return
+			fi
 		fi
 	fi
 
