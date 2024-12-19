@@ -2475,25 +2475,49 @@ IsAvailableBatch()
 }
 
 # IsPortAvailable HOST:PORT|HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified TCP port
+# --verbose|-v|-vv|-vvv|-vvvv|-vvvvv - verbose output, does not supress error message
 IsAvailablePort()
 {
-	local host="$1"; shift
-	local port; [[ "$host" =~ : ]] && port="$(GetUriPort "$host")" host="$(GetUriServer "$host")" || { port="$1"; shift; }
-	local timeout="${1-$(AvailableTimeoutGet)}"; host="$(GetIpAddress "$host" --quiet)" || return
+	# arguments
+	local host port timeout verbose verboseLevel verboseLess
 
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			*)
+				if ! IsOption "$1" && [[ ! $host ]]; then
+					host="$1"; [[ "$host" =~ : ]] && port="$(GetUriPort "$host")" host="$(GetUriServer "$host")"
+					shift; continue
+				fi		
+				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $timeout ]] && { timeout="$1"; shift; continue; }
+				UnknownOption "$1" "IsAvailablePort"; return
+		esac
+		shift
+	done
+	[[ ! $host ]] && { MissingOperand "host" "IsAvailablePort"; return 1; }
+	[[ ! $port ]] && { MissingOperand "port" "IsAvailablePort"; return 1; }
+	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
+	host="$(GetIpAddress "$host" --quiet)" || return
+	local redirect=">& /dev/null"; [[ $verbose ]] && redirect=""
+
+	(( verboseLevel > 1 )) &&  ScriptErr "checking port '$port' on host '$host' with timeout $timeout" "IsAvailablePort"
 	if InPath ncat; then
-		ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" >& /dev/null
+		(( verboseLevel > 2 )) && ScriptErr "ncat --exec BOGUS --wait ${timeout}ms $host $port" "IsAvailablePort"
+		eval ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" $redirect
 	elif InPath nmap; then
-		nmap "$host" -p "$port" -Pn -T5 |& grep -q "open" >& /dev/null
+		(( verboseLevel > 2 )) && ScriptErr "nmap $host -p $port -Pn -T5" "IsAvailablePort"
+		eval nmap "$host" -p "$port" -Pn -T5 '|&' grep -q "open" $redirect
 	elif IsPlatform win && InPath chkport-ip.exe; then
-		RunWin chkport-ip.exe "$host" "$port" "$timeout" >& /dev/null
+		(( verboseLevel > 2 )) && ScriptErr "RunWin chkport-ip.exe $host $port $timeout" "IsAvailablePort"
+		eval RunWin chkport-ip.exe "$host" "$port" "$timeout" $redirect
 	else
 		return 0 
 	fi
 }
 
 # IsPortAvailableUdp HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified UDP port
-# --verbose - does not supress error message
+# --verbose|-v|-vv|-vvv|-vvvv|-vvvvv - verbose output, does not supress error message
 IsAvailablePortUdp()
 {
 	# arguments
@@ -2513,12 +2537,11 @@ IsAvailablePortUdp()
 	[[ ! $host ]] && { MissingOperand "host" "IsAvailablePortUdp"; return 1; }
 	[[ ! $port ]] && { MissingOperand "port" "IsAvailablePortUdp"; return 1; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
-
 	host="$(GetIpAddress "$host" --quiet)" || return
-
 	local redirect=">& /dev/null"; [[ $verbose ]] && redirect=""
 
-	if InPath nc; then # does not require root access
+	# check
+	if InPath nc; then # nc does not require root access
 		timeout="$(( timeout / 1000 + 1 ))" # round up to nearest second
 		eval nc -zvu "$host" "$port" -w "$timeout" $redirect
 	elif InPath nmap; then
@@ -3390,7 +3413,7 @@ IsPlatform()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-a|--all) all="true";;
-			-h|--host) 
+			--host|-H)
 				[[ $2 ]] && ! IsOption "$2" && { host="$2"; shift; }
 				useHost="true" hostArg="--host $host"
 				;;
@@ -3719,7 +3742,7 @@ IsProcessRunningList()
 	local processes; 
 	if [[ $CACHED_PROCESSES ]]; then
 		processes="$CACHED_PROCESSES"
-		(( verboseLevel > 2 )) && ScriptErr "IsProcessRunningList: using cached processes to lookup '$name'"
+		(( verboseLevel > 2 )) && ScriptErr "IsProcessRunningList: using cached processes to lookup '$name'" "IsProcessRunningList"
 	else
 		processes="$(ProcessList "$@")" || return
 	fi
@@ -3813,9 +3836,9 @@ ProcessClose()
 		fi
 
 		if (( ${result:-0} != 0 )); then
-			[[ ! $quiet ]] && ScriptErr "unable to close '$name'"; finalResult="1"
+			[[ ! $quiet ]] && ScriptErr "unable to close '$name'" "ProcessClose"; finalResult="1"
 		elif [[ $verbose ]]; then
-			ScriptErr "closed process '$name'"
+			ScriptErr "closed process '$name'" "ProcessClose"
 		fi
 
 	done
@@ -3909,9 +3932,9 @@ ProcessKill()
 		# process result
 		[[ ! $quiet && $output ]] && echo "$output"
 		if (( $result != 0 )); then
-			[[ ! $quiet ]] && ScriptErr "unable to kill '$name'"; resultFinal="1"
+			[[ ! $quiet ]] && ScriptErr "unable to kill '$name'"; resultFinal="1" "ProcessKill"
 		elif [[ $verbose ]]; then
-			ScriptErr "killed process '$name'"
+			ScriptErr "killed process '$name'" "ProcessKill"
 		fi
 
 	done
@@ -4823,7 +4846,7 @@ JsonValidate()
 	local json="$1" errorPath="${2:-error}"; local errorDescriptionPath="${3:-$errorPath}"
 
 	# invalid json
-	! JsonIsValid "$json" && { log1 "json='$json'"; ScriptErrQuiet "the JSON is not valid"; return 1; }	
+	! JsonIsValid "$json" && { [[ $verbose ]] && "json='$json'"; ScriptErrQuiet "the JSON is not valid"; return 1; }	
 
 	# no error
 	! JsonHasKey "$json" "$errorPath" && return
