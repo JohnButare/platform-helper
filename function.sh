@@ -1711,6 +1711,18 @@ PathAdd() # PathAdd [front] DIR...
 	return 0
 }
 
+# RmOldFiles PATTERN [DAYS](30)
+RmOldFiles()
+{
+	local dir="$1" days="${2:-30}"
+	[[ ! -d "$dir" ]] && { ScriptErr "the directory '$dir' does not exist" "RmOldFiles"; return 1; }
+	find "$dir" -type f -mtime +$days || return
+	local count; count="$(find "$dir" -type f -mtime +$days | wc -l)" || return
+	(( count == 0 )) && { echo "No files to delete"; return; }
+	ask "Delete $count files files" --default-response n || return
+	find "$dir" -type f -mtime +$days -delete || return
+}
+
 rsync()
 {
 	IsPlatform mac && { "$HOMEBREW_PREFIX/bin/rsync" "$@"; return; }
