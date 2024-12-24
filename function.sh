@@ -1893,7 +1893,6 @@ IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# Is
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
 NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; }; 																# NetworkCurrent - configured current network
 NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; }; 																# NetworkOld - the previous network
-PortScan() { local args=(); IsPlatform win && [[ ! $1 ]] && args+=(-Pn); nmap "${1:-localhost}" "${args[@]}" "$@"; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }										# SmbPasswordIsSet USER - return true if the SMB password for user is set
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
@@ -2428,6 +2427,10 @@ NetworkCurrentUpdate()
 #
 # network: host availability
 #
+
+PortCheck() { local host="${1:-localhost}" port="${2:-502}"; IsAvailablePort "$host" "$port" && echo "OPEN" || echo "CLOSED"; }
+PortOpen() { local port="${1:-502}"; echo "Listining on port $port..."; sudoc ncat -l "$port" -c '/usr/bin/data' --keep-open; }
+PortScan() { local args=(); IsPlatform win && [[ ! $1 ]] && args+=(-Pn); nmap "${1:-localhost}" "${args[@]}" "$@"; } # -sT -p-
 
 AvailableTimeoutGet()
 {

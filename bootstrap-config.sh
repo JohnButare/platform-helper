@@ -46,7 +46,7 @@ defaultDomain="hagerman"
 # networks - list of known networks, check the DNS servers, format is NETWORK@DNS_IP[:ping|dns|nfs|smb|ssh|wg](dns)
 # hagerman 10.10.100.8|7 (lb3|lb2)
 # sandia 10.248.0.3 - gateware from trace route
-networks="sandia@10.248.0.3:ping,hagerman@10.10.100.8:dns,hagerman@10.10.100.7:dns"
+networks="sandia@10.248.0.3:ping,hagerman@10.10.100.8:dns,hagerman@10.10.100.7:dns,sandia@134.252.10.16:dns"
 
 # external network
 externalTimeServer="time.apple.com"
