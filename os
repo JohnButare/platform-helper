@@ -76,21 +76,21 @@ diskCommand() { diskTotalCommand; }
 diskFreeCommand()
 {	
 	! InPath di && return; local disk="${1:-1}"
-	di --type ext4 --display-size g | grep "^/dev" | head -$disk | ${G}tail --lines=-1 | tr -s ' ' | cut -d" " -f 5
+	di --type ext2,ext3,ext4 --display-size g | grep "^/dev" | head -$disk | ${G}tail --lines=-1 | tr -s ' ' | cut -d" " -f 5
 }
 
 # diskTotalCommand [N](1) - disk N from space.    Disk 1 is the main disk, 2 is the next, etc.
 diskTotalCommand()
 {
 	! InPath di && return; local disk="${1:-1}"
-	di --type ext4 --display-size g | grep "^/dev" | head -$disk | ${G}tail --lines=-1 | tr -s ' ' | cut -d" " -f 3
+	di --type ext2,ext3,ext4 --display-size g | grep "^/dev" | head -$disk | ${G}tail --lines=-1 | tr -s ' ' | cut -d" " -f 3
 }
 
 # diskUsedCommand [N](1) - disk N from space.    Disk 1 is the main disk, 2 is the next, etc.
 diskUsedCommand()
 {
 	! InPath di && return; local disk="${1:-1}"
-	di --type ext4 --display-size g | grep "^/dev" | head -$disk | ${G}tail --lines=-1 | tr -s ' ' | cut -d" " -f 4
+	di --type ext2,ext3,ext4 --display-size g | grep "^/dev" | head -$disk | ${G}tail --lines=-1 | tr -s ' ' | cut -d" " -f 4
 }
 
 #
@@ -673,7 +673,7 @@ infoCredential()
 
 infoDisk()
 { 
- ! InPath di && return; local disks; disks="$(di --type ext4 | grep "^/dev" | wc -l)"
+ ! InPath di && return; local disks; disks="$(di --type ext2,ext3,ext4 | grep "^/dev" | wc -l)"
  infoEcho " system disk: $(infoDiskGet used 1)/$(infoDiskGet free 1)/$(infoDiskGet total 1) GB used/free/total"; 
  (( disks > 1 )) && infoEcho "   data disk: $(infoDiskGet used 2)/$(infoDiskGet free 2)/$(infoDiskGet total 2) GB used/free/total"; 
  return 0
