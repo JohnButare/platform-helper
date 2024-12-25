@@ -1289,6 +1289,8 @@ $(syncUsageText)"
 syncUsageText()
 {
 	ScriptUsageEcho "\
+	-do, --dest-older						assume destination files are than the local source files
+	-so, --src-older						assume local files are older than the destination files
 	-H,   --host [HOSTS](all) 	$(ScriptOptHostUsage)
 	-nsr, --no-service-restart	do not restart services
 	-t,   --timeout							$(ScriptOptTimeoutUsage)"
@@ -1300,7 +1302,7 @@ syncCommand() { usage; }
 
 syncArgStart()
 {
-	unset hostArg hostOpt hosts noServiceRestart; ScriptOptTimeoutArgStart
+	unset hostArg hostOpt hosts method noServiceRestart; ScriptOptTimeoutArgStart
 	unset unisonArgs
 }
 
@@ -1308,6 +1310,8 @@ syncOpt()
 {
 	ScriptOptHost "$@" && return
 	case "$1" in
+		--destination-older|--dest-older|-do) method="--dest-older";;
+		--source-older|--src-older|-so) method="--src-older";;
 		--no-service-restart|-nsr) noServiceRestart="--no-service-restart";;
 		--timeout|--timeout=*|-t|-t=*) ScriptOptTimeout "$@";;
 		*) return 1;;
@@ -1355,55 +1359,56 @@ syncCredentialCommand()
 
 # local sync
 
-syncApache-webUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb cert\nSyncronize Apache web site data.\n\n$(syncUsageText)"; }
+syncApache-webUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync apache-web\nSyncronize Apache web site data.\n\n$(syncUsageText)"; }
 syncApache-webCommand() { apache sync "${hostOpt[@]}" "${globalArgs[@]}"; }
 
 syncBroadlink-managerUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync broadlink-manager\nSyncronize Broadlink Manager configuration.\n\n$(syncUsageText)"; }
 syncBroadlink-managerCommand() { GetHostsApp "broadlink-manager" && ForAllHosts syncBroadlinkManager --header "Sync Broadlink Manager"; }
 syncBroadlinkManager() { syncDir "$1" "/srv/broadlinkmanager"; }
 
-syncLbUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb [cert]\nSyncronize load balancer configuration (NGINX rever proxy servers).\n\n$(syncUsageText)"; }
+syncLbUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb\nSyncronize load balancer configuration (NGINX rever proxy servers).\n\n$(syncUsageText)"; }
 syncLbCommand() { GetHostsApp "lb" && ForAllHosts syncLb --header "Sync Load Balancer"; }
 syncLb() { unisonArgs=(-ignore "Name {sites-available/*.conf}" -ignorenot "Name {default.conf,outage.conf}"); syncDir "$1" "/etc/nginx,/etc/consul-template.d" "consul-template,nginx"; }
 
-syncLb-certUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb cert\nSyncronize load balancer SSL certificates.\n\n$(syncUsageText)"; }
+syncLb-certUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb-cert\nSyncronize load balancer SSL certificates.\n\n$(syncUsageText)"; }
 syncLb-certCommand() { GetHostsApp "lb" && ForAllHosts syncLbCert --header "Sync Certificates"; }
 syncLbCert() { syncDir "$1" "/etc/letsencrypt"; }
 
-syncPool-controllerUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb [cert]\nSyncronize Pool Dash Panel configuration.\n\n$(syncUsageText)"; }
+syncPool-controllerUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync pool-controller\nSyncronize Pool Dash Panel configuration.\n\n$(syncUsageText)"; }
 syncPool-controllerCommand() { GetHostsApp "pool-controller" && ForAllHosts syncPoolController --header "Sync Pool Controller Files"; }
 syncPoolController() { unisonArgs=(); syncDir "$1" "/opt/pool-controller/data"; }
 
-syncPool-dash-panelUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb [cert]\nSyncronize Pool Dash Panel configuration.\n\n$(syncUsageText)"; }
+syncPool-dash-panelUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync poo-dash-panel\nSyncronize Pool Dash Panel configuration.\n\n$(syncUsageText)"; }
 syncPool-dash-panelCommand() { GetHostsApp "pool-dash-panel" && ForAllHosts syncPoolDashPanel --header "Sync Pool Dash Panel Files"; }
 syncPoolDashPanel() { unisonArgs=(-ignorenot "Name {config.json}" -ignore "Regex .*[^.]" ); syncDir "$1" "/opt/pool-dash-panel"; }
 
-syncWire-guardUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb [cert]\nSyncronize WireGuard configuration.\n\n$(syncUsageText)"; }
+syncWire-guardUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync wire-guard\nSyncronize WireGuard configuration.\n\n$(syncUsageText)"; }
 syncWire-guardCommand() { GetHostsApp "wire-guard" && ForAllHosts syncWireGuard --header "Sync WireGuard Files"; }
 syncWireGuard() { unisonArgs=(-ignore "Name {setupVars.conf}"); syncDir "$1" "/etc/wireguard,/etc/pivpn" "wg-quick@wg0"; }
 
 # remote sync
 
-syncNetbootxyzUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync lb [cert]\nSyncronize netboot.xyz configuration (assets, assets-custom, confi, and installers).\n\n$(syncUsageText)"; }
-syncNetbootxyzCommand() { header "Sync netboot.xyz" && UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz" "rp2" "${globalArgs[@]}"; }
+syncNetbootxyzUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync netbootxyz\nSyncronize netboot.xyz configuration (assets, assets-custom, confi, and installers).\n\n$(syncUsageText)"; }
+syncNetbootxyzCommand() { header "Sync netboot.xyz" && UnisonHelper sync --host=rp1 "$ADATA/netbootxyz" "rp2" --root $method "${globalArgs[@]}"; }
  
-syncPublicUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync public [cert]\nSyncronize public files.\n\n$(syncUsageText)"; }
+syncPublicUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync public [local]\nSyncronize public files.\n\n$(syncUsageText)"; }
 syncPublicCommand()
 {
 	header "Sync Public Files"
-
-	# file servers - two passes to get changes on the file servers
 	GetHostsApp "file" || return
 	ForAllHosts syncPublic --header "Sync Ender Files" || return
-	ForAllHosts syncPublic --header "Sync Ender Files" || return
-
-	# local install directory (if present)
-	local dir; dir="$(FindInstallFile --all | grep -v "^//" | grep "public" | head -1)" || return 0
-	hilight 'Synchronizing ender <-> local...'
-	UnisonHelper sync --no-props "$(GetFilePath "$dir")" "ender" "/Volumes/data/public" "${globalArgs[@]}" || return
+	ForAllHosts syncPublic --header "Sync Ender Files" || return # two passes to get changes on the file servers
 }
 
 syncPublic() { UnisonHelper sync --host=ender "/Volumes/data/public" "$host" "/mnt/data/public" "${globalArgs[@]}"; }
+
+syncPublicLocalUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync public local\nSyncronize local public files if present.\n\n$(syncUsageText)"; }
+syncPublicLocalCommand()
+{
+	local dir; dir="$(FindInstallFile --all | grep -v "^//" | grep "public" | head -1)" || return 0
+	hilight 'Synchronizing ender <-> local...'
+	UnisonHelper sync --no-props $method "$(GetFilePath "$dir")" "ender" "/Volumes/data/public" "${globalArgs[@]}" || return
+}
 
 #
 # sync home-assistant command
@@ -1606,7 +1611,7 @@ syncDir()
 
 		# sync
 		hilight "Syncing '$dir' to '$host'..."
-		UnisonHelper sync "$localDir" "$host" "$dir" --root "${globalArgs[@]}" -- "${unisonArgs[@]}" || return		
+		UnisonHelper sync "$localDir" "$host" "$dir" --root $method "${globalArgs[@]}" -- "${unisonArgs[@]}" || return		
 		echo
 
 	done	
