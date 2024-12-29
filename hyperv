@@ -23,19 +23,11 @@ init()
 	allHelp="-a, 	--all				operate on all virtual machines"
 }
 
-existsUsage() { echot "Usage: $(ScriptName) exists VM\nReturn true if the virtual machine exists."; }
-existsArgs() { getVmArg "$@"; }
-existsCommand() { psRaw 'Get-VM | where {\$_.Name -eq \"'$vm'\"}' | grep "$vm" >& /dev/null; }
-
 isInstalledCommand() { InPath virtmgmt.msc && hypervisorIsInstalledCommand; }
 
-lsUsage() { echot "Usage: $(ScriptName) ls\nList all virtual machines."; }
-
-lsCommand()
-{
-	[[ $verbose ]] && { psRaw 'Get-VM'; return; }
-	psRaw 'Get-VM' | RemoveCarriageReturn | ${G}tail --lines=+4 | cut -d" " -f 1 | grep -v '^$'
-}
+#
+# checkpoint command
+#
 
 checkpointUsage() { echot "Usage: $(ScriptName) checkpoint VM|all \nCheckpoint the virtual machines."; }
 checkpointArgs() { getVmArg "$@"; }
@@ -49,137 +41,9 @@ checkpointCommand()
 	fi
 }
 
-guiCommand()
-{
-	! InPath "$gui" && { EchoErr "The Hyper-V management GUI is not installed"; }
-	[[ ! $force ]] && WinExists "Hyper-V Manager" && return 0
-	start "$gui" "$@"
-}
-
-rmUsage() { echot "Usage: $(ScriptName) delete VM \nDelete the virtual machines."; }
-rmArgs() { getVmArg "$@"; }
-
-rmCommand()
-{
-	[[ ! $force ]] && { ask "Are you sure you want to delete the '$vm' vm completely" -dr n || return; }
-
-	printf "deleting $vm..."
-	ps 'Remove-VM -name \"'$vm'\" -force' >& /dev/null
-	printf "."; deleteVmDiskFiles || return
-	echo "done"
-}
-
-statusCommand()
-{
-	ps "$(cat <<-EOF
-		\\\$v = Get-VMHost
-		\\\$vms = Get-VM
-
-		Write-Host ('name={0}' -f \\\$v.Name)
-		Write-Host ('total={0}' -f \\\$vms.count)
-    Write-Host ('running={0}' -f \\\$vms.where( {\\\$_.state -eq 'running'}).count)
-    Write-Host ('off={0}' -f \\\$vms.where( {\\\$_.state -eq 'off'}).count)
-    Write-Host ('saved={0}' -f \\\$vms.where( {\\\$_.state -eq 'Saved'}).count)
-    Write-Host ('paused={0}' -f \\\$vms.where( {\\\$_.state -eq 'Paused'}).count)
-    Write-Host ('other={0}' -f \\\$vms.where( {\\\$_.state -notmatch \"running|off|saved|Paused\"}).count)
-    Write-Host ''
-    Write-Host ('VirtualMachinePath={0}' -f \\\$v.VirtualMachinePath)
-    Write-Host ('VirtualHardDiskPath={0}' -f \\\$v.VirtualHardDiskPath)
-    Write-Host ('EnhancedSessionMode={0}' -f \\\$v.EnableEnhancedSessionMode)
-
-	EOF
-	)"
-}
-
-#Write-Host ('={0}' -f \\\$)
-
-#
-# config commands
-#
-
-configUsage() { echot "Usage: $(ScriptName) external|guest|switch"; }
-configCommand() { usage; }
-
-#
-# config guest command
-#
-
-configGuestUsage()
-{
-	echot "Usage: $(ScriptName) guest VM [linux|pxe|rh|win](win)
-Configure guest services for a Linux or Windows guest." 
-}
-
-configGuestArgStart() { os="win"; }
-
-configGuestArgs()
-{
-	getVmArg "$@"; shift
-	[[ "$1" == @(linux|pxe|rh|win) ]] && { ScriptArgGet "os" -- "$@"; shift;}
-	return 0
-}
-
-configGuestCommand() { configGuest "$vm" "$os"; }
-
-# configGuest VM linux|win - configure vm for the specified operating system
-configGuest()
-{
-	local vm="$1" os="$2" transport="VMBus"; [[ "$os" == "linux" ]] && transport="HvSocket"
-	ps 'Set-VM -VMName \"'$vm'\" -EnhancedSessionTransportType '$transport'' || return
-}
-
-#
-# config external command
-#
-
-configExternalUsage()
-{
-	echot "\
-Usage: $(ScriptName) config external ADAPTER
-	Configure network adapter as the external vitual private switch.
-	Use 'network adapter list' to list network adapters."
-}
-
-configExternalArgs() { ScriptArgGet "adapter" -- "$@"; shift; }
-
-configExternalCommand()
-{
-	[[ ! $force ]] && ps Get-VMSwitch | grep --quiet "^external " && return
-	ps 'New-VMSwitch -Name "external" -NetAdapterName '$adapter' -AllowManagementOS:\$false'
-}
-
-#
-# config switch command
-#
-
-configSwitchUsage()
-{
-	echot "Usage: $(ScriptName) config switch VM [SWITCH](Default Switch)
-Set the network switch for the virtual machine." 
-}
-
-configSwitchArgStart() { switch="Default Switch"; }
-
-configSwitchArgs()
-{
-	getVmArg "$@"; shift
-	[[ $1 ]] && ScriptArgGet "service" -- "$@"
-	return 0
-}
-
-configSwitchCommand() {	configSwitch "$vm" "$switch"; }
-
-# configSwitch VM SWITCH - connect the VM to a switch
-configSwitch()
-{
-	local vm="$1" switch="${2:-Default Switch}"
-	ps 'Get-VM -VMName \"'$vm'\" | Get-VMNetworkAdapter | Connect-VMNetworkAdapter -SwitchName \""'"$switch"'"\"'
-}
-
 #
 # clone command
 #
-
 
 cloneUsage() { echot "Usage: $(ScriptName) CLONE VM\nClone a virtual machine."; }
 cloneArgs() { getVmArg "$@"; }
@@ -243,6 +107,53 @@ cloneNewName()
 	echo "$vm"
 }
 
+#
+# config external command
+#
+
+configExternalUsage()
+{
+	echot "\
+Usage: $(ScriptName) config external ADAPTER
+	Configure network adapter as the external vitual private switch.
+	Use 'network adapter list' to list network adapters."
+}
+
+configExternalArgs() { ScriptArgGet "adapter" -- "$@"; shift; }
+
+configExternalCommand()
+{
+	[[ ! $force ]] && ps Get-VMSwitch | grep --quiet "^external " && return
+	ps 'New-VMSwitch -Name "external" -NetAdapterName '$adapter' -AllowManagementOS:\$false'
+}
+
+#
+# config switch command
+#
+
+configSwitchUsage()
+{
+	echot "Usage: $(ScriptName) config switch VM [SWITCH](Default Switch)
+Set the network switch for the virtual machine." 
+}
+
+configSwitchArgStart() { switch="Default Switch"; }
+
+configSwitchArgs()
+{
+	getVmArg "$@"; shift
+	[[ $1 ]] && ScriptArgGet "service" -- "$@"
+	return 0
+}
+
+configSwitchCommand() {	configSwitch "$vm" "$switch"; }
+
+# configSwitch VM SWITCH - connect the VM to a switch
+configSwitch()
+{
+	local vm="$1" switch="${2:-Default Switch}"
+	ps 'Get-VM -VMName \"'$vm'\" | Get-VMNetworkAdapter | Connect-VMNetworkAdapter -SwitchName \""'"$switch"'"\"'
+}
 
 #
 # connect commands
@@ -421,9 +332,103 @@ isoFindLinux() { echo "platform/linux/Ubuntu/image/ubuntu-21.04-desktop-amd64.is
 isoFindPxe() { echo "shareware/netboot.xyz/netboot.xyz-efi.iso"; }
 isoFindRh() { echo "platform/linux/RedHat/image/rhel-8.5-x86_64-boot.iso"; }
 isoFindWin() { echo "other/Microsoft/Windows/setup/22598/image/Windows11_InsiderPreview_Client_x64_en-us_22598.iso"; }
- 
+
 #
-# Hypervisor Commands
+# config commands
+#
+
+configUsage() { echot "Usage: $(ScriptName) external|guest|switch"; }
+configCommand() { usage; }
+
+#
+# config guest command
+#
+
+configGuestUsage()
+{
+	echot "Usage: $(ScriptName) guest VM [linux|pxe|rh|win](win)
+Configure guest services for a Linux or Windows guest." 
+}
+
+configGuestArgStart() { os="win"; }
+
+configGuestArgs()
+{
+	getVmArg "$@"; shift
+	[[ "$1" == @(linux|pxe|rh|win) ]] && { ScriptArgGet "os" -- "$@"; shift;}
+	return 0
+}
+
+configGuestCommand() { configGuest "$vm" "$os"; }
+
+# configGuest VM linux|win - configure vm for the specified operating system
+configGuest()
+{
+	local vm="$1" os="$2" transport="VMBus"; [[ "$os" == "linux" ]] && transport="HvSocket"
+	ps 'Set-VM -VMName \"'$vm'\" -EnhancedSessionTransportType '$transport'' || return
+}
+
+#
+# dir command
+#
+
+dirUsage()
+{
+	echot "Usage: $(ScriptName) dir [app|conf|web-app|web-final|win-install](web)
+Return the path to a netboot.xyz directory.
+
+- disk: virtual machine disk directory
+- iso: installation ISO directory
+- root: virtual machine root directory"
+}
+
+dirCommand() { dirRootCommand; }
+dirDiskCommand() { echo "$diskDir"; }
+dirIsoCommand() { echo "$isoDir"; }
+dirRootCommand() { echo "$root/Hyper-V"; }
+
+#
+# drive commands
+#
+
+driveUsage() { echot "Usage: $(ScriptName) drive mount|unmount VM\nVirtual Machine drive commands."; }
+driveArgs() { getVmArg "$@"; }
+driveCommand() { usage; }
+
+driveMountCommand()
+{
+	local drive="$(drive win GetOffline)"
+	[[ ! $drive ]] && { ScriptErr "there are no offline drives to mount"; return 1; }
+
+	ps 'Add-VMHardDiskDrive -VMname \"'$vm'\" -ControllerType SCSI -ControllerNumber 0 -ControllerLocation '$controller' -DiskNumber '$drive || return
+}
+
+driveUnmountCommand()
+{
+	ps 'Remove-VMHardDiskDrive -VMname \"'$vm'\" -ControllerType SCSI -ControllerNumber 0 -ControllerLocation '$controller || return
+}
+
+#
+# exists command
+#
+
+existsUsage() { echot "Usage: $(ScriptName) exists VM\nReturn true if the virtual machine exists."; }
+existsArgs() { getVmArg "$@"; }
+existsCommand() { psRaw 'Get-VM | where {\$_.Name -eq \"'$vm'\"}' | grep "$vm" >& /dev/null; }
+
+#
+# gui command
+#
+
+guiCommand()
+{
+	! InPath "$gui" && { EchoErr "The Hyper-V management GUI is not installed"; }
+	[[ ! $force ]] && WinExists "Hyper-V Manager" && return 0
+	start "$gui" "$@"
+}
+
+#
+# hypervisor commands
 #
 
 hypervisorUsage() { echot "Usage: $(ScriptName) hypervisor IsEnabled|IsInstalled|IsServiceRunning|disable|enable
@@ -456,6 +461,35 @@ isEnabled() { RunScript --elevate bcdedit.exe | grep -i hypervisorlaunchtype | g
 isInstalled() { service exists hvservice --quiet; }
 isServiceRunning() { service running hvservice; }
 
+#
+# ls command
+#
+
+lsUsage() { echot "Usage: $(ScriptName) ls\nList all virtual machines."; }
+
+lsCommand()
+{
+	[[ $verbose ]] && { psRaw 'Get-VM'; return; }
+	psRaw 'Get-VM' | RemoveCarriageReturn | ${G}tail --lines=+4 | cut -d" " -f 1 | grep -v '^$'
+}
+
+#
+# rm command
+#
+
+rmUsage() { echot "Usage: $(ScriptName) delete VM \nDelete the virtual machines."; }
+rmArgs() { getVmArg "$@"; }
+
+rmCommand()
+{
+	[[ ! $force ]] && { ask "Are you sure you want to delete the '$vm' vm completely" -dr n || return; }
+
+	printf "deleting $vm..."
+	ps 'Remove-VM -name \"'$vm'\" -force' >& /dev/null
+	printf "."; deleteVmDiskFiles || return
+	echo "done"
+}
+ 
 #
 # power commands
 #
@@ -525,25 +559,32 @@ powerSleepCommand()
 }
 
 #
-# drive commands
+# status command
 #
 
-driveUsage() { echot "Usage: $(ScriptName) drive mount|unmount VM\nVirtual Machine drive commands."; }
-driveArgs() { getVmArg "$@"; }
-driveCommand() { usage; }
-
-driveMountCommand()
+statusCommand()
 {
-	local drive="$(drive win GetOffline)"
-	[[ ! $drive ]] && { ScriptErr "there are no offline drives to mount"; return 1; }
+	ps "$(cat <<-EOF
+		\\\$v = Get-VMHost
+		\\\$vms = Get-VM
 
-	ps 'Add-VMHardDiskDrive -VMname \"'$vm'\" -ControllerType SCSI -ControllerNumber 0 -ControllerLocation '$controller' -DiskNumber '$drive || return
+		Write-Host ('name={0}' -f \\\$v.Name)
+		Write-Host ('total={0}' -f \\\$vms.count)
+    Write-Host ('running={0}' -f \\\$vms.where( {\\\$_.state -eq 'running'}).count)
+    Write-Host ('off={0}' -f \\\$vms.where( {\\\$_.state -eq 'off'}).count)
+    Write-Host ('saved={0}' -f \\\$vms.where( {\\\$_.state -eq 'Saved'}).count)
+    Write-Host ('paused={0}' -f \\\$vms.where( {\\\$_.state -eq 'Paused'}).count)
+    Write-Host ('other={0}' -f \\\$vms.where( {\\\$_.state -notmatch \"running|off|saved|Paused\"}).count)
+    Write-Host ''
+    Write-Host ('VirtualMachinePath={0}' -f \\\$v.VirtualMachinePath)
+    Write-Host ('VirtualHardDiskPath={0}' -f \\\$v.VirtualHardDiskPath)
+    Write-Host ('EnhancedSessionMode={0}' -f \\\$v.EnableEnhancedSessionMode)
+
+	EOF
+	)"
 }
 
-driveUnmountCommand()
-{
-	ps 'Remove-VMHardDiskDrive -VMname \"'$vm'\" -ControllerType SCSI -ControllerNumber 0 -ControllerLocation '$controller || return
-}
+#Write-Host ('={0}' -f \\\$)
 
 #
 # helper
