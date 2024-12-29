@@ -23,10 +23,10 @@ Sites:
 - bootloaders: https://boot.butare.net 
 - assets
   - vanity: https://boot.butare.net/assets/
-  - direct: https://$(GetServer apache-web):1443/netboot.xyz/assets/
+  - direct: https://$(GetServer "apache-web"):1443/netboot.xyz/assets/
 - assets-custom
   - vanity: https://boot.butare.net/assets-custom/
-  - direct: https://$(GetServer apache-web):1443/netboot.xyz/assets-custom/
+  - direct: https://$(GetServer "apache-web"):1443/netboot.xyz/assets-custom/
 Servers:
 - web
   - servers: $(GetServers "apache-web" | NewlineToSpace)
@@ -34,7 +34,7 @@ Servers:
 - tftp
   - servers: $(Getervers "tftp" | NewlineToSpace)
   - configuration: /etc/default/tftpd-hpa
-	- example: 'tftp $(GetServer tftp) -c get about.ipxe'	"
+	- example: 'tftp $(GetServer "tftp") -c get about.ipxe'	"
 }
 
 checkDir() {  [[ -d "$1" ]] && echo "present" || echo "${RED}missing${RESET}";  }
@@ -72,10 +72,10 @@ varsCommand() { ScriptReturn appDir confDir webDirApp webDirFinal; }
 # deploy commands
 #
 
-deployUsage() { echot "Usage: $(ScriptName) deploy [all|app|assets|installers|web](all)\nDeploy netboot.xyz assets, installers, and the web site."; }
+deployUsage() { echot "Usage: $(ScriptName) deploy [all|app|assets|web](all)\nDeploy netboot.xyz."; }
 deployCommand() { deployAllCommand; }
-deployAllUsage() { echot "Usage: $(ScriptName) deploy all\nDeploy application, assets, and installers."; }
-deployAllCommand() { local noPrompt="--no-prompt"; deployAppCommand && deployWebCommand && deployAssetsCommand && deployInstallersCommand; }
+deployAllUsage() { echot "Usage: $(ScriptName) deploy all\nDeploy application, web, and assets."; }
+deployAllCommand() { local noPrompt="--no-prompt"; deployAppCommand && deployWebCommand && deployAssetsCommand; }
 
 deployAppUsage() { echot "Usage: $(ScriptName) deploy app\nDeploy the netboot.xyz application by upgrading the menus."; }
 
@@ -96,31 +96,17 @@ deployAppCommand()
 	done
 }
 
-deployAssetsUsage() { echot "Usage: $(ScriptName) deploy assets\nDeploy menus, assets, and custom assets."; }
+deployAssetsUsage() { echot "Usage: $(ScriptName) deploy assets\nDeploy menus, assets, custom assets, and installers."; }
 
 deployAssetsCommand()
 {
 	header "Deploying Assets"
 
-	hilight "Synchronizing Netboot.xyz menus..."
-	UnisonHelper sync --host=rp1 --root "$ACONF/netbootxyz/config" "rp2" "${globalArgs[@]}"  -- -ignore "'Name {*.log}'" || return
+	hilight "Deploying custom assets..."
+	local server; server="$(GetServer "netbootxyz")" || return
+	UnisonHelper sync "$winScriptDir" "$server" "$ADATA/netbootxyz/assets-custom/windows/scripts" --root --no-props "${globalArgs[@]}" || return
 
-	hilight "Synchronizing Netboot.xyz assets..."
-	UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz/assets" "rp2" "${globalArgs[@]}" || return
-
-	hilight "Synchronizing custom assets..."
-	UnisonHelper sync "$winScriptDir" "rp1" "$ADATA/netbootxyz/assets-custom/windows/scripts" --root --no-props "${globalArgs[@]}" || return
-	UnisonHelper sync --host=rp1 --root "$ADATA/netbootxyz/assets-custom" "rp2" "${globalArgs[@]}" || return
-}
-
-deployInstallersUsage() { echot "Usage: $(ScriptName) deploy installers\nDeploy installers "; }
-
-deployInstallersCommand()
-{
-	header "Deploying Installers"
-
-	UnisonHelper sync --host=rp1 --no-props "$ADATA/netbootxyz/installers" "rp2" "${globalArgs[@]}" || return
-	UnisonHelper sync --host=rp1 --no-props "$ADATA/netbootxyz/installers" "ender" "${globalArgs[@]}" || return
+	syncAssets || return
 }
 
 deployWebUsage() { echot "Usage: $(ScriptName) deploy web\nCopy the netboot.xys web site from $(FileToDesc "$webDirApp") to $(FileToDesc "$webDirFinal"), then uploads the content to the Apache web servers."; }
@@ -201,7 +187,7 @@ editWinCommand() { TextEdit "$winScriptDir"; }
 infoUsage() { echot "Usage: $(ScriptName) info win\nShow information."; }
 infoCommand() { usage; }
 
-infoWinUsage() { echot "Usage: $(ScriptName) info win\Show Windows release information."; }
+infoWinUsage() { echot "Usage: $(ScriptName) info win [detail]\Show Windows release information."; }
 
 infoWinCommand()
 {
@@ -211,8 +197,31 @@ infoWinCommand()
 	done
 }
 
+infoWinDetailCommand()
+{
+	local release term="$TERM"; [[ ! $term ]] && term="xterm-256color"
+	{
+		echo "${GREEN}release#build#notes${RESET}"
+
+		for release in "${winReleases[@]}"; do
+			echo "${RESET}${RESET}$release#$(infoWinBuild "$release")#$(infoWinUrl "$release")"
+		done
+
+	} | column -c $(tput cols -T "$term") -t -s#
+}
+
 # infoWinBuild canary|dev|beta|rp
 infoWinBuild()
+{
+	local release="$1" url; url="$(infoWinUrl "$release")" || return
+	# local build; build="$(HttpHeader "$url" | ${G}grep "^Location:" | sed 's/^.*-build//' | cut -d"-" -f2)" || return
+	local build; build="$(curl -L --silent "$url" | grep "Build " | grep "strong" | head -1 | sed 's/.*Build //' | cut -d"." -f1 | cut -d" " -f1 | cut -d")" -f1)" || return
+	! IsInteger "$build" && { ScriptErr "Windows '$release' release build '$build' is not numeric"; return 1; }
+	echo "$build"
+}
+
+# infoWinUrl canary|dev|beta|rp
+infoWinUrl()
 {
 	local name release="$1"
 	case "${release,,}" in
@@ -222,10 +231,8 @@ infoWinBuild()
 		rp) name="ReleasePreviewWindows11";;
 		*) ScriptErr "'$1' is not a valid Windows release"; return 1;;
 	esac
-	
-	local build; build="$(HttpHeader "https://aka.ms/$name" | ${G}grep "^Location:" | sed 's/^.*-build//' | cut -d"-" -f2)" || return
-	! IsInteger "$build" && { ScriptErr "Windows '$release' release build '$build' is not numeric"; return 1; }
-	echo "$build"
+
+	echo "https://aka.ms/$name"
 }
 
 #
@@ -284,42 +291,45 @@ testCommand()
 	local result="0";
 	! InPath tftp && { i --no-prompt --no-header TftpClient || return; }
 
-	printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "iPXE Bootloaders" && echo "OK" || testFail "FAIL"
-	printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || testFail "FAIL"
+	# printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "iPXE Bootloaders" && echo "OK" || testFail "FAIL"
+	# printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || testFail "FAIL"
 
- 	# application
- 	local versionCurrent; versionCurrent="$(versionCurrent)" || return
- 	local versionLatest; versionLatest="$(versionLatest)" || return
- 	printf "application source version: "; [[ "$versionCurrent" == "$versionLatest" ]] && echo "OK" || testFail "out of date (current v$versionCurrent, latest v$versionLatest)"
+ 	# # application
+ 	# local versionCurrent; versionCurrent="$(versionCurrent)" || return
+ 	# local versionLatest; versionLatest="$(versionLatest)" || return
+ 	# printf "application source version: "; [[ "$versionCurrent" == "$versionLatest" ]] && echo "OK" || testFail "out of date (current v$versionCurrent, latest v$versionLatest)"
 
-	local host hosts; getHosts || return
+	# local host hosts; getHosts || return
+	# for host in "${hosts[@]}"; do
+	# 	local h="$(RemoveDnsSuffix "$host")" versionHost; versionHost="$(versionApp "$host")" || return
+	# 	printf "application $h version: "; [[ "$versionHost" == "$versionLatest" ]] && echo "OK" || testFail "out of date ($h v$versionHost, latest v$versionLatest)"
+	# done
+
+	# # assets
+	# testWeb "assets-vanity" "http://boot.butare.net/assets/"
+	# testWeb "assets-custom-vanity" "http://boot.butare.net/assets-custom/"
+
+	local host hosts; GetHostsApp "apache-web" active || return 
 	for host in "${hosts[@]}"; do
-		local h="$(RemoveDnsSuffix "$host")" versionHost; versionHost="$(versionApp "$host")" || return
-		printf "application $h version: "; [[ "$versionHost" == "$versionLatest" ]] && echo "OK" || testFail "out of date ($h v$versionHost, latest v$versionLatest)"
+		host="$(RemoveDnsSuffix "$host")"
+		testWeb "assets-$host" "http://$host.butare.net:180/netboot.xyz/assets/"
+		testWeb "assets-custom-$host" "http://$host.butare.net:180/netboot.xyz/assets-custom/"
 	done
 
-	# assets
-	testWeb "assets-vanity" "http://boot.butare.net/assets/"
-	testWeb "assets-custom-vanity" "http://boot.butare.net/assets-custom/"
-	testWeb "assets-rp1" "http://rp1.butare.net:180/netboot.xyz/assets/"
-	testWeb "assets-custom-rp1" "http://boot.butare.net/assets-custom/"
-	testWeb "assets-rp2" "http://rp2.butare.net:180/netboot.xyz/assets/"
-	testWeb "assets-custom-rp2" "http://rp2.butare.net:180/netboot.xyz/assets-custom/"
+	# # TFTP
+	# local check; IsPlatform mac,WSL && { check="ssh $(GetServer "apache-web")" || return; } # WSL does not support UDP, ssh to a web server for the test, mac TFTP does not support -c
+	# local file="about.ipxe"
+	# local server servers="$(GetServers "tftp")"
 
-	# TFTP
-	local check; IsPlatform mac,WSL && { check="ssh $(GetServer apache-web)" || return; } # WSL does not support UDP, ssh to a web server for the test, mac TFTP does not support -c
-	local file="about.ipxe"
-	local server servers="$(GetServers tftp)"
-
-	for server in $servers; do
-		local desc="$(RemoveDnsSuffix "$server")"
-		printf "TFTP $desc: "
-		printf "server..."; IsAvailable "$server" || { testFail "not available"; continue; }
-		printf "port..."; IsAvailablePortUdp "$server" 69 || { testFail "not responding (port 69)"; continue; }
-		printf "file..."; RunLog $check tftp $server -c get "$file" > /dev/null || testFail "not available ($file)"
-		echo "OK"
-		$check rm -f "$file" # cleanup
-	done
+	# for server in $servers; do
+	# 	local desc="$(RemoveDnsSuffix "$server")"
+	# 	printf "TFTP $desc: "
+	# 	printf "server..."; IsAvailable "$server" || { testFail "not available"; continue; }
+	# 	printf "port..."; IsAvailablePortUdp "$server" 69 || { testFail "not responding (port 69)"; continue; }
+	# 	printf "file..."; RunLog $check tftp $server -c get "$file" > /dev/null || testFail "not available ($file)"
+	# 	echo "OK"
+	# 	$check rm -f "$file" # cleanup
+	# done
 
 	return $result
 }
@@ -411,6 +421,7 @@ updateWinBuildCommand() { uupBuild; }
 updateWinDownloadUsage() { echot "Usage: $(ScriptName) update win download\Download current Windows UUP files to $(FileToDesc "$downloadDir")."; }
 updateWinDownloadCommand() { uupDownload; }
 
+updateWinSyncUsage() { echot "Usage: $(ScriptName) update win sync\Synchronize installation shares."; }
 updateWinSyncCommand() { wiggin sync public "${globalArgs[@]}"; }
 
 updateWinAllUsage() { echot "Usage: $(ScriptName) update win all auto\Download and build the current Windows builds."; }
@@ -428,7 +439,7 @@ updateWinSelectUsage() { echot "Usage: $(ScriptName) update win select [auto]\Se
 updateWinSelectCommand()
 {
 		echot "\
-- Latest NNN build, x64
+- Latest Public|Release Preview|Beta|Dev|Canary build, x64|arm64
 - Windows 11 Insider Preview NNN (ni_release)
 - Next, Next, Create download package"
 	open "https://uupdump.net/"; pause
@@ -449,10 +460,10 @@ uupBuild()
 		uup build "$file" "${globalArgs[@]}" || return
 	done
 
-	echo "Updating batchfiles..."
+	hilight "Updating batchfiles..."
 	echo "@setup.bat $build" > "$winScriptDir/install/$build.bat" || return
 
-	deployInstallersCommand || return
+	syncAssets || return
 }
 
 # uupDownload - download current UUP files to $downloadDir
@@ -460,7 +471,7 @@ uupDownload()
 {
 	hilight "Downloading current releases..."
 	local setupDir; setupDir="$(getWinInstallDir)" || return
-	infoWinCommand | tee "$setupDir/releases.txt" || return
+	infoWinDetailCommand | tee "$setupDir/releases.txt" || return
 
 	hilight "Downloading UUP build files..."
 	local file; file="$(mktemp -t "UupBuilds.XXXXXXXXXX.json")" || return
@@ -498,7 +509,7 @@ uupDownload()
 	let uupFileCount; uupFileCount="$(getUupFileCount)" || return
 	(( uupFileCount > 0 )) && { echo "$uupFileCount UUP build file(s) in $(FileToDesc "$(GetFilePath "$uup") need processing")."; }
 
-	rm "$file"
+	rm "$file" || return
 }
 
 #
@@ -541,5 +552,6 @@ getContainerId() { docker ps --all | grep "$dockerImageName" | cut -d" " -f1; }
 getHosts() { GetHosts "netbootxyz"; }
 getUupFileCount() { command ls -1 "$downloadDir/"*.*".zip" 2> /dev/null | wc -l; }
 getWinInstallDir() { FindInstallFile "other/Microsoft/Windows/setup"; }
+syncAssets() { 	hilight "Syncronizing netboot.xyz assets..."; wiggin sync netbootxyz; }
 
 ScriptRun "$@"
