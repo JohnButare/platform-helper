@@ -14,6 +14,20 @@ rem set distImage=documents\data\install\platform\linux\wsl\image\ubuntu\default
 set wsl=%1
 if not DEFINED wsl set wsl=2
 
+REM
+REM validate
+REM
+
+if %wsl% == 1 (
+	rem
+) else if %wsl% == 2 (
+	rem
+) else (
+	echo WSL version '%wsl%' is not valid (must be 1 or 2^)
+	pause
+	exit /b 1
+)
+
 REM unc - the current directory is a UNC, but we need to remove the trailing slash or net use will error
 set unc=%dir:~0,-1%  
 
@@ -40,17 +54,22 @@ REM
 REM install WSL
 REM 
 
-REM make WSL 1 the default version
-if %wsl% == 1 if not exist "\\wsl.localhost\%dist%\home" (
-		wsl.exe --set-default-version 1
+wsl --status > nul 2>&1
+if not %ErrorLevel% == 0 (
+	echo Installing WSL...
+	wsl --install --no-distribution --web-download
+	echo WSL is installed, system will reboot.
+	pause
+	shutdown /r /t 0
+	exit /b 1
+)
 
-REM install WSL 2
-) else if %wsl% == 2 if not exist "\\wsl.localhost\%dist%\home" (
-	wsl --set-default-version 2 > nul 2>&1
-	if not %ErrorLevel% == 0 (
-		wsl --install --no-distribution --web-download
-		shutdown /r /t 0 & exit
-	)
+wsl --set-default-version %wsl% > nul 2>&1
+if not %ErrorLevel% == 0 (
+	wsl.exe --set-default-version %wsl%
+	echo Unable to set the WSL default version to '%wsl%'.
+	pause
+	exit /b 1
 )
 
 REM
@@ -75,7 +94,12 @@ if not exist \\wsl.localhost\%dist%\tmp (
 		echo Once the user account is created, exit the shell...
 		wsl --install --distribution %dist%	--web-download
 	)
+)
 
+if not exist \\wsl.localhost\%dist%\tmp (
+	echo Unable to create the distribution
+	pause
+	exit /b 1
 )
 
 REM
