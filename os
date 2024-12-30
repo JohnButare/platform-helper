@@ -11,6 +11,7 @@ Operating system commands
 	disk					[available|total](total)
 	dark|environment|index|path|lock|preferences|store
 	executable		executable information
+	location			location information
 	memory				[available|total](total)
 	name					show or set the operating system name"
 }
@@ -94,7 +95,7 @@ diskUsedCommand()
 }
 
 #
-# Executable Command
+# executable command
 #
 
 executableUsage()
@@ -178,7 +179,31 @@ executableFindCommand()
 }
 
 #
-# Memory Command
+# location command
+#
+
+locationUsage() 
+{
+	echot "Usage: os location desktop|documents
+Return platform operating system locations."
+}
+
+locationCommand() { usage; }
+
+locationDesktopCommand()
+{
+	IsPlatform win && { wtu "$(powershell "[Environment]::GetFolderPath('Desktop')")"; return; }
+	echo "$HOME/Desktop"
+}
+
+locationDocumentsCommand()
+{
+	IsPlatform win && { wtu "$(powershell "[Environment]::GetFolderPath('MyDocuments')")"; return; }
+	echo "$HOME/Documents"
+}
+
+#
+# memory command
 #
 
 memoryUsage() 
