@@ -3172,7 +3172,7 @@ PackageFileInstall()
 PackageFileExtension()
 {
 	IsPlatform apt && { echo "deb"; return; }
-	IsPlatform rpm && { echo "rpm"; return; }
+	IsPlatform rpm,yum && { echo "rpm"; return; }
 }
 
  # PackageFileInfo - information about a package file
