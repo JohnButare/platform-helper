@@ -192,13 +192,13 @@ locationCommand() { usage; }
 
 locationDesktopCommand()
 {
-	IsPlatform win && { wtu "$(powershell "[Environment]::GetFolderPath('Desktop')")"; return; }
+	IsPlatform win && { wtu "$(powershell "[Environment]::GetFolderPath('Desktop')" | RemoveCarriageReturn)"; return; }
 	echo "$HOME/Desktop"
 }
 
 locationDocumentsCommand()
 {
-	IsPlatform win && { wtu "$(powershell "[Environment]::GetFolderPath('MyDocuments')")"; return; }
+	IsPlatform win && { wtu "$(powershell "[Environment]::GetFolderPath('MyDocuments')") | RemoveCarriageReturn"; return; }
 	echo "$HOME/Documents"
 }
 
