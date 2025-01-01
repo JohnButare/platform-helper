@@ -634,7 +634,7 @@ installInit()
 
 	# Java
 	macDeb+=(eclipse java jre jdk)
-	deb+=(OpenJdk tomcat)
+	deb+=(OpenJdk tomcat tomcat10 tomcat9 tomcat7)
 
 	# Kubernetes
 	macDeb+=(k3s kubectl lens minikube)
@@ -738,7 +738,7 @@ installInit()
 	macDeb+=(squid)
 	macWin+=(PostgresAdmin)
 	macDebRh+=(DBeaver)
-	deb+=(patroni postgres PostgresApt PostgresDockerConfig)
+	deb+=(patroni postgres postgres17 postgres16 PostgresApt PostgresDockerConfig)
 
 	# Shell
 	all+=(bash gum nix zsh)	
@@ -7360,15 +7360,14 @@ KeaServiceInstall() # separate service installation - use when installing from s
 
 KeepalivedInstall()
 {
-	# install
-	run --package --no-header "keepalived" || return
+	run --package "keepalived" || return
 
 	# check if the configuration file exists
 	local file="/etc/keepalived/keepalived.conf"
-	[[ -f "$file" && ! $force ]] && return
+	[[ ! $force && -f "$file" ]] && return
 
-	# create the configure file
-	keepalivedConfigureCreate "$file" || return
+	# create the configuration file
+	keepalivedConfigCreate "$file" || return
 
 	# start service
 	service refresh || return
@@ -7383,8 +7382,8 @@ KeepalivedInstall()
 	service running keepalived
 }
 
-# keepalivedConfigureCreate - create the keepalived configuration file
-keepalivedConfigureCreate()
+# keepalivedConfigCreate - create the keepalived configuration file
+keepalivedConfigCreate()
 {	
 	local file="$1"
 
@@ -7963,11 +7962,11 @@ Tomcat7Install() { version=7.0.108 TomcatInstall; }
 TomcatInstall()
 {
 	local dir="/opt/tomcat" user="tomcat"
+	[[ ! $version ]] && local version="10.0.5"
 
-	header "Tomcat" # https://tomcat.apache.org/
+	header "Tomcat $version" # https://tomcat.apache.org/
 	i --no-header openJdk || return
 
-	[[ ! $version ]] && local version="10.0.5"
 	run "shareware/Tomcat/image/apache-tomcat-$version.zip" --dest "$dir" || return
 
 	# user
@@ -9897,19 +9896,48 @@ NginxProxyManagerDockerInstall()
 #################################################
 
 PostgresAll() { i patroni postgres PostgresApt PostgresDockerConfig; }
-PatroniInstall() { i postgres && package patroni; }
 
-Postgres17Install() { version=17 TomcatInstall; }
-Postgres16Install() { version=16 TomcatInstall; }
+PatroniInstall()
+{
+	header "Patroni"
+	i --no-header postgres && run --package patroni && patroniConfigCreate; 
+}
+	
+# patroniConfigCreate - create the patroni configuration file
+patroniConfigCreate()
+{	
+		# check if the configuration file exists
+	local file="/etc/patroni/patroni.yml"
+	[[ ! $force && -f "$file" ]] && return
+
+	# create the configuration file
+	local domain="$(GetDomain)"
+	local confFile="$DATA/setup/patroni_$domain.yml"
+	[[ ! -f "$confFile" ]] && { ScriptErr "could not find Patroni configuration file for domain '$domain'"; return 1; }
+	envsubst < "$confFile" | sudoc tee "$file" || return
+}
+
+Postgres17Install() { version=17 PostgresInstall; }
+Postgres16Install() { version=16 PostgresInstall; }
 
 PostgresInstall()
 {
 	[[ ! $version ]] && local version="17"
-	i PostgresApt && package postgres-$version; 
+	header "PostgreSQL $version"
+	i --no-header PostgresApt && postgresDataDir && run --no-header --package postgresql-$version
+}
+
+postgresDataDir()
+{
+	local dir="$SRV/postgres-sql"
+	makeDir --sudo "$dir" || return
+	makeLinkSudo --symbolic --merge "$ADATA/postgres-sql/data" "$dir/data" || return
 }
 
 PostgresaptInstall()
 {
+	header "PostgreSQL APT"
+
 	# installation script
 	local script="/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh"
 	[[ $force || ! -f "$script" ]] && { package postgresql-common || return; }
@@ -9923,12 +9951,8 @@ PostgresaptInstall()
 # PostgresDockerConfigInstall - install Docker configuration for Nomad deployment
 PostgresDockerConfigInstall()
 {
-	header "Postgres SQL Server (Docker Configuration)"
-
-	local dir="$SRV/postgres-sql"
-	makeDir --sudo "$dir" || return
-	makeLinkSudo --symbolic --merge "$ADATA/postgres-sql/data" "$dir/data" || return
-	nomadRegisterApp "postgres-sql" || return
+	header "PostgreSQL Server (Docker Configuration)"
+	postgresDataDir && nomadRegisterApp "postgres-sql"
 }
 
 #################################################
