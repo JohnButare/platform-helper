@@ -2194,7 +2194,13 @@ GetIpAddress()
 	echo "$(echo "$ip" | RemoveCarriageReturn)"
 }
 
-GetSubnetMask() { ifconfig "$(GetInterface)" | grep "netmask" | tr -s " " | cut -d" " -f 5; }
+GetSubnetMask()
+{
+	if IsPlatform mac; then command ipconfig getsummary "$(GetInterface)" | grep "^subnet_mask" | cut -d" " -f3
+	else ifconfig "$(GetInterface)" | grep "netmask" | tr -s " " | cut -d" " -f 5
+	fi
+}
+
 GetSubnetNumber() { ip -4 -oneline -br address show "$(GetInterface)" | cut -d/ -f2 | cut -d" " -f1 | RemoveSpaceTrim; }
 
 # GetAdapterName [IP](primary) - get the descriptive name of the primary network adapter used for communication
@@ -2210,7 +2216,13 @@ GetAdapterName()
 }
 
 # ipconfig [COMMAND] - show or configure network
-ipconfig() { IsPlatform win && { RunWin ipconfig.exe "$@"; } || ip -4 -oneline -br address; }
+ipconfig()
+{
+	if IsPlatform win; then RunWin ipconfig.exe "$@"
+	elif IsPlatform mac; then command ipconfig "$@"
+	else ip -4 -oneline -br address
+	fi
+}
 
 # ipinfo - show network configuration
 ipinfo()
