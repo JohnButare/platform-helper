@@ -49,10 +49,11 @@ PlatformConf || return
 # arguments
 #
 
-# GetAregs - get argument from standard input if not specified on command line
+# GetArgs - get argument from standard input if not specified on command line
 # - must be an alias in order to set the arguments of the caller
 # - GetArgsN will read the first argument from standard input if there are not at least N arguments present
-# - aliases must be defiend before used in a function
+# - aliases must be defined before used in a function
+# - pipelines operate on the entire input, not each line, i.e. `cat FILE | RemoveSpaceFront` remove only the first space of the first line of the file
 alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"' 
 alias GetArgs2='(( $# < 2 )) && set -- "$(cat)" "$@"'
 alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
