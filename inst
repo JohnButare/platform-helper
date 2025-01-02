@@ -738,7 +738,7 @@ installInit()
 	macDeb+=(squid)
 	macWin+=(PostgresAdmin)
 	macDebRh+=(DBeaver)
-	deb+=(patroni postgres postgres17 postgres16 PostgresApt PostgresDockerConfig)
+	deb+=(patroni postgres postgres17 postgres16 PostgresApt PostgresClient PostgresDockerConfig)
 
 	# Shell
 	all+=(bash gum nix zsh)	
@@ -9895,7 +9895,7 @@ NginxProxyManagerDockerInstall()
 # Server - Postgres
 #################################################
 
-PostgresAll() { i patroni postgres PostgresApt PostgresDockerConfig; }
+PostgresAll() { i patroni postgres PostgresApt PostgresClient PostgresDockerConfig; }
 
 PatroniInstall()
 {
@@ -9924,14 +9924,80 @@ PostgresInstall()
 {
 	[[ ! $version ]] && local version="17"
 	header "PostgreSQL $version"
-	i --no-header PostgresApt && postgresDataDir && run --no-header --package postgresql-$version
+
+	# packages
+	i --no-header PostgresApt || return
+	package --quiet postgresql-$version || return
+
+	# configuration
+	local version instance confDir confDirBase dataDir dataDirBase service; ScriptEval PostgresHelper vars || return
+	local restart 
+
+	# directories
+	if [[ ! -L "$confDir" || ! -L "$dataDir" ]]; then
+		postgresDir || return 
+
+		# permissions
+		local confDest="$ACONF/postgresql" dataDest="$ADATA/postgresql"
+		sudoc chown postgres:postgres "$confDest" "$dataDest"|| return
+		sudoc chmod go-rwx "$dataDest"|| return
+
+		# move configuration and data
+		PostgresHelper service stop || return
+		makeLinkSudo --symbolic --merge "$dataDest/$version/$instance" "$dataDir" || return
+		makeLinkSudo --symbolic --merge "$confDest/$version/$instance" "$confDir" || return
+	fi
+
+	# listen address
+	local file="$confDir/postgresql.conf"
+	local line="#listen_addresses = 'localhost'"
+	if ${G}grep --quiet "^$line" "$file"; then
+		sudoc sed -i "s/^$line/listen_addresses = '*'/" "$file" || return
+		restart="true"
+	fi
+
+	# allow login using ssl on the current network
+	local file="$confDir/pg_hba.conf"
+	local cidr; cidr="$(network ip cidr make network)" || return
+	local line="hostssl	all				all				$cidr			scram-sha-256"
+	if ! sudoc ${G}grep --quiet "^$line$" "$file"; then
+		echo -e "\n# $(NetworkCurrent)\n${line}" | sudoc tee -a "$file" || return
+		restart="true"
+	fi
+
+	# restart service
+	if [[ $restart ]]; then
+		PostgresHelper service restart || return
+	else
+		PostgresHelper service start || return
+	fi
+
+	# set postgres user password
+	local password; password="$(credential get secure system --fallback)" || return
+	sudoc -u postgres psql template1 --command \
+		"ALTER USER postgres with encrypted password '$password';"
 }
 
-postgresDataDir()
+# postgresDir - create common conf and data directories for Docker and local PostreSQL instances
+# - $SRV/postgresql/conf -> $ACONF/postgresql
+# - $SRV/postgresql/data -> $ADATA/postgresql
+postgresDir()
 {
-	local dir="$SRV/postgres-sql"
-	makeDir --sudo "$dir" || return
-	makeLinkSudo --symbolic --merge "$ADATA/postgres-sql/data" "$dir/data" || return
+	local dir="$SRV/postgresql"
+
+	# conf
+	if [[ ! -L "$dir/conf" ]]; then
+		makeDir --sudo "$dir/conf" || return
+		makeLinkSudo --symbolic --merge "$ACONF/postgresql" "$dir/conf" || return
+	fi
+
+	# data
+	if [[ ! -L "$dir/data" ]]; then
+		makeDir --sudo "$dir/data" || return
+		makeLinkSudo --symbolic --merge "$ADATA/postgresql" "$dir/data" || return
+	fi
+
+	return 0
 }
 
 PostgresaptInstall()
@@ -9939,20 +10005,32 @@ PostgresaptInstall()
 	header "PostgreSQL APT"
 
 	# installation script
-	local script="/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh"
-	[[ $force || ! -f "$script" ]] && { package postgresql-common || return; }
+	package --quiet postgresql-common || return
 
 	# apt repositories
-	[[ $force || ! "/etc/apt/sources.list.d/pgdg.list" ]] && { sudo "$script" -y || return; }
+	local script="/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh"
+	[[ $force || ! -f "/etc/apt/sources.list.d/pgdg.list" ]] && { sudoc "$script" -y || return; }
 
 	return 0
+}
+
+PostgresClientInstall()
+{
+	header "PostgreSQL Client"
+	[[ ! $force ]] && InPath pg && return
+
+	# packages
+	i --no-header PostgresApt || return
+	if IsPlatform mac; then brew install libpq && brew link --force libpq; return
+	else package postgresql-client
+	fi
 }
 
 # PostgresDockerConfigInstall - install Docker configuration for Nomad deployment
 PostgresDockerConfigInstall()
 {
 	header "PostgreSQL Server (Docker Configuration)"
-	postgresDataDir && nomadRegisterApp "postgres-sql"
+	postgresDir && nomadRegisterApp "postgres-sql"
 }
 
 #################################################
