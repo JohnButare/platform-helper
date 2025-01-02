@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+. "${BASH_SOURCE[0]%/*}/function.sh" script || exit
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) dir|info|IsInstalled|run|service
+PostgreSQL datbase server functionality.
+
+	-i,	 --instance=INSTANCE		the instance to use
+	-v,	 --version=VERSION			the version to use
+
+	-H,  --host=HOST						the database to use, defaults to localhost
+	-db, --database=DATABASE		the database to use, defaults to postgres
+
+	-u,	 --user=USER						the user to use, defaults to postgres
+	-p,	 --password=VERSION			the password to use"
+}
+
+init()
+{
+	defaultCommand="test"
+	confDir="/etc/postgresql"
+}
+
+argStart()
+{
+	unset -v instance version password;
+	user="postgres" host="localhost" Bdatabase="postgres"
+}
+
+opt()
+{
+	case "$1" in
+
+		--instance|--instance=*|-i|-i=*) ScriptOptGet "instance" "$@";;
+		--version|--version=*|-n|-n=*) ScriptOptGet "version" "$@";;
+
+		--user|--user=*|-u|-u=*) ScriptOptGet "user" "$@";;
+		--password|--password=*|-p|-p=*) ScriptOptGet "password" "$@";;
+
+		--host|--host=*|-H|-H=*) ScriptOptGet "host" "$@";;
+		--database|--database=*|-db|-db=*) ScriptOptGet "database" "$@";;
+
+		*) return 1;;
+	esac
+}
+
+argEnd()
+{	
+	export PGHOST="$host"
+	export PGDATABASE="$database"
+	export PGUSER="$user"
+	export PGPASSWORD="$password"
+}
+
+#
+# commands
+#
+
+dirCommand() { echo "$confDir"; }
+isInstalledCommand() { [[ -d "$confDir" ]]; }
+
+infoCommand()
+{
+	isInstalledCommand && { serviceInit || return; }
+	echo -e "version=$version\ninstance=$instance"
+}
+
+#
+# run command
+#
+
+runArgs() { commandArg="$@"; shift+=$#; }
+
+runCommand()
+{
+	local args=(); [[ $commandArg ]] && args=(--command "$commandArg")
+	getPassword && psql "${args[@]}"
+}
+
+#
+# service commands
+#
+
+serviceUsage() { ScriptUsageEcho "Usage: $(ScriptName) service detail|log|restart|running|start|status|stop"; }
+serviceArgEnd() { serviceInit; }
+serviceCommand() { serviceStatusCommand; }
+serviceDetailCommand() { service detail $service; }
+serviceLogCommand() {	LogShow "/var/log/postgresql/postgresql-$version-$instance.log,"; }
+serviceRestartCommand() { service restart "$service"; }
+serviceRunningCommand() { service running "$service"; }
+serviceStartCommand() { service start "$service"; }
+serviceStatusCommand() { service status "$service"; }
+serviceStopCommand() { service stop "$service"; }
+
+#
+# helper
+#
+
+getPassword()
+{
+	[[ $password ]] && return
+	password="$(credential get secure system)" || return
+	export PGPASSWORD="$password"
+}
+
+serviceInit()
+{
+	validateInstall || return
+
+	# version
+	[[ ! $version ]] && version="$(command ls -1 "$confDir" | sort --reverse --numeric | head -1)"
+	! IsNumeric "$version" && { ScriptErr "PostgreSQL version '$version' is not numeric"; return 1; }
+	[[ ! -d "$confDir/$version" ]] && { ScriptErr "PostgreSQL version '$version' is not installed"; return 1; }
+
+	# instance
+	if [[ ! $instance ]]; then
+		if [[ -d "$confDir/$version/main" ]]; then instance="main"
+		else instance="$(command ls -1 "$confDir/$version" | sort | head -1)"
+		fi
+	fi
+	confDir="$confDir/$version/$instance"
+	[[ ! -d "$confDir" ]] && { ScriptErr "PostgreSQL instance '$instance' is not installed"; return; }
+
+	service="postgresql@$version-$instance.service"
+}
+
+validateInstall()
+{
+	isInstalledCommand && return
+	ScriptErr "PostgreSQL is not installed"; return 1
+}
+
+ScriptRun "$@"
