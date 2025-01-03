@@ -82,20 +82,44 @@ ScriptCaller()
 # Script Checks
 #
 
-ScriptCheckDir() { ScriptCheckPath --dir "$1"; }
-ScriptCheckFile() { ScriptCheckPath --file "$1"; }
-ScriptCheckUnc() {	IsUncPath "$1" && return; ScriptErr "'$1' is not a UNC"; ScriptExit; }
+ScriptCheckDir() { ScriptCheckPath --dir "$@"; }
+ScriptCheckFile() { ScriptCheckPath --file "$@"; }
+ScriptCheckUnc() {	IsUncPath "$1" && return; ScriptErr "'$1' is not a UNC"; ScriptExit 1; return; }
 
+# ScriptCheckPath [--dir|--file|--sudo] FILE [DESC]
 ScriptCheckPath()
 {
 	local checkFile; [[ "$1" == "--file" ]] && { checkFile="true"; shift; }
 	local checkDir; [[ "$1" == "--dir" ]] && { checkDir="true"; shift; }
+	local sudo; [[ "$1" == "--sudo" ]] && { sudo="--sudo"; shift; }
+	local file="$1"; shift
+	local desc="$1"; [[ $desc ]] && desc="$desc "; shift
+	local missingErr="cannot access $desc'$file': No such file or directory";
+	local dirErr="$desc'$file' is a directory, not a file"
+	local fileErr="$desc'$file' is a file, not a directory"
 
-	[[ ! -e "$1" ]] && { ScriptErrQuiet "cannot access '$1': No such file or directory"; ScriptExit; }
-	[[ $checkFile && -d "$1" ]] && { ScriptErr "'$1' is a directory, not a file"; ScriptExit; }
-	[[ $checkDir && -f "$1" ]] && { ScriptErr "'$1' is a file, not a directory"; ScriptExit; }
-	
+	if [[ $sudo ]]; then
+		sudo test -e "$file" && { ScriptErrQuiet "$missingErr"; ScriptExit; return; }
+		[[ $checkFile ]] && sudo test -d "$file" && { ScriptErr "$dirErr"; ScriptExit; return; }
+		[[ $checkDir ]] && sudo test -f "$file" && { ScriptErr "$fileErr"; ScriptExit; return; }
+	else
+		[[ ! -e "$file" ]] && { ScriptErrQuiet "$missingErr"; ScriptExit; return; }
+		[[ $checkFile && -d "$file" ]] && { ScriptErrQuiet "$dirErr"; ScriptExit; return; }
+		[[ $checkDir && -f "$file" ]] && { ScriptErrQuiet "$fileErr"; ScriptExit; return; }
+	fi
+
 	return 0
+}
+
+# ScriptCheckDirs [--sudo] VAR1 [...] - check if directories specified by the variables exist
+ScriptCheckDirs()
+{
+	local sudo; [[ "$1" == "--sudo" ]] && { sudo="true"; shift; }
+
+	local var vars=("$@")
+	for var in "${vars[@]}"; do
+		ScriptCheckDir "${!var}" "$var" || return
+	done
 }
 
 #
