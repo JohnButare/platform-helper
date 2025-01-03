@@ -8,7 +8,7 @@ REM variables
 set dir=%~dp0
 set dist=Ubuntu
 set distUser=%USERNAME%
-rem set distUnc=\\ender.hagerman.butare.net\public
+rem set distUnc=\\ender.butare.net\public
 rem set distImage=documents\data\install\platform\linux\wsl\image\ubuntu\default.tar.gz
 
 set wsl=%1

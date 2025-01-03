@@ -762,7 +762,7 @@ HashiConf()
 	HASHI_CHECKED="true"
 }
 
-HashiAvailable() { IsOnNetwork hagerman,sandia; }
+HashiAvailable() { IsOnNetwork butare,sandia; }
 HashiConfStatus() { ! HashiAvailable && return; HashiConf --config-prefix=prod "$@" && hashi config status; }
 HashiConfConsul() { [[ $CONSUL_HTTP_ADDR || $CONSUL_HTTP_TOKEN ]] || HashiConf "$@"; }
 HashiConfNomad() { [[ $NOMAD_ADDR || $NOMAD_TOKEN ]] || HashiConf "$@"; }
@@ -2128,7 +2128,7 @@ GetInterface()
 # -m|--mdns						resolve host using MDNS
 # -v|--vm 						resolve host using local virtual machine names (check $HOSTNAME-HOST)
 # -w|--wsl						get the IP address used by WSL (Windows only)
-# test cases: 10.10.100.10 web.service pi1 pi1.butare.net pi1.hagerman.butare.net
+# test cases: 10.10.100.10 web.service pi1 pi1.butare.net pi1.butare.net
 GetIpAddress() 
 {
 	# arguments
@@ -2707,7 +2707,7 @@ DnsAlternate()
 {
 	local host="$1"
 
-	# hardcoded to check if connected on VPN from the Hagerman network to the DriveTime network (coeixst.local suffix) 
+	# hardcoded to check if connected on VPN from the Butare network to the DriveTime network (coeixst.local suffix) 
 	if [[ ! $host || ("$host" =~ (^$|butare.net$) && "$(GetDnsSearch)" == "coexist.local") ]]; then
 		echo "10.10.100.8" # butare.net primary DNS server
 	fi
@@ -2753,7 +2753,7 @@ DnsResolve()
 		else lookup="$(nslookup -type=A "$name" $server |& ${G}grep "name =" | ${G}cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
 		fi
 
-		# use alternate for Hagerman network IP addresses, reverse lookup fails on mac using VPN
+		# use alternate for Butare network IP addresses, reverse lookup fails on mac using VPN
 		[[ ! $lookup && ! $useAlternate ]] && IsIpInCidr "$name" "10.10.100.0/22" && { DnsResolve --use-alternate $quiet "$name"; return; }
 
 	# forward DNS lookup to get the fully qualified DNS address
@@ -2934,7 +2934,7 @@ IsService()
 	local service="$1"
 	IsIpAddress "$service" && return 1
 	HasDnsSuffix "$service" && return 1
-	! IsOnNetwork "hagerman" && return 1	
+	! IsOnNetwork "butare" && return 1	
 	DnsResolve --quiet "$1.service.$(GetNetworkDnsDomain)" > /dev/null
 }
 

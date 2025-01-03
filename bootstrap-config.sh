@@ -3,7 +3,7 @@ timezone="America/Denver"
 timezoneWin="Mountain Standard Time" # tzutil.exe /l
 
 # system
-network="hagerman"
+network="butare"
 wifi="Wiggin"
 systemUser="wsystem"
 confDir="Dropbox/network/system"
@@ -41,12 +41,12 @@ hashiTestVaultServers="pi20,pi21"
 # network
 #
 
-defaultDomain="hagerman"
+defaultDomain="butare"
 
 # networks - list of known networks, check the DNS servers, format is NETWORK@DNS_IP[:ping|dns|nfs|smb|ssh|wg](dns)
-# hagerman 10.10.100.8|7 (lb3|lb2)
+# butare 10.10.100.8|7 (lb3|lb2)
 # sandia 10.248.0.3 - gateware from trace route
-networks="sandia@10.248.0.3:ping,hagerman@10.10.100.8:dns,hagerman@10.10.100.7:dns,sandia@134.252.10.16:dns"
+networks="sandia@10.248.0.3:ping,butare@10.10.100.8:dns,butare@10.10.100.7:dns,sandia@134.252.10.16:dns"
 
 # external network
 externalTimeServer="time.apple.com"
@@ -55,28 +55,28 @@ externalTimeServer="time.apple.com"
 noProxyLocal="localhost,127.0.0.0/8,::1"
 noProxyRemote=".releases.ubuntu.com,.internal,.local"
 
-# hagerman network
-hagermanUser="jjbutare"
-hagermanBinUnc="//ender.hagerman.butare.net/system/usr/local/data/bin"
-hagermanBootstrapCloudDir=""
-hagermanInstallUnc="//ender.butare.net/public/install"
-hagermanDnsBaseDomain="butare.net"
-hagermanDnsDomain="hagerman.$hagermanDnsBaseDomain"
-hagermanDns1="10.10.100.8"
-hagermanDns2="10.10.100.7"
-hagermanDnsSearch="$hagermanDnsBaseDomain $hagermanDnsDomain"
+# butare network
+butareUser="jjbutare"
+butareBinUnc="//ender.butare.net/system/usr/local/data/bin"
+butareBootstrapCloudDir=""
+butareInstallUnc="//ender.butare.net/public/install"
+butareDnsBaseDomain="butare.net"
+butareDnsDomain="hagerman.$butareDnsBaseDomain"
+butareDns1="10.10.100.8"
+butareDns2="10.10.100.7"
+butareDnsSearch="$butareDnsBaseDomain $butareDnsDomain"
 
-hagermanNoProxy="$noProxyLocal,.$hagermanDnsBaseDomain,web,www,autoproxy,$noProxyRemote"
-hagermanNoProxy+=",10.96.0.0/12,192.168.59.0/24,192.168.49.0/24,192.168.39.0/24" # minikube - https://minikube.sigs.k8s.io/docs/handbook/vpn_and_proxy/
+butareNoProxy="$noProxyLocal,.$butareDnsBaseDomain,web,www,autoproxy,$noProxyRemote"
+butareNoProxy+=",10.96.0.0/12,192.168.59.0/24,192.168.49.0/24,192.168.39.0/24" # minikube - https://minikube.sigs.k8s.io/docs/handbook/vpn_and_proxy/
 
-hagermanCameraServers="BackShedCamera,BackYardEastCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
-hagermanBackupUser="$user"
-hagermanGitServer="git.$hagermanDnsBaseDomain"							# Git Server
-hagermanProxyServer="proxy.$hagermanDnsBaseDomain:3128"			# Forward Proxy Server (Squid), service=proxy.$hbd:3128 ender=10.10.100.9:3128
-hagermanSyslogServer="syslog.$hagermanDnsBaseDomain"				# syslog server for remote system logs
-hagermanTimeServer="time.butare.net"												# Time Server
-hagermanVip="10.10.100.6" 																	# Virtual IP Address
-hagermanWireguardPort="51820"																# WireGuard Port
+butareCameraServers="BackShedCamera,BackYardEastCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
+butareBackupUser="$user"
+butareGitServer="git.$butareDnsBaseDomain"					# Git Server
+butareProxyServer="proxy.$butareDnsBaseDomain:3128"	# Forward Proxy Server (Squid), service=proxy.$hbd:3128 ender=10.10.100.9:3128
+butareSyslogServer="syslog.$butareDnsBaseDomain"		# syslog server for remote system logs
+butareTimeServer="time.butare.net"									# Time Server
+butareVip="10.10.100.6" 														# Virtual IP Address
+butareWireguardPort="51820"													# WireGuard Port
 
 # sandia network
 sandiaUser="jjbutar"
