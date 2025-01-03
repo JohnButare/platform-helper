@@ -4748,6 +4748,9 @@ SudoRead()
 	$sudo "$@"
 }
 
+# SudoRun PROGRAM ARGS - run program using sudo if sudo is defined
+SudoRun() { [[ ! $sudo ]] && return; sudo "$@"; }
+
 #
 # text processing
 #
