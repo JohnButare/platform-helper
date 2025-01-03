@@ -634,7 +634,7 @@ installInit()
 
 	# Java
 	macDeb+=(eclipse java jre jdk)
-	deb+=(OpenJdk tomcat tomcat10 tomcat9 tomcat7)
+	deb+=(OpenJdk)
 
 	# Kubernetes
 	macDeb+=(k3s kubectl lens minikube)
@@ -738,7 +738,6 @@ installInit()
 	macDeb+=(squid)
 	macWin+=(PostgresAdmin)
 	macDebRh+=(DBeaver)
-	deb+=(patroni PatroniConfig postgres postgres17 postgres16 PostgresApt PostgresClient PostgresDockerConfig)
 
 	# Shell
 	all+=(bash gum nix zsh)	
@@ -1335,6 +1334,7 @@ isInstallable()
 	[[ "$check" =~ ^(mac.*)$ ]] && IsPlatform mac && return
 	[[ "$check" =~ ^(ubuntu.*)$ ]] && IsPlatform ubuntu && return
 	[[ "$check" =~ ^(win.*|SqlServer.*)$ ]] && IsPlatform win && return
+	[[ "$check" =~ ^(patroni|postgres|tomcat) && "$check" != "postgresadmin" ]] && IsPlatform deb && return
 
 	# platform list checks
 	IsInArray -ci "$check" all && return
@@ -9895,19 +9895,18 @@ NginxProxyManagerDockerInstall()
 # Server - Postgres
 #################################################
 
-PostgresAll() { i patroni postgres PostgresApt PostgresClient PostgresDockerConfig; }
+PostgresAll() { i patroni PatroniConfig postgres PostgresConfig PostgresApt PostgresClient PostgresDockerConfig; }
 
 PatroniInstall()
 {
 	header "Patroni"
-	postgresCheck || return
-	package --quiet patroni python3-consul || return
-
-	i --no-header PatroniConfig || return
+	postgresCheck && package --quiet patroni python3-consul && i --no-header PatroniConfig
 }
 	
 PatroniconfigInstall()
 {	
+	header "Patroni Configuration"
+
 	# check if the configuration file exists
 	local file="/etc/patroni/patroni.yml"
 	[[ ! $force && -f "$file" ]] && return
@@ -9932,13 +9931,13 @@ PatroniconfigInstall()
 }
 
 postgresCheck() { PostgresHelper IsInstalled && return; i --no-header postgres; }
-
+postgresDefaultVersion() { [[ $version ]] && return; version="17"; }
 Postgres17Install() { version=17 PostgresInstall; }
 Postgres16Install() { version=16 PostgresInstall; }
 
 PostgresInstall()
 {
-	[[ ! $version ]] && local version="17"
+	postgresDefaultVersion || return
 	header "PostgreSQL $version"
 
 	# packages
@@ -9946,8 +9945,20 @@ PostgresInstall()
 	package --quiet postgresql-$version || return
 
 	# configuration
-	local version instance confDir confDirBase dataDir dataDirBase service; ScriptEval PostgresHelper vars || return
-	local restart 
+	i --no-header PostgresConfig || return
+}
+
+Postgresconfig17Install() { version=17 PostgresConfigInstall; }
+Postgresconfig16Install() { version=16 PostgresConfigInstall; }
+
+PostgresconfigInstall()
+{
+	postgresDefaultVersion || return	
+	header "Postgres Configuration"
+
+	# variables
+	local instance confDir confDirBase dataDir dataDirBase service; ScriptEval PostgresHelper --version="$version" vars || return
+	local restart
 
 	# directories
 	if [[ ! -L "$confDir" || ! -L "$dataDir" ]]; then
@@ -9967,7 +9978,7 @@ PostgresInstall()
 	# listen address
 	local file="$confDir/postgresql.conf"
 	local line="#listen_addresses = 'localhost'"
-	if ${G}grep --quiet "^$line" "$file"; then
+	if [[ $force ]] || sudoc ${G}grep --quiet "^$line" "$file"; then
 		sudoc sed -i "s/^$line/listen_addresses = '*'/" "$file" || return
 		restart="true"
 	fi
@@ -9976,8 +9987,17 @@ PostgresInstall()
 	local file="$confDir/pg_hba.conf"
 	local cidr; cidr="$(network ip cidr make network)" || return
 	local line="hostssl	all				all				$cidr			scram-sha-256"
-	if ! sudoc ${G}grep --quiet "^$line$" "$file"; then
-		echo -e "\n# $(NetworkCurrent)\n${line}" | sudoc tee -a "$file" || return
+	if [[ $force ]] || ! sudoc ${G}grep --quiet "^$line$" "$file"; then
+		cat <<-EOF | sudoc tee --append "$file" || return
+			
+			# $(NetworkCurrent)
+			${line}
+			hostssl replication 	replicator		rp1.hagerman.butare.net scram-sha-256
+			hostssl replication 	replicator		rp2.hagerman.butare.net scram-sha-256
+			hostssl replication 	replicator		rp3.hagerman.butare.net scram-sha-256
+			hostssl replication 	replicator		rp4.hagerman.butare.net scram-sha-256
+		EOF
+
 		restart="true"
 	fi
 

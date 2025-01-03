@@ -3486,7 +3486,7 @@ isPlatformCheck()
 		win|mac|linux) [[ "$p" == "$_platformOs" ]];;
 		casaos|dsm|qts|rhel|srm|pi|ubuntu) [[ "$p" == "$_platformIdMain" ]];;
 		fedora|mingw|openwrt|qnap|synology|ubiquiti) [[ "$p" == "$_platformIdLike" ]];;
-		debian) [[ "$_platformIdMain" == "debian" || "$_platformIdLike" == "debian" ]];;
+		deb|debian) [[ "$_platformIdMain" == "debian" || "$_platformIdLike" == "debian" ]];;
 		debianbase) [[ "$_platformIdMain" == "debian" && "$_platformIdLike" == "" ]];;
 		debianlike) [[ "$_platformIdLike" == "debian" ]];;
 
