@@ -114,7 +114,7 @@ ScriptCheckPath()
 # ScriptCheckDirs [--sudo] VAR1 [...] - check if directories specified by the variables exist
 ScriptCheckDirs()
 {
-	local sudo; [[ "$1" == "--sudo" ]] && { sudo="true"; shift; }
+	local sudo; [[ "$1" == "--sudo" ]] && { sudo="--sudo"; shift; }
 
 	local var vars=("$@")
 	for var in "${vars[@]}"; do
