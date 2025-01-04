@@ -99,7 +99,7 @@ ScriptCheckPath()
 	local fileErr="$desc'$file' is a file, not a directory"
 
 	if [[ $sudo ]]; then
-		sudo test -e "$file" && { ScriptErrQuiet "$missingErr"; ScriptExit; return; }
+		! sudo test -e "$file" && { ScriptErrQuiet "$missingErr"; ScriptExit; return; }
 		[[ $checkFile ]] && sudo test -d "$file" && { ScriptErr "$dirErr"; ScriptExit; return; }
 		[[ $checkDir ]] && sudo test -f "$file" && { ScriptErr "$fileErr"; ScriptExit; return; }
 	else
@@ -118,7 +118,7 @@ ScriptCheckDirs()
 
 	local var vars=("$@")
 	for var in "${vars[@]}"; do
-		ScriptCheckDir "${!var}" "$var" || return
+		ScriptCheckDir $sudo "${!var}" "$var" || return
 	done
 }
 
