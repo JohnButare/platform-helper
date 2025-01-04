@@ -3972,17 +3972,19 @@ ProcessKill()
 	return "$resultFinal"
 }
 
-# ProcessList [--user|--unix|--win] - show process ID and executable name with a full path in format PID,NAME
+# ProcessList [--user|--unix|--win|--comm] - show process ID and executable name with a full path in format PID,NAME
 # -u|--user - only user processes
 # -U|--unix - only UNIX processes
 # -w|--win - only Windows processes
+# -c|--comm - show command name (onlt the executable name), for Python programs this shows the name of the Python module not the Python executable
 ProcessList() 
 { 
 	# arguments
-	local args="-e" unix="true" win="true"
+	local args="-e" unix="true" win="true" command=(-o command=)
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			-c|--comm) command=(-o comm=);;
 			-u|--user) unset args;;
 			-U|--unix) unset win;;
 			-w|--win) unset unix;;
@@ -3995,7 +3997,7 @@ ProcessList()
 	IsPlatform mac && { ps -c $args | sed 's/^[[:space:]]*//' | tr -s ' ' | ${G}cut -d" " -f1,4 --output-delimiter=,; return; }
 
 	# unix processes
-	[[ $unix ]] && IsPlatform linux,win && { ps $args -o pid= -o command= | awk '{ print $1 "," $2 }' || return; }
+	[[ $unix ]] && IsPlatform linux,win && { ps $args -o pid= ${command[@]} | awk '{ print $1 "," $2 }' || return; }
 
 	# windows processes
 	if [[ $win ]] && IsPlatform win; then
