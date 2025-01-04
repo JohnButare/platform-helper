@@ -2732,6 +2732,8 @@ DnsResolve()
 		shift
 	done
 
+	# cleanup and validate the name
+	name="$(RemoveEnd "$name" ".")" # remove tailing periods, so we use the DNS search suffix
 	[[ ! $name ]] && { MissingOperand "host" "DnsResolve"; return 1; } 
 
 	# localhost - use the domain in the configuration
