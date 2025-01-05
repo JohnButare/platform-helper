@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) dir|info|IsInstalled|patroni|run|service|vars
+Usage: $(ScriptName) dir|info|IsInstalled|IsRunning|patroni|run|service|vars
 PostgreSQL datbase server functionality.
 
 	-i,	 --instance=INSTANCE		the instance to use
@@ -22,13 +22,16 @@ init()
 	defaultCommand="run"
 	confDirBase="/etc/postgresql"
 	dataDirBase="/var/lib/postgresql"
-	patroniConf="/etc/patroni/patroni.yml"
+	patroniConf="/etc/patroni/config.yml"
+	patroniPortDefault="8008"
+	patroniService="patroni"
+	postgresPort="5432"
 }
 
 argStart()
 {
-	unset -v instance version password;
-	user="postgres" host="localhost" Bdatabase="postgres"
+	unset -v binDir confDir dataDir instance version password service;
+	user="postgres" host="localhost" database="postgres"
 }
 
 opt()
@@ -60,14 +63,43 @@ argEnd()
 # commands
 #
 
-dirCommand() { serviceInit && echo "$confDir"; }
+dirCommand() { findPostgres && echo "$confDir"; }
 isInstalledCommand() { [[ -d "$confDirBase" ]]; }
-varsCommand() { serviceInit && ScriptReturn version instance binDir confDir confDirBase dataDir dataDirBase service; }
+isRunningCommand() { IsAvailablePort localhost "$postgresPort"; }
+varsCommand() { findPostgres && ScriptReturn version instance binDir confDir confDirBase dataDir dataDirBase service; }
+
+#
+# info command
+#
+
+infoUsage() { ScriptUsageEcho "Usage: $(ScriptName) info postgres|patroni"; }
 
 infoCommand()
+{	
+	infoPostgresCommand || return
+	patroniIsInstalled && { patroniInfoCommand || return; }
+	return 0;
+}
+
+infoPostgresCommand()
 {
-	isInstalledCommand && { serviceInit || return; }
-	echo -e "version=$version\ninstance=$instance"
+	findPostgres || return
+	local desc; isRunningCommand && desc=" (running)"
+	header "PostgreSQL$desc"
+	varsCommand || return
+	serviceExistsCommand && echo "service=$(serviceStatusCommand)"
+	return 0
+}
+
+infoPatroniCommand()
+{
+	patroniValidateInstall || return
+	local desc; patroniIsRunningCommand && desc=" (running)"
+	header "Patroni$desc"
+	echo "patroniConf=$patroniConf"
+	echo "port=$(getPatroniPort)"
+	patroniServiceExistsCommand && echo "service=$(patroniServiceStatusCommand)"
+	[[ $desc ]] && patroniCtrl "topology"
 }
 
 #
@@ -86,21 +118,71 @@ runCommand()
 # patroni commands
 #
 
-patroniUsage() { ScriptUsageEcho "Usage: $(ScriptName) patroni ctl|start"; }
+patroniUsage() { ScriptUsageEcho "Usage: $(ScriptName) patroni ctl|info|start|stop|IsInstalled|IsRunning|service"; }
 patroniCommand() { usage; }
-patroniStartCommand() { ( cd "/tmp"; sudoc -u postgres patroni "$patroniConf" ) }
-patroniCtlArgStart() { patroniCtlArgs=(); }
-patroniCtlArgs() { patroniCtlArgs=( "$@" ); (( shift+=$# )); return 0; }
-patroniCtlCommand() { CONSUL_HTTP_ADDR= patronictl --config-file "$patroniConf" "${patroniCtlArgs[@]}" "${otherArgs[@]}"; }
+
+patroniInfoCommand() { infoPatroniCommand; }
+
+patroniIsInstalled() { InPath patroni; }
+patroniIsRunningCommand() { patroniIsRunning; }
+patroniIsRunning() { IsAvailablePort localhost "$(getPatroniPort)"; }
+
+patroniStartCommand()
+{
+	patroniValidateInstall || return
+	patroniIsRunning && { echo "Patroni is already running"; return; }
+	( cd "/tmp"; sudoc -u postgres patroni "$patroniConf" )
+}
+
+patroniStopCommand()
+{
+	patroniValidateInstall || return
+	! patroniIsRunning && { echo "Patroni is not running"; return; }
+	echo "Stopping Patroni..."
+	sudoc pkill "patroni"
+}
+
+#
+# patroni ctl commands
+#
+
+patroniCtlArgStart() { patroniCtlArgs=(topology); }
+patroniCtlArgEnd() { patroniValidateInstall; }
+patroniCtlArgs() { [[ $@ ]] && patroniCtlArgs=( "$@" ); (( shift+=$# )); return 0; }
+patroniCtlCommand() { patroniCtrl "${patroniCtlArgs[@]}" "${otherArgs[@]}"; }
+patroniCtrl() { CONSUL_HTTP_ADDR= patronictl --config-file "$patroniConf" "$@"; }
+
+#
+# patroni service commands
+#
+
+patroniServiceUsage() { ScriptUsageEcho "Usage: $(ScriptName) service detail|exists|install|log|restart|running|start|status|stop"; }
+patroniServiceCommand() { serviceStatusCommand; }
+patroniServiceArgEnd() { patroniValidateInstall; }
+patroniServiceDetailCommand() { service detail $patroniService; }
+patroniServiceExistsCommand() { service exists $patroniService; }
+patroniServiceLogCommand() {	service log $patroniService; }
+patroniServiceRestartCommand() { service restart "$patroniService"; }
+patroniServiceRunningCommand() { service running "$patroniService"; }
+patroniServiceStartCommand() { service start "$patroniService"; }
+patroniServiceStatusCommand() { service status "$patroniService"; }
+patroniServiceStopCommand() { service stop "$patroniService"; }
+
+#
+# patroni helper
+#
+
+patroniValidateInstall() { isInstalledCommand && return; ScriptErr "Patroni is not installed"; return 1; }
 
 #
 # service commands
 #
 
-serviceUsage() { ScriptUsageEcho "Usage: $(ScriptName) service detail|log|restart|running|start|status|stop"; }
-serviceArgEnd() { serviceInit; }
+serviceUsage() { ScriptUsageEcho "Usage: $(ScriptName) service detail|exists|log|restart|running|start|status|stop"; }
+serviceArgEnd() { findPostgres; }
 serviceCommand() { serviceStatusCommand; }
 serviceDetailCommand() { service detail $service; }
+serviceExistsCommand() { service exists $service; }
 serviceLogCommand() {	LogShow "/var/log/postgresql/postgresql-$version-$instance.log"; }
 serviceRestartCommand() { service restart "$service"; }
 serviceRunningCommand() { service running "$service"; }
@@ -112,6 +194,8 @@ serviceStopCommand() { service stop "$service"; }
 # helper
 #
 
+validateInstall() { isInstalledCommand && return; ScriptErr "PostgreSQL is not installed"; return 1; }
+
 getPassword()
 {
 	[[ $password ]] && return
@@ -119,9 +203,17 @@ getPassword()
 	export PGPASSWORD="$password"
 }
 
-serviceInit()
+getPatroniPort()
+{
+	[[ $patroniPort ]] && { echo "$patroniPort"; return; }
+	[[ -f "$patroniConf" ]] && InPath yq && patroniPort="$(yq ".restapi.listen" "$patroniConf" |& GetUriPort)"
+	echo "${patroniPort:-$patroniPortDefault}"
+}
+
+findPostgres()
 {
 	validateInstall || return
+	[[ ! $force && $service ]] && return
 
 	# version
 	[[ ! $version ]] && version="$(command ls -1 "$confDirBase" | sort --reverse --numeric | head -1)"
@@ -140,12 +232,6 @@ serviceInit()
 	binDir="/usr/lib/postgresql/$version/bin"
 	dataDir="$dataDirBase/$version/$instance"
 	service="postgresql@$version-$instance.service"
-}
-
-validateInstall()
-{
-	isInstalledCommand && return
-	ScriptErr "PostgreSQL is not installed"; return 1
 }
 
 ScriptRun "$@"
