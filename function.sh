@@ -1345,6 +1345,13 @@ else
 
 fi
 
+# StringSort STRING [DELIMITER](,)
+StringSort()
+{
+	local s="$1" delimiter="${2:-,}"
+	echo "$s" | sed -e 's/'$delimiter'/\n/g' | sort -n | tr '\n' "$delimiter" | sed 's/.$//'
+}
+
 # time
 ShowTime() { ${G}date '+%F %T.%N %Z' -d "$1"; }
 ShowSimpleTime() { ${G}date '+%D %T' -d "$1"; }
