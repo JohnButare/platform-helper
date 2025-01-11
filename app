@@ -59,6 +59,23 @@ sshd() { runService "ssh"; }
 SyncPlicity() { taskStart "$P/Syncplicity/Syncplicity.exe"; }
 UltraMon() { IsProcessRunning "UltraMon.exe" || taskStart "$P/UltraMon/UltraMon.exe" "" ; }
 
+BgInfo()
+{
+	# return if no changes
+	[[ ! $force ]] && grep '^Wallpaper=' $UADATA/Microsoft/Windows/Themes/Custom.theme | qgrep BGInfo && return
+	! InPath Bginfo64.exe && return
+
+	# find configuration file
+	local dir="$DATA/setup" file
+	{ file="$dir/$HOSTNAME.bgi" && [[ -f "$file" ]]; } || \
+	{ file="$dir/$(GetDomain).bgi" && [[ -f "$file" ]]; } || \
+	file="$dir/default.bgi"
+	[[ ! -f "$file" ]] && return
+	
+	# set background
+	Bginfo64.exe "$(utw "$DATA/setup/default.bgi")" /timer:0
+}
+
 dbus()
 {	
 	! IsPlatform wsl && return
