@@ -148,9 +148,9 @@ dirLinux()
 	if IsSystemd; then
 		[[ -d "/etc/systemd/system/" ]] && echo "/etc/systemd/system/"
 		[[ -d "/lib/systemd/system/" ]] && echo "/lib/systemd/system/"
+	elif [[ -d "/etc/init.d/" ]]; then
+		echo "/etc/init.d/"
 	fi
-
-	[[ -d "/etc/init.d/" ]] && echo "/etc/init.d/"
 }
 
 demandCommand() 
@@ -260,8 +260,8 @@ detailLinux()
 		if [[ -f "/lib/systemd/system/$service.service" ]]; then echo "systemd service: /lib/systemd/system/$service.service"
 		elif [[ -f "/etc/systemd/system/$service.service" ]]; then echo "systemd service: /etc/systemd/system/$service.service"
 		fi
-	else
-		[[ -f "/etc/init.d/$service" ]] && echo "init.d service: /etc/init.d/$service"
+	elif [[ -f "/etc/init.d/$service" ]]; then
+		echo "init.d service: /etc/init.d/$service"
 	fi
 
 	linuxService status "$service"; 
@@ -300,14 +300,16 @@ listUsage()
 {
 	EchoWrap "Usage: service list - list services
 
+	-d, --detail		show more detail about the services
 	-F, --file			show the services in a file"
 }
 
-listArgStart() { unset -v file; }
+listArgStart() { unset -v detail file; }
 
 listOpt()
 {
 	case "$1" in
+		-d|--detail) detail="true";;
 		-F|--file) file="true";;
 		*) return 1
 	esac
@@ -324,17 +326,32 @@ listCommand()
 }
 
 listMac() { macGetServices | awk -F/ '{ print $(NF) }' | sed 's/.plist//' | sort; }
-listWin() { $sc $hostUnc queryex bufsize= $scBufferSize type= all state= all; /usr/sbin/service --status-all; ls -1 "/etc/init.d/"; }
 
 listLinux()
+{	
+	if IsSystemd; then
+		{
+			[[ -d "/etc/systemd/system" ]] && command ls -1 "/etc/systemd/system/" | grep ".service$"; 
+			[[ -d "/lib/systemd/system" ]] && command ls -1 "/lib/systemd/system/" | grep ".service$";
+			systemctl list-units --type=service,target --no-legend --full --plain | cut -d" " -f1;
+		} | grep -v "@.service$" | sed 's/.service$//' | sort | uniq; # @.service are templates
+	elif [[ -d "/etc/init.d" ]]; then
+		grep "force-reload" "/etc/init.d/"* --files-with-matches | cut -d'/' -f4
+	fi
+}
+
+listWin()
 {
-	local isSystemd; IsSystemd && isSystemd="true"
-	{
-		[[ -d "/etc/init.d" ]] && grep "force-reload" "/etc/init.d/"* --files-with-matches | cut -d'/' -f4;
-		[[ $isSystemd && -d "/etc/systemd/system" ]] && command ls -1 "/etc/systemd/system/" | grep ".service$"; 
-		[[ $isSystemd && -d "/lib/systemd/system" ]] && command ls -1 "/lib/systemd/system/" | grep ".service$";
-		[[ $isSystemd ]] && systemctl list-units --type=service,target --no-legend --full --plain | cut -d" " -f1;
-	} | grep -v "@.service$" | sed 's/.service$//' | sort | uniq; # @.service are templates
+	[[ $detail ]] && { listWinDetail; return; }
+	{ listLinux; sc.exe queryex | grep "^SERVICE_NAME: " | cut -d" " -f2; } | sort | uniq
+}
+
+listWinDetail()
+{
+	header "Windows"; $sc $hostUnc queryex bufsize= $scBufferSize type= all state= all
+	if false && IsSystemd; then header "Systemd"; listLinux
+	elif [[ -d "/etc/init.d" ]]; then header "Init"; /usr/sbin/service --status-all
+	fi 
 }
 
 #
@@ -578,8 +595,8 @@ macAgents=(  "${macSystemAgents[@]}" "$HOME/Library/LaunchAgents" )
 macServices=( "${macDaemons[@]}" "${macAgents[@]}" )
 
 macGetServices() { find "${macServices[@]}" -type f; }
-isLinuxService() { isInitdService "$1" || isSystemdService "$1"; }
-isInitdService() { [[ -f "/etc/init.d/$1" ]] ; }
+isLinuxService() { isInitService "$1" || isSystemdService "$1"; }
+isInitService() { [[ -f "/etc/init.d/$1" ]] ; }
 
 # isSystemdService NAME - NAME format is SERVICE_NAME[@SERVICE_INSTANCE]
 isSystemdService()
