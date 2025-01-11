@@ -43,7 +43,6 @@ chrony() { runService "chrony"; }
 cron() { runService "cron"; }
 cue() { CorsairUtilityEngine; }; CorsairUtilityEngine() { IsProcessRunning "iCUE.exe" || taskStart "$P32\Corsair\CORSAIR iCUE Software\iCUE Launcher.exe" "" --autorun; }
 discord() { IsProcessRunning Discord.exe || taskStart "$UADATA/Discord/app-0.0.305/Discord.exe" --start-minimized; }
-docker() { runService "docker"; }
 duet() { taskStart "$P/Kairos/Duet Display/duet.exe"; }
 Explorer() { [[ "$command" == "startup" ]] && ! IsProcessRunning explorer.exe && start explorer; }
 FixTime() { [[ ! $force ]] && ClockHelper check && return; printf "time."; ClockHelper fix $force $verbose; }
@@ -206,8 +205,6 @@ runInternalApp()
 
 runService()
 { 
-	! IsPlatform wsl && return
-
 	local service="$1"
 	
 	! service exists "$1" --quiet "${globalArgs[@]}" && return
