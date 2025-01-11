@@ -1175,6 +1175,15 @@ ArrayRemove()
 	eval "$1=( $(ArrayDelimit $1 $'\n' | grep -v "$values") )"
 }
 
+# ArraySelect NAME TITLE MENU - select items from the specified array
+ArraySelect()
+{
+	local name="$1" title="$2" menu="$3"
+	local array item items=(); ArrayCopy "$name" array
+	for item in "${array[@]}"; do items+=( "$item" "" ); done
+	dialog --stdout --backtitle "$title" --menu "$menu:" $(($LINES-5)) 50 $(($LINES)) -- "${items[@]}"
+}
+
 # ArrayShow	NAME [DELIMITER]( ) [begin](") [end](") - show array elements quoted. 
 #   If a delmiter is specified delimited the array is delmited by it, use $'\n' for newlines.
 #   Each array element begins and end with the specified characters, i.e. $'\n' "^" "$" allows the array to be passed to grep
