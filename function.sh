@@ -3453,7 +3453,7 @@ fi
 #   use the _platform host variables set from the last call to HostGetInfo.
 IsPlatform()
 {
-	local all host hostArg p platforms=() useHost
+	local all host hostArg=() p platforms=() useHost
 
 	# arguments
 	while (( $# != 0 )); do
@@ -3461,7 +3461,7 @@ IsPlatform()
 			-a|--all) all="true";;
 			--host|-H)
 				[[ $2 ]] && ! IsOption "$2" && { host="$2"; shift; }
-				useHost="true" hostArg="--host $host"
+				useHost="true" hostArg=(--host "$host")
 				;;
 			*)
 				if ! IsOption "$1" && [[ ! $platforms ]]; then StringToArray "$1" "," platforms
@@ -3509,9 +3509,9 @@ isPlatformCheck()
 		debianlike) [[ "$_platformIdLike" == "debian" ]];;
 
 		# aliases
-		embedded) IsPlatform pi,piKernel,rock,RockKernel $hostArg;;
+		embedded) IsPlatform pi,piKernel,rock,RockKernel "${hostArg[@]}";;
 		nas) IsPlatform qnap|synology;;
-		rh) IsPlatform rhel $hostArg;; # Red Hat
+		rh) IsPlatform rhel "${hostArg[@]}";; # Red Hat
 
 		# windows
 		wsl) [[ "$_platformOs" == "win" && "$_platformIdLike" == "debian" ]];; # Windows Subsystem for Linux
@@ -3520,7 +3520,7 @@ isPlatformCheck()
 		# hardware
 		32|64) [[ "$p" == "$(os bits "$_machine" )" ]];;
 		arm|mips|x86) [[ "$p" == "$(os architecture "$_machine" | LowerCase)" ]];;
-		x64) eval IsPlatformAll x86,64 $hostArg;;
+		x64) eval IsPlatformAll x86,64 "${hostArg[@]}";;
 
 		# kernel
 		winkernel) [[ "$_platformKernel" == @(wsl1|wsl2) ]];;
@@ -3529,7 +3529,7 @@ isPlatformCheck()
 		rock|rockkernel) [[ "$_platformKernel" == "rock" ]];;
 
 		# other
-		entware) IsPlatform qnap,synology $hostArg;;
+		entware) IsPlatform qnap,synology "${hostArg[@]}";;
 
 		*) unset found;;
 	esac
