@@ -151,7 +151,7 @@ CheckPlatform || return
 P="/opt" PUSER="" SRV="/srv" BIN="" DATA="" ADATA="" ACONF="" PUB="" USERS="/home"
 
 # USER=logged on user, SUDO_USER, HOME=home directory, DOC=user documents, UDATA=user data, UBIN=user programs
-# UDATA=user data, UADATA=user application data, CODE=source code WIN_CODE=windows source code
+# UDATA=user data, UADATA=user application data, CODE=source code
 USER="${USERNAME:-$USER}" DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
 DATA="/usr/local/data" ADATA="$DATA/appdata" ACONF="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM_OS"
 DOC="$HOME/Documents" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
@@ -163,27 +163,21 @@ WIN_ROOT="/" WIN_HOME="$HOME"
 # PLATFORM_OS environment variables
 case "$PLATFORM_OS" in 
 	mac) USERS="/Users" P="/Applications" G="g" SRV="/opt" UADATA="$HOME/Library/Application Support" PUSER="$HOME/Applications"
+
 		# Homebrew
 		unset -v HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY
 		if [[ -f "/opt/homebrew/bin/brew" ]]; then export HOMEBREW_PREFIX="/opt/homebrew" HOMEBREW_CELLAR="$HOMEBREW_PREFIX/Cellar" HOMEBREW_REPOSITORY="$HOMEBREW_PREFIX"	
 		elif [[ -f "/usr/local/bin/brew" ]]; then export HOMEBREW_PREFIX="/usr/local" HOMEBREW_CELLAR="$HOMEBREW_PREFIX/Cellar" HOMEBREW_REPOSITORY="/usr/local/Homebrew"
 		fi
 		;;
-	win)
+
+	win) EXE=".exe"
 		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows"
 		WIN_USER="$USER" WIN_HOME="$WIN_ROOT/Users/$WIN_USER" # for performancd assume the Windows username is the same
-		WIN_PUB="$WIN_ROOT/Users/Public"; WIN_DATA="$WIN_PUB/data"
-		[[ ! -d "$WIN_HOME/Documents" ]] && WIN_USER="$(cmd.exe /c set 2> /dev/null | grep '^USERNAME=' | cut -d= -f2 | tr -d '\n' | sed 's/\r//g')" WIN_HOME="$WIN_ROOT/Users/$WIN_USER"
 		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" UADATA="$WIN_HOME/AppData/Local" PUSER="$UADATA/Programs"
-		EXE=".exe"
 		;;
 
 esac
-
-# define for all platforms for compatibility
-WIN_CODE="$WIN_HOME/code"
-WIN_DOC="$WIN_HOME/Documents"
-WIN_UDATA="$WIN_HOME/data"	
 
 # platform dependant variables
 PUB="${PUB:-$USERS/Shared}"
