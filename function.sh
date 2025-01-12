@@ -534,17 +534,8 @@ AppVersion()
 	fi
 
 	# get Windows executable version
-	if [[ ! $version ]] && IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == "exe" ]]; then
-		if InPath "wmic.exe"; then # WMIC is deprecated but does not require elevation
-			version="$(RunWin wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2)" || return
-		elif CanElevate; then
-			version="$(RunWin powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.FileVersion" | RemoveCarriageReturn)" || return
-
-			# use major, minor, build, revision - for programs like speedcrunch.exe
-			if ! IsNumeric "$version"; then
-				version="$(RunWin powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.FileVersionRaw" | RemoveCarriageReturn | RemoveEmptyLines | tail -1 | tr -s " " | RemoveSpaceTrim | sed 's/ /\./g')" || return
-			fi
-		fi
+	if [[ ! $version ]] && IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == @(dll|exe) ]]; then
+		version="$(AppVersionWin "$file")" || return
 	fi
 
 	# call APP --version - where the version number is the last word of the first line
@@ -556,6 +547,23 @@ AppVersion()
 	UpdateSet "$appCache" "$version" && echo "$version"
 }
 
+AppVersionWin()
+{
+	local file="$1" version
+
+	if InPath "wmic.exe"; then # WMIC is deprecated but does not require elevation
+		version="$(RunWin wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2)" || return
+	elif CanElevate; then
+		version="$(RunWin powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.FileVersion" | RemoveCarriageReturn)" || return
+
+		# use major, minor, build, revision - for programs like speedcrunch.exe
+		if ! IsNumeric "$version"; then
+			version="$(RunWin powershell.exe "(Get-Item -path \"$(utw "$file")\").VersionInfo.FileVersionRaw" | RemoveCarriageReturn | RemoveEmptyLines | tail -1 | tr -s " " | RemoveSpaceTrim | sed 's/ /\./g')" || return
+		fi
+	fi
+
+	echo "$version"
+}
 # AppHelper APP - return the helper application for the app in $BIN
 AppHelper()
 {
