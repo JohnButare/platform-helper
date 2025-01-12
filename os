@@ -198,7 +198,7 @@ locationDesktopCommand()
 
 locationDocumentsCommand()
 {
-	IsPlatform win && { wtu "$(powershell "[Environment]::GetFolderPath('MyDocuments')") | RemoveCarriageReturn"; return; }
+	IsPlatform win && { wtu "$(powershell "[Environment]::GetFolderPath('MyDocuments')")" | RemoveCarriageReturn; return; }
 	echo "$HOME/Documents"
 }
 
