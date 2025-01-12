@@ -68,14 +68,24 @@ versionCommand()
 	# get application function
 	app="$(appGetInstallFunction "$app")" || return
 
-	# get description
-	local desc; desc="$(appDesc "$app")" || return	
-	hilight "$desc versions..."
+	# get versions for each platform
+	local platform platforms; versionGetPlatforms "$app" || return
+	for platform in "${platforms[@]}"; do
 
-	# show versions
-	echo "current=$(force="$forceLess" quiet="--quiet" versionGetCurrent "$app")"
-	echo "downloaded=$(versionGetDownloaded "$app")"
-	echo "installed=$(versionGetInstalled "$app")"
+		# get description
+		local desc v; desc="$(appDesc "$app" "$platform")" || return	
+		header "$desc Versions"
+
+		# show current and downloaded versions
+		if versionCheckPossible "$app" "$platform"; then
+			v="$(force="$forceLess" quiet="--quiet" versionGetCurrent "$app" "$platform")" && echo "current=$v"
+			v="$(versionGetDownloaded "$app" "$platform")" && [[ $v ]] && echo "downloaded=$v"
+		fi
+
+		# installed version - if installed for the specified platform
+		{ [[ ! $platform || "$platform" == "all" ]] || IsPlatform "$platform"; } && v="$(versionGetInstalled "$app")" && echo "installed=$v"
+
+	done
 }
 
 #
@@ -239,29 +249,32 @@ check()
 		fi
 
 		for app in "${apps[@]}"; do
-			checkApp "$app" || return
-			[[ ! $installType ]] && IsFunction "${app,}VersionBeta" && { installType="beta" checkApp "$app" || return; }
+			local platform platforms; versionGetPlatforms "$app" || return
+			for platform in "${platforms[@]}"; do
+				checkApp "$app" "$platform" || return
+				[[ ! $installType ]] && IsFunction "${app,}VersionBeta" && { installType="beta" checkApp "$app" "$platform" || return; }
+			done
 		done
 
 		[[ ! $verbose && ! $quiet ]] && { PrintErr "done" && EchoErr ""; }
 	} | column -c $(tput cols -T "$term") -t -s"${delimit}"
 }
 
-# checkApp APP NAME - show app version information
+# checkApp APP PLATFORM - show app version information
 checkApp()
 {
-	local app="$1" appName="$1" installed="" downloaded="" update="no" current=""
-	local type; [[ $installType ]] && type=" ($installType)"
+	local app="$1" platform="$2" installed="" downloaded="" update="no" current=""
+	local desc; desc="$(appDesc "$app" "$platform")"
 	local alternate; [[ "$app" =~ Deb$ ]] && alternate="--alternate" app="$(RemoveEnd "$app" "Deb")"
 
 	# get installed version
-	log1 "Getting ${appName}${type} installed version..."	
+	log1 "Getting '$desc' installed version..."	
 	installed="$(versionGetInstalled "$app")"
 	
 	# get download version
 	if IsFunction "${app}Download"; then
-		log1 "Getting ${appName}${type} downloaded version..."
-		downloaded="$(versionGetDownloaded "$app")"  || ScriptErr "unable to get '$app' downloaded version"
+		log1 "Getting '$desc downloaded version..."
+		downloaded="$(versionGetDownloaded "$app" "$platform")"  || ScriptErr "unable to get '$app' downloaded version"
 		[[ ! $verbose && ! $quiet ]] && PrintErr "."
 	elif [[ ${storeIds[$app]} ]]; then
 		downloaded="store"
@@ -276,10 +289,10 @@ checkApp()
 	fi
 
 	# get current version	
-	if isStoreApp "$app" || IsFunction "${app,}Version"; then
-		log1 "Getting ${appName}${type} current version..."
-		if ! current="$(force="$forceLess" quiet="--quiet" versionGetCurrent "$app")"; then
-			local error="unable to get '$app${type}' current version"
+	if isStoreApp "$app" || versionCheckPossible "$app" "$platform"; then
+		log1 "Getting '$desc' current version..."
+		if ! current="$(force="$forceLess" quiet="--quiet" versionGetCurrent "$app" "$platform")"; then
+			local error="unable to get '$desc' current version"
 			[[ "$installType" != "beta" ]] && ScriptErr "$error" || log1 "$error"
 		fi
 		[[ ! $verbose && ! $quiet ]] && PrintErr "."
@@ -292,7 +305,7 @@ checkApp()
 
 		# regular version is installed and showing beta version
 		if [[ "$installType" == "beta" ]]; then
-			local regularVersion; regularVersion="$(installType="" force="$forceLess" versionGetCurrent "$app")" || ScriptErr "unable to get '$app' current non-beta version"
+			local regularVersion; regularVersion="$(installType="" force="$forceLess" versionGetCurrent "$app" "$platform")" || ScriptErr "unable to get '$app' current non-beta version"
 			{ [[ "$installed" == "$regularVersion" ]] || versionIsOlder "$installed" "$regularVersion"; } && installed=""
 
 		# has a beta version and it is installed and showing regular version
@@ -305,7 +318,7 @@ checkApp()
 	[[ "$installed" == "" && ! $downloaded && ! $current ]] && return
 
 	# if the installed version is older than the current version, hilight it in red	
-	if [[ $test && "${appName:0:1}" == @(T|R|V) ]]; then
+	if [[ $test && "${app:0:1}" == @(T|R|V) ]]; then
 		update="yes" installed="${RED}$installed${RESET}"
 	else
 		[[ $current && $installed ]] && versionIsOlder "$installed" "$current" && update="yes" installed="${RED}$installed${RESET}" || installed="${PAD}$installed${PAD}"
@@ -316,9 +329,9 @@ checkApp()
 
 	# show results
 	if [[ $detail ]]; then
-		echo "${PAD}${appName}${type}${delimit}${installed}${delimit}${downloaded}${delimit}${current}${delimit}${update}${PAD}"
+		echo "${PAD}${desc}${delimit}${installed}${delimit}${downloaded}${delimit}${current}${delimit}${update}${PAD}"
 	else
-		echo "${PAD}${appName}${type}${delimit}${installed}${delimit}${downloaded}${delimit}${current}${PAD}"
+		echo "${PAD}${desc}${delimit}${installed}${delimit}${downloaded}${delimit}${current}${PAD}"
 	fi
 }
 
@@ -893,10 +906,11 @@ appClean()
 	sudoc $rmd "$dir"
 }
 
-# appDesc [DESC]($app)
+# appDesc [DESC]($app) [PLATFORM]
 appDesc()
 {
-	local desc="${1:-$app}"
+	local desc="${1:-$app}" platform="$2"
+	[[ $platform && "$platform" != "all" ]] && desc+=" ${platform^}"
 	[[ $installType ]] && desc+=" ($installType)"
 	echo "$desc"
 }
@@ -920,11 +934,12 @@ appGetInstallFunction()
 	ScriptErrQuiet "'$app' installation does not exist"
 }
 
+# appGetTrack APP WHAT [PLATFORM] - get the tracking cache name
 appGetTrack()
 {
-	local app="${1,,}" what="$2"; track="install-$app-$what-version"
+	local app="${1,,}" what="$2" platform="$3"; track="install-$app-$what-version"
 	[[ "$installType" == "beta" ]] && track+="-beta"
-	[[ "$app" == @(fork) ]] && track+="-$PLATFORM_OS"
+	[[ $platform && "$platform" != "all" ]] && track+="-$platform"
 	echo "$track" 
 }
 
@@ -1019,33 +1034,27 @@ download()
 	RunLog curl --location "$url" --output "$file" && echo
  }
 
+downloadHeader() { [[ $groupDownload ]] && return; header "${1^} Download"; }
+downloadFooter() { [[ $groupDownload || ! $downloaded ]] && return; echo "${1^} download complete"; }
+
+# downloadDone APP VERSION [PLATFORM] - record version for a completed download
 downloadDone()
 {
-	local app="$1" v="$2" track; track="$(appGetTrack "$app" "downloaded")"
-	echo "$v" > ".$track" && UpdateSet "$track" "$v" && echo "${app^} v$v download complete."
+	local app="$1" v="$2" platform="$3" track; track="$(appGetTrack "$app" "downloaded" "$platform")" || return
+	echo "$v" > ".$track" && UpdateSet "$track" "$v" && downloadFooter "$app"
 }
 
-# downloadPossible APP - return 0 if can download the application
-downloadPossible()
-{
-	local app="$1"
-	local function="${app,}Version"; [[ "$installType" == "beta" ]] && function+="Beta"
-	IsFunction "$function"
-}
-
-# downloadStart APP - start the download of an app
+# downloadStart APP [PLATFORM] - start the download of an app
 # - returns 2 on error, 0 if the current version is newer than the downloaded version, 1 otherwise
 downloadStart()
 {
-	local app="$1" version
-
-	header "${app^} Download"
+	local app="$1" platform="$2" version; downloadHeader "$app"
 
 	# get current version
-	local vCurrent; vCurrent="$(versionGetCurrent "$app")" || return 2
+	local vCurrent; vCurrent="$(versionGetCurrent "$app" "$platform")" || return 2
 
 	# get downloaded version
-	local vDownloaded; vDownloaded="$(versionGetDownloaded "$app")" || return 2
+	local vDownloaded; vDownloaded="$(versionGetDownloaded "$app" "$platform")" || return 2
 
 	# log
 	log1 "vDownloaded=$vDownloaded vCurrent=$vCurrent"
@@ -1176,11 +1185,11 @@ getExt()
 	IsPlatform rpm,yum && { echo "${2:rpm}"; return; }
 }
 
-# getPlatform WIN MAC LINUX
+# getPlatform WIN MAC LINUX PLATFORM
 getPlatform()
 {
-	local win="$1" mac="$2" linux="$3"
-	eval echo '$'$PLATFORM_OS
+	local win="$1" mac="$2" linux="$3" platform="${4:-$PLATFORM_OS}"
+	eval echo '$'$platform
 }
 
 # getWin [PRIMARY](exe) [ALTERNATE](deb) - use Debian package for alternate Windows install
@@ -1328,7 +1337,7 @@ isInstallable()
 
 	# app name checks
 	isCollectionCommon "$app" && return
-	[[ "$check" =~ ^(ssh.*)$ ]] && return
+	[[ "$check" =~ ^(ssh.*|test.*)$ ]] && return
 	[[ "$check" =~ ^(dotnet.*|hashi.*|consul.*|nomad.*|vault.*)$ ]] && IsPlatform debian,mac,rhel && return
 	[[ "$check" =~ ^(debian.*)$ ]] && IsPlatform debian && return
 	[[ "$check" =~ ^(linux.*)$ ]] && IsPlatform linux,mac,win && return
@@ -2134,11 +2143,18 @@ versionCheckApp()
 	versionCheck "$app" "$installedVersion" "$check"
 }
 
-# versionGetCurrent APP - get current version of application using the function ${app}Version.
+# versionCheckPossible APP [PLATFORM] - return 0 if can get the current version of the application
+versionCheckPossible()
+{
+	local app="$1" platform="$2" 
+	local function; function="$(versionGetFunction "$app" "$platform")" && IsFunction "$function"
+}
+
+# versionGetCurrent APP [PLATFORM] - get current version of application using the function ${app}Version.
 #   Version information is cached at the install tracking file location.
 versionGetCurrent()
 {
-	local app="$1" track="$(appGetTrack "$app" "current")" version
+	local app="$1" platform="$2" track version; track="$(appGetTrack "$app" "current" "$platform")" || return
 
 	# get current version - cache
 	if ! UpdateNeeded "$track"; then
@@ -2148,10 +2164,10 @@ versionGetCurrent()
 	elif [[ ${storeIds[$app]} ]]; then
 		version="$(storeCurrentVersion "${storeIds[$app]}")" || return
 
-	# get current version - function
+	# get current version - function <app>Version[Beta][Mac|Win]
 	else
-		local function="${app,}Version"; [[ "$installType" == @(beta) ]] && function+="${installType^}"
-		! IsFunction "$function" && { ScriptErr "cannot get the '$(appDesc)' version"; return 1; }
+		local function; function="$(versionGetFunction "$app" "$platform")" || return
+		! IsFunction "$function" && { ScriptErr "cannot get the '$(appDesc "$app" "$platform")' version"; return 1; }
 		local version; version="$($function)" || { versionError "$app" "current"; return; }
 
 		# ignore older beta versions
@@ -2166,10 +2182,10 @@ versionGetCurrent()
 	versionValidate "$app" "$version" "current" && UpdateSet "$track" "$version" && echo "$version"	
 }
 
-# versionGetDownloaded APP - get downloaded version of application.
+# versionGetDownloaded APP [PLATFORM] - get downloaded version of application
 versionGetDownloaded()
 {
-	local app="$1" track="$(appGetTrack "$app" "downloaded")"
+	local app="$1" platform="$2" track; track="$(appGetTrack "$app" "downloaded" "$platform")" || return
 	! appHasDir "$app" && return
 
 	# get downloaded version - local cache
@@ -2187,12 +2203,36 @@ versionGetDownloaded()
 	UpdateSet "$track" "$version" && echo $version
 }
 
+# versionGetFunction APP [PLATFORM] - get the version function for app
+versionGetFunction()
+{
+	local app="$1" platform="$2"
+	local function="${app,}Version"
+	[[ "$installType" == @(beta) ]] && function+="${installType^}"
+	[[ $platform && "$platform" != "all" ]] && function+="${platform^}"
+	echo "$function"
+}
+
 # versionGetInstalled APP - get installed version of application.
 versionGetInstalled()
 {
 	local app="$1" allowAlpha; versionAllowAlpha "$app" && allowAlpha="--allow-alpha"
 	AppVersion "$app" $allowAlpha $alternate --quiet --cache $force
 }
+
+# versionGetPlatforms APP - set the platforms array to the applicable platforms for the app
+# - only set if the app has version functions for Mac or Win
+versionGetPlatforms()
+{
+	local app="${app,}" platform; platforms=()
+	for platform in linux mac win; do
+		IsFunction "${app}Version${platform^}" && platforms+=( "$platform" )
+	done
+
+	[[ ! $platforms ]] && platforms=(all)
+	return 0
+}
+
 
 # versionValidate APP VERSION WHAT - ensure version is correct
 versionValidate()
@@ -2545,7 +2585,7 @@ DownloadInstall()
 	local installType="beta" skip=(Alfred BeyondCompare)
 	for app in "${apps[@]}"; do
 		IsInArray --case-insensitive "$app" skip && continue
-		downloadPossible "$app" && { i "${app}Download" || return; }; 
+		versionCheckPossible "$app" "$platform" && { i "${app}Download" || return; }; 
 	done
 
 	UpdateDone "install-download"
@@ -3916,7 +3956,7 @@ LoomFinalWin()
 
 LoomDownload()
 {
-	local app="Loom"; downloadStart "$app" || return $(( $? > 1 ))
+	local app="loom"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 
 	local url urls; IFS=$'\n' ArrayMake urls "$({ 
@@ -4819,7 +4859,7 @@ gitClientWin()
 
 ForkInstall()
 {
-	local v; v="$(versionGetCurrent "Fork")" || return
+	local v; v="$(versionGetCurrent "Fork" "$PLATFORM_OS")" || return
 	run --name="Fork" "$(forkDir)/Fork-$v.exe|Fork-$v.dmg" --version="$v"
 }
 
@@ -4829,37 +4869,40 @@ ForkProfile() { ForkHelper profile restore default "${globalArgs[@]}"; }
 
 ForkDownload()
 {
-	local app="Fork"; downloadStart "$app" || return $(( $? > 1 ))
-	IsPlatform linux && return
-	local v; v="$(versionGetCurrent "$app")" || return; download "https://cdn.fork.dev/$PLATFORM_OS/Fork-$v.$(getPlatform "exe" "dmg")" "$(forkDir)" && downloadDone "$app" "$v"
+	local app="fork" downloaded groupDownload="true"; downloadHeader "$app"
+	local platform platforms=("mac" "win")
+
+	for platform in "${platforms[@]}"; do
+		local v; v="$(versionGetCurrent "$app" "$platform")" || return
+		local r; downloadStart "$app" "$platform"; r=$?; ((r==1)) && continue; ((r==2)) && return 1
+		downloaded="true"; download "https://cdn.fork.dev/$platform/Fork-$v.$(getPlatform "exe" "dmg" "" "$platform")" "$(forkDir)" || return
+		downloadDone "$app" "$v" "$platform" || return
+	done
+
+	downloadFooter "$app"
 }
 
 forkDir() { echo "git/Fork"; }
 
-forkVersion()
-{
-	IsPlatform mac && { forkVersionHelper; return; }
-	
-	# the latest win downloads may only be a nupkg (https://fork.dev/update/win/RELEASES?id=Fork&localVersion=1.86.1&arch=amd64)
-	# so try and get the latest version first, then the second to latest version
-	forkVersionHelper 1 || forkVersionHelper 2
-}
+forkVersionMac() { forkVersionCommon "mac"; }
+forkVersionWin() {	forkVersionCommon "win" 1 || forkVersionCommon "win" 2; } # first version may be a nupkg
 
-forkVersionHelper()
+# forkVersionCommon PLATFORM [LINE](1)
+forkVersionCommon()
 {
-	local line="${1:-1}" # version to get, i.e. 1st, 2nd, ...
-	local ext="dmg" platform="mac" win; IsPlatform win && ext="exe" platform="win" win="win"
+	local platform="$1" line="${2:-1}" # version to get, i.e. 1st, 2nd, ...
+	local ext="dmg" win; [[ "$platform" == "win" ]] && ext="exe" win="win"
 	local i v="$(curl --silent https://git-fork.com/releasenotes${win} | ${G}grep "header4" | sed "${line}q;d" | sed 's/.*Fork //' | cut -d"<" -f1)"
 	
 	# check current version in release notes and 2 back
 	for (( i = 0; i < 3; i++ )); do
-		log2 "forkVersionHelper checking for v=$v"
+		log2 "forkVersionCommon checking for v=$v"
 
 		# check for point releases
 		local suffix suffixes=(".3" ".2" ".1" "")
 		for suffix in "${suffixes[@]}"; do
 			local url="https://cdn.fork.dev/$platform/Fork-$v${suffix}.$ext"
-			log2 "forkVersionHelper: checking '$url'"
+			log2 "forkVersionCommon: checking '$url'"
 			urlCheck "$url" && { echo "$v$suffix"; return; }
 		done
 
@@ -12324,7 +12367,7 @@ DockerFinal()
 
 dockerInstallDesktop()
 {
-	local v; v="$(versionGetCurrent "docker")"
+	local v; v="$(versionGetCurrent "docker" "$PLATFORM_OS")"
 	run --name "Docker" --no-header "$(dockerDir)/Docker $(getArch "amd64") $v.$(getPlatform "exe" "dmg")" --version=$v --elevate || return
 	[[ $ran ]] && pause
 	return 0
@@ -12369,22 +12412,47 @@ dockerInstallPackage()
 
 DockerDownload()
 {
-	local app="docker"; downloadStart "$app" || return $(( $? > 1 ))
-	local v; v="$(versionGetCurrent "docker")" || return
-	local id; id="$( curl --silent "https://docs.docker.com/desktop/release-notes/" | ${G}grep '<h2' | shead -1 | sed 's/.*href=//' | cut -d">" -f1 | GetFilePath | GetFileName)"
-	local item items=("Docker.dmg:mac:amd64" "Docker.dmg:mac:arm64" "Docker%20Desktop%20Installer.exe:win:arm64" "Docker%20Desktop%20Installer.exe:win:amd64") # "docker-desktop-${v}-amd64.deb:linux:amd64"
+	local app="docker" downloaded groupDownload="true"; downloadHeader "$app"
+	local dockerNotes dockerVersion=(); dockerVersionCommon || return	
+	local item items=("linux:amd64:docker-desktop-amd64.deb" "linux:amd64:docker-desktop-x86_64.rpm" "mac:amd64:Docker.dmg" "mac:arm64:Docker.dmg" "win:arm64:Docker%20Desktop%20Installer.exe" "win:amd64:Docker%20Desktop%20Installer.exe")
 
 	for item in "${items[@]}"; do
 		StringToArray "$item" ":" item
-		local file="${item[0]}" platform="${item[1]}" arch="${item[2]}"
-		download "https://desktop.docker.com/$platform/main/$arch/$id/$file" "$(dockerDir)" "Docker $arch $v.$(GetFileExtension "$file")" "content-length:" || return # docker download only has content-length
+		local platform="${item[0]}" arch="${item[1]}" file="${item[2]}"
+		local v; v="$(versionGetCurrent "$app" "$platform")" || return
+		local id; id="$(dockerVersionGetId "$v")" || return
+		local r; downloadStart "$app" "$platform"; r=$?; ((r==1)) && continue; ((r==2)) && return 1
+		downloaded="true"; download "https://desktop.docker.com/$platform/main/$arch/$id/$file" "$(dockerDir)" "Docker $arch $v.$(GetFileExtension "$file")" "content-length:" || return # docker download only has content-length
+		downloadDone "$app" "$v" "$platform" || return
 	done
 
-	downloadDone "$app" "$v"
+	downloadFooter "$app"
 }
 
 dockerDir() { echo "shareware/Docker/setup"; }
-dockerVersion() { curl --silent "https://docs.docker.com/desktop/release-notes/" | ${G}grep '<h2' | shead -1 | sed 's/.*<h2//' | sed 's/<\/a>.*//' | sed 's/.*<a//' | cut -d'>' -f2; }
+dockerVersionLinux() { dockerVersionGet "linux"; }
+dockerVersionMac() { dockerVersionGet "mac"; }
+dockerVersionWin() { dockerVersionGet "win"; }
+dockerVersionCheckPlatform() { local id; id="$(dockerVersionGetId "$1")" || return; echo "$dockerNotes" | grep "/$id/" | qgrep "/$2/"; } 							# dockerVersionCheckPlatform VERSION mac|win - return true if the version exists for the platform
+dockerVersionGetId() { echo "$dockerNotes" | grep "$1" | ${G}grep '<h2' | shead -1 | sed 's/.*href=//' | cut -d">" -f1 | GetFilePath | GetFileName; } # dockerVersionGetId VERSION - return the download id for the version
+
+# dockerVersionCommon - set dockerNotes (release note data) and dockerVersions (array of last 10 versions)
+dockerVersionCommon()
+{
+	[[ $dockerVersions ]] && return
+	dockerNotes="$(curl --silent "https://docs.docker.com/desktop/release-notes/" | ${G}grep '<h2' --after-context=15 | ${G}grep "desktop.docker.com")" || return
+	dockerVersions=(); IFS=$'\n' dockerVersions=( $(echo "$dockerNotes" | ${G}grep '<h2' | shead -10 | sed 's/.*<h2//' | ${G}sed 's/<\/a>.*//' | ${G}sed 's/.*<a//' | cut -d'>' -f2) ) || return
+}
+
+# dockerVersionGet PLATFORM - get the most current version for the platrform
+dockerVersionGet()
+{
+	dockerVersionCommon || return
+	for v in "${dockerVersions[@]}"; do 
+		dockerVersionCheckPlatform "$v" "$1" && { echo "$v"; return; }
+	done
+	return 1
+}
 
 DockerFinalWin()
 {
