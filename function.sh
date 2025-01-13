@@ -5081,10 +5081,12 @@ IsXServerRunning()
 			timeout=10 
 		fi
 
+		[[ "$ip" == @(0.0.0.0) ]] && ip="127.0.0.1"
 		IsAvailablePort "$ip" 6000 "$timeout" || return
 	fi
 	
-	InPath xhost && xhost >& /dev/null
+	InPath xhost && { xhost >& /dev/null || return; }
+	return 0
 }
 
 WinSetStateUsage()
