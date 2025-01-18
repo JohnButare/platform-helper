@@ -60,9 +60,10 @@ UltraMon() { IsProcessRunning "UltraMon.exe" || taskStart "$P/UltraMon/UltraMon.
 
 BgInfo()
 {
-	# return if no changes
-	[[ ! $force ]] && grep '^Wallpaper=' $UADATA/Microsoft/Windows/Themes/Custom.theme | qgrep BGInfo && return
-	! InPath Bginfo64.exe && return
+	# return if needed
+	local file="$UADATA/Microsoft/Windows/Themes/Custom.theme"
+	{ ! InPath Bginfo64.exe || [[ ! "$file" ]]; } && return
+	[[ ! $force ]] && grep '^Wallpaper=' "$UADATA/Microsoft/Windows/Themes/Custom.theme" | qgrep BGInfo && return
 
 	# find configuration file
 	local dir="$DATA/setup" file
