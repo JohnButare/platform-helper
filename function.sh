@@ -4818,7 +4818,7 @@ GetTextEditor()
 	if ! e="$(UpdateGet "$cache")" || [[ ! $e ]]; then
 		e="$(
 			# initialize
-			local sublimeProgram="$(sublime program)"
+			local sublimeProgram="$(sublime program --quiet)"
 
 			# native
 			if [[ ! $isSsh ]]; then
