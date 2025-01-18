@@ -3986,7 +3986,8 @@ ProcessKill()
 		# process result
 		[[ ! $quiet && $output ]] && echo "$output"
 		if (( $result != 0 )); then
-			[[ ! $quiet ]] && ScriptErr "unable to kill '$name'"; resultFinal="1" "ProcessKill"
+			resultFinal="1"
+			[[ ! $quiet ]] && ScriptErr "unable to kill '$name'" "ProcessKill"
 		elif [[ $verbose ]]; then
 			ScriptErr "killed process '$name'" "ProcessKill"
 		fi
