@@ -208,6 +208,7 @@ runService()
 { 
 	local service="$1"
 	
+	! IsSystemd && return # assume systemd, otherwise Chrony does not appear running in WSL
 	! service exists "$1" --quiet "${globalArgs[@]}" && return
 
 	if [[ "$command" != "startup" ]]; then
