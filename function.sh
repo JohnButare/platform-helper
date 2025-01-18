@@ -4070,11 +4070,20 @@ ProcessParents()
 	} | NewlineToSpace | RemoveTrim
 }
 
+# ProcessResource RESOURCE... - list processes using the resource
 ProcessResource()
 {
-	IsPlatform win && { start handle.exe "$@"; return; }
+	if IsPlatform win; then
+		[[ ! $@ ]] && { RunScript --elevate -- handle.exe -nobanner "$@"; return; }
+		local resource
+		for resource in "$@"; do 
+			(( $# > 1 )) && header "$resource"
+			RunScript --elevate -- handle.exe -nobanner "$resource" || return
+		done
+		return
+	fi
 	InPath lsof && { lsof "$@"; return; }
-	echo "Not Implemented"
+	ScriptErr "no process resource command is installed" "ProcessResource"
 }
 
 pstree()
