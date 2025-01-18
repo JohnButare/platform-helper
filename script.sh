@@ -13,11 +13,11 @@ ScriptArgGet()
 	local scriptVar="$1"; shift
 	local scriptDesc="$scriptVar"; [[ "$1" != "--" ]] && { scriptDesc="$1"; shift; }
 	[[ "$1" == "--" ]] && shift
-	(( $# == 0 )) && MissingOperand "$scriptDesc"
+	(( $# == 0 )) && { MissingOperand "$scriptDesc"; return; }
 	[[ $required && ! $1 ]] && MissingOperand "$scriptDesc"
 
 	# check data type
-	[[ $integer ]] && ! IsInteger "$1" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
+	[[ $integer ]] && ! IsInteger "$1" && { ScriptErr "$scriptDesc must be an integer"; return; }
 
 	# set the variable
 	SetVariable "$scriptVar" "$1"; ((++shift))
@@ -84,7 +84,7 @@ ScriptCaller()
 
 ScriptCheckDir() { ScriptCheckPath --dir "$@"; }
 ScriptCheckFile() { ScriptCheckPath --file "$@"; }
-ScriptCheckUnc() {	IsUncPath "$1" && return; ScriptErr "'$1' is not a UNC"; ScriptExit 1; return; }
+ScriptCheckUnc() {	IsUncPath "$1" && return; ScriptErr "'$1' is not a UNC"; return; }
 
 # ScriptCheckPath [--dir|--file|--sudo] FILE [DESC]
 ScriptCheckPath()
@@ -99,13 +99,13 @@ ScriptCheckPath()
 	local fileErr="$desc'$file' is a file, not a directory"
 
 	if [[ $sudo ]]; then
-		! sudo test -e "$file" && { ScriptErrQuiet "$missingErr"; ScriptExit; return; }
-		[[ $checkFile ]] && sudo test -d "$file" && { ScriptErr "$dirErr"; ScriptExit; return; }
-		[[ $checkDir ]] && sudo test -f "$file" && { ScriptErr "$fileErr"; ScriptExit; return; }
+		! sudo test -e "$file" && { ScriptErrQuiet "$missingErr"; return; }
+		[[ $checkFile ]] && sudo test -d "$file" && { ScriptErr "$dirErr"; return; }
+		[[ $checkDir ]] && sudo test -f "$file" && { ScriptErr "$fileErr"; return; }
 	else
-		[[ ! -e "$file" ]] && { ScriptErrQuiet "$missingErr"; ScriptExit; return; }
-		[[ $checkFile && -d "$file" ]] && { ScriptErrQuiet "$dirErr"; ScriptExit; return; }
-		[[ $checkDir && -f "$file" ]] && { ScriptErrQuiet "$fileErr"; ScriptExit; return; }
+		[[ ! -e "$file" ]] && { ScriptErrQuiet "$missingErr"; return; }
+		[[ $checkFile && -d "$file" ]] && { ScriptErrQuiet "$dirErr"; return; }
+		[[ $checkDir && -f "$file" ]] && { ScriptErrQuiet "$fileErr"; return; }
 	fi
 
 	return 0
@@ -285,7 +285,7 @@ ScriptOptGet()
 		scriptOptValue="$1"; ((++shift))
 		
 	elif [[ $require ]]; then
-		MissingOperand "$scriptDesc" || return
+		MissingOperand "$scriptDesc"; return
 
 	else
 		return 1
@@ -293,7 +293,7 @@ ScriptOptGet()
 	fi
 
 	# check data type
-	[[ $integer && $scriptOptValue ]] && ! IsInteger "$scriptOptValue" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit; }
+	[[ $integer && $scriptOptValue ]] && ! IsInteger "$scriptOptValue" && { ScriptErr "$scriptDesc must be an integer"; return; }
 
 	# set variable
 	SetVariable "$scriptVar" "$scriptOptValue"
@@ -304,7 +304,7 @@ ScriptOptNetworkProtocol()
 {
 	ScriptOptGet "protocol" "$@"
 	protocol="${protocol,,}" protocolArg="--protocol=$protocol"
-	CheckNetworkProtocol "$protocol" || { ScriptErr "'$protocol' is not a valid network protocol"; ScriptExit; }
+	CheckNetworkProtocol "$protocol" || { ScriptErr "'$protocol' is not a valid network protocol"; return; }
 	return 0
 }
 
@@ -403,7 +403,7 @@ ScriptOptHost()
 	esac
 }
 
-ScriptOptHostVerify() { [[ $hostArg ]] && return; MissingOperand "host"; }
+ScriptOptHostVerify() { [[ $hostArg ]] && return; MissingOperand "host"; return; }
 
 # GetHosts [HOSTS] - set hosts array from --host argument, the passed list, or all clients
 # getHostsOther - if this array variable set, add these other hosts if all was specified
@@ -506,7 +506,7 @@ GetHostsConfig()
 	StringToArray "" "," h; [[ $hosts ]] && return
 
 	# usage
-	[[ ! $config ]] && MissingOperand "config" "GetHostsConfig"
+	[[ ! $config ]] && { MissingOperand "config" "GetHostsConfig"; return; }
 	ScriptErr "the current network does not have any '$config' hosts" "GetHostsConfig"; return 1
 }
 
@@ -518,7 +518,7 @@ GetHostsConfigNetwork()
 	StringToArray "$h" "," hosts; [[ $hosts ]] && return
 
 	# usage
-	[[ ! $config ]] && MissingOperand "config" "GetHostsConfigNetwork"
+	[[ ! $config ]] && { MissingOperand "config" "GetHostsConfigNetwork"; return; }
 	ScriptErr "the current network does not have any '$config' hosts" "GetHostsConfigNetwork"; return 1
 }
 
@@ -602,7 +602,7 @@ ScriptRun()
 	done
 
 	# extra operand
-	(( $# != 0 )) && { ExtraOperand "$1"; return 1; }
+	(( $# != 0 )) && { ExtraOperand "$1"; return; }
 
 	# arg end
 	for c in "${commands[@]}"; do RunFunction "${c}ArgEnd" || return; done

@@ -24,7 +24,7 @@ argStart() { unset -v app editor files method noControl platform profile saveExt
 argEnd()
 {
 	[[ ! $force && ! $noControl ]] && AppHasHelper "$app" && { AppInstallVerify "$app" || return; }
-	[[ ! $method ]] && MissingOption "method"
+	[[ ! $method ]] && { MissingOption "method"; return; }
 
 	# create the profile directory if needed - assume we have a file profile if the parent directory of the method is a directory
 	[[ ! -f "$method" && -d "$(GetParentDir "$(EnsureDir "$method")")" && ! -d "$method" ]] && { mkdir "$method" || return; }

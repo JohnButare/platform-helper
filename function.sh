@@ -146,7 +146,7 @@ UpdateInitDir()
 # UpdateInitFile FILE - if specified initialize update file, sets updateFile
 UpdateInitFile()
 {
-	[[ ! $1 ]] && { MissingOperand "file" "UpdateInitFile"; return 1; }
+	[[ ! $1 ]] && { MissingOperand "file" "UpdateInitFile"; return; }
 	HasFilePath "$1" && updateFile="$1" || updateFile="$updateDir/$1"
 }
 
@@ -304,7 +304,7 @@ UserCreate()
 		shift
 	done
 
-	[[ ! $user ]] && { MissingOperand "user" "UserCreate"; return 1; }
+	[[ ! $user ]] && { MissingOperand "user" "UserCreate"; return; }
 	[[ ! $password ]] && { passwordShow="true"; password="$(pwgen 14 1)" || return; }
 
 	# create user
@@ -419,7 +419,7 @@ FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 {
 	local shell shells="/etc/shells";  IsPlatform entware && shells="/opt/etc/shells"
 
-	[[ ! $1 ]] && { MissingOperand "shell" "FindLoginShell"; return 1; }
+	[[ ! $1 ]] && { MissingOperand "shell" "FindLoginShell"; return; }
 
 	if [[ -f "$shells" ]]; then
 		shell="$(grep "/$1" "$shells" | ${G}tail --lines=-1)" # assume the last shell is the newest
@@ -466,7 +466,7 @@ AppVersion()
 		shift
 	done
 
-	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return 1; }
+	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return; }
 
 	# cache
 	local appCache="version-$(GetFileName "$app" | LowerCase)"
@@ -1231,12 +1231,12 @@ IsInArray()
 
 	# get string to check
 	[[ ! $s && $1 ]] && { s="$1"; shift; }
-	[[ ! $s ]] && { MissingOperand "string" "IsInArray"; return 1; }
+	[[ ! $s ]] && { MissingOperand "string" "IsInArray"; return; }
 	[[ $caseInsensitive ]] && LowerCase "$s" s;
 
 	# get array variable
 	[[ ! $arrayVar && $1 ]] && { arrayVar="$1"; shift; }
-	[[ ! $arrayVar ]] && { MissingOperand "array_var" "IsInArray"; return 1; }
+	[[ ! $arrayVar ]] && { MissingOperand "array_var" "IsInArray"; return; }
 	local isInArray=(); ArrayCopy "$arrayVar" isInArray
 		
 	# check if string is in the array
@@ -1457,7 +1457,7 @@ CloudGet()
 		case "$1" in "") : ;;
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
-			-*) UnknownOption "$1" "CloudGet"; return 1;;
+			-*) UnknownOption "$1" "CloudGet"; return;;
 			*) files+=("$1"); shift; continue
 		esac
 		shift
@@ -1532,8 +1532,8 @@ FileCommand()
 		shift
 	done
 	dir="$1" # last argument
-	[[ ! $command ]] && { MissingOperand "command" "FileCommand"; return 1; }
-	[[ ! $dir ]] && { MissingOperand "dir" "FileCommand"; return 1; }
+	[[ ! $command ]] && { MissingOperand "command" "FileCommand"; return; }
+	[[ ! $dir ]] && { MissingOperand "dir" "FileCommand"; return; }
 	[[ ! "$command" =~ ^(cp|mv|ren)$ ]] && { ScriptErr "unknown command '$command'" "FileCommand"; return 1; }
 	[[ ! $files ]] && return 0
 	
@@ -1622,11 +1622,11 @@ FileWait()
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $timeoutSeconds ]] && { timeoutSeconds="$1"; shift; continue; }
-				UnknownOption "$1" "FileWait"; return 1
+				UnknownOption "$1" "FileWait"; return
 		esac
 		shift
 	done
-	[[ ! $file ]] && { MissingOperand "file" "FileWait"; return 1; }
+	[[ ! $file ]] && { MissingOperand "file" "FileWait"; return; }
 	timeoutSeconds="${timeoutSeconds:-60}"
 	! IsInteger "$timeoutSeconds" && { ScriptErr "seconds '$timeoutSeconds' is not an integer"; return 1; }
 
@@ -1784,14 +1784,14 @@ ptw() { printf "%s\n" "${1//\//"\\"}"; } # PathToWin - use printf so zsh does no
 
 wtu() # WinToUnix
 {
-	GetArgs; local file="$1"; [[ ! $file ]] && { MissingOperand "FILE" "wtu"; return 1; }
+	GetArgs; local file="$1"; [[ ! $file ]] && { MissingOperand "FILE" "wtu"; return; }
 	{ ! IsPlatform win || [[ ! "$file" ]] || IsUnixPath "$file"; } && { echo -E "$file"; return; }
   wslpath -u "$*"
 }
 
 utw() # UnixToWin
 {	
-	GetArgs; local clean="" file="$1"; [[ ! $file ]] && { MissingOperand "FILE" "utw"; return 1; } 
+	GetArgs; local clean="" file="$1"; [[ ! $file ]] && { MissingOperand "FILE" "utw"; return; } 
 	{ ! IsPlatform win || [[ ! "$file" ]] || IsWindowsPath "$file"; } && { echo -E "$file"; return; }
 
 	file="$(GetRealPath "$file")" || return
@@ -1862,8 +1862,8 @@ UnzipPlatform()
 		esac
 		shift
 	done
-	[[ ! "$zip" ]] && { MissingOperand "zip" "UnzipPlatform"; return 1; }
-	[[ ! "$dest" ]] && { MissingOperand "dest" "UnzipPlatform"; return 1; }
+	[[ ! "$zip" ]] && { MissingOperand "zip" "UnzipPlatform"; return; }
+	[[ ! "$dest" ]] && { MissingOperand "dest" "UnzipPlatform"; return; }
 
 	# unzip
 	if IsPlatform win; then
@@ -2168,7 +2168,7 @@ GetIpAddress()
 			--wsl|-w) wsl="--wsl";;
 			*)
 				! IsOption "$1" && [[ ! $host ]] && { host="$(GetSshHost "$1")"; shift; continue; }
-				UnknownOption "$1" "GetIpAddress"; return 1
+				UnknownOption "$1" "GetIpAddress"; return
 		esac
 		shift
 	done
@@ -2343,7 +2343,7 @@ IsLocalHostIp() { IsLocalHost "$1" || [[ "$(GetIpAddress "$1" --quiet)" == "$(Ge
 # IsMacAddress MAC - return true if the MAC is a valid MAC address
 IsMacAddress()
 {
-	local mac="$(UpperCase "$1")"; [[ ! $mac ]] && { MissingOperand "mac" "IsMacAddress"; return 1; }
+	local mac="$(UpperCase "$1")"; [[ ! $mac ]] && { MissingOperand "mac" "IsMacAddress"; return; }
 	echo "$mac" | ${G}grep --extended-regexp --quiet '^([0-9A-F]{1,2}:){5}[0-9A-F]{1,2}$'
 }
 
@@ -2380,14 +2380,14 @@ MacLookup()
 			--monitor|-m) monitor="true";;
 			--quiet|-q) quiet="true";;
 			*) 
-					IsOption "$1" && { UnknownOption "$1" "MacLookup"; return 1; }
-					[[ ! $host ]] && host="$1" || { ExtraOperand "$1" "MacLookup"; return 1; }
+					IsOption "$1" && { UnknownOption "$1" "MacLookup"; return; }
+					[[ ! $host ]] && host="$1" || { ExtraOperand "$1" "MacLookup"; return; }
 					;;
 		esac
 		shift
 	done
 
-	[[ ! $host ]] && { MissingOperand "host" "MacLookup"; return 1; } 	
+	[[ ! $host ]] && { MissingOperand "host" "MacLookup"; return; }
 
 	# monitor
 	if [[ $monitor ]]; then
@@ -2547,8 +2547,8 @@ IsAvailablePort()
 		esac
 		shift
 	done
-	[[ ! $host ]] && { MissingOperand "host" "IsAvailablePort"; return 1; }
-	[[ ! $port ]] && { MissingOperand "port" "IsAvailablePort"; return 1; }
+	[[ ! $host ]] && { MissingOperand "host" "IsAvailablePort"; return; }
+	[[ ! $port ]] && { MissingOperand "port" "IsAvailablePort"; return; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
 	host="$(GetIpAddress "$host" --quiet)" || return
 	local redirect=">& /dev/null"; [[ $verbose ]] && redirect=""
@@ -2586,8 +2586,8 @@ IsAvailablePortUdp()
 		esac
 		shift
 	done
-	[[ ! $host ]] && { MissingOperand "host" "IsAvailablePortUdp"; return 1; }
-	[[ ! $port ]] && { MissingOperand "port" "IsAvailablePortUdp"; return 1; }
+	[[ ! $host ]] && { MissingOperand "host" "IsAvailablePortUdp"; return; }
+	[[ ! $port ]] && { MissingOperand "port" "IsAvailablePortUdp"; return; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
 	host="$(GetIpAddress "$host" --quiet)" || return
 	local redirect=">& /dev/null"; [[ $verbose ]] && redirect=""
@@ -2633,8 +2633,8 @@ PortResponse()
 		esac
 		shift
 	done
-	[[ ! $host ]] && { MissingOperand "host" "PortResponse"; return 1; }
-	[[ ! $port ]] && { MissingOperand "port" "PortResponse"; return 1; }
+	[[ ! $host ]] && { MissingOperand "host" "PortResponse"; return; }
+	[[ ! $port ]] && { MissingOperand "port" "PortResponse"; return; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
 
 	# test port
@@ -2664,7 +2664,7 @@ PortResponse()
 
 WaitForAvailable() # WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 {
-	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForAvailable"; return 1; }
+	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForAvailable"; return; }
 	local timeout="${2-$(AvailableTimeoutGet)}" seconds="${3-$(AvailableTimeoutGet)}"
 
 	printf "Waiting $seconds seconds for $(RemoveDnsSuffix "$host")..."
@@ -2679,8 +2679,8 @@ WaitForAvailable() # WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SEC
 
 WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 {
-	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForPort"; return 1; }
-	local port="$2"; [[ ! $port ]] && { MissingOperand "port" "WaitForPort"; return 1; }
+	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForPort"; return; }
+	local port="$2"; [[ ! $port ]] && { MissingOperand "port" "WaitForPort"; return; }
 	local timeout="${3-$(AvailableTimeoutGet)}" seconds="${4-$(AvailableTimeoutGet)}"
 	
 	IsAvailablePort "$host" "$port" "$timeout" && return
@@ -2750,7 +2750,7 @@ DnsResolve()
 			--use-alternate|-ua) useAlternate="--use-alternate";;
 			*)
 				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
-				else UnknownOption "$1" "DnsResolve"; return 1
+				else UnknownOption "$1" "DnsResolve"; return
 				fi
 		esac
 		shift
@@ -2758,7 +2758,7 @@ DnsResolve()
 
 	# cleanup and validate the name
 	name="$(RemoveEnd "$name" ".")" # remove tailing periods, so we use the DNS search suffix
-	[[ ! $name ]] && { MissingOperand "host" "DnsResolve"; return 1; } 
+	[[ ! $name ]] && { MissingOperand "host" "DnsResolve"; return; } 
 
 	# localhost - use the domain in the configuration
 	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(GetNetworkDnsDomain)")
@@ -2843,14 +2843,14 @@ DnsResolveMac()
 			--full|-f) full="DnsResolveBatch";;
 			--quiet|-q) quiet="true";;
 			*)
-					IsOption "$1" && { UnknownOption "$1" "DnsResolveMac"; return 1; }
+					IsOption "$1" && { UnknownOption "$1" "DnsResolveMac"; return; }
 					macs+=("$1")
 					;;
 		esac
 		shift
 	done
 
-	[[ ! $macs ]] && { MissingOperand "mac" "DnsResolveMac"; return 1; } 	
+	[[ ! $macs ]] && { MissingOperand "mac" "DnsResolveMac"; return; } 	
 
 	# validate
 	local mac validMacs=()
@@ -2903,7 +2903,7 @@ GetDnsServers()
 
 MdnsResolve()
 {
-	local name="$1" result; [[ ! $name ]] && MissingOperand "host" "MdnsResolve"
+	local name="$1" result; [[ ! $name ]] && { MissingOperand "host" "MdnsResolve"; return; }
 
 	{ [[ ! $name ]] || ! IsMdnsName "$name"; } && return 1
 
@@ -2938,12 +2938,12 @@ GetServer()
 			--quiet|-q) quiet="--quiet";;
 			*)
 				! IsOption "$1" && [[ ! $service ]] && { service="$1"; shift; continue; }
-				pause UnknownOption "$1" "GetServer"; return 1
+				UnknownOption "$1" "GetServer"; return
 		esac
 		shift
 	done
 
-	[[ ! $service ]] && { MissingOperand "service" "GetServer"; return 1; }	
+	[[ ! $service ]] && { MissingOperand "service" "GetServer"; return; }	
 	local ip; ip="$(GetIpAddress $quiet "$service.service.$(GetNetworkDnsBaseDomain)")" || return
 	DnsResolve $quiet $useAlternate "$ip" "$@"
 }
@@ -3044,13 +3044,13 @@ GetUncFull()
 			--ip) ip="true";;
 			*)
 				if ! IsOption "$1" && [[ ! $unc ]]; then unc="$1"
-				else UnknownOption "$1" "GetUncFull"; return 1
+				else UnknownOption "$1" "GetUncFull"; return
 				fi
 		esac
 		shift
 	done
 
-	[[ ! $unc ]] && { MissingOperand "unc" "GetUncFull"; return 1; } 
+	[[ ! $unc ]] && { MissingOperand "unc" "GetUncFull"; return; }
 
 	# parse the UNC
 	local user="$(GetUncUser "$unc")"
@@ -3763,7 +3763,7 @@ IsProcessRunning()
 			-r|--root) root="sudoc";;
 			*)
 				! IsOption "$1" && [[ ! $name ]] && { name="$1"; shift; continue; }
-				UnknownOption "$1" "IsProcessRunning"; return 1
+				UnknownOption "$1" "IsProcessRunning"; return
 		esac
 		shift
 	done
@@ -3824,7 +3824,7 @@ IsRunnable()
 # IsWindowsProces NAME: true if the executable is a native windows program requiring windows paths for arguments (c:\...) instead of POSIX paths (/...)
 IsWindowsProcess()
 {
-	local name="$1"; [[ ! $1 ]] && { MissingOperand "name" "IsWindowsProcess"; return 1; }
+	local name="$1"; [[ ! $1 ]] && { MissingOperand "name" "IsWindowsProcess"; return; }
 	! IsPlatform win && return 1
 	[[ "$(GetFileExtension "$name")" == "exe" ]] && return 0
 	[[ ! -f "$name" ]] && { name="$(FindInPath "$name")" || return; }
@@ -3854,7 +3854,7 @@ ProcessClose()
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
-				UnknownOption "$1" "ProcessClose"; return 1
+				UnknownOption "$1" "ProcessClose"; return
 		esac
 		shift
 	done
@@ -3914,7 +3914,7 @@ ProcessCloseWait()
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
-				UnknownOption "$1" "ProcessCloseWait"; return 1
+				UnknownOption "$1" "ProcessCloseWait"; return
 		esac
 		shift
 	done
@@ -3958,7 +3958,7 @@ ProcessKill()
 			--win|-w) win="--win";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
-				UnknownOption "$1" "ProcessKill"; return 1
+				UnknownOption "$1" "ProcessKill"; return
 		esac
 		shift
 	done
@@ -4013,7 +4013,7 @@ ProcessList()
 			-u|--user) unset args;;
 			-U|--unix) unset win;;
 			-w|--win) unset unix;;
-			*) UnknownOption "$1" "ProcessList"; return 1
+			*) UnknownOption "$1" "ProcessList"; return
 		esac
 		shift
 	done
@@ -4400,7 +4400,7 @@ ExtraOperand() { ScriptErr "extra operand '$1'" "$2"; ScriptTry "$2"; }
 IsOption() { [[ "$1" =~ ^-.* && "$1" != "--" ]]; }
 IsWindowsOption() { [[ "$1" =~ ^/.* ]]; }
 MissingOperand() { ScriptErr "missing $1 operand" "$2"; ScriptTry "$2"; }
-MissingOption() { ScriptErr "missing $1 option" "$2"; ScriptExit; }
+MissingOption() { ScriptErr "missing $1 option" "$2"; }
 UnknownOption() { ScriptErr "unrecognized option '$1'" "$2"; ScriptTry "$2"; }
 
 # functions
@@ -4491,18 +4491,17 @@ ScriptCheckMac() { IsMacAddress "$1" && return; ScriptErr "'$1' is not a valid M
 ScriptErr() { [[ $1 ]] && HilightErr "$(ScriptPrefix "$2")$1" || HilightErr; return 1; }	# ScriptErr MESSAGE SCRIPT_NAME - hilight a script error message as SCRIPT_NAME: MESSAGE
 ScriptErrEnd() { [[ $1 ]] && HilightErrEnd "$(ScriptPrefix "$2")$1" || HilightErrEnd; return 1; }
 ScriptErrQuiet() { [[ $quiet ]] && return 1; ScriptErr "$@"; }
-ScriptExit() { [[ "$-" == *i* ]] && return "${1:-1}" || exit "${1:-1}"; }; 								# ScriptExit [STATUS](1) - return or exist from a script with the specified status
 ScriptFileCheck() { [[ -f "$1" ]] && return; [[ ! $quiet ]] && ScriptErr "file '$1' does not exist"; return 1; }
 ScriptMessage() { EchoErr "$(ScriptPrefix "$2")$1"; } 																		# ScriptMessage MESSAGE - log a message with the script prefix
 ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; printf "%s" "$name: "; }
 ScriptReturnError() { [[ $suppressErrors ]] && echo 0 || echo 1; }
-ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; ScriptExit; }
-ScriptTryVerbose() { EchoErr "Use '--verbose' for more information."; ScriptExit; }
+ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; return 1; }
+ScriptTryVerbose() { EchoErr "Use '--verbose' for more information."; return 1; }
 
 # ScriptCd PROGRAM [ARG...] - run a script and change to the first directory returned
 ScriptCd()
 {
-	[[ ! $@ ]] && { MissingOperand "program" "ScriptCd"; return 1; }
+	[[ ! $@ ]] && { MissingOperand "program" "ScriptCd"; return; }
 	local dir="$("$@" | ${G}head --lines=1)" || return # run the script
 	[[ ! $dir ]] && { ScriptErr "directory not returned" "ScriptCd"; return 1; }
 	[[ ! -d "$dir" ]] && { ScriptErr "'$dir' is not a valid directory" "ScriptCd"; return 1; }
@@ -5024,7 +5023,7 @@ InitializeXServer()
 		case "$1" in "") : ;;
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--quiet|-q) quiet="--quiet";;
-			*) $1; UnknownOption "$1" "InitializeXServer"; return 1;;
+			*) $1; UnknownOption "$1" "InitializeXServer"; return;;
 		esac
 		shift
 	done
