@@ -1430,14 +1430,32 @@ RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
 # FindAny DIR NAME [DEPTH](1) - find NAME (supports wildcards) starting from DIR for max of DEPTH directories
 FindAny()
 {
-	local dir="$1" name="$2"; shift 2
-	local depth="1"; IsInteger "$1" && { depth="$1"; shift; }
+	# arguments
+	local args=() dir name nameArg="-name" depth
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--ignore-case|-i) nameArg="-iname";;
+			--) shift; args+=("$@"); break;;
+			-*) UnknownOption "$1" "FindAny"; return;;
+			*)
+				! IsOption "$1" && [[ ! $dir ]] && { dir="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $name ]] && { name="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $depth ]] && IsInteger "$1" && { depth="$1"; shift; continue; }
+				UnknownOption "$1" "FindAny"; return
+				;;
+		esac
+		shift
+	done
+	depth="${depth:-1}"
+
+	# find
 	[[ ! -d "$dir" ]] && return 1
-	"${G}find" "$dir" -maxdepth "$depth" -name "$name" "$@" | "${G}grep" "" # grep returns error if nothing found
+	"${G}find" "$dir" -maxdepth "$depth" $nameArg "$name" "${args[@]}" | "${G}grep" "" # grep returns error if nothing found
 }
 
-FindDir() { FindAny "${@:1:3}" -type d; }
-FindFile() { FindAny "${@:1:3}" -type f; }
+FindDir() { FindAny "$@" -- -type d; }
+FindFile() { FindAny "$@" -- -type f; }
 
 # (p)fpc - (platform) full path to clipboard
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; echo "$arg"; clipw "$arg"; } 
@@ -1458,7 +1476,7 @@ CloudGet()
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			-*) UnknownOption "$1" "CloudGet"; return;;
-			*) files+=("$1"); shift; continue
+			*) files+=("$1"); shift; continue;;
 		esac
 		shift
 	done
