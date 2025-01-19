@@ -3735,7 +3735,7 @@ console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PR
 CoprocCat() { cat 0<&${COPROC[0]}; } # read output from a process started with coproc
 handle() { ProcessResource "$@"; }
 InUse() { ProcessResource "$@"; }
-IsMacApp() { ! IsPlatform mac && return; FindMacApp "$1" >& /dev/null; }
+IsMacApp() { IsPlatform mac || return; FindMacApp "$1" >& /dev/null; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { IsPlatform mac && return 1; cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
 IsWinAdmin() { IsPlatform win && { IsInDomain sandia || RunWin net.exe localgroup Administrators | RemoveCarriageReturn | grep --quiet "$WIN_USER$"; }; }
@@ -4196,7 +4196,7 @@ start()
 		# get the full path of files
 		[[ -f "$file" ]] && file="$(GetFullPath "$file")"
 
-		# determin open program
+		# determine open program
 		local open=()
 		if [[ -d "$file" ]]; then explore "$file"; return
 		elif IsPlatform mac; then open=( open )
