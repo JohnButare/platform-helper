@@ -4580,7 +4580,7 @@ ScriptOptForce()
 		shift; 
 	done
 
-	(( forceLevel > 1 )) && forceLess="-$(StringRepeat "f" "$(( forceLevel - 1 ))")"
+	unset forceLess; (( forceLevel > 1 )) && forceLess="-$(StringRepeat "f" "$(( forceLevel - 1 ))")"
 
 	return 0
 }
@@ -4599,7 +4599,7 @@ ScriptOptVerbose()
 		shift; 
 	done
 
-	(( verboseLevel > 1 )) && verboseLess="-$(StringRepeat "v" "$(( verboseLevel - 1 ))")"
+	unset verboseLess; (( verboseLevel > 1 )) && verboseLess="-$(StringRepeat "v" "$(( verboseLevel - 1 ))")"
 
 	return 0
 }
