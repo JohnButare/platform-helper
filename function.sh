@@ -200,7 +200,7 @@ clipw()
 
 # logging
 
-header() { InitColor; printf "${RB_BLUE}*********************************** ${RB_INDIGO}$1${RB_BLUE} ***********************************${RESET}\n"; headerDone="$((52 + ${#1}))"; return 0; }
+header() { InitColor; printf "${RB_BLUE}******************************** ${RB_INDIGO}$1${RB_BLUE} ********************************${RESET}\n"; headerDone="$((66 + ${#1}))"; return 0; }
 HeaderBig() { InitColor; printf "${RB_BLUE}************************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n************************************************************${RESET}\n"; }
 HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
 HeaderFancy() { ! InPath pyfiglet lolcat && { HeaderBig "$1"; return; }; pyfiglet --justify=center --width=$COLUMNS "$1" | lolcat; }
@@ -1137,8 +1137,7 @@ ArrayAppend()
 	done
 
 	[[ ! $removeDups ]] && return
-	local IFS=$'\n'
-	eval "$arrayAppendDest=( $(ArrayDelimit "$arrayAppendDest" $'\n' | sort | uniq) )"
+	ArrayMake "$arrayAppendDest" "$(ArrayDelimit "$arrayAppendDest" $'\n' | sort | uniq)"
 }
 
 # ArrayCopy SRC DEST
@@ -1163,24 +1162,14 @@ ArrayDelimit()
 ArrayIndex() { ArrayDelimit "$1" '\n' | RemoveEnd '\n' | grep --line-number "^${2}$" | cut -d: -f1; }
 
 # ArrayIntersection A1 A2 - return the items not in common
-ArrayIntersection()
-{
-	local arrayIntersection1=(); ArrayCopy "$1" arrayIntersection1 || return;
-	local arrayIntersection2=(); ArrayCopy "$2" arrayIntersection2 || return;
-	local result=() e
-
-	for e in "${arrayIntersection1[@]}"; do ! IsInArray "$e" arrayIntersection2 && result+=( "$e" ); done
-	for e in "${arrayIntersection2[@]}"; do ! IsInArray "$e" arrayIntersection1 && result+=( "$e" ); done
-
-	ArrayDelimit result $'\n'
-}
+ArrayIntersection() { FileIntersect <(ArrayDelimit "$1" $'\n') <(ArrayDelimit "$2" $'\n'); }
 
 # ArrayRemove ARRAY VALUES - remove items from the array except specified values.  If vaules is the name of a variable
 # the contents of the variable are used.
 ArrayRemove()
 {
 	local values="^$2$"; IsVar "$2" && values="$(ArrayShow $2 $'\n' '^' '$')"
-	eval "$1=( $(ArrayDelimit $1 $'\n' | grep -v "$values") )"
+	ArrayMake $1 "$(ArrayDelimit $1 $'\n' | grep -v "$values")"
 }
 
 # ArraySelect NAME TITLE MENU - select items from the specified array
@@ -1208,17 +1197,7 @@ ArrayShow()
 }
 
 # ArrayUnion A1 A2 - return the items in common
-ArrayUnion()
-{
-	local arrayUnion1=(); ArrayCopy "$1" arrayUnion1 || return;
-	local arrayUnion2=(); ArrayCopy "$2" arrayUnion2 || return;
-	local result=() e
-
-	for e in "${arrayUnion1[@]}"; do IsInArray "$e" arrayUnion1 && result+=( "$e" ); done
-	for e in "${arrayUnion2[@]}"; do IsInArray "$e" arrayUnion2 && result+=( "$e" ); done
-
-	ArrayDelimit result $'\n'
-}
+ArrayUnion() { FileBoth <(ArrayDelimit "$1" $'\n') <(ArrayDelimit "$2" $'\n'); }
 
 # IsInArray [-ci|--case-insensitive] [-w|--wild] [-aw|--array-wild] STRING ARRAY_VAR
 IsInArray() 
@@ -1775,8 +1754,17 @@ PathAdd() # PathAdd [front] DIR...
 	return 0
 }
 
-PathFiles() {  eval find ${PATH//:/\/ } -maxdepth 1; }				# return all files in the path
-PathFileNames() { PathFiles | sed 's/.*\///' | sort | uniq; }	# return all distinct sorted file names in the path
+# PathQuoted - return paths as a quoted space separated list
+PathQuoted()
+{
+	local paths exclude=( "$WIN_ROOT/Windows/system32" "$WIN_ROOT/Windows/System32/Wbem" "$WIN_ROOT/Windows/System32/WindowsPowerShell/v1.0/" )
+	StringToArray "$PATH" ":" paths
+	ArrayRemove paths exclude
+	ArrayShow paths
+}
+
+PathFiles() { eval find $(PathQuoted) -maxdepth 1 -executable  -not -type d; } 	# PathFiles - return all files in the path
+PathFileNames() { PathFiles | sed 's/.*\///' | sort | uniq; }										# PathFileNames - return all distinct sorted file names in the path
 
 # RmOldFiles PATTERN [DAYS](30)
 RmOldFiles()

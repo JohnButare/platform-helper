@@ -127,67 +127,32 @@ checkCommand()
 check()
 {
 	local product term="$TERM"; [[ ! $term ]] && term="xterm-256color"
-	local app apps=() appsInstalled=() appsDownloaded=() 
-	local appsToIgnore=(apache bootstrap chroot CreativeCloud cron DellDisplayManager duf firewall hashi hostname hyperv java kea lolcat office password postgres qnap SqlServer VisualStudio xQuartz xServer Yarn)
-	local cacheInstalled="install-installed-apps" cacheDownloaded="install-downloaded-apps"
+	local app apps=() appsDownload=() 
+	local exclude=(Hashi)
+	IsPlatform mac && exclude+=(Warp) # can only check Warp version on mac
 
 	installInit || return
 
-	[[ ! $appsArg && ! $verbose  && ! $quiet ]] && PrintErr "checking..."
+	[[ ! $verbose  && ! $quiet ]] && PrintErr "checking..."
 
-	# use specified apps
+	# check specified apps
 	if [[ $appsArg ]]; then
-
-		# check applications and get their install function
 		for app in "${appsArg[@]}"; do
 			app="$(appGetInstallFunction "$app")" || return
-			appsInstalled+=( "$app" )
+			apps+=( "$app" )
 		done
-
-		[[ ! $verbose && ! $quiet ]] && PrintErr "checking..."
 
 	# get installed and downloaded applications
-	elif force="$forceLess" UpdateNeeded "$cacheInstalled" || force="$forceLess" UpdateNeeded "$cacheDownloaded"; then
-
-		IFS=$'\n' ArrayMake apps "$(listAll)"
-
-		for app in "${apps[@]}"; do
-			[[ ! $verbose  && ! $quiet ]] && PrintErr "."
-			logp1 "$(ScriptPrefix)checking ${app}..."
-
-			if ! IsInArray --case-insensitive "$app" appsToIgnore; then
-				appIsInstalled "$app" && { logp1 "installed..."; appsInstalled+=("$app"); }
-				IsFunction "${app}Download" && { logp1 "downloadable..."; appsDownloaded+=("$app"); }
-			fi
-
-			logp1 "done\n"
-
-		done
-
-		UpdateSet "$cacheInstalled" "$(GetDef appsInstalled)" || return			
-		UpdateSet "$cacheDownloaded" "$(GetDef appsDownloaded)" || return
-
-	# get cached installed and downloaded applications
 	else
-		eval "appsInstalled=( $(UpdateGetForce "$cacheInstalled") )" || return
-		eval "appsDownloaded=( $(UpdateGetForce "$cacheDownloaded") )" || return
-	fi
-
-	# logging
-	if [[ ! $appsArg ]] && (( verboseLevel > 1 )); then
-			printf "appsInstalled="; ArrayShow appsInstalled
-			printf "appsDownloaded="; ArrayShow appsDownloaded
+		IFS=$'\n' ArrayMake apps "$(listInstalled)"
+		IFS=$'\n' ArrayMake appsDownload "$(listPortionDownload)"
 	fi
 
 	# get apps to check (installed and downloaded)
-	apps=( "${appsInstalled[@]}" )
-	if [[ $allArg ]]; then
-		for app in "${appsDownloaded[@]}"; do
-			IsInArray "$app" appsInstalled && continue
-			[[ "$app" == @(Warp) ]] && ! IsPlatform mac && continue # can only check Warp version on mac
-			apps+=("$app")			
-		done				
-	fi
+	[[ $allArg ]] && ArrayAppend --remove-duplicates apps apps appsDownload
+
+	# remove excluded apps
+	ArrayRemove apps exclude
 
 	# add alternate version 
 	IsPlatform win && IsInArray "GitKraken" apps && apps+=(GitKrakenDeb)
@@ -255,7 +220,7 @@ checkApp()
 
 	# get installed version
 	log1 "Getting '$desc' installed version..."	
-	installed="$(versionGetInstalled "$app")"
+	IsPlatform $platform && installed="$(versionGetInstalled "$app")"
 	
 	# get download version
 	if IsFunction "${app}Download"; then
@@ -1021,7 +986,7 @@ appFindInstallFunction()
 appGetInstallFunction()
 {
 	local app="$1"; appFindInstallFunction "$app" && return
-	log1 "appGetInstallFunction: app '$app' not  found, search='$(declare -f | ${G}grep "${app}Install")'"
+	log1 "appGetInstallFunction: app '$app' not found, search='${app}Install()'"
 	ScriptErrQuiet "'$app' installation does not exist"
 }
 
@@ -6801,7 +6766,6 @@ hashiDownload()
 
 	extractFiles && downloadDone "$app" "$v"
 }
-
 
 consulDir() { hashiDir "consul"; }
 nomadDir() { hashiDir "nomad"; }
