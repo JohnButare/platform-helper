@@ -1159,7 +1159,10 @@ ArrayDelimit()
 	printf "%s" "${result%$delimiter}" # remove delimiter from end
 }
 
-# ArrayDiff A1 A2 - return the items not in common
+# ArrayIndex NAME VALUE - return the 1 based index of the value in the array
+ArrayIndex() { ArrayDelimit "$1" '\n' | RemoveEnd '\n' | grep --line-number "^${2}$" | cut -d: -f1; }
+
+# ArrayIntersection A1 A2 - return the items not in common
 ArrayIntersection()
 {
 	local arrayIntersection1=(); ArrayCopy "$1" arrayIntersection1 || return;
@@ -1171,9 +1174,6 @@ ArrayIntersection()
 
 	ArrayDelimit result $'\n'
 }
-
-# ArrayIndex NAME VALUE - return the 1 based index of the value in the array
-ArrayIndex() { ArrayDelimit "$1" '\n' | RemoveEnd '\n' | grep --line-number "^${2}$" | cut -d: -f1; }
 
 # ArrayRemove ARRAY VALUES - remove items from the array except specified values.  If vaules is the name of a variable
 # the contents of the variable are used.
@@ -1537,8 +1537,10 @@ explore() # explorer DIR - explorer DIR in GUI program
 	EchoErr "The $(PlatformDescription) platform does not have a file explorer"; return 1
 }
 
-# File<Life|Right|Intersect> FILE1 FILE2 - return the lines only in the left file, right file, or not in either file
+# File<Both|Life|Right|Intersect> FILE1 FILE2 - return the lines only in the left file, right file, or not in either file
+# - FileBoth <(cat "$first") <(cat "$second")
 FileIntersect() { awk '{NR==FNR?a[$0]++:a[$0]--} END{for(k in a)if(a[k])print k}' "$1" "$2"; }
+FileBoth() { comm -12 <(sort "$1") <(sort "$2"); }
 FileLeft() { comm -23 <(sort "$1") <(sort "$2"); }
 FileRight() { comm -13 <(sort "$1") <(sort "$2"); }
 
@@ -1712,8 +1714,8 @@ FindInPath()
 	[[ -f "$file" ]] && { echo "$(GetFullPath "$file")"; return; }
 
 	# use cache - example setup:
-	# findInPathUseCache="true" findInPathCache="$(eval find ${PATH//:/\/ } -maxdepth 1)"
-	[[ $findInPathUseCache ]] && { echo "$findInPathCache" | ${G}grep -m 1 "\/$1$"; return; }
+	# findInPathUseCache="true" findInPathCache="$(PathFileNames)"
+	[[ $findInPathUseCache ]] && { echo "$findInPathCache" | ${G}grep -m 1 "^$1$"; return; }
 	
 	# find in path
 	if IsZsh; then
