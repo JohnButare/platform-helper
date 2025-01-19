@@ -1207,6 +1207,19 @@ ArrayShow()
 	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
 }
 
+# ArrayUnion A1 A2 - return the items in common
+ArrayUnion()
+{
+	local arrayUnion1=(); ArrayCopy "$1" arrayUnion1 || return;
+	local arrayUnion2=(); ArrayCopy "$2" arrayUnion2 || return;
+	local result=() e
+
+	for e in "${arrayUnion1[@]}"; do IsInArray "$e" arrayUnion1 && result+=( "$e" ); done
+	for e in "${arrayUnion2[@]}"; do IsInArray "$e" arrayUnion2 && result+=( "$e" ); done
+
+	ArrayDelimit result $'\n'
+}
+
 # IsInArray [-ci|--case-insensitive] [-w|--wild] [-aw|--array-wild] STRING ARRAY_VAR
 IsInArray() 
 { 
