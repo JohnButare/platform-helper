@@ -1695,8 +1695,13 @@ FindInPath()
 {
 	local file="$1" 
 
+	# file exists
 	[[ -f "$file" ]] && { echo "$(GetFullPath "$file")"; return; }
 
+	# use cache
+	[[ $findInPathUseCache ]] && { echo "$findInPathCache" | ${G}grep -m 1 "\/$1$"; return; }
+	
+	# find in path
 	if IsZsh; then
 		whence -p "${file}" && return
 		IsPlatform wsl && { whence -p "${file}.exe" && return; }
