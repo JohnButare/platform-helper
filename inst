@@ -8,10 +8,8 @@ Usage: $(ScriptName) [OPTION]... [COMMAND]...
 Programs installation.
 
 	install	[APP]...		install applications
-	installed						return installed applications
 	check								check application versions
-	list								list all applications
-	update							installed applications requiring an update
+	list								list applications
 	version APP					get the application versions"
 }
 
@@ -36,29 +34,6 @@ typeOptGet()
 #
 # commands
 #
-
-listUsage() { EchoWrap "Usage: $(ScriptName) list\nList all installable applications."; }
-listCommand() { declare -f | ${G}grep --basic-regexp '.*Install () ' | cut -d" " -f1 | sed "s/Install//" | ${G}grep -v "^$" | sort --ignore-case; }
-updateCommand() { update="--update" checkCommand | awk '{ if (NR != 1) print $1; }'; }
-
-installedCommand()
-{
-	local app apps; IFS=$'\n' ArrayMake apps "$(listCommand)"
-
-	# cache files in path
-	findInPathUseCache="true" findInPathCache="$(eval find ${PATH//:/\/ } -maxdepth 1)"
-
-	# check for installed apps
-	for app in "${apps[@]}"; do
-		logp1 "checking $app..."
-		if appIsInstalled "$app"; then
-		 	[[ $verbose ]] && echo "installed" || echo "$app"
-		else
-			[[ $verbose ]] && "not installed"
-		fi
-	done
-	return 0
-}
 
 versionUsage() { EchoWrap "Usage: $(ScriptName) version [APP]\nGet the application current, downloaded, and installed versions.\n	$(typeOptUsage)"; }
 versionArgStart() { unset -v app; typeOptInit; }
@@ -174,7 +149,7 @@ check()
 	# get installed and downloaded applications
 	elif force="$forceLess" UpdateNeeded "$cacheInstalled" || force="$forceLess" UpdateNeeded "$cacheDownloaded"; then
 
-		IFS=$'\n' ArrayMake apps "$(listCommand)"
+		IFS=$'\n' ArrayMake apps "$(listAll)"
 
 		for app in "${apps[@]}"; do
 			[[ ! $verbose  && ! $quiet ]] && PrintErr "."
@@ -347,6 +322,101 @@ checkApp()
 }
 
 #
+# list commands
+#
+
+listUsage() { EchoWrap "Usage: $(ScriptName) list [all|installed|portion|update](all)\nList applications."; }
+listCommand() { listAllCommand; }
+
+listAllUsage() { EchoWrap "Usage: $(ScriptName) list all\nList all installable applications."; }
+listAllCommand() { listAll; }
+listAll() { declare -f | ${G}grep --basic-regexp '.*Install () ' | cut -d" " -f1 | sed "s/Install//" | ${G}grep -v "^$" | sort --ignore-case; }
+
+listUpdateUsage() { EchoWrap "Usage: $(ScriptName) list update\nList applications which require an update."; }
+listUpdateCommand() { listUpdate; }
+listUpdate() { update="--update" checkCommand | awk '{ if (NR != 1) print $1; }'; }
+
+listInstalledUsage() { EchoWrap "Usage: $(ScriptName) list installed [all|app|bin](all)\nList installed applications."; }
+listInstalledCommand() { listInstalled; }
+
+listInstalledAllUsage() { EchoWrap "Usage: $(ScriptName) list installed all\nList installed binaries and applications."; }
+listInstalledAllCommand() { listInstalled; }
+listInstalled() {	{ listInstalledApp; listInstalledBin; } | sort; }
+
+listInstalledAppUsage() { EchoWrap "Usage: $(ScriptName) list installed app\nList installed applications."; }
+listInstalledAppCommand() { listInstalledApp; }
+
+listInstalledApp()
+{
+	local cache="install-installed-apps"
+	force="$forceLess" UpdateGet "$cache" && return
+	local apps; apps="$(listInstalledAppDo)" || return
+	UpdateSet "$cache" "$apps" && echo "$apps"
+}
+
+listInstalledAppDo()
+{
+	local app apps; IFS=$'\n' ArrayMake apps "$(AppList)"
+
+	for app in "${apps[@]}"; do
+		logp1 "checking $app..."
+		if AppIsInstalled "$app"; then
+		 	[[ $verbose ]] && EchoErrEnd "installed"
+		 	echo "$(GetFileName "$app")" | RemoveEnd "Helper"
+		else
+			[[ $verbose ]] && EchoErrEnd "not installed"
+		fi
+	done
+
+	return 0
+}
+
+listInstalledBinUsage() { EchoWrap "Usage: $(ScriptName) list installed all\nList all installed binaries."; }
+listInstalledBinCommand() { listInstalledBin; }
+
+listInstalledBin()
+{
+	local apps; apps="$(listAll | LowerCase | sort | uniq)" || return
+ 	local pathFiles; pathFiles="$(PathFiles | grep -i -v -e "$BIN" -e "$UBIN" -e "$WIN_ROOT/windows/system32" | sed 's/.*\///' | sort | uniq | LowerCase)" || return
+	FileBoth <(echo "$apps") <(echo "$pathFiles")
+}
+
+#
+# list portion commands
+#
+
+listPortionUsage() { EchoWrap "Usage: $(ScriptName) list help\nList applications with help text."; }
+listPortionCommand() { listHelp; }
+
+listPortionFinalUsage() { EchoWrap "Usage: $(ScriptName) list portion final\nList applications which support a final install."; }
+listPortionFinalCommand() { listPortionFinal; }
+
+listPortionFinal()
+{
+	local app apps; IFS=$'\n' ArrayMake apps "$(listInstalledApp)"
+	for app in "${apps[@]}"; do declare -F | qgrep -iE "^declare -f ${app}Final" && echo "$app"; done
+}
+
+listPortionHelpUsage() { EchoWrap "Usage: $(ScriptName) list portion help\nList applications with help text."; }
+listPortionHelpCommand() { listPortionHelp; }
+listPortionHelp() { listPortionFunction "help"; }
+
+listPortionProfileUsage() { EchoWrap "Usage: $(ScriptName) list portion profile\nList applications with support profile commands."; }
+listPortionProfileCommand() { listPortionProfile; }
+listPortionProfile() { listPortionFunction "profile"; }
+
+listPortionRegisterUsage() { EchoWrap "Usage: $(ScriptName) list portion register\nList applications which support registration."; }
+listPortionRegisterCommand() { listPortionRegister; }
+listPortionRegister() { listPortionFunction "register"; }
+
+# listPortionFunction PORTION - list application which support portion, i.e. listFunction sublime help
+listPortionFunction()
+{
+	local app apps portion="$1"; IFS=$'\n' ArrayMake apps "$(listInstalledApp)"
+	for app in "${apps[@]}"; do IsFunction "${app^}${portion^}" && echo "$app"; done
+}
+
+#
 # install command
 #
 
@@ -358,6 +428,7 @@ Install an application.  To run a portion of the installation, the application n
 	     --force-full				force a full install, even on hosts targeted for a minimal install
 	     --hint=DIR					first directory to search for installation files
 	-H,  --host=HOST				comma separated list of hosts for the installation
+	-ne, --no-exclude	   		do not exclude anything
 	-nh, --no-header	   		suppress headers
 	-np, --no-prompt	   		suppress interactive prompts
 	-p,  --prompt	   				force the installation prompt even for single app installs
@@ -371,7 +442,7 @@ Portions:
 	-nr, --no-run					do not run the software installation program"
 }
 
-installArgStart() { unset -v alternate apps edition forceFull hint hostArg hostOpt hosts noHeader noHelp noProfile noPrompt noRegister noRun promptArg select suppressErrors; typeOptInit; }
+installArgStart() { unset -v alternate apps edition forceFull hint hostArg hostOpt hosts noExclude noHeader noHelp noProfile noPrompt noRegister noRun promptArg select suppressErrors; typeOptInit; }
 
 installOpt() 
 {
@@ -380,6 +451,7 @@ installOpt()
 		--edition|--edition=*|-e|-e=*) ScriptOptGet "edition" "$@";;
 		--hint) ScriptOptGet "hint" "$@"; export INSTALL_DIR="$hint"; hint=(--hint "$hint");;
 		--host|--host=*|-H|-H=*) ScriptOptGet hostArg host "$@";;
+		--no-exclude|-ne) noExclude="--no-exclude";;
 		--no-header|-nh) noHeader="--no-header";;
 		--no-help) noHelp="--no-help";;
 		--no-profile) noProfile="--no-profile";;
@@ -416,12 +488,6 @@ installInit()
 	# arguments
 	options=($noPrompt $noRun "${hint[@]}" "${globalArgs[@]}")
 	verboseInstaller=""; [[ $verbose ]] && verboseInstaller="-verbose"
-
-	# apps
-	commonApps=(1Password BetterDisplay BeyondCompare Dropbox Firefox GitKraken MaxTo Sublime SublimeMerge TidyTabs typora)
-	finalApps=("${commonApps[@]}" bootstrap CleanMyMac CreativeCloud Edge Fork Intel Java JetBrains LogitechOptions nvidia OneDrive Plex Python Thunderbird VisualStudio Zoom)
-	helpApps=("${commonApps[@]}" 1Password Firefox Alfred Docker Dymo Hammerspoon Hyperv iTerm Obsidian Typora xQuartz)
-	registerApps=("${commonApps[@]}" Alfred GitHub rectangle soulver SoundSource)
 
 	# commands
 	cp="FileCommand cp"
@@ -958,8 +1024,8 @@ appGetTrack()
 # appResolveAlias alias - returns app name from an app aliases 
 appResolveAlias()
 {
-	local app="${1,,}"
-	[[ ${aliases[$app]} ]] && app="${aliases[$app]}"
+	local app="${1,,}"	
+	IsAssociativeArray aliases && [[ ${aliases[$app]} ]] && app="${aliases[$app]}"
 	echo "$app"
 }
 
@@ -1459,7 +1525,7 @@ moveCloudData()
 # register APP - enter the registration information for an application
 register()
 {
-	local app="$1"; { ! appIsInstalled "$app" || [[ $noPrompt ]] || ! registerCheck "$app"; } && return
+	local app="$1"; { ! appIsInstalled "$app" || [[ $noRegister ]] || ! registerCheck "$app"; } && return
 
 	# message
 	local app="$1"
@@ -2292,7 +2358,7 @@ AppCoreEndInstall()
 	header "App Core End"
 
 	RunCache "install-app-core-end-platform" RunPlatform appCoreEnd || return
-	i --cache final register help IconCleanup || return
+	noExclude="--no-exclude" i --cache final register help IconCleanup || return
 	RunCache "install-app-core-end-host-update" HostUpdate || return
 
 	IsPlatform win && { i WindowsTerminalProfile WindowsTerminalCleanup || return; }
@@ -2575,7 +2641,7 @@ appDirLink()
 UpdateInstall()
 {
 	local suppressErrors="true" # supress install errors
-	local apps; apps=( $(inst update "${globalArgs[@]}") ) && i "${apps[@]}"
+	local apps; apps=( $(inst list update "${globalArgs[@]}") ) && i "${apps[@]}"
 }
 
 DownloadInstall()
@@ -2602,38 +2668,25 @@ DownloadInstall()
 	UpdateDone "install-download"
 }
 
-FinalInstall()
+FinalInstall() { printf "final..."; portionDo "final" "docker" "hyperv" && echo "done"; }
+finalDo() { local app="$1"; printf "$app..."; i --no-header --no-prompt "${app}Final"; }
+
+HelpInstall() { portionDo "help"; }
+helpDo() {	local app="${app^}"; header "$app Help"; noHelp="" i "${app}Help" && pause; }
+
+RegisterInstall() { portionDo "register"; }
+registerDo() { isRegistering="true" noRegister="" i --no-header "${app}Register"; }
+
+# portionDo PORTION EXCLUDE...
+portionDo()
 {
-	printf "final..."
-	local app apps=("${finalApps[@]}")
+	local portion="$1"; shift
+	local exclude=( "$@" )
+	local app apps=( $(listPortion${portion^}) )
 	for app in "${apps[@]}"; do
-		! appIsInstalled "$app" && continue
-		printf "$app..."
-		i --no-header --no-prompt "${app}Final" || return
+		[[ ! $noExclude ]] && IsInArray --case-insensitive "$app" exclude && continue
+		RunCache "install-$portion-$app" ${portion}Do "$app" || return
 	done
-	echo "done"
-}
-
-HelpInstall()
-{
-	! UpdateNeeded "install-help" && return
-
-	local app noHelp=""
-	for app in "${helpApps[@]}"; do
-		! appIsInstalled "$app" && continue
-		! IsFunction ${app}Help && continue
-		header "$app Help"
-		i "${app}Help" || return
-		pause
-	done
-
-	UpdateDone "install-help"
-}
-
-RegisterInstall()
-{
-	local app apps=("${registerApps[@]}")	
-	for app in "${apps[@]}"; do isRegistering="true" noRegister="" i --no-header "${app}Register" || return; done
 }
 
 #################################################
@@ -4438,7 +4491,7 @@ OneDriveFinalWin()
 	# registry
 	registry delete "urun/OneDrive" # "C:\Users\jjbutare\AppData\Local\Microsoft\OneDrive\OneDrive.exe" /background
 	registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/" # Desktop One Drive icon
-	CanElevate && { registry set "HKCR/CLSID/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 || return; }
+	CanElevate && { registry set "HKCR/CLSID/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 > /dev/null || return; }
 
 	# variables
 	SetVar --delete OneDrive || return
