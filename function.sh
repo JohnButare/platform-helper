@@ -583,15 +583,15 @@ AppHelper()
 
 AppToCli()
 {
-	local app="$1"
-	case "$(LowerCase "$app")" in
+	local app="$1" appLower="$(LowerCase "$1")"
+	case "$appLower" in
 		1passwordcli) echo "op";;
 		7zip) echo "7z";;
 		apache) echo "";; # no program for Apache
 		apt) ! IsPlatform mac && echo "apt";; # /usr/bin/apt in Mac is legacy
 		chroot) echo "schroot";;
 		python) echo "python3";;
-		*) InPath "$(LowerCase "$app")" && echo "$(LowerCase "$app")" || echo "$app";;
+		*) InPath "$appLower" && echo "$appLower" || echo "$app";;
 	esac
 }
 
