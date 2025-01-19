@@ -1945,7 +1945,6 @@ FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo ${G}tail -F --lines=+0 "$1"
 
 NETWORK_CACHE="network" NETWORK_CACHE_OLD="network-old"
 
-GetPorts() { sudoc lsof -i -P -n; }
 GetDefaultGateway() { CacheDefaultGateway "$@" && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
 GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGetForce "domain"; }
 GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }				# GetMacAddress - MAC address of the primary network interface
@@ -2246,6 +2245,17 @@ GetIpAddress()
 	# return
 	[[ ! $ip ]] && { [[ ! $quiet ]] && HostUnresolved "$host"; return 1; }
 	echo "$(echo "$ip" | RemoveCarriageReturn)"
+}
+
+PortUsage()
+{
+	if IsPlatform win; then
+		header "Windows"
+		RunScript --elevate -- netstat.exe -anb 
+	fi
+
+	InPath netstat && { header "netstat"; sudoc netstat -tuap; }
+	InPath lsof && { header "lsof"; sudoc lsof -i -P -n; }
 }
 
 GetSubnetMask()
