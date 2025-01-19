@@ -1698,7 +1698,8 @@ FindInPath()
 	# file exists
 	[[ -f "$file" ]] && { echo "$(GetFullPath "$file")"; return; }
 
-	# use cache
+	# use cache - example setup:
+	# findInPathUseCache="true" findInPathCache="$(eval find ${PATH//:/\/ } -maxdepth 1)"
 	[[ $findInPathUseCache ]] && { echo "$findInPathCache" | ${G}grep -m 1 "\/$1$"; return; }
 	
 	# find in path
