@@ -3713,7 +3713,7 @@ console() { start proxywinconsole.exe "$@"; } # console PROGRAM ARGS - attach PR
 CoprocCat() { cat 0<&${COPROC[0]}; } # read output from a process started with coproc
 handle() { ProcessResource "$@"; }
 InUse() { ProcessResource "$@"; }
-IsMacApp() { FindMacApp "$1" >& /dev/null; }
+IsMacApp() { ! IsPlatform mac && return; FindMacApp "$1" >& /dev/null; }
 IsRoot() { [[ "$USER" == "root" || $SUDO_USER ]]; }
 IsSystemd() { IsPlatform mac && return 1; cat /proc/1/status | grep -i "^Name:[	 ]*systemd$" >& /dev/null; } # systemd must be PID 1
 IsWinAdmin() { IsPlatform win && { IsInDomain sandia || RunWin net.exe localgroup Administrators | RemoveCarriageReturn | grep --quiet "$WIN_USER$"; }; }
@@ -3734,8 +3734,11 @@ fi
 
 # FindMacApp APP - return the location of a Mac applciation
 FindMacApp()
-{
-	local app="$1"
+{	
+	! IsPlatform mac && return
+
+	# check directory
+	local app="$1"	
 	[[ -d "$app" && "$app" =~ \.app$ ]] && HasFilePath "$app" && echo "$app" && return
 	HasFilePath "$app" && return 1
 	
