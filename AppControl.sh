@@ -1,5 +1,6 @@
 # AppControl.sh - control another application
 
+AppList() { grep "$BIN/"* -e '^isInstalledCommand()' | cut -d':' -f1 | sort; }
 AppIsInstalled() { AppCommand isInstalled "$@"; }
 AppInstallVerify() { AppIsInstalled "$1" && return; ScriptErrQuiet "application '$1' is not installed" "$1"; }
 AppIsRunning() { AppCommand isRunning "$@"; }
