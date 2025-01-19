@@ -1419,8 +1419,8 @@ FileExists() { local f; for f in "$@"; do [[ ! -f "$f" ]] && return 1; done; ret
 FileExistsAny() { local f; for f in "$@"; do [[ -f "$f" ]] && return 0; done; return 1; }
 HasFilePath() { GetArgs; [[ $(GetFilePath "$1") ]]; }
 IsDirEmpty() { GetArgs; [[ "$(${G}find "$1" -maxdepth 0 -empty)" == "$1" ]]; }
-InPath() { local f option; IsZsh && option="-p"; for f in "$@"; do ! which $option "$f" >& /dev/null && return 1; done; return 0; }
-InPathAny() { local f option; IsZsh && option="-p"; for f in "$@"; do which $option "$f" >& /dev/null && return; done; return 1; }
+InPath() { local f; for f in "$@"; do ! FindInPath "$f" >& /dev/null && return 1; done; return 0; } # InPath FILE... - return true if all files are in the path
+InPathAny() { local f; for f in "$@"; do FindInPath "$f" >& /dev/null && return; done; return 1; }	# InPathAny FILE... - return true if any files are in the path
 IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff "$1" "$2" >& /dev/null; }
 IsPath() { [[ ! $(GetFileName "$1") ]]; }
 IsWindowsFile() { drive IsWin "$1"; }
