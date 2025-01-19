@@ -1760,6 +1760,9 @@ PathAdd() # PathAdd [front] DIR...
 	return 0
 }
 
+PathFiles() {  eval find ${PATH//:/\/ } -maxdepth 1; }				# return all files in the path
+PathFileNames() { PathFiles | sed 's/.*\///' | sort | uniq; }	# return all distinct sorted file names in the path
+
 # RmOldFiles PATTERN [DAYS](30)
 RmOldFiles()
 {
