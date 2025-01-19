@@ -388,6 +388,10 @@ listInstalledBin()
 listPortionUsage() { EchoWrap "Usage: $(ScriptName) list help\nList applications with help text."; }
 listPortionCommand() { listHelp; }
 
+listPortionDownloadUsage() { EchoWrap "Usage: $(ScriptName) list portion download\nList applications which support download."; }
+listPortionDownloadCommand() { listPortionDownload; }
+listPortionDownload() { listPortionFunctionAll "download"; }
+
 listPortionFinalUsage() { EchoWrap "Usage: $(ScriptName) list portion final\nList applications which support a final install."; }
 listPortionFinalCommand() { listPortionFinal; }
 
@@ -409,11 +413,20 @@ listPortionRegisterUsage() { EchoWrap "Usage: $(ScriptName) list portion registe
 listPortionRegisterCommand() { listPortionRegister; }
 listPortionRegister() { listPortionFunction "register"; }
 
-# listPortionFunction PORTION - list application which support portion, i.e. listFunction sublime help
+# listPortionFunction PORTION - list installed applications which support portion, i.e. listFunction sublime help
 listPortionFunction()
 {
 	local app apps portion="$1"; IFS=$'\n' ArrayMake apps "$(listInstalledApp)"
 	for app in "${apps[@]}"; do IsFunction "${app^}${portion^}" && echo "$app"; done
+	return 0
+}
+
+# listPortionFunctionAll PORTION - list all application which support portion, i.e. listFunction sublime help
+listPortionFunctionAll()
+{
+	local app apps portion="$1"; IFS=$'\n' ArrayMake apps "$(listAll)"
+	for app in "${apps[@]}"; do IsFunction "${app^}${portion^}" && echo "$app"; done
+	return 0
 }
 
 #
@@ -2652,16 +2665,20 @@ DownloadInstall()
 	local suppressErrors="true" # supress download errors
 	
 	# initialize
-	local app apps=(1Password 1PasswordCli Alfred BeyondCompare Docker Firefox GitKraken iTerm KarabinerElements Obsidian Rectangle Sublime SublimeMerge Thunderbird VisualStudioCode Warp WindowsTerminal)
-	! IsDomainRestricted && apps+=(AltTab BalenaCli BalenaEtcher Bartender BetterDisplay CleanMyMac Dropbox Fork Hashi Loom Shottr SoundSource)
+	local app apps; apps=( $(listPortionDownload) ) || return
+	local exclude=(Xcode)
+	IsDomainRestricted && exclude+=(AltTab BalenaCli BalenaEtcher Bartender BetterDisplay CleanMyMac Dropbox Fork Hashi Loom Shottr SoundSource)
 
 	# regular downloads
-	for app in "${apps[@]}"; do i "${app}Download" || return; done
+	for app in "${apps[@]}"; do
+		[[ ! $noExclude ]] && IsInArray --case-insensitive "$app" exclude && continue
+		i "${app}Download" || return
+	done
 
 	# beta downloads
-	local installType="beta" skip=(Alfred BeyondCompare)
+	local installType="beta" exclude=(Alfred BeyondCompare Typora)
 	for app in "${apps[@]}"; do
-		IsInArray --case-insensitive "$app" skip && continue
+		[[ ! $noExclude ]] && IsInArray --case-insensitive "$app" exclude && continue
 		versionCheckPossible "$app" "$platform" && { i "${app}Download" || return; }; 
 	done
 
@@ -4058,13 +4075,12 @@ SlackDownload()
 {
 	local app="slack"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
-	local prefix="https://downloads.slack-edge.com/releases"
-	local item items=("linux/$v/prod/x64/slack-desktop-$v-amd64.deb:x64:deb" "macos/$v/prod/universal/Slack-$v-macOS.dmg:universal:dmg" "windows/$v/prod/x64/slack-standalone-$v.0.msi:x64:msi" "windows/$v/prod/x64/SlackSetup.exe:x64:exe")
-	
-	for item in "${items[@]}"; do
-		StringToArray "$item" ":" item
-		local urlSuffix="${item[0]}" architecture="${item[1]}" fileSuffix="${item[2]}"
-		download "${prefix}/${urlSuffix}" "$(slackDir)" "slack-$v-$architecture.$fileSuffix" || return
+	local prefix="https://downloads.slack-edge.com/desktop-releases"
+	local url urls=("linux/x64/$v/slack-desktop-$v-amd64.deb" "mac/universal/$v/Slack-$v-macOS.dmg" "windows/x64/$v/SlackSetup.exe" "windows/x64/$v/Slack.msi" "windows/arm64/$v/Slack.msix" "windows/x64/$v/Slack.msix")
+
+	for url in "${urls[@]}"; do
+		local architecture="$(GetWord "$url" 2 "/")"
+		download "${prefix}/${url}" "$(slackDir)" "slack-$v-$architecture.$(GetFileExtension "$url")" || return
 	done
 
 	downloadDone "$app" "$v"
@@ -9653,7 +9669,7 @@ NoMachineProfile() { NoMachine profile restore default && NoMachine startup "${g
 
 NoMachineDownload()
 {
-	local app="NoiMachine"; downloadStart "$app" || return $(( $? > 1 ))
+	local app="NoMachine"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
 	local vShort="$(GetWord "$v" 1 .).$(GetWord "$v" 2 .)"
 	local item items=("Linux-_amd64-deb" "MacOSX--dmg" "Windows-_x64-exe")
