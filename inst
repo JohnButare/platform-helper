@@ -128,7 +128,7 @@ check()
 {
 	local product term="$TERM"; [[ ! $term ]] && term="xterm-256color"
 	local app apps=() appsDownload=() 
-	local exclude=(Hashi)
+	local exclude=(Hashi Team Xcode) # Teams download needs work
 	IsPlatform mac && exclude+=(Warp) # can only check Warp version on mac
 
 	installInit || return
@@ -726,7 +726,7 @@ installInit()
 	# Microsoft
 	all+=(WindowsDownload)
 	macWin+=(AzureCli AzureDataStudio AzureFunctions AzureStorageExplorer)
-	macWin+=(PowerShell teams TeamsMac TeamsWin office skype TfsCli VisualStudio)
+	macWin+=(PowerShell teams office skype TfsCli VisualStudio)
 	win+=(IIS MouseAndKeyboardCenter PowerToys SqlServerManagementStudio SystemsInternals RemoteServerAdministrationTools WindowsAssessmentAndDeploymentKit WindowsStore wsl)
 
 	# monitoring
@@ -1067,7 +1067,7 @@ copyLocal()
 # downloadCheck URL [HEADERS] - return true if the URL is a valid download by ensuring it's headers contains on of the specified headers
 downloadCheck()
 {
-	urlCheck "$1" "${2:-attachment\|application/octet-stream\|application/x-\|application/zip\|binary/octet-stream\|application/x-apple-diskimage}"; 
+	urlCheck "$1" "${2:-attachment\|application/octet-stream\|application/x-\|application/zip\|binary/octet-stream\|application/x-apple-diskimage\|application/vnd.debian.binary-package}"; 
 }
 
 downloadValidate()
@@ -4056,13 +4056,9 @@ slackVersion() { curl --silent --location "https://slack.com/downloads/mac" | ${
 
 TeamsInstall()
 {
-	local v; v="$(versionGetCurrent "Teams${PLATFORM_OS^}")" || return
+	local v; v="$(versionGetCurrent "teams" "$PLATFORM_OS")"
 	run --name="Teams" "$(teamsDir)/teams-$v.$(getPlatform "exe" "pkg")" --version="$v"
 } 
-
-# Windows and Mac have different versions
-TeamsMacInstall() { TeamsInstall "$@"; }
-TeamsWinInstall() { TeamsInstall "$@"; }
 
 TeamsFinalWin()
 {	
@@ -4081,26 +4077,29 @@ TeamsHelp()
 	- check Open application in background"
 }
 
-TeamsDownload() { Teams${PLATFORM_OS^}Download; }
-
-TeamsMacDownload()
+# TeamsDownload
+# - https://learn.microsoft.com/en-us/microsoftteams/msi-deployment
+# - https://learn.microsoft.com/en-us/microsoftteams/new-teams-bulk-install-client
+TeamsDownload()
 {
-	local app="TeamsMac"; downloadStart "$app" || return $(( $? > 1 ))
-	local v; v="$(versionGetCurrent "$app")" && download "https://statics.teams.cdn.office.net/production-osx/$v/Teams_osx.pkg" "$(teamsDir)" "teams-$v.pkg" && downloadDone "$app" "$v"
-}
+	local app="teams" downloaded groupDownload="true"; downloadHeader "$app"
+	local item items=("mac:production-osx:Teams_osx.pkg" "win:production-windows:TeamsSetup.exe")
 
-TeamsWinDownload()
-{
-	local app="TeamsWin"; downloadStart "$app" || return $(( $? > 1 ))
-	local v; v="$(versionGetCurrent "$app")" && download "https://statics.teams.cdn.office.net/production-windows/1.6.00.18681/TeamsSetup.exe" "$(teamsDir)" "teams-$v.exe" && downloadDone "$app" "$v"
+	for item in "${items[@]}"; do
+		StringToArray "$item" ":" item
+		local platform="${item[0]}" prefix="${item[1]}" file="${item[2]}"
+		local v; v="$(versionGetCurrent "$app" "$platform")" || return
+		local r; downloadStart "$app" "$platform"; r=$?; ((r==1)) && continue; ((r==2)) && return 1
+		downloaded="true"; download "https://statics.teams.cdn.office.net/$prefix/$v/$file" "$(teamsDir)" "teams-$v.$(GetFileName "$file")" || return
+		downloadDone "$app" "$v" "$platform" || return
+	done
+
+	downloadFooter "$app"
 }
 
 teamsDir() { echo "other/Microsoft/teams"; }
-teamsMacDir() { teamsDir; }
-teamsWinDir() { teamsDir; }
-
-teamsMacVersion() { teamsVersionDo "Mac"; }
-teamsWinVersion() { teamsVersionDo "Windows"; }
+teamsVersionMac() { teamsVersionDo "Mac"; }
+teamsVersionWin() { teamsVersionDo "Windows"; }
 teamsVersionDo() { curl --silent --location "https://learn.microsoft.com/en-us/officeupdates/teams-app-versioning" | ${G}grep "$1 version history" -A20 | ${G}grep '^<td' | shead -3 | ${G}tail --lines=-1 | cut -d'>' -f2 | cut -d'<' -f1; }
 
 ZoomInstall()
@@ -11376,7 +11375,7 @@ TyporaDownload()
 	local app="typora"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return; [[ "$installType" == "beta" ]] && v+="-dev"
 	local prefix="https://download.typora.io"
-	local item items=("linux:amd64:deb" "linux:arm64.deb" "mac:universal:dmg" "windows:x64:exe" "windows:arm64:exe")
+	local item items=("mac:universal:dmg" "windows:x64:exe" "windows:arm64:exe") # "linux:amd64:deb" "linux:arm64.deb" 
 	local downloads=0
 
 	for item in "${items[@]}"; do
@@ -12507,7 +12506,7 @@ dockerInstallPackage()
 DockerDownload()
 {
 	local app="docker" downloaded groupDownload="true"; downloadHeader "$app"
-	local dockerNotes dockerVersion=(); dockerVersionCommon || return	
+	local dockerNotes dockerVersions=(); dockerVersionCommon || return	
 	local item items=("linux:amd64:docker-desktop-amd64.deb" "linux:amd64:docker-desktop-x86_64.rpm" "mac:amd64:Docker.dmg" "mac:arm64:Docker.dmg" "win:arm64:Docker%20Desktop%20Installer.exe" "win:amd64:Docker%20Desktop%20Installer.exe")
 
 	for item in "${items[@]}"; do
