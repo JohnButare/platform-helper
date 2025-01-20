@@ -146,16 +146,35 @@ check()
 	else
 		IFS=$'\n' ArrayMake apps "$(listInstalled)"
 		IFS=$'\n' ArrayMake appsDownload "$(listPortionDownload)"
+		log1 "apps=$(ArrayShow apps)"
+		log1 "appsDownload=$(ArrayShow appsDownload)"
 	fi
 
 	# get apps to check (installed and downloaded)
 	[[ $allArg ]] && ArrayAppend --remove-duplicates apps apps appsDownload
 
-	# remove excluded apps
-	ArrayRemove apps exclude
+	# check for app install function and remove exlcludes
+	local appsNew=()
+	for app in "${apps[@]}"; do
+
+		# check for app install function
+		local appSave="$app"			
+		if ! app="$(quiet="true" appGetInstallFunction "$app")"; then
+			[[ $verbose ]] && ScriptErr "warning: '$appSave' has a helper but no install function"
+			app="$appSave"
+		fi
+
+		# check if excluded
+		IsInArray --case-insensitive "$app" exclude && continue
+
+		appsNew+=("$app")
+	done
 
 	# add alternate version 
 	IsPlatform win && IsInArray "GitKraken" apps && apps+=(GitKrakenDeb)
+
+	# sort
+	IFS=$'\n' ArrayMake apps "$(ArrayDelimit appsNew $'\n' | sort --ignore-case | uniq)"
 
 	# get packages
 	local packages cache="install-check-packages"
@@ -193,12 +212,14 @@ check()
 	# show versions
 	local delimit=":" # application name or version must not contain the delimiter
 	{
+		# header
 		if [[ $detail ]]; then
 			echo "${GREEN}app${delimit}${PAD}installed${PAD}${delimit}${PAD}downloaded${PAD}${delimit}current${delimit}update${RESET}"
 		else
 			echo "${GREEN}app${delimit}${PAD}installed${PAD}${delimit}${PAD}downloaded${PAD}${delimit}current${RESET}"
 		fi
 
+		# data - check app for each platform
 		for app in "${apps[@]}"; do
 			local platform platforms; versionGetPlatforms "$app" || return
 			for platform in "${platforms[@]}"; do
@@ -219,9 +240,11 @@ checkApp()
 	local alternate; [[ "$app" =~ Deb$ ]] && alternate="--alternate" app="$(RemoveEnd "$app" "Deb")"
 
 	# get installed version
-	log1 "Getting '$desc' installed version..."	
-	IsPlatform $platform && installed="$(versionGetInstalled "$app")"
-	
+	if [[ "$platform" == "all" ]] || IsPlatform $platform; then
+		log1 "Getting '$desc' installed version..."	
+		installed="$(versionGetInstalled "$app")"
+	fi
+
 	# get download version
 	if IsFunction "${app}Download"; then
 		log1 "Getting '$desc downloaded version..."
@@ -252,7 +275,7 @@ checkApp()
 	# hide installed version if needed
 	[[ ! $current && "$installType" == "beta" ]] && installed=""
 
-	if [[ $current && "$installed" != "$current" ]] && ! IsNumericEqual "$installed" "$current"; then
+	if [[ $current && $installed && "$installed" != "$current" ]] && ! IsNumericEqual "$installed" "$current"; then
 
 		# regular version is installed and showing beta version
 		if [[ "$installType" == "beta" ]]; then
@@ -262,6 +285,7 @@ checkApp()
 		# has a beta version and it is installed and showing regular version
 		else
 			versionIsNewer "$installed" "$current" && IsFunction "${app,}VersionBeta" && installed=""
+
 		fi
 	fi
 
@@ -306,7 +330,7 @@ listInstalledCommand() { listInstalled; }
 
 listInstalledAllUsage() { EchoWrap "Usage: $(ScriptName) list installed all\nList installed binaries and applications."; }
 listInstalledAllCommand() { listInstalled; }
-listInstalled() {	{ listInstalledApp; listInstalledBin; } | sort; }
+listInstalled() {	{ listInstalledApp && echo && listInstalledBin; } ; }
 
 listInstalledAppUsage() { EchoWrap "Usage: $(ScriptName) list installed app\nList installed applications."; }
 listInstalledAppCommand() { listInstalledApp; }
@@ -2167,7 +2191,7 @@ versionCheck()
 
 	# return false and display an error if the installed version is newer than the version we are checking
 	if versionIsNewer "$installed" "$check"; then
-		ScriptErrQuiet "the installed version of ${app^} ($installed) is newer than the version to install ($check)"
+		ScriptErrQuiet "the installed version of $app ($installed) is newer than the version to install ($check)"
 		return 1
 	fi
 
@@ -2286,7 +2310,7 @@ versionGetInstalled()
 # - only set if the app has version functions for Mac or Win
 versionGetPlatforms()
 {
-	local app="${app,}" platform; platforms=()
+	local app="$1" platform; platforms=()
 	for platform in linux mac win; do
 		IsFunction "${app}Version${platform^}" && platforms+=( "$platform" )
 	done
@@ -2654,7 +2678,7 @@ FinalInstall() { printf "final..."; portionDo "final" "docker" "hyperv" && echo 
 finalDo() { local app="$1"; printf "$app..."; i --no-header --no-prompt "${app}Final"; }
 
 HelpInstall() { portionDo "help"; }
-helpDo() {	local app="${app^}"; header "$app Help"; noHelp="" i "${app}Help" && pause; }
+helpDo() {	local app="$app"; header "$app Help"; noHelp="" i "${app}Help" && pause; }
 
 RegisterInstall() { portionDo "register"; }
 registerDo() { isRegistering="true" noRegister="" i --no-header "${app}Register"; }
