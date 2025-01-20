@@ -72,7 +72,7 @@ opt()
 argEnd()
 {
 	# basic configuration
-	datacenter="$(NetworkCurrent)"; argValidate "$datacenter" "domain" || return
+	datacenter="$(GetDnsDomain | RemoveDnsSuffix)"; argValidate "$datacenter" "domain" || return
 	baseDomain="$(GetNetworkDnsBaseDomain)"; argValidate "$baseDomain" "DNS base domain" || return
 	domain="$(GetNetworkDnsDomain)"; argValidate "$domain" "DNS domain" || return
 
@@ -3764,8 +3764,14 @@ certDirPrivate()
 	echo "$fullDir"
 }
 
+# certDirPrivateSuffix PRODUCT - add certificate suffix to the private certificate directory
+certDirPrivateSuffix() { local product="$1" dir; dir="$(certDirPrivate)" && certDirSuffix "$product" "$dir"; }
+
 # certDirPublic - return the public certificate directory from an installation file server
 certDirPublic() { findInstallFile --quiet "other/HashiCorp"; }
+
+# certDirPublicSuffix PRODUCT - add certificate suffix to the public certificate directory
+certDirPublicSuffix() { local product="$1" dir; dir="$(certDirPublic)" && certDirSuffix "$product" "$dir"; }
 
 # certDirService PRODUCT - return the product service certificate directory
 certDirService() { echo "/opt/$1/cert"; }
@@ -3775,14 +3781,6 @@ certDirSuffix()
 { 
 	local product="$1"; shift; 	GetArgs; [[ ! $1 ]] && { ScriptErrQuiet "certDirSuffix: directory not specified"; return 1; }
 	echo "$(RemoveTrailingSlash "$1")/certificate/$baseDomain$(RemoveTrailingSlash "/$configPrefix")/$product"
-}
-
-# certDirPublicSuffix PRODUCT - add certificate suffix to the public certificate directory
-certDirPublicSuffix()
-{
-	local product="$1"
-	local dir; dir="$(certDirPublic)" || return # do not run in pipeline in case this returns error
-	certDirSuffix "$product" "$dir"
 }
 
 # certDirUnmountPrivate - unmount the private certificate directory if mounted.  Directory is changed in case we are in the private certificate directory.
@@ -3858,11 +3856,15 @@ certPublicFind()
 		ScriptErr "warning: '$(FileToDesc "$dir")' does not contain the public certificates"
 	fi
 
-	# check private certificate directory
-	dir="$(certDirPrivate)" && dir="$(echo "$dir" | certDirSuffix "$product")" && certPublicCheck "$dir" && return
+	# fall back to the private certificate directory
+	dir="$(certDirPrivateSuffix "$product")" && certPublicCheck "$dir"
 }
 
-certPublicCheck() { [[ -d "$1" ]] || return; certValidate "$1" "$ca" "$certCli" "$certCliKey" && echo "$dir"; }
+certPublicCheck()
+{
+	local dir="$1"; [[ -d "$dir" ]] || return
+	certValidate "$dir" "$ca" "$certCli" "$certCliKey" && echo "$dir"
+}
 
 certStoreInstall()
 {
@@ -3906,9 +3908,9 @@ certStoreInstallWin()
 	local file="$(PlatformTmp)/$(GetFileName "$src")"
 	cp "$src" "$file" || return
 	if CanElevate; then
-		RunScript --elevate "${globalArgs[@]}" -- certutil.exe -addstore root "$(utw "$file")" || return
+		RunScript --elevate "${globalArgs[@]}" -- certutil.exe -addstore -f root "$(utw "$file")" || return
 	else
-		certutil.exe -addstore NoRoot "$(utw "$file")" || return
+		certutil.exe -addstore -f NoRoot "$(utw "$file")" || return
 	fi	
 	rm "$file" || return
 }
@@ -4289,14 +4291,19 @@ productInstallCerts()
 
 	hilight "Installing ${product^} certificates..."
 	sudoc ${G}mkdir --parents "$dest" || return
-	RunLog sudoc cp "$src/$ca" "$src/$certCli" "$src/$certCliKey" "$dest" || return
-	[[ -f "$src/$caAuto" ]] && { RunLog sudoc cp "$src/$caAuto" "$dest" || return; }
-	sudoc chmod +r "$dest/"* || return
 
-	certStoreInstall "$src/$ca" "$certStoreCa" || return
-	[[ -f "$src/$caAuto" ]] && { certStoreInstall "$src/$caAuto" "$certStoreCaAuto" || return; }
+	# copy certificates - use a temp directory - sudo cannot access CryFS encrypted shares
+	local tmpDir; tmpDir="$(tmpDirCreate)" || return
+	RunLog cp "$src/$ca" "$src/$certCli" "$src/$certCliKey" "$tmpDir" || return
+	[[ -f "$src/$caAuto" ]] && { RunLog cp "$src/$caAuto" "$tmpDir" || return; }
+	RunLog sudoc cp "$tmpDir/"* "$dest" || return
 		
-	return 0
+	# install certificates into the certificate store
+	certStoreInstall "$tmpDir/$ca" "$certStoreCa" || return
+	[[ -f "$src/$caAuto" ]] && { certStoreInstall "$tmpDir/$caAuto" "$certStoreCaAuto" || return; }
+	
+	# cleanup
+	rm -fr "$tmpDir" || return
 }
 
 productIsInstalled() { [[ $(FindInPath "${1:-$product}") ]]; }
