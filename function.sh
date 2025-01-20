@@ -3816,13 +3816,13 @@ IsProcessRunning()
 	IsWindowsProcess "$name" && { IsProcessRunningList "$name" --win; return; }
 
 	# mac	
-	if IsPlatform mac; then
+	if IsPlatform mac && InPath pidof; then
 		local nameCheck="$name"; [[ "$name" =~ \.app$ ]] && nameCheck="$(GetFileNameWithoutExtension "$name")"
 		pidof -l "$nameCheck" | ${G}grep --ignore --quiet "^PID for $nameCheck is"; return;
 	fi
 
 	# check for process using pidof - slightly faster but pickier than pgrep
-	[[ ! $full && $root ]] && { pidof -snq "$name" > /dev/null; return; }
+	[[ ! $full && $root ]] && InPath pidof && { pidof -snq "$name" > /dev/null; return; }
 
 	# check for proces using pgrep
 	local args=(); [[ ! $root ]] && args+=("--uid" "$USER")
