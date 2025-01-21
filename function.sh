@@ -495,7 +495,7 @@ AppVersion()
 	# special cases
 	if [[ ! $version ]]; then
 		case "$(LowerCase "$(GetFileName "$app")")" in
-			cowsay|cron|gtop|kubectl|lolcat|parallel) return;; # excluded, cannot get version
+			cowsay|gtop|kubectl|parallel) return;; # excluded, cannot get version
 			7z) version="$(7z | head -2 | ${G}tail --lines=-1 | cut -d" " -f 3)" || return;;
 			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
@@ -1161,15 +1161,14 @@ ArrayDelimit()
 # ArrayIndex NAME VALUE - return the 1 based index of the value in the array
 ArrayIndex() { ArrayDelimit "$1" '\n' | RemoveEnd '\n' | grep --line-number "^${2}$" | cut -d: -f1; }
 
-# ArrayIntersection A1 A2 - return the items not in common
+# ArrayIntersection A1 A2 - return the items not in common in each line
 ArrayIntersection() { FileIntersect <(ArrayDelimit "$1" $'\n') <(ArrayDelimit "$2" $'\n'); }
 
-# ArrayRemove ARRAY VALUES - remove items from the array except specified values.  If vaules is the name of a variable
-# the contents of the variable are used.
+# ArrayRemove ARRAY VALUES... - remove values from the array, array is modified
 ArrayRemove()
 {
-	local values="^$2$"; IsVar "$2" && values="$(ArrayShow $2 $'\n' '^' '$')"
-	ArrayMake $1 "$(ArrayDelimit $1 $'\n' | grep -v "$values")"
+	local arrayRemoveExclude=( "$@" )
+	IFS=$'\n' ArrayMake "$1" "$(FileLeft <(ArrayDelimit "$1" $'\n') <(ArrayDelimit "arrayRemoveExclude" $'\n'))"
 }
 
 # ArraySelect NAME TITLE MENU - select items from the specified array
@@ -1758,12 +1757,10 @@ PathAdd() # PathAdd [front] DIR...
 PathQuoted()
 {
 	local paths exclude=( "$WIN_ROOT/Windows/system32" "$WIN_ROOT/Windows/System32/Wbem" "$WIN_ROOT/Windows/System32/WindowsPowerShell/v1.0/" )
-	StringToArray "$PATH" ":" paths
-	ArrayRemove paths exclude
-	ArrayShow paths
+	StringToArray "$PATH" ":" paths && ArrayRemove paths "${exclude[@]}" && ArrayShow paths
 }
 
-PathFiles() { eval find $(PathQuoted) -maxdepth 1 -executable  -not -type d; } 	# PathFiles - return all files in the path
+PathFiles() { eval ${G}find $(PathQuoted) -maxdepth 1 -executable  -not -type d |& ${G}grep -v "No such file or directory"; } 	# PathFiles - return all files in the path
 PathFileNames() { PathFiles | sed 's/.*\///' | sort | uniq; }										# PathFileNames - return all distinct sorted file names in the path
 
 # RmOldFiles PATTERN [DAYS](30)
