@@ -63,7 +63,7 @@ BgInfo()
 	# return if needed
 	local file="$UADATA/Microsoft/Windows/Themes/Custom.theme"
 	{ ! InPath Bginfo64.exe || [[ ! "$file" ]]; } && return
-	[[ ! $force ]] && grep '^Wallpaper=' "$UADATA/Microsoft/Windows/Themes/Custom.theme" | qgrep BGInfo && return
+	[[ ! $force ]] && grep '^Wallpaper=' "$file" | qgrep BGInfo && return
 
 	# find configuration file
 	local dir="$DATA/setup" file
