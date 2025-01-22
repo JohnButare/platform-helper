@@ -189,7 +189,7 @@ esac
 
 # temp directory
 declare {TMPDIR,TMP,TEMP}="${TMPDIR:-$HOME/tmp}"
-[[ ! -d "$TMP" ]] && mkdir "$TMP" >& /dev/null
+[[ ! -d "$TMP" ]] && ${G}mkdir "$TMP" >& /dev/null
 
 set +a
 
