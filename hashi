@@ -835,7 +835,7 @@ Usage: $(ScriptName) config environment [all|$productUsage|test|reset](all)
 Show the product environment variables.  This command is typically called 
 with ScriptEval to update current environment.
 
-	-se, --suppress-errors			supress certificate not found errors"; }
+	-se, --suppress-errors			supress errors (like credential and certificate not found)"; }
 
 configEnvironmentArgStart() { unset -v suppressErrors; }
 
@@ -3934,9 +3934,9 @@ certValidate()
 # credential helper
 #
 
-credDelete() { RunLog credential rm "$(credPath)" "$@" "${globalArgs[@]}"; }
-credExists() { test="" RunLog credential exists "$(credPath)" "$@" "${globalArgs[@]}"; }
-credGet() { test="" RunLog credential get "$(credPath)" "$@" "${globalArgs[@]}"; }
+credDelete() { RunLog credential rm "$(credPath)" "$@" "${globalArgsLessVerbose[@]}"; }
+credExists() { test="" RunLog credential exists "$(credPath)" "$@" "${globalArgsLessVerbose[@]}"; }
+credGet() { test="" RunLog credential get "$(credPath)" "$@" "${globalArgsLessVerbose[@]}"; }
 
 credPath()
 {
@@ -4065,7 +4065,15 @@ productEnvironment()
 	local tokenVal="$(productVarGet "TOKEN")"
 	if [[ $forceEnvironment || ! $tokenVal ]] && [[ ! $noToken ]]; then
 		local exclude=(); [[ ! $VAULT_TOKEN ]] && exclude=( "--exclude-managers=vault" ) # prevent recursion	
-		tokenVal="$(credGet "token" "${exclude[@]}")" || return
+		local quiet; [[ $suppressErrors ]] && quiet="--quiet"
+		if ! tokenVal="$(credGet "token" $quiet "${exclude[@]}")"; then
+			if [[ $suppressErrors ]]; then
+				log1 "productEnvironment: unable to get the '$product' token, this error will be supressed"
+			else
+				ScriptErr "productEnvironment: unable to get the '$product' token"
+				return 1
+			fi
+		fi
 	fi
 
 	productEnvironmentVars
@@ -4092,14 +4100,14 @@ productEnvironmentVars()
 	fi
 
 	# certificate configuration
-	if [[ ! $clear ]] && certs; then
+	if [[ $clear ]]; then
+		unset+=( $(productVar "CACERT") $(productVar "CLIENT_CERT") $(productVar "CLIENT_KEY") )
+	elif certs; then
 		cat <<-EOF
 			export $(productVar "CACERT")="$certDir/$ca"
 			export $(productVar "CLIENT_CERT")="$certDir/$certCli"
 			export $(productVar "CLIENT_KEY")="$certDir/$certCliKey"
 		EOF
-	else
-		unset+=( $(productVar "CACERT") $(productVar "CLIENT_CERT") $(productVar "CLIENT_KEY") )
 	fi
 
 	if [[ ! $clear && $tokenVal ]]; then
@@ -4214,7 +4222,7 @@ productInstallNeeded()
 
 	# determine if the product is installed
 	if IsLocalHost "$host"; then
-		installFile="$(os executable find "$installDir")" || return
+		installFile="$(os executable find "$installDir" "${globalArgs[@]}")" || return
 		[[ ! $force ]] && InPath "$product" && fileExists="true"
 		what="$installFile"
 	else
@@ -4440,7 +4448,7 @@ encryptCliOpt()
 findInstallFile()
 {
 	i check || return # cache the installation directory
-	FindInstallFile "$@"
+	FindInstallFile "$@" "${globalArgs[@]}"
 }
 
 # forAllHosts COMMAND [ARGS...] - run a command for all hosts.  If forAllHeader is set and there is more than one host display it as a header.

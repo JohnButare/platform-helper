@@ -165,7 +165,9 @@ executableFindCommand()
 
 	# find an executable that supports the primary architecture
 	arch="$(executableFormatCommand)" || return
+	log2 "architecture=$arch"
 	file="$(file "$dir"/* | sort -V | grep "$arch" | ${G}tail --lines=-1 | cut -d: -f1)"
+	log2 "file=$file"
 	file="${file% (for architecture $(architectureFileCommand))}" # remove suffix for mac universal binaries
 	[[ $file ]] && { echo "$file"; return; }
 
