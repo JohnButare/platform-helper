@@ -89,7 +89,7 @@ dirCommand()
 	esac
 }
 
-restoreArgs() { ScriptArgGet "profile" -- "$@"; shift; }
+restoreArgs() { ScriptArgGet "profile" -- "$@"; }
 
 restoreCommand()
 {
@@ -134,7 +134,7 @@ restoreCommand()
 	return 0
 }
 
-saveArgs() { ! [[ $@ ]] && return; ScriptArgGet "profile" -- "$@"; }
+saveArgs() { (( ! $# )) && return; ScriptArgGet "profile" -- "$@"; }
 
 saveCommand()
 {

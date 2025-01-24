@@ -128,7 +128,7 @@ alternateExecutableFormatCommand()
 	return 1
 }
 
-executableIdArgs() { ScriptArgGet "file" -- "$@"; ScriptCheckFile "$file"; shift; }
+executableIdArgs() { ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
 
 executableIdCommand()
 {
@@ -157,7 +157,7 @@ executableIdCommand()
 	echo "$id"
 }
 
-executableFindArgs() { ScriptArgGet "dir" -- "$@"; ScriptCheckDir "$dir"; shift; }
+executableFindArgs() { ScriptArgGet "dir" -- "$@" && ScriptCheckDir "$dir"; }
 
 executableFindCommand()
 {
@@ -271,12 +271,7 @@ Show or set the operating system name."
 }
 
 nameArgStart() { unset name; }
-
-nameArgs()
-{
-	(( $# == 0 )) && return
-	ScriptArgGet "name" -- "$@"; shift
-}
+nameArgs() { (( ! $# )) && return; ScriptArgGet "name" -- "$@"; }
 
 nameCommand()
 {
@@ -364,7 +359,7 @@ nameRealCommand()
 
 architectureUsage() { echot "Usage: os architecture [bits] [MACHINE]\n	Show the architecture of the current machine or the specified machine.  Returns arm, mips, or x86."; }
 architectureArgStart() { unset -v machine; }
-architectureArgs() { (( $# == 0 )) && return; ScriptArgGet "machine" -- "$@"; }
+architectureArgs() { (( ! $# )) && return; ScriptArgGet "machine" -- "$@"; }
 
 architectureCommand()
 {
@@ -394,7 +389,7 @@ architectureBitsCommand()
 
 architectureFileUsage() { echot "Usage: os architecture file [MACHINE]\n	Show the architecture of the current machine or the specified machine returned by the file command."; }
 architectureFileArgStart() { unset -v machine; }
-architectureFileArgs() { (( $# == 0 )) && return; ScriptArgGet "machine" -- "$@"; }
+architectureFileArgs() { (( ! $# )) && return; ScriptArgGet "machine" -- "$@"; }
 
 architectureFileCommand()
 {
@@ -420,7 +415,7 @@ alternateFileArchitectureCommand()
 
 bitsUsage() { echot "Usage: os bits [MACHINE]\n	Show the operating system bits of the current machine or the specified machine."; }
 bitsArgStart() { unset -v machine; }
-bitsArgs() { (( $# == 0 )) && return; ScriptArgGet "machine" -- "$@"; }
+bitsArgs() { (( ! $# )) && return; ScriptArgGet "machine" -- "$@"; }
 
 bitsCommand() # 32 or 64
 {	
@@ -577,7 +572,7 @@ infoArgStart()
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
 }
 
-infoArgs() { (( $# == 0 )) && return; ScriptArgGet "hostArg" -- "$@"; }
+infoArgs() { (( ! $# )) && return; ScriptArgGet "hostArg" -- "$@"; }
 infoArgEnd() { infoSetRemoteArgs; }
 
 infoOpt()

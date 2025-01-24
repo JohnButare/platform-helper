@@ -14,7 +14,7 @@ ScriptArgGet()
 	local scriptDesc="$scriptVar"; [[ "$1" != "--" ]] && { scriptDesc="$1"; shift; }
 	[[ "$1" == "--" ]] && shift
 	(( $# == 0 )) && { MissingOperand "$scriptDesc"; return; }
-	[[ $required && ! $1 ]] && MissingOperand "$scriptDesc"
+	[[ $required && ! $1 ]] && { MissingOperand "$scriptDesc"; return; }
 
 	# check data type
 	[[ $integer ]] && ! IsInteger "$1" && { ScriptErr "$scriptDesc must be an integer"; return; }
@@ -27,7 +27,7 @@ ScriptArgGet()
 
 ScriptArgDriveLetter()
 {
-	ScriptArgGet "letter" -- "$@"
+	ScriptArgGet "letter" -- "$@" || return
 
 	# change drive letters to a single lower case letter, i.e. C:\ -> c
 	letter="${letter,,}"
