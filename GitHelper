@@ -8,7 +8,8 @@ Usage: $(ScriptName) changes|clone|edit|github|gui|hide|hub|IsInstalled|profile|
 Additional Git functionality.
 
 Common options:
-	-w,	 --win		use Windows git"
+	-w,	 --win		use Windows git
+	-t, --timeout		$(ScriptOptTimeoutUsage)"
 	exit $1
 }
 
@@ -34,15 +35,17 @@ init()
 	gitWin="git"
 }
 
+argStart() { ScriptOptTimeoutArgStart; }
+argEnd() { setGit; }
+
 opt()
 {
 	case "$1" in
 		--win|-w) win="--win" code="$WIN_CODE";;
+		--timeout|--timeout=*|-t|-t=*) ScriptOptTimeout "$@";;
 		*) return 1;;
 	esac
 }
-
-argEnd() { setGit; }
 
 #
 # commands
@@ -135,8 +138,18 @@ pushCommand()
 {
 	local remote
 	for remote in "${remotes[@]}"; do
-		! git remote | ${G}grep -q "^${remote}$" && continue
-		hilight "Pushing to $remote..."
+
+		# check if remote exists in this repository
+		! remoteExists "$remote" && continue
+
+		# check if the remote server is available
+		local url; url="$(remoteUrl "$remote")" || return
+		local server; server="$(GetUncServer "$url")" || return
+		log2 "push: remote=$remote url=$url server=$server timeout=$timeout"
+		! IsAvailable "$server" $timeout && { ScriptErrQuiet "remote '$remote' server '$server' is not available"; continue; }
+
+		# push
+		hilight "Pushing to $remote ($server)..."
 		git push "$remote" $force || return
 	done
 }
@@ -559,7 +572,7 @@ remoteArgs()
 		if (( $# > 0 )); then
 			ScriptArgGet "repo" -- "$@"; shift;
 		elif [[ "$command" != @(remoteDir) ]]; then
-			local url; url="$("$git" remote get-url origin)" || return
+			local url; url="$(remoteUrl "origin")" || return
 			repo="$(echo "$url" | GetLastDir)"
 		fi
 	fi
@@ -607,8 +620,8 @@ remoteSwapCommand()
 	# validate
 	[[ "$remote1" == "$remote2" ]] && { ScriptErr "remote1 and remote2 must be different"; return 1; }
 
-	local remote1Url; remote1Url="$("$git" remote get-url "$remote1")" || return
-	local remote2Url; remote2Url="$("$git" remote get-url "$remote2")" || return
+	local remote1Url; remote1Url="$(remoteUrl "$remote1")" || return
+	local remote2Url; remote2Url="$(remoteUrl "$remote2")" || return
 	local remote1NewName="$remote2" remote2NewName="$remote1"
 	[[ "$remote1" == "origin" ]] && { remote1NewName="$(GetUriServer "$remote1Url")"; }
 	[[ "$remote2" == "origin" ]] && { remote2NewName="$(GetUriServer "$remote2Url")"; }
@@ -650,7 +663,8 @@ remoteToSshCommand()
 }
 
 remoteAdd() { remoteExists "$1" && return; git remote add "$1" "$2"; }
-remoteExists() { git remote get-url "$1" >& /dev/null; }
+remoteExists() { remoteUrl "$1" >& /dev/null; }
+remoteUrl() { "$git" remote get-url "$1"; }
 
 #
 # Time Command
@@ -704,7 +718,7 @@ repoDir()
 # getBaseUrl REMOTE - get repository base URL, i.e. https://server/path/ ssh://user@server:port/path/ -> server/path
 getBaseUrl() 
 {
-	local url; url="$("$git" remote get-url "$1")" || return
+	local url; url="$(remoteUrl "$1")" || return
 	url="$(echo "$url" | sed 's/https:\/\///')" # remove https://
 	url="$(echo "$url" | sed 's/ssh:\/\///' | sed 's/git@//' | sed 's/:[0-9]*\//\//')" # remove ssh://, user@, and :port
 	url="${url%%/}" # remove trailing /
