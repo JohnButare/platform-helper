@@ -5,6 +5,8 @@
 # 
 
 # ScriptArgGet [--integer] [--required] VAR [DESC](VAR) [--] VALUE - get an argument.  Sets var to value and increments shift.
+#	- --ensure - ensure argument is an integer
+#	- --required - ensure argument is not blank
 ScriptArgGet()
 {
 	# arguments
@@ -264,7 +266,7 @@ ScriptOptGlobal()
 # ScriptOptGet [--check|--integer] VAR [DESC] --OPTION VALUE
 #
 # Set option VAR from OPTION and VALUE.  Increments shift if needed.  
-#	- --optional - if specified, the value is optional
+#	- --optional - if specified, the value is optional, return 0 if set
 # - DESC defaults to VAR and is used in the missing option error message
 # - OPTION VALUE format is one of: -o|--option[=| ]VAL
 ScriptOptGet()

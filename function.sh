@@ -2700,12 +2700,13 @@ PortResponse()
 	echo "$result * 1000" | bc	
 }
 
-WaitForAvailable() # WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
+# WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
+WaitForAvailable()
 {
 	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForAvailable"; return; }
 	local timeout="${2-$(AvailableTimeoutGet)}" seconds="${3-$(AvailableTimeoutGet)}"
 
-	printf "Waiting $seconds seconds for $(RemoveDnsSuffix "$host")..."
+	printf "Waiting $seconds seconds for '$(RemoveDnsSuffix "$host")'..."
 	for (( i=1; i<=$seconds; ++i )); do
  		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
 		printf "."
@@ -2715,7 +2716,27 @@ WaitForAvailable() # WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SEC
 	echo "not found"; return 1
 }
 
-WaitForPort() # WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
+# WaitForNetwork NETWORK [HOST_TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
+WaitForNetwork()
+{
+	local network="$1"; [[ ! $network ]] && { MissingOperand "host" "WaitForAvailable"; return; }
+	local timeout="${2-$(AvailableTimeoutGet)}" seconds="${3-$(AvailableTimeoutGet)}"
+
+	[[ "$(NetworkCurrent)" == "$network" ]] && return
+
+	printf "Waiting $seconds seconds for '$network' network..."
+	for (( i=1; i<=$seconds; ++i )); do
+ 		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
+		printf "."
+		[[ "$(NetworkCurrent)" == "$network" ]] && { echo "found"; return; }
+		sleep 1
+	done
+
+	echo "not found"; return 1
+}
+
+# WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
+WaitForPort()
 {
 	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForPort"; return; }
 	local port="$2"; [[ ! $port ]] && { MissingOperand "port" "WaitForPort"; return; }
