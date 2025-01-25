@@ -495,7 +495,7 @@ AppVersion()
 	# special cases
 	if [[ ! $version ]]; then
 		case "$(LowerCase "$(GetFileName "$app")")" in
-			cowsay|gtop|kubectl|parallel) return;; # excluded, cannot get version
+			cowsay|cron|gtop|kubectl|lolcat|parallel) return;; # excluded, cannot get version
 			7z) version="$(7z | head -2 | ${G}tail --lines=-1 | cut -d" " -f 3)" || return;;
 			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
