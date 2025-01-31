@@ -3844,7 +3844,7 @@ IsProcessRunning()
 	# check for proces using pgrep
 	local args=(); [[ ! $root ]] && { IsPlatform mac && args=(-u "$UID") || args+=("--uid" "$USER"); }
 	HasFilePath "$name" && { full="--full"; IsPlatform mac && full="-f"; } # pgrep >= 4.0.3 requires full for process name longer than 15 characters
-	pgrep $full "$name" "${args[@]}" > /dev/null
+	pgrep $full "${args[@]}" "$name" > /dev/null
 }
 
 # IsProcessRunningList [--user|--unix|--win] NAME - check if NAME is in the list of running processes.  Slower than IsProcessRunning.
