@@ -3843,7 +3843,7 @@ IsProcessRunning()
 
 	# check for proces using pgrep
 	local args=(); [[ ! $root ]] && { IsPlatform mac && args=(-u "$UID") || args+=("--uid" "$USER"); }
-	! IsPlatform mac && HasFilePath "$name" && full="--full" # pgrep >= 4.0.3 requires full for process name longer than 15 characters
+	HasFilePath "$name" && { full="--full"; IsPlatform mac && full="-f"; } # pgrep >= 4.0.3 requires full for process name longer than 15 characters
 	pgrep $full "$name" "${args[@]}" > /dev/null
 }
 
