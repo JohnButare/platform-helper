@@ -70,22 +70,41 @@ permissionsUsage() { echo "Usage: $(ScriptName) permissions\nSet permissions on 
 
 permissionsCommand()
 {
-	printf "permissions..."
-	permissionSet g+rw "$BIN" "$UBIN" || return
-	permissionSet ugo-x "$DATA/doc" "$DATA/icons" "$DATA/lib" "$DATA/man" "$DATA/setup" \
-		"$UDATA/certificate" "$UDATA/profile/default" "$UDATA/replicate" || return
+	local dirs=("$DATA/doc" "$DATA/icons" "$DATA/lib" "$DATA/man" "$DATA/setup" "$UDATA/certificate" "$UDATA/profile/default" "$UDATA/replicate")
+	local allDirs=( "$BIN" "$UBIN" "${dirs[@]}" )
+
+ 	printf "permissions..."
+ 	permissionBin "$BIN" "$UBIN" || return
+	permissionSet ug+rw "${allDirs[@]}" || return
+	permissionSet -x "${dirs[@]}" || return
 	echo "done"
 }
 
 # permissionSet PERM DIR...
 permissionSet()
 {
-	local perm="$1" dir; shift
+	local perm="$1" dir; shift	
 	for dir in "$@"; do
-		printf "."
-		[[ ! -d "$dir" ]] && continue
-		find "$dir" -not -path "*/.git/*" -type f -not -iname ".*$lastSyncSuffix" -not -iname ".git" -print0 \
-			| xargs -0 --no-run-if-empty ${G}chmod "$perm" || return
+		[[ ! $verbose ]] && printf "."
+		log1 "permissionSet: setting permissions on '$dir' to '$perm'"
+		find "$dir" -type f -print0 | xargs --null --no-run-if-empty chmod $perm || return
+	done
+}
+
+# permissionBin DIR - set or remove executable bit for files in DIR
+permissionBin()
+{
+	local dir
+	for dir in "$@"; do
+
+		[[ ! $verbose ]] && printf "."
+		log1 "permissionBin: setting executable permissions in '$dir'"
+		find "$dir" -maxdepth 1 -type f -print0 | xargs --null file | { ${G}grep " executable$"; true; } | ${G}cut -d":" -f1 | xargs --delimiter '\n' --no-run-if-empty chmod +x || return
+
+		[[ ! $verbose ]] && printf "."
+		log1 "permissionBin: removing executable permissions in '$dir'"
+		find "$dir" -maxdepth 1 -type f -print0 | xargs --null file | { ${G}grep -v " executable$"; true; } | ${G}cut -d":" -f1 | xargs --delimiter '\n' --no-run-if-empty chmod -x || return
+
 	done
 }
 
@@ -188,20 +207,21 @@ syncIsUnison() { [[ "$syncProgram" == "Unison" ]]; }
 sync()
 {
 	local suffix="$1"; shift
-	syncGit "$srcDir/$suffix" && sync$syncProgram "$srcDir/$suffix" "$destDir/$suffix" "$@" && syncFix
+	syncGit "$srcDir/$suffix" && sync$syncProgram "$srcDir/$suffix" "$destDir/$suffix" "$@" && syncFix "$srcDir/$suffix"
 }
 
+# syncFix DIR - fix sync permission issues with DIR
 syncFix()
 {
-	# add executable bit to $BIN files which should have it
-	(
-		pushd "$BIN" >& /dev/null || return 0
-		command ls -1al "$BIN" |
-			${G}grep -v -e "^total" -e "-rwx" |\
-			awk '{ print $NF}' | \
-			${G}grep -vE -e "(.cmd|.sh|_sync.txt)$" -e "^(.|..|.git|.DS_Store|.gitignore|.justfile|.vscode|LICENSE|README.md)$" | \
-			xargs --no-run-if-empty chmod +x
-	)
+	local dir="$1"
+
+	log1 "syncFix: dir=$dir"; return
+
+	if [[ "$dir" == @($BIN|$UBIN) ]]; then
+		log2 "syncFix: fixing executable bit"
+		permissionBin "$dir" || return
+	fi
+
 	return 0
 }
 
