@@ -919,15 +919,47 @@ infoDistributionWin()
 }
 
 #
-# security/virus
+# security commands
 #
 
 securityUsage() { echot "Usage: os security gui|tray\n	Security commands."; }
 securityCommand() { usage; }
+
 securityGuiCommand() { RunPlatform securityGui; }
 securityGuiWin() { start "windowsdefender://"; }
+
 securityTrayCommand() { RunPlatform securityTray; }
 securityTrayWin() { cmd.exe /c start "SecurityHealthSystray.exe" >& /dev/null; }
+
+#
+# virus commands
+#
+
+virusUsage() { echot "Usage: os virus enable|gui|run|status\n	Virus scanner commands."; }
+virusArgStart() { services=(Sense WdBoot WdFilter WdNisDrv WdNisSvc WinDefend); }
+virusCommand() { usage; }
+
+virusEnableCommand() { RunPlatform virusEnable; }
+virusEnableWin() { service disable "Sense" && service boot "WdBoot" && service boot "WdFilter" && service demand "WdNisDrv" && service demand "WdNisSvc" && service auto "WinDefend"; }
+
+virusGuiCommand() { RunPlatform virusGui; }
+virusGuiWin() { start "windowsdefender://threat"; }
+
+virusRunUsage() { virusRunCli; }
+virusRunArgStart() { virusArgs=(-Scan -ScanType 1); }
+virusRunArgs() { (( ! $# )) && return; virusArgs=("$@"); shift+="$#"; }
+virusRunCommand() { RunPlatform virusRun; }
+virusRunWin() { virusRunCli "${virusArgs[@]}" "${otherArgs[@]}"; }
+
+virusRunCli() { RunPlatform virusRunCli; }
+virusRunCliWin() { "$P/Windows Defender/MpCmdRun.exe" "$@"; }
+
+virusStatusCommand()
+{
+	[[ $verbose ]] && { for service in "${services[@]}"; do service detail $service; done; return; }
+	for service in "${services[@]}"; do service status $service; done
+}
+
 
 #
 # helper
