@@ -13,7 +13,8 @@ Operating system commands
 	executable		executable information
 	location			location information
 	memory				[available|total](total)
-	name					show or set the operating system name"
+	name					show or set the operating system name
+	security|virus"
 }
 
 #
@@ -916,6 +917,17 @@ infoDistributionWin()
 	local version="11"; (( $(os build) < 22000 )) && version="10" # 10|11
 	infoDistributionLinux && infoEcho "              Windows $version (build $build.$ubr, wsl $(wsl get version), wslg $(wsl get version wslg))"
 }
+
+#
+# security/virus
+#
+
+securityUsage() { echot "Usage: os security gui|tray\n	Security commands."; }
+securityCommand() { usage; }
+securityGuiCommand() { RunPlatform securityGui; }
+securityGuiWin() { start "windowsdefender://"; }
+securityTrayCommand() { RunPlatform securityTray; }
+securityTrayWin() { cmd.exe /c start "SecurityHealthSystray.exe" >& /dev/null; }
 
 #
 # helper
