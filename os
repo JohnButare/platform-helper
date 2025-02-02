@@ -7,14 +7,15 @@ usage()
 Usage: os [COMMAND]... [OPTION]...
 Operating system commands
 
-	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release|version
 	disk					[available|total](total)
-	dark|environment|index|path|lock|preferences|store
 	executable		executable information
 	location			location information
 	memory				[available|total](total)
 	name					show or set the operating system name
-	security|virus"
+
+	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release|version
+	dark|environment|index|path|lock|preferences|store
+	features|repair|security|virus"
 }
 
 #
@@ -180,6 +181,14 @@ executableFindCommand()
 
 	return 1
 }
+
+#
+# feature commands
+#
+
+featureUsage() { echot "Usage: os feature\n	Operating system features."; }
+featureCommand() { RunPlatform feature; }
+featureWin() { RunScript --elevate -- Dism.exe /Online /Get-Features; }
 
 #
 # location command
@@ -916,6 +925,20 @@ infoDistributionWin()
 	local ubr; ubr="$(HexToDecimal "$(registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/UBR" | RemoveCarriageReturn)")" # UBR (Update Build Revision)
 	local version="11"; (( $(os build) < 22000 )) && version="10" # 10|11
 	infoDistributionLinux && infoEcho "              Windows $version (build $build.$ubr, wsl $(wsl get version), wslg $(wsl get version wslg))"
+}
+
+#
+# repair commands
+#
+
+repairUsage() { echot "Usage: os repair\n	Repair the operating system."; }
+repairCommand() { RunPlatform repair; }
+
+repairWin()
+{
+	ask "Fix from known good copies" && { sfc.exe /scannow || return; }
+	ask "Repair known good copies" && { DISM.exe /Online /Cleanup-Image /RestoreHealth || return; }
+	return 0
 }
 
 #
