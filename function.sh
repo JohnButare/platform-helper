@@ -4717,6 +4717,38 @@ sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
 sudov() { sudoc "$@" -- sudo --validate; } # update the cached credentials if needed
 IsSudo() { sudo --validate --non-interactive >& /dev/null; } # return true if the sudo credentials are cached
 
+# HasElevatedAccount - return true if the user has an elevated account that must be used for sudo
+HasElevatedAccount() { IsInDomain "sandia" && [[ -d "$USERS/${USER}z" ]]; }
+
+# CanSudo - return true if sudo is possible
+#   --no-prompt|-np   only return true if sudo is possible without prompting
+CanSudo()
+{
+	# can sudo sudo credentials are cached or if root
+	{ IsSudo || IsRoot || [[ $sudoPasswordCache ]]; } && return
+
+	# arguments
+	local args=() noPrompt verbose verboseLevel verboseLess
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			--) shift; args+=("$@"); break;;
+			*) args+=("$1");;
+		esac
+		shift
+	done
+
+	# do not prompt no prompt if there is no stdin
+	! IsStdIn && noPrompt="--no-prompt"
+
+	# can sudo if we do not need to use an elevated account and can get the sudo password
+	! HasElevatedAccount && sudoPasswordCache="$(SudoPassword)" && return
+
+	# can sudo if we are allowed to prompt for the password
+	[[ $noPrompt ]]
+}
+
 # sudoc COMMANDS - run COMMANDS using sudo and use the credential store to get the password if available
 #   --no-prompt|-np   do not prompt or ask for a password
 #   --preserve|-p   	preserve the existing path (less secure)
@@ -4757,14 +4789,11 @@ sudoc()
 	# run the command - sudo credentials are cached
 	IsSudo && { "${command[@]}" --prompt="" "${args[@]}"; return; } 
 
-	# determine which password to use
-	local passwordName="secure"
-	if InPath opensc-tool && opensc-tool --list-readers | ${G}grep --quiet "Yes"; then passwordName="ssh"
-	elif IsDomainRestricted && echo "BOGUS" | { sudo --stdin --validate 2>&1; true; } | ${G}grep --quiet "^Enter PIN"; then passwordName="ssh"  
-	fi
+	# must prompt for elevated accounts
+	HasElevatedAccount && [[ $noPrompt ]] && return 1
 
 	# get password if possible, ignore errors so we can prompt for it
-	local password; password="$(credential --quiet get $passwordName default $verbose)"
+	local password; password="$(SudoPassword)" || return
 
 	# prompt for password to stdout or stderr if possible, prevent sudo from asking for a password
 	if [[ ! $noPrompt && ! $password ]]; then
@@ -4785,12 +4814,27 @@ sudoc()
 		[[ $noPrompt ]] && command+=(--non-interactive)
 		"${command[@]}" --prompt="" --validate
 	fi
-	(( $? != 0 )) && { ScriptErrEnd "unable to run command '"${args[@]}"'" "sudoc"; return 1; }
+	(( $? != 0 )) && { ScriptErrEnd "unable to run command: '"${args[@]}"'" "sudoc"; return 1; }
 
 	# run the command
 	# - do not use -- to allow environment variables, i.e. sudoc TEST=1 ls
 	"${command[@]}" --prompt="" "${args[@]}"
-} 
+}
+
+SudoPassword()
+{
+	# use the cache and clear it for security
+	[[ $sudoPasswordCache ]] && { echo "$sudoPasswordCache"; unset sudoPasswordCache; return; }
+
+	# determine which password to use
+	local passwordName="secure"
+	if InPath opensc-tool && opensc-tool --list-readers | ${G}grep --quiet "Yes"; then passwordName="ssh"
+	elif IsDomainRestricted && echo "BOGUS" | { sudo --stdin --validate 2>&1; true; } | ${G}grep --quiet "^Enter PIN"; then passwordName="ssh"  
+	fi
+
+	# get password if possible, ignore errors so we can prompt for it
+	credential --quiet get $passwordName default $verbose
+}
 
 # sudoe FILE - sudoedit with credentials
 sudoe()  
