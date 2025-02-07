@@ -2322,6 +2322,8 @@ IsInDomain()
 
 IsDomainRestricted() { IsInDomain sandia; }
 IsOnRestrictedDomain() { IsOnNetwork Sandia; }
+IsHostRestrcted() { IsOsRestrcited; }
+IsOsRestrcited() { false; } # TODO: return true if the operating system is restricted for any reason
 
 # IsIpAddress IP - return true if the IP is a valid IPv4 address
 IsIpAddress()
