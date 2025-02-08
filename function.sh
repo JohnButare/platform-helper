@@ -5207,8 +5207,9 @@ IsXServerRunning()
 WinSetStateUsage()
 {
 	EchoWrap "\
-Usage: WinSetState [OPTION](--activate) WIN
-	Set the state of the specified windows title or class
+Usage: WinSetState [OPTION](--activate) TITLE
+	Set the state of the specified windows title or class.
+	Title format can be WIN_TITLE|MAC_TITLE|LINUX_TITLE.
 
 	-a, --activate 					make the window active
 	-c, --close 						close the window gracefully
@@ -5222,14 +5223,15 @@ Usage: WinSetState [OPTION](--activate) WIN
 
 WinSetState()
 {
-	local wargs=( /res /act ) args=( -a ) title result
+	local ahk wargs=( /res /act ) args=( -a ) title result
 
+	# arguments
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-a|--activate) wargs=( front ); args=( -a );;
-			-c|--close) wargs=( /res /act ); args=( -c );;
+			-a|--activate) wargs=( front ) args=( -a );;
+			-c|--close) wargs=( /res /act ) args=( -c ) ahk="close";;
 			-max|--maximize) wargs=( maximized ) args=( -a );;
-			-min|--minimize) wargs=( minimized );;
+			-min|--minimize) wargs=( minimized ) ahk="minimize";;
 			-H|--hide) wargs=( hidden );;
 			-uh|--unhide) wargs=( show_default );;
 			-h|--help) WinSetStateUsage; return 0;;
@@ -5240,11 +5242,18 @@ WinSetState()
 		shift
 	done
 
+	# get platform specific title
+	local titles=(); StringToArray "$title" "|" titles; set -- "${titles[@]}"
+	if [[ "$title" =~ \| ]]; then
+		case "$PLATFORM_OS" in win) title="$1";; mac) title="$2";; linux) title="$3";; esac
+		[[ ! $title ]] && return
+	fi
+
 	# Windows - see if the title matches a windows running in Windows
 	if IsPlatform win; then
-		! InPath WindowMode.exe && return
-		RunWin WindowMode.exe -title "$title" -mode "${wargs[@]}"
-		return
+		AutoHotKey IsInstalled && [[ $ahk ]] && { AutoHotKey start "$ahk" "$title"; return; }
+		InPath WindowMode.exe && { RunWin WindowMode.exe -title "$title" -mode "${wargs[@]}"; return; }
+		return 0
 	fi
 
 	# X Windows - see if title matches a windows running on the X server
@@ -5257,7 +5266,7 @@ WinSetState()
 		fi
 	fi
 
-	return 1
+	return 0
 }
 
 # platform specific functions
