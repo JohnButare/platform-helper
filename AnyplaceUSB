@@ -5,7 +5,9 @@ usage()
 {
 	ScriptUsage "$1" "\
 Usage: $(ScriptName) [OPTION]... [cli|close|IsInstalled|IsRunning|program|restart|start|startup|stop|version](start)
-$(ScriptName) commands."
+$(ScriptName) commands.
+
+	client|server - client or server commands"
 }
 
 init()
@@ -33,8 +35,190 @@ versionCommand() { AppInstallCheck && AppVersion "$program"; }
 
 startupCommand()
 {
-	[[ ! $force ]] && isRunningCommand && return
+	[[ ! $force ]] && isRunningCommand && { WinSetState --minimize "ahk_exe AnyplaceUSB.exe"; return; }
 	AppInstallCheck && start "$program" && WinSetState --minimize "AnyplaceUSB"
 }
-									 
+
+#
+# client commands
+#
+
+clientUsage() { ScriptUsageEcho "Usage: $(ScriptName) client [add|connect|disconnect|find|show](show)\nClient commands."; }
+clientCommand() { clientShowCommand; }
+clientShowCommand() { AppInstallCheck && clientShow; }
+
+clientAddUsage() { ScriptUsageEcho "Usage: $(ScriptName) client add HOST DESC\nAdd HOST USB device with description to the client."; }
+clientAddArgs() { ScriptArgGet "host" -- "$@" && shift && ScriptArgGet "desc" -- "$@" && shift; }
+clientAddCommand() { AppInstallCheck && clientAdd "$host" "$desc"; }
+
+clientFindUsage() { ScriptUsageEcho "Usage: $(ScriptName) client find [desc] HOST\nFind devices on HOST."; }
+clientFindArgs() { ScriptArgGet "host" -- "$@" && shift; }
+clientFindCommand() { AppInstallCheck && clientFind "$host"; }
+clientFindDescCommand() { AppInstallCheck && clientFindDesc "$host"; }
+
+clientConnectUsage() { ScriptUsageEcho "Usage: $(ScriptName) client connect N\nConnect to USB device N."; }
+clientConnectArgs() { ScriptArgGet "n" -- "$@" && shift; }
+clientConnectCommand() { AppInstallCheck && clientConnect "$n" "${otherArgs[@]}"; }
+
+clientDisconnectUsage() { ScriptUsageEcho "Usage: $(ScriptName) client disconnect N\nConnect from USB device N."; }
+clientDisconnectArgs() { ScriptArgGet "n" -- "$@" && shift; }
+clientDisconnectCommand() { AppInstallCheck && clientDisconnect "$n"; }
+
+#
+# client helper
+#
+
+# clientAdd HOST DESC - add HOST USB device with description to the client
+clientAdd()
+{
+	local host="$1" desc="$2"; 
+	local hostFull; hostFull="$(DnsResolve "$host")" || return
+	local devices; devices="$(clientFind "$host")" || return
+	local descriptions; descriptions="$(echo "$devices" | clientFindDescFilter)"
+
+	# find device with description
+	echo "$descriptions" | qgrep "$desc" || { ScriptErrQuiet "Host '$host' does not have a USB device with description '$desc'.  Valid USB devices are:\n$descriptions"; return; }
+  local device; device="$(echo "$devices" | ${G}grep  "$desc" | cut -d"/" -f2 | RemoveSpaceTrim)"
+
+  # add the device
+  "$program" --add-remote-device="$device" || return
+}
+
+# clientConnect N [OPTIONS] - connect USB device N
+clientConnect()
+{
+	local n="$1"; shift; clientValidate "$n" || return
+
+	# check the current connection of USB device n
+	local host; host="$(clientConnection "$n")" || return
+	hostIsLocal "$host" && return # already connected
+	[[ $host ]] && { alreadyConnectedTo "$n" "$host"; return; }
+	
+	# connect USB device n
+	"$program" --connect-remote-device="$n" "$@" || return
+	if host="$(clientConnection "$n")" && hostIsLocal "$host"; then
+		[[ ! $quiet ]] && echo "Successfully connected USB device $n"
+		return 0
+	fi
+
+	ScriptErrQuiet "unable to connect USB device $n"
+}
+
+# clientDisconnect N - disconnect USB device N
+clientDisconnect()
+{
+	local n="$1"
+	clientValidate "$n" || return
+
+	# check the current connection of USB device n
+	local host; host="$(clientConnection "$n")" || return; log1 "host=$host"
+	[[ ! $host ]] && return # already disconnected
+	! hostIsLocal "$host" && { alreadyConnectedTo "$n" "$host"; return; }
+	
+	# diconnect USB device n
+	"$program" --disconnect-remote-device="$n" || return
+
+	if host="$(clientConnection "$n")" && [[ ! $host ]]; then
+		[[ ! $quiet ]] && echo "Successfully disconnected USB device $n"
+		return 0
+	fi
+
+	ScriptErrQuiet "unable to disconnect USB device $n"
+}
+
+# clientFind HOST - find USB devices on HOST
+clientFind() { local host="$1"; serverAvailable "$host" && "$program" --find-remote-devices="$host" | ${G}grep " : "; }
+clientFindDesc() { clientFind "$host" | clientFindDescFilter; }
+clientFindDescFilter() { cut -d":" -f2 | cut -d"/" -f1 | ${G}sed 's/^ *//' | ${G}sed 's/ *$//'; }
+
+# clientConnection N - return the host connected to USB device N
+clientConnection() { local n="$1"; clientShow | ${G}grep "^$n : " | cut -d"/" -f3 | ${G}sed "s/ Connected to //" ; }
+
+# clientShow - show client devices, format "N : DESC / HOST:PORT[ / Connected to HOST]"
+clientShow() { "$program" --show-remote-devices | ${G}grep " : " | ${G}grep -v "^No. : " | RemoveCarriageReturn; }
+
+# clientValidate n - validate client USB device N exists
+clientValidate()
+{
+	local n="$1"
+	local devices; devices="$(clientShow)" || { ScriptErrQuiet "no devices are added"; return 1; }
+	echo "$devices" | qgrep "^$n : " && return
+	ScriptErrQuiet "USB device $n does not exist.  Valid USB devices are:\n$devices"
+}
+
+#
+# server commands
+#
+
+serverUsage() { ScriptUsageEcho "Usage: $(ScriptName) server [disconnect|show](show)\nShow commands."; }
+serverCommand() { serverShowCommand; }
+
+serverShowUsage() { ScriptUsageEcho "Usage: $(ScriptName) server show [shared|desc] HOST\nShow server USB devices."; }
+serverShowCommand() { AppInstallCheck && serverShow; }
+serverShowDescCommand() { AppInstallCheck && serverShowDesc; }
+
+serverShowSharedUsage() { ScriptUsageEcho "Usage: $(ScriptName) server show shared [desc] HOST\nShow server shared devices."; }
+serverShowSharedCommand() { AppInstallCheck && serverShowShared; }
+serverShowSharedDescCommand() { AppInstallCheck && serverShowSharedDesc; }
+
+serverDisconnectUsage() { ScriptUsageEcho "Usage: $(ScriptName) server disconnect [desc] HOST\nDisconnect USB device with description from the client."; }
+serverDisconnectArgs() { ScriptArgGet "desc" -- "$@" && shift; }
+serverDisconnectCommand() { AppInstallCheck && serverDisconnect "$desc"; }
+
+#
+# server helper
+#
+
+serverShow() { "$program" --show-usb-list | RemoveCarriageReturn | ${G}grep " / "; }
+serverShowDesc() { serverShow | serverShowDescFilter; }
+serverShowDescFilter() { cut -d" " -f2- | cut -d"/" -f1; }
+
+serverShowShared() { "$program" --show-shared-usb | RemoveCarriageReturn | ${G}grep " / "; }
+serverShowSharedDesc() { serverShowShared | serverShowDescFilter; }
+
+# serverDisconnect DESC - disconnect USB device with description from the client
+serverDisconnect()
+{
+	local desc="$1"
+	local device; device="$(serverDevice "$desc")" || return
+	local id="$(echo "$device" | cut -d" " -f1)"
+	local host="$(echo "$device" | ${G}sed 's/.* Connected to //')"
+	log1 "id=$id host=$host"
+	"$program" --shared-usb-disconnect="$id" || return
+}
+
+# serverDevice e DESC - return server information for the USB device with the description
+serverDevice()
+{
+	local desc="$1"
+	local devices; devices="$(serverShow)" || { ScriptErrQuiet "no devices are present"; return 1; }
+	local descriptions; descriptions="$(echo "$devices" | serverShowDescFilter)" || { ScriptErrQuiet "no devices are present"; return 1; }
+	echo "$devices" | qgrep "$desc" && { echo "$devices" | ${G}grep "$desc" | ${G}head -1; return; }
+	ScriptErrQuiet "USB device with description '$desc' does not exist.  Valid USB devices are:\n$descriptions"
+}
+
+#
+# helper
+#
+
+alreadyConnectedTo() { ScriptErr "USB device $1 is connected to $2"; }
+hostIsLocal() { [[ ! $host ]] && return 1; local internalRegex=".internal$"; IsLocalHost "$1" || [[ "$1" =~ $internalRegex ]]; }
+
+# serverAvailable HOST - check is the server is available to mount USB devices
+serverAvailable()
+{
+	local host="$1"
+
+	# check if the host is available
+	HostAvailable "$host" || return
+
+	if IsLocalHost "$host"; then
+		isRunningCommand && return
+	else
+		IsAvailablePort "$host" 5473 && return
+	fi
+
+	ScriptErrQuiet "host '$host' is not running the AnyplaceUSB software"
+}
+
 ScriptRun "$@"
