@@ -4945,7 +4945,7 @@ GetTextEditor()
 
 			# X Windows
 			if ! IsPlatform mac && [[ $DISPLAY ]]; then
-				IsPlatform win && sublimeProgram="$(sublime program --alternate)"
+				IsPlatform win && sublimeProgram="$(sublime program --alternate --quiet)"
 				[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
 				InPath geany && { echo "geany"; return 0; }
 				InPath gedit && { echo "gedit"; return 0; }
