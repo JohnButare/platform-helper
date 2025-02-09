@@ -58,6 +58,10 @@ sshd() { runService "ssh"; }
 SyncPlicity() { taskStart "$P/Syncplicity/Syncplicity.exe"; }
 UltraMon() { IsProcessRunning "UltraMon.exe" || taskStart "$P/UltraMon/UltraMon.exe" "" ; }
 
+consul() { hashi service retry "consul" --host="localhost"; }
+nomad() { hashi service retry "nomad" --host="localhost"; }
+vault() { hashi service retry "vault" --host="localhost"; }
+
 BgInfo()
 {
 	# return if needed
