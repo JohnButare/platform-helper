@@ -3298,9 +3298,14 @@ updateEndNomad() { nomadNodeDrainDisable "$host"; }
 # service commands
 #
 
-serviceUsage() { ScriptUsageEcho "Usage: $(ScriptName) service config|IsServer|monitor|restart|start|stop|verify $productUsage\nControl Hashi product services."; }
+serviceUsage() { ScriptUsageEcho "Usage: $(ScriptName) service check|config|IsServer|monitor|restart|retry|start|stop|verify $productUsage\nControl Hashi product services."; }
 
 serviceCommand() { usage; }
+
+serviceCheckCommand() { usage; }
+serviceCheckConsulCommand() { forAllHosts "serviceCheck" "consul"; }
+serviceCheckNomadCommand() { forAllHosts "serviceCheck" "nomad"; }
+serviceCheckVaultCommand() { forAllHosts "serviceCheck" "vault"; }
 
 serviceConfigUsage() { ScriptUsageEcho "Usage: $(ScriptName) service config $productUsage VAR\nReturn a service configuration variable."; }
 serviceConfigCommand() { usage; }
@@ -3324,6 +3329,11 @@ serviceRestartCommand() { usage; }
 serviceRestartConsulCommand() { forAllHosts serviceRestart "consul"; }
 serviceRestartNomadCommand() { forAllHosts serviceRestart "nomad"; }
 serviceRestartVaultCommand() { forAllHosts serviceRestart "vault"; }
+
+serviceRetryCommand() { usage; }
+serviceRetryConsulCommand() { forAllHosts serviceRetry "consul"; }
+serviceRetryNomadCommand() { forAllHosts serviceRetry "nomad"; }
+serviceRetryVaultCommand() { forAllHosts serviceRetry "vault"; }
 
 serviceStartCommand() { usage; }
 serviceStartConsulCommand() { forAllHosts serviceStart "consul"; }
@@ -3350,6 +3360,32 @@ serviceVerify()
 }
 
 # service helper
+
+serviceCheck()
+{
+	local product="$1" host="$2"
+	RunFunction serviceCheck "$product" "$host"
+}
+
+serviceCheckConsul() { local host="$(DnsResolve "$1" | RemoveDnsSuffix)"; consul members | ${G}grep "^$host " | qgrep " alive "; }
+serviceCheckNomad() { local host="$(DnsResolve "$1" | RemoveDnsSuffix)";  nomad node status | ${G}grep " $host " | qgrep " eligible "; }
+serviceCheckVault() { local host="$(DnsResolve "$1" | RemoveDnsSuffix)"; vault operator members | qgrep "^$host "; }
+
+serviceCheckWait()
+{
+	local seconds=10 product="$1" host="$2"
+
+	printf "Checking $product on $host..."
+
+	for (( i=1; i<=seconds; ++i )); do
+ 		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
+ 		serviceCheck "$product" "$host" && { echo "healthy"; return; }
+		printf "."
+	done
+
+	echo "failed"
+	return 1
+}
 
 # hostCopy PRODUCT HOST FILE - copy a service configuration file to the host destination directory with the correct permissions
 serviceConfigCopy()
@@ -3484,6 +3520,28 @@ serviceRestartLocal()
 {
 	[[ $noRestartService ]] && return
 	local product="$1"; service restart "$product" 
+}
+
+serviceRetry() 
+{	
+	local product="$1" host="$2" try tries=3
+
+	# return if the service is ok
+	serviceCheck "$product" "$host" && return
+
+	# ensure the service is started, if it's already started we may just need to wait for it to be OK
+	service start "$product" --host="$host" || return
+	serviceCheckWait "$product" "$host" && return
+
+	# wait for health and restart
+	local  product="$1" host="$2"
+	for (( try=1; try<=tries; ++try )); do
+		echo "${product^} is not healthy, attempting service restart (try $try of $tries)..."
+		service restart "$product" --host="$host" --wait || return
+		serviceCheckWait "$product" "$host" && return
+	done
+
+	echo "${product^} is not healthy after $tries service restarts"
 }
 
 serviceStart() 
