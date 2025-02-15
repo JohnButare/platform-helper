@@ -4177,7 +4177,7 @@ start()
 			--terminal|-T) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--wait|-w) wait="--wait";;
-			--window-style|-ws) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle=( "--window-style" "$2" ); shift;;
+			--window-style|-ws) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle="$(LowerCase "$2")"; shift;;
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; break; }
 				UnknownOption "$1" start; return
@@ -4189,6 +4189,21 @@ start()
 
 	local args=( "$@" ) fileOrig="$file"
 
+	# RunProcess.exe (Windows)
+	local runProcess=()
+	if IsPlatform win && InPath "RunProcess.exe"; then
+		runProcess=(RunWin RunProcess.exe $wait $elevate)
+		[[ $windowStyle ]] && runProcess+=(--window-style "$windowStyle")
+		[[ $verbose ]] && runProcess+=(--verbose --pause)
+	fi
+
+	# open (Mac)	
+	local openArgs=()
+	if IsPlatform mac && InPath "open"; then
+		[[ "$windowStyle" == "hidden" ]] && openArgs+=(-j) 
+		[[ "$windowStyle" == "minimized" ]] && openArgs+=(-g) 
+	fi
+
 	# start Mac application 
 	if IsMacApp "$file"; then
 		
@@ -4197,11 +4212,14 @@ start()
 		[[ ! -d "$file" && -d "$P/$file.app" ]] && file="$P/$file.app"
 		[[ ! -d "$file" && -d "$HOME/Applications/$file.app" ]] && file="$P/$file.app"
 
+		local open=(open "${openArgs[@]}" -a "$file" --args "${args[@]}")
+		(( verboseLevel > 1 )) && ScriptArgs "${open[@]}"
+
 		# we could not find the app, just try and open it
-		[[ ! -d "$file" ]] && { open -a "$file" "${args[@]}"; return; }
+		[[ ! -d "$file" ]] && { "${open[@]}"; return; }
 
 		# open the app, waiting for the OS to see newly installed apps if needed
-		local result; result="$(open -a "$file" --args "${args[@]}")" && return
+		local result; result="$("${open[@]}")" && return
 		[[ ! "$result" =~ "Unable to find application named" ]] && { ScriptErrQuiet "$result" "start"; return 1; }
 		StartWaitExists "$file"; return
 
@@ -4278,17 +4296,12 @@ start()
 		if IsShellScript "$fullFile"; then
 			local distribution; distribution="$(wsl get name)" || return
 			local p=(wsl.exe --distribution "$distribution" --user "$USER"); [[ "$terminal" == "wt" ]] && InPath wt.exe && p=(wt.exe -d \"$PWD\" "${p[@]}")
-			local runProcessArgs=($wait $elevate "${windowStyle[@]}"); [[ $verbose ]] && runProcessArgs+=(--verbose --pause)
-			(( verboseLevel > 1 )) && ScriptArgs RunWin RunProcess.exe "${runProcessArgs[@]}" "${p[@]}" --exec "$(FindInPath "$fullFile")" "${args[@]}"
-			RunWin RunProcess.exe "${runProcessArgs[@]}" "${windowStyle[@]}" "${p[@]}" --exec "$(FindInPath "$fullFile")" "${args[@]}"
+			(( verboseLevel > 1 )) && ScriptArgs "${runProcess[@]}" "${p[@]}" --exec "$(FindInPath "$fullFile")" "${args[@]}"
+			"${runProcess[@]}" "${p[@]}" --exec "$(FindInPath "$fullFile")" "${args[@]}"
 
 		else
-			(( verboseLevel > 1 )) && ScriptArgs "start" RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
-			if InPath RunProcess.exe; then
-				RunWin RunProcess.exe $wait $elevate "${windowStyle[@]}" "$(utw "$fullFile")" "${args[@]}"
-			else
-				"$fullFile" "${args[@]}"
-			fi
+			(( verboseLevel > 1 )) && ScriptArgs "${runProcess[@]}" "$(utw "$fullFile")" "${args[@]}"
+			"${runProcess[@]}" "$(utw "$fullFile")" "${args[@]}"
 		fi
 		result=$?
 
