@@ -3844,9 +3844,10 @@ IsProcessRunning()
 	# check for process using pidof - slightly faster but pickier than pgrep
 	[[ ! $full && $root ]] && InPath pidof && { pidof -snq "$name" > /dev/null; return; }
 
-	# check for proces using pgrep
+	# check for process using pgrep
 	local args=(); [[ ! $root ]] && { IsPlatform mac && args=(-u "$UID") || args+=("--uid" "$USER"); }
-	HasFilePath "$name" && { full="--full"; IsPlatform mac && full="-f"; } # pgrep >= 4.0.3 requires full for process name longer than 15 characters
+	HasFilePath "$name" && full="--full" # pgrep >= 4.0.3 requires full for process name longer than 15 characters
+	[[ $full ]] && IsPlatform mac && full="-f"
 	pgrep $full "${args[@]}" "$name" > /dev/null
 }
 
