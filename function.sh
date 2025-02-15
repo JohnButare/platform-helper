@@ -479,6 +479,7 @@ AppVersion()
 	# find and get mac application versions
 	local dir
 	if [[ ! $version ]] && IsPlatform mac && dir="$(FindMacApp "$app")" && [[ -f "$dir/Contents/Info.plist" ]]; then
+		[[ "$dir" =~ anyplaceusb ]] && return
 		version="$(defaults read "$dir/Contents/Info.plist" CFBundleShortVersionString)" || return
 	fi
 
