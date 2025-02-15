@@ -4201,7 +4201,7 @@ start()
 		[[ ! -d "$file" ]] && { open -a "$file" "${args[@]}"; return; }
 
 		# open the app, waiting for the OS to see newly installed apps if needed
-		local result; result="$(open -a "$file" "${args[@]}")" && return
+		local result; result="$(open -a "$file" --args "${args[@]}")" && return
 		[[ ! "$result" =~ "Unable to find application named" ]] && { ScriptErrQuiet "$result" "start"; return 1; }
 		StartWaitExists "$file"; return
 
@@ -4493,7 +4493,7 @@ RunCache()
 	"$@" && UpdateDone "$cache"
 }
 
-# RunFunction NAME [SUFFIX] -- [ARGS]- call a function if it exists, optionally with the specified suffix (i.e. nameSuffix)
+# RunFunction NAME [SUFFIX] -- [ARGS] - call a function if it exists, optionally with the specified suffix (i.e. nameSuffix)
 RunFunction()
 {
 	# arguments
