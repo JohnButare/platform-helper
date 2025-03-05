@@ -445,6 +445,7 @@ UserHome()
 
 IsiTerm() { [[ "$LC_TERMINAL" == "iTerm2" ]]; }
 IsWarp() { [[ "$TERM_PROGRAM" == "WarpTerminal" ]]; }
+IsVisualStudioCode() { [[ "$TERM_PROGRAM" == "vscode" ]]; }
 
 # AppVersion app - return the version of the specified application
 AppVersion()
@@ -4939,7 +4940,10 @@ GetTextEditor()
 	local isSsh; IsSsh && isSsh="true"
 	local isSshX; [[ $isSsh && $DISPLAY ]] && isSshX="true"
 
-	# cache
+	# development environment - check before cache
+	IsVisualStudioCode && { echo "VisualStudioCodeHelper"; return; }
+
+	# cache text editor
 	local cache="get-text-editor"
 	if [[ $isSshX ]]; then cache+="-sshx"
 	elif [[ $ssh ]]; then cache+="-ssh"
@@ -4950,7 +4954,7 @@ GetTextEditor()
 			# initialize
 			local sublimeProgram="$(sublime program --quiet)"
 
-			# native
+			# find native text editor
 			if [[ ! $isSsh ]]; then
 				[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
 				IsPlatform win && InPath "$P/Notepad++/notepad++.exe" && { echo "$P/Notepad++/notepad++.exe"; return 0; }
@@ -4958,7 +4962,7 @@ GetTextEditor()
 				IsPlatform win && InPath notepad.exe && { echo "notepad.exe"; return 0; }
 			fi
 
-			# X Windows
+			# find X Windows text editor
 			if ! IsPlatform mac && [[ $DISPLAY ]]; then
 				IsPlatform win && sublimeProgram="$(sublime program --alternate --quiet)"
 				[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
@@ -4966,7 +4970,7 @@ GetTextEditor()
 				InPath gedit && { echo "gedit"; return 0; }
 			fi
 
-			# console
+			# find console text editor
 			InPath micro && { echo "micro"; return 0; }
 			InPath nano && { echo "nano"; return 0; }
 			InPath hx && { echo "hx"; return 0; }
