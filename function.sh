@@ -2200,7 +2200,7 @@ GetIpAddress()
 			--vm|-v) vm="true";;
 			--wsl|-w) wsl="--wsl";;
 			*)
-				! IsOption "$1" && [[ ! $host ]] && { host="$(GetSshHost "$1")"; shift; continue; }
+				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
 				UnknownOption "$1" "GetIpAddress"; return
 		esac
 		shift
@@ -2209,7 +2209,10 @@ GetIpAddress()
 	local ip server
 
 	# IP address
-	IsIpAddress "$host" && { echo "$host"; return; }
+	IsIpAddress${ipv} "$host" && { echo "$host"; return; }
+
+	# remove SSH user and port, i.e. USER@HOST:PORT -> HOST
+	host="$(GetSshHost "$host")"
 
 	# localhost
 	IsLocalHost "$host" && { GetAdapterIpAddress $wsl; return; }
@@ -2377,15 +2380,10 @@ fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|\
 	# IPv4 check
 	#
 
-	[[ $ip =~ ^((25[0-5]\|(2[0-4]\|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]\|(2[0-4]\|1{0,1}[0-9]){0,1}[0-9])$ ]]
-	return
-
-  [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && return 1
-	
   if IsZsh; then
-  	ip=( "${(s/./)ip}" )
-  	(( ${ip[1]}<=255 && ${ip[2]}<=255 && ${ip[3]}<=255 && ${ip[4]}<=255 ))
+  	[[ $ip =~ ^((25[0-5]\|(2[0-4]\|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]\|(2[0-4]\|1{0,1}[0-9]){0,1}[0-9])$ ]]
   else
+  	[[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || return
   	IFS='.' read -a ip <<< "$ip"
   	(( ${ip[0]}<=255 && ${ip[1]}<=255 && ${ip[2]}<=255 && ${ip[3]}<=255 ))
   fi
@@ -2412,11 +2410,11 @@ IsLocalHost()
 	local host="$(RemoveSpace "$1" | LowerCase)"
 
 	# host is empty, localhost, or the loopback address (127.0.0.1)
-	[[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" ]] && return
+	[[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$host" =~ ^([0]*:){2}([0]*:){0,6}1$ ]] && return
 
 	# if the name is different, this is not localhost
 	local hostname="$(hostname | LowerCase)"
-	[[ "$(RemoveDnsSuffix "$host")" != "$(RemoveDnsSuffix $hostname)" ]] && return 1
+	[[ "$(RemoveDnsSuffix "$host")" != "$(RemoveDnsSuffix "$hostname")" ]] && return 1
 
 	# since the host name is the same, assume if there is no DNS suffix the host is localhost
 	local suffix="$(GetDnsSuffix "$host")"; [[ ! $suffix ]] && return 0

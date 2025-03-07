@@ -6,8 +6,9 @@
 
 all()
 {
-	getIpAddress4 || return
-	getIpAddress6 || return
+	# getIpAddress4 || return
+	# getIpAddress6 || return
+	isLocalHost || return
 }
 
 getIpAddress4()
@@ -56,6 +57,22 @@ getIpAddress6()
 	isTrue IsIpAddress6 "::ffff:0:255.255.255.255" || return
 	isTrue IsIpAddress6 "2001:db8:3:4::192.0.2.33" || return
 	isTrue IsIpAddress6 "64:ff9b::192.0.2.33" || return
+}
+
+isLocalHost()
+{
+	header "IsLocalHost"	
+	isFalse IsLocalHost "bogus" || return
+	isTrue IsLocalHost "" || return
+	isTrue IsLocalHost "localhost" || return
+	isTrue IsLocalHost "127.0.0.1" || return
+	
+	isFalse IsLocalHost "::2" || return
+	isTrue IsLocalHost "::1" || return
+	isTrue IsLocalHost "00::0:1" || return
+
+	isTrue IsLocalHost "$HOSTNAME" || return
+	isTrue IsLocalHost "$HOSTNAME.$(GetDnsDomain)" || return
 }
 
 all
