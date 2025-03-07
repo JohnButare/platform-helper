@@ -1944,25 +1944,26 @@ FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo ${G}tail -F --lines=+0 "$1"
 
 NETWORK_CACHE="network" NETWORK_CACHE_OLD="network-old"
 
-GetDefaultGateway() { CacheDefaultGateway "$@" && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
-GetIpAddress4() { GetIpAddress -4 "$@"; }; GetIpAddress6() { GetIpAddress -6 "$@"; }	# GetIpAddress[4|6] [HOST] - get the IP address of the current or specified host
-GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGetForce "domain"; }
-GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }				# GetMacAddress - MAC address of the primary network interface
-GetHostname() { SshHelper connect "$1" -- hostname; } 																# GetHostname NAME - hosts actual configured name
-GetOsName() { local name="$1"; name="$(UpdateGet "os-name-$1")"; [[ $name ]] && echo "$name" || os name "$server"; } # GetOsName NAME - use cached DNS name without calling os for speed
+GetDefaultGateway() { CacheDefaultGateway "$@" && echo "$NETWORK_DEFAULT_GATEWAY"; }																	# GetDefaultGateway - default gateway
+GetAdapterIpAddress4() { GetAdapterIpAddress -4 "$@"; }; GetAdapterIpAddress6() { GetAdapterIpAddress -6 "$@"; }			# GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
+GetIpAddress4() { GetIpAddress -4 "$@"; }; GetIpAddress6() { GetIpAddress -6 "$@"; }																	# GetIpAddress[4|6] [HOST] - get the IP address of the current or specified host
+GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGetForce "domain"; }				# GetDomain - get the current network domain
+GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }																				# GetMacAddress - MAC address of the primary network interface
+GetHostname() { SshHelper connect "$1" -- hostname; } 																																# GetHostname NAME - hosts actual configured name
+GetOsName() { local name="$1"; name="$(UpdateGet "os-name-$1")"; [[ $name ]] && echo "$name" || os name "$server"; } 	# GetOsName NAME - use cached DNS name without calling os for speed
 HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not available"; }
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 HttpHeader() { curl --silent --show-error --location --dump-header - --output /dev/null "$1"; }
 IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; }
-IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
-IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
-IsIpAddress4() { IsIpAddress -4 "$@"; }; IsIpAddress6() { IsIpAddress -6 "$@"; } 			# IsIpAddress4|6 [IP] - return true if the IP is a valid IP address
-NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; }; 																# NetworkCurrent - configured current network
-NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; }; 																# NetworkOld - the previous network
-RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }																		# RemovePort NAME:PORT - returns NAME
-SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }													# SmbPasswordIsSet USER - return true if the SMB password for user is set
-UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }									# UrlExists URL - true if the specified URL exists
+IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 																										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
+IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }																		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
+IsIpAddress4() { IsIpAddress -4 "$@"; }; IsIpAddress6() { IsIpAddress -6 "$@"; } 																			# IsIpAddress4|6 [IP] - return true if the IP is a valid IP address
+NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; }; 																																# NetworkCurrent - configured current network
+NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; }; 																																# NetworkOld - the previous network
+RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }																																		# RemovePort NAME:PORT - returns NAME
+SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }																													# SmbPasswordIsSet USER - return true if the SMB password for user is set
+UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }																									# UrlExists URL - true if the specified URL exists
 WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuotes | RemoveEmptyLines | sort | uniq; }
 
 # curl
@@ -2043,14 +2044,17 @@ DhcpRenew()
 }
 
 # GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
+# -4|-6 							use IPv4 or IPv6
 # -w|--wsl	get the IP address used by WSL (Windows only)
 GetAdapterIpAddress() 
 {
-	local adapter wsl; 
+	local adapter wsl ipv="4"; 
 
 	# options
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			-4) ipv="4";;
+			-6) ipv="6";;
 			-w|--wsl) wsl="--wsl";;
 			*)
 				if ! IsOption "$1" && [[ ! $adapter ]]; then adapter="$1"
@@ -2068,14 +2072,27 @@ GetAdapterIpAddress()
 	if [[ $isWin ]]; then
 
 		if [[ ! $adapter ]]; then
-			# - use default route (0.0.0.0 destination) with lowest metric
-			# - Windows build 22000.376 adds "Default " route
-			RunWin route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | grep -v "Default[ ]*$" | sort -k5 --numeric-sort | head -1 | awk '{ print $4; }'
+
+			if [[ "$ipv" == "4" ]]; then
+				# - use default route (0.0.0.0 destination) with lowest metric
+				# - Windows build 22000.376 adds "Default " route
+				RunWin route.exe -4 print | RemoveCarriageReturn | grep ' 0.0.0.0 ' | grep -v "Default[ ]*$" | sort -k5 --numeric-sort | head -1 | awk '{ print $4; }'
+			else
+				# - use the first full IPv6 address (no :: and a / for the CIDR)  with the lowest metric
+				RunWin route.exe -6 print | grep -v "::" | grep "/" | sort -k1 --numeric-sort | head -1 | tr -s " " | cut -d" " -f4 | cut -d"/" -f1
+			fi
+
 		else
-			RunWin ipconfig.exe | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | grep "IPv4 Address" | head -1 | cut -d: -f2 | RemoveSpace
+
+			if [[ "$ipv" == "4" ]]; then
+				RunWin ipconfig.exe | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | grep "IPv4 Address" | head -1 | cut -d: -f2 | RemoveSpace
+			else
+				 RunWin ipconfig.exe | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | grep "IPv6 Address" | head -1 | cut -d":" -f2- | RemoveSpaceTrim
+			fi
+
 		fi
 
-	elif InPath ifdata; then
+	elif [[ "$ipv" == "4" ]] && InPath ifdata; then
 		ip="$(ifdata -pa "$adapter")" || return
 		[[ "$ip" == "NON-IP" ]] && { ScriptErr "interface '$adapter' does not have an IPv4 address"; return 1; }
 		echo "$ip"
@@ -2084,7 +2101,12 @@ GetAdapterIpAddress()
 		ifconfig "$adapter" | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }' | cut -d: -f2
 
 	else
-		ifconfig "$adapter" | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }'
+
+		if [[ "$ipv" == "4" ]]; then
+			ifconfig "$adapter" | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }'
+		else
+			ifconfig "$adapter" | grep inet6 | grep global | head -1 | tr -s " " | cut -d" " -f3
+		fi
 
 	fi
 }
@@ -2209,19 +2231,19 @@ GetIpAddress()
 	local ip server
 
 	# IP address
-	IsIpAddress${ipv} "$host" && { echo "$host"; return; }
+	[[ $host ]] && IsIpAddress${ipv} "$host" && { echo "$host"; return; }
 
-	# remove SSH user and port, i.e. USER@HOST:PORT -> HOST
+	# remove SSH user and port, i.e. USER@HOST:PORT -> HOST	
 	host="$(GetSshHost "$host")"
 
 	# localhost
-	IsLocalHost "$host" && { GetAdapterIpAddress $wsl; return; }
+	IsLocalHost "$host" && { GetAdapterIpAddress -$ipv $wsl; return; }
 
 	# SSH configuration
 	host="$(SshHelper config get "$host" hostname)" || return
 
 	# /etc/hosts
-	[[ $host ]] && IsFunction getent && ip="$(getent hosts "$host")" && { echo "$ip" | cut -d" " -f1; return; }
+	[[ "$ipv" != "4" && $host ]] && IsFunction getent && ip="$(getent hosts "$host")" && { echo "$ip" | cut -d" " -f1; return; }
 
 	# Resolve mDNS (.local) names exclicitly as the name resolution commands below can fail on some hosts
 	# In Windows WSL the methods below never resolve mDNS addresses
