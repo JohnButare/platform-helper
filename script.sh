@@ -196,26 +196,32 @@ RunFunctionLog()
 	return "$return"
 }
 
-# RunLog LEVEL COMMAND - run a command if not testing, log it if the logging verbosisty level is at least at the specified leave
+# RunLog LEVEL COMMAND - run a command if not testing, log it if level is 0, or if logging and the logging verbosisty level is at least at the specified leave
 RunLogLevel()
 {
 	local level="$1"; shift
 
 	# log command and arguments
-	if [[ $verbose ]] && (( verboseLevel >= level )); then
-		local arg message
-
-		for arg in "$@"; do
-			local pattern=" |	" # assign pattern to variable to maintain Bash and ZSH compatibility
-			[[ "$arg" =~  $pattern || ! $arg ]] && message+="\"$arg\" " || message+="$arg "
-		done
-
-		ScriptMessage "command: $message"
+	if [[ "$level" == "0" ]] || { [[ $verbose ]] && (( verboseLevel >= level )); }; then
+		ScriptMessage "command: $(RunLogArgs "$@")"
 	fi
 
 	[[ $test ]] && return
 
 	"$@" # must be in quotes to preserve arguments, test with wiggin sync lb -H=pi2 -v
+}
+
+# RunLogArgs 
+RunLogArgs()
+{
+	local arg message
+
+	for arg in "$@"; do
+		local pattern=" |	" # assign pattern to variable to maintain Bash and ZSH compatibility
+		[[ "$arg" =~ $pattern || ! $arg ]] && message+="\"$arg\" " || message+="$arg "
+	done
+
+	echo -E -n "$(RemoveSpaceTrim "$message")"
 }
 
 # logFileN COMMAND - log and run a command if the logging verbosity level is at least N

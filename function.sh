@@ -205,7 +205,7 @@ HeaderBig() { InitColor; printf "${RB_BLUE}*************************************
 HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
 HeaderFancy() { ! InPath pyfiglet lolcat && { HeaderBig "$1"; return; }; pyfiglet --justify=center --width=$COLUMNS "$1" | lolcat; }
 hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
-hilightp() { InitColor; printf "${GREEN}$@${RESET}"; } # hilight with no newline
+hilightp() { InitColor; echo -n -E "${GREEN}$@${RESET}"; } # hilight with no newline
 
 # set color variables if colors are supported (using a terminal, or FORCE_COLOR is set)
 InitColor() { { [[ $FORCE_COLOR ]] || IsStdOut; } && InitColorForce || InitColorClear; }
@@ -1945,6 +1945,7 @@ FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo ${G}tail -F --lines=+0 "$1"
 NETWORK_CACHE="network" NETWORK_CACHE_OLD="network-old"
 
 GetDefaultGateway() { CacheDefaultGateway "$@" && echo "$NETWORK_DEFAULT_GATEWAY"; }	# GetDefaultGateway - default gateway
+GetIpAddress4() { GetIpAddress -4 "$@"; }; GetIpAddress6() { GetIpAddress -6 "$@"; }	# GetIpAddress[4|6] [HOST] - get the IP address of the current or specified host
 GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGetForce "domain"; }
 GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }				# GetMacAddress - MAC address of the primary network interface
 GetHostname() { SshHelper connect "$1" -- hostname; } 																# GetHostname NAME - hosts actual configured name
@@ -1956,11 +1957,12 @@ HttpHeader() { curl --silent --show-error --location --dump-header - --output /d
 IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
+IsIpAddress4() { IsIpAddress -4 "$@"; }; IsIpAddress6() { IsIpAddress -6 "$@"; } 			# IsIpAddress4|6 [IP] - return true if the IP is a valid IP address
 NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; }; 																# NetworkCurrent - configured current network
 NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; }; 																# NetworkOld - the previous network
-RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }															# RemovePort NAME:PORT - returns NAME
-SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }										# SmbPasswordIsSet USER - return true if the SMB password for user is set
-UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }						# UrlExists URL - true if the specified URL exists
+RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }																		# RemovePort NAME:PORT - returns NAME
+SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }													# SmbPasswordIsSet USER - return true if the SMB password for user is set
+UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }									# UrlExists URL - true if the specified URL exists
 WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuotes | RemoveEmptyLines | sort | uniq; }
 
 # curl
@@ -2175,6 +2177,7 @@ GetInterface()
 }
 
 # GetIpAddress [HOST] - get the IP address of the current or specified host
+# -4|-6 							use IPv4 or IPv6
 # -a|--all 						resolve all addresses for the host, not just the first
 # -ra|--resolve-all 	resolve host using all methods (DNS, MDNS, and local virtual machine names)
 # -m|--mdns						resolve host using MDNS
@@ -2184,10 +2187,12 @@ GetInterface()
 GetIpAddress() 
 {
 	# arguments
-	local host mdns quiet vm wsl all=(head -1) 
+	local host mdns quiet vm wsl all=(head -1) ipv="4" 
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			-4) ipv="4";;
+			-6) ipv="6";;
 			--all|-a) all=(cat);;
 			--resolve-all|-ra) mdsn="true" vm="true";;
 			--mdns|-m) mdns="true";;
@@ -2327,17 +2332,60 @@ IsOnRestrictedDomain() { IsOnNetwork Sandia; }
 IsHostRestrcted() { IsOsRestrcited; }
 IsOsRestrcited() { false; } # TODO: return true if the operating system is restricted for any reason
 
-# IsIpAddress IP - return true if the IP is a valid IPv4 address
+# IsIpAddress [-4|-6] [IP] - return true if the IP is a valid IP address
 IsIpAddress()
 {
-	GetArgs
-  local ip="$1"
+	# arguments
+	local ip ipv="4" 
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-4) ipv="4";;
+			-6) ipv="6";;
+			*)
+				! IsOption "$1" && [[ ! $ip ]] && { ip="$1"; shift; continue; }
+				UnknownOption "$1" "IsIpAddress"; return
+		esac
+		shift
+	done
+
+	[[ ! $ip ]] && GetArgs
+
+	#
+	# IPv6 check
+	#
+
+	# https://stackoverflow.com/questions/53497/regular-expression-that-matches-valid-ipv6-addresses/17871737#17871737
+	if [[ "$ipv" == "6" ]]; then
+		local ipv6Regex="\
+([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|\
+([0-9a-fA-F]{1,4}:){1,7}:|\
+([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|\
+([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|\
+([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|\
+([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|\
+([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|\
+[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|\
+:((:[0-9a-fA-F]{1,4}){1,7}|:)|\
+fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|\
+::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|\
+([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])"
+		[[ $ip =~ ^($ipv6Regex)$ ]]; return
+	fi
+
+	#
+	# IPv4 check
+	#
+
+	[[ $ip =~ ^((25[0-5]\|(2[0-4]\|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]\|(2[0-4]\|1{0,1}[0-9]){0,1}[0-9])$ ]]
+	return
+
   [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && return 1
 	
   if IsZsh; then
   	ip=( "${(s/./)ip}" )
   	(( ${ip[1]}<=255 && ${ip[2]}<=255 && ${ip[3]}<=255 && ${ip[4]}<=255 ))
-  else # zsh
+  else
   	IFS='.' read -a ip <<< "$ip"
   	(( ${ip[0]}<=255 && ${ip[1]}<=255 && ${ip[2]}<=255 && ${ip[3]}<=255 ))
   fi
