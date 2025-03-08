@@ -1328,9 +1328,10 @@ GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoWra
 if IsZsh; then
 	GetAfter() { GetArgs2; echo "$1" | cut -d"$2" -f2-; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
 	LowerCase() { GetArgs; [[ $# == 0 ]] && { tr '[:upper:]' '[:lower:]'; return; }; r "${1:l}" $2; }
+	LowerCaseFirst() { GetArgs; r "${(L)1:0:1}${1:1}" $2; }
 	ProperCase() { GetArgs; r "${(C)1}" $2; }
-	UpperCase() { GetArgs; echo "${(U)1}"; }
-	UpperCaseFirst() { GetArgs; echo "${(U)1:0:1}${1:1}"; }
+	UpperCase() { GetArgs; r "${(U)1}" $2; }
+	UpperCaseFirst() { GetArgs; r "${(U)1:0:1}${1:1}" $2; }
 
 	GetWord()
 	{
@@ -1341,6 +1342,7 @@ if IsZsh; then
 else
 	GetAfter() { GetArgs2; [[ "$1" =~ ^[^$2]*$2(.*)$ ]] && echo "${BASH_REMATCH[1]}"; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
 	LowerCase() { GetArgs; [[ $# == 0 ]] && { tr '[:upper:]' '[:lower:]'; return; }; r "${1,,}" $2; }
+	LowerCaseFirst() { GetArgs; r "${1,}" $2; }
 	ProperCase() { GetArgs; local arg="${1,,}"; r "${arg^}" $2; }
 	UpperCase() { GetArgs; echo "${1^^}"; }
 	UpperCaseFirst() { GetArgs; echo "${1^}"; }
@@ -3295,14 +3297,18 @@ IsHttps() { GetArgs; [[ "$(GetUriProtocol "$@")" == "https" ]]; }
 GetUriServer()
 {
 	GetArgs
+	local gsh="${1#*//}" 	# remove protocol
+	gsh="${gsh%%/*}"			# remove dirs
 
-	# IPv6 address - if it has 9 colons assume the port is after the last colon
-	if [[ "$1" =~ .*:.*:.* ]] ; then
-		local parts; StringToArray "$1" ":" parts	
-		(( ${#parts} != 9 )) && { r "$1" $2; return; }
+	# remove protocol - if an IPv6 address 9 colons assume the port is after the last colon
+	if [[ "$gsh" =~ .*:.*:.* ]] ; then
+		local parts; StringToArray "$gsh" ":" parts	
+		(( ${#parts[@]} == 9 )) && gsh="${gsh%:*}"
+	else
+		gsh="${gsh%:*}"
 	fi
-	
-	local gsh="${1#*//}"; gsh="${gsh%:*}"; r "$(RemoveSpaceTrim "$gsh")" $2
+		
+	r "$(RemoveSpaceTrim "$gsh")" $2
 }
 
 
@@ -3331,6 +3337,16 @@ GetUrlPort()
 		https) gup="443";;
 	esac
 	r "$gup" $2
+}
+
+UriMake()
+{
+	local protocol="$1" server="$2" port="$3" dirs="$4"
+	local uri="//$server"
+	[[ $protocol ]] && uri="$protocol:$uri"
+	[[ $port ]] && uri="$uri:$port"
+	[[ $dirs ]] && uri="$uri/$(RemoveFront "$dirs" "/")"
+	echo -n "$uri"
 }
 
 #

@@ -5,18 +5,19 @@
 . "$BIN/script.sh" || return
 . "$BIN/ScriptTest.sh" || return
 
-all()
+allTest()
 {
 	HeaderBig "Running All Function Tests"
-	getIpAddress4 || return
-	getIpAddress6 || return
-	isLocalHost || return
-	getSshPort || return
-	getSshHost || return
-	getSshUser || return
+	getIpAddress4Test || return
+	getIpAddress6Test || return
+	isLocalHostTest || return
+	getSshPortTest || return
+	getSshHostTest || return
+	getSshUserTest || return
+	getUriTest || return
 }
 
-getIpAddress4()
+getIpAddress4Test()
 {
 	header "GetIpAddress4"
 
@@ -27,7 +28,7 @@ getIpAddress4()
 	isTrue IsIpAddress4 "192.168.1.1" || return
 }
 
-getIpAddress6()
+getIpAddress6Test()
 {
 	header "GetIpAddress6"
 
@@ -66,7 +67,7 @@ getIpAddress6()
 	isTrue IsIpAddress6 "64:ff9b::192.0.2.33" || return
 }
 
-isLocalHost()
+isLocalHostTest()
 {
 	header "IsLocalHost"
 
@@ -83,7 +84,7 @@ isLocalHost()
 	isTrue IsLocalHost "$HOSTNAME.$(GetDnsDomain)" || return
 }
 
-getSshHost()
+getSshHostTest()
 {
 	header "GetSshHost"
 
@@ -93,7 +94,7 @@ getSshHost()
 	varEquals host "$ip" GetSshHost "user@$ip:22" host || return
 }
 
-getSshPort()
+getSshPortTest()
 {
 	header "GetSshPort"
 
@@ -111,8 +112,33 @@ getSshPort()
 	varEquals port 22 GetSshPort "$ip:22" port || return
 }
 
-getSshUser() { isEquals "user" GetSshUser "user@host:port"; }
+getSshUserTest()
+{
+	header "GetSshUser"
+	isEquals "user" GetSshUser "user@host:port" || return 
+}
+
+# getUriTest - PROTOCOL://SERVER:PORT[/DIRS]
+getUriTest()
+{
+	header "GetUri"	
+	getUriDo "protocol" "server" "port" "dir1/dir2" || return
+	getUriDo "protocol" "10.10.100.1" "port" "dir1/dir2" || return
+	getUriDo "protocol" "1:2:3:4:5:6:7:8" "port" "dir1/dir2" || return
+	getUriDo "protocol" "1:2:3:4:5:6:7:8" "" "dir1/dir2" || return
+}
+
+getUriDo()
+{
+	local protocol="$1" server="$2" port="$3" dirs="$4"
+	local uri="$(UriMake "$protocol" "$server" "$port" "$dirs")"
+
+	isEquals "$protocol" GetUriProtocol "$uri" || return
+	isEquals "$server" GetUriServer "$uri" || return
+	isEquals "$port" GetUriPort "$uri" || return
+	isEquals "$dirs" GetUriDirs "$uri" || return
+}
 
 # run tests
 [[ ! $@ ]] && { all; return; }
-for test in "$@"; do "$test" || return; done
+for test in "$@"; do "$(LowerCaseFirst "$test")"Test || return; done
