@@ -359,7 +359,6 @@ nameRealCommand()
 		laptop) echo "s1114928";;
 		rack) echo "s1081454";;
 		*) echo "$name";;
-
 	esac	
 }
 

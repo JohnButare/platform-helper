@@ -1,6 +1,7 @@
 # description: test functions from ZSH or Bash
 #       usage: . TestFunction.sh
 . "$BIN/function.sh" || return # re-load functions
+. "$BIN/color.sh" || return
 . "$BIN/script.sh" || return
 . "$BIN/ScriptTest.sh" || return
 
@@ -8,7 +9,10 @@ all()
 {
 	# getIpAddress4 || return
 	# getIpAddress6 || return
-	isLocalHost || return
+	# isLocalHost || return
+	getSshPort || return
+	getSshHost || return
+	getSshUser || return
 }
 
 getIpAddress4()
@@ -74,5 +78,31 @@ isLocalHost()
 	isTrue IsLocalHost "$HOSTNAME" || return
 	isTrue IsLocalHost "$HOSTNAME.$(GetDnsDomain)" || return
 }
+
+getSshHost()
+{
+	local ip="fd31:31b1:f03f:d348:4ca5:dfff:fe81:ef32"
+	isEquals "$ip" GetSshHost "$ip" || return
+	isEquals "$ip" GetSshHost "user@$ip:22" || return
+	varEquals host "$ip" GetSshHost "user@$ip:22" host || return
+}
+
+getSshPort()
+{
+	isEquals "" GetSshPort "host" || return
+	isEquals "22" GetSshPort "user@host:22" || return
+
+	local ip="192.168.1.1"
+	isEquals "" GetSshPort "$ip" || return
+	isEquals "22" GetSshPort "user@$ip:22" || return
+	varEquals port 22 GetSshPort "$ip:22" port || return
+
+	local ip="fd31:31b1:f03f:d348:4ca5:dfff:fe81:ef32"
+	isEquals "" GetSshPort "$ip" || return
+	isEquals "22" GetSshPort "user@$ip:22" || return
+	varEquals port 22 GetSshPort "$ip:22" port || return
+}
+
+getSshUser() { isEquals "user" GetSshUser "user@host:port"; }
 
 all

@@ -3098,10 +3098,6 @@ IsService()
 # network: SSH
 #
 
-GetSshUser() { GetArgs; local gsu; [[ "$1" =~ @ ]] && gsu="${1%@*}"; r "$(RemoveSpaceTrim "$gsu")" $2; } 	# GetSshUser USER@HOST:PORT -> USER
-GetSshHost() { GetArgs; local gsh="${1#*@}"; gsh="${gsh%:*}"; r "$(RemoveSpaceTrim "$gsh")" $2; }					# GetSshHost USER@HOST:PORT -> HOST
-GetSshPort() { GetArgs; local gsp; [[ "$1" =~ : ]] && gsp="${1#*:}"; r "$(RemoveSpaceTrim "$gsp")" $2; }	# GetSshPort USER@HOST:PORT -> PORT
-
 IsSsh() { [[ $SSH_CONNECTION || $XPRA_SERVER_SOCKET ]]; }		# IsSsh - return true if connected over SSH
 IsXpra() { [[ $XPRA_SERVER_SOCKET ]]; }											# IsXpra - return true if connected using XPRA
 RemoteServer() { echo "${SSH_CONNECTION%% *}"; }						# RemoveServer - return the IP addres of the remote server that the SSH session is connected from
@@ -3142,6 +3138,40 @@ SshAgentConfStatus() { SshAgentConf "$@" && SshAgent status; }
 
 # SshSudoc HOST COMMAND ARGS - run a command on host using sudoc
 SshSudoc() { SshHelper connect --credential --function "$1" -- sudoc "${@:2}"; }
+
+# parse SSH information from host
+GetSshUser() { GetArgs; local gsu; [[ "$1" =~ @ ]] && gsu="${1%@*}"; r "$(RemoveSpaceTrim "$gsu")" $2; } 	# GetSshUser USER@HOST:PORT -> USER
+
+# GetSshHost USER@HOST:PORT -> HOST
+GetSshHost()
+{
+	GetArgs
+
+	# IPv6 address - if it has 9 colons assume the port is after the last colon
+	if [[ "$1" =~ .*:.*:.* ]] ; then
+		local parts; StringToArray "$1" ":" parts	
+		(( ${#parts} != 9 )) && { r "$1" $2; return; }
+	fi
+	
+	local gsh="${1#*@}"; gsh="${gsh%:*}"; r "$(RemoveSpaceTrim "$gsh")" $2
+}
+
+
+# GetSshPort USER@HOST:PORT -> PORT
+GetSshPort()
+{
+	GetArgs
+
+	# IPv6 address - if it has 9 colons assume the port is after the last colon
+	if [[ "$1" =~ .*:.*:.* ]] ; then
+		local parts; StringToArray "$1" ":" parts	
+		(( ${#parts[@]} != 9 )) && { r "" $2; return; }
+	fi
+
+	# get the port
+	local gsp; [[ "$1" =~ : ]] && gsp="${1##*:}"; r "$(RemoveSpaceTrim "$gsp")" $2	
+}
+
 
 #
 # network: GIO shares - # .../smb-share:server=SERVER,share=SHARE/...
