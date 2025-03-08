@@ -1958,6 +1958,7 @@ HttpHeader() { curl --silent --show-error --location --dump-header - --output /d
 IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 																										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }																		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
+IsIpAddressAny() { GetArgs; IsIpAddress4 "$1" || IsIpAddress6 "$1"; } 																									# IsIpAddressAny [IP] - return true if the IP is a valid IPv4 or IPv6 address
 IsIpAddress4() { IsIpAddress -4 "$@"; }; IsIpAddress6() { IsIpAddress -6 "$@"; } 																			# IsIpAddress4|6 [IP] - return true if the IP is a valid IP address
 NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; }; 																																# NetworkCurrent - configured current network
 NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; }; 																																# NetworkOld - the previous network
@@ -2636,14 +2637,17 @@ IsAvailableBatch()
 }
 
 # IsPortAvailable HOST:PORT|HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified TCP port
-# --verbose|-v|-vv|-vvv|-vvvv|-vvvvv - verbose output, does not supress error message
+# -4|-6 																use IPv4 or IPv6
+# --verbose|-v|-vv|-vvv|-vvvv|-vvvvv  	verbose output, does not supress error message
 IsAvailablePort()
 {
 	# arguments
-	local host port timeout verbose verboseLevel verboseLess
+	local host port timeout verbose verboseLevel verboseLess ipv="4"
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			-4) ipv="4";;
+			-6) ipv="6";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $host ]]; then
@@ -2659,7 +2663,8 @@ IsAvailablePort()
 	[[ ! $host ]] && { MissingOperand "host" "IsAvailablePort"; return; }
 	[[ ! $port ]] && { MissingOperand "port" "IsAvailablePort"; return; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
-	host="$(GetIpAddress "$host" --quiet)" || return
+
+	! IsIpAddressAny "$host" && { host="$(GetIpAddress -$ipv "$host" --quiet)" || return; }
 	local redirect=">& /dev/null"; [[ $verbose ]] && redirect=""
 
 	(( verboseLevel > 1 )) &&  ScriptErr "checking port '$port' on host '$host' with timeout $timeout" "IsAvailablePort"
@@ -3172,7 +3177,6 @@ GetSshPort()
 	local gsp; [[ "$1" =~ : ]] && gsp="${1##*:}"; r "$(RemoveSpaceTrim "$gsp")" $2	
 }
 
-
 #
 # network: GIO shares - # .../smb-share:server=SERVER,share=SHARE/...
 #
@@ -3285,10 +3289,37 @@ UncMake()
 #
 
 GetUriProtocol() { GetArgs; local gup="${1%%\:*}"; r "$(LowerCase "$gup")" $2; }
-GetUriServer() { GetArgs; local gus="${1#*//}"; gus="${gus%%:*}"; r "${gus%%/*}" $2; }
-GetUriPort() { GetArgs; local gup="${1##*:}"; r "${gup%%/*}" $2; }
 GetUriDirs() { GetArgs; local gud="${1#*//*/}"; [[ "$gud" == "$1" ]] && gud=""; r "$gud" $2; }
 IsHttps() { GetArgs; [[ "$(GetUriProtocol "$@")" == "https" ]]; }
+
+GetUriServer()
+{
+	GetArgs
+
+	# IPv6 address - if it has 9 colons assume the port is after the last colon
+	if [[ "$1" =~ .*:.*:.* ]] ; then
+		local parts; StringToArray "$1" ":" parts	
+		(( ${#parts} != 9 )) && { r "$1" $2; return; }
+	fi
+	
+	local gsh="${1#*//}"; gsh="${gsh%:*}"; r "$(RemoveSpaceTrim "$gsh")" $2
+}
+
+
+GetUriPort()
+{
+	GetArgs; local gup="${1##*//}"; 
+
+	# IPv6 address - if it has 9 colons assume the port is after the last colon
+	if [[ "$gup" =~ .*:.*:.* ]] ; then
+		local parts; StringToArray "$gup" ":" parts	
+		(( ${#parts[@]} != 9 )) && { r "" $2; return; }
+	fi
+
+	# get the port
+	gup="${1##*:}"; r "${gup%%/*}" $2
+}
+
 
 GetUrlPort()
 {
