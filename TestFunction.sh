@@ -1,12 +1,13 @@
 # description: test functions from ZSH or Bash
 #       usage: . TestFunction.sh
-. "$BIN/function.sh" || return # re-load functions
+. "$BIN/function.sh" "" || return # re-load functions
 . "$BIN/color.sh" || return
 . "$BIN/script.sh" || return
 . "$BIN/ScriptTest.sh" || return
 
 all()
 {
+	HeaderBig "Running All Function Tests"
 	getIpAddress4 || return
 	getIpAddress6 || return
 	isLocalHost || return
@@ -18,6 +19,7 @@ all()
 getIpAddress4()
 {
 	header "GetIpAddress4"
+
 	isFalse IsIpAddress4 "bogus" || return
 	isFalse IsIpAddress4 "256.0.0.0" || return
 	isFalse IsIpAddress4 "256.0.0.0.1" || return
@@ -28,6 +30,7 @@ getIpAddress4()
 getIpAddress6()
 {
 	header "GetIpAddress6"
+
 	isFalse IsIpAddress6 "bogus" || return
 	isTrue IsIpAddress6 "1:2:3:4:5:6:7:8" || return
 	isTrue IsIpAddress6 "1::" || return
@@ -65,7 +68,8 @@ getIpAddress6()
 
 isLocalHost()
 {
-	header "IsLocalHost"	
+	header "IsLocalHost"
+
 	isFalse IsLocalHost "bogus" || return
 	isTrue IsLocalHost "" || return
 	isTrue IsLocalHost "localhost" || return
@@ -81,6 +85,8 @@ isLocalHost()
 
 getSshHost()
 {
+	header "GetSshHost"
+
 	local ip="fd31:31b1:f03f:d348:4ca5:dfff:fe81:ef32"
 	isEquals "$ip" GetSshHost "$ip" || return
 	isEquals "$ip" GetSshHost "user@$ip:22" || return
@@ -89,6 +95,8 @@ getSshHost()
 
 getSshPort()
 {
+	header "GetSshPort"
+
 	isEquals "" GetSshPort "host" || return
 	isEquals "22" GetSshPort "user@host:22" || return
 
@@ -105,4 +113,6 @@ getSshPort()
 
 getSshUser() { isEquals "user" GetSshUser "user@host:port"; }
 
-all
+# run tests
+[[ ! $@ ]] && { all; return; }
+for test in "$@"; do "$test" || return; done
