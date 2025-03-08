@@ -7,9 +7,9 @@
 
 all()
 {
-	# getIpAddress4 || return
-	# getIpAddress6 || return
-	# isLocalHost || return
+	getIpAddress4 || return
+	getIpAddress6 || return
+	isLocalHost || return
 	getSshPort || return
 	getSshHost || return
 	getSshUser || return
