@@ -2107,8 +2107,10 @@ GetAdapterIpAddress()
 
 		if [[ "$ipv" == "4" ]]; then
 			ifconfig "$adapter" | grep inet | grep -v 'inet6|127.0.0.1' | head -n 1 | awk '{ print $2 }'
+		elif IsPlatform mac; then
+			ifconfig "$adapter" | grep inet6 | grep "secured[ ]*$" | head -1 | tr -s " " | cut -d" " -f2
 		else
-			ifconfig "$adapter" | grep inet6 | grep global | head -1 | tr -s " " | cut -d" " -f3
+			ifconfig "$adapter" | grep inet6 | grep "global" | head -1 | tr -s " " | cut -d" " -f3
 		fi
 
 	fi
