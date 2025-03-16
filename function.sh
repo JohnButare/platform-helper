@@ -4923,7 +4923,7 @@ IsElevated()
 # sudo
 SudoCheck() { [[ ! -r "$1" ]] && sudo="sudoc"; } # SudoCheck FILE - set sudo variable to sudoc if user does not have read permissiont to the file
 sudox() { sudoc XAUTHORITY="$HOME/.Xauthority" "$@"; }
-sudov() { sudoc "$@" -- sudo --validate; } # update the cached credentials if needed
+sudov() { sudoc "$@" -- sudo --validate; } 									 # update the cached credentials if needed
 IsSudo() { sudo --validate --non-interactive >& /dev/null; } # return true if the sudo credentials are cached
 
 # HasElevatedAccount - return true if the user has an elevated account that must be used for sudo
@@ -4955,7 +4955,7 @@ CanSudo()
 	! HasElevatedAccount && sudoPasswordCache="$(SudoPassword)" && return
 
 	# can sudo if we are allowed to prompt for the password
-	[[ $noPrompt ]]
+	[[ ! $noPrompt ]]
 }
 
 # sudoc COMMANDS - run COMMANDS using sudo and use the credential store to get the password if available
@@ -4968,11 +4968,12 @@ sudoc()
 	IsRoot && { env "$@"; return; } # use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
 
 	# arguments
-	local args=() noPrompt preserve stderr verbose verboseLevel verboseLess
+	local args=() noPrompt preserve quiet stderr verbose verboseLevel verboseLess
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--preserve|-p) preserve="--preserve";;
+			--quiet|-q) quiet="--quiet";;
 			--stderr|-se) stderr="--stderr";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--) shift; args+=("$@"); break;;
@@ -5001,8 +5002,8 @@ sudoc()
 	# must prompt for elevated accounts
 	HasElevatedAccount && [[ $noPrompt ]] && return 1
 
-	# get password if possible, ignore errors so we can prompt for it
-	local password; password="$(SudoPassword)" || return
+	# get password if possible
+	local password; password="$(SudoPassword)" # ignore errors so we can prompt for password 
 
 	# prompt for password to stdout or stderr if possible, prevent sudo from asking for a password
 	if [[ ! $noPrompt && ! $password ]]; then
@@ -5023,7 +5024,7 @@ sudoc()
 		[[ $noPrompt ]] && command+=(--non-interactive)
 		"${command[@]}" --prompt="" --validate
 	fi
-	(( $? != 0 )) && { ScriptErrEnd "unable to run command: '"${args[@]}"'" "sudoc"; return 1; }
+	(( $? != 0 )) && { [[ ! $quiet ]] && ScriptErrEnd "unable to run command: '${args[*]}'" "sudoc"; return 1; }
 
 	# run the command
 	# - do not use -- to allow environment variables, i.e. sudoc TEST=1 ls
