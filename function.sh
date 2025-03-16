@@ -4661,16 +4661,20 @@ LogPrintLevel() { level="$1"; shift; (( verboseLevel < level )) && return; Print
 log1() { LogLevel 1 "$@"; }; log2() { LogLevel 2 "$@"; }; log3() { LogLevel 3 "$@"; }; log4() { LogLevel 4 "$@"; }; log5() { LogLevel 5 "$@"; }
 logp1() { LogPrintLevel 1 "$@"; }; logp2() { LogPrintLevel 2 "$@"; }; logp3() { LogPrintLevel 3 "$@"; }; logp4() { LogPrintLevel 4 "$@"; }; logp5() { LogPrintLevel 5 "$@"; }
 
-# LogScript LEVEL SCRIPT - log a script we are going to run.  Indent it if it is on more than one line
+# LogScript [LEVEL](4) MESSAGE SCRIPT - log a script we are going to run.  Indent it if it is on more than one line
 LogScript()
 {
-	local level="$1"; shift
+	local level="$1"; IsInteger "$level" && shift || level=4
+	local message="$1"; shift
 	[[ ! $verboseLevel || ! $level ]] || (( verboseLevel < level )) && return
 
 	if [[ "$(echo "$@" | wc -l)" == "1" ]]; then
-		echo "$@"
+		hilightp "$message: " >& /dev/stderr
+		echo "$@" >& /dev/stderr
 	else
-		echo "$@" | AddTab >& /dev/stderr; 
+		hilight "$message:" >& /dev/stderr
+		echo -e "$@" | AddTab >& /dev/stderr
+		hilight "EOF" >& /dev/stderr
 	fi
 }
 
@@ -4787,7 +4791,7 @@ ScriptEval()
 	log4 "running '$*'" "ScriptEval"
 	local result; result="$("$@")" || return
 
-	log4 "evaluating" "ScriptEval"; LogScript 4 "$result"
+	LogScript "ScriptEval: evaluating" "$result"
 	eval "$result"
 
 	unset SCRIPT_EVAL 
