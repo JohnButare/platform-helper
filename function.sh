@@ -1950,8 +1950,6 @@ GetAdapterIpAddress4() { GetAdapterIpAddress -4 "$@"; }; GetAdapterIpAddress6() 
 GetIpAddress4() { GetIpAddress -4 "$@"; }; GetIpAddress6() { GetIpAddress -6 "$@"; }																	# GetIpAddress[4|6] [HOST] - get the IP address of the current or specified host
 GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGetForce "domain"; }				# GetDomain - get the current network domain
 GetMacAddress() { grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1; }																				# GetMacAddress - MAC address of the primary network interface
-GetHostname() { SshHelper connect "$1" -- hostname; } 																																# GetHostname NAME - hosts actual configured name
-GetOsName() { local name="$1"; name="$(UpdateGet "os-name-$1")"; [[ $name ]] && echo "$name" || os name "$server"; } 	# GetOsName NAME - use cached DNS name without calling os for speed
 HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not available"; }
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
@@ -1987,6 +1985,13 @@ GetDnsDomain() { echo "$(ConfigGet "$(GetDomain)DnsDomain")"; }
 GetDnsBaseDomain() { echo "$(ConfigGet "$(GetDomain)DnsBaseDomain")"; }
 GetNetworkDnsDomain() { echo "$(ConfigGet "$(NetworkCurrent)DnsDomain")"; }
 GetNetworkDnsBaseDomain() { echo "$(ConfigGet "$(NetworkCurrent)DnsBaseDomain")"; }
+
+# GetOsName HOST - get HOST short name, use cached DNS name for speed
+GetOsName()
+{
+	local name="$1"; name="$(force= UpdateGet "os-name-$1")"; [[ ! $name ]] && name="$(os name "$@")"
+	echo "$(RemoveDnsSuffix "$name")"
+}
 
 # GetRoute host - get the interface used to send to host
 GetRoute()

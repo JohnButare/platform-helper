@@ -276,37 +276,93 @@ memoryUsedCommand()
 nameUsage()
 {
 	echot "\
-Usage: os name [set|alias|real HOST]
+Usage: os name [get|set|alias|real](get) [HOST](localhost)
 Show or set the operating system name."
 }
 
 nameArgStart() { unset name; }
 nameArgs() { (( ! $# )) && return; ScriptArgGet "name" -- "$@"; }
+nameCommand() { nameGetCommand; }
 
-nameCommand()
+#
+# name alias command
+#
+
+nameAliasUsage() { echot "Usage: os name alias HOST\nGet the alias of the host from the real name."; }
+
+nameAliasCommand()
 {
-	local resolvedName cache="os-name-$name"
+	local check="${name:-$HOSTNAME}"; check="$(RemoveDnsSuffix "${check,,}")"
 
+	case "$check" in
+		s1113731) echo "desktop";;
+		s1114928) echo "laptop";;
+		s1081454) echo "rack";;
+		*) echo "$name";;
+
+	esac	
+}
+
+#
+# name get command
+#
+
+nameGetUsage()
+{
+	echot "\
+Usage: os name get HOST
+Get the operating system name.
+
+	-s|--ssh	use SSH to get the name instead of using DNS (slower)"
+}
+
+nameGetArgStart() { unset -v ssh; }
+nameGetOpt()
+{
+	case "$1" in
+		-s|--ssh) ssh="true";;
+		*) return 1;;
+	esac
+}
+
+nameGetCommand()
+{
 	IsLocalHost "$name" && { echo "$HOSTNAME"; return; }
 
 	# check cache
-	resolvedName="$(UpdateGet "$cache")" && [[ $resolvedName ]] && { echo "$resolvedName"; return; }
+	local actualName cache="os-name-$name"
+	actualName="$(UpdateGet "$cache")" && [[ $actualName ]] && { echo "$actualName"; return; }
 
-	# check DNS
-	resolvedName="$(DnsResolve "$name" --quiet)"
+	# check
+	if [[ $ssh ]]; then
+		log3 "using SSH to get the name of '$host'"
+		actualName="$(SshHelper --quiet connect "$name" -- hostname)"
+	else
+		log3 "using DNS to resolve the name of '$host'"
+		actualName="$(DnsResolve "$name" --quiet)"
 
-	# check virtual host
-	! [[ "$resolvedName" ]] && resolvedName="$(DnsResolve "$HOSTNAME-$name"  --quiet)"
+		# check virtual host
+		! [[ "$actualName" ]] && actualName="$(DnsResolve "$HOSTNAME-$name"  --quiet)"
 
-	# if the resolved name is empty or a superset of the DNS name use the full name
-	[[ "$name" =~ $resolvedName$ ]] && resolvedName="$name"
+		# if the actual name is a superset of the DNS name use the full name
+		# - this seems too broad, find the use case for this
+		[[ "$name" =~ $actualName$ ]] && actualName="$name"	
+
+	fi
+
+	# if we could not find the actual name use the passed name
+	[[ ! $name ]] && { log3 "could not find the actual name of '$host', using passed name"; actualName="$name"; }
 
 	# cache
-	UpdateSet "$cache" "$resolvedName"
+	UpdateSet "$cache" "$actualName"
 
 	# return
-	echo "$resolvedName"
+	echo "$actualName"
 }
+
+#
+# name set command
+#
 
 nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
 {
@@ -333,20 +389,9 @@ setHostnameMac()
 	dscacheutil -flushcache
 }
 
-nameAliasUsage() { echot "Usage: os name alias HOST\nGet the alias of the host from the real name."; }
-
-nameAliasCommand()
-{
-	local check="${name:-$HOSTNAME}"; check="$(RemoveDnsSuffix "${check,,}")"
-
-	case "$check" in
-		s1113731) echo "desktop";;
-		s1114928) echo "laptop";;
-		s1081454) echo "rack";;
-		*) echo "$name";;
-
-	esac	
-}
+#
+# name real command
+#
 
 nameRealUsage() { echot "Usage: os name real ALIAS\nGet the real name of the host from an alias."; }
 
