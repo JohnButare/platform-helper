@@ -885,7 +885,6 @@ NodeConf()
 	fi
 
 	return 0
-
 }
 
 # NodeNpmGlobal - run npm --global with sudo if needed, assume we do not need sudo if the global prefix is in the users home directory
@@ -1979,9 +1978,9 @@ curl()
 }
 
 # proxy
-ProxyEnable() { ScriptEval network proxy vars --enable; network proxy vars --status; }
-ProxyDisable() { ScriptEval network proxy vars --disable; network proxy vars --status; }
-ProxyStatus() { network proxy --status; }
+ProxyEnable() { ScriptEval network proxy set vars --enable; network proxy set vars --status; }
+ProxyDisable() { ScriptEval network proxy set vars --disable; network proxy set vars --status; }
+ProxyStatus() { network proxy status; }
 
 # GetDns - get DNS informationm for the computer, or the network the computer is in
 GetDnsDomain() { echo "$(ConfigGet "$(GetDomain)DnsDomain")"; }
@@ -4648,6 +4647,27 @@ else
 	FindFunction() { declare -F | grep -iE "^declare -f ${1}$" | sed "s/declare -f //"; return "${PIPESTATUS[1]}"; }
 fi
 
+# LogLevel LEVEL MESSAGE - log a message if the logging verbosity level is at least LEVEL
+LogLevel() { level="$1"; shift; (( verboseLevel < level )) && return; ScriptMessage "$@"; }
+LogPrintLevel() { level="$1"; shift; (( verboseLevel < level )) && return; PrintErr "$@"; }
+
+# logN MESSAGE - log a message if the logging verbosity level is a least N
+log1() { LogLevel 1 "$@"; }; log2() { LogLevel 2 "$@"; }; log3() { LogLevel 3 "$@"; }; log4() { LogLevel 4 "$@"; }; log5() { LogLevel 5 "$@"; }
+logp1() { LogPrintLevel 1 "$@"; }; logp2() { LogPrintLevel 2 "$@"; }; logp3() { LogPrintLevel 3 "$@"; }; logp4() { LogPrintLevel 4 "$@"; }; logp5() { LogPrintLevel 5 "$@"; }
+
+# LogScript LEVEL SCRIPT - log a script we are going to run.  Indent it if it is on more than one line
+LogScript()
+{
+	local level="$1"; shift
+	[[ ! $verboseLevel || ! $level ]] || (( verboseLevel < level )) && return
+
+	if [[ "$(echo "$@" | wc -l)" == "1" ]]; then
+		echo "$@"
+	else
+		echo "$@" | AddTab >& /dev/stderr; 
+	fi
+}
+
 # RunCache CACHE FUNCTION [ARGS] - run function if an update is needed
 RunCache()
 {
@@ -4750,10 +4770,23 @@ ScriptDir()
 	GetFilePath "$(GetFullPath "$dir")"; 
 }
 
-
 # ScriptEval <script> [<arguments>] - run a script and evaluate the output
 # - typically the output is variables to set, such as printf "a=%q;b=%q;" "result a" "result b"
-ScriptEval() { local result; export SCRIPT_EVAL="true"; result="$("$@")" || return; eval "$result"; unset SCRIPT_EVAL; } 
+ScriptEval()
+{
+	local verbose verboseLevel verboseLess; ScriptOptVerbose "$1"; [[ $verbose ]] && shift
+
+	export SCRIPT_EVAL="true"
+
+	log4 "running '$*'" "ScriptEval"
+	local result; result="$("$@")" || return
+
+	log4 "evaluating" "ScriptEval"; LogScript 4 "$result"
+	eval "$result"
+
+	unset SCRIPT_EVAL 
+}
+
 
 # ScriptName [func] - return the function, or the name of root script
 ScriptName()

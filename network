@@ -189,18 +189,8 @@ currentStatusUsage() { echot "Usage: $(ScriptName) current all\nStatus of the cu
 currentStatusCommand()
 {
 	echo "network=$(name)"
-
-	local proxyServer="$(proxyServerGet)"
-	if [[ $proxyServer ]]; then
-		local desc="proxy=$proxyServer"
-		IsIpvSupported 4 && { desc+=" IPv4="; proxyServerCheck4 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
-		IsIpvSupported 6 && { desc+=" IPv6="; proxyServerCheck6 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
-		echo "$desc"
-	else
-		echo "proxy=none"
-	fi
-
 	echo "timeout=$(AvailableTimeoutGet) ms"
+	proxyStatusCommand || return
 }
 
 # common options
@@ -209,7 +199,7 @@ currentUsageOther() { currentUsageBrief; currentUsageTimeout; }
 currentArgStartOther() { currentArgStartBrief && currentArgStartTimeout; }
 currentOptOther() { currentOptBrief "$@" || currentOptTimeout "$@"; }
 
-currentUsageBrief() { EchoWrap "	-b,	--brief		show brief status messages (for use with app script)"; }
+currentUsageBrief() { EchoWrap "	-b,	--brief			show brief status messages (for use with app script)"; }
 currentArgStartBrief() { unset -v brief; }
 currentOptBrief() { [[ "$1" == @(-b|--brief) ]] || return; brief="--brief"; }
 
@@ -333,7 +323,7 @@ currentUpdateStatus()
 	! doLog && return
 	hilight "Network status..."
 	force= currentStatusCommand || return
-	[[ $(proxyServerGet) ]] && { network proxy --status "${globalArgs[@]}" || return; }
+	[[ $(proxyServerGet) ]] && { network proxy status "${globalArgs[@]}" || return; }
 	return 0
 }
 
@@ -418,45 +408,16 @@ updateProxy()
 {
 	# get old and new proxy server, return if not change
 	local oldProxyServer; oldProxyServer="$(UpdateGetForce "network-proxy-server")" || return
-	local newProxyServer; proxyNeeded && { newProxyServer="$(proxyServerNetwork)"; updateProxyCheck "$newProxyServer" || unset newProxyServer; }
+	local newProxyServer; proxyNeeded && { newProxyServer="$(proxyServerNetwork)"; proxyCheck "$newProxyServer" || unset newProxyServer; }
 	[[ ! $force && "$newProxyServer" == "$oldProxyServer" ]] && return
 	
 	# save new proxy server
 	UpdateSet "network-proxy-server" "$newProxyServer" || return
 	if [[ $newProxyServer ]]; then
-		network proxy apt --enable "${globalArgs[@]}" || return
-		ScriptEval network proxy vars --enable || return
+		ScriptEval network proxy set all --enable "${globalArgs[@]}" || return
 	else
-		network proxy apt --disable "${globalArgs[@]}" || return
-		ScriptEval network proxy vars --disable || return
+		ScriptEval network proxy set all --disable "${globalArgs[@]}" || return
 	fi
-}
-
-# updateProxyCheck SERVER- check if the proxy server is working
-updateProxyCheck()
-{
-	local server="$1"
-	doLog && printf "proxy...";
-
-	# return if the proxy server is not specified
-	[[ $server ]] || { doLog && echo "${RED}not specified${RESET}"; return 1; }
-
-	# return if the proxy server is not available
-	IsAvailablePort "$server" $timeout || { doLog && echo "${RED}not available${RESET}"; return 1; }
-	printf "available..."
-
-	# check proxy for IPv4 and IPv6
-	updateProxyCheckIpv 4 "$proxyServer" && updateProxyCheckIpv 6 "$proxyServer" && { doLog && echo "ok"; return 0; }
-	doLog && echo "not ok"; return 1
-}
-
-# updateProxyCheckIpv 4|6 SERVER - return true if IPv4|6 is supported
-updateProxyCheckIpv()
-{
-	local v="$1" server="$2"
-	! IsIpvSupported $v && return
-	doLog && printf "IPv$v..."; proxyServerCheck$v "server" && { doLog && echo "ok..."; return 0; }
-	doLog && printf "${RED}fail${RESET}..."; return 1
 }
 
 # updatePython NETWORK
@@ -1025,53 +986,141 @@ profileSetCommand()
 
 proxyUsage()
 { 
-	echot "Usage: $(ScriptName) proxy [all|apt|vars](all)
-Network proxy server commands.
-
-$(currentUsageBrief)
-	-e, --enable
-	-d, --disable
-	-s, --status"
+	echot "Usage: $(ScriptName) proxy [check|set|status|validate](status)
+Network proxy server commands."
 }
 
-proxyArgStart() { unset action; currentArgStartBrief; }
+proxyCommand() { proxyStatusCommand; }
 
-proxyOpt() 
+proxyValidateUsage() { echot "Usage: $(ScriptName) proxy validate\nCheck the proxy server and enable or disable local configuration."; }
+proxyValidateCommand() { proxyValidate "proxySetAll"; }
+proxyValidate() { local command="$1"; proxyCheck && command+="Enable" || command+="Disable"; "$command"; }
+
+#
+# proxy check command
+#
+
+proxyCheckUsage() { echot "Usage: $(ScriptName) proxy check\nReturn true if the proxy server is needed on the current network and usable."; }
+proxyCheckCommand() { proxyCheck; }
+
+# proxyCheck server - check if the proxy server is working
+proxyCheck()
+{
+	local server="$1"; [[ ! $server ]] && server="$(proxyServerNetwork)"
+	doLog && printf "proxy...";
+
+	# return if the proxy server is not specified
+	[[ $server ]] || { doLog && echo "${RED}not specified${RESET}"; return 1; }
+
+	# return if the proxy server is not available
+	IsAvailablePort "$server" $timeout || { doLog && echo "${RED}not available${RESET}"; return 1; }
+	printf "available..."
+
+	# check proxy for IPv4 and IPv6
+	proxyCheckStatus 4 "$server" && proxyCheckStatus 6 "$server" && { doLog && echo "ok"; return 0; }
+	doLog && echo "not ok"; return 1
+}
+
+# proxyCheckStatus 4|6 SERVER - return true if IPv4|6 is supported on the server
+proxyCheckStatus()
+{
+	local v="$1" server="$2"
+	! IsIpvSupported $v && return
+	doLog && printf "IPv$v..."; proxyCheck$v "server" && { doLog && echo "ok..."; return 0; }
+	doLog && printf "${RED}fail${RESET}..."; return 1
+}
+
+# proxyCheck4|4 SERVER - return true  if the proxy server is working for IPv4|6 addresses
+proxyCheck4() { local server="$1"; curl --silent --proxy "http://$server" "http://httpbin.org/ip" |& jq > /dev/null; }
+proxyCheck6() {	local server="$1"; curl -6 --silent --proxy "http://$server" "http://www.google.com" |& qgrep "google" >& /dev/null; }
+
+#
+# proxy status command
+#
+
+proxyStatusUsage() { echot "Usage: $(ScriptName) proxy status\nReturn the proxy server status and configuration"; }
+
+proxyStatusCommand()
+{
+	# check for a proxy server
+	local proxyServer="$(proxyServerGet)"
+	[[ ! $proxyServer ]] && { echo "proxy=none"; return; }
+		
+	# return proxy server status
+	local desc="proxy=$proxyServer"
+	IsIpvSupported 4 && { desc+=" IPv4="; proxyServerCheck4 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
+	IsIpvSupported 6 && { desc+=" IPv6="; proxyServerCheck6 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
+	echo "$desc"
+	
+	# return proxy configuration
+	proxySetAllStatus && proxySetWpadStatus
+}
+
+#
+# proxy set command
+#
+
+proxySetUsage()
+{ 
+	echot "Usage: $(ScriptName) proxy [all|apt|vars|wpad](all)
+Set proxy server configuration.
+
+$(currentUsageBrief)
+	-e, --enable		enable the proxy server configuration
+	-d, --disable		disable the proxy server configuration
+	-s, --status		show the status of the proxy server configuration
+	-v, --validate	check if the proxy server is usable and enable or disable the configuration"
+}
+
+proxySetArgStart() { unset action; currentArgStartBrief; }
+
+proxySetOpt() 
 {
 	currentOptBrief "$@" && return
 	case "$1" in
 		-d|--disable) action="disable";;
 		-e|--enable) action="enable";;
 		-s|--status) action="status";;
+		-v|--validate) action="validate";;
 		*) return 1
 	esac
 }
 
-proxyCommand() { proxyAllCommand; }
+proxySetCommand() { proxySetAllCommand; }
 
-# all
-proxyAllCommand() { [[ ! $action ]] && action="status"; proxyAll${action^}; }
-proxyAllDisable() { proxyAptDisable && proxyVarsDisable; }
-proxyAllEnable() { proxyAptEnable && proxyVarsEnable; }
+#
+# proxy set all command
+#
 
-proxyAllStatus()
+proxySetAllUsage() { echot "Usage: $(ScriptName) proxy all\nSet all local proxy configuration (APT, vars)."; }
+proxySetAllCommand() { [[ ! $action ]] && action="status"; proxySetAll${action^}; }
+proxySetAllDisable() { proxySetAptDisable && proxySetVarsDisable; }
+proxySetAllEnable() { proxySetAptEnable && proxySetVarsEnable; }
+proxySetAllValidate() { proxySetAptValidate && proxySetVarsValidate; }
+
+proxySetAllStatus()
 {
 	if [[ $verbose ]]; then
 		header "Proxy Variables"; proxyVarsStatus
-		isAptInstalled && { header "APT Proxy"; proxyAptStatus; }
+		isAptInstalled && { header "APT Proxy"; proxySetAptStatus; }
 	else
 		echo "proxy variables=$(proxyVarsStatus)"
-		isAptInstalled && echo "apt proxy=$(proxyAptStatus)"
+		isAptInstalled && echo "apt proxy=$(proxySetAptStatus)"
 	fi
 
 	return 0
 }
 
-# apt
-proxyAptCommand() { [[ ! $action ]] && action="status"; proxyApt${action^}; }
-proxyAptDisable() { [[ ! -f "$aptFile" ]] && return; sudoc rm "$aptFile"; }
+#
+# proxy set apt command
+#
 
-proxyAptStatus()
+proxySetAptUsage() { echot "Usage: $(ScriptName) proxy apt\nSet APT proxy configuration."; }
+proxySetAptCommand() { [[ ! $action ]] && action="status"; proxySetApt${action^}; }
+proxySetAptDisable() { [[ ! -f "$aptFile" ]] && return; sudoc rm "$aptFile"; }
+proxySetAptValidate() { proxyValidate "proxySetApt"; }
+
+proxySetAptStatus()
 {
 	! isAptInstalled && return
 
@@ -1082,27 +1131,67 @@ proxyAptStatus()
 	fi
 }
 
-proxyAptEnable()
+proxySetAptEnable()
 {	
 	# disable APT proxy if cannot get an APT proxy server
-	local proxyServer; proxyServer="$(proxyServerGetApt)" || { proxyAptDisable; return; }
+	local proxyServer; proxyServer="$(proxyServerGetApt)" || { proxySetAptDisable; return; }
 
 	# return if APT proxy is already enabled
 	[[ ! $force ]] && [[ -f "$aptFile" ]] && grep -q "$proxyServer" "$aptFile" && return
 
 	# set APT proxy server
 	echo "Acquire::http::Proxy \"http://$proxyServer\";
-Acquire::https::Proxy \"http://$proxyServer\";" | RunSilent sudoc tee "$aptFile"
+Acquire::https::Proxy \"http://$proxyServer\";" | sudoc tee "$aptFile" >& /dev/null
 }
 
-# wpad
-proxyWpadCommand() { [[ ! $action ]] && action="status"; proxyWpad${action^}; }
-proxyWpadEnable() { proxyWpadConfigure "enable"; }
-proxyWpadDisable() { proxyWpadConfigure "disable"; }
+#
+# proxy set vars command
+#
 
-proxyWpadStatus()
+proxySetVarsUsage() { echot "Usage: $(ScriptName) proxy vars\nSet the proxy variables."; }
+proxySetVarsCommand() { [[ ! $action ]] && action="status"; proxySetVars${action^}; }
+proxySetVarsDisable() { proxySetVarsShow; }
+proxySetVarsEnable() { proxySetVarsShow "$(proxyServerGet)"; }
+proxySetVarsValidate() { proxyValidate "proxySetVars"; }
+
+# proxyVarsShow [server] - show proxy variables for the specified server, if server is not specified proxy variables are unset
+proxySetVarsShow()
 {
-	local host hosts; IFS=$'\n' ArrayMakeC hosts GetServers nomad-client || return
+	local proxyServer="$1"
+
+	if [[ $proxyServer ]]; then
+		echo "export {$proxyVars}=\"http://$proxyServer\"; eval export {$noProxyVars}=\"$(ConfigGetCurrent "NoProxy")\""
+	else
+		echo "unset {$allProxyVars}"
+	fi
+}
+
+proxySetVarsStatus()
+{
+	if (( $(export | grep -i 'proxy=\"http' | wc -l) > 1 )); then
+		if [[ $verbose ]]; then
+			export | grep "$(echo "$allProxyVars=" | sed 's/,/=\\|/g')"
+		else
+			echo "enabled"
+		fi
+	else
+		echo "disabled"
+	fi
+}
+
+#
+# proxy set WPAD command
+#
+
+proxySetWpadUsage() { echot "Usage: $(ScriptName) proxy apt\nSet Web Proxy Auto-Discovery proxy configuration."; }
+proxySetWpadCommand() { [[ ! $action ]] && action="status"; proxySetWpad${action^}; }
+proxySetWpadEnable() { proxySetWpadConfigure "enable"; }
+proxySetWpadDisable() { proxySetWpadConfigure "disable"; }
+proxySetWpadValidate() { proxyValidate "proxySetWpad"; }
+
+proxySetWpadStatus()
+{
+	local host hosts; IFS=$'\n' ArrayMakeC hosts GetServers apache-web || return
 	for host in localhost "${hosts[@]}"; do
 		printf "$(GetHostname "$host"): "
 		RunLog RunScript "${globalArgs[@]}" --ssh "$host" "$(cat <<-EOF
@@ -1129,48 +1218,9 @@ proxyWpadConfigure()
 	cp "$src" "$wpadFile" && inst ApacheSync
 }
 
-# vars
-
-proxyVarsUsage()
-{ 
-	echot "Usage: $(ScriptName) proxy vars
-Configure shell proxy variables.
-
-	-e, --enable		set variables if a proxy server is specified, otherwise unset them
-	-d, --disable		unset proxy vasriables
-	-s, --status		show the status of the proxy variables"
-}
-
-proxyVarsCommand() { [[ ! $action ]] && action="enable"; proxyVars${action^}; }
-proxyVarsDisable() { proxyVarsShow; }
-proxyVarsEnable() { proxyVarsShow "$(proxyServerGet)"; }
-
-# proxyVarsShow [server] - show proxy variables for the specified server, if server is not specified proxy variables are unset
-proxyVarsShow()
-{
-	local proxyServer="$1"
-
-	if [[ $proxyServer ]]; then
-		echo "export {$proxyVars}=\"http://$proxyServer\"; eval export {$noProxyVars}=\"$(ConfigGetCurrent "NoProxy")\""
-	else
-		echo "unset {$allProxyVars}"
-	fi
-}
-
-proxyVarsStatus()
-{
-	if (( $(export | grep -i 'proxy=\"http' | wc -l) > 1 )); then
-		if [[ $verbose ]]; then
-			export | grep "$(echo "$allProxyVars=" | sed 's/,/=\\|/g')"
-		else
-			echo "enabled"
-		fi
-	else
-		echo "disabled"
-	fi
-}
-
-# proxy helper commands
+#
+# proxy helper
+#
 
 # proxyNeeded - return true if we need to use a proxy on the current network 
 proxyNeeded()
@@ -1195,10 +1245,6 @@ proxyServerGetApt() { proxyNeededApt && UpdateGetForce "network-proxy-server"; }
 # proxyServerNetwork - return the proxy server for the current network
 proxyServerNetwork() { ConfigGet "$(nameCached)ProxyServer"; }
 
-# proxyServerCheck4|4 SERVER - return true  if the proxy server is working for IPv4|6 addresses
-proxyServerCheck4() { local server="$1"; curl --silent --proxy "http://$server" "http://httpbin.org/ip" |& jq > /dev/null; }
-proxyServerCheck6() {	local server="$1"; curl -6 --silent --proxy "http://$server" "http://www.google.com" |& qgrep "google" >& /dev/null; }
-
 #
 # vars commands
 #
@@ -1210,8 +1256,8 @@ Usage: $(ScriptName) vars [dns|proxy]
 Variable commands.
 
 $(currentUsageBrief)
-	-t, --timeout	$(ScriptOptTimeoutUsage), not used (pass through argument)
-	-u, --update	update network settings for the current network"
+	-t, --timeout		$(ScriptOptTimeoutUsage), not used (pass through argument)
+	-u, --update		update network settings for the current network"
 }
 
 varsArgStart() { unset -v update; currentArgStartBrief && ScriptOptTimeoutArgStart; }

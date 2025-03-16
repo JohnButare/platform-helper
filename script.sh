@@ -132,14 +132,6 @@ ScriptCheckDirs()
 # LogPrint MESSAGE - print a message
 LogPrint() { [[ $@ ]] && EchoResetErr; PrintErr "$@"; }
 
-# LogLevel LEVEL MESSAGE - log a message if the logging verbosity level is at least LEVEL
-LogLevel() { level="$1"; shift; (( verboseLevel < level )) && return; ScriptMessage "$@"; }
-LogPrintLevel() { level="$1"; shift; (( verboseLevel < level )) && return; PrintErr "$@"; }
-
-# logN MESSAGE - log a message if the logging verbosity level is a least N
-log1() { LogLevel 1 "$@"; }; log2() { LogLevel 2 "$@"; }; log3() { LogLevel 3 "$@"; }; log4() { LogLevel 4 "$@"; }; log5() { LogLevel 5 "$@"; }
-logp1() { LogPrintLevel 1 "$@"; }; logp2() { LogPrintLevel 2 "$@"; }; logp3() { LogPrintLevel 3 "$@"; }; logp4() { LogPrintLevel 4 "$@"; }; logp5() { LogPrintLevel 5 "$@"; }
-
 # LogFile - log a file
 LogFile()
 {
@@ -154,19 +146,6 @@ LogFileLevel() { level="$1"; shift; (( verboseLevel >= level )) && LogFile "$1";
 
 # logFileN FILE - log the contents of file if the logging verbosity level is at least N
 LogFile1() { LogFileLevel 1 "$1"; }; LogFile2() { LogFileLevel 2 "$1"; }; LogFile3() { LogFileLevel 3 "$1"; }; LogFile4() { LogFileLevel 4 "$1"; }; LogFile5() { LogFileLevel 5 "$1"; }
-
-# LogScript LEVEL SCRIPT - log a script we are going to run.  Indent it if it is on more than one line
-LogScript()
-{
-	local level="$1"; shift
-	[[ ! $verboseLevel || ! $level ]] || (( verboseLevel < level )) && return
-
-	if [[ "$(echo "$@" | wc -l)" == "1" ]]; then
-		ScriptMessage "running: $@"
-	else
-		ScriptMessage "running:"; echo "$@" | AddTab >& /dev/stderr; 
-	fi
-}
 
 # RunErr CMD - run a command.   Discard stderr unless the command fails, in which case it is re-run
 RunErr()
