@@ -1042,17 +1042,18 @@ proxyStatusUsage() { echot "Usage: $(ScriptName) proxy status\nReturn the proxy 
 
 proxyStatusCommand()
 {
-	# check for a proxy server
+	# proxy server
 	local proxyServer="$(proxyServerGet)"
-	[[ ! $proxyServer ]] && { echo "proxy=none"; return; }
+	if [[ $proxyServer ]]; then
+		local desc="proxy=$proxyServer"
+		IsIpvSupported 4 && { desc+=" IPv4="; proxyServerCheck4 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
+		IsIpvSupported 6 && { desc+=" IPv6="; proxyServerCheck6 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
+		echo "$desc"	
+	else
+		echo "proxy=none"
+	fi
 		
-	# return proxy server status
-	local desc="proxy=$proxyServer"
-	IsIpvSupported 4 && { desc+=" IPv4="; proxyServerCheck4 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
-	IsIpvSupported 6 && { desc+=" IPv6="; proxyServerCheck6 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
-	echo "$desc"
-	
-	# return proxy configuration
+	# local proxy configuration
 	proxySetAllStatus && proxySetWpadStatus
 }
 
@@ -1081,7 +1082,7 @@ proxySetOpt()
 		-d|--disable) action="disable";;
 		-e|--enable) action="enable";;
 		-s|--status) action="status";;
-		-v|--validate) action="validate";;
+		-V|--validate) action="validate";;
 		*) return 1
 	esac
 }
@@ -1104,7 +1105,7 @@ proxySetAllStatus()
 		header "Proxy Variables"; proxyVarsStatus
 		isAptInstalled && { header "APT Proxy"; proxySetAptStatus; }
 	else
-		echo "proxy variables=$(proxyVarsStatus)"
+		echo "proxy variables=$(proxySetVarsStatus)"
 		isAptInstalled && echo "apt proxy=$(proxySetAptStatus)"
 	fi
 
@@ -1185,19 +1186,21 @@ proxySetVarsStatus()
 
 proxySetWpadUsage() { echot "Usage: $(ScriptName) proxy apt\nSet Web Proxy Auto-Discovery proxy configuration."; }
 proxySetWpadCommand() { [[ ! $action ]] && action="status"; proxySetWpad${action^}; }
-proxySetWpadEnable() { proxySetWpadConfigure "enable"; }
-proxySetWpadDisable() { proxySetWpadConfigure "disable"; }
+proxySetWpadEnable() { proxySetWpad "enable"; }
+proxySetWpadDisable() { proxySetWpad "disable"; }
 proxySetWpadValidate() { proxyValidate "proxySetWpad"; }
 
 proxySetWpadStatus()
 {
 	local host hosts; IFS=$'\n' ArrayMakeC hosts GetServers apache-web || return
 	for host in localhost "${hosts[@]}"; do
-		printf "$(GetHostname "$host"): "
+		local file="$(wpadFileGet "$host")"
+		log1 "checking host '$host' file '$file'..."
+		printf "$(GetOsName "$host"): "
 		RunLog RunScript "${globalArgs[@]}" --ssh "$host" "$(cat <<-EOF
-			if [[ ! -f "$wpadFile" ]]; then echo "missing"
-			elif grep --quiet "PROXY" "$wpadFile"; then echo "enabled"
-			elif grep --quiet "DIRECT" "$wpadFile"; then echo "disabled"
+			if [[ ! -f "$file" ]]; then echo "missing"
+			elif grep --quiet "PROXY" "$file"; then echo "enabled"
+			elif grep --quiet "DIRECT" "$file"; then echo "disabled"
 			else echo "invalid"
 			fi
 				EOF
@@ -1205,18 +1208,39 @@ proxySetWpadStatus()
 	done
 }
 
-proxyWpadConfigure()
+proxySetWpad()
 {
 	local operation="$1"
-	local src="$(CloudGet "$HOME/$(ConfigGet "confDir")/proxy/wpad.dat.$operation")"
+	local src="$HOME/$(ConfigGet "confDir")/proxy/wpad.dat.$operation"
 
-	# validate
-	[[ ! -f "$src" ]] && { ScriptErr "WPAD configuration file '$src' does not exist"; return 1; }
-	[[ ! -f "$wpadFile" ]] && { ScriptErr "local web deployment directory does not exist"; return 1; }
+	# validate the src file
+	if [[ -f "$src" ]]; then
+		CloudGet "$src" || return
+		log1 "using the WPAD $operation file '$(FileToDesc "$src")'"
+	else
+		ScriptMessage "the WPAD $operation file '$(FileToDesc "$src")' does not exist, attempting to use cached file"
+	fi
 
 	# deploy
-	cp "$src" "$wpadFile" && inst ApacheSync
+	local host hosts; IFS=$'\n' ArrayMakeC hosts GetServers apache-web || return
+	for host in localhost "${hosts[@]}"; do
+		proxySetWpadHost "$host" "$file" || return
+	done
 }
+
+proxySetWpadHost()
+{
+	local host="$1" file="$(wpadFileGet "$host")"
+	log1 "updating host '$host' file '$file'..."
+	printf "$(GetOsName "$host"): "
+	echo "done"
+}
+
+
+	# 	if IsLocalHost "$host"; then
+	# 		cp "$src"
+
+	# cp "$src" "$wpadFile" && inst ApacheSync
 
 #
 # proxy helper
@@ -1307,7 +1331,7 @@ varsDnsCommand()
 }
 
 varsProxyUsage() { echot "Usage: $(ScriptName) vars proxy\nShow current proxy server variables."; }
-varsProxyCommand() { proxyVarsEnable; }
+varsProxyCommand() { proxySetVarsEnable; }
 
 #
 # VPN vommands
@@ -1554,6 +1578,7 @@ workgroupSetCommand()
 
 doLog() { [[ ! $brief && ! $quiet ]]; } # return true if output should be logged
 domain() { UpdateGetForce "network_domain"; }
+wpadFileGet() { IsLocalHost "$1" && echo "$wpadFile" || echo "$UDATA/sync${wpadFile}"; } # wpadFileGet HOST - get the WPAD file for host
 
 # name - return the current network name
 name()

@@ -27,7 +27,7 @@ argEnd()
 	[[ ! $method ]] && { MissingOption "method"; return; }
 
 	# create the profile directory if needed - assume we have a file profile if the parent directory of the method is a directory
-	[[ ! -f "$method" && -d "$(GetParentDir "$(EnsureDir "$method")")" && ! -d "$method" ]] && { mkdir "$method" || return; }
+	[[ ! -f "$method" && -d "$(GetParentDir "$(DirEnsure "$method")")" && ! -d "$method" ]] && { mkdir "$method" || return; }
 
 	# registry - profile contains registry entries
 	if IsPlatform win && CanElevate && registry IsKey "$method";  then
