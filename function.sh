@@ -1960,8 +1960,9 @@ HttpHeader() { curl --silent --show-error --location --dump-header - --output /d
 IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 																										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }																		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
-IsIpAddressAny() { GetArgs; IsIpAddress4 "$1" || IsIpAddress6 "$1"; } 																									# IsIpAddressAny [IP] - return true if the IP is a valid IPv4 or IPv6 address
+IsIpAddressAny() { GetArgs; IsIpAddress4 "$1" || IsIpAddress6 "$1"; } 																								# IsIpAddressAny [IP] - return true if the IP is a valid IPv4 or IPv6 address
 IsIpAddress4() { IsIpAddress -4 "$@"; }; IsIpAddress6() { IsIpAddress -6 "$@"; } 																			# IsIpAddress4|6 [IP] - return true if the IP is a valid IP address
+IsIpvSupported() { [[ $(GetAdapterIpAddress -$1) ]]; }																																# IsIpvSupported 4|6 - return true if the specified internet protocol supported
 NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; }; 																																# NetworkCurrent - configured current network
 NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; }; 																																# NetworkOld - the previous network
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }																																		# RemovePort NAME:PORT - returns NAME
