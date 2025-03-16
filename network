@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-. "${BASH_SOURCE[0]%/*}/function.sh" script || exit
+. "${BASH_SOURCE[0]%/*}/function.sh" script color || exit
 
 usage()
 {
@@ -185,7 +185,23 @@ currentNameCommand() { name; }
 currentNameCachedUsage() { echot "Usage: $(ScriptName) current name cached\nThe cached name of the current network."; }
 currentNameCachedCommand() { nameCached; }
 currentStatusUsage() { echot "Usage: $(ScriptName) current all\nStatus of the current network."; }
-currentStatusCommand() { printf "network=$(name)\nproxy=$( [[ "$(getProxyServer)" == "" ]] && echo "none" || echo "$(getProxyServer)" )\ntimeout=$(AvailableTimeoutGet) ms\n"; }
+
+currentStatusCommand()
+{
+	echo "network=$(name)"
+
+	local proxyServer="$(proxyServerGet)"
+	if [[ $proxyServer ]]; then
+		local desc="proxy=$proxyServer"
+		IsIpvSupported 4 && { desc+=" IPv4="; proxyServerCheck4 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
+		IsIpvSupported 6 && { desc+=" IPv6="; proxyServerCheck6 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
+		echo "$desc"
+	else
+		echo "proxy=none"
+	fi
+
+	echo "timeout=$(AvailableTimeoutGet) ms"
+}
 
 # common options
 
@@ -317,7 +333,7 @@ currentUpdateStatus()
 	! doLog && return
 	hilight "Network status..."
 	force= currentStatusCommand || return
-	[[ $(getProxyServer) ]] && { network proxy --status "${globalArgs[@]}" || return; }
+	[[ $(proxyServerGet) ]] && { network proxy --status "${globalArgs[@]}" || return; }
 	return 0
 }
 
@@ -400,25 +416,47 @@ updateHosts()
 # updateDns NETWORK
 updateProxy()
 {
-	# find current proxy server
-	local proxyServer oldProxyServer; oldProxyServer="$(UpdateGetForce "network-proxy-server")" || return
-	if canProxy; then 
-		doLog && printf "proxy..."; proxyServer="$(findProxyServer "$network")" || return
-		doLog && { [[ $proxyServer ]] && echo "available" || echo "none"; }
-	fi
-
-	# return if no changes are required
-	[[ ! $force && "$proxyServer" == "$oldProxyServer" ]] && return
-
-	# save proxy server
-	UpdateSet "network-proxy-server" "$proxyServer" || return
-	if [[ $proxyServer ]]; then
+	# get old and new proxy server, return if not change
+	local oldProxyServer; oldProxyServer="$(UpdateGetForce "network-proxy-server")" || return
+	local newProxyServer; proxyNeeded && { newProxyServer="$(proxyServerNetwork)"; updateProxyCheck "$newProxyServer" || unset newProxyServer; }
+	[[ ! $force && "$newProxyServer" == "$oldProxyServer" ]] && return
+	
+	# save new proxy server
+	UpdateSet "network-proxy-server" "$newProxyServer" || return
+	if [[ $newProxyServer ]]; then
 		network proxy apt --enable "${globalArgs[@]}" || return
 		ScriptEval network proxy vars --enable || return
 	else
 		network proxy apt --disable "${globalArgs[@]}" || return
 		ScriptEval network proxy vars --disable || return
 	fi
+}
+
+# updateProxyCheck SERVER- check if the proxy server is working
+updateProxyCheck()
+{
+	local server="$1"
+	doLog && printf "proxy...";
+
+	# return if the proxy server is not specified
+	[[ $server ]] || { doLog && echo "${RED}not specified${RESET}"; return 1; }
+
+	# return if the proxy server is not available
+	IsAvailablePort "$server" $timeout || { doLog && echo "${RED}not available${RESET}"; return 1; }
+	printf "available..."
+
+	# check proxy for IPv4 and IPv6
+	updateProxyCheckIpv 4 "$proxyServer" && updateProxyCheckIpv 6 "$proxyServer" && { doLog && echo "ok"; return 0; }
+	doLog && echo "not ok"; return 1
+}
+
+# updateProxyCheckIpv 4|6 SERVER - return true if IPv4|6 is supported
+updateProxyCheckIpv()
+{
+	local v="$1" server="$2"
+	! IsIpvSupported $v && return
+	doLog && printf "IPv$v..."; proxyServerCheck$v "server" && { doLog && echo "ok..."; return 0; }
+	doLog && printf "${RED}fail${RESET}..."; return 1
 }
 
 # updatePython NETWORK
@@ -449,13 +487,6 @@ findNetwork()
 	local network networks=(); StringToArray "$(ConfigGet "networks")" "," networks
 	network="$(RunLog network find --service=dns --timeout=$timeout $brief "${networks[@]}" "${globalArgs[@]}")" || { echo "external"; return; }
 	GetSshUser "$network" # return the name of the network (before @)
-}
-
-findProxyServer()
-{
-	local network="$1"
-	local server="$(ConfigGet "${network}ProxyServer")"; [[ ! $server ]] && return
-	IsAvailablePort "$server" $timeout && curl --silent -x "http://$server" "http://httpbin.org/ip" |& jq > /dev/null && echo "$server"
 }
 
 # findServer NETWORK TYPE SERVICE - find the first server of the specified type for the specified network  
@@ -1054,7 +1085,7 @@ proxyAptStatus()
 proxyAptEnable()
 {	
 	# disable APT proxy if cannot get an APT proxy server
-	local proxyServer; proxyServer="$(getProxyServerApt)" || { proxyAptDisable; return; }
+	local proxyServer; proxyServer="$(proxyServerGetApt)" || { proxyAptDisable; return; }
 
 	# return if APT proxy is already enabled
 	[[ ! $force ]] && [[ -f "$aptFile" ]] && grep -q "$proxyServer" "$aptFile" && return
@@ -1112,7 +1143,7 @@ Configure shell proxy variables.
 
 proxyVarsCommand() { [[ ! $action ]] && action="enable"; proxyVars${action^}; }
 proxyVarsDisable() { proxyVarsShow; }
-proxyVarsEnable() { proxyVarsShow "$(getProxyServer)"; }
+proxyVarsEnable() { proxyVarsShow "$(proxyServerGet)"; }
 
 # proxyVarsShow [server] - show proxy variables for the specified server, if server is not specified proxy variables are unset
 proxyVarsShow()
@@ -1138,6 +1169,35 @@ proxyVarsStatus()
 		echo "disabled"
 	fi
 }
+
+# proxy helper commands
+
+# proxyNeeded - return true if we need to use a proxy on the current network 
+proxyNeeded()
+{
+	# no proxy needed for external.  Other checks can include
+	# - hostname: "$HOSTNAME" != "<host name>"
+	# - domain: "$(domain)" != "<domain name>"
+	# - "$(GetDnsSearch)" != "<DNS search sufix>"
+	[[ "$(nameCached)" != "external" ]]
+}
+
+# proxyNeededApt - return true if we need to use an APT proxy
+# - APT proxy is not needed if we are using internally sources (that are in our domain.)
+proxyNeededApt()
+{
+	proxyNeeded && isAptInstalled && ! grep --quiet "$(GetNetworkDnsBaseDomain)" "/etc/apt/sources.list"
+}
+
+proxyServerGet() { proxyNeeded && UpdateGetForce "network-proxy-server"; }
+proxyServerGetApt() { proxyNeededApt && UpdateGetForce "network-proxy-server"; }
+
+# proxyServerNetwork - return the proxy server for the current network
+proxyServerNetwork() { ConfigGet "$(nameCached)ProxyServer"; }
+
+# proxyServerCheck4|4 SERVER - return true  if the proxy server is working for IPv4|6 addresses
+proxyServerCheck4() { local server="$1"; curl --silent --proxy "http://$server" "http://httpbin.org/ip" |& jq > /dev/null; }
+proxyServerCheck6() {	local server="$1"; curl -6 --silent --proxy "http://$server" "http://www.google.com" |& qgrep "google" >& /dev/null; }
 
 #
 # vars commands
@@ -1448,9 +1508,6 @@ workgroupSetCommand()
 
 doLog() { [[ ! $brief && ! $quiet ]]; } # return true if output should be logged
 domain() { UpdateGetForce "network_domain"; }
-getProxyServer() { canProxy && UpdateGetForce "network-proxy-server"; }
-getProxyServerApt() { canProxyApt && UpdateGetForce "network-proxy-server"; }
-canProxyApt() { canProxy && isAptInstalled && ! grep --quiet "$(GetNetworkDnsBaseDomain)" "/etc/apt/sources.list"; } # canProxyApt - APT proxy not needed if using an internally hosted source
 
 # name - return the current network name
 name()
@@ -1468,16 +1525,6 @@ name()
 }
 
 nameCached() { UpdateGetForce "$networkCache"; }
-
-# canProxy - return true if we can use a proxy on the current network 
-canProxy()
-{
-	# no proxy needed for external.  Other checks can include
-	# - hostname: "$HOSTNAME" != "<host name>"
-	# - domain: "$(domain)" != "<domain name>"
-	# - "$(GetDnsSearch)" != "<DNS search sufix>"
-	[[ "$(nameCached)" != "external" ]]
-}
 
 # getServersFromConfig NETWORK TYPE - get servers of the specified type for the specified network from configuration, 
 # i.e "getServers butare lb" would look for the butareLbServers configuration variable
