@@ -408,7 +408,7 @@ updateProxy()
 {
 	# get old and new proxy server, return if not change
 	local oldProxyServer; oldProxyServer="$(UpdateGetForce "network-proxy-server")" || return
-	local newProxyServer; proxyNeeded && { newProxyServer="$(proxyServerNetwork)"; proxyCheck "$newProxyServer" || unset newProxyServer; }
+	local newProxyServer; isProxyNeeded && { newProxyServer="$(proxyServerNetwork)"; proxyCheck "$newProxyServer" || unset newProxyServer; }
 	[[ ! $force && "$newProxyServer" == "$oldProxyServer" ]] && return
 	
 	# save new proxy server
@@ -1043,11 +1043,12 @@ proxyStatusUsage() { echot "Usage: $(ScriptName) proxy status\nReturn the proxy 
 proxyStatusCommand()
 {
 	# proxy server
-	local proxyServer="$(proxyServerGet)"
-	if [[ $proxyServer ]]; then
-		local desc="proxy=$proxyServer"
-		IsIpvSupported 4 && { desc+=" IPv4="; proxyServerCheck4 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
-		IsIpvSupported 6 && { desc+=" IPv6="; proxyServerCheck6 "$proxyServer" && desc+="ok" || desc+="${RED}fail${RESET}"; }
+	local server="$(proxyServerNetwork)"
+	if [[ $server ]]; then
+		local desc="proxy=$server"		
+		IsIpvSupported 4 && { desc+=" IPv4="; proxyCheck4 "$server" && desc+="ok" || desc+="${RED}fail${RESET}"; }
+		IsIpvSupported 6 && { desc+=" IPv6="; proxyCheck6 "$server" && desc+="ok" || desc+="${RED}fail${RESET}"; }
+		desc+=" cached=$([[ $(proxyServerGet) ]] && echo "yes" || echo "no")"
 		echo "$desc"	
 	else
 		echo "proxy=none"
@@ -1135,14 +1136,23 @@ proxySetAptStatus()
 proxySetAptEnable()
 {	
 	# disable APT proxy if cannot get an APT proxy server
-	local proxyServer; proxyServer="$(proxyServerGetApt)" || { proxySetAptDisable; return; }
+	local server; server="$(proxyServerGetApt)" || { proxySetAptDisable; return; }
 
 	# return if APT proxy is already enabled
-	[[ ! $force ]] && [[ -f "$aptFile" ]] && grep -q "$proxyServer" "$aptFile" && return
+	[[ ! $force ]] && [[ -f "$aptFile" ]] && grep -q "$server" "$aptFile" && return
 
 	# set APT proxy server
-	echo "Acquire::http::Proxy \"http://$proxyServer\";
-Acquire::https::Proxy \"http://$proxyServer\";" | sudoc tee "$aptFile" >& /dev/null
+	echo "Acquire::http::Proxy \"http://$server\";
+Acquire::https::Proxy \"http://$server\";" | sudoc tee "$aptFile" >& /dev/null
+}
+
+isAptInstalled() { [[ -d "/etc/apt" ]]; }
+
+# isAptProxyNeeded - return true if we need to use an APT proxy
+# - APT proxy is not needed if we are using internally sources (that are in our domain.)
+isAptProxyNeeded()
+{
+	isProxyNeeded && isAptInstalled && ! grep --quiet "$(GetNetworkDnsBaseDomain)" "/etc/apt/sources.list"
 }
 
 #
@@ -1151,20 +1161,13 @@ Acquire::https::Proxy \"http://$proxyServer\";" | sudoc tee "$aptFile" >& /dev/n
 
 proxySetVarsUsage() { echot "Usage: $(ScriptName) proxy vars\nSet the proxy variables."; }
 proxySetVarsCommand() { [[ ! $action ]] && action="status"; proxySetVars${action^}; }
-proxySetVarsDisable() { proxySetVarsShow; }
-proxySetVarsEnable() { proxySetVarsShow "$(proxyServerGet)"; }
+proxySetVarsDisable() { echo "unset {$allProxyVars}"; }
 proxySetVarsValidate() { proxyValidate "proxySetVars"; }
 
-# proxyVarsShow [server] - show proxy variables for the specified server, if server is not specified proxy variables are unset
-proxySetVarsShow()
+proxySetVarsEnable()
 {
-	local proxyServer="$1"
-
-	if [[ $proxyServer ]]; then
-		echo "export {$proxyVars}=\"http://$proxyServer\"; eval export {$noProxyVars}=\"$(ConfigGetCurrent "NoProxy")\""
-	else
-		echo "unset {$allProxyVars}"
-	fi
+	local server; server="$(proxyServerGet)" || { proxySetVarsDisable; return; } # disable if cannot get a proxy server
+	echo "export {$proxyVars}=\"http://$proxyServer\"; eval export {$noProxyVars}=\"$(ConfigGetCurrent "NoProxy")\""; "$(proxyServerGet)"; 
 }
 
 proxySetVarsStatus()
@@ -1184,7 +1187,7 @@ proxySetVarsStatus()
 # proxy set WPAD command
 #
 
-proxySetWpadUsage() { echot "Usage: $(ScriptName) proxy apt\nSet Web Proxy Auto-Discovery proxy configuration."; }
+proxySetWpadUsage() { echot "Usage: $(ScriptName) proxy apt\nSet Web Proxy Auto-Discovery configuration."; }
 proxySetWpadCommand() { [[ ! $action ]] && action="status"; proxySetWpad${action^}; }
 proxySetWpadEnable() { proxySetWpad "enable"; }
 proxySetWpadDisable() { proxySetWpad "disable"; }
@@ -1192,16 +1195,19 @@ proxySetWpadValidate() { proxyValidate "proxySetWpad"; }
 
 proxySetWpadStatus()
 {
+	! isWpadAvailable && return
+
+	header "WPAD Status"	
 	local host hosts; IFS=$'\n' ArrayMakeC hosts GetServers apache-web || return
 	for host in localhost "${hosts[@]}"; do
 		local file="$(wpadFileGet "$host")"
 		log1 "checking host '$host' file '$file'..."
-		printf "$(GetOsName "$host"): "
-		RunLog RunScript "${globalArgs[@]}" --ssh "$host" "$(cat <<-EOF
-			if [[ ! -f "$file" ]]; then echo "missing"
+		(( verboseLevel < 4 )) && printf "$(GetOsName "$host"): "
+		RunScript "${globalArgs[@]}" --ssh "$host" "$(cat <<-EOF
+			if [[ ! -f "$file" ]]; then echo "disabled (wpad.dat missing)"
 			elif grep --quiet "PROXY" "$file"; then echo "enabled"
 			elif grep --quiet "DIRECT" "$file"; then echo "disabled"
-			else echo "invalid"
+			else echo "invalid (wpad.data is missing PROXY or DIRECT)"
 			fi
 				EOF
 			)" || return
@@ -1210,44 +1216,36 @@ proxySetWpadStatus()
 
 proxySetWpad()
 {
+	! isWpadAvailable && return
+
 	local operation="$1"
-	local src="$HOME/$(ConfigGet "confDir")/proxy/wpad.dat.$operation"
+	local localFile="$(wpadFileGet)"
+	local localDir="$(GetFilePath "$localFile")"
+	local wpadFile="$HOME/$(ConfigGet "confDir")/proxy/wpad.dat.$operation"
 
-	# validate the src file
-	if [[ -f "$src" ]]; then
-		CloudGet "$src" || return
-		log1 "using the WPAD $operation file '$(FileToDesc "$src")'"
-	else
-		ScriptMessage "the WPAD $operation file '$(FileToDesc "$src")' does not exist, attempting to use cached file"
-	fi
+	# validation
+	[[ ! -f "$wpadFile" ]] && { ScriptErr "WPAD configuration file '$wpadFile' does not exist"; return 1; }
+	[[ ! -d "$localDir" ]] && { ScriptErr "local web deployment directory '$(FileToDesc "$localDir")' does not exist"; return 1; }
 
-	# deploy
-	local host hosts; IFS=$'\n' ArrayMakeC hosts GetServers apache-web || return
-	for host in localhost "${hosts[@]}"; do
-		proxySetWpadHost "$host" "$file" || return
-	done
+	# download the WPAD configuration file
+	[[ -f "$wpadFile" ]] && { CloudGet "$wpadFile" || return; }
+	log1 "using the WPAD $operation file '$(FileToDesc "$wpadFile")'"
+
+	# copy the new WPAD configuration file to the local file
+	sudoc cp "$wpadFile" "$localFile" || return
+
+	# syncrhonize the apache WPAD directories
+	apache sync wpad "${globalArgs[@]}" || return
 }
 
-proxySetWpadHost()
-{
-	local host="$1" file="$(wpadFileGet "$host")"
-	log1 "updating host '$host' file '$file'..."
-	printf "$(GetOsName "$host"): "
-	echo "done"
-}
-
-
-	# 	if IsLocalHost "$host"; then
-	# 		cp "$src"
-
-	# cp "$src" "$wpadFile" && inst ApacheSync
+isWpadAvailable() { IsOnNetwork butare; }
 
 #
 # proxy helper
 #
 
-# proxyNeeded - return true if we need to use a proxy on the current network 
-proxyNeeded()
+# isProxyNeeded - return true if we need to use a proxy on the current network 
+isProxyNeeded()
 {
 	# no proxy needed for external.  Other checks can include
 	# - hostname: "$HOSTNAME" != "<host name>"
@@ -1256,15 +1254,8 @@ proxyNeeded()
 	[[ "$(nameCached)" != "external" ]]
 }
 
-# proxyNeededApt - return true if we need to use an APT proxy
-# - APT proxy is not needed if we are using internally sources (that are in our domain.)
-proxyNeededApt()
-{
-	proxyNeeded && isAptInstalled && ! grep --quiet "$(GetNetworkDnsBaseDomain)" "/etc/apt/sources.list"
-}
-
-proxyServerGet() { proxyNeeded && UpdateGetForce "network-proxy-server"; }
-proxyServerGetApt() { proxyNeededApt && UpdateGetForce "network-proxy-server"; }
+proxyServerGet() { isProxyNeeded && UpdateGetForce "network-proxy-server"; }
+proxyServerGetApt() { isAptProxyNeeded && UpdateGetForce "network-proxy-server"; }
 
 # proxyServerNetwork - return the proxy server for the current network
 proxyServerNetwork() { ConfigGet "$(nameCached)ProxyServer"; }
@@ -1578,7 +1569,7 @@ workgroupSetCommand()
 
 doLog() { [[ ! $brief && ! $quiet ]]; } # return true if output should be logged
 domain() { UpdateGetForce "network_domain"; }
-wpadFileGet() { IsLocalHost "$1" && echo "$wpadFile" || echo "$UDATA/sync${wpadFile}"; } # wpadFileGet HOST - get the WPAD file for host
+wpadFileGet() { IsLocalHost "$1" && echo "$UDATA/sync${wpadFile}" || echo "$wpadFile"; } # wpadFileGet HOST - get the WPAD file for host
 
 # name - return the current network name
 name()
@@ -1604,8 +1595,6 @@ getServersFromConfig()
 	local network="$1" type="$2"
 	ConfigGet "${network}$(UpperCaseFirst "$type")Servers"
 }
-
-isAptInstalled() { [[ -d "/etc/apt" ]]; }
 
 # defaultService=PING parseServer SERVER - SERVER format is [DESCRIPTION@]HOST_OR_IP[:SERVICE], i.e. butare:10.10.10:DNS
 parseServer()
