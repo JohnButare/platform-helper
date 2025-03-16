@@ -1388,7 +1388,8 @@ fi
 CanWrite() { [[ -w "$1" ]]; }
 CopyFileProgress() { rsync --info=progress2 "$@"; }
 DirCount() { local result; result="$(command ls "${1:-.}" |& wc -l)"; ! IsNumeric "$result" && result="0"; RemoveSpace "$result"; }
-DirEnsure() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; }
+DirEnsure() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; } # DirEnsure DIR - ensure dir has a trailing slash
+DirMake() { local dir r; for dir in "$@"; do r="$(DirEnsure "$r")$(RemoveFront "$dir" "/")"; done; echo "$r";  } # DirMake DIR... - combine all directories into a single directory (ensures no duplicatate or missing /)
 DirSave() { [[ ! $1 ]] && set -- "$TEMP"; pushd "$@" > /dev/null; }
 DirRestore() { popd "$@" > /dev/null; }
 GetBatchDir() { GetFilePath "$0"; }
