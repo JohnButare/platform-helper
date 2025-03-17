@@ -790,7 +790,7 @@ installInit()
 	# network
 	deb+=(CloudInit DnsServer DhcpServer DomotzAgent gio kea KeaService keepalived mDNS mtr NetbootxyzTftpServer pivpn TftpClient TftpServer UncomplicatedFirewall wifi)
 	mac+=(proxifier WiFiExplorer)
-	macDeb+=(curlie gping JumpCloud MozillaVpn netbootxyz NetbootxyzDocker unifi wtfis)
+	macDeb+=(curlie gping JumpCloud MozillaVpn netbootxyz NetbootxyzDocker traefik unifi wtfis)
 	macWin+=(domotz GlobalProtect NordVpn WireGuard WireShark)
 	ubuntu+=(NicUsb StaticIp wifi)
 	win+=(GlassWire Ninite Tribler Zscaler)
@@ -1450,7 +1450,7 @@ isInstallable()
 	[[ "$check" =~ ^(mac.*)$ ]] && IsPlatform mac && return
 	[[ "$check" =~ ^(ubuntu.*)$ ]] && IsPlatform ubuntu && return
 	[[ "$check" =~ ^(win.*|SqlServer.*)$ ]] && IsPlatform win && return
-	[[ "$check" =~ ^(patroni|postgres|tomcat) && "$check" != "postgresadmin" ]] && IsPlatform deb && return
+	[[ "$check" =~ ^(node|patroni|postgres|tomcat) && "$check" != "postgresadmin" ]] && IsPlatform deb && return
 
 	# platform list checks
 	IsInArray -ci "$check" all && return
@@ -7279,13 +7279,16 @@ nodeCheckSystem()
 	nvm exec --silent system
 }
 
+Node23Install() { version=23.9.0 NodeInstall; }
+Node22Install() { version=22.14.0 NodeInstall; }
+
 NodeInstall()
 {
 	header "Node.js"
+	[[ ! $version ]] && local version="22.14.0"
 
 	# alternate (Windows) install - https://nodejs.org/en/download/
 	if IsPlatform win && [[ "$installType" == "alternate" ]]; then
-		local v="18.17.1"; IsPlatform arm && v="16.2.0"; 
 		run "shareware/Node.js/setup/node-v$v-$(getArch "x64.msi" "win-arm64.zip")" --dest "nodejs" || return		
 		return
 	fi
@@ -7301,7 +7304,7 @@ NodeInstall()
 	NodeUpdate || return
 }
 
-NodeInstallFinalWin() { mergeDir "$pp/Node.js" "$do"; }
+NodeFinalWin() { mergeDir "$pp/Node.js" "$do"; }
 
 NodeDevInstall()
 {
@@ -7341,7 +7344,7 @@ NvmFinalWin() { mergeDir "$pp/NVM For Windows" "$do"; }
 # Network
 #################################################
 
-NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler gio GlassWire GlobalProtect gping httpie JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn netbootxyz NetbootxyzDocker NetbootxyzTftpServer nginx NicUsb Ninite NordVpn pivpn Proxifier StaticIp TftpClient TftpServer TigerVnc Tribler TurboVnc UncomplicatedFirewall unifi wifi WiFiExplorer WireGuard Wireshark wtfis; }
+NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler gio GlassWire GlobalProtect gping httpie JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn netbootxyz NetbootxyzDocker NetbootxyzTftpServer nginx NicUsb Ninite NordVpn pivpn Proxifier StaticIp TftpClient TftpServer TigerVnc Traefik Tribler TurboVnc UncomplicatedFirewall unifi wifi WiFiExplorer WireGuard Wireshark wtfis; }
 GlobalProtectInstall() { run --name "Global Protect" "other/Palo Alto Networks/GlobalProtect/GlobalProtect64.msi|GlobalProtect.pkg"; }
 GlobalProtectFinalWin() { mergeDir "$pp/Palo Alto Networks" "$oo"; }
 HttpieInstall() { run --python-global "httpie"; }
@@ -7963,6 +7966,8 @@ TftpserverInstall()
 
 	nomadRegisterApp "tftp" "tftpd-hpa"
 }
+
+TraefikInstall() { run --name "Traefik" --executable "shareware/Traefik/image"; } # https://github.com/traefik/traefik/releases
 
 TriblerInstall() { run --name "Tribler" "shareware/tribler/Tribler_7.2.2_x64.exe"; } # https://www.tribler.org/
 
@@ -8723,6 +8728,13 @@ VisualStudioProfile() { VisualStudio profile restore default "${globalArgs[@]}";
 
 VisualStudioFinalWin()
 {
+	if CanElevate; then
+		$mv "$pp/Visual Studio Installer.lnk" "$pp/Development" || return
+		mergeDir "$pp/Visual Studio 2019" "$do" || return
+		mergeDir "$pp/Windows Kits" "$do" || return
+	fi
+
+	# version specific icons 
 	! VisualStudio IsInstalled && return
 	ScriptEval VisualStudio init || return
 
@@ -8736,7 +8748,6 @@ VisualStudioFinalWin()
 	makeDir "$dir" || return
 	$mv "$pp/Blend for Visual Studio $vsName"*".lnk" "$dir" || return
 	$mv "$pp/Visual Studio $vsName"*".lnk" "$dir" || return
-	$mv "$pp/Visual Studio Installer.lnk" "$pp/Development" || return
 	mergeDir --rename "$pp/Microsoft Azure" "$do/Azure" || return
 	mergeDir "$pp/Visual Studio $vsName" "$do" || return
 	mergeDir "$pp/Windows Kits" "$do" || return
@@ -9179,9 +9190,8 @@ PythonFinalWin()
 		$hide ~/.cache ~/.pip || return
 	fi
 
-	mergeDir "$pp/Python 3.7" "$do" || return
-	mergeDir "$pp/Python 3.9" "$do" || return
-	mergeDir "$pp/Python 3.10" "$do" || return
+	local version versions=(3.7 3.9 3.10 3.13)
+	for version in "${versions[@]}"; do mergeDir "$pp/Python $version" "$do" || return; done
 }
 
 PythonAsdfInstall()
@@ -12660,7 +12670,9 @@ DockerHelpMac()
 	local clip; clip="$ADATA"; clipw "$clip"
 	echot "\
 - General, check Use containerd for pulling and storing images
-- Settings, Resources, Advanced, Disk image location, Browse, ctrl-shift-g, <paste> ($clip), Apply & Restart"
+- Settings, Resources
+	- Advanced, Disk image location, Browse, ctrl-shift-g, <paste> ($clip), Apply & Restart
+	- Proxies, Web Server (HTTP)=Secure Web Server (HTTPS)=$(UpdateGetForce "network-proxy-server")"
 }
 
 DockerHelpWin()
@@ -12668,8 +12680,9 @@ DockerHelpWin()
 	echot "\
 - General, check Use containerd for pulling and storing images
 - Settings, Resources
-	- WSL integration, select all
-	- uncheck Enable resource saver (resource saver hangs systemctl)"
+	- Advanced, uncheck Enable resource saver (resource saver hangs systemctl)
+	- Proxies, Web Server (HTTP)=Secure Web Server (HTTPS)=$(UpdateGetForce "network-proxy-server")
+	- WSL integration, select all"
 }
 
 DockerDownload()
