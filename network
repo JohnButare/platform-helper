@@ -22,6 +22,10 @@ init()
 	allProxyVars="$proxyVars,$noProxyVars"
 	aptFile="/etc/apt/apt.conf.d/proxy"	
 
+	checkUrl4="http://www.msftconnecttest.com/connecttest.txt"
+	checkUrl6="http://ipv6.msftncsi.com/connecttest.txt"
+	checkUrlResult="Microsoft Connect Test"
+
 	networkCache="${NETWORK_CACHE:-network}" networkCacheOld="${NETWORK_CACHE_OLD:-network-old}"
 }
 
@@ -1030,8 +1034,8 @@ proxyCheckStatus()
 }
 
 # proxyCheck4|4 SERVER - return true  if the proxy server is working for IPv4|6 addresses
-proxyCheck4() { local server="$1"; [[ "$(curl --silent --proxy "http://$server" "http://www.msftconnecttest.com/connecttest.txt")" == "Microsoft Connect Test" ]]; }
-proxyCheck6() {	local server="$1"; [[ "$(curl --silent --proxy "http://$server" "http://ipv6.msftncsi.com/connecttest.txt")" == "Microsoft Connect Test" ]]; }
+proxyCheck4() { local server="$1"; [[ "$(curl --silent --proxy "http://$server" "$checkUrl4")" == "$checkUrlResult" ]]; }
+proxyCheck6() {	local server="$1"; [[ "$(curl --silent --proxy "http://$server" "$checkUrl6")" == "$checkUrlResult" ]]; }
 
 #
 # proxy status command
@@ -1068,7 +1072,7 @@ proxyStatusCommand()
 
 proxySetUsage()
 { 
-	echot "Usage: $(ScriptName) proxy set [all|apt|vars|wpad](all)
+	echot "Usage: $(ScriptName) proxy set [all|apt|os|vars|wpad](all)
 Set proxy server configuration.
 
 $(currentUsageBrief)
@@ -1098,20 +1102,22 @@ proxySetCommand() { proxySetAllCommand; }
 # proxy set all command
 #
 
-proxySetAllUsage() { echot "Usage: $(ScriptName) proxy all\nSet all local proxy configuration (APT, vars)."; }
+proxySetAllUsage() { echot "Usage: $(ScriptName) proxy all\nSet all local proxy configuration (APT, os, vars)."; }
 proxySetAllCommand() { [[ ! $action ]] && action="status"; proxySetAll${action^}; }
-proxySetAllDisable() { proxySetAptDisable && proxySetVarsDisable; }
-proxySetAllEnable() { proxySetAptEnable && proxySetVarsEnable; }
-proxySetAllValidate() { proxySetAptValidate && proxySetVarsValidate; }
+proxySetAllDisable() { proxySetAptDisable && proxySetOsDisable && proxySetVarsDisable; }
+proxySetAllEnable() { proxySetAptEnable && proxySetOsEnable && proxySetVarsEnable; }
+proxySetAllValidate() { proxySetAptValidate && proxySetOsValidate && proxySetVarsValidate; }
 
 proxySetAllStatus()
 {
 	if [[ $verbose ]]; then
-		header "Proxy Variables"; proxySetVarsStatus
 		isAptInstalled && { header "APT Proxy"; proxySetAptStatus; }
+		header "Operating System"; proxySetOsStatus
+		header "Proxy Variables"; proxySetVarsStatus
 	else
-		echo "proxy variables=$(proxySetVarsStatus)"
 		isAptInstalled && echo "apt proxy=$(proxySetAptStatus)"
+		echo "os=$(proxySetOsStatus)"
+		echo "proxy variables=$(proxySetVarsStatus)"
 	fi
 
 	return 0
@@ -1158,6 +1164,30 @@ isAptProxyNeeded()
 {
 	isProxyNeeded && isAptInstalled && ! grep --quiet "$(GetNetworkDnsBaseDomain)" "/etc/apt/sources.list"
 }
+
+#
+# proxy set os command
+#
+
+proxySetOsUsage() { echot "Usage: $(ScriptName) proxy apt\nSet Operating System proxy configuration."; }
+proxySetOsCommand() { [[ ! $action ]] && action="status"; proxySetOs${action^}; }
+proxySetOsValidate() { proxyValidate "proxySetOs"; }
+
+proxySetOsStatus() { RunPlatform proxySetOsStatus; }
+
+proxySetOsStatusWin()
+{
+	local proxyUrl; proxyUrl="$(powershell '[System.Net.WebRequest]::DefaultWebProxy.GetProxy("'$checkUrl4'").AbsoluteUri' | RemoveCarriageReturn)" || return
+	[[ "$checkUrl4" == "$proxyUrl" ]] && echo "disabled" || echo "enabled"
+}
+
+proxySetOsEnable() { RunPlatform proxySetOsEnable; }
+proxySetOsDisableWin() { winResetAutoProxy; }
+
+proxySetOsDisable() { RunPlatform proxySetOsDisable; }
+proxySetOsEnableWin() { winResetAutoProxy; }
+
+winResetAutoProxy() { netsh.exe winhttp reset autoproxy >& /dev/null; } # force reload of autoproxy
 
 #
 # proxy set vars command
@@ -1240,7 +1270,11 @@ proxySetWpad()
 
 	# syncrhonize the apache WPAD directories
 	apache sync wpad "${globalArgs[@]}" || return
+
+	RunPlatform proxySetWpadUpdate
 }
+
+proxySetWpadUpdateWin() { winResetAutoProxy; }
 
 isWpadAvailable() { IsOnNetwork butare; }
 
