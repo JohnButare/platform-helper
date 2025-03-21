@@ -406,21 +406,7 @@ updateHosts()
 }
 
 # updateDns NETWORK
-updateProxy()
-{
-	# get old and new proxy server, return if not change
-	local oldProxyServer; oldProxyServer="$(UpdateGetForce "network-proxy-server")" || return
-	local newProxyServer; isProxyNeeded && { newProxyServer="$(proxyServerNetwork)"; proxyCheck "$newProxyServer" || unset newProxyServer; }
-	[[ ! $force && "$newProxyServer" == "$oldProxyServer" ]] && return
-
-	# save new proxy server
-	UpdateSet "network-proxy-server" "$newProxyServer" || return
-	if [[ $newProxyServer ]]; then
-		ScriptEval network proxy set all --enable "${globalArgs[@]}" || return
-	else
-		ScriptEval network proxy set all --disable "${globalArgs[@]}" || return
-	fi
-}
+updateProxy() { proxyUpdate; }
 
 # updatePython NETWORK
 updatePython()
@@ -988,7 +974,7 @@ profileSetCommand()
 
 proxyUsage()
 { 
-	echot "Usage: $(ScriptName) proxy [check|set|status|validate](status)
+	echot "Usage: $(ScriptName) proxy [check|set|status|update|validate](status)
 Network proxy server commands."
 }
 
@@ -996,7 +982,7 @@ proxyCommand() { proxyStatusCommand; }
 
 proxyValidateUsage() { echot "Usage: $(ScriptName) proxy validate\nCheck the proxy server and enable or disable local configuration."; }
 proxyValidateCommand() { proxyValidate "proxySetAll"; }
-proxyValidate() { local command="$1"; proxyCheck && command+="Enable" || command+="Disable"; "$command"; }
+proxyValidate() { local command="$1"; proxyUpdate || return; isProxyConfigured && command+="Enable" || command+="Disable"; "$command"; }
 
 #
 # proxy check command
@@ -1005,32 +991,30 @@ proxyValidate() { local command="$1"; proxyCheck && command+="Enable" || command
 proxyCheckUsage() { echot "Usage: $(ScriptName) proxy check\nReturn true if the proxy server is needed on the current network and usable."; }
 proxyCheckCommand() { proxyCheck; }
 
-# proxyCheck server - check if the proxy server is working
 proxyCheck()
 {
 	local server="$1"; [[ ! $server ]] && server="$(proxyServerNetwork)"
-	doLog && printf "proxy...";
+	doLog && PrintErr "proxy...";
 
 	# return if the proxy server is not specified
-	[[ $server ]] || { doLog && echo "${RED}not specified${RESET}"; return 1; }
+	[[ $server ]] || { doLog && PrintErr "${RED}not specified${RESET}"; return 1; }
 
 	# return if the proxy server is not available
-	IsAvailablePort "$server" $timeout || { doLog && echo "${RED}not available${RESET}"; return 1; }
-	doLog && printf "available..."
+	IsAvailablePort "$server" $timeout || { doLog && PrintErr "${RED}not available${RESET}"; return 1; }
+	doLog && PrintErr "available..."
 
 	# check proxy for IPv4 and IPv6
-	proxyCheckStatus 4 "$server" && proxyCheckStatus 6 "$server" && { doLog && echo "working"; return 0; }
-	doLog && echo "not working"; return 1
+	proxyCheckStatus 4 "$server" && proxyCheckStatus 6 "$server" && { doLog && EchoErrEnd "working"; return 0; }
+	doLog && EchoErrEnd "not working"; return 1
 }
 
 # proxyCheckStatus 4|6 SERVER - return true if IPv4|6 is supported on the server
 proxyCheckStatus()
 {
 	local v="$1" server="$2"
-	[[ $v == 6 ]] && return
 	! IsIpvSupported $v && return
-	doLog && printf "IPv$v..."; proxyCheck$v "$server" && { doLog && printf "ok..."; return 0; }
-	doLog && printf "${RED}fail${RESET}..."; return 1
+	doLog && PrintErr "IPv$v..."; proxyCheck$v "$server" && { doLog && PrintErr "ok..."; return 0; }
+	doLog && PrintErr "${RED}fail${RESET}..."; return 1
 }
 
 # proxyCheck4|4 SERVER - return true  if the proxy server is working for IPv4|6 addresses
@@ -1284,8 +1268,34 @@ proxySetWpadUpdateWin() { winResetAutoProxy; }
 isWpadAvailable() { IsOnNetwork butare; }
 
 #
+# proxy update command
+#
+
+proxyUpdateUsage() { echot "Usage: $(ScriptName) proxy update\nCheck if the proxy server is needed on the current network and usable and update the saved proxy network configuration."; }
+proxyUpdateCommand() { proxyUpdate; }
+
+proxyUpdate()
+{
+	# get old and new proxy server, return if not change
+	local oldProxyServer; oldProxyServer="$(UpdateGetForce "network-proxy-server")" || return
+	local newProxyServer; isProxyNeeded && { newProxyServer="$(proxyServerNetwork)"; proxyCheck "$newProxyServer" || unset newProxyServer; }
+	[[ ! $force && "$newProxyServer" == "$oldProxyServer" ]] && return
+
+	# save new proxy server
+	UpdateSet "network-proxy-server" "$newProxyServer" || return
+	if [[ $force || $newProxyServer ]]; then
+		ScriptEval network proxy set all --enable "${globalArgs[@]}" || return
+	else
+		ScriptEval network proxy set all --disable "${globalArgs[@]}" || return
+	fi
+}
+
+#
 # proxy helper
 #
+
+# isProxyConfigured - proxy server configured
+isProxyConfigured() { [[ $(proxyServerGet) ]]; }
 
 # isProxyNeeded - return true if we need to use a proxy on the current network 
 isProxyNeeded()

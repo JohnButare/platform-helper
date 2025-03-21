@@ -29,7 +29,7 @@ PlatformConf()
 	[[ ! $force && $BASHRC ]] && return
 	
 	# variables
-	local file="$PLATFORM_DIR/bash.bashrc"	
+	local file="$PLATFORM_DIR/bash.bashrc"
 	local notSet; [[ ! $force && ! $BASHRC ]] && notSet="true"
 
 	# validate
