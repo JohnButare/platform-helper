@@ -4,7 +4,7 @@
 usage() 
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) [OPTION]... [bookmarks|close|extension|IsInstalled|IsRunning|profile|program|restart|start|startup|vars|version](start)
+Usage: $(ScriptName) [OPTION]... [bookmarks|close|config|extension|IsInstalled|IsRunning|profile|program|restart|start|startup|vars|version](start)
 $(ScriptName) commands."
 }
 
@@ -38,6 +38,7 @@ init()
 
 	# other
 	profileDir="$(getProfileDir)"
+	profileFile="$profileDir/prefs.js"
 	extensionDirProfile="$profileDir/extensions"
 	
 	return 0
@@ -103,6 +104,57 @@ bookmarksMarkdownCommand()
 }
 
 #
+# config command
+#
+
+configUsage() { echot "Usage: $(ScriptName) profile config get|set VAR VALUE\nConfiguration commands, i.e. network.proxy.type"; }
+configCommand() { usage; }
+
+configGetArgStart() { unset -v var value; }
+configGetArgs() { ScriptArgGet "variable" -- "$@"; }
+configGetCommand() { ensureProfileDir && configGet "$variable"; }
+
+# configGet VAR - get VAR's value from Firefox configuration (prefs.js)
+# format: user_pref("VAR", VALUE);
+configGet()
+{	
+	local var="$1" file="$profileFile"
+
+	validateProfileDir || return
+
+	local prefix='user_pref("'$var'", '
+	log2 "Getting '$var' from '$file'"
+	! qgrep "^${prefix}" "$file" && return
+	${G}grep "^${prefix}" "$file" | ${G}sed 's/^.*,//' | RemoveSpaceFront | ${G}sed 's/).*//'
+}
+
+configSetArgStart() { unset -v var value; }
+configSetArgs() { ScriptArgGet "variable" -- "$@" && shift && ScriptArgGet "value" -- "$@"; }
+configSetCommand() { ensureProfileDir && ensureClosed && configSet "$variable" "$value"; }
+
+# configSet VAR VALUE - set VAR to VALUE in Firefox configuration (prefs.js)
+# format: user_pref("VAR", VALUE);
+configSet()
+{	
+	local var="$1" value="$2" file="$profileFile"	
+
+	validateProfileDir || return
+
+	local prefix='user_pref("'$var'", '
+	local value="$prefix$value);"
+
+	qgrep "^${value}$" "$file" && return
+	
+	log2 "Setting '$var' to '$value' in '$file' ($value)"
+
+	if qgrep "^${prefix}" "$file"; then
+		sed -i "s/^${prefix}.*$/$value/" "$file"
+	else
+		echo "$value" >> "$file"
+	fi
+}
+
+#
 # profile command
 #
 
@@ -110,19 +162,20 @@ profileUsage()
 {
 	echot "\
 Usage: $(ScriptName) profile [dir]
-	[all|bonjourr|config|extensions|stg](all) save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."
+	[all|bonjourr|config|edit|extensions|stg](all) save|restore [<profile name>|default](latest)\n$(ScriptName) configuration."
 }
 
 profileArgStart() { AppInstallCheck; }
 profileArgs() { profileArgs=( "$@" ); (( shift+=$# )); return 0; }
 profileCommand() { profileAllCommand; }
 profileDirCommand() { echo "$profileDir"; }
+profileEditCommand() { TextEdit "$profileFile"; }
 profileExtensionsCommand() { profileExtensionsDo "firefox" "other/Mozilla/Firefox/extensions"; }
 
 profileAllCommand()
 {
 	# restore profile for restricted domains - Firefox Sync is used for non-restricted domains
-	IsDomainRestricted && { { profileConfigCommand && profileExtensionsCommand && profileBounjourrCommand; } || return; }
+	IsDomainRestricted && { { profileConfigDefaultsCommand && profileExtensionsCommand && profileBounjourrCommand; } || return; }
 
 	# other
 	profileConfigCommand && profileStgCommand
@@ -139,6 +192,8 @@ profileBounjourrCommand()
 	profile $noPrompt --app "Firefox Bounjourr" --method "firefox" --save-extension "json" --editor "${profileArgs[@]}" || return
 }
 
+profileConfigUsage() { echot "Usage: $(ScriptName) profile config\nSet default profile configuration."; }
+
 profileConfigCommand()
 {
 	[[ "${profileArgs[0]}" != @(restore) ]] && return
@@ -152,17 +207,9 @@ profileConfigCommand()
 	ensureClosed || return
 
 	# configure
-	firefoxConfigAdd 'user_pref("browser.tabs.closeWindowWithLastTab", false);' || return
-	firefoxConfigAdd 'user_pref("signon.rememberSignons", false);' || return
-}
-
-# firefoxConfigAdd TEXT - add text to Firefox configuration (prefs.js) if not present
-firefoxConfigAdd()
-{	
-	local text="$1" file="$profileDir/prefs.js"
-	validateProfileDir || return
-	qgrep "^${text}$" "$file" && return
-	echo "$text" >> "$file"
+	configSet "browser.tabs.closeWindowWithLastTab" "false" || return
+	configSet "signon.rememberSignons" "false" || return
+	configSet "network.proxy.type" "4" || return # 0=none, 4=Auto-detect proxy settings for this network, 5=Use system proxy settings
 }
 
 profileStgCommand()
@@ -175,6 +222,5 @@ profileStgCommand()
 
 	profile $noPrompt --app "Firefox SimpleTabGroups" --method "firefox" --save-extension "json" "${profileArgs[@]}" || return
 }
-
 
 ScriptRun "$@"

@@ -157,7 +157,7 @@ getProfileDir()
 # ensureProfileDir - create profile dir if it does not exist, sets profileDir
 ensureProfileDir()
 {
-	[[ -d "A$profileDir" ]] && return
+	[[ -d "$profileDir" ]] && return
 
 	# start Firefox to create the profile directory	
 	startCommand && sleep 2 && profileDir="$(getProfileDir)" && validateProfileDir
