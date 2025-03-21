@@ -1105,9 +1105,9 @@ proxySetAllStatus()
 		header "Proxy Variables"; proxySetVarsStatus
 		firefox IsInstalled && { header "Firefox"; proxySetFirefoxStatus; }
 	else
-		isAptInstalled && echo "apt proxy=$(proxySetAptStatus)"
+		isAptInstalled && echo "apt=$(proxySetAptStatus)"
 		echo "os=$(proxySetOsStatus)"
-		echo "proxy variables=$(proxySetVarsStatus)"
+		echo "variables=$(proxySetVarsStatus)"
 		firefox IsInstalled && echo "firefox=$(proxySetFirefoxStatus)"
 	fi
 
@@ -1126,12 +1126,8 @@ proxySetAptValidate() { proxyValidate "proxySetApt"; }
 proxySetAptStatus()
 {
 	! isAptInstalled && return
-
-	if [[ -f "$aptFile" ]]; then
-		[[ $verbose ]] && cat "$aptFile" || echo "enabled"
-	else
-		echo "disabled"
-	fi
+	[[ ! -f "$aptFile" ]] && { echo "disabled"; return; }
+	echo "enabled"; [[ $verbose ]] && cat "$aptFile"; return 0;
 }
 
 proxySetAptEnable()
@@ -1170,11 +1166,15 @@ proxySetFirefoxStatus()
 {
 	# 0=none, 4=Auto-detect proxy settings for this network, 5=Use system proxy settings
 	local type; type="$(firefox config get "network.proxy.type" "${globalArgs[@]}")" || return
+	[[ ! $type || "$type" == "0" ]] && echo "disabled" || echo "enabled"
+	[[ ! $verbose ]] && return
+
+	printf "network.proxy.type=$type"
 	case "$type" in
-		0) echo "none";;
-		4) echo "auto";;
-		5) echo "system";;
-		default) echo "unknown";;
+		0) echo " (none)";;
+		4) echo " (auto)";;
+		""|5) echo " (system)";;
+		default) echo " (unknown)";;
 	esac
 }
 
@@ -1257,8 +1257,15 @@ proxySetWpadStatus()
 	local host hosts; IFS=$'\n' ArrayMakeC hosts GetServers apache-web || return
 	for host in localhost "${hosts[@]}"; do
 		local file="$(wpadFileGet "$host")"
+
+		# continue if not WPAD directory for localhost
+		IsLocalHost "$host" && [[ ! -d $(GetFilePath "$file") ]] && continue
+
+		# logging
 		log2 "checking host '$host' file '$file'..."
 		(( verboseLevel < 4 )) && printf "$(GetOsName "$host"): "
+
+		# check host
 		RunScript "${globalArgs[@]}" --ssh "$host" "$(cat <<-EOF
 			if [[ ! -f "$file" ]]; then echo "disabled (wpad.dat missing)"
 			elif grep --quiet "PROXY" "$file"; then echo "enabled"
@@ -1267,6 +1274,7 @@ proxySetWpadStatus()
 			fi
 				EOF
 			)" || return
+
 	done
 }
 
