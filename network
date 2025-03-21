@@ -1164,11 +1164,12 @@ proxySetFirefoxValidate() { proxyValidate "proxySetFirefox"; }
 
 proxySetFirefoxStatus()
 {
-	# 0=none, 4=Auto-detect proxy settings for this network, 5=Use system proxy settings
+	# get proxy status
 	local type; type="$(firefox config get "network.proxy.type" "${globalArgs[@]}")" || return
 	[[ ! $type || "$type" == "0" ]] && echo "disabled" || echo "enabled"
 	[[ ! $verbose ]] && return
 
+	# type: 0=none, 4=Auto-detect proxy settings for this network, 5=Use system proxy settings
 	printf "network.proxy.type=$type"
 	case "$type" in
 		0) echo " (none)";;
@@ -1191,17 +1192,30 @@ proxySetOsStatusMac() { proxySetOsStatusMacDo "get" | cut -d":" -f2 | RemoveSpac
 
 proxySetOsStatusWin()
 {
+	# determine if connections are being proxied
 	local proxyUrl; proxyUrl="$(powershell '[System.Net.WebRequest]::DefaultWebProxy.GetProxy("'$checkUrl4'").AbsoluteUri' | RemoveCarriageReturn)" || return
 	[[ "$checkUrl4" == "$proxyUrl" ]] && echo "disabled" || echo "enabled"
+	[[ ! $verbose ]] && return
+
+	# get configuration
+	# - AutoDetect=Automatic proxy setup, Automatically detect settings=On
+	# - AutoConfigIsEnabled=Automatic proxy setup, Use setup script, Edit..., Use setup script=On 
+	# - ProxyIsEnabled=Manual proxy setup, Set up..., Use a proxy server=On
+	local desc status; status="$(netsh.exe winhttp show advproxy | RemoveCarriageReturn)" || return	
+	echo "$status" | grep "AutoDetect" | qgrep "true" && desc+="auto "
+	echo "$status" | grep "AutoConfigIsEnabled" | qgrep "true" && desc+="script "
+	echo "$status" | grep "ProxyIsEnabled" | qgrep "true" && desc+="manual "
+	[[ ! $desc ]] && desc="disabled"
+	echo "configuration: $(echo "$desc" | RemoveSpaceTrim)"
 }
 
 proxySetOsEnable() { RunPlatform proxySetOsEnable; }
 proxySetOsEnableMac() { proxySetOsStatusMacDo "set" "on"; }
-proxySetOsDisableWin() { winResetAutoProxy; }
+proxySetOsEnableWin() { proxySetOsStatusWinDo "true" && winResetAutoProxy; }
 
 proxySetOsDisable() { RunPlatform proxySetOsDisable; }
-proxySetOsDisableWin() { winResetAutoProxy; }
 proxySetOsDisableMac() { proxySetOsStatusMacDo "set" "off"; }
+proxySetOsDisableWin() { proxySetOsStatusWinDo "false"; }
 
 proxySetOsStatusMacDo()
 {
@@ -1209,7 +1223,20 @@ proxySetOsStatusMacDo()
 	sudoc networksetup ${1}proxyautodiscovery "$service" $2
 } 
 
-winResetAutoProxy() { netsh.exe winhttp reset autoproxy >& /dev/null; } # force reload of autoproxy
+proxySetOsStatusWinDo()
+{
+	local result; result="$(RunScript --elevate -- netsh.exe winhttp set advproxy setting-scope=user settings="$(cat <<-EOF
+			{\"Proxy\":\"\",\"ProxyBypass\":\"\",\"AutoconfigUrl\":\"\",\"AutoDetect\":$1}
+			EOF
+		)"
+	)" || { ScriptErr "$result"; return 1; }
+
+	[[ $verbose ]] && echo "$result"
+	return 0
+}
+
+# winResetAutoProxy - force reload of autoproxy, reloads the Proxy Auto Configuration (PAC) file
+winResetAutoProxy() { netsh.exe winhttp reset autoproxy >& /dev/null; } 
 
 #
 # proxy set vars command
