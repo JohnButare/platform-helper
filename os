@@ -383,6 +383,8 @@ setHostnameLinux()
 
 setHostnameMac()
 {
+	sudov || return
+	networksetup -setcomputername "$name" || return 2
 	sudo scutil --set HostName "$name" || return 2
 	sudo scutil --set LocalHostName "$name" || return 2
 	sudo scutil --set ComputerName "$name" || return 2
