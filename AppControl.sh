@@ -1,6 +1,6 @@
 # AppControl.sh - control another application
 
-AppList() { ${G}find $BIN -maxdepth 1 -type f -not -name '.*' | grep -e '^isInstalledCommand()' | cut -d':' -f1 | sort; }
+AppList() { ${G}find $BIN -maxdepth 1 -type f -not -name '.*' -print0 | xargs --null ${G}grep -e '^isInstalledCommand()' | cut -d':' -f1 | sort; }
 AppIsInstalled() { AppCommand isInstalled "$@"; }
 AppInstallVerify() { AppIsInstalled "$1" && return; ScriptErrQuiet "application '$1' is not installed" "$1"; }
 AppIsRunning() { AppCommand isRunning "$@"; }
