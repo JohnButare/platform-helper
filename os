@@ -14,7 +14,7 @@ Operating system commands
 	name					show or set the operating system name
 
 	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release|version
-	dark|environment|index|path|lock|preferences|store
+	dark|dns|environment|index|path|lock|preferences|store
 	features|repair|security|virus"
 }
 
@@ -62,6 +62,40 @@ darkOffCommand() { RunPlatform darkOff; }
 darkOnWin() { registry set "$(darkKey)/AppsUseLightTheme" 0 && registry set "$(darkKey)/SystemUsesLightTheme" 0 && RestartExplorer; }
 darkOffWin() { registry set "$(darkKey)/AppsUseLightTheme" 1 && registry set "$(darkKey)/SystemUsesLightTheme" 1 && RestartExplorer; }
 darkKey() { echo "HKEY_CURRENT_USER/Software/Microsoft/Windows/CurrentVersion/Themes/Personalize"; }
+
+#
+# DNS command
+#
+
+dnsUsage() { echot "Usage: os dns prefer ipv4|ipv6|status\nDNS commands.."; }
+dnsCommand(){ usage; }
+
+dnsPreferUsage() { echot "Usage: os dns prefer\nPrefer IPv4 or IPv6 DNS server."; }
+dnsPreferCommand() { usage; }
+
+dnsPreferIpv4Command() { RunPlatform dnsPreferIpv4; }
+dnsPreferIpv4Debian() { dnsPreferDebian "true"; }
+
+dnsPreferIpv6Command() { RunPlatform dnsPreferIpv6; }
+dnsPreferIpv6Debian() { dnsPreferDebian; }
+
+dnsPreferDebianInit() { file="/etc/gai.conf" line="precedence ::ffff:0:0/96  100" lineQuoted="$(QuoteForwardslashes "$line")"; }
+
+dnsPreferDebian()
+{
+	local comment="$1" on off; [[ $comment ]] && on="" off="#" || on="#" off=""
+	local file line lineQuoted; dnsPreferDebianInit
+	qgrep "^${off}${line}$" "$file" && return
+	sudoc sed -i 's/^'"$on$lineQuoted"'$/'"$off$lineQuoted"'/' "$file" || return
+}
+
+dnsPreferStatusCommand() { RunPlatform dnsPreferStatus; }
+
+dnsPreferStatusDebian()
+{
+	local file line lineQuoted; dnsPreferDebianInit
+	qgrep "^${line}$" "$file" && echo "IPv4" || echo "IPv6"
+}
 
 #
 # Disk Command
