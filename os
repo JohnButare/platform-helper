@@ -74,19 +74,19 @@ dnsPreferUsage() { echot "Usage: os dns prefer\nPrefer IPv4 or IPv6 DNS server."
 dnsPreferCommand() { usage; }
 
 dnsPreferIpv4Command() { RunPlatform dnsPreferIpv4; }
-dnsPreferIpv4Debian() { dnsPreferDebian "true"; }
+dnsPreferIpv4Debian() { dnsPreferDebian ""; }
 
 dnsPreferIpv6Command() { RunPlatform dnsPreferIpv6; }
-dnsPreferIpv6Debian() { dnsPreferDebian; }
+dnsPreferIpv6Debian() { dnsPreferDebian "#"; }
 
 dnsPreferDebianInit() { file="/etc/gai.conf" line="precedence ::ffff:0:0/96  100" lineQuoted="$(QuoteForwardslashes "$line")"; }
 
 dnsPreferDebian()
 {
-	local comment="$1" on off; [[ $comment ]] && on="" off="#" || on="#" off=""
+	local want="$1" noWant; [[ "$want" == "" ]] && noWant="#"
 	local file line lineQuoted; dnsPreferDebianInit
-	qgrep "^${off}${line}$" "$file" && return
-	sudoc sed -i 's/^'"$on$lineQuoted"'$/'"$off$lineQuoted"'/' "$file" || return
+	qgrep "^${want}${line}$" "$file" && return
+	sudoc sed -i 's/^'"$noWant$lineQuoted"'$/'"$want$lineQuoted"'/' "$file" || return
 }
 
 dnsPreferStatusCommand() { RunPlatform dnsPreferStatus; }
