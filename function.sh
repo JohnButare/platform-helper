@@ -2096,7 +2096,8 @@ GetAdapterIpAddress()
 			if [[ "$ipv" == "4" ]]; then
 				RunWin ipconfig.exe | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | grep "IPv4 Address" | head -1 | cut -d: -f2 | RemoveSpace
 			else
-				 RunWin ipconfig.exe | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | grep "IPv6 Address" | head -1 | cut -d":" -f2- | RemoveSpaceTrim
+				# format: IPv6 Address. . . . . . . . . . . : 2606:a300:9024:308:32cc:6e48:6a5f:5f21(Preferred)
+				RunWin ipconfig.exe | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | grep "IPv6 Address" | grep -v -E 'Temporary|Link-local' | head -1 | cut -d":" -f2- | RemoveSpaceTrim | sed 's/(.*)$//'
 			fi
 
 		fi
