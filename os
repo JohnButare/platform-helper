@@ -67,10 +67,10 @@ darkKey() { echo "HKEY_CURRENT_USER/Software/Microsoft/Windows/CurrentVersion/Th
 # DNS command
 #
 
-dnsUsage() { echot "Usage: os dns prefer ipv4|ipv6|status\nDNS commands.."; }
+dnsUsage() { echot "Usage: os dns prefer ipv4|ipv6|status\nDNS commands."; }
 dnsCommand(){ usage; }
 
-dnsPreferUsage() { echot "Usage: os dns prefer\nPrefer IPv4 or IPv6 DNS server."; }
+dnsPreferUsage() { echot "Usage: os dns prefer\nPrefer IPv4 or IPv6 DNS server.  Changes require 'service restart systemd-resolved'."; }
 dnsPreferCommand() { usage; }
 
 dnsPreferIpv4Command() { RunPlatform dnsPreferIpv4; }
