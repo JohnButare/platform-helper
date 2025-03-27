@@ -1046,6 +1046,7 @@ EchoErr() { [[ $@ ]] && EchoResetErr; EchoWrap "$@" >&2; return 0; }		# show err
 EchoErrEnd() { echo -e "$@" >&2; return 0; }														# show error message on the end of the line
 EchoQuiet() { [[ $quiet ]] && return; EchoWrap "$1"; }									# echo a message if quiet is not set
 EchoResetErr() { EchoReset "$@" >&2; return 0; } 												# reset to column 0 if not at column 0
+EchoValidate() { [[ $1 ]] || return; echo "$1"; }												# echo message if it has a value and return 0	
 HilightErr() { InitColorErr; EchoErr "${RED}$@${RESET}"; }							# hilight an error message
 HilightErrEnd() { InitColorErr; EchoErrEnd "${RED}$@${RESET}"; }				# hilight an error message
 HilightPrintErr() { InitColorErr; PrintErr "${RED}$@${RESET}"; }				# hilight an error message
