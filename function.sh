@@ -2280,17 +2280,6 @@ GetIpAddress()
 	echo "$(echo "$ip" | RemoveCarriageReturn)"
 }
 
-PortUsage()
-{
-	if IsPlatform win; then
-		header "Windows"
-		RunScript --elevate -- netstat.exe -anb 
-	fi
-
-	InPath netstat && { header "netstat"; sudoc netstat -tuap; }
-	InPath lsof && { header "lsof"; sudoc lsof -i -P -n; }
-}
-
 GetSubnetMask()
 {
 	if IsPlatform mac; then command ipconfig getsummary "$(GetInterface)" | grep "^subnet_mask" | cut -d" " -f3
@@ -2527,7 +2516,7 @@ MacLookup()
 		local ping="ping -c 1"; IsPlatform win && ping="ping.exe -n 1 -w 100"
 
 		# populate the arp cache with the MAC address
-		eval $ping "$host" >& /dev/null || { ScriptErrQuiet "unable to lookup the MAC address for '$host'" "MacResolve"; return 1; }
+		eval $ping "$host" >& /dev/null || { ScriptErrQuiet "unable to lookup the MAC address for '$host'" "MacLookup"; return 1; }
 
 		# get the MAC address in Windows
 		if IsPlatform win; then
@@ -2584,6 +2573,35 @@ NetworkCurrentUpdate()
 	else
 		ScriptEval network --quiet --update vars proxy "$@" || return
 	fi
+}
+
+# NetworkNeighbors - get network neighbors from the IPv6 Network Discover Protocol (NDP)
+NetworkNeighbors()
+{
+	# populate lines in format IP MAC
+	local line lines=()
+	if IsPlatform mac; then IFS=$'\n' ArrayMake lines "$(ndp -an | tr -s " " | ${G}cut -d" " -f1,2 | ${G}grep -v '(incomplete)' | ${G}sed 's/\%.* / /g')" || return
+	else IFS=$'\n' ArrayMake lines "$(ip -6 neigh show | cut -d" " -f1,5 | ${G}grep -v 'FAILED$')"
+	fi
+
+	# resolve MAC addresses to a name
+	local host ip mac
+	for line in "${lines[@]}"; do
+		ip="$(GetWord "$line" 1)" mac="$(GetWord "$line" 2)"
+		host="$(DnsResolveMac --quiet "$mac")" && echo "$host=$ip"
+	done
+}
+
+# PortUsage - show what ports are in use
+PortUsage()
+{
+	if IsPlatform win; then
+		header "Windows"
+		RunScript --elevate -- netstat.exe -anb 
+	fi
+
+	InPath netstat && { header "netstat"; sudoc netstat -tuap; }
+	InPath lsof && { header "lsof"; sudoc lsof -i -P -n; }
 }
 
 #
