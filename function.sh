@@ -1995,15 +1995,6 @@ GetOsName()
 	echo "$(RemoveDnsSuffix "$name")"
 }
 
-# GetRoute host - get the interface used to send to host
-GetRoute()
-{
-	local host="${1:-"0.0.0.0"}"
-	if IsPlatform mac; then route -n get $host | grep interface | cut -d":" -f2 | RemoveSpaceTrim
-	else ip route show to match $host | cut -d" " -f5
-	fi
-}
-
 NetworkConf()
 {
 	local force forceLevel forceLess; ScriptOptForce "$@"
@@ -2850,7 +2841,7 @@ AddDnsSuffix() { GetArgs2; HasDnsSuffix "$1" && echo "$1" || echo "$1.$2"; } 	# 
 GetDnsSuffix() { GetArgs; ! HasDnsSuffix "$1" && return; printf "${@#*.}"; }	# GetDnsSuffix HOST - the DNS suffix of the HOST
 HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuffix HOST - true if the specified host includes a DNS suffix
 
-# GetDnsSearch - get the system DNS search domains
+# GetDnsSearch [--win] - get the system DNS search domains
 GetDnsSearch()
 {
 	# arguments
@@ -3052,7 +3043,7 @@ DnsFlush()
 	fi
 }
 
-# GetDnsServer - get the current DNS server
+# GetDnsServer [--win] - get the current DNS server
 GetDnsServer()
 {
 	local check="www.msftconnecttest.com"
@@ -3075,7 +3066,7 @@ GetDnsServer()
 	fi			
 }
 
-# GetDnsServers - get all DNS servers
+# GetDnsServers [--win] - get all DNS servers
 GetDnsServers()
 {
 	# arguments
@@ -3115,6 +3106,32 @@ MdnsResolve()
 
 MdnsNames() { avahi-browse -all -c -r | grep hostname | sort | uniq | cut -d"=" -f2 | RemoveSpace | sed 's/\[//' | sed 's/\]//'; }
 MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';' -f5 | sort | uniq; }
+
+#
+# network: route
+#
+
+# RouteGet host - get the interface used to send to host
+RouteGet()
+{
+	local host="${1:-"0.0.0.0"}"
+	if IsPlatform mac; then route -n get $host | grep interface | cut -d":" -f2 | RemoveSpaceTrim
+	else ip route show to match $host | cut -d" " -f5
+	fi
+}
+
+# RoutePrint [--win] - print the default route table
+RoutePrint()
+{
+	# arguments
+	local win; [[ "$1" == "--win" ]] && win="--win"
+
+	# win
+	[[ $win ]] && { RunWin route.exe print; return; }
+
+	# other
+	netstat -rn
+}
 
 #
 # network: services
