@@ -194,7 +194,7 @@ currentStatusCommand()
 {
 	echo "network=$(name)"
 	echo "timeout=$(AvailableTimeoutGet) ms"
-	proxyStatusCommand || return
+	hilight "Proxy status..."; proxyStatusCommand || return
 }
 
 # common options
@@ -1026,35 +1026,45 @@ proxyCheck6() {	local server="$1"; [[ "$(curl --silent --proxy "http://$server" 
 # proxy status command
 #
 
-proxyStatusUsage() { echot "Usage: $(ScriptName) proxy status\nReturn the proxy server status and configuration"; }
+proxyStatusUsage() { echot "Usage: $(ScriptName) proxy status [all|what|wpad]\nReturn the proxy server status and configuration"; }
 
 proxyStatusCommand()
 {
-	# proxy server
+	local delimiter=" "; [[ $verbose ]] && delimiter="\n"
+	[[ $verbose ]] && header "Proxy Server ($(nameCached) network)"
+
+	# general status
+	echo -e "$(nameCached) proxy: needed=$(isProxyNeeded && echo "yes" || echo "no")${delimiter}configured=$(isProxyConfigured && echo "yes" || echo "no")"
+	
+	# proxy server status
 	local server="$(proxyServerNetwork)"
 	if [[ $server ]]; then
-		[[ $verbose ]] && header "Proxy Server"
-		local delimiter=" "; [[ $verbose ]] && delimiter="\n"
 		local desc="proxy=$server"		
-		desc+="${delimiter}cached=$(isProxyConfigured && echo "yes" || echo "no" )"
 		IsIpvSupported 4 && { desc+="${delimiter}IPv4="; proxyCheck4 "$server" && desc+="ok" || desc+="${RED}fail${RESET}"; }
 		IsIpvSupported 6 && { desc+="${delimiter}IPv6="; proxyCheck6 "$server" && desc+="ok" || desc+="${RED}fail${RESET}"; }		
 		echo -e "$desc"
-
-		local detail="$(curl --silent http://www.whatismyproxy.com/ | grep Via: | sed 's/.*Via//' | sed 's/<br.*//')"
-		[[ $verbose ]] && echo "server=$(echo "$detail" | cut -d" " -f3-4)"
-	else
-		echo "proxy=none"
 	fi
 		
 	# local proxy configuration
+	[[ $verbose ]] && header "Proxy Configuration ($HOSTNAME)"
 	proxySetAllStatus || return
-
-	# verbose status
-	[[ $verbose ]] && { proxySetWpadStatus || return; }
-
+	
 	return 0
 }
+
+proxyStatusAllUsage() { echot "Usage: $(ScriptName) proxy status all\nReturn all proxy configuration (slow)."; }
+proxyStatusAllCommand() { proxyStatusCommand && proxyStatusWhatCommand && proxyStatusWpadCommand; }
+
+proxyStatusWhatUsage() { echot "Usage: $(ScriptName) proxy status what\nReturn the proxy server status and configuration from WhatIsMyProxy (slow)."; }
+
+proxyStatusWhatCommand()
+{
+	local detail="$(curl --silent "http://www.whatismyproxy.com" | ${G}grep Via: | ${G}sed 's/.*Via//' | ${G}sed 's/<br.*//')"
+	echo "detected server=$(echo "$detail" | cut -d" " -f3-4)"
+}
+
+proxyStatusWpadUsage() { echot "Usage: $(ScriptName) proxy status wpad\nReturn the Web Proxy Auto-Discovery (slow)."; }
+proxyStatusWpadCommand() { proxySetWpadStatus; }
 
 #
 # proxy set command
@@ -1101,10 +1111,10 @@ proxySetAllValidate() { proxySetAptValidate && proxySetFirefoxValidate && proxyS
 proxySetAllStatus()
 {
 	if [[ $verbose ]]; then
-		isAptInstalled && { header "APT Proxy"; proxySetAptStatus; }
-		header "Operating System"; proxySetOsStatus
-		header "Proxy Variables"; proxySetVarsStatus
-		firefox IsInstalled && { header "Firefox"; proxySetFirefoxStatus; }
+		isAptInstalled && { printf "apt="; proxySetAptStatus; }
+		printf "os="; proxySetOsStatus
+		printf "variables="; verbose= proxySetVarsStatus
+		firefox IsInstalled && { printf "firefox="; proxySetFirefoxStatus; }
 	else
 		isAptInstalled && echo "apt=$(proxySetAptStatus)"
 		supportOsProxy && echo "os=$(proxySetOsStatus)"
@@ -1121,7 +1131,7 @@ proxySetAllStatus()
 
 proxySetAptUsage() { echot "Usage: $(ScriptName) proxy set apt\nSet APT proxy configuration."; }
 proxySetAptCommand() { [[ ! $action ]] && action="status"; proxySetApt${action^}; }
-proxySetAptDisable() { ! isAptInstalled && return; log1 "proxy disable APT"; sudoc rm "$aptFile"; }
+proxySetAptDisable() { { ! isAptInstalled || [[ ! -f "$aptFile" ]]; } && return; log1 "proxy disable APT"; sudoc rm "$aptFile"; }
 proxySetAptValidate() { proxyValidate "proxySetApt"; }
 
 proxySetAptStatus()
@@ -1152,7 +1162,7 @@ Acquire::https::Proxy \"http://$server\";" | sudoc tee "$aptFile" >& /dev/null
 isAptInstalled() { [[ -d "/etc/apt" ]]; }
 
 # isAptProxyNeeded - return true if we need to use an APT proxy
-# - APT proxy is not needed if we are using internally sources (that are in our domain.)
+# - APT proxy is not needed if we are using internal sources (that are in our domain.)
 isAptProxyNeeded()
 {
 	isProxyNeeded && isAptInstalled && ! grep --quiet "$(GetNetworkDnsBaseDomain)" "/etc/apt/sources.list"
@@ -1190,7 +1200,7 @@ proxySetFirefoxStatus()
 	[[ ! $verbose ]] && return
 
 	# type: 0=none, 4=Auto-detect proxy settings for this network, 5=Use system proxy settings
-	printf "network.proxy.type=$type"
+	printf "firefox network.proxy.type=$type"
 	case "$type" in
 		0) echo " (none)";;
 		4) echo " (auto)";;
@@ -1248,7 +1258,7 @@ proxySetOsDisableWin() { proxySetOsStatusWinDo "false"; }
 proxySetOsStatusMacDo()
 {
 	local service; service="$(network service current | ${G}head -1)" || return 
-	RunLog sudoc networksetup ${1}proxyautodiscovery "$service" $2
+	RunLog2 sudoc networksetup ${1}proxyautodiscovery "$service" $2
 } 
 
 proxySetOsStatusWinDo()
@@ -1259,7 +1269,7 @@ proxySetOsStatusWinDo()
 		)"
 	)" || { ScriptErr "$result"; return 1; }
 
-	[[ $verbose ]] && echo "$result"
+	log2 "$result"
 	return 0
 }
 
