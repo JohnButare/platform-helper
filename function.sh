@@ -2864,6 +2864,7 @@ GetDnsSearch()
 
 	# other
 	if InPath resolvectl; then resolvectl status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim
+	elif IsPlatform mac; then scutil --dns | grep 'search domain\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim
 	elif [[ -f "/etc/resolv.conf" ]]; then cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2- | sort | uniq | NewlineToSpace | RemoveSpaceTrim
 	fi
 }
@@ -3054,18 +3055,22 @@ DnsFlush()
 # GetDnsServer - get the current DNS server
 GetDnsServer()
 {
+	local check="www.msftconnecttest.com"
+
 	# arguments
 	local win; [[ "$1" == "--win" ]] && win="--win"
 
 	# win
 	if [[ $win ]]; then
-		local server; server="$(nslookup.exe "www.msftconnecttest.com" |& grep "^Address:" | RemoveCarriageReturn | cut -d":" -f2 | RemoveSpaceTrim)"
+		local server; server="$(nslookup.exe "$check" |& grep "^Address:" | head -1 | RemoveCarriageReturn | cut -d":" -f2- | RemoveSpaceTrim)"
 		[[ $server ]] && { echo "$server"; return; }
 		ipconfig /all | grep "$(GetAdapterName)" -A30 | grep "DNS Server" | cut -d":" -f 2 | RemoveCarriageReturn | RemoveSpaceTrim
 		return
 	fi
 
 	# other
+	local server; server="$(nslookup "$check" |& grep "^Address:" | head -1 | cut -d":" -f2- | RemoveChar '	' | ${G}cut -d"#" -f1)"
+	[[ $server ]] && { echo "$server"; return; }
 	if InPath resolvectl; then resolvectl status |& grep "^Current DNS Server: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
 	fi			
 }
@@ -3084,7 +3089,7 @@ GetDnsServers()
 
 	# other
 	if InPath resolvectl; then resolvectl status |& grep "DNS Servers: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
-	elif IsPlatform mac; then scutil --dns | grep 'nameserver\[[0-9]*\]' | cut -d: -f2 | sort | uniq | RemoveNewline | RemoveSpaceTrim
+	elif IsPlatform mac; then scutil --dns | grep 'nameserver\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim
 	elif [[ -f "/etc/resolv.conf" ]]; then cat "/etc/resolv.conf" | grep nameserver | cut -d" " -f2 | sort | uniq | NewlineToSpace | RemoveSpaceTrim
 	fi			
 }
