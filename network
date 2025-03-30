@@ -1036,7 +1036,7 @@ proxyStatusCommand()
 		[[ $verbose ]] && header "Proxy Server"
 		local delimiter=" "; [[ $verbose ]] && delimiter="\n"
 		local desc="proxy=$server"		
-		desc+="${delimiter}cached=$(proxyServerGet >& /dev/null && echo "yes" || echo "no" )"
+		desc+="${delimiter}cached=$(isProxyConfigured && echo "yes" || echo "no" )"
 		IsIpvSupported 4 && { desc+="${delimiter}IPv4="; proxyCheck4 "$server" && desc+="ok" || desc+="${RED}fail${RESET}"; }
 		IsIpvSupported 6 && { desc+="${delimiter}IPv6="; proxyCheck6 "$server" && desc+="ok" || desc+="${RED}fail${RESET}"; }		
 		echo -e "$desc"
@@ -1121,7 +1121,7 @@ proxySetAllStatus()
 
 proxySetAptUsage() { echot "Usage: $(ScriptName) proxy set apt\nSet APT proxy configuration."; }
 proxySetAptCommand() { [[ ! $action ]] && action="status"; proxySetApt${action^}; }
-proxySetAptDisable() { [[ ! -f "$aptFile" ]] && return; sudoc rm "$aptFile"; }
+proxySetAptDisable() { ! isAptInstalled && return; log1 "proxy disable APT"; sudoc rm "$aptFile"; }
 proxySetAptValidate() { proxyValidate "proxySetApt"; }
 
 proxySetAptStatus()
@@ -1133,13 +1133,18 @@ proxySetAptStatus()
 
 proxySetAptEnable()
 {	
-	# disable APT proxy if cannot get an APT proxy server
-	local server; server="$(proxyServerGetApt)" || { proxySetAptDisable; return; }
+	# return if APT is not installed
+	! isAptInstalled && return
+
+	# disable APT proxy if cannot enable the proxy server
+	proxyEnableValidate || { proxySetAptDisable; return; }
 
 	# return if APT proxy is already enabled
+	local server="$(proxyServerGetApt)"
 	[[ ! $force ]] && [[ -f "$aptFile" ]] && grep -q "$server" "$aptFile" && return
 
 	# set APT proxy server
+	log1 "proxy enable APT"
 	echo "Acquire::http::Proxy \"http://$server\";
 Acquire::https::Proxy \"http://$server\";" | sudoc tee "$aptFile" >& /dev/null
 }
@@ -1159,13 +1164,27 @@ isAptProxyNeeded()
 
 proxySetFirefoxUsage() { echot "Usage: $(ScriptName) proxy apt\nSet Firefox proxy configuration."; }
 proxySetFirefoxCommand() { [[ ! $action ]] && action="status"; proxySetFirefox${action^}; }
-proxySetFirefoxDisable() { firefox config set "network.proxy.type" "0" "${globalArgs[@]}"; }
-proxySetFirefoxEnable() { firefox config set "network.proxy.type" "4" "${globalArgs[@]}"; }
+proxySetFirefoxDisable() { ! firefox IsInstalled && return; log1 "proxy disable Firefox"; firefox config set "network.proxy.type" "0" "${globalArgs[@]}"; }
 proxySetFirefoxValidate() { proxyValidate "proxySetFirefox"; }
+
+proxySetFirefoxEnable()
+{
+	# return if firefox is not installed
+	! firefox IsInstalled && return
+
+	# disable Firefox proxy if cannot enable the proxy server
+	proxyEnableValidate || { proxySetFirefoxDisable; return; }
+
+	# enable Firefox proxy
+	log1 "proxy enable Firefox"; firefox config set "network.proxy.type" "4" "${globalArgs[@]}"; 
+}
 
 proxySetFirefoxStatus()
 {
-	# get proxy status
+	# return if Firefox is not installed
+	! firefox IsInstalled && return
+
+	# get Firefox proxy status
 	local type; type="$(firefox config get "network.proxy.type" "${globalArgs[@]}")" || return
 	[[ ! $type || "$type" == "0" ]] && echo "disabled" || echo "enabled"
 	[[ ! $verbose ]] && return
@@ -1210,18 +1229,26 @@ proxySetOsStatusWin()
 	echo "configuration: $(echo "$desc" | RemoveSpaceTrim)"
 }
 
-proxySetOsEnable() { RunPlatform proxySetOsEnable; }
+proxySetOsEnable()
+{
+	# disable OS proxy if cannot enable the proxy server
+	proxyEnableValidate || { proxySetOsDisable; return; }
+
+	# enable OS proxy
+	log1 "proxy enable OS"; RunPlatform proxySetOsEnable
+}
+
 proxySetOsEnableMac() { proxySetOsStatusMacDo "set" "on"; }
 proxySetOsEnableWin() { proxySetOsStatusWinDo "true" && winResetAutoProxy; }
 
-proxySetOsDisable() { RunPlatform proxySetOsDisable; }
+proxySetOsDisable() { log1 "proxy disable OS"; RunPlatform proxySetOsDisable; }
 proxySetOsDisableMac() { proxySetOsStatusMacDo "set" "off"; }
 proxySetOsDisableWin() { proxySetOsStatusWinDo "false"; }
 
 proxySetOsStatusMacDo()
 {
-	local service; service="$(network service current)" || return 
-	sudoc networksetup ${1}proxyautodiscovery "$service" $2
+	local service; service="$(network service current | ${G}head -1)" || return 
+	RunLog sudoc networksetup ${1}proxyautodiscovery "$service" $2
 } 
 
 proxySetOsStatusWinDo()
@@ -1245,12 +1272,17 @@ winResetAutoProxy() { netsh.exe winhttp reset autoproxy >& /dev/null; }
 
 proxySetVarsUsage() { echot "Usage: $(ScriptName) proxy vars\nSet the proxy variables."; }
 proxySetVarsCommand() { [[ ! $action ]] && action="status"; proxySetVars${action^}; }
-proxySetVarsDisable() { echo "unset {$allProxyVars}"; }
+proxySetVarsDisable() { log1 "proxy disable vars"; echo "unset {$allProxyVars}"; }
 proxySetVarsValidate() { proxyValidate "proxySetVars"; }
 
 proxySetVarsEnable()
 {
-	local server; server="$(proxyServerGet)" || { proxySetVarsDisable; return; }
+	# disable proxy vars if cannot enable the proxy server
+	proxyEnableValidate || { proxySetVarsDisable; return; }
+
+	# enable proxy vars
+	log1 "proxy enable vars"
+	local server="$(proxyServerGet)"
 	echo "export {$proxyVars}=\"http://$server\"; eval export {$noProxyVars}=\"$(ConfigGetCurrent "NoProxy")\""
 }
 
@@ -1347,11 +1379,14 @@ proxyUpdate()
 	# get old and new proxy server, return if not change
 	local oldProxyServer; oldProxyServer="$(UpdateGetForce "network-proxy-server")" || return
 	local newProxyServer; isProxyNeeded && { newProxyServer="$(proxyServerNetwork)"; proxyCheck "$newProxyServer" || unset newProxyServer; }
-	[[ ! $force && "$newProxyServer" == "$oldProxyServer" ]] && return
 
+	# return if no change
+	[[ ! $force && "$newProxyServer" == "$oldProxyServer" ]] && pause return
+	log2 "proxyUpdate: oldProxyServer='$oldProxyServer' newProxyServer='$newProxyServer'"
+	
 	# save new proxy server
 	UpdateSet "network-proxy-server" "$newProxyServer" || return
-	if [[ $force || $newProxyServer ]]; then
+	if [[ $newProxyServer ]]; then
 		ScriptEval network proxy set all --enable "${globalArgs[@]}" || return
 	else
 		ScriptEval network proxy set all --disable "${globalArgs[@]}" || return
@@ -1373,6 +1408,14 @@ isProxyNeeded()
 	# - domain: "$(domain)" != "<domain name>"
 	# - "$(GetDnsSearch)" != "<DNS search sufix>"
 	[[ "$(nameCached)" != "external" ]]
+}
+
+# proxyEnableValidate - return true if we can enable proxy configuration
+proxyEnableValidate()
+{
+	! isProxyNeeded && { log2 "proxyEnableValidate: proxy server is not needed"; return 1; }
+	! isProxyConfigured && { log2 "proxyEnableValidate: proxy server is not configured"; return 1; }
+	return 0
 }
 
 proxyServerGet() { isProxyNeeded && EchoValidate "$(UpdateGetForce "network-proxy-server")"; }
