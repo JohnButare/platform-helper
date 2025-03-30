@@ -2853,8 +2853,19 @@ HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuf
 # GetDnsSearch - get the system DNS search domains
 GetDnsSearch()
 {
-	local f="/etc/resolv.conf"; [[ ! -f "$f" ]] && return 1
-	cat "$f" | grep "^search " | cut -d" " -f2-
+	# arguments
+	local win; [[ "$1" == "--win" ]] && win="--win"
+
+	# win
+	if [[ $win ]]; then
+		powershell '(Get-NetAdapter "'$(GetAdapterName)'" | Get-DnsClient).ConnectionSpecificSuffixSearchList' | RemoveCarriageReturn| sort | uniq | NewlineToSpace | RemoveSpaceTrim
+		return
+	fi
+
+	# other
+	if InPath resolvectl; then resolvectl status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim
+	elif [[ -f "/etc/resolv.conf" ]]; then cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2- | sort | uniq | NewlineToSpace | RemoveSpaceTrim
+	fi
 }
 
 # RemoveDnsSuffix HOST - remove the DNS suffix if present
@@ -3040,11 +3051,41 @@ DnsFlush()
 	fi
 }
 
+# GetDnsServer - get the current DNS server
+GetDnsServer()
+{
+	# arguments
+	local win; [[ "$1" == "--win" ]] && win="--win"
+
+	# win
+	if [[ $win ]]; then
+		local server; server="$(nslookup.exe "www.msftconnecttest.com" |& grep "^Address:" | RemoveCarriageReturn | cut -d":" -f2 | RemoveSpaceTrim)"
+		[[ $server ]] && { echo "$server"; return; }
+		ipconfig /all | grep "$(GetAdapterName)" -A30 | grep "DNS Server" | cut -d":" -f 2 | RemoveCarriageReturn | RemoveSpaceTrim
+		return
+	fi
+
+	# other
+	if InPath resolvectl; then resolvectl status |& grep "^Current DNS Server: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
+	fi			
+}
+
+# GetDnsServers - get all DNS servers
 GetDnsServers()
 {
-	if [[ -f "/etc/resolv.conf" ]]; then cat "/etc/resolv.conf" | grep nameserver | cut -d" " -f2 | sort | uniq | NewlineToSpace | RemoveSpaceTrim
+	# arguments
+	local win; [[ "$1" == "--win" ]] && win="--win"
+
+	# win
+	if [[ $win ]]; then
+		powershell '(Get-DnsClientServerAddress -InterfaceAlias "'$(GetAdapterName)'")' | grep -E "IPv4|IPv6" | RemoveCarriageReturn | tr -s " " | cut -d" " -f5- | RemoveChar '{' | RemoveChar "}" | RemoveChar "," | SpaceToNewline | RemoveEmptyLines | sort | uniq | NewlineToSpace | RemoveSpaceTrim
+		return
+	fi
+
+	# other
+	if InPath resolvectl; then resolvectl status |& grep "DNS Servers: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
 	elif IsPlatform mac; then scutil --dns | grep 'nameserver\[[0-9]*\]' | cut -d: -f2 | sort | uniq | RemoveNewline | RemoveSpaceTrim
-	elif InPath resolvectl; then resolvectl status |& grep "DNS Servers" | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
+	elif [[ -f "/etc/resolv.conf" ]]; then cat "/etc/resolv.conf" | grep nameserver | cut -d" " -f2 | sort | uniq | NewlineToSpace | RemoveSpaceTrim
 	fi			
 }
 
