@@ -86,7 +86,7 @@ dnsPreferDebian()
 	local want="$1" noWant; [[ "$want" == "" ]] && noWant="#"
 	local file line lineQuoted; dnsPreferDebianInit
 	qgrep "^${want}${line}$" "$file" && return
-	sudoc sed -i 's/^'"$noWant$lineQuoted"'$/'"$want$lineQuoted"'/' "$file" || return
+	sudoc sed -i 's/^'"$noWant$lineQuoted"'$/'"$want$lineQuoted"'/' "$file" && service restart systemd-resolved
 }
 
 dnsPreferStatusCommand() { RunPlatform dnsPreferStatus; }
