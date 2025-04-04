@@ -329,10 +329,13 @@ currentUpdateStatus()
 	force= currentStatusCommand
 }
 
+# updateCheckDns - check if we have at least one DNS server that is valid for the current network
 updateCheckDns()
 {
-	local dnsServer; dnsServer="$(GetDnsServers | cut -d" " -f1)"
-	validateDnsServer "$network" "$dnsServer" && return
+	local server; servers=(); StringToArray "$(GetDnsServers)" " " servers
+	for server in "${servers[@]}"; do
+		validateDnsServer "$network" "$dnsServer" && return
+	done
 	doLog && echo "The DNS server '$dnsServer' for the current network '$network' is not valid"
 	return 1
 }
@@ -1102,10 +1105,12 @@ proxySetCommand() { proxySetAllCommand; }
 # proxy set all command
 #
 
-proxySetAllUsage() { echot "Usage: $(ScriptName) proxy all\nSet all local proxy configuration (APT, os, vars)."; }
+proxySetAllUsage() { echot "Usage: $(ScriptName) proxy all\nSet all local proxy configuration (APT, Firefox, os, vars)."; }
 proxySetAllCommand() { [[ ! $action ]] && action="status"; proxySetAll${action^}; }
 proxySetAllDisable() { proxySetAptDisable && proxySetFirefoxDisable && proxySetOsDisable && proxySetVarsDisable; }
 proxySetAllEnable() { proxySetAptEnable && proxySetFirefoxEnable && proxySetOsEnable && proxySetVarsEnable; }
+proxySetAllDisable() { proxySetVarsDisable; }
+proxySetAllEnable() {  proxySetVarsEnable; }
 proxySetAllValidate() { proxySetAptValidate && proxySetFirefoxValidate && proxySetOsValidate && proxySetVarsValidate; }
 
 proxySetAllStatus()
@@ -1381,7 +1386,7 @@ isWpadAvailable() { IsOnNetwork butare; }
 # proxy update command
 #
 
-proxyUpdateUsage() { echot "Usage: $(ScriptName) proxy update\nCheck if the proxy server is needed on the current network and usable and update the saved proxy network configuration."; }
+proxyUpdateUsage() { echot "Usage: $(ScriptName) proxy update\nIf the proxy server is needed and usable on the current network, update the saved proxy network configuration."; }
 proxyUpdateCommand() { proxyUpdate; }
 
 proxyUpdate()
@@ -1391,16 +1396,19 @@ proxyUpdate()
 	local newProxyServer; isProxyNeeded && { newProxyServer="$(proxyServerNetwork)"; proxyCheck "$newProxyServer" || unset newProxyServer; }
 
 	# return if no change
-	[[ ! $force && "$newProxyServer" == "$oldProxyServer" ]] && pause return
+	[[ ! $force && "$newProxyServer" == "$oldProxyServer" ]] && return
 	log2 "proxyUpdate: oldProxyServer='$oldProxyServer' newProxyServer='$newProxyServer'"
 	
 	# save new proxy server
 	UpdateSet "network-proxy-server" "$newProxyServer" || return
-	if [[ $newProxyServer ]]; then
-		ScriptEval network proxy set all --enable "${globalArgs[@]}" || return
-	else
-		ScriptEval network proxy set all --disable "${globalArgs[@]}" || return
-	fi
+
+	# configure applications for the new proxy server
+	local action="--disable"; [[ $newProxyServer ]] && action="--disable"
+	local app apps=(); StringToArray "$(ConfigGet "$(GetDomain)ProxyApps")" "," apps
+	for app in "${apps[@]}"; do
+		local prefix; [[ "$app" == @(vars) ]] && prefix="ScriptEval"
+		$prefix network proxy set all $action "${globalArgs[@]}" || return
+	done
 }
 
 #

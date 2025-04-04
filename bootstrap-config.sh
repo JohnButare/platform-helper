@@ -43,9 +43,10 @@ hashiTestVaultServers="pi20,pi21"
 
 defaultDomain="butare"
 
-# networks - list of known networks, check the DNS servers, format is NETWORK@DNS_IP[:ping|dns|nfs|smb|ssh|wg](dns)
-# butare 10.10.100.8|7 (lb3|lb2)
-# sandia 10.248.0.3 - gateware from trace route
+# networks - list of known networks
+# - check internal servers, format is NETWORK@IP[:ping|dns|nfs|smb|ssh|wg](dns)
+# - butare 10.10.100.8|7 (lb3|lb2)
+# - sandia 10.248.0.3 - gateware from trace route
 networks="sandia@10.248.0.3:ping,butare@10.10.100.8:dns,butare@10.10.100.7:dns,sandia@134.252.10.16:dns"
 
 # external network
@@ -73,6 +74,7 @@ butareCameraServers="BackShedCamera,BackYardEastCamera,FrontPatioCamera,FrontYar
 butareBackupUser="$user"
 butareGitServer="git.$butareDnsBaseDomain"					# Git Server
 butareProxyServer="proxy.$butareDnsBaseDomain:3128"	# Forward Proxy Server (Squid), service=proxy.$hbd:3128 ender=10.10.100.9:3128
+butareProxyApps="APT,vars"													# Configure proxy server for these applications
 butareSyslogServer="syslog.$butareDnsBaseDomain"		# syslog server for remote system logs
 butareTimeServer="time.butare.net"									# Time Server
 butareVip="10.10.100.6" 														# Virtual IP Address
@@ -91,6 +93,7 @@ sandiaDns1="134.253.181.25"
 sandiaDns2="134.253.16.5"
 sandiaDnsSearch="$sandiaDnsBaseDomain $sandiaDnsDomain ca.$sandiaDnsBaseDomain"
 sandiaProxyServer="proxy.$sandiaDnsBaseDomain:80"
+sandiaProxyApps="vars"
 sandiaNoProxy="$noProxyLocal,.$sandiaDnsBaseDomain,$noProxyRemote"
 sandiaVaultUrl="https://csep-vault.sandia.gov"
 sandiaVaultStoreDefault="users-kv"
