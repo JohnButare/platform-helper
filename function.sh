@@ -525,6 +525,7 @@ AppVersion()
 			pip) version="$(pip --version | cut -d" " -f2)" || return;;
 			procs) version="$(procs --version | cut -d" " -f2 | RemoveFront "\"")" || return;;
 			python3) version="$(python3 --version | cut -d" " -f2)" || return;;
+			remmina) version="$(command remmina --version |& grep "org.remmina.Remmina" | cut -d"-" -f2 | cut -d" " -f2)" || return;;
 			rg) version="$(rg --version | shead -1 | cut -d" " -f 2)" || return;;
 			ruby) version="$(ruby --version | cut -d" " -f2 | cut -d"p" -f 1)" || return;;
 			speedtest-cli) allowAlpha="--allow-alpha"; version="$(speedtest-cli --version | head -1 | cut -d" " -f2)" || return;;
