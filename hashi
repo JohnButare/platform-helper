@@ -2616,18 +2616,35 @@ nomadNodeAllocsOpt()
 	esac
 }
 
-nomadNodeAllocsCommand() { forAllHosts nomadNodeAllocs; }
+nomadNodeAllocsCommand()
+{
+	local args=(--brief); [[ $verbose ]] && args=(--header "Allocations")
+	forAllHosts "${args[@]}" nomadNodeAllocs; 
+}
 
+# nomadNodeAllocs HOST - show Nomad node allocations for the host
+# - verbose - if set show allocation detail with a header
+# - numeric - if set show allocation count for the host
+# nomad node status -allocs -json "$id"
 nomadNodeAllocs()
 {
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
 
+	# get allocations
+	local allocations; 
+	allocations="$(
+		nomad node status "$id" |& 	# redirect stderr to remove "View client details and metrics in the Web UI"
+		sed '1,/Allocations/d' | 		# remove everything before Allocations
+		${G}tail --lines=+2 |				# remove the first two header lines
+		${G}grep " running "
+	)"
+
 	if [[ $verbose ]]; then
-		header "$(RemoveDnsSuffix "$host")"; nomad status "$id" | sed '1,/Allocations/d' | ${G}tail --lines=+2 | ${G}grep " running "
+		echo "$allocations"
 	elif [[ $numeric ]]; then
-		printf "$(RemoveDnsSuffix "$host"): "; nomad status "$id" | sed '1,/Allocations/d' | ${G}tail --lines=+2 | ${G}grep " running " | wc -l
+		echo "$allocations" | wc -l
 	else
-		printf "$(RemoveDnsSuffix "$host"): "; nomad status "$id" | sed '1,/Allocations/d' | ${G}tail --lines=+2 | ${G}grep " running " | cut -d" " -f1 | NewlineToSpace | RemoveSpaceTrim
+		echo "$allocations" | cut -d" " -f1 | NewlineToSpace | RemoveSpaceTrim
 	fi
 
 	return 0
