@@ -346,7 +346,7 @@ ForAllHosts()
 		fi
 
 		# run command - if it fails, return if we are not tracking errors
-		local result resultDesc="success"; RunLog "${command[@]}" "$host"; result="$?"
+		local result resultDesc="success"; RunLog2 "${command[@]}" "$host"; result="$?"
 		(( result != 0 )) && { [[ ! $errors ]] && return $result; resultDesc="failure"; ((++errorCount)); }
 
 		# for brief output, if the command does not output anything show the result otherwise go to the next line
@@ -421,7 +421,7 @@ GetHosts()
 		locked|unlocked) IFS=$'\n' ArrayMake hosts "$(os info -w=credential all --status | tgrep "(locked)" | cut -d" " -f1 | $resolve | $sort)" || return;;
 		reboot) IFS=$'\n' ArrayMake hosts "$(os info -w=reboot all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)" || return;;
 		restart) IFS=$'\n' ArrayMake hosts "$(os info -w=restart all --status ${globalArgs[@]} | tgrep " yes" | cut -d" " -f1 | $resolve | $sort)" || return;;
-		unused) IFS=$'\n' ArrayMake hosts "$(hashi nomad node allocs --numeric | RemoveSpace | grep ":0$" | cut -d":" -f1 | $resolve | $sort)" || return;;
+		unused) IFS=$'\n' ArrayMake hosts "$(hashi nomad node allocs --numeric "${globalArgsLessVerbose[@]}" | RemoveSpace | grep ":0$" | cut -d":" -f1 | $resolve | $sort)" || return;;
 
 		off)
 			local allServers onServers
