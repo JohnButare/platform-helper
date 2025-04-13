@@ -2337,7 +2337,7 @@ ipinfo()
 }
 
 # IsInDomain domain[,domain,...] - true if the computer is in one of the specified domains
-# - if not domain is specified, return true if the computer is joined to a domain
+# - if no domain is specified, return true if the computer is joined to a domain
 IsInDomain()
 {
 	[[ ! $1 ]] && { network domain joined; return; }
