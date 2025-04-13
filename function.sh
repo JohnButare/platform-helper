@@ -2940,7 +2940,8 @@ DnsResolve()
 	if IsIpAddress "$name"; then
 
 		if IsLocalHost "$name"; then lookup="localhost"
-		elif [[ ! $server ]] && IsPlatform mac; then lookup="$(dscacheutil -q host -a ip_address "$name" | grep "^name:" | cut -d" " -f2)" || unset lookup
+		# dscacheutil -q host -a ip_address 10.10.101.84 - returns unifi.hagerman.butare.net, IPv6 DNS issue?
+		# elif [[ ! $server ]] && IsPlatform mac; then lookup="$(dscacheutil -q host -a ip_address "$name" | grep "^name:" | cut -d" " -f2)" || unset lookup
 		elif InPath host; then lookup="$(host -t A -4 "$name" $server |& ${G}grep -E "domain name pointer" | ${G}cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
 		else lookup="$(nslookup -type=A "$name" $server |& ${G}grep "name =" | ${G}cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
 		fi
