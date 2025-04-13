@@ -2355,7 +2355,7 @@ IsOsRestrcited() { false; } # TODO: return true if the operating system is restr
 IsIpAddress()
 {
 	# arguments
-	local ip ipv="4" 
+	local ip ipv="4"; GetArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2367,8 +2367,6 @@ IsIpAddress()
 		esac
 		shift
 	done
-
-	[[ ! $ip ]] && GetArgs
 
 	#
 	# IPv6 check
@@ -2408,8 +2406,7 @@ fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|\
 # IsIpLocal - return true if the specified IP is reachable on the local network (check if host does not use the default gateway in 5 hops or less)
 IsIpLocal()
 {
-	GetArgs
-	local args=("-4"); IsPlatform mac && args=()
+	local args=("-4"); IsPlatform mac && args=(); GetArgs
 	! traceroute "${args[@]}" -m 5 "$1" |& sponge | ${G}grep --quiet "($(GetDefaultGateway))"
 }
 
