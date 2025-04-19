@@ -310,14 +310,14 @@ currentUpdateCommand()
 
 	# network has changed - determine the new network configuration
 	UpdateSet "$networkCacheOld" "${network:-external}" || return
-	doLog && { hilight "Determining network..."; echo "Existing network is ${network:-unknown}"; }
+	doLog && { header "Determining Network"; echo "Existing network is ${network:-unknown}"; }
 	doLog && printf "network..."; network="$(findNetwork)" || return
 	UpdateSet "$networkCache" "$network" || return
 
 	# update configuration based on the new network - update DNS first to enable name resolution so we can find servers on the new network
-	doLog && hilight "Configuring the network for '$network'..."
+	doLog && header "Configuring '${network^}' Network"
 	[[ $brief && ! $quiet ]] && printf "network."		
-	updateDns && updatePython && updateProxy && currentUpdateStatus && currentUpdateDone
+	updateDns && updateHashi && updatePython && updateProxy && currentUpdateStatus && currentUpdateDone
 }
 
 currentUpdateDone() { UpdateDone "$networkCache"; }
@@ -355,7 +355,7 @@ updateCheckQuick() { RunPlatform updateCheckQuick; }
 updateCheckQuickWsl() { [[ -f "/etc/resolv.conf" ]] && updateCheckDns; } # WSL resolve.conf is reset on WSL restart
 
 # updateDns NETWORK
-updateDns() {	RunPlatform updateDns && updateHosts; }
+updateDns() {	doLog && hilight "Updating DNS for the '$network' network..."; RunPlatform updateDns && updateHosts; }
 
 # updateDnsWsl NETWORK - update /etc/resolv.conf for the current network
 updateDnsWsl()
@@ -408,8 +408,11 @@ updateHosts()
 	{ echo; cat "$src"; } | sudoc ${G}tee --append "$dest" > /dev/null
 }
 
+# update HashiCorp tool configuration
+updateHashi() {	doLog && hilight "Updating HashiCorp tools for the '$network' network..."; HashiConf -ff "${globalArgs[@]}"; }
+
 # updateDns NETWORK
-updateProxy() { proxyUpdate; }
+updateProxy() { doLog && hilight "Updating proxy configuration for the '$network' network..."; proxyUpdateSet; }
 
 # updatePython NETWORK
 updatePython()
@@ -427,7 +430,7 @@ updatePython()
 
 	# update
 	[[ $brief ]] && printf "pip.conf."
-	[[ ! $quiet ]] && echo "Updating pip.conf..."
+	doLog && hilight "Updating Python for the '$network' network..."
 	log1 "copying '$src' to '$dest'"
 	local dir="$(GetFilePath "$dest")"; [[ ! -d "$dir" ]] && { ${G}mkdir --parents "$dir" || return; }
 	cp "$src" "$dest" || return
@@ -984,15 +987,15 @@ Network proxy server commands."
 
 proxyCommand() { proxyStatusCommand; }
 
-proxyValidateUsage() { echot "Usage: $(ScriptName) proxy validate\nCheck the proxy server and enable or disable local configuration."; }
+proxyValidateUsage() { echot "Usage: $(ScriptName) proxy validate\nCheck the proxy server and enable or disable local configuration.  Useful if the proxy configuration is not in sync."; }
 proxyValidateCommand() { proxyValidate "proxySetAll"; }
-proxyValidate() { local command="$1"; proxyUpdate || return; isProxyConfigured && command+="Enable" || command+="Disable"; "$command"; }
+proxyValidate() { local command="$1"; proxyUpdate || return; proxyEnableValidate && command+="Enable" || command+="Disable"; "$command"; }
 
 #
 # proxy check command
 #
 
-proxyCheckUsage() { echot "Usage: $(ScriptName) proxy check\nReturn true if the proxy server is needed on the current network and usable."; }
+proxyCheckUsage() { echot "Usage: $(ScriptName) 92proxy check\nReturn true if the proxy server is needed on the current network and usable."; }
 proxyCheckCommand() { proxyCheck; }
 
 proxyCheck()
@@ -1076,7 +1079,7 @@ proxyStatusWpadCommand() { proxySetWpadStatus; }
 
 proxySetUsage()
 { 
-	echot "Usage: $(ScriptName) proxy set [all|apt|os|vars|wpad](all)
+	echot "Usage: $(ScriptName) proxy set [all|domain|apt|firefox|os|vars|wpad](all)
 Set proxy server configuration.
 
 $(currentUsageBrief)
@@ -1110,8 +1113,6 @@ proxySetAllUsage() { echot "Usage: $(ScriptName) proxy all\nSet all local proxy 
 proxySetAllCommand() { [[ ! $action ]] && action="status"; proxySetAll${action^}; }
 proxySetAllDisable() { proxySetAptDisable && proxySetFirefoxDisable && proxySetOsDisable && proxySetVarsDisable; }
 proxySetAllEnable() { proxySetAptEnable && proxySetFirefoxEnable && proxySetOsEnable && proxySetVarsEnable; }
-proxySetAllDisable() { proxySetVarsDisable; }
-proxySetAllEnable() {  proxySetVarsEnable; }
 proxySetAllValidate() { proxySetAptValidate && proxySetFirefoxValidate && proxySetOsValidate && proxySetVarsValidate; }
 
 proxySetAllStatus()
@@ -1120,15 +1121,35 @@ proxySetAllStatus()
 		isAptInstalled && { printf "apt="; proxySetAptStatus; }
 		printf "os="; proxySetOsStatus
 		printf "variables="; verbose= proxySetVarsStatus
-		firefox IsInstalled && { printf "firefox="; proxySetFirefoxStatus; }
+		firefoxValidate && { printf "firefox="; proxySetFirefoxStatus; }
 	else
 		isAptInstalled && echo "apt=$(proxySetAptStatus)"
 		supportOsProxy && echo "os=$(proxySetOsStatus)"
 		echo "variables=$(proxySetVarsStatus)"
-		firefox IsInstalled && echo "firefox=$(proxySetFirefoxStatus)"
+		firefoxValidate && echo "firefox=$(proxySetFirefoxStatus)"
 	fi
 
 	return 0
+}
+
+#
+# proxy set domain command
+#
+
+proxySetDomainUsage() { echot "Usage: $(ScriptName) proxy all\nSet proxy configuration required for the domain."; }
+proxySetDomainCommand() { [[ ! $action ]] && action="status"; proxySetDomain${action^}; }
+proxySetDomainEnable() { proxySetDomain "enable"; }
+proxySetDomainDisable() { proxySetDomain "disable"; }
+proxySetDomainStatus() { proxySetDomain "status"; }
+proxySetDomainValidate() { proxySetDomain "validate"; }
+
+proxySetDomain()
+{
+	local action="$1" app apps=(); StringToArray "$(ConfigGet "$(GetDomain)ProxyApps")" "," apps
+	for app in "${apps[@]}"; do
+		local prefix; [[ "$app" == @(vars) ]] && prefix="ScriptEval"
+		$prefix "proxySet${app^}${action^}" || return
+	done
 }
 
 #
@@ -1180,25 +1201,23 @@ isAptProxyNeeded()
 
 proxySetFirefoxUsage() { echot "Usage: $(ScriptName) proxy apt\nSet Firefox proxy configuration."; }
 proxySetFirefoxCommand() { [[ ! $action ]] && action="status"; proxySetFirefox${action^}; }
-proxySetFirefoxDisable() { ! firefox IsInstalled && return; log1 "proxy disable Firefox"; firefox config set "network.proxy.type" "0" "${globalArgs[@]}"; }
-proxySetFirefoxValidate() { proxyValidate "proxySetFirefox"; }
+proxySetFirefoxDisable() { ! firefoxValidate && return; log1 "proxy disable Firefox"; firefox config set "network.proxy.type" "0" "${globalArgs[@]}"; } # 0=none
+proxySetFirefoxValidate() { ! firefoxValidate && return; proxyValidate "proxySetFirefox"; }
 
 proxySetFirefoxEnable()
 {
-	# return if firefox is not installed
-	! firefox IsInstalled && return
+	! firefoxValidate && return
 
 	# disable Firefox proxy if cannot enable the proxy server
 	proxyEnableValidate || { proxySetFirefoxDisable; return; }
 
-	# enable Firefox proxy
+	# enable Firefox proxy - 4=auto
 	log1 "proxy enable Firefox"; firefox config set "network.proxy.type" "4" "${globalArgs[@]}"; 
 }
 
 proxySetFirefoxStatus()
 {
-	# return if Firefox is not installed
-	! firefox IsInstalled && return
+	! firefoxValidate && return
 
 	# get Firefox proxy status
 	local type; type="$(firefox config get "network.proxy.type" "${globalArgs[@]}")" || return
@@ -1402,16 +1421,22 @@ proxyUpdate()
 	
 	# save new proxy server
 	UpdateSet "network-proxy-server" "$newProxyServer" || return
-
-	# configure applications for the new proxy server
-	local action="--disable"; [[ $newProxyServer ]] && action="--disable"
-	local app apps=(); StringToArray "$(ConfigGet "$(GetDomain)ProxyApps")" "," apps
-	for app in "${apps[@]}"; do
-		local prefix; [[ "$app" == @(vars) ]] && prefix="ScriptEval"
-		$prefix network proxy set all $action "${globalArgs[@]}" || return
-	done
 }
 
+proxyUpdateSetUsage() { echot "Usage: $(ScriptName) proxy update\nIf the proxy server is needed and usable on the current network, update the saved proxy network configuration, then set proxy configuration for domain applications."; }
+proxyUpdateSetCommand() { proxyUpdateSet; }
+
+proxyUpdateSet()
+{
+	# update the proxy server and return if it was not changed
+	proxyUpdate || return
+	(( forceLevel < 2 )) && ! UpdateRecent "network-proxy-server" && return
+
+	# configure domain applications for the new proxy server
+	local action="disable"; proxyEnableValidate && action="enable"
+	proxySetDomain "$action"
+}
+	
 #
 # proxy helper
 #
@@ -1669,6 +1694,13 @@ watchCommand()
 {
 	local configuredNetwork currentNetwork
 
+	# testing
+	# while true; do
+	# 	header "start"
+	# 	NetworkCurrentUpdate --force -vvv || ScriptErr "unable to update the current network"
+	# 	header "done"; sleep 5
+	# done
+
 	ip monitor address |\
 	while read line; do
 		[[ "$line" =~ "inet " ]] || continue
@@ -1752,6 +1784,7 @@ workgroupSetCommand()
 
 doLog() { [[ ! $brief && ! $quiet ]]; } # return true if output should be logged
 domain() { UpdateGetForce "network_domain"; }
+firefoxValidate() { firefox IsInstalled && firefox profile dir exists; }
 wpadFileGet() { IsLocalHost "$1" && echo "$UDATA/sync${wpadFile}" || echo "$wpadFile"; } # wpadFileGet HOST - get the WPAD file for host
 supportOsProxy() { IsPlatform mac,win; }
 

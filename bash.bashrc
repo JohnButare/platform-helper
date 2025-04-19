@@ -152,7 +152,12 @@ P="/opt" PUSER="" SRV="/srv" BIN="" DATA="" ADATA="" ACONF="" PUB="" USERS="/hom
 
 # USER=logged on user, SUDO_USER, HOME=home directory, DOC=user documents, UDATA=user data, UBIN=user programs
 # UDATA=user data, UADATA=user application data, CODE=source code
-USER="${USERNAME:-$USER}" DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
+USER="${USERNAME:-$USER}"
+[[ ! $USER ]] && USER="$(whoami)"
+[[ ! $USERNAME ]] && USERNAME="$USER"
+[[ ! $HOME ]] && HOME="$HOME/$USER"
+DOC="" UDATA="" UADATA="$HOME/.config" UBIN=""
+
 DATA="/usr/local/data" ADATA="$DATA/appdata" ACONF="$DATA/appconfig" BIN="$DATA/bin" PBIN="$DATA/platform/$PLATFORM_OS"
 DOC="$HOME/Documents" CODE="$HOME/code" UDATA="$HOME/data" UBIN="$UDATA/bin"
 HOSTNAME="${HOSTNAME:-$(hostname -s)}"
@@ -173,8 +178,15 @@ case "$PLATFORM_OS" in
 
 	win) EXE=".exe"
 		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows"
-		WIN_USER="$USER" WIN_HOME="$WIN_ROOT/Users/$WIN_USER" # for performancd assume the Windows username is the same
-		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData" UADATA="$WIN_HOME/AppData/Local" PUSER="$UADATA/Programs"
+		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData"
+
+		# for performance and stability assume the Windows username is the same (calling cmd.exe here causes Docker hangs)		
+		if [[ -d "$WIN_ROOT/Users/$USER" ]]; then	
+			WIN_USER="$USER" WIN_HOME="$WIN_ROOT/Users/$USER"
+			UADATA="$WIN_HOME/AppData/Local" PUSER="$UADATA/Programs"
+		else
+			WIN_USER="" WIN_HOME="" PUSER=""
+		fi
 		;;
 
 esac

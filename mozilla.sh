@@ -154,8 +154,8 @@ getProfileDir()
 	[[ -f "$p" ]] && profileSuffix="$(cat "$p" | ${G}grep '^Default=Profiles' | ${G}head -1 | cut -d"=" -f2 | RemoveNewline | RemoveCarriageReturn)" && echo "$configDir/$profileSuffix"
 }
 
-# ensureProfileDir - create profile dir if it does not exist, sets profileDir
-ensureProfileDir()
+# createProfileDir - create profile dir if it does not exist, sets profileDir
+createProfileDir()
 {
 	[[ -d "$profileDir" ]] && return
 
@@ -168,7 +168,7 @@ ensureClosed() { ! isRunningCommand && return; closeCommand && sleep 2; }
 validateProfileDir()
 {
 	[[ -d "$profileDir" ]] && return
-	ScriptErr "the profile directory '$profileDir' does not exist"; return 1
+	ScriptErr "the profile directory '$profileDir' does not exist"
 }
 
 # profileExtensionsDo PRODUCT DIR

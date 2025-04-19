@@ -129,6 +129,7 @@ UpdateRm() { UpdateInit "$1" && rm -f "$updateFile"; }																					# Upd
 UpdateRmAll() { UpdateInitDir && DelDir --contents --hidden --files "$updateDir"; }							# UpdateRmAll - remove all update files
 UpdateSet() { UpdateInit "$1" && printf "$2" > "$updateFile"; }																	# UpdateSet FILE TEXT - set the contents of the update file
 UpdateSince() { ! UpdateNeeded "$@"; }																													# UpdateSince FILE [DATE_SECONDS](TODAY) - return true if the file was updated since the date, or today
+UpdateRecent() { ! UpdateNeeded "$1" "$(( $(GetSeconds --no-ns) - ${2:-5} ))"; }								# UpdateRecent FILE [SECONDS](5) - return true if the file was updated in the last number of seconds
 
 # UpdateInit [FILE] - initialize update system, sets updateDir, updateFile
 UpdateInit() { UpdateInitDir && UpdateInitFile "$1"; }
@@ -747,27 +748,32 @@ HashiConf()
 	# initialize
 	(( verboseLevel > 1 )) && header "Hashi Configuration"
 
-	# set credential manager - use gnome-keyring if already selected or if in Windows (faster)
-	local manager="local"
-	if [[ "$CREDENTIAL_MANAGER" == "gk" ]] || ! UpdateNeeded "credential-manager-gk-ok"; then manager="gk"
-	elif IsPlatform win && { service running dbus || app start dbus --quiet $force $verbose; } && credential manager IsAvailable -m=gk; then manager="gk"
+	# configure caching - in Windows use gnome-keyring in available (faster)
+	local cache="true" manager="local"
+	if IsPlatform win && { service running dbus || app start dbus --quiet $force $verbose; } && credential manager IsAvailable --manager=gk; then manager="gk"
+	elif ! credential manager IsAvailable --manager="$manager"; then unset cache
 	fi
 
 	# set environment from credential store cache if possible (faster .5s, securely save tokens)
-	if ! (( forceLevel > 1 )); then
-		(( verboseLevel > 1 )) && ScriptMessage "trying to set Hashi environment from '$manager' credential store cache" "HashiConf"
+	if [[ $cache ]] && ! (( forceLevel > 1 )); then
+		log2 "trying to set Hashi environment from '$manager' credential store cache" "HashiConf"
 		ScriptEval credential get hashi cache --quiet --manager="$manager" $force $verboseLess  && { HASHI_CHECKED="true"; return; }
 	fi
 
 	# set environment (slower 5s)
-	(( verboseLevel > 1 )) && ScriptMessage "setting the Hashi environment manually" "HashiConf"
+	log2 "setting the Hashi environment manually" "HashiConf"
 	local vars; vars="$(hashi config environment all --suppress-errors $force $verboseLess)" || return
 	if ! eval "$vars"; then
 		(( verboseLevel > 1 )) && { ScriptErr "invalid environment variables:"; ScriptMessage "$vars"; }
 		ScriptErr "Hashi configuration variables are not valid" "HashiConf"
 		return 1
 	fi
-	echo "$vars" | credential set hashi cache - --quiet --manager="$manager" $force $verbose
+	
+	# cache variables
+	if [[ $cache ]]; then
+		log2 "caching the Hashi environment" "HashiConf"
+		echo "$vars" | credential set hashi cache - --quiet --manager="$manager" $force $verbose
+	fi
 
 	HASHI_CHECKED="true"
 }
@@ -1249,7 +1255,6 @@ CompareSeconds() { local a="$1" op="$2" b="$3"; (( ${a%.*}==${b%.*} ? 1${a#*.} $
 GetDate() { ${G}date --date "$1"; } 																											# GetDate DATE, i.e. @1683597765, @$(GetSeconds '-10 min') 
 GetDateStamp() { ${G}date '+%Y%m%d'; }
 GetTimeStamp() { ${G}date '+%Y%m%d_%H%M%S'; }
-GetSeconds() { local args; [[ $1 ]] && args+=(--date "$1"); ${G}date "${args[@]}" +%s; } 	# GetSeconds [DATE](now) - i.e '-10 min'
 
 # GetDateStampNext PREFIX SUFFIX
 GetDateStampNext()
@@ -2557,7 +2562,7 @@ MacLookup()
 }
 
 # NetworkCurrentConfig - configure the shell with the current network configuration
-NetworkCurrentConfig() { ScriptEval network vars proxy; HashiConf -ff; }
+NetworkCurrentConfig() { ScriptEval network vars proxy; HashiConf --force; }
 
 # NetworkCurrentUpdate - update the network configuration
 NetworkCurrentUpdate()
@@ -4050,16 +4055,17 @@ IsExecutable()
 }
 
 # IsProcessRunning NAME
+# -a|--all 		check all users process, not just the current user
 # -f|--full 	match the full command line argument not just the process name
 IsProcessRunning()
 {
 	# options
-	local full name root win
+	local all full name win
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			-a|--all) all="true";;
 			-f|--full) full="--full";;
-			-r|--root) root="sudoc";;
 			*)
 				! IsOption "$1" && [[ ! $name ]] && { name="$1"; shift; continue; }
 				UnknownOption "$1" "IsProcessRunning"; return
@@ -4078,10 +4084,10 @@ IsProcessRunning()
 	fi
 
 	# check for process using pidof - slightly faster but pickier than pgrep
-	[[ ! $full && $root ]] && InPath pidof && { pidof -snq "$name" > /dev/null; return; }
+	[[ ! $full && $all ]] && InPath pidof && { pidof -snq "$name" > /dev/null; return; }
 
 	# check for process using pgrep
-	local args=(); [[ ! $root ]] && { IsPlatform mac && args=(-u "$UID") || args+=("--uid" "$USER"); }
+	local args=(); [[ ! $all && ${UID:-$USER} ]] && args+=("-U" "${UID:-$USER}") # restrict to the real user ID
 	HasFilePath "$name" && full="--full" # pgrep >= 4.0.3 requires full for process name longer than 15 characters
 	[[ $full ]] && IsPlatform mac && full="-f"
 	pgrep $full "${args[@]}" "$name" > /dev/null
