@@ -10429,8 +10429,13 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 
 1PasswordInstall()
 {
+	# store install
+	IsPlatform debian && ! IsPlatform arm && [[ "$installType" == @(store) ]] && { sudo snap install 1password; return; }
+
+	# file install
 	local v; v="$(versionGetCurrent "1Password")" || return
-	run --name "1Password" "$(1PasswordDir)/1Password-win v$v.$(getElevate "msi" "exe")|1Password-mac v$v.zip|1Password-linux v$v.deb" --version=$v --elevate || return
+	local linuxExt="deb"; IsPlatform arm && linuxExt="tar.gz"
+	run --name "1Password" "$(1PasswordDir)/1Password-win-v$v.$(getElevate "msi" "exe")|1Password-mac-v$v.zip|1Password-linux-$(getArch)-v$v.$linuxExt" --version=$v --dest "1Password" --elevate || return
 	IsPlatform mac && { i "1PasswordExtension" --no-header || return; }
 	return 0
 } 
@@ -10441,6 +10446,16 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 {
 	credential exists --fallback "1Password" "registration" && { register "1Password"; return; }
 	1PasswordHelper start && echo "On phone, menu, Scan QR Code..."
+}
+
+1PasswordFinalLinux()
+{
+	! IsPlatform gnome && return
+	local dest="/usr/share/applications/1password.desktop"
+	[[ ! $force && -f "$dest" ]] && return
+	sudoc cp "$P/1Password/resources/1password.desktop" "$dest" || return
+	sudoc sed -i "s/Icon=1password/Icon=$(echo "$P/1Password/resources/icons/hicolor/512x512/apps/1password.png" | QuotePath)/" "$dest" || return
+	RestartWm || return
 }
 
 1PasswordFinalWin()
@@ -10477,11 +10492,16 @@ Settings...
 	local app="1Password"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return	
 
-	local item items=("mac/1Password.zip" "win/1PasswordSetup-latest.msi" "win/1PasswordSetup-latest.exe" "linux/debian/amd64/stable/1password-latest.deb")
+	local item items=("mac/1Password.zip" "win/1PasswordSetup-latest.msi" "win/1PasswordSetup-latest.exe" "linux/tar/stable/aarch64/1password-latest.tar.gz:arm64:tar.gz" "linux/tar/stable/x86_64/1password-latest.tar.gz:x64:tar.gz" "linux/debian/amd64/stable/1password-latest.deb:x64")
 	[[ "$installType" == "beta" ]] && items=("mac/1Password%20Beta.zip") #  win/1PasswordSetup-latest.BETA.msi
 
 	for item in "${items[@]}"; do
-		download "https://downloads.1password.com/$item" "$(1PasswordDir)" "1Password-$(RemoveAfter "$item" "/") v$v.$(GetFileExtension "$item")" || return
+		StringToArray "$item" ":" item
+		local suffix="${item[0]}"
+		local architecture="${item[1]}"; [[ $architecture ]] && architecture="-$architecture"
+		local extension="${item[2]}"; [[ ! $extension ]] && extension="$(GetFileExtension "$suffix")"
+		local file="1Password-$(RemoveAfter "$item" "/")${architecture}-v$v.$extension"
+		download "https://downloads.1password.com/$item" "$(1PasswordDir)" "$file" || return
 	done
 
 	downloadDone "$app" "$v"
