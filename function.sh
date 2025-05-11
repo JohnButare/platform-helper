@@ -3999,6 +3999,7 @@ function RunPlatform()
 	IsPlatform entware --host && { RunFunction $function entware -- "$@" || return; }
 	IsPlatform pikernel --host && { RunFunction $function PiKernel -- "$@" || return; }
 	IsPlatform proxmox --host && { RunFunction $function proxmox -- "$@" || return; }
+	IsPlatform gnome --host && { RunFunction $function gnome -- "$@" || return; }
 	IsPlatform vm --host && { RunFunction $function vm -- "$@" || return; }
 	IsPlatform physical --host && { RunFunction $function physical -- "$@" || return; }
 
