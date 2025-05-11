@@ -1393,7 +1393,6 @@ fi
 #
 
 CanWrite() { [[ -w "$1" ]]; }
-CopyFileProgress() { rsync --info=progress2 "$@"; }
 DirCount() { local result; result="$(command ls "${1:-.}" |& wc -l)"; ! IsNumeric "$result" && result="0"; RemoveSpace "$result"; }
 DirEnsure() { GetArgs; echo "$(RemoveTrailingSlash "$@")/"; } # DirEnsure DIR - ensure dir has a trailing slash
 DirMake() { local dir r; for dir in "$@"; do r="$(DirEnsure "$r")$(RemoveFront "$dir" "/")"; done; echo "$r";  } # DirMake DIR... - combine all directories into a single directory (ensures no duplicatate or missing /)
@@ -1428,6 +1427,13 @@ IsPath() { [[ ! $(GetFileName "$1") ]]; }
 IsWindowsFile() { drive IsWin "$1"; }
 IsWindowsLink() { ! IsPlatform win && return 1; lnWin -s "$1" >& /dev/null; }
 RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
+
+CopyFileProgress()
+{
+	! IsPlatform linux && { rsync --info=progress2 "$@"; return; }
+	! PackageIsInstalled python3-progressbar && { package python3-progressbar || return; }
+	"$DATA/platform/agnostic/pcp" "$@"	
+}
 
 # FindAny DIR NAME [DEPTH](1) - find NAME (supports wildcards) starting from DIR for max of DEPTH directories
 FindAny()
