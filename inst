@@ -986,19 +986,23 @@ sshRun() { sshAgentCheck && RunLog ssh "$@"; }
 waitForInstall() { [[ ! $ran ]] && return; local args=(--quiet); [[ $verbose ]] && unset args; FileWait --no-cancel $2 "${args[@]}" "$1" || { ScriptErr "installation did not complete"; return; }; }
 waitForInstallWin() { ! IsPlatform win && return; waitForInstall "$1"; }
 
-# appClean APP
+# appClean APP PATH
 appClean()
 {
-	local app="$1" dir="$2"
+	local app="$1" path="$2"
 
 	[[ ! $app ]] && { MissingOperand "app" "appClean"; return; }
-	[[ ! $dir ]] && { MissingOperand "dir" "appClean"; return; }
+	[[ ! $path ]] && { MissingOperand "path" "appClean"; return; }
 
+	# initialize
+	local ext="$(GetFileExtension "$path")"
+	local cleanCmd=(sudoc $rmd "$path"); InPath ail-cli && [[ "$ext" == "AppImage" ]] && cleanCmd=(ail-cli unintegrate "$path")
+	
 	# return if app does not exist
-	[[ ! -d "$dir" ]] && return
+	[[ ! -e "$path" ]] && return
 
 	# prompt to clean
-	[[ ! $noPrompt ]] && { ask "Do you want to delete the existing install of '$app' in '$dir'" -dr n || return; }
+	[[ ! $noPrompt ]] && { ask "Do you want to delete the existing install of '$app' in '$(FileToDesc "$path")'" -dr n || return; }
 
 	# require prompt to clean if not forcing
 	[[ $noPrompt && ! $force ]] && { ScriptErr "The application '$app' is installed, --force must be specified."; return 1; }
@@ -1008,7 +1012,7 @@ appClean()
 
 	# remove the application
 	echo "Cleaning '$app'..."
-	sudoc $rmd "$dir"
+	"${cleanCmd[@]}"
 }
 
 # appDesc [DESC]($app) [PLATFORM]
@@ -1846,7 +1850,7 @@ runTypeExtension()
 	case "$ext" in
 		7z|bz2|gz|tar|xpi|zip|ear|jar|war|xz) InstallAppFromZip $elevate "${globalArgs[@]}" "$p" "$dest" "$@";;
 		app) start "$p" "$@";;
-		AppImage) runAppImage "$p" "$@";;
+		AppImage) runAppImage "$p" "$name" "$@";;
 		appx|bat|cmd) cmd.exe /c "$(utw "$p")" "$@";;
 		bundle) sudo sh "$p";;
 		deb) runDeb "$p" "$@";;
@@ -1984,24 +1988,19 @@ runTypeYarn()
 
 runAppImage()
 {
-	local p="$1"; shift
-	local appName="$(GetFileNameWithoutExtension "$p")"
-	local app="$P/$(GetFileName "$p")"
+	local p="$1" name="$2"; shift 2
 
-	# use AppImageLauncher
-	if InPath ail; then
-	fi
+	# clean existing installations
+	local path="$P/$(GetFileName "$p")"; appClean "$name" "$path" || return
+	InPath ail-cli && path="$(FindFile ~/Applications "$(LowerCase "$name")"'*')" && [[ $path ]] && { appClean "$name" "$path" || return; }
 
-	if [[ -f "$app" ]] && ask "Do you want to delete the existing installation in \"$appName\"" -dr n; then
-		rmSudo "$app" || return
-	fi
+	# install using AppImageLauncher
+	InPath ail-cli && { ail-cli integrate "$p"; return; }
 
-	if [[ ! -f "$app" ]]; then
-		echo "Installing....$app"
-		sudoc BashRun CopyFileProgress "$p" "$P" || { cat ~/.gcp/journal; return; }
-	fi
-
-	sudo chmod ugo+x "$app" || return
+	# install to $P
+	echo "Installing....$name"
+	sudoc BashRun CopyFileProgress "$p" "$P" || { cat ~/.gcp/journal; return; }
+	sudo chmod ugo+x "$path" || return
 }
 
 runCopyLocal()

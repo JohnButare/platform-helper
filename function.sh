@@ -495,6 +495,9 @@ AppVersion()
 		[[ "$?" != "0" || "$file" == @(/opt/homebrew/bin/speedtest|/bin/dash|/usr/bin/dash) ]] && { ScriptErrQuiet "application '$appOrig' is not installed" "AppVersion"; return 1; }
 	fi
 
+	# get file extension
+	local ext="$(GetFileExtension "$file" | LowerCase)"
+
 	# special cases
 	if [[ ! $version ]]; then
 		case "$(LowerCase "$(GetFileName "$app")")" in
@@ -538,8 +541,13 @@ AppVersion()
 	fi
 
 	# get Windows executable version
-	if [[ ! $version ]] && IsPlatform win && [[ "$(GetFileExtension "$file" | LowerCase)" == @(dll|exe) ]]; then
+	if [[ ! $version ]] && IsPlatform win && [[ "$ext" == @(dll|exe) ]]; then
 		version="$(AppVersionWin "$file")" || return
+	fi
+
+	# AppImage
+	if [[ ! $verbose && "$ext" == "appimage" ]]; then
+		version="$(echo "$file" | cut -d"-" -f2)"
 	fi
 
 	# call APP --version - where the version number is the last word of the first line
@@ -4159,6 +4167,7 @@ IsWindowsProcess()
 
 # ProcessClose|ProcessCloseWait|ProcessKill NAME... - close or kill the specified process
 # --full 					match the full command line argument not just the process name
+# --full 					match the full command line argument not just the process name
 # --force|-f			do not check if the process exists
 # --quiet|-q 			minimize informational messages
 # --root|-r 			kill processes as root
@@ -4211,7 +4220,6 @@ ProcessClose()
 		else
 			[[ ! $root ]] && args+=("--uid" "$USER")
 			$root pkill "$name" "${args[@]}"; result="$?"
-
 		fi
 
 		if (( ${result:-0} != 0 )); then
