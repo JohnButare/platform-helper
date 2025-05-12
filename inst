@@ -797,7 +797,7 @@ installInit()
 	mac+=(proxifier WiFiExplorer)
 	macDeb+=(curlie gping JumpCloud MozillaVpn netbootxyz NetbootxyzDocker nmap traefik unifi wtfis)
 	macWin+=(domotz GlobalProtect NordVpn WireGuard WireShark)
-	ubuntu+=(NicUsb StaticIp wifi)
+	ubuntu+=(IpDynamic IpStatic netplan NicUsb wifi)
 	win+=(GlassWire Ninite Tribler Zscaler)
 
 	# notes
@@ -2530,7 +2530,7 @@ AppHostSoftwareInstall()
 	local serverCommon="ConsulServer NomadServer"
 	local serverMinimal="docker $serverCommon"; IsPlatform win && serverMinimal+=" hyperv"
 	local serverServices="$serverCommon NomadServerTools PoolDashPanel NodeRed" # HomeAssistantServer HomeAssistantCli HomeAssistantIntegrations
-	local serverCore1="StaticIp $serverCommon ChronyServer DhcpServer DnsServer LoadBalancer rtc VpnServer"
+	local serverCore1="IpStatic $serverCommon ChronyServer DhcpServer DnsServer LoadBalancer rtc VpnServer"
 	local fileServer="keepalived ApacheDockerConfig FileServer GitServer NetbootxyzDocker NetbootxyzTftpServer PostgresDockerConfig squid"
 
 	# standard software
@@ -7385,7 +7385,7 @@ NvmFinalWin() { mergeDir "$pp/NVM For Windows" "$do"; }
 # Network
 #################################################
 
-NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler gio GlassWire GlobalProtect gping httpie JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn netbootxyz NetbootxyzDocker NetbootxyzTftpServer nginx NicUsb Ninite NordVpn pivpn Proxifier StaticIp TftpClient TftpServer TigerVnc Traefik Tribler TurboVnc UncomplicatedFirewall unifi wifi WiFiExplorer WireGuard Wireshark wtfis; }
+NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler gio GlassWire GlobalProtect gping httpie IpDynamic IpStatic JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn netbootxyz NetbootxyzDocker NetbootxyzTftpServer netplan nginx NicUsb Ninite NordVpn pivpn Proxifier TftpClient TftpServer TigerVnc Traefik Tribler TurboVnc UncomplicatedFirewall unifi wifi WiFiExplorer WireGuard Wireshark wtfis; }
 GlobalProtectInstall() { run --name "Global Protect" "other/Palo Alto Networks/GlobalProtect/GlobalProtect64.msi|GlobalProtect.pkg"; }
 GlobalProtectFinalWin() { mergeDir "$pp/Palo Alto Networks" "$oo"; }
 HttpieInstall() { run --python-global "httpie"; }
@@ -7400,7 +7400,7 @@ WtfisProfile() { profile $noPrompt restore default --app "wtfis" --method "$HOME
 BindInstall()
 {
 	header "ISC BIND9 DNS Server"
-	! IsStaticIp && { EchoErr "DNS Server requires a static IP address"; return 1; }
+	! IsIpStatic && { EchoErr "DNS Server requires a static IP address"; return 1; }
 
 	# https://www.isc.org/download/
 	if IsPlatform pi; then
@@ -7558,6 +7558,104 @@ GpingInstall()
 	fi
 }
 
+IpDynamicInstall()
+{
+	header "Dynamic IP Address"
+	[[ ! $force ]] && ! IsIpStatic && return
+	RunPlatform ipDynamic
+}
+
+ipDynamicUbuntu()
+{
+	local reboot; netplanCheck || return
+	local dir="/etc/netplan"
+	local configFile="$DATA/setup/50-cloud-init.yaml"
+	local dynamicFile="$dir/50-cloud-init.yaml"
+	local staticFile="$dir/01-network-manage-all.yaml"
+	local interface="$(GetInterface)"
+	
+	sudov || return
+
+	# remove the static configuration file
+	[[ -f "$staticFile" || $force ]] && { sudo $rm "$staticFile" || return; }
+
+	# add the dynamic configuration file
+	if [[ $force || ! -f "$dynamicFile" ]]; then
+		sudo cp "$configFile" "$dir" || return
+		sudo chmod go-r "$dynamicFile" || return
+	fi
+
+	# apply
+	sudo netplan apply || return; sleep 2
+	[[ $reboot ]] || ! IsIpStatic "$interface"
+}
+
+IpStaticInstall()
+{
+	header "Static IP Address"
+	[[ ! $force ]] && IsIpStatic && return
+	RunPlatform ipStatic
+}
+
+ipStaticUbuntu()
+{	
+	local reboot; netplanCheck || return
+
+	# configure static IP address using the existing IP configuration
+	local file="/etc/netplan/01-network-manage-all.yaml"
+	if [[ ! -f "$file" || $force ]]; then
+		local networkRenderer; networkRenderer="$(GetNetworkRenderer)" || return
+		local defaultGatway; defaultGatway="$(GetDefaultGateway)" || return
+		local dnsSearch; dnsSearch="$(GetDnsSearch | sed "s/ /,/g")" || return
+		local dnsServers; dnsServers="$(GetDnsServers4 | sed "s/ /,/g")" || return
+		local interface; interface="$(GetInterface)" || return
+		local ipAddress4; ipAddress4="$(GetIpAddress4)" || return
+		local subnetNumber; subnetNumber="$(GetSubnetNumber)" || return
+		local ipAddress6Token="$(Ipv6Token "$ipAddress4")"
+
+		# validate IPv4
+		! IsIpAddress4 "$defaultGatway" && { ScriptErr "the default gateway '$defaultGatway' is not a valid IPv4 address"; return 1; }
+		! IsIpAddress4 "$ipAddress4" && { ScriptErr "the IPv4 address '$ipAddress4' is not a valid IPv4 address"; return 1; }
+		! IsNumeric "$subnetNumber" && { ScriptErr "the subnet number '$subnetNumber' is not a valid IPv4 subnet number"; return 1; }
+
+		# update
+		cat <<-EOF | sudoc ${G}tee "$file" > /dev/null || return
+			network:
+			  version: 2
+			  ethernets:
+			    $interface:
+			      renderer: $networkRenderer
+			      match: {}
+			      dhcp4: false
+			      dhcp6: true
+			      ipv6-address-token: "$ipAddress6Token" # IPv4 address
+			      addresses:
+			        - $ipAddress4/$subnetNumber
+			      routes:
+			        - to: default
+			          via: $defaultGatway
+			      nameservers:
+			          addresses: [$dnsServers]
+			          search: [$dnsSearch]
+		EOF
+
+		sudo chmod go-r "$file" || return
+	fi
+
+
+	# disable cloud-init DHCP
+	if [[ -d "/etc/cloud" ]]; then
+		local file="/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg"
+		[[ ! -f "$file" || $force ]] && { echo "network: {config: disabled}" | sudo ${G}tee "$file" > /dev/null || return; }
+
+		file="/etc/netplan/50-cloud-init.yaml"
+		[[ -f "$file" ]] && sudo rm "/etc/netplan/50-cloud-init.yaml"
+	fi
+
+	sudo netplan apply || return; sleep 2
+	[[ $reboot ]] || IsIpStatic
+}
+
 JumpCloudInstall()
 {
 	header "JumpCloud" # https://console.jumpcloud.com/#/devices/new
@@ -7580,7 +7678,7 @@ JumpCloudFinalWin() { mergeDir "$pp/JumpCloud" "$pp/Operating System/Other" && $
 KeaInstall()
 {
 	header "ISC Kea DHCP Server"
-	! IsStaticIp && { EchoErr "DHCP Server requires a static IP address"; return 1; }
+	! IsIpStatic && { EchoErr "DHCP Server requires a static IP address"; return 1; }
 
 	pkg kea-dhcp6-server kea-dhcp4-server kea-admin kea-dhcp-ddns-server kea-dev kea-doc || return # kea-ctrl-agent kea-dhcp6-server
 
@@ -7830,6 +7928,16 @@ NetbootxyzTftpServerInstall()
 	cd /tmp && tftp "$hostname" -c get boot.cfg && echo "boot.cfg found ($(cat boot.cfg | wc -l) lines)" && rm boot.cfg
 }
 
+netplanCheck() { PackageIsInstalled netplan.io && return; i --no-header netplan; }
+
+netplanInstall()
+{
+	PackageIsInstalled netplan.io && return
+	pkg netplan.io || return
+	reboot="true"
+	EchoErr "${RED}Notice:${RESET} a reboot is required to use Netplan."
+}
+
 NginxInstall()
 {
 	run --header "NGINX" --package "nginx" || return
@@ -7922,71 +8030,6 @@ ProxifierInstall()
 }
 
 ProxifierHelp() { echo -E "\n- File, Import, <paste> ($clip)"; }
-
-StaticIpInstall()
-{
-	header "Static IP Address"
-	IsStaticIp && [[ ! $force ]] && return
-	RunPlatform staticIp
-}
-
-staticIpUbuntu()
-{	
-	# package
-	local reboot
-	if ! PackageIsInstalled netplan.io; then
-		pkg netplan.io || return
-		reboot="true"
-		EchoErr "${RED}Notice:${RESET} a reboot is required to enable the static IP address."
-	fi
-
-	# configure static IP address using the existing IP configuration
-	local file="/etc/netplan/01-network-manage-all.yaml"
-	if [[ ! -f "$file" || $force ]]; then
-		local defaultGatway; defaultGatway="$(GetDefaultGateway)" || return
-		local dnsSearch; dnsSearch="$(GetDnsSearch | sed "s/ /,/g")" || return
-		local dnsServers; dnsServers="$(GetDnsServers | sed "s/ /,/g")" || return
-		local interface; interface="$(GetInterface)" || return
-		local ipAddress; ipAddress="$(GetIpAddress)" || return
-		local subnetNumber; subnetNumber="$(GetSubnetNumber)" || return
-
-		# validate
-		! IsIpAddress "$defaultGatway" && { ScriptErr "the default gateway '$defaultGatway' is not a valid IPv4 address"; return 1; }
-		! IsIpAddress "$ipAddress" && { ScriptErr "the IP address '$defaultGatway' is not a valid IPv4 address"; return 1; }
-		! IsNumeric "$subnetNumber" && { ScriptErr "the subnet number '$subnetNumber' is not a valid IPv4 subnet number"; return 1; }
-
-		# update
-		cat <<-EOF | sudo ${G}tee "$file" > /dev/null || return
-			network:
-			  version: 2
-			  renderer: networkd
-			  ethernets:
-			    $interface:
-			      dhcp4: no
-			      addresses:
-			        - $ipAddress/$subnetNumber
-			      routes:
-			        - to: default
-			          via: $defaultGatway
-			      nameservers:
-			          addresses: [$dnsServers]
-			          search: [$dnsSearch]
-		EOF
-
-	fi
-
-	# disable cloud-init DHCP
-	if [[ -d "/etc/cloud" ]]; then
-		local file="/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg"
-		[[ ! -f "$file" || $force ]] && { echo "network: {config: disabled}" | sudo ${G}tee "$file" > /dev/null || return; }
-
-		file="/etc/netplan/50-cloud-init.yaml"
-		[[ -f "$file" ]] && sudo rm "/etc/netplan/50-cloud-init.yaml"
-	fi
-
-	sudo netplan apply || return
-	[[ $reboot ]] || IsStaticIp
-}
 
 TftpserverInstall()
 {

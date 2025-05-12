@@ -1976,6 +1976,7 @@ HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 HttpHeader() { curl --silent --show-error --location --dump-header - --output /dev/null "$1"; }
 IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; }
+Ipv6Expand() { awk '{if(NF<8){inner = "0"; for(missing = (8 - NF);missing>0;--missing){inner = inner ":0"}; if($2 == ""){$2 = inner} else if($3 == ""){$3 = inner} else if($4 == ""){$4 = inner} else if($5 == ""){$5 = inner} else if($6 == ""){$6 = inner} else if($7 == ""){$7 = inner}}; print $0}' FS=":" OFS=":" | awk '{for(i=1;i<9;++i){len = length($(i)); if(len < 1){$(i) = "0000"} else if(len < 2){$(i) = "000" $(i)} else if(len < 3){$(i) = "00" $(i)} else if(len < 4){$(i) = "0" $(i)}}; print $0}' FS=":" OFS=":"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 																										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }																		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
 IsIpAddressAny() { GetArgs; IsIpAddress4 "$1" || IsIpAddress6 "$1"; } 																								# IsIpAddressAny [IP] - return true if the IP is a valid IPv4 or IPv6 address
@@ -2312,6 +2313,15 @@ GetIpAddress()
 	echo "$(echo "$ip" | RemoveCarriageReturn)"
 }
 
+GetNetworkRenderer()
+{
+	if service running NetworkManager --quiet; then echo "NetworkManager"
+	elif service running network-manager --quiet; then echo "NetworkManager"
+	elif service running systemd-networkd --quiet; then echo "networkd"
+	else return 1
+	fi
+}
+
 GetSubnetMask()
 {
 	if IsPlatform mac; then command ipconfig getsummary "$(GetInterface)" | grep "^subnet_mask" | cut -d" " -f3
@@ -2365,6 +2375,19 @@ ipinfo()
 		EchoErr "done"
 	} | column -c $(tput cols) -t -s: -n
 
+}
+
+# Ipv6Token [IP](adapter) - get an IPv6 token from an IPv4 address
+Ipv6Token()
+{
+	local ip="$1"; [[ ! $ip ]] && { ip="$(GetIpAddress4)" || return; }
+
+	# validate
+	! IsIpAddress4 "$ip" && { ScriptErr "'$ip' is not a valid IPv4 address" "Ipv6Token"; return 1; }
+
+	# print
+	local ips; StringToArray "$ip" "." ips
+	printf "::%02x%02x:%02x%02x\n" "${ips[@]}"
 }
 
 # IsInDomain domain[,domain,...] - true if the computer is in one of the specified domains
@@ -2491,7 +2514,12 @@ IsOnNetwork()
 	return 1
 }
 
-IsStaticIp() { ! ip address show "$(GetInterface)" | grep "inet " | grep --quiet "dynamic"; }
+# IsIpStatic [interface](default)
+IsIpStatic()
+{
+	local interface="$1"; [[ ! $interface ]] && { interface="$(GetInterface)" || return; }
+	! ip address show "$interface" | grep "inet " | grep --quiet "dynamic"
+}
 
 # MacLookup HOST|IP... - resolve a host name or IP to a MAC address using the ARP table or /etc/ethers
 # --detail|-d		displayed detailed information about the MAC address including all MAC, IP address, and 
@@ -3114,7 +3142,7 @@ GetDnsServer()
 	fi			
 }
 
-# GetDnsServers [--win] - get all DNS servers
+# GetDnsServers [--win] - get all DNS servers (IPv4 and IPv6)
 GetDnsServers()
 {
 	# arguments
@@ -3127,10 +3155,26 @@ GetDnsServers()
 	fi
 
 	# other
-	if InPath resolvectl; then resolvectl status |& grep "DNS Servers: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
+	if InPath resolvectl; then resolvectl status |& grep "DNS Servers: " | head -1 | cut -d":" -f2- | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
 	elif IsPlatform mac; then scutil --dns | grep 'nameserver\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim
 	elif [[ -f "/etc/resolv.conf" ]]; then cat "/etc/resolv.conf" | grep nameserver | cut -d" " -f2 | sort | uniq | NewlineToSpace | RemoveSpaceTrim
 	fi			
+}
+
+GetDnsServers4()
+{
+	local servers; servers="$(GetDnsServers "$@")"
+	StringToArray "$servers" " " servers
+	local result; for server in "${servers[@]}"; do IsIpAddress4 "$server" && result+="$server "; done
+	echo "$(RemoveSpaceTrim "$result")"
+}
+
+GetDnsServers6()
+{
+	local servers; servers="$(GetDnsServers "$@")"
+	StringToArray "$servers" " " servers
+	local result; for server in "${servers[@]}"; do IsIpAddress6 "$server" && result+="$server "; done
+	echo "$(RemoveSpaceTrim "$result")"
 }
 
 MdnsResolve()
