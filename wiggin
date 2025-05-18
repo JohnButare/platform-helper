@@ -817,7 +817,8 @@ networkArgStart()
 	# configuration
 	dhcpConfig="$confDir/dhcp"
 	dnsConfig="$confDir/dns"
-	dhcpReservations="$dhcpConfig/$network/kea-dhcp4-$network-reservations.json"
+	dhcpReservations4="$dhcpConfig/$network/kea-dhcp4-$network-reservations.jsonc"
+	dhcpReservations6="$dhcpConfig/$network/kea-dhcp6-$network-reservations.jsonc"
 }
 
 networkCommand() { usage; }
@@ -935,7 +936,7 @@ networkConfigReservationsCommand()
 {
 	EchoErr "Getting device reservations..."
 	local what='print $1 "," $2'; [[ $ip ]] && what+='"," $3'
-	configFileToCommaDelimited "$dhcpReservations" | tr A-Z a-z | awk -F "," "{ $what }"
+	configFileToCommaDelimited "$dhcpReservations4" | tr A-Z a-z | awk -F "," "{ $what }"
 }
 
 networkConfigCurrentUsage() { ScriptUsageEcho "Usage: $(ScriptName) network config current\nGet current network device DNS names and MAC addresses in CSV format."; }
@@ -977,25 +978,62 @@ networkConfigCompareCommand()
 # Network Edit Command
 #
 
-networkEditUsage() { ScriptUsageEcho "Usage: $(ScriptName) network edit\nEdit the DHCP and DNC configuration files."; }
-
-networkEditCommand()
+networkEditUsage()
 {
-	local n="$(GetDnsDomain | RemoveDnsSuffix)"
+	ScriptUsageEcho "Usage: $(ScriptName) network edit [ports|domain|forward|reverse|config|reservations](all)
+Edit the DHCP and DNC configuration files.
 
+	-4|-6 	edit only IPv4 or IPv6 files"
+}
+
+networkEditArgStart() { unset -v ipv; n="$(GetDnsDomain | RemoveDnsSuffix)"; }
+
+networkEditOpt() 
+{
+	case "$1" in
+		-4) ipv="4";;
+		-6) ipv="6";;
+		*) return 1
+	esac
+}
+
+networkEditCommand() { networkEditAllCommand; }
+
+networkEditAllCommand()
+{
 	files=(
 		"$DATA/setup/ports" \
 		"$dnsConfig/$baseDomain" \
 		"$dnsConfig/forward.txt" \
-		"$dnsConfig/reverse.txt" \
-		"$dhcpConfig/$n/kea-dhcp4-$n.json" \
-		"$dhcpConfig/$n/kea-dhcp4-$n-reservations.json" \
-		"$dhcpConfig/$n/kea-dhcp6-$n.json" \
-		"$dhcpConfig/$n/kea-dhcp6-$n-reservations.json"
+		"$dnsConfig/reverse.txt"
 	)
-	
+	networkEditConfigFiles || return
+	networkEditReservationFiles || return
+	(( verboseLevel > 1 )) && ArrayShow files
+
 	# edit all files to ensure retrieval from cloud
 	TextEdit "${files[@]}"
+}
+
+networkEditPortsCommand() { TextEdit "$DATA/setup/ports"; }
+networkEditDomainCommand() { TextEdit "$dnsConfig/$baseDomain"; }
+networkEditForwardCommand() { TextEdit "$dnsConfig/forward.txt" ; }
+networkEditReverseCommand() { TextEdit "$dnsConfig/reverse.txt"; }
+networkEditConfigCommand() { local files=(); networkEditConfigFiles && TextEdit "${files[@]}"; }
+networkEditReservationsCommand() { local files=(); networkEditReservationFiles && TextEdit "${files[@]}"; }
+
+networkEditConfigFiles()
+{
+	[[ ! $ipv || "$ipv" == "4" ]] && files+=( "$dhcpConfig/$n/kea-dhcp4-$n.jsonc" )
+	[[ ! $ipv || "$ipv" == "6" ]] && files+=( "$dhcpConfig/$n/kea-dhcp6-$n.jsonc" )
+	return 0
+}
+
+networkEditReservationFiles()
+{
+	[[ ! $ipv || "$ipv" == "4" ]] && files+=( "$dhcpConfig/$n/kea-dhcp4-$n-reservations.jsonc" )
+	[[ ! $ipv || "$ipv" == "6" ]] && files+=( "$dhcpConfig/$n/kea-dhcp6-$n-reservations.jsonc" )
+	return 0
 }
 
 #
@@ -1004,21 +1042,24 @@ networkEditCommand()
 
 networkUpdateUsage()
 {
-	EchoWrap "Usage: $(ScriptName) network update [dns|dhcp|all](all)
+	ScriptUsageEcho "Usage: $(ScriptName) network update [dns|dhcp|all](all)
 Update the DHCP or DNS configuration of HOST.
 
 	-H,  --host [HOSTS](all)	$(ScriptOptHostUsage)
+	-4|-6 										use only IPv4 or IPv6
 	-nb, --no-backup					do not backup the existing configuration before updating
 	-nv, --no-validate				do not validate the service after updating"
 }
 
-networkUpdateArgStart() { unset -v noBackup noValidate; }
+networkUpdateArgStart() { unset -v ipv noBackup noValidate; }
 
 networkUpdateOpt() 
 {
 	ScriptOptHost "$@" && return
 
 	case "$1" in
+		-4) ipv="4";;
+		-6) ipv="6";;
 		-nb|--no-backup) noBackup="true";;
 		-nv|--no-validate) noValidate="true";;
 		*) return 1
@@ -1044,24 +1085,24 @@ networkUpdateDhcp()
 
 	# validate subnet range for the host
 	[[ ! $subnet4 ]] && { ScriptErr "unable to find a DHCP IPv4 pool for host '$hostShort'"; return 1; }
-	[[ ! $subnet6 ]] && { ScriptErr "unable to find a DHCP IPv6 pool for host '$hostShort'"; return 1; }
+	# [[ ! $subnet6 ]] && { ScriptErr "unable to find a DHCP IPv6 pool for host '$hostShort'"; return 1; }
 
 	hilight "Updating DHCP on $hostShort..."
 
 	echo "Creating DHCP configuration files..."
 	cp "$config/"* "$dir" || return
-	${G}sed -i "s/SUBNET4_POOL/$subnet4/" "$dir/kea-dhcp4-$network.json" || return
-	${G}sed -i "s/SUBNET6_POOL/$subnet6/" "$dir/kea-dhcp6-$network.json" || return
-	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4-$network.json" || return
-	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp6-$network.json" || return
+	${G}sed -i "s/SUBNET4_POOL/$subnet4/" "$dir/kea-dhcp4-$network.jsonc" || return
+	${G}sed -i "s/SUBNET6_POOL/$subnet6/" "$dir/kea-dhcp6-$network.jsonc" || return
+	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4-$network.jsonc" || return
+	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp6-$network.jsonc" || return
 	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4.conf" || return
 	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp6.conf" || return
 
 	# update ethers files - downcase to make etherwake case agnostic
-	configFileToCommaDelimited "$dhcpReservations" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
+	configFileToCommaDelimited "$dhcpReservations4" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
 
 	# update the hosts configuration file
-	configFileToCommaDelimited "$dhcpReservations" | awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return
+	configFileToCommaDelimited "$dhcpReservations4" | awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return
 
 	echo "Copying DHCP configuration files to $hostShort..."
 	local pw; pw="$(credential get secure default)" || return
@@ -1096,7 +1137,7 @@ networkUpdateDns()
 	cp "$config/named.conf."* "$dir" || return
 	cp "$config/$baseDomain" "$dir" || return
 	cp "$config/forward.txt" "$dir/$domain" || return
-	configFileToCommaDelimited "$dhcpReservations" | awk -F "," '{ print $1 ".'$domain'.	A	" $3 }' | column -t	>> "$dir/$domain" || return
+	configFileToCommaDelimited "$dhcpReservations4" | awk -F "," '{ print $1 ".'$domain'.	A	" $3 }' | column -t	>> "$dir/$domain" || return
 
 	# create reverse lookup zone files
 	for zone in 100 101 102; do
@@ -1107,7 +1148,7 @@ networkUpdateDns()
 		{ printf "\n; static\n"; cat "$config/reverse.txt" | ${G}grep "^[0-9]*.$zone.10.10"; } >> "$z"
 
 		{ printf "\n; dynamic\n"
-			configFileToCommaDelimited "$dhcpReservations" |
+			configFileToCommaDelimited "$dhcpReservations4" |
 				grep ",10.10.$zone." |
 				sed "s/10.10.$zone.//" |
 				awk -F "," '{ print $3 ".'$zone'.10.10.in-addr.arpa. PTR " $1 ".'$domain'." }' |
@@ -1140,7 +1181,7 @@ networkUpdateDns()
 networkUpdateCommon()
 {
 	getHost || return	
-	networkConfigFileValidate "$dhcpReservations" || return
+	networkConfigFileValidate "$dhcpReservations4" || return
 	[[ ! $noBackup ]] && { networkBackup$(ProperCase "$1") "$host" || return; }
 	return 0
 }
