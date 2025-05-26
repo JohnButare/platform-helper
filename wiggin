@@ -799,15 +799,18 @@ networkArgStart()
 
 	# network configuration
 	network="$(GetDnsDomain | RemoveDnsSuffix)"
-	subnet4Pi1="10.10.102.1 - 10.10.102.99"
-	subnet4Pi2="10.10.102.100 - 10.10.102.199"
-	subnet4Pi3="10.10.103.1 - 10.10.103.99"
-	subnet4Pi4="10.10.103.100 - 10.10.103.199"
+	
+	subnetPool4Pi1="10.10.102.1 - 10.10.102.99"
+	subnetPool4Pi2="10.10.102.100 - 10.10.102.199"
+	subnetPool4Pi3="10.10.103.1 - 10.10.103.99"
+	subnetPool4Pi4="10.10.103.100 - 10.10.103.199"
 
-	subnet6Pi1=""
-	subnet6Pi2=""
-	subnet6Pi3=""
-	subnet6Pi4=""
+	networkPrefix6="2006:a300:9024:308"
+	networkLength6="64"
+	subnetPool6Pi1=":1::/80"
+	subnetPool6Pi2=":2::/80"
+	subnetPool6Pi3=":3::/80"
+	subnetPool6Pi4=":4::/80"
 
 	# server file locations
 	dhcpDirPackageDir="/etc/kea" # package location
@@ -1080,22 +1083,26 @@ networkUpdateDhcp()
 	local host="$1" hostShort hostIp; networkUpdateCommon "DHCP" || return
 	local config="$dhcpConfig/$network"; CloudGet "$config"/* || return
 	local dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
-	local subnet4Var="subnet4$(ProperCase "$hostShort")" subnet6Var="subnet6$(ProperCase "$hostShort")"
-	local subnet4="${!subnet4Var}" subnet6="${!subnet6Var}"
+	local subnetPool4Var="subnetPool4$(ProperCase "$hostShort")" subnetPool6Var="subnetPool6$(ProperCase "$hostShort")"
+	local subnetPool4="${!subnetPool4Var}" subnetPool6="$networkPrefix6$(QuoteForwardslashes "${!subnetPool6Var}")"
 
 	# validate subnet range for the host
-	[[ ! $subnet4 ]] && { ScriptErr "unable to find a DHCP IPv4 pool for host '$hostShort'"; return 1; }
-	# [[ ! $subnet6 ]] && { ScriptErr "unable to find a DHCP IPv6 pool for host '$hostShort'"; return 1; }
+	[[ ! $subnetPool4 ]] && { ScriptErr "unable to find a DHCP IPv4 pool for host '$hostShort'"; return 1; }
+	[[ ! $subnetPool6 ]] && { ScriptErr "unable to find a DHCP IPv6 pool for host '$hostShort'"; return 1; }
 
 	hilight "Updating DHCP on $hostShort..."
 
 	echo "Creating DHCP configuration files..."
 	cp "$config/"* "$dir" || return
-	${G}sed -i "s/SUBNET4_POOL/$subnet4/" "$dir/kea-dhcp4-$network.jsonc" || return
-	${G}sed -i "s/SUBNET6_POOL/$subnet6/" "$dir/kea-dhcp6-$network.jsonc" || return
+
+	${G}sed -i "s/SUBNET_POOL/$subnetPool4/" "$dir/kea-dhcp4-$network.jsonc" || return
 	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4-$network.jsonc" || return
-	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp6-$network.jsonc" || return
 	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4.conf" || return
+
+	${G}sed -i "s/NETWORK_PREFIX/$networkPrefix6/" "$dir/kea-dhcp6-$network.jsonc" || return
+	${G}sed -i "s/NETWORK_LEN/$networkLength6/" "$dir/kea-dhcp6-$network.jsonc" || return
+	${G}sed -i "s/SUBNET_POOL/$subnetPool6/" "$dir/kea-dhcp6-$network.jsonc" || return
+	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp6-$network.jsonc" || return
 	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp6.conf" || return
 
 	# update ethers files - downcase to make etherwake case agnostic
@@ -1103,7 +1110,7 @@ networkUpdateDhcp()
 
 	# update the hosts configuration file
 	configFileToCommaDelimited "$dhcpReservations4" | awk -F "," '{ print $1 }' > "$DATA/setup/hosts" || return
-
+pause
 	echo "Copying DHCP configuration files to $hostShort..."
 	local pw; pw="$(credential get secure default)" || return
 	rsync --no-perms --chmod=ugo=rw --info=progress2 "$dir/"* "root@$host:$dhcpDir" || return
