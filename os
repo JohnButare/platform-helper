@@ -852,11 +852,11 @@ infoModelPiKernel() { pi info model; }
 
 infoNetwork()
 {
-
+	infoEcho "     network: mac=$(GetMacAddress)" || return
 	if IsIpvSupported 4; then
 		local ip; ip="$(GetIpAddress4)" || return
 		local desc; [[ $detail ]] && IsIpvSupported 6 && desc+=" (IPv6 token=$(Ipv6Token "$ip"))"
-		infoEcho "     network: IPv4=$ip$desc" || return
+		infoEcho "              IPv4=$ip$desc" || return
 	fi
 
 	if IsIpvSupported 6; then
