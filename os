@@ -656,7 +656,7 @@ infoArgStart()
 { 
 	unset -v detail monitor prefix status
 	hostArg="localhost" what=() skip=()
-	infoBasic=(model platform distribution kernel firmware chroot vm cpum architecture credential file other update reboot)
+	infoBasic=(model platform distribution kernel firmware chroot vm cpum architecture credential file network other update reboot)
 	infoDetail=(cpu load mhz process memory disk package switch restart)
 	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used)
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
@@ -772,6 +772,7 @@ infoCpum()
 
 infoCpu()
 {
+	! InPath vmstat && return
 	local cpu; cpu="$[100-$(vmstat 1 2| ${G}tail --lines=-1|awk '{print $15}')]%"
 	infoEcho "         cpu: $cpu"
 }
@@ -796,24 +797,6 @@ infoDiskGet() { echo "$(StringPad "$(disk${1^}Command $2)" 6)"; } # infoDiskGet 
 infoDisk_free() { ! InPath di && return; infoEcho "   disk free: $(diskFreeCommand) GB"; }
 infoDisk_total() { ! InPath di && return; infoEcho "  disk total: $(diskTotalCommand) GB"; }
 infoDisk_used() { ! InPath di && return; infoEcho "   disk used: $(diskUsedCommand) GB"; }
-
-infoPackage()
-{
-	infoPrint "     package: $(PackageManager)" || return
-	RunFunction infoPackage "$(PackageManager)"
-}
-
-infoPackageApt()
-{
-	local upgradeable="$(PackageUpgradable)"
-	{ ! IsInteger "$upgradeable" || (( upgradeable == 0 )); } && { echo; return; }
-	echo " ($upgradeable upgradeable)" || return
-}
-
-infoProcess()
-{
-	infoEcho "   processes: $(pscount)" || return
-}
 
 infoFile()
 {
@@ -867,8 +850,43 @@ infoModel()
 }
 infoModelPiKernel() { pi info model; }
 
+infoNetwork()
+{
+
+	if IsIpvSupported 4; then
+		local ip; ip="$(GetIpAddress4)" || return
+		local desc; [[ $detail ]] && IsIpvSupported 6 && desc+=" (IPv6 token=$(Ipv6Token "$ip"))"
+		infoEcho "     network: IPv4=$ip$desc" || return
+	fi
+
+	if IsIpvSupported 6; then
+		infoEcho "              IPv6=$(GetIpAddress6)" || return
+	fi
+
+	return 0
+}
+
 infoOther() { RunPlatform infoOther; }
 infoOtherPiKernel() {	infoEcho "    CPU temp: $(pi info temp)"; }
+
+infoPackage()
+{
+	infoPrint "     package: $(PackageManager)" || return
+	RunFunction infoPackage "$(PackageManager)"
+}
+
+infoPackageApt()
+{
+	local upgradeable="$(PackageUpgradable)"
+	{ ! IsInteger "$upgradeable" || (( upgradeable == 0 )); } && { echo; return; }
+	echo " ($upgradeable upgradeable)" || return
+}
+
+infoProcess()
+{
+	infoEcho "   processes: $(pscount)" || return
+}
+
 infoPlatform() {	infoEcho "    platform: $(PlatformDescription)"; }
 
 infoSwitch()
@@ -882,12 +900,6 @@ infoSwitch()
 	fi
 
 	infoEcho "      switch: $switch" 
-}
-
-infoUpdate()
-{
-	local date; date="$(UpdateDate "update-default" 2>&1)" || date="never"
-	infoEcho " last update: $date"
 }
 
 infoReboot()
@@ -954,6 +966,12 @@ infoRestartDebian()
 
 	# restarts required, return 1
 	return 1
+}
+
+infoUpdate()
+{
+	local date; date="$(UpdateDate "update-default" 2>&1)" || date="never"
+	infoEcho " last update: $date"
 }
 
 infoVm()
