@@ -1527,7 +1527,8 @@ CloudGet()
 	done
 }
 
-explore() # explorer DIR - explorer DIR in GUI program
+# explorer DIR - explorer DIR in GUI program
+explore()
 {
 	local dir="$1"; [[ ! $dir ]] && dir="."
 
@@ -5486,7 +5487,7 @@ GetVmType() # vmware|hyperv
 }
 
 #
-# window
+# Window Manager
 #
 
 HasWindowManager() { ! IsSsh || IsXServerRunning; } # assume if we are not in an SSH shell we are running under a Window manager
@@ -5571,6 +5572,15 @@ IsXServerRunning()
 	
 	InPath xhost && { xhost >& /dev/null || return; }
 	return 0
+}
+
+# LockScreen - lock the screen
+LockScreen()
+{
+	if IsPlatform gnome; then gnome-screensaver-command -l
+	elif IsPlatform mac; then open -a ScreenSaverEngine
+	elif IsPlatform win; then rundll32.exe "user32.dll,LockWorkStation"
+	fi
 }
 
 RestartWm()
