@@ -2921,19 +2921,50 @@ HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuf
 GetDnsSearch()
 {
 	# arguments
-	local win; [[ "$1" == "--win" ]] && win="--win"
+	local quiet verbose verboseLevel verboseLess win
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--quiet|-q) quiet="--quiet";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			--win|-w) win="--win";;
+			*) UnknownOption "$1" "GetDnsSearch"; return;;
+		esac
+		shift
+	done
+
+	log4 "getting the DNS search paths" "GetDnsSearch"
 
 	# win
 	if [[ $win ]]; then
+		log3 "using powershell" "GetDnsSearch"
 		powershell '(Get-NetAdapter "'$(GetAdapterName)'" | Get-DnsClient).ConnectionSpecificSuffixSearchList' | RemoveCarriageReturn| sort | uniq | NewlineToSpace | RemoveSpaceTrim
 		return
 	fi
 
-	# other
-	if InPath resolvectl; then resolvectl status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim
-	elif IsPlatform mac; then scutil --dns | grep 'search domain\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim
-	elif [[ -f "/etc/resolv.conf" ]]; then cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2- | sort | uniq | NewlineToSpace | RemoveSpaceTrim
+	# mac
+	if IsPlatform mac; then
+		log3 "using scutil" "GetDnsSearch"
+		scutil --dns | grep 'search domain\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim
+		return
 	fi
+	
+	# resolvectl - ensure it responds quickly, test using service stop dbus
+	if InPath resolvectl && timeout .05 resolvectl status >& /dev/null; then 
+		log3 "using resolvctrl" "GetDnsSearch"
+		resolvectl status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim
+		return
+	fi
+	[[ ! $quiet && $verbose ]] && InPath resolvectl && ScriptErr "resolvctl status failed, possible fix: service start dbus && service restart systemd-resolved.service" "GetDnsSearch"
+
+	# resolv.conf
+	if [[ -f "/etc/resolv.conf" ]]; then
+		log3 "using resolv.conf" "GetDnsSearch"
+		cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2- | sort | uniq | NewlineToSpace | RemoveSpaceTrim
+		return
+	fi
+
+	return 0
 }
 
 # RemoveDnsSuffix HOST - remove the DNS suffix if present
@@ -2955,29 +2986,48 @@ ConsulResolve() { hashi resolve "$@"; }
 # DnsAlternate [HOST] - return an alternate DNS server for the host if it requires one
 DnsAlternate()
 {
-	local host="$1"
+	# arguments
+	local host quiet verbose verboseLevel verboseLess
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--quiet|-q) quiet="--quiet";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			--win|-w) win="--win";;
+			*)
+				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
+				UnknownOption "$1" "DnsAlternate"; return
+				;;
+		esac
+		shift
+	done
 
 	# hardcoded to check if connected on VPN from the Butare network to the DriveTime network (coeixst.local suffix) 
-	if [[ ! $host || ("$host" =~ (^$|butare.net$) && "$(GetDnsSearch)" == "coexist.local") ]]; then
+	log3 "finding the alternate DNS server for host '$host'" "DnsAlternate"
+	if [[ ! $host || ("$host" =~ (^$|butare.net$) && "$(GetDnsSearch $quiet $verbose)" == "coexist.local") ]]; then
 		echo "10.10.100.8" # butare.net primary DNS server
 	fi
 
 	return 0
 }
 
-# DnsResolve [--quiet|-q|--user-alternate|-ua] IP|NAME - resolve an IP address or host name to a fully qualified domain name
+# DnsResolve IP|NAME [--quiet|-q|--use-alternate|-ua|-v] - resolve an IP address or host name to a fully qualified domain name
 DnsResolve()
 {
-	local name quiet server useAlternate
+	# arguments
+	local name quiet server verbose verboseLevel verboseLess useAlternate
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--quiet|-q) quiet="--quiet";;
 			--use-alternate|-ua) useAlternate="--use-alternate";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			--win|-w) win="--win";;
 			*)
 				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
 				else UnknownOption "$1" "DnsResolve"; return
 				fi
+				;;
 		esac
 		shift
 	done
@@ -2990,7 +3040,7 @@ DnsResolve()
 	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(GetNetworkDnsDomain)")
 
 	# override the server if needed
-	if [[ $useAlternate ]]; then server="$(DnsAlternate)"; else server="$(DnsAlternate "$name")"; fi
+	if [[ $useAlternate ]]; then server="$(DnsAlternate $quiet $verbose)"; else server="$(DnsAlternate "$name" $quiet $verbose)"; fi
 
 	# Resolve name using various commands
 	# - -N 3 and -ndotes=3 allow the default domain names for partial names like consul.service
@@ -2998,29 +3048,65 @@ DnsResolve()
 	# reverse DNS lookup for IP Address
 	local lookup
 	if IsIpAddress "$name"; then
+		log3 "resolving IP address '$name' to name using a reverse DNS lookup" "DnsResolve"
 
-		if IsLocalHost "$name"; then lookup="localhost"
+		if IsLocalHost "$name"; then
+			lookup="localhost"
+		
 		# dscacheutil -q host -a ip_address 10.10.101.84 - returns unifi.hagerman.butare.net, IPv6 DNS issue?
 		# elif [[ ! $server ]] && IsPlatform mac; then lookup="$(dscacheutil -q host -a ip_address "$name" | grep "^name:" | cut -d" " -f2)" || unset lookup
-		elif InPath host; then lookup="$(host -t A -4 "$name" $server |& ${G}grep -E "domain name pointer" | ${G}cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
-		else lookup="$(nslookup -type=A "$name" $server |& ${G}grep "name =" | ${G}cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
+		
+		elif InPath host; then
+			log3 "using host" "DnsResolve"
+			lookup="$(host -t A -4 "$name" $server |& ${G}grep -E "domain name pointer" | ${G}cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
+		
+		else
+			log3 "using nslookup" "DnsResolve"
+			lookup="$(nslookup -type=A "$name" $server |& ${G}grep "name =" | ${G}cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
+		
 		fi
 
 		# use alternate for Butare network IP addresses, reverse lookup fails on mac using VPN
-		[[ ! $lookup && ! $useAlternate ]] && IsIpInCidr "$name" "10.10.100.0/22" && { DnsResolve --use-alternate $quiet "$name"; return; }
+		if [[ ! $lookup && ! $useAlternate ]] && IsIpInCidr "$name" "10.10.100.0/22"; then
+			log3 "using alternate DNS server" "DnsResolve"
+			DnsResolve --use-alternate $quiet $verbose "$name"; return
+		fi
 
 	# forward DNS lookup to get the fully qualified DNS address
 	else
-		if [[ ! $server ]] && InPath getent; then lookup="$(getent ahostsv4 "$name" |& ${G}head -1 | tr -s " " | ${G}cut -d" " -f 3)" || unset lookup
-		elif [[ ! $server ]] && IsPlatform mac; then lookup="$(dscacheutil -q host -a name "$name" |& grep "^name:" | ${G}tail --lines=-1 | cut -d" " -f2)" || unset lookup # return the IPv4 name (the last name), dscacheutil returns ipv6 name first if present, i.e. dscacheutil -q host -a name "google.com"
-		elif InPath host; then lookup="$(host -N 2 -t A -4 "$name" $server |& ${G}grep -v "^ns." | ${G}grep -E "domain name pointer|has address" | head -1 | cut -d" " -f 1)" || unset lookup
-		elif InPath nslookup; then lookup="$(nslookup -ndots=2 -type=A "$name" $server |& ${G}tail --lines=-3 | ${G}grep "Name:" | ${G}cut -d$'\t' -f 2)" || unset lookup
+		log3 "resolving host to a fully qualified DNS name (FQDN) name using a forward DNS lookup" "DnsResolve"
+
+		# getent - faster for known names
+		if [[ ! $server ]] && InPath getent; then
+			log3 "using getent" "DnsResolve"
+			lookup="$(getent ahostsv4 "$name" |& ${G}head -1 | tr -s " " | ${G}cut -d" " -f 3)" || unset lookup
+
+		# dscacheutil - for mac
+		elif [[ ! $server ]] && IsPlatform mac; then
+			log3 "using dscacheutil" "DnsResolve"
+			lookup="$(dscacheutil -q host -a name "$name" |& grep "^name:" | ${G}tail --lines=-1 | cut -d" " -f2)" || unset lookup # return the IPv4 name (the last name), dscacheutil returns ipv6 name first if present, i.e. dscacheutil -q host -a name "google.com"
+
+		# host - faster for unknown names, slower for known names (2x slower than getent)
+		elif InPath host; then
+			log3 "using host" "DnsResolve"
+			lookup="$(host -N 2 -t A -4 "$name" $server |& ${G}grep -v "^ns." | ${G}grep -E "domain name pointer|has address" | head -1 | cut -d" " -f 1)" || unset lookup
+		
+		# nslookup
+		elif InPath nslookup; then
+			log3 "using nslookup" "DnsResolve"
+			lookup="$(nslookup -ndots=2 -type=A "$name" $server |& ${G}tail --lines=-3 | ${G}grep "Name:" | ${G}cut -d$'\t' -f 2)" || unset lookup
+
 		fi
 
 	fi
 
 	# error
-	[[ ! $lookup ]] && { [[ ! $quiet ]] && HostUnresolved "$name"; return 1; }
+	if [[ ! $lookup ]]; then
+		log3 "unable to resolve hostname '$name'" "DnsResolve"
+		[[ ! $quiet ]] && HostUnresolved "$name"; return 1
+	fi
+
+	# return lookup
 	echo "$lookup"
 }
 
@@ -3230,25 +3316,32 @@ RoutePrint()
 # network: services
 #
 
-# GetServer SERVICE - get an active host for the specified service
+# GetServer SERVICE [--quiet|-q|--use-alternate|-ua|-v] - get an active host for the specified service
 GetServer() 
 {
 	# arguments
-	local quiet service
+	local quiet service useAlternate verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--quiet|-q) quiet="--quiet";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			--use-alternate|-ua) useAlternate="--use-alternate";;
 			*)
-				! IsOption "$1" && [[ ! $service ]] && { service="$1"; shift; continue; }
-				UnknownOption "$1" "GetServer"; return
+				if ! IsOption "$1" && [[ ! $service ]]; then service="$1"
+				else UnknownOption "$1" "GetServer"; return
+				fi
+				;;
 		esac
 		shift
 	done
 
 	[[ ! $service ]] && { MissingOperand "service" "GetServer"; return; }	
+
+
 	local ip; ip="$(GetIpAddress $quiet "$service.service.$(GetNetworkDnsBaseDomain)")" || return
-	DnsResolve $quiet $useAlternate "$ip" "$@"
+	log3 "getting the active host for service '$service'" "GetServer"
+	DnsResolve $quiet $verbose $useAlternate "$ip" "$@"
 }
 
 # GetServers SERVICE - get all active hosts for the specified service
