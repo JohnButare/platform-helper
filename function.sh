@@ -751,7 +751,7 @@ HashiConf()
 	# return if needed
 	[[ ! $force && $HASHI_CHECKED ]] && return
 	[[ ! $force && $VAULT_TOKEN ]] && { HASHI_CHECKED="true"; return; }
-	! HashiAvailable && return
+	! HashiAvailable && { HASHI_CHECKED="true"; return; }
 
 	# initialize
 	(( verboseLevel > 1 )) && header "Hashi Configuration"
