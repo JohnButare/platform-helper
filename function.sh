@@ -2256,6 +2256,7 @@ GetIpAddress()
 			--all|-a) all=(cat);;
 			--resolve-all|-ra) mdsn="true" vm="true";;
 			--mdns|-m) mdns="true";;
+			--no-prompt|-np) :;;
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--vm|-v) vm="true";;
@@ -2936,6 +2937,7 @@ GetDnsSearch()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) :;;
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
@@ -3002,6 +3004,7 @@ DnsAlternate()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) :;;
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
@@ -3031,6 +3034,7 @@ DnsResolve()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) :;;
 			--quiet|-q) quiet="--quiet";;
 			--use-alternate|-ua) useAlternate="--use-alternate";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
@@ -3337,6 +3341,7 @@ GetServer()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) :;;
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--use-alternate|-ua) useAlternate="--use-alternate";;
@@ -5071,6 +5076,19 @@ ScriptName()
 	local name="$0"; IsZsh && name="$ZSH_SCRIPT"
 	name="$(GetFileName "$name")"; [[ "$name" == "function.sh" ]] && unset name
 	printf "$name" 
+}
+
+# ScriptOptNoPrompt - find no prompt option.  Sets noPrompt.
+ScriptOptNoPrompt()
+{
+	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
+		case "$1" in
+			-np|--no-prompt) noPrompt="--no-prompt";;
+		esac
+		shift; 
+	done
+
+	return 0
 }
 
 # ScriptOptForce - find force option.  Sets force, forceLevel, and forceLess.
