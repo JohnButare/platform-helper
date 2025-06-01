@@ -2241,13 +2241,13 @@ GetInterface()
 # -a|--all 						resolve all addresses for the host, not just the first
 # -ra|--resolve-all 	resolve host using all methods (DNS, MDNS, and local virtual machine names)
 # -m|--mdns						resolve host using MDNS
-# -v|--vm 						resolve host using local virtual machine names (check $HOSTNAME-HOST)
+#    --vm 						resolve host using local virtual machine names (check $HOSTNAME-HOST)
 # -w|--wsl						get the IP address used by WSL (Windows only)
 # test cases: 10.10.100.10 web.service pi1 pi1.butare.net pi1.butare.net
 GetIpAddress() 
 {
 	# arguments
-	local host mdns quiet vm wsl all=(head -1) ipv="4" 
+	local host mdns quiet verbose verboseLevel verboseLess vm wsl all=(head -1) ipv="4" 
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2257,6 +2257,7 @@ GetIpAddress()
 			--resolve-all|-ra) mdsn="true" vm="true";;
 			--mdns|-m) mdns="true";;
 			--quiet|-q) quiet="true";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--vm|-v) vm="true";;
 			--wsl|-w) wsl="--wsl";;
 			*)
@@ -2288,7 +2289,7 @@ GetIpAddress()
 	IsMdnsName "$host" && { ip="$(MdnsResolve "$host" 2> /dev/null)"; [[ $ip ]] && echo "$ip"; return; }
 
 	# override the server if needed
-	server="$(DnsAlternate "$host")"
+	server="$(DnsAlternate "$host" $quiet $verbose)"
 
 	# lookup IP address using various commands
 	# - -N 3 and -ndots=2 allow the default domain names for partial names like consul.service
@@ -3461,12 +3462,13 @@ IsRcloneRemote() { [[ -f "$HOME/.config/rclone/rclone.conf" ]] && grep --quiet "
 # GetUncFull [--ip] UNC: return the UNC with server fully qualified domain name or an IP
 GetUncFull()
 {
-	local ip unc
-
 	# arguments
+	local ip unc verbose verboseLevel verboseLess
+
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--ip) ip="true";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $unc ]]; then unc="$1"
 				else UnknownOption "$1" "GetUncFull"; return
@@ -3488,14 +3490,14 @@ GetUncFull()
 	{ [[ "$(LowerCase "$server")" == @(cryfs) ]] || IsRcloneRemote "$server"; } && { echo "$unc"; return; }
 
 	# force use of the IP if the host requires an alternate DNS server
-	[[ $(DnsAlternate "$server") ]] && ip="--ip"
+	[[ $(DnsAlternate "$server" $quiet $verbose) ]] && ip="--ip"
 
 	# resolve the server
 	if ! IsIpAddress "$server" ; then
 		if [[ $ip ]]; then
-			server="$(GetIpAddress "$server")" || return
+			server="$(GetIpAddress "$server" $quiet $verbose)" || return
 		else
-			server="$(DnsResolve "$server")" || return
+			server="$(DnsResolve "$server" $quiet $verbose)" || return
 		fi
 	fi
 	
