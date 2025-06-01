@@ -373,10 +373,10 @@ nameGetCommand()
 		actualName="$(SshHelper --quiet connect "$name" -- hostname)"
 	else
 		log3 "using DNS to resolve the name of '$host'"
-		actualName="$(DnsResolve "$name" --quiet)"
+		actualName="$(DnsResolve "$name" --quiet "${globalArgs[@]}")"
 
 		# check virtual host
-		! [[ "$actualName" ]] && actualName="$(DnsResolve "$HOSTNAME-$name"  --quiet)"
+		! [[ "$actualName" ]] && actualName="$(DnsResolve "$HOSTNAME-$name" --quiet  "${globalArgs[@]}")"
 
 		# if the actual name is a superset of the DNS name use the full name
 		# - this seems too broad, find the use case for this
