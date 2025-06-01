@@ -86,23 +86,24 @@ dbus()
 
 	DbusConf || return
 
+	# dbus configuration
 	if [[ ! -d "$XDG_RUNTIME_DIR" ]]; then
 		sudoc ${G}mkdir "$XDG_RUNTIME_DIR" || return
 		sudo chmod 700 "$XDG_RUNTIME_DIR" || return
 		sudo chown "$(${G}id -un):$(${G}id -gn)" "$XDG_RUNTIME_DIR" || return
 	fi
 
+	# dbus service
 	runService "dbus" || return
-  
-	# if DBUS service was stopped resolvectrl may fail if the service is not restarted 
-	if InPath resolvectl && ! timeout .05 resolvectl status >& /dev/null; then
-		service restart systemd-resolved.service || return
-	fi
 
+	# dbus-daemon
   if [[ ! -e "$XDG_RUNTIME_DIR/bus" ]]; then
   	[[ $brief ]] && printf "dbus-daemon..."
   	"/usr/bin/dbus-daemon" --session --address="$DBUS_SESSION_BUS_ADDRESS" --nofork --nopidfile --syslog-only &
   fi
+
+ 	# if DBUS service was stopped resolvectl may fail if the service is not restarted 
+	ResolveCtlFix || return
 }
 
 # guacamole - hard code containers to start until run with Nomad

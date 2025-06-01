@@ -2856,6 +2856,15 @@ PortResponse()
 	echo "$result * 1000" | bc	
 }
 
+# ResolveCtlCheck - check if resolvectl is working (will not hang)
+ResolveCtlCheck() { InPath resolvectl && timeout .05 resolvectl status >& /dev/null; }
+
+# ResolveCtlFix - fix resolvectl if needed(so it will not hang)
+ResolveCtlFix() { ResolveCtlCheck && return; service restart systemd-resolved.service && ResolveCtlCheck; }
+
+# ResolveCtlValidate - check resolvectl and log a message if it is not function (will hang)
+ResolveCtlValidate() { ResolveCtlCheck || ScriptErr "resolvectl status failed" "$1"; }
+
 # WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 WaitForAvailable()
 {
@@ -2952,12 +2961,11 @@ GetDnsSearch()
 	fi
 	
 	# resolvectl - ensure it responds quickly, test using service stop dbus
-	if InPath resolvectl && timeout .05 resolvectl status >& /dev/null; then 
-		log3 "using resolvctrl" "GetDnsSearch"
+	if ResolveCtlValidate "GetDnsSearch"; then
+		log3 "using resolvectl" "GetDnsSearch"
 		resolvectl status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim
 		return
 	fi
-	[[ ! $quiet && $verbose ]] && InPath resolvectl && ScriptErr "resolvctl status failed, possible fix: service start dbus && service restart systemd-resolved.service" "GetDnsSearch"
 
 	# resolv.conf
 	if [[ -f "/etc/resolv.conf" ]]; then
@@ -3206,7 +3214,7 @@ DnsFlush()
 {
 	if IsPlatform mac; then sudoc dscacheutil -flushcache && sudo killall -HUP mDNSResponder
 	elif IsPlatform win; then RunWin ipconfig.exe /flushdns >& /dev/null
-	elif IsPlatform systemd && systemctl is-active systemd-resolved >& /dev/null; then resolvectl flush-caches
+	elif IsPlatform systemd && systemctl is-active systemd-resolved >& /dev/null && ResolveCtlValidate "DnsFlush"; then resolvectl flush-caches
 	fi
 }
 
@@ -3229,7 +3237,7 @@ GetDnsServer()
 	# other
 	local server; server="$(nslookup "$check" |& grep "^Address:" | head -1 | cut -d":" -f2- | RemoveChar '	' | ${G}cut -d"#" -f1)"
 	[[ $server ]] && { echo "$server"; return; }
-	if InPath resolvectl; then resolvectl status |& grep "^Current DNS Server: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
+	if ResolveCtlValidate "GetDnsServer"; then resolvectl status |& grep "^Current DNS Server: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
 	fi			
 }
 
@@ -3246,7 +3254,7 @@ GetDnsServers()
 	fi
 
 	# other
-	if InPath resolvectl; then resolvectl status |& grep "DNS Servers: " | head -1 | cut -d":" -f2- | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
+	if ResolveCtlValidate "GetDnsServers"; then resolvectl status |& grep "DNS Servers: " | head -1 | cut -d":" -f2- | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
 	elif IsPlatform mac; then scutil --dns | grep 'nameserver\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim
 	elif [[ -f "/etc/resolv.conf" ]]; then cat "/etc/resolv.conf" | grep nameserver | cut -d" " -f2 | sort | uniq | NewlineToSpace | RemoveSpaceTrim
 	fi			
