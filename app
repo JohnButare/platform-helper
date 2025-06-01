@@ -94,6 +94,11 @@ dbus()
 
 	runService "dbus" || return
   
+	# if DBUS service was stopped resolvectrl may fail if the service is not restarted 
+	if InPath resolvectl && ! timeout .05 resolvectl status >& /dev/null; then
+		service restart systemd-resolved.service || return
+	fi
+
   if [[ ! -e "$XDG_RUNTIME_DIR/bus" ]]; then
   	[[ $brief ]] && printf "dbus-daemon..."
   	"/usr/bin/dbus-daemon" --session --address="$DBUS_SESSION_BUS_ADDRESS" --nofork --nopidfile --syslog-only &
