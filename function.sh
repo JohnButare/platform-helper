@@ -2256,7 +2256,7 @@ GetIpAddress()
 			--all|-a) all=(cat);;
 			--resolve-all|-ra) mdsn="true" vm="true";;
 			--mdns|-m) mdns="true";;
-			--quiet|-q) quiet="true";;
+			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--vm|-v) vm="true";;
 			--wsl|-w) wsl="--wsl";;
@@ -3342,7 +3342,6 @@ GetServer()
 	done
 
 	[[ ! $service ]] && { MissingOperand "service" "GetServer"; return; }	
-
 
 	local ip; ip="$(GetIpAddress $quiet "$service.service.$(GetNetworkDnsBaseDomain)")" || return
 	log3 "getting the active host for service '$service'" "GetServer"
