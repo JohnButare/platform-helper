@@ -318,7 +318,7 @@ UserCreate()
 
 		elif [[ $system ]]; then
 			sudoc useradd --create-home --system "$user" || return
-			password linux --user "$user" --password "$password" || return
+			password change linux --user "$user" --password "$password" || return
 
 		else
 			sudoc adduser $user --disabled-password --gecos "" || return
