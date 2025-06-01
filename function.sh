@@ -2922,10 +2922,11 @@ HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuf
 GetDnsSearch()
 {
 	# arguments
-	local quiet verbose verboseLevel verboseLess win
+	local force forceLevel forceLess quiet verbose verboseLevel verboseLess win
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
@@ -2988,10 +2989,11 @@ ConsulResolve() { hashi resolve "$@"; }
 DnsAlternate()
 {
 	# arguments
-	local host quiet verbose verboseLevel verboseLess
+	local force forceLevel forceLess host quiet verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
@@ -3016,10 +3018,11 @@ DnsAlternate()
 DnsResolve()
 {
 	# arguments
-	local name quiet server verbose verboseLevel verboseLess useAlternate
+	local force forceLevel forceLess name quiet server verbose verboseLevel verboseLess useAlternate
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--quiet|-q) quiet="--quiet";;
 			--use-alternate|-ua) useAlternate="--use-alternate";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
@@ -3321,10 +3324,11 @@ RoutePrint()
 GetServer() 
 {
 	# arguments
-	local quiet service useAlternate verbose verboseLevel verboseLess
+	local force forceLevel forceLess quiet service useAlternate verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--use-alternate|-ua) useAlternate="--use-alternate";;
