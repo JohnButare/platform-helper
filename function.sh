@@ -1655,7 +1655,7 @@ FileWait()
 		case "$1" in "") : ;;
 			--no-cancel|-nc) noCancel="true";;
 			--path|-p) pathFind="true";;
-			--quiet|-q) quiet="true";;
+			--quiet|-q) quiet="--quiet";;
 			--sudo|-s) sudo="sudoc";;
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; continue; }
@@ -2538,10 +2538,10 @@ MacLookup()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--detail|-d) detail="true";;
-			--ethers|-e) ethers="true";;
-			--monitor|-m) monitor="true";;
-			--quiet|-q) quiet="true";;
+			--detail|-d) detail="--detail";;
+			--ethers|-e) ethers="--ethers";;
+			--monitor|-m) monitor="--monitor";;
+			--quiet|-q) quiet="--quiet";;
 			*) 
 					IsOption "$1" && { UnknownOption "$1" "MacLookup"; return; }
 					[[ ! $host ]] && host="$1" || { ExtraOperand "$1" "MacLookup"; return; }
@@ -3171,7 +3171,7 @@ DnsResolveMac()
 			--all|-a) all="true";;
 			--errors|-e) errors=0;;
 			--full|-f) full="DnsResolveBatch";;
-			--quiet|-q) quiet="true";;
+			--quiet|-q) quiet="--quiet";;
 			*)
 					IsOption "$1" && { UnknownOption "$1" "DnsResolveMac"; return; }
 					macs+=("$1")
@@ -4444,7 +4444,7 @@ ProcessKill()
 		case "$1" in "") : ;;
 			--full) args+=("--full");;
 			--force|-f) force="--force";;
-			--quiet|-q) quiet="true";;
+			--quiet|-q) quiet="--quiet";;
 			--root|-r) rootArg="--root" root="sudoc";;
 			--win|-w) win="--win";;
 			*)
