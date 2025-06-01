@@ -2859,7 +2859,7 @@ PortResponse()
 }
 
 # ResolveCtlCheck - check if resolvectl is working (will not hang)
-ResolveCtlCheck() { InPath resolvectl && timeout .05 resolvectl status >& /dev/null; }
+ResolveCtlCheck() { local timeout=".05"; IsPlatform PiKernel && timeout=".2"; InPath resolvectl && timeout "$timeout" resolvectl status >& /dev/null; }
 
 # ResolveCtlFix - fix resolvectl if needed(so it will not hang)
 ResolveCtlFix() { ResolveCtlCheck && return; service restart systemd-resolved.service && ResolveCtlCheck; }
