@@ -1137,6 +1137,7 @@ fi
 ArrayAnyCheck() { IsAnyArray "$1" && return; ScriptErr "'$1' is not an array"; return 1; }
 ArrayReverse() { { ArrayDelimit "$1" $'\n'; printf "\n"; } | tac; } # last line of tac must end in a newline
 ArraySize() { eval "echo \${#$1[@]}"; }
+ArraySort() { IFS=$'\n' ArrayMake "$1" "$(ArrayDelimit "$1" $'\n' | sort "${@:2}")"; } # ArraySort VAR SORT_OPTIONS...
 
 # AppendArray [-rd|--remove-dups|--remove-duplicates] DEST A1 A2 ... - combine specified arrays into first array
 ArrayAppend()
