@@ -2291,7 +2291,7 @@ GetIpAddress()
 	IsMdnsName "$host" && { ip="$(MdnsResolve "$host" 2> /dev/null)"; [[ $ip ]] && echo "$ip"; return; }
 
 	# override the server if needed
-	server="$(DnsAlternate "$host" $quiet $verbose)"
+	server="$(DnsAlternate "$host" $verbose)"
 
 	# lookup IP address using various commands
 	# - -N 3 and -ndots=2 allow the default domain names for partial names like consul.service
@@ -3000,13 +3000,13 @@ ConsulResolve() { hashi resolve "$@"; }
 DnsAlternate()
 {
 	# arguments
-	local force forceLevel forceLess host quiet verbose verboseLevel verboseLess
+	local force forceLevel forceLess host verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--no-prompt|-np) :;;
-			--quiet|-q) quiet="--quiet";;
+			--quiet|-q) :;;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
 			*)
@@ -3057,7 +3057,7 @@ DnsResolve()
 	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(GetNetworkDnsDomain)")
 
 	# override the server if needed
-	if [[ $useAlternate ]]; then server="$(DnsAlternate $quiet $verbose)"; else server="$(DnsAlternate "$name" $quiet $verbose)"; fi
+	if [[ $useAlternate ]]; then server="$(DnsAlternate $verbose)"; else server="$(DnsAlternate "$name" $verbose)"; fi
 
 	# Resolve name using various commands
 	# - -N 3 and -ndotes=3 allow the default domain names for partial names like consul.service
@@ -3480,11 +3480,12 @@ IsRcloneRemote() { [[ -f "$HOME/.config/rclone/rclone.conf" ]] && grep --quiet "
 GetUncFull()
 {
 	# arguments
-	local ip unc verbose verboseLevel verboseLess
+	local ip quiet unc verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--ip) ip="true";;
+			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $unc ]]; then unc="$1"
@@ -3507,7 +3508,7 @@ GetUncFull()
 	{ [[ "$(LowerCase "$server")" == @(cryfs) ]] || IsRcloneRemote "$server"; } && { echo "$unc"; return; }
 
 	# force use of the IP if the host requires an alternate DNS server
-	[[ $(DnsAlternate "$server" $quiet $verbose) ]] && ip="--ip"
+	[[ $(DnsAlternate "$server" $verbose) ]] && ip="--ip"
 
 	# resolve the server
 	if ! IsIpAddress "$server" ; then
