@@ -2865,7 +2865,7 @@ ResolveCtlCheck() { InPath resolvectl && timeout .05 resolvectl status >& /dev/n
 ResolveCtlFix() { ResolveCtlCheck && return; service restart systemd-resolved.service && ResolveCtlCheck; }
 
 # ResolveCtlValidate - check resolvectl and log a message if it is not function (will hang)
-ResolveCtlValidate() { ResolveCtlCheck || ScriptErr "resolvectl status failed" "$1"; }
+ResolveCtlValidate() { ! InPath resolvectl && return; ResolveCtlCheck || ScriptErr "resolvectl status failed" "$1"; }
 
 # WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 WaitForAvailable()
