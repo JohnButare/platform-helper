@@ -2859,7 +2859,7 @@ PortResponse()
 }
 
 # ResolveCtlCheck - check if resolvectl is working (will not hang)
-ResolveCtlCheck() { local timeout=".05"; IsPlatform PiKernel && timeout=".2"; InPath resolvectl && timeout "$timeout" resolvectl status >& /dev/null; }
+ResolveCtlCheck() { local timeout="50"; IsPlatform PiKernel && timeout="200"; InPath resolvectl && RunTimeout "$timeout" resolvectl status >& /dev/null; }
 
 # ResolveCtlFix - fix resolvectl if needed(so it will not hang)
 ResolveCtlFix() { ResolveCtlCheck && return; service restart systemd-resolved.service && ResolveCtlCheck; }
@@ -3093,10 +3093,10 @@ DnsResolve()
 	else
 		log3 "resolving host to a fully qualified DNS name (FQDN) name using a forward DNS lookup" "DnsResolve"
 
-		# getent - faster for known names
+		# getent - faster for known names, so use RunTimeout to limit it
 		if [[ ! $server ]] && InPath getent; then
 			log3 "using getent" "DnsResolve"
-			lookup="$(getent ahostsv4 "$name" |& ${G}head -1 | tr -s " " | ${G}cut -d" " -f 3)" || unset lookup
+			lookup="$(RunTimeout getent ahostsv4 "$name" |& ${G}head -1 | tr -s " " | ${G}cut -d" " -f 3)" || unset lookup
 
 		# dscacheutil - for mac
 		elif [[ ! $server ]] && IsPlatform mac; then
@@ -3111,7 +3111,7 @@ DnsResolve()
 		# nslookup
 		elif InPath nslookup; then
 			log3 "using nslookup" "DnsResolve"
-			lookup="$(nslookup -ndots=2 -type=A "$name" $server |& ${G}tail --lines=-3 | ${G}grep "Name:" | ${G}cut -d$'\t' -f 2)" || unset lookup
+			lookup="$(nslookup -ndots=2 -type=A -timeout=1 "$name" $server |& ${G}tail --lines=-3 | ${G}grep "Name:" | ${G}cut -d$'\t' -f 2)" || unset lookup
 
 		fi
 
@@ -4565,6 +4565,22 @@ pstree()
 	InPath pstree && { command pstree "${pstreeOpts[@]}" "$@"; return; }
 	! IsPlatform mac && { ps -axj --forest "$@"; return; }
 	return
+}
+
+# RunTimeout [TIMEOUT_MILLISECONDS] COMMAND... - run a command with a timeout
+RunTimeout()
+{	
+	# arguments
+	local timeout="$1"
+	if IsNumeric "$timeout"; then
+		shift
+	else
+	 	timeout="$(AvailableTimeoutGet)"
+	fi
+	timeout="$(bc <<< "scale=4; $timeout/1000")"
+
+	# run command
+	timeout "$timeout" "$@"
 }
 
 # RunWin PROGRAM - running Windows executables from some Linux directories fails
