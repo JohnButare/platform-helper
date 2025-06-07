@@ -2317,15 +2317,6 @@ GetIpAddress()
 	echo "$(echo "$ip" | RemoveCarriageReturn)"
 }
 
-GetNetworkRenderer()
-{
-	if service running NetworkManager --quiet; then echo "NetworkManager"
-	elif service running network-manager --quiet; then echo "NetworkManager"
-	elif service running systemd-networkd --quiet; then echo "networkd"
-	else return 1
-	fi
-}
-
 GetSubnetMask()
 {
 	if IsPlatform mac; then command ipconfig getsummary "$(GetInterface)" | grep "^subnet_mask" | cut -d" " -f3

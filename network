@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) adapter|current|cache|center|dns|domain|find|gui|hosts|internet|ip|profile|proxy|run|service|timeout|vars|vpn|watch|workgroup
+Usage: $(ScriptName) adapter|configure|current|cache|center|dns|domain|find|gui|hosts|internet|ip|profile|proxy|run|service|timeout|vars|vpn|watch|workgroup
 Network commands."
 }
 
@@ -177,6 +177,119 @@ adapterCheck()
 	adapterList | grep --quiet "^${name}$" && return
 	ScriptErrQuiet "adapter '$name' does not exist"
 } 
+
+#
+# configure
+#
+
+configureUsage() { echot "Usage: $(ScriptName) configure cloud-init|netplan|status\nNetwork configuration."; }
+configureCommand() { usage; }
+
+configureStatusCommand()
+{
+	local what; cloudInitVars || return
+	for what in cloudInit netplan; do
+		if ${what}IsInstalled; then
+			if [[ $verbose ]]; then
+				${what}Status || return
+			else
+				${what}Desc || return
+			fi
+		fi
+	done
+}
+
+#
+# configure - cloud-init
+#
+
+configureCloud-initUsage() { echot "Usage: $(ScriptName) configure cloud-init disable|enable|IsEnabled|IsInstalled|status\ncloud-init network configuration."; }
+configureCloud-initArgStart() { cloudInitVars; }
+configureCloud-initCommand() { usage; }
+configureCloud-initDisableCommand() { usage; }
+configureCloud-initIsInstalledCommand() { cloudInitIsInstalled; }
+configureCloud-initIsEnabledCommand() { cloudInitIsEnabled; }
+configureCloud-initStatusCommand() { cloudInitStatus; }
+
+configureCloud-initDisableCommand()
+{
+	cloudInitValidate	|| return
+	[[ ! -f "$disableFile" || $force ]] && { echo "network: {config: disabled}" | sudo ${G}tee "$disableFile" > /dev/null || return; }
+	[[ -f "$enableFile" ]] && { sudoc rm "$enableFile" || return; }
+	return 0
+}
+
+configureCloud-initEnableCommand()
+{
+	cloudInitValidate	|| return
+	
+	if [[ ! -f "$enableFile" || $force ]]; then
+		cat <<-EOF | sudoc ${G}tee "$enableFile" > /dev/null || return
+			# This file is generated from information provided by the datasource.  Changes
+			# to it will not persist across an instance reboot.  To disable cloud-init's
+			# network configuration capabilities, write a file
+			# /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg with the following:
+			# network: {config: disabled}
+			network:
+			    ethernets:
+			        eth0:
+			            dhcp4: true
+			            dhcp6: true
+			            optional: true
+			    version: 2
+		EOF
+	fi
+
+  [[ -f "$disableFile" ]] && { sudoc rm "$disableFile" || return; }
+
+	return 0
+}
+
+cloudInitDesc() { echo "cloud-init"; }
+cloudInitIsInstalled() { [[ -d "$baseDir" ]]; }
+cloudInitIsEnabled() { [[ ! -f "$disableFile" ]]; }
+cloudInitValidate() { cloudInitIsInstalled && return; ScriptErrQuiet "cloud-init is not installed"; return 1; }
+cloudInitVars() { baseDir="/etc/cloud"; enableFile="$baseDir/cloud.cfg.d/50-cloud-init.yaml" disableFile="$baseDir/cloud.cfg.d/99-disable-network-config.cfg"; }
+
+cloudInitStatus()
+{
+	hilight "cloud-init status:"
+	echo "  installed=$(cloudInitIsInstalled && echo "true" || echo "false")"
+	! cloudInitIsInstalled && return
+	echo "  enabled=$(cloudInitIsEnabled && echo "true" || echo "false")"
+}
+
+#
+# configure - Netplan
+#
+
+configureNetplanUsage() { echot "Usage: $(ScriptName) configure netplan IsInstalled|renderer|status\nNetplan network configuration."; }
+configureNetplanCommand() { usage; }
+configureNetplanRendererUsage() { echot "Usage: $(ScriptName) configure netplan renderer\nReturn the current network render, NetworkManager or networkd."; }
+configureNetplanRendererCommand() { netplanRenderer; }
+configureNetplanStatusCommand() { netplanStatus; }
+
+netplanDesc() { echo "netplan"; }
+netplanIsInstalled() { InPath netplan; }
+netplanValidate() { netplanIsInstalled && return; ScriptErrQuiet "Netplan is not installed"; return 1; }
+
+netplanRenderer()
+{
+	if service running NetworkManager --quiet; then printf "NetworkManager"
+	elif service running network-manager --quiet; then printf "NetworkManager"
+	elif service running systemd-networkd --quiet; then printf "networkd"
+	else return 1
+	fi
+}
+
+netplanStatus()
+{
+	hilight "Netplan status:"
+	echo "  installed=$(netplanIsInstalled && echo "true" || echo "false")"
+	! netplanIsInstalled && return
+	echo "  renderer=$(netplanRenderer)"
+}
+
 
 #
 # current commands
