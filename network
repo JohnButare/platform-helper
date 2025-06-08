@@ -187,6 +187,13 @@ confCommand() { usage; }
 
 confStatusCommand()
 {
+	# general
+	if [[ $verbose ]]; then
+		hilight "general:"	
+		os info -w=network | sed 's/network: //g' | tr -s "   " | sed 's/ /  /g'
+	fi
+
+	# programs
 	local what
 	for what in cloudInit netplan; do
 		if ${what}IsInstalled; then
@@ -254,7 +261,8 @@ cloudInitVars() { baseDir="/etc/cloud"; enableFile="$baseDir/cloud.cfg.d/50-clou
 cloudInitStatus()
 {
 	cloudInitValidate || return
-	hilight "cloud-init status:"
+	! cloudInitIsEnabled && return
+	hilight "cloud-init:"
 	echo "  enabled=$(cloudInitIsEnabled && echo "true" || echo "false")"
 }
 
@@ -262,14 +270,24 @@ cloudInitStatus()
 # conf - Netplan
 #
 
-confNetplanUsage() { echot "Usage: $(ScriptName) conf netplan dynamic|IsInstalled|renderer|static|status\nNetplan network configuration."; }
+confNetplanUsage() { echot "Usage: $(ScriptName) conf netplan dhcp|dynamic|IsInstalled|renderer|static|status\nNetplan network configuration."; }
 confNetplanArgStart() { netplanVars; }
 confNetplanCommand() { usage; }
 confNetplanRendererUsage() { echot "Usage: $(ScriptName) conf netplan renderer\nReturn the current network render, NetworkManager or networkd."; }
 confNetplanRendererCommand() { netplanRenderer; }
 confNetplanStatusCommand() { netplanStatus; }
 
-confNetplanStaticUsage() { echot "Usage: $(ScriptName) conf netplan static\nConfigure a dynamic IP address."; }
+confNetplanDhcpUsage() { echot "Usage: $(ScriptName) conf netplan dhcp enable|disable|status 4|6\nNetplan DHCP configuration."; }
+confNetplanDhcpCommand() { usage; }
+confNetplanDhcpEnableCommand() { usage; }
+confNetplanDhcpStatusCommand() { ListMake " " $(netplanDhcpDesc 4) $(netplanDhcpDesc 6); }
+confNetplanDhcpEnable4Command() { netplanDhcpEnable 4; }
+confNetplanDhcpEnable6Command() { netplanDhcpEnable 6; }
+confNetplanDhcpDisableCommand() { usage; }
+confNetplanDhcpDisable6Command() { netplanDhcpDisable 4; }
+confNetplanDhcpDisable6Command() { netplanDhcpDisable 6; }
+
+confNetplanDynamicUsage() { echot "Usage: $(ScriptName) conf netplan static\nConfigure a dynamic IP address."; }
 
 confNetplanDynamicCommand()
 {
@@ -354,9 +372,9 @@ confNetplanStaticCommand()
 }
 
 netplanDesc() { echo "netplan"; }
+netplanFileValidate() { [[ -f "$currentFile" ]] || ScriptErr "netplan is not configured properly" "$1"; }
 netplanIsInstalled() { netplanVars && InPath netplan; }
 netplanValidate() { netplanIsInstalled && return; ScriptErrQuiet "Netplan is not installed"; return 1; }
-netplanVars() { baseDir="/etc/netplan"; dynamicFile="$baseDir/01-network-manage-all-dynamic.yaml" staticFile="$baseDir/01-network-manage-all-static.yaml"; }
 
 # netplanCleanup [FILE] - cleanup old configuration and apply new configuration
 netplanCleanup()
@@ -389,6 +407,11 @@ netplanDhcp()
 	fi
 }
 
+netplanDhcpDesc() { netplanDhcpGet "$1" && printf "dhcp$1"; return 0; }
+netplanDhcpGet() { netplanFileValidate && sudoc cat "$currentFile" | grep "dhcp$1:" | head -1 | qgrep "true"; }
+netplanDhcpEnable() { netplanFileValidate && sudoc sed -i "s/dhcp$1: false/dhcp$1: true/" "$currentFile"; }
+netplanDhcpDisable() { netplanFileValidate && sudoc sed -i "s/dhcp$1: true/dhcp$1: false/" "$currentFile"; }
+
 netplanRenderer()
 {
 	if service running NetworkManager --quiet; then printf "NetworkManager"
@@ -402,9 +425,21 @@ netplanRenderer()
 netplanStatus()
 {
 	netplanValidate || return
-	hilight "Netplan status:"
+	hilight "Netplan:"
 	echo "  renderer=$(quiet="--quiet" netplanRenderer)"
-	echo "  dhcp=$(netplanDhcp)"
+	echo "  dhcp=$(netplanDhcp): $(confNetplanDhcpStatusCommand)"
+}
+
+netplanVars()
+{
+		baseDir="/etc/netplan"
+		dynamicFile="$baseDir/01-network-manage-all-dynamic.yaml"
+		staticFile="$baseDir/01-network-manage-all-static.yaml"
+
+		if [[ -f "$dynamicFile" ]]; then currentFile="$dynamicFile"
+		elif [[ -f "$staticFile" ]]; then currentFile="$staticFile"
+		else currentFile=""
+		fi
 }
 
 #
