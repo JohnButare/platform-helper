@@ -2648,6 +2648,7 @@ nmapp()
 {	
 	local file sudo; [[ $1 == @(-s|--sudo) ]] && { sudo="sudoc"; shift; }
 	if IsPlatform win && InPath nmap.exe; then nmap.exe "$@"
+	elif IsPlatform mac && file="/usr/local/bin/nmap" && [[ -f "$file" ]]; then $sudo "$file" "$@" # prefer nmap < 7.97 in /usr/local/bin, DhcpServers fails, https://github.com/nmap/nmap/issues/3127
 	elif IsPlatform mac && file="$P/nmap.app/Contents/MacOS/nmap" && [[ -f "$file" ]]; then $sudo "$file" "$@"
 	else $sudo nmap "$@"
 	fi
