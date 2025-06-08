@@ -1295,6 +1295,9 @@ IsNumeric() { [[ "$1" =~ ^-?[0-9.]+([.][0-9]+)?$ ]]; }
 IsNumericEqual() { IsNumeric "$1" && IsNumeric "$2" && [[ "$(echo "$1 != $2" |& bc 2> /dev/null)" == "0" ]]; } # IsNumericEqual N1 N2 - return true (0) if N1 and N2 are numeric and are equal, i.e. IsNumeric 15.0 15 returns 0
 HexToDecimal() { echo "$((16#${1#0x}))"; }
 
+# list
+ListMake() { local listMakeArray=("${@:2}"); ArrayDelimit listMakeArray "$1"; } # ListMake DELIMITER VALUE... - return values delimited by delimiter
+
 # string
 CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; } # CharCount STRING [CHAR]
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
@@ -1970,6 +1973,7 @@ FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo ${G}tail -F --lines=+0 "$1"
 NETWORK_CACHE="network" NETWORK_CACHE_OLD="network-old"
 
 GetDefaultGateway() { CacheDefaultGateway "$@" && echo "$NETWORK_DEFAULT_GATEWAY"; }																	# GetDefaultGateway - default gateway
+GetDnsServers4() { GetDnsServers -4 "$@"; }; GetDnsServers6() { GetDnsServers -6 "$@"; }
 GetAdapterIpAddress4() { GetAdapterIpAddress -4 "$@"; }; GetAdapterIpAddress6() { GetAdapterIpAddress -6 "$@"; }			# GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
 GetIpAddress4() { GetIpAddress -4 "$@"; }; GetIpAddress6() { GetIpAddress -6 "$@"; }																	# GetIpAddress[4|6] [HOST] - get the IP address of the current or specified host
 GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGetForce "domain"; }				# GetDomain - get the current network domain
@@ -2093,9 +2097,9 @@ DhcpValidate()
 # -w|--wsl	get the IP address used by WSL (Windows only)
 GetAdapterIpAddress() 
 {
+	# arguments
 	local adapter wsl ipv="4"; 
 
-	# options
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-4) ipv="4";;
@@ -2392,6 +2396,14 @@ Ipv6Token()
 	# print
 	local ips; StringToArray "$ip" "." ips
 	printf "::%02x%02x:%02x%02x\n" "${ips[@]}"
+}
+
+# IpvInclude 4|6 SERVERS [DELIMITER]( ) - include only IPv4 or IPv6 servers from the delimited list of servers
+IpvInclude()
+{
+	local ipv="$1" servers="$2" delimiter="${3:- }"; StringToArray "$servers" "$delimiter" servers
+	local result; for server in "${servers[@]}"; do IsIpAddress${ipv} "$server" && result+="$server "; done
+	echo "$(RemoveSpaceTrim "$result")"
 }
 
 # IsInDomain domain[,domain,...] - true if the computer is in one of the specified domains
@@ -2971,34 +2983,34 @@ GetDnsSearch()
 	# win
 	if [[ $win ]]; then
 		log3 "using powershell" "GetDnsSearch"
-		powershell '(Get-NetAdapter "'$(GetAdapterName)'" | Get-DnsClient).ConnectionSpecificSuffixSearchList' | RemoveCarriageReturn| sort | uniq | NewlineToSpace | RemoveSpaceTrim
-		return
-	fi
+		search="$(powershell '(Get-NetAdapter "'$(GetAdapterName)'" | Get-DnsClient).ConnectionSpecificSuffixSearchList' | RemoveCarriageReturn| sort | uniq | NewlineToSpace | RemoveSpaceTrim)"
 
 	# mac
-	if IsPlatform mac; then
+	elif IsPlatform mac; then
 		log3 "using scutil" "GetDnsSearch"
-		scutil --dns | grep 'search domain\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim
-		return
-	fi
+		search="$(scutil --dns | grep 'search domain\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim)"
 	
 	# resolvectl - ensure it responds quickly, test using service stop dbus
-	if ResolveCtlInstalled && ResolveCtlValidate "GetDnsSearch"; then
+	elif ResolveCtlInstalled && ResolveCtlValidate "GetDnsSearch"; then
 		log3 "using resolvectl" "GetDnsSearch"
-		if search="$(resolveclt status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim)"; then
-			[[ $search ]] && { echo "$search"; return; }
-		fi
+		search="$(resolveclt status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim)"
 	fi
 
 	# resolv.conf
-	if [[ -f "/etc/resolv.conf" ]]; then
+	if [[ ! $search && -f "/etc/resolv.conf" ]]; then
 		log3 "using resolv.conf" "GetDnsSearch"
-		cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2- | sort | uniq | NewlineToSpace | RemoveSpaceTrim
-		return
+		search="$(cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2- | sort | uniq | NewlineToSpace | RemoveSpaceTrim)"
 	fi
 
+	# ConfigGetCurrent
+	if [[ ! $search ]]; then
+		log3 "using ConfigGetCurrent" "GetDnsSearch"
+		search="$(ConfigGetCurrent DnsSearch)"
+	fi
+
+	# return
+	[[ $search ]] && { echo "$search"; return; }
 	ScriptErrQuiet "unable to get the DNS search domains" "GetDnsSearch"
-	return 1
 }
 
 # RemoveDnsSuffix HOST - remove the DNS suffix if present
@@ -3263,39 +3275,62 @@ GetDnsServer()
 	[[ $server ]] && { echo "$server"; return; }
 }
 
-# GetDnsServers [--win] - get all DNS servers (IPv4 and IPv6)
+# GetDnsServers [-4|-6|--win] - get all DNS servers
 GetDnsServers()
 {
 	# arguments
-	local win; [[ "$1" == "--win" ]] && win="--win"
+	local force forceLevel forceLess quiet verbose verboseLevel verboseLess ipv win 
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-4) ipv="4";;
+			-6) ipv="6";;
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) :;;
+			--quiet|-q) quiet="--quiet";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			--win|-w) win="--win";;
+			*) UnknownOption "$1" "GetDnsServers"; return;;
+		esac
+		shift
+	done
 
 	# win
 	if [[ $win ]]; then
+		log3 "using powershell" "GetDnsServers"
 		powershell '(Get-DnsClientServerAddress -InterfaceAlias "'$(GetAdapterName)'")' | grep -E "IPv4|IPv6" | RemoveCarriageReturn | tr -s " " | cut -d" " -f5- | RemoveChar '{' | RemoveChar "}" | RemoveChar "," | SpaceToNewline | RemoveEmptyLines | sort | uniq | NewlineToSpace | RemoveSpaceTrim
 		return
 	fi
 
 	# other
-	if ResolveCtlInstalled && ResolveCtlValidate "GetDnsServers"; then resolvectl status |& grep "DNS Servers: " | head -1 | cut -d":" -f2- | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
-	elif IsPlatform mac; then scutil --dns | grep 'nameserver\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim
-	elif [[ -f "/etc/resolv.conf" ]]; then cat "/etc/resolv.conf" | grep nameserver | cut -d" " -f2 | sort | uniq | NewlineToSpace | RemoveSpaceTrim
-	fi			
-}
+	local servers;
+	if ResolveCtlInstalled && ResolveCtlValidate "GetDnsServers"; then
+		log3 "using resolvectl" "GetDnsServers"
+		servers="$(resolvectl status |& grep "DNS Servers: " | head -1 | cut -d":" -f2- | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim)" # Ubuntu >= 22.04
 
-GetDnsServers4()
-{
-	local servers; servers="$(GetDnsServers "$@")"
-	StringToArray "$servers" " " servers
-	local result; for server in "${servers[@]}"; do IsIpAddress4 "$server" && result+="$server "; done
-	echo "$(RemoveSpaceTrim "$result")"
-}
+	elif IsPlatform mac; then
+		log3 "using scutil" "GetDnsServers"
+		servers="$(scutil --dns | grep 'nameserver\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim)"
+	fi
+	[[ $servers && $ipv ]] && servers="$(IpvInclude "$ipv" "$servers")"
 
-GetDnsServers6()
-{
-	local servers; servers="$(GetDnsServers "$@")"
-	StringToArray "$servers" " " servers
-	local result; for server in "${servers[@]}"; do IsIpAddress6 "$server" && result+="$server "; done
-	echo "$(RemoveSpaceTrim "$result")"
+	# resolv.conf
+	if [[ ! $servers && -f "/etc/resolv.conf" ]]; then
+		log3 "using resolv.conf" "GetDnsServers"
+		servers="$(cat "/etc/resolv.conf" | grep nameserver | cut -d" " -f2 | sort | uniq | NewlineToSpace | RemoveSpaceTrim)"
+	fi
+	[[ $servers && $ipv ]] && servers="$(IpvInclude "$ipv" "$servers")"
+
+	# ConfigGetCurrent
+	if [[ ! $servers ]]; then
+		log3 "using ConfigGetCurrent" "GetDnsServers"
+		servers="$(ConfigGetCurrent DnsServers)"
+	fi
+	[[ $servers && $ipv ]] && servers="$(IpvInclude "$ipv" "$servers")"
+
+	# return
+	[[ $servers ]] && { echo "$servers"; return; }
+	ScriptErrQuiet "unable to get the DNS servers" "GetDnsServers"
 }
 
 MdnsResolve()
