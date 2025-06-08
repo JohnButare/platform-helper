@@ -3236,14 +3236,6 @@ DnsResolveMac()
 	[[ $names ]] && ArrayDelimit names $'\n' | $full; return $errors
 }
 
-DnsFlush()
-{
-	if IsPlatform mac; then sudoc dscacheutil -flushcache && sudo killall -HUP mDNSResponder
-	elif IsPlatform win; then RunWin ipconfig.exe /flushdns >& /dev/null
-	elif ResolveCtlInstalled && ResolveCtlValidate "DnsFlush"; then resolvectl flush-caches
-	fi
-}
-
 # GetDnsServer [--win] - get the current DNS server
 GetDnsServer()
 {
