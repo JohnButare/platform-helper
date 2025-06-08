@@ -2078,6 +2078,8 @@ DhcpRenew()
 	echo "Adapter $adapter IP: $oldIp -> $(GetAdapterIpAddress "$adapter")" || return
 }
 
+DhcpServers() { nmapp --sudo --script broadcast-dhcp-discover --script-args='broadcast-dhcp-discover.timeout=3' |& grep "Server Identifier: " | RemoveCarriageReturn | cut -d":" -f2 | ${G}sed 's/ //g' | sort --numeric | uniq | DnsResolveBatch | sort; }
+
 # GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
 # -4|-6 							use IPv4 or IPv6
 # -w|--wsl	get the IP address used by WSL (Windows only)

@@ -838,7 +838,8 @@ networkBackupDnsCommand() { getDnsHosts && ForAllHosts networkBackupDns; }
 
 networkBackupDhcp()
 {
-	local host="$1" hostShort hostIp stamp="$(GetDateStamp)"; getHost || return
+	local host="$1" stamp="$(GetDateStamp)"
+	local dhcpDir hostShort hostIp; getHost || return
 
 	hilight "Backing up DHCP configuration from $hostShort..."
 
@@ -855,7 +856,8 @@ networkBackupDhcp()
 
 networkBackupDns()
 {
-	local host="$1" hostShort hostIp stamp="$(GetDateStamp)"; getHost || return
+	local host="$1" stamp="$(GetDateStamp)"
+	local dhcpDir hostShort hostIp; getHost || return
 
 	hilight "Backing up DNS configuration from $hostShort..."
 
@@ -1265,23 +1267,20 @@ networkValidateAllCommand() { networkValidateDhcpCommand && networkValidateDnsCo
 networkValidateDhcpCommand() { networkValidateHosts "DHCP"; }
 networkValidateDnsCommand() { networkValidateHosts "DNS"; }
 
-networkValidateDhcp() { networkValidateDhcp4; }
+networkValidateDhcp() { networkValidateDhcp4 "$@"; }
 
 networkValidateDhcp4()
 {
-	local host="$1" hostShort hostIp; getHost || return
-	if IsPlatform win; then
-		dhcptest.exe --bind "$(GetAdapterIpAddress)" --query --wait --timeout 2 |& grep -q "^Received packet from $hostIp"
-	else
-		sudoc nmap --script broadcast-dhcp-discover -e $(GetAdapterName) |& grep -q "Server Identifier: $hostIp"
-	fi
+	local host="$1"; local hostDns; hostDns="$(DnsResolve "$host" "${globalArgs[@]}")" || return
+	DhcpServers | qgrep "^${hostDns}$"
 }
 
 networkValidateDhcp6() { :; }
 
 networkValidateDns()
 {
-	local host="$1" hostShort hostIp; getHost || return
+	local host="$1"
+	local dhcpDir hostShort hostIp; getHost || return
 	IsAvailablePort "$hostIp" 53 || { log2 "$hostIp is not availble on port 53"; return 1; }
 	nslookup "router.$(GetDnsDomain)" "$hostIp" >& /dev/null || { log2 "$hostIp forward lookuo of router.$(GetDnsDomain) failed"; return 1; }
 	nslookup "10.10.100.1" "$hostIp" >& /dev/null || { log2 "$hostIp reverse lookup of 10.10.100.1 failed"; return 1; }								# validate reverse lookup
@@ -1290,7 +1289,8 @@ networkValidateDns()
 # networkValidateHost HOST dhcp|dns - validate DHCP or DNS for the specified host
 networkValidateHost()
 {
-	local host="$1" what="${2^^}" hostShort hostIp; getHost || return	
+	local host="$1" what="${2^^}" 
+	local dhcpDir hostShort hostIp; getHost || return
 	printf "Waiting for $what on $hostShort..."
 
 	if networkValidateWait "$what" 10; then
@@ -1304,7 +1304,7 @@ networkValidateHost()
 # networkValidateHosts dhcp|dns - validate DHCP or DNS for the hosts
 networkValidateHosts()
 {
-	local what="$1" hosts host hostShort hostIp; get$(ProperCase "$what")Hosts || return
+	local what="$1" dhcpDir hosts host hostShort hostIp; get$(ProperCase "$what")Hosts || return
 
 	printf "Validating ${what^^}..."
 	for host in "${hosts[@]}"; do
@@ -1657,6 +1657,7 @@ borgBackupService()
 	ForAllHosts borgBackup --header "Backup ${service^}"
 }
 
+# getHost - uses host, sets dhcpDir, hostShort, hostIp
 getHost()
 {
 	! IsAvailable "$host" && { ScriptErr "host '$host' is not available"; return 1; }
