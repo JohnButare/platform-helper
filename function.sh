@@ -1986,7 +1986,6 @@ IsIpAddress4() { IsIpAddress -4 "$@"; }; IsIpAddress6() { IsIpAddress -6 "$@"; }
 IsIpvSupported() { [[ $(GetAdapterIpAddress -$1) ]]; }																																# IsIpvSupported 4|6 - return true if the specified internet protocol supported
 NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; }; 																																# NetworkCurrent - configured current network
 NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; }; 																																# NetworkOld - the previous network
-nmapp() { IsPlatform win && InPath nmap.exe && { nmap.exe "$@"; return; }; sudoc nmap "$@"; }													# nmapp - run nmap for the platform
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }																																		# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }																													# SmbPasswordIsSet USER - return true if the SMB password for user is set
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }																									# UrlExists URL - true if the specified URL exists
@@ -2642,6 +2641,16 @@ NetworkNeighbors()
 		ip="$(GetWord "$line" 1)" mac="$(GetWord "$line" 2)"
 		host="$(DnsResolveMac --quiet "$mac")" && echo "$host=$ip"
 	done
+}
+
+# nmapp - run nmap for the platform
+nmapp()
+{	
+	local file sudo; [[ $1 == @(-s|--sudo) ]] && { sudo="sudoc"; shift; }
+	if IsPlatform win && InPath nmap.exe; then nmap.exe "$@"
+	elif IsPlatform mac && file="$P/nmap.app/Contents/MacOS/nmap" && [[ -f "$file" ]]; then $sudo "$file" "$@"
+	else $sudo nmap "$@"
+	fi
 }
 
 # PortUsage - show what ports are in use
