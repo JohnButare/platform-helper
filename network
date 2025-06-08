@@ -276,25 +276,29 @@ configureNetplanDynamicCommand()
 {
 	netplanValidate || return
 
+	# return if no changes
 	local file="$dynamicFile"
-	if [[ ! -f "$file" || $force ]]; then
-		local interface; interface="$(GetInterface)" || return
-		local renderer; renderer="$(netplanRenderer)" || return
+	[[ -f "$file" && ! $force ]] && return
 
-		# update
-		cat <<-EOF | sudoc ${G}tee "$file" > /dev/null || return
-			network:
-			  version: 2
-			  ethernets:
-			    $interface:
-			      renderer: $renderer
-			      dhcp4: true
-			      dhcp6: true
-		EOF
+	# get configuration
+	local interface; interface="$(GetInterface)" || return
+	local renderer; renderer="$(netplanRenderer)" || return
 
-		sudo chmod go-r "$file" || return
-	fi
+	# update configuration
+	cat <<-EOF | sudoc ${G}tee "$file" > /dev/null || return
+		network:
+		  version: 2
+		  ethernets:
+		    $interface:
+		      renderer: $renderer
+		      match:
+		        name: $interface # required for systemd-networkd
+		      dhcp4: true
+		      dhcp6: true
+	EOF
+	sudo chmod go-r "$file" || return
 
+	# cleanup and apply
 	netplanCleanup "$staticFile"
 }
 
@@ -304,47 +308,49 @@ configureNetplanStaticCommand()
 {
 	netplanValidate || return
 
+	# return if no changes
 	local file="$staticFile"
-	if [[ ! -f "$file" || $force ]]; then
-		local renderer; renderer="$(netplanRenderer)" || return
-		local defaultGatway; defaultGatway="$(GetDefaultGateway)" || return
-		local dnsSearch; dnsSearch="$(GetDnsSearch "${globalArgs[@]}" | sed "s/ /,/g")" || return
-		local dnsServers; dnsServers="$(GetDnsServers4 | sed "s/ /,/g")" || return
-		local interface; interface="$(GetInterface)" || return
-		local ipAddress4; ipAddress4="$(GetIpAddress4)" || return
-		local subnetNumber; subnetNumber="$(GetSubnetNumber)" || return
-		local ipAddress6Token="$(Ipv6Token "$ipAddress4")"
+	[[ -f "$file" && ! $force ]] && return
 
-		# validate IPv4
-		! IsIpAddress4 "$defaultGatway" && { ScriptErr "the default gateway '$defaultGatway' is not a valid IPv4 address"; return 1; }
-		! IsIpAddress4 "$ipAddress4" && { ScriptErr "the IPv4 address '$ipAddress4' is not a valid IPv4 address"; return 1; }
-		! IsNumeric "$subnetNumber" && { ScriptErr "the subnet number '$subnetNumber' is not a valid IPv4 subnet number"; return 1; }
+	# get configuration
+	local renderer; renderer="$(netplanRenderer)" || return
+	local defaultGatway; defaultGatway="$(GetDefaultGateway)" || return
+	local dnsSearch; dnsSearch="$(GetDnsSearch "${globalArgs[@]}" | sed "s/ /,/g")" || return
+	local dnsServers; dnsServers="$(GetDnsServers4 | sed "s/ /,/g")" || return
+	local interface; interface="$(GetInterface)" || return
+	local ipAddress4; ipAddress4="$(GetIpAddress4)" || return
+	local subnetNumber; subnetNumber="$(GetSubnetNumber)" || return
+	local ipAddress6Token; ipAddress6Token="$(Ipv6Token "$ipAddress4")" || return
 
-		# update
-		cat <<-EOF | sudoc ${G}tee "$file" > /dev/null || return
-			network:
-			  version: 2
-			  ethernets:
-			    $interface:
-			      renderer: $renderer
-			      match:
-			      	name: $interface # required for systemd-networkd
-			      dhcp4: false
-			      dhcp6: true
-			      ipv6-address-token: "$ipAddress6Token" # IPv4 address
-			      addresses:
-			        - $ipAddress4/$subnetNumber
-			      routes:
-			        - to: default
-			          via: $defaultGatway
-			      nameservers:
-			          addresses: [$dnsServers]
-			          search: [$dnsSearch]
-		EOF
+	# validate IPv4
+	! IsIpAddress4 "$defaultGatway" && { ScriptErr "the default gateway '$defaultGatway' is not a valid IPv4 address"; return 1; }
+	! IsIpAddress4 "$ipAddress4" && { ScriptErr "the IPv4 address '$ipAddress4' is not a valid IPv4 address"; return 1; }
+	! IsNumeric "$subnetNumber" && { ScriptErr "the subnet number '$subnetNumber' is not a valid IPv4 subnet number"; return 1; }
 
-		sudo chmod go-r "$file" || return
-	fi
+	# update configuration
+	cat <<-EOF | sudoc ${G}tee "$file" > /dev/null || return
+		network:
+		  version: 2
+		  ethernets:
+		    $interface:
+		      renderer: $renderer
+		      match:
+		        name: $interface # required for systemd-networkd
+		      dhcp4: false
+		      dhcp6: true
+		      ipv6-address-token: "$ipAddress6Token" # IPv4 address
+		      addresses:
+		        - $ipAddress4/$subnetNumber
+		      routes:
+		        - to: default
+		          via: $defaultGatway
+		      nameservers:
+		          addresses: [$dnsServers]
+		          search: [$dnsSearch]
+	EOF
+	sudo chmod go-r "$file" || return
 
+	# cleanup and apply
 	netplanCleanup "$dynamicFile"
 }
 
@@ -389,7 +395,7 @@ netplanRenderer()
 	if service running NetworkManager --quiet; then printf "NetworkManager"
 	elif service running network-manager --quiet; then printf "NetworkManager"
 	elif service running systemd-networkd --quiet; then printf "networkd"
-	else return 1
+	else ScriptErrQuiet "could not find a Netplan renderer"; return 1
 	fi
 }
 
