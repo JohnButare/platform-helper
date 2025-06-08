@@ -7573,25 +7573,8 @@ IpDynamicInstall()
 ipDynamicUbuntu()
 {
 	local reboot; netplanCheck || return
-	local dir="/etc/netplan"
-	local configFile="$DATA/setup/50-cloud-init.yaml"
-	local dynamicFile="$dir/50-cloud-init.yaml"
-	local staticFile="$dir/01-network-manage-all.yaml"
 	local interface="$(GetInterface)"
-	
-	sudov || return
-
-	# remove the static configuration file
-	[[ -f "$staticFile" || $force ]] && { sudo $rm "$staticFile" || return; }
-
-	# add the dynamic configuration file
-	if [[ $force || ! -f "$dynamicFile" ]]; then
-		sudo cp "$configFile" "$dir" || return
-		sudo chmod go-r "$dynamicFile" || return
-	fi
-
-	# apply
-	sudo netplan apply || return; sleep 2
+	network configure netplan dynamic || return
 	[[ $reboot ]] || ! IsIpStatic "$interface"
 }
 
@@ -7603,54 +7586,9 @@ IpStaticInstall()
 }
 
 ipStaticUbuntu()
-{	
+{
 	local reboot; netplanCheck || return
-
-	# configure static IP address using the existing IP configuration
-	local file="/etc/netplan/01-network-manage-all.yaml"
-	if [[ ! -f "$file" || $force ]]; then
-		local networkRenderer; networkRenderer="$(GetNetworkRenderer)" || return
-		local defaultGatway; defaultGatway="$(GetDefaultGateway)" || return
-		local dnsSearch; dnsSearch="$(GetDnsSearch "${globalArgs[@]}" | sed "s/ /,/g")" || return
-		local dnsServers; dnsServers="$(GetDnsServers4 | sed "s/ /,/g")" || return
-		local interface; interface="$(GetInterface)" || return
-		local ipAddress4; ipAddress4="$(GetIpAddress4)" || return
-		local subnetNumber; subnetNumber="$(GetSubnetNumber)" || return
-		local ipAddress6Token="$(Ipv6Token "$ipAddress4")"
-
-		# validate IPv4
-		! IsIpAddress4 "$defaultGatway" && { ScriptErr "the default gateway '$defaultGatway' is not a valid IPv4 address"; return 1; }
-		! IsIpAddress4 "$ipAddress4" && { ScriptErr "the IPv4 address '$ipAddress4' is not a valid IPv4 address"; return 1; }
-		! IsNumeric "$subnetNumber" && { ScriptErr "the subnet number '$subnetNumber' is not a valid IPv4 subnet number"; return 1; }
-
-		# update
-		cat <<-EOF | sudoc ${G}tee "$file" > /dev/null || return
-			network:
-			  version: 2
-			  ethernets:
-			    $interface:
-			      renderer: $networkRenderer
-			      match: {}
-			      dhcp4: false
-			      dhcp6: true
-			      ipv6-address-token: "$ipAddress6Token" # IPv4 address
-			      addresses:
-			        - $ipAddress4/$subnetNumber
-			      routes:
-			        - to: default
-			          via: $defaultGatway
-			      nameservers:
-			          addresses: [$dnsServers]
-			          search: [$dnsSearch]
-		EOF
-
-		sudo chmod go-r "$file" || return
-	fi
-
-	# disable cloud-init DHCP
-	network configure cloud-init IsInstalled && { network configure cloud-init disbale || return; }
-
-	sudo netplan apply || return; sleep 2
+	network configure netplan static || return
 	[[ $reboot ]] || IsIpStatic
 }
 
