@@ -2938,6 +2938,7 @@ GetDnsSearch()
 		shift
 	done
 
+	local search
 	log4 "getting the DNS search paths" "GetDnsSearch"
 
 	# win
@@ -2957,8 +2958,9 @@ GetDnsSearch()
 	# resolvectl - ensure it responds quickly, test using service stop dbus
 	if ResolveCtlValidate "GetDnsSearch"; then
 		log3 "using resolvectl" "GetDnsSearch"
-		resolvectl status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim
-		return
+		if search="$(resolvectl status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim)"; then
+			[[ $search ]] && { echo "$search"; return; }
+		fi
 	fi
 
 	# resolv.conf
@@ -2968,7 +2970,8 @@ GetDnsSearch()
 		return
 	fi
 
-	return 0
+	ScriptErrQuiet "unable to get the DNS search domains" "GetDnsSearch"
+	return 1
 }
 
 # RemoveDnsSuffix HOST - remove the DNS suffix if present
