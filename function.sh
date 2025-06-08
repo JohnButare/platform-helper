@@ -2078,7 +2078,15 @@ DhcpRenew()
 	echo "Adapter $adapter IP: $oldIp -> $(GetAdapterIpAddress "$adapter")" || return
 }
 
+# DhcpServers - return all DHCPv4 servers on the network
 DhcpServers() { nmapp --sudo --script broadcast-dhcp-discover --script-args='broadcast-dhcp-discover.timeout=3' |& grep "Server Identifier: " | RemoveCarriageReturn | cut -d":" -f2 | ${G}sed 's/ //g' | sort --numeric | uniq | DnsResolveBatch | sort; }
+
+# DhcpValidate HOST - ensure DHCPv4 is running on HOST
+DhcpValidate()
+{
+	local host; host="$(DnsResolve "$1")" || return; [[ ! $1 ]] && { EchoWrap "Usage: DhcpValidate HOST"; return 1; }
+	DhcpServers | qgrep "^$host$"
+}
 
 # GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
 # -4|-6 							use IPv4 or IPv6
