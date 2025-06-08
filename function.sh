@@ -2869,14 +2869,21 @@ PortResponse()
 	echo "$result * 1000" | bc	
 }
 
-# ResolveCtlCheck - check if resolvectl is working (will not hang)
-ResolveCtlCheck() { local timeout="50"; IsPlatform PiKernel && timeout="200"; InPath resolvectl && RunTimeout "$timeout" resolvectl status >& /dev/null; }
+# ResolveCtlCheck - check if resolvectl is works (installed and will not hang)
+ResolveCtlCheck() {	local timeout="200"; ResolveCtlInstalled && RunTimeout "$timeout" resolvectl status >& /dev/null; }
 
-# ResolveCtlFix - fix resolvectl if needed(so it will not hang)
-ResolveCtlFix() { ResolveCtlCheck && return; service restart systemd-resolved.service && ResolveCtlCheck; }
+# ResolveCtlFix - fix resolvectl if needed (so it will not hang)
+ResolveCtlFix()
+{
+	{ ! ResolCtrlInstalled || ResolveCtlCheck; } && return
+	service restart systemd-resolved.service && ResolveCtlCheck
+}
 
-# ResolveCtlValidate - check resolvectl and log a message if it is not function (will hang)
-ResolveCtlValidate() { ! InPath resolvectl && return; ResolveCtlCheck || ScriptErr "resolvectl status failed" "$1"; }
+# ResolveCtlInstalled - return true if resolvectl is installed
+ResolveCtlInstalled() {  InPath resolvectl && systemctl is-active systemd-resolved >&/dev/null; }
+
+# ResolveCtlValidate - check resolvectl and log a message if it is not functional
+ResolveCtlValidate() { ResolveCtlCheck || ScriptErr "resolvectl status failed" "$1"; }
 
 # WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 WaitForAvailable()
@@ -2976,9 +2983,9 @@ GetDnsSearch()
 	fi
 	
 	# resolvectl - ensure it responds quickly, test using service stop dbus
-	if ResolveCtlValidate "GetDnsSearch"; then
+	if ResolveCtlInstalled && ResolveCtlValidate "GetDnsSearch"; then
 		log3 "using resolvectl" "GetDnsSearch"
-		if search="$(resolvectl status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim)"; then
+		if search="$(resolveclt status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim)"; then
 			[[ $search ]] && { echo "$search"; return; }
 		fi
 	fi
@@ -3233,7 +3240,7 @@ DnsFlush()
 {
 	if IsPlatform mac; then sudoc dscacheutil -flushcache && sudo killall -HUP mDNSResponder
 	elif IsPlatform win; then RunWin ipconfig.exe /flushdns >& /dev/null
-	elif IsPlatform systemd && systemctl is-active systemd-resolved >& /dev/null && ResolveCtlValidate "DnsFlush"; then resolvectl flush-caches
+	elif ResolveCtlInstalled && ResolveCtlValidate "DnsFlush"; then resolvectl flush-caches
 	fi
 }
 
@@ -3256,7 +3263,7 @@ GetDnsServer()
 	# other
 	local server; server="$(nslookup "$check" |& grep "^Address:" | head -1 | cut -d":" -f2- | RemoveChar '	' | ${G}cut -d"#" -f1)"
 	[[ $server ]] && { echo "$server"; return; }
-	if ResolveCtlValidate "GetDnsServer"; then resolvectl status |& grep "^Current DNS Server: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
+	if ResolveCtlInstalled && ResolveCtlValidate "GetDnsServer"; then resolvectl status |& grep "^Current DNS Server: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
 	fi			
 }
 
@@ -3273,7 +3280,7 @@ GetDnsServers()
 	fi
 
 	# other
-	if ResolveCtlValidate "GetDnsServers"; then resolvectl status |& grep "DNS Servers: " | head -1 | cut -d":" -f2- | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
+	if ResolveCtlInstalled && ResolveCtlValidate "GetDnsServers"; then resolvectl status |& grep "DNS Servers: " | head -1 | cut -d":" -f2- | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
 	elif IsPlatform mac; then scutil --dns | grep 'nameserver\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim
 	elif [[ -f "/etc/resolv.conf" ]]; then cat "/etc/resolv.conf" | grep nameserver | cut -d" " -f2 | sort | uniq | NewlineToSpace | RemoveSpaceTrim
 	fi			
