@@ -482,12 +482,16 @@ resolvectlStatus()
 # current commands
 #
 
-currentUsage() { echot "Usage: $(ScriptName) current [all|find|name [cached]|status|server|servers|update](all)\nCurrent network commands."; }
+currentUsage() { echot "Usage: $(ScriptName) current [all|find|ls|name [cached]|status|server|servers|update](all)\nCurrent network commands."; }
 currentCommand() { currentAllCommand; }
+currentLsUsage() { echot "Usage: $(ScriptName) current ls\nList the available networks."; }
+currentLsCommand() { currentLs; }
+currentLs() { echo "external"; ConfigGet networks | sed 's/,/\n/g' | cut -d"@" -f1 | sort | uniq; }
 currentNameUsage() { echot "Usage: $(ScriptName) current name [cached]\nThe name of the current network.  Returns a cached value within specified intervals  unless --force is specified."; }
 currentNameCommand() { name; }
 currentNameCachedUsage() { echot "Usage: $(ScriptName) current name cached\nThe cached name of the current network."; }
 currentNameCachedCommand() { nameCached; }
+
 currentStatusUsage() { echot "Usage: $(ScriptName) current all\nStatus of the current network."; }
 
 currentStatusCommand()
@@ -510,6 +514,18 @@ currentOptBrief() { [[ "$1" == @(-b|--brief) ]] || return; brief="--brief"; }
 currentUsageTimeout() { EchoWrap "	-t, --timeout	$(ScriptOptTimeoutUsage)"; }
 currentArgStartTimeout() { ScriptOptTimeoutArgStart; }
 currentOptTimeout() { [[ "$1" =~ --timeout|--timeout=*|-t|-t=* ]] || return; ScriptOptTimeout "$@"; }
+
+currentOptNetwork()
+{
+	case "$1" in
+		-n|--network|-n=*|--network=*)
+			ScriptOptGet "networkArg" "$@" || return
+			networkArg="${networkArg,,}"
+			currentLs | qgrep "^${networkArg}$" || { ScriptErr "'$networkArg' is not a valid network"; exit 1; }
+			;;
+		*) return 1;;
+	esac
+}
 
 #
 # Current All Command
@@ -588,16 +604,19 @@ currentServersCommand() { local name; name="$(name)" || return; getServersFromCo
 #
 
 currentUpdateUsage() { echot "Usage: $(ScriptName) current\nUpdate network settings for the current networks.\n\n$(currentUsageOther)"; }
-currentUpdateArgStart() { currentArgStartOther; }
-currentUpdateOpt() { currentOptOther "$@"; }
+currentUpdateArgStart() { unset -v networkArg; currentArgStartOther; }
+currentUpdateOpt() { currentOptOther "$@" && return; currentOptNetwork "$@" && return; }
 
 currentUpdateCommand()
 {
-	# get cached network
+	# get current network
 	local network; network="$(UpdateGetForce "$networkCache")" || return
 
-	# return if recently updated and we pass quick checks
-	if [[ $network ]] && ! UpdateNeeded "$networkCache" && updateCheckQuick; then
+	# network was specified 
+	[[ $networkArg ]] && { currentUpdateSpecified; return; }
+
+	# return if the network was recently updated and we pass quick checks
+	if [[ ! $networkArg && $network ]] && ! UpdateNeeded "$networkCache" && updateCheckQuick; then
 		return
 	fi
 
@@ -609,12 +628,25 @@ currentUpdateCommand()
 	fi
 
 	# network has changed - determine the new network configuration
-	UpdateSet "$networkCacheOld" "${network:-external}" || return
+	UpdateSet "$networkCacheOld" "${networkOld:-external}" || return
 	doLog && { header "Determining Network"; echo "Existing network is ${network:-unknown}"; }
 	doLog && printf "network..."; network="$(findNetwork)" || return
 	UpdateSet "$networkCache" "$network" || return
+}
 
-	# update configuration based on the new network - update DNS first to enable name resolution so we can find servers on the new network
+# currentUpdateSpecified - network was specified as an option
+currentUpdateSpecified()
+{
+	# return if the new network if it is the same as the current network
+	[[ ! $force && "$networkArg" == "$network" ]] && return
+
+	# configure the specified network
+	network="$networkArg"; currentUpdateConfigure; return; 
+}
+
+# currentUpdateConfigure - update configuration based on the new network - update DNS first to enable name resolution so we can find servers on the new network
+currentUpdateConfigure()
+{
 	doLog && header "Configuring '${network^}' Network"
 	[[ $brief && ! $quiet ]] && printf "network."		
 	updateDns && updateHashi && updatePython && updateProxy && currentUpdateStatus && currentUpdateDone
@@ -1826,13 +1858,12 @@ varsArgStart() { unset -v update; currentArgStartBrief && ScriptOptTimeoutArgSta
 
 varsOpt()
 {
-	currentOptBrief "$@" && return
+	currentOptOther "$@" && return
+	currentOptNetwork "$@" && return
 	case "$1" in
-		--timeout|--timeout=*|-t|-t=*) ScriptOptTimeout "$@";;
 		--update|-u) update="--update";;
 		*) return 1
 	esac
-
 }
 
 varsArgEnd()
