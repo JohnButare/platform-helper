@@ -2892,7 +2892,7 @@ ResolveCtlFix()
 }
 
 # ResolveCtlInstalled - return true if resolvectl is installed
-ResolveCtlInstalled() {  InPath resolvectl && systemctl is-active systemd-resolved >&/dev/null; }
+ResolveCtlInstalled() { InPath resolvectl && systemctl is-active systemd-resolved >&/dev/null; }
 
 # ResolveCtlValidate - check resolvectl and log a message if it is not functional
 ResolveCtlValidate() { ResolveCtlCheck || ScriptErr "resolvectl status failed" "$1"; }
