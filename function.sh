@@ -5361,6 +5361,7 @@ sudoc()
 
 	# get password if possible
 	local password; password="$(SudoPassword)" # ignore errors so we can prompt for password 
+	[[ $verbose ]] && { [[ $password ]] && ScriptMessage "sudo pasword found" || ScriptMessage "sudo pasword not found"; }
 
 	# prompt for password to stdout or stderr if possible, prevent sudo from asking for a password
 	if [[ ! $noPrompt && ! $password ]]; then
@@ -5393,14 +5394,15 @@ SudoPassword()
 	# use the cache and clear it for security
 	[[ $sudoPasswordCache ]] && { echo "$sudoPasswordCache"; unset sudoPasswordCache; return; }
 
-	# determine which password to use
-	local passwordName="secure"
-	if InPath opensc-tool && opensc-tool --list-readers | ${G}grep --quiet "Yes"; then passwordName="ssh"
-	elif IsDomainRestricted && echo "BOGUS" | { sudo --stdin --validate 2>&1; true; } | ${G}grep --quiet "^Enter PIN"; then passwordName="ssh"  
+	# determine which password to use based off auth method
+	local passwordPath="secure" passwordName="default"
+	if InPath opensc-tool && opensc-tool --list-readers | ${G}grep --quiet "Yes"; then passwordPath="ssh"
+	elif IsDomainRestricted && echo "BOGUS" | { sudo --stdin --validate 2>&1; true; } | ${G}grep --quiet "^Enter PIN"; then passwordPath="ssh"
 	fi
+	[[ $verbose ]] && EchoErr "looking for password in the credential store: path='$passwordPath' name='$passwordName'"
 
 	# get password if possible, ignore errors so we can prompt for it
-	credential --quiet get $passwordName default $verbose
+	credential --quiet get $passwordPath $passwordName $verbose
 }
 
 # sudoe FILE - sudoedit with credentials
