@@ -3964,6 +3964,13 @@ PackageUpgrade()
 	fi
 }
 
+# PackageVersion - package version
+PackageVersion()
+{
+	if IsPlatform apt; then apt policy "$@"
+	fi
+}
+
 # PackageWhich FILE - show which package an installed file is located in
 PackageWhich() 
 {
