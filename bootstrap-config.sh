@@ -80,6 +80,7 @@ butareSyslogServer="syslog.$butareDnsBaseDomain"		# syslog server for remote sys
 butareTimeServer="time.butare.net"									# Time Server
 butareVip="10.10.100.6" 														# Virtual IP Address
 butareWireguardPort="51820"													# WireGuard Port
+butareWorkgroup="hagerman"													# SMB Workgroup
 
 # sandia network
 sandiaUser="jjbutar"
