@@ -721,7 +721,7 @@ unmountAll()
 
 	for mountDir in "${mountDirs[@]}"; do
 		log "$(GetFileName "$mountDir")"
-		unmount "$mountDir" >& /dev/null && log "..." || log " (failed)..."
+		unmount "$mountDir" >& "$output" && log "..." || log " (failed)..."
 	done
 
 	log "done\n"
@@ -884,7 +884,7 @@ getAllDevicesMac()
 {
 	# get disk information
 	local diskInfo; diskInfo="$({ local f1="$(gmktemp)" f2="$(gmktemp)"; diskutil list -plist > "$f1"; plutil -convert json "$f1" -o "$f2"; cat "$f2"; rm "$f1" "$f2"; })" || return
-	
+
 	# get all devices
 	if [[ $noExclude ]]; then
 		IFS=$'\n' ArrayMake devices "$(\
@@ -901,12 +901,16 @@ getAllDevicesMac()
 		echo "$diskInfo" | jq '.AllDisksAndPartitions[] | select(.OSInternal == false) | .Partitions[].DeviceIdentifier' | RemoveQuotes
 		echo "$diskInfo" | jq '.AllDisksAndPartitions[] | select(.OSInternal == false) | select(has("APFSVolumes")) | .APFSVolumes[].DeviceIdentifier' | RemoveQuotes
 	)"
+	log1 "allDevices=$(ArrayShow allDevices)"
 
-	# exclude devices which are physical stores (APFSPhysicalStores) and system-boot devices (VolumeName=system-boot)
+	# exclude
+	# - devices which are physical stores (APFSPhysicalStores)
+	# - system-boot devices (VolumeName=system-boot) - don't exclude these, need Ubuntu image system-boot drive
 	local excludedDevices=(); IFS=$'\n' ArrayMake excludedDevices "$(\
 		echo "$diskInfo" | jq '.AllDisksAndPartitions[] | select ( has("APFSPhysicalStores") == true) | .APFSPhysicalStores[].DeviceIdentifier' | RemoveQuotes;
-		echo "$diskInfo" | jq '.AllDisksAndPartitions[] | select(.OSInternal == false) | select(.Partitions[].VolumeName == "system-boot" ) | .Partitions[].DeviceIdentifier' | RemoveQuotes;
+		# echo "$diskInfo" | jq '.AllDisksAndPartitions[] | select(.OSInternal == false) | select(.Partitions[].VolumeName == "system-boot" ) | .Partitions[].DeviceIdentifier' | RemoveQuotes;
 	)"
+	log1 "excludedDevices=$(ArrayShow excludedDevices)"
 
 	# exclude system devices
 	local systemDevices=(); IFS=$'\n' ArrayMake systemDevices "$(${G}df --local | ${G}grep -E "/$|/System/Volumes|/Library/Developer" | cut -d" " -f1 | cut -d"/" -f3 | sed 's/s[0-9][0-9]*//g' | sort -V | uniq)"
@@ -919,6 +923,7 @@ getAllDevicesMac()
 		! IsInArray "$deviceBase" systemDevices && ! IsInArray "$device" excludedDevices && ! diskutil info "$device" | qgrep "no file system" && devices+=($device)
 	done
 
+	return 0
 }
 
 # getAllDevicesCanUnmount - get all devices in the system which which have mountable file systems and can be unmounted, sets devices array
@@ -1016,7 +1021,10 @@ platformUnmount()
 	local dir="$1"
 
 	case "$PLATFORM_OS" in
-		mac) local device="$(getDevice "$dir")" || return 0; diskutil unmount "$device" >& "$output";;
+		mac) 
+			local device="$(getDevice "$dir")" || return 0
+			diskutil unmount "$device" >& "$output"
+			;;
 		linux|win) sudoc umount "$dir" >& "$output";;
 	esac
 }
