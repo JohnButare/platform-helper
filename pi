@@ -24,50 +24,225 @@ powerCommand() { ! sudoc dmesg --time-format ctime | grep -i volt; } # check for
 versionCommand() { :; }
 
 #
-# Firmware Commands
+# firmware commands
 #
 
 firmwareUsage()
 {
-	echot "\
+	ScriptUsageEcho "\
 usage: pi firmware apply|channel|configure|dir|edit|info|update
-	Raspberry Pi firmware commands.
+	Raspberry Pi firmware commands.  '$firmwareDir' is linked to the firmware repository in '$repoDir/firmware-NNNN', where NNNN is 2711 (Model 4), or 2712 (Model 5).
 
-	apply			apply firmware changes from a file
-	channel		edit the firmware channel (beta, stable, or critical)
-	configure	configure the firmware
-	dir				return the firmware directory
-	edit			configure and apply the firmware
+	channel		firmware channel commands
+	dir				return firmware directory
 	info			show firmware information
-	update		update the Raspberry Pi with the latests firmware"
+	update		update firmware
+	vars			return firmware variables"
 }
+
+firmwareVarsCommand() { ScriptReturn "firmwareDir" "repoDir"; }
 
 firmwareArgStart()
 {
 	unset -v file;
 	onlyPi || return
-	channel="/etc/default/rpi-eeprom-update"
-	dir="/lib/firmware/raspberrypi/bootloader"
+	channelFile="/etc/default/rpi-eeprom-update"
+	firmwareDir="/lib/firmware/raspberrypi/bootloader"
+	repoDir="/opt/rpi-eeprom"
 }
 
 firmwareCommand() { usage; }
-firmwareApplyCommand() { firmwareGetFile "$@" && sudo rpi-eeprom-update -i -d -f "$file"; }
-firmwareChannelCommand() { sudoedit "$channel"; }
-firmwareDirCommand() { echo "$dir"; }
-firmwareEditCommand() { firmwareConfigureCommand "$@" && firmwareApplyCommand; }
+firmwareDirCommand() { echo "$firmwareDir"; }
 
-firmwareConfigureCommand()
+firmwareInfoUsage() { ScriptUsageEcho "usage: pi firmware info\nRaspberry Pi firmware information, use --verbose for more detail."; }
+
+firmwareInfoCommand()
 {
-	firmwareGetFile "$@" || return
+	firmwareRepoUpdate || return
+
+	# update status
+	[[ $verbose ]] && header "Update Status"
+	rpiEepromUpdate || return
+	[[ ! $verbose ]] && return
+
+	# channel configuration
+	[[ -f "$channelFile" ]] && { header "Update Channel"; cat "$channelFile"; }
+
+	header "Bootloader Version"
+	sudoc vcgencmd bootloader_version | RemoveEmptyLines || return
+	
+	header "Bootloader Configurationn"
+	sudo vcgencmd bootloader_config | RemoveEmptyLines || return
+}
+
+rpiEepromUpdate() { sudoc CM4_ENABLE_RPI_EEPROM_UPDATE=1 rpi-eeprom-update; }
+
+#
+# firmware channel commands
+#
+
+firmwareChannelUsage() { ScriptUsageEcho "usage: pi firmware channel [get|set](get)\nRaspberry Pi firmware channel commands."; }
+firmwareChannelCommand() { firmwareChannelGetCommand; }
+firmwareChannelGetCommand() { firmwareChannelGet; }
+
+firmwareChannelSetUsage() { ScriptUsageEcho "usage: pi firmware channel set beta|stable|critical\nRaspberry Pi firmware channel commands."; }
+
+firmwareChannelSetCommand() { usage; }
+firmwareChannelSetBetaCommand() { firmwareChannelSet "beta"; }
+firmwareChannelSetStableCommand() { firmwareChannelSet "stable"; }
+firmwareChannelSetCriticalCommand() { firmwareChannelSet "critical"; }
+
+firmwareChannelCheck() { [[ "$(firmwareChannelGet)" == "$1" ]]; }
+firmwareChannelGet() { ${G}grep "FIRMWARE_RELEASE_STATUS" "$channelFile" | cut -d"=" -f2 | RemoveQuotes; }
+
+firmwareChannelSet()
+{
+	local channel="$1"
+	firmwareChannelCheck "$channel" && return
+	sudoc sed -i "s/^FIRMWARE_RELEASE_STATUS=.*/FIRMWARE_RELEASE_STATUS=\"$channel\"/" "$channelFile" || return
+	firmwareChannelCheck "$channel" && return
+	ScriptErr "unable to set firmware channel to '$channel'"
+}
+
+#
+# firmware repo commands
+#
+
+firmwareRepoUsage() { ScriptUsageEcho "usage: pi firmware repo check|clean|create|update|validate\nRaspberry Pi firmware repository commands."; }
+firmwareRepoCommand() { usage; }
+firmwareRepoCheckCommand() { firmwareRepoCheck; }
+firmwareRepoCleanCommand() { firmwareRepoClean; }
+firmwareRepoCreateCommand() { firmwareRepoCreate; }
+firmwareRepoUpdateCommand() { firmwareRepoUpdate; }
+firmwareRepoValidateCommand() { firmwareRepoValidate; }
+
+firmwareRepoCheck() { [[ -d "$repoDir" ]]; }
+firmwareRepoValidate() { firmwareRepoCheck || ScriptErr "the Raspberry Pi firmware repository does not exist at '$repoDir', use 'pi firmware repo create' to create it"; }
+ResolveCtlValidate() { ResolveCtlCheck || ScriptErr "resolvectl status failed" "$1"; }
+
+firmwareRepoCleanUsage() { ScriptUsageEcho "usage: pi firmware repo clean\nClean the firmware repository removing all custom changes, requires --force."; }
+
+firmwareRepoClean()
+{
+	[[ ! $force ]] && { ScriptErr "to remove all custom firmware at '$repoDir', --force is required."; return 1; }
+	firmwareRepoUpdate && sudo git reset --hard origin/master && sudo git clean -f
+}
+
+firmwareRepoUpdate()
+{
+	local update="pi-firmware-repo"
+
+	# return if up to date
+	[[ -d "$repoDir" ]] && [[ ! $force ]] && ! UpdateNeeded "$update" && return
+
+	# update
+	command cd "$repoDir" && sudoc git fetch && UpdateSet "$update"
+}
+
+firmwareRepoCreate()
+{
+	# return if the repository exists
+	[[ ! $force ]] && firmwareRepoCheck && return
+
+	# clone firmware repository
+	[[ ! -d "$repoDir" ]] && { sudoc git clone "https://github.com/raspberrypi/rpi-eeprom" "$repoDir" || return; }
+
+	# set repoDir as a safe directory
+	! qgrep "directory = $repoDir" "$HOME/.gitconfig" && { git config --global --add safe.directory "$repoDir" || return; }
+
+	# create bootloader-NNNN links
+	# from firware bootloader directory: /lib/firmware/raspberrypi/bootloader-2711|2712
+	# to firmware repository: /opt/rpi-eeprom/firmware-2711|2712
+	local firmware
+	for firmware in 2711 2712; do
+		local link="$firmwareDir-$firmware"
+		local dest="$repoDir/firmware-$firmware"
+		[[ $force && -L "$link" ]] && { sudoc rm "$link" || return; }
+		[[ -L "$link" ]] && continue
+		[[ -d "$link" ]] && { sudoc rm -fr "$link.hold"; sudoc mv "$link" "$link.hold" || return; }
+		[[ ! -d "$dest" ]] && { ScriptErr "the firmware directory '$firmware' does not exist"; return 1; }
+		sudoc BashRun MakeLink --suppress "$dest" "$link" || return
+	done
+
+	# create /usr/bin links
+	for file in config digest update; do
+		local link="/usr/bin/rpi-eeprom-$file"
+		local dest="$repoDir/rpi-eeprom-$file"
+		[[ $force && -L "$link" ]] && { sudoc rm "$link" || return; }
+		[[ -L "$link" ]] && continue
+		[[ -f "$link" ]] && { sudoc rm -f "$link.hold"; sudoc mv "$link" "$link.hold" || return; }
+		[[ ! -f "$dest" ]] && { ScriptErr "the firmware program '$dest' does not exist"; return 1; }
+		sudoc BashRun MakeLink "$dest" "$link" || return
+	done
+
+	# create bootloader link - /lib/firmware/raspberrypi/bootloader to /opt/rpi-eeprom/firmware-NNNN (2711 2712)
+	local link="$firmwareDir"
+	[[ ! $force && -L "$link" ]] && return
+	[[ -L "$link" ]] && { sudoc rm "$link" || return; }
+		
+	# backup the existing firmware directory
+	[[ -d "$link" ]] && { sudoc rm -fr "$link.hold"; sudo mv "$link" "$link.hold" || return; }
+
+	# get the firmware version for the model
+	local version
+	if IsPlatform pi4; then version=2711
+	elif IsPlatform pi5; then version=2712
+	else ScriptErr "no firmware for '$(pi info model)'"; return 1
+	fi
+
+	# validate the firmware directory
+	local dest="$repoDir/firmware-$version"
+
+	[[ ! -d "$dest" ]] && { ScriptErr "the firmware directory for '$model' does not exist"; return 1; }
+
+	# create a link to the firmware directory
+	sudoc BashRun MakeLink "$dest" "$link" || return
+}
+
+#
+# firmware update commands
+#
+
+firmwareUpdateUsage()
+{
+	ScriptUsageEcho "\
+usage: pi firmware update check|configure|edit|file|latest
+	Raspberry Pi firmware update commands.
+
+	check			check if the firmware is at the latest version
+	configure	configure a firmware file
+	edit			configure and apply the firmware
+	file			apply firmware changes from a file
+	latest		update the Raspberry Pi with the latests firmware"
+}
+
+firmwareUpdateCommand() { usage; }
+firmwareUpdateEditCommand() { firmwareUpdateConfigureCommand "$@" && firmwareUpdateFileCommand; }
+firmwareUpdateFileCommand() { firmwareGetFile "$@" && sudo rpi-eeprom-update -i -d -f "$file"; }
+
+firmwareUpdateCheckCommand() { firmwareUpdateCheck; }
+
+firmwareUpdateCheck()
+{
+	local status; status="$(rpiEepromUpdate)" || return
+	local current; current="$(echo "$status" | ${G}grep "CURRENT:" | ${G}cut -d "(" -f 2 | ${G}cut -d ")" -f 1)"
+	local latest; latest="$(echo "$status" | ${G}grep "LATEST:" | ${G}cut -d "(" -f 2 | ${G}cut -d ")" -f 1)"
+	log1 "current=$current latest=$latest"
+	[[ "$current" == "$latest" ]]
+}
+
+firmwareUpdateConfigureCommand()
+{
+	firmwareGetFile "$@" || return	
 	local fileDesc="$(GetFileName "$file")"
-	local newFile="$dir/new-config.bin"
+	local newFile="$firmwareDir/new-config.bin"
 
 	hilight "Backup existing configuration changes..."
 	[[ -f "$config" ]] && { sudo bak --move "$config" || return; }
 
 	hilight "Extracting configuration from the firmware file '$fileDesc'..."
-	sudoc cp "$file" "$dir/current.bin" || return
-	rpi-eeprom-config "$dir/current.bin" | sudo tee "$config" || return
+	sudoc cp "$file" "$firmwareDir/current.bin" || return
+	rpi-eeprom-config "$firmwareDir/current.bin" | sudo tee "$config" || return
 	[[ ! -f "$config" || "$(cat "$config")" == "" ]] && { EchoErr "Unable to extract the firmware configuration from '$fileDesc'"; return 1; }
 	sudo cp "$config" "$config.orig" || return
 
@@ -76,45 +251,23 @@ firmwareConfigureCommand()
 	diff "$config" "$config.orig" >& /dev/null && { ScriptErr "the configuration was not changed"; return 1; }
 
 	hilightp "Creating the new firmware file '$(GetFileName "$newFile")'..."
-	sudo rpi-eeprom-config --out "$newFile" --config "$config" "$dir/current.bin" || return
+	sudo rpi-eeprom-config --out "$newFile" --config "$config" "$firmwareDir/current.bin" || return
 	hilight "done"
 
 	return 0
 }
 
-firmwareInfoCommand()
+firmwareUpdateLatestCommand()
 {
-	# update firmware repository
-	local dir="/opt/rpi-eeprom" update="pi-firmware"
-	if [[ -d "$dir" ]] && { [[ $force ]] || UpdateNeeded "$update"; } then
-		pushd "$dir" > /dev/null || return
-		sudo git fetch || return
-		sudo git reset --hard origin/master || return
-		sudo git clean -f || return
-		UpdateSet "$update" || return
-	fi
-
-	header "Update Status"
-	sudoc CM4_ENABLE_RPI_EEPROM_UPDATE=1 rpi-eeprom-update
-	echo
-
-	[[ -f "$channel" ]] && { header "Update Channel"; cat "$channel"; }
-	echo
-
-	header "Bootloader Version"
-	sudoc vcgencmd bootloader_version || return
-	
-
-	header "Bootloader Configurationn"
-	sudo vcgencmd bootloader_config | RemoveEmptyLines || return
-}
-
-firmwareUpdateCommand()
-{
+	# return for CM4
 	if IsPlatform cm4; then
 		ScriptErr "CM4 requires alternate update method"; return 1
 	fi
 
+	# return if firmware is up to date
+	[[ ! $force ]] && firmwareUpdateCheck && { [[ ! $quiet ]] && echo "Firmware is up to date"; return 0; }
+
+	# update firmware
 	sudoc rpi-eeprom-update -a -i && { ask "Reboot" && power reboot || return 0; }; 
 }
 
@@ -123,8 +276,8 @@ firmwareGetFile()
 {
 	local FIRMWARE_RELEASE_STATUS; . "$channel" || return
 	
-	dir="$dir/$FIRMWARE_RELEASE_STATUS"
-	config="$dir/bootconf.txt"
+	dir="$firmwareDir/$FIRMWARE_RELEASE_STATUS"
+	config="$firmwareDir/bootconf.txt"
 
 	[[ ! $file ]] && { file="$1"; shift; }
 	[[ ! $file ]] && { file="$(dialog --title "Select Firmware" --stdout --fselect ""$dir/"" $(($LINES-12)) 100)"; clear; }
@@ -135,12 +288,12 @@ firmwareGetFile()
 }
 
 #
-# Info Command
+# info command
 #
 
 infoUsage()
 {
-	echot "\
+	ScriptUsageEcho "\
 usage: pi info firmware|mhz|model|temp
 	Raspberry Pi information commands.
 
@@ -174,12 +327,12 @@ infoModelCommand()
 
 
 #
-# Image Commands
+# image commands
 #
 
 imageUsage()
 {
-	echot "\
+	ScriptUsageEcho "\
 usage: pi image backup|clone|configure|restore
 	Raspberry Pi image commands.
 
@@ -210,12 +363,12 @@ imageCloneCommand()
 }
 
 #
-# Image Backup Command
+# image backup command
 #
 
 imageBackupUsage()
 {
-	echot "\
+	ScriptUsageEcho "\
 Usage: $(ScriptName) image backup HOST
 Create an OS image on the specified host.
 - faster than using a local Micro-SD card
@@ -263,12 +416,12 @@ imageBackupCommand()
 }
 
 #
-# Image Configure Command
+# image configure command
 #
 
 imageConfigureUsage()
 {
-	echot "\
+	ScriptUsageEcho "\
 Usage: $(ScriptName) image configure
 Configure a newly created operating system image.
 Currently, Raspberry Pi OS and Ubuntu are supported.

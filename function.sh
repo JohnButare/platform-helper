@@ -4164,6 +4164,7 @@ function GetPlatformFiles()
 	[[ -f "$1$PLATFORM_OS$2" ]] && files+=("$1$PLATFORM_OS$2")
 	[[ "$PLATFORM_ID_LIKE" != "$PLATFORM_OS" && -f "$1$PLATFORM_ID_LIKE$2" ]] && files+=("$1$PLATFORM_ID_LIKE$2")
 	[[ "$PLATFORM_ID_MAIN" != "$PLATFORM_OS" && -f "$1$PLATFORM_ID_MAIN$2" ]] && files+=("$1$PLATFORM_ID_MAIN$2")
+	IsPlatform PiKernel && [[ -f "$1pi$2" ]] && files+=("$1pi$2")
 
 	return 0
 }
