@@ -2258,7 +2258,7 @@ GetInterface()
 GetIpAddress() 
 {
 	# arguments
-	local host mdns quiet verbose verboseLevel verboseLess vm wsl all=(head -1) ipv="4" 
+	local host mdns quiet verbose verboseLevel verboseLess vm wsl all=(head -1) ipv
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2288,7 +2288,7 @@ GetIpAddress()
 	host="$(GetSshHost "$host")"
 
 	# localhost
-	IsLocalHost "$host" && { GetAdapterIpAddress -$ipv $wsl; return; }
+	IsLocalHost "$host" && { GetAdapterIpAddress${ipv} $wsl; return; }
 
 	# SSH configuration
 	host="$(SshHelper config get "$host" hostname)" || return
@@ -2401,7 +2401,7 @@ IsOsRestrcited() { false; } # TODO: return true if the operating system is restr
 IsIpAddress()
 {
 	# arguments
-	local ip ipv="4"; GetArgs
+	local ip ipv; GetArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2413,6 +2413,7 @@ IsIpAddress()
 		esac
 		shift
 	done
+	[[ ! $ipv && "$ip" == *:* ]] && ipv="6"
 
 	# IPv6 check - https://stackoverflow.com/questions/53497/regular-expression-that-matches-valid-ipv6-addresses/17871737#17871737
 	if [[ "$ipv" == "6" ]]; then
@@ -2699,7 +2700,7 @@ IsAvailableBatch()
 IsAvailablePort()
 {
 	# arguments
-	local host port timeout verbose verboseLevel verboseLess ipv="4"
+	local host port timeout verbose verboseLevel verboseLess ipv
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2721,7 +2722,7 @@ IsAvailablePort()
 	[[ ! $port ]] && { MissingOperand "port" "IsAvailablePort"; return; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
 
-	! IsIpAddressAny "$host" && { host="$(GetIpAddress -$ipv "$host" --quiet)" || return; }
+	! IsIpAddressAny "$host" && { host="$(GetIpAddress${ipv} "$host" --quiet)" || return; }
 	local redirect=">& /dev/null"; [[ $verbose ]] && redirect=""
 
 	(( verboseLevel > 1 )) &&  ScriptErr "checking port '$port' on host '$host' with timeout $timeout" "IsAvailablePort"
@@ -3588,7 +3589,7 @@ GetUncFull()
 	[[ $(DnsAlternate "$server" $verbose) ]] && ip="--ip"
 
 	# resolve the server
-	if ! IsIpAddress "$server" ; then
+	if [[ ! "$server" ]]; then
 		if [[ $ip ]]; then
 			server="$(GetIpAddress "$server" $quiet $verbose)" || return
 		else
