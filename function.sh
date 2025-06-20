@@ -1988,8 +1988,6 @@ IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"
 IsIpAddressAny() { GetArgs; IsIpAddress4 "$1" || IsIpAddress6 "$1"; } 																								# IsIpAddressAny [IP] - return true if the IP is a valid IPv4 or IPv6 address
 IsIpAddress4() { IsIpAddress -4 "$@"; }; IsIpAddress6() { IsIpAddress -6 "$@"; } 																			# IsIpAddress4|6 [IP] - return true if the IP is a valid IP address
 IsIpvSupported() { [[ $(GetAdapterIpAddress -$1) ]]; }																																# IsIpvSupported 4|6 - return true if the specified internet protocol supported
-NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; }; 																																# NetworkCurrent - configured current network
-NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; }; 																																# NetworkOld - the previous network
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }																																		# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }																													# SmbPasswordIsSet USER - return true if the SMB password for user is set
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }																									# UrlExists URL - true if the specified URL exists
@@ -2631,23 +2629,6 @@ MacLookup()
 	} | column -c $(tput cols -T "$TERM") -t -s-
 }
 
-# NetworkCurrentConfig - configure the shell with the current network configuration
-NetworkCurrentConfig() { ScriptEval network vars proxy; HashiConf --force; }
-
-# NetworkCurrentUpdate - update the network configuration
-NetworkCurrentUpdate()
-{
-	local force forceLevel forceLess; ScriptOptForce "$@"
-
-	# show detail if forcing
-	if [[ $force || ! $(NetworkCurrent) ]]; then
-		network current update "$@" || return
-		ScriptEval network vars proxy "$@" || return
-	else
-		ScriptEval network --quiet --update vars proxy "$@" || return
-	fi
-}
-
 # NetworkNeighbors - get network neighbors from the IPv6 Network Discover Protocol (NDP)
 NetworkNeighbors()
 {
@@ -2689,7 +2670,7 @@ PortUsage()
 }
 
 #
-# network: host availability
+# network: availability
 #
 
 PortCheck() { local host="${1:-localhost}" port="${2:-502}"; IsAvailablePort "$host" "$port" && echo "OPEN" || echo "CLOSED"; }
@@ -2949,6 +2930,30 @@ WaitForPort()
 	done
 
 	echo "not found"; return 1
+}
+
+#
+# network: configuration
+#
+
+NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; } 																																# NetworkCurrent - configured current network
+NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; } # NetworkOld - the previous network
+
+# NetworkCurrentConfig - configure the shell with the current network configuration
+NetworkCurrentConfig() { ScriptEval network vars proxy; HashiConf --force; }
+
+# NetworkCurrentUpdate - update the network configuration
+NetworkCurrentUpdate()
+{
+	local force forceLevel forceLess; ScriptOptForce "$@"
+
+	# show detail if forcing
+	if [[ $force || ! $(NetworkCurrent) ]]; then
+		network current update "$@" || return
+		ScriptEval network vars proxy "$@" || return
+	else
+		ScriptEval network --quiet --update vars proxy "$@" || return
+	fi
 }
 
 #
