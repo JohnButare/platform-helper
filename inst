@@ -7711,7 +7711,7 @@ KeepalivedInstall()
 
 	# test all vips
 	local file="/etc/keepalived/keepalived.conf"
-	local vip vips; ArrayMake vips "$(grep -A 1 "virtual_ipaddress" "$file" | ${G}grep -v "virtual_ipaddress" | ${G}grep -v '\-\-' | awk '{ print $1; }')"
+	local vip vips; ArrayMake vips "$(grep -A 1 "virtual_ipaddress" "$file" | ${G}grep -v "virtual_ipaddress" | ${G}grep -v '\-\-' | awk '{ print $1; }' | ${G}cut -d"/" -f1)"
 	for vip in "${vips[@]}"; do WaitForAvailable "$vip" "" 10 || return; done
 
 	# ensure service is running in case other keepalived servers are responding to the vips
@@ -7724,11 +7724,9 @@ keepalivedConfigCreate()
 	local file="$1"
 
 	# configure - use existing file for the host or build a new configuration file
-	local confFile="$DATA/setup/keepalived_$hostname.conf"
-	if [[ -f "$confFile" ]]; then
-		sudoc cp "$confFile" "$file" || return
-		local networkPrefix="$(network current prefix)" || return
-		sudoc ${G}sed -i "s/NETWORK_PREFIX/$networkPrefix/g" "$file" || return
+	local templateFile="$DATA/setup/keepalived_$hostname.conf"
+	if [[ -f "$templateFile" ]]; then
+		keepalivedConfigureFile "$templateFile" "$file" || return
 	else
 		keepalivedConfigureBuild "$file" || return
 	fi
@@ -7737,7 +7735,25 @@ keepalivedConfigCreate()
 	sudoc chmod ugo-x "$file" && sudoc chmod go-w "$file"
 }
 
-# keepalivedConfigureBuild - build the keepalived configuration file
+# keepalivedConfigureFile TEMPLATE_FILE FILE - configure keepalived configure file using a template  
+keepalivedConfigureFile()
+{
+	local templateFile="$1" file="$2"\
+
+	sudoc cp "$templateFile" "$file" || return
+	
+	# network prefix
+	local networkPrefix="$(network current prefix)" || return
+	sudoc ${G}sed -i "s/NETWORK_PREFIX/$networkPrefix/g" "$file" || return
+	
+	# network interface
+	local interface; interface="$(GetInterface)" || return
+	[[ $interface != "eth0" ]] && { sudoc ${G}sed -i "s/eth0/$interface/" "$file" || return; }
+
+	return 0
+}
+
+# keepalivedConfigureBuild FILE - build the keepalived configuration file
 keepalivedConfigureBuild()
 {
 	local file="$1"
