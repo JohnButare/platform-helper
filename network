@@ -633,6 +633,7 @@ currentUpdateCommand()
 {
 	# get current network
 	local network; network="$(UpdateGetForce "$networkCache")" || return
+	local networkOld="${network:-unknown}"
 
 	# network was specified 
 	[[ $networkArg ]] && { currentUpdateSpecified; return; }
@@ -646,17 +647,16 @@ currentUpdateCommand()
 	if [[ ! $force ]] && updateCheckGateway && updateCheckDns; then
 		updateDns "$network" || return # ensure DNS configuration is correct
 		doLog && echo "Current network '$network' has not changed"
-		currentUpdateDone && return
+		UpdateDone "$networkCache" || return
+		return
 	fi
 
 	# network has changed - determine the new network configuration
-	UpdateSet "$networkCacheOld" "${networkOld:-external}" || return
 	doLog && { header "Determining Network"; echo "Existing network is ${network:-unknown}"; }
 	doLog && printf "network..."; network="$(findNetwork)" || return
-	UpdateSet "$networkCache" "$network" || return
 
 	# configure the new network
-	currentUpdateConfigure || return
+	currentUpdateConfigure "$network" "$networkOld" || return
 }
 
 # currentUpdateSpecified - network was specified as an option
@@ -666,24 +666,20 @@ currentUpdateSpecified()
 	[[ ! $force && "$networkArg" == "$network" ]] && return
 
 	# configure the specified network
-	network="$networkArg"; currentUpdateConfigure; return; 
+	network="$networkArg"; currentUpdateConfigure "$network" "$networkOld"; return; 
 }
 
-# currentUpdateConfigure - update configuration based on the new network - update DNS first to enable name resolution so we can find servers on the new network
+# currentUpdateConfigure network networkOld - update configuration based on the new network - update DNS first to enable name resolution so we can find servers on the new network
 currentUpdateConfigure()
 {
+	local network="$1" networkOld="$2"
+
 	doLog && header "Configuring '${network^}' Network"
-	[[ $brief && ! $quiet ]] && printf "network."		
-	updateDns && updateHashi && updatePython && updateProxy && currentUpdateStatus && currentUpdateDone
-}
-
-currentUpdateDone() { UpdateDone "$networkCache"; }
-
-currentUpdateStatus()
-{
-	! doLog && return
-	hilight "Network status..."
-	force= currentStatusCommand
+	[[ $brief && ! $quiet ]] && printf "network."
+	{ updateDns && updateHashi && updatePython && updateProxy; } || return
+	{ UpdateSet "$networkCacheOld" "$networkOld" && UpdateSet "$networkCache" "$network"; } || return
+	doLog && { hilight "Network status..."; force= currentStatusCommand || return; }
+	return 0
 }
 
 # updateCheckDns - check if we have at least one DNS server that is valid for the current network
