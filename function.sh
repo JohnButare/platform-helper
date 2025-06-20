@@ -1982,7 +1982,6 @@ HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
 HttpHeader() { curl --silent --show-error --location --dump-header - --output /dev/null "$1"; }
 IpFilter() { grep "$@" --extended-regexp '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; }
-Ipv6Expand() { awk '{if(NF<8){inner = "0"; for(missing = (8 - NF);missing>0;--missing){inner = inner ":0"}; if($2 == ""){$2 = inner} else if($3 == ""){$3 = inner} else if($4 == ""){$4 = inner} else if($5 == ""){$5 = inner} else if($6 == ""){$6 = inner} else if($7 == ""){$7 = inner}}; print $0}' FS=":" OFS=":" | awk '{for(i=1;i<9;++i){len = length($(i)); if(len < 1){$(i) = "0000"} else if(len < 2){$(i) = "000" $(i)} else if(len < 3){$(i) = "00" $(i)} else if(len < 4){$(i) = "0" $(i)}}; print $0}' FS=":" OFS=":"; }
 IsHostnameVm() { [[ "$(GetWord "$1" 1 "-")" == "$(os name)" ]]; } 																										# IsHostnameVm NAME - true if name follows the virtual machine syntax HOSTNAME-name
 IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"; }																		# IsIpInCidr IP CIDR - true if IP belongs to the CIDR, i.e. IsIpInCidr 10.10.100.10 10.10.100.0/22
 IsIpAddressAny() { GetArgs; IsIpAddress4 "$1" || IsIpAddress6 "$1"; } 																								# IsIpAddressAny [IP] - return true if the IP is a valid IPv4 or IPv6 address
@@ -2383,27 +2382,6 @@ ipinfo()
 
 }
 
-# Ipv6Token [IP](adapter) - get an IPv6 token from an IPv4 address
-Ipv6Token()
-{
-	local ip="$1"; [[ ! $ip ]] && { ip="$(GetIpAddress4)" || return; }
-
-	# validate
-	! IsIpAddress4 "$ip" && { ScriptErr "'$ip' is not a valid IPv4 address" "Ipv6Token"; return 1; }
-
-	# print
-	local ips; StringToArray "$ip" "." ips
-	printf "::%02x%02x:%02x%02x\n" "${ips[@]}"
-}
-
-# IpvInclude 4|6 SERVERS [DELIMITER]( ) - include only IPv4 or IPv6 servers from the delimited list of servers
-IpvInclude()
-{
-	local ipv="$1" servers="$2" delimiter="${3:- }"; StringToArray "$servers" "$delimiter" servers
-	local result; for server in "${servers[@]}"; do IsIpAddress${ipv} "$server" && result+="$server "; done
-	echo "$(RemoveSpaceTrim "$result")"
-}
-
 # IsInDomain domain[,domain,...] - true if the computer is in one of the specified domains
 # - if no domain is specified, return true if the computer is joined to a domain
 IsInDomain()
@@ -2436,11 +2414,7 @@ IsIpAddress()
 		shift
 	done
 
-	#
-	# IPv6 check
-	#
-
-	# https://stackoverflow.com/questions/53497/regular-expression-that-matches-valid-ipv6-addresses/17871737#17871737
+	# IPv6 check - https://stackoverflow.com/questions/53497/regular-expression-that-matches-valid-ipv6-addresses/17871737#17871737
 	if [[ "$ipv" == "6" ]]; then
 		local ipv6Regex="\
 ([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|\
@@ -2458,10 +2432,7 @@ fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|\
 		[[ $ip =~ ^($ipv6Regex)$ ]]; return
 	fi
 
-	#
 	# IPv4 check
-	#
-
   if IsZsh; then
   	[[ $ip =~ ^((25[0-5]\|(2[0-4]\|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]\|(2[0-4]\|1{0,1}[0-9]){0,1}[0-9])$ ]]
   else
@@ -2936,7 +2907,7 @@ WaitForPort()
 # network: configuration
 #
 
-NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; } 																																# NetworkCurrent - configured current network
+NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; } # NetworkCurrent - configured current network
 NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; } # NetworkOld - the previous network
 
 # NetworkCurrentConfig - configure the shell with the current network configuration
@@ -3359,6 +3330,55 @@ MdnsResolve()
 
 MdnsNames() { avahi-browse -all -c -r | grep hostname | sort | uniq | cut -d"=" -f2 | RemoveSpace | sed 's/\[//' | sed 's/\]//'; }
 MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';' -f5 | sort | uniq; }
+
+#
+# network: protocols
+#
+
+# Ipv6Expand IP - expand an IPv6 address with all zeros
+Ipv6Expand() { GetArgs; echo "$1" | awk '{if(NF<8){inner = "0"; for(missing = (8 - NF);missing>0;--missing){inner = inner ":0"}; if($2 == ""){$2 = inner} else if($3 == ""){$3 = inner} else if($4 == ""){$4 = inner} else if($5 == ""){$5 = inner} else if($6 == ""){$6 = inner} else if($7 == ""){$7 = inner}}; print $0}' FS=":" OFS=":" | awk '{for(i=1;i<9;++i){len = length($(i)); if(len < 1){$(i) = "0000"} else if(len < 2){$(i) = "000" $(i)} else if(len < 3){$(i) = "00" $(i)} else if(len < 4){$(i) = "0" $(i)}}; print $0}' FS=":" OFS=":"; }
+
+# Ipv4Token [IP](adapter) - get an IPv4 token from an IPv6 address
+Ipv4Token()
+{
+	local ip="$1"; [[ ! $ip ]] && { ip="$(GetIpAddress6)" ||  return; }
+
+	# expand and validate
+	ip="$(Ipv6Expand "$ip")"
+	! IsIpAddress6 "$ip" && { ScriptErr "'$ip' is not a valid IPv6 address" "Ipv6Token"; return 1; }
+
+	# get each IPv4 octet from the last two segments of the IPv6 address
+	local octets=()
+	octets+=("0x$(echo "$ip" | cut -d":" -f7 | cut -c1-2)")
+	octets+=("0x$(echo "$ip" | cut -d":" -f7 | cut -c3-4)")
+	octets+=("0x$(echo "$ip" | cut -d":" -f8 | cut -c1-2)")
+	octets+=("0x$(echo "$ip" | cut -d":" -f8 | cut -c3-4)")
+	
+	# print
+	printf "%d.%d.%d.%d\n" "${octets[@]}"
+}
+
+# Ipv6Token [IP](adapter) - get an IPv6 token from an IPv4 address
+Ipv6Token()
+{
+	local ip="$1"; [[ ! $ip ]] && { ip="$(GetIpAddress4)" || return; }
+
+	# validate
+	! IsIpAddress4 "$ip" && { ScriptErr "'$ip' is not a valid IPv4 address" "Ipv6Token"; return 1; }
+
+	# print
+	local ips; StringToArray "$ip" "." ips
+	printf "::%02x%02x:%02x%02x\n" "${ips[@]}"
+}
+
+# IpvInclude 4|6 SERVERS [DELIMITER]( ) - include only IPv4 or IPv6 servers from the delimited list of servers
+IpvInclude()
+{
+	local ipv="$1" servers="$2" delimiter="${3:- }"; StringToArray "$servers" "$delimiter" servers
+	local result; for server in "${servers[@]}"; do IsIpAddress${ipv} "$server" && result+="$server "; done
+	echo "$(RemoveSpaceTrim "$result")"
+}
+
 
 #
 # network: route
