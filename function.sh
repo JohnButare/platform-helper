@@ -2153,8 +2153,10 @@ GetAdapterIpAddress()
 			ifconfig "$adapter" | ${G}grep inet | ${G}grep -v 'inet6|127.0.0.1' | ${G}head -n 1 | ${G}awk '{ print $2 }'
 		elif IsPlatform mac; then
 			ifconfig "$adapter" | ${G}grep inet6 | ${G}grep -v " fe80" | ${G}head -1 | ${G}tr -s " " | ${G}cut -d" " -f2
+		elif InPath ip; then
+			ip -6 addr show "$adapter" | grep "inet6" | grep -v -E 'nodad' | head -1 | tr -s " " | cut -d" " -f3 | cut -d"/" -f1
 		else
-			ifconfig "$adapter" | grep inet6 | grep "global" | head -1 | tr -s " " | cut -d" " -f3
+			ifconfig "$adapter" | grep inet6 | grep "global" | head -1 | tr -s " " | cut -d" " -f3			
 		fi
 
 	fi
