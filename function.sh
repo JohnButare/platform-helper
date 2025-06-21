@@ -2080,7 +2080,11 @@ DhcpRenew()
 }
 
 # DhcpServers - return all DHCPv4 servers on the network
-DhcpServers() { nmapp --sudo --script broadcast-dhcp-discover --script-args='broadcast-dhcp-discover.timeout=3' |& grep "Server Identifier: " | RemoveCarriageReturn | cut -d":" -f2 | ${G}sed 's/ //g' | sort --numeric | uniq | DnsResolveBatch | sort; }
+DhcpServers()
+{
+	NmapCanBroadcast "$@" || return
+	nmapp --sudo --script broadcast-dhcp-discover --script-args='broadcast-dhcp-discover.timeout=3' |& grep "Server Identifier: " | RemoveCarriageReturn | cut -d":" -f2 | ${G}sed 's/ //g' | sort --numeric | uniq | DnsResolveBatch | sort
+}
 
 # DhcpValidate HOST - ensure DHCPv4 is running on HOST
 DhcpValidate()
@@ -2153,10 +2157,8 @@ GetAdapterIpAddress()
 			ifconfig "$adapter" | ${G}grep inet | ${G}grep -v 'inet6|127.0.0.1' | ${G}head -n 1 | ${G}awk '{ print $2 }'
 		elif IsPlatform mac; then
 			ifconfig "$adapter" | ${G}grep inet6 | ${G}grep -v " fe80" | ${G}head -1 | ${G}tr -s " " | ${G}cut -d" " -f2
-		elif InPath ip; then
-			ip -6 addr show "$adapter" | grep "inet6" | grep -v -E 'nodad' | head -1 | tr -s " " | cut -d" " -f3 | cut -d"/" -f1
 		else
-			ifconfig "$adapter" | grep inet6 | grep "global" | head -1 | tr -s " " | cut -d" " -f3			
+			ifconfig "$adapter" | grep inet6 | grep "global" | head -1 | tr -s " " | cut -d" " -f3
 		fi
 
 	fi
@@ -2631,6 +2633,25 @@ nmapp()
 	fi
 }
 
+NmapCanBroadcast()
+{
+	# arguments
+	local quiet
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--quiet|-q) quiet="--quiet";;
+			*) UnknownOption "$1" "DnsAlternate"; return;;
+		esac
+		shift
+	done
+
+	# validate
+	IsPlatform win && ! InPath nmap.exe && { ScriptErrQuiet "Nmap for Windows is not installed, broadcast is not possible"; return; }
+
+	return 0
+}
+
 # PortUsage - show what ports are in use
 PortUsage()
 {
@@ -3012,13 +3033,13 @@ ConsulResolve() { hashi resolve "$@"; }
 DnsAlternate()
 {
 	# arguments
-	local force forceLevel forceLess host verbose verboseLevel verboseLess
+	local force forceLevel forceLess host quiet verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--no-prompt|-np) :;;
-			--quiet|-q) :;;
+			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
 			*)

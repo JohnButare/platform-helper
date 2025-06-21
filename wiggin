@@ -38,7 +38,7 @@ Backup data for the Wiggin network.
 }
 
 backupCommand() { usage; }
-backupArgStart() { unset hostArg hostOpt; borgArgs=(); }
+backupArgStart() { unset -v hostArg hostOpt; borgArgs=(); }
 backupOpt() {	ScriptOptHost "$@"; }
 backupCupsCommand() { borgBackupService "cups" "cups" "/etc/cups"; }
 backupDomainsCommand() { backupDomain "butare.net" && backupDomain "juntosholdings.com"; }
@@ -827,6 +827,14 @@ networkArgStart()
 
 networkCommand() { usage; }
 
+# getDhpDir HOST - get dhcpDir variable for the host
+getDhpDir()
+{
+	local host="$1"
+	ScriptEval HostGetInfo "$host" || return
+	IsPlatform pi --host && echo "$dhcpDirBuild" || echo "$dhcpDirPackageDir"
+}
+
 #
 # Network Backup Command
 #
@@ -840,26 +848,29 @@ networkBackupDnsCommand() { getDnsHosts && ForAllHosts networkBackupDns; }
 networkBackupDhcp()
 {
 	local host="$1" stamp="$(GetDateStamp)"
-	local dhcpDir hostShort hostIp; getHost || return
+	local hostShort; hostShort="$(RemoveDnsSuffix "$host")" || return
 
+	HostAvailable "$host" || return
 	hilight "Backing up DHCP configuration from $hostShort..."
 
 	# find a unique filename
 	local file="$hostShort.dhcpd.zip" i=1
 	while [[ -f "$backupDir/$stamp.$i.$file" ]]; do (( ++i )); done
 
-	# create the backup	
-	ssh $hostIp "rm -f ~/tmp/$file; zip -r ~/tmp/$file $dhcpDir" || return
+	# create the backup
+	local dhcpDir; dhcpDir="$(getDhcpDir "$host")" || return
+	ssh "$host" "rm -f ~/tmp/$file; zip -r ~/tmp/$file $dhcpDir" || return
 
 	# copy the backup to the backup directory
-	scp "$hostIp:~/tmp/$file" "$backupDir/$stamp.$i.$file" || return
+	scp "$host:~/tmp/$file" "$backupDir/$stamp.$i.$file" || return
 }
 
 networkBackupDns()
 {
 	local host="$1" stamp="$(GetDateStamp)"
-	local dhcpDir hostShort hostIp; getHost || return
+	local hostShort; hostShort="$(RemoveDnsSuffix "$host")" || return
 
+	HostAvailable "$host" || return
 	hilight "Backing up DNS configuration from $hostShort..."
 
 	# find a unique filename
@@ -867,16 +878,15 @@ networkBackupDns()
 	while [[ -f "$backupDir/$stamp.$i.$file" ]]; do (( ++i )); done
 
 	# create the backup
-	ssh "$hostIp" "rm -f ~/tmp/$file; zip -r ~/tmp/$file $dnsDir --exclude \*.key \*.zip" || return
+	ssh "$host" "rm -f ~/tmp/$file; zip -r ~/tmp/$file $dnsDir --exclude \*.key \*.zip" || return
 
 	# copy the backup to the backup directory
-	scp "$hostIp:~/tmp/$file" "$backupDir/$stamp.$i.$file" || return
+	scp "$host:~/tmp/$file" "$backupDir/$stamp.$i.$file" || return
 }
 
 #
 # Network Config
 #
-
 
 networkConfigUsage()
 {
@@ -1051,8 +1061,8 @@ networkUpdateUsage()
 	ScriptUsageEcho "Usage: $(ScriptName) network update [dns|dhcp|all](all)
 Update the DHCP or DNS configuration of HOST.
 
-	-H,  --host [HOSTS](all)	$(ScriptOptHostUsage)
 	-4|-6 										use only IPv4 or IPv6
+	-H,  --host [HOSTS](all)	$(ScriptOptHostUsage)
 	-nb, --no-backup					do not backup the existing configuration before updating
 	-nv, --no-validate				do not validate the service after updating"
 }
@@ -1074,24 +1084,28 @@ networkUpdateOpt()
 
 networkUpdateCommand() { networkUpdateAllCommand; }
 networkUpdateAllCommand() { networkUpdateDhcpCommand && networkUpdateDnsCommand; }
-networkUpdateDhcpCommand() { getDhcpHosts && ForAllHosts networkUpdateDhcp --header "Update DHCP"; }
-networkUpdateDnsCommand() {	getDnsHosts && ForAllHosts networkUpdateDns --header "Update DNS"; }
 
 #
 # Network Update DHCP Command
 #
 
+networkUpdateDhcpCommand() { getDhcpHosts && ForAllHosts networkUpdateDhcp "$ipv" --header "Update DHCP"; }
+
+# networkUpdateDhcp [4|6](both) HOST
 networkUpdateDhcp()
 {
-	local host="$1" hostShort hostIp config dir
+	local ipv="$1" host="$2" 
+	local dhcpDir; dhcpDir="$(getDhcpDir "$host")" || return
+	local hostShort; hostShort="$(RemoveDnsSuffix "$host")"
+	local config dir # set in networkUpdateDhcpCommon
+	[[ $ipv ]] && { networkUpdateDhcpDo "$ipv"; return; }
 	networkUpdateDhcpDo 4 && networkUpdateDhcpDo 6
 }
 
 networkUpdateDhcpDo()
 {
-	local v="$1"
-	[[ "$ipv" != @(|$v) ]] && return
-	networkUpdateDhcpCommon && networkUpdateDhcp$v && networkUpdateDhcpFinal
+	local ipv="$1"
+	networkUpdateDhcpCommon && networkUpdateDhcp$ipv && networkUpdateDhcpFinal "$ipv"
 }
 
 networkUpdateDhcpCommon()
@@ -1101,9 +1115,10 @@ networkUpdateDhcpCommon()
 	dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
 }
 
+# networkUpdateDhcpFinal 4|6 - final DHCP update steps
 networkUpdateDhcpFinal()
 {
-	echo "Copying DHCPv$v configuration files to $hostShort..."
+	local ipv="$1"; echo "Copying DHCPv$ipv configuration files to $hostShort..."
 	local pw; pw="$(credential get secure default)" || return
 	rsync --no-perms --chmod=ugo=rw --info=progress2 "$dir/"* "root@$host:$dhcpDir" || return
 
@@ -1111,36 +1126,36 @@ networkUpdateDhcpFinal()
 	rm -fr "$dir" || return
 
 	# restart the service
-	echo "Restarting the DHCPv$v service on $host..."
-	service restart kea-dhcp$v-server --host="$host" || return
+	echo "Restarting the DHCPv$ipv service on $host..."
+	service restart kea-dhcp$ipv-server --host="$host" || return
 
 	# validate
-	[[ ! $noValidate ]] && { networkValidateHost "$host" DHCP$v || return; }
+	[[ ! $noValidate ]] && { networkValidateHostWait "$host" DHCP 10 $ipv || return; }
 
 	return 0
 }
 
 networkUpdateDhcp4()
 {
-	local subnetPoolVar="subnetPool$v$(ProperCase "$hostShort")"
+	local subnetPoolVar="subnetPool4$(ProperCase "$hostShort")"
 	local subnetPool="${!subnetPoolVar}"
 
 	# validate subnet range for the host
-	[[ ! $subnetPool ]] && { ScriptErr "unable to find a DHCP$v pool for host '$hostShort'"; return 1; }
+	[[ ! $subnetPool ]] && { ScriptErr "unable to find a DHCPv4 pool for host '$hostShort'"; return 1; }
 
-	hilight "Updating DHCPv$v on $hostShort..."
+	hilight "Updating DHCPv4 on $hostShort..."
 
-	echo "Creating DHCPv$v configuration files..."
+	echo "Creating DHCPv4 configuration files..."
 	cp "$config/"*${v}* "$dir" || return
 
 	# basic substitutions
-	${G}sed -i "s/SUBNET_POOL/$subnetPool/" "$dir/kea-dhcp$v-$network.jsonc" || return
-	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp$v-$network.jsonc" || return
-	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp$v.conf" || return
+	${G}sed -i "s/SUBNET_POOL/$subnetPool/" "$dir/kea-dhcp4-$network.jsonc" || return
+	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4-$network.jsonc" || return
+	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4.conf" || return
 	
 	# network interface
 	local interface; interface="$(SshHelper connect --function "$host" GetInterface)" || return
-	[[ $interface != "eth0" ]] && { ${G}sed -i "s/eth0/$interface/" "$dir/kea-dhcp$v-$network.jsonc" || return; }
+	[[ $interface != "eth0" ]] && { ${G}sed -i "s/eth0/$interface/" "$dir/kea-dhcp4-$network.jsonc" || return; }
 
 	# update ethers files - downcase to make etherwake case agnostic
 	configFileToCommaDelimited "$dhcpReservations4" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
@@ -1155,11 +1170,11 @@ networkUpdateDhcp6()
 	local subnetPool="$networkPrefix6$(QuoteForwardslashes "${!subnetPoolVar}")"
 
 	# validate subnet range for the host
-	[[ ! $subnetPool ]] && { ScriptErr "unable to find a DHCPv$v pool for host '$hostShort'"; return 1; }
+	[[ ! $subnetPool ]] && { ScriptErr "unable to find a DHCPv6 pool for host '$hostShort'"; return 1; }
 
-	hilight "Updating DHCPv$v on $hostShort..."
+	hilight "Updating DHCPv6 on $hostShort..."
 
-	echo "Creating DHCPv$v configuration files..."
+	echo "Creating DHCPv6 configuration files..."
 	cp "$config/"*${v}* "$dir" || return
 
 	${G}sed -i "s/NETWORK_PREFIX/$networkPrefix6/" "$dir/kea-dhcp6-$network.jsonc" || return
@@ -1175,13 +1190,16 @@ networkUpdateDhcp6()
 # Network Update DNS Command
 #
 
+networkUpdateDnsCommand() {	getDnsHosts && ForAllHosts networkUpdateDns --header "Update DNS"; }
+
+# networkUpdateDns HOST
 networkUpdateDns()
 {
-	local host="$1" hostShort hostIp; networkUpdateCommon "DNS" || return
+	local host="$1"; networkUpdateCommon "DNS" || return
 	local config="$dnsConfig"; CloudGet "$config" "${globalArgs[@]}" || return
 	local dir="$(mktemp -d -t 'dns.XXXXXXXXXX')" || return
 
-	hilight "Updating DNS on $hostShort..."
+	hilight "Updating DNS on $(RemoveDnsSuffix "$host")..."
 
 	echo "Creating DNS configuration files..."
 	cp "$config/named.conf."* "$dir" || return
@@ -1210,7 +1228,7 @@ networkUpdateDns()
 	done
 
 	echo "Copying DNS configuration files to $host..."
-	rsync --no-perms --chmod=ugo=rw "$dir/"* "root@$hostIp:$dnsDir" --info=progress2 || return
+	rsync --no-perms --chmod=ugo=rw "$dir/"* "root@$host:$dnsDir" --info=progress2 || return
 
 	# cleanup
 	rm -fr "$dir" || return
@@ -1221,7 +1239,7 @@ networkUpdateDns()
 
 	# validate
 	if [[ ! $noValidate ]]; then
-		{ network dns flush && sleep 1 && networkValidateHost "$host" DNS; } || return
+		{ network dns flush && sleep 1 && networkValidateHostWait "$host" DNS 10 $ipv; } || return
 	fi
 
 	return 0
@@ -1231,11 +1249,13 @@ networkUpdateDns()
 # Network Update Helper
 #
 
+# networkUpdateCommon dhcp|dns HOST - common code for DHCP and DNS update
 networkUpdateCommon()
 {
-	getHost || return	
+	local what="$1" host="$2"
+	HostAvailable "$host" || return
 	networkConfigFileValidate "$dhcpReservations4" || return
-	[[ ! $noBackup ]] && { networkBackup$(ProperCase "$1") "$host" || return; }
+	[[ ! $noBackup ]] && { networkBackup$(ProperCase "$what") "$host" || return; }
 	return 0
 }
 
@@ -1271,74 +1291,132 @@ networkConfigFileValidate()
 # Network Validate Command
 #
 
-networkValidateUsage() { ScriptUsageEcho "Usage: $(ScriptName) network validate [dns|dhcp|all](all)\nValidate the DHCP or DNS operation of HOST.\n\n	-H, --host [HOSTS](all)	$(ScriptOptHostUsage)"; }
+networkValidateUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) network validate [dns|dhcp|all](all)
+Validate the DHCP or DNS operation of HOST.
+
+	-4|-6 										use only IPv4 or IPv6
+	-H, --host [HOSTS](all)	$(ScriptOptHostUsage)"
+}
+
+networkValidateArgStart() { unset -v hostArg hostOpt ipv; }
+
+networkValidateOpt() 
+{
+	ScriptOptHost "$@" && return
+
+	case "$1" in
+		-4) ipv="4";;
+		-6) ipv="6";;
+		*) return 1
+	esac
+}
+
 networkValidateCommand() { networkValidateAllCommand; }
 networkValidateAllCommand() { networkValidateDhcpCommand && networkValidateDnsCommand; }
-networkValidateDhcpCommand() { networkValidateHosts "DHCP"; }
-networkValidateDnsCommand() { networkValidateHosts "DNS"; }
+networkValidateDhcpCommand() { networkValidateHosts "DHCP" $ipv; }
+networkValidateDnsCommand() { networkValidateHosts "DNS" $ipv; }
 
-networkValidateDhcp() { networkValidateDhcp4 "$@"; }
+# networkCanValidate dhcp|dns - return true if can validate DHCP or DNS servers
+networkCanValidate() { networkCanValidate$(ProperCase "$1"); }
+networkCanValidateDhcp() { NmapCanBroadcast $quiet && return; return 1; }
+networkCanValidateDns() { return 0; }
 
-networkValidateDhcp4()
-{
-	local host="$1"; local hostDns; hostDns="$(DnsResolve "$host" "${globalArgs[@]}")" || return
-	DhcpServers | qgrep "^${hostDns}$"
-}
-
-networkValidateDhcp6() { :; }
-
-networkValidateDns()
-{
-	local host="$1"
-	local dhcpDir hostShort hostIp; getHost || return
-	IsAvailablePort "$hostIp" 53 || { log2 "$hostIp is not availble on port 53"; return 1; }
-	nslookup "router.$(GetDnsDomain)" "$hostIp" >& /dev/null || { log2 "$hostIp forward lookuo of router.$(GetDnsDomain) failed"; return 1; }
-	nslookup "10.10.100.1" "$hostIp" >& /dev/null || { log2 "$hostIp reverse lookup of 10.10.100.1 failed"; return 1; }								# validate reverse lookup
-}
-
-# networkValidateHost HOST dhcp|dns - validate DHCP or DNS for the specified host
-networkValidateHost()
-{
-	local host="$1" what="${2^^}" 
-	local dhcpDir hostShort hostIp; getHost || return
-	printf "Waiting for $what on $hostShort..."
-
-	if networkValidateWait "$what" 10; then
-		echo "${GREEN}available${RESET}"
-	else
-		echo "${RED}failed${RESET}"
-		return 1
-	fi
-}
-
-# networkValidateHosts dhcp|dns - validate DHCP or DNS for the hosts
+# networkValidateHosts dhcp|dns [4|6](both) - validate DHCP or DNS for the hosts
 networkValidateHosts()
 {
-	local what="$1" dhcpDir hosts host hostShort hostIp; get$(ProperCase "$what")Hosts || return
+	local what="$1" ipv="$2"
 
+	networkCanValidate "$what" || return
 	printf "Validating ${what^^}..."
+
+	local hosts host; get$(ProperCase "$what")Hosts || return
 	for host in "${hosts[@]}"; do
-		getHost || return	
-		printf "$hostShort..."
-		networkValidateWait "$what" 5 && printf "ok..." || printf "${RED}failed${RESET}..."
+		printf "$(RemoveDnsSuffix "$host")..."
+		! IsAvailable "$host" && { printf "${RED}not available${RESET}..."; continue; }
+		networkValidate$(ProperCase "$1") "$host" $ipv && printf "ok..." || printf "${RED}failed${RESET}..."
 	done
 	echo "done"
 }
 
-# networkValidateWait dns|dhcp SECONDS - wait SECONDS to validate DNS or DHCP
-networkValidateWait()
-{	
-	local function="networkValidate$(ProperCase "$1")" seconds="$2" 
+# networkValidateHostWait HOST dhcp|dns SECONDS [4|6](both) - wait SECONDS to validate DNS or DHCP
+networkValidateHostWait()
+{
+	local host="$1" what="$2" seconds="$3" ipv="$4"
 
-	$function "$hostIp" && return
+	printf "Waiting for ${what^^} on $(RemoveDnsSuffix "$host")..."
+	! IsAvailable "$host" && { HilightErrEnd "not available"; return 1; }
 
 	for (( i=1; i<=$seconds; ++i )); do
- 		read -n 1 -t 1 -s && { echo "cancelled"; exit 1; }
- 		$function "$hostIp" && return
-		[[ ! $quiet ]] && printf "."
+ 		networkValidate$(ProperCase "$1") $function "$host" $ipv && { echo "${GREEN}available${RESET}"; return; }
+ 		read -n 1 -t 1 -s && { echo "${RED}cancelled${RESET}"; return 1; }
+		printf "."
 	done
 
+	echo "${RED}failed${RESET}"
 	return 1
+}
+
+# networkValidateDhcp HOST [4|6](both) - validate a DHCPv4 or DHCPv6 server, or both
+networkValidateDhcp()
+{
+	local host="$1" ipv="$2"
+	[[ $ipv ]] && { networkValidateDhcp$ipv "$host"; return; }
+	networkValidateDhcp4 "$host" && networkValidateDhcp6 "$host"; 
+}
+
+# networkValidateDhcp4 HOST - validate a DHCPv4 server
+networkValidateDhcp4()
+{
+	local host="$1"; local hostDns; hostDns="$(DnsResolve "$host" "${globalArgs[@]}")" || return
+	DhcpServers $quiet | qgrep "^${hostDns}$"
+}
+
+# networkValidateDhcp6 HOST - validate a DHCPv6 server
+networkValidateDhcp6() { :; }
+
+# networkValidateDns HOST [4|6](both) - validate DNS using IPv4 or IPv6, or both
+networkValidateDns()
+{
+	local host="$1" ipv="$2"
+	[[ $ipv ]] && { networkValidateDns$ipv "$host"; return; }
+	networkValidateDns4 "$host" && networkValidateDns6 "$host"
+}
+
+# networkValidateDns4 HOST - validate a DNS server using IPv4
+networkValidateDns4()
+{
+	local host="$1"; networkValidateDnsCommon || return
+	
+	# forward lookup 
+	nslookup "router.$(GetDnsDomain)" "$host" >& /dev/null || { log2 "$host IPv4 forward lookup of router.$(GetDnsDomain) failed"; return 1; }
+
+	# reverse lookup
+	local ip; ip="$(DnsResolve "router")" || return
+	nslookup "$ip" "$host" >& /dev/null || { log2 "$host reverse lookup of 10.10.100.1 failed"; return 1; }
+}
+
+# networkValidateDns6 HOST - validate a DNS server using IPv6
+networkValidateDns6()
+{
+	local host="$1"; networkValidateDnsCommon || return
+
+	# forward lookup
+	# dig -6 -t AAAA +short "router.$(GetDnsDomain)" @host >& /dev/null || { log2 "$host IPv6 forward lookup of router.$(GetDnsDomain) failed"; return 1; }
+	
+	# reverse lookup
+	# nslookup "10.10.100.1" "$host" >& /dev/null || { log2 "$host reverse lookup of 10.10.100.1 failed"; return 1; }
+}
+
+# networkValidateDnsCommon - common validations for DNS servers 
+networkValidateDnsCommon()
+{
+	# check if the host is available
+	HostAvailable "$host" || return
+
+	# check if the DNS server is available on porty 53
+	IsAvailablePort "$host" 53 || { log2 "$host is not availble on port 53"; return 1; }
 }
 
 #
@@ -1412,8 +1490,8 @@ syncCommand() { usage; }
 
 syncArgStart()
 {
-	unset hostArg hostOpt hosts method noServiceRestart; ScriptOptTimeoutArgStart
-	unset unisonArgs
+	unset -v hostArg hostOpt hosts method noServiceRestart; ScriptOptTimeoutArgStart
+	unset -v unisonArgs
 }
 
 syncOpt()
@@ -1665,16 +1743,6 @@ borgBackupService()
 	local archive="$1" service="$2" dirs=("${@:3}")
 	[[ ! $hostArg ]] && { hostArg="$(GetServer "$service" "${globalArgs[@]}")" || return; }
 	ForAllHosts borgBackup --header "Backup ${service^}"
-}
-
-# getHost - uses host, sets dhcpDir, hostShort, hostIp
-getHost()
-{
-	! IsAvailable "$host" && { ScriptErr "host '$host' is not available"; return 1; }
-	ScriptEval HostGetInfo "$host" || return
-	IsPlatform pi --host && dhcpDir="$dhcpDirBuild" || dhcpDir="$dhcpDirPackageDir"
-	hostShort="$(RemoveDnsSuffix "$host")"
-	hostIp="$(GetIpAddress "$host")" || return	
 }
 
 isVaultHost()
