@@ -828,7 +828,7 @@ networkArgStart()
 networkCommand() { usage; }
 
 # getDhpDir HOST - get dhcpDir variable for the host
-getDhpDir()
+getDhcpDir()
 {
 	local host="$1"
 	ScriptEval HostGetInfo "$host" || return
@@ -1097,7 +1097,6 @@ networkUpdateDhcp()
 	local ipv="$1" host="$2"; host="$(DnsResolve "$host")" || return
 	local hostShort; hostShort="$(RemoveDnsSuffix "$host")"
 	local dhcpDir; dhcpDir="$(getDhcpDir "$host")" || return
-	local config dir # set in networkUpdateDhcpDo -> networkUpdateDhcpCommon
 	[[ $ipv ]] && { networkUpdateDhcpDo "$ipv"; return; }
 	networkUpdateDhcpDo 4 && networkUpdateDhcpDo 6
 }
@@ -1105,25 +1104,38 @@ networkUpdateDhcp()
 networkUpdateDhcpDo()
 {
 	local ipv="$1"
-	networkUpdateDhcpCommon && networkUpdateDhcp$ipv && networkUpdateDhcpFinal "$ipv"
-}
 
-networkUpdateDhcpCommon()
-{
+	# find a subnet pool for the host
+	local subnetPoolVar="subnetPool${ipv}$(ProperCase "$hostShort")"
+	local subnetPool="${!subnetPoolVar}"; [[ "$ipv" == "6" ]] && subnetPool="$networkPrefix6$(QuoteForwardslashes "${!subnetPoolVar}")"
+	[[ ! $subnetPool ]] && { ScriptErr "unable to find a DHCPv$ipv pool for host '$hostShort'"; return 1; }
+
+	# common configuration
 	networkUpdateCommon "DHCP" "$host" || return
-	config="$dhcpConfig/$network"; CloudGet "$config"/* || return
-	dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
-}
+	hilight "Updating DHCPv$ipv on $hostShort..."
 
-# networkUpdateDhcpFinal 4|6 - final DHCP update steps
-networkUpdateDhcpFinal()
-{
-	local ipv="$1"; echo "Copying DHCPv$ipv configuration files to $hostShort..."
+	# create DHCP configuration files
+	echo "Creating DHCPv$ipv configuration files..."
+	local config="$dhcpConfig/$network"; CloudGet "$config"/* || return
+	local dir; dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
+	cp "$config/"*${ipv}* "$dir" || return
+
+	# protocl specific substitutions
+	networkUpdateDhcp$ipv || return
+
+	# basic substitutions
+	${G}sed -i "s/SUBNET_POOL/$subnetPool/" "$dir/kea-dhcp$ipv-$network.jsonc" || return
+	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp$ipv-$network.jsonc" || return
+	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp$ipv.conf" || return
+
+	# network interface
+	local interface; interface="$(SshHelper connect --function "$host" GetInterface)" || return
+	[[ $interface != "eth0" ]] && { ${G}sed -i "s/eth0/$interface/" "$dir/kea-dhcp$ipv-$network.jsonc" || return; }
+
+	# copy configuration files to host
+	echo "Copying DHCPv$ipv configuration files to $hostShort..."
 	local pw; pw="$(credential get secure default)" || return
 	rsync --no-perms --chmod=ugo=rw --info=progress2 "$dir/"* "root@$host:$dhcpDir" || return
-
-	# cleanup
-	rm -fr "$dir" || return
 
 	# restart the service
 	echo "Restarting the DHCPv$ipv service on $host..."
@@ -1132,31 +1144,12 @@ networkUpdateDhcpFinal()
 	# validate
 	[[ ! $noValidate ]] && { networkValidateHostWait "$host" DHCP 10 $ipv || return; }
 
-	return 0
+	# cleanup
+	rm -fr "$dir" || return
 }
 
 networkUpdateDhcp4()
 {
-	local subnetPoolVar="subnetPool4$(ProperCase "$hostShort")"
-	local subnetPool="${!subnetPoolVar}"
-
-	# validate subnet range for the host
-	[[ ! $subnetPool ]] && { ScriptErr "unable to find a DHCPv4 pool for host '$hostShort'"; return 1; }
-
-	hilight "Updating DHCPv4 on $hostShort..."
-
-	echo "Creating DHCPv4 configuration files..."
-	cp "$config/"*${v}* "$dir" || return
-
-	# basic substitutions
-	${G}sed -i "s/SUBNET_POOL/$subnetPool/" "$dir/kea-dhcp4-$network.jsonc" || return
-	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4-$network.jsonc" || return
-	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp4.conf" || return
-	
-	# network interface
-	local interface; interface="$(SshHelper connect --function "$host" GetInterface)" || return
-	[[ $interface != "eth0" ]] && { ${G}sed -i "s/eth0/$interface/" "$dir/kea-dhcp4-$network.jsonc" || return; }
-
 	# update ethers files - downcase to make etherwake case agnostic
 	configFileToCommaDelimited "$dhcpReservations4" | tr A-Z a-z | awk -F "," '{ print $2 " " $1 }' > "$DATA/setup/ethers" || return
 
@@ -1166,24 +1159,9 @@ networkUpdateDhcp4()
 
 networkUpdateDhcp6()
 {
-	local subnetPoolVar="subnetPool6$(ProperCase "$hostShort")"
-	local subnetPool="$networkPrefix6$(QuoteForwardslashes "${!subnetPoolVar}")"
-
-	# validate subnet range for the host
-	[[ ! $subnetPool ]] && { ScriptErr "unable to find a DHCPv6 pool for host '$hostShort'"; return 1; }
-
-	hilight "Updating DHCPv6 on $hostShort..."
-
-	echo "Creating DHCPv6 configuration files..."
-	cp "$config/"*${v}* "$dir" || return
-
 	${G}sed -i "s/NETWORK_PREFIX/$networkPrefix6/" "$dir/kea-dhcp6-$network.jsonc" || return
 	${G}sed -i "s/NETWORK_LEN/$networkLength6/" "$dir/kea-dhcp6-$network.jsonc" || return
-	${G}sed -i "s/SUBNET_POOL/$subnetPool/" "$dir/kea-dhcp6-$network.jsonc" || return
-	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp6-$network.jsonc" || return
-	${G}sed -i "s/DHCP_DIR/$(echo "$dhcpDir" | QuotePath)/" "$dir/kea-dhcp6.conf" || return
 	${G}sed -i "s/NETWORK_PREFIX/$networkPrefix6/g" "$dir/$(GetFileName "$dhcpReservations6")" || return
-	${G}sed -i "s/NETWORK_PREFIX/$networkPrefix6/g" "$dir/butare.net" || return
 }
 
 #
@@ -1197,13 +1175,15 @@ networkUpdateDns()
 {
 	local host="$1"; host="$(DnsResolve "$host")" || return
 	local hostShort; hostShort="$(RemoveDnsSuffix "$host")" || return
-	local config="$dnsConfig"; CloudGet "$config" "${globalArgs[@]}" || return
-	local dir="$(mktemp -d -t 'dns.XXXXXXXXXX')" || return
 
+	# common configuration
 	networkUpdateCommon "DNS" "$host" || return
 	hilight "Updating DNS on $hostShort..."
 	
+	# create DNS configuration files
 	echo "Creating DNS configuration files..."
+	local config="$dnsConfig"; CloudGet "$config" "${globalArgs[@]}" || return
+	local dir="$(mktemp -d -t 'dns.XXXXXXXXXX')" || return
 	cp "$config/named.conf."* "$dir" || return
 	cp "$config/$baseDomain" "$dir" || return
 	cp "$config/forward.txt" "$dir/$domain" || return
@@ -1229,11 +1209,9 @@ networkUpdateDns()
 
 	done
 
+	# copy configuration files to host
 	echo "Copying DNS configuration files to $hostShort..."
 	rsync --no-perms --chmod=ugo=rw "$dir/"* "root@$host:$dnsDir" --info=progress2 || return
-
-	# cleanup
-	rm -fr "$dir" || return
 
 	# restart the service - use X Forwarding to enable local credential manager
 	echo "Restarting the DNS service on $hostShort..."
@@ -1244,7 +1222,8 @@ networkUpdateDns()
 		{ network dns flush && sleep 1 && networkValidateHostWait "$host" DNS 10 $ipv; } || return
 	fi
 
-	return 0
+	# cleanup
+	rm -fr "$dir" || return
 }
 
 #
