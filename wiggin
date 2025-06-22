@@ -1094,10 +1094,10 @@ networkUpdateDhcpCommand() { getDhcpHosts && ForAllHosts networkUpdateDhcp "$ipv
 # networkUpdateDhcp [4|6](both) HOST
 networkUpdateDhcp()
 {
-	local ipv="$1" host="$2" 
-	local dhcpDir; dhcpDir="$(getDhcpDir "$host")" || return
+	local ipv="$1" host="$2"; host="$(DnsResolve "$host")" || return
 	local hostShort; hostShort="$(RemoveDnsSuffix "$host")"
-	local config dir # set in networkUpdateDhcpCommon
+	local dhcpDir; dhcpDir="$(getDhcpDir "$host")" || return
+	local config dir # set in networkUpdateDhcpDo -> networkUpdateDhcpCommon
 	[[ $ipv ]] && { networkUpdateDhcpDo "$ipv"; return; }
 	networkUpdateDhcpDo 4 && networkUpdateDhcpDo 6
 }
@@ -1110,7 +1110,7 @@ networkUpdateDhcpDo()
 
 networkUpdateDhcpCommon()
 {
-	networkUpdateCommon "DHCP" || return
+	networkUpdateCommon "DHCP" "$host" || return
 	config="$dhcpConfig/$network"; CloudGet "$config"/* || return
 	dir="$(mktemp -d -t 'dhcp.XXXXXXXXXX')" || return
 }
@@ -1195,12 +1195,14 @@ networkUpdateDnsCommand() {	getDnsHosts && ForAllHosts networkUpdateDns --header
 # networkUpdateDns HOST
 networkUpdateDns()
 {
-	local host="$1"; networkUpdateCommon "DNS" || return
+	local host="$1"; host="$(DnsResolve "$host")" || return
+	local hostShort; hostShort="$(RemoveDnsSuffix "$host")" || return
 	local config="$dnsConfig"; CloudGet "$config" "${globalArgs[@]}" || return
 	local dir="$(mktemp -d -t 'dns.XXXXXXXXXX')" || return
 
-	hilight "Updating DNS on $(RemoveDnsSuffix "$host")..."
-
+	networkUpdateCommon "DNS" "$host" || return
+	hilight "Updating DNS on $hostShort..."
+	
 	echo "Creating DNS configuration files..."
 	cp "$config/named.conf."* "$dir" || return
 	cp "$config/$baseDomain" "$dir" || return
@@ -1227,14 +1229,14 @@ networkUpdateDns()
 
 	done
 
-	echo "Copying DNS configuration files to $host..."
+	echo "Copying DNS configuration files to $hostShort..."
 	rsync --no-perms --chmod=ugo=rw "$dir/"* "root@$host:$dnsDir" --info=progress2 || return
 
 	# cleanup
 	rm -fr "$dir" || return
 
 	# restart the service - use X Forwarding to enable local credential manager
-	echo "Restarting the DNS service on $host..."
+	echo "Restarting the DNS service on $hostShort..."
 	service restart named --host="$host" || return
 
 	# validate
@@ -1349,7 +1351,7 @@ networkValidateHostWait()
 	! IsAvailable "$host" && { HilightErrEnd "not available"; return 1; }
 
 	for (( i=1; i<=$seconds; ++i )); do
- 		networkValidate$(ProperCase "$1") $function "$host" $ipv && { echo "${GREEN}available${RESET}"; return; }
+ 		networkValidate$(ProperCase "$what") $function "$host" $ipv && { echo "${GREEN}available${RESET}"; return; }
  		read -n 1 -t 1 -s && { echo "${RED}cancelled${RESET}"; return 1; }
 		printf "."
 	done
