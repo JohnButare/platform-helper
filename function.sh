@@ -1987,6 +1987,7 @@ IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"
 IsIpAddressAny() { GetArgs; IsIpAddress4 "$1" || IsIpAddress6 "$1"; } 																								# IsIpAddressAny [IP] - return true if the IP is a valid IPv4 or IPv6 address
 IsIpAddress4() { IsIpAddress -4 "$@"; }; IsIpAddress6() { IsIpAddress -6 "$@"; } 																			# IsIpAddress4|6 [IP] - return true if the IP is a valid IP address
 IsIpvSupported() { [[ $(GetAdapterIpAddress -$1) ]]; }																																# IsIpvSupported 4|6 - return true if the specified internet protocol supported
+MacLookup4() { MacLookup -4 "$@"; }; MacLookup6() { MacLookup -6 "$@"; }																	# GetIpAddress[4|6] [HOST] - get the IP address of the current or specified host
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }																																		# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }																													# SmbPasswordIsSet USER - return true if the SMB password for user is set
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }																									# UrlExists URL - true if the specified URL exists
@@ -2512,19 +2513,24 @@ IsIpStatic()
 }
 
 # MacLookup HOST|IP... - resolve a host name or IP to a MAC address using the ARP table or /etc/ethers
-# --detail|-d		displayed detailed information about the MAC address including all MAC, IP address, and 
+# -4|-6 				use IPv4 or IPv6
+# --detail   		displayed detailed information about the MAC address including all MAC, IP address, and 
 #               DNS names.  Allows identification of the current host of a Virtual IP Addresses (VIP).
 # --monitor|-m	monitor the host name or IP address for changes (useful for VIP failovers)
+# --dns|-d  		resolve the MAC address to a DNS name
 # --ethers|-e		resolve using /etc/ethers instead of the ARP table
 # --quiet|-q		suppress error message where possible
 # test: lb lb3 pi1
 MacLookup() 
 {
-	local detail ethers host monitor quiet
+	local detail dns ethers host monitor quiet
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--detail|-d) detail="--detail";;
+			-4) ipv="4";;
+			-6) ipv="6";;
+			--detail) detail="--detail";;
+			--dns|-d) dns="--dns";;
 			--ethers|-e) ethers="--ethers";;
 			--monitor|-m) monitor="--monitor";;
 			--quiet|-q) quiet="--quiet";;
@@ -2538,12 +2544,19 @@ MacLookup()
 
 	[[ ! $host ]] && { MissingOperand "host" "MacLookup"; return; }
 
+	# set ipv if needed
+	if [[ ! $ipv ]]; then
+		if IsIpAddress4 "$host"; then ipv="4"
+		elif IsIpAddress6 "$host"; then ipv="6"
+		fi
+	fi
+
 	# monitor
 	if [[ $monitor ]]; then
 		echo "Press any key to stop monitoring '$host'..."
 		
 		while true; do
-			hilightp "$host: "; MacLookup --detail "$host" | ${G}tail --lines=+2 | tr -s " " | cut -d" " -f3 | cut -d"." -f1 | sort | NewlineToSpace; echo
+			hilightp "$host: "; MacLookup$ipv --detail "$host" | ${G}tail --lines=+2 | tr -s " " | cut -d" " -f3 | cut -d"." -f1 | sort | NewlineToSpace; echo
 			ReadChars 1 1 && return
 		done
 	fi
@@ -2558,8 +2571,9 @@ MacLookup()
 		else
 			mac="$(grep " $(RemoveDnsSuffix "${host,,}")$" "/etc/ethers" | cut -d" " -f1)"
 		fi
-	# resolve using the ARP table
-	else
+
+	# resolve using the IPv4 ARP table
+	elif [[ "$ipv" == @(|4) ]]; then
 		local ping="ping -c 1"; IsPlatform win && ping="ping.exe -n 1 -w 100"
 
 		# populate the arp cache with the MAC address
@@ -2579,13 +2593,24 @@ MacLookup()
 			mac="$(echo "$mac" | tr -s " " | cut -d" " -f${column} | ${G}tail --lines=-1)"
 		fi
 
+	# resolve using IPv6 Router Advertisement (RA)
+	else
+
+		if InPath ndisc6; then
+			mac="$(ndisc6 -1 -q "$host" "$(GetInterface)")"
+		fi
+
 	fi
 
 	# check if got a mac
 	[[ ! $mac ]] && { ScriptErrQuiet "unable to lookup the MAC address for '$host'" "MacResolve"; return 1; }
 
 	# return the MAC address if not showing detail
-	[[ ! $detail ]] && { echo "$mac"; return; }
+	if [[ ! $detail ]]; then
+		[[ $dns ]] && { mac="$(DnsResolveMac "$mac")" || return; }
+		echo "$mac"
+		return
+	fi
 
 	# get all IP addresses associated with the MAC address - more than one for a Virtual IP Address (VIP)
 	local ips; 
@@ -3191,24 +3216,27 @@ DnsResolveMacBatch()
 }
 
 # DnsResolveMac MAC... - resolve MAC addresses to DNS names using /etc/ethers
+# -4|-6 				use IPv4 or IPv6
 # --all|-a			show all names, even those that could not be resolved
 # --errors|-e		keep processing if an error occurs, return the total number of errors
 # --full|-f  		return a fully qualified domain name
 # --quiet|-q		suppress error message where possible
 DnsResolveMac()
 {
-	local all errors macs=() quiet full="cat"
+	local all errors macs=() quiet full="cat" ipv
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			-4) ipv="4";;
+			-6) ipv="6";;
 			--all|-a) all="true";;
 			--errors|-e) errors=0;;
 			--full|-f) full="DnsResolveBatch";;
 			--quiet|-q) quiet="--quiet";;
 			*)
-					IsOption "$1" && { UnknownOption "$1" "DnsResolveMac"; return; }
-					macs+=("$1")
-					;;
+				IsOption "$1" && { UnknownOption "$1" "DnsResolveMac"; return; }
+				macs+=("$1")
+				;;
 		esac
 		shift
 	done
