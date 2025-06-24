@@ -3423,6 +3423,19 @@ MdnsServices() { avahi-browse --cache --all --no-db-lookup --parsable | cut -d';
 # Ipv6Expand IP - expand an IPv6 address with all zeros
 Ipv6Expand() { GetArgs; echo "$1" | awk '{if(NF<8){inner = "0"; for(missing = (8 - NF);missing>0;--missing){inner = inner ":0"}; if($2 == ""){$2 = inner} else if($3 == ""){$3 = inner} else if($4 == ""){$4 = inner} else if($5 == ""){$5 = inner} else if($6 == ""){$6 = inner} else if($7 == ""){$7 = inner}}; print $0}' FS=":" OFS=":" | awk '{for(i=1;i<9;++i){len = length($(i)); if(len < 1){$(i) = "0000"} else if(len < 2){$(i) = "000" $(i)} else if(len < 3){$(i) = "00" $(i)} else if(len < 4){$(i) = "0" $(i)}}; print $0}' FS=":" OFS=":"; }
 
+# Ipv6Nibble IP [BITS](128) - expand and reverse IPv6 address to nibble format
+# - https://docs.db.ripe.net/Database-Support/Configuring-Reverse-DNS/#reverse-dns-overview
+Ipv6Nibble()
+{
+	local ip="$1" bits="${2:-128}"; bits=$((bits/4))
+	# expand and validate
+	ip="$(Ipv6Expand "$ip")"
+	! IsIpAddress6 "$ip" && { ScriptErr "'$ip' is not a valid IPv6 address" "Ipv6Token"; return 1; }
+
+	# convert
+	printf "$ip" | ${G}sed 's/://g' | ${G}cut -c1-$bits | rev | ${G}sed -r 's/./&:/g' | RemoveEnd ":"
+}
+
 # Ipv4Token [IP](adapter) - get an IPv4 token from an IPv6 address
 Ipv4Token()
 {
