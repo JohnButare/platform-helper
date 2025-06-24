@@ -822,7 +822,7 @@ installInit()
 	macDeb+=(bench Geekbench PerformanceTest stui)
 
 	# Productivity
-	macWin+=(prezi)
+	macWin+=(nom prezi)
 
 	# Python
 	all+=(pip pipx pyenv python PythonLocal PythonGlobal PythonDev PythonTextUtilities httpie)
@@ -1258,15 +1258,9 @@ extractFiles()
 
 	local file files; IFS=$'\n' ArrayMake files "$(fd --max-depth=1 '\.(bz2|gz|tar|tgz|zip)$')"
 	for file in "${files[@]}"; do
+		file="$(extractRename "$file")" || return
 
-		# rename .tar.gz files to tgz for easier handling
-		if [[ "$file" =~ (.tar.gz$) ]]; then
-			local fileNew="$(GetFileNameWithoutExtension "$file" | GetFileNameWithoutExtension).tgz"
-			mv "$file" "$fileNew" || return; file="$fileNew"
-		fi
-
-		# extract
-		echo "Extracting $file..."		
+		echo "Extracting $file..."
 		case "$(GetFileExtension "$file")" in
 			gz) gunzip "$file" --to-stdout > "$(GetFileNameWithoutExtension "$file")" || return;;
 			tar) tar --file "$file" --extract --to-stdout > "$(GetFileNameWithoutExtension "$file")" || return;;
@@ -1277,6 +1271,35 @@ extractFiles()
 	done
 
 	return 0
+}
+
+extractFilesName()
+{
+	local dir="$1" name="$2"; ! InPath fd && return # fd not installed on bootstrap 
+	command cd "$dir" || return
+
+	local file files; IFS=$'\n' ArrayMake files "$(fd --max-depth=1 '\.(bz2|gz|tar|tgz|zip)$')"
+	for file in "${files[@]}"; do
+		file="$(extractRename "$file")" || return
+
+		echo "Extracting $file..."
+		case "$(GetFileExtension "$file")" in
+			bz2|tar|tgz) tar --file "$file" --extract --to-stdout "$name" > "$(GetFileNameWithoutExtension "$file")" || return;;
+		esac
+		rm -f "$file" || return
+	done
+
+	return 0
+}
+
+# extractRename FILE - rename .tar.gz files to tgz for easier handling
+extractRename()
+{
+	local file="$1"
+	[[ ! "$file" =~ (.tar.gz$) ]] && { echo "$file"; return; }
+	local fileNew="$(GetFileNameWithoutExtension "$file" | GetFileNameWithoutExtension).tgz"
+	mv "$file" "$fileNew" || return
+	echo "$fileNew"
 }
 
 # getArch X64 ARM64 ARM32 IGNORE
@@ -1602,7 +1625,7 @@ manageSystem()
 run() 
 {
 	# arguments
-	local args=() cache cd copyLocal dest elevate header installer name noInstallCheck p pause rename type="extension" version
+	local args=() cache cd copyLocal dest elevate extractName header installer name noInstallCheck p pause rename type="extension" version
 
 	while (( $# != 0 )); do
 		local shift=1
@@ -1632,6 +1655,7 @@ run()
 			--copy-local) copyLocal="--copy-local";;
 			--dest|--dest=*|-d|-d=*) ScriptOptGet "dest" "$@";;
 			--elevate) IsPlatform win && elevate="--elevate";;
+			--extract-name) extractName="--extract-name";; 
 			--header|--header=*|-h|-h=*) ScriptOptGet "header" "$@";;
 			--installer|-i) installer="true";; # the specified program is an installer
 			--name|--name=*|-n|-n=*) ScriptOptGet name "$@" || return;;
@@ -1783,18 +1807,20 @@ runTypeDocker()
 	fi
 }
 
-# runTypeExecutable DIR NAME- find an executable for the current platform in the passed directory.
+# runTypeExecutable DIR NAME ZIP_NAME - find an executable for the current platform in the passed directory.
 # The executable is copied to /usr/local/bin/NAME.
 runTypeExecutable()
 {
 	# arguments
-	local dir="$1" name="${2,,}" dest="$3" zipName="$4" file; shift 4
+	local dir="$1" name="${2,,}" zipName="$3" file; shift 4
 
 	# find the executable location
 	findFile "$dir" || return; dir="$file"
 
 	# extract the executable from compressed files so we can analyze them
-	extractFiles "$dir" || return
+	if [[ $extractName ]]; then extractFilesName "$dir" "$name" || return
+	else extractFiles "$dir" || return
+	fi
 
 	# find the correct file for this machine
 	file="$(findExecutable "$name" "$dir")" || return
@@ -2527,7 +2553,7 @@ AppHostSoftwareInstall()
 	IsPlatform win && clientMinimal+=""
 
 	# client full
-	local clientFull="CreativeCloud"
+	local clientFull="CreativeCloud nom"
 	IsPlatform mac && clientFull+="flighty hammerspoon NuoRds OpenSC soulver"
 	IsPlatform win && clientFull+=" hyperv netbootxyz Quicken SpeedCrunch"
 	IsPlatform laptop && clientFull+=" Tailscale WireGuard"
@@ -9275,7 +9301,10 @@ StuiInstall()
 # Productivity
 #
 
-ProductivityAllInstall=(prezi)
+ProductivityAllInstall() { i nom prezi; }
+
+nomInstall() { run --name="nom" --executable --extract-name "shareware/nom"; } # https://github.com/guyfedwards/nom/releases
+nomProfile() { NomHelper profile restore default; }
 
 preziInstall()
 {
