@@ -2252,7 +2252,7 @@ GetInterface()
 	fi
 }
 
-# GetIpAddress [HOST] - get the IP address of the current or specified host
+# GetIpAddress [HOST] [SERVER] - get the IP address of the current or specified host
 # -4|-6 							use IPv4 or IPv6
 # -a|--all 						resolve all addresses for the host, not just the first
 # -ra|--resolve-all 	resolve host using all methods (DNS, MDNS, and local virtual machine names)
@@ -2263,7 +2263,8 @@ GetInterface()
 GetIpAddress() 
 {
 	# arguments
-	local host mdns quiet verbose verboseLevel verboseLess vm wsl all=(head -1) ipv
+	local host mdns quiet verbose verboseLevel verboseLess vm wsl
+	local all=(head -1) ip ipv="4" server type="A"
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2279,12 +2280,14 @@ GetIpAddress()
 			--wsl|-w) wsl="--wsl";;
 			*)
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $server ]] && { server="$1"; shift; continue; }
 				UnknownOption "$1" "GetIpAddress"; return
 		esac
 		shift
 	done
 
-	local ip server
+	# type
+	[[ "$ipv" == "6" ]] && type="AAAA"
 
 	# IP address
 	[[ $host ]] && IsIpAddress${ipv} "$host" && { echo "$host"; return; }
@@ -2306,19 +2309,38 @@ GetIpAddress()
 	IsMdnsName "$host" && { ip="$(MdnsResolve "$host" 2> /dev/null)"; [[ $ip ]] && echo "$ip"; return; }
 
 	# override the server if needed
-	server="$(DnsAlternate "$host" $verbose)"
+	[[ ! $server ]] && server="$(DnsAlternate "$host" $verbose)"
+
+	# logging
+	log3 "getting IP address for '$host' type '$type' from name server '$server'" "GetIpAddress"
 
 	# lookup IP address using various commands
-	# - -N 3 and -ndots=2 allow the default domain names for partial names like consul.service
-	# - getent on Windows sometimes holds on to a previously allocated IP address.   This was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID) - host and nslookup return new IP.
-	# - dnscachutil -q host -a name HOST - query macOS system resolvers, ensure get hosts on VPN network as /etc/resolv.conf does not always update wit the VPN nameservers
-	# - host and getent are fast and can sometimes resolve .local (mDNS) addresses 
+
+	# getent on Windows sometimes holds on to a previously allocated IP address.
+	# - this was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID).  
+	# - he host and nslookup commands return new IP.
+	if [[ ! $server ]] && InPath getent; then
+		log3 "using getent" "GetIpAddress"
+		ip="$(getent ahostsv$ipv "$host" |& grep "STREAM" | "${all[@]}" | cut -d" " -f 1)"
+	
+	# dscacheutil -q host -a name HOST - query macOS system resolvers
+	# - ensure get hosts on VPN network as /etc/resolv.conf does not always update wit the VPN nameservers
+	# - returns label ip_address or ipv6_address:, but for now only use with IPv4 addresses
+	elif [[ ! $server && "$ipv" == "4" ]] && IsPlatform mac; then
+		log3 "using dscacheutil" "GetIpAddress"
+		ip="$(dscacheutil -q host -a name "$host" |& ${G}grep -E "^ip_address:" | ${G}cut -d" " -f2 | ${G}head -1)"
+	
+	# host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
-	# - nslookup is slow on mac if a name server is not specified
-	if [[ ! $server ]] && InPath getent; then ip="$(getent ahostsv4 "$host" |& grep "STREAM" | "${all[@]}" | cut -d" " -f 1)"
-	elif [[ ! $server ]] && IsPlatform mac; then ip="$(dscacheutil -q host -a name "$host" |& grep "^ip_address:" | cut -d" " -f2 | ${G}head -1)"
-	elif InPath host; then ip="$(host -N 2 -t A -4 "$host" $server |& ${G}grep -v "^ns." | grep "has address" | "${all[@]}" | cut -d" " -f 4)"
-	elif InPath nslookup; then ip="$(nslookup -ndots=2 -type=A "$host" $server |& ${G}tail --lines=+4 | grep "^Address:" | "${all[@]}" | cut -d" " -f 2)"
+	elif InPath host; then
+		log3 "using host" "GetIpAddress"
+		ip="$(host -N 2 -t $type -4 "$host" $server |& ${G}grep -v "^ns." | ${G}grep "has .*address" | "${all[@]}" | rev | ${G}cut -d" " -f 1 | rev)"
+	
+	# nslookup - slow on mac if a name server is not specified
+	#   - -N 3 and -ndots=2 allow the default domain names for partial names like consul.service
+	elif InPath nslookup; then
+		log3 "using nslookup" "GetIpAddress"
+		ip="$(nslookup -ndots=2 -type=$type "$host" $server |& ${G}tail --lines=+4 | ${G}grep -E "^Address:|has AAAA address" | "${all[@]}" | rev | cut -d" " -f 1 | rev)"
 	fi
 
 	# if an IP address was not found, check for a local virtual hostname
@@ -3084,14 +3106,18 @@ DnsAlternate()
 	return 0
 }
 
-# DnsResolve IP|NAME [--quiet|-q|--use-alternate|-ua|-v] - resolve an IP address or host name to a fully qualified domain name
+# DnsResolve IP|NAME [SERVER] - resolve an IP address or host name to a fully qualified domain name, optional using the specified name server
+# -4|-6 								use IPv4 or IPv6
+# --use-alternate|-ua		suppress error message where possible
 DnsResolve()
 {
 	# arguments
-	local force forceLevel forceLess name quiet server verbose verboseLevel verboseLess useAlternate
+	local force forceLevel forceLess ipv name quiet server verbose verboseLevel verboseLess useAlternate
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			-4) ipv="4";;
+			-6) ipv="6";;
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--no-prompt|-np) :;;
 			--quiet|-q) quiet="--quiet";;
@@ -3100,6 +3126,7 @@ DnsResolve()
 			--win|-w) win="--win";;
 			*)
 				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
+				elif ! IsOption "$1" && [[ ! $server ]]; then server="$1"
 				else UnknownOption "$1" "DnsResolve"; return
 				fi
 				;;
@@ -3115,7 +3142,13 @@ DnsResolve()
 	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(GetNetworkDnsDomain)")
 
 	# override the server if needed
-	if [[ $useAlternate ]]; then server="$(DnsAlternate $verbose)"; else server="$(DnsAlternate "$name" $verbose)"; fi
+	if [[ ! $server ]]; then
+		if [[ $useAlternate ]]; then
+			server="$(DnsAlternate $verbose)"
+		else
+			server="$(DnsAlternate "$name" $verbose)"
+		fi
+	fi
 
 	# Resolve name using various commands
 	# - -N 3 and -ndotes=3 allow the default domain names for partial names like consul.service
@@ -3123,7 +3156,7 @@ DnsResolve()
 	# reverse DNS lookup for IP Address
 	local lookup
 	if IsIpAddress "$name"; then
-		log3 "resolving IP address '$name' to name using a reverse DNS lookup" "DnsResolve"
+		log3 "resolving IP address '$name' to a fully qualified DNS name using a reverse DNS lookup" "DnsResolve"
 
 		if IsLocalHost "$name"; then
 			lookup="localhost"
@@ -3149,7 +3182,7 @@ DnsResolve()
 
 	# forward DNS lookup to get the fully qualified DNS address
 	else
-		log3 "resolving host to a fully qualified DNS name (FQDN) name using a forward DNS lookup" "DnsResolve"
+		log3 "resolving '$name' to a fully qualified DNS name (FQDN) name using a forward DNS lookup" "DnsResolve"
 
 		# getent - faster for known names, so use RunTimeout to limit it
 		if [[ ! $server ]] && InPath getent; then
