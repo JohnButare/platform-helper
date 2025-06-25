@@ -19,13 +19,14 @@ set -a # export variables and functions to child processes
 function GetPlatform() 
 {
 	# arguments
-	local host quiet trust verbose
+	local host noCheck quiet trust verbose
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-q|--quiet) quiet="--quiet";;
-			-T|--trust) trust="--trust";;
-			-v|-vv|-vvv|-vvvv|-vvvvv|--verbose) verbose="$1";;
+			--quiet|-q) quiet="--quiet";;
+			--trust|-T) trust="--trust";;
+			--no-check|-nc) noCheck="--no-check";;			
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) verbose="$1";;
 			*) 
 				if [[ ! $host ]]; then host="$1"
 				else echo "GetPlatform: unknow option '$1'"; return 1;
@@ -51,7 +52,7 @@ exit 0;'
 
 	local results
 	if [[ $host ]]; then
-		results="$(SshHelper connect "$host" $quiet $trust $verbose  -- "$cmd")" || return 1
+		results="$(SshHelper connect "$host" $noCheck $quiet $trust $verbose -- "$cmd")" || return 1
 	else
 		results="$(eval $cmd)"
 	fi
