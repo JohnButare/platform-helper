@@ -3425,6 +3425,8 @@ Ipv6Expand() { GetArgs; echo "$1" | awk '{if(NF<8){inner = "0"; for(missing = (8
 
 # Ipv6Nibble IP [BITS](128) - expand and reverse IPv6 address to nibble format
 # - https://docs.db.ripe.net/Database-Support/Configuring-Reverse-DNS/#reverse-dns-overview
+# - bits is the number of bits to truncate the nibble to
+# - if bits is negative, the nibble is truncated from the left (higher order) side
 Ipv6Nibble()
 {
 	local ip="$1" bits="${2:-128}"; bits=$((bits/4))
@@ -3433,7 +3435,11 @@ Ipv6Nibble()
 	! IsIpAddress6 "$ip" && { ScriptErr "'$ip' is not a valid IPv6 address" "Ipv6Token"; return 1; }
 
 	# convert
-	printf "$ip" | ${G}sed 's/://g' | ${G}cut -c1-$bits | rev | ${G}sed -r 's/./&:/g' | RemoveEnd ":"
+	if (( bits < 0 )); then
+		printf "$ip" | ${G}sed 's/://g' | rev | ${G}cut -c1-${bits/#-/} | ${G}sed -r 's/./&./g' | RemoveEnd "."
+	else
+		printf "$ip" | ${G}sed 's/://g' | ${G}cut -c1-$bits | rev | ${G}sed -r 's/./&./g' | RemoveEnd "."
+	fi
 }
 
 # Ipv4Token [IP](adapter) - get an IPv4 token from an IPv6 address
