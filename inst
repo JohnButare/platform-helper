@@ -640,7 +640,7 @@ installInit()
 
 	# isInstallable	
 	all=(download final help register update)		# install
-	all+=(certificates FileSharing firewall fonts IconCleanup PackageManagement setup) # platform
+	all+=(certificates FileSharing FileSharingClient FileSharingServer firewall fonts IconCleanup PackageManagement setup) # platform
 	all+=(AppDir DriveTime envoy FileServer hostname PartitionManagement store)	
 	deb=() deb64=() debRh=() mac=() macDeb=() macDebRh=() rhel=() winElevated=() win=()
 	
@@ -3326,7 +3326,7 @@ bootstrapPackageDebian()
 # Platform Installs
 #################################################
 
-PlatformAllInstall() { i certificates FileSharing fonts IconCleanup PackageManagement setup; }
+PlatformAllInstall() { i certificates FileSharing FileSharingClient FileSharingServer fonts IconCleanup PackageManagement setup; }
 
 # Certificates - install required certificates
 CertificatesInstall()
@@ -3339,16 +3339,29 @@ CertificatesInstall()
 certificatesDebian() { i DebianCertificates; }
 
 # File Sharing - install file sharing and standard shares
-FileSharingInstall()
+FileSharingInstall() { FileSharingClient && FileSharingServer; }
+
+FileSharingClientInstall()
 {
-	! UpdateNeeded "install-file-sharing" && return
-	RunPlatform fileSharing || return
-	UpdateDone "install-file-sharing"
+	! UpdateNeeded "install-file-sharing-client" && return
+	RunPlatform fileSharingClient || return
+	UpdateDone "install-file-sharing-client"
 }
 
-fileSharingDebian() { i DebianFileSharing; }
-fileSharingMac() { i MacFileSharing; }
-fileSharingWin() { i WinFileSharing; }
+fileSharingClientDebian() { i DebianFileSharingClient; }
+fileSharingClientMac() { i MacFileSharingClient; }
+fileSharingClientWin() { i WinFileSharingClient; }
+
+FileSharingServerInstall()
+{
+	! UpdateNeeded "install-file-sharing-server" && return
+	RunPlatform fileSharingServer || return
+	UpdateDone "install-file-sharing-server"
+}
+
+fileSharingServerDebian() { i DebianFileSharingServer; }
+fileSharingServerMac() { i MacFileSharingServer; }
+fileSharingServerWin() { i WinFileSharingServer; }
 
 # Firewall - install standard firewall rules
 FirewallInstall() { RunPlatform fonts; }
@@ -3729,7 +3742,7 @@ RiffInstall()
 # Debian
 #################################################
 
-DebianAllInstall() { i DebianSetup DebianDns DebianCertificates DebianFileSharing DebianFonts DebianLocale DebianNeedRestart DebianPolicies DebianProxyServer DebianSudoSecurePath; }
+DebianAllInstall() { i DebianSetup DebianDns DebianCertificates DebianFileSharing DebianFileSharingClient DebianFileSharingClient DebianFonts DebianLocale DebianNeedRestart DebianPolicies DebianProxyServer DebianSudoSecurePath; }
 
 DebianSetupInstall()
 {
@@ -3772,16 +3785,24 @@ DebianDnsInstall()
 	sudo systemd-resolve -i eth0 --set-domain="$domain"
 }
 
-DebianFileSharingInstall()
-{	
+DebianFileSharingInstall() { DebianFileSharingClient && DebianFileSharingServer; }
+
+DebianFileSharingClientInstall()
+{
 	IsPlatform win && return
-
-	header "Debian File Sharing"
-
-	local restart
-
+	header "Debian File Sharing Client"
 	! InPath smbd && { pkg samba || return; } # service
 	! InPath smbclient && { pkg smbclient || return; }
+	return 0
+}
+
+DebianFileSharingServerInstall()
+{	
+	IsPlatform win && return
+	header "Debian File Sharing Server"
+
+	local restart
+	i --no-header DebianFileSharingClient || return
 	! PackageListInstalled | sqgrep "^samba-vfs-modules:" && { pkg samba-vfs-modules || return; }
 
 	local workgroup; workgroup="$(ConfigGetCurrent "workgroup")"
@@ -6768,7 +6789,10 @@ MacDockCleanupInstall()
 
 MacDockOrderInstall() { macDockOrder Finder Obsidioan iTerm Warp Firefox Slack Teams; }
 
-MacFileSharingInstall()
+MacFileSharingInstall() { MacFileSharingClient && MacFileSharingServer; }
+MacFileSharingClientInstall() { :; }
+
+MacFileSharingServerInstall()
 {
 	unc share exists "Macintosh HD" && { sudoc sharing -r "Macintosh HD" || return; } # cleanup "Macintosh HD"
 	! unc share exists "root" && { sudoc sharing -a "/" -n "root" -g 000 || return; } # root
@@ -10182,7 +10206,7 @@ FileServerInstall()
 	makeDir --sudo "$ADATA/borg" || return
 
 	# setup file sharing
-	IsPlatform debian && { i DebianFileSharing || return; }
+	IsPlatform debian && { i DebianFileSharingServer || return; }
 
 	# register service
 	nomadRegisterApp "file"
@@ -13185,7 +13209,7 @@ GnomeDesktopInstall() { run --header "GNOME Desktop" --package "ubuntu-gnome-des
 # Windows
 #################################################
 
-WinAllInstall() { i WinApps WinConfig WinConfigUser WinConsole WinDirs WinDirsUser WinFileSharing WinFirewall WinFonts WinIconCleanup WinPath WinPermissions ; }
+WinAllInstall() { i WinApps WinConfig WinConfigUser WinConsole WinDirs WinDirsUser WinFileSharing WinFileSharingClient WinFileSharingServer WinFirewall WinFonts WinIconCleanup WinPath WinPermissions ; }
 
 WinSetupInstall()
 {
@@ -13389,7 +13413,10 @@ WinDirsUserInstall()
 	makeDir "$WIN_HOME/$(GetFileName "$CODE")" || return
 }
 
-WinFileSharingInstall()
+WinFileSharingInstall() { WinFileSharingClient && WinFileSharingServer; }
+WinFileSharingClientInstall() { :; }
+
+WinFileSharingServerInstall()
 {
 	echo "Configure file sharing..."
 	$firewall group enable "${globalArgs[@]}" "File and Printer Sharing" || return
