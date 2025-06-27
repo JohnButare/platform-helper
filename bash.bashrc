@@ -167,7 +167,7 @@ EXE="" 	# executable program suffix, i.e. .exe
 WIN_ROOT="/" WIN_HOME="$HOME"
 
 # PLATFORM_OS environment variables
-case "$PLATFORM_OS" in 
+case "$PLATFORM_OS" in
 	mac) USERS="/Users" P="/Applications" G="g" SRV="/opt" UADATA="$HOME/Library/Application Support" PUSER="$HOME/Applications"
 
 		# Homebrew
@@ -223,6 +223,7 @@ InfoPathAdd "/usr/local/share/info"
 ManPathAdd "/usr/local/man" "/usr/local/share/man" "$DATA/man"
 
 case "$PLATFORM_OS" in 
+	linux) PathAdd "/sbin";;
 	mac) [[ $HOMEBREW_PREFIX ]] && PathAdd front "$HOMEBREW_PREFIX/bin" "$HOMEBREW_PREFIX/sbin";; # use Homebrew utilities before system utilities
 	win) 
  		PATH="${PATH//'\/mnt\/c\/WINDOWS'*:/}" # remove paths with incorrect case
