@@ -3620,7 +3620,7 @@ SshIsAvailablePort()
 	[[ ! $host ]] && { MissingOperand "host" "SshIsAvailablePort"; return; }
 
 	# check
-	local port="${$(SshHelper config get "$host" port):-22}"
+	local port="$(SshHelper config get "$host" port)"; port="${port:-22}"
 	IsAvailablePort "$host" "$port" $timeout; 
 }
 
