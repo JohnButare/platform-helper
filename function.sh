@@ -3570,7 +3570,6 @@ RemoteServerName() { DnsResolve "$(RemoteServer)"; }				# RemoveServerName - ret
 
 SshConfigGet() { local host="$1" value="$2"; ssh -G "$host" | grep -i "^$value " | head -1 | cut -d" " -f2; } # SshConfigGet HOST VALUE - do not use SshHelp config get for speed
 SshInPath() { SshHelper connect "$1" -- which "$2" >/dev/null; } 																							# SshInPath HOST FILE
-SshIsAvailablePort() { local port="$(SshHelper config get "$1" port)"; IsAvailablePort "$1" "${port:-22}" $2; } 	# SshIsAvailablePort HOST [TIMEOUT] - return true if SSH is available on the host
 
 SshAgentEnvConf()
 {
@@ -3600,6 +3599,30 @@ SshAgentConf()
 }
 
 SshAgentConfStatus() { SshAgentConf "$@" && SshAgent status; }
+
+# SshIsAvailablePort HOST [TIMEOUT] - return true if SSH is available on the host
+SshIsAvailablePort()
+{
+	# arguments
+	local host timeout
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			*)
+				if ! IsOption "$1" && [[ ! $host ]]; then host="$1"
+				elif ! IsOption "$1" && [[ ! $timeout ]]; then timeout="$1"
+				else UnknownOption "$1" "SshIsAvailablePort"; return
+				fi
+		esac
+		shift
+	done
+
+	[[ ! $host ]] && { MissingOperand "host" "SshIsAvailablePort"; return; }
+
+	# check
+	local port="${$(SshHelper config get "$host" port):-22}"
+	IsAvailablePort "$host" "$port" $timeout; 
+}
 
 # SshSudoc HOST COMMAND ARGS - run a command on host using sudoc
 SshSudoc() { SshHelper connect --credential --function "$1" -- sudoc "${@:2}"; }
