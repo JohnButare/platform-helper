@@ -15,7 +15,7 @@ Operating system commands
 
 	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release|version
 	dark|environment|index|path|lock|preferences|store
-	features|repair|security|virus"
+	features|repair|security|screen|virus"
 }
 
 #
@@ -1006,6 +1006,16 @@ repairWin()
 }
 
 #
+# screen commands
+#
+
+screenUsage() { echot "Usage: os screen resize\n	Screen commands."; }
+screenCommand() { usage; }
+screenResizeUsage() { echot "Usage: os screen resize\n	Configure the system after screen is resized."; }
+screenResizeCommand() { RunPlatform screenResize; }
+screenResizeWin() { [[ "$HOSTNAME" != @(bl?) ]] && return; app BgInfo -f; }
+
+#
 # security commands
 #
 
@@ -1046,7 +1056,6 @@ virusStatusCommand()
 	[[ $verbose ]] && { for service in "${services[@]}"; do service detail $service; done; return; }
 	for service in "${services[@]}"; do service status $service; done
 }
-
 
 #
 # helper
