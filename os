@@ -15,7 +15,7 @@ Operating system commands
 
 	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release|version
 	dark|environment|index|path|lock|preferences|store
-	features|repair|security|screen|virus"
+	features|printers|repair|security|screen|virus"
 }
 
 #
@@ -45,6 +45,9 @@ pathCommand()
 preferencesCommand() { RunPlatform preferences; }
 preferencesMac() { open "/System/Applications/System Preferences.app"; }
 preferencesWin() { control.exe; }
+
+printersCommand() { RunPlatform printers; }
+printersWin() { start "ms-settings:printers"; }
 
 storeCommand() { RunPlatform store; }
 storeMac() { open "/System/Applications/App Store.app"; }
