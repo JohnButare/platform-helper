@@ -1625,7 +1625,7 @@ manageSystem()
 run() 
 {
 	# arguments
-	local args=() cache cd copyLocal dest elevate extractName header installer name noInstallCheck p pause rename type="extension" version
+	local args=() cache cd copyLocal dependencies="true" dest elevate extractName header installer name noInstallCheck p pause rename type="extension" version
 
 	while (( $# != 0 )); do
 		local shift=1
@@ -1659,6 +1659,7 @@ run()
 			--header|--header=*|-h|-h=*) ScriptOptGet "header" "$@";;
 			--installer|-i) installer="true";; # the specified program is an installer
 			--name|--name=*|-n|-n=*) ScriptOptGet name "$@" || return;;
+			--no-dependencies) unset dependencies;;
 			--no-header|-nh) local noHeader="--no-header";;
 			--no-install-check) noInstallCheck="--no-install-check";;
 			--no-pause) unset pause;;
@@ -2061,10 +2062,14 @@ runDeb()
 
 	hilight "Installing $(GetFileName "$p") version $(PackageFileVersion "$p")..."
 
-	# install with gdebi for dependencies
-	gdebiCheck || return
-	local args=(); [[ ! $forcePrompt ]] && args+=(--non-interactive)
-	sudoc gdebi "${args[@]}" "$p" "$@"
+	# install
+	if [[ $dependencies ]]; then
+		gdebiCheck || return
+		local args=(); [[ ! $forcePrompt ]] && args+=(--non-interactive)
+		sudoc gdebi "${args[@]}" "$p" "$@"
+	else
+		sudoc dpkg -i "$p" "$@"
+	fi
 }
 
 runDmg()
@@ -5272,9 +5277,10 @@ GitKrakenInstall()
 	# install	alternate (Linux) version in Windows
 	IsPlatformAll win,x64 && [[ ! $alternate ]] && { alternate="--alternate" i --no-header GitKraken || return; }
 
-	# install	
+	# install
+	local dependencies; IsPlatform ubuntu && os release check "<= 24.04" && dependencies="--no-dependencies" # error "Dependency is not satisfiable: libglib2.0-0 (>= 2.39.4)"
 	IsPlatform win && [[ $alternate ]] && PackageExist libasound2t64 && { package libasound2t64 || return; }
-	run --no-header --name="GitKraken" "$(gitKrakenDir)/$f.$(getWin)|$f$(getArch " amd64" "NA").dmg|$f.deb" --version="$v" || return
+	run --no-header --name="GitKraken" "$(gitKrakenDir)/$f.$(getWin)|$f$(getArch " amd64" "NA").dmg|$f.deb" --version="$v" $dependencies || return
 
 	# CLI
 	IsPlatform mac && { pkg gitkraken-cli || return; }
@@ -9235,7 +9241,7 @@ gdebiInstall()
 {
 	# check
 	InPath gdebi && [[ ! $force ]] && return
-	
+
 	# determine install type
 	local package="true"; IsPlatform ubuntu && os release check "<= 24.04" && unset package
 
