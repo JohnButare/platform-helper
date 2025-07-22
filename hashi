@@ -2653,8 +2653,8 @@ nomadNodeAllocs()
 # nomadGetNodeId HOST - get the node ID for the HOST
 nomadGetNodeId()
 {
-	local host="$(RemoveDnsSuffix "$1")"
-	local id; id="$(nomad node status -json | jq '.[] | select(.Name == "'"$host"'").ID' | RemoveQuotes)" || return
+	local host="$(resolveHost "$1")";
+	local id; id="$(nomad node status -json | jq '.[] | select((.Name | ascii_downcase) == "'"$host"'").ID' | RemoveQuotes)" || return
 	[[ ! $id ]] && { ScriptErrQuiet "unable to get Nomad node ID for host '$host'"; return 1; }
 	echo "$id"
 }
@@ -2775,6 +2775,7 @@ getHostsByEligibility()
 nomadNodeEligibilityEnable()
 {
 	local host="$1" id; id="$(nomadGetNodeId "$host")" || return
+	log1 "enabling host '$host' (id=$id) eligibility"
 	RunLog nomad node eligibility -enable "$id"
 }
 
@@ -3395,23 +3396,9 @@ serviceCheck()
 	RunFunction serviceCheck "$product" "$host"
 }
 
-serviceCheckConsul()
-{
-	local host="$(DnsResolve "$1" "${globalArgs[@]}"| RemoveDnsSuffix)"
-	consul members | ${G}grep "^$host " | qgrep " alive "
-}
-
-serviceCheckNomad()
-{
-	local host="$(DnsResolve "$1" "${globalArgs[@]}" | RemoveDnsSuffix | LowerCase)"
-	[[ "$(nomad node status -json | jq '.[] | select((.Name | ascii_downcase) == "'"$host"'").SchedulingEligibility' | RemoveQuotes)" == "eligible" ]]
-}
-
-serviceCheckVault()
-{
-	local host="$(DnsResolve "$1" "${globalArgs[@]}" | RemoveDnsSuffix)"
-	vault operator members | qgrep "^$host "
-}
+serviceCheckConsul() { consul members | ${G}grep -i "^$(resolveHost "$1") " | qgrep " alive "; }
+serviceCheckNomad() { [[ "$(nomadEligibilityCheck "$1")" == "eligible" ]]; }
+serviceCheckVault() {	vault operator members | qgrep -i "^$(resolveHost "$1") "; }
 
 serviceCheckWait()
 {
@@ -3568,6 +3555,9 @@ serviceRetry()
 {	
 	local product="$1" host="$2" try tries=3
 
+	# return if the pre-check succeeds
+	RunFunction serviceRetryPre "$product" "$host" && return
+
 	# return if the service is ok
 	serviceCheck "$product" "$host" && return
 
@@ -3584,6 +3574,17 @@ serviceRetry()
 	done
 
 	echo "${product^} is not healthy after $tries service restarts"
+}
+
+# serviceRetryPreNomad HOST - return true if the host is eleigible for scheduling, or we can make it eligible.  Errors are suppressed.
+serviceRetryPreNomad()
+{
+	local host="$1"
+	local eligible="$(nomadEligibilityCheck "$host" 2>&1)"
+	log1 "host '$host' eligibility is '$eligible'"
+	[[ "$eligible" == "eligible" ]] && return
+	[[ "$eligible" != "ineligible" ]] && return 1
+	nomadNodeEligibilityEnable "$host" > /dev/null && [[ "$(nomadEligibilityCheck "$host" 2>&1)" == "eligible" ]]
 }
 
 serviceStart() 
@@ -4489,6 +4490,8 @@ checkProduct() { [[ $product ]] && return; ScriptErr "$1: product is not set"; r
 doHashi() { hashi "$@" $force $test "${configFileArg[@]}" "${configPrefixArg[@]}" "${otherArgs[@]}" "${globalArgs[@]}"; }
 isClient() { [[ "$type" == "client" ]]; }
 isServer() { [[ "$type" == "server" ]]; }
+nomadEligibilityCheck() {	nomad node status -json | jq '.[] | select((.Name | ascii_downcase) == "'"$(resolveHost "$1")"'").SchedulingEligibility' | RemoveQuotes; } # nomadEligibilityCheck HOST - returns eligible|ineligible
+resolveHost() { DnsResolve "$1" "${globalArgs[@]}"| RemoveDnsSuffix | LowerCase; } # resolveHost HOST - resolve HOST to a lower case DNS name without the suffix
 sshAgentCheck() { [[ $sshAgentChecked ]] && return; SshAgentConf --quiet "${globalArgs[@]}" && sshAgentChecked="true"; }
 sshRun() { sshAgentCheck && RunLog ssh "$@"; }
 sshRunInteractive() { sshAgentCheck && RunLog SshHelper "$1" --interactive "${globalArgs[@]}" -- "${@:2}"; }
