@@ -42,7 +42,7 @@ opt()
 	esac
 }
 
-args() { [[ "$command" == @(dir|list|logClear|refresh|ui) ]] && return; ScriptArgGet "service" -- "$@"; }
+args() { [[ "$command" == @(dir|list*|logClear|refresh|ui) ]] && return; ScriptArgGet "service" -- "$@"; }
 argEnd() { serviceInit; }
 
 serviceInit()
@@ -76,14 +76,13 @@ serviceCheck()
 	# check
 	case "$_platformOs" in
 		mac)
-			config="$(macGetServices | grep "\/${service}\.plist$")" || { unknownService; return; }
+			getMacServicePrefix "$service" >& "/dev/null" || { unknownService; return; }
 			sudo=""; isMacSystemService "$service" && sudo="sudoc"
-			label="$(cat "$config" | grep '<string>' | head -1 | cut -d'>' -f 2 | cut -d '<' -f 1)"
 			;;
 
 		linux) 
 			checkSystemd || return
-			! isLinuxService "$service" && { unknownService; return; }
+			isLinuxService "$service" || { unknownService; return; }
 			;;
 
 		win)
@@ -112,8 +111,20 @@ serviceCheck()
 }
 
 checkSystemd() { IsSystemd && useSystemd="true"; return 0; }
-isMacSystemService() { find "${macDaemons[@]}" "${macSystemAgents[@]}" -type f | ${G}grep --quiet "/$1.plist$"; }
-getMacServicePrefix() { isMacSystemService "$1" && echo "system/";  return 0; }
+isMacGuiService() { launchctl print "gui/$UID/$1" >& /dev/null; }
+isMacUserService() { launchctl print "user/$UID/$1" >& /dev/null; }
+isMacSystemService() { launchctl print "system/$1" >& /dev/null; }
+
+getMacServicePrefix()
+{
+	if isMacSystemService "$1"; then echo "system/"
+	elif isMacGuiService "$1"; then echo "gui/$UID/"
+	elif isMacUserService "$1"; then echo "user/$UID/"
+	else ScriptErr "unable to determine service '$1' type"; return 1
+	fi
+}
+
+getMacServiceConfig() { launchctl print "$(getMacServicePrefix "$1")$1"; }
 
 unknownService() 
 {
@@ -272,9 +283,14 @@ detailLinux()
 
 detailMac()
 {
-	echo "Service label is $RED$label$RESET"
-	echo "$BLUE$config:$RESET"; sudoc cat "$config" || return
-	[[ "$(stateCommand)" == "RUNNING" ]] && { echo "${BLUE}status:${RESET}"; $sudo launchctl list "$label" || return; }
+	hilight "Configuration"
+	local config; config="$(getMacServiceConfig "$service")" || return
+	cat "$config"
+
+	hilight "File"
+	local file; file="$(listFilesMac | ${G}grep "/$service.plist$")" || { ScriptErr "unable to find the configuration file for service '$service'"; return 1; }
+	echo "file=$file"
+	sudoc cat "$file" || return
 }	
 
 detailWin()
@@ -301,7 +317,9 @@ disableLinux() { linuxService disable "$service"; }
 
 listUsage()
 {
-	EchoWrap "Usage: service list - list services
+	ScriptUsageEcho "\
+Usage: service list [files|running]
+List services.
 
 	-d, --detail		show more detail about the services
 	-F, --file			show the services in a file"
@@ -328,7 +346,7 @@ listCommand()
 	TextEdit "$file"
 }
 
-listMac() { macGetServices | awk -F/ '{ print $(NF) }' | sed 's/.plist//' | sort; }
+listMac() { { launchctl list; sudoc launchctl list; } | cut -d"	" -f3 | sort | uniq; }
 
 listLinux()
 {
@@ -356,6 +374,18 @@ listWinDetail()
 	elif [[ -d "/etc/init.d" ]]; then header "Init"; /usr/sbin/service --status-all
 	fi 
 }
+
+listFilesUsage() { ScriptUsageEcho "Usage: $(ScriptName) list files\nList files associated with all services."; }
+listFilesCommand() { RunPlatform listFiles; }
+listFilesMac() { find "${macServices[@]}" -type f | sort | uniq; }
+
+listRunningUsage() { ScriptUsageEcho "Usage: $(ScriptName) list running [user|system]\nList running services."; }
+listRunningCommand() { RunPlatform listRunning; }
+listRunningMac() { { launchctl list; sudoc launchctl list; } | grep -v "^-" | cut -d"	" -f3 | sort | uniq; }
+listRunningUserCommand() { RunPlatform listRunningUser; }
+listRunningUserMac() { launchctl list | grep -v "^-" | cut -d"	" -f3 | sort; }
+listRunningSystemCommand() { RunPlatform listRunningSystem; }
+listRunningSystemMac() { sudoc launchctl list | grep -v "^-" | cut -d"	" -f3 | sort ; }
 
 #
 # log command
@@ -435,7 +465,7 @@ manageCommand()
 	trap "manageExit" EXIT
 
 	# wait
-	local i=0 try; TimerOn
+	local i=0 sleepSeconds=5 try tryMax=5; TimerOn
 	while true; do
 
 		# get service state
@@ -444,20 +474,34 @@ manageCommand()
 		# service is now running
 		if [[ "$state" == "RUNNING" && $try ]]; then
 			unset -v try; i=0; TimerOn
+
+		# service is now not running
+		elif [[ "$state" != "RUNNING" && ! $try ]]; then
+			 try=1; i=0; TimerOn
+			 service start "$service" "${globalArgs[@]}"
+
+		# service is still not running, at try limit
+		elif [[ "$state" != "RUNNING" ]] && (( try >= tryLimit )); then
+			printf "\nThe '$service' could not be started after $tryLimit tries, exiting"
+			return 1
+	
+		# service is still not running, try and start it every minute
+		elif [[ "$state" != "RUNNING" ]] && (( i % 60 == 0 )); then
+			  (( ++try ))
+			  service start "$service" "${globalArgs[@]}"
+
 		fi
 
-		# service is not running
-		if [[ "$state" != "RUNNING" ]]; then
-			 [[ ! $try ]] && { try=1; i=0; TimerOn; } 
-			 (( i % 30 == 0 )) && service start "$service" "${globalArgs[@]}"
+		# status every two minutes
+		if (( i % 120 == 0 )); then
+			printf "\nThe '$service' service has been $state for $(TimerOff)..."
+		else
+			printf "."; (( i+=$sleepSeconds ))
 		fi
 
-		# status
-		(( i % 30 == 0 )) && printf "\nThe '$service' service has been $state for $(TimerOff)..." || printf "."; (( ++i ))
-
-		# sleep
-		[[ ! $stopSignal ]] && sleep 5 &
-		wait; [[ $stopSignal ]] && break
+		# sleep if we have not been signaled, break if we are signaled
+		[[ ! $stopSignal ]] && sleep $sleepSeconds &
+		wait; [[ $stopSignal ]] && return
 
 	done
 }
@@ -495,7 +539,7 @@ pauseWin() { local result; result="$($sc $hostUnc pause "$service")" && return; 
 
 startCommand() { doCommandWait "start"; }
 startLinux() { linuxService start "$service"; }
-startMac() { $sudo launchctl load -w "$config"; }
+startMac() { $sudo launchctl start "$(getMacServicePrefix "$service")$service"; }
 startWin() { local result; result="$($sc $hostUnc start "$service")" && return; EchoErr "$result"; return 1; }
 
 #
@@ -521,8 +565,8 @@ stateLinux()
 }
 
 stateMac()
-{ 
-	{ sudoc launchctl list; launchctl list; } | cut -f3 | ${G}grep --quiet "^${label}$" && echo "RUNNING" || echo "STOPPED"
+{
+	getMacServiceConfig "$service" | grep "^	state = " | ${G}cut -d"=" -f2 | RemoveSpace | UpperCase
 }
 
 stateWin()
@@ -569,8 +613,8 @@ startTypeLinux()
 
 startTypeMac()
 {
-	if sudoc launchctl print-disabled system | ${G}grep --quiet "\"$service\" => true"; then echo "DISABLED"
-	elif sudoc launchctl print-disabled system | ${G}grep --quiet "\"$service\" => false"; then echo "AUTO_START"
+	if launchctl print-disabled system | ${G}grep --quiet "\"$service\" => true"; then echo "DISABLED"
+	elif launchctl print-disabled system | ${G}grep --quiet "\"$service\" => false"; then echo "AUTO_START"
 	else echo "DEMAND_START"
 	fi
 }
@@ -586,7 +630,7 @@ startTypeWin()
 
 stopCommand() { doCommandWait "stop"; }
 stopLinux() { linuxService stop "$service"; }
-stopMac() { $sudo launchctl unload "$config"; }
+stopMac() { $sudo launchctl stop "$(getMacServicePrefix "$service")$service"; }
 stopWin() { local result="$($sc $hostUnc stop "$service")" && return; EchoErr "$result"; return 1; }
 
 #
@@ -618,7 +662,6 @@ macSystemAgents=( "/System/Library/LaunchAgents" "/Library/LaunchAgents" "$HOME/
 macAgents=(  "${macSystemAgents[@]}" "$HOME/Library/LaunchAgents" )
 macServices=( "${macDaemons[@]}" "${macAgents[@]}" )
 
-macGetServices() { find "${macServices[@]}" -type f; }
 isLinuxService() { isInitService "$1" || isSystemdService "$1"; }
 isInitService() { [[ -f "/etc/init.d/$1" ]] ; }
 
