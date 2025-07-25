@@ -76,7 +76,23 @@ serviceCheck()
 	# check
 	case "$_platformOs" in
 		mac)
-			getMacServicePrefix "$service" >& "/dev/null" || { unknownService; return; }
+			macServiceUnloaded=""
+
+			# check running services
+			if macServicePrefix="$(getMacServicePrefix "$service" 2>&1)"; then
+				:
+			# check services on disk - includes unloaded services
+			elif listFilesMac | awk -F/ '{ print $(NF) }' | sed 's/.plist//' | sort | qgrep "^$service$"; then
+				macServiceUnloaded="true"
+				macServicePrefix="user/$UID/"
+				if find "${macDaemons[@]}" "${macSystemAgents[@]}" -type f | ${G}grep --quiet "/$service.plist$"; then
+					macServicePrefix="system/"
+				fi
+			else
+				unknownService; return
+			fi 
+
+			macService="$macServicePrefix$service" || return
 			sudo=""; isMacSystemService "$service" && sudo="sudoc"
 			;;
 
@@ -111,6 +127,7 @@ serviceCheck()
 }
 
 checkSystemd() { IsSystemd && useSystemd="true"; return 0; }
+
 isMacGuiService() { launchctl print "gui/$UID/$1" >& /dev/null; }
 isMacUserService() { launchctl print "user/$UID/$1" >& /dev/null; }
 isMacSystemService() { launchctl print "system/$1" >& /dev/null; }
@@ -125,6 +142,13 @@ getMacServicePrefix()
 }
 
 getMacServiceConfig() { launchctl print "$(getMacServicePrefix "$1")$1"; }
+
+getMacServiceFile()
+{ 
+	local service="$1"
+	local file; file="$(listFilesMac | ${G}grep "/$service.plist$")" && { echo "$file"; return; }
+	ScriptErr "unable to find the configuration file for service '$service'"
+}
 
 unknownService() 
 {
@@ -229,7 +253,7 @@ statusCommand()
 
 autoCommand() { doCommand "auto"; }
 autoLinux() { linuxService enable "$service"; }
-autoMac() { $sudo launchctl enable "$(getMacServicePrefix "$service")$service"; }
+autoMac() { $sudo launchctl enable "$macService"; }
 autoWin() { local result; result="$($sc config $hostUnc "$service" start= auto)" && return; EchoErr "$result"; return 1; }
 
 #
@@ -288,7 +312,7 @@ detailMac()
 	cat "$config"
 
 	hilight "File"
-	local file; file="$(listFilesMac | ${G}grep "/$service.plist$")" || { ScriptErr "unable to find the configuration file for service '$service'"; return 1; }
+	local file; file="$(getMacServiceFile "$service")" || return
 	echo "file=$file"
 	sudoc cat "$file" || return
 }	
@@ -307,7 +331,7 @@ detailWin()
 #
 
 disableCommand() { doCommand "disable"; }
-disableMac() { $sudo launchctl disable "$(getMacServicePrefix "$service")$service"; }
+disableMac() { $sudo launchctl disable "$macService"; }
 disableWin() { $sc config $hostUnc "$service" start= disabled; }
 disableLinux() { linuxService disable "$service"; }
 
@@ -539,8 +563,14 @@ pauseWin() { local result; result="$($sc $hostUnc pause "$service")" && return; 
 
 startCommand() { doCommandWait "start"; }
 startLinux() { linuxService start "$service"; }
-startMac() { $sudo launchctl start "$(getMacServicePrefix "$service")$service"; }
 startWin() { local result; result="$($sc $hostUnc start "$service")" && return; EchoErr "$result"; return 1; }
+
+startMac()
+{
+	local file; file="$(getMacServiceFile "$service")" || return
+	$sudo launchctl load -w "$file"
+	# $sudo launchctl start "$macService"
+}
 
 #
 # State Command
@@ -566,6 +596,7 @@ stateLinux()
 
 stateMac()
 {
+	[[ $macServiceUnloaded ]] && { echo "STOPPED"; return; }
 	getMacServiceConfig "$service" | grep "^	state = " | ${G}cut -d"=" -f2 | RemoveSpace | UpperCase
 }
 
@@ -630,8 +661,14 @@ startTypeWin()
 
 stopCommand() { doCommandWait "stop"; }
 stopLinux() { linuxService stop "$service"; }
-stopMac() { $sudo launchctl stop "$(getMacServicePrefix "$service")$service"; }
 stopWin() { local result="$($sc $hostUnc stop "$service")" && return; EchoErr "$result"; return 1; }
+
+stopMac()
+{
+	local file; file="$(getMacServiceFile "$service")" || return
+	$sudo launchctl unload "$file"
+	# $sudo launchctl stop "$macService"
+}
 
 #
 # helper
