@@ -76,29 +76,29 @@ serviceCheck()
 	# check
 	case "$_platformOs" in
 		mac)
-			macServiceUnloaded=""
+			macServiceLoaded=""
 
 			# get file name of a file, so can specify a plist
 			[[ -f "$service" ]] && service="$(GetFileNameWithoutExtension "$service")"
 
 			# check running services
-			if macServicePrefix="$(getMacServicePrefix "$service" 2>&1)"; then
-				log1 "macServicePrefix=$macServicePrefix"
+			if macServiceDomain="$(getMacServiceDomain "$service" 2>&1)"; then
+				macServiceLoaded="true"
 
 			# check services on disk - includes unloaded services
 			elif listFilesMac | awk -F/ '{ print $(NF) }' | sed 's/.plist//' | sort | qgrep "^$service$"; then
-				macServiceUnloaded="true"
-				macServicePrefix="user/$UID/"
-				if find "${macDaemons[@]}" "${macSystemAgents[@]}" -type f | ${G}grep --quiet "/$service.plist$"; then
-					macServicePrefix="system/"
+				macServiceDomain="user/$UID/"
+				if find "${macDaemons[@]}" -type f | ${G}grep --quiet "/$service.plist$"; then
+					macServiceDomain="system/"
 				fi
 
 			else
 				unknownService; return
 			fi 
 
-			macService="$macServicePrefix$service" || return
+			macService="$macServiceDomain$service" || return
 			sudo=""; isMacSystemService "$service" && sudo="sudoc"
+			log1 "domain=$macServiceDomain loaded=$macServiceLoaded sudo=$sudo"
 			;;
 
 		linux) 
@@ -137,16 +137,16 @@ isMacGuiService() { launchctl print "gui/$UID/$1" >& /dev/null; }
 isMacUserService() { launchctl print "user/$UID/$1" >& /dev/null; }
 isMacSystemService() { launchctl print "system/$1" >& /dev/null; }
 
-getMacServicePrefix()
+getMacServiceDomain()
 {
-	if isMacSystemService "$1"; then echo "system/"
-	elif isMacGuiService "$1"; then echo "gui/$UID/"
-	elif isMacUserService "$1"; then echo "user/$UID/"
-	else ScriptErr "unable to determine service '$1' type"; return 1
+	if isMacSystemService "$1"; then echo "system"
+	elif isMacGuiService "$1"; then echo "gui/$UID"
+	elif isMacUserService "$1"; then echo "user/$UID"
+	else ScriptErr "unable to determine service '$1' domain"; return 1
 	fi
 }
 
-getMacServiceConfig() { launchctl print "$(getMacServicePrefix "$1")$1"; }
+getMacServiceConfig() { launchctl print "$(getMacServiceDomain "$1")$1"; }
 
 getMacServiceFile()
 { 
@@ -258,7 +258,7 @@ statusCommand()
 
 autoCommand() { doCommand "auto"; }
 autoLinux() { linuxService enable "$service"; }
-autoMac() { $sudo launchctl enable "$macService"; }
+autoMac() { RunLog $sudo launchctl enable "$macService"; }
 autoWin() { local result; result="$($sc config $hostUnc "$service" start= auto)" && return; EchoErr "$result"; return 1; }
 
 #
@@ -336,7 +336,7 @@ detailWin()
 #
 
 disableCommand() { doCommand "disable"; }
-disableMac() { $sudo launchctl disable "$macService"; }
+disableMac() { RunLog $sudo launchctl disable "$macService"; }
 disableWin() { $sc config $hostUnc "$service" start= disabled; }
 disableLinux() { linuxService disable "$service"; }
 
@@ -573,7 +573,7 @@ startWin() { local result; result="$($sc $hostUnc start "$service")" && return; 
 startMac()
 {
 	local file; file="$(getMacServiceFile "$service")" || return
-	$sudo launchctl load -w "$file"
+	RunLog $sudo launchctl bootstrap -w "$file"
 	# $sudo launchctl start "$macService"
 }
 
@@ -671,7 +671,7 @@ stopWin() { local result="$($sc $hostUnc stop "$service")" && return; EchoErr "$
 stopMac()
 {
 	local file; file="$(getMacServiceFile "$service")" || return
-	$sudo launchctl unload "$file"
+	RunLog $sudo launchctl unload "$file"
 	# $sudo launchctl stop "$macService"
 }
 
