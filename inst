@@ -345,12 +345,14 @@ listInstalledApp()
 
 listInstalledAppDo()
 {
-	local app apps; IFS=$'\n' ArrayMake apps "$(AppList)"
-	local allApps; allApps="$(listAll)" || return
+	# check application helpers
+	local app apps="$(listAll)"
+	local appHelpers; IFS=$'\n' ArrayMake appHelpers "$(AppList | ${G}sed 's/.*\///' | ${G}sed 's/Helper$//')"
 
-	for app in "${apps[@]}"; do
+	for app in "${appHelpers[@]}"; do
 		logp1 "checking $app..."
-		if ! echo "$allApps" | qgrep -i "^$(GetFileName "$app")$"; then
+
+		if ! echo "$apps" | qgrep -i "^$app$"; then
 			[[ $verbose ]] && EchoErrEnd "no install function"
 		elif ! AppIsInstalled "$app"; then
 			[[ $verbose ]] && EchoErrEnd "not installed"
@@ -358,6 +360,7 @@ listInstalledAppDo()
 		 	[[ $verbose ]] && EchoErrEnd "installed"
 		 	echo "$(GetFileName "$app")" | RemoveEnd "Helper"
 		fi
+
 	done
 
 	return 0
@@ -377,31 +380,35 @@ listInstalledBin()
 # list portion commands
 #
 
-listPortionUsage() { EchoWrap "Usage: $(ScriptName) list help\nList applications with help text."; }
-listPortionCommand() { listHelp; }
+listPortionUsage() { EchoWrap "Usage: $(ScriptName) list portion download|final|help|profile|register\nList applications with the specified portion."; }
+listPortionCommand() { usage; }
 
-listPortionDownloadUsage() { EchoWrap "Usage: $(ScriptName) list portion download\nList applications which support download."; }
+listPortionDownloadUsage() { EchoWrap "Usage: $(ScriptName) list portion download\nList all applications which support download."; }
 listPortionDownloadCommand() { listPortionDownload; }
 listPortionDownload() { listPortionFunctionAll "download"; }
 
-listPortionFinalUsage() { EchoWrap "Usage: $(ScriptName) list portion final\nList applications which support a final install."; }
+listPortionFinalUsage() { EchoWrap "Usage: $(ScriptName) list portion final\nList installed applications which support a final install."; }
 listPortionFinalCommand() { listPortionFinal; }
 
 listPortionFinal()
 {
-	local app apps; IFS=$'\n' ArrayMake apps "$(listInstalledApp)"
-	for app in "${apps[@]}"; do declare -F | qgrep -iE "^declare -f ${app}Final" && echo "$app"; done
+	local app apps desc="does not support"; IFS=$'\n' ArrayMake apps "$(listInstalledApp)"
+	local functions="$(declare -F)" # faster to cache functions and avoid qgrep missing some apps
+	for app in "${apps[@]}"; do
+		echo "$functions" | qgrep -iE "^declare -f ${app}Final" && { desc="supports"; echo "$app"; }
+		log3 "listPortionFinal app '$app' $desc Final"
+	done
 }
 
-listPortionHelpUsage() { EchoWrap "Usage: $(ScriptName) list portion help\nList applications with help text."; }
+listPortionHelpUsage() { EchoWrap "Usage: $(ScriptName) list portion help\nList installed applications with help text."; }
 listPortionHelpCommand() { listPortionHelp; }
 listPortionHelp() { listPortionFunction "help"; }
 
-listPortionProfileUsage() { EchoWrap "Usage: $(ScriptName) list portion profile\nList applications with support profile commands."; }
+listPortionProfileUsage() { EchoWrap "Usage: $(ScriptName) list portion profile\nList installed applications with support profile commands."; }
 listPortionProfileCommand() { listPortionProfile; }
 listPortionProfile() { listPortionFunction "profile"; }
 
-listPortionRegisterUsage() { EchoWrap "Usage: $(ScriptName) list portion register\nList applications which support registration."; }
+listPortionRegisterUsage() { EchoWrap "Usage: $(ScriptName) list portion register\nList installed applications which support registration."; }
 listPortionRegisterCommand() { listPortionRegister; }
 listPortionRegister() { listPortionFunction "register"; }
 
@@ -445,7 +452,8 @@ Install an application.  To run a portion of the installation, the application n
 	     --force-full				force a full install, even on hosts targeted for a minimal install
 	     --hint=DIR					first directory to search for installation files
 	-H,  --host=HOST				comma separated list of hosts for the installation
-	-ne, --no-exclude	   		do not exclude anything
+	-ne, --no-elevate	   		do not elevate
+	     --no-exclude	   		do not exclude anything
 	-nh, --no-header	   		suppress headers
 	-np, --no-prompt	   		suppress interactive prompts
 	-p,  --prompt	   				force the installation prompt even for single app installs
@@ -459,7 +467,7 @@ Portions:
 	-nr, --no-run					do not run the software installation program"
 }
 
-installArgStart() { unset -v alternate apps edition forceFull hint hostArg hostOpt hosts noExclude noHeader noHelp noProfile noPrompt noRegister noRun promptArg select suppressErrors; typeOptInit; }
+installArgStart() { unset -v alternate apps edition forceFull hint hostArg hostOpt hosts noElevate noExclude noHeader noHelp noProfile noPrompt noRegister noRun promptArg select suppressErrors; typeOptInit; }
 
 installOpt() 
 {
@@ -468,7 +476,8 @@ installOpt()
 		--edition|--edition=*|-e|-e=*) ScriptOptGet "edition" "$@";;
 		--hint) ScriptOptGet "hint" "$@"; export INSTALL_DIR="$hint"; hint=(--hint "$hint");;
 		--host|--host=*|-H|-H=*) ScriptOptGet hostArg host "$@";;
-		--no-exclude|-ne) noExclude="--no-exclude";;
+		--no-elevate|-ne) noElevate="--no-elevate";;
+		--no-exclude) noExclude="--no-exclude";;
 		--no-header|-nh) noHeader="--no-header";;
 		--no-help) noHelp="--no-help";;
 		--no-profile) noProfile="--no-profile";;
@@ -960,6 +969,7 @@ appCd() { local dir; dir="$(appGetDir "$app")" && findDirCd "$dir"; }
 appGetDir() { ${app,}Dir; }
 appHasDir() { IsFunction "${app,}Dir"; }
 askp() { [[ $noPrompt ]] && { echo "$1..."; return; }; ask "$1"; } # askp MESSAGE - ask a question if prompting
+canElevate() { [[ ! $noElevate ]] && CanElevate; }
 couldNotLocate() { ScriptErr "could not locate '$app'"; return 1; }
 cpSudoExists() { local file="$1" dir="$2"; [[ ! $force && -f "$dir/$(GetFileName "$file")" ]] && return; copied="true"; sudo cp "$file" "$dir"; } # cpForce FILE DIR - copy file to dir if does not exists or force is specified
 cpSudoRenameExists() { local src="$1" dest="$2"; [[ ! $force && -f "$(GetFilePath "$dest")/$(GetFileName "$src")" ]] && return; copied="true"; sudo cp "$src" "$dest"; }
@@ -984,7 +994,7 @@ pkg() { package --quiet "$@"; }
 platformUserAppData() { local d; d="$(GetPlatformVar "UDATA")/app" && makeDir "$d" && echo "$d"; }
 rebootIfNeeded() { [[ ! $rebootNeeded ]] && return; rebootDo; }
 rebootDo() { SleepStatus "Rebooting in 10 seconds" 10 && power reboot; }
-registryDo() { ! CanElevate && return; registry "$@"; }
+registryDo() { ! canElevate && return; registry "$@"; }
 removeLastEmptyLine() { sed -i '${/^$/d;}' "$1"; }
 rmSudo() { [[ ! -f "$1" ]] && return; sudoc ${G}rm -f "$1"; }
 servicesDemandStop() { local s; for s in "$@"; do service demand stop "$s" || return; done; }
@@ -1253,7 +1263,7 @@ findFile()
 
 extractFiles()
 {
-	local dir="$1"; ! InPath fd && return # fd not installed on bootstrap 
+	local dir="${1:-$PWD}"; ! InPath fd && return # fd not installed on bootstrap 
 	command cd "$dir" || return
 
 	local file files; IFS=$'\n' ArrayMake files "$(fd --max-depth=1 '\.(bz2|gz|tar|tgz|zip)$')"
@@ -1292,6 +1302,20 @@ extractFilesName()
 	return 0
 }
 
+# extractFile ZIP_FILE INTERNAL_FILE DEST_FILE - extract INTERNAL_FILE from ZIP_FILE as DEST_FILE.  ZIP_FILE is removed.
+extractFile()
+{
+	local zipFile="$1" internalFile="$2" destFile="$3"
+	zipFile="$(extractRename "$zipFile")" || return
+	
+	echo "Extracting $zipFile..."
+	case "$(GetFileExtension "$zipFile")" in
+		bz2|tar|tgz) tar --file "$zipFile" --extract --to-stdout "$internalFile" > "$destFile" || return;;
+		zip) unzip -p "$file" "$internalFile" > "$destFile" || return;;
+	esac
+	rm -f "$zipFile" || return
+}
+
 # extractRename FILE - rename .tar.gz files to tgz for easier handling
 extractRename()
 {
@@ -1305,7 +1329,7 @@ extractRename()
 # getArch X64 ARM64 ARM32 IGNORE
 getArch()
 {
-	local ia64="${1:-x64}" arm64="${2:-arm64}" arm32="${3:-armf}" ignore="$4"
+	local ia64="${1:-amd64}" arm64="${2:-arm64}" arm32="${3:-armf}" ignore="$4"
 	[[ "$ia64" == "NA" ]] && ia64=""
 	[[ "$arm64" == "NA" ]] && arm64=""
 	[[ "$arm32" == "NA" ]] && arm64=""
@@ -1321,7 +1345,7 @@ getArch()
 }
 
 # getElevate YES NO
-getElevate() { CanElevate && echo "$1" || echo "$2"; }
+getElevate() { canElevate && echo "$1" || echo "$2"; }
 
  # getExt DEB RPM
 getExt()
@@ -1333,7 +1357,7 @@ getExt()
 # getPlatform WIN MAC LINUX PLATFORM
 getPlatform()
 {
-	local win="$1" mac="$2" linux="$3" platform="${4:-$PLATFORM_OS}"
+	local win="${1:-win}" mac="${2:-mac}" linux="${3:-linux}" platform="${4:-$PLATFORM_OS}"
 	eval echo '$'$platform
 }
 
@@ -1412,6 +1436,7 @@ iApp()
 
 	# elevate install
 	if iNeedsElevatation "$app"; then
+		[[ $noElevate ]] && { echo "skipping '$app' (requires elevation)"; return; }
 		header "$app (elevated)"
 		log1 "i: running '$app' elevated"
 		RunScript --elevate --no-hide "${globalArgs[@]}" -- inst "$app" "${options[@]}" || return $(ScriptReturnError)
@@ -1444,7 +1469,7 @@ iApp()
 }
 iNeedsElevatation()
 {
- 	{ ! IsPlatform win || ! CanElevate || IsElevated; } && return 1
+ 	{ ! IsPlatform win || ! canElevate || IsElevated; } && return 1
 	log1 "i: checking if '$app' requires elevation"
 	IsInArray --case-insensitive "${app}" elevateInstall
 }
@@ -1479,7 +1504,7 @@ isInstallable()
 	IsPlatformAll win												&& IsInArray -ci "$check" notWin && return 1
 	IsPlatformAll win,arm										&& IsInArray -ci "$check" notWinArm && return 1
 	IsDomainRestricted											&& IsInArray -ci "$check" notRestricted && return 1
-	IsPlatform win && ! CanElevate					&& IsInArray -ci "$check" winElevated && return 1
+	IsPlatform win && ! canElevate					&& IsInArray -ci "$check" winElevated && return 1
 
 	# app name checks
 	isCollectionCommon "$app" && return
@@ -1635,6 +1660,7 @@ run()
 
 			--docker) type="docker"; [[ ! "$dest" ]] && dest="$SRV";;
 			--executable) type="executable";;
+			--file) type="file";;
 			--homebrew) type="homebrew";;
 			--go) type="go";;
 			--haskell) type="haskell";;
@@ -1808,12 +1834,12 @@ runTypeDocker()
 	fi
 }
 
-# runTypeExecutable DIR NAME ZIP_NAME - find an executable for the current platform in the passed directory.
+# runTypeExecutable DIR NAME - find an executable for the current platform in the passed directory.
 # The executable is copied to /usr/local/bin/NAME.
 runTypeExecutable()
 {
 	# arguments
-	local dir="$1" name="${2,,}" zipName="$3" file; shift 4
+	local dir="$1" name="${2,,}" file
 
 	# find the executable location
 	findFile "$dir" || return; dir="$file"
@@ -1825,29 +1851,9 @@ runTypeExecutable()
 
 	# find the correct file for this machine
 	file="$(findExecutable "$name" "$dir")" || return
-	log1 "installing '$(FileToDesc "$file")'"
 
-	# copy the file to /usr/local/bin
-	local dest="/usr/local/bin/$name"; IsPlatform entware && dest="/opt/bin/$name"
-
-	if [[ ! -e "$dest" || $force ]] || ! diff "$file" "$dest"; then
-		printf "Installing $name to $(GetFilePath "$dest")..."
-		
-		sudov || return
-
-		# move file to TEMP since:
-		# - macOS requires mv or the new process is killed
-		# - GIO does not allow sudo (unless do 'unc set allow root')
-		RunLog cp "$file" "$TEMP/$name" || return
-		RunLog sudo mv "$TEMP/$name" "$dest" || return
-
-		# set execute permissions
-		sudo chmod ugo+rx "$dest" || return
-
-		echo "done"
-	fi
-
-	return 0
+	# install the file
+	runTypeFile "$file" "$name" || return
 }
 
 runTypeExtension()
@@ -1865,7 +1871,7 @@ runTypeExtension()
 	[[ "$ext" == @(msi) ]] && elevate="--elevate"
 
 	# do not try and elevate if we cannot
-	! CanElevate && unset elevate
+	! canElevate && unset elevate
 
 	# find the installation file
 	findFile "$p" || return
@@ -1907,6 +1913,41 @@ runTypeExtension()
 	[[ $copyLocal ]] && rm "$p" >& /dev/null
 
 	return "$result"
+}
+
+# runTypeFile FILE NAME - copy the file to /usr/local/bin/NAME
+runTypeFile()
+{
+	# arguments
+	local file="$1" name="${2,,}"
+
+	# find the installation file
+	[[ ! -e "$file" ]] && { findFile "$file" || return; }
+
+	# destination
+	local dest="/usr/local/bin/$name" ext
+	if IsPlatform entware; then dest="/opt/bin/$name"
+	elif IsPlatform win && IsWindowsProgram "$file"; then dest="$PBIN" ext=".exe"
+	fi
+
+	# copy the file to /usr/local/bin
+	log1 "installing '$(FileToDesc "$file")'"
+	[[ ! $force && -e "$dest" ]] && cmp --quiet "$file" "$dest" && return
+
+	printf "Installing $name to $(GetFilePath "$dest")..."
+		
+	sudov || return
+
+	# move file to TEMP since:
+	# - macOS requires mv or the new process is killed
+	# - GIO does not allow sudo (unless do 'unc set allow root')
+	RunLog cp "$file" "$TEMP/$name$ext" || return
+	RunLog sudo mv "$TEMP/$name$ext" "$dest" || return
+
+	# set execute permissions
+	sudo chmod ugo+rx "$dest" || return
+
+	echo "done"
 }
 
 runTypeGo()
@@ -2228,7 +2269,7 @@ urlCheck()
 {
 	local url="$1" check="${2:-^HTTP/2 200\|HTTP/1.1 200 OK}"
 	log1 "urlCheck: url='$url' check='$check'"
-	curl --silent --head --location "$url" | sqgrep "$check"
+	curl --silent --head --location "$url" | sqgrep -i "$check"
 }
 
 versionAllowAlpha() { IsInArray --case-insensitive "$1" alphaVersions; }
@@ -2744,7 +2785,7 @@ DownloadInstall()
 	
 	# initialize
 	local app apps; apps=( $(listPortionDownload) ) || return
-	local exclude=(BalenaCli Chrome Fork NoMachine Slack Teams Thunderbird Warp Xcode)
+	local exclude=(BalenaCli Chrome Fork Slack Teams Thunderbird Warp Xcode)
 	IsDomainRestricted && exclude+=(AltTab BalenaCli BalenaEtcher Bartender BetterDisplay CleanMyMac Dropbox Fork Hashi JetBrains Loom Nomad Shottr Slack SoundSource Teams Thunderbird Warp)
 	IsDomainRestricted && exclude+=(AltTab BalenaEtcher Bartender BetterDisplay CleanMyMac Dropbox Fork Hashi JetBrains Loom Nomad Shottr Slack SoundSource Teams Thunderbird Warp)
 	log1 "exclude=$(ArrayShow exclude)"
@@ -2780,6 +2821,7 @@ portionDo()
 	local portion="$1"; shift
 	local exclude=( "$@" )
 	local app apps=( $(listPortion${portion^}) )
+
 	for app in "${apps[@]}"; do
 		[[ ! $noExclude ]] && IsInArray --case-insensitive "$app" exclude && continue
 		RunCache "install-$portion-$app" ${portion}Do "$app" || return
@@ -2830,7 +2872,7 @@ CreativeCloudFinalWin()
 	registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{0E270DAA-1BE6-48F2-AC49-30EDF67ECDE9}/" # Desktop Creative Cloud icon
 	registry set "HKCU/Software/Classes/CLSID/{0E270DAA-1BE6-48F2-AC49-30EDF67ECDE9}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 > /dev/null || return # Desktop Creative Cloud icon
 
-	! CanElevate && return
+	! canElevate && return
 
 	makeDir "$ao/Adobe" || return
 
@@ -3003,7 +3045,7 @@ bootstrapStartWin()
  	header "Bootstrap Start Win"
 
  	# Hidden Start - install early if possible to prevent excessive UAC dialogs
-	CanElevate && ! IsDomainRestricted && { winPathFix && i HiddenStartConfigure || return; }
+	canElevate && ! IsDomainRestricted && { winPathFix && i HiddenStartConfigure || return; }
 
 	# finalize WSL installation now to enable Systemd and mirrored networking on next restart
 	{ WslFinalWin && WslProfile; } || return
@@ -3428,7 +3470,7 @@ BrowserCoreInstall()
 ChromeInstall()
 {
 	local v; v="$(versionGetCurrent "chrome")" || return
-	local platform="$(getPlatform "win64" "mac")"
+	local platform="$(getPlatform "win64")"
 	local ext="$(getPlatform "exe" "dmg" "deb")"
 	run --name="Chrome" "$(chromeDir)/chrome-$v-$platform.$ext" --version="$v" --elevate
 }	
@@ -3530,7 +3572,7 @@ FirefoxInstall()
 	! versionCheckApp "firefox" "$v" && return
 
 	# install
-	local ext="msi"; { IsPlatform arm || ! CanElevate; } && ext="exe"
+	local ext="msi"; { IsPlatform arm || ! canElevate; } && ext="exe"
 	local p="$(firefoxDir)/Firefox Setup $v $(getArch "ia64" "arm64").$ext|Firefox Setup $v.dmg"
 	if IsPlatform mac,win; then force="--force" run --name "Firefox" "$p" --dest="firefox" --elevate --no-header || return
 	elif IsPlatform debian; then pkg firefox-esr || return
@@ -3543,9 +3585,9 @@ FirefoxRegister() { register "firefox"; }
 
 FirefoxFinalWin()
 {
-	local dest="$pp/Applications"; ! CanElevate && dest="$up/Applications"
+	local dest="$pp/Applications"; ! canElevate && dest="$up/Applications"
 	{ $mv "$up/Firefox.lnk" "$dest" && $mv "$up/Firefox Private Browsing.lnk" "$dest"; } || return
-	! CanElevate && return; $mv "$pp/Firefox.lnk" "$dest" && $mv "$pp/Firefox Private Browsing.lnk" "$dest" && $rm "$pd/Firefox.lnk"
+	! canElevate && return; $mv "$pp/Firefox.lnk" "$dest" && $mv "$pp/Firefox Private Browsing.lnk" "$dest" && $rm "$pd/Firefox.lnk"
 }
 
 FirefoxDownload()
@@ -3732,7 +3774,7 @@ BeyondCompareRegister() { register "BeyondCompare"; }
 BeyondCompareFinalWin()
 {
 	$rm "$ud/Beyond Compare 4.lnk" || return
-	! CanElevate && return
+	! canElevate && return
 	$mv "$pd/Beyond Compare 5.lnk" "$pp/Applications" || return
 	$mv "$pp/Beyond Compare 5.lnk" "$pp/Applications" || return
 	$rm "$pd/Beyond Compare 4.lnk" || return
@@ -3748,7 +3790,7 @@ DeltaInstall()
 
 	# install
 	if IsPlatform mac; then pkg git-delta
-	elif IsPlatform apt; then run "shareware/delta/git-delta_${v}_$(getArch "amd64").deb"
+	elif IsPlatform apt; then run "shareware/delta/git-delta_${v}_$(getArch).deb"
 	else couldNotLocate
 	fi
 }
@@ -4046,7 +4088,7 @@ FiddlerFinalWin() {	$mv "$up/Fiddler Everywhere.lnk" "$up/Development" && $rm "$
 InsomniaInstall() { local p="Insomnia.Core-2023.4.0"; run --header "Insomnia" "other/Insomnia/$p.exe|$p.dmg|$p.deb"; } # https://www.postman.com/downloads/
 LinqPadInstall() { run --name "LINQPad" "shareware/DOT.NET/LinqPad/LINQPad5Setup.exe"; } # https://www.linqpad.net/Download.aspx
 LinqPadFinalWin() { makeDir "$udata/LINQPad" && $mv "$ud/LINQPad 5.lnk" "$pp/Development/DotNet" && $rmd "$pp/LINQPad" && moveAppData "LINQPad Queries"; }
-PostmanInstall() { run --header "Postman" "other/Postman/Postman-win64-Setup.exe|Postman for macOS ($(getArch)).zip|postman-linux-x64.tar"; } # https://www.postman.com/downloads/
+PostmanInstall() { run --header "Postman" "other/Postman/Postman-win64-Setup.exe|Postman for macOS ($(getArch "x64")).zip|postman-linux-x64.tar"; } # https://www.postman.com/downloads/
 PostmanFinalWin() {	$rm "$ud/Postman.lnk" && mergeDir "$up/Postman" "$udo"; }
 SnykInstall() { run --header "Snyk CLI" --package "snky-cli" && snyk auth; } # https://docs.snyk.io/snyk-cli/cli-commands-and-options-summary
 
@@ -4682,7 +4724,7 @@ OneDriveFinalWin()
 	# registry
 	registry delete "urun/OneDrive" # "$UADATA|$P\Microsoft\OneDrive\OneDrive.exe" /background
 	registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/" # Desktop One Drive icon
-	CanElevate && { registry set "HKCR/CLSID/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 > /dev/null || return; }
+	canElevate && { registry set "HKCR/CLSID/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 > /dev/null || return; }
 
 	# variables
 	SetVar --delete OneDrive || return
@@ -5262,7 +5304,7 @@ GitForWindowsInstall()
 GitForWindowsFinalWin()
 {
 	gitForWindowsConfigure || return
-	! CanElevate && return
+	! canElevate && return
 
 	mergeDir "$pp/Git" "$do" || return
 	mergeDir "$up/Git" "$do" || return
@@ -5279,8 +5321,8 @@ GitForWindowsConfigureInstall() { gitForWindowsConfigure; }
 
 gitForWindowsConfigure()
 {
-	local type="--system"; ! CanElevate && type="--global"
-	CanElevate && ! IsElevated && { elevate inst GitForWindowsConfigure "${options[@]}"; return; }	
+	local type="--system"; ! canElevate && type="--global"
+	canElevate && ! IsElevated && { elevate inst GitForWindowsConfigure "${options[@]}"; return; }	
 
 	local gw="$P/Git/cmd/git.exe"
 	"$gw" config $type http.sslcainfo "$(utw "$P/Git/usr/ssl/certs/ca-bundle.crt")" || return
@@ -5414,15 +5456,17 @@ SublimeMergeInstall()
 {
 	header "Sublime Merge"	
 	local args=() v="$(versionGetCurrent "SublimeMerge")" || return
-	CanElevate && args+=(--dest "$P/Sublime Merge") || args+=(--dest "$PUSER/Sublime Merge")
-	run --name "SublimeMerge" "other/Sublime/merge/sublime_merge_build_${v}_x64$(getElevate "_setup.exe" ".zip")|sublime_merge_build_${v}_mac.zip|sublime-merge_build-${v}_$(getArch "amd64").deb" --version "$v" --no-header "${args[@]}" || return;
+	canElevate && args+=(--dest "$P/Sublime Merge") || args+=(--dest "$PUSER/Sublime Merge")
+	run --name "SublimeMerge" "other/Sublime/merge/sublime_merge_build_${v}_x64$(getElevate "_setup.exe" ".zip")|sublime_merge_build_${v}_mac.zip|sublime-merge_build-${v}_$(getArch).deb" --version "$v" --no-header "${args[@]}" || return;
 }
 
 SublimeMergeFinalWin()
-{
-	if ! CanElevate; then
-		$makeShortcut "$PUSER/Sublime Merge/sublime_merge.exe" "$up/Applications/Sublime Merge.lnk" || return
-		gitFixWin "$PUSER/Sublime Merge/Git/cmd/git.exe" || return
+{	
+	if ! canElevate; then
+		local dir="$PUSER/Sublime Merge"
+		[[ ! -d "$dir" ]] && return
+		$makeShortcut "$dir/sublime_merge.exe" "$up/Applications/Sublime Merge.lnk" || return
+		gitFixWin "$dir/Git/cmd/git.exe" || return
 		return
 	fi
 
@@ -5939,7 +5983,7 @@ Hp9020FinalWin()
 LogitechFinalWin()
 {
 	registry delete "urun/LGHUB" || return # "C:\Program Files\LGHUB\lghub.exe" --background
-	! CanElevate && return
+	! canElevate && return
 
 	registry delete "run/LogiOptions" || return # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
 	registry delete "run/Logitech Download Assistant" || return # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch
@@ -6209,7 +6253,7 @@ IntelExtremeTuningFinalWin()
 
 IntelFinalWin()
 {
-	! CanElevate && return
+	! canElevate && return
 
 	makeDir "$oo/Intel" || return
 	MergeDir --suppress "$pp/Intel" "$oo" || return
@@ -6266,7 +6310,7 @@ NvidiaAppHelp() {	echot "- Settings, uncheck in-game overlay"; }
 
 NvidiaFinalWin()
 {
-	! CanElevate && return
+	! canElevate && return
 
 	# icons
 	mergeDir --rename "$pp/NVIDIA Corporation" "$oo/NVIDIA" || return
@@ -7047,6 +7091,7 @@ hashiDownload()
 {
 	local app="$1"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return
+	local dir; dir="$(hashiDir "$app")" || return
 	local url; url="$(hashiUrl "$app")" || return
 	local prefix="$url/$v/${app}_${v}"
 	local suffix suffixes=("darwin_amd64" "darwin_arm64" "linux_amd64" "linux_arm64" "windows_amd64")
@@ -7054,7 +7099,7 @@ hashiDownload()
 	for suffix in "${suffixes[@]}"; do
 		local url="${prefix}_${suffix}.zip"
 		local file="$(GetFileNameWithoutExtension "$url")"
-		download "$url" "$(hashiDir "$app")" "${file}.zip" || return
+		download "$url" "$dir" "${file}.zip" || return
 	done
 
 	extractFiles && downloadDone "$app" "$v"
@@ -7404,13 +7449,19 @@ SpotifyInstall()
 
 SpotifyFinalWin()
 {
-	CanElevate && ! IsElevated && { RunScript --elevate -- inst SpotifyFinal "${options[@]}"; return; }	
+	canElevate && ! IsElevated && { RunScript --elevate -- inst SpotifyFinal "${options[@]}"; return; }	
+
 	$rm "$ud/Spotify.lnk" || return
 	$mv "$up/Spotify.lnk" "$up/Media" || return
 	registry delete "urun/Spotify" || return	# $UADATA../Roaming/Spotify/Spotify.exe --autostart --minimized
-	powercfg.exe /requestsoverride process '\Device\HarddiskVolume3\Users\'$USER'\AppData\Roaming\Spotify\Spotify.exe' execution || return
-	powercfg.exe /requestsoverride process "$(utw "$UADATA/../Roaming/Spotify/Spotify.exe")" execution || return
-	powercfg.exe /requestsoverride process "Spotify.exe" execution || return
+	
+	if canElevate; then
+		powercfg.exe /requestsoverride process '\Device\HarddiskVolume3\Users\'$USER'\AppData\Roaming\Spotify\Spotify.exe' execution || return
+		powercfg.exe /requestsoverride process "$(utw "$UADATA/../Roaming/Spotify/Spotify.exe")" execution || return
+		powercfg.exe /requestsoverride process "Spotify.exe" execution || return
+	fi
+
+	return 0
 }
 
 SpotifyFinalMac()
@@ -8196,7 +8247,40 @@ TftpserverInstall()
 	nomadRegisterApp "tftp" "tftpd-hpa"
 }
 
-TraefikInstall() { run --name "Traefik" --executable "shareware/Traefik/image"; } # https://github.com/traefik/traefik/releases
+TraefikInstall()
+{
+	local v; v="$(versionGetCurrent "Traefik")" || return
+
+	# Windows install - install Linux and Windows versions
+	if IsPlatform win; then
+		run --name="Traefik" --file "$(traefikDir)/traefik-$v-$(getPlatform)-$(getArch)$(getArch ".exe" "NA" "NA")" --version="$v" || return
+		run --name="Traefik" --file "$(traefikDir)/traefik-$v-linux-$(getArch)" --version="$v" --no-header || return
+		return
+	fi
+
+	# normal install
+	run --name="Traefik" --file "$(traefikDir)/traefik-$v-$(getPlatform)-$(getArch)$(getArch ".exe" "NA" "NA")" --version="$v" || return
+}
+
+TraefikDownload()
+{
+	local app="Traefik"; downloadStart "$app" || return $(( $? > 1 ))
+	local v; v="$(versionGetCurrent "$app")" || return
+	local item items=("darwin_amd64:mac:amd64" "darwin_arm64:mac:arm64" "linux_amd64:linux:amd64" "linux_arm64:linux:arm64" "windows_amd64:win:amd64" "windows_arm64:win:arm64")
+
+	for item in "${items[@]}"; do
+		StringToArray "$item" ":" item
+		local file="traefik_v${v}_${item[0]}." platform="${item[1]}" arch="${item[2]}" ext
+		[[ "$platform" == "win" ]] && ext=".exe" file+="zip" || file+="tar.gz"
+		download "https://github.com/traefik/traefik/releases/download/v$v/$file" "$(traefikDir)" || return
+		extractFile "$file" "traefik$ext" "traefik-$v-$platform-$arch$ext" || return
+	done
+
+	downloadDone "$app" "$v"
+}
+
+traefikDir() { echo "shareware/Traefik"; }
+traefikVersion() { curl --silent "https://github.com/traefik/traefik/releases" | ${G}grep "/traefik/traefik/tree/" | shead -1 | sed 's/.*tree\/v//' | cut -d"\"" -f1; }
 
 TriblerInstall() { run --name "Tribler" "shareware/tribler/Tribler_7.2.2_x64.exe"; } # https://www.tribler.org/
 
@@ -8384,7 +8468,7 @@ JavaInstall() { i jre; }
 
 JavaFinalWin()
 {
-	! CanElevate && return
+	! canElevate && return
 	mergeDir "$pp/Java" "$oo" || return
 	registry 32 delete "run/SunJavaUpdateSched" || return
 	registry 64 delete "run/SunJavaUpdateSched" || return
@@ -8714,6 +8798,7 @@ SqlServerManagementStudioProfile() { SqlServerManagementStudio profile restore d
 
 SqlServerManagementStudioFinalWin()
 {
+	mergeDir "$pp/Microsoft SQL Server 2022" "$do" || return
 	mergeDir "$pp/Microsoft SQL Server Tools 20" "$do" || return
 	mergeDir "$pp/Azure Data Studio" "$do" || return
 	moveAppData "SQL Server Management Studio" || return
@@ -8834,7 +8919,7 @@ WslInstall()
 WslFinalWin()
 {
 	# icons
-	local location="$pp"; ! CanElevate && location="$up"
+	local location="$pp"; ! canElevate && location="$up"
 	local d="$location/Operating System/other/WSL"
 
 	$mv "$pp/WSL.lnk" "$d" || return
@@ -8844,7 +8929,7 @@ WslFinalWin()
 	IsDomainRestricted && { network dns prefer IPv4 || return; }
 
 	# startup
-	local prefix; ! CanElevate && prefix="u"
+	local prefix; ! canElevate && prefix="u"
 	registry --quiet set "${prefix}run/startup" REG_SZ "$(utw "$(FindInPath "wsl.exe")") /usr/local/data/bin/RunScript startup" > /dev/null || return # wsl.exe /usr/local/data/bin/RunScript startup
 }
 
@@ -8956,7 +9041,7 @@ VisualStudioProfile() { VisualStudio profile restore default "${globalArgs[@]}";
 
 VisualStudioFinalWin()
 {
-	if CanElevate; then
+	if canElevate; then
 		$mv "$pp/Visual Studio Installer.lnk" "$pp/Development" || return
 		mergeDir "$pp/Visual Studio 2019" "$do" || return
 		mergeDir "$pp/Windows Kits" "$do" || return
@@ -8971,7 +9056,7 @@ VisualStudioFinalWin()
 	moveAppData "My Web Sites" || return
 	SilverlightFinalWin && $hide "$WIN_HOME/.nuget"
 
-	! CanElevate && return
+	! canElevate && return
 	local dir="$do/Visual Studio $vsName"
 	makeDir "$dir" || return
 	$mv "$pp/Blend for Visual Studio $vsName"*".lnk" "$dir" || return
@@ -9049,7 +9134,7 @@ BtopInstall()
 	! versionCheckApp "$name" "$v" && return
 
 	# install
-	if [[ "$installType" == @(|local) ]] && ! { IsPlatform mac && [[ "$installType" == "" ]]; }; then run --name "$name" --no-header "shareware/btop/btop-$v-$(getPlatform "linux" "mac" "linux")-$(getArch)/install.sh" --version=$v --cd || return
+	if [[ "$installType" == @(|local) ]] && ! { IsPlatform mac && [[ "$installType" == "" ]]; }; then run --name "$name" --no-header "shareware/btop/btop-$v-$(getPlatform "linux")-$(getArch)/install.sh" --version=$v --cd || return
 	elif [[ "$installType" == @(|package) ]]; then pkg "$name"
 	else couldNotLocate
 	fi
@@ -9272,8 +9357,8 @@ gdebiInstall()
 	if [[ $package ]]; then
 		package gdebi
 	else
-		local file; findFile "shareware/gdebi" || return
-		package gir1.2-gtk-3.0 gir1.2-vte-2.91 && sudoc dpkg -i "$file/gdebi-core_0.9.5.8_all.deb" && sudoc dpkg -i "$file/gdebi_0.9.5.8_all.deb"
+		local file; findFile --quiet "shareware/gdebi" || return
+		package gir1.2-gtk-3.0 && sudoc dpkg -i "$file/gdebi-core_0.9.5.8_all.deb" && sudoc dpkg -i "$file/gdebi_0.9.5.8_all.deb"
 	fi
 }
 
@@ -9994,7 +10079,7 @@ noMachineFindUrl()
 	echo "not found"; return 1
 }
 
-noMachineVersion() { curl --location --silent -A "$(getAgent)" "http://NoMachine.com" | ${G}grep "Mac -" | sed 's/.* Mac - //' | cut -d" " -f1; }
+noMachineVersion() { curl --location --silent -A "$(getAgent)" "http://NoMachine.com" | ${G}grep "Mac .-" | sed 's/.* Mac .- //' | cut -d" " -f1; }
 
 RemminaInstall()
 {
@@ -10673,11 +10758,11 @@ Settings...
 {
 	local app="1PasswordCli"; downloadStart "$app" || return $(( $? > 1 ))
 	local v; v="$(versionGetCurrent "$app")" || return	
-
+	local dir; dir="$(1PasswordCliDir)" || return
 	local item items=("op_apple_universal_v$v.pkg" "op_linux_amd64_v$v.zip" "op_linux_arm64_v$v.zip" "op_windows_amd64_v$v.zip")
 
 	for item in "${items[@]}"; do
-		download "https://cache.agilebits.com/dist/1P/op2/pkg/v$v/$item" "$(1PasswordCliDir)" || return
+		download "https://cache.agilebits.com/dist/1P/op2/pkg/v$v/$item" "$dir" || return
 	done
 
 	extractFiles && downloadDone "$app" "$v"
@@ -11421,7 +11506,7 @@ WindowsTerminalInstall()
 
 	# install
 	local v; v="$(versionGetCurrent "WindowsTerminal")" || return
-	local dir="$P/Windows Terminal" check="Program Files" elevate="--elevate"; ! CanElevate && dir="$PUSER/Windows Terminal" check="Local" elevate=""
+	local dir="$P/Windows Terminal" check="Program Files" elevate="--elevate"; ! canElevate && dir="$PUSER/Windows Terminal" check="Local" elevate=""
 
 	# start the install in a different terminal if needed
  	if ( [[ $force ]] || versionCheckApp "WindowsTerminal" "$v"; ) \
@@ -11432,13 +11517,13 @@ WindowsTerminalInstall()
 
 	# install
 	[[ ! -d "$P" ]] && forceAllParts="true" # another Windows Terminal may already be installed
-	run --name="WindowsTerminal" --no-header "$(windowsTerminalDir)/Microsoft.WindowsTerminalPreview_${v}_$(getArch).zip" --version="$v" --dest "$dir" --elevate || return
+	run --name="WindowsTerminal" --no-header "$(windowsTerminalDir)/Microsoft.WindowsTerminalPreview_${v}_$(getArch "x64").zip" --version="$v" --dest "$dir" --elevate || return
 }
 
 WindowsTerminalFinalWin()
 {
 	local p; p="$(WindowsTerminal program)"
-	local dest="$pp/Operating System"; ! CanElevate && dest="$up/Operating System"
+	local dest="$pp/Operating System"; ! canElevate && dest="$up/Operating System"
 	$makeShortcut "$p" "$dest/Windows Terminal.lnk" || return
 }
 
@@ -11549,7 +11634,7 @@ ObsidianInstall()
 	local v; v="$(versionGetCurrent "obsidian" )" || return	
 
 	# install instructions
-	if IsPlatform win && CanElevate && { [[ $force ]] || ! obsidian IsInstalled || versionCheck "obsidian" "$(obsidian version)" "$v"; }; then
+	if IsPlatform win && canElevate && { [[ $force ]] || ! obsidian IsInstalled || versionCheck "obsidian" "$(obsidian version)" "$v"; }; then
 		echo "- select Anyone who uses this computer (all users)"
 	fi
 
@@ -11616,7 +11701,7 @@ SublimeInstall()
 	# install	
 	IsPlatform apt && ! IsPlatform win && [[ ! $installType ]] && installType="package" # APT defaults to package
 	if [[ "$installType" == @(|beta|local) ]]; then
-		local args=(); IsPlatform win && CanElevate && args+=('/VERYSILENT' '/TASKS="contextentry"')
+		local args=(); IsPlatform win && canElevate && args+=('/VERYSILENT' '/TASKS="contextentry"')
 		local p="sublime-text-${v}-${PLATFORM_OS}$(getArch "-amd64" "-arm64" "-arm32" "mac")"
 		run "$(sublimeDir)/$p.exe|$p.zip|$p.$(PackageFileExtension)" --elevate -- "${args[@]}" || return
 	elif IsPlatform debian && [[ "$installType" == @(|alternate|package) ]]; then sublimePackage || return
@@ -11656,11 +11741,6 @@ SublimeFinalMac() { makeLinkSudo "$P/Sublime Text.app/Contents/SharedSupport/bin
 
 SublimeFinalWin()
 {
-	if ! CanElevate; then
-		[[ -f "$UADATA/Sublime Text/subl.exe" ]] && { "$up/Applications/Sublime Text" || return; }
-		return
-	fi
-
 	registryDo delete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # enable Windows Open With
 	$mv "$pp/Sublime Text.lnk" "$pp/Applications" || return
 }
@@ -11697,7 +11777,7 @@ TyporaInstall()
 	local v; v="$(versionGetCurrent "typora" )" || return
 	local vFile="$v"; [[ "$installType" == "beta" ]] && vFile+="-dev"
 	IsInDomain sandia && echo "- Install for me only" # install blocked as administrator
-	run --name="Typora" --no-header "$(typoraDir)/typora-${vFile}-$(getArch).exe|typora-${vFile}-universal.dmg|typora-${vFile}-$(getArch "amd64").deb" --version="$v"
+	run --name="Typora" --no-header "$(typoraDir)/typora-${vFile}-$(getArch).exe|typora-${vFile}-universal.dmg|typora-${vFile}-$(getArch).deb" --version="$v"
 }
 
 TyporaHelp()
@@ -11781,14 +11861,14 @@ VisualStudioCodeInstall()
 	# install
 	local v; v="$(versionGetCurrent "VisualStudioCode")" || return
 	local args=(); IsPlatform mac && args+=(--dest "$PUSER")
-	local user=""; IsPlatform win && ! CanElevate && user="-user"
-	local arch="$(getArch)"; IsPlatformAll mac,x64 && arch="universal"
-	local file="code-$v-$(getPlatform "win32" "darwin" "linux")-${arch}${user}.$(getPlatform "exe" "zip" "deb")"
+	local user=""; IsPlatform win && ! canElevate && user="-user"
+	local arch="$(getArch "x64")"; IsPlatformAll mac,x64 && arch="universal"
+	local file="code-$v-$(getPlatform "win32" "darwin")-${arch}${user}.$(getPlatform "exe" "zip" "deb")"
 	run --no-header --name="VisualStudioCode" "$(visualStudioCodeDir)/$file" "${args[@]}" --version=$v || return
 
 	# SSH Agent
 	if IsPlatform win && ! service running ssh-agent; then		
-		if CanElevate; then
+		if canElevate; then
 			service suto start ssh-agent || return
 		else
 			service ui || return
@@ -11808,7 +11888,7 @@ VisualStudioCodeFinalWin()
 	mergeDir "$up/Visual Studio Code" "$udo" || return
 	$hide "$WIN_HOME/.vscode" || return	
 
-	CanElevate && return
+	canElevate && return
 
 	mergeDir "$pp/Visual Studio Code" "$do" || return
 }
@@ -12000,7 +12080,7 @@ BatInstall()
 	! versionCheckApp "$name" "$v" && return
 
 	# install
-	if [[ "$installType" == @(|local) ]] && IsPlatform debian; then run --no-header "shareware/bat/setup/bat_${v}_$(getArch "amd64").deb" || return
+	if [[ "$installType" == @(|local) ]] && IsPlatform debian; then run --no-header "shareware/bat/setup/bat_${v}_$(getArch).deb" || return
 	elif [[ "$installType" == @(|local) ]]; then run --name "$name" --no-header --no-install-check --executable "shareware/bat/image" || return
 	elif [[ "$installType" == @(|package) ]] && ! IsPlatform rhel; then pkg "$name" || return
 	elif [[ "$installType" == @(compile) ]]; then run --rust "$name" || return
@@ -12125,7 +12205,7 @@ FdInstall()
 	elif IsPlatform 64 && [[ "$installType" == @(|local) ]]; then run --executable "shareware/fd" --no-header # prefer executable, package has too many dependencies
 	elif IsPlatformAll debian,64 && [[ "$installType" == @(|package) ]]; then
 		[[ -f "/usr/local/bin/fd" ]] && { sudoc rm "/usr/local/bin/fd" || return; }
-		run "shareware/fd/fd-musl_${v}_$(getArch "amd64").deb"
+		run "shareware/fd/fd-musl_${v}_$(getArch).deb"
 	elif [[ "$installType" == @(|compile) ]]; then run --rust "fd-find"
 	else couldNotLocate
 	fi
@@ -12223,7 +12303,7 @@ PandocInstall()
 {
 	header "Pandoc" # https://github.com/jgm/pandoc/releases
 	local v="3.5"; IsPlatform linux && v="3.5-1"	
-	local msi="pandoc-$v-windows-x86_64.msi" deb="pandoc-$v-$(getArch "amd64").deb"
+	local msi="pandoc-$v-windows-x86_64.msi" deb="pandoc-$v-$(getArch).deb"
 	run "other/Pandoc/$(getWin "$msi" "$deb")|pandoc-$v-$(getArch "x86_64" "arm64")-macOS.pkg|$deb" || return
 	IsPlatform win && [[ ! $alternate ]] && [[ -f "$UADATA/Pandoc/pandoc.exe" ]] && { cp "$UADATA/Pandoc/pandoc.exe" "$win" || return; } # copy pandoc to the path in Windows
 	return 0
@@ -12323,7 +12403,7 @@ WizTreeFinalWin() { mergeDir "$pp/WizTree" "$oo" && $rm "$ud/WizTree.lnk"; }
 
 7ZipFinalWin()
 {
-	! CanElevate && return
+	! canElevate && return
 
 	local src="$P/7-zip" dest="$PLATFORM_PATH"; IsPlatform arm && dest="$PLATFORM_PATH_ARM"	
 	! diff "$src/7z.exe" "$dest/7z.exe" && { $cp "$src/7-zip.chm" "$src/7z.exe" "$src/7z.dll" "$dest" || return; }
@@ -12837,7 +12917,7 @@ DockerInstall()
 dockerInstallDesktop()
 {
 	local v; v="$(versionGetCurrent "docker" "$PLATFORM_OS")"
-	run --name "Docker" --no-header "$(dockerDir)/Docker $(getArch "amd64") $v.$(getPlatform "exe" "dmg")" --version=$v --elevate || return
+	run --name "Docker" --no-header "$(dockerDir)/Docker $(getArch) $v.$(getPlatform "exe" "dmg")" --version=$v --elevate || return
 	[[ $ran ]] && pause
 	return 0
 }
@@ -12899,7 +12979,7 @@ DockerFinal()
 DockerFinalWin()
 {
 	DockerHelper close || return
-	local location="$pp"; ! CanElevate && location="$up"
+	local location="$pp"; ! canElevate && location="$up"
 	$mv "$ud/Docker Desktop.lnk" "$location/Operating System" || return
 	$hide "$WIN_HOME/.docker" || return
 	[[ -d "$up/docker-desktop" ]] && { rmdir "$up/docker-desktop" || return; }
@@ -13572,7 +13652,7 @@ windowsFont()
 	done
 
 	# register font
-	if InPath FontReg.exe && CanElevate; then
+	if InPath FontReg.exe && canElevate; then
 		RunScript --elevate cmd.exe /c "cd $(utw "$dir") && FontReg.exe /copy && echo Registered fonts..." || return
 	else
 		echo "Right click, Install"
@@ -13592,7 +13672,7 @@ WinIconCleanupInstall()
 
 	header "Windows Icon Cleanup"
 
-	local dest="$pp"; ! CanElevate && dest="$up"
+	local dest="$pp"; ! canElevate && dest="$up"
 	mergeDir "$up/Accessibility" "$dest/Applications/Accessories" || return
 	mergeDir "$up/Accessories" "$dest/Applications" || return
 	mergeDir "$up/Administrative Tools" "$dest/Operating System" || return
@@ -13608,13 +13688,14 @@ WinIconCleanupInstall()
 
 winIconCleanupElevated()
 {
-	! CanElevate && return
+	! canElevate && return
 
 	mergeDir "$pp/Accessibility" "$pp/Applications/Accessories" || return
 	mergeDir "$pp/Accessories" "$pp/Applications" || return
 	mergeDir "$pp/Administrative Tools" "$pp/Operating System" || return
 	mergeDir "$pp/Microsoft Configuration Manager" "$oo" || return	
 	mergeDir "$pp/Microsoft Endpoint Manager" "$oo" || return
+	mergeDir "$pp/Microsoft Intune Management Extension" "$oo" || return
 	mergeDir "$pp/Windows PowerShell" "$oo/PowerShell" --rename || return
 	mergeDir "$pp/System Tools" "$pp/Operating System" || return
 	mergeDir "$pp/Applications/Accessories/System Tools" "$pp/Operating System" || return
@@ -13656,7 +13737,7 @@ WinPermissionsInstall()
 }
 
 # winPathFix - ensure the win directory is in the path path if needed until we update the Windows path and reboot
-winPathCheck() { CanElevate && cmd.exe /c echo %PATH% |& qgrep '\\win;' >& /dev/null; }
+winPathCheck() { canElevate && cmd.exe /c echo %PATH% |& qgrep '\\win;' >& /dev/null; }
 winPathFix() { ! IsPlatform win && return; winPathCheck && return; export PATH="/mnt/c/Users/Public/data/appdata/win:$PATH" WSLENV="PATH/l"; }
 
 # winInfDriver FILE - install the specified INF driver file

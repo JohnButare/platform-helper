@@ -535,6 +535,7 @@ AppVersion()
 			speedtest-cli) allowAlpha="--allow-alpha"; version="$(speedtest-cli --version | head -1 | cut -d" " -f2)" || return;;
 			sshfs) version="$(sshfs --version |& ${G}tail --lines=-1 | cut -d" " -f3)" || return;;
 			tmux) version="$(tmux -V | cut -d" " -f2)" || return;;
+			traefik) version="$(traefik version | ${G}grep "^Version:" | ${G}cut -d":" -f 2 | RemoveSpaceTrim)" || return;;
 			vault) version="$(vault --version | cut -d" " -f2 | RemoveFront "v")" || return;;
 			zsh) version="$("$app" --version | cut -d" " -f2)" || return;;
 		esac
@@ -546,7 +547,7 @@ AppVersion()
 	fi
 
 	# AppImage
-	if [[ ! $verbose && "$ext" == "appimage" ]]; then
+	if [[ ! $version && "$ext" == "appimage" ]]; then
 		version="$(echo "$file" | cut -d"-" -f2)"
 	fi
 
