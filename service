@@ -81,8 +81,8 @@ serviceCheck()
 			# get file name of a file, so can specify a plist
 			[[ -f "$service" ]] && service="$(GetFileNameWithoutExtension "$service")"
 
-			# check running services
-			if macServiceDomain="$(getMacServiceDomain "$service" 2>&1)"; then
+			# check running servicers
+			if macServiceDomain="$(getMacServiceDomain "$service" 2>&1)/"; then
 				macServiceLoaded="true"
 
 			# check services on disk - includes unloaded services
@@ -98,7 +98,7 @@ serviceCheck()
 
 			macService="$macServiceDomain$service" || return
 			sudo=""; isMacSystemService "$service" && sudo="sudoc"
-			log1 "domain=$macServiceDomain loaded=$macServiceLoaded sudo=$sudo"
+			log1 "macService=$macService domain=$macServiceDomain loaded=$macServiceLoaded sudo=$sudo"
 			;;
 
 		linux) 
@@ -146,7 +146,7 @@ getMacServiceDomain()
 	fi
 }
 
-getMacServiceConfig() { launchctl print "$(getMacServiceDomain "$1")$1"; }
+getMacServiceConfig() { launchctl print "$1"; }
 
 getMacServiceFile()
 { 
@@ -313,7 +313,7 @@ detailLinux()
 detailMac()
 {
 	hilight "Configuration"
-	local config; config="$(getMacServiceConfig "$service")" || return
+	local config; config="$(getMacServiceConfig "$macService")" || return
 	cat "$config"
 
 	hilight "File"
@@ -573,7 +573,8 @@ startWin() { local result; result="$($sc $hostUnc start "$service")" && return; 
 startMac()
 {
 	local file; file="$(getMacServiceFile "$service")" || return
-	RunLog $sudo launchctl bootstrap -w "$file"
+	RunLog $sudo launchctl bootstrap $macServiceDomain "$file"
+	# RunLog $sudo launchctl bootstrap -w "$file"
 	# $sudo launchctl start "$macService"
 }
 
@@ -601,8 +602,8 @@ stateLinux()
 
 stateMac()
 {
-	[[ $macServiceUnloaded ]] && { echo "STOPPED"; return; }
-	getMacServiceConfig "$service" | grep "^	state = " | ${G}cut -d"=" -f2 | RemoveSpace | UpperCase
+	[[ ! $macServiceLoaded ]] && { echo "STOPPED"; return; }
+	getMacServiceConfig "$macService" | grep "^	state = " | ${G}cut -d"=" -f2 | RemoveSpace | UpperCase
 }
 
 stateWin()
@@ -649,9 +650,14 @@ startTypeLinux()
 
 startTypeMac()
 {
-	if launchctl print-disabled system | ${G}grep --quiet "\"$service\" => true"; then echo "DISABLED"
-	elif launchctl print-disabled system | ${G}grep --quiet "\"$service\" => false"; then echo "AUTO_START"
-	else echo "DEMAND_START"
+	local file;
+
+	if launchctl print-disabled "$macServiceDomain" | ${G}grep --quiet "\"$service\" => disabled"; then
+		echo "DISABLED"
+	elif file="$(getMacServiceFile "$service")" && cat "$file" | ${G}grep "RunAtLoad" -A 1 | qgrep "<true/>"; then
+		echo "AUTO_START"
+	else
+		echo "DEMAND_START"
 	fi
 }
 
@@ -671,7 +677,8 @@ stopWin() { local result="$($sc $hostUnc stop "$service")" && return; EchoErr "$
 stopMac()
 {
 	local file; file="$(getMacServiceFile "$service")" || return
-	RunLog $sudo launchctl unload "$file"
+	RunLog $sudo launchctl bootout $macServiceDomain "$file"
+	# RunLog $sudo launchctl unload "$file"
 	# $sudo launchctl stop "$macService"
 }
 
