@@ -2911,7 +2911,7 @@ ResolveCtlCheck() {	local timeout="200"; ResolveCtlInstalled && RunTimeout "$tim
 # ResolveCtlFix - fix resolvectl if needed (so it will not hang)
 ResolveCtlFix()
 {
-	{ ! ResolCtrlInstalled || ResolveCtlCheck; } && return
+	{ ! ResolveCtlInstalled || ResolveCtlCheck; } && return
 	service restart systemd-resolved.service && ResolveCtlCheck
 }
 
