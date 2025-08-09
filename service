@@ -77,6 +77,7 @@ serviceCheck()
 	
 	# check
 	case "$_platformOs" in
+
 		mac)
 			local serviceNameOk
 			unset macService macServiceFile macServiceFileContent macServiceFileValidated
@@ -87,23 +88,22 @@ serviceCheck()
 				service="$(macServiceFileGetServiceName)" || return
 			fi
 
-			# check services on disk if service is not loaded
-			if ! getMacServiceInfo; then # sets macServiceDomain, macServiceInfo, and macServiceLoaded
-				macServiceDomain="unknown"
-
-				# find the service file if needed
-				if [[ ! $macServiceFile ]]; then
-					quiet="--quiet" getMacServiceFile || { unknownService; return; }
-					service="$(macServiceFileGetServiceName)" || return
-				fi
-
-				# get the service domain if possible
-				if [[ "$(infoTypeMac)" == "LaunchDaemon" ]]; then macServiceDomain="system/" # launch daemons must be in the system/ doamin
-				elif [[ "$macServiceFile" =~ ^/Users/ ]]; then macServiceDomain="user/$UID/"
-				fi
-
+			# check loaded services then services on disk
+			if ! getMacServiceInfo && [[ ! $macServiceFile ]]; then # sets macServiceDomain, macServiceInfo, and macServiceLoaded
+				quiet="--quiet" getMacServiceFile || { unknownService; return; }
+				service="$(macServiceFileGetServiceName)" || return
+				getMacServiceInfo # try and get the loaded service information with the new service name
 			fi 
 
+			# get the service domain if possible
+			if [[ ! $macServiceDomain ]]; then				
+				if [[ "$(infoTypeMac)" == "LaunchDaemon" ]]; then macServiceDomain="system/" # launch daemons must be in the system/ doamin
+				elif [[ "$macServiceFile" =~ ^/Users/ ]]; then macServiceDomain="user/$UID/"
+				else macServiceDomain="unknown"						
+				fi
+			fi
+
+			# finalize
 			[[ $macServiceDomain ]] && macService="$macServiceDomain$service"
 			sudo=""; [[ "$macServiceDomain" == "system/" ]] && sudo="sudoc"
 			log1 "service=$service macService=$macService domain=$macServiceDomain loaded=$macServiceLoaded sudo=$sudo"
@@ -595,7 +595,7 @@ startWin() { local result; result="$($sc $hostUnc start "$service")" && return; 
 
 startMac()
 {
-	getMacServiceFile && { RunLog $sudo launchctl bootstrap "$macServiceDomain" "$macServiceFile" && return; }
+	getMacServiceFile && [[ $macServiceDomain ]] && { RunLog $sudo launchctl bootstrap "$macServiceDomain" "$macServiceFile" && return; }
 	[[ $macService ]] && { RunLog $sudo launchctl start "$macService" && return; }
 	ScriptErr "unable to start service '$service' in domain '$domain'"
 }
@@ -687,13 +687,13 @@ startTypeMac()
 	local file;
 
 	# disabled
-	if [[ $macServiceDomain ]] && launchctl print-disabled "$macServiceDomain" | ${G}grep --quiet "\"$service\" => disabled"; then
+	if [[ "$macServiceDomain" != "unknown" ]] && launchctl print-disabled "$macServiceDomain" | ${G}grep --quiet "\"$service\" => disabled"; then
 		echo "DISABLED"
 		return
 	fi
 
 	# auto
-	if [[ "$(macServiceFileRead "RunAtLoad")" == "1" ]]; then
+	if [[ "$(quiet="--quiet" macServiceFileRead "RunAtLoad")" == "1" ]]; then
 		echo "AUTO_START"
 		return
 	fi
@@ -717,7 +717,7 @@ stopWin() { local result="$($sc $hostUnc stop "$service")" && return; EchoErr "$
 
 stopMac()
 {
-	getMacServiceFile && { RunLog $sudo launchctl bootout $macServiceDomain "$macServiceFile" && return; }
+	getMacServiceFile && [[ $macServiceDomain ]] && { RunLog $sudo launchctl bootout $macServiceDomain "$macServiceFile" && return; }
 	[[ $macService ]] && { RunLog $sudo launchctl stop "$macService" && return; }
 	ScriptErr "unable to stop service '$service' in domain '$domain'"
 }
@@ -812,10 +812,16 @@ infoAllCommand()
 	{
 		echo "service#domain#type#start type#state"
 
-		for service in "${services[@]}"; do
-			serviceCheck "$service" || return
-			echo "$service#$macServiceDomain#$(infoTypeMac)#$(startType)#$(stateCommand)"
-		done
+		PrintErr "Checkin $(ArraySize services) services..."
+		{
+			for service in "${services[@]}"; do
+				PrintErr "."
+				serviceCheck "$service" || return
+				echo "$service#$macServiceDomain#$(infoTypeMac)#$(startType)#$(stateCommand)"
+			done	
+		} | sort | uniq
+		EchoErrEnd "done"
+
 	} | column -c $(tput cols -T "$term") -t -s#
 }
 
@@ -980,7 +986,11 @@ getMacServiceFiles()
 }
 
 # macServiceFileGetServiceName - get the service name (the propert list Label) from the service file
-macServiceFileGetServiceName() { macServiceFileRead "Label"; }
+macServiceFileGetServiceName()
+{
+	quiet="--quiet" macServiceFileRead "Label" && return
+	GetFileNameWithoutExtension "$macServiceFile"
+}
 
 # macServiceFileRead KEY - read the key from the service file
 macServiceFileRead()
@@ -989,7 +999,7 @@ macServiceFileRead()
 	local key="$1"; macServiceFileValidate || return
 
 	# validate and return the key
-	local value; value="$(defaults read "$macServiceFile" "$key")" && { echo "$value"; return; }
+	local value; value="$(defaults read "$macServiceFile" "$key" 2>&1)" && { echo "$value"; return; }
 	ScriptErrQuiet "service file '$(FileToDesc "$macServiceFile")' does not have key '$macServiceFile'"
 	(( verboseLevel > 1 )) && defaults read "$macServiceFile" "$key"
 	return 1
@@ -1017,7 +1027,7 @@ getMacServiceInfo()
 	if macServiceInfo="$(launchctl print "system/$service" 2>&1)"; then macServiceDomain="system/"
 	elif macServiceInfo="$(launchctl print "gui/$UID/$service" 2>&1)"; then macServiceDomain="gui/$UID/"
 	elif macServiceInfo="$(launchctl print "user/$UID/$service" 2>&1)"; then macServiceDomain="user/$UID/"
-	else unset macServiceDomain macServiceInfo macServiceLoaded
+	else unset macServiceDomain macServiceInfo macServiceLoaded; return 1
 	fi
 }
 
