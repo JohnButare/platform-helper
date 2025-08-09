@@ -7,9 +7,9 @@ usage()
 Usage: service [OPTION]... [COMMAND](start) 
 Control system services.
 
-	continue|manage|pause|reload|restart|start|stop SERVICE				control service
-	auto|boot|delete|demand|disable|manual SERVICE		 						configure service
-	detail|exists|log|show|StartType|state|status|running SERVICE	service information
+	continue|manage|pause|reload|restart|start|stop SERVICE							control service
+	auto|boot|delete|demand|disable|manual SERVICE		 									configure service
+	detail|exists|info|log|show|StartType|state|status|running SERVICE	service information
 	dir|list|refresh|ui
 
 	auto|demand|disable start|stop	configure and control service, i.e. service auto start SERVICE
@@ -42,8 +42,8 @@ opt()
 	esac
 }
 
-args() { [[ "$command" == @(dir|list*|logClear|refresh|ui) ]] && return; ScriptArgGet "service" -- "$@"; }
-argEnd() { serviceInit; }
+args() { [[ "$command" == @(dir|infoAll|infoDump|list*|logClear|refresh|ui) ]] && return; ScriptArgGet "service" -- "$@"; }
+argEnd() { unset macServiceFiles; serviceInit; }
 
 serviceInit()
 {
@@ -76,28 +76,32 @@ serviceCheck()
 	# check
 	case "$_platformOs" in
 		mac)
-			macServiceLoaded=""
+			macServiceLoaded="true"
+			unset macServiceInfo macServiceFile macServiceFileContent
 
-			# get file name of a file, so can specify a plist
+			# remove file extension, so we can use a plist file as the service 
 			[[ -f "$service" ]] && service="$(GetFileNameWithoutExtension "$service")"
 
-			# check running servicers
-			if macServiceDomain="$(getMacServiceDomain "$service" 2>&1)/"; then
-				macServiceLoaded="true"
+			# check loaded services
+			if macServiceInfo="$(launchctl print "system/$service" 2>&1)"; then macServiceDomain="system/"
+			elif macServiceInfo="$(launchctl print "gui/$UID/$service" 2>&1)"; then macServiceDomain="gui/$UID/"
+			elif macServiceInfo="$(launchctl print "user/$UID/$service" 2>&1)"; then macServiceDomain="user/$UID/"
 
 			# check services on disk - includes unloaded services
-			elif listFilesMac | awk -F/ '{ print $(NF) }' | sed 's/.plist//' | sort | qgrep "^$service$"; then
-				macServiceDomain="user/$UID/"
-				if find "${macDaemons[@]}" -type f | ${G}grep --quiet "/$service.plist$"; then
-					macServiceDomain="system/"
-				fi
-
 			else
-				unknownService; return
+				unset macServiceInfo macServiceLoaded
+				getMacServiceFiles || return
+				if echo "$macServiceFiles" | qgrep "^/Users/$USER/.*/$service.plist$"; then
+					macServiceDomain="user/$UID/"
+				elif echo "$macServiceFiles" | qgrep -E "^/(System|Library)/.*/$service.plist$"; then
+					macServiceDomain="system/"
+				else
+					unknownService; return
+				fi
 			fi 
 
 			macService="$macServiceDomain$service" || return
-			sudo=""; isMacSystemService "$service" && sudo="sudoc"
+			sudo=""; [[ "$macServiceDomain" == "system/" ]] && sudo="sudoc"
 			log1 "macService=$macService domain=$macServiceDomain loaded=$macServiceLoaded sudo=$sudo"
 			;;
 
@@ -133,26 +137,38 @@ serviceCheck()
 
 checkSystemd() { IsSystemd && useSystemd="true"; return 0; }
 
-isMacGuiService() { launchctl print "gui/$UID/$1" >& /dev/null; }
-isMacUserService() { launchctl print "user/$UID/$1" >& /dev/null; }
-isMacSystemService() { launchctl print "system/$1" >& /dev/null; }
-
-getMacServiceDomain()
+getMacServiceFileContent() 
 {
-	if isMacSystemService "$1"; then echo "system"
-	elif isMacGuiService "$1"; then echo "gui/$UID"
-	elif isMacUserService "$1"; then echo "user/$UID"
-	else ScriptErr "unable to determine service '$1' domain"; return 1
-	fi
+	[[ $macServiceFileContent ]] && return
+	getMacServiceFile && macServiceFileContent="$(plutil -p "$macServiceFile")" || macServiceFileContent="unknown"
 }
 
-getMacServiceConfig() { launchctl print "$1"; }
+getMacServiceFiles() 
+{
+	[[ $macServiceFiles ]] && return
+	macServiceFiles="$(listFilesMac)"
+}
 
 getMacServiceFile()
-{ 
-	local service="$1"
-	local file; file="$(listFilesMac | ${G}grep "/$service.plist$")" && { echo "$file"; return; }
-	ScriptErrQuiet "unable to find the configuration file for service '$service'"
+{
+	[[ $macServiceFile ]] && return
+
+	# look in the cached macServiceInfo
+ 	if [[ $macServiceInfo ]]; then
+ 		macServiceFile="$(echo "$macServiceInfo" | ${G}grep "path =.*\.plist$" | cut -d"=" -f2 | RemoveSpaceTrim)"
+ 		[[ ! -f "$macServiceFile" ]] && { log2 "getMacServiceFile: service '$macService' file '$macServiceFile' from the cached service information does not exist"; unset macServiceFile; }
+ 	fi
+
+ 	# look for service files on disk
+ 	if [[ ! $macServiceFile ]]; then 	
+ 		getMacServiceFiles || return
+		macServiceFile="$(echo "$macServiceFiles" | ${G}grep "/$service.plist$" | head -1)"
+		[[ ! $macServiceFile ]] && { log2 "getMacServiceFile: service '$macService' does not have a service file on disk"; unset macServiceFile; }
+	fi
+
+	[[ ! $macServiceFile ]] && macServiceFile="unknown"
+	log2 "getMacServiceFile: macServiceFile='$macServiceFile'"
+	[[ $macServiceFile ]]
 }
 
 unknownService() 
@@ -299,28 +315,12 @@ detailCommand() { statusCommand && RunPlatform "detail" --host; }
 
 detailLinux()
 {
-	if [[ $useSystemd ]]; then
-		if [[ -f "/lib/systemd/system/$service.service" ]]; then echo "systemd service: /lib/systemd/system/$service.service"
-		elif [[ -f "/etc/systemd/system/$service.service" ]]; then echo "systemd service: /etc/systemd/system/$service.service"
-		fi
-	elif [[ -f "/etc/init.d/$service" ]]; then
-		echo "init.d service: /etc/init.d/$service"
-	fi
-
-	linuxService status "$service"; 
+	
+	echo "$(infoTypeLinux) service: $(infoFileLinux)"
+	linuxService status "$service" || return
 }
 
-detailMac()
-{
-	hilight "Configuration"
-	local config; config="$(getMacServiceConfig "$macService")" || return
-	cat "$config"
-
-	hilight "File"
-	local file; file="$(getMacServiceFile "$service")" || return
-	echo "file=$file"
-	sudoc cat "$file" || return
-}	
+detailMac() {	infoFileContentsCommand; }	
 
 detailWin()
 {
@@ -375,7 +375,13 @@ listCommand()
 	TextEdit "$file"
 }
 
-listMac() { { launchctl list; sudoc launchctl list; } | cut -d"	" -f3 | sort | uniq; }
+listMac()
+{ 
+	{ 
+		{ launchctl list; sudoc launchctl list; } | cut -d"	" -f3 | ${G}grep -v "^Label$"		# loaded services
+		listFilesMac | rev | ${G}cut -d$'/' -f1 | cut -d"." -f2- | rev 											# unloaded services
+	} | sort | uniq; 
+}
 
 listLinux()
 {
@@ -572,10 +578,8 @@ startWin() { local result; result="$($sc $hostUnc start "$service")" && return; 
 
 startMac()
 {
-	local file; file="$(getMacServiceFile "$service")" || return
-	RunLog $sudo launchctl bootstrap $macServiceDomain "$file"
-	# RunLog $sudo launchctl bootstrap -w "$file"
-	# $sudo launchctl start "$macService"
+	getMacServiceFile && { RunLog $sudo launchctl bootstrap "$macServiceDomain" "$macServiceFile"; return; }
+	RunLog $sudo launchctl start "$macService"
 }
 
 #
@@ -603,7 +607,19 @@ stateLinux()
 stateMac()
 {
 	[[ ! $macServiceLoaded ]] && { echo "STOPPED"; return; }
-	getMacServiceConfig "$macService" | grep "^	state = " | ${G}cut -d"=" -f2 | RemoveSpace | UpperCase
+
+	# macServiceInfo state - exited, not running, running, or uninitialized
+	local state; state="$(echo "$macServiceInfo" | ${G}grep "^	state = " | ${G}cut -d"=" -f2 | RemoveSpaceTrim)" || return
+
+	# running
+	[[ "$state" == "running" ]] && { echo "RUNNING"; return; }
+
+	# failed - lastExitCode != 0
+	local lastExitCode; lastExitCode="$(echo "$macServiceInfo" | grep "^	last exit code = " | ${G}cut -d"=" -f2)" || return
+	[[ "$lastExitCode" == "lastExitCode" ]] && { echo "FAILED"; return; }
+
+	# stopped
+	echo "STOPPED"
 }
 
 stateWin()
@@ -659,8 +675,8 @@ startTypeMac()
 	fi
 
 	# auto
-	file="$(getMacServiceFile "$service")" || { echo "UNKNOWN"; return; }
-	if cat "$file" | ${G}grep "RunAtLoad" -A 1 | qgrep "<true/>"; then
+	getMacServiceFileContent || return
+	if echo "$macServiceFileContent" | qgrep '"RunAtLoad" => 1$'; then
 		echo "AUTO_START"
 		return
 	fi
@@ -684,10 +700,8 @@ stopWin() { local result="$($sc $hostUnc stop "$service")" && return; EchoErr "$
 
 stopMac()
 {
-	local file; file="$(getMacServiceFile "$service")" || return
-	RunLog $sudo launchctl bootout $macServiceDomain "$file"
-	# RunLog $sudo launchctl unload "$file"
-	# $sudo launchctl stop "$macService"
+	getMacServiceFile && { RunLog $sudo launchctl bootout $macServiceDomain "$macServiceFile"; return; }
+	RunLog $sudo launchctl stop "$macService"
 }
 
 #
@@ -762,6 +776,84 @@ linuxService()
 		RunLog $sudo "/etc/init.d/$service" "$command"
 
 	fi
+}
+
+#
+# info commands
+#
+
+infoUsage() { EchoWrap "Usage: $(ScriptName) info all|file|dump|platform|type\nShow service information."; }
+infoCommand() { usage; }
+
+infoAllUsage() { EchoWrap "Usage: $(ScriptName) info all\nService information for all services."; }
+
+infoAllCommand()
+{
+	local service services; IFS=$'\n' ArrayMake services "$(RunPlatform "list")" || return
+
+	{
+		echo "service#domain#type#start type#state"
+
+		for service in "${services[@]}"; do
+			serviceCheck || return
+			echo "$service#$macServiceDomain#$(infoTypeMac)#$(startType)#$(stateCommand)"
+		done
+	} | column -c $(tput cols -T "$term") -t -s#
+}
+
+infoDumpUsage() { EchoWrap "Usage: $(ScriptName) info dump\nDump all service information if possible."; }
+infoDumpCommand() { RunPlatform "infoDump"; }
+infoDumpMac() { launchctl dumpstate; }
+
+infoFileUsage() { EchoWrap "Usage: $(ScriptName) info file [contents]\nShow the file associated with the service, if applicable."; }
+infoFileCommand() { RunPlatform "infoFile"; }
+infoFileMac() { getMacServiceFile && echo "$macServiceFile"; }
+
+infoFileLinux()
+{
+	if [[ $useSystemd ]]; then
+		if [[ -f "/lib/systemd/system/$service.service" ]]; then echo "/lib/systemd/system/$service.service"
+		elif [[ -f "/etc/systemd/system/$service.service" ]]; then echo "/etc/systemd/system/$service.service"
+		fi
+	elif [[ -f "/etc/init.d/$service" ]]; then
+		echo "/etc/init.d/$service"
+	fi
+}
+
+infoFileContentsCommand()
+{
+	local file; file="$(RunPlatform "infoFile")"; [[ ! $file ]] && return; 
+	ScriptFileCheck "$file" || return
+	IsPlatform mac && { plutil -p "$file"; return; }
+	cat "$file"
+}
+
+infoPlatformUsage() { EchoWrap "Usage: $(ScriptName) info platform\nShow platform specific service information."; }
+infoPlatformCommand() { RunPlatform "infoPlatform"; }
+
+infoPlatformMac()
+{
+	[[ $macServiceLoaded ]] && { echo "$macServiceInfo"; return; }
+	getMacServiceFileContent && echo "$macServiceFileContent"
+}
+
+infoTypeUsage() { EchoWrap "Usage: $(ScriptName) info type\nShow the platform specific type of the service."; RunPlatform infoTypeUsage; }
+infoTypeCommand() { RunPlatform "infoType"; }
+infoTypeLinux() { [[ $useSystemd ]] && echo "systemd" || echo "init.d"; }
+
+infoTypeUsageMac() { echo "Valid service types: Extension LaunchAgent LaunchDaemon pid Submitted XPCService"; }
+infoTypeMac()
+{
+	# get type from loaded service
+	[[ $macServiceLoaded ]] && { echo "$macServiceInfo" | grep "^	type = " | ${G}cut -d"=" -f2 | RemoveSpaceTrim; return; }
+	
+	# get type from the service file
+	if getMacServiceFile; then
+		[[ "$macServiceFile" =~ '/LaunchAgents/' ]] && { echo "LaunchAgent"; return; }
+		[[ "$macServiceFile" =~ '/LaunchDaemons/' ]] && { echo "LaunchDaemon"; return; }
+	fi
+
+	echo "unknown"
 }
 
 #
