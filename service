@@ -11,7 +11,7 @@ Control system services.
 	IsLoaded|load|reload|unload SERVICE																	control service
 	auto|boot|delete|demand|disable|manual SERVICE		 									configure service
 	detail|exists|info|log|show|StartType|state|status|running SERVICE	service information
-	dir|list|refresh|ui
+	dir|install|list|refresh|ui																					other commands
 
 	auto|demand|disable start|stop	configure and control service, i.e. service auto start SERVICE
 
@@ -46,7 +46,7 @@ opt()
 args()
 {
 	local logClear=""; IsPlatform linux && logClear="logClear"
-	[[ "$command" == @(dir|infoAll|infoDump|list*|$logClear|refresh|ui) ]] && return
+	[[ "$command" == @(dir|infoAll|infoDump|install|list*|$logClear|refresh|ui) ]] && return
 	ScriptArgGet "service" -- "$@";
 }
 
@@ -316,6 +316,40 @@ disableCommand() { RunPlatform "disable"; }
 disableWin() { $sc config $hostUnc "$service" start= disabled; }
 disableLinux() { linuxService disable "$service"; }
 disableMac() { macServiceFileWrite "Disabled" "true"; }
+
+#
+# install command
+#
+
+installUsage() {	ScriptUsageEcho "Usage: service install FILE\nInstall a service from a file."; }
+installArgs() { ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+installCommand() { RunPlatform "install"; }
+
+installMac()
+{
+	local dest="/Library/LaunchDaemons" exists
+	local fileName="$(GetFileName "$file")"
+	local destFile="$dest/$fileName"
+
+	# validate service file
+	macServiceFileValidateDo "$file" || return
+
+	# remove existing service file
+	if [[ -f "$destFile" ]]; then
+		[[ ! $force ]] && { ScriptErrQuiet "the service file '$destFile' exists, use --force to overwrite it"; return 1; }
+		sudoc rm "$destFile" || return
+		exists="true"
+	fi
+
+	# copy
+	sudoc cp "$file" "$dest" || return
+	$sudo chmod +r "$destFile" || return
+
+	# reload
+	[[ $exists ]] && { service reload "$destFile" || return; }
+
+	return 0
+}
 
 #
 # list command
@@ -769,7 +803,7 @@ startTypeWin()
 }
 
 #
-# Stop Command
+# stop command
 #
 
 stopCommand() { doCommandWait "stop"; }
@@ -1101,9 +1135,15 @@ macServiceFileValidate()
 	{ getMacServiceFile && ScriptFileCheck "$macServiceFile"; } || return
 
 	# validate and get the contents of the properly list file
-	$sudo plutil -lint "$macServiceFile" >& /dev/null && { macServiceFileValidated="true"; return; }
-	ScriptErrQuiet "service file '$(FileToDesc "$macServiceFile")' is not a valid property list file"
-	(( verboseLevel > 1 )) && plutil -lint "$macServiceFile"
+	macServiceFileValidateDo "$macServiceFile" && { macServiceFileValidated="true"; return; }
+}
+
+macServiceFileValidateDo()
+{
+	local file="$1"
+	$sudo plutil -lint "$file" >& /dev/null && return
+	ScriptErrQuiet "service file '$(FileToDesc "$file")' is not a valid service property list file"
+	(( verboseLevel > 1 )) && plutil -lint "$file"
 	return 1
 }
 
