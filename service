@@ -43,7 +43,13 @@ opt()
 	esac
 }
 
-args() { [[ "$command" == @(dir|infoAll|infoDump|list*|logClear|refresh|ui) ]] && return; ScriptArgGet "service" -- "$@"; }
+args()
+{
+	local logClear=""; IsPlatform linux && logClear="logClear"
+	[[ "$command" == @(dir|infoAll|infoDump|list*|$logClear|refresh|ui) ]] && return
+	ScriptArgGet "service" -- "$@";
+}
+
 argEnd() { unset macServiceFiles; serviceInit; }
 
 serviceInit()
@@ -461,15 +467,17 @@ logUsage()
 Log commands.
 
 	-a, --all					show logs from start
+	-e, --error				show error log
 	-np, --no-pager		do not use a pager"
 }
 
-logArgStart() { unset -v all noPager; }
+logArgStart() { unset -v all error noPager; }
 
 logOpt() 
 {
 	case "$1" in
 		-a|--all) all="--all";;
+		-e|--error) error="--error";;
 		-np|--no-pager) noPager="--no-pager";;
 		*) return 1
 	esac
@@ -487,8 +495,45 @@ logLinux()
 	RunLog $ssh sudoc journalctl -u "$service" "${args[@]}"; 
 }
 
+logMac()
+{
+	local stderr stdout; logMacFind
+	local command="LogShow"; [[ $noPager ]] && command="cat"
+	local file="$stdout"; [[ $error ]] && file="$stderr"
+	logValidate "$file" && "$command" "$file"
+}
+
 logClearCommand() { RunPlatform "logClear"; }
 logClearLinux() { sudo journalctl --rotate && sudoc journalctl --vacuum-time=1s; }
+
+logClearMac()
+{
+	local stderr stdout; logMacFind
+	[[ -f "$stdout" ]] && sudoc truncate -s 0 "$stdout"
+	[[ -f "$stderr" ]] && sudoc truncate -s 0 "$stderr"
+	return 0
+}
+
+# helper
+
+logMacFind()
+{
+	local content="$(getMacServiceFileContent)"
+	if getMacServiceFile; then
+		stdout="$(quiet="--quiet" macServiceFileRead "StandardOutPath")"
+		stderr="$(quiet="--quiet" macServiceFileRead "StandardErrorPath")"
+	elif [[ "$content" != "unknown" ]]; then
+		stdout="$(echo "$content" | grep "stdout path" | cut -d"=" -f2 | RemoveSpaceTrim)"
+		stderr="$(echo "$content" | grep "stderr path" | cut -d"=" -f2 | RemoveSpaceTrim)"
+	fi
+}
+
+# logValidate FILE - validate log file
+logValidate()
+{
+	[[ -f "$file" ]] && return
+	ScriptErr "unable to find the log file for the '$service' service"
+}
 
 #
 # manage command
@@ -1028,7 +1073,7 @@ macServiceFileRead()
 
 	# validate and return the key
 
-	local value; value="$($sudo defaults read "$macServiceFile" "$key" 2>&1)" && { echo "$value"; return; }
+	local value; value="$(defaults read "$macServiceFile" "$key" 2>&1)" && { echo "$value"; return; }
 	ScriptErrQuiet "service file '$(FileToDesc "$macServiceFile")' does not have key '$macServiceFile'"
 	(( verboseLevel > 1 )) && defaults read "$macServiceFile" "$key"
 	return 1
