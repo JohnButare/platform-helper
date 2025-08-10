@@ -8,7 +8,7 @@ Usage: service [OPTION]... [COMMAND](start)
 Control system services.
 
 	continue|manage|pause|restart|start|stop SERVICE										control service
-	load|reload|unload SERVICE																					control service
+	IsLoaded|load|reload|unload SERVICE																	control service
 	auto|boot|delete|demand|disable|manual SERVICE		 									configure service
 	detail|exists|info|log|show|StartType|state|status|running SERVICE	service information
 	dir|list|refresh|ui
@@ -228,9 +228,11 @@ restartCommand()
 
 statusCommand()
 {
+	local loaded state startType
+	loaded="$(isLoadedCommand)" || return; [[ $loaded ]] && loaded+=" "
 	state="$(stateCommand)" || return
 	startType="$(startType)" || return
-	echo "$service is $RED$state$RESET$hostDescription ($startType)"
+	echo "$service is $RED$state$RESET$hostDescription ($loaded$startType)"
 }
 
 #
@@ -441,52 +443,25 @@ listUnloadedMac()
 #
 
 loadUsage() { EchoWrap "Usage: $(ScriptName) load SERVICE\nLoad the service."; }
-loadCommand() { RunPlatform load; }
+loadCommand() { runStatus "load" "loading"; }
+loadNotNeededMac() { [[ $macServiceLoaded || ! $macServiceDomain ]] || ! getMacServiceFile; }
+loadMac() {	$sudo launchctl bootstrap "$macServiceDomain" "$macServiceFile"; }
 
-loadMac()
-{
-	{ [[ $macServiceLoaded || ! $macServiceDomain ]] || ! getMacServiceFile; } && return
-	printf "loading..."
-	$sudo launchctl bootstrap "$macServiceDomain" "$macServiceFile" || { echo "failed"; return 1; }
-	echo "done"
-}
+isLoadedUsage() { EchoWrap "Usage: $(ScriptName) IsLoaded SERVICE\nReturn LOADED or UNLOADED."; }
+isLoadedCommand() { RunPlatform isLoaded && printf "LOADED" || printf "UNLOADED"; }
+isLoadedMac() {	[[ $macServiceLoaded ]]; }
 
-reloadUsage()
-{
-	EchoWrap "Usage: $(ScriptName) reload SERVICE
-Reload the service to pickup any configuration changes."
-}
-
-reloadCommand() { RunPlatform reload; }
-
-reloadLinux()
-{
-	[[ ! $useSystemd ]] && return
-	printf "reloading..."
-	sudoc systemctl reload "$service" || { echo "failed"; return 1; }
-	echo "done"
-}
-
-reloadMac()
-{
-	{ [[ ! $macServiceDomain ]] || ! getMacServiceFile; } && return
-	printf "reloading..."
-	[[ $macServiceLoaded ]] && { printf "unloading..."; $sudo launchctl bootout "$macServiceDomain" "$macServiceFile" &> /dev/null; }
-	printf "loading..."; $sudo launchctl bootstrap "$macServiceDomain" "$macServiceFile" &> /dev/null || { echo "failed"; return 1; }
-	echo "done"
-}
+reloadUsage() { EchoWrap "Usage: $(ScriptName) reload SERVICE\nReload the service to pickup any configuration changes."; }
+reloadCommand() { runStatus reload "reloading"; }
+reloadNotNeededLinux() { [[ ! $useSystemd ]]; }
+reloadNotNeededMac() { [[ ! $macServiceDomain ]] || ! getMacServiceFile; } 
+reloadLinux() { sudoc systemctl reload "$service"; }
+reloadMac() {	! unloadNotNeededMac && { printf "unloading..."; unloadMac &> /dev/null; }; printf "loading..."; loadMac &> /dev/null; }
 
 unloadUsage() { EchoWrap "Usage: $(ScriptName) unload SERVICE\nUnload the service."; }
-unloadCommand() { RunPlatform unload; }
-
-unloadMac()
-{
-	{ [[ ! $macServiceLoaded || ! $macServiceDomain ]] || ! getMacServiceFile; } && return
-	printf "unloading..."
-	$sudo launchctl bootout "$macServiceDomain" "$macServiceFile" || { echo "failed"; return 1; }
-	echo "done"
-}
-
+unloadCommand() { runStatus "unload" "unloading"; }
+unloadNotNeededMac() { [[ ! $macServiceLoaded || ! $macServiceDomain ]] || ! getMacServiceFile; }
+unloadMac() { $sudo launchctl bootout "$macServiceDomain" "$macServiceFile"; }
 
 #
 # log command
@@ -644,7 +619,7 @@ startWin() { local result; result="$($sc $hostUnc start "$service")" && return; 
 
 startMac()
 {
-	loadMac || return
+	quiet="--quiet" loadMac || return
 
 	{ [[ ! $macServiceLoaded || ! $macServiceDomain ]] || ! getMacServiceFile; } && return
 	[[ ! $macService ]] && { ScriptErr "unable to start service '$service' in domain '$domain'"; return 1; }
@@ -951,6 +926,17 @@ checkStateStop() { [[ "$(stateCommand)" != "RUNNING" ]]; }
 #
 # helper - wait
 #
+
+# runStatus COMMAND DESCRIPTION - run a command and show status
+runStatus()
+{
+	local command="$1" description="$2"
+	RunPlatform ${command}NotNeeded && return
+	[[ ! $quiet ]] && printf "$description..."
+	RunPlatform "$command" || { echo "failed"; return 1; }
+	[[ ! $quiet ]] && echo "done"
+	return 0
+}
 
 waitNeeded() { IsFunction "waitForState${command^}"; }
 
