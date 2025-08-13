@@ -608,20 +608,29 @@ manageCommand()
 	trap "manageExit" EXIT
 
 	# wait
-	local i=0 sleepSeconds=5 try tryMax=5; TimerOn
+	local seconds=0 sleepSeconds=5 statusSeconds=120 try tryLimit=5; TimerOn
 	while true; do
 
 		# get service state
 		local state; state="$(service state "$service" "${globalArgsLessVerbose[@]}")" || return
 
+		# status every two minutes
+		if (( seconds % statusSeconds == 0 )); then
+			printf "\nThe '$service' service has been $state for $(TimerOff)..."
+		elif [[ ! $verbose ]]; then
+			printf "."	
+		else
+			log1 "state=$state seconds=$seconds for=$(TimerStatus) try=$try tryLimit=$tryLimit sleepSeconds=$sleepSeconds statusSeconds=$statusSeconds"
+		fi
+
 		# service is now running
 		if [[ "$state" == "RUNNING" && $try ]]; then
-			unset -v try; i=0; TimerOn
+			unset -v try; seconds=0; TimerOn
 
 		# service is now not running
 		elif [[ "$state" != "RUNNING" && ! $try ]]; then
-			 try=1; i=0; TimerOn
-			 service start "$service" "${globalArgs[@]}"
+			 try=1; seconds=0; TimerOn; echo
+			 service start "$service" "${globalArgsLessVerbose[@]}"
 
 		# service is still not running, at try limit
 		elif [[ "$state" != "RUNNING" ]] && (( try >= tryLimit )); then
@@ -629,22 +638,16 @@ manageCommand()
 			return 1
 	
 		# service is still not running, try and start it every minute
-		elif [[ "$state" != "RUNNING" ]] && (( i % 60 == 0 )); then
-			  (( ++try ))
-			  service start "$service" "${globalArgs[@]}"
+		elif [[ "$state" != "RUNNING" ]] && (( seconds % 60 == 0 )); then
+			  (( ++try )); echo
+			  service start "$service" "${globalArgsLessVerbose[@]}"
 
-		fi
-
-		# status every two minutes
-		if (( i % 120 == 0 )); then
-			printf "\nThe '$service' service has been $state for $(TimerOff)..."
-		else
-			printf "."; (( i+=$sleepSeconds ))
 		fi
 
 		# sleep if we have not been signaled, break if we are signaled
 		[[ ! $stopSignal ]] && sleep $sleepSeconds &
-		wait; [[ $stopSignal ]] && return
+		wait; [[ $stopSignal ]] && return		
+		(( seconds+=$sleepSeconds ))
 
 	done
 }
