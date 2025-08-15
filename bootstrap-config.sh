@@ -101,5 +101,5 @@ sandiaProxyServer="proxy.$sandiaDnsBaseDomain:80"
 sandiaProxyApps="apt,vars" # all|apt|os|vars|wpad
 sandiaNoProxy="$noProxyLocal,.$sandiaDnsBaseDomain,$noProxyRemote"
 sandiaVaultUrl="https://csep-vault.sandia.gov"
-sandiaVaultStoreDefault="users-kv"
-sandiaVaultPathPrefix="/$USER"
+sandiaVaultStoreDefault="${USER}@sandia.gov-kv"
+sandiaVaultPathPrefix=""
