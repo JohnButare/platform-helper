@@ -204,14 +204,14 @@ updateWireGuard() { runApp "update" "WireGuard" wiggin update WireGuard; }
 
 certUsage() {
 	ScriptUsageEcho "\
-Usage: $(ScriptName) cert all|renew|copy|hubitat|lb|nas|printer|cleanup\nCertificate commands.
+Usage: $(ScriptName) cert all|info|renew|copy|update|cleanup\nCertificate commands.
 	-nc, --no-cleanup		do not cleanup temporary certificate files or the mounted certificate directory"
 }
 
 certArgStart() { unset -v noCleanup; }
-certCommand() { certAllCommand; }
-certAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert all\nPerform all certificate commands."; }
-certAllCommand() { certRenewCommand && certCopyCommand && certLbCommand && certNasCommand && certPrinterCommand; }
+certCommand() { usage; }
+certAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert all\nRenew and update certificate."; }
+certAllCommand() { certRenewCommand && certUpdateAll; }
 certCleanupCommand() { :; }
 
 certOpt()
@@ -224,26 +224,32 @@ certOpt()
 
 certArgEnd()
 {
+	# initialize
 	log1 "initialize certificates"	
 	domain="butare.net"
 	certDirTmp="/tmp/cert-$domain"
 
-	# Let's Encrypt
+	# initialize Let's Encrypt
 	letsEncryptDir="/etc/letsencrypt"
 	certDir="$letsEncryptDir/live"
-	{ ! InPath certbot || [[ ! -d "$letsEncryptDir" ]]; } && { inst certbot || return; }
+
+	# no further initialization needed if cleanup up
+	[[ "${commandNames[1]}" == "cleanup" ]] && return
 
 	# mount existing certificates
-	encryptedDir="$(CloudConf && encrypt mount "$CLOUD/data/app/CryFS/personal")/data/letsencrypt" || return
+	encryptedDir="$(CloudConf && encrypt mount "$CLOUD/data/app/CryFS/personal" "${globalArgsLessVerbose[@]}")/data/letsencrypt" || return
+
+	# initialize certificate
+	cert="$certDir/$domain/cert.pem"
+	certEncrypted="$encryptedDir/$domain/cert.pem"
 	
 	# stage existing certificates
-	[[ $noCleanup && -d "$certDirTmp" ]] && return
 	certStageCleanup && certStage
 }
 
 certCleanup() { [[ $noCleanup ]] && return; log1 "cleanup"; certStageCleanup && encrypt unmount "personal"; }
 
-# certStage - copy Let's Encrypt certificates from the encryped directory to a temp directory
+# certStage - copy Let's Encrypt certificates from the encrypted directory to a temp directory
 certStage()
 {
 	local from="$encryptedDir/$domain/." to="$certDirTmp"
@@ -260,28 +266,35 @@ certStageCleanup()
 	sudoc rm -fr "$certDirTmp"
 }
 
+certRenewUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert renew\nRenew the certificate."; }
+
 certRenewCommand()
 {
-	hilight "Renewing certificate..."
-	sudov || return
-
 	# validate
-	local file="$certDir/$domain/cert.pem"
-	sudo ls "$file" >& /dev/null && { CertGetDates "$certDir/$domain/cert.pem" || return; }
+	certInfoCommand || return
 	! ask 'Do you want to renew the certificate' && return
 
-	# renew
+	# install certbot
+	{ ! InPath certbot || [[ ! -d "$letsEncryptDir" ]]; } && { inst certbot || return; }
+
+	# renew cert
 	sudoc certbot certonly -d '*.butare.net' --dns-cloudflare --dns-cloudflare-credentials "$letsEncryptDir/credentials/cloudflare.ini" || return
+
+	# copy cert to the encrypted store
+	certCopy || return
 }
+
+certCopyUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert copy\nCopy the certificate to the encrypted store."; }
 
 certCopyCommand()
 {
-	hilight "Copying certificate to the encrypted store..."	
-	CertGetDates "$certDir/$domain/cert.pem" || return
-	local cert="$encryptedDir/$domain/cert.pem"
-	[[ -f "$cert" ]] && { CertGetDates "$cert" || return; }
-	[[ -f "$cert" ]] && ! ask 'Do you want to copy the certificate to the encrypted store' && return
+	certInfoCommand || return
+	[[ -f "$certEncrypted" ]] && ! ask 'Do you want to copy the certificate to the encrypted store' && return
+	certCopy || return	
+}
 
+certCopy()
+{
 	# backup existing certificate
 	( cd "$encryptedDir" && bak "$domain" -d "$domain.bak") || return
 
@@ -301,9 +314,37 @@ certCopyCommand()
 	cp -r "$certDirTmp/." "$encryptedDir/$domain" || return
 }
 
-certHubitatCommand() { ( cd "$certDirTmp" && certHubitat 1 && certHubitat 2; ); }
+#
+# cert info command
+#
 
-certHubitat()
+certInfoCommand() { certInfo "$cert" "sudoc" && certInfo "$certEncrypted"; }
+
+certInfo()
+{
+	local file="$1" sudo="$2"
+	printf "Checking certificate file '$(FileToDesc "$file")'..."
+	if $sudo ls "$file" >& /dev/null ; then
+		echo "present"
+		quiet="--quiet" CertGetDates "$file"
+	else
+		echo "not present" 
+	fi
+}
+
+#
+# cert update commands
+#
+
+certUpdateUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert update all|hubitat|lb|nas|printer\nUpdate certificate on systems."; }
+certUpdateCommand() { usage; }
+certUpdateAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert all\nUpdate cerrtificate on systems."; }
+certUpdateAllCommand() { certLbCommand && certNasCommand && certPrinterCommand; }
+
+certUpdateHubitatUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert update hubitat\nUpdate certificate on Hubitat 1 and 2."; }
+certUpdateHubitatCommand() { ( cd "$certDirTmp" && certHubitat 1 && certHubitat 2; ); }
+
+certUpdateHubitat()
 {
 	echo "Hubitat does not currently support eleptical curve certificates"	
 	return
@@ -320,7 +361,9 @@ certHubitat()
 	echo "Save key pair, Settings, Reboot"; pause
 }
 
-certLbCommand()
+certUpdateLbUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert lb\nUpdate cerrtificate on all NGINX load balancers."; }
+
+certUpdateLbCommand()
 {
 	hilight "Updating the certificate on the Load Balancer (NGINX)..."
 
@@ -334,9 +377,10 @@ certLbCommand()
 	wiggin sync lb-cert && wiggin sync lb
 }
 
-certNasCommand() { certNas 1; }
+certUpdateNasUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert nas\nUpdate cerrtificate on all NAS systems."; }
+certUpdateNasCommand() { certUpdateNas 1; }
 
-certNas()
+certUpdateNas()
 {	
 	local n="$1"; hilight "Updating the NAS $n certificates..."
 	local clip; clip="$(utw "${certDirTmp}")"; clipw "$clip"
@@ -345,8 +389,10 @@ certNas()
 	pause
 }
 
-certPrinterCommand() { certStudyColorPrinter; } # certStudyPrinter does not work
+certUpdatePrintersUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert printer\nUpdate cerrtificate on all printers."; }
+certPrinterCommand() { certStudyColorPrinter; }
 
+# certStudyPrinter - does not work
 certStudyPrinter()
 {	
 	local n="$1"; hilight "Updating the Study Printer certificate..."

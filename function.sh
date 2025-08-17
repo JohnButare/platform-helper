@@ -1503,10 +1503,11 @@ CloudGet()
 	done
 
 	for file in "${files[@]}"; do
-		[[ $verbose ]] && EchoErr "CloudGet: processing '$file'"
+		[[ $verbose ]] && PrintErr "CloudGet: $file..."
 
 		# directory
 		if [[ -d "$file" ]]; then
+			pause hi
 			local newFiles=(); IFS=$'\n' ArrayMake newFiles "$(find "$file" -type f)"
 			CloudGet $quiet $verbose "${newFiles[@]}" || return
 			continue
@@ -1517,7 +1518,7 @@ CloudGet()
 
 		# check if downloaded by checking blocks, does not work for small files
 		local blocks="$(stat -c%b "$file")"
-		[[ $verbose ]] && EchoErr "CloudGet: blocks=$blocks"
+		[[ $verbose ]] && EchoErrEnd "blocks=$blocks"
 		((  $blocks > 0 )) && continue 	
 
 		# check if downloaded by checking for one line
@@ -5406,7 +5407,7 @@ ScriptReturn()
 # security
 #
 
-CertGetDates() { local c; for c in "$@"; do echo "$c:"; SudoRead "$c" openssl x509 -in "$c" -text | grep "Not "; done; }
+CertGetDates() { local c; for c in "$@"; do [[ ! $quiet ]] && echo "$c:"; SudoRead "$c" openssl x509 -in "$c" -text | grep "Not "; done; }
 CertView() { local c; for c in "$@"; do openssl x509 -in "$c" -text; done; }
 CredentialSetBoth() { credential set "$@" --manager=local && credential set "$@" --manager=remote; }
 
@@ -5594,7 +5595,7 @@ sudoe()
 	fi
 } 
 
-# sudor [COMMAND|--dir|-d DIR] - run commands or a shell as root with access to the users SSH Agent and credential manager
+# sudor [COMMAND|--dir|-d DIR] - sudo root, run commands or a shell as root with access to the users SSH Agent and credential manager
 # - if DIR is specified, start an interactive shell in the specified DIR
 # - test: sudor && sudor --dir /tmp && sudor credential ls -m=r
 sudor()
