@@ -204,26 +204,30 @@ updateWireGuard() { runApp "update" "WireGuard" wiggin update WireGuard; }
 
 certUsage() {
 	ScriptUsageEcho "\
-Usage: $(ScriptName) cert all|info|renew|copy|update|cleanup\nCertificate commands.
-	-nc, --no-cleanup		do not cleanup temporary certificate files or the mounted certificate directory"
+Usage: $(ScriptName) cert all|info|renew|copy|update|cleanup
+Certificate commands.
+	-nc, --no-cleanup		do not cleanup temporary certificate files or the mounted certificate directory
+	-v,  --validate			validate the encrypted cloud files are downloaded"
 }
 
-certArgStart() { unset -v noCleanup; }
+certArgStart() { unset -v noCleanup validate; }
 certCommand() { usage; }
 certAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert all\nRenew and update certificate."; }
-certAllCommand() { certRenewCommand && certUpdateAll; }
+certAllCommand() { certRenewCommand && certUpdateAllCommand; }
 certCleanupCommand() { :; }
 
 certOpt()
 {
 	case "$1" in
-		--no-cleanup|-nc) noCleanup="--no-cleanup";;
+		-nc|--no-cleanup) noCleanup="--no-cleanup";;
+		-v|--validate) validate="--validate";;
 		*) return 1;;
 	esac
 }
 
 certArgEnd()
 {
+
 	# initialize
 	log1 "initialize certificates"	
 	domain="butare.net"
@@ -237,7 +241,7 @@ certArgEnd()
 	[[ "${commandNames[1]}" == "cleanup" ]] && return
 
 	# mount existing certificates
-	encryptedDir="$(CloudConf && encrypt mount "$CLOUD/data/app/CryFS/personal" "${globalArgsLessVerbose[@]}")/data/letsencrypt" || return
+	encryptedDir="$(CloudConf && RunLog encrypt mount "$CLOUD/data/app/CryFS/personal" --no-prompt $validate "${globalArgsLessVerbose[@]}")/data/letsencrypt" || return
 
 	# initialize certificate
 	cert="$certDir/$domain/cert.pem"
@@ -270,18 +274,18 @@ certRenewUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert renew\nRenew the c
 
 certRenewCommand()
 {
-	# validate
 	certInfoCommand || return
 	! ask 'Do you want to renew the certificate' && return
+	certRenew && certCopy
+}
 
+certRenew()
+{
 	# install certbot
 	{ ! InPath certbot || [[ ! -d "$letsEncryptDir" ]]; } && { inst certbot || return; }
 
 	# renew cert
 	sudoc certbot certonly -d '*.butare.net' --dns-cloudflare --dns-cloudflare-credentials "$letsEncryptDir/credentials/cloudflare.ini" || return
-
-	# copy cert to the encrypted store
-	certCopy || return
 }
 
 certCopyUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert copy\nCopy the certificate to the encrypted store."; }
@@ -339,7 +343,7 @@ certInfo()
 certUpdateUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert update all|hubitat|lb|nas|printer\nUpdate certificate on systems."; }
 certUpdateCommand() { usage; }
 certUpdateAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert all\nUpdate cerrtificate on systems."; }
-certUpdateAllCommand() { certLbCommand && certNasCommand && certPrinterCommand; }
+certUpdateAllCommand() { certUpdateLbCommand && certUpdateNasCommand && certUpdatePrinterCommand; }
 
 certUpdateHubitatUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert update hubitat\nUpdate certificate on Hubitat 1 and 2."; }
 certUpdateHubitatCommand() { ( cd "$certDirTmp" && certHubitat 1 && certHubitat 2; ); }
@@ -366,7 +370,7 @@ certUpdateLbUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert lb\nUpdat
 certUpdateLbCommand()
 {
 	hilight "Updating the certificate on the Load Balancer (NGINX)..."
-
+return
 	# update certificates used by the load balancer
 	local lbDir="$UDATA/sync/etc/letsencrypt/live/$domain"
 	! sudoc ls "$live" >& /dev/null && { wiggin sync lb-cert || return; }
@@ -390,14 +394,14 @@ certUpdateNas()
 }
 
 certUpdatePrintersUsage() { ScriptUsageEcho "Usage: $(ScriptName) renew cert printer\nUpdate cerrtificate on all printers."; }
-certPrinterCommand() { certStudyColorPrinter; }
+certUpdatePrinterCommand() { certStudyColorPrinter; }
 
-# certStudyPrinter - does not work
-certStudyPrinter()
+# certGaragePrinter - does not work
+certGaragePrinter()
 {	
-	local n="$1"; hilight "Updating the Study Printer certificate..."
+	local n="$1"; hilight "Updating the Garage Printer certificate..."
 	local clip; clip="$(utw "${certDirTmp}/certificate.pem")"; clipw "$clip"
-	open "https://StudyPrinter.butare.net/net/security/certificate/ca.html" || return
+	open "https://garage-printer.hagerman.butare.net/net/security/certificate/ca.html" || return
 	EchoWrap "Import CA Certificate, Browse..., <paste>, Submit, reboot printer from panel"	
 	pause
 }
@@ -406,7 +410,7 @@ certStudyColorPrinter()
 {	
 	local n="$1"; hilight "Updating the Study Color Printer certificate..."
 	local clip; clip="$(utw "${certDirTmp}/certificate.pfx")"; clipw "$clip"
-	open "https://StudyColorPrinter.butare.net/net/security/certificate/certificate.html" || return
+	open "https://study-color-printer.hagerman.butare.net/net/security/certificate/certificate.html" || return
 	EchoWrap "Delete, Import Certificate and Private Key, Browse..., <paste>, Submit, Administrator, Reboot Menu, Reboot, Yes"	
 	pause
 }
