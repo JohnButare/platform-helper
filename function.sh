@@ -1507,7 +1507,6 @@ CloudGet()
 
 		# directory
 		if [[ -d "$file" ]]; then
-			pause hi
 			local newFiles=(); IFS=$'\n' ArrayMake newFiles "$(find "$file" -type f)"
 			CloudGet $quiet $verbose "${newFiles[@]}" || return
 			continue
