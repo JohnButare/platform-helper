@@ -5031,7 +5031,7 @@ PythonConf()
 	# configure direnv for virtual environments
 	if [[ -f ".envrc" ]] && InPath direnv; then
 		DirenvConf || return
-		${G}grep --quiet pyenv ".envrc" && { PyenvConf || return; }
+		qgrep pyenv ".envrc" && { PyenvConf || return; }
 	fi
 
 	return 0
