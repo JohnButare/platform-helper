@@ -283,7 +283,7 @@ Usage: os name [get|set|alias|real](get) [HOST](localhost)
 Show or set the operating system name."
 }
 
-nameArgStart() { unset name; }
+nameArgStart() { name="localhost"; }
 nameArgs() { (( ! $# )) && return; ScriptArgGet "name" -- "$@"; }
 nameCommand() { nameGetCommand; }
 
@@ -313,7 +313,7 @@ nameAliasCommand()
 nameGetUsage()
 {
 	echot "\
-Usage: os name get HOST
+Usage: os name get [HOST](localhost)
 Get the operating system name.
 
 	-s|--ssh	use SSH to get the name instead of using DNS (slower)"
