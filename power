@@ -245,7 +245,7 @@ powerRemote()
 	fi
 
 	# determine the current status off the host
-	local initialState="off"; IsAvailable "$hostMain" "$timeout" && initialState="on"
+	local initialState="off"; [[ $hostMain ]] && IsAvailable "$hostMain" "$timeout" && initialState="on"
 
 	# check if host is already on
 	if [[ ! $force && "$command" == "on" && "$initialState" == "on" ]]; then
@@ -253,13 +253,14 @@ powerRemote()
 	fi
 
 	# determine host switch port to control it's power
-	local switch switchPort; switchLookup "$host"
+	local switch switchPort; switchLookup "$host"	
 	local switchPortPower; [[ $host && $switch && $switchPort ]] && switchPortPower="true"
 	[[ "$initialState" == "on" && "$command" == @(on|reboot) ]] && unset switchPortPower # do not control switch port if already on
 	log1 "initialState=$initialState switchPortPower=$switchPortPower switch=$switch switchPort=$switchPort"
 
 	# determine the current status off the switch port
 	local initialSwitchState="$expectedState"
+
 	[[ $switchPortPower ]] && { initialSwitchState="$(switchPortStatus $switch $switchPort)" || return; }
 	log1 "initialSwitchState=$initialSwitchState"
 
@@ -352,7 +353,7 @@ powerOn()
 	powerOnPrepare || return
 
 	# power on Hyper-V virtual machine	
-	if IsHostnameVm "$host"; then
+	if IsHostnameVm "$hostMain"; then
 		hypervCommandDo || return
 		
 	# power on associated switch port if specified
@@ -360,7 +361,7 @@ powerOn()
 		switchPortOn $switch $switchPort || return
 
 	# turn on host using Wake-on-LAN.  A MAC address must be specified in /etc/ethers
-	elif grep " ${host}$" "/etc/ethers" >& /dev/null; then
+	elif [[ $hostMain ]] && grep " ${hostMain}$" "/etc/ethers" >& /dev/null; then
 
 		local mac="$(GetMacAddress "$host")"
 		local broadcastAddress="$(GetBroadcastAddress)"; [[ $broadcastAddress ]] && broadcastAddress="-i $broadcastAddress"
@@ -387,7 +388,7 @@ powerOnPrepare() { [[ $noPrepare ]] && return; powerOnPrepareNomad; }
 powerOnPrepareNomad()
 {
 	[[ $waitSsh ]] && return
-	{ ! InPath nomad || ! hashi nomad node exists --host=$host; } && return
+	{ [[ ! $hostMain ]] || ! InPath nomad || ! hashi nomad node exists --host=$host; } && return
 	wait="--wait" waitSsh="--wait-ssh"	
 }
 
@@ -448,19 +449,19 @@ poweredOn() { [[ $noPrepare ]] && return; poweredOnNomad; }
 # poweredOnNomad - disable Nomad drain
 poweredOnNomad()
 {
-	# return if not a Nomad node
-	{ ! InPath nomad || ! hashi nomad node exists --host=$host; } && return
+		# return if not a Nomad node
+	{ [[ ! $hostMain ]] || ! InPath nomad || ! hashi nomad node exists --host=$hostMain; } && return
 
 	# disable drain
-	if [[ $force ]] || hashi nomad node drain status --host=$host >& /dev/null ; then
-		echo "nomad..."; hashi nomad node drain disable --host=$host
+	if [[ $force ]] || hashi nomad node drain status --host=$hostMain >& /dev/null ; then
+		echo "nomad..."; hashi nomad node drain disable --host=$hostMain
 	fi
 
 	# run additional workloads
-	scaleHost "$host" || return
+	scaleHost "$hostMain" || return
 
 	# disable netboot.xyz TFTP server - may need to `sudov && packageu tftpd-hpa &&i NetbootxyzTftpServer`
-	if [[ "$host" =~ ^rp[1-2]+$ ]] && nomad job status tftp >& /dev/null; then
+	if [[ "$hostMain" =~ ^rp[1-2]+$ ]] && nomad job status tftp >& /dev/null; then
 		hashi nomad job exec netbootxyz -- bash -c "s6-svc -d /run/service/svc-tftp; sleep 1; s6-svstat /run/service/svc-tftp" || return
 	fi
 }
@@ -469,7 +470,7 @@ powerWaitOnDo()
 {
 	local seconds="${waitSeconds:-$waitSecondsDefault}" found
 
-	{ [[ ! $wait ]] || IsAvailable "$hostMain" "$timeout"; } && return
+	{ [[ ! $wait || ! $hostMain ]] || IsAvailable "$hostMain" "$timeout"; } && return
 
 	printf "waiting..."
 
@@ -932,7 +933,6 @@ initHost()
 	hostMain="${hostMain:-$host}"	
 	hostDesc="$(os name "$host" | RemoveDnsSuffix)"
 	log1 "initHost: host=$host hostOrig=$hostOrig hostDesc=$hostDesc hostMain=$hostMain"
-	pause
 }
 
 doGuiConnect()
