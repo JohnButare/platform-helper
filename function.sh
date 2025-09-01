@@ -2489,8 +2489,7 @@ IsIpLocal()
 IsLocalHost()
 {
 	local host="$(RemoveSpace "$1" | LowerCase)"
-	[[ $host ]] || return
-
+	
 	# host is empty, localhost, or the loopback address (127.0.0.1)
 	[[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$host" =~ ^([0]*:){2}([0]*:){0,6}1$ ]] && return
 
