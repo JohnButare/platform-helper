@@ -548,12 +548,31 @@ mhzCommand()
 	lscpu | grep "^CPU .* MHz:" | head -1 | awk '{print $NF}' | cut -d. -f 1 # CPU [max|min] MHZ:
 }
 
-# hardware - return the machine hardware, one of:
-# arm64						ARM, 64 bit, mac
-# armv71|aarch64 	ARM, 32|64 bit, Raspberry Pi
-# mips|mip64			MIPS, 32|64 bit
-# x86_64 					x86_64 (Intel/AMD), 64 bit
-hardwareCommand() ( uname -m; )
+hardwareUsage() { echot "Usage: $(ScriptName) hardware [cpu|model](cpu)\nHardware information."; }
+hardwareCommand() ( hardwareCpuCommand; )
+
+hardwareCpuUsage() 
+{
+	echot "Usage: $(ScriptName) hardware cpu
+Return the machine hardware, one of:
+
+arm64						ARM, 64 bit, Mac
+armv71|aarch64 	ARM, 32|64 bit, Raspberry Pi
+mips|mip64			MIPS, 32|64 bit
+x86_64 					x86_64 (Intel/AMD), 64 bit"
+}
+
+hardwareCpuCommand() ( uname -m; )
+
+hardwareModelUsage() { echot "Usage: os hardware model [check]\nReturn the hardware model if possible."; }
+hardwareModelCommand() { RunPlatform hardwareModel; }
+hardwareModelPiKernel() { pi info model | cut -d" " -f3; }
+
+hardwareModelCheckUsage() { ScriptUsageEcho "Usage: $(ScriptName) hardware model check EXPR\nCheck the hardware model, where check is an expression to check the model against, i.e. release check '>= 5'."; }
+hardwareModelCheckArgStart() { unset -v check; }
+hardwareModelCheckArgs() { ScriptArgGet "check" -- "$@"; }
+hardwareModelCheckCommand() { (( $(echo "$(os hardware model) $check" | bc --mathlib) )); }
+
 
 isServerCommand()
 {
