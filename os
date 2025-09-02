@@ -283,7 +283,7 @@ Usage: os name [get|set|alias|real](get) [HOST](localhost)
 Show or set the operating system name."
 }
 
-nameArgStart() { name="localhost"; }
+nameArgStart() { unset -v name; }
 nameArgs() { (( ! $# )) && return; ScriptArgGet "name" -- "$@"; }
 nameCommand() { nameGetCommand; }
 
