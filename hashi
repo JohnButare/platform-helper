@@ -3783,32 +3783,38 @@ vaultTokenSetRemote()
 vaultTokenGetRemote()
 {
 	local product="vault" token
+	log1 "vaultTokenGetRemote: getting the vault token"
 
 	# get the vault token from the VAULT_TOKEN environment variable
 	if [[ $VAULT_TOKEN ]]; then
 		token="$VAULT_TOKEN"
+		log1 "vaultTokenGetRemote: got the Vault token from the environment"
+		export VAULT_TOKEN="$token"; return
+	fi
 
 	# get the vault token from the credential store
-	elif credExists "token"; then
+	if credExists "token"; then
+		log1 "vaultTokenGetRemote: looking for the Vault token in the credential store"
 		token="$(credGet "token")" || return
-
-	# get the Vault token from the configuration host
-	else
-		local host credPath="$(credPath)"; host="$CONSUL_SERVER" || return
-		if ! IsLocalHost "$host"; then
-			echo "Getting the Vault token from '$host' at path $credPath..."
-			token="$(sshRunInteractive "$host" credential get "$credPath" token "${globalArgs[@]}" | RemoveCarriageReturn)"
+		if [[ $token ]]; then
+			log1 "vaultTokenGetRemote: got the Vault token from the credential store"
+			export VAULT_TOKEN="$token"; return
 		fi
+		log1 "vaultTokenGetRemote: the Vault token in the credential store is empty"
 	fi
+	
+	# get the Vault token from the Consul server
+	log1 "vaultTokenGetRemote: looking for the Vault token from the Consul server"
+	local credPath; credPath="$(credPath)" || return
 
-	# unable to get the token
-	if [[ ! $token ]]; then
-		ScriptErr "unable to get the Vault token"
-		return 1
-	fi
+	local host; host="$(productGetServer "consul")" || return
+	IsLocalHost "$host" && { ScriptErr "unable to get the Vault token from the local Consul server"; return; }
 
-	# got the token
-	log1 "vaultTokenGetRemote: got a vault token"
+	echo "Getting the Vault token from '$host' at path $credPath..."
+	token="$(sshRunInteractive "$host" credential get "$credPath" token "${globalArgs[@]}" | RemoveCarriageReturn)" || return
+	[[ ! $token ]] && { ScriptEr "the Vault token at '$host' is empty"; return; }
+	
+	log1 "vaultTokenGetRemote: got the Vault token from '$host'"
 	export VAULT_TOKEN="$token"
 }
 
