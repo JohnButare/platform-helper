@@ -590,7 +590,7 @@ installInit()
 		[rdp]="MicrosoftRemoteDesktop"
 		[rg]="ripgrep"
 		[rsat]="RemoteServerAdministrationTools"
-		[rtc]="RealTimeClick"
+		[rtc]="RealTimeClock"
 		[ss]="SqlServer"
 		[sshkeys]="SshServerHostKeys"
 		[ssms]="SqlServerManagementStudio"
@@ -807,7 +807,7 @@ installInit()
 	macDeb+=(nginx NginxProxyManagerDocker)
 
 	# network
-	deb+=(CloudInit DnsServer DhcpServer DomotzAgent gio kea KeaService keepalived mDNS mtr NetbootxyzTftpServer pivpn TftpClient TftpServer UncomplicatedFirewall wifi)
+	deb+=(bind BindService CloudInit DnsServer DhcpServer DomotzAgent gio kea KeaService keepalived mDNS mtr NetbootxyzTftpServer pivpn TftpClient TftpServer UncomplicatedFirewall wifi)
 	mac+=(proxifier WiFiExplorer)
 	macDeb+=(curlie gping JumpCloud MozillaVpn netbootxyz NetbootxyzDocker nmap traefik unifi wtfis)
 	macWin+=(domotz GlobalProtect NordVpn Tailscale WireGuard WireShark)
@@ -2523,8 +2523,12 @@ appPlatformDebianMinimal()
 
 	i AptUtilities DebianNeedRestart CloudInit nala rsyslog xClient || return
 	pkg fail2ban || return # firewall
-	pkg fake-hwclock || return # set clock early in boot process
 	pkg debian-goodies || return
+
+	# fake clock if needed
+	if ! ClockHelper rtc installed; then
+		pkg fake-hwclock || return # set clock early in boot process
+	fi
 
 	# disable System Security Services Daemon (SSSD)
 	service exists sssd --quiet && { service disable sssd || return; }
@@ -2621,7 +2625,7 @@ AppHostSoftwareInstall()
 	local serverCommon="NetPlan ConsulServer NomadServer"
 	local serverMinimal="docker $serverCommon"; IsPlatform win && serverMinimal+=" hyperv"
 	local serverServices="$serverCommon NomadServerTools PoolDashPanel" # NodeRed HomeAssistantServer HomeAssistantCli HomeAssistantIntegrations
-	local serverCore1="IpStatic $serverCommon ChronyServer DhcpServer DnsServer LoadBalancer rtc"
+	local serverCore1="IpStatic $serverCommon ChronyServer DhcpServer DnsServer LoadBalancer"
 	local fileServer="keepalived ApacheDockerConfig FileServer GitServer NetbootxyzDocker NetbootxyzTftpServer PostgresDockerConfig squid"
 
 	# standard software
@@ -7600,7 +7604,7 @@ NvmFinalWin() { mergeDir "$pp/NVM For Windows" "$do"; }
 # Network
 #################################################
 
-NetworkAllInstall() { i CloudInit curlie domotz domotzAgent fiddler gio GlassWire GlobalProtect gping httpie IpDynamic IpStatic JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn netbootxyz NetbootxyzDocker NetbootxyzTftpServer netplan nginx NicUsb Ninite NordVpn pivpn Proxifier TftpClient TftpServer TigerVnc Traefik Tribler TurboVnc UncomplicatedFirewall unifi wifi WiFiExplorer WireGuard Wireshark wtfis; }
+NetworkAllInstall() { i bind BindService CloudInit curlie domotz domotzAgent fiddler gio GlassWire GlobalProtect gping httpie IpDynamic IpStatic JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn netbootxyz NetbootxyzDocker NetbootxyzTftpServer netplan nginx NicUsb Ninite NordVpn pivpn Proxifier TftpClient TftpServer TigerVnc Traefik Tribler TurboVnc UncomplicatedFirewall unifi wifi WiFiExplorer WireGuard Wireshark wtfis; }
 GlobalProtectInstall() { run --name "Global Protect" "other/Palo Alto Networks/GlobalProtect/GlobalProtect64.msi|GlobalProtect.pkg"; }
 GlobalProtectFinalWin() { mergeDir "$pp/Palo Alto Networks" "$oo"; }
 HttpieInstall() { run --python-global "httpie"; }
@@ -7624,9 +7628,15 @@ BindInstall()
 		pkg bind9 bind9-utils bind9-doc bind9-dnsutils bind9-host || return
 	fi
 
-	# update service file - for Raspberry Pi time synchronization
-	local file="/etc/systemd/system/multi-user.target.wants/named.service"
-	if IsPlatformAll ubuntu,PiKernel && [[ -f "$file" ]] && { [[ $force ]] || ! ${G}grep --quiet "clock-sync" "$file"; }; then
+	iq BindService && hashiConsulService "dns.json"
+}
+
+# BindService - separate service installation, abstract out changes if needed
+BindServiceInstall()
+{
+	# update service file - for Raspberry Pi systems without a hardware clock
+	local file="/usr/lib/systemd/system/named.service"
+	if IsPlatformAll ubuntu,PiKernel && ! ClockHelper rtc installed && [[ -f "$file" ]] && { [[ $force ]] || ! ${G}grep --quiet "time-sync" "$file"; }; then
 		hilight "Updating service..."
 		
 		cat <<-EOF | sudo ${G}tee "$file" > /dev/null || return
@@ -7637,13 +7647,15 @@ BindInstall()
 			Before=nss-lookup.target
 
 			# ensures time is synchronized to prevent broken trust chain errors on systems without clock
-			After=network.target clock-sync.target multi-user.target
+			After=network.target time-sync.target
 
 			[Service]
+			Type=notify
 			EnvironmentFile=-/etc/default/named
 			ExecStart=/usr/sbin/named -f \$OPTIONS
 			ExecReload=/usr/sbin/rndc reload
 			ExecStop=/usr/sbin/rndc stop
+			Restart=on-failure
 
 			[Install]
 			WantedBy=multi-user.target
@@ -7654,7 +7666,6 @@ BindInstall()
 		service restart named || return
 	fi
 
-	hashiConsulService "dns.json"
 }
 
 CloudInitInstall() { header "cloud-init"; cloudInitLimitUser; }
@@ -12091,26 +12102,24 @@ realTimeClockPiKernel()
 	! sudoc i2cdetect -y 1 | sqgrep -E "( 68|UU )" && { pause ScriptErr 'RTC chip not detected, try rebooting'; return 1; }
 
 	# update config.txt if needed
-	local file="/boot/firmware/config.txt"
-	local line="include usercfg.txt"
-	! ${G}grep --quiet "^$line$" "$file" && { echo "$line" | sudo ${G}tee -a "$file" || return; }
+	local file="/boot/firmware/config.txt" line="include usercfg.txt" reboot
+	! ${G}grep --quiet "^$line$" "$file" && { reboot="true"; echo "$line" | sudo ${G}tee -a "$file" || return; }
 
 	# add kernel module
 	local file="/boot/firmware/usercfg.txt"; IsPlatform pi && file="/boot/config.txt"
 	local line="dtoverlay=i2c-rtc,ds3231"
-	if [[ ! -f "$file" ]] || ! ${G}grep --quiet "^$line$" "$file"; then
-		echo "$line" | sudo ${G}tee -a "$file" || return
-		rebootDo || return
-		return 1
-	fi
+	[[ ! -f "$file" ]] || ! ${G}grep --quiet "^$line$" "$file" && { reboot="true"; echo "$line" | sudo ${G}tee -a "$file" || return; }
+
+	# reboot
+	[[ $reboot ]] { echo "After reboot, run 'inst RealTimeClock'"; rebootDo; return 1 }
 
 	# check for RTC
 	! sudo i2cdetect -y 1 | sqgrep -E "UU " && { ScriptErr 'RTC chip not detected'; return 1; }		
 
-	# configure hwclock-set - comment out return
+	# if needed configure hwclock-set - comment out return
 	local file="/lib/udev/hwclock-set"
 	local line="if \[ \-e \/run\/systemd\/system \] \; then"
-	if ${G}grep --quiet "^$line$" "$file"; then
+	if [[ -f "$file" ]] && ${G}grep --quiet "^$line$" "$file"; then
 		sudoc sed -i '/^'"$line"$'/,+2s/^/#/' "$file" || return
 	fi
 
