@@ -2677,7 +2677,7 @@ AppNetworkInstall()
 	# domain
 	case "$(GetDomain)" in
 		butare) 
-			i borgbackup glances hashi unison CredentialSync || return
+			i borgbackup glances hashi unison || return
 			! minimalInstall && { i iTermShellIntegration printers CredentialSync || return; }
 			;;
 		sandia) i RemoteServerAdministrationTools || return;
@@ -7634,38 +7634,44 @@ BindInstall()
 # BindService - separate service installation, abstract out changes if needed
 BindServiceInstall()
 {
-	# update service file - for Raspberry Pi systems without a hardware clock
+	# add time-sync dependency for Raspberry Pi systems without a hardware clock	
+	! { IsPlatformAll ubuntu,PiKernel && ClockHelper rtc installed; } && return
+
+	# check if named is installed
+	[[ ! -d "/etc/bind" ]] && { ScriptErr "the Bind server is not installed"; return 1; }
+
+	# check if already configured
 	local file="/usr/lib/systemd/system/named.service"
-	if IsPlatformAll ubuntu,PiKernel && ! ClockHelper rtc installed && [[ -f "$file" ]] && { [[ $force ]] || ! ${G}grep --quiet "time-sync" "$file"; }; then
-		hilight "Updating service..."
-		
-		cat <<-EOF | sudo ${G}tee "$file" > /dev/null || return
-			[Unit]
-			Description=BIND Domain Name Server
-			Documentation=man:named(8)			
-			Wants=nss-lookup.target
-			Before=nss-lookup.target
+	[[ ! $force ]] && [[ -f "$file" ]] && qgrep "time-sync" "$file" && return
 
-			# ensures time is synchronized to prevent broken trust chain errors on systems without clock
-			After=network.target time-sync.target
+	# update	
+	hilight "Updating service..."
+	
+	cat <<-EOF | sudo ${G}tee "$file" > /dev/null || return
+		[Unit]
+		Description=BIND Domain Name Server
+		Documentation=man:named(8)			
+		Wants=nss-lookup.target
+		Before=nss-lookup.target
 
-			[Service]
-			Type=notify
-			EnvironmentFile=-/etc/default/named
-			ExecStart=/usr/sbin/named -f \$OPTIONS
-			ExecReload=/usr/sbin/rndc reload
-			ExecStop=/usr/sbin/rndc stop
-			Restart=on-failure
+		# ensures time is synchronized to prevent broken trust chain errors on systems without clock
+		After=network.target time-sync.target
 
-			[Install]
-			WantedBy=multi-user.target
-			Alias=bind9.service
-		EOF
+		[Service]
+		Type=notify
+		EnvironmentFile=-/etc/default/named
+		ExecStart=/usr/sbin/named -f \$OPTIONS
+		ExecReload=/usr/sbin/rndc reload
+		ExecStop=/usr/sbin/rndc stop
+		Restart=on-failure
 
-		service refresh || return
-		service restart named || return
-	fi
+		[Install]
+		WantedBy=multi-user.target
+		Alias=bind9.service
+	EOF
 
+	service refresh || return
+	service restart named || return
 }
 
 CloudInitInstall() { header "cloud-init"; cloudInitLimitUser; }
@@ -12111,7 +12117,7 @@ realTimeClockPiKernel()
 	[[ ! -f "$file" ]] || ! ${G}grep --quiet "^$line$" "$file" && { reboot="true"; echo "$line" | sudo ${G}tee -a "$file" || return; }
 
 	# reboot
-	[[ $reboot ]] { echo "After reboot, run 'inst RealTimeClock'"; rebootDo; return 1 }
+	[[ $reboot ]] && { echo "After reboot, run 'inst RealTimeClock'"; rebootDo; return 1; }
 
 	# check for RTC
 	! sudo i2cdetect -y 1 | sqgrep -E "UU " && { ScriptErr 'RTC chip not detected'; return 1; }		
