@@ -25,9 +25,9 @@ mqttServer="mosquitto"
 hashiDnsDomain="service"
 hashiCredentialPath=""
 hashiCertificateDevice="$CLOUD/data/app/CryFS/personal" hashiCertificateDir="data/hashi"
-hashiServers="pi1,pi2,pi3,pi4"
+hashiServers="pi1,pi2,pi3,pi4,pi5"
 hashiClients="pi6,pi7,pi8,pi9,pi10,pi11,rp1,rp2,rp3,rp4"
-hashiVaultServers="pi2,pi1"
+hashiVaultServers="pi4,pi3,pi1"
 
 # HashiCorp Testing
 hashiTestCredentialPath=""

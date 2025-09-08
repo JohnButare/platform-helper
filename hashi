@@ -80,6 +80,7 @@ argEnd()
 	consulHttpPort="8500" consulHttpsPort="8501"
 	nomadHttpPort="4646" nomadHttpsPort="$nomadHttpPort"
 	vaultHttpPort="8200" vaultHttpsPort="$vaultHttpPort"
+	vaultClusterHttpPort="8201" vaultClusterHttpsPort="$vaultClusterHttpPort"
 
 	# product configuration - set product from command if possible
 	if [[ $product ]]; then
@@ -713,7 +714,7 @@ certMakeNomadClient()
 
 certMakeVault()
 {
-	# install consul to create certificates
+	# install vault to create certificates
 	! InPath "vault" && { inst "vault" || return; }
 
 	# create the certificates
@@ -1936,20 +1937,27 @@ installServiceConfig()
 		$networkTarget
 		After=network-online.target$otherDependencies		
 		ConditionFileNotEmpty=$productConfigFile
-		StartLimitIntervalSec=10
-		StartLimitBurst=3
 
 		[Service]
 		Type=$serviceType
+		NotifyAccess=$notifyAccess
 		User=$user
 		Group=$user
+		ProtectSystem=full
+		ProtectHome=read-only
+		PrivateTmp=yes
+		PrivateDevices=yes
+		SecureBits=keep-caps
+		$capabilities
 		$exec
 		EnvironmentFile=$productServiceEnvFile
 		KillMode=process
 		KillSignal=$serviceKillSignal
 		Restart=on-failure
-		RestartSec=2
-		TasksMax=infinity
+		RestartSec=5
+		TimeoutStopSec=$timeoutStopSec
+		StartLimitInterval=60
+		StartLimitBurst=3
 		$serviceLimit
 
 		[Install]
@@ -1963,14 +1971,11 @@ installServiceHost()
 	local type="$1" host="$2"
 	local f hostFqdn hostIp
 	local o="$commonOptions"
-	local networkTarget="Wants=network-online.target"
-	local otherDependencies=""
-	local serviceType="simple"
-	local serviceLimit="LimitNOFILE=infinity"$'\n'"LimitNPROC=infinity"
-	local execStart="$program agent -config=$productConfigDir"
-	local execReload="/bin/kill --signal HUP \$MAINPID"
-	local exectStop=""
-	local serviceKillSignal="SIGINT"
+	local otherDependencies="" capabilities=""
+	local execStart="$program agent -config=$productConfigDir" execReload="/bin/kill --signal HUP \$MAINPID" exectStop="" serviceKillSignal="SIGINT"
+	local networkTarget="Requires=network-online.target"
+	local serviceLimit="LimitMEMLOCK=infinity"$'\n'"LimitNOFILE=infinity"$'\n'"LimitNPROC=infinity"$'\n'"TasksMax=infinity"
+	local serviceType="notify" notifyAccess="none" timeoutStopSec="60"
 
 	# host information
 	hostFqdn="$(hostFqdn "$host")" || return
@@ -2014,7 +2019,7 @@ installServiceHost()
 		$(installServiceTextUser)
 
 		$(installServiceTextDirectories)
-
+		
 		# files
 
 		if [[ \$(sudoc ls -A "$tmpDir/data") ]] && [[ ! \$(sudoc ls -A "$productDataDir") || "$force" ]]; then
@@ -2027,26 +2032,28 @@ installServiceHost()
 		  sudoc install -o "$user" -g "$user" -m 755 -t "$productConfigDir" "$tmpDir/config/"* || exit
 		fi
 
-		if [[ \$(sudoc ls -A "$tmpDir/cert") ]] && [[ ! \$(sudoc ls -A "$certDirService") || "$force" ]]; then
+		if [[ \$(sudoc ls -A "$tmpDir/cert") ]] && [[ ! \$(sudoc ls -A "$certDirService") || (( \$(ls -1 "$tmpDir/cert" | wc -l) > \$(sudoc ls -A "$certDirService" | wc -l) )) || "$force" ]]; then
 		  echo "Copying certificate files..."
 		  sudoc install -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/cert/"* || exit
 		fi
 
 		$(scriptCertStore "$certDirService")
 
+		$(installServiceTextProduct)
+
 		# service		
 
 		if [[ -f "$productServiceFile" && "$force" ]]; then
-			echo "Stopping the service..."
-			sudoc systemctl stop "$product" || exit
+		  echo "Stopping the service..."
+		  sudoc systemctl stop "$product" || exit
 		fi
 
 		if [[ ! -f "$productServiceFile" || "$force" ]]; then
-			echo "Creating service files..."
-			sudoc cp "$tmpDir/$product.service" "$tmpDir/$product.env" "/etc/systemd/system" || exit
-			sudoc systemctl daemon-reload || exit
-			sudoc systemctl enable "$product" || exit
-			sudoc systemctl start "$product" --no-block || exit
+		  echo "Creating service files..."
+		  sudoc cp "$tmpDir/$product.service" "$tmpDir/$product.env" "/etc/systemd/system" || exit
+		  sudoc systemctl daemon-reload || exit
+		  sudoc systemctl enable "$product" || exit
+		  sudoc systemctl start "$product" --no-block || exit
 		fi
 
 		$(scriptCleanup)
@@ -2209,10 +2216,12 @@ installServicePrepConsul()
 	fi
 
 	# service options
-	serviceType="notify"
-	networkTarget="Requires=network-online.target"
+	capabilities="AmbientCapabilities=CAP_NET_BIND_SERVICE"$'\n'"CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_SYSLOG CAP_NET_RAW"
 	execStart="$program agent -config-dir=$productConfigDir"
+	notifyAccess="all"
 	serviceKillSignal="SIGTERM"
+	serviceLimit="LimitMEMLOCK=infinity"$'\n'"LimitNOFILE=65536"$'\n'"LimitNPROC=8192"$'\n'"TasksMax=8192"
+	timeoutStopSec="60"
 }
 
 installServicePrepNomad()
@@ -2284,9 +2293,13 @@ installServicePrepNomad()
 	fi
 
 	# service options
+	capabilities="AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN"$'\n'"CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_SYS_ADMIN CAP_SETUID CAP_SETGID CAP_DAC_OVERRIDE CAP_SYSLOG"
+	networkTarget="Wants=network-online.target"
 	otherDependencies="
 After=consul.service
 Wants=consul.service"
+	serviceLimit="LimitMEMLOCK=infinity"$'\n'"LimitNOFILE=1048576"$'\n'"LimitNPROC=infinity"$'\n'"TasksMax=infinity"
+	timeoutStopSec="120"
 }
 
 installServicePrepVault()
@@ -2320,23 +2333,48 @@ installServicePrepVault()
 
 	# options
 	local token; token="$(product="consul" credGet "token")" || return
-	
+
+	local joinConfig="" joinServer
+	for joinServer in "${joinFqdn[@]}"; do
+		echo $joinServer
+		joinConfig+="$(cat <<-EOF
+		
+		  retry_join {
+		    leader_api_addr = "https://$joinServer:$vaultHttpsPort"
+		  }\n
+			EOF
+		)"		
+	done
+
 	o+="$(cat <<-EOF
+
+		# storage
+		storage "raft" {
+		  path = "/opt/$product/data"
+		  node_id = "$host"
+		  $joinConfig
+		}
+
+		# API listener
 		listener "tcp" {
-		  address = "0.0.0.0:$(productGetPort "$product" "$(protocol)")"$certListenerConfig
+		  address = "0.0.0.0:$vaultHttpsPort"
+		  cluster_address = "0.0.0.0:$vaultClusterHttpsPort"$certListenerConfig
 		}
-		storage "consul" {
-		  token = "$token"
-		  path = "vault/"
-		  address = "127.0.0.1:$(productGetPort "consul" "$(protocol)")"
-		  scheme = "$(protocol)"$certConsulConfig
-		}
+
+		# service registration
 		service_registration "consul" {
 		  token = "$token"
 		  address = "127.0.0.1:$(productGetPort "consul" "$(protocol)")"
 		  scheme = "$(protocol)"$certConsulConfig
 		}
+
+		# Cluster communication
 		api_addr = "https://$hostFqdn:$vaultHttpsPort"\n
+		cluster_addr = "https://$hostFqdn:$vaultClusterHttpsPort"
+
+		# settings
+		cluster_name="vault-prod"
+		disable_mlock = false
 		EOF
 	)"
 
@@ -2346,8 +2384,10 @@ installServicePrepVault()
 	)"
 
 	# service options
+	capabilities="AmbientCapabilities=CAP_IPC_LOCK"$'\n'"CapabilityBoundingSet=CAP_IPC_LOCK CAP_SYSLOG"
 	execStart="$program server -config=$productConfigDir"
-	serviceLimit+=$'\n'"LimitMEMLOCK=infinity"
+	serviceLimit="LimitMEMLOCK=infinity"$'\n'"LimitNOFILE=65536"$'\n'"LimitNPROC=4096"$'\n'"TasksMax=4096"
+	timeoutStopSec="30"
 }
 
 # installServiceServerFinal - called after all servers for a product are installed
@@ -2404,6 +2444,22 @@ installServiceTextDirectories()
 		if ! [[ -d "$certDirService" && -d "$productConfigDir" && -d "$productDataDir" ]] || [[ "$force" ]]; then
 		  echo "Creating directories..."
 		  sudoc install -o "$user" -g "$user" -m 755 -d "$certDirService" "$productConfigDir" "$productDataDir" || exit
+		fi
+	EOF
+}
+
+installServiceTextProduct() { RunFunction "installServiceTextProduct" "$product"; }
+
+installServiceTextProductVault()
+{
+	cat <<-EOF
+		# allow Vault to lock memory (allows disable_mlock = false)
+		sudoc setcap cap_ipc_lock=+ep "$(FindInPath "vault")"		
+
+		# create data directory
+		if [[ "$force" || ! -d "$productDataDir/data" ]]; then
+		  sudoc mkdir --parents "$productDataDir/data" || return
+		  sudoc chown --recursive "$product" "$productDataDir/data" || return
 		fi
 	EOF
 }
@@ -3508,19 +3564,19 @@ serviceRemove()
 
 		# delete service
 		if [[ -f "$productServiceFile" ]]; then
-			echo "Deleting the service..."
-			sudoc systemctl stop "$product" || exit
-			sudoc systemctl disable "$product" || exit
-			sudoc rm -f "$productServiceFile" || exit
-			sudoc systemctl daemon-reload || exit
-			sudoc systemctl reset-failed || exit
+		  echo "Deleting the service..."
+		  sudoc systemctl stop "$product" || exit
+		  sudoc systemctl disable "$product" || exit
+		  sudoc rm -f "$productServiceFile" || exit
+		  sudoc systemctl daemon-reload || exit
+		  sudoc systemctl reset-failed || exit
 		fi
 
 		# remove certificates
 		if [[ -f "$certStoreCa" || -f "$certStoreCaAuto" ]]; then
-			echoc "Removing automatic CA certificate..."
-			sudoc rm -f "$certStoreCa" "$certStoreCaAuto" || exit
-			sudoc update-ca-certificates || return
+		  echoc "Removing automatic CA certificate..."
+		  sudoc rm -f "$certStoreCa" "$certStoreCaAuto" || exit
+		  sudoc update-ca-certificates || return
 		fi
 
 		printf "cleaning..."
@@ -4111,7 +4167,8 @@ hostFqdn()
 # hostJoinInit [HOST...] - set join and joinFqdn to the passed (or default) join servers
 hostJoinInit()
 {
-	join=("$@"); [[ ! $join ]] && configGetArray "servers" "join"
+	local var="servers"; [[ "$product" == "vault" ]] && var="VaultServers"
+	join=("$@"); [[ ! $join ]] && configGetArray "$var" "join"
 	joinFqdn=(); local h; for h in "${join[@]}"; do joinFqdn+=( "$(hostFqdn "$h")" ); done
 }
 
@@ -4653,15 +4710,15 @@ scriptCertStore()
 
 	cat <<-EOF
 		if [[ -f "$dest/$ca" ]] && [[ ! -f "$certStoreCa" || "$force" ]]; then
-			echo "Installing CA certificate..."
-			sudoc cp "$dest/$ca" "$certStoreCa" || exit
-			sudoc update-ca-certificates || exit
+		  echo "Installing CA certificate..."
+		  sudoc cp "$dest/$ca" "$certStoreCa" || exit
+		  sudoc update-ca-certificates || exit
 		fi
 
 		if [[ "$caAuto" && -f "$dest/$caAuto" ]] && [[ ! -f "$certStoreCaAuto" || "$force" ]]; then
-			echo "Installing automatic CA certificate..."
-			sudoc cp "$dest/$caAuto" "$certStoreCaAuto" || exit
-			sudoc update-ca-certificates || exit
+		  echo "Installing automatic CA certificate..."
+		  sudoc cp "$dest/$caAuto" "$certStoreCaAuto" || exit
+		  sudoc update-ca-certificates || exit
 		fi
 	EOF
 }
@@ -4683,7 +4740,7 @@ scriptRun()
 		if [[ -f "$functions" ]]; then 
 		  . "$functions" "" || exit
 		else
-			sudoc() { sudoc "\$@"; }		  
+		  sudoc() { sudoc "\$@"; }		  
 		fi
 
 		$script
@@ -4695,6 +4752,7 @@ scriptRun()
 		header "$(ScriptPrefix)Running Script on $host" >& /dev/stderr; 
 		log1 "$@"
 		HeaderDone >& /dev/stderr
+		pause
 	fi
 
 	# run
