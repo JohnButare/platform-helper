@@ -108,7 +108,7 @@ binNetwork()
 	export BIN="$mountDir/$dirs"
 }
 
-configureNetwork() { RunFunction configureNetwork-$platform; }
+configureNetwork() { RunPlatform configureNetwork; }
 
 configureNetwork-win()
 {
@@ -245,7 +245,7 @@ configureOs()
 	! updateNeeded "os" && return
 
 	hilight "Configuring the operating system..."
-	RunFunction configure-$platform || return
+	RunPlatform configure || return
 	updateDone "os" || return
 }
 
@@ -327,13 +327,6 @@ init()
 		$sudo chmod -R o+w "$DATA/update" || return
 	fi
 
-	# ping
-	ping="ping"
-	isQnap && ping="/opt/bin/ping"
-
-	# path - debian only includes sbin directories in the root users path
-	isDebian && PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" 
-
 	# logging
 	log1 "\n	config=$config\n	user=$user\n	binUnc=$binUnc\n	boostrapCloudDir=$boostrapCloudDir\n	install=$installUnc"
 
@@ -377,11 +370,31 @@ initVariables()
 	binUnc="${binUnc:-$(configGet "${domain}BinUnc")}"
 	boostrapCloudDir="$(configGet "${domain}BootstrapboostrapCloudDir")"
 
-	# GNU utilities	
-	export G=""; inPath "gdate" && isMac && G="g"
+	# utilities	
+	bash="bash" export G="" ping="ping"
 
-	return 0
+	# platform specific variables
+	RunPlatform initVariables || return
 }
+
+initVariables-debian()
+{
+	# debian only includes sbin directories in the root users path
+	PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH"
+}
+
+initVariables-mac()
+{
+	# Homebrew - use newer bash to prevent syntax errors
+	brew="/usr/local/bin/brew"; bash="/usr/local/bin/bash" 
+	isArm && brew="/opt/homebrew/bin/brew" bash="/opt/bin/bash"
+	[[ -f "$brew" ]] && { eval "$($brew shellenv)" || return; }
+
+	# GNU utilities
+	inPath "gdate" && isMac && G="g"
+}
+
+initVariables-qnap() { ping="/opt/bin/ping"; }
 
 #
 # mount
@@ -523,7 +536,7 @@ packageDebWin="acl bc bind9-dnsutils cgroup-tools cifs-utils inotify-tools iputi
 
 installPackages-debian() { package $packageAll $packageDebWin net-tools openssh-server; }
 installPackages-entware() { package $packageAll bash coreutils coreutils-ln coreutils-readlink coreutils-realpath coreutils-tac mount-utils nano openssh-client-utils unzip; }
-installPackages-mac() { package $packageAll bash coreutils gsed grep nmap unzip; }
+installPackages-mac() { package $packageAll bash coreutils gawk gsed grep nmap unzip; }
 installPackages-win() {	package $packageAll $packageDebWin || return; }
 
 installPackages-rh()
@@ -571,7 +584,7 @@ setupPackageManager()
 	! updateNeeded "PackageManager" && return
 
 	hilight "Setting up the package manager..."
-	RunFunction setupPackageManager-$platform || return
+	RunPlatform setupPackageManager || return
 	updateDone "PackageManager" || return
 }
 
@@ -626,13 +639,17 @@ setupPackageManager-entware()
 
 setupPackageManager-mac()
 {
-	local brew="/usr/local/bin/brew"; bash="/usr/local/bin/bash" 
-	isArm && brew="/opt/homebrew/bin/brew" bash="/opt/bin/bash"
+	# install
+	[[ ! -f "$brew" ]] && { "/bin/bash" -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || return; }
 
-	[[ ! -f "$brew" ]] && { /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || return; }
+	# activate
 	eval "$($brew shellenv)"
+
+	# install core packages
 	! brew list bash >& /dev/null && { brew install bash || return; }
-	! which -p gmkdir >&/dev/null && { brew install coreutils || return; }
+	! which -p gawk >&/dev/null && { brew install coreutils gawk || return; }
+
+	# variables
 	G="g"
 }
 
@@ -761,6 +778,7 @@ r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VA
 # functions
 IsFunction() { declare -f "$1" >& /dev/null; }
 RunFunction() { local f="$1"; shift; ! IsFunction "$f" && return; "$f" "$@"; }
+RunPlatform() { RunFunction "$1-$platform" && RunFunction "$1-$platform_like"; } 
 
 # integer
 IsInteger() { [[ "$1" =~ ^[0-9]+$ ]]; }

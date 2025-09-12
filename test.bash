@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# . "${BASH_SOURCE[0]%/*}/function.sh" app color || exit
+. "${BASH_SOURCE[0]%/*}/function.sh" app color || exit
 
 header "Test BASH Script"
 echo BASH_VERSION=$BASH_VERSION
