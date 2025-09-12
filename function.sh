@@ -39,7 +39,7 @@ PlatformConf()
 	. "$file" || return
 
 	# warn
-	[[ $notSet && ! $quiet ]] && echo "PlatformConf: bash.bashrc was not set" >&2
+	[[ $notSet ]] && ! [[ $quietPlatformConf || $quiet ]] && echo "PlatformConf: bash.bashrc was not set" >&2
 
 	return 0
 }
