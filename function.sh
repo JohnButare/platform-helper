@@ -506,7 +506,8 @@ AppVersion()
 			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
 			bat) version="$(bat --version | cut -d" " -f2)";;
-			cfssl) version="$(cfssl version | head -1 | cut -d':' -f 2 | RemoveSpaceTrim)" || return;;
+			btop) allowAlpha="--allow-alpha"; version="$(btop --version  | head -1 | cut -d":" -f2 | RemoveSpaceTrim | RemoveColor)" || return;;
+			cfssl) version="$(cfssl version | head -1 | ${G}cut -d":" -f 2 | RemoveSpaceTrim)" || return;;
 			consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
 			cryfs|cryfs-unmount) version="$(cryfs --version | head -1 | cut -d" " -f3)";;
 			damon) version="$(damon --version | head -1 | cut -d"v" -f2 | cut -d"-" -f1)" || return;;
@@ -1375,6 +1376,13 @@ else
 	}
 
 fi
+
+RemoveColor()
+{
+	InPath ansi2txt && { ansi2txt "$@"; return; }																								# linux
+	InPath ansifilter && { ansifilter --text "$@"; return; }																		# mac
+	${G}sed -r 's/[\x1B\x9B][][()#;?]*(([a-zA-Z0-9;]*\x07)|([0-9;]*[0-9A-PRZcf-ntqry=><~]))//g' # generic
+}
 
 # StringSort STRING [DELIMITER](,)
 StringSort()
