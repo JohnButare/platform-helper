@@ -89,13 +89,13 @@ dirCommand()
 	esac
 }
 
-restoreArgs() { ScriptArgGet "profile" -- "$@"; }
+restoreArgs() { (( ! $# )) && return; ScriptArgGet "profile" -- "$@"; }
 
 restoreCommand()
 {
 	if [[ ! $profile || "$profile" == "default" ]]; then
 		profile="$userProfile"
-		[[ ! -f "$profile" ]] && { echo "profile: no default $app profile found"; return 0; }
+		[[ ! -f "$profile" ]] && { echo "profile: no default '$app' profile found"; return 0; }
 	fi
 
 	[[ "$(GetFileExtension "$profile")" == "" ]] && profile+=".$saveExtension"
