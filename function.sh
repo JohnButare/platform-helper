@@ -4437,6 +4437,7 @@ FindMacApp()
 	# get directory
 	app="$(GetFileNameWithoutExtension "$app")"
 	[[ -d "$P/$app.app" ]] && { echo "$P/$app.app"; return; }
+	[[ -d "/System/Applications/$app.app" ]] && { echo "/System/Applications/$app.app"; return; }
 	[[ -d "$HOME/Applications/$app.app" ]] && { echo "$HOME/Applications/$app.app"; return; }
 	return 1
 }
@@ -4870,8 +4871,10 @@ start()
 		
 		# find the physical app location if possible
 		[[ ! -d "$file" ]] && file="$(GetFileNameWithoutExtension "$file")"
-		[[ ! -d "$file" && -d "$P/$file.app" ]] && file="$P/$file.app"
-		[[ ! -d "$file" && -d "$HOME/Applications/$file.app" ]] && file="$P/$file.app"
+		if [[ ! -d "$file" && -d "$P/$file.app" ]]; then file="$P/$file.app"
+		elif [[ ! -d "$file" && -d "/System/Applications/$file.app" ]]; then file="/System/Applications/$file.app"
+		elif [[ ! -d "$file" && -d "$HOME/Applications/$file.app" ]]; then file="$P/$file.app"
+		fi
 
 		local open=(open "${openArgs[@]}" -a "$file" --args "${args[@]}")
 		(( verboseLevel > 1 )) && ScriptArgs "${open[@]}"
@@ -4883,7 +4886,6 @@ start()
 		local result; result="$("${open[@]}")" && return
 		[[ ! "$result" =~ "Unable to find application named" ]] && { ScriptErrQuiet "$result" "start"; return 1; }
 		StartWaitExists "$file"; return
-
 	fi
 
 	# find file in path
@@ -5671,7 +5673,7 @@ GetTextEditor()
 			if [[ ! $isSsh ]]; then
 				[[ $sublimeProgram ]] && { echo "$sublimeProgram"; return 0; }
 				IsPlatform win && InPath "$P/Notepad++/notepad++.exe" && { echo "$P/Notepad++/notepad++.exe"; return 0; }
-				IsPlatform mac && { echo "TextEdit.app"; return 0; }
+				IsPlatform mac && { echo "/System/Applications/TextEdit.app"; return 0; }
 				IsPlatform win && InPath notepad.exe && { echo "notepad.exe"; return 0; }
 			fi
 
