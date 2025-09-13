@@ -587,6 +587,7 @@ releaseUsage() { ScriptUsageEcho "Usage: $(ScriptName) release [check]"; }
 releaseCommand() { RunPlatform "release"; }
 releaseDebian() { lsb_release -rs | ${G}grep -v "No LSB"; }
 releaseRhel() { rpm --query redhat-release; }
+releaseMac() { versionMac | ${G}cut -d"." -f1-2; } # allow numeric comparison, 15.6.1 -> 15.6
 
 releaseCheckUsage() { ScriptUsageEcho "Usage: $(ScriptName) release check EXPR\nCheck the version, where check is an expression to check the version against, i.e. release check '>= 23.10'."; }
 releaseCheckArgStart() { unset -v check; }
