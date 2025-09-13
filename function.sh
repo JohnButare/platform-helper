@@ -1313,6 +1313,7 @@ ShowChars() { GetArgs; echo -n -e "$@" | ${G}od --address-radix=d -t x1 -t a; } 
 RemoveCarriageReturn()  { sed 's/\r//g'; }
 RemoveNewline()  { tr -d '\n'; }
 RemoveEmptyLines() { awk 'NF { print; }'; }
+RemoveLastEmptyLine() { ${G}sed -i '${/^$/d;}' "$1"; }
 
 RemoveChar() { GetArgs2; echo "${1//${2:- }/}"; }																		# RemoveChar STRING REMOVE
 RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }																	# RemoveEnd STRING REMOVE 
