@@ -47,6 +47,7 @@ preferencesMac() { open "/System/Applications/System Preferences.app"; }
 preferencesWin() { control.exe; }
 
 printersCommand() { RunPlatform printers; }
+printersMac() { open "/System/Library/PreferencePanes/PrintAndScan.prefPane"; }
 printersWin() { start "ms-settings:printers"; }
 
 storeCommand() { RunPlatform store; }
