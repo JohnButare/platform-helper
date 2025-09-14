@@ -220,7 +220,7 @@ fi
 #
 
 InfoPathAdd "/usr/local/share/info"
-ManPathAdd "/usr/local/man" "/usr/local/share/man" "$DATA/man"
+ManPathAdd "/usr/local/man" "/usr/local/share/man" "$DATA/man" "$HOME/.local/man"
 
 case "$PLATFORM_OS" in 
 	linux) PathAdd "/sbin";;
@@ -238,7 +238,7 @@ case "$PLATFORM_ID_LIKE" in
 esac
 
 PathAdd front "$DATA/platform/agnostic" "$PBIN" "$BIN"
-PathAdd "$UBIN"
+PathAdd "$UBIN" "$HOME/.local/bin"
 
 #
 # Interactive Initialization

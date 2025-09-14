@@ -5039,7 +5039,7 @@ PythonConf()
 
 		# add to path
 		local front; IsPlatform mac && front="front"
-		PathAdd "$front" "$PYTHON_USER_BIN" # $HOME/.local/bin
+		PathAdd "$front" "$PYTHON_USER_BIN"
 		
 		PYTHON_CHECKED="true"
 	fi
