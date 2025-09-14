@@ -513,7 +513,10 @@ AppVersion()
 			damon) version="$(damon --version | head -1 | cut -d"v" -f2 | cut -d"-" -f1)" || return;;
 			dbxcli) version="$(dbxcli version | head -1 | sed 's/.* v//')" || return;;
 			dog) version="$(dog --version | head -2 | ${G}tail --lines=-1 | cut -d"v" -f2)" || return;;
-			duf) version="$(duf --version | cut -d" " -f2)" || return;;
+			duf)
+				version="$(duf --version | cut -d" " -f2)" || return
+				! IsNumeric "$version" && IsPlatform mac && { version="$(command ls -l $(FindInPath duf) | ${G}sed 's/^.*duf\///' | ${G}cut -d"/" -f1)" || return; } # mac Homebrew --version is "built from source"
+				;;
 			exa) version="$(exa --version | head -2 | ${G}tail --lines=-1 | cut -d"v" -f2 | cut -d" " -f1)" || return;;
 			eza) version="$(eza --version | head -2 | tail -1 | cut -d" " -f 1 | RemoveFront "v")" || return;;
 			figlet|pyfiglet) version="$(pyfiglet --version | RemoveEnd ".post1")" || return;;
