@@ -1286,16 +1286,19 @@ extractFiles()
 
 extractFilesName()
 {
-	local dir="$1" name="$2"; ! InPath fd && return # fd not installed on bootstrap 
+	local dir="$1" name="$2" type="$3"; ! InPath fd && return # fd not installed on bootstrap 
 	command cd "$dir" || return
 
-	local file files; IFS=$'\n' ArrayMake files "$(fd --max-depth=1 '\.(bz2|gz|tar|tgz|zip)$')"
+	local dest extract file files; IFS=$'\n' ArrayMake files "$(fd --max-depth=1 '\.(bz2|gz|tar|tgz|zip)$')"
 	for file in "${files[@]}"; do
+		
 		file="$(extractRename "$file")" || return
+		dest="$(GetFileNameWithoutExtension "$file")"; [[ $version ]] && ! echo "$dest" | qgrep "$version" && dest+="_$version"
+		extract="$name"; [[ "$type" == "dir" ]] && extract="$(GetFileNameWithoutExtension "$file")/$name"
 
 		echo "Extracting $file..."
 		case "$(GetFileExtension "$file")" in
-			bz2|tar|tgz) tar --file "$file" --extract --to-stdout "$name" > "$(GetFileNameWithoutExtension "$file")" || return;;
+			bz2|tar|tgz) tar --file "$file" --extract --to-stdout "$extract" > "$dest" || return;;
 		esac
 		rm -f "$file" || return
 	done
@@ -1666,7 +1669,7 @@ manageSystem()
 run() 
 {
 	# arguments
-	local args=() cache cd copyLocal dependencies="true" dest elevate extractName header installer name noInstallCheck p pause rename type="extension" version
+	local args=() cache cd copyLocal dependencies="true" dest elevate extractDir extractName header installer name noInstallCheck p pause rename type="extension" version
 
 	while (( $# != 0 )); do
 		local shift=1
@@ -1697,6 +1700,7 @@ run()
 			--copy-local) copyLocal="--copy-local";;
 			--dest|--dest=*|-d|-d=*) ScriptOptGet "dest" "$@";;
 			--elevate) IsPlatform win && elevate="--elevate";;
+			--extract-dir) extractDir="--extract-dir";; 
 			--extract-name) extractName="--extract-name";; 
 			--header|--header=*|-h|-h=*) ScriptOptGet "header" "$@";;
 			--installer|-i) installer="true";; # the specified program is an installer
@@ -1861,7 +1865,8 @@ runTypeExecutable()
 	findFile "$dir" || return; dir="$file"
 
 	# extract the executable from compressed files so we can analyze them
-	if [[ $extractName ]]; then extractFilesName "$dir" "$name" || return
+	if [[ $extractDir ]]; then extractFilesName "$dir" "$name" dir || return
+	elif [[ $extractName ]]; then extractFilesName "$dir" "$name" || return
 	else extractFiles "$dir" || return
 	fi
 
@@ -3815,12 +3820,17 @@ BeyondCompareFinalWin()
 DeltaInstall()
 {	
 	# version
-	local name="delta" v="0.13.0"; header "$name" # https://dandavison.github.io/delta/installation.html
+	local name="delta" v="0.18.2"; header "$name" # https://dandavison.github.io/delta/installation.html
 	! versionCheckApp "$name" "$v" && return
 
+	# defaults
+	[[ ! $installType ]] && IsPlatform mac && installType="package"
+
 	# install
-	if IsPlatform mac; then pkg git-delta
-	elif IsPlatform apt; then run "shareware/delta/git-delta_${v}_$(getArch).deb"
+	if [[ "$installType" == @(|local) ]] && IsPlatform apt; then run --name "$name" "shareware/delta/setup/git-delta_${v}_$(getArch).deb" --no-header
+	elif [[ "$installType" == @(|local) ]]; then run --name "$name" --executable "shareware/delta/image" --version "$v" --extract-name --no-header --no-install-check
+	elif [[ "$installType" == @(|package) ]]; then pkg git-delta
+	elif [[ "$installType" == @(|compile) ]]; then run --rust "git-delta"
 	else couldNotLocate
 	fi
 }
@@ -9656,7 +9666,7 @@ StuiInstall()
 
 ProductivityAllInstall() { i nom prezi; }
 
-nomInstall() { run --name="nom" --executable --extract-name "shareware/nom"; } # https://github.com/guyfedwards/nom/releases
+nomInstall() { run --name="nom" --executable "shareware/nom" --extract-name; } # https://github.com/guyfedwards/nom/releases
 nomProfile() { NomHelper profile restore default; }
 
 preziInstall()
@@ -12353,7 +12363,7 @@ DufInstall()
 	[[ ! $installType ]] && IsPlatform mac && installType="package"
 
 	# install
-	if [[ "$installType" == @(|local) ]] && IsPlatform deb,rhel; then run --name "$name" "shareware/duf/setup/duf_${v}_linux_$(getArch).$(getExt)" --version="$v" --no-header --no-install-check
+	if [[ "$installType" == @(|local) ]] && IsPlatform apt,rpm,yum; then run --name "$name" "shareware/duf/setup/duf_${v}_linux_$(getArch).$(getExt)" --version="$v" --no-header --no-install-check
 	elif [[ "$installType" == @(|local) ]] && ! IsPlatform mac; then run --name "$name" --executable "shareware/duf/image" --version="$v" --extract-name --no-header --no-install-check
 	elif [[ "$installType" == @(|package) ]]; then pkg duf
 	else couldNotLocate
@@ -12371,10 +12381,10 @@ DustInstall()
 
 	# install
 	if [[ "$installType" == @(|local) ]]; then run --name "$name" --executable "shareware/dust/image" --version="$v" --no-header --no-install-check
-	elif [[ "$installType" == @(|package) ]] && IsPlatformAll debian,x64; then run "shareware/dust/setup/du-dust_${v}-1_amd64.deb"
+	elif [[ "$installType" == @(|local) ]] && IsPlatformAll apt,x64; then run "shareware/dust/setup/du-dust_${v}-1_amd64.deb" --no-header
 	elif [[ "$installType" == @(|package) ]] && IsPlatformAll debian,brew; then brew tap tgotwig/linux-dust && brew install dust
-	elif [[ "$installType" == @(|package) ]] && IsPlatform mac; then pkg dust
-	elif [[ "$installType" == @(|compile) ]]; then run --rust "du-dust"
+	elif [[ "$installType" == @(|package) ]]; then pkg dust
+	elif [[ "$installType" == @(|compile) ]]; then run --rust "du-dust" --no-header
 	else couldNotLocate
 	fi
 }
