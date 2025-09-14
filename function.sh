@@ -527,6 +527,7 @@ AppVersion()
 			java) version="$(java --version |& head -1 | cut -d" " -f2)" || return;;
 			jq) version="$(jq --version |& cut -d"-" -f2)" || return;;
 			keepalived) version="$(keepalived --version |& shead -1 | sed 's/.* v//' | cut -d" " -f1)" || return;;
+			lazygit) version="$(lazygit --version | ${G}cut -d"=" -f5 | ${G}cut -d"," -f1)" || return;;
 			minikube) version="$(echo "$(minikube version)" | head -1 | sed 's/.* v//')" || return;; # minicube pipe returns error on mac
 			nginx) version="$(nginx -v |& sed 's/.*nginx\///' | cut -d" " -f1)";;
 			node) version="$(node --version | RemoveFront "v")";;
