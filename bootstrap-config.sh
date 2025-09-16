@@ -76,6 +76,7 @@ butareNoProxy+=",10.10.100.1/22,10.96.0.0/12,192.168.59.0/24,192.168.49.0/24,192
 butareCameraServers="BackShedCamera,BackYardEastCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
 butareBackupUser="$user"
 butareGitServer="git.$butareDnsBaseDomain"					# Git Server
+butareGitAlias="git"
 butareProxyServer="proxy.$butareDnsBaseDomain:3128"	# Forward Proxy Server (Squid), service=proxy.$hbd:3128 ender=10.10.100.9:3128
 butareProxyApps="apt,vars"													# Configure proxy server for these applications, all|apt|os|vars|wpad
 butareSyslogServer="syslog.$butareDnsBaseDomain"		# syslog server for remote system logs
@@ -90,6 +91,7 @@ sandiaBinUnc=""
 sandiaBookmarks="https://ados.sandia.gov/NG/SysAdminTeam/_git/jjbutare-bookmarks"
 sandiaBootstrapCloudDir="/mnt/c/Users/jjbutar/OneDrive - Sandia National Laboratories/data/download"
 sandiaGitServer="ados.sandia.gov"
+sandiaGitAlias="sandia"
 sandiaInstallUnc=""
 sandiaDnsBaseDomain="sandia.gov"
 sandiaDnsDomain="srn.$sandiaDnsBaseDomain"
