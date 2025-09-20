@@ -777,7 +777,7 @@ HashiConf()
 
 	# set environment (slower 5s)
 	log2 "setting the Hashi environment manually" "HashiConf"
-	local vars; vars="$(hashi config environment all --suppress-errors $force $verboseLess)" || return
+	local vars; vars="$(hashi config environment all --suppress-errors "$@")" || return
 	if ! eval "$vars"; then
 		(( verboseLevel > 1 )) && { ScriptErr "invalid environment variables:"; ScriptMessage "$vars"; }
 		ScriptErr "Hashi configuration variables are not valid" "HashiConf"
