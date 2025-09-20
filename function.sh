@@ -765,7 +765,7 @@ HashiConf()
 
 	# configure caching - in Windows use gnome-keyring in available (faster)
 	local cache="true" manager="local"
-	if IsPlatform win && { service running dbus || app start dbus --quiet $force $verbose; } && credential manager IsAvailable --manager=gk && credential manager unlock --manager=gk; then manager="gk"
+	if IsPlatform win && { service running dbus || app start dbus --quiet $force $verbose; } && credential manager IsAvailable --manager=gk && credential manager unlock --quiet --manager=gk; then manager="gk"
 	elif ! credential manager IsAvailable --manager="$manager"; then unset cache
 	fi
 
