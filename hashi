@@ -1968,7 +1968,7 @@ installServiceHost()
 {
 	local type="$1" host="$2"
 	local f hostFqdn hostIp
-	local o="$commonOptions"
+	local o="$commonOptions" # product configuration file options
 	local otherDependencies="" restrictions=""
 	local execStart="$program agent -config=$productConfigDir" execReload="/bin/kill --signal HUP \$MAINPID" exectStop="" serviceKillSignal="SIGINT"
 	local networkTarget="Requires=network-online.target"
@@ -2014,11 +2014,25 @@ installServiceHost()
 	hilight "Running installation..."
 	scriptRun "$host" "$(cat <<-EOF
 
+		#
+		# users
+		#
+
 		$(installServiceTextUser)
 
+		#
+		# directories
+		#
+
 		$(installServiceTextDirectories)
+
+		if [[ $productOtherDirs ]] && [[ ! \$(sudoc ls -A "${productOtherDirs[@]}") || "$force" ]]; then
+			sudoc install -o root -g root -m 755 -d "${productOtherDirs[@]}"" || exit
+		fi
 		
+		#
 		# files
+		#
 
 		if [[ \$(sudoc ls -A "$tmpDir/data") ]] && [[ ! \$(sudoc ls -A "$productDataDir") || "$force" ]]; then
 		  echo "Copying data files..."
@@ -2035,11 +2049,21 @@ installServiceHost()
 		  sudoc install -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/cert/"* || exit
 		fi
 
+		#
+		# certificates
+		#
+
 		$(scriptCertStore "$certDirService")
+
+		#
+		# product
+		#
 
 		$(installServiceTextProduct)
 
-		# service		
+		#
+		# service
+		#
 
 		if [[ -f "$productServiceFile" && "$force" ]]; then
 		  echo "Stopping the service..."
@@ -2053,6 +2077,10 @@ installServiceHost()
 		  sudoc systemctl enable "$product" || exit
 		  sudoc systemctl start "$product" --no-block || exit
 		fi
+
+		#
+		# cleanup
+		#
 
 		$(scriptCleanup)
 		EOF
@@ -2130,7 +2158,7 @@ installServiceForAllHosts()
 
 installServicePrepConsul()
 { 
-	# options
+	# product configuration file options
 	o+="$(cat <<-EOF
 		datacenter = "$datacenter"
 		data_dir = "/opt/$product"
@@ -2240,6 +2268,7 @@ installServicePrepNomad()
 	# port
 	local port; port="$(productGetPort "consul" "$(protocol)")" || return
 
+	# product configuration file options
 	o+="$(cat <<-EOF
 		datacenter = "$datacenter"
 		data_dir = "/opt/$product"
@@ -2299,6 +2328,9 @@ installServicePrepNomad()
 		certInit "nomad" || return
 	fi
 
+	# other directories
+	productOtherDirs+=("/opt/alloc_mounts")
+
 	# service options
 	networkTarget="Wants=network-online.target"
 	otherDependencies="
@@ -2309,6 +2341,7 @@ Wants=consul.service"
 	restrictions="$(cat <<-EOF
 		ProtectSystem=strict
 		ReadWritePaths=/opt/nomad
+		ReadWritePaths=/opt/alloc_mounts
 		ProtectHome=read-only
 		PrivateTmp=yes
 		PrivateDevices=no
@@ -2348,7 +2381,7 @@ installServicePrepVault()
 
 	fi
 
-	# options
+	# product configuration file options
 	local token; token="$(product="consul" credGet "token")" || return
 
 	local joinConfig="" joinServer
@@ -3695,6 +3728,7 @@ serviceVars()
 	# directories	
 	productConfigDir="/etc/$product.d" 
 	productDataDir="/opt/$product"
+	productOtherDirs=()
 
 	# configuration
 	productConfigFileBase="01_$product.hcl"
