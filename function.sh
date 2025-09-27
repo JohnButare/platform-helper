@@ -570,6 +570,8 @@ AppVersionWin()
 {
 	local file="$1" version
 
+	! IsPlatform win && return
+
 	if InPath "wmic.exe"; then # WMIC is deprecated but does not require elevation
 		version="$(RunWin wmic.exe datafile where name="\"$(utw "$file" | QuoteBackslashes)\"" get version /value | RemoveCarriageReturn | grep -i "Version=" | cut -d= -f2)" || return
 	elif CanElevate; then
