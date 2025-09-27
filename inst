@@ -4436,16 +4436,16 @@ MariaDbInstall()
 
 	local wasInstalled; PackageInstalled mariadb-server && wasInstalled="true"
 
-	# add sources if needed
-	local file="/etc/apt/sources.list.d/100-mariadb.list"
-	if [[ $version && ($force || ! -f "$file") ]]; then
+	# repository
+	local file="/etc/apt/sources.list.d/100-mariadb.list" keyFile="/usr/share/keyrings/mariadb_release_signing_key.gpg"
+	if IsPlatform debian && { [[ ! -f "$file" || ! -f "$keyFile" || $force ]]; }; then
 		local codeName; codeName="$(os CodeName)" || return
-		echo "deb https://mirrors.gigenet.com/mariadb/repo/$version/ubuntu $codeName main" | sudoc ${G}tee "$file" || return
-		sudo wget -O "/etc/apt/trusted.gpg.d/mariadb_release_signing_key.asc" "https://mariadb.org/mariadb_release_signing_key.asc" || return
+		curl -fsSL "https://mariadb.org/mariadb_release_signing_key.asc" | sudoc gpg --dearmor -o "$keyFile" || return
+		echo "deb [signed-by=$keyFile] https://mirrors.gigenet.com/mariadb/repo/$version/ubuntu $codeName main" | sudoc ${G}tee "$file" > /dev/null || return
 		PackageUpdate || return
 	fi
 
-	# install package
+	# install
 	pkg mariadb-server || return
 
 	# secure installation
@@ -5446,16 +5446,15 @@ GitHubInstall()
 {
 	# https://cli.github.com/manual/installation
 
-	# Debian
-	local file="/usr/share/keyrings/githubcli-archive-keyring.gpg"
-	if IsPlatform debian && [[ ! -f "$file" || $force ]]; then
-		SudoCheck || return
-		curl -fsSL "https://cli.github.com/packages/githubcli-archive-keyring.gpg" | sudo dd of="$file" || return
-		sudo chmod go+r "$file" || return
-		echo "deb [arch=$(dpkg --print-architecture) signed-by=$file] https://cli.github.com/packages stable main" | sudo tee "/etc/apt/sources.list.d/github-cli.list" > /dev/null
+	# repository
+	local file="/etc/apt/sources.list.d/kubernetes.list" keyFile="/usr/share/keyrings/githubcli-archive-keyring.gpg"
+	if IsPlatform debian && { [[ ! -f "$file" || ! -f "$keyFile" || $force ]]; }; then
+		curl -fsSL "https://cli.github.com/packages/githubcli-archive-keyring.gpg" | sudoc dd of="$keyFile" || return
+		echo "deb [arch=$(dpkg --print-architecture) signed-by=$keyFile] https://cli.github.com/packages stable main" | sudo tee "/etc/apt/sources.list.d/github-cli.list" > /dev/null
 		PackageUpdate || return
 	fi
 
+	# install
 	pkg gh && makeLinkSudo --symbolic "$(FindInPath "gh")" "/usr/local/bin/gh"
 } 
 
@@ -6663,16 +6662,18 @@ homebridgeCore()
 {
 	InPath hb-service && [[ ! $force ]] && return
 
-	if IsPlatform debian; then # https://github.com/homebridge/homebridge/wiki/Install-Homebridge-on-Debian-or-Ubuntu-Linux
-		curl -sSfL "https://repo.homebridge.io/KEY.gpg" | sudo gpg --dearmor | sudo tee "/usr/share/keyrings/homebridge.gpg"  > /dev/null
-		echo "deb [signed-by=/usr/share/keyrings/homebridge.gpg] https://repo.homebridge.io stable main" | sudo tee "/etc/apt/sources.list.d/homebridge.list" > /dev/null
+	# repository
+	local file="/etc/apt/sources.list.d/homebridge.list" keyFile="/usr/share/keyrings/homebridge.gpg"
+	if IsPlatform debian && { [[ ! -f "$file" || ! -f "$keyFile" || $force ]]; }; then
+		curl -fsSL "https://repo.homebridge.io/KEY.gpg" | sudoc dd of="$keyFile" || return
+		echo "deb [signed-by=$file] https://repo.homebridge.io stable main" | sudoc tee "$file" > /dev/null || return
 		PackageUpdate || return
-		pkg homebridge || return
+	fi
 
-	else
-		# https://github.com/homebridge/homebridge/wiki/Install-Homebridge-on-macOS
+	if IsPlatform debian; then # https://github.com/homebridge/homebridge/wiki/Install-Homebridge-on-Debian-or-Ubuntu-Linux
+		pkg homebridge || return	
+	else # https://github.com/homebridge/homebridge/wiki/Install-Homebridge-on-macOS
 		run --node-system homebridge -- homebridge-config-ui-x --unsafe-perm || return
-
 	fi
 
 	[[ ! $noShow ]] && return
@@ -8218,7 +8219,23 @@ NetworkManagerInstall()
 
 NginxInstall()
 {
-	run --header "NGINX" --package "nginx" || return
+	header "NGINX"	
+
+	# dependencies
+	package curl gnupg2 ca-certificates lsb-release || return
+
+	# repository
+	local file="/etc/apt/sources.list.d/nginx.list" keyFile="/usr/share/keyrings/nginx-archive-keyring.gpg" pinFile="/etc/apt/preferences.d/99nginx"
+	if IsPlatform debian && { [[ ! -f "$file" || ! -f "$keyFile" || ! -f "$pinFile" || $force ]]; }; then
+		local codeName; codeName="$(os CodeName)" || return
+		curl -fsSL "https://nginx.org/keys/nginx_signing.key" | sudoc gpg -dearmor -o "$keyFile" || return
+		echo "deb [signed-by=$keyFile] https://nginx.org/packages/mainline/ubuntu $codeName nginx"  | sudoc tee "$file" > /dev/null || return
+		echo -e "Package: *\nPin: origin nginx.org\nPin: release o=nginx\nPin-Priority: 900\n" | sudoc tee "$pinFile" > /dev/null || return
+		PackageUpdate || return
+	fi
+
+	# install
+	run --no-header --package "nginx" || return
 	sudoc ${G}mkdir --parents /var/lib/nginx/cache/{private,public} || return
 	sudo rm /etc/nginx/sites-enabled/default || return
 }
@@ -8458,12 +8475,12 @@ unifiPackage()
 		return 1
 	fi
 
-	# add UniFi sources
-	local file="/etc/apt/sources.list.d/100-ubnt-unifi.list"
+	# repository
+	local file="/etc/apt/sources.list.d/100-ubnt-unifi.list" keyFile="/usr/share/keyrings/unifi-repo.gpg"
 	[[ ! $channel ]] && local channel="testing" # oldstable|stable|testing
-	if [[ $force || ! -f "$file" ]]; then
-		echo "deb https://www.ui.com/downloads/unifi/debian $channel ubiquiti" | sudoc ${G}tee "$file" || return
-		sudo wget -O "/etc/apt/trusted.gpg.d/unifi-repo.gpg" "https://dl.ui.com/unifi/unifi-repo.gpg" || return
+	if IsPlatform debian && { [[ ! -f "$file" || ! -f "$keyFile" || $force ]]; }; then
+		curl -fsSL "https://dl.ui.com/unifi/unifi-repo.gpg" | sudoc dd of="$keyFile" || return
+		echo "deb [signed-by=$keyFile] https://www.ui.com/downloads/unifi/debian $channel ubiquiti" | sudoc tee "$file" > /dev/null || return
 		PackageUpdate || return
 		sudo apt-mark hold openjdk-11-* || return
 	fi
@@ -8799,14 +8816,15 @@ KubeCtlInstall()
 	header "kubectl" # https://kubernetes.io/docs/tasks/tools/
 
 	# repository
-	local file="/etc/apt/sources.list.d/kubernetes.list"
-	if IsPlatform debian && { [[ ! -f "$file" || $force ]]; }; then		
-		sudoc curl -fsSLo "/usr/share/keyrings/kubernetes-archive-keyring.gpg" "https://packages.cloud.google.com/apt/doc/apt-key.gpg" || return
-		echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudoc tee "$file" || return
+	local file="/etc/apt/sources.list.d/kubernetes.list" keyFile="/usr/share/keyrings/kubernetes-archive-keyring.gpg"
+	if IsPlatform debian && { [[ ! -f "$file" || ! -f "$keyFile" || $force ]]; }; then
+		curl -fsSL "https://packages.cloud.google.com/apt/doc/apt-key.gpg" | sudoc dd of="$keyFile" || return
+		echo "deb [signed-by=$keyFile] https://apt.kubernetes.io/ kubernetes-xenial main" | sudoc tee "$file" > /dev/null || return
+		PackageUpdate || return
 	fi
 
-	# package
-	PackageUpdate && pkg kubectl
+	# install
+	pkg kubectl
 }
 
 LensInstall()
@@ -11964,22 +11982,15 @@ SublimeInstall()
 
 sublimePackage()
 {
-	# add package source - https://www.sublimetext.com/docs/linux_repositories.html
-	local packageUpdate file="/etc/apt/sources.list.d/sublime-text.list"
-	if [[ $force || ! -f "$file" ]]; then
-		echo "deb https://download.sublimetext.com/ apt/stable/" | sudoc ${G}tee "$file" || return
-		packageUpdate="true"
+	# repository - https://www.sublimetext.com/docs/linux_repositories.html
+	local file="/etc/apt/sources.list.d/sublime-text.list" keyFile="/usr/share/keyrings/sublimehq-archive.gpg"
+	if IsPlatform debian && { [[ ! -f "$file" || ! -f "$keyFile" || $force ]]; }; then
+		curl -fsSL "https://download.sublimetext.com/sublimehq-pub.gpg" | sudoc dd of="$keyFile" || return
+		echo "deb [signed-by=$keyFile] https://download.sublimetext.com/ apt/stable/" | sudoc tee "$file" > /dev/null || return
+		PackageUpdate || return
 	fi
 
-	local file="/etc/apt/trusted.gpg.d/sublimehq-archive.gpg"
-	if [[ $force || ! -f "$file" ]]; then
-		wget -qO - "https://download.sublimetext.com/sublimehq-pub.gpg" | gpg --dearmor | sudoc tee "$file" > /dev/null || return
-		packageUpdate="true"
-	fi
-
-	[[ $packageUpdate ]] && { PackageUpdate || return; }
-
-	# install package
+	# install
 	run --package sublime-text --no-header || return
 }
 
@@ -13257,29 +13268,18 @@ dockerInstallPackage()
 	IsPlatform mac,win && return
 	[[ ! $force ]] && InPath docker && return
 
+	# repository
 	if IsPlatform pi; then
-		curl -sSL get.docker.com | sh  || return
+		curl -sSL get.docker.com | sh || return
 
-	# https://docs.docker.com/engine/install/ubuntu/	
-	elif IsPlatform ubuntu; then
-		sudov || return
-		pkg ca-certificates curl || return
+	elif IsPlatform ubuntu; then # https://docs.docker.com/engine/install/ubuntu/
+		local file="/etc/apt/sources.list.d/docker.list" keyFile="/etc/apt/keyrings/docker.asc"
+		if IsPlatform debian && { [[ ! -f "$file" || ! -f "$keyFile" || $force ]]; }; then
+			curl -fsSL "https://download.docker.com/linux/ubuntu/gpg" | sudoc dd of="$keyFile" || return
+			echo "deb [arch=$(dpkg --print-architecture) signed-by=$keyFile] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudoc tee "$file" > /dev/null || return
+			PackageUpdate || return
+		fi
 	
-		local packageUpdate file="/etc/apt/sources.list.d/docker.list"
-		if [[ $force || ! -f "$file" ]]; then
-			echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo ${G}tee "$file" || return
-			packageUpdate="true"
-		fi
-
-		local file="/etc/apt/keyrings/docker.asc"
-		if [[ $force || ! -f "$file" ]]; then
-			sudo install -m 0755 -d "/etc/apt/keyrings" || return
-			sudo curl -fsSL "https://download.docker.com/linux/ubuntu/gpg" -o "$file" || return		
-			sudo chmod a+r "/etc/apt/keyrings/docker.asc" || return
-			packageUpdate="true"
-		fi
-
-		[[ $packageUpdate ]] && { PackageUpdate || return; }
 	fi
 
 	# packages
