@@ -74,7 +74,7 @@ butareNoProxy="$noProxyLocal,.$butareDnsBaseDomain,web,www,autoproxy,$noProxyRem
 butareNoProxy+=",10.10.100.1/22,10.96.0.0/12,192.168.59.0/24,192.168.49.0/24,192.168.39.0/24" # minikube - https://minikube.sigs.k8s.io/docs/handbook/vpn_and_proxy/
 
 butareCameraServers="BackShedCamera,BackYardEastCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
-butareBackupUser="$user"
+butareBackupUser="$butareUser"
 butareGitServer="git.$butareDnsBaseDomain"					# Git Server
 butareGitAlias="git"
 butareProxyServer="proxy.$butareDnsBaseDomain:3128"	# Forward Proxy Server (Squid), service=proxy.$hbd:3128 ender=10.10.100.9:3128

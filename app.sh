@@ -6,8 +6,10 @@ AppStart() { AppCommand start "$1"; }
 
 AppGetBackupDir()
 {
+	[[ ! $globalArgs ]] && globalArgs=()
 	local server; server="$(GetServer "file" "${globalArgs[@]}")" || return
-	local dir unc; unc="//$(ConfigGetCurrent "BackupUser")@$server/public/backup" # //user@server/share/dirs:protocol
+	local user; user="$(ConfigGetCurrent "BackupUser")" && [[ $user ]] && user="$user@"
+	local dir unc; unc="//$user$server/public/backup" # //user@server/share/dirs:protocol
 
 	if ! dir="$(unc mount "$unc" "${globalArgs[@]}")"; then # globalArgs not quoted in case it is not set
 		EchoErr "AppGetBackupDir: unable to mount '$unc'"
