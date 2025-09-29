@@ -967,7 +967,7 @@ store()
 UnisonConfDir() { local dir="$HOME/.unison"; IsPlatform mac && dir="$UADATA/Unison"; echo "$dir"; }
 UnisonRootConfDir() { local dir="$(UserHome "root")/.unison"; IsPlatform mac && dir="$(UserHome "root")/Library/Application Support/Unison"; echo "$dir"; }
 UnisonClean() { rm "$(UnisonConfDir)/$1"; }
-UnisonCleanRoot() { sudoc rm "$(UnisonRootConfDir)/$1"; }
+UnisonCleanRoot() { [[ $# == 2 ]] && { SshHelper --interactive "$1" -- UnisonCleanRoot "$2"; return; }; sudoc rm "$(UnisonRootConfDir)/$1"; }
 
 # Zoxide - configure zoxide if it is installed
 ZoxideConf()
