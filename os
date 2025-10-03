@@ -934,7 +934,7 @@ infoRestartDebian()
 	sudov "${globalArgsLessVerbose[@]}" || return
 
 	# get result
-	local result; result="$(sudo needrestart -b)"
+	local result; result="$(sudo needrestart -b 2>&1)" # supress error "Use of uninitialized value $ucode_vars" in needrestart v3.6
 
 	# parse result
 	local kernel services containers sessions
