@@ -24,7 +24,7 @@ init()
 checkUsage()
 {
   ScriptUsageEcho "\
-Usage: $(ScriptName) check [all|win|wsl|server](all)
+Usage: $(ScriptName) check [all|win|wsl|server|skew](all)
 Return 1 if the clock is more than $toleranceSeconds second off of reference time."
 }
 
@@ -32,6 +32,7 @@ checkCommand() { checkAllCommand; }
 checkAllCommand() { isTimeOkWin && isTimeOk; }
 checkWinCommand() { isTimeOkWin; }
 checkWslCommand() { isTimeOk; }
+checkSkewCommand() { getSkewNtp || getSkewChrony; }
 
 checkServerUsage() { ScriptUsageEcho "Usage: $(ScriptName) check server\nReturn 1 if the time server is OK."; }
 
@@ -345,11 +346,26 @@ statusServerCommand()
 #
 
 getSkewChrony() { InPath chronyc && chronyc tracking | grep "^System time" | cut -d" " -f8; }
-getSkewNtp() { InPath ntpdate && ntpdate -q "${host:-$(getTimeServer)}" | ${G}tail --lines=-1 | awk '{ print $(NF-1); }' | RemoveFront "-" | RemoveFront "+"; }
 isInstalledChrony() { InPath chronyc && [[ -f "/etc/chrony/chrony.conf" ]] && service exists chrony && service start chrony --wait --quiet; }
 isInstalledNtp() { ! IsPlatform wsl1 && InPath ntpdate; }
 isInstalledWinTime() { ! IsParallelsVm && CanElevate && service start W32Time --wait --quiet; } # W32Time not needed under Parallels and requires ability to elevate
 ntpDateValidate() { InPath ntpdate && return; ScriptErrQuiet "cannot get time from '$1' using NTP, the ntpdate command was not found"; }
+
+getSkewNtp()
+{
+  InPath ntpdate || return
+  local s; s="$(ntpdate -q "${host:-$(getTimeServer)}" | head -1)" || return
+
+  # (old format) server 10.10.100.6, stratum 3, offset -0.000451, delay 0.0260
+  if [[ "$s" =~ offset ]]; then
+    echo "$s" | tail --lines=-1 | awk '{ print $(NF-1); }' | RemoveFront "-" | RemoveFront "+"
+  
+  # (new format) 2025-10-02 22:07:49.847405 (-0600) +0.002159 +/- 0.000137 time 2606:a300:9024:308::a0a:6406 s3 no-leap
+  else
+    echo "$s" | cut -d" " -f 4 | RemoveFront "-" | RemoveFront "+"
+
+  fi
+}
 
 getTimeServer()
 {
