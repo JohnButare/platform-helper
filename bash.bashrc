@@ -8,10 +8,12 @@ set -a # export variables and functions to child processes
 
 # GetPlatform [host](local) - get the platform for the specified host
 # sets: busybox chroot platformOs platformIdMain platformIdLike platformIdDetail platformKernel machine wsl
-# platformOs=linux|mac|win
-# platformIdMain=dsm|pi|pixel|qts|rhel|rock|srm|ubuntu
-# platformIdLike=debian|openwrt|qnap|synology|ubiquiti
+# platformOs=linux|mac|win - basic OS type
+# platformIdMain=dsm|pi|pixel|qts|rhel|rock|srm|ubuntu - main platform type, usually most specific
+# platformIdLike=debian|openwrt|qnap|synology|ubiquiti - platform based on or underlying hardware
+# platformIdBase=armbian - base platform, usually least specific
 # platformIdDetail=platform:el9 (RedHat)
+# platformKernel=pi|rock|wsl1|wsl2
 # wsl=1|2 (Windows)
 # machine=aarch64|armv7l|mips|x86_64
 # test:  sf; time GetPlatform nas3 && echo "success: $platformOs-$platformIdMain-$platformIdLike"
@@ -62,7 +64,6 @@ exit 0;'
 
 	# evaluate results - set variables based on results
 	# kernel (uname --r) - platformKernel=pi if Ubuntu=6.5.0-1015-raspi, Debian=6.6.28+rpt-rpi-2712
-
 	results="$(
 		eval $results
 
@@ -98,6 +99,9 @@ exit 0;'
 
 		[[ "$ID" == "raspbian" ]] && ID="pi"
 
+		if [[ $ARMBIAN_PRETTY_NAME ]]; then platformIdBase="armbian"
+		fi
+
 		echo busybox=\""$busybox"\"
 		echo chroot=\""$chroot"\"
 		echo platformOs="$platformOs"
@@ -117,7 +121,7 @@ CheckPlatform() # ensure PLATFORM_OS, PLATFORM_ID_MAIN, and PLATFORM_ID_LIKE are
 { 
 	[[ "$PLATFORM_OS" && "$PLATFORM_ID_MAIN" && "$PLATFORM_ID_LIKE" ]] && return
 	GetPlatform || return
-	export CHROOT="$chroot" PLATFORM_OS="$platformOs" PLATFORM_ID_MAIN="$platformIdMain" PLATFORM_ID_LIKE="$platformIdLike" PLATFORM_ID_DETAIL="$platformIdDetail" PLATFORM_KERNEL="$platformKernel" MACHINE="$machine" WSL="$wsl"
+	export CHROOT="$chroot" PLATFORM_OS="$platformOs" PLATFORM_ID_MAIN="$platformIdMain" PLATFORM_ID_LIKE="$platformIdLike" PLATFORM_ID_BASE="$platformIdBase" PLATFORM_ID_DETAIL="$platformIdDetail" PLATFORM_KERNEL="$platformKernel" MACHINE="$machine" WSL="$wsl"
 	unset chroot platform platformIdMain platformIdLike platformIdDetail platformKernel wsl
 }
 

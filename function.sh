@@ -4207,7 +4207,7 @@ IsPlatform()
 	if [[ $useHost && $host ]]; then		
 		ScriptEval HostGetInfo "$host" || return
 	elif [[ ! $useHost ]]; then
-		local _platformTarget="localhost" _platformLocal="true" _platformOs="$PLATFORM_OS" _platformIdMain="$PLATFORM_ID_MAIN" _platformIdLike="$PLATFORM_ID_LIKE" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
+		local _platformTarget="localhost" _platformLocal="true" _platformOs="$PLATFORM_OS" _platformIdMain="$PLATFORM_ID_MAIN" _platformIdLike="$PLATFORM_ID_LIKE" _platformIdBase="$PLATFORM_ID_BASE" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
 
 	# check if the host matches the specified platforms
@@ -4238,6 +4238,7 @@ isPlatformCheck()
 		deb|debian) [[ "$_platformIdMain" == "debian" || "$_platformIdLike" == "debian" ]];;
 		debianbase) [[ "$_platformIdMain" == "debian" && "$_platformIdLike" == "" ]];;
 		debianlike) [[ "$_platformIdLike" == "debian" ]];;
+		armbian) [[ "$p" == "$_platformIdBase" ]];;
 
 		# aliases
 		embedded) IsPlatform pi,piKernel,rock,RockKernel "${hostArg[@]}";;
@@ -4337,6 +4338,7 @@ function GetPlatformFiles()
 	files=()
 
 	[[ -f "$1$PLATFORM_OS$2" ]] && files+=("$1$PLATFORM_OS$2")
+	[[ "$PLATFORM_ID_BASE" != "$PLATFORM_OS" && -f "$1$PLATFORM_ID_BASE$2" ]] && files+=("$1$PLATFORM_ID_BASE2")
 	[[ "$PLATFORM_ID_LIKE" != "$PLATFORM_OS" && -f "$1$PLATFORM_ID_LIKE$2" ]] && files+=("$1$PLATFORM_ID_LIKE$2")
 	[[ "$PLATFORM_ID_MAIN" != "$PLATFORM_OS" && -f "$1$PLATFORM_ID_MAIN$2" ]] && files+=("$1$PLATFORM_ID_MAIN$2")
 	IsPlatform PiKernel && [[ -f "$1pi$2" ]] && files+=("$1pi$2")
@@ -4383,11 +4385,12 @@ function RunPlatform()
 		shift
 		[[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; }
 	else
-		local _platformOs="$PLATFORM_OS" _platformIdMain="$PLATFORM_ID_MAIN" _platformIdLike="$PLATFORM_ID_LIKE" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
+		local _platformOs="$PLATFORM_OS" _platformIdMain="$PLATFORM_ID_MAIN" _platformIdLike="$PLATFORM_ID_LIKE" _platformIdBase="$PLATFORM_ID_BASE" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
 
 	# run platform function
 	[[ $_platformOs ]] && { RunFunction $function $_platformOs -- "$@" || return; }
+	[[ $_platformIdBase ]] && { RunFunction $function $_platformIdBase -- "$@" || return; }
 	[[ $_platformIdLike && "$_platformIdLike" != "$platformOs" ]] && { RunFunction $function $_platformIdLike -- "$@" || return; }
 	[[ $_platformIdMain && "$platformIdMain" != "$platformOs" ]] && { RunFunction $function $_platformIdMain -- "$@" || return; }
 
