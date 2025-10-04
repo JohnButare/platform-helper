@@ -2757,21 +2757,46 @@ AvailableTimeoutSet()
 # IsAvailable HOST [TIMEOUT_MILLISECONDS] - returns true if the host is available
 IsAvailable() 
 { 
-	local host="$1" timeout="${2:-$(AvailableTimeoutGet)}"
+	# arguments
+	local host timeout
+	local verbose verboseLevel verboseLess
 
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--force|-f|-ff|-fff) :;;
+			--no-prompt|-np) :;;
+			--quiet|-q) :;;
+			--test|-t) :;;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			*)
+				if ! IsOption "$1" && [[ ! $host ]]; then host="$1"
+				elif ! IsOption "$1" && [[ ! $timeout ]]; then timeout="$1"
+				else UnknownOption "$1" "IsAvailable"; return
+				fi
+				;;
+		esac
+		shift
+	done
 	[[ $host ]] || return
+	timeout="${timeout:-$(AvailableTimeoutGet)}"
+
+	# localhost
 	IsLocalHost "$host" && return 0
 
 	# resolve the IP address explicitly:
 	# - mDNS name resolution is intermitant (double check this on various platforms)
 	# - Windows ping.exe name resolution is slow for non-existent hosts
-	local ip; ip="$(GetIpAddress --quiet "$host")" || return
+	local ip; ip="$(GetIpAddress --quiet "$host" $quiet $verbose)" || return
 
+	log2 "checking availability on host '$host' with IP "$ip" timeout $timeout" "IsAvailable"
 	if IsPlatform wsl1; then # WSL 1 ping does not timeout quickly for unresponsive hosts, ping.exe does
-	  	RunWin ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes=" &> /dev/null 
+		log3 "ping.exe -n 1 -w $timeout $ip" "IsAvailable"
+  	RunWin ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes=" &> /dev/null 
 	elif InPath fping; then
-		fping -r 1 -t "$timeout" -e "$ip" &> /dev/null
+		log3 "fping --retry 1 --timeout $timeout $ip" "IsAvailable"
+		fping --retry 1 --timeout "$timeout" "$ip" > /dev/null
 	else
+		log3 "ping -c 1 -W 1 $ip" "IsAvailable"
 		ping -c 1 -W 1 "$ip" &> /dev/null # -W timeoutSeconds
 	fi
 }
@@ -3144,6 +3169,7 @@ DnsResolve()
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--no-prompt|-np) :;;
 			--quiet|-q) quiet="--quiet";;
+			--test|-t) :;;
 			--use-alternate|-ua) useAlternate="--use-alternate";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
