@@ -107,6 +107,7 @@ exit 0;'
 		echo platformOs="$platformOs"
 		echo platformIdMain="$ID"
 		echo platformIdLike="$ID_LIKE"
+		echo platformIdBase="$platformIdBase"
 		echo platformIdDetail="$PLATFORM_ID"
 		echo platformKernel="$platformKernel"
 		echo machine="$machine"
