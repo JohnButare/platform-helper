@@ -312,10 +312,23 @@ confNetplanMacGet()
 	fi
 }
 
+# confNetplanMacWarning - display a warninmg if the MAC address is changed.   Return 0 to apply the change, non-zero otherwise.
 confNetplanMacWarning()
 {
+	# return if the MAC address is not changed
 	[[ ! $generateMac ]] && return
+
+	# display the warning
 	echo "MAC address has been changed to '$mac'.   Please update DHCP reservations."
+
+	# if not prompting do not apply the change
+	if [[ $noPrompt ]]; then
+		askp "To apply this change run 'netplan apply'.  This will disconnect the network."
+		return 1
+	fi
+
+	# ask if we should apply the change
+	askp "This will disconnect the network.  Do you want to make this change now"
 }
 
 confNetplanDynamicUsage() { echot "Usage: $(ScriptName) conf netplan dynamic\nConfigure a dynamic IP address."; }
@@ -353,7 +366,7 @@ confNetplanDynamicCommand()
 	sudo chmod go-r "$file" || return
 
 	# cleanup and apply
-	netplanCleanup "$staticFile" && confNetplanMacWarning
+	netplanCleanup "$staticFile" && netplanApply
 }
 
 confNetplanStaticUsage() { echot "Usage: $(ScriptName) conf netplan static\nConfigure a static IP address using the existing IP configuration."; }
@@ -409,7 +422,7 @@ confNetplanStaticCommand()
 	sudo chmod go-r "$file" || return
 
 	# cleanup and apply
-	netplanCleanup "$dynamicFile" && confNetplanMacWarning
+	netplanCleanup "$dynamicFile" && netplanApply
 }
 
 netplanDesc() { echo "netplan"; }
@@ -417,20 +430,29 @@ netplanIsEnabled() { netplanIsInstalled; }
 netplanIsInstalled() { netplanVars && InPath netplan; }
 netplanValidate() { netplanIsInstalled && return; ScriptErrQuiet "Netplan is not installed"; return 1; }
 
-# netplanCleanup [FILE] - cleanup old configuration and apply new configuration
+# netplanCleanup [FILE] - cleanup old configuration
 netplanCleanup()
 {
 	# cleanup old file
 	local file="$1"
 	[[ $file && -f "$file" ]] && { sudoc rm -f "$file" || return; }
 
-	# disable old configuration file
+	# disable old configuration files
 	local file files=("$baseDir/01-network-manage-all.yaml" "$baseDir/50-cloud-init.yaml")
 	for file in "${files[@]}"; do [[ -f "$file" ]] && { sudoc rm "$file" || return; }; done
 
 	# disable cloud-init DHCP
 	cloudInitIsInstalled && { network conf cloud-init disable || return; }
 
+	return 0
+}
+
+netplanApply()
+{
+	# display a warning if the MAC will change and return if we are not applying it now
+	confNetplanMacWarning || return 0
+
+	# apply the change
 	if [[ $noPrompt ]]; then
 		sudoc netplan apply || return
 	else
