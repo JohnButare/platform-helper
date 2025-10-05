@@ -2035,15 +2035,22 @@ GetDnsBaseDomain() { echo "$(ConfigGet "$(GetDomain)DnsBaseDomain")"; }
 GetNetworkDnsDomain() { echo "$(ConfigGet "$(NetworkCurrent)DnsDomain")"; }
 GetNetworkDnsBaseDomain() { echo "$(ConfigGet "$(NetworkCurrent)DnsBaseDomain")"; }
 
-# GetMacAddress HOST|MAC - lookup MAC address or host in /etc/ethers
+# GetMacAddress [HOST|MAC] - get MAC address for the current host, or use /etc/ethers to lookup the host for a MAC address or the MAC address for a host
 GetMacAddress()
 {
-	local arg="${1:-$HOSTNAME}"
+	local arg="$1"
 
+	# localhost
+	IsLocalHost "$arg" && { GetAdapterMacAddress; return; }
+
+	# lookup the host for the given MAC address
 	if IsMacAddress "$arg"; then
 		grep -i "^$1" "/etc/ethers" | cut -d" " -f2
+
+	# lookup the MAC address for the given host
 	else
-		grep -i " ${1:-$HOSTNAME}$" "/etc/ethers" | cut -d" " -f1
+		grep -i " $arg$" "/etc/ethers" | cut -d" " -f1
+
 	fi
 }
 
@@ -2117,7 +2124,7 @@ DhcpValidate()
 	DhcpServers | qgrep "^$host$"
 }
 
-# GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
+# GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter IP address
 # -4|-6 							use IPv4 or IPv6
 # -w|--wsl	get the IP address used by WSL (Windows only)
 GetAdapterIpAddress() 
@@ -2188,7 +2195,8 @@ GetAdapterIpAddress()
 	fi
 }
 
-# GetMacAddress [ADAPTER](primary) - get the MAC address of the specified network adapter
+# GetAdapterMacAddres [ADAPTER](primary) - get MAC address of the specified network adapter
+# -w|--wsl	get the MAC address used by WSL (Windows only)
 GetAdapterMacAddress()
 {
 	local adapter wsl; 
@@ -2222,10 +2230,9 @@ GetAdapterMacAddress()
 		RunWin ipconfig.exe /all | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | \
 			grep "^[ ]*Physical Address" | head -1 | cut -d: -f2 | RemoveSpace | LowerCase | sed 's/-/:/g'
 	else
-		ifconfig "$adapter" | grep "^[ ]*ether " | RemoveSpaceFront | cut -d" " -f2
+		ifconfig "$adapter" | grep "^[ ]*ether " | tr -s '[:blank:]' ' ' | cut -d" " -f3
 	fi
 }	
-
 
 # GetBroadcastAddress - get the broadcast address for the first network adapter
 GetBroadcastAddress()
@@ -2392,7 +2399,7 @@ GetAdapterName()
 	local ip="$1"; [[ ! $ip ]] && { ip="$(GetAdapterIpAddress)" || return; }
 
 	if IsPlatform win; then
-		RunWin ipconfig.exe | grep "$ip" -B 8 | grep " adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
+		RunWin ipconfig.exe | grep "$ip" -B 12 | grep " adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
 	else
 		GetInterface "$@"
 	fi
