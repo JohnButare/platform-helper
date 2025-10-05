@@ -2096,11 +2096,20 @@ DhcpRenew()
 {
 	local adapter="$1";  [[ ! $adapter ]] && adapter="$(GetAdapterName)"
 	local oldIp="$(GetAdapterIpAddress "$adapter")"
+	sudov || return
 
 	if IsPlatform win; then
 		RunWin ipconfig.exe /release "$adapter" || return
 		RunWin ipconfig.exe /renew "$adapter" || return
 		echo
+
+	elif InPath netplan; then
+		sudo netplay apply || return
+
+	elif InPath nmcli; then
+		local connection; connection="$(nmcli -t -f NAME connection show --active | head -n1)" || return
+		sudo nmcli connection down "$connection" || return
+		sudo nmcli connection up "$connection" || return
 
 	elif IsPlatform linux && InPath dhclient; then
 		sudoc dhclient -r || return
