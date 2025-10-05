@@ -2104,7 +2104,7 @@ DhcpRenew()
 		echo
 
 	elif InPath netplan; then
-		sudo netplay apply || return
+		sudo netplan apply || return
 
 	elif InPath nmcli; then
 		local connection; connection="$(nmcli -t -f NAME connection show --active | head -n1)" || return
@@ -2116,7 +2116,7 @@ DhcpRenew()
 		sudoc dhclient || return
 	fi
 
-	echo "Adapter $adapter IP: $oldIp -> $(GetAdapterIpAddress "$adapter")" || return
+	sleep 1 && echo "Adapter $adapter IP: $oldIp -> $(GetAdapterIpAddress "$adapter")"
 }
 
 # DhcpServers - return all DHCPv4 servers on the network
