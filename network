@@ -293,7 +293,34 @@ confNetplanDhcpDisableCommand() { usage; }
 confNetplanDhcpDisable6Command() { netplanDhcpDisable 4; }
 confNetplanDhcpDisable6Command() { netplanDhcpDisable 6; }
 
+confNetplanMacArgStart() { unset -v generateMac; }
+
+confNetplanMacOpt()
+{
+	case "$1" in
+		--generate-mac|-gm) generateMac="--generate-mac";;
+		*) return 1;;
+	esac
+}
+
+confNetplanMacGet()
+{
+	if [[ $generateMac ]]; then
+		MacGenerate
+	else
+		GetMacAddress "$interface"
+	fi
+}
+
+confNetplanMacWarning()
+{
+	[[ ! $generateMac ]] && return
+	echo "MAC address has been changed to '$mac'.   Please update DHCP reservations."
+}
+
 confNetplanDynamicUsage() { echot "Usage: $(ScriptName) conf netplan dynamic\nConfigure a dynamic IP address."; }
+confNetplanDynamicArgStart() { confNetplanMacArgStart "$@"; }
+confNetplanDynamicOpt() { confNetplanMacOpt "$@"; }
 
 confNetplanDynamicCommand()
 {
@@ -301,12 +328,13 @@ confNetplanDynamicCommand()
 
 	# return if no changes
 	local file="$dynamicFile"
-	[[ -f "$file" && ! $force ]] && return
+	[[ -f "$file" && ! $force && ! $generateMac ]] && return
 
 	# get configuration
 	local interface; interface="$(GetInterface)" || return
 	local renderer; renderer="$(netplanRenderer)" || return
 	local ipAddress6Token; ipAddress6Token="$(Ipv6Token "$ipAddress4")" || return
+	local mac; mac="$(confNetplanMacGet)" || return
 
 	# update configuration
 	cat <<-EOF | sudoc ${G}tee "$file" > /dev/null || return
@@ -317,6 +345,7 @@ confNetplanDynamicCommand()
 		      renderer: $renderer
 		      match:
 		        name: $interface # required for systemd-networkd
+		      macaddress: $mac
 		      dhcp4: true
 		      dhcp6: true
 		      ipv6-address-token: "$ipAddress6Token" # IPv4 address
@@ -324,10 +353,12 @@ confNetplanDynamicCommand()
 	sudo chmod go-r "$file" || return
 
 	# cleanup and apply
-	netplanCleanup "$staticFile"
+	netplanCleanup "$staticFile" && confNetplanMacWarning
 }
 
 confNetplanStaticUsage() { echot "Usage: $(ScriptName) conf netplan static\nConfigure a static IP address using the existing IP configuration."; }
+confNetplanStaticArgStart() { confNetplanMacArgStart "$@"; }
+confNetplanStaticOpt() { confNetplanMacOpt "$@"; }
 
 confNetplanStaticCommand()
 {
@@ -335,7 +366,7 @@ confNetplanStaticCommand()
 
 	# return if no changes
 	local file="$staticFile"
-	[[ -f "$file" && ! $force ]] && return
+	[[ -f "$file" && ! $force && ! $generateMac ]] && return
 
 	# get configuration
 	local renderer; renderer="$(netplanRenderer)" || return
@@ -346,6 +377,7 @@ confNetplanStaticCommand()
 	local ipAddress4; ipAddress4="$(GetIpAddress4)" || return
 	local subnetNumber; subnetNumber="$(GetSubnetNumber)" || return
 	local ipAddress6Token; ipAddress6Token="$(Ipv6Token "$ipAddress4")" || return
+	local mac; mac="$(confNetplanMacGet)" || return
 
 	# validate IPv4
 	! IsIpAddress4 "$defaultGatway" && { ScriptErr "the default gateway '$defaultGatway' is not a valid IPv4 address"; return 1; }
@@ -361,6 +393,7 @@ confNetplanStaticCommand()
 		      renderer: $renderer
 		      match:
 		        name: $interface # required for systemd-networkd
+	        macaddress: $mac
 		      dhcp4: false
 		      dhcp6: true
 		      ipv6-address-token: "$ipAddress6Token" # IPv4 address
@@ -376,7 +409,7 @@ confNetplanStaticCommand()
 	sudo chmod go-r "$file" || return
 
 	# cleanup and apply
-	netplanCleanup "$dynamicFile"
+	netplanCleanup "$dynamicFile" && confNetplanMacWarning
 }
 
 netplanDesc() { echo "netplan"; }
