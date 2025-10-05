@@ -2009,7 +2009,7 @@ IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"
 IsIpAddressAny() { GetArgs; IsIpAddress4 "$1" || IsIpAddress6 "$1"; } 																								# IsIpAddressAny [IP] - return true if the IP is a valid IPv4 or IPv6 address
 IsIpAddress4() { IsIpAddress -4 "$@"; }; IsIpAddress6() { IsIpAddress -6 "$@"; } 																			# IsIpAddress4|6 [IP] - return true if the IP is a valid IP address
 IsIpvSupported() { [[ $(GetAdapterIpAddress -$1) ]]; }																																# IsIpvSupported 4|6 - return true if the specified internet protocol supported
-MacGenerate() { openssl rand -hex 6 | sed 's/\(..\)/\1:/g; s/:$//' | sed 's/^\(.\)[13579bdf]/\12/'; } 								# MacGenerate - generate a random locally administered MAC address (second octet is even)
+MacFindLocallyAdministered() { ${G}grep --color=always -P '[0-9a-fA-F][26aAeE](:[0-9a-fA-F]{2}){5}' "$@"; }						# MacFindLocallyAdministered - grep for locally administered MAC addressess
 MacLookup4() { MacLookup -4 "$@"; }; MacLookup6() { MacLookup -6 "$@"; }																							# GetIpAddress[4|6] [HOST] - get the IP address of the current or specified host
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }																																		# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }																													# SmbPasswordIsSet USER - return true if the SMB password for user is set
@@ -2555,6 +2555,22 @@ IsIpStatic()
 {
 	local interface="$1"; [[ ! $interface ]] && { interface="$(GetInterface)" || return; }
 	! ip address show "$interface" | grep "inet " | grep --quiet "dynamic"
+}
+
+# MacGenerate [--all] - generate a random locally administered MAC address (second digit is 2, 6, A, or E)
+# --all - if specified use all valid locally administered digits (2, 6, A, or E), otherwise
+#         the first octet is 02, the most recognizable locally administered octet
+MacGenerate()
+{
+	local all; [[ "$1" =~ "--all" ]] && { all="--all"; shift; }
+	if [[ $all ]]; then
+		local valid_digits=(2 6 a e)
+		local random_digit=${valid_digits[$RANDOM % 4]}
+		printf '%02x' "$((0x$(openssl rand -hex 1) & 0xF0 | 0x$random_digit))"
+	else
+		printf '02'
+	fi
+	printf ':%02x:%02x:%02x:%02x:%02x\n' $(openssl rand -hex 5 | sed 's/../0x& /g')
 }
 
 # MacLookup HOST|IP... - resolve a host name or IP to a MAC address using the ARP table or /etc/ethers
