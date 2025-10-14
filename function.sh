@@ -969,6 +969,9 @@ UnisonRootConfDir() { local dir="$(UserHome "root")/.unison"; IsPlatform mac && 
 UnisonClean() { rm "$(UnisonConfDir)/$1"; }
 UnisonCleanRoot() { [[ $# == 2 ]] && { SshHelper --interactive "$1" -- UnisonCleanRoot "$2"; return; }; sudoc rm "$(UnisonRootConfDir)/$1"; }
 
+UnisonFindTemp() { find . -name '.unison*'; }
+UnisonRemoveTemp() { find . -name '.unison*' -print0 | xargs -0 -I {} rm -fr "{}"; }
+
 # Zoxide - configure zoxide if it is installed
 ZoxideConf()
 {
