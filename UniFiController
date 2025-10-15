@@ -35,7 +35,7 @@ cleanup()
 
 networkUsage() { echot "Usage: $(ScriptName) network [ls](ls)"; }
 networkCommand() { networkLsCommand; }
-networkLsCommand() { api "/stat/device" | jq '.data[1].network_table[] | { network: .name, interface: .gateway_interface_name } | select(.interface != null)'; }
+networkLsCommand() { apiGetDevice | jq '.data[1].network_table[] | { network: .name, interface: .gateway_interface_name } | select(.interface != null)'; }
 
 #
 # Access Point (AP) commands
@@ -199,7 +199,7 @@ infoOpt()
 infoCommand()
 {
 	[[ $summary ]] && { infoSummary; return; }
-	[[ $devices ]] && { api "/stat/device" | jq; return; }
+	[[ $devices ]] && { apiGetDevice | jq; return; }
 	[[ $clients ]] && { api "/stat/sta" | jq; return; }
 	[[ $wired ]] && { api "/stat/sta" | jq '.data | .[] | select(.is_wired == true)'; return; }
 	[[ $wireless ]] && { api "/stat/sta" | jq '.data | .[] | select(.is_wired == false)'; return; }
@@ -247,16 +247,18 @@ lsUsage()
 	ScriptUsageEcho "Usage: $(ScriptName) ls
 List UniFi devices.
 
+	-d, 		 --detail					show more detail
 	-a,	-ap, --access-point		access points
 	-s,	-sw, --switch					switches
 	-g, -gw, --gateway				gateways"
 }
 
-lsArgStart() { unset -v what; }
+lsArgStart() { unset -v detail what; }
 
 lsOpt() 
 {
 	case "$1" in
+		-d|--detail) detail="--detail";;
 		-a|-ap|--access-point) what="uap";;
 		-s|-sw|--switch) what="usw";;
 		-g|-gw|--gateway) what="uxg";;
@@ -268,10 +270,129 @@ lsCommand()
 {
 	local type; [[ $what ]] && type='select(.type == "'$what'") |'
 
-	api "/stat/device" | jq "$(cat <<-EOF
+	if [[ $detail ]]; then
+		apiGetDevice | jq "$(cat <<-EOF
+			.data | .[] |
+			$type
+			"\(.name),\(.model),\(.mac),\(if .lan_ip != null then .lan_ip else .ip end),\(.device_id)"
+			EOF
+		)" | RemoveQuotes
+		return
+	fi
+
+	apiGetDevice | jq "$(cat <<-EOF
 		.data | .[] | $type if .lan_ip != null then .lan_ip else .ip end
 		EOF
 	)" | RemoveQuotes | DnsResolveBatch | sort
+}
+
+#
+# PoE Commands
+#
+
+poeUsage()
+{
+	echot "Usage: $(ScriptName) poe HOST PORT|all on|off|status
+Control PoE ports for host."
+}
+
+poeInit() { unset -v host; port="all"; }
+
+poeArgs()
+{
+	ScriptArgGet "host" -- "$@" || return; shift
+	(( ! $# )) && return
+	ScriptArgGet "port" -- "$@" || return; shift
+}
+
+poeCommand() { usage; }
+
+poeStatusOpt() 
+{
+	case "$1" in
+		-d|--detail) detail="--detail";;
+		*) return 1
+	esac
+}
+
+poeStatusUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) poe status HOST PORT|all
+Show PoE port status.
+
+	-d, 		 --detail					show more detail"
+}
+
+poeStatusArgStart() { unset -v detail; }
+poeStatusCommand() { poeStatus "$host" "$port"; }
+poeEnableCommand() { poeEnable "$host" "$port" true; }
+poeDisableCommand() { poeEnable "$host" "$port" false; }
+
+# poeEnable HOST PORT true|false - enable or disable PoE on the port
+poeEnable()
+{
+	local host="$1" port="$2" mode="auto"; [[ "$3" == "false" ]] && mode="off"
+	local info; info="$(force="--force" deviceInfo "$host")" || return
+	local id; id="$(deviceId "$info")" || return
+	local portInfo; portInfo="$(poeInfo "$info" "$port")" || return
+	local currentMode; currentMode="$(echo "$portInfo" | jq '.poe_mode' | RemoveQuotes)" || return
+
+	# check current status
+	log1 "mode=$mode currentMode=$currentMode"
+	if [[ ! $force && "$currentMode" == "$mode" ]]; then
+		[[ ! $quiet ]] && echo "'$host' port '$port' is already $([[ "$mode" == "off" ]] && echo "disabled" || echo "enabled")"
+		return
+	fi
+
+	# change status
+	local result; result="$(apiPut "/rest/device/$id" "$(cat <<-EOF
+		{
+      "port_overrides": [{
+        "port_idx": $port,
+        "poe_mode": "$mode"
+			}]
+  	}
+		EOF
+	)")" || return
+
+	log2 "$(echo "$result" | jq)"
+}
+
+# poeInfo DEVICE_INFO PORT - return port information from the device information
+poeInfo()
+{
+	local info="$1" port="$2"
+
+	# integer
+	! IsInteger "$port" && { ScriptErr "port '$port' must be numeric"; return ; }
+
+	# in range
+	local portInfo; portInfo="$(echo "$info" | jq '.port_table | .[] | select(.port_idx == '$port')' | RemoveQuotes)" || return
+	[[ ! $portInfo ]] && { ScriptErr "port '$port' is not valid"; return; }
+
+	echo "$portInfo"
+}
+
+poeStatus()
+{
+	local host="$1" port="$2"
+	local info; info="$(force="--force" deviceInfo "$host")" || return	
+	local portDetail='"\(.port_idx),\(.poe_mode),\(.media),\(.speed) Mbps,\(.poe_class),\(.poe_power) W,\(.max_poe_power) W"'
+
+	# all ports
+	if [[ "$port" == "all" ]]; then
+		echo "$info" | jq '.port_table | .[] | '"$portDetail" | RemoveQuotes
+		return
+	fi
+
+	# specific port
+	local portInfo; portInfo="$(poeInfo "$info" "$port")" || return
+
+	if [[ $detail ]]; then
+		echo "$portInfo" | jq "$portDetail" | RemoveQuotes
+	else
+		echo "$portInfo" | jq '.poe_mode' | RemoveQuotes
+	fi
 }
 
 #
@@ -283,8 +404,8 @@ portUsage()
 	echot "Usage: $(ScriptName) port [ls|enable|disable|host](list)
 Perform an API command.
 
-	ls						list all port forwarding rules
-	enable PORT		enable specified port forwarding rule
+	ls							list all port forwarding rules
+	enable PORT			enable specified port forwarding rule
 	disable PORT		disable specified port forwarding rule
 	host PORT HOST 	update the host for the specified port forwarding rule"
 }
@@ -325,7 +446,6 @@ getPortId()
 }
 
 getPorts() { api "/list/portforward"; }
-
 
 #
 # API Helper
@@ -403,6 +523,32 @@ apiError()
 	local rc="$(echo "$json" | jq '.meta.rc' | RemoveQuotes)"
 	[[ "$rc" == "ok" ]] && return
 	ScriptErrQuiet "$(echo "$json" | jq '.meta.msg' | RemoveQuotes)"
+}
+
+apiGetDevice()
+{
+	local cache="unifi-controller-device"
+	[[ ! $force ]] && { UpdateGet "$cache" && return; }
+	local device; device="$(api "/stat/device")" || return
+	UpdateSet "$cache" "$device"
+	echo "$device"
+}
+
+#
+# helper
+#
+
+# deviceInfo INFO - get device ID from device information
+deviceId() { echo "$1" | jq '.device_id' | RemoveQuotes; }
+
+# deviceInfo HOST - get device information for host
+deviceInfo()
+{
+	local host="$1"
+	local mac; mac="$(MacLookup "$host")" || return
+	local info; info="$(apiGetDevice | jq '.data | .[] | select(.mac == "'$mac'")')" || return
+	[[ ! $info ]] && { ScriptErr "'$host' is not a valid Unifi device"; return 1; }
+	echo "$info"
 }
 
 ScriptRun "$@"
