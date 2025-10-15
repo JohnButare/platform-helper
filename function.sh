@@ -4962,7 +4962,9 @@ start()
 		elif [[ ! -d "$file" && -d "$HOME/Applications/$file.app" ]]; then file="$P/$file.app"
 		fi
 
-		local open=(open "${openArgs[@]}" -a "$file" --args "${args[@]}")
+		local open=(open "${openArgs[@]}" -a "$file")
+		[[ ! "$file" =~ TextEdit ]] && open+=(--args) # uses AppleEvents 
+		open+=("${args[@]}")
 		(( verboseLevel > 1 )) && ScriptArgs "${open[@]}"
 
 		# we could not find the app, just try and open it
