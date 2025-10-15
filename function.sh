@@ -2668,7 +2668,7 @@ MacLookup()
 		# get the MAC address - everything else
 		else
 			mac="$(arp "$host")" || return
-			echo "$mac" | ${G}grep --quiet "no entry$" && { ScriptErrQuiet "no MAC address for '$host'" "MacResolve"; return 1; }
+			echo "$mac" | ${G}grep --quiet "no entry$" && { ScriptErrQuiet "no MAC address for '$host'" "MacLookup"; return 1; }
 			local column=3; IsPlatform mac && column=4
 			mac="$(echo "$mac" | tr -s " " | cut -d" " -f${column} | ${G}tail --lines=-1)"
 		fi
