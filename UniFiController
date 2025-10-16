@@ -72,7 +72,7 @@ apiArgs()
 }
 
 apiCommand() { api "$uri" "$json"; }
-apiavailableCommand() { apiInit; }
+apiAvailableCommand() { apiInit; }
 apiPutCommand() { apiPut "$uri" "$json"; }
 
 #
@@ -296,7 +296,7 @@ poeUsage()
 Control PoE ports for host."
 }
 
-poeInit() { unset -v host; port="all"; }
+poeArgStart() { unset -v host; port="all"; }
 
 poeArgs()
 {
@@ -307,14 +307,6 @@ poeArgs()
 
 poeCommand() { usage; }
 
-poeStatusOpt() 
-{
-	case "$1" in
-		-d|--detail) detail="--detail";;
-		*) return 1
-	esac
-}
-
 poeStatusUsage()
 {
 	ScriptUsageEcho "Usage: $(ScriptName) poe status HOST PORT|all
@@ -323,16 +315,36 @@ Show PoE port status.
 	-d, 		 --detail					show more detail"
 }
 
+poeStatusOpt() 
+{
+	case "$1" in
+		-d|--detail) detail="--detail";;
+		*) return 1
+	esac
+}
+
 poeStatusArgStart() { unset -v detail; }
 poeStatusCommand() { poeStatus "$host" "$port"; }
-poeEnableCommand() { poeEnable "$host" "$port" true; }
-poeDisableCommand() { poeEnable "$host" "$port" false; }
+poeOnCommand() { poeEnable "$host" "$port" true; }
+poeOffCommand() { poeEnable "$host" "$port" false; }
 
 # poeEnable HOST PORT true|false - enable or disable PoE on the port
 poeEnable()
 {
-	local host="$1" port="$2" mode="auto"; [[ "$3" == "false" ]] && mode="off"
 	local info; info="$(force="--force" deviceInfo "$host")" || return
+	
+	# SSH turns ports on and off faster
+	if sshAvailable "$info"; then
+		poeEnableSsh "$@"
+	else
+		poeEnableApi "$info" "$@"
+	fi
+}
+
+# poeEnableApi HOST PORT true|false - enable or disable PoE on the port using the API
+poeEnableApi()
+{
+	local info="$1" host="$2" port="$3" mode="auto"; [[ "$4" == "false" ]] && mode="off"	
 	local id; id="$(deviceId "$info")" || return
 	local portInfo; portInfo="$(poeInfo "$info" "$port")" || return
 	local currentMode; currentMode="$(echo "$portInfo" | jq '.poe_mode' | RemoveQuotes)" || return
@@ -358,6 +370,29 @@ poeEnable()
 	log2 "$(echo "$result" | jq)"
 }
 
+# poeEnableSsh HOST PORT true|false - enable or disable PoE on the port using SSH
+poeEnableSsh()
+{
+	local host="$1" port="$2" enable="$3"
+
+	# turn on the switch port
+	if [[ "$enable" == "true" ]]; then
+		sshSwitch "admin@$host" swctrl poe set auto id $port || { ScriptErr "unable to turn on '$host' port '$port'"; return 1; }	
+		return 0
+	fi
+
+	# turn off the switch port - first try can fail
+	if ! sshSwitch "admin@$host" swctrl poe set off id $port; then
+		printf "port..."
+		if ! sshSwitch "admin@$host" swctrl poe set off id $port; then
+			ScriptErr "unable to turn off '$host' port '$port'"
+			return 1
+		fi
+	fi
+
+	return 0	
+}
+
 # poeInfo DEVICE_INFO PORT - return port information from the device information
 poeInfo()
 {
@@ -373,10 +408,22 @@ poeInfo()
 	echo "$portInfo"
 }
 
+# poeStatus HOST PORT
 poeStatus()
 {
-	local host="$1" port="$2"
-	local info; info="$(force="--force" deviceInfo "$host")" || return	
+	local info; info="$(force="--force" deviceInfo "$host")" || return
+
+	# SSH turns ports on and off faster
+	if sshAvailable "$info"; then
+		poeStatusSsh "$@"
+	else
+		poeStatusApi "$info" "$@"
+	fi
+}
+
+poeStatusApi()
+{
+	local info="$1" host="$2" port="$3"
 	local portDetail='"\(.port_idx),\(.poe_mode),\(.media),\(.speed) Mbps,\(.poe_class),\(.poe_power) W,\(.max_poe_power) W"'
 
 	# all ports
@@ -391,10 +438,32 @@ poeStatus()
 	if [[ $detail ]]; then
 		echo "$portInfo" | jq "$portDetail" | RemoveQuotes
 	else
-		echo "$portInfo" | jq '.poe_mode' | RemoveQuotes
+		local mode; mode="$(echo "$portInfo" | jq '.poe_mode' | RemoveQuotes)"
+		case "$mode" in
+			auto) echo "on";;
+			off) echo "off";;
+			*) echo "$mode";;
+		esac
 	fi
 }
 
+poeStatusSsh()
+{
+		local host="$1" port="$2"
+
+	# logging
+	(( verboseLevel > 1 )) && SshHelper connect "admin@$host" "${globalArgsLessVerbose[@]}" -- swctrl poe show id "$port" >& /dev/stderr
+
+	# get the status
+	local result status; status="$(SshHelper connect "admin@$host" "${globalArgsLessVerbose[@]}" -- swctrl poe show id "$port" 2>&1)"
+	if (( $? != 0 )); then
+		[[ "$status" =~ ': Invalid "id"'$ ]] && { ScriptErr "switch '$host' port $port is not valid"; return 1; }
+		EchoErr "$status"; return 1
+	fi
+
+	# parse the status
+	echo "$status" |& cut -c7-13 | grep --quiet "Auto" && echo "on" || echo "off"
+}
 #
 # Port Commands
 #
@@ -538,7 +607,7 @@ apiGetDevice()
 # helper
 #
 
-# deviceInfo INFO - get device ID from device information
+# deviceInfo DEVICE_INFO - get device ID from device information
 deviceId() { echo "$1" | jq '.device_id' | RemoveQuotes; }
 
 # deviceInfo HOST - get device information for host
@@ -550,5 +619,16 @@ deviceInfo()
 	[[ ! $info ]] && { ScriptErr "'$host' is not a valid Unifi device"; return 1; }
 	echo "$info"
 }
+
+# sshAvailable DEVICE_INFO - return true if the device is able to SSH
+sshAvailable()
+{
+	local info="$1"
+	local model; model="$(echo "$info" | jq '.model' | RemoveQuotes)" || return 
+	[[ "$model" != @(USWED37) ]]
+}
+
+# study-desk-old-switch requires ServerAliveInterval >= 2
+sshSwitch() { ssh -o ServerAliveInterval=2 "$@"; }
 
 ScriptRun "$@"
