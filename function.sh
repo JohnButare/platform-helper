@@ -2016,6 +2016,7 @@ IsIpvSupported() { [[ $(GetAdapterIpAddress -$1) ]]; }																										
 IsMacLocallyAdministered() { echo "$1" | MacFindLocallyAdministered > /dev/null; }
 MacFindLocallyAdministered() { ${G}grep --color=always -P '[0-9a-fA-F][26aAeE](:[0-9a-fA-F]{2}){5}' "$@"; }						# MacFindLocallyAdministered - grep for locally administered MAC addressess
 MacLookup4() { MacLookup -4 "$@"; }; MacLookup6() { MacLookup -6 "$@"; }																							# GetIpAddress[4|6] [HOST] - get the IP address of the current or specified host
+MacPad() { awk -F: '{for(i=1;i<=NF;i++) printf "%02s%s", $i, (i<NF ? ":" : "\n")}'; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }																																		# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }																													# SmbPasswordIsSet USER - return true if the SMB password for user is set
 UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }																									# UrlExists URL - true if the specified URL exists
@@ -2718,6 +2719,7 @@ MacLookup()
 
 	# check if got a mac
 	[[ ! $mac ]] && { ScriptErrQuiet "unable to lookup the MAC address for '$host'" "MacResolve"; return 1; }
+	mac="$(echo "$mac" | MacPad)"
 
 	# return the MAC address if not showing detail
 	if [[ ! $detail ]]; then
