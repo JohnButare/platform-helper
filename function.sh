@@ -2415,7 +2415,7 @@ GetAdapterLinkSpeed()
 	if IsPlatform mac; then
 		speed="$(networksetup -getMedia $adapter | grep "^Active:" | ${G}cut -d" " -f2 | sed 's/\([0-9.]*\)Gbase.*/\1*1000/; s/\([0-9]*\)base.*/\1/' | bc | xargs printf "%.0f\n")"
 	elif IsPlatform win; then
-		speed="$(powershell 'Get-NetAdapter | Select-Object Name, Status, LinkSpeed' | grep "^$adapter" | sed 's/ Gbps/*1000/; s/ Mbps//; s/ Kbps/\/1000/' | tr -s " " | cut -d" " -f3 | bc -l | xargs printf "%.0f\n")"
+		speed="$(powershell 'Get-NetAdapter | Select-Object Name, Status, LinkSpeed' | grep "^$adapter" | sed 's/ Gbps/*1000/; s/ Mbps//; s/ Kbps/\/1000/' | tr -s " " | rev | cut -d" " -f1-2 | rev | RemoveCarriageReturn | bc -l | xargs printf "%.0f\n")"
 	elif InPath ethtool; then
 		speed="$(sudoc ethtool "$adapter" | grep Speed | cut -d":" -f2 | RemoveEnd "Mb/s" | RemoveSpace)"
 	fi
