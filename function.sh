@@ -250,6 +250,7 @@ UserExists() { IsPlatform mac && { dscl . -list "/Users" | ${G}grep --quiet "^${
 UserExistsWin() { IsPlatform win || return; net.exe user "$1" >& /dev/null; }
 UserInGroup() { id "$1" 2> /dev/null | ${G}grep --quiet "($2)"; } # UserInGroup USER GROUP
 UserList() { IsPlatform mac && { dscl . -list "/Users"; return; }; getent passwd | cut -d: -f1 | sort; }
+GroupDefault() { ${G}id --group --name; }
 GroupDelete() { local group="$1"; ! GroupExists "$group" && return; IsPlatform mac && { sudoc dscl . delete "/Groups/$group"; return; }; sudoc groupdel "$group"; }
 GroupExists() { IsPlatform mac && { dscl . -list "/Groups" | ${G}grep --quiet "^${1}$"; return; }; getent group "$1" >& /dev/null; }
 GroupList() { IsPlatform mac && { dscl . -list "/Groups"; return; }; getent group; }
