@@ -2013,6 +2013,7 @@ IsIpInCidr() { ! InPath nmap && return 1; nmap -sL -n "$2" | grep --quiet " $1$"
 IsIpAddressAny() { GetArgs; IsIpAddress4 "$1" || IsIpAddress6 "$1"; } 																								# IsIpAddressAny [IP] - return true if the IP is a valid IPv4 or IPv6 address
 IsIpAddress4() { IsIpAddress -4 "$@"; }; IsIpAddress6() { IsIpAddress -6 "$@"; } 																			# IsIpAddress4|6 [IP] - return true if the IP is a valid IP address
 IsIpvSupported() { [[ $(GetAdapterIpAddress -$1) ]]; }																																# IsIpvSupported 4|6 - return true if the specified internet protocol supported
+IsMacLocallyAdministered() { echo "$1" | MacFindLocallyAdministered > /dev/null; }
 MacFindLocallyAdministered() { ${G}grep --color=always -P '[0-9a-fA-F][26aAeE](:[0-9a-fA-F]{2}){5}' "$@"; }						# MacFindLocallyAdministered - grep for locally administered MAC addressess
 MacLookup4() { MacLookup -4 "$@"; }; MacLookup6() { MacLookup -6 "$@"; }																							# GetIpAddress[4|6] [HOST] - get the IP address of the current or specified host
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }																																		# RemovePort NAME:PORT - returns NAME
