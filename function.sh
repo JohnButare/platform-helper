@@ -137,7 +137,14 @@ UpdateInit() { UpdateInitDir && UpdateInitFile "$1"; }
 # UpdateInitDir [dir]($DATA/update) - initialize update directory, sets updateDir
 UpdateInitDir()
 {
-	[[ $1 || ! $updateDir ]] && updateDir="${1:-$DATA/update}"
+	# set updateDir - update file location
+	if [[ $1 || ! $updateDir ]]; then
+		if [[ $1 ]]; then updateDir="${1:-$DATA/update}"
+		elif IsPlatform nomad; then updateDir="$NOMAD_ALLOC_DIR/update" # for HashiCorp Nomad use the same update directory for all allocations
+		else updateDir="$DATA/update"
+		fi
+	fi
+
 	[[ -d "$updateDir" ]] && return
 	${G}mkdir --parents "$updateDir" || return
 	InPath setfacl && { setfacl --default --modify o::rw "$updateDir" || return; }
@@ -4320,7 +4327,7 @@ IsPlatform()
 	[[ $all ]]
 }
 
-# isPlatformCheck p
+# isPlatformCheck - for use by IsPlatform only
 isPlatformCheck()
 {
 	local p="$1"; LowerCase "$p" p
@@ -4360,6 +4367,7 @@ isPlatformCheck()
 
 		# other
 		entware) IsPlatform qnap,synology "${hostArg[@]}";;
+		nomad) [[ $NOMAD_TASK_DIR ]];; # running inside a HashiCorp Nomad task
 
 		*) unset found;;
 	esac
