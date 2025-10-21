@@ -561,15 +561,17 @@ systemd-networkdStatus()
 # current commands
 #
 
-currentUsage() { echot "Usage: $(ScriptName) current find|ls|name|prefix|status|server|servers|update\nCurrent network commands."; }
+currentUsage() { echot "Usage: $(ScriptName) current config|find|ls|name|prefix|status|server|servers|update\nCurrent network commands."; }
 currentCommand() { usage; }
 currentPrefixUsage() { echot "Usage: $(ScriptName) current prefix [length]\nIPv6 prefix of the current network."; }
 currentPrefixCommand() { currentPrefix; }
 currentPrefixLengthCommand() { currentPrefixLength; }
-currentNameUsage() { echot "Usage: $(ScriptName) current name [cached]\nThe name of the current network.  Returns a cached value within specified intervals  unless --force is specified."; }
+currentNameUsage() { echot "Usage: $(ScriptName) current name [cached|validate]\nThe name of the current network.  Returns a cached value within specified intervals  unless --force is specified."; }
 currentNameCommand() { name; }
 currentNameCachedUsage() { echot "Usage: $(ScriptName) current name cached\nThe cached name of the current network."; }
 currentNameCachedCommand() { nameCached; }
+currentNameValidateUsage() { echot "Usage: $(ScriptName) current name cached\nValidate a current network is configured."; }
+currentNameValidateCommand() { nameValidate; }
 currentStatusUsage() { echot "Usage: $(ScriptName) current all\nStatus of the current network."; }
 currentStatusCommand() { currentStatus; }
 
@@ -596,15 +598,19 @@ currentPrefixLength()
 
 # common options
 
-currentUsageOther() { currentUsageBrief; currentUsageTimeout; }
-currentArgStartOther() { currentArgStartBrief && currentArgStartTimeout; }
-currentOptOther() { currentOptBrief "$@" || currentOptTimeout "$@"; }
+currentUsageOther() { currentUsageBrief; currentUsageConfig; currentUsageTimeout; }
+currentArgStartOther() { currentArgStartBrief && currentArgStartConfig && currentArgStartTimeout; }
+currentOptOther() { currentOptBrief "$@" || currentOptConfig "$@" || currentOptTimeout "$@"; }
 
 currentUsageBrief() { EchoWrap "	-b,	--brief			show brief status messages (for use with app script)"; }
 currentArgStartBrief() { unset -v brief; }
 currentOptBrief() { [[ "$1" == @(-b|--brief) ]] || return; brief="--brief"; }
 
-currentUsageTimeout() { EchoWrap "	-t, --timeout	$(ScriptOptTimeoutUsage)"; }
+currentUsageConfig() { EchoWrap "	-c,	--config		update network configuration for hashi, python, proxy"; }
+currentArgStartConfig() { unset -v config; }
+currentOptConfig() { [[ "$1" == @(-c|--config) ]] || return; config="--config"; }
+
+currentUsageTimeout() { EchoWrap "	-t, --timeout		$(ScriptOptTimeoutUsage)"; }
 currentArgStartTimeout() { ScriptOptTimeoutArgStart; }
 currentOptTimeout() { [[ "$1" =~ --timeout|--timeout=*|-t|-t=* ]] || return; ScriptOptTimeout "$@"; }
 
@@ -618,6 +624,130 @@ currentOptNetwork()
 			;;
 		*) return 1;;
 	esac
+}
+
+#
+# current config command
+#
+
+currentConfigUsage() { echot "Usage: $(ScriptName) current config [dns|hashi|python|proxy|all](all)\nConfigure tools for the current network."; }
+currentConfigArgEnd() { network="$(nameValidate)"; }
+currentConfigCommand() { currentConfigAll "$network"; }
+currentConfigDnsCommand() { updateDns "$network"; }
+currentConfigHashiCommand() { updateHashi "$network"; }
+currentConfigPythonCommand() { updatePython "$network"; }
+currentConfigProxyCommand() { updateProxy "$network"; }
+
+# currentConfig network - update configuration based on the new network
+# - update DNS first to enable name resolution so we can find servers on the new network
+currentConfigAll()
+{
+	local network="$1"
+	doLog && header "Configuring '${network^}' Network"
+	[[ $brief && ! $quiet ]] && printf "network."
+	{ updateDns "$network" && updateHashi "$network" && updatePython "$network" && updateProxy "$network"; } || return
+	doLog && { hilight "Network status..."; force= currentStatus || return; }
+	return 0
+}
+
+
+# updateDns NETWORK
+updateDns()
+{
+	local network="$1"
+	doLog && hilight "Updating DNS for the '$network' network..."
+	RunPlatform updateDns && updateHosts "$network"
+}
+
+# updateDnsWsl NETWORK - update /etc/resolv.conf for the current network
+updateDnsWsl()
+{
+	local src="$DATA/setup/resolv.conf.$network" dest="/etc/resolv.conf"
+	[[ ! -f "$src" ]] && src="$DATA/setup/resolv.conf.external"
+	[[ ! -f "$src" ]] && return
+	cmp --quiet "$src" "$dest" >& /dev/null && return
+
+	# update
+	[[ $brief ]] && printf "resolv.conf."
+	[[ ! $quiet ]] && echo "Updating resolv.conf..."
+	log1 "copying '$src' to '$dest'"
+	sudoc cp "$src" "$dest"
+}
+
+# updateDnsMac NETWORK - update /etc/resolver/custom for the current network
+updateDnsMac()
+{
+	local src="$DATA/setup/$network.resolver" dest="/etc/resolver/custom"
+	! [[ -f "$src" ]] && { sudoc rm -f "$dest"; return 0; }
+	cmp --quiet "$src" "$dest" >& /dev/null && return
+
+	# update	
+	[[ $brief ]] && printf "resolver."
+	doLog && echo "Updating resolver..."
+	sudoc ${G}mkdir --parents "/etc/resolver" && sudoc cp "$src" "$dest"
+}
+
+# updateHosts NETWORK - update /etc/hosts for the current network
+updateHosts()
+{
+	local network="$1"
+	local src="$DATA/setup/hosts.$network" dest="/etc/hosts"
+
+	# no hosts file for the current network - restore original /etc/hosts
+	if [[ ! -f "$src" ]]; then
+		[[ -f "$dest.orig" ]] && ! cmp --quiet "$dest.orig" "$dest" && { sudoc cp "$dest.orig" "$dest" || return; }
+		return 0
+	fi
+
+	# current network hosts are already in /etc/hosts
+	[[ ! $force ]] && qgrep --ignore-case "^# $network" "$dest" && return
+
+	# backup original /etc/hosts file if needed
+	[[ ! -f "$dest.orig" ]] && { sudoc cp "$dest" "$dest.orig" || return; }
+
+	# add hosts for this network
+	[[ $brief ]] && printf "hosts."
+	[[ ! $quiet ]] && echo "Updating hosts..."
+	{ echo; cat "$src"; } | sudoc ${G}tee --append "$dest" > /dev/null
+}
+
+# update HashiCorp tool configuration
+updateHashi()
+{
+	local network="$1"
+	doLog && hilight "Updating HashiCorp tools for the '$network' network..."
+	HashiConf -ff "${globalArgs[@]}"
+}
+
+# updateDns NETWORK
+updateProxy()
+{
+	local network="$1"
+	doLog && hilight "Updating proxy configuration for the '$network' network..."
+	proxyUpdateSet
+}
+
+# updatePython NETWORK
+updatePython()
+{
+	local network="$1"
+	local src="$DATA/setup/pip.conf.$network" dest="$HOME/.config/pip/pip.conf"
+
+	# src does not exists
+	if [[ ! -f "$src" ]]; then
+		[[ -f "$dest" ]] && { rm "$dest" || return; }
+		return 0
+	fi
+
+	# return if src and dest are the same
+	cmp --quiet "$src" "$dest" >& /dev/null && return
+
+	# update
+	[[ $brief ]] && printf "pip.conf."
+	doLog && hilight "Updating Python for the '$network' network..."
+	log1 "copying '$src' to '$dest'"
+	local dir="$(GetFilePath "$dest")"; [[ ! -d "$dir" ]] && { ${G}mkdir --parents "$dir" || return; }
+	cp "$src" "$dest" || return
 }
 
 #
@@ -731,7 +861,10 @@ currentUpdateCommand()
 	local networkOld="${network:-unknown}"
 
 	# network was specified 
-	[[ $networkArg ]] && { currentUpdateSpecified; return; }
+	if [[ $networkArg ]]; then
+		[[ ! $force && "$networkArg" == "$network" ]] && return # return if the new network if it is the same as the current network
+		currentUpdateFinish "$networkArg" "$networkOld"; return # finish update
+	fi
 
 	# return if the network was recently updated and we pass quick checks
 	if [[ ! $networkArg && $network ]] && ! UpdateNeeded "$networkCache" && updateCheckQuick; then
@@ -750,31 +883,19 @@ currentUpdateCommand()
 	doLog && { header "Determining Network"; echo "Existing network is ${network:-unknown}"; }
 	doLog && printf "network..."; network="$(findNetwork)" || return
 
-	# configure the new network
-	currentUpdateConfigure "$network" "$networkOld" || return
+	# finish update
+	currentUpdateFinish "$network" "$networkOld"
 }
 
-# currentUpdateSpecified - network was specified as an option
-currentUpdateSpecified()
-{
-	# return if the new network if it is the same as the current network
-	[[ ! $force && "$networkArg" == "$network" ]] && return
-
-	# configure the specified network
-	network="$networkArg"; currentUpdateConfigure "$network" "$networkOld"; return; 
-}
-
-# currentUpdateConfigure network networkOld - update configuration based on the new network - update DNS first to enable name resolution so we can find servers on the new network
-currentUpdateConfigure()
+currentUpdateFinish()
 {
 	local network="$1" networkOld="$2"
 
-	doLog && header "Configuring '${network^}' Network"
-	[[ $brief && ! $quiet ]] && printf "network."
-	{ updateDns && updateHashi && updatePython && updateProxy; } || return
-	{ UpdateSet "$networkCacheOld" "$networkOld" && UpdateSet "$networkCache" "$network"; } || return
-	doLog && { hilight "Network status..."; force= currentStatus || return; }
-	return 0
+	# configure the new network if needed
+	[[ $config ]] && { currentConfigAll "$network" || return; }
+
+	# save the current and old networks
+	UpdateSet "$networkCacheOld" "$networkOld" && UpdateSet "$networkCache" "$network"
 }
 
 # updateCheckDns - check if we have at least one DNS server that is valid for the current network
@@ -802,89 +923,7 @@ updateCheckGateway()
 updateCheckQuick() { RunPlatform updateCheckQuick; }
 updateCheckQuickWsl() { [[ -f "/etc/resolv.conf" ]] && updateCheckDns; } # WSL resolve.conf is reset on WSL restart
 
-# updateDns NETWORK
-updateDns() {	doLog && hilight "Updating DNS for the '$network' network..."; RunPlatform updateDns && updateHosts; }
-
-# updateDnsWsl NETWORK - update /etc/resolv.conf for the current network
-updateDnsWsl()
-{
-	local src="$DATA/setup/resolv.conf.$network" dest="/etc/resolv.conf"
-	[[ ! -f "$src" ]] && src="$DATA/setup/resolv.conf.external"
-	[[ ! -f "$src" ]] && return
-	cmp --quiet "$src" "$dest" >& /dev/null && return
-
-	# update
-	[[ $brief ]] && printf "resolv.conf."
-	[[ ! $quiet ]] && echo "Updating resolv.conf..."
-	log1 "copying '$src' to '$dest'"
-	sudoc cp "$src" "$dest"
-}
-
-# updateDnsMac NETWORK - update /etc/resolver/custom for the current network
-updateDnsMac()
-{
-	local src="$DATA/setup/$network.resolver" dest="/etc/resolver/custom"
-	! [[ -f "$src" ]] && { sudoc rm -f "$dest"; return 0; }
-	cmp --quiet "$src" "$dest" >& /dev/null && return
-
-	# update	
-	[[ $brief ]] && printf "resolver."
-	[[ ! $quiet ]] && echo "Updating resolver..."
-	sudoc ${G}mkdir --parents "/etc/resolver" && sudoc cp "$src" "$dest"
-}
-
-# updateHosts NETWORK - update /etc/hosts for the current network
-updateHosts()
-{
-	local src="$DATA/setup/hosts.$network" dest="/etc/hosts"
-
-	# no hosts file for the current network - restore original /etc/hosts
-	if [[ ! -f "$src" ]]; then
-		[[ -f "$dest.orig" ]] && ! cmp --quiet "$dest.orig" "$dest" && { sudoc cp "$dest.orig" "$dest" || return; }
-		return 0
-	fi
-
-	# current network hosts are already in /etc/hosts
-	[[ ! $force ]] && qgrep --ignore-case "^# $network" "$dest" && return
-
-	# backup original /etc/hosts file if needed
-	[[ ! -f "$dest.orig" ]] && { sudoc cp "$dest" "$dest.orig" || return; }
-
-	# add hosts for this network
-	[[ $brief ]] && printf "hosts."
-	[[ ! $quiet ]] && echo "Updating hosts..."
-	{ echo; cat "$src"; } | sudoc ${G}tee --append "$dest" > /dev/null
-}
-
-# update HashiCorp tool configuration
-updateHashi() {	doLog && hilight "Updating HashiCorp tools for the '$network' network..."; HashiConf -ff "${globalArgs[@]}"; }
-
-# updateDns NETWORK
-updateProxy() { doLog && hilight "Updating proxy configuration for the '$network' network..."; proxyUpdateSet; }
-
-# updatePython NETWORK
-updatePython()
-{
-	local src="$DATA/setup/pip.conf.$network" dest="$HOME/.config/pip/pip.conf"
-
-	# src does not exists
-	if [[ ! -f "$src" ]]; then
-		[[ -f "$dest" ]] && { rm "$dest" || return; }
-		return 0
-	fi
-
-	# return if src and dest are the same
-	cmp --quiet "$src" "$dest" >& /dev/null && return
-
-	# update
-	[[ $brief ]] && printf "pip.conf."
-	doLog && hilight "Updating Python for the '$network' network..."
-	log1 "copying '$src' to '$dest'"
-	local dir="$(GetFilePath "$dest")"; [[ ! -d "$dir" ]] && { ${G}mkdir --parents "$dir" || return; }
-	cp "$src" "$dest" || return
-}
-
-# findNetwork - find the first active network from the networks specified in the networks configuration variabke 
+# findNetwork - find the first active network from the networks specified in the networks configuration variable 
 findNetwork()
 {
 	local network networks=(); StringToArray "$(ConfigGet "networks")" "," networks
@@ -2016,6 +2055,7 @@ Usage: $(ScriptName) vars [dns|proxy]
 Variable commands.
 
 $(currentUsageBrief)
+$(currentUsageConfig)
 	-t, --timeout		$(ScriptOptTimeoutUsage), not used (pass through argument)
 	-u, --update		update network settings for the current network"
 }
@@ -2266,7 +2306,7 @@ watchCommand()
 			log3 "configuredNetwork='$configuredNetwork' currentNetwork='$currentNetwork'"
 			if [[ "$configuredNetwork" != "$currentNetwork" ]]; then
 				echo "The network has changed from '$configuredNetwork' to '$currentNetwork'..."
-				NetworkCurrentUpdate --force || ScriptErr "unable to update the current network"
+				NetworkCurrentUpdate --config --force || ScriptErr "unable to update the current network"
 			fi
 		else
 			ScriptErr "unable to get current networks"
@@ -2334,7 +2374,7 @@ name()
 	local name; name="$(UpdateGet "$networkCache")" && [[ $name ]] && { echo "$name"; return; }
 
 	# no network name identified, try and update it
-	network current update --quiet || return
+	network current update --config --quiet || return
 	name="$(UpdateGet "$networkCache")" && [[ $name ]] && { echo "$name"; return; }
 
 	# unable to identify the network
@@ -2343,6 +2383,13 @@ name()
 }
 
 nameCached() { UpdateGetForce "$networkCache"; }
+
+nameValidate()
+{
+	local name; name="$(UpdateGet "$networkCache")"
+	[[ $name ]] && { [[ ! $quiet ]] && echo "$name"; return 0; }
+	ScriptErrQuiet "the current network is not configured"
+}
 
 # getServersFromConfig NETWORK TYPE - get servers of the specified type for the specified network from configuration, 
 # i.e "getServers butare lb" would look for the butareLbServers configuration variable

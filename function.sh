@@ -73,7 +73,7 @@ SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - spli
 # other
 #
 
-AllConf() { HashiConf "$@" && CredentialConf "$@" && NetworkConf "$@" && SshAgentConf "$@"; }
+AllConf() { HashiConf "$@" && CredentialConf "$@" && NetworkConf --config "$@" && SshAgentConf "$@"; }
 EvalVar() { r "${!1}" $2; } # EvalVar <var> <variable> - return the contents of the variable in variable, or set it to var
 IsInteractiveShell() { [[ "$-" == *i* ]]; } # 0 if we are running at the command prompt, 1 if we are running from a script
 IsUrl() { [[ "$1" =~ ^[A-Za-z][A-Za-z0-9+-]+: ]]; }
@@ -3108,10 +3108,10 @@ WaitForPort()
 NetworkCurrent() { UpdateGetForce "$NETWORK_CACHE"; } # NetworkCurrent - configured current network
 NetworkOld() { UpdateGetForce "$NETWORK_CACHE_OLD"; } # NetworkOld - the previous network
 
-# NetworkCurrentConfig - configure the shell with the current network configuration
-NetworkCurrentConfig() { ScriptEval network vars proxy; HashiConf --force; }
+# NetworkCurrentConfigShell - configure the shell with the current network configuration
+NetworkCurrentConfigShell() { ScriptEval network vars proxy; HashiConf --force; }
 
-# NetworkCurrentUpdate - update the network configuration
+# NetworkCurrentUpdate - update the current network we are on if needed
 NetworkCurrentUpdate()
 {
 	local force forceLevel forceLess; ScriptOptForce "$@"
@@ -3121,7 +3121,7 @@ NetworkCurrentUpdate()
 		network current update "$@" || return
 		ScriptEval network vars proxy "$@" || return
 	else
-		ScriptEval network --quiet --update vars proxy "$@" || return
+		ScriptEval network vars proxy --quiet --update "$@" || return
 	fi
 }
 
