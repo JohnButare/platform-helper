@@ -78,7 +78,7 @@ butareBackupUser="$butareUser"
 butareGitServer="git.$butareDnsBaseDomain"					# Git Server
 butareGitAlias="git"
 butareProxyServer="proxy.$butareDnsBaseDomain:3128"	# Forward Proxy Server (Squid), service=proxy.$hbd:3128 ender=10.10.100.9:3128
-butareProxyApps="apt,vars"													# Configure proxy server for these applications, all|apt|os|vars|wpad
+butareProxyApps="apt,vars"													# Configure proxy server for these applications, all|apt|firefox|npm|os|vars|wpad
 butareSyslogServer="syslog.$butareDnsBaseDomain"		# syslog server for remote system logs
 butareTimeServer="time.butare.net"									# Time Server
 butareVip="10.10.100.6" 														# Virtual IP Address
@@ -100,7 +100,7 @@ sandiaDns2="134.253.16.5"
 sandiaDnsServers="$sandiaDns1 $sandiaDns2"
 sandiaDnsSearch="$sandiaDnsBaseDomain $sandiaDnsDomain ca.$sandiaDnsBaseDomain"
 sandiaProxyServer="proxy.$sandiaDnsBaseDomain:80"
-sandiaProxyApps="apt,vars" # all|apt|os|vars|wpad
+sandiaProxyApps="apt,vars" # all|apt|firefox|npm|os|vars|wpad
 sandiaNoProxy="$noProxyLocal,.$sandiaDnsBaseDomain,$noProxyRemote"
 sandiaVaultUrl="https://csep-vault.sandia.gov"
 sandiaVaultStoreDefault="${USER}@sandia.gov-kv"

@@ -2038,8 +2038,8 @@ curl()
 }
 
 # proxy
-ProxyEnable() { ScriptEval network proxy set vars --enable; network proxy set vars --status; }
-ProxyDisable() { ScriptEval network proxy set vars --disable; network proxy set vars --status; }
+ProxyEnable() { ScriptEval network proxy config vars --enable; network proxy config vars --status; }
+ProxyDisable() { ScriptEval network proxy config vars --disable; network proxy config vars --status; }
 ProxyStatus() { network proxy status; }
 
 # GetDns - get DNS informationm for the computer, or the network the computer is in

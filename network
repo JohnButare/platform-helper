@@ -630,7 +630,7 @@ currentOptNetwork()
 # current config command
 #
 
-currentConfigUsage() { echot "Usage: $(ScriptName) current config [dns|hashi|python|proxy|all](all)\nConfigure tools for the current network."; }
+currentConfigUsage() { echot "Usage: $(ScriptName) current config [dns|hashi|python|proxy|all](all)\nConfigure applications for the current network."; }
 currentConfigArgEnd() { network="$(nameValidate)"; }
 currentConfigCommand() { currentConfigAll "$network"; }
 currentConfigDnsCommand() { updateDns "$network"; }
@@ -1504,14 +1504,14 @@ profileSetCommand()
 
 proxyUsage()
 { 
-	echot "Usage: $(ScriptName) proxy [check|server|set|status|update|validate](status)
+	echot "Usage: $(ScriptName) proxy [check|config|server|status|update|validate](status)
 Network proxy server commands."
 }
 
 proxyCommand() { proxyStatusCommand; }
 
 proxyValidateUsage() { echot "Usage: $(ScriptName) proxy validate\nCheck the proxy server and enable or disable local configuration.  Useful if the proxy configuration is not in sync."; }
-proxyValidateCommand() { proxyValidate "proxySetAll"; }
+proxyValidateCommand() { proxyValidate "proxyConfigAll"; }
 proxyValidate() { local command="$1"; proxyUpdate || return; proxyEnableValidate && command+="Enable" || command+="Disable"; "$command"; }
 
 #
@@ -1560,6 +1560,346 @@ proxyCheckDo()
 	log3 "checking proxy server '$server' using URL '$url', expecting result '$checkUrlResult' (waiting 1 second)"
 	[[ "$(RunLog3 curl --silent --proxy "$server" --max-time 1 "$url")" == "$checkUrlResult" ]]
 }
+
+#
+# proxy config commands
+#
+
+proxyConfigUsage()
+{ 
+	echot "Usage: $(ScriptName) proxy config [all|domain|apt|firefox|os|vars|wpad](all)
+Configure applications for the current proxy server configuration.
+
+$(currentUsageBrief)
+	-e, --enable		enable the proxy server configuration
+	-d, --disable		disable the proxy server configuration
+	-s, --status		show the status of the proxy server configuration
+	-v, --validate	check if the proxy server is usable and enable or disable the configuration"
+}
+
+proxyConfigArgStart() { unset action; currentArgStartBrief; }
+
+proxyConfigOpt() 
+{
+	currentOptBrief "$@" && return
+	case "$1" in
+		-d|--disable) action="disable";;
+		-e|--enable) action="enable";;
+		-s|--status) action="status";;
+		-V|--validate) action="validate";;
+		*) return 1
+	esac
+}
+
+proxyConfigCommand() { proxyConfigAllCommand; }
+
+#
+# proxy config all command
+#
+
+proxyConfigAllUsage() { echot "Usage: $(ScriptName) proxy all\Configure all applications for the current proxy configuration (APT, Firefox, npm, os, vars)."; }
+proxyConfigAllCommand() { [[ ! $action ]] && action="status"; proxyConfigAll${action^}; }
+proxyConfigAllDisable() { eval "$(proxyConfigVarsEnable)" && proxyConfigAptDisable && proxyConfigFirefoxDisable && proxyConfigNpmDisable && proxyConfigOsDisable && proxyConfigVarsDisable; }
+proxyConfigAllEnable() { eval "$(proxyConfigVarsDisable)" && proxyConfigAptEnable && proxyConfigFirefoxEnable && proxyConfigNpmEnable && proxyConfigOsEnable && proxyConfigVarsEnable; }
+proxyConfigAllValidate() { eval "$(proxyConfigVarsValidate)" && proxyConfigAptValidate && proxyConfigFirefoxValidate && proxyConfigNpmValidate && proxyConfigOsValidate && proxyConfigVarsValidate; }
+
+proxyConfigAllStatus()
+{
+	if [[ $verbose ]]; then
+		isAptInstalled && { printf "apt="; proxyConfigAptStatus; }
+		printf "os="; proxyConfigOsStatus
+		printf "variables="; verbose= proxyConfigVarsStatus
+		firefoxValidate && { printf "firefox="; proxyConfigFirefoxStatus; }
+	else
+		isAptInstalled && echo "apt=$(proxyConfigAptStatus)"
+		supportOsProxy && echo "os=$(proxyConfigOsStatus)"
+		echo "variables=$(proxyConfigVarsStatus)"
+		firefoxValidate && echo "firefox=$(proxyConfigFirefoxStatus)"
+	fi
+
+	return 0
+}
+
+#
+# proxy config domain command
+#
+
+proxyConfigDomainUsage() { echot "Usage: $(ScriptName) proxy all\nSet proxy configuration required for the domain."; }
+proxyConfigDomainCommand() { [[ ! $action ]] && action="status"; proxyConfigDomain${action^}; }
+proxyConfigDomainEnable() { proxyConfigDomain "enable"; }
+proxyConfigDomainDisable() { proxyConfigDomain "disable"; }
+proxyConfigDomainStatus() { proxyConfigDomain "status"; }
+proxyConfigDomainValidate() { proxyConfigDomain "validate"; }
+
+proxyConfigDomain()
+{
+	local action="$1" app apps=(); StringToArray "$(ConfigGet "$(GetDomain)ProxyApps")" "," apps
+	for app in "${apps[@]}"; do
+		local prefix; [[ "$app" == @(vars) ]] && prefix="ScriptEval"
+		$prefix "proxyConfig${app^}${action^}" || return
+	done
+}
+
+#
+# proxy config apt command
+#
+
+proxyConfigAptUsage() { echot "Usage: $(ScriptName) proxy config apt\nConfigure APT proxy settings."; }
+proxyConfigAptCommand() { [[ ! $action ]] && action="status"; proxyConfigApt${action^}; }
+proxyConfigAptDisable() { { ! isAptInstalled || [[ ! -f "$aptFile" ]]; } && return; log1 "proxy disable APT"; sudoc rm "$aptFile"; }
+proxyConfigAptValidate() { proxyValidate "proxyConfigApt"; }
+
+proxyConfigAptStatus()
+{
+	! isAptInstalled && return
+	[[ ! -f "$aptFile" ]] && { echo "disabled"; return; }
+	echo "enabled"; [[ $verbose ]] && cat "$aptFile"; return 0;
+}
+
+proxyConfigAptEnable()
+{	
+	# return if APT is not installed
+	! isAptInstalled && return
+
+	# disable APT proxy if cannot enable the proxy server
+	proxyEnableValidate || { proxyConfigAptDisable; return; }
+
+	# return if APT proxy is already enabled
+	local server="$(proxyServerGetApt)"
+	[[ ! $force ]] && [[ -f "$aptFile" ]] && grep -q "$server" "$aptFile" && return
+
+	# set APT proxy server
+	log1 "proxy enable APT"
+	echo "Acquire::http::Proxy \"http://$server\";
+Acquire::https::Proxy \"http://$server\";" | sudoc tee "$aptFile" >& /dev/null
+}
+
+isAptInstalled() { [[ -d "/etc/apt" ]]; }
+
+# isAptProxyNeeded - return true if we need to use an APT proxy
+# - APT proxy is not needed if we are using internal sources (that are in our domain.)
+isAptProxyNeeded()
+{
+	isProxyNeeded && isAptInstalled && ! grep --quiet "$(GetNetworkDnsBaseDomain)" "/etc/apt/sources.list"
+}
+
+#
+# proxy config firefox command
+#
+
+proxyConfigFirefoxUsage() { echot "Usage: $(ScriptName) proxy config firefox\nConfigure Firefox proxy settings."; }
+proxyConfigFirefoxCommand() { [[ ! $action ]] && action="status"; proxyConfigFirefox${action^}; }
+proxyConfigFirefoxDisable() { ! firefoxValidate && return; log1 "proxy disable Firefox"; firefox config set "network.proxy.type" "0" "${globalArgs[@]}"; } # 0=none
+proxyConfigFirefoxValidate() { ! firefoxValidate && return; proxyValidate "proxyConfigFirefox"; }
+
+proxyConfigFirefoxEnable()
+{
+	! firefoxValidate && return
+
+	# disable Firefox proxy if cannot enable the proxy server
+	proxyEnableValidate || { proxyConfigFirefoxDisable; return; }
+
+	# enable Firefox proxy - 4=auto
+	log1 "proxy enable Firefox"; firefox config set "network.proxy.type" "4" "${globalArgs[@]}"; 
+}
+
+proxyConfigFirefoxStatus()
+{
+	! firefoxValidate && return
+
+	# get Firefox proxy status
+	local type; type="$(firefox config get "network.proxy.type" "${globalArgs[@]}")" || return
+	[[ ! $type || "$type" == "0" ]] && echo "disabled" || echo "enabled"
+	[[ ! $verbose ]] && return
+
+	# type: 0=none, 4=Auto-detect proxy settings for this network, 5=Use system proxy settings
+	printf "firefox network.proxy.type=$type"
+	case "$type" in
+		0) echo " (none)";;
+		4) echo " (auto)";;
+		""|5) echo " (system)";;
+		default) echo " (unknown)";;
+	esac
+}
+
+#
+# proxy config npm command
+#
+
+proxyConfigNpmUsage() { echot "Usage: $(ScriptName) proxy config npm\nConfigure npm proxy settings."; }
+proxyConfigNpmCommand() { [[ ! $action ]] && action="status"; proxyConfigNpm${action^}; }
+proxyConfigNpmEnable() { ! npmValidate && return; log1 "proxy enable npm"; npm config set https-proxy "$HTTPS_PROXY" && npm config set proxy "$HTTPS_PROXY"; }
+proxyConfigNpmDisable() { ! npmValidate && return; log1 "proxy disable npm"; npm config set https-proxy "" && npm config set proxy ""; }
+proxyConfigNpmValidate() { ! npmValidate && return; proxyValidate "proxyConfigNpm"; }
+proxyConfigNpmStatus() { ! NpmValidate && return; [[ $(network proxy get proxy) ]] && "enabled" || "disabled"; }
+
+#
+# proxy config os command
+#
+
+proxyConfigOsUsage() { echot "Usage: $(ScriptName) proxy config os\nConfigure Operating System proxy settings."; }
+proxyConfigOsCommand() { [[ ! $action ]] && action="status"; proxyConfigOs${action^}; }
+proxyConfigOsValidate() { proxyValidate "proxyConfigOs"; }
+
+proxyConfigOsStatus() { RunPlatform proxyConfigOsStatus; }
+proxyConfigOsStatusMac() { proxyConfigOsStatusMacDo "get" | cut -d":" -f2 | RemoveSpaceTrim | LowerCase; }
+
+proxyConfigOsStatusWin()
+{
+	# determine if connections are being proxied
+	local proxyUrl; proxyUrl="$(powershell '[System.Net.WebRequest]::DefaultWebProxy.GetProxy("'$checkUrl4'").AbsoluteUri' | RemoveCarriageReturn)" || return
+	[[ "$checkUrl4" == "$proxyUrl" ]] && echo "disabled" || echo "enabled"
+	[[ ! $verbose ]] && return
+
+	# get configuration
+	# - AutoDetect=Automatic proxy setup, Automatically detect settings=On
+	# - AutoConfigIsEnabled=Automatic proxy setup, Use setup script, Edit..., Use setup script=On 
+	# - ProxyIsEnabled=Manual proxy setup, Set up..., Use a proxy server=On
+	local desc status; status="$(netsh.exe winhttp show advproxy | RemoveCarriageReturn)" || return	
+	echo "$status" | grep "AutoDetect" | qgrep "true" && desc+="auto "
+	echo "$status" | grep "AutoConfigIsEnabled" | qgrep "true" && desc+="script "
+	echo "$status" | grep "ProxyIsEnabled" | qgrep "true" && desc+="manual "
+	[[ ! $desc ]] && desc="disabled"
+	echo "configuration: $(echo "$desc" | RemoveSpaceTrim)"
+}
+
+proxyConfigOsEnable()
+{
+	# disable OS proxy if cannot enable the proxy server
+	proxyEnableValidate || { proxyConfigOsDisable; return; }
+
+	# enable OS proxy
+	log1 "proxy enable OS"; RunPlatform proxyConfigOsEnable
+}
+
+proxyConfigOsEnableMac() { proxyConfigOsStatusMacDo "set" "on"; }
+proxyConfigOsEnableWin() { proxyConfigOsStatusWinDo "true" && winResetAutoProxy; }
+
+proxyConfigOsDisable() { log1 "proxy disable OS"; RunPlatform proxyConfigOsDisable; }
+proxyConfigOsDisableMac() { proxyConfigOsStatusMacDo "set" "off"; }
+proxyConfigOsDisableWin() { proxyConfigOsStatusWinDo "false"; }
+
+proxyConfigOsStatusMacDo()
+{
+	local service; service="$(network service current | ${G}head -1)" || return 
+	RunLog2 sudoc networksetup ${1}proxyautodiscovery "$service" $2
+} 
+
+proxyConfigOsStatusWinDo()
+{
+	local result; result="$(RunScript --elevate -- netsh.exe winhttp set advproxy setting-scope=user settings="$(cat <<-EOF
+			{\"Proxy\":\"\",\"ProxyBypass\":\"\",\"AutoconfigUrl\":\"\",\"AutoDetect\":$1}
+			EOF
+		)"
+	)" || { ScriptErr "$result"; return 1; }
+
+	log2 "$result"
+	return 0
+}
+
+# winResetAutoProxy - force reload of autoproxy, reloads the Proxy Auto Configuration (PAC) file
+winResetAutoProxy() { netsh.exe winhttp reset autoproxy >& /dev/null; } 
+
+#
+# proxy config vars command
+#
+
+proxyConfigVarsUsage() { echot "Usage: $(ScriptName) proxy config vars\nConfigure proxy variable settings."; }
+proxyConfigVarsCommand() { [[ ! $action ]] && action="status"; proxyConfigVars${action^}; }
+proxyConfigVarsDisable() { log1 "proxy disable vars"; echo "unset {$allProxyVars}"; }
+proxyConfigVarsValidate() { proxyValidate "proxyConfigVars"; }
+
+proxyConfigVarsEnable()
+{
+	# disable proxy vars if cannot enable the proxy server
+	proxyEnableValidate || { proxyConfigVarsDisable; return; }
+
+	# enable proxy vars
+	log1 "proxy enable vars"
+	local server="$(proxyServerGet)"
+	echo "export {$proxyVars}=\"http://$server\"; eval export {$noProxyVars}=\"$(ConfigGetCurrent "NoProxy")\""
+}
+
+proxyConfigVarsStatus()
+{
+	if (( $(export | grep -i 'proxy=\"http' | wc -l) > 1 )); then
+		if [[ $verbose ]]; then
+			export | grep "$(echo "$allProxyVars=" | sed 's/,/=\\|/g')"
+		else
+			echo "enabled"
+		fi
+	else
+		echo "disabled"
+	fi
+}
+
+#
+# proxy config WPAD command
+#
+
+proxyConfigWpadUsage() { echot "Usage: $(ScriptName) proxy config wpad\nConfigure Web Proxy Auto-Discovery proxy settings."; }
+proxyConfigWpadCommand() { [[ ! $action ]] && action="status"; proxyConfigWpad${action^}; }
+proxyConfigWpadEnable() { proxyConfigWpad "enable"; }
+proxyConfigWpadDisable() { proxyConfigWpad "disable"; }
+proxyConfigWpadValidate() { proxyValidate "proxyConfigWpad"; }
+
+proxyConfigWpadStatus()
+{
+	! isWpadAvailable && return
+
+	header "WPAD Status"	
+	local host hosts; IFS=$'\n' ArrayMakeC hosts GetServers apache-web || return
+	for host in localhost "${hosts[@]}"; do
+		local file="$(wpadFileGet "$host")"
+
+		# continue if not WPAD directory for localhost
+		IsLocalHost "$host" && [[ ! -d $(GetFilePath "$file") ]] && continue
+
+		# logging
+		log2 "checking host '$host' file '$file'..."
+		(( verboseLevel < 4 )) && printf "$(GetOsName "$host"): "
+
+		# check host
+		RunScript "${globalArgs[@]}" --ssh "$host" "$(cat <<-EOF
+			if [[ ! -f "$file" ]]; then echo "disabled (wpad.dat missing)"
+			elif grep --quiet "PROXY" "$file"; then echo "enabled"
+			elif grep --quiet "DIRECT" "$file"; then echo "disabled"
+			else echo "invalid (wpad.data is missing PROXY or DIRECT)"
+			fi
+				EOF
+			)" || return
+	done
+}
+
+proxyConfigWpad()
+{
+	! isWpadAvailable && return
+
+	local operation="$1"
+	local localFile="$(wpadFileGet)"
+	local localDir="$(GetFilePath "$localFile")"
+	local wpadFile="$HOME/$(ConfigGet "confDir")/proxy/wpad.dat.$operation"
+
+	# validation
+	[[ ! -f "$wpadFile" ]] && { ScriptErr "WPAD configuration file '$wpadFile' does not exist"; return 1; }
+	[[ ! -d "$localDir" ]] && { ScriptErr "local web deployment directory '$(FileToDesc "$localDir")' does not exist"; return 1; }
+
+	# download the WPAD configuration file
+	[[ -f "$wpadFile" ]] && { CloudGet "$wpadFile" || return; }
+	log1 "using the WPAD $operation file '$(FileToDesc "$wpadFile")'"
+
+	# copy the new WPAD configuration file to the local file
+	sudoc cp "$wpadFile" "$localFile" || return
+
+	# syncrhonize the apache WPAD directories
+	apache sync wpad "${globalArgs[@]}" || return
+
+	RunPlatform proxyConfigWpadUpdate
+}
+
+proxyConfigWpadUpdateWin() { winResetAutoProxy; }
+
+isWpadAvailable() { IsOnNetwork butare; }
 
 #
 # proxy server command
@@ -1619,7 +1959,7 @@ proxyStatusCommand()
 		
 	# local proxy configuration
 	[[ $verbose ]] && header "Proxy Configuration ($HOSTNAME)"
-	proxySetAllStatus || return
+	proxyConfigAllStatus || return
 	
 	return 0
 }
@@ -1636,353 +1976,13 @@ proxyStatusWhatCommand()
 }
 
 proxyStatusWpadUsage() { echot "Usage: $(ScriptName) proxy status wpad\nReturn the Web Proxy Auto-Discovery (slow)."; }
-proxyStatusWpadCommand() { proxySetWpadStatus; }
-
-#
-# proxy set command
-#
-
-proxySetUsage()
-{ 
-	echot "Usage: $(ScriptName) proxy set [all|domain|apt|firefox|os|vars|wpad](all)
-Set proxy server configuration.
-
-$(currentUsageBrief)
-	-e, --enable		enable the proxy server configuration
-	-d, --disable		disable the proxy server configuration
-	-s, --status		show the status of the proxy server configuration
-	-v, --validate	check if the proxy server is usable and enable or disable the configuration"
-}
-
-proxySetArgStart() { unset action; currentArgStartBrief; }
-
-proxySetOpt() 
-{
-	currentOptBrief "$@" && return
-	case "$1" in
-		-d|--disable) action="disable";;
-		-e|--enable) action="enable";;
-		-s|--status) action="status";;
-		-V|--validate) action="validate";;
-		*) return 1
-	esac
-}
-
-proxySetCommand() { proxySetAllCommand; }
-
-#
-# proxy set all command
-#
-
-proxySetAllUsage() { echot "Usage: $(ScriptName) proxy all\nSet all local proxy configuration (APT, Firefox, npm, os, vars)."; }
-proxySetAllCommand() { [[ ! $action ]] && action="status"; proxySetAll${action^}; }
-proxySetAllDisable() { eval "$(proxySetVarsEnable)" && proxySetAptDisable && proxySetFirefoxDisable && proxySetNpmDisable && proxySetOsDisable && proxySetVarsDisable; }
-proxySetAllEnable() { eval "$(proxySetVarsDisable)" && proxySetAptEnable && proxySetFirefoxEnable && proxySetNpmEnable && proxySetOsEnable && proxySetVarsEnable; }
-proxySetAllValidate() { eval "$(proxySetVarsValidate)" && proxySetAptValidate && proxySetFirefoxValidate && proxySetNpmValidate && proxySetOsValidate && proxySetVarsValidate; }
-
-proxySetAllStatus()
-{
-	if [[ $verbose ]]; then
-		isAptInstalled && { printf "apt="; proxySetAptStatus; }
-		printf "os="; proxySetOsStatus
-		printf "variables="; verbose= proxySetVarsStatus
-		firefoxValidate && { printf "firefox="; proxySetFirefoxStatus; }
-	else
-		isAptInstalled && echo "apt=$(proxySetAptStatus)"
-		supportOsProxy && echo "os=$(proxySetOsStatus)"
-		echo "variables=$(proxySetVarsStatus)"
-		firefoxValidate && echo "firefox=$(proxySetFirefoxStatus)"
-	fi
-
-	return 0
-}
-
-#
-# proxy set domain command
-#
-
-proxySetDomainUsage() { echot "Usage: $(ScriptName) proxy all\nSet proxy configuration required for the domain."; }
-proxySetDomainCommand() { [[ ! $action ]] && action="status"; proxySetDomain${action^}; }
-proxySetDomainEnable() { proxySetDomain "enable"; }
-proxySetDomainDisable() { proxySetDomain "disable"; }
-proxySetDomainStatus() { proxySetDomain "status"; }
-proxySetDomainValidate() { proxySetDomain "validate"; }
-
-proxySetDomain()
-{
-	local action="$1" app apps=(); StringToArray "$(ConfigGet "$(GetDomain)ProxyApps")" "," apps
-	for app in "${apps[@]}"; do
-		local prefix; [[ "$app" == @(vars) ]] && prefix="ScriptEval"
-		$prefix "proxySet${app^}${action^}" || return
-	done
-}
-
-#
-# proxy set apt command
-#
-
-proxySetAptUsage() { echot "Usage: $(ScriptName) proxy set apt\nSet APT proxy configuration."; }
-proxySetAptCommand() { [[ ! $action ]] && action="status"; proxySetApt${action^}; }
-proxySetAptDisable() { { ! isAptInstalled || [[ ! -f "$aptFile" ]]; } && return; log1 "proxy disable APT"; sudoc rm "$aptFile"; }
-proxySetAptValidate() { proxyValidate "proxySetApt"; }
-
-proxySetAptStatus()
-{
-	! isAptInstalled && return
-	[[ ! -f "$aptFile" ]] && { echo "disabled"; return; }
-	echo "enabled"; [[ $verbose ]] && cat "$aptFile"; return 0;
-}
-
-proxySetAptEnable()
-{	
-	# return if APT is not installed
-	! isAptInstalled && return
-
-	# disable APT proxy if cannot enable the proxy server
-	proxyEnableValidate || { proxySetAptDisable; return; }
-
-	# return if APT proxy is already enabled
-	local server="$(proxyServerGetApt)"
-	[[ ! $force ]] && [[ -f "$aptFile" ]] && grep -q "$server" "$aptFile" && return
-
-	# set APT proxy server
-	log1 "proxy enable APT"
-	echo "Acquire::http::Proxy \"http://$server\";
-Acquire::https::Proxy \"http://$server\";" | sudoc tee "$aptFile" >& /dev/null
-}
-
-isAptInstalled() { [[ -d "/etc/apt" ]]; }
-
-# isAptProxyNeeded - return true if we need to use an APT proxy
-# - APT proxy is not needed if we are using internal sources (that are in our domain.)
-isAptProxyNeeded()
-{
-	isProxyNeeded && isAptInstalled && ! grep --quiet "$(GetNetworkDnsBaseDomain)" "/etc/apt/sources.list"
-}
-
-#
-# proxy set firefox command
-#
-
-proxySetFirefoxUsage() { echot "Usage: $(ScriptName) proxy apt\nSet Firefox proxy configuration."; }
-proxySetFirefoxCommand() { [[ ! $action ]] && action="status"; proxySetFirefox${action^}; }
-proxySetFirefoxDisable() { ! firefoxValidate && return; log1 "proxy disable Firefox"; firefox config set "network.proxy.type" "0" "${globalArgs[@]}"; } # 0=none
-proxySetFirefoxValidate() { ! firefoxValidate && return; proxyValidate "proxySetFirefox"; }
-
-proxySetFirefoxEnable()
-{
-	! firefoxValidate && return
-
-	# disable Firefox proxy if cannot enable the proxy server
-	proxyEnableValidate || { proxySetFirefoxDisable; return; }
-
-	# enable Firefox proxy - 4=auto
-	log1 "proxy enable Firefox"; firefox config set "network.proxy.type" "4" "${globalArgs[@]}"; 
-}
-
-proxySetFirefoxStatus()
-{
-	! firefoxValidate && return
-
-	# get Firefox proxy status
-	local type; type="$(firefox config get "network.proxy.type" "${globalArgs[@]}")" || return
-	[[ ! $type || "$type" == "0" ]] && echo "disabled" || echo "enabled"
-	[[ ! $verbose ]] && return
-
-	# type: 0=none, 4=Auto-detect proxy settings for this network, 5=Use system proxy settings
-	printf "firefox network.proxy.type=$type"
-	case "$type" in
-		0) echo " (none)";;
-		4) echo " (auto)";;
-		""|5) echo " (system)";;
-		default) echo " (unknown)";;
-	esac
-}
-
-#
-# proxy set npm command
-#
-
-proxySetNpmUsage() { echot "Usage: $(ScriptName) proxy apt\nSet npm proxy configuration."; }
-proxySetNpmCommand() { [[ ! $action ]] && action="status"; proxySetNpm${action^}; }
-proxySetNpmEnable() { ! npmValidate && return; log1 "proxy enable npm"; npm config set https-proxy "$HTTPS_PROXY" && npm config set proxy "$HTTPS_PROXY"; }
-proxySetNpmDisable() { ! npmValidate && return; log1 "proxy disable npm"; npm config set https-proxy "" && npm config set proxy ""; }
-proxySetNpmValidate() { ! npmValidate && return; proxyValidate "proxySetNpm"; }
-proxySetNpmStatus() { ! NpmValidate && return; [[ $(network proxy get proxy) ]] && "enabled" || "disabled"; }
-
-#
-# proxy set os command
-#
-
-proxySetOsUsage() { echot "Usage: $(ScriptName) proxy apt\nSet Operating System proxy configuration."; }
-proxySetOsCommand() { [[ ! $action ]] && action="status"; proxySetOs${action^}; }
-proxySetOsValidate() { proxyValidate "proxySetOs"; }
-
-proxySetOsStatus() { RunPlatform proxySetOsStatus; }
-proxySetOsStatusMac() { proxySetOsStatusMacDo "get" | cut -d":" -f2 | RemoveSpaceTrim | LowerCase; }
-
-proxySetOsStatusWin()
-{
-	# determine if connections are being proxied
-	local proxyUrl; proxyUrl="$(powershell '[System.Net.WebRequest]::DefaultWebProxy.GetProxy("'$checkUrl4'").AbsoluteUri' | RemoveCarriageReturn)" || return
-	[[ "$checkUrl4" == "$proxyUrl" ]] && echo "disabled" || echo "enabled"
-	[[ ! $verbose ]] && return
-
-	# get configuration
-	# - AutoDetect=Automatic proxy setup, Automatically detect settings=On
-	# - AutoConfigIsEnabled=Automatic proxy setup, Use setup script, Edit..., Use setup script=On 
-	# - ProxyIsEnabled=Manual proxy setup, Set up..., Use a proxy server=On
-	local desc status; status="$(netsh.exe winhttp show advproxy | RemoveCarriageReturn)" || return	
-	echo "$status" | grep "AutoDetect" | qgrep "true" && desc+="auto "
-	echo "$status" | grep "AutoConfigIsEnabled" | qgrep "true" && desc+="script "
-	echo "$status" | grep "ProxyIsEnabled" | qgrep "true" && desc+="manual "
-	[[ ! $desc ]] && desc="disabled"
-	echo "configuration: $(echo "$desc" | RemoveSpaceTrim)"
-}
-
-proxySetOsEnable()
-{
-	# disable OS proxy if cannot enable the proxy server
-	proxyEnableValidate || { proxySetOsDisable; return; }
-
-	# enable OS proxy
-	log1 "proxy enable OS"; RunPlatform proxySetOsEnable
-}
-
-proxySetOsEnableMac() { proxySetOsStatusMacDo "set" "on"; }
-proxySetOsEnableWin() { proxySetOsStatusWinDo "true" && winResetAutoProxy; }
-
-proxySetOsDisable() { log1 "proxy disable OS"; RunPlatform proxySetOsDisable; }
-proxySetOsDisableMac() { proxySetOsStatusMacDo "set" "off"; }
-proxySetOsDisableWin() { proxySetOsStatusWinDo "false"; }
-
-proxySetOsStatusMacDo()
-{
-	local service; service="$(network service current | ${G}head -1)" || return 
-	RunLog2 sudoc networksetup ${1}proxyautodiscovery "$service" $2
-} 
-
-proxySetOsStatusWinDo()
-{
-	local result; result="$(RunScript --elevate -- netsh.exe winhttp set advproxy setting-scope=user settings="$(cat <<-EOF
-			{\"Proxy\":\"\",\"ProxyBypass\":\"\",\"AutoconfigUrl\":\"\",\"AutoDetect\":$1}
-			EOF
-		)"
-	)" || { ScriptErr "$result"; return 1; }
-
-	log2 "$result"
-	return 0
-}
-
-# winResetAutoProxy - force reload of autoproxy, reloads the Proxy Auto Configuration (PAC) file
-winResetAutoProxy() { netsh.exe winhttp reset autoproxy >& /dev/null; } 
-
-#
-# proxy set vars command
-#
-
-proxySetVarsUsage() { echot "Usage: $(ScriptName) proxy vars\nSet the proxy variables."; }
-proxySetVarsCommand() { [[ ! $action ]] && action="status"; proxySetVars${action^}; }
-proxySetVarsDisable() { log1 "proxy disable vars"; echo "unset {$allProxyVars}"; }
-proxySetVarsValidate() { proxyValidate "proxySetVars"; }
-
-proxySetVarsEnable()
-{
-	# disable proxy vars if cannot enable the proxy server
-	proxyEnableValidate || { proxySetVarsDisable; return; }
-
-	# enable proxy vars
-	log1 "proxy enable vars"
-	local server="$(proxyServerGet)"
-	echo "export {$proxyVars}=\"http://$server\"; eval export {$noProxyVars}=\"$(ConfigGetCurrent "NoProxy")\""
-}
-
-proxySetVarsStatus()
-{
-	if (( $(export | grep -i 'proxy=\"http' | wc -l) > 1 )); then
-		if [[ $verbose ]]; then
-			export | grep "$(echo "$allProxyVars=" | sed 's/,/=\\|/g')"
-		else
-			echo "enabled"
-		fi
-	else
-		echo "disabled"
-	fi
-}
-
-#
-# proxy set WPAD command
-#
-
-proxySetWpadUsage() { echot "Usage: $(ScriptName) proxy apt\nSet Web Proxy Auto-Discovery configuration."; }
-proxySetWpadCommand() { [[ ! $action ]] && action="status"; proxySetWpad${action^}; }
-proxySetWpadEnable() { proxySetWpad "enable"; }
-proxySetWpadDisable() { proxySetWpad "disable"; }
-proxySetWpadValidate() { proxyValidate "proxySetWpad"; }
-
-proxySetWpadStatus()
-{
-	! isWpadAvailable && return
-
-	header "WPAD Status"	
-	local host hosts; IFS=$'\n' ArrayMakeC hosts GetServers apache-web || return
-	for host in localhost "${hosts[@]}"; do
-		local file="$(wpadFileGet "$host")"
-
-		# continue if not WPAD directory for localhost
-		IsLocalHost "$host" && [[ ! -d $(GetFilePath "$file") ]] && continue
-
-		# logging
-		log2 "checking host '$host' file '$file'..."
-		(( verboseLevel < 4 )) && printf "$(GetOsName "$host"): "
-
-		# check host
-		RunScript "${globalArgs[@]}" --ssh "$host" "$(cat <<-EOF
-			if [[ ! -f "$file" ]]; then echo "disabled (wpad.dat missing)"
-			elif grep --quiet "PROXY" "$file"; then echo "enabled"
-			elif grep --quiet "DIRECT" "$file"; then echo "disabled"
-			else echo "invalid (wpad.data is missing PROXY or DIRECT)"
-			fi
-				EOF
-			)" || return
-	done
-}
-
-proxySetWpad()
-{
-	! isWpadAvailable && return
-
-	local operation="$1"
-	local localFile="$(wpadFileGet)"
-	local localDir="$(GetFilePath "$localFile")"
-	local wpadFile="$HOME/$(ConfigGet "confDir")/proxy/wpad.dat.$operation"
-
-	# validation
-	[[ ! -f "$wpadFile" ]] && { ScriptErr "WPAD configuration file '$wpadFile' does not exist"; return 1; }
-	[[ ! -d "$localDir" ]] && { ScriptErr "local web deployment directory '$(FileToDesc "$localDir")' does not exist"; return 1; }
-
-	# download the WPAD configuration file
-	[[ -f "$wpadFile" ]] && { CloudGet "$wpadFile" || return; }
-	log1 "using the WPAD $operation file '$(FileToDesc "$wpadFile")'"
-
-	# copy the new WPAD configuration file to the local file
-	sudoc cp "$wpadFile" "$localFile" || return
-
-	# syncrhonize the apache WPAD directories
-	apache sync wpad "${globalArgs[@]}" || return
-
-	RunPlatform proxySetWpadUpdate
-}
-
-proxySetWpadUpdateWin() { winResetAutoProxy; }
-
-isWpadAvailable() { IsOnNetwork butare; }
+proxyStatusWpadCommand() { proxyConfigWpadStatus; }
 
 #
 # proxy update command
 #
 
-proxyUpdateUsage() { echot "Usage: $(ScriptName) proxy update\nIf the proxy server is needed and usable on the current network, update the saved proxy network configuration."; }
+proxyUpdateUsage() { echot "Usage: $(ScriptName) proxy update [set]\nIf the proxy server is needed and usable on the current network, update the saved proxy network configuration."; }
 proxyUpdateCommand() { proxyUpdate; }
 
 proxyUpdate()
@@ -1999,7 +1999,7 @@ proxyUpdate()
 	UpdateSet "network-proxy-server" "$newProxyServer" || return
 }
 
-proxyUpdateSetUsage() { echot "Usage: $(ScriptName) proxy update\nIf the proxy server is needed and usable on the current network, update the saved proxy network configuration, then set proxy configuration for domain applications."; }
+proxyUpdateSetUsage() { echot "Usage: $(ScriptName) proxy update set\nIf the proxy server is needed and usable on the current network, update the saved proxy network configuration, then set proxy configuration for domain applications."; }
 proxyUpdateSetCommand() { proxyUpdateSet; }
 
 proxyUpdateSet()
@@ -2010,7 +2010,7 @@ proxyUpdateSet()
 
 	# configure domain applications for the new proxy server
 	local action="disable"; proxyEnableValidate && action="enable"
-	proxySetDomain "$action"
+	proxyConfigDomain "$action"
 }
 	
 #
@@ -2106,7 +2106,7 @@ varsDnsCommand()
 }
 
 varsProxyUsage() { echot "Usage: $(ScriptName) vars proxy\nShow current proxy server variables."; }
-varsProxyCommand() { proxySetVarsEnable; }
+varsProxyCommand() { proxyConfigVarsEnable; }
 
 #
 # VPN vommands
