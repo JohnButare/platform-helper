@@ -3755,37 +3755,38 @@ SshIsAvailablePort()
 # SshSudoc HOST COMMAND ARGS - run a command on host using sudoc
 SshSudoc() { SshHelper connect --credential --function "$1" -- sudoc "${@:2}"; }
 
-# parse SSH information from host
-GetSshUser() { GetArgs; local gsu; [[ "$1" =~ @ ]] && gsu="${1%@*}"; r "$(RemoveSpaceTrim "$gsu")" $2; } 	# GetSshUser USER@HOST:PORT -> USER
-
-# GetSshHost USER@HOST:PORT -> HOST
+# GetSshHost [USER@]HOST[:PORT] -> HOST
 GetSshHost()
 {
-	GetArgs
+	GetArgs; local gsp="$1"
 
-	# IPv6 address - if it has 9 colons assume the port is after the last colon
-	if [[ "$1" =~ .*:.*:.* ]] ; then
-		local parts; StringToArray "$1" ":" parts	
-		(( ${#parts} != 9 )) && { r "$1" $2; return; }
-	fi
-	
-	local gsh="${1#*@}"; gsh="${gsh%:*}"; r "$(RemoveSpaceTrim "$gsh")" $2
+	# remove user
+	gsp="${gsp/#$(GetSshUser "$gsp")@/}"
+
+	# remove port
+	gsp="${gsp/%:$(GetSshPort "$gsp")/}"
+
+	# trim and return
+	r "$(RemoveSpaceTrim "$gsp")" $2
 }
 
-
-# GetSshPort USER@HOST:PORT -> PORT
+# GetSshPort [USER@]HOST[:PORT] -> PORT
 GetSshPort()
 {
-	GetArgs
+	# remove user
+	GetArgs; local gsp="$1"; [[ "$gsp" =~ @ ]] && gsp="${gsp##*@}"
 
-	# IPv6 address - if it has 9 colons assume the port is after the last colon
-	if [[ "$1" =~ .*:.*:.* ]] ; then
-		local parts; StringToArray "$1" ":" parts	
-		(( ${#parts[@]} != 9 )) && { r "" $2; return; }
-	fi
+	# no port if we are left with a valid IPv6 address
+	IsIpAddress6 "$gsp" && { r "" $2; return; }
 
-	# get the port
-	local gsp; [[ "$1" =~ : ]] && gsp="${1##*:}"; r "$(RemoveSpaceTrim "$gsp")" $2	
+	# remove port
+	[[ "$1" =~ : ]] && gsp="${1##*:}"; r "$(RemoveSpaceTrim "$gsp")" $2	
+}
+
+# GetSshUser [USER@]HOST[:PORT] -> PORT
+GetSshUser()
+{
+	GetArgs; local gsu; [[ "$1" =~ @ ]] && gsu="${1%@*}"; r "$(RemoveSpaceTrim "$gsu")" $2
 }
 
 #
