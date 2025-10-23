@@ -711,7 +711,7 @@ updateHosts()
 	{ echo; cat "$src"; } | sudoc ${G}tee --append "$dest" > /dev/null
 }
 
-# update HashiCorp tool configuration
+# updateHashi NETWORK - update HashiCorp tool configuration
 updateHashi()
 {
 	local network="$1"
@@ -719,12 +719,12 @@ updateHashi()
 	HashiConf -ff "${globalArgs[@]}"
 }
 
-# updateDns NETWORK
+# updateProxy NETWORK
 updateProxy()
 {
 	local network="$1"
 	doLog && hilight "Updating proxy configuration for the '$network' network..."
-	proxyUpdateSet
+	proxyConfigDomain || return
 }
 
 # updatePython NETWORK
@@ -1633,7 +1633,7 @@ proxyConfigDomainValidate() { proxyConfigDomain "validate"; }
 
 proxyConfigDomain()
 {
-	local action="$1" app apps=(); StringToArray "$(ConfigGet "$(GetDomain)ProxyApps")" "," apps
+	local action="${1:-enable}" app apps=(); StringToArray "$(ConfigGet "$(GetDomain)ProxyApps")" "," apps
 	for app in "${apps[@]}"; do
 		local prefix; [[ "$app" == @(vars) ]] && prefix="ScriptEval"
 		$prefix "proxyConfig${app^}${action^}" || return
@@ -1982,7 +1982,16 @@ proxyStatusWpadCommand() { proxyConfigWpadStatus; }
 # proxy update command
 #
 
-proxyUpdateUsage() { echot "Usage: $(ScriptName) proxy update [set]\nIf the proxy server is needed and usable on the current network, update the saved proxy network configuration."; }
+proxyUpdateUsage()
+{
+	echot "Usage: $(ScriptName) proxy update 
+If the proxy server is needed and usable on the current network, update the saved proxy network configuration."
+
+$(currentUsageConfig)
+}
+
+proxyUpdateArgStart() { currentArgStartConfig; }
+proxyUpdateOpt() { currentOptConfig "$@"; }
 proxyUpdateCommand() { proxyUpdate; }
 
 proxyUpdate()
@@ -1997,22 +2006,12 @@ proxyUpdate()
 	
 	# save new proxy server
 	UpdateSet "network-proxy-server" "$newProxyServer" || return
-}
-
-proxyUpdateSetUsage() { echot "Usage: $(ScriptName) proxy update set\nIf the proxy server is needed and usable on the current network, update the saved proxy network configuration, then set proxy configuration for domain applications."; }
-proxyUpdateSetCommand() { proxyUpdateSet; }
-
-proxyUpdateSet()
-{
-	# update the proxy server and return if it was not changed
-	proxyUpdate || return
-	(( forceLevel < 2 )) && ! UpdateRecent "network-proxy-server" && return
 
 	# configure domain applications for the new proxy server
-	local action="disable"; proxyEnableValidate && action="enable"
-	proxyConfigDomain "$action"
+	[[ ! $config ]] && return
+	proxyConfigDomain || return
 }
-	
+
 #
 # proxy helper
 #
@@ -2060,7 +2059,7 @@ $(currentUsageConfig)
 	-u, --update		update network settings for the current network"
 }
 
-varsArgStart() { unset -v update; currentArgStartBrief && ScriptOptTimeoutArgStart; }
+varsArgStart() { unset -v update; currentArgStartOther; }
 
 varsOpt()
 {
