@@ -1070,9 +1070,9 @@ domainJoinedWin() { ! IsLocalHost "$(domainNameWin)"; }
 findUsage()
 {
 	echot "Usage: $(ScriptName) find SERVER [SERVER...]
-Find servers that exposes a specific service.
+Find servers that exposes a specific service (simple service discovery).  Returns the server found.
 
-- SERVER format is [DESCRIPTION@]HOST_OR_IP[:SERVICE], i.e. butare:10.10.10:DNS
+- SERVER format is [DESCRIPTION@]HOST_OR_IP[:SERVICE][-DOMAIN], i.e. butare:10.10.10:DNS
 - DESCRIPTION is used for information messages while checking
 - SERVICE is a numeric port, or one of:
 		ping - performs a UDP ping
@@ -1081,6 +1081,7 @@ Find servers that exposes a specific service.
   	smb - checks port 445
   	ssh - checks port 22, or the port the port defined in the SSH configuration for the host
   	wg - checks the WireGuard UDP port for the current network, defaults to 51820
+- DOMAIN: if specified only check the service if the system is in the specified domain
 
 	-a,	--all			find all servers instead of the first
 	-b,	--brief		show brief status messages
@@ -1119,7 +1120,8 @@ findCommand()
 	log1 "looking for servers: $(ArrayShow servers)"
 	for server in "${servers[@]}"
 	do
-		local host service description; parseServer $server || return
+		local domain host service description; parseServer "$server" || return
+		log3 "server=$server description=$description host=$host service=$service domain=$domain"
 
 		# add the host to the description if verbose logging
 		[[ "$description" != "$host" && $verbose ]] && description="$description ($host)"
@@ -1128,7 +1130,13 @@ findCommand()
 		IsInArray "$description" descriptions && continue
 
 		# check for a valid service
-		! IsInteger "$service" && [[ "$service" != @(dns|ping|nfs|smb|ssh|wg) ]] && { ScriptErr "'$service' is not a valid service"; return 1; }
+		isValidService "$service" || { ScriptErr "'$service' is not a valid service"; return; }
+		
+		# check domain
+		if [[ $domain ]] && ! IsInDomain "$domain"; then
+			log1 "system is not in domain '$domain'"
+			continue
+		fi
 
 		# logging
 		if [[ $verbose ]]; then
@@ -1182,16 +1190,35 @@ findCheck()
 			IsAvailable "$ip" $timeout
 			;;
 
+		# WireGuard UDP port
 		wg)
-				local port="$(ConfigGetCurrent WireguardPort)"; [[ ! $port ]] && port="51820"
-				IsAvailablePortUdp "$host" "$port" $timeout
-				;;
+			local port="$(ConfigGetCurrent WireguardPort)"; [[ ! $port ]] && port="51820"
+			IsAvailablePortUdp "$host" "$port" $timeout
+			;;
 
+		# numeric port (TCP, or UDP if the --udp option was specified)
 		*) 
 			"$check" "$host" "$service"
 			;;
 			
 	esac
+}
+
+isValidService() { IsInteger "$1" || [[ "$1" == @(dns|ping|nfs|smb|ssh|wg) ]]; }
+
+# parseServer SERVER - SERVER format is [DESCRIPTION@]HOST_OR_IP[:SERVICE][-DOMAIN], i.e. butare:10.10.10:DNS-butare
+parseServer()
+{
+	local server="$1"
+
+	# parse [DESCRIPTION@]HOST_OR_IP[:SERVICE-DOMAIN] - follows SSH name format
+	description="$(GetSshUser "$server")"; description="${description:-$host}"
+	host="$(GetSshHost "$server")"
+	service="$(GetSshPort "$server")"; service="${service:-$defaultService}"; service="${service,,}"
+
+	# parse [SERVICE]-[DOMAIN]
+	local parts; StringToArray "$service" "-" parts
+	service="${parts[0]}" domain="${parts[1]}"
 }
 
 #
@@ -2396,15 +2423,6 @@ getServersFromConfig()
 {
 	local network="$1" type="$2"
 	ConfigGet "${network}$(UpperCaseFirst "$type")Servers"
-}
-
-# defaultService=PING parseServer SERVER - SERVER format is [DESCRIPTION@]HOST_OR_IP[:SERVICE], i.e. butare:10.10.10:DNS
-parseServer()
-{
-	local server="$1"
-	host="$(GetSshHost "$server")"
-	service="$(GetSshPort "$server")"; service="${service:-$defaultService}"; service="${service,,}"
-	description="$(GetSshUser "$server")"; description="${description:-$host}"
 }
 
 ScriptRun "$@"

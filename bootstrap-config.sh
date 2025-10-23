@@ -43,11 +43,13 @@ hashiTestVaultServers="pi20,pi21"
 
 defaultDomain="butare"
 
-# networks - list of known networks
-# - check internal servers, format is NETWORK@IP[:ping|dns|nfs|smb|ssh|wg](dns)
-# - butare 10.10.100.8|7 (lb3|lb2)
-# - sandia 10.248.0.3 - gateware from trace route
-networks="sandia@10.248.0.3:ping,butare@10.10.100.8:dns,butare@10.10.100.7:dns,sandia@134.252.10.16:dns"
+# networks - list of known networks, format is NETWORK@IP[:PROTOCOL][-DOMAIN](dns)
+# - protocol - protocol used to check the IP, ping|dns|nfs|smb|ssh|wg, wg=WireGuard port
+# - domain - if specified, the domain the computer must be in to use this network
+# - examples
+#   - butare 10.10.100.8|7 (lb3|lb2)
+#   - sandia 10.248.0.3 - gateware from trace route
+networks="sandia@10.248.0.3:ping-sandia,butare@10.10.100.8:dns,butare@10.10.100.7:dns,sandia@134.252.10.16:dns-sandia"
 
 # external network
 externalTimeServer="time.apple.com"
