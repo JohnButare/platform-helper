@@ -2500,7 +2500,7 @@ IsInDomain()
 	[[ ! $1 ]] && { network domain joined; return; }
 	local domains; StringToArray "$(LowerCase "$1")" "," domains
 	local domain="$(GetDomain)"; [[ ! $domain ]] && return 1
-	IsInArray "$(GetDomain)" domains
+	IsInArray "$domain" domains
 }
 
 IsDomainRestricted() { IsInDomain sandia; }
