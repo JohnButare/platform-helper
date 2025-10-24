@@ -248,7 +248,7 @@ ScriptOptGlobal()
 	esac
 }
 
-# ScriptOptGet [--check|--integer] VAR [DESC] --OPTION VALUE
+# ScriptOptGet [--optional|--check|--integer] VAR [DESC] --OPTION VALUE
 #
 # Set option VAR from OPTION and VALUE.  Increments shift if needed.  
 #	- --optional - if specified, the value is optional, return 0 if set

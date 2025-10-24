@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) adapter|conf|current|cache|center|dns|domain|find|gui|hosts|internet|ip|profile|proxy|run|service|timeout|vars|vpn|watch|workgroup
+Usage: $(ScriptName) adapter|conf|current|cache|center|dns|domain|find|gui|hosts|internet|ip|profile|proxy|run|service|timeout|validate|vars|vpn|watch|workgroup
 Network commands."
 }
 
@@ -2032,6 +2032,162 @@ proxyServerGetApt() { isAptProxyNeeded && EchoValidate "$(UpdateGetForce "networ
 
 # proxyServerNetwork - return the proxy server for the current network
 proxyServerNetwork() { ConfigGet "$(nameCached)ProxyServer"; }
+
+#
+# validate commands
+#
+
+validateUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) network validate dns|dhcp
+Validate the DHCP or DNS service is operational on the specified hosts.
+
+	-4|-6 									use only IPv4 or IPv6
+	-H, --host [HOST](all)	$(ScriptOptHostUsage)
+	-w, --wait [N](10)			wait for the DNS or DHCP service for the specified number of seconds.  If not specified, defaults to $defaultWaitSeconds seconds"
+}
+
+validateArgStart()
+{
+	unset -v hostArg hostOpt ipv waitSeconds
+	defaultWaitSeconds=0; IsPlatform win && ! NmapCanBroadcast && defaultWaitSeconds=2; # dhcptest.exe needs retries
+	return 0
+}
+
+validateOpt() 
+{
+	ScriptOptHost "$@" && return
+
+	case "$1" in
+		-4) ipv="4";;
+		-6) ipv="6";;
+		--wait|--wait=*|-w|-w=*) waitSeconds=10; ScriptOptGet --optional --integer "waitSeconds" "wait-seconds" "$@";; 
+		*) return 1
+	esac
+}
+
+validateCommand() { validateAllCommand; }
+validateDhcpCommand() { validateHosts "DHCP" $ipv; }
+validateDnsCommand() { validateHosts "DNS" $ipv; }
+
+# canValidate dhcp|dns - return true if can validate DHCP or DNS servers
+canValidate() { canValidate$(ProperCase "$1"); }
+canValidateDhcp() { RunPlatform canValidateDhcp || NmapCanBroadcast $quiet; }
+canValidateDhcpWin() { InPath dhcptest.exe; }
+canValidateDns() { return 0; }
+
+# validateHosts dhcp|dns [4|6](both) - validate DHCP or DNS for the hosts
+validateHosts()
+{
+	local what="$1" ipv="$2"
+
+	canValidate "$what" || return
+	printf "Validating ${what^^}..."
+
+	local errors=0 host; [[ ! $hosts ]] && { GetHostsApp "$what" active || return; }
+	for host in "${hosts[@]}"; do
+		printf "$(RemoveDnsSuffix "$host")..."
+		validateHost "$host" "$what" "$waitSeconds" "$ipv" || (( ++errors ))
+	done
+	echo "done"
+	return $errors
+}
+
+# validateHost HOST dhcp|dns [WAIT_SECONDS] [4|6](both) - validate DNS or DHCP service on host
+validateHost()
+{
+	local host="$1" what="$2" waitSeconds="${3:-0}" ipv="$4"
+
+	! IsAvailable "$host" && { printf "${RED}not available${RESET}..."; return 1; }
+		
+	local i
+	for (( i=0; i<=waitSeconds; ++i )); do
+ 		validate$(ProperCase "$what") "$host" $ipv && { printf "ok..."; return; }
+ 		if [[ $waitSeconds && "$i" < "$waitSeconds" ]]; then
+ 			read -n 1 -t 1 -s && { echo "${RED}cancelled${RESET}"; return 1; }
+ 			unset dhcpServerCache
+			printf "."
+		fi
+	done
+
+	printf "${RED}failed${RESET}..."
+	return 1
+}
+
+# validateDhcp HOST [4|6](both) - validate a DHCPv4 or DHCPv6 server, or both
+validateDhcp()
+{
+	local host="$1" ipv="$2"
+	[[ $ipv ]] && { validateDhcp$ipv "$host"; return; }
+	validateDhcp4 "$host" && validateDhcp6 "$host"; 
+}
+
+# validateDhcp4 HOST - validate a DHCPv4 server
+validateDhcp4()
+{
+	if NmapCanBroadcast --quiet; then 
+		[[ ! $dhcpServerCache ]] && dhcpServerCache="$(DhcpServers $quiet)"
+		local host="$1"; local hostDns; hostDns="$(DnsResolve "$host" "${globalArgs[@]}")" || return
+		echo "$dhcpServerCache" | qgrep "^${hostDns}$"
+
+	elif IsPlatform win && InPath dhcptest.exe; then
+		[[ ! $dhcpServerCache ]] && dhcpServerCache="$(dhcptest.exe --bind "$(GetAdapterIpAddress)" --query --wait --timeout 3 2>&1)"
+		local ip; ip="$(GetIpAddress "$host")" || return		
+		echo "$dhcpServerCache" | qgrep "^Received packet from $ip:"
+	else
+		ScriptErr "unable to validate DHCP v4 servers '$host'"
+		return 1
+	fi
+}
+
+# validateDhcp6 HOST - validate a DHCPv6 server
+validateDhcp6() { :; }
+
+# validateDns HOST [4|6](both) - validate DNS using IPv4 or IPv6, or both
+validateDns()
+{
+	local host="$1" ipv="$2"
+	[[ $ipv ]] && { validateDns$ipv "$host"; return; }
+	validateDns4 "$host" && validateDns6 "$host"
+}
+
+# validateDns4 HOST - validate a DNS server using IPv4
+validateDns4()
+{
+	local host="$1" name="router.$(GetDnsDomain)"; validateDnsCommon || return
+	
+	# forward lookup 
+	nslookup "$name" "$host" >& /dev/null || { log2 "$host IPv4 forward lookup of router.$(GetDnsDomain) failed"; return 1; }
+
+	# reverse lookup
+	local ip; ip="$(DnsResolve "$name")" || return
+	nslookup "$ip" "$host" >& /dev/null || { log2 "$host reverse lookup of 10.10.100.1 failed"; return 1; }
+}
+
+# validateDns6 HOST - validate a DNS server using IPv6
+validateDns6()
+{
+	local host="$1" name="router.$(GetDnsDomain)"; validateDnsCommon || return
+
+	# forward lookup
+	# dig -6 -t AAAA +short "router.$(GetDnsDomain)" @host >& /dev/null || { log2 "$host IPv6 forward lookup of router.$(GetDnsDomain) failed"; return 1; }
+	
+	# reverse lookup
+	# nslookup "10.10.100.1" "$host" >& /dev/null || { log2 "$host reverse lookup of 10.10.100.1 failed"; return 1; }
+}
+
+# validateDnsCommon - common validations for DNS servers 
+validateDnsCommon()
+{
+	log2 "validating DNS server on '$host' by checking '$name' resolution (ipv=$ipv)"
+
+	# check if the host is available
+	HostAvailable "$host" || return
+
+	# check if the DNS server is available on porty 53
+	IsAvailablePort "$host" 53 || { log2 "$host is not availble on port 53"; return 1; }
+}
+
 
 #
 # vars commands

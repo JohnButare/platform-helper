@@ -4,7 +4,7 @@
 usage()
 {
 	ScriptUsage "$1" "\
-Usage: $(ScriptName) backup|cert|check|config|host|maintenance|network|setup|sync|update [OPTION]...
+Usage: $(ScriptName) backup|cert|config|host|maintenance|network|setup|sync|update [OPTION]...
 Manage the Wiggin network."
 }
 
@@ -407,39 +407,6 @@ certStudyColorPrinter()
 }
 
 #
-# check commands
-#
-
-checkUsage() 
-{
-	ScriptUsageEcho "Usage: $(ScriptName) check dhcp
-Perform checks.
-
-	dhcp		check for a DHCP server on the current host"
-}
-
-checkCommand() { usage; }
-
-# checkDhcpCommand - check if the local DHCP server is working
-# - requires root privileges, or nmap capabilities (https://www.maketecheasier.com/run-nmap-without-root-or-sudo)
-checkDhcpCommand()
-{	
-	local ip; ip="$(GetIpAddress)" || return
-	local adapter; adapter="$(GetAdapterName)"
-
-	printf "checking for a local DHCP server at $ip..."
-
-	local i 
-	for (( i = 0; i < 5; i++ )); do		
-		nmap --script broadcast-dhcp-discover -e "$adapter" |& grep --quiet "Server Identifier: $ip" && { echo "found"; return; }
-		sleep 1
-		printf "."
-	done
-	echo "not found"
-	return 1
-}
-
-#
 # config commands
 #
 
@@ -829,7 +796,7 @@ maintenanceApCommand()
 # network commands
 #
 
-networkUsage() { ScriptUsageEcho "Usage: $(ScriptName) network backup|config|edit|update|validate"; }
+networkUsage() { ScriptUsageEcho "Usage: $(ScriptName) network backup|config|edit|update"; }
 
 networkArgStart()
 {
@@ -1041,13 +1008,13 @@ Edit the DHCP and DNC configuration files.
 	-4|-6 	edit only IPv4 or IPv6 files"
 }
 
-networkEditArgStart() { unset -v ipv; n="$(GetDnsDomain | RemoveDnsSuffix)"; }
+networkEditArgStart() { unset -v ipv ipvArg; n="$(GetDnsDomain | RemoveDnsSuffix)"; }
 
 networkEditOpt() 
 {
 	case "$1" in
-		-4) ipv="4";;
-		-6) ipv="6";;
+		-4) ipv="4" ipvArg="-4";;
+		-6) ipv="6" ipvArg="-6";;
 		*) return 1
 	esac
 }
@@ -1181,7 +1148,7 @@ networkUpdateDhcpDo()
 	service restart kea-dhcp$ipv-server --host="$host" || return
 
 	# validate
-	[[ ! $noValidate ]] && { networkValidateHostWait "$host" DHCP 10 $ipv || return; }
+	[[ ! $noValidate ]] && { network validate DHCP $ipvArg --wait --host="$host" || return; }
 
 	# cleanup
 	rm -fr "$dir" || return
@@ -1298,7 +1265,7 @@ networkUpdateDns()
 
 	# validate
 	if [[ ! $noValidate ]]; then
-		{ network dns flush && sleep 1 && networkValidateHostWait "$host" DNS 10 $ipv; } || return
+		{ network dns flush && sleep 1 && network validate DNS $ipvArg --wait --host="$host"; } || return
 	fi
 
 	# cleanup
@@ -1345,146 +1312,6 @@ networkConfigFileValidate()
 	configFileToJson "$1" > "$file" 2> /dev/null
 	TextEdit "$1" "$file" || return
 	return 1
-}
-
-#
-# Network Validate Command
-#
-
-networkValidateUsage()
-{
-	ScriptUsageEcho "Usage: $(ScriptName) network validate [dns|dhcp|all](all)
-Validate the DHCP or DNS operation of HOST.
-
-	-4|-6 										use only IPv4 or IPv6
-	-H, --host [HOSTS](all)	$(ScriptOptHostUsage)"
-}
-
-networkValidateArgStart() { unset -v hostArg hostOpt ipv; }
-
-networkValidateOpt() 
-{
-	ScriptOptHost "$@" && return
-
-	case "$1" in
-		-4) ipv="4";;
-		-6) ipv="6";;
-		*) return 1
-	esac
-}
-
-networkValidateCommand() { networkValidateAllCommand; }
-networkValidateAllCommand() { networkValidateDhcpCommand && networkValidateDnsCommand; }
-networkValidateDhcpCommand() { networkValidateHosts "DHCP" $ipv; }
-networkValidateDnsCommand() { networkValidateHosts "DNS" $ipv; }
-
-# networkCanValidate dhcp|dns - return true if can validate DHCP or DNS servers
-networkCanValidate() { networkCanValidate$(ProperCase "$1"); }
-networkCanValidateDhcp() { RunPlatform networkCanValidateDhcp || NmapCanBroadcast $quiet; }
-networkCanValidateDhcpWin() { InPath dhctptest.exe; }
-networkCanValidateDns() { return 0; }
-
-# networkValidateHosts dhcp|dns [4|6](both) - validate DHCP or DNS for the hosts
-networkValidateHosts()
-{
-	local what="$1" ipv="$2"
-
-	networkCanValidate "$what" || return
-	printf "Validating ${what^^}..."
-
-	local hosts host; get$(ProperCase "$what")Hosts || return
-	for host in "${hosts[@]}"; do
-		printf "$(RemoveDnsSuffix "$host")..."
-		! IsAvailable "$host" && { printf "${RED}not available${RESET}..."; continue; }
-		networkValidate$(ProperCase "$1") "$host" $ipv && printf "ok..." || printf "${RED}failed${RESET}..."
-	done
-	echo "done"
-}
-
-# networkValidateHostWait HOST dhcp|dns SECONDS [4|6](both) - wait SECONDS to validate DNS or DHCP
-networkValidateHostWait()
-{
-	local host="$1" what="$2" seconds="$3" ipv="$4"
-
-	printf "Waiting for ${what^^} on $(RemoveDnsSuffix "$host")..."
-	! IsAvailable "$host" && { HilightErrEnd "not available"; return 1; }
-
-	for (( i=1; i<=$seconds; ++i )); do
- 		networkValidate$(ProperCase "$what") $function "$host" $ipv && { echo "${GREEN}available${RESET}"; return; }
- 		read -n 1 -t 1 -s && { echo "${RED}cancelled${RESET}"; return 1; }
-		printf "."
-	done
-
-	echo "${RED}failed${RESET}"
-	return 1
-}
-
-# networkValidateDhcp HOST [4|6](both) - validate a DHCPv4 or DHCPv6 server, or both
-networkValidateDhcp()
-{
-	local host="$1" ipv="$2"
-	[[ $ipv ]] && { networkValidateDhcp$ipv "$host"; return; }
-	networkValidateDhcp4 "$host" && networkValidateDhcp6 "$host"; 
-}
-
-# networkValidateDhcp4 HOST - validate a DHCPv4 server
-networkValidateDhcp4()
-{
-	if IsPlatform win && InPath dhcptest.exe; then
-		dhcptest.exe --bind "$(GetAdapterIpAddress)" --query --wait --timeout 2 |& grep -q "^Received packet from $(GetIpAddress "$host")"
-		return
-	fi
-
-	local host="$1"; local hostDns; hostDns="$(DnsResolve "$host" "${globalArgs[@]}")" || return
-	DhcpServers $quiet | qgrep "^${hostDns}$"
-}
-
-# networkValidateDhcp6 HOST - validate a DHCPv6 server
-networkValidateDhcp6() { :; }
-
-# networkValidateDns HOST [4|6](both) - validate DNS using IPv4 or IPv6, or both
-networkValidateDns()
-{
-	local host="$1" ipv="$2"
-	[[ $ipv ]] && { networkValidateDns$ipv "$host"; return; }
-	networkValidateDns4 "$host" && networkValidateDns6 "$host"
-}
-
-# networkValidateDns4 HOST - validate a DNS server using IPv4
-networkValidateDns4()
-{
-	local host="$1" name="router.$(GetDnsDomain)"; networkValidateDnsCommon || return
-	
-	# forward lookup 
-	nslookup "$name" "$host" >& /dev/null || { log2 "$host IPv4 forward lookup of router.$(GetDnsDomain) failed"; return 1; }
-
-	# reverse lookup
-	local ip; ip="$(DnsResolve "$name")" || return
-	nslookup "$ip" "$host" >& /dev/null || { log2 "$host reverse lookup of 10.10.100.1 failed"; return 1; }
-}
-
-# networkValidateDns6 HOST - validate a DNS server using IPv6
-networkValidateDns6()
-{
-	local host="$1" name="router.$(GetDnsDomain)"; networkValidateDnsCommon || return
-
-	# forward lookup
-	# dig -6 -t AAAA +short "router.$(GetDnsDomain)" @host >& /dev/null || { log2 "$host IPv6 forward lookup of router.$(GetDnsDomain) failed"; return 1; }
-	
-	# reverse lookup
-	# nslookup "10.10.100.1" "$host" >& /dev/null || { log2 "$host reverse lookup of 10.10.100.1 failed"; return 1; }
-}
-
-# networkValidateDnsCommon - common validations for DNS servers 
-networkValidateDnsCommon()
-{
-	log2 "validating DNS server on '$host' by checking '$name' resolution (ipv=$ipv)"
-
-	# check if the host is available
-	HostAvailable "$host" || return
-
-	# check if the DNS server is available on porty 53
-	IsAvailablePort "$host" 53 || { log2 "$host is not availble on port 53"; return 1; }
 }
 
 #
