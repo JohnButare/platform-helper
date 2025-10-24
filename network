@@ -561,7 +561,7 @@ systemd-networkdStatus()
 # current commands
 #
 
-currentUsage() { echot "Usage: $(ScriptName) current config|find|ls|name|prefix|status|server|servers|update\nCurrent network commands."; }
+currentUsage() { echot "Usage: $(ScriptName) current config|find|ls|name|prefix|status|update\nCurrent network commands."; }
 currentCommand() { usage; }
 currentPrefixUsage() { echot "Usage: $(ScriptName) current prefix [length]\nIPv6 prefix of the current network."; }
 currentPrefixCommand() { currentPrefix; }
@@ -572,7 +572,7 @@ currentNameCachedUsage() { echot "Usage: $(ScriptName) current name cached\nThe 
 currentNameCachedCommand() { nameCached; }
 currentNameValidateUsage() { echot "Usage: $(ScriptName) current name cached\nValidate a current network is configured."; }
 currentNameValidateCommand() { nameValidate; }
-currentStatusUsage() { echot "Usage: $(ScriptName) current all\nStatus of the current network."; }
+currentStatusUsage() { echot "Usage: $(ScriptName) current status\nStatus of the current network."; }
 currentStatusCommand() { currentStatus; }
 
 currentStatus()
@@ -806,47 +806,6 @@ currentLsAvailable()
 }
 
 #
-# current server command
-#
-
-currentServerUsage()
-{ 
-	ScriptUsageEcho "Usage: $(ScriptName) current server TYPE
-Find the first available server for the current network, i.e. network 'network current server wireguard --service=wg' find the first available WireGuard from the list of servers in bootstrap-config.sh <domain>WireguardServers.
-
-$(currentUsageOther)
-	-s, --service	the service used to validate the server, defaults to ping, see 'network find --help'"
-}
-
-currentServerArgStart() { unset -v service; currentArgStartOther; }
-
-currentServerOpt()
-{
-	currentOptOther "$@" && return
-	case "$1" in
-		-s|--service|-s=*|--service=*) ScriptOptGet "service" "$@"; service="--service=$service";;
-		*) return 1;;
-	esac
-}
-
-currentServerArgs() { ScriptArgGet "type" -- "$@"; }
-currentServerCommand() { local name; name="$(name)" || return; findServer "$name" "$type" "$service"; }
-
-#
-# current servers command
-#
-
-currentServersUsage()
-{
-	echot "Usage: $(ScriptName) current servers TYPE
-Return all servers of the specified type for the current network, i.e. 'network current servers dns' returns all of the DNS servers in bootstrap-config.sh <domain>DnsServers."
-}
-
-currentServersArgStart() { unset -v type; }
-currentServersArgs() { ScriptArgGet "type" -- "$@"; }
-currentServersCommand() { local name; name="$(name)" || return; getServersFromConfig "$name" "$type"; }
-
-#
 # current update command
 #
 
@@ -929,27 +888,6 @@ findNetwork()
 	local network networks=(); StringToArray "$(ConfigGet "networks")" "," networks
 	network="$(RunLog network find --service=dns --timeout=$timeout $brief "${networks[@]}" "${globalArgs[@]}")" || { echo "external"; return; }
 	GetSshUser "$network" # return the name of the network (before @)
-}
-
-# findServer NETWORK TYPE SERVICE - find the first server of the specified type for the specified network  
-findServer()
-{
-	local network="$1" type="$2" service="$3"
-
-	# get servers of the specified type
-	local server servers=(); StringToArray "$(getServersFromConfig "$network" "$type")" "," servers
-
-	# no servers defined
-	if [[ ! $servers ]]; then
-		doLog && EchoErr "no '$type' services defined for '$network' network"
-		return 1
-	fi
-
-	# find an active server
-	server="$(RunLog network find "${servers[@]}" $brief $service "${globalArgs[@]}")" || return
-
-	# return HOST:SERVICE of the server (DESCRIPTION@HOST:SERVICE)
-	RemoveBefore "$server" "@" 
 }
 
 # validateDnsServer NETWORK SERVER - validate the DNS server is correct for the specified network
@@ -1069,7 +1007,7 @@ domainJoinedWin() { ! IsLocalHost "$(domainNameWin)"; }
 
 findUsage()
 {
-	echot "Usage: $(ScriptName) find SERVER [SERVER...]
+	echot "Usage: $(ScriptName) find [SERVER...]
 Find servers that exposes a specific service (simple service discovery).  Returns the server found.
 
 - SERVER format is [DESCRIPTION@]HOST_OR_IP[:SERVICE][-DOMAIN], i.e. butare:10.10.10:DNS
@@ -1083,11 +1021,12 @@ Find servers that exposes a specific service (simple service discovery).  Return
   	wg - checks the WireGuard UDP port for the current network, defaults to 51820
 - DOMAIN: if specified only check the service if the system is in the specified domain
 
-	-a,	--all			find all servers instead of the first
-	-b,	--brief		show brief status messages
-	-s, --service	the service to use if one is not specified, defaults to PING
-	-t, --timeout $(ScriptOptTimeoutUsage)
-	-u, --udp			check the port using UDP instead of TCP"
+	-a,	--all				find all servers instead of the first
+	-b,	--brief			show brief status messages
+	-s, --service		the service to use if one is not specified, defaults to PING
+	-t, --timeout 	$(ScriptOptTimeoutUsage)
+	-T, --type TYPE	find the first available server for the type specified, i.e. 'network server wireguard --service=wg'
+	-u, --udp				check the port using UDP instead of TCP"
 }
 
 findArgStart() { unset -v all brief; check="IsAvailablePort" defaultService="PING"; ScriptOptTimeoutArgStart; }
@@ -1099,27 +1038,26 @@ findOpt()
 		--brief|-b) brief="--brief";;
 		--service|--service=*|-s|-s=*) ScriptOptGet "defaultService" "service" "$@";;
 		--timeout|--timeout=*|-t|-t=*) ScriptOptTimeout "$@";;
+		--type|--type=*|-T|-T=*) ScriptOptGet "type" "$@";;
 		--udp|-u) check="IsAvailablePortUdp";;
 		*) return 1;;
 	esac
 }
 
-findArgs()
-{
-	(( $# == 0 )) && { MissingOperand "server"; return; }
-	servers=( "$@" ); (( shift+=$# )); return 0;
-}
+findArgs() { servers=( "$@" ); (( shift+=$# )); return 0; }
 
-findCommand()
-{
+findCommand(){ [[ $type ]] && { findType; return; }; findDo; }
+
+findDo()
+{	
 	[[ ! $brief && ! $quiet ]] && PrintErr "checking..."
 
 	local server descriptions=() results=()
 
 	# look for available server
 	log1 "looking for servers: $(ArrayShow servers)"
-	for server in "${servers[@]}"
-	do
+
+	for server in "${servers[@]}"; do
 		local domain host service description; parseServer "$server" || return
 		log3 "server=$server description=$description host=$host service=$service domain=$domain"
 
@@ -1204,6 +1142,24 @@ findCheck()
 	esac
 }
 
+findType()
+{
+	local network="$(name)"
+
+	# get servers of the specified type
+	local server servers=(); StringToArray "$(ConfigGetCurrentServers "$type")" "," servers
+	if [[ ! $servers ]]; then
+		doLog && EchoErr "no '$type' services defined for '$network' network"
+		return 1
+	fi
+
+	# find an active server
+	server="$(findDo)" || return
+
+	# return HOST:SERVICE of the server (DESCRIPTION@HOST:SERVICE)
+	RemoveBefore "$server" "@" 
+}
+
 isValidService() { IsInteger "$1" || [[ "$1" == @(dns|ping|nfs|smb|ssh|wg) ]]; }
 
 # parseServer SERVER - SERVER format is [DESCRIPTION@]HOST_OR_IP[:SERVICE][-DOMAIN], i.e. butare:10.10.10:DNS-butare
@@ -1212,8 +1168,8 @@ parseServer()
 	local server="$1"
 
 	# parse [DESCRIPTION@]HOST_OR_IP[:SERVICE-DOMAIN] - follows SSH name format
-	description="$(GetSshUser "$server")"; description="${description:-$host}"
 	host="$(GetSshHost "$server")"
+	description="$(GetSshUser "$server")"; description="${description:-$host}"
 	service="$(GetSshPort "$server")"; service="${service:-$defaultService}"; service="${service,,}"
 
 	# parse [SERVICE]-[DOMAIN]
@@ -2415,14 +2371,6 @@ nameValidate()
 	local name; name="$(UpdateGet "$networkCache")"
 	[[ $name ]] && { [[ ! $quiet ]] && echo "$name"; return 0; }
 	ScriptErrQuiet "the current network is not configured"
-}
-
-# getServersFromConfig NETWORK TYPE - get servers of the specified type for the specified network from configuration, 
-# i.e "getServers butare lb" would look for the butareLbServers configuration variable
-getServersFromConfig()
-{
-	local network="$1" type="$2"
-	ConfigGet "${network}$(UpperCaseFirst "$type")Servers"
 }
 
 ScriptRun "$@"
