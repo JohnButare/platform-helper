@@ -501,7 +501,7 @@ GetHostsConfig()
 GetHostsConfigNetwork() 
 {
 	local config="$1" h="$(LowerCase "$hostArg")"
-	[[ "$h" == @(|all) ]] && h="$(network current servers "$config")"
+	[[ "$h" == @(|all) ]] && h="$(ConfigGetCurrentServers "$config")"
 	StringToArray "$h" "," hosts; [[ $hosts ]] && return
 
 	# usage
