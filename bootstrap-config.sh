@@ -75,7 +75,7 @@ butareDnsSearch="$butareDnsBaseDomain $butareDnsDomain"
 butareNoProxy="$noProxyLocal,.$butareDnsBaseDomain,web,www,autoproxy,$noProxyRemote"
 butareNoProxy+=",10.10.100.1/22,10.96.0.0/12,192.168.59.0/24,192.168.49.0/24,192.168.39.0/24" # minikube - https://minikube.sigs.k8s.io/docs/handbook/vpn_and_proxy/
 
-butareCameraServers="BackShedCamera,BackYardEastCamera,FrontPatioCamera,FrontYardEastCamera,FrontYardWestCamera,LivingRoomCamera"
+butareCameraServers="back-shed-camera,back-yard-east-camera,front-patio-camera,front-yard-east-camera,front-yard-west-camera,living-room-camera"
 butareBackupUser="$butareUser"
 butareGitServer="git.$butareDnsBaseDomain"					# Git Server
 butareGitAlias="git"
