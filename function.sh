@@ -2049,25 +2049,6 @@ GetDnsBaseDomain() { echo "$(ConfigGet "$(GetDomain)DnsBaseDomain")"; }
 GetNetworkDnsDomain() { echo "$(ConfigGet "$(NetworkCurrent)DnsDomain")"; }
 GetNetworkDnsBaseDomain() { echo "$(ConfigGet "$(NetworkCurrent)DnsBaseDomain")"; }
 
-# GetMacAddress [HOST|MAC] - get MAC address for the current host, or use /etc/ethers to lookup the host for a MAC address or the MAC address for a host
-GetMacAddress()
-{
-	local arg="$1"
-
-	# localhost
-	IsLocalHost "$arg" && { GetAdapterMacAddress; return; }
-
-	# lookup the host for the given MAC address
-	if IsMacAddress "$arg"; then
-		grep -i "^$1" "/etc/ethers" | cut -d" " -f2
-
-	# lookup the MAC address for the given host
-	else
-		grep -i " $arg$" "/etc/ethers" | cut -d" " -f1
-
-	fi
-}
-
 # GetOsName HOST - get HOST short name, use cached DNS name for speed
 GetOsName()
 {
@@ -2253,7 +2234,7 @@ GetAdapterMacAddress()
 		RunWin ipconfig.exe /all | RemoveCarriageReturn | grep -E "Ethernet adapter $adapter:|Wireless LAN adapter $adapter:" -A 9 | \
 			grep "^[ ]*Physical Address" | head -1 | cut -d: -f2 | RemoveSpace | LowerCase | sed 's/-/:/g'
 	else
-		ifconfig "$adapter" | grep "^[ ]*ether " | tr -s '[:blank:]' ' ' | cut -d" " -f3
+		ifconfig "$adapter" | ${G}grep "^[ 	]*ether " | tr -s '[:blank:]' ' ' | cut -d" " -f3
 	fi
 }	
 
@@ -2635,37 +2616,45 @@ MacGenerate()
 	printf ':%02x:%02x:%02x:%02x:%02x\n' $(openssl rand -hex 5 | sed 's/../0x& /g')
 }
 
-# MacLookup HOST|IP... - resolve a host name or IP to a MAC address using the ARP table or /etc/ethers
-# -4|-6 				use IPv4 or IPv6
-# --detail   		displayed detailed information about the MAC address including all MAC, IP address, and 
-#               DNS names.  Allows identification of the current host of a Virtual IP Addresses (VIP).
-# --monitor|-m	monitor the host name or IP address for changes (useful for VIP failovers)
-# --dns|-d  		resolve the MAC address to a DNS name
-# --ethers|-e		resolve using /etc/ethers instead of the ARP table
-# --quiet|-q		suppress error message where possible
+# MacLookup [HOST|IP|MAC]... - resolve a host name or IP to a MAC address using the ARP table or /etc/ethers
+# -4|-6 					use IPv4 or IPv6
+# --arp|-a				resolve only using the ARP table
+# --detail   			displayed detailed information about the MAC address including all MAC, IP address, and 
+#               	DNS names.  Allows identification of the current host of a Virtual IP Addresses (VIP).
+# --monitor|-m		monitor the host name or IP address for changes (useful for VIP failovers)
+# --dns|-d  			resolve the MAC address to a DNS name
+# --ethers|-e			resolve only using /etc/ethers
+# --quiet|-q			suppress error message where possible
 # test: lb lb3 pi1
 MacLookup() 
 {
-	local detail dns ethers host monitor quiet
+	local arp detail dns ethers host monitor quiet
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-4) ipv="4";;
 			-6) ipv="6";;
+			--arp|-a) arp="--arp";;
 			--detail) detail="--detail";;
 			--dns|-d) dns="--dns";;
 			--ethers|-e) ethers="--ethers";;
 			--monitor|-m) monitor="--monitor";;
 			--quiet|-q) quiet="--quiet";;
 			*) 
-					IsOption "$1" && { UnknownOption "$1" "MacLookup"; return; }
-					[[ ! $host ]] && host="$1" || { ExtraOperand "$1" "MacLookup"; return; }
-					;;
+				IsOption "$1" && { UnknownOption "$1" "MacLookup"; return; }
+				[[ ! $host ]] && host="$1" || { ExtraOperand "$1" "MacLookup"; return; }
+				;;
 		esac
 		shift
 	done
 
-	[[ ! $host ]] && { MissingOperand "host" "MacLookup"; return; }
+	# primary network adapter MAC address
+	IsLocalHost "$host" && { GetAdapterMacAddress; return; }
+
+	# lookup the host for the given MAC address
+	if IsMacAddress "$host"; then
+		grep -i "^$host" "/etc/ethers" | cut -d" " -f2; return
+	fi
 
 	# set ipv if needed
 	if [[ ! $ipv ]]; then
@@ -2679,7 +2668,7 @@ MacLookup()
 		echo "Press any key to stop monitoring '$host'..."
 		
 		while true; do
-			hilightp "$host: "; MacLookup$ipv --detail "$host" | ${G}tail --lines=+2 | tr -s " " | cut -d" " -f3 | cut -d"." -f1 | sort | NewlineToSpace; echo
+			hilightp "$host: "; MacLookup$ipv --detail "$host" --arp | ${G}tail --lines=+2 | tr -s " " | cut -d" " -f3 | cut -d"." -f1 | sort | NewlineToSpace; echo
 			ReadChars 1 1 && return
 		done
 	fi
@@ -2688,27 +2677,23 @@ MacLookup()
 	local mac macWin
 
 	# resolve using /etc/ethers	
-	if [[ $ethers ]]; then
-		if InPath getent; then
-			mac="$(getent ethers "$(RemoveDnsSuffix "$host")" | cut -d" " -f1 | sed 's/\b\(\w\)\b/0\1/g' | sort | uniq)" # sed pads zeros, i.e. 2:2 -> 02:02 
-		else
-			mac="$(grep " $(RemoveDnsSuffix "${host,,}")$" "/etc/ethers" | cut -d" " -f1)"
-		fi
+	if { [[ ! $arp ]] && mac="$(MacLookupEthers "$host")"; } || [[ $ethers ]]; then
+		:
 
 	# resolve using the IPv4 ARP table
 	elif [[ "$ipv" == @(|4) ]]; then
-		local ping="ping -c 1"; IsPlatform win && ping="ping.exe -n 1 -w 100"
+		
+		# populate the arp cache using IsAvailable
+		if ! IsAvailable "$host"; then
+			:
 
-		# populate the arp cache with the MAC address
-		eval $ping "$host" >& /dev/null || { ScriptErrQuiet "unable to lookup the MAC address for '$host'" "MacLookup"; return 1; }
-
-		# get the MAC address in Windows
-		if IsPlatform win; then
+		# get the MAC address in
+		elif IsPlatform win; then
 			local ip; ip="$(GetIpAddress "$host")" || return
 			macWin="$(RunWin arp.exe -a | grep "$ip" | tr -s " " | cut -d" " -f3 | ${G}tail --lines=-1)" || return
 			mac="$(echo "$macWin" | sed 's/-/:/g')" || return # change - to :
 
-		# get the MAC address - everything else
+		# get the MAC address
 		else
 			mac="$(arp "$host")" || return
 			echo "$mac" | ${G}grep --quiet "no entry$" && { ScriptErrQuiet "no MAC address for '$host'" "MacLookup"; return 1; }
@@ -2717,11 +2702,8 @@ MacLookup()
 		fi
 
 	# resolve using IPv6 Router Advertisement (RA)
-	else
-
-		if InPath ndisc6; then
-			mac="$(ndisc6 -1 -q "$host" "$(GetInterface)")"
-		fi
+	elif InPath ndisc6; then
+		mac="$(ndisc6 -1 -q "$host" "$(GetInterface)")"
 
 	fi
 
@@ -2752,6 +2734,18 @@ MacLookup()
 			echo "${RESET}${RESET}$mac-$ip-$dns" # add resets to line up the columns
 		done
 	} | column -c $(tput cols -T "$TERM") -t -s-
+}
+
+# MacLookupEthers HOST - lookup mac address for host in /etc/ethers
+MacLookupEthers()
+{
+	local host="$1"
+
+	if InPath getent; then
+		getent ethers "$(RemoveDnsSuffix "$host")" | cut -d" " -f1 | sed 's/\b\(\w\)\b/0\1/g' | sort | uniq # sed pads zeros, i.e. 2:2 -> 02:02 
+	else
+		${G}grep " $(RemoveDnsSuffix "$(LowerCase "$host")")$" "/etc/ethers" | cut -d" " -f1
+	fi
 }
 
 # NetworkNeighbors - get network neighbors from the IPv6 Network Discover Protocol (NDP)
@@ -2874,7 +2868,7 @@ IsAvailable()
   	RunWin ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes=" &> /dev/null 
 	elif InPath fping; then
 		log3 "fping --retry 1 --timeout $timeout $ip" "IsAvailable"
-		fping --retry 1 --timeout "$timeout" "$ip" > /dev/null
+		fping --retry 1 --timeout "$timeout" "$ip" &> /dev/null
 	else
 		log3 "ping -c 1 -W 1 $ip" "IsAvailable"
 		ping -c 1 -W 1 "$ip" &> /dev/null # -W timeoutSeconds
