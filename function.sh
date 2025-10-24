@@ -3777,11 +3777,11 @@ GetSshPort()
 	# remove user
 	GetArgs; local gsp="$1"; [[ "$gsp" =~ @ ]] && gsp="${gsp##*@}"
 
-	# no port if we are left with a valid IPv6 address
-	IsIpAddress6 "$gsp" && { r "" $2; return; }
+	# no port if no colon or we have a valid IPv6 address
+	{ [[ ! "$gsp" =~ : ]] || IsIpAddress6 "$gsp"; } && { r "" $2; return; }
 
 	# remove port
-	[[ "$1" =~ : ]] && gsp="${1##*:}"; r "$(RemoveSpaceTrim "$gsp")" $2	
+	gsp="${gsp##*:}"; r "$(RemoveSpaceTrim "$gsp")" $2	
 }
 
 # GetSshUser [USER@]HOST[:PORT] -> PORT
