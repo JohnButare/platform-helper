@@ -13,7 +13,7 @@ hostTimeout="200"
 # servers
 #
 
-servers="bl3,bl4,pi1,pi2,pi3,pi4,pi5,pi6,pi7,pi8,pi9,pi10,rp1,rp2,rp3,rp4"
+servers="bl3,bl4,pi1,pi2,pi3,pi4,pi5,pi6,pi7,pi8,pi9,pi10,rp1,rp2,rp3,rp4,rp5,rp6"
 
 # other
 mqttServer="mosquitto"
