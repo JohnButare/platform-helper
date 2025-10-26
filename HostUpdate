@@ -5,7 +5,6 @@ usage()
 {
 	ScriptUsage "$1" "Usage: $(ScriptName) [all|client|server](client) [HOST]...
 
-	-f, --force			update the host even if it might be up to date
 	-p, --prompt		prompt for what to update
 	-P,	--protocol	$(ScriptOptNetworkProtocolUsage)
 	-s, --skip LIST	comma seperated list of items to skip
@@ -232,51 +231,30 @@ debianUpdate()
 	{ ! debianInstalled || ! UpdateNeeded "update-debian"; } && return
 
 	# update using apt or nala
-	local update="apt"; InPath nala && update="nala"; debianUpdate${update^} || return
+	local u="apt"; InPath nala && u="nala"
 
-	UpdateDone "update-debian" || return
-}
+	# update the package metadata - to get current list of upgradable packages
+	sudo $u update || return
 
-debianUpdateApt()
-{
-	sudov || return
-
-	# update the package metadata
-	sudo apt update || return
+	# logging
+	[[ $verbose ]] && apt list --upgradable
 
 	# arguments
-	local args=(); (( forceLevel >= 3 )) && args+=(-o APT::Get::Always-Include-Phased-Updates=true)
+	local args=()
+	(( forceLevel >= 3 )) && args+=(-o APT::Get::Always-Include-Phased-Updates=true) # force phased (slowly rolled out) updates
 
-	# update of needed
+	# update
 	# - NEEDRESTART_MODE="l" - list what services need to be restarted only
-	[[ $verbose ]] && apt list --upgradable
 	if (( forceLevel >= 2 )) || (( $(apt list --upgradable 2>/dev/null | grep -c "upgradable") > 0 )); then
-		RunLog sudo NEEDRESTART_MODE="l" apt full-upgrade -y "${args[@]}" || return
+		RunLog sudo NEEDRESTART_MODE="l" $u full-upgrade --no-update --assume-yes "${args[@]}" || return
 	fi
 
-	# remove packages	
-	sudo apt autoremove -y || return
+	# remove unused packages
+	sudo $u autoremove --assume-yes || return
 
-	return 0
+	# complete
+	UpdateDone "update-debian" || return
 }
-
-debianUpdateNala()
-{
-	sudov || return
-
-	# arguments
-	local args=(); (( forceLevel >= 3 )) && args+=(-o APT::Get::Always-Include-Phased-Updates=true)
-
-	# update the package metadata
-	sudo nala update || return
-
-	# return if no update needed
-	[[ $verbose ]] && apt list --upgradable
-	(( forceLevel < 2 )) && (( $(apt list --upgradable 2>/dev/null | grep -c "upgradable") == 0 )) && return
-	
-	# - NEEDRESTART_MODE="l" - list what services need to be restarted only
-	RunLog sudo NEEDRESTART_MODE="l" nala full-upgrade --assume-yes "${args[@]}" || return
-} 
 
 #
 # File Update - sync local files to the file server
