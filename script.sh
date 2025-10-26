@@ -236,7 +236,7 @@ ScriptOpt()
 ScriptOptGlobal()
 {
 	case "$1" in
-		--force|-f|-ff|-fff) ScriptOptForce "$1";;
+		--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 		--help|-h) ScriptOptVerbose "$@"; usage 0;;
 		--no-prompt|-np) noPrompt="--no-prompt";;
 		--quiet|-q) quiet="--quiet" quietOutput="/dev/null";;

@@ -5464,6 +5464,8 @@ ScriptOptForce()
 			-f|--force) force="-f"; forceLevel=1;;
 			-ff) force="-ff"; forceLevel=2;;
 			-fff) force="-fff"; forceLevel=3;;
+			-ffff) force="-ffff"; forceLevel=4;;
+			-fffff) force="-fffff"; forceLevel=5;;
 		esac
 		shift; 
 	done
