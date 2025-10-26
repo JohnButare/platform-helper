@@ -935,10 +935,10 @@ NodeUpdate()
 	sudoc rm -fr "$(npm --global prefix)/lib/node_modules/.bin" || return
 
 	# update npm - npm outdated returns false if there are updates
-	{ npm outdated --global; true; } | qgrep '^npm ' && { NodeNpmGlobal install npm@latest || return; }
+	{ [[ $force ]] || { npm outdated --global; true; } | qgrep '^npm '; } && { NodeNpmGlobal install npm@latest || return; }
 
 	# update other packages
-	npm outdated --global >& /dev/null || { NodeNpmGlobal update || return; }
+	{ [[ $force ]] || ! npm outdated --global >& /dev/null; } && { NodeNpmGlobal update || return; }
 
 	return 0
 }
