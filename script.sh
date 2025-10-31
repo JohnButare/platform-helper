@@ -272,7 +272,7 @@ ScriptOptGet()
 		scriptOptValue="$1"; ((++shift))
 		
 	elif [[ $require ]]; then
-		MissingOperand "$scriptDesc"; return
+		MissingOperand "$scriptDesc"; exit 1
 
 	else
 		return 1
@@ -298,7 +298,7 @@ ScriptOptNetworkProtocol()
 ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file sharing (NFS|RCLONE|SMB|SSH|SSH_PORT)"; }
 
 # ScriptOptTimeout - sets timeout and timeoutArg
-ScriptOptTimeout() { ScriptOptGet --integer "timeout" "$@"; timeoutArg="--timeout=$timeout"; }
+ScriptOptTimeout() { ScriptOptGet --integer "timeout" "$@" || return; timeoutArg="--timeout=$timeout"; }
 
 ScriptOptTimeoutArgStart() { timeout="$(AvailableTimeoutGet)"; timeoutArg="--timeout=$timeout"; return 0; }
 ScriptOptTimeoutUsage() { echo "the network host timeout in milliseconds, defaults to $timeout ms"; }
