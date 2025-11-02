@@ -267,9 +267,13 @@ if [[ "$USER" == "root" ]]; then
 	 	export CREDENTIAL_MANAGER="remote"
 
 	 	# root shell is sh which runs .profile
-	 	[[ ! -f ~/.profile ]] && echo "[ $BASH ] && . \"$USERS/\$(ConfigGetCurrent "user")/.bashrc\"" >> "$HOME/.profile"
+	 	[[ ! -f $HOME/.profile ]] && echo "[ $BASH ] && . \"$USERS/\$(ConfigGetCurrent "user")/.bashrc\"" >> "$HOME/.profile"
+
+	 	# profile does not load without a brief sleep
+	 	${G}sleep .1
 
 	else
+
 		# link configuration users .inputrc
 		[[ ! -f "$HOME/.inputrc" ]] && { MakeLink create "$USERS/$(ConfigGetCurrent "user")/.inputrc" "$HOME/.inputrc" || return; }
 
