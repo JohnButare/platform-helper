@@ -2298,7 +2298,7 @@ GetIpAddress()
 {
 	# arguments
 	local host mdns quiet verbose verboseLevel verboseLess vm wsl
-	local all=(head -1) ip ipv="4" server type="A"
+	local all=(head -1) ip ipv server type="A"
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2320,11 +2320,15 @@ GetIpAddress()
 		shift
 	done
 
+	# IP address - if -4 or -6 is not specified check
+	[[ $host ]] && IsIpAddress${ipv} "$host" && { echo "$host"; return; }
+	
+	# set default IP version
+	[[ ! $ipv ]] && ipv="4"
+
 	# type
 	[[ "$ipv" == "6" ]] && type="AAAA"
 
-	# IP address
-	[[ $host ]] && IsIpAddress${ipv} "$host" && { echo "$host"; return; }
 
 	# remove SSH user and port, i.e. USER@HOST:PORT -> HOST	
 	host="$(GetSshHost "$host")"
@@ -3744,7 +3748,7 @@ SshIsAvailablePort()
 
 	# check
 	local port="$(SshHelper config get "$host" port)"; port="${port:-22}"
-	IsAvailablePort "$host" "$port" $timeout; 
+	IsAvailable "$host" && IsAvailablePort "$host" "$port" $timeout; 
 }
 
 # SshSudoc HOST COMMAND ARGS - run a command on host using sudoc
@@ -3796,8 +3800,8 @@ GetGioShare() { GetArgs; local ggs="${1#*share=}"; ggs="${ggs%%/*}"; r "$ggs" $2
 #
 
 CheckNetworkProtocol() { [[ "$1" == @(|nfs|rclone|smb|ssh) ]] || IsInteger "$1"; }
-GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }																	# //SERVER/SHARE
-GetUncServer() { GetArgs; local gus="${1#*( )*(*:)//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }											# SERVER
+GetUncRoot() { GetArgs; r "//$(GetUncServer "$1")/$(GetUncShare "$1")" $2; }																				# //SERVER/SHARE
+GetUncServer() { GetArgs; local gus="${1#*( )*(*:)//}"; gus="${gus#*@}"; r "${gus%%/*}" $2; }												# SERVER
 GetUncShare() { GetArgs; local gus="${1#*( )*(*:)//*/}"; gus="${gus%%/*}"; gus="${gus%:*}"; r "${gus:-$3}" $2; }		# SHARE
 GetUncDirs() { GetArgs; local gud="${1#*( )*(*:)//*/*/}"; [[ "$gud" == "$1" ]] && gud=""; r "${gud%:*}" $2; } 			# DIRS
 IsUncPath() { [[ "$1" =~ ^(\ |.*:)*//.* ]]; }
@@ -3860,13 +3864,22 @@ GetUncUser()
 # GetUncProtocol UNC [VAR [DEFAULT]] - PROTOCOL=NFS|SMB|SSH|INTEGER - INTEGER is a custom SSH port
 GetUncProtocol()
 {
-	# GetArgs; local gup="${1#*:}"; [[ "$gup" == "$1" ]] && gup=""; r "${gup:-$3}" $2
-	# CheckNetworkProtocol "$gup" || { EchoErr "'$gup' is not a valid network protocol"; return 1; }
-
+	# [PROTOCOL:]//[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
 	GetArgs; local gup="$(RemoveSpaceTrim "$1")"
-	if [[ "$gup" =~ ^[a-zA-Z]*:// ]]; then gup="${gup%:*}"
-	elif [[ "$gup" =~ :[a-zA-Z] ]]; then gup="${gup##*:}"
-	else gup="$3"
+
+	# protocol in front
+	if [[ "$gup" =~ ^[a-zA-Z0-9]*:// ]]; then
+		gup="${gup%%:*}"
+		echo hi
+
+	# protocol in end - remove //[USER@]SERVER/[/DIRS]:PROTOCOL
+	elif gup="${gup##*/}" && [[ "$gup" =~ : ]]; then
+		gup="${gup##*:}"  # //[USER@]SERVER/SHARE[/DIRS][:PROTOCOL]
+	
+	# no protocol specified - use default
+	else
+		gup="$3"
+	
 	fi
 
 	CheckNetworkProtocol "$gup" || { EchoErr "'$gup' is not a valid network protocol"; return 1; }
