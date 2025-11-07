@@ -925,7 +925,7 @@ NodeConf()
 # NodeNpmGlobal - run npm --global with sudo if needed, assume we do not need sudo if the global prefix is in the users home directory
 NodeNpmGlobal()
 {
-	local sudo="sudoc"; npm --global prefix | qgrep "^$HOME" && sudo=""; 
+	local sudo="sudoc"; { IsPlatform mac || npm --global prefix | qgrep "^$HOME"; } && sudo=""; 
 	$sudo npm --global "$@"
 }
 
