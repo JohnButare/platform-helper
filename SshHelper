@@ -71,9 +71,7 @@ configDiff()
 configGetUsage() {	echot "Usage: $(ScriptName) config get HOST VALUE\nReturn the SSH configuration value for HOST from the SSH configuration."; }
 configGetArgStart() { host="" value=""; }
 configGetArgs() { ScriptArgGet "host" -- "$@" && shift && ScriptArgGet "value" -- "$@"; }
-configGetCommand() { configGet "$host" "$value"; }
-
-configGet() { local host="$1" value="$2"; ssh -T -G "$host" | grep -i "^$value " | head -1 | cut -d" " -f2; }
+configGetCommand() { SshConfigGet "$host" "$value"; }
 
 #
 # config sync command
@@ -141,9 +139,9 @@ Connect to a HOST using SSH.
 
 	-a, --all									resolve host using all methods (DNS, MDNS)
 	    --function						define functions
-$hostUsage
+	-H, --host [HOSTS](all)   $(ScriptOptHostUsage)
 	-i, --interactive					interactive shell, implies --function, --pseudo-terminal, and --quote
-	-nc, --no-check						do not check host availability
+	-nc, --no-check						do not check host information
 	-p, --password						specify a password
 	    --quote								quote arguments
 	-t, --pseudo-terminal			allocate a pseudo terminal
@@ -172,7 +170,7 @@ Environment options:
 }
 
 connectArgStart()
-{ 
+{
 	unset -v all borg briefHeader credentialManager errors functions hashi interactive mosh noCheck password pseudoTerminal quote sshAgent trust wait x
 	unset hostArg hostOpt hosts
 	ScriptOptTimeoutArgStart
@@ -215,14 +213,15 @@ connectArgs()
 connectCommand()
 {
 	local args=($errors); [[ $briefHeader ]] && args+=(--brief) || args+=(--header "running")
-	ForAllHosts connect "${args[@]}"
+	[[ $hostOpt ]] && { ForAllHosts connect "${args[@]}"; return; }
+	connect "$hostArg"
 }
 
 connect()
 {
 	local host="$1"
 
-	# configure the SSH agent - do not do by default for perofrmance
+	# configure the SSH agent - do not do by default for performance
 	[[ $sshAgent ]] && { RunLog SshAgentConf "${globalArgs[@]}" || return; }
 
 	# special handling
@@ -234,35 +233,13 @@ connect()
 	GetSshPort "$hostOrig" port
 	GetSshUser "$hostOrig" user; user="${user:-$(SshUser "$host")}" || return
 
-	# get host alias
-	host="$(os name real "$host")" || return
-
-	# Get the IP unless host is specified in ~/.ssh/config.
-	# - this allows use of additional name resolution methods such as MDNS
-	# - the host must have a known IP address
-	local ip	
-	host="$(SshConfigGet "$hostOrig" HostName)" || return
-	if [[ "$host" == "$hostOrig" ]] && ${G}grep "^$host" "$HOME/.ssh/known_hosts" | IpFilter --quiet; then
-		ip="$(GetIpAddress $all --vm "$hostOrig" $quiet)" || return
-		host="$ip"
-	fi
-
-	# get the port from configuration if none was specified so we can check if host is available
-	[[ ! $port ]] && ! port="$(configGet "$hostOrig" "port")" && { ScriptErr "could not find the SSH port for '$host'"; return 1; }
-
-	# logging
-	[[ $verbose ]] && log1 "host=${ip:-$(SshConfigGet "$host" "hostname")} hostOrig=$hostOrig port=$port user=${user:-$(configGet "$host" "user")}"
+	# check host
+	connectCheck || return
 
 	# wait for SSH to become available if needed
 	if [[ $wait ]]; then
 		[[ ! $port ]] && { port="$(portCommand)" || return; }
 		WaitForPort "$host" "$port" || return
-
-	# the host is not available on the specified port
-	elif [[ ! $noCheck && $port ]] && ! IsAvailablePort "$host" "$port" $timeout; then
-		local desc="$hostOrig"; [[ $ip ]] && desc+=" ($ip)"
-		ScriptErrQuiet "'$desc' is not responding on port $port"
-		return 1
 	fi
 
 	# arguments for all commands
@@ -357,6 +334,39 @@ connect()
 
 	return "$result"
 
+}
+
+connectCheck()
+{
+	[[ $noCheck ]] && return
+
+	# get host alias
+	host="$(os name real "$host")" || return
+
+	# Get the IP unless host is specified in ~/.ssh/config.
+	# - this allows use of additional name resolution methods such as MDNS
+	# - the host must have a known IP address
+	local ip	
+	host="$(SshConfigGet "$hostOrig" HostName)" || return
+	if [[ "$host" == "$hostOrig" ]] && ${G}grep "^$host" "$HOME/.ssh/known_hosts" | IpFilter --quiet; then
+		ip="$(GetIpAddress $all --vm "$hostOrig" $quiet)" || return
+		host="$ip"
+	fi
+
+	# get the port from configuration if none was specified so we can check if host is available
+	[[ ! $port ]] && ! port="$(SshConfigGet "$hostOrig" "port")" && { ScriptErr "could not find the SSH port for '$host'"; return 1; }
+
+	# check the host is not available on the specified port
+	if [[ ! $wait && $port ]] && ! IsAvailablePort "$host" "$port" $timeout; then
+		local desc="$hostOrig"; [[ $ip ]] && desc+=" ($ip)"
+		ScriptErrQuiet "'$desc' is not responding on port $port"
+		return 1
+	fi
+
+	# logging
+	[[ $verbose ]] && log1 "host=$host ip=$ip${ip:-$(SshConfigGet "$host" "hostname")} hostOrig=$hostOrig port=$port user=${user:-$(SshConfigGet "$host" "user")}"
+
+	return 0
 }
 
 connectHostInit()
