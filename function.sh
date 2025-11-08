@@ -1472,48 +1472,8 @@ IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff 
 IsPath() { [[ ! $(GetFileName "$1") ]]; }
 IsWindowsFile() { drive IsWin "$1"; }
 IsWindowsLink() { ! IsPlatform win && return 1; lnWin -s "$1" >& /dev/null; }
+
 RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
-
-CopyFileProgress()
-{
-	! IsPlatform linux && { rsync --info=progress2 "$@"; return; }
-	! PackageIsInstalled python3-progressbar && { package python3-progressbar || return; }
-	"$DATA/platform/agnostic/pcp" "$@"	
-}
-
-# FindAny DIR NAME [DEPTH](1) - find NAME (supports wildcards) starting from DIR for max of DEPTH directories
-FindAny()
-{
-	# arguments
-	local args=() dir name nameArg="-name" depth
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			--ignore-case|-i) nameArg="-iname";;
-			--) shift; args+=("$@"); break;;
-			-*) UnknownOption "$1" "FindAny"; return;;
-			*)
-				! IsOption "$1" && [[ ! $dir ]] && { dir="$1"; shift; continue; }
-				! IsOption "$1" && [[ ! $name ]] && { name="$1"; shift; continue; }
-				! IsOption "$1" && [[ ! $depth ]] && IsInteger "$1" && { depth="$1"; shift; continue; }
-				UnknownOption "$1" "FindAny"; return
-				;;
-		esac
-		shift
-	done
-	depth="${depth:-1}"
-
-	# find
-	[[ ! -d "$dir" ]] && return 1
-	"${G}find" "$dir" -maxdepth "$depth" $nameArg "$name" "${args[@]}" | "${G}grep" "" # grep returns error if nothing found
-}
-
-FindDir() { FindAny "$@" -- -type d; }
-FindFile() { FindAny "$@" -- -type f; }
-
-# (p)fpc - (platform) full path to clipboard
-fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; echo "$arg"; clipw "$arg"; } 
-pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; clipw "$(utw "$arg")"; }
 
 # CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
 # - mac: beta v166.3.2891+ triggers download of online-only files on move or copy
@@ -1563,6 +1523,14 @@ CloudGet()
 		( { ! HasFilePath "$file" || cd "$(GetFilePath "$file")"; } && cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
 
 	done
+}
+
+# CopyFileProgress - copy a file with progress indicator
+CopyFileProgress()
+{
+	! IsPlatform linux && { rsync --info=progress2 "$@"; return; }
+	! PackageIsInstalled python3-progressbar && { package python3-progressbar || return; }
+	"$DATA/platform/agnostic/pcp" "$@"	
 }
 
 # explorer DIR - explorer DIR in GUI program
@@ -1748,6 +1716,36 @@ FileWaitDelete()
 	return 1
 }
 
+# FindAny DIR NAME [DEPTH](1) - find NAME (supports wildcards) starting from DIR for max of DEPTH directories
+FindAny()
+{
+	# arguments
+	local args=() dir name nameArg="-name" depth
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--ignore-case|-i) nameArg="-iname";;
+			--) shift; args+=("$@"); break;;
+			-*) UnknownOption "$1" "FindAny"; return;;
+			*)
+				! IsOption "$1" && [[ ! $dir ]] && { dir="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $name ]] && { name="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $depth ]] && IsInteger "$1" && { depth="$1"; shift; continue; }
+				UnknownOption "$1" "FindAny"; return
+				;;
+		esac
+		shift
+	done
+	depth="${depth:-1}"
+
+	# find
+	[[ ! -d "$dir" ]] && return 1
+	"${G}find" "$dir" -maxdepth "$depth" $nameArg "$name" "${args[@]}" | "${G}grep" "" # grep returns error if nothing found
+}
+
+FindDir() { FindAny "$@" -- -type d; }
+FindFile() { FindAny "$@" -- -type f; }
+
 FindInPath()
 {
 	local file="$1" 
@@ -1770,6 +1768,10 @@ FindInPath()
 
 	return 1
 }
+
+# (p)fpc - (platform) full path to clipboard
+fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; echo "$arg"; clipw "$arg"; }
+pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; clipw "$(utw "$arg")"; }
 
 # GetRealPath - resolve symbolic links in path, the full path need not exist
 GetRealPath()
