@@ -3715,7 +3715,7 @@ SshAgentConf()
 	[[ -f  "$e" ]] && eval "$(cat "$e")" 
 
 	# return if the ssh-agent has keys already loaded
-	[[ ! $force ]] && ssh-add -L >& /dev/null && { [[ $verbose ]] && SshAgent status; return 0; }
+	! (( forceLevel > 2 )) && ssh-add -L >& /dev/null && { [[ $verbose ]] && SshAgent status; return 0; }
 
 	# return without error if no SSH keys are available
 	! SshAgent check keys && { [[ $verbose ]] && ScriptErr "no SSH keys found in $HOME/.ssh", "SshAgentConf"; return 0; }
