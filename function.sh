@@ -1325,50 +1325,43 @@ HexToDecimal() { echo "$((16#${1#0x}))"; }
 ListMake() { local listMakeArray=("${@:2}"); ArrayDelimit listMakeArray "$1"; } # ListMake DELIMITER VALUE... - return values delimited by delimiter
 
 # string
+BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
 CharCount() { GetArgs2; local charCount="${1//[^$2]}"; echo "${#charCount}"; } # CharCount STRING [CHAR]
+ForwardToBackSlash() { GetArgs; echo -E "$@" | sed 's/\//\\/g'; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 NewlineToComma()  { tr '\n' ','; }
 NewlineToSpace()  { tr '\n' ' '; }
-SpaceToNewline()  { tr ' ' '\n'; }
-StringPad() { printf '%*s%s\n' "$(($2))" "$1" ""; } # StringPad S N - pad string s to N characters with spaces on the left
-StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } # StringRepeat S N - repeat the specified string N times
-
-ShowChars() { GetArgs; echo -n -e "$@" | ${G}od --address-radix=d -t x1 -t a; } # ShowChars STRING - show all characters in the string
-
+QuoteBackslashes() { GetArgs; echo -E "$@" | sed 's/\\/\\\\/g'; } # escape (quote) backslashes
+QuoteForwardslashes() { GetArgs; echo -E "$@" | sed 's/\//\\\//g'; } # escape (quote) forward slashes (/) using a back slash (\)
+QuoteParens() { GetArgs; echo -E "$@" | sed 's/(/\\(/g' | sed 's/)/\\)/g'; } # escape (quote) parents
+QuotePath() { GetArgs; echo -E "$@" | sed 's/\//\\\//g'; } 			# escape (quote) path (forward slashes - /) using a back slash (\)
+QuoteQuotes() { GetArgs; echo -E "$@" | sed 's/\"/\\\"/g'; } 		# escape (quote) quotes using a back slash (\)
+QuoteSpaces() { GetArgs; echo -E "$@" | sed 's/ /\\ /g'; } 			# escape (quote) spaces using a back slash (\)
+RemoveAfter() { GetArgs2; echo "${1%%$2*}"; }								# RemoveAfter STRING REMOVE - remove first occerance of REMOVE and all text after it
+RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
+RemoveBefore() { GetArgs2; echo "${1##*$2}"; }							# RemoveBefore STRING REMOVE - remove last occerance of REMOVE and all text before it
+RemoveBeforeFirst() { GetArgs2; echo "${1#*$2}"; }					# RemoveBeforeFirst STRING REMOVE - remove first occerance of REMOVE and all text before it
 RemoveCarriageReturn()  { sed 's/\r//g'; }
-RemoveNewline()  { tr -d '\n'; }
+RemoveChar() { GetArgs2; echo "${1//${2:- }/}"; }						# RemoveChar STRING REMOVE
 RemoveEmptyLines() { awk 'NF { print; }'; }
+RemoveFront() { GetArgs2; echo "${1##*(${2:- })}"; }				# RemoveFront STRING REMOVE 
+RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }					# RemoveEnd STRING REMOVE 
 RemoveLastEmptyLine() { ${G}sed -i '${/^$/d;}' "$1"; }
-
-RemoveChar() { GetArgs2; echo "${1//${2:- }/}"; }																		# RemoveChar STRING REMOVE
-RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }																	# RemoveEnd STRING REMOVE 
-RemoveFront() { GetArgs2; echo "${1##*(${2:- })}"; }																# RemoveFront STRING REMOVE 
-RemoveTrim() { GetArgs2; echo "$1" | RemoveFront "${2:- }" | RemoveEnd "${2:- }"; }	# RemoveTrim STRING REMOVE - remove from front and end
-
-RemoveAfter() { GetArgs2; echo "${1%%$2*}"; }				# RemoveAfter STRING REMOVE - remove first occerance of REMOVE and all text after it
-RemoveBefore() { GetArgs2; echo "${1##*$2}"; }			# RemoveBefore STRING REMOVE - remove last occerance of REMOVE and all text before it
-RemoveBeforeFirst() { GetArgs2; echo "${1#*$2}"; }	# RemoveBeforeFirst STRING REMOVE - remove first occerance of REMOVE and all text before it
-
+RemoveNewline()  { tr -d '\n'; }
+RemoveParens() { tr -d '()'; }
+RemoveQuotes() { sed 's/^\"//g ; s/\"$//g'; }
 RemoveSpace() { GetArgs; RemoveChar "$1" " "; }
 RemoveSpaceEnd() { GetArgs; RemoveEnd "$1" " "; }
 RemoveSpaceFront() { GetArgs; RemoveFront "$1" " "; }
 RemoveSpaceTrim() { GetArgs; RemoveTrim "$1" " "; }
-
-QuoteBackslashes() { GetArgs; echo -E "$@" | sed 's/\\/\\\\/g'; } # escape (quote) backslashes
-QuoteForwardslashes() { GetArgs; echo -E "$@" | sed 's/\//\\\//g'; } # escape (quote) forward slashes (/) using a back slash (\)
-QuoteParens() { GetArgs; echo -E "$@" | sed 's/(/\\(/g' | sed 's/)/\\)/g'; } # escape (quote) parents
-QuotePath() { GetArgs; echo -E "$@" | sed 's/\//\\\//g'; } # escape (quote) path (forward slashes - /) using a back slash (\)
-QuoteQuotes() { GetArgs; echo -E "$@" | sed 's/\"/\\\"/g'; } # escape (quote) quotes using a back slash (\)
-QuoteSpaces() { GetArgs; echo -E "$@" | sed 's/ /\\ /g'; } # escape (quote) spaces using a back slash (\)
-RemoveQuotes() { sed 's/^\"//g ; s/\"$//g'; }
-RemoveParens() { tr -d '()'; }
+RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
+RemoveTrim() { GetArgs2; echo "$1" | RemoveFront "${2:- }" | RemoveEnd "${2:- }"; }	# RemoveTrim STRING REMOVE - remove from front and end
 ReplaceString() { GetArgs3; echo "${1//$2/$3}"; } # ReplaceString TEXT STRING REPLACEMENT 
-BackToForwardSlash() { GetArgs; echo "${@//\\//}"; }
-ForwardToBackSlash() { GetArgs; echo -E "$@" | sed 's/\//\\/g'; }
-RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
+SpaceToNewline()  { tr ' ' '\n'; }
+StringPad() { printf '%*s%s\n' "$(($2))" "$1" ""; } # StringPad S N - pad string s to N characters with spaces on the left
+StringRepeat() { printf "$1%.0s" $(eval "echo {1.."$(($2))"}"); } # StringRepeat S N - repeat the specified string N times
+ShowChars() { GetArgs; echo -n -e "$@" | ${G}od --address-radix=d -t x1 -t a; } # ShowChars STRING - show all characters in the string
 UnQuoteQuotes() { GetArgs; echo "$@" | sed 's/\\\"/\"/g'; } # remove backslash before quotes
-
-GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoWrap "Usage: GetWord STRING|- WORD [DELIMITER](-) - 1 based"; return 1; }
 
 if IsZsh; then
 	GetAfter() { GetArgs2; echo "$1" | cut -d"$2" -f2-; } # GetAfter STRING CHAR - get all text in STRING after the first CHAR
@@ -1400,6 +1393,8 @@ else
 	}
 
 fi
+
+GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoWrap "Usage: GetWord STRING|- WORD [DELIMITER](-) - 1 based"; return 1; }
 
 RemoveColor()
 {
@@ -1472,8 +1467,6 @@ IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff 
 IsPath() { [[ ! $(GetFileName "$1") ]]; }
 IsWindowsFile() { drive IsWin "$1"; }
 IsWindowsLink() { ! IsPlatform win && return 1; lnWin -s "$1" >& /dev/null; }
-
-RemoveTrailingSlash() { GetArgs; r "${1%%+(\/)}" $2; }
 
 # CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
 # - mac: beta v166.3.2891+ triggers download of online-only files on move or copy
