@@ -1672,6 +1672,20 @@ GetRealPath()
 	${G}readlink -f "$@"
 }
 
+# GetWritableDir DIR - return DIR if it is on on a writable filesystem, otherwise return a directory that is on a writable filesystem
+# - useful for finding a writable prefix when running in jobs that  that run inside readonly filesystems
+GetWritableDir()
+{
+	local dir="$1"
+	if IsPlatform nomad; then dir="$NOMAD_ALLOC_DIR" # for HashiCorp Nomad use the same update directory for all allocations
+	elif IsPlatform consul; then dir="/tmp"
+	elif ! quiet="--quiet" IsFilesystemReadonly "$dir"; then :
+	elif ! quiet="--quiet" IsFilesystemReadonly "/tmp"; then dir="/tmp"
+	else ScriptErrQuiet "unable to find a writable directory" "GetWritableDir"; return;
+	fi
+	printf "$dir"
+}
+
 HideAll()
 {
 	! IsPlatform win && return
@@ -3643,13 +3657,12 @@ SshAgentConf()
 { 
 	local force forceLevel forceLess; ScriptOptForce "$@"
 	local verbose verboseLevel verboseLess; ScriptOptVerbose "$@"
+	local sshDir="$HOME/.ssh" dir
 
-	# set the environment from cache if possible - faster than calling SshAgent
-	local e="$HOME/.ssh/environment"
-	[[ -f  "$e" ]] && eval "$(cat "$e")" 
-
-	# return if the ssh-agent has keys already loaded
-	! (( forceLevel > 2 )) && ssh-add -L >& /dev/null && { [[ $verbose ]] && SshAgent status; return 0; }
+	# validate existings SSH agents from environment files
+	if SshAgentValidate "$HOME/.ssh/environment"; then return
+	elif dir="$(GetWritableDir "$sshDir")" && [[ "$dir" != "$sshDir" ]] && SshAgentValidate "$dir/environment"; then return
+	fi
 
 	# return without error if no SSH keys are available
 	! SshAgent check keys && { [[ $verbose ]] && ScriptErr "no SSH keys found in $HOME/.ssh", "SshAgentConf"; return 0; }
@@ -3657,6 +3670,21 @@ SshAgentConf()
 	# start the ssh-agent and set the environment
 	(( verboseLevel > 1 )) && header "SSH Agent Configuration"
 	SshAgent start "$@" && ScriptEval SshAgent environment "$@"
+}
+
+# SshAgentValidate FILE - load and validate the ssh-agent configuration in FILE - faster than calling SshAgent
+SshAgentValidate()
+{
+	local file="$file"
+
+	# load the environmnet variables from the file if possible
+	[[ -f "$file" ]] && eval "$(cat "$file")"
+
+	# valid if the ssh-agent has keys already loaded
+	ssh-add -L >& /dev/null && { [[ $verbose ]] && SshAgent status; return 0; }
+
+	# not valid
+	return 1
 }
 
 SshAgentConfStatus() { SshAgentConf "$@" && SshAgent status; }
@@ -5917,20 +5945,14 @@ UpdateRecent() { ! UpdateNeeded "$1" "$(( $(GetSeconds --no-ns) - ${2:-5} ))"; }
 # UpdateInit [FILE] - initialize update system, sets updateDir, updateFile
 UpdateInit() { UpdateInitDir && UpdateInitFile "$1"; }
 
-# UpdateInitDir [dir]($DATA/update) - initialize update directory, sets updateDir
+# UpdateInitDir - initialize update directory, sets updateDir
 UpdateInitDir()
 {
-	local dir="$DATA/update"
+	local baseDir="$DATA" suffix="update"
+	local mainDir="$baseDir/$suffix"
 
-	# set updateDir - update file location
-	if [[ $1 || ! $updateDir ]]; then
-		if [[ $1 ]]; then updateDir="${1:-$dir}"
-		elif IsPlatform nomad; then updateDir="$NOMAD_ALLOC_DIR/update" # for HashiCorp Nomad use the same update directory for all allocations
-		elif IsPlatform consul; then updateDir="/tmp/update"
-		elif ! quiet="--quiet" IsFilesystemReadonly "$DATA"; then updateDir="$dir"
-		else ScriptErrQuiet "unable to find a writable update directory" "UpdateInitDir"; return;
-		fi
-	fi
+	# set updateDir to writable filesystem and return if it exists
+	[[ ! $updateDir ]] && { updateDir="$(GetWritableDir "$baseDir")/$suffix" || return; }
 	[[ -d "$updateDir" ]] && return
 
 	# create update directory
@@ -5940,8 +5962,8 @@ UpdateInitDir()
 		sudoc chmod -R o+w "$updateDir"
 	} || { ScriptErrQuiet "unable to create the update directory in '$updateDir'" "UpdateInitDir"; return; }
 
-	# copy main update directory
-	[[ "$dir" != "$updateDir" ]] && { ${G}cp --preserve=timestamps "$dir/"* "$updateDir" || return; }
+	# copy files from main update directory if needed
+	[[ "$mainDir" != "$updateDir" ]] && { ${G}cp --preserve=timestamps "$mainDir/"* "$updateDir" || return; }
 
 	return 0
 }
