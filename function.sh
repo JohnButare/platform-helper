@@ -2816,7 +2816,7 @@ IsAvailable()
 	log2 "checking availability on host '$host' with IP "$ip" timeout $timeout"
 	if IsPlatform wsl1; then # WSL 1 ping does not timeout quickly for unresponsive hosts, ping.exe does
   	RunLog3 RunSilent RunWin ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes="
-	elif InPath fping; then
+	elif InPath fping; then # fping is faster if the host is not available
 		RunLog3 RunSilent fping --retry 1 --timeout "$timeout" "$ip"
 	else
 		RunLog3 RunSilent ping -c 1 -W 1 "$ip" # -W timeoutSeconds
