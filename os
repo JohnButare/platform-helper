@@ -843,13 +843,22 @@ infoModelPiKernel() { pi info model; }
 
 infoNetwork()
 {
-	infoEcho "     network: mac=$(MacLookup)" || return
+	local desc network="$(NetworkCurrent)" domain="$(GetDomainCached)"
+	[[ $network ]] && desc+=" $network"
+	[[ $domain ]] && network domain joined && desc+=" (domain $domain)"
+	infoEcho "     network:$desc" || return
+
+	# MAC Address
+	infoEcho "              mac=$(MacLookup)" || return
+
+	# IPv4
 	if IsIpvSupported 4; then
 		local ip; ip="$(GetIpAddress4)" || return
 		local desc; [[ $detail ]] && IsIpvSupported 6 && desc+=" (IPv6 token=$(Ipv6Token "$ip"))"
 		infoEcho "              IPv4=$ip$desc" || return
 	fi
 
+	# IPv6
 	if IsIpvSupported 6; then
 		infoEcho "              IPv6=$(GetIpAddress6)" || return
 	fi
