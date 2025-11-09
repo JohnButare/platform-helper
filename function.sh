@@ -4386,10 +4386,13 @@ isPlatformCheck()
 		pikernel) [[ "$_platformKernel" == "pi" ]];;
 		rock|rockkernel) [[ "$_platformKernel" == "rock" ]];;
 
+		# HashiCorp
+		consul) [[ "$(ps -p $PPID -o comm=)" == *"consul"* ]];;		# running inside a Consul service check script
+		nomad) [[ $NOMAD_TASK_DIR ]];;														# running inside a Nomad task
+
 		# other
 		entware) IsPlatform qnap,synology "${hostArg[@]}";;
-		nomad) [[ $NOMAD_TASK_DIR ]];; # running inside a HashiCorp Nomad task
-
+		
 		*) unset found;;
 	esac
 	result="$?"; [[ $found ]] && return $result
