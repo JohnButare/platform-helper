@@ -1,4 +1,4 @@
-ProcessIdExists() {	! kill -0 $1 |& grep "No such process" >& /dev/null; } # mac does not return the correct exit code
+# ProcessIdExists() {	! kill -0 $1 |& grep "No such process" >& /dev/null; } # mac does not return the correct exit code
 RestartFinder() { killAll Finder; }
 RestartDock() { killall Dock; }
 
