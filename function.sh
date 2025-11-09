@@ -2035,6 +2035,7 @@ GetDnsServers4() { GetDnsServers -4 "$@"; }; GetDnsServers6() { GetDnsServers -6
 GetAdapterIpAddress4() { GetAdapterIpAddress -4 "$@"; }; GetAdapterIpAddress6() { GetAdapterIpAddress -6 "$@"; }			# GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
 GetIpAddress4() { GetIpAddress -4 "$@"; }; GetIpAddress6() { GetIpAddress -6 "$@"; }																	# GetIpAddress[4|6] [HOST] - get the IP address of the current or specified host
 GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGetForce "domain"; }				# GetDomain - get the current network domain
+GetDomainCached() { UpdateGetForce "domain"; }
 HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not available"; }
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
 HostUnresolved() { ScriptErr "Could not resolve hostname $1: Name or service not known" "$2"; }
