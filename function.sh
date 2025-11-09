@@ -1796,13 +1796,13 @@ HideAll()
 	done
 }
 
-# IsFilesystemReadonly FILE - return true if file is on a read-only filesystem, i.e. findmnt | grep " ro,"
+# IsFilesystemReadonly FILE - return true if file is on a read-only filesystem, i.e. findmnt -rn | grep " ro,"
 IsFilesystemReadonly()
 {
 	local file="$1"
 	! InPath df findmnt && { ScriptErr "unable check if '$file' is on a writable filesystem", "IsFileSystemWritable"; return; }
 	local mp; mp="$(GetMountPoint "$file")" || return;  
-	findmnt -rno OPTIONS "$mp" | qgrep "^ro,"
+	findmnt -rno OPTIONS "$mp " | qgrep "^ro,"
 }
 
 # MoveAll SRC DEST - move contents of SRC to DEST including hidden files and folders
