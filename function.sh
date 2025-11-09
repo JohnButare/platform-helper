@@ -96,7 +96,7 @@ PasswordSet() { PasswordGet | cred set "$@" - ; }
 # --ssh-copy			copy the current users SSH configuration to the new user
 UserCreate() 
 {
-	local admin system sslCopy user password passwordShow; 
+	local scriptName="UserCreate" admin system sslCopy user password passwordShow; 
 
 	# options
 	while (( $# != 0 )); do
@@ -107,13 +107,13 @@ UserCreate()
 			*)
 				if ! IsOption "$1" && [[ ! $user ]]; then user="$1"
 				elif ! IsOption "$1" && [[ ! $password ]]; then password="$1"
-				else UnknownOption "$1" "UserCreate"; return
+				else UnknownOption "$1"; return
 				fi
 		esac
 		shift
 	done
 
-	[[ ! $user ]] && { MissingOperand "user" "UserCreate"; return; }
+	[[ ! $user ]] && { MissingOperand "user"; return; }
 	[[ ! $password ]] && { passwordShow="true"; password="$(pwgen 14 1)" || return; }
 
 	# create user
@@ -226,9 +226,9 @@ SetLoginShell()
 
 FindLoginShell() # FindShell SHELL - find the path to a valid login shell
 {
-	local shell shells="/etc/shells";  IsPlatform entware && shells="/opt/etc/shells"
+	local scriptName="FindLoginShell" shell shells="/etc/shells";  IsPlatform entware && shells="/opt/etc/shells"
 
-	[[ ! $1 ]] && { MissingOperand "shell" "FindLoginShell"; return; }
+	[[ ! $1 ]] && { MissingOperand "shell"; return; }
 
 	if [[ -f "$shells" ]]; then
 		shell="$(grep "/$1" "$shells" | ${G}tail --lines=-1)" # assume the last shell is the newest
@@ -261,7 +261,7 @@ IsVisualStudioCode() { [[ "$TERM_PROGRAM" == "vscode" ]]; }
 AppVersion()
 {
 	# arguments
-	local allowAlpha alternate app appOrig cache force forceLevel forceLess quiet version
+	local scriptName="AppVersion" allowAlpha alternate app appOrig cache force forceLevel forceLess quiet version
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -272,12 +272,12 @@ AppVersion()
 			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
 			*)
 				! IsOption "$1" && [[ ! $app ]] && { app="$(AppToCli "$1")" appOrig="$1"; shift; continue; }
-				UnknownOption "$1" "AppVersion"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
 
-	[[ ! $app ]] && { MissingOperand "app" "AppVersion"; return; }
+	[[ ! $app ]] && { MissingOperand "app"; return; }
 
 	# cache
 	local appCache="version-$(GetFileName "$app" | LowerCase)"
@@ -370,8 +370,8 @@ AppVersion()
 	[[ ! $version ]] && { version="$("$file" --version | head -1 | awk '{print $NF}' | RemoveCarriageReturn)" || return; }
 
 	# validation
-	[[ ! $version ]] && { ScriptErrQuiet "application '$appOrig' version was not found" "AppVersion"; return 1; }	
-	[[ ! $allowAlpha ]] && ! IsNumeric "$version" && { ScriptErrQuiet "application '$appOrig' version '$version' is not numeric" "AppVersion"; return 1; }
+	[[ ! $version ]] && { ScriptErrQuiet "application '$appOrig' version was not found"; return 1; }	
+	[[ ! $allowAlpha ]] && ! IsNumeric "$version" && { ScriptErrQuiet "application '$appOrig' version '$version' is not numeric"; return 1; }
 	UpdateSet "$appCache" "$version" && echo "$version"
 }
 
@@ -1109,7 +1109,7 @@ ArrayUnion() { FileBoth <(ArrayDelimit "$1" $'\n') <(ArrayDelimit "$2" $'\n'); }
 IsInArray() 
 { 
 	# arguments
-	local wild awild caseInsensitive
+	local scriptName="IsInArray" wild awild caseInsensitive
 	local s arrayVar
 
 	while (( $# != 0 )); do
@@ -1121,7 +1121,7 @@ IsInArray()
 				[[ "$1" == "--" ]] && { shift; break; }
 				if ! IsOption "$1" && [[ ! $s ]]; then s="$1"
 				elif ! IsOption "$1" && [[ ! $isInArray ]]; then arrayVar="$1"
-				else UnknownOption "$1" "IsInArray"; return
+				else UnknownOption "$1"; return
 				fi
 		esac
 		shift
@@ -1129,12 +1129,12 @@ IsInArray()
 
 	# get string to check
 	[[ ! $s && $1 ]] && { s="$1"; shift; }
-	[[ ! $s ]] && { MissingOperand "string" "IsInArray"; return; }
+	[[ ! $s ]] && { MissingOperand "string"; return; }
 	[[ $caseInsensitive ]] && LowerCase "$s" s;
 
 	# get array variable
 	[[ ! $arrayVar && $1 ]] && { arrayVar="$1"; shift; }
-	[[ ! $arrayVar ]] && { MissingOperand "array_var" "IsInArray"; return; }
+	[[ ! $arrayVar ]] && { MissingOperand "array_var"; return; }
 	local isInArray=(); ArrayCopy "$arrayVar" isInArray
 		
 	# check if string is in the array
@@ -1443,7 +1443,7 @@ FileCacheFlush()
 # FileCommand mv|cp|ren SOURCE... DIRECTORY - mv or cp files, ignore files that do not exist
 FileCommand() 
 { 
-	local command="$1"; shift
+	local scriptName="FileCommand" command="$1"; shift
 	local args=() files=() dir
 
 	# arguments - ignore files that do not exist
@@ -1453,9 +1453,9 @@ FileCommand()
 		shift
 	done
 	dir="$1" # last argument
-	[[ ! $command ]] && { MissingOperand "command" "FileCommand"; return; }
-	[[ ! $dir ]] && { MissingOperand "dir" "FileCommand"; return; }
-	[[ ! "$command" =~ ^(cp|mv|ren)$ ]] && { ScriptErr "unknown command '$command'" "FileCommand"; return 1; }
+	[[ ! $command ]] && { MissingOperand "command"; return; }
+	[[ ! $dir ]] && { MissingOperand "dir"; return; }
+	[[ ! "$command" =~ ^(cp|mv|ren)$ ]] && { ScriptErr "unknown command '$command'"; return 1; }
 	[[ ! $files ]] && return 0
 	
 	[[ ! "$command" =~ ^(ren)$ && ! -d "$dir" ]] && { ${G}mkdir --parents "$dir" || return; }
@@ -1532,7 +1532,7 @@ FileToDesc()
 FileWait()
 {
 	# arguments
-	local file noCancel pathFind quiet sudo timeoutSeconds
+	local scriptName="FileWait" file noCancel pathFind quiet sudo timeoutSeconds
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -1543,11 +1543,11 @@ FileWait()
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $timeoutSeconds ]] && { timeoutSeconds="$1"; shift; continue; }
-				UnknownOption "$1" "FileWait"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
-	[[ ! $file ]] && { MissingOperand "file" "FileWait"; return; }
+	[[ ! $file ]] && { MissingOperand "file"; return; }
 	timeoutSeconds="${timeoutSeconds:-60}"
 	! IsInteger "$timeoutSeconds" && { ScriptErr "seconds '$timeoutSeconds' is not an integer"; return 1; }
 
@@ -1851,7 +1851,7 @@ ZipStdin() { cat | zip "$1" -; } 		# echo "Test Text" | ZipStdin "test.txt"
 # UnzipPlatform - use platform specific unzip to fix unzip errors syncing metadata on Windows drives
 UnzipPlatform()
 {
-	local sudo zip dest
+	local scriptName="UnzipPlatform" sudo zip dest
 
 	# arguments
 	while (( $# != 0 )); do
@@ -1860,12 +1860,12 @@ UnzipPlatform()
 			*)
 				! IsOption "$1" && [[ ! $zip ]] && { zip="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
-				UnknownOption "$1" "UnzipPlatform"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
-	[[ ! "$zip" ]] && { MissingOperand "zip" "UnzipPlatform"; return; }
-	[[ ! "$dest" ]] && { MissingOperand "dest" "UnzipPlatform"; return; }
+	[[ ! "$zip" ]] && { MissingOperand "zip"; return; }
+	[[ ! "$dest" ]] && { MissingOperand "dest"; return; }
 
 	# unzip
 	if IsPlatform win; then
@@ -2298,7 +2298,7 @@ GetIpAddress()
 	[[ ! $server ]] && server="$(DnsAlternate "$host" $verbose)"
 
 	# logging
-	log3 "getting IP address for '$host' type '$type' from name server '$server'" "GetIpAddress"
+	log3 "getting IP address for '$host' type '$type'$([[ $server ]] && printf " from name server '$server'")" "GetIpAddress"
 
 	# lookup IP address using various commands
 
@@ -2784,8 +2784,7 @@ AvailableTimeoutSet()
 IsAvailable() 
 { 
 	# arguments
-	local host timeout
-	local verbose verboseLevel verboseLess
+	local scriptName="IsAvailable" host timeout	verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2797,7 +2796,7 @@ IsAvailable()
 			*)
 				if ! IsOption "$1" && [[ ! $host ]]; then host="$1"
 				elif ! IsOption "$1" && [[ ! $timeout ]]; then timeout="$1"
-				else UnknownOption "$1" "IsAvailable"; return
+				else UnknownOption "$1"; return
 				fi
 				;;
 		esac
@@ -2814,17 +2813,18 @@ IsAvailable()
 	# - Windows ping.exe name resolution is slow for non-existent hosts
 	local ip; ip="$(GetIpAddress --quiet "$host" $quiet $verbose)" || return
 
-	log2 "checking availability on host '$host' with IP "$ip" timeout $timeout" "IsAvailable"
+	log2 "checking availability on host '$host' with IP "$ip" timeout $timeout"
 	if IsPlatform wsl1; then # WSL 1 ping does not timeout quickly for unresponsive hosts, ping.exe does
-		log3 "ping.exe -n 1 -w $timeout $ip" "IsAvailable"
-  	RunWin ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes=" &> /dev/null 
+  	RunLog3 RunSilent RunWin ping.exe -n 1 -w "$timeout" "$ip" |& grep "bytes="
 	elif InPath fping; then
-		log3 "fping --retry 1 --timeout $timeout $ip" "IsAvailable"
-		fping --retry 1 --timeout "$timeout" "$ip" &> /dev/null
+		RunLog3 RunSilent fping --retry 1 --timeout "$timeout" "$ip"
 	else
-		log3 "ping -c 1 -W 1 $ip" "IsAvailable"
-		ping -c 1 -W 1 "$ip" &> /dev/null # -W timeoutSeconds
+		RunLog3 RunSilent ping -c 1 -W 1 "$ip" # -W timeoutSeconds
 	fi
+	local result="$?"
+
+	log3 "host '$host' is$( (( result != 0 )) && echo " not") available"
+	(( result == 0 ))
 }
 
 # IsAvailableBatch HOST... -  return available hosts in parallel
@@ -2844,7 +2844,7 @@ IsAvailableBatch()
 IsAvailablePort()
 {
 	# arguments
-	local host port timeout verbose verboseLevel verboseLess ipv
+	local scriptName="IsAvailablePort" host port timeout verbose verboseLevel verboseLess ipv
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2858,26 +2858,26 @@ IsAvailablePort()
 				fi		
 				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $timeout ]] && { timeout="$1"; shift; continue; }
-				UnknownOption "$1" "IsAvailablePort"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
-	[[ ! $host ]] && { MissingOperand "host" "IsAvailablePort"; return; }
-	[[ ! $port ]] && { MissingOperand "port" "IsAvailablePort"; return; }
+	[[ ! $host ]] && { MissingOperand "host"; return; }
+	[[ ! $port ]] && { MissingOperand "port"; return; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
 
 	! IsIpAddressAny "$host" && { host="$(GetIpAddress${ipv} "$host" --quiet)" || return; }
 	local redirect=">& /dev/null"; [[ $verbose ]] && redirect=""
 
-	(( verboseLevel > 1 )) &&  ScriptErr "checking port '$port' on host '$host' with timeout $timeout" "IsAvailablePort"
+	(( verboseLevel > 1 )) &&  ScriptErr "checking port '$port' on host '$host' with timeout $timeout"
 	if InPath ncat; then
-		(( verboseLevel > 2 )) && ScriptErr "ncat --exec BOGUS --wait ${timeout}ms $host $port" "IsAvailablePort"
+		(( verboseLevel > 2 )) && ScriptErr "ncat --exec BOGUS --wait ${timeout}ms $host $port"
 		eval ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" $redirect
 	elif InPath nmap; then
-		(( verboseLevel > 2 )) && ScriptErr "nmap $host -p $port -Pn -T5" "IsAvailablePort"
+		(( verboseLevel > 2 )) && ScriptErr "nmap $host -p $port -Pn -T5"
 		eval nmap "$host" -p "$port" -Pn -T5 '|&' grep -q "open" $redirect
 	elif IsPlatform win && InPath chkport-ip.exe; then
-		(( verboseLevel > 2 )) && ScriptErr "RunWin chkport-ip.exe $host $port $timeout" "IsAvailablePort"
+		(( verboseLevel > 2 )) && ScriptErr "RunWin chkport-ip.exe $host $port $timeout" 
 		eval RunWin chkport-ip.exe "$host" "$port" "$timeout" $redirect
 	else
 		return 0 
@@ -2889,7 +2889,7 @@ IsAvailablePort()
 IsAvailablePortUdp()
 {
 	# arguments
-	local host port timeout verbose verboseLevel verboseLess
+	local scriptName="IsAvailablePortUdp" host port timeout verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2898,12 +2898,12 @@ IsAvailablePortUdp()
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $timeout ]] && { timeout="$1"; shift; continue; }
-				UnknownOption "$1" "IsAvailablePortUdp"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
-	[[ ! $host ]] && { MissingOperand "host" "IsAvailablePortUdp"; return; }
-	[[ ! $port ]] && { MissingOperand "port" "IsAvailablePortUdp"; return; }
+	[[ ! $host ]] && { MissingOperand "host"; return; }
+	[[ ! $port ]] && { MissingOperand "port"; return; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
 	host="$(GetIpAddress "$host" --quiet)" || return
 	local redirect=">& /dev/null"; [[ $verbose ]] && redirect=""
@@ -2935,7 +2935,7 @@ PingResponse()
 PortResponse() 
 {
 	# arguments
-	local host port timeout quiet verbose verboseLevel verboseLess
+	local scriptName="PortResponse" host port timeout quiet verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2945,12 +2945,12 @@ PortResponse()
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $timeout ]] && { timeout="$1"; shift; continue; }
-				UnknownOption "$1" PortResponse; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
-	[[ ! $host ]] && { MissingOperand "host" "PortResponse"; return; }
-	[[ ! $port ]] && { MissingOperand "port" "PortResponse"; return; }
+	[[ ! $host ]] && { MissingOperand "host"; return; }
+	[[ ! $port ]] && { MissingOperand "port"; return; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
 
 	# test port
@@ -2997,7 +2997,7 @@ ResolveCtlValidate() { ResolveCtlCheck || ScriptErr "resolvectl status failed" "
 # WaitForAvailable HOST [HOST_TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 WaitForAvailable()
 {
-	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForAvailable"; return; }
+	local scriptName="WaitForAvailable" host="$1"; [[ ! $host ]] && { MissingOperand "host"; return; }
 	local timeout="${2-$(AvailableTimeoutGet)}" seconds="${3-$(AvailableTimeoutGet)}"
 
 	printf "Waiting $seconds seconds for '$(RemoveDnsSuffix "$host")'..."
@@ -3013,7 +3013,7 @@ WaitForAvailable()
 # WaitForNetwork NETWORK [HOST_TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 WaitForNetwork()
 {
-	local network="$1"; [[ ! $network ]] && { MissingOperand "host" "WaitForAvailable"; return; }
+	local scriptName="WaitForNetwork" network="$1"; [[ ! $network ]] && { MissingOperand "host"; return; }
 	local timeout="${2-$(AvailableTimeoutGet)}" seconds="${3-$(AvailableTimeoutGet)}"
 
 	[[ "$(NetworkCurrent)" == "$network" ]] && return
@@ -3033,7 +3033,7 @@ WaitForNetwork()
 WaitForPort()
 {
 	# arguments
-	local host port seconds timeout verbose verboseLevel verboseLess
+	local scriptName="WaitForPort" host port seconds timeout verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -3046,12 +3046,12 @@ WaitForPort()
 				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $timeout ]] && { timeout="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $seconds ]] && { seconds="$1"; shift; continue; }
-				UnknownOption "$1" "WaitForPort"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
-	[[ ! $host ]] && { MissingOperand "host" "WaitForPort"; return; }
-	[[ ! $port ]] && { MissingOperand "port" "WaitForPort"; return; }
+	[[ ! $host ]] && { MissingOperand "host"; return; }
+	[[ ! $port ]] && { MissingOperand "port"; return; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
 	[[ ! $seconds ]] && { seconds="${4-$(AvailableTimeoutGet)}"; }
 
@@ -3207,7 +3207,7 @@ DnsAlternate()
 DnsResolve()
 {
 	# arguments
-	local force forceLevel forceLess ipv name quiet server verbose verboseLevel verboseLess useAlternate
+	local scriptName="DnsResolve" force forceLevel forceLess ipv name quiet server verbose verboseLevel verboseLess useAlternate
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -3232,7 +3232,7 @@ DnsResolve()
 
 	# cleanup and validate the name
 	name="$(RemoveEnd "$name" ".")" # remove tailing periods, so we use the DNS search suffix
-	[[ ! $name ]] && { MissingOperand "host" "DnsResolve"; return; } 
+	[[ ! $name ]] && { MissingOperand "host"; return; } 
 
 	# localhost - use the domain in the configuration
 	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(GetNetworkDnsDomain)")
@@ -3252,7 +3252,7 @@ DnsResolve()
 	# reverse DNS lookup for IP Address
 	local lookup
 	if IsIpAddress "$name"; then
-		log3 "resolving IP address '$name' to a fully qualified DNS name using a reverse DNS lookup" "DnsResolve"
+		log3 "resolving IP address '$name' to a fully qualified DNS name using a reverse DNS lookup"
 
 		if IsLocalHost "$name"; then
 			lookup="localhost"
@@ -3261,43 +3261,43 @@ DnsResolve()
 		# elif [[ ! $server ]] && IsPlatform mac; then lookup="$(dscacheutil -q host -a ip_address "$name" | grep "^name:" | cut -d" " -f2)" || unset lookup
 		
 		elif InPath host; then
-			log3 "using host" "DnsResolve"
+			log3 "using host"
 			lookup="$(host -t A -4 "$name" $server |& ${G}grep -E "domain name pointer" | ${G}cut -d" " -f 5 | RemoveTrim ".")" || unset lookup
 		
 		else
-			log3 "using nslookup" "DnsResolve"
+			log3 "using nslookup"
 			lookup="$(nslookup -type=A "$name" $server |& ${G}grep "name =" | ${G}cut -d" " -f 3 | RemoveTrim ".")" || unset lookup
 		
 		fi
 
 		# use alternate for Butare network IP addresses, reverse lookup fails on mac using VPN
 		if [[ ! $lookup && ! $useAlternate ]] && IsIpInCidr "$name" "10.10.100.0/22"; then
-			log3 "using alternate DNS server" "DnsResolve"
-			DnsResolve --use-alternate $quiet $verbose "$name"; return
+			log3 "using alternate DNS server"
+			DnsResolve --use-alternate $quiet $verbose "$name" "${globalArgs[@]}"; return
 		fi
 
 	# forward DNS lookup to get the fully qualified DNS address
 	else
-		log3 "resolving '$name' to a fully qualified DNS name (FQDN) name using a forward DNS lookup" "DnsResolve"
+		log3 "resolving '$name' to a fully qualified DNS name (FQDN) name using a forward DNS lookup"
 
 		# getent - faster for known names, so use RunTimeout to limit it
 		if [[ ! $server ]] && InPath getent; then
-			log3 "using getent" "DnsResolve"
+			log3 "using getent"
 			lookup="$(RunTimeout getent ahostsv4 "$name" |& ${G}head -1 | tr -s " " | ${G}cut -d" " -f 3)" || unset lookup
 
 		# dscacheutil - for mac
 		elif [[ ! $server ]] && IsPlatform mac; then
-			log3 "using dscacheutil" "DnsResolve"
+			log3 "using dscacheutil"
 			lookup="$(dscacheutil -q host -a name "$name" |& grep "^name:" | ${G}tail --lines=-1 | cut -d" " -f2)" || unset lookup # return the IPv4 name (the last name), dscacheutil returns ipv6 name first if present, i.e. dscacheutil -q host -a name "google.com"
 
 		# host - faster for unknown names, slower for known names (2x slower than getent)
 		elif InPath host; then
-			log3 "using host" "DnsResolve"
+			log3 "using host"
 			lookup="$(host -N 2 -t A -4 "$name" $server |& ${G}grep -v "^ns." | ${G}grep -E "domain name pointer|has address" | head -1 | cut -d" " -f 1)" || unset lookup
 		
 		# nslookup
 		elif InPath nslookup; then
-			log3 "using nslookup" "DnsResolve"
+			log3 "using nslookup"
 			lookup="$(nslookup -ndots=2 -type=A -timeout=1 "$name" $server |& ${G}tail --lines=-3 | ${G}grep "Name:" | ${G}cut -d$'\t' -f 2)" || unset lookup
 
 		fi
@@ -3306,7 +3306,7 @@ DnsResolve()
 
 	# error
 	if [[ ! $lookup ]]; then
-		log3 "unable to resolve hostname '$name'" "DnsResolve"
+		log3 "unable to resolve hostname '$name'"
 		[[ ! $quiet ]] && HostUnresolved "$name"; return 1
 	fi
 
@@ -3352,7 +3352,7 @@ DnsResolveMacBatch()
 # --quiet|-q		suppress error message where possible
 DnsResolveMac()
 {
-	local all errors macs=() quiet full="cat" ipv
+	local scriptName="DnsResolveMac" all errors macs=() quiet full="cat" ipv
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -3363,20 +3363,20 @@ DnsResolveMac()
 			--full|-f) full="DnsResolveBatch";;
 			--quiet|-q) quiet="--quiet";;
 			*)
-				IsOption "$1" && { UnknownOption "$1" "DnsResolveMac"; return; }
+				IsOption "$1" && { UnknownOption "$1"; return; }
 				macs+=("$1")
 				;;
 		esac
 		shift
 	done
 
-	[[ ! $macs ]] && { MissingOperand "mac" "DnsResolveMac"; return; } 	
+	[[ ! $macs ]] && { MissingOperand "mac"; return; } 	
 
 	# validate
 	local mac validMacs=()
 	for mac in "${macs[@]}"; do
 		IsMacAddress "$mac" && { validMacs+=("$mac"); continue; }
-		ScriptErrQuiet "'$mac' is not a valid MAC address" "DnsResolveMac"
+		ScriptErrQuiet "'$mac' is not a valid MAC address"
 		[[ ! $errors ]] && return 1; (( ++errors ))
 	done
 	
@@ -3395,7 +3395,7 @@ DnsResolveMac()
 		elif [[ $all ]]; then
 			names+=("$mac")
 		else
-			ScriptErrQuiet "'$mac' was not found" "DnsResolveMac"
+			ScriptErrQuiet "'$mac' was not found"
 			[[ ! $errors ]] && return 1; (( ++errors ))
 		fi
 
@@ -3492,7 +3492,7 @@ GetDnsServers()
 
 MdnsResolve()
 {
-	local name="$1" result; [[ ! $name ]] && { MissingOperand "host" "MdnsResolve"; return; }
+	local scriptName="MdnsResolve" name="$1" result; [[ ! $name ]] && { MissingOperand "host"; return; }
 
 	{ [[ ! $name ]] || ! IsMdnsName "$name"; } && return 1
 
@@ -3614,7 +3614,7 @@ RoutePrint()
 GetServer() 
 {
 	# arguments
-	local force forceLevel forceLess quiet service useAlternate verbose verboseLevel verboseLess
+	local scriptName="GetServer" force forceLevel forceLess quiet service useAlternate verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -3625,17 +3625,17 @@ GetServer()
 			--use-alternate|-ua) useAlternate="--use-alternate";;
 			*)
 				if ! IsOption "$1" && [[ ! $service ]]; then service="$1"
-				else UnknownOption "$1" "GetServer"; return
+				else UnknownOption "$1"; return
 				fi
 				;;
 		esac
 		shift
 	done
 
-	[[ ! $service ]] && { MissingOperand "service" "GetServer"; return; }	
+	[[ ! $service ]] && { MissingOperand "service"; return; }	
 
 	local ip; ip="$(GetIpAddress $quiet "$service.service.$(GetNetworkDnsBaseDomain)")" || return
-	log3 "getting the active host for service '$service'" "GetServer"
+	log3 "getting the active host for service '$service'"
 	DnsResolve $quiet $verbose $useAlternate "$ip" "$@"
 }
 
@@ -3771,7 +3771,7 @@ IsRcloneRemote() { [[ -f "$HOME/.config/rclone/rclone.conf" ]] && grep --quiet "
 GetUncFull()
 {
 	# arguments
-	local ip quiet unc verbose verboseLevel verboseLess
+	local scriptName="GetUncFull" ip quiet unc verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -3780,13 +3780,13 @@ GetUncFull()
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $unc ]]; then unc="$1"
-				else UnknownOption "$1" "GetUncFull"; return
+				else UnknownOption "$1"; return
 				fi
 		esac
 		shift
 	done
 
-	[[ ! $unc ]] && { MissingOperand "unc" "GetUncFull"; return; }
+	[[ ! $unc ]] && { MissingOperand "unc"; return; }
 
 	# parse the UNC
 	local user="$(GetUncUser "$unc")"
@@ -4548,8 +4548,8 @@ ProcessIdExists() {	kill -0 $1 >& /dev/null; } # kill is a fast check
 pschildren() { ps --forest $(ps -e --no-header -o pid,ppid|awk -vp=$1 'function r(s){print s;s=a[s];while(s){sub(",","",s);t=s;sub(",.*","",t);sub("[0-9]+","",s);r(t)}}{a[$2]=a[$2]","$1}END{r(p)}'); } # pschildren PPID - list process with children
 pschildrenc() { local n="$(pschildren "$1" | wc -l)"; (( n == 1 )) && return 1 || echo $(( n - 2 )); } # pschildrenc PPID - list count of process children
 pscount() { ProcessList | wc -l; }
-RunQuiet() { if [[ $verbose ]]; then "$@"; else "$@" 2> /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout unless verbose logging
-RunSilent() {	if [[ $verbose ]]; then "$@"; else "$@" >& /dev/null; fi; }		# RunQuiet COMMAND... - suppress stdout and stderr unless verbose logging
+RunQuiet() { [[ $verbose ]] && { "$@"; return; }; "$@" 2> /dev/null; }		# RunQuiet COMMAND... - suppress stdout unless verbose logging
+RunSilent() {	[[ $verbose ]] && { "$@"; return; }; "$@" >& /dev/null; }		# RunQuiet COMMAND... - suppress stdout and stderr unless verbose logging
 
 # PipeStatus N - return the status of the 0 based Nth command in the pipe
 if IsZsh; then
@@ -4603,7 +4603,7 @@ IsExecutable()
 IsProcessRunning()
 {
 	# options
-	local all full name win
+	local scriptName="IsProcessRunning" all full name win
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -4611,11 +4611,11 @@ IsProcessRunning()
 			-f|--full) full="--full";;
 			*)
 				! IsOption "$1" && [[ ! $name ]] && { name="$1"; shift; continue; }
-				UnknownOption "$1" "IsProcessRunning"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
-	[[ ! "$name" ]] && { MissingOperand "name" "ProcessClose"; return; }
+	[[ ! "$name" ]] && { MissingOperand "name"; return; }
 
 	# check Windows process
 	IsWindowsProcess "$name" && { IsProcessRunningList "$name" --win; return; }
@@ -4639,13 +4639,13 @@ IsProcessRunning()
 # IsProcessRunningList [--user|--unix|--win] NAME - check if NAME is in the list of running processes.  Slower than IsProcessRunning.
 IsProcessRunningList() 
 {
-	local name="$1"; shift
+	local scriptName="IsProcessRunningList" name="$1"; shift
 
 	# get processes - grep fails if ProcessList call in the same pipline on Windows
 	local processes; 
 	if [[ $CACHED_PROCESSES ]]; then
 		processes="$CACHED_PROCESSES"
-		(( verboseLevel > 2 )) && ScriptErr "IsProcessRunningList: using cached processes to lookup '$name'" "IsProcessRunningList"
+		(( verboseLevel > 2 )) && ScriptErr "using cached processes to lookup '$name'"
 	else
 		processes="$(ProcessList "$@")" || return
 	fi
@@ -4692,7 +4692,7 @@ IsWindowsProcess()
 ProcessClose() 
 { 
 	# arguments
-	local args=() force names=() quiet root timeout=10 verbose verboseLevel verboseLess
+	local scriptName="ProcessClose" args=() force names=() quiet root timeout=10 verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -4708,7 +4708,7 @@ ProcessClose()
 		esac
 		shift
 	done
-	[[ ! $names ]] && { MissingOperand "name" "ProcessClose"; return; }
+	[[ ! $names ]] && { MissingOperand "name"; return; }
 
 	# close
 	local finalResult="0" name result win
@@ -4739,9 +4739,9 @@ ProcessClose()
 		fi
 
 		if (( ${result:-0} != 0 )); then
-			[[ ! $quiet ]] && ScriptErr "unable to close '$name'" "ProcessClose"; finalResult="1"
+			[[ ! $quiet ]] && ScriptErr "unable to close '$name'"; finalResult="1"
 		elif [[ $verbose ]]; then
-			ScriptErr "closed process '$name'" "ProcessClose"
+			ScriptErr "closed process '$name'"
 		fi
 
 	done
@@ -4752,7 +4752,7 @@ ProcessClose()
 ProcessCloseWait()
 {
 	# arguments
-	local full names=() quiet root seconds=10 verbose verboseLevel verboseLess
+	local scriptName="ProcessCloseWait" full names=() quiet root seconds=10 verbose verboseLevel verboseLess
 
 	# options
 	while (( $# != 0 )); do
@@ -4763,11 +4763,11 @@ ProcessCloseWait()
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
-				UnknownOption "$1" "ProcessCloseWait"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
-	[[ ! $names ]] && { MissingOperand "name" "ProcessCloseWait"; return; }
+	[[ ! $names ]] && { MissingOperand "name"; return; }
 
 	# close
 	local name
@@ -4796,7 +4796,7 @@ ProcessCloseWait()
 ProcessKill()
 {
 	# arguments
-	local args=() force names=() quiet root rootArg win
+	local scriptName="ProcessKill" args=() force names=() quiet root rootArg win
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -4807,11 +4807,11 @@ ProcessKill()
 			--win|-w) win="--win";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
-				UnknownOption "$1" "ProcessKill"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
-	[[ ! $names ]] && { MissingOperand "name" "ProcessKill"; return; }
+	[[ ! $names ]] && { MissingOperand "name"; return; }
 
 	# kill
 	local name output result resultFinal="0"
@@ -4836,9 +4836,9 @@ ProcessKill()
 		[[ ! $quiet && $output ]] && echo "$output"
 		if (( $result != 0 )); then
 			resultFinal="1"
-			[[ ! $quiet ]] && ScriptErr "unable to kill '$name'" "ProcessKill"
+			[[ ! $quiet ]] && ScriptErr "unable to kill '$name'"
 		elif [[ $verbose ]]; then
-			ScriptErr "killed process '$name'" "ProcessKill"
+			ScriptErr "killed process '$name'"
 		fi
 
 	done
@@ -4966,7 +4966,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 start() 
 {
 	# arguments
-	local elevate file force noPrompt sudo terminal verbose verboseLevel verboseLess wait windowStyle
+	local scriptName="start" elevate file force noPrompt sudo terminal verbose verboseLevel verboseLess wait windowStyle
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -4987,7 +4987,7 @@ start()
 		shift
 	done
 
-	[[ ! "$file" ]] && { MissingOperand "file" "start"; return; }
+	[[ ! "$file" ]] && { MissingOperand "file"; return; }
 
 	local args=( "$@" ) fileOrig="$file"
 
@@ -5026,7 +5026,7 @@ start()
 
 		# open the app, waiting for the OS to see newly installed apps if needed
 		local result; result="$("${open[@]}")" && return
-		[[ ! "$result" =~ "Unable to find application named" ]] && { ScriptErrQuiet "$result" "start"; return 1; }
+		[[ ! "$result" =~ "Unable to find application named" ]] && { ScriptErrQuiet "$result"; return 1; }
 		StartWaitExists "$file"; return
 	fi
 
@@ -5045,11 +5045,11 @@ start()
 		elif IsPlatform mac; then open=( open )
 		elif IsPlatform win; then open=( explorer.exe )
 		elif InPath xdg-open; then open=( xdg-open )
-		else ScriptErrQuiet "unable to open '$fileOrig'" "start"; return 1
+		else ScriptErrQuiet "unable to open '$fileOrig'"; return 1
 		fi
 
 		# open
-		(( verboseLevel > 1 )) && ScriptMessage "opening file '$file'" "start"
+		(( verboseLevel > 1 )) && ScriptMessage "opening file '$file'"
 		(
 			#IsPlatform win && ! drive IsWin . && cd "$WIN_ROOT"
 			start $verbose "${open[@]}" "$file" "${args[@]}";
@@ -5058,7 +5058,7 @@ start()
 	fi
 
 	# validate file exists
-	[[ ! -f "$file" ]] && { ScriptErrQuiet "unable to find '$fileOrig'" "start"; return 1; }
+	[[ ! -f "$file" ]] && { ScriptErrQuiet "unable to find '$fileOrig'"; return 1; }
 
 	# start files with a specific extention
 	case "$(GetFileExtension "$file")" in
@@ -5185,7 +5185,7 @@ PythonConf()
 # PyEnvCreate [dir](.) [version] - make a Python virtual environment in the current directory
 PyEnvCreate()
 {
-	local dir="$1"; [[ $dir ]] && shift || { MissingOperand "dir" "PyEnvCreate"; return; }
+	local scriptName="PyEnvCreate" dir="$1"; [[ $dir ]] && shift || { MissingOperand "dir"; return; }
 	local v="$1" vOrig="$1"
 
 	# create the directory
@@ -5428,7 +5428,9 @@ ScriptName()
 {
 	local func="$1"; [[ $func ]] && { printf "%s" "$func"; return; }
 	local name="$0"; IsZsh && name="$ZSH_SCRIPT"
-	name="$(GetFileName "$name")"; [[ "$name" == "function.sh" ]] && unset name
+	name="$(GetFileName "$name")"
+	[[ "$name" == "function.sh" ]] && unset name
+	[[ ! $name ]] && name="$scriptName"
 	printf "$name" 
 }
 
