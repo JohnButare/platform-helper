@@ -71,11 +71,6 @@ opt()
 
 argEnd()
 {
-	# basic configuration
-	datacenter="$(GetDnsDomain | RemoveDnsSuffix)"; argValidate "$datacenter" "data center" || return
-	baseDomain="$(GetNetworkDnsBaseDomain)"; argValidate "$baseDomain" "DNS base domain" || return
-	domain="$(GetNetworkDnsDomain)"; argValidate "$domain" "DNS domain" || return
-
 	# port configuration
 	consulHttpPort="8500" consulHttpsPort="8501"
 	nomadHttpPort="4646" nomadHttpsPort="$nomadHttpPort"
@@ -99,11 +94,13 @@ argEnd()
 	return 0
 }
 
+# argValidate value desc - ensure value is set and return it
 argValidate()
 {
 	local argValue="$1" desc="$2";
 	if [[ $argValue ]]; then
 		log3 "argValidate: the '$desc' is '$argValue'"
+		printf "$argValue"
 		return
 	fi
 	ScriptErr "'$desc' is not set"
@@ -539,17 +536,19 @@ certMakeServer()
 	local product="$1" host="$2"; shift 2; certMakeCd "$product" || return
 	local dest; [[ -d "$1" ]] && { dest="$1"; shift; }
 	local cert="$product-server-$host.pem"
-	local key="$product-server-$host-key.pem"
+	local key="$product-server-$host-key.pem"	
 
 	# initialzie
+	getDatacenter > /dev/null || return
+	getDomainBase > /dev/null || return
 	certValidate "$ca" "$caKey" || return
 
 	# create the certificate
 	if ! certExists "$cert" "$key"; then
 		hilight "Creating a ${product^} server certificate for $host..."
 
-		# remove any existing temporary certs
-		rm -f "$datacenter-server-$baseDomain-?.pem" "$datacenter-server-$baseDomain-?-key.pem" || return
+		# remove any existing temporary certs		
+		rm -f "$datacenter-server-$domainBase-?.pem" "$datacenter-server-$domainBase-?-key.pem" || return
 
 		# create the cert
 		local ip; ip="$(GetIpAddress "$host")" || return
@@ -557,7 +556,7 @@ certMakeServer()
 
 		RunLog consul tls cert create -server \
 			-dc="$datacenter" \
-			-domain="$baseDomain" \
+			-domain="$domainBase" \
 			-ca="$ca" \
 			-key="$caKey" \
 			-additional-ipaddress="$ip" \
@@ -567,8 +566,8 @@ certMakeServer()
 			-days="3650" || return
 
 		# rename the temporary cert
-		mv "$datacenter-server-$baseDomain-0.pem" "$cert" || return
-		mv "$datacenter-server-$baseDomain-0-key.pem" "$key" || return
+		mv "$datacenter-server-$domainBase-0.pem" "$cert" || return
+		mv "$datacenter-server-$domainBase-0-key.pem" "$key" || return
 	fi
 
 	# copy the certificates
@@ -628,37 +627,50 @@ certMake()
 
 certMakeCa()
 {
+	# return if the cerficiate exists
 	certExists "$ca" "$caKey" && return
-	hilight "Creating the ${product^} certificate authority for $baseDomain..."
+
+	# initialize
+	getDomainBase > /dev/null || return	
+
+	# logging
+	hilight "Creating the ${product^} certificate authority for $domainBase..."
 
 	# create the cert - name constraint required for HTTPS GUI
-	consul tls ca create -domain="$baseDomain" -name-constraint || return
+	consul tls ca create -domain="$domainBase" -name-constraint || return
 
 	# rename the cert
-	mv "$baseDomain-agent-ca.pem" "$ca" || return
-	mv "$baseDomain-agent-ca-key.pem" "$caKey" || return
+	mv "$domainBase-agent-ca.pem" "$ca" || return
+	mv "$domainBase-agent-ca-key.pem" "$caKey" || return
 }
 
 certMakeCli()
 {
+	# return if the cerficiate exists
 	certValidate "$ca" "$caKey" || return
 	certExists "$certCli" "$certCliKey" && return
+
+	# initialize
+	getDatacenter > /dev/null || return
+	getDomainBase > /dev/null || return
+
+	# logging
 	hilight "Creating the CLI certificates..."
 
 	# remove any existing temporary certs
-	rm -f "$datacenter-cli-$baseDomain-"?".pem" "$datacenter-cli-$baseDomain-"?"-key.pem" || return
+	rm -f "$datacenter-cli-$domainBase-"?".pem" "$datacenter-cli-$domainBase-"?"-key.pem" || return
 
 	# create the cert
 	consul tls cert create -cli \
 		-dc="$datacenter" \
-		-domain="$baseDomain" \
+		-domain="$domainBase" \
 		-ca="$ca" \
 		-key="$caKey" \
 		-days="3650" || return
 
 	# rename the temporary cert
-	mv "$datacenter-cli-$baseDomain-0.pem" "$certCli" || return
-	mv "$datacenter-cli-$baseDomain-0-key.pem" "$certCliKey" || return
+	mv "$datacenter-cli-$domainBase-0.pem" "$certCli" || return
+	mv "$datacenter-cli-$domainBase-0-key.pem" "$certCliKey" || return
 }
 
 # certMake - product specifics
@@ -918,8 +930,8 @@ configGetList()
 configServer()
 {
 	local var="servers"; [[ "$product" == "vault" ]] && var="VaultServers"
-	local server="$(configGet "$var" | GetWord - "1" ",")";
-	local domain="$(GetNetworkDnsDomain)"
+	local server; server="$(configGet "$var" | GetWord - "1" ",")" || return
+	local domain; domain="$(getDomain)" || return
 	AddDnsSuffix "$server" "$domain"
 }
 
@@ -956,7 +968,7 @@ configRemoveOptArgEnd()
 	[[ ! $what ]] && { MissingOption "what"; return; }
 
 	if [[ ! $force || ! $yes ]]; then
-	 ScriptErr "To remove '$what' configuration from $baseDomain $configDesc, --force and --yes are required"
+	 ScriptErr "To remove '$what' configuration from $(getDomainBase) $configDesc, --force and --yes are required"
 	 return 1
 	fi
 }
@@ -973,7 +985,7 @@ removeConfig()
 	local product="$1"; certInit "$product" || return; ConfigInit || return
 
 	if [[ ! $force || ! $yes ]]; then
-		ScriptErr "To permanently delete all $product local and remote configuration and certificates for $baseDomain $configDesc, --force and --yes are required"
+		ScriptErr "To permanently delete all $product local and remote configuration and certificates for $(getDomainBase) $configDesc, --force and --yes are required"
 		return 1
 	fi
 
@@ -2163,9 +2175,9 @@ installServicePrepConsul()
 { 
 	# product configuration file options
 	o+="$(cat <<-EOF
-		datacenter = "$datacenter"
+		datacenter = "$(getDatacenter)"
 		data_dir = "/opt/$product"
-		domain = "$baseDomain"
+		domain = "$(getDomainBase)"
 		enable_script_checks = true
 		leave_on_terminate = true
 		retry_join = [ $(ArrayShow join ", ") ]
@@ -2183,7 +2195,7 @@ installServicePrepConsul()
 		  enable_token_persistence=true
 		}\n
 		EOF
-	)"
+	)" || return
 
 	# server
 	isServer && o+="$(cat <<-EOF
@@ -2273,7 +2285,7 @@ installServicePrepNomad()
 
 	# product configuration file options
 	o+="$(cat <<-EOF
-		datacenter = "$datacenter"
+		datacenter = "$(getDatacenter)"
 		data_dir = "/opt/$product"
 		acl { enabled = true }
 		client { enabled = true }
@@ -2282,7 +2294,7 @@ installServicePrepNomad()
 		  address = "127.0.0.1:$port"
 		}\n
 		EOF
-	)"
+	)" || return
 	
 	# server
 	isServer && o+="$(cat <<-EOF
@@ -3120,7 +3132,7 @@ removeOptArgEnd()
 	[[ ! $what ]] && { MissingOption "what"; return; }
 
 	if [[ ! $force || ! $yes ]]; then
-	 ScriptErr "To remove '$what' from $baseDomain $configDesc, --force and --yes are required"
+	 ScriptErr "To remove '$what' from $(getDomainBase) $configDesc, --force and --yes are required"
 	 return 1
 	fi
 }
@@ -3144,7 +3156,7 @@ removeService()
 	local removeProgram; whatCheck "program" && removeProgram="true"
 
 	if [[ ! $force || ! $yes ]]; then
-		ScriptErr "To permanently delete all $product services and programs for $baseDomain $configDesc, --force and --yes are required"
+		ScriptErr "To permanently delete all $product services and programs for $(getDomainBase) $configDesc, --force and --yes are required"
 		return 1
 	fi
 
@@ -4011,7 +4023,7 @@ certDirService() { echo "/opt/$1/cert"; }
 certDirSuffix()
 { 
 	local product="$1"; shift; 	GetArgs; [[ ! $1 ]] && { ScriptErrQuiet "certDirSuffix: directory not specified"; return 1; }
-	echo "$(RemoveTrailingSlash "$1")/certificate/$baseDomain$(RemoveTrailingSlash "/$configPrefix")/$product"
+	getDomainBase > /dev/null && echo "$(RemoveTrailingSlash "$1")/certificate/${domainBase}$(RemoveTrailingSlash "/$configPrefix")/$product"
 }
 
 # certDirUnmountPrivate - unmount the private certificate directory if mounted.  Directory is changed in case we are in the private certificate directory.
@@ -4039,7 +4051,9 @@ certExists()
 certInit()
 {
 	local product="$1"; [[ ! $product ]] && { MissingOperand "product"; return; }
+	local domain; domain="$(getDomain)" || return
 
+	# logging
 	log2 "initializing $product certificates..."
 
 	# certificates
@@ -4175,7 +4189,7 @@ credPath()
 	if [[ "$path" ]]; then
 		echo "$(RemoveTrailingSlash "$path")/$product"
 	else
-		echo "/hashi/$baseDomain$(RemoveTrailingSlash "/$configPrefix")/$product"
+		getDomainBase > /dev/null && echo "/hashi/${domainBase}$(RemoveTrailingSlash "/$configPrefix")/$product"
 	fi
 }
 
@@ -4228,6 +4242,7 @@ hostFqdn()
 	hostCheck "$host" || return
 	HasDnsSuffix "$host" && { ScriptErr "host '$host' should not have a DNS suffix"; return 1; }
 
+	local domain; domain="$(getDomain)" || return
 	local fqdn expectedFqdn="$host.$domain"
 
 	fqdn="$(DnsResolve "$host" "${globalArgs[@]}")" || return; [[ "$fqdn" != "$expectedFqdn" ]] && { ScriptErr "host '$host' fully qualified DNS name is '$fqdn' but '$expectedFqdn' was expected"; return 1; }
@@ -4319,9 +4334,10 @@ productEnvironmentVars()
 
 	# standard configuration
 	if [[ ! $clear ]]; then
+		getDomainBase > /dev/null || return
 		cat <<-EOF
 			export $(productVar "CONFIG")="$configPrefix"
-			export $(productVar "DOMAIN")="$baseDomain"
+			export $(productVar "DOMAIN")="$domainBase"
 			export $(productVar "SERVER")="$server"
 			export $(productVar "ADDR")="$url"
 			export $(productVar "ARGS")="$args"
@@ -4477,6 +4493,10 @@ productInstallDo()
 {
 	local product="$1" host="$2"
 	
+	# initialize
+	getDatacenter >& /dev/null || return
+
+	# logging
 	hilight "Installing ${product^} on '$host' for the '$datacenter' datacenter..."
 
 	# local install
@@ -4625,6 +4645,9 @@ productVersionFilter() { head -1 | cut -d" " -f 2 | RemoveFront v; }
 certs() { [[ $encrypt ]]; } # true if certificates are being used
 checkProduct() { [[ $product ]] && return; ScriptErr "$1: product is not set"; return 1; }
 doHashi() { hashi "$@" $force $test "${configFileArg[@]}" "${configPrefixArg[@]}" "${otherArgs[@]}" "${globalArgs[@]}"; }
+getDomain() { GetVarCached domain && return; domain="$(GetNetworkDnsDomain)" && argValidate "$domain" "DNS domain"; }
+getDomainBase() { GetVarCached domainBase && return; domainBase="$(GetNetworkDnsBaseDomain)" && argValidate "$domainBase" "DNS base domain"; }
+getDatacenter() { GetVarCached datacenter && return; datacenter="$(GetDnsDomain | RemoveDnsSuffix)" && argValidate "$datacenter" "data center"; }
 isClient() { [[ "$type" == "client" ]]; }
 isServer() { [[ "$type" == "server" ]]; }
 nomadEligibilityCheck() {	nomad node status -json | jq '.[] | select((.Name | ascii_downcase) == "'"$(resolveHost "$1")"'").SchedulingEligibility' | RemoveQuotes; } # nomadEligibilityCheck HOST - returns eligible|ineligible
@@ -4839,10 +4862,10 @@ scriptRun()
 }
 
 # serviceDnsName NAME - append the full Consul service DNS name to name, i.e. NAME -> NAME.service.butare.net
-serviceDnsName() { echo "$1.$(configGet "DnsDomain").$domain"; }
+serviceDnsName() { local r; r="$1.$(configGet "DnsDomain").$(getDomain)" || return; print "$r"; }
 
 # serviceDnsNameShort NAME - append the short Consul service DNS name to name (without the datacenter), i.e. NAME -> NAME.service.butare.net
-serviceDnsNameShort() { echo "$1.$(configGet "DnsDomain").$baseDomain"; }
+serviceDnsNameShort() { getDomainBase > /dev/null && printf "$1.$(configGet "DnsDomain").$domainBase"; }
 
 # tmpDirCreate - create a temporary directory in /tmp (a location in common for src and dest host)
 tmpDirCreate()
