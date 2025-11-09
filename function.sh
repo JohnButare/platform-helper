@@ -2844,12 +2844,13 @@ IsAvailableBatch()
 IsAvailablePort()
 {
 	# arguments
-	local scriptName="IsAvailablePort" host port timeout verbose verboseLevel verboseLess ipv
+	local scriptName="IsAvailablePort" host port quiet timeout verbose verboseLevel verboseLess ipv
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-4) ipv="4";;
 			-6) ipv="6";;
+			--quiet|-q) quiet="--quiet";; # for globalArgs
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $host ]]; then
@@ -3033,10 +3034,11 @@ WaitForNetwork()
 WaitForPort()
 {
 	# arguments
-	local scriptName="WaitForPort" host port seconds timeout verbose verboseLevel verboseLess
+	local scriptName="WaitForPort" host port quiet seconds timeout verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--quiet|-q) quiet="--quiet";; # for globalArgs
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $host ]]; then
