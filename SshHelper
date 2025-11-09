@@ -290,7 +290,8 @@ connect()
 	fi
 
 	# supress warnings
-	[[ ! $verbose ]] && command+=(-q)
+	local quietArg
+	[[ ! $verbose ]] && { quietArg="true" command+=(-q); }
 
 	# verbosity - don't allow if sending credentials, otherwise reduce verbosity by 1 to reduce noise
 	[[ ! $borg && ! $credentialManager && ! $hashi ]] && (( verboseLevel > 1 )) && command+=(-$(StringRepeat v $((verboseLevel - 1))))
@@ -303,6 +304,35 @@ connect()
 
 	# trust
 	[[ $trust ]] && command+=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+
+	# ControlPath validation
+	local controlPath="$(SshConfigGet "$host" "ControlPath")"
+	local controlPathDesc="$(FileToDesc "$controlPath")"
+	if [[ $controlPath ]]; then
+		local dir="$(GetFilePath "$controlPath")"
+
+		# missin
+		if [[ ! -d "$dir" ]]; then 
+			[[ ! $quiet ]] && echo "warning: disabling multiplexing, ControlPath directory '$dir' is missing"
+			command+=(-o ControlMaster=no)
+
+		# readonly 
+		elif quiet="true" IsFilesystemReadonly "$dir"; then
+			if ! dir="$(GetWritableDir "$dir")/ssh/sockets"; then
+				echo "warning: disabling multiplexing, ControlPath '$controlPathDesc' is on a readonly filesystem"
+				command+=(-o ControlMaster=no)
+			elif ! mkdir --parents "$dir"; then
+				echo "warning: disabling multiplexing, unable to make the ControlPath directory '$dir'"
+				command+=(-o ControlMaster=no)
+			else
+				local newControlPath="$dir/%u-%r@%h:%p"
+				command+=(-o ControlPath="$newControlPath")
+				log1 "filesystem for ControlPath '$controlPathDesc' is readonly, using ControlPath '$newControlPath'"
+			fi
+		fi
+		
+		# override if it is not on a writable filesystem
+	fi
 
 	# logging
 	log1 "command: ${command[*]} $*"
