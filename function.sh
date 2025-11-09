@@ -1766,6 +1766,14 @@ FindInPath()
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; echo "$arg"; clipw "$arg"; }
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; clipw "$(utw "$arg")"; }
 
+# GetMountPoint FILE - get the mount point for a file
+GetMountPoint()
+{
+	local file="$1"
+	! InPath df && { ScriptErr "unable to get the mount point for '$file'" "GetMountPoint"; return; }
+	df -P "$file" | tail -1 | awk '{print $6}'
+}
+
 # GetRealPath - resolve symbolic links in path, the full path need not exist
 GetRealPath()
 {
@@ -1786,6 +1794,15 @@ HideAll()
 	for f in $('ls' -A | grep -E '^\.'); do
 		attrib "$f" +h 
 	done
+}
+
+# IsFilesystemReadonly FILE - return true if file is on a read-only filesystem, i.e. findmnt | grep " ro,"
+IsFilesystemReadonly()
+{
+	local file="$1"
+	! InPath df findmnt && { ScriptErr "unable check if '$file' is on a writable filesystem", "IsFileSystemWritable"; return; }
+	local mp; mp="$(GetMountPoint "$file")" || return;  
+	findmnt -rno OPTIONS "$mp" | qgrep "^ro,"
 }
 
 # MoveAll SRC DEST - move contents of SRC to DEST including hidden files and folders
