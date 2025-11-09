@@ -5,6 +5,7 @@ set -o pipefail # pipes return first non-zero result
 # core setup
 IsBash() { [[ $BASH_VERSION ]]; }
 IsZsh() { [[ $ZSH_VERSION ]]; }
+IsInteractiveShell() { [[ "$-" == *i* ]]; } # 0 if we are running at the command prompt, 1 if we are running from a script
 
 if IsZsh; then
 	PLATFORM_SHELL="zsh"
@@ -44,219 +45,6 @@ PlatformConf()
 	return 0
 }
 PlatformConf || return
-
-#
-# arguments
-#
-
-# GetArgs - get argument from standard input if not specified on command line
-# - must be an alias in order to set the arguments of the caller
-# - GetArgsN will read the first argument from standard input if there are not at least N arguments present
-# - aliases must be defined before used in a function
-# - pipelines operate on the entire input, not each line, i.e. `cat FILE | RemoveSpaceFront` remove only the first space of the first line of the file
-alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"' 
-alias GetArgs2='(( $# < 2 )) && set -- "$(cat)" "$@"'
-alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
-alias GetArgDash='[[ "$1" == "-" ]] && shift && set -- "$(cat)" "$@"' 
-
-# GetArgsPipe - get all arguments from a pipe
-if IsZsh; then
-	alias GetArgsPipe='{ local gap; gap=("${(@f)"$(cat)"}"); set -- "${gap[@]}"; unset gap; }'
-else
-	alias GetArgsPipe='{ local gap; mapfile -t gap <<<$(cat); set -- "${gap[@]}"; unset gap; }'
-fi
-
-ShowArgs() { local args=( "$@" ); ArrayShow args; } 	# ShowArgs [ARGS...] - show arguments from command line
-SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - split arguments from command line using IFS 
-
-#
-# other
-#
-
-AllConf() { HashiConf "$@" && CredentialConf "$@" && NetworkConf --config "$@" && SshAgentConf "$@"; }
-EvalVar() { r "${!1}" $2; } # EvalVar <var> <variable> - return the contents of the variable in variable, or set it to var
-IsInteractiveShell() { [[ "$-" == *i* ]]; } # 0 if we are running at the command prompt, 1 if we are running from a script
-IsUrl() { [[ "$1" =~ ^[A-Za-z][A-Za-z0-9+-]+: ]]; }
-r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; } # result VALUE VAR - echo value or set var to value (faster), r "- '''\"\"\"-" a; echo $a
-! IsDefined sponge && alias sponge='cat'
-
-# TTY input and output
-IsTty() { ${G}tty --silent;  }		# ??
-IsTtyOk() {  { printf "" > "/dev/tty"; } >& "/dev/null"; } # 0 if /dev/tty is usable for reading input or sending output (useful when stdin or stdout is not available in a pipeline)
-IsSshTty() { [[ $SSH_TTY ]]; }		# 0 if connected over SSH with a TTY
-IsStdIn() { [[ -t 0 ]];  } 				# 0 if STDIN refers to a terminal, i.e. "echo | IsStdIn" is 1 (false)
-IsStdOut() { [[ -t 1 ]];  } 			# 0 if STDOUT refers to a terminal, i.e. "IsStdOut | cat" is 1 (false)
-IsStdErr() { [[ -t 2 ]];  } 			# 0 if STDERR refers to a terminal, i.e. "IsStdErr |& cat" is 1 (false)
-
-UrlEncodeSpace()
-{
-	GetArgs
-	echo "$1" | sed '
-		s/ /%20/g 
-  '
-}
-
-UrlEncode()
-{
-	GetArgs
-	echo "$1" | sed '
-		s / %2f g
-		s : %3a g
-		s \$ %24 g
-		s/ /%20/g 
-  '
-}
-
-UrlDecode()
-{
-	GetArgs
-	echo "$1" | sed '
-		s %2f / g
-		s %3a : g
-		s %24 \$ g
-		s/%20/ /g 
-  '
-}
-
-UrlDecodeAlt() { GetArgs; : "${*//+/ }"; echo -e "${_//%/\\x}"; }
-
-# update - manage update state in a temporary file location
-UpdateDate() { UpdateInit "$1" && [[ -f "$updateFile" ]] && GetFileDateStamp "$updateFile"; } 	# UpdateDate FILE - return the last updated date
-UpdateDone() { UpdateInit "$1" && ${G}touch "$updateFile"; }																		# UpdateDone FILE - update the last updated date
-UpdateGet() { ! UpdateNeeded "$@" && UpdateGetForce "$updateFile"; }														# UpdateGet FILE - if an update is not needed, get the contents of the update file 
-UpdateGetForce() { UpdateInit "$1" && [[ ! -f "$updateFile" ]] && return; cat "$updateFile"; }	# UpdateGetForce FILE - get the contents of the update file 
-UpdateRm() { UpdateInit "$1" && rm -f "$updateFile"; }																					# UpdateRm FILE - remove the update file
-UpdateRmAll() { UpdateInitDir && DelDir --contents --hidden --files "$updateDir"; }							# UpdateRmAll - remove all update files
-UpdateSet() { UpdateInit "$1" && printf "$2" > "$updateFile"; }																	# UpdateSet FILE TEXT - set the contents of the update file
-UpdateSince() { ! UpdateNeeded "$@"; }																													# UpdateSince FILE [DATE_SECONDS](TODAY) - return true if the file was updated since the date, or today
-UpdateRecent() { ! UpdateNeeded "$1" "$(( $(GetSeconds --no-ns) - ${2:-5} ))"; }								# UpdateRecent FILE [SECONDS](5) - return true if the file was updated in the last number of seconds
-
-# UpdateInit [FILE] - initialize update system, sets updateDir, updateFile
-UpdateInit() { UpdateInitDir && UpdateInitFile "$1"; }
-
-# UpdateInitDir [dir]($DATA/update) - initialize update directory, sets updateDir
-UpdateInitDir()
-{
-	local dir="$DATA/update"
-
-	# set updateDir - update file location
-	if [[ $1 || ! $updateDir ]]; then
-		if [[ $1 ]]; then updateDir="${1:-$dir}"
-		elif IsPlatform nomad; then updateDir="$NOMAD_ALLOC_DIR/update" # for HashiCorp Nomad use the same update directory for all allocations
-		elif IsPlatform consul; then updateDir="/tmp/update"
-		elif ! quiet="--quiet" IsFilesystemReadonly "$DATA"; then updateDir="$dir"
-		else ScriptErrQuiet "unable to find a writable update directory" "UpdateInitDir"; return;
-		fi
-	fi
-	[[ -d "$updateDir" ]] && return
-
-	# create update directory
-	{
-		${G}mkdir --parents "$updateDir" &&
-		{ ! InPath setfacl || setfacl --default --modify o::rw "$updateDir"; } &&
-		sudoc chmod -R o+w "$updateDir"
-	} || { ScriptErrQuiet "unable to create the update directory in '$updateDir'" "UpdateInitDir"; return; }
-
-	# copy main update directory
-	[[ "$dir" != "$updateDir" ]] && { cp -p "$dir/"* "$updateDir" || return; }
-
-	return 0
-}
-
-# UpdateInitFile FILE - if specified initialize update file, sets updateFile
-UpdateInitFile()
-{
-	[[ ! $1 ]] && { MissingOperand "file" "UpdateInitFile"; return; }
-	HasFilePath "$1" && updateFile="$1" || updateFile="$updateDir/$1"
-}
-
-# UpdateNeeded FILE [DATE_SECONDS](TODAY) - return true if an update is needed based on the last file modification time.
-# - SECONDS - if specified, an update is needed if the file was not modified since the date or today if not specified
-# - examples - UpdateNeeded 'update-os', UpdateNeeded 'update-os' "$(GetSeconds '-10 min')"
-UpdateNeeded()
-{
-	local file="$1" seconds="$2"
-
-	# return if update needed
-	{ [[ $force ]] || ! UpdateInit "$file" || [[ ! -f "$updateFile" ]]; } && return
-
-	# update is needed if file was not changed 1) in the last seconds (if specified) 2) today
-	if [[ $seconds ]]; then
-		(( $(echo "$(GetFileModSeconds "$updateFile") <= $seconds" | bc) )) # bc required for Bash since seconds is a float
-	else
-		[[ "$(GetDateStamp)" != "$(GetFileDateStamp "$updateFile")" ]]; 
-	fi
-}
-
-
-# clipboard
-
-clipok()
-{ 
-	case "$PLATFORM_OS" in 
-		linux) [[ "$DISPLAY" ]] && InPath xclip;;
-		mac) InPath pbcopy;; 
-		win) InPath clip.exe;;
-	esac	
-}
-
-clipr() 
-{ 
-	case "$PLATFORM_OS" in
-		linux) clipok && xclip -o -sel clip;;
-		mac) clipok && pbpaste;;
-		win) InPath paste.exe && { RunWin paste.exe | ${G}tail --lines=+2; return; }; RunWin powershell.exe -c Get-Clipboard;;
-	esac
-}
-
-clipw() 
-{ 
-	case "$PLATFORM_OS" in 
-		linux) clipok && printf "%s" "$@" | xclip -sel clip;;
-		mac) clipok && printf "%s" "$@" | pbcopy;; 
-		win) InPath clip.exe && printf "%s" "$@" | RunWin clip.exe;; # cd / to fix WSL 2 error running from network share
-	esac
-}
-
-# logging
-
-header() { InitColor; printf "${RB_BLUE}******************************** ${RB_INDIGO}$1${RB_BLUE} ********************************${RESET}\n"; headerDone="$((66 + ${#1}))"; return 0; }
-HeaderBig() { InitColor; printf "${RB_BLUE}************************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n************************************************************${RESET}\n"; }
-HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
-HeaderFancy() { ! InPath pyfiglet lolcat && { HeaderBig "$1"; return; }; pyfiglet --justify=center --width=$COLUMNS "$1" | lolcat; }
-hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
-hilightp() { InitColor; echo -n -E "${GREEN}$@${RESET}"; } # hilight with no newline
-
-# set color variables if colors are supported (using a terminal, or FORCE_COLOR is set)
-InitColor() { { [[ $FORCE_COLOR ]] || IsStdOut; } && InitColorForce || InitColorClear; }
-InitColorErr() { { [[ $FORCE_COLOR ]] || IsStdErr; } && InitColorForce || InitColorClear; }
-InitColorForce() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); PAD=$(printf '\033[25m'); }
-InitColorClear() { unset -v GREEN RB_BLUE RB_INDIGO RED RESET PAD; }
-
-# CurrentColumn - return the current cursor column, https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
-if IsTtyOk; then
-	if IsZsh; then		
-		CurrentColumn()
-		{
-			exec < "/dev/tty"; local old="$(${G}stty -g)"; ${G}stty raw -echo min 0; echo -en "\033[6n" > "/dev/tty"
-			IFS=';' read -r -d R -A pos
-			${G}stty "$old" >& /dev/null
-			[[ ! ${pos[2]} ]] && { echo "0"; return; }
-			echo $(( ${pos[2]%%$'\n'*} - 1 ))
-		}
-	else
-		CurrentColumn()
-		{
-			exec < "/dev/tty"; local old="$(${G}stty -g)"; ${G}stty raw -echo min 0; echo -en "\033[6n" > "/dev/tty"
-			IFS=';' read -r -d R -a pos
-			${G}stty "$old" >& /dev/null
-			[[ ! ${pos[1]} ]] && { echo "0"; return; }
-			echo $(( ${pos[1]} - 1 ))
-		}
-	fi
-else
-	CurrentColumn() { echo "0"; }
-fi
 
 #
 # account
@@ -467,6 +255,7 @@ UserHome()
 IsiTerm() { [[ "$LC_TERMINAL" == "iTerm2" ]]; }
 IsWarp() { [[ "$TERM_PROGRAM" == "WarpTerminal" ]]; }
 IsVisualStudioCode() { [[ "$TERM_PROGRAM" == "vscode" ]]; }
+! IsDefined sponge && alias sponge='cat'
 
 # AppVersion app - return the version of the specified application
 AppVersion()
@@ -1001,8 +790,65 @@ ZoxideConf()
 }
 
 #
-# Config
+# arguments
 #
+
+# GetArgs - get argument from standard input if not specified on command line
+# - must be an alias in order to set the arguments of the caller
+# - GetArgsN will read the first argument from standard input if there are not at least N arguments present
+# - aliases must be defined before used in a function
+# - pipelines operate on the entire input, not each line, i.e. `cat FILE | RemoveSpaceFront` remove only the first space of the first line of the file
+alias GetArgs='[[ $# == 0 ]] && set -- "$(cat)"' 
+alias GetArgs2='(( $# < 2 )) && set -- "$(cat)" "$@"'
+alias GetArgs3='(( $# < 3 )) && set -- "$(cat)" "$@"'
+alias GetArgDash='[[ "$1" == "-" ]] && shift && set -- "$(cat)" "$@"' 
+
+# GetArgsPipe - get all arguments from a pipe
+if IsZsh; then
+	alias GetArgsPipe='{ local gap; gap=("${(@f)"$(cat)"}"); set -- "${gap[@]}"; unset gap; }'
+else
+	alias GetArgsPipe='{ local gap; mapfile -t gap <<<$(cat); set -- "${gap[@]}"; unset gap; }'
+fi
+
+ShowArgs() { local args=( "$@" ); ArrayShow args; } 	# ShowArgs [ARGS...] - show arguments from command line
+SplitArgs() { local args=( $@ ); ArrayShow args; }		# SplitArgs [ARGS...] - split arguments from command line using IFS 
+
+#
+# clipboard
+#
+
+clipok()
+{ 
+	case "$PLATFORM_OS" in 
+		linux) [[ "$DISPLAY" ]] && InPath xclip;;
+		mac) InPath pbcopy;; 
+		win) InPath clip.exe;;
+	esac	
+}
+
+clipr() 
+{ 
+	case "$PLATFORM_OS" in
+		linux) clipok && xclip -o -sel clip;;
+		mac) clipok && pbpaste;;
+		win) InPath paste.exe && { RunWin paste.exe | ${G}tail --lines=+2; return; }; RunWin powershell.exe -c Get-Clipboard;;
+	esac
+}
+
+clipw() 
+{ 
+	case "$PLATFORM_OS" in 
+		linux) clipok && printf "%s" "$@" | xclip -sel clip;;
+		mac) clipok && printf "%s" "$@" | pbcopy;; 
+		win) InPath clip.exe && printf "%s" "$@" | RunWin clip.exe;; # cd / to fix WSL 2 error running from network share
+	esac
+}
+
+#
+# config
+#
+
+AllConf() { HashiConf "$@" && CredentialConf "$@" && NetworkConf --config "$@" && SshAgentConf "$@"; }
 
 ConfigExists() { local file; configInit "$2" && (. "$file"; IsVar "$1"); }				# ConfigExists VAR [FILE] - return true if a configuration variable exists
 ConfigGet() { local file; configInit "$2" && (. "$file"; eval echo "\$$1"); }			# ConfigGet VAR [FILE] - get a configuration variable
@@ -1142,33 +988,14 @@ else
 	GetCommandType() { type -t "$1"; }
 fi 
 
-# ArrayMake VAR ARG... - make an array by splitting passed arguments using IFS
-# ArrayMakeC VAR CMD... - make an array from the output of a command
 # GetType VAR - show type option without -g (global), i.e. -a (array), -i (integer), -ir (read only integer).   Does not work for some special variables  like funcfiletrace, 
-# SetVar VAR VALUE
-# StringToArray STRING DELIMITER VAR
+# GetTypeFull - get the full type
 if IsZsh; then
-	ArrayMake() { setopt sh_word_split; local arrayMake=() arrayName="$1"; shift; arrayMake=( $@ ); ArrayCopy arrayMake "$arrayName"; }
-	ArrayMakeC() { setopt sh_word_split; local arrayMakeC=() arrayName="$1"; shift; arrayMakeC=( $($@) ) || return; ArrayCopy arrayMakeC "$arrayName"; }
-	ArrayShift() { local arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${${(P)arrayShiftVar}[@]}"; shift "$arrayShiftNum"; local arrayShiftArray=( "$@" ); ArrayCopy arrayShiftArray "$arrayShiftVar"; }
-	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
 	GetType()	{ local gt="$(declare -p "$1")"; gt="${gt#typeset }"; gt="${gt#-g }"; r "${gt%% *}" $2; }
 	GetTypeFull() { eval 'echo ${(t)'$1'}'; }
-	IsArray() { [[ "$(GetTypeFull "$1")" =~ ^(array|array-) ]]; }
-	IsAssociativeArray() { [[ "$(GetTypeFull "$1")" =~ ^(association|association-) ]]; }
-	IsVarHidden() { [[ "$(GetTypeFull "$1")" =~ (-hide) ]]; }
-	SetVariable() { eval $1="$2"; }
-	StringToArray() { GetArgs3; IFS=$2 read -A $3 <<< "$1"; }
 else
-	ArrayMake() { local -n arrayMake="$1"; shift; arrayMake=( $@ ); }
-	ArrayMakeC() { local -n arrayMakeC="$1"; shift; arrayMakeC=( $($@) ); }
-	ArrayShift() { local -n arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${arrayShiftVar[@]}"; shift "$arrayShiftNum"; arrayShiftVar=( "$@" ); }
-	ArrayShowKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ArrayShow keys; }
 	GetType() { local gt="$(declare -p $1)"; gt="${gt#declare }"; r "${gt%% *}" $2; }
-	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
-	IsAssociativeArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-A.* ]]; }
-	SetVariable() { local -n var="$1"; var="$2"; }
-	StringToArray() { GetArgs3; IFS=$2 read -a $3 <<< "$1"; } 
+	GetTypeFull() { GetType "$@"; }
 fi
 
 # array
@@ -1176,6 +1003,31 @@ ArrayAnyCheck() { IsAnyArray "$1" && return; ScriptErr "'$1' is not an array"; r
 ArrayReverse() { { ArrayDelimit "$1" $'\n'; printf "\n"; } | tac; } # last line of tac must end in a newline
 ArraySize() { eval "echo \${#$1[@]}"; }
 ArraySort() { IFS=$'\n' ArrayMake "$1" "$(ArrayDelimit "$1" $'\n' | sort "${@:2}")"; } # ArraySort VAR SORT_OPTIONS...
+
+# ArrayMake VAR ARG... - make an array by splitting passed arguments using IFS
+# ArrayMakeC VAR CMD... - make an array from the output of a command
+# ArrayShift VAR N - shift array by N elements
+# ArrayShowKeys VAR - show keys in an associative array
+# IsArray VAR - return true if VAR is an array
+# IsAssociativeArray VAR - return true if VAR is an associative array
+# StringToArray STRING DELIMITER VAR - convert a string to an array splitting by delimiter
+if IsZsh; then
+	ArrayMake() { setopt sh_word_split; local arrayMake=() arrayName="$1"; shift; arrayMake=( $@ ); ArrayCopy arrayMake "$arrayName"; }
+	ArrayMakeC() { setopt sh_word_split; local arrayMakeC=() arrayName="$1"; shift; arrayMakeC=( $($@) ) || return; ArrayCopy arrayMakeC "$arrayName"; }
+	ArrayShift() { local arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${${(P)arrayShiftVar}[@]}"; shift "$arrayShiftNum"; local arrayShiftArray=( "$@" ); ArrayCopy arrayShiftArray "$arrayShiftVar"; }
+	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
+	IsArray() { [[ "$(GetTypeFull "$1")" =~ ^(array|array-) ]]; }
+	IsAssociativeArray() { [[ "$(GetTypeFull "$1")" =~ ^(association|association-) ]]; }
+	StringToArray() { GetArgs3; IFS=$2 read -A $3 <<< "$1"; }
+else
+	ArrayMake() { local -n arrayMake="$1"; shift; arrayMake=( $@ ); }
+	ArrayMakeC() { local -n arrayMakeC="$1"; shift; arrayMakeC=( $($@) ); }
+	ArrayShift() { local -n arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${arrayShiftVar[@]}"; shift "$arrayShiftNum"; arrayShiftVar=( "$@" ); }
+	ArrayShowKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ArrayShow keys; }
+	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
+	IsAssociativeArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-A.* ]]; }
+	StringToArray() { GetArgs3; IFS=$2 read -a $3 <<< "$1"; } 
+fi
 
 # AppendArray [-rd|--remove-dups|--remove-duplicates] DEST A1 A2 ... - combine specified arrays into first array
 ArrayAppend()
@@ -1439,6 +1291,27 @@ if IsZsh; then
 	TimeCommand() { { time (command "$@" >& /dev/null); } |& cut -d" " -f9; return $pipestatus[1]; }
 else
 	TimeCommand() { TIMEFORMAT="%3R"; time (command "$@" >& /dev/null) 2>&1; }
+fi
+
+# variables
+EvalVar() { r "${!1}" $2; } 																											# EvalVar VAR1 [VAR2] - show the value of VAR1, or set var2 to the value of var1
+GetVarCached() { local value="$(GetVar "$1")"; [[ $value ]] && printf "$value"; } # GetVarCached VAR - print the value of a variable if it has one and return true, useful for caching values in variables
+
+# result VALUE [VAR] - echo value, or set var to value (faster), r "- '''\"\"\"-" a; echo $a
+r() { [[ $# == 1 ]] && echo "$1" || eval "$2=""\"${1//\"/\\\"}\""; }
+
+# IsVarHidden VAR - return true if the variable is hidden
+# GetVar VAR - get the value of variable
+# SetVar VAR VALUE - set variable to value
+if IsZsh; then
+	IsVarHidden() { [[ "$(GetTypeFull "$1")" =~ (-hide) ]]; }
+	GetVar() { printf "${(P)1}"; }
+	SetVar() { eval $1="$2"; }
+else
+	IsVarHidden() { false; }
+	GetType() { local gt="$(declare -p $1)"; gt="${gt#declare }"; r "${gt%% *}" $2; }
+	GetVar() { printf "${!1}"; }
+	SetVar() { local -n var="$1"; var="$2"; }
 fi
 
 #
@@ -1990,9 +1863,8 @@ UnzipPlatform()
 	return 0
 }
 
-
 #
-# IFS
+# IFS - internal file separator
 #
 
 IfsShow() { echo -n "$IFS" | ShowChars; }
@@ -2003,6 +1875,47 @@ IfsRestore() { IFS="$ifsSave"; }
 #
 # monitoring
 #
+
+header() { InitColor; printf "${RB_BLUE}******************************** ${RB_INDIGO}$1${RB_BLUE} ********************************${RESET}\n"; headerDone="$((66 + ${#1}))"; return 0; }
+HeaderBig() { InitColor; printf "${RB_BLUE}************************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n************************************************************${RESET}\n"; }
+HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
+HeaderFancy() { ! InPath pyfiglet lolcat && { HeaderBig "$1"; return; }; pyfiglet --justify=center --width=$COLUMNS "$1" | lolcat; }
+hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
+hilightp() { InitColor; echo -n -E "${GREEN}$@${RESET}"; } # hilight with no newline
+
+# color - set color variables if colors are supported (using a terminal, or FORCE_COLOR is set)
+InitColor() { { [[ $FORCE_COLOR ]] || IsStdOut; } && InitColorForce || InitColorClear; }
+InitColorErr() { { [[ $FORCE_COLOR ]] || IsStdErr; } && InitColorForce || InitColorClear; }
+InitColorForce() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); PAD=$(printf '\033[25m'); }
+InitColorClear() { unset -v GREEN RB_BLUE RB_INDIGO RED RESET PAD; }
+
+# FileWatch FILE [PATTERN] - watch a whole file for changes, optionally for a specific pattern
+FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo ${G}tail -F --lines=+0 "$1" | grep "$2"; }
+
+# LogLevel LEVEL MESSAGE - log a message if the logging verbosity level is at least LEVEL
+LogLevel() { level="$1"; shift; (( verboseLevel < level )) && return; ScriptMessage "$@"; }
+LogPrintLevel() { level="$1"; shift; (( verboseLevel < level )) && return; PrintErr "$@"; }
+
+# logN MESSAGE - log a message if the logging verbosity level is a least N
+log1() { LogLevel 1 "$@"; }; log2() { LogLevel 2 "$@"; }; log3() { LogLevel 3 "$@"; }; log4() { LogLevel 4 "$@"; }; log5() { LogLevel 5 "$@"; }
+logp1() { LogPrintLevel 1 "$@"; }; logp2() { LogPrintLevel 2 "$@"; }; logp3() { LogPrintLevel 3 "$@"; }; logp4() { LogPrintLevel 4 "$@"; }; logp5() { LogPrintLevel 5 "$@"; }
+
+# LogScript [LEVEL](4) MESSAGE SCRIPT - log a script we are going to run.  Indent it if it is on more than one line
+LogScript()
+{
+	local level="$1"; IsInteger "$level" && shift || level=4
+	local message="$1"; shift
+	[[ ! $verboseLevel || ! $level ]] || (( verboseLevel < level )) && return
+
+	if [[ "$(echo "$@" | wc -l)" == "1" ]]; then
+		hilightp "$message: " >& /dev/stderr
+		echo "$@" >& /dev/stderr
+	else
+		hilight "$message:" >& /dev/stderr
+		echo -e "$@" | AddTab >& /dev/stderr
+		hilight "EOF" >& /dev/stderr
+	fi
+}
 
 # LogShow FILE [PATTERN] - show and follow a log file, optionally filtering for a pattern
 LogShow()
@@ -2021,9 +1934,6 @@ LogShowAll()
 	SudoCheck "$file"; $sudo less $pattern "$file"
 }
 
-# FileWatch FILE [PATTERN] - watch a whole file for changes, optionally for a specific pattern
-FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo ${G}tail -F --lines=+0 "$1" | grep "$2"; }
-
 #
 # network
 #
@@ -2034,7 +1944,7 @@ GetDefaultGateway() { CacheDefaultGateway "$@" && echo "$NETWORK_DEFAULT_GATEWAY
 GetDnsServers4() { GetDnsServers -4 "$@"; }; GetDnsServers6() { GetDnsServers -6 "$@"; }
 GetAdapterIpAddress4() { GetAdapterIpAddress -4 "$@"; }; GetAdapterIpAddress6() { GetAdapterIpAddress -6 "$@"; }			# GetAdapterIpAddres [ADAPTER](primary) - get specified network adapter address
 GetIpAddress4() { GetIpAddress -4 "$@"; }; GetIpAddress6() { GetIpAddress -6 "$@"; }																	# GetIpAddress[4|6] [HOST] - get the IP address of the current or specified host
-GetDomain() { UpdateNeeded "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGetForce "domain"; }				# GetDomain - get the current network domain
+GetDomain() { UpdateNeededEmpty "domain" && UpdateSet "domain" "$(network domain name)"; UpdateGetForce "domain"; }				# GetDomain - get the current network domain
 GetDomainCached() { UpdateGetForce "domain"; }
 HostAvailable() { IsAvailable "$@" && return; ScriptErrQuiet "host '$1' is not available"; }
 HostUnknown() { ScriptErr "$1: Name or service not known" "$2"; }
@@ -2052,7 +1962,6 @@ MacLookup4() { MacLookup -4 "$@"; }; MacLookup6() { MacLookup -6 "$@"; }								
 MacPad() { awk -F: '{for(i=1;i<=NF;i++) printf "%02s%s", $i, (i<NF ? ":" : "\n")}'; }
 RemovePort() { GetArgs; echo "$1" | cut -d: -f 1; }																																		# RemovePort NAME:PORT - returns NAME
 SmbPasswordIsSet() { sudoc pdbedit -L -u "$1" >& /dev/null; }																													# SmbPasswordIsSet USER - return true if the SMB password for user is set
-UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }																									# UrlExists URL - true if the specified URL exists
 WifiNetworks() { sudo iwlist wlan0 scan | grep ESSID | cut -d: -f2 | RemoveQuotes | RemoveEmptyLines | sort | uniq; }
 
 # curl
@@ -3995,6 +3904,45 @@ UriMake()
 }
 
 #
+# network: URL - HTTP[S]://SERVER:PORT[/DIRS]
+#
+
+IsUrl() { [[ "$1" =~ ^[A-Za-z][A-Za-z0-9+-]+: ]]; }											# IsUrl URL - true if URL is a valid URL
+UrlExists() { curl --output /dev/null --silent --head --fail "$1"; }		# UrlExists URL - true if the specified URL exists
+
+UrlDecode()
+{
+	GetArgs
+	echo "$1" | sed '
+		s %2f / g
+		s %3a : g
+		s %24 \$ g
+		s/%20/ /g 
+  '
+}
+
+UrlDecodeAlt() { GetArgs; : "${*//+/ }"; echo -e "${_//%/\\x}"; }
+
+UrlEncode()
+{
+	GetArgs
+	echo "$1" | sed '
+		s / %2f g
+		s : %3a g
+		s \$ %24 g
+		s/ /%20/g 
+  '
+}
+
+UrlEncodeSpace()
+{
+	GetArgs
+	echo "$1" | sed '
+		s/ /%20/g 
+  '
+}
+
+#
 # package manager
 #
 
@@ -5330,31 +5278,6 @@ else
 	FindFunction() { declare -F | grep -iE "^declare -f ${1}$" | sed "s/declare -f //"; return "${PIPESTATUS[1]}"; }
 fi
 
-# LogLevel LEVEL MESSAGE - log a message if the logging verbosity level is at least LEVEL
-LogLevel() { level="$1"; shift; (( verboseLevel < level )) && return; ScriptMessage "$@"; }
-LogPrintLevel() { level="$1"; shift; (( verboseLevel < level )) && return; PrintErr "$@"; }
-
-# logN MESSAGE - log a message if the logging verbosity level is a least N
-log1() { LogLevel 1 "$@"; }; log2() { LogLevel 2 "$@"; }; log3() { LogLevel 3 "$@"; }; log4() { LogLevel 4 "$@"; }; log5() { LogLevel 5 "$@"; }
-logp1() { LogPrintLevel 1 "$@"; }; logp2() { LogPrintLevel 2 "$@"; }; logp3() { LogPrintLevel 3 "$@"; }; logp4() { LogPrintLevel 4 "$@"; }; logp5() { LogPrintLevel 5 "$@"; }
-
-# LogScript [LEVEL](4) MESSAGE SCRIPT - log a script we are going to run.  Indent it if it is on more than one line
-LogScript()
-{
-	local level="$1"; IsInteger "$level" && shift || level=4
-	local message="$1"; shift
-	[[ ! $verboseLevel || ! $level ]] || (( verboseLevel < level )) && return
-
-	if [[ "$(echo "$@" | wc -l)" == "1" ]]; then
-		hilightp "$message: " >& /dev/stderr
-		echo "$@" >& /dev/stderr
-	else
-		hilight "$message:" >& /dev/stderr
-		echo -e "$@" | AddTab >& /dev/stderr
-		hilight "EOF" >& /dev/stderr
-	fi
-}
-
 # RunCache CACHE FUNCTION [ARGS] - run function if an update is needed
 RunCache()
 {
@@ -5797,6 +5720,42 @@ SudoRead()
 SudoRun() { [[ ! $sudo ]] && return; sudo "$@"; }
 
 #
+# terminal
+#
+
+IsTty() { ${G}tty --silent;  }		# ??
+IsTtyOk() {  { printf "" > "/dev/tty"; } >& "/dev/null"; } # 0 if /dev/tty is usable for reading input or sending output (useful when stdin or stdout is not available in a pipeline)
+IsSshTty() { [[ $SSH_TTY ]]; }		# 0 if connected over SSH with a TTY
+IsStdIn() { [[ -t 0 ]];  } 				# 0 if STDIN refers to a terminal, i.e. "echo | IsStdIn" is 1 (false)
+IsStdOut() { [[ -t 1 ]];  } 			# 0 if STDOUT refers to a terminal, i.e. "IsStdOut | cat" is 1 (false)
+IsStdErr() { [[ -t 2 ]];  } 			# 0 if STDERR refers to a terminal, i.e. "IsStdErr |& cat" is 1 (false)
+
+# CurrentColumn - return the current cursor column, https://stackoverflow.com/questions/2575037/how-to-get-the-cursor-position-in-bash/2575525#2575525
+if IsTtyOk; then
+	if IsZsh; then		
+		CurrentColumn()
+		{
+			exec < "/dev/tty"; local old="$(${G}stty -g)"; ${G}stty raw -echo min 0; echo -en "\033[6n" > "/dev/tty"
+			IFS=';' read -r -d R -A pos
+			${G}stty "$old" >& /dev/null
+			[[ ! ${pos[2]} ]] && { echo "0"; return; }
+			echo $(( ${pos[2]%%$'\n'*} - 1 ))
+		}
+	else
+		CurrentColumn()
+		{
+			exec < "/dev/tty"; local old="$(${G}stty -g)"; ${G}stty raw -echo min 0; echo -en "\033[6n" > "/dev/tty"
+			IFS=';' read -r -d R -a pos
+			${G}stty "$old" >& /dev/null
+			[[ ! ${pos[1]} ]] && { echo "0"; return; }
+			echo $(( ${pos[1]} - 1 ))
+		}
+	fi
+else
+	CurrentColumn() { echo "0"; }
+fi
+
+#
 # text processing
 #
 
@@ -5940,6 +5899,79 @@ JsonValidate()
 }
 
 #
+# update - state management in the file system
+#
+
+# update - manage update state in a temporary file location
+UpdateDate() { UpdateInit "$1" && [[ -f "$updateFile" ]] && GetFileDateStamp "$updateFile"; } 	# UpdateDate FILE - return the last updated date
+UpdateDone() { UpdateInit "$1" && ${G}touch "$updateFile"; }																		# UpdateDone FILE - update the last updated date
+UpdateGet() { ! UpdateNeeded "$@" && UpdateGetForce "$updateFile"; }														# UpdateGet FILE - if an update is not needed, get the contents of the update file 
+UpdateGetForce() { UpdateInit "$1" && [[ ! -f "$updateFile" ]] && return; cat "$updateFile"; }	# UpdateGetForce FILE - get the contents of the update file 
+UpdateNeededEmpty() { UpdateNeeded "$@" || [[ ! $(UpdateGet "$updateFile") ]]; }								# UpdateNeededCheck FILE - return true if an update is needed or if the contents of the file is empty
+UpdateRm() { UpdateInit "$1" && rm -f "$updateFile"; }																					# UpdateRm FILE - remove the update file
+UpdateRmAll() { UpdateInitDir && DelDir --contents --hidden --files "$updateDir"; }							# UpdateRmAll - remove all update files
+UpdateSet() { UpdateInit "$1" && printf "$2" > "$updateFile"; }																	# UpdateSet FILE TEXT - set the contents of the update file
+UpdateSince() { ! UpdateNeeded "$@"; }																													# UpdateSince FILE [DATE_SECONDS](TODAY) - return true if the file was updated since the date, or today
+UpdateRecent() { ! UpdateNeeded "$1" "$(( $(GetSeconds --no-ns) - ${2:-5} ))"; }								# UpdateRecent FILE [SECONDS](5) - return true if the file was updated in the last number of seconds
+
+# UpdateInit [FILE] - initialize update system, sets updateDir, updateFile
+UpdateInit() { UpdateInitDir && UpdateInitFile "$1"; }
+
+# UpdateInitDir [dir]($DATA/update) - initialize update directory, sets updateDir
+UpdateInitDir()
+{
+	local dir="$DATA/update"
+
+	# set updateDir - update file location
+	if [[ $1 || ! $updateDir ]]; then
+		if [[ $1 ]]; then updateDir="${1:-$dir}"
+		elif IsPlatform nomad; then updateDir="$NOMAD_ALLOC_DIR/update" # for HashiCorp Nomad use the same update directory for all allocations
+		elif IsPlatform consul; then updateDir="/tmp/update"
+		elif ! quiet="--quiet" IsFilesystemReadonly "$DATA"; then updateDir="$dir"
+		else ScriptErrQuiet "unable to find a writable update directory" "UpdateInitDir"; return;
+		fi
+	fi
+	[[ -d "$updateDir" ]] && return
+
+	# create update directory
+	{
+		${G}mkdir --parents "$updateDir" &&
+		{ ! InPath setfacl || setfacl --default --modify o::rw "$updateDir"; } &&
+		sudoc chmod -R o+w "$updateDir"
+	} || { ScriptErrQuiet "unable to create the update directory in '$updateDir'" "UpdateInitDir"; return; }
+
+	# copy main update directory
+	[[ "$dir" != "$updateDir" ]] && { ${G}cp --preserve=timestamps "$dir/"* "$updateDir" || return; }
+
+	return 0
+}
+
+# UpdateInitFile FILE - if specified initialize update file, sets updateFile
+UpdateInitFile()
+{
+	[[ ! $1 ]] && { MissingOperand "file" "UpdateInitFile"; return; }
+	HasFilePath "$1" && updateFile="$1" || updateFile="$updateDir/$1"
+}
+
+# UpdateNeeded FILE [DATE_SECONDS](TODAY) - return true if an update is needed based on the last file modification time.
+# - SECONDS - if specified, an update is needed if the file was not modified since the date or today if not specified
+# - examples - UpdateNeeded 'update-os', UpdateNeeded 'update-os' "$(GetSeconds '-10 min')"
+UpdateNeeded()
+{
+	local file="$1" seconds="$2"
+
+	# return if update needed
+	{ [[ $force ]] || ! UpdateInit "$file" || [[ ! -f "$updateFile" ]]; } && return
+
+	# update is needed if file was not changed 1) in the last seconds (if specified) 2) today
+	if [[ $seconds ]]; then
+		(( $(echo "$(GetFileModSeconds "$updateFile") <= $seconds" | bc) )) # bc required for Bash since seconds is a float
+	else
+		[[ "$(GetDateStamp)" != "$(GetFileDateStamp "$updateFile")" ]]; 
+	fi
+}
+
+#
 # virtual machine
 #
 
@@ -6021,7 +6053,7 @@ GetVmType() # vmware|hyperv
 }
 
 #
-# Window Manager
+# window manager
 #
 
 HasWindowManager() { ! IsSsh || IsXServerRunning; } # assume if we are not in an SSH shell we are running under a Window manager
