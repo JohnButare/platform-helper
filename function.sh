@@ -137,22 +137,30 @@ UpdateInit() { UpdateInitDir && UpdateInitFile "$1"; }
 # UpdateInitDir [dir]($DATA/update) - initialize update directory, sets updateDir
 UpdateInitDir()
 {
+	local dir="$DATA/update"
+
 	# set updateDir - update file location
 	if [[ $1 || ! $updateDir ]]; then
-		if [[ $1 ]]; then updateDir="${1:-$DATA/update}"
+		if [[ $1 ]]; then updateDir="${1:-$dir}"
 		elif IsPlatform nomad; then updateDir="$NOMAD_ALLOC_DIR/update" # for HashiCorp Nomad use the same update directory for all allocations
 		elif IsPlatform consul; then updateDir="/tmp/update"
-		elif ! quiet="--quiet" IsFilesystemReadonly "$DATA"; then updateDir="$DATA/update"
+		elif ! quiet="--quiet" IsFilesystemReadonly "$DATA"; then updateDir="$dir"
 		else ScriptErrQuiet "unable to find a writable update directory" "UpdateInitDir"; return;
 		fi
 	fi
 	[[ -d "$updateDir" ]] && return
 
 	# create update directory
-	${G}mkdir --parents "$updateDir" && \
-	{ ! InPath setfacl || setfacl --default --modify o::rw "$updateDir"; } && \
-	sudoc chmod -R o+w "$updateDir" && return
-	ScriptErrQuiet "unable to create the update directory in '$updateDir'" "UpdateInitDir"
+	{
+		${G}mkdir --parents "$updateDir" &&
+		{ ! InPath setfacl || setfacl --default --modify o::rw "$updateDir"; } &&
+		sudoc chmod -R o+w "$updateDir"
+	} || { ScriptErrQuiet "unable to create the update directory in '$updateDir'" "UpdateInitDir"; return; }
+
+	# copy main update directory
+	[[ "$dir" != "$updateDir" ]] && { cp -p "$dir/"* "$updateDir" || return; }
+
+	return 0
 }
 
 # UpdateInitFile FILE - if specified initialize update file, sets updateFile
