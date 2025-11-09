@@ -1000,7 +1000,7 @@ fi
 
 # array
 ArrayAnyCheck() { IsAnyArray "$1" && return; ScriptErr "'$1' is not an array"; return 1; }
-ArrayReverse() { { ArrayDelimit "$1" $'\n'; printf "\n"; } | tac; } # last line of tac must end in a newline
+ArrayReverse() { { ArrayDelimit "$1" $'\n'; printf "\n"; } | TMPDIR="/tmp" tac; } # last line of tac must end in a newline, tac needs a writable directory
 ArraySize() { eval "echo \${#$1[@]}"; }
 ArraySort() { IFS=$'\n' ArrayMake "$1" "$(ArrayDelimit "$1" $'\n' | sort "${@:2}")"; } # ArraySort VAR SORT_OPTIONS...
 
