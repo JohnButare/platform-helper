@@ -444,12 +444,12 @@ BorgConf() { ScriptEval BorgHelper environment "$@"; }
 CloudConf()
 {
 	# arguments
-	local quiet
+	local scriptName="CloudConf" quiet
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--quiet|-q) quiet="--quiet";;
-			*) UnknownOption "$1" "CloudConf"; return
+			*) UnknownOption "$1"; return
 		esac
 		shift
 	done
@@ -464,7 +464,7 @@ CloudConf()
 	fi
 
 	[[ $CLOUD ]] && { export CLOUD_ROOT="$CLOUD"; [[ -d "${CLOUD}Root" ]] && export CLOUD_ROOT="${CLOUD}Root"; }
-	[[ ! $CLOUD ]] && { [[ ! $quiet ]] && ScriptErr "unable to find a cloud directory" "CloudConf"; return 1; }
+	[[ ! $CLOUD ]] && { [[ ! $quiet ]] && ScriptErr "unable to find a cloud directory"; return 1; }
 	return 0
 }
 
@@ -1361,13 +1361,13 @@ CloudGet()
 	! IsPlatform win && return
 
 	# arguments
-	local file files=() quiet verbose verboseLevel verboseLess
+	local scriptName="CloudGet" file files=() quiet verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
-			-*) UnknownOption "$1" "CloudGet"; return;;
+			-*) UnknownOption "$1"; return;;
 			*) files+=("$1"); shift; continue;;
 		esac
 		shift
@@ -1598,18 +1598,18 @@ FileWaitDelete()
 FindAny()
 {
 	# arguments
-	local args=() dir name nameArg="-name" depth
+	local scriptName="FindAny" args=() dir name nameArg="-name" depth
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--ignore-case|-i) nameArg="-iname";;
 			--) shift; args+=("$@"); break;;
-			-*) UnknownOption "$1" "FindAny"; return;;
+			-*) UnknownOption "$1"; return;;
 			*)
 				! IsOption "$1" && [[ ! $dir ]] && { dir="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $name ]] && { name="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $depth ]] && IsInteger "$1" && { depth="$1"; shift; continue; }
-				UnknownOption "$1" "FindAny"; return
+				UnknownOption "$1"; return
 				;;
 		esac
 		shift
@@ -2082,7 +2082,7 @@ DhcpValidate()
 GetAdapterIpAddress() 
 {
 	# arguments
-	local adapter wsl ipv="4"; 
+	local scriptName="GetAdapterIpAddress" adapter wsl ipv="4"; 
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2091,7 +2091,7 @@ GetAdapterIpAddress()
 			-w|--wsl) wsl="--wsl";;
 			*)
 				if ! IsOption "$1" && [[ ! $adapter ]]; then adapter="$1"
-				else UnknownOption "$1" "GetAdapterIpAddress"; return
+				else UnknownOption "$1"; return
 				fi
 		esac
 		shift
@@ -2151,7 +2151,7 @@ GetAdapterIpAddress()
 # -w|--wsl	get the MAC address used by WSL (Windows only)
 GetAdapterMacAddress()
 {
-	local adapter wsl; 
+	local scriptName="GetAdapterMacAddress" adapter wsl; 
 
 	# options
 	while (( $# != 0 )); do
@@ -2159,7 +2159,7 @@ GetAdapterMacAddress()
 			-w|--wsl) wsl="--wsl";;
 			*)
 				if ! IsOption "$1" && [[ ! $adapter ]]; then adapter="$1"
-				else UnknownOption "$1" "GetAdapterMacAddress"; return
+				else UnknownOption "$1"; return
 				fi
 		esac
 		shift
@@ -2245,7 +2245,7 @@ GetInterface()
 GetIpAddress() 
 {
 	# arguments
-	local host mdns quiet verbose verboseLevel verboseLess vm wsl
+	local scriptName="GetIpAddress" host mdns quiet verbose verboseLevel verboseLess vm wsl
 	local all=(head -1) ip ipv server type="A"
 
 	while (( $# != 0 )); do
@@ -2263,7 +2263,7 @@ GetIpAddress()
 			*)
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $server ]] && { server="$1"; shift; continue; }
-				UnknownOption "$1" "GetIpAddress"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
@@ -2298,7 +2298,7 @@ GetIpAddress()
 	[[ ! $server ]] && server="$(DnsAlternate "$host" $verbose)"
 
 	# logging
-	log3 "getting IP address for '$host' type '$type'$([[ $server ]] && printf " from name server '$server'")" "GetIpAddress"
+	log3 "getting IP address for '$host' type '$type'$([[ $server ]] && printf " from name server '$server'")"
 
 	# lookup IP address using various commands
 
@@ -2306,26 +2306,26 @@ GetIpAddress()
 	# - this was seen with old IP address in a Hyper-V guest on test VLAN after removing VLAN ID).  
 	# - he host and nslookup commands return new IP.
 	if [[ ! $server ]] && InPath getent; then
-		log3 "using getent" "GetIpAddress"
+		log3 "using getent"
 		ip="$(getent ahostsv$ipv "$host" |& grep "STREAM" | "${all[@]}" | cut -d" " -f 1)"
 	
 	# dscacheutil -q host -a name HOST - query macOS system resolvers
 	# - ensure get hosts on VPN network as /etc/resolv.conf does not always update wit the VPN nameservers
 	# - returns label ip_address or ipv6_address:, but for now only use with IPv4 addresses
 	elif [[ ! $server && "$ipv" == "4" ]] && IsPlatform mac; then
-		log3 "using dscacheutil" "GetIpAddress"
+		log3 "using dscacheutil"
 		ip="$(dscacheutil -q host -a name "$host" |& ${G}grep -E "^ip_address:" | ${G}cut -d" " -f2 | ${G}head -1)"
 	
 	# host and getent are fast and can sometimes resolve .local (mDNS) addresses 
 	# - host is slow on wsl 2 when resolv.conf points to the Hyper-V DNS server for unknown names
 	elif InPath host; then
-		log3 "using host" "GetIpAddress"
+		log3 "using host"
 		ip="$(host -N 2 -t $type -4 "$host" $server |& ${G}grep -v "^ns." | ${G}grep "has .*address" | "${all[@]}" | rev | ${G}cut -d" " -f 1 | rev)"
 	
 	# nslookup - slow on mac if a name server is not specified
 	#   - -N 3 and -ndots=2 allow the default domain names for partial names like consul.service
 	elif InPath nslookup; then
-		log3 "using nslookup" "GetIpAddress"
+		log3 "using nslookup"
 		ip="$(nslookup -ndots=2 -type=$type "$host" $server |& ${G}tail --lines=+4 | ${G}grep -E "^Address:|has AAAA address" | "${all[@]}" | rev | cut -d" " -f 1 | rev)"
 	fi
 
@@ -2446,7 +2446,7 @@ IsOsRestrcited() { false; } # TODO: return true if the operating system is restr
 IsIpAddress()
 {
 	# arguments
-	local ip ipv; GetArgs
+	local scriptName="IsIpAddress" ip ipv; GetArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2454,7 +2454,7 @@ IsIpAddress()
 			-6) ipv="6";;
 			*)
 				! IsOption "$1" && [[ ! $ip ]] && { ip="$1"; shift; continue; }
-				UnknownOption "$1" "IsIpAddress"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
@@ -2580,7 +2580,7 @@ MacGenerate()
 # test: lb lb3 pi1
 MacLookup() 
 {
-	local arp detail dns ethers host monitor quiet
+	local scriptName="MacLookup" arp detail dns ethers host monitor quiet
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2593,8 +2593,8 @@ MacLookup()
 			--monitor|-m) monitor="--monitor";;
 			--quiet|-q) quiet="--quiet";;
 			*) 
-				IsOption "$1" && { UnknownOption "$1" "MacLookup"; return; }
-				[[ ! $host ]] && host="$1" || { ExtraOperand "$1" "MacLookup"; return; }
+				IsOption "$1" && { UnknownOption "$1"; return; }
+				[[ ! $host ]] && host="$1" || { ExtraOperand "$1"; return; }
 				;;
 		esac
 		shift
@@ -2648,7 +2648,7 @@ MacLookup()
 		# get the MAC address
 		else
 			mac="$(arp "$host")" || return
-			echo "$mac" | ${G}grep --quiet "no entry$" && { ScriptErrQuiet "no MAC address for '$host'" "MacLookup"; return 1; }
+			echo "$mac" | ${G}grep --quiet "no entry$" && { ScriptErrQuiet "no MAC address for '$host'"; return 1; }
 			local column=3; IsPlatform mac && column=4
 			mac="$(echo "$mac" | tr -s " " | cut -d" " -f${column} | ${G}tail --lines=-1)"
 		fi
@@ -2731,12 +2731,12 @@ nmapp()
 NmapCanBroadcast()
 {
 	# arguments
-	local quiet
+	local scriptName="NmapCanBroadcast" quiet
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--quiet|-q) quiet="--quiet";;
-			*) UnknownOption "$1" "DnsAlternate"; return;;
+			*) UnknownOption "$1"; return;;
 		esac
 		shift
 	done
@@ -3105,7 +3105,7 @@ HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuf
 GetDnsSearch()
 {
 	# arguments
-	local force forceLevel forceLess quiet verbose verboseLevel verboseLess win
+	local scriptName="GetDnsSearch" force forceLevel forceLess quiet verbose verboseLevel verboseLess win
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -3114,45 +3114,45 @@ GetDnsSearch()
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
-			*) UnknownOption "$1" "GetDnsSearch"; return;;
+			*) UnknownOption "$1"; return;;
 		esac
 		shift
 	done
 
 	local search
-	log4 "getting the DNS search paths" "GetDnsSearch"
+	log4 "getting the DNS search paths"
 
 	# win
 	if [[ $win ]]; then
-		log3 "using powershell" "GetDnsSearch"
+		log3 "using powershell"
 		search="$(powershell '(Get-NetAdapter "'$(GetAdapterName)'" | Get-DnsClient).ConnectionSpecificSuffixSearchList' | RemoveCarriageReturn| sort | uniq | NewlineToSpace | RemoveSpaceTrim)"
 
 	# mac
 	elif IsPlatform mac; then
-		log3 "using scutil" "GetDnsSearch"
+		log3 "using scutil"
 		search="$(scutil --dns | grep 'search domain\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim)"
 	
 	# resolvectl - ensure it responds quickly, test using service stop dbus
 	elif ResolveCtlInstalled && ResolveCtlValidate "GetDnsSearch"; then
-		log3 "using resolvectl" "GetDnsSearch"
+		log3 "using resolvectl"
 		search="$(resolveclt status |& grep "DNS Domain: " | head -1 | cut -d":" -f2 | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim)"
 	fi
 
 	# resolv.conf
 	if [[ ! $search && -f "/etc/resolv.conf" ]]; then
-		log3 "using resolv.conf" "GetDnsSearch"
+		log3 "using resolv.conf"
 		search="$(cat "/etc/resolv.conf" | grep "^search " | cut -d" " -f2- | sort | uniq | NewlineToSpace | RemoveSpaceTrim)"
 	fi
 
 	# ConfigGetCurrent
 	if [[ ! $search ]]; then
-		log3 "using ConfigGetCurrent" "GetDnsSearch"
+		log3 "using ConfigGetCurrent"
 		search="$(ConfigGetCurrent DnsSearch)"
 	fi
 
 	# return
 	[[ $search ]] && { echo "$search"; return; }
-	ScriptErrQuiet "unable to get the DNS search domains" "GetDnsSearch"
+	ScriptErrQuiet "unable to get the DNS search domains"
 }
 
 # RemoveDnsSuffix HOST - remove the DNS suffix if present
@@ -3175,7 +3175,7 @@ ConsulResolve() { hashi resolve "$@"; }
 DnsAlternate()
 {
 	# arguments
-	local force forceLevel forceLess host quiet verbose verboseLevel verboseLess
+	local scriptName="DnsAlternate" force forceLevel forceLess host quiet verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -3186,14 +3186,14 @@ DnsAlternate()
 			--win|-w) win="--win";;
 			*)
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
-				UnknownOption "$1" "DnsAlternate"; return
+				UnknownOption "$1"; return
 				;;
 		esac
 		shift
 	done
 
 	# hardcoded to check if connected on VPN from the Butare network to the DriveTime network (coeixst.local suffix) 
-	log3 "finding the alternate DNS server for host '$host'" "DnsAlternate"
+	log3 "finding the alternate DNS server for host '$host'"
 	if [[ ! $host || ("$host" =~ (^$|butare.net$) && "$(GetDnsSearch $quiet $verbose)" == "coexist.local") ]]; then
 		echo "10.10.100.8" # butare.net primary DNS server
 	fi
@@ -3223,7 +3223,7 @@ DnsResolve()
 			*)
 				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
 				elif ! IsOption "$1" && [[ ! $server ]]; then server="$1"
-				else UnknownOption "$1" "DnsResolve"; return
+				else UnknownOption "$1"; return
 				fi
 				;;
 		esac
@@ -3436,7 +3436,7 @@ GetDnsServer()
 GetDnsServers()
 {
 	# arguments
-	local force forceLevel forceLess quiet verbose verboseLevel verboseLess ipv win 
+	local scriptName="GetDnsServers" force forceLevel forceLess quiet verbose verboseLevel verboseLess ipv win 
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -3447,14 +3447,14 @@ GetDnsServers()
 			--quiet|-q) quiet="--quiet";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
-			*) UnknownOption "$1" "GetDnsServers"; return;;
+			*) UnknownOption "$1"; return;;
 		esac
 		shift
 	done
 
 	# win
 	if [[ $win ]]; then
-		log3 "using powershell" "GetDnsServers"
+		log3 "using powershell"
 		powershell '(Get-DnsClientServerAddress -InterfaceAlias "'$(GetAdapterName)'")' | grep -E "IPv4|IPv6" | RemoveCarriageReturn | tr -s " " | cut -d" " -f5- | RemoveChar '{' | RemoveChar "}" | RemoveChar "," | SpaceToNewline | RemoveEmptyLines | sort | uniq | NewlineToSpace | RemoveSpaceTrim
 		return
 	fi
@@ -3462,32 +3462,32 @@ GetDnsServers()
 	# other
 	local servers;
 	if ResolveCtlInstalled && ResolveCtlValidate "GetDnsServers"; then
-		log3 "using resolvectl" "GetDnsServers"
+		log3 "using resolvectl"
 		servers="$(resolvectl status |& grep "DNS Servers: " | head -1 | cut -d":" -f2- | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim)" # Ubuntu >= 22.04
 
 	elif IsPlatform mac; then
-		log3 "using scutil" "GetDnsServers"
+		log3 "using scutil"
 		servers="$(scutil --dns | grep 'nameserver\[[0-9]*\]' | ${G}cut -d":" -f2- | sort | uniq | RemoveNewline | RemoveSpaceTrim)"
 	fi
 	[[ $servers && $ipv ]] && servers="$(IpvInclude "$ipv" "$servers")"
 
 	# resolv.conf
 	if [[ ! $servers && -f "/etc/resolv.conf" ]]; then
-		log3 "using resolv.conf" "GetDnsServers"
+		log3 "using resolv.conf"
 		servers="$(cat "/etc/resolv.conf" | grep nameserver | cut -d" " -f2 | sort | uniq | NewlineToSpace | RemoveSpaceTrim)"
 	fi
 	[[ $servers && $ipv ]] && servers="$(IpvInclude "$ipv" "$servers")"
 
 	# ConfigGetCurrent
 	if [[ ! $servers ]]; then
-		log3 "using ConfigGetCurrent" "GetDnsServers"
+		log3 "using ConfigGetCurrent"
 		servers="$(ConfigGetCurrent DnsServers)"
 	fi
 	[[ $servers && $ipv ]] && servers="$(IpvInclude "$ipv" "$servers")"
 
 	# return
 	[[ $servers ]] && { echo "$servers"; return; }
-	ScriptErrQuiet "unable to get the DNS servers" "GetDnsServers"
+	ScriptErrQuiet "unable to get the DNS servers"
 }
 
 MdnsResolve()
@@ -4296,7 +4296,7 @@ fi
 #   use the _platform host variables set from the last call to HostGetInfo.
 IsPlatform()
 {
-	local all host hostArg=() p platforms=() useHost
+	local scriptName="IsPlatform" all host hostArg=() p platforms=() useHost
 
 	# arguments
 	while (( $# != 0 )); do
@@ -4308,7 +4308,7 @@ IsPlatform()
 				;;
 			*)
 				if ! IsOption "$1" && [[ ! $platforms ]]; then StringToArray "$1" "," platforms
-				else UnknownOption "$1" "IsPlatform"; return
+				else UnknownOption "$1"; return
 				fi
 				;;
 		esac
@@ -4704,7 +4704,7 @@ ProcessClose()
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
-				UnknownOption "$1" "ProcessClose"; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
@@ -4854,7 +4854,7 @@ ProcessKill()
 ProcessList() 
 { 
 	# arguments
-	local args="-e" unix="true" win="true" command=(-o command=)
+	local scriptName="ProcessList" args="-e" unix="true" win="true" command=(-o command=)
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -4862,7 +4862,7 @@ ProcessList()
 			-u|--user) unset args;;
 			-U|--unix) unset win;;
 			-w|--win) unset unix;;
-			*) UnknownOption "$1" "ProcessList"; return
+			*) UnknownOption "$1"; return
 		esac
 		shift
 	done
@@ -4982,7 +4982,7 @@ start()
 			--window-style|-ws) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle="$(LowerCase "$2")"; shift;;
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; break; }
-				UnknownOption "$1" start; return
+				UnknownOption "$1"; return
 		esac
 		shift
 	done
@@ -5339,7 +5339,7 @@ RunFunctionExists()
 RunFunctions()
 {
 	# arguments
-	local function functions=() ignoreErrors result
+	local scriptName="RunFunctions" function functions=() ignoreErrors result
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -5348,7 +5348,7 @@ RunFunctions()
 				[[ "$1" == "--" ]] && { shift; break; }
 				if ! IsOption "$1" && [[ ! $s ]]; then s="$1"
 				elif ! IsOption "$1"; then functions+=("$1")
-				else UnknownOption "$1" "RunFunctions"; return
+				else UnknownOption "$1"; return
 				fi
 		esac
 		shift
@@ -5426,11 +5426,10 @@ ScriptEval()
 # ScriptName [func] - return the function, or the name of root script
 ScriptName()
 {
-	local func="$1"; [[ $func ]] && { printf "%s" "$func"; return; }
-	local name="$0"; IsZsh && name="$ZSH_SCRIPT"
+	local name="${1:-$scriptName}"; [[ $name ]] && { printf "$name"; return; }
+	name="$0"; IsZsh && name="$ZSH_SCRIPT"
 	name="$(GetFileName "$name")"
 	[[ "$name" == "function.sh" ]] && unset name
-	[[ ! $name ]] && name="$scriptName"
 	printf "$name" 
 }
 
@@ -6082,7 +6081,7 @@ WinExists() { ! IsPlatform win && return 1; ! tasklist.exe /fi "WINDOWTITLE eq $
 
 InitializeXServer()
 {
-	local force forceLevel forceLess; ScriptOptForce "$@"
+	local scriptName="InitializeXServer" force forceLevel forceLess; ScriptOptForce "$@"
 	[[ ! $force && $X_SERVER_CHECKED ]] && return
 
 	# return if X is not installed
@@ -6095,7 +6094,7 @@ InitializeXServer()
 		case "$1" in "") : ;;
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--quiet|-q) quiet="--quiet";;
-			*) $1; UnknownOption "$1" "InitializeXServer"; return;;
+			*) $1; UnknownOption "$1"; return;;
 		esac
 		shift
 	done
@@ -6129,7 +6128,7 @@ InitializeXServer()
 			{ # run in background to allow login even if this hangs (if D-Bus is in a bad state)
 				local result; result="$(dbus-update-activation-environment --systemd DISPLAY 2>&1)"
 				if [[ "$result" != "" ]]; then
-					[[ ! $quiet ]] && ScriptErr "unable to initialize D-Bus: $result" "InitializeXServer"
+					[[ ! $quiet ]] && ScriptErr "unable to initialize D-Bus: $result"
 					return 1
 				fi
 			} &
@@ -6197,7 +6196,7 @@ Usage: WinSetState [OPTION](--activate) TITLE
 
 WinSetState()
 {
-	local ahk wargs=( /res /act ) args=( -a ) title result
+	local scriptName="WinSetState" ahk wargs=( /res /act ) args=( -a ) title result
 
 	# arguments
 	while (( $# != 0 )); do
@@ -6211,7 +6210,7 @@ WinSetState()
 			-h|--help) WinSetStateUsage; return 0;;
 			*)
 				if [[ ! $title ]]; then title="$1"
-				else UnknownOption "$1" "WinSetState"; return; fi
+				else UnknownOption "$1"; return; fi
 		esac
 		shift
 	done
