@@ -3029,20 +3029,41 @@ WaitForNetwork()
 	echo "not found"; return 1
 }
 
-# WaitForPort HOST PORT [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
+# WaitForPort HOST[:PORT] [PORT] [TIMEOUT_MILLISECONDS] [WAIT_SECONDS]
 WaitForPort()
 {
-	local host="$1"; [[ ! $host ]] && { MissingOperand "host" "WaitForPort"; return; }
-	local port="$2"; [[ ! $port ]] && { MissingOperand "port" "WaitForPort"; return; }
-	local timeout="${3-$(AvailableTimeoutGet)}" seconds="${4-$(AvailableTimeoutGet)}"
-	
-	IsAvailablePort "$host" "$port" "$timeout" && return
+	# arguments
+	local host port seconds timeout verbose verboseLevel verboseLess
 
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			*)
+				if ! IsOption "$1" && [[ ! $host ]]; then
+					host="$1"; [[ "$host" =~ : ]] && port="$(GetUriPort "$host")" host="$(GetUriServer "$host")"
+					shift; continue
+				fi		
+				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $timeout ]] && { timeout="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $seconds ]] && { seconds="$1"; shift; continue; }
+				UnknownOption "$1" "WaitForPort"; return
+		esac
+		shift
+	done
+	[[ ! $host ]] && { MissingOperand "host" "WaitForPort"; return; }
+	[[ ! $port ]] && { MissingOperand "port" "WaitForPort"; return; }
+	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
+	[[ ! $seconds ]] && { seconds="${4-$(AvailableTimeoutGet)}"; }
+
+	# return if available	
+	IsAvailablePort "$host" "$port" "$timeout" "${globalArgsLessVerbose[@]}" && return
+
+	# wait until available
 	printf "Waiting for $host port $port..."
 	for (( i=1; i<=$seconds; ++i )); do
  		ReadChars 1 1 && { echo "cancelled after $i seconds"; return 1; }
 		printf "."
-		IsAvailablePort "$host" "$port" "$timeout" && { echo "found"; return; }
+		IsAvailablePort "$host" "$port" "$timeout" "${globalArgsLessVerbose[@]}" && { echo "found"; return; }
 	done
 
 	echo "not found"; return 1
