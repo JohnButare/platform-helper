@@ -8,12 +8,6 @@ Additional SSH commands."; }
 init() { defaultCommand="connect"; knownHosts="$HOME/.ssh/known_hosts"; }
 argStart() { unset -v file force; }
 
-isAvailableUsage() { ScriptUsageEcho "Usage: $(ScriptName) IsAvailable HOST\nCheck if a host is available using SSH.\n\n	-t,  --timeout					$(ScriptOptTimeoutUsage)"; }
-isAvailableArgStart() { ScriptOptTimeoutArgStart; }
-isAvailableArgs() { ScriptArgGet "host" -- "$@"; }
-isAvailableOpt() { [[ "$1" == @(--timeout|--timeout=*|-t|-t=*) ]] && ScriptOptTimeout "$@"; }
-isAvailableCommand() { otherArgs=(ls /); connectCommand > /dev/null; }
-
 #
 # Config Command
 #
@@ -129,7 +123,7 @@ configSyncHost()
 }
 
 #
-# Connect Command
+# connect command
 #
 
 connectUsage()
@@ -227,19 +221,13 @@ connect()
 	# special handling
 	connectHostInit "$host" || return
 
-	# parse host, format USER@HOST:PORT
-	local hostOrig="$host" port user
-	GetSshHost "$hostOrig" host
-	GetSshPort "$hostOrig" port
-	GetSshUser "$hostOrig" user; user="${user:-$(SshUser "$host")}" || return
-
 	# check host
-	connectCheck || return
+	local port user; connectCheck "$host" || return
 
 	# wait for SSH to become available if needed
 	if [[ $wait ]]; then
 		[[ ! $port ]] && { port="$(portCommand)" || return; }
-		WaitForPort "$host" "$port" || return
+		WaitForPort "$host" "$port" "${globalArgsLessVerbose[@]}" || return
 	fi
 
 	# arguments for all commands
@@ -336,35 +324,44 @@ connect()
 
 }
 
+# connectCheck - check if the hosts port is available, sets host, port, and user
 connectCheck()
 {
-	[[ $noCheck ]] && return
+	local hostArg="$1"
 
-	# get host alias
-	host="$(os name real "$host")" || return
+	# parse host, format USER@HOST:PORT
+	GetSshHost "$hostArg" host
+	GetSshPort "$hostArg" port
+	GetSshUser "$hostArg" user; user="${user:-$(SshUser "$host")}" || return
+
+	# resolve host alias
+	host="$(os name real "$host" "${globalArgsLessVerbose[@]}")" || return
+
+	# get the port from configuration if none was specified so we can check if host is available
+	[[ ! $port ]] && ! port="$(SshConfigGet "$hostArg" "port")" && { ScriptErr "could not find the SSH port for '$host'"; return 1; }
+
+	# logging
+	[[ $verbose ]] && log1 "hostArg=$hostArg host=$host ip=$ip${ip:-$(SshConfigGet "$host" "hostname")} port=$port user=${user:-$(SshConfigGet "$host" "user")}"
+
+	# return if not validating	
+	[[ $noCheck ]] && return
 
 	# Get the IP unless host is specified in ~/.ssh/config.
 	# - this allows use of additional name resolution methods such as MDNS
 	# - the host must have a known IP address
 	local ip	
-	host="$(SshConfigGet "$hostOrig" HostName)" || return
-	if [[ "$host" == "$hostOrig" ]] && ${G}grep "^$host" "$HOME/.ssh/known_hosts" | IpFilter --quiet; then
-		ip="$(GetIpAddress $all --vm "$hostOrig" $quiet)" || return
+	host="$(SshConfigGet "$hostArg" HostName)" || return
+	if [[ "$host" == "$hostArg" ]] && ${G}grep "^$host" "$HOME/.ssh/known_hosts" | IpFilter --quiet; then
+		ip="$(GetIpAddress $all --vm "$hostArg" $quiet)" || return
 		host="$ip"
 	fi
 
-	# get the port from configuration if none was specified so we can check if host is available
-	[[ ! $port ]] && ! port="$(SshConfigGet "$hostOrig" "port")" && { ScriptErr "could not find the SSH port for '$host'"; return 1; }
-
 	# check the host is not available on the specified port
-	if [[ ! $wait && $port ]] && ! IsAvailablePort "$host" "$port" $timeout; then
-		local desc="$hostOrig"; [[ $ip ]] && desc+=" ($ip)"
+	if [[ ! $wait && $port ]] && ! IsAvailablePort "$host" "$port" $timeout "${globalArgsLessVerbose[@]}"; then
+		local desc="$hostArg"; [[ $ip ]] && desc+=" ($ip)"
 		ScriptErrQuiet "'$desc' is not responding on port $port"
 		return 1
 	fi
-
-	# logging
-	[[ $verbose ]] && log1 "host=$host ip=$ip${ip:-$(SshConfigGet "$host" "hostname")} hostOrig=$hostOrig port=$port user=${user:-$(SshConfigGet "$host" "user")}"
 
 	return 0
 }
@@ -381,7 +378,36 @@ connectHostInit()
 }
 
 #
-# Permission Command
+# IsAvailable command
+#
+
+isAvailableUsage()
+{
+	ScriptUsageEcho "\
+Usage: $(ScriptName) IsAvailable [port] HOST
+Check if a host is available using SSH.
+
+	-t,  --timeout					$(ScriptOptTimeoutUsage)"
+}
+
+isAvailableArgStart() { ScriptOptTimeoutArgStart; }
+isAvailableArgs() { ScriptArgGet "host" -- "$@"; }
+isAvailableOpt() { [[ "$1" == @(--timeout|--timeout=*|-t|-t=*) ]] && ScriptOptTimeout "$@"; }
+isAvailableCommand() { otherArgs=(ls /); connect "$host" > /dev/null; }
+
+isAvailablePortUsage()
+{
+	ScriptUsageEcho "\
+Usage: $(ScriptName) IsAvailable port HOST
+Check if the hosts SSH port is available.
+
+	-t,  --timeout					$(ScriptOptTimeoutUsage)"
+}
+
+isAvailablePortCommand() { local port user; connectHostInit "$host" && connectCheck "$host"; }
+
+#
+# permission command
 #
 
 permissionUsage() {	echot "Usage: $(ScriptName) permission USER\nFix SSH permissions for user."; }
@@ -408,7 +434,7 @@ permissionCommand()
 
 #
 # regenerate command
-#cred 
+#
 
 regenerateUsage() { echot "Usage: $(ScriptName) regenerate [check|duplicate]\nRegenerate SSH host keys."; }
 regenerateArgStart() { hostKey="/etc/ssh/ssh_host_ecdsa_key.pub"; }

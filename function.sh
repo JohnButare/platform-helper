@@ -3710,30 +3710,6 @@ SshAgentValidate()
 
 SshAgentConfStatus() { SshAgentConf "$@" && SshAgent status; }
 
-# SshIsAvailablePort HOST [TIMEOUT] - return true if SSH is available on the host
-SshIsAvailablePort()
-{
-	# arguments
-	local host timeout
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			*)
-				if ! IsOption "$1" && [[ ! $host ]]; then host="$1"
-				elif ! IsOption "$1" && [[ ! $timeout ]]; then timeout="$1"
-				else UnknownOption "$1" "SshIsAvailablePort"; return
-				fi
-		esac
-		shift
-	done
-
-	[[ ! $host ]] && { MissingOperand "host" "SshIsAvailablePort"; return; }
-
-	# check
-	local port="$(SshHelper config get "$host" port)"; port="${port:-22}"
-	IsAvailable "$host" && IsAvailablePort "$host" "$port" $timeout; 
-}
-
 # SshSudoc HOST COMMAND ARGS - run a command on host using sudoc
 SshSudoc() { SshHelper connect --credential --function "$1" -- sudoc "${@:2}"; }
 

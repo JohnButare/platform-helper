@@ -703,7 +703,7 @@ infoPrint()
 infoRemote()
 {
 	# check for ssh
-	! SshIsAvailablePort "$host" && { infoEcho "$host Operating System information is not available"; return; }
+	! SshHelper IsAvailable port "$host" "${globalArgsLessVerbose[@]}" && { infoEcho "$host Operating System information is not available"; return; }
 
 	# get detailed information using the os command on the host if possible
 	# - switch information requires credential
