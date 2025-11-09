@@ -141,14 +141,18 @@ UpdateInitDir()
 	if [[ $1 || ! $updateDir ]]; then
 		if [[ $1 ]]; then updateDir="${1:-$DATA/update}"
 		elif IsPlatform nomad; then updateDir="$NOMAD_ALLOC_DIR/update" # for HashiCorp Nomad use the same update directory for all allocations
-		else updateDir="$DATA/update"
+		elif IsPlatform consul; then updateDir="/tmp/update"
+		elif ! quiet="--quiet" IsFilesystemReadonly "$DATA"; then updateDir="$DATA/update"
+		else ScriptErrQuiet "unable to find a writable update directory" "UpdateInitDir"; return;
 		fi
 	fi
-
 	[[ -d "$updateDir" ]] && return
-	${G}mkdir --parents "$updateDir" || return
-	InPath setfacl && { setfacl --default --modify o::rw "$updateDir" || return; }
-	sudoc chmod -R o+w "$updateDir" || return
+
+	# create update directory
+	${G}mkdir --parents "$updateDir" && \
+	{ ! InPath setfacl || setfacl --default --modify o::rw "$updateDir"; } && \
+	sudoc chmod -R o+w "$updateDir" && return
+	ScriptErrQuiet "unable to create the update directory in '$updateDir'" "UpdateInitDir"
 }
 
 # UpdateInitFile FILE - if specified initialize update file, sets updateFile
@@ -1800,7 +1804,7 @@ HideAll()
 IsFilesystemReadonly()
 {
 	local file="$1"
-	! InPath df findmnt && { ScriptErr "unable check if '$file' is on a writable filesystem", "IsFileSystemWritable"; return; }
+	! InPath df findmnt && { ScriptErrQuiet "unable check if '$file' is on a writable filesystem", "IsFileSystemWritable"; return; }
 	local mp; mp="$(GetMountPoint "$file")" || return;  
 	findmnt -rno OPTIONS "$mp " | qgrep "^ro,"
 }
