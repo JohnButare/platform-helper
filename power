@@ -792,27 +792,28 @@ sshCommandDo()
 	local args=() suppressError
 
 	# platform specific arguments
-
 	if IsPlatform win --host; then
 		args+=(-o ServerAliveInterval=2 -o ServerAliveCountMax=1) # prevents psshutdown hang
 		suppressError="true" # psshutdown hangs so SSH will always return an error
 	fi
 
+	# redirect output
 	local result redirect=">"; [[ $suppressError ]] && redirect=">&"
 	redirect+=" /dev/null"; [[ $verbose ]] && unset redirect
 
-	if IsPlatform ubiquiti --host; then
-		ssh "$user$host" "$sshCommand" $redirect
+	# arguments
+	local args=()
+	[[ ! $sshCommandRaw ]] && args+=(--credential --interactive )
+
+	# run SSH command	
+	local cmd=(SshHelper connect "$user$hostMain" "${args[@]}" $trust "${globalArgsLessVerbose[@]}" -- "$sshCommand" "${globalArgs[@]}" $redirect)
+	local detach; IsPlatform win --host && [[ "$command" != "on" ]] && { detach="nohup"; log1 "running power command detatched"; }
+	(( verboseLevel > 1 )) && ScriptArgs "power" $detach "${cmd[@]}"		
+	if [[ $detach ]]; then
+		(eval nohup "${cmd[@]}" >& /dev/null &)
+		sleep 1
 	else
-		local cmd=(SshHelper connect "$user$hostMain" --credential --interactive $trust "${globalArgsLessVerbose[@]}" -- "$sshCommand" "${globalArgs[@]}" $redirect)
-		local detach; IsPlatform win --host && [[ "$command" != "on" ]] && { detach="nohup"; log1 "running power command detatched"; }
-		(( verboseLevel > 1 )) && ScriptArgs "power" $detach "${cmd[@]}"		
-		if [[ $detach ]]; then
-			(eval nohup "${cmd[@]}" >& /dev/null &)
-			sleep 1
-		else
-			eval "${cmd[@]}"
-		fi
+		eval "${cmd[@]}"
 	fi
 	result="$?"
 	log1 "sshDo: result=$result _platformOs=$_platformOs"
