@@ -529,6 +529,7 @@ codeNameMac()
 		13.*) echo "Ventura";;
 		14.*) echo "Sonoma";;
 		15.*) echo "Sequoia";;
+		26.*) echo "Tahoe";;
 	esac
 }
 
