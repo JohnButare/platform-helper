@@ -137,6 +137,7 @@ Connect to a HOST using SSH.
 	-H, --host [HOSTS](all)   $(ScriptOptHostUsage)
 	-i, --interactive					interactive shell, implies --function, --pseudo-terminal, and --quote
 	-nc, --no-check						do not check host information
+	-nm, --no-multiplex				do not use an existing connection
 	-p, --password						specify a password
 	    --quote								quote arguments
 	-t, --pseudo-terminal			allocate a pseudo terminal
@@ -147,7 +148,7 @@ connectUsageVerbose()
 {
 	ScriptUsageEcho "
 Other options:
-	-c,  --credential			suport credential prompts on the remote host using the CLI, Vault, or an X Window
+	-c,  --credential			support credential prompts on the remote host using the CLI, Vault, or an X Window
 	-m,  --mosh						connecting using mosh
 	-sa, --ssh-agent			configure the SSH agent
 	-T,  --trust					trust host identification ignoring possible security issues
@@ -166,7 +167,7 @@ Environment options:
 
 connectArgStart()
 {
-	unset -v all borg briefHeader credentialManager errors functions hashi interactive mosh noCheck password pseudoTerminal quote sshAgent trust wait x
+	unset -v all borg briefHeader credentialManager errors functions hashi interactive mosh noCheck noMultiplex password pseudoTerminal quote sshAgent trust wait x
 	unset hostArg hostOpt hosts
 	ScriptOptTimeoutArgStart
 }
@@ -187,6 +188,7 @@ connectOpt()
 		--interactive|-i) interactive="-i";;
 		--mosh|-m) mosh="--mosh";;
 		--no-check|-nc) noCheck="--no-check";;
+		--no-multiplex|-nm) noMultiplex="--no-multiplex";;
 		--password|--password=*|-p|-p*) ScriptOptGet "password" "$@";;
 		--pseudo-terminal|-t) pseudoTerminal="-t";;
 		--quote) quote="--quote";;
@@ -305,35 +307,8 @@ connect()
 	# trust
 	[[ $trust ]] && command+=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
 
-	# ControlPath validation
-	local controlPath="$(SshConfigGet "$host" "ControlPath")"
-	local controlPathDesc="$(FileToDesc "$controlPath")"
-	if [[ $controlPath ]]; then
-		local dir="$(GetFilePath "$controlPath")"
-
-		# missin
-		if [[ ! -d "$dir" ]]; then 
-			[[ ! $quiet ]] && echo "warning: disabling multiplexing, ControlPath directory '$dir' is missing"
-			command+=(-o ControlMaster=no)
-
-		# readonly 
-		elif quiet="true" IsFilesystemReadonly "$dir"; then
-			if ! dir="$(GetWritableDir "$dir")/ssh"; then
-				echo "warning: disabling multiplexing, ControlPath '$controlPathDesc' is on a readonly filesystem"
-				command+=(-o ControlMaster=no)
-			elif ! mkdir --parents "$dir"; then
-				echo "warning: disabling multiplexing, unable to make the ControlPath directory '$dir'"
-				command+=(-o ControlMaster=no)
-			else
-				local newControlPath="$dir/%u-%u-%r@%h:%p"
-				(( ${#dir} > 30 )) && newControlPath="$dir/$(uuidgen | cut -c1-8)" # cannot exceed 108 characters, Nomad alloc path is 60 characters
-				command+=(-o ControlPath="$newControlPath")
-				log1 "filesystem for ControlPath '$controlPathDesc' is readonly, using ControlPath '$newControlPath'"
-			fi
-		fi
-		
-		# override if it is not on a writable filesystem
-	fi
+	# ControlPath validation - multiplexing
+	connectCheckMultiplex || return
 
 	# logging
 	log1 "command: ${command[*]} $*"
@@ -395,6 +370,47 @@ connectCheck()
 		return 1
 	fi
 
+	return 0
+}
+
+# connectCheckMultiplex - add commands to control multiplexing
+connectCheckMultiplex()
+{
+	# disable multiplexing
+	[[ $noMultiplex ]] && { command+=(-o ControlMaster=no); return; }
+
+	# initialize
+	local controlPath="$(SshConfigGet "$host" "ControlPath")"
+	local controlPathDesc="$(FileToDesc "$controlPath")"
+	local dir="$(GetFilePath "$controlPath")"
+	[[ ! $controlPath ]] && return
+
+	# ControlPath directory is missing
+	if [[ ! -d "$dir" ]]; then 
+		[[ ! $quiet ]] && echo "warning: disabling multiplexing, ControlPath directory '$dir' is missing"
+		command+=(-o ControlMaster=no); return
+	fi
+
+	# ControlPath directory is on a writable filesystem
+	! quiet="true" IsFilesystemReadonly "$dir" && return
+
+	# ControlPath directory is on a readonly filesystem and cannot find a writable directory
+	if dir="$(GetWritableDir "$dir")/ssh"; then
+		echo "warning: disabling multiplexing, ControlPath '$controlPathDesc' is on a readonly filesystem"
+		command+=(-o ControlMaster=no)
+	fi
+
+	# cannot make the ControlPath directory
+	if ! mkdir --parents "$dir"; then
+		echo "warning: disabling multiplexing, unable to make the ControlPath directory '$dir'"
+		command+=(-o ControlMaster=no)
+	fi
+
+	# update the ControlPath with the new directory and ensure it is less than 108 characters
+	local newControlPath="$dir/%u-%u-%r@%h:%p"
+	(( ${#dir} > 30 )) && newControlPath="$dir/$(uuidgen | cut -c1-8)" # cannot exceed 108 characters, Nomad alloc path is 60 characters
+	command+=(-o ControlPath="$newControlPath")
+	log1 "filesystem for ControlPath '$controlPathDesc' is readonly, using ControlPath '$newControlPath'"
 	return 0
 }
 
