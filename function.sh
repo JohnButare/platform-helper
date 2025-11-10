@@ -2817,14 +2817,14 @@ AvailableTimeoutSet()
 IsAvailable() 
 { 
 	# arguments
-	local scriptName="IsAvailable" host timeout	verbose verboseLevel verboseLess
+	local scriptName="IsAvailable" host noPrompt test timeout verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--force|-f|-ff|-fff) :;;
-			--no-prompt|-np) :;;
-			--quiet|-q) :;;
-			--test|-t) :;;
+			--no-prompt|-np) noPrompt="--no-prompt";;			# for globalArgs
+			--quiet|-q) quiet="--quiet";; 								# for globalArgs
+			--test|-t) test="--test";;										# for globalArgs
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $host ]]; then host="$1"
@@ -2877,13 +2877,15 @@ IsAvailableBatch()
 IsAvailablePort()
 {
 	# arguments
-	local scriptName="IsAvailablePort" host port quiet timeout verbose verboseLevel verboseLess ipv
+	local scriptName="IsAvailablePort" host ipv noPrompt port quiet test timeout verbose verboseLevel verboseLess
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-4) ipv="4";;
 			-6) ipv="6";;
-			--quiet|-q) quiet="--quiet";; # for globalArgs
+			--no-prompt|-np) noPrompt="--no-prompt";;			# for globalArgs
+			--quiet|-q) quiet="--quiet";; 								# for globalArgs
+			--test|-t) test="--test";;										# for globalArgs
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $host ]]; then
