@@ -58,9 +58,21 @@ sshd() { runService "ssh"; }
 SyncPlicity() { taskStart "$P/Syncplicity/Syncplicity.exe"; }
 UltraMon() { IsProcessRunning "UltraMon.exe" || taskStart "$P/UltraMon/UltraMon.exe" "" ; }
 
-consul() { hashi service retry "consul" --host="localhost" "${globalArgs[@]}"; }
-nomad() { hashi service retry "nomad" --host="localhost" "${globalArgs[@]}"; }
-vault() { hashi service retry "vault" --host="localhost" "${globalArgs[@]}"; }
+consul() { hashiService "consul"; }
+nomad() { hashiService "nomad"; }
+vault() { hashiService "vault"; }
+
+hashiService()
+{
+	local service="$1"
+
+	[[ $verbose ]] && hilight "Configuring HashiCorp tools...."
+	HashiConf "${globalArgs[@]}" || return
+	[[ $verbose ]] && hashi config status || return
+
+	[[ $verbose ]] && hilight "Starting HashiCorp $service with retry..."
+	hashi service retry "$1" --host="localhost" "${globalArgs[@]}" || return
+}
 
 BgInfo()
 {
