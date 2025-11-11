@@ -1570,11 +1570,11 @@ FileWait()
 		else
 			ReadChars 1 1 && { [[ ! $quiet ]] && EchoErrEnd "cancelled after $i seconds"; return 1; }
 		fi
-		[[ ! $quiet ]] && PrintErr "."
+		PrintErr "."
 		
 	done
 
-	[[ ! $quiet ]] && EchoErrEnd "not found"; return 1
+	EchoErrEnd "not found"; return 1
 }
 
 # FileWait FILE [SECONDS](60) - wait for a file or directory to be deleted
