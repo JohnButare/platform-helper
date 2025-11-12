@@ -3446,14 +3446,14 @@ DnsResolveMac()
 # GetDnsServer [--win] - get the current DNS server
 GetDnsServer()
 {
-	local check="www.msftconnecttest.com"
+	local check="www.msftconnecttest.com" server
 
 	# arguments
 	local win; [[ "$1" == "--win" ]] && win="--win"
 
 	# win
 	if [[ $win ]]; then
-		local server; server="$(nslookup.exe "$check" |& grep "^Address:" | head -1 | RemoveCarriageReturn | cut -d":" -f2- | RemoveSpaceTrim)"
+		server="$(nslookup.exe "$check" |& grep "^Address:" | head -1 | RemoveCarriageReturn | cut -d":" -f2- | RemoveSpaceTrim)"
 		[[ $server ]] && { echo "$server"; return; }
 		ipconfig /all | grep "$(GetAdapterName)" -A30 | grep "DNS Server" | cut -d":" -f2- | RemoveCarriageReturn | RemoveSpaceTrim
 		return
@@ -3461,12 +3461,12 @@ GetDnsServer()
 
 	# resolvectl - check before nslookup since if resolvectl is used the nslookup DNS server is local (127.0.0.53)
 	if ResolveCtlInstalled && ResolveCtlValidate "GetDnsServer"; then
-		resolvectl status |& grep "^Current DNS Server: " | head -1 | cut -d":" -f2- | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim # Ubuntu >= 22.04
-		return
+		server="$(resolvectl status |& grep "^Current DNS Server: " | head -1 | cut -d":" -f2- | RemoveSpaceTrim | SpaceToNewline | sort | uniq | NewlineToSpace | RemoveSpaceTrim)" # Ubuntu >= 22.04
+		[[ $server ]] && { echo "$server"; return; }		
 	fi
 
 	# nslookup
-	local server; server="$(nslookup "$check" |& grep "^Address:" | head -1 | cut -d":" -f2- | RemoveChar '	' | ${G}cut -d"#" -f1)"
+	server="$(nslookup "$check" |& grep "^Address:" | head -1 | cut -d":" -f2- | RemoveChar '	' | ${G}cut -d"#" -f1)"
 	[[ $server ]] && { echo "$server"; return; }
 }
 
