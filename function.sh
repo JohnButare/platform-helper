@@ -637,16 +637,21 @@ GitSet() { git="git"; InPath git.exe && drive IsWin . && git="git.exe"; return 0
 i()
 { 
 	# arguments
-	local args=() command force forceLevel forceLess help noFind noRun select timeout verbose verboseLevel verboseLess
+	local args=() command help noFind noRun select timeout
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;	
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--help|-h) help="--help";;
 			--no-find|-nf) noFind="--no-find";;
 			--no-run|-nr) noRun="--no-run";;
 			--select|-s) select="--select";;
 			--timeout|--timeout=*|-t|-t=*) . script.sh && ScriptOptTimeout "$@";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*) args+=( "$1" ); ! IsOption "$1" && [[ ! $command ]] && command="$1";;
 		esac
@@ -1361,11 +1366,15 @@ CloudGet()
 	! IsPlatform win && return
 
 	# arguments
-	local scriptName="CloudGet" file files=() quiet verbose verboseLevel verboseLess
+	local scriptName="CloudGet" file files=()
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			-*) UnknownOption "$1"; return;;
 			*) files+=("$1"); shift; continue;;
@@ -2278,8 +2287,8 @@ GetInterface()
 GetIpAddress() 
 {
 	# arguments
-	local scriptName="GetIpAddress" host mdns quiet verbose verboseLevel verboseLess vm wsl
-	local all=(head -1) ip ipv server type="A"
+	local scriptName="GetIpAddress" all=(head -1) host ip ipv mdns server type="A" vm wsl
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -2288,11 +2297,14 @@ GetIpAddress()
 			--all|-a) all=(cat);;
 			--resolve-all|-ra) mdsn="true" vm="true";;
 			--mdns|-m) mdns="true";;
-			--no-prompt|-np) :;;
-			--quiet|-q) quiet="--quiet";;
-			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--vm|-v) vm="true";;
 			--wsl|-w) wsl="--wsl";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $server ]] && { server="$1"; shift; continue; }
@@ -2817,14 +2829,15 @@ AvailableTimeoutSet()
 IsAvailable() 
 { 
 	# arguments
-	local scriptName="IsAvailable" force host noPrompt test timeout verbose verboseLevel verboseLess
+	local scriptName="IsAvailable" host timeout
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--force|-f|-ff|-fff) force="--force";;				# for globalArgs
-			--no-prompt|-np) noPrompt="--no-prompt";;			# for globalArgs
-			--quiet|-q) quiet="--quiet";; 								# for globalArgs
-			--test|-t) test="--test";;										# for globalArgs
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $host ]]; then host="$1"
@@ -2877,22 +2890,25 @@ IsAvailableBatch()
 IsAvailablePort()
 {
 	# arguments
-	local scriptName="IsAvailablePort" force host ipv noPrompt port quiet test timeout verbose verboseLevel verboseLess
+	local scriptName="IsAvailablePort" host ipv port timeout
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
+
 		case "$1" in "") : ;;
 			-4) ipv="4";;
 			-6) ipv="6";;
-			--force|-f|-ff|-fff) force="--force";;				# for globalArgs
-			--no-prompt|-np) noPrompt="--no-prompt";;			# for globalArgs
-			--quiet|-q) quiet="--quiet";; 								# for globalArgs
-			--test|-t) test="--test";;										# for globalArgs
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $host ]]; then
 					host="$1"; [[ "$host" =~ : ]] && port="$(GetUriPort "$host")" host="$(GetUriServer "$host")"
 					shift; continue
-				fi		
+				fi
 				! IsOption "$1" && [[ ! $port ]] && { port="$1"; shift; continue; }
 				! IsOption "$1" && [[ ! $timeout ]] && { timeout="$1"; shift; continue; }
 				UnknownOption "$1"; return
@@ -2922,14 +2938,18 @@ IsAvailablePort()
 }
 
 # IsPortAvailableUdp HOST PORT [TIMEOUT_MILLISECONDS] - return true if the host is available on the specified UDP port
-# --verbose|-v|-vv|-vvv|-vvvv|-vvvvv - verbose output, does not supress error message
 IsAvailablePortUdp()
 {
 	# arguments
-	local scriptName="IsAvailablePortUdp" host port timeout verbose verboseLevel verboseLess
+	local scriptName="IsAvailablePortUdp" host port timeout
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
@@ -2972,11 +2992,15 @@ PingResponse()
 PortResponse() 
 {
 	# arguments
-	local scriptName="PortResponse" host port timeout quiet verbose verboseLevel verboseLess
+	local scriptName="PortResponse" host port timeout
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
@@ -3070,11 +3094,15 @@ WaitForNetwork()
 WaitForPort()
 {
 	# arguments
-	local scriptName="WaitForPort" host port quiet seconds timeout verbose verboseLevel verboseLess
+	local scriptName="WaitForPort" host port seconds timeout
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--quiet|-q) quiet="--quiet";; # for globalArgs
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $host ]]; then
@@ -3143,15 +3171,18 @@ HasDnsSuffix() { GetArgs; local p="\."; [[ "$1" =~ $p ]]; }										# HasDnsSuf
 GetDnsSearch()
 {
 	# arguments
-	local scriptName="GetDnsSearch" force forceLevel forceLess quiet verbose verboseLevel verboseLess win
+	local scriptName="GetDnsSearch" win
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
-			--no-prompt|-np) :;;
-			--quiet|-q) quiet="--quiet";;
-			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*) UnknownOption "$1"; return;;
 		esac
 		shift
@@ -3213,15 +3244,18 @@ ConsulResolve() { hashi resolve "$@"; }
 DnsAlternate()
 {
 	# arguments
-	local scriptName="DnsAlternate" force forceLevel forceLess host quiet verbose verboseLevel verboseLess
+	local scriptName="DnsAlternate" host
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
-			--no-prompt|-np) :;;
-			--quiet|-q) quiet="--quiet";;
-			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && [[ ! $host ]] && { host="$1"; shift; continue; }
 				UnknownOption "$1"; return
@@ -3245,19 +3279,21 @@ DnsAlternate()
 DnsResolve()
 {
 	# arguments
-	local scriptName="DnsResolve" force forceLevel forceLess ipv name quiet server verbose verboseLevel verboseLess useAlternate
-
+	local scriptName="DnsResolve" ipv name server useAlternate
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
+	
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-4) ipv="4";;
 			-6) ipv="6";;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
-			--no-prompt|-np) :;;
-			--quiet|-q) quiet="--quiet";;
-			--test|-t) :;;
 			--use-alternate|-ua) useAlternate="--use-alternate";;
-			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $name ]]; then name="$1"
 				elif ! IsOption "$1" && [[ ! $server ]]; then server="$1"
@@ -3396,7 +3432,7 @@ DnsResolveMac()
 		case "$1" in "") : ;;
 			-4) ipv="4";;
 			-6) ipv="6";;
-			--all|-a) all="true";;
+			--all|-a) all="--all";;
 			--errors|-e) errors=0;;
 			--full|-f) full="DnsResolveBatch";;
 			--quiet|-q) quiet="--quiet";;
@@ -3474,17 +3510,20 @@ GetDnsServer()
 GetDnsServers()
 {
 	# arguments
-	local scriptName="GetDnsServers" force forceLevel forceLess quiet verbose verboseLevel verboseLess ipv win 
+	local scriptName="GetDnsServers" ipv win 
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-4) ipv="4";;
 			-6) ipv="6";;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
-			--no-prompt|-np) :;;
-			--quiet|-q) quiet="--quiet";;
-			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--win|-w) win="--win";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*) UnknownOption "$1"; return;;
 		esac
 		shift
@@ -3652,15 +3691,18 @@ RoutePrint()
 GetServer() 
 {
 	# arguments
-	local scriptName="GetServer" force forceLevel forceLess quiet service useAlternate verbose verboseLevel verboseLess
+	local scriptName="GetServer" service useAlternate
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
-			--no-prompt|-np) :;;
-			--quiet|-q) quiet="--quiet";;
-			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--use-alternate|-ua) useAlternate="--use-alternate";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $service ]]; then service="$1"
 				else UnknownOption "$1"; return
@@ -3809,12 +3851,17 @@ IsRcloneRemote() { [[ -f "$HOME/.config/rclone/rclone.conf" ]] && grep --quiet "
 GetUncFull()
 {
 	# arguments
-	local scriptName="GetUncFull" ip quiet unc verbose verboseLevel verboseLess
-
+	local scriptName="GetUncFull" ip unc
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
+	
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--ip) ip="true";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				if ! IsOption "$1" && [[ ! $unc ]]; then unc="$1"
@@ -4635,18 +4682,27 @@ IsExecutable()
 	return 1
 }
 
-# IsProcessRunning NAME
-# -a|--all 		check all users process, not just the current user
-# -f|--full 	match the full command line argument not just the process name
+# IsProcessRunning NAME - check if NAME is a running process
+# -a|--all 		ensure check for all process
+# -u|--user		ensure check only for user process
+#
+# - if nether --all or --user is specified, IsProcessRunning can check for all or only user processes
 IsProcessRunning()
 {
-	# options
-	local scriptName="IsProcessRunning" all full name win
+
+	local scriptName="IsProcessRunning" all name user win
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-a|--all) all="true";;
-			-f|--full) full="--full";;
+			--all|-a) all="--all";;
+			--user|-u) user="--user";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && [[ ! $name ]] && { name="$1"; shift; continue; }
 				UnknownOption "$1"; return
@@ -4658,20 +4714,30 @@ IsProcessRunning()
 	# check Windows process
 	IsWindowsProcess "$name" && { IsProcessRunningList "$name" --win; return; }
 
-	# mac	
-	if IsPlatform mac && InPath pidof; then
-		local nameCheck="$name"; [[ "$name" =~ \.app$ ]] && nameCheck="$(GetFileNameWithoutExtension "$name")"
-		pidof -l "$nameCheck" | ${G}grep --ignore --quiet "^PID for $nameCheck is"; return;
+	# pidof check - faster, searches all processes, uses path if present, deprecated for mac
+	[[ ! $user && ! $hasFilePath ]] && InPath pidof && ! IsPlatform mac && { pidof -snq "$name"; return; }
+
+	# user arguments - restrict to the real user ID
+	local args=(); [[ ${UID:-$USER} ]] && [[ ! $all || $user ]] && user="--user" args+=("-U" "${UID:-$USER}")
+
+	# pgrep for mac applications (which end in .app), assumes:
+	# - name is the application directory, i.e. /Applications/GitKraken.app
+	# - process name is the application directory without .app, i.e. GitKraken
+	# - pgrep for mac - does not have the 15 character limit that newer versions of pgrep do (full option not required)
+	if [[ "$name" =~ \.app$ ]] && IsPlatform mac; then
+		name="$(GetFileNameWithoutExtension "$name")"
+		pgrep "${args[@]}" "^${name}( .*|$)" > /dev/null
+		return
 	fi
 
-	# check for process using pidof - slightly faster but pickier than pgrep
-	[[ ! $full && $all ]] && InPath pidof && { pidof -snq "$name" > /dev/null; return; }
+	# pgrep check - name must exactly match argv[0] (with or without path)
+	if InPath pgrep; then
+		pgrep "${args[@]}" -f "^$name( .*|$)" > /dev/null
+		return
+	fi
 
-	# check for process using pgrep
-	local args=(); [[ ! $all && ${UID:-$USER} ]] && args+=("-U" "${UID:-$USER}") # restrict to the real user ID
-	HasFilePath "$name" && full="--full" # pgrep >= 4.0.3 requires full for process name longer than 15 characters
-	[[ $full ]] && IsPlatform mac && full="-f"
-	pgrep $full "${args[@]}" "$name" > /dev/null
+	# ProcessList check - slowest
+	ProcessList $user $all | qgrep ",${name}$"
 }
 
 # IsProcessRunningList [--user|--unix|--win] NAME - check if NAME is in the list of running processes.  Slower than IsProcessRunning.
@@ -4720,8 +4786,6 @@ IsWindowsProcess()
 }
 
 # ProcessClose|ProcessCloseWait|ProcessKill NAME... - close or kill the specified process
-# --full 					match the full command line argument not just the process name
-# --full 					match the full command line argument not just the process name
 # --force|-f			do not check if the process exists
 # --quiet|-q 			minimize informational messages
 # --root|-r 			kill processes as root
@@ -4730,15 +4794,18 @@ IsWindowsProcess()
 ProcessClose() 
 { 
 	# arguments
-	local scriptName="ProcessClose" args=() force names=() quiet root timeout=10 verbose verboseLevel verboseLess
+	local scriptName="ProcessClose" args=() names=() root timeout=10
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--full) args+=("--full");;
-			--force|-f) force="--force";;
-			--quiet|-q) quiet="--quiet";;
 			--root|-w) root="sudoc";;
 			--timeout|--timeout=*|-t|-t=*) . script.sh && ScriptOptTimeout "$@";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
@@ -4753,7 +4820,7 @@ ProcessClose()
 	for name in "${names[@]}"; do
 
 		# continue if the process is not running
-		[[ ! $force ]] && ! IsProcessRunning $root $full "$name" && continue
+		[[ ! $force ]] && ! IsProcessRunning $root "$name" && continue
 
 		# check for Windows process
 		IsPlatform win && IsWindowsProcess "$name" && win="true"
@@ -4773,7 +4840,7 @@ ProcessClose()
 
 		else
 			[[ ! $root ]] && args+=("--uid" "$USER")
-			$root pkill "$name" "${args[@]}"; result="$?"
+			$root pkill -f "^${name}( .*|$)" "${args[@]}"; result="$?"
 		fi
 
 		if (( ${result:-0} != 0 )); then
@@ -4790,14 +4857,18 @@ ProcessClose()
 ProcessCloseWait()
 {
 	# arguments
-	local scriptName="ProcessCloseWait" full names=() quiet root seconds=10 verbose verboseLevel verboseLess
-
+	local scriptName="ProcessCloseWait" names=() root seconds=10
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
+	
 	# options
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--full|-f) full="--full";;
-			--quiet|-q) quiet="--quiet";;
 			--root|-r) root="--root";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && { names+=("$1"); shift; continue; }
@@ -4812,18 +4883,18 @@ ProcessCloseWait()
 	for name in "${names[@]}"; do
 
 		# continue if not running
-		[[ ! $force ]] && ! IsProcessRunning $root $full "$name" && continue
+		[[ ! $force ]] && ! IsProcessRunning $root "$name" && continue
 		# close the process
 		[[ ! $quiet ]] && printf "Closing process $name..."
-		ProcessClose $root $full "$name"
+		ProcessClose $root "$name"
 
 		# wait for process to close
 		local description="closed"
 		for (( i=1; i<=$seconds; ++i )); do
 	 		ReadChars 1 1 && { [[ ! $quiet ]] && echo "cancelled after $i seconds"; return 1; }
 			[[ ! $quiet ]] && printf "."
-			! IsProcessRunning $root $full "$name" && { [[ ! $quiet ]] && echo "$description"; return; }
-			sleep 1; description="killed"; ProcessKill $root $full "$name"
+			! IsProcessRunning $root "$name" && { [[ ! $quiet ]] && echo "$description"; return; }
+			sleep 1; description="killed"; ProcessKill $root "$name"
 		done
 
 		[[ ! $quiet ]] && echo "failed"; return 1
@@ -4838,7 +4909,6 @@ ProcessKill()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--full) args+=("--full");;
 			--force|-f) force="--force";;
 			--quiet|-q) quiet="--quiet";;
 			--root|-r) rootArg="--root" root="sudoc";;
@@ -4856,7 +4926,7 @@ ProcessKill()
 	for name in "${names[@]}"; do
 
 		# continue if not running
-		[[ ! $force ]] && ! IsProcessRunning $rootArg $full "$name" && continue
+		[[ ! $force ]] && ! IsProcessRunning $rootArg "$name" && continue
 
 		# check for Windows process
 		[[ ! $win ]] && IsWindowsProcess "$name" && win="true"
@@ -4866,7 +4936,7 @@ ProcessKill()
 			output="$(start pskill.exe -nobanner "$name" |& grep "unable to kill process" | grep "^Process .* killed$")"
 		else
 			[[ ! $root ]] && args+=("--uid" "$USER")
-			output="$($root pkill -9 "$name" "${args[@]}")"
+			output="$($root pkill -9 -f "^${name}( .*|$)" "${args[@]}")"
 		fi
 		result="$?"
 
@@ -4885,19 +4955,21 @@ ProcessKill()
 }
 
 # ProcessList [--user|--unix|--win|--comm] - show process ID and executable name with a full path in format PID,NAME
-# -u|--user - only user processes
-# -U|--unix - only UNIX processes
-# -w|--win - only Windows processes
-# -c|--comm - show command name (onlt the executable name), for Python programs this shows the name of the Python module not the Python executable
+# -a|--all		all processes (default)
+# -u|--user		only user processes
+# -U|--unix		only UNIX processes
+# -w|--win		only Windows processes
+# -c|--comm 	show command name (the executable name without the path)
 ProcessList() 
 { 
 	# arguments
-	local scriptName="ProcessList" args="-e" unix="true" win="true" command=(-o command=)
+	local scriptName="ProcessList" all comm unix="true" user win="true"
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			-c|--comm) command=(-o comm=);;
-			-u|--user) unset args;;
+			-a|--all) all="--all";;
+			-c|--comm) comm="--comm";;
+			-u|--user) user="--user";;
 			-U|--unix) unset win;;
 			-w|--win) unset unix;;
 			*) UnknownOption "$1"; return
@@ -4905,11 +4977,26 @@ ProcessList()
 		shift
 	done
 
-	# mac proceses
-	IsPlatform mac && { ps -c $args | sed 's/^[[:space:]]*//' | tr -s ' ' | ${G}cut -d" " -f1,4 --output-delimiter=,; return; }
+	# arguments
+	local args=(-e); [[ ${UID:-$USER} ]] && [[ ! $all || $user ]] && user="--user" args+=("-U" "${UID:-$USER}")
+
+	# mac proceses - ps behavior is differn than Linux, --comm has full path, -c removes path
+	if IsPlatform mac; then
+		 [[ $comm ]] && args+=(-c)
+		 ps "${args[@]}" -o pid=,comm= | ${G}awk '{ print $1 "," substr($0, index($0, $2)) }'
+		 return
+	fi
 
 	# unix processes
-	[[ $unix ]] && IsPlatform linux,win && { ps $args -o pid= ${command[@]} | awk '{ print $1 "," $2 }' || return; }
+	if [[ $unix ]]; then
+		if [[ $comm ]]; then
+			ps $args -o pid=,comm= | awk '{ print $1 "," substr($0, index($0, $2)) }'
+		else
+			# command has arguments so assume program has no spaces, otherwsise we can't tell when the program end and the arguments start
+			ps $args -o pid=,command= | awk '{ print $1 "," $2 }' 
+		fi
+		return
+	fi
 
 	# windows processes
 	if [[ $win ]] && IsPlatform win; then
@@ -5004,20 +5091,23 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 start() 
 {
 	# arguments
-	local scriptName="start" elevate file force noPrompt sudo terminal verbose verboseLevel verboseLess wait windowStyle
+	local scriptName="start" elevate file sudo terminal wait windowStyle
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--elevate|-e) IsPlatform win && CanElevate && ! IsElevated && elevate="--elevate";;
-			--force|-f) force="--force";;
 			--help|-h) startUsage; return 0;;
-			--no-prompt|-np) noPrompt="--no-prompt";;
-			--quiet|-q) quiet="--quiet";;
 			--sudo|-s) sudov || return; sudo="sudo";;
 			--terminal|-T) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
-			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--wait|-w) wait="--wait";;
 			--window-style|-ws) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle="$(LowerCase "$2")"; shift;;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; break; }
 				UnknownOption "$1"; return
@@ -5616,10 +5706,15 @@ CanSudo()
 	{ IsSudo || IsRoot || [[ $sudoPasswordCache ]]; } && return
 
 	# arguments
-	local args=() noPrompt verbose verboseLevel verboseLess
+	local args=()
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
+
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--) shift; args+=("$@"); break;;
 			*) args+=("$1");;
@@ -5647,13 +5742,18 @@ sudoc()
 	IsRoot && { env "$@"; return; } # use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
 
 	# arguments
-	local args=() noPrompt preserve quiet stderr verbose verboseLevel verboseLess
+	local args=() preserve stderr
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
+
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--no-prompt|-np) noPrompt="--no-prompt";;
 			--preserve|-p) preserve="--preserve";;
-			--quiet|-q) quiet="--quiet";;
 			--stderr|-se) stderr="--stderr";;
+
+			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--) shift; args+=("$@"); break;;
 			*) args+=("$1");;
