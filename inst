@@ -1536,7 +1536,7 @@ isInstallable()
 	[[ "$check" =~ ^(mac.*)$ ]] && IsPlatform mac && return
 	[[ "$check" =~ ^(ubuntu.*)$ ]] && IsPlatform ubuntu && return
 	[[ "$check" =~ ^(win.*|SqlServer.*)$ ]] && IsPlatform win && return
-	[[ "$check" =~ ^(node|patroni|postgres|tomcat) && "$check" != "postgresadmin" ]] && IsPlatform deb && return
+	[[ "$check" =~ ^(mongo|node|patroni|postgres|tomcat) && "$check" != "postgresadmin" ]] && IsPlatform deb && return
 	[[ "$check" =~ ^(oraclejdk|openjdk|jdk|zulujdk) && "$check" != "postgresadmin" ]] && IsPlatform debm,mac && return
 
 
@@ -8571,6 +8571,9 @@ unifiPackage()
 		return 1
 	fi
 
+	# dependencies
+	mongoInstalled || { iq mongo8 || return; }
+
 	# repository
 	local file="/etc/apt/sources.list.d/100-ubnt-unifi.list" keyFile="/usr/share/keyrings/unifi-repo.gpg"
 	[[ ! $channel ]] && local channel="testing" # oldstable|stable|testing
@@ -10636,7 +10639,7 @@ CronLogInstall()
 # Server
 #################################################
 
-ServerAllInstall() { i ApacheAll FileServer GitServer guacamole LoadBalancer NginxAll PostgresAll squid WireGuardServer; }
+ServerAllInstall() { i ApacheAll FileServer GitServer guacamole LoadBalancer MongoDB NginxAll PostgresAll squid WireGuardServer; }
 LoadBalancerInstall() { i ConsulTemplateService keepalived nginx && nomadRegisterApp "lb"; }
 WireGuardServerInstall() { i PiVPN && nomadRegisterApp "wire-guard" "wg-quick@wg0"; }
 
@@ -10771,6 +10774,34 @@ GuacamoleInstall()
 
 	makeDir --sudo "$SRV/guacamole" || return
 	nomadRegisterApp "guacamole" || return
+}
+
+mongoCheck() { mongoInstalled && return; iq mongodb; }
+mongoInstalled() { InPath mongod; }
+mongoDefaultVersion() { [[ $version ]] && return; version="7"; }
+mongo8Install() { version=8.0 mongoInstall; }
+mongo7Install() { version=7.0 mongoInstall; }
+mongo4Install() { version=4.4 mongoInstall; }
+
+mongoInstall()
+{
+	mongoDefaultVersion || return
+	header "MongoDB $version"
+
+	# repository - https://www.mongodb.com/docs/v8.0/installation/
+	local file="/etc/apt/sources.list.d/mongodb-org-${version}.list" keyFile="/usr/share/keyrings/mongodb-server-${version}.gpg"
+	if IsPlatform debian && { [[ ! -f "$file" || ! -f "$keyFile" || $force ]]; }; then
+		local codeName; codeName="$(os CodeName)" || return
+		curl -fsSL "https://www.mongodb.org/static/pgp/server-7.0.asc" | sudoc gpg --dearmor -o "$keyFile" || return
+		echo "deb [ arch=amd64,arm64 signed-by=$keyFile ] https://repo.mongodb.org/apt/ubuntu $codeName/mongodb-org/${version} multiverse" | sudoc tee "$file" > /dev/null || return
+		PackageUpdate || return
+	fi
+
+	# install
+	run --package mongodb-org --no-header || return
+	
+	# service
+	service auto start mongod
 }
 
 NginxAllInstall() { i NginxProxyManagerDocker NginxProxyManagerNomad; }
