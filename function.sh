@@ -2271,8 +2271,17 @@ GetEthernetAdapterInfo()
 # GetInterface - name of the primary network interface
 GetInterface()
 {
-	if IsPlatform mac; then netstat -rn | grep '^default' | head -1 | awk '{ print $4; }'
-	else route | grep "^default" | head -1 | tr -s " " | cut -d" " -f8
+	# mac
+	if IsPlatform mac; then
+		netstat -rn | grep '^default' | head -1 | awk '{ print $4; }'
+
+	# get the interface of the first default route if one is present
+	elif route -n | grep "^0.0.0.0" | head -1 | tr -s " " | cut -d" " -f8; then :
+
+	# get the interface with an IP (not the loopback address)
+	else
+		ip -o -4 addr show | awk '{print $2}' | grep -v "^lo$" | head -n1
+
 	fi
 }
 
