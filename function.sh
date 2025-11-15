@@ -1200,19 +1200,20 @@ ForwardToBackSlash() { GetArgs; echo -E "$@" | sed 's/\//\\/g'; }
 IsWild() { [[ "$1" =~ (.*\*|\?.*) ]]; }
 NewlineToComma()  { tr '\n' ','; }
 NewlineToSpace()  { tr '\n' ' '; }
-QuoteBackslashes() { GetArgs; echo -E "$@" | sed 's/\\/\\\\/g'; } # escape (quote) backslashes
-QuoteForwardslashes() { GetArgs; echo -E "$@" | sed 's/\//\\\//g'; } # escape (quote) forward slashes (/) using a back slash (\)
-QuoteParens() { GetArgs; echo -E "$@" | sed 's/(/\\(/g' | sed 's/)/\\)/g'; } # escape (quote) parents
-QuotePath() { GetArgs; echo -E "$@" | sed 's/\//\\\//g'; } 			# escape (quote) path (forward slashes - /) using a back slash (\)
-QuoteQuotes() { GetArgs; echo -E "$@" | sed 's/\"/\\\"/g'; } 		# escape (quote) quotes using a back slash (\)
-QuoteSpaces() { GetArgs; echo -E "$@" | sed 's/ /\\ /g'; } 			# escape (quote) spaces using a back slash (\)
+QuoteBackslashes() { GetArgs; echo -E "$@" | sed 's/\\/\\\\/g'; } 						# escape (quote) backslashes
+QuoteForwardslashes() { GetArgs; echo -E "$@" | sed 's/\//\\\//g'; } 					# escape (quote) forward slashes (/) using a back slash (\)
+QuoteParens() { GetArgs; echo -E "$@" | sed 's/(/\\(/g' | sed 's/)/\\)/g'; } 	# escape (quote) parents
+QuotePath() { GetArgs; echo -E "$@" | sed 's/\//\\\//g'; } 										# escape (quote) path (forward slashes - /) using a back slash (\)
+QuoteQuotes() { GetArgs; echo -E "$@" | sed 's/\"/\\\"/g'; } 									# escape (quote) quotes using a back slash (\)
+QuoteRegex() { GetArgs; echo -E "$@" | sed 's/[]\.|$(){}?+*^[]/\\&/g'; }  		# escape (quote) regular expression characters using a back slash (\)
+QuoteSpaces() { GetArgs; echo -E "$@" | sed 's/ /\\ /g'; } 										# escape (quote) spaces using a back slash (\)
 RemoveAfter() { GetArgs2; echo "${1%%$2*}"; }								# RemoveAfter STRING REMOVE - remove first occerance of REMOVE and all text after it
-RemoveBackslash() { GetArgs; echo "${@//\\/}"; }
+RemoveBackslash() { GetArgs; echo "${@//\\/}"; }						# RemoveBackslash STRING - remove all backslashes
 RemoveBefore() { GetArgs2; echo "${1##*$2}"; }							# RemoveBefore STRING REMOVE - remove last occerance of REMOVE and all text before it
 RemoveBeforeFirst() { GetArgs2; echo "${1#*$2}"; }					# RemoveBeforeFirst STRING REMOVE - remove first occerance of REMOVE and all text before it
-RemoveCarriageReturn()  { sed 's/\r//g'; }
+RemoveCarriageReturn()  { sed 's/\r//g'; }									# RemoveCarriageReturn STRING - removal all carriage returns
 RemoveChar() { GetArgs2; echo "${1//${2:- }/}"; }						# RemoveChar STRING REMOVE
-RemoveEmptyLines() { awk 'NF { print; }'; }
+RemoveEmptyLines() { awk 'NF { print; }'; }									# RemoveEmptyLines - remove all empty lines
 RemoveFront() { GetArgs2; echo "${1##*(${2:- })}"; }				# RemoveFront STRING REMOVE 
 RemoveEnd() { GetArgs2; echo "${1%%*(${2:- })}"; }					# RemoveEnd STRING REMOVE 
 RemoveLastEmptyLine() { ${G}sed -i '${/^$/d;}' "$1"; }
