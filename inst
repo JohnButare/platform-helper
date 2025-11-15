@@ -656,7 +656,7 @@ installInit()
 	all=(download final help register update)		# install
 	all+=(certificates FileSharing FileSharingClient FileSharingServer firewall fonts IconCleanup PackageManagement setup) # platform
 	all+=(AppDir DriveTime envoy FileServer hostname PartitionManagement printers software store)	
-	deb=() deb64=() debRh=() mac=() macDeb=() macDebRh=() rhel=() winElevated=() win=()
+	deb=() deb64=() debRh=() mac=() macDeb=() macDebRh=() rhel=() ubuntu=() winElevated=() win=()
 	
 	# Android
 	win+=(AndroidIcon BlueStacks)
@@ -802,7 +802,7 @@ installInit()
 	win+=(CoreTemp)
 
 	# music
-	debianMac+=(SpotifyTui Spotifyd)
+	macDeb+=(SpotifyTui Spotifyd)
 	macWin+=(deezer iTunes plex sonos spotify tidal)
 	win+=(MusicBee WinAmp)
 
@@ -816,8 +816,11 @@ installInit()
 	mac+=(proxifier WiFiExplorer)
 	macDeb+=(curlie gping JumpCloud MozillaVpn netbootxyz NetbootxyzDocker nmap traefik unifi wtfis)
 	macWin+=(domotz GlobalProtect NordVpn Tailscale WireGuard WireShark)
-	ubuntu+=(IpDynamic IpStatic netplan NetworkManager NicUsb wifi)
 	win+=(GlassWire Ninite Tribler Zscaler)
+
+	# network system
+	all+=(IpDynamic IpStatic)
+	deb+=(hosts netplan NetworkManager NicUsb wifi)
 
 	# notes
 	macDeb+=(notion StandardNotes Todoist)
@@ -986,6 +989,7 @@ httpsOpen() { local url="$1"; [[ ! $url ]] && return; IsInteger "$url" && url="h
 httpShow() { local url="$1"; [[ ! $url ]] && return; IsInteger "$url" && url="http://$(GetIpAddress --wsl):$url"; echo "URL: $url"; }
 httpsShow() { local url="$1"; [[ ! $url ]] && return; IsInteger "$url" && url="https://$(GetIpAddress --wsl):$url"; echo "URL: $url"; }
 installTypeDesc() { [[ $installType ]] && echo " $installType"; return 0; }
+isMinimalInstall() { [[ ! $forceFull && $_minimalInstall ]]; }
 macAppConfigure() { askp "Configure $1" && { start "$1" || return; }; return 0; }
 makeFileSudo() { local file="$1" dir="$(GetFilePath "$1")"; makeDir --sudo "$dir" || return; [[ ! -f "$dir" ]] && { sudoc touch "$file" || return; }; }
 makeLink() { RunLog MakeLink --suppress $quiet $noPrompt $verbose "$@"; }
@@ -2601,7 +2605,7 @@ appPlatformPhysical()
 # app host
 #
 
-AppHostInstall() { header "App Host"; i hostname AppHostHardware AppHostSoftware; } # get correct hostname first
+AppHostInstall() { header "App Host"; i hostname hosts AppHostHardware AppHostSoftware; } # get correct hostname first
 
 AppHostHardwareInstall()
 {
@@ -3319,9 +3323,7 @@ bootstrapMainWin()
 BootstrapCommonInstall()
 {
 	header "Bootstrap Common"
-	i bash zsh || return																	# shells
-	i SshCore || return																		# other
-	i PackageManagement setup FileSharing firewall fonts || return # platform
+	i bash zsh PackageManagement setup FileSharing firewall fonts SshCore
 }
 
 #
@@ -7738,7 +7740,7 @@ NvmFinalWin() { mergeDir "$pp/NVM For Windows" "$do"; }
 # Network
 #################################################
 
-NetworkAllInstall() { i bind BindService CloudInit curlie domotz domotzAgent fiddler fping gio GlassWire GlobalProtect gping httpie IpDynamic IpStatic JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn netbootxyz NetbootxyzDocker NetbootxyzTftpServer netplan nginx NicUsb Ninite NordVpn pivpn Proxifier TftpClient TftpServer TigerVnc Traefik Tribler TurboVnc UncomplicatedFirewall unifi wifi WiFiExplorer WireGuard Wireshark wtfis; }
+NetworkAllInstall() { i bind BindService CloudInit curlie domotz domotzAgent fiddler fping gio GlassWire GlobalProtect gping hosts httpie IpDynamic IpStatic JumpCloud JumpDesktop kea KeaService keepalived mDns mtr MozillaVpn netbootxyz NetbootxyzDocker NetbootxyzTftpServer nginx NicUsb Ninite NordVpn pivpn Proxifier TftpClient TftpServer TigerVnc Traefik Tribler TurboVnc UncomplicatedFirewall unifi WiFiExplorer WireGuard Wireshark wtfis; }
 GlobalProtectInstall() { run --name "Global Protect" "other/Palo Alto Networks/GlobalProtect/GlobalProtect64.msi|GlobalProtect.pkg"; }
 GlobalProtectFinalWin() { mergeDir "$pp/Palo Alto Networks" "$oo"; }
 HttpieInstall() { run --python-global "httpie"; }
@@ -7935,49 +7937,6 @@ GpingInstall()
 	else run --rust "gping"
 	fi
 }
-
-ipGenerateMacArg()
-{
-	local mac; mac="$(MacLookup)" || return
-
-	# return if we have we have a non-locally administered MAC or a common locally administered MAC (starts with 02)
-	# - Armbian on Rock 5b can't always get the MAC address and the kernel generates a random locally administered MAC
-	{ ! IsMacLocallyAdministered "$mac" || [[ "$(echo "$mac" | cut -d":" -f1)" == "02" ]]; } && return
-	
-	echo "--generate-mac"
-}
-
-IpDynamicInstall()
-{
-	header "Dynamic IP Address"
-	[[ ! $force ]] && isIpDynamic && return
-	RunPlatform ipDynamic
-}
-
-ipDynamicUbuntu()
-{
-	local reboot; netplanCheck || return
-	local interface="$(GetInterface)"
-	network conf netplan dynamic $(ipGenerateMacArg) "${globalArgs[@]}" || return
-	[[ $reboot ]] || isIpDynamic "$interface"
-}
-
-IpStaticInstall()
-{
-	header "Static IP Address"	
-	[[ ! $force ]] && IsIpStatic && return
-	RunPlatform ipStatic
-}
-
-ipStaticUbuntu()
-{
-	local reboot; netplanCheck || return
-	network conf netplan static $(ipGenerateMacArg) "${globalArgs[@]}" || return
-	[[ $reboot ]] || IsIpStatic
-}
-
-isIpDynamic() {	! IsIpStatic && RunPlatform isIpDynamic; }
-isIpDynamicUbuntu() { [[ -f "/etc/netplan/01-network-manage-all-dynamic.yaml" && ! -f "/etc/netplan/50-cloud-init.yaml" ]]; }
 
 JumpCloudInstall()
 {
@@ -8278,26 +8237,6 @@ NetbootxyzTftpServerInstall()
 	cd /tmp && tftp "$hostname" -c get boot.cfg && echo "boot.cfg found ($(cat boot.cfg | wc -l) lines)" && rm boot.cfg
 }
 
-netplanCheck() { PackageIsInstalled netplan.io && return; iq netplan; }
-
-netplanInstall()
-{
-	header "Netplan"
-	PackageIsInstalled netplan.io && return	
-	pkg netplan.io || return
-	reboot="true"
-	EchoErr "${RED}Notice:${RESET} a reboot is required to use Netplan."
-}
-
-networkManagerCheck() { PackageIsInstalled network-manager && return; iq NetworkManager; }
-
-NetworkManagerInstall()
-{
-	header "NetworkManager"
-	PackageIsInstalled network-manager && return
-	pkg network-manager || return
-}
-
 NginxInstall()
 {
 	header "NGINX"	
@@ -8316,26 +8255,6 @@ NginxInstall()
 	run --no-header --package "nginx" || return
 	sudoc ${G}mkdir --parents /var/lib/nginx/cache/{private,public} || return
 	sudo rm -f "/etc/nginx/sites-enabled/default" || return
-}
-
-NicUsbInstall()
-{
-	local file="/etc/netplan/01-network-manage-all-dynamic.yaml"
-	[[ -f "$file" && ! $force ]] && return
-
-	header "USB Nic on eth1"
-	local interface="eth1" renderer; renderer="$(network conf netplan renderer)" || return
-	cat <<-EOF | sudo ${G}tee "$file" > /dev/null || return
-		network:
-		  version: 2
-		  renderer: $renderer
-		  ethernets:
-		    $interface:
-		      match:
-		        name: $interface # required for systemd-networkd
-		      dhcp4: true
-		      dhcp6: true
-	EOF
 }
 
 NiniteInstall()
@@ -8606,6 +8525,183 @@ unifiFinal()
 	fi
 }
 
+WireGuardInstall()
+{
+	header "WireGuard"
+	
+	local v="0.5.3" # https://download.wireguard.com/windows-client/
+	if IsPlatform win; then # install Windows first so debian package is not installed in Windows
+		run --no-header --name="WireGuard" "shareware/WireGuard/wireguard-amd64-$v.msi" --version="$v" || return
+	elif IsPlatform debian; then
+		pkg wireguard || return
+	elif IsPlatform mac; then
+		run --no-header || return # install store app
+		pkg wireguard-tools wireguard-go || return
+	fi
+}
+
+WireGuardFinalWin() { $mv "$pp/WireGuard.lnk" "$ao"; }
+
+WireGuardHelp()
+{
+	echot "\
+- create tunnel on pi2 'pivpn add --name $hostname'
+- get conf file from '~/configs/$hostname.conf'
+- add conf file to 1Password, WireGuard
+- WireGuard, Add Tunnel"
+}
+
+WiresharkInstall()
+{
+	local v="3.4.9" # https://www.wireshark.org/#download
+	run --name "Wireshark" "network/Wireshark/setup/Wireshark-win64-$v.exe|Wireshark $v Intel 64.dmg" || return
+}
+
+WiresharkFinalWin() { $mv "$pp/Wireshark.lnk" "$pp/Operating System"; }
+
+#################################################
+# Network System
+#################################################
+
+NetworkAllSystemInstall() { i hosts IpDynamic IpStatic netplan NetworkManager NicUsb wifi; }
+
+HostsInstall()
+{
+	header "Hosts (/etc/hosts)"
+	local file="/etc/hosts"
+	local line; line="$(hostsLine)" || return
+	local ip="$(echo "$line" | cut -d" " -f1)"
+	local ipEscaped="$(QuoteRegex "$ip")"
+
+	# logging
+	log2 "hosts: file=$file ip=$ip line=$line"
+
+	# line exists
+	[[ ! $force ]] && ${G}grep --quiet "^$line" "$file" && return
+	sudov || return
+
+	# update line
+	if qgrep "$ip[[:blank:]]" "$file"; then
+		sudo ${G}sed -i "s/^$ipEscaped[[:blank:]].*/$line/" "$file"
+
+	# add after 127.0.0.1
+	elif qgrep "^127\.0\.0\.1[[:blank:]]" "$file"; then
+  	sudoc ${G}sed -i "/^127\.0\.0\.1[[:blank:]]/a $line" "$file"
+
+	# add to end
+	else
+		echo "$line" | sudo tee --append "$file"
+
+	fi
+}
+
+# hostsLine - return the /etc/hosts line for this host
+# - format: <IP>       <fqdn> <short hostname>
+hostsLine()
+{
+	local line
+
+	# IP
+	if IsPlatform debian; then line+="127.0.1.1"
+	fi
+	[[ ! $line ]] && return
+
+	# spaces
+	line+="       "
+
+	# fqdn (fully qualified domain name)
+	local fqdn; fqdn="$(GetNetworkDnsDomain)" || return
+	[[ $fqdn ]] && line+="$hostname.$fqdn "
+
+	# short hostname
+	line+="$hostname"
+
+	echo "$line"
+}
+
+IpDynamicInstall()
+{
+	header "Dynamic IP Address"
+	[[ ! $force ]] && isIpDynamic && return
+	RunPlatform ipDynamic
+}
+
+ipDynamicUbuntu()
+{
+	local reboot; netplanCheck || return
+	local interface="$(GetInterface)"
+	network conf netplan dynamic $(ipGenerateMacArg) "${globalArgs[@]}" || return
+	[[ $reboot ]] || isIpDynamic "$interface"
+}
+
+ipGenerateMacArg()
+{
+	local mac; mac="$(MacLookup)" || return
+
+	# return if we have we have a non-locally administered MAC or a common locally administered MAC (starts with 02)
+	# - Armbian on Rock 5b can't always get the MAC address and the kernel generates a random locally administered MAC
+	{ ! IsMacLocallyAdministered "$mac" || [[ "$(echo "$mac" | cut -d":" -f1)" == "02" ]]; } && return
+	
+	echo "--generate-mac"
+}
+
+IpStaticInstall()
+{
+	header "Static IP Address"	
+	[[ ! $force ]] && IsIpStatic && return
+	RunPlatform ipStatic
+}
+
+ipStaticUbuntu()
+{
+	local reboot; netplanCheck || return
+	network conf netplan static $(ipGenerateMacArg) "${globalArgs[@]}" || return
+	[[ $reboot ]] || IsIpStatic
+}
+
+isIpDynamic() {	! IsIpStatic && RunPlatform isIpDynamic; }
+isIpDynamicUbuntu() { [[ -f "/etc/netplan/01-network-manage-all-dynamic.yaml" && ! -f "/etc/netplan/50-cloud-init.yaml" ]]; }
+
+netplanCheck() { PackageIsInstalled netplan.io && return; iq netplan; }
+
+netplanInstall()
+{
+	header "Netplan"
+	PackageIsInstalled netplan.io && return	
+	pkg netplan.io || return
+	reboot="true"
+	EchoErr "${RED}Notice:${RESET} a reboot is required to use Netplan."
+}
+
+networkManagerCheck() { PackageIsInstalled network-manager && return; iq NetworkManager; }
+
+NetworkManagerInstall()
+{
+	header "NetworkManager"
+	PackageIsInstalled network-manager && return
+	pkg network-manager || return
+}
+
+NicUsbInstall()
+{
+	local file="/etc/netplan/01-network-manage-all-dynamic.yaml"
+	[[ -f "$file" && ! $force ]] && return
+
+	header "USB Nic on eth1"
+	local interface="eth1" renderer; renderer="$(network conf netplan renderer)" || return
+	cat <<-EOF | sudo ${G}tee "$file" > /dev/null || return
+		network:
+		  version: 2
+		  renderer: $renderer
+		  ethernets:
+		    $interface:
+		      match:
+		        name: $interface # required for systemd-networkd
+		      dhcp4: true
+		      dhcp6: true
+	EOF
+}
+
 WiFiInstall() { header "Wi-Fi"; RunPlatform wifi; }
 
 wifiPi()
@@ -8655,40 +8751,6 @@ wifiUbuntu()
 
 	sudo dhclient $interface && ip addr show $interface
 }
-
-WireGuardInstall()
-{
-	header "WireGuard"
-	
-	local v="0.5.3" # https://download.wireguard.com/windows-client/
-	if IsPlatform win; then # install Windows first so debian package is not installed in Windows
-		run --no-header --name="WireGuard" "shareware/WireGuard/wireguard-amd64-$v.msi" --version="$v" || return
-	elif IsPlatform debian; then
-		pkg wireguard || return
-	elif IsPlatform mac; then
-		run --no-header || return # install store app
-		pkg wireguard-tools wireguard-go || return
-	fi
-}
-
-WireGuardFinalWin() { $mv "$pp/WireGuard.lnk" "$ao"; }
-
-WireGuardHelp()
-{
-	echot "\
-- create tunnel on pi2 'pivpn add --name $hostname'
-- get conf file from '~/configs/$hostname.conf'
-- add conf file to 1Password, WireGuard
-- WireGuard, Add Tunnel"
-}
-
-WiresharkInstall()
-{
-	local v="3.4.9" # https://www.wireshark.org/#download
-	run --name "Wireshark" "network/Wireshark/setup/Wireshark-win64-$v.exe|Wireshark $v Intel 64.dmg" || return
-}
-
-WiresharkFinalWin() { $mv "$pp/Wireshark.lnk" "$pp/Operating System"; }
 
 #################################################
 # Java
