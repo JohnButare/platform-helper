@@ -2287,8 +2287,9 @@ GetInterface()
 }
 
 # GetIpAddress [HOST] [SERVER] - get the IP address of the current or specified host
-# -4|-6 							use IPv4 or IPv6
+# -4|-6 							use IPv4 or IPv6, defaults IPv4 unless --both is specified
 # -a|--all 						resolve all addresses for the host, not just the first
+# -b|--both 					try IPv4 first then IPv6
 # -ra|--resolve-all 	resolve host using all methods (DNS, MDNS, and local virtual machine names)
 # -m|--mdns						resolve host using MDNS
 #    --vm 						resolve host using local virtual machine names (check $HOSTNAME-HOST)
@@ -2297,7 +2298,7 @@ GetInterface()
 GetIpAddress() 
 {
 	# arguments
-	local scriptName="GetIpAddress" all=(head -1) host ip ipv mdns server type="A" vm wsl
+	local scriptName="GetIpAddress" args=("$@") all=(head -1) both host ip ipv mdns server type="A" vm wsl
 	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
@@ -2305,6 +2306,7 @@ GetIpAddress()
 			-4) ipv="4";;
 			-6) ipv="6";;
 			--all|-a) all=(cat);;
+			--both|-b) both="--both";;
 			--resolve-all|-ra) mdsn="true" vm="true";;
 			--mdns|-m) mdns="true";;
 			--vm|-v) vm="true";;
@@ -2326,6 +2328,9 @@ GetIpAddress()
 	# IP address - if -4 or -6 is not specified check
 	[[ $host ]] && IsIpAddress${ipv} "$host" && { echo "$host"; return; }
 	
+	# try IPv4 and IPv6
+	[[ ! $ipv && $both ]] && { GetIpAddress -4 --quiet "${args[@]}" || GetIpAddress -6 "${args[@]}"; return; }
+
 	# set default IP version
 	[[ ! $ipv ]] && ipv="4"
 
