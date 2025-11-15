@@ -5746,7 +5746,7 @@ CanSudo()
 #   --preserve|-p   	preserve the existing path (less secure)
 #   --stderr|-se   		prompt for a password using stderr
 sudoc()
-{ 
+{
 	# run the command - already root
 	IsRoot && { env "$@"; return; } # use env to support commands with variable prefixes, i.e. sudoc VAR=12 ls
 
@@ -5773,7 +5773,6 @@ sudoc()
 	# set variables
 	local prompt="[sudoc] password for $USER on $HOSTNAME: "
 	local command=( "$(FindInPath "sudo")" )
-	
 	# do not prompt no prompt if there is no stdin
 	! IsStdIn && noPrompt="--no-prompt"
 
