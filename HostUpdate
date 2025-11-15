@@ -24,11 +24,16 @@ init()
 {	
 	defaultCommand="update"	
 	defaultItems=( adobe choco motd npm node obsidian os python ruby store zsh )
-	defaultButareItems=( apps pool-controller )
-	defaultSandiaItems=( apps )
+
+	defaultFirstButareItems=( file )
+	defaultFirstSandiaItems=( )
+	defaultLastButareItems=( apps )
+	defaultLastSandiaItems=( apps )
+
 	serverItems=( server server-credential server-eligibility server-root-user )
-	otherItems=( apps cleanup download file files git public-files debian fzf hass intel mac micro opkg pool-controller pool-dash-panel pool-temperature windows wsl ${serverItems[@]} )
+	otherItems=( apps bin cleanup download file files public-files debian fzf hass intel mac micro opkg pool-controller pool-dash-panel pool-temperature windows wsl ${serverItems[@]} )
 	allItems=( "${defaultItems[@]}" "${otherItems[@]}" )
+
 	ohMyZsh="$HOME/.oh-my-zsh"
 }
 
@@ -99,17 +104,15 @@ clientCommand()
 
 	# determine what to update
 	if [[ ! $what ]] && default="true"; then
-		what=( "${defaultItems[@]}" )
-
-		local defaultNetworkItems=()
+		
+		local firstItems=() lastItems=()
 		if [[ $default && $networkCurrent ]]; then
-			ArrayCopy "default${networkCurrent^}Items" defaultNetworkItems
-		 	what+=( "${defaultNetworkItems[@]}" )
-		 	[[ "$networkCurrent" != "external" ]] && what=( git "${what[@]}" )
+			ArrayCopy "defaultFirst${networkCurrent^}Items" firstItems
+			ArrayCopy "defaultLast${networkCurrent^}Items" lastItems
+		 	[[ "$networkCurrent" != "external" ]] && firstItems=( bin "${firstItems[@]}" )
 		 fi
 
-		 what+=( "cleanup" )
-
+		 what=( "${firstItems[@]}" "${defaultItems[@]}" "${lastItems[@]}" cleanup)
 	fi
 
 	# update
@@ -181,6 +184,40 @@ osWin()
 
 adobeInstalled() { [[ -f "$P32\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe" ]]; }
 adobeUpdate() { start "$P32\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe"; }
+
+#
+# bin update - update public and user bin repositories
+#
+
+binInstalled() { InPath git && [[ -d "$BIN/.git" ]] && [[ -d "$UBIN/.git" ]]; }
+
+binUpdate()
+{
+	{ ! binInstalled || ! UpdateNeeded "update-bin"; } && return
+
+	if [[ "$method" == "--src-older" ]]; then
+		(cd "$BIN" && git fetch origin && git push origin && git reset --hard "origin/$(GitBranch)" && git clean -f -d) || return
+		(cd "$UBIN" && git fetch origin && git push origin && git reset --hard "origin/$(GitBranch)" && git clean -f -d) || return
+	else
+		(cd "$BIN" && GitHelper pull origin gh wiggin && GitHelper push origin gh wiggin) || return
+		(cd "$UBIN" && GitHelper pull origin gh wiggin && GitHelper push origin gh wiggin) || return
+	fi
+
+	UpdateDone "update-bin" || return
+}
+
+#
+# Public Files Update - copy public files between servers
+#
+
+public-filesInstalled() { return 0; }
+
+public-filesUpdate()
+{
+	{ ! public-filesInstalled || ! UpdateNeeded "update-public-files"; } && return
+	wiggin sync public --no-prompt "${globalArgs[@]}" || return
+	UpdateDone "update-public-files" || return
+}
 
 #
 # Homebrew Update
@@ -285,7 +322,7 @@ debianUpdate()
 }
 
 #
-# File Update - sync local files to the file server
+# File Update - sync local files with the file server
 #
 
 fileInstalled() { return 0; }
@@ -311,33 +348,6 @@ filesUpdate()
 	{ ! filesInstalled || ! UpdateNeeded "update-files"; } && return
 	wiggin host sync files --errors --dest-older "${globalArgs[@]}" "${otherArgs[@]}" || return
 	UpdateDone "update-files" || return
-}
-
-#
-# Git Update - update Git repositories
-#
-
-gitInstalled() { InPath git && [[ -d "$BIN/.git" ]] && [[ -d "$UBIN/.git" ]]; }
-
-gitUpdate()
-{
-	{ ! gitInstalled || ! UpdateNeeded "update-git"; } && return
-	(cd "$BIN" && GitHelper pull origin gh wiggin && GitHelper push origin gh wiggin) || return
-	(cd "$UBIN" && GitHelper pull origin gh wiggin && GitHelper push origin gh wiggin) || return
-	UpdateDone "update-git" || return
-}
-
-#
-# Public Files Update - copy public files between servers
-#
-
-public-filesInstalled() { return 0; }
-
-public-filesUpdate()
-{
-	{ ! public-filesInstalled || ! UpdateNeeded "update-public-files"; } && return
-	wiggin sync public --no-prompt "${globalArgs[@]}" || return
-	UpdateDone "update-public-files" || return
 }
 
 #
@@ -599,7 +609,7 @@ serverInstalled() { return 0; }
 serverUpdate()
 {
 	{ ! serverInstalled || ! UpdateNeeded "update-server"; } && return
-	wiggin host update --errors --dest-older "${globalArgs[@]}" -- "${otherArgs[@]}" || return
+	wiggin host update --errors $method "${globalArgs[@]}" -- "${otherArgs[@]}" || return
 	UpdateDone "update-server" || return
 }
 
