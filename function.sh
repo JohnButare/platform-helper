@@ -6125,21 +6125,37 @@ UpdateInitFile()
 }
 
 # UpdateNeeded FILE [DATE_SECONDS](TODAY) - return true if an update is needed based on the last file modification time.
-# - SECONDS - if specified, an update is needed if the file was not modified since the date or today if not specified
-# - examples - UpdateNeeded 'update-os', UpdateNeeded 'update-os' "$(GetSeconds '-10 min')"
+# - SECONDS: if not specified, an update is needed if the file was not modified today.   If specified, update is needed 
+#   if the file was not modified since the specified date in seconds
+# - examples: UpdateNeeded 'update-os', UpdateNeeded 'update-os' "$(GetSeconds '-10 min')"
 UpdateNeeded()
 {
-	local file="$1" seconds="$2"
+	local file="$1" dateSeconds="$2"
 
 	# return if update needed
 	{ [[ $force ]] || ! UpdateInit "$file" || [[ ! -f "$updateFile" ]]; } && return
 
-	# update is needed if file was not changed 1) in the last seconds (if specified) 2) today
-	if [[ $seconds ]]; then
-		(( $(echo "$(GetFileModSeconds "$updateFile") <= $seconds" | bc) )) # bc required for Bash since seconds is a float
+	# check if the file was not modified in the specified number of seconds
+	if [[ $dateSeconds ]]; then
+		local fileModSeconds="$(GetFileModSeconds "$updateFile")"
+		(( $(echo "$fileModSeconds <= $dateSeconds" | bc) )) # bc required for Bash since dateSeconds is a float
+
+	# check if the file was not modified today
 	else
-		[[ "$(GetDateStamp)" != "$(GetFileDateStamp "$updateFile")" ]]; 
+		local dateStamp="$(GetDateStamp)" fileDateStamp="$(GetFileDateStamp "$updateFile")"
+		[[ "$dateStamp" != "$fileDateStamp" ]]
 	fi
+	local result="$?"
+
+	if (( result == 0 && verboseLevel >= 5 )); then
+		if [[ $dateSeconds ]]; then
+			ScriptErr "Update needed for '$file'.  fileModSeconds=$fileModSeconds dateSeconds=$dateSeconds"
+		else
+			ScriptErr "Update needed for '$file'.  fileDateStamp='$fileDateStamp' dateStamp='$dateStamp'"
+		fi
+	fi
+
+	return "$result"
 }
 
 #
