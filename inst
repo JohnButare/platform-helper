@@ -2309,7 +2309,7 @@ urlCheck()
 }
 
 versionAllowAlpha() { IsInArray --case-insensitive "$1" alphaVersions; }
-versionError() { local app="$1" what="$2"; ScriptErrQuiet "unable to get the '$app'$(installTypeDesc) $what version"; }
+versionError() { local app="$1" what="$2"; [[ $what ]] && ScriptErrQuiet "unable to get the '$app'$(installTypeDesc) $what version"; }
 versionIsEqual() { [[ "$1" == "$2" ]]; } # versionIsEqual|Newer|Older V1 V2 - return true if V1 is equal|newer|older than V2
 versionIsNewer() { local v1="$(versionRemoveBuild "$1")" v2="$(versionRemoveBuild "$2")"; ! versionIsEqual "$v1" "$v2" && [[ "$(echo -e "$v1\n$v2" | sort -V | shead -1)" == "$v2" ]]; }
 versionIsOlder() { local v1="$1" v2="$2"; ! versionIsEqual "$v1" "$v2" && ! versionIsNewer "$v1" "$v2"; }
@@ -2378,7 +2378,7 @@ versionCheckApp()
 	versionCheck "$app" "$installedVersion" "$check"
 }
 
-# versionCheckPossible APP [PLATFORM] - return 0 if can get the current version of the application
+# versionCheckPossible APP [PLATFORM] - check if can get the current (released) version of an application
 versionCheckPossible()
 {
 	local app="$1" platform="$2" 
@@ -2386,39 +2386,48 @@ versionCheckPossible()
 }
 
 # versionGetCurrent APP [PLATFORM] - get current version of application using the function ${app}Version.
-#   Version information is cached at the install tracking file location.
+#   Version information is cached locally and at the install tracking file location.
 versionGetCurrent()
 {
-	local app="$1" platform="$2" track version; track="$(appGetTrack "$app" "current" "$platform")" || return
+	local app="$1" platform="$2" track v; track="$(appGetTrack "$app" "current" "$platform")" || return
 
-	# get current version - cache
-	if ! UpdateNeeded "$track"; then
-		version="$(UpdateGetForce "$track")"
+	# get current version - local cache
+	if v="$(UpdateGet "$track")" && versionValidate "$app" "$v"; then
+		log4 "versionGetCurrent: got '$app' current version '$v' from the local cache"
+		echo "$v"; return
+	fi
+
+	# get current version - install cache
+	local trackFile="$(GetFullPath ".$track")"
+	if appCd "$app" && ! UpdateNeeded "$trackFile" && v="$(cat ".$track")" &&  versionValidate "$app" "$v"; then
+		log4 "versionGetCurrent: got '$app' current version '$v' from the install cache '$(FileToDesc "$trackFile")'"
+		echo "$v"; return
+	fi
 
 	# get current version - store
-	elif isStoreApp "$app"; then
-		version="$(storeCurrentVersion "$(storeGetId "$app")")" || return
+	if isStoreApp "$app"; then
+		v="$(storeCurrentVersion "$(storeGetId "$app")")" || return		
 
 	# get current version - function <app>Version[Beta][Mac|Win]
 	else
 		local function; function="$(versionGetFunction "$app" "$platform")" || return
 		! IsFunction "$function" && { ScriptErr "cannot get the '$(appDesc "$app" "$platform")' version"; return 1; }
-		local version; version="$($function)" || { versionError "$app" "current"; return; }
+		v="$($function)" || { versionError "$app" "current"; return; }
 
 		# ignore older beta versions
 		if [[ "$installType" == "beta" ]]; then
 			local vReleased; vReleased="$(${app,}Version)" || return
-			if versionIsEqual "$version" "$vReleased" || versionIsOlder "$version" "$vReleased"; then
+			if versionIsEqual "$v" "$vReleased" || versionIsOlder "$v" "$vReleased"; then
 				UpdateSet "$track" ""
-				ScriptErrQuiet "'$(appDesc "$app" "$platform")' beta version '$version' is older than the released version '$vReleased'"
+				ScriptErrQuiet "'$(appDesc "$app" "$platform")' beta version '$v' is older than the released version '$vReleased'"
 				return
 			fi
 		fi
-
 	fi
 
 	# save and return the version
-	versionValidate "$app" "$version" "current" && UpdateSet "$track" "$version" && echo "$version"	
+	log4 "versionGetCurrent: got '$app' current version '$v'"
+	versionValidate "$app" "$v" "current" && echo "$v" > ".$track" && UpdateSet "$track" "$v" && echo "$v"
 }
 
 # versionBetaCheck APP [PLATFORM] - return true if the beta version is valid
@@ -2427,22 +2436,22 @@ versionBetaCheck() { installType="beta" versionGetCurrent "$@" >& /dev/null; }
 # versionGetDownloaded APP [PLATFORM] - get downloaded version of application
 versionGetDownloaded()
 {
-	local app="$1" platform="$2" track; track="$(appGetTrack "$app" "downloaded" "$platform")" || return
+	local app="$1" platform="$2" track v; track="$(appGetTrack "$app" "downloaded" "$platform")" || return
 	! appHasDir "$app" && return
 
 	# get downloaded version - local cache
-	version="$(UpdateGet "$track")" && { echo "$version"; return; }
+	v="$(UpdateGet "$track")" && { echo "$v"; return; }
 
 	# get downloaded version - install cache
 	appCd "$app" || return
 	[[ -f ".$track" ]] || return 0 # don't return error if the app has not been downloaded yet
-	version="$(cat ".$track")"
+	v="$(cat ".$track")"
 
 	# validate the version
- 	versionValidate "$app" "$version" "downloaded" || return 0 # don't return an error if the version is not valid
+ 	versionValidate "$app" "$v" "downloaded" || return 0 # don't return an error if the version is not valid
 
  	# save and return the version
-	UpdateSet "$track" "$version" && echo $version
+	UpdateSet "$track" "$v" && echo "$v"
 }
 
 # versionGetFunction APP [PLATFORM] - get the version function for app
@@ -2476,7 +2485,8 @@ versionGetPlatforms()
 }
 
 
-# versionValidate APP VERSION WHAT - ensure version is correct
+# versionValidate APP VERSION [WHAT] - ensure application version is correct
+# - what: if specified use this for error messages, if not specified no errors are reported
 versionValidate()
 {
 	local app="$1" version="$2" what="$3"
@@ -2485,9 +2495,8 @@ versionValidate()
 	[[ ! $version ]] && { versionError "$app" "$what"; return; }
 
 	# check for numeric version
-	! versionAllowAlpha "$app" && ! IsNumeric "$version" && { ScriptErrQuiet "'$app'$(installTypeDesc) $what version '$version' is not numeric"; return 1; }
-
-	return 0
+	{ versionAllowAlpha "$app" || IsNumeric "$version"; } && return
+	[[ $what ]] && ScriptErrQuiet "'$app'$(installTypeDesc) $what version '$version' is not numeric"
 }
 
 #################################################
@@ -13025,13 +13034,13 @@ alfredVersion()
 	echo "${version}_${build}"
 }
 
-alfredVersionBeta()
-{
-	local change; change="$(alfredChangeLog |& ${G}grep -A1 '<h2>Alfred [0-9.]* Beta [0-9]*</h2>' | shead -2)" || return 0; # no pre-release version
-	local version="$(echo "$change" | shead -1 | sed 's/.*Alfred //' | cut -d' ' -f1)"
-	local build="$(echo "$change" | ${G}tail --lines=-1 | sed 's/.*Build //' | cut -d',' -f1)"
-	echo "${version}_${build}"
-}
+# alfredVersionBeta()
+# {
+# 	local change; change="$(alfredChangeLog |& ${G}grep -A1 '<h2>Alfred [0-9.]* Beta [0-9]*</h2>' | shead -2)" || return 0; # no pre-release version
+# 	local version="$(echo "$change" | shead -1 | sed 's/.*Alfred //' | cut -d' ' -f1)"
+# 	local build="$(echo "$change" | ${G}tail --lines=-1 | sed 's/.*Build //' | cut -d',' -f1)"
+# 	echo "${version}_${build}"
+# }
 
 alfredChangeLog() { curl --silent --location "https://www.alfredapp.com/changelog"; }
 
