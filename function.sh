@@ -5010,7 +5010,6 @@ ProcessList()
 			# command has arguments so assume program has no spaces, otherwsise we can't tell when the program end and the arguments start
 			ps $args -o pid=,command= | awk '{ print $1 "," $2 }' 
 		fi
-		return
 	fi
 
 	# windows processes
