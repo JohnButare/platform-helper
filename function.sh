@@ -4516,7 +4516,7 @@ isPlatformCheck()
 		docker) IsDocker;;
 		guest|vm|virtual) IsVm;;
 		hyperv) IsHypervVm;;
-		host|physical) ! IsChroot && ! IsContainer && ! IsVm;;
+		host|physical) IsPhysical;;
 		proxmox) IsProxmoxVm;;
 		parallels) IsParallelsVm;;
 		swarm) InPath docker && docker info |& command grep "^ *Swarm: active$" >& /dev/null;; # -q does not work reliably on pi2
@@ -6267,6 +6267,13 @@ GetVmType() # vmware|hyperv
 
 	[[ $verbose ]] && { ScriptErr "type=$VM_TYPE"; }
 	UpdateSet "$cache" "$result" && echo "$result"
+}
+
+IsPhysical()
+{
+	local cache="physical" r="false"
+	! r="$(UpdateGet "$cache")" && ! IsChroot && ! IsContainer && ! IsVm && { r="true"; UpdateSet "$cache" "$r"; }
+	[[ "$r" == "true" ]]
 }
 
 #
