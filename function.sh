@@ -2277,7 +2277,7 @@ GetEthernetAdapterInfo()
 			dns="$(DnsResolve "$ip" | NewlineToComma | RemoveEnd ",")" || dns="unknown"
 			echo "${RESET}${RESET}$adapter-$ip-$dns" # add resets to line up the columns
 		done
-	} | column -c $(tput cols -T "$TERM") -t -s-
+	} | ${G}column -c $(tput cols -T "$TERM") -t -s-
 }
 
 # GetInterface - name of the primary network interface
@@ -2494,7 +2494,7 @@ ipinfo()
 		} | sort
 
 		EchoErr "done"
-	} | column -c $(tput cols) -t -s: -n
+	} | ${G}column -c $(tput cols) -t -s: -n
 
 }
 
@@ -2756,7 +2756,7 @@ MacLookup()
 			dns="$(DnsResolve "$ip")"
 			echo "${RESET}${RESET}$mac-$ip-$dns" # add resets to line up the columns
 		done
-	} | column -c $(tput cols -T "$TERM") -t -s-
+	} | ${G}column -c $(tput cols -T "$TERM") -t -s-
 }
 
 # MacLookupEthers HOST - lookup mac address for host in /etc/ethers
@@ -4186,7 +4186,7 @@ packageFixList()
 
 	# exclude packages
 	IsPlatform entware && exclude+=( pwgen )
-	IsPlatform mac && exclude+=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk util-linux virt-what )
+	IsPlatform mac && exclude+=( atop fortune-mod hdparm inotify-tools iotop iproute2 ksystemlog ncat ntpdate psmisc squidclient unison-gtk virt-what )
 	IsPlatformAll mac,arm && exclude+=( bonnie++ rust traceroute )
 	IsPlatformAll mac,x86 && exclude+=( ncat traceroute )
 	IsPlatform rhel && exclude+=( daemonize di pwgen htop iproute2 ncat ntpdate )
