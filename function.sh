@@ -4613,6 +4613,7 @@ function RunPlatform()
 
 	# set _platform variables
 	if [[ "$1" == @(-h|--host) ]]; then		
+		hostArg=("--host")
 		shift
 		[[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; hostArg+=("$1"); }
 	else
@@ -4633,13 +4634,13 @@ function RunPlatform()
 	fi
 
 	# run other functions
-	IsPlatform cm4 --host && { RunFunction $function cm4 -- "$@" || return; }
-	IsPlatform entware --host && { RunFunction $function entware -- "$@" || return; }
-	IsPlatform pikernel --host && { RunFunction $function PiKernel -- "$@" || return; }
-	IsPlatform proxmox --host && { RunFunction $function proxmox -- "$@" || return; }
-	IsPlatform gnome --host && { RunFunction $function gnome -- "$@" || return; }
-	IsPlatform vm --host && { RunFunction $function vm -- "$@" || return; }
-	IsPlatform physical --host && { RunFunction $function physical -- "$@" || return; }
+	IsPlatform cm4 "${hostArg[@]}" && { RunFunction $function cm4 -- "$@" || return; }
+	IsPlatform entware "${hostArg[@]}" && { RunFunction $function entware -- "$@" || return; }
+	IsPlatform pikernel "${hostArg[@]}" && { RunFunction $function PiKernel -- "$@" || return; }
+	IsPlatform proxmox "${hostArg[@]}" && { RunFunction $function proxmox -- "$@" || return; }
+	IsPlatform gnome "${hostArg[@]}" && { RunFunction $function gnome -- "$@" || return; }
+	IsPlatform vm "${hostArg[@]}" && { RunFunction $function vm -- "$@" || return; }
+	IsPlatform physical "${hostArg[@]}" && { RunFunction $function physical -- "$@" || return; }
 
 	return 0
 }
