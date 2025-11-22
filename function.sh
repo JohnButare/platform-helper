@@ -46,6 +46,15 @@ PlatformConf()
 }
 PlatformConf || return
 
+# color - set color variables if colors are supported (if using a terminal).   Uses FORCE_COLOR or FORCE_NO_COLOR variables
+alias InitColorVars='local colorVars=(GREEN RB_BLUE RB_INDIGO RED RESET PAD); local "${colorVars[@]}"'										# InitColorVars - defines local color variables
+InitColorCheck() { [[ $GREEN && $RB_BLUE && $RB_INDIGO && $RED && $RESET && $PAD ]] }																			# InitColorCheck - return true if all the color variables are initialized
+InitColorCheckAny() { [[ $GREEN || $RB_BLUE || $RB_INDIGO || $RED || $RESET || $PAD ]] }																	# InitColorAny - return true if any color variables are initialized
+InitColorClear() { unset -v GREEN RB_BLUE RB_INDIGO RED RESET PAD; }																											# InitClear - clear color variables
+InitColor() { [[ ! $FORCE_NO_COLOR ]] && { [[ $FORCE_COLOR ]] || IsStdOut; } && InitColorForce || InitColorClear; }				# InitColor - initialize color variables if we are forcing color or stdout is available
+InitColorErr() { [[ ! $FORCE_NO_COLOR ]] && { [[ $FORCE_COLOR ]] || IsStdErr; } && InitColorForce || InitColorClear; } 		# InitColorErr - initialize color variables if we are forcing color or stderr is available
+InitColorForce() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); PAD=$(printf '\033[25m'); }
+
 #
 # account
 #
@@ -951,9 +960,9 @@ EchoErrEnd() { echo -e "$@" >&2; return 0; }														# show error message o
 EchoQuiet() { [[ $quiet ]] && return; EchoWrap "$1"; }									# echo a message if quiet is not set
 EchoResetErr() { EchoReset "$@" >&2; return 0; } 												# reset to column 0 if not at column 0
 EchoValidate() { [[ $1 ]] || return; echo "$1"; }												# echo message if it has a value and return 0	
-HilightErr() { InitColorErr; EchoErr "${RED}$@${RESET}"; }							# hilight an error message
-HilightErrEnd() { InitColorErr; EchoErrEnd "${RED}$@${RESET}"; }				# hilight an error message
-HilightPrintErr() { InitColorErr; PrintErr "${RED}$@${RESET}"; }				# hilight an error message
+HilightErr() { InitColorVars; InitColorErr; EchoErr "${RED}$@${RESET}"; }							# hilight an error message
+HilightErrEnd() { InitColorVars; InitColorErr; EchoErrEnd "${RED}$@${RESET}"; }				# hilight an error message
+HilightPrintErr() { InitColorVars; InitColorErr; PrintErr "${RED}$@${RESET}"; }				# hilight an error message
 PrintErr() { echo -n -e "$@" >&2; return 0; }														# print an error message without a newline or resetting to column 0
 PrintEnd() { echo -n -e "$@"; return 0; }																# print message at the current cursor position
 PrintQuiet() { [[ $quiet ]] && return; printf "$1"; }										# print a message if quiet is not set
@@ -1900,18 +1909,12 @@ IfsRestore() { IFS="$ifsSave"; }
 # monitoring
 #
 
-header() { InitColor; printf "${RB_BLUE}******************************** ${RB_INDIGO}$1${RB_BLUE} ********************************${RESET}\n"; headerDone="$((66 + ${#1}))"; return 0; }
-HeaderBig() { InitColor; printf "${RB_BLUE}************************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n************************************************************${RESET}\n"; }
-HeaderDone() { InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
+header() { InitColorVars; InitColor; printf "${RB_BLUE}******************************** ${RB_INDIGO}$1${RB_BLUE} ********************************${RESET}\n"; headerDone="$((66 + ${#1}))"; return 0; }
+HeaderBig() { InitColorVars; InitColor; printf "${RB_BLUE}************************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n************************************************************${RESET}\n"; }
+HeaderDone() { InitColorVars; InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
 HeaderFancy() { ! InPath pyfiglet lolcat && { HeaderBig "$1"; return; }; pyfiglet --justify=center --width=$COLUMNS "$1" | lolcat; }
-hilight() { InitColor; EchoWrap "${GREEN}$@${RESET}"; }
-hilightp() { InitColor; echo -n -E "${GREEN}$@${RESET}"; } # hilight with no newline
-
-# color - set color variables if colors are supported (using a terminal, or FORCE_COLOR is set)
-InitColor() { { [[ $FORCE_COLOR ]] || IsStdOut; } && InitColorForce || InitColorClear; }
-InitColorErr() { { [[ $FORCE_COLOR ]] || IsStdErr; } && InitColorForce || InitColorClear; }
-InitColorForce() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); PAD=$(printf '\033[25m'); }
-InitColorClear() { unset -v GREEN RB_BLUE RB_INDIGO RED RESET PAD; }
+hilight() { InitColorVars; InitColor; EchoWrap "${GREEN}$@${RESET}"; }
+hilightp() { InitColorVars; InitColor; echo -n -E "${GREEN}$@${RESET}"; } # hilight with no newline
 
 # FileWatch FILE [PATTERN] - watch a whole file for changes, optionally for a specific pattern
 FileWatch() { local sudo; SudoCheck "$1"; cls; $sudo ${G}tail -F --lines=+0 "$1" | grep "$2"; }
