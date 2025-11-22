@@ -983,6 +983,7 @@ AddTab() { sed "s/^/$(StringRepeat " " 2)/"; } # AddTab - add $TABS spaces to th
 # data types
 #
 
+DumpBytes() { GetArgs; echo -n -e "$@" | ${G}od --address-radix d -t x1 -t c -t a; } # echo -en "01\\n" | DumpBytes
 IsVar() { declare -p "$1" >& /dev/null; }
 IsAnyArray() { IsArray "$1" || IsAssociativeArray "$1"; }
 GetDef() { local gd="$(declare -p "$1")"; gd="${gd#*\=}"; gd="${gd#\(}"; r "${gd%\)}" $2; } # GetDef VAR - get definition (value) of the variable
