@@ -2,17 +2,28 @@
 . "${BASH_SOURCE[0]%/*}/function.sh" app color || exit
 
 header "Test BASH Script"
-echo BASH_VERSION=$BASH_VERSION
 
-i=0
-for arg in "$@"; do
-	printf 'arg%s=%s\n' "$i" "$arg"
-	(( i++ ))
-done
+#
+# local variables
+#
 
-seconds=0
-while true; do
-	sleep 1
-	echo "the service has been running for $seconds seconds"
-	(( seconds+=1 ))
-done
+alias setVars='local vars=(var1 var2); local "${vars[@]}";'
+
+testVars()
+{
+    setVars
+    var1="value1" var2="value2"
+    echo "var1=$var1 var2=$var2"
+}
+
+testArguments()
+{
+	i=0
+	for arg in "$@"; do
+		printf 'arg%s=%s\n' "$i" "$arg"
+		(( i++ ))
+	done
+}
+
+# testArguments
+testVars; echo "var1=$var1 var2=$var2"
