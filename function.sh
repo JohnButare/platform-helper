@@ -53,7 +53,7 @@ InitColorCheckAny() { [[ $GREEN || $RB_BLUE || $RB_INDIGO || $RED || $RESET || $
 InitColorClear() { GREEN="" RB_BLUE="" RB_INDIGO="" RED="" RESET="" PAD="" RESET_PAD=""; }																# InitClear - clear color variables
 InitColor() { [[ ! $FORCE_NO_COLOR ]] && { [[ $FORCE_COLOR ]] || IsStdOut; } && InitColorForce || InitColorClear; }				# InitColor - initialize color variables if we are forcing color or stdout is available
 InitColorErr() { [[ ! $FORCE_NO_COLOR ]] && { [[ $FORCE_COLOR ]] || IsStdErr; } && InitColorForce || InitColorClear; } 		# InitColorErr - initialize color variables if we are forcing color or stderr is available
-InitColorForce() { GREEN=$'\033[32m' RB_BLUE=$'\033[38;5;021m' RB_INDIGO=$'\033[38;5;093m' RED=$'\033[31m' RESET=$'\033[m' PAD=$'\033[25m' RESET_PAD=$'\033#3'; }
+InitColorForce() { GREEN=$'\033[32m' RB_BLUE=$'\033[38;5;021m' RB_INDIGO=$'\033[38;5;093m' RED=$'\033[31m' RESET=$'\033[m' PAD=$'\033[25m' RESET_PAD=$'\033#2'; }
 
 #
 # account
