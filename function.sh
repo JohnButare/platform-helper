@@ -6192,12 +6192,12 @@ ChrootPlatform() { ! IsChroot && return; [[ $(uname -r) =~ [Mm]icrosoft ]] && ec
 
 IsContainer() { ! InPath systemd-detect-virt && return 1; [[ "$(systemd-detect-virt --container)" != @(none|wsl) ]]; }
 IsDocker() { ! InPath systemd-detect-virt && return 1; [[ "$(systemd-detect-virt --container)" == "docker" ]]; }
-IsVm() { GetVmType; [[ $VM_TYPE ]]; }
-IsParallelsVm() { GetVmType; [[ "$VM_TYPE" == "parallels" ]]; }
-IsProxmoxVm() { GetVmType; [[ "$VM_TYPE" == "proxmox" ]]; }
-IsVmwareVm() { GetVmType; [[ "$VM_TYPE" == "vmware" ]]; }
-IsHypervVm() { GetVmType; [[ "$VM_TYPE" == "hyperv" ]]; }
-VmType() { GetVmType; echo "$VM_TYPE"; }
+IsVm() { [[ $(GetVmType) ]]; }
+IsParallelsVm() { [[ "$(GetVmType)" == "parallels" ]]; }
+IsProxmoxVm() { [[ "$(GetVmType)" == "proxmox" ]]; }
+IsVmwareVm() { [[ "$(GetVmType)" == "vmware" ]]; }
+IsHypervVm() { [[ "$(GetVmType)" == "hyperv" ]]; }
+VmType() { echo "$(GetVmType)"; }
 
 GetChrootName()
 {
@@ -6222,8 +6222,7 @@ GetVmType() # vmware|hyperv
 {	
 	local force forceLevel forceLess; ScriptOptForce "$@"
 	local verbose verboseLevel verboseLess; ScriptOptVerbose "$@"
-	[[ ! $force && $VM_TYPE_CHECKED ]] && return
-
+	local cache="vm-type"; UpdateGet "$cache" && return
 	local result
 
 	if InPath systemd-detect-virt; then
@@ -6259,8 +6258,8 @@ GetVmType() # vmware|hyperv
 		fi
 	fi
 
-	[[ $verbose ]] && { ScriptErr "VM_TYPE=$VM_TYPE"; }
-	export VM_TYPE_CHECKED="true" VM_TYPE="$result"
+	[[ $verbose ]] && { ScriptErr "type=$VM_TYPE"; }
+	UpdateSet "$cache" "$result" && echo "$result"
 }
 
 #
