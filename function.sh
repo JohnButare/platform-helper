@@ -4644,6 +4644,13 @@ function RunPlatform()
 	return 0
 }
 
+# RunPlatformOs PREFIX [ARGS] - call platform functions for PLATFORM_OS only (faster)
+function RunPlatformOs()
+{
+	local function="$1"; shift
+	RunFunction "$function" "$PLATFORM_OS" -- "$@"
+}
+
 #
 # process
 #

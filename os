@@ -22,13 +22,13 @@ Operating system commands
 # commands
 #
 
-environmentCommand() { RunPlatform environment; }
+environmentCommand() { RunPlatformOs environment; }
 environmentWin() { systemProperties 3; }
 
-indexCommand() { RunPlatform index; }
+indexCommand() { RunPlatformOs index; }
 indexWin() { coproc rundll32.exe shell32.dll,Control_RunDLL srchadmin.dll,Indexing Options; }
 
-lockCommand() { RunPlatform lock; }
+lockCommand() { RunPlatformOs lock; }
 lockMac() { pmset displaysleepnow; }
 
 pathCommand()
@@ -42,15 +42,15 @@ pathCommand()
 	fi
 }
 
-preferencesCommand() { RunPlatform preferences; }
+preferencesCommand() { RunPlatformOs preferences; }
 preferencesMac() { open "/System/Applications/System Preferences.app"; }
 preferencesWin() { control.exe; }
 
-printersCommand() { RunPlatform printers; }
+printersCommand() { RunPlatformOs printers; }
 printersMac() { open "/System/Library/PreferencePanes/PrintAndScan.prefPane"; }
 printersWin() { start "ms-settings:printers"; }
 
-storeCommand() { RunPlatform store; }
+storeCommand() { RunPlatformOs store; }
 storeMac() { open "/System/Applications/App Store.app"; }
 storeWin() { start "" "ms-windows-store://"; }
 
@@ -60,8 +60,8 @@ storeWin() { start "" "ms-windows-store://"; }
 
 darkUsage() { echot "Usage: os dark on|off\nTurn dark mode on or off."; }
 darkCommand(){ usage; }
-darkOnCommand() { RunPlatform darkOn; }
-darkOffCommand() { RunPlatform darkOff; }
+darkOnCommand() { RunPlatformOs darkOn; }
+darkOffCommand() { RunPlatformOs darkOff; }
 
 darkOnWin() { registry set "$(darkKey)/AppsUseLightTheme" 0 && registry set "$(darkKey)/SystemUsesLightTheme" 0 && RestartExplorer; }
 darkOffWin() { registry set "$(darkKey)/AppsUseLightTheme" 1 && registry set "$(darkKey)/SystemUsesLightTheme" 1 && RestartExplorer; }
@@ -191,7 +191,7 @@ executableFindCommand()
 #
 
 featureUsage() { echot "Usage: os feature\n	Operating system features."; }
-featureCommand() { RunPlatform feature; }
+featureCommand() { RunPlatformOs feature; }
 featureWin() { RunScript --elevate -- Dism.exe /Online /Get-Features; }
 
 #
@@ -498,14 +498,14 @@ bitsCommand() # 32 or 64
 	ScriptErrQuiet "Unable to determine the operating systems bits"
 }
 
-buildCommand() { RunPlatform "build"; } 
-buildMac() { system_profiler SPSoftwareDataType | grep "System Version" | cut -f 11 -d" " | sed 's/(//' | sed 's/)//'; }
+buildCommand() { RunPlatformOs "build"; } 
 buildLinux() { versionCommand; }
+buildMac() { system_profiler SPSoftwareDataType | grep "System Version" | cut -f 11 -d" " | sed 's/(//' | sed 's/)//'; }
 buildWin() { registry get "HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows NT/CurrentVersion/CurrentBuild" | RemoveCarriageReturn; }
 
 codenameCommand()
 {
-	local name; name="$(RunPlatform "codeName")" && [[ $name ]] && { echo "$name"; return; }
+	local name; name="$(RunPlatformOs "codeName")" && [[ $name ]] && { echo "$name"; return; }
 	ScriptErrQuiet "unable to determine the code name"
 }
 
@@ -533,9 +533,7 @@ codeNameMac()
 	esac
 }
 
-distributorCommand() { RunPlatform "distributor"; }
-distributorMac() { echo "Apple"; }
-distributorWin() { echo "Microsoft"; }
+distributorCommand() { RunPlatformOs "distributor"; }
 
 distributorLinux() # CasaOS|Debian|Raspbian|Ubuntu
 {
@@ -543,6 +541,10 @@ distributorLinux() # CasaOS|Debian|Raspbian|Ubuntu
 	! InPath lsb_release && return
 	lsb_release -is
 }
+
+distributorMac() { echo "Apple"; }
+
+distributorWin() { echo "Microsoft"; }
 
 mhzCommand()
 {
@@ -596,9 +598,7 @@ releaseCheckArgStart() { unset -v check; }
 releaseCheckArgs() { ScriptArgGet "check" -- "$@"; }
 releaseCheckCommand() { (( $(echo "$(os release) $check" | bc --mathlib) )); }
 
-versionCommand() { RunPlatform version; }
-versionMac() { system_profiler SPSoftwareDataType | grep "System Version" | cut -f 10 -d" "; }
-versionWin() { buildWin; }
+versionCommand() { RunPlatformOs version; }
 
 versionLinux()
 {
@@ -608,6 +608,10 @@ versionLinux()
 	else lsb_release -rs
 	fi
 }
+
+versionMac() { system_profiler SPSoftwareDataType | grep "System Version" | cut -f 10 -d" "; }
+
+versionWin() { buildWin; }
 
 versionMajorCommand()
 {
@@ -792,7 +796,7 @@ infoDisk_used() { ! diCheck && return; infoEcho "   disk used: $(diskUsedCommand
 
 infoFile() { infoEcho "file sharing: $(unc get protocols "$HOSTNAME")"; }
 
-infoFinal() { RunPlatform infoFinal; }
+infoFinal() { RunPlatformOs infoFinal; }
 infoFinalMac() { { [[ ! $detail ]] || ! InPath "macchina"; } && return; macchina; }
 
 infoFirmware() { RunPlatform infoFirmware; }
@@ -807,7 +811,7 @@ infoKernel()
 {
 	local bits; bits="$(bitsCommand)"; [[ $bits ]] && bits=" ($bits bit)"
 	infoEcho "      kernel: $(uname -r)$bits"
-	RunPlatform infoKernel;
+	RunPlatformOs infoKernel;
 }
 
 infoLoad()
@@ -840,6 +844,7 @@ infoModel()
 	[[ ! $model ]] && return
 	infoEcho "       model: $model"
 }
+
 infoModelPiKernel() { pi info model; }
 
 infoNetwork()
@@ -1031,7 +1036,7 @@ infoDistributionWin()
 #
 
 repairUsage() { echot "Usage: os repair\n	Repair the operating system."; }
-repairCommand() { RunPlatform repair; }
+repairCommand() { RunPlatformOs repair; }
 
 repairWin()
 {
@@ -1047,7 +1052,7 @@ repairWin()
 screenUsage() { echot "Usage: os screen resize\n	Screen commands."; }
 screenCommand() { usage; }
 screenResizeUsage() { echot "Usage: os screen resize\n	Configure the system after screen is resized."; }
-screenResizeCommand() { RunPlatform screenResize; }
+screenResizeCommand() { RunPlatformOs screenResize; }
 screenResizeWin() { [[ "$HOSTNAME" != @(bl?) ]] && return; app BgInfo -f; }
 
 #
@@ -1057,10 +1062,10 @@ screenResizeWin() { [[ "$HOSTNAME" != @(bl?) ]] && return; app BgInfo -f; }
 securityUsage() { echot "Usage: os security gui|tray\n	Security commands."; }
 securityCommand() { usage; }
 
-securityGuiCommand() { RunPlatform securityGui; }
+securityGuiCommand() { RunPlatformOs securityGui; }
 securityGuiWin() { start "windowsdefender://"; }
 
-securityTrayCommand() { RunPlatform securityTray; }
+securityTrayCommand() { RunPlatformOs securityTray; }
 securityTrayWin() { cmd.exe /c start "SecurityHealthSystray.exe" >& /dev/null; }
 
 #
@@ -1071,19 +1076,19 @@ virusUsage() { echot "Usage: os virus enable|gui|run|status\n	Virus scanner comm
 virusArgStart() { services=(Sense WdBoot WdFilter WdNisDrv WdNisSvc WinDefend); }
 virusCommand() { usage; }
 
-virusEnableCommand() { RunPlatform virusEnable; }
+virusEnableCommand() { RunPlatformOs virusEnable; }
 virusEnableWin() { service disable "Sense" && service boot "WdBoot" && service boot "WdFilter" && service demand "WdNisDrv" && service demand "WdNisSvc" && service auto "WinDefend"; }
 
-virusGuiCommand() { RunPlatform virusGui; }
+virusGuiCommand() { RunPlatformOs virusGui; }
 virusGuiWin() { start "windowsdefender://threat"; }
 
 virusRunUsage() { virusRunCli; }
 virusRunArgStart() { virusArgs=(-Scan -ScanType 1); }
 virusRunArgs() { (( ! $# )) && return; virusArgs=("$@"); shift+="$#"; }
-virusRunCommand() { RunPlatform virusRun; }
+virusRunCommand() { RunPlatformOs virusRun; }
 virusRunWin() { virusRunCli "${virusArgs[@]}" "${otherArgs[@]}"; }
 
-virusRunCli() { RunPlatform virusRunCli; }
+virusRunCli() { RunPlatformOs virusRunCli; }
 virusRunCliWin() { "$P/Windows Defender/MpCmdRun.exe" "$@"; }
 
 virusStatusCommand()
