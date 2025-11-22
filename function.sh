@@ -47,13 +47,13 @@ PlatformConf()
 PlatformConf || return
 
 # color - set color variables if colors are supported (if using a terminal).   Uses FORCE_COLOR or FORCE_NO_COLOR variables
-alias InitColorVars='local colorVars=(GREEN RB_BLUE RB_INDIGO RED RESET PAD); local "${colorVars[@]}"'										# InitColorVars - defines local color variables
-InitColorCheck() { [[ $GREEN && $RB_BLUE && $RB_INDIGO && $RED && $RESET && $PAD ]]; }																		# InitColorCheck - return true if all the color variables are initialized
-InitColorCheckAny() { [[ $GREEN || $RB_BLUE || $RB_INDIGO || $RED || $RESET || $PAD ]]; }																	# InitColorAny - return true if any color variables are initialized
-InitColorClear() { GREEN="" RB_BLUE="" RB_INDIGO="" RED="" RESET="" PAD=""; }																							# InitClear - clear color variables
+alias InitColorVars='local colorVars=(GREEN RB_BLUE RB_INDIGO RED RESET PAD RESET_PAD); local "${colorVars[@]}"'					# InitColorVars - defines local color variables
+InitColorCheck() { [[ $GREEN && $RB_BLUE && $RB_INDIGO && $RED && $RESET && $PAD && $RESET_PAD ]]; }											# InitColorCheck - return true if all the color variables are initialized
+InitColorCheckAny() { [[ $GREEN || $RB_BLUE || $RB_INDIGO || $RED || $RESET || $PAD || $RESET_PAD ]]; }										# InitColorAny - return true if any color variables are initialized
+InitColorClear() { GREEN="" RB_BLUE="" RB_INDIGO="" RED="" RESET="" PAD="" RESET_PAD=""; }																# InitClear - clear color variables
 InitColor() { [[ ! $FORCE_NO_COLOR ]] && { [[ $FORCE_COLOR ]] || IsStdOut; } && InitColorForce || InitColorClear; }				# InitColor - initialize color variables if we are forcing color or stdout is available
 InitColorErr() { [[ ! $FORCE_NO_COLOR ]] && { [[ $FORCE_COLOR ]] || IsStdErr; } && InitColorForce || InitColorClear; } 		# InitColorErr - initialize color variables if we are forcing color or stderr is available
-InitColorForce() { GREEN=$(printf '\033[32m'); RB_BLUE=$(printf '\033[38;5;021m') RB_INDIGO=$(printf '\033[38;5;093m') RED=$(printf '\033[31m') RESET=$(printf '\033[m'); PAD=$(printf '\033[25m'); }
+InitColorForce() { GREEN=$'\033[32m' RB_BLUE=$'\033[38;5;021m' RB_INDIGO=$'\033[38;5;093m' RED=$'\033[31m' RESET=$'\033[m' PAD=$'\033[25m' RESET_PAD=$'\033#3'; }
 
 #
 # account
