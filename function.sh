@@ -4614,7 +4614,7 @@ function RunPlatform()
 	# set _platform variables
 	if [[ "$1" == @(-h|--host) ]]; then		
 		shift
-		[[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; }
+		[[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; hostArg+=("$1"); }
 	else
 		local _platformOs="$PLATFORM_OS" _platformIdMain="$PLATFORM_ID_MAIN" _platformIdLike="$PLATFORM_ID_LIKE" _platformIdBase="$PLATFORM_ID_BASE" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
@@ -4627,9 +4627,9 @@ function RunPlatform()
 
 	# run windows WSL functions
 	if [[ "$PLATFORM_OS" == "win" ]]; then
-		IsPlatform wsl --host && { RunFunction $function wsl -- "$@" || return; }
-		IsPlatform wsl1 --host && { RunFunction $function wsl1 -- "$@" || return; }
-		IsPlatform wsl2 --host && { RunFunction $function wsl2 -- "$@" || return; }
+		IsPlatform wsl "${hostArg[@]}" && { RunFunction $function wsl -- "$@" || return; }
+		IsPlatform wsl1 "${hostArg[@]}" && { RunFunction $function wsl1 -- "$@" || return; }
+		IsPlatform wsl2 "${hostArg[@]}" && { RunFunction $function wsl2 -- "$@" || return; }
 	fi
 
 	# run other functions
