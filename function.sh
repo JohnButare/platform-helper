@@ -568,6 +568,7 @@ DotNetConf()
 
 HashiConf()
 {
+	local scriptName="HashiConf"
 	local force forceLevel forceLess; ScriptOptForce "$@"
 	local verbose verboseLevel verboseLess; ScriptOptVerbose "$@"
 
@@ -600,7 +601,7 @@ HashiConf()
 	local vars; vars="$(hashi config environment all --suppress-errors "$@")" || return
 	if ! eval "$vars"; then
 		(( verboseLevel > 1 )) && { ScriptErr "invalid environment variables:"; ScriptMessage "$vars"; }
-		ScriptErr "Hashi configuration variables are not valid" "HashiConf"
+		ScriptErr "Hashi configuration variables are not valid"
 		return 1
 	fi
 	
@@ -1015,7 +1016,7 @@ else
 fi
 
 # array
-ArrayAnyCheck() { IsAnyArray "$1" && return; ScriptErr "'$1' is not an array"; return 1; }
+ArrayAnyCheck() { IsAnyArray "$1" && return; ScriptErr "'$1' is not an array" "ArrayAnyCheck"; return 1; }
 ArrayReverse() { { ArrayDelimit "$1" $'\n'; printf "\n"; } | TMPDIR="/tmp" tac; } # last line of tac must end in a newline, tac needs a writable directory
 ArraySize() { eval "echo \${#$1[@]}"; }
 ArraySort() { IFS=$'\n' ArrayMake "$1" "$(ArrayDelimit "$1" $'\n' | sort "${@:2}")"; } # ArraySort VAR SORT_OPTIONS...
@@ -1066,7 +1067,7 @@ ArrayAppend()
 # ArrayCopy SRC DEST
 ArrayCopy()
 {
-	! IsAnyArray "$1" && { ScriptErr "'$1' is not an array"; return 1; }
+	! IsAnyArray "$1" && { ScriptErr "'$1' is not an array" "ArrayCopy"; return 1; }
 	local ifsSave; IfsSave; declare -g $(GetType "$1") "$2"; IfsRestore # save and restore IFS in case it is set to - or a
 	eval "$2=( $(GetDef "$1") )"
 }
