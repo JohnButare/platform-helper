@@ -5511,8 +5511,7 @@ RunFunctions()
 			--ignore-errors|-ie) ignoreErrors="--ignore-errors";;
 			*)
 				[[ "$1" == "--" ]] && { shift; break; }
-				if ! IsOption "$1" && [[ ! $s ]]; then s="$1"
-				elif ! IsOption "$1"; then functions+=("$1")
+				if ! IsOption "$1"; then functions+=("$1")
 				else UnknownOption "$1"; return
 				fi
 		esac
