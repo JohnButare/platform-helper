@@ -1754,8 +1754,15 @@ PathQuoted()
 	StringToArray "$PATH" ":" paths && ArrayRemove paths "${exclude[@]}" && ArrayShow paths
 }
 
-PathFiles() { eval ${G}find $(PathQuoted) -maxdepth 1 -executable  -not -type d |& ${G}grep -v "No such file or directory"; } 	# PathFiles - return all files in the path
-PathFileNames() { PathFiles | sed 's/.*\///' | sort | uniq; }																																		# PathFileNames - return all distinct sorted file names in the path
+# PathFiles - return all files in the path
+PathFiles()
+{
+	eval ${G}find $(PathQuoted) -maxdepth 1 -executable  -not -type d |& ${G}grep -v "No such file or directory"
+	return 0 # find will return errors for paths that do not exist
+}
+
+# PathFileNames - return all distinct sorted file names in the path
+PathFileNames() { PathFiles | sed 's/.*\///' | sort | uniq; }
 
 # RmOldFiles PATTERN [DAYS](30)
 RmOldFiles()
