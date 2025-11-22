@@ -13,8 +13,11 @@ testVars()
 {
     setVars
     var1="value1" var2="value2"
-    echo "var1=$var1 var2=$var2"
+    echo "testVars: var1=$var1 var2=$var2"
+    testVars2
 }
+
+testVars2() { echo "testVars2: var1=$var1 var2=$var2"; }
 
 testArguments()
 {
@@ -26,4 +29,4 @@ testArguments()
 }
 
 # testArguments
-testVars; echo "var1=$var1 var2=$var2"
+testVars; echo "main: var1=$var1 var2=$var2"
