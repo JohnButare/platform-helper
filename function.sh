@@ -666,6 +666,7 @@ i()
 		esac
 		shift
 	done
+	local globalArgs globalArgsLess globalArgsLessForce globalArgsLessVerbose; ScriptGlobalArgsSet || return
 
 	if [[ $help ]]; then EchoWrap "\
 Usage: i [APP*|bak|cd|check|dir|info|select]
@@ -682,7 +683,7 @@ install commands.
 		check|select) InstFind;;
 		dir) InstFind && echo "$INSTALL_DIR";;
 		info) InstFind && echo "The installation directory is $INSTALL_DIR";;
-		*) InstFind && inst install --hint "$INSTALL_DIR" $noRun $force $verbose "${args[@]}";;
+		*) InstFind && inst install --hint "$INSTALL_DIR" $noRun "${globalArgs[@]}" "${args[@]}";;
 	esac
 }
 
@@ -3146,6 +3147,7 @@ WaitForPort()
 	[[ ! $port ]] && { MissingOperand "port"; return; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
 	[[ ! $seconds ]] && { seconds="${4-$(AvailableTimeoutGet)}"; }
+	local globalArgs globalArgsLess globalArgsLessForce globalArgsLessVerbose; ScriptGlobalArgsSet || return
 
 	# return if available	
 	IsAvailablePort "$host" "$port" "$timeout" "${globalArgsLessVerbose[@]}" && return
@@ -3329,6 +3331,7 @@ DnsResolve()
 		esac
 		shift
 	done
+	local globalArgs globalArgsLess globalArgsLessForce globalArgsLessVerbose; ScriptGlobalArgsSet || return
 
 	# cleanup and validate the name
 	name="$(RemoveEnd "$name" ".")" # remove tailing periods, so we use the DNS search suffix
@@ -5540,6 +5543,15 @@ ScriptPrefix() { local name="$(ScriptName "$1")"; [[ ! $name ]] && return; print
 ScriptReturnError() { [[ $suppressErrors ]] && echo 0 || echo 1; }
 ScriptTry() { EchoErr "Try '$(ScriptName "$1") --help' for more information."; return 1; }
 ScriptTryVerbose() { EchoErr "Use '--verbose' for more information."; return 1; }
+
+# ScriptGlobalArgsSet - set the global arguments to pass to another script
+ScriptGlobalArgsSet()
+{	
+	globalArgs=($force $noPrompt $quiet $test $verbose)
+	globalArgsLess=($forceLess $noPrompt $quiet $test $verboseLess)
+	globalArgsLessForce=($forceLess $noPrompt $quiet $test $verbose)
+	globalArgsLessVerbose=($force $noPrompt $quiet $test $verboseLess)
+}
 
 # ScriptCd PROGRAM [ARG...] - run a script and change to the first directory returned
 ScriptCd()
