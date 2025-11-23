@@ -361,6 +361,7 @@ AppVersion()
 			tmux) version="$(tmux -V | cut -d" " -f2)" || return;;
 			traefik) version="$(traefik version | ${G}grep "^Version:" | ${G}cut -d":" -f 2 | RemoveSpaceTrim)" || return;;
 			vault) version="$(vault --version | cut -d" " -f2 | RemoveFront "v")" || return;;
+			xquartz) version="$(xserver version)" || return;;
 			zsh) version="$("$app" --version | cut -d" " -f2)" || return;;
 		esac
 	fi
