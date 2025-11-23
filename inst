@@ -1083,7 +1083,7 @@ appGetInstallFunction()
 # appGetTrack APP WHAT [PLATFORM] - get the tracking cache name
 appGetTrack()
 {
-	local app="${1,,}" what="$2" platform="$3"; track="install-$app-$what-version"
+	local app="${1,,}" what="$2" platform="$3" track; track="install-$app-$what-version"
 	[[ "$installType" == "beta" ]] && track+="-beta"
 	[[ $platform && "$platform" != "all" ]] && track+="-$platform"
 	echo "$track" 
@@ -2424,41 +2424,41 @@ versionGetCurrent()
 		echo "$v"; return
 	fi
 
-	# get function or store ID
-	local function storeId
-	if ! storeId="$(storeGetId "$app")"; then
-		function="$(versionGetFunction "$app" "$platform")" || return
-		! IsFunction "$function" && { ScriptErr "cannot get the '$(appDesc "$app" "$platform")' version"; return 1; }
-	fi
-	
-	# get current version - install cache (except for store apps)
-	local trackFile="$(GetFullPath ".$track")"
-	if [[ ! $storeId ]] && appCd "$app" && ! UpdateNeeded "$trackFile" && v="$(cat ".$track")" &&  versionValidate "$app" "$v"; then
-		log4 "versionGetCurrent: got '$app' current version '$v' from the install cache '$(FileToDesc "$trackFile")'"
-		UpdateSet "$track" "$v" && echo "$v"; return
+	# get current version - store
+	local storeId
+	if storeId="$(storeGetId "$app")"; then
+		v="$(storeCurrentVersion "$storeId")" && versionValidate "$app" "$v" "current" && UpdateSet "$track" "$v" && echo "$v"
+		log4 "versionGetCurrent: got '$app' current version '$v' from the store (storeId=$storeId)"
+		return
 	fi
 
-	# get current version - store
-	if isStoreApp "$app"; then
-		v="$(storeCurrentVersion "$storeId")" || return		
+	# get application version function - return if there is not one before look at the install cache (faster)
+	local function; function="$(versionGetFunction "$app" "$platform")" || return
+	! IsFunction "$function" && { ScriptErr "cannot get the '$(appDesc "$app" "$platform")' version"; return 1; }
+	
+	# get current version - install cache
+	appCd "$app" || return
+	local trackFile="$(GetFullPath ".$track")"
+	log5 "versionGetCurrent: app=$app function=$function track=$track trackFile=$(FileToDesc "$trackFile")"
+	if v="$(UpdateGet "$trackFile")" && versionValidate "$app" "$v"; then
+		log4 "versionGetCurrent: got '$app' current version '$v' from the install cache ($(FileToDesc "$trackFile"))"
+		UpdateSet "$track" "$v" && echo "$v"; return # set local cache and return
+	fi
 
 	# get current version - function <app>Version[Beta][Mac|Win]
-	else
-		v="$($function)" || { versionError "$app" "current"; return; }
+	v="$($function)" || { versionError "$app" "current"; return; }
+	log4 "versionGetCurrent: got '$app' current version '$v' from the install function '$function'"
 
-		# ignore older beta versions
-		if [[ "$installType" == "beta" ]]; then
-			local vReleased; vReleased="$(${app,}Version)" || return
-			if versionIsEqual "$v" "$vReleased" || versionIsOlder "$v" "$vReleased"; then
-				UpdateSet "$track" ""
-				ScriptErrQuiet "'$(appDesc "$app" "$platform")' beta version '$v' is older than the released version '$vReleased'"
-				return
-			fi
+	# ignore older beta versions
+	if [[ "$installType" == "beta" ]]; then
+		local vReleased; vReleased="$(${app,}Version)" || return
+		if versionIsEqual "$v" "$vReleased" || versionIsOlder "$v" "$vReleased"; then
+			UpdateSet "$track" ""
+			ScriptErrQuiet "'$(appDesc "$app" "$platform")' beta version '$v' is older than the released version '$vReleased'"
+			return
 		fi
 	fi
 
-	# save and return the version
-	log4 "versionGetCurrent: got '$app' current version '$v'"
 	versionValidate "$app" "$v" "current" && echo "$v" > ".$track" && UpdateSet "$track" "$v" && echo "$v"
 }
 
@@ -11872,7 +11872,7 @@ isStoreId() { ! IsPlatform mac && return 1; RunPlatform isStoreId "$1"; }
 isStoreIdMac() { IsInteger "$1"; }
 
 # storeGetId App
-storeGetId() { RunPlatformOs storeGetId "$1"; }
+storeGetId() { RunPlatformOs storeGetId "$1"; [[ $storeId ]]; }
 storeGetIdLinux() { echo "${storeIdsLinux[$1]}"; }
 storeGetIdMac() { echo "${storeIdsMac[$1]}"; }
 storeGetIdWin() { echo "${storeIdsWin[$1]}"; }
