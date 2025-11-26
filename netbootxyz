@@ -325,24 +325,31 @@ testCommand()
 {
 	local result="0";
 	! InPath tftp && { i --no-prompt --no-header TftpClient || return; }
+	testMenu && testUi && testApp && testAssets && testTftp && return $result
+}
 
-	# printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "iPXE Bootloaders" && echo "OK" || testFail "FAIL"
-	# printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || testFail "FAIL"
+testFail() { (( ++result )); [[ $1 ]] && HilightErrEnd "$1"; return 0; }
 
- 	# # application
- 	# local versionCurrent; versionCurrent="$(versionCurrent)" || return
- 	# local versionLatest; versionLatest="$(versionLatest)" || return
- 	# printf "application source version: "; [[ "$versionCurrent" == "$versionLatest" ]] && echo "OK" || testFail "out of date (current v$versionCurrent, latest v$versionLatest)"
+testMenu() { printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "iPXE Bootloaders" && echo "OK" || testFail "FAIL"; }
+testUi() { printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || testFail "FAIL"; }
 
-	# local host hosts; getHosts || return
-	# for host in "${hosts[@]}"; do
-	# 	local h="$(RemoveDnsSuffix "$host")" versionHost; versionHost="$(versionApp "$host")" || return
-	# 	printf "application $h version: "; [[ "$versionHost" == "$versionLatest" ]] && echo "OK" || testFail "out of date ($h v$versionHost, latest v$versionLatest)"
-	# done
+testApp()
+{
+ 	local versionCurrent; versionCurrent="$(versionCurrent)" || { testFail "could not get netbootxyz current version"; return; }
+ 	local versionLatest; versionLatest="$(versionLatest)" || { testFail  "could not get netbootxyz latest version"; return; }
+ 	printf "application source version: "; [[ "$versionCurrent" == "$versionLatest" ]] && echo "OK" || testFail "out of date (current v$versionCurrent, latest v$versionLatest)"
 
-	# # assets
-	# testWeb "assets-vanity" "http://boot.butare.net/assets/"
-	# testWeb "assets-custom-vanity" "http://boot.butare.net/assets-custom/"
+	local host hosts; getHosts || return
+	for host in "${hosts[@]}"; do
+		local h="$(RemoveDnsSuffix "$host")" versionHost; versionHost="$(versionApp "$host")" || return
+		printf "application $h version: "; [[ "$versionHost" == "$versionLatest" ]] && echo "OK" || testFail "out of date ($h v$versionHost, latest v$versionLatest)"
+	done
+}
+
+testAssets()
+{
+	testWeb "assets-vanity" "http://boot.butare.net/assets/"
+	testWeb "assets-custom-vanity" "http://boot.butare.net/assets-custom/"
 
 	local host hosts; GetHostsApp "apache-web" active || return 
 	for host in "${hosts[@]}"; do
@@ -350,26 +357,31 @@ testCommand()
 		testWeb "assets-$host" "http://$host.butare.net:180/netboot.xyz/assets/"
 		testWeb "assets-custom-$host" "http://$host.butare.net:180/netboot.xyz/assets-custom/"
 	done
-
-	# # TFTP
-	# local check; IsPlatform mac,WSL && { check="ssh $(GetServer "apache-web")" || return; } # WSL does not support UDP, ssh to a web server for the test, mac TFTP does not support -c
-	# local file="about.ipxe"
-	# local server servers="$(GetServers "tftp")"
-
-	# for server in $servers; do
-	# 	local desc="$(RemoveDnsSuffix "$server")"
-	# 	printf "TFTP $desc: "
-	# 	printf "server..."; IsAvailable "$server" || { testFail "not available"; continue; }
-	# 	printf "port..."; IsAvailablePortUdp "$server" 69 || { testFail "not responding (port 69)"; continue; }
-	# 	printf "file..."; RunLog $check tftp $server -c get "$file" > /dev/null || testFail "not available ($file)"
-	# 	echo "OK"
-	# 	$check rm -f "$file" # cleanup
-	# done
-
-	return $result
 }
 
-testFail() { (( ++result )); HilightErrEnd "$1"; }
+testTftp()
+{
+	# determine check host
+	# - mac TFTP does not support -c
+	# - WSL does not support UDP
+	local check
+	if IsPlatform mac,WSL; then
+		check="ssh $(GetServer "apache-web")" || { testFail "could not get a server to test TFTP"; return; }
+	fi
+
+	local file="about.ipxe"
+	local server servers; servers="$(GetServers "tftp")" || { testFail "could not get TFTP servers"; return; }
+
+	for server in $servers; do
+		local desc="$(RemoveDnsSuffix "$server")"
+		printf "TFTP $desc: "
+		printf "server..."; IsAvailable "$server" || { testFail "not available"; continue; }
+		printf "port..."; IsAvailablePortUdp "$server" 69 || { testFail "not responding (port 69)"; continue; }
+		printf "file..."; RunLog $check tftp $server -c get "$file" > /dev/null || testFail "not available ($file)"
+		echo "OK"
+		$check rm -f "$file" # cleanup
+	done
+}
 
 # testWeb DESCRIPTION URL
 testWeb()
