@@ -204,7 +204,7 @@ ScriptOptGlobal()
 {
 	case "$1" in
 		--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
-		--help|-h) ScriptOptVerbose "$@"; usage 0;;
+		--help|-h) help="--help";;
 		--no-prompt|-np) noPrompt="--no-prompt";;
 		--quiet|-q) quiet="--quiet" quietOutput="/dev/null";;
 		--test) test="--test";;
@@ -533,7 +533,7 @@ ScriptRun()
 	for c in "${commands[@]}"; do RunFunction "${c}ArgStart" || return; done
 
 	# options
-	unset -v force forceLess forceLevel noPrompt quiet test showVersion verbose verboseLess verboseLevel wait
+	unset -v force forceLess forceLevel help noPrompt quiet test showVersion verbose verboseLess verboseLevel wait
 	quietOutput="/dev/stdout"
 
 	set -- "${args[@]}"; args=()
@@ -544,6 +544,9 @@ ScriptRun()
 
 	# set global options
 	ScriptGlobalArgsSet || return
+
+	# usage
+	[[ $help ]] && { usage 0; }
 
 	# operands
 	set -- "${args[@]}"
