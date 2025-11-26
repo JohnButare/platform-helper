@@ -206,8 +206,117 @@ appAliveCommand() { name="$app" quiet="--quiet" RunLog resolvePassingCommand > /
 # app node commands
 #
 
-appNodeUsage()  { ScriptUsageEcho "Usage: $(ScriptName) app node [status|register|unregister](status)"; }
+appNodeUsage()  { ScriptUsageEcho "Usage: $(ScriptName) app node [IsRegistered|register|unregister|status](status)"; }
 appNodeCommand() { appNodeStatusCommand; }
+
+#
+# app node IsRegistered command
+#
+
+appNodeIsRegisteredUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) app node IsRegistered APP
+Return true if the application is registered with Consul and Nomad."
+}
+
+appNodeIsRegisteredArgs() { ScriptArgGet "app" -- "$@"; }
+
+appNodeIsRegisteredCommand()
+{
+	# check Consul registration
+	log3 "appNodeIsRegisteredCommand: checking if '$app' is registered in Consul..."
+	hashi app server "$app" | qgrep "$HOSTNAME\." || return
+
+	# check Nomad registration
+	local id; id="$(nomadGetNodeId "localhost")" || return
+	log3 "appNodeIsRegisteredCommand: checking if '$app' is registered in Nomad (node id=$id)..."
+	[[ "$(nomad node status -json "$id" | jq '.Meta.["app.'$app'"]' | RemoveQuotes)" == "true" ]]
+}
+
+#
+# app node register command
+#
+
+appNodeRegisterUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) app node register APP
+Register the application on this host with Consul and Nomad."
+}
+
+appNodeRegisterArgs() { ScriptArgGet "app" -- "$@"; }
+
+appNodeRegisterCommand()
+{
+	local host="${hostArg:-$HOSTNAME}"; host="${host,,}"
+
+	# Consul
+	if [[ ! $(consul kv get -recurse "app/$app/hosts/${HOSTNAME,,}") ]]; then
+		hilight "Registering '$app' application in Consul..."
+		consul kv put "app/$app/hosts/${HOSTNAME,,}" || return
+		echo
+	fi
+	
+	# Nomad - remote host
+	if ! IsLocalHost "$host"; then
+		! IsAvailable "$host" $timeout && { ScriptErr "host '$host' is not available"; return 1; }
+		sshRunInteractive "$host" "hashi app node register $app"; return
+	fi
+
+	# Nomad - local host
+	local file="/etc/nomad.d/03_$app.hcl"
+	[[ -f "$file" && ! $force ]] && return
+	serviceVerify "nomad" || return	
+
+	hilight "Registering '$app' application in Nomad..."
+
+ 	cat <<-EOF | sudoc ${G}tee "$file" || return
+		client {
+		  meta { 
+		    app.$app = "true" 
+		  }
+		}
+	EOF
+
+	serviceRestartLocal "nomad"
+}
+
+#
+# app node unregister command
+#
+
+appNodeUnregisterUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) app node unregister APP
+Unregister the application on this or the specified host in Consul and Nomad."
+}
+
+appNodeUnregisterArgs() { ScriptArgGet "app" -- "$@"; }
+
+appNodeUnregisterCommand()
+{
+	local host="${hostArg:-$HOSTNAME}"; host="${host,,}"
+
+	# Consul
+	if [[ $(RunLog consul kv get -recurse "app/$app/hosts/$host") ]]; then
+		hilight "Unregistering '$app' application in Consul for host '$host'..."
+		consul kv delete -recurse "app/$app/hosts/$host" || return
+		echo
+	fi
+
+	# Nomad - remote host
+	if ! IsLocalHost "$host"; then
+		! IsAvailable "$host" && { ScriptErr "host $host is not available"; return 1; }
+		sshRunInteractive "$host" "hashi app node unregister $app"; return
+	fi
+
+	# Nomad - local host
+	local file="/etc/nomad.d/03_$app.hcl"
+	serviceVerify "nomad" || return
+	[[ ! -f "$file" ]] && return
+
+	hilight "Unregistering '$app' application in Nomad on host '$host'..."
+	sudoc rm "$file" && serviceRestartLocal "nomad"
+}
 
 #
 # app node status command 
@@ -260,77 +369,6 @@ appNodeStatus()
 
 # appNodeGet HOST - get all of the applications on the specified host by searching for Nomad app.<APP> metadata tags
 appNodeGet() { verbose="--verbose" RunErr nomadNodeStatus "$1" | ${G}grep '^app\.' | cut -d" " -f1 | cut -d. -f2 | sort; }
-
-#
-# app node [un]register commands
-#
-
-appNodeRegisterUsage() { ScriptUsageEcho "Usage: $(ScriptName) app node register APP\nRegister the application on this host with Consul and Nomad."; }
-appNodeRegisterArgs() { ScriptArgGet "app" -- "$@"; }
-
-appNodeRegisterCommand()
-{
-	local host="${hostArg:-$HOSTNAME}"; host="${host,,}"
-
-	# Consul
-	if [[ ! $(consul kv get -recurse "app/$app/hosts/${HOSTNAME,,}") ]]; then
-		hilight "Registering '$app' application in Consul..."
-		consul kv put "app/$app/hosts/${HOSTNAME,,}" || return
-		echo
-	fi
-	
-	# Nomad - remote host
-	if ! IsLocalHost "$host"; then
-		! IsAvailable "$host" $timeout && { ScriptErr "host '$host' is not available"; return 1; }
-		sshRunInteractive "$host" "hashi app node register $app"; return
-	fi
-
-	# Nomad - local host
-	local file="/etc/nomad.d/03_$app.hcl"
-	[[ -f "$file" && ! $force ]] && return
-	serviceVerify "nomad" || return	
-
-	hilight "Registering '$app' application in Nomad..."
-
- 	cat <<-EOF | sudoc ${G}tee "$file" || return
-		client {
-		  meta { 
-		    app.$app = "true" 
-		  }
-		}
-	EOF
-
-	serviceRestartLocal "nomad"
-}
-
-appNodeUnregisterUsage() { ScriptUsageEcho "Usage: $(ScriptName) app node unregister APP\nUnregister the application on this or the specified host in Consul and Nomad."; }
-appNodeUnregisterArgs() { ScriptArgGet "app" -- "$@"; }
-
-appNodeUnregisterCommand()
-{
-	local host="${hostArg:-$HOSTNAME}"; host="${host,,}"
-
-	# Consul
-	if [[ $(RunLog consul kv get -recurse "app/$app/hosts/$host") ]]; then
-		hilight "Unregistering '$app' application in Consul for host '$host'..."
-		consul kv delete -recurse "app/$app/hosts/$host" || return
-		echo
-	fi
-
-	# Nomad - remote host
-	if ! IsLocalHost "$host"; then
-		! IsAvailable "$host" && { ScriptErr "host $host is not available"; return 1; }
-		sshRunInteractive "$host" "hashi app node unregister $app"; return
-	fi
-
-	# Nomad - local host
-	local file="/etc/nomad.d/03_$app.hcl"
-	serviceVerify "nomad" || return
-	[[ ! -f "$file" ]] && return
-
-	hilight "Unregistering '$app' application in Nomad on host '$host'..."
-	sudoc rm "$file" && serviceRestartLocal "nomad"
-}
 
 #
 # app server commands
