@@ -444,7 +444,7 @@ GetHostsApp()
 	[[ $hostArg ]] && { StringToArray "$(LowerCase "$hostArg")" "," hosts; return; }
 
 	# get hosts
-	hosts=(); IFS=$'\n' ArrayMakeC hosts hashi app server "$type" "$app"
+	hosts=(); IFS=$'\n' ArrayMakeC hosts hashi app server "$type" "$app" "${globalArgsLessVerbose[@]}"
 
 	# validate
 	[[ $hosts ]] && return
