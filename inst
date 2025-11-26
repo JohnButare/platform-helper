@@ -116,10 +116,9 @@ checkCommand()
 	# force detail so we can check what needs to be updated
 	local detail="--detail"
 
-	# exclude - only show applications which need to be updated
-	# - exclude Chrome as version check is not reliable
-	# - exclude Flighty, store reports current version as 3.4.2, but only updates to 3.4.1
-	local exclude="Chrome\|Flighty\|NoMachine"
+	# exclude - from update check
+	local exclude=""
+	IsDomainRestricted && exclude+="Vault\|Traefik"
 
 	# check
 	local check="yes"
@@ -130,8 +129,14 @@ check()
 {
 	local product term="$TERM"; [[ ! $term ]] && term="xterm-256color"
 	local app apps=() appsDownload=() installedApps=() installedBin=()
-	local exclude=(Hashi netplan Teams Xcode) # Teams download needs work
-	IsPlatform mac && exclude+=(Warp) # can only check Warp version on mac
+
+	# exclude
+	# - Chrome - version check is not reliable
+	# - Flighty - store reports current version as 3.4.2, but only updates to 3.4.1
+	# Teams download needs work
+	local exclude=(Chrome Flighty NoMachine Hashi netplan Teams Xcode)
+	IsDomainRestricted && exclude+=(Yarn) # need to figure out UNABLE_TO_GET_ISSUER_CERT_LOCALLY
+	IsPlatform mac && exclude+=(Warp) 		# can only check Warp version on mac
 
 	# initialize
 	installInit || return
@@ -730,7 +735,8 @@ installInit()
 
 	# File Hosting
 	macDeb+=(dbxcli Dropbox DropboxDash)
-	win+=(iCloud OneDrive)
+	macWin+=(OneDrive)
+	win+=(iCloud)
 
 	# Finances
 	macWin+=(quicken)
@@ -1017,6 +1023,7 @@ platformUserAppData() { local d; d="$(GetPlatformVar "UDATA")/app" && makeDir "$
 rebootIfNeeded() { [[ ! $rebootNeeded ]] && return; rebootDo; }
 rebootDo() { SleepStatus "Rebooting in 10 seconds" 10 && power reboot; }
 registryDo() { ! canElevate && return; registry "$@"; }
+registryDelete() { { ! canElevate || ! registry exist "$1"; } && return; registry delete "$key"; }
 rmSudo() { [[ ! -f "$1" ]] && return; sudoc ${G}rm -f "$1"; }
 servicesDemandStop() { local s; for s in "$@"; do service demand stop "$s" || return; done; }
 sshAgentCheck() { [[ $sshAgentChecked ]] && return; SshAgentConf --quiet "${globalArgs[@]}" && sshAgentChecked="true"; }
@@ -4701,7 +4708,7 @@ TrueImageFinalWin()
 	mergeDir "$pp/Acronis" "$oo" || return
 	$rm "$pp/Acronis True Image.lnk" || return
 	$rm "$pd/Acronis True Image.lnk" || return
-	registry delete "run/Acronis Scheduler2 Service" # C:\Program Files (x86)\Common Files\Acronis\Schedule2\schedhlp.exe
+	registryDelete "run/Acronis Scheduler2 Service" # C:\Program Files (x86)\Common Files\Acronis\Schedule2\schedhlp.exe
 	registry 32 delete "run/AcronisTibMounterMonitor" # C:\Program Files (x86)\Common Files\Acronis\TibMounter\TibMounterMonitor.exe
 	registry 32 delete "run/TrueImageMonitor.exe" # C:\Program Files (x86)\Acronis\TrueImageHome\TrueImageMonitor.exe
 }
@@ -4769,7 +4776,7 @@ DropboxFinalWin()
 	registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{E31EA727-12ED-4702-820C-4B6445F28E1B}/" # Desktop Dropbox icon
 	registry set "HKCU/SOFTWARE/Classes/CLSID/{E31EA727-12ED-4702-820C-4B6445F28E1A}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 > /dev/null || return # Desktop Dropbox icon
 	registry 32 delete "run/Dropbox" # "C:\Program Files (x86)\Dropbox\Client\Dropbox.exe" /systemstartup
-	registry delete "run/Dropbox" # "C:\Program Files (x86)\Dropbox\Client\Dropbox.exe" /systemstartup
+	registryDelete "run/Dropbox" # "C:\Program Files (x86)\Dropbox\Client\Dropbox.exe" /systemstartup
 }
 
 # DropboxDownload
@@ -4841,10 +4848,11 @@ OneDriveFinalWin()
 	# registry
 	registry delete "urun/OneDrive" # "$UADATA|$P\Microsoft\OneDrive\OneDrive.exe" /background
 	registry delete "HKCU/SOFTWARE/Microsoft/Windows/CurrentVersion/Explorer/Desktop/NameSpace/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/" # Desktop One Drive icon
-	canElevate && { registry set "HKCR/CLSID/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/System.IsPinnedToNameSpaceTree" REG_DWORD 0 > /dev/null || return; }
 
-	# variables
-	SetVar --delete OneDrive || return
+	local key="HKCR/CLSID/{018D5C66-4533-4307-9B53-224DE2ED1FE6}/System.IsPinnedToNameSpaceTree" value
+	if canElevate && { ! value="$(registry get "$key" | RemoveCarriageReturn)" || [[ $value != "0x0" ]]; }; then
+		registry set "$key" REG_DWORD 0 > /dev/null || return
+	fi
 
 	# files
 	moveCloudData "$CLOUD/Whiteboards" "OneDrive/Whiteboards" || return
@@ -5385,6 +5393,11 @@ GitExtensionsInstall()
 	# install
 	local v=5.1.1.17970 # https://github.com/gitextensions/gitextensions/releases/latest
 	run --no-header --name "GitExtensions" "git/GitExtensions/setup/GitExtensions-x64-5.1.1.17970-939c0edba.msi" --version="$v" || return
+
+	# cleanup
+	registry unregister "$P/GitExtensions/GitExtensionsShellEx64.dll" # always errors
+
+	return 0
 }
 
 GitExtensionsProfile() { GitHelper profile restore default "${globalArgs[@]}"; }
@@ -5408,8 +5421,7 @@ GitExtensionsFinalWin()
 	makeDir "$dir" || return
 	$mv "$pp/Git Extensions.lnk" "$dir" || return
 	$rm -f "$pd/Git Extensions.lnk" || return
-	registry delete "HKEY_CLASSES_ROOT/Directory/Background/shellex/ContextMenuHandlers/GitExtensions2/" || return
-	registry unregister "$P/GitExtensions/GitExtensionsShellEx64.dll" # always errors
+	registryDelete "HKEY_CLASSES_ROOT/Directory/Background/shellex/ContextMenuHandlers/GitExtensions2/" || return
 	return 0
 }
 
@@ -5431,10 +5443,10 @@ GitForWindowsFinalWin()
 	$rm "$up/Git for Windows.lnk"	|| return
 
 	# context menus
-	registry delete "HKEY_CLASSES_ROOT/Directory/shell/git_gui/"
-	registry delete "HKEY_CLASSES_ROOT/Directory/shell/git_shell/"
-	registry delete "HKEY_CLASSES_ROOT/Directory/Background/shell/git_gui/"
-	registry delete "HKEY_CLASSES_ROOT/Directory/Background/shell/git_shell/"
+	registryDelete "HKEY_CLASSES_ROOT/Directory/shell/git_gui/"
+	registryDelete "HKEY_CLASSES_ROOT/Directory/shell/git_shell/"
+	registryDelete "HKEY_CLASSES_ROOT/Directory/Background/shell/git_gui/"
+	registryDelete "HKEY_CLASSES_ROOT/Directory/Background/shell/git_shell/"
 }
 
 GitForWindowsConfigureInstall() { gitForWindowsConfigure; }
@@ -5657,7 +5669,7 @@ TortoiseGitFinalWin() { mergeDir "$pp/TortoiseGit" "$do"; }
 gitFixWin()
 {
 	local git="$1" type="${2:---system}" elevate="$(LowerCase "$3")"
-	[[ ! -f "$git" ]] && return 0
+	[[ ! -f "$git" || "$("$git" config $type core.filemode)" == "false" ]] && return
 	RunLog $elevate "$git" config $type core.filemode false
 }
 
@@ -5902,7 +5914,7 @@ CricutInstall()
 
 CricutFinalWin()
 {
-	registry delete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe
+	registryDelete "run/ErmTray" # C:/Program Files/McAfee/Host Intrusion Prevention/FireTray.exe
 	mergeDir "$up/Cricut Design Space Beta" "$up/Applications/other" || return
 	$mv "$ud/Cricut Design Space.lnk" "$up/Applications" || return
 	$mv "$ud/Cricut Design Space Beta.lnk" "$up/Applications" || return
@@ -6107,8 +6119,8 @@ LogitechFinalWin()
 	registry delete "urun/LGHUB" || return # "C:\Program Files\LGHUB\lghub.exe" --background
 	! canElevate && return
 
-	registry delete "run/LogiOptions" || return # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
-	registry delete "run/Logitech Download Assistant" || return # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch
+	registryDelete "run/LogiOptions" || return # C:\Program Files\Logitech\LogiOptions\LogiOptions.exe /noui
+	registryDelete "run/Logitech Download Assistant" || return # C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch
 
 	mergeDir --rename "$pp/Logi" "$oo/Logitech" || return
 	$mv "$pd/Logi Plugin Service.lnk" "$oo/Logitech" || return
@@ -6294,8 +6306,8 @@ GigabyteFinalWin()
 {
 	local d="$oo/GIGABYTE"
 
-	registry delete "run/RtkAudUService" # "C:\WINDOWS\System32\RtkAudUService64.exe" -background
-	registry delete "run/RTHDVCPL" # "C:\Program Files\Realtek\Audio\HDA\RtkNGUI64.exe" -s
+	registryDelete "run/RtkAudUService" # "C:\WINDOWS\System32\RtkAudUService64.exe" -background
+	registryDelete "run/RTHDVCPL" # "C:\Program Files\Realtek\Audio\HDA\RtkNGUI64.exe" -s
 
 	mergeDir "$pp/GIGABYTE" "$oo" || return
 
@@ -6444,7 +6456,7 @@ NvidiaFinalWin()
 	$rm "$pd/NVIDIA.lnk" || return
 
 	# registry
-	registry delete "HKEY_CLASSES_ROOT/Directory/Background/shellex/ContextMenuHandlers/NvCplDesktopContext/" || return
+	registryDelete "HKEY_CLASSES_ROOT/Directory/Background/shellex/ContextMenuHandlers/NvCplDesktopContext/" || return
 	
 	# services
 	# NvContainerLocalSystem - https://www.file.net/process/nvcontainer.exe.html
@@ -7611,7 +7623,7 @@ CreativeCloudFinalWin()
 
 	registry 32 delete "run/Adobe Creative Cloud" # "C:\Program Files (x86)\Adobe\Adobe Creative Cloud\ACC\Creative Cloud.exe" --showwindow=false --onOSstartup=true
 	registry 32 delete "run/Acrobat Assistant 8.0" # "C:\Program Files (x86)\Adobe\Acrobat DC\Acrobat\Acrotray.exe"
-	registry delete "run/AdobeGCInvoker-1.0" # "C:\Program Files (x86)\Common Files\Adobe\AdobeGCClient\AGCInvokerUtility.exe"
+	registryDelete "run/AdobeGCInvoker-1.0" # "C:\Program Files (x86)\Common Files\Adobe\AdobeGCClient\AGCInvokerUtility.exe"
 }
 
 #################################################
@@ -9418,7 +9430,13 @@ WslFinalWin()
 
 	# startup
 	local prefix; ! canElevate && prefix="u"
-	registry --quiet set "${prefix}run/startup" REG_SZ "$(utw "$(FindInPath "wsl.exe")") /usr/local/data/bin/RunScript startup" > /dev/null || return # C:\Windows\system32\wsl.exe /usr/local/data/bin/RunScript startup
+
+	local key="${prefix}run/startup" value="$(utw "$(FindInPath "wsl.exe")") /usr/local/data/bin/RunScript startup"
+	if [[ "$(registry get "$key" | RemoveCarriageReturn)" != "$value" ]]; then
+		registry --quiet set "$key" REG_SZ "$value" > /dev/null || return # C:\Windows\system32\wsl.exe /usr/local/data/bin/RunScript startup
+	fi
+
+	return 0
 }
 
 WslProfile() { wsl $noPrompt profile restore default "${globalArgs[@]}"; }
@@ -12333,7 +12351,7 @@ SublimeFinalMac() { makeLinkSudo "$P/Sublime Text.app/Contents/SharedSupport/bin
 
 SublimeFinalWin()
 {
-	registryDo delete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # enable Windows Open With
+	registryDelete "HKEY_CLASSES_ROOT/Applications/sublime_text.exe/" # enable Windows Open With
 	$mv "$pp/Sublime Text.lnk" "$pp/Applications" || return
 }
 
@@ -13549,7 +13567,7 @@ GreenshotHelp()
 GreenshotFinalWin()
 {
 	mergeDir "$pp/GreenShot" "$oo" || return
-	registry delete "run/Greenshot" # C:\Program Files\Greenshot\Greenshot.exe
+	registryDelete "run/Greenshot" # C:\Program Files\Greenshot\Greenshot.exe
 }
 
 SnagitInstall() { header "Snagit"; }
@@ -14149,7 +14167,7 @@ WinConfigInstall()
 
 	echo "Cleaning startup programs..."
 	registry 32 delete "run/NetFxUpdate_v1.1.4322" # "C:\Windows\Microsoft.NET\Framework\v1.1.4322\netfxupdate.exe" 1 v1.1.4322 GAC + NI NID, https://superuser.com/questions/137508/ngen-exe-is-constantly-using-cpu
-	registry delete "run/SecurityHealth" # %windir%\system32\SecurityHealthSystray.exe
+	registryDelete "run/SecurityHealth" # %windir%\system32\SecurityHealthSystray.exe
 
 	echo "Configuring..."
 	local restricted; IsDomainRestricted && restricted=" Restricted"

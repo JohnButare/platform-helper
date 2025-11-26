@@ -556,8 +556,8 @@ ScriptRun()
 	(( $# != 0 )) && { ExtraOperand "$1"; return; }
 
 	# arg end
-	for c in "${commands[@]}"; do RunFunction "${c}ArgEnd" || return; done
 	RunFunction "argEnd" || return
+	for c in "${commands[@]}"; do RunFunction "${c}ArgEnd" || return; done
 
 	# cleanup
 	unset args c shift
