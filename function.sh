@@ -4613,6 +4613,7 @@ function RunPlatform()
 	local function="$1"; shift
 
 	# set _platform variables
+	local hostArg=()
 	if [[ "$1" == @(-h|--host) ]]; then		
 		hostArg=("--host")
 		shift
