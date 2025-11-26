@@ -12,7 +12,7 @@ $(ScriptName) commands.
 
 usageVerbose()
 {
-	local webDirFinal="$(getWebDirFinal)"
+	local webDirTarget="$(getwebDirTarget)"
 
 	local nbServer="$(GetServer "netbootxyz" --quiet)"
 	[[ $nbServer ]] && nbServer="http://$nbServer:3000" || nbServer="${RED}no netbootxyz servers${RESET}"
@@ -35,7 +35,7 @@ Locations:
 - application: netboot.xyz Git repository  : $appDir ($(checkDir "$appDir"))
 - configuration: custom configuration      : $confDir ($(checkDir "$confDir"))
 - web app: netboot.xyz website             : $webDirApp ($(checkDir "$webDirApp"))
-- web final: local website source          : $webDirFinal ($(checkDir "$webDirFinal"))
+- web target: local website source         : $webDirTarget ($(checkDir "$webDirTarget"))
 
 Sites:
 - application
@@ -86,8 +86,8 @@ init()
 bothUsage() { echot "Usage: $(ScriptName) all\nUpdate and deploy netboot.xyz."; }
 bothCommand() { updateAppCommand && deployAllCommand; }
 isInstalledCommand() { [[ -d "$appDir" ]]; }
-varsArgStart() { webDirFinal="$(getWebDirFinal)"; }
-varsCommand() { ScriptReturn appDir confDir webDirApp webDirFinal; }
+varsArgStart() { webDirTarget="$(getwebDirTarget)"; }
+varsCommand() { ScriptReturn appDir confDir webDirApp webDirTarget; }
 
 #
 # deploy commands
@@ -131,8 +131,8 @@ deployAssetsCommand()
 	wiggin sync netbootxyz || return
 }
 
-deployWebUsage() { echot "Usage: $(ScriptName) deploy web\nCopy the netboot.xys web site from $(FileToDesc "$webDirApp") to $(FileToDesc "$webDirFinal"), then uploads the content to the Apache web servers."; }
-deployWebArgStart() { unset hostArg hostOpt hosts; webDirFinal="$(getWebDirFinal)"; }
+deployWebUsage() { echot "Usage: $(ScriptName) deploy web\nCopy the netboot.xys web site from $(FileToDesc "$webDirApp") to $(FileToDesc "$webDirTarget"), then uploads the content to the Apache web servers."; }
+deployWebArgStart() { unset hostArg hostOpt hosts; webDirTarget="$(getwebDirTarget)"; }
 deployWebOpt() { ScriptOptHost "$@"; }
 
 deployWebCommand()
@@ -140,15 +140,15 @@ deployWebCommand()
 	HeaderBig "Deploying Web"
 
 	hilight "Copying files.."
-	sudoc CopyDir --recursive --delete --rsync "$webDirApp" "$webDirFinal" "${globalArgs[@]}" || return
+	sudoc CopyDir --recursive --delete --rsync "$webDirApp" "$webDirTarget" "${globalArgs[@]}" || return
 
 	hilight "Copying custom files..."
-	sudo CopyDir --recursive --rsync --no-metadata "$confDir/web/netboot.xyz/" "$webDirFinal" "${globalArgs[@]}" || return
-	[[ ! -L "$webDirFinal/assets" ]] && { sudoc ln -s "/srv/netbootxyz/assets" "$webDirFinal/assets" || return; }
-	[[ ! -L "$webDirFinal/assets-custom" ]] && { sudoc ln -s "/srv/netbootxyz/assets-custom" "$webDirFinal/assets-custom" || return; }
+	sudo CopyDir --recursive --rsync --no-metadata "$confDir/web/netboot.xyz/" "$webDirTarget" "${globalArgs[@]}" || return
+	[[ ! -L "$webDirTarget/assets" ]] && { sudoc ln -s "/srv/netbootxyz/assets" "$webDirTarget/assets" || return; }
+	[[ ! -L "$webDirTarget/assets-custom" ]] && { sudoc ln -s "/srv/netbootxyz/assets-custom" "$webDirTarget/assets-custom" || return; }
 
 	hilight "Copying custom menus..."
-	sudo cp "$menu" "$webDirFinal/custom/custom.ipxe"  || return # assumes Jinja2 templates are not used (no {{ }})
+	sudo cp "$menu" "$webDirTarget/custom/custom.ipxe"  || return # assumes Jinja2 templates are not used (no {{ }})
 
 	hilight "Syncronizing web sites..."	
 	apache sync "${hostOpt[@]}" "${globalArgs[@]}"
@@ -160,13 +160,13 @@ deployWebCommand()
 
 dirUsage()
 {
-	echot "Usage: $(ScriptName) dir [all|app|conf|web-app|web-final|win-install](all)
+	echot "Usage: $(ScriptName) dir [all|app|conf|web-app|web-target|win-install](all)
 Return the path to a netboot.xyz directory.
 
 - app: netboot.xyz application (the Git repository)
 - conf: custom configuration
 - web-app: netboot.xyz website
-- web-final: local website source
+- web-target: target website
 - win-install: Windows installers"
 }
 
@@ -174,7 +174,7 @@ dirCommand() { dirAllCommand; }
 dirAppCommand() { echo "$appDir"; }
 dirConfCommand() { echo "$confDir"; }
 dirWeb-appCommand() { echo "$webDirApp"; }
-dirWeb-finalCommand() { echo "$(getWebDirFinal)"; }
+dirWeb-targetCommand() { echo "$(getwebDirTarget)"; }
 dirWin-installCommand() { getWinInstallDir; }
 
 dirAllCommand()
@@ -183,7 +183,7 @@ dirAllCommand()
 		app='$(dirAppCommand)'
 		conf='$(dirConfCommand)''
 		web-app='$(dirWeb-appCommand)'
-		web-final='$(dirWeb-finalCommand)'
+		web-target='$(dirWeb-targetCommand)'
 		win-install='$(dirWin-installCommand)'
 		EOF
 }
@@ -275,7 +275,13 @@ infoWinUrl()
 setupUsage() { echot "Usage: $(ScriptName) setup [app|config|web](all)\nSetup the netboot.xyz build environment including the application and web source files."; }
 setupCommand() { setupAll; }
 setupAllCommand() { setupAll; }
-setupAll() { setupWebCommand && setupConfigCommand && setupAppCommand; }
+setupAll() { setupAppCommand && echo && setupConfigCommand && echo && setupWebCommand; }
+
+setupAppUsage()
+{
+	echot "Usage: $(ScriptName) setup app
+Install and update the netboot.xyz application in '$appDir'."
+}
 
 setupAppCommand()
 {
@@ -287,17 +293,20 @@ setupAppCommand()
 	IsPlatform debian && { package python-is-python3 || return; }
 
 	# install /opt/netboot.xyz application
+	sudov || return
 	[[ -d "$appDir" ]] && { sudo rm -fr "$appDir" || return; }
-	sudoc git clone "https://github.com/netbootxyz/netboot.xyz.git" "$appDir" || return
-	sudo $(G)chown --recursive "$USER" "$appDir" || return
-	! IsPlatform mac && { sudo chgrp -R "$USER" "$appDir" || return; }
-
-	# create /var/www/html web site - it will be updated when the application is deployed
-	local webDirFinal; webDirFinal="$(getWebDirFinal)" || return
-	sudoc CopyDir --recursive --delete "$webDirFinal/" "$webDirApp"  "${globalArgs[@]}" || return
+	sudo git clone "https://github.com/netbootxyz/netboot.xyz.git" "$appDir" || return
+	sudo ${G}chown --recursive "$USER" "$appDir" || return
+	! IsPlatform mac && { sudo ${G}chgrp -R "$USER" "$appDir" || return; }
 
 	# update and build the application (checks out the latest tag)
-	updateAppCommand || return
+	echo; updateAppCodeCommand || return
+}
+
+setupConfigUsage()
+{
+	echot "Usage: $(ScriptName) setup config
+Setup the netboot.xyz configuration directory '$(FileToDesc "$configDir")'."
 }
 
 setupConfigCommand()
@@ -307,12 +316,31 @@ setupConfigCommand()
 	CloudGet "$confDir"
 }
 
+setupConfigUsage()
+{
+	echot "Usage: $(ScriptName) setup web
+Setup the netboot.xyz web directories '$webDirApp' and '$(getwebDirTarget)'."
+}
+
 setupWebCommand()
 {
-	local webDirFinal; webDirFinal="$(getWebDirFinal)" || return
-	[[ -d "$webDirFinal" && ! $force ]] && return
-	hilight "Setting up the web directory '$(FileToDesc "$webDirFinal")'..."
-	apache sync "${globalArgs[@]}" && sudo mkdir --parents "$webDirFinal"
+	local webDirTarget; webDirTarget="$(getwebDirTarget)" || return
+	sudov || return
+
+	# target web directory
+	if [[ $force || ! -d "$webDirTarget" ]]; then
+		hilight "Setting up the target web directory '$(FileToDesc "$webDirTarget")'..."
+		apache sync "${globalArgs[@]}" || return
+		sudo ${G}mkdir --parents "$webDirTarget" || return
+	fi
+
+	# netboot.xyz web directory (/var/www/html) - will be updated when the application is deployed
+	if [[ $force || ! -d "$webDirApp" ]] || (( $(DirCount "$webDirApp") == 0 )); then
+		hilight "Setting up the netboot.xyz web directory '$(FileToDesc "$webDirApp")'..."
+		sudo quietPlatformConf="true" CopyDir --recursive --delete "$webDirTarget/" "$webDirApp"  "${globalArgs[@]}" || return
+	fi
+
+	return 0
 }
 
 #
@@ -417,11 +445,15 @@ updateAllCommand() { updateAppCommand && updateWinCommand; }
 # update app commands
 #
 
-updateAppUsage() { echot "Usage: $(ScriptName) update app [all|code|build](all)\nUpdate the netboot.xyz application to the latest version (tag)."; }
+updateAppUsage() { echot "Usage: $(ScriptName) update app [all|code|build](all)\nUpdate the netboot.xyz application."; }
 updateAppCommand() { updateAppAllCommand; }
 updateAppAllCommand() { updateAppCodeCommand && updateAppBuildCommand; }
 
-updateAppCodeUsage() { echot "Usage: $(ScriptName) update app code\nUpdate the netboot.xyz application code in $(FileToDesc "$appDir") to the latest tag in the repository."; }
+updateAppCodeUsage()
+{
+	echot "Usage: $(ScriptName) update app code
+Update the netboot.xyz application code in $(FileToDesc "$appDir") to the latest tag in the repository."
+}
 
 # updateAppCodeCommand - 
 updateAppCodeCommand()
@@ -440,7 +472,13 @@ updateAppCodeCommand()
 	git reset --hard  "$latestTag" || return
 }
 
-updateAppBuildUsage() { echot "Usage: $(ScriptName) update app build\nBuild the netboot.xyz application by running the Ansible playbook.  The build integrates new netboot.xyz code and menus to $(FileToDesc "$webDirApp")."; }
+updateAppBuildUsage()
+{
+	echot "Usage: $(ScriptName) update app build
+Build the netboot.xyz application by running the Ansible playbook.  \
+The build integrates new netboot.xyz code and menus to '$(FileToDesc "$webDirApp")'."
+}
+
 updateAppBuildCommand() { cp "$confDir/user_overrides.yml" "$appDir" && cd "$appDir" && sudoc ansible-playbook -i "inventory" "site.yml"; }
 
 #
@@ -604,6 +642,6 @@ getContainerId() { docker ps --all | grep "$dockerImageName" | cut -d" " -f1; }
 getHosts() { GetHosts "netbootxyz"; }
 getUupFileCount() { command ls -1 "$downloadDir/"*.*".zip" 2> /dev/null | wc -l; }
 getWinInstallDir() { FindInstallFile "other/Microsoft/Windows/setup"; }
-getWebDirFinal() { local dir; dir="$(apache dir sync)" || return; echo "$dir/htdocs/netboot.xyz"; }
+getwebDirTarget() { local dir; dir="$(apache dir sync)" || return; echo "$dir/htdocs/netboot.xyz"; }
 
 ScriptRun "$@"
