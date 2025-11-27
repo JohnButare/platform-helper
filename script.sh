@@ -545,9 +545,6 @@ ScriptRun()
 	# set global options
 	ScriptGlobalArgsSet || return
 
-	# usage
-	[[ $help ]] && { usage 0; }
-
 	# operands
 	set -- "${args[@]}"
 	shift=0; RunFunction "args" -- "$@" || return; shift "$shift"
@@ -557,6 +554,9 @@ ScriptRun()
 
 	# extra operand
 	(( $# != 0 )) && { ExtraOperand "$1"; return; }
+
+	# usage
+	[[ $help ]] && { usage 0; }
 
 	# arg end
 	RunFunction "argEnd" || return
