@@ -2843,6 +2843,8 @@ PortUsage()
 
 	InPath netstat && { header "netstat"; sudoc netstat -tuap; }
 	InPath lsof && { header "lsof"; sudoc lsof -i -P -n; }
+
+	return 0
 }
 
 #
