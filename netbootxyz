@@ -198,7 +198,7 @@ dirAllCommand()
 
 dockerUsage() { echot "Usage: $(ScriptName) docker IsInstalled|IsRunning|shell|start|stop\nControl the '$dockerImageName' Docker image."; }
 dockerCommand() { usage; }
-dockerIsInstalledCommand() { ! InPath docker && return 1; docker dockerImageName list |& grep "$dockerImageName" >& /dev/null; }
+dockerIsInstalledCommand() { InPath docker || return; docker container list |& grep "$dockerImageName" >& /dev/null; }
 dockerIsRunningCommand() { docker ps | grep --quiet "$dockerImageName"; }
 dockerShellCommand() { docker exec -it "$dockerImageName" /bin/bash; } 
 dockertStartCommand() { docker start "$(getContainerId)"; } 
@@ -351,27 +351,29 @@ setupWebCommand()
 # test command
 #
 
-testUsage() { echot "Usage: $(ScriptName) test\nTest the netboot.xyz configuration."; }
+testUsage() { echot "Usage: $(ScriptName) test [menu|ui|version|assets|tftp](all)\nTest the netboot.xyz configuration."; }
+testArgStart() { result="0"; }
 
-testCommand()
-{
-	local result="0";
-	! InPath tftp && { i --no-prompt --no-header TftpClient || return; }
-	testMenu && testUi && testApp && testAssets && testTftp && return $result
-}
-
-testFail() { (( ++result )); [[ $1 ]] && HilightErrEnd "$1"; return 0; }
+testCommand() { testAllCommand; }
+testAllCommand() { header "Menu Test" && testMenu && header "UI Test" && testUi && header "Version Test" && testVersion && header "Asset Test" && testAssets && header "TFTP Test" && testTftp && return $result; }
+testMenuCommand() { testMenu && return $result; }
+testUiCommand() { testUi && return $result; }
+testVersionUsage() { echot "Usage: $(ScriptName) test app\nTest the netboot.xyz application versions."; }
+testVersionCommand() { testVersion && return $result; }
+testAssetsCommand() { testAssets && return $result; }
+testTftpCommand() { testTftp && return $result; }
 
 testMenu() { printf "menus: "; curl --silent "https://boot.butare.net" | grep -q "iPXE Bootloaders" && echo "OK" || testFail "FAIL"; }
 testUi() { printf "UI: "; curl --silent "https://netboot.butare.net" | grep -q "Web Application for customizing netboot.xyz" && echo "OK" || testFail "FAIL"; }
 
-testApp()
+testVersion()
 {
  	local versionCurrent; versionCurrent="$(versionCurrent)" || { testFail "could not get netbootxyz current version"; return; }
  	local versionLatest; versionLatest="$(versionLatest)" || { testFail  "could not get netbootxyz latest version"; return; }
  	printf "application source version: "; [[ "$versionCurrent" == "$versionLatest" ]] && echo "OK" || testFail "out of date (current v$versionCurrent, latest v$versionLatest)"
 
-	local host hosts; getHosts || return
+	local host hosts; getHosts || { testFail; return; }
+
 	for host in "${hosts[@]}"; do
 		local h="$(RemoveDnsSuffix "$host")" versionHost; versionHost="$(versionApp "$host")" || { testFail "unable to get the netboot.xyz version of host '$host'"; return; }
 		printf "application $h version: "; [[ "$versionHost" == "$versionLatest" ]] && echo "OK" || testFail "out of date ($h v$versionHost, latest v$versionLatest)"
@@ -380,14 +382,13 @@ testApp()
 
 testAssets()
 {
-	testWeb "assets-vanity" "http://boot.butare.net/assets/"
-	testWeb "assets-custom-vanity" "http://boot.butare.net/assets-custom/"
+	testWeb "boot-assets" "http://boot-assets.butare.net"
+	testWeb "boot-assets-custom" "http://boot-assets.butare.net/custom/"
 
 	local host hosts; GetHostsApp "apache-web" active || return 
 	for host in "${hosts[@]}"; do
 		host="$(RemoveDnsSuffix "$host")"
-		testWeb "assets-$host" "http://$host.butare.net:180/netboot.xyz/assets/"
-		testWeb "assets-custom-$host" "http://$host.butare.net:180/netboot.xyz/assets-custom/"
+		testWeb "assets-$host" "http://$host.butare.net:180/boot-assets"
 	done
 }
 
@@ -414,6 +415,9 @@ testTftp()
 		$check rm -f "$file" # cleanup
 	done
 }
+
+# testFail MESSAGE - display a failure message and increase the failure count in the result variable
+testFail() { (( ++result )); [[ $1 ]] && HilightErrEnd "$1"; return 0; }
 
 # testWeb DESCRIPTION URL
 testWeb()
@@ -651,7 +655,7 @@ versionLocal() { isInstalledCommand && cat "$appDir/version.txt"; }
 
 appCd() { AppInstallCheck && cd "$appDir"; }
 getContainerId() { docker ps --all | grep "$dockerImageName" | cut -d" " -f1; }
-getHosts() { GetHosts "netbootxyz"; }
+getHosts() { GetHostsService "netbootxyz"; }
 getUupFileCount() { command ls -1 "$downloadDir/"*.*".zip" 2> /dev/null | wc -l; }
 getWinInstallDir() { FindInstallFile "other/Microsoft/Windows/setup"; }
 getwebDirTarget() { local dir; dir="$(apache dir sync)" || return; echo "$dir/htdocs/netbootxyz"; }
