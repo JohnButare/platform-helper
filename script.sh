@@ -360,7 +360,7 @@ ScriptOptHost()
 ScriptOptHostVerify() { [[ $hostArg ]] && return; MissingOperand "host"; return; }
 
 # GetHosts [HOSTS] - set hosts array from --host argument, the passed list, or all clients
-# getHostsOther - if this array variable set, add these other hosts if all was specified
+# - getHostsOther - if this array variable set, add these other hosts if all was specified
 GetHosts()
 {
 	# return if hosts is already specified
@@ -368,7 +368,7 @@ GetHosts()
 
 	local resolve="DnsResolveBatch $quiet"
 	local resolveMac="DnsResolveMacBatch --full $errors $quiet"
-	local sort="sort --ignore-case --version-sort"
+	local sort="${G}sort --ignore-case --version-sort"
 
 	# use hostArg, then passed list
 	local h="${hostArg:-$1}"
@@ -392,7 +392,7 @@ GetHosts()
 
 		off)
 			local allServers onServers
-			StringToArray "$(ConfigGet servers | sort --version-sort)" "," allServers
+			StringToArray "$(ConfigGet servers | ${G}sort --version-sort)" "," allServers
 			IFS=$'\n' ArrayMake onServers "$(GetAllServers | cut -d"." -f1 | $sort)" || return
 			IFS=$'\n' ArrayMake hosts "$(ArrayIntersection onServers allServers | $sort)"		
 			;;
@@ -407,26 +407,39 @@ GetHosts()
 	[[ $aliasUsed ]] && return
 
 	# service name
-	if [[ ! "$h" =~ , ]] && { [[ "$hLower" == @(|active|all|web) ]] || IsService "$h"; }; then
-		local service="$h"; 
-
-		# aliases
-		case "$hLower" in
-			""|active|all) service="nomad-client";;
-			web) service="apache-web";;
-		esac
-
-		IFS=$'\n' ArrayMake hosts "$(GetServers "$service" | $sort)" || return
-
-		# other hosts
-		[[ $getHostsOther && "$service" == "nomad-client" ]] && hosts=("${getHostsOther[@]}" "${hosts[@]}")
-		unset getHostsOther
+	if [[ ! "$h" =~ , ]] && quiet="--quiet" GetHostsService "$h"; then
+		:
 
 	# comma separated list of hosts
 	else
 		StringToArray "$hLower" "," hosts
 
 	fi
+}
+
+# GetHostsService SERVICE - set hosts array t the hosts in the service
+# - getHostsOther - if this array variable set, add these other hosts if all was specified
+GetHostsService()
+{
+	local service="$1"
+
+	if [[ "$service" != @(|active|all|web) ]] && ! IsService "$service"; then
+		ScriptErrQuiet "'$service' is not a service" "GetHostsService"; return
+	fi
+
+	# aliases
+	case "$service" in
+		""|active|all) service="nomad-client";;
+		web) service="apache-web";;
+	esac
+
+	IFS=$'\n' ArrayMake hosts "$(GetServers "$service" | ${G}sort --ignore-case --version-sort)" || return
+
+	# other hosts
+	[[ $getHostsOther && "$service" == "nomad-client" ]] && hosts=("${getHostsOther[@]}" "${hosts[@]}")
+	unset getHostsOther
+
+	return 0
 }
 
 # GetHostsApp APP [all|active|available](available) - set hosts set hosts array from --host argument or the servers hosting the specified application
