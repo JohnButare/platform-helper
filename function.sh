@@ -567,6 +567,17 @@ DotNetConf()
 
 # HashiCorp
 
+HashiAvailable() { IsOnNetwork butare,sandia; }
+HashiConfStatus() { ! HashiAvailable && return; HashiConf --config-prefix=prod "$@" && hashi config status; }
+HashiConfConsul() { [[ $CONSUL_HTTP_ADDR || $CONSUL_HTTP_TOKEN ]] || HashiConf "$@"; }
+HashiConfNomad() { [[ $NOMAD_ADDR || $NOMAD_TOKEN ]] || HashiConf "$@"; }
+HashiConfVault() { [[ $VAULT_ADDR || $VAULT_TOKEN ]] || HashiConf "$@"; }
+
+ # HashiValidate - validate the current server, get a new one if needed
+HashiValidateConsul() { [[ $CONSUL_SERVER ]] && IsAvailable "$CONSUL_SERVER" && return; HashiConf --force; }
+HashiValidateNomad() { [[ $VAULT_SERVER ]] && IsAvailable "$NOMAD_SERVER" && return; HashiConf --force; }
+HashiValidateVault() { [[ $VAULT_SERVER ]] && IsAvailable "$VAULT_SERVER" && return; HashiConf --force; }
+
 HashiConf()
 {
 	local scriptName="HashiConf"
@@ -617,12 +628,6 @@ HashiConf()
 
 	HASHI_CHECKED="true"
 }
-
-HashiAvailable() { IsOnNetwork butare,sandia; }
-HashiConfStatus() { ! HashiAvailable && return; HashiConf --config-prefix=prod "$@" && hashi config status; }
-HashiConfConsul() { [[ $CONSUL_HTTP_ADDR || $CONSUL_HTTP_TOKEN ]] || HashiConf "$@"; }
-HashiConfNomad() { [[ $NOMAD_ADDR || $NOMAD_TOKEN ]] || HashiConf "$@"; }
-HashiConfVault() { [[ $VAULT_ADDR || $VAULT_TOKEN ]] || HashiConf "$@"; }
 
 # HashiServiceRegister SERVICE HOST_NUMS - register consul service SERVICE<n> for all specified hosts, i.e. HashiServiceRegister web 1,2
 HashiServiceRegister()
@@ -3758,7 +3763,7 @@ GetServer()
 }
 
 # GetServers SERVICE - get all active hosts for the specified service
-GetServers() { hashi resolve name --all "$@"; }
+GetServers() { HashiValidateConsul && hashi resolve name --all "$@"; }
 
 # GetAllServers - get all active servers
 GetAllServers() { GetServers "${1:-nomad-client}"; } # assume all servers have the nomad-client service
