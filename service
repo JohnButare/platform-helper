@@ -26,7 +26,8 @@ Control system services.
 
 init()
 { 
-	sc="sc.exe" scBufferSize=5000 # fix sc data area error - http://www.dostips.com/forum/viewtopic.php?f=3&t=3408
+	scBufferSize=5000 # fix sc data area error - http://www.dostips.com/forum/viewtopic.php?f=3&t=3408
+	scLogLevel=1 			# service command log level
 }
 
 argStart() { unset -v host hostArg ignoreHost noHostCheck noServiceCheck wait; unset -v service; }
@@ -183,12 +184,12 @@ dirLinux()
 }
 
 bootCommand() {	! isWinService "$service" && return; doCommand "boot"; }
-bootWin() { local result; result="$($sc config $hostUnc "$service" start= boot)" && return; EchoErr "$result"; return 1; }
+bootWin() { local result; result="$(sc config $hostUnc "$service" start= boot)" && return; EchoErr "$result"; return 1; }
 
 demandCommand() {	doCommand "demand"; }
 demandLinux() { disableLinux; }
 demandMac() {	macServiceFileWrite "Disabled" "false" && macServiceFileWrite "RunAtLoad" "false"; }
-demandWin() { local result; result="$($sc config $hostUnc "$service" start= demand)" && return; EchoErr "$result"; return 1; }
+demandWin() { local result; result="$(sc config $hostUnc "$service" start= demand)" && return; EchoErr "$result"; return 1; }
 
 manualCommand()
 {
@@ -209,7 +210,7 @@ refreshCommand() { RunPlatformOs refresh; }
 refreshLinux()
 {
 	! IsSystemd && return
-	sudo systemctl daemon-reload && sudo systemctl reset-failed
+	scr daemon-reload && scr reset-failed
 }
 
 restartCommand() 
@@ -237,7 +238,7 @@ statusCommand()
 autoCommand() { doCommand "auto"; }
 autoLinux() { linuxService enable "$service"; }
 autoMac() {	macServiceFileWrite "Disabled" "false" && macServiceFileWrite "RunAtLoad" "true"; }
-autoWin() { local result; result="$($sc config $hostUnc "$service" start= auto)" && return; EchoErr "$result"; return 1; }
+autoWin() { local result; result="$(sc config $hostUnc "$service" start= auto)" && return; EchoErr "$result"; return 1; }
 
 #
 # continue command
@@ -252,21 +253,20 @@ continueCommand()
 	fi	
 }
 
-continueWin() { local result; result="$($sc $hostUnc continue "$service")" && return; EchoErr "$result"; return 1; }
+continueWin() { local result; result="$(sc $hostUnc continue "$service")" && return; EchoErr "$result"; return 1; }
 
 #
 # delete command
 #
 
 deleteCommand() { stopCommand && disableCommand && RunPlatformOs "delete" --host; }
-deleteWin() {	$sc delete $hostUnc "$service"; }
+deleteWin() {	sc delete $hostUnc "$service"; }
 
 deleteLinux()
 {
 	[[ -f "/etc/systemd/system/$service.service" ]] && { sudo rm -f "/etc/systemd/system/$service.service" || return; }
 	[[ -f "/lib/systemd/system/$service.service" ]] && { sudo rm -f "/lib/systemd/system/$service.service" || return; }
-	sudo systemctl daemon-reload || return
-	sudo systemctl reset-failed || return
+	scr daemon-reload && scr reset-failed
 }
 
 #
@@ -301,11 +301,11 @@ detailMac()
 
 detailWin()
 {
-	$sc $hostUnc GetDisplayName "$service"
-	$sc $hostUnc qdescription  "$service" $scBufferSize
-	$sc $hostUnc queryex "$service" $scBufferSize
-	$sc $hostUnc qc "$service" $SscBufferSize
-	$sc $hostUnc qfailure "$service"
+	sc $hostUnc GetDisplayName "$service"
+	sc $hostUnc qdescription  "$service" $scBufferSize
+	sc $hostUnc queryex "$service" $scBufferSize
+	sc $hostUnc qc "$service" $SscBufferSize
+	sc $hostUnc qfailure "$service"
 }
 
 #
@@ -315,7 +315,7 @@ detailWin()
 disableCommand() { RunPlatformOs "disable"; }
 disableLinux() { linuxService disable "$service"; }
 disableMac() { macServiceFileWrite "Disabled" "true"; }
-disableWin() { $sc config $hostUnc "$service" start= disabled; }
+disableWin() { sc config $hostUnc "$service" start= disabled; }
 
 #
 # install command
@@ -391,8 +391,8 @@ listLinux()
 	if IsSystemd; then
 		{
 			[[ -d "/etc/systemd/system" ]] && command ls -1 "/etc/systemd/system/" | grep ".service$"; 
-			[[ -d "/lib/systemd/system" ]] && command ls -1 "/lib/systemd/system/" | grep ".service$";
-			systemctl list-units --type=service,target --no-legend --full --plain | cut -d" " -f1;
+			[[ -d "/lib/systemd/system" ]] && command ls -1 "/lib/systemd/system/" | grep ".service$";			
+			sc2 list-units --type=service,target --no-legend --full --plain | cut -d" " -f1;
 		} | grep -v "@.service$" | sed 's/.service$//' | sort | uniq; # @.service are templates
 	elif [[ -d "/etc/init.d" ]]; then
 		grep "force-reload" "/etc/init.d/"* --files-with-matches | cut -d'/' -f4
@@ -402,7 +402,7 @@ listLinux()
 listMac()
 { 
 	{ 
-		{ launchctl list; sudoc launchctl list; } | cut -d"	" -f3 | ${G}grep -v "^Label$"		# loaded services
+		listAllMac | cut -d"	" -f3 | ${G}grep -v "^Label$"		# loaded services
 		listFilesMac | rev | ${G}cut -d$'/' -f1 | cut -d"." -f2- | rev 											# unloaded services
 	} | sort | uniq; 
 }
@@ -415,9 +415,9 @@ listWin()
 
 listWinDetail()
 {
-	header "Windows"; $sc $hostUnc queryex bufsize= $scBufferSize type= all state= all
+	header "Windows"; sc $hostUnc queryex bufsize= $scBufferSize type= all state= all
 	if IsSystemd; then header "Systemd"; listLinux
-	elif [[ -d "/etc/init.d" ]]; then header "Init"; /usr/sbin/service --status-all
+	elif [[ -d "/etc/init.d" ]]; then header "Init"; RunLog4 /usr/sbin/service --status-all
 	fi 
 }
 
@@ -427,11 +427,11 @@ listFilesMac() { find "${macServices[@]}" -type f | sort | uniq; }
 
 listRunningUsage() { ScriptUsageEcho "Usage: $(ScriptName) list running [user|system]\nList running services."; }
 listRunningCommand() { RunPlatformOs listRunning; }
-listRunningMac() { { launchctl list; sudoc launchctl list; } | grep -v "^-" | cut -d"	" -f3 | sort | uniq; }
+listRunningMac() { listAllMac | grep -v "^-" | cut -d"	" -f3 | sort | uniq; }
 listRunningUserCommand() { RunPlatformOs listRunningUser; }
-listRunningUserMac() { launchctl list | grep -v "^-" | cut -d"	" -f3 | sort; }
+listRunningUserMac() { listUserMac | grep -v "^-" | cut -d"	" -f3 | sort; }
 listRunningSystemCommand() { RunPlatformOs listRunningSystem; }
-listRunningSystemMac() { sudoc launchctl list | grep -v "^-" | cut -d"	" -f3 | sort ; }
+listRunningSystemMac() { listSystemMac | grep -v "^-" | cut -d"	" -f3 | sort ; }
 
 listUnloadedUsage() { ScriptUsageEcho "Usage: $(ScriptName) list unloaded [files]\nList unloaded services."; }
 listUnloadedArgStart() { unset files; }
@@ -441,7 +441,7 @@ listUnloadedFilesCommand() { files="files" RunPlatformOs listUnloaded; }
 listUnloadedMac()
 {
 	# loaded services 
-	local loaded="$({ launchctl list; sudoc launchctl list; } | cut -d"	" -f3 | ${G}grep -v "^Label$" | sort | uniq)"
+	local loaded="$(listAllMac | cut -d"	" -f3 | ${G}grep -v "^Label$" | sort | uniq)"
 
 	# service files - format FILE:SERVICE
 	local both="$(eval "$(service list files | awk '{ print "printf " $0" ; printf : ; defaults read " $0 " Label" }')" 2>/dev/null)"
@@ -457,6 +457,10 @@ listUnloadedMac()
 	echo "$both" | ${G}grep -f <(echo "$services") | sort
 }
 
+listAllMac() { listUserMac && lisrSystemMac; }
+listUserMac() { launchctl list; }
+listSystemMac() { sudoc launchctl list; }
+
 #
 # load commands
 #
@@ -464,7 +468,7 @@ listUnloadedMac()
 loadUsage() { EchoWrap "Usage: $(ScriptName) load SERVICE\nLoad the service."; }
 loadCommand() { runStatus "load" "loading"; }
 loadNotNeededMac() { [[ $macServiceLoaded || ! $macServiceDomain ]] || ! getMacServiceFile; }
-loadMac() {	$sudo launchctl bootstrap "$macServiceDomain" "$macServiceFile"; }
+loadMac() {	sc bootstrap "$macServiceDomain" "$macServiceFile"; }
 
 # loadValidateMac - validate and load the service, return error if cannot load
 loadValidateMac() 
@@ -483,13 +487,13 @@ reloadUsage() { EchoWrap "Usage: $(ScriptName) reload SERVICE\nReload the servic
 reloadCommand() { runStatus reload "reloading"; }
 reloadNotNeededLinux() { [[ ! $useSystemd ]]; }
 reloadNotNeededMac() { [[ ! $macServiceDomain ]] || ! getMacServiceFile; } 
-reloadLinux() { sudoc systemctl reload "$service"; }
+reloadLinux() { scr reload "$service"; }
 reloadMac() {	! unloadNotNeededMac && { printf "unloading..."; unloadMac &> /dev/null; }; printf "loading..."; loadMac &> /dev/null; }
 
 unloadUsage() { EchoWrap "Usage: $(ScriptName) unload SERVICE\nUnload the service."; }
 unloadCommand() { runStatus "unload" "unloading"; }
 unloadNotNeededMac() { [[ ! $macServiceLoaded || ! $macServiceDomain ]] || ! getMacServiceFile; }
-unloadMac() { $sudo launchctl bootout "$macServiceDomain" "$macServiceFile"; }
+unloadMac() { sc bootout "$macServiceDomain" "$macServiceFile"; }
 
 #
 # log command
@@ -679,7 +683,7 @@ pauseCommand()
 	fi
 }
 
-pauseWin() { local result; result="$($sc $hostUnc pause "$service")" && return; EchoErr "$result"; return 1; }
+pauseWin() { local result; result="$(sc $hostUnc pause "$service")" && return; EchoErr "$result"; return 1; }
 
 #
 # start command
@@ -687,8 +691,8 @@ pauseWin() { local result; result="$($sc $hostUnc pause "$service")" && return; 
 
 startCommand() { doCommandWait "start"; }
 startLinux() { linuxService start "$service"; }
-startWin() { local result; result="$($sc $hostUnc start "$service")" && return; EchoErr "$result"; return 1; }
-startMac() { loadValidateMac && RunLog $sudo launchctl start "$service"; }
+startWin() { local result; result="$(sc $hostUnc start "$service")" && return; EchoErr "$result"; return 1; }
+startMac() { loadValidateMac && sc start "$service"; }
 
 #
 # State Command
@@ -730,10 +734,7 @@ stateMac()
 	echo "STOPPED"
 }
 
-stateWin()
-{
-	GetWord "$($sc $hostUnc query "$service" |& grep STATE)" 4
-}
+stateWin() { GetWord "$(sc $hostUnc query "$service" |& grep STATE)" 4; }
 
 #
 # show command
@@ -741,7 +742,7 @@ stateWin()
 
 showUsage() { EchoWrap "Usage: $(ScriptName) show active|start\nShow service information."; }
 showCommand() { RunPlatformOs show; }
-showLinux() { [[ ! $useSystemd ]] && return; systemctl show "$service"; }
+showLinux() { [[ ! $useSystemd ]] && return; sc show "$service"; }
 
 showActiveUsage() { EchoWrap "Usage: $(ScriptName) show active\nShow time service became active."; }
 showActiveCommand() { RunPlatformOs showActive; }
@@ -802,10 +803,7 @@ startTypeMac()
 	fi
 }
 
-startTypeWin()
-{
-	GetWord "$($sc $hostUnc qc "$service" $ScBufferSize |& RemoveCarriageReturn | grep START_TYPE)" 4
-}
+startTypeWin() { GetWord "$(sc $hostUnc qc "$service" $scBufferSize |& RemoveCarriageReturn | grep START_TYPE)" 4; }
 
 #
 # stop command
@@ -813,12 +811,12 @@ startTypeWin()
 
 stopCommand() { doCommandWait "stop"; }
 stopLinux() { linuxService stop "$service"; }
-stopWin() { local result="$($sc $hostUnc stop "$service")" && return; EchoErr "$result"; return 1; }
+stopWin() { local result="$(sc $hostUnc stop "$service")" && return; EchoErr "$result"; return 1; }
 
 stopMac()
 {
-	getMacServiceFile && [[ $macServiceDomain ]] && { RunLog $sudo launchctl bootout $macServiceDomain "$macServiceFile" && return; }
-	[[ $macService ]] && { RunLog $sudo launchctl stop "$service" && return; }
+	getMacServiceFile && [[ $macServiceDomain ]] && { sc bootout $macServiceDomain "$macServiceFile" && return; }
+	[[ $macService ]] && { sc stop "$service" && return; }
 	ScriptErr "unable to stop service '$service' in domain '$macServiceDomain'"
 }
 
@@ -881,7 +879,7 @@ linuxService()
 
 	# systemd
 	if [[ $useSystemd ]]; then
-		RunLog $sudo systemctl "$command" "$service"
+		sc "$command" "$service"
 
 	# WSL
 	elif IsPlatform wsl; then 
@@ -1046,7 +1044,7 @@ waitForState()
 
 	for (( i=1; i<=seconds; ++i )); do
  		read -n 1 -t 1 -s && { echo "cancelled after $i seconds"; return 1; }
- 		local currentState="$(stateCommand)"
+ 		local currentState="$(scLogLevel=2 stateCommand)"
  		[[ "$currentState" =~ ^($state)$ ]] && { [[ ! $quiet ]] && echo "${past:-${currentState,,}} in $i seconds"; return 0; }
 		printf "."
 	done
@@ -1164,5 +1162,20 @@ getMacServiceInfo()
 	else unset macServiceDomain macServiceInfo macServiceLoaded; return 1
 	fi
 }
+
+
+# sc - run the appropriate service command for the platform
+sc()
+{
+	case "$_platformOs" in	
+		mac) RunLog${scLogLevel} $sudo launchctl "$@";;
+		win) RunLog${scLogLevel} sc.exe "$@";;
+		linux) RunLog${scLogLevel} $sudo systemctl "$@";;
+	esac
+}
+
+sc2() { scLogLevel=2 sc "$@"; } # scr2 - service command log level 2
+sc3() { scLogLevel=3 sc "$@"; } # scr2 - service command log level 2
+scr() { sudo="sudoc" sc "$@"; } # scr - service command root
 
 ScriptRun "$@"
