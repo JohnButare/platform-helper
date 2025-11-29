@@ -4502,7 +4502,7 @@ isPlatformCheck()
 		rock|rockkernel) [[ "$_platformKernel" == "rock" ]];;
 
 		# HashiCorp
-		consul) [[ "$(ps -p $PPID -o comm=)" == *"consul"* ]];;		# running inside a Consul service check script
+		consul) [[ "$(command ps -p $PPID -o comm= 2>&1)" == *"consul"* ]];;		# running inside a Consul service check script
 		nomad) [[ $NOMAD_TASK_DIR ]];;														# running inside a Nomad task
 
 		# other
