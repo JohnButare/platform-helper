@@ -136,16 +136,35 @@ ruleLs()
 # Hyper-V Rule Command
 #
 
-hvruleUsage() { echot "Usage: $(ScriptName) hvrule add|disable|delete|enable|exist|list|status NAME\nHyper-V firewall rule commands."; }
-hvruleArgStart() { unset -v name; }
-hvruleArgs() { [[ "${commandNames[1]}" == @(list) ]] && return; ScriptArgGet "name" -- "$@"; }
-hvruleArgEnd() { [[ "${commandNames[1]}" == @(check|exist|list|status) ]] && return; checkElevated; }
+hvruleUsage()
+{
+	echot "Usage: $(ScriptName) hvrule add|disable|delete|enable|exist|ls|status NAME
+Hyper-V firewall rule commands.
+
+	-i, --id any|wsl|ID			the ID of the Hyper-V virtual machine, default is the WSL VM,
+												  use any with ls to list rules for an VM"
+}
+
+hvruleArgStart() { unset -v idOpt name; id='{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}'; }
+
+hvruleOpt()
+{
+	case "$1" in
+		--id|--id=*|-i|-i=*)
+			ScriptOptGet idOpt "$@" || return
+			if [[ "$idOpt" == "any" ]]; then id="*"
+			elif [[ "$idOpt" != "wsl" ]]; then id="$idOpt"
+			fi
+			;;
+		*) return 1
+	esac
+}
+
+hvruleArgs() { [[ "${commandNames[1]}" == @(ls) ]] && return; ScriptArgGet "name" -- "$@"; }
+hvruleArgEnd() { [[ "${commandNames[1]}" == @(|check|exist|ls|status) ]] && return; checkElevated; }
 hvruleCommand() { usage; }
 hvruleDeleteCommand() { ! hvruleExistCommand && return; powershell 'Remove-NetFirewallHyperVRule -DisplayName "'$name'"'; }
 hvruleExistCommand() { hvruleStatusCommand >& /dev/null;}
-hvruleListUsage() { echot "Usage: $(ScriptName) hvrule list [name]\nList Hyper-V firewall rules."; }
-hvruleListCommand() { powershell Get-NetFirewallHyperVRule | grep '^DisplayName' | cut -d":" -f2; }
-hvruleListNameCommand() { powershell Get-NetFirewallHyperVRule | grep '^Name' | cut -d":" -f2; }
 hvruleStatusCommand() { powershell 'Get-NetFirewallHyperVRule -DisplayName "'$name'"'; }
 
 hvruleAddUsage() { echot "Usage: $(ScriptName) hvrule add NAME -- RULES\nAdd a Hyper-V firewall rule.  Rules are from the New-NetFirewallHyperVRule command (https://learn.microsoft.com/en-us/powershell/module/netsecurity/new-netfirewallhypervrule)."; }
@@ -154,20 +173,32 @@ hvruleAddCommand()
 { 
 	hvruleDeleteCommand || return
 	printf "firewall: adding rule $name..."	
-	powershell 'New-NetFirewallHyperVRule -Name "'$name'" -DisplayName "'$name'" -VMCreatorId "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}" '"${otherArgs[@]}"
-}
-
-hvruleEnableCommand()
-{ 
-	! ruleExistCommand && return
-	powershell 'New-NetFirewallHyperVRule -DisplayName "'$name'" -VMCreatorId "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}" -Enabled true'
+	RunLog powershell 'New-NetFirewallHyperVRule -Name "'$name'" -DisplayName "'$name'" -VMCreatorId "'$id'" '"${otherArgs[@]}"
 }
 
 hvruleDisableCommand()
 {
-	! ruleExistCommand && return
-	powershell 'New-NetFirewallHyperVRule -DisplayName "'$name'" -VMCreatorId "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}" -Enabled false'
+	! hvruleExistCommand && return
+	RunLog powershell 'New-NetFirewallHyperVRule -DisplayName "'$name'" -VMCreatorId "'$id'" -Enabled false'
 }
+
+hvruleEnableCommand()
+{ 
+	! hvruleExistCommand && return
+	RunLog powershell 'New-NetFirewallHyperVRule -DisplayName "'$name'" -VMCreatorId "'$id'" -Enabled true'
+}
+
+hvruleLsUsage()
+{
+	echot "Usage: $(ScriptName) hvrule list [detail|name]
+List Hyper-V WSL firewall rules.  By default the DisplayName is listed."
+}
+
+hvruleLsArgEnd() { ls='Get-NetFirewallHyperVRule | Where-Object { $_.VMCreatorId -like "'$id'" }'; }
+hvruleLsCommand() { hvruleLs; }
+hvruleLsNameCommand() { hvruleLs "Name"; }
+hvruleLs() { RunLog powershell "$ls | % ${1:-DisplayName}" | RemoveCarriageReturn; }
+hvruleLsDetailCommand() { RunLog powershell 'Get-NetFirewallHyperVRule | Where-Object { $_.VMCreatorId -like "'$id'" } | Format-Table DisplayName, Name, Direction, Protocol, RemotePort, LocalPort, Action, Enabled, VMCreatorId | Out-String -Width 400'; }
 
 #
 # helper
