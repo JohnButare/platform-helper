@@ -653,12 +653,20 @@ GitSet() { git="git"; InPath git.exe && drive IsWin . && git="git.exe"; return 0
 i()
 { 
 	# arguments
-	local args=() command help noFind noRun select timeout
+	local args=() command noFind noRun select timeout
 	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
+
+	if ScriptOptHelp "$@"; then EchoWrap "\
+Usage: i [APP*|bak|cd|check|dir|info|select]
+install commands.
+  -nf, --no-find 	do not find the installation location
+  -nr, --no-run 	do not find or run the installation program
+  -s,  --select		select the install location"
+		return 0
+	fi
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;	
-			--help|-h) help="--help";;
 			--no-find|-nf) noFind="--no-find";;
 			--no-run|-nr) noRun="--no-run";;
 			--select|-s) select="--select";;
@@ -674,15 +682,6 @@ i()
 		shift
 	done
 	local globalArgs globalArgsLess globalArgsLessForce globalArgsLessVerbose; ScriptGlobalArgsSet || return
-
-	if [[ $help ]]; then EchoWrap "\
-Usage: i [APP*|bak|cd|check|dir|info|select]
-install commands.
-  -nf, --no-find 	do not find the installation location
-  -nr, --no-run 	do not find or run the installation program
-  -s,  --select		select the install location"
-		return 0
-	fi
 
 	case "$(LowerCase "${command:-cd}")" in
 		bak) InstBak;;
@@ -5125,9 +5124,13 @@ RunTimeout()
 RunWin() { (IsPlatform win && cd "$WIN_ROOT"; "$@"); }
 
 # start a program converting file arguments for the platform as needed
-startUsage()
+start() 
 {
-	EchoWrap "\
+	# arguments
+	local scriptName="start" elevate file sudo terminal wait windowStyle
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
+
+	if ScriptOptHelp "$@"; then EchoWrap "\
 Usage: start [OPTION]... FILE [ARGUMENTS]...
 	Start a program converting file arguments for the platform as needed
 
@@ -5139,20 +5142,14 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 	--test, -t 							test mode, the program is not started
 	--wait, -w							wait for the program to run before returning
 	--window-style, -ws 		hidden|maximized|minimized|normal"
-}
-
-start() 
-{
-	# arguments
-	local scriptName="start" elevate file sudo terminal wait windowStyle
-	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
+		return 0
+	fi
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--elevate|-e) IsPlatform win && CanElevate && ! IsElevated && elevate="--elevate";;
-			--help|-h) startUsage; return 0;;
 			--sudo|-s) sudov || return; sudo="sudo";;
-			--terminal|-T) [[ ! $2 ]] && { startUsage; return 1; }; terminal="$2"; shift;;
+			--terminal|-T) [[ ! $2 ]] && { MissingOperand "terminal"; return; }; terminal="$2"; shift;;
 			--wait|-w) wait="--wait";;
 			--window-style|-ws) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle="$(LowerCase "$2")"; shift;;
 
@@ -5652,6 +5649,19 @@ ScriptOptForce()
 	unset forceLess; (( forceLevel > 1 )) && forceLess="-$(StringRepeat "f" "$(( forceLevel - 1 ))")"
 
 	return 0
+}
+
+# ScriptOptHelp - return true if we find a help option
+ScriptOptHelp()
+{
+	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
+		case "$1" in
+			-h|--help) return;;
+		esac
+		shift
+	done
+
+	return 1
 }
 
 # ScriptOptVerbose - find verbose option.  Sets verbose, verboseLevel, and verboseLess.
@@ -6397,9 +6407,11 @@ RestartWm()
 	fi
 }
 
-WinSetStateUsage()
+WinSetState()
 {
-	EchoWrap "\
+	local scriptName="WinSetState" ahk wargs=( /res /act ) args=( -a ) title result
+
+	if ScriptOptHelp "$@"; then EchoWrap "\
 Usage: WinSetState [OPTION](--activate) TITLE
 	Set the state of the specified windows title or class.
 	Title format can be WIN_TITLE|MAC_TITLE|LINUX_TITLE.
@@ -6412,11 +6424,8 @@ Usage: WinSetState [OPTION](--activate) TITLE
 
 	-h, --hide							hide the window (Windows)
 	-uh, --unhide						unhide the window (Windows)"
-}
-
-WinSetState()
-{
-	local scriptName="WinSetState" ahk wargs=( /res /act ) args=( -a ) title result
+		return 0
+	fi
 
 	# arguments
 	while (( $# != 0 )); do
@@ -6427,7 +6436,6 @@ WinSetState()
 			-min|--minimize) wargs=( minimized ) ahk="minimize";;
 			-H|--hide) wargs=( hidden );;
 			-uh|--unhide) wargs=( show_default );;
-			-h|--help) WinSetStateUsage; return 0;;
 			*)
 				if [[ ! $title ]]; then title="$1"
 				else UnknownOption "$1"; return; fi

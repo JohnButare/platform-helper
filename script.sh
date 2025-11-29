@@ -538,6 +538,9 @@ ScriptRun()
 		shift
 	done	
 
+	# help
+	ScriptOptHelp "${args[@]}" && usage 0
+
 	# default command
 	[[ ! $command ]] && { defaultCommandUsed="true" command="$defaultCommand" commands=("$command") commandNames=("$command"); }
 
@@ -567,9 +570,6 @@ ScriptRun()
 
 	# extra operand
 	(( $# != 0 )) && { ExtraOperand "$1"; return; }
-
-	# usage
-	[[ $help ]] && { usage 0; }
 
 	# arg end
 	RunFunction "argEnd" || return
