@@ -5654,6 +5654,13 @@ ScriptOptForce()
 # ScriptOptHelp - return true if we find a help option
 ScriptOptHelp()
 {
+	# quick help check
+	[[ "$@" =~ (--help$|--help |-h$|-h ) ]] || return
+
+	# verbose check - for verbose help
+	ScriptOptVerbose "$@"
+
+	# help check
 	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
 		case "$1" in
 			-h|--help) return;;
