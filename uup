@@ -19,13 +19,21 @@ init() { defaultCommand="build"; }
 buildUsage()
 {
 	ScriptUsageEcho "\
-Usage: $(ScriptName) build FILE|DIR... [all|init|iso|install|installers](all)
-Build an ISO using a downloaded UUP script from a UUP file or built directory.
+Usage: $(ScriptName) build FILE|DIR... [all|init|iso|install|installers|vars](all)
+Build an ISO using a downloaded UUP script from a UUP file or build ISO directory.  \
+FILE format must be a UUP download file with the format MAJOR.MINOR_${supportedArchitectures}_DESC.zip.  \
+DIR format must be MAJOR.MINOR_${supportedArchitectures}.
 
 	-l,	--linux		force linux build under Windows (will not get updates, component cleanup, or Windows Store apps)"
 }
 
-buildArgStart() { unset -v file buildDir; buildScript="uup_download_windows.cmd"; }
+buildArgStart()
+{
+	unset -v file buildDir
+	buildScript="uup_download_windows.cmd"
+	supportedArchitectures="amd64|arm64"
+}
+
 buildCommand() { buildAllCommand; }
 buildArgs() { ScriptArgGet "file" -- "$@" && ScriptCheckPath "$file"; }
 buildAllCommand() { buildIsoCommand && buildInstallCommand && buildInstallersCommand; }
@@ -44,34 +52,70 @@ buildArgEnd()
 	local dir="$(GetFilePath "$file")"
 	[[ $dir ]] && { command cd "$dir" || return; file="$(GetFileName "$file")"; }
 
-	# file - BUILD.ARCH.zip - ARCH is amd64|arm64
+	# file
 	if [[ -f "$file" ]]; then
-		[[ "$(GetFileExtension "$file")" != "zip" ]] && { ScriptErr "UUP download file '$file' is not a ZIP file"; return 1;  }
-		buildDir="$(echo "$file" | cut -d. -f1)"; ! IsNumeric "$buildDir" && { ScriptErr "UUP script '$file' does have a numeric build number (expected format is BUILD.DESC.zip)"; return 1; }
-		[[ "$file" =~ arm64 ]] && buildDir+="-arm"
-		
-		if [[ $force || ! -d "$buildDir" ]]; then
-			rm -fr "$buildDir" || return
-			${G}mkdir --parents "$buildDir" || return
-			${G}unzip "$file" -d "$buildDir" || return
-		fi
 
-		bak --local --move "$file" || return
+		# validate zip file
+		[[ "$(GetFileExtension "$file")" != "zip" ]] && { ScriptErr "UUP download file '$file' is not a ZIP file"; return 1;  }
+
+		# get build
+		build="$(echo "$file" | cut -d"_" -f1)"
+		! IsNumeric "$build" && { ScriptErr "UUP script '$file' does have a numeric build number (expected format is MAJOR.MINOR_$supportedArchitectures_DESC.zip)"; return 1; }
+		
+		# get architecture
+		[[ ! "$file" =~ _ ]] && { ScriptErr "'$file' does not contain an architecture (expected format is MAJOR.MINOR_ARCHITECTURE_DESC.zip)"; return; }
+		architecture="$(echo "$file" | cut -d"_" -f2)"
+		validateArchitecture "$architecture" || return
+
+		# create build directory
+		buildDir="$build-$architecture"
+		if [[ "${commandNames[1]}" != "vars" ]]; then
+
+			if [[ $force || ! -d "$buildDir" ]]; then
+				rm -fr "$buildDir" || return
+				${G}mkdir --parents "$buildDir" || return
+				${G}unzip "$file" -d "$buildDir" || return
+			fi
+
+			bak --local --move "$file" || return
+		fi
 
 	# directory
 	else
-		buildDir="$(GetWord "$file" 1 "-")"; ! IsNumeric "$buildDir" && { ScriptErr "UUP directory '$file' does have a numeric build number (expected format is BUILD[-arm])"; return 1; }
-		[[ "$(GetWord "$file" 2 "-")" == "arm" ]] && buildDir+="-arm"
+		build="$(GetWord "$file" 1 "-")"; ! IsNumeric "$build" && { ScriptErr "UUP directory '$file' does have a numeric build number (expected format is MAJOR.MINOR-$supportedArchitectures)"; return 1; }
+		[[ ! "$file" =~ - ]] && { ScriptErr "'$file' does not contain an architecture (expected format is MAJOR.MINOR-$supportedArchitectures)"; return; }
+		architecture="$(echo "$file" | cut -d"-" -f2)"
+		validateArchitecture "$architecture" || return
+		buildDir="$build-$architecture"
 	fi
 
 	# validate the build script
 	IsPlatform mac && buildScript="uup_download_macos.sh"	
 	[[ ! -f "$buildDir/$buildScript" ]] && { ScriptErr "the ISO build script '$buildScript' does not exist"; return 1; }
 
-	# update the configuration
+	# update the configuration (enable application download)
 	sed -i "s/AppsLevel    =0/AppsLevel    =1/g" "$buildDir/ConvertConfig.ini" || return
 
 	cd "$buildDir"
+}
+
+validateArchitecture()
+{
+	local architecture="$1"
+	[[ "$architecture" =~ ^(${supportedArchitectures})$ ]] && return
+	ScriptErr "'$architecture' is not a supported architecture, expected $supportedArchitectures"
+}
+
+
+buildVarsUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) build vars FILE|DIR
+Return build variables for the UUP file or build ISO directory."
+}
+
+buildVarsCommand()
+{
+	ScriptReturn architecture build buildDir
 }
 
 buildIsoValidate()
@@ -94,15 +138,25 @@ buildIsoCommand()
 	fi
 }
 
-buildInitUsage() { ScriptUsageEcho "Usage: $(ScriptName) build init FILE\nSetup the build directory.   This allows for configuration changes before a build."; }
+buildInitUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) build init FILE
+Setup the build directory.   This allows for configuration changes before a build."
+}
+
 buildInitCommand() { :; }
 
-buildInstallUsage() { ScriptUsageEcho "Usage: $(ScriptName) build install FILE\n.  Copy the ISO to the installation directory."; }
+buildInstallUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) build install FILE
+Copy the ISO to the installation directory."
+}
 
 buildInstallCommand()
 {
 	hilight "Copying ISO to the install directory..."
 	buildIsoValidate || return	
+
 	local setupDir; setupDir="$(FindInstallFile "other/Microsoft/Windows/setup")" || return; setupDir="$setupDir/$buildDir"	
 	local destIso="$setupDir/$(GetFileName "$iso")"
 	log1 "destIso=$destIso"
@@ -141,8 +195,8 @@ buildInstallersCommand()
 
 getIso()
 {
-	log1 "getIso PWD=$PWD"
-	local iso="$(RunLog1 ${G}find $PWD -iname "*.ISO")"
+	log2 "getIso PWD=$PWD"
+	local iso="$(RunLog2 ${G}find $PWD -iname "*.ISO")"
 	[[ -f "$iso" ]] || return
 	echo "$iso"
 }
