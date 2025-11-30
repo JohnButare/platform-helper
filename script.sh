@@ -275,14 +275,15 @@ ScriptOptTimeoutUsage() { echo "the network host timeout in milliseconds, defaul
 #
 
 # ForAllHosts COMMAND [ARGS...] - run a command for all hosts.  Pass host after args.
-# -b, --brief 				- display a brief header by prefixing the command with the host name
-# -e, --errors				- keep processing if a command fails, return the total number of errors
-# -h, --header HEADER - if set and there is more than one host display it as a header
-# -ng, --no-get 			- do not get hosts
-# -sr, --show-result	- if the command does not output anything, show the result of running the command (success or failure)
+# -b, --brief 							- display a brief header by prefixing the command with the host name
+# -e, --errors							- keep processing if a command fails, return the total number of errors
+# -h, --header HEADER 			- if set and there is more than one host display it as a header
+# -ih, --ignore-host HOST 	- ignore the specified host
+# -ng, --no-get 						- do not get hosts
+# -sr, --show-result				- if the command does not output anything, show the result of running the command (success or failure)
 ForAllHosts()
 {
-	local brief command=() errors errorCount=0 header noGet showResult
+	local brief command=() errors errorCount=0 header ignoreHost noGet showResult
 
 	# options
 	while (( $# != 0 )); do
@@ -290,6 +291,7 @@ ForAllHosts()
 			--brief|-b) brief="--brief";;
 			--errors|-e) errors="--errors";;
 			--header|--header=*|-h|-h=*) local shift=0; ScriptOptGet "header" "$@" || return; shift $shift;;
+			--ignore-host|--ignore-host=*|-ih|-ih=*) local shift=0; ScriptOptGet "ignoreHost" "ignore-host" "$@" || return; shift $shift;;
 			--no-get|-ng) noGet="--no-get";;
 			--show-result|-sr) showResult="--show-result";;
 			--) shift; command+=("$@"); break;;
@@ -304,10 +306,14 @@ ForAllHosts()
 
 	# run command for all hosts
 	for host in "${hosts[@]}"; do
-		
+
+		# ignore host
+		local hostShort="$(RemoveDnsSuffix "$host")"
+		log4 "ForAllHosts: host=$host hostShort=$hostShort ignoreHost=$ignoreHost"
+		{ [[ $ignoreHost ]] && [[ "${host,,}" == "${ignoreHost,,}" || "${hostShort,,}" == "${ignoreHost,,}" ]]; } && continue
+
 		# header		
-		if [[ $multiple ]]; then
-			local hostShort="$(RemoveDnsSuffix "$host")"
+		if [[ $multiple ]]; then			
 			[[ $header || $verbose ]] && header "$header ($hostShort)"
 			[[ $brief && ! $verbose ]] && printf "$hostShort: "
 		fi
@@ -538,15 +544,17 @@ ScriptRun()
 		shift
 	done	
 
-	# help
-	ScriptOptHelp "${args[@]}" && usage 0
-
 	# default command
 	[[ ! $command ]] && { defaultCommandUsed="true" command="$defaultCommand" commands=("$command") commandNames=("$command"); }
 
 	# arg start
 	RunFunction "argStart" || return
 	for c in "${commands[@]}"; do RunFunction "${c}ArgStart" || return; done
+
+	# help
+	# - show after arg start so help can show variables
+	# - show before options and arguments are checked so help can be shown even if they are not valid
+	ScriptOptHelp "${args[@]}" && usage 0
 
 	# options
 	unset -v force forceLess forceLevel help noPrompt quiet test showVersion verbose verboseLess verboseLevel wait
