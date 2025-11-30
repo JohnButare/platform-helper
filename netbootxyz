@@ -7,7 +7,7 @@ usage()
 usage: netbootxyz dir|docker|edit|info|setup|test|vars
 $(ScriptName) commands.
 
-	update|deploy|both			update and deploy netbootxyz"
+	update|deploy|both			update and deploy netboot.xyz"
 }
 
 init() 
@@ -34,10 +34,9 @@ init()
 #
 
 bothUsage() { ScriptUsageEcho "Usage: $(ScriptName) all\nUpdate and deploy netboot.xyz."; }
-bothCommand() { updateAppCommand && deployAllCommand; }
+bothCommand() { updateAllCommand && deployAllCommand; }
 isInstalledCommand() { [[ -d "$appDir" ]]; }
-varsArgStart() { webDirTarget="$(getwebDirTarget)"; }
-varsCommand() { ScriptReturn appDir confDir webDirApp webDirTarget; }
+varsCommand() { local webDirTarget="$(getWebDirTarget)" && ScriptReturn appDir confDir webDirApp webDirTarget; }
 
 #
 # deploy commands
@@ -45,13 +44,22 @@ varsCommand() { ScriptReturn appDir confDir webDirApp webDirTarget; }
 
 deployUsage()
 {
-	ScriptUsageEcho "Usage: $(ScriptName) deploy [all|app|assets|web](all)
+	ScriptUsageEcho "Usage: $(ScriptName) deploy [all|app|assets|public|web](all)
 Deploy netboot.xyz."
 }
 
 deployCommand() { deployAllCommand; }
-deployAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) deploy all\nDeploy application, web, and assets."; }
-deployAllCommand() { local noPrompt="--no-prompt"; deployAppCommand && deployWebCommand && deployAssetsCommand; }
+deployPublicUsage() { ScriptUsageEcho "Usage: $(ScriptName) deploy public\Synchronize public installation files."; }
+deployPublicCommand() { wiggin sync public "${globalArgs[@]}"; }
+
+deployAllUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) deploy all
+Deploy web, assets, and the public installation files.  \
+The application is not deployed since the web site indicates when menus are out of date." 
+}
+
+deployAllCommand() { local noPrompt="--no-prompt"; unset -v unset hostArg hostOpt hosts; deployWebCommand && deployAssetsCommand && deployPublicCommand; }
 
 deployAppUsage()
 {
@@ -94,19 +102,26 @@ deployAssetsCommand()
 	wiggin sync netbootxyz || return
 }
 
-deployWebUsage() { ScriptUsageEcho "Usage: $(ScriptName) deploy web\nCopy the netboot.xys web site from $(FileToDesc "$webDirApp") to $(FileToDesc "$webDirTarget"), then uploads the content to the Apache web servers."; }
-deployWebArgStart() { unset hostArg hostOpt hosts; webDirTarget="$(getwebDirTarget)"; }
+deployWebUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) deploy web
+Copy the netboot.xys web site from $(FileToDesc "$webDirApp") to $(FileToDesc "$webDirTarget"), \
+then uploads the content to all active Apache web servers."
+}
+
+deployWebArgStart() { unset hostArg hostOpt hosts; }
 deployWebOpt() { ScriptOptHost "$@"; }
 
 deployWebCommand()
 {
 	HeaderBig "Deploying Web"
+	local webDirTarget; webDirTarget="$(getWebDirTarget)" || return
 
 	hilight "Copying files.."
-	sudoc CopyDir --recursive --delete --rsync "$webDirApp" "$webDirTarget" "${globalArgs[@]}" || return
+	sudoc quietPlatformConf="true" CopyDir --recursive --delete --rsync "$webDirApp" "$webDirTarget" "${globalArgs[@]}" || return
 
 	hilight "Copying custom files..."
-	sudo CopyDir --recursive --rsync --no-metadata "$confDir/web/netboot.xyz/" "$webDirTarget" "${globalArgs[@]}" || return
+	sudo quietPlatformConf="true" CopyDir --recursive --rsync --no-metadata "$confDir/web/netboot.xyz/" "$webDirTarget" "${globalArgs[@]}" || return
 
 	hilight "Copying custom menus..."
 	sudo cp "$menu" "$webDirTarget/custom/custom.ipxe"  || return # assumes Jinja2 templates are not used (no {{ }})
@@ -184,7 +199,7 @@ infoAllCommand() { infoLocationsCommand && echo && infoSitesCommand && echo && i
 
 infoLocationsCommand()
 {
-	local webDirTarget="$(getwebDirTarget)"
+	local webDirTarget="$(getWebDirTarget)" || return
 
 	echot "\
 Locations:
@@ -432,12 +447,12 @@ setupConfigCommand()
 setupWebUsage()
 {
 	ScriptUsageEcho "Usage: $(ScriptName) setup web
-Setup the netboot.xyz web directories '$webDirApp' and '$(getwebDirTarget)'."
+Setup the netboot.xyz web directories '$webDirApp' and '$(getWebDirTarget)'."
 }
 
 setupWebCommand()
 {
-	local webDirTarget; webDirTarget="$(getwebDirTarget)" || return
+	local webDirTarget; webDirTarget="$(getWebDirTarget)" || return
 	sudov || return
 
 	# target web directory
@@ -554,8 +569,9 @@ testWeb()
 # update commands
 #
 
-updateUsage() { ScriptUsageEcho "Usage: $(ScriptName) update app|win"; }
+updateUsage() { ScriptUsageEcho "Usage: $(ScriptName) update [all|app|win](all)\nUpdate netboot.xyz."; }
 updateCommand() { usage; }
+updateAllCommand() { updateAppCommand && updateWinCommand; }
 
 #
 # update app commands
@@ -613,14 +629,13 @@ updateAppBuildCommand()
 updateWinUsage()
 {
 	echot "\
-Usage: $(ScriptName) app update win [all|build|download|select|sync](select)
+Usage: $(ScriptName) app update win [all|build|download|select](select)
 Update Windows setup images.  ISO images are built using the 'uup build all' command.
 
 	all 				download and build the current Windows builds 
-	build				build compressed UUP download files in $(FileToDesc "$downloadDir")
+	build				build compressed UUP download files and ISO directories in $(FileToDesc "$downloadDir")
 	download  	download current Windows UUP files to $(FileToDesc "$downloadDir")
-	select 			select a Windows build and build it
-	sync				synchronize installation shares"
+	select 			select a Windows build from the UUP web site and build it"
 }
 
 updateWinCommand() { updateWinSelectCommand; }
@@ -630,9 +645,6 @@ updateWinBuildCommand() { uupBuild; }
 
 updateWinDownloadUsage() { ScriptUsageEcho "Usage: $(ScriptName) update win download\Download current Windows UUP files to $(FileToDesc "$downloadDir")."; }
 updateWinDownloadCommand() { uupDownload; }
-
-updateWinSyncUsage() { ScriptUsageEcho "Usage: $(ScriptName) update win sync\Synchronize installation shares."; }
-updateWinSyncCommand() { wiggin sync public "${globalArgs[@]}"; }
 
 updateWinAllUsage() { ScriptUsageEcho "Usage: $(ScriptName) update win all auto\Download and build the current Windows builds."; }
 
@@ -644,7 +656,11 @@ updateWinAllCommand()
 	uupBuild || return
 }
 
-updateWinSelectUsage() { ScriptUsageEcho "Usage: $(ScriptName) update win select [auto]\Select a specific Windows build."; }
+updateWinSelectUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) update win select [auto]
+Select a specific Windows build."
+}
 
 updateWinSelectCommand()
 {
@@ -659,25 +675,67 @@ updateWinSelectCommand()
 }
 
 # uupBuild - build the UUP files in $downloadDir
-uupBuild()
-{
-	cd "$downloadDir" || return
+uupBuild() { cd "$downloadDir" && uupBuildIso && uupBuildInstall; }
 
+uupBuildIso()
+{
 	# return if no UUP files
-	if (( $(getUupFileCount) == 0 )); then
-		echo "There are not any UUP build files in $(FileToDesc "$downloadDir")."; return 0
+	local fileCount="$(getUupFileCount)"
+	if (( fileCount == 0 )); then
+		log1 "uupBuildIso: no UUP build files in $(FileToDesc "$downloadDir")"; return
 	fi
 
-	# build UUP zip files
+	# build
+	log1 "uupBuildInstall: processing $fileCount UUP build files"
 	local file; for file in *.*.zip; do
-		HeaderBig "Building $file"
-		uup build "$file" "${globalArgs[@]}" || return
+		HeaderBig "Building ISO from $(FileToDesc "$file")"
+		uup build iso "$file" "${globalArgs[@]}" || return
 	done
+}
 
-	hilight "Updating batchfiles..."
-	echo "@setup.bat $build" > "$winScriptDir/install/$build.bat" || return
+uupBuildInstall()
+{
+	# find ISO directories in the format MAJOR.MINOR
+	local dirs; IFS=$'\n' ArrayMake dirs "$(find . -maxdepth 1 -regextype posix-extended -regex '.*/[0-9]+\.[0-9]+-(amd64|arm64)' -type d -printf '%f\n')"
+	(( ${#dirs[@]} == 0 )) && { log1 "uupBuildInstall: no Windows ISO directories in $(FileToDesc "$downloadDir")"; return; }
 
-	deployAssetsCommand || return
+	# build
+	log1 "uupBuildInstall: processing ${#dirs[@]} ISO directories"
+	local dir; for dir in "${dirs[@]}"; do
+		HeaderBig "Installing ISO $(FileToDesc "$dir")"
+
+		# copy ISO to install directory
+		uup build install "$dir" "${globalArgs[@]}" || return
+
+		# extract ISO to installers directory
+		uup build installers "$dir" "${globalArgs[@]}" || return
+
+		# update installation scripts
+		hilight "Updating scripts..."
+		ScriptEval uup build vars "$dir" || return
+		local file="$winScriptDir/install/$buildDir.bat"
+		if [[ $force || ! -f "$file" ]]; then
+			log1 "uupBuildInstall: creating '$(FileToDesc "$file")' "
+			echo "@setup.bat $buildDir" > "$file" || return
+		else
+			log1 "uupBuildInstall: file '$(FileToDesc "$file")' already exists"
+		fi
+
+		# update install README.txt
+		hilight "Updating install README.txt..."
+		local dir; dir="$(getWinInstallDir)" || return
+		local file="$dir/README.txt"
+		local line="$buildDir"
+		local label="$(infoWinCommand | grep "${build}$" | cut -d":" -f1 | RemoveSpace)" || return
+		[[ $label ]] && line+=" ($label)"
+		if ! qgrep "$line" "$file"; then
+			log1 "uupBuildInstall: adding '$line' to '$(FileToDesc "$file")'"
+			echo "$line" >> "$file" || return
+		else
+			log1 "uupBuildInstall: file '$(FileToDesc "$file")' already has line '$line'"
+		fi
+
+	done
 }
 
 # uupDownload - download current UUP files to $downloadDir
@@ -772,6 +830,6 @@ getContainerId() { docker ps --all | grep "$dockerImageName" | cut -d" " -f1; }
 getHosts() { GetHostsService "netbootxyz"; }
 getUupFileCount() { command ls -1 "$downloadDir/"*.*".zip" 2> /dev/null | wc -l; }
 getWinInstallDir() { FindInstallFile "other/Microsoft/Windows/setup"; }
-getwebDirTarget() { local dir; dir="$(apache dir sync)" || return; echo "$dir/htdocs/netbootxyz"; }
+getWebDirTarget() { local dir; dir="$(apache dir sync)" || return; echo "$dir/htdocs/netbootxyz"; }
 
 ScriptRun "$@"
