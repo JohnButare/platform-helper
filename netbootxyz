@@ -26,7 +26,7 @@ init()
 	winScriptDir="$confDir/web/custom/windows/scripts"
 
 	# other
-	winReleases=(canary dev beta rp)
+	winReleases=(release release-preview dev beta canary)
 }
 
 #
@@ -248,14 +248,31 @@ infoServersCommand()
 	- example: 'tftp $tftpServer -c get menu.ipxe'	"
 }
 
-infoWinUsage() { ScriptUsageEcho "Usage: $(ScriptName) info win [detail]\Show Windows release information."; }
+infoWinUsage()
+{
+	ScriptUsageEcho "Usage: $(ScriptName) info win [detail]
+Show Windows release information from UUP dump.
+
+	-a, --alternate		use alternate source for release information (Microsoft)"
+}
+
+infoWinArgStart() { unset -v alternate; }
+
+infoWinOpt()
+{
+	case "$1" in
+		--alternate|-a) alternate="--alternate";;
+		*) return 1;;
+	esac
+}
 
 infoWinCommand()
 {
 	echot "Windows:"
+	
 	local release
 	for release in "${winReleases[@]}"; do
-		echo "  $release: $(infoWinBuild "$release")"
+		echo "  $release: $(infoWinBuild "$release")"		
 	done
 }
 
@@ -272,30 +289,94 @@ infoWinDetailCommand()
 	} | ${G}column -c $(tput cols -T "$term") -t -s#
 }
 
-# infoWinBuild canary|dev|beta|rp
+# infoWinBuild release|release-preview|beta|dev|canary
 infoWinBuild()
 {
 	local release="$1" url
-	local cache="win-build-$release"; UpdateGet "$cache" && return
-	local url="$(infoWinUrl "$release")" || return
-	local build; build="$(curl -L --silent "$url" | grep "Build " | grep "strong" | head -1 | sed 's/.*Build //' | cut -d"." -f1 | cut -d" " -f1 | cut -d")" -f1)" || return
-	! IsInteger "$build" && { ScriptErr "Windows '$release' release build '$build' is not numeric"; return 1; }
+	local cacheSuffix=""; [[ $alternate ]] && cacheSuffix="-alternate"
+	local cache="win-build-$release${cacheSuffix}"; UpdateGet "$cache" && return
+	local src="Uup"; [[ $alternate ]] && src="Microsoft"
+	local build="$(infoWinBuild${src} "$release")" || return
+	! IsNumeric "$build" && { ScriptErr "Windows '$release' release build '$build' is not numeric"; return 1; }
 	UpdateSet "$cache" "$build" && echo "$build"
 }
 
-# infoWinUrl canary|dev|beta|rp
+infoWinBuildMicrosoft()
+{
+	local release="$1"
+
+	# get release URL
+	local url="$(infoWinUrl "$release")" || return
+	log1 "infoWinBuildMicrosft: url=$url"
+
+	# Microsoft does not have an apparent source for release build version
+	[[ "$release" == "release" ]] && { alternate="" infoWinBuild "$release"; return; }
+
+	# get build
+	local result; result="$(curl -L --silent "$url")" || return
+	local build="$(echo "$result" | grep "Build " | grep "strong" | head -1 | sed 's/.*Build //' | cut -d" " -f1 | cut -d")" -f1)"
+	[[ "$build" =~ \. ]] && { echo "$build"; return; } # major.minor
+
+	# minor version - release preview only has major version, find the minor version
+	local major="$build"
+	local minor; minor="$(echo "$result" | grep "$major\." | head -1 | sed "s/.*$major//" | cut -d" " -f1 | cut -d"." -f2)" || return
+	echo "$major.$minor"
+}
+
+infoWinBuildUup()
+{
+	local release="$1"
+
+	# get release URL
+	local url="$(infoWinUrl "$release")" || return
+	log1 "infoWinBuildUup: url=$url"
+	local sleep=1
+	for (( i = 0; i < 10; i++ )); do
+		sleep "$sleep"
+		local result; result="$(curl -L --silent "$url")" || return
+		! echo "$result" | qgrep "rate limited" && break
+		(( sleep+=sleep ))
+		SleepStatus "UUP dump rate is limited, sleeping $sleep seconds..." 1>&2 || return
+	done
+		
+	echo "$result" | ${G}grep "Build number:" | tail -1 | ${G}cut -d: -f2 | RemoveSpaceTrim | ${G}cut -d" " -f1
+}
+
+# infoWinUrl release|release-preview|beta|dev|canary - get Windows version URL from UUPdump.net or Windows Insider blogs (alternate)
+# - both sources to validate, UUP dump may rate limit
 infoWinUrl()
+{
+	local release="$1"
+	src="Uup"; [[ $alternate ]] && src="Microsoft"
+	infoWinUrl${src} "$release"
+}
+
+infoWinUrlMicrosoft()
 {
 	local name release="$1"
 	case "${release,,}" in
 		canary) name="canarychannellatest";;
 		dev) name="DevLatest";;
 		beta) name="BetaLatest";;
-		rp) name="ReleasePreviewWindows11";;
+		release-preview) name="ReleasePreviewWindows11";;
+		release) infoWinUrlUup "$release"; return;;
 		*) ScriptErr "'$1' is not a valid Windows release"; return 1;;
 	esac
-
 	echo "https://aka.ms/$name"
+}
+
+infoWinUrlUup()
+{
+	local name release="$1"
+	case "${release,,}" in
+		canary) name="canary";;
+		dev) name="wif";;
+		beta) name="wis";;
+		release-preview) name="rp";;
+		release) name="retail";;
+		*) ScriptErr "'$1' is not a valid Windows release"; return 1;;
+	esac
+	echo "https://uupdump.net/fetchupd.php?arch=amd64&ring=$name"
 }
 
 #
