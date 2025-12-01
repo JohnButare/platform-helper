@@ -1512,21 +1512,15 @@ syncWireGuard() { unisonArgs=(-ignore "Name {setupVars.conf}"); syncDir "$1" "/e
 
 # remote sync
 
-syncNetbootxyzUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync netbootxyz\nSyncronize netboot.xyz data (assets, assets-custom, config, and installers).\n\n$(syncUsageText)"; }
-syncNetbootxyzCommand()
+syncNetbootxyzUsage()
 {
-	header "Sync netboot.xyz"
-	local syncHost hosts; GetHostsApp "netbootxyz" available || return
+	ScriptUsageEcho "Usage: $(ScriptName) sync netbootxyz
+Syncronize netboot.xyz data (assets, assets-custom, config, and installers).
 
-	# other hosts - 10G
-	IsAvailable ender.hagerman.butare.net && hosts=(ender.hagerman.butare.net "${hosts[@]}")
-	IsAvailable shrike.hagerman.butare.net && hosts=(shrike.hagerman.butare.net "${hosts[@]}")
-	syncHost="${hosts[0]}"
-
-	# two sync passes to get changes on alls servers
-	ForAllHosts syncNetbootxyz --ignore-host "$syncHost" --header "Sync netboot.xyz: pass 1" || return
-	ForAllHosts syncNetbootxyz --ignore-host "$syncHost" --header "Sync netboot.xyz: pass 2" || return
+$(syncUsageText)" 
 }
+
+syncNetbootxyzCommand() { syncFiles "netboot.xyz" "netbootxyz" "syncNetbootxyz"; }
 
 syncNetbootxyz()
 {
@@ -1535,29 +1529,14 @@ syncNetbootxyz()
 	UnisonHelper sync --host="$syncHost" "$ADATA/netbootxyz" "$host" --no-props --root $method "${globalArgs[@]}" -- -ignore "'Name {*.log}'"
 }
 
-syncPublicUsage() { ScriptUsageEcho "Usage: $(ScriptName) sync public [local]\nSyncronize public files.\n\n$(syncUsageText)"; }
-syncPublicCommand()
+syncPublicUsage()
 {
-	header "Sync Public Files"
-
-	# 10G file servers - first pass
-	if [[ ! $hostArg ]]; then
-		header "Sync Public Files (pass 1) (shrike)"
-		UnisonHelper sync --host=ender "/Volumes/data/public" "shrike" "$dir" "${globalArgs[@]}" || return
-	fi
-
-	# 2.5G file servers
-	local hosts; GetHostsApp "file" available || return # two sync passes to get changes on alls servers
-	ForAllHosts syncPublic --header "Sync Public Files (pass 1)" && ForAllHosts syncPublic --header "Sync Public Files (pass 2)"
-
-	# 10G file servers - second pass
-	if [[ ! $hostArg ]]; then
-		header "Sync Public Files (pass 2) (shrike)"
-		UnisonHelper sync --host=ender "/Volumes/data/public" "shrike" "$dir" "${globalArgs[@]}" || return
-	fi
-
-	return 0
+	ScriptUsageEcho "Usage: $(ScriptName) sync public [local]
+Syncronize public files.\n\n$(syncUsageText)"
 }
+
+# syncPublicCommand - two sync passes to get changes on alls servers
+syncPublicCommand() { syncFiles "Public Files" "file" "syncPublic" "ender,shrike"; }
 
 syncPublic()
 {
@@ -1771,6 +1750,34 @@ syncDir()
 	done	
 
 	serviceReload "$services"
+}
+
+# syncFiles DESC SERVICE SYNC_FUNCTION [FAST_HOSTS](shrike,ender) - sync files with two passes to ensure all files are copied
+syncFiles()
+{
+	local desc="$1" service="$2" syncFunction="$3" fastHostsArg="${4:-shrike,ender}"
+	header "Sync $desc"
+	local syncHost hosts
+	
+	# get hosts
+	if [[ $hostArg ]]; then
+		GetHosts || return
+	else
+		GetHostsApp "$service" available || return
+	fi
+
+	# add fast hosts
+	local fastHost fastHosts; StringToArray "$fastHostsArg" "," fastHosts
+	syncHost="${fastHosts[0]}"; ArrayShift fastHosts # fixed host for a consistent common Unison index
+	for fastHost in "${fastHosts[@]}"; do
+		IsAvailable "$fastHost" && hosts=("$fastHost" "${hosts[@]}")
+	done
+	log1 "syncFiles: syncHost=$syncHost hosts=$(ArrayDelimit hosts)"
+	(( ${#hosts[@]} < 2 )) && { ScriptErr "there are not enough hosts to synchronize"; return 1; }
+
+	# sync twice
+	ForAllHosts $syncFunction --ignore-host "$syncHost" --header "Sync $desc: pass 1" || return
+	ForAllHosts $syncFunction --ignore-host "$syncHost" --header "Sync $desc: pass 2" || return
 }
 
 # updateOwner HOST OWNER DIRS
