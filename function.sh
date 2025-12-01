@@ -1036,7 +1036,7 @@ ArraySort() { IFS=$'\n' ArrayMake "$1" "$(ArrayDelimit "$1" $'\n' | sort "${@:2}
 if IsZsh; then
 	ArrayMake() { setopt sh_word_split; local arrayMake=() arrayName="$1"; shift; arrayMake=( $@ ); ArrayCopy arrayMake "$arrayName"; }
 	ArrayMakeC() { setopt sh_word_split; local arrayMakeC=() arrayName="$1"; shift; arrayMakeC=( $($@) ) || return; ArrayCopy arrayMakeC "$arrayName"; }
-	ArrayShift() { local arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${${(P)arrayShiftVar}[@]}"; shift "$arrayShiftNum"; local arrayShiftArray=( "$@" ); ArrayCopy arrayShiftArray "$arrayShiftVar"; }
+	ArrayShift() { local arrayShiftVar="$1"; local arrayShiftNum="${2:-1}"; ArrayAnyCheck "$1" || return; shift "$arrayShiftVar" "$arrayShiftNum"; }
 	ArrayShowKeys() { local var; eval 'local getKeys=( "${(k)'$1'[@]}" )'; ArrayShow getKeys; }
 	IsArray() { [[ "$(GetTypeFull "$1")" =~ ^(array|array-) ]]; }
 	IsAssociativeArray() { [[ "$(GetTypeFull "$1")" =~ ^(association|association-) ]]; }
@@ -1044,7 +1044,7 @@ if IsZsh; then
 else
 	ArrayMake() { local -n arrayMake="$1"; shift; arrayMake=( $@ ); }
 	ArrayMakeC() { local -n arrayMakeC="$1"; shift; arrayMakeC=( $($@) ); }
-	ArrayShift() { local -n arrayShiftVar="$1"; local arrayShiftNum="$2"; ArrayAnyCheck "$1" || return; set -- "${arrayShiftVar[@]}"; shift "$arrayShiftNum"; arrayShiftVar=( "$@" ); }
+	ArrayShift() { local -n arrayShiftVar="$1"; local arrayShiftNum="${2:-1}"; ArrayAnyCheck "$1" || return; set -- "${arrayShiftVar[@]}"; shift "$arrayShiftNum"; arrayShiftVar=( "$@" ); }
 	ArrayShowKeys() { local var getKeys="!$1[@]"; eval local keys="( \${$getKeys} )"; ArrayShow keys; }
 	IsArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-a.* ]]; }
 	IsAssociativeArray() { [[ "$(declare -p "$1" 2> /dev/null)" =~ ^declare\ \-A.* ]]; }
