@@ -4652,6 +4652,7 @@ function RunPlatform()
 	IsPlatform cm4 "${hostArg[@]}" && { RunFunction $function cm4 -- "$@" || return; }
 	IsPlatform entware "${hostArg[@]}" && { RunFunction $function entware -- "$@" || return; }
 	IsPlatform pikernel "${hostArg[@]}" && { RunFunction $function PiKernel -- "$@" || return; }
+	IsPlatform rockkernel "${hostArg[@]}" && { RunFunction $function RockKernel -- "$@" || return; }
 	IsPlatform proxmox "${hostArg[@]}" && { RunFunction $function proxmox -- "$@" || return; }
 	IsPlatform gnome "${hostArg[@]}" && { RunFunction $function gnome -- "$@" || return; }
 	IsPlatform vm "${hostArg[@]}" && { RunFunction $function vm -- "$@" || return; }

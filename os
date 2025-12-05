@@ -651,9 +651,9 @@ infoArgStart()
 { 
 	unset -v detail monitor prefix status
 	hostArg="localhost" what=() skip=()
-	infoBasic=(model platform distribution kernel firmware chroot vm cpum architecture credential file network other update reboot)
+	infoBasic=(model platform distribution kernel firmware chroot vm cpum temp architecture credential file network other update reboot)
 	infoDetail=(cpu load mhz process memory disk package switch restart)
-	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used)
+	infoOther=( disk_free disk_total disk_used memory_free memory_total memory_used temp_all)
 	infoAll=( "${infoBasic[@]}" "${infoDetail[@]}" "${infoOther[@]}" )
 }
 
@@ -873,7 +873,6 @@ infoNetwork()
 }
 
 infoOther() { RunPlatform infoOther; }
-infoOtherPiKernel() {	infoEcho "    CPU temp: $(pi info temp)"; }
 
 infoPackage()
 {
@@ -973,6 +972,30 @@ infoRestartDebian()
 	# restarts required, return 1
 	return 1
 }
+
+infoTemp() { local temp; temp="$(RunPlatform infoTemp)" && [[ $temp ]] && infoEcho "    CPU temp: $temp"; }
+infoTempPiKernel() { infoTempCommon; }
+infoTempRockKernel() { infoTempCommon; }
+infoTempCommon() { cat "/sys/class/thermal/thermal_zone0/temp" | awk "{printf \"%.2f°C\", \$1/1000}"; }
+
+infoTemp_all() { RunPlatform infoTempAll; }
+infoTempAllPiKernel() { infoTempAllCommon; }
+infoTempAllRockKernel() { infoTempAllCommon; }
+
+infoTempAllCommon()
+{	
+	for i in {0..10}; do
+		local dir="/sys/class/thermal/thermal_zone$i"
+		[[ ! -f "$dir/temp" ]] && continue
+		echo -n "Zone $i ($(cat "$dir/type")): "; cat "$dir/temp" | awk "{printf \"%.2f°C\n\", \$1/1000}"
+	done
+}
+
+infoModelCommand()
+{
+	cat "/proc/cpuinfo" | grep "^Model" | cut -d":" -f 2 | RemoveTrim
+}
+
 
 infoUpdate()
 {
