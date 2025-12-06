@@ -60,9 +60,9 @@ noProxyRemote=".releases.ubuntu.com,.internal,.local"
 
 # butare network
 butareUser="jjbutare"
-butareBinUnc="//ender.butare.net/system/usr/local/data/bin"
+butareBinUnc="//shrike.butare.net/root/usr/local/data/bin"
 butareBootstrapCloudDir=""
-butareInstallUnc="//ender.butare.net/public/install"
+butareInstallUnc="//shrike.butare.net/public/install"
 butareNetworkPrefix="2606:a300:9024:308"
 butareNetworkPrefixLength="64"
 butareDnsBaseDomain="butare.net"
