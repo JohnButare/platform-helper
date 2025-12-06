@@ -173,7 +173,7 @@ deviceDisconnectCommand()
 
 infoUsage()
 {
-	ScriptUsageEcho "Usage: $(ScriptName) info
+	ScriptUsageEcho "Usage: $(ScriptName) info [summary]
 Show UniFi device and client information.
 
 	-c,	--clients		show clients (hosts) that are connected to the UniFi Controller network
@@ -189,7 +189,6 @@ infoOpt()
 	case "$1" in
 		-c|--clients) clients="true";;
 		-d|--devices) devices="true";;
-		-s|--summary) summary="true";;
 		-wi|--wired) wired="true";;
 		-w|--wireless) wireless="true";;
 		*) return 1
@@ -198,44 +197,60 @@ infoOpt()
 
 infoCommand()
 {
-	[[ $summary ]] && { infoSummary; return; }
 	[[ $devices ]] && { apiGetDevice | jq; return; }
 	[[ $clients ]] && { api "/stat/sta" | jq; return; }
 	[[ $wired ]] && { api "/stat/sta" | jq '.data | .[] | select(.is_wired == true)'; return; }
 	[[ $wireless ]] && { api "/stat/sta" | jq '.data | .[] | select(.is_wired == false)'; return; }
 }
 
-infoSummary()
+infoSummaryCommand()
 {
-	local clients; clients="$(mktemp)" || return
-	UniFiController info --clients > "$clients" || return
-	[[ $wired ]] && { infoSummaryWired || return; }
-	[[ $wireless ]] && { infoSummaryWireless || return; }
-	rm "$clients"
+	InitColor || return
+	[[ $devices ]] && { infoSummaryDevices || return; }
+	[[ $clients ]] && { infoSummaryWired || return; infoSummaryWireless || return; }
+	[[ ! $clients && $wired ]] && { infoSummaryWired || return; }
+	[[ ! $clients ]] && [[ $wireless ]] && { infoSummaryWireless || return; }
+	return 0
+}
+
+infoSummaryDevices()
+{
+	local sep="#"	
+	{		
+		hilight ${GREEN}"name${sep}type${sep}model${sep}ap${sep}depth${sep}architecture${sep}cpu${sep}mem${sep}power${sep}used${sep}ports${sep}clients${sep}temp${sep}fan${sep}EOL${RESET}"
+		apiGetDevice | jq '.data | .[] | { a: .name, b: .type, c: .model, d: .is_access_point, e: .uplink_depth, f: .architecture, g: .["system-stats"].cpu, h: .["system-stats"].mem, i: .total_max_power,
+			j: if (.total_used_power | type) == "number" then ((.total_used_power * 100 | round) / 100) else .total_used_power end,
+			k: .port_table | length, l: .num_sta, m: .general_temperature, n: .fan_level, o: .model_in_eol } | join("'${sep}'")' | \
+			RemoveQuotes | sort --ignore-case | \
+			awk 'BEGIN { FS="'${sep}'"; }; { print $1 FS $2 FS $3 FS $4 FS $5 FS $6 FS $7 FS $8 FS $9 FS $10 FS $11 FS $12 FS $13 FS $14 FS $15; }'
+	} | ${G}column -c $(tput cols -T "$TERM") -t -s${sep}
 }
 
 infoSummaryWired()
 {
-	local sep="#"
-
+	local sep="#"	
 	{
-		hilight "DNS${sep}switch${sep}port${sep}depth${sep}Mbps${sep}sat${sep}anomalies${sep}retries"
-		cat "$clients" | jq '.data | .[] | select(.is_wired == true) | { a: .name, b: .sw_mac, c: .sw_port, d: .sw_depth, e: .wired_rate_mbps, f: .satisfaction, g: .anomalies, h: .tx_retries } | join("'${sep}'")' | \
+		hilight ${GREEN}"DNS${sep}switch${sep}port${sep}depth${sep}Mbps${sep}sat${sep}anomalies${sep}retries${RESET}"
+		apiGetClient | jq '.data | .[] | select(.is_wired == true) | { a: .name, b: .sw_mac, c: .sw_port, d: .sw_depth, e: .wired_rate_mbps, f: .satisfaction, g: .anomalies, h: .tx_retries } | join("'${sep}'")' | \
 			RemoveQuotes | sort --ignore-case | \
-			awk 'BEGIN { FS="'${sep}'"; }; { cmd="RunFunction.sh DnsResolveMac " $2; cmd | getline sw; close(cmd); print $1 FS sw FS $3 FS $4 FS $5 FS $6 FS $7 FS $8; }'
+			awk 'BEGIN { FS="'${sep}'"; }; { cmd="RunFunction.sh DnsResolveMac --quiet " $2; cmd | getline sw; close(cmd); print $1 FS sw FS $3 FS $4 FS $5 FS $6 FS $7 FS $8; }'
 	} | ${G}column -c $(tput cols -T "$TERM") -t -s${sep}
-
 }
 
 infoSummaryWireless()
 {
 	local sep="#"
 	{
-		hilight "DNS${sep}network${sep}AP${sep}channel${sep}sat${sep}retries${sep}signal${sep}noise"
-		cat "$clients" | jq '.data | .[] | select(.is_wired == false) | { a: .name, b: .essid, c: .ap_mac, d: .channel, e: .satisfaction, f: .tx_retries, g: .signal, h: .noise } | join("'${sep}'")' | \
+		hilight "${GREEN}DNS${sep}network${sep}AP${sep}channel${sep}sat${sep}retries${sep}signal${sep}noise${RESET}"
+		apiGetClient | jq '.data | .[] | select(.is_wired == false) | { a: .name, b: .essid, c: .ap_mac, d: .channel, e: .satisfaction, f: .tx_retries, g: .signal, h: .noise } | join("'${sep}'")' | \
 			RemoveQuotes | sort --ignore-case | \
-			awk 'BEGIN { FS="'${sep}'"; }; { cmd="RunFunction.sh DnsResolveMac " $3; cmd | getline ap; close(cmd); print $1 FS $2 FS ap FS $4 FS $5 FS $6 FS $7 FS $8; }'
+			awk 'BEGIN { FS="'${sep}'"; }; { cmd="[[ '$3' != '' ]] && RunFunction.sh DnsResolveMac --quiet " $3; cmd | getline ap; close(cmd); print $1 FS $2 FS -$3- FS $4 FS $5 FS $6 FS $7 FS $8; }'
 	} | ${G}column -c $(tput cols -T "$TERM") -t -s${sep}
+}
+
+infoTempCommand()
+{
+	apiGetDevice | jq '.data | .[] | select(.has_temperature == true) | "\(.name),\(.general_temperature)"' | RemoveQuotes | ${G}sed 's/,/: /' | ${G}sed 's/$/°C/'; 
 }
 
 #
@@ -594,11 +609,20 @@ apiError()
 	ScriptErrQuiet "$(echo "$json" | jq '.meta.msg' | RemoveQuotes)"
 }
 
+apiGetClient()
+{
+	local cache="unifi-controller-client"
+	[[ ! $force ]] && { UpdateGet "$cache" && return; }
+	local client; client="$(api "/stat/sta" | jq)" || return
+	UpdateSet "$cache" "$client"
+	echo "$client"
+}
+
 apiGetDevice()
 {
 	local cache="unifi-controller-device"
 	[[ ! $force ]] && { UpdateGet "$cache" && return; }
-	local device; device="$(api "/stat/device")" || return
+	local device; device="$(api "/stat/device" | jq)" || return
 	UpdateSet "$cache" "$device"
 	echo "$device"
 }

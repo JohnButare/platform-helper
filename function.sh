@@ -3467,7 +3467,6 @@ DnsResolveMacBatch()
 # --all|-a			show all names, even those that could not be resolved
 # --errors|-e		keep processing if an error occurs, return the total number of errors
 # --full|-f  		return a fully qualified domain name
-# --quiet|-q		suppress error message where possible
 DnsResolveMac()
 {
 	local scriptName="DnsResolveMac" all errors macs=() quiet full="cat" ipv
@@ -3488,6 +3487,7 @@ DnsResolveMac()
 		shift
 	done
 
+	[[ ! $macs && $quiet ]] && return
 	[[ ! $macs ]] && { MissingOperand "mac"; return; } 	
 
 	# validate
@@ -6152,7 +6152,7 @@ UpdateGetForce() { UpdateInit "$1" && [[ ! -f "$updateFile" ]] && return; cat "$
 UpdateNeededEmpty() { UpdateNeeded "$@" || [[ ! $(UpdateGet "$updateFile") ]]; }								# UpdateNeededCheck FILE - return true if an update is needed or if the contents of the file is empty
 UpdateRm() { UpdateInit "$1" && rm -f "$updateFile"; }																					# UpdateRm FILE - remove the update file
 UpdateRmAll() { UpdateInitDir && DelDir --contents --hidden --files "$updateDir"; }							# UpdateRmAll - remove all update files
-UpdateSet() { UpdateInit "$1" && printf "$2" > "$updateFile"; }																	# UpdateSet FILE TEXT - set the contents of the update file
+UpdateSet() { UpdateInit "$1" && echo -E -n  "$2" > "$updateFile"; }														# UpdateSet FILE TEXT - set the contents of the update file
 UpdateSince() { ! UpdateNeeded "$@"; }																													# UpdateSince FILE [DATE_SECONDS](TODAY) - return true if the file was updated since the date, or today
 UpdateRecent() { ! UpdateNeeded "$1" "$(( $(GetSeconds --no-ns) - ${2:-5} ))"; }								# UpdateRecent FILE [SECONDS](5) - return true if the file was updated in the last number of seconds
 
