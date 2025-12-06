@@ -1531,6 +1531,57 @@ FileGetUnc()
 	echo "${file/$target/$source}"
 }
 
+# FileModeConvert MODE|OCTAL - convert to or from octal mode
+FileModeConvert()
+{
+	local scriptName="FileModeConvert"
+	local mode="$1" owner group other
+
+	# arguments
+	[[ ! $mode ]] && { MissingOperand "mode"; return; }
+
+  # octal to mode
+ 	if IsInteger "$mode"; then
+	  ! [[ $mode =~ ^[0-7]{3}$ ]] && { ScriptErrQuiet "'$mode' must be three octal digits"; return; }
+	  owner="$(fileModeConvertOctalToRwx "${mode:0:1}")"
+	  group="$(fileModeConvertOctalToRwx "${mode:1:1}")"
+	  other="$(fileModeConvertOctalToRwx "${mode:2:1}")"
+		
+  # mode to octal
+	else
+		# Pattern enforces proper rwx ordering: [r-][w-][x-] for each of owner/group/other
+	  ! [[ $mode =~ ^[r-][w-][x-][r-][w-][x-][r-][w-][x-]$ ]] && { ScriptErrQuiet "'$mode' must match pattern rwxrwxrwx (- to deny permission)" "FileModeConvert"; return; }
+    owner="$(fileModeConvertRwxOctal "${mode:0:3}")"
+    group="$(fileModeConvertRwxOctal "${mode:3:3}")"
+    other="$(fileModeConvertRwxOctal "${mode:6:3}")"
+	fi
+
+	echo "$owner$group$other"
+	return 0
+}
+
+fileModeConvertOctalToRwx() 
+{
+  case $1 in
+      0) echo "---";;
+      1) echo "--x";;
+      2) echo "-w-";;
+      3) echo "-wx";;
+      4) echo "r--";;
+      5) echo "r-x";;
+      6) echo "rw-";;
+      7) echo "rwx";;
+  esac
+}    
+
+fileModeConvertRwxOctal()
+{
+	local mode="$1" value=0
+  [[ ${mode:0:1} == "r" ]] && value=$((value + 4))
+  [[ ${mode:1:1} == "w" ]] && value=$((value + 2))
+  [[ ${mode:2:1} == "x" ]] && value=$((value + 1))
+  echo "$value"
+}
 
 # FileToDesc FILE - short description for the file
 # - convert mounted volumes to UNC,i.e. //server/share
@@ -2957,6 +3008,7 @@ IsAvailablePort()
 		esac
 		shift
 	done
+
 	[[ ! $host ]] && { MissingOperand "host"; return; }
 	[[ ! $port ]] && { MissingOperand "port"; return; }
 	[[ ! $timeout ]] && { timeout="$(AvailableTimeoutGet)"; }
