@@ -1,32 +1,20 @@
 @echo off
-REM bootstrap.cmd [1|2] - run bootstrap-init
-REM - autounattend.xml -> ** bootstrap.cmd ** -> bootstrap-init -> bootstrap -> inst
-REM - 1: run the bootstrap process for WSL 1 (no nested virtualization, Mac virtual machines)
-REM - 2: run the bootstrap process for WSL 2 (requires Hyper-V nested virtualization)
+REM bootstrap.cmd [bootstrap-init options] - run bootstrap-init
+REM - flow: autounattend.xml -> ** bootstrap.cmd ** -> bootstrap-init -> bootstrap -> inst
+REM - variables:
+REM   wsl=1|2 - run the bootstrap process for WSL 1 or 2, defaults to 2 (requires Hyper-V nested virtualization)
+REM   dist=DISTRIBUTION - distribution to install, defaults to Ubuntu
+REM   distUser=USER - user for the distribution, defaults to the current user (%USERNAME%).   Also used for the UNC connection to the current directory
+REM   distUnc=UNC - optional location of the distribution image, i.e. \\ender.butare.net\public
+REM   distImage=IMAGE - optional distribution image, i.e. documents\data\install\platform\linux\wsl\image\ubuntu\default.tar.gz
 
 REM variables
 set dir=%~dp0
-set dist=Ubuntu
-set distUser=%USERNAME%
-rem set distUnc=\\ender.butare.net\public
-rem set distImage=documents\data\install\platform\linux\wsl\image\ubuntu\default.tar.gz
-
-set wsl=%1
 if not DEFINED wsl set wsl=2
-
-REM
-REM validate
-REM
-
-if %wsl% == 1 (
-	rem
-) else if %wsl% == 2 (
-	rem
-) else (
-	echo WSL version '%wsl%' is not valid (must be 1 or 2^)
-	pause
-	exit /b 1
-)
+if not DEFINED dist set dist=Ubuntu
+if not DEFINED distUser set distUser=%USERNAME%
+rem if not DEFINED distUnc set distUnc=\\ender.butare.net\public
+rem if not DEFINED distImage set distImage=documents\data\install\platform\linux\wsl\image\ubuntu\default.tar.gz
 
 REM unc - the current directory is a UNC, but we need to remove the trailing slash or net use will error
 set unc=%dir:~0,-1%  
@@ -46,8 +34,9 @@ if not exist "%f%" (
 	>> "%f%" echo set distUser=%distUser%
 	>> "%f%" echo set distUnc=%distUnc%
 	>> "%f%" echo set distImage=%distImage%
+	>> "%f%" echo set wsl=%wsl%
 	>> "%f%" echo if not exist %unc% net use %unc% /user:%distUser%
-	>> "%f%" echo %dir%bootstrap.cmd
+	>> "%f%" echo %dir%bootstrap.cmd %*
 )
 
 REM
