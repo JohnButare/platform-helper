@@ -12,7 +12,7 @@ argStart() { unset -v file force; }
 # Config Command
 #
 
-configUsage() {	echot "Usage: $(ScriptName) config check|diff|edit|get|sync\nSSH configuration configuration."; }
+configUsage() {	echot "Usage: $(ScriptName) config check|diff|edit|get|permission|sync\nSSH configuration configuration."; }
 configCommand() { usage; }
 configEditCommand() { TextEdit ~/.ssh/config; }
 
@@ -66,6 +66,58 @@ configGetUsage() {	echot "Usage: $(ScriptName) config get HOST VALUE\nReturn the
 configGetArgStart() { host="" value=""; }
 configGetArgs() { ScriptArgGet "host" -- "$@" && shift && ScriptArgGet "value" -- "$@"; }
 configGetCommand() { SshConfigGet "$host" "$value"; }
+
+#
+# config permission command
+#
+
+configPermissionUsage()
+{
+	echot "Usage: $(ScriptName) config permission [USER]
+Ensure correct permissions are set on ~/.ssh or for the specified user."
+}
+
+configPermissionArgStart() { user=""; }
+configPermissionArgs() { (( ! $# )) && return; ScriptArgGet "user" -- "$@"; }
+
+configPermissionCommand()
+{
+	if [[ $user ]]; then
+		configPermissionUser $user
+	else
+		configPermission
+	fi
+}
+
+configPermission()
+{
+	[[ ! -d ~/.ssh ]] && return
+	[[ "$(DirCount ~/.ssh)" == "0" ]] && return
+	sudov || return
+	sudo chown "$USER" ~/.ssh/* || return
+	! IsPlatform mac && { chgrp "$USER" ~/.ssh/* || return; }
+	find ~/.ssh -type d -exec chmod 700 {} \; || return
+	find ~/.ssh -type f -exec chmod 600 {} \; || return
+}
+
+# configPermissionUser USER - set .ssh permissions for USER
+configPermissionUser()
+{
+	local user="$1" skipGroup; IsPlatform mac && skipGroup="true"
+
+	sudo bash -l <<-EOF # does not work with sudoc
+		sudo find "$USERS/$user/.ssh" | ${G}xargs chown $user || exit
+		[[ "$skipGroup" != "true" ]] && { sudo find "$USERS/$user/.ssh" | sudo ${G}xargs chgrp "$user" || exit; }
+		sudo chmod 700 "$USERS/$user/.ssh" || exit
+
+		[[ -f "$USERS/$user/.ssh/config" ]] && { sudo chmod 700 "$USERS/$user/.ssh/config" || exit; }
+		[[ -f "$USERS/$user/.ssh/authorized_keys" ]] && { sudo chmod 700 "$USERS/$user/.ssh/authorized_keys" || exit; }
+		[[ -f "$USERS/$user/.ssh/id_rsa" ]] && { sudo chmod 700 "$USERS/$user/.ssh/id_rsa" || exit; }
+		[[ -f "$USERS/$user/.ssh/id_ed25519" ]] && { sudo chmod 700 "$USERS/$user/.ssh/id_ed25519" || exit; }
+
+		exit 0
+	EOF
+}
 
 #
 # config sync command
@@ -458,32 +510,6 @@ Check if the hosts SSH port is available.
 }
 
 isAvailablePortCommand() { local port user; connectHostInit "$host" && connectCheck "$host"; }
-
-#
-# permission command
-#
-
-permissionUsage() {	echot "Usage: $(ScriptName) permission USER\nFix SSH permissions for user."; }
-permissionArgStart() { user=""; }
-permissionArgs() { ScriptArgGet "user" -- "$@"; }
-
-permissionCommand()
-{
-	local skipGroup; IsPlatform mac && skipGroup="true"
-
-	sudo bash -l <<-EOF # does not work with sudoc
-		sudo find "$USERS/$user/.ssh" | ${G}xargs chown $user || exit
-		[[ "$skipGroup" != "true" ]] && { sudo find "$USERS/$user/.ssh" | sudo ${G}xargs chgrp "$user" || exit; }
-		sudo chmod 700 "$USERS/$user/.ssh" || exit
-
-		[[ -f "$USERS/$user/.ssh/config" ]] && { sudo chmod 700 "$USERS/$user/.ssh/config" || exit; }
-		[[ -f "$USERS/$user/.ssh/authorized_keys" ]] && { sudo chmod 700 "$USERS/$user/.ssh/authorized_keys" || exit; }
-		[[ -f "$USERS/$user/.ssh/id_rsa" ]] && { sudo chmod 700 "$USERS/$user/.ssh/id_rsa" || exit; }
-		[[ -f "$USERS/$user/.ssh/id_ed25519" ]] && { sudo chmod 700 "$USERS/$user/.ssh/id_ed25519" || exit; }
-
-		exit 0
-	EOF
-}
 
 #
 # regenerate command

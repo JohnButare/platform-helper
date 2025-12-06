@@ -178,7 +178,7 @@ UserCreate()
 	fi
 
 	# update SSH configuration permissions
-	SshHelper permission "$user" || return
+	SshHelper config permission "$user" || return
 }
 
 # UserFullName - return the full name of the user, or the user id if the full name is not available
