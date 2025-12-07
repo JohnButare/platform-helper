@@ -1531,6 +1531,9 @@ FileGetUnc()
 	echo "${file/$target/$source}"
 }
 
+# FileModeGet FILE - get the octal file mode of a file
+FileModeGet() { ${G}stat -c '%a' "$1"; }
+
 # FileModeConvert MODE|OCTAL - convert to or from octal mode
 FileModeConvert()
 {
