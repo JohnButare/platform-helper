@@ -1293,9 +1293,10 @@ GetWordUsage() { (( $# == 2 || $# == 3 )) && IsInteger "$2" && return 0; EchoWra
 
 RemoveColor()
 {
-	InPath ansi2txt && { ansi2txt "$@"; return; }																								# linux
-	InPath ansifilter && { ansifilter --text "$@"; return; }																		# mac
-	${G}sed -r 's/[\x1B\x9B][][()#;?]*(([a-zA-Z0-9;]*\x07)|([0-9;]*[0-9A-PRZcf-ntqry=><~]))//g' # generic
+	if InPath ansi2txt; then ansi2txt "$@"																														# linux
+	elif InPath ansifilter; then ansifilter --text "$@"																								# mac
+	else ${G}sed -r 's/[\x1B\x9B][][()#;?]*(([a-zA-Z0-9;]*\x07)|([0-9;]*[0-9A-PRZcf-ntqry=><~]))//g' 	# generic
+	fi
 }
 
 # StringSort STRING [DELIMITER](,)
