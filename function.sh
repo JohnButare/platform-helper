@@ -1814,8 +1814,47 @@ PathAdd() # PathAdd [front] DIR...
 }
 
 # PathFix - fix the path if needed, for example add the win directory to the path so Hidden Start works correctly
-PathFix() { PathValidate && return; ! IsPlatform win && return; export PATH="$WIN_ROOT/Users/Public/data/appdata/win:$PATH" WSLENV="PATH/l"; }
-PathValidate() { ! IsPlatform win && return; cmd.exe /c echo %PATH% |& qgrep '\\win;' >& /dev/null; }
+PathFix()
+{
+	# return if the path is OK
+	PathValidate && return
+
+	# add platform
+	PathPlatform || return
+	[[ $PLATFORM_PATH ]] && export PATH="$PLATFORM_PATH:$PATH"
+	[[ $PLATFORM_PATH_ARM ]] && export PATH="$PLATFORM_PATH_ARM:$PATH"
+	IsPlatform win && export WSLENV="PATH/l"
+
+	return 0
+}
+
+PathValidate()
+{
+	# initialize
+	PathPlatform || return
+	local parts=(); StringToArray "$PATH" ":" parts
+
+	# check platform
+	[[ $PLATFORM_PATH ]] && ! IsInArray "$PLATFORM_PATH" parts && return 1
+	[[ $PLATFORM_PATH_ARM ]] && ! IsInArray "$PLATFORM_PATH_ARM" parts && return 1
+	IsPlatform win && ! cmd.exe /c echo %PATH% |& qgrep '\\win;' >& /dev/null && return 1
+
+	return 0
+}
+
+# PathPlatform - set PLATFORM_PATH and PLATFORM_PATH_ARM
+PathPlatform()
+{
+	# PLATFORM_PATH
+	export PLATFORM_PATH="$DATA/platform/$PLATFORM_OS"
+	export PLATFORM_PATH_FULL="$(GetFullPath "$PLATFORM_PATH")" # GetFullPath resolves links
+
+	# PLATFORM_PATH_ARM
+	export PLATFORM_PATH_ARM="" PLATFORM_PATH_ARM_FULL=""
+	IsPlatformAll win,arm && { export PLATFORM_PATH_ARM="$DATA/platform/${PLATFORM_OS}_arm"; export PLATFORM_PATH_ARM_FULL="$(GetFullPath "$PLATFORM_PATH_ARM")"; }
+
+	return 0
+}
 
 # PathQuoted - return paths as a quoted space separated list
 PathQuoted()
