@@ -1813,6 +1813,10 @@ PathAdd() # PathAdd [front] DIR...
 	return 0
 }
 
+# PathFix - fix the path if needed, for example add the win directory to the path so Hidden Start works correctly
+PathFix() { PathValidate && return; ! IsPlatform win && return; export PATH="$WIN_ROOT/Users/Public/data/appdata/win:$PATH" WSLENV="PATH/l"; }
+PathValidate() { ! IsPlatform win && return; cmd.exe /c echo %PATH% |& qgrep '\\win;' >& /dev/null; }
+
 # PathQuoted - return paths as a quoted space separated list
 PathQuoted()
 {
