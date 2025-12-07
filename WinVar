@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+. "${BASH_SOURCE[0]%/*}/function.sh" script || exit # empty argument prevents passing scripts arguments
+
+usage()
+{
+	ScriptUsage "$1" "\
+Usage: $(ScriptName) [OPTION]... get|set|delete VAR [VALUE]
+Set user or system variable in the Windows registry.
+
+  -s, --system			Set a system variable system wide (default is user)
+  -p, --path				The variable refers to a semi-colon separated path, the value is a directory"
+}
+
+init() { defaultCommand="run"; }
+
+argStart() { unset path system; }
+args() { ScriptArgGet "varArg" "var" -- "$@" && shift; }
+
+opt()
+{
+	case "$1" in
+		-s|--system) CanElevate && system="-m";;
+		-p|--path) path="--path";;
+		*) return 1;;
+	esac
+}
+
+argEnd()
+{
+	if [[ $system ]]; then
+		key="HKLM/SYSTEM/CurrentControlSet/Control/Session Manager/Environment/$varArg"
+	else
+		key="HKCU/Environment/$varArg"
+	fi
+}
+
+#
+# delete command
+#
+
+deleteCommand() { RunLog registry delete "$key" "${globalArgs[@]}"; }
+
+#
+# get command
+#
+
+getCommand()
+{
+	! RunLog registry exist "$key" "${globalArgs[@]}" && { ScriptErr "the variable '$varArg' does not exist in the registry"; return; }
+	local registryValue; registryValue="$(RunLog registry get "$key" "${globalArgs[@]}")" || return
+	local actualValue; actualValue="$(cmd.exe /c echo %${varArg}%  2> /dev/null)" || return
+	[[ "$registryValue" == "$actualValue" ]] && return
+	ScriptErr "the variable '$varArg' value in the registry ('$registryValue') does not match the actual value ('$actualValue')"
+}
+
+#
+# set command
+#
+
+setArgs() { ScriptArgGet "value" -- "$@" && shift; }
+
+setCommand()
+{
+	local newValue="$value"
+
+	[[ $path ]] && { setPath || return; }
+
+	if [[ $system ]] && ! IsElevated; then
+		local file="$(mktemp)" || return
+		echo "start setx.exe \"$varArg\" \"$newValue\" $system" > "$file"
+		RunScript --elevate --pause-error source "$file" || { rm "$file"; return 1; }
+		rm "$file" || return
+
+	elif ! start setx.exe "$varArg" "$newValue" $system >& /dev/null; then
+		ScriptErr "unable to set the '$varArg' variable: "
+		start setx.exe "$varArg" "$newValue" $system
+		return 1
+
+	fi
+
+	# set the variable and return it
+	[[ $path ]] && local $varArg="${!varArg}:$(wtu "$value")" || local $varArg="$value"
+	ScriptReturn --export "$varArg"
+}
+
+setPath()
+{
+	local parts oldValue="$(registry get "$key" "${globalArgs[@]}" | sed 's/\r//g')" # remove trailing carriage return
+	newValue="$(utw "$value")"
+	StringToArray "${oldValue//\\/\\\\}" ";" parts
+	IsInArray "$newValue" parts && exit 0
+	[[ $oldValue ]] && newValue="$oldValue;$newValue"
+	return 0
+}
+
+ScriptRun "$@"
