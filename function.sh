@@ -270,7 +270,7 @@ IsVisualStudioCode() { [[ "$TERM_PROGRAM" == "vscode" ]]; }
 AppVersion()
 {
 	# arguments
-	local scriptName="AppVersion" allowAlpha alternate app appOrig cache force forceLevel forceLess quiet version
+	local scriptName="AppVersion" allowAlpha alternate app appLower appOrig cache force forceLevel forceLess quiet version
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
@@ -280,7 +280,7 @@ AppVersion()
 			--alternate|-a) alternate="--alternate";;
 			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
 			*)
-				! IsOption "$1" && [[ ! $app ]] && { app="$(AppToCli "$1")" appOrig="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $app ]] && { app="$(AppToCli "$1")" appOrig="$1"; appLower="$(LowerCase "$(GetFileName "$app")")"; shift; continue; }
 				UnknownOption "$1"; return
 		esac
 		shift
@@ -303,6 +303,14 @@ AppVersion()
 		version="$(defaults read "$dir/Contents/Info.plist" CFBundleShortVersionString)" || return
 	fi
 
+	# aliases
+	if [[ ! $version ]]; then
+		case "$appLower" in
+			7za) version="$(AppVersion "$P/7-Zip/7z.exe")" || return;;
+			7zw) version="$(AppVersion "$DATA/platform/win/7z.exe")" || return;;
+		esac
+	fi
+
 	# check if the app exists
 	if [[ ! $version ]]; then
 		local file; file="$(FindInPath "$app")"
@@ -318,9 +326,9 @@ AppVersion()
 
 	# special cases
 	if [[ ! $version ]]; then
-		case "$(LowerCase "$(GetFileName "$app")")" in
+		case "$appLower" in
 			apache|cowsay|cron|gtop|kubectl|lolcat|parallel) return;; # excluded, cannot get version
-			7z) version="$(7z | head -2 | ${G}tail --lines=-1 | cut -d" " -f 3)" || return;;
+			7z) version="$(7z | head -2 | ${G}tail --lines=-1 | cut -d" " -f 2)" || return;;
 			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
 			bat) version="$(bat --version | cut -d" " -f2)";;
