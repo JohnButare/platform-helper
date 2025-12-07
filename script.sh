@@ -267,8 +267,8 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 # ScriptOptTimeout - sets timeout and timeoutArg
 ScriptOptTimeout() { ScriptOptGet --integer "timeout" "$@" || return; timeoutArg="--timeout=$timeout"; }
 
-ScriptOptTimeoutArgStart() { timeout="$(AvailableTimeoutGet)"; timeoutArg="--timeout=$timeout"; return 0; }
-ScriptOptTimeoutUsage() { echo "the network host timeout in milliseconds, defaults to $timeout ms"; }
+ScriptOptTimeoutArgStart() { timeout="${1:-$(AvailableTimeoutGet)}"; timeoutArg="--timeout=$timeout"; return 0; }
+ScriptOptTimeoutUsage() { echo "${1:-"the network host timeout"} in milliseconds, defaults to $timeout ms"; }
 
 #
 # Script Host Option
