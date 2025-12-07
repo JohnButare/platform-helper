@@ -7,8 +7,8 @@ usage()
 Usage: $(ScriptName) [OPTION]... get|set|delete VAR [VALUE]
 Set user or system variable in the Windows registry.
 
-  -s, --system			Set a system variable system wide (default is user)
-  -p, --path				The variable refers to a semi-colon separated path, the value is a directory"
+	-s, --system			set a system variable system wide (default is user)
+	-p, --path				the variable refers to a semi-colon separated path, the value is a directory"
 }
 
 init() { defaultCommand="run"; }
@@ -44,13 +44,36 @@ deleteCommand() { RunLog registry delete "$key" "${globalArgs[@]}"; }
 # get command
 #
 
+getUsage()
+{
+	ScriptUsageEcho "\
+Usage: $(ScriptName) get VAR
+Get variable.
+
+  -nv, --no-validate		do not validate the value in the registry with the actual value"
+}
+
+getAargStart() { unset noValidate; }
+
+getOpt()
+{
+	case "$1" in
+		-nv|--no-validate) noValidate="--no-validate";;
+		*) return 1;;
+	esac
+}
+
 getCommand()
 {
+	# get registry value
 	! RunLog registry exist "$key" "${globalArgs[@]}" && { ScriptErr "the variable '$varArg' does not exist in the registry"; return; }
-	local registryValue; registryValue="$(RunLog registry get "$key" "${globalArgs[@]}")" || return
-	local actualValue; actualValue="$(cmd.exe /c echo %${varArg}%  2> /dev/null)" || return
+	local registryValue; registryValue="$(RunLog registry get "$key" "${globalArgs[@]}" | RemoveCarriageReturn)" || return
+	[[ $noValidate ]] && { echo -E "$registryValue"; return; }
+
+	# get actual value
+	local actualValue; actualValue="$(cmd.exe /c echo %${varArg}%  2> /dev/null | RemoveCarriageReturn)" || return
 	[[ "$registryValue" == "$actualValue" ]] && return
-	ScriptErr "the variable '$varArg' value in the registry ('$registryValue') does not match the actual value ('$actualValue')"
+	echo -E "the '$varArg' variables value in the registry ('$registryValue') does not match the actual value ('$actualValue')"; return 1
 }
 
 #
@@ -67,7 +90,7 @@ setCommand()
 
 	if [[ $system ]] && ! IsElevated; then
 		local file="$(mktemp)" || return
-		echo "start setx.exe \"$varArg\" \"$newValue\" $system" > "$file"
+		echo "setx.exe \"$varArg\" \"$newValue\" $system" > "$file"
 		RunScript --elevate --pause-error source "$file" || { rm "$file"; return 1; }
 		rm "$file" || return
 
