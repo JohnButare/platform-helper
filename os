@@ -33,7 +33,9 @@ lockMac() { pmset displaysleepnow; }
 
 pathCommand()
 { 
-	if InPath "PathEditor.exe"; then
+	if InPath "WindowsPathEditor.exe"; then
+		start --elevate WindowsPathEditor.exe
+	elif InPath "WindowsPathEditor.exe"; then
 		start --elevate PathEditor.exe
 	elif IsPlatform win; then
 		systemProperties 3
