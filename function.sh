@@ -332,7 +332,7 @@ AppVersion()
 			apt) version="$(apt --version | cut -d" " -f2)" || return;;
 			bash) version="$(bash -c 'echo ${BASH_VERSION}' | cut -d"-" -f 1 | RemoveAfter "(")" || return;;
 			bat) version="$(bat --version | cut -d" " -f2)";;
-			btop) version="$(btop --version  | head -1 | cut -d":" -f2 | RemoveSpaceTrim | RemoveColor)" || return;;
+			btop) version="$(btop --version  | shead -1 | cut -d":" -f2 | RemoveSpaceTrim | RemoveColor)" || return;;
 			cfssl) version="$(cfssl version | head -1 | ${G}cut -d":" -f 2 | RemoveSpaceTrim)" || return;;
 			consul) version="$(consul --version | head -1 | cut -d" " -f2 | RemoveFront "v")" || return;;
 			cryfs|cryfs-unmount) version="$(cryfs --version | head -1 | cut -d" " -f3)";;
