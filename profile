@@ -221,7 +221,8 @@ copyProfile()
 	local destDir="$(GetFilePath "$destFile")"; [[ ! -d "$destDir" ]] && { ${G}mkdir --parents "$destDir" || return; }
 
 	printf "Copying profile to $(FileToDesc "$destDir")..."
-	cp "$srcFile" "$destFile" || return
+	log1 "copyProfile: srcFile=$srcFile destFile=$destFile destDir=$destDir"
+	RunLog1 cp "$srcFile" "$destFile" || return
 	echo "done"
 }
 
