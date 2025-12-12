@@ -372,8 +372,18 @@ nameGetCommand()
 
 nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
 {
+	# determine the name if possible (virtual machine name)
+	if [[ ! $name ]] && IsPlatform hyperv; then
+		name="$(registry get 'HKLM/SOFTWARE/Microsoft/Virtual Machine/Guest/Parameters/VirtualMachineName')" || return
+	fi
+
+	# prompt for the name
 	[[ ! $name ]] && { read -p "Enter new operating system name (current $HOSTNAME): " name; }
+
+	# return if the name is not changed
 	[[ ! $name || "$name" == "$HOSTNAME" ]] && return 1 # 1=name unchanged
+
+	# change the name
 	RunPlatform setHostname && UpdateSet "hostname" "$name"
 }
 
