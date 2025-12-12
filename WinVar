@@ -8,7 +8,7 @@ Usage: $(ScriptName) [OPTION]... get|set|delete VAR [VALUE]
 Set user or system variable in the Windows registry.
 
 	-s, --system			set a system variable system wide (default is user)
-	-p, --path				the variable refers to a semi-colon separated path, the value is a directory"
+	-p, --path				the variable refers to a semi-colon separated path, the value is a directory to add to the path"
 }
 
 init() { defaultCommand="run"; }
@@ -84,36 +84,49 @@ setArgs() { ScriptArgGet "value" -- "$@" && shift; }
 
 setCommand()
 {
-	local newValue="$value"
+	local newValue="$value" changed="true"
 
-	[[ $path ]] && { setPath || return; }
+	# add value to a path
+	if [[ $path ]]; then
 
-	if [[ $system ]] && ! IsElevated; then
-		local file="$(mktemp)" || return
-		echo "setx.exe \"$varArg\" \"$newValue\" $system" > "$file"
-		RunScript --elevate --pause-error source "$file"  >& /dev/null || { rm "$file"; return 1; }
-		rm "$file" || return
+		# get the current value of the path
+		local currentValue="$(registry get "$key" "${globalArgs[@]}" | sed 's/\r//g')" # remove trailing carriage return
+		
+		# convert the new value to Windows path format
+		newValue="$(utw "$newValue")"
 
-	elif ! start setx.exe "$varArg" "$newValue" $system >& /dev/null; then
-		ScriptErr "unable to set the '$varArg' variable: "
-		start setx.exe "$varArg" "$newValue" $system
-		return 1
+		# if the new value is not in the current path, append it
+		local parts; StringToArray "${currentValue//\\/\\\\}" ";" parts
+		if IsInArray "$newValue" parts; then
+			unset changed
+		elif [[ $currentValue ]]; then
+			newValue="$currentValue;$newValue"
+		fi
 
+	fi
+
+	# set the variable if forcing or if it is changed
+	if [[ $force || $changed ]]; then
+
+		# elevate if nee to set system variable		
+		if [[ $system ]] && ! IsElevated; then
+			local file="$(mktemp)" || return
+			echo "setx.exe \"$varArg\" \"$newValue\" $system" > "$file"
+			RunScript --elevate --pause-error source "$file"  >& /dev/null || { rm "$file"; return 1; }
+			rm "$file" || return
+
+		# set variable
+		elif ! start setx.exe "$varArg" "$newValue" $system >& /dev/null; then
+			ScriptErr "unable to set the '$varArg' variable: "
+			start setx.exe "$varArg" "$newValue" $system
+			return 1
+
+		fi
 	fi
 
 	# set the variable and return it
 	[[ $path ]] && local $varArg="${!varArg}:$(wtu "$value")" || local $varArg="$value"
 	ScriptReturn --export "$varArg"
-}
-
-setPath()
-{
-	local parts oldValue="$(registry get "$key" "${globalArgs[@]}" | sed 's/\r//g')" # remove trailing carriage return
-	newValue="$(utw "$value")"
-	StringToArray "${oldValue//\\/\\\\}" ";" parts
-	IsInArray "$newValue" parts && exit 0
-	[[ $oldValue ]] && newValue="$oldValue;$newValue"
-	return 0
 }
 
 ScriptRun "$@"
