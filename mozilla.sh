@@ -141,31 +141,25 @@ extensionInstallCommand()
 }
 
 #
-# helper
+# profile helper
 #
 
-askp() { [[ $noPrompt ]] && echo "${GREEN}$1...${RESET}" || ask "$1"; }
-IsFirefox() { [[ "$program" =~ firefox ]]; }
-IsThunderbird() { [[ "$program" =~ thunderbird ]]; }
+# profileDirCreate - create profile dir if it does not exist, sets profileDir
+profileDirCreate()
+{
+	[[ -d "$profileDir" ]] && return
 
-getProfileDir()
+	# start Firefox to create the profile directory	
+	startCommand && sleep 2 && profileDirInit && profileDirValidate
+}
+
+profileDirGet()
 {
 	local p="$configDir/profiles.ini" profileSuffix
 	[[ -f "$p" ]] && profileSuffix="$(cat "$p" | ${G}grep '^Default=Profiles' | ${G}head -1 | cut -d"=" -f2 | RemoveNewline | RemoveCarriageReturn)" && echo "$configDir/$profileSuffix"
 }
 
-# createProfileDir - create profile dir if it does not exist, sets profileDir
-createProfileDir()
-{
-	[[ -d "$profileDir" ]] && return
-
-	# start Firefox to create the profile directory	
-	startCommand && sleep 2 && profileDir="$(getProfileDir)" && validateProfileDir
-}
-
-ensureClosed() { ! isRunningCommand && return; closeCommand && sleep 2; }
-
-validateProfileDir()
+profileDirValidate()
 {
 	[[ -d "$profileDir" ]] && return
 	ScriptErr "the profile directory '$profileDir' does not exist"
@@ -189,3 +183,13 @@ profileExtensionsDo()
 
 	return 0
 }
+
+#
+# helper
+#
+
+askp() { [[ $noPrompt ]] && echo "${GREEN}$1...${RESET}" || ask "$1"; }
+ensureClosed() { ! isRunningCommand && return; closeCommand && sleep 2; }
+
+IsFirefox() { [[ "$program" =~ firefox ]]; }
+IsThunderbird() { [[ "$program" =~ thunderbird ]]; }
