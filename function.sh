@@ -3728,7 +3728,7 @@ MdnsResolve()
 	if InPath dns-sd.exe; then
 		result="$(RunWin dns-sd.exe -timeout 200 -Q "$name" |& grep "$name" | head -1 | rev | cut -d" " -f1 | rev)"
 	elif IsPlatform mac; then
-		result="$(ping -c 1 -W 200 "$name" |& grep "bytes from" | gcut -d" " -f 4 | sed s/://)"
+		result="$(ping -c 1 -W 1 "$name" |& grep "bytes from" | gcut -d" " -f 4 | sed s/://)"
 	elif InPath avahi-resolve-address; then
 		result="$(avahi-resolve-address -4 -n "$name" | awk '{ print $2; }')"
 	fi
