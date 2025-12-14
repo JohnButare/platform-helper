@@ -374,7 +374,7 @@ nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
 {
 	# determine the name if possible (virtual machine name)
 	if [[ ! $name ]] && IsPlatform hyperv; then
-		name="$(registry get 'HKLM/SOFTWARE/Microsoft/Virtual Machine/Guest/Parameters/VirtualMachineName')" || return
+		name="$(registry get 'HKLM/SOFTWARE/Microsoft/Virtual Machine/Guest/Parameters/VirtualMachineName' | RemoveCarriageReturn)" || return
 	fi
 
 	# prompt for the name
@@ -384,6 +384,7 @@ nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
 	[[ ! $name || "$name" == "$HOSTNAME" ]] && return 1 # 1=name unchanged
 
 	# change the name
+	log1 "setting hostname to '$name'"
 	RunPlatform setHostname && UpdateSet "hostname" "$name"
 }
 
