@@ -253,6 +253,28 @@ ScriptOptGet()
 	SetVar "$scriptVar" "$scriptOptValue"
 }
 
+# ScriptOptDetail - find detail option.  Sets detail, detailLevel, and detailLess.
+ScriptOptDetail()
+{
+	while (( $# > 0 )) && [[ "$1" != "--" ]]; do
+		case "$1" in
+			-d|--detail) detail="-v"; detailLevel=1;;
+			-dd) detail="-dd"; detailLevel=2;;
+			-ddd) detail="-ddd"; detailLevel=3;;
+			-dddd) detail="-dddd"; detailLevel=4;;
+			-ddddd) detail="-ddddd"; detailLevel=5;;
+		esac
+		shift; 
+	done
+
+	unset detailLess; (( detailLevel > 1 )) && detailLess="-$(StringRepeat "v" "$(( detailLevel - 1 ))")"
+
+	return 0
+}
+
+ScriptOptDetailArgStart() { unset -v detail detailLevel detailLess; }
+ScriptOptDetailUsage() { echo "detail mode, multiple -d increase detail (max 5)"; }
+
 # ScriptOptNetworkProtocol - sets protocol and protocolArg
 ScriptOptNetworkProtocol()
 {
@@ -266,7 +288,6 @@ ScriptOptNetworkProtocolUsage() { echo "use the specified protocol for file shar
 
 # ScriptOptTimeout - sets timeout and timeoutArg
 ScriptOptTimeout() { ScriptOptGet --integer "timeout" "$@" || return; timeoutArg="--timeout=$timeout"; }
-
 ScriptOptTimeoutArgStart() { timeout="${1:-$(AvailableTimeoutGet)}"; timeoutArg="--timeout=$timeout"; return 0; }
 ScriptOptTimeoutUsage() { echo "${1:-"the network host timeout"} in milliseconds, defaults to $timeout ms"; }
 
@@ -561,6 +582,7 @@ ScriptRun()
 	quietOutput="/dev/stdout"
 
 	set -- "${args[@]}"; args=()
+
 	while (( $# )); do
 		! IsOption "$1" && { args+=("$1"); shift; continue; }
 		ScriptOpt "$@" || return; shift "$shift"		
@@ -621,7 +643,7 @@ ScriptUsage()
 	# global option usage
 	local version; IsFunction versionCommand && version="\n	    --version			output version information and exit"
 	[[ $verbose ]] && ScriptUsageEcho "\nGlobal options:
-	-f, --force				force the operation, multiple -f increase force (max 3)
+	-f, --force				force the operation, multiple -f increase force (max 5)
 	-h, --help				display this help and exit
 	-np, --no-prompt  suppress interactive prompts
 	-q, --quiet 			minimize informational messages
