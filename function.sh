@@ -5727,19 +5727,6 @@ ScriptName()
 	printf "$name" 
 }
 
-# ScriptOptNoPrompt - find no prompt option.  Sets noPrompt.
-ScriptOptNoPrompt()
-{
-	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
-		case "$1" in
-			-np|--no-prompt) noPrompt="--no-prompt";;
-		esac
-		shift; 
-	done
-
-	return 0
-}
-
 # ScriptOptForce - find force option.  Sets force, forceLevel, and forceLess.
 ScriptOptForce()
 {
@@ -5777,6 +5764,19 @@ ScriptOptHelp()
 	done
 
 	return 1
+}
+
+# ScriptOptNoPrompt - find no prompt option.  Sets noPrompt.
+ScriptOptNoPrompt()
+{
+	while (( $# > 0 )) && [[ "$1" != "--" ]]; do 
+		case "$1" in
+			-np|--no-prompt) noPrompt="--no-prompt";;
+		esac
+		shift; 
+	done
+
+	return 0
 }
 
 # ScriptOptVerbose - find verbose option.  Sets verbose, verboseLevel, and verboseLess.
