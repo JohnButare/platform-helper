@@ -6289,7 +6289,7 @@ UpdateInitDir()
 	return 0
 }
 
-# UpdateInitFile FILE - if specified initialize update file, sets updateFile
+# UpdateInitFile FILE - if the file does not have a path add updateDir to it, sets updateFile
 UpdateInitFile()
 {
 	[[ ! $1 ]] && { MissingOperand "file" "UpdateInitFile"; return; }
