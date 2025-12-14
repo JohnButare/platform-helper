@@ -5387,7 +5387,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 			local distribution; distribution="$(wsl get name)" || return
 			local p=(wsl.exe --distribution "$distribution" --user "$USER"); [[ "$terminal" == "wt" ]] && InPath wt.exe && p=(wt.exe -d \"$PWD\" "${p[@]}")
 			(( verboseLevel > 1 )) && ScriptArgs "${runProcess[@]}" "${p[@]}" --exec "$(FindInPath "$fullFile")" "${args[@]}"
-			"${runProcess[@]}" "${p[@]}" --exec "$(FindInPath "$fullFile")" "${args[@]}"
+			"${runProcess[@]}" "${p[@]}" --exec "$(FindInPath "$fullFile")" "${args[@]}" | RemoveCarriageReturn
 
 		else
 			(( verboseLevel > 1 )) && ScriptArgs "${runProcess[@]}" "$(utw "$fullFile")" "${args[@]}"
