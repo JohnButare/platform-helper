@@ -190,7 +190,7 @@ ScriptOpt()
 		IsFunction "${c}Opt" && "${c}Opt" "$@" && return
 	done
 
-	# script option
+	# top level option
 	IsFunction "opt" && { opt "$@" && return; }
 
 	# global option
