@@ -4065,7 +4065,6 @@ GetUncProtocol()
 	# protocol in front
 	if [[ "$gup" =~ ^[a-zA-Z0-9]*:// ]]; then
 		gup="${gup%%:*}"
-		echo hi
 
 	# protocol in end - remove //[USER@]SERVER/[/DIRS]:PROTOCOL
 	elif gup="${gup##*/}" && [[ "$gup" =~ : ]]; then
