@@ -678,13 +678,13 @@ install commands.
 			--no-find|-nf) noFind="--no-find";;
 			--no-run|-nr) noRun="--no-run";;
 			--select|-s) select="--select";;
-			--timeout|--timeout=*|-t|-t=*) . script.sh && ScriptOptTimeout "$@";;
+			--timeout|--timeout=*|-t|-t=*) { . script.sh && ScriptOptTimeout "$@"; } || return;;
 
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
-			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1" || return;;
 			*) args+=( "$1" ); ! IsOption "$1" && [[ ! $command ]] && command="$1";;
 		esac
 		shift
@@ -4960,7 +4960,7 @@ ProcessClose()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--root|-w) root="sudoc";;
-			--timeout|--timeout=*|-t|-t=*) . script.sh && ScriptOptTimeout "$@";;
+			--timeout|--timeout=*|-t|-t=*) { . script.sh && ScriptOptTimeout "$@"; } || return;;
 
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
