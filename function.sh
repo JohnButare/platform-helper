@@ -678,7 +678,7 @@ install commands.
 			--no-find|-nf) noFind="--no-find";;
 			--no-run|-nr) noRun="--no-run";;
 			--select|-s) select="--select";;
-			--timeout|--timeout=*|-t|-t=*) { . script.sh && ScriptOptTimeout "$@"; } || return;;
+			--timeout|--timeout=*|-to|-to=*) { . script.sh && ScriptOptTimeout "$@"; } || return;;
 
 			--force|-f|-ff|-fff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
