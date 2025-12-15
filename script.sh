@@ -239,7 +239,7 @@ ScriptOptGet()
 		scriptOptValue="$1"; ((++shift))
 		
 	elif [[ $require ]]; then
-		MissingOperand "$scriptDesc"; exit 1
+		MissingOperand "$scriptDesc"; ScriptExit 1; return
 
 	else
 		return 1
@@ -247,7 +247,7 @@ ScriptOptGet()
 	fi
 
 	# check data type
-	[[ $integer && $scriptOptValue ]] && ! IsInteger "$scriptOptValue" && { ScriptErr "$scriptDesc must be an integer"; return; }
+	[[ $integer && $scriptOptValue ]] && ! IsInteger "$scriptOptValue" && { ScriptErr "$scriptDesc must be an integer"; ScriptExit 1; return; }
 
 	# set variable
 	SetVar "$scriptVar" "$scriptOptValue"
@@ -685,6 +685,7 @@ ScriptUsageEcho()
 # other
 #
 
+ScriptExit() { IsInteractiveShell && return "${1:-1}" || exit "${1:-1}"; }
 ScriptOnlyWin() { IsPlatform win && return; ScriptErr "command can only run on Windows"; return 1; }
 
 #
