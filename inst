@@ -2459,7 +2459,7 @@ versionGetCurrent()
 		UpdateSet "$track" "$v" && echo "$v"; return # set local cache and return
 	fi
 
-	# get current version - function <app>Version[Beta][Mac|Win]
+	# get current version - function <app>Version[Beta][Linux|Mac|Win]
 	v="$($function)" || { versionError "$app" "current"; return; }
 	log4 "versionGetCurrent: got '$app' current version '$v' from the install function '$function'"
 
@@ -11307,7 +11307,7 @@ YubiKeyManagerInstall() { local v="1.2.5"; local p="yubikey-manager-qt-$v"; run 
 	IsPlatform debian && ! IsPlatform arm && [[ "$installType" == @(store) ]] && { sudo snap install 1password; return; }
 
 	# file install
-	local v; v="$(versionGetCurrent "1Password")" || return
+	local v; v="$(versionGetCurrent "1Password" "$PLATFORM_OS")" || return
 	local linuxExt="deb"; IsPlatform arm && linuxExt="tar.gz"
 	run --name "1Password" "$(1PasswordDir)/1Password-win-v$v.msixbundle|1Password-mac-v$v.zip|1Password-linux-$(getArch)-v$v.$linuxExt" --version=$v --dest "1Password" --elevate -- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- || return
 	IsPlatform mac && { i "1PasswordExtension" --no-header || return; }
@@ -11363,26 +11363,31 @@ Settings...
 
 1PasswordDownload()
 {
-	local app="1Password"; downloadStart "$app" || return $(( $? > 1 ))
-	local v; v="$(versionGetCurrent "$app")" || return	
-
-	local item items=("mac/1Password.zip" "win/1PasswordSetup-latest.msi" "win/1PasswordSetup-latest.msixbundle" "win/1PasswordSetup-latest.exe" "linux/tar/stable/aarch64/1password-latest.tar.gz:arm64:tar.gz" "linux/tar/stable/x86_64/1password-latest.tar.gz:x64:tar.gz" "linux/debian/amd64/stable/1password-latest.deb:x64")
+	local app="1Password" downloaded groupDownload="true"; groupDownload="" downloadHeader "$app"
+	local item items=("mac:mac/1Password.zip" "win:win/1PasswordSetup-latest.msi" "win:win/1PasswordSetup-latest.msixbundle" "win:win/1PasswordSetup-latest.exe" "linux:linux/tar/stable/aarch64/1password-latest.tar.gz:arm64:tar.gz" "linux:linux/tar/stable/x86_64/1password-latest.tar.gz:x64:tar.gz" "linux:linux/debian/amd64/stable/1password-latest.deb:x64")
 	[[ "$installType" == "beta" ]] && items=("mac/1Password%20Beta.zip") #  win/1PasswordSetup-latest.BETA.msi
 
 	for item in "${items[@]}"; do
 		StringToArray "$item" ":" item
-		local suffix="${item[0]}"
-		local architecture="${item[1]}"; [[ $architecture ]] && architecture="-$architecture"
-		local extension="${item[2]}"; [[ ! $extension ]] && extension="$(GetFileExtension "$suffix")"
+		local platform="${item[0]}"
+		local suffix="${item[1]}"
+		local architecture="${item[2]}"; [[ $architecture ]] && architecture="-$architecture"
+		local extension="${item[3]}"; [[ ! $extension ]] && extension="$(GetFileExtension "$suffix")"
+		local v; v="$(versionGetCurrent "$app" "$platform")" || return
 		local file="1Password-$(RemoveAfter "$item" "/")${architecture}-v$v.$extension"
-		download "https://downloads.1password.com/$item" "$(1PasswordDir)" "$file" || return
+		local r; downloadStart "$app" "$platform"; r=$?; ((r==1)) && continue; ((r==2)) && return 1
+		downloaded="true"; download "https://downloads.1password.com/$item" "$(1PasswordDir)" "$file" || return
+		downloadDone "$app" "$v" "$platform" || return
 	done
 
-	downloadDone "$app" "$v"
+	downloadFooter "$app"
 }
 
 1PasswordDir() { echo "other/1Password/setup"; }
-1PasswordVersion() { curl --silent "https://releases.1password.com/mac/" | tr -d '\n' | sed 's/u-flexgrow u-text-left/\n/g' | ${G}grep -A 1 "Updated to" | ${G}grep -v "href=/mac/beta" | shead -1 | cut -d" " -f3; }
+1PasswordVersionLinux() { 1PasswordVersionCommon "linux"; }
+1PasswordVersionMac() { 1PasswordVersionCommon "mac"; }
+1PasswordVersionWin() { 1PasswordVersionCommon "windows"; }
+1PasswordVersionCommon() { curl --silent "https://releases.1password.com/${1,,}/" | tr -d '\n' | sed 's/u-flexgrow u-text-left/\n/g' | ${G}grep -A 1 "Updated to" | ${G}grep -v "href=/mac/beta" | shead -1 | cut -d" " -f3; }
 1PasswordVersionBeta() { curl --silent "https://releases.1password.com/mac/" | tr -d '\n' | sed 's/u-flexgrow u-text-left/\n/g' | ${G}grep -A 1 "Updated to" | ${G}grep "href=/mac/beta" | shead -1 | cut -d" " -f3; }
 
 1PasswordCliInstall()
