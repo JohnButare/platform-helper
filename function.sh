@@ -5978,8 +5978,10 @@ SudoPassword()
 	fi
 	[[ $verbose ]] && EchoErr "looking for password in the credential store: path='$passwordPath' name='$passwordName'"
 
-	# get password if possible, ignore errors so we can prompt for it
-	credential --quiet get $passwordPath $passwordName $verbose
+	# get password if possible
+	credential --quiet get $passwordPath $passwordName $verbose && return
+	IsPlatform win && credential --quiet get $passwordPath $passwordName $verbose --manager=gk && return
+	return 1
 }
 
 # sudoe FILE - sudoedit with credentials
