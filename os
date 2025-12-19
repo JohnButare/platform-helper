@@ -378,14 +378,14 @@ nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
 	fi
 
 	# prompt for the name
-	[[ ! $name ]] && { read -p "Enter new operating system name (current $HOSTNAME): " name; }
+	[[ ! $name ]] && { read -p "Enter new hostname (current $HOSTNAME): " name; }
 
 	# return if the name is not changed
 	[[ ! $name || "$name" == "$HOSTNAME" ]] && return 1 # 1=name unchanged
 
 	# change the name
 	log1 "setting hostname to '$name'"
-	RunPlatform setHostname && UpdateSet "hostname" "$name"
+	RunPlatform setHostname && echo "Hostname set to $name"; UpdateSet "hostname" "$name"
 }
 
 setHostnamePi() { sudo raspi-config nonint do_hostname "$name" || return 2; }
