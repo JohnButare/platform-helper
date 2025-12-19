@@ -1825,35 +1825,7 @@ PathAdd() # PathAdd [front] DIR...
 	return 0
 }
 
-# PathFix - fix the path if needed, for example add the win directory to the path so Hidden Start works correctly
-PathFix()
-{
-	# return if the path is OK
-	PathValidate && return
-
-	# add platform
-	[[ $PLATFORM_PATH ]] && export PATH="$PLATFORM_PATH:$PATH"
-	[[ $PLATFORM_PATH_ARM ]] && export PATH="$PLATFORM_PATH_ARM:$PATH"
-	IsPlatform win && export WSLENV="PATH/l"
-
-	return 0
-}
-
-PathValidate()
-{
-	# initialize
-	PathPlatform || return
-	local parts=(); StringToArray "$PATH" ":" parts
-
-	# check platform
-	[[ $PLATFORM_PATH ]] && ! IsInArray "$PLATFORM_PATH" parts && return 1
-	[[ $PLATFORM_PATH_ARM ]] && ! IsInArray "$PLATFORM_PATH_ARM" parts && return 1
-	IsPlatform win && ! cmd.exe /c echo %PATH% |& qgrep '\\win;' >& /dev/null && return 1
-
-	return 0
-}
-
-# PathPlatform - set PLATFORM_PATH and PLATFORM_PATH_ARM
+# PathPlatform - set PLATFORM_PATH[_FULL] and PLATFORM_PATH_ARM[_FULL]
 PathPlatform()
 {
 	# PLATFORM_PATH
