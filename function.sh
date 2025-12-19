@@ -1832,7 +1832,6 @@ PathFix()
 	PathValidate && return
 
 	# add platform
-	PathPlatform || return
 	[[ $PLATFORM_PATH ]] && export PATH="$PLATFORM_PATH:$PATH"
 	[[ $PLATFORM_PATH_ARM ]] && export PATH="$PLATFORM_PATH_ARM:$PATH"
 	IsPlatform win && export WSLENV="PATH/l"
