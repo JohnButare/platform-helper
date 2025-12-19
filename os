@@ -136,7 +136,7 @@ alternateExecutableFormatCommand()
 	return 1
 }
 
-executableIdArgs() { ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+executableIdArgs() { ScriptArgGet --required "file" -- "$@" && ScriptCheckFile "$file"; }
 
 executableIdCommand()
 {
@@ -165,7 +165,7 @@ executableIdCommand()
 	echo "$id"
 }
 
-executableFindArgs() { ScriptArgGet "dir" -- "$@" && ScriptCheckDir "$dir"; }
+executableFindArgs() { ScriptArgGet --required "dir" -- "$@" && ScriptCheckDir "$dir"; }
 
 executableFindCommand()
 {

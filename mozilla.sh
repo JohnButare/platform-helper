@@ -30,7 +30,7 @@ extensionDownloadCommand()
 
 extensionIsInstalledUsage() { echot "Usage: $(ScriptName) extension IsInstalled FILE\Return 0 if the extensions is installed."; }
 extensionIsInstalledArgStart() { AppInstallCheck; }
-extensionIsInstalledArgs() {  ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+extensionIsInstalledArgs() {  ScriptArgGet --required "file" -- "$@" && ScriptCheckFile "$file"; }
 
 extensionIsInstalledCommand()
 {
@@ -112,7 +112,7 @@ Install the extension.
 }
 
 extensionInstallArgStart() { destDir="$extensionDirProfile"; AppInstallCheck; }
-extensionInstallArgs() {  ScriptArgGet "file" -- "$@" && ScriptCheckFile "$file"; }
+extensionInstallArgs() {  ScriptArgGet --required "file" -- "$@" && ScriptCheckFile "$file"; }
 
 extensionInstallOpt()
 {
