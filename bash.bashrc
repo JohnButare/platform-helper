@@ -173,7 +173,8 @@ WIN_ROOT="/" WIN_HOME="$HOME"
 
 # PLATFORM_OS environment variables
 case "$PLATFORM_OS" in
-	mac) USERS="/Users" P="/Applications" G="g" SRV="/opt" UADATA="$HOME/Library/Application Support" PUSER="$HOME/Applications"
+	mac)
+		USERS="/Users" P="/Applications" G="g" SRV="/opt" UADATA="$HOME/Library/Application Support" PUSER="$HOME/Applications"
 
 		# Homebrew
 		unset -v HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY
@@ -182,7 +183,8 @@ case "$PLATFORM_OS" in
 		fi
 		;;
 
-	win) EXE=".exe"
+	win)
+		EXE=".exe"
 		WIN_ROOT="/mnt/c" WINDIR="$WIN_ROOT/Windows"
 		P="$WIN_ROOT/Program Files" P32="$P (x86)" PROGRAMDATA="$WIN_ROOT/ProgramData"
 
