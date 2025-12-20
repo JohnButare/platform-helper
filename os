@@ -385,7 +385,7 @@ nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
 
 	# change the name
 	log1 "setting hostname to '$name'"
-	RunPlatform setHostname && echo "Hostname set to $name"; UpdateSet "hostname" "$name"
+	RunPlatform setHostname && echo "Hostname set to $name, until reboot 'sudo --validate' will show a warning"; UpdateSet "hostname" "$name"
 }
 
 setHostnamePi() { sudo raspi-config nonint do_hostname "$name" || return 2; }
