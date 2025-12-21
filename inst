@@ -1031,8 +1031,7 @@ networkVars() { network current update --config --quiet && ScriptEval network va
 pausep() { [[ $noPrompt ]] && return; pause; } # pausep - pause if prompting
 pkg() { package --quiet "$@"; }
 platformUserAppData() { local d; d="$(GetPlatformVar "UDATA")/app" && makeDir "$d" && echo "$d"; }
-rebootIfNeeded() { [[ ! $rebootNeeded ]] && return; rebootDo; }
-rebootDo() { SleepStatus "Rebooting in 10 seconds" 10 && power reboot; }
+rebootDo() { UpdateRm "reboot-needed"; SleepStatus "Rebooting in 10 seconds" 10 && power reboot; }
 rmSudo() { [[ ! -f "$1" ]] && return; sudoc ${G}rm -f "$1"; }
 servicesDemandStop() { local s; for s in "$@"; do service demand stop "$s" || return; done; }
 sshAgentCheck() { [[ $sshAgentChecked ]] && return; SshAgentConf --quiet "${globalArgs[@]}" && sshAgentChecked="true"; }
@@ -2569,18 +2568,36 @@ versionValidate()
 # application
 #################################################
 
-AppCore() { i app AppCommon AppNetwork AppHost AppHostHardware AppHostSoftware;  }
+AppCore() { i app AppCommon AppNetwork AppHost AppHostHardware AppHostSoftware AppEnd;  }
 
 AppInstall()
 {
-	header "Applications"
+	header "Application"
 
 	# initialize
 	promptArg="--prompt" # force prompt even if a single application is being installed
 	muteInstallable="true"
 
 	# install
-	i AppCommon AppNetwork AppHost && rebootIfNeeded
+	i AppCommon AppNetwork AppHost AppEnd AppReboot
+}
+
+AppEndInstall()
+{
+	header "Application End"
+	noExclude="--no-exclude" i --cache final || return
+	i --cache help IconCleanup || return
+	RunCache "install-app-common-end-host-update" HostUpdate || return
+	RunCache "install-app-common-end-platform" RunPlatform appEnd || return
+}
+
+appEndWin() { header "Application End Windows"; $rm "$ud/bootstrap.cmd" && $rm "$up/Startup/bootstrap.cmd"; }
+
+AppReboot()
+{
+	header "Application Reboot"
+	! UpdateGet "reboot-needed" && return
+	rebootDo
 }
 
 #################################################
@@ -2658,14 +2675,10 @@ appCommonFullDebian()
 appCommonEnd()
 {
 	header "Application Common End"
-	RunCache "install-app-common-end-platform" RunPlatform appCommonEnd || return
 	i --cache WinAuth WinInsider xServer || return
-	noExclude="--no-exclude" i --cache final || return
-	i --cache help IconCleanup || return
-	RunCache "install-app-common-end-host-update" HostUpdate || return
+	RunCache "install-app-common-end-platform" RunPlatform appCommonEnd || return
 }
 
-appCommonEndWin() { header "Application Common End Windows"; $rm "$ud/bootstrap.cmd" && $rm "$up/Startup/bootstrap.cmd"; }
 appCommonEndWsl() { header "Application Common End WSL"; i wsl && service start dbus; }
 
 #################################################
@@ -14823,7 +14836,7 @@ HostnameInstall()
 		# name changed
 		0) 
 			UpdateDone "install-hostname" || return
-			rebootNeeded="true"
+			rebootNeeded="true"; UpdateSet "reboot-needed"
 			hostname="$(UpdateGetForce "hostname")" || return
 			;;
 
