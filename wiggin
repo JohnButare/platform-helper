@@ -1464,19 +1464,25 @@ syncCredentialCommand()
 {
 	local cred creds=(1Password BeyondCompare certbot CloudFlare dropbox firefox GitKraken hashi HomeAssistant homebridge hubitat namecheap obsidian PostgreSQL secure ssh sublime system unifi)
 
-	HeaderBig "Sync Credential ($from -> $to)"
+	# keep GnomeKeyring in sync with the Windows credential store
+	local gk gkDesc; IsPlatform wsl2 && [[ "$from" == @(r|remote) ]] && [[ "$to" == @(l|local) ]] && credential manager IsAvailable --manager=GnomeKeyring && gk="true" gkDesc=" gk"
+
+	HeaderBig "Sync Credential ($from -> $to$gkDesc)"
+	log1 "sync credential: from=$from to=$to gk=$gk"
 
 	# sync credentials
 	for cred in "${creds[@]}"; do
 		header "$cred"
-		[[ ! $force ]] && credential ls --manager="$to" $timeoutArg | grep --quiet "^$cred/$" && continue
-		RunLog credential mirror --from "$from" --to "$to" "$cred" --force --recursive $timeoutArg "${globalArgs[@]}" || return
-	done
 
-	# keep GnomeKeyring in sync with the Windows credential store
-	if IsPlatform wsl2 && [[ "$from" == "r|remote" ]] && [[ "$to" == @(l|local) ]]; then
-		RunLog wiggin sync credential --from="local" --to="GnomeKeyring" $timeoutArg || return
-	fi
+		if [[ $force ]] || ! credential ls --manager="$to" $timeoutArg | grep --quiet "^$cred/$"; then
+			RunLog credential sync "$cred" -m1="$from" -m2="$to" --recursive $timeoutArg "${globalArgs[@]}" || return
+		fi
+
+		if [[ $gk ]] && { [[ $force ]] || ! credential ls --manager="gk" $timeoutArg | grep --quiet "^$cred/$"; }; then
+			RunLog credential sync "$cred" --exclude="cache" -m1="local" -m2="GnomeKeyring" --recursive $timeoutArg "${globalArgs[@]}" || return
+		fi
+
+	done
 
 	return 0
 }
