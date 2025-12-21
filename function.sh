@@ -2060,7 +2060,8 @@ LogShowAll()
 	SudoCheck "$file"; $sudo less $pattern "$file"
 }
 
-# RunLog LEVEL COMMAND - run a command if not testing, log it if level is 0, or if logging and the logging verbosisty level is at least at the specified leave
+# RunLog LEVEL COMMAND - run a command if not testing
+# - log the command it if level is 0, or if logging and the logging verbosisty level is at least at the specified level
 RunLogLevel()
 {
 	local level="$1"; shift
@@ -2088,10 +2089,33 @@ RunLogArgs()
 	echo -E -n "$(RemoveSpaceTrim "$message")"
 }
 
-# logFileN COMMAND - log and run a command if the logging verbosity level is at least N
+# RunLogN COMMAND - log and run a command if the logging verbosity level is at least N
 RunLog() { RunLog1 "$@"; }; RunLog1() { RunLogLevel 1 "$@"; }; RunLog2() { RunLogLevel 2 "$@"; }; RunLog3() { RunLogLevel 3 "$@"; }; RunLog4() { RunLogLevel 4 "$@"; }; RunLog5() { RunLogLevel 5 "$@"; }; 
 RunLogQuiet() { RunLog RunQuiet "$@"; }
 RunLogSilent() { RunLog RunSilent "$@"; }
+
+# RunLogLevelDetail LEVEL DESCRIPTION COMMAND - run a command if not testing
+# - log the command with detail if level is 0, or if logging and the logging verbosisty level is at least at the specified level
+RunLogLevelDetail()
+{
+	local level="$1" description="$2"; shift 2
+
+	# log command and arguments
+	local log; [[ "$level" == "0" ]] || { [[ $verbose ]] && (( verboseLevel >= level )); } && log="true"
+	if [[ $log ]]; then
+		InitColorVars; InitColorForce; 
+		ScriptMessage "$description: ${GREEN}command start: $(RunLogArgs "$@")${RESET}"
+	fi
+
+	# run - command "$@" must be in quotes to preserve arguments, test with wiggin sync lb -H=pi2 -v
+	[[ $test ]] && return
+	local result; "$@"; result="$?"
+	[[ $log ]] && ScriptMessage "$description: ${GREEN}command finished (result=$result): $(RunLogArgs "$@")${RESET}"
+	return "$result"
+}
+
+# RunLogDetailN COMMAND - log and run a command if the logging verbosity level is at least N
+RunLogDetail() { RunLogLevelDetail 1 "$@"; }; RunLogDetail1() { RunLogLevelDetail 1 "$@"; }; RunLogDetail2() { RunLogLevelDetail 2 "$@"; }; RunLogDetail3() { RunLogLevelDetail 3 "$@"; }; RunLogDetail4() { RunLogLevelDetail 4 "$@"; }; RunLogDetail5() { RunLogLevelDetail 5 "$@"; }; 
 
 #
 # network
