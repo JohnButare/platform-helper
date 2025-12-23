@@ -12,6 +12,7 @@ Operating system commands
 	location			location information
 	memory				[available|total](total)
 	name					show or set the operating system name
+	printer				ls
 
 	info|architecture|bits|build|CodeName|hardware|IsServer|mhz|release|version
 	dark|environment|index|path|lock|preferences|store
@@ -192,7 +193,7 @@ executableFindCommand()
 # feature commands
 #
 
-featureUsage() { echot "Usage: os feature\n	Operating system features."; }
+featureUsage() { echot "Usage: os feature\nOperating system features."; }
 featureCommand() { RunPlatformOs feature; }
 featureWin() { RunScript --elevate -- Dism.exe /Online /Get-Features; }
 
@@ -276,7 +277,7 @@ memoryUsedCommand()
 }
 
 #
-# Name Commands
+# name command
 #
 
 nameUsage()
@@ -427,10 +428,10 @@ nameRealCommand()
 }
 
 #
-# Information Commands
+# information commands
 #
 
-architectureUsage() { echot "Usage: os architecture [bits] [MACHINE]\n	Show the architecture of the current machine or the specified machine.  Returns arm, mips, or x86."; }
+architectureUsage() { echot "Usage: os architecture [bits] [MACHINE]\nShow the architecture of the current machine or the specified machine.  Returns arm, mips, or x86."; }
 architectureArgStart() { unset -v machine; }
 architectureArgs() { (( ! $# )) && return; ScriptArgGet "machine" -- "$@"; }
 
@@ -448,7 +449,7 @@ architectureCommand()
 	return 1
 }
 
-architectureBitsUsage() { echot "Usage: os architecture bits\n	Show the architecture with memory bits of the current machine.  Returns arm, arm64, x86, or x64."; }
+architectureBitsUsage() { echot "Usage: os architecture bits\nShow the architecture with memory bits of the current machine.  Returns arm, arm64, x86, or x64."; }
 
 architectureBitsCommand()
 {
@@ -460,7 +461,7 @@ architectureBitsCommand()
 	fi
 }
 
-architectureFileUsage() { echot "Usage: os architecture file [MACHINE]\n	Show the architecture of the current machine or the specified machine returned by the file command."; }
+architectureFileUsage() { echot "Usage: os architecture file [MACHINE]\nShow the architecture of the current machine or the specified machine returned by the file command."; }
 architectureFileArgStart() { unset -v machine; }
 architectureFileArgs() { (( ! $# )) && return; ScriptArgGet "machine" -- "$@"; }
 
@@ -486,7 +487,7 @@ alternateFileArchitectureCommand()
 	esac
 }
 
-bitsUsage() { echot "Usage: os bits [MACHINE]\n	Show the operating system bits of the current machine or the specified machine."; }
+bitsUsage() { echot "Usage: os bits [MACHINE]\nShow the operating system bits of the current machine or the specified machine."; }
 bitsArgStart() { unset -v machine; }
 bitsArgs() { (( ! $# )) && return; ScriptArgGet "machine" -- "$@"; }
 
@@ -1071,7 +1072,7 @@ infoDistributionWin()
 # repair commands
 #
 
-repairUsage() { echot "Usage: os repair\n	Repair the operating system."; }
+repairUsage() { echot "Usage: os repair\nRepair the operating system."; }
 repairCommand() { RunPlatformOs repair; }
 
 repairWin()
@@ -1082,12 +1083,22 @@ repairWin()
 }
 
 #
+# printer commands
+#
+
+printerUsage() { echot "Usage: os printer ls\nPrinter commands."; }
+printerCommand() { usage; }
+printerLsUsage() { echot "Usage: os printer ls\nList installed pritners."; }
+printerLsCommand() { RunPlatform printerLs; }
+printerLsWin() { powershell 'Get-Printer | Select-Object -ExpandProperty Name' | RemoveCarriageReturn; }
+
+#
 # screen commands
 #
 
-screenUsage() { echot "Usage: os screen resize\n	Screen commands."; }
+screenUsage() { echot "Usage: os screen resize\nScreen commands."; }
 screenCommand() { usage; }
-screenResizeUsage() { echot "Usage: os screen resize\n	Configure the system after screen is resized."; }
+screenResizeUsage() { echot "Usage: os screen resize\nConfigure the system after screen is resized."; }
 screenResizeCommand() { RunPlatformOs screenResize; }
 screenResizeWin() { [[ "$HOSTNAME" != @(bl?) ]] && return; app BgInfo -f; }
 
@@ -1095,7 +1106,7 @@ screenResizeWin() { [[ "$HOSTNAME" != @(bl?) ]] && return; app BgInfo -f; }
 # security commands
 #
 
-securityUsage() { echot "Usage: os security gui|tray\n	Security commands."; }
+securityUsage() { echot "Usage: os security gui|tray\nSecurity commands."; }
 securityCommand() { usage; }
 
 securityGuiCommand() { RunPlatformOs securityGui; }
@@ -1108,7 +1119,7 @@ securityTrayWin() { cmd.exe /c start "SecurityHealthSystray.exe" >& /dev/null; }
 # virus commands
 #
 
-virusUsage() { echot "Usage: os virus enable|gui|run|status\n	Virus scanner commands."; }
+virusUsage() { echot "Usage: os virus enable|gui|run|status\nVirus scanner commands."; }
 virusArgStart() { services=(Sense WdBoot WdFilter WdNisDrv WdNisSvc WinDefend); }
 virusCommand() { usage; }
 
