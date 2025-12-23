@@ -100,16 +100,16 @@ GetSid() { PsGetsid.exe -nobanner jjbutare | ${G}tail --lines=-2 | head | Remove
 
 winget() { RunWin winget.exe "$@"; }
 
+PackageIsInstalledWin() { PackageListInstalledWin | qgrep "^${1},"; }
+PackageVersionWin() { PackageListInstalledWin | grep "^${1}," | cut -d"," -f2; }
+PackageWinCache() { export PACKAGE_WIN_CACHE="$(PackageListInstalledWin)"; }
+PackageWinCacheClear() { unset PACKAGE_WIN_CACHE; }
+
 PackageListInstalledWin()
 {
-	 winget ls | awk '{s1=substr($0,1,37); s2=substr($0,80,21); sub(/[[:space:]]+$/,"",s1); sub(/[[:space:]]+$/,"",s2); print s1","s2}'
+	[[ $PACKAGE_WIN_CACHE ]] && { echo -n "$PACKAGE_WIN_CACHE"; return; }
+	winget ls | awk '{s1=substr($0,1,37); s2=substr($0,80,21); sub(/[[:space:]]+$/,"",s1); sub(/[[:space:]]+$/,"",s2); print s1","s2}'
 }
-
-PackageVersionWin()
-{
-	PackageListInstalledWin | grep "^${1}," | cut -d"," -f2	
-}
-
 
 #
 # done

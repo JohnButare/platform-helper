@@ -314,7 +314,7 @@ AppVersion()
 	# Windows winget package
 	if [[ ! $version ]] && IsPlatform win; then
 		case "$app" in
-			"AMD Chipset") version="$(PackageVersionWin "AMD Chipset Software")";;
+			"AMD Chipset Software") version="$(PackageVersionWin "AMD Chipset Software")";;
 		esac
 		(( $? != 0 )) && { appNotInstalled "$appOrig"; return; }
 	fi
