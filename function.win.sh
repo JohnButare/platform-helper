@@ -95,6 +95,23 @@ elevate()
 GetSid() { PsGetsid.exe -nobanner jjbutare | ${G}tail --lines=-2 | head | RemoveNewline | RemoveCarriageReturn; }
 
 #
+# winget
+#
+
+winget() { RunWin winget.exe "$@"; }
+
+PackageListInstalledWin()
+{
+	 winget ls | awk '{s1=substr($0,1,37); s2=substr($0,80,21); sub(/[[:space:]]+$/,"",s1); sub(/[[:space:]]+$/,"",s2); print s1","s2}'
+}
+
+PackageVersionWin()
+{
+	PackageListInstalledWin | grep "^${1}," | cut -d"," -f2	
+}
+
+
+#
 # done
 #
 

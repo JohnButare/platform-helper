@@ -296,6 +296,14 @@ AppVersion()
 	# get version with helper script
 	local helper; helper="$(AppHelper "$app")" && { version="$(alternate="$alternate" "$helper" $quiet --version)" || return; }
 
+	# aliases
+	if [[ ! $version ]]; then
+		case "$appLower" in
+			7za) version="$(AppVersion "$P/7-Zip/7z.exe")" || return;;
+			7zw) version="$(AppVersion "$DATA/platform/win/7z.exe")" || return;;
+		esac
+	fi
+
 	# find and get mac application versions
 	local dir
 	if [[ ! $version ]] && IsPlatform mac && dir="$(FindMacApp "$app")" && [[ -f "$dir/Contents/Info.plist" ]]; then
@@ -303,12 +311,12 @@ AppVersion()
 		version="$(defaults read "$dir/Contents/Info.plist" CFBundleShortVersionString)" || return
 	fi
 
-	# aliases
-	if [[ ! $version ]]; then
-		case "$appLower" in
-			7za) version="$(AppVersion "$P/7-Zip/7z.exe")" || return;;
-			7zw) version="$(AppVersion "$DATA/platform/win/7z.exe")" || return;;
+	# Windows winget package
+	if [[ ! $version ]] && IsPlatform win; then
+		case "$app" in
+			"AMD Chipset") version="$(PackageVersionWin "AMD Chipset Software")";;
 		esac
+		(( $? != 0 )) && { appNotInstalled "$appOrig"; return; }
 	fi
 
 	# check if the app exists
@@ -318,7 +326,7 @@ AppVersion()
 		# not found if cannot find in path or if is excluded
 		# - Homebrew speedtest conflicts with the GUI speedtest
 		# - /usr/bin/dash conflicts with the Dash mac application
-		[[ "$?" != "0" || "$file" == @(/opt/homebrew/bin/speedtest|/bin/dash|/usr/bin/dash) ]] && { ScriptErrQuiet "application '$appOrig' is not installed" "AppVersion"; return 1; }
+		[[ "$?" != "0" || "$file" == @(/opt/homebrew/bin/speedtest|/bin/dash|/usr/bin/dash) ]] && { appNotInstalled "$appOrig"; return; }
 	fi
 
 	# get file extension
@@ -393,6 +401,8 @@ AppVersion()
 	[[ ! $allowAlpha ]] && ! IsNumeric "$version" && { ScriptErrQuiet "application '$appOrig' version '$version' is not numeric"; return 1; }
 	UpdateSet "$appCache" "$version" && echo "$version"
 }
+
+appNotInstalled() { ScriptErrQuiet "application '$1' is not installed" "AppVersion"; }
 
 AppVersionWin()
 {
