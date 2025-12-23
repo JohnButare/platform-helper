@@ -1083,14 +1083,38 @@ repairWin()
 }
 
 #
-# printer commands
+# printer command
 #
 
-printerUsage() { echot "Usage: os printer ls\nPrinter commands."; }
+printerUsage() { echot "Usage: os printer exist|ls\nPrinter commands."; }
 printerCommand() { usage; }
+
+#
+# printer exist command
+#
+
+printerExistUsage() { echot "Usage: os printer exist NAMES\nReturn true if all of the the printers exist in the comma separated list."; }
+printerExistArgs() { ScriptArgGet "names" -- "$@"; StringToArray "$names" "," names; }
+
+printerExistCommand()
+{
+	local name installed="$(printerNameGet)" || return; [[ $installed ]] || return
+	for name in "${names[@]}"; do echo "$installed" | qgrep "^${name}$" || return; done
+}
+
+#
+# printer ls command
+#
+
 printerLsUsage() { echot "Usage: os printer ls\nList installed pritners."; }
 printerLsCommand() { RunPlatform printerLs; }
 printerLsWin() { powershell 'Get-Printer | Select-Object -ExpandProperty Name' | RemoveCarriageReturn; }
+
+printerNameGet()
+{
+	[[ $PRINTER_NAME_CACHE ]] && { echo "$PRINTER_NAME_CACHE"; return; }
+	printerLsCommand
+}	
 
 #
 # screen commands
