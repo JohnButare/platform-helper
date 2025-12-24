@@ -275,7 +275,7 @@ AppVersion()
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--cache|-c) cache="--cache";;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--quiet|-q) quiet="--quiet";;
 			--alternate|-a) alternate="--alternate";;
 			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
@@ -691,7 +691,7 @@ install commands.
 			--select|-s) select="--select";;
 			--timeout|--timeout=*|-to|-to=*) { . script.sh && ScriptOptTimeout "$@"; } || return;;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -1408,7 +1408,7 @@ CloudGet()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -2449,7 +2449,7 @@ GetIpAddress()
 			--vm|-v) vm="true";;
 			--wsl|-w) wsl="--wsl";;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -2988,7 +2988,7 @@ IsAvailable()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -3053,7 +3053,7 @@ IsAvailablePort()
 			-4) ipv="4";;
 			-6) ipv="6";;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -3101,7 +3101,7 @@ IsAvailablePortUdp()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			----force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -3152,7 +3152,7 @@ PortResponse()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -3254,7 +3254,7 @@ WaitForPort()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -3334,7 +3334,7 @@ GetDnsSearch()
 		case "$1" in "") : ;;
 			--win|-w) win="--win";;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -3407,7 +3407,7 @@ DnsAlternate()
 		case "$1" in "") : ;;
 			--win|-w) win="--win";;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -3445,7 +3445,7 @@ DnsResolve()
 			--use-alternate|-ua) useAlternate="--use-alternate";;
 			--win|-w) win="--win";;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -3676,7 +3676,7 @@ GetDnsServers()
 			-6) ipv="6";;
 			--win|-w) win="--win";;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -3855,7 +3855,7 @@ GetServer()
 		case "$1" in "") : ;;
 			--use-alternate|-ua) useAlternate="--use-alternate";;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -4015,7 +4015,7 @@ GetUncFull()
 		case "$1" in "") : ;;
 			--ip) ip="true";;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -4864,7 +4864,7 @@ IsProcessRunning()
 			--all|-a) all="--all";;
 			--user|-u) user="--user";;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -4968,7 +4968,7 @@ ProcessClose()
 			--root|-w) root="sudoc";;
 			--timeout|--timeout=*|-t|-t=*) { . script.sh && ScriptOptTimeout "$@"; } || return;;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -5031,7 +5031,7 @@ ProcessCloseWait()
 		case "$1" in "") : ;;
 			--root|-r) root="--root";;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -5266,7 +5266,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 			--wait|-w) wait="--wait";;
 			--window-style|-ws) [[ ! $2 ]] && { startUsage; return 1; }; windowStyle="$(LowerCase "$2")"; shift;;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -5902,7 +5902,7 @@ CanSudo()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -5941,7 +5941,7 @@ sudoc()
 			--preserve|-p) preserve="--preserve";;
 			--stderr|-se) stderr="--stderr";;
 
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--no-prompt|-np) noPrompt="--no-prompt";;
 			--quiet|-q) quiet="--quiet";;
 			--test|-t) test="--test";;
@@ -6444,7 +6444,7 @@ InitializeXServer()
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--force|-f|-ff|-fff) ScriptOptForce "$1";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--quiet|-q) quiet="--quiet";;
 			*) $1; UnknownOption "$1"; return;;
 		esac
