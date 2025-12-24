@@ -423,6 +423,9 @@ AppVersionWin()
 
 	echo "$version"
 }
+
+AppVersionProductWin() { powershell '(Get-Item "'"$(utw "$1")"'").VersionInfo.ProductVersion' | RemoveCarriageReturn; }
+
 # AppHelper APP - return the helper application for the app in $BIN
 AppHelper()
 {
