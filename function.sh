@@ -312,7 +312,7 @@ AppVersion()
 	fi
 
 	# Windows winget package
-	if [[ ! $version && "$app" == @(AMD Chipset Software|AMD Radeon Software|Realtek Ethernet Controller) ]] && IsPlatform win; then
+	if [[ ! $version && "$app" == @(AMD Chipset Software|AMD Radeon Software|Intel(R) Wireless Bluetooth|Realtek Ethernet Controller) ]] && IsPlatform win; then
 		version="$(PackageVersionWin "$app")"
 		(( $? != 0 )) && { appNotInstalled "$appOrig"; return; }
 	fi
