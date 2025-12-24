@@ -100,8 +100,8 @@ GetSid() { PsGetsid.exe -nobanner jjbutare | ${G}tail --lines=-2 | head | Remove
 
 winget() { RunWin winget.exe "$@"; }
 
-PackageIsInstalledWin() { PackageListInstalledWin | qgrep "^${1},"; }
-PackageVersionWin() { PackageListInstalledWin | grep "^${1}," | cut -d"," -f2; }
+PackageIsInstalledWin() { PackageListInstalledWin | qgrep "^${1}"; }
+PackageVersionWin() { PackageListInstalledWin | grep "^${1}" | cut -d"," -f2; }
 PackageWinCache() { export PACKAGE_WIN_CACHE="$(PackageListInstalledWin)"; }
 PackageWinCacheClear() { unset PACKAGE_WIN_CACHE; }
 
