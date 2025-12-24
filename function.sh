@@ -494,9 +494,11 @@ CloudConf()
 	fi
 
 	[[ $CLOUD ]] && { export CLOUD_ROOT="$CLOUD"; [[ -d "${CLOUD}Root" ]] && export CLOUD_ROOT="${CLOUD}Root"; }
-	[[ ! $CLOUD ]] && { [[ ! $quiet ]] && ScriptErr "unable to find a cloud directory"; return 1; }
+	[[ ! $CLOUD ]] && { ScriptErrQuiet "unable to find a cloud directory"; return 1; }
 	return 0
 }
+
+CloudValidate() { [[ $CLOUD ]] && return; ScriptErrQuiet "no cloud provider installed" "$@"; }
 
 # Cron
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
