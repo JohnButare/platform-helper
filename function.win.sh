@@ -108,7 +108,20 @@ PackageWinCacheClear() { unset PACKAGE_WIN_CACHE; }
 PackageListInstalledWin()
 {
 	[[ $PACKAGE_WIN_CACHE ]] && { echo -n "$PACKAGE_WIN_CACHE"; return; }
-	winget ls | awk '{s1=substr($0,1,37); s2=substr($0,80,21); sub(/[[:space:]]+$/,"",s1); sub(/[[:space:]]+$/,"",s2); print s1","s2}'
+
+	# find columns with name and version, winget ls returns variable number of columns
+	# example: Windows Application Compatibility… MSIX\Microsoft.ApplicationCompatib… 1.2511.9.0
+	local s; s="$(winget ls | RemoveCarriageReturn | tail -n +3)" || return
+	local line="$(echo "$s" | grep "….*….*" | head -1)" # fine truncate lines, with two …
+	local col1End="${line%%…*}"; col1End="${#col1End}"
+
+	line="${line#*…}"
+	local col2Start="${line%%…*}"; col2Start="${#col2Start}"; col2Start="$(( col1End + col2Start + 4 ))"
+	# echo "col1End=$col1End col2Start=$col2Start"
+
+	echo "$s" |\
+		awk '{s1=substr($0,1,'$col1End'); s2=substr($0,'$col2Start'); sub(/[[:space:]]+$/,"",s1); print s1","s2}' |\
+		awk -F',' '{split($2, a, " "); print $1 "," a[1]}'
 }
 
 #
