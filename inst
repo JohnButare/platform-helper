@@ -14399,7 +14399,27 @@ WinConfigInstall()
 	registry import "$setupFiles/Graphics Driver.reg" || return
 	numlock boot off || return
 
-	echo "Configuring printers..."
+	echo "Auto logon..."
+	registryDo set "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Winlogon/AutoLogonCount" REG_DWORD 0 || return
+
+	echo "Cursor..."
+	registry set "HKCU/Control Panel/Cursors/CursorBaseSize" REG_DWORD 48 || return
+	registry set "HKCU/Control Panel/Cursors/SchemeName" REG_SZ "Windows Black" || return
+	rundll32.exe user32.dll,UpdatePerUserSystemParameters || return
+
+	echo "Network adapters..."
+	network adapter name "Bluetooth Network Connection" "bluetooth" >& /dev/null
+	network adapter name "Ethernet" "wired1" >& /dev/null
+	network adapter name "Ethernet 2" "wired2" >& /dev/null
+	network adapter name "Ethernet 3" "wired3" >& /dev/null
+	network adapter name "Ethernet 4" "wired4" >& /dev/null
+	network adapter name "Ethernet 5" "wired5" >& /dev/null
+	network adapter name "Wi-Fi" "wifi" >& /dev/null
+
+	echo "Network settings..."
+	IsHypervVm && { powershell.exe Set-DnsClientGlobalSetting -SuffixSearchList "$(GetDnsDomain)" || return; } # Hyper-V clients do not get the DNS suffix from the DHCP server
+
+	echo "Printers..."
 	# registry set "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Print/RpcAuthnLevelPrivacyEnabled" REG_DWORD 1 || return # enable Windows protected mode printing, not compatible with Dymo Label Writer
 	# service restart spooler || return
 
@@ -14409,53 +14429,40 @@ WinConfigInstall()
  	$printer -d -p "OneNote (Desktop)" >& /dev/null
  	$printer -d -p "OneNote for Windows 10" >& /dev/null
 
-	echo "Configuring network settings..."
-	IsHypervVm && { powershell.exe Set-DnsClientGlobalSetting -SuffixSearchList "$(GetDnsDomain)" || return; } # Hyper-V clients do not get the DNS suffix from the DHCP server
+	echo "Search..."
+	registry set 'HKCU/SOFTWARE/Policies/Microsoft/Windows/Explorer/DisableSearchBoxSuggestions' REG_DWORD 1 || return # disable start menu web search suggestions
 
-	echo "Configuring network adapters..."
-	network adapter name "Bluetooth Network Connection" "bluetooth" >& /dev/null
-	network adapter name "Ethernet" "wired1" >& /dev/null
-	network adapter name "Ethernet 2" "wired2" >& /dev/null
-	network adapter name "Ethernet 3" "wired3" >& /dev/null
-	network adapter name "Ethernet 4" "wired4" >& /dev/null
-	network adapter name "Ethernet 5" "wired5" >& /dev/null
-	network adapter name "Wi-Fi" "wifi" >& /dev/null
+	#
+ 	# unrestricted domain configuration
+ 	#
 
-	echo "Configuring auto logon..."
-	registryDo set "HKLM/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Winlogon/AutoLogonCount" REG_DWORD 0 || return
-
-	# search suggestions - requires elevation (seen on Windows on ARM)
-	echo "Disabling start menu web search suggestions..."
-	registry set 'HKCU/SOFTWARE/Policies/Microsoft/Windows/Explorer/DisableSearchBoxSuggestions' REG_DWORD 1 || return
-
- 	# remaining setup is not for restricted domains
 	IsDomainRestricted && { UpdateDone "install-win-config"; return; }
 
-	echo "Configuring powershell..."
-	powershell.exe Set-ExecutionPolicy RemoteSigned || return
-	powershell.exe Set-ExecutionPolicy -ExecutionPolicy Bypass
+	echo "Defender..."
+	registry set "HKLM/SOFTWARE/Policies/Microsoft/Windows Defender/DisableAntiSpyware" REG_DWORD 1 || return
 
-	# taskbar	 
- 	powershell "$(utw "$DATA/setup/TaskbarClean.ps1")" || return
+ 	echo "Face logon..."
+ 	local sid; sid="$(GetSid)" || return
+ 	registry set "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Authentication/LogonUI/FaceLogon/$sid/AutoDismissOn" REG_DWORD 1
 
 	echo "Firewall..."
 	netsh.exe advfirewall firewall set rule group="Network Discovery" new enable=Yes || return
 	netsh.exe advfirewall firewall set rule group="Core Networking Diagnostics" new enable=Yes || retur
 
-	echo "Configure remote desktop..."
+	echo "Powershell..."
+	powershell.exe Set-ExecutionPolicy RemoteSigned || return
+	powershell.exe Set-ExecutionPolicy -ExecutionPolicy Bypass
+
+	echo "Remote desktop..."
  	registry set "HKLM/SYSTEM/CurrentControlSet/Control/Terminal Server/fDenyTSConnections" REG_DWORD 0 || return
 	netsh.exe advfirewall firewall set rule group="Remote Desktop" new enable=yes; # sets for all profiles
 
- 	echo "Configuring Windows Update..."
+	echo "Taskbar..."
+ 	powershell "$(utw "$DATA/setup/TaskbarClean.ps1")" || return
+
+ 	echo "Update..."
 	registry set "HKLM/SOFTWARE/Policies/Microsoft/Windows/WindowsUpdate/AU/AllowMUUpdateService" REG_DWORD 1 || return # enable Microsoft update
 	registry set "HKLM/SOFTWARE/Microsoft/WindowsUpdate/UX/Settings/IsContinuousInnovationOptedIn" REG_DWORD 1 || return # get the latest updates as soon as they're available
-
- 	echo "Configuring face logon..."
- 	local sid; sid="$(GetSid)" || return
- 	registry set "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion/Authentication/LogonUI/FaceLogon/$sid/AutoDismissOn" REG_DWORD 1
-
-	echo "Disabling Windows Defender..."
-	registry set "HKLM/SOFTWARE/Policies/Microsoft/Windows Defender/DisableAntiSpyware" REG_DWORD 1 || return
 
 	UpdateDone "install-win-config"
 }
