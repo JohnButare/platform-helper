@@ -795,8 +795,9 @@ powershell()
 	
 	if [[ "$1" == "--" ]]; then shift
 	elif [[ -f "$1" ]]; then set -- -File "$@"
+	elif [[ -f "$(FindInPath "$1")" ]]; then local file="$(FindInPath "$1")"; shift; set -- -File "$(utw "$file")" "$@"
 	elif [[ ! "$1" =~ ^- ]] then set -- -Command "$@"
-	fi 
+	fi
 
 	# find powershell in a specific location
 	local f files=( "$P/PowerShell/7/pwsh.exe" "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" )
