@@ -787,12 +787,17 @@ NodeUpdate()
 	return 0
 }
 
-powershell() 
+powershell()
 { 
 	# return version
 	[[ "$1" == @(--version|-v) ]] && { powershell -Command '$PSVersionTable'; return; }
 	[[ "$1" == @(--version-short|-vs) ]] && { powershell --version | grep PSVersion | tr -s " " | cut -d" " -f2; return; }
 	
+	if [[ "$1" == "--" ]]; then shift
+	elif [[ -f "$1" ]]; then set -- -File "$@"
+	elif [[ ! "$1" =~ ^- ]] then set -- -Command "$@"
+	fi 
+
 	# find powershell in a specific location
 	local f files=( "$P/PowerShell/7/pwsh.exe" "$WINDIR/system32/WindowsPowerShell/v1.0/powershell.exe" )
 	for f in "${files[@]}"; do
