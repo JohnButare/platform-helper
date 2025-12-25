@@ -381,6 +381,11 @@ AppVersion()
 		esac
 	fi
 
+	# WindowsApps
+	if [[ ! $version && "$file" =~ /WindowsApps/ ]]; then
+		file="$(wtu "$(powershell GetReparseTarget.ps1 SnippingTool.exe | RemoveCarriageReturn | tail -1)")"
+	fi
+
 	# get Windows executable version
 	if [[ ! $version ]] && IsPlatform win && [[ "$ext" == @(dll|exe) ]]; then
 		version="$(AppVersionWin "$file")" || return
