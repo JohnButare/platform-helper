@@ -728,8 +728,8 @@ infoRemote()
 	# - switch information requires credential
 	SshInPath "$host" "os" && { RunLog SshHelper connect "$host" --credential --hashi "${globalArgsLessVerbose[@]}" -- os info "${remoteArgs[@]}"; return; }
 	
-	# othereise, get basic information using HostGetInfo vars command locally
-	ScriptEval HostGetInfo vars "$host" || return
+	# othereise, get basic information
+	ScriptEval HostGetInfoCache "$host" "${globalArgs[@]}" || return
 	[[ $_platformOs ]] &&	infoEcho       "    platform: $_platformOs"
 	[[ $_platformIdMain ]] &&	infoEcho   "          id: $_platformIdMain"
 	[[ $_platformIdLike ]] && infoEcho   "        like: $_platformIdLike"

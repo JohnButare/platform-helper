@@ -45,38 +45,42 @@ varsArgs() {	(( ! $# )) && return; ScriptArgGet "target" -- "$@"; }
 
 varsCommand()
 {
-	local basicVars=() detailVars=() protocolArg="$protocol"
+	local basicVars=() detailVars=() protocolOrig="$protocol"; protocol="${protocol:-smb}"
 
-	protocol="${protocol:-smb}"
+	# basic variables
+	basicVars=(_platformTarget _platformLocal	_platformOs _platformIdMain _platformIdLike _platformIdBase _platformIdDetail _platformKernel _machine _data)
+	basicVars+=(_root _media _public _users _user _wuser _home)	# directory and user
+	basicVars+=(_protocol _rootSmb _rootSsh)										# file sharting protocol
+	basicVars+=(_busybox _chroot _wsl)													# other
+	local var; for var in "${basicVars[@]}"; do unset $var; done
+
+	# detail variables
+	detailVars=( pd ud udoc uhome udata)
+	local var; for var in "${detailVars[@]}"; do unset $var; done
+
+	# cache
+	local host="$(RemoveDnsSuffix "$target")" script
+	local cache="host-info-${host,,}"; [[ $detail ]] && cache+="-detail"
+	script="$(UpdateGet "$cache")" && { echo "$script"; return; }
 
 	# get variables
 	varsBasic || return
 	[[ $detail ]] && { varsDetail || return; }
 
-	# return results
+	# cache and return results
 	if [[ $show ]]; then
 		echo -n "${basicVars[@]}" "${detailVars[@]}"
 	elif [[ $local ]]; then
-		ScriptReturn "${basicVars[@]}" "${detailVars[@]}" | ${G}sed "s/$(echo "$_root" | QuoteForwardslashes)//g"
+		script="$(ScriptReturn "${basicVars[@]}" "${detailVars[@]}" | ${G}sed "s/$(echo "$_root" | QuoteForwardslashes)//g")"
 	else
- 		ScriptReturn "${basicVars[@]}" "${detailVars[@]}"
+ 		script="$(ScriptReturn "${basicVars[@]}" "${detailVars[@]}")"
  	fi
+	UpdateSet "$cache" "$script"
+	echo "$script"
 }
 
 varsBasic()
 {	
-	# define GetPlatform function
-	. bash.bashrc || return 
-
-	# variables
-	local var	
-	basicVars=(_platformTarget _platformLocal	_platformOs _platformIdMain _platformIdLike _platformIdBase _platformIdDetail _platformKernel _machine _data)
-	basicVars+=(_root _media _public _users _user _wuser _home)	# directory and user
-	basicVars+=(_protocol _rootSmb _rootSsh)										# file sharting protocol
-	basicVars+=(_busybox _chroot _wsl)													# other
-
-	for var in "${basicVars[@]}"; do unset $var; done
-
 	# find target for a mounted host
 	if [[ "$target" == "host" ]]; then
 
@@ -176,22 +180,14 @@ varsBasicDir()
 
 varsBasicHost()
 {
-	local host="$(RemoveDnsSuffix "$target")"
-	local network="$(NetworkCurrent)"
-
-	# determine platform using cached data or SSH
-	local vars=(busybox chroot platformOs platformId platformIdLike platformIdDetail platformKernel machine wsl)
-	local cache="host-info-${host,,}" script
-
-	if script="$(UpdateGet "$cache")"; then
-		eval "$script"
-	elif SshAgentConf --quiet "${globalArgs[@]}" && GetPlatform "$target" --quiet $noCheck $trust $verbose; then
-		UpdateSet "$cache" "$(ScriptReturn "${vars[@]}")"
-	else
+	# get platform information
+	local vars=(busybox chroot platformOs platformId platformIdLike platformIdDetail platformKernel machine wsl) # GetPlatform
+	if ! { SshAgentConf --quiet "${globalArgs[@]}" && . bash.bashrc && GetPlatform "$target" --quiet $noCheck $trust $verbose; } then
 		ScriptErrQuiet "unable to determine '$target' platform"
-		return 1
+		return
 	fi
 
+	# set basic variables
 	_platformOs="$platformOs" _platformIdMain="$platformIdMain" _platformIdLike="$platformIdLike" _platformIdBase="$platformIdBase" _platformIdDetail="$platformIdDetail" _platformKernel="$platformKernel" _machine="$machine"
 	_busybox="$busybox" _chroot="$chroot" _wsl="$wsl"
 
@@ -201,7 +197,7 @@ varsBasicHost()
 	fi
 
 	# if the protocol was not explicitly set, use SSH instead of SMB if needed
-	if [[ ! $protocolArg && "$protocol" == "smb" ]] && InPath sshfs; then			
+	if [[ ! $protocolOrig && "$protocol" == "smb" ]] && InPath sshfs; then			
 		if IsPlatform win --host; then protocol="ssh" 													# allow access to WSL file system, i.e. /usr/local/data/bin
 		elif IsPlatform synology; then protocol="ssh" 													# Synology does not support SMB
 		elif ! unc IsAvailable "$target" --protocol="smb"; then protocol="ssh"; # SMB is not available
@@ -218,10 +214,6 @@ varsBasicHost()
 
 varsDetail()
 {
-	# variables
-	local var; detailVars=( pd ud udoc uhome udata)
-	for var in "${detailVars[@]}"; do unset $var; done
-
 	# additional directory information
 	pd="$_public/Desktop"
 	ud="$_home/Desktop"

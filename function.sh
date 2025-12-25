@@ -4533,6 +4533,24 @@ PackageWhich()
 IsPlatformAll() { IsPlatform --all "$@"; }
 PlatformDescription() { echo "$PLATFORM_OS$([[ "$PLATFORM_ID_LIKE" != "$PLATFORM_OS" ]] && echo " $PLATFORM_ID_LIKE")$([[ "$PLATFORM_ID_MAIN" != "$PLATFORM_OS" ]] && echo " $PLATFORM_ID_MAIN")"; }
 
+# HostGetInfoCache [HOST] - get cached host info
+HostGetInfoCache()
+{
+	local force forceLevel forceLess; ScriptOptForce "$@"
+	local host="$(RemoveDnsSuffix "$1" | LowerCase)" script
+	[[ ! $force ]] && script="$(UpdateGet "host-info-$host")" && { echo "$script"; return; }
+	HostGetInfo "$@"
+}
+
+# HostGetInfoDetailCache [HOST] - get cached detailed host info
+HostGetInfoDetailCache()
+{
+	local force forceLevel forceLess; ScriptOptForce "$@"
+	local host="$(RemoveDnsSuffix "$1" | LowerCase)" script
+	[[ ! $force ]] && script="$(UpdateGet "host-info-$host-detail")" && { echo "$script"; return; }
+	HostGetInfo --detail "$@"
+}
+
 PlatformSummary()
 {
 	printf "$(os architecture) $(PlatformDescription | RemoveSpaceTrim) $(os bits)"
@@ -4552,11 +4570,13 @@ fi
 IsPlatform()
 {
 	local scriptName="IsPlatform" all host hostArg=() p platforms=() useHost
+	local force forceLevel forceLess
 
 	# arguments
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			-a|--all) all="true";;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
 			--host|-H)
 				[[ $2 ]] && ! IsOption "$2" && { host="$2"; shift; }
 				useHost="true" hostArg=(--host "$host")
@@ -4572,7 +4592,7 @@ IsPlatform()
 
 	# set _platformOs variables
 	if [[ $useHost && $host ]]; then		
-		ScriptEval HostGetInfo "$host" || return
+		ScriptEval HostGetInfoCache "$host" $force || return
 	elif [[ ! $useHost ]]; then
 		local _platformTarget="localhost" _platformLocal="true" _platformOs="$PLATFORM_OS" _platformIdMain="$PLATFORM_ID_MAIN" _platformIdLike="$PLATFORM_ID_LIKE" _platformIdBase="$PLATFORM_ID_BASE" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
@@ -4756,7 +4776,7 @@ function RunPlatform()
 	if [[ "$1" == @(-h|--host) ]]; then		
 		hostArg=("--host")
 		shift
-		[[ $1 ]] && { ScriptEval HostGetInfo "$1" || return; hostArg+=("$1"); }
+		[[ $1 ]] && { ScriptEval HostGetInfoCache "$1" || return; hostArg+=("$1"); }
 	else
 		local _platformOs="$PLATFORM_OS" _platformIdMain="$PLATFORM_ID_MAIN" _platformIdLike="$PLATFORM_ID_LIKE" _platformIdBase="$PLATFORM_ID_BASE" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
