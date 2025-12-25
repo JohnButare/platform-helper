@@ -348,27 +348,13 @@ mountRclone() { RunLog rclone mount "$server:$share/$dirs" "$mountRoot" --daemon
 
 mountCifs()
 {
-	# create the fstab line - spaces in the share and mount directory must be quoted using \044
-	local quote='\\040' quoteCheck='\040'
-	local shareQuoted; shareQuoted="$(ReplaceString "$share" " " "$quote")" || return
-	local mountRootQuoted; mountRootQuoted="$(GetRealPath "$mountRoot" | ReplaceString " " "$quote")" || return
-	local domain; IsInDomain && domain=",domain=$(GetDomain)"
-	local line="//$server/$shareQuoted $mountRootQuoted cifs username=$user$domain,noauto,rw,users 0 0"
-	local checkLine="//$server/$shareQuoted\\\$* $mountRootQuoted cifs username=$user,noauto,rw,users 0 0"
-
-	# add an entry to /etc/fstab so sudo is not required to write to the share
-	log2 "mount:\n	line=$line\n	checkLine=$checkLine"
-	if ! qgrep -i "$checkLine" "/etc/fstab"; then
-		log2 "mount: adding line to /etc/fstab"
-		sudoc bash -c "echo \"$line\" >> /etc/fstab" || return
-	fi
-
-	# password
+	local username; mountCifsUsername || return
+	local options="user=$username,sec=ntlmsspi" # password option does not work in WSL 2
 	local password; password="$(getPassword)" || return
 	local passwordHidden passwordVar; [[ $password ]] && passwordHidden="HIDDEN" passwordVar="PASSWD=$password"
 
-	# options - mount.cifs password option does not work (WSL 2)
-	local options="user=$user$domain,sec=ntlmsspi"
+	# update fstab if needed
+	mountCifsFstab "$username" || return
 
 	# mount elevated
 	if ! IsPlatform wsl1 && elevateCheck; then	
@@ -387,6 +373,37 @@ mountCifs()
 	fi		
 
 	return 0
+}
+
+mountCifsUsername()
+{
+	local _platformTarget _platformLocal _platformOs _platformIdMain _platformIdLike _platformIdBase _platformIdDetail _platformKernel _machine _data _root _media _public _users _user _wuser _home _protocol _rootSmb _rootSsh _busybox _chroot _wsl email pd ud udoc uhome udata _minimalInstall wroot psm pp ao whome usm up
+	ScriptEval HostGetInfoCache "$server" --detail "${globalArgs[@]}" || return
+
+	if IsPlatform win --host && [[ $email ]]; then
+		passwordArg="$(getPasswordCredentialStore "Microsoft" "password")" || return
+		username="$email"
+	else
+		local domain; IsInDomain && domain=",domain=$(GetDomain)"
+		username="$user$domain"
+	fi
+}
+
+# mountCifsFstab - create the fstab line
+# - spaces in the share and mount directory must be quoted using \044
+mountCifsFstab()
+{
+	local username="$1" quote='\\040' quoteCheck='\040'
+	local shareQuoted; shareQuoted="$(ReplaceString "$share" " " "$quote")" || return
+	local mountRootQuoted; mountRootQuoted="$(GetRealPath "$mountRoot" | ReplaceString " " "$quote")" || return
+	local line="//$server/$shareQuoted $mountRootQuoted cifs username=$username,noauto,rw,users 0 0"
+	local checkLine="//$server/$shareQuoted\\\$* $mountRootQuoted cifs username=$username,noauto,rw,users 0 0"
+
+	# add an entry to /etc/fstab so sudo is not required to write to the share
+	log2 "mount:\n	line=$line\n	checkLine=$checkLine"
+	qgrep -i "$checkLine" "/etc/fstab" && return
+	log2 "mount: adding line to /etc/fstab"
+	sudoc bash -c "echo \"$line\" >> /etc/fstab"
 }
 
 mountDrvfs()
@@ -895,11 +912,14 @@ getPassword()
 	echo "$password"
 }
 
-# getPasswordCredentialStore - get the share password from the credential store
+# getPasswordCredentialStore [PATH KEY](secure default) - get the share password from the credential store
 getPasswordCredentialStore()
 {
+	# arguments
+	[[ ! $@ ]] && set -- secure default
+
 	# try and get the share password
-	password="$(credential --quiet get secure default --fallback)"
+	password="$(credential --quiet get "$@" "${globalArgsLessVerbose[@]}" --fallback)"
 
 	# password found
 	if [[ $password ]]; then
