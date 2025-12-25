@@ -494,13 +494,25 @@ CloudConf()
 
 	if [[ -d "$HOME/Dropbox" ]]; then
 		export CLOUD="$HOME/Dropbox"
+		export CLOUD_PROVIDER="Dropbox"
 	elif [[ -d "$HOME/OneDrive" ]]; then
 		export CLOUD="$HOME/OneDrive"
+		export CLOUD_PROVIDER="OneDrive"
 	fi
 
 	[[ $CLOUD ]] && { export CLOUD_ROOT="$CLOUD"; [[ -d "${CLOUD}Root" ]] && export CLOUD_ROOT="${CLOUD}Root"; }
 	[[ ! $CLOUD ]] && { ScriptErrQuiet "unable to find a cloud directory"; return 1; }
 	return 0
+}
+
+# CloudAvailableOffline FILE - return true if the file is available offline
+CloudAvailableOffline() { CloudValidate && RunFunction cloudAvailableOffline $CLOUD_PROVIDER "$@"; }
+
+cloudAvailableOfflineDropbox()
+{
+	! IsPlatform win && return
+	local file="$1" mask recallOnDataAccess=1048576; mask="$(AttributeGet "$file")"
+	(( (mask & recallOnDataAccess) == 0 ))
 }
 
 CloudValidate() { [[ $CLOUD ]] && return; ScriptErrQuiet "no cloud provider installed" "$@"; }
@@ -1408,6 +1420,47 @@ IsFileSame() { [[ "$(GetFileSize "$1" B)" == "$(GetFileSize "$2" B)" ]] && diff 
 IsPath() { [[ ! $(GetFileName "$1") ]]; }
 IsWindowsFile() { drive IsWin "$1"; }
 IsWindowsLink() { ! IsPlatform win && return 1; lnWin -s "$1" >& /dev/null; }
+
+
+# AttributeGet FILE - return Windows extended attributes
+AttributeGet()
+{
+	! IsPlatform win && return	
+	powershell "Get-Item '$1' | Select-Object -ExpandProperty Attributes" | RemoveCarriageReturn
+}
+
+# AttributeDecode FILE|MASK - take an attribute bitmask 
+# examples: AttributeDecode 525360; AttributeDecode 1049648
+AttributeDecode()
+{
+	# variables
+	local arg="$1" mask bit
+  local -A attributes=(
+		[1]=ReadOnly [2]=Hidden [4]=System [16]=Directory [32]=Archive 
+		[64]=Device [128]=Normal [256]=Temporary [512]=SparseFile 
+		[1024]=ReparsePoint [2048]=Compressed [4096]=Offline 
+		[8192]=NotContentIndexed [16384]=Encrypted [32768]=IntegrityStream
+		[131072]=NoScrubData [262144]=RecallOnOpen [1048576]=RecallOnDataAccess
+		[2097152]=Pinned [4194304]=Unpinned
+	)
+
+	# arguments
+	if [[ -e "$arg" ]]; then
+  	mask=$(AttributeGet "$arg") || return
+  elif IsNumeric "$arg"; then
+  	mask="$arg"
+  else
+  	ScriptErrQuiet "'$arg' is not a valid bitmask or file" "AttributeDecode"; return
+  fi
+
+  # process
+	for bit in $(ArrayShowKeys attributes); do
+		bit="$(echo "$bit" | RemoveQuotes)"
+		(( (mask & bit) == bit )) && echo "${attributes[$bit]} ($bit)"
+	done
+
+	return 0
+}
 
 # CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
 # - mac: beta v166.3.2891+ triggers download of online-only files on move or copy
