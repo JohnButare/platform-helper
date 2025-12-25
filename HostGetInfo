@@ -46,20 +46,10 @@ varsArgs() {	(( ! $# )) && return; ScriptArgGet "target" -- "$@"; }
 varsCommand()
 {
 	local basicVars=() detailVars=() protocolOrig="$protocol"; protocol="${protocol:-smb}"
-
-	# basic variables
-	basicVars=(_platformTarget _platformLocal	_platformOs _platformIdMain _platformIdLike _platformIdBase _platformIdDetail _platformKernel _machine _data)
-	basicVars+=(_root _media _public _users _user _wuser _home)	# directory and user
-	basicVars+=(_protocol _rootSmb _rootSsh)										# file sharting protocol
-	basicVars+=(_busybox _chroot _wsl)													# other
-	local var; for var in "${basicVars[@]}"; do unset $var; done
-
-	# detail variables
-	detailVars=( pd ud udoc uhome udata)
-	local var; for var in "${detailVars[@]}"; do unset $var; done
+	varsInit || return
 
 	# cache
-	local host="$(RemoveDnsSuffix "$target")" script
+	local host="$HOSTNAME" script; ! IsLocalHost "$target" && host="$(RemoveDnsSuffix "$target")"
 	local cache="host-info-${host,,}"; [[ $detail ]] && cache+="-detail"
 	script="$(UpdateGet "$cache")" && { echo "$script"; return; }
 
@@ -78,6 +68,27 @@ varsCommand()
 	UpdateSet "$cache" "$script"
 	echo "$script"
 }
+
+varsInit() { varsInitBasic && varsInitDetail; }
+
+varsInitBasic()
+{
+	basicVars=(_platformTarget _platformLocal	_platformOs _platformIdMain _platformIdLike _platformIdBase _platformIdDetail _platformKernel _machine _data)
+	basicVars+=(_root _media _public _users _user _wuser _home)	# directory and user
+	basicVars+=(_protocol _rootSmb _rootSsh)										# file sharting protocol
+	basicVars+=(_busybox _chroot _wsl)													# other
+	local var; for var in "${basicVars[@]}"; do unset $var; done
+}
+
+varsInitDetail()
+{
+	[[ ! $detail ]] && return
+	detailVars=(email pd ud udoc uhome udata _minimalInstall); RunPlatform varsInitDetail || return
+	local var; for var in "${detailVars[@]}"; do unset $var; done
+}
+
+varsInitDetailMac() { detailVars+=( si la ula ); }
+varsInitDetailWin() { detailVars+=( wroot psm pp ao whome usm up ); }
 
 varsBasic()
 {	
@@ -212,57 +223,53 @@ varsBasicHost()
 	return 0
 }
 
-varsDetail()
+varsDetail() { varsDetailCommon && varsDetailLocal && varsDetailRemote && RunPlatform varsDetail --host; }
+
+varsDetailCommon()
 {
-	# additional directory information
 	pd="$_public/Desktop"
 	ud="$_home/Desktop"
 	udoc="$_home/Documents"
 	uhome="$_home"
 	udata="$uhome/data"
 
-	# OneDrive
-	if IsLocalHost "$target"; then
-		[[ ! -d "$ud" && -d "$_home/OneDrive/Desktop" ]] && ud="$_home/OneDrive/Desktop"
-		[[ ! -d "$udoc" && -d "$_home/OneDrive/Documents" ]] && udoc="$_home/OneDrive/Documents"
-	fi
-
-	#
-	# platform information
-	#
-	case "$_platformOs" in
-
-		win)
-			detailVars+=( wroot psm pp ao whome usm up )
-			wroot="$_root/mnt/c"
-			psm="$wroot/ProgramData/Microsoft/Windows/Start Menu"
-			pp="$psm/Programs"
-			ao="$pp/Applications/Other"
-			whome="$wroot/Users/$_wuser"
-			usm="$whome/AppData/Roaming/Microsoft/Windows/Start Menu"	
-			up="$usm/Programs"
-			;;
-
-		mac)
-			detailVars+=( si la ula )
-			si="/Library/StartupItems"
-			la="/Library/LaunchAgents"
-			ula="$HOME/Library/LaunchAgents"
-			;;
-
-	esac
-
-	#
-	# host specific information
-	#
-	local vars=( _minimalInstall )
-	unset "${vars[@]}"
-	detailVars+=( "${vars[@]}" )
-		
 	# minimal install except for systems with a window manager
 	_minimalInstall="true"; IsPlatform wm --host && _minimalInstall="" 
 
 	return 0
+}
+
+varsDetailMac()
+{
+	si="/Library/StartupItems"
+	la="/Library/LaunchAgents"
+	ula="$HOME/Library/LaunchAgents"
+}
+
+varsDetailWin()
+{
+	wroot="$_root/mnt/c"
+	psm="$wroot/ProgramData/Microsoft/Windows/Start Menu"
+	pp="$psm/Programs"
+	ao="$pp/Applications/Other"
+	whome="$wroot/Users/$_wuser"
+	usm="$whome/AppData/Roaming/Microsoft/Windows/Start Menu"	
+	up="$usm/Programs"
+}
+
+varsDetailLocal()
+{
+	! IsLocalHost "$target" && return
+	[[ ! -d "$ud" && -d "$_home/OneDrive/Desktop" ]] && ud="$_home/OneDrive/Desktop"
+	[[ ! -d "$udoc" && -d "$_home/OneDrive/Documents" ]] && udoc="$_home/OneDrive/Documents"
+	email="$(password info email)" || return
+}
+
+varsDetailRemote() { RunPlatform varsDetailRemote --host; }
+
+varsDetailRemoteWin()
+{
+	email="$(ssh "$target" -- password info email)"
 }
 
 #

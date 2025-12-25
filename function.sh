@@ -4533,22 +4533,26 @@ PackageWhich()
 IsPlatformAll() { IsPlatform --all "$@"; }
 PlatformDescription() { echo "$PLATFORM_OS$([[ "$PLATFORM_ID_LIKE" != "$PLATFORM_OS" ]] && echo " $PLATFORM_ID_LIKE")$([[ "$PLATFORM_ID_MAIN" != "$PLATFORM_OS" ]] && echo " $PLATFORM_ID_MAIN")"; }
 
-# HostGetInfoCache [HOST] - get cached host info
+# HostGetInfoCache [HOST] [--detail|-d] - get cached host info
 HostGetInfoCache()
 {
-	local force forceLevel forceLess; ScriptOptForce "$@"
-	local host="$(RemoveDnsSuffix "$1" | LowerCase)" script
-	[[ ! $force ]] && script="$(UpdateGet "host-info-$host")" && { echo "$script"; return; }
-	HostGetInfo "$@"
-}
+	local detail detailArg force forceLevel forceLess host
 
-# HostGetInfoDetailCache [HOST] - get cached detailed host info
-HostGetInfoDetailCache()
-{
-	local force forceLevel forceLess; ScriptOptForce "$@"
-	local host="$(RemoveDnsSuffix "$1" | LowerCase)" script
-	[[ ! $force ]] && script="$(UpdateGet "host-info-$host-detail")" && { echo "$script"; return; }
-	HostGetInfo --detail "$@"
+	# arguments
+	local arg; for arg in "$@"; do
+		case "$arg" in "") : ;;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$arg";;
+			--detail|-d) detail="-detail" detailArg="--detail";;
+			*) ! IsOption "$arg" && [[ ! $host ]] && host="$(RemoveDnsSuffix "$arg")";;
+		esac
+	done
+	host="${host:-$HOSTNAME}"
+
+	# get cached host information if possible
+	[[ ! $force ]] && script="$(UpdateGet "host-info-$(echo "$host" | LowerCase)${detail}")" && { echo "$script"; return; }
+
+	# get host information
+	HostGetInfo $detailArg "$@"
 }
 
 PlatformSummary()
@@ -4766,7 +4770,8 @@ SourcePlatformScripts()
 PlatformTmp() { IsPlatform win && echo "$UADATA/Temp" || echo "$TEMP"; }
 
 # RunPlatform PREFIX [--host [HOST]] [ARGS] - call platform functions, i.e. prefixWin.  example order: win -> debian -> ubuntu -> wsl -> physical
-# --host [HOST] - if specified run the platform function for the specified host
+# --host [HOST] - check the specified host instead of localhost.   If the HOST argument is not specified,
+#   use the _platform host variables set from the last call to HostGetInfo.
 function RunPlatform()
 {
 	local function="$1"; shift
@@ -4776,7 +4781,7 @@ function RunPlatform()
 	if [[ "$1" == @(-h|--host) ]]; then		
 		hostArg=("--host")
 		shift
-		[[ $1 ]] && { ScriptEval HostGetInfoCache "$1" || return; hostArg+=("$1"); }
+		[[ $1 ]] && ! IsOption "$2" && { ScriptEval HostGetInfoCache "$1" || return; hostArg+=("$1"); }
 	else
 		local _platformOs="$PLATFORM_OS" _platformIdMain="$PLATFORM_ID_MAIN" _platformIdLike="$PLATFORM_ID_LIKE" _platformIdBase="$PLATFORM_ID_BASE" _platformKernel="$PLATFORM_KERNEL" _machine="$MACHINE" _wsl="$WSL"
 	fi
