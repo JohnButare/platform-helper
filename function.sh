@@ -906,7 +906,7 @@ CloudConf()
 }
 
 # CloudOffline FILE - return true if the file is available offline
-CloudIsOffline() { CloudValidate && RunFunction cloudIsAvailableOffline $CLOUD_PROVIDER "$@"; }
+CloudIsOffline() { CloudValidate && RunFunction cloudIsOffline $CLOUD_PROVIDER "$@"; }
 
 cloudIsOfflineDropbox()
 {
@@ -915,10 +915,32 @@ cloudIsOfflineDropbox()
 	(( (mask & recallOnDataAccess) == 0 ))
 }
 
-# CloudOffline FILE - make a file or directory available offline
+# CloudOffline FILE [SECONDS](120) - wait for a file or directory to be available offline
 CloudOffline()
 {
-	:''
+	! IsPlatform win && return
+	local file="$1"; [[ ! -e "$file"  ]] && { ScriptErr "file '$file' does not exist"; return; }
+	local timeoutSeconds="${2:-60}" i
+
+	# already offline
+	CloudIsOffline "$file" && return
+
+	# instructions
+	local parent; parent="$(RemoveTrailingSlash "$file" | GetFilePath)"
+	echo "Right click '$(GetFileName "$file")', $CLOUD_PROVIDER, Make available offline..."	
+	explore "$parent" || return
+
+	# wait
+	printf "waiting..."
+	for (( i=1; i<=$timeoutSeconds; ++i )); do
+		ReadChars 1 1 && { [[ ! $quiet ]] && EchoErrEnd "cancelled after $i seconds"; return 1; }
+		CloudIsOffline "$file" && break
+		PrintErr "."
+	done
+	! CloudIsOffline "$file" && { EchoErrEnd "failed"; return; }
+	echo "success"
+	
+	pause "Wait for all files to synchronize then press any key..."
 }
 
 # CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
