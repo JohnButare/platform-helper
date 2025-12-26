@@ -905,14 +905,20 @@ CloudConf()
 	return 0
 }
 
-# CloudAvailableOffline FILE - return true if the file is available offline
-CloudAvailableOffline() { CloudValidate && RunFunction cloudAvailableOffline $CLOUD_PROVIDER "$@"; }
+# CloudOffline FILE - return true if the file is available offline
+CloudIsOffline() { CloudValidate && RunFunction cloudIsAvailableOffline $CLOUD_PROVIDER "$@"; }
 
-cloudAvailableOfflineDropbox()
+cloudIsOfflineDropbox()
 {
 	! IsPlatform win && return
 	local file="$1" mask recallOnDataAccess=1048576; mask="$(AttributeGet "$file")"
 	(( (mask & recallOnDataAccess) == 0 ))
+}
+
+# CloudOffline FILE - make a file or directory available offline
+CloudOffline()
+{
+	:''
 }
 
 # CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
