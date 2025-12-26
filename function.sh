@@ -875,6 +875,14 @@ clipw()
 # CloudValidate - reutrn true if a cloud file provider is configured
 CloudValidate() { [[ $CLOUD ]] && return; ScriptErrQuiet "no cloud provider installed" "$@"; }
 
+# IsCloudFile FILE - return true if the file is hosted by a cloud provider
+IsCloudFile() { CloudValidate && RunPlatform isCloudFile "$@"; }
+isCloudFileWin() { local file="$1" mask; mask="$(AttributeGet "$file")" && (( (mask & 1024) == 1024 )); } # ReparsePoint=1024
+
+# CloudOffline FILE - return true if the file is available offline
+CloudIsOffline() { CloudValidate && RunPlatform cloudIsOffline "$@"; }
+cloudIsOfflineWin() { local file="$1" mask; mask="$(AttributeGet "$file")" && (( (mask & 1048576) == 0 )); } # RecallOnDataAccess=1048576
+
 # CloudConf - configure a cloude file provider
 CloudConf()
 {
@@ -905,22 +913,15 @@ CloudConf()
 	return 0
 }
 
-# CloudOffline FILE - return true if the file is available offline
-CloudIsOffline() { CloudValidate && RunFunction cloudIsOffline $CLOUD_PROVIDER "$@"; }
-
-cloudIsOfflineDropbox()
-{
-	! IsPlatform win && return
-	local file="$1" mask recallOnDataAccess=1048576; mask="$(AttributeGet "$file")"
-	(( (mask & recallOnDataAccess) == 0 ))
-}
-
 # CloudOffline FILE [SECONDS](120) - wait for a file or directory to be available offline
 CloudOffline()
 {
 	! IsPlatform win && return
 	local file="$1"; [[ ! -e "$file"  ]] && { ScriptErr "file '$file' does not exist"; return; }
 	local timeoutSeconds="${2:-60}" i
+
+	# validate
+	IsCloudFile "$file" || { ScriptErrQuiet "'$(FileToDesc "$file")' is not a cloud file" "CloudOffline"; return; }
 
 	# already offline
 	CloudIsOffline "$file" && return
@@ -1511,8 +1512,8 @@ IsWindowsLink() { ! IsPlatform win && return 1; lnWin -s "$1" >& /dev/null; }
 # AttributeGet FILE - return Windows extended attributes
 AttributeGet()
 {
-	! IsPlatform win && return	
-	powershell "Get-Item '$1' | Select-Object -ExpandProperty Attributes" | RemoveCarriageReturn
+	! IsPlatform win && return
+	powershell "(Get-Item '"$(utw "$1")"' | Select-Object -ExpandProperty Attributes) -as [int]" | RemoveCarriageReturn
 }
 
 # AttributeDecode FILE|MASK - take an attribute bitmask 
