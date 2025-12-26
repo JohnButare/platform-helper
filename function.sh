@@ -6072,7 +6072,7 @@ sudoc()
 			--test|-t) test="--test";;
 			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
 			--) shift; args+=("$@"); break;;
-			*) args+=("$1");;
+			*) args+=("$@"); break;; # assume everything after the command is a command argument
 		esac
 		shift
 	done
