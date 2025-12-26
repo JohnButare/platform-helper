@@ -475,48 +475,6 @@ browser()
 # Borg Backup
 BorgConf() { ScriptEval BorgHelper environment "$@"; }
 
-# Cloud
-CloudConf()
-{
-	# arguments
-	local scriptName="CloudConf" quiet
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			--quiet|-q) quiet="--quiet";;
-			*) UnknownOption "$1"; return
-		esac
-		shift
-	done
-
-	# find a cloud directory
-	local cloud; unset CLOUD CLOUD_ROOT
-
-	if [[ -d "$HOME/Dropbox" ]]; then
-		export CLOUD="$HOME/Dropbox"
-		export CLOUD_PROVIDER="Dropbox"
-	elif [[ -d "$HOME/OneDrive" ]]; then
-		export CLOUD="$HOME/OneDrive"
-		export CLOUD_PROVIDER="OneDrive"
-	fi
-
-	[[ $CLOUD ]] && { export CLOUD_ROOT="$CLOUD"; [[ -d "${CLOUD}Root" ]] && export CLOUD_ROOT="${CLOUD}Root"; }
-	[[ ! $CLOUD ]] && { ScriptErrQuiet "unable to find a cloud directory"; return 1; }
-	return 0
-}
-
-# CloudAvailableOffline FILE - return true if the file is available offline
-CloudAvailableOffline() { CloudValidate && RunFunction cloudAvailableOffline $CLOUD_PROVIDER "$@"; }
-
-cloudAvailableOfflineDropbox()
-{
-	! IsPlatform win && return
-	local file="$1" mask recallOnDataAccess=1048576; mask="$(AttributeGet "$file")"
-	(( (mask & recallOnDataAccess) == 0 ))
-}
-
-CloudValidate() { [[ $CLOUD ]] && return; ScriptErrQuiet "no cloud provider installed" "$@"; }
-
 # Cron
 CronLog() { local severity="${2:-info}"; logger -p "cron.$severity" "$1"; }
 
@@ -908,6 +866,107 @@ clipw()
 		mac) clipok && printf "%s" "$@" | pbcopy;; 
 		win) InPath clip.exe && printf "%s" "$@" | RunWin clip.exe;; # cd / to fix WSL 2 error running from network share
 	esac
+}
+
+#
+# cloud file providers
+#
+
+# CloudValidate - reutrn true if a cloud file provider is configured
+CloudValidate() { [[ $CLOUD ]] && return; ScriptErrQuiet "no cloud provider installed" "$@"; }
+
+# CloudConf - configure a cloude file provider
+CloudConf()
+{
+	# arguments
+	local scriptName="CloudConf" quiet
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--quiet|-q) quiet="--quiet";;
+			*) UnknownOption "$1"; return
+		esac
+		shift
+	done
+
+	# find a cloud directory
+	local cloud; unset CLOUD CLOUD_ROOT
+
+	if [[ -d "$HOME/Dropbox" ]]; then
+		export CLOUD="$HOME/Dropbox"
+		export CLOUD_PROVIDER="Dropbox"
+	elif [[ -d "$HOME/OneDrive" ]]; then
+		export CLOUD="$HOME/OneDrive"
+		export CLOUD_PROVIDER="OneDrive"
+	fi
+
+	[[ $CLOUD ]] && { export CLOUD_ROOT="$CLOUD"; [[ -d "${CLOUD}Root" ]] && export CLOUD_ROOT="${CLOUD}Root"; }
+	[[ ! $CLOUD ]] && { ScriptErrQuiet "unable to find a cloud directory"; return 1; }
+	return 0
+}
+
+# CloudAvailableOffline FILE - return true if the file is available offline
+CloudAvailableOffline() { CloudValidate && RunFunction cloudAvailableOffline $CLOUD_PROVIDER "$@"; }
+
+cloudAvailableOfflineDropbox()
+{
+	! IsPlatform win && return
+	local file="$1" mask recallOnDataAccess=1048576; mask="$(AttributeGet "$file")"
+	(( (mask & recallOnDataAccess) == 0 ))
+}
+
+# CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
+# - mac: beta v166.3.2891+ triggers download of online-only files on move or copy
+# - wsl: reads of the file do not trigger online-only file download in Dropbox
+CloudGet()
+{
+	! IsPlatform win && return
+
+	# arguments
+	local scriptName="CloudGet" file files=()
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
+
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
+			-*) UnknownOption "$1"; return;;
+			*) files+=("$1"); shift; continue;;
+		esac
+		shift
+	done
+
+	for file in "${files[@]}"; do
+		[[ $verbose ]] && PrintErr "CloudGet: $file..."
+
+		# directory
+		if [[ -d "$file" ]]; then
+			local newFiles=(); IFS=$'\n' ArrayMake newFiles "$(find "$file" -type f)"
+			CloudGet $quiet $verbose "${newFiles[@]}" || return
+			continue
+		fi
+
+		# ensure we have a file
+		ScriptFileCheck "$file" || return
+
+		# check if downloaded by checking blocks, does not work for small files
+		local blocks="$(stat -c%b "$file")"
+		[[ $verbose ]] && EchoErrEnd "blocks=$blocks"
+		((  $blocks > 0 )) && continue 	
+
+		# check if downloaded by checking for one line
+		local lines="$(wc --lines "$file" | cut -d" " -f1)"
+		[[ $verbose ]] && EchoErr "CloudGet: lines=$lines"
+		[[ "$lines" != "0" ]] && continue 		
+
+		# download file
+		[[ ! $quiet ]] && echo "Downloading file '$(GetFileName "$file")'..."
+		( { ! HasFilePath "$file" || cd "$(GetFilePath "$file")"; } && cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
+
+	done
 }
 
 #
@@ -1421,7 +1480,6 @@ IsPath() { [[ ! $(GetFileName "$1") ]]; }
 IsWindowsFile() { drive IsWin "$1"; }
 IsWindowsLink() { ! IsPlatform win && return 1; lnWin -s "$1" >& /dev/null; }
 
-
 # AttributeGet FILE - return Windows extended attributes
 AttributeGet()
 {
@@ -1460,60 +1518,6 @@ AttributeDecode()
 	done
 
 	return 0
-}
-
-# CloudGet [--quiet] FILE... - force files to be downloaded from the cloud and return the file
-# - mac: beta v166.3.2891+ triggers download of online-only files on move or copy
-# - wsl: reads of the file do not trigger online-only file download in Dropbox
-CloudGet()
-{
-	! IsPlatform win && return
-
-	# arguments
-	local scriptName="CloudGet" file files=()
-	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
-
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
-			--no-prompt|-np) noPrompt="--no-prompt";;
-			--quiet|-q) quiet="--quiet";;
-			--test|-t) test="--test";;
-			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1";;
-			-*) UnknownOption "$1"; return;;
-			*) files+=("$1"); shift; continue;;
-		esac
-		shift
-	done
-
-	for file in "${files[@]}"; do
-		[[ $verbose ]] && PrintErr "CloudGet: $file..."
-
-		# directory
-		if [[ -d "$file" ]]; then
-			local newFiles=(); IFS=$'\n' ArrayMake newFiles "$(find "$file" -type f)"
-			CloudGet $quiet $verbose "${newFiles[@]}" || return
-			continue
-		fi
-
-		# ensure we have a file
-		ScriptFileCheck "$file" || return
-
-		# check if downloaded by checking blocks, does not work for small files
-		local blocks="$(stat -c%b "$file")"
-		[[ $verbose ]] && EchoErrEnd "blocks=$blocks"
-		((  $blocks > 0 )) && continue 	
-
-		# check if downloaded by checking for one line
-		local lines="$(wc --lines "$file" | cut -d" " -f1)"
-		[[ $verbose ]] && EchoErr "CloudGet: lines=$lines"
-		[[ "$lines" != "0" ]] && continue 		
-
-		# download file
-		[[ ! $quiet ]] && echo "Downloading file '$(GetFileName "$file")'..."
-		( { ! HasFilePath "$file" || cd "$(GetFilePath "$file")"; } && cmd.exe /c type "$(GetFileName "$file")"; ) >& /dev/null || return
-
-	done
 }
 
 # CopyFileProgress - copy a file with progress indicator
