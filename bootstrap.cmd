@@ -35,8 +35,9 @@ if not exist "%f%" (
 	>> "%f%" echo set distUnc=%distUnc%
 	>> "%f%" echo set distImage=%distImage%
 	>> "%f%" echo set wsl=%wsl%
+	>> "%f%" echo set verbose=%wsl%
 	>> "%f%" echo if not exist %unc% net use %unc% /user:%distUser%
-	>> "%f%" echo %dir%bootstrap.cmd %*
+	>> "%f%" echo %dir%bootstrap.cmd %verbose% %*
 )
 
 REM
