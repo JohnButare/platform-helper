@@ -81,7 +81,7 @@ PackageListInstalledWin()
 
 	# find columns with name and version, winget ls returns variable number of columns
 	# example: Windows Application Compatibility… MSIX\Microsoft.ApplicationCompatib… 1.2511.9.0
-	local s; s="$(winget ls | RemoveCarriageReturn | tail -n +3)" || return
+	local s; s="$(winget ls --accept-source-agreements --disable-interactivity | RemoveCarriageReturn | tail -n +3)" || return
 	local line="$(echo "$s" | grep "….*….*" | head -1)" # fine truncate lines, with two …
 	local col1End="${line%%…*}"; col1End="${#col1End}"
 
