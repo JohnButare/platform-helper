@@ -2085,11 +2085,13 @@ installServiceHost()
 	local networkTarget="Requires=network-online.target"
 	local serviceLimit="LimitMEMLOCK=infinity"$'\n'"LimitNOFILE=infinity"$'\n'"LimitNPROC=infinity"$'\n'"TasksMax=infinity"
 	local serviceType="notify" notifyAccess="none" timeoutStopSec="60"
+	local _platformTarget _platformLocal _platformOs _platformIdMain _platformIdLike _platformIdBase _platformIdDetail _platformKernel _machine _data _root _media _public _users _user _wuser _home _protocol _rootSmb _rootSsh _busybox _chroot _wsl # set by HostGetInfo
 
 	# host information
 	hostFqdn="$(hostFqdn "$host")" || return
 	hostIp="$(GetIpAddress "$hostFqdn")" || return
 	host="$(RemoveDnsSuffix "$hostFqdn")"
+	ScriptEval HostGetInfoCache "${globalArgs[@]}" || return
 
 	# header
 	header "Install $(ProperCase "$product") $(ProperCase "$type") Service ($host)"
@@ -2103,11 +2105,21 @@ installServiceHost()
 	# environment
 	printf "" > "$tmpDir/$product.env"
 
-	# interface
-	if [[ ! $interface ]]; then
-		interface="$(sshRun "$host" "route | grep \"^default\" | head -1 | tr -s \" \" | cut -d\" \" -f8")" || return
-		log1 "installServiceHost: using default host interface '$interface'"
+	# addresses
+	local advertiseAddr4 advertiseAddr6 bindAddr
+
+	# Windows - services do not get correct address on reboot when using template
+	if IsPlatform win --host; then
+		advertiseAddr4="$(GetIpAddress -4 "$hostFqdn")" || return
+		advertiseAddr6="$(GetIpAddress -6 "$hostFqdn")" || return
+		log1 "advertiseAddr4=$advertiseAddr4 advertiseAddr6=$advertiseAddr6"
+	else
+		[[ ! $interface ]] && { interface="$(sshRun "$host" "route | grep \"^default\" | head -1 | tr -s \" \" | cut -d\" \" -f8")" || return; }
+		advertiseAddr4="{{ GetInterfaceIP \"$interface\" }}"
+		advertiseAddr6="{{ GetAllInterfaces | include \"name\" \"$interface\" | include \"type\" \"IPv6\" | sort \"address\" | limit 1 | join \"address\" \" \" }}"
+		log1 "installServiceHost: using host interface '$interface'"
 	fi
+	bindAddr="$advertiseAddr4"
 
 	# product specifics
 	hilight "Running ${product} service prep"
@@ -2279,9 +2291,9 @@ installServicePrepConsul()
 		retry_join = [ $(ArrayShow join ", ") ]
 
 		# network
-		advertise_addr = "{{ GetInterfaceIP \"$interface\" }}"
-		advertise_addr_ipv6 = "{{ GetAllInterfaces | include \"name\" \"$interface\" | include \"type\" \"IPv6\" | sort \"address\" | limit 1 | join \"address\" \" \" }}"
-		bind_addr = "{{ GetInterfaceIP \"$interface\" }}"
+		advertise_addr = "$advertiseAddr4"
+		advertise_addr_ipv6 = "$advertiseAddr6"
+		bind_addr = "$bindAddr"
 		client_addr = "0.0.0.0"
 
 		# access control
