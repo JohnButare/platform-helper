@@ -68,6 +68,7 @@ GetSid() { PsGetsid.exe -nobanner jjbutare | ${G}tail --lines=-2 | head | Remove
 #
 
 winget() { RunWin winget.exe "$@"; }
+wingete(){ elevate winget.exe "$@"; } # winget elevated
 
 PackageIsInstalledWin() { PackageListInstalledWin | qgrep "^${1}"; }
 PackageVersionWin() { PackageListInstalledWin | grep "^${1}" | cut -d"," -f2; }
