@@ -4619,7 +4619,7 @@ PackageWhich()
 IsPlatformAll() { IsPlatform --all "$@"; }
 PlatformDescription() { echo "$PLATFORM_OS$([[ "$PLATFORM_ID_LIKE" != "$PLATFORM_OS" ]] && echo " $PLATFORM_ID_LIKE")$([[ "$PLATFORM_ID_MAIN" != "$PLATFORM_OS" ]] && echo " $PLATFORM_ID_MAIN")"; }
 
-# HostGetInfoCache [HOST] [--detail|-d] - get cached host info
+# HostGetInfoCache [HOST] [--detail|-d] - get host info, use cache if possible
 HostGetInfoCache()
 {
 	local detail detailArg force forceLevel forceLess host
