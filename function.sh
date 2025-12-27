@@ -4898,11 +4898,12 @@ function RunPlatform()
 	return 0
 }
 
-# RunPlatformOs PREFIX [ARGS] - call platform functions for PLATFORM_OS only (faster)
+# RunPlatformOs PREFIX [--host] [ARGS] - call platform functions for PLATFORM_OS only (faster)
 function RunPlatformOs()
 {
 	local function="$1"; shift
-	RunFunction "$function" "$PLATFORM_OS" -- "$@"
+	local platformOs="$PLATFORM_OS"; [[ "$1" == @(-h|--host) ]] && { platformOs="$_platformOs"; shift; }
+	RunFunction "$function" "$platformOs" -- "$@"
 }
 
 #
