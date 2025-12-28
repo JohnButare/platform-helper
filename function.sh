@@ -3182,8 +3182,8 @@ IsAvailablePort()
 		(( verboseLevel > 2 )) && ScriptErr "ncat --exec BOGUS --wait ${timeout}ms $host $port"
 		eval ncat --exec "BOGUS" --wait ${timeout}ms "$host" "$port" $redirect
 	elif InPath nmap; then
-		(( verboseLevel > 2 )) && ScriptErr "nmap $host -p $port -Pn -T5"
-		eval nmap "$host" -p "$port" -Pn -T5 '|&' grep -q "open" $redirect
+		(( verboseLevel > 2 )) && ScriptErr "nmap $host -p $port -Pn -T5 --host-timeout $timeout"
+		eval nmap "$host" -p "$port" -Pn -T5 --host-timeout $timeout '|&' grep -q "open" $redirect
 	elif IsPlatform win && InPath chkport-ip.exe; then
 		(( verboseLevel > 2 )) && ScriptErr "RunWin chkport-ip.exe $host $port $timeout" 
 		eval RunWin chkport-ip.exe "$host" "$port" "$timeout" $redirect
