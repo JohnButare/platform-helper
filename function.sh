@@ -4033,7 +4033,7 @@ SshAgentConf()
 # SshAgentValidate FILE - load and validate the ssh-agent configuration in FILE - faster than calling SshAgent
 SshAgentValidate()
 {
-	local file="$file"
+	local file="$1"
 
 	# load the environmnet variables from the file if possible
 	[[ -f "$file" ]] && eval "$(cat "$file")"
