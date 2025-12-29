@@ -14096,9 +14096,21 @@ dockerPasswordMake()
 HypervInstall()
 {
 	header "Hyper-V"
-	[[ ! $force ]] && [[ -f "$WINDIR/system32/virtmgmt.msc" ]] && return
-	RunScript --elevate --no-hide "${globalArgs[@]}" -- cmd.exe /c DISM /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V || return
-	forceAllParts="true"
+	local continue="install-hyperv-continue" file="$WINDIR/system32/virtmgmt.msc"
+
+	# install
+	if [[ $force || ! -f "$file" ]]; then
+		echo "After reboot run 'inst hyperv' again..."
+		start --elevate "${globalArgs[@]}" cmd.exe /c DISM /Online /Enable-Feature /All /FeatureName:Microsoft-Hyper-V || return
+		UpdateSet "$continue"
+	fi
+
+	# if Hyper-V is installed, and we need to continue, force help and final
+	if [[ -f "$file" ]] && { [[ $force ]] || UpdateGet "$continue"; } then
+		UpdateRm "$continue"; forceAllParts="true"
+	fi
+
+	return 0
 }
 
 HypervHelp()
@@ -14119,7 +14131,7 @@ HypervFinalWin()
 	hypervExternalAdapter || return
 
 	# enhanced session mode
-	 RunScript --elevate --functions -- powershell 'Set-VMHost -EnableEnhancedSessionMode \$true' || return
+	RunScript --elevate --functions -- powershell 'Set-VMHost -EnableEnhancedSessionMode \$true' || return
 
 	# icons
 	mergeDir "$pp/Administrative Tools" "$pp/Operating System" || return
@@ -14127,11 +14139,19 @@ HypervFinalWin()
 
 hypervExternalAdapter()
 {
-	# setip
+	# return if the adapter exists
+	[[ ! $force ]] && hyperv status external && return
+
+	# get adapter for the Hyper-V external switch
 	local adapters; adapters=(); IFS=$'\n' ArrayMakeC adapters network adapter list || return
 	[[ ! $force ]] && RunScript --elevate powershell.exe 'Get-VMSwitch' | qgrep "^external " && return
 	local adapter; adapter="$(ArraySelect adapters "Select Hyper-V network adapter" "Choose the network adapter for the external switch")" || return
+	clear || return
+
+	# ask if should pass the adapter through
 	local pass; ask "Do you want to pass the '$adapter' network adapter through to the management operating system" && pass="--pass"
+
+	# configure the external adapter
 	hyperv config external $pass "$adapter" "${globalArgs[@]}" || return
 }
 
