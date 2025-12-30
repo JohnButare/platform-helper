@@ -1735,32 +1735,41 @@ FileToDesc()
 	echo "$file"
 }
 
-# FileWait [-q|--quiet]  FILE [SECONDS](60) - wait for a file or directory to exist
-# -p|--path		wait for the file to be in the path
+# FileWait [-q|--quiet] FILE [DESC] [SECONDS](60) - wait for a file or directory to exist
+# -p|--path					wait for the file to be in the path
+# -nc|--no-cancel		do not allow cancellation by pressing a key
+# -s|--sudo					check for the file using sudo
 FileWait()
 {
 	# arguments
-	local scriptName="FileWait" file noCancel pathFind quiet sudo timeoutSeconds
+	local scriptName="FileWait" desc file noCancel pathFind quiet sudo timeoutSeconds
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--no-cancel|-nc) noCancel="true";;
 			--path|-p) pathFind="true";;
-			--quiet|-q) quiet="--quiet";;
 			--sudo|-s) sudo="sudoc";;
+
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1" || return;;
 			*)
 				! IsOption "$1" && [[ ! $file ]] && { file="$1"; shift; continue; }
-				! IsOption "$1" && [[ ! $timeoutSeconds ]] && { timeoutSeconds="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $timeoutSeconds ]] && IsInteger "$1" && { timeoutSeconds="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $desc ]] && { desc="$1"; shift; continue; }
 				UnknownOption "$1"; return
 		esac
 		shift
 	done
 	[[ ! $file ]] && { MissingOperand "file"; return; }
 	timeoutSeconds="${timeoutSeconds:-60}"
-	! IsInteger "$timeoutSeconds" && { ScriptErr "seconds '$timeoutSeconds' is not an integer"; return 1; }
+	desc="${desc:-'$(FileToDesc "$file")'}"
 
 	# variables
-	local dir="$(GetFilePath "$(GetFullPath "$file")")" fileName="$(GetFileName "$file")" fileDesc="$(FileToDesc "$file")"
+	local dir="$(GetFilePath "$(GetFullPath "$file")")" fileName="$(GetFileName "$file")"
 	
 	# find command
 	local find=(FindAny "$dir" "$fileName")
@@ -1770,19 +1779,20 @@ FileWait()
 	"${find[@]}" >& /dev/null && return
 
 	# wait
-	[[ ! $quiet ]] && PrintErr "Waiting $timeoutSeconds seconds for '$fileDesc'..."
+	log1 "FileWait: waiting for '$file' for $timeoutSeconds seconds using: $find"	
+	[[ ! $quiet ]] && PrintErr "Waiting $timeoutSeconds seconds for $desc..."
 	for (( i=1; i<=$timeoutSeconds; ++i )); do
-		"${find[@]}" >& /dev/null && { [[ ! $quiet ]] && EchoErrEnd "found"; return 0; }
+		"${find[@]}" >& /dev/null && { EchoErrEnd "found"; return 0; }
 		if [[ $noCancel ]]; then
 			sleep 1
 		else
-			ReadChars 1 1 && { [[ ! $quiet ]] && EchoErrEnd "cancelled after $i seconds"; return 1; }
+			ReadChars 1 1 && { EchoErrEnd "cancelled after $i seconds"; return 1; }
 		fi
 		PrintErr "."
 		
 	done
 
-	EchoErrEnd "not found"; return 1
+	HilightErrEnd "failed"; return 1
 }
 
 # FileWait FILE [SECONDS](60) - wait for a file or directory to be deleted
