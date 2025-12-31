@@ -883,7 +883,7 @@ isCloudFileWin() { local file="$1" mask; mask="$(AttributeGet "$file")" && (( (m
 CloudIsOffline() { CloudValidate && RunPlatform cloudIsOffline "$@"; }
 cloudIsOfflineWin() { local file="$1" mask; mask="$(AttributeGet "$file")" && (( (mask & 1048576) == 0 )); } # RecallOnDataAccess=1048576
 
-# CloudConf - configure a cloude file provider
+# CloudConf - configure a cloud file provider
 CloudConf()
 {
 	# arguments
