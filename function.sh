@@ -771,7 +771,7 @@ powershell()
 	if [[ "$1" == "--" ]]; then shift
 	elif [[ -f "$1" ]]; then set -- -File "$@"
 	elif [[ -f "$(FindInPath "$1")" ]]; then local file="$(FindInPath "$1")"; shift; set -- -File "$(utw "$file")" "$@"
-	elif [[ ! "$1" =~ ^- ]] then set -- -Command "$@"
+	elif [[ ! "$1" =~ ^- ]]; then set -- -Command "$@"
 	fi
 
 	# find powershell in a specific location
