@@ -6498,15 +6498,19 @@ GetChrootName()
 	local force forceLevel forceLess; ScriptOptForce "$@"
 	local verbose verboseLevel verboseLess; ScriptOptVerbose "$@"
 	[[ ! $force && $CHROOT_CHECKED ]] && return
-	
+
+	# detect if in a chroot
+	# - sudoc systemd-detect-virt -r: not preferred (requires sudo)
+	unset CHROOT_NAME
 	if [[ -f "/etc/debian_chroot" ]]; then
 		CHROOT_NAME="$(cat "/etc/debian_chroot")"
-	elif ! IsPlatform winKernel && [[ "$(${G}stat / --printf="%i")" != "2" ]]; then
-		CHROOT_NAME="chroot"
-	elif IsPlatform wsl1 && sudoc systemd-detect-virt -r; then
+	elif IsPlatform btrfs; then
+		[[ "$(readlink "/proc/self/root")" != "/" ]] && CHROOT_NAME="chroot"
+	elif [[ "$(${G}stat / --printf="%i")" != "2" ]]; then
 		CHROOT_NAME="chroot"
 	fi
 
+	# logging
 	[[ $verbose ]] && { ScriptErr "CHROOT_NAME=$CHROOT_NAME"; }	
 	CHROOT_CHECKED="true"
 }
