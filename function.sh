@@ -5379,7 +5379,7 @@ RunWin() { (IsPlatform win && cd "$WIN_ROOT"; "$@"); }
 start() 
 {
 	# arguments
-	local scriptName="start" elevate file sudo terminal wait windowStyle
+	local scriptName="start" elevate file noWait sudo terminal wait windowStyle
 	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	if ScriptOptHelp "$@"; then EchoWrap "\
@@ -5387,6 +5387,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 	Start a program converting file arguments for the platform as needed
 
 	--elevate, -e 					run the program with an elevated administrator token (Windows)
+	--no-wait, -nw					do not wait for the program to run before returning
 	--open, -o							open the the file using the associated program
 	--sudo, -s							run the program as root
 	--terminal, -T 					the terminal used to elevate programs, valid values are wsl|wt
@@ -5400,6 +5401,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--elevate|-e) IsPlatform win && CanElevate && ! IsElevated && elevate="--elevate";;
+			--no-wait|-nw) noWait="--no-wait";;
 			--sudo|-s) sudov || return; sudo="sudo";;
 			--terminal|-T) [[ ! $2 ]] && { MissingOperand "terminal"; return; }; terminal="$2"; shift;;
 			--wait|-w) wait="--wait";;
@@ -5544,7 +5546,7 @@ Usage: start [OPTION]... FILE [ARGUMENTS]...
 	fi
 
  	# run a non-Windows program
- 	if IsShellScript "$file"; then
+ 	if [[ ! $noWait ]] && IsShellScript "$file"; then
  		(( verboseLevel > 1 )) && ScriptArgs "start" $sudo "$file" "${args[@]}"
  		$sudo "$file" "${args[@]}"
 	elif [[ $wait ]]; then
