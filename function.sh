@@ -4763,6 +4763,9 @@ isPlatformCheck()
 
 	case "$p" in 
 
+		# file system
+		btrfs) IsPlatform linux,win && df -T / | qgrep " btrfs ";;
+
 		# package management
 		apt) ! IsPlatform mac && InPath apt;;
 		brew|homebrew) InPath brew;;
