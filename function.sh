@@ -3994,7 +3994,7 @@ GetServers() { HashiValidateConsul && hashi resolve name --all "$@"; }
 # GetAllServers [SERVICE](nomad-client) - get all active servers
 GetAllServers()
 {
-	local service="nomad-client"; ! IsOption "$1" && { service="$1"; shift; }
+	local service="nomad-client"; [[ $1 ]] && ! IsOption "$1" && { service="$1"; shift; }
 	GetServers "$service" "$@" # assume all servers have the nomad-client service
 }
 
