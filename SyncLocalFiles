@@ -371,14 +371,25 @@ syncGit()
 	cd "$dir" || return
 
 	# fetch upstream updates	
-	log2 "git: fetching"
+	log2 "syncGit: fetching"
 	git fetch --quiet || return
 
-	log2 "git: upstream status"
+	# src is older - reset regardless of state
+	if [[ "$method" == "--src-older" ]]; then
+		printf "git..."
+		local trackingBranch; trackingBranch="$(git rev-parse --abbrev-ref --symbolic-full-name @{u})" || return
+		log2 "syncGit: resetting to '$trackingBranch'"
+		git reset --hard "$trackingBranch" || return
+		syncGitTime || return
+		printf "done..."
+		return
+	fi
+
+	# check upstream status: ahead, up-to-date, divered, behind
+	log2 "git: getting upstream status"
 	local status="$(GitHelper upstream)"
 	local changes; [[ "$(git status --porcelain)" != "" ]] && changes="true"
-
-	# check upstream status
+	log2 "syncGit: status=$status changes=$changes"
 	case "$status" in
 		ahead|up-to-date) return 0;;
 		diverged) ScriptErr "'$dir' has diverged from the upstream branch"; return 1;;
@@ -387,24 +398,26 @@ syncGit()
 	# status
 	printf "git..."
 
-	# stash local changes
-	[[ $changes ]] && { log2 "git: stash"; git stash push --include-untracked || return; }
+	# stash changes
+	[[ $changes ]] && { log2 "syncGit: stash"; git stash push --include-untracked || return; }
 
-	# pull changes from upstream
-	log2 "git: pull"; 
-	git pull --quiet || return
+	# pull changes with rebase from upstream (safe since branch is not diverged)
+	log2 "syncGit: pull"; 
+	git pull --quiet --rebase || return
+	syncGitTime || return
 
-	# set file modification times to match git
-	GitHelper time "${globalArgs[@]}" || return
-
-	# restore local changes, and if there are no longer any changes, align the file times again
+	# restore local changes
 	if [[ $changes ]]; then
-		log2 "git: stash pop"; git stash pop || return
-		[[ "$(git status --porcelain)" == "" ]] && { GitHelper time "${globalArgs[@]}" || return; }
+		log2 "syncGit: stash pop"; git stash pop || return
+		[[ "$(git status --porcelain)" == "" ]] && { syncGitTime || return; } # if there are no longer any changes, align the file times again
 	fi
+
+	printf "done..."
 
 	return 0
 }
+
+syncGitTime() { GitHelper times --today "${globalArgs[@]}"; }
 
 syncInitDest()
 {
