@@ -3959,10 +3959,11 @@ GetServer()
 {
 	# arguments
 	local scriptName="GetServer" service useAlternate
-	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
+	local force forceLevel forceLess noPrompt noResolve quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
+			--no-resolve|-nr) noResolve="--no-resolve";;
 			--use-alternate|-ua) useAlternate="--use-alternate";;
 
 			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
@@ -3981,16 +3982,21 @@ GetServer()
 
 	[[ ! $service ]] && { MissingOperand "service"; return; }	
 
-	local ip; ip="$(GetIpAddress $quiet "$service.service.$(GetNetworkDnsBaseDomain)")" || return
 	log3 "getting the active host for service '$service'"
+	local ip; ip="$(GetIpAddress $quiet "$service.service.$(GetNetworkDnsBaseDomain)")" || return
+	[[ $noResolve ]] && { echo "$ip"; return; }
 	DnsResolve $quiet $verbose $useAlternate "$ip" "$@"
 }
 
 # GetServers SERVICE - get all active hosts for the specified service
 GetServers() { HashiValidateConsul && hashi resolve name --all "$@"; }
 
-# GetAllServers - get all active servers
-GetAllServers() { GetServers "${1:-nomad-client}"; } # assume all servers have the nomad-client service
+# GetAllServers [SERVICE](nomad-client) - get all active servers
+GetAllServers()
+{
+	local service="nomad-client"; ! IsOption "$1" && { service="$1"; shift; }
+	GetServers "$service" "$@" # assume all servers have the nomad-client service
+}
 
 # IsService SERVICE - return true if the service is a service on the current domain
 IsService()
