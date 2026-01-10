@@ -979,7 +979,7 @@ installInit()
 	# virtualization
 	deb+=(HypervLinuxTools VmwareLinuxTools)
 	mac+=(ParallelsDesktop VmwareFusion)
-	macDeb+=(docker portainer VirtualBox VmwareWorkstation)
+	macDeb+=(docker podman portainer VirtualBox VmwareWorkstation)
 	macWin+=(VmwareHorizon)
 	win+=(hyperv ProxmoxWinTools)
 
@@ -4075,7 +4075,7 @@ DebianSetupInstall()
 	i DebianDns DebianLocale DebianPolicies DebianProxyServer DebianSudoSecurePath || return
 }
 
-DebianCertificatesInstall() { RunFunction debianCertificates "$(GetDomain)"; }
+DebianCertificatesInstall() { RunDomain "debianCertificates"; }
 
 # debianCertificatesSandia - https://wiki.sandia.gov/spaces/LinuxAtSandia/pages/1436125847/Set+the+Root+CA+SSL+certificates
 debianCertificatesSandia()
@@ -11631,7 +11631,8 @@ Settings...
 		local v; v="$(versionGetCurrent "$app" "$platform")" || return
 		local file="1Password-$(RemoveAfter "$item" "/")${architecture}-v$v.$extension"
 		local r; downloadStart "$app" "$platform"; r=$?; ((r==1)) && continue; ((r==2)) && return 1
-		downloaded="true"; download "https://downloads.1password.com/$item" "$(1PasswordDir)" "$file" || return
+		log1 "1PasswordDownload: platform=$platform suffix=$suffix architecture=$architecture extension=$extension v=$v file=$file"
+		downloaded="true"; download "https://downloads.1password.com/$suffix" "$(1PasswordDir)" "$file" || return
 		downloadDone "$app" "$v" "$platform" || return
 	done
 
@@ -12579,11 +12580,7 @@ ObsidianInstall()
 ObsidianProfile() { obsidian $noPrompt profile restore default "${globalArgs[@]}"; }
 ObsidianFinalWin() { $mv "$up/Obsidian.lnk" "$up/Applications" && $mv "$pp/Obsidian.lnk" "$pp/Applications" && $rm "$ud/Obsidian.lnk" && $rm "$pd/Obsidian.lnk"; }
 ObsidianRegister() { register "obsidian"; }
-
-ObsidianHelp()
-{
-	makeDir "$WIN_UDATA/app/Obsidian" && obsidianHelp$(GetDomain | UpperCaseFirst); 
-}
+ObsidianHelp() { makeDir "$WIN_UDATA/app/Obsidian" && RunDomain "obsidianHelp"; }
 
 obsidianHelpSandia()
 {
@@ -12796,20 +12793,27 @@ VisualStudioCodeInstall()
 	local file="code-$v-$(getPlatform "win32" "darwin")-${arch}${user}.$(getPlatform "exe" "zip" "deb")"
 	run --no-header --name="VisualStudioCode" "$(visualStudioCodeDir)/$file" "${args[@]}" --version=$v || return
 
-	# SSH Agent
-	if IsPlatform win && ! service running ssh-agent; then		
-		if canElevate; then
-			service suto start ssh-agent || return
-		else
-			service ui || return
-			pause "Enable and start the OpenSSH Authetnication Agent, then press any key to continue..."
-		fi
-		SshHelper config sync win || return
-		ssh-add.exe
+	# configure
+	visualStudioCodeSshAgent || return
+}
+
+# visualStudioCodeSshAgent - configure the ssh-agent for Visual Studio Code
+visualStudioCodeSshAgent()
+{
+	{ ! IsPlatform win || ! service exists ssh-agent || service running ssh-agent; } && return
+
+	if canElevate; then
+		service start ssh-agent || return
+	else
+		service ui || return
+		pause "Enable and start the OpenSSH Authetnication Agent, then press any key to continue..."
 	fi
 
-	# Python
-	i PythonFinal || return	
+	# sync configuration
+	SshHelper config sync win || return
+
+	# wait for the service to start then test it
+	sleep 2 && ssh-add.exe
 }
 
 VisualStudioCodeFinalWin() 
@@ -13967,7 +13971,7 @@ VlcFinalWin() { mergeDir "$pp/VideoLAN" "$mo" $rm "$pd/VLC media player.lnk"; }
 # virtualization
 #################################################
 
-VmAllInstall() { i docker hyperv ParallelsDesktop portainer VirtualBox VmwareWorkstation; }
+VmAllInstall() { i docker hyperv ParallelsDesktop podman portainer VirtualBox VmwareWorkstation; }
 
 VmCoreInstall() { RunPlatform vm || return; }
 vmWin() { i VmwareWorkstation || return; }
@@ -14128,6 +14132,44 @@ dockerPasswordMake()
 	makeDir --sudo "$dir" || return
 	pwgen 14 1 | sudo ${G}tee "$file" > /dev/null || return
 }
+
+PodmanInstall()
+{
+	# install
+	local v="1.24.2"
+	local arch="$(getArch "x64" "arm64")"; IsPlatform linux && arch="$(getArch "" "-arm64")"
+	run --name "podman" "shareware/podman/podman-desktop-$v$(getPlatform "-setup-$arch.exe" "-$arch.dmg" "$arch.tar.gz")" --elevate || return
+
+	# configure
+	local filePrefix="$HOME"; IsPlatform win && filePrefix="$WIN_HOME"
+	local file="$filePrefix/.config/containers/registries.conf"
+	[[ ! -f "$file" ]] && { touch "$file" && return; }
+	RunDomain "podman" "$file" || return
+}
+
+podmanSandia()
+{
+	local file="$1"
+	cat "$file" | qgrep "nexus" && return
+
+	cat <<-EOF | sudo ${G}tee -a "$file" > /dev/null || return
+		[[registry]]
+		  prefix = "nexus.web.sandia.gov"
+		  location = "nexus.web.sandia.gov:8083"
+
+		[[registry]]
+		  prefix = "docker.io"
+		  location = "nexus.web.sandia.gov:8083"
+
+		[[registry]]
+		  prefix = "quay.io"
+		  location = "nexus.web.sandia.gov:8083"
+
+		unqualified-search-registries=["nexus.web.sandia.gov"]
+	EOF
+}
+
+PodmanFinalWin() { $mv "$pp/Podman Desktop.lnk" "$pp/Applications" && $rm "$pd/Podman Desktop.lnk"; }
 
 HypervInstall()
 {

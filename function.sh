@@ -4846,6 +4846,13 @@ function GetPlatformFiles()
 	return 0
 }
 
+# RunDomain FUNCTION - run a function for the current domain
+RunDomain()
+{
+	local function="$1"; shift
+	RunFunction "$function" "$(GetDomain | UpperCaseFirst)" -- "$@"
+}
+
 SourceIfExists() { [[ -f "$1" ]] && { . "$1" || return; }; return 0; }
 
 SourceIfExistsPlatform() # SourceIfExistsPlatform PREFIX SUFFIX
