@@ -6322,19 +6322,63 @@ LogitechOptionsProfile() { LogitechOptions profile restore default "${globalArgs
 
 LogitechOptionsDownload()
 {
-	local app="LogitechOptions"; downloadStart "$app" || return $(( $? > 1 ))
-	local v; v="$(versionGetCurrent "$app")" || return
-	local ext exts=("exe" "zip")
+	local app="LogitechOptions" downloaded groupDownload="true"; groupDownload="" downloadHeader "$app"
+	local platform platforms=("mac" "win")
 
-	for ext in "${exts[@]}"; do
-		download "https://download01.logi.com/web/ftp/pub/techsupport/optionsplus/logioptionsplus_installer.$ext" "$(logitechOptionsDir)" "logitech-options-setup-$v.$ext" || return
+	for platform in "${platforms[@]}"; do
+		local v; v="$(versionGetCurrent "$app" "$platform")" || return
+		local r; downloadStart "$app" "$platform"; r=$?; ((r==1)) && continue; ((r==2)) && return 1
+		local ext="exe"; [[ "$platform" == "mac" ]] && ext="zip"
+		downloaded="true"; download "https://download01.logi.com/web/ftp/pub/techsupport/optionsplus/logioptionsplus_installer.$ext" "$(logitechOptionsDir)" "logitech-options-setup-$v.$ext" || return
+		downloadDone "$app" "$v" "$platform" || return
 	done
 
-	downloadDone "$app" "$v"
+	downloadFooter "$app"
 }
 
 logitechOptionsDir() { echo "hardware/Logitech/options"; }
-logitechOptionsVersion() { curl --silent --location "https://support.logi.com/hc/en-us/articles/1500005516462-Logi-Options-Release-Notes" | ${G}grep '<strong>Version ' | shead -1 | ${G}grep -o '<strong>Version.*' | ${G}cut -d' ' -f2; } # line my have multiple versions, this gets the first
+logitechOptionsVersionMac() { logitechOptionsVersionCommon "mac"; }
+logitechOptionsVersionWin() {	logitechOptionsVersionCommon "win"; }
+
+# logitechOptionsVersionCommon mac|win
+logitechOptionsVersionCommon()
+{
+	local platform="${1,,}" filter="mac"; [[ "$platform" == "mac" ]] && filter="win"
+	curl --silent --location "https://support.logi.com/hc/en-us/articles/1500005516462-Logi-Options-Release-Notes" | \
+		${G}awk '{
+		  while (match($0, /<strong>Version [^<]*<\/strong>/)) {
+		    print substr($0, RSTART, RLENGTH)
+		    $0 = substr($0, RSTART + RLENGTH)
+		  }
+		}' | grep -v -i "$filter" | head -1 | ${G}cut -d' ' -f2 | ${G}cut -d'<' -f1 | ${G}cut -d' ' -f1
+}
+
+forkVersionCommon()
+{
+	local platform="$1" line="${2:-1}" # version to get, i.e. 1st, 2nd, ...
+	local ext="dmg" win; [[ "$platform" == "win" ]] && ext="exe" win="win"
+	local i v="$(curl --silent https://git-fork.com/releasenotes${win} | ${G}grep "header4" | sed "${line}q;d" | sed 's/.*Fork //' | cut -d"<" -f1)"
+	
+	# check check 3 times for current version in release notes and 2 back
+	for (( i = 0; i < 3; i++ )); do
+		log2 "forkVersionCommon $platform: checking time $i"
+
+		# check for point releases
+		local suffix suffixes=(".3" ".2" ".1" "")
+		for suffix in "${suffixes[@]}"; do
+			local url="https://cdn.fork.dev/$platform/Fork-$v${suffix}.$ext"
+			log2 "forkVersionCommon $platform: checking '$url'"
+			urlCheck "$url" && { echo "$v$suffix"; return; }
+		done
+
+		v="$(echo "$v - .01" | bc)"
+	done
+
+	return 1
+}
+
+
+
 
 PowerZInstall() { run "hardware/ChargerLAB/Power-Z/KM003C/software/v2.3.0/Setup.exe"; } # https://drive.google.com/drive/folders/1u63v7TAPZl0DohsziWwOkfRA4Vuk6J1Q
 
