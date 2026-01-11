@@ -122,10 +122,10 @@ permissionBin()
 syncUsage()
 {
 	ScriptUsageEcho "\
-usage: $(ScriptName) sync [HOST](default)
-Sync local files with the specified host.
+usage: $(ScriptName) sync [HOST...](default)
+Sync local files with the specified hosts.
 
-Destination can be one of HOST|UNC|DIR|host|public|home.
+Destination can be one of HOST|UNC|DIR|host|git|public|home.
 - if the destination is \"host\", find a mounted host (i.e. VM host).
 - if the destination is public or home, find the public or home directories
   specified in configuration
@@ -137,7 +137,7 @@ Synchronization direction:
 What to synchronize:
 	-nb, --no-bak				do not backup files to the bak directory
 	-nc, --no-check			do not check host availability
-	-ng, --no-git				do not synchronize git repositories
+	-ng, --no-git				do not synchronize Git directories
 			 --no-platform	do not synchronize platform directories
 	-ns, --no-shared		do not synchronize shared directories
 	-nu, --no-user			do not synchronize user directories
@@ -154,14 +154,20 @@ Other options:
 	-t, --timeout				$(ScriptOptTimeoutUsage)"
 }
 
-syncArgStart() { unset -v hosts method noBak noCheck noGit noPlatform noShared noUser noUnison noUnmount on syncMethod; }
+syncArgStart()
+{
+	unset -v hosts method noBak noCheck noGit noPlatform noShared noUser noUnison noUnmount on syncMethod; 
+}
 
 syncOpt() 
 {
 	case "$1" in
+
+		# synchronization direction
 		--dest-older|--destination-older|-do) method="--dest-older";;
 		--src-older|--source-older|-so) method="--src-older";;
 
+		# what to synchronize
 		--no-bak|-nb) noBak="--no-bak";;
 		--no-check|-nc) noCheck="--no-check";;		
 		--no-git|-ng) noGit="--no-git";;
@@ -169,12 +175,15 @@ syncOpt()
 		--no-shared|-ns) noShared="--no-shared";;
 		--no-user|-nu) noUser="--no-user";;
 
+		# synchronization method
 		--unc) syncMethod="UNC";;
 		--unison|-u) syncMethod="Unison";;
 		--no-unison|-nu) noUnison="--no-unison";;
 
+		# other options
 		--no-unmount) noUnmount="--no-unmount";;
 		--on|-o) on="--on";;
+
 		*) return 1
 	esac
 }
@@ -192,7 +201,7 @@ syncCommand()
 	# arguments
 	set -- "${hosts[@]}"
 
-	# default file server
+	# set default host
 	if [[ ! $1 ]]; then
 		local host
 		if [[ -d "/mnt/AllFiles/usr/local/data/bin" ]]; then host="/mnt/AllFiles" # Parallels Virtual Machine
@@ -211,6 +220,7 @@ syncCommand()
 		[[ ! $noShared ]] && { syncShared || return; }
 		[[ ! $noUser ]] && { syncUser || return; }
 		syncFinish || return
+		noGit="--no-git" # only sync git once
 	done
 }
 
@@ -219,7 +229,7 @@ syncIsUnison() { [[ "$syncProgram" == "Unison" ]]; }
 sync()
 {
 	local suffix="$1"; shift
-	syncGit "$srcDir/$suffix" && sync$syncProgram "$srcDir/$suffix" "$destDir/$suffix" "$@" && syncFix "$srcDir/$suffix"
+	syncGit "$srcDir/$suffix" && syncDo "$srcDir/$suffix" "$destDir/$suffix" "$@" && syncFix "$srcDir/$suffix"
 }
 
 # syncFix DIR - fix sync permission issues with DIR
@@ -282,11 +292,17 @@ syncSetProgram()
 		Unison) syncProgram="Unison"
 			if [[ "$protocol" != "ssh" ]]; then
 				protocol="ssh" protocolArg="--protocol=$protocol" # Unison must use SSH protocol
-				hostGetInfo || return # update host information for the new protocol
+				hostGetDestInfo --force || return # update host information for the new protocol
 			fi
 	esac
 
 	log2 "syncSetProgram: syncMethod='$syncMethod' syncProgram='$syncProgram'"
+}
+
+syncDo()
+{
+	[[ "$destId" == @(git) ]] && return
+	sync$syncProgram "$@"
 }
 
 syncSyncDir()
@@ -373,29 +389,25 @@ syncGit()
 	# fetch upstream updates	
 	log2 "syncGit: fetching"
 	git fetch --quiet || return
+
+	# check if files are changed
 	local changes; [[ "$(git status --porcelain)" != "" ]] && changes="true"
 
 	# src is older - reset regardless of state
-	if [[ $changes && "$method" == "--src-older" ]]; then
-		printf "git..."
-		local trackingBranch; trackingBranch="$(git rev-parse --abbrev-ref --symbolic-full-name @{u})" || return
-		log2 "syncGit: resetting to '$trackingBranch'"
-		git reset --hard "$trackingBranch" || return
-		syncGitTime || return
-		printf "done..."
-		return
-	fi
+	[[ $changes && "$method" == "--src-older" ]] && { syncGitReset; return; }
 
-	# check upstream status: ahead, up-to-date, divered, behind
+	# check upstream status: ahead, up-to-date, diverged, behind
 	log2 "git: getting upstream status"
 	local status="$(GitHelper upstream)"	
 	log2 "syncGit: status=$status changes=$changes"
 	case "$status" in
-		ahead|up-to-date) return 0;;
-		diverged) ScriptErr "'$dir' has diverged from the upstream branch"; return 1;;
+		ahead|up-to-date) syncGitTime; return;;
+		diverged)
+			[[ "$method" == "--src-older" ]] && { syncGitReset; return; }
+			ScriptErr "'$dir' has diverged from the upstream branch"; return 1;;
 	esac
 
-	# status
+	# behind
 	printf "git..."
 
 	# stash changes
@@ -406,10 +418,10 @@ syncGit()
 	git pull --quiet --rebase || return
 	syncGitTime || return
 
-	# restore local changes
+	# restore local changes, and if there are no longer any changes, align the file times again
 	if [[ $changes ]]; then
 		log2 "syncGit: stash pop"; git stash pop || return
-		[[ "$(git status --porcelain)" == "" ]] && { syncGitTime || return; } # if there are no longer any changes, align the file times again
+		[[ "$(git status --porcelain)" == "" ]] && { syncGitTime || return; }
 	fi
 
 	printf "done..."
@@ -417,10 +429,20 @@ syncGit()
 	return 0
 }
 
-syncGitTime() { GitHelper time --today "${globalArgs[@]}"; }
+syncGitReset()
+{
+	printf "git..."
+	local trackingBranch; trackingBranch="$(git rev-parse --abbrev-ref --symbolic-full-name @{u})" || return
+	log2 "syncGit: resetting to '$trackingBranch'"
+	git reset --hard "$trackingBranch" > /dev/null || return
+	syncGitTime || return
+	printf "done..."
+}
+
+syncGitTime() { GitHelper time --today --quiet "${globalArgs[@]}"; }
 
 syncInitDest()
-{
+{	
 	local what
 	unset destData destHome
 
@@ -430,8 +452,13 @@ syncInitDest()
 		return 1
 	fi
 
-	# host
-	if [[ "$destHost" == "host" ]]; then
+	# git
+	if [[ "$destHost" == @(git) ]]; then
+		destId="${destHost,,}"
+		destData="na" destHome="na"
+
+	# host		
+	elif [[ "$destHost" == "host" ]]; then
 		ScriptEval HostGetInfoCache host "${globalArgs[@]}" || return
 		destHost="$_root" destId="host" destData="$_data" destHome="$_home"
 
@@ -462,7 +489,7 @@ syncInitDest()
 
 		# get host information
 		destId="$(os name "$destHost" | RemoveDnsSuffix)"
-		hostGetInfo || return
+		hostGetDestInfo || return
 
 		# configure synchronization
 		syncSetProgram || return
@@ -473,7 +500,7 @@ syncInitDest()
 	# logging
 	log2 "syncInitDest: destHost=$destHost destId=$destId"
 
-	# return if destData and destHome are set
+	# return if we do not need to set destData and destHome
 	[[ $destData && $destHome ]] && return
 
 	# mount destData and destHome
@@ -538,8 +565,8 @@ syncFinish()
 {
 	# cleanup shares
 	if [[ ! $noUnmount ]]; then
-		unc IsMounted "$destData" && { unc unmount "$destData" || return; }
-		unc IsMounted "$destHome" && { unc unmount "$destHome" || return; }
+		[[ $destData ]] && unc IsMounted "$destData" && { unc unmount "$destData" || return; }
+		[[ $destHome ]] && unc IsMounted "$destHome" && { unc unmount "$destHome" || return; }
 	fi
 
 	# log
@@ -575,6 +602,6 @@ syncSsh()
 # helper
 #
 
-hostGetInfo() { RunLog2 ScriptEval HostGetInfoCache "$destHost" $protocolArg --quiet $noCheck "${globalArgs[@]}" && return; ScriptErrQuiet "unable to get '$destHost' information"; }
+hostGetDestInfo() { RunLog2 ScriptEval HostGetInfoCache "$destHost" $protocolArg --quiet $noCheck "${globalArgs[@]}" "$@" && return; ScriptErrQuiet "unable to get '$destHost' information"; }
 
 ScriptRun "$@"
