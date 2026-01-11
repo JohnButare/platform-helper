@@ -293,16 +293,18 @@ AppVersion()
 	[[ $alternate ]] && appCache+="-alternate"
 	[[ $cache ]] && UpdateGet "$appCache" && return
 
-	# get version with helper script
-	local helper; helper="$(AppHelper "$app")" && { version="$(alternate="$alternate" "$helper" $quiet --version)" || return; }
-
 	# aliases
 	if [[ ! $version ]]; then
 		case "$appLower" in
 			7za) version="$(AppVersion "$P/7-Zip/7z.exe")" || return;;
 			7zw) version="$(AppVersion "$DATA/platform/win/7z.exe")" || return;;
+			podman) version="$(PodmanHelper cli version)";;
+			podmandesktop) version="$(PodmanHelper version)";;
 		esac
 	fi
+
+	# get version with helper script
+	local helper; [[ ! $version ]] && helper="$(AppHelper "$app")" && { version="$(alternate="$alternate" "$helper" $quiet --version)" || return; }
 
 	# find and get mac application versions
 	local dir
