@@ -98,13 +98,15 @@ permissionSet()
 	done
 }
 
-# permissionBin DIR - set or remove executable bit for files in DIR
+# permissionBin DIR... - set or remove executable bit for files in the specified directories
 permissionBin()
 {
+	[[ $noPermissions ]] && return
+	printf "permissions..."
+
 	local dir
 	for dir in "$@"; do
 
-		[[ ! $verbose ]] && printf "."
 		log1 "permissionBin: setting executable permissions in '$dir'"
 		find "$dir" -maxdepth 1 -type f -print0 | ${G}xargs --null file | { ${G}grep " executable"; true; } | ${G}cut -d":" -f1 | ${G}xargs --delimiter '\n' --no-run-if-empty chmod +x || return
 
@@ -113,6 +115,8 @@ permissionBin()
 		find "$dir" -maxdepth 1 -type f -print0 | ${G}xargs --null file | { ${G}grep -v " executable"; true; } | ${G}cut -d":" -f1 | ${G}xargs --delimiter '\n' --no-run-if-empty chmod -x || return
 
 	done
+
+	echo "done"
 }
 
 #
@@ -135,12 +139,13 @@ Synchronization direction:
 	-so, --src-older		assume local files are older than the destination files
 
 What to synchronize:
-	-nb, --no-bak				do not backup files to the bak directory
-	-nc, --no-check			do not check host availability
-	-ng, --no-git				do not synchronize Git directories
-			 --no-platform	do not synchronize platform directories
-	-ns, --no-shared		do not synchronize shared directories
-	-nu, --no-user			do not synchronize user directories
+	-nb, --no-bak					do not backup files to the bak directory
+	-nc, --no-check				do not check host availability
+	-ng, --no-git					do not synchronize Git directories
+	-np, --no-permissions	do not synchronize permissions
+			 --no-platform		do not synchronize platform directories
+	-ns, --no-shared			do not synchronize shared directories
+	-nu, --no-user				do not synchronize user directories
 
 Synchronization method:
 			 --unc					perform synchronization using UNC shares
@@ -156,7 +161,7 @@ Other options:
 
 syncArgStart()
 {
-	unset -v hosts method noBak noCheck noGit noPlatform noShared noUser noUnison noUnmount on syncMethod; 
+	unset -v hosts method noBak noCheck noGit noPermissions noPlatform noShared noUser noUnison noUnmount on syncMethod; 
 }
 
 syncOpt() 
@@ -171,6 +176,7 @@ syncOpt()
 		--no-bak|-nb) noBak="--no-bak";;
 		--no-check|-nc) noCheck="--no-check";;		
 		--no-git|-ng) noGit="--no-git";;
+		--no-permissions|-np) noPermissions="--no-permissions";;
 		--no-platform) noPlatform="--no-platform";;
 		--no-shared|-ns) noShared="--no-shared";;
 		--no-user|-nu) noUser="--no-user";;
@@ -211,17 +217,28 @@ syncCommand()
 		log1 "set default host to '$host'"
 	fi
 
+	# sync git
+	if [[ ! $noGit && (-d "$BIN/.git" || -d "$UBIN/.git") ]]; then
+		printf "git..."
+		syncGit "$BIN" || return
+		syncGit "$UBIN" || return
+		echo "done"
+	fi
+
 	# sync destinations
 	local destHost destId
-	for destHost in "$@"; do			
+	for destHost in "$@"; do
+		[[ "$destHost" == @(git) ]] && continue
 		TimerOn
 		syncInitDest || return
 		syncStart || return
 		[[ ! $noShared ]] && { syncShared || return; }
 		[[ ! $noUser ]] && { syncUser || return; }
 		syncFinish || return
-		noGit="--no-git" # only sync git once
 	done
+
+	# fix permissions
+	permissionBin "$BIN" "$UBIN" || return
 }
 
 syncIsUnison() { [[ "$syncProgram" == "Unison" ]]; }
@@ -229,22 +246,7 @@ syncIsUnison() { [[ "$syncProgram" == "Unison" ]]; }
 sync()
 {
 	local suffix="$1"; shift
-	syncGit "$srcDir/$suffix" && syncDo "$srcDir/$suffix" "$destDir/$suffix" "$@" && syncFix "$srcDir/$suffix"
-}
-
-# syncFix DIR - fix sync permission issues with DIR
-syncFix()
-{
-	local dir="$1"
-
-	log1 "syncFix: dir=$dir"; return
-
-	if [[ "$dir" == @($BIN|$UBIN) ]]; then
-		log2 "syncFix: fixing executable bit"
-		permissionBin "$dir" || return
-	fi
-
-	return 0
+	sync$syncProgram "$srcDir/$suffix" "$destDir/$suffix" "$@"
 }
 
 syncSetProgram() 
@@ -297,12 +299,6 @@ syncSetProgram()
 	esac
 
 	log2 "syncSetProgram: syncMethod='$syncMethod' syncProgram='$syncProgram'"
-}
-
-syncDo()
-{
-	[[ "$destId" == @(git) ]] && return
-	sync$syncProgram "$@"
 }
 
 syncSyncDir()
@@ -390,8 +386,11 @@ syncGit()
 	log2 "syncGit: fetching"
 	git fetch --quiet || return
 
-	# check if files are changed
+	# check if files are changed locally
 	local changes; [[ "$(git status --porcelain)" != "" ]] && changes="true"
+
+	# check if we should uptime file time (files are changed today)
+	local time; [[ "$(GitHelper files --today)" != "" ]] && time="true"
 
 	# src is older - reset regardless of state
 	[[ $changes && "$method" == "--src-older" ]] && { syncGitReset; return; }
@@ -402,51 +401,43 @@ syncGit()
 
 	case "$status" in
 
-		ahead|up-to-date)
-			[[ "$(GitHelper files --today)" == "" ]] && return
-			printf "git..." && syncGitTime && printf "done..."; return
-			;;
+		ahead|up-to-date) syncGitTime; return;;
 
 		diverged)
 			[[ "$method" == "--src-older" ]] && { syncGitReset; return; }
-			ScriptErr "'$dir' has diverged from the upstream branch"; return 1
+			ScriptErr "'$dir' has diverged from the upstream branch"; return
+			;;
+
+		behind)
+			# stash changes
+			[[ $changes ]] && { log2 "syncGit: stashing changes"; printf "stash..."; git stash push --include-untracked || return; }
+
+			# pull changes with rebase from upstream (safe since branch is not diverged)
+			log2 "syncGit: pulling from $server"; printf "pull..."; git pull --quiet --rebase || return
+
+			# restore local changes
+			[[ $changes ]] && { log2 "syncGit: restoring changes"; printf "pop..."; git stash pop || return; }
+
+			# align file times
+			syncGitTime || return
 			;;
 
 	esac
-
-	# behind
-	printf "git..."
-
-	# stash changes
-	[[ $changes ]] && { log2 "syncGit: stash"; git stash push --include-untracked || return; }
-
-	# pull changes with rebase from upstream (safe since branch is not diverged)
-	log2 "syncGit: pull"; 
-	git pull --quiet --rebase || return
-	syncGitTime || return
-
-	# restore local changes, and if there are no longer any changes, align the file times again
-	if [[ $changes ]]; then
-		log2 "syncGit: stash pop"; git stash pop || return
-		[[ "$(git status --porcelain)" == "" ]] && { syncGitTime || return; }
-	fi
-
-	printf "done..."
-
-	return 0
 }
 
 syncGitReset()
 {
-	printf "git..."
 	local trackingBranch; trackingBranch="$(git rev-parse --abbrev-ref --symbolic-full-name @{u})" || return
 	log2 "syncGit: resetting to '$trackingBranch'"
-	git reset --hard "$trackingBranch" > /dev/null || return
+	printf "reset..."; git reset --hard "$trackingBranch" > /dev/null || return
 	syncGitTime || return
-	printf "done..."
 }
 
-syncGitTime() { GitHelper time --today --quiet "${globalArgs[@]}"; }
+syncGitTime()
+{
+	[[ ! $time ]] && return
+	printf "time..."; GitHelper time --today --quiet "${globalArgs[@]}"; 
+}
 
 syncInitDest()
 {	
@@ -459,13 +450,8 @@ syncInitDest()
 		return 1
 	fi
 
-	# git
-	if [[ "$destHost" == @(git) ]]; then
-		destId="${destHost,,}"
-		destData="na" destHome="na"
-
 	# host		
-	elif [[ "$destHost" == "host" ]]; then
+	if [[ "$destHost" == "host" ]]; then
 		ScriptEval HostGetInfoCache host "${globalArgs[@]}" || return
 		destHost="$_root" destId="host" destData="$_data" destHome="$_home"
 
