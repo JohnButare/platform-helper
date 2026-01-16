@@ -81,7 +81,7 @@ permissionCommand()
 	local allDirs=( "$BIN" "$UBIN" "${dirs[@]}" )
 
  	printf "permissions..."
-	quiet="--quiet" permissionBin "$BIN" "$UBIN" || return
+ 	permissionBin "$BIN" "$UBIN" || return
 	permissionSet ug+rw "${allDirs[@]}" || return
 	permissionSet -x "${dirs[@]}" || return
 	echo "done"
@@ -101,7 +101,7 @@ permissionSet()
 # permissionBin DIR... - set or remove executable bit for files in the specified directories
 permissionBin()
 {
-	[[ $noPermissions ]] && return
+	printf "permissions..."
 
 	local dir
 	for dir in "$@"; do
@@ -114,6 +114,8 @@ permissionBin()
 		find "$dir" -maxdepth 1 -type f -print0 | ${G}xargs --null file | { ${G}grep -v " executable"; true; } | ${G}cut -d":" -f1 | ${G}xargs --delimiter '\n' --no-run-if-empty chmod -x || return
 
 	done
+
+	echo "done"
 }
 
 #
@@ -126,23 +128,22 @@ syncUsage()
 usage: $(ScriptName) sync [HOST...](default)
 Sync local files with the specified hosts.
 
-Destination can be one of HOST|UNC|DIR|host|git|public|home.
-- if the destination is \"host\", find a mounted host (i.e. VM host).
-- if the destination is public or home, find the public or home directories
-  specified in configuration
+Destination can be one of HOST|UNC|DIR|host|local|git|public|home.
+- host - find a mounted host (i.e. VM host)
+- local|git - syncrhonize the local system only
+- public|home - find the public or home directories specified in configuration
 
 Synchronization direction:
 	-do, --dest-older		assume destination files are than the local source files
 	-so, --src-older		assume local files are older than the destination files
 
 What to synchronize:
-	-nb, --no-bak					do not backup files to the bak directory
-	-nc, --no-check				do not check host availability
-	-ng, --no-git					do not synchronize Git directories
-			 --no-permissions	do not synchronize permissions
-			 --no-platform		do not synchronize platform directories
-	-ns, --no-shared			do not synchronize shared directories
-	-nu, --no-user				do not synchronize user directories
+	-nb, --no-bak				do not backup files to the bak directory
+	-nc, --no-check			do not check host availability
+	-ng, --no-git				do not synchronize Git directories
+			 --no-platform	do not synchronize platform directories
+	-ns, --no-shared		do not synchronize shared directories
+	-nu, --no-user			do not synchronize user directories
 
 Synchronization method:
 			 --unc					perform synchronization using UNC shares
@@ -158,7 +159,7 @@ Other options:
 
 syncArgStart()
 {
-	unset -v hosts method noBak noCheck noGit noPermissions noPlatform noShared noUser noUnison noUnmount on syncMethod; 
+	unset -v hosts method noBak noCheck noGit noPlatform noShared noUser noUnison noUnmount on syncMethod; 
 }
 
 syncOpt() 
@@ -173,7 +174,6 @@ syncOpt()
 		--no-bak|-nb) noBak="--no-bak";;
 		--no-check|-nc) noCheck="--no-check";;		
 		--no-git|-ng) noGit="--no-git";;
-		--no-permissions) noPermissions="--no-permissions";;
 		--no-platform) noPlatform="--no-platform";;
 		--no-shared|-ns) noShared="--no-shared";;
 		--no-user|-nu) noUser="--no-user";;
@@ -225,7 +225,7 @@ syncCommand()
 	# sync destinations
 	local destHost destId
 	for destHost in "$@"; do
-		[[ "$destHost" == @(git) ]] && continue
+		syncIsLocal "$destHost" && continue
 		TimerOn
 		syncInitDest || return
 		syncStart || return
@@ -235,11 +235,10 @@ syncCommand()
 	done
 
 	# fix permissions
-	printf "permissions..."
 	permissionBin "$BIN" "$UBIN" || return
-	echo "done"
 }
 
+syncIsLocal() { { [[ "$1" == @(|/|git|local) ]] || IsLocalHostIp "$1"; } && return; }
 syncIsUnison() { [[ "$syncProgram" == "Unison" ]]; }
 
 sync()
@@ -389,7 +388,7 @@ syncGit()
 	local changes; [[ "$(git status --porcelain)" != "" ]] && changes="true"
 
 	# check if we should uptime file time (files are changed today)
-	local time; [[ "$(GitHelper files --today)" != "" ]] && time="true"
+	local time; [[ "$(GitHelper files --today)" == "" ]] && time="true"
 
 	# src is older - reset regardless of state
 	[[ $changes && "$method" == "--src-older" ]] && { syncGitReset; return; }
@@ -433,7 +432,7 @@ syncGitReset()
 }
 
 syncGitTime()
-{
+{	
 	[[ ! $time ]] && return
 	printf "time..."; GitHelper time --today --quiet "${globalArgs[@]}"; 
 }
@@ -442,12 +441,6 @@ syncInitDest()
 {	
 	local what
 	unset destData destHome
-
-	# do not sync to ourself
-	if [[ ! -d "$destHost" ]] && IsLocalHostIp "$destHost" || [[ "$destHost" == "/" ]]; then
-		ScriptErrQuiet "cannot sync to the local computer"
-		return 1
-	fi
 
 	# host		
 	if [[ "$destHost" == "host" ]]; then

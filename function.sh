@@ -647,6 +647,7 @@ GitClone() { ScriptCd GitHelper GitHub clone "$@"; }
 GitRoot() { git rev-parse --show-toplevel; }
 GitRun() { local git; GitSet && SshAgentConf && $git "$@"; }
 GitSet() { git="git"; InPath git.exe && drive IsWin . && git="git.exe"; return 0; }
+GitValidate() { IsGitWorkTree && return; ScriptErrQuiet "not a git repository" "$@"; return; }
 
 # i: invoke the installer script (inst) saving the INSTALL_DIR
 i()
