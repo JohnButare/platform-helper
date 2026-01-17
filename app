@@ -121,8 +121,8 @@ dbus()
 # guacamole - hard code containers to start until run with Nomad
 guacamole()
 {
-	[[ "$HOSTNAME" == "bl3" ]] && { docker start 02ecdca0f8f8 94fee2880bdd > /dev/null; }
-	[[ "$HOSTNAME" == "bl4" ]] && { docker start 61ed050aca17 9086d94e43bd > /dev/null; }
+	[[ "$HOSTNAME" == "bl3" ]] && { podman start 02ecdca0f8f8 94fee2880bdd > /dev/null; }
+	[[ "$HOSTNAME" == "bl4" ]] && { podman start 61ed050aca17 9086d94e43bd > /dev/null; }
 	return 0
 }
 
