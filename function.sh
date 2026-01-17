@@ -1574,8 +1574,16 @@ explore()
 	local dir="$1"; [[ ! $dir ]] && dir="."
 
 	IsPlatform mac && { open "$dir"; return; }
-	IsPlatform wsl1 && { RunWin explorer.exe "$(utw "$dir")"; return; }
-	IsPlatform wsl2 && { RunWin explorer.exe "$(utw "$dir")"; return 0; }
+
+	if IsPlatform win; then
+		local d="$(utw "$dir")"
+		if InPath "files-preview.exe"; then RunWin files-preview.exe "$d"
+		elif InPath "files-stable.exe"; then RunWin files-stable.exe "$d"
+		else RunWin cmd.exe /c start "$d"
+		fi
+		return
+	fi
+	
 	InPath nautilus && { start nautilus "$dir"; return; }
 	InPath mc && { mc; return; } # Midnight Commander
 
