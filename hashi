@@ -2040,9 +2040,37 @@ installServiceAcl()
 	log1 "updated environment variable $(productVar "TOKEN") to $(productVarGet "TOKEN")..."
 }
 
-installServiceConfig()
+installServiceConfig() { runPlatformService "installServiceConfig"; }
+
+installServiceConfigMac()
 {
-	local exec="ExecStart=$execStart"
+	cat <<-EOF
+		<?xml version="1.0" encoding="UTF-8"?>
+		<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+		<plist version="1.0">
+		<dict>
+		    <key>Label</key>
+		    <string>com.hashicorp.$product</string>
+		    <key>ProgramArguments</key>
+		    <array>
+		$(for item in "${execStart[@]}"; do echo "      <string>$item</string>"; done)
+		    </array>
+		    <key>RunAtLoad</key>
+		    <true/>
+		    <key>StandardOutPath</key>
+		    <string>/var/log/consul.log</string>
+		    <key>StandardErrorPath</key>
+		    <string>/var/log/consul.log</string>
+		    <key>KeepAlive</key>
+		    <true/>
+		</dict>
+		</plist>
+		EOF
+}
+
+installServiceConfigSystemd()
+{
+	local exec="ExecStart=${execStart[@]}"
 	[[ $execReload ]] && exec+=$'\n'"ExecReload=$execReload"
 	[[ $execStop ]] && exec+=$'\n'"ExecStop=$execStop"
 
@@ -2083,7 +2111,7 @@ installServiceHost()
 	local f hostFqdn hostIp
 	local o="$commonOptions" # product configuration file options
 	local otherDependencies="" restrictions=""
-	local execStart="$program agent -config=$productConfigDir" execReload="/bin/kill --signal HUP \$MAINPID" exectStop="" serviceKillSignal="SIGINT"
+	local execStart execReload="/bin/kill --signal HUP \$MAINPID" exectStop="" serviceKillSignal="SIGINT"
 	local networkTarget="Requires=network-online.target"
 	local serviceLimit="LimitMEMLOCK=infinity"$'\n'"LimitNOFILE=infinity"$'\n'"LimitNPROC=infinity"$'\n'"TasksMax=infinity"
 	local serviceType="notify" notifyAccess="none" timeoutStopSec="60"
@@ -2111,7 +2139,7 @@ installServiceHost()
 	local advertiseAddr4 advertiseAddr6 bindAddr
 
 	# Windows - services do not get correct address on reboot when using template
-	if IsPlatform win --host; then
+	if IsPlatform mac,win --host; then
 		advertiseAddr4="$(GetIpAddress -4 "$hostFqdn")" || return
 		advertiseAddr6="$(GetIpAddress -6 "$hostFqdn")" || return
 		log1 "advertiseAddr4=$advertiseAddr4 advertiseAddr6=$advertiseAddr6"
@@ -2137,6 +2165,90 @@ installServiceHost()
 
 	# run the installation script - do not assume /usr/local/data/bin scripts are present, use only standard commands
 	hilight "Running installation..."
+	runPlatformService "installServiceHost" || return
+}
+
+installServiceHostMac()
+{
+	exit
+	scriptRun "$host" "$(cat <<-EOF
+
+		#
+		# users
+		#
+
+		$(installServiceTextUser)
+
+		#
+		# directories
+		#
+
+		$(installServiceTextDirectories)
+
+		if [[ "$productOtherDirs" ]] && [[ ! "\$(sudoc ls -A "${productOtherDirs[@]}")" || "$force" ]]; then
+			sudoc install -o root -g root -m 755 -d "${productOtherDirs[@]}" || exit
+		fi
+		
+		#
+		# files
+		#
+
+		if [[ "\$(sudoc ls -A "$tmpDir/data")" ]] && [[ ! "\$(sudoc ls -A "$productDataDir")" || "$force" ]]; then
+		  echo "Copying data files..."
+		  sudoc install -o "$user" -g "$user" -m 755 -t "$productDataDir" "$tmpDir/data/"* || exit
+		fi
+
+		if [[ \$(sudoc ls -A "$tmpDir/config") ]] && [[ ! -f "$productConfigDir/$productConfigFileBase" || "$force" ]]; then
+		  echo "Copying configuration files..."
+		  sudoc install -o "$user" -g "$user" -m 755 -t "$productConfigDir" "$tmpDir/config/"* || exit
+		fi
+
+		if [[ \$(sudoc ls -A "$tmpDir/cert") ]] && [[ ! \$(sudoc ls -A "$certDirService") || (( \$(ls -1 "$tmpDir/cert" | wc -l) > \$(sudoc ls -A "$certDirService" | wc -l) )) || "$force" ]]; then
+		  echo "Copying certificate files..."
+		  sudoc install -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/cert/"* || exit
+		fi
+
+		#
+		# certificates
+		#
+
+		$(scriptCertStore "$certDirService")
+
+		#
+		# product
+		#
+
+		$(installServiceTextProduct)
+
+		#
+		# service
+		#
+
+		if [[ -f "$productServiceFile" && "$force" ]]; then
+		  echo "Stopping the service..."
+		  sudoc systemctl stop "$product" || exit
+		fi
+
+		if [[ ! -f "$productServiceFile" || "$force" ]]; then
+		  echo "Creating service files..."
+		  sudoc cp "$tmpDir/$product.service" "$tmpDir/$product.env" "/etc/systemd/system" || exit
+		  sudoc systemctl daemon-reload || exit
+		  sudoc systemctl enable "$product" || exit
+		  sudoc systemctl start "$product" --no-block || exit
+		fi
+
+		#
+		# cleanup
+		#
+
+		$(scriptCleanup)
+		EOF
+	)" || return
+
+}
+
+installServiceHostSystemd()
+{
 	scriptRun "$host" "$(cat <<-EOF
 
 		#
@@ -2367,7 +2479,7 @@ installServicePrepConsul()
 	fi
 
 	# service options
-	execStart="$program agent -config-dir=$productConfigDir"
+	execStart=($program agent -config-dir=$productConfigDir)
 	notifyAccess="all"
 	serviceKillSignal="SIGTERM"
 	serviceLimit="LimitMEMLOCK=infinity"$'\n'"LimitNOFILE=65536"$'\n'"LimitNPROC=8192"$'\n'"TasksMax=8192"
@@ -2457,6 +2569,7 @@ installServicePrepNomad()
 	productOtherDirs+=("/opt/alloc_mounts")
 
 	# service options
+	execStart=($program agent -config=$productConfigDir)
 	networkTarget="Wants=network-online.target"
 	otherDependencies="
 After=consul.service
@@ -2560,7 +2673,7 @@ installServicePrepVault()
 	)"
 
 	# service options
-	execStart="$program server -config=$productConfigDir"
+	execStart=($program server -config=$productConfigDir)	
 	serviceLimit="LimitMEMLOCK=infinity"$'\n'"LimitNOFILE=65536"$'\n'"LimitNPROC=4096"$'\n'"TasksMax=4096"
 	timeoutStopSec="30"
 	restrictions="$(cat <<-EOF
@@ -4916,6 +5029,14 @@ removeDir()
 	[[ ! $dir || ! -d "$dir" || "$(DirCount "$dir")" == 0 ]] && return
 	echo "Deleting '$(FileToDesc "$dir")'..."
 	RunLog sudoc DelDir --contents "$dir"
+}
+
+# runPlatform FUNCTION - run function for mac or systemd services
+runPlatformService()
+{
+	local f="$1"; shift
+	IsPlatform mac --host && { "${f}Mac" "$@"; return; }
+	"${f}Systemd" "$@" # assume systemd
 }
 
 scriptCertStore()
