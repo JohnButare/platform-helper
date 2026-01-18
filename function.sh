@@ -2296,6 +2296,13 @@ GetDnsBaseDomain() { echo "$(ConfigGet "$(GetDomain)DnsBaseDomain")"; }
 GetNetworkDnsDomain() { echo "$(ConfigGet "$(NetworkCurrent)DnsDomain")"; }
 GetNetworkDnsBaseDomain() { echo "$(ConfigGet "$(NetworkCurrent)DnsBaseDomain")"; }
 
+# GetHostname - get hostname
+GetHostname()
+{
+	IsPlatform mac && { hostname; return; } # mac HOSTNAME variable is the DNS name of the primary ethernet adapter
+	echo "$HOSTNAME" 
+}
+
 # GetOsName HOST - get HOST short name, use cached DNS name for speed
 GetOsName()
 {
