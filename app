@@ -12,6 +12,7 @@ Run applications.
 
 init()
 {
+	hostname="$(GetHostname)" || return
 	defaultCommand="startup"
 	localApps=(cpu7icon gridy hp SideBar SpeedFan ThinkPadFanControl ZoomIt ShairPort4W)
 }
@@ -83,7 +84,7 @@ BgInfo()
 
 	# find configuration file
 	local dir="$DATA/setup" file
-	{ file="$dir/$HOSTNAME.bgi" && [[ -f "$file" ]]; } || \
+	{ file="$dir/$(GetHostname).bgi" && [[ -f "$file" ]]; } || \
 	{ file="$dir/$(GetDomain).bgi" && [[ -f "$file" ]]; } || \
 	file="$dir/default.bgi"
 	[[ ! -f "$file" ]] && return
@@ -121,8 +122,8 @@ dbus()
 # guacamole - hard code containers to start until run with Nomad
 guacamole()
 {
-	[[ "$HOSTNAME" == "bl3" ]] && { podman start 02ecdca0f8f8 94fee2880bdd > /dev/null; }
-	[[ "$HOSTNAME" == "bl4" ]] && { podman start 61ed050aca17 9086d94e43bd > /dev/null; }
+	[[ "$hostname" == "bl3" ]] && { podman start 02ecdca0f8f8 94fee2880bdd > /dev/null; }
+	[[ "$hostname" == "bl4" ]] && { podman start 61ed050aca17 9086d94e43bd > /dev/null; }
 	return 0
 }
 

@@ -299,7 +299,7 @@ nameAliasUsage() { echot "Usage: os name alias HOST\nGet the alias of the host f
 
 nameAliasCommand()
 {
-	local check="${name:-$HOSTNAME}"; check="$(RemoveDnsSuffix "${check,,}")"
+	local check="${name:-$(GetHostname)}"; check="$(RemoveDnsSuffix "${check,,}")"
 
 	case "$check" in
 		s1113731) echo "desktop";;
@@ -334,7 +334,7 @@ nameGetOpt()
 
 nameGetCommand()
 {
-	IsLocalHost "$name" && { echo "$HOSTNAME"; return; }
+	IsLocalHost "$name" && { GetHostname; return; }
 
 	# check cache
 	local actualName cache="os-name-$name"
@@ -349,7 +349,7 @@ nameGetCommand()
 		actualName="$(DnsResolve "$name" --quiet "${globalArgs[@]}")"
 
 		# check virtual host
-		! [[ "$actualName" ]] && actualName="$(DnsResolve "$HOSTNAME-$name" --quiet  "${globalArgs[@]}")"
+		! [[ "$actualName" ]] && actualName="$(DnsResolve "$(GetHostname)-$name" --quiet  "${globalArgs[@]}")"
 
 		# if the actual name is a superset of the DNS name use the full name
 		# - this seems too broad, find the use case for this
@@ -373,16 +373,18 @@ nameGetCommand()
 
 nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
 {
+	local hostname; hostname="$(GetHostname)" || return
+
 	# determine the name if possible (virtual machine name)
 	if [[ ! $name ]] && IsPlatform hyperv; then
 		name="$(registry get 'HKLM/SOFTWARE/Microsoft/Virtual Machine/Guest/Parameters/VirtualMachineName' | RemoveCarriageReturn)" || return
 	fi
 
 	# prompt for the name
-	[[ ! $name ]] && { read -p "Enter new hostname (current $HOSTNAME): " name; }
+	[[ ! $name ]] && { read -p "Enter new hostname (current $hostname: " name; }
 
 	# return if the name is not changed
-	[[ ! $name || "$name" == "$HOSTNAME" ]] && return 1 # 1=name unchanged
+	[[ ! $name || "$name" == "$hostname" ]] && return 1 # 1=name unchanged
 
 	# change the name
 	log1 "setting hostname to '$name'"
@@ -664,6 +666,7 @@ os info -w=disk_free all				# free disk space for all hosts"
 infoArgStart() 
 { 
 	unset -v detail monitor prefix status
+	hostname="$(GetHostname)"
 	hostArg="localhost" what=() skip=()
 	infoBasic=(model platform distribution kernel firmware chroot vm cpum temp architecture credential file network other update reboot)
 	infoDetail=(cpu load mhz process memory disk package switch restart)
@@ -709,13 +712,13 @@ infoHosts()
 
 infoEcho()
 {
-	[[ $prefix ]] && printf "$HOSTNAME "
+	[[ $prefix ]] && printf "$hostname "
 	echo "$1"
 }
 
 infoPrint()
 {
-	[[ $prefix ]] && printf "%s" "$HOSTNAME "
+	[[ $prefix ]] && printf "%s" "hostname "
 	printf "%s" "$1"
 }
 
@@ -808,7 +811,7 @@ infoDisk_free() { ! diCheck && return; infoEcho "   disk free: $(diskFreeCommand
 infoDisk_total() { ! diCheck && return; infoEcho "  disk total: $(diskTotalCommand) GB"; }
 infoDisk_used() { ! diCheck && return; infoEcho "   disk used: $(diskUsedCommand) GB"; }
 
-infoFile() { infoEcho "file sharing: $(unc get protocols "$HOSTNAME")"; }
+infoFile() { infoEcho "file sharing: $(unc get protocols "$hostname")"; }
 
 infoFinal() { RunPlatformOs infoFinal; }
 infoFinalMac() { { [[ ! $detail ]] || ! InPath "macchina"; } && return; macchina; }
@@ -910,11 +913,11 @@ infoPlatform() {	infoEcho "    platform: $(PlatformDescription)"; }
 
 infoSwitch()
 {
-	local switch; switch="$(power status switch "$HOSTNAME")"
+	local switch; switch="$(power status switch "$hostname")"
 	[[ ! $switch ]] && return
 
 	if [[ $detail || $dynamic ]]; then
-		local watts; watts="$(power status watts "$HOSTNAME")"
+		local watts; watts="$(power status watts "$hostname")"
 		[[ $watts ]] && switch+=" ($watts watts)"
 	fi
 
@@ -1124,7 +1127,7 @@ screenUsage() { echot "Usage: os screen resize\nScreen commands."; }
 screenCommand() { usage; }
 screenResizeUsage() { echot "Usage: os screen resize\nConfigure the system after screen is resized."; }
 screenResizeCommand() { RunPlatformOs screenResize; }
-screenResizeWin() { [[ "$HOSTNAME" != @(bl?) ]] && return; app BgInfo -f; }
+screenResizeWin() { [[ "$(GetHostname)" != @(bl?) ]] && return; app BgInfo -f; }
 
 #
 # security commands

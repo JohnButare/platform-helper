@@ -2299,8 +2299,8 @@ GetNetworkDnsBaseDomain() { echo "$(ConfigGet "$(NetworkCurrent)DnsBaseDomain")"
 # GetHostname - get hostname
 GetHostname()
 {
-	IsPlatform mac && { hostname; return; } # mac HOSTNAME variable is the DNS name of the primary ethernet adapter
-	echo "$HOSTNAME" 
+	IsPlatform mac && { hostname | RemoveDnsSuffix | LowerCase; return; } # mac HOSTNAME variable is the DNS name of the primary ethernet adapter
+	echo "$HOSTNAME" | RemoveDnsSuffix | LowerCase
 }
 
 # GetOsName HOST - get HOST short name, use cached DNS name for speed
@@ -2599,7 +2599,7 @@ GetInterface()
 # -b|--both 					try IPv4 first then IPv6
 # -ra|--resolve-all 	resolve host using all methods (DNS, MDNS, and local virtual machine names)
 # -m|--mdns						resolve host using MDNS
-#    --vm 						resolve host using local virtual machine names (check $HOSTNAME-HOST)
+#    --vm 						resolve host using local virtual machine names (check $(GetHostname)-HOST)
 # -w|--wsl						get the IP address used by WSL (Windows only)
 # test cases: 10.10.100.10 web.service pi1 pi1.butare.net pi1.butare.net
 GetIpAddress() 
@@ -2697,7 +2697,7 @@ GetIpAddress()
 	fi
 
 	# if an IP address was not found, check for a local virtual hostname
-	[[ ! $ip && $vm ]] && ip="$(GetIpAddress --quiet "$HOSTNAME-$host")"
+	[[ ! $ip && $vm ]] && ip="$(GetIpAddress --quiet "$(GetHostname)-$host")"
 
 	# resolve using .local only if --all is specified to avoid delays
 	[[ ! $ip && $mdns ]] && ip="$(MdnsResolve "${host}.local" 2> /dev/null)"
@@ -2834,7 +2834,7 @@ IsLocalHost()
 	[[ "$host" == "" || "$host" == "localhost" || "$host" == "127.0.0.1" || "$host" =~ ^([0]*:){2}([0]*:){0,6}1$ ]] && return
 
 	# if the name is different, this is not localhost
-	local hostname="$(hostname | LowerCase)"
+	local hostname="$(GetHostname)"
 	[[ "$(RemoveDnsSuffix "$host")" != "$(RemoveDnsSuffix "$hostname")" ]] && return 1
 
 	# since the host name is the same, assume if there is no DNS suffix the host is localhost
@@ -3592,7 +3592,7 @@ DnsResolve()
 	[[ ! $name ]] && { MissingOperand "host"; return; } 
 
 	# localhost - use the domain in the configuration
-	IsLocalHost "$name" && name=$(AddDnsSuffix "$HOSTNAME" "$(GetNetworkDnsDomain)")
+	IsLocalHost "$name" && name=$(AddDnsSuffix "$(GetHostname)" "$(GetNetworkDnsDomain)")
 
 	# override the server if needed
 	if [[ ! $server ]]; then
@@ -4664,7 +4664,7 @@ HostGetInfoCache()
 			*) ! IsOption "$arg" && [[ ! $host ]] && host="$(RemoveDnsSuffix "$arg")";;
 		esac
 	done
-	host="${host:-$HOSTNAME}"
+	host="${host:-$(GetHostname)}"
 
 	# get cached host information if possible
 	[[ ! $force ]] && script="$(UpdateGet "host-info-$(echo "$host" | LowerCase)${detail}")" && { echo "$script"; return; }
@@ -6123,7 +6123,7 @@ sudoc()
 	done
 
 	# set variables
-	local prompt="[sudoc] password for $USER on $HOSTNAME: "
+	local prompt="[sudoc] password for $USER on $(GetHostname): "
 	local command=( "$(FindInPath "sudo")" )
 	# do not prompt no prompt if there is no stdin
 	! IsStdIn && noPrompt="--no-prompt"

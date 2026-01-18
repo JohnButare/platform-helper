@@ -80,8 +80,8 @@ isLocalHostTest()
 	isTrue IsLocalHost "::1" || return
 	isTrue IsLocalHost "00::0:1" || return
 
-	isTrue IsLocalHost "$HOSTNAME" || return
-	isTrue IsLocalHost "$HOSTNAME.$(GetDnsDomain)" || return
+	isTrue IsLocalHost "$(GetHostname)" || return
+	isTrue IsLocalHost "$(GetHostname).$(GetDnsDomain)" || return
 }
 
 getSshHostTest()
