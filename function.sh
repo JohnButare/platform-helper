@@ -2485,6 +2485,50 @@ GetAdapterMacAddress()
 	fi
 }	
 
+# GetAdapterLinkSpeed [adapter](default) - return adapter link speed in Mbps, defaults to 1000
+GetAdapterLinkSpeed()
+{
+	local speed adapter="$1"; [[ ! $adapter ]] && adapter="$(GetAdapterName)"
+
+	if IsPlatform mac; then
+		speed="$(networksetup -getMedia $adapter | grep "^Active:" | ${G}cut -d" " -f2 | sed 's/\([0-9.]*\)Gbase.*/\1*1000/; s/\([0-9]*\)base.*/\1/' | bc | xargs printf "%.0f\n")"
+	elif IsPlatform win; then
+		speed="$(powershell 'Get-NetAdapter | Select-Object Name, Status, LinkSpeed' | grep "^$adapter" | sed 's/ Gbps/*1000/; s/ Mbps//; s/ Kbps/\/1000/' | tr -s " " | rev | cut -d" " -f1-2 | rev | RemoveCarriageReturn | bc -l | xargs printf "%.0f\n")"
+	elif InPath ethtool; then
+		speed="$(sudoc ethtool "$adapter" | grep Speed | cut -d":" -f2 | RemoveEnd "Mb/s" | RemoveSpace)"
+	fi
+
+	echo "${speed:-1000}"
+}
+
+# GetAdapterName [IP](primary) - get the descriptive name of the primary network adapter used for communication
+GetAdapterName()
+{
+	local ip="$1"; [[ ! $ip ]] && { ip="$(GetAdapterIpAddress)" || return; }
+
+	if IsPlatform win; then
+		RunWin ipconfig.exe | grep "$ip" -B 12 | grep " adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
+	else
+		GetInterface "$@"
+	fi
+}
+
+# GetAdapterThreads [adapter](default) - return a thread count for processing sufficient for our network bandwidth
+GetAdapterThreads()
+{
+	local speedMbps; speedMbps="$(GetAdapterLinkSpeed "$@")" || return
+	local threads
+    
+  # speed in Gbps * 3, capped between 2 and 48
+  threads=$(echo "scale=0; ($speedMbps / 1000) * 3 / 1" | bc)
+  
+  # Apply min/max bounds
+  (( threads < 2 )) && threads=2
+  (( threads > 48 )) && threads=48
+  
+  echo "$threads"
+}
+
 # GetBroadcastAddress - get the broadcast address for the first network adapter
 GetBroadcastAddress()
 {
@@ -2664,50 +2708,6 @@ GetSubnetMask()
 }
 
 GetSubnetNumber() { ip -4 -oneline -br address show "$(GetInterface)" | cut -d/ -f2 | cut -d" " -f1 | RemoveSpaceTrim; }
-
-# GetAdapterLinkSpeed [adapter](default) - return adapter link speed in Mbps, defaults to 1000
-GetAdapterLinkSpeed()
-{
-	local speed adapter="$1"; [[ ! $adapter ]] && adapter="$(GetAdapterName)"
-
-	if IsPlatform mac; then
-		speed="$(networksetup -getMedia $adapter | grep "^Active:" | ${G}cut -d" " -f2 | sed 's/\([0-9.]*\)Gbase.*/\1*1000/; s/\([0-9]*\)base.*/\1/' | bc | xargs printf "%.0f\n")"
-	elif IsPlatform win; then
-		speed="$(powershell 'Get-NetAdapter | Select-Object Name, Status, LinkSpeed' | grep "^$adapter" | sed 's/ Gbps/*1000/; s/ Mbps//; s/ Kbps/\/1000/' | tr -s " " | rev | cut -d" " -f1-2 | rev | RemoveCarriageReturn | bc -l | xargs printf "%.0f\n")"
-	elif InPath ethtool; then
-		speed="$(sudoc ethtool "$adapter" | grep Speed | cut -d":" -f2 | RemoveEnd "Mb/s" | RemoveSpace)"
-	fi
-
-	echo "${speed:-1000}"
-}
-
-# GetAdapterThreads [adapter](default) - return a thread count for processing sufficient for our network bandwidth
-GetAdapterThreads()
-{
-	local speedMbps; speedMbps="$(GetAdapterLinkSpeed "$@")" || return
-	local threads
-    
-  # speed in Gbps * 3, capped between 2 and 48
-  threads=$(echo "scale=0; ($speedMbps / 1000) * 3 / 1" | bc)
-  
-  # Apply min/max bounds
-  (( threads < 2 )) && threads=2
-  (( threads > 48 )) && threads=48
-  
-  echo "$threads"
-}
-
-# GetAdapterName [IP](primary) - get the descriptive name of the primary network adapter used for communication
-GetAdapterName()
-{
-	local ip="$1"; [[ ! $ip ]] && { ip="$(GetAdapterIpAddress)" || return; }
-
-	if IsPlatform win; then
-		RunWin ipconfig.exe | grep "$ip" -B 12 | grep " adapter" | awk -F adapter '{ print $2 }' | sed 's/://' | sed 's/ //' | RemoveCarriageReturn
-	else
-		GetInterface "$@"
-	fi
-}
 
 # ipconfig [COMMAND] - show or configure network
 ipconfig()
