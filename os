@@ -718,7 +718,7 @@ infoEcho()
 
 infoPrint()
 {
-	[[ $prefix ]] && printf "%s" "hostname "
+	[[ $prefix ]] && printf "%s" "$hostname "
 	printf "%s" "$1"
 }
 
