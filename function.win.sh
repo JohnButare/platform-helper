@@ -82,12 +82,10 @@ PackageListInstalledWin()
 	# find columns with name and version, winget ls returns variable number of columns
 	# example: Windows Application Compatibility… MSIX\Microsoft.ApplicationCompatib… 1.2511.9.0
 	local s; s="$(winget ls --accept-source-agreements --disable-interactivity | RemoveCarriageReturn | tail -n +3)" || return
-	local line="$(echo "$s" | grep "….*….*" | head -1)" # fine truncate lines, with two …
+	local line="$(echo "$s" | grep --text "….*….*" | head -1)" # find truncated lines (with two …)
 	local col1End="${line%%…*}"; col1End="${#col1End}"
-
-	line="${line#*…}"
+	line="${line#*…}" # remove up to and including the first … to get col2Start
 	local col2Start="${line%%…*}"; col2Start="${#col2Start}"; col2Start="$(( col1End + col2Start + 4 ))"
-	# echo "col1End=$col1End col2Start=$col2Start"
 
 	echo "$s" |\
 		awk '{s1=substr($0,1,'$col1End'); s2=substr($0,'$col2Start'); sub(/[[:space:]]+$/,"",s1); print s1","s2}' |\
