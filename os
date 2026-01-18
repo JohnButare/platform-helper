@@ -36,7 +36,7 @@ pathCommand()
 { 
 	if InPath "WindowsPathEditor.exe"; then
 		start --elevate WindowsPathEditor.exe
-	elif InPath "WindowsPathEditor.exe"; then
+	elif InPath "PathEditor.exe"; then
 		start --elevate PathEditor.exe
 	elif IsPlatform win; then
 		systemProperties 3
