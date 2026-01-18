@@ -270,15 +270,20 @@ IsVisualStudioCode() { [[ "$TERM_PROGRAM" == "vscode" ]]; }
 AppVersion()
 {
 	# arguments
-	local scriptName="AppVersion" allowAlpha alternate app appLower appOrig cache force forceLevel forceLess quiet version
+	local scriptName="AppVersion" allowAlpha alternate app appLower appOrig cache version
+	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
 			--cache|-c) cache="--cache";;
-			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
-			--quiet|-q) quiet="--quiet";;
 			--alternate|-a) alternate="--alternate";;
 			--allow-alpha|-aa) allowAlpha="--allow-alpha";;
+
+			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
+			--no-prompt|-np) noPrompt="--no-prompt";;
+			--quiet|-q) quiet="--quiet";;
+			--test|-t) test="--test";;
+			--verbose|-v|-vv|-vvv|-vvvv|-vvvvv) ScriptOptVerbose "$1" || return;;
 			*)
 				! IsOption "$1" && [[ ! $app ]] && { app="$(AppToCli "$1")" appOrig="$1"; appLower="$(LowerCase "$(GetFileName "$app")")"; shift; continue; }
 				UnknownOption "$1"; return
@@ -383,7 +388,8 @@ AppVersion()
 
 	# WindowsApps
 	if [[ ! $version && "$file" =~ /WindowsApps/ ]]; then
-		file="$(wtu "$(powershell GetReparseTarget.ps1 SnippingTool.exe | RemoveCarriageReturn | tail -1)")"
+		file="$(wtu "$(powershell GetReparseTarget.ps1 "$(utw "$file")" | RemoveCarriageReturn | tail -1)")"
+		log3 "file=$file"
 	fi
 
 	# get Windows executable version
