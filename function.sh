@@ -64,7 +64,7 @@ CreateId() { echo "$((1000 + RANDOM % 9999))"; }
 UserDelete() { local user="$1"; ! UserExists "$user" && return; IsPlatform mac && { sudoc dscl . delete "/Users/$group"; return; }; sudoc userdel "$user"; }
 UserExists() { IsPlatform mac && { dscl . -list "/Users" | ${G}grep --quiet "^${1}$"; return; }; getent passwd "$1" >& /dev/null; }
 UserExistsWin() { IsPlatform win || return; net.exe user "$1" >& /dev/null; }
-UserInGroup() { id "$1" 2> /dev/null | ${G}grep --quiet "($2)"; } # UserInGroup USER GROUP
+UserInGroup() { id "$1" 2> /dev/null | ${G}cut -d" " -f3- | ${G}grep --quiet "($2)"; } # UserInGroup USER GROUP, the cut skips the uid and gid in case it is the same as the group
 UserList() { IsPlatform mac && { dscl . -list "/Users"; return; }; getent passwd | cut -d: -f1 | sort; }
 GroupDefault() { ${G}id --group --name; }
 GroupDelete() { local group="$1"; ! GroupExists "$group" && return; IsPlatform mac && { sudoc dscl . delete "/Groups/$group"; return; }; sudoc groupdel "$group"; }
@@ -74,8 +74,11 @@ GroupList() { IsPlatform mac && { dscl . -list "/Groups"; return; }; getent grou
 GroupAdd()
 {
 	local group="$1"; GroupExists "$group" && return
-	if IsPlatform mac; then sudoc dscl . create "/Groups/$group" gid "$(CreateId)"
-	else sudoc groupadd "$group"
+	if IsPlatform mac; then
+		sudoc dscl . create "/Groups/$group" gid "$(CreateId)" || return
+		sudoc dscl . create "/Groups/$group" Password "*" || return
+	else
+		sudoc groupadd "$group"
 	fi
 }
 
@@ -85,8 +88,10 @@ GroupAddUser()
 	GroupAdd "$group" || return
 	UserInGroup "$user" "$group" && return
 
-	if IsPlatform mac; then sudoc dscl . create "/Groups/$group" GroupMembership "$user"
-	else sudo adduser "$user" "$group"; 
+	if IsPlatform mac; then
+		sudoc dscl . create "/Groups/$group" GroupMembership "$user" || return
+	else
+		sudoc adduser "$user" "$group" || return
 	fi
 }
 
