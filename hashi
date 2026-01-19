@@ -2165,12 +2165,6 @@ installServiceHost()
 
 	# run the installation script - do not assume /usr/local/data/bin scripts are present, use only standard commands
 	hilight "Running installation..."
-	runPlatformService "installServiceHost" || return
-}
-
-installServiceHostMac()
-{
-	exit
 	scriptRun "$host" "$(cat <<-EOF
 
 		#
@@ -2188,7 +2182,7 @@ installServiceHostMac()
 		if [[ "$productOtherDirs" ]] && [[ ! "\$(sudoc ls -A "${productOtherDirs[@]}")" || "$force" ]]; then
 			sudoc install -o root -g root -m 755 -d "${productOtherDirs[@]}" || exit
 		fi
-		
+
 		#
 		# files
 		#
@@ -2224,96 +2218,7 @@ installServiceHostMac()
 		# service
 		#
 
-		if [[ -f "$productServiceFile" && "$force" ]]; then
-		  echo "Stopping the service..."
-		  sudoc systemctl stop "$product" || exit
-		fi
-
-		if [[ ! -f "$productServiceFile" || "$force" ]]; then
-		  echo "Creating service files..."
-		  sudoc cp "$tmpDir/$product.service" "$tmpDir/$product.env" "/etc/systemd/system" || exit
-		  sudoc systemctl daemon-reload || exit
-		  sudoc systemctl enable "$product" || exit
-		  sudoc systemctl start "$product" --no-block || exit
-		fi
-
-		#
-		# cleanup
-		#
-
-		$(scriptCleanup)
-		EOF
-	)" || return
-
-}
-
-installServiceHostSystemd()
-{
-	scriptRun "$host" "$(cat <<-EOF
-
-		#
-		# users
-		#
-
-		$(installServiceTextUser)
-
-		#
-		# directories
-		#
-
-		$(installServiceTextDirectories)
-
-		if [[ "$productOtherDirs" ]] && [[ ! "\$(sudoc ls -A "${productOtherDirs[@]}")" || "$force" ]]; then
-			sudoc install -o root -g root -m 755 -d "${productOtherDirs[@]}" || exit
-		fi
-		
-		#
-		# files
-		#
-
-		if [[ "\$(sudoc ls -A "$tmpDir/data")" ]] && [[ ! "\$(sudoc ls -A "$productDataDir")" || "$force" ]]; then
-		  echo "Copying data files..."
-		  sudoc install -o "$user" -g "$user" -m 755 -t "$productDataDir" "$tmpDir/data/"* || exit
-		fi
-
-		if [[ \$(sudoc ls -A "$tmpDir/config") ]] && [[ ! -f "$productConfigDir/$productConfigFileBase" || "$force" ]]; then
-		  echo "Copying configuration files..."
-		  sudoc install -o "$user" -g "$user" -m 755 -t "$productConfigDir" "$tmpDir/config/"* || exit
-		fi
-
-		if [[ \$(sudoc ls -A "$tmpDir/cert") ]] && [[ ! \$(sudoc ls -A "$certDirService") || (( \$(ls -1 "$tmpDir/cert" | wc -l) > \$(sudoc ls -A "$certDirService" | wc -l) )) || "$force" ]]; then
-		  echo "Copying certificate files..."
-		  sudoc install -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/cert/"* || exit
-		fi
-
-		#
-		# certificates
-		#
-
-		$(scriptCertStore "$certDirService")
-
-		#
-		# product
-		#
-
-		$(installServiceTextProduct)
-
-		#
-		# service
-		#
-
-		if [[ -f "$productServiceFile" && "$force" ]]; then
-		  echo "Stopping the service..."
-		  sudoc systemctl stop "$product" || exit
-		fi
-
-		if [[ ! -f "$productServiceFile" || "$force" ]]; then
-		  echo "Creating service files..."
-		  sudoc cp "$tmpDir/$product.service" "$tmpDir/$product.env" "/etc/systemd/system" || exit
-		  sudoc systemctl daemon-reload || exit
-		  sudoc systemctl enable "$product" || exit
-		  sudoc systemctl start "$product" --no-block || exit
-		fi
+		$(installServiceTextService)
 
 		#
 		# cleanup
@@ -2762,12 +2667,54 @@ installServiceTextProductVault()
 	EOF
 }
 
-installServiceTextUser()
+installServiceTextUser() { runPlatformService "installServiceTextUser"; }
+
+installServiceTextUserMac()
+{
+	cat <<-EOF
+		if ! dscl . -list "/Users" | grep --quiet "^${user}$"; then
+		  echo "Creating user $user..."
+		  sudoc sysadminctl -addUser $user -fullName "${user^} Service" -password $(openssl rand -base64 32) || exit
+			sudoc dscl . -create /Users/$user UserShell /usr/bin/false || exit
+			sudoc dscl . -create /Users/$user NFSHomeDirectory /var/empty || exit
+			GroupAdd "$user" || exit
+			GroupAddUser "$user" "$user" || exit
+		fi
+	EOF
+}
+
+installServiceTextUserSystemd()
 {
 	cat <<-EOF
 		if ! getent passwd "$user" >& /dev/null; then
 		  echo "Creating user $user..."
 		  sudoc useradd --system --home-dir "$productConfigDir" --shell "/bin/false" "$user" || exit
+		fi
+	EOF
+}
+
+installServiceTextService() { runPlatformService "installServiceTextService"; }
+
+installServiceTextServiceMac()
+{
+	cat <<-EOF
+	EOF
+}
+
+installServiceTextServiceSystemd()
+{
+	cat <<-EOF
+		if [[ -f "$productServiceFile" && "$force" ]]; then
+		  echo "Stopping the service..."
+		  sudoc systemctl stop "$product" || exit
+		fi
+
+		if [[ ! -f "$productServiceFile" || "$force" ]]; then
+		  echo "Creating service files..."
+		  sudoc cp "$tmpDir/$product.service" "$tmpDir/$product.env" "/etc/systemd/system" || exit
+		  sudoc systemctl daemon-reload || exit
+		  sudoc systemctl enable "$product" || exit
+		  sudoc systemctl start "$product" --no-block || exit
 		fi
 	EOF
 }
