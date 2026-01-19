@@ -2165,6 +2165,7 @@ installServiceHost()
 
 	# run the installation script - do not assume /usr/local/data/bin scripts are present, use only standard commands
 	hilight "Running installation..."
+	local g; IsPlatform mac --host && g="g"
 	scriptRun "$host" "$(cat <<-EOF
 
 		#
@@ -2180,7 +2181,7 @@ installServiceHost()
 		$(installServiceTextDirectories)
 
 		if [[ "$productOtherDirs" ]] && [[ ! "\$(sudoc ls -A "${productOtherDirs[@]}")" || "$force" ]]; then
-			sudoc install -o root -g root -m 755 -d "${productOtherDirs[@]}" || exit
+		  sudoc ${g}install -o root -g root -m 755 -d "${productOtherDirs[@]}" || exit
 		fi
 
 		#
@@ -2189,17 +2190,17 @@ installServiceHost()
 
 		if [[ "\$(sudoc ls -A "$tmpDir/data")" ]] && [[ ! "\$(sudoc ls -A "$productDataDir")" || "$force" ]]; then
 		  echo "Copying data files..."
-		  sudoc install -o "$user" -g "$user" -m 755 -t "$productDataDir" "$tmpDir/data/"* || exit
+		  sudoc ${g}install -o "$user" -g "$user" -m 755 -t "$productDataDir" "$tmpDir/data/"* || exit
 		fi
 
 		if [[ \$(sudoc ls -A "$tmpDir/config") ]] && [[ ! -f "$productConfigDir/$productConfigFileBase" || "$force" ]]; then
 		  echo "Copying configuration files..."
-		  sudoc install -o "$user" -g "$user" -m 755 -t "$productConfigDir" "$tmpDir/config/"* || exit
+		  sudoc ${g}install -o "$user" -g "$user" -m 755 -t "$productConfigDir" "$tmpDir/config/"* || exit
 		fi
 
 		if [[ \$(sudoc ls -A "$tmpDir/cert") ]] && [[ ! \$(sudoc ls -A "$certDirService") || (( \$(ls -1 "$tmpDir/cert" | wc -l) > \$(sudoc ls -A "$certDirService" | wc -l) )) || "$force" ]]; then
 		  echo "Copying certificate files..."
-		  sudoc install -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/cert/"* || exit
+		  sudoc ${g}install -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/cert/"* || exit
 		fi
 
 		#
@@ -2227,6 +2228,7 @@ installServiceHost()
 		$(scriptCleanup)
 		EOF
 	)" || return
+	exit
 }
 
 # installServiceHosts client|server [HOST...] - install the service on the specified hosts
@@ -2646,7 +2648,7 @@ installServiceTextDirectories()
 	cat <<-EOF
 		if ! [[ -d "$certDirService" && -d "$productConfigDir" && -d "$productDataDir" ]] || [[ "$force" ]]; then
 		  echo "Creating directories..."
-		  sudoc install -o "$user" -g "$user" -m 755 -d "$certDirService" "$productConfigDir" "$productDataDir" || exit
+		  sudoc ${g}install -o "$user" -g "$user" -m 755 -d "$certDirService" "$productConfigDir" "$productDataDir" || exit
 		fi
 	EOF
 }
@@ -2655,15 +2657,23 @@ installServiceTextProduct() { RunFunction "installServiceTextProduct" "$product"
 
 installServiceTextProductVault()
 {
-	cat <<-EOF
-		# allow Vault to lock memory (allows disable_mlock = false)
-		sudoc setcap cap_ipc_lock=+ep "$(FindInPath "vault")"		
+	runPlatformService "installServiceTextProductVault" || return
 
+	cat <<-EOF
 		# create data directory
 		if [[ "$force" || ! -d "$productDataDir/data" ]]; then
 		  sudoc mkdir --parents "$productDataDir/data" || return
 		  sudoc chown --recursive "$product" "$productDataDir/data" || return
 		fi
+	EOF
+}
+
+installServiceTextProductVaultSystemd()
+{
+	cat <<-EOF
+
+		# allow Vault to lock memory (allows disable_mlock = false)
+		sudoc setcap cap_ipc_lock=+ep "$(FindInPath "vault")"		
 	EOF
 }
 
@@ -2675,10 +2685,10 @@ installServiceTextUserMac()
 		if ! dscl . -list "/Users" | grep --quiet "^${user}$"; then
 		  echo "Creating user $user..."
 		  sudoc sysadminctl -addUser $user -fullName "${user^} Service" -password $(openssl rand -base64 32) || exit
-			sudoc dscl . -create /Users/$user UserShell /usr/bin/false || exit
-			sudoc dscl . -create /Users/$user NFSHomeDirectory /var/empty || exit
-			GroupAdd "$user" || exit
-			GroupAddUser "$user" "$user" || exit
+		  sudoc dscl . -create /Users/$user UserShell /usr/bin/false || exit
+		  sudoc dscl . -create /Users/$user NFSHomeDirectory /var/empty || exit
+		  GroupAdd "$user" || exit
+		  GroupAddUser "$user" "$user" || exit
 		fi
 	EOF
 }
@@ -2698,6 +2708,8 @@ installServiceTextService() { runPlatformService "installServiceTextService"; }
 installServiceTextServiceMac()
 {
 	cat <<-EOF
+
+
 	EOF
 }
 
@@ -3586,10 +3598,11 @@ updateServiceCert()
 	copyDirRemote "$tmpDir" "$host" || return
 
 	# install the new certificates on the host
+	local g; IsPlatform mac --host && g="g"
 	scriptRun "$host" "$(cat <<-EOF
 		$(installServiceTextUser)
 		$(installServiceTextDirectories)
-		sudoc install --backup=numbered -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/"* || exit
+		sudoc ${g}install --backup=numbered -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/"* || exit
 		$(scriptCleanup)
 		EOF
 	)" || return
@@ -4982,11 +4995,13 @@ removeDir()
 runPlatformService()
 {
 	local f="$1"; shift
-	IsPlatform mac --host && { "${f}Mac" "$@"; return; }
-	"${f}Systemd" "$@" # assume systemd
+	IsPlatform mac --host && { RunFunction "${f}Mac" -- "$@"; return; }
+	RunFunction "${f}Systemd" -- "$@" # assume systemd
 }
 
-scriptCertStore()
+scriptCertStore() { runPlatformService "scriptCertStore" "$@"; }
+
+scriptCertStoreSystemd()
 {
 	local dest="$1"
 
