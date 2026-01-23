@@ -49,7 +49,8 @@ defaultDomain="butare"
 # - examples
 #   - butare 10.10.100.8|7 (lb3|lb2)
 #   - sandia 10.248.0.3 - gateware from trace route
-networks="sandia@10.248.0.3:ping-sandia,butare@10.10.100.8:dns,butare@10.10.100.7:dns,sandia@134.252.10.16:dns-sandia"
+#		- sandia 10.251.104.4 - DNS server on T-bird Wi-Fi
+networks="sandia@10.248.0.3:ping-sandia,butare@10.10.100.8:dns,butare@10.10.100.7:dns,sandia@134.252.10.16:dns-sandia,sandia@10.251.104.4:dns"
 
 # external network
 externalTimeServer="time.apple.com"
@@ -77,23 +78,29 @@ butareNoProxy+=",10.10.100.1/22,10.96.0.0/12,192.168.59.0/24,192.168.49.0/24,192
 
 butareCameraServers="back-shed-camera,back-yard-east-camera,front-patio-camera,front-yard-east-camera,front-yard-west-camera,living-room-camera"
 butareBackupUser="$butareUser"
-butareGitServer="git.$butareDnsBaseDomain"					# Git Server
-butareGitAlias="git"
 butareProxyServer="proxy.$butareDnsBaseDomain:3128"	# Forward Proxy Server (Squid), service=proxy.$hbd:3128 ender=10.10.100.9:3128
 butareProxyApps="apt,vars"													# Configure proxy server for these applications, all|apt|firefox|npm|os|vars|wpad
 butareSyslogServer="syslog.$butareDnsBaseDomain"		# syslog server for remote system logs
+butareTestServer="git.$butareDnsBaseDomain"					# test local network connectivity, such as DNS name resolution
 butareTimeServer="time.butare.net"									# Time Server
 butareVip="10.10.100.6" 														# Virtual IP Address
 butareWireguardPort="51820"													# WireGuard Port
 butareWorkgroup="hagerman"													# SMB Workgroup
 
+butareGitServer="git.$butareDnsBaseDomain"
+butareGitShare="root/git"
+butareRepoBinPublic="git/public-bin"
+butareRepoBinUser="git/jjbutare-bin"
+
+butareGithubUser="JohnButare"
+butareRepoBinPublicGh="ghp/platform-helper"
+butareRepoBinUserGh="ghp/personal-bin"
+
 # sandia network
 sandiaUser="jjbutar"
 sandiaBinUnc=""
 sandiaBookmarks="https://ados.sandia.gov/NG/SysAdminTeam/_git/jjbutare-bookmarks"
-sandiaBootstrapCloudDir="/mnt/c/Users/jjbutar/OneDrive - Sandia National Laboratories/data/download"
-sandiaGitServer="ados.sandia.gov"
-sandiaGitAlias="sandia"
+sandiaBootstrapCloudDir="OneDrive - Sandia National Laboratories/data/download"
 sandiaInstallUnc=""
 sandiaDnsBaseDomain="sandia.gov"
 sandiaDnsDomain="srn.$sandiaDnsBaseDomain"
@@ -104,6 +111,11 @@ sandiaDnsSearch="$sandiaDnsBaseDomain $sandiaDnsDomain ca.$sandiaDnsBaseDomain"
 sandiaProxyServer="proxy.$sandiaDnsBaseDomain:80"
 sandiaProxyApps="apt,vars" # all|apt|firefox|npm|os|vars|wpad
 sandiaNoProxy="$noProxyLocal,.$sandiaDnsBaseDomain,$noProxyRemote"
+sandiaTestServer="cee-gitlab.$sandiaDnsBaseDomain"
 sandiaVaultUrl="https://csep-vault.sandia.gov"
 sandiaVaultStoreDefault="${USER}@sandia.gov-kv"
 sandiaVaultPathPrefix=""
+
+sandiaGitServer="cee-gitlab.sandia.gov"
+sandiaRepoBinPublic="sandiam/public-bin.git"
+sandiaRepoBinUser="sandiap/bin.git"

@@ -24,8 +24,11 @@ run()
 # binSetup - setup the bin directory
 binSetup()
 {
+	# check
+	[[ -d "$BIN" ]] && return
+
 	# setup
-	if isBinLocal; then binLocal || return
+	if isBinCloud; then binCloud || return
 	else binNetwork || return
 	fi
 
@@ -35,72 +38,79 @@ binSetup()
 	log1 "BIN=$BIN PATH=$PATH"
 }
 
-isBinLocal() { [[ -f "$boostrapCloudDir/SyncBin.zip" || -f "$boostrapCloudDir/SyncPlatform.zip" || -f "$boostrapCloudDir/SyncSetup.zip" || -f "$boostrapCloudDir/SyncUserBin.zip" || -f "$boostrapCloudDir/SyncUserProfile.zip" || -f "$boostrapCloudDir/SyncUserSsh.zip" ]]; }
-binLocal() { binDir && platformDir && setupDir && userBinDir && userProfileDir && userSshDir; }
+isBinCloud() { [[ $bootstrapCloudDir ]]; }
+
+binCloud()
+{
+	hilight "Copying bin directories from cloud files..."
+	[[ ! -d "$bootstrapCloudDir" ]] && { echoErr "the bootstrap cloud directory '$bootstrapCloudDir' does not exist"; return 1; }
+	binDir && platformDir && setupDir && userBinDir && userProfileDir && userSshDir
+}
 
 # binDir - get bin directory from compressed files in a directory
 binDir()
 {
-	# check
-	[[ -d "$BIN" || ! -f "$boostrapCloudDir/SyncBin.zip" ]] && return
+	# validate
+	[[ -d "$BIN" || ! -f "$bootstrapCloudDir/SyncBin.zip" ]] && return
 	hilight "Restoring bin directory..."
 
-	# directory
+	# make directory
 	sudo ${G}mkdir --parents "$DATA" || return
-	sudo chown --recursive "$user" "$DATA" || return
+	sudo ${G}chown --recursive "$user" "$DATA" || return
 
 	# restore
-	unzip "$boostrapCloudDir/SyncBin.zip" -d "$BIN" && chmod +x "$BIN"/* && chmod -x "$BIN/"*.sh
+	unzip "$bootstrapCloudDir/SyncBin.zip" -d "$BIN" && chmod +x "$BIN"/* && chmod -x "$BIN/"*.sh
 }
 
 # platformDir - get platform directory from compressed files in a directory
 platformDir()
 {
-	[[ -d "$DATA/platform" || ! -f "$boostrapCloudDir/SyncPlatform.zip" ]] && return
+	[[ -d "$DATA/platform" || ! -f "$bootstrapCloudDir/SyncPlatform.zip" ]] && return
 	hilight "Restoring platform directory..."
-	unzip "$boostrapCloudDir/SyncPlatform.zip" -d "$DATA/platform"
+	unzip "$bootstrapCloudDir/SyncPlatform.zip" -d "$DATA/platform"
 }
 
 # setupDir - get setup directory from compressed files in a directory
 setupDir()
 {
-	[[ -d "$DATA/setup" || ! -f "$boostrapCloudDir/SyncSetup.zip" ]] && return
+	[[ -d "$DATA/setup" || ! -f "$bootstrapCloudDir/SyncSetup.zip" ]] && return
 	hilight "Restoring setup directory..."
-	unzip "$boostrapCloudDir/SyncSetup.zip" -d "$DATA/setup"
+	unzip "$bootstrapCloudDir/SyncSetup.zip" -d "$DATA/setup"
 }
 
 # userBinDir - get user bin directory from compressed files in a directory
 userBinDir()
 {
-	[[ -d "$UDATA/bin" || ! -f "$boostrapCloudDir/SyncUserBin.zip" ]] && return
+	[[ -d "$UDATA/bin" || ! -f "$bootstrapCloudDir/SyncUserBin.zip" ]] && return
 	hilight "Restoring user bin directory..."
 	${G}mkdir --parents "$UDATA" || return
-	unzip "$boostrapCloudDir/SyncUserBin.zip" -d "$UDATA/bin"
+	unzip "$bootstrapCloudDir/SyncUserBin.zip" -d "$UDATA/bin"
 }
 
 # userProfileDir - get user profile directory from compressed files in a directory
 userProfileDir()
 {
-	[[ -d "$UDATA/profile/default" || ! -f "$boostrapCloudDir/SyncUserProfile.zip" ]] && return
+	[[ -d "$UDATA/profile/default" || ! -f "$bootstrapCloudDir/SyncUserProfile.zip" ]] && return
 	hilight "Restoring user default profile directory..."
 	${G}mkdir --parents "$UDATA/profile/default" || return
-	unzip "$boostrapCloudDir/SyncUserProfile.zip" -d "$UDATA/profile/default"
+	unzip "$bootstrapCloudDir/SyncUserProfile.zip" -d "$UDATA/profile/default"
 }
 
 # userSshDir - get user SSH directory from compressed files in a directory
 userSshDir()
 {
-	[[ -d "$HOME/.ssh" || ! -f "$boostrapCloudDir/SyncUserSsh.zip" ]] && return
+	[[ -d "$HOME/.ssh" || ! -f "$bootstrapCloudDir/SyncUserSsh.zip" ]] && return
 	hilight "Restoring user SSH directory..."
 	${G}mkdir --parents "$HOME/.ssh" || return
-	unzip "$boostrapCloudDir/SyncUserSsh.zip" -d "$HOME/.ssh"
+	unzip "$bootstrapCloudDir/SyncUserSsh.zip" -d "$HOME/.ssh"
 }
 
 # binNetwork - mount bin directory from network
 binNetwork()
 {
-	# check
-	[[ -d "$BIN" ]] && return
+	hilight "Copying bin directories from network..."
+
+	# validate
 	[[ ! $binUnc ]] && { echoErr "no bin UNC specified"; return 1; }; 
 	
 	# mount	
@@ -141,7 +151,7 @@ configureNetwork-win()
 
 dnsTestWin()
 {
-	local remoteServer="www.ubuntu.com" localServer="$(configGet "${domain}GitServer")"
+	local remoteServer="www.ubuntu.com" localServer="$(configGet "${domain}LocalServer")"
 	dnsTestWinDo "$localServer" && dnsTestWinDo "$remoteServer"
 }
 
@@ -151,7 +161,7 @@ dnsTestWinDo()
 
 	if inPath nslookup; then
 		log1 "dnsTestWin: testing '$host' using nslookup: nslookup -ndots=2 -retry=1 -timeout=1 $host"
-		nslookup -ndots=2 -retry=2 -timeout=2 "$host" |& tail --lines=+4 | ${G}grep --quiet "Address"; return
+		nslookup -ndots=2 -retry=2 -timeout=2 "$host" 2>&1 | tail --lines=+4 | ${G}grep --quiet "Address"; return
 	fi
 	
 	if inPath ping; then
@@ -349,7 +359,14 @@ init()
 	fi
 
 	# logging
-	log1 "\n	config=$config\n	user=$user\n	binUnc=$binUnc\n	boostrapCloudDir=$boostrapCloudDir\n	install=$installUnc"
+	log1 "
+		config=$config
+		platform=$platform chroot=$chroot container=$container
+		user=$user domain=$domain dnsBaseDomain=$dnsBaseDomain
+		binUnc=$binUnc
+		bootstrapCloudDir=$bootstrapCloudDir
+		installUnc=$installUnc
+		platformHome=$platformHome"
 
 	return 0
 }
@@ -381,16 +398,23 @@ initVariables()
 	! isContainer && [[ -f /proc/syno_platform ]] && { platform="entware" platform_like="synology"; }
 
 	# network
-	domain=""; [[ "$platform" == "win" ]] && domain="$(cmd.exe /c 'echo %USERDOMAIN%' 2> /dev/null | RemoveCarriageReturn | RemoveNewline | LowerCase)"
+	domain=""
+	if [[ "$platform" == "win" ]]; then domain="$(cmd.exe /c 'echo %USERDOMAIN%' 2> /dev/null | RemoveCarriageReturn | RemoveNewline | LowerCase)"
+	elif [[ "$platform" == "mac" ]]; then domain="$(dsconfigad -show | grep "^Active Directory Domain" | cut -d"=" -f2 | cut -d"." -f2)"
+	fi
+
 	[[ ! $domain || "$(hostname | LowerCase)" == "$domain" ]] && domain="$(configGet "defaultDomain")"
 	dnsBaseDomain="$(configGet "${domain}DnsBaseDomain")"
-
-	# configuration
+	
+	# user
 	user="$(configGet "${domain}User")"; isMac && user="$USER" # if we are on a mac bootstrap as the current user
+	platformHome="$HOME"; [[ "$platform" == "win" ]] && platformHome="/mnt/c/Users/$USER"
+
+	# locations
 	installUnc="$(configGet "${domain}InstallUnc")"
 	binUnc="${binUnc:-$(configGet "${domain}BinUnc")}"
-	boostrapCloudDir="$(configGet "${domain}BootstrapboostrapCloudDir")"
-
+	bootstrapCloudDir="$(configGet "${domain}BootstrapCloudDir")"; [[ $bootstrapCloudDir ]] && bootstrapCloudDir="$platformHome/$bootstrapCloudDir"
+	
 	# utilities	
 	bash="bash" export G="" ping="ping"
 

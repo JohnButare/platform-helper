@@ -2454,7 +2454,7 @@ GetAdapterIpAddress()
 	else
 
 		if [[ "$ipv" == "4" ]]; then
-			ifconfig "$adapter" | ${G}grep inet | ${G}grep -v 'inet6|127.0.0.1' | ${G}head -n 1 | ${G}awk '{ print $2 }'
+			ifconfig "$adapter" | ${G}grep "inet " | ${G}grep -vE 'inet6|127.0.0.1' | ${G}head -n 1 | ${G}awk '{ print $2 }'
 		elif IsPlatform mac; then
 			ifconfig "$adapter" | ${G}grep inet6 | ${G}grep -v " fe80" | ${G}head -1 | ${G}tr -s " " | ${G}cut -d" " -f2
 		else
@@ -2654,7 +2654,6 @@ GetIpAddress()
 
 	# type
 	[[ "$ipv" == "6" ]] && type="AAAA"
-
 
 	# remove SSH user and port, i.e. USER@HOST:PORT -> HOST	
 	host="$(GetSshHost "$host")"
@@ -5028,13 +5027,11 @@ IsExecutable()
 }
 
 # IsProcessRunning NAME - check if NAME is a running process
-# -a|--all 		ensure check for all process
-# -u|--user		ensure check only for user process
-#
+# -a|--all 		check for all processes
+# -u|--user		check only user processes
 # - if nether --all or --user is specified, IsProcessRunning can check for all or only user processes
 IsProcessRunning()
 {
-
 	local scriptName="IsProcessRunning" all name user win
 	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
@@ -5131,7 +5128,7 @@ IsWindowsProcess()
 }
 
 # ProcessClose|ProcessCloseWait|ProcessKill NAME... - close or kill the specified process
-# --force|-f			do not check if the process exists
+# --force|-f			-f do not check if the process exists, -ff do not check and forefully kil
 # --quiet|-q 			minimize informational messages
 # --root|-r 			kill processes as root
 # --timeout|-t		time to wait for the process to end in seconds
@@ -5139,12 +5136,12 @@ IsWindowsProcess()
 ProcessClose() 
 { 
 	# arguments
-	local scriptName="ProcessClose" args=() names=() root timeout=10
+	local scriptName="ProcessClose" all args=() names=() root timeout=10
 	local force forceLevel forceLess noPrompt quiet test verbose verboseLevel verboseLess # for globalArgs
 
 	while (( $# != 0 )); do
 		case "$1" in "") : ;;
-			--root|-w) root="sudoc";;
+			--root|-r) root="sudoc" all="--all";;
 			--timeout|--timeout=*|-t|-t=*) { . script.sh && ScriptOptTimeout "$@"; } || return;;
 
 			--force|-f|-ff|-fff|-ffff|-fffff) ScriptOptForce "$1";;
@@ -5158,14 +5155,15 @@ ProcessClose()
 		esac
 		shift
 	done
+
 	[[ ! $names ]] && { MissingOperand "name"; return; }
 
 	# close
 	local finalResult="0" name result win
 	for name in "${names[@]}"; do
 
-		# continue if the process is not running
-		[[ ! $force ]] && ! IsProcessRunning $root "$name" && continue
+		# continue if the process is not running		
+		[[ ! $force ]] && ! IsProcessRunning $all "$name" && continue
 
 		# check for Windows process
 		IsPlatform win && IsWindowsProcess "$name" && win="true"
@@ -5174,10 +5172,12 @@ ProcessClose()
 		if [[ $win ]]; then
 			name="${name/.exe/}.exe"; GetFileName "$name" name # ensure process has an .exe extension
 			cd "$PBIN" || return # process.exe only runs from the current directory in WSL
-			if InPath process.exe; then # Process.exe is not installed in some environments (flagged as malware by Cylance Protect)
+			if (( forceLevel < 2 )) && InPath process.exe; then # Process.exe is not installed in some environments (flagged as malware by Cylance Protect)
 				./process.exe -q "$name" $timeout |& grep --quiet "has been closed successfully."; result="$(PipeStatus 1)"
-			else
+			elif (( forceLevel < 2 )); then
 				cmd.exe /c taskkill /IM "$name" >& /dev/null; result="$?"
+			else
+				cmd.exe /c taskkill /IM "$name" /T /F >& /dev/null; result="$?"
 			fi
 
 		elif IsPlatform mac; then

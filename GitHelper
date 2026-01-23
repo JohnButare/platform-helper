@@ -308,26 +308,14 @@ upstreamCommand()
 
 cloneUsage()
 {
-	echot "Usage: $(ScriptName) clone [bin|existing] URL
-Clone a repository.  URL is either a standard Git URL or a SERVER and REPO.
+	echot "Usage: $(ScriptName) clone bin|existing|URL
+Clone a repository.  URL is either a Git URL, or a NAME[/PREFIX] [REPO].   The name can be a servername or alias.
 
 	-d, --dest DIR		repository destination directory, defaults to \$code
 	-w, --windows			clone to the Windows code directory (\$WCODE)"
 }
 
-cloneArgStart() { unset -v dest repo server url; }
-
-cloneArgs()
-{
-	[[ "$command" != @(clone|cloneExisting) ]] && return
-
-	if IsUrl "$1"; then
-		ScriptArgGet "url" -- "$@" || return
-		(( ! $# )) && return; ScriptArgGet "repo" -- "$@"
-	else
-		ScriptArgGet "server" -- "$@" && shift && ScriptArgGet "repo" -- "$@"
-	fi
-}
+cloneArgStart() { unset -v dest url; }
 
 cloneOpt()
 {
@@ -337,13 +325,12 @@ cloneOpt()
 	esac
 }
 
+cloneArgs() { [[ "$command" != @(clone|cloneExisting) ]] && return; argUrl "$@"; }
+
 cloneCommand()
 {
-	# set the url
-	[[ ! $url ]] && url="$(serverToRepo "$server" "$repo")"
-
 	# set the repo
-	[[ ! $repo ]] && repo="$(echo "$url" | RemoveTrailingSlash | GetFileName | RemoveEnd ".git")"
+	local repo; repo="$(echo "$url" | RemoveTrailingSlash | GetFileName | RemoveEnd ".git")"
 
 	# set the destination
 	[[ ! $dest ]] && { dest="$code/$repo"; [[ $win ]] && dest="$WIN_CODE/$repo"; }
@@ -351,8 +338,8 @@ cloneCommand()
 	[[ ! $force && -d "$dest" ]] && return
 	setGit "$dest" || return
 
-	# clone	
-	echo "Cloning $repo ($url) to $dest..."
+	# clone
+	echo "Cloning $repo ($url) to '$(FileToDesc "$dest")'..."
 	log1 "repo=$repo dest=$dest git=$git url=$url"
 	RunLog "$git" clone "$url" "$dest" || return
 	[[ $test ]] && return
@@ -368,61 +355,43 @@ cloneCommand()
 
 cloneBinCommand()
 {
-	local server; server="$(ConfigGetCurrent "GitServer")" || { ScriptErr "unable to find a Git server"; return 1; }
+	local url;
 
-	# platform bin
-	cd "$BIN" || return
-	cloneExisting "$server" "public-bin" || return
-	! IsDomainRestricted && { remoteAdd "gh" "https://github.com/JohnButare/platform-helper" || return; }
+	# platform bin	
+	if url="$(configGetUrl "RepoBinPublic")"; then
+		cd "$BIN" || return		
+		cloneExisting "$url" || return
+		url="$(configGetUrl "RepoBinPublicGh")" && { remoteAdd "gh" "$url" || return; }
+	fi
 
 	# user bin
-	local user="$USER"; IsPlatform win && user="${WIN_USER,,}"
-	cd "$UBIN" || return
-	cloneExisting "$server" "${user}-bin" || return
-	! IsDomainRestricted && { remoteAdd "gh" "https://github.com/JohnButare/personal-bin" || return; }
-	
-	# Windows plink requires accepting the key manually
-	local port="$(serverToPort "$server")"
-	if IsPlatform win && [[ $port ]] && IsAvailablePort "$server" "$port"; then
-		echo "Testing SSH connection to $server..."
-		start plink.exe -v -P "$port" "$(serverToUser "$server")$server" git --version
+	if url="$(configGetUrl "RepoBinUser")"; then
+		cd "$UBIN" || return
+		cloneExisting "$url" || return
+		url="$(configGetUrl "RepoBinUserGh")" && { remoteAdd "gh" "$url" || return; }
 	fi
-
+	
 	# permissions
 	SyncLocalFiles permission || return
-
-	# done
-	if [[ -d "$BIN/.git" && -d "$UBIN/.git" ]]; then
-		echo "Git is setup for the the bin directories"
-		return 0
-	fi
-
-	return 0
 }
 
-cloneExistingUsage()
-{
-	EchoWrap "Usage: $(ScriptName) clone existing SERVER
-Clone into the current directory.  This is useful if the content from the cloned repositry already exists."
-}
-
-cloneExistingCommand() { cloneExisting "$server" "$repo"; }
+cloneExistingUsage() { EchoWrap "Usage: $(ScriptName) clone existing URL\nClone into the current directory.  This is useful if the content from the cloned repositry already exists."; }
+cloneExistingCommand() { cloneExisting "$url"; }
 
 cloneExisting()
 {
-	local server="$1" repo="$2"
-	repo="$(serverToRepo "$server" "$repo")"
+	local url="$1"
 
-	echo "Cloning $repo..."
-	[[ ! -d .git && ! -d hold/.git ]] && { git clone "$repo" hold || return; }	
+	echo "Cloning '$url' to the current directory..."
+	[[ ! -d .git && ! -d hold/.git ]] && { git clone "$url" hold || return; }	
 	[[ -f hold/.gitignore ]] && { mv hold/.gitignore . || return; }
 	[[ -d hold/.git ]] && { mv hold/.git . || return; }
 	hideCommand || return
 
 	[[ -d hold ]] && { rm -fr hold || return; }
 
-	echo "Updating remote to $repo..."
-	"$git" remote set-url origin "$repo" || return # in case the repository existed
+	echo "Updating remote to '$url'..."
+	"$git" remote set-url origin "$url" || return # in case the repository existed
 }
 #
 # GUI Command
@@ -548,7 +517,7 @@ githubCloneCommand()
 
 githubCreateUsage()
 {
-	echot "Usage: $(ScriptName) GitHut create [REPO]
+	echot "Usage: $(ScriptName) GitHub create [REPO]
 Create a GitHub repository from an existing repository."
 }
 
@@ -608,40 +577,32 @@ addDefaultReadMe()
 
 remoteUsage() { ScriptUsageEcho "Usage: $(ScriptName) remote [add|dir|init|ls|swap|to](ls)\nManipulate remote repositories."; }
 remoteCommand() { remoteLsCommand; }
-remoteArgStart() { unset -v repo server; }
 
-remoteArgs()
-{
-	# server arugment
-	[[ "$command" == @(remoteAdd|remoteDir|remoteInit|remoteLs) ]] && { ScriptArgGet "server" -- "$@" || return; shift; }
-	[[ "$command" != @(remoteAdd|remoteDir|remoteInit) ]] && return
-	
-	# optional repo argument
-	(( $# > 0 )) && { ScriptArgGet "repo" -- "$@"; return; }
+remoteAddUsage() { ScriptUsageEcho "Usage: $(ScriptName) git remote add URL\nAdd the URL as a remote."; }
+remoteAddArgs() { argUrl "$@"; }
+remoteAddCommand() { "$git" remote add "$(GetUriServer "$url" | RemoveDnsSuffix)" "$url" && "$git" fetch "$server" && "$git" remote -v; }
 
-	# set repo from origin
-	[[ "$command" == @(remoteDir) ]] && return
-	local url; url="$(remoteUrl "origin")" && repo="$(echo "$url" | GetLastDir)"
-}
-
-remoteAddUsage() { ScriptUsageEcho "Usage: $(ScriptName) git remote add SERVER REPO\nAdd the repository as a remote."; }
-remoteAddCommand() { "$git" remote add "$server" "$(serverToRepo "$server" "$repo")" && "$git" fetch "$server" && "$git" remote -v; }
-
-remoteDirUsage() { ScriptUsageEcho "Usage: $(ScriptName) remote dir SERVER\nReturn the git directory for the specified server."; }
-remoteDirCommand() { echo "$(serverToShare "$server")/$repo"; }
+remoteDirUsage() { ScriptUsageEcho "Usage: $(ScriptName) remote dir URL\nReturn the server Git directory ."; }
+remoteDirArgs() { argUrl "$@"; }
+remoteDirCommand() { echo "$(configGitUnc)/$(nameToUrl "$url" | GetUrisDirs)"; }
 
 remoteLsUsage() { ScriptUsageEcho "Usage: $(ScriptName) remote ls SERVER\nList git repositories on the specified server."; }
-remoteLsCommand() { hilight "$server repostiories: "; ssh "$(ConfigGetCurrent "user")@$server" ls "/$(serverToDir "$server")" | ${G}grep -Ev "eaDir"; }	
+remoteLsArgs() { ScriptArgGet "server" -- "$@"; }
+remoteLsCommand() { hilight "$server repostiories: "; ssh "$server" ls "/$(configGitShareDir)" | ${G}grep -Ev "eaDir"; }	
 
-remoteToUsage() { ScriptUsageEcho "Usage: $(ScriptName) git remote to http|ssh\nConvert the current repository to HTTP or SSH."; }
+remoteToUsage() { ScriptUsageEcho "Usage: $(ScriptName) git remote to http|https:ssh\nConvert the current repository to HTTP or SSH."; }
 remoteToCommand() { usage; }
+remoteToHttpCommand() { "$git" remote set-url origin "http://$(getBaseUrl "origin")/" && "$git" remote --verbose; }
+remoteToHttpsCommand() { "$git" remote set-url origin "https://$(getBaseUrl "origin")/" && "$git" remote --verbose; }
+remoteToSshCommand() { "$git" remote set-url origin "ssh://$(getBaseUrl "origin")" && "$git" remote --verbose; }
 
 remoteInitUsage() { ScriptUsageEcho "Usage: $(ScriptName) git remote init SERVER REPO\nInitialize an empty repository on the specified server."; }
+remoteInitArgs() { ScriptArgGet "server" -- "$@" && ScriptArgGet "repo" -- "$@"; }
 
 remoteInitCommand()
 {
 	# change to server Git directory
-	local dir; dir="$(unc mount "$(serverToShare "$server")")" || return
+	local dir; dir="$(unc mount "//$server/$(configGitShare)")" || return
 	cd "$dir" || return
 	[[ -e "$repo" ]] && { ScriptErr "repository $repo already exists on $server"; return 1; }
 
@@ -688,26 +649,6 @@ remoteSwapCommand()
 	header "New Configuration"
 	"$git" remote -v || return
 }
-
-remoteToHttpCommand()
-{
-	"$git" remote set-url origin "https://$(getBaseUrl "origin")/"
-	"$git" remote --verbose
-}
-
-remoteToSshCommand()
-{
-	local url="$(getBaseUrl "origin")"
-	local server="${url%%/*}"
-	local suffix="${url#*( )*/}"
-
-	"$git" remote set-url origin "$(serverToRepo "$server" "${suffix}")" || return
-	"$git" remote --verbose
-}
-
-remoteAdd() { remoteExists "$1" && return; git remote add "$1" "$2"; }
-remoteExists() { remoteUrl "$1" >& /dev/null; }
-remoteUrl() { "$git" remote get-url "$1"; }
 
 #
 # Time Command
@@ -774,6 +715,13 @@ timeCommand()
 # helper
 #
 
+argUrl() { ScriptArgGet "url" -- "$@" && url="$(nameToUrl "$url")"; }
+
+configGetUrl() { local var="$1" name; name="$(ConfigGetCurrent "$var")" && nameToUrl "$name"; } # configGetUrl VAR - get a repo URL from configuration
+configGitShare() { ConfigGetCurrent "GitShare"; }																								# configGitShare - get the Git server UNC share suffix (SHARE/DIRS) from configuration, i.e. root/git
+configGitShareDir() { RemoveBeforeFirst "$(configGitShare)" "/"; }															# configGitShareDir - get the Git server directory from configuration (SHARE/DIRS -> DIRS)
+configGitUnc() { local server="$1"; echo "//$server/$(configGitShare)"; }												# configGitUnc SERVER - get the Git UNC for SERVER, i.e. //SERVER/SHARE/DIRS
+
 # getFiles - set the files variable to the files in the Git repository.  If the today variable is set, return only files modified today.
 getFiles()
 {
@@ -786,8 +734,8 @@ getFiles()
 getBaseUrl() 
 {
 	local url; url="$(remoteUrl "$1")" || return
-	url="$(echo "$url" | sed 's/https:\/\///')" # remove https://
-	url="$(echo "$url" | sed 's/ssh:\/\///' | sed 's/git@//' | sed 's/:[0-9]*\//\//')" # remove ssh://, user@, and :port
+	url="$(echo "$url" | ${G}sed 's/https*:\/\///')" # remove http[s]://
+	url="$(echo "$url" | ${G}sed 's/ssh:\/\///' | sed 's/git@//' | sed 's/:[0-9]*\//\//')" # remove ssh://, user@, and :port
 	url="${url%%/}" # remove trailing /
 	echo "${url}"
 }
@@ -797,6 +745,43 @@ isGitRepo()
 {
 	( cd "$path" && setGit "$path" && "$git" rev-parse --git-dir >& /dev/null; ) && return
 	ScriptErrQuiet "fatal: not a git repository (or any of the parent directories)"
+}
+
+# nameToUrl URL|NAME[/PREFIX] -> protocol://user@server:port/prefix/dir/repo
+# - name - can be a URL, server, or aliases (i.e. sandiap, Sandia Personal repo)
+# - repo - optional name of the repository, can be included in the name
+nameToUrl()
+{
+	# initialize
+	local name="$1"; IsUrl "$name" && return
+
+	# prefix
+	prefix="$(RemoveBeforeFirst "$name" "/")"; [[ $prefix ]] && prefix="$prefix/"
+	name="$(GetUriServer "$name")"
+	log2 "nameToUrl: prefix=$prefix name=$name"
+
+	# resolve alias
+	local url="$(nameResolveAlias "$name")"
+
+	# add protocol if needed
+	[[ ! $(GetUriProtocol "$url") ]] && url="ssh://"
+
+	# return URL
+	echo "$url/$prefix"; 
+}
+
+nameResolveAlias()
+{
+	local name="$name"
+	case "${name,,}" in
+		gh) echo "https://github.com";;
+		ghp) echo "https://github.com/$(ConfigGetCurrent "GithubUser")";;
+		git) echo "ssh://git.butare.net";;												# butare
+		sandia) echo "https://cee-gitlab.sandia.gov";;						# sandia
+		sandiam) echo "https://cee-gitlab.sandia.gov/mfg";;				# sandia manufacturing
+		sandiap) echo "https://cee-gitlab.sandia.gov/${USER,,}";;	# sandia personal
+		*) echo "$1";;
+	esac
 }
 
 repoCheck() { [[ -d ".git" ]] && return; ScriptErr "not a git repository"; return; }
@@ -809,78 +794,9 @@ repoDir()
 	ScriptErr "'$repo' is not a valid repository"; return 1
 }
 
-# serverToRepo id name -> ssh://user@server:port/dir/name
-# - id - can be a server, directory, or aliases (i.e. sandiap, Sandia Personal repo)
-# name - name of the repository
-serverToRepo() 
-{
-	# https://cee-gitlab.sandia.gov/jjbutar/dotfiles
-	# https://cee-gitlab.sandia.gov/jjbutar/dotfiles.git
-	local id="$1" name="$2"
-
-	# directory - repository is in a directory
-	[[ -d "$id" ]] && { echo "$id/$name"; return; }
-
-	# server
-	local server="$(serverResolveAlias "$id")"
-	local port="$(serverToPort "$id")"; [[ $port ]] && port=":$port"
-	local protocol="$(serverToProtocol "$id")"
-	local user="$(serverToUser "$1")"; [[ $user ]] && user="$user@"
-	local dir="$(serverToDir "$1")"; [[ $dir ]] && dir="$dir/"
-
-	echo "$protocol://$user$server$port/$dir$name"; 
-}
-
-serverResolveAlias()
-{
-	case "$1" in
-		sandia*) echo "cee-gitlab.sandia.gov";;
-		*) echo "$1";;
-	esac
-}
-
-serverToDir()
-{
-	case "$1" in
-		ados.sandia.gov) echo "NG/SysAdminTeam/_git";;
-		gitlab|gitlab.butare.net|sandiap) echo "$USER";;
-		git*) echo "git";; # Wiggin
-	esac
-}
-
-serverToPort()
-{
-	case "$1" in
-		ados.sandia.gov) echo "22";;
-		gitlab|gitlab.butare.net) echo "10022";;
-		nas1|nas1.butare.net) echo "608";;
-	esac
-}
-
-serverToProtocol()
-{
-	case "$1" in
-		sandia*) echo "https";;
-		*) echo "ssh";;
-	esac
-}
-
-serverToShare()
-{
-	case "$1" in
-		nas1|nas1.butare.net) echo "//$server/git";;
-		*) echo "//$server/root/$(serverToDir "$server")"
-	esac
-}
-
-serverToUser()
-{
-	case "$1" in
-		ados.sandia.gov) echo "";;
-		gitlab|gitlab.butare.net) echo "git";;
-		*) echo "$(ConfigGetCurrent "user")";;
-	esac
-}
+remoteAdd() { remoteExists "$1" && return; git remote add "$1" "$2"; }
+remoteExists() { remoteUrl "$1" >& /dev/null; }
+remoteUrl() { "$git" remote get-url "$1"; }
 
 setGit()
 {
