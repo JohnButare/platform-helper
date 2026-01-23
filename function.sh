@@ -402,6 +402,11 @@ AppVersion()
 		version="$(AppVersionWin "$file")" || return
 	fi
 
+	# plist
+	if [[ ! $version && "$ext" == "plist" ]] && IsPlatform mac; then
+		version="$(defaults read "$program" PackageVersion)"
+	fi
+
 	# AppImage
 	if [[ ! $version && "$ext" == "appimage" ]]; then
 		version="$(echo "$file" | cut -d"-" -f2)"
