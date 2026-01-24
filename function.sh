@@ -2154,7 +2154,7 @@ IfsRestore() { IFS="$ifsSave"; }
 # monitoring
 #
 
-header() { InitColorVars; InitColor; printf "${RB_BLUE}******************************** ${RB_INDIGO}$1${RB_BLUE} ********************************${RESET}\n"; headerDone="$((66 + ${#1}))"; return 0; }
+header() { InitColorVars; InitColor; EchoReset; printf "${RB_BLUE}******************************** ${RB_INDIGO}$1${RB_BLUE} ********************************${RESET}\n"; headerDone="$((66 + ${#1}))"; return 0; }
 HeaderBig() { InitColorVars; InitColor; printf "${RB_BLUE}************************************************************\n* ${RB_INDIGO}$1${RB_BLUE}\n************************************************************${RESET}\n"; }
 HeaderDone() { InitColorVars; InitColor; printf "${RB_BLUE}$(StringRepeat '*' $headerDone)${RESET}\n"; }
 HeaderFancy() { ! InPath pyfiglet lolcat && { HeaderBig "$1"; return; }; pyfiglet --justify=center --width=$COLUMNS "$1" | lolcat; }
