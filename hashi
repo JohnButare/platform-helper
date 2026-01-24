@@ -265,8 +265,8 @@ appNodeRegisterCommand()
 
 	# Nomad - local host
 	local file="/etc/nomad.d/03_$app.hcl"
-	[[ -f "$file" && ! $force ]] && return
-	serviceVerify "nomad" || return	
+	[[ -f "$file" && ! $force ]] && return	
+	serviceVerifyLocal "nomad" || return
 
 	hilight "Registering '$app' application in Nomad..."
 
@@ -312,11 +312,11 @@ appNodeUnregisterCommand()
 
 	# Nomad - local host
 	local file="/etc/nomad.d/03_$app.hcl"
-	serviceVerify "nomad" || return
-	[[ ! -f "$file" ]] && return
+	[[ ! -f "$file" && ! $force ]] && return
+	serviceVerifyLocal "nomad" || return
 
-	hilight "Unregistering '$app' application in Nomad on host '$host'..."
-	sudoc rm "$file" && serviceRestartLocal "nomad"
+	hilight "Unregistering '$app' application in Nomad..."
+	sudoc rm -f "$file" && serviceRestartLocal "nomad"
 }
 
 #
@@ -885,7 +885,7 @@ configDeployVaultCommand() { forAllHosts configDeploy "vault" "$file"; }
 configDeploy()
 {
 	local product="$1" file="$2" host="$3"
-	serviceConfigCopy "$product" "$host" "$file" && serviceRestart "$product" "$host"
+	serviceConfigCopy "$product" "$host" "$file" && serviceRestart "$product" "$host" --no-block
 }
 
 #
@@ -1275,7 +1275,7 @@ consulAclAgentUsage() { ScriptUsageEcho "Usage: $(ScriptName) consul acl agent a
 consulAclAgentCommand() { usage; }
 
 consulAclAgentAllowUsage() { ScriptUsageEcho "Usage: $(ScriptName) consul acl agent allow\nChange the default ACL policy to allow."; }
-consulAclAgentAllowCommand() { forAllHosts consulAclAgentAllow; }
+consulAclAgentAllowCommand() { forAllHostsPlatform consulAclAgentAllow; }
 
 consulAclAgentCreateUsage() { ScriptUsageEcho "Usage: $(ScriptName) consul acl agent create\nCreate agent ACL policies and tokens.  \
 If this is a new agent, use --api to specify the API server.  For example:\n
@@ -1283,7 +1283,7 @@ hashi consul acl agent create --api=pi1 --host=pi5"; }
 consulAclAgentCreateCommand() { consulApiCheck && forAllHosts consulAclAgentCreate; }
 
 consulAclAgentDenyUsage() { ScriptUsageEcho "Usage: $(ScriptName) consul acl agent deny\nChange the default ACL policy to deny."; }
-consulAclAgentDenyCommand() { forAllHosts consulAclAgentDeny; }
+consulAclAgentDenyCommand() { forAllHostsPlatform consulAclAgentDeny; }
 
 consulAclAgentDeployUsage() { ScriptUsageEcho "Usage: $(ScriptName) consul acl agent deploy\nDeploy the agent ACL tokens to the 02_acl_tokens.hcl configuration file."; }
 consulAclAgentDeployCommand() { forAllHosts consulAclAgentDeploy; }
@@ -1308,7 +1308,7 @@ consulAclAgentDefaultPolicy()
 
 	scriptRun "$host" "$(cat <<-EOF
 		sudoc ${g}sed -i "s/default_policy = \"$currentPolicy\"/default_policy = \"$newPolicy\"/" "$productConfigFile" || exit
-		sudoc systemctl restart "$product" --no-block || exit
+		$(serviceRestartText --no-block) || exit
 		EOF
 	)" || return
 
@@ -1946,12 +1946,8 @@ installService()
 	local certDir; certs && { certMakeCd "$product" || return; }
 	local tmpDir; tmpDir="$(tmpDirCreate)" || return	
 
-	# initialize host
-	ScriptEval HostGetInfoCache "$host" "${globalArgs[@]}" || return
-	local g; IsPlatform mac --host && g="g"
-
 	# install
-	installServiceCertMake || return 																	# make required certificates current directory will be the private certificate directory (installServiceHosts assumes this)
+	installServiceCertMake || return 																	# make required certificates if needed and change current directory to the private certificate directory (installServiceHosts assumes this)
 	installServiceProgram "${servers[@]}" "${clients[@]}" || return		# install the program the service uses on all servers and clients
 	installServiceHosts "server" "${servers[@]}" || return						# install the service on the servers
 	productInstall "$product" "localhost" || return										# install the program on the local computer
@@ -2055,7 +2051,7 @@ installServiceConfigMac()
 		<plist version="1.0">
 		<dict>
 		    <key>Label</key>
-		    <string>com.hashicorp.$product</string>
+		    <string>$serviceName</string>
 		    <key>ProgramArguments</key>
 		    <array>
 		$(for item in "${execStart[@]}"; do echo "      <string>$item</string>"; done)
@@ -2709,18 +2705,16 @@ installServiceTextService() { runPlatformService "installServiceTextService"; }
 
 installServiceTextServiceMac()
 {
-	productServiceFile="/Library/LaunchDaemons/com.hashicorp.$product.plist"
-
 	cat <<-EOF
-		if [[ -f "$productServiceFile" && "$force" ]]; then
+		if [[ -f "$serviceFile" && "$force" ]]; then
 		  echo "Stopping the service..."
-		  sudoc launchctl unload $productServiceFile || exit
+		  sudoc launchctl unload $serviceFile || exit
 		fi
 
-		if [[ ! -f "$productServiceFile" || "$force" ]]; then
+		if [[ ! -f "$serviceFile" || "$force" ]]; then
 		  echo "Creating service files..."
-		  sudoc cp "$tmpDir/$product.service" "$productServiceFile" || exit
-		  sudoc launchctl load $productServiceFile || exit
+		  sudoc cp "$tmpDir/$product.service" "$serviceFile" || exit
+		  sudoc launchctl load $serviceFile || exit
 	  fi
 	EOF
 }
@@ -2728,12 +2722,12 @@ installServiceTextServiceMac()
 installServiceTextServiceSystemd()
 {
 	cat <<-EOF
-		if [[ -f "$productServiceFile" && "$force" ]]; then
+		if [[ -f "$serviceFile" && "$force" ]]; then
 		  echo "Stopping the service..."
 		  sudoc systemctl stop "$product" || exit
 		fi
 
-		if [[ ! -f "$productServiceFile" || "$force" ]]; then
+		if [[ ! -f "$serviceFile" || "$force" ]]; then
 		  echo "Creating service files..."
 		  sudoc cp "$tmpDir/$product.service" "$tmpDir/$product.env" "/etc/systemd/system" || exit
 		  sudoc systemctl daemon-reload || exit
@@ -3589,9 +3583,9 @@ updateServiceCommand() { usage; }
 updateServiceCertUsage() { ScriptUsageEcho "usage: $(ScriptName) update service cert all|$productUsage\n\n	$certOptUsage"; }
 updateServiceCertCommand() { usage; }
 updateServiceCertAllCommand() { updateServiceCertConsulCommand && updateServiceCertNomadCommand && updateServiceCertVaultCommand; }
-updateServiceCertConsulCommand() { forAllHosts updateServiceCert "consul"; }
-updateServiceCertNomadCommand() { forAllHosts updateServiceCert "nomad"; }
-updateServiceCertVaultCommand() { forAllHosts updateServiceCert "vault"; }
+updateServiceCertConsulCommand() { forAllHostsPlatform updateServiceCert "consul"; }
+updateServiceCertNomadCommand() { forAllHostsPlatform updateServiceCert "nomad"; }
+updateServiceCertVaultCommand() { forAllHostsPlatform updateServiceCert "vault"; }
 
 # updateServiceCert PRODUCT HOST
 updateServiceCert()
@@ -3610,7 +3604,6 @@ updateServiceCert()
 	copyDirRemote "$tmpDir" "$host" || return
 
 	# install the new certificates on the host
-	local g; IsPlatform mac --host && g="g"
 	scriptRun "$host" "$(cat <<-EOF
 		$(installServiceTextUser)
 		$(installServiceTextDirectories)
@@ -3620,7 +3613,7 @@ updateServiceCert()
 	)" || return
 
 	# restart the service on the host
-	[[ "$server" == "true" ]] && { serviceRestart "$product" "$host" || return; }
+	[[ "$server" == "true" ]] && { serviceRestart "$product" "$host" --no-block || return; }
 
 	# cleanup
 	rm -fr "$tmpDir"
@@ -3686,9 +3679,9 @@ serviceMonitorDo() { productInit "$1" && "$1" monitor "${otherArgs[@]}"; }
 
 serviceRestartUsage() { ScriptUsageEcho "Usage: $(ScriptName) service restart $productUsage\nRestart the PRODUCT service on HOST."; }
 serviceRestartCommand() { usage; }
-serviceRestartConsulCommand() { forAllHosts serviceRestart "consul"; }
-serviceRestartNomadCommand() { forAllHosts serviceRestart "nomad"; }
-serviceRestartVaultCommand() { forAllHosts serviceRestart "vault"; }
+serviceRestartConsulCommand() { forAllHosts serviceRestart "consul" --no-block; }
+serviceRestartNomadCommand() { forAllHosts serviceRestart "nomad" --no-block; }
+serviceRestartVaultCommand() { forAllHosts serviceRestart "vault" --no-block; }
 
 serviceRestartUsage() { ScriptUsageEcho "Usage: $(ScriptName) service restart $productUsage\nStart the PRODUCT service on HOST, and restart it if it does not start successfully."; }
 serviceRetryCommand() { usage; }
@@ -3698,15 +3691,15 @@ serviceRetryVaultCommand() { forAllHosts serviceRetry "vault"; }
 
 serviceRestartUsage() { ScriptUsageEcho "Usage: $(ScriptName) service restart $productUsage\nRestart the PRODUCT service on HOST."; }
 serviceStartCommand() { usage; }
-serviceStartConsulCommand() { forAllHosts serviceStart "consul"; }
-serviceStartNomadCommand() { forAllHosts serviceStart "nomad"; }
-serviceStartVaultCommand() { forAllHosts serviceStart "vault"; }
+serviceStartConsulCommand() { forAllHosts serviceStart "consul" --no-block; }
+serviceStartNomadCommand() { forAllHosts serviceStart "nomad" --no-block; }
+serviceStartVaultCommand() { forAllHosts serviceStart "vault" --no-block; }
 
 serviceStopUsage() { ScriptUsageEcho "Usage: $(ScriptName) service stop $productUsage\nStop the PRODUCT service on HOST."; }
 serviceStopCommand() { usage; }
-serviceStopConsulCommand() { forAllHosts serviceStop "consul"; }
-serviceStopNomadCommand() { forAllHosts serviceStop "nomad"; }
-serviceStopVaultCommand() { forAllHosts serviceStop "vault"; }
+serviceStopConsulCommand() { forAllHosts serviceStop "consul" --no-block; }
+serviceStopNomadCommand() { forAllHosts serviceStop "nomad" --no-block; }
+serviceStopVaultCommand() { forAllHosts serviceStop "vault" --no-block; }
 
 serviceVerifyUsage() { ScriptUsageEcho "Usage: $(ScriptName) service verify $productUsage\nReturn 1 and an error message if the service for PRODUCT is not installed on HOST"; }
 serviceVerifyCommand() { usage; }
@@ -3714,14 +3707,16 @@ serviceVerifyConsulCommand() { forAllHosts serviceVerify "consul"; }
 serviceVerifyNomadCommand() { forAllHosts serviceVerify "nomad"; }
 serviceVerifyVaultCommand() { forAllHosts serviceVerify "vault"; }
 
-# serviceVerify PRODUCT - return 1 and an error message if the service for a product is not installed
+# serviceVerify PRODUCT HOST - return 1 and an error message if the service for a product is not installed
 serviceVerify()
 {
 	local product="$1" host="$2"; [[ ! $product ]] && { MissingOperand "product"; return; }
 
-	productVerify "$product" && [[ -d "/etc/$product.d" ]] && service exists "$product" && return
+	productVerify "$product" && [[ -d "/etc/$product.d" ]] && service exists "$serviceName" && return
 	ScriptErrQuiet "the $product service is not installed"
 }
+
+serviceVerifyLocal() { local g serviceName productServiceFile; hostInitVars && serviceVerify "$@"; }
 
 # service helper
 
@@ -3839,13 +3834,9 @@ serviceRemove()
 	scriptRun "$host" "$(cat <<-EOF
 
 		# delete service
-		if [[ -f "$productServiceFile" ]]; then
+		if [[ -f "$serviceFile" ]]; then
 		  echo "Deleting the service..."
-		  sudoc systemctl stop "$product" || exit
-		  sudoc systemctl disable "$product" || exit
-		  sudoc rm -f "$productServiceFile" || exit
-		  sudoc systemctl daemon-reload || exit
-		  sudoc systemctl reset-failed || exit
+		  $(serviceRemoveServiceText)
 		fi
 
 		# remove certificates
@@ -3871,14 +3862,31 @@ serviceRemove()
 	)"
 }
 
+serviceRemoveServiceText() { runPlatformService "serviceRemoveServiceText" "$@"; }
+
+serviceRemoveServiceTextSystemd()
+{
+	cat <<-EOF
+	  sudoc systemctl stop "$product" || exit
+	  sudoc systemctl disable "$product" || exit
+	  sudoc rm -f "$serviceFile" || exit
+	  sudoc systemctl daemon-reload || exit
+	  sudoc systemctl reset-failed || exit
+	EOF
+}
+
 # serviceCOMMAND PRODUCT HOST
 
 serviceRestart() 
 {
 	[[ $noRestartService ]] && return
-	local product="$1" host="$2"
-	RunLog scriptRun "$host" "sudoc systemctl restart "$product" --no-block || exit"; 
+	local product="$1" host="$2"; shift 2
+	RunLog scriptRun "$host" "$(serviceRestartText "$@") || exit"; 
 }
+
+serviceRestartText() { runPlatformService "serviceRestartText" "$@"; }
+serviceRestartTextMac() { printf "sudoc launchctl kickstart -k \"system/$serviceName\""; }
+serviceRestartTextSystemd() { printf "sudoc systemctl restart \"$serviceName\" $@"; }
 
 serviceRestartLocal() 
 {
@@ -3924,15 +3932,23 @@ serviceRetryPreNomad()
 
 serviceStart() 
 {
-	local product="$1" host="$2"
-	RunLog scriptRun "$host" "sudoc systemctl start "$product" --no-block || exit"; 
+	local product="$1" host="$2"; shift 2
+	RunLog scriptRun "$host" "$(serviceStartText "$@") || exit"; 
 }
+
+serviceStartText() { runPlatformService "serviceStartText" "$@"; }
+serviceStartTextMac() { printf "sudoc launchctl start \"system/$serviceName\""; }
+serviceStartTextSystemd() { printf "sudoc systemctl start \"$serviceName\" $@"; }
 
 serviceStop() 
 {
-	local product="$1" host="$2"
-	RunLog scriptRun "$host" "sudoc systemctl stop "$product" --no-block || exit"; 
+	local product="$1" host="$2"; shift 2
+	RunLog scriptRun "$host" "$(serviceStopText "$@") || exit"; 
 }
+
+serviceStopText() { runPlatformService "serviceStopText" "$@"; }
+serviceStopTextMac() { printf "sudoc launchctl stop \"system/$serviceName\""; }
+serviceStopTextSystemd() { printf "sudoc systemctl stop \"$serviceName"\"; }
 
 serviceVars()
 {
@@ -3950,7 +3966,6 @@ serviceVars()
 	# configuration
 	productConfigFileBase="01_$product.hcl"
 	productConfigFile="$productConfigDir/$productConfigFileBase"
-	productServiceFile="/etc/systemd/system/$product.service"
 	productServiceEnvFile="/etc/systemd/system/$product.env"
 }
 
@@ -4451,6 +4466,22 @@ hostFqdn()
 	echo "$expectedFqdn"
 }
 
+# hostInitVars [HOST] - initialize variables specific for the host platform
+hostInitVars() { ScriptEval HostGetInfoCache "$1" "${globalArgs[@]}" && runplatformService "hostInitVars"; }
+
+hostInitVarsMac()
+{
+	g="g"
+	serviceName="com.hashicorp.$product"
+	productServiceFile="/Library/LaunchDaemons/$serviceName.plist"
+}
+
+hostInitVarsSystemd()
+{
+	serviceName="$product"
+	productServiceFile="/etc/systemd/system/$product.service"
+}
+
 # hostJoinInit [HOST...] - set join and joinFqdn to the passed (or default) join servers
 hostJoinInit()
 {
@@ -4635,7 +4666,7 @@ productGetServerDo()
 	echo "$(configServer)"
 }
 
-# productInit PRODUCT [HOST] - enable product for use  on host in this script
+# productInit PRODUCT [HOST] - enable product for use on host in this script
 productInit()
 {
 	local product="$1" host="$2"; [[ ! $product ]] && { MissingOperand "product"; return; }
@@ -4732,12 +4763,10 @@ productInstallDo()
 	scp "$file" "$host:/tmp/$product" || return
 
 	# update the program on the host
-	local productServiceFile="/etc/systemd/system/$product.service"
-
 	scriptRun "$host" "$(cat <<-EOF
-		[[ -f "$productServiceFile" ]] && { printf "stopping service..."; sudoc systemctl stop "$product" || exit; echo "done"; }
+		[[ -f "$serviceFile" ]] && { printf "stopping service..."; sudoc systemctl stop "$serviceName" || exit; echo "done"; }
 		sudoc cp "/tmp/$product" "$binDir" || exit
-		[[ -f "$productServiceFile" ]] && { printf "starting service..."; sudoc systemctl start "$product" --no-block || exit; echo "done";  }
+		[[ -f "$serviceFile" ]] && { printf "starting service..."; sudoc systemctl start "$serviceName" --no-block || exit; echo "done";  }
 		exit 0
 		EOF
 	)" || return
@@ -4913,8 +4942,20 @@ findInstallFile()
 	FindInstallFile "$@" "${globalArgs[@]}"
 }
 
-# forAllHosts COMMAND [ARGS...] - run a command for all hosts.  If forAllHeader is set and there is more than one host display it as a header.
+# forAllHosts COMMAND [ARGS...] - run a command for all hosts
 forAllHosts() { local host hosts; getHosts && ForAllHosts "$@"; }
+
+# forAllHostsPlatform COMMAND [ARGS...] - run a command for all hosts with platform information
+forAllHostsPlatform() { local host hosts; getHosts && ForAllHosts "forAllHostsPlatformDo" "$@"; }
+
+# forAllHostsPlatformDo COMMAND [ARGS...] [HOST] - initialize host and call command
+# - sets platform variables for IsPlatform checks, i.e. IsPlatform mac --host
+# - sets ${g} for scripts if GNU utilities are required on mac, i.e. ${g}sed
+forAllHostsPlatformDo()
+{
+	local host="${@: -1}"
+	local g serviceName productServiceFile; hostInitVars "$host" && "$@"	
+}
 
 # getDnsServer - get an available consul server for DNS queries on port 8600
 getDnsServer()
