@@ -6035,8 +6035,14 @@ ScriptReturn()
 #
 
 CertGetDates() { local c; for c in "$@"; do [[ ! $quiet ]] && echo "$c:"; SudoRead "$c" openssl x509 -in "$c" -text | grep "Not "; done; }
+CertGetPublicKey() { openssl x509 -noout -pubkey -in "$1"; }
 CertView() { local c; for c in "$@"; do openssl x509 -in "$c" -text; done; }
 CredentialSetBoth() { credential set "$@" --manager=local && credential set "$@" --manager=remote; }
+
+CertKeyFind() { local cert="$1"; echo "${cert%.*}-key.$(GetFileExtension "$cert")"; }
+CertKeyGetPublicKey() { openssl pkey -pubout -in "$1"; }
+CertKeyValidate() { local cert="$1" key="$(CertKeyFind "$1")"; [[ -f "$key" ]] && return; ScriptErr "the key for '$(FileToDesc "$cert")' does not exist" "$2"; }
+CertKeyVerify() { [[ "$(CertGetPublicKey "$1")" == "$(CertKeyGetPublicKey "$2")" ]]; } # CertVerify CERT KEY - validate the private key if for the certificate
 
 # CredentialConf - configure the credential manager but do not unlock (to prevent password prompt)
 CredentialConf()
