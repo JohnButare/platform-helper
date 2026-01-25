@@ -519,31 +519,224 @@ certCopyPublic()
 }
 
 #
-# Certificate Make Command
+# certificate make commands
 #
 
 certMakeUsage() { ScriptUsageEcho "\
-Usage: $(ScriptName) cert make all|$productUsage [server]
+Usage: $(ScriptName) cert make all|$productUsage [cli|server]
 Create certificates required for HashiCorp products.\n\n  $certOptUsage"; }
 
 certMakeArgEnd() { [[ ! $encrypt ]] && MissingOption "encrypt"; return 0; }
 certMakeCommand() { usage; }
 certMakeAllCommand() { certMake "consul" && certMake "nomad" && certMake "vault"; }
+
+#
+# certificate make consul commands
+#
+
+certMakeConsulUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make consul [ca|ca-auto|cli|server](all)\nCreate certificates required for Consul.\n\n  $certOptUsage"; }
+
 certMakeConsulCommand() { certMake "consul"; }
-certMakeNomadCommand() { certMake "nomad"; }
-certMakeVaultCommand() { certMake "vault"; }
+certMakeConsul() { cliValidate "consul" && certMakeCa && certMakeCli && certMakeConsulCaAuto; }
+
+certMakeConsulCa-autoUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make consul ca-auto\nget the Consul auto ca certificates.\n\n  $certOptUsage"; }
+certMakeConsulCa-autoCommand() { certMakeConsulCaAuto; }
+
+certMakeConsulCaUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make consul ca\nCreate Consul ca certificates.\n\n  $certOptUsage"; }
+certMakeConsulCaCommand() { certMakeCa; }
+
+certMakeConsulCliUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make consul cli\nCreate Consul CLI certificates.\n\n  $certOptUsage"; }
+certMakeConsulCliCommand() { certMakeCli; }
+
 certMakeConsulServerCommand() { forAllHosts certMakeConsulServer; }
+certMakeConsulServer() { certMakeServer "consul" "$@" "$(certMakeDnsArgs "consul")"; }
 
-certMakeNomadServerUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make nomad server\nCreate certificates required for Nomad server.  Updates nomad-server-key.pem and nomad-server.pem.  Useful if the Nomad server DNS names change.\n\n  $certOptUsage"; }
+# certMakeConsulCaAuto - get the auto generated Consul certficate authority.   This CA
+# is used on Consul clients and is needed on the Consul client to access the Consul API
+# from other programs like Nomad, curl, or wget.
+certMakeConsulCaAuto()
+{
+	certValidate "$ca" || return
+	certExists "$caAuto" && return
 
+
+	header "Get Consul Certificates"
+	hilight "Getting the automatic certificate authority..."
+
+	! InPath "consul-k8s" && { inst "consul-k8s" || return; }
+
+	consul-k8s get-consul-client-ca \
+		--server-addr "$(productGetServer "consul" "${globalArgs[@]}")" \
+		--server-port "$consulHttpsPort" \
+		--ca-file="$ca" \
+		--output-file "$caAuto" || return
+}
+
+#
+# certificate make nomad commands
+#
+
+certMakeNomadCommand() { certMake "nomad"; }
+
+certMakeNomadUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make nomad [ca|cli|client|server](all)\nCreate certificates required for Nomad.\n\n  $certOptUsage"; }
+certMakeNomadCommand() { certMakeNomadCa && certMakeNomadServer && certMakeNomadClient && certMakeNomadCli; }
+
+certMakeNomadCaUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make nomad ca\nCreate Nomad ca certificates.\n\n  $certOptUsage"; }
+certMakeNomadCaCommand() { certMakeNomadCa; }
+
+certMakeNomadCliUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make nomad cli\nCreate Nomad CLI certificates.\n\n  $certOptUsage"; }
+certMakeNomadCliCommand() { certMakeNomadCli; }
+
+certMakeNomadClientUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make nomad client\nCreate Nomad client certificates.\n\n  $certOptUsage"; }
+certMakeNomadClientCommand() { certMakeNomadClient; }
+
+certMakeNomadServerUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make nomad server\nCreate Nomad server certificates.  Updates nomad-server-key.pem and nomad-server.pem.  Useful if the Nomad server DNS names change.\n\n  $certOptUsage"; }
 certMakeNomadServerCommand() { local hosts; getHosts "${hostArg:-servers}" && hostJoinInit "${hosts[@]}" && certMakeNomadServer; }
+
+certMakeNomadInit() { InPath "cfssl" || inst "cfssl"; }
+
+certMakeNomadCa()
+{
+	certExists "$ca" "$caKey" && return
+	hilight "Creating the Nomad certificate authority..."
+	certMakeNomadInit && cfssl print-defaults csr | cfssl gencert -initca - | cfssljson -bare nomad-ca
+}
+
+certMakeNomadCli()
+{
+	certValidate "$ca" "$caKey" || return
+	certExists "$certCli" "$certCliKey" && return
+	hilight "Creating the Nomad CLI certificate..."
+	certMakeNomadInit && echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -profile=client - | cfssljson -bare nomad-cli
+}
+
+certMakeNomadClient()
+{
+	certValidate "$ca" "$caKey" || return
+	certExists "$certClient" "$certClientKey" && return
+	hilight "Creating the Nomad client certificate..."
+	certMakeNomadInit && echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config=cfssl.json -hostname="client.global.nomad,localhost,127.0.0.1" - | cfssljson -bare nomad-client
+}
+
+# certMakeNomadServer - make a server certificate for a Nomad server
+certMakeNomadServer()
+{
+	local product="nomad" host="$1"; shift 1; certMakeCd "$product" || return
+
+	certValidate "$ca" "$caKey" || return
+	certExists "$certServer" "$certServerKey" && return
+
+	hilight "Creating the Nomad server certificates..."
+	certMakeNomadInit || return
+
+	# create the cfssl configuration file
+	[[ $forceCert || ! -f "cfssl.json" ]] && { cat <<-EOF > "cfssl.json" || return; }
+		{
+		    "signing": {
+		        "default": {
+		            "expiry": "87600h",
+		            "usages": [
+		                "signing",
+		                "key encipherment",
+		                "server auth",
+		                "client auth"
+		            ]
+		        }
+		    }
+		}
+	EOF
+
+	# add the nomad servers to the certificate
+	local join=() joinFqdn=(); hostJoinInit || return
+	local h="$(ArrayDelimit joinFqdn)"
+	local hosts="$(serviceDnsNameShort "$product"),$(serviceDnsName "$product"),${h},server.global.$product,localhost,127.0.0.1"
+
+	# create the certificate
+	echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config="cfssl.json" -hostname="$hosts" - | cfssljson -bare "nomad-server" || return
+}
+
+#
+# certificate make vault commands
+#
+
+certMakeVaultUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make vault [ca|cli|server](all)\nCreate certificates required for Vault.\n\n  $certOptUsage"; }
+certMakeVaultCommand() { certMake "vault"; }
+certMakeVault() { cliValidate "vault" && certMakeCa && certMakeCli; }
+
+certMakeVaultCaUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make vault ca\nCreate Vault ca certificates.\n\n  $certOptUsage"; }
+certMakeVaultCaCommand() { certMakeCa; }
+
+certMakeVaultCliUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make vault cli\nCreate Vault CLI certificates.\n\n  $certOptUsage"; }
+certMakeVaultCliCommand() { certMakeCli; }
+
+certMakeVaultServerUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert make vault cli\nCreate Vault server certificates.\n\n  $certOptUsage"; }
 certMakeVaultServerCommand() { forAllHosts certMakeVaultServer; }
+certMakeVaultServer() { certMakeServer "vault" "$@" "$(certMakeDnsArgs "vault,active.vault,standby.vault")"; }
+
+#
+# cert make helper
+#
+
+# certMake PRODUCT - make certificates for the product.  All of the following certMake functions are should only be called from certMake.
+certMake()
+{	
+	local product="$1"; certMakeCd "$product" || return
+	RunFunction "cert" "Make${product^}" || return
+}
+
+certMakeCa()
+{
+	# return if the cerficiate exists
+	certExists "$ca" "$caKey" && return
+
+	# initialize
+	getDomainBase > /dev/null || return	
+
+	# logging
+	hilight "Creating the ${product^} certificate authority for $domainBase..."
+
+	# create the cert - name constraint required for HTTPS GUI
+	consul tls ca create -domain="$domainBase" -name-constraint -days 3650|| return # 10 years
+
+	# rename the cert
+	mv "$domainBase-agent-ca.pem" "$ca" || return
+	mv "$domainBase-agent-ca-key.pem" "$caKey" || return
+}
 
 # certMakeCd PRODUCT - mount and change to the private certificate directory for the product
 certMakeCd()
 {
 	local product="$1"; certInit "$product" || return
 	local dir; dir="$(certDirPrivate | certDirSuffix "$product")" && ${G}mkdir --parents "$dir" && command cd "$dir"
+}
+
+certMakeCli()
+{
+	# return if the cerficiate exists
+	certValidate "$ca" "$caKey" || return
+	certExists "$certCli" "$certCliKey" && return
+
+	# initialize
+	getDatacenter > /dev/null || return
+	getDomainBase > /dev/null || return
+
+	# logging
+	hilight "Creating the CLI certificates..."
+
+	# remove any existing temporary certs
+	rm -f "$datacenter-cli-$domainBase-"?".pem" "$datacenter-cli-$domainBase-"?"-key.pem" || return
+
+	# create the cert
+	consul tls cert create -cli \
+		-dc="$datacenter" \
+		-domain="$domainBase" \
+		-ca="$ca" \
+		-key="$caKey" \
+		-days="3650" || return
+
+	# rename the temporary cert
+	mv "$datacenter-cli-$domainBase-0.pem" "$certCli" || return
+	mv "$datacenter-cli-$domainBase-0-key.pem" "$certCliKey" || return
 }
 
 # certMakeCp CERT... DEST - copy certificates to the destination directory
@@ -614,168 +807,6 @@ certMakeServer()
 		cp "$cert" "$dest/$certServer" || return
 		cp "$key" "$dest/$certServerKey" || return
 	fi
-}
-
-# certMakePRODUCTServer HOST [DEST] [CERT_ARGS...] - make a server certificate, see certMakeServer above
-certMakeConsulServer() { certMakeServer "consul" "$@" "$(certMakeDnsArgs "consul")"; }
-certMakeVaultServer() { certMakeServer "vault" "$@" "$(certMakeDnsArgs "vault,active.vault,standby.vault")"; }
-
-# certMakeNomadServer - make a server certificate for a Nomad server
-certMakeNomadServer()
-{
-	local product="nomad" host="$1"; shift 1; certMakeCd "$product" || return
-
-	certValidate "$ca" "$caKey" || return
-	certExists "$certServer" "$certServerKey" && return
-
-	hilight "Creating the Nomad server certificates..."
-	certMakeNomadInit || return
-
-	# create the cfssl configuration file
-	[[ $forceCert || ! -f "cfssl.json" ]] && { cat <<-EOF > "cfssl.json" || return; }
-		{
-		    "signing": {
-		        "default": {
-		            "expiry": "87600h",
-		            "usages": [
-		                "signing",
-		                "key encipherment",
-		                "server auth",
-		                "client auth"
-		            ]
-		        }
-		    }
-		}
-	EOF
-
-	# add the nomad servers to the certificate
-	local join=() joinFqdn=(); hostJoinInit || return
-	local h="$(ArrayDelimit joinFqdn)"
-	local hosts="$(serviceDnsNameShort "$product"),$(serviceDnsName "$product"),${h},server.global.$product,localhost,127.0.0.1"
-
-	# create the certificate
-	echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config="cfssl.json" -hostname="$hosts" - | cfssljson -bare "nomad-server" || return
-}
-
-# certMake PRODUCT - make certificates for the product.  All of the following certMake functions are should only be called from certMake.
-certMake()
-{	
-	local product="$1"; certMakeCd "$product" || return
-	RunFunction "cert" "Make${product^}" || return
-}
-
-certMakeCa()
-{
-	# return if the cerficiate exists
-	certExists "$ca" "$caKey" && return
-
-	# initialize
-	getDomainBase > /dev/null || return	
-
-	# logging
-	hilight "Creating the ${product^} certificate authority for $domainBase..."
-
-	# create the cert - name constraint required for HTTPS GUI
-	consul tls ca create -domain="$domainBase" -name-constraint || return
-
-	# rename the cert
-	mv "$domainBase-agent-ca.pem" "$ca" || return
-	mv "$domainBase-agent-ca-key.pem" "$caKey" || return
-}
-
-certMakeCli()
-{
-	# return if the cerficiate exists
-	certValidate "$ca" "$caKey" || return
-	certExists "$certCli" "$certCliKey" && return
-
-	# initialize
-	getDatacenter > /dev/null || return
-	getDomainBase > /dev/null || return
-
-	# logging
-	hilight "Creating the CLI certificates..."
-
-	# remove any existing temporary certs
-	rm -f "$datacenter-cli-$domainBase-"?".pem" "$datacenter-cli-$domainBase-"?"-key.pem" || return
-
-	# create the cert
-	consul tls cert create -cli \
-		-dc="$datacenter" \
-		-domain="$domainBase" \
-		-ca="$ca" \
-		-key="$caKey" \
-		-days="3650" || return
-
-	# rename the temporary cert
-	mv "$datacenter-cli-$domainBase-0.pem" "$certCli" || return
-	mv "$datacenter-cli-$domainBase-0-key.pem" "$certCliKey" || return
-}
-
-# certMake - product specifics
-
-certMakeConsul()
-{
-	# install consul to create certificates
-	! InPath "consul" && { inst "consul" || return; }
-
-	# create the certificates
-	certMakeCa && certMakeCli && certMakeConsulCaAuto
-}
-
-# certMakeConsulCaAuto - get the auto generated Consul certficate authority.   This CA
-# is used on Consul clients and is needed on the Consul client to access the Consul API
-# from other programs like Nomad, curl, or wget.
-certMakeConsulCaAuto()
-{
-	certValidate "$ca" || return
-	certExists "$caAuto" && return
-
-	header "Get Consul Certificates"
-	hilight "Getting the automatic certificate authority..."
-
-	! InPath "consul-k8s" && { inst "consul-k8s" || return; }
-
-	consul-k8s get-consul-client-ca \
-		--server-addr "$(productGetServer "consul" "${globalArgs[@]}")" \
-		--server-port "$consulHttpsPort" \
-		--ca-file="$ca" \
-		--output-file "$caAuto" || return
-}
-
-certMakeNomad() {	certMakeNomadCa && certMakeNomadServer && certMakeNomadClient && certMakeNomadCli; }
-certMakeNomadInit() { InPath "cfssl" || inst "cfssl"; }
-
-certMakeNomadCa()
-{
-	certExists "$ca" "$caKey" && return
-	hilight "Creating the Nomad certificate authority..."
-	certMakeNomadInit && cfssl print-defaults csr | cfssl gencert -initca - | cfssljson -bare nomad-ca
-}
-
-certMakeNomadCli()
-{
-	certValidate "$ca" "$caKey" || return
-	certExists "$certCli" "$certCliKey" && return
-	hilight "Creating the Nomad CLI certificate..."
-	certMakeNomadInit && echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -profile=client - | cfssljson -bare nomad-cli
-}
-
-certMakeNomadClient()
-{
-	certValidate "$ca" "$caKey" || return
-	certExists "$certClient" "$certClientKey" && return
-	hilight "Creating the Nomad client certificate..."
-	certMakeNomadInit && echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config=cfssl.json -hostname="client.global.nomad,localhost,127.0.0.1" - | cfssljson -bare nomad-client
-}
-
-certMakeVault()
-{
-	# install vault to create certificates
-	! InPath "vault" && { inst "vault" || return; }
-
-	# create the certificates
-	certMakeCa && certMakeCli
 }
 
 #
@@ -4878,6 +4909,7 @@ productVersionFilter() { head -1 | cut -d" " -f 2 | RemoveFront v; }
 
 certs() { [[ $encrypt ]]; } # true if certificates are being used
 checkProduct() { [[ $product ]] && return; ScriptErr "$1: product is not set"; return 1; }
+cliValidate() { local product="$1"; InPath "$product" || inst "$product"; } # cliValidate PRODUCT - ensure product is installed locally
 doHashi() { hashi "$@" $force $test "${configFileArg[@]}" "${configPrefixArg[@]}" "${otherArgs[@]}" "${globalArgs[@]}"; }
 getDomain() { GetVarCached domain && return; domain="$(GetNetworkDnsDomain)" && argValidate "$domain" "DNS domain"; }
 getDomainBase() { GetVarCached domainBase && return; domainBase="$(GetNetworkDnsBaseDomain)" && argValidate "$domainBase" "DNS base domain"; }
