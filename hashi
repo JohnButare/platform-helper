@@ -636,16 +636,66 @@ certMakeNomadInit() { InPath "cfssl" || inst "cfssl"; }
 certMakeNomadCa()
 {
 	certExists "$ca" "$caKey" && return
+
 	hilight "Creating the Nomad certificate authority..."
-	certMakeNomadInit && cfssl print-defaults csr | cfssl gencert -initca - | cfssljson -bare nomad-ca
+
+	# dependencies
+	certMakeNomadInit || return
+
+	# create - defaults from template: cfssl print-defaults csr
+	cat <<-EOF | cfssl gencert -initca - | cfssljson -bare nomad-ca
+		{
+		  "CN": "nomad.$(getDomainBase)",
+		  "key": {
+		    "algo": "ecdsa",
+		    "size": 256
+		  },
+		  "names": [
+		    {
+		      "C": "US",
+		      "ST": "New Mexico",
+		      "L": "Albuquerque"
+		    }
+		  ],
+		  "ca": {
+		    "expiry": "87600h"
+		  }
+		}
+	EOF
 }
 
 certMakeNomadCli()
 {
 	certValidate "$ca" "$caKey" || return
 	certExists "$certCli" "$certCliKey" && return
+
 	hilight "Creating the Nomad CLI certificate..."
-	certMakeNomadInit && echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -profile=client - | cfssljson -bare nomad-cli
+
+	# dependencies
+	certMakeNomadInit || return
+
+	# create
+	echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -profile=client -config=<(cat <<-EOF
+		{
+		  "signing": {
+		    "default": {
+		      "expiry": "87600h"
+		    },
+		    "profiles": {
+		      "client": {
+		        "expiry": "87600h",
+		        "usages": [
+		        	"signing",
+		        	"key encipherment",
+		        	"client auth",
+		        	"server auth"
+	        	]
+		      }
+		    }
+		  }
+		}	
+		EOF
+	) - | cfssljson -bare nomad-cli
 }
 
 certMakeNomadClient()
@@ -653,7 +703,7 @@ certMakeNomadClient()
 	certValidate "$ca" "$caKey" || return
 	certExists "$certClient" "$certClientKey" && return
 	hilight "Creating the Nomad client certificate..."
-	certMakeNomadInit && echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config=cfssl.json -hostname="client.global.nomad,localhost,127.0.0.1" - | cfssljson -bare nomad-client
+	certMakeNomadInit && echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config=<(certMakeNomadConfig) -hostname="client.global.nomad,localhost,127.0.0.1" - | cfssljson -bare nomad-client
 }
 
 # certMakeNomadServer - make a server certificate for a Nomad server
@@ -667,30 +717,32 @@ certMakeNomadServer()
 	hilight "Creating the Nomad server certificates..."
 	certMakeNomadInit || return
 
-	# create the cfssl configuration file
-	[[ $forceCert || ! -f "cfssl.json" ]] && { cat <<-EOF > "cfssl.json" || return; }
-		{
-		    "signing": {
-		        "default": {
-		            "expiry": "87600h",
-		            "usages": [
-		                "signing",
-		                "key encipherment",
-		                "server auth",
-		                "client auth"
-		            ]
-		        }
-		    }
-		}
-	EOF
-
 	# add the nomad servers to the certificate
 	local join=() joinFqdn=(); hostJoinInit || return
 	local h="$(ArrayDelimit joinFqdn)"
 	local hosts="$(serviceDnsNameShort "$product"),$(serviceDnsName "$product"),${h},server.global.$product,localhost,127.0.0.1"
 
 	# create the certificate
-	echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config="cfssl.json" -hostname="$hosts" - | cfssljson -bare "nomad-server" || return
+	echo '{}' | cfssl gencert -ca="$ca" -ca-key="$caKey" -config=<(certMakeNomadConfig) -hostname="$hosts" - | cfssljson -bare "nomad-server" || return
+}
+
+certMakeNomadConfig()
+{
+	cat <<-EOF
+		{
+		  "signing": {
+		      "default": {
+		          "expiry": "87600h",
+		          "usages": [
+		              "signing",
+		              "key encipherment",
+		              "server auth",
+		              "client auth"
+		          ]
+		      }
+		  }
+		}
+	EOF
 }
 
 #
