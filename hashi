@@ -507,13 +507,13 @@ certCopyPublic()
 	certInit "$product" || return
 
 	# source directory (private certificates)
-	local src; src="$(certDirPrivate | certDirSuffix "$product")" || return
+	local src; src="$(certDirPrivateProduct "$product")" || return
 	local cert certs=( "$ca" "$certCli" "$certCliKey" ); [[ $caAuto ]] && certs+=( "$caAuto" )
 
 	certValidate "$src" "${certs[@]}" || return
 
 	# destination directory (public certificates)
-	local dest; dest="$(certDirPublicSuffix "$product")" || return
+	local dest; dest="$(certDirPublicProduct "$product")" || return
 	${G}mkdir --parents "$dest" || return
 
 	# return if the source (private) and destination (public) locations are the same
@@ -543,16 +543,16 @@ certDirLocalNomadCommand() { certDirLocal "nomad"; }
 certDirLocalVaultCommand() { certDirLocal "vault"; }
 
 certDirPublicUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert dir public [$productUsage] $productUsage\nReturn public certificate directory"; }
-certDirPublicCommand() { certDirPublicSuffix; }
-certDirPublicConsulCommand() { certDirPublicSuffix "consul"; }
-certDirPublicNomadCommand() { certDirPublicSuffix "nomad"; }
-certDirPublicVaultCommand() { certDirPublicSuffix "vault"; }
+certDirPublicCommand() { certDirPublicProduct; }
+certDirPublicConsulCommand() { certDirPublicProduct "consul"; }
+certDirPublicNomadCommand() { certDirPublicProduct "nomad"; }
+certDirPublicVaultCommand() { certDirPublicProduct "vault"; }
 
 certDirPrivateUsage() { ScriptUsageEcho "Usage: $(ScriptName) cert dir private [$productUsage] $productUsage\nReturn private certificate directory"; }
 certDirPrivateCommand() { certDirPrivate; }
-certDirPrivateConsulCommand() { certDirPrivateSuffix "consul"; }
-certDirPrivateNomadCommand() { certDirPrivateSuffix "nomad"; }
-certDirPrivateVaultCommand() { certDirPrivateSuffix "vault"; }
+certDirPrivateConsulCommand() { certDirPrivateProduct "consul"; }
+certDirPrivateNomadCommand() { certDirPrivateProduct "nomad"; }
+certDirPrivateVaultCommand() { certDirPrivateProduct "vault"; }
 
 #
 # certificate make commands
@@ -747,7 +747,7 @@ certMakeCa()
 certMakeCd()
 {
 	local product="$1"; certInit "$product" || return
-	local dir; dir="$(certDirPrivate | certDirSuffix "$product")" && ${G}mkdir --parents "$dir" && command cd "$dir"
+	local dir; dir="$(certDirPrivateProduct "$product")" && ${G}mkdir --parents "$dir" && command cd "$dir"
 }
 
 certMakeCli()
@@ -903,22 +903,22 @@ certStatusLocal()
 	certInit "$product" || return
 
 	# validate
-	[[ ! -d "$certDirService" ]] && { ScriptErr "the local $product certificate directory '$certDirService' does not exist"; return; }
+	[[ ! -d "$certDirLocal" ]] && { ScriptErr "the local $product certificate directory '$certDirLocal' does not exist"; return; }
 
 	# show
-	certStatusShow "$(UpperCaseFirst "$product") Local" "$certDirService"
+	certStatusShow "$(UpperCaseFirst "$product") Local" "$certDirLocal"
 }
 
 certStatusPrivate()
 {
 	local product="$1" dir
-	dir="$(certDirPrivate | certDirSuffix "$product")" && certStatusShow "$(UpperCaseFirst "$product") Private" "$dir"
+	dir="$(certDirPrivateProduct "$product")" && certStatusShow "$(UpperCaseFirst "$product") Private" "$dir"
 }
 
 certStatusPublic()
 {
 	local product="$1" dir
-	dir="$(certDirPublicSuffix "$product")" && certStatusShow "$(UpperCaseFirst "$product") Public" "$dir"
+	dir="$(certDirPublicProduct "$product")" && certStatusShow "$(UpperCaseFirst "$product") Public" "$dir"
 }
 
 # certStatusShow DESC DIR - show detailed information for all certificates in dir
@@ -1163,8 +1163,8 @@ removeConfig()
 	# delete certificates (local, private, and public)	
 	local dir
 	whatCheck "local-certs" && { hilight "Removing local certificates..."; removeLocalCerts || return; }
-	whatCheck "private-certs" && { hilight "Removing private credentials..."; dir="$(certDirPrivate | certDirSuffix "$product")" || return; removeDir "$dir"; }
-	whatCheck "public-certs" && { hilight "Removing public credentials..."; dir="$(certDirPublicSuffix "$product")" || return; removeDir "$dir"; }
+	whatCheck "private-certs" && { hilight "Removing private credentials..."; dir="$(certDirPrivateProduct "$product")" || return; removeDir "$dir"; }
+	whatCheck "public-certs" && { hilight "Removing public credentials..."; dir="$(certDirPublicProduct "$product")" || return; removeDir "$dir"; }
 
 	# delete local credentials
 	whatCheck "local-credentials" && { hilight "Removing local credentials..."; credDelete "all" || return; }
@@ -1173,7 +1173,7 @@ removeConfig()
 	local host hosts; getHosts "config" || return
 	for host in "${hosts[@]}"; do
 		hilight "Removing $host certificates and credentials..."
-		sshRun -q -t "$host" bash -i "credential rm \"$(credPath)\" all ${globalArgs[@]} && rm -fr \"$(certDirSuffix "$product" "/opt/hashi")\"" || return
+		sshRun -q -t "$host" bash -i "credential rm \"$(credPath)\" all ${globalArgs[@]} && rm -fr \"$certDirLocal\"" || return
 	done
 }
 
@@ -2310,16 +2310,16 @@ installServiceHost()
 		  sudoc ${g}install -o "$user" -g "$user" -m 755 -t "$productConfigDir" "$tmpDir/config/"* || exit
 		fi
 
-		if [[ \$(sudoc ls -A "$tmpDir/cert") ]] && [[ ! \$(sudoc ls -A "$certDirService") || (( \$(ls -1 "$tmpDir/cert" | wc -l) > \$(sudoc ls -A "$certDirService" | wc -l) )) || "$force" ]]; then
+		if [[ \$(sudoc ls -A "$tmpDir/cert") ]] && [[ ! \$(sudoc ls -A "$certDirLocal") || (( \$(ls -1 "$tmpDir/cert" | wc -l) > \$(sudoc ls -A "$certDirLocal" | wc -l) )) || "$force" ]]; then
 		  echo "Copying certificate files..."
-		  sudoc ${g}install -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/cert/"* || exit
+		  sudoc ${g}install -o "$user" -g "$user" -m 755 -t "$certDirLocal" "$tmpDir/cert/"* || exit
 		fi
 
 		#
 		# certificates
 		#
 
-		$(scriptCertStore "$certDirService")
+		$(scriptCertStore "$certDirLocal")
 
 		#
 		# product
@@ -2454,8 +2454,8 @@ installServicePrepConsul()
 
 		local serverDefaults; isServer && serverDefaults="$(cat <<-EOF
 
-			    cert_file = "$certDirService/$certServer"
-			    key_file = "$certDirService/$certServerKey"
+			    cert_file = "$certDirLocal/$certServer"
+			    key_file = "$certDirLocal/$certServerKey"
 			EOF
 		)"
 
@@ -2466,7 +2466,7 @@ installServicePrepConsul()
 			ports { http = -1, https = $consulHttpsPort }
 			tls {
 			  defaults {
-			    ca_file = "$certDirService/$ca"$serverDefaults
+			    ca_file = "$certDirLocal/$ca"$serverDefaults
 			    verify_incoming = false
 			    verify_outgoing = true
 			  }
@@ -2561,9 +2561,9 @@ installServicePrepNomad()
 			tls { 
 			  http = true
 			  rpc = true
-			  ca_file = "$certDirService/$ca"
-			  cert_file = "$certDirService/$certFile"
-			  key_file = "$certDirService/$keyFile"
+			  ca_file = "$certDirLocal/$ca"
+			  cert_file = "$certDirLocal/$certFile"
+			  key_file = "$certDirLocal/$keyFile"
 			  verify_server_hostname = false
 			  verify_https_client = false
 			}\n
@@ -2578,9 +2578,9 @@ installServicePrepNomad()
 	
 		cat > "$tmpDir/$product.env" <<-EOF
 			CONSUL_HTTP_SSL=true
-			CONSUL_CACERT=$certDirService/$caLocal
-			CONSUL_CLIENT_CERT=$certDirService/$certServer
-			CONSUL_CLIENT_KEY=$certDirService/$certServerKey
+			CONSUL_CACERT=$certDirLocal/$caLocal
+			CONSUL_CLIENT_CERT=$certDirLocal/$certServer
+			CONSUL_CLIENT_KEY=$certDirLocal/$certServerKey
 		EOF
 
 		certInit "nomad" || return
@@ -2621,9 +2621,9 @@ installServicePrepVault()
 		# vault certificates
 		certListenerConfig="$(cat <<-EOF
 
-		  tls_client_ca_file = "$certDirService/$ca"
-		  tls_cert_file = "$certDirService/$certServer"
-		  tls_key_file = "$certDirService/$certServerKey"
+		  tls_client_ca_file = "$certDirLocal/$ca"
+		  tls_cert_file = "$certDirLocal/$certServer"
+		  tls_key_file = "$certDirLocal/$certServerKey"
 			EOF
 		)"
 		certMakeVaultServer "$host" "$tmpDir/cert" || return
@@ -2632,9 +2632,9 @@ installServicePrepVault()
 		certInit "consul" || return
 		certConsulConfig="$(cat <<-EOF
 
-		  tls_ca_file = "$certDirService/$ca"
-		  tls_cert_file = "$certDirService/$certCli"
-		  tls_key_file = "$certDirService/$certCliKey"
+		  tls_ca_file = "$certDirLocal/$ca"
+		  tls_cert_file = "$certDirLocal/$certCli"
+		  tls_key_file = "$certDirLocal/$certCliKey"
 			EOF
 		)"
 		certInit "vault" || return
@@ -2760,9 +2760,9 @@ installServiceServerFinalVault()
 installServiceTextDirectories()
 {
 	cat <<-EOF
-		if ! [[ -d "$certDirService" && -d "$productConfigDir" && -d "$productDataDir" ]] || [[ "$force" ]]; then
+		if ! [[ -d "$certDirLocal" && -d "$productConfigDir" && -d "$productDataDir" ]] || [[ "$force" ]]; then
 		  echo "Creating directories..."
-		  sudoc ${g}install -o "$user" -g "$user" -m 755 -d "$certDirService" "$productConfigDir" "$productDataDir" || exit
+		  sudoc ${g}install -o "$user" -g "$user" -m 755 -d "$certDirLocal" "$productConfigDir" "$productDataDir" || exit
 		fi
 	EOF
 }
@@ -2993,9 +2993,9 @@ nomadConfigEnableVault()
 		certInit "vault" || return
 		certConfig="$(cat <<-EOF
 
-		  ca_file = "$certDirService/$caLocal"
-		  cert_file = "$certDirService/$certCli"
-		  key_file = "$certDirService/$certCliKey"
+		  ca_file = "$certDirLocal/$caLocal"
+		  cert_file = "$certDirLocal/$certCli"
+		  key_file = "$certDirLocal/$certCliKey"
 			EOF
 		)"
 		certInit "nomad" || return
@@ -3642,7 +3642,7 @@ updateCliCert()
 {
 	local product="$1" host="$2"; certInit "$product" || return
 	local src; src="$(certPublicFind "$product")" || return
-	local dest="$(certDirSuffix "$product" "/opt/hashi")" # always install certificates to /opt/hashi 
+	local dest="$certDirLocal"
 
 	# copy certificates to a temporary directory
 	local tmpDir; tmpDir="$(tmpDirCreate)" || return
@@ -3723,7 +3723,7 @@ updateServiceCert()
 	scriptRun "$host" "$(cat <<-EOF
 		$(installServiceTextUser)
 		$(installServiceTextDirectories)
-		sudoc ${g}install --backup=numbered -o "$user" -g "$user" -m 755 -t "$certDirService" "$tmpDir/"* || exit
+		sudoc ${g}install --backup=numbered -o "$user" -g "$user" -m 755 -t "$certDirLocal" "$tmpDir/"* || exit
 		$(scriptCleanup)
 		EOF
 	)" || return
@@ -4296,17 +4296,14 @@ vaultTokenGetRemote()
 # certificate helper
 #
 
-# certDirLocal PRODUCT - return the local certificate directory for CLI certificates, /opt/hashi/certificate/DOMAIN[/CONFIG_PREFIX]/PRODUCT if present,
-#   otherwise use /opt/PRODUCT/cert (when using the CLI on Hashi servers)
-certDirLocal()
-{
-	local product="$1"
-	local dir="$(certDirSuffix "$product" "/opt/hashi")"
+# certDirLocal PRODUCT - return the product service certificate directory
+certDirLocal() { echo "/opt/$1/cert"; }
 
-	if [[ -d "$dir" ]]; then echo "$dir"
-	elif dir="$(certDirService "$product")" && [[ -d "$dir" ]]; then echo "$dir"
-	else ScriptErrQuiet "unable to find the $product local certificate directory '/opt/hashi/certificate' or '/opt/$product/cert'"
-	fi
+# certDirLocalValidate PRODUCT - validate and return the local certificate directory for CLI certificates
+certDirLocalValidate()
+{
+	local product="$1" dir; dir="$(certDirLocal "$product")" && [[ -d "$dir" ]] && { echo "$dir"; return; }
+	ScriptErrQuiet "unable to find the $product local certificate directory '/opt/$product/cert'"
 }
 
 # certDirPrivate - the root private certificate directory from the --encrypt option or certificateDir configuration
@@ -4339,31 +4336,28 @@ certDirPrivate()
 	echo "$fullDir"
 }
 
-# certDirPrivateSuffix PRODUCT - add certificate suffix to the private certificate directory
-certDirPrivateSuffix()
+# certDirPrivateProduct PRODUCT - add certificate suffix to the private certificate directory
+certDirPrivateProduct()
 {
 	local product="$1" dir
-	dir="$(certDirPrivate)" && certDirSuffix "$product" "$dir"
+	dir="$(certDirPrivate)" && certDirDomainSuffix "$dir" "$product"
 }
 
 # certDirPublic - return the public certificate directory from an installation file server
 certDirPublic() { findInstallFile --quiet "other/HashiCorp"; }
 
-# certDirPublicSuffix PRODUCT - add certificate suffix to the public certificate directory
-certDirPublicSuffix()
+# certDirPublicProduct PRODUCT - add certificate suffix to the public certificate directory
+certDirPublicProduct()
 {
-	local product="$1" dir
-	dir="$(certDirPublic)" && certDirSuffix "$product" "$dir"
+	local product="$1" dir; 
+	dir="$(certDirPublic)" && certDirDomainSuffix "$dir" "$product"
 }
 
-# certDirService PRODUCT - return the product service certificate directory
-certDirService() { echo "/opt/$1/cert"; }
-
-# certDirSuffix PRODUCT DIR - add certificate suffix to DIR: DIR/certificate/DOMAIN[/CONFIG_PREFIX]/PRODUCT
-certDirSuffix()
+# certDirDomainSuffix PRODUCT DIR - add certificate domain and product suffix to DIR: DIR/certificate/DOMAIN[/CONFIG_PREFIX]/PRODUCT
+certDirDomainSuffix()
 { 
 	local product="$1"; shift; GetArgs
-	local dir="$1"; [[ ! $dir ]] && { ScriptErrQuiet "certDirSuffix: directory not specified"; return 1; }
+	local dir="$1"; [[ ! $dir ]] && { ScriptErrQuiet "certDirDomainSuffix: directory not specified"; return 1; }
 	getDomainBase > /dev/null && echo "$(RemoveTrailingSlash "$dir")/certificate/${domainBase}$(RemoveTrailingSlash "/$configPrefix")/$product"
 }
 
@@ -4409,7 +4403,7 @@ certInit()
 	certServerKey=$product-server-key.pem
 
 	# other variables
-	certDirService="$(certDirService "$product")"
+	certDirLocal="$(certDirLocal "$product")" || return
 	certDirStore="/usr/local/share/ca-certificates"; IsPlatform rhel && certDirStore="/etc/pki/ca-trust/source/anchors"
 	certStoreCa="$certDirStore/$domain-$configDesc-$(GetFileNameWithoutExtension "$ca").crt"
 
@@ -4427,7 +4421,7 @@ certInit()
 # certPublicExists PRODUCT - return true if the public certificate directory for the specified product exists
 certPublicExists() { quiet="--quiet" certPublicFind "$1" > /dev/null; }
 
-# certPublicFind PRODUCT - find public certificates
+# certPublicFind PRODUCT - find public certificates in the current, public certificate, or private certificate directories
 certPublicFind()
 {
 	local dir product="$1"; certInit "$product" || return
@@ -4436,13 +4430,13 @@ certPublicFind()
 	quiet="--quiet" certPublicCheck "$PWD" && return
 
 	# check public directory
-	if dir="$(certDirPublicSuffix "$product")"; then
+	if dir="$(certDirPublicProduct "$product")"; then
 		certPublicCheck "$dir" && return
 		ScriptErr "warning: '$(FileToDesc "$dir")' does not contain the public certificates"
 	fi
 
 	# fall back to the private certificate directory
-	dir="$(certDirPrivateSuffix "$product")" && certPublicCheck "$dir"
+	dir="$(certDirPrivateProduct "$product")" && certPublicCheck "$dir"
 }
 
 certPublicCheck()
@@ -4650,7 +4644,7 @@ productEnvironment()
 
 		# connecting to the local host
 		if IsLocalHost "$server"; then
-			[[ -f "$certDirService/$caAuto" ]] && ca="$caAuto" # only clients have the automatic certificate present
+			[[ -f "$certDirLocal/$caAuto" ]] && ca="$caAuto" # only clients have the automatic certificate present
 		elif [[ "$(typeCheck "$server")" == "client" ]]; then
 			ca="$caAuto"
 		fi
@@ -4904,7 +4898,7 @@ productInstallCerts()
 {
 	local product="$1"; certInit "$product" || return
 	local src; src="$(certPublicFind "$product")" || return
-	local dest="$(certDirSuffix "$product" "/opt/hashi")" # always install certificates to /opt/hashi 
+	local dest="$certDirLocal"
 
 	[[ ! $force && -f "$dest/$ca" ]] && return	
 
