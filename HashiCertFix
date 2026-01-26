@@ -1,33 +1,47 @@
 #!/usr/bin/env bash
 . "${BASH_SOURCE[0]%/*}/function.sh" script color || exit
 
-# to do
-# /opt/hashi/certificates - what used for? need to update?
-# - off hosts - update certs
+#
+# initialize
+#
 
-# improvement
-# /opt/consul|nomad|vault permissions, especially cert dir
-
-product="consul"
-cd "$(encrypt mount "$CLOUD/data/app/CryFS/personal" "$@")/data/hashi/certificate/butare.net/$product" || return
-dir="/opt/$product/cert"
+product="nomad"
+makeCerts=
+copyPublic=
 servers=(pi1 pi2 pi3 pi4 pi5)
 servers=()
-hosts=(pi1 pi2 pi3 pi4 pi5 pi9 rp1 rp2 rp3 rp4 bl3 bl4)
-hosts=(rp2 rp3 rp4)
+clients=(pi7 pi9 rp1 rp2 rp3 rp4 bl3 bl4)
+clients=()
+
+dir="/opt/$product/cert"
+user="$product"; [[ "$product" == "nomad" ]] && user="root"
+
+cd "$(encrypt mount "$CLOUD/data/app/CryFS/personal" "$@")/data/hashi/certificate/butare.net/$product" || return
+
+#
+# certificates
+#
+
+if [[ $makeCerts ]]; then
+	hashi cert make $product ca || exit
+	hashi cert make $product cli || exit
+	if [[ "$product" == @(nomad) ]]; then
+		hashi cert make $product client || exit
+		hashi cert make $product server || exit	
+	fi
+fi
 
 #
 # ca
 #
 
-# hashi cert make $product ca || return
 f="$dir/$product-ca.pem"
-for h in "${hosts[@]}"; do
+for h in "${servers[@]}" "${clients[@]}"; do
 	header "$product ca ($h)"
 	scp "$product-ca.pem" "$h:/tmp" || exit
 	SshHelper connect --function -i -t $h -- "	
 		sudoc mv /tmp/$product-ca.pem $f || exit
-		sudoc chown $product:$product $f || exit
+		sudoc chown $user:$user $f || exit
 		sudoc chmod 644 $f || exit # rw-rw-r--" || exit
 done
 
@@ -37,41 +51,64 @@ done
 
 for h in "${servers[@]}"; do
 	header "$product server ($h)"
-	hashi cert make $product server -H=$h || return
-	scp $product-server-$h.pem $h:/tmp/$product-server.pem || exit
-	scp $product-server-$h-key.pem $h:/tmp/$product-server-key.pem || exit
+	
+	prefix="$product-server"
+	if [[ "$product" == "consul" ]]; then
+		[[ $makeCerts ]] && { hashi cert make $product server -H=$h || exit; }
+		prefix="$product-server-$h"
+	fi
+
+	scp $prefix.pem $h:/tmp/$product-server.pem || exit
+	scp $prefix-key.pem $h:/tmp/$product-server-key.pem || exit
+	
 	SshHelper connect --function -i -t $h -- "
 		sudoc mv /tmp/$product-server* $dir || exit
-		sudoc chown $product:$product $dir/$product-server* || exit
+		sudoc chown $user:$user $dir/$product-server* || exit
 		sudoc chmod 660 $dir/$product-server* || exit # rw-rw----" || exit
+
 done
 
 #
 # cli
 #
 
-# hashi cert make $product cli || exit
-
-for h in "${hosts[@]}"; do
+for h in "${servers[@]}" "${clients[@]}"; do
 	header "$product cli ($h)"
 	scp "$product-cli.pem" "$h:/tmp" || exit
 	scp "$product-cli-key.pem" "$h:/tmp" || exit
 	SshHelper connect --function -i -t $h -- "	
 		sudoc mv /tmp/$product-cli* $dir || exit
-		sudoc chown $product:$product $dir || exit
-		sudoc chmod 644 $f || exit # rw-rw-r--" || exit
+		sudoc chown $user:$user $dir/$product-cli* || exit
+		sudoc chmod 644 $dir/$product-cli* || exit # rw-rw-r--" || exit
+done
+
+#
+# client
+#
+
+for h in "${clients[@]}"; do
+	[[ "$product" == "consul" ]] && continue
+	header "$product cli ($h)"
+	scp "$product-client.pem" "$h:/tmp" || exit
+	scp "$product-client-key.pem" "$h:/tmp" || exit
+	SshHelper connect --function -i -t $h -- "	
+		sudoc mv /tmp/$product-client* $dir || exit
+		sudoc chown $user:$user $dir/$product-client* || exit
+		sudoc chmod 660 $dir/$product-client* || exit # rw-rw----" || exit
 done
 
 #
 # cleanup
 #
 
-for h in "${hosts[@]}"; do
+for h in "${servers[@]}" "${clients[@]}"; do
 	header "$product cleanup ($h)"
 	SshHelper connect --function -i -t $h -- "	
 		sudoc rm -fr /opt/hashi || exit
 		service restart $product || exit"
 done
 
-# hashi cert copy $product || exit
-# hashi cert status public $product || exit
+if [[ $copyPublic ]]; then
+	hashi cert copy $product || exit
+	hashi cert status public $product --detail || exit
+fi
