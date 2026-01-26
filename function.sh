@@ -1489,7 +1489,7 @@ else
 fi
 
 #
-# File System
+# file system
 #
 
 CanWrite() { [[ -w "$1" ]]; }
@@ -1674,61 +1674,6 @@ FileGetUnc()
 	local source="$(GetWord "$parts" 1)" target="$(GetWord "$parts" 2)"	
 	[[ ! $source || ! $target ]] && return 1
 	echo "${file/$target/$source}"
-}
-
-# FileModeGet FILE - get the octal file mode of a file
-FileModeGet() { ${G}stat -c '%a' "$1"; }
-
-# FileModeConvert MODE|OCTAL - convert to or from octal mode
-FileModeConvert()
-{
-	local scriptName="FileModeConvert"
-	local mode="$1" owner group other
-
-	# arguments
-	[[ ! $mode ]] && { MissingOperand "mode"; return; }
-
-  # octal to mode
- 	if IsInteger "$mode"; then
-	  ! [[ $mode =~ ^[0-7]{3}$ ]] && { ScriptErrQuiet "'$mode' must be three octal digits"; return; }
-	  owner="$(fileModeConvertOctalToRwx "${mode:0:1}")"
-	  group="$(fileModeConvertOctalToRwx "${mode:1:1}")"
-	  other="$(fileModeConvertOctalToRwx "${mode:2:1}")"
-		
-  # mode to octal
-	else
-		# Pattern enforces proper rwx ordering: [r-][w-][x-] for each of owner/group/other
-	  ! [[ $mode =~ ^[r-][w-][x-][r-][w-][x-][r-][w-][x-]$ ]] && { ScriptErrQuiet "'$mode' must match pattern rwxrwxrwx (- to deny permission)" "FileModeConvert"; return; }
-    owner="$(fileModeConvertRwxOctal "${mode:0:3}")"
-    group="$(fileModeConvertRwxOctal "${mode:3:3}")"
-    other="$(fileModeConvertRwxOctal "${mode:6:3}")"
-	fi
-
-	echo "$owner$group$other"
-	return 0
-}
-
-fileModeConvertOctalToRwx() 
-{
-  case $1 in
-      0) echo "---";;
-      1) echo "--x";;
-      2) echo "-w-";;
-      3) echo "-wx";;
-      4) echo "r--";;
-      5) echo "r-x";;
-      6) echo "rw-";;
-      7) echo "rwx";;
-  esac
-}    
-
-fileModeConvertRwxOctal()
-{
-	local mode="$1" value=0
-  [[ ${mode:0:1} == "r" ]] && value=$((value + 4))
-  [[ ${mode:1:1} == "w" ]] && value=$((value + 2))
-  [[ ${mode:2:1} == "x" ]] && value=$((value + 1))
-  echo "$value"
 }
 
 # FileToDesc FILE - short description for the file
@@ -2042,7 +1987,138 @@ SelectFile() # DIR PATTERN MESSAGE
 	popd > /dev/null
 }
 
-# Path Conversion
+# treew DIR - tree wrapper command, usefull if tree is not installed
+treew()
+{
+	local dir="$1"
+	if InPath tree; then
+		tree "$dir" --prune --noreport
+	else
+		${G}find "$dir" -print | sed -e 's;[^/]*/;|____;g;s;____|; |;g'
+	fi
+}
+
+#
+# file attributes / modes
+#
+
+FileHide() { for f in "$@"; do [[ -e "$f" ]] && { attrib "$f" +h || return; }; done; return 0; }
+FileTouchAndHide() { [[ ! -e "$1" ]] && { touch "$1" || return; }; FileHide "$1"; return 0; }
+FileShow() { for f in "$@"; do [[ -e "$f" ]] && { attrib "$f" -h || return; }; done; return 0; }
+FileHideAndSystem() { for f in "$@"; do [[ -e "$f" ]] && { attrib "$f" +h +s || return; }; done; return 0; }
+
+# attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe options must come after the file
+attrib()
+{ 
+	! IsPlatform win && return
+	
+	local f="$1"; shift
+	[[ ! -e "$f" ]] && { EchoErr "attrib: $f: No such file or directory"; return 2; }
+
+	# ensure path is on a Windows drive
+	local path; path="$(GetFilePath "$f")" || return
+	{ [[ ! $path ]] || ! drive IsWin "$path"; } && return
+	
+	# /L flag changes target changed not link from WSL when full path specified
+	# i.e. attrib.exe /l +h 'C:\Users\jjbutare\Documents\data\app\Audacity'
+	( cd "$path"; attrib.exe "$@" "$(GetFileName "$f")" );
+}
+
+# FileModeGet FILE - get the octal file mode of a file
+FileModeGet() { ${G}stat -c '%a' "$1"; }
+
+# FileModeConvert MODE|OCTAL - convert to or from octal mode
+FileModeConvert()
+{
+	local scriptName="FileModeConvert"
+	local mode="$1" owner group other
+
+	# arguments
+	[[ ! $mode ]] && { MissingOperand "mode"; return; }
+
+  # octal to mode
+ 	if IsInteger "$mode"; then
+	  ! [[ $mode =~ ^[0-7]{3}$ ]] && { ScriptErrQuiet "'$mode' must be three octal digits"; return; }
+	  owner="$(fileModeConvertOctalToRwx "${mode:0:1}")"
+	  group="$(fileModeConvertOctalToRwx "${mode:1:1}")"
+	  other="$(fileModeConvertOctalToRwx "${mode:2:1}")"
+		
+  # mode to octal
+	else
+		# Pattern enforces proper rwx ordering: [r-][w-][x-] for each of owner/group/other
+	  ! [[ $mode =~ ^[r-][w-][x-][r-][w-][x-][r-][w-][x-]$ ]] && { ScriptErrQuiet "'$mode' must match pattern rwxrwxrwx (- to deny permission)" "FileModeConvert"; return; }
+    owner="$(fileModeConvertRwxOctal "${mode:0:3}")"
+    group="$(fileModeConvertRwxOctal "${mode:3:3}")"
+    other="$(fileModeConvertRwxOctal "${mode:6:3}")"
+	fi
+
+	echo "$owner$group$other"
+	return 0
+}
+
+fileModeConvertOctalToRwx() 
+{
+  case $1 in
+      0) echo "---";;
+      1) echo "--x";;
+      2) echo "-w-";;
+      3) echo "-wx";;
+      4) echo "r--";;
+      5) echo "r-x";;
+      6) echo "rw-";;
+      7) echo "rwx";;
+  esac
+}    
+
+fileModeConvertRwxOctal()
+{
+	local mode="$1" value=0
+  [[ ${mode:0:1} == "r" ]] && value=$((value + 4))
+  [[ ${mode:1:1} == "w" ]] && value=$((value + 2))
+  [[ ${mode:2:1} == "x" ]] && value=$((value + 1))
+  echo "$value"
+}
+
+#
+# file - compression
+#
+
+UnzipStdin() { unzip -q -c "$1"; }
+ZipStdin() { cat | zip "$1" -; } 		# echo "Test Text" | ZipStdin "test.txt"
+
+# UnzipPlatform - use platform specific unzip to fix unzip errors syncing metadata on Windows drives
+UnzipPlatform()
+{
+	local scriptName="UnzipPlatform" sudo zip dest
+
+	# arguments
+	while (( $# != 0 )); do
+		case "$1" in "") : ;;
+			-s|--sudo) sudo="sudoc";;
+			*)
+				! IsOption "$1" && [[ ! $zip ]] && { zip="$1"; shift; continue; }
+				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
+				UnknownOption "$1"; return
+		esac
+		shift
+	done
+	[[ ! "$zip" ]] && { MissingOperand "zip"; return; }
+	[[ ! "$dest" ]] && { MissingOperand "dest"; return; }
+
+	# unzip
+	if IsPlatform win; then
+		7z.exe x "$(utw "$zip")" -o"$(utw "$dest")" -y -bb3 || return
+	else
+		$sudo unzip -o "$zip" -d "$dest" || return
+	fi
+
+	return 0
+}
+
+#
+# file - path conversion
+#
+
 IsUnixPath() { [[ "$1" =~ '/' ]]; }
 IsZsh && IsWindowsPath() { [[ "$1" =~ '\\' ]]; } || IsWindowsPath() { [[ "$1" =~ '\' ]]; }
 utwq() { utw "$@" | QuoteBackslashes; } # UnixToWinQuoted
@@ -2080,66 +2156,6 @@ utw() # UnixToWin
 	[[ $clean ]] && { rm "$file" || return; }
 	return 0
 } 
-
-# File Attributes
-
-FileHide() { for f in "$@"; do [[ -e "$f" ]] && { attrib "$f" +h || return; }; done; return 0; }
-FileTouchAndHide() { [[ ! -e "$1" ]] && { touch "$1" || return; }; FileHide "$1"; return 0; }
-FileShow() { for f in "$@"; do [[ -e "$f" ]] && { attrib "$f" -h || return; }; done; return 0; }
-FileHideAndSystem() { for f in "$@"; do [[ -e "$f" ]] && { attrib "$f" +h +s || return; }; done; return 0; }
-
-# attrib FILE [OPTIONS] - set Windows file attributes, attrib.exe options must come after the file
-attrib()
-{ 
-	! IsPlatform win && return
-	
-	local f="$1"; shift
-	[[ ! -e "$f" ]] && { EchoErr "attrib: $f: No such file or directory"; return 2; }
-
-	# ensure path is on a Windows drive
-	local path; path="$(GetFilePath "$f")" || return
-	{ [[ ! $path ]] || ! drive IsWin "$path"; } && return
-	
-	# /L flag changes target changed not link from WSL when full path specified
-	# i.e. attrib.exe /l +h 'C:\Users\jjbutare\Documents\data\app\Audacity'
-	( cd "$path"; attrib.exe "$@" "$(GetFileName "$f")" );
-}
-
-#
-# File - Compression
-#
-
-UnzipStdin() { unzip -q -c "$1"; }
-ZipStdin() { cat | zip "$1" -; } 		# echo "Test Text" | ZipStdin "test.txt"
-
-# UnzipPlatform - use platform specific unzip to fix unzip errors syncing metadata on Windows drives
-UnzipPlatform()
-{
-	local scriptName="UnzipPlatform" sudo zip dest
-
-	# arguments
-	while (( $# != 0 )); do
-		case "$1" in "") : ;;
-			-s|--sudo) sudo="sudoc";;
-			*)
-				! IsOption "$1" && [[ ! $zip ]] && { zip="$1"; shift; continue; }
-				! IsOption "$1" && [[ ! $dest ]] && { dest="$1"; shift; continue; }
-				UnknownOption "$1"; return
-		esac
-		shift
-	done
-	[[ ! "$zip" ]] && { MissingOperand "zip"; return; }
-	[[ ! "$dest" ]] && { MissingOperand "dest"; return; }
-
-	# unzip
-	if IsPlatform win; then
-		7z.exe x "$(utw "$zip")" -o"$(utw "$dest")" -y -bb3 || return
-	else
-		$sudo unzip -o "$zip" -d "$dest" || return
-	fi
-
-	return 0
-}
 
 #
 # IFS - internal file separator
