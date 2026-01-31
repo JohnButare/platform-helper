@@ -5,10 +5,10 @@
 #
 
 extensionUsage() { echot "Usage: $(ScriptName) extension dir|download|info|install|IsInstalled|ls\nExtension commands."; }
-extensionArgStart() { AppInstallCheck; }
+extensionArgStart() { AppInstallCheck && extensionDirValidate; }
 extensionCommand() { usage; }
-extensionDirCommand() { [[ -d "$extensionDir" ]] && echo "$extensionDir"; }
-extensionLsCommand() { cat "$profileDir/extensions.json" | jq; }
+extensionDirCommand() { echo "$extensionDir"; }
+extensionLsCommand() { profileDirValidate && cat "$profileDir/extensions.json" | jq; }
 
 extensionDownloadCommand()
 {
@@ -111,7 +111,12 @@ Install the extension.
 	-g, --global 		install the extension for all profiles"; 
 }
 
-extensionInstallArgStart() { destDir="$extensionDirProfile"; AppInstallCheck; }
+# extensionInstallArgStart - expects profileDirValidate to set extensionInstallArgStart
+extensionInstallArgStart()
+{
+	AppInstallCheck && profileDirValidate && destDir="$extensionDirProfile"
+}
+
 extensionInstallArgs() {  ScriptArgGet --required "file" -- "$@" && ScriptCheckFile "$file"; }
 
 extensionInstallOpt()
@@ -144,25 +149,55 @@ extensionInstallCommand()
 # profile helper
 #
 
-# profileDirCreate - create profile dir if it does not exist, sets profileDir
+# profileDirCreate - create profile directory if needed, sets profileDir
 profileDirCreate()
 {
-	[[ -d "$profileDir" ]] && return
+	profileDirInit && [[ -d "$profileDir" ]] && return
 
 	# start Firefox to create the profile directory	
-	startCommand && sleep 2 && profileDirInit && profileDirValidate
+	startCommand && sleep 2 && profileDirValidate
 }
 
 profileDirGet()
 {
-	local p="$configDir/profiles.ini" profileSuffix
-	[[ -f "$p" ]] && profileSuffix="$(cat "$p" | ${G}grep '^Default=Profiles' | ${G}head -1 | cut -d"=" -f2 | RemoveNewline | RemoveCarriageReturn)" && echo "$configDir/$profileSuffix"
+	# locate profiles.ini
+	local p; configDirValidate || return
+	p="$configDir/profiles.ini"
+
+	# validate profiles.ini
+	[[ ! -f "$p" ]] && { ScriptErrQuiet "profiles.ini does not exist in '$(FileToDesc "$p")'"; return; }
+
+	# locate Firefox installations
+	local installs="$(${G}grep '^\[Install' "$p")"
+	local numInstalls="$(echo "$installs" | ${G}wc -l)"
+	log2 "profileDirGet: numInstalls=$numInstalls"
+
+	# 0 installations
+	(( numInstalls == 0 )) && { ScriptErrQuiet "profileDirGet: no Firefox installations found"; return; }
+
+	# more than 1 installation - find the installation hash, for one installation assume that one to avoid a hash lookup
+	if (( numInstalls > 1 )); then
+		! InPath chezmoi && { package chezmoi 1>&2 || return; }
+		local check="$(GetFilePath "$program")"; IsPlatform mac && check="$program/Contents/MacOS"
+		installs="[Install$(RunLog2 chezmoi execute-template '{{ mozillaInstallHash "'$check'" }}')]" || return
+		log2 "profileDirGet: installation hashi for '$(FileToDesc "$check")' is '$installs'"
+	fi
+
+	# find the default profile for our installation, for 1 installation that must be our profile
+	local suffix; suffix="$(${G}grep --fixed-strings --after-context=1 "$installs" "$p" | ${G}grep "^Default=" | ${G}cut -d"=" -f2 | RemoveNewline | RemoveCarriageReturn)"
+	[[ ! $suffix ]] && { ScriptErr "profileDirGet: no default profile installation found for '$installs' in '$(FileToDesc "$p")'"; return; }
+
+	# return the full profile directory
+	echo "$configDir/$suffix"
 }
 
+# profileDirValidate - validate profile directory exists, sets profileDir
 profileDirValidate()
 {
-	[[ -d "$profileDir" ]] && return
-	ScriptErr "the profile directory '$profileDir' does not exist"
+	profileDirInit || return
+	[[ ! $profileDir ]] && { ScriptErr 'could not locate the profile directory'; return; }
+	[[ ! -d "$profileDir" ]] && { ScriptErr "the profile directory '$(FileToDesc "$profileDir")' does not exist"; return; }
+	return 0
 }
 
 # profileExtensionsDo PRODUCT DIR
@@ -193,3 +228,19 @@ ensureClosed() { ! isRunningCommand && return; closeCommand && sleep 2; }
 
 IsFirefox() { [[ "$program" =~ firefox ]]; }
 IsThunderbird() { [[ "$program" =~ thunderbird ]]; }
+
+# configDirValidate - validate configuration directory
+configDirValidate()
+{
+	[[ ! $configDir ]] && { ScriptErr 'could not locate the configuration directory'; return; }
+	[[ ! -d "$configDir" ]] && { ScriptErr "the configuration directory '$(FileToDesc "$configDir")' does not exist"; return; }
+	return 0
+}
+
+# extensionDirValidate - validate configuration directory
+extensionDirValidate()
+{
+	[[ ! $extensionDir ]] && { ScriptErr 'could not locate the extension directory'; return; }
+	[[ ! -d "$extensionDir" ]] && { ScriptErr "the extension directory '$(FileToDesc "$extensionDir")' does not exist"; return; }
+	return 0
+}

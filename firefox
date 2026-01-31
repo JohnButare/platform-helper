@@ -12,7 +12,7 @@ $(ScriptName) commands.
 }
 
 init() { defaultCommand="start"; }
-argStart() { unset -v type; }
+argStart() { type="release"; }
 
 opt()
 {
@@ -26,7 +26,7 @@ opt()
 argEnd()
 {
 	defaultCommand="start"
-	unset program configDir profileDir
+	unset program configDir
 
 	# type
 	local prefix suffix; IsPlatform win && prefix="Mozilla "
@@ -48,7 +48,7 @@ argEnd()
 				'/app/firefox${suffix}' 									# flatpak container
 			)
 			program="$(FindFirst $(ArrayShowEval paths))"
-			[[ ! $program && ! $suffix ]] && suffix="-esr" program="$(FindFirst $(ArrayShowEval paths))"
+			[[ ! $program && ! $suffix ]] && type="esr" suffix="-esr" program="$(FindFirst $(ArrayShowEval paths))"
 			;;
 		mac)
 			program="$P/${prefix}Firefox${suffix}.app"
@@ -62,9 +62,6 @@ argEnd()
 			extensionDir="$(GetFullPath "$configDir/../Extensions/{ec8030f7-c20a-464f-9b0e-13a3a9e97384}")"
 			;;
 	esac
-
-	# other
-	profileDirInit || return
 }
 
 closeCommand() { ! isRunningCommand && return 0; ProcessClose "$program"; } 
@@ -76,7 +73,7 @@ startArgs() { startArgs=( "$@" ); shift="$#"; }
 startCommand() { local startArgs=(); [[ ! $wait ]] && startArgs+=(--no-wait); isInstalledCommand && start "${startArgs[@]}" "$program" "${startArgs[@]}"; }
 startupCommand() { startCommand; }
 varsUsage() { echot "Usage: $(ScriptName) vars\nReturn Firefox configuration variables: program configDir profileDir"; }
-varsCommand() { ScriptReturn "program" "configDir" "profileDir"; }
+varsCommand() { profileDirInit; ScriptReturn "type" "program" "configDir" "profileDir" "profileFile" "extensionDir" "extensionDirProfile"; }
 
 versionCommand()
 {
@@ -97,6 +94,7 @@ bookmarksJsonUsage() { echot "Usage: $(ScriptName) bookmarks json\nReturn the la
 
 bookmarksJsonCommand()
 {
+	profileDirValidate || return
 	local dir="$profileDir/bookmarkbackups"	
 	local file; file="$dir/$(command ls -Art "$dir" | ${G}tail --lines=1)"
 	lz4jsoncat "$file"
@@ -135,15 +133,16 @@ configCommand() { usage; }
 
 configGetArgStart() { unset -v var value; }
 configGetArgs() { ScriptArgGet "variable" -- "$@"; }
-configGetCommand() { configGet "$variable"; }
 
-# configGet VAR - get VAR's value from Firefox configuration (prefs.js)
+configGetCommand() { profileDirValidate && configGet "$variable"; }
+
+# configGet VAR - get VAR's value from Firefox configuration (prefs.js), uses profileFile
 # format: user_pref("VAR", VALUE);
 configGet()
-{	
-	local var="$1" file="$profileFile"; profileDirValidate || return
-
+{		
+	local var="$1" file="$profileFile"
 	local prefix='user_pref("'$var'", '
+
 	log2 "Getting '$var' from '$file'"
 	! qgrep "^${prefix}" "$file" && return
 	${G}grep "^${prefix}" "$file" | ${G}sed 's/^.*,//' | RemoveSpaceFront | ${G}sed 's/).*//'
@@ -153,11 +152,11 @@ configSetArgStart() { unset -v var value; }
 configSetArgs() { ScriptArgGet "variable" -- "$@" && shift && ScriptArgGet "value" -- "$@"; }
 configSetCommand() { profileDirValidate && ensureClosed && configSet "$variable" "$value"; }
 
-# configSet VAR VALUE - set VAR to VALUE in Firefox configuration (prefs.js)
+# configSet VAR VALUE - set VAR to VALUE in Firefox configuration (prefs.js), uses profileFile
 # format: user_pref("VAR", VALUE);
 configSet()
 {	
-	local var="$1" value="$2" file="$profileFile"; profileDirValidate || return
+	local var="$1" value="$2" file="$profileFile"
 	local prefix='user_pref("'$var'", '
 	local value="$prefix$value);"
 
@@ -186,10 +185,10 @@ profileDirUsage() { echot "Usage: $(ScriptName) profile dir [create|exists|show]
 profileDirCommand() { profileDirShowCommand; }
 profileDirCreateUsage() { echot "Usage: $(ScriptName) profile dir create\nCreate the profile directory, which might start Firefox"; }
 profileDirCreateCommand() { profileDirCreate; }
-profileDirExistsCommand() { [[ -d "$profileDir" ]]; }
-profileDirShowCommand() { echo "$profileDir"; }
+profileDirExistsCommand() { [[ -d "$(profileDirGet)" ]]; }
+profileDirShowCommand() { profileDirGet; }
 
-profileEditCommand() { TextEdit "$profileFile"; }
+profileEditCommand() { profileDirValidate && TextEdit "$profileFile"; }
 
 profileRestoreUsage() { echot "Usage: $(ScriptName) profile restore [all|bonjourr|config|extensions|stg](all) [<profile>|default](default)\n$(ScriptName) configuration."; }
 profileRestoreCommand() { profileRestoreAllCommand; }
@@ -232,6 +231,7 @@ profileRestoreConfigCommand()
 	configSet "network.proxy.type" "4" || return # 0=none, 4=Auto-detect proxy settings for this network, 5=Use system proxy settings
 }
 
+# profileDirInit - sets profileDir profileFile extensionDirProfile
 profileDirInit()
 {
 	profileDir="$(profileDirGet)"
