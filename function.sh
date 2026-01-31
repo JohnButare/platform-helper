@@ -1205,9 +1205,7 @@ fi
 ArrayAppend()
 {
 	local removeDups; [[ "$1" == @(-rd|--remove-dups|--remove-duplicates) ]] && { removeDups="true"; shift; }
-	local arrayAppendDest="$1"; shift
-	
-	ArrayAnyCheck "$arrayAppendDest" || return
+	local arrayAppendDest="$1"; shift; ArrayAnyCheck "$arrayAppendDest" || return
 
 	for arrayAppendName in "$@"; do		
 		ArrayAnyCheck "$arrayAppendName" || return		
@@ -1273,6 +1271,16 @@ ArrayShow()
 	printf -v result "$begin%s$end$delimiter" "${arrayShow[@]}"
 	printf "%s\n" "${result%$delimiter}" # remove delimiter from end
 }
+
+# ArrayEval NAME - evaluate contents of an array (resolves embedded variables)
+ArrayEval()
+{
+	local arrayEval="$1"; ArrayAnyCheck "$arrayEval" || return
+	eval "$arrayEval=( $(ArrayShow $arrayEval) )"
+}
+
+# ArrayShowEval NAME - show an array but evaluate each element
+ArrayShowEval() { eval echo "$(ArrayShow "$1")"; }
 
 # ArrayUnion A1 A2 - return the items in common
 ArrayUnion() { FileBoth <(ArrayDelimit "$1" $'\n') <(ArrayDelimit "$2" $'\n'); }
@@ -1811,6 +1819,17 @@ FindAny()
 
 FindDir() { FindAny "$@" -- -type d; }
 FindFile() { FindAny "$@" -- -type f; }
+
+# FindFirst FILE... - return the first file that exists
+FindFirst()
+{
+	local file
+	for file in "$@"; do
+		log1 "check for '$file'" "FindFirst"
+		[[ -f "$file" ]] && { log1 "found '$file'" "FindFirst"; echo "$file"; return; }
+	done
+	return 1
+}
 
 FindInPath()
 {
