@@ -788,7 +788,7 @@ certMakeCa()
 	hilight "Creating the ${product^} certificate authority for $domainBase..."
 
 	# create the cert - name constraint required for HTTPS GUI
-	consul tls ca create -domain="$domainBase" -name-constraint -days 3650|| return # 10 years
+	consul tls ca create -domain="$domainBase" -name-constraint -days 3650 || return # 10 years
 
 	# rename the cert
 	mv "$domainBase-agent-ca.pem" "$ca" || return
@@ -1691,8 +1691,15 @@ consulApiCommand() { consulApi "$path" "${otherArgs[@]}"; }
 # consulApi PATH [ARGS]...
 consulApi()
 {
-	local args=(); IsPlatform mac && args=(--cacert $CONSUL_CACERT)
-	RunLog curl --silent --show-error --header "X-Consul-Token: $CONSUL_HTTP_TOKEN" "${args[@]}" "$CONSUL_HTTP_ADDR/v1/$(RemoveTrim "$1" "/")" "${@:2}"; 
+	local args=(); consulApiArgs || return
+	RunLog curl "${args[@]}" --silent --show-error --header "X-Consul-Token: $CONSUL_HTTP_TOKEN" "${args[@]}" "$CONSUL_HTTP_ADDR/v1/$(RemoveTrim "$1" "/")" "${@:2}"; 
+}
+
+consulApiArgs()
+{
+	# mac requires Subject Alternative Name, which the consul-ca.pem does not have
+	IsPlatform mac && args=(--cacert $CONSUL_CACERT)
+	return 0
 }
 
 consulApiPutCommand() { consulApiPut "$path" "${otherArgs[@]}"; }
@@ -3582,15 +3589,12 @@ resolveOpt()
 
 resolveCommand() { resolvePassingCommand; }
 resolvePassingCommand() { resolve "$name" "$all"; }
-resolveApiCommand() { resolveApi "$name"; }
 resolveNameCommand() { resolveName "$name" "$all" | sort --version-sort; }
 
-resolveApi()
+resolveApiCommand()
 {
-	local name="$1"
 	log1 "using API to resolve the '$name' service"
-	local product="consul"; noToken="true" productInit "$product" || return
-	test="" RunLog curl --silent --show-error "$(productVarGet "ADDR")/v1/catalog/service/$name"
+	resolveApi "$name"
 }
 
 resolveDigCommand()
@@ -3627,6 +3631,14 @@ resolve()
 	else
 		[[ ! $quiet ]] && HostUnresolved "$name"; return 1
 	fi
+}
+
+resolveApi()
+{
+	local name="$1"
+	local product="consul"; noToken="true" productInit "$product" || return
+	local args=(); consulApiArgs || return
+	test="" RunLog curl "${args[@]}" --silent --show-error "$(productVarGet "ADDR")/v1/catalog/service/$name"
 }
 
 resolveDig()
@@ -4505,7 +4517,7 @@ certStoreInstall()
 
 certStoreInstallMac()
 {
-	sudoc security add-trusted-cert -d -r trustRoot -k "/Library/Keychains/System.keychain" "$1"
+	RunLog sudoc security add-trusted-cert -d -r trustRoot -k "/Library/Keychains/System.keychain" "$1"
 }
 
 certStoreInstallDebian()
