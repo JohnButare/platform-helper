@@ -1854,6 +1854,14 @@ FindInPath()
 	return 1
 }
 
+FindInPathAll()
+{
+	local file="$1" dirs=(); StringToArray "$PATH" ":" dirs
+	for dir in "${dirs[@]}"; do
+	  [[ -f "$dir/$file" ]] && echo "$dir/$file"
+	done
+}
+
 # (p)fpc - (platform) full path to clipboard
 fpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; echo "$arg"; clipw "$arg"; }
 pfpc() { local arg; [[ $# == 0 ]] && arg="$PWD" || arg="$(GetRealPath "$1")"; clipw "$(utw "$arg")"; }
@@ -1927,9 +1935,9 @@ PathAdd() # PathAdd [front] DIR...
 	local front; [[ "$1" == "front" ]] && front="true"
 
 	for f in "$@"; do 
-		[[ ! -d "$f" ]] && continue
-		[[ $front ]] && { PATH="$f:${PATH//:$f:/:}"; continue; } # force to front
-		[[ ! $PATH =~ (^|:)$f(:|$) ]] && PATH+=":$f" # add to back if not present
+		[[ ! -d "$f" ]] && continue # dir does not exist
+		[[ $PATH =~ (^|:)$f(:|$) ]] && continue # dir exists in path
+		[[ $front ]] && PATH="$f:${PATH//:$f:/:}" || PATH+=":$f"
 	done
 
 	return 0

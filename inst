@@ -24,7 +24,7 @@ init()
 # Argument Helpers
 #
 
-typeOptInit() { unset -v installType; installTypes="alternate|beta|compile|local|package|store"; }
+typeOptInit() { unset -v installType; installTypes="alternate|beta|compile|local|package|store|win"; }
 typeOptUsage() { echo "-T,  --type=TYPE				$installTypes"; }
 
 typeOptGet()
@@ -927,7 +927,7 @@ installInit()
 	deb+=(LoadBalancer WireGuardServer)
 	macDeb+=(squid)
 	macWin+=(PostgresAdmin)
-	macDebRh+=(DBeaver)
+	macDebRh+=(DBeaver kafka)
 
 	# Shell
 	all+=(bash gum nix zsh)	
@@ -963,9 +963,6 @@ installInit()
 	debRh+=()
 	win+=(UupDump)
 
-	# utility - CLI - text
-	all+=(cowsay figlet fortune fx jq lolcat RichCli)
-
 	# Utility - GUI
 	all+=(wallpaper)
 	deb+=(AutoHotKey BleachBit)
@@ -981,6 +978,9 @@ installInit()
 	mac+=(shottr)
 	macWin+=(greenshot)
 	win+=(snagit)
+
+	# utility - text
+	all+=(cowsay figlet fortune fx jq lolcat RichCli)
 
 	# virtualization
 	deb+=(HypervLinuxTools VmwareLinuxTools)
@@ -1603,7 +1603,7 @@ isInstallable()
 	[[ "$check" =~ ^(ubuntu.*)$ ]] && IsPlatform ubuntu && return
 	[[ "$check" =~ ^(win.*|SqlServer.*)$ ]] && IsPlatform win && return
 	[[ "$check" =~ ^(mongo|node|patroni|postgres|tomcat) && "$check" != "postgresadmin" ]] && IsPlatform deb && return
-	[[ "$check" =~ ^(oraclejdk|openjdk|jdk|jre|zulujdk) ]] && IsPlatform debm,mac && return
+	[[ "$check" =~ ^(jdk|jre) ]] && IsPlatform deb,mac && return
 
 	# platform list checks
 	IsInArray -ci "$check" all && return
@@ -2019,7 +2019,7 @@ runTypeExtension()
  	
  	# run the installation based off the program extension
 	case "$ext" in
-		7z|bz2|gz|tar|xpi|zip|ear|jar|war|xz) InstallAppFromZip $elevate "${globalArgs[@]}" "$p" "$dest" "$@";;
+		7z|bz2|gz|tar|xpi|zip|ear|jar|tgz|war|xz) InstallAppFromZip $elevate "${globalArgs[@]}" "$p" "$dest" "$@";;
 		app) start "$p" "$@";;
 		AppImage) runAppImage "$p" "$name" "$@";;
 		appx|bat|cmd) cmd.exe /c "$(utw "$p")" "$@";;
@@ -5138,7 +5138,7 @@ GoInstall()
 	gccCheck || return
 
 	# platform
-	local version="1.25.1" dest="/usr/local" platform	
+	local version="1.25.7" dest="/usr/local" platform	
 	case "$(uname -m)" in "") : ;;
 		armv7l) platform="linux-armv6l";;
 		aarch64) platform="linux-arm64";;
@@ -8951,7 +8951,7 @@ unifiPackage()
 	fi
 
 	# dependencies
-	jreInstalled || { iq jre17 || return; }
+	version=17 jreCheck || return
 	mongoInstalled || { iq mongo8 || return; }
 
 	# repository
@@ -9270,9 +9270,37 @@ EclipseInstallerInstall()
 
 EclipseFinalWin() { mergeDir "$up/Eclipse" "$udo" && $rm "$ud/Eclipse IDE"*".lnk"; }
 
+javaCheck() { InPath java && return; iq java; }
+
+javaDefaults()
+{
+	[[ ! $vendor ]] && vendor="zulu"
+	[[ ! $version ]] && version="24"
+	return 0
+}
+
 JavaInstall() { i jre; }
 
-JavaFinalWin()
+jreCheck() { InPath java && return; InPath asdf && { iq JreAsdf; return; }; iq jre; }
+Jre25Install() { version=25 JreInstall; }
+Jre24Install() { version=24 JreInstall; }
+Jre17Install() { version=17 JreInstall; }
+
+JreInstall()
+{
+	header "Java Runtime Environment"
+	javaDefaults || return
+	[[ "$installType" == "win" ]] && { run "Oracle/Java/jre/*-x64.exe" || return; }
+	pkg openjdk-$version-jre-headless || return
+}
+
+JreAsdfInstall()
+{
+	header "Java Runtime Environment (asdf)" # https://github.com/halcyon/asdf-java
+	javaDefaults && asdfInstall "java" "$vendor-jre-$version"
+}
+
+JreFinalWin()
 {
 	! canElevate && return
 	mergeDir "$pp/Java" "$oo" || return
@@ -9280,12 +9308,9 @@ JavaFinalWin()
 	registry 64 delete "run/SunJavaUpdateSched" || return
 }
 
-JdkInstall()
-{
-	header "Java Development Kit (Oracle)" # https://www.oracle.com/java/technologies/javase-downloads.html
-	run "Oracle/Java/jdk/jdk-15.0.2_windows-x64_bin.exe|jdk-15.0.2_osx-x64_bin.dmg|jdk-15.0.2_linux-x64_bin.deb" || return
-}
+jdkCheck() { InPath javac && return; InPath asdf && { iq JdkAsdf; return; }; iq jdk; }
 
+JdkInstall() { OpenJdkInstall; }
 JdkFinalWin() { JavaFinalWin; }
 
 JdkAsdf25Install() { version=25 JdkAsdfInstall; }
@@ -9293,78 +9318,67 @@ JdkAsdf24Install() { version=24 JdkAsdfInstall; }
 JdkAsdf17Install() { version=17 JdkAsdfInstall; }
 JdkAsdf11Install() { version=11 JdkAsdfInstall; }
 
-OpenJdkAsdf25Install() { vendor="openjdk" version=25 JdkAsdfInstall; }
-OpenJdkAsdf24Install() { vendor="openjdk" version=24 JdkAsdfInstall; }
-OpenJdkAsdf17Install() { vendor="openjdk" version=17 JdkAsdfInstall; }
-OpenJdkAsdf11Install() { vendor="openjdk" version=11 JdkAsdfInstall; }
+JdkOpenAsdf25Install() { vendor="openjdk" version=25 JdkAsdfInstall; }
+JdkOpenAsdf24Install() { vendor="openjdk" version=24 JdkAsdfInstall; }
+JdkOpenAsdf17Install() { vendor="openjdk" version=17 JdkAsdfInstall; }
+JdkOpenAsdf11Install() { vendor="openjdk" version=11 JdkAsdfInstall; }
 
 OracleJdkAsdf24Install() { vendor="oracle" version=24 JdkAsdfInstall; }
 OracleJdkAsdf17Install() { vendor="oracle" version=17 JdkAsdfInstall; }
 OracleJdkAsdf11Install() { vendor="oracle" version=11 JdkAsdfInstall; }
 
-ZuluJdkAsdf24Install() { vendor="zulu" version=24 JdkAsdfInstall; }
-ZuluJdkAsdf17Install() { vendor="zulu" version=17 JdkAsdfInstall; }
-ZuluJdkAsdf11Install() { vendor="zulu" version=11 JdkAsdfInstall; }
+JdkZuluAsdf24Install() { vendor="zulu" version=24 JdkAsdfInstall; }
+JdkZuluAsdf17Install() { vendor="zulu" version=17 JdkAsdfInstall; }
+JdkZuluAsdf11Install() { vendor="zulu" version=11 JdkAsdfInstall; }
 
 JdkAsdfInstall()
 {
 	header "Java Development Kit (asdf)" # https://github.com/halcyon/asdf-java
-	[[ ! $vendor ]] && local vendor="zulu"
-	[[ ! $version ]] && local version="25"
-
-	# dependencies
-	asdfCheck || return	
-
-	# install plugin
-	! asdf plugin list | sqgrep "java" && { asdf plugin add java || return; }
-
-	# install
-	local v="latest:$vendor-$version"
-	asdf install java "$v" || return
-
-	# set default version if not set
-	! asdf list java | qgrep '*' && { pause hi; asdf set --home java "$v" || return; }
-
-	return 0
+	javaDefaults && asdfInstall "java" "$vendor-$version"
 }
 
-OpenJdk25Install() { version=25 OpenJdkInstall; }
-OpenJdk24Install() { version=24.0.1 OpenJdkInstall; }
-OpenJdk17Install() { version=17.0.2 OpenJdkInstall; }
+JdkOpen25Install() { version=25.0.2 JdkOpenInstall; }
+JdkOpen24Install() { version=24.0.2 JdkOpenInstall; }
+JdkOpen23Install() { version=23 JdkOpenInstall; }
+JdkOpen21Install() { version=21 JdkOpenInstall; }
+JdkOpen17Install() { version=17.0.2 JdkOpenInstall; }
 
-OpenJdkInstall()
+JdkOpenInstall()
 {
 	header "OpenJDK"
 
 	# package
-	if [[ "$installType" == @(package) ]] || [[ ! $version && ! $installType ]]; then
-		run --name "Open Java Development Kit Environment" --package "default-jdk"; return
+	if [[ "$installType" == @(package) ]] || [[ "$installType" != @(local|win) ]]; then
+		jdkOpenPackage
+
+	# local
+	else
+		jdkOpenLocal
+		
 	fi
-
-	# specific version - https://openjdk.org/ https://jdk.java.net
-	[[ ! $version ]] && local version="25"
-	run "shareware/OpenJDK/openjdk-$v_$(getPlatform "windows" "macos" "linux")-$(getArch "x64" "aarch64")_bin.$(getPlatform "zip" "tar.gz" "tar.gz")" || return
 }
 
-jreCheck() { jreInstalled && return; iq jre; }
-jreInstalled() { InPath java; }
-jreDefaultVersion() { [[ $version ]] && return; version="17"; }
-Jre17Install() { version=17 JreInstall; }
-
-JreInstall() { header "Java Runtime Environment" && RunPlatform jre; }
-JreFinalWin() { JavaFinalWin; }
-
-jreDebian()
+jdkOpenLocal()
 {
-	IsPlatform win && return
-	pkg openjdk-17-jre-headless || return
+	[[ ! $version ]] && version="25.0.2" # https://openjdk.org/ https://jdk.java.net
+	run "shareware/OpenJDK/openjdk-$version_$(getPlatform "windows" "macos" "linux")-$(getArch "x64" "aarch64")_bin.$(getPlatform "zip" "tar.gz" "tar.gz")" --no-header || return
 }
 
-jreWin()
+jdkOpenPackage()
 {
-	# http://www.oracle.com/technetwork/java/javase/downloads/index.html
-	# Test: http://www.java.com/en/download/installed.jsp http://java.com/en/download/help/testvm.xml
-	run "Oracle/Java/jre/*-x64.exe" || return
+	[[ ! $version ]] && { version="25"; IsPlatform mac && version="21"; }
+	local v="$(echo "$version" | ${G}cut -d"." -f1)"
+	local package="openjdk-$v-jdk"; IsPlatform mac && package="openjdk@$v"
+	run --package "$package" --no-header && RunFunctionPlatformOs "jdkOpenPackage"
+}
+
+jdkOpenPackageMac()
+{
+	# allow the system Java wrappers (e.g. /usr/bin/java) to find this JDK
+	sudo ln -sfn "$HOMEBREW_PREFIX/opt/openjdk@$version/libexec/openjdk.jdk" "/Library/Java/JavaVirtualMachines/openjdk-$version.jdk" || return
+	
+	# make links in $HOMEBREW_PREFIX/bin
+	brew link "$package" || return
 }
 
 KeyStoreExplorerInstall()
@@ -10197,8 +10211,6 @@ AptUtilitiesInstall() # 70MB
 	sudoc apt-file update || return
 }
 
-asdfCheck() { InPath asdf && return; iq asdf; }
-
 AsdfInstall()
 {
 	header "asdf" # https://asdf-vm.com/
@@ -10215,7 +10227,40 @@ AsdfInstall()
 	[[ -f "$UBIN/.asdfrc" ]] && { MakeLink --symbolic --hide "$UBIN/.asdfrc" "$HOME/.asdfrc" || return; }
 
 	# initialize
-	. "$HOME/.asdf/asdf.sh" || return
+	export ASDF_DATA_DIR="$HOME/.asdf"
+	PathAdd front "$ASDF_DATA_DIR/shims"
+
+	# completion
+	${G}mkdir --parents "$ASDF_DATA_DIR/completions"
+	asdf completion zsh > "$ASDF_DATA_DIR/completions/_asdf" || return
+}
+
+asdfCheck() { InPath asdf && return; iq asdf; }
+
+# asdfPluginCheck PLUGIN - install plugin if not installed
+asdfPluginCheck()
+{
+	local plugin="$1"
+	asdf plugin list | sqgrep "^${plugin}$" && asdf plugin add "$plugin"
+}
+
+# asdfInstall PLUGIN VERSION - install version of a plugin
+# - install the latest version specified by version, e.g. if version is zulu-24, then zulu-24.32.13 is installed
+# - if a default version is not set, set it to the installed version
+asdfInstall()
+{
+	local plugin="$1" version="$2"
+
+	# install plugin
+	asdfPluginCheck "$plugin" || return
+
+	# install version
+	asdf install "$plugin" "latest:$version" || return
+
+	# set default version if not set
+	! asdf list java | qgrep '*' && { asdf set --home java "latest:$version" || return; }
+
+	return 0
 }
 
 ChocolateyInstall()
@@ -11218,7 +11263,7 @@ CronLogInstall()
 # Server
 #################################################
 
-ServerAllInstall() { i ServerCore ApacheAll FileServer GitServer guacamole LoadBalancer MongoDB NginxAll PostgresAll squid WireGuardServer; }
+ServerAllInstall() { i ServerCore ApacheAll FileServer GitServer guacamole kafka LoadBalancer MongoDB NginxAll PostgresAll squid WireGuardServer; }
 LoadBalancerInstall() { i ConsulTemplateService keepalived nginx && nomadRegisterApp "lb"; }
 WireGuardServerInstall() { i PiVPN && nomadRegisterApp "wire-guard" "wg-quick@wg0"; }
 
@@ -11363,6 +11408,14 @@ GuacamoleInstall()
 
 	makeDir --sudo "$SRV/guacamole" || return
 	nomadRegisterApp "guacamole" || return
+}
+
+KafkaInstall()
+{
+	header "Kafka"
+	version="24" jdkCheck || return
+	local v="2.13-4.1.1" # https://kafka.apache.org/community/downloads/
+	run "shareware/Kafka/image/kafka_$v.tgz" --dest="/opt" --no-header || return
 }
 
 mongoCheck() { mongoInstalled && return; iq Mongo; }
