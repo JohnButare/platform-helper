@@ -267,6 +267,7 @@ UserHome()
 #
 
 IsiTerm() { [[ "$LC_TERMINAL" == "iTerm2" ]]; }
+IsLocalDev() { InPath asdf; } # IsLocalDev - true if the system is used for local development 
 IsWarp() { [[ "$TERM_PROGRAM" == "WarpTerminal" ]]; }
 IsVisualStudioCode() { [[ "$TERM_PROGRAM" == "vscode" ]]; }
 ! IsDefined sponge && alias sponge='cat'
