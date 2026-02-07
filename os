@@ -381,7 +381,7 @@ nameSetCommand() # 0=name changed, 1=name unchanged, 2=error
 	fi
 
 	# prompt for the name
-	[[ ! $name ]] && { read -p "Enter new hostname (current $hostname: " name; }
+	[[ ! $name ]] && { read -p "Enter new hostname (currently '$hostname'): " name; }
 
 	# return if the name is not changed
 	[[ ! $name || "$name" == "$hostname" ]] && return 1 # 1=name unchanged
