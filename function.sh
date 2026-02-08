@@ -574,7 +574,7 @@ DotNetConf()
 	# initialize
 	PathAdd "$DOTNET_ROOT"
 	export DOTNET="$DOTNET_ROOT/dotnet"
-	IsPlatform win && { export DOTNET="$DOTNET.exe"; alias dotnet="dotnet.exe"; }
+	IsPlatform win && { export DOTNET="$DOTNET.exe"; alias dotnetw="dotnet.exe"; }
 	
 	DOTNET_CHECKED="true"
 }
