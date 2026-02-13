@@ -1568,6 +1568,7 @@ iPortion()
 	local portion="$1"
 	local -n no="no${portion^}"; [[ $no ]] && return 			# return if the --no-PORTION option was used
 	local noHeader="$noHeaderArg" noPrompt="$noPromptArg" # don't run as prefix, interferes with local variables later
+	log2 "iPortion: running application '$app' portion '$portion'"
 	RunFunction "${app}${portion}" || return 							# run the portion
 	noHeader="$noHeaderArg" noPrompt="$noPromptArg" RunPlatform "${app}${portion}"; # run the platform specific portion
 }
@@ -8978,7 +8979,7 @@ unifiPackage()
 	pkg unifi && unifiFinal
 }
 
-unifiFinal()
+UnifiFinal()
 {
 	if nomadRegisterAppCheck; then
 		nomadRegisterApp "unifi" "unifi"
@@ -9279,8 +9280,16 @@ EclipseFinalWin() { mergeDir "$up/Eclipse" "$udo" && $rm "$ud/Eclipse IDE"*".lnk
 
 javaDefaults()
 {
+	local package; [[ "$1" == "package" ]] && package="true"
+
 	[[ ! $vendor ]] && vendor="zulu"
-	[[ ! $version ]] && version="24"
+
+	if [[ ! $version ]]; then
+		[[ $package ]] && IsPlatform mac && { version="21"; return; }
+		version="25.0.2" vZulu=25.32.21
+		vMajor="$(echo "$version" | ${G}cut -d"." -f1)"
+	fi
+
 	return 0
 }
 
@@ -9289,7 +9298,7 @@ JavaInstall() { i jre; }
 
 jreCheck() { InPath java && return; iqd jre JreAsdf; }
 Jre25Install() { version=25 JreInstall; }
-Jre24Install() { version=24 JreInstall; }
+Jre21Install() { version=21 JreInstall; }
 Jre17Install() { version=17 JreInstall; }
 
 JreInstall()
@@ -9303,7 +9312,7 @@ JreInstall()
 JreAsdfInstall()
 {
 	header "Java Runtime Environment (asdf)" # https://github.com/halcyon/asdf-java
-	javaDefaults && asdfInstallPlugin "java" "$vendor-jre-$version"
+	javaDefaults && asdfInstallPlugin "java" "$vendor-jre-$vMajor" # use the major version to get the latest major version
 }
 
 JreFinalWin()
@@ -9315,7 +9324,7 @@ JreFinalWin()
 }
 
 jdkCheck() { InPath javac && return; iqd jdk JdkAsdf; }
-JdkInstall() { JdkOpenInstall; }
+JdkInstall() { JdkZuluInstall; }
 JdkFinalWin() { JavaFinalWin; }
 
 JdkAsdf25Install() { version=25 JdkAsdfInstall; }
@@ -9343,14 +9352,12 @@ JdkZuluAsdf11Install() { vendor="zulu" version=11 JdkAsdfInstall; }
 JdkAsdfInstall()
 {
 	header "Java Development Kit (asdf)" # https://github.com/halcyon/asdf-java
-	javaDefaults && asdfInstallPlugin "java" "$vendor-$version"
+	javaDefaults && asdfInstallPlugin "java" "$vendor-$vMajor" # use the major version to get the latest major version
 }
 
 JdkOpen25Install() { version=25.0.2 JdkOpenInstall; }
-JdkOpen24Install() { version=24.0.2 JdkOpenInstall; }
-JdkOpen23Install() { version=23 JdkOpenInstall; }
-JdkOpen21Install() { version=21 JdkOpenInstall; }
-JdkOpen17Install() { version=17.0.2 JdkOpenInstall; }
+JdkOpen21Install() { version=21.0.10 JdkOpenInstall; }
+JdkOpen17Install() { version=17.0.18 JdkOpenInstall; }
 
 JdkOpenInstall()
 {
@@ -9375,9 +9382,8 @@ jdkOpenLocal()
 
 jdkOpenPackage()
 {
-	[[ ! $version ]] && { version="25"; IsPlatform mac && version="21"; }
-	local v="$(echo "$version" | ${G}cut -d"." -f1)"
-	local package="openjdk-$v-jdk"; IsPlatform mac && package="openjdk@$v"
+	javaDefaults "package" || return
+	local package="openjdk-$vMajor-jdk"; IsPlatform mac && package="openjdk@$vMajor"
 	run --package "$package" --no-header && RunPlatformOs "jdkOpenPackage"
 }
 
@@ -9388,6 +9394,17 @@ jdkOpenPackageMac()
 	
 	# make links in $HOMEBREW_PREFIX/bin
 	brew link "$package" || return
+}
+
+JdkZulu25Install() { version=25.0.2 vZulu=25.32.21 JdkZuluInstall; }
+JdkZulu21Install() { version=21.0.10 vZulu=21.48.17 JdkZuluInstall; }
+JdkZulu16Install() { version=17.0.18 vZulu=17.64.17 JdkZuluInstall; }
+
+JdkZuluInstall()
+{
+	header "Zulu JDK"
+	javaDefaults || return
+	pause run "shareware/Azul/Zulu/zulu$vZulu-ca-jdk$version-linux$(getExt "_amd64" ".x86_64").$(getExt "deb" "rpm")" --no-header || return # https://www.azul.com/downloads/?version=java-21-lts&package=jdk#zulu
 }
 
 KeyStoreExplorerInstall()
@@ -11444,14 +11461,26 @@ KafkaInstall()
 	header "Kafka"
 
 	# dependencies
-	version="24" jdkCheck || return
+	jdkCheck || return
 
 	# install
-	local dest="/opt/kafka" v="2.13-4.1.1" # https://kafka.apache.org/community/downloads/	
-	run "shareware/Kafka/image/kafka_$v.tgz" --dest="$dest" --no-header || return
+	local dest="/opt/kafka" vScala="2.13" v="4.1.1" # https://kafka.apache.org/community/downloads/	
+	run --name "Kafka" "shareware/Kafka/image/kafka_$vScala-$v.tgz" --dest="$dest" --version="$v" --no-header || return
 
 	# configure
-	IsLocalDev && { sudoc chown -R "$USER" "$dest" || return; }
+	if IsLocalDev; then
+
+		# ownership by developer
+		sudoc chown -R "$USER" "$dest" || return
+
+		# asdf tool versions
+		local file="$dest/.tool-versions"
+		if [[ ! -f "$file" || $force ]]; then
+		 	touch "$file" || return
+		 	( cd "$dest" && asdf set java "latest:zulu-25"; ) || return # assume latest LTS Zulu JDK
+		fi
+
+	fi
 
 	return 0
 }
@@ -14345,7 +14374,7 @@ PodmanDownload()
 }
 
 podmanDir() { echo "shareware/podman/setup"; }
-podmanVersion() { curl --silent "https://github.com/containers/podman/releases" | ${G}grep "/podman/tree" | shead -1 | sed 's/.*tree\/v//' | cut -d'"' -f1; }
+podmanVersion() { curl --silent "https://github.com/containers/podman/releases" | ${G}grep "/podman/tree" | ${G}grep -v "\-rc" | shead -1 | sed 's/.*tree\/v//' | cut -d'"' -f1; }
 
 PodmanDesktopInstall()
 {
