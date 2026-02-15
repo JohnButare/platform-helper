@@ -419,7 +419,8 @@ AppVersion()
 	# validation
 	[[ ! $version ]] && { ScriptErrQuiet "application '$appOrig' version was not found"; return 1; }	
 	[[ ! $allowAlpha ]] && ! IsNumeric "$version" && { ScriptErrQuiet "application '$appOrig' version '$version' is not numeric"; return 1; }
-	UpdateSet "$appCache" "$version" && echo "$version"
+	[[ $cache ]] && UpdateSet "$appCache" "$version"
+	echo "$version"
 }
 
 appNotInstalled() { ScriptErrQuiet "application '$1' is not installed" "AppVersion"; }
