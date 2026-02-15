@@ -1602,7 +1602,7 @@ explore()
 		local d="$(utw "$dir")"
 		if InPath "files-preview.exe"; then start --no-wait files-preview.exe "$d"
 		elif InPath "files-stable.exe"; then start --no-wait files-stable.exe "$d"
-		else RunWin cmd.exe /c start "$d"
+		else RunWin explorer.exe "$d"
 		fi
 		return
 	fi
