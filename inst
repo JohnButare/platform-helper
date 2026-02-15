@@ -1228,7 +1228,7 @@ download()
 	RunLog curl --location "$url" --output "$file" && echo
  }
 
-downloadHeader() { [[ $groupDownload ]] && return; header "${1} Download"; }
+downloadHeader() { [[ $groupDownload ]] && return; header "${1^} Download"; }
 downloadFooter() { [[ $groupDownload || ! $downloaded ]] && return; echo "${1^} download complete"; }
 
 # downloadDone APP VERSION [PLATFORM] - record version for a completed download
@@ -6143,7 +6143,8 @@ DymoInstall()
 {
 	local v; v="$(versionGetCurrent "dymo" "$PLATFORM_OS")" || return # https://www.dymo.com/dymo-compatibility-chart.html
 	IsPlatform win && { i DotNetDesktopRuntime8  --no-header || return; }
-	run --name "Dymo" "$(dymoDir)/DCDSetup$v.exe|DCDMac$v.pkg" --version=$v --elevate || return
+	local arch="$(getArch "X64" "Arm64")"
+	run --name "Dymo" "$(dymoDir)/DCDSetup$v-$arch.exe|DCDMac$v-$arch.pkg" --version=$v --elevate || return
 } 
 
 DymoInstallHelp()
@@ -6188,14 +6189,15 @@ DymoFinalWin()
 DymoDownload()
 {
 	local app="dymo" downloaded groupDownload="true"; groupDownload="" downloadHeader "$app"
-	local item items=("mac:Mac/DCDMac:pkg" "win:Win/DCDSetup:exe")
+	local item items=("mac:DCDMAC/DCDMac:-Arm64.pkg" "mac:DCDMAC/DCDMac:-X64.pkg" "win:DCDWIN/DCDSetup:-Arm64.exe" "win:DCDWIN/DCDSetup:-X64.exe")
+	local dymoVersions; dymoVersions="$(dymoVersionCommon)" || return # cache version
 
 	for item in "${items[@]}"; do
 		StringToArray "$item" ":" item
 		local platform="${item[0]}" url="${item[1]}" ext="${item[2]}"
 		local v; v="$(versionGetCurrent "$app" "$platform")" || return
 		local r; downloadStart "$app" "$platform"; r=$?; ((r==1)) && continue; ((r==2)) && return 1
-		downloaded="true"; download "https://download.dymo.com/dymo/Software/$url$v.$ext" "$(dymoDir)" "" "application/vnd.apple.installer+xml\|application/octet-stream\|binary/octet-stream" || return
+		downloaded="true"; download "https://dymoreleasecontent.blob.core.windows.net/dymo-release/$url$v$ext" "$(dymoDir)" "" "application/vnd.apple.installer+xml\|application/octet-stream\|binary/octet-stream\|application/x-msdownload" || return
 		downloadDone "$app" "$v" "$platform" || return
 	done
 
@@ -6203,15 +6205,39 @@ DymoDownload()
 }
 
 dymoDir() { echo "hardware/DYMO"; }
+dymoVersionMac() { dymoVersionCommon | jq '.["DYMO Products"]["LabelWriter 450 Turbo"]["macOS"]["macOS Tahoe"]["url_s"] | to_entries | .[-1].value' | RemoveQuotes | ${G}sed 's/.*DCDMac//' | ${G}cut -d'-' -f1; }
+dymoVersionWin() { dymoVersionCommon | jq '.["DYMO Products"]["LabelWriter 450 Turbo"]["Windows"]["Windows 11"]["url_s"] | to_entries | .[-1].value' | RemoveQuotes | ${G}sed 's/.*DCDSetup//' | ${G}cut -d'-' -f1; }
 
-# dymoVersion - https://www.dymo.com/support?cfid=user-guide
-# - assume currently installed or downloaded version is current
-# - B - blocked by CloudFlare, ZenRows gets the version
-# 	platform="$(echo "win" | UpperCaseFirst)" # mac|win
-# 	v="$(curl --silent "https://api.zenrows.com/v1/?apikey=91c9352080064fc1d83cfe2bd90d10dad56bfac9&url=https%3A%2F%2Fwww.dymo.com%2Fsupport%3Fcfid%3Duser-guide" \
-#			| grep "download.dymo.com" | grep "$platform" | head -1 | sed 's/.*DCD//' | sed 's/Mac\|Setup//' | cut -d"." -f1-4)"
-dymoVersionMac() { echo "1.5.1.15"; }
-dymoVersionWin() { echo "1.5.1.20"; }
+# dymoVersion - https://www.dymo.com/dymo-compatibility-chart.html https://www.dymo.com/support?cfid=user-guide (requires Puppeteer, blocked by CloudFlare challenge)
+dymoVersionCommon()
+{
+	# variable
+	[[ $dymoVersions ]] && { echo "$dymoVersions"; return; }
+
+	# local cache
+	local cache="install-dymo-versions"
+	force="$forceLess" UpdateGet "$cache" && { log3 "got Dymo versions form the local cache"; return; }
+
+	# network cache
+	appCd "$app" || retun
+	local track="$PWD/.$cache"
+	local scraper="$CODE/dymo-downloader/dymo-scraper.js"
+	local update; UpdateNeeded "$track" && update="true"
+	{ [[ ! $update ]] || [[ ! -f "$scraper" && -f "$track" ]]; } && { log3 "got Dymo versions form the network cache"; UpdateGetForce "$track"; return; }
+
+	# cannot get versions
+	[[ ! -f "$scraper" ]] && { ScriptErr "cannot get 'Dymo' versions (cannot find scraper '$(FileToDesc "$scraper")')"; return; }
+
+	# use scraper to get the version
+	dymoVersions="$(node "$scraper" | awk '
+		/<script>/{flag=1}
+		flag && /var userObject/{found=1}
+		found && /<\/script>/{exit}
+		found && /{/{start=1} start{print}')" || return
+	
+	# save and return
+	echo "$dymoVersions" > "$track" && UpdateSet "$cache" "$dymoVersions" && echo "$dymoVersions"
+}
 
 EpsonScanInstall()
 {
