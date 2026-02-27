@@ -698,7 +698,9 @@ install commands.
 		shift
 	done
 	local globalArgs globalArgsLess globalArgsLessForce globalArgsLessVerbose; ScriptGlobalArgsSet || return
+	[[ "$(NetworkCurrent)" == @(external) ]] && noFind="--no-find"
 
+	# command
 	case "$(LowerCase "${command:-cd}")" in
 		bak) InstBak;;
 		cd) InstFind && cd "$INSTALL_DIR";;
