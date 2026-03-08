@@ -61,7 +61,7 @@ noProxyRemote=".releases.ubuntu.com,.internal,.local"
 
 # butare network
 butareUser="jjbutare"
-butareBinUnc="//shrike.butare.net/root/usr/local/data/bin"
+butareBinUnc="//file.butare.net/root/usr/local/data/bin" # mac (ender, shrike) has intermittant errors on bootstrap from Windows
 butareBootstrapCloudDir=""
 butareInstallUnc="//shrike.butare.net/public/install"
 butareNetworkPrefix="2606:a300:9024:308"
