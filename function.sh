@@ -477,6 +477,19 @@ AppToCli()
 	esac
 }
 
+# asdf
+AsdfConf()
+{
+	local force forceLevel forceLess; ScriptOptForce "$@"
+	[[ ! $force && $ASDF_CHECKED ]] && return
+	! InPath asdf && return
+
+	[[ ! $ASDF_PATH ]] && export ASDF_DATA_DIR="$HOME/.asdf"
+	IsPlatform mac && [[ ! $ASDF_DIR || $force ]] && { SourceIfExists "$(brew --prefix asdf)/libexec/asdf.sh" || return; }
+	PathAdd front "$ASDF_DATA_DIR/shims" || return
+	ASDF_CHECKED="true"
+}
+
 browser()
 {
 	echo "Opening $@..."
@@ -575,8 +588,7 @@ DotNetConf()
 	# initialize
 	PathAdd "$DOTNET_ROOT"
 	export DOTNET="$DOTNET_ROOT/dotnet"
-	IsPlatform win && { export DOTNET="$DOTNET.exe"; alias dotnetw="dotnet.exe"; }
-	
+	IsPlatform win && { export DOTNET="$DOTNET.exe"; alias dotnetw="dotnet.exe"; }	
 	DOTNET_CHECKED="true"
 }
 
@@ -725,7 +737,6 @@ McflyConf()
 {
 	local force forceLevel forceLess; ScriptOptForce "$@"	
 	[[ ! $force && $MCFLY_CHECKED ]] && return	
-
 	{ ! InPath mcfly || [[ "$TERM_PROGRAM" == @(vscode|WarpTerminal) ]]; } && return
 
 	export MCFLY_HISTFILE="$HISTFILE" MCFLY_RESULTS="50" MCFLY_DELETE_WITHOUT_CONFIRM="true" MCFLY_INTERFACE_VIEW="BOTTOM" MCFLY_RESULTS_SORT="LAST_RUN" MCFLY_PROMPT="❯"
