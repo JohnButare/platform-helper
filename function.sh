@@ -752,35 +752,77 @@ NodeConf()
 {
 	local force forceLevel forceLess; ScriptOptForce "$@"
 
+	# configure
 	if [[ $force || ! $NODE_CHECKED ]]; then
-
-		if [[ -d "$HOME/.nvm" ]]; then
-			export NVM_DIR="$HOME/.nvm"
-			SourceIfExists "$NVM_DIR/nvm.sh" || return
-			SourceIfExists "$NVM_DIR/bash_completion" || return
-		fi
-
+		NODE_VERSION_MANAGER="$(NodeVersionManager)" && { RunFunction NodeConf${NODE_VERSION_MANAGER} "$@" || return; }
 		NODE_CHECKED="true"
 	fi
 
 	# configure virtual environments
-	if [[ -f ".nvmrc" ]] && [[ -d "$HOME/.nvm" ]]; then
+	[[ ! $NODE_VERSION_MANAGER ]] && return
+	RunFunction NodeConfEnv${NODE_VERSION_MANAGER}
+}
+
+NodeConfNvm()
+{
+	[[ ! -d "$HOME/.nvm" ]] && return
+	export NVM_DIR="$HOME/.nvm" && SourceIfExists "$NVM_DIR/nvm.sh" && SourceIfExists "$NVM_DIR/bash_completion"
+}
+
+NodeConfEnvNvm()
+{
+	if [[ -f ".nvmrc" && -d "$HOME/.nvm" ]]; then
 		export NVM_CURRENT="$(nvm current)"
 		nvm use --silent || { nvm use; return; }
 	elif [[ $NVM_CURRENT ]]; then
 		nvm use --silent "$NVM_CURRENT" || return
 		unset NVM_CURRENT
 	fi
-
-	return 0
 }
 
-# NodeNpmGlobal - run npm --global with sudo if needed
-# - assume we do not need sudo if the global prefix is in the users home directory (if using a version manager such as asdf, nvm, or n)
+# NodeNpmGlobal - install an npm package in the current Node.js global node_modules
+# - assume we do not need sudo for mac (do not use sudo for Homebrew) or if the global prefix is in the users home directory (if using a version manager such as asdf, nvm, or n)
 NodeNpmGlobal()
 {
 	local sudo="sudoc"; { IsPlatform mac || npm --global prefix | qgrep "^$HOME"; } && sudo=""; 
 	$sudo npm --global "$@"
+}
+
+# NodeNpmSystem - install an npm package in the systems global node_modules
+# - assume we do not need sudo for mac (do not use sudo for Homebrew)
+NodeNpmSystem() { local nvm; nvm="$(NodeVersionManager)" && { NodeNpmSystem${nvm} "$@"; return; }; NodeNpmGlobal "$@"; }
+
+NodeNpmSystemAsdf()
+{
+	IsPlatform mac && { ASDF_NODEJS_VERSION=system asdf exec npm --global "$@"; return; }
+	sudoc npm --global "$@"
+}
+
+NodeNpmSystemNvm()
+{
+	local sudo=""; ! IsPlatform mac && { sudo="sudo"; sudov || return; }
+	nvm exec --silent system $sudo npm --global "$@"
+}
+
+# NodeSystem - run the system node if installed, otherwise return an error
+NodeSystem() { local nvm; nvm="$(NodeVersionManager)" && { NodeSystem${nvm} "$@"; return; }; node "$@"; }
+NodeSystemAsdf() { ASDF_NODEJS_VERSION="system" asdf exec node "$@"; }
+NodeSystemNvm() { nvm exec system "$@"; }
+
+# NodeSystemPath - return the path to the system node if installed, otherwise return an error
+NodeSystemPath() { local nvm; nvm="$(NodeVersionManager)" && { NodeSystemPath${nvm}; return; }; which node; }
+NodeSystemPathAsdf() { ASDF_NODEJS_VERSION="system" asdf env node which node; }
+NodeSystemPathNvm() { nvm exec system which node; }
+
+# NodeVersionManager - return the node version manager if installed (asdf, nvm, or n), otherwise return an error
+NodeVersionManager()
+{
+	if [[ ! $force && $NODE_CHECKED ]]; then { [[ $NODE_VERSION_MANAGER ]] && echo "$NODE_VERSION_MANAGER"; return; }
+	elif AsdfPluginCheck "nodejs"; then echo "Asdf"
+	elif IsFunction "nvm"; then echo "Nvm"
+	elif InPath "n"; then echo "N"
+	else return 1			
+	fi
 }
 
 NodeUpdate()
