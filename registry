@@ -17,7 +17,7 @@ usage: registry [32|64](64) COMMAND
   IsKey KEY											check if key is a registry key
   reg			 											run 32 or 64 bit version of reg.exe
   register|unregister FILE 			register or unregister the registry entries in a DLL											
-  set KEY [TYPE](REG_SZ) DATA
+  set VALUE [TYPE](REG_SZ) DATA	set a registry value
 
 	-t,  --timeout								the time to wait for an elevated script to run in seconds, defaults to $timeout s"
 	exit $1
@@ -74,6 +74,10 @@ registerCommand() { RunScript --elevate $timeoutArg "${globalArgsLessVerbose[@]}
 unregisterArgs() { ScriptArgGet --required "file" -- "$@" && ScriptCheckFile "$file"; }
 unregisterCommand() { RunScript --elevate $timeoutArg "${globalArgsLessVerbose[@]}" -- regsvr32.exe /s /u \"$(utw "$file")\"; }
 
+#
+# delete command
+#
+
 deleteArgs() { getKeyValueArg "$@"; }
 
 deleteCommand()
@@ -82,6 +86,10 @@ deleteCommand()
 	elevationNeeded && { RunScript --elevate $timeoutArg "${globalArgsLessVerbose[@]}" -- registry "${originalArgs[@]}"; return; }
 	"$reg" delete "$wkey" "${value[@]}" /f >& /dev/null
 }
+
+#
+# edit command
+#
 
 editArgs() { getKeyArg "$@"; }
 
@@ -92,8 +100,16 @@ editCommand()
 	start --elevate regjump.exe "$wkey"
 }
 
+#
+# exist command
+#
+
 existArgs() { getKeyValueArg "$@"; }
 existCommand() { "$reg" query "$wkey" "${value[@]}" >& /dev/null; }
+
+#
+# export command
+#
 
 exportArgs() { getKeyArg "$@" && shift && ScriptArgGet "file" -- "$@"; }
 
@@ -102,6 +118,10 @@ exportCommand()
 	elevationNeeded && { RunScript --elevate $timeoutArg "${globalArgsLessVerbose[@]}" -- registry "${originalArgs[@]}"; return; }
 	"$program" /e "$(utw "$file")" "$wkey"
 }
+
+#
+# get command
+#
 
 getArgs() { getKeyValueArg "$@"; }
 
@@ -115,6 +135,10 @@ getCommand()
 	fi
 }
 
+#
+# IsKey command
+#
+
 isKeyArgs() { ScriptArgGet "key" -- "$@"; }
 
 isKeyCommand()
@@ -124,6 +148,10 @@ isKeyCommand()
 	[[ $key ]] && IsInArray "$key" validPrefixes
 }
 
+#
+# import command
+#
+
 importArgs() { ScriptArgGet --required "file" -- "$@" && ScriptCheckFile "$file"; }
 
 importCommand()
@@ -132,7 +160,29 @@ importCommand()
 	"$program" /s "$(utw "$file")"
 }
 
-setArgStart() { unset -v dataType; data=(); }
+#
+# set command
+#
+
+setUsage()
+{
+	ScriptUsageEcho "\
+Usage: $(ScriptName) set KEY [TYPE](REG_SZ) DATA
+Set a registry key.
+
+	-c, --choice			set keys protected by the UserChoice Protection Driver, such as HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/Advanced/TaskbarDa"
+}
+
+setArgStart() { local choice; unset -v dataType; data=(); }
+
+setOpt() 
+{
+	case "$1" in
+		--choice|-c) choice="--choice";;
+		*) return 1
+	esac
+}
+
 setArgs()
 {
 	# key
@@ -152,7 +202,20 @@ setArgs()
 setCommand()
 {
 	elevationNeeded && { RunScript --elevate $timeoutArg "${globalArgsLessVerbose[@]}" -- registry "${originalArgs[@]}"; return; }
-	"$reg" add "$wkey" "${value[@]}" "${dataType[@]}" /f "${data[@]}" #2>&1 
+	
+	# rename reg.exe to set values protected by the UserChoice Protection Driver
+	local r="$reg"
+	if [[ $choice ]]; then
+		local r; r="$(mktemp --tmpdir="$(PlatformTmp)" --suffix ".exe")" || return
+		cp "$reg" "$r" || return
+	fi
+
+	# set the value
+	"$r" add "$wkey" "${value[@]}" "${dataType[@]}" /f "${data[@]}" #2>&1 
+
+	# cleanup
+	[[ $choice ]] && rm -f "$r"
+	return 0
 }
 
 #
