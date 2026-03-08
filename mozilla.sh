@@ -177,9 +177,22 @@ profileDirGet()
 
 	# more than 1 installation - find the installation hash, for one installation assume that one to avoid a hash lookup
 	if (( numInstalls > 1 )); then
-		! InPath chezmoi && { package chezmoi 1>&2 || return; }
-		local check="$(GetFilePath "$program")"; IsPlatform mac && check="$program/Contents/MacOS"
-		installs="[Install$(RunLog2 chezmoi execute-template '{{ mozillaInstallHash "'$check'" }}')]" || return
+		local installHash check="$(GetFilePath "$program" | utw)"
+
+		# get install hash
+		if IsPlatform win; then
+			installHash="$(RunLog2 registry get "HKEY_CURRENT_USER/Software/Mozilla/Firefox/TaskBarIDs/$check")"
+		else
+			! InPath chezmoi && { inst install chezmoi --no-prompt 1>&2 || return; }
+			IsPlatform mac && check="$program/Contents/MacOS"
+			installHash="$(RunLog2 chezmoi execute-template '{{ mozillaInstallHash "$check" }}')"
+		fi
+
+		# validate install hash
+		[[ ! $installHash ]] && { ScriptErr "profileDirGet: unable to get the install hashi for '$(FileToDesc "$check")'"; return; }
+
+		# set installs - the header to check for in profile.ini
+		installs="[Install$installHash]"
 		log2 "profileDirGet: installation hashi for '$(FileToDesc "$check")' is '$installs'"
 	fi
 
