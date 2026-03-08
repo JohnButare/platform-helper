@@ -490,6 +490,8 @@ AsdfConf()
 	ASDF_CHECKED="true"
 }
 
+AsdfPluginCheck() { InPath asdf && asdf plugin list |& sqgrep "^${1}$"; }
+
 browser()
 {
 	echo "Opening $@..."
