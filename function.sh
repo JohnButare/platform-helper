@@ -762,7 +762,8 @@ NodeConf()
 	return 0
 }
 
-# NodeNpmGlobal - run npm --global with sudo if needed, assume we do not need sudo if the global prefix is in the users home directory
+# NodeNpmGlobal - run npm --global with sudo if needed
+# - assume we do not need sudo if the global prefix is in the users home directory (if using a version manager such as asdf, nvm, or n)
 NodeNpmGlobal()
 {
 	local sudo="sudoc"; { IsPlatform mac || npm --global prefix | qgrep "^$HOME"; } && sudo=""; 
@@ -771,7 +772,7 @@ NodeNpmGlobal()
 
 NodeUpdate()
 {
-	# cleanup - update will fail if .bin directory existx, which is create from a failed update
+	# cleanup - update will fail if .bin directory exists, which is create from a failed update
 	sudoc rm -fr "$(npm --global prefix)/lib/node_modules/.bin" || return
 
 	# update npm - npm outdated returns false if there are updates
